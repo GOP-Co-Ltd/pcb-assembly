@@ -7,7 +7,9 @@ authors = [
     { name = "shimomura.yasuhiro", email = "shimomura.yasuhiro@gop.co.jp" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "attrs>=25.4.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.7,<0.10.0"]
