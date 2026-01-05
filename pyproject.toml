@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "attrs>=25.4.0",
+    "opencv-python>=4.12.0.88",
 ]
 
 [build-system]
