@@ -17,3 +17,13 @@
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
 ソフトウェア類は[`install-softwares.sh`](install-softwares.sh)を実行
+
+### 開発
+
+上記のソフトウェアをインストールしたうえで、次を実行
+
+```sh
+make setup
+```
+
+- VSCodeでリモートアクセスし、開発することを推奨する。
