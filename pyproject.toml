@@ -46,6 +46,9 @@ log_level = "INFO"
 
 minversion = "6.0"
 testpaths = "tests/"
+markers = [
+  "hardware: tests that require physical hardware (deselect with '-m \"not hardware\"')",
+]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.pyright]

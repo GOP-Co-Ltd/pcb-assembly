@@ -19,6 +19,9 @@ format: ## Run pre-commit hooks
 	uv run pre-commit run -a
 
 test: ## Run tests
+	uv run pytest -v -m "not hardware"
+
+test-hardware: ## Run tests with hardware
 	uv run pytest -v
 
 type: ## Run type check
