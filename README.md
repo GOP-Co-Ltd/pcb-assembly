@@ -15,3 +15,5 @@
         - Klipper + Moonraker + Mailsail
 - [KiCAD](https://www.kicad.org/download/linux/)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
+
+ソフトウェア類は[`install-softwares.sh`](install-softwares.sh)を実行
