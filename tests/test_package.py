@@ -4,8 +4,7 @@ import tomllib
 from pathlib import Path
 
 import pcb_assembly
-
-PROJECT_ROOT = Path(__file__).parent.parent
+from tests.helpers import PROJECT_ROOT
 
 
 def test_version() -> None:
