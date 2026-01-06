@@ -16,11 +16,9 @@ class TestCalibrationResult:
             square_size_mm=1.5,
             mean_distance_px=150.0,
             std_distance_px=2.5,
-            pattern_size=(7, 5),
             resolution=(640, 480),
             crop_size=(400, 400),
             calibrated_at=datetime(2025, 1, 6, 12, 0, 0),
-            image_path=Path("data/calibration.png"),
         )
 
     def test_mm_per_pixel_returns_inverse(self, sample: CalibrationResult):
@@ -31,11 +29,9 @@ class TestCalibrationResult:
 
         assert data["pixel_per_mm"] == 100.0
         assert data["square_size_mm"] == 1.5
-        assert data["pattern_size"] == (7, 5)
         assert data["resolution"] == (640, 480)
         assert data["crop_size"] == (400, 400)
         assert data["calibrated_at"] == "2025-01-06T12:00:00"
-        assert data["image_path"] == "data/calibration.png"
 
     def test_from_dict_restores_instance(self, sample: CalibrationResult):
         data = sample.to_dict()
