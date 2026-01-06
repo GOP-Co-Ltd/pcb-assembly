@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from pytest_mock import MockerFixture
 
 from pcb_assembly.hal.camera import (
     Camera,
@@ -60,6 +61,25 @@ class TestCamera:
 
         with pytest.raises(RuntimeError, match="カメラ 0 を開けません"):
             Camera(device_id=0)
+
+    def test_init_raises_when_no_formats_available(
+        self, mock_video_capture, mocker: MockerFixture
+    ):
+        mocker.patch(
+            "pcb_assembly.hal.camera.get_camera_info",
+            return_value=CameraInfo(name="Empty Camera", formats={}),
+        )
+
+        with pytest.raises(RuntimeError, match="フォーマットがありません"):
+            Camera()
+
+    def test_init_raises_when_format_length_invalid(self, mock_video_capture):
+        with pytest.raises(ValueError, match="4文字である必要があります"):
+            Camera(format="MJ")
+
+    def test_init_raises_when_resolution_not_supported(self, mock_video_capture):
+        with pytest.raises(RuntimeError, match="サポートしていません"):
+            Camera(width=1920, height=1080)
 
     def test_init_warns_when_property_set_fails(self, mock_video_capture):
         mock_video_capture.set.return_value = False

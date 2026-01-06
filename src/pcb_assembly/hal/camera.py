@@ -122,7 +122,7 @@ class Camera:
         if len(format) != 4:
             raise ValueError(f"フォーマットは4文字である必要があります: {format}")
 
-        if not self.info.has_format(format, Resolution(width, height, fps)):
+        if not self.info.has_format(format, self.resolution):
             raise RuntimeError(
                 f"カメラは {format} {width}x{height}@{fps}fps をサポートしていません。"
                 f"サポートされているフォーマット: {self.info.formats}"
@@ -131,6 +131,10 @@ class Camera:
         self._format = format
 
         self._cam = self._open_camera()
+
+    @property
+    def resolution(self) -> Resolution:
+        return Resolution(self._width, self._height, self._fps)
 
     def _get_default_format(self, info: CameraInfo) -> str:
         return list(info.formats.keys())[0]
