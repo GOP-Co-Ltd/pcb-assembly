@@ -71,16 +71,20 @@ class CheckerboardCalibrator:
         self._pattern_rows_range = pattern_rows_range
         self._pattern_cols_range = pattern_cols_range
 
-    def calibrate(self, image: Image) -> tuple[CalibrationResult, Image]:
+    def calibrate(self, image: Image) -> tuple[CalibrationResult, Image] | None:
         """画像からキャリブレーションを実行.
 
         Returns:
-            (キャリブレーション結果, コーナー描画済み画像)
+            (キャリブレーション結果, コーナー描画済み画像) または検出失敗時はNone
         """
         resolution = (image.shape[1], image.shape[0])
         cropped = self._crop_center(image)
 
-        corners, pattern_size = self._detect_checkerboard(cropped)
+        detection = self._detect_checkerboard(cropped)
+        if detection is None:
+            return None
+
+        corners, pattern_size = detection
         pixel_per_mm, mean_dist, std_dist = self._calculate_pixel_per_mm(
             corners, pattern_size
         )
@@ -109,7 +113,9 @@ class CheckerboardCalibrator:
             Image, image[cy - half_h : cy + half_h, cx - half_w : cx + half_w].copy()
         )
 
-    def _detect_checkerboard(self, image: Image) -> tuple[np.ndarray, tuple[int, int]]:
+    def _detect_checkerboard(
+        self, image: Image
+    ) -> tuple[np.ndarray, tuple[int, int]] | None:
         """チェッカーボードのコーナーを検出."""
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         flags = cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE
@@ -134,7 +140,7 @@ class CheckerboardCalibrator:
                     )
                     return corners, (cols, rows)
 
-        raise RuntimeError("チェッカーボードが検出できませんでした")
+        return None
 
     def _calculate_pixel_per_mm(
         self, corners: np.ndarray, pattern_size: tuple[int, int]
