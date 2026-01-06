@@ -1,8 +1,55 @@
 import numpy as np
 import pytest
 
-from pcb_assembly.hal.camera import Camera
+from pcb_assembly.hal.camera import (
+    Camera,
+    CameraInfo,
+    Resolution,
+    get_camera_info,
+)
 from tests.helpers import mark_hardware
+
+
+class TestResolution:
+    """Resolutionクラスのテスト."""
+
+    def test_size_returns_width_height_tuple(self):
+        resolution = Resolution(width=1280, height=720, fps=30.0)
+
+        assert resolution.size == (1280, 720)
+
+
+class TestCameraInfo:
+    """CameraInfoクラスのテスト."""
+
+    @pytest.mark.parametrize(
+        ("format_name", "query_resolution", "expected"),
+        [
+            # フォーマットと解像度が一致する場合
+            ("MJPG", Resolution(1280, 720, 30.0), True),
+            # フォーマットが存在しない場合
+            ("YUYV", Resolution(1280, 720, 30.0), False),
+            # 解像度が存在しない場合
+            ("MJPG", Resolution(1920, 1080, 30.0), False),
+        ],
+    )
+    def test_has_format(self, format_name, query_resolution, expected):
+        resolution_720p = Resolution(width=1280, height=720, fps=30.0)
+        info = CameraInfo(name="Test Camera", formats={"MJPG": [resolution_720p]})
+
+        assert info.has_format(format_name, query_resolution) is expected
+
+
+class TestGetCameraInfo:
+    """get_camera_info関数のテスト."""
+
+    @mark_hardware
+    def test_returns_camera_info(self):
+        info = get_camera_info(device_id=0)
+
+        assert isinstance(info, CameraInfo)
+        assert info.name != ""
+        assert len(info.formats) > 0
 
 
 class TestCamera:
