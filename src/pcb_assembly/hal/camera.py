@@ -33,11 +33,11 @@ class Camera:
             raise RuntimeError(f"カメラ {self._device_id} を開けません")
 
         if not cam.set(cv2.CAP_PROP_FRAME_WIDTH, self._width):
-            warnings.warn(f"幅 {self._width} を設定できません")
+            warnings.warn(f"幅 {self._width} を設定できません", RuntimeWarning)
         if not cam.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height):
-            warnings.warn(f"高さ {self._height} を設定できません")
+            warnings.warn(f"高さ {self._height} を設定できません", RuntimeWarning)
         if not cam.set(cv2.CAP_PROP_FPS, self._fps):
-            warnings.warn(f"FPS {self._fps} を設定できません")
+            warnings.warn(f"FPS {self._fps} を設定できません", RuntimeWarning)
 
         return cam
 
@@ -48,8 +48,15 @@ class Camera:
             return self._fix_captured_image(img)
         raise RuntimeError("フレームの取得に失敗しました")
 
-    @staticmethod
-    def _fix_captured_image(image: cv2.typing.MatLike) -> Image:
+    def _fix_captured_image(self, image: cv2.typing.MatLike) -> Image:
+        if image.shape[:2] != (self._height, self._width):
+            warnings.warn(
+                f"取得した画像のサイズ ({image.shape[1]}x{image.shape[0]})が"
+                f"想定 ({self._width}x{self._height})と異なります。"
+                "リサイズします。",
+                RuntimeWarning,
+            )
+            image = cv2.resize(image, (self._width, self._height))
         match len(image.shape):
             case 3:
                 pass
