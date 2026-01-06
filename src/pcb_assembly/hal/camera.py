@@ -44,6 +44,15 @@ class CameraInfo:
             return False
         return resolution in self.formats[format]
 
+    def format_text(self) -> str:
+        """サポートされているフォーマットを見やすいテキストで返す."""
+        lines = []
+        for fmt, resolutions in self.formats.items():
+            lines.append(f"  {fmt}:")
+            for res in resolutions:
+                lines.append(f"    - {res.width}x{res.height}@{res.fps}fps")
+        return "\n".join(lines)
+
 
 def get_camera_info(device_id: int = 0) -> CameraInfo:
     """v4l2-ctlを使用してカメラのメタデータを取得する."""
@@ -124,8 +133,8 @@ class Camera:
 
         if not self.info.has_format(format, self.resolution):
             raise RuntimeError(
-                f"カメラは {format} {width}x{height}@{fps}fps をサポートしていません。"
-                f"サポートされているフォーマット: {self.info.formats}"
+                f"カメラは {format} {width}x{height}@{fps}fps をサポートしていません。\n"
+                f"サポートされているフォーマット:\n{self.info.format_text()}"
             )
 
         self._format = format
