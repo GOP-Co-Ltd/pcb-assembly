@@ -9,8 +9,7 @@ import cv2
 import cv2.typing
 import numpy as np
 
-type HWC = tuple[int, int, int]  # Height, Width, Channels
-type Image = np.ndarray[HWC, np.dtype[np.uint8]]
+from pcb_assembly.types import Image
 
 
 def _device_id_to_path(device_id: int) -> str:
