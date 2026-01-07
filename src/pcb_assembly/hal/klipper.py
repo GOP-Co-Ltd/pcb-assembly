@@ -1,6 +1,15 @@
 from typing import Any
 
+import attrs
 import httpx
+
+
+@attrs.frozen
+class Macro:
+    """Klipperマクロ情報を保持するクラス."""
+
+    gcode: str
+    description: str | None = None
 
 
 class Klipper:
@@ -65,7 +74,7 @@ class Klipper:
         result = response.json()["result"]
         return result["status"][object][attribute]
 
-    def get_config(self) -> dict[str, Any]:
+    def get_config(self) -> dict[str, dict[str, Any]]:
         """プリンター設定を取得する.
 
         Returns:
@@ -78,3 +87,19 @@ class Klipper:
         response.raise_for_status()
         result = response.json()["result"]
         return result["status"]["configfile"]["config"]
+
+    def get_macros(self) -> dict[str, Macro]:
+        """使用可能なマクロをすべて取得する.
+
+        Returns:
+            マクロ名をキー、Macroオブジェクトを値とする辞書
+        """
+        config = self.get_config()
+        macros: dict[str, Macro] = {}
+        for key, value in config.items():
+            if key.startswith("gcode_macro "):
+                macro_name = key.removeprefix("gcode_macro ")
+                gcode = value.get("gcode", "")
+                description = value.get("description")
+                macros[macro_name] = Macro(gcode=gcode, description=description)
+        return macros

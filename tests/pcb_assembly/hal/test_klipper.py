@@ -1,4 +1,4 @@
-from pcb_assembly.hal.klipper import Klipper
+from pcb_assembly.hal.klipper import Klipper, Macro
 from tests.helpers import mark_hardware
 
 
@@ -44,3 +44,37 @@ class TestKlipper:
         config = klipper.get_config()
 
         assert isinstance(config, dict)
+
+    @mark_hardware
+    def test_get_macros(self):
+        klipper = Klipper()
+
+        macros = klipper.get_macros()
+
+        assert isinstance(macros, dict)
+        for name, macro in macros.items():
+            assert isinstance(name, str)
+            assert isinstance(macro, Macro)
+
+    def test_get_macros_parses_config(self, mocker):
+        klipper = Klipper()
+        mocker.patch.object(
+            klipper,
+            "get_config",
+            return_value={
+                "gcode_macro TEST_MACRO": {
+                    "gcode": "G28",
+                    "description": "テストマクロ",
+                },
+                "gcode_macro NO_DESC": {
+                    "gcode": "M400",
+                },
+                "stepper_x": {"step_pin": "PC0"},
+            },
+        )
+
+        macros = klipper.get_macros()
+
+        assert len(macros) == 2
+        assert macros["TEST_MACRO"] == Macro(gcode="G28", description="テストマクロ")
+        assert macros["NO_DESC"] == Macro(gcode="M400", description=None)
