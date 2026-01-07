@@ -56,14 +56,14 @@ class TestGetCameraInfo:
 class TestCamera:
     """Cameraクラスのテスト."""
 
-    def test_init_raises_when_camera_not_opened(self, mock_video_capture):
-        mock_video_capture.isOpened.return_value = False
+    def test_init_raises_when_camera_not_opened(self, mock_camera_backend):
+        mock_camera_backend.isOpened.return_value = False
 
         with pytest.raises(RuntimeError, match="カメラ 0 を開けません"):
             Camera(device_id=0)
 
     def test_init_raises_when_no_formats_available(
-        self, mock_video_capture, mocker: MockerFixture
+        self, mock_camera_backend, mocker: MockerFixture
     ):
         mocker.patch(
             "pcb_assembly.hal.camera.get_camera_info",
@@ -73,23 +73,23 @@ class TestCamera:
         with pytest.raises(RuntimeError, match="フォーマットがありません"):
             Camera()
 
-    def test_init_raises_when_format_length_invalid(self, mock_video_capture):
+    def test_init_raises_when_format_length_invalid(self, mock_camera_backend):
         with pytest.raises(ValueError, match="4文字である必要があります"):
             Camera(format="MJ")
 
-    def test_init_raises_when_resolution_not_supported(self, mock_video_capture):
+    def test_init_raises_when_resolution_not_supported(self, mock_camera_backend):
         with pytest.raises(RuntimeError, match="サポートしていません"):
             Camera(width=1920, height=1080)
 
-    def test_init_warns_when_property_set_fails(self, mock_video_capture):
-        mock_video_capture.set.return_value = False
+    def test_init_warns_when_property_set_fails(self, mock_camera_backend):
+        mock_camera_backend.set.return_value = False
 
         with pytest.warns(RuntimeWarning):
             Camera()
 
-    def test_capture_returns_image(self, mock_video_capture):
+    def test_capture_returns_image(self, mock_camera_backend):
         dummy_image = np.zeros((480, 640, 3), dtype=np.uint8)
-        mock_video_capture.read.return_value = (True, dummy_image)
+        mock_camera_backend.read.return_value = (True, dummy_image)
 
         camera = Camera()
         image = camera.capture()
@@ -97,17 +97,17 @@ class TestCamera:
         assert image.shape == (480, 640, 3)
         assert image.dtype == np.uint8
 
-    def test_capture_raises_on_failure(self, mock_video_capture):
-        mock_video_capture.read.return_value = (False, None)
+    def test_capture_raises_on_failure(self, mock_camera_backend):
+        mock_camera_backend.read.return_value = (False, None)
 
         camera = Camera()
 
         with pytest.raises(RuntimeError, match="フレームの取得に失敗しました"):
             camera.capture()
 
-    def test_capture_resizes_image_when_size_differs(self, mock_video_capture):
+    def test_capture_resizes_image_when_size_differs(self, mock_camera_backend):
         wrong_size_image = np.zeros((720, 1280, 3), dtype=np.uint8)
-        mock_video_capture.read.return_value = (True, wrong_size_image)
+        mock_camera_backend.read.return_value = (True, wrong_size_image)
 
         camera = Camera(width=640, height=480)
 
@@ -116,9 +116,9 @@ class TestCamera:
 
         assert image.shape == (480, 640, 3)
 
-    def test_capture_converts_grayscale_to_bgr(self, mock_video_capture):
+    def test_capture_converts_grayscale_to_bgr(self, mock_camera_backend):
         grayscale_image = np.zeros((480, 640), dtype=np.uint8)
-        mock_video_capture.read.return_value = (True, grayscale_image)
+        mock_camera_backend.read.return_value = (True, grayscale_image)
 
         camera = Camera()
         image = camera.capture()

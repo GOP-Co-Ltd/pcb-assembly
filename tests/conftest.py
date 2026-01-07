@@ -6,8 +6,8 @@ from pcb_assembly.hal.camera import CameraInfo, Resolution
 
 
 @pytest.fixture
-def mock_video_capture(mocker: MockerFixture):
-    """cv2.VideoCaptureをモックするフィクスチャ."""
+def mock_camera_backend(mocker: MockerFixture):
+    """Cameraクラスの内部実装をモックするフィクスチャ."""
     mock_cam = mocker.MagicMock()
     mock_cam.isOpened.return_value = True
     mock_cam.set.return_value = True
