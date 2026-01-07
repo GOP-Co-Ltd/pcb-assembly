@@ -64,3 +64,17 @@ class Klipper:
         response.raise_for_status()
         result = response.json()["result"]
         return result["status"][object][attribute]
+
+    def get_config(self) -> dict[str, Any]:
+        """プリンター設定を取得する.
+
+        Returns:
+            プリンターの設定辞書
+        """
+        response = self._client.get(
+            f"{self._base_url}/printer/objects/query",
+            params={"configfile": "config"},
+        )
+        response.raise_for_status()
+        result = response.json()["result"]
+        return result["status"]["configfile"]["config"]

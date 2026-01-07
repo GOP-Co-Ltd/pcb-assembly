@@ -36,3 +36,11 @@ class TestKlipper:
 
         assert isinstance(position, list)
         assert len(position) >= 3  # X, Y, Zはあるはず
+
+    @mark_hardware
+    def test_get_config(self):
+        klipper = Klipper()
+
+        config = klipper.get_config()
+
+        assert isinstance(config, dict)
