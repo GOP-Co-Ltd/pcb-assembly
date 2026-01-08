@@ -17,7 +17,7 @@ def main() -> None:
     klipper = Klipper(host=args.host, port=args.port)
 
     print("Klipperデモ")
-    print("コマンド: home, relax, move, pos, status, gcode, quit")
+    print("コマンド: home, relax, move, pos, status, gcode, macros, config, quit")
     print()
 
     while True:
@@ -60,6 +60,20 @@ def main() -> None:
                 klipper.send_gcode(gcode)
                 klipper.wait_for_move()
                 print("完了")
+            case "macros":
+                macros = klipper.get_macros()
+                for name, macro in sorted(macros.items()):
+                    desc = f" - {macro.description}" if macro.description else ""
+                    print(f"  {name}{desc}")
+                    if macro.variables:
+                        for var_name, var_value in macro.variables.items():
+                            print(f"    {var_name}: {var_value}")
+            case "config":
+                config = klipper.get_config()
+                for section, values in sorted(config.items()):
+                    print(f"  [{section}]")
+                    for key, value in values.items():
+                        print(f"    {key}: {value}")
             case _:
                 print("不明なコマンドです")
 
