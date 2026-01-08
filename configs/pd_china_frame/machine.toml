@@ -19,3 +19,16 @@ format = "YUYV"
 [camera.crop]
 width = 400
 height = 400
+
+[toolhead]
+# カメラに対するツールヘッドの相対位置 (mm)
+x = 13.2
+y = 54.7
+
+[reference_point]
+# 基準点（top left）のおおよその絶対位置 (mm)
+x = 18.5
+y = 8.5
+# 基準点からみた基盤の相対位置 (mm)
+offset_x = 5
+offset_y = 5
