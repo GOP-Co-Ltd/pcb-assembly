@@ -30,8 +30,7 @@ def main() -> None:
                 break
             case "home":
                 print("ホーミング中...")
-                klipper.send_gcode("G28")
-                klipper.wait_for_move()
+                klipper.home()
                 print("完了")
             case "move":
                 try:

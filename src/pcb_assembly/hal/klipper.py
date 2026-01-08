@@ -56,6 +56,11 @@ class Klipper:
         """全ての動作が完了するまで待機する."""
         self.send_gcode("M400")
 
+    def home(self) -> None:
+        """全軸ホーミング."""
+        self.send_gcode("G28")
+        self.wait_for_move()
+
     def get_status(self, object: str, attribute: str) -> Any:
         """指定したオブジェクトの属性値を取得する.
 

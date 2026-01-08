@@ -21,6 +21,12 @@ class TestKlipper:
         klipper.wait_for_move()
 
     @mark_hardware
+    def test_home(self):
+        klipper = Klipper()
+
+        klipper.home()
+
+    @mark_hardware
     def test_get_status(self):
         klipper = Klipper()
 
