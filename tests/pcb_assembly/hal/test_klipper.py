@@ -77,3 +77,10 @@ class TestKlipper:
         assert len(macros) == 2
         assert macros["TEST_MACRO"] == Macro(gcode="G28", description="テストマクロ")
         assert macros["NO_DESC"] == Macro(gcode="M400", description=None)
+
+    @mark_hardware
+    def test_is_homed(self, klipper):
+        # fixtureでホーミング済みなのでTrueが返る
+        assert klipper.is_homed("xyz") is True
+        assert klipper.is_homed("x") is True
+        assert klipper.is_homed("xy") is True

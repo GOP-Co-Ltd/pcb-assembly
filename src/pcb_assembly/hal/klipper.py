@@ -98,6 +98,18 @@ class Klipper:
         result = response.json()["result"]
         return result["status"]["configfile"]["config"]
 
+    def is_homed(self, axis: str = "xyz") -> bool:
+        """指定した軸がホーミング済みかを確認する.
+
+        Args:
+            axis: 確認する軸（例: "x", "xy", "xyz"）
+
+        Returns:
+            指定した全ての軸がホーミング済みならTrue
+        """
+        homed_axes: str = self.get_status("toolhead", "homed_axes")
+        return all(a in homed_axes for a in axis.lower())
+
     def get_macros(self) -> dict[str, Macro]:
         """使用可能なマクロをすべて取得する.
 
