@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 from cattrs.preconf.json import make_converter
 
-from pcb_assembly.types import Image
+from pcb_assembly.hal.camera import Image
 
 # Path の変換をサポートするコンバーター
 _converter = make_converter()

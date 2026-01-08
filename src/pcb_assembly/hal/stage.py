@@ -1,7 +1,15 @@
 import attrs
 
 from pcb_assembly.hal.klipper import Klipper
-from pcb_assembly.types import Position
+
+
+@attrs.define(slots=True, frozen=True)
+class Position:
+    """位置情報を保持するクラス."""
+
+    x: float
+    y: float
+    z: float
 
 
 @attrs.define(slots=True, frozen=True)

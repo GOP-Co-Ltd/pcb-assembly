@@ -3,8 +3,7 @@ from collections.abc import Generator
 import pytest
 
 from pcb_assembly.hal.klipper import Klipper
-from pcb_assembly.hal.stage import AxisLimits, Limits, XYZStage
-from pcb_assembly.types import Position
+from pcb_assembly.hal.stage import AxisLimits, Limits, Position, XYZStage
 from tests.helpers import mark_hardware
 
 
