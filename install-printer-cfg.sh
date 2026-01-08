@@ -1,47 +1,49 @@
 #!/bin/bash
 # printer.cfg インストールスクリプト
-# configs/printer_cfgs/ から設定ファイルを選択し、~/printer_data/config/printer.cfg にシンボリックリンクを作成する
+# configs/<machine_name>/printer.cfg から設定ファイルを選択し、~/printer_data/config/printer.cfg にシンボリックリンクを作成する
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CFG_DIR="${SCRIPT_DIR}/configs/printer_cfgs"
+CFG_DIR="${SCRIPT_DIR}/configs"
 TARGET_DIR="${HOME}/printer_data/config"
 TARGET_FILE="${TARGET_DIR}/printer.cfg"
 
-# cfgファイルを列挙
-cfg_files=()
-while IFS= read -r -d '' file; do
-    cfg_files+=("$(basename "$file")")
-done < <(find "$CFG_DIR" -maxdepth 1 -name "*.cfg" -print0 | sort -z)
+# マシンディレクトリを列挙（printer.cfgを持つもののみ）
+machine_dirs=()
+while IFS= read -r -d '' dir; do
+    if [ -f "${dir}/printer.cfg" ]; then
+        machine_dirs+=("$(basename "$dir")")
+    fi
+done < <(find "$CFG_DIR" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
 
-if [ ${#cfg_files[@]} -eq 0 ]; then
-    echo "エラー: ${CFG_DIR} にcfgファイルが見つかりません"
+if [ ${#machine_dirs[@]} -eq 0 ]; then
+    echo "エラー: ${CFG_DIR} にprinter.cfgを持つマシンディレクトリが見つかりません"
     exit 1
 fi
 
 # ダイアログ表示
-echo "利用可能な設定ファイル:"
+echo "利用可能なマシン設定:"
 echo "========================"
-for i in "${!cfg_files[@]}"; do
-    echo "  $((i + 1)). ${cfg_files[$i]}"
+for i in "${!machine_dirs[@]}"; do
+    echo "  $((i + 1)). ${machine_dirs[$i]}"
 done
 echo ""
 
 # ユーザー入力
 while true; do
-    read -p "インストールするファイルの番号を選択してください (1-${#cfg_files[@]}): " choice
-    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#cfg_files[@]} ]; then
+    read -p "インストールするマシンの番号を選択してください (1-${#machine_dirs[@]}): " choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#machine_dirs[@]} ]; then
         break
     fi
-    echo "無効な選択です。1から${#cfg_files[@]}の間で入力してください。"
+    echo "無効な選択です。1から${#machine_dirs[@]}の間で入力してください。"
 done
 
-selected_file="${cfg_files[$((choice - 1))]}"
-source_path="${CFG_DIR}/${selected_file}"
+selected_machine="${machine_dirs[$((choice - 1))]}"
+source_path="${CFG_DIR}/${selected_machine}/printer.cfg"
 
 echo ""
-echo "選択: ${selected_file}"
+echo "選択: ${selected_machine}"
 
 # ターゲットディレクトリの確認
 if [ ! -d "$TARGET_DIR" ]; then
