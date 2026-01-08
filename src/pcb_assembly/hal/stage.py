@@ -50,6 +50,19 @@ class XYZStage:
         self._klipper = klipper
         self._default_speed = default_speed
 
+    def _check_macro_exists(self) -> None:
+        """必要なマクロが定義されているか確認する.
+
+        Raises:
+            RuntimeError: 必要なマクロが定義されていない場合
+        """
+        macros = self._klipper.get_macros()
+        for name in ["PRESENT"]:
+            if name not in macros:
+                raise RuntimeError(
+                    f"printer.cfgに[gcode_macro {name}]を追加してください"
+                )
+
     def home(self) -> None:
         """全軸の原点復帰を行う."""
         self._klipper.send_gcode("G28 X Y Z")
@@ -139,3 +152,8 @@ class XYZStage:
             y=get_axis_limits("y"),
             z=get_axis_limits("z"),
         )
+
+    def present(self) -> None:
+        """ステージをプレゼント位置（メンテナンス位置）に移動する."""
+        self._klipper.send_gcode("PRESENT")
+        self._klipper.wait_for_move()

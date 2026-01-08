@@ -117,3 +117,7 @@ class TestXYZStage:
 
         with pytest.raises(KeyError, match=r"position_minとposition_max"):
             stage.get_limits()
+
+    @mark_hardware
+    def test_present(self, stage: XYZStage):
+        stage.present()

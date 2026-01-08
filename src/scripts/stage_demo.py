@@ -22,7 +22,7 @@ def main() -> None:
     stage = XYZStage(klipper, default_speed=args.speed)
 
     print("XYZステージデモ")
-    print("コマンド: home, move, moverel, pos, limits, quit")
+    print("コマンド: home, move, moverel, pos, limits, present, quit")
     print()
 
     while True:
@@ -79,6 +79,10 @@ def main() -> None:
                 print(f"  X: {limits.x.min:.2f} ~ {limits.x.max:.2f}")
                 print(f"  Y: {limits.y.min:.2f} ~ {limits.y.max:.2f}")
                 print(f"  Z: {limits.z.min:.2f} ~ {limits.z.max:.2f}")
+            case "present":
+                print("プレゼント位置へ移動中...")
+                stage.present()
+                print("完了")
             case _:
                 print("不明なコマンドです")
 
