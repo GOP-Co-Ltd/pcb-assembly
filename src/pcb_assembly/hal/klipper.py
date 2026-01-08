@@ -61,6 +61,10 @@ class Klipper:
         self.send_gcode("G28")
         self.wait_for_move()
 
+    def relax(self) -> None:
+        """全軸のモーターをリラックス（脱力）させる."""
+        self.send_gcode("M18")
+
     def get_status(self, object: str, attribute: str) -> Any:
         """指定したオブジェクトの属性値を取得する.
 

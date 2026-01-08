@@ -27,6 +27,13 @@ class TestKlipper:
         klipper.home()
 
     @mark_hardware
+    def test_relax(self):
+        klipper = Klipper()
+
+        # M18は例外を発生させずに完了すべき
+        klipper.relax()
+
+    @mark_hardware
     def test_get_status(self):
         klipper = Klipper()
 

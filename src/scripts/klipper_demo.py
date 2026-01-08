@@ -17,7 +17,7 @@ def main() -> None:
     klipper = Klipper(host=args.host, port=args.port)
 
     print("Klipperデモ")
-    print("コマンド: home, move, pos, status, gcode, quit")
+    print("コマンド: home, relax, move, pos, status, gcode, quit")
     print()
 
     while True:
@@ -31,6 +31,10 @@ def main() -> None:
             case "home":
                 print("ホーミング中...")
                 klipper.home()
+                print("完了")
+            case "relax":
+                print("モーターをリラックス中...")
+                klipper.relax()
                 print("完了")
             case "move":
                 try:
