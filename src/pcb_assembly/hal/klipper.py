@@ -10,6 +10,7 @@ class Macro:
 
     gcode: str
     description: str | None = None
+    variables: dict[str, Any] = attrs.Factory(dict)
 
 
 class Klipper:
@@ -110,5 +111,12 @@ class Klipper:
                 macro_name = key.removeprefix("gcode_macro ")
                 gcode = value.get("gcode", "")
                 description = value.get("description")
-                macros[macro_name] = Macro(gcode=gcode, description=description)
+                variables = {
+                    k.removeprefix("variable_"): v
+                    for k, v in value.items()
+                    if k.startswith("variable_")
+                }
+                macros[macro_name] = Macro(
+                    gcode=gcode, description=description, variables=variables
+                )
         return macros
