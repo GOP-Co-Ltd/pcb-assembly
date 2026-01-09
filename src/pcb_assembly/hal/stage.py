@@ -56,9 +56,8 @@ class XYZStage:
         Raises:
             RuntimeError: 必要なマクロが定義されていない場合
         """
-        macros = self._klipper.get_macros()
         for name in ["PRESENT"]:
-            if name not in macros:
+            if not self._klipper.has_macro(name):
                 raise RuntimeError(
                     f"printer.cfgに[gcode_macro {name}]を追加してください"
                 )
