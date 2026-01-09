@@ -13,20 +13,18 @@ class TestKlipper:
     def klipper(self) -> Generator[Klipper]:
         """ホーミング済みKlipperインスタンスを提供し、終了時にリラックスする."""
         klipper = Klipper()
-        klipper.home()
+        with klipper.buffered():
+            klipper.queue("G28")
+            klipper.queue("M400")
         yield klipper
-        klipper.relax()
+        with klipper.buffered():
+            klipper.queue("M18")
 
     @mark_hardware
-    def test_send_gcode(self, klipper: Klipper):
-        result = klipper.send_gcode("M115")
-
-        assert "result" in result
-
-    @mark_hardware
-    def test_wait_for_move(self, klipper: Klipper):
-        # M400は例外を発生させずに完了すべき
-        klipper.wait_for_move()
+    def test_buffered_and_queue(self, klipper: Klipper):
+        with klipper.buffered():
+            klipper.queue("M115")
+            klipper.queue("M400")
 
     @mark_hardware
     def test_get_status(self, klipper: Klipper):
