@@ -1,7 +1,5 @@
 import functools
-from collections.abc import Generator
-from contextlib import contextmanager
-from typing import Any, Self
+from typing import Any
 
 import attrs
 import httpx
@@ -16,25 +14,13 @@ class Macro:
     variables: dict[str, Any] = attrs.Factory(dict)
 
 
-class GCodeBuffer:
-    def __init__(self) -> None:
-        self._commands: list[str] = []
-
-    def add(self, gcode: str) -> None:
-        self._commands.append(gcode)
-
-    def build(self) -> str:
-        return "\n".join(self._commands)
-
-
 class Klipper:
     """Moonraker REST APIのシンプルなラッパー.
 
     Example:
         klipper = Klipper("192.168.1.100")
-        with klipper.buffered():
-            klipper.queue("G28")
-            klipper.queue("M400")
+        klipper.send_gcode("G28 X Y Z")
+        klipper.wait_for_move()
         position = klipper.get_status("gcode_move", "gcode_position")
     """
 
@@ -48,7 +34,7 @@ class Klipper:
         self._base_url = f"http://{host}:{port}"
         self._client = httpx.Client(timeout=None)
 
-    def _send_gcode(self, gcode: str) -> dict[str, Any]:
+    def send_gcode(self, gcode: str) -> dict[str, Any]:
         """G-codeを送信する.
 
         Args:
@@ -68,41 +54,18 @@ class Klipper:
             raise RuntimeError(response.reason_phrase)
         return response.json()
 
-    _gcode_buffer: GCodeBuffer | None = None
+    def wait_for_move(self) -> None:
+        """全ての動作が完了するまで待機する."""
+        self.send_gcode("M400")
 
-    @contextmanager
-    def buffered(self) -> Generator[Self]:
-        """G-codeコマンドをバッファリングし、コンテキスト終了時にまとめて送信する.
+    def home(self) -> None:
+        """全軸ホーミング."""
+        self.send_gcode("G28")
+        self.wait_for_move()
 
-        Example:
-            with klipper.buffered():
-                klipper.queue("G28")
-                klipper.queue("M400")
-
-        Raises:
-            RuntimeError: すでにコンテキストに入っていた場合
-        """
-        if self._gcode_buffer is not None:
-            raise RuntimeError("すでにbuffered()コンテキストに入っています。")
-        self._gcode_buffer = GCodeBuffer()
-        yield self
-        gcode = self._gcode_buffer.build()
-        if gcode:
-            self._send_gcode(gcode)
-        self._gcode_buffer = None
-
-    def queue(self, gcode: str) -> None:
-        """G-codeコマンドをバッファに追加する.
-
-        Args:
-            gcode: 追加するG-codeコマンド
-
-        Raises:
-            RuntimeError: buffered()コンテキスト外で呼び出された場合
-        """
-        if self._gcode_buffer is None:
-            raise RuntimeError("queue()はbuffered()コンテキスト内で呼び出してください")
-        self._gcode_buffer.add(gcode)
+    def relax(self) -> None:
+        """全軸のモーターをリラックス（脱力）させる."""
+        self.send_gcode("M18")
 
     def get_status(self, object: str, attribute: str) -> Any:
         """指定したオブジェクトの属性値を取得する.
@@ -167,7 +130,8 @@ class Klipper:
         Args:
             name: マクロ名
 
-        Returns:
+        Returns
+        :
             マクロが存在すればTrue、なければFalse
         """
         return name in self.get_macros()
