@@ -1,3 +1,4 @@
+import functools
 from typing import Any
 
 import attrs
@@ -84,6 +85,7 @@ class Klipper:
         result = response.json()["result"]
         return result["status"][object][attribute]
 
+    @functools.cache
     def get_config(self) -> dict[str, dict[str, Any]]:
         """プリンター設定を取得する.
 
@@ -98,6 +100,7 @@ class Klipper:
         result = response.json()["result"]
         return result["status"]["configfile"]["config"]
 
+    @functools.cache
     def get_macros(self) -> dict[str, Macro]:
         """使用可能なマクロをすべて取得する.
 
@@ -127,7 +130,8 @@ class Klipper:
         Args:
             name: マクロ名
 
-        Returns:
+        Returns
+        :
             マクロが存在すればTrue、なければFalse
         """
         return name in self.get_macros()
