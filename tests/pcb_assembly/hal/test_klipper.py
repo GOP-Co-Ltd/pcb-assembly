@@ -78,3 +78,20 @@ class TestKlipper:
         assert len(macros) == 2
         assert macros["TEST_MACRO"] == Macro(gcode="G28", description="テストマクロ")
         assert macros["NO_DESC"] == Macro(gcode="M400", description=None)
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("TEST_MACRO", True),
+            ("NONEXISTENT", False),
+        ],
+    )
+    def test_has_macro(self, mocker, name: str, expected: bool):
+        klipper = Klipper()
+        mocker.patch.object(
+            klipper,
+            "get_macros",
+            return_value={"TEST_MACRO": Macro(gcode="G28")},
+        )
+
+        assert klipper.has_macro(name) == expected

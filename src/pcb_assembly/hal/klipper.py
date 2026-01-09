@@ -120,3 +120,14 @@ class Klipper:
                     gcode=gcode, description=description, variables=variables
                 )
         return macros
+
+    def has_macro(self, name: str) -> bool:
+        """指定した名前のマクロが存在するか確認する.
+
+        Args:
+            name: マクロ名
+
+        Returns:
+            マクロが存在すればTrue、なければFalse
+        """
+        return name in self.get_macros()
