@@ -1,6 +1,6 @@
 import attrs
 
-from pcb_assembly.hal.klipper import Klipper
+from pcb_assembly.hal.klipper import ReadonlyKlipper
 
 
 @attrs.define(slots=True, frozen=True)
@@ -40,15 +40,13 @@ class XYZStage:
         position = stage.get_position()
     """
 
-    def __init__(self, klipper: Klipper, default_speed: float) -> None:
+    def __init__(self, klipper: ReadonlyKlipper) -> None:
         """XYZStageを初期化する.
 
         Args:
             klipper: Klipperクライアント
-            default_speed: デフォルトの移動速度 (mm/s)
         """
         self._klipper = klipper
-        self._default_speed = default_speed
 
     def _check_macro_exists(self) -> None:
         """必要なマクロが定義されているか確認する.
@@ -61,54 +59,6 @@ class XYZStage:
                 raise RuntimeError(
                     f"printer.cfgに[gcode_macro {name}]を追加してください"
                 )
-
-    def home(self) -> None:
-        """全軸の原点復帰を行う."""
-        self._klipper.send_gcode("G28 X Y Z")
-        self._klipper.wait_for_move()
-
-    def move(
-        self,
-        x: float | None = None,
-        y: float | None = None,
-        z: float | None = None,
-        speed: float | None = None,
-        relative: bool = False,
-    ) -> None:
-        """移動する.
-
-        Args:
-            x: X座標（Noneの場合は移動しない）
-            y: Y座標（Noneの場合は移動しない）
-            z: Z座標（Noneの場合は移動しない）
-            speed: 移動速度 mm/s（Noneの場合はデフォルト速度）
-            relative: 相対モードで動かす
-        """
-        if x is None and y is None and z is None:
-            return
-
-        speed_mm_s = speed if speed is not None else self._default_speed
-        feedrate = speed_mm_s * 60  # mm/s -> mm/min
-
-        codes = []
-        if relative:
-            codes.append("G91")
-        else:
-            codes.append("G90")
-        parts = []
-        parts.append("G1")
-        if x is not None:
-            parts.append(f"X{x}")
-        if y is not None:
-            parts.append(f"Y{y}")
-        if z is not None:
-            parts.append(f"Z{z}")
-        parts.append(f"F{feedrate}")
-        codes.append(" ".join(parts))
-        codes.append("G90")  # 絶対座標に戻す
-
-        self._klipper.send_gcode("\n".join(codes))
-        self._klipper.wait_for_move()
 
     def get_position(self) -> Position:
         """現在位置を取得する.
@@ -151,8 +101,3 @@ class XYZStage:
             y=get_axis_limits("y"),
             z=get_axis_limits("z"),
         )
-
-    def present(self) -> None:
-        """ステージをプレゼント位置（メンテナンス位置）に移動する."""
-        self._klipper.send_gcode("PRESENT")
-        self._klipper.wait_for_move()

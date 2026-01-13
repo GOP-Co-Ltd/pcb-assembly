@@ -87,6 +87,11 @@ class Klipper:
         self._client = httpx.Client(timeout=None)
         self._readonly = ReadonlyKlipper(self)
 
+    def __del__(self) -> None:
+        """破棄される際にhttpxクライアントを破棄."""
+        if hasattr(self, "_client"):
+            self._client.close()
+
     @property
     def readonly(self) -> ReadonlyKlipper:
         return self._readonly
