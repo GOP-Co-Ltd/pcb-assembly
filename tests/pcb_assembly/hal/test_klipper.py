@@ -1,8 +1,7 @@
-from collections.abc import Generator
-
 import pytest
+from pytest_mock import MockerFixture
 
-from pcb_assembly.hal.klipper import Klipper, Macro
+from pcb_assembly.hal.klipper import Klipper, Macro, ReadonlyKlipper
 from tests.helpers import mark_hardware
 
 
@@ -10,23 +9,17 @@ class TestKlipper:
     """Klipperクラスのテスト."""
 
     @pytest.fixture
-    def klipper(self) -> Generator[Klipper]:
-        """ホーミング済みKlipperインスタンスを提供し、終了時にリラックスする."""
-        klipper = Klipper()
-        klipper.home()
-        yield klipper
-        klipper.relax()
+    def klipper(self) -> Klipper:
+        return Klipper()
+
+    def test_readonly_property(self, klipper: Klipper):
+        assert isinstance(klipper.readonly, ReadonlyKlipper)
 
     @mark_hardware
     def test_send_gcode(self, klipper: Klipper):
         result = klipper.send_gcode("M115")
 
         assert "result" in result
-
-    @mark_hardware
-    def test_wait_for_move(self, klipper: Klipper):
-        # M400は例外を発生させずに完了すべき
-        klipper.wait_for_move()
 
     @mark_hardware
     def test_get_status(self, klipper: Klipper):
@@ -95,3 +88,24 @@ class TestKlipper:
         )
 
         assert klipper.has_macro(name) == expected
+
+
+class TestReadonlyKlipper:
+    """ReadonlyKlipperのテスト."""
+
+    @pytest.fixture
+    def klipper(self, mocker: MockerFixture):
+        mocker.patch("httpx.Client")
+        return Klipper()
+
+    @pytest.fixture
+    def readonly(self, klipper):
+        return ReadonlyKlipper(klipper)
+
+    def test_exposed_method_equals_to_klipper(
+        self, klipper: Klipper, readonly: ReadonlyKlipper
+    ):
+        assert readonly.get_config == klipper.get_config
+        assert readonly.get_macros == klipper.get_macros
+        assert readonly.get_status == klipper.get_status
+        assert readonly.has_macro == klipper.has_macro

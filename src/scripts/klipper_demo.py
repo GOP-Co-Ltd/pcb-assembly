@@ -30,11 +30,11 @@ def main() -> None:
                 break
             case "home":
                 print("ホーミング中...")
-                klipper.home()
+                klipper.send_gcode("G28\nM400")
                 print("完了")
             case "relax":
                 print("モーターをリラックス中...")
-                klipper.relax()
+                klipper.send_gcode("M18")
                 print("完了")
             case "move":
                 try:
@@ -42,8 +42,7 @@ def main() -> None:
                     y = float(input("  Y: ").strip())
                     z = float(input("  Z: ").strip())
                     print("移動中...")
-                    klipper.send_gcode(f"G0 X{x} Y{y} Z{z}")
-                    klipper.wait_for_move()
+                    klipper.send_gcode(f"G0 X{x} Y{y} Z{z}\nM400")
                     print("完了")
                 except ValueError:
                     print("無効な値です")
@@ -57,8 +56,7 @@ def main() -> None:
                 print(f"  {value}")
             case "gcode":
                 gcode = input("  G-code: ").strip()
-                klipper.send_gcode(gcode)
-                klipper.wait_for_move()
+                klipper.send_gcode(gcode + "\nM400")
                 print("完了")
             case "macros":
                 macros = klipper.get_macros()

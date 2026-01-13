@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import functools
 from typing import Any
 
@@ -33,6 +35,11 @@ class Klipper:
         """
         self._base_url = f"http://{host}:{port}"
         self._client = httpx.Client(timeout=None)
+        self._readonly = ReadonlyKlipper(self)
+
+    @property
+    def readonly(self) -> ReadonlyKlipper:
+        return self._readonly
 
     def send_gcode(self, gcode: str) -> dict[str, Any]:
         """G-codeを送信する.
@@ -53,19 +60,6 @@ class Klipper:
         if response.status_code >= 400:
             raise RuntimeError(response.reason_phrase)
         return response.json()
-
-    def wait_for_move(self) -> None:
-        """全ての動作が完了するまで待機する."""
-        self.send_gcode("M400")
-
-    def home(self) -> None:
-        """全軸ホーミング."""
-        self.send_gcode("G28")
-        self.wait_for_move()
-
-    def relax(self) -> None:
-        """全軸のモーターをリラックス（脱力）させる."""
-        self.send_gcode("M18")
 
     def get_status(self, object: str, attribute: str) -> Any:
         """指定したオブジェクトの属性値を取得する.
@@ -135,3 +129,11 @@ class Klipper:
             マクロが存在すればTrue、なければFalse
         """
         return name in self.get_macros()
+
+
+class ReadonlyKlipper:
+    def __init__(self, klipper: Klipper) -> None:
+        self.get_status = klipper.get_status
+        self.get_config = klipper.get_config
+        self.get_macros = klipper.get_macros
+        self.has_macro = klipper.has_macro
