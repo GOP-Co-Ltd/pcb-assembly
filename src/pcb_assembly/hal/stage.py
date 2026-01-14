@@ -1,6 +1,6 @@
 import attrs
 
-from pcb_assembly.hal.klipper import ReadonlyKlipper
+from .klipper import ReadonlyKlipper
 
 
 @attrs.define(slots=True, frozen=True)
@@ -30,14 +30,13 @@ class Limits:
 
 
 class XYZStage:
-    """XYZステージを制御するクラス.
+    """XYZステージの状態を取得するクラス.
 
     Example:
-        klipper = Klipper("192.168.1.100")
-        stage = XYZStage(klipper, default_speed=50.0)
-        stage.home()
-        stage.move(x=10, y=20, z=5)
+        klipper = Klipper()
+        stage = XYZStage(klipper.readonly)
         position = stage.get_position()
+        limits = stage.get_limits()
     """
 
     def __init__(self, klipper: ReadonlyKlipper) -> None:
@@ -47,18 +46,6 @@ class XYZStage:
             klipper: Klipperクライアント
         """
         self._klipper = klipper
-
-    def _check_macro_exists(self) -> None:
-        """必要なマクロが定義されているか確認する.
-
-        Raises:
-            RuntimeError: 必要なマクロが定義されていない場合
-        """
-        for name in ["PRESENT"]:
-            if not self._klipper.has_macro(name):
-                raise RuntimeError(
-                    f"printer.cfgに[gcode_macro {name}]を追加してください"
-                )
 
     def get_position(self) -> Position:
         """現在位置を取得する.
