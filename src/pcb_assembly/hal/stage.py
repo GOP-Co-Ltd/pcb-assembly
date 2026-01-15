@@ -5,21 +5,43 @@ from pcb_assembly.transform import Position
 from .klipper import ReadonlyKlipper
 
 
-@attrs.define(slots=True, frozen=True)
+@attrs.frozen
 class AxisLimits:
     """軸の可動域を保持するクラス."""
 
     min: float
     max: float
 
+    def __contains__(self, value: float) -> bool:
+        """値が可動域内にあるか判定する.
 
-@attrs.define(slots=True, frozen=True)
+        Args:
+            value: 判定する値
+
+        Returns:
+            可動域内であればTrue
+        """
+        return self.min <= value <= self.max
+
+
+@attrs.frozen
 class Limits:
     """各軸の可動域を保持するクラス."""
 
     x: AxisLimits
     y: AxisLimits
     z: AxisLimits
+
+    def __contains__(self, pos: Position) -> bool:
+        """位置が全軸の可動域内にあるか判定する.
+
+        Args:
+            pos: 判定する位置
+
+        Returns:
+            全軸の可動域内であればTrue
+        """
+        return pos.x in self.x and pos.y in self.y and pos.z in self.z
 
 
 class XYZStage:
