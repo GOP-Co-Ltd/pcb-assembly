@@ -40,47 +40,28 @@ class TestPasteDispenser:
         ):
             PasteDispenser(klipper.readonly, syringe_size=10.0)
 
-    def test_dispense(self, mock_klipper: Klipper):
+    @pytest.mark.parametrize(
+        ("amount_factor", "expected_move"),
+        [
+            (1, "1.0"),  # 正: 吐出
+            (-1, "-1.0"),  # 負: リトラクション
+        ],
+    )
+    def test_push(self, mock_klipper: Klipper, amount_factor: int, expected_move: str):
         syringe_diameter = 10.0  # mm
         dispenser = PasteDispenser(mock_klipper.readonly, syringe_size=syringe_diameter)
         syringe_area = math.pi * (syringe_diameter / 2) ** 2
 
+        amount = syringe_area * amount_factor  # μL → ±1mm
         rate = syringe_area  # μL/sec → 1mm/sec
         accel = syringe_area * 2  # μL/sec² → 2mm/sec²
 
-        gcode = dispenser.dispense(rate, accel)
+        gcode = dispenser.push(amount, rate, accel)
 
         assert isinstance(gcode, GCode)
         lines = gcode.to_list()
         assert lines[0] == "MANUAL_STEPPER STEPPER=paste_dispenser SET_POSITION=0"
         assert (
             lines[1]
-            == "MANUAL_STEPPER STEPPER=paste_dispenser MOVE=1000 SPEED=1.0 ACCEL=2.0"
+            == f"MANUAL_STEPPER STEPPER=paste_dispenser MOVE={expected_move} SPEED=1.0 ACCEL=2.0"
         )
-
-    def test_retract(self, mock_klipper: Klipper):
-        syringe_diameter = 10.0  # mm
-        dispenser = PasteDispenser(mock_klipper.readonly, syringe_size=syringe_diameter)
-        syringe_area = math.pi * (syringe_diameter / 2) ** 2
-
-        amount = syringe_area  # μL → 1mm
-        rate = syringe_area  # μL/sec → 1mm/sec
-        accel = syringe_area * 2  # μL/sec² → 2mm/sec²
-
-        gcode = dispenser.retract(amount, rate, accel)
-
-        assert isinstance(gcode, GCode)
-        lines = gcode.to_list()
-        assert lines[0] == "MANUAL_STEPPER STEPPER=paste_dispenser SET_POSITION=0"
-        assert (
-            lines[1]
-            == "MANUAL_STEPPER STEPPER=paste_dispenser MOVE=-1.0 SPEED=1.0 ACCEL=2.0"
-        )
-
-    def test_stop(self, dispenser: PasteDispenser):
-        gcode = dispenser.stop()
-
-        assert isinstance(gcode, GCode)
-        lines = gcode.to_list()
-        assert lines[0] == "MANUAL_STEPPER STEPPER=paste_dispenser ENABLE=0"
-        assert lines[1] == "MANUAL_STEPPER STEPPER=paste_dispenser ENABLE=1"

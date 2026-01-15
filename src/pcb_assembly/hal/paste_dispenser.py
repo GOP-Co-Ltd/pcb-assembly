@@ -50,48 +50,22 @@ class PasteDispenser:
         """マイクロリットル単位をミリメートル距離に変換."""
         return microl / self._syringe_area
 
-    def dispense(self, rate: float, accel: float) -> GCode:
-        """連続ディスペンスを開始するGCodeを生成.
+    def push(self, amount: float, rate: float, accel: float) -> GCode:
+        """シリンジを押し出すGCodeを生成.
 
         Args:
-            rate: 吐出速度 [μL/sec]
+            amount: 押し出し量 [μL]（正: 吐出、負: リトラクション）
+            rate: 速度 [μL/sec]
             accel: 加速度 [μL/sec²]
 
         Returns:
-            ディスペンス開始用のGCode
-        """
-        speed_mm = self._microl_to_mm(rate)
-        accel_mm = self._microl_to_mm(accel)
-        # MOVE=1000は十分大きな値（stopで停止するまで継続）
-        gcode = self._reset_pos.copy()
-        gcode.append(f"{self._cmd_prefix} MOVE=1000 SPEED={speed_mm} ACCEL={accel_mm}")
-        return gcode
-
-    def retract(self, amount: float, rate: float, accel: float) -> GCode:
-        """リトラクション（吸い戻し）のGCodeを生成.
-
-        Args:
-            amount: リトラクション量 [μL]
-            rate: リトラクション速度 [μL/sec]
-            accel: 加速度 [μL/sec²]
-
-        Returns:
-            リトラクション用のGCode
+            押し出し用のGCode
         """
         distance_mm = self._microl_to_mm(amount)
         speed_mm = self._microl_to_mm(rate)
         accel_mm = self._microl_to_mm(accel)
         gcode = self._reset_pos.copy()
         gcode.append(
-            f"{self._cmd_prefix} MOVE=-{distance_mm} SPEED={speed_mm} ACCEL={accel_mm}"
+            f"{self._cmd_prefix} MOVE={distance_mm} SPEED={speed_mm} ACCEL={accel_mm}"
         )
         return gcode
-
-    def stop(self) -> GCode:
-        """ディスペンスを停止するGCodeを生成."""
-        return GCode(
-            [
-                f"{self._cmd_prefix} ENABLE=0",
-                f"{self._cmd_prefix} ENABLE=1",
-            ]
-        )
