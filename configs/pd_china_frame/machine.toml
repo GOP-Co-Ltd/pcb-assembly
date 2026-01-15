@@ -9,6 +9,10 @@ rotation_pulse = 600      # PPR (Pulses Per Rotation)
 rotation_distance = 40.0  # mm/回転
 inverse = true
 
+[paste_dispenser]
+syringe_size = 9.0 # シリンジの直径 [mm]
+nozzle_size = "G27" # ノズルのゲージ
+
 [camera]
 device_id = 0
 width = 640
