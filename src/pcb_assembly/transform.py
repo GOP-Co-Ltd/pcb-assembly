@@ -128,3 +128,54 @@ class Rotation:
             反対方向に同じ角度だけ回転するRotationインスタンス
         """
         return self.__class__(-self.degrees)
+
+
+@attrs.frozen
+class Transform:
+    """スケール、回転、平行移動を組み合わせた変換を表すクラス.
+
+    変換は Scale → Rotation → Translation の順に適用される。
+
+    Attributes:
+        scale: スケール変換
+        rotation: 回転変換
+        translation: 平行移動
+    """
+
+    scale: Scale = attrs.Factory(Scale)
+    rotation: Rotation = attrs.Factory(Rotation)
+    translation: Position = attrs.Factory(lambda: Position(0.0, 0.0, 0.0))
+
+    def apply(self, position: Position) -> Position:
+        """位置に変換を適用する.
+
+        Args:
+            position: 変換を適用する位置
+
+        Returns:
+            変換後の位置
+        """
+        # Scale → Rotation → Translation
+        scaled = self.scale.to_matrix() @ position.numpy()
+        rotated = self.rotation.to_matrix() @ scaled
+        translated = rotated + self.translation.numpy()
+        return Position.from_numpy(translated)
+
+    def inverse(self) -> Self:
+        """逆変換を返す.
+
+        Returns:
+            この変換を打ち消すTransformインスタンス
+        """
+        inv_scale = self.scale.inverse()
+        inv_rotation = self.rotation.inverse()
+        inv_translation_vec = (
+            inv_rotation.to_matrix()
+            @ inv_scale.to_matrix()
+            @ (-self.translation.numpy())
+        )
+        return self.__class__(
+            scale=inv_scale,
+            rotation=inv_rotation,
+            translation=Position.from_numpy(inv_translation_vec),
+        )

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from pcb_assembly.transform import Position, Rotation, Scale
+from pcb_assembly.transform import Position, Rotation, Scale, Transform
 
 
 class TestPosition:
@@ -130,3 +130,71 @@ class TestRotation:
         result = rotation.inverse()
 
         assert result == Rotation(-45.0)
+
+
+class TestTransform:
+    """Transformクラスのテスト."""
+
+    def test_default_values(self):
+        transform = Transform()
+
+        assert transform.scale == Scale()
+        assert transform.rotation == Rotation()
+        assert transform.translation == Position(0.0, 0.0, 0.0)
+
+    def test_apply_translation_only(self):
+        transform = Transform(translation=Position(10.0, 20.0, 30.0))
+        pos = Position(1.0, 2.0, 3.0)
+
+        result = transform.apply(pos)
+
+        assert result == Position(11.0, 22.0, 33.0)
+
+    def test_apply_scale_only(self):
+        transform = Transform(scale=Scale(2.0, 3.0, 4.0))
+        pos = Position(1.0, 2.0, 3.0)
+
+        result = transform.apply(pos)
+
+        assert result == Position(2.0, 6.0, 12.0)
+
+    def test_apply_rotation_only(self):
+        transform = Transform(rotation=Rotation(90.0))
+        pos = Position(1.0, 0.0, 0.0)
+
+        result = transform.apply(pos)
+
+        assert np.isclose(result.x, 0.0, atol=1e-10)
+        assert np.isclose(result.y, 1.0, atol=1e-10)
+        assert np.isclose(result.z, 0.0, atol=1e-10)
+
+    def test_apply_combined(self):
+        # Scale(2,2,1) → Rotation(90°) → Translation(10,0,0)
+        transform = Transform(
+            scale=Scale(2.0, 2.0, 1.0),
+            rotation=Rotation(90.0),
+            translation=Position(10.0, 0.0, 0.0),
+        )
+        pos = Position(1.0, 0.0, 0.0)
+
+        result = transform.apply(pos)
+
+        # (1,0,0) → scale → (2,0,0) → rotate 90° → (0,2,0) → translate → (10,2,0)
+        assert np.isclose(result.x, 10.0, atol=1e-10)
+        assert np.isclose(result.y, 2.0, atol=1e-10)
+        assert np.isclose(result.z, 0.0, atol=1e-10)
+
+    def test_inverse(self):
+        transform = Transform(
+            scale=Scale(2.0, 2.0, 1.0),
+            rotation=Rotation(90.0),
+            translation=Position(10.0, 5.0, 0.0),
+        )
+        pos = Position(1.0, 2.0, 3.0)
+
+        transformed = transform.apply(pos)
+        restored = transform.inverse().apply(transformed)
+
+        assert np.isclose(restored.x, pos.x, atol=1e-10)
+        assert np.isclose(restored.y, pos.y, atol=1e-10)
+        assert np.isclose(restored.z, pos.z, atol=1e-10)
