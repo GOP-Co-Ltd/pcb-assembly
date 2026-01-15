@@ -1,7 +1,7 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from pcb_assembly.hal.klipper import GCode, Klipper, Macro, ReadonlyKlipper
+from pcb_assembly.hal.klipper import GCode, GCodeMacro, Klipper, ReadonlyKlipper
 from tests.helpers import mark_hardware
 
 
@@ -59,6 +59,36 @@ class TestGCode:
         gcode.append(input)
         assert gcode.to_list() == expected
 
+    @pytest.mark.parametrize(
+        ("gcode1", "gcode2", "expected"),
+        [
+            (GCode("G28"), GCode("G28"), True),
+            (GCode(["G28", "M400"]), GCode(["G28", "M400"]), True),
+            (GCode("G28"), GCode("M400"), False),
+            (GCode(["G28"]), GCode(["G28", "M400"]), False),
+        ],
+    )
+    def test_eq(self, gcode1: GCode, gcode2: GCode, expected: bool):
+        assert (gcode1 == gcode2) == expected
+
+    def test_eq_returns_not_implemented_for_non_gcode(self):
+        gcode = GCode("G28")
+
+        assert gcode.__eq__("G28") == NotImplemented
+
+    def test_hash(self):
+        gcode1 = GCode("G28")
+        gcode2 = GCode("G28")
+        gcode3 = GCode("M400")
+
+        assert hash(gcode1) == hash(gcode2)
+        assert hash(gcode1) != hash(gcode3)
+
+    def test_hash_usable_in_set(self):
+        gcode_set = {GCode("G28"), GCode("G28"), GCode("M400")}
+
+        assert len(gcode_set) == 2
+
 
 class TestKlipper:
     """Klipperクラスのテスト."""
@@ -102,7 +132,7 @@ class TestKlipper:
         assert isinstance(macros, dict)
         for name, macro in macros.items():
             assert isinstance(name, str)
-            assert isinstance(macro, Macro)
+            assert isinstance(macro, GCodeMacro)
 
     def test_get_macros_parses_config(self, mocker):
         klipper = Klipper()
@@ -124,8 +154,10 @@ class TestKlipper:
         macros = klipper.get_macros()
 
         assert len(macros) == 2
-        assert macros["TEST_MACRO"] == Macro(gcode="G28", description="テストマクロ")
-        assert macros["NO_DESC"] == Macro(gcode="M400", description=None)
+        assert macros["TEST_MACRO"] == GCodeMacro(
+            gcode=GCode("G28"), description="テストマクロ"
+        )
+        assert macros["NO_DESC"] == GCodeMacro(gcode=GCode("M400"), description=None)
 
     @pytest.mark.parametrize(
         ("name", "expected"),
@@ -139,7 +171,7 @@ class TestKlipper:
         mocker.patch.object(
             klipper,
             "get_macros",
-            return_value={"TEST_MACRO": Macro(gcode="G28")},
+            return_value={"TEST_MACRO": GCodeMacro(gcode=GCode("G28"))},
         )
 
         assert klipper.has_macro(name) == expected

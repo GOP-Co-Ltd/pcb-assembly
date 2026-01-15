@@ -9,10 +9,10 @@ import httpx
 
 
 @attrs.frozen
-class Macro:
+class GCodeMacro:
     """Klipperマクロ情報を保持するクラス."""
 
-    gcode: str
+    gcode: GCode
     description: str | None = None
     variables: dict[str, Any] = attrs.Factory(dict)
 
@@ -46,6 +46,16 @@ class GCode:
     @override
     def __repr__(self) -> str:
         return f"GCode({str(self)})"
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, GCode):
+            return NotImplemented
+        return str(self) == str(other)
+
+    @override
+    def __hash__(self) -> int:
+        return hash(str(self))
 
     def copy(self) -> Self:
         return self.__class__(self)
@@ -150,25 +160,25 @@ class Klipper:
         return result["status"]["configfile"]["config"]
 
     @functools.cache
-    def get_macros(self) -> dict[str, Macro]:
+    def get_macros(self) -> dict[str, GCodeMacro]:
         """使用可能なマクロをすべて取得する.
 
         Returns:
-            マクロ名をキー、Macroオブジェクトを値とする辞書
+            マクロ名をキー、GCodeMacroオブジェクトを値とする辞書
         """
         config = self.get_config()
-        macros: dict[str, Macro] = {}
+        macros: dict[str, GCodeMacro] = {}
         for key, value in config.items():
             if key.startswith("gcode_macro "):
                 macro_name = key.removeprefix("gcode_macro ")
-                gcode = value.get("gcode", "")
+                gcode = GCode(value.get("gcode", ""))
                 description = value.get("description")
                 variables = {
                     k.removeprefix("variable_"): v
                     for k, v in value.items()
                     if k.startswith("variable_")
                 }
-                macros[macro_name] = Macro(
+                macros[macro_name] = GCodeMacro(
                     gcode=gcode, description=description, variables=variables
                 )
         return macros
