@@ -94,3 +94,37 @@ class Scale:
             -self.y if y else self.y,
             -self.z if z else self.z,
         )
+
+
+@attrs.frozen
+class Rotation:
+    """Z軸周りの回転を表すイミュータブルなクラス.
+
+    Attributes:
+        degrees: 回転角度（度数法、反時計回りが正）
+    """
+
+    degrees: float = 0.0
+
+    @property
+    def radians(self) -> float:
+        """回転角度をラジアンで返す."""
+        return np.deg2rad(self.degrees)
+
+    def to_matrix(self) -> npt.NDArray[np.float64]:
+        """回転変換を3x3行列として返す.
+
+        Returns:
+            Z軸周りの回転行列（float64）
+        """
+        c = np.cos(self.radians)
+        s = np.sin(self.radians)
+        return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64)
+
+    def inverse(self) -> Self:
+        """逆回転を返す.
+
+        Returns:
+            反対方向に同じ角度だけ回転するRotationインスタンス
+        """
+        return self.__class__(-self.degrees)

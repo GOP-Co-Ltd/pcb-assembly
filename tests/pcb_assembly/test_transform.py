@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from pcb_assembly.transform import Position, Scale
+from pcb_assembly.transform import Position, Rotation, Scale
 
 
 class TestPosition:
@@ -84,3 +84,49 @@ class TestScale:
         result = scale.flip(**flip_args)
 
         assert result == expected
+
+
+class TestRotation:
+    """Rotationクラスのテスト."""
+
+    def test_default_value(self):
+        rotation = Rotation()
+
+        assert rotation.degrees == 0.0
+
+    @pytest.mark.parametrize(
+        ("degrees", "expected_radians"),
+        [
+            (0.0, 0.0),
+            (90.0, np.pi / 2),
+            (180.0, np.pi),
+            (-90.0, -np.pi / 2),
+        ],
+    )
+    def test_radians(self, degrees, expected_radians):
+        rotation = Rotation(degrees)
+
+        assert np.isclose(rotation.radians, expected_radians)
+
+    @pytest.mark.parametrize(
+        ("degrees", "expected_matrix"),
+        [
+            (0.0, np.eye(3)),
+            (90.0, np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]], dtype=np.float64)),
+            (180.0, np.array([[-1, 0, 0], [0, -1, 0], [0, 0, 1]], dtype=np.float64)),
+        ],
+    )
+    def test_to_matrix(self, degrees, expected_matrix):
+        rotation = Rotation(degrees)
+
+        result = rotation.to_matrix()
+
+        assert result.dtype == np.float64
+        assert np.allclose(result, expected_matrix)
+
+    def test_inverse(self):
+        rotation = Rotation(45.0)
+
+        result = rotation.inverse()
+
+        assert result == Rotation(-45.0)
