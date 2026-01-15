@@ -1,15 +1,8 @@
 import attrs
 
+from pcb_assembly.transform import Position
+
 from .klipper import ReadonlyKlipper
-
-
-@attrs.define(slots=True, frozen=True)
-class Position:
-    """位置情報を保持するクラス."""
-
-    x: float
-    y: float
-    z: float
 
 
 @attrs.define(slots=True, frozen=True)
