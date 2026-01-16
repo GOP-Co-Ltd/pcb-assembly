@@ -1,6 +1,6 @@
 import attrs
 
-from pcb_assembly.geometry import Position
+from pcb_assembly.geometry import Position, Waypoint
 
 from .klipper import ReadonlyKlipper
 
@@ -26,22 +26,28 @@ class AxisLimits:
 
 @attrs.frozen
 class Limits:
-    """各軸の可動域を保持するクラス."""
+    """各軸の可動域と速度制限を保持するクラス."""
 
     x: AxisLimits
     y: AxisLimits
     z: AxisLimits
+    v: AxisLimits
 
-    def __contains__(self, pos: Position) -> bool:
-        """位置が全軸の可動域内にあるか判定する.
+    def __contains__(self, waypoint: Waypoint) -> bool:
+        """経由点が全軸の可動域・速度制限内にあるか判定する.
 
         Args:
-            pos: 判定する位置
+            waypoint: 判定する経由点
 
         Returns:
-            全軸の可動域内であればTrue
+            全制限内であればTrue
         """
-        return pos.x in self.x and pos.y in self.y and pos.z in self.z
+        return (
+            waypoint.x in self.x
+            and waypoint.y in self.y
+            and waypoint.z in self.z
+            and waypoint.v in self.v
+        )
 
 
 class XYZStage:
@@ -98,8 +104,16 @@ class XYZStage:
                 max=float(stepper["position_max"]),
             )
 
+        printer_key = "printer"
+        if printer_key not in config:
+            raise KeyError("printer.cfgに[printer]セクションを追加してください")
+        printer = config[printer_key]
+        if "max_velocity" not in printer:
+            raise KeyError("printer.cfgの[printer]にmax_velocityを追加してください")
+
         return Limits(
             x=get_axis_limits("x"),
             y=get_axis_limits("y"),
             z=get_axis_limits("z"),
+            v=AxisLimits(min=0.0, max=float(printer["max_velocity"])),
         )
