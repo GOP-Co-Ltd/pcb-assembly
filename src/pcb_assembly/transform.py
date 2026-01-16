@@ -58,6 +58,11 @@ class Position:
         """ベクトルのノルム（長さ）を返す."""
         return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
 
+    @classmethod
+    def zero(cls) -> Self:
+        """原点(0, 0, 0)を返す."""
+        return cls(0.0, 0.0, 0.0)
+
 
 @attrs.frozen
 class Scale:

@@ -85,6 +85,9 @@ class TestPosition:
     def test_norm(self, pos, expected):
         assert pos.norm() == expected
 
+    def test_zero(self):
+        assert Position.zero() == Position(0.0, 0.0, 0.0)
+
 
 class TestScale:
     """Scaleクラスのテスト."""
