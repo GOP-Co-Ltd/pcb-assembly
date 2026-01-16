@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 import attrs
 
-from pcb_assembly.geometry import Position
+from pcb_assembly.geometry import Position, Trajectory, Waypoint
 
 from .klipper import ReadonlyKlipper
 
 
 @attrs.frozen
-class AxisLimits:
-    """軸の可動域を保持するクラス."""
+class ScalarLimits:
+    """スカラー値の範囲を保持するクラス."""
 
     min: float
     max: float
@@ -26,22 +28,28 @@ class AxisLimits:
 
 @attrs.frozen
 class Limits:
-    """各軸の可動域を保持するクラス."""
+    """各軸の可動域と速度制限を保持するクラス."""
 
-    x: AxisLimits
-    y: AxisLimits
-    z: AxisLimits
+    x: ScalarLimits
+    y: ScalarLimits
+    z: ScalarLimits
+    v: ScalarLimits
 
-    def __contains__(self, pos: Position) -> bool:
-        """位置が全軸の可動域内にあるか判定する.
+    def __contains__(self, waypoint: Waypoint) -> bool:
+        """経由点が全軸の可動域・速度制限内にあるか判定する.
 
         Args:
-            pos: 判定する位置
+            waypoint: 判定する経由点
 
         Returns:
-            全軸の可動域内であればTrue
+            全制限内であればTrue
         """
-        return pos.x in self.x and pos.y in self.y and pos.z in self.z
+        return (
+            waypoint.x in self.x
+            and waypoint.y in self.y
+            and waypoint.z in self.z
+            and waypoint.v in self.v
+        )
 
 
 class XYZStage:
@@ -82,7 +90,7 @@ class XYZStage:
         """
         config = self._klipper.get_config()
 
-        def get_axis_limits(axis: str) -> AxisLimits:
+        def get_axis_limits(axis: str) -> ScalarLimits:
             stepper_key = f"stepper_{axis}"
             if stepper_key not in config:
                 raise KeyError(
@@ -93,13 +101,51 @@ class XYZStage:
                 raise KeyError(
                     f"printer.cfgの[{stepper_key}]にposition_minとposition_maxを追加してください"
                 )
-            return AxisLimits(
+            return ScalarLimits(
                 min=float(stepper["position_min"]),
                 max=float(stepper["position_max"]),
             )
+
+        printer_key = "printer"
+        if printer_key not in config:
+            raise KeyError("printer.cfgに[printer]セクションを追加してください")
+        printer = config[printer_key]
+        if "max_velocity" not in printer:
+            raise KeyError("printer.cfgの[printer]にmax_velocityを追加してください")
 
         return Limits(
             x=get_axis_limits("x"),
             y=get_axis_limits("y"),
             z=get_axis_limits("z"),
+            v=ScalarLimits(min=0.0, max=float(printer["max_velocity"])),
         )
+
+    def validate(self, trajectory: Trajectory) -> ValidationResult:
+        """Trajectoryの全経由点が制限内にあるか検証する.
+
+        Args:
+            trajectory: 検証するTrajectory
+
+        Returns:
+            検証結果
+        """
+        limits = self.get_limits()
+        invalid = [wp for wp in trajectory.waypoints if wp not in limits]
+        return ValidationResult(invalid)
+
+
+@attrs.frozen
+class ValidationResult:
+    """Trajectory検証結果を保持するクラス."""
+
+    _invalid_points: list[Waypoint]
+
+    @property
+    def is_valid(self) -> bool:
+        """全経由点が制限内にあるか."""
+        return len(self._invalid_points) == 0
+
+    @property
+    def invalid_points(self) -> list[Waypoint]:
+        """制限外の経由点のリスト."""
+        return self._invalid_points.copy()
