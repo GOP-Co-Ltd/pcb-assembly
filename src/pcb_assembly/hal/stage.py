@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import attrs
 
-from pcb_assembly.geometry import Position, Waypoint
+from pcb_assembly.geometry import Position, Trajectory, Waypoint
 
 from .klipper import ReadonlyKlipper
 
@@ -117,3 +119,33 @@ class XYZStage:
             z=get_axis_limits("z"),
             v=ScalarLimits(min=0.0, max=float(printer["max_velocity"])),
         )
+
+    def validate(self, trajectory: Trajectory) -> ValidationResult:
+        """Trajectoryの全経由点が制限内にあるか検証する.
+
+        Args:
+            trajectory: 検証するTrajectory
+
+        Returns:
+            検証結果
+        """
+        limits = self.get_limits()
+        invalid = [wp for wp in trajectory.waypoints if wp not in limits]
+        return ValidationResult(invalid)
+
+
+@attrs.frozen
+class ValidationResult:
+    """Trajectory検証結果を保持するクラス."""
+
+    _invalid_points: list[Waypoint]
+
+    @property
+    def is_valid(self) -> bool:
+        """全経由点が制限内にあるか."""
+        return len(self._invalid_points) == 0
+
+    @property
+    def invalid_points(self) -> list[Waypoint]:
+        """制限外の経由点のリスト."""
+        return self._invalid_points.copy()
