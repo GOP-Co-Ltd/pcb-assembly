@@ -1,3 +1,4 @@
+import math
 from typing import Self
 
 import attrs
@@ -46,6 +47,16 @@ class Position:
             )
         arr = array.astype(np.float64)
         return cls(arr[0], arr[1], arr[2])
+
+    def __add__(self, other: Self) -> Self:
+        return self.__class__(self.x + other.x, self.y + other.y, self.z + other.z)
+
+    def __sub__(self, other: Self) -> Self:
+        return self.__class__(self.x - other.x, self.y - other.y, self.z - other.z)
+
+    def norm(self) -> float:
+        """ベクトルのノルム（長さ）を返す."""
+        return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
 
 
 @attrs.frozen

@@ -1,0 +1,168 @@
+import pytest
+
+from pcb_assembly.trajectory import Move, Trajectory, Waypoint
+from pcb_assembly.transform import Position
+
+
+class TestMove:
+    """Moveクラスのテスト."""
+
+    def test_default_values(self):
+        move = Move()
+
+        assert move.x is None
+        assert move.y is None
+        assert move.z is None
+        assert move.v is None
+        assert move.relative is False
+
+    @pytest.mark.parametrize(
+        ("move", "expected"),
+        [
+            (Move(), True),
+            (Move(x=1.0), False),
+            (Move(y=1.0), False),
+            (Move(z=1.0), False),
+            (Move(v=1.0), False),
+            (Move(x=1.0, y=2.0, z=3.0), False),
+        ],
+    )
+    def test_is_empty(self, move, expected):
+        assert move.is_empty == expected
+
+
+class TestWaypoint:
+    """Waypointクラスのテスト."""
+
+    def test_position(self):
+        wp = Waypoint(x=1.0, y=2.0, z=3.0, v=10.0)
+
+        assert wp.position == Position(1.0, 2.0, 3.0)
+
+
+class TestTrajectory:
+    """Trajectoryクラスのテスト."""
+
+    def test_init(self):
+        origin = Position(0.0, 0.0, 0.0)
+        traj = Trajectory(origin, default_velocity=10.0)
+
+        assert traj.position == origin
+        assert traj.velocity == 10.0
+        assert traj.waypoints == []
+
+    def test_add_absolute_move(self):
+        traj = Trajectory(Position(0.0, 0.0, 0.0), default_velocity=10.0)
+
+        traj.add(Move(x=5.0, y=5.0, z=0.0))
+
+        assert len(traj.waypoints) == 1
+        assert traj.waypoints[0] == Waypoint(x=5.0, y=5.0, z=0.0, v=10.0)
+        assert traj.position == Position(5.0, 5.0, 0.0)
+
+    def test_add_relative_move(self):
+        traj = Trajectory(Position(10.0, 10.0, 0.0), default_velocity=10.0)
+
+        traj.add(Move(x=5.0, y=-3.0, relative=True))
+
+        assert traj.waypoints[0] == Waypoint(x=15.0, y=7.0, z=0.0, v=10.0)
+
+    def test_add_partial_absolute_move(self):
+        traj = Trajectory(Position(10.0, 20.0, 30.0), default_velocity=10.0)
+
+        traj.add(Move(x=5.0))  # y, zはNone → 現在位置を維持
+
+        assert traj.waypoints[0] == Waypoint(x=5.0, y=20.0, z=30.0, v=10.0)
+
+    def test_add_velocity_only(self):
+        traj = Trajectory(Position(10.0, 20.0, 30.0), default_velocity=10.0)
+
+        traj.add(Move(v=50.0))
+
+        assert traj.waypoints[0] == Waypoint(x=10.0, y=20.0, z=30.0, v=50.0)
+        assert traj.velocity == 50.0
+
+    def test_add_with_velocity(self):
+        traj = Trajectory(Position(0.0, 0.0, 0.0), default_velocity=10.0)
+
+        traj.add(Move(x=5.0, v=20.0))
+
+        assert traj.waypoints[0].v == 20.0
+        assert traj.velocity == 20.0
+
+    def test_add_empty_move_ignored(self):
+        traj = Trajectory(Position(0.0, 0.0, 0.0), default_velocity=10.0)
+
+        traj.add(Move())
+
+        assert traj.waypoints == []
+
+    def test_add_multiple_moves(self):
+        traj = Trajectory(Position(0.0, 0.0, 0.0), default_velocity=10.0)
+
+        traj.add(Move(x=1.0), Move(x=2.0), Move(x=3.0))
+
+        assert len(traj.waypoints) == 3
+        assert traj.position == Position(3.0, 0.0, 0.0)
+
+    def test_add_iterable(self):
+        traj = Trajectory(Position(0.0, 0.0, 0.0), default_velocity=10.0)
+        moves = [Move(x=1.0), Move(x=2.0)]
+
+        traj.add(move=moves)
+
+        assert len(traj.waypoints) == 2
+
+    @pytest.mark.parametrize(
+        ("waypoints", "expected_distance"),
+        [
+            ([], 0.0),
+            ([Waypoint(0.0, 0.0, 0.0, 10.0)], 0.0),
+            (
+                [Waypoint(0.0, 0.0, 0.0, 10.0), Waypoint(3.0, 4.0, 0.0, 10.0)],
+                5.0,
+            ),
+            (
+                [
+                    Waypoint(0.0, 0.0, 0.0, 10.0),
+                    Waypoint(3.0, 4.0, 0.0, 10.0),
+                    Waypoint(3.0, 4.0, 5.0, 10.0),
+                ],
+                10.0,
+            ),
+        ],
+    )
+    def test_distance(self, waypoints, expected_distance):
+        traj = Trajectory(Position(0.0, 0.0, 0.0), default_velocity=10.0)
+        traj._waypoints = waypoints
+
+        assert traj.distance() == expected_distance
+
+    @pytest.mark.parametrize(
+        ("waypoints", "expected_time"),
+        [
+            ([], 0.0),
+            ([Waypoint(0.0, 0.0, 0.0, 10.0)], 0.0),
+            (
+                [Waypoint(0.0, 0.0, 0.0, 10.0), Waypoint(10.0, 0.0, 0.0, 10.0)],
+                1.0,
+            ),
+            (
+                [Waypoint(0.0, 0.0, 0.0, 10.0), Waypoint(10.0, 0.0, 0.0, 5.0)],
+                2.0,
+            ),
+            (
+                [
+                    Waypoint(0.0, 0.0, 0.0, 10.0),
+                    Waypoint(10.0, 0.0, 0.0, 10.0),
+                    Waypoint(10.0, 20.0, 0.0, 20.0),
+                ],
+                2.0,
+            ),
+        ],
+    )
+    def test_time(self, waypoints, expected_time):
+        traj = Trajectory(Position(0.0, 0.0, 0.0), default_velocity=10.0)
+        traj._waypoints = waypoints
+
+        assert traj.time() == expected_time
