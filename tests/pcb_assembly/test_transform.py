@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pytest
 
@@ -40,6 +42,48 @@ class TestPosition:
     def test_from_numpy_invalid_shape(self, array):
         with pytest.raises(ValueError, match=r"配列の形状は\(3,\)である必要があります"):
             Position.from_numpy(array)
+
+    @pytest.mark.parametrize(
+        ("a", "b", "expected"),
+        [
+            (Position(1.0, 2.0, 3.0), Position(4.0, 5.0, 6.0), Position(5.0, 7.0, 9.0)),
+            (Position(0.0, 0.0, 0.0), Position(1.0, 1.0, 1.0), Position(1.0, 1.0, 1.0)),
+            (
+                Position(-1.0, -2.0, -3.0),
+                Position(1.0, 2.0, 3.0),
+                Position(0.0, 0.0, 0.0),
+            ),
+        ],
+    )
+    def test_add(self, a, b, expected):
+        assert a + b == expected
+
+    @pytest.mark.parametrize(
+        ("a", "b", "expected"),
+        [
+            (Position(4.0, 5.0, 6.0), Position(1.0, 2.0, 3.0), Position(3.0, 3.0, 3.0)),
+            (Position(1.0, 1.0, 1.0), Position(1.0, 1.0, 1.0), Position(0.0, 0.0, 0.0)),
+            (
+                Position(0.0, 0.0, 0.0),
+                Position(1.0, 2.0, 3.0),
+                Position(-1.0, -2.0, -3.0),
+            ),
+        ],
+    )
+    def test_sub(self, a, b, expected):
+        assert a - b == expected
+
+    @pytest.mark.parametrize(
+        ("pos", "expected"),
+        [
+            (Position(3.0, 4.0, 0.0), 5.0),
+            (Position(0.0, 0.0, 0.0), 0.0),
+            (Position(1.0, 0.0, 0.0), 1.0),
+            (Position(1.0, 1.0, 1.0), math.sqrt(3)),
+        ],
+    )
+    def test_norm(self, pos, expected):
+        assert pos.norm() == expected
 
 
 class TestScale:
