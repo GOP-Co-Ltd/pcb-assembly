@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from pcb_assembly.transform import Position, Rotation, Scale, Transform
+from pcb_assembly.geometry.transform import Position, Rotation, Scale, Transform
 
 
 class TestPosition:

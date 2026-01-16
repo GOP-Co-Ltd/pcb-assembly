@@ -1,7 +1,7 @@
 import pytest
 
-from pcb_assembly.trajectory import Move, Trajectory, Waypoint
-from pcb_assembly.transform import Position
+from pcb_assembly.geometry.trajectory import Move, Trajectory, Waypoint
+from pcb_assembly.geometry.transform import Position
 
 
 class TestMove:

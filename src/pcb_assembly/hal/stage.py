@@ -1,6 +1,6 @@
 import attrs
 
-from pcb_assembly.transform import Position
+from pcb_assembly.geometry import Position
 
 from .klipper import ReadonlyKlipper
 

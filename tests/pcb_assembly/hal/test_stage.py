@@ -1,9 +1,9 @@
 import pytest
 from pytest_mock import MockerFixture
 
+from pcb_assembly.geometry import Position
 from pcb_assembly.hal.klipper import Klipper
 from pcb_assembly.hal.stage import AxisLimits, Limits, XYZStage
-from pcb_assembly.transform import Position
 from tests.helpers import mark_hardware
 
 
