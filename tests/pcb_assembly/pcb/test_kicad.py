@@ -1,7 +1,6 @@
 import pytest
 
-from pcb_assembly.pcb.kicad import extract_components, extract_pads
-from pcb_assembly.pcb.utils import Layer
+from pcb_assembly.pcb import Layer, extract_components, extract_pads
 from tests.helpers import TESTING_DATA_DIR
 
 LED_BLINKER_PCB = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"

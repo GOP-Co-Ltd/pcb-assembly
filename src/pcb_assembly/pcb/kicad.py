@@ -12,9 +12,7 @@ from pathlib import Path
 import pcbnew
 from shapely import Polygon
 
-from .component import Component, ComponentList
-from .pad import Pad, PadList
-from .utils import Layer
+from .elements import Component, ComponentList, Layer, Pad, PadList
 
 
 def extract_components(pcb_path: Path) -> ComponentList:
