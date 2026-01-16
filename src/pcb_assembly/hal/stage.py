@@ -6,8 +6,8 @@ from .klipper import ReadonlyKlipper
 
 
 @attrs.frozen
-class AxisLimits:
-    """軸の可動域を保持するクラス."""
+class ScalarLimits:
+    """スカラー値の範囲を保持するクラス."""
 
     min: float
     max: float
@@ -28,10 +28,10 @@ class AxisLimits:
 class Limits:
     """各軸の可動域と速度制限を保持するクラス."""
 
-    x: AxisLimits
-    y: AxisLimits
-    z: AxisLimits
-    v: AxisLimits
+    x: ScalarLimits
+    y: ScalarLimits
+    z: ScalarLimits
+    v: ScalarLimits
 
     def __contains__(self, waypoint: Waypoint) -> bool:
         """経由点が全軸の可動域・速度制限内にあるか判定する.
@@ -88,7 +88,7 @@ class XYZStage:
         """
         config = self._klipper.get_config()
 
-        def get_axis_limits(axis: str) -> AxisLimits:
+        def get_axis_limits(axis: str) -> ScalarLimits:
             stepper_key = f"stepper_{axis}"
             if stepper_key not in config:
                 raise KeyError(
@@ -99,7 +99,7 @@ class XYZStage:
                 raise KeyError(
                     f"printer.cfgの[{stepper_key}]にposition_minとposition_maxを追加してください"
                 )
-            return AxisLimits(
+            return ScalarLimits(
                 min=float(stepper["position_min"]),
                 max=float(stepper["position_max"]),
             )
@@ -115,5 +115,5 @@ class XYZStage:
             x=get_axis_limits("x"),
             y=get_axis_limits("y"),
             z=get_axis_limits("z"),
-            v=AxisLimits(min=0.0, max=float(printer["max_velocity"])),
+            v=ScalarLimits(min=0.0, max=float(printer["max_velocity"])),
         )

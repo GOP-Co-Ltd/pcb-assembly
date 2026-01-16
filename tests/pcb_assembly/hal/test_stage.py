@@ -3,7 +3,7 @@ from pytest_mock import MockerFixture
 
 from pcb_assembly.geometry import Position, Waypoint
 from pcb_assembly.hal.klipper import Klipper
-from pcb_assembly.hal.stage import AxisLimits, Limits, XYZStage
+from pcb_assembly.hal.stage import Limits, ScalarLimits, XYZStage
 from tests.helpers import mark_hardware
 
 
@@ -27,10 +27,10 @@ class TestXYZStage:
         limits = stage.get_limits()
 
         assert isinstance(limits, Limits)
-        assert isinstance(limits.x, AxisLimits)
-        assert isinstance(limits.y, AxisLimits)
-        assert isinstance(limits.z, AxisLimits)
-        assert isinstance(limits.v, AxisLimits)
+        assert isinstance(limits.x, ScalarLimits)
+        assert isinstance(limits.y, ScalarLimits)
+        assert isinstance(limits.z, ScalarLimits)
+        assert isinstance(limits.v, ScalarLimits)
         assert limits.x.min < limits.x.max
         assert limits.y.min < limits.y.max
         assert limits.z.min < limits.z.max
@@ -99,8 +99,8 @@ class TestXYZStage:
             stage.get_limits()
 
 
-class TestAxisLimits:
-    """AxisLimitsクラスのテスト."""
+class TestScalarLimits:
+    """ScalarLimitsクラスのテスト."""
 
     @pytest.mark.parametrize(
         ("value", "expected"),
@@ -113,7 +113,7 @@ class TestAxisLimits:
         ],
     )
     def test_contains(self, value: float, expected: bool):
-        limits = AxisLimits(min=0.0, max=100.0)
+        limits = ScalarLimits(min=0.0, max=100.0)
 
         assert (value in limits) == expected
 
@@ -124,10 +124,10 @@ class TestLimits:
     @pytest.fixture
     def limits(self) -> Limits:
         return Limits(
-            x=AxisLimits(min=0.0, max=100.0),
-            y=AxisLimits(min=0.0, max=200.0),
-            z=AxisLimits(min=0.0, max=50.0),
-            v=AxisLimits(min=0.0, max=300.0),
+            x=ScalarLimits(min=0.0, max=100.0),
+            y=ScalarLimits(min=0.0, max=200.0),
+            z=ScalarLimits(min=0.0, max=50.0),
+            v=ScalarLimits(min=0.0, max=300.0),
         )
 
     @pytest.mark.parametrize(

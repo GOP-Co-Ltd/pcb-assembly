@@ -1,7 +1,7 @@
 from .camera import Camera, CameraInfo, Resolution, get_camera_info
 from .klipper import GCode, GCodeLike, GCodeMacro, Klipper, ReadonlyKlipper
 from .probe import Probe, ProbeResult
-from .stage import AxisLimits, Limits, XYZStage
+from .stage import Limits, ScalarLimits, XYZStage
 
 __all__ = [
     # camera
@@ -19,7 +19,7 @@ __all__ = [
     "Probe",
     "ProbeResult",
     # stage
-    "AxisLimits",
+    "ScalarLimits",
     "Limits",
     "XYZStage",
 ]
