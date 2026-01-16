@@ -85,8 +85,19 @@ class TestPosition:
     def test_norm(self, pos, expected):
         assert pos.norm() == expected
 
-    def test_zero(self):
-        assert Position.zero() == Position(0.0, 0.0, 0.0)
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [
+            ({}, Position(0.0, 0.0, 0.0)),
+            ({"x": 1.0}, Position(1.0, 0.0, 0.0)),
+            ({"y": 2.0}, Position(0.0, 2.0, 0.0)),
+            ({"z": 3.0}, Position(0.0, 0.0, 3.0)),
+            ({"x": 1.0, "y": 2.0}, Position(1.0, 2.0, 0.0)),
+            ({"x": 1.0, "y": 2.0, "z": 3.0}, Position(1.0, 2.0, 3.0)),
+        ],
+    )
+    def test_zero(self, kwargs, expected):
+        assert Position.zero(**kwargs) == expected
 
 
 class TestScale:

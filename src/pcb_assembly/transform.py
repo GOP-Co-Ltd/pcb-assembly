@@ -59,9 +59,9 @@ class Position:
         return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
 
     @classmethod
-    def zero(cls) -> Self:
-        """原点(0, 0, 0)を返す."""
-        return cls(0.0, 0.0, 0.0)
+    def zero(cls, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> Self:
+        """指定されていない軸を0で初期化したPositionを返す."""
+        return cls(x, y, z)
 
 
 @attrs.frozen
