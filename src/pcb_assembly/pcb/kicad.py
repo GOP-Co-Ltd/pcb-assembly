@@ -31,6 +31,10 @@ def extract_components(pcb_path: Path) -> ComponentList:
     components = ComponentList()
 
     for footprint in board.GetFootprints():
+        # DNP部品はスキップ
+        if footprint.IsDNP():
+            continue
+
         # レイヤー判定
         if footprint.IsFlipped():
             layer = Layer.BOTTOM
@@ -79,6 +83,10 @@ def extract_pads(pcb_path: Path) -> PadList:
     pads = PadList()
 
     for footprint in board.GetFootprints():
+        # DNP部品はスキップ
+        if footprint.IsDNP():
+            continue
+
         for pad in footprint.Pads():
             # パッドが所属するレイヤーセットを取得
             layer_set = pad.GetLayerSet()
