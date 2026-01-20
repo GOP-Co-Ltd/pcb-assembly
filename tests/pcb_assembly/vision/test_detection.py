@@ -80,8 +80,8 @@ class TestCircleDetector:
         assert result is not None
         assert result.center.x == pytest.approx(100.0, abs=2.0)
         assert result.center.y == pytest.approx(100.0, abs=2.0)
-        assert result.offset_px.distance == pytest.approx(0.0, abs=2.0)
-        assert result.offset_mm.distance == pytest.approx(0.0, abs=0.2)
+        assert result.offset.px.distance == pytest.approx(0.0, abs=2.0)
+        assert result.offset.mm.distance == pytest.approx(0.0, abs=0.2)
 
     def test_detect_nearest_center_calculates_offset(
         self, detector: CircleDetector, image_with_offset_circle: np.ndarray
@@ -90,11 +90,11 @@ class TestCircleDetector:
 
         assert result is not None
         # 画像中心(100, 100)から円中心(120, 130)へのオフセット
-        assert result.offset_px.x == pytest.approx(20.0, abs=2.0)
-        assert result.offset_px.y == pytest.approx(30.0, abs=2.0)
+        assert result.offset.px.x == pytest.approx(20.0, abs=2.0)
+        assert result.offset.px.y == pytest.approx(30.0, abs=2.0)
         # mm単位 (10 pixel/mm)
-        assert result.offset_mm.x == pytest.approx(2.0, abs=0.2)
-        assert result.offset_mm.y == pytest.approx(3.0, abs=0.2)
+        assert result.offset.mm.x == pytest.approx(2.0, abs=0.2)
+        assert result.offset.mm.y == pytest.approx(3.0, abs=0.2)
 
     def test_detect_nearest_center_returns_none_when_no_circle(
         self, detector: CircleDetector

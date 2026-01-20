@@ -105,11 +105,11 @@ def main() -> None:
             cv2.line(preview, (cx, cy), (circle_x, circle_y), (255, 0, 0), 2)
 
             # オフセット情報を表示
-            text = f"X: {result.offset_mm.x:+.2f}mm  Y: {result.offset_mm.y:+.2f}mm"
+            text = f"X: {result.offset.mm.x:+.2f}mm  Y: {result.offset.mm.y:+.2f}mm"
             cv2.putText(
                 preview, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2
             )
-            text = f"Distance: {result.offset_mm.distance:.2f}mm"
+            text = f"Distance: {result.offset.mm.distance:.2f}mm"
             cv2.putText(
                 preview, text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2
             )

@@ -23,13 +23,28 @@ class Point2D:
 
 
 @attrs.frozen
+class Offset:
+    """画像中心からのズレ."""
+
+    px: Point2D  # pixel単位
+    pixel_per_mm: float
+
+    @property
+    def mm(self) -> Point2D:
+        """mm単位のオフセット."""
+        return Point2D(
+            x=self.px.x / self.pixel_per_mm,
+            y=self.px.y / self.pixel_per_mm,
+        )
+
+
+@attrs.frozen
 class DetectedCircle:
     """検出された円."""
 
     center: Point2D  # 円の中心座標 (pixel)
     radius: float  # 円の半径 (pixel)
-    offset_px: Point2D  # 画像中心からのズレ (pixel)
-    offset_mm: Point2D  # 画像中心からのズレ (mm)
+    offset: Offset  # 画像中心からのズレ
 
 
 class CircleDetector:
@@ -74,7 +89,7 @@ class CircleDetector:
             return None
 
         # 最も中心に近い円を選択
-        return min(target_circles, key=lambda c: c.offset_px.distance)
+        return min(target_circles, key=lambda c: c.offset.px.distance)
 
     def detect_circles(self, image: Image) -> list[DetectedCircle]:
         """Hough変換で円を検出.
@@ -120,19 +135,16 @@ class CircleDetector:
         for c in circles[0]:
             center = Point2D(x=float(c[0]), y=float(c[1]))
             radius = float(c[2])
-            offset_x_px = center.x - image_center[0]
-            offset_y_px = center.y - image_center[1]
-            offset_px = Point2D(x=offset_x_px, y=offset_y_px)
-            offset_mm = Point2D(
-                x=offset_x_px / self._pixel_per_mm,
-                y=offset_y_px / self._pixel_per_mm,
+            offset_px = Point2D(
+                x=center.x - image_center[0],
+                y=center.y - image_center[1],
             )
+            offset = Offset(px=offset_px, pixel_per_mm=self._pixel_per_mm)
             result.append(
                 DetectedCircle(
                     center=center,
                     radius=radius,
-                    offset_px=offset_px,
-                    offset_mm=offset_mm,
+                    offset=offset,
                 )
             )
 
