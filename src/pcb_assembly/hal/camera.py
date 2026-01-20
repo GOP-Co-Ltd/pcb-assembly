@@ -8,7 +8,7 @@ import attrs
 import cv2
 import cv2.typing
 
-from pcb_assembly.vision.image import Image
+from pcb_assembly.vision import Image
 
 
 def _device_id_to_path(device_id: int) -> str:
