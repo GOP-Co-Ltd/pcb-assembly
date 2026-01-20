@@ -5,60 +5,95 @@ PCBファイルから部品・パッド情報を抽出する.
 
 Note:
     pcbnewモジュールはKiCad 9.0以降が必要.
+    すべての座標は基板アウトラインの左上を原点として正規化される.
 """
 
 from pathlib import Path
 
 import pcbnew
 from shapely import Polygon
+from shapely.affinity import translate
 
-from .elements import Component, ComponentList, Layer, Outline, Pad, PadList
+from .board import Component, ComponentList, Layer, Outline, Pad, PadList
+
+
+def _nm_to_mm(nm: float) -> float:
+    """ナノメートルをミリメートルに変換."""
+    return nm / 1_000_000.0
+
+
+def _get_original_outline_polygon(board: pcbnew.BOARD) -> Polygon:
+    """基板アウトラインのポリゴンを取得（正規化前）.
+
+    Args:
+        board: pcbnewのボードオブジェクト
+
+    Returns:
+        基板アウトラインのポリゴン (mm単位、KiCad座標系)
+    """
+    outline_poly_set = pcbnew.SHAPE_POLY_SET()
+    board.GetBoardPolygonOutlines(outline_poly_set)
+
+    if outline_poly_set.OutlineCount() == 0:
+        return Polygon()
+
+    outline = outline_poly_set.Outline(0)
+    points = [(_nm_to_mm(p.x), _nm_to_mm(p.y)) for p in outline.CPoints()]
+
+    if not points:
+        return Polygon()
+
+    if points[0] != points[-1]:
+        points.append(points[0])
+
+    return Polygon(points)
 
 
 def extract_outline(pcb_path: Path) -> Outline:
     """KiCad PCBファイルから基板アウトラインを抽出.
 
+    座標は基板の左上を原点として正規化される.
+
     Args:
         pcb_path: KiCad PCBファイル (.kicad_pcb) のパス
 
     Returns:
-        基板アウトライン
+        基板アウトライン（左上原点に正規化済み）
 
     Raises:
         OSError: ファイルが開けない場合
     """
     board = pcbnew.LoadBoard(str(pcb_path))
+    polygon = _get_original_outline_polygon(board)
 
-    outline_poly_set = pcbnew.SHAPE_POLY_SET()
-    board.GetBoardPolygonOutlines(outline_poly_set)
+    if polygon.is_empty:
+        return Outline(Polygon())
 
-    points: list[tuple[float, float]] = []
-    if outline_poly_set.OutlineCount() > 0:
-        outline = outline_poly_set.Outline(0)
-        for point in outline.CPoints():
-            x = point.x / 1_000_000.0
-            y = point.y / 1_000_000.0
-            points.append((x, y))
+    origin_x, origin_y, _, _ = polygon.bounds
+    normalized_polygon = translate(polygon, xoff=-origin_x, yoff=-origin_y)
 
-        if points and points[0] != points[-1]:
-            points.append(points[0])
-
-    return Outline(Polygon(points) if points else Polygon())
+    return Outline(normalized_polygon)
 
 
 def extract_components(pcb_path: Path) -> ComponentList:
     """KiCad PCBファイルから部品情報を抽出.
 
+    座標は基板の左上を原点として正規化される.
+
     Args:
         pcb_path: KiCad PCBファイル (.kicad_pcb) のパス
 
     Returns:
-        部品情報のリスト
+        部品情報のリスト（左上原点に正規化済み）
 
     Raises:
         OSError: ファイルが開けない場合
     """
     board = pcbnew.LoadBoard(str(pcb_path))
+    outline_polygon = _get_original_outline_polygon(board)
+    origin_x, origin_y, _, _ = (
+        outline_polygon.bounds if not outline_polygon.is_empty else (0, 0, 0, 0)
+    )
     components = ComponentList()
 
     for footprint in board.GetFootprints():
@@ -72,10 +107,10 @@ def extract_components(pcb_path: Path) -> ComponentList:
         else:
             layer = Layer.TOP
 
-        # 位置取得 (nm -> mm変換)
+        # 位置取得 (nm -> mm変換、原点補正)
         pos = footprint.GetPosition()
-        x = pos.x / 1_000_000.0
-        y = pos.y / 1_000_000.0
+        x = _nm_to_mm(pos.x) - origin_x
+        y = _nm_to_mm(pos.y) - origin_y
 
         # 回転角度取得 (KiCad 9ではEDA_ANGLE型)
         orientation = footprint.GetOrientation()
@@ -100,17 +135,22 @@ def extract_pads(pcb_path: Path) -> PadList:
     """KiCad PCBファイルからパッド情報を抽出.
 
     ペーストレイヤー (F_Paste/B_Paste) に存在するパッドのみ抽出する.
+    座標は基板の左上を原点として正規化される.
 
     Args:
         pcb_path: KiCad PCBファイル (.kicad_pcb) のパス
 
     Returns:
-        パッド情報のリスト
+        パッド情報のリスト（左上原点に正規化済み）
 
     Raises:
         OSError: ファイルが開けない場合
     """
     board = pcbnew.LoadBoard(str(pcb_path))
+    outline_polygon = _get_original_outline_polygon(board)
+    origin_x, origin_y, _, _ = (
+        outline_polygon.bounds if not outline_polygon.is_empty else (0, 0, 0, 0)
+    )
     pads = PadList()
 
     for footprint in board.GetFootprints():
@@ -140,11 +180,11 @@ def extract_pads(pcb_path: Path) -> PadList:
             for outline_idx in range(shape_poly_set.OutlineCount()):
                 outline = shape_poly_set.Outline(outline_idx)
 
-                # 頂点リスト (nm -> mm変換)
+                # 頂点リスト (nm -> mm変換、原点補正)
                 points = []
                 for point in outline.CPoints():
-                    x = point.x / 1_000_000.0
-                    y = point.y / 1_000_000.0
+                    x = _nm_to_mm(point.x) - origin_x
+                    y = _nm_to_mm(point.y) - origin_y
                     points.append((x, y))
 
                 # 閉じたポリゴンにする

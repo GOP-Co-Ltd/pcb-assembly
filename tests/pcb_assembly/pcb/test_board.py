@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from shapely import Polygon
 
-from pcb_assembly.pcb.elements import (
+from pcb_assembly.pcb.board import (
     PNP_CSV_HEADER,
     Component,
     ComponentList,
