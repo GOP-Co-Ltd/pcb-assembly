@@ -68,12 +68,12 @@ def main() -> None:
         image = camera.capture()
 
         # クロップ領域を描画
-        h, w = image.shape[:2]
+        h, w = image.height, image.width
         cx, cy = w // 2, h // 2
         crop_w, crop_h = calibration.crop_size
         half_w, half_h = crop_w // 2, crop_h // 2
 
-        preview = image.copy()
+        preview = image.numpy()
 
         # クロップ領域の枠
         cv2.rectangle(

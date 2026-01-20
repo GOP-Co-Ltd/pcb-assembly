@@ -33,7 +33,7 @@ def main() -> None:
 
     while True:
         image = camera.capture()
-        cv2.imshow("Camera Preview", image)
+        cv2.imshow("Camera Preview", image.numpy())
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 

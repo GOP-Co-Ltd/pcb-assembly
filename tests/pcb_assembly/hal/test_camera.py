@@ -94,8 +94,10 @@ class TestCamera:
         camera = Camera()
         image = camera.capture()
 
-        assert image.shape == (480, 640, 3)
-        assert image.dtype == np.uint8
+        assert image.width == 640
+        assert image.height == 480
+        assert image.numpy().shape == (480, 640, 3)
+        assert image.numpy().dtype == np.uint8
 
     def test_capture_raises_on_failure(self, mock_camera_backend):
         mock_camera_backend.read.return_value = (False, None)
@@ -114,7 +116,8 @@ class TestCamera:
         with pytest.warns(RuntimeWarning, match="リサイズします"):
             image = camera.capture()
 
-        assert image.shape == (480, 640, 3)
+        assert image.width == 640
+        assert image.height == 480
 
     def test_capture_converts_grayscale_to_bgr(self, mock_camera_backend):
         grayscale_image = np.zeros((480, 640), dtype=np.uint8)
@@ -123,7 +126,7 @@ class TestCamera:
         camera = Camera()
         image = camera.capture()
 
-        assert image.shape == (480, 640, 3)
+        assert image.numpy().shape == (480, 640, 3)
 
     @mark_hardware
     @pytest.mark.parametrize(
@@ -137,5 +140,6 @@ class TestCamera:
         camera = Camera(device_id=0, width=width, height=height)
         image = camera.capture()
 
-        assert image.shape == (height, width, 3)
-        assert image.dtype == np.uint8
+        assert image.width == width
+        assert image.height == height
+        assert image.numpy().dtype == np.uint8
