@@ -12,7 +12,38 @@ from pathlib import Path
 import pcbnew
 from shapely import Polygon
 
-from .elements import Component, ComponentList, Layer, Pad, PadList
+from .elements import Component, ComponentList, Layer, Outline, Pad, PadList
+
+
+def extract_outline(pcb_path: Path) -> Outline:
+    """KiCad PCBファイルから基板アウトラインを抽出.
+
+    Args:
+        pcb_path: KiCad PCBファイル (.kicad_pcb) のパス
+
+    Returns:
+        基板アウトライン
+
+    Raises:
+        OSError: ファイルが開けない場合
+    """
+    board = pcbnew.LoadBoard(str(pcb_path))
+
+    outline_poly_set = pcbnew.SHAPE_POLY_SET()
+    board.GetBoardPolygonOutlines(outline_poly_set)
+
+    points: list[tuple[float, float]] = []
+    if outline_poly_set.OutlineCount() > 0:
+        outline = outline_poly_set.Outline(0)
+        for point in outline.CPoints():
+            x = point.x / 1_000_000.0
+            y = point.y / 1_000_000.0
+            points.append((x, y))
+
+        if points and points[0] != points[-1]:
+            points.append(points[0])
+
+    return Outline(Polygon(points) if points else Polygon())
 
 
 def extract_components(pcb_path: Path) -> ComponentList:
