@@ -5,18 +5,21 @@ from .elements import (
     Component,
     ComponentList,
     Layer,
+    Outline,
     Pad,
     PadList,
 )
-from .kicad import extract_components, extract_pads
+from .kicad import extract_components, extract_outline, extract_pads
 
 __all__ = [
     "Component",
     "ComponentList",
     "Layer",
+    "Outline",
     "Pad",
     "PadList",
     "PNP_CSV_HEADER",
     "extract_components",
+    "extract_outline",
     "extract_pads",
 ]
