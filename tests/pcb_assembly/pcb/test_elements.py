@@ -8,9 +8,36 @@ from pcb_assembly.pcb.elements import (
     Component,
     ComponentList,
     Layer,
+    Outline,
     Pad,
     PadList,
 )
+
+
+class TestOutline:
+    """Outlineクラスのテスト."""
+
+    @pytest.fixture
+    def sample(self) -> Outline:
+        # 20mm x 25mm の矩形基板
+        return Outline(Polygon([(0, 0), (20, 0), (20, 25), (0, 25), (0, 0)]))
+
+    def test_width_and_height(self, sample: Outline):
+        assert sample.width == pytest.approx(20.0)
+        assert sample.height == pytest.approx(25.0)
+
+    def test_polygon(self, sample: Outline):
+        assert sample.polygon.is_valid
+        assert sample.polygon.area == pytest.approx(500.0)
+
+    def test_save_and_load_roundtrip(self, sample: Outline, tmp_path: Path):
+        json_path = tmp_path / "outline.json"
+        sample.save(json_path)
+        loaded = Outline.load(json_path)
+
+        assert loaded.width == pytest.approx(sample.width)
+        assert loaded.height == pytest.approx(sample.height)
+        assert loaded.polygon.equals(sample.polygon)
 
 
 class TestComponent:

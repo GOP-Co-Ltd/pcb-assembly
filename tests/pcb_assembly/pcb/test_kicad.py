@@ -1,9 +1,25 @@
 import pytest
 
-from pcb_assembly.pcb import Layer, extract_components, extract_pads
+from pcb_assembly.pcb import Layer, extract_components, extract_outline, extract_pads
 from tests.helpers import TESTING_DATA_DIR
 
 LED_BLINKER_PCB = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
+
+
+class TestExtractOutline:
+    """extract_outline関数のテスト."""
+
+    def test_extracts_board_size(self):
+        outline = extract_outline(LED_BLINKER_PCB)
+
+        assert outline.width == pytest.approx(20.0, abs=0.1)
+        assert outline.height == pytest.approx(25.0, abs=0.1)
+
+    def test_extracts_valid_polygon(self):
+        outline = extract_outline(LED_BLINKER_PCB)
+
+        assert outline.polygon.is_valid
+        assert outline.polygon.area > 0
 
 
 class TestExtractComponents:

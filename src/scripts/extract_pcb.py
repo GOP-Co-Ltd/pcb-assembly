@@ -4,7 +4,7 @@
 import argparse
 from pathlib import Path
 
-from pcb_assembly.pcb import extract_components, extract_pads
+from pcb_assembly.pcb import extract_components, extract_outline, extract_pads
 
 
 def main() -> None:
@@ -42,6 +42,14 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     base_name = pcb_path.stem
+
+    # 基板アウトラインを抽出・表示
+    print(f"基板情報を抽出中: {pcb_path}")
+    outline = extract_outline(pcb_path)
+    print(f"  サイズ: {outline.width:.2f} x {outline.height:.2f} mm")
+    outline_path = output_dir / f"{base_name}_outline.json"
+    outline.save(outline_path)
+    print(f"  アウトライン -> {outline_path}")
 
     extract_comps = not args.pads_only
     extract_pads_flag = not args.components_only

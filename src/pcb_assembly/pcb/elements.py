@@ -4,6 +4,7 @@ import csv
 import json
 from collections import UserList
 from enum import Enum
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Self
 
@@ -25,6 +26,49 @@ _converter.register_unstructure_hook(Layer, lambda v: v.value)
 _converter.register_structure_hook(Layer, lambda v, _: Layer(v))
 _converter.register_unstructure_hook(Polygon, lambda p: list(p.exterior.coords))
 _converter.register_structure_hook(Polygon, lambda v, _: Polygon(v))
+
+
+@attrs.frozen
+class Outline:
+    """基板アウトライン.
+
+    Attributes:
+        polygon: 基板外形のポリゴン (mm単位)
+        width: 基板幅 (mm)
+        height: 基板高さ (mm)
+    """
+
+    polygon: Polygon
+
+    def __attrs_post_init__(self):
+        # propertyを呼び出してキャッシュ
+        self.width
+        self.height
+
+    @cached_property
+    def width(self) -> float:
+        """基板幅 (mm)."""
+        minx, _, maxx, _ = self.polygon.bounds
+        return maxx - minx
+
+    @cached_property
+    def height(self) -> float:
+        """基板高さ (mm)."""
+        _, miny, _, maxy = self.polygon.bounds
+        return maxy - miny
+
+    def save(self, path: Path) -> None:
+        """JSONファイルに保存."""
+        data = {"polygon": list(self.polygon.exterior.coords)}
+        path.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+    @classmethod
+    def load(cls, path: Path) -> Self:
+        """JSONファイルから読み込み."""
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return cls(Polygon(data["polygon"]))
 
 
 @attrs.frozen
