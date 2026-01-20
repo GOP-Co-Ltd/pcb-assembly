@@ -73,6 +73,7 @@ class ReferencePoint:
     y: float
     offset_x: float
     offset_y: float
+    target_diameter: float
 
 
 class Machine:

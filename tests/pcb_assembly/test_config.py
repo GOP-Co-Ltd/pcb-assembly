@@ -45,6 +45,7 @@ class TestMachine:
             y=8.3,
             offset_x=0,
             offset_y=5,
+            target_diameter=3.0,
         )
 
     def test_default_values(self):

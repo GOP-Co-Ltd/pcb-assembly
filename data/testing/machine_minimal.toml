@@ -26,3 +26,4 @@ x = 20.0
 y = 10.0
 offset_x = 0
 offset_y = 0
+target_diameter = 3.0
