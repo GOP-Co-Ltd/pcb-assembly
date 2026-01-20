@@ -33,11 +33,13 @@ class TestExtractComponents:
     def test_extracts_component_attributes(self):
         components = extract_components(LED_BLINKER_PCB)
 
+        # 座標は基板左上を原点として正規化される
+        # 元の座標 (105, 100)、基板左上 (95, 90) → 正規化後 (10, 10)
         u1 = next(c for c in components if c.designator == "U1")
         assert u1.value == "ATtiny85"
         assert u1.package == "SOT-23-6"
-        assert u1.x == pytest.approx(105.0)
-        assert u1.y == pytest.approx(100.0)
+        assert u1.x == pytest.approx(10.0)
+        assert u1.y == pytest.approx(10.0)
         assert u1.rotation == pytest.approx(0.0)
         assert u1.layer == Layer.TOP
 
