@@ -31,8 +31,8 @@ y = 54.7
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
-x = 18.5
-y = 8.5
-# 基準点からみた基盤の相対位置 (mm)
-offset_x = 5
+x = 23.1
+y = 8.3
+# 基準点からみた基盤左上の相対位置 (mm)
+offset_x = 0
 offset_y = 5
