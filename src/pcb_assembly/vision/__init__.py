@@ -1,6 +1,6 @@
 from .calibration import CalibrationResult, CheckerboardCalibrator
 from .detection import CircleDetector, DetectedCircle, Offset, Point2D
-from .image import Image, ImageNDArray
+from .image import Image, ImageArray
 
 __all__ = [
     "CalibrationResult",
@@ -8,7 +8,7 @@ __all__ = [
     "CircleDetector",
     "DetectedCircle",
     "Image",
-    "ImageNDArray",
+    "ImageArray",
     "Offset",
     "Point2D",
 ]

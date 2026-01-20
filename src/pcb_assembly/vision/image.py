@@ -9,13 +9,13 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
-type ImageNDArray = npt.NDArray[Any]
+type ImageArray = npt.NDArray[Any]
 
 
 class Image:
     """3チャネルカラー画像 (BGR) を保持するイミュータブルなクラス."""
 
-    def __init__(self, data: ImageNDArray) -> None:
+    def __init__(self, data: ImageArray) -> None:
         """カラー画像を初期化.
 
         Args:
@@ -43,7 +43,7 @@ class Image:
         """画像の高さ."""
         return int(self._data.shape[0])
 
-    def numpy(self) -> ImageNDArray:
+    def numpy(self) -> ImageArray:
         """内部配列を返す."""
         return self._data
 

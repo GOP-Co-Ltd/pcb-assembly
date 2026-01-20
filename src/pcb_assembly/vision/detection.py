@@ -5,7 +5,7 @@ import math
 import attrs
 import cv2
 
-from .image import Image, ImageNDArray
+from .image import Image, ImageArray
 
 
 @attrs.frozen
@@ -149,7 +149,7 @@ class CircleDetector:
 
         return result
 
-    def _crop_center(self, image: ImageNDArray) -> ImageNDArray:
+    def _crop_center(self, image: ImageArray) -> ImageArray:
         """画像の中心をクロップ."""
         assert self._crop_size is not None
         h, w = image.shape[:2]

@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 from cattrs.preconf.json import make_converter
 
-from .image import Image, ImageNDArray
+from .image import Image, ImageArray
 
 # Path の変換をサポートするコンバーター
 _converter = make_converter()
@@ -104,7 +104,7 @@ class CheckerboardCalibrator:
 
         return result, Image(vis)
 
-    def _crop_center(self, image: ImageNDArray) -> ImageNDArray:
+    def _crop_center(self, image: ImageArray) -> ImageArray:
         """画像の中心をクロップ."""
         h, w = image.shape[:2]
         cx, cy = w // 2, h // 2
@@ -112,7 +112,7 @@ class CheckerboardCalibrator:
         return image[cy - half_h : cy + half_h, cx - half_w : cx + half_w].copy()
 
     def _detect_checkerboard(
-        self, image: ImageNDArray
+        self, image: ImageArray
     ) -> tuple[np.ndarray, tuple[int, int]] | None:
         """チェッカーボードのコーナーを検出."""
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
