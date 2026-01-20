@@ -1,4 +1,4 @@
-"""PCB要素のデータクラス: 部品・パッド情報とCSV/JSON操作."""
+"""PCB要素のモジュール: 部品・パッド情報とCSV/JSON操作."""
 
 import csv
 import json

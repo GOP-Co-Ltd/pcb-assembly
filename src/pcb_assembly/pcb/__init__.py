@@ -1,6 +1,6 @@
 """PCB情報抽出モジュール: KiCadからパッド・部品情報を抽出."""
 
-from .elements import (
+from .board import (
     PNP_CSV_HEADER,
     Component,
     ComponentList,

@@ -12,7 +12,7 @@ from pathlib import Path
 import pcbnew
 from shapely import Polygon
 
-from .elements import Component, ComponentList, Layer, Outline, Pad, PadList
+from .board import Component, ComponentList, Layer, Outline, Pad, PadList
 
 
 def extract_outline(pcb_path: Path) -> Outline:
