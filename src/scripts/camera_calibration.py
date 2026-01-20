@@ -91,7 +91,7 @@ def main() -> None:
             image_path = output_dir / f"{camera.info.name}_{timestamp}.png"
 
             result.save(json_path)
-            cv2.imwrite(str(image_path), vis.numpy())
+            vis.save(image_path)
 
             print()
             print("=== キャリブレーション完了 ===")

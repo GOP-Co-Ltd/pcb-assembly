@@ -57,9 +57,7 @@ class TestCheckerboardCalibrator:
     @pytest.fixture
     def checkerboard_image(self) -> Image:
         """5x5内部コーナー、1マス約66.7pxのチェッカーボード画像(400x400)."""
-        arr = cv2.imread(str(TESTING_DATA_DIR / "checkerboard.png"))
-        assert arr is not None
-        return Image(arr)
+        return Image.load(TESTING_DATA_DIR / "checkerboard.png")
 
     @pytest.fixture
     def calibrator(self) -> CheckerboardCalibrator:
