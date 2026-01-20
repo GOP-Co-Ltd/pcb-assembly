@@ -3,14 +3,14 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Self, cast
+from typing import Any, Self
 
 import attrs
 import cv2
 import numpy as np
 from cattrs.preconf.json import make_converter
 
-from pcb_assembly.hal.camera import Image
+from .image import Image, ImageNDArray
 
 # Path の変換をサポートするコンバーター
 _converter = make_converter()
@@ -77,8 +77,8 @@ class CheckerboardCalibrator:
         Returns:
             (キャリブレーション結果, コーナー描画済み画像) または検出失敗時はNone
         """
-        resolution = (image.shape[1], image.shape[0])
-        cropped = self._crop_center(image)
+        resolution = (image.width, image.height)
+        cropped = self._crop_center(image.numpy())
 
         detection = self._detect_checkerboard(cropped)
         if detection is None:
@@ -102,19 +102,17 @@ class CheckerboardCalibrator:
         vis = cropped.copy()
         cv2.drawChessboardCorners(vis, pattern_size, corners, True)
 
-        return result, vis
+        return result, Image(vis)
 
-    def _crop_center(self, image: Image) -> Image:
+    def _crop_center(self, image: ImageNDArray) -> ImageNDArray:
         """画像の中心をクロップ."""
         h, w = image.shape[:2]
         cx, cy = w // 2, h // 2
         half_w, half_h = self._crop_size[0] // 2, self._crop_size[1] // 2
-        return cast(
-            Image, image[cy - half_h : cy + half_h, cx - half_w : cx + half_w].copy()
-        )
+        return image[cy - half_h : cy + half_h, cx - half_w : cx + half_w].copy()
 
     def _detect_checkerboard(
-        self, image: Image
+        self, image: ImageNDArray
     ) -> tuple[np.ndarray, tuple[int, int]] | None:
         """チェッカーボードのコーナーを検出."""
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)

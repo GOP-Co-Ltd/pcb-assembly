@@ -7,10 +7,8 @@ import warnings
 import attrs
 import cv2
 import cv2.typing
-import numpy as np
 
-type HWC = tuple[int, int, int]  # Height, Width, Channels
-type Image = np.ndarray[HWC, np.dtype[np.uint8]]
+from pcb_assembly.vision.image import Image
 
 
 def _device_id_to_path(device_id: int) -> str:
@@ -207,11 +205,4 @@ class Camera:
                 RuntimeWarning,
             )
             image = cv2.resize(image, (self._width, self._height))
-        match len(image.shape):
-            case 3:
-                pass
-            case 2:
-                image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-            case _:
-                raise ValueError(f"不正な画像形状: {image.shape}")
-        return image.astype(np.uint8)
+        return Image(image)

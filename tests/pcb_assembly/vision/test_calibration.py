@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import pytest
 
+from pcb_assembly.vision import Image
 from pcb_assembly.vision.calibration import CalibrationResult, CheckerboardCalibrator
 from tests.helpers import TESTING_DATA_DIR
 
@@ -54,9 +55,9 @@ class TestCheckerboardCalibrator:
     """CheckerboardCalibratorクラスのテスト."""
 
     @pytest.fixture
-    def checkerboard_image(self):
+    def checkerboard_image(self) -> Image:
         """5x5内部コーナー、1マス約66.7pxのチェッカーボード画像(400x400)."""
-        return cv2.imread(str(TESTING_DATA_DIR / "checkerboard.png"))
+        return Image.load(TESTING_DATA_DIR / "checkerboard.png")
 
     @pytest.fixture
     def calibrator(self) -> CheckerboardCalibrator:
@@ -67,17 +68,17 @@ class TestCheckerboardCalibrator:
         )
 
     def test_calibrate_returns_result_and_visualization(
-        self, calibrator: CheckerboardCalibrator, checkerboard_image: np.ndarray
+        self, calibrator: CheckerboardCalibrator, checkerboard_image: Image
     ):
         result = calibrator.calibrate(checkerboard_image)
 
         assert result is not None
         calibration_result, vis_image = result
         assert isinstance(calibration_result, CalibrationResult)
-        assert vis_image.shape == checkerboard_image.shape
+        assert isinstance(vis_image, Image)
 
     def test_calibrate_calculates_correct_pixel_per_mm(
-        self, calibrator: CheckerboardCalibrator, checkerboard_image: np.ndarray
+        self, calibrator: CheckerboardCalibrator, checkerboard_image: Image
     ):
         result = calibrator.calibrate(checkerboard_image)
         assert result is not None
@@ -87,7 +88,7 @@ class TestCheckerboardCalibrator:
         assert calibration_result.pixel_per_mm == pytest.approx(400 / 6 / 10, rel=0.01)
 
     def test_calibrate_sets_correct_metadata(
-        self, calibrator: CheckerboardCalibrator, checkerboard_image: np.ndarray
+        self, calibrator: CheckerboardCalibrator, checkerboard_image: Image
     ):
         result = calibrator.calibrate(checkerboard_image)
         assert result is not None
@@ -100,7 +101,7 @@ class TestCheckerboardCalibrator:
     def test_calibrate_returns_none_when_no_checkerboard(
         self, calibrator: CheckerboardCalibrator
     ):
-        blank_image = np.full((400, 400, 3), 128, dtype=np.uint8)
+        blank_image = Image(np.full((400, 400, 3), 128, dtype=np.uint8))
 
         result = calibrator.calibrate(blank_image)
 

@@ -1,12 +1,11 @@
 """画像検出: 円などの図形を検出し、位置ズレを計算."""
 
 import math
-from typing import cast
 
 import attrs
 import cv2
 
-from pcb_assembly.hal.camera import Image
+from .image import Image, ImageNDArray
 
 
 @attrs.frozen
@@ -102,9 +101,9 @@ class CircleDetector:
         """
         # 関心領域を切り出し
         if self._crop_size is not None:
-            cropped = self._crop_center(image)
+            cropped = self._crop_center(image.numpy())
         else:
-            cropped = image
+            cropped = image.numpy()
 
         image_center = (cropped.shape[1] / 2, cropped.shape[0] / 2)
 
@@ -150,14 +149,13 @@ class CircleDetector:
 
         return result
 
-    def _crop_center(self, image: Image) -> Image:
+    def _crop_center(self, image: ImageNDArray) -> ImageNDArray:
         """画像の中心をクロップ."""
         assert self._crop_size is not None
         h, w = image.shape[:2]
         cx, cy = w // 2, h // 2
         half_w, half_h = self._crop_size[0] // 2, self._crop_size[1] // 2
-        cropped = image[cy - half_h : cy + half_h, cx - half_w : cx + half_w].copy()
-        return cast(Image, cropped)
+        return image[cy - half_h : cy + half_h, cx - half_w : cx + half_w].copy()
 
     def _filter_by_size(self, circles: list[DetectedCircle]) -> list[DetectedCircle]:
         """ターゲットサイズに近い円をフィルタリング."""

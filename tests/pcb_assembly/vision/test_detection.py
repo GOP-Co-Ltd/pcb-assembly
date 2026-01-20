@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
+from pcb_assembly.vision import Image
 from pcb_assembly.vision.detection import (
     CircleDetector,
     DetectedCircle,
@@ -42,21 +43,21 @@ class TestCircleDetector:
         )
 
     @pytest.fixture
-    def image_with_center_circle(self) -> np.ndarray:
+    def image_with_center_circle(self) -> Image:
         """中心に直径30pxの円がある200x200画像."""
-        image = np.full((200, 200, 3), 255, dtype=np.uint8)
-        cv2.circle(image, (100, 100), 15, (0, 0, 0), -1)
-        return image
+        arr = np.full((200, 200, 3), 255, dtype=np.uint8)
+        cv2.circle(arr, (100, 100), 15, (0, 0, 0), -1)
+        return Image(arr)
 
     @pytest.fixture
-    def image_with_offset_circle(self) -> np.ndarray:
+    def image_with_offset_circle(self) -> Image:
         """中心から(20, 30)ずれた位置に円がある200x200画像."""
-        image = np.full((200, 200, 3), 255, dtype=np.uint8)
-        cv2.circle(image, (120, 130), 15, (0, 0, 0), -1)
-        return image
+        arr = np.full((200, 200, 3), 255, dtype=np.uint8)
+        cv2.circle(arr, (120, 130), 15, (0, 0, 0), -1)
+        return Image(arr)
 
     def test_detect_circles_finds_circle(
-        self, detector: CircleDetector, image_with_center_circle: np.ndarray
+        self, detector: CircleDetector, image_with_center_circle: Image
     ):
         circles = detector.detect_circles(image_with_center_circle)
 
@@ -66,14 +67,14 @@ class TestCircleDetector:
     def test_detect_circles_returns_empty_when_no_circle(
         self, detector: CircleDetector
     ):
-        blank_image = np.full((200, 200, 3), 255, dtype=np.uint8)
+        blank_image = Image(np.full((200, 200, 3), 255, dtype=np.uint8))
 
         circles = detector.detect_circles(blank_image)
 
         assert circles == []
 
     def test_detect_nearest_center_returns_circle_at_center(
-        self, detector: CircleDetector, image_with_center_circle: np.ndarray
+        self, detector: CircleDetector, image_with_center_circle: Image
     ):
         result = detector.detect_nearest_center(image_with_center_circle)
 
@@ -84,7 +85,7 @@ class TestCircleDetector:
         assert result.offset.mm.distance == pytest.approx(0.0, abs=0.2)
 
     def test_detect_nearest_center_calculates_offset(
-        self, detector: CircleDetector, image_with_offset_circle: np.ndarray
+        self, detector: CircleDetector, image_with_offset_circle: Image
     ):
         result = detector.detect_nearest_center(image_with_offset_circle)
 
@@ -99,7 +100,7 @@ class TestCircleDetector:
     def test_detect_nearest_center_returns_none_when_no_circle(
         self, detector: CircleDetector
     ):
-        blank_image = np.full((200, 200, 3), 255, dtype=np.uint8)
+        blank_image = Image(np.full((200, 200, 3), 255, dtype=np.uint8))
 
         result = detector.detect_nearest_center(blank_image)
 
@@ -114,10 +115,10 @@ class TestCircleDetector:
             diameter_tolerance_mm=1.0,
         )
         # 直径30pxの小さな円しかない画像
-        image = np.full((200, 200, 3), 255, dtype=np.uint8)
-        cv2.circle(image, (100, 100), 15, (0, 0, 0), -1)
+        arr = np.full((200, 200, 3), 255, dtype=np.uint8)
+        cv2.circle(arr, (100, 100), 15, (0, 0, 0), -1)
 
-        result = detector.detect_nearest_center(image)
+        result = detector.detect_nearest_center(Image(arr))
 
         assert result is None
 
@@ -128,13 +129,13 @@ class TestCircleDetector:
             target_diameter_mm=3.0,
             diameter_tolerance_mm=1.0,
         )
-        image = np.full((200, 200, 3), 255, dtype=np.uint8)
+        arr = np.full((200, 200, 3), 255, dtype=np.uint8)
         # 中心に近い円 (105, 105)
-        cv2.circle(image, (105, 105), 15, (0, 0, 0), -1)
+        cv2.circle(arr, (105, 105), 15, (0, 0, 0), -1)
         # 中心から遠い円 (150, 150)
-        cv2.circle(image, (150, 150), 15, (0, 0, 0), -1)
+        cv2.circle(arr, (150, 150), 15, (0, 0, 0), -1)
 
-        result = detector.detect_nearest_center(image)
+        result = detector.detect_nearest_center(Image(arr))
 
         assert result is not None
         assert result.center.x == pytest.approx(105.0, abs=3.0)
@@ -149,9 +150,9 @@ class TestCircleDetector:
             crop_size=(100, 100),
         )
         # 200x200画像の端に円を配置（crop後は含まれない）
-        image = np.full((200, 200, 3), 255, dtype=np.uint8)
-        cv2.circle(image, (20, 20), 15, (0, 0, 0), -1)
+        arr = np.full((200, 200, 3), 255, dtype=np.uint8)
+        cv2.circle(arr, (20, 20), 15, (0, 0, 0), -1)
 
-        result = detector.detect_nearest_center(image)
+        result = detector.detect_nearest_center(Image(arr))
 
         assert result is None

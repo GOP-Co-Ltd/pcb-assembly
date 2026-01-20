@@ -56,10 +56,10 @@ def main() -> None:
         image = camera.capture()
 
         # クロップ領域を緑枠で表示
-        h, w = image.shape[:2]
+        h, w = image.height, image.width
         cx, cy = w // 2, h // 2
         half_w, half_h = args.crop_width // 2, args.crop_height // 2
-        preview = image.copy()
+        preview = image.numpy()
         cv2.rectangle(
             preview,
             (cx - half_w, cy - half_h),
@@ -91,7 +91,7 @@ def main() -> None:
             image_path = output_dir / f"{camera.info.name}_{timestamp}.png"
 
             result.save(json_path)
-            cv2.imwrite(str(image_path), vis)
+            vis.save(image_path)
 
             print()
             print("=== キャリブレーション完了 ===")

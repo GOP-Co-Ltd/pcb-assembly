@@ -114,55 +114,46 @@ class TestTrajectory:
         assert len(traj.waypoints) == 2
 
     @pytest.mark.parametrize(
-        ("waypoints", "expected_distance"),
+        ("moves", "expected_distance"),
         [
             ([], 0.0),
-            ([Waypoint(0.0, 0.0, 0.0, 10.0)], 0.0),
-            (
-                [Waypoint(0.0, 0.0, 0.0, 10.0), Waypoint(3.0, 4.0, 0.0, 10.0)],
-                5.0,
-            ),
+            ([Move(x=0.0, y=0.0, z=0.0)], 0.0),
+            ([Move(x=0.0, y=0.0, z=0.0), Move(x=3.0, y=4.0, z=0.0)], 5.0),
             (
                 [
-                    Waypoint(0.0, 0.0, 0.0, 10.0),
-                    Waypoint(3.0, 4.0, 0.0, 10.0),
-                    Waypoint(3.0, 4.0, 5.0, 10.0),
+                    Move(x=0.0, y=0.0, z=0.0),
+                    Move(x=3.0, y=4.0, z=0.0),
+                    Move(x=3.0, y=4.0, z=5.0),
                 ],
                 10.0,
             ),
         ],
     )
-    def test_distance(self, waypoints, expected_distance):
+    def test_distance(self, moves, expected_distance):
         traj = Trajectory(Position(0.0, 0.0, 0.0), default_velocity=10.0)
-        traj._waypoints = waypoints
+        traj.add(*moves)
 
         assert traj.distance() == expected_distance
 
     @pytest.mark.parametrize(
-        ("waypoints", "expected_time"),
+        ("moves", "expected_time"),
         [
             ([], 0.0),
-            ([Waypoint(0.0, 0.0, 0.0, 10.0)], 0.0),
-            (
-                [Waypoint(0.0, 0.0, 0.0, 10.0), Waypoint(10.0, 0.0, 0.0, 10.0)],
-                1.0,
-            ),
-            (
-                [Waypoint(0.0, 0.0, 0.0, 10.0), Waypoint(10.0, 0.0, 0.0, 5.0)],
-                2.0,
-            ),
+            ([Move(x=0.0, y=0.0, z=0.0)], 0.0),
+            ([Move(x=0.0, y=0.0, z=0.0), Move(x=10.0, y=0.0, z=0.0)], 1.0),
+            ([Move(x=0.0, y=0.0, z=0.0), Move(x=10.0, y=0.0, z=0.0, v=5.0)], 2.0),
             (
                 [
-                    Waypoint(0.0, 0.0, 0.0, 10.0),
-                    Waypoint(10.0, 0.0, 0.0, 10.0),
-                    Waypoint(10.0, 20.0, 0.0, 20.0),
+                    Move(x=0.0, y=0.0, z=0.0),
+                    Move(x=10.0, y=0.0, z=0.0),
+                    Move(x=10.0, y=20.0, z=0.0, v=20.0),
                 ],
                 2.0,
             ),
         ],
     )
-    def test_time(self, waypoints, expected_time):
+    def test_time(self, moves, expected_time):
         traj = Trajectory(Position(0.0, 0.0, 0.0), default_velocity=10.0)
-        traj._waypoints = waypoints
+        traj.add(*moves)
 
         assert traj.time() == expected_time
