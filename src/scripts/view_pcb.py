@@ -9,11 +9,17 @@ from matplotlib.artist import Artist
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Polygon as MplPolygon
 
-from pcb_assembly.pcb import ComponentList, Layer, PadList
+from pcb_assembly.pcb import ComponentList, Layer, Outline, PadList
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="PCB抽出データの可視化")
+    parser.add_argument(
+        "--outline",
+        type=Path,
+        default=None,
+        help="アウトラインJSONファイル (*_outline.json)",
+    )
     parser.add_argument(
         "--pads",
         "-p",
@@ -44,9 +50,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not args.pads and not args.components:
-        parser.error("--pads または --components のいずれかを指定してください")
+    if not args.outline and not args.pads and not args.components:
+        parser.error("--outline, --pads, --components のいずれかを指定してください")
 
+    outline = Outline.load(args.outline) if args.outline else None
     pads = PadList.load(args.pads) if args.pads else PadList()
     components = (
         ComponentList.load(args.components) if args.components else ComponentList()
@@ -60,13 +67,26 @@ def main() -> None:
         pads = PadList([p for p in pads if p.layer == Layer.BOTTOM])
         components = ComponentList([c for c in components if c.layer == Layer.BOTTOM])
 
-    if not pads and not components:
+    if not outline and not pads and not components:
         print("表示するデータがありません")
         return
 
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_aspect("equal")
     ax.set_facecolor("#2a2a2a")
+
+    # アウトライン描画
+    if outline:
+        coords = list(outline.polygon.exterior.coords)
+        outline_polygon = MplPolygon(
+            coords,
+            closed=True,
+            facecolor="none",
+            edgecolor="#ffffff",
+            linewidth=1.5,
+            linestyle="--",
+        )
+        ax.add_patch(outline_polygon)
 
     # パッド描画
     for pad in pads:
@@ -114,6 +134,8 @@ def main() -> None:
 
     # タイトル
     title_parts = []
+    if outline:
+        title_parts.append(f"Board: {outline.width:.1f}x{outline.height:.1f}mm")
     if pads:
         title_parts.append(f"Pads: {len(pads)}")
     if components:
@@ -123,6 +145,17 @@ def main() -> None:
 
     # 凡例
     legend_elements: list[Artist] = []
+    if outline:
+        legend_elements.append(
+            Line2D(
+                [0],
+                [0],
+                color="#ffffff",
+                linewidth=1.5,
+                linestyle="--",
+                label="Board Outline",
+            )
+        )
     if pads:
         legend_elements.extend(
             [
