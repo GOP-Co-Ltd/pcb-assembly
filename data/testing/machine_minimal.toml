@@ -1,0 +1,28 @@
+# paste_dispenserなしの設定（pnpマシン用）
+
+[klipper]
+
+[probe]
+a_pin = 17
+b_pin = 27
+rotation_pulse = 600
+rotation_distance = 40.0
+
+[camera]
+width = 640
+height = 480
+fps = 30.0
+
+[camera.crop]
+width = 400
+height = 400
+
+[toolhead]
+x = 10.0
+y = 50.0
+
+[reference_point]
+x = 20.0
+y = 10.0
+offset_x = 0
+offset_y = 0

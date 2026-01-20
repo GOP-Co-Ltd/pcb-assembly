@@ -1,0 +1,35 @@
+[klipper]
+host = "192.168.1.100"
+port = 7125
+
+[probe]
+a_pin = 17
+b_pin = 27
+rotation_pulse = 600
+rotation_distance = 40.0
+inverse = true
+
+[paste_dispenser]
+syringe_size = 9.0
+nozzle_size = "G27"
+
+[camera]
+device_id = 0
+width = 640
+height = 480
+fps = 30.0
+format = "YUYV"
+
+[camera.crop]
+width = 400
+height = 400
+
+[toolhead]
+x = 13.2
+y = 54.7
+
+[reference_point]
+x = 23.1
+y = 8.3
+offset_x = 0
+offset_y = 5
