@@ -1,7 +1,71 @@
 import pytest
 
-from pcb_assembly.geometry.trajectory import Move, Trajectory, Waypoint
+from pcb_assembly.geometry.trajectory import Move, Trajectory, Waypoint, sort_by_nearest
 from pcb_assembly.geometry.transform import Position
+
+
+class TestSortByNearest:
+    """sort_by_nearest関数のテスト."""
+
+    @pytest.mark.parametrize(
+        ("positions", "start", "expected"),
+        [
+            ([], Position(0.0, 0.0, 0.0), []),
+            (
+                [Position(1.0, 1.0, 0.0)],
+                Position(0.0, 0.0, 0.0),
+                [Position(1.0, 1.0, 0.0)],
+            ),
+            (
+                [
+                    Position(1.0, 0.0, 0.0),
+                    Position(2.0, 0.0, 0.0),
+                    Position(3.0, 0.0, 0.0),
+                ],
+                Position(0.0, 0.0, 0.0),
+                [
+                    Position(1.0, 0.0, 0.0),
+                    Position(2.0, 0.0, 0.0),
+                    Position(3.0, 0.0, 0.0),
+                ],
+            ),
+            (
+                [
+                    Position(3.0, 0.0, 0.0),
+                    Position(2.0, 0.0, 0.0),
+                    Position(1.0, 0.0, 0.0),
+                ],
+                Position(0.0, 0.0, 0.0),
+                [
+                    Position(1.0, 0.0, 0.0),
+                    Position(2.0, 0.0, 0.0),
+                    Position(3.0, 0.0, 0.0),
+                ],
+            ),
+        ],
+    )
+    def test_sort_by_nearest(self, positions, start, expected):
+        result = sort_by_nearest(positions, start)
+
+        assert result == expected
+
+    def test_greedy_behavior(self):
+        # greedy nearest neighborの動作確認
+        # start=(0,0) から A=(1,0), B=(0,2), C=(1,2) を巡回
+        positions = [
+            Position(0.0, 2.0, 0.0),  # B
+            Position(1.0, 2.0, 0.0),  # C
+            Position(1.0, 0.0, 0.0),  # A
+        ]
+
+        result = sort_by_nearest(positions, Position(0.0, 0.0, 0.0))
+
+        # start(0,0)から最も近いのはA(1,0)
+        assert result[0] == Position(1.0, 0.0, 0.0)
+        # A(1,0)から最も近いのはC(1,2)
+        assert result[1] == Position(1.0, 2.0, 0.0)
+        # 残りはB(0,2)
+        assert result[2] == Position(0.0, 2.0, 0.0)
 
 
 class TestMove:

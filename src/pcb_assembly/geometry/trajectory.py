@@ -5,6 +5,34 @@ import attrs
 from .transform import Position
 
 
+def sort_by_nearest(positions: Iterable[Position], start: Position) -> list[Position]:
+    """開始点から最も近い順に並べ替える（greedy nearest neighbor）.
+
+    Args:
+        positions: 並べ替える位置のシーケンス
+        start: 開始点
+
+    Returns:
+        開始点から近い順に並べ替えた位置のリスト
+    """
+    if not positions:
+        return []
+
+    remaining = list(positions)
+    result: list[Position] = []
+    current = start
+
+    while remaining:
+        nearest_idx = min(
+            range(len(remaining)), key=lambda i: (remaining[i] - current).norm()
+        )
+        nearest = remaining.pop(nearest_idx)
+        result.append(nearest)
+        current = nearest
+
+    return result
+
+
 @attrs.frozen
 class Move:
     """移動指示を表す.
