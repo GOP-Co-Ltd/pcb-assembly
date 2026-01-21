@@ -17,6 +17,13 @@ class TestImage:
         assert image.width == 640
         assert image.height == 480
 
+    def test_size(self):
+        arr = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        image = Image(arr)
+
+        assert image.size == (640, 480)
+
     def test_numpy_returns_internal_array(self):
         arr = np.zeros((100, 100, 3), dtype=np.uint8)
         image = Image(arr)
@@ -71,3 +78,13 @@ class TestImage:
 
         with pytest.raises(FileNotFoundError, match="画像を読み込めません"):
             Image.load(path)
+
+    def test_crop_center(self):
+        arr = np.zeros((100, 200, 3), dtype=np.uint8)
+        arr[40:60, 80:120] = 255  # 中央に白い領域を配置
+        image = Image(arr)
+
+        cropped = image.crop_center((40, 20))
+
+        assert cropped.size == (40, 20)
+        assert np.all(cropped.numpy() == 255)
