@@ -1,4 +1,5 @@
 import math
+from collections.abc import Iterable
 from typing import Self
 
 import attrs
@@ -162,6 +163,23 @@ class Transform:
     rotation: Rotation = attrs.Factory(Rotation)
     translation: Position = attrs.Factory(lambda: Position(0.0, 0.0, 0.0))
 
+    def _apply_to_array(
+        self, points: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.float64]:
+        """NumPy配列に変換を適用する（内部メソッド）.
+
+        Args:
+            points: 形状(N, 3)の座標配列
+
+        Returns:
+            変換後の座標配列
+        """
+        # Scale → Rotation → Translation
+        # points: (N, 3), matrix: (3, 3) なので転置して計算
+        scaled = points @ self.scale.to_matrix().T
+        rotated = scaled @ self.rotation.to_matrix().T
+        return rotated + self.translation.numpy()
+
     def apply(self, position: Position) -> Position:
         """位置に変換を適用する.
 
@@ -171,11 +189,9 @@ class Transform:
         Returns:
             変換後の位置
         """
-        # Scale → Rotation → Translation
-        scaled = self.scale.to_matrix() @ position.numpy()
-        rotated = self.rotation.to_matrix() @ scaled
-        translated = rotated + self.translation.numpy()
-        return Position.from_numpy(translated)
+        points = position.numpy().reshape(1, 3)
+        result = self._apply_to_array(points)
+        return Position.from_numpy(result[0])
 
     def inverse(self) -> Self:
         """逆変換を返す.
@@ -195,3 +211,20 @@ class Transform:
             rotation=inv_rotation,
             translation=Position.from_numpy(inv_translation_vec),
         )
+
+    def batch(self, positions: Iterable[Position]) -> list[Position]:
+        """複数の位置に変換を一括適用する.
+
+        Args:
+            positions: 変換を適用する位置のイテラブル
+
+        Returns:
+            変換後の位置のリスト
+        """
+        positions_list = list(positions)
+        if not positions_list:
+            return []
+
+        points = np.array([p.numpy() for p in positions_list], dtype=np.float64)
+        result = self._apply_to_array(points)
+        return [Position.from_numpy(row) for row in result]

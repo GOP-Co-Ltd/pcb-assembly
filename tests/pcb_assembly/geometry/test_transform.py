@@ -256,3 +256,27 @@ class TestTransform:
         assert np.isclose(restored.x, pos.x, atol=1e-10)
         assert np.isclose(restored.y, pos.y, atol=1e-10)
         assert np.isclose(restored.z, pos.z, atol=1e-10)
+
+    @pytest.mark.parametrize(
+        "positions",
+        [
+            [],
+            [Position(1.0, 2.0, 3.0)],
+            [Position(1.0, 0.0, 0.0), Position(0.0, 1.0, 0.0), Position(1.0, 1.0, 5.0)],
+        ],
+    )
+    def test_batch(self, positions):
+        transform = Transform(
+            scale=Scale(2.0, 3.0, 1.0),
+            rotation=Rotation(45.0),
+            translation=Position(5.0, -3.0, 2.0),
+        )
+
+        batch_results = transform.batch(positions)
+        apply_results = [transform.apply(p) for p in positions]
+
+        assert len(batch_results) == len(apply_results)
+        for batch_res, apply_res in zip(batch_results, apply_results, strict=True):
+            assert np.isclose(batch_res.x, apply_res.x, atol=1e-10)
+            assert np.isclose(batch_res.y, apply_res.y, atol=1e-10)
+            assert np.isclose(batch_res.z, apply_res.z, atol=1e-10)
