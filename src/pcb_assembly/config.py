@@ -44,6 +44,11 @@ class CameraCrop:
     width: int
     height: int
 
+    @property
+    def size(self) -> tuple[int, int]:
+        """クロップサイズを(width, height)のタプルで返す."""
+        return (self.width, self.height)
+
 
 @attrs.frozen
 class Camera:
@@ -56,6 +61,11 @@ class Camera:
     calibration_file: Path
     device_id: int = 0
     format: str = "YUYV"
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """カメラサイズを(width, height)のタプルで返す."""
+        return (self.width, self.height)
 
 
 @attrs.frozen

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from pcb_assembly.config import (
@@ -64,3 +66,27 @@ class TestMachine:
             KeyError, match="'paste_dispenser' は設定ファイルに定義されていません"
         ):
             machine.paste_dispenser
+
+
+class TestCamera:
+    """Cameraクラスのテスト."""
+
+    def test_size(self):
+        camera = Camera(
+            width=640,
+            height=480,
+            fps=30.0,
+            crop=CameraCrop(width=400, height=400),
+            calibration_file=Path("calibration.json"),
+        )
+
+        assert camera.size == (640, 480)
+
+
+class TestCameraCrop:
+    """CameraCropクラスのテスト."""
+
+    def test_size(self):
+        crop = CameraCrop(width=400, height=300)
+
+        assert crop.size == (400, 300)
