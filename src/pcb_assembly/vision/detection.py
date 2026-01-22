@@ -7,7 +7,7 @@ import cv2
 
 from pcb_assembly.geometry import Position
 
-from .image import Image, ImageArray
+from .image import Image
 
 
 @attrs.frozen
@@ -114,13 +114,13 @@ class CircleDetector:
         """
         # 関心領域を切り出し
         if self._crop_size is not None:
-            cropped = self._crop_center(image.numpy())
+            cropped = image.crop_center(self._crop_size)
         else:
-            cropped = image.numpy()
+            cropped = image
 
-        image_center = (cropped.shape[1] / 2, cropped.shape[0] / 2)
+        image_center = (cropped.width / 2, cropped.height / 2)
 
-        gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(cropped.numpy(), cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (9, 9), 2)
 
         # ターゲットサイズに基づいて検出パラメータを設定
@@ -161,14 +161,6 @@ class CircleDetector:
             )
 
         return result
-
-    def _crop_center(self, image: ImageArray) -> ImageArray:
-        """画像の中心をクロップ."""
-        assert self._crop_size is not None
-        h, w = image.shape[:2]
-        cx, cy = w // 2, h // 2
-        half_w, half_h = self._crop_size[0] // 2, self._crop_size[1] // 2
-        return image[cy - half_h : cy + half_h, cx - half_w : cx + half_w].copy()
 
     def _filter_by_size(self, circles: list[DetectedCircle]) -> list[DetectedCircle]:
         """ターゲットサイズに近い円をフィルタリング."""

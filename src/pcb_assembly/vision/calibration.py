@@ -77,10 +77,10 @@ class CheckerboardCalibrator:
         Returns:
             (キャリブレーション結果, コーナー描画済み画像) または検出失敗時はNone
         """
-        resolution = (image.width, image.height)
-        cropped = self._crop_center(image.numpy())
+        resolution = image.size
+        cropped = image.crop_center(self._crop_size)
 
-        detection = self._detect_checkerboard(cropped)
+        detection = self._detect_checkerboard(cropped.numpy())
         if detection is None:
             return None
 
@@ -99,17 +99,10 @@ class CheckerboardCalibrator:
             calibrated_at=datetime.now(),
         )
 
-        vis = cropped.copy()
+        vis = cropped.numpy().copy()
         cv2.drawChessboardCorners(vis, pattern_size, corners, True)
 
         return result, Image(vis)
-
-    def _crop_center(self, image: ImageArray) -> ImageArray:
-        """画像の中心をクロップ."""
-        h, w = image.shape[:2]
-        cx, cy = w // 2, h // 2
-        half_w, half_h = self._crop_size[0] // 2, self._crop_size[1] // 2
-        return image[cy - half_h : cy + half_h, cx - half_w : cx + half_w].copy()
 
     def _detect_checkerboard(
         self, image: ImageArray

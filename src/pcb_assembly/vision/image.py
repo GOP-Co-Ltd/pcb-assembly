@@ -10,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 
 type ImageArray = npt.NDArray[Any]
+type ImageSize = tuple[int, int]
 
 
 class Image:
@@ -43,6 +44,11 @@ class Image:
         """画像の高さ."""
         return int(self._data.shape[0])
 
+    @property
+    def size(self) -> ImageSize:
+        """画像のサイズ (width, height)."""
+        return (self.width, self.height)
+
     def numpy(self) -> ImageArray:
         """内部配列を返す."""
         return self._data
@@ -54,6 +60,23 @@ class Image:
     def save(self, path: Path) -> None:
         """画像をファイルに保存."""
         cv2.imwrite(str(path), self._data)
+
+    def crop_center(self, size: ImageSize) -> Self:
+        """画像の中心から指定サイズで切り出す.
+
+        Args:
+            size: 切り出すサイズ (width, height)
+
+        Returns:
+            切り出した画像
+        """
+        crop_w, crop_h = size
+        center_x, center_y = self.width // 2, self.height // 2
+        x1 = center_x - crop_w // 2
+        y1 = center_y - crop_h // 2
+        x2 = x1 + crop_w
+        y2 = y1 + crop_h
+        return self.__class__(self._data[y1:y2, x1:x2])
 
     @classmethod
     def load(cls, path: Path) -> Self:
