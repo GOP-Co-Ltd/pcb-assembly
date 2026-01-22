@@ -16,9 +16,10 @@ from pathlib import Path
 
 import cv2
 
+from pcb_assembly import gcode
 from pcb_assembly.config import Machine
 from pcb_assembly.geometry import Position, Transform
-from pcb_assembly.hal import Camera, GCode, Klipper, XYZStage
+from pcb_assembly.hal import Camera, Klipper, XYZStage
 from pcb_assembly.vision import (
     CalibrationResult,
     CircleDetector,
@@ -29,22 +30,6 @@ from pcb_assembly.vision import (
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 WINDOW_NAME = "Reference Point Alignment"
-
-
-def create_move_gcode(x: float | None = None, y: float | None = None) -> GCode:
-    """移動コマンドを生成する."""
-    parts = ["G1"]
-    if x is not None:
-        parts.append(f"X{x:.3f}")
-    if y is not None:
-        parts.append(f"Y{y:.3f}")
-    parts.append("F3000")
-    return GCode(" ".join(parts))
-
-
-def wait_for_move(klipper: Klipper) -> None:
-    """移動完了を待機する."""
-    klipper.send_gcode("M400")
 
 
 def draw_crosshair(image: Image, offset: Point2D | None = None) -> Image:
@@ -128,15 +113,15 @@ def main() -> None:
 
     # ホーミング
     print("\n=== ホーミング (G28) ===")
-    klipper.send_gcode("G28 X Y")
-    wait_for_move(klipper)
+    klipper.send_gcode(gcode.homing(x=True, y=True) + gcode.wait_for_done())
     print("ホーミング完了")
 
     # Reference Pointへ移動
     print("\n=== Reference Pointへ移動 ===")
     print(f"目標位置: ({ref_config.x}, {ref_config.y})")
-    klipper.send_gcode(create_move_gcode(x=ref_config.x, y=ref_config.y))
-    wait_for_move(klipper)
+    klipper.send_gcode(
+        gcode.move(x=ref_config.x, y=ref_config.y) + gcode.wait_for_done()
+    )
     print("移動完了")
     time.sleep(1.0)
     current_pos = stage.get_position()
@@ -170,8 +155,7 @@ def main() -> None:
     move_vector = Point2D(x=move_distance, y=0.0)
     target_x = current_pos.x + move_vector.x
     print(f"X方向に {move_vector.x:.3f}mm 移動")
-    klipper.send_gcode(create_move_gcode(x=target_x))
-    wait_for_move(klipper)
+    klipper.send_gcode(gcode.move(x=target_x) + gcode.wait_for_done())
     time.sleep(0.5)
 
     offset_x = detector.detect_with_statistics(camera.capture() for _ in range(30))
@@ -194,8 +178,9 @@ def main() -> None:
     print(f"カメラ回転角: {theta_deg:.4f}° ({theta_rad:.6f} rad)")
 
     # 元の位置に戻る
-    klipper.send_gcode(create_move_gcode(x=current_pos.x, y=current_pos.y))
-    wait_for_move(klipper)
+    klipper.send_gcode(
+        gcode.move(x=current_pos.x, y=current_pos.y) + gcode.wait_for_done()
+    )
     time.sleep(0.5)
 
     # 位置合わせループ
@@ -256,8 +241,9 @@ def main() -> None:
                 f"移動: ({pos.x:.3f}, {pos.y:.3f}) -> ({aligned_x:.3f}, {aligned_y:.3f})"
             )
 
-            klipper.send_gcode(create_move_gcode(x=aligned_x, y=aligned_y))
-            wait_for_move(klipper)
+            klipper.send_gcode(
+                gcode.move(x=aligned_x, y=aligned_y) + gcode.wait_for_done()
+            )
             time.sleep(0.5)
         else:
             print(f"\n{max_iterations}回の試行で収束しませんでした")
