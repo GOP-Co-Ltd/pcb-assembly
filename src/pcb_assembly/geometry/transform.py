@@ -66,6 +66,35 @@ class Point3d:
 
 
 @attrs.frozen
+class Point2d:
+    """2次元空間の座標を表すイミュータブルなクラス.
+
+    Attributes:
+        x: X座標
+        y: Y座標
+    """
+
+    x: float
+    y: float
+
+    @property
+    def distance(self) -> float:
+        """原点からの距離."""
+        return math.sqrt(self.x**2 + self.y**2)
+
+    def to3d(self, z: float = 0.0) -> Point3d:
+        """Point3d型に変換する.
+
+        Args:
+            z: Z座標（デフォルト: 0.0）
+
+        Returns:
+            Point3d インスタンス
+        """
+        return Point3d(x=self.x, y=self.y, z=z)
+
+
+@attrs.frozen
 class Scale:
     """3次元スケール変換を表すイミュータブルなクラス.
 

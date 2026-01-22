@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from pcb_assembly.geometry.transform import Point3d, Rotation, Scale, Transform
+from pcb_assembly.geometry.transform import Point2d, Point3d, Rotation, Scale, Transform
 
 
 class TestPoint3d:
@@ -98,6 +98,40 @@ class TestPoint3d:
     )
     def test_zero(self, kwargs, expected):
         assert Point3d.zero(**kwargs) == expected
+
+
+class TestPoint2d:
+    """Point2dクラスのテスト."""
+
+    @pytest.mark.parametrize(
+        ("x", "y", "expected_distance"),
+        [
+            (3.0, 4.0, 5.0),
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 1.0),
+            (0.0, 1.0, 1.0),
+        ],
+    )
+    def test_distance_returns_euclidean_distance(
+        self, x: float, y: float, expected_distance: float
+    ):
+        point = Point2d(x=x, y=y)
+
+        assert point.distance == pytest.approx(expected_distance)
+
+    def test_to3d_converts_to_point3d_with_default_z(self):
+        point = Point2d(x=1.5, y=2.5)
+
+        result = point.to3d()
+
+        assert result == Point3d(x=1.5, y=2.5, z=0.0)
+
+    def test_to3d_converts_to_point3d_with_specified_z(self):
+        point = Point2d(x=1.5, y=2.5)
+
+        result = point.to3d(z=3.0)
+
+        assert result == Point3d(x=1.5, y=2.5, z=3.0)
 
 
 class TestScale:

@@ -1,50 +1,24 @@
 """画像検出: 円などの図形を検出し、位置ズレを計算."""
 
-import math
-
 import attrs
 import cv2
 
-from pcb_assembly.geometry import Point3d
+from pcb_assembly.geometry import Point2d
 
 from .image import Image
-
-
-@attrs.frozen
-class Point2D:
-    """2D座標."""
-
-    x: float
-    y: float
-
-    @property
-    def distance(self) -> float:
-        """原点からの距離."""
-        return math.sqrt(self.x**2 + self.y**2)
-
-    def to3d(self, z: float = 0.0) -> Point3d:
-        """Point3d型に変換する.
-
-        Args:
-            z: Z座標（デフォルト: 0.0）
-
-        Returns:
-            Point3d インスタンス
-        """
-        return Point3d(x=self.x, y=self.y, z=z)
 
 
 @attrs.frozen
 class Offset:
     """画像中心からのズレ."""
 
-    px: Point2D  # pixel単位
+    px: Point2d  # pixel単位
     pixel_per_mm: float
 
     @property
-    def mm(self) -> Point2D:
+    def mm(self) -> Point2d:
         """mm単位のオフセット."""
-        return Point2D(
+        return Point2d(
             x=self.px.x / self.pixel_per_mm,
             y=self.px.y / self.pixel_per_mm,
         )
@@ -54,7 +28,7 @@ class Offset:
 class DetectedCircle:
     """検出された円."""
 
-    center: Point2D  # 円の中心座標 (pixel)
+    center: Point2d  # 円の中心座標 (pixel)
     radius: float  # 円の半径 (pixel)
     offset: Offset  # 画像中心からのズレ
 
@@ -145,9 +119,9 @@ class CircleDetector:
 
         result = []
         for c in circles[0]:
-            center = Point2D(x=float(c[0]), y=float(c[1]))
+            center = Point2d(x=float(c[0]), y=float(c[1]))
             radius = float(c[2])
-            offset_px = Point2D(
+            offset_px = Point2d(
                 x=center.x - image_center[0],
                 y=center.y - image_center[1],
             )
