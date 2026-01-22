@@ -179,10 +179,10 @@ class Pad:
     is_custom_shape: bool = False
 
     @property
-    def center(self) -> tuple[float, float]:
+    def center(self) -> Point2d:
         """ポリゴンの重心を計算."""
         centroid = self.polygon.centroid
-        return (centroid.x, centroid.y)
+        return Point2d(x=centroid.x, y=centroid.y)
 
     @property
     def area(self) -> float:

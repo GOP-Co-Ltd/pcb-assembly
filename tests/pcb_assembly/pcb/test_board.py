@@ -170,8 +170,8 @@ class TestPad:
 
     def test_center(self, sample: Pad):
         center = sample.center
-        assert center[0] == pytest.approx(0.5)
-        assert center[1] == pytest.approx(0.5)
+        assert center.x == pytest.approx(0.5)
+        assert center.y == pytest.approx(0.5)
 
     def test_area(self, sample: Pad):
         assert sample.area == pytest.approx(1.0)
