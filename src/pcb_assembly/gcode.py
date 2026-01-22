@@ -61,3 +61,81 @@ class GCode:
 
 
 type GCodeLike = str | Iterable[str] | GCode
+
+
+def homing(x: bool = False, y: bool = False, z: bool = False) -> GCode:
+    """ホーミングコマンドを生成する.
+
+    Args:
+        x: X軸をホーミングするか
+        y: Y軸をホーミングするか
+        z: Z軸をホーミングするか
+
+    Returns:
+        ホーミングのGCode。引数がすべてFalseの場合は全軸ホーミング
+    """
+    if not (x or y or z):
+        return GCode("G28")
+    axes = []
+    if x:
+        axes.append("X")
+    if y:
+        axes.append("Y")
+    if z:
+        axes.append("Z")
+    return GCode(f"G28 {' '.join(axes)}")
+
+
+def move(
+    x: float | None = None,
+    y: float | None = None,
+    z: float | None = None,
+    velocity: float | None = None,
+) -> GCode:
+    """移動コマンドを生成する.
+
+    Args:
+        x: X座標 [mm]
+        y: Y座標 [mm]
+        z: Z座標 [mm]
+        velocity: 移動速度 [mm/s]
+
+    Returns:
+        移動のGCode。すべてNoneの場合は空のGCode
+    """
+    parts = []
+    if x is not None:
+        parts.append(f"X{x}")
+    if y is not None:
+        parts.append(f"Y{y}")
+    if z is not None:
+        parts.append(f"Z{z}")
+    if velocity is not None:
+        parts.append(f"F{velocity * 60}")
+    if not parts:
+        return GCode()
+    return GCode(f"G1 {' '.join(parts)}")
+
+
+def wait(seconds: float) -> GCode:
+    """指定秒数待機するコマンドを生成する.
+
+    Args:
+        seconds: 待機時間 [秒]
+
+    Returns:
+        待機のGCode。0秒の場合は空のGCode
+    """
+    if seconds <= 0:
+        return GCode()
+    return GCode(f"G4 P{int(seconds * 1000)}")
+
+
+def wait_for_done() -> GCode:
+    """すべての動作完了を待つコマンドを生成する."""
+    return GCode("M400")
+
+
+def relax() -> GCode:
+    """モーターを脱力するコマンドを生成する."""
+    return GCode("M84")

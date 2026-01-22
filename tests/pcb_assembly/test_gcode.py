@@ -1,6 +1,6 @@
 import pytest
 
-from pcb_assembly.gcode import GCode
+from pcb_assembly.gcode import GCode, homing, move, relax, wait, wait_for_done
 
 
 class TestGCode:
@@ -86,3 +86,71 @@ class TestGCode:
         gcode_set = {GCode("G28"), GCode("G28"), GCode("M400")}
 
         assert len(gcode_set) == 2
+
+
+class TestHoming:
+    """homing関数のテスト."""
+
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [
+            ({}, "G28"),
+            ({"x": True}, "G28 X"),
+            ({"y": True}, "G28 Y"),
+            ({"z": True}, "G28 Z"),
+            ({"x": True, "y": True}, "G28 X Y"),
+            ({"x": True, "y": True, "z": True}, "G28 X Y Z"),
+        ],
+    )
+    def test_homing(self, kwargs, expected):
+        assert str(homing(**kwargs)) == expected
+
+
+class TestMove:
+    """move関数のテスト."""
+
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [
+            ({}, ""),
+            ({"x": 10}, "G1 X10"),
+            ({"y": 20}, "G1 Y20"),
+            ({"z": 5}, "G1 Z5"),
+            ({"x": 10, "y": 20}, "G1 X10 Y20"),
+            ({"x": 10, "y": 20, "z": 5}, "G1 X10 Y20 Z5"),
+            ({"velocity": 10}, "G1 F600"),
+            ({"x": 10, "velocity": 10}, "G1 X10 F600"),
+        ],
+    )
+    def test_move(self, kwargs, expected):
+        assert str(move(**kwargs)) == expected
+
+
+class TestWait:
+    """wait関数のテスト."""
+
+    @pytest.mark.parametrize(
+        ("seconds", "expected"),
+        [
+            (0, ""),
+            (1, "G4 P1000"),
+            (0.5, "G4 P500"),
+            (2.5, "G4 P2500"),
+        ],
+    )
+    def test_wait(self, seconds, expected):
+        assert str(wait(seconds)) == expected
+
+
+class TestWaitForDone:
+    """wait_for_done関数のテスト."""
+
+    def test_wait_for_done(self):
+        assert str(wait_for_done()) == "M400"
+
+
+class TestRelax:
+    """relax関数のテスト."""
+
+    def test_relax(self):
+        assert str(relax()) == "M84"
