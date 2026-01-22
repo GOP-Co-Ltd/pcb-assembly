@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from shapely import Polygon
 
+from pcb_assembly.geometry.transform import Point2d
 from pcb_assembly.pcb.board import (
     PNP_CSV_HEADER,
     Component,
@@ -49,8 +50,7 @@ class TestComponent:
             designator="U1",
             value="STM32F103",
             package="LQFP-48",
-            x=50.5,
-            y=30.25,
+            position=Point2d(x=50.5, y=30.25),
             rotation=45.0,
             layer=Layer.TOP,
         )
@@ -70,8 +70,8 @@ class TestComponent:
         assert component.designator == "R1"
         assert component.value == "10k"
         assert component.package == "0402"
-        assert component.x == pytest.approx(10.5)
-        assert component.y == pytest.approx(20.25)
+        assert component.position.x == pytest.approx(10.5)
+        assert component.position.y == pytest.approx(20.25)
         assert component.rotation == pytest.approx(90.0)
         assert component.layer == Layer.BOTTOM
 
@@ -100,8 +100,7 @@ class TestComponentList:
                 designator="U1",
                 value="STM32F103",
                 package="LQFP-48",
-                x=50.5,
-                y=30.25,
+                position=Point2d(x=50.5, y=30.25),
                 rotation=45.0,
                 layer=Layer.TOP,
             )
@@ -111,8 +110,7 @@ class TestComponentList:
                 designator="R1",
                 value="10k",
                 package="0402",
-                x=10.0,
-                y=20.0,
+                position=Point2d(x=10.0, y=20.0),
                 rotation=0.0,
                 layer=Layer.BOTTOM,
             )
@@ -148,8 +146,7 @@ class TestComponentList:
             designator="C1",
             value="100nF",
             package="0402",
-            x=15.0,
-            y=25.0,
+            position=Point2d(x=15.0, y=25.0),
             rotation=180.0,
             layer=Layer.TOP,
         )

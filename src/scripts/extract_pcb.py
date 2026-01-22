@@ -71,10 +71,17 @@ def render_pcb(
         else:
             color = "#00ffff"
 
-        ax.plot(comp.x, comp.y, "+", color=color, markersize=8, markeredgewidth=1)
+        ax.plot(
+            comp.position.x,
+            comp.position.y,
+            "+",
+            color=color,
+            markersize=8,
+            markeredgewidth=1,
+        )
         ax.annotate(
             comp.designator,
-            (comp.x, comp.y),
+            (comp.position.x, comp.position.y),
             xytext=(3, 3),
             textcoords="offset points",
             fontsize=7,

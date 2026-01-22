@@ -12,6 +12,8 @@ import attrs
 from cattrs.preconf.json import make_converter
 from shapely import Polygon
 
+from pcb_assembly.geometry.transform import Point2d
+
 
 class Layer(Enum):
     """PCBレイヤー."""
@@ -79,8 +81,7 @@ class Component:
         designator: 部品リファレンス (例: "U1", "R1")
         value: 部品値 (例: "10k", "100nF")
         package: パッケージ名 (例: "0402", "QFP-48")
-        x: X座標 (mm)
-        y: Y座標 (mm)
+        position: 位置座標 (mm)
         rotation: 回転角度 (度)
         layer: レイヤー (Top/Bottom)
     """
@@ -88,8 +89,7 @@ class Component:
     designator: str
     value: str
     package: str
-    x: float
-    y: float
+    position: Point2d
     rotation: float
     layer: Layer
 
@@ -100,8 +100,7 @@ class Component:
             designator=row["Designator"],
             value=row["Value"],
             package=row["Package"],
-            x=float(row["X"]),
-            y=float(row["Y"]),
+            position=Point2d(x=float(row["X"]), y=float(row["Y"])),
             rotation=float(row["Rotation"]),
             layer=Layer(row["Layer"]),
         )
@@ -112,8 +111,8 @@ class Component:
             self.designator,
             self.value,
             self.package,
-            f"{self.x:.4f}",
-            f"{self.y:.4f}",
+            f"{self.position.x:.4f}",
+            f"{self.position.y:.4f}",
             f"{self.rotation:.2f}",
             self.layer.value,
         ]
