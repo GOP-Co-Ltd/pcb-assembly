@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
-from pcb_assembly.geometry import Position
+from pcb_assembly.geometry import Point3d
 from pcb_assembly.vision import Image
 from pcb_assembly.vision.detection import (
     CircleDetector,
@@ -30,19 +30,19 @@ class TestPoint2D:
 
         assert point.distance == pytest.approx(expected_distance)
 
-    def test_to_position_converts_to_position_with_default_z(self):
+    def test_to3d_converts_to_point3d_with_default_z(self):
         point = Point2D(x=1.5, y=2.5)
 
-        result = point.to_position()
+        result = point.to3d()
 
-        assert result == Position(x=1.5, y=2.5, z=0.0)
+        assert result == Point3d(x=1.5, y=2.5, z=0.0)
 
-    def test_to_position_converts_to_position_with_specified_z(self):
+    def test_to3d_converts_to_point3d_with_specified_z(self):
         point = Point2D(x=1.5, y=2.5)
 
-        result = point.to_position(z=3.0)
+        result = point.to3d(z=3.0)
 
-        assert result == Position(x=1.5, y=2.5, z=3.0)
+        assert result == Point3d(x=1.5, y=2.5, z=3.0)
 
 
 class TestCircleDetector:

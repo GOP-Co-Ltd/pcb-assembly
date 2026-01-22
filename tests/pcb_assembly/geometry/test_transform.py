@@ -3,21 +3,21 @@ import math
 import numpy as np
 import pytest
 
-from pcb_assembly.geometry.transform import Position, Rotation, Scale, Transform
+from pcb_assembly.geometry.transform import Point3d, Rotation, Scale, Transform
 
 
-class TestPosition:
-    """Positionクラスのテスト."""
+class TestPoint3d:
+    """Point3dクラスのテスト."""
 
     def test_init(self):
-        pos = Position(1.0, 2.0, 3.0)
+        pos = Point3d(1.0, 2.0, 3.0)
 
         assert pos.x == 1.0
         assert pos.y == 2.0
         assert pos.z == 3.0
 
     def test_numpy(self):
-        pos = Position(1.0, 2.0, 3.0)
+        pos = Point3d(1.0, 2.0, 3.0)
 
         result = pos.numpy()
 
@@ -27,9 +27,9 @@ class TestPosition:
     def test_from_numpy(self):
         array = np.array([1.0, 2.0, 3.0])
 
-        pos = Position.from_numpy(array)
+        pos = Point3d.from_numpy(array)
 
-        assert pos == Position(1.0, 2.0, 3.0)
+        assert pos == Point3d(1.0, 2.0, 3.0)
 
     @pytest.mark.parametrize(
         "array",
@@ -41,17 +41,17 @@ class TestPosition:
     )
     def test_from_numpy_invalid_shape(self, array):
         with pytest.raises(ValueError, match=r"配列の形状は\(3,\)である必要があります"):
-            Position.from_numpy(array)
+            Point3d.from_numpy(array)
 
     @pytest.mark.parametrize(
         ("a", "b", "expected"),
         [
-            (Position(1.0, 2.0, 3.0), Position(4.0, 5.0, 6.0), Position(5.0, 7.0, 9.0)),
-            (Position(0.0, 0.0, 0.0), Position(1.0, 1.0, 1.0), Position(1.0, 1.0, 1.0)),
+            (Point3d(1.0, 2.0, 3.0), Point3d(4.0, 5.0, 6.0), Point3d(5.0, 7.0, 9.0)),
+            (Point3d(0.0, 0.0, 0.0), Point3d(1.0, 1.0, 1.0), Point3d(1.0, 1.0, 1.0)),
             (
-                Position(-1.0, -2.0, -3.0),
-                Position(1.0, 2.0, 3.0),
-                Position(0.0, 0.0, 0.0),
+                Point3d(-1.0, -2.0, -3.0),
+                Point3d(1.0, 2.0, 3.0),
+                Point3d(0.0, 0.0, 0.0),
             ),
         ],
     )
@@ -61,12 +61,12 @@ class TestPosition:
     @pytest.mark.parametrize(
         ("a", "b", "expected"),
         [
-            (Position(4.0, 5.0, 6.0), Position(1.0, 2.0, 3.0), Position(3.0, 3.0, 3.0)),
-            (Position(1.0, 1.0, 1.0), Position(1.0, 1.0, 1.0), Position(0.0, 0.0, 0.0)),
+            (Point3d(4.0, 5.0, 6.0), Point3d(1.0, 2.0, 3.0), Point3d(3.0, 3.0, 3.0)),
+            (Point3d(1.0, 1.0, 1.0), Point3d(1.0, 1.0, 1.0), Point3d(0.0, 0.0, 0.0)),
             (
-                Position(0.0, 0.0, 0.0),
-                Position(1.0, 2.0, 3.0),
-                Position(-1.0, -2.0, -3.0),
+                Point3d(0.0, 0.0, 0.0),
+                Point3d(1.0, 2.0, 3.0),
+                Point3d(-1.0, -2.0, -3.0),
             ),
         ],
     )
@@ -76,10 +76,10 @@ class TestPosition:
     @pytest.mark.parametrize(
         ("pos", "expected"),
         [
-            (Position(3.0, 4.0, 0.0), 5.0),
-            (Position(0.0, 0.0, 0.0), 0.0),
-            (Position(1.0, 0.0, 0.0), 1.0),
-            (Position(1.0, 1.0, 1.0), math.sqrt(3)),
+            (Point3d(3.0, 4.0, 0.0), 5.0),
+            (Point3d(0.0, 0.0, 0.0), 0.0),
+            (Point3d(1.0, 0.0, 0.0), 1.0),
+            (Point3d(1.0, 1.0, 1.0), math.sqrt(3)),
         ],
     )
     def test_norm(self, pos, expected):
@@ -88,16 +88,16 @@ class TestPosition:
     @pytest.mark.parametrize(
         ("kwargs", "expected"),
         [
-            ({}, Position(0.0, 0.0, 0.0)),
-            ({"x": 1.0}, Position(1.0, 0.0, 0.0)),
-            ({"y": 2.0}, Position(0.0, 2.0, 0.0)),
-            ({"z": 3.0}, Position(0.0, 0.0, 3.0)),
-            ({"x": 1.0, "y": 2.0}, Position(1.0, 2.0, 0.0)),
-            ({"x": 1.0, "y": 2.0, "z": 3.0}, Position(1.0, 2.0, 3.0)),
+            ({}, Point3d(0.0, 0.0, 0.0)),
+            ({"x": 1.0}, Point3d(1.0, 0.0, 0.0)),
+            ({"y": 2.0}, Point3d(0.0, 2.0, 0.0)),
+            ({"z": 3.0}, Point3d(0.0, 0.0, 3.0)),
+            ({"x": 1.0, "y": 2.0}, Point3d(1.0, 2.0, 0.0)),
+            ({"x": 1.0, "y": 2.0, "z": 3.0}, Point3d(1.0, 2.0, 3.0)),
         ],
     )
     def test_zero(self, kwargs, expected):
-        assert Position.zero(**kwargs) == expected
+        assert Point3d.zero(**kwargs) == expected
 
 
 class TestScale:
@@ -198,27 +198,27 @@ class TestTransform:
 
         assert transform.scale == Scale()
         assert transform.rotation == Rotation()
-        assert transform.translation == Position(0.0, 0.0, 0.0)
+        assert transform.translation == Point3d(0.0, 0.0, 0.0)
 
     def test_apply_translation_only(self):
-        transform = Transform(translation=Position(10.0, 20.0, 30.0))
-        pos = Position(1.0, 2.0, 3.0)
+        transform = Transform(translation=Point3d(10.0, 20.0, 30.0))
+        pos = Point3d(1.0, 2.0, 3.0)
 
         result = transform.apply(pos)
 
-        assert result == Position(11.0, 22.0, 33.0)
+        assert result == Point3d(11.0, 22.0, 33.0)
 
     def test_apply_scale_only(self):
         transform = Transform(scale=Scale(2.0, 3.0, 4.0))
-        pos = Position(1.0, 2.0, 3.0)
+        pos = Point3d(1.0, 2.0, 3.0)
 
         result = transform.apply(pos)
 
-        assert result == Position(2.0, 6.0, 12.0)
+        assert result == Point3d(2.0, 6.0, 12.0)
 
     def test_apply_rotation_only(self):
         transform = Transform(rotation=Rotation(90.0))
-        pos = Position(1.0, 0.0, 0.0)
+        pos = Point3d(1.0, 0.0, 0.0)
 
         result = transform.apply(pos)
 
@@ -231,9 +231,9 @@ class TestTransform:
         transform = Transform(
             scale=Scale(2.0, 2.0, 1.0),
             rotation=Rotation(90.0),
-            translation=Position(10.0, 0.0, 0.0),
+            translation=Point3d(10.0, 0.0, 0.0),
         )
-        pos = Position(1.0, 0.0, 0.0)
+        pos = Point3d(1.0, 0.0, 0.0)
 
         result = transform.apply(pos)
 
@@ -246,9 +246,9 @@ class TestTransform:
         transform = Transform(
             scale=Scale(2.0, 2.0, 1.0),
             rotation=Rotation(90.0),
-            translation=Position(10.0, 5.0, 0.0),
+            translation=Point3d(10.0, 5.0, 0.0),
         )
-        pos = Position(1.0, 2.0, 3.0)
+        pos = Point3d(1.0, 2.0, 3.0)
 
         transformed = transform.apply(pos)
         restored = transform.inverse().apply(transformed)
@@ -261,15 +261,15 @@ class TestTransform:
         "positions",
         [
             [],
-            [Position(1.0, 2.0, 3.0)],
-            [Position(1.0, 0.0, 0.0), Position(0.0, 1.0, 0.0), Position(1.0, 1.0, 5.0)],
+            [Point3d(1.0, 2.0, 3.0)],
+            [Point3d(1.0, 0.0, 0.0), Point3d(0.0, 1.0, 0.0), Point3d(1.0, 1.0, 5.0)],
         ],
     )
     def test_batch(self, positions):
         transform = Transform(
             scale=Scale(2.0, 3.0, 1.0),
             rotation=Rotation(45.0),
-            translation=Position(5.0, -3.0, 2.0),
+            translation=Point3d(5.0, -3.0, 2.0),
         )
 
         batch_results = transform.batch(positions)

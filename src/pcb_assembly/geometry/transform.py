@@ -8,8 +8,8 @@ import numpy.typing as npt
 
 
 @attrs.frozen
-class Position:
-    """3次元空間の位置を表すイミュータブルなクラス.
+class Point3d:
+    """3次元空間の座標を表すイミュータブルなクラス.
 
     Attributes:
         x: X座標
@@ -31,13 +31,13 @@ class Position:
 
     @classmethod
     def from_numpy(cls, array: npt.NDArray[np.floating]) -> Self:
-        """NumPy配列からPositionを生成する.
+        """NumPy配列からPoint3dを生成する.
 
         Args:
             array: 形状が(3,)のfloating配列
 
         Returns:
-            配列の値から生成されたPositionインスタンス
+            配列の値から生成されたPoint3dインスタンス
 
         Raises:
             ValueError: 配列の形状が(3,)でない場合
@@ -61,7 +61,7 @@ class Position:
 
     @classmethod
     def zero(cls, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> Self:
-        """指定されていない軸を0で初期化したPositionを返す."""
+        """指定されていない軸を0で初期化したPoint3dを返す."""
         return cls(x, y, z)
 
 
@@ -161,7 +161,7 @@ class Transform:
 
     scale: Scale = attrs.Factory(Scale)
     rotation: Rotation = attrs.Factory(Rotation)
-    translation: Position = attrs.Factory(lambda: Position(0.0, 0.0, 0.0))
+    translation: Point3d = attrs.Factory(lambda: Point3d(0.0, 0.0, 0.0))
 
     def _apply_to_array(
         self, points: npt.NDArray[np.float64]
@@ -180,7 +180,7 @@ class Transform:
         rotated = scaled @ self.rotation.to_matrix().T
         return rotated + self.translation.numpy()
 
-    def apply(self, position: Position) -> Position:
+    def apply(self, position: Point3d) -> Point3d:
         """位置に変換を適用する.
 
         Args:
@@ -191,7 +191,7 @@ class Transform:
         """
         points = position.numpy().reshape(1, 3)
         result = self._apply_to_array(points)
-        return Position.from_numpy(result[0])
+        return Point3d.from_numpy(result[0])
 
     def inverse(self) -> Self:
         """逆変換を返す.
@@ -209,10 +209,10 @@ class Transform:
         return self.__class__(
             scale=inv_scale,
             rotation=inv_rotation,
-            translation=Position.from_numpy(inv_translation_vec),
+            translation=Point3d.from_numpy(inv_translation_vec),
         )
 
-    def batch(self, positions: Iterable[Position]) -> list[Position]:
+    def batch(self, positions: Iterable[Point3d]) -> list[Point3d]:
         """複数の位置に変換を一括適用する.
 
         Args:
@@ -227,4 +227,4 @@ class Transform:
 
         points = np.array([p.numpy() for p in positions_list], dtype=np.float64)
         result = self._apply_to_array(points)
-        return [Position.from_numpy(row) for row in result]
+        return [Point3d.from_numpy(row) for row in result]

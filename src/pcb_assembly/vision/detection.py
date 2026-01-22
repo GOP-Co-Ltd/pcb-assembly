@@ -5,7 +5,7 @@ import math
 import attrs
 import cv2
 
-from pcb_assembly.geometry import Position
+from pcb_assembly.geometry import Point3d
 
 from .image import Image
 
@@ -22,16 +22,16 @@ class Point2D:
         """原点からの距離."""
         return math.sqrt(self.x**2 + self.y**2)
 
-    def to_position(self, z: float = 0.0) -> Position:
-        """Position型に変換する.
+    def to3d(self, z: float = 0.0) -> Point3d:
+        """Point3d型に変換する.
 
         Args:
             z: Z座標（デフォルト: 0.0）
 
         Returns:
-            Position インスタンス
+            Point3d インスタンス
         """
-        return Position(x=self.x, y=self.y, z=z)
+        return Point3d(x=self.x, y=self.y, z=z)
 
 
 @attrs.frozen

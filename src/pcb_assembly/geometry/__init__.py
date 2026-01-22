@@ -1,9 +1,9 @@
 from .trajectory import Move, Trajectory, Waypoint, sort_by_nearest
-from .transform import Position, Rotation, Scale, Transform
+from .transform import Point3d, Rotation, Scale, Transform
 
 __all__ = [
     "Move",
-    "Position",
+    "Point3d",
     "Rotation",
     "Scale",
     "Trajectory",
