@@ -87,6 +87,24 @@ class TestGCode:
 
         assert len(gcode_set) == 2
 
+    @pytest.mark.parametrize(
+        ("a", "b", "expected"),
+        [
+            (GCode("G28"), GCode("M400"), ["G28", "M400"]),
+            (GCode("G28"), "M400", ["G28", "M400"]),
+            (GCode("G28"), ["M400", "G0 X10"], ["G28", "M400", "G0 X10"]),
+        ],
+    )
+    def test_add(self, a, b, expected):
+        result = a + b
+        assert result.to_list() == expected
+
+    def test_add_does_not_modify_original(self):
+        a = GCode("G28")
+        b = GCode("M400")
+        _ = a + b
+        assert a.to_list() == ["G28"]
+
 
 class TestHoming:
     """homing関数のテスト."""

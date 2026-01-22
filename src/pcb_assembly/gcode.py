@@ -44,6 +44,11 @@ class GCode:
     def __hash__(self) -> int:
         return hash(str(self))
 
+    def __add__(self, other: GCodeLike) -> Self:
+        result = self.copy()
+        result.append(other)
+        return result
+
     def copy(self) -> Self:
         return self.__class__(self)
 
