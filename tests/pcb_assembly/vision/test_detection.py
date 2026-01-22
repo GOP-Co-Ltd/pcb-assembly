@@ -1,3 +1,5 @@
+import statistics
+
 import cv2
 import numpy as np
 import pytest
@@ -7,6 +9,7 @@ from pcb_assembly.vision import Image
 from pcb_assembly.vision.detection import (
     CircleDetector,
     DetectedCircle,
+    OffsetStatistics,
     Point2D,
 )
 
@@ -171,3 +174,79 @@ class TestCircleDetector:
         result = detector.detect_nearest_center(Image(arr))
 
         assert result is None
+
+    def test_detect_with_statistics_calculates_mean_and_std(
+        self, detector: CircleDetector
+    ):
+        """複数画像から平均と標準偏差を計算."""
+        images = []
+        # 異なる位置に円がある3つの画像を作成
+        for offset_x in [10, 20, 30]:
+            arr = np.full((200, 200, 3), 255, dtype=np.uint8)
+            cv2.circle(arr, (100 + offset_x, 100), 15, (0, 0, 0), -1)
+            images.append(Image(arr))
+
+        result = detector.detect_with_statistics(images)
+
+        assert result is not None
+        assert isinstance(result, OffsetStatistics)
+        assert result.sample_count == 3
+        expected_offsets = [10, 20, 30]
+        expected_mean = statistics.mean(expected_offsets)
+        expected_std = statistics.pstdev(expected_offsets)
+        assert result.mean.x == pytest.approx(expected_mean, abs=3.0)
+        assert result.mean.y == pytest.approx(0.0, abs=3.0)
+        assert result.std.x == pytest.approx(expected_std, abs=2.0)
+        # mm単位 (10 pixel/mm)
+        assert result.mean_mm.x == pytest.approx(expected_mean / 10.0, abs=0.3)
+
+    def test_detect_with_statistics_returns_none_for_empty_images(
+        self, detector: CircleDetector
+    ):
+        """空のイテラブルの場合はNoneを返す."""
+        result = detector.detect_with_statistics([])
+
+        assert result is None
+
+    def test_detect_with_statistics_returns_none_when_all_fail(
+        self, detector: CircleDetector
+    ):
+        """全ての画像で検出失敗時はNoneを返す."""
+        blank_images = [
+            Image(np.full((200, 200, 3), 255, dtype=np.uint8)) for _ in range(3)
+        ]
+
+        result = detector.detect_with_statistics(blank_images)
+
+        assert result is None
+
+    def test_detect_with_statistics_ignores_failed_detections(
+        self, detector: CircleDetector
+    ):
+        """一部の画像で検出失敗しても、成功した画像から統計を計算."""
+        images = []
+        # 円がある画像
+        for offset_x in [10, 20]:
+            arr = np.full((200, 200, 3), 255, dtype=np.uint8)
+            cv2.circle(arr, (100 + offset_x, 100), 15, (0, 0, 0), -1)
+            images.append(Image(arr))
+        # 円がない画像
+        images.append(Image(np.full((200, 200, 3), 255, dtype=np.uint8)))
+
+        result = detector.detect_with_statistics(images)
+
+        assert result is not None
+        assert result.sample_count == 2
+
+    def test_detect_with_statistics_single_image(self, detector: CircleDetector):
+        """1画像のみの場合、stdは0."""
+        arr = np.full((200, 200, 3), 255, dtype=np.uint8)
+        cv2.circle(arr, (110, 100), 15, (0, 0, 0), -1)
+
+        result = detector.detect_with_statistics([Image(arr)])
+
+        assert result is not None
+        assert result.sample_count == 1
+        assert result.mean.x == pytest.approx(10.0, abs=2.0)
+        assert result.std.x == pytest.approx(0.0)
+        assert result.std.y == pytest.approx(0.0)

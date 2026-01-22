@@ -1,6 +1,8 @@
 """画像検出: 円などの図形を検出し、位置ズレを計算."""
 
 import math
+import statistics
+from collections.abc import Iterable
 
 import attrs
 import cv2
@@ -57,6 +59,32 @@ class DetectedCircle:
     center: Point2D  # 円の中心座標 (pixel)
     radius: float  # 円の半径 (pixel)
     offset: Offset  # 画像中心からのズレ
+
+
+@attrs.frozen
+class OffsetStatistics:
+    """複数検出結果の統計情報."""
+
+    mean: Point2D  # 平均オフセット (pixel)
+    std: Point2D  # 標準偏差 (pixel)
+    pixel_per_mm: float
+    sample_count: int  # 有効サンプル数
+
+    @property
+    def mean_mm(self) -> Point2D:
+        """平均オフセット (mm単位)."""
+        return Point2D(
+            x=self.mean.x / self.pixel_per_mm,
+            y=self.mean.y / self.pixel_per_mm,
+        )
+
+    @property
+    def std_mm(self) -> Point2D:
+        """標準偏差 (mm単位)."""
+        return Point2D(
+            x=self.std.x / self.pixel_per_mm,
+            y=self.std.y / self.pixel_per_mm,
+        )
 
 
 class CircleDetector:
@@ -168,3 +196,39 @@ class CircleDetector:
         tolerance_px = (self._diameter_tolerance_mm / 2) * self._pixel_per_mm
 
         return [c for c in circles if abs(c.radius - target_radius_px) <= tolerance_px]
+
+    def detect_with_statistics(
+        self, images: Iterable[Image]
+    ) -> OffsetStatistics | None:
+        """複数画像から円を検出し、オフセットの統計を返す.
+
+        Args:
+            images: 入力画像のイテラブル
+
+        Returns:
+            OffsetStatistics または有効な検出がない場合はNone
+        """
+        offsets_x: list[float] = []
+        offsets_y: list[float] = []
+
+        for image in images:
+            detected = self.detect_nearest_center(image)
+            if detected is not None:
+                offsets_x.append(detected.offset.px.x)
+                offsets_y.append(detected.offset.px.y)
+
+        if not offsets_x:
+            return None
+
+        return OffsetStatistics(
+            mean=Point2D(
+                x=statistics.mean(offsets_x),
+                y=statistics.mean(offsets_y),
+            ),
+            std=Point2D(
+                x=statistics.pstdev(offsets_x),
+                y=statistics.pstdev(offsets_y),
+            ),
+            pixel_per_mm=self._pixel_per_mm,
+            sample_count=len(offsets_x),
+        )
