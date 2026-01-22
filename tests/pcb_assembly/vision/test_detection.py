@@ -1,4 +1,4 @@
-import statistics
+import math
 
 import cv2
 import numpy as np
@@ -191,9 +191,15 @@ class TestCircleDetector:
         assert result is not None
         assert isinstance(result, OffsetStatistics)
         assert result.sample_count == 3
-        expected_offsets = [10, 20, 30]
-        expected_mean = statistics.mean(expected_offsets)
-        expected_std = statistics.pstdev(expected_offsets)
+        expected_mean = (10 + 20 + 30) / 3
+        expected_std = math.sqrt(  #  sqrt{(10-20)² + (20-20)² + (30-20)² / 3} ≈ 8.16
+            (
+                (10 - expected_mean) ** 2
+                + (20 - expected_mean) ** 2
+                + (30 - expected_mean) ** 2
+            )
+            / 3
+        )
         assert result.mean.x == pytest.approx(expected_mean, abs=3.0)
         assert result.mean.y == pytest.approx(0.0, abs=3.0)
         assert result.std.x == pytest.approx(expected_std, abs=2.0)
