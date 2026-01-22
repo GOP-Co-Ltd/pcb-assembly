@@ -10,16 +10,16 @@ class TestPoint3d:
     """Point3dクラスのテスト."""
 
     def test_init(self):
-        pos = Point3d(1.0, 2.0, 3.0)
+        point = Point3d(1.0, 2.0, 3.0)
 
-        assert pos.x == 1.0
-        assert pos.y == 2.0
-        assert pos.z == 3.0
+        assert point.x == 1.0
+        assert point.y == 2.0
+        assert point.z == 3.0
 
     def test_numpy(self):
-        pos = Point3d(1.0, 2.0, 3.0)
+        point = Point3d(1.0, 2.0, 3.0)
 
-        result = pos.numpy()
+        result = point.numpy()
 
         assert result.dtype == np.float64
         assert np.array_equal(result, np.array([1.0, 2.0, 3.0]))
@@ -27,9 +27,9 @@ class TestPoint3d:
     def test_from_numpy(self):
         array = np.array([1.0, 2.0, 3.0])
 
-        pos = Point3d.from_numpy(array)
+        point = Point3d.from_numpy(array)
 
-        assert pos == Point3d(1.0, 2.0, 3.0)
+        assert point == Point3d(1.0, 2.0, 3.0)
 
     @pytest.mark.parametrize(
         "array",
@@ -74,7 +74,7 @@ class TestPoint3d:
         assert a - b == expected
 
     @pytest.mark.parametrize(
-        ("pos", "expected"),
+        ("point", "expected"),
         [
             (Point3d(3.0, 4.0, 0.0), 5.0),
             (Point3d(0.0, 0.0, 0.0), 0.0),
@@ -82,8 +82,8 @@ class TestPoint3d:
             (Point3d(1.0, 1.0, 1.0), math.sqrt(3)),
         ],
     )
-    def test_norm(self, pos, expected):
-        assert pos.norm() == expected
+    def test_norm(self, point, expected):
+        assert point.norm() == expected
 
     @pytest.mark.parametrize(
         ("kwargs", "expected"),
@@ -265,25 +265,25 @@ class TestTransform:
 
     def test_apply_translation_only(self):
         transform = Transform(translation=Point3d(10.0, 20.0, 30.0))
-        pos = Point3d(1.0, 2.0, 3.0)
+        point = Point3d(1.0, 2.0, 3.0)
 
-        result = transform.apply(pos)
+        result = transform.apply(point)
 
         assert result == Point3d(11.0, 22.0, 33.0)
 
     def test_apply_scale_only(self):
         transform = Transform(scale=Scale(2.0, 3.0, 4.0))
-        pos = Point3d(1.0, 2.0, 3.0)
+        point = Point3d(1.0, 2.0, 3.0)
 
-        result = transform.apply(pos)
+        result = transform.apply(point)
 
         assert result == Point3d(2.0, 6.0, 12.0)
 
     def test_apply_rotation_only(self):
         transform = Transform(rotation=Rotation(90.0))
-        pos = Point3d(1.0, 0.0, 0.0)
+        point = Point3d(1.0, 0.0, 0.0)
 
-        result = transform.apply(pos)
+        result = transform.apply(point)
 
         assert np.isclose(result.x, 0.0, atol=1e-10)
         assert np.isclose(result.y, 1.0, atol=1e-10)
@@ -296,9 +296,9 @@ class TestTransform:
             rotation=Rotation(90.0),
             translation=Point3d(10.0, 0.0, 0.0),
         )
-        pos = Point3d(1.0, 0.0, 0.0)
+        point = Point3d(1.0, 0.0, 0.0)
 
-        result = transform.apply(pos)
+        result = transform.apply(point)
 
         # (1,0,0) → scale → (2,0,0) → rotate 90° → (0,2,0) → translate → (10,2,0)
         assert np.isclose(result.x, 10.0, atol=1e-10)
@@ -311,32 +311,32 @@ class TestTransform:
             rotation=Rotation(90.0),
             translation=Point3d(10.0, 5.0, 0.0),
         )
-        pos = Point3d(1.0, 2.0, 3.0)
+        point = Point3d(1.0, 2.0, 3.0)
 
-        transformed = transform.apply(pos)
+        transformed = transform.apply(point)
         restored = transform.inverse().apply(transformed)
 
-        assert np.isclose(restored.x, pos.x, atol=1e-10)
-        assert np.isclose(restored.y, pos.y, atol=1e-10)
-        assert np.isclose(restored.z, pos.z, atol=1e-10)
+        assert np.isclose(restored.x, point.x, atol=1e-10)
+        assert np.isclose(restored.y, point.y, atol=1e-10)
+        assert np.isclose(restored.z, point.z, atol=1e-10)
 
     @pytest.mark.parametrize(
-        "positions",
+        "points",
         [
             [],
             [Point3d(1.0, 2.0, 3.0)],
             [Point3d(1.0, 0.0, 0.0), Point3d(0.0, 1.0, 0.0), Point3d(1.0, 1.0, 5.0)],
         ],
     )
-    def test_batch(self, positions):
+    def test_batch(self, points):
         transform = Transform(
             scale=Scale(2.0, 3.0, 1.0),
             rotation=Rotation(45.0),
             translation=Point3d(5.0, -3.0, 2.0),
         )
 
-        batch_results = transform.batch(positions)
-        apply_results = [transform.apply(p) for p in positions]
+        batch_results = transform.batch(points)
+        apply_results = [transform.apply(p) for p in points]
 
         assert len(batch_results) == len(apply_results)
         for batch_res, apply_res in zip(batch_results, apply_results, strict=True):

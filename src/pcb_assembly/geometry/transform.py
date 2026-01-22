@@ -221,16 +221,16 @@ class Transform:
         rotated = scaled @ self.rotation.to_matrix().T
         return rotated + self.translation.numpy()
 
-    def apply(self, position: Point3d) -> Point3d:
+    def apply(self, point: Point3d) -> Point3d:
         """位置に変換を適用する.
 
         Args:
-            position: 変換を適用する位置
+            point: 変換を適用する位置
 
         Returns:
             変換後の位置
         """
-        points = position.numpy().reshape(1, 3)
+        points = point.numpy().reshape(1, 3)
         result = self._apply_to_array(points)
         return Point3d.from_numpy(result[0])
 
@@ -253,19 +253,19 @@ class Transform:
             translation=Point3d.from_numpy(inv_translation_vec),
         )
 
-    def batch(self, positions: Iterable[Point3d]) -> list[Point3d]:
+    def batch(self, points: Iterable[Point3d]) -> list[Point3d]:
         """複数の位置に変換を一括適用する.
 
         Args:
-            positions: 変換を適用する位置のイテラブル
+            points: 変換を適用する位置のイテラブル
 
         Returns:
             変換後の位置のリスト
         """
-        positions_list = list(positions)
-        if not positions_list:
+        points_list = list(points)
+        if not points_list:
             return []
 
-        points = np.array([p.numpy() for p in positions_list], dtype=np.float64)
+        points = np.array([p.numpy() for p in points_list], dtype=np.float64)
         result = self._apply_to_array(points)
         return [Point3d.from_numpy(row) for row in result]
