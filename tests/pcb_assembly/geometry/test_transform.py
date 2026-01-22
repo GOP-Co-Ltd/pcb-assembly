@@ -252,6 +252,22 @@ class TestRotation:
 
         assert result == Rotation(-45.0)
 
+    @pytest.mark.parametrize(
+        ("base", "target", "expected_degrees"),
+        [
+            (Point2d(1.0, 0.0), Point2d(1.0, 0.0), 0.0),
+            (Point2d(1.0, 0.0), Point2d(0.0, 1.0), 90.0),
+            (Point2d(1.0, 0.0), Point2d(0.0, -1.0), -90.0),
+            (Point2d(1.0, 0.0), Point2d(-1.0, 0.0), 180.0),
+            (Point2d(1.0, 0.0), Point2d(1.0, 1.0), 45.0),
+            (Point2d(0.0, 1.0), Point2d(1.0, 0.0), -90.0),
+        ],
+    )
+    def test_from_points(self, base, target, expected_degrees):
+        result = Rotation.from_points(base, target)
+
+        assert result.degrees == pytest.approx(expected_degrees)
+
 
 class TestTransform:
     """Transformクラスのテスト."""

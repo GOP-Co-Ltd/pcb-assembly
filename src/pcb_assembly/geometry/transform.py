@@ -190,6 +190,22 @@ class Rotation:
         """
         return self.__class__(-self.degrees)
 
+    @classmethod
+    def from_points(cls, base: Point2d, target: Point2d) -> Self:
+        """2つのベクトル間の角度からRotationを生成する.
+
+        Args:
+            base: 基準ベクトル
+            target: 対象ベクトル
+
+        Returns:
+            baseからtargetへの回転を表すRotationインスタンス
+        """
+        dot = base.x * target.x + base.y * target.y
+        cross = base.x * target.y - base.y * target.x
+        radians = math.atan2(cross, dot)
+        return cls(degrees=math.degrees(radians))
+
 
 @attrs.frozen
 class Transform:
