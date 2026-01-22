@@ -99,6 +99,13 @@ class TestPoint3d:
     def test_zero(self, kwargs, expected):
         assert Point3d.zero(**kwargs) == expected
 
+    def test_to2d_ignores_z(self):
+        point = Point3d(1.0, 2.0, 3.0)
+
+        result = point.to2d()
+
+        assert result == Point2d(1.0, 2.0)
+
 
 class TestPoint2d:
     """Point2dクラスのテスト."""

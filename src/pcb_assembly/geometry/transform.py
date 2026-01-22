@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 from collections.abc import Iterable
 from typing import Self
@@ -58,6 +60,10 @@ class Point3d:
     def norm(self) -> float:
         """ベクトルのノルム（長さ）を返す."""
         return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
+
+    def to2d(self) -> Point2d:
+        """Point2d型に変換する（z座標は無視）."""
+        return Point2d(x=self.x, y=self.y)
 
     @classmethod
     def zero(cls, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> Self:
