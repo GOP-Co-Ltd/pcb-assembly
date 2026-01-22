@@ -170,7 +170,7 @@ class Rotation:
     @property
     def radians(self) -> float:
         """回転角度をラジアンで返す."""
-        return np.deg2rad(self.degrees)
+        return math.radians(self.degrees)
 
     def to_matrix(self) -> npt.NDArray[np.float64]:
         """回転変換を3x3行列として返す.
