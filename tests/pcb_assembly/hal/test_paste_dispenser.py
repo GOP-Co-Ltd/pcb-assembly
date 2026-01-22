@@ -3,7 +3,8 @@ import math
 import pytest
 from pytest_mock import MockerFixture
 
-from pcb_assembly.hal.klipper import GCode, Klipper
+from pcb_assembly.gcode import GCode
+from pcb_assembly.hal.klipper import Klipper
 from pcb_assembly.hal.paste_dispenser import PasteDispenser
 from tests.helpers import mark_hardware
 

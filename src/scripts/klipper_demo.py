@@ -3,6 +3,7 @@
 
 import argparse
 
+from pcb_assembly import gcode as gc
 from pcb_assembly.hal.klipper import Klipper
 
 
@@ -30,11 +31,11 @@ def main() -> None:
                 break
             case "home":
                 print("ホーミング中...")
-                klipper.send_gcode("G28\nM400")
+                klipper.send_gcode(gc.homing() + gc.wait_for_done())
                 print("完了")
             case "relax":
                 print("モーターをリラックス中...")
-                klipper.send_gcode("M18")
+                klipper.send_gcode(gc.relax())
                 print("完了")
             case "move":
                 try:
@@ -42,7 +43,7 @@ def main() -> None:
                     y = float(input("  Y: ").strip())
                     z = float(input("  Z: ").strip())
                     print("移動中...")
-                    klipper.send_gcode(f"G0 X{x} Y{y} Z{z}\nM400")
+                    klipper.send_gcode(gc.move(x, y, z) + gc.wait_for_done())
                     print("完了")
                 except ValueError:
                     print("無効な値です")
