@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
-from typing import Self
+from typing import Self, overload
 
 import attrs
 import numpy as np
@@ -104,6 +104,9 @@ class Point2d:
             Point3d インスタンス
         """
         return Point3d(x=self.x, y=self.y, z=z)
+
+
+type Point = Point2d | Point3d
 
 
 @attrs.frozen
@@ -221,7 +224,13 @@ class Transform:
         rotated = scaled @ self.rotation.to_matrix().T
         return rotated + self.translation.numpy()
 
-    def apply(self, point: Point3d) -> Point3d:
+    @overload
+    def apply(self, point: Point2d) -> Point2d: ...
+
+    @overload
+    def apply(self, point: Point3d) -> Point3d: ...
+
+    def apply(self, point: Point) -> Point:
         """位置に変換を適用する.
 
         Args:
@@ -230,9 +239,16 @@ class Transform:
         Returns:
             変換後の位置
         """
+        if is_2d := isinstance(point, Point2d):
+            point = point.to3d()
+
         points = point.numpy().reshape(1, 3)
         result = self._apply_to_array(points)
-        return Point3d.from_numpy(result[0])
+
+        out = Point3d.from_numpy(result[0])
+        if is_2d:
+            return out.to2d()
+        return out
 
     def inverse(self) -> Self:
         """逆変換を返す.

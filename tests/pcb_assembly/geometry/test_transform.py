@@ -305,6 +305,25 @@ class TestTransform:
         assert np.isclose(result.y, 2.0, atol=1e-10)
         assert np.isclose(result.z, 0.0, atol=1e-10)
 
+    def test_apply_point2d_returns_point2d(self):
+        transform = Transform(translation=Point3d(10.0, 20.0, 30.0))
+        point = Point2d(1.0, 2.0)
+
+        result = transform.apply(point)
+
+        assert isinstance(result, Point2d)
+        assert result == Point2d(11.0, 22.0)
+
+    def test_apply_point2d_with_rotation(self):
+        transform = Transform(rotation=Rotation(90.0))
+        point = Point2d(1.0, 0.0)
+
+        result = transform.apply(point)
+
+        assert isinstance(result, Point2d)
+        assert np.isclose(result.x, 0.0, atol=1e-10)
+        assert np.isclose(result.y, 1.0, atol=1e-10)
+
     def test_inverse(self):
         transform = Transform(
             scale=Scale(2.0, 2.0, 1.0),
