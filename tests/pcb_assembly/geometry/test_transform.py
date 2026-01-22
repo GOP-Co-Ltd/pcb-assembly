@@ -104,6 +104,28 @@ class TestPoint2d:
     """Point2dクラスのテスト."""
 
     @pytest.mark.parametrize(
+        ("a", "b", "expected"),
+        [
+            (Point2d(1.0, 2.0), Point2d(3.0, 4.0), Point2d(4.0, 6.0)),
+            (Point2d(0.0, 0.0), Point2d(1.0, 1.0), Point2d(1.0, 1.0)),
+            (Point2d(-1.0, -2.0), Point2d(1.0, 2.0), Point2d(0.0, 0.0)),
+        ],
+    )
+    def test_add(self, a, b, expected):
+        assert a + b == expected
+
+    @pytest.mark.parametrize(
+        ("a", "b", "expected"),
+        [
+            (Point2d(4.0, 6.0), Point2d(1.0, 2.0), Point2d(3.0, 4.0)),
+            (Point2d(1.0, 1.0), Point2d(1.0, 1.0), Point2d(0.0, 0.0)),
+            (Point2d(0.0, 0.0), Point2d(1.0, 2.0), Point2d(-1.0, -2.0)),
+        ],
+    )
+    def test_sub(self, a, b, expected):
+        assert a - b == expected
+
+    @pytest.mark.parametrize(
         ("x", "y", "expected_norm"),
         [
             (3.0, 4.0, 5.0),

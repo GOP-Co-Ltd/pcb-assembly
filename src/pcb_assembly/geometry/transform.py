@@ -77,6 +77,12 @@ class Point2d:
     x: float
     y: float
 
+    def __add__(self, other: Self) -> Self:
+        return self.__class__(self.x + other.x, self.y + other.y)
+
+    def __sub__(self, other: Self) -> Self:
+        return self.__class__(self.x - other.x, self.y - other.y)
+
     @property
     def norm(self) -> float:
         """ベクトルのノルム（長さ）を返す."""
