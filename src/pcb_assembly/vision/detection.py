@@ -3,6 +3,7 @@
 import math
 import statistics
 from collections.abc import Iterable
+from typing import Self
 
 import attrs
 import cv2
@@ -34,6 +35,14 @@ class Point2D:
             Position インスタンス
         """
         return Position(x=self.x, y=self.y, z=z)
+
+    def __add__(self, other: Self) -> Self:
+        """加算."""
+        return self.__class__(x=self.x + other.x, y=self.y + other.y)
+
+    def __sub__(self, other: Self) -> Self:
+        """減算."""
+        return self.__class__(x=self.x - other.x, y=self.y - other.y)
 
 
 @attrs.frozen

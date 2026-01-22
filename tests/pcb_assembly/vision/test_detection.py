@@ -47,6 +47,22 @@ class TestPoint2D:
 
         assert result == Position(x=1.5, y=2.5, z=3.0)
 
+    def test_add(self):
+        p1 = Point2D(x=1.0, y=2.0)
+        p2 = Point2D(x=3.0, y=4.0)
+
+        result = p1 + p2
+
+        assert result == Point2D(x=4.0, y=6.0)
+
+    def test_sub(self):
+        p1 = Point2D(x=3.0, y=4.0)
+        p2 = Point2D(x=1.0, y=1.0)
+
+        result = p1 - p2
+
+        assert result == Point2D(x=2.0, y=3.0)
+
 
 class TestCircleDetector:
     """CircleDetectorクラスのテスト."""
