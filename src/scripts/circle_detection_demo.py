@@ -109,7 +109,7 @@ def main() -> None:
             cv2.putText(
                 preview, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2
             )
-            text = f"Distance: {result.offset.mm.distance:.2f}mm"
+            text = f"Distance: {result.offset.mm.norm:.2f}mm"
             cv2.putText(
                 preview, text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2
             )

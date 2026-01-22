@@ -104,7 +104,7 @@ class TestPoint2d:
     """Point2dクラスのテスト."""
 
     @pytest.mark.parametrize(
-        ("x", "y", "expected_distance"),
+        ("x", "y", "expected_norm"),
         [
             (3.0, 4.0, 5.0),
             (0.0, 0.0, 0.0),
@@ -112,12 +112,12 @@ class TestPoint2d:
             (0.0, 1.0, 1.0),
         ],
     )
-    def test_distance_returns_euclidean_distance(
-        self, x: float, y: float, expected_distance: float
+    def test_norm_returns_euclidean_distance(
+        self, x: float, y: float, expected_norm: float
     ):
         point = Point2d(x=x, y=y)
 
-        assert point.distance == pytest.approx(expected_distance)
+        assert point.norm == pytest.approx(expected_norm)
 
     def test_to3d_converts_to_point3d_with_default_z(self):
         point = Point2d(x=1.5, y=2.5)

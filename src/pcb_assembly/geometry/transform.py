@@ -78,8 +78,8 @@ class Point2d:
     y: float
 
     @property
-    def distance(self) -> float:
-        """原点からの距離."""
+    def norm(self) -> float:
+        """ベクトルのノルム（長さ）を返す."""
         return math.sqrt(self.x**2 + self.y**2)
 
     def to3d(self, z: float = 0.0) -> Point3d:

@@ -57,8 +57,8 @@ class TestCircleDetector:
         assert result is not None
         assert result.center.x == pytest.approx(100.0, abs=2.0)
         assert result.center.y == pytest.approx(100.0, abs=2.0)
-        assert result.offset.px.distance == pytest.approx(0.0, abs=2.0)
-        assert result.offset.mm.distance == pytest.approx(0.0, abs=0.2)
+        assert result.offset.px.norm == pytest.approx(0.0, abs=2.0)
+        assert result.offset.mm.norm == pytest.approx(0.0, abs=0.2)
 
     def test_detect_nearest_center_calculates_offset(
         self, detector: CircleDetector, image_with_offset_circle: Image

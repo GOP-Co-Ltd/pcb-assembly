@@ -75,7 +75,7 @@ class CircleDetector:
             return None
 
         # 最も中心に近い円を選択
-        return min(target_circles, key=lambda c: c.offset.px.distance)
+        return min(target_circles, key=lambda c: c.offset.px.norm)
 
     def detect_circles(self, image: Image) -> list[DetectedCircle]:
         """Hough変換で円を検出.
