@@ -269,7 +269,15 @@ class Transform:
             translation=Point3d.from_numpy(inv_translation_vec),
         )
 
-    def batch(self, points: Iterable[Point3d]) -> list[Point3d]:
+    @overload
+    def batch(self, points: Iterable[Point2d]) -> list[Point2d]: ...
+
+    @overload
+    def batch(self, points: Iterable[Point3d]) -> list[Point3d]: ...
+
+    def batch(
+        self, points: Iterable[Point2d] | Iterable[Point3d]
+    ) -> list[Point2d] | list[Point3d]:
         """複数の位置に変換を一括適用する.
 
         Args:
@@ -282,6 +290,12 @@ class Transform:
         if not points_list:
             return []
 
-        points = np.array([p.numpy() for p in points_list], dtype=np.float64)
-        result = self._apply_to_array(points)
-        return [Point3d.from_numpy(row) for row in result]
+        is_2d = any(isinstance(p, Point2d) for p in points_list)
+        points_list = [p.to3d() if isinstance(p, Point2d) else p for p in points_list]
+        points_array = np.array([p.numpy() for p in points_list], dtype=np.float64)
+        result = self._apply_to_array(points_array)
+
+        out = [Point3d.from_numpy(row) for row in result]
+        if is_2d:
+            return list(map(lambda p: p.to2d(), out))
+        return out

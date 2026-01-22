@@ -362,3 +362,27 @@ class TestTransform:
             assert np.isclose(batch_res.x, apply_res.x, atol=1e-10)
             assert np.isclose(batch_res.y, apply_res.y, atol=1e-10)
             assert np.isclose(batch_res.z, apply_res.z, atol=1e-10)
+
+    @pytest.mark.parametrize(
+        "points",
+        [
+            [],
+            [Point2d(1.0, 2.0)],
+            [Point2d(1.0, 0.0), Point2d(0.0, 1.0), Point2d(1.0, 1.0)],
+        ],
+    )
+    def test_batch_point2d(self, points):
+        transform = Transform(
+            scale=Scale(2.0, 3.0, 1.0),
+            rotation=Rotation(45.0),
+            translation=Point3d(5.0, -3.0, 2.0),
+        )
+
+        batch_results = transform.batch(points)
+        apply_results = [transform.apply(p) for p in points]
+
+        assert len(batch_results) == len(apply_results)
+        for batch_res, apply_res in zip(batch_results, apply_results, strict=True):
+            assert isinstance(batch_res, Point2d)
+            assert np.isclose(batch_res.x, apply_res.x, atol=1e-10)
+            assert np.isclose(batch_res.y, apply_res.y, atol=1e-10)
