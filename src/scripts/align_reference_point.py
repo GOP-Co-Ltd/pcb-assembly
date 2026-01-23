@@ -17,12 +17,11 @@ import cv2
 
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
-from pcb_assembly.geometry import Point2d, Rotation, Transform
+from pcb_assembly.geometry import Point2d, Rotation
 from pcb_assembly.hal import Camera, Klipper, XYZStage
 from pcb_assembly.vision import (
     CalibrationResult,
     CircleDetector,
-    DetectedCircle,
     Image,
 )
 
@@ -180,7 +179,6 @@ def main() -> None:
     # 位置合わせループ
     print("\n=== カメラ中心を基準点に合わせる ===")
     print("(qキーで中断)")
-    transform = Transform(rotation=rotation)
     max_iterations = 10
 
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
@@ -211,7 +209,7 @@ def main() -> None:
             # 回転角を考慮してオフセットを機械座標系に変換
             o = offset_final.mean_mm
             # カメラ座標→機械座標の変換（回転行列）
-            machine_offset = transform.apply(offset_final.mean_mm)
+            machine_offset = rotation.apply(offset_final.mean_mm)
 
             print(f"オフセット(カメラ): ({o.x:.3f}, {o.y:.3f}) mm")
             print(
