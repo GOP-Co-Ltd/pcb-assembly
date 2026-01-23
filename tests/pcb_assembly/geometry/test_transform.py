@@ -294,6 +294,20 @@ class TestTranslation:
 
         assert result == Translation(-10.0, -20.0, -30.0)
 
+    def test_from_point_point3d(self):
+        point = Point3d(10.0, 20.0, 30.0)
+
+        result = Translation.from_point(point)
+
+        assert result == Translation(10.0, 20.0, 30.0)
+
+    def test_from_point_point2d(self):
+        point = Point2d(10.0, 20.0)
+
+        result = Translation.from_point(point)
+
+        assert result == Translation(10.0, 20.0, 0.0)
+
 
 class TestCompose:
     """Composeクラスのテスト."""

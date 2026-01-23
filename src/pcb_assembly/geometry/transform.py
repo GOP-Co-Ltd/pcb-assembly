@@ -249,6 +249,13 @@ class Translation(Transform):
         """
         return self.__class__(-self.x, -self.y, -self.z)
 
+    @classmethod
+    def from_point(cls, point: Point) -> Self:
+        """PointからTranslationを生成する."""
+        if isinstance(point, Point2d):
+            return cls(point.x, point.y, 0.0)
+        return cls(point.x, point.y, point.z)
+
 
 class Compose(UserList[Transform], Transform):
     """複数の変換を合成するクラス.
