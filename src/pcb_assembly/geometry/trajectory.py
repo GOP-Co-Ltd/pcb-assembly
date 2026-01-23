@@ -1,8 +1,9 @@
 from collections.abc import Iterable
+from typing import Self
 
 import attrs
 
-from .transform import Point3d
+from .transform import Point, Point2d, Point3d
 
 
 def sort_by_nearest(positions: Iterable[Point3d], start: Point3d) -> list[Point3d]:
@@ -49,6 +50,26 @@ class Move:
     @property
     def is_empty(self) -> bool:
         return (self.x, self.y, self.z, self.v) == (None, None, None, None)
+
+    @classmethod
+    def from_point(
+        cls,
+        point: Point,
+        v: float | None = None,
+        relative: bool = False,
+    ) -> Self:
+        """PointからMoveを生成する.
+
+        Args:
+            point: 座標（Point2dの場合はz=None）
+            v: 速度
+            relative: 相対移動フラグ
+
+        Returns:
+            Moveインスタンス
+        """
+        z = point.z if isinstance(point, Point3d) else None
+        return cls(x=point.x, y=point.y, z=z, v=v, relative=relative)
 
 
 @attrs.frozen

@@ -1,7 +1,7 @@
 import pytest
 
 from pcb_assembly.geometry.trajectory import Move, Trajectory, Waypoint, sort_by_nearest
-from pcb_assembly.geometry.transform import Point3d
+from pcb_assembly.geometry.transform import Point2d, Point3d
 
 
 class TestSortByNearest:
@@ -93,6 +93,27 @@ class TestMove:
     )
     def test_is_empty(self, move, expected):
         assert move.is_empty == expected
+
+    def test_from_point(self):
+        point = Point3d(1.0, 2.0, 3.0)
+
+        move = Move.from_point(point, v=10.0, relative=True)
+
+        assert move == Move(x=1.0, y=2.0, z=3.0, v=10.0, relative=True)
+
+    def test_from_point_defaults(self):
+        point = Point3d(1.0, 2.0, 3.0)
+
+        move = Move.from_point(point)
+
+        assert move == Move(x=1.0, y=2.0, z=3.0, v=None, relative=False)
+
+    def test_from_point2d(self):
+        point = Point2d(1.0, 2.0)
+
+        move = Move.from_point(point)
+
+        assert move == Move(x=1.0, y=2.0, z=None, v=None, relative=False)
 
 
 class TestWaypoint:
