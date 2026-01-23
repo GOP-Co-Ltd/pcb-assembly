@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import attrs
 
+from pcb_assembly import gcode
 from pcb_assembly.geometry import Point3d, Trajectory, Waypoint
 
 from .klipper import ReadonlyKlipper
@@ -132,6 +133,27 @@ class XYZStage:
         limits = self.get_limits()
         invalid = [wp for wp in trajectory.waypoints if wp not in limits]
         return ValidationResult(invalid)
+
+    def move(self, trajectory: Trajectory) -> gcode.GCode:
+        """TrajectoryをG-codeに変換する.
+
+        Args:
+            trajectory: 変換するTrajectory
+
+        Returns:
+            移動のGCode
+
+        Raises:
+            ValueError: 制限外の経由点がある場合
+        """
+        result = self.validate(trajectory)
+        if not result.is_valid:
+            raise ValueError(f"制限外の経由点があります: {result.invalid_points}")
+
+        commands = gcode.GCode()
+        for wp in trajectory.waypoints:
+            commands.append(gcode.move(x=wp.x, y=wp.y, z=wp.z, velocity=wp.v))
+        return commands
 
 
 @attrs.frozen
