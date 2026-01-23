@@ -130,11 +130,10 @@ def main() -> None:
 
     # カメラ回転角の計測（2点法）
     print("\n=== カメラ回転角の計測 ===")
-    crop_size_mm = Point2d(
-        x=cam_config.crop.width / calibration.pixel_per_mm,
-        y=cam_config.crop.height / calibration.pixel_per_mm,
+    move_distance = CameraRotationMeasurer.compute_move_distance(
+        Point2d(cam_config.crop.width, cam_config.crop.height)
+        / calibration.pixel_per_mm
     )
-    move_distance = CameraRotationMeasurer.compute_move_distance(crop_size_mm)
     measurer = CameraRotationMeasurer(
         camera=camera,
         detector=detector,
