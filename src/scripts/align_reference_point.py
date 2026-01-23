@@ -10,6 +10,7 @@
 """
 
 import argparse
+import logging
 import time
 from pathlib import Path
 
@@ -17,8 +18,10 @@ import cv2
 
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
-from pcb_assembly.geometry import Point2d, Rotation
+from pcb_assembly.control.measure import CameraRotationMeasurer
+from pcb_assembly.geometry import Point2d
 from pcb_assembly.hal import Camera, Klipper, XYZStage
+from pcb_assembly.utils import setup_logging
 from pcb_assembly.vision import (
     CalibrationResult,
     CircleDetector,
@@ -51,6 +54,7 @@ def draw_crosshair(image: Image, offset: Point2d | None = None) -> Image:
 
 
 def main() -> None:
+    setup_logging(logging.INFO)
     parser = argparse.ArgumentParser(
         description="Reference Pointにカメラ中心を合わせる"
     )
@@ -124,57 +128,22 @@ def main() -> None:
     current_pos = stage.get_position()
     print(f"現在位置: ({current_pos.x:.3f}, {current_pos.y:.3f})")
 
-    # 初期状態でReference Point検出確認
-    print("\n=== 初期検出確認 ===")
-    offset = detector.detect_with_statistics(camera.capture() for _ in range(30))
-
-    if not offset:
-        print("Reference Pointを検出できませんでした")
-        print("カメラ視野内にReference Pointがあることを確認してください")
-        return
-
-    print(f"検出成功サンプル数: {offset.sample_count}")
-    print(
-        f"オフセット: ({offset.mean_mm.x:.3f}±{offset.std_mm.x:.3f}, {offset.mean_mm.y:.3f}±{offset.std_mm.y:.3f}) mm"
-    )
-    o1 = offset.mean_mm
-
     # カメラ回転角の計測（2点法）
     print("\n=== カメラ回転角の計測 ===")
-    # 関心領域の80%の範囲で移動（はみ出し防止）
     crop_size_mm = Point2d(
         x=cam_config.crop.width / calibration.pixel_per_mm,
         y=cam_config.crop.height / calibration.pixel_per_mm,
     )
-    move_distance = min(crop_size_mm.x, crop_size_mm.y) * 0.8 / 2  # 片方向の移動量
-
-    # X方向に移動して計測
-    move_vector = Point2d(x=move_distance, y=0.0)
-    target_x = current_pos.x + move_vector.x
-    print(f"X方向に {move_vector.x:.3f}mm 移動")
-    klipper.send_gcode(gcode.move(x=target_x) + gcode.wait_for_done())
-    time.sleep(0.5)
-
-    offset_x = detector.detect_with_statistics(camera.capture() for _ in range(30))
-    if not offset_x:
-        print("移動後のReference Point検出に失敗しました")
-        klipper.send_gcode("M84")
-        return
-    o2 = offset_x.mean_mm
-    print(
-        f"オフセット: ({o2.x:.3f}±{offset_x.std_mm.x:.3f}, {o2.y:.3f}±{offset_x.std_mm.y:.3f}) mm"
+    move_distance = CameraRotationMeasurer.compute_move_distance(crop_size_mm)
+    measurer = CameraRotationMeasurer(
+        camera=camera,
+        detector=detector,
+        klipper=klipper,
+        stage=stage,
+        move_distance=move_distance,
     )
-
-    # 差分ベクトルから回転角を計算
-    # theta = atan2(cross(m, d), dot(m, d))
-    rotation = Rotation.from_points(move_vector, o2 - o1)
+    rotation = measurer.measure()
     print(f"カメラ回転角: {rotation.degrees:.4f}° ({rotation.radians:.6f} rad)")
-
-    # 元の位置に戻る
-    klipper.send_gcode(
-        gcode.move(x=current_pos.x, y=current_pos.y) + gcode.wait_for_done()
-    )
-    time.sleep(0.5)
 
     # 位置合わせループ
     print("\n=== カメラ中心を基準点に合わせる ===")
