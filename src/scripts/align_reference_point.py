@@ -10,7 +10,6 @@
 """
 
 import argparse
-import math
 import time
 from pathlib import Path
 
@@ -18,21 +17,20 @@ import cv2
 
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
-from pcb_assembly.geometry import Position, Transform
+from pcb_assembly.geometry import Point2d, Rotation, Transform
 from pcb_assembly.hal import Camera, Klipper, XYZStage
 from pcb_assembly.vision import (
     CalibrationResult,
     CircleDetector,
     DetectedCircle,
     Image,
-    Point2D,
 )
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 WINDOW_NAME = "Reference Point Alignment"
 
 
-def draw_crosshair(image: Image, offset: Point2D | None = None) -> Image:
+def draw_crosshair(image: Image, offset: Point2d | None = None) -> Image:
     """画像に十字線とオフセット情報を描画する."""
     img = image.numpy().copy()
     h, w = img.shape[:2]
@@ -47,7 +45,7 @@ def draw_crosshair(image: Image, offset: Point2D | None = None) -> Image:
     if offset is not None:
         text = f"Offset: ({offset.x:.3f}, {offset.y:.3f}) mm"
         cv2.putText(img, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-        dist_text = f"Distance: {offset.distance:.3f} mm"
+        dist_text = f"Distance: {offset.norm:.3f} mm"
         cv2.putText(img, dist_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
     return Image(img)
@@ -145,14 +143,14 @@ def main() -> None:
     # カメラ回転角の計測（2点法）
     print("\n=== カメラ回転角の計測 ===")
     # 関心領域の80%の範囲で移動（はみ出し防止）
-    crop_size_mm = Point2D(
+    crop_size_mm = Point2d(
         x=cam_config.crop.width / calibration.pixel_per_mm,
         y=cam_config.crop.height / calibration.pixel_per_mm,
     )
     move_distance = min(crop_size_mm.x, crop_size_mm.y) * 0.8 / 2  # 片方向の移動量
 
     # X方向に移動して計測
-    move_vector = Point2D(x=move_distance, y=0.0)
+    move_vector = Point2d(x=move_distance, y=0.0)
     target_x = current_pos.x + move_vector.x
     print(f"X方向に {move_vector.x:.3f}mm 移動")
     klipper.send_gcode(gcode.move(x=target_x) + gcode.wait_for_done())
@@ -170,12 +168,8 @@ def main() -> None:
 
     # 差分ベクトルから回転角を計算
     # theta = atan2(cross(m, d), dot(m, d))
-    d = o2 - o1
-    cross_md = move_vector.x * d.y - move_vector.y * d.x  # 2D外積（スカラー）
-    dot_md = move_vector.x * d.x + move_vector.y * d.y  # 内積
-    theta_rad = math.atan2(cross_md, dot_md)
-    theta_deg = math.degrees(theta_rad)
-    print(f"カメラ回転角: {theta_deg:.4f}° ({theta_rad:.6f} rad)")
+    rotation = Rotation.from_points(move_vector, o2 - o1)
+    print(f"カメラ回転角: {rotation.degrees:.4f}° ({rotation.radians:.6f} rad)")
 
     # 元の位置に戻る
     klipper.send_gcode(
@@ -186,12 +180,11 @@ def main() -> None:
     # 位置合わせループ
     print("\n=== カメラ中心を基準点に合わせる ===")
     print("(qキーで中断)")
-    cos_t = math.cos(theta_rad)
-    sin_t = math.sin(theta_rad)
+    transform = Transform(rotation=rotation)
     max_iterations = 10
 
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
-    machine_offset: Point2D | None = None
+    machine_offset: Point2d | None = None
 
     try:
         for iteration in range(max_iterations):
@@ -218,31 +211,28 @@ def main() -> None:
             # 回転角を考慮してオフセットを機械座標系に変換
             o = offset_final.mean_mm
             # カメラ座標→機械座標の変換（回転行列）
-            machine_offset_x = cos_t * o.x - sin_t * o.y
-            machine_offset_y = sin_t * o.x + cos_t * o.y
-            machine_offset = Point2D(x=machine_offset_x, y=machine_offset_y)
+            machine_offset = transform.apply(offset_final.mean_mm)
 
             print(f"オフセット(カメラ): ({o.x:.3f}, {o.y:.3f}) mm")
             print(
                 f"オフセット(機械): ({machine_offset.x:.3f}, {machine_offset.y:.3f}) mm"
             )
-            print(f"距離: {machine_offset.distance:.3f} mm")
+            print(f"距離: {machine_offset.norm:.3f} mm")
 
             # 許容誤差内なら終了
-            if machine_offset.distance < args.tolerance:
+            if machine_offset.norm < args.tolerance:
                 print(f"許容誤差 {args.tolerance}mm 以内に収束しました")
                 break
 
             # 現在位置を取得して補正
             pos = stage.get_position()
-            aligned_x = pos.x - machine_offset_x
-            aligned_y = pos.y - machine_offset_y
+            aligned = pos.to2d() - machine_offset
             print(
-                f"移動: ({pos.x:.3f}, {pos.y:.3f}) -> ({aligned_x:.3f}, {aligned_y:.3f})"
+                f"移動: ({pos.x:.3f}, {pos.y:.3f}) -> ({aligned.x:.3f}, {aligned.y:.3f})"
             )
 
             klipper.send_gcode(
-                gcode.move(x=aligned_x, y=aligned_y) + gcode.wait_for_done()
+                gcode.move(x=aligned.x, y=aligned.y) + gcode.wait_for_done()
             )
             time.sleep(0.5)
         else:
