@@ -53,6 +53,37 @@ class TestPoint3d:
         assert a - b == expected
 
     @pytest.mark.parametrize(
+        ("point", "scalar", "expected"),
+        [
+            (Point3d(1.0, 2.0, 3.0), 2.0, Point3d(2.0, 4.0, 6.0)),
+            (Point3d(1.0, 2.0, 3.0), 0.5, Point3d(0.5, 1.0, 1.5)),
+            (Point3d(1.0, 2.0, 3.0), -1.0, Point3d(-1.0, -2.0, -3.0)),
+        ],
+    )
+    def test_mul(self, point, scalar, expected):
+        assert point * scalar == expected
+
+    @pytest.mark.parametrize(
+        ("scalar", "point", "expected"),
+        [
+            (2.0, Point3d(1.0, 2.0, 3.0), Point3d(2.0, 4.0, 6.0)),
+            (0.5, Point3d(1.0, 2.0, 3.0), Point3d(0.5, 1.0, 1.5)),
+        ],
+    )
+    def test_rmul(self, scalar, point, expected):
+        assert scalar * point == expected
+
+    @pytest.mark.parametrize(
+        ("point", "scalar", "expected"),
+        [
+            (Point3d(2.0, 4.0, 6.0), 2.0, Point3d(1.0, 2.0, 3.0)),
+            (Point3d(1.0, 2.0, 3.0), 0.5, Point3d(2.0, 4.0, 6.0)),
+        ],
+    )
+    def test_truediv(self, point, scalar, expected):
+        assert point / scalar == expected
+
+    @pytest.mark.parametrize(
         ("point", "expected"),
         [
             (Point3d(3.0, 4.0, 0.0), 5.0),
@@ -110,6 +141,37 @@ class TestPoint2d:
     )
     def test_sub(self, a, b, expected):
         assert a - b == expected
+
+    @pytest.mark.parametrize(
+        ("point", "scalar", "expected"),
+        [
+            (Point2d(1.0, 2.0), 2.0, Point2d(2.0, 4.0)),
+            (Point2d(1.0, 2.0), 0.5, Point2d(0.5, 1.0)),
+            (Point2d(1.0, 2.0), -1.0, Point2d(-1.0, -2.0)),
+        ],
+    )
+    def test_mul(self, point, scalar, expected):
+        assert point * scalar == expected
+
+    @pytest.mark.parametrize(
+        ("scalar", "point", "expected"),
+        [
+            (2.0, Point2d(1.0, 2.0), Point2d(2.0, 4.0)),
+            (0.5, Point2d(1.0, 2.0), Point2d(0.5, 1.0)),
+        ],
+    )
+    def test_rmul(self, scalar, point, expected):
+        assert scalar * point == expected
+
+    @pytest.mark.parametrize(
+        ("point", "scalar", "expected"),
+        [
+            (Point2d(2.0, 4.0), 2.0, Point2d(1.0, 2.0)),
+            (Point2d(1.0, 2.0), 0.5, Point2d(2.0, 4.0)),
+        ],
+    )
+    def test_truediv(self, point, scalar, expected):
+        assert point / scalar == expected
 
     @pytest.mark.parametrize(
         ("x", "y", "expected_norm"),
