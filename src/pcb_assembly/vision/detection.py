@@ -1,61 +1,27 @@
 """画像検出: 円などの図形を検出し、位置ズレを計算."""
 
-import math
 import statistics
 from collections.abc import Iterable
-from typing import Self
 
 import attrs
 import cv2
 
-from pcb_assembly.geometry import Position
+from pcb_assembly.geometry import Point2d
 
 from .image import Image
-
-
-@attrs.frozen
-class Point2D:
-    """2D座標."""
-
-    x: float
-    y: float
-
-    @property
-    def distance(self) -> float:
-        """原点からの距離."""
-        return math.sqrt(self.x**2 + self.y**2)
-
-    def to_position(self, z: float = 0.0) -> Position:
-        """Position型に変換する.
-
-        Args:
-            z: Z座標（デフォルト: 0.0）
-
-        Returns:
-            Position インスタンス
-        """
-        return Position(x=self.x, y=self.y, z=z)
-
-    def __add__(self, other: Self) -> Self:
-        """加算."""
-        return self.__class__(x=self.x + other.x, y=self.y + other.y)
-
-    def __sub__(self, other: Self) -> Self:
-        """減算."""
-        return self.__class__(x=self.x - other.x, y=self.y - other.y)
 
 
 @attrs.frozen
 class Offset:
     """画像中心からのズレ."""
 
-    px: Point2D  # pixel単位
+    px: Point2d  # pixel単位
     pixel_per_mm: float
 
     @property
-    def mm(self) -> Point2D:
+    def mm(self) -> Point2d:
         """mm単位のオフセット."""
-        return Point2D(
+        return Point2d(
             x=self.px.x / self.pixel_per_mm,
             y=self.px.y / self.pixel_per_mm,
         )
@@ -65,7 +31,7 @@ class Offset:
 class DetectedCircle:
     """検出された円."""
 
-    center: Point2D  # 円の中心座標 (pixel)
+    center: Point2d  # 円の中心座標 (pixel)
     radius: float  # 円の半径 (pixel)
     offset: Offset  # 画像中心からのズレ
 
@@ -74,23 +40,23 @@ class DetectedCircle:
 class OffsetStatistics:
     """複数検出結果の統計情報."""
 
-    mean: Point2D  # 平均オフセット (pixel)
-    std: Point2D  # 標準偏差 (pixel)
+    mean: Point2d  # 平均オフセット (pixel)
+    std: Point2d  # 標準偏差 (pixel)
     pixel_per_mm: float
     sample_count: int  # 有効サンプル数
 
     @property
-    def mean_mm(self) -> Point2D:
+    def mean_mm(self) -> Point2d:
         """平均オフセット (mm単位)."""
-        return Point2D(
+        return Point2d(
             x=self.mean.x / self.pixel_per_mm,
             y=self.mean.y / self.pixel_per_mm,
         )
 
     @property
-    def std_mm(self) -> Point2D:
+    def std_mm(self) -> Point2d:
         """標準偏差 (mm単位)."""
-        return Point2D(
+        return Point2d(
             x=self.std.x / self.pixel_per_mm,
             y=self.std.y / self.pixel_per_mm,
         )
@@ -138,7 +104,7 @@ class CircleDetector:
             return None
 
         # 最も中心に近い円を選択
-        return min(target_circles, key=lambda c: c.offset.px.distance)
+        return min(target_circles, key=lambda c: c.offset.px.norm)
 
     def detect_circles(self, image: Image) -> list[DetectedCircle]:
         """Hough変換で円を検出.
@@ -182,9 +148,9 @@ class CircleDetector:
 
         result = []
         for c in circles[0]:
-            center = Point2D(x=float(c[0]), y=float(c[1]))
+            center = Point2d(x=float(c[0]), y=float(c[1]))
             radius = float(c[2])
-            offset_px = Point2D(
+            offset_px = Point2d(
                 x=center.x - image_center[0],
                 y=center.y - image_center[1],
             )
@@ -230,11 +196,11 @@ class CircleDetector:
             return None
 
         return OffsetStatistics(
-            mean=Point2D(
+            mean=Point2d(
                 x=statistics.mean(offsets_x),
                 y=statistics.mean(offsets_y),
             ),
-            std=Point2D(
+            std=Point2d(
                 x=statistics.pstdev(offsets_x),
                 y=statistics.pstdev(offsets_y),
             ),

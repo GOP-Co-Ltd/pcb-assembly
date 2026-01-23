@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import attrs
 
-from pcb_assembly.geometry import Position, Trajectory, Waypoint
+from pcb_assembly.geometry import Point3d, Trajectory, Waypoint
 
 from .klipper import ReadonlyKlipper
 
@@ -70,14 +70,14 @@ class XYZStage:
         """
         self._klipper = klipper
 
-    def get_position(self) -> Position:
+    def get_position(self) -> Point3d:
         """現在位置を取得する.
 
         Returns:
             現在の座標
         """
         pos = self._klipper.get_status("gcode_move", "gcode_position")
-        return Position(x=pos[0], y=pos[1], z=pos[2])
+        return Point3d(x=pos[0], y=pos[1], z=pos[2])
 
     def get_limits(self) -> Limits:
         """各軸の可動域を取得する.

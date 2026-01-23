@@ -3,23 +3,23 @@ import math
 import numpy as np
 import pytest
 
-from pcb_assembly.geometry.transform import Position, Rotation, Scale, Transform
+from pcb_assembly.geometry.transform import Point2d, Point3d, Rotation, Scale, Transform
 
 
-class TestPosition:
-    """Positionクラスのテスト."""
+class TestPoint3d:
+    """Point3dクラスのテスト."""
 
     def test_init(self):
-        pos = Position(1.0, 2.0, 3.0)
+        point = Point3d(1.0, 2.0, 3.0)
 
-        assert pos.x == 1.0
-        assert pos.y == 2.0
-        assert pos.z == 3.0
+        assert point.x == 1.0
+        assert point.y == 2.0
+        assert point.z == 3.0
 
     def test_numpy(self):
-        pos = Position(1.0, 2.0, 3.0)
+        point = Point3d(1.0, 2.0, 3.0)
 
-        result = pos.numpy()
+        result = point.numpy()
 
         assert result.dtype == np.float64
         assert np.array_equal(result, np.array([1.0, 2.0, 3.0]))
@@ -27,9 +27,9 @@ class TestPosition:
     def test_from_numpy(self):
         array = np.array([1.0, 2.0, 3.0])
 
-        pos = Position.from_numpy(array)
+        point = Point3d.from_numpy(array)
 
-        assert pos == Position(1.0, 2.0, 3.0)
+        assert point == Point3d(1.0, 2.0, 3.0)
 
     @pytest.mark.parametrize(
         "array",
@@ -41,17 +41,17 @@ class TestPosition:
     )
     def test_from_numpy_invalid_shape(self, array):
         with pytest.raises(ValueError, match=r"配列の形状は\(3,\)である必要があります"):
-            Position.from_numpy(array)
+            Point3d.from_numpy(array)
 
     @pytest.mark.parametrize(
         ("a", "b", "expected"),
         [
-            (Position(1.0, 2.0, 3.0), Position(4.0, 5.0, 6.0), Position(5.0, 7.0, 9.0)),
-            (Position(0.0, 0.0, 0.0), Position(1.0, 1.0, 1.0), Position(1.0, 1.0, 1.0)),
+            (Point3d(1.0, 2.0, 3.0), Point3d(4.0, 5.0, 6.0), Point3d(5.0, 7.0, 9.0)),
+            (Point3d(0.0, 0.0, 0.0), Point3d(1.0, 1.0, 1.0), Point3d(1.0, 1.0, 1.0)),
             (
-                Position(-1.0, -2.0, -3.0),
-                Position(1.0, 2.0, 3.0),
-                Position(0.0, 0.0, 0.0),
+                Point3d(-1.0, -2.0, -3.0),
+                Point3d(1.0, 2.0, 3.0),
+                Point3d(0.0, 0.0, 0.0),
             ),
         ],
     )
@@ -61,12 +61,12 @@ class TestPosition:
     @pytest.mark.parametrize(
         ("a", "b", "expected"),
         [
-            (Position(4.0, 5.0, 6.0), Position(1.0, 2.0, 3.0), Position(3.0, 3.0, 3.0)),
-            (Position(1.0, 1.0, 1.0), Position(1.0, 1.0, 1.0), Position(0.0, 0.0, 0.0)),
+            (Point3d(4.0, 5.0, 6.0), Point3d(1.0, 2.0, 3.0), Point3d(3.0, 3.0, 3.0)),
+            (Point3d(1.0, 1.0, 1.0), Point3d(1.0, 1.0, 1.0), Point3d(0.0, 0.0, 0.0)),
             (
-                Position(0.0, 0.0, 0.0),
-                Position(1.0, 2.0, 3.0),
-                Position(-1.0, -2.0, -3.0),
+                Point3d(0.0, 0.0, 0.0),
+                Point3d(1.0, 2.0, 3.0),
+                Point3d(-1.0, -2.0, -3.0),
             ),
         ],
     )
@@ -74,30 +74,93 @@ class TestPosition:
         assert a - b == expected
 
     @pytest.mark.parametrize(
-        ("pos", "expected"),
+        ("point", "expected"),
         [
-            (Position(3.0, 4.0, 0.0), 5.0),
-            (Position(0.0, 0.0, 0.0), 0.0),
-            (Position(1.0, 0.0, 0.0), 1.0),
-            (Position(1.0, 1.0, 1.0), math.sqrt(3)),
+            (Point3d(3.0, 4.0, 0.0), 5.0),
+            (Point3d(0.0, 0.0, 0.0), 0.0),
+            (Point3d(1.0, 0.0, 0.0), 1.0),
+            (Point3d(1.0, 1.0, 1.0), math.sqrt(3)),
         ],
     )
-    def test_norm(self, pos, expected):
-        assert pos.norm() == expected
+    def test_norm(self, point, expected):
+        assert point.norm() == expected
 
     @pytest.mark.parametrize(
         ("kwargs", "expected"),
         [
-            ({}, Position(0.0, 0.0, 0.0)),
-            ({"x": 1.0}, Position(1.0, 0.0, 0.0)),
-            ({"y": 2.0}, Position(0.0, 2.0, 0.0)),
-            ({"z": 3.0}, Position(0.0, 0.0, 3.0)),
-            ({"x": 1.0, "y": 2.0}, Position(1.0, 2.0, 0.0)),
-            ({"x": 1.0, "y": 2.0, "z": 3.0}, Position(1.0, 2.0, 3.0)),
+            ({}, Point3d(0.0, 0.0, 0.0)),
+            ({"x": 1.0}, Point3d(1.0, 0.0, 0.0)),
+            ({"y": 2.0}, Point3d(0.0, 2.0, 0.0)),
+            ({"z": 3.0}, Point3d(0.0, 0.0, 3.0)),
+            ({"x": 1.0, "y": 2.0}, Point3d(1.0, 2.0, 0.0)),
+            ({"x": 1.0, "y": 2.0, "z": 3.0}, Point3d(1.0, 2.0, 3.0)),
         ],
     )
     def test_zero(self, kwargs, expected):
-        assert Position.zero(**kwargs) == expected
+        assert Point3d.zero(**kwargs) == expected
+
+    def test_to2d_ignores_z(self):
+        point = Point3d(1.0, 2.0, 3.0)
+
+        result = point.to2d()
+
+        assert result == Point2d(1.0, 2.0)
+
+
+class TestPoint2d:
+    """Point2dクラスのテスト."""
+
+    @pytest.mark.parametrize(
+        ("a", "b", "expected"),
+        [
+            (Point2d(1.0, 2.0), Point2d(3.0, 4.0), Point2d(4.0, 6.0)),
+            (Point2d(0.0, 0.0), Point2d(1.0, 1.0), Point2d(1.0, 1.0)),
+            (Point2d(-1.0, -2.0), Point2d(1.0, 2.0), Point2d(0.0, 0.0)),
+        ],
+    )
+    def test_add(self, a, b, expected):
+        assert a + b == expected
+
+    @pytest.mark.parametrize(
+        ("a", "b", "expected"),
+        [
+            (Point2d(4.0, 6.0), Point2d(1.0, 2.0), Point2d(3.0, 4.0)),
+            (Point2d(1.0, 1.0), Point2d(1.0, 1.0), Point2d(0.0, 0.0)),
+            (Point2d(0.0, 0.0), Point2d(1.0, 2.0), Point2d(-1.0, -2.0)),
+        ],
+    )
+    def test_sub(self, a, b, expected):
+        assert a - b == expected
+
+    @pytest.mark.parametrize(
+        ("x", "y", "expected_norm"),
+        [
+            (3.0, 4.0, 5.0),
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 1.0),
+            (0.0, 1.0, 1.0),
+        ],
+    )
+    def test_norm_returns_euclidean_distance(
+        self, x: float, y: float, expected_norm: float
+    ):
+        point = Point2d(x=x, y=y)
+
+        assert point.norm == pytest.approx(expected_norm)
+
+    def test_to3d_converts_to_point3d_with_default_z(self):
+        point = Point2d(x=1.5, y=2.5)
+
+        result = point.to3d()
+
+        assert result == Point3d(x=1.5, y=2.5, z=0.0)
+
+    def test_to3d_converts_to_point3d_with_specified_z(self):
+        point = Point2d(x=1.5, y=2.5)
+
+        result = point.to3d(z=3.0)
+
+        assert result == Point3d(x=1.5, y=2.5, z=3.0)
 
 
 class TestScale:
@@ -189,6 +252,22 @@ class TestRotation:
 
         assert result == Rotation(-45.0)
 
+    @pytest.mark.parametrize(
+        ("base", "target", "expected_degrees"),
+        [
+            (Point2d(1.0, 0.0), Point2d(1.0, 0.0), 0.0),
+            (Point2d(1.0, 0.0), Point2d(0.0, 1.0), 90.0),
+            (Point2d(1.0, 0.0), Point2d(0.0, -1.0), -90.0),
+            (Point2d(1.0, 0.0), Point2d(-1.0, 0.0), 180.0),
+            (Point2d(1.0, 0.0), Point2d(1.0, 1.0), 45.0),
+            (Point2d(0.0, 1.0), Point2d(1.0, 0.0), -90.0),
+        ],
+    )
+    def test_from_points(self, base, target, expected_degrees):
+        result = Rotation.from_points(base, target)
+
+        assert result.degrees == pytest.approx(expected_degrees)
+
 
 class TestTransform:
     """Transformクラスのテスト."""
@@ -198,29 +277,29 @@ class TestTransform:
 
         assert transform.scale == Scale()
         assert transform.rotation == Rotation()
-        assert transform.translation == Position(0.0, 0.0, 0.0)
+        assert transform.translation == Point3d(0.0, 0.0, 0.0)
 
     def test_apply_translation_only(self):
-        transform = Transform(translation=Position(10.0, 20.0, 30.0))
-        pos = Position(1.0, 2.0, 3.0)
+        transform = Transform(translation=Point3d(10.0, 20.0, 30.0))
+        point = Point3d(1.0, 2.0, 3.0)
 
-        result = transform.apply(pos)
+        result = transform.apply(point)
 
-        assert result == Position(11.0, 22.0, 33.0)
+        assert result == Point3d(11.0, 22.0, 33.0)
 
     def test_apply_scale_only(self):
         transform = Transform(scale=Scale(2.0, 3.0, 4.0))
-        pos = Position(1.0, 2.0, 3.0)
+        point = Point3d(1.0, 2.0, 3.0)
 
-        result = transform.apply(pos)
+        result = transform.apply(point)
 
-        assert result == Position(2.0, 6.0, 12.0)
+        assert result == Point3d(2.0, 6.0, 12.0)
 
     def test_apply_rotation_only(self):
         transform = Transform(rotation=Rotation(90.0))
-        pos = Position(1.0, 0.0, 0.0)
+        point = Point3d(1.0, 0.0, 0.0)
 
-        result = transform.apply(pos)
+        result = transform.apply(point)
 
         assert np.isclose(result.x, 0.0, atol=1e-10)
         assert np.isclose(result.y, 1.0, atol=1e-10)
@@ -231,52 +310,95 @@ class TestTransform:
         transform = Transform(
             scale=Scale(2.0, 2.0, 1.0),
             rotation=Rotation(90.0),
-            translation=Position(10.0, 0.0, 0.0),
+            translation=Point3d(10.0, 0.0, 0.0),
         )
-        pos = Position(1.0, 0.0, 0.0)
+        point = Point3d(1.0, 0.0, 0.0)
 
-        result = transform.apply(pos)
+        result = transform.apply(point)
 
         # (1,0,0) → scale → (2,0,0) → rotate 90° → (0,2,0) → translate → (10,2,0)
         assert np.isclose(result.x, 10.0, atol=1e-10)
         assert np.isclose(result.y, 2.0, atol=1e-10)
         assert np.isclose(result.z, 0.0, atol=1e-10)
 
+    def test_apply_point2d_returns_point2d(self):
+        transform = Transform(translation=Point3d(10.0, 20.0, 30.0))
+        point = Point2d(1.0, 2.0)
+
+        result = transform.apply(point)
+
+        assert isinstance(result, Point2d)
+        assert result == Point2d(11.0, 22.0)
+
+    def test_apply_point2d_with_rotation(self):
+        transform = Transform(rotation=Rotation(90.0))
+        point = Point2d(1.0, 0.0)
+
+        result = transform.apply(point)
+
+        assert isinstance(result, Point2d)
+        assert np.isclose(result.x, 0.0, atol=1e-10)
+        assert np.isclose(result.y, 1.0, atol=1e-10)
+
     def test_inverse(self):
         transform = Transform(
             scale=Scale(2.0, 2.0, 1.0),
             rotation=Rotation(90.0),
-            translation=Position(10.0, 5.0, 0.0),
+            translation=Point3d(10.0, 5.0, 0.0),
         )
-        pos = Position(1.0, 2.0, 3.0)
+        point = Point3d(1.0, 2.0, 3.0)
 
-        transformed = transform.apply(pos)
+        transformed = transform.apply(point)
         restored = transform.inverse().apply(transformed)
 
-        assert np.isclose(restored.x, pos.x, atol=1e-10)
-        assert np.isclose(restored.y, pos.y, atol=1e-10)
-        assert np.isclose(restored.z, pos.z, atol=1e-10)
+        assert np.isclose(restored.x, point.x, atol=1e-10)
+        assert np.isclose(restored.y, point.y, atol=1e-10)
+        assert np.isclose(restored.z, point.z, atol=1e-10)
 
     @pytest.mark.parametrize(
-        "positions",
+        "points",
         [
             [],
-            [Position(1.0, 2.0, 3.0)],
-            [Position(1.0, 0.0, 0.0), Position(0.0, 1.0, 0.0), Position(1.0, 1.0, 5.0)],
+            [Point3d(1.0, 2.0, 3.0)],
+            [Point3d(1.0, 0.0, 0.0), Point3d(0.0, 1.0, 0.0), Point3d(1.0, 1.0, 5.0)],
         ],
     )
-    def test_batch(self, positions):
+    def test_batch(self, points):
         transform = Transform(
             scale=Scale(2.0, 3.0, 1.0),
             rotation=Rotation(45.0),
-            translation=Position(5.0, -3.0, 2.0),
+            translation=Point3d(5.0, -3.0, 2.0),
         )
 
-        batch_results = transform.batch(positions)
-        apply_results = [transform.apply(p) for p in positions]
+        batch_results = transform.batch(points)
+        apply_results = [transform.apply(p) for p in points]
 
         assert len(batch_results) == len(apply_results)
         for batch_res, apply_res in zip(batch_results, apply_results, strict=True):
             assert np.isclose(batch_res.x, apply_res.x, atol=1e-10)
             assert np.isclose(batch_res.y, apply_res.y, atol=1e-10)
             assert np.isclose(batch_res.z, apply_res.z, atol=1e-10)
+
+    @pytest.mark.parametrize(
+        "points",
+        [
+            [],
+            [Point2d(1.0, 2.0)],
+            [Point2d(1.0, 0.0), Point2d(0.0, 1.0), Point2d(1.0, 1.0)],
+        ],
+    )
+    def test_batch_point2d(self, points):
+        transform = Transform(
+            scale=Scale(2.0, 3.0, 1.0),
+            rotation=Rotation(45.0),
+            translation=Point3d(5.0, -3.0, 2.0),
+        )
+
+        batch_results = transform.batch(points)
+        apply_results = [transform.apply(p) for p in points]
+
+        assert len(batch_results) == len(apply_results)
+        for batch_res, apply_res in zip(batch_results, apply_results, strict=True):
+            assert isinstance(batch_res, Point2d)
+            assert np.isclose(batch_res.x, apply_res.x, atol=1e-10)
+            assert np.isclose(batch_res.y, apply_res.y, atol=1e-10)

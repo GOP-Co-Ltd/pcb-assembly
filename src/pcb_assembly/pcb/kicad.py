@@ -14,6 +14,8 @@ import pcbnew
 from shapely import Polygon
 from shapely.affinity import translate
 
+from pcb_assembly.geometry.transform import Point2d
+
 from .board import Component, ComponentList, Layer, Outline, Pad, PadList
 
 
@@ -121,8 +123,7 @@ def extract_components(pcb_path: Path) -> ComponentList:
                 designator=footprint.GetReference(),
                 value=footprint.GetValue(),
                 package=footprint.GetFPID().GetLibItemName(),
-                x=x,
-                y=y,
+                position=Point2d(x=x, y=y),
                 rotation=rotation,
                 layer=layer,
             )

@@ -1,7 +1,7 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from pcb_assembly.geometry import Move, Position, Trajectory, Waypoint
+from pcb_assembly.geometry import Move, Point3d, Trajectory, Waypoint
 from pcb_assembly.hal.klipper import Klipper
 from pcb_assembly.hal.stage import Limits, ScalarLimits, XYZStage
 from tests.helpers import mark_hardware
@@ -35,7 +35,7 @@ class TestXYZStage:
     def test_get_position(self, stage: XYZStage):
         position = stage.get_position()
 
-        assert isinstance(position, Position)
+        assert isinstance(position, Point3d)
 
     @mark_hardware
     def test_get_limits(self, stage: XYZStage):
@@ -114,7 +114,7 @@ class TestXYZStage:
             stage.get_limits()
 
     def test_validate_is_valid_when_all_in_limits(self, mock_stage: XYZStage):
-        trajectory = Trajectory(Position(10.0, 10.0, 10.0), default_velocity=100.0)
+        trajectory = Trajectory(Point3d(10.0, 10.0, 10.0), default_velocity=100.0)
         trajectory.add(Move(x=50.0, y=100.0, z=25.0))
 
         result = mock_stage.validate(trajectory)
@@ -123,7 +123,7 @@ class TestXYZStage:
         assert result.invalid_points == []
 
     def test_validate_returns_invalid_waypoints(self, mock_stage: XYZStage):
-        trajectory = Trajectory(Position(10.0, 10.0, 10.0), default_velocity=100.0)
+        trajectory = Trajectory(Point3d(10.0, 10.0, 10.0), default_velocity=100.0)
         trajectory.add(
             Move(x=50.0, y=100.0, z=25.0),  # 制限内
             Move(x=150.0, y=100.0, z=25.0),  # x範囲外

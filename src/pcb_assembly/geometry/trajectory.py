@@ -2,10 +2,10 @@ from collections.abc import Iterable
 
 import attrs
 
-from .transform import Position
+from .transform import Point3d
 
 
-def sort_by_nearest(positions: Iterable[Position], start: Position) -> list[Position]:
+def sort_by_nearest(positions: Iterable[Point3d], start: Point3d) -> list[Point3d]:
     """開始点から最も近い順に並べ替える（greedy nearest neighbor）.
 
     Args:
@@ -19,7 +19,7 @@ def sort_by_nearest(positions: Iterable[Position], start: Position) -> list[Posi
         return []
 
     remaining = list(positions)
-    result: list[Position] = []
+    result: list[Point3d] = []
     current = start
 
     while remaining:
@@ -61,8 +61,8 @@ class Waypoint:
     v: float
 
     @property
-    def position(self) -> Position:
-        return Position(self.x, self.y, self.z)
+    def position(self) -> Point3d:
+        return Point3d(self.x, self.y, self.z)
 
 
 class Trajectory:
@@ -71,13 +71,13 @@ class Trajectory:
     相対・絶対移動を含むMoveを受け取り、絶対座標のWaypointリストに変換する。
     """
 
-    def __init__(self, origin: Position, default_velocity: float) -> None:
+    def __init__(self, origin: Point3d, default_velocity: float) -> None:
         self._position = origin
         self._velocity = default_velocity
         self._waypoints: list[Waypoint] = []
 
     @property
-    def position(self) -> Position:
+    def position(self) -> Point3d:
         """現在位置."""
         return self._position
 
