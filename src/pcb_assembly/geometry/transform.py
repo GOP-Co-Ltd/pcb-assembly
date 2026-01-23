@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import math
 from collections.abc import Iterable
-from typing import Self
+from typing import Self, overload
 
 import attrs
 import numpy as np
@@ -8,8 +10,8 @@ import numpy.typing as npt
 
 
 @attrs.frozen
-class Position:
-    """3次元空間の位置を表すイミュータブルなクラス.
+class Point3d:
+    """3次元空間の座標を表すイミュータブルなクラス.
 
     Attributes:
         x: X座標
@@ -31,13 +33,13 @@ class Position:
 
     @classmethod
     def from_numpy(cls, array: npt.NDArray[np.floating]) -> Self:
-        """NumPy配列からPositionを生成する.
+        """NumPy配列からPoint3dを生成する.
 
         Args:
             array: 形状が(3,)のfloating配列
 
         Returns:
-            配列の値から生成されたPositionインスタンス
+            配列の値から生成されたPoint3dインスタンス
 
         Raises:
             ValueError: 配列の形状が(3,)でない場合
@@ -59,10 +61,52 @@ class Position:
         """ベクトルのノルム（長さ）を返す."""
         return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
 
+    def to2d(self) -> Point2d:
+        """Point2d型に変換する（z座標は無視）."""
+        return Point2d(x=self.x, y=self.y)
+
     @classmethod
     def zero(cls, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> Self:
-        """指定されていない軸を0で初期化したPositionを返す."""
+        """指定されていない軸を0で初期化したPoint3dを返す."""
         return cls(x, y, z)
+
+
+@attrs.frozen
+class Point2d:
+    """2次元空間の座標を表すイミュータブルなクラス.
+
+    Attributes:
+        x: X座標
+        y: Y座標
+    """
+
+    x: float
+    y: float
+
+    def __add__(self, other: Self) -> Self:
+        return self.__class__(self.x + other.x, self.y + other.y)
+
+    def __sub__(self, other: Self) -> Self:
+        return self.__class__(self.x - other.x, self.y - other.y)
+
+    @property
+    def norm(self) -> float:
+        """ベクトルのノルム（長さ）を返す."""
+        return math.sqrt(self.x**2 + self.y**2)
+
+    def to3d(self, z: float = 0.0) -> Point3d:
+        """Point3d型に変換する.
+
+        Args:
+            z: Z座標（デフォルト: 0.0）
+
+        Returns:
+            Point3d インスタンス
+        """
+        return Point3d(x=self.x, y=self.y, z=z)
+
+
+type Point = Point2d | Point3d
 
 
 @attrs.frozen
@@ -126,7 +170,7 @@ class Rotation:
     @property
     def radians(self) -> float:
         """回転角度をラジアンで返す."""
-        return np.deg2rad(self.degrees)
+        return math.radians(self.degrees)
 
     def to_matrix(self) -> npt.NDArray[np.float64]:
         """回転変換を3x3行列として返す.
@@ -146,6 +190,22 @@ class Rotation:
         """
         return self.__class__(-self.degrees)
 
+    @classmethod
+    def from_points(cls, base: Point2d, target: Point2d) -> Self:
+        """2つのベクトル間の角度からRotationを生成する.
+
+        Args:
+            base: 基準ベクトル
+            target: 対象ベクトル
+
+        Returns:
+            baseからtargetへの回転を表すRotationインスタンス
+        """
+        dot = base.x * target.x + base.y * target.y
+        cross = base.x * target.y - base.y * target.x
+        radians = math.atan2(cross, dot)
+        return cls(degrees=math.degrees(radians))
+
 
 @attrs.frozen
 class Transform:
@@ -161,7 +221,7 @@ class Transform:
 
     scale: Scale = attrs.Factory(Scale)
     rotation: Rotation = attrs.Factory(Rotation)
-    translation: Position = attrs.Factory(lambda: Position(0.0, 0.0, 0.0))
+    translation: Point3d = attrs.Factory(lambda: Point3d(0.0, 0.0, 0.0))
 
     def _apply_to_array(
         self, points: npt.NDArray[np.float64]
@@ -180,18 +240,31 @@ class Transform:
         rotated = scaled @ self.rotation.to_matrix().T
         return rotated + self.translation.numpy()
 
-    def apply(self, position: Position) -> Position:
+    @overload
+    def apply(self, point: Point2d) -> Point2d: ...
+
+    @overload
+    def apply(self, point: Point3d) -> Point3d: ...
+
+    def apply(self, point: Point) -> Point:
         """位置に変換を適用する.
 
         Args:
-            position: 変換を適用する位置
+            point: 変換を適用する位置
 
         Returns:
             変換後の位置
         """
-        points = position.numpy().reshape(1, 3)
+        if is_2d := isinstance(point, Point2d):
+            point = point.to3d()
+
+        points = point.numpy().reshape(1, 3)
         result = self._apply_to_array(points)
-        return Position.from_numpy(result[0])
+
+        out = Point3d.from_numpy(result[0])
+        if is_2d:
+            return out.to2d()
+        return out
 
     def inverse(self) -> Self:
         """逆変換を返す.
@@ -209,22 +282,36 @@ class Transform:
         return self.__class__(
             scale=inv_scale,
             rotation=inv_rotation,
-            translation=Position.from_numpy(inv_translation_vec),
+            translation=Point3d.from_numpy(inv_translation_vec),
         )
 
-    def batch(self, positions: Iterable[Position]) -> list[Position]:
+    @overload
+    def batch(self, points: Iterable[Point2d]) -> list[Point2d]: ...
+
+    @overload
+    def batch(self, points: Iterable[Point3d]) -> list[Point3d]: ...
+
+    def batch(
+        self, points: Iterable[Point2d] | Iterable[Point3d]
+    ) -> list[Point2d] | list[Point3d]:
         """複数の位置に変換を一括適用する.
 
         Args:
-            positions: 変換を適用する位置のイテラブル
+            points: 変換を適用する位置のイテラブル
 
         Returns:
             変換後の位置のリスト
         """
-        positions_list = list(positions)
-        if not positions_list:
+        points_list = list(points)
+        if not points_list:
             return []
 
-        points = np.array([p.numpy() for p in positions_list], dtype=np.float64)
-        result = self._apply_to_array(points)
-        return [Position.from_numpy(row) for row in result]
+        is_2d = any(isinstance(p, Point2d) for p in points_list)
+        points_list = [p.to3d() if isinstance(p, Point2d) else p for p in points_list]
+        points_array = np.array([p.numpy() for p in points_list], dtype=np.float64)
+        result = self._apply_to_array(points_array)
+
+        out = [Point3d.from_numpy(row) for row in result]
+        if is_2d:
+            return list(map(lambda p: p.to2d(), out))
+        return out

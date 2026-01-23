@@ -38,8 +38,8 @@ class TestExtractComponents:
         u1 = next(c for c in components if c.designator == "U1")
         assert u1.value == "ATtiny85"
         assert u1.package == "SOT-23-6"
-        assert u1.x == pytest.approx(10.0)
-        assert u1.y == pytest.approx(10.0)
+        assert u1.position.x == pytest.approx(10.0)
+        assert u1.position.y == pytest.approx(10.0)
         assert u1.rotation == pytest.approx(0.0)
         assert u1.layer == Layer.TOP
 

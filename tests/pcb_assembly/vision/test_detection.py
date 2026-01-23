@@ -2,47 +2,8 @@ import cv2
 import numpy as np
 import pytest
 
-from pcb_assembly.geometry import Position
 from pcb_assembly.vision import Image
-from pcb_assembly.vision.detection import (
-    CircleDetector,
-    DetectedCircle,
-    Point2D,
-)
-
-
-class TestPoint2D:
-    """Point2Dクラスのテスト."""
-
-    @pytest.mark.parametrize(
-        ("x", "y", "expected_distance"),
-        [
-            (3.0, 4.0, 5.0),
-            (0.0, 0.0, 0.0),
-            (1.0, 0.0, 1.0),
-            (0.0, 1.0, 1.0),
-        ],
-    )
-    def test_distance_returns_euclidean_distance(
-        self, x: float, y: float, expected_distance: float
-    ):
-        point = Point2D(x=x, y=y)
-
-        assert point.distance == pytest.approx(expected_distance)
-
-    def test_to_position_converts_to_position_with_default_z(self):
-        point = Point2D(x=1.5, y=2.5)
-
-        result = point.to_position()
-
-        assert result == Position(x=1.5, y=2.5, z=0.0)
-
-    def test_to_position_converts_to_position_with_specified_z(self):
-        point = Point2D(x=1.5, y=2.5)
-
-        result = point.to_position(z=3.0)
-
-        assert result == Position(x=1.5, y=2.5, z=3.0)
+from pcb_assembly.vision.detection import CircleDetector, DetectedCircle
 
 
 class TestCircleDetector:
@@ -96,8 +57,8 @@ class TestCircleDetector:
         assert result is not None
         assert result.center.x == pytest.approx(100.0, abs=2.0)
         assert result.center.y == pytest.approx(100.0, abs=2.0)
-        assert result.offset.px.distance == pytest.approx(0.0, abs=2.0)
-        assert result.offset.mm.distance == pytest.approx(0.0, abs=0.2)
+        assert result.offset.px.norm == pytest.approx(0.0, abs=2.0)
+        assert result.offset.mm.norm == pytest.approx(0.0, abs=0.2)
 
     def test_detect_nearest_center_calculates_offset(
         self, detector: CircleDetector, image_with_offset_circle: Image
