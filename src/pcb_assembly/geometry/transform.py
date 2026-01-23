@@ -29,6 +29,15 @@ class Point3d:
     def __sub__(self, other: Self) -> Self:
         return self.__class__(self.x - other.x, self.y - other.y, self.z - other.z)
 
+    def __mul__(self, scalar: float) -> Self:
+        return self.__class__(self.x * scalar, self.y * scalar, self.z * scalar)
+
+    def __rmul__(self, scalar: float) -> Self:
+        return self.__mul__(scalar)
+
+    def __truediv__(self, scalar: float) -> Self:
+        return self.__class__(self.x / scalar, self.y / scalar, self.z / scalar)
+
     def norm(self) -> float:
         """ベクトルのノルム（長さ）を返す."""
         return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
@@ -60,6 +69,15 @@ class Point2d:
 
     def __sub__(self, other: Self) -> Self:
         return self.__class__(self.x - other.x, self.y - other.y)
+
+    def __mul__(self, scalar: float) -> Self:
+        return self.__class__(self.x * scalar, self.y * scalar)
+
+    def __rmul__(self, scalar: float) -> Self:
+        return self.__mul__(scalar)
+
+    def __truediv__(self, scalar: float) -> Self:
+        return self.__class__(self.x / scalar, self.y / scalar)
 
     @property
     def norm(self) -> float:
