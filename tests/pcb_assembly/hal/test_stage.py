@@ -135,6 +135,27 @@ class TestXYZStage:
         assert len(result.invalid_points) == 1
         assert result.invalid_points[0].x == 150.0
 
+    def test_move_returns_gcode(self, mock_stage: XYZStage):
+        trajectory = Trajectory(Point3d(10.0, 10.0, 10.0), default_velocity=100.0)
+        trajectory.add(
+            Move(x=50.0, y=100.0, z=25.0),
+            Move(x=60.0),
+        )
+
+        result = mock_stage.move(trajectory)
+
+        commands = result.to_list()
+        assert len(commands) == 2
+        assert commands[0] == "G1 X50.0 Y100.0 Z25.0 F6000.0"
+        assert commands[1] == "G1 X60.0 Y100.0 Z25.0 F6000.0"
+
+    def test_move_raises_when_out_of_limits(self, mock_stage: XYZStage):
+        trajectory = Trajectory(Point3d(10.0, 10.0, 10.0), default_velocity=100.0)
+        trajectory.add(Move(x=150.0))  # x範囲外
+
+        with pytest.raises(ValueError, match="制限外の経由点"):
+            mock_stage.move(trajectory)
+
 
 class TestScalarLimits:
     """ScalarLimitsクラスのテスト."""
