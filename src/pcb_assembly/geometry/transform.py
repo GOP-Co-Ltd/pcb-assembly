@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import math
+from abc import ABC, abstractmethod
+from collections import UserList
 from collections.abc import Iterable
-from typing import Self, overload
+from typing import Self, overload, override
 
 import attrs
-import numpy as np
-import numpy.typing as npt
 
 
 @attrs.frozen
@@ -22,34 +22,6 @@ class Point3d:
     x: float
     y: float
     z: float
-
-    def numpy(self) -> npt.NDArray[np.float64]:
-        """位置をNumPy配列として返す.
-
-        Returns:
-            [x, y, z]の形式のfloat64配列
-        """
-        return np.array([self.x, self.y, self.z], dtype=np.float64)
-
-    @classmethod
-    def from_numpy(cls, array: npt.NDArray[np.floating]) -> Self:
-        """NumPy配列からPoint3dを生成する.
-
-        Args:
-            array: 形状が(3,)のfloating配列
-
-        Returns:
-            配列の値から生成されたPoint3dインスタンス
-
-        Raises:
-            ValueError: 配列の形状が(3,)でない場合
-        """
-        if array.shape != (3,):
-            raise ValueError(
-                f"配列の形状は(3,)である必要がありますが、{array.shape}が渡されました"
-            )
-        arr = array.astype(np.float64)
-        return cls(arr[0], arr[1], arr[2])
 
     def __add__(self, other: Self) -> Self:
         return self.__class__(self.x + other.x, self.y + other.y, self.z + other.z)
@@ -109,8 +81,28 @@ class Point2d:
 type Point = Point2d | Point3d
 
 
+class Transform(ABC):
+    """変換の抽象基底クラス."""
+
+    @overload
+    def apply(self, point: Point2d) -> Point2d: ...
+
+    @overload
+    def apply(self, point: Point3d) -> Point3d: ...
+
+    @abstractmethod
+    def apply(self, point: Point) -> Point:
+        """点に変換を適用する."""
+        ...
+
+    @abstractmethod
+    def inverse(self) -> Self:
+        """逆変換を返す."""
+        ...
+
+
 @attrs.frozen
-class Scale:
+class Scale(Transform):
     """3次元スケール変換を表すイミュータブルなクラス.
 
     Attributes:
@@ -123,14 +115,20 @@ class Scale:
     y: float = 1.0
     z: float = 1.0
 
-    def to_matrix(self) -> npt.NDArray[np.float64]:
-        """スケール変換を3x3対角行列として返す.
+    @overload
+    def apply(self, point: Point2d) -> Point2d: ...
 
-        Returns:
-            対角成分が[x, y, z]のfloat64行列
-        """
-        return np.diag([self.x, self.y, self.z]).astype(np.float64)
+    @overload
+    def apply(self, point: Point3d) -> Point3d: ...
 
+    @override
+    def apply(self, point: Point) -> Point:
+        """点にスケール変換を適用する."""
+        if isinstance(point, Point2d):
+            return Point2d(point.x * self.x, point.y * self.y)
+        return Point3d(point.x * self.x, point.y * self.y, point.z * self.z)
+
+    @override
     def inverse(self) -> Self:
         """逆スケール変換を返す.
 
@@ -158,7 +156,7 @@ class Scale:
 
 
 @attrs.frozen
-class Rotation:
+class Rotation(Transform):
     """Z軸周りの回転を表すイミュータブルなクラス.
 
     Attributes:
@@ -172,16 +170,24 @@ class Rotation:
         """回転角度をラジアンで返す."""
         return math.radians(self.degrees)
 
-    def to_matrix(self) -> npt.NDArray[np.float64]:
-        """回転変換を3x3行列として返す.
+    @overload
+    def apply(self, point: Point2d) -> Point2d: ...
 
-        Returns:
-            Z軸周りの回転行列（float64）
-        """
-        c = np.cos(self.radians)
-        s = np.sin(self.radians)
-        return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64)
+    @overload
+    def apply(self, point: Point3d) -> Point3d: ...
 
+    @override
+    def apply(self, point: Point) -> Point:
+        """点に回転変換を適用する."""
+        c = math.cos(self.radians)
+        s = math.sin(self.radians)
+        new_x = point.x * c - point.y * s
+        new_y = point.x * s + point.y * c
+        if isinstance(point, Point2d):
+            return Point2d(new_x, new_y)
+        return Point3d(new_x, new_y, point.z)
+
+    @override
     def inverse(self) -> Self:
         """逆回転を返す.
 
@@ -208,37 +214,18 @@ class Rotation:
 
 
 @attrs.frozen
-class Transform:
-    """スケール、回転、平行移動を組み合わせた変換を表すクラス.
-
-    変換は Scale → Rotation → Translation の順に適用される。
+class Translation(Transform):
+    """平行移動変換を表すイミュータブルなクラス.
 
     Attributes:
-        scale: スケール変換
-        rotation: 回転変換
-        translation: 平行移動
+        x: X軸方向の移動量
+        y: Y軸方向の移動量
+        z: Z軸方向の移動量
     """
 
-    scale: Scale = attrs.Factory(Scale)
-    rotation: Rotation = attrs.Factory(Rotation)
-    translation: Point3d = attrs.Factory(lambda: Point3d(0.0, 0.0, 0.0))
-
-    def _apply_to_array(
-        self, points: npt.NDArray[np.float64]
-    ) -> npt.NDArray[np.float64]:
-        """NumPy配列に変換を適用する（内部メソッド）.
-
-        Args:
-            points: 形状(N, 3)の座標配列
-
-        Returns:
-            変換後の座標配列
-        """
-        # Scale → Rotation → Translation
-        # points: (N, 3), matrix: (3, 3) なので転置して計算
-        scaled = points @ self.scale.to_matrix().T
-        rotated = scaled @ self.rotation.to_matrix().T
-        return rotated + self.translation.numpy()
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
 
     @overload
     def apply(self, point: Point2d) -> Point2d: ...
@@ -246,72 +233,58 @@ class Transform:
     @overload
     def apply(self, point: Point3d) -> Point3d: ...
 
+    @override
     def apply(self, point: Point) -> Point:
-        """位置に変換を適用する.
+        """点に平行移動を適用する."""
+        if isinstance(point, Point2d):
+            return Point2d(point.x + self.x, point.y + self.y)
+        return Point3d(point.x + self.x, point.y + self.y, point.z + self.z)
 
-        Args:
-            point: 変換を適用する位置
+    @override
+    def inverse(self) -> Self:
+        """逆平行移動を返す.
 
         Returns:
-            変換後の位置
+            反対方向に同じ量だけ移動するTranslationインスタンス
         """
-        if is_2d := isinstance(point, Point2d):
-            point = point.to3d()
+        return self.__class__(-self.x, -self.y, -self.z)
 
-        points = point.numpy().reshape(1, 3)
-        result = self._apply_to_array(points)
 
-        out = Point3d.from_numpy(result[0])
-        if is_2d:
-            return out.to2d()
-        return out
+class Compose(UserList[Transform], Transform):
+    """複数の変換を合成するクラス.
 
+    変換は self[0] → self[1] → ... の順に適用される。
+    UserListを継承しているため、リストと同様に操作できる。
+
+    Examples:
+        >>> compose = Compose([Scale(2.0, 2.0, 1.0), Rotation(90.0)])
+    """
+
+    def __init__(self, initlist: Iterable[Transform] | None = None) -> None:
+        super().__init__(initlist)
+
+    @overload
+    def apply(self, point: Point2d) -> Point2d: ...
+
+    @overload
+    def apply(self, point: Point3d) -> Point3d: ...
+
+    @override
+    def apply(self, point: Point) -> Point:
+        """点に合成変換を適用する."""
+        result = point
+        for transform in self:
+            result = transform.apply(result)
+        return result
+
+    @override
     def inverse(self) -> Self:
         """逆変換を返す.
 
-        Returns:
-            この変換を打ち消すTransformインスタンス
-        """
-        inv_scale = self.scale.inverse()
-        inv_rotation = self.rotation.inverse()
-        inv_translation_vec = (
-            inv_rotation.to_matrix()
-            @ inv_scale.to_matrix()
-            @ (-self.translation.numpy())
-        )
-        return self.__class__(
-            scale=inv_scale,
-            rotation=inv_rotation,
-            translation=Point3d.from_numpy(inv_translation_vec),
-        )
-
-    @overload
-    def batch(self, points: Iterable[Point2d]) -> list[Point2d]: ...
-
-    @overload
-    def batch(self, points: Iterable[Point3d]) -> list[Point3d]: ...
-
-    def batch(
-        self, points: Iterable[Point2d] | Iterable[Point3d]
-    ) -> list[Point2d] | list[Point3d]:
-        """複数の位置に変換を一括適用する.
-
-        Args:
-            points: 変換を適用する位置のイテラブル
+        変換の順序を逆にして、各変換のinverseを適用する。
+        例: (A → B → C).inverse() = C^-1 → B^-1 → A^-1
 
         Returns:
-            変換後の位置のリスト
+            この変換を打ち消すComposeインスタンス
         """
-        points_list = list(points)
-        if not points_list:
-            return []
-
-        is_2d = any(isinstance(p, Point2d) for p in points_list)
-        points_list = [p.to3d() if isinstance(p, Point2d) else p for p in points_list]
-        points_array = np.array([p.numpy() for p in points_list], dtype=np.float64)
-        result = self._apply_to_array(points_array)
-
-        out = [Point3d.from_numpy(row) for row in result]
-        if is_2d:
-            return list(map(lambda p: p.to2d(), out))
-        return out
+        return self.__class__([t.inverse() for t in reversed(self)])

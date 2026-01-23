@@ -1,9 +1,15 @@
 import math
 
-import numpy as np
 import pytest
 
-from pcb_assembly.geometry.transform import Point2d, Point3d, Rotation, Scale, Transform
+from pcb_assembly.geometry.transform import (
+    Compose,
+    Point2d,
+    Point3d,
+    Rotation,
+    Scale,
+    Translation,
+)
 
 
 class TestPoint3d:
@@ -15,33 +21,6 @@ class TestPoint3d:
         assert point.x == 1.0
         assert point.y == 2.0
         assert point.z == 3.0
-
-    def test_numpy(self):
-        point = Point3d(1.0, 2.0, 3.0)
-
-        result = point.numpy()
-
-        assert result.dtype == np.float64
-        assert np.array_equal(result, np.array([1.0, 2.0, 3.0]))
-
-    def test_from_numpy(self):
-        array = np.array([1.0, 2.0, 3.0])
-
-        point = Point3d.from_numpy(array)
-
-        assert point == Point3d(1.0, 2.0, 3.0)
-
-    @pytest.mark.parametrize(
-        "array",
-        [
-            np.array([1.0, 2.0]),
-            np.array([1.0, 2.0, 3.0, 4.0]),
-            np.array([[1.0, 2.0, 3.0]]),
-        ],
-    )
-    def test_from_numpy_invalid_shape(self, array):
-        with pytest.raises(ValueError, match=r"配列の形状は\(3,\)である必要があります"):
-            Point3d.from_numpy(array)
 
     @pytest.mark.parametrize(
         ("a", "b", "expected"),
@@ -173,14 +152,22 @@ class TestScale:
         assert scale.y == 1.0
         assert scale.z == 1.0
 
-    def test_to_matrix(self):
+    def test_apply_point3d(self):
         scale = Scale(2.0, 3.0, 4.0)
+        point = Point3d(1.0, 2.0, 3.0)
 
-        result = scale.to_matrix()
+        result = scale.apply(point)
 
-        expected = np.array([[2.0, 0, 0], [0, 3.0, 0], [0, 0, 4.0]])
-        assert result.dtype == np.float64
-        assert np.array_equal(result, expected)
+        assert result == Point3d(2.0, 6.0, 12.0)
+
+    def test_apply_point2d(self):
+        scale = Scale(2.0, 3.0, 4.0)
+        point = Point2d(1.0, 2.0)
+
+        result = scale.apply(point)
+
+        assert isinstance(result, Point2d)
+        assert result == Point2d(2.0, 6.0)
 
     def test_inverse(self):
         scale = Scale(2.0, 4.0, 0.5)
@@ -219,31 +206,35 @@ class TestRotation:
         ("degrees", "expected_radians"),
         [
             (0.0, 0.0),
-            (90.0, np.pi / 2),
-            (180.0, np.pi),
-            (-90.0, -np.pi / 2),
+            (90.0, math.pi / 2),
+            (180.0, math.pi),
+            (-90.0, -math.pi / 2),
         ],
     )
     def test_radians(self, degrees, expected_radians):
         rotation = Rotation(degrees)
 
-        assert np.isclose(rotation.radians, expected_radians)
+        assert rotation.radians == pytest.approx(expected_radians)
 
-    @pytest.mark.parametrize(
-        ("degrees", "expected_matrix"),
-        [
-            (0.0, np.eye(3)),
-            (90.0, np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]], dtype=np.float64)),
-            (180.0, np.array([[-1, 0, 0], [0, -1, 0], [0, 0, 1]], dtype=np.float64)),
-        ],
-    )
-    def test_to_matrix(self, degrees, expected_matrix):
-        rotation = Rotation(degrees)
+    def test_apply_point3d(self):
+        rotation = Rotation(90.0)
+        point = Point3d(1.0, 0.0, 5.0)
 
-        result = rotation.to_matrix()
+        result = rotation.apply(point)
 
-        assert result.dtype == np.float64
-        assert np.allclose(result, expected_matrix)
+        assert result.x == pytest.approx(0.0, abs=1e-10)
+        assert result.y == pytest.approx(1.0, abs=1e-10)
+        assert result.z == pytest.approx(5.0, abs=1e-10)
+
+    def test_apply_point2d(self):
+        rotation = Rotation(90.0)
+        point = Point2d(1.0, 0.0)
+
+        result = rotation.apply(point)
+
+        assert isinstance(result, Point2d)
+        assert result.x == pytest.approx(0.0, abs=1e-10)
+        assert result.y == pytest.approx(1.0, abs=1e-10)
 
     def test_inverse(self):
         rotation = Rotation(45.0)
@@ -269,136 +260,124 @@ class TestRotation:
         assert result.degrees == pytest.approx(expected_degrees)
 
 
-class TestTransform:
-    """Transformクラスのテスト."""
+class TestTranslation:
+    """Translationクラスのテスト."""
 
     def test_default_values(self):
-        transform = Transform()
+        translation = Translation()
 
-        assert transform.scale == Scale()
-        assert transform.rotation == Rotation()
-        assert transform.translation == Point3d(0.0, 0.0, 0.0)
+        assert translation.x == 0.0
+        assert translation.y == 0.0
+        assert translation.z == 0.0
 
-    def test_apply_translation_only(self):
-        transform = Transform(translation=Point3d(10.0, 20.0, 30.0))
+    def test_apply_point3d(self):
+        translation = Translation(10.0, 20.0, 30.0)
         point = Point3d(1.0, 2.0, 3.0)
 
-        result = transform.apply(point)
+        result = translation.apply(point)
 
         assert result == Point3d(11.0, 22.0, 33.0)
 
-    def test_apply_scale_only(self):
-        transform = Transform(scale=Scale(2.0, 3.0, 4.0))
-        point = Point3d(1.0, 2.0, 3.0)
-
-        result = transform.apply(point)
-
-        assert result == Point3d(2.0, 6.0, 12.0)
-
-    def test_apply_rotation_only(self):
-        transform = Transform(rotation=Rotation(90.0))
-        point = Point3d(1.0, 0.0, 0.0)
-
-        result = transform.apply(point)
-
-        assert np.isclose(result.x, 0.0, atol=1e-10)
-        assert np.isclose(result.y, 1.0, atol=1e-10)
-        assert np.isclose(result.z, 0.0, atol=1e-10)
-
-    def test_apply_combined(self):
-        # Scale(2,2,1) → Rotation(90°) → Translation(10,0,0)
-        transform = Transform(
-            scale=Scale(2.0, 2.0, 1.0),
-            rotation=Rotation(90.0),
-            translation=Point3d(10.0, 0.0, 0.0),
-        )
-        point = Point3d(1.0, 0.0, 0.0)
-
-        result = transform.apply(point)
-
-        # (1,0,0) → scale → (2,0,0) → rotate 90° → (0,2,0) → translate → (10,2,0)
-        assert np.isclose(result.x, 10.0, atol=1e-10)
-        assert np.isclose(result.y, 2.0, atol=1e-10)
-        assert np.isclose(result.z, 0.0, atol=1e-10)
-
-    def test_apply_point2d_returns_point2d(self):
-        transform = Transform(translation=Point3d(10.0, 20.0, 30.0))
+    def test_apply_point2d(self):
+        translation = Translation(10.0, 20.0, 30.0)
         point = Point2d(1.0, 2.0)
 
-        result = transform.apply(point)
+        result = translation.apply(point)
 
         assert isinstance(result, Point2d)
         assert result == Point2d(11.0, 22.0)
 
-    def test_apply_point2d_with_rotation(self):
-        transform = Transform(rotation=Rotation(90.0))
+    def test_inverse(self):
+        translation = Translation(10.0, 20.0, 30.0)
+
+        result = translation.inverse()
+
+        assert result == Translation(-10.0, -20.0, -30.0)
+
+
+class TestCompose:
+    """Composeクラスのテスト."""
+
+    def test_empty_compose_returns_same_point(self):
+        compose = Compose()
+        point = Point3d(1.0, 2.0, 3.0)
+
+        result = compose.apply(point)
+
+        assert result == point
+
+    def test_apply_single_transform(self):
+        compose = Compose([Scale(2.0, 3.0, 4.0)])
+        point = Point3d(1.0, 2.0, 3.0)
+
+        result = compose.apply(point)
+
+        assert result == Point3d(2.0, 6.0, 12.0)
+
+    def test_apply_multiple_transforms_in_order(self):
+        # Scale(2,2,1) → Rotation(90°) → Translation(10,0,0)
+        compose = Compose(
+            [
+                Scale(2.0, 2.0, 1.0),
+                Rotation(90.0),
+                Translation(10.0, 0.0, 0.0),
+            ]
+        )
+        point = Point3d(1.0, 0.0, 0.0)
+
+        result = compose.apply(point)
+
+        # (1,0,0) → scale → (2,0,0) → rotate 90° → (0,2,0) → translate → (10,2,0)
+        assert result.x == pytest.approx(10.0, abs=1e-10)
+        assert result.y == pytest.approx(2.0, abs=1e-10)
+        assert result.z == pytest.approx(0.0, abs=1e-10)
+
+    def test_apply_point2d(self):
+        compose = Compose(
+            [
+                Scale(2.0, 2.0, 1.0),
+                Rotation(90.0),
+                Translation(10.0, 0.0, 0.0),
+            ]
+        )
         point = Point2d(1.0, 0.0)
 
-        result = transform.apply(point)
+        result = compose.apply(point)
 
         assert isinstance(result, Point2d)
-        assert np.isclose(result.x, 0.0, atol=1e-10)
-        assert np.isclose(result.y, 1.0, atol=1e-10)
+        assert result.x == pytest.approx(10.0, abs=1e-10)
+        assert result.y == pytest.approx(2.0, abs=1e-10)
 
     def test_inverse(self):
-        transform = Transform(
-            scale=Scale(2.0, 2.0, 1.0),
-            rotation=Rotation(90.0),
-            translation=Point3d(10.0, 5.0, 0.0),
+        compose = Compose(
+            [
+                Scale(2.0, 2.0, 1.0),
+                Rotation(90.0),
+                Translation(10.0, 5.0, 0.0),
+            ]
         )
         point = Point3d(1.0, 2.0, 3.0)
 
-        transformed = transform.apply(point)
-        restored = transform.inverse().apply(transformed)
+        transformed = compose.apply(point)
+        restored = compose.inverse().apply(transformed)
 
-        assert np.isclose(restored.x, point.x, atol=1e-10)
-        assert np.isclose(restored.y, point.y, atol=1e-10)
-        assert np.isclose(restored.z, point.z, atol=1e-10)
+        assert restored.x == pytest.approx(point.x, abs=1e-10)
+        assert restored.y == pytest.approx(point.y, abs=1e-10)
+        assert restored.z == pytest.approx(point.z, abs=1e-10)
 
-    @pytest.mark.parametrize(
-        "points",
-        [
-            [],
-            [Point3d(1.0, 2.0, 3.0)],
-            [Point3d(1.0, 0.0, 0.0), Point3d(0.0, 1.0, 0.0), Point3d(1.0, 1.0, 5.0)],
-        ],
-    )
-    def test_batch(self, points):
-        transform = Transform(
-            scale=Scale(2.0, 3.0, 1.0),
-            rotation=Rotation(45.0),
-            translation=Point3d(5.0, -3.0, 2.0),
+    def test_inverse_order_is_reversed(self):
+        compose = Compose(
+            [
+                Scale(2.0, 1.0, 1.0),
+                Translation(10.0, 0.0, 0.0),
+            ]
         )
 
-        batch_results = transform.batch(points)
-        apply_results = [transform.apply(p) for p in points]
+        inverse = compose.inverse()
 
-        assert len(batch_results) == len(apply_results)
-        for batch_res, apply_res in zip(batch_results, apply_results, strict=True):
-            assert np.isclose(batch_res.x, apply_res.x, atol=1e-10)
-            assert np.isclose(batch_res.y, apply_res.y, atol=1e-10)
-            assert np.isclose(batch_res.z, apply_res.z, atol=1e-10)
-
-    @pytest.mark.parametrize(
-        "points",
-        [
-            [],
-            [Point2d(1.0, 2.0)],
-            [Point2d(1.0, 0.0), Point2d(0.0, 1.0), Point2d(1.0, 1.0)],
-        ],
-    )
-    def test_batch_point2d(self, points):
-        transform = Transform(
-            scale=Scale(2.0, 3.0, 1.0),
-            rotation=Rotation(45.0),
-            translation=Point3d(5.0, -3.0, 2.0),
-        )
-
-        batch_results = transform.batch(points)
-        apply_results = [transform.apply(p) for p in points]
-
-        assert len(batch_results) == len(apply_results)
-        for batch_res, apply_res in zip(batch_results, apply_results, strict=True):
-            assert isinstance(batch_res, Point2d)
-            assert np.isclose(batch_res.x, apply_res.x, atol=1e-10)
-            assert np.isclose(batch_res.y, apply_res.y, atol=1e-10)
+        # inverse should be: Translation(-10, 0, 0) → Scale(0.5, 1, 1)
+        assert len(inverse) == 2
+        assert isinstance(inverse[0], Translation)
+        assert isinstance(inverse[1], Scale)
+        assert inverse[0] == Translation(-10.0, 0.0, 0.0)
+        assert inverse[1] == Scale(0.5, 1.0, 1.0)
