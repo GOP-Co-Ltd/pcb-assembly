@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
 import attrs
 import cattrs
@@ -44,6 +44,11 @@ class CameraCrop:
     width: int
     height: int
 
+    @property
+    def size(self) -> tuple[int, int]:
+        """クロップサイズを(width, height)のタプルで返す."""
+        return (self.width, self.height)
+
 
 @attrs.frozen
 class Camera:
@@ -53,8 +58,14 @@ class Camera:
     height: int
     fps: float
     crop: CameraCrop
+    calibration_file: Path
     device_id: int = 0
     format: str = "YUYV"
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """カメラサイズを(width, height)のタプルで返す."""
+        return (self.width, self.height)
 
 
 @attrs.frozen
@@ -82,28 +93,17 @@ class Machine:
     各設定はアクセス時に遅延生成される。
     """
 
-    def __init__(self, data: dict[str, Any]) -> None:
+    def __init__(self, path: str | Path) -> None:
         """Machineを初期化する.
 
         Args:
-            data: TOMLから読み込んだ辞書データ
-        """
-        self._data = data.copy()
-        self._converter = cattrs.Converter()
-
-    @classmethod
-    def from_toml(cls, path: str | Path) -> Self:
-        """TOMLファイルからMachineを生成する.
-
-        Args:
             path: TOMLファイルのパス
-
-        Returns:
-            Machine インスタンス
         """
+        path = Path(path)
         with open(path, "rb") as f:
-            data = tomllib.load(f)
-        return cls(data)
+            self._data = tomllib.load(f)
+        self._config_dir = path.parent.resolve()
+        self._converter = cattrs.Converter()
 
     def _get_config(self, key: str, cls: type[Any]) -> Any:
         """指定されたキーの設定を取得する."""
@@ -129,7 +129,14 @@ class Machine:
     @property
     def camera(self) -> Camera:
         """カメラ設定を取得する."""
-        return self._get_config("camera", Camera)
+        if "camera" not in self._data:
+            raise KeyError("'camera' は設定ファイルに定義されていません")
+        camera_data = self._data["camera"].copy()
+        if "calibration_file" in camera_data and self._config_dir is not None:
+            camera_data["calibration_file"] = (
+                self._config_dir / camera_data["calibration_file"]
+            )
+        return self._converter.structure(camera_data, Camera)
 
     @property
     def toolhead(self) -> Toolhead:

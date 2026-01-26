@@ -12,6 +12,7 @@ rotation_distance = 40.0
 width = 640
 height = 480
 fps = 30.0
+calibration_file = "calibration.json"
 
 [camera.crop]
 width = 400

@@ -13,6 +13,19 @@ type ImageArray = npt.NDArray[Any]
 type ImageSize = tuple[int, int]
 
 
+def safe_move_distance(roi_size: tuple[float, float], margin: float = 0.2) -> float:
+    """関心領域から出ない安全な移動距離を計算する.
+
+    Args:
+        roi_size: 関心領域のサイズ (width, height)
+        margin: 安全マージン（デフォルト: 0.2）
+
+    Returns:
+        片方向の安全な移動距離
+    """
+    return min(roi_size) * (1.0 - margin) / 2
+
+
 class Image:
     """3チャネルカラー画像 (BGR) を保持するイミュータブルなクラス."""
 
