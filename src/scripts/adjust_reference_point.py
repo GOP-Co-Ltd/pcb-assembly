@@ -26,6 +26,7 @@ from pcb_assembly.vision import (
     CalibrationResult,
     CircleDetector,
     Image,
+    safe_move_distance,
 )
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -131,7 +132,7 @@ def main() -> None:
     # オフセット検出関数を定義
     sample_count = 30
 
-    def detect_offset() -> Point2d:
+    def observe_offset() -> Point2d:
         result = detector.detect_with_statistics(
             camera.capture() for _ in range(sample_count)
         )
@@ -141,12 +142,9 @@ def main() -> None:
 
     # カメラ回転角の計測（2点法）
     print("\n=== カメラ回転角の計測 ===")
-    move_distance = (
-        OffsetAdjustor.move_distance_from_crop(cam_config.crop.size)
-        / calibration.pixel_per_mm
-    )
+    move_distance = safe_move_distance(cam_config.crop.size) / calibration.pixel_per_mm
     adjustor = OffsetAdjustor(move_distance=move_distance)
-    adjustor.measure(detect_offset, klipper, stage)
+    adjustor.measure(observe_offset, klipper, stage)
 
     # 位置合わせループ
     print("\n=== カメラ中心を基準点に合わせる ===")

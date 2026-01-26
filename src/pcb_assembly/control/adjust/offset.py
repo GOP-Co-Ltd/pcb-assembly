@@ -17,30 +17,13 @@ class OffsetAdjustor:
     オフセットの差分から回転角を計算する。
 
     Example:
-        move_distance = OffsetAdjustor.move_distance_from_crop(crop_size)
+        from pcb_assembly.vision import safe_move_distance
+
+        move_distance = safe_move_distance(roi_size_mm)
         adjustor = OffsetAdjustor(move_distance)
-        transform = adjustor.measure(observe_offset, klipper, stage)
+        adjustor.measure(observe_offset, klipper, stage)
         corrected_offset = adjustor.adjust(offset)
     """
-
-    @staticmethod
-    def move_distance_from_crop(
-        crop_size: tuple[float, float],
-        ratio: float = 0.8,
-    ) -> float:
-        """crop_sizeから適切な移動距離を計算する.
-
-        検出領域内で計測できるよう、crop_sizeの短辺に対する割合から
-        片方向の移動距離を算出する。
-
-        Args:
-            crop_size: 検出領域のサイズ (width, height)
-            ratio: crop_sizeの短辺に対する移動範囲の割合（デフォルト: 0.8）
-
-        Returns:
-            片方向の移動距離
-        """
-        return min(crop_size) * ratio / 2
 
     def __init__(
         self,

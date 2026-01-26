@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pcb_assembly.vision import Image
+from pcb_assembly.vision import Image, safe_move_distance
 
 
 class TestImage:
@@ -88,3 +88,22 @@ class TestImage:
 
         assert cropped.size == (40, 20)
         assert np.all(cropped.numpy() == 255)
+
+
+class TestSafeMoveDistance:
+    """safe_move_distance関数のテスト."""
+
+    @pytest.mark.parametrize(
+        ("roi_size", "margin", "expected"),
+        [
+            ((100.0, 200.0), 0.2, 40.0),  # 短辺を使用
+            ((200.0, 100.0), 0.2, 40.0),  # 短辺を使用（逆順）
+            ((100.0, 100.0), 0.2, 40.0),  # 正方形
+            ((100.0, 100.0), 0.5, 25.0),  # カスタムマージン
+            ((100.0, 100.0), 0.0, 50.0),  # マージンなし
+        ],
+    )
+    def test_safe_move_distance(self, roi_size, margin, expected):
+        result = safe_move_distance(roi_size, margin=margin)
+
+        assert result == expected
