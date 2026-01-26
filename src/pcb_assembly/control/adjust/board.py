@@ -67,16 +67,6 @@ class BoardTransformMeasurer:
     ) -> Compose:
         """2点法でboard→機械座標の変換を計測する.
 
-        前提: 現在位置がtop left reference point付近であること
-
-        処理:
-        1. top leftで位置補正、機械座標を記録
-        2. top rightへ移動（理論値）
-        3. top rightで位置補正、機械座標を記録
-        4. 回転を計算
-        5. board原点の機械座標を計算
-        6. board左上コーナーへ移動
-
         Args:
             adjust_reference: 補正済みオフセットを返す関数
             klipper: Klipperクライアント
@@ -98,12 +88,27 @@ class BoardTransformMeasurer:
 
         move_velocity = stage.max_velocity * self._move_velocity_ratio
 
-        # 1. top leftで位置補正
+        # top left reference pointへ移動
+        top_left_ref = self._ref_point.get_reference_position(Corner.TOP_LEFT)
+        self._logger.info("=== Top Left Reference Pointへ移動 ===")
+        self._logger.info(f"目標位置: ({top_left_ref.x:.3f}, {top_left_ref.y:.3f})")
+        self._move_to(
+            klipper,
+            stage.move(
+                Trajectory(
+                    stage.get_position(),
+                    move_velocity,
+                    [Move.from_point(top_left_ref)],
+                )
+            ),
+        )
+
+        # top leftで位置補正
         self._logger.info("=== Top Left Reference Pointの位置補正 ===")
         pos_left = adjust_reference()
         self._logger.info(f"Top Left位置: ({pos_left.x:.4f}, {pos_left.y:.4f})")
 
-        # 2. top rightへ移動（理論値）
+        # top rightへ移動（理論値）
         expected_move = Point2d(
             x=board_width - offset_left.x + offset_right.x,
             y=0.0,
@@ -125,26 +130,26 @@ class BoardTransformMeasurer:
             ),
         )
 
-        # 3. top rightで位置補正
+        # top rightで位置補正
         self._logger.info("=== Top Right Reference Pointの位置補正 ===")
         pos_right = adjust_reference()
         self._logger.info(f"Top Right位置: ({pos_right.x:.4f}, {pos_right.y:.4f})")
 
-        # 4. 回転を計算
+        # 回転を計算
         actual_move = pos_right - pos_left
         rotation = Rotation.from_points(expected_move, actual_move)
         self._logger.info(f"計測された回転角: {rotation.degrees:.4f}°")
 
-        # 5. Board原点の機械座標を計算
+        # Board原点の機械座標を計算
         board_origin = pos_left - rotation.apply(offset_left)
         self._logger.info(
             f"Board左上コーナーの機械座標: ({board_origin.x:.4f}, {board_origin.y:.4f})"
         )
 
-        # 6. 変換を構成
+        # 変換を構成
         transform = Compose([rotation, Translation.from_point(board_origin)])
 
-        # 7. Board左上コーナーへ移動
+        # Board左上コーナーへ移動
         self._logger.info("=== Board左上コーナーへ移動 ===")
         self._move_to(
             klipper,
