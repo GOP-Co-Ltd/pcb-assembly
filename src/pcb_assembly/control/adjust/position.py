@@ -9,7 +9,7 @@ from pcb_assembly.hal import Klipper, XYZStage
 from pcb_assembly.utils import get_class_module_path
 
 
-class PositionAdjustor:
+class XYPositionAdjustor:
     """XY位置を反復的に補正するクラス.
 
     大まかに位置合わせした状態から、観測されたオフセットを元に

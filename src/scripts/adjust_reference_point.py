@@ -18,7 +18,7 @@ import cv2
 
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
-from pcb_assembly.control.adjust import OffsetTransformMeasurer, PositionAdjustor
+from pcb_assembly.control.adjust import OffsetTransformMeasurer, XYPositionAdjustor
 from pcb_assembly.geometry import Point2d
 from pcb_assembly.hal import Camera, Klipper, XYZStage
 from pcb_assembly.utils import setup_logging
@@ -167,7 +167,7 @@ def main() -> None:
 
     # 位置合わせ
     print("\n=== カメラ中心を基準点に合わせる ===")
-    position_adjustor = PositionAdjustor(tolerance=args.tolerance)
+    position_adjustor = XYPositionAdjustor(tolerance=args.tolerance)
 
     try:
         final_pos = position_adjustor.adjust(
