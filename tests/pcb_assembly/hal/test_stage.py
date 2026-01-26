@@ -38,8 +38,8 @@ class TestXYZStage:
         assert isinstance(position, Point3d)
 
     @mark_hardware
-    def test_get_limits(self, stage: XYZStage):
-        limits = stage.get_limits()
+    def test_limits(self, stage: XYZStage):
+        limits = stage.limits
 
         assert isinstance(limits, Limits)
         assert isinstance(limits.x, ScalarLimits)
@@ -51,7 +51,7 @@ class TestXYZStage:
         assert limits.z.min < limits.z.max
         assert limits.v.min < limits.v.max
 
-    def test_get_limits_missing_stepper_section(self, mocker: MockerFixture):
+    def test_limits_missing_stepper_section(self, mocker: MockerFixture):
         klipper = Klipper()
         mocker.patch.object(
             klipper.readonly,
@@ -61,9 +61,9 @@ class TestXYZStage:
         stage = XYZStage(klipper.readonly)
 
         with pytest.raises(KeyError, match=r"printer\.cfgに\[stepper_x\]セクション"):
-            stage.get_limits()
+            _ = stage.limits
 
-    def test_get_limits_missing_position_keys(self, mocker: MockerFixture):
+    def test_limits_missing_position_keys(self, mocker: MockerFixture):
         klipper = Klipper()
         mocker.patch.object(
             klipper.readonly,
@@ -78,9 +78,9 @@ class TestXYZStage:
 
         stage = XYZStage(klipper.readonly)
         with pytest.raises(KeyError, match=r"position_minとposition_max"):
-            stage.get_limits()
+            _ = stage.limits
 
-    def test_get_limits_missing_printer_section(self, mocker: MockerFixture):
+    def test_limits_missing_printer_section(self, mocker: MockerFixture):
         klipper = Klipper()
         mocker.patch.object(
             klipper.readonly,
@@ -94,9 +94,9 @@ class TestXYZStage:
 
         stage = XYZStage(klipper.readonly)
         with pytest.raises(KeyError, match=r"printer\.cfgに\[printer\]セクション"):
-            stage.get_limits()
+            _ = stage.limits
 
-    def test_get_limits_missing_max_velocity(self, mocker: MockerFixture):
+    def test_limits_missing_max_velocity(self, mocker: MockerFixture):
         klipper = Klipper()
         mocker.patch.object(
             klipper.readonly,
@@ -111,7 +111,7 @@ class TestXYZStage:
 
         stage = XYZStage(klipper.readonly)
         with pytest.raises(KeyError, match=r"max_velocity"):
-            stage.get_limits()
+            _ = stage.limits
 
     def test_validate_is_valid_when_all_in_limits(self, mock_stage: XYZStage):
         trajectory = Trajectory(Point3d(10.0, 10.0, 10.0), default_velocity=100.0)

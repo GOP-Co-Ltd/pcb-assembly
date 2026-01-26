@@ -26,7 +26,7 @@ def main() -> None:
     print(f"  X={position.x:.2f} Y={position.y:.2f} Z={position.z:.2f}")
     print()
 
-    limits = stage.get_limits()
+    limits = stage.limits
     print("可動域:")
     print(f"  X: {limits.x.min:.2f} ~ {limits.x.max:.2f}")
     print(f"  Y: {limits.y.min:.2f} ~ {limits.y.max:.2f}")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import cached_property
+
 import attrs
 
 from pcb_assembly import gcode
@@ -60,7 +62,7 @@ class XYZStage:
         klipper = Klipper()
         stage = XYZStage(klipper.readonly)
         position = stage.get_position()
-        limits = stage.get_limits()
+        limits = stage.limits
     """
 
     def __init__(self, klipper: ReadonlyKlipper) -> None:
@@ -80,11 +82,9 @@ class XYZStage:
         pos = self._klipper.get_status("gcode_move", "gcode_position")
         return Point3d(x=pos[0], y=pos[1], z=pos[2])
 
-    def get_limits(self) -> Limits:
-        """各軸の可動域を取得する.
-
-        Returns:
-            各軸の可動域
+    @cached_property
+    def limits(self) -> Limits:
+        """各軸の可動域.
 
         Raises:
             KeyError: 設定ファイルに必要なキーが無い場合
@@ -130,7 +130,7 @@ class XYZStage:
         Returns:
             検証結果
         """
-        limits = self.get_limits()
+        limits = self.limits
         invalid = [wp for wp in trajectory.waypoints if wp not in limits]
         return ValidationResult(invalid)
 
