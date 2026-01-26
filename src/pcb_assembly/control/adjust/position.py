@@ -24,7 +24,7 @@ class XYPositionAdjustor:
         self,
         tolerance: float = 0.01,
         max_iterations: int = 10,
-        move_velocity: float = 10.0,
+        move_velocity_ratio: float = 0.5,
         settle_time: float = 0.5,
     ) -> None:
         """PositionAdjustorを初期化する.
@@ -32,12 +32,12 @@ class XYPositionAdjustor:
         Args:
             tolerance: 許容誤差 (mm)
             max_iterations: 最大反復回数
-            move_velocity: 移動速度 (mm/s)
+            move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
             settle_time: 移動後の安定待機時間（秒）
         """
         self._tolerance = tolerance
         self._max_iterations = max_iterations
-        self._move_velocity = move_velocity
+        self._move_velocity_ratio = move_velocity_ratio
         self._settle_time = settle_time
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
@@ -63,6 +63,7 @@ class XYPositionAdjustor:
         """
         self._logger.info("位置補正を開始")
 
+        move_velocity = stage.max_velocity * self._move_velocity_ratio
         offset = Point2d(x=0.0, y=0.0)
         for iteration in range(self._max_iterations):
             offset = observe_offset()
@@ -90,9 +91,7 @@ class XYPositionAdjustor:
 
             self._move_to(
                 klipper,
-                stage.move(
-                    Trajectory(pos, self._move_velocity, [Move.from_point(target)])
-                ),
+                stage.move(Trajectory(pos, move_velocity, [Move.from_point(target)])),
             )
 
         raise RuntimeError(

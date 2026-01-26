@@ -27,18 +27,18 @@ class OffsetTransformMeasurer:
     def __init__(
         self,
         move_distance: float,
-        move_velocity: float = 10.0,
+        move_velocity_ratio: float = 0.5,
         settle_time: float = 0.5,
     ) -> None:
         """OffsetTransformMeasurerを初期化する.
 
         Args:
             move_distance: X方向への移動距離（mm）
-            move_velocity: 移動速度 (mm/s)
+            move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
             settle_time: 移動後の安定待機時間（秒）
         """
         self._move_distance = move_distance
-        self._move_velocity = move_velocity
+        self._move_velocity_ratio = move_velocity_ratio
         self._settle_time = settle_time
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
@@ -77,12 +77,13 @@ class OffsetTransformMeasurer:
 
         # 2. X方向に移動
         move_vector = Point2d(x=self._move_distance, y=0.0)
+        move_velocity = stage.max_velocity * self._move_velocity_ratio
         self._move_to(
             klipper,
             stage.move(
                 Trajectory(
                     stage.get_position(),
-                    self._move_velocity,
+                    move_velocity,
                     [Move.from_point(move_vector, relative=True)],
                 )
             ),
@@ -99,7 +100,7 @@ class OffsetTransformMeasurer:
             stage.move(
                 Trajectory(
                     stage.get_position(),
-                    self._move_velocity,
+                    move_velocity,
                     [Move.from_point(start_pos)],
                 )
             ),
