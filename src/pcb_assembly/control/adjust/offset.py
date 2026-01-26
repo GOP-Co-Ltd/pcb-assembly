@@ -12,9 +12,9 @@ from pcb_assembly.utils import get_class_module_path
 class OffsetAdjustor:
     """オフセット位置を回転などで補正するクラス.
 
-    カメラ座標系と機械座標系の回転ずれを計測し、オフセット値を補正する。
-    2点法を用いて、機械座標系での移動ベクトルとカメラ座標系での
-    観測オフセットの差分から回転角を計算する。
+    観測座標系と機械座標系の回転ずれを計測し、オフセット値を補正する。
+    2点法を用いて、機械座標系での移動ベクトルと観測座標系での
+    オフセットの差分から回転角を計算する。
 
     Example:
         move_distance = OffsetAdjustor.move_distance_from_crop(crop_size)
@@ -83,7 +83,7 @@ class OffsetAdjustor:
             stage: XYZステージ
 
         Returns:
-            カメラ座標系から機械座標系への回転変換
+            観測座標系から機械座標系への回転変換
         """
         self._logger.info("オフセット補正の計測を開始")
 
@@ -112,7 +112,7 @@ class OffsetAdjustor:
         self._move_to(klipper, stage.move(trajectory))
 
         # 5. 回転角を計算
-        # カメラで観測されるオフセット変化 (o2 - o1) は、機械の移動方向 move_vector に対応
+        # 観測されるオフセット変化 (o2 - o1) は、機械の移動方向 move_vector に対応
         rotation = Rotation.from_points(move_vector, o2 - o1)
         self._logger.info(f"計測完了: 回転角 {rotation.degrees:.4f}°")
 
@@ -123,7 +123,7 @@ class OffsetAdjustor:
         """オフセット値を補正する.
 
         Args:
-            offset: カメラ座標系でのオフセット値
+            offset: 観測座標系でのオフセット値
 
         Returns:
             機械座標系に変換されたオフセット値
