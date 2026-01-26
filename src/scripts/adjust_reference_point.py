@@ -179,9 +179,10 @@ def main() -> None:
 
         # 完了後も映像を表示し続ける（何かキーを押すまで）
         print("何かキーを押すと終了します...")
+        final_offset = offset_adjustor.adjust(observe_offset())
         while True:
             frame = camera.capture()
-            display = draw_overlay(frame, cam_config.crop.size)
+            display = draw_overlay(frame, cam_config.crop.size, final_offset)
             cv2.imshow(WINDOW_NAME, display.numpy())
             if cv2.waitKey(100) != -1:
                 break
