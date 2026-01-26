@@ -4,6 +4,7 @@ import pytest
 
 from pcb_assembly.geometry.transform import (
     Compose,
+    Identity,
     Point2d,
     Point3d,
     Rotation,
@@ -241,19 +242,44 @@ class TestScale:
     @pytest.mark.parametrize(
         ("flip_args", "expected"),
         [
-            ({"x": True}, Scale(-2.0, 3.0, 4.0)),
-            ({"y": True}, Scale(2.0, -3.0, 4.0)),
-            ({"z": True}, Scale(2.0, 3.0, -4.0)),
-            ({"x": True, "y": True}, Scale(-2.0, -3.0, 4.0)),
-            ({"x": True, "y": True, "z": True}, Scale(-2.0, -3.0, -4.0)),
+            ({"x": True}, Scale(-1.0, 1.0, 1.0)),
+            ({"y": True}, Scale(1.0, -1.0, 1.0)),
+            ({"z": True}, Scale(1.0, 1.0, -1.0)),
+            ({"x": True, "y": True}, Scale(-1.0, -1.0, 1.0)),
+            ({"x": True, "y": True, "z": True}, Scale(-1.0, -1.0, -1.0)),
         ],
     )
     def test_flip(self, flip_args, expected):
-        scale = Scale(2.0, 3.0, 4.0)
-
-        result = scale.flip(**flip_args)
+        result = Scale.flip(**flip_args)
 
         assert result == expected
+
+
+class TestIdentity:
+    """Identityクラスのテスト."""
+
+    def test_apply_point3d(self):
+        identity = Identity()
+        point = Point3d(1.0, 2.0, 3.0)
+
+        result = identity.apply(point)
+
+        assert result == point
+
+    def test_apply_point2d(self):
+        identity = Identity()
+        point = Point2d(1.0, 2.0)
+
+        result = identity.apply(point)
+
+        assert result == point
+
+    def test_inverse(self):
+        identity = Identity()
+
+        result = identity.inverse()
+
+        assert result is identity
 
 
 class TestRotation:
