@@ -92,10 +92,17 @@ class Trajectory:
     相対・絶対移動を含むMoveを受け取り、絶対座標のWaypointリストに変換する。
     """
 
-    def __init__(self, origin: Point3d, default_velocity: float) -> None:
+    def __init__(
+        self,
+        origin: Point3d,
+        default_velocity: float,
+        moves: Iterable[Move] | None = None,
+    ) -> None:
         self._position = origin
         self._velocity = default_velocity
         self._waypoints: list[Waypoint] = []
+        if moves is not None:
+            self.add(move=moves)
 
     @property
     def position(self) -> Point3d:

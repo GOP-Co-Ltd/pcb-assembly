@@ -136,6 +136,15 @@ class TestTrajectory:
         assert traj.velocity == 10.0
         assert traj.waypoints == []
 
+    def test_init_with_moves(self):
+        origin = Point3d(0.0, 0.0, 0.0)
+        moves = [Move(x=1.0, y=2.0, z=3.0), Move(x=4.0, y=5.0, z=6.0)]
+
+        traj = Trajectory(origin, default_velocity=10.0, moves=moves)
+
+        assert len(traj.waypoints) == 2
+        assert traj.position == Point3d(4.0, 5.0, 6.0)
+
     def test_add_absolute_move(self):
         traj = Trajectory(Point3d(0.0, 0.0, 0.0), default_velocity=10.0)
 
