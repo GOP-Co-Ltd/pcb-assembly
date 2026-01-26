@@ -18,7 +18,7 @@ import cv2
 
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
-from pcb_assembly.control.measure import CameraRotationMeasurer
+from pcb_assembly.control.adjust import OffsetAdjustor
 from pcb_assembly.geometry import Point2d
 from pcb_assembly.hal import Camera, Klipper, XYZStage
 from pcb_assembly.utils import setup_logging
@@ -128,21 +128,25 @@ def main() -> None:
     current_pos = stage.get_position()
     print(f"現在位置: ({current_pos.x:.3f}, {current_pos.y:.3f})")
 
+    # オフセット検出関数を定義
+    sample_count = 30
+
+    def detect_offset() -> Point2d:
+        result = detector.detect_with_statistics(
+            camera.capture() for _ in range(sample_count)
+        )
+        if result is None:
+            raise RuntimeError("検出に失敗しました")
+        return result.mean_mm
+
     # カメラ回転角の計測（2点法）
     print("\n=== カメラ回転角の計測 ===")
-    move_distance = CameraRotationMeasurer.compute_move_distance(
-        Point2d(cam_config.crop.width, cam_config.crop.height)
+    move_distance = (
+        OffsetAdjustor.move_distance_from_crop(cam_config.crop.size)
         / calibration.pixel_per_mm
     )
-    measurer = CameraRotationMeasurer(
-        camera=camera,
-        detector=detector,
-        klipper=klipper,
-        stage=stage,
-        move_distance=move_distance,
-    )
-    rotation = measurer.measure()
-    print(f"カメラ回転角: {rotation.degrees:.4f}° ({rotation.radians:.6f} rad)")
+    adjustor = OffsetAdjustor(move_distance=move_distance)
+    adjustor.measure(detect_offset, klipper, stage)
 
     # 位置合わせループ
     print("\n=== カメラ中心を基準点に合わせる ===")
@@ -158,7 +162,7 @@ def main() -> None:
 
             # 統計計測中も映像を表示
             frames: list[Image] = []
-            for _ in range(30):
+            for _ in range(sample_count):
                 frame = camera.capture()
                 frames.append(frame)
                 display = draw_crosshair(
@@ -176,8 +180,7 @@ def main() -> None:
 
             # 回転角を考慮してオフセットを機械座標系に変換
             o = offset_final.mean_mm
-            # カメラ座標→機械座標の変換（回転行列）
-            machine_offset = rotation.apply(offset_final.mean_mm)
+            machine_offset = adjustor.adjust(o)
 
             print(f"オフセット(カメラ): ({o.x:.3f}, {o.y:.3f}) mm")
             print(
