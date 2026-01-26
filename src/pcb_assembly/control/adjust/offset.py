@@ -34,11 +34,11 @@ class OffsetAdjustor:
         片方向の移動距離を算出する。
 
         Args:
-            crop_size: 検出領域のサイズ (width, height) in mm
+            crop_size: 検出領域のサイズ (width, height)
             ratio: crop_sizeの短辺に対する移動範囲の割合（デフォルト: 0.8）
 
         Returns:
-            片方向の移動距離 (mm)
+            片方向の移動距離
         """
         return min(crop_size) * ratio / 2
 
