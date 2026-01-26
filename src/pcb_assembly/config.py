@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import tomllib
+from enum import Enum, auto
 from pathlib import Path
 from typing import Any
 
 import attrs
 import cattrs
+
+from pcb_assembly.geometry import Point2d
 
 
 @attrs.frozen
@@ -76,15 +79,72 @@ class Toolhead:
     y: float
 
 
+class Corner(Enum):
+    """ボードのコーナーを表す列挙型."""
+
+    TOP_LEFT = auto()
+    TOP_RIGHT = auto()
+
+
 @attrs.frozen
 class ReferencePoint:
-    """基準点の設定."""
+    """基準点の設定.
+
+    x, yは左上基準点マーカーのマシン座標。
+    offset_x, offset_yは基準点マーカーからボードコーナーへのオフセット（正値）。
+
+    座標関係:
+        - ボード左上コーナー = (x + offset_x, y + offset_y)
+        - 右上基準点 = (x + 2*offset_x + board_width, y) （対称配置を仮定）
+    """
 
     x: float
     y: float
     offset_x: float
     offset_y: float
     target_diameter: float
+
+    def to_point(self) -> Point2d:
+        """基準点座標をPoint2dとして返す."""
+        return Point2d(self.x, self.y)
+
+    def get_reference_position(
+        self, corner: Corner = Corner.TOP_LEFT, *, board_width: float | None = None
+    ) -> Point2d:
+        """指定コーナーの基準点マーカー位置を返す.
+
+        Args:
+            corner: コーナー種別
+            board_width: ボード幅（TOP_RIGHTの場合は必須）
+
+        Returns:
+            基準点マーカーのマシン座標
+
+        Raises:
+            ValueError: TOP_RIGHTでboard_widthが指定されていない場合
+        """
+        match corner:
+            case Corner.TOP_LEFT:
+                return self.to_point()
+            case Corner.TOP_RIGHT:
+                if board_width is None:
+                    raise ValueError("TOP_RIGHTを計算するときはboard_widthが必要です。")
+                return Point2d(self.x + 2 * self.offset_x + board_width, self.y)
+
+    def offset_from_board(self, corner: Corner = Corner.TOP_LEFT) -> Point2d:
+        """ボードコーナーから見た基準点マーカーへのオフセット.
+
+        Args:
+            corner: コーナー種別
+
+        Returns:
+            ボードコーナーから基準点マーカーへのオフセット
+        """
+        match corner:
+            case Corner.TOP_LEFT:
+                return Point2d(-self.offset_x, -self.offset_y)
+            case Corner.TOP_RIGHT:
+                return Point2d(self.offset_x, -self.offset_y)
 
 
 class Machine:

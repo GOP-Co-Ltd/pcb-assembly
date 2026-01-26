@@ -5,6 +5,7 @@ import pytest
 from pcb_assembly.config import (
     Camera,
     CameraCrop,
+    Corner,
     Klipper,
     Machine,
     PasteDispenser,
@@ -12,6 +13,7 @@ from pcb_assembly.config import (
     ReferencePoint,
     Toolhead,
 )
+from pcb_assembly.geometry import Point2d
 from tests.helpers import TESTING_DATA_DIR
 
 
@@ -90,3 +92,53 @@ class TestCameraCrop:
         crop = CameraCrop(width=400, height=300)
 
         assert crop.size == (400, 300)
+
+
+class TestReferencePoint:
+    """ReferencePointクラスのテスト."""
+
+    def test_to_point(self):
+        ref = ReferencePoint(
+            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+        )
+
+        assert ref.to_point() == Point2d(10.0, 20.0)
+
+    def test_get_reference_position_default_is_top_left(self):
+        ref = ReferencePoint(
+            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+        )
+
+        assert ref.get_reference_position() == Point2d(10.0, 20.0)
+
+    def test_get_reference_position_top_right(self):
+        ref = ReferencePoint(
+            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+        )
+
+        # top_right = x + 2*offset_x + board_width = 10 + 2*1 + 100 = 112
+        assert ref.get_reference_position(
+            Corner.TOP_RIGHT, board_width=100.0
+        ) == Point2d(112.0, 20.0)
+
+    def test_get_reference_position_top_right_requires_board_width(self):
+        ref = ReferencePoint(
+            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+        )
+
+        with pytest.raises(ValueError, match="board_widthが必要"):
+            ref.get_reference_position(Corner.TOP_RIGHT)
+
+    def test_offset_from_board_default_is_top_left(self):
+        ref = ReferencePoint(
+            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+        )
+
+        assert ref.offset_from_board() == Point2d(-1.0, -2.0)
+
+    def test_offset_from_board_top_right(self):
+        ref = ReferencePoint(
+            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+        )
+
+        assert ref.offset_from_board(Corner.TOP_RIGHT) == Point2d(1.0, -2.0)
