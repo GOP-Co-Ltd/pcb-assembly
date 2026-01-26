@@ -88,9 +88,12 @@ class PositionAdjustor:
                 f"({target.x:.4f}, {target.y:.4f})"
             )
 
-            trajectory = Trajectory(pos, self._move_velocity)
-            trajectory.add(Move.from_point(target))
-            self._move_to(klipper, stage.move(trajectory))
+            self._move_to(
+                klipper,
+                stage.move(
+                    Trajectory(pos, self._move_velocity, [Move.from_point(target)])
+                ),
+            )
 
         raise RuntimeError(
             f"{self._max_iterations}回の試行で収束しませんでした "

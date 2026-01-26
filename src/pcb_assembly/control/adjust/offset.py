@@ -79,20 +79,33 @@ class OffsetAdjustor:
 
         # 2. X方向に移動
         move_vector = Point2d(x=self._move_distance, y=0.0)
-        trajectory = Trajectory(stage.get_position(), self._move_velocity)
-        trajectory.add(Move.from_point(move_vector, relative=True))
-        self._logger.info(f"X方向に {self._move_distance} mm 移動")
-        self._move_to(klipper, stage.move(trajectory))
+        self._move_to(
+            klipper,
+            stage.move(
+                Trajectory(
+                    stage.get_position(),
+                    self._move_velocity,
+                    [Move.from_point(move_vector, relative=True)],
+                )
+            ),
+        )
 
         # 3. 移動後に検出
         o2 = observe_offset()
         self._logger.info(f"オフセット o2: ({o2.x:.4f}, {o2.y:.4f}) mm")
 
         # 4. 元の位置に戻る
-        trajectory = Trajectory(stage.get_position(), self._move_velocity)
-        trajectory.add(Move.from_point(start_pos))
         self._logger.info("元の位置に戻る")
-        self._move_to(klipper, stage.move(trajectory))
+        self._move_to(
+            klipper,
+            stage.move(
+                Trajectory(
+                    stage.get_position(),
+                    self._move_velocity,
+                    [Move.from_point(start_pos)],
+                )
+            ),
+        )
 
         # 5. 回転角を計算
         # 観測されるオフセット変化 (o2 - o1) は、機械の移動方向 move_vector に対応
