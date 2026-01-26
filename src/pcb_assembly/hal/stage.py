@@ -121,6 +121,11 @@ class XYZStage:
             v=ScalarLimits(min=0.0, max=float(printer["max_velocity"])),
         )
 
+    @property
+    def max_velocity(self) -> float:
+        """最大速度."""
+        return self.limits.v.max
+
     def validate(self, trajectory: Trajectory) -> ValidationResult:
         """Trajectoryの全経由点が制限内にあるか検証する.
 

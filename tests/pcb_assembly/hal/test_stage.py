@@ -51,6 +51,9 @@ class TestXYZStage:
         assert limits.z.min < limits.z.max
         assert limits.v.min < limits.v.max
 
+    def test_max_velocity(self, mock_stage: XYZStage):
+        assert mock_stage.max_velocity == 300.0
+
     def test_limits_missing_stepper_section(self, mocker: MockerFixture):
         klipper = Klipper()
         mocker.patch.object(
