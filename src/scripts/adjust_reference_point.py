@@ -18,7 +18,7 @@ import cv2
 
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
-from pcb_assembly.control.adjust import OffsetAdjustor, PositionAdjustor
+from pcb_assembly.control.adjust import OffsetTransformMeasurer, PositionAdjustor
 from pcb_assembly.geometry import Point2d
 from pcb_assembly.hal import Camera, Klipper, XYZStage
 from pcb_assembly.utils import setup_logging
@@ -162,8 +162,8 @@ def main() -> None:
     move_distance = (
         safe_move_distance(cam_config.crop.size, margin=0.3) / calibration.pixel_per_mm
     )
-    offset_adjustor = OffsetAdjustor(move_distance=move_distance)
-    offset_adjustor.measure(observe_offset, klipper, stage)
+    offset_transform_measurer = OffsetTransformMeasurer(move_distance=move_distance)
+    transform = offset_transform_measurer.measure(observe_offset, klipper, stage)
 
     # 位置合わせ
     print("\n=== カメラ中心を基準点に合わせる ===")
@@ -171,7 +171,7 @@ def main() -> None:
 
     try:
         final_pos = position_adjustor.adjust(
-            lambda: offset_adjustor.adjust(observe_offset()),
+            lambda: transform.apply(observe_offset()),
             klipper,
             stage,
         )
@@ -179,7 +179,7 @@ def main() -> None:
 
         # 完了後も映像を表示し続ける（何かキーを押すまで）
         print("何かキーを押すと終了します...")
-        final_offset = offset_adjustor.adjust(observe_offset())
+        final_offset = transform.apply(observe_offset())
         while True:
             frame = camera.capture()
             display = draw_overlay(frame, cam_config.crop.size, final_offset)

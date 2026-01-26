@@ -9,10 +9,9 @@ from pcb_assembly.hal import Klipper, XYZStage
 from pcb_assembly.utils import get_class_module_path
 
 
-class OffsetAdjustor:
-    """オフセット位置を回転などで補正するクラス.
+class OffsetTransformMeasurer:
+    """観測座標系から機械座標系への変換を計測するクラス.
 
-    観測座標系と機械座標系の回転ずれを計測し、オフセット値を補正する。
     2点法を用いて、機械座標系での移動ベクトルと観測座標系での
     オフセットの差分から回転角を計算する。
 
@@ -20,9 +19,9 @@ class OffsetAdjustor:
         from pcb_assembly.vision import safe_move_distance
 
         move_distance = safe_move_distance(roi_size_mm)
-        adjustor = OffsetAdjustor(move_distance)
-        adjustor.measure(observe_offset, klipper, stage)
-        corrected_offset = adjustor.adjust(offset)
+        measurer = OffsetTransformMeasurer(move_distance)
+        transform = measurer.measure(observe_offset, klipper, stage)
+        corrected_offset = transform.apply(offset)
     """
 
     def __init__(
@@ -31,7 +30,7 @@ class OffsetAdjustor:
         move_velocity: float = 10.0,
         settle_time: float = 0.5,
     ) -> None:
-        """OffsetAdjustorを初期化する.
+        """OffsetTransformMeasurerを初期化する.
 
         Args:
             move_distance: X方向への移動距離（mm）
@@ -42,7 +41,6 @@ class OffsetAdjustor:
         self._move_velocity = move_velocity
         self._settle_time = settle_time
 
-        self._transform: Transform | None = None
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
     def measure(
@@ -112,24 +110,7 @@ class OffsetAdjustor:
         rotation = Rotation.from_points(move_vector, o2 - o1)
         self._logger.info(f"計測完了: 回転角 {rotation.degrees:.4f}°")
 
-        self._transform = rotation
         return rotation
-
-    def adjust(self, offset: Point2d) -> Point2d:
-        """オフセット値を補正する.
-
-        Args:
-            offset: 観測座標系でのオフセット値
-
-        Returns:
-            機械座標系に変換されたオフセット値
-
-        Raises:
-            RuntimeError: measureが実行されていない場合
-        """
-        if self._transform is None:
-            raise RuntimeError("measureが実行されていません")
-        return self._transform.apply(offset)
 
     def _move_to(
         self,

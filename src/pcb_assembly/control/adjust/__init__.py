@@ -1,7 +1,7 @@
-from .offset import OffsetAdjustor
+from .offset import OffsetTransformMeasurer
 from .position import PositionAdjustor
 
 __all__ = [
-    "OffsetAdjustor",
+    "OffsetTransformMeasurer",
     "PositionAdjustor",
 ]
