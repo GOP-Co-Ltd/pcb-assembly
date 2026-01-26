@@ -19,7 +19,7 @@ class OffsetAdjustor:
     Example:
         move_distance = OffsetAdjustor.move_distance_from_crop(crop_size)
         adjustor = OffsetAdjustor(move_distance)
-        transform = adjustor.measure(detect_offset, klipper, stage)
+        transform = adjustor.measure(observe_offset, klipper, stage)
         corrected_offset = adjustor.adjust(offset)
     """
 
@@ -64,7 +64,7 @@ class OffsetAdjustor:
 
     def measure(
         self,
-        detect_offset: Callable[[], Point2d],
+        observe_offset: Callable[[], Point2d],
         klipper: Klipper,
         stage: XYZStage,
     ) -> Transform:
@@ -78,7 +78,7 @@ class OffsetAdjustor:
         5. 移動ベクトルと (o1 - o2) の角度差から回転を計算
 
         Args:
-            detect_offset: オフセットを検出して返す関数
+            observe_offset: オフセットを検出して返す関数
             klipper: Klipperクライアント
             stage: XYZステージ
 
@@ -88,7 +88,7 @@ class OffsetAdjustor:
         self._logger.info("オフセット補正の計測を開始")
 
         # 1. 現在位置で検出
-        o1 = detect_offset()
+        o1 = observe_offset()
         start_pos = stage.get_position()
         self._logger.info(
             f"初期位置: {start_pos}, オフセット o1: ({o1.x:.4f}, {o1.y:.4f}) mm"
@@ -102,7 +102,7 @@ class OffsetAdjustor:
         self._move_to(klipper, stage.move(trajectory))
 
         # 3. 移動後に検出
-        o2 = detect_offset()
+        o2 = observe_offset()
         self._logger.info(f"オフセット o2: ({o2.x:.4f}, {o2.y:.4f}) mm")
 
         # 4. 元の位置に戻る
