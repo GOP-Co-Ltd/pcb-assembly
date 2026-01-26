@@ -18,7 +18,7 @@ import cv2
 
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
-from pcb_assembly.control.adjust import OffsetAdjustor
+from pcb_assembly.control.adjust import OffsetAdjustor, PositionAdjustor
 from pcb_assembly.geometry import Point2d
 from pcb_assembly.hal import Camera, Klipper, XYZStage
 from pcb_assembly.utils import setup_logging
@@ -143,77 +143,28 @@ def main() -> None:
     # カメラ回転角の計測（2点法）
     print("\n=== カメラ回転角の計測 ===")
     move_distance = safe_move_distance(cam_config.crop.size) / calibration.pixel_per_mm
-    adjustor = OffsetAdjustor(move_distance=move_distance)
-    adjustor.measure(observe_offset, klipper, stage)
+    offset_adjustor = OffsetAdjustor(move_distance=move_distance)
+    offset_adjustor.measure(observe_offset, klipper, stage)
 
-    # 位置合わせループ
+    # 機械座標系でのオフセットを返す関数
+    def observe_machine_offset() -> Point2d:
+        return offset_adjustor.adjust(observe_offset())
+
+    # 位置合わせ
     print("\n=== カメラ中心を基準点に合わせる ===")
-    print("(qキーで中断)")
-    max_iterations = 10
+    position_adjustor = PositionAdjustor(tolerance=args.tolerance)
 
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
-    machine_offset: Point2d | None = None
 
     try:
-        for iteration in range(max_iterations):
-            print(f"\n--- 試行 {iteration + 1}/{max_iterations} ---")
-
-            # 統計計測中も映像を表示
-            frames: list[Image] = []
-            for _ in range(sample_count):
-                frame = camera.capture()
-                frames.append(frame)
-                display = draw_crosshair(
-                    frame.crop_center(cam_config.crop.size), machine_offset
-                )
-                cv2.imshow(WINDOW_NAME, display.numpy())
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    print("中断しました")
-                    return
-
-            offset_final = detector.detect_with_statistics(iter(frames))
-            if not offset_final:
-                print("Reference Point検出に失敗しました")
-                return
-
-            # 回転角を考慮してオフセットを機械座標系に変換
-            o = offset_final.mean_mm
-            machine_offset = adjustor.adjust(o)
-
-            print(f"オフセット(カメラ): ({o.x:.3f}, {o.y:.3f}) mm")
-            print(
-                f"オフセット(機械): ({machine_offset.x:.3f}, {machine_offset.y:.3f}) mm"
-            )
-            print(f"距離: {machine_offset.norm:.3f} mm")
-
-            # 許容誤差内なら終了
-            if machine_offset.norm < args.tolerance:
-                print(f"許容誤差 {args.tolerance}mm 以内に収束しました")
-                break
-
-            # 現在位置を取得して補正
-            pos = stage.get_position()
-            aligned = pos.to2d() - machine_offset
-            print(
-                f"移動: ({pos.x:.3f}, {pos.y:.3f}) -> ({aligned.x:.3f}, {aligned.y:.3f})"
-            )
-
-            klipper.send_gcode(
-                gcode.move(x=aligned.x, y=aligned.y) + gcode.wait_for_done()
-            )
-            time.sleep(0.5)
-        else:
-            print(f"\n{max_iterations}回の試行で収束しませんでした")
-
-        print("\n位置合わせ完了")
+        final_pos = position_adjustor.adjust(observe_machine_offset, klipper, stage)
+        print(f"\n位置合わせ完了: ({final_pos.x:.4f}, {final_pos.y:.4f})")
 
         # 完了後も映像を表示し続ける（何かキーを押すまで）
         print("何かキーを押すと終了します...")
         while True:
             frame = camera.capture()
-            display = draw_crosshair(
-                frame.crop_center(cam_config.crop.size), machine_offset
-            )
+            display = draw_crosshair(frame.crop_center(cam_config.crop.size))
             cv2.imshow(WINDOW_NAME, display.numpy())
             if cv2.waitKey(100) != -1:
                 break
