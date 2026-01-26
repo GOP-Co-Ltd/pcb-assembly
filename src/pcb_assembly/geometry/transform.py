@@ -155,8 +155,9 @@ class Scale(Transform):
         """
         return self.__class__(1 / self.x, 1 / self.y, 1 / self.z)
 
-    def flip(self, x: bool = False, y: bool = False, z: bool = False) -> Self:
-        """指定した軸を反転したスケールを返す.
+    @classmethod
+    def flip(cls, x: bool = False, y: bool = False, z: bool = False) -> Self:
+        """指定した軸を反転するスケールを返す.
 
         Args:
             x: Trueの場合、X軸を反転
@@ -166,10 +167,10 @@ class Scale(Transform):
         Returns:
             指定軸が反転されたScaleインスタンス
         """
-        return self.__class__(
-            -self.x if x else self.x,
-            -self.y if y else self.y,
-            -self.z if z else self.z,
+        return cls(
+            -1.0 if x else 1.0,
+            -1.0 if y else 1.0,
+            -1.0 if z else 1.0,
         )
 
 
@@ -273,6 +274,26 @@ class Translation(Transform):
         if isinstance(point, Point2d):
             return cls(point.x, point.y, 0.0)
         return cls(point.x, point.y, point.z)
+
+
+class Identity(Transform):
+    """恒等変換（何もしない変換）を表すクラス."""
+
+    @overload
+    def apply(self, point: Point2d) -> Point2d: ...
+
+    @overload
+    def apply(self, point: Point3d) -> Point3d: ...
+
+    @override
+    def apply(self, point: Point) -> Point:
+        """点をそのまま返す."""
+        return point
+
+    @override
+    def inverse(self) -> Self:
+        """逆変換（自身）を返す."""
+        return self
 
 
 class Compose(UserList[Transform], Transform):
