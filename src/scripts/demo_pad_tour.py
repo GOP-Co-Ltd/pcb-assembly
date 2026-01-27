@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Board座標→機械座標変換を計測するスクリプト.
+"""PCB上のパッドを巡回するデモスクリプト.
+
+Reference Pointの位置調整、Board座標→機械座標変換の計測も兼ねる。
 
 処理順:
 1. 設定読み込み・初期化
 2. PCBファイルからOutlineを読み込み
 3. G28でホーミング
-4. Reference Point (top left) へ移動
+4. Reference Point (top left) へ移動・位置調整
 5. カメラ回転角の計測（OffsetTransformMeasurer）
 6. Board変換の計測（BoardTransformMeasurer）
-7. 結果表示
+7. 全パッドを巡回
 """
 
 import argparse
@@ -37,7 +39,7 @@ from pcb_assembly.vision import (
 )
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-WINDOW_NAME = "Board Transform Measurement"
+WINDOW_NAME = "Pad Tour Demo"
 
 
 def draw_overlay(
@@ -74,7 +76,7 @@ def draw_overlay(
 
 def main() -> None:
     setup_logging(logging.INFO)
-    parser = argparse.ArgumentParser(description="Board座標→機械座標変換を計測する")
+    parser = argparse.ArgumentParser(description="PCB上のパッドを巡回するデモ")
     parser.add_argument(
         "--config",
         "-c",
