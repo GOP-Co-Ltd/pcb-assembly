@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PCB上のパッドを巡回するデモスクリプト.
+"""PCB上の四隅・コンポーネント・パッドを巡回するデモスクリプト.
 
 Reference Pointの位置調整、Board座標→機械座標変換の計測も兼ねる。
 
@@ -11,7 +11,8 @@ Reference Pointの位置調整、Board座標→機械座標変換の計測も兼
 5. カメラ回転角の計測（OffsetTransformMeasurer）
 6. Board変換の計測（BoardTransformMeasurer）
 7. ボード四隅を巡回
-8. 全パッドを巡回
+8. 全コンポーネントを巡回
+9. 全パッドを巡回
 """
 
 import argparse
@@ -40,7 +41,7 @@ from pcb_assembly.vision import (
 )
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-WINDOW_NAME = "Pad Tour Demo"
+WINDOW_NAME = "Board Tour Demo"
 
 
 def draw_overlay(
@@ -77,7 +78,7 @@ def draw_overlay(
 
 def main() -> None:
     setup_logging(logging.INFO)
-    parser = argparse.ArgumentParser(description="PCB上のパッドを巡回するデモ")
+    parser = argparse.ArgumentParser(description="ボード巡回デモ")
     parser.add_argument(
         "--config",
         "-c",
@@ -256,6 +257,61 @@ def main() -> None:
                     break
 
         print("四隅巡回完了")
+
+        # コンポーネント巡回デモ
+        print("\n=== コンポーネント巡回デモ ===")
+        top_components = [c for c in pcb.components if c.layer == Layer.TOP]
+        print(f"TOPレイヤーのコンポーネント数: {len(top_components)}")
+
+        if top_components:
+            # コンポーネント位置をnearest neighborでソート
+            current_pos = stage.get_position()
+            comp_positions_3d = [c.position.to3d() for c in top_components]
+            sorted_positions = sort_by_nearest(
+                comp_positions_3d, current_pos.to2d().to3d()
+            )
+
+            # ソート順にコンポーネントを並べ替え
+            pos_to_comp = {c.position.to3d(): c for c in top_components}
+            sorted_components = [pos_to_comp[pos] for pos in sorted_positions]
+
+            print("巡回開始... (Escキーで中断)")
+            for i, comp in enumerate(sorted_components):
+                board_pt = comp.position
+                machine_pt = board_transform.apply(board_pt)
+
+                # 移動
+                klipper.send_gcode(
+                    gcode.move(x=machine_pt.x, y=machine_pt.y, velocity=30)
+                    + gcode.wait_for_done()
+                )
+
+                # カメラ表示
+                for _ in range(int(camera.resolution.fps * 0.5)):
+                    frame = camera.capture()
+                    img = draw_overlay(frame, cam_config.crop.size).numpy()
+
+                    # コンポーネント情報をオーバーレイ
+                    info_text = f"{comp.designator} ({i + 1}/{len(sorted_components)})"
+                    cv2.putText(
+                        img,
+                        info_text,
+                        (10, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 255, 0),
+                        2,
+                    )
+                    cv2.imshow(WINDOW_NAME, img)
+
+                    # Escキーで中断
+                    if cv2.waitKey(1) == 27:  # Esc
+                        print("中断しました")
+                        break
+
+            print("コンポーネント巡回完了")
+        else:
+            print("巡回するコンポーネントがありません")
 
         # パッド巡回デモ
         print("\n=== パッド巡回デモ ===")
