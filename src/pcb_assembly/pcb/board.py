@@ -139,6 +139,22 @@ class ComponentList(UserList[Component]):
         >>> components.save(Path("output_pnp.csv"))
     """
 
+    def nearest(self, point: Point2d) -> Component:
+        """指定座標に最も近い部品を取得.
+
+        Args:
+            point: 基準座標
+
+        Returns:
+            最も近い部品
+
+        Raises:
+            ValueError: リストが空の場合
+        """
+        if not self.data:
+            raise ValueError("ComponentList is empty")
+        return min(self.data, key=lambda c: (c.position - point).norm)
+
     def save(self, path: Path) -> None:
         """Pick and Place CSVファイルに保存."""
         with path.open("w", encoding="utf-8", newline="") as f:
@@ -208,6 +224,22 @@ class PadList(UserList[Pad]):
         >>> pads = PadList.load(Path("board_pads.json"))
         >>> pads.save(Path("output_pads.json"))
     """
+
+    def nearest(self, point: Point2d) -> Pad:
+        """指定座標に最も近いパッドを取得.
+
+        Args:
+            point: 基準座標
+
+        Returns:
+            最も近いパッド
+
+        Raises:
+            ValueError: リストが空の場合
+        """
+        if not self.data:
+            raise ValueError("PadList is empty")
+        return min(self.data, key=lambda p: (p.center - point).norm)
 
     def save(self, path: Path) -> None:
         """JSONファイルに保存."""

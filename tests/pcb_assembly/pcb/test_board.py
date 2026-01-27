@@ -153,6 +153,21 @@ class TestComponentList:
         sample_components.append(new_component)
         assert len(sample_components) == 3
 
+    def test_nearest(self, sample_components: ComponentList):
+        # U1: (50.5, 30.25), R1: (10.0, 20.0)
+        # (0, 0)に近いのはR1
+        nearest = sample_components.nearest(Point2d(x=0.0, y=0.0))
+        assert nearest.designator == "R1"
+
+        # (100, 100)に近いのはU1
+        nearest = sample_components.nearest(Point2d(x=100.0, y=100.0))
+        assert nearest.designator == "U1"
+
+    def test_nearest_empty_list_raises_error(self):
+        empty = ComponentList()
+        with pytest.raises(ValueError, match="ComponentList is empty"):
+            empty.nearest(Point2d(x=0.0, y=0.0))
+
 
 class TestPad:
     """Padクラスのテスト."""
@@ -239,3 +254,18 @@ class TestPadList:
         )
         sample_pads.append(new_pad)
         assert len(sample_pads) == 3
+
+    def test_nearest(self, sample_pads: PadList):
+        # パッド1の中心: (0.5, 0.5), パッド2の中心: (2.5, 0.5)
+        # (0, 0)に近いのはパッド1
+        nearest = sample_pads.nearest(Point2d(x=0.0, y=0.0))
+        assert nearest.pad_number == "1"
+
+        # (10, 0)に近いのはパッド2
+        nearest = sample_pads.nearest(Point2d(x=10.0, y=0.0))
+        assert nearest.pad_number == "2"
+
+    def test_nearest_empty_list_raises_error(self):
+        empty = PadList()
+        with pytest.raises(ValueError, match="PadList is empty"):
+            empty.nearest(Point2d(x=0.0, y=0.0))
