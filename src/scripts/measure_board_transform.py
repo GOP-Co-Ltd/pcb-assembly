@@ -27,7 +27,7 @@ from pcb_assembly.control.adjust import (
 )
 from pcb_assembly.geometry import Point2d
 from pcb_assembly.hal import Camera, Klipper, XYZStage
-from pcb_assembly.pcb.kicad import extract_outline
+from pcb_assembly.pcb import PcbFile
 from pcb_assembly.utils import setup_logging
 from pcb_assembly.vision import (
     CalibrationResult,
@@ -105,7 +105,8 @@ def main() -> None:
 
     # PCBファイル読み込み
     print("\n=== PCBファイル読み込み ===")
-    outline = extract_outline(args.pcb_file)
+    pcb = PcbFile(args.pcb_file)
+    outline = pcb.outline
     print(f"PCBファイル: {args.pcb_file}")
     print(f"Board幅: {outline.width:.3f} mm")
     print(f"Board高さ: {outline.height:.3f} mm")

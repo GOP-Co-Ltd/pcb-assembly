@@ -9,7 +9,7 @@ from .board import (
     Pad,
     PadList,
 )
-from .kicad import extract_components, extract_outline, extract_pads
+from .kicad import PcbFile
 
 __all__ = [
     "Component",
@@ -19,7 +19,5 @@ __all__ = [
     "Pad",
     "PadList",
     "PNP_CSV_HEADER",
-    "extract_components",
-    "extract_outline",
-    "extract_pads",
+    "PcbFile",
 ]
