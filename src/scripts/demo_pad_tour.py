@@ -10,7 +10,8 @@ Reference Pointの位置調整、Board座標→機械座標変換の計測も兼
 4. Reference Point (top left) へ移動・位置調整
 5. カメラ回転角の計測（OffsetTransformMeasurer）
 6. Board変換の計測（BoardTransformMeasurer）
-7. 全パッドを巡回
+7. ボード四隅を巡回
+8. 全パッドを巡回
 """
 
 import argparse
@@ -210,6 +211,51 @@ def main() -> None:
             klipper,
             stage,
         )
+
+        # ボード四隅巡回デモ
+        print("\n=== ボード四隅巡回デモ ===")
+        corners = [
+            ("左上", Point2d(0.0, 0.0)),
+            ("右上", Point2d(outline.width, 0.0)),
+            ("右下", Point2d(outline.width, outline.height)),
+            ("左下", Point2d(0.0, outline.height)),
+            ("左上", Point2d(0.0, 0.0)),
+        ]
+
+        for name, board_pt in corners:
+            machine_pt = board_transform.apply(board_pt)
+            print(
+                f"{name}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) -> "
+                f"Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
+            )
+
+            klipper.send_gcode(
+                gcode.move(x=machine_pt.x, y=machine_pt.y, velocity=30)
+                + gcode.wait_for_done()
+            )
+
+            # カメラ表示
+            for _ in range(int(camera.resolution.fps * 1.0)):
+                frame = camera.capture()
+                img = draw_overlay(frame, cam_config.crop.size).numpy()
+
+                # 角情報をオーバーレイ
+                cv2.putText(
+                    img,
+                    f"Corner: {name}",
+                    (10, 90),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2,
+                )
+                cv2.imshow(WINDOW_NAME, img)
+
+                if cv2.waitKey(1) == 27:  # Esc
+                    print("中断しました")
+                    break
+
+        print("四隅巡回完了")
 
         # パッド巡回デモ
         print("\n=== パッド巡回デモ ===")
