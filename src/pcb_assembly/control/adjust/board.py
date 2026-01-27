@@ -25,11 +25,11 @@ class BoardTransformMeasurer:
     回転と平行移動を計算する。
 
     Example:
-        from pcb_assembly.pcb.kicad import extract_outline
+        from pcb_assembly.pcb import PcbFile
 
-        outline = extract_outline(pcb_file)
+        pcb = PcbFile(pcb_file)
         measurer = BoardTransformMeasurer(
-            outline=outline,
+            outline=pcb.outline,
             reference_point=machine.reference_point,
         )
         # adjust_reference: 補正済みオフセットを返す関数

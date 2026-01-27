@@ -14,9 +14,7 @@ from pcb_assembly.pcb import (
     Layer,
     Outline,
     PadList,
-    extract_components,
-    extract_outline,
-    extract_pads,
+    PcbFile,
 )
 
 
@@ -173,24 +171,25 @@ def main() -> None:
 
     base_name = pcb_path.stem
 
-    # 基板アウトラインを抽出
-    print(f"基板情報を抽出中: {pcb_path}")
-    outline = extract_outline(pcb_path)
+    # PCBファイルを読み込み
+    print(f"PCBファイルを読み込み中: {pcb_path}")
+    pcb = PcbFile(pcb_path)
+
+    # 基板アウトラインを保存
+    outline = pcb.outline
     print(f"  サイズ: {outline.width:.2f} x {outline.height:.2f} mm")
     outline_path = output_dir / f"{base_name}_outline.json"
     outline.save(outline_path)
     print(f"  アウトライン -> {outline_path}")
 
-    # 部品情報を抽出
-    print(f"部品情報を抽出中: {pcb_path}")
-    components = extract_components(pcb_path)
+    # 部品情報を保存
+    components = pcb.components
     csv_path = output_dir / f"{base_name}_pnp.csv"
     components.save(csv_path)
     print(f"  {len(components)} 部品 -> {csv_path}")
 
-    # パッド情報を抽出
-    print(f"パッド情報を抽出中: {pcb_path}")
-    pads = extract_pads(pcb_path)
+    # パッド情報を保存
+    pads = pcb.pads
     json_path = output_dir / f"{base_name}_pads.json"
     pads.save(json_path)
     print(f"  {len(pads)} パッド -> {json_path}")
