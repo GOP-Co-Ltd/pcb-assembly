@@ -25,9 +25,9 @@ from pcb_assembly.control.adjust import (
     OffsetTransformMeasurer,
     XYPositionAdjustor,
 )
-from pcb_assembly.geometry import Point2d
+from pcb_assembly.geometry import Point2d, sort_by_nearest
 from pcb_assembly.hal import Camera, Klipper, XYZStage
-from pcb_assembly.pcb import PcbFile
+from pcb_assembly.pcb import Layer, PcbFile
 from pcb_assembly.utils import setup_logging
 from pcb_assembly.vision import (
     CalibrationResult,
@@ -209,29 +209,67 @@ def main() -> None:
             stage,
         )
 
-        # 結果表示
-        print("\n=== 計測結果 ===")
-        # サンプル変換を表示
-        print("\n=== サンプル変換 ===")
-        sample_points = [
-            Point2d(0.0, 0.0),
-            Point2d(outline.width, 0.0),
-            Point2d(0.0, outline.height),
-            Point2d(outline.width, outline.height),
-        ]
-        for board_pt in sample_points:
-            machine_pt = board_transform.apply(board_pt)
-            print(
-                f"Board ({board_pt.x:.2f}, {board_pt.y:.2f}) -> "
-                f"Machine ({machine_pt.x:.4f}, {machine_pt.y:.4f})"
-            )
+        # パッド巡回デモ
+        print("\n=== パッド巡回デモ ===")
+        top_pads = [p for p in pcb.pads if p.layer == Layer.TOP]
+        print(f"TOPレイヤーのパッド数: {len(top_pads)}")
+
+        if top_pads:
+            # パッド中心をnearest neighborでソート
+            current_pos = stage.get_position()
+            pad_centers_3d = [p.center.to3d() for p in top_pads]
+            sorted_centers = sort_by_nearest(pad_centers_3d, current_pos.to2d().to3d())
+
+            print("巡回開始... (Escキーで中断)")
+            for i, center_3d in enumerate(sorted_centers):
+                board_pt = center_3d.to2d()
+                machine_pt = board_transform.apply(board_pt)
+
+                # 移動
+                klipper.send_gcode(
+                    gcode.move(x=machine_pt.x, y=machine_pt.y, velocity=30)
+                    + gcode.wait_for_done()
+                )
+
+                # カメラ表示
+                for _ in range(int(camera.resolution.fps * 0.5)):
+                    frame = camera.capture()
+                    img = draw_overlay(frame, cam_config.crop.size).numpy()
+
+                    # パッド情報をオーバーレイ
+                    info_text = f"Pad {i + 1}/{len(sorted_centers)}"
+                    cv2.putText(
+                        img,
+                        info_text,
+                        (10, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 255, 0),
+                        2,
+                    )
+                    cv2.imshow(WINDOW_NAME, img)
+
+                    # Escキーで中断
+                    if cv2.waitKey(1) == 27:  # Esc
+                        print("中断しました")
+                        break
+
+            print("巡回完了")
+        else:
+            print("巡回するパッドがありません")
+
+        # ボード左上 (0, 0) に移動
+        origin_machine = board_transform.apply(Point2d(0.0, 0.0))
+        klipper.send_gcode(
+            gcode.move(x=origin_machine.x, y=origin_machine.y, velocity=30)
+            + gcode.wait_for_done()
+        )
 
         # 完了後も映像を表示し続ける（何かキーを押すまで）
         print("\n何かキーを押すと終了します...")
-        final_offset = offset_transform.apply(observe_offset())
         while True:
             frame = camera.capture()
-            display = draw_overlay(frame, cam_config.crop.size, final_offset)
+            display = draw_overlay(frame, cam_config.crop.size)
             cv2.imshow(WINDOW_NAME, display.numpy())
             if cv2.waitKey(100) != -1:
                 break
