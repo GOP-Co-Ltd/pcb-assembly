@@ -9,7 +9,7 @@ from .board import (
     Pad,
     PadList,
 )
-from .kicad import extract_components, extract_outline, extract_pads
+from .kicad import PcbFile, extract_components, extract_outline, extract_pads
 
 __all__ = [
     "Component",
@@ -22,4 +22,5 @@ __all__ = [
     "extract_components",
     "extract_outline",
     "extract_pads",
+    "PcbFile",
 ]
