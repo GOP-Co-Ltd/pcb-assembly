@@ -3,13 +3,15 @@
 import logging
 from collections.abc import Callable
 
+import numpy as np
+
 from pcb_assembly import gcode
 from pcb_assembly.config import Corner, ReferencePoint
 from pcb_assembly.geometry import (
     Compose,
+    Matrix2d,
     Move,
     Point2d,
-    Rotation,
     Trajectory,
     Translation,
 )
@@ -18,11 +20,27 @@ from pcb_assembly.pcb import Outline
 from pcb_assembly.utils import get_class_module_path
 
 
+def _select_corners(ref_point: ReferencePoint) -> tuple[Corner, Corner]:
+    """計測に使用する2つのコーナーを選択する.
+
+    TOP_LEFT以外の利用可能なコーナーから2つを選択する。 優先順位: (TR, BL) → (TR, BR) → (BL, BR)
+    """
+    offsets = ref_point.offsets
+    has_tr = offsets.has_corner(Corner.TOP_RIGHT)
+    has_bl = offsets.has_corner(Corner.BOTTOM_LEFT)
+
+    if has_tr and has_bl:
+        return Corner.TOP_RIGHT, Corner.BOTTOM_LEFT
+    if has_tr:
+        return Corner.TOP_RIGHT, Corner.BOTTOM_RIGHT
+    return Corner.BOTTOM_LEFT, Corner.BOTTOM_RIGHT
+
+
 class BoardTransformMeasurer:
     """Board座標から機械座標への変換を計測するクラス.
 
-    2点法を用いて、left/right reference pointの実測位置から
-    回転と平行移動を計算する。
+    3点法を用いて、reference pointの実測位置から
+    2x2変換行列と平行移動を計算する。
 
     Example:
         from pcb_assembly.pcb import PcbFile
@@ -47,7 +65,7 @@ class BoardTransformMeasurer:
         """BoardTransformMeasurerを初期化する.
 
         Args:
-            outline: Board Outline（widthの取得に使用）
+            outline: Board Outline（width/heightの取得に使用）
             reference_point: 基準点設定
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
             settle_time: 移動後の安定待機時間（秒）
@@ -65,7 +83,9 @@ class BoardTransformMeasurer:
         klipper: Klipper,
         stage: XYZStage,
     ) -> Compose:
-        """2点法でboard→機械座標の変換を計測する.
+        """3点法でboard→機械座標の変換を計測する.
+
+        TOP_LEFTと他2コーナーの実測位置から2x2変換行列を求める。
 
         Args:
             adjust_reference: 補正済みオフセットを返す関数
@@ -73,81 +93,82 @@ class BoardTransformMeasurer:
             stage: XYZステージ
 
         Returns:
-            Board座標→機械座標のCompose変換
+            Board座標→機械座標のCompose変換 (Matrix2d → Translation)
         """
         self._logger.info("Board変換の計測を開始")
 
-        # 事前計算
-        board_width = self._outline.width
-        offset_left = self._ref_point.offset_from_board(Corner.TOP_LEFT)
-        offset_right = self._ref_point.offset_from_board(Corner.TOP_RIGHT)
+        corner_a, corner_b = _select_corners(self._ref_point)
+        self._logger.info(f"計測コーナー: TOP_LEFT, {corner_a.name}, {corner_b.name}")
 
-        self._logger.info(f"Board幅: {board_width:.3f} mm")
-        self._logger.info(f"左オフセット: ({offset_left.x:.3f}, {offset_left.y:.3f})")
-        self._logger.info(f"右オフセット: ({offset_right.x:.3f}, {offset_right.y:.3f})")
-
+        offset_tl = self._ref_point.offsets.get(Corner.TOP_LEFT)
         move_velocity = stage.max_velocity * self._move_velocity_ratio
 
-        # top left reference pointへ移動
-        top_left_ref = self._ref_point.get_reference_position(Corner.TOP_LEFT)
-        self._logger.info("=== Top Left Reference Pointへ移動 ===")
-        self._logger.info(f"目標位置: ({top_left_ref.x:.3f}, {top_left_ref.y:.3f})")
-        self._move_to(
+        # --- TOP_LEFT ---
+        pos_tl = self._measure_corner(
+            Corner.TOP_LEFT,
+            adjust_reference,
             klipper,
-            stage.move(
-                Trajectory(
-                    stage.get_position(),
-                    move_velocity,
-                    [Move.from_point(top_left_ref)],
-                )
-            ),
+            stage,
+            move_velocity,
         )
 
-        # top leftで位置補正
-        self._logger.info("=== Top Left Reference Pointの位置補正 ===")
-        pos_left = adjust_reference()
-        self._logger.info(f"Top Left位置: ({pos_left.x:.4f}, {pos_left.y:.4f})")
-
-        # top rightへ移動（理論値）
-        expected_move = Point2d(
-            x=board_width - offset_left.x + offset_right.x,
-            y=0.0,
+        # --- Corner A ---
+        pos_a = self._measure_corner(
+            corner_a,
+            adjust_reference,
+            klipper,
+            stage,
+            move_velocity,
         )
-        self._logger.info("=== Top Right Reference Pointへ移動 ===")
+
+        # --- Corner B ---
+        pos_b = self._measure_corner(
+            corner_b,
+            adjust_reference,
+            klipper,
+            stage,
+            move_velocity,
+        )
+
+        # ボード空間でのTL→A, TL→Bベクトル（理論値）
+        ref_pos_tl = self._get_reference_position(Corner.TOP_LEFT)
+        board_vec_a = self._get_reference_position(corner_a) - ref_pos_tl
+        board_vec_b = self._get_reference_position(corner_b) - ref_pos_tl
+
+        # 機械空間での実測ベクトル
+        mach_vec_a = pos_a - pos_tl
+        mach_vec_b = pos_b - pos_tl
+
         self._logger.info(
-            f"理論移動距離: ({expected_move.x:.3f}, {expected_move.y:.3f})"
+            f"ボード空間ベクトルA: ({board_vec_a.x:.3f}, {board_vec_a.y:.3f})"
+        )
+        self._logger.info(
+            f"ボード空間ベクトルB: ({board_vec_b.x:.3f}, {board_vec_b.y:.3f})"
+        )
+        self._logger.info(
+            f"機械空間ベクトルA: ({mach_vec_a.x:.4f}, {mach_vec_a.y:.4f})"
+        )
+        self._logger.info(
+            f"機械空間ベクトルB: ({mach_vec_b.x:.4f}, {mach_vec_b.y:.4f})"
         )
 
-        target_pos = pos_left + expected_move
-        self._move_to(
-            klipper,
-            stage.move(
-                Trajectory(
-                    stage.get_position(),
-                    move_velocity,
-                    [Move.from_point(target_pos)],
-                )
-            ),
+        # 2x2変換行列を計算: T = M @ B^(-1)
+        b_mat = np.array(
+            [[board_vec_a.x, board_vec_b.x], [board_vec_a.y, board_vec_b.y]]
         )
-
-        # top rightで位置補正
-        self._logger.info("=== Top Right Reference Pointの位置補正 ===")
-        pos_right = adjust_reference()
-        self._logger.info(f"Top Right位置: ({pos_right.x:.4f}, {pos_right.y:.4f})")
-
-        # 回転を計算
-        actual_move = pos_right - pos_left
-        rotation = Rotation.from_points(expected_move, actual_move)
-        self._logger.info(f"計測された回転角: {rotation.degrees:.4f}°")
+        m_mat = np.array([[mach_vec_a.x, mach_vec_b.x], [mach_vec_a.y, mach_vec_b.y]])
+        t_mat = m_mat @ np.linalg.inv(b_mat)
+        matrix = Matrix2d(t_mat)
+        self._logger.info(f"変換行列:\n{t_mat}")
 
         # Board原点の機械座標を計算
-        board_origin = pos_left - rotation.apply(offset_left)
+        board_origin = pos_tl - matrix.apply(offset_tl)
         self._logger.info(
             f"Board左上コーナーの機械座標: ({board_origin.x:.4f}, {board_origin.y:.4f})"
         )
 
-        # 変換を構成
-        transform = Compose([rotation, Translation.from_point(board_origin)])
+        # 変換を構成（Matrix2d → Translation）
+        transform = Compose([matrix, Translation.from_point(board_origin)])
 
         # Board左上コーナーへ移動
         self._logger.info("=== Board左上コーナーへ移動 ===")
@@ -164,6 +185,43 @@ class BoardTransformMeasurer:
 
         self._logger.info("Board変換の計測完了")
         return transform
+
+    def _get_reference_position(self, corner: Corner) -> Point2d:
+        """指定コーナーの理論的な基準点位置を返す."""
+        return self._ref_point.get_reference_position(
+            corner,
+            board_width=self._outline.width,
+            board_height=self._outline.height,
+        )
+
+    def _measure_corner(
+        self,
+        corner: Corner,
+        adjust_reference: Callable[[], Point2d],
+        klipper: Klipper,
+        stage: XYZStage,
+        move_velocity: float,
+    ) -> Point2d:
+        """指定コーナーへ移動し、位置補正した座標を返す."""
+        ref_pos = self._get_reference_position(corner)
+
+        self._logger.info(f"=== {corner.name} Reference Pointへ移動 ===")
+        self._logger.info(f"目標位置: ({ref_pos.x:.3f}, {ref_pos.y:.3f})")
+        self._move_to(
+            klipper,
+            stage.move(
+                Trajectory(
+                    stage.get_position(),
+                    move_velocity,
+                    [Move.from_point(ref_pos)],
+                )
+            ),
+        )
+
+        self._logger.info(f"=== {corner.name} Reference Pointの位置補正 ===")
+        pos = adjust_reference()
+        self._logger.info(f"{corner.name}位置: ({pos.x:.4f}, {pos.y:.4f})")
+        return pos
 
     def _move_to(
         self,
