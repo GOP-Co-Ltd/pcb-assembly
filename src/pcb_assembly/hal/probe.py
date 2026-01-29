@@ -13,11 +13,11 @@ class ProbeResult:
     max: float
 
 
-class Probe:
+class ProbeSensor:
     """ロータリーエンコーダを用いた接触式距離センサー.
 
     Example:
-        probe = Probe(a_pin=17, b_pin=18, rotation_distance=10.0)
+        probe = ProbeSensor(a_pin=17, b_pin=18, rotation_distance=10.0)
 
         with probe:
             # プローブを基板に接触させる操作

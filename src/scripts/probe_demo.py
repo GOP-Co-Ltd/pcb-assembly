@@ -3,7 +3,7 @@
 
 import argparse
 
-from pcb_assembly.hal.probe import Probe
+from pcb_assembly.hal.probe import ProbeSensor
 
 
 def main() -> None:
@@ -27,7 +27,7 @@ def main() -> None:
     parser.add_argument("-i", "--inverse", action="store_true", help="回転方向を反転")
     args = parser.parse_args()
 
-    probe = Probe(
+    probe = ProbeSensor(
         a_pin=args.a_pin,
         b_pin=args.b_pin,
         rotation_distance=args.rotation_distance,
