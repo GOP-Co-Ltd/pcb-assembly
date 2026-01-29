@@ -1,10 +1,12 @@
 import math
 
+import numpy as np
 import pytest
 
 from pcb_assembly.geometry.transform import (
     Compose,
     Identity,
+    Matrix2d,
     Point2d,
     Point3d,
     Rotation,
@@ -203,6 +205,42 @@ class TestPoint2d:
         result = point.to3d(z=3.0)
 
         assert result == Point3d(x=1.5, y=2.5, z=3.0)
+
+
+class TestMatrix2d:
+    """Matrix2dクラスのテスト."""
+
+    def test_apply_point2d(self):
+        matrix = Matrix2d(np.array([[0.0, -1.0], [1.0, 0.0]]))
+        point = Point2d(1.0, 0.0)
+
+        result = matrix.apply(point)
+
+        assert isinstance(result, Point2d)
+        assert result.x == pytest.approx(0.0, abs=1e-10)
+        assert result.y == pytest.approx(1.0, abs=1e-10)
+
+    def test_apply_point3d_preserves_z(self):
+        matrix = Matrix2d(np.array([[2.0, 0.0], [0.0, 3.0]]))
+        point = Point3d(1.0, 2.0, 5.0)
+
+        result = matrix.apply(point)
+
+        assert result == Point3d(2.0, 6.0, 5.0)
+
+    def test_inverse(self):
+        matrix = Matrix2d(np.array([[2.0, 0.0], [0.0, 4.0]]))
+        point = Point2d(3.0, 5.0)
+
+        transformed = matrix.apply(point)
+        restored = matrix.inverse().apply(transformed)
+
+        assert restored.x == pytest.approx(point.x, abs=1e-10)
+        assert restored.y == pytest.approx(point.y, abs=1e-10)
+
+    def test_invalid_shape_raises(self):
+        with pytest.raises(ValueError, match="2x2"):
+            Matrix2d(np.array([[1.0, 2.0, 3.0]]))
 
 
 class TestScale:

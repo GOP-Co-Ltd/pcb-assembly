@@ -7,6 +7,8 @@ from collections.abc import Iterable
 from typing import Self, overload, override
 
 import attrs
+import numpy as np
+import numpy.typing as npt
 
 
 @attrs.frozen
@@ -294,6 +296,43 @@ class Identity(Transform):
     def inverse(self) -> Self:
         """逆変換（自身）を返す."""
         return self
+
+
+@attrs.frozen
+class Matrix2d(Transform):
+    """2x2変換行列によるXY平面上の線形変換を表すイミュータブルなクラス.
+
+    Attributes:
+        matrix: 2x2の変換行列
+    """
+
+    matrix: npt.NDArray[np.floating] = attrs.field(
+        eq=attrs.cmp_using(eq=np.array_equal)
+    )
+
+    def __attrs_post_init__(self) -> None:
+        if self.matrix.shape != (2, 2):
+            msg = f"行列は2x2である必要があります。与えられた形状: {self.matrix.shape}"
+            raise ValueError(msg)
+
+    @overload
+    def apply(self, point: Point2d) -> Point2d: ...
+
+    @overload
+    def apply(self, point: Point3d) -> Point3d: ...
+
+    @override
+    def apply(self, point: Point) -> Point:
+        """点に行列変換を適用する."""
+        v = self.matrix @ np.array([point.x, point.y])
+        if isinstance(point, Point2d):
+            return Point2d(float(v[0]), float(v[1]))
+        return Point3d(float(v[0]), float(v[1]), point.z)
+
+    @override
+    def inverse(self) -> Self:
+        """逆変換を返す."""
+        return self.__class__(np.linalg.inv(self.matrix))
 
 
 class Compose(UserList[Transform], Transform):

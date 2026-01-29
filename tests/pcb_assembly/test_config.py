@@ -6,6 +6,7 @@ from pcb_assembly.config import (
     Camera,
     CameraCrop,
     Corner,
+    CornerOffsets,
     Klipper,
     Machine,
     PasteDispenser,
@@ -48,9 +49,12 @@ class TestMachine:
         assert machine.reference_point == ReferencePoint(
             x=23.1,
             y=8.3,
-            offset_x=0,
-            offset_y=5,
             target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(0.0, -5.0),
+                top_right=(0.0, -5.0),
+                bottom_left=(5.0, 5.0),
+            ),
         )
 
     def test_default_values(self):
@@ -94,51 +98,166 @@ class TestCameraCrop:
         assert crop.size == (400, 300)
 
 
+class TestCornerOffsets:
+    """CornerOffsetsクラスのテスト."""
+
+    def test_requires_at_least_two_non_top_left_corners(self):
+        with pytest.raises(ValueError, match="少なくとも2つ"):
+            CornerOffsets(top_left=(0.0, -5.0))
+
+    def test_requires_at_least_two_non_top_left_corners_with_one(self):
+        with pytest.raises(ValueError, match="少なくとも2つ"):
+            CornerOffsets(top_left=(0.0, -5.0), top_right=(0.0, -5.0))
+
+    def test_has_corner_returns_true_for_defined_corners(self):
+        offsets = CornerOffsets(
+            top_left=(0.0, -5.0),
+            top_right=(0.0, -5.0),
+            bottom_left=(5.0, 5.0),
+        )
+
+        assert offsets.has_corner(Corner.TOP_LEFT) is True
+        assert offsets.has_corner(Corner.TOP_RIGHT) is True
+        assert offsets.has_corner(Corner.BOTTOM_LEFT) is True
+        assert offsets.has_corner(Corner.BOTTOM_RIGHT) is False
+
+    def test_get_returns_point2d(self):
+        offsets = CornerOffsets(
+            top_left=(1.0, -2.0),
+            top_right=(3.0, -4.0),
+            bottom_left=(5.0, 5.0),
+        )
+
+        assert offsets.get(Corner.TOP_LEFT) == Point2d(1.0, -2.0)
+        assert offsets.get(Corner.TOP_RIGHT) == Point2d(3.0, -4.0)
+
+    def test_get_raises_for_undefined_corner(self):
+        offsets = CornerOffsets(
+            top_left=(0.0, -5.0),
+            top_right=(0.0, -5.0),
+            bottom_left=(5.0, 5.0),
+        )
+
+        with pytest.raises(ValueError, match="BOTTOM_RIGHT"):
+            offsets.get(Corner.BOTTOM_RIGHT)
+
+
 class TestReferencePoint:
     """ReferencePointクラスのテスト."""
 
     def test_to_point(self):
         ref = ReferencePoint(
-            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+            ),
         )
 
         assert ref.to_point() == Point2d(10.0, 20.0)
 
     def test_get_reference_position_default_is_top_left(self):
         ref = ReferencePoint(
-            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+            ),
         )
 
         assert ref.get_reference_position() == Point2d(10.0, 20.0)
 
     def test_get_reference_position_top_right(self):
+        # ref = (10, 20), offset_top_left = (1, -2)
+        # board_origin = (10, 20) - (1, -2) = (9, 22)
+        # board_top_right = (9 + 100, 22) = (109, 22)
+        # ref_top_right = (109, 22) + (3, -4) = (112, 18)
         ref = ReferencePoint(
-            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(3.0, -4.0),
+                bottom_left=(5.0, 5.0),
+            ),
         )
 
-        # top_right = x + 2*offset_x + board_width = 10 + 2*1 + 100 = 112
         assert ref.get_reference_position(
             Corner.TOP_RIGHT, board_width=100.0
-        ) == Point2d(112.0, 20.0)
+        ) == Point2d(112.0, 18.0)
 
     def test_get_reference_position_top_right_requires_board_width(self):
         ref = ReferencePoint(
-            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+            ),
         )
 
         with pytest.raises(ValueError, match="board_widthが必要"):
             ref.get_reference_position(Corner.TOP_RIGHT)
 
-    def test_offset_from_board_default_is_top_left(self):
+    def test_get_reference_position_bottom_left(self):
+        # board_origin = (10, 20) - (1, -2) = (9, 22)
+        # board_bottom_left = (9, 22 + 50) = (9, 72)
+        # ref_bottom_left = (9, 72) + (5, 5) = (14, 77)
         ref = ReferencePoint(
-            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+            ),
         )
 
-        assert ref.offset_from_board() == Point2d(-1.0, -2.0)
+        assert ref.get_reference_position(
+            Corner.BOTTOM_LEFT, board_height=50.0
+        ) == Point2d(14.0, 77.0)
 
-    def test_offset_from_board_top_right(self):
+    def test_get_reference_position_bottom_left_requires_board_height(self):
         ref = ReferencePoint(
-            x=10.0, y=20.0, offset_x=1.0, offset_y=2.0, target_diameter=3.0
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+            ),
         )
 
-        assert ref.offset_from_board(Corner.TOP_RIGHT) == Point2d(1.0, -2.0)
+        with pytest.raises(ValueError, match="board_heightが必要"):
+            ref.get_reference_position(Corner.BOTTOM_LEFT)
+
+    def test_get_reference_position_bottom_right(self):
+        # board_origin = (10, 20) - (1, -2) = (9, 22)
+        # board_bottom_right = (9 + 100, 22 + 50) = (109, 72)
+        # ref_bottom_right = (109, 72) + (-5, 5) = (104, 77)
+        ref = ReferencePoint(
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+                bottom_right=(-5.0, 5.0),
+            ),
+        )
+
+        assert ref.get_reference_position(
+            Corner.BOTTOM_RIGHT, board_width=100.0, board_height=50.0
+        ) == Point2d(104.0, 77.0)
