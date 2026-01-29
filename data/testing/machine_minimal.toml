@@ -25,6 +25,9 @@ y = 50.0
 [reference_point]
 x = 20.0
 y = 10.0
-offset_x = 0
-offset_y = 0
 target_diameter = 3.0
+
+[reference_point.offsets]
+top_left = [0.0, 0.0]
+top_right = [0.0, 0.0]
+bottom_right = [0.0, 0.0]

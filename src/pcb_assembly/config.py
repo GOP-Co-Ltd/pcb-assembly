@@ -84,6 +84,65 @@ class Corner(Enum):
 
     TOP_LEFT = auto()
     TOP_RIGHT = auto()
+    BOTTOM_LEFT = auto()
+    BOTTOM_RIGHT = auto()
+
+
+@attrs.frozen
+class CornerOffsets:
+    """各コーナーにおけるボード端から基準点マーカーへのオフセット.
+
+    top_leftは必須。それ以外は少なくとも1つ指定する必要がある。
+
+    Attributes:
+        top_left: 左上コーナーのオフセット [x, y] (mm)
+        top_right: 右上コーナーのオフセット [x, y] (mm)
+        bottom_left: 左下コーナーのオフセット [x, y] (mm)
+        bottom_right: 右下コーナーのオフセット [x, y] (mm)
+    """
+
+    top_left: tuple[float, float]
+    top_right: tuple[float, float] | None = None
+    bottom_left: tuple[float, float] | None = None
+    bottom_right: tuple[float, float] | None = None
+
+    def __attrs_post_init__(self) -> None:
+        if (self.top_right, self.bottom_left, self.bottom_right).count(None) >= 2:
+            raise ValueError(
+                "top_left以外に少なくとも2つのコーナーオフセットを指定してください"
+            )
+
+    def has_corner(self, corner: Corner) -> bool:
+        """指定コーナーのオフセットが定義されているか返す."""
+        match corner:
+            case Corner.TOP_LEFT:
+                return True
+            case Corner.TOP_RIGHT:
+                return self.top_right is not None
+            case Corner.BOTTOM_LEFT:
+                return self.bottom_left is not None
+            case Corner.BOTTOM_RIGHT:
+                return self.bottom_right is not None
+
+    def get(self, corner: Corner) -> Point2d:
+        """指定コーナーのオフセットをPoint2dで返す.
+
+        Raises:
+            ValueError: 指定コーナーのオフセットが未定義の場合
+        """
+        match corner:
+            case Corner.TOP_LEFT:
+                offset = self.top_left
+            case Corner.TOP_RIGHT:
+                offset = self.top_right
+            case Corner.BOTTOM_LEFT:
+                offset = self.bottom_left
+            case Corner.BOTTOM_RIGHT:
+                offset = self.bottom_right
+
+        if offset is None:
+            raise ValueError(f"{corner.name}のオフセットは定義されていません")
+        return Point2d(x=offset[0], y=offset[1])
 
 
 @attrs.frozen
@@ -91,60 +150,70 @@ class ReferencePoint:
     """基準点の設定.
 
     x, yは左上基準点マーカーのマシン座標。
-    offset_x, offset_yは基準点マーカーからボードコーナーへのオフセット（正値）。
+    offsetsは各コーナーにおけるボード端から基準点マーカーへのオフセット。
 
     座標関係:
-        - ボード左上コーナー = (x + offset_x, y + offset_y)
-        - 右上基準点 = (x + 2*offset_x + board_width, y) （対称配置を仮定）
+        - ボード左上コーナー = to_point() - offsets.get(TOP_LEFT)
+        - 各コーナーの基準点 = ボードコーナー + offsets.get(corner)
     """
 
     x: float
     y: float
-    offset_x: float
-    offset_y: float
     target_diameter: float
+    offsets: CornerOffsets
 
     def to_point(self) -> Point2d:
-        """基準点座標をPoint2dとして返す."""
+        """左上基準点マーカーのマシン座標をPoint2dとして返す."""
         return Point2d(self.x, self.y)
 
     def get_reference_position(
-        self, corner: Corner = Corner.TOP_LEFT, *, board_width: float | None = None
+        self,
+        corner: Corner = Corner.TOP_LEFT,
+        *,
+        board_width: float | None = None,
+        board_height: float | None = None,
     ) -> Point2d:
         """指定コーナーの基準点マーカー位置を返す.
 
         Args:
             corner: コーナー種別
-            board_width: ボード幅（TOP_RIGHTの場合は必須）
+            board_width: ボード幅（TOP_RIGHT/BOTTOM_RIGHTで必須）
+            board_height: ボード高さ（BOTTOM_LEFT/BOTTOM_RIGHTで必須）
 
         Returns:
             基準点マーカーのマシン座標
 
         Raises:
-            ValueError: TOP_RIGHTでboard_widthが指定されていない場合
+            ValueError: 必要なboard_width/board_heightが指定されていない場合
         """
+        if corner == Corner.TOP_LEFT:
+            return self.to_point()
+
+        board_origin = self.to_point() - self.offsets.get(Corner.TOP_LEFT)
+
         match corner:
-            case Corner.TOP_LEFT:
-                return self.to_point()
             case Corner.TOP_RIGHT:
                 if board_width is None:
-                    raise ValueError("TOP_RIGHTを計算するときはboard_widthが必要です。")
-                return Point2d(self.x + 2 * self.offset_x + board_width, self.y)
+                    raise ValueError("TOP_RIGHTを計算するときはboard_widthが必要です")
+                board_corner = board_origin + Point2d(board_width, 0.0)
+            case Corner.BOTTOM_LEFT:
+                if board_height is None:
+                    raise ValueError(
+                        "BOTTOM_LEFTを計算するときはboard_heightが必要です"
+                    )
+                board_corner = board_origin + Point2d(0.0, board_height)
+            case Corner.BOTTOM_RIGHT:
+                if board_width is None:
+                    raise ValueError(
+                        "BOTTOM_RIGHTを計算するときはboard_widthが必要です"
+                    )
+                if board_height is None:
+                    raise ValueError(
+                        "BOTTOM_RIGHTを計算するときはboard_heightが必要です"
+                    )
+                board_corner = board_origin + Point2d(board_width, board_height)
 
-    def offset_from_board(self, corner: Corner = Corner.TOP_LEFT) -> Point2d:
-        """ボードコーナーから見た基準点マーカーへのオフセット.
-
-        Args:
-            corner: コーナー種別
-
-        Returns:
-            ボードコーナーから基準点マーカーへのオフセット
-        """
-        match corner:
-            case Corner.TOP_LEFT:
-                return Point2d(-self.offset_x, -self.offset_y)
-            case Corner.TOP_RIGHT:
-                return Point2d(self.offset_x, -self.offset_y)
+        return board_corner + self.offsets.get(corner)
 
 
 class Machine:

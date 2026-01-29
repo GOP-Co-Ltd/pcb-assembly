@@ -32,6 +32,9 @@ y = 54.7
 [reference_point]
 x = 23.1
 y = 8.3
-offset_x = 0
-offset_y = 5
 target_diameter = 3.0
+
+[reference_point.offsets]
+top_left = [0.0, -5.0]
+top_right = [0.0, -5.0]
+bottom_left = [5.0, 5.0]
