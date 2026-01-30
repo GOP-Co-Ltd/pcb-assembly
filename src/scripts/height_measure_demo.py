@@ -11,6 +11,7 @@ from pathlib import Path
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
 from pcb_assembly.control.adjust import HeightTransformMeasurer
+from pcb_assembly.geometry import Point2d
 from pcb_assembly.hal import Klipper
 from pcb_assembly.hal.probe import ProbeSensor
 from pcb_assembly.utils import setup_logging
@@ -52,10 +53,12 @@ def main() -> None:
     klipper.send_gcode(gcode.homing(x=True, y=True, z=True) + gcode.wait_for_done())
     print("ホーミング完了")
 
-    # 指定座標に移動
-    print(f"\n=== 移動: X={args.x}, Y={args.y} ===")
+    # 指定座標にToolheadオフセットを加えて移動
+    toolhead = machine.toolhead.to_transform()
+    target = toolhead.apply(Point2d(args.x, args.y))
+    print(f"\n=== 移動: X={target.x}, Y={target.y} (toolheadオフセット適用) ===")
     klipper.send_gcode(
-        gcode.move(x=args.x, y=args.y, velocity=30) + gcode.wait_for_done()
+        gcode.move(x=target.x, y=target.y, velocity=30) + gcode.wait_for_done()
     )
 
     # 高さ計測

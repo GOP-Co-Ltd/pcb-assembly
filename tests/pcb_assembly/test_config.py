@@ -14,7 +14,7 @@ from pcb_assembly.config import (
     ReferencePoint,
     Toolhead,
 )
-from pcb_assembly.geometry import Point2d
+from pcb_assembly.geometry import Point2d, Translation
 from tests.helpers import TESTING_DATA_DIR
 
 
@@ -96,6 +96,15 @@ class TestCameraCrop:
         crop = CameraCrop(width=400, height=300)
 
         assert crop.size == (400, 300)
+
+
+class TestToolhead:
+    """Toolheadクラスのテスト."""
+
+    def test_to_transform(self):
+        toolhead = Toolhead(x=13.2, y=54.7)
+
+        assert toolhead.to_transform() == Translation(x=13.2, y=54.7)
 
 
 class TestCornerOffsets:
