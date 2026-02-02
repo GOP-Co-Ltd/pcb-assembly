@@ -166,7 +166,7 @@ def main() -> None:
 
     # Moonraker UIで微調整（input()をバックグラウンドスレッドで待つ）
     print("\n=== 微調整 ===")
-    print(f"Moonraker UI: http://{klipper_config.host}:{klipper_config.port}")
+    print(f"Moonraker UI: http://{klipper_config.host}")
     print("ブラウザでToolheadの位置を微調整してください。")
     print("微調整が完了したらEnterを押してください...")
 
