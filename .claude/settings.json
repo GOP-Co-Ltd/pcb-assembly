@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(echo:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(file:*)",
+      "Bash(stat:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git remote:*)",
+      "Bash(git tag:*)",
+      "Bash(git blame:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(make:*)",
+      "Bash(pre-commit:*)",
+      "Read(//usr/include/**)",
+      "Read(//usr/**)",
+      "Bash(uv pip show:*)",
+      "Bash(uv python3:*)",
+      "Bash(make test-hardware:*)",
+      "Bash(v4l2-ctl:*)",
+      "Bash(make type:*)",
+      "Bash(make test:*)",
+      "Bash(make format:*)",
+      "Bash(find:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(tree:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}
