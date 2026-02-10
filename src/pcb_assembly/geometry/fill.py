@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import math
-
 from shapely import LineString, MultiLineString, Polygon
 from shapely.affinity import rotate
 from shapely.geometry import GeometryCollection
 from shapely.geometry.base import BaseGeometry
 
-from .transform import Point2d
+from .transform import Compose, Point2d, Rotation, Translation
 
 
 def generate_fill_path(
@@ -66,19 +64,21 @@ def generate_fill_path(
 
     # 角度対応: ジグザグ計算用に回転
     if angle != 0:
+        rot = Compose(
+            [Translation(-cx, -cy), Rotation(degrees=angle), Translation(cx, cy)]
+        )
         rotated_remaining = rotate(remaining, -angle, origin="centroid")
-        rad_neg = math.radians(-angle)
-        start_point_rotated = _rotate_point(start_point, cx, cy, rad_neg)
+        start_point_rotated = rot.inverse().apply(start_point)
     else:
+        rot = None
         rotated_remaining = remaining
         start_point_rotated = start_point
 
     zigzag_path = _generate_zigzag(rotated_remaining, line_spacing, start_point_rotated)
 
     # 角度対応: ジグザグパスを元の角度に戻す
-    if angle != 0 and zigzag_path:
-        rad = math.radians(angle)
-        zigzag_path = [_rotate_point(p, cx, cy, rad) for p in zigzag_path]
+    if rot is not None and zigzag_path:
+        zigzag_path = list(map(rot.apply, zigzag_path))
 
     return contour_path + zigzag_path
 
@@ -175,16 +175,6 @@ def _rotate_ring_to_nearest(ring: list[Point2d], target: Point2d) -> list[Point2
     rotated = points[min_idx:] + points[:min_idx]
     rotated.append(rotated[0])
     return rotated
-
-
-def _rotate_point(p: Point2d, cx: float, cy: float, rad: float) -> Point2d:
-    """点を(cx, cy)を中心にrad[ラジアン]回転する."""
-    cos_a = math.cos(rad)
-    sin_a = math.sin(rad)
-    return Point2d(
-        x=cos_a * (p.x - cx) - sin_a * (p.y - cy) + cx,
-        y=sin_a * (p.x - cx) + cos_a * (p.y - cy) + cy,
-    )
 
 
 def _generate_zigzag(
