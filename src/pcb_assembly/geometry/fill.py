@@ -151,8 +151,34 @@ def _generate_contours(
             # 前の周回の終端に近い点から開始するよう回転
             ring = _rotate_ring_to_nearest(ring, path[-1])
 
-        path.extend(ring)
+        path.extend(_truncate_ring(ring, line_spacing))
 
+    return path
+
+
+def _truncate_ring(ring: list[Point2d], gap: float) -> list[Point2d]:
+    """閉じたリングを、gap分手前で切り詰めたオープンパスを返す."""
+    points = ring[:-1]
+    if not points:
+        return []
+
+    n = len(points)
+    perimeter = sum((points[(i + 1) % n] - points[i]).norm for i in range(n))
+    target = perimeter - gap
+    if target <= 0:
+        return [points[0]]
+
+    path = [points[0]]
+    accumulated = 0.0
+    for i in range(n):
+        next_p = points[(i + 1) % n]
+        edge_len = (next_p - points[i]).norm
+        if accumulated + edge_len >= target:
+            t = (target - accumulated) / edge_len if edge_len > 0 else 0.0
+            path.append(points[i] + (next_p - points[i]) * t)
+            break
+        accumulated += edge_len
+        path.append(next_p)
     return path
 
 

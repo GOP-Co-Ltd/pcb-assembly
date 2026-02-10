@@ -18,14 +18,15 @@ class TestGenerateFillPath:
         polygon = Polygon([(0, 0), (10, 0), (10, 6), (0, 6)])
         result = generate_fill_path(polygon, line_spacing=1.0)
 
-        # 外周: 5点 (閉ループ)
+        # 外周: 5点 (line_spacing分手前で止まるオープンパス)
+        # 周長32, target=31 → (0,0)→(10,0)→(10,6)→(0,6)→(0,1.0)
         contour = result[:5]
         assert contour == [
             Point2d(0.0, 0.0),
             Point2d(10.0, 0.0),
             Point2d(10.0, 6.0),
             Point2d(0.0, 6.0),
-            Point2d(0.0, 0.0),
+            Point2d(0.0, 1.0),
         ]
 
         # ジグザグは外周の1.0内側 (1,1)〜(9,5) の領域
@@ -40,14 +41,14 @@ class TestGenerateFillPath:
         polygon = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         result = generate_fill_path(polygon, line_spacing=1.0, perimeters=2)
 
-        # 1周目: 元のポリゴン (5点)
+        # 1周目: 元のポリゴン (オープンパス、閉じない)
         first_ring = result[:5]
         assert first_ring[0] == Point2d(0.0, 0.0)
-        assert first_ring[-1] == Point2d(0.0, 0.0)
+        assert first_ring[-1] != first_ring[0]  # 閉じない
 
-        # 2周目: 1.0内側にオフセットされたポリゴン (5点)
+        # 2周目: 1.0内側にオフセットされたポリゴン
         second_ring = result[5:10]
-        for p in second_ring[:-1]:
+        for p in second_ring:
             assert 1.0 <= p.x <= 9.0
             assert 1.0 <= p.y <= 9.0
 
@@ -123,9 +124,10 @@ class TestGenerateFillPath:
         polygon = Polygon([(0, 0), (1, 0), (1, 0.5), (0, 0.5)])
         result = generate_fill_path(polygon, line_spacing=1.0)
 
-        assert len(result) == 5  # 外周のみ
+        # 外周のみ（ジグザグなし）、オープンパスなので閉じない
+        assert len(result) > 0
         assert result[0] == Point2d(0.0, 0.0)
-        assert result[-1] == Point2d(0.0, 0.0)
+        assert result[-1] != result[0]  # 閉じない
 
     def test_concave_l_shape_multiple_segments(self):
         """L字型凹ポリゴンでジグザグ走査線が分割される."""

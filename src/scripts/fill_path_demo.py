@@ -7,7 +7,6 @@
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 from matplotlib.axes import Axes
 from shapely import Polygon
 
@@ -35,58 +34,29 @@ def _plot_fill_path(
 
     xs = [p.x for p in path]
     ys = [p.y for p in path]
+    ax.plot(xs, ys, color="blue", linewidth=1.0)
 
-    # 周回パスとジグザグパスを分離（閉ループの終端で区切る）
-    contour_end = 0
-    i = 0
-    while i < len(path):
-        # 閉ループの終端を探す
-        start = i
-        for j in range(i + 1, len(path)):
-            if path[j].x == path[start].x and path[j].y == path[start].y:
-                contour_end = j + 1
-                i = j + 1
-                break
-        else:
-            break
-
-    # 周回パス（青線）
-    if contour_end > 0:
-        ax.plot(
-            xs[:contour_end],
-            ys[:contour_end],
-            color="blue",
-            linewidth=1.5,
-            label="contour",
-        )
-
-    # ジグザグパス（赤線 + 矢印）
-    if contour_end < len(path):
-        zx = xs[contour_end:]
-        zy = ys[contour_end:]
-        ax.plot(zx, zy, color="red", linewidth=1.0, label="zigzag")
-
-        # 走査線ごとに矢印を追加（2点ずつペア）
-        for j in range(0, len(zx) - 1, 2):
-            mid_x = (zx[j] + zx[j + 1]) / 2
-            mid_y = (zy[j] + zy[j + 1]) / 2
-            dx = zx[j + 1] - zx[j]
-            dy = zy[j + 1] - zy[j]
-            length = np.sqrt(dx**2 + dy**2)
-            if length > 0:
-                ax.annotate(
-                    "",
-                    xy=(mid_x + dx / length * 0.2, mid_y + dy / length * 0.2),
-                    xytext=(
-                        mid_x - dx / length * 0.2,
-                        mid_y - dy / length * 0.2,
-                    ),
-                    arrowprops={"arrowstyle": "->", "color": "red", "lw": 1.0},
-                )
+    # 一定間隔で矢印を追加
+    step = max(1, len(xs) // 15)
+    for j in range(0, len(xs) - 1, step):
+        dx = xs[j + 1] - xs[j]
+        dy = ys[j + 1] - ys[j]
+        length = (dx**2 + dy**2) ** 0.5
+        if length > 0:
+            mid_x = (xs[j] + xs[j + 1]) / 2
+            mid_y = (ys[j] + ys[j + 1]) / 2
+            ax.annotate(
+                "",
+                xy=(mid_x + dx / length * 0.2, mid_y + dy / length * 0.2),
+                xytext=(
+                    mid_x - dx / length * 0.2,
+                    mid_y - dy / length * 0.2,
+                ),
+                arrowprops={"arrowstyle": "->", "color": "blue", "lw": 1.0},
+            )
 
     ax.set_title(title)
     ax.set_aspect("equal")
-    ax.legend(fontsize=7, loc="upper right")
     ax.grid(True, alpha=0.3)
 
 
