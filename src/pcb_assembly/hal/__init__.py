@@ -1,5 +1,6 @@
 from .camera import Camera, CameraInfo, Resolution, get_camera_info
 from .klipper import GCodeMacro, Klipper, ReadonlyKlipper
+from .paste_dispenser import PasteDispenser
 from .probe import ProbeResult, ProbeSensor
 from .stage import Limits, ScalarLimits, XYZStage
 
@@ -20,4 +21,6 @@ __all__ = [
     "ScalarLimits",
     "Limits",
     "XYZStage",
+    # dispenser
+    "PasteDispenser",
 ]
