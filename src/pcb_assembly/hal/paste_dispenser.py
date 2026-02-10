@@ -1,6 +1,24 @@
 import math
 
+import attrs
+
 from .klipper import GCode, ReadonlyKlipper
+
+
+@attrs.frozen
+class NozzleSpec:
+    """ディスペンサーノズルの仕様.
+
+    Attributes:
+        inner_diameter: 内径 [mm]
+    """
+
+    inner_diameter: float
+
+
+NOZZLE_SPECS: dict[str, NozzleSpec] = {
+    "27G": NozzleSpec(inner_diameter=0.19),
+}
 
 
 class PasteDispenser:

@@ -10,7 +10,7 @@ rotation_distance = 40.0  # mm/回転
 
 [paste_dispenser]
 syringe_size = 9.0 # シリンジの直径 [mm]
-nozzle_size = "G27" # ノズルのゲージ
+nozzle_size = "27G" # ノズルのゲージ
 
 [camera]
 device_id = 0
