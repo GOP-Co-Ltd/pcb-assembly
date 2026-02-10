@@ -1,3 +1,4 @@
+from .fill import generate_fill_path, generate_fill_path_for_nozzle
 from .trajectory import Move, Trajectory, Waypoint, sort_by_nearest
 from .transform import (
     Compose,
@@ -14,6 +15,8 @@ from .transform import (
 __all__ = [
     "Compose",
     "Identity",
+    "generate_fill_path",
+    "generate_fill_path_for_nozzle",
     "Matrix2d",
     "Move",
     "Point2d",
