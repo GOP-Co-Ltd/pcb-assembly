@@ -68,3 +68,10 @@ class TestPasteDispenser:
             lines[1]
             == f"MANUAL_STEPPER STEPPER=paste_dispenser MOVE={expected_move} SPEED=1.0 ACCEL=2.0"
         )
+
+    def test_pushpull_sync_false(self, dispenser: PasteDispenser):
+        syringe_area = math.pi * (10.0 / 2) ** 2
+        gcode = dispenser.pushpull(syringe_area, syringe_area, syringe_area, sync=False)
+
+        lines = gcode.to_list()
+        assert lines[1].endswith("SYNC=0")

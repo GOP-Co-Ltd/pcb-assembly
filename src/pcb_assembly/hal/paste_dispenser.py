@@ -68,13 +68,16 @@ class PasteDispenser:
         """マイクロリットル単位をミリメートル距離に変換."""
         return microl / self._syringe_area
 
-    def pushpull(self, amount: float, rate: float, accel: float) -> GCode:
+    def pushpull(
+        self, amount: float, rate: float, accel: float, *, sync: bool = True
+    ) -> GCode:
         """シリンジを押し出すGCodeを生成.
 
         Args:
             amount: 押し出し量 [μL]（正: 吐出、負: リトラクション）
             rate: 速度 [μL/sec]
             accel: 加速度 [μL/sec²]
+            sync: Trueの場合、動作完了まで待機する（デフォルト: True）
 
         Returns:
             押し出し用のGCode
@@ -82,8 +85,9 @@ class PasteDispenser:
         distance_mm = self._microl_to_mm(amount)
         speed_mm = self._microl_to_mm(rate)
         accel_mm = self._microl_to_mm(accel)
+        cmd = f"{self._cmd_prefix} MOVE={distance_mm} SPEED={speed_mm} ACCEL={accel_mm}"
+        if not sync:
+            cmd += " SYNC=0"
         gcode = self._reset_pos.copy()
-        gcode.append(
-            f"{self._cmd_prefix} MOVE={distance_mm} SPEED={speed_mm} ACCEL={accel_mm}"
-        )
+        gcode.append(cmd)
         return gcode
