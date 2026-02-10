@@ -48,7 +48,9 @@ class TestPasteDispenser:
             (-1, "-1.0"),  # 負: リトラクション
         ],
     )
-    def test_push(self, mock_klipper: Klipper, amount_factor: int, expected_move: str):
+    def test_pushpull(
+        self, mock_klipper: Klipper, amount_factor: int, expected_move: str
+    ):
         syringe_diameter = 10.0  # mm
         dispenser = PasteDispenser(mock_klipper.readonly, syringe_size=syringe_diameter)
         syringe_area = math.pi * (syringe_diameter / 2) ** 2
@@ -57,7 +59,7 @@ class TestPasteDispenser:
         rate = syringe_area  # μL/sec → 1mm/sec
         accel = syringe_area * 2  # μL/sec² → 2mm/sec²
 
-        gcode = dispenser.push(amount, rate, accel)
+        gcode = dispenser.pushpull(amount, rate, accel)
 
         assert isinstance(gcode, GCode)
         lines = gcode.to_list()

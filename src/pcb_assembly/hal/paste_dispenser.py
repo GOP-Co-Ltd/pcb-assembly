@@ -50,7 +50,7 @@ class PasteDispenser:
         """マイクロリットル単位をミリメートル距離に変換."""
         return microl / self._syringe_area
 
-    def push(self, amount: float, rate: float, accel: float) -> GCode:
+    def pushpull(self, amount: float, rate: float, accel: float) -> GCode:
         """シリンジを押し出すGCodeを生成.
 
         Args:
