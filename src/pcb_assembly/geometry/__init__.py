@@ -8,8 +8,8 @@ from .transform import (
     Point3d,
     Rotation,
     Scale,
+    Shift,
     Transform,
-    Translation,
 )
 
 __all__ = [
@@ -25,7 +25,7 @@ __all__ = [
     "Scale",
     "Trajectory",
     "Transform",
-    "Translation",
+    "Shift",
     "Waypoint",
     "sort_by_nearest",
 ]

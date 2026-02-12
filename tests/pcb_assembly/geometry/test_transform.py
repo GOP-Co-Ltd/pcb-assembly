@@ -11,7 +11,7 @@ from pcb_assembly.geometry.transform import (
     Point3d,
     Rotation,
     Scale,
-    Translation,
+    Shift,
 )
 
 
@@ -386,18 +386,18 @@ class TestRotation:
         assert result.degrees == pytest.approx(expected_degrees)
 
 
-class TestTranslation:
-    """Translationクラスのテスト."""
+class TestShift:
+    """Shiftクラスのテスト."""
 
     def test_default_values(self):
-        translation = Translation()
+        translation = Shift()
 
         assert translation.x == 0.0
         assert translation.y == 0.0
         assert translation.z == 0.0
 
     def test_apply_point3d(self):
-        translation = Translation(10.0, 20.0, 30.0)
+        translation = Shift(10.0, 20.0, 30.0)
         point = Point3d(1.0, 2.0, 3.0)
 
         result = translation.apply(point)
@@ -405,7 +405,7 @@ class TestTranslation:
         assert result == Point3d(11.0, 22.0, 33.0)
 
     def test_apply_point2d(self):
-        translation = Translation(10.0, 20.0, 30.0)
+        translation = Shift(10.0, 20.0, 30.0)
         point = Point2d(1.0, 2.0)
 
         result = translation.apply(point)
@@ -414,25 +414,25 @@ class TestTranslation:
         assert result == Point2d(11.0, 22.0)
 
     def test_inverse(self):
-        translation = Translation(10.0, 20.0, 30.0)
+        translation = Shift(10.0, 20.0, 30.0)
 
         result = translation.inverse()
 
-        assert result == Translation(-10.0, -20.0, -30.0)
+        assert result == Shift(-10.0, -20.0, -30.0)
 
     def test_from_point_point3d(self):
         point = Point3d(10.0, 20.0, 30.0)
 
-        result = Translation.from_point(point)
+        result = Shift.from_point(point)
 
-        assert result == Translation(10.0, 20.0, 30.0)
+        assert result == Shift(10.0, 20.0, 30.0)
 
     def test_from_point_point2d(self):
         point = Point2d(10.0, 20.0)
 
-        result = Translation.from_point(point)
+        result = Shift.from_point(point)
 
-        assert result == Translation(10.0, 20.0, 0.0)
+        assert result == Shift(10.0, 20.0, 0.0)
 
 
 class TestCompose:
@@ -455,12 +455,12 @@ class TestCompose:
         assert result == Point3d(2.0, 6.0, 12.0)
 
     def test_apply_multiple_transforms_in_order(self):
-        # Scale(2,2,1) → Rotation(90°) → Translation(10,0,0)
+        # Scale(2,2,1) → Rotation(90°) → Shift(10,0,0)
         compose = Compose(
             [
                 Scale(2.0, 2.0, 1.0),
                 Rotation(90.0),
-                Translation(10.0, 0.0, 0.0),
+                Shift(10.0, 0.0, 0.0),
             ]
         )
         point = Point3d(1.0, 0.0, 0.0)
@@ -477,7 +477,7 @@ class TestCompose:
             [
                 Scale(2.0, 2.0, 1.0),
                 Rotation(90.0),
-                Translation(10.0, 0.0, 0.0),
+                Shift(10.0, 0.0, 0.0),
             ]
         )
         point = Point2d(1.0, 0.0)
@@ -493,7 +493,7 @@ class TestCompose:
             [
                 Scale(2.0, 2.0, 1.0),
                 Rotation(90.0),
-                Translation(10.0, 5.0, 0.0),
+                Shift(10.0, 5.0, 0.0),
             ]
         )
         point = Point3d(1.0, 2.0, 3.0)
@@ -509,15 +509,15 @@ class TestCompose:
         compose = Compose(
             [
                 Scale(2.0, 1.0, 1.0),
-                Translation(10.0, 0.0, 0.0),
+                Shift(10.0, 0.0, 0.0),
             ]
         )
 
         inverse = compose.inverse()
 
-        # inverse should be: Translation(-10, 0, 0) → Scale(0.5, 1, 1)
+        # inverse should be: Shift(-10, 0, 0) → Scale(0.5, 1, 1)
         assert len(inverse) == 2
-        assert isinstance(inverse[0], Translation)
+        assert isinstance(inverse[0], Shift)
         assert isinstance(inverse[1], Scale)
-        assert inverse[0] == Translation(-10.0, 0.0, 0.0)
+        assert inverse[0] == Shift(-10.0, 0.0, 0.0)
         assert inverse[1] == Scale(0.5, 1.0, 1.0)

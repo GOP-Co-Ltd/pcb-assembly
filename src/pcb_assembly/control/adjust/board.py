@@ -12,7 +12,7 @@ from pcb_assembly.geometry import (
     Matrix2d,
     Move,
     Point2d,
-    Translation,
+    Shift,
 )
 from pcb_assembly.hal import Klipper, XYZStage
 from pcb_assembly.pcb import Outline
@@ -93,7 +93,7 @@ class BoardTransformMeasurer:
         TOP_LEFTと他2コーナーの実測位置から2x2変換行列を求める。
 
         Returns:
-            Board座標→機械座標のCompose変換 (Matrix2d → Translation)
+            Board座標→機械座標のCompose変換 (Matrix2d → Shift)
         """
         self._logger.info("Board変換の計測を開始")
 
@@ -149,8 +149,8 @@ class BoardTransformMeasurer:
             f"Board左上コーナーの機械座標: ({board_origin.x:.4f}, {board_origin.y:.4f})"
         )
 
-        # 変換を構成（Matrix2d → Translation）
-        transform = Compose([matrix, Translation.from_point(board_origin)])
+        # 変換を構成（Matrix2d → Shift）
+        transform = Compose([matrix, Shift.from_point(board_origin)])
 
         # Board左上コーナーへ移動
         self._logger.info("=== Board左上コーナーへ移動 ===")

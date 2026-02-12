@@ -3,7 +3,7 @@
 import logging
 
 from pcb_assembly import gcode
-from pcb_assembly.geometry import Transform, Translation
+from pcb_assembly.geometry import Shift, Transform
 from pcb_assembly.hal import Klipper
 from pcb_assembly.hal.probe import ProbeSensor
 from pcb_assembly.utils import get_class_module_path
@@ -65,4 +65,4 @@ class HeightTransformMeasurer:
         result = self._probe.result()
         self._logger.info(f"計測完了: min={result.min:.4f}mm, max={result.max:.4f}mm")
 
-        return Translation(z=result.min)
+        return Shift(z=result.min)

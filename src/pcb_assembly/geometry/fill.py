@@ -7,7 +7,7 @@ from shapely.affinity import rotate
 from shapely.geometry import GeometryCollection
 from shapely.geometry.base import BaseGeometry
 
-from .transform import Compose, Point2d, Rotation, Translation
+from .transform import Compose, Point2d, Rotation, Shift
 
 
 def generate_fill_path(
@@ -64,9 +64,7 @@ def generate_fill_path(
 
     # 角度対応: ジグザグ計算用に回転
     if angle != 0:
-        rot = Compose(
-            [Translation(-cx, -cy), Rotation(degrees=angle), Translation(cx, cy)]
-        )
+        rot = Compose([Shift(-cx, -cy), Rotation(degrees=angle), Shift(cx, cy)])
         rotated_remaining = rotate(remaining, -angle, origin="centroid")
         start_point_rotated = rot.inverse().apply(start_point)
     else:
