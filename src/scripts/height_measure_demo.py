@@ -12,8 +12,7 @@ from pcb_assembly import gcode
 from pcb_assembly.config import Machine
 from pcb_assembly.control.adjust import HeightTransformMeasurer
 from pcb_assembly.geometry import Point2d
-from pcb_assembly.hal import Klipper, XYZStage
-from pcb_assembly.hal.probe import ProbeSensor
+from pcb_assembly.hal import Klipper, ProbeSensor, XYZStage
 from pcb_assembly.utils import setup_logging
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
