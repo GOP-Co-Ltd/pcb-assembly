@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 
 from pcb_assembly import gcode
-from pcb_assembly.geometry import Move, Point2d, Trajectory
+from pcb_assembly.geometry import Move, Point2d
 from pcb_assembly.hal import Klipper, XYZStage
 from pcb_assembly.utils import get_class_module_path
 
@@ -91,13 +91,7 @@ class XYPositionAdjustor:
 
             self._move_to(
                 klipper,
-                stage.to_gcode(
-                    Trajectory(
-                        [Move.from_point(target)],
-                        origin=pos,
-                        initial_velocity=move_velocity,
-                    )
-                ),
+                stage.to_gcode(Move.from_point(target, v=move_velocity)),
             )
 
         raise RuntimeError(
