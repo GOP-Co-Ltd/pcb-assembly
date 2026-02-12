@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 
 from pcb_assembly import gcode
-from pcb_assembly.geometry import Move, Point2d, Rotation, Trajectory, Transform
+from pcb_assembly.geometry import Move, Point2d, Rotation, Transform
 from pcb_assembly.hal import Klipper, XYZStage
 from pcb_assembly.utils import get_class_module_path
 
@@ -80,12 +80,8 @@ class OffsetTransformMeasurer:
         move_velocity = stage.max_velocity * self._move_velocity_ratio
         self._move_to(
             klipper,
-            stage.move(
-                Trajectory(
-                    stage.get_position(),
-                    move_velocity,
-                    [Move.from_point(move_vector, relative=True)],
-                )
+            stage.to_gcode(
+                Move.from_point(move_vector, v=move_velocity, relative=True)
             ),
         )
 
@@ -97,13 +93,7 @@ class OffsetTransformMeasurer:
         self._logger.info("元の位置に戻る")
         self._move_to(
             klipper,
-            stage.move(
-                Trajectory(
-                    stage.get_position(),
-                    move_velocity,
-                    [Move.from_point(start_pos)],
-                )
-            ),
+            stage.to_gcode(Move.from_point(start_pos, v=move_velocity)),
         )
 
         # 5. 回転角を計算

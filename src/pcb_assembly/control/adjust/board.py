@@ -12,7 +12,6 @@ from pcb_assembly.geometry import (
     Matrix2d,
     Move,
     Point2d,
-    Trajectory,
     Translation,
 )
 from pcb_assembly.hal import Klipper, XYZStage
@@ -174,13 +173,7 @@ class BoardTransformMeasurer:
         self._logger.info("=== Board左上コーナーへ移動 ===")
         self._move_to(
             klipper,
-            stage.move(
-                Trajectory(
-                    stage.get_position(),
-                    move_velocity,
-                    [Move.from_point(board_origin)],
-                )
-            ),
+            stage.to_gcode(Move.from_point(board_origin, v=move_velocity)),
         )
 
         self._logger.info("Board変換の計測完了")
@@ -209,13 +202,7 @@ class BoardTransformMeasurer:
         self._logger.info(f"目標位置: ({ref_pos.x:.3f}, {ref_pos.y:.3f})")
         self._move_to(
             klipper,
-            stage.move(
-                Trajectory(
-                    stage.get_position(),
-                    move_velocity,
-                    [Move.from_point(ref_pos)],
-                )
-            ),
+            stage.to_gcode(Move.from_point(ref_pos, v=move_velocity)),
         )
 
         self._logger.info(f"=== {corner.name} Reference Pointの位置補正 ===")

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from functools import cached_property
 
 import attrs
 
 from pcb_assembly import gcode
-from pcb_assembly.geometry import Point3d, Trajectory, Waypoint
+from pcb_assembly.geometry import Move, Point3d, Trajectory, Waypoint
 
 from .klipper import ReadonlyKlipper
 
@@ -139,11 +140,11 @@ class XYZStage:
         invalid = [wp for wp in trajectory.waypoints if wp not in limits]
         return ValidationResult(invalid)
 
-    def move(self, trajectory: Trajectory) -> gcode.GCode:
-        """TrajectoryをG-codeに変換する.
+    def to_gcode(self, trajectory: Trajectory | Move | Iterable[Move]) -> gcode.GCode:
+        """移動指示をG-codeに変換する.
 
         Args:
-            trajectory: 変換するTrajectory
+            trajectory: Trajectory, Move, またはMoveのイテラブル
 
         Returns:
             移動のGCode
@@ -151,6 +152,13 @@ class XYZStage:
         Raises:
             ValueError: 制限外の経由点がある場合
         """
+        if not isinstance(trajectory, Trajectory):
+            trajectory = Trajectory(
+                trajectory,
+                origin=self.get_position(),
+                initial_velocity=self.max_velocity,
+            )
+
         result = self.validate(trajectory)
         if not result.is_valid:
             raise ValueError(f"制限外の経由点があります: {result.invalid_points}")
