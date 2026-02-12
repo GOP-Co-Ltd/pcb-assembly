@@ -130,7 +130,7 @@ class TestTrajectory:
 
     def test_init(self):
         origin = Point3d(0.0, 0.0, 0.0)
-        traj = Trajectory(origin, default_velocity=10.0)
+        traj = Trajectory(origin=origin, initial_velocity=10.0)
 
         assert traj.position == origin
         assert traj.velocity == 10.0
@@ -140,13 +140,44 @@ class TestTrajectory:
         origin = Point3d(0.0, 0.0, 0.0)
         moves = [Move(x=1.0, y=2.0, z=3.0), Move(x=4.0, y=5.0, z=6.0)]
 
-        traj = Trajectory(origin, default_velocity=10.0, moves=moves)
+        traj = Trajectory(moves, origin=origin, initial_velocity=10.0)
 
         assert len(traj.waypoints) == 2
         assert traj.position == Point3d(4.0, 5.0, 6.0)
 
+    def test_init_with_single_move(self):
+        traj = Trajectory(
+            Move(x=5.0, y=5.0, z=0.0),
+            origin=Point3d(0.0, 0.0, 0.0),
+            initial_velocity=10.0,
+        )
+
+        assert len(traj.waypoints) == 1
+        assert traj.position == Point3d(5.0, 5.0, 0.0)
+
+    def test_init_without_initial_velocity(self):
+        traj = Trajectory(
+            Move(x=5.0, y=5.0, z=0.0, v=20.0),
+            origin=Point3d(0.0, 0.0, 0.0),
+        )
+
+        assert traj.velocity == 20.0
+
+    def test_velocity_raises_when_none(self):
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0))
+
+        with pytest.raises(ValueError, match="velocity"):
+            _ = traj.velocity
+
+    def test_add_sets_velocity_from_first_move(self):
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0))
+
+        traj.add(Move(x=1.0, v=15.0))
+
+        assert traj.velocity == 15.0
+
     def test_add_absolute_move(self):
-        traj = Trajectory(Point3d(0.0, 0.0, 0.0), default_velocity=10.0)
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0), initial_velocity=10.0)
 
         traj.add(Move(x=5.0, y=5.0, z=0.0))
 
@@ -155,21 +186,21 @@ class TestTrajectory:
         assert traj.position == Point3d(5.0, 5.0, 0.0)
 
     def test_add_relative_move(self):
-        traj = Trajectory(Point3d(10.0, 10.0, 0.0), default_velocity=10.0)
+        traj = Trajectory(origin=Point3d(10.0, 10.0, 0.0), initial_velocity=10.0)
 
         traj.add(Move(x=5.0, y=-3.0, relative=True))
 
         assert traj.waypoints[0] == Waypoint(x=15.0, y=7.0, z=0.0, v=10.0)
 
     def test_add_partial_absolute_move(self):
-        traj = Trajectory(Point3d(10.0, 20.0, 30.0), default_velocity=10.0)
+        traj = Trajectory(origin=Point3d(10.0, 20.0, 30.0), initial_velocity=10.0)
 
         traj.add(Move(x=5.0))  # y, zはNone → 現在位置を維持
 
         assert traj.waypoints[0] == Waypoint(x=5.0, y=20.0, z=30.0, v=10.0)
 
     def test_add_velocity_only(self):
-        traj = Trajectory(Point3d(10.0, 20.0, 30.0), default_velocity=10.0)
+        traj = Trajectory(origin=Point3d(10.0, 20.0, 30.0), initial_velocity=10.0)
 
         traj.add(Move(v=50.0))
 
@@ -177,7 +208,7 @@ class TestTrajectory:
         assert traj.velocity == 50.0
 
     def test_add_with_velocity(self):
-        traj = Trajectory(Point3d(0.0, 0.0, 0.0), default_velocity=10.0)
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0), initial_velocity=10.0)
 
         traj.add(Move(x=5.0, v=20.0))
 
@@ -185,14 +216,14 @@ class TestTrajectory:
         assert traj.velocity == 20.0
 
     def test_add_empty_move_ignored(self):
-        traj = Trajectory(Point3d(0.0, 0.0, 0.0), default_velocity=10.0)
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0), initial_velocity=10.0)
 
         traj.add(Move())
 
         assert traj.waypoints == []
 
     def test_add_multiple_moves(self):
-        traj = Trajectory(Point3d(0.0, 0.0, 0.0), default_velocity=10.0)
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0), initial_velocity=10.0)
 
         traj.add(Move(x=1.0), Move(x=2.0), Move(x=3.0))
 
@@ -200,7 +231,7 @@ class TestTrajectory:
         assert traj.position == Point3d(3.0, 0.0, 0.0)
 
     def test_add_iterable(self):
-        traj = Trajectory(Point3d(0.0, 0.0, 0.0), default_velocity=10.0)
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0), initial_velocity=10.0)
         moves = [Move(x=1.0), Move(x=2.0)]
 
         traj.add(move=moves)
@@ -211,8 +242,11 @@ class TestTrajectory:
         ("moves", "expected_distance"),
         [
             ([], 0.0),
+            # origin=(0,0,0) → waypoint=(0,0,0): distance=0
             ([Move(x=0.0, y=0.0, z=0.0)], 0.0),
+            # origin=(0,0,0) → (0,0,0) → (3,4,0): 0+5=5
             ([Move(x=0.0, y=0.0, z=0.0), Move(x=3.0, y=4.0, z=0.0)], 5.0),
+            # origin=(0,0,0) → (0,0,0) → (3,4,0) → (3,4,5): 0+5+5=10
             (
                 [
                     Move(x=0.0, y=0.0, z=0.0),
@@ -224,10 +258,17 @@ class TestTrajectory:
         ],
     )
     def test_distance(self, moves, expected_distance):
-        traj = Trajectory(Point3d(0.0, 0.0, 0.0), default_velocity=10.0)
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0), initial_velocity=10.0)
         traj.add(*moves)
 
         assert traj.distance() == expected_distance
+
+    def test_distance_includes_origin_to_first_waypoint(self):
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0), initial_velocity=10.0)
+        traj.add(Move(x=3.0, y=4.0, z=0.0))
+
+        # origin(0,0,0) → (3,4,0) = 5.0
+        assert traj.distance() == 5.0
 
     @pytest.mark.parametrize(
         ("moves", "expected_time"),
@@ -247,7 +288,14 @@ class TestTrajectory:
         ],
     )
     def test_time(self, moves, expected_time):
-        traj = Trajectory(Point3d(0.0, 0.0, 0.0), default_velocity=10.0)
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0), initial_velocity=10.0)
         traj.add(*moves)
 
         assert traj.time() == expected_time
+
+    def test_time_includes_origin_to_first_waypoint(self):
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0), initial_velocity=10.0)
+        traj.add(Move(x=10.0, y=0.0, z=0.0))
+
+        # origin(0,0,0) → (10,0,0), distance=10, velocity=10, time=1.0
+        assert traj.time() == 1.0
