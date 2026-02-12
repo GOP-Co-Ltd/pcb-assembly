@@ -151,7 +151,7 @@ class TestXYZStage:
             Move(x=60.0),
         )
 
-        result = mock_stage.move(trajectory)
+        result = mock_stage.to_gcode(trajectory)
 
         commands = result.to_list()
         assert len(commands) == 2
@@ -165,7 +165,7 @@ class TestXYZStage:
         trajectory.add(Move(x=150.0))  # x範囲外
 
         with pytest.raises(ValueError, match="制限外の経由点"):
-            mock_stage.move(trajectory)
+            mock_stage.to_gcode(trajectory)
 
 
 class TestScalarLimits:

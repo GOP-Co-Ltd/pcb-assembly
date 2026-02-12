@@ -80,7 +80,7 @@ class OffsetTransformMeasurer:
         move_velocity = stage.max_velocity * self._move_velocity_ratio
         self._move_to(
             klipper,
-            stage.move(
+            stage.to_gcode(
                 Trajectory(
                     [Move.from_point(move_vector, relative=True)],
                     origin=stage.get_position(),
@@ -97,7 +97,7 @@ class OffsetTransformMeasurer:
         self._logger.info("元の位置に戻る")
         self._move_to(
             klipper,
-            stage.move(
+            stage.to_gcode(
                 Trajectory(
                     [Move.from_point(start_pos)],
                     origin=stage.get_position(),

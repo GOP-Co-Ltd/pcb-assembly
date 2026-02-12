@@ -91,7 +91,7 @@ class XYPositionAdjustor:
 
             self._move_to(
                 klipper,
-                stage.move(
+                stage.to_gcode(
                     Trajectory(
                         [Move.from_point(target)],
                         origin=pos,

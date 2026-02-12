@@ -174,7 +174,7 @@ class BoardTransformMeasurer:
         self._logger.info("=== Board左上コーナーへ移動 ===")
         self._move_to(
             klipper,
-            stage.move(
+            stage.to_gcode(
                 Trajectory(
                     [Move.from_point(board_origin)],
                     origin=stage.get_position(),
@@ -209,7 +209,7 @@ class BoardTransformMeasurer:
         self._logger.info(f"目標位置: ({ref_pos.x:.3f}, {ref_pos.y:.3f})")
         self._move_to(
             klipper,
-            stage.move(
+            stage.to_gcode(
                 Trajectory(
                     [Move.from_point(ref_pos)],
                     origin=stage.get_position(),
