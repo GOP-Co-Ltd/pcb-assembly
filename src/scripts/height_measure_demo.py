@@ -45,8 +45,7 @@ def main() -> None:
         inverse=probe_config.inverse,
     )
 
-    measurer = HeightTransformMeasurer()
-    measurer.validate_klipper(klipper)
+    measurer = HeightTransformMeasurer(probe=probe, klipper=klipper)
 
     # ホーミング
     print("=== ホーミング ===")
@@ -63,7 +62,7 @@ def main() -> None:
 
     # 高さ計測
     print("\n=== 高さ計測 ===")
-    transform = measurer.measure(probe, klipper)
+    transform = measurer.measure()
     print(f"計測結果: {transform}")
 
     klipper.send_gcode(gcode.relax())

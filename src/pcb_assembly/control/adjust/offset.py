@@ -19,13 +19,21 @@ class OffsetTransformMeasurer:
         from pcb_assembly.vision import safe_move_distance
 
         move_distance = safe_move_distance(roi_size_mm)
-        measurer = OffsetTransformMeasurer(move_distance)
-        transform = measurer.measure(observe_offset, klipper, stage)
+        measurer = OffsetTransformMeasurer(
+            observe_offset=observe_offset,
+            klipper=klipper,
+            stage=stage,
+            move_distance=move_distance,
+        )
+        transform = measurer.measure()
         corrected_offset = transform.apply(offset)
     """
 
     def __init__(
         self,
+        observe_offset: Callable[[], Point2d],
+        klipper: Klipper,
+        stage: XYZStage,
         move_distance: float,
         move_velocity_ratio: float = 0.5,
         settle_time: float = 0.5,
@@ -33,22 +41,23 @@ class OffsetTransformMeasurer:
         """OffsetTransformMeasurerを初期化する.
 
         Args:
+            observe_offset: オフセットを検出して返す関数
+            klipper: Klipperクライアント
+            stage: XYZステージ
             move_distance: X方向への移動距離（mm）
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
             settle_time: 移動後の安定待機時間（秒）
         """
+        self._observe_offset = observe_offset
+        self._klipper = klipper
+        self._stage = stage
         self._move_distance = move_distance
         self._move_velocity_ratio = move_velocity_ratio
         self._settle_time = settle_time
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
-    def measure(
-        self,
-        observe_offset: Callable[[], Point2d],
-        klipper: Klipper,
-        stage: XYZStage,
-    ) -> Transform:
+    def measure(self) -> Transform:
         """2点法で回転変換を計測する.
 
         処理手順:
@@ -58,42 +67,35 @@ class OffsetTransformMeasurer:
         4. 元の位置に戻る
         5. 移動ベクトルと (o1 - o2) の角度差から回転を計算
 
-        Args:
-            observe_offset: オフセットを検出して返す関数
-            klipper: Klipperクライアント
-            stage: XYZステージ
-
         Returns:
             観測座標系から機械座標系への回転変換
         """
         self._logger.info("オフセット補正の計測を開始")
 
         # 1. 現在位置で検出
-        o1 = observe_offset()
-        start_pos = stage.get_position()
+        o1 = self._observe_offset()
+        start_pos = self._stage.get_position()
         self._logger.info(
             f"初期位置: {start_pos}, オフセット o1: ({o1.x:.4f}, {o1.y:.4f}) mm"
         )
 
         # 2. X方向に移動
         move_vector = Point2d(x=self._move_distance, y=0.0)
-        move_velocity = stage.max_velocity * self._move_velocity_ratio
+        move_velocity = self._stage.max_velocity * self._move_velocity_ratio
         self._move_to(
-            klipper,
-            stage.to_gcode(
+            self._stage.to_gcode(
                 Move.from_point(move_vector, v=move_velocity, relative=True)
             ),
         )
 
         # 3. 移動後に検出
-        o2 = observe_offset()
+        o2 = self._observe_offset()
         self._logger.info(f"オフセット o2: ({o2.x:.4f}, {o2.y:.4f}) mm")
 
         # 4. 元の位置に戻る
         self._logger.info("元の位置に戻る")
         self._move_to(
-            klipper,
-            stage.to_gcode(Move.from_point(start_pos, v=move_velocity)),
+            self._stage.to_gcode(Move.from_point(start_pos, v=move_velocity)),
         )
 
         # 5. 回転角を計算
@@ -103,12 +105,8 @@ class OffsetTransformMeasurer:
 
         return rotation
 
-    def _move_to(
-        self,
-        klipper: Klipper,
-        move_gcode: gcode.GCode,
-    ) -> None:
+    def _move_to(self, move_gcode: gcode.GCode) -> None:
         """指定座標に移動し、安定を待つ."""
-        klipper.send_gcode(
+        self._klipper.send_gcode(
             move_gcode + gcode.wait(self._settle_time) + gcode.wait_for_done()
         )

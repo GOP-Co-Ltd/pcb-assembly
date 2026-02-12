@@ -131,16 +131,26 @@ def main() -> None:
     move_distance = (
         safe_move_distance(cam_config.crop.size, margin=0.3) / calibration.pixel_per_mm
     )
-    offset_transform_measurer = OffsetTransformMeasurer(move_distance=move_distance)
-    offset_transform = offset_transform_measurer.measure(observe_offset, klipper, stage)
+    offset_transform_measurer = OffsetTransformMeasurer(
+        observe_offset=observe_offset,
+        klipper=klipper,
+        stage=stage,
+        move_distance=move_distance,
+    )
+    offset_transform = offset_transform_measurer.measure()
 
     def corrected_offset() -> Point2d:
         return offset_transform.apply(observe_offset())
 
     # 自動位置合わせ
     print("\n=== 基準点への自動位置合わせ ===")
-    position_adjustor = XYPositionAdjustor(tolerance=args.tolerance)
-    position_adjustor.adjust(corrected_offset, klipper, stage)
+    position_adjustor = XYPositionAdjustor(
+        observe_offset=corrected_offset,
+        klipper=klipper,
+        stage=stage,
+        tolerance=args.tolerance,
+    )
+    position_adjustor.adjust()
     print("位置合わせ完了")
 
     # ボード左上へ移動（基準点 - top_leftオフセット）

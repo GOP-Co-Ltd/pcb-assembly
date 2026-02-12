@@ -16,25 +16,39 @@ class XYPositionAdjustor:
     許容誤差内に収束するまで位置を微調整する。
 
     Example:
-        adjustor = PositionAdjustor(tolerance=0.01)
-        final_pos = adjustor.adjust(observe_offset, klipper, stage)
+        adjustor = XYPositionAdjustor(
+            observe_offset=observe_offset,
+            klipper=klipper,
+            stage=stage,
+            tolerance=0.01,
+        )
+        final_pos = adjustor.adjust()
     """
 
     def __init__(
         self,
+        observe_offset: Callable[[], Point2d],
+        klipper: Klipper,
+        stage: XYZStage,
         tolerance: float = 0.01,
         max_iterations: int = 10,
         move_velocity_ratio: float = 0.5,
         settle_time: float = 0.5,
     ) -> None:
-        """PositionAdjustorを初期化する.
+        """XYPositionAdjustorを初期化する.
 
         Args:
+            observe_offset: オフセットを検出して返す関数
+            klipper: Klipperクライアント
+            stage: XYZステージ
             tolerance: 許容誤差 (mm)
             max_iterations: 最大反復回数
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
             settle_time: 移動後の安定待機時間（秒）
         """
+        self._observe_offset = observe_offset
+        self._klipper = klipper
+        self._stage = stage
         self._tolerance = tolerance
         self._max_iterations = max_iterations
         self._move_velocity_ratio = move_velocity_ratio
@@ -42,18 +56,8 @@ class XYPositionAdjustor:
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
-    def adjust(
-        self,
-        observe_offset: Callable[[], Point2d],
-        klipper: Klipper,
-        stage: XYZStage,
-    ) -> Point2d:
+    def adjust(self) -> Point2d:
         """位置を反復的に補正する.
-
-        Args:
-            observe_offset: オフセットを検出して返す関数
-            klipper: Klipperクライアント
-            stage: XYZステージ
 
         Returns:
             補正後の最終XY位置
@@ -63,10 +67,10 @@ class XYPositionAdjustor:
         """
         self._logger.info("位置補正を開始")
 
-        move_velocity = stage.max_velocity * self._move_velocity_ratio
+        move_velocity = self._stage.max_velocity * self._move_velocity_ratio
         offset = Point2d(x=0.0, y=0.0)
         for iteration in range(self._max_iterations):
-            offset = observe_offset()
+            offset = self._observe_offset()
             self._logger.info(
                 f"試行 {iteration + 1}/{self._max_iterations}: "
                 f"オフセット ({offset.x:.4f}, {offset.y:.4f}) mm, "
@@ -74,7 +78,7 @@ class XYPositionAdjustor:
             )
 
             if offset.norm < self._tolerance:
-                pos = stage.get_position()
+                pos = self._stage.get_position()
                 self._logger.info(
                     f"許容誤差 {self._tolerance} mm 以内に収束: "
                     f"最終位置 ({pos.x:.4f}, {pos.y:.4f})"
@@ -82,7 +86,7 @@ class XYPositionAdjustor:
                 return pos.to2d()
 
             # オフセット分だけ移動
-            pos = stage.get_position()
+            pos = self._stage.get_position()
             target = pos.to2d() - offset
             self._logger.debug(
                 f"移動: ({pos.x:.4f}, {pos.y:.4f}) -> "
@@ -90,8 +94,7 @@ class XYPositionAdjustor:
             )
 
             self._move_to(
-                klipper,
-                stage.to_gcode(Move.from_point(target, v=move_velocity)),
+                self._stage.to_gcode(Move.from_point(target, v=move_velocity)),
             )
 
         raise RuntimeError(
@@ -99,12 +102,8 @@ class XYPositionAdjustor:
             f"(最終オフセット: {offset.norm:.4f} mm)"
         )
 
-    def _move_to(
-        self,
-        klipper: Klipper,
-        move_gcode: gcode.GCode,
-    ) -> None:
+    def _move_to(self, move_gcode: gcode.GCode) -> None:
         """指定座標に移動し、安定を待つ."""
-        klipper.send_gcode(
+        self._klipper.send_gcode(
             move_gcode + gcode.wait(self._settle_time) + gcode.wait_for_done()
         )
