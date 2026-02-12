@@ -91,7 +91,13 @@ class XYPositionAdjustor:
 
             self._move_to(
                 klipper,
-                stage.move(Trajectory(pos, move_velocity, [Move.from_point(target)])),
+                stage.move(
+                    Trajectory(
+                        [Move.from_point(target)],
+                        origin=pos,
+                        initial_velocity=move_velocity,
+                    )
+                ),
             )
 
         raise RuntimeError(

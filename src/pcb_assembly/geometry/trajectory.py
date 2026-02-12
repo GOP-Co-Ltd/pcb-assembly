@@ -94,15 +94,20 @@ class Trajectory:
 
     def __init__(
         self,
+        moves: Move | Iterable[Move] | None = None,
+        *,
         origin: Point3d,
-        default_velocity: float,
-        moves: Iterable[Move] | None = None,
+        initial_velocity: float | None = None,
     ) -> None:
+        self._origin = origin
         self._position = origin
-        self._velocity = default_velocity
+        self._velocity = initial_velocity
         self._waypoints: list[Waypoint] = []
         if moves is not None:
-            self.add(move=moves)
+            if isinstance(moves, Move):
+                self.add(moves)
+            else:
+                self.add(move=moves)
 
     @property
     def position(self) -> Point3d:
@@ -112,6 +117,8 @@ class Trajectory:
     @property
     def velocity(self) -> float:
         """現在の速度."""
+        if self._velocity is None:
+            raise ValueError("velocity が設定されていません")
         return self._velocity
 
     @property
@@ -134,6 +141,9 @@ class Trajectory:
             if m.is_empty:
                 continue
 
+            if self._velocity is None and m.v is not None:
+                self._velocity = m.v
+
             waypoint = self._resolve(m)
             self._waypoints.append(waypoint)
             self._position = waypoint.position
@@ -151,6 +161,9 @@ class Trajectory:
             z = m.z if m.z is not None else self._position.z
 
         v = m.v if m.v is not None else self._velocity
+        if v is None:
+            msg = "velocity が設定されていません"
+            raise ValueError(msg)
 
         return Waypoint(x=x, y=y, z=z, v=v)
 
@@ -160,8 +173,8 @@ class Trajectory:
             return 0.0
 
         total = 0.0
-        prev = self._waypoints[0].position
-        for wp in self._waypoints[1:]:
+        prev = self._origin
+        for wp in self._waypoints:
             total += (wp.position - prev).norm()
             prev = wp.position
         return total
@@ -172,8 +185,8 @@ class Trajectory:
             return 0.0
 
         total = 0.0
-        prev = self._waypoints[0].position
-        for wp in self._waypoints[1:]:
+        prev = self._origin
+        for wp in self._waypoints:
             dist = (wp.position - prev).norm()
             total += dist / wp.v
             prev = wp.position

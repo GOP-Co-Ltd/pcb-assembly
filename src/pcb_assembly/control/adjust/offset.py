@@ -82,9 +82,9 @@ class OffsetTransformMeasurer:
             klipper,
             stage.move(
                 Trajectory(
-                    stage.get_position(),
-                    move_velocity,
                     [Move.from_point(move_vector, relative=True)],
+                    origin=stage.get_position(),
+                    initial_velocity=move_velocity,
                 )
             ),
         )
@@ -99,9 +99,9 @@ class OffsetTransformMeasurer:
             klipper,
             stage.move(
                 Trajectory(
-                    stage.get_position(),
-                    move_velocity,
                     [Move.from_point(start_pos)],
+                    origin=stage.get_position(),
+                    initial_velocity=move_velocity,
                 )
             ),
         )

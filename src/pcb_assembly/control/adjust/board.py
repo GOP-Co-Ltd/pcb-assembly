@@ -176,9 +176,9 @@ class BoardTransformMeasurer:
             klipper,
             stage.move(
                 Trajectory(
-                    stage.get_position(),
-                    move_velocity,
                     [Move.from_point(board_origin)],
+                    origin=stage.get_position(),
+                    initial_velocity=move_velocity,
                 )
             ),
         )
@@ -211,9 +211,9 @@ class BoardTransformMeasurer:
             klipper,
             stage.move(
                 Trajectory(
-                    stage.get_position(),
-                    move_velocity,
                     [Move.from_point(ref_pos)],
+                    origin=stage.get_position(),
+                    initial_velocity=move_velocity,
                 )
             ),
         )
