@@ -3,7 +3,7 @@
 import logging
 
 from pcb_assembly import gcode
-from pcb_assembly.geometry import Transform, Translation
+from pcb_assembly.geometry import Shift, Transform
 from pcb_assembly.hal import Klipper
 from pcb_assembly.hal.probe import ProbeSensor
 from pcb_assembly.utils import get_class_module_path
@@ -15,62 +15,54 @@ class HeightTransformMeasurer:
     Klipperのプロービングマクロを実行し、ProbeSensorで変位を計測する。
 
     Example:
-        measurer = HeightTransformMeasurer()
-        measurer.validate_klipper(klipper)
-        transform = measurer.measure(probe, klipper)
+        measurer = HeightTransformMeasurer(probe=probe, klipper=klipper)
+        transform = measurer.measure()
         corrected = transform.apply(point)
     """
 
     def __init__(
         self,
+        probe: ProbeSensor,
+        klipper: Klipper,
         macro_name: str = "PROBE",
         settle_time: float = 0.5,
     ) -> None:
         """HeightTransformMeasurerを初期化する.
 
         Args:
+            probe: プローブセンサー
+            klipper: Klipperクライアント
             macro_name: プロービング用のKlipperマクロ名
             settle_time: マクロ実行後の安定待機時間（秒）
+
+        Raises:
+            RuntimeError: マクロがKlipperに定義されていない場合
         """
+        if not klipper.has_macro(macro_name):
+            raise RuntimeError(f"マクロ '{macro_name}' がKlipperに定義されていません")
+
+        self._probe = probe
+        self._klipper = klipper
         self._macro_name = macro_name
         self._settle_time = settle_time
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
-    def validate_klipper(self, klipper: Klipper) -> None:
-        """Klipperにプロービングマクロが存在するか確認する.
-
-        Args:
-            klipper: Klipperクライアント
-
-        Raises:
-            RuntimeError: マクロが存在しない場合
-        """
-        if not klipper.has_macro(self._macro_name):
-            raise RuntimeError(
-                f"マクロ '{self._macro_name}' がKlipperに定義されていません"
-            )
-
-    def measure(self, probe: ProbeSensor, klipper: Klipper) -> Transform:
+    def measure(self) -> Transform:
         """プローブで高さを計測し、Z方向のTransformを返す.
-
-        Args:
-            probe: プローブセンサー
-            klipper: Klipperクライアント
 
         Returns:
             Z軸方向の平行移動変換
         """
-        self.validate_klipper(klipper)
         self._logger.info("高さ計測を開始")
 
-        with probe:
-            klipper.send_gcode(
+        with self._probe:
+            self._klipper.send_gcode(
                 gcode.GCode(self._macro_name)
                 + gcode.wait(self._settle_time)
                 + gcode.wait_for_done()
             )
 
-        result = probe.result()
+        result = self._probe.result()
         self._logger.info(f"計測完了: min={result.min:.4f}mm, max={result.max:.4f}mm")
 
-        return Translation(z=result.min)
+        return Shift(z=result.min)

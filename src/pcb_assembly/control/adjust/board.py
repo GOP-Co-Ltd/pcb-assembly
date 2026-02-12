@@ -12,7 +12,7 @@ from pcb_assembly.geometry import (
     Matrix2d,
     Move,
     Point2d,
-    Translation,
+    Shift,
 )
 from pcb_assembly.hal import Klipper, XYZStage
 from pcb_assembly.pcb import Outline
@@ -46,16 +46,21 @@ class BoardTransformMeasurer:
 
         pcb = PcbFile(pcb_file)
         measurer = BoardTransformMeasurer(
+            adjust_reference=adjust_reference,
+            klipper=klipper,
+            stage=stage,
             outline=pcb.outline,
             reference_point=machine.reference_point,
         )
-        # adjust_reference: 補正済みオフセットを返す関数
-        transform = measurer.measure(adjust_reference, klipper, stage)
+        transform = measurer.measure()
         machine_pos = transform.apply(board_pos)
     """
 
     def __init__(
         self,
+        adjust_reference: Callable[[], Point2d],
+        klipper: Klipper,
+        stage: XYZStage,
         outline: Outline,
         reference_point: ReferencePoint,
         move_velocity_ratio: float = 0.9,
@@ -64,11 +69,17 @@ class BoardTransformMeasurer:
         """BoardTransformMeasurerを初期化する.
 
         Args:
+            adjust_reference: 補正済みオフセットを返す関数
+            klipper: Klipperクライアント
+            stage: XYZステージ
             outline: Board Outline（width/heightの取得に使用）
             reference_point: 基準点設定
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
             settle_time: 移動後の安定待機時間（秒）
         """
+        self._adjust_reference = adjust_reference
+        self._klipper = klipper
+        self._stage = stage
         self._outline = outline
         self._ref_point = reference_point
         self._move_velocity_ratio = move_velocity_ratio
@@ -76,23 +87,13 @@ class BoardTransformMeasurer:
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
-    def measure(
-        self,
-        adjust_reference: Callable[[], Point2d],
-        klipper: Klipper,
-        stage: XYZStage,
-    ) -> Compose:
+    def measure(self) -> Compose:
         """3点法でboard→機械座標の変換を計測する.
 
         TOP_LEFTと他2コーナーの実測位置から2x2変換行列を求める。
 
-        Args:
-            adjust_reference: 補正済みオフセットを返す関数
-            klipper: Klipperクライアント
-            stage: XYZステージ
-
         Returns:
-            Board座標→機械座標のCompose変換 (Matrix2d → Translation)
+            Board座標→機械座標のCompose変換 (Matrix2d → Shift)
         """
         self._logger.info("Board変換の計測を開始")
 
@@ -100,34 +101,16 @@ class BoardTransformMeasurer:
         self._logger.info(f"計測コーナー: TOP_LEFT, {corner_a.name}, {corner_b.name}")
 
         offset_tl = self._ref_point.offsets.get(Corner.TOP_LEFT)
-        move_velocity = stage.max_velocity * self._move_velocity_ratio
+        move_velocity = self._stage.max_velocity * self._move_velocity_ratio
 
         # --- TOP_LEFT ---
-        pos_tl = self._measure_corner(
-            Corner.TOP_LEFT,
-            adjust_reference,
-            klipper,
-            stage,
-            move_velocity,
-        )
+        pos_tl = self._measure_corner(Corner.TOP_LEFT, move_velocity)
 
         # --- Corner A ---
-        pos_a = self._measure_corner(
-            corner_a,
-            adjust_reference,
-            klipper,
-            stage,
-            move_velocity,
-        )
+        pos_a = self._measure_corner(corner_a, move_velocity)
 
         # --- Corner B ---
-        pos_b = self._measure_corner(
-            corner_b,
-            adjust_reference,
-            klipper,
-            stage,
-            move_velocity,
-        )
+        pos_b = self._measure_corner(corner_b, move_velocity)
 
         # ボード空間でのTL→A, TL→Bベクトル（理論値）
         ref_pos_tl = self._get_reference_position(Corner.TOP_LEFT)
@@ -166,14 +149,13 @@ class BoardTransformMeasurer:
             f"Board左上コーナーの機械座標: ({board_origin.x:.4f}, {board_origin.y:.4f})"
         )
 
-        # 変換を構成（Matrix2d → Translation）
-        transform = Compose([matrix, Translation.from_point(board_origin)])
+        # 変換を構成（Matrix2d → Shift）
+        transform = Compose([matrix, Shift.from_point(board_origin)])
 
         # Board左上コーナーへ移動
         self._logger.info("=== Board左上コーナーへ移動 ===")
         self._move_to(
-            klipper,
-            stage.to_gcode(Move.from_point(board_origin, v=move_velocity)),
+            self._stage.to_gcode(Move.from_point(board_origin, v=move_velocity)),
         )
 
         self._logger.info("Board変換の計測完了")
@@ -190,9 +172,6 @@ class BoardTransformMeasurer:
     def _measure_corner(
         self,
         corner: Corner,
-        adjust_reference: Callable[[], Point2d],
-        klipper: Klipper,
-        stage: XYZStage,
         move_velocity: float,
     ) -> Point2d:
         """指定コーナーへ移動し、位置補正した座標を返す."""
@@ -201,21 +180,16 @@ class BoardTransformMeasurer:
         self._logger.info(f"=== {corner.name} Reference Pointへ移動 ===")
         self._logger.info(f"目標位置: ({ref_pos.x:.3f}, {ref_pos.y:.3f})")
         self._move_to(
-            klipper,
-            stage.to_gcode(Move.from_point(ref_pos, v=move_velocity)),
+            self._stage.to_gcode(Move.from_point(ref_pos, v=move_velocity)),
         )
 
         self._logger.info(f"=== {corner.name} Reference Pointの位置補正 ===")
-        pos = adjust_reference()
+        pos = self._adjust_reference()
         self._logger.info(f"{corner.name}位置: ({pos.x:.4f}, {pos.y:.4f})")
         return pos
 
-    def _move_to(
-        self,
-        klipper: Klipper,
-        move_gcode: gcode.GCode,
-    ) -> None:
+    def _move_to(self, move_gcode: gcode.GCode) -> None:
         """指定座標に移動し、安定を待つ."""
-        klipper.send_gcode(
+        self._klipper.send_gcode(
             move_gcode + gcode.wait(self._settle_time) + gcode.wait_for_done()
         )

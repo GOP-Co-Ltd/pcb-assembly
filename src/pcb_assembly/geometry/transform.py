@@ -235,7 +235,7 @@ class Rotation(Transform):
 
 
 @attrs.frozen
-class Translation(Transform):
+class Shift(Transform):
     """平行移動変換を表すイミュータブルなクラス.
 
     Attributes:
@@ -266,13 +266,13 @@ class Translation(Transform):
         """逆平行移動を返す.
 
         Returns:
-            反対方向に同じ量だけ移動するTranslationインスタンス
+            反対方向に同じ量だけ移動するShiftインスタンス
         """
         return self.__class__(-self.x, -self.y, -self.z)
 
     @classmethod
     def from_point(cls, point: Point) -> Self:
-        """PointからTranslationを生成する."""
+        """PointからShiftを生成する."""
         if isinstance(point, Point2d):
             return cls(point.x, point.y, 0.0)
         return cls(point.x, point.y, point.z)

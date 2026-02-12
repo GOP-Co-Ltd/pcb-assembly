@@ -186,32 +186,41 @@ def main() -> None:
     move_distance = (
         safe_move_distance(cam_config.crop.size, margin=0.3) / calibration.pixel_per_mm
     )
-    offset_transform_measurer = OffsetTransformMeasurer(move_distance=move_distance)
-    offset_transform = offset_transform_measurer.measure(observe_offset, klipper, stage)
+    offset_transform_measurer = OffsetTransformMeasurer(
+        observe_offset=observe_offset,
+        klipper=klipper,
+        stage=stage,
+        move_distance=move_distance,
+    )
+    offset_transform = offset_transform_measurer.measure()
 
     # 補正済みオフセット関数を定義
     def corrected_offset() -> Point2d:
         return offset_transform.apply(observe_offset())
 
     # 位置補正を行い最終座標を返す関数を定義
-    position_adjustor = XYPositionAdjustor(tolerance=args.tolerance)
+    position_adjustor = XYPositionAdjustor(
+        observe_offset=corrected_offset,
+        klipper=klipper,
+        stage=stage,
+        tolerance=args.tolerance,
+    )
 
     def adjust_reference() -> Point2d:
-        return position_adjustor.adjust(corrected_offset, klipper, stage)
+        return position_adjustor.adjust()
 
     # Board変換の計測
     print("\n=== Board変換の計測 ===")
     board_transform_measurer = BoardTransformMeasurer(
+        adjust_reference=adjust_reference,
+        klipper=klipper,
+        stage=stage,
         outline=outline,
         reference_point=ref_config,
     )
 
     try:
-        board_transform = board_transform_measurer.measure(
-            adjust_reference,
-            klipper,
-            stage,
-        )
+        board_transform = board_transform_measurer.measure()
 
         # ボード四隅巡回デモ
         print("\n=== ボード四隅巡回デモ ===")

@@ -10,7 +10,7 @@ from typing import Any
 import attrs
 import cattrs
 
-from pcb_assembly.geometry import Point2d, Transform, Translation
+from pcb_assembly.geometry import Point2d, Shift, Transform
 
 
 @attrs.frozen
@@ -80,7 +80,7 @@ class Toolhead:
 
     def to_transform(self) -> Transform:
         """Toolheadの位置にxy平行移動するTransformを返す."""
-        return Translation(x=self.x, y=self.y)
+        return Shift(x=self.x, y=self.y)
 
 
 class Corner(Enum):

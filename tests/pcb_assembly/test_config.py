@@ -14,7 +14,7 @@ from pcb_assembly.config import (
     ReferencePoint,
     Toolhead,
 )
-from pcb_assembly.geometry import Point2d, Translation
+from pcb_assembly.geometry import Point2d, Shift
 from tests.helpers import TESTING_DATA_DIR
 
 
@@ -104,7 +104,7 @@ class TestToolhead:
     def test_to_transform(self):
         toolhead = Toolhead(x=13.2, y=54.7)
 
-        assert toolhead.to_transform() == Translation(x=13.2, y=54.7)
+        assert toolhead.to_transform() == Shift(x=13.2, y=54.7)
 
 
 class TestCornerOffsets:
