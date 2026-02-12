@@ -12,7 +12,7 @@ from pcb_assembly import gcode
 from pcb_assembly.config import Machine
 from pcb_assembly.control.adjust import HeightTransformMeasurer
 from pcb_assembly.geometry import Point2d
-from pcb_assembly.hal import Klipper
+from pcb_assembly.hal import Klipper, XYZStage
 from pcb_assembly.hal.probe import ProbeSensor
 from pcb_assembly.utils import setup_logging
 
@@ -28,8 +28,6 @@ def main() -> None:
         default=str(PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml"),
         help="設定ファイルのパス",
     )
-    parser.add_argument("x", type=float, help="計測位置のX座標（mm）")
-    parser.add_argument("y", type=float, help="計測位置のY座標（mm）")
     args = parser.parse_args()
 
     machine = Machine(args.config)
@@ -37,6 +35,7 @@ def main() -> None:
     probe_config = machine.probe
 
     klipper = Klipper(host=klipper_config.host, port=klipper_config.port)
+    stage = XYZStage(klipper.readonly)
     probe = ProbeSensor(
         a_pin=probe_config.a_pin,
         b_pin=probe_config.b_pin,
@@ -46,19 +45,39 @@ def main() -> None:
     )
 
     measurer = HeightTransformMeasurer(probe=probe, klipper=klipper)
+    toolhead = machine.toolhead.to_transform()
 
     # ホーミング
     print("=== ホーミング ===")
     klipper.send_gcode(gcode.homing(x=True, y=True, z=True) + gcode.wait_for_done())
     print("ホーミング完了")
 
-    # 指定座標にToolheadオフセットを加えて移動
-    toolhead = machine.toolhead.to_transform()
-    target = toolhead.apply(Point2d(args.x, args.y))
-    print(f"\n=== 移動: X={target.x}, Y={target.y} (toolheadオフセット適用) ===")
-    klipper.send_gcode(
-        gcode.move(x=target.x, y=target.y, velocity=30) + gcode.wait_for_done()
-    )
+    # 対話ループ（位置合わせ）
+    print("\n座標を入力して位置を合わせます。計測するには 'q' を入力してください。")
+    while True:
+        try:
+            raw = input("\nX Y (mm) > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if raw.lower() == "q":
+            break
+        parts = raw.split()
+        if len(parts) != 2:
+            print("X と Y をスペース区切りで入力してください（例: 100 200）")
+            continue
+        try:
+            x, y = float(parts[0]), float(parts[1])
+        except ValueError:
+            print("数値を入力してください")
+            continue
+
+        target = toolhead.apply(Point2d(x, y))
+        print(f"=== 移動: X={target.x}, Y={target.y} (toolheadオフセット適用) ===")
+        klipper.send_gcode(
+            gcode.move(x=target.x, y=target.y, velocity=stage.max_velocity)
+            + gcode.wait_for_done()
+        )
 
     # 高さ計測
     print("\n=== 高さ計測 ===")
