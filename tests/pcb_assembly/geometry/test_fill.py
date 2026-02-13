@@ -1,13 +1,10 @@
-"""generate_fill_path / generate_fill_path_for_nozzle のテスト."""
+"""generate_fill_path のテスト."""
 
 import pytest
 from shapely import Polygon
 
 from pcb_assembly.geometry import Point2d
-from pcb_assembly.geometry.fill import (
-    generate_fill_path,
-    generate_fill_path_for_nozzle,
-)
+from pcb_assembly.geometry.fill import generate_fill_path
 
 
 class TestGenerateFillPath:
@@ -206,22 +203,3 @@ class TestGenerateFillPath:
         polygon = Polygon([(0, 0), (10, 0), (10, 6), (0, 6)])
         result = generate_fill_path(polygon, line_spacing=1.0)
         assert all(isinstance(p, Point2d) for p in result)
-
-
-class TestGenerateFillPathForNozzle:
-    """generate_fill_path_for_nozzle関数のテスト."""
-
-    def test_invalid_nozzle_diameter_raises_value_error(self):
-        """nozzle_diameterが0以下の場合にValueErrorが発生."""
-        polygon = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
-        with pytest.raises(ValueError, match="nozzle_diameter"):
-            generate_fill_path_for_nozzle(polygon, nozzle_diameter=-1.0)
-
-    @pytest.mark.parametrize("ratio", [-0.1, 1.0, 1.5])
-    def test_invalid_overlap_ratio_raises_value_error(self, ratio):
-        """overlap_ratioが範囲外の場合にValueErrorが発生."""
-        polygon = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
-        with pytest.raises(ValueError, match="overlap_ratio"):
-            generate_fill_path_for_nozzle(
-                polygon, nozzle_diameter=1.0, overlap_ratio=ratio
-            )

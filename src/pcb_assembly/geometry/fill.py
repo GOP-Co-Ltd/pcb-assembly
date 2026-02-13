@@ -81,48 +81,6 @@ def generate_fill_path(
     return contour_path + zigzag_path
 
 
-def generate_fill_path_for_nozzle(
-    polygon: Polygon,
-    nozzle_diameter: float,
-    overlap_ratio: float = 0.2,
-    perimeters: int = 1,
-    angle: float = 0.0,
-) -> list[Point2d]:
-    """ノズル直径から塗りつぶしパスを生成する.
-
-    ノズル直径とオーバーラップ率からline_spacingとinsetを自動計算する。
-    insetはノズル半径（nozzle_diameter / 2）に設定される。
-
-    Args:
-        polygon: 塗りつぶし対象のポリゴン（mm単位）
-        nozzle_diameter: ノズル直径（mm）
-        overlap_ratio: 走査線のオーバーラップ率（0.0〜1.0未満、デフォルト: 0.2）
-        perimeters: 外周の周回数（デフォルト: 1）
-        angle: ジグザグ走査線の角度（度、デフォルト: 0.0 = 水平）
-
-    Returns:
-        外周パス＋ジグザグ塗りつぶしパスの座標リスト
-
-    Raises:
-        ValueError: nozzle_diameterが0以下、またはoverlap_ratioが範囲外の場合
-    """
-    if nozzle_diameter <= 0:
-        raise ValueError(
-            f"nozzle_diameterは正の値である必要があります: {nozzle_diameter}"
-        )
-    if not (0.0 <= overlap_ratio < 1.0):
-        raise ValueError(
-            f"overlap_ratioは0.0以上1.0未満である必要があります: {overlap_ratio}"
-        )
-
-    line_spacing = nozzle_diameter * (1.0 - overlap_ratio)
-    inset = nozzle_diameter / 2.0
-
-    return generate_fill_path(
-        polygon, line_spacing, perimeters=perimeters, inset=inset, angle=angle
-    )
-
-
 def _generate_contours(
     polygon: Polygon, line_spacing: float, perimeters: int, inset: float
 ) -> list[Point2d]:
