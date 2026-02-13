@@ -34,7 +34,7 @@ class TestMachine:
         )
         assert machine.paste_dispenser == PasteDispenser(
             syringe_size=9.0,
-            nozzle_size="G27",
+            nozzle_size="27G",
         )
         assert machine.camera == Camera(
             device_id=0,

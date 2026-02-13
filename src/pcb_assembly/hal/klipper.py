@@ -125,6 +125,16 @@ class Klipper:
                 )
         return macros
 
+    def emergency_stop(self) -> None:
+        """緊急停止を実行する.
+
+        Raises:
+            RuntimeError: 緊急停止の実行に失敗した場合
+        """
+        response = self._client.post(f"{self._base_url}/printer/emergency_stop")
+        if response.status_code >= 400:
+            raise RuntimeError(response.reason_phrase)
+
     def has_macro(self, name: str) -> bool:
         """指定した名前のマクロが存在するか確認する.
 

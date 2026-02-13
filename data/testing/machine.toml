@@ -11,7 +11,7 @@ inverse = true
 
 [paste_dispenser]
 syringe_size = 9.0
-nozzle_size = "G27"
+nozzle_size = "27G"
 
 [camera]
 device_id = 0
