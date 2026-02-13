@@ -1,4 +1,7 @@
-"""ペースト塗布のGCode生成."""
+"""ペースト塗布の制御."""
+
+import logging
+from collections.abc import Iterable
 
 from shapely import Polygon
 
@@ -11,17 +14,20 @@ from pcb_assembly.geometry import (
     Transform,
     generate_fill_path,
 )
-from pcb_assembly.hal import NozzleSpec, PasteDispenser, XYZStage
+from pcb_assembly.hal import Klipper, NozzleSpec, PasteDispenser, XYZStage
+from pcb_assembly.utils import get_class_module_path
 
 
 class PasteApplicator:
-    """ポリゴンへのペースト塗布GCodeを生成するクラス.
+    """ポリゴンへのペースト塗布を制御するクラス.
 
+    ペーストのローディング・リトラクション・塗布を一貫して提供する。
     fill pathを生成し、ディスペンサー押出しとXYZステージ移動を
-    同期させたGCodeシーケンスを生成する。
+    同期させたGCodeシーケンスを生成・送信する。
 
     Example:
         applicator = PasteApplicator(
+            klipper=klipper,
             paste_dispenser=dispenser,
             stage=stage,
             nozzle_spec=NozzleSpec(inner_diameter=0.19),
@@ -33,12 +39,14 @@ class PasteApplicator:
             paste_accel=1.0,
             paste_height=0.5,
         )
-        gc = applicator.generate(polygon)
-        klipper.send_gcode(gc)
+        applicator.load(2.0)
+        applicator.retract()
+        applicator.apply([polygon])
     """
 
     def __init__(
         self,
+        klipper: Klipper,
         paste_dispenser: PasteDispenser,
         stage: XYZStage,
         nozzle_spec: NozzleSpec,
@@ -56,6 +64,7 @@ class PasteApplicator:
         """PasteApplicatorを初期化する.
 
         Args:
+            klipper: Klipperクライアント
             paste_dispenser: ペーストディスペンサーHAL
             stage: XYZステージ
             nozzle_spec: ノズル仕様
@@ -84,6 +93,7 @@ class PasteApplicator:
                 f"{retraction_accel_factor}"
             )
 
+        self._klipper = klipper
         self._paste_dispenser = paste_dispenser
         self._stage = stage
         self._nozzle_spec = nozzle_spec
@@ -97,6 +107,7 @@ class PasteApplicator:
         self._paste_accel = paste_accel
         self._lift_height = lift_height
         self._overlap_ratio = overlap_ratio
+        self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
     @property
     def _paste_rate(self) -> float:
@@ -119,7 +130,51 @@ class PasteApplicator:
         """吐出開始後の待機時間 T_w [sec]."""
         return self._paste_rate / self._paste_accel
 
-    def generate(
+    def load(self, amount: float) -> None:
+        """指定量のペーストを押し出す.
+
+        GCodeを生成・送信し、動作完了まで待機（ブロッキング）する。
+
+        Args:
+            amount: 押し出し量 [μL]（正: 吐出、負: リトラクション）
+        """
+        self._logger.info(f"ペーストローディング: {amount} μL")
+        push_gcode = self._paste_dispenser.pushpull(
+            amount, self._retraction_rate, self._retraction_accel
+        )
+        self._klipper.send_gcode(push_gcode + gcode.wait_for_done())
+        self._logger.info("ローディング完了")
+
+    def retract(self) -> None:
+        """リトラクションを実行する.
+
+        retraction量分だけペーストを引き戻す（ブロッキング）。
+        """
+        self.load(-self._retraction)
+
+    def apply(
+        self,
+        polygons: Iterable[Polygon],
+        perimeters: int = 1,
+        angle: float = 0.0,
+    ) -> None:
+        """複数ポリゴンへペースト塗布を実行する.
+
+        各ポリゴンに対してGCodeを生成し、Klipperに送信する（ブロッキング）。
+
+        Args:
+            polygons: 塗りつぶし対象のポリゴン群
+            perimeters: 外周の周回数
+            angle: ジグザグ走査線の角度（度）
+
+        Raises:
+            ValueError: fill pathが空の場合、または経路が制限外の場合
+        """
+        for polygon in polygons:
+            gc = self._generate(polygon, perimeters, angle)
+            self._klipper.send_gcode(gc)
+
+    def _generate(
         self,
         polygon: Polygon,
         perimeters: int = 1,

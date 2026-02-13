@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""ペーストディスペンシングのデモスクリプト.
+"""ペースト塗布のデモスクリプト.
 
-ローディング → 位置合わせ → 高さ計測 → 円塗布の一連のワークフローを実行する。
+ホーミング → 位置合わせ → 高さ計測 → ローディング → 円塗布の一連のワークフローを実行する。
 """
 
 import argparse
@@ -13,7 +13,7 @@ from shapely import Point as ShapelyPoint
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
 from pcb_assembly.control.adjust import HeightTransformMeasurer
-from pcb_assembly.control.pasting import PasteApplicator, PasteLoader
+from pcb_assembly.control.pasting import PasteApplicator
 from pcb_assembly.geometry import Point2d, Transform
 from pcb_assembly.hal import (
     NOZZLE_SPECS,
@@ -27,11 +27,11 @@ from pcb_assembly.utils import setup_logging
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
-def interactive_loading(loader: PasteLoader, default_amount: float) -> None:
+def interactive_loading(applicator: PasteApplicator, default_amount: float) -> None:
     """対話的にペーストをローディングする.
 
     Args:
-        loader: ペーストローダー
+        applicator: ペーストアプリケーター
         default_amount: デフォルトの押し出し量 [μL]
     """
     print(f"ローディング (デフォルト量: {default_amount} μL)")
@@ -46,7 +46,7 @@ def interactive_loading(loader: PasteLoader, default_amount: float) -> None:
                 break
             case "":
                 print(f"ローディング: {default_amount} μL")
-                loader.load(default_amount)
+                applicator.load(default_amount)
                 print("完了")
             case _:
                 try:
@@ -55,7 +55,7 @@ def interactive_loading(loader: PasteLoader, default_amount: float) -> None:
                     print("不正な入力です")
                     continue
                 print(f"ローディング: {amount} μL")
-                loader.load(amount)
+                applicator.load(amount)
                 print("完了")
 
 
@@ -110,7 +110,7 @@ def interactive_positioning(
 
 def main() -> None:
     setup_logging(logging.INFO)
-    parser = argparse.ArgumentParser(description="ペーストディスペンシングデモ")
+    parser = argparse.ArgumentParser(description="ペースト塗布デモ")
     parser.add_argument(
         "--config",
         type=str,
@@ -119,13 +119,6 @@ def main() -> None:
     )
     parser.add_argument(
         "--amount", type=float, default=1.0, help="デフォルトの押し出し量 [μL]"
-    )
-    parser.add_argument("--rate", type=float, default=50.0, help="吐出速度 [μL/sec]")
-    parser.add_argument(
-        "--accel", type=float, default=10.0, help="吐出加速度 [μL/sec²]"
-    )
-    parser.add_argument(
-        "--retract", type=float, default=50.0, help="リトラクション量 [μL]"
     )
     parser.add_argument(
         "--retraction-accel-factor",
@@ -149,6 +142,15 @@ def main() -> None:
     parser.add_argument(
         "--paste-thickness", type=float, default=1, help="ペースト膜厚 [mm]"
     )
+    parser.add_argument(
+        "--retract", type=float, default=50.0, help="リトラクション量 [μL]"
+    )
+    parser.add_argument(
+        "--retraction-rate",
+        type=float,
+        default=50.0,
+        help="リトラクション速度 [μL/sec]",
+    )
     args = parser.parse_args()
 
     # ハードウェア初期化
@@ -170,57 +172,52 @@ def main() -> None:
         rotation_pulse=probe_config.rotation_pulse,
         inverse=probe_config.inverse,
     )
+    nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
 
     try:
-        # 1. 対話的ローディング
-        loader = PasteLoader(
-            klipper=klipper,
-            paste_dispenser=paste_dispenser,
-            rate=args.rate,
-            accel=args.accel,
-        )
-        interactive_loading(loader, args.amount)
-
-        # 2. リトラクション
-        print(f"\n=== リトラクション: {args.retract} μL ===")
-        loader.load(-args.retract)
-        print("リトラクション完了")
-
-        # 3. ホーミング
-        print("\n=== ホーミング ===")
+        # 1. ホーミング
+        print("=== ホーミング ===")
         klipper.send_gcode(gcode.homing(x=True, y=True, z=True) + gcode.wait_for_done())
         print("ホーミング完了")
 
-        # 4. 対話的位置合わせ
+        # 2. 対話的位置合わせ
         toolhead = machine.toolhead.to_transform()
         target = interactive_positioning(klipper, stage, toolhead)
 
-        # 5. 高さ計測
+        # 3. 高さ計測
         print("\n=== 高さ計測 ===")
         measurer = HeightTransformMeasurer(probe, klipper)
         height_transform = measurer.measure()
         print(f"計測結果: {height_transform}")
 
-        # 6. 円塗布
-        print(f"\n=== 円塗布 (半径: {args.radius} mm) ===")
-        circle = ShapelyPoint(target.x, target.y).buffer(args.radius)
-        nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
+        # 4. PasteApplicator作成
         applicator = PasteApplicator(
+            klipper=klipper,
             paste_dispenser=paste_dispenser,
             stage=stage,
             nozzle_spec=nozzle_spec,
             paste_velocity=args.paste_velocity,
             paste_thickness=args.paste_thickness,
             retraction=args.retract,
-            retraction_rate=args.rate,
+            retraction_rate=args.retraction_rate,
             retraction_accel_factor=args.retraction_accel_factor,
             paste_accel=args.paste_accel,
-            transform=height_transform,
             paste_height=args.paste_height,
+            transform=height_transform,
         )
-        gc = applicator.generate(circle)
-        print(gc)
-        klipper.send_gcode(gc)
+
+        # 5. 対話的ローディング
+        interactive_loading(applicator, args.amount)
+
+        # 6. リトラクション
+        print("\n=== リトラクション ===")
+        applicator.retract()
+        print("リトラクション完了")
+
+        # 7. 円塗布
+        print(f"\n=== 円塗布 (半径: {args.radius} mm) ===")
+        circle = ShapelyPoint(target.x, target.y).buffer(args.radius)
+        applicator.apply([circle])
         print("塗布完了")
 
         klipper.send_gcode(gcode.relax())
