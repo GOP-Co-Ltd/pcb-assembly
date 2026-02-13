@@ -13,7 +13,7 @@ from shapely import Point as ShapelyPoint
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
 from pcb_assembly.control.adjust import HeightTransformMeasurer
-from pcb_assembly.control.dispensing import PasteApplicator, PasteLoader
+from pcb_assembly.control.pasting import PasteApplicator, PasteLoader
 from pcb_assembly.geometry import Point2d, Transform
 from pcb_assembly.hal import (
     NOZZLE_SPECS,
