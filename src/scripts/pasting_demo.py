@@ -140,7 +140,7 @@ def main() -> None:
         "--paste-height", type=float, default=0.1, help="塗布面のZ高さ [mm]"
     )
     parser.add_argument(
-        "--paste-thickness", type=float, default=1, help="ペースト膜厚 [mm]"
+        "--paste-thickness", type=float, default=0.1, help="ペースト膜厚 [mm]"
     )
     parser.add_argument(
         "--retract", type=float, default=50.0, help="リトラクション量 [μL]"
