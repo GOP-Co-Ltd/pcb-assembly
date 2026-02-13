@@ -46,8 +46,8 @@ class PasteApplicator:
         retraction: float,
         transform: Transform = Identity(),
         paste_height: float = 0.1,
-        lift_height: float = 10.0,
-        overlap_ratio: float = 0.2,
+        lift_height: float = 5.0,
+        overlap_ratio: float = 0.0,
     ) -> None:
         """PasteApplicatorを初期化する.
 
@@ -167,7 +167,6 @@ class PasteApplicator:
                 Move(x=origin.x, y=origin.y, z=lifted_z, v=self._stage.max_velocity)
             )
         )
-        gc.append(gcode.wait_for_done())
 
         # 2. paste_height まで下降
         gc.append(self._stage.to_gcode(Move(z=origin.z, v=self._paste_velocity)))
