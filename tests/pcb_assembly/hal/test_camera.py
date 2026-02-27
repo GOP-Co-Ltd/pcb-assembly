@@ -62,7 +62,7 @@ class TestUsbCamera:
         mock_camera_backend.isOpened.return_value = False
 
         with pytest.raises(RuntimeError, match="カメラ 0 を開けません"):
-            create_camera(device_id=0)
+            create_camera(device_id=0, backend="usb")
 
     def test_init_raises_when_no_formats_available(
         self, mock_camera_backend, mocker: MockerFixture
@@ -73,38 +73,38 @@ class TestUsbCamera:
         )
 
         with pytest.raises(RuntimeError, match="フォーマットがありません"):
-            create_camera()
+            create_camera(backend="usb")
 
     def test_init_raises_when_format_length_invalid(self, mock_camera_backend):
         with pytest.raises(ValueError, match="4文字である必要があります"):
-            create_camera(format="MJ")
+            create_camera(format="MJ", backend="usb")
 
     def test_init_raises_when_resolution_not_supported(self, mock_camera_backend):
         with pytest.raises(RuntimeError, match="サポートしていません"):
-            create_camera(width=1920, height=1080)
+            create_camera(width=1920, height=1080, backend="usb")
 
     def test_init_warns_when_property_set_fails(self, mock_camera_backend):
         mock_camera_backend.set.return_value = False
 
         with pytest.warns(RuntimeWarning):
-            create_camera()
+            create_camera(backend="usb")
 
     def test_capture_returns_image(self, mock_camera_backend):
-        dummy_image = np.zeros((480, 640, 3), dtype=np.uint8)
+        dummy_image = np.zeros((720, 1280, 3), dtype=np.uint8)
         mock_camera_backend.read.return_value = (True, dummy_image)
 
-        camera = create_camera()
+        camera = create_camera(backend="usb")
         image = camera.capture()
 
-        assert image.width == 640
-        assert image.height == 480
-        assert image.numpy().shape == (480, 640, 3)
+        assert image.width == 1280
+        assert image.height == 720
+        assert image.numpy().shape == (720, 1280, 3)
         assert image.numpy().dtype == np.uint8
 
     def test_capture_raises_on_failure(self, mock_camera_backend):
         mock_camera_backend.read.return_value = (False, None)
 
-        camera = create_camera()
+        camera = create_camera(backend="usb")
 
         with pytest.raises(RuntimeError, match="フレームの取得に失敗しました"):
             camera.capture()
@@ -113,7 +113,7 @@ class TestUsbCamera:
         wrong_size_image = np.zeros((720, 1280, 3), dtype=np.uint8)
         mock_camera_backend.read.return_value = (True, wrong_size_image)
 
-        camera = create_camera(width=640, height=480)
+        camera = create_camera(width=640, height=480, backend="usb")
 
         with pytest.warns(RuntimeWarning, match="リサイズします"):
             image = camera.capture()
@@ -122,16 +122,16 @@ class TestUsbCamera:
         assert image.height == 480
 
     def test_capture_converts_grayscale_to_bgr(self, mock_camera_backend):
-        grayscale_image = np.zeros((480, 640), dtype=np.uint8)
+        grayscale_image = np.zeros((720, 1280), dtype=np.uint8)
         mock_camera_backend.read.return_value = (True, grayscale_image)
 
-        camera = create_camera()
+        camera = create_camera(backend="usb")
         image = camera.capture()
 
-        assert image.numpy().shape == (480, 640, 3)
+        assert image.numpy().shape == (720, 1280, 3)
 
     def test_returns_camera_instance(self, mock_camera_backend):
-        camera = create_camera()
+        camera = create_camera(backend="usb")
 
         assert isinstance(camera, Camera)
 
@@ -166,9 +166,9 @@ class TestCsiCamera:
         camera = create_camera(backend="csi")
         image = camera.capture()
 
-        assert image.width == 640
-        assert image.height == 480
-        assert image.numpy().shape == (480, 640, 3)
+        assert image.width == 1280
+        assert image.height == 720
+        assert image.numpy().shape == (720, 1280, 3)
 
     def test_capture_raises_on_failure(self, mock_csi_camera_backend):
         mock_csi_camera_backend.Picamera2.return_value.capture_array.side_effect = (

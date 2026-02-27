@@ -290,11 +290,11 @@ class _CsiCamera(Camera):
 
 def create_camera(
     device_id: int = 0,
-    width: int = 640,
-    height: int = 480,
+    width: int = 1280,
+    height: int = 720,
     fps: float = 30.0,
     format: str | None = None,
-    backend: str = "usb",
+    backend: str = "csi",
 ) -> Camera:
     """バックエンドを指定してカメラを生成するファクトリ関数.
 

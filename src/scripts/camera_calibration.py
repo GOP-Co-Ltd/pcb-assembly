@@ -16,8 +16,8 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 def main() -> None:
     parser = argparse.ArgumentParser(description="チェッカーボードキャリブレーション")
     parser.add_argument("--device", "-d", type=int, default=0, help="カメラデバイスID")
-    parser.add_argument("--width", "-W", type=int, default=640, help="幅")
-    parser.add_argument("--height", "-H", type=int, default=480, help="高さ")
+    parser.add_argument("--width", "-W", type=int, default=1280, help="幅")
+    parser.add_argument("--height", "-H", type=int, default=720, help="高さ")
     parser.add_argument(
         "--square-size",
         "-s",
@@ -28,7 +28,7 @@ def main() -> None:
     parser.add_argument("--crop-width", type=int, default=400, help="クロップ幅")
     parser.add_argument("--crop-height", type=int, default=400, help="クロップ高さ")
     parser.add_argument(
-        "--backend", "-b", type=str, default="usb", help="バックエンド (usb/csi)"
+        "--backend", "-b", type=str, default="csi", help="バックエンド (usb/csi)"
     )
     args = parser.parse_args()
 

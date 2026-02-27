@@ -23,7 +23,7 @@ def mock_camera_backend(mocker: MockerFixture):
     mock_cam = mocker.MagicMock()
     mock_cam.isOpened.return_value = True
     mock_cam.set.return_value = True
-    mock_cam.read.return_value = (True, np.zeros((480, 640, 3), dtype=np.uint8))
+    mock_cam.read.return_value = (True, np.zeros((720, 1280, 3), dtype=np.uint8))
     mocker.patch("cv2.VideoCapture", return_value=mock_cam)
     mocker.patch("pcb_assembly.hal.camera._UsbCamera._validate_device_id")
 
@@ -53,7 +53,7 @@ def mock_csi_camera_backend(mocker: MockerFixture):
         {"Model": "Mock CSI Camera"}
     ]
     mock_picamera2.Picamera2.return_value.capture_array.return_value = np.zeros(
-        (480, 640, 3), dtype=np.uint8
+        (720, 1280, 3), dtype=np.uint8
     )
     mocker.patch("pcb_assembly.hal.camera.picamera2", mock_picamera2)
     return mock_picamera2
