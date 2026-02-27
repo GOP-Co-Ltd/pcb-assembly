@@ -7,7 +7,7 @@ from pathlib import Path
 
 import cv2
 
-from pcb_assembly.hal.camera import Camera
+from pcb_assembly.hal.camera import create_camera
 from pcb_assembly.vision.calibration import CheckerboardCalibrator
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -27,15 +27,19 @@ def main() -> None:
     )
     parser.add_argument("--crop-width", type=int, default=400, help="クロップ幅")
     parser.add_argument("--crop-height", type=int, default=400, help="クロップ高さ")
+    parser.add_argument(
+        "--backend", "-b", type=str, default="usb", help="バックエンド (usb/csi)"
+    )
     args = parser.parse_args()
 
     output_dir = PROJECT_ROOT / "data" / "camera_calibration"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    camera = Camera(
+    camera = create_camera(
         device_id=args.device,
         width=args.width,
         height=args.height,
+        backend=args.backend,
     )
 
     calibrator = CheckerboardCalibrator(

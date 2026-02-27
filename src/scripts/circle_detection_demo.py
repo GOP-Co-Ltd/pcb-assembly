@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cv2
 
-from pcb_assembly.hal.camera import Camera
+from pcb_assembly.hal.camera import create_camera
 from pcb_assembly.vision.calibration import CalibrationResult
 from pcb_assembly.vision.detection import CircleDetector
 
@@ -39,14 +39,18 @@ def main() -> None:
         default=1.0,
         help="直径の許容誤差 (mm)",
     )
+    parser.add_argument(
+        "--backend", "-b", type=str, default="usb", help="バックエンド (usb/csi)"
+    )
     args = parser.parse_args()
 
     calibration = CalibrationResult.load(args.calibration)
 
-    camera = Camera(
+    camera = create_camera(
         device_id=args.device,
         width=args.width,
         height=args.height,
+        backend=args.backend,
     )
 
     detector = CircleDetector(
