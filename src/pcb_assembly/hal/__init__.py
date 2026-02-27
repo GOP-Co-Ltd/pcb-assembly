@@ -1,4 +1,4 @@
-from .camera import Camera, CameraInfo, Resolution, get_camera_info
+from .camera import Camera, CameraInfo, Resolution, create_camera, get_camera_info
 from .klipper import GCodeMacro, Klipper, ReadonlyKlipper
 from .paste_dispenser import NOZZLE_SPECS, NozzleSpec, PasteDispenser
 from .probe import ProbeResult, ProbeSensor
@@ -9,6 +9,7 @@ __all__ = [
     "Camera",
     "CameraInfo",
     "Resolution",
+    "create_camera",
     "get_camera_info",
     # klipper
     "GCodeMacro",

@@ -1,12 +1,15 @@
+import abc
 import os
 import re
 import stat
 import subprocess
 import warnings
+from typing import override
 
 import attrs
 import cv2
 import cv2.typing
+import picamera2
 
 from pcb_assembly.vision import Image
 
@@ -99,8 +102,26 @@ def get_camera_info(device_id: int = 0) -> CameraInfo:
     return CameraInfo(name=name, formats=formats)
 
 
-class Camera:
-    """カメラデバイスの抽象化クラス."""
+class Camera(abc.ABC):
+    """カメラデバイスの抽象基底クラス."""
+
+    @property
+    @abc.abstractmethod
+    def resolution(self) -> Resolution:
+        """現在の解像度とFPSを返す."""
+
+    @property
+    @abc.abstractmethod
+    def info(self) -> CameraInfo:
+        """カメラのメタデータを返す."""
+
+    @abc.abstractmethod
+    def capture(self) -> Image:
+        """1フレームをキャプチャして返す."""
+
+
+class _UsbCamera(Camera):
+    """USBカメラ（V4L2）実装."""
 
     def __init__(
         self,
@@ -110,7 +131,6 @@ class Camera:
         fps: float = 30.0,
         format: str | None = None,
     ) -> None:
-        """カメラを初期化して接続する."""
         self._validate_device_id(device_id)
 
         self._device_id = device_id
@@ -118,30 +138,35 @@ class Camera:
         self._height = height
         self._fps = fps
 
-        self.info = get_camera_info(device_id)
+        self._info = get_camera_info(device_id)
 
-        if len(self.info.formats) == 0:
+        if len(self._info.formats) == 0:
             raise RuntimeError("カメラがサポートするフォーマットがありません")
 
         if format is None:
-            format = self._get_default_format(self.info)
+            format = self._get_default_format(self._info)
 
         if len(format) != 4:
             raise ValueError(f"フォーマットは4文字である必要があります: {format}")
 
-        if not self.info.has_format(format, self.resolution):
+        if not self._info.has_format(format, self.resolution):
             raise RuntimeError(
                 f"カメラは {format} {width}x{height}@{fps}fps をサポートしていません。\n"
-                f"サポートされているフォーマット:\n{self.info.format_text()}"
+                f"サポートされているフォーマット:\n{self._info.format_text()}"
             )
 
         self._format = format
-
         self._cam = self._open_camera()
 
     @property
+    @override
     def resolution(self) -> Resolution:
         return Resolution(self._width, self._height, self._fps)
+
+    @property
+    @override
+    def info(self) -> CameraInfo:
+        return self._info
 
     def _get_default_format(self, info: CameraInfo) -> str:
         return list(info.formats.keys())[0]
@@ -165,7 +190,7 @@ class Camera:
 
         return cam
 
-    def _validate_device_id(self, device_id) -> None:
+    def _validate_device_id(self, device_id: int) -> None:
         """デバイスIDがカメラデバイスとして有効か検証する."""
         device_path = _device_id_to_path(device_id)
 
@@ -189,6 +214,7 @@ class Camera:
         if "Video Capture" not in result.stdout:
             raise OSError(f"{device_path} はビデオキャプチャデバイスではありません")
 
+    @override
     def capture(self) -> Image:
         """1フレームをキャプチャして返す."""
         ret, img = self._cam.read()
@@ -206,3 +232,98 @@ class Camera:
             )
             image = cv2.resize(image, (self._width, self._height))
         return Image(image)
+
+
+class _CsiCamera(Camera):
+    """CSIカメラ（picamera2）実装."""
+
+    def __init__(
+        self,
+        camera_num: int = 0,
+        width: int = 640,
+        height: int = 480,
+        fps: float = 30.0,
+    ) -> None:
+        cameras = picamera2.Picamera2.global_camera_info()
+        if camera_num >= len(cameras):
+            raise OSError(f"CSIカメラ {camera_num} が見つかりません")
+
+        self._width = width
+        self._height = height
+        self._fps = fps
+
+        name = cameras[camera_num].get("Model", "CSI Camera")
+        self._info = CameraInfo(
+            name=name,
+            formats={"BGR": [Resolution(width, height, fps)]},
+        )
+
+        self._picam2 = picamera2.Picamera2(camera_num)
+        config = self._picam2.create_video_configuration(
+            main={"size": (width, height), "format": "BGR888"},
+            controls={"FrameRate": fps},
+        )
+        self._picam2.configure(config)
+        self._picam2.start()
+
+    @property
+    @override
+    def resolution(self) -> Resolution:
+        return Resolution(self._width, self._height, self._fps)
+
+    @property
+    @override
+    def info(self) -> CameraInfo:
+        return self._info
+
+    @override
+    def capture(self) -> Image:
+        """1フレームをキャプチャして返す."""
+        frame = self._picam2.capture_array("main")
+        return Image(frame)
+
+    def __del__(self) -> None:
+        if hasattr(self, "_picam2"):
+            self._picam2.stop()
+            self._picam2.close()
+
+
+def create_camera(
+    device_id: int = 0,
+    width: int = 640,
+    height: int = 480,
+    fps: float = 30.0,
+    format: str | None = None,
+    backend: str = "usb",
+) -> Camera:
+    """バックエンドを指定してカメラを生成するファクトリ関数.
+
+    Args:
+        device_id: デバイスID。USBカメラでは /dev/video{device_id}、
+                   CSIカメラではカメラポート番号（0 または 1）。
+        width: 解像度の幅。
+        height: 解像度の高さ。
+        fps: フレームレート。
+        format: フォーマットコード（4文字）。USB バックエンドのみ有効。
+        backend: カメラバックエンド。"usb"（デフォルト）または "csi"。
+    """
+    match backend:
+        case "usb":
+            return _UsbCamera(
+                device_id=device_id,
+                width=width,
+                height=height,
+                fps=fps,
+                format=format,
+            )
+        case "csi":
+            return _CsiCamera(
+                camera_num=device_id,
+                width=width,
+                height=height,
+                fps=fps,
+            )
+        case _:
+            raise ValueError(
+                f"未知のバックエンド: {backend}。'usb' または 'csi' を指定してください"
+            )
