@@ -1,4 +1,5 @@
-# Our projects
+# Our project
+.env
 
 # Python-generated files
 __pycache__/
