@@ -25,8 +25,8 @@ def main() -> None:
         required=True,
         help="チェッカーボードの1マスのサイズ (mm)",
     )
-    parser.add_argument("--crop-width", type=int, default=400, help="クロップ幅")
-    parser.add_argument("--crop-height", type=int, default=400, help="クロップ高さ")
+    parser.add_argument("--crop-width", type=int, default=600, help="クロップ幅")
+    parser.add_argument("--crop-height", type=int, default=600, help="クロップ高さ")
     parser.add_argument(
         "--backend", "-b", type=str, default="csi", help="バックエンド (usb/csi)"
     )
