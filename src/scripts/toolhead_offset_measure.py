@@ -23,7 +23,7 @@ from pcb_assembly import gcode
 from pcb_assembly.config import Corner, Machine
 from pcb_assembly.control.adjust import OffsetTransformMeasurer, XYPositionAdjustor
 from pcb_assembly.geometry import Point2d
-from pcb_assembly.hal import Camera, Klipper, XYZStage
+from pcb_assembly.hal import Klipper, XYZStage, create_camera
 from pcb_assembly.utils import setup_logging
 from pcb_assembly.vision import (
     CalibrationResult,
@@ -79,12 +79,13 @@ def main() -> None:
 
     # カメラ初期化
     cam_config = machine.camera
-    camera = Camera(
+    camera = create_camera(
         device_id=cam_config.device_id,
         width=cam_config.width,
         height=cam_config.height,
         fps=cam_config.fps,
         format=cam_config.format,
+        backend=cam_config.backend,
     )
 
     # キャリブレーション読み込み

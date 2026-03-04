@@ -7,7 +7,8 @@ sudo apt-get install -y \
     v4l-utils \
     curl \
     kicad \
-    make
+    make \
+    python3-picamera2
 
 # Astral uvをインストール
 curl -LsSf https://astral.sh/uv/install.sh | sh

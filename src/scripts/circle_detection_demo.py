@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cv2
 
-from pcb_assembly.hal.camera import Camera
+from pcb_assembly.hal.camera import create_camera
 from pcb_assembly.vision.calibration import CalibrationResult
 from pcb_assembly.vision.detection import CircleDetector
 
@@ -16,8 +16,8 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 def main() -> None:
     parser = argparse.ArgumentParser(description="円検出デモ")
     parser.add_argument("--device", "-d", type=int, default=0, help="カメラデバイスID")
-    parser.add_argument("--width", "-W", type=int, default=640, help="幅")
-    parser.add_argument("--height", "-H", type=int, default=480, help="高さ")
+    parser.add_argument("--width", "-W", type=int, default=1280, help="幅")
+    parser.add_argument("--height", "-H", type=int, default=720, help="高さ")
     parser.add_argument(
         "--calibration",
         "-c",
@@ -39,14 +39,18 @@ def main() -> None:
         default=1.0,
         help="直径の許容誤差 (mm)",
     )
+    parser.add_argument(
+        "--backend", "-b", type=str, default="csi", help="バックエンド (usb/csi)"
+    )
     args = parser.parse_args()
 
     calibration = CalibrationResult.load(args.calibration)
 
-    camera = Camera(
+    camera = create_camera(
         device_id=args.device,
         width=args.width,
         height=args.height,
+        backend=args.backend,
     )
 
     detector = CircleDetector(

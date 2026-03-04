@@ -64,6 +64,7 @@ class Camera:
     calibration_file: Path
     device_id: int = 0
     format: str = "YUYV"
+    backend: str = "csi"
 
     @property
     def size(self) -> tuple[int, int]:
