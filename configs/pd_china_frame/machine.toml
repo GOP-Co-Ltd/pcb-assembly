@@ -18,7 +18,7 @@ width = 640
 height = 480
 fps = 30.0
 format = "YUYV"
-calibration_file = "HD USB Camera: HD USB Camera_20260106_160859.json"
+calibration_file = "ov9281_20260304_114344.json"
 
 [camera.crop]
 width = 600
@@ -26,8 +26,8 @@ height = 600
 
 [toolhead]
 # カメラに対するツールヘッドの相対位置 (mm)
-x = 14.39994005761438
-y = 56.195957821646225
+x = -4.5
+y = 48.86
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
