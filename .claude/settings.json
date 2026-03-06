@@ -38,7 +38,8 @@
       "Bash(find:*)",
       "Bash(uv run pytest:*)",
       "Bash(tree:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
