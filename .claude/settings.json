@@ -39,9 +39,11 @@
       "Bash(make test:*)",
       "Bash(make format:*)",
       "Bash(find:*)",
+      "Bash(find *)",
       "Bash(uv run pytest:*)",
       "Bash(tree:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(uv lock:*)"
     ]
   }
 }
