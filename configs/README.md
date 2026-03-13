@@ -36,13 +36,6 @@ Klipper以外のハードウェア設定。GPIO、カメラ、その他のデバ
 host = "localhost"
 port = 7125
 
-[probe]
-a_pin = 17
-b_pin = 27
-rotation_pulse = 600      # PPR (Pulses Per Rotation)
-rotation_distance = 40.0  # mm/回転
-inverse = false
-
 [camera]
 device_id = 0
 width = 640
