@@ -22,17 +22,6 @@ class Klipper:
 
 
 @attrs.frozen
-class Probe:
-    """プローブの設定."""
-
-    a_pin: int
-    b_pin: int
-    rotation_pulse: int
-    rotation_distance: float
-    inverse: bool = False
-
-
-@attrs.frozen
 class PasteDispenser:
     """ペーストディスペンサーの設定."""
 
@@ -249,11 +238,6 @@ class Machine:
     def klipper(self) -> Klipper:
         """Klipper設定を取得する."""
         return self._get_config("klipper", Klipper)
-
-    @property
-    def probe(self) -> Probe:
-        """プローブ設定を取得する."""
-        return self._get_config("probe", Probe)
 
     @property
     def paste_dispenser(self) -> PasteDispenser:

@@ -2,12 +2,6 @@
 
 [klipper]
 
-[probe]
-a_pin = 17
-b_pin = 27
-rotation_pulse = 600
-rotation_distance = 40.0
-
 [camera]
 width = 640
 height = 480

@@ -10,7 +10,6 @@ from pcb_assembly.config import (
     Klipper,
     Machine,
     PasteDispenser,
-    Probe,
     ReferencePoint,
     Toolhead,
 )
@@ -25,13 +24,6 @@ class TestMachine:
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.klipper == Klipper(host="192.168.1.100", port=7125)
-        assert machine.probe == Probe(
-            a_pin=17,
-            b_pin=27,
-            rotation_pulse=600,
-            rotation_distance=40.0,
-            inverse=True,
-        )
         assert machine.paste_dispenser == PasteDispenser(
             syringe_size=9.0,
             nozzle_size="27G",
@@ -61,7 +53,6 @@ class TestMachine:
         machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
 
         assert machine.klipper == Klipper(host="localhost", port=7125)
-        assert machine.probe.inverse is False
         assert machine.camera.device_id == 0
         assert machine.camera.format == "YUYV"
 
