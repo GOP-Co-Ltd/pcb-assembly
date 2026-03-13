@@ -43,7 +43,8 @@
       "Bash(uv run pytest:*)",
       "Bash(tree:*)",
       "Bash(grep:*)",
-      "Bash(uv lock:*)"
+      "Bash(uv lock:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

@@ -5,6 +5,7 @@ import pytest
 
 from pcb_assembly.geometry.transform import (
     Compose,
+    HeightMap,
     Identity,
     Matrix2d,
     Point2d,
@@ -521,3 +522,126 @@ class TestCompose:
         assert isinstance(inverse[1], Scale)
         assert inverse[0] == Shift(-10.0, 0.0, 0.0)
         assert inverse[1] == Scale(0.5, 1.0, 1.0)
+
+
+class TestHeightMap:
+    """HeightMapクラスのテスト."""
+
+    @pytest.fixture
+    def height_map(self):
+        # 2x2 grid over (0,0)-(10,20) with Z values:
+        # [[1.0, 2.0],
+        #  [3.0, 4.0]]
+        z_values = np.array([[1.0, 2.0], [3.0, 4.0]])
+        return HeightMap(
+            z_values=z_values, x_min=0.0, x_max=10.0, y_min=0.0, y_max=20.0
+        )
+
+    def test_apply_point3d_adds_interpolated_z(self, height_map):
+        point = Point3d(0.0, 0.0, 10.0)
+
+        result = height_map.apply(point)
+
+        assert result.x == 0.0
+        assert result.y == 0.0
+        assert result.z == pytest.approx(11.0)
+
+    def test_apply_point2d_returns_unchanged(self, height_map):
+        point = Point2d(5.0, 10.0)
+
+        result = height_map.apply(point)
+
+        assert result == point
+        assert isinstance(result, Point2d)
+
+    @pytest.mark.parametrize(
+        ("x", "y", "expected_z_offset"),
+        [
+            (0.0, 0.0, 1.0),  # top-left
+            (10.0, 0.0, 2.0),  # top-right
+            (0.0, 20.0, 3.0),  # bottom-left
+            (10.0, 20.0, 4.0),  # bottom-right
+        ],
+    )
+    def test_corner_values(self, height_map, x, y, expected_z_offset):
+        result = height_map.apply(Point3d(x, y, 0.0))
+
+        assert result.z == pytest.approx(expected_z_offset)
+
+    def test_center_interpolation(self, height_map):
+        # Center of 2x2 grid should be average of all 4 corners
+        result = height_map.apply(Point3d(5.0, 10.0, 0.0))
+
+        assert result.z == pytest.approx(2.5)
+
+    @pytest.mark.parametrize(
+        ("x", "y", "expected_z_offset"),
+        [
+            (-5.0, 0.0, 1.0),  # clamped to x_min
+            (15.0, 0.0, 2.0),  # clamped to x_max
+            (0.0, -5.0, 1.0),  # clamped to y_min
+            (0.0, 25.0, 3.0),  # clamped to y_max
+        ],
+    )
+    def test_clamp_outside_grid(self, height_map, x, y, expected_z_offset):
+        result = height_map.apply(Point3d(x, y, 0.0))
+
+        assert result.z == pytest.approx(expected_z_offset)
+
+    def test_inverse_roundtrip(self, height_map):
+        point = Point3d(5.0, 10.0, 100.0)
+        transformed = height_map.apply(point)
+        restored = height_map.inverse().apply(transformed)
+        assert restored.z == pytest.approx(point.z)
+
+    def test_save_load_roundtrip(self, height_map, tmp_path):
+        path = tmp_path / "heightmap.json"
+        height_map.save(path)
+
+        loaded = HeightMap.load(path)
+
+        assert np.array_equal(loaded.z_values, height_map.z_values)
+        assert loaded.x_min == height_map.x_min
+        assert loaded.x_max == height_map.x_max
+        assert loaded.y_min == height_map.y_min
+        assert loaded.y_max == height_map.y_max
+
+    def test_1d_array_raises_value_error(self):
+        with pytest.raises(ValueError, match="2次元配列"):
+            HeightMap(
+                z_values=np.array([1.0, 2.0]),
+                x_min=0.0,
+                x_max=10.0,
+                y_min=0.0,
+                y_max=20.0,
+            )
+
+    def test_x_min_ge_x_max_raises_value_error(self):
+        with pytest.raises(ValueError, match="x_minはx_maxより小さい"):
+            HeightMap(
+                z_values=np.array([[1.0, 2.0], [3.0, 4.0]]),
+                x_min=10.0,
+                x_max=10.0,
+                y_min=0.0,
+                y_max=20.0,
+            )
+
+    def test_y_min_ge_y_max_raises_value_error(self):
+        with pytest.raises(ValueError, match="y_minはy_maxより小さい"):
+            HeightMap(
+                z_values=np.array([[1.0, 2.0], [3.0, 4.0]]),
+                x_min=0.0,
+                x_max=10.0,
+                y_min=20.0,
+                y_max=0.0,
+            )
+
+    def test_shape_less_than_2x2_raises_value_error(self):
+        with pytest.raises(ValueError, match="2x2以上"):
+            HeightMap(
+                z_values=np.array([[1.0]]),
+                x_min=0.0,
+                x_max=10.0,
+                y_min=0.0,
+                y_max=20.0,
+            )
