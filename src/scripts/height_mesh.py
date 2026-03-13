@@ -15,6 +15,7 @@
 import argparse
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -99,10 +100,19 @@ def main() -> None:
         "--output",
         "-o",
         type=Path,
-        required=True,
-        help="HeightMap保存先のJSONファイルパス",
+        default=None,
+        help="HeightMap保存先のJSONファイルパス (省略時: data/height_mesh/<config名>/<pcb名>_<時刻>.json)",
     )
     args = parser.parse_args()
+
+    # デフォルト出力先の生成
+    if args.output is None:
+        config_name = Path(args.config).parent.name
+        pcb_stem = Path(args.pcb_file).stem
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = PROJECT_ROOT / "data" / "height_mesh" / config_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        args.output = output_dir / f"{pcb_stem}_{timestamp}.json"
 
     # 設定読み込み
     print("=== 設定読み込み ===")
