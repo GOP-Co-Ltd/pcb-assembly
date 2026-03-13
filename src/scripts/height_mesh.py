@@ -27,7 +27,7 @@ from pcb_assembly.control.adjust import (
     OffsetTransformMeasurer,
     XYPositionAdjustor,
 )
-from pcb_assembly.geometry import Point2d
+from pcb_assembly.geometry import Compose, Point2d
 from pcb_assembly.hal import Klipper, ProbeSensor, XYZStage, create_camera
 from pcb_assembly.pcb import PcbFile
 from pcb_assembly.utils import setup_logging
@@ -214,6 +214,7 @@ def main() -> None:
 
         # Bed mesh計測
         print("\n=== Bed mesh計測 ===")
+        toolhead_offset = machine.toolhead.to_transform()
         height_measurer = HeightTransformMeasurer(
             probe=probe,
             klipper=klipper,
@@ -221,7 +222,7 @@ def main() -> None:
         )
         height_map = height_measurer.measure(
             outline=outline,
-            board_to_machine=board_transform,
+            board_to_machine=Compose([board_transform, toolhead_offset]),
         )
 
         # 保存
