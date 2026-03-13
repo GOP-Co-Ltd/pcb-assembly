@@ -31,17 +31,10 @@ def main() -> None:
 
     machine = Machine(args.config)
     klipper_config = machine.klipper
-    probe_config = machine.probe
 
     klipper = Klipper(host=klipper_config.host, port=klipper_config.port)
     stage = XYZStage(klipper.readonly)
-    probe = ProbeSensor(
-        a_pin=probe_config.a_pin,
-        b_pin=probe_config.b_pin,
-        rotation_distance=probe_config.rotation_distance,
-        rotation_pulse=probe_config.rotation_pulse,
-        inverse=probe_config.inverse,
-    )
+    probe = ProbeSensor(klipper.readonly)
 
     measurer = HeightTransformMeasurer(probe=probe, klipper=klipper)
     toolhead = machine.toolhead.to_transform()

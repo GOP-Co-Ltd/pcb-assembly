@@ -164,14 +164,7 @@ def main() -> None:
         klipper=klipper.readonly,
         syringe_size=dispenser_config.syringe_size,
     )
-    probe_config = machine.probe
-    probe = ProbeSensor(
-        a_pin=probe_config.a_pin,
-        b_pin=probe_config.b_pin,
-        rotation_distance=probe_config.rotation_distance,
-        rotation_pulse=probe_config.rotation_pulse,
-        inverse=probe_config.inverse,
-    )
+    probe = ProbeSensor(klipper.readonly)
     nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
 
     try:
