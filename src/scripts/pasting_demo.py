@@ -8,21 +8,18 @@ import argparse
 import logging
 from pathlib import Path
 
-from shapely import Point as ShapelyPoint, box
+from shapely import Point as ShapelyPoint
 
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
-from pcb_assembly.control.adjust import HeightTransformMeasurer
 from pcb_assembly.control.pasting import PasteApplicator
-from pcb_assembly.geometry import Identity, Point2d, Transform
+from pcb_assembly.geometry import HeightMap, Point2d, Transform
 from pcb_assembly.hal import (
     NOZZLE_SPECS,
     Klipper,
     PasteDispenser,
-    ProbeSensor,
     XYZStage,
 )
-from pcb_assembly.pcb import Outline
 from pcb_assembly.utils import setup_logging
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -114,8 +111,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="ペースト塗布デモ")
     parser.add_argument(
         "--config",
-        type=str,
-        default=str(PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml"),
+        "-c",
+        type=Path,
+        default=PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml",
         help="設定ファイルのパス",
     )
     parser.add_argument(
@@ -144,6 +142,12 @@ def main() -> None:
         "--paste-thickness", type=float, default=0.1, help="ペースト膜厚 [mm]"
     )
     parser.add_argument(
+        "--height-map",
+        type=Path,
+        required=True,
+        help="HeightMapのJSONファイルパス",
+    )
+    parser.add_argument(
         "--retract", type=float, default=50.0, help="リトラクション量 [μL]"
     )
     parser.add_argument(
@@ -165,7 +169,6 @@ def main() -> None:
         klipper=klipper.readonly,
         syringe_size=dispenser_config.syringe_size,
     )
-    probe = ProbeSensor(klipper.readonly)
     nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
 
     try:
@@ -178,15 +181,10 @@ def main() -> None:
         toolhead = machine.toolhead.to_transform()
         target = interactive_positioning(klipper, stage, toolhead)
 
-        # 3. 高さ計測
-        print("\n=== 高さ計測 ===")
-        # TODO: デモ用に100x100mmのダミーアウトラインを使用。実運用時はPCBファイルから取得する。
-        outline = Outline(polygon=box(0, 0, 100.0, 100.0))
-        measurer = HeightTransformMeasurer(probe, klipper, stage)
-        height_transform = measurer.measure(
-            outline=outline, board_to_machine=Identity()
-        )
-        print(f"計測結果: {height_transform}")
+        # 3. HeightMap読み込み
+        print("\n=== HeightMap読み込み ===")
+        height_transform = HeightMap.load(args.height_map)
+        print(f"HeightMap: {args.height_map}")
 
         # 4. PasteApplicator作成
         applicator = PasteApplicator(
