@@ -8,13 +8,13 @@ import argparse
 import logging
 from pathlib import Path
 
-from shapely import Point as ShapelyPoint
+from shapely import Point as ShapelyPoint, box
 
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
 from pcb_assembly.control.adjust import HeightTransformMeasurer
 from pcb_assembly.control.pasting import PasteApplicator
-from pcb_assembly.geometry import Point2d, Transform
+from pcb_assembly.geometry import Identity, Point2d, Transform
 from pcb_assembly.hal import (
     NOZZLE_SPECS,
     Klipper,
@@ -22,6 +22,7 @@ from pcb_assembly.hal import (
     ProbeSensor,
     XYZStage,
 )
+from pcb_assembly.pcb import Outline
 from pcb_assembly.utils import setup_logging
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -179,8 +180,12 @@ def main() -> None:
 
         # 3. 高さ計測
         print("\n=== 高さ計測 ===")
-        measurer = HeightTransformMeasurer(probe, klipper)
-        height_transform = measurer.measure()
+        # TODO: デモ用に100x100mmのダミーアウトラインを使用。実運用時はPCBファイルから取得する。
+        outline = Outline(polygon=box(0, 0, 100.0, 100.0))
+        measurer = HeightTransformMeasurer(probe, klipper, stage)
+        height_transform = measurer.measure(
+            outline=outline, board_to_machine=Identity()
+        )
         print(f"計測結果: {height_transform}")
 
         # 4. PasteApplicator作成

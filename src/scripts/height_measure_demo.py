@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """プローブによる高さ計測のデモスクリプト.
 
-指定の機械座標に移動した後、プローブマクロを実行して高さを計測する。
+指定の機械座標に移動した後、プローブマクロを実行してbed meshを計測する。
 """
 
 import argparse
 import logging
 from pathlib import Path
 
+from shapely import box
+
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
 from pcb_assembly.control.adjust import HeightTransformMeasurer
-from pcb_assembly.geometry import Point2d
+from pcb_assembly.geometry import Identity, Point2d
 from pcb_assembly.hal import Klipper, ProbeSensor, XYZStage
+from pcb_assembly.pcb import Outline
 from pcb_assembly.utils import setup_logging
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -27,6 +30,10 @@ def main() -> None:
         default=str(PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml"),
         help="設定ファイルのパス",
     )
+    parser.add_argument("--board-width", type=float, default=100.0, help="基板幅 (mm)")
+    parser.add_argument(
+        "--board-height", type=float, default=100.0, help="基板高さ (mm)"
+    )
     args = parser.parse_args()
 
     machine = Machine(args.config)
@@ -36,8 +43,9 @@ def main() -> None:
     stage = XYZStage(klipper.readonly)
     probe = ProbeSensor(klipper.readonly)
 
-    measurer = HeightTransformMeasurer(probe=probe, klipper=klipper)
+    measurer = HeightTransformMeasurer(probe=probe, klipper=klipper, stage=stage)
     toolhead = machine.toolhead.to_transform()
+    outline = Outline(polygon=box(0, 0, args.board_width, args.board_height))
 
     # ホーミング
     print("=== ホーミング ===")
@@ -73,8 +81,8 @@ def main() -> None:
 
     # 高さ計測
     print("\n=== 高さ計測 ===")
-    transform = measurer.measure()
-    print(f"計測結果: {transform}")
+    height_map = measurer.measure(outline=outline, board_to_machine=Identity())
+    print(f"計測結果: {height_map}")
 
     klipper.send_gcode(gcode.relax())
 
