@@ -5,10 +5,25 @@
 ## コマンド
 
 - `make setup` - 開発環境のセットアップ
-- `make test` - ハードウェア以外のテストを実行
-- `make test-hardware` - 全テストを実行（ハードウェア含む）
-- `make format` - フォーマッタを実行
+- `make test` - 全テストを実行
+- `make test-no-hardware` - ハードウェア以外のテストを実行
+- `make format` - pre-commitフックを実行
 - `make type` - 型チェックを実行
+- `make run` - format, test, typeを順に実行
+
+## Git戦略
+
+### ブランチ
+
+- 種別: `feature`, `refactor`, `fix`, `docs`, `chore`
+- 命名規則: `<種別>/<日付>/<ブランチ名>` (例: `feature/20260313/electric-z-probe`)
+- 必ずブランチ上でのみcommitする（mainに直接commitしない）
+
+### コミットメッセージ
+
+- 形式: `<種別>(<スコープ>): <message>`
+- 種別: `feat`, `fix`, `refactor`, `chore`, `docs`
+- 例: `feat(config): probeマクロを再実装`
 
 ## テスト方針
 
