@@ -178,7 +178,7 @@ def main() -> None:
         print("ホーミング完了")
 
         # 2. 対話的位置合わせ
-        toolhead = machine.toolhead.to_transform()
+        toolhead = machine.paste_dispenser.toolhead.to_transform()
         target = interactive_positioning(klipper, stage, toolhead)
 
         # 3. HeightMap読み込み

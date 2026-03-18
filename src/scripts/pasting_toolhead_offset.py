@@ -314,7 +314,7 @@ def main() -> None:
         print("\n=== ボード中央へ移動 & プローブ ===")
         board_center = Point2d(outline.width / 2, outline.height / 2)
         center_camera = board_transform.apply(board_center)
-        toolhead_shift = machine.toolhead.to_transform()
+        toolhead_shift = machine.paste_dispenser.toolhead.to_transform()
         center_toolhead = toolhead_shift.apply(center_camera)
 
         # XY移動 → center_toolhead
@@ -478,12 +478,12 @@ def main() -> None:
         print(f"計測オフセット: X={measured_offset.x:.4f} Y={measured_offset.y:.4f}")
         print()
         print("machine.tomlに設定する値:")
-        print("[toolhead]")
+        print("[paste_dispenser.toolhead]")
         print(f"x = {measured_offset.x}")
         print(f"y = {measured_offset.y}")
 
         # 現在設定値との差分
-        current_toolhead = machine.toolhead
+        current_toolhead = machine.paste_dispenser.toolhead
         diff_x = measured_offset.x - current_toolhead.x
         diff_y = measured_offset.y - current_toolhead.y
         print()
