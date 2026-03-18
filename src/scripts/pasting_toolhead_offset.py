@@ -39,7 +39,7 @@ from pcb_assembly.control.setup import (
 from pcb_assembly.geometry import Identity, Move, Point2d
 from pcb_assembly.hal import NOZZLE_SPECS, PasteDispenser, ProbeSensor
 from pcb_assembly.utils import setup_logging
-from pcb_assembly.vision import CalibrationResult, CircleDetector
+from pcb_assembly.vision import CircleDetector
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 WINDOW_NAME = "Toolhead Offset"

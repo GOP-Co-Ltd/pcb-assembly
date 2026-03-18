@@ -23,16 +23,56 @@ import cv2
 
 from pcb_assembly import gcode
 from pcb_assembly.control.setup import (
+    BoardCalibrationResult,
     machine_session,
     setup_board_calibration,
 )
 from pcb_assembly.geometry import Move, Point2d, sort_by_nearest
+from pcb_assembly.hal import Camera
 from pcb_assembly.pcb import Layer
 from pcb_assembly.utils import setup_logging
 from pcb_assembly.vision import draw_overlay
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 WINDOW_NAME = "Board Tour Demo"
+
+
+def _display_at_point(
+    result: BoardCalibrationResult,
+    machine_pt: Point2d,
+    label: str,
+    duration: float = 0.5,
+) -> None:
+    """指定座標へ移動し、ラベル付きカメラ映像を一定時間表示する."""
+    klipper = result.klipper
+    stage = result.stage
+    camera = result.camera
+    crop_size = result.machine.camera.crop.size
+
+    klipper.send_gcode(
+        stage.to_gcode(Move(x=machine_pt.x, y=machine_pt.y, v=30))
+        + gcode.wait_for_done()
+    )
+
+    for _ in range(int(camera.resolution.fps * duration)):
+        frame = camera.capture()
+        img = draw_overlay(frame, crop_size).numpy()
+        cv2.putText(img, label, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.imshow(WINDOW_NAME, img)
+        if cv2.waitKey(1) == 27:  # Esc
+            print("中断しました")
+            break
+
+
+def _wait_for_keypress(camera: Camera, crop_size: tuple[int, int]) -> None:
+    """何かキーが押されるまでカメラ映像を表示し続ける."""
+    print("\n何かキーを押すと終了します...")
+    while True:
+        frame = camera.capture()
+        display = draw_overlay(frame, crop_size)
+        cv2.imshow(WINDOW_NAME, display.numpy())
+        if cv2.waitKey(100) != -1:
+            break
 
 
 def main() -> None:
@@ -72,9 +112,6 @@ def main() -> None:
     with machine_session(result.klipper):
         board_transform = result.board_transform
         stage = result.stage
-        klipper = result.klipper
-        camera = result.camera
-        cam_config = result.machine.camera
         pcb = result.pcb
         outline = pcb.outline
 
@@ -94,32 +131,7 @@ def main() -> None:
                 f"{name}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) -> "
                 f"Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
             )
-
-            klipper.send_gcode(
-                stage.to_gcode(Move(x=machine_pt.x, y=machine_pt.y, v=30))
-                + gcode.wait_for_done()
-            )
-
-            # カメラ表示
-            for _ in range(int(camera.resolution.fps * 1.0)):
-                frame = camera.capture()
-                img = draw_overlay(frame, cam_config.crop.size).numpy()
-
-                # 角情報をオーバーレイ
-                cv2.putText(
-                    img,
-                    f"Corner: {name}",
-                    (10, 90),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 0),
-                    2,
-                )
-                cv2.imshow(WINDOW_NAME, img)
-
-                if cv2.waitKey(1) == 27:  # Esc
-                    print("中断しました")
-                    break
+            _display_at_point(result, machine_pt, f"Corner: {name}", duration=1.0)
 
         print("四隅巡回完了")
 
@@ -142,37 +154,9 @@ def main() -> None:
 
             print("巡回開始... (Escキーで中断)")
             for i, comp in enumerate(sorted_components):
-                board_pt = comp.position
-                machine_pt = board_transform.apply(board_pt)
-
-                # 移動
-                klipper.send_gcode(
-                    stage.to_gcode(Move(x=machine_pt.x, y=machine_pt.y, v=30))
-                    + gcode.wait_for_done()
-                )
-
-                # カメラ表示
-                for _ in range(int(camera.resolution.fps * 0.5)):
-                    frame = camera.capture()
-                    img = draw_overlay(frame, cam_config.crop.size).numpy()
-
-                    # コンポーネント情報をオーバーレイ
-                    info_text = f"{comp.designator} ({i + 1}/{len(sorted_components)})"
-                    cv2.putText(
-                        img,
-                        info_text,
-                        (10, 90),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 255, 0),
-                        2,
-                    )
-                    cv2.imshow(WINDOW_NAME, img)
-
-                    # Escキーで中断
-                    if cv2.waitKey(1) == 27:  # Esc
-                        print("中断しました")
-                        break
+                machine_pt = board_transform.apply(comp.position)
+                label = f"{comp.designator} ({i + 1}/{len(sorted_components)})"
+                _display_at_point(result, machine_pt, label)
 
             print("コンポーネント巡回完了")
         else:
@@ -191,37 +175,10 @@ def main() -> None:
 
             print("巡回開始... (Escキーで中断)")
             for i, center_3d in enumerate(sorted_centers):
-                board_pt = center_3d.to2d()
-                machine_pt = board_transform.apply(board_pt)
-
-                # 移動
-                klipper.send_gcode(
-                    stage.to_gcode(Move(x=machine_pt.x, y=machine_pt.y, v=30))
-                    + gcode.wait_for_done()
+                machine_pt = board_transform.apply(center_3d.to2d())
+                _display_at_point(
+                    result, machine_pt, f"Pad {i + 1}/{len(sorted_centers)}"
                 )
-
-                # カメラ表示
-                for _ in range(int(camera.resolution.fps * 0.5)):
-                    frame = camera.capture()
-                    img = draw_overlay(frame, cam_config.crop.size).numpy()
-
-                    # パッド情報をオーバーレイ
-                    info_text = f"Pad {i + 1}/{len(sorted_centers)}"
-                    cv2.putText(
-                        img,
-                        info_text,
-                        (10, 90),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 255, 0),
-                        2,
-                    )
-                    cv2.imshow(WINDOW_NAME, img)
-
-                    # Escキーで中断
-                    if cv2.waitKey(1) == 27:  # Esc
-                        print("中断しました")
-                        break
 
             print("巡回完了")
         else:
@@ -229,19 +186,12 @@ def main() -> None:
 
         # ボード左上 (0, 0) に移動
         origin_machine = board_transform.apply(Point2d(0.0, 0.0))
-        klipper.send_gcode(
+        result.klipper.send_gcode(
             stage.to_gcode(Move(x=origin_machine.x, y=origin_machine.y, v=30))
             + gcode.wait_for_done()
         )
 
-        # 完了後も映像を表示し続ける（何かキーを押すまで）
-        print("\n何かキーを押すと終了します...")
-        while True:
-            frame = camera.capture()
-            display = draw_overlay(frame, cam_config.crop.size)
-            cv2.imshow(WINDOW_NAME, display.numpy())
-            if cv2.waitKey(100) != -1:
-                break
+        _wait_for_keypress(result.camera, result.machine.camera.crop.size)
 
 
 if __name__ == "__main__":
