@@ -44,16 +44,13 @@ def _display_at_point(
     duration: float = 0.5,
 ) -> None:
     """指定座標へ移動し、ラベル付きカメラ映像を一定時間表示する."""
-    klipper = result.klipper
-    stage = result.stage
-    camera = result.camera
-    crop_size = result.machine.camera.crop.size
-
-    klipper.send_gcode(
-        stage.to_gcode(Move(x=machine_pt.x, y=machine_pt.y, v=30))
+    result.klipper.send_gcode(
+        result.stage.to_gcode(Move(x=machine_pt.x, y=machine_pt.y, v=30))
         + gcode.wait_for_done()
     )
 
+    crop_size = result.machine.camera.crop.size
+    camera = result.camera
     for _ in range(int(camera.resolution.fps * duration)):
         frame = camera.capture()
         img = draw_overlay(frame, crop_size).numpy()

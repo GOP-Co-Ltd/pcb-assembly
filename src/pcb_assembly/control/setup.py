@@ -177,13 +177,10 @@ def setup_board_calibration(
         tolerance=tolerance,
     )
 
-    def adjust_reference() -> Point2d:
-        return position_adjustor.adjust()
-
     # Board変換の計測
     print("\n=== Board変換の計測 ===")
     board_transform_measurer = BoardTransformMeasurer(
-        adjust_reference=adjust_reference,
+        adjust_reference=position_adjustor.adjust,
         klipper=klipper,
         stage=stage,
         outline=outline,

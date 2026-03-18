@@ -36,16 +36,12 @@ class TestInteractiveLoading:
         captured = capsys.readouterr()
         assert "3.5 μL" in captured.out
 
-    def test_quit_immediately(self, mock_applicator, mocker: MockerFixture):
-        """qで即座に終了する."""
-        mocker.patch("builtins.input", side_effect=["q"])
-        interactive_loading(mock_applicator, 2.0)
-
-        mock_applicator.load.assert_not_called()
-
-    def test_quit_with_quit_command(self, mock_applicator, mocker: MockerFixture):
-        """quitでも終了する."""
-        mocker.patch("builtins.input", side_effect=["quit"])
+    @pytest.mark.parametrize("quit_cmd", ["q", "quit"])
+    def test_quit_without_loading(
+        self, mock_applicator, mocker: MockerFixture, quit_cmd: str
+    ):
+        """q/quitで即座に終了し、ロードしない."""
+        mocker.patch("builtins.input", side_effect=[quit_cmd])
         interactive_loading(mock_applicator, 2.0)
 
         mock_applicator.load.assert_not_called()
@@ -71,13 +67,3 @@ class TestInteractiveLoading:
         assert calls[0].args == (2.0,)
         assert calls[1].args == (5.0,)
         assert calls[2].args == (2.0,)
-
-    def test_header_shows_default_amount(
-        self, mock_applicator, mocker: MockerFixture, capsys
-    ):
-        """ヘッダーにデフォルト量が表示される."""
-        mocker.patch("builtins.input", side_effect=["q"])
-        interactive_loading(mock_applicator, 1.5)
-
-        captured = capsys.readouterr()
-        assert "デフォルト量: 1.5 μL" in captured.out

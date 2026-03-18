@@ -234,9 +234,8 @@ def main() -> None:
             + gcode.wait_for_done()
         )
 
-        dispense_stage_pos = center_toolhead
         print(
-            f"吐出位置 (ステージ): ({dispense_stage_pos.x:.3f}, {dispense_stage_pos.y:.3f})"
+            f"吐出位置 (ステージ): ({center_toolhead.x:.3f}, {center_toolhead.y:.3f})"
         )
 
         # === Phase 5: ペースト検出 & 位置合わせ ===
@@ -283,13 +282,13 @@ def main() -> None:
         # === Phase 6: オフセット算出 & 保存 ===
         print("\n=== オフセット算出 & 保存 ===")
         measured_offset = Point2d(
-            dispense_stage_pos.x - camera_final_pos.x,
-            dispense_stage_pos.y - camera_final_pos.y,
+            center_toolhead.x - camera_final_pos.x,
+            center_toolhead.y - camera_final_pos.y,
         )
 
         offset_result = ToolheadOffsetResult(
             offset=measured_offset,
-            dispense_position=dispense_stage_pos,
+            dispense_position=center_toolhead,
             camera_position=camera_final_pos,
             tolerance=args.tolerance,
             calibrated_at=datetime.now(),

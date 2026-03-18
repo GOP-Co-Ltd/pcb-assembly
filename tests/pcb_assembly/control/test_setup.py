@@ -8,7 +8,6 @@ from pcb_assembly.control.setup import OffsetObserver, machine_session
 from pcb_assembly.geometry import Point2d
 from pcb_assembly.vision import Image
 from pcb_assembly.vision.detection import OffsetStatistics
-from tests.helpers import mark_hardware
 
 
 class TestOffsetObserver:
@@ -103,16 +102,3 @@ class TestMachineSession:
 
         mock_klipper.send_gcode.assert_called_once_with("M84")
         mock_destroy.assert_called_once()
-
-
-@mark_hardware
-class TestSetupBoardCalibration:
-    """setup_board_calibrationのハードウェアテスト."""
-
-    def test_returns_board_calibration_result(self, tmp_path):
-        """setup_board_calibrationがBoardCalibrationResultを返すことを確認.
-
-        ハードウェア環境でのみ実行可能。
-        """
-        # ハードウェア依存のため、このテストはハードウェア環境でのみ実行される
-        pytest.skip("ハードウェア環境でのみ実行可能")
