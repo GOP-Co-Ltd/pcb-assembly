@@ -27,6 +27,11 @@ class TestMachine:
         assert machine.paste_dispenser == PasteDispenser(
             syringe_size=9.0,
             nozzle_size="27G",
+            dispense_rate=5.0,
+            dispense_accel=10.0,
+            retract_amount=10.0,
+            retract_rate=50.0,
+            retract_accel_factor=2.0,
         )
         assert machine.camera == Camera(
             device_id=0,
