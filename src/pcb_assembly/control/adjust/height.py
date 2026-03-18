@@ -19,7 +19,7 @@ class HeightTransformMeasurer:
     Z補正変換を構築する。
 
     Example:
-        probe_executor = ProbeExecutor(klipper=klipper, probe=probe)
+        probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
         measurer = HeightTransformMeasurer(probe_executor=probe_executor, klipper=klipper, stage=stage)
         height_map = measurer.measure(outline=pcb.outline, board_to_machine=board_transform)
         corrected = height_map.apply(Point3d(5.0, 10.0, 0.1))

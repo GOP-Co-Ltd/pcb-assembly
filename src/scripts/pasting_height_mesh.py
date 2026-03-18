@@ -130,7 +130,7 @@ def main() -> None:
     klipper = Klipper(host=machine.klipper.host, port=machine.klipper.port)
     stage = XYZStage(klipper.readonly)
     probe = ProbeSensor(klipper.readonly)
-    probe_executor = ProbeExecutor(klipper=klipper, probe=probe)
+    probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
 
     # カメラ初期化
     print("\n=== カメラ初期化 ===")

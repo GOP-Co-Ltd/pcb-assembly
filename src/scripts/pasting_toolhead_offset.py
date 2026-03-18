@@ -34,7 +34,7 @@ from pcb_assembly.control.adjust import (
 )
 from pcb_assembly.control.pasting import PasteApplicator, ToolheadOffsetResult
 from pcb_assembly.control.probe import ProbeExecutor
-from pcb_assembly.geometry import Identity, Point2d
+from pcb_assembly.geometry import Identity, Move, Point2d
 from pcb_assembly.hal import (
     NOZZLE_SPECS,
     Klipper,
@@ -211,7 +211,7 @@ def main() -> None:
     klipper = Klipper(host=machine.klipper.host, port=machine.klipper.port)
     stage = XYZStage(klipper.readonly)
     probe = ProbeSensor(klipper.readonly)
-    probe_executor = ProbeExecutor(klipper=klipper, probe=probe)
+    probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
 
     # PasteDispenser初期化
     dispenser_config = machine.paste_dispenser
@@ -252,7 +252,7 @@ def main() -> None:
     # Reference Pointへ移動
     print("\n=== Reference Point へ移動 ===")
     klipper.send_gcode(
-        gcode.move(x=ref_config.x, y=ref_config.y, velocity=20) + gcode.wait_for_done()
+        stage.to_gcode(Move(x=ref_config.x, y=ref_config.y)) + gcode.wait_for_done()
     )
     time.sleep(1.0)
 
@@ -321,7 +321,7 @@ def main() -> None:
 
         # XY移動 → center_toolhead
         klipper.send_gcode(
-            gcode.move(x=center_toolhead.x, y=center_toolhead.y, velocity=20)
+            stage.to_gcode(Move(x=center_toolhead.x, y=center_toolhead.y))
             + gcode.wait_for_done()
         )
 
@@ -331,6 +331,13 @@ def main() -> None:
 
         # === Phase 3: ペーストロード（対話式） ===
         print("\n=== ペーストロード ===")
+        klipper.send_gcode(
+            stage.to_gcode(
+                Move(z=0.0)  # ツールヘッドを上げる
+            )
+            + gcode.wait_for_done()
+        )
+
         nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
         applicator = PasteApplicator(
             klipper=klipper,
@@ -361,9 +368,7 @@ def main() -> None:
 
         # ステージを center_toolhead XY, Z=dispense_z へ移動
         klipper.send_gcode(
-            gcode.move(
-                x=center_toolhead.x, y=center_toolhead.y, z=dispense_z, velocity=20
-            )
+            stage.to_gcode(Move(x=center_toolhead.x, y=center_toolhead.y, z=dispense_z))
             + gcode.wait_for_done()
         )
 
@@ -392,7 +397,7 @@ def main() -> None:
 
         # Z を lift_height 分持ち上げ
         klipper.send_gcode(
-            gcode.move(z=dispense_z + args.lift_height, velocity=20)
+            stage.to_gcode(Move(z=dispense_z + args.lift_height))
             + gcode.wait_for_done()
         )
 
@@ -406,7 +411,7 @@ def main() -> None:
 
         # ステージを center_camera 付近へ XY 移動
         klipper.send_gcode(
-            gcode.move(x=center_camera.x, y=center_camera.y, velocity=20)
+            stage.to_gcode(Move(x=center_camera.x, y=center_camera.y))
             + gcode.wait_for_done()
         )
         time.sleep(1.0)
