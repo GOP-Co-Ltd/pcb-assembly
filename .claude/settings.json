@@ -46,7 +46,8 @@
       "Bash(uv lock:*)",
       "Bash(git checkout:*)",
       "WebSearch",
-      "WebFetch"
+      "WebFetch",
+      "Bash(git cherry-pick:*)"
     ],
     "deny": [
       "Bash(git push:*)"
