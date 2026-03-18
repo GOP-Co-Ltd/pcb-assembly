@@ -28,6 +28,7 @@ from pcb_assembly.control.adjust import (
     OffsetTransformMeasurer,
     XYPositionAdjustor,
 )
+from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.geometry import Compose, Point2d
 from pcb_assembly.hal import Klipper, ProbeSensor, XYZStage, create_camera
 from pcb_assembly.pcb import PcbFile
@@ -129,6 +130,7 @@ def main() -> None:
     klipper = Klipper(host=machine.klipper.host, port=machine.klipper.port)
     stage = XYZStage(klipper.readonly)
     probe = ProbeSensor(klipper.readonly)
+    probe_executor = ProbeExecutor(klipper=klipper, probe=probe)
 
     # カメラ初期化
     print("\n=== カメラ初期化 ===")
@@ -226,7 +228,7 @@ def main() -> None:
         print("\n=== Bed mesh計測 ===")
         toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
         height_measurer = HeightTransformMeasurer(
-            probe=probe,
+            probe_executor=probe_executor,
             klipper=klipper,
             stage=stage,
         )

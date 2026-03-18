@@ -33,6 +33,7 @@ from pcb_assembly.control.adjust import (
     XYPositionAdjustor,
 )
 from pcb_assembly.control.pasting import PasteApplicator, ToolheadOffsetResult
+from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.geometry import Identity, Point2d
 from pcb_assembly.hal import (
     NOZZLE_SPECS,
@@ -210,6 +211,7 @@ def main() -> None:
     klipper = Klipper(host=machine.klipper.host, port=machine.klipper.port)
     stage = XYZStage(klipper.readonly)
     probe = ProbeSensor(klipper.readonly)
+    probe_executor = ProbeExecutor(klipper=klipper, probe=probe)
 
     # PasteDispenser初期化
     dispenser_config = machine.paste_dispenser
@@ -324,14 +326,8 @@ def main() -> None:
         )
 
         # PROBE → board_surface_z 取得
-        klipper.send_gcode(
-            gcode.GCode("PROBE") + gcode.wait(1.0) + gcode.wait_for_done()
-        )
-        board_surface_z = probe.get_last_z_result()
+        board_surface_z = probe_executor.probe()
         print(f"Board surface Z: {board_surface_z:.4f} mm")
-
-        # Z=0へ戻す
-        klipper.send_gcode(gcode.move(z=0, velocity=20) + gcode.wait_for_done())
 
         # === Phase 3: ペーストロード（対話式） ===
         print("\n=== ペーストロード ===")

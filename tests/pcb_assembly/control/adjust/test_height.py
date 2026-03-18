@@ -16,9 +16,9 @@ class TestHeightTransformMeasurer:
         return klipper
 
     @pytest.fixture
-    def mock_probe(self):
-        probe = MagicMock()
-        return probe
+    def mock_probe_executor(self):
+        probe_executor = MagicMock()
+        return probe_executor
 
     @pytest.fixture
     def mock_stage(self):
@@ -42,13 +42,18 @@ class TestHeightTransformMeasurer:
         return transform
 
     def test_measure_grid_dimensions(
-        self, mock_probe, mock_klipper, mock_stage, mock_outline, mock_board_to_machine
+        self,
+        mock_probe_executor,
+        mock_klipper,
+        mock_stage,
+        mock_outline,
+        mock_board_to_machine,
     ):
         """HeightMapのグリッドサイズが指定通りであることを確認."""
-        mock_probe.get_last_z_result.return_value = -1.0
+        mock_probe_executor.probe.return_value = -1.0
 
         measurer = HeightTransformMeasurer(
-            probe=mock_probe,
+            probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
             grid_size=(3, 4),
@@ -62,15 +67,20 @@ class TestHeightTransformMeasurer:
         assert result.cols == 4
 
     def test_measure_records_probe_values(
-        self, mock_probe, mock_klipper, mock_stage, mock_outline, mock_board_to_machine
+        self,
+        mock_probe_executor,
+        mock_klipper,
+        mock_stage,
+        mock_outline,
+        mock_board_to_machine,
     ):
         """プローブの計測値がHeightMapに記録されることを確認."""
         # Return different Z values for each probe
         z_values = [-1.0, -1.5, -2.0, -2.5]
-        mock_probe.get_last_z_result.side_effect = z_values
+        mock_probe_executor.probe.side_effect = z_values
 
         measurer = HeightTransformMeasurer(
-            probe=mock_probe,
+            probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
             grid_size=(2, 2),
@@ -86,13 +96,18 @@ class TestHeightTransformMeasurer:
         assert result.z_values[1, 1] == pytest.approx(-2.5)
 
     def test_measure_height_map_bounds(
-        self, mock_probe, mock_klipper, mock_stage, mock_outline, mock_board_to_machine
+        self,
+        mock_probe_executor,
+        mock_klipper,
+        mock_stage,
+        mock_outline,
+        mock_board_to_machine,
     ):
         """HeightMapのBoard座標範囲がinset分内側であることを確認."""
-        mock_probe.get_last_z_result.return_value = -1.0
+        mock_probe_executor.probe.return_value = -1.0
 
         measurer = HeightTransformMeasurer(
-            probe=mock_probe,
+            probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
             grid_size=(2, 2),
