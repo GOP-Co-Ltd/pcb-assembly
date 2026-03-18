@@ -44,7 +44,12 @@
       "Bash(tree:*)",
       "Bash(grep:*)",
       "Bash(uv lock:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "WebSearch",
+      "WebFetch"
+    ],
+    "deny": [
+      "Bash(git push:*)"
     ]
   }
 }
