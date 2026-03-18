@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -26,6 +27,8 @@ from pcb_assembly.vision import (
     draw_overlay,
     safe_move_distance,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OffsetObserver:
@@ -82,26 +85,26 @@ def setup_board_calibration(
 ) -> BoardCalibrationResult:
     """マシン初期化からBoard変換計測までの共通セットアップを実行する."""
     # 設定読み込み
-    print("=== 設定読み込み ===")
+    logger.info("=== 設定読み込み ===")
     machine = Machine(config_path)
-    print(f"設定ファイル: {config_path}")
+    logger.info("設定ファイル: %s", config_path)
 
     # PCBファイル読み込み
-    print("\n=== PCBファイル読み込み ===")
+    logger.info("=== PCBファイル読み込み ===")
     pcb = PcbFile(pcb_file_path)
     outline = pcb.outline
-    print(f"PCBファイル: {pcb_file_path}")
-    print(f"Board幅: {outline.width:.3f} mm")
-    print(f"Board高さ: {outline.height:.3f} mm")
+    logger.info("PCBファイル: %s", pcb_file_path)
+    logger.info("Board幅: %.3f mm", outline.width)
+    logger.info("Board高さ: %.3f mm", outline.height)
 
     # Klipper接続
-    print("\n=== Klipper接続 ===")
+    logger.info("=== Klipper接続 ===")
     klipper = Klipper(host=machine.klipper.host, port=machine.klipper.port)
-    print(f"接続先: {machine.klipper.host}:{machine.klipper.port}")
+    logger.info("接続先: %s:%s", machine.klipper.host, machine.klipper.port)
     stage = XYZStage(klipper.readonly)
 
     # カメラ初期化
-    print("\n=== カメラ初期化 ===")
+    logger.info("=== カメラ初期化 ===")
     cam_config = machine.camera
     camera = create_camera(
         device_id=cam_config.device_id,
@@ -111,13 +114,13 @@ def setup_board_calibration(
         format=cam_config.format,
         backend=cam_config.backend,
     )
-    print(f"カメラ: {camera.info.name}")
-    print(f"解像度: {cam_config.width}x{cam_config.height}")
+    logger.info("カメラ: %s", camera.info.name)
+    logger.info("解像度: %sx%s", cam_config.width, cam_config.height)
 
     # キャリブレーション結果読み込み
-    print("\n=== キャリブレーション読み込み ===")
+    logger.info("=== キャリブレーション読み込み ===")
     calibration = CalibrationResult.load(cam_config.calibration_file)
-    print(f"pixel/mm: {calibration.pixel_per_mm:.2f}")
+    logger.info("pixel/mm: %.2f", calibration.pixel_per_mm)
 
     # 円検出器初期化
     ref_config = machine.reference_point
@@ -129,17 +132,17 @@ def setup_board_calibration(
     )
 
     # ホーミング
-    print("\n=== ホーミング (G28) ===")
+    logger.info("=== ホーミング (G28) ===")
     klipper.send_gcode(gcode.homing(x=True, y=True, z=home_z) + gcode.wait_for_done())
-    print("ホーミング完了")
+    logger.info("ホーミング完了")
 
     # Reference Pointへ移動
-    print("\n=== Reference Point (top left) へ移動 ===")
-    print(f"目標位置: ({ref_config.x}, {ref_config.y})")
+    logger.info("=== Reference Point (top left) へ移動 ===")
+    logger.info("目標位置: (%s, %s)", ref_config.x, ref_config.y)
     klipper.send_gcode(
         stage.to_gcode(Move(x=ref_config.x, y=ref_config.y)) + gcode.wait_for_done()
     )
-    print("移動完了")
+    logger.info("移動完了")
     time.sleep(1.0)
 
     # オフセット検出関数を定義
@@ -153,7 +156,7 @@ def setup_board_calibration(
     )
 
     # カメラ回転角の計測（2点法）
-    print("\n=== カメラ回転角の計測 ===")
+    logger.info("=== カメラ回転角の計測 ===")
     move_distance = (
         safe_move_distance(cam_config.crop.size, margin=0.3) / calibration.pixel_per_mm
     )
@@ -178,7 +181,7 @@ def setup_board_calibration(
     )
 
     # Board変換の計測
-    print("\n=== Board変換の計測 ===")
+    logger.info("=== Board変換の計測 ===")
     board_transform_measurer = BoardTransformMeasurer(
         adjust_reference=position_adjustor.adjust,
         klipper=klipper,

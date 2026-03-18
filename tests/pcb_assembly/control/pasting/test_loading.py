@@ -1,5 +1,7 @@
 """interactive_loading のテスト."""
 
+import logging
+
 import pytest
 from pytest_mock import MockerFixture
 
@@ -16,25 +18,25 @@ def mock_applicator(mocker: MockerFixture):
 
 class TestInteractiveLoading:
     def test_default_amount_on_empty_input(
-        self, mock_applicator, mocker: MockerFixture, capsys
+        self, mock_applicator, mocker: MockerFixture, caplog
     ):
         """Enter入力でデフォルト量をロードする."""
         mocker.patch("builtins.input", side_effect=["", "q"])
-        interactive_loading(mock_applicator, 2.0)
+        with caplog.at_level(logging.INFO):
+            interactive_loading(mock_applicator, 2.0)
 
         mock_applicator.load.assert_called_once_with(2.0)
-        captured = capsys.readouterr()
-        assert "2.0 μL" in captured.out
-        assert "完了" in captured.out
+        assert "2.0 μL" in caplog.text
+        assert "完了" in caplog.text
 
-    def test_custom_amount(self, mock_applicator, mocker: MockerFixture, capsys):
+    def test_custom_amount(self, mock_applicator, mocker: MockerFixture, caplog):
         """数値入力で指定量をロードする."""
         mocker.patch("builtins.input", side_effect=["3.5", "q"])
-        interactive_loading(mock_applicator, 2.0)
+        with caplog.at_level(logging.INFO):
+            interactive_loading(mock_applicator, 2.0)
 
         mock_applicator.load.assert_called_once_with(3.5)
-        captured = capsys.readouterr()
-        assert "3.5 μL" in captured.out
+        assert "3.5 μL" in caplog.text
 
     @pytest.mark.parametrize("quit_cmd", ["q", "quit"])
     def test_quit_without_loading(
@@ -46,16 +48,16 @@ class TestInteractiveLoading:
 
         mock_applicator.load.assert_not_called()
 
-    def test_invalid_input_shows_error(
-        self, mock_applicator, mocker: MockerFixture, capsys
+    def test_invalid_input_shows_warning(
+        self, mock_applicator, mocker: MockerFixture, caplog
     ):
-        """不正入力でエラーメッセージを表示し、ロードしない."""
+        """不正入力で警告メッセージを出し、ロードしない."""
         mocker.patch("builtins.input", side_effect=["abc", "q"])
-        interactive_loading(mock_applicator, 2.0)
+        with caplog.at_level(logging.WARNING):
+            interactive_loading(mock_applicator, 2.0)
 
         mock_applicator.load.assert_not_called()
-        captured = capsys.readouterr()
-        assert "不正な入力です" in captured.out
+        assert "不正な入力です" in caplog.text
 
     def test_multiple_operations(self, mock_applicator, mocker: MockerFixture):
         """複数回のロード操作を順に実行する."""
