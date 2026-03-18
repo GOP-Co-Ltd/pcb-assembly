@@ -137,7 +137,7 @@ def main() -> None:
         "--tolerance",
         "-t",
         type=float,
-        default=0.05,
+        default=0.1,
         help="位置合わせの許容誤差 (mm)",
     )
     parser.add_argument(
@@ -149,13 +149,13 @@ def main() -> None:
     parser.add_argument(
         "--dispense-amount",
         type=float,
-        default=0.5,
+        default=5,
         help="吐出量 (uL)",
     )
     parser.add_argument(
         "--loading-amount",
         type=float,
-        default=1.0,
+        default=10.0,
         help="ローディングデフォルト量 (uL)",
     )
     parser.add_argument(
@@ -323,14 +323,15 @@ def main() -> None:
             + gcode.wait_for_done()
         )
 
-        # PROBE_ACCURACY REPEAT=10 → board_surface_z 取得
+        # PROBE → board_surface_z 取得
         klipper.send_gcode(
-            gcode.GCode("PROBE_ACCURACY REPEAT=10")
-            + gcode.wait(1.0)
-            + gcode.wait_for_done()
+            gcode.GCode("PROBE") + gcode.wait(1.0) + gcode.wait_for_done()
         )
         board_surface_z = probe.get_last_z_result()
         print(f"Board surface Z: {board_surface_z:.4f} mm")
+
+        # Z=0へ戻す
+        klipper.send_gcode(gcode.move(z=0, velocity=20) + gcode.wait_for_done())
 
         # === Phase 3: ペーストロード（対話式） ===
         print("\n=== ペーストロード ===")

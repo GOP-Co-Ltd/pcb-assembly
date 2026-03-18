@@ -5,7 +5,7 @@ port = 7125
 [paste_dispenser]
 syringe_size = 9.0 # シリンジの直径 [mm]
 nozzle_size = "27G" # ノズルのゲージ
-dispense_rate = 5.0 # 吐出レート [uL/sec]
+dispense_rate = 1.0 # 吐出レート [uL/sec]
 dispense_accel = 10.0 # 吐出加速度 [uL/sec^2]
 retract_amount = 10.0 # リトラクション量 [uL]
 retract_rate = 50.0 # リトラクションレート [uL/sec]
