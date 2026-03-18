@@ -32,6 +32,7 @@ class PasteDispenser:
     retract_amount: float  # リトラクション量 [uL]
     retract_rate: float  # リトラクションレート [uL/sec]
     retract_accel_factor: float  # リトラクション加速度係数
+    toolhead: Toolhead
 
 
 @attrs.frozen
@@ -260,11 +261,6 @@ class Machine:
                 self._config_dir / camera_data["calibration_file"]
             )
         return self._converter.structure(camera_data, Camera)
-
-    @property
-    def toolhead(self) -> Toolhead:
-        """ツールヘッド設定を取得する."""
-        return self._get_config("toolhead", Toolhead)
 
     @property
     def reference_point(self) -> ReferencePoint:

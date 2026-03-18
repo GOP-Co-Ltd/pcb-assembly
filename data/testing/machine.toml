@@ -11,6 +11,10 @@ retract_amount = 10.0
 retract_rate = 50.0
 retract_accel_factor = 2.0
 
+[paste_dispenser.toolhead]
+x = 13.2
+y = 54.7
+
 [camera]
 device_id = 0
 width = 640
@@ -22,10 +26,6 @@ calibration_file = "calibration.json"
 [camera.crop]
 width = 400
 height = 400
-
-[toolhead]
-x = 13.2
-y = 54.7
 
 [reference_point]
 x = 23.1

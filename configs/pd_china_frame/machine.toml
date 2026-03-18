@@ -11,6 +11,11 @@ retract_amount = 10.0 # リトラクション量 [uL]
 retract_rate = 50.0 # リトラクションレート [uL/sec]
 retract_accel_factor = 2.0 # リトラクション加速度係数
 
+[paste_dispenser.toolhead]
+# カメラに対するツールヘッドの相対位置 (mm)
+x = -4.5
+y = 48.86
+
 [camera]
 device_id = 0
 width = 1280
@@ -22,11 +27,6 @@ calibration_file = "ov9281_20260304_114344.json"
 [camera.crop]
 width = 600
 height = 600
-
-[toolhead]
-# カメラに対するツールヘッドの相対位置 (mm)
-x = -4.5
-y = 48.86
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
