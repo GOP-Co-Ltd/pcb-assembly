@@ -5,9 +5,9 @@ import logging
 import numpy as np
 
 from pcb_assembly import gcode
+from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.geometry import HeightMap, Move, Point2d, Transform
 from pcb_assembly.hal import Klipper, XYZStage
-from pcb_assembly.hal.probe import ProbeSensor
 from pcb_assembly.pcb import Outline
 from pcb_assembly.utils import get_class_module_path
 
@@ -19,31 +19,29 @@ class HeightTransformMeasurer:
     Z補正変換を構築する。
 
     Example:
-        probe = ProbeSensor(klipper.readonly)
-        measurer = HeightTransformMeasurer(probe=probe, klipper=klipper, stage=stage)
+        probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
+        measurer = HeightTransformMeasurer(probe_executor=probe_executor, klipper=klipper, stage=stage)
         height_map = measurer.measure(outline=pcb.outline, board_to_machine=board_transform)
         corrected = height_map.apply(Point3d(5.0, 10.0, 0.1))
     """
 
     def __init__(
         self,
-        probe: ProbeSensor,
+        probe_executor: ProbeExecutor,
         klipper: Klipper,
         stage: XYZStage,
         *,
         grid_size: tuple[int, int] = (3, 3),
         inset: float = 5.0,
-        repeat: int = 10,
-        settle_time: float = 0.5,
+        move_settle_time: float = 0.5,
         move_velocity_ratio: float = 0.9,
     ) -> None:
-        self._probe = probe
+        self._probe_executor = probe_executor
         self._klipper = klipper
         self._stage = stage
         self._grid_size = grid_size
         self._inset = inset
-        self._repeat = repeat
-        self._settle_time = settle_time
+        self._move_settle_time = move_settle_time
         self._move_velocity_ratio = move_velocity_ratio
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
@@ -92,18 +90,12 @@ class HeightTransformMeasurer:
                 # Move to XY position
                 self._klipper.send_gcode(
                     self._stage.to_gcode(Move.from_point(machine_pt, v=move_velocity))
-                    + gcode.wait(self._settle_time)
+                    + gcode.wait(self._move_settle_time)
                     + gcode.wait_for_done()
                 )
 
                 # Probe
-                self._klipper.send_gcode(
-                    gcode.GCode(f"PROBE_ACCURACY REPEAT={self._repeat}")
-                    + gcode.wait(self._settle_time)
-                    + gcode.wait_for_done()
-                )
-
-                z = self._probe.get_last_z_result()
+                z = self._probe_executor.probe()
                 z_values[i, j] = z
                 self._logger.info(f"Z={z:.4f}mm")
 
