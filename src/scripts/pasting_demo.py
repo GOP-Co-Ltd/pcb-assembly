@@ -137,11 +137,12 @@ def main() -> None:
         help="位置合わせの許容誤差 (mm)",
     )
     parser.add_argument(
-        "--amount", type=float, default=1.0, help="デフォルトの押し出し量 [uL]"
+        "--amount", type=float, default=10.0, help="デフォルトの押し出し量 [uL]"
     )
     parser.add_argument("--radius", type=float, default=3.0, help="塗布円の半径 [mm]")
     parser.add_argument(
         "--height-map",
+        "-H",
         type=Path,
         required=True,
         help="HeightMapのJSONファイルパス",
