@@ -1,0 +1,213 @@
+"""マシン初期化からBoard変換計測までの共通セットアップ."""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Generator
+from contextlib import contextmanager
+from pathlib import Path
+
+import attrs
+import cv2
+
+from pcb_assembly import gcode
+from pcb_assembly.config import Machine
+from pcb_assembly.control.adjust import (
+    BoardTransformMeasurer,
+    OffsetTransformMeasurer,
+    XYPositionAdjustor,
+)
+from pcb_assembly.geometry import Move, Point2d, Transform
+from pcb_assembly.hal import Camera, Klipper, XYZStage, create_camera
+from pcb_assembly.pcb import PcbFile
+from pcb_assembly.vision import (
+    CalibrationResult,
+    CircleDetector,
+    draw_overlay,
+    safe_move_distance,
+)
+
+
+class OffsetObserver:
+    """カメラ画像からオフセットを検出・表示するcallable."""
+
+    def __init__(
+        self,
+        detector: CircleDetector,
+        camera: Camera,
+        crop_size: tuple[int, int],
+        window_name: str,
+        sample_count: int = 30,
+    ) -> None:
+        self._detector = detector
+        self._camera = camera
+        self._crop_size = crop_size
+        self._window_name = window_name
+        self._sample_count = sample_count
+
+    def __call__(self) -> Point2d:
+        result = self._detector.detect_with_statistics(
+            self._camera.capture() for _ in range(self._sample_count)
+        )
+        if result is None:
+            raise RuntimeError("検出に失敗しました")
+
+        display = draw_overlay(self._camera.capture(), self._crop_size, result.mean_mm)
+        cv2.imshow(self._window_name, display.numpy())
+        cv2.waitKey(1)
+
+        return result.mean_mm
+
+
+@attrs.frozen
+class BoardCalibrationResult:
+    """ボードキャリブレーション結果."""
+
+    machine: Machine
+    klipper: Klipper
+    stage: XYZStage
+    camera: Camera
+    calibration: CalibrationResult
+    offset_transform: Transform
+    board_transform: Transform
+    pcb: PcbFile
+
+
+def setup_board_calibration(
+    config_path: Path,
+    pcb_file_path: Path,
+    tolerance: float = 0.1,
+    window_name: str = "Calibration",
+    home_z: bool = False,
+) -> BoardCalibrationResult:
+    """マシン初期化からBoard変換計測までの共通セットアップを実行する."""
+    # 設定読み込み
+    print("=== 設定読み込み ===")
+    machine = Machine(config_path)
+    print(f"設定ファイル: {config_path}")
+
+    # PCBファイル読み込み
+    print("\n=== PCBファイル読み込み ===")
+    pcb = PcbFile(pcb_file_path)
+    outline = pcb.outline
+    print(f"PCBファイル: {pcb_file_path}")
+    print(f"Board幅: {outline.width:.3f} mm")
+    print(f"Board高さ: {outline.height:.3f} mm")
+
+    # Klipper接続
+    print("\n=== Klipper接続 ===")
+    klipper = Klipper(host=machine.klipper.host, port=machine.klipper.port)
+    print(f"接続先: {machine.klipper.host}:{machine.klipper.port}")
+    stage = XYZStage(klipper.readonly)
+
+    # カメラ初期化
+    print("\n=== カメラ初期化 ===")
+    cam_config = machine.camera
+    camera = create_camera(
+        device_id=cam_config.device_id,
+        width=cam_config.width,
+        height=cam_config.height,
+        fps=cam_config.fps,
+        format=cam_config.format,
+        backend=cam_config.backend,
+    )
+    print(f"カメラ: {camera.info.name}")
+    print(f"解像度: {cam_config.width}x{cam_config.height}")
+
+    # キャリブレーション結果読み込み
+    print("\n=== キャリブレーション読み込み ===")
+    calibration = CalibrationResult.load(cam_config.calibration_file)
+    print(f"pixel/mm: {calibration.pixel_per_mm:.2f}")
+
+    # 円検出器初期化
+    ref_config = machine.reference_point
+    detector = CircleDetector(
+        pixel_per_mm=calibration.pixel_per_mm,
+        target_diameter_mm=ref_config.target_diameter,
+        crop_size=cam_config.crop.size,
+        diameter_tolerance_mm=0.5,
+    )
+
+    # ホーミング
+    print("\n=== ホーミング (G28) ===")
+    klipper.send_gcode(gcode.homing(x=True, y=True, z=home_z) + gcode.wait_for_done())
+    print("ホーミング完了")
+
+    # Reference Pointへ移動
+    print("\n=== Reference Point (top left) へ移動 ===")
+    print(f"目標位置: ({ref_config.x}, {ref_config.y})")
+    klipper.send_gcode(
+        stage.to_gcode(Move(x=ref_config.x, y=ref_config.y)) + gcode.wait_for_done()
+    )
+    print("移動完了")
+    time.sleep(1.0)
+
+    # オフセット検出関数を定義
+    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+
+    observer = OffsetObserver(
+        detector=detector,
+        camera=camera,
+        crop_size=cam_config.crop.size,
+        window_name=window_name,
+    )
+
+    # カメラ回転角の計測（2点法）
+    print("\n=== カメラ回転角の計測 ===")
+    move_distance = (
+        safe_move_distance(cam_config.crop.size, margin=0.3) / calibration.pixel_per_mm
+    )
+    offset_transform_measurer = OffsetTransformMeasurer(
+        observe_offset=observer,
+        klipper=klipper,
+        stage=stage,
+        move_distance=move_distance,
+    )
+    offset_transform = offset_transform_measurer.measure()
+
+    # 補正済みオフセット関数を定義
+    def corrected_offset() -> Point2d:
+        return offset_transform.apply(observer())
+
+    # 位置補正を行い最終座標を返す関数を定義
+    position_adjustor = XYPositionAdjustor(
+        observe_offset=corrected_offset,
+        klipper=klipper,
+        stage=stage,
+        tolerance=tolerance,
+    )
+
+    def adjust_reference() -> Point2d:
+        return position_adjustor.adjust()
+
+    # Board変換の計測
+    print("\n=== Board変換の計測 ===")
+    board_transform_measurer = BoardTransformMeasurer(
+        adjust_reference=adjust_reference,
+        klipper=klipper,
+        stage=stage,
+        outline=outline,
+        reference_point=ref_config,
+    )
+    board_transform = board_transform_measurer.measure()
+
+    return BoardCalibrationResult(
+        machine=machine,
+        klipper=klipper,
+        stage=stage,
+        camera=camera,
+        calibration=calibration,
+        offset_transform=offset_transform,
+        board_transform=board_transform,
+        pcb=pcb,
+    )
+
+
+@contextmanager
+def machine_session(klipper: Klipper) -> Generator[None]:
+    """マシンセッションのクリーンアップを管理するコンテキストマネージャ."""
+    try:
+        yield
+    finally:
+        klipper.send_gcode("M84")
+        cv2.destroyAllWindows()
