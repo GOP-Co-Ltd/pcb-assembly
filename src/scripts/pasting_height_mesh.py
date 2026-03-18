@@ -29,7 +29,7 @@ from pcb_assembly.control.adjust import (
     XYPositionAdjustor,
 )
 from pcb_assembly.control.probe import ProbeExecutor
-from pcb_assembly.geometry import Compose, Point2d
+from pcb_assembly.geometry import Compose, Move, Point2d
 from pcb_assembly.hal import Klipper, ProbeSensor, XYZStage, create_camera
 from pcb_assembly.pcb import PcbFile
 from pcb_assembly.utils import setup_logging
@@ -164,7 +164,7 @@ def main() -> None:
     # Reference Pointへ移動
     print("\n=== Reference Point (top left) へ移動 ===")
     klipper.send_gcode(
-        gcode.move(x=ref_config.x, y=ref_config.y, velocity=20) + gcode.wait_for_done()
+        stage.to_gcode(Move(x=ref_config.x, y=ref_config.y)) + gcode.wait_for_done()
     )
     time.sleep(1.0)
 

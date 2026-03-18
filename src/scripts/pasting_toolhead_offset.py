@@ -142,12 +142,6 @@ def main() -> None:
         help="位置合わせの許容誤差 (mm)",
     )
     parser.add_argument(
-        "--dispense-height",
-        type=float,
-        default=0.1,
-        help="ボード面からの吐出高さ (mm)",
-    )
-    parser.add_argument(
         "--dispense-amount",
         type=float,
         default=5,
@@ -344,13 +338,13 @@ def main() -> None:
             paste_dispenser=paste_dispenser,
             stage=stage,
             nozzle_spec=nozzle_spec,
-            paste_velocity=5.0,
-            paste_thickness=0.1,
+            paste_velocity=dispenser_config.paste_velocity,
+            paste_thickness=dispenser_config.paste_thickness,
             retraction=dispenser_config.retract_amount,
             retraction_rate=dispenser_config.retract_rate,
             retraction_accel_factor=dispenser_config.retract_accel_factor,
             paste_accel=dispenser_config.dispense_accel,
-            paste_height=args.dispense_height,
+            paste_height=dispenser_config.paste_height,
             lift_height=args.lift_height,
             transform=Identity(),
         )
@@ -364,7 +358,7 @@ def main() -> None:
 
         # === Phase 4: ペースト吐出 ===
         print("\n=== ペースト吐出 ===")
-        dispense_z = board_surface_z + args.dispense_height
+        dispense_z = board_surface_z + dispenser_config.paste_height
 
         # ステージを center_toolhead XY, Z=dispense_z へ移動
         klipper.send_gcode(
