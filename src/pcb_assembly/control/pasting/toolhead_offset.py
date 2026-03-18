@@ -38,7 +38,7 @@ class ToolheadOffsetResult:
         return _converter.unstructure(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> Self:  # type: ignore[type-arg]
+    def from_dict(cls, data: dict[str, Any]) -> Self:
         """辞書から生成."""
         return _converter.structure(data, cls)
 
