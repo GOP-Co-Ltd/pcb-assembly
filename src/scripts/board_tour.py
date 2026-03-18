@@ -97,7 +97,7 @@ def main() -> None:
         "--tolerance",
         "-t",
         type=float,
-        default=0.01,
+        default=0.1,
         help="位置合わせの許容誤差 (mm)",
     )
     args = parser.parse_args()

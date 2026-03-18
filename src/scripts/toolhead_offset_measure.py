@@ -151,11 +151,10 @@ def main() -> None:
         stage=stage,
         tolerance=args.tolerance,
     )
-    position_adjustor.adjust()
+    ref_pos = position_adjustor.adjust()
     print("位置合わせ完了")
 
     # ボード左上へ移動（基準点 - top_leftオフセット）
-    ref_pos = stage.get_position().to2d()
     board_origin = ref_pos - ref_config.offsets.get(Corner.TOP_LEFT)
     print(f"\n=== ボード左上へ移動 ({board_origin.x:.3f}, {board_origin.y:.3f}) ===")
     klipper.send_gcode(
