@@ -152,12 +152,6 @@ class BoardTransformMeasurer:
         # 変換を構成（Matrix2d → Shift）
         transform = Compose([matrix, Shift.from_point(board_origin)])
 
-        # Board左上コーナーへ移動
-        self._logger.info("=== Board左上コーナーへ移動 ===")
-        self._move_to(
-            self._stage.to_gcode(Move.from_point(board_origin, v=move_velocity)),
-        )
-
         self._logger.info("Board変換の計測完了")
         return transform
 
