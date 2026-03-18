@@ -13,7 +13,7 @@ from shapely import Point as ShapelyPoint
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
 from pcb_assembly.control.pasting import PasteApplicator
-from pcb_assembly.geometry import HeightMap, Point2d, Transform
+from pcb_assembly.geometry import HeightMap, Move, Point2d, Transform
 from pcb_assembly.hal import (
     NOZZLE_SPECS,
     Klipper,
@@ -96,8 +96,7 @@ def interactive_positioning(
         target = toolhead.apply(Point2d(x, y))
         print(f"=== 移動: X={target.x}, Y={target.y} (toolheadオフセット適用) ===")
         klipper.send_gcode(
-            gcode.move(x=target.x, y=target.y, velocity=stage.max_velocity)
-            + gcode.wait_for_done()
+            stage.to_gcode(Move(x=target.x, y=target.y)) + gcode.wait_for_done()
         )
         last_target = target
 
@@ -119,42 +118,12 @@ def main() -> None:
     parser.add_argument(
         "--amount", type=float, default=1.0, help="デフォルトの押し出し量 [μL]"
     )
-    parser.add_argument(
-        "--retraction-accel-factor",
-        type=float,
-        default=2.0,
-        help="リトラクション加速度係数 [-]",
-    )
-    parser.add_argument(
-        "--paste-accel",
-        type=float,
-        default=10.0,
-        help="ペースト吐出加速度 [μL/sec²]",
-    )
     parser.add_argument("--radius", type=float, default=3.0, help="塗布円の半径 [mm]")
-    parser.add_argument(
-        "--paste-velocity", type=float, default=5.0, help="塗布時のXY移動速度 [mm/s]"
-    )
-    parser.add_argument(
-        "--paste-height", type=float, default=0.1, help="塗布面のZ高さ [mm]"
-    )
-    parser.add_argument(
-        "--paste-thickness", type=float, default=0.1, help="ペースト膜厚 [mm]"
-    )
     parser.add_argument(
         "--height-map",
         type=Path,
         required=True,
         help="HeightMapのJSONファイルパス",
-    )
-    parser.add_argument(
-        "--retract", type=float, default=50.0, help="リトラクション量 [μL]"
-    )
-    parser.add_argument(
-        "--retraction-rate",
-        type=float,
-        default=50.0,
-        help="リトラクション速度 [μL/sec]",
     )
     args = parser.parse_args()
 
@@ -192,13 +161,13 @@ def main() -> None:
             paste_dispenser=paste_dispenser,
             stage=stage,
             nozzle_spec=nozzle_spec,
-            paste_velocity=args.paste_velocity,
-            paste_thickness=args.paste_thickness,
-            retraction=args.retract,
-            retraction_rate=args.retraction_rate,
-            retraction_accel_factor=args.retraction_accel_factor,
-            paste_accel=args.paste_accel,
-            paste_height=args.paste_height,
+            paste_velocity=dispenser_config.paste_velocity,
+            paste_thickness=dispenser_config.paste_thickness,
+            retraction=dispenser_config.retract_amount,
+            retraction_rate=dispenser_config.retract_rate,
+            retraction_accel_factor=dispenser_config.retract_accel_factor,
+            paste_accel=dispenser_config.dispense_accel,
+            paste_height=dispenser_config.paste_height,
             transform=height_transform,
         )
 
