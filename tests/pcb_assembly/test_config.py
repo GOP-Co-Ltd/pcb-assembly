@@ -27,6 +27,12 @@ class TestMachine:
         assert machine.paste_dispenser == PasteDispenser(
             syringe_size=9.0,
             nozzle_size="27G",
+            dispense_rate=5.0,
+            dispense_accel=10.0,
+            retract_amount=10.0,
+            retract_rate=50.0,
+            retract_accel_factor=2.0,
+            toolhead=Toolhead(x=13.2, y=54.7),
         )
         assert machine.camera == Camera(
             device_id=0,
@@ -37,7 +43,6 @@ class TestMachine:
             crop=CameraCrop(width=400, height=400),
             calibration_file=TESTING_DATA_DIR / "calibration.json",
         )
-        assert machine.toolhead == Toolhead(x=13.2, y=54.7)
         assert machine.reference_point == ReferencePoint(
             x=23.1,
             y=8.3,

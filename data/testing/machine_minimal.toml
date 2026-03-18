@@ -12,10 +12,6 @@ calibration_file = "calibration.json"
 width = 400
 height = 400
 
-[toolhead]
-x = 10.0
-y = 50.0
-
 [reference_point]
 x = 20.0
 y = 10.0

@@ -224,7 +224,7 @@ def main() -> None:
 
         # Bed mesh計測
         print("\n=== Bed mesh計測 ===")
-        toolhead_offset = machine.toolhead.to_transform()
+        toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
         height_measurer = HeightTransformMeasurer(
             probe=probe,
             klipper=klipper,
