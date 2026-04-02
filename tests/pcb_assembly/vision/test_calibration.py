@@ -1,6 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 
+import attrs
 import cv2
 import numpy as np
 import pytest
@@ -65,18 +66,11 @@ class TestCalibrationResult:
         loaded = CalibrationResult.load(json_path)
         assert loaded.z_position is None
 
-    def test_save_and_load_roundtrip_with_z_position(self, tmp_path: Path):
+    def test_save_and_load_roundtrip_with_z_position(
+        self, sample: CalibrationResult, tmp_path: Path
+    ):
         """z_position付きのCalibrationResultが正しく保存・読み込みできる."""
-        result = CalibrationResult(
-            pixel_per_mm=100.0,
-            square_size_mm=1.5,
-            mean_distance_px=150.0,
-            std_distance_px=2.5,
-            resolution=(640, 480),
-            crop_size=(400, 400),
-            calibrated_at=datetime(2025, 1, 6, 12, 0, 0),
-            z_position=15.5,
-        )
+        result = attrs.evolve(sample, z_position=15.5)
         json_path = tmp_path / "calibration.json"
         result.save(json_path)
         loaded = CalibrationResult.load(json_path)
