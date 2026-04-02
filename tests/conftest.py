@@ -6,18 +6,6 @@ from pcb_assembly.hal.camera import CameraInfo, Resolution
 
 
 @pytest.fixture
-def mock_probe_backend(mocker: MockerFixture):
-    """Probeクラスの内部実装をモックするフィクスチャ."""
-    mock_encoder = mocker.MagicMock()
-    mock_encoder.steps = 0
-    mocker.patch(
-        "pcb_assembly.hal.probe.RotaryEncoder",
-        return_value=mock_encoder,
-    )
-    return mock_encoder
-
-
-@pytest.fixture
 def mock_camera_backend(mocker: MockerFixture):
     """Cameraクラス（USBバックエンド）の内部実装をモックするフィクスチャ."""
     mock_cam = mocker.MagicMock()

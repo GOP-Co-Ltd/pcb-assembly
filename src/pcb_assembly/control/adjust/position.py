@@ -30,7 +30,7 @@ class XYPositionAdjustor:
         observe_offset: Callable[[], Point2d],
         klipper: Klipper,
         stage: XYZStage,
-        tolerance: float = 0.01,
+        tolerance: float = 0.1,
         max_iterations: int = 10,
         move_velocity_ratio: float = 0.5,
         settle_time: float = 0.5,
@@ -77,17 +77,17 @@ class XYPositionAdjustor:
                 f"距離 {offset.norm:.4f} mm"
             )
 
-            if offset.norm < self._tolerance:
-                pos = self._stage.get_position()
-                self._logger.info(
-                    f"許容誤差 {self._tolerance} mm 以内に収束: "
-                    f"最終位置 ({pos.x:.4f}, {pos.y:.4f})"
-                )
-                return pos.to2d()
-
-            # オフセット分だけ移動
             pos = self._stage.get_position()
             target = pos.to2d() - offset
+
+            if offset.norm < self._tolerance:
+                self._logger.info(
+                    f"許容誤差 {self._tolerance} mm 以内に収束: "
+                    f"最終位置 ({target.x:.4f}, {target.y:.4f})"
+                )
+                return target
+
+            # オフセット分だけ移動
             self._logger.debug(
                 f"移動: ({pos.x:.4f}, {pos.y:.4f}) -> "
                 f"({target.x:.4f}, {target.y:.4f})"

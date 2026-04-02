@@ -22,22 +22,20 @@ class Klipper:
 
 
 @attrs.frozen
-class Probe:
-    """プローブの設定."""
-
-    a_pin: int
-    b_pin: int
-    rotation_pulse: int
-    rotation_distance: float
-    inverse: bool = False
-
-
-@attrs.frozen
 class PasteDispenser:
     """ペーストディスペンサーの設定."""
 
     syringe_size: float
     nozzle_size: str
+    dispense_rate: float  # 吐出レート [uL/sec]
+    dispense_accel: float  # 吐出加速度 [uL/sec^2]
+    retract_amount: float  # リトラクション量 [uL]
+    retract_rate: float  # リトラクションレート [uL/sec]
+    retract_accel_factor: float  # リトラクション加速度係数
+    toolhead: Toolhead
+    paste_velocity: float  # 塗布時のXY移動速度 [mm/s]
+    paste_height: float  # 塗布面のZ高さ [mm]
+    paste_thickness: float  # ペースト膜厚 [mm]
 
 
 @attrs.frozen
@@ -251,11 +249,6 @@ class Machine:
         return self._get_config("klipper", Klipper)
 
     @property
-    def probe(self) -> Probe:
-        """プローブ設定を取得する."""
-        return self._get_config("probe", Probe)
-
-    @property
     def paste_dispenser(self) -> PasteDispenser:
         """ペーストディスペンサー設定を取得する."""
         return self._get_config("paste_dispenser", PasteDispenser)
@@ -271,11 +264,6 @@ class Machine:
                 self._config_dir / camera_data["calibration_file"]
             )
         return self._converter.structure(camera_data, Camera)
-
-    @property
-    def toolhead(self) -> Toolhead:
-        """ツールヘッド設定を取得する."""
-        return self._get_config("toolhead", Toolhead)
 
     @property
     def reference_point(self) -> ReferencePoint:

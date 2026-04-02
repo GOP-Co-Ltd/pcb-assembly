@@ -2,16 +2,21 @@
 host = "192.168.1.100"
 port = 7125
 
-[probe]
-a_pin = 17
-b_pin = 27
-rotation_pulse = 600
-rotation_distance = 40.0
-inverse = true
-
 [paste_dispenser]
 syringe_size = 9.0
 nozzle_size = "27G"
+dispense_rate = 5.0
+dispense_accel = 10.0
+retract_amount = 10.0
+retract_rate = 50.0
+retract_accel_factor = 2.0
+paste_velocity = 5.0
+paste_height = 0.1
+paste_thickness = 0.1
+
+[paste_dispenser.toolhead]
+x = 13.2
+y = 54.7
 
 [camera]
 device_id = 0
@@ -24,10 +29,6 @@ calibration_file = "calibration.json"
 [camera.crop]
 width = 400
 height = 400
-
-[toolhead]
-x = 13.2
-y = 54.7
 
 [reference_point]
 x = 23.1

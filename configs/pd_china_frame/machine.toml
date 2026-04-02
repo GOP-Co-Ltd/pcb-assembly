@@ -2,15 +2,28 @@
 host = "localhost"
 port = 7125
 
-[probe]
-a_pin = 17
-b_pin = 27
-rotation_pulse = 2000    # PPR (Pulses Per Rotation)
-rotation_distance = 6.4  # mm/回転 (GT2 80T -> 16Tの変換)
-
 [paste_dispenser]
 syringe_size = 9.0 # シリンジの直径 [mm]
 nozzle_size = "27G" # ノズルのゲージ
+dispense_rate = 5.0 # 吐出レート [uL/sec]
+dispense_accel = 10.0 # 吐出加速度 [uL/sec^2]
+retract_amount = 50.0 # リトラクション量 [uL]
+retract_rate = 50.0 # リトラクションレート [uL/sec]
+retract_accel_factor = 2.0 # リトラクション加速度係数
+paste_velocity = 5.0 # 塗布時のXY移動速度 [mm/s]
+paste_height = 0.1 # 塗布面のZ高さ [mm]
+paste_thickness = 0.1 # ペースト膜厚 [mm]
+
+[paste_dispenser.toolhead]
+# カメラに対するツールヘッドの相対位置 (mm)
+
+# 設計値
+# x = -4.5
+# y = 48.86
+
+# 実測値
+x = -4.714802389293489
+y = 48.953912452257924
 
 [camera]
 device_id = 0
@@ -23,11 +36,6 @@ calibration_file = "ov9281_20260304_114344.json"
 [camera.crop]
 width = 600
 height = 600
-
-[toolhead]
-# カメラに対するツールヘッドの相対位置 (mm)
-x = -4.5
-y = 48.86
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)

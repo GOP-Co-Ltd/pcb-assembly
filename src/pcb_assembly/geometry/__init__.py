@@ -2,6 +2,7 @@ from .fill import generate_fill_path
 from .trajectory import Move, Trajectory, Waypoint, sort_by_nearest
 from .transform import (
     Compose,
+    HeightMap,
     Identity,
     Matrix2d,
     Point2d,
@@ -14,6 +15,7 @@ from .transform import (
 
 __all__ = [
     "Compose",
+    "HeightMap",
     "Identity",
     "generate_fill_path",
     "Matrix2d",

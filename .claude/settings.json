@@ -21,6 +21,9 @@
       "Bash(git tag:*)",
       "Bash(git blame:*)",
       "Bash(git rev-parse:*)",
+      "Bash(git commit:*)",
+      "Bash(git add:*)",
+      "Bash(git stash:*)",
       "Bash(make:*)",
       "Bash(pre-commit:*)",
       "Read(//usr/include/**)",
@@ -36,10 +39,18 @@
       "Bash(make test:*)",
       "Bash(make format:*)",
       "Bash(find:*)",
+      "Bash(find *)",
       "Bash(uv run pytest:*)",
       "Bash(tree:*)",
       "Bash(grep:*)",
-      "WebFetch(domain:github.com)"
+      "Bash(uv lock:*)",
+      "Bash(git checkout:*)",
+      "WebSearch",
+      "WebFetch",
+      "Bash(git cherry-pick:*)"
+    ],
+    "deny": [
+      "Bash(git push:*)"
     ]
   }
 }

@@ -1,7 +1,7 @@
 from .camera import Camera, CameraInfo, Resolution, create_camera, get_camera_info
 from .klipper import GCodeMacro, Klipper, ReadonlyKlipper
 from .paste_dispenser import NOZZLE_SPECS, NozzleSpec, PasteDispenser
-from .probe import ProbeResult, ProbeSensor
+from .probe import ProbeSensor
 from .stage import Limits, ScalarLimits, XYZStage
 
 __all__ = [
@@ -17,7 +17,6 @@ __all__ = [
     "ReadonlyKlipper",
     # probe
     "ProbeSensor",
-    "ProbeResult",
     # stage
     "ScalarLimits",
     "Limits",
