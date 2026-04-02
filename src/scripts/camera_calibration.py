@@ -5,9 +5,12 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
+import attrs
 import cv2
 
 from pcb_assembly.hal.camera import create_camera
+from pcb_assembly.hal.klipper import Klipper
+from pcb_assembly.hal.stage import XYZStage
 from pcb_assembly.vision.calibration import CheckerboardCalibrator
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -30,6 +33,10 @@ def main() -> None:
     parser.add_argument(
         "--backend", "-b", type=str, default="csi", help="バックエンド (usb/csi)"
     )
+    parser.add_argument(
+        "--klipper-host", type=str, default=None, help="KlipperホストIP"
+    )
+    parser.add_argument("--klipper-port", type=int, default=7125, help="Klipperポート")
     args = parser.parse_args()
 
     output_dir = PROJECT_ROOT / "data" / "camera_calibration"
@@ -42,6 +49,11 @@ def main() -> None:
         backend=args.backend,
     )
 
+    stage: XYZStage | None = None
+    if args.klipper_host is not None:
+        klipper = Klipper(host=args.klipper_host, port=args.klipper_port)
+        stage = XYZStage(klipper.readonly)
+
     calibrator = CheckerboardCalibrator(
         square_size_mm=args.square_size,
         crop_size=(args.crop_width, args.crop_height),
@@ -51,6 +63,8 @@ def main() -> None:
     print(f"解像度: {args.width}x{args.height}")
     print(f"クロップ: {args.crop_width}x{args.crop_height}")
     print(f"マスサイズ: {args.square_size}mm")
+    if stage is not None:
+        print(f"Klipper: {args.klipper_host}:{args.klipper_port}")
     print()
     print("操作方法:")
     print("  Space: 撮影してキャリブレーション")
@@ -89,6 +103,12 @@ def main() -> None:
 
             result, vis = detection
 
+            z_position: float | None = None
+            if stage is not None:
+                z_position = stage.get_position().z
+
+            result = attrs.evolve(result, z_position=z_position)
+
             # 結果を保存
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             json_path = output_dir / f"{camera.info.name}_{timestamp}.json"
@@ -102,6 +122,8 @@ def main() -> None:
             print(f"pixel/mm: {result.pixel_per_mm:.2f}")
             print(f"mm/pixel: {result.mm_per_pixel:.4f}")
             print(f"標準偏差: {result.std_distance_px:.2f} px")
+            if result.z_position is not None:
+                print(f"Z位置: {result.z_position:.3f} mm")
             print(f"JSON: {json_path}")
             print(f"画像: {image_path}")
             break
