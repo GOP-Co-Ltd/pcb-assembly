@@ -29,6 +29,7 @@ class CalibrationResult:
     resolution: tuple[int, int]  # カメラ解像度 (width, height)
     crop_size: tuple[int, int]  # 関心領域サイズ (width, height)
     calibrated_at: datetime  # キャリブレーション日時
+    z_position: float | None = None  # キャリブレーション時のZ座標 (mm)
 
     @property
     def mm_per_pixel(self) -> float:

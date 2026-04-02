@@ -67,7 +67,6 @@ def main() -> None:
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
         window_name=WINDOW_NAME,
-        home_z=True,
     )
 
     with machine_session(result.klipper):

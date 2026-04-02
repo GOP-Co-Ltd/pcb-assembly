@@ -1,6 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 
+import attrs
 import cv2
 import numpy as np
 import pytest
@@ -49,6 +50,32 @@ class TestCalibrationResult:
         loaded = CalibrationResult.load(json_path)
 
         assert loaded == sample
+
+    def test_load_legacy_json_without_z_position(
+        self, sample: CalibrationResult, tmp_path: Path
+    ):
+        """z_positionフィールドが無いJSONファイルも正常に読み込める."""
+        json_path = tmp_path / "legacy.json"
+        sample.save(json_path)
+        import json
+
+        data = json.loads(json_path.read_text())
+        data.pop("z_position", None)
+        json_path.write_text(json.dumps(data))
+
+        loaded = CalibrationResult.load(json_path)
+        assert loaded.z_position is None
+
+    def test_save_and_load_roundtrip_with_z_position(
+        self, sample: CalibrationResult, tmp_path: Path
+    ):
+        """z_position付きのCalibrationResultが正しく保存・読み込みできる."""
+        result = attrs.evolve(sample, z_position=15.5)
+        json_path = tmp_path / "calibration.json"
+        result.save(json_path)
+        loaded = CalibrationResult.load(json_path)
+        assert loaded.z_position == 15.5
+        assert loaded == result
 
 
 class TestCheckerboardCalibrator:
