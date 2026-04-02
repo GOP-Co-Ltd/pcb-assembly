@@ -1,6 +1,9 @@
 {
   "recommendations": [
     "ms-python.python",
-    "kevinrose.vsc-python-indent"
+    "kevinrose.vsc-python-indent",
+    "dannymcgee.klipper",
+    "tamasfe.even-better-toml",
+    "anthropic.claude-code"
   ]
 }
