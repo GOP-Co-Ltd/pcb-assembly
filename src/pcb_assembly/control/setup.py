@@ -81,7 +81,6 @@ def setup_board_calibration(
     pcb_file_path: Path,
     tolerance: float = 0.1,
     window_name: str = "Calibration",
-    home_z: bool = False,
 ) -> BoardCalibrationResult:
     """マシン初期化からBoard変換計測までの共通セットアップを実行する."""
     # 設定読み込み
@@ -133,7 +132,7 @@ def setup_board_calibration(
 
     # ホーミング
     logger.info("=== ホーミング (G28) ===")
-    klipper.send_gcode(gcode.homing(x=True, y=True, z=home_z) + gcode.wait_for_done())
+    klipper.send_gcode(gcode.homing(x=True, y=True, z=True) + gcode.wait_for_done())
     logger.info("ホーミング完了")
 
     # Reference Pointへ移動
