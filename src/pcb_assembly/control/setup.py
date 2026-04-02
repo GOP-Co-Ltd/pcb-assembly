@@ -139,8 +139,11 @@ def setup_board_calibration(
     # Reference Pointへ移動
     logger.info("=== Reference Point (top left) へ移動 ===")
     logger.info("目標位置: (%s, %s)", ref_config.x, ref_config.y)
+    if calibration.z_position is not None:
+        logger.info("キャリブレーションZ位置: %.3f mm", calibration.z_position)
     klipper.send_gcode(
-        stage.to_gcode(Move(x=ref_config.x, y=ref_config.y)) + gcode.wait_for_done()
+        stage.to_gcode(Move(x=ref_config.x, y=ref_config.y, z=calibration.z_position))
+        + gcode.wait_for_done()
     )
     logger.info("移動完了")
     time.sleep(1.0)
