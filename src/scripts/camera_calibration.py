@@ -34,9 +34,12 @@ def main() -> None:
         "--backend", "-b", type=str, default="csi", help="バックエンド (usb/csi)"
     )
     parser.add_argument(
-        "--klipper-host", type=str, default=None, help="KlipperホストIP"
+        "--record-z",
+        action="store_true",
+        help="Z座標を記録する (Klipper接続が必要)",
     )
-    parser.add_argument("--klipper-port", type=int, default=7125, help="Klipperポート")
+    parser.add_argument("--host", type=str, default="localhost", help="KlipperホストIP")
+    parser.add_argument("--port", type=int, default=7125, help="Klipperポート")
     args = parser.parse_args()
 
     output_dir = PROJECT_ROOT / "data" / "camera_calibration"
@@ -50,8 +53,8 @@ def main() -> None:
     )
 
     stage: XYZStage | None = None
-    if args.klipper_host is not None:
-        klipper = Klipper(host=args.klipper_host, port=args.klipper_port)
+    if args.record_z:
+        klipper = Klipper(host=args.host, port=args.port)
         stage = XYZStage(klipper.readonly)
 
     calibrator = CheckerboardCalibrator(
@@ -64,7 +67,7 @@ def main() -> None:
     print(f"クロップ: {args.crop_width}x{args.crop_height}")
     print(f"マスサイズ: {args.square_size}mm")
     if stage is not None:
-        print(f"Klipper: {args.klipper_host}:{args.klipper_port}")
+        print(f"Klipper: {args.host}:{args.port}")
     print()
     print("操作方法:")
     print("  Space: 撮影してキャリブレーション")
