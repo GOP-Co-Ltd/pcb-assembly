@@ -9,6 +9,7 @@ sudo apt-get install -y \
     kicad \
     make \
     git \
+    git-lfs \
     python3-picamera2
 
 # KIAUHでKlipperをインストール
