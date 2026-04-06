@@ -48,13 +48,7 @@ class TestManualStepper:
         assert stepper.rotation_distance == 0.5
 
     @pytest.mark.parametrize(
-        (
-            "angle",
-            "angular_velocity",
-            "angular_acceleration",
-            "sync",
-            "expected_suffix",
-        ),
+        ("angle", "speed", "accel", "sync", "expected_suffix"),
         [
             # rotation_distance=0.5, so 1deg = 0.5/360 mm
             (360.0, None, None, True, "MOVE=0.5"),
@@ -67,12 +61,12 @@ class TestManualStepper:
         self,
         stepper: ManualStepper,
         angle: float,
-        angular_velocity: float | None,
-        angular_acceleration: float | None,
+        speed: float | None,
+        accel: float | None,
         sync: bool,
         expected_suffix: str,
     ):
-        gcode = stepper.rotate(angle, angular_velocity, angular_acceleration, sync=sync)
+        gcode = stepper.rotate(angle, speed, accel, sync=sync)
         assert gcode.to_list() == [f"{PREFIX} {expected_suffix}"]
 
     def test_name(self, stepper: ManualStepper):
