@@ -47,6 +47,12 @@ class ManualStepper:
                 f"printer.cfgに[{self._stepper_section}]を追加してください"
             )
 
+    @property
+    def rotation_distance(self) -> float:
+        """rotation_distance [mm] をconfigから取得する."""
+        config = self._klipper.get_config()
+        return float(config[self._stepper_section]["rotation_distance"])
+
     def reset_position(self, position: float = 0.0) -> GCode:
         """位置をリセットするGCodeを生成する.
 

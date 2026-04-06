@@ -20,7 +20,9 @@ class TestManualStepper:
         mocker.patch.object(
             klipper.readonly,
             "get_config",
-            return_value={f"manual_stepper {STEPPER_NAME}": {}},
+            return_value={
+                f"manual_stepper {STEPPER_NAME}": {"rotation_distance": "0.5"}
+            },
         )
         return klipper
 
@@ -41,6 +43,9 @@ class TestManualStepper:
             RuntimeError, match=r"printer\.cfgに\[manual_stepper vacuum_pump\]"
         ):
             ManualStepper(klipper.readonly, STEPPER_NAME)
+
+    def test_rotation_distance(self, stepper: ManualStepper):
+        assert stepper.rotation_distance == 0.5
 
     def test_name(self, stepper: ManualStepper):
         assert stepper.name == STEPPER_NAME
