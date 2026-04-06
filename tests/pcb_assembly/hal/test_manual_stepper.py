@@ -7,6 +7,7 @@ from pcb_assembly.hal.manual_stepper import HomingDirection, ManualStepper
 from tests.helpers import mark_hardware
 
 STEPPER_NAME = "vacuum_pump"
+PREFIX = f"MANUAL_STEPPER STEPPER={STEPPER_NAME}"
 
 
 class TestManualStepper:
@@ -44,61 +45,78 @@ class TestManualStepper:
     def test_name(self, stepper: ManualStepper):
         assert stepper.name == STEPPER_NAME
 
-    def test_reset_position_default(self, stepper: ManualStepper):
-        gcode = stepper.reset_position()
+    @pytest.mark.parametrize(
+        ("position", "expected_pos"),
+        [
+            (None, "0.0"),
+            (5.0, "5.0"),
+        ],
+    )
+    def test_reset_position(
+        self, stepper: ManualStepper, position: float | None, expected_pos: str
+    ):
+        gcode = (
+            stepper.reset_position()
+            if position is None
+            else stepper.reset_position(position)
+        )
         assert isinstance(gcode, GCode)
-        assert gcode.to_list() == [
-            f"MANUAL_STEPPER STEPPER={STEPPER_NAME} SET_POSITION=0.0"
-        ]
+        assert gcode.to_list() == [f"{PREFIX} SET_POSITION={expected_pos}"]
 
-    def test_reset_position_nonzero(self, stepper: ManualStepper):
-        gcode = stepper.reset_position(5.0)
-        assert gcode.to_list() == [
-            f"MANUAL_STEPPER STEPPER={STEPPER_NAME} SET_POSITION=5.0"
-        ]
+    @pytest.mark.parametrize(
+        ("distance", "speed", "accel", "sync", "expected_suffix"),
+        [
+            (10.0, None, None, True, "MOVE=10.0"),
+            (-5.0, None, None, True, "MOVE=-5.0"),
+            (10.0, 5.0, 20.0, True, "MOVE=10.0 SPEED=5.0 ACCEL=20.0"),
+            (10.0, None, None, False, "MOVE=10.0 SYNC=0"),
+        ],
+    )
+    def test_move(
+        self,
+        stepper: ManualStepper,
+        distance: float,
+        speed: float | None,
+        accel: float | None,
+        sync: bool,
+        expected_suffix: str,
+    ):
+        gcode = stepper.move(distance, speed, accel, sync=sync)
+        assert gcode.to_list() == [f"{PREFIX} {expected_suffix}"]
 
-    def test_move_distance_only(self, stepper: ManualStepper):
-        gcode = stepper.move(10.0)
-        assert gcode.to_list() == [f"MANUAL_STEPPER STEPPER={STEPPER_NAME} MOVE=10.0"]
-
-    def test_move_with_speed_and_accel(self, stepper: ManualStepper):
-        gcode = stepper.move(10.0, 5.0, 20.0)
-        assert gcode.to_list() == [
-            f"MANUAL_STEPPER STEPPER={STEPPER_NAME} MOVE=10.0 SPEED=5.0 ACCEL=20.0"
-        ]
-
-    def test_move_sync_false(self, stepper: ManualStepper):
-        gcode = stepper.move(10.0, sync=False)
-        assert gcode.to_list() == [
-            f"MANUAL_STEPPER STEPPER={STEPPER_NAME} MOVE=10.0 SYNC=0"
-        ]
-
-    def test_move_negative_distance(self, stepper: ManualStepper):
-        gcode = stepper.move(-5.0)
-        assert gcode.to_list() == [f"MANUAL_STEPPER STEPPER={STEPPER_NAME} MOVE=-5.0"]
-
-    def test_home_forward(self, stepper: ManualStepper):
-        gcode = stepper.home(100.0)
-        assert gcode.to_list() == [
-            f"MANUAL_STEPPER STEPPER={STEPPER_NAME} STOP_ON_ENDSTOP=1 MOVE=100.0"
-        ]
-
-    def test_home_backward_with_speed(self, stepper: ManualStepper):
-        gcode = stepper.home(100.0, 10.0, direction=HomingDirection.BACKWARD)
-        assert gcode.to_list() == [
-            f"MANUAL_STEPPER STEPPER={STEPPER_NAME} STOP_ON_ENDSTOP=-1 MOVE=100.0 SPEED=10.0"
-        ]
-
-    def test_home_forward_with_speed(self, stepper: ManualStepper):
-        gcode = stepper.home(50.0, 5.0)
-        assert gcode.to_list() == [
-            f"MANUAL_STEPPER STEPPER={STEPPER_NAME} STOP_ON_ENDSTOP=1 MOVE=50.0 SPEED=5.0"
-        ]
+    @pytest.mark.parametrize(
+        ("distance", "speed", "direction", "expected_suffix"),
+        [
+            (100.0, None, HomingDirection.FORWARD, "STOP_ON_ENDSTOP=1 MOVE=100.0"),
+            (
+                100.0,
+                10.0,
+                HomingDirection.BACKWARD,
+                "STOP_ON_ENDSTOP=-1 MOVE=100.0 SPEED=10.0",
+            ),
+            (
+                50.0,
+                5.0,
+                HomingDirection.FORWARD,
+                "STOP_ON_ENDSTOP=1 MOVE=50.0 SPEED=5.0",
+            ),
+        ],
+    )
+    def test_home(
+        self,
+        stepper: ManualStepper,
+        distance: float,
+        speed: float | None,
+        direction: HomingDirection,
+        expected_suffix: str,
+    ):
+        gcode = stepper.home(distance, speed, direction=direction)
+        assert gcode.to_list() == [f"{PREFIX} {expected_suffix}"]
 
     def test_enable(self, stepper: ManualStepper):
         gcode = stepper.enable()
-        assert gcode.to_list() == [f"MANUAL_STEPPER STEPPER={STEPPER_NAME} ENABLE=1"]
+        assert gcode.to_list() == [f"{PREFIX} ENABLE=1"]
 
     def test_disable(self, stepper: ManualStepper):
         gcode = stepper.disable()
-        assert gcode.to_list() == [f"MANUAL_STEPPER STEPPER={STEPPER_NAME} ENABLE=0"]
+        assert gcode.to_list() == [f"{PREFIX} ENABLE=0"]

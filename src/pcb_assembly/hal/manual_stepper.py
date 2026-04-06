@@ -33,7 +33,7 @@ class ManualStepper:
         return self._name
 
     @property
-    def _config_section(self) -> str:
+    def _stepper_section(self) -> str:
         return f"manual_stepper {self._name}"
 
     @property
@@ -42,9 +42,9 @@ class ManualStepper:
 
     def _check_klipper(self) -> None:
         config = self._klipper.get_config()
-        if self._config_section not in config:
+        if self._stepper_section not in config:
             raise RuntimeError(
-                f"printer.cfgに[{self._config_section}]を追加してください"
+                f"printer.cfgに[{self._stepper_section}]を追加してください"
             )
 
     def reset_position(self, position: float = 0.0) -> GCode:
