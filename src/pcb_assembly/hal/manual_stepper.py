@@ -53,6 +53,39 @@ class ManualStepper:
         config = self._klipper.get_config()
         return float(config[self._stepper_section]["rotation_distance"])
 
+    def _deg_to_mm(self, deg: float) -> float:
+        return deg / 360 * self.rotation_distance
+
+    def rotate(
+        self,
+        angle: float,
+        angular_velocity: float | None = None,
+        angular_acceleration: float | None = None,
+        *,
+        sync: bool = True,
+    ) -> GCode:
+        """回転GCodeを生成する.
+
+        Args:
+            angle: 回転角度 [deg]
+            angular_velocity: 角速度 [deg/s]（省略時はKlipper設定値を使用）
+            angular_acceleration: 角加速度 [deg/s^2]（省略時はKlipper設定値を使用）
+            sync: Trueの場合、動作完了まで待機する（デフォルト: True）
+
+        Returns:
+            回転用のGCode
+        """
+        distance = self._deg_to_mm(angle)
+        speed = (
+            self._deg_to_mm(angular_velocity) if angular_velocity is not None else None
+        )
+        accel = (
+            self._deg_to_mm(angular_acceleration)
+            if angular_acceleration is not None
+            else None
+        )
+        return self.move(distance, speed, accel, sync=sync)
+
     def reset_position(self, position: float = 0.0) -> GCode:
         """位置をリセットするGCodeを生成する.
 
