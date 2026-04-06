@@ -75,7 +75,7 @@ def main() -> None:
 
     klipper = result.klipper
     stage = result.stage
-    machine = result.machine
+    machine = result.machine  # noqa: F841
     outline = result.pcb.outline
 
     probe = ProbeSensor(klipper.readonly)
@@ -86,15 +86,17 @@ def main() -> None:
 
         # Bed mesh計測
         print("\n=== Bed mesh計測 ===")
-        toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
+        # TODO: PasteDispenser再実装後に更新する
+        # toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
         height_measurer = HeightTransformMeasurer(
             probe_executor=probe_executor,
             klipper=klipper,
             stage=stage,
         )
+        # TODO: PasteDispenser再実装後に toolhead_offset を復活させる
         height_map = height_measurer.measure(
             outline=outline,
-            board_to_machine=Compose([board_transform, toolhead_offset]),
+            board_to_machine=board_transform,
         )
 
         # 保存
