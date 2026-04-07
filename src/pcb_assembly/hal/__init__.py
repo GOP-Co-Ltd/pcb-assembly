@@ -3,8 +3,9 @@ from .camera import Camera, CameraInfo, Resolution, create_camera, get_camera_in
 from .klipper import GCodeMacro, Klipper, ReadonlyKlipper
 from .manual_stepper import HomingDirection, ManualStepper
 
-# TODO: PasteDispenser再実装後に復活させる
-# from .paste_dispenser import NOZZLE_SPECS, NozzleSpec, PasteDispenser
+# TODO: NozzleSpec再実装後に復活させる
+# from .paste_dispenser import NOZZLE_SPECS, NozzleSpec
+from .paste_dispenser import PasteDispenser
 from .probe import ProbeSensor
 from .stage import Limits, ScalarLimits, XYZStage
 
@@ -30,8 +31,9 @@ __all__ = [
     "ScalarLimits",
     "Limits",
     "XYZStage",
-    # dispenser (TODO: PasteDispenser再実装後に復活させる)
+    # dispenser
+    "PasteDispenser",
+    # TODO: NozzleSpec再実装後に復活させる
     # "NOZZLE_SPECS",
     # "NozzleSpec",
-    # "PasteDispenser",
 ]
