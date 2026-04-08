@@ -167,56 +167,60 @@ def main() -> None:
 
         print(f"\n描画サイズ: {args.size}mm, リフト: {args.lift}mm")
         print(f"描画速度: {args.speed}mm/s, 移動速度: {args.travel_speed}mm/s")
-        print("座標を入力してください (x y [z])。'q' または空行で終了。\n")
+        print("描画中心の座標を入力してください (x y [z])。")
+        print("座標を入力するとその地点に移動します。'draw' で描画開始。\n")
 
+        # 位置決めループ
+        cx, cy, draw_z = 0.0, 0.0, 0.0
         while True:
             line = input("> ").strip()
-            if not line or line.lower() == "q":
+            if not line:
+                continue
+            if line.lower() == "draw":
                 break
 
             cx, cy, draw_z = parse_position(line, stage.get_position().z)
-
-            tv = args.travel_speed
-            # 描画位置へ移動してペンを上げた状態にする
             send_moves(
-                klipper,
-                stage,
-                [
-                    Move(x=cx, y=cy, z=draw_z, v=tv),
-                    Move(z=args.lift, relative=True, v=tv),
-                ],
+                klipper, stage, [Move(x=cx, y=cy, z=draw_z, v=args.travel_speed)]
             )
+            print(f"移動完了: ({cx}, {cy}, {draw_z})")
 
-            # 正方形+対角線
-            print("正方形+対角線を描画中...")
-            send_moves(
-                klipper,
-                stage,
-                square_with_diagonals(cx, cy, args.size, args.lift, args.speed, tv),
-            )
+        # 描画
+        tv = args.travel_speed
+        send_moves(
+            klipper,
+            stage,
+            [Move(z=args.lift, relative=True, v=tv)],
+        )
 
-            # 円
-            print("円を描画中...")
-            send_moves(
-                klipper,
-                stage,
-                [
-                    Move(x=cx, y=cy, v=tv),
-                    *circle(cx, cy, args.size, args.lift, args.speed, tv),
-                ],
-            )
+        print("正方形+対角線を描画中...")
+        send_moves(
+            klipper,
+            stage,
+            square_with_diagonals(cx, cy, args.size, args.lift, args.speed, tv),
+        )
 
-            # 中心に戻ってペンを下ろす
-            send_moves(
-                klipper,
-                stage,
-                [
-                    Move(x=cx, y=cy, v=tv),
-                    Move(z=-args.lift, relative=True, v=tv),
-                ],
-            )
+        print("円を描画中...")
+        send_moves(
+            klipper,
+            stage,
+            [
+                Move(x=cx, y=cy, v=tv),
+                *circle(cx, cy, args.size, args.lift, args.speed, tv),
+            ],
+        )
 
-            print("描画完了\n")
+        # 中心に戻ってペンを下ろす
+        send_moves(
+            klipper,
+            stage,
+            [
+                Move(x=cx, y=cy, v=tv),
+                Move(z=-args.lift, relative=True, v=tv),
+            ],
+        )
+
+        print("描画完了")
 
     except KeyboardInterrupt:
         print("\n中断")
