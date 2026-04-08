@@ -25,12 +25,12 @@ class Klipper:
 class PasteDispenser:
     """ペーストディスペンサーの設定."""
 
-    syringe_size: float
+    rotations_per_ul: float  # 1μLあたりの回転数 [rev/μL]
     nozzle_size: str
-    dispense_rate: float  # 吐出レート [uL/sec]
-    dispense_accel: float  # 吐出加速度 [uL/sec^2]
-    retract_amount: float  # リトラクション量 [uL]
-    retract_rate: float  # リトラクションレート [uL/sec]
+    dispense_rate: float  # 吐出レート [μL/sec]
+    dispense_accel: float  # 吐出加速度 [μL/sec²]
+    retract_amount: float  # リトラクション量 [μL]
+    retract_rate: float  # リトラクションレート [μL/sec]
     retract_accel_factor: float  # リトラクション加速度係数
     toolhead: Toolhead
     paste_velocity: float  # 塗布時のXY移動速度 [mm/s]

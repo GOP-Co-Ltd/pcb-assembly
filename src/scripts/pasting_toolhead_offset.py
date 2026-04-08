@@ -138,7 +138,7 @@ def main() -> None:
     dispenser_config = machine.paste_dispenser
     paste_dispenser = PasteDispenser(
         klipper=klipper.readonly,
-        syringe_size=dispenser_config.syringe_size,
+        rotations_per_ul=dispenser_config.rotations_per_ul,
     )
 
     with machine_session(klipper):
@@ -171,7 +171,7 @@ def main() -> None:
         )
 
         nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
-        applicator = PasteApplicator(
+        with PasteApplicator(
             klipper=klipper,
             paste_dispenser=paste_dispenser,
             stage=stage,
@@ -185,14 +185,13 @@ def main() -> None:
             paste_height=dispenser_config.paste_height,
             lift_height=args.lift_height,
             transform=Identity(),
-        )
+        ) as applicator:
+            interactive_loading(applicator, args.loading_amount)
 
-        interactive_loading(applicator, args.loading_amount)
-
-        # リトラクション
-        print("\n=== リトラクション ===")
-        applicator.retract()
-        print("リトラクション完了")
+            # リトラクション
+            print("\n=== リトラクション ===")
+            applicator.retract()
+            print("リトラクション完了")
 
         # === Phase 4: ペースト吐出 ===
         print("\n=== ペースト吐出 ===")

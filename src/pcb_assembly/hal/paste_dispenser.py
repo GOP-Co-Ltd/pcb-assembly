@@ -1,8 +1,8 @@
-import math
-
 import attrs
 
+from .air_pump import AirPump
 from .klipper import GCode, ReadonlyKlipper
+from .manual_stepper import ManualStepper
 
 
 @attrs.frozen
@@ -22,72 +22,70 @@ NOZZLE_SPECS: dict[str, NozzleSpec] = {
 
 
 class PasteDispenser:
-    """はんだペーストディスペンサーのHAL.
+    """はんだペーストディスペンサーのHAL (オーガースクリュー方式).
 
-    マイクロリットル [μL] 単位のAPIを提供します。
+    マイクロリットル [μL] 単位のAPIを提供します。 内部的に ManualStepper と AirPump
+    を利用し、rotations_per_ul で μL → 回転数に変換します。
     """
 
     def __init__(
         self,
         klipper: ReadonlyKlipper,
-        syringe_size: float,
+        rotations_per_ul: float,
         stepper_name: str = "paste_dispenser",
     ) -> None:
         """PasteDispenserを初期化する.
 
         Args:
             klipper: Klipperクライアント
-            syringe_size: シリンジの直径 [mm]
+            rotations_per_ul: 1μLあたりのステッパー回転数 [rev/μL]
             stepper_name: manual_stepperの名前
 
         Raises:
-            RuntimeError: printer.cfgにmanual_stepperセクションがない場合
+            RuntimeError: printer.cfgにmanual_stepperセクションまたはair_pumpセクションがない場合
         """
-        self._klipper = klipper
-        self._stepper_name = stepper_name
-        self._check_klipper()
-        self._syringe_area = math.pi * (syringe_size / 2) ** 2
-        self._reset_pos = GCode(f"{self._cmd_prefix} SET_POSITION=0")
+        self._stepper = ManualStepper(klipper, stepper_name)
+        self._air_pump = AirPump(klipper)
+        self._rotations_per_ul = rotations_per_ul
 
-    @property
-    def _stepper_section(self) -> str:
-        return f"manual_stepper {self._stepper_name}"
+    def _ul_to_deg(self, microl: float) -> float:
+        """マイクロリットル単位を角度に変換."""
+        return microl * self._rotations_per_ul * 360
 
-    @property
-    def _cmd_prefix(self) -> str:
-        return f"MANUAL_STEPPER STEPPER={self._stepper_name}"
+    def enable(self) -> GCode:
+        """ディスペンサーを有効化するGCodeを生成する（AirPump ON + Stepper Enable）."""
+        return self._air_pump.on() + self._stepper.enable()
 
-    def _check_klipper(self) -> None:
-        config = self._klipper.get_config()
-        if self._stepper_section not in config:
-            raise RuntimeError(
-                f"printer.cfgに[{self._stepper_section}]を追加してください"
-            )
-
-    def _microl_to_mm(self, microl: float) -> float:
-        """マイクロリットル単位をミリメートル距離に変換."""
-        return microl / self._syringe_area
+    def disable(self) -> GCode:
+        """ディスペンサーを無効化するGCodeを生成する（AirPump OFF + Stepper Disable）."""
+        return self._air_pump.off() + self._stepper.disable()
 
     def pushpull(
-        self, amount: float, rate: float, accel: float, *, sync: bool = True
+        self,
+        amount: float,
+        rate: float,
+        accel: float,
+        *,
+        sync: bool = True,
     ) -> GCode:
-        """シリンジを押し出すGCodeを生成.
+        """ペーストを吐出/リトラクションするGCodeを生成.
 
         Args:
-            amount: 押し出し量 [μL]（正: 吐出、負: リトラクション）
+            amount: 吐出量 [μL]（正: 吐出、負: リトラクション）
             rate: 速度 [μL/sec]
             accel: 加速度 [μL/sec²]
             sync: Trueの場合、動作完了まで待機する（デフォルト: True）
 
         Returns:
-            押し出し用のGCode
+            吐出/リトラクション用のGCode
         """
-        distance_mm = self._microl_to_mm(amount)
-        speed_mm = self._microl_to_mm(rate)
-        accel_mm = self._microl_to_mm(accel)
-        cmd = f"{self._cmd_prefix} MOVE={distance_mm} SPEED={speed_mm} ACCEL={accel_mm}"
-        if not sync:
-            cmd += " SYNC=0"
-        gcode = self._reset_pos.copy()
-        gcode.append(cmd)
+        gcode = self._stepper.reset_position()
+        gcode.append(
+            self._stepper.rotate(
+                self._ul_to_deg(amount),
+                self._ul_to_deg(rate),
+                self._ul_to_deg(accel),
+                sync=sync,
+            )
+        )
         return gcode
