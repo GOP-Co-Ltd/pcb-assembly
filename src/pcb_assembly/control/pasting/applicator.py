@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Iterable
+from typing import Self
 
 from shapely import Polygon
 
@@ -26,7 +27,7 @@ class PasteApplicator:
     同期させたGCodeシーケンスを生成・送信する。
 
     Example:
-        applicator = PasteApplicator(
+        with PasteApplicator(
             klipper=klipper,
             paste_dispenser=dispenser,
             stage=stage,
@@ -38,10 +39,10 @@ class PasteApplicator:
             retraction_accel_factor=2.0,
             paste_accel=1.0,
             paste_height=0.5,
-        )
-        applicator.load(2.0)
-        applicator.retract()
-        applicator.apply([polygon])
+        ) as applicator:
+            applicator.load(2.0)
+            applicator.retract()
+            applicator.apply([polygon])
     """
 
     def __init__(
@@ -108,6 +109,15 @@ class PasteApplicator:
         self._lift_height = lift_height
         self._overlap_ratio = overlap_ratio
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
+
+    def __enter__(self) -> Self:
+        """ディスペンサーを有効化する（AirPump ON + Stepper Enable）."""
+        self._klipper.send_gcode(self._paste_dispenser.enable())
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        """ディスペンサーを無効化する（AirPump OFF + Stepper Disable）."""
+        self._klipper.send_gcode(self._paste_dispenser.disable())
 
     @property
     def _paste_rate(self) -> float:
@@ -217,7 +227,6 @@ class PasteApplicator:
 
     def _generate_from_path(self, path: list[Point2d]) -> gcode.GCode:
         """Fill pathから塗布GCodeを生成する."""
-
         # 経路からTrajectoryを生成し所要時間を計算
         points = [self._transform.apply(p.to3d(self._paste_height)) for p in path]
         origin = points[0]

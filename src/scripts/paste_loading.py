@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""はんだペーストローディングスクリプト.
+
+PasteApplicator を使ってペーストを対話的にローディングする。
+"""
+
+import argparse
+import logging
+from pathlib import Path
+
+from pcb_assembly.config import Machine
+from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
+from pcb_assembly.hal import NOZZLE_SPECS, Klipper, PasteDispenser, XYZStage
+from pcb_assembly.utils import setup_logging
+
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+
+
+def main() -> None:
+    setup_logging(logging.INFO)
+    parser = argparse.ArgumentParser(description="はんだペーストローディングスクリプト")
+    parser.add_argument(
+        "--config",
+        "-c",
+        type=Path,
+        default=PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml",
+        help="設定ファイルのパス",
+    )
+    parser.add_argument(
+        "--amount",
+        "-a",
+        type=float,
+        default=10.0,
+        help="デフォルトの押し出し量 [μL]",
+    )
+    args = parser.parse_args()
+
+    machine = Machine(args.config)
+    klipper_config = machine.klipper
+    dispenser_config = machine.paste_dispenser
+
+    klipper = Klipper(host=klipper_config.host, port=klipper_config.port)
+    paste_dispenser = PasteDispenser(
+        klipper=klipper.readonly,
+        rotations_per_ul=dispenser_config.rotations_per_ul,
+    )
+    stage = XYZStage(klipper.readonly)
+    nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
+
+    with PasteApplicator(
+        klipper=klipper,
+        paste_dispenser=paste_dispenser,
+        stage=stage,
+        nozzle_spec=nozzle_spec,
+        paste_velocity=dispenser_config.paste_velocity,
+        paste_thickness=dispenser_config.paste_thickness,
+        retraction=dispenser_config.retract_amount,
+        retraction_rate=dispenser_config.retract_rate,
+        retraction_accel_factor=dispenser_config.retract_accel_factor,
+        paste_accel=dispenser_config.dispense_accel,
+        paste_height=dispenser_config.paste_height,
+    ) as applicator:
+        interactive_loading(applicator, args.amount)
+
+
+if __name__ == "__main__":
+    main()

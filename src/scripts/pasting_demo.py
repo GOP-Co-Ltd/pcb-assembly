@@ -97,12 +97,12 @@ def main() -> None:
             dispenser_config = machine.paste_dispenser
             paste_dispenser = PasteDispenser(
                 klipper=klipper.readonly,
-                syringe_size=dispenser_config.syringe_size,
+                rotations_per_ul=dispenser_config.rotations_per_ul,
             )
             nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
 
             # PasteApplicator作成
-            applicator = PasteApplicator(
+            with PasteApplicator(
                 klipper=klipper,
                 paste_dispenser=paste_dispenser,
                 stage=stage,
@@ -115,23 +115,22 @@ def main() -> None:
                 paste_accel=dispenser_config.dispense_accel,
                 paste_height=dispenser_config.paste_height,
                 transform=height_transform,
-            )
+            ) as applicator:
+                # 対話的ローディング
+                interactive_loading(applicator, args.amount)
 
-            # 対話的ローディング
-            interactive_loading(applicator, args.amount)
+                # リトラクション
+                print("\n=== リトラクション ===")
+                applicator.retract()
+                print("リトラクション完了")
 
-            # リトラクション
-            print("\n=== リトラクション ===")
-            applicator.retract()
-            print("リトラクション完了")
-
-            # 円塗布
-            print(f"\n=== 円塗布 (半径: {args.radius} mm) ===")
-            circle = ShapelyPoint(center_machine.x, center_machine.y).buffer(
-                args.radius
-            )
-            applicator.apply([circle])
-            print("塗布完了")
+                # 円塗布
+                print(f"\n=== 円塗布 (半径: {args.radius} mm) ===")
+                circle = ShapelyPoint(center_machine.x, center_machine.y).buffer(
+                    args.radius
+                )
+                applicator.apply([circle])
+                print("塗布完了")
 
         except KeyboardInterrupt:
             print("\n=== 緊急停止 ===")
