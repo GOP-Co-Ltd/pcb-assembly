@@ -25,10 +25,8 @@ from pathlib import Path
 
 from pcb_assembly import gcode
 from pcb_assembly.control.adjust import XYPositionAdjustor
-
-# TODO: PasteApplicator再実装後に復活させる
 from pcb_assembly.control.pasting import (
-    # PasteApplicator,
+    PasteApplicator,
     ToolheadOffsetResult,
     interactive_loading,
 )
@@ -39,10 +37,7 @@ from pcb_assembly.control.setup import (
     setup_board_calibration,
 )
 from pcb_assembly.geometry import Identity, Move, Point2d
-
-# TODO: PasteDispenser再実装後に復活させる
-# from pcb_assembly.hal import NOZZLE_SPECS, PasteDispenser
-from pcb_assembly.hal import ProbeSensor
+from pcb_assembly.hal import NOZZLE_SPECS, PasteDispenser, ProbeSensor
 from pcb_assembly.utils import setup_logging
 from pcb_assembly.vision import CircleDetector
 
@@ -140,12 +135,11 @@ def main() -> None:
     probe = ProbeSensor(klipper.readonly)
     probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
 
-    # TODO: PasteDispenser再実装後に復活させる
-    # dispenser_config = machine.paste_dispenser
-    # paste_dispenser = PasteDispenser(
-    #     klipper=klipper.readonly,
-    #     syringe_size=dispenser_config.syringe_size,
-    # )
+    dispenser_config = machine.paste_dispenser
+    paste_dispenser = PasteDispenser(
+        klipper=klipper.readonly,
+        rotations_per_ul=dispenser_config.rotations_per_ul,
+    )
 
     with machine_session(klipper):
         board_transform = cal_result.board_transform
@@ -154,10 +148,8 @@ def main() -> None:
         print("\n=== ボード中央へ移動 & プローブ ===")
         board_center = Point2d(outline.width / 2, outline.height / 2)
         center_camera = board_transform.apply(board_center)
-        # TODO: PasteDispenser再実装後に更新する
-        # toolhead_shift = machine.paste_dispenser.toolhead.to_transform()
-        # center_toolhead = toolhead_shift.apply(center_camera)
-        center_toolhead = center_camera  # type: ignore[assignment]  # 仮: toolheadオフセット未適用
+        toolhead_shift = machine.paste_dispenser.toolhead.to_transform()
+        center_toolhead = toolhead_shift.apply(center_camera)
 
         # XY移動 -> center_toolhead
         klipper.send_gcode(
@@ -178,71 +170,67 @@ def main() -> None:
             + gcode.wait_for_done()
         )
 
-        # TODO: PasteDispenser再実装後に復活させる
-        # nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
-        # applicator = PasteApplicator(
-        #     klipper=klipper,
-        #     paste_dispenser=paste_dispenser,
-        #     stage=stage,
-        #     nozzle_spec=nozzle_spec,
-        #     paste_velocity=dispenser_config.paste_velocity,
-        #     paste_thickness=dispenser_config.paste_thickness,
-        #     retraction=dispenser_config.retract_amount,
-        #     retraction_rate=dispenser_config.retract_rate,
-        #     retraction_accel_factor=dispenser_config.retract_accel_factor,
-        #     paste_accel=dispenser_config.dispense_accel,
-        #     paste_height=dispenser_config.paste_height,
-        #     lift_height=args.lift_height,
-        #     transform=Identity(),
-        # )
+        nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
+        with PasteApplicator(
+            klipper=klipper,
+            paste_dispenser=paste_dispenser,
+            stage=stage,
+            nozzle_spec=nozzle_spec,
+            paste_velocity=dispenser_config.paste_velocity,
+            paste_thickness=dispenser_config.paste_thickness,
+            retraction=dispenser_config.retract_amount,
+            retraction_rate=dispenser_config.retract_rate,
+            retraction_accel_factor=dispenser_config.retract_accel_factor,
+            paste_accel=dispenser_config.dispense_accel,
+            paste_height=dispenser_config.paste_height,
+            lift_height=args.lift_height,
+            transform=Identity(),
+        ) as applicator:
+            interactive_loading(applicator, args.loading_amount)
 
-        # interactive_loading(applicator, args.loading_amount)
-
-        # リトラクション
-        # print("\n=== リトラクション ===")
-        # applicator.retract()
-        # print("リトラクション完了")
+            # リトラクション
+            print("\n=== リトラクション ===")
+            applicator.retract()
+            print("リトラクション完了")
 
         # === Phase 4: ペースト吐出 ===
-        # TODO: PasteDispenser再実装後に復活させる
-        # print("\n=== ペースト吐出 ===")
-        # dispense_z = board_surface_z + dispenser_config.paste_height
+        print("\n=== ペースト吐出 ===")
+        dispense_z = board_surface_z + dispenser_config.paste_height
 
         # ステージを center_toolhead XY, Z=dispense_z へ移動
-        # klipper.send_gcode(
-        #     stage.to_gcode(Move(x=center_toolhead.x, y=center_toolhead.y, z=dispense_z))
-        #     + gcode.wait_for_done()
-        # )
+        klipper.send_gcode(
+            stage.to_gcode(Move(x=center_toolhead.x, y=center_toolhead.y, z=dispense_z))
+            + gcode.wait_for_done()
+        )
 
         # 吐出
-        # klipper.send_gcode(
-        #     paste_dispenser.pushpull(
-        #         args.dispense_amount,
-        #         dispenser_config.dispense_rate,
-        #         dispenser_config.dispense_accel,
-        #     )
-        #     + gcode.wait_for_done()
-        # )
+        klipper.send_gcode(
+            paste_dispenser.pushpull(
+                args.dispense_amount,
+                dispenser_config.dispense_rate,
+                dispenser_config.dispense_accel,
+            )
+            + gcode.wait_for_done()
+        )
 
         # リトラクション
-        # retract_accel = (
-        #     dispenser_config.dispense_accel * dispenser_config.retract_accel_factor
-        # )
-        # klipper.send_gcode(
-        #     paste_dispenser.pushpull(
-        #         -dispenser_config.retract_amount,
-        #         dispenser_config.retract_rate,
-        #         retract_accel,
-        #     )
-        #     + gcode.wait_for_done()
-        # )
+        retract_accel = (
+            dispenser_config.dispense_accel * dispenser_config.retract_accel_factor
+        )
+        klipper.send_gcode(
+            paste_dispenser.pushpull(
+                -dispenser_config.retract_amount,
+                dispenser_config.retract_rate,
+                retract_accel,
+            )
+            + gcode.wait_for_done()
+        )
 
-        # TODO: PasteDispenser再実装後に復活させる
-        # # Z を lift_height 分持ち上げ
-        # klipper.send_gcode(
-        #     stage.to_gcode(Move(z=dispense_z + args.lift_height))
-        #     + gcode.wait_for_done()
-        # )
+        # Z を lift_height 分持ち上げ
+        klipper.send_gcode(
+            stage.to_gcode(Move(z=dispense_z + args.lift_height))
+            + gcode.wait_for_done()
+        )
 
         print(
             f"吐出位置 (ステージ): ({center_toolhead.x:.3f}, {center_toolhead.y:.3f})"
@@ -319,13 +307,12 @@ def main() -> None:
         print(f"y = {measured_offset.y}")
 
         # 現在設定値との差分
-        # TODO: PasteDispenser再実装後に復活させる
-        # current_toolhead = machine.paste_dispenser.toolhead
-        # diff_x = measured_offset.x - current_toolhead.x
-        # diff_y = measured_offset.y - current_toolhead.y
-        # print()
-        # print(f"現在設定値: X={current_toolhead.x:.4f} Y={current_toolhead.y:.4f}")
-        # print(f"差分: dX={diff_x:.4f} dY={diff_y:.4f}")
+        current_toolhead = machine.paste_dispenser.toolhead
+        diff_x = measured_offset.x - current_toolhead.x
+        diff_y = measured_offset.y - current_toolhead.y
+        print()
+        print(f"現在設定値: X={current_toolhead.x:.4f} Y={current_toolhead.y:.4f}")
+        print(f"差分: dX={diff_x:.4f} dY={diff_y:.4f}")
 
 
 if __name__ == "__main__":
