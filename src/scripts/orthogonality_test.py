@@ -86,19 +86,16 @@ def circle(
         for i in range(segments)
     ]
 
-    moves: list[Move] = [
+    return [
         # 開始点へ移動 → ペン下げ
         Move(x=points[0][0], y=points[0][1], v=travel_v),
         Move(z=-lift, relative=True, v=travel_v),
+        # 円周をトレース + 閉じる
+        *[Move(x=px, y=py, v=draw_v) for px, py in points[1:]],
+        Move(x=points[0][0], y=points[0][1], v=draw_v),
+        # ペン上げ
+        Move(z=lift, relative=True, v=travel_v),
     ]
-    # 円周をトレース
-    for px, py in points[1:]:
-        moves.append(Move(x=px, y=py, v=draw_v))
-    # 閉じる
-    moves.append(Move(x=points[0][0], y=points[0][1], v=draw_v))
-    # ペン上げ
-    moves.append(Move(z=lift, relative=True, v=travel_v))
-    return moves
 
 
 def send_moves(klipper: Klipper, stage: XYZStage, moves: list[Move]) -> None:
@@ -179,33 +176,44 @@ def main() -> None:
 
             cx, cy, draw_z = parse_position(line, stage.get_position().z)
 
+            tv = args.travel_speed
             # 描画位置へ移動してペンを上げた状態にする
             send_moves(
-                klipper, stage, [Move(x=cx, y=cy, z=draw_z, v=args.travel_speed)]
-            )
-            send_moves(
-                klipper, stage, [Move(z=args.lift, relative=True, v=args.travel_speed)]
+                klipper,
+                stage,
+                [
+                    Move(x=cx, y=cy, z=draw_z, v=tv),
+                    Move(z=args.lift, relative=True, v=tv),
+                ],
             )
 
             # 正方形+対角線
             print("正方形+対角線を描画中...")
-            moves = square_with_diagonals(
-                cx, cy, args.size, args.lift, args.speed, args.travel_speed
+            send_moves(
+                klipper,
+                stage,
+                square_with_diagonals(cx, cy, args.size, args.lift, args.speed, tv),
             )
-            send_moves(klipper, stage, moves)
-
-            # 中心に戻る
-            send_moves(klipper, stage, [Move(x=cx, y=cy, v=args.travel_speed)])
 
             # 円
             print("円を描画中...")
-            moves = circle(cx, cy, args.size, args.lift, args.speed, args.travel_speed)
-            send_moves(klipper, stage, moves)
+            send_moves(
+                klipper,
+                stage,
+                [
+                    Move(x=cx, y=cy, v=tv),
+                    *circle(cx, cy, args.size, args.lift, args.speed, tv),
+                ],
+            )
 
             # 中心に戻ってペンを下ろす
-            send_moves(klipper, stage, [Move(x=cx, y=cy, v=args.travel_speed)])
             send_moves(
-                klipper, stage, [Move(z=-args.lift, relative=True, v=args.travel_speed)]
+                klipper,
+                stage,
+                [
+                    Move(x=cx, y=cy, v=tv),
+                    Move(z=-args.lift, relative=True, v=tv),
+                ],
             )
 
             print("描画完了\n")
