@@ -172,6 +172,13 @@ def main() -> None:
         print("ホーミング完了")
 
         tv = args.travel_speed
+        limits = stage.limits
+
+        # ステージ中央へ移動
+        center_x = (limits.x.min + limits.x.max) / 2
+        center_y = (limits.y.min + limits.y.max) / 2
+        print(f"ステージ中央 ({center_x:.1f}, {center_y:.1f}) へ移動中...")
+        send_moves(klipper, stage, [Move(x=center_x, y=center_y, v=tv)])
 
         print(f"\n描画サイズ: {args.size}mm, リフト: {args.lift}mm")
         print(f"描画速度: {args.speed}mm/s, 移動速度: {args.travel_speed}mm/s")
