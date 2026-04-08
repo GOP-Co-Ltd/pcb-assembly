@@ -15,14 +15,10 @@ from pathlib import Path
 
 from shapely import Point as ShapelyPoint
 
-# TODO: PasteApplicator再実装後に復活させる
-# from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
-from pcb_assembly.control.pasting import interactive_loading
+from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
 from pcb_assembly.geometry import Compose, HeightMap, Point2d
-
-# TODO: PasteDispenser再実装後に復活させる
-# from pcb_assembly.hal import NOZZLE_SPECS, PasteDispenser
+from pcb_assembly.hal import NOZZLE_SPECS, PasteDispenser
 from pcb_assembly.utils import setup_logging
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -74,74 +70,67 @@ def main() -> None:
     )
 
     with machine_session(result.klipper):
-        klipper = result.klipper  # noqa: F841
-        stage = result.stage  # noqa: F841
-        machine = result.machine  # noqa: F841
+        klipper = result.klipper
+        stage = result.stage
+        machine = result.machine
         outline = result.pcb.outline
 
-        board_transform = result.board_transform  # noqa: F841
+        board_transform = result.board_transform
 
         try:
             # HeightMap読み込み
             print("\n=== HeightMap読み込み ===")
-            height_transform = HeightMap.load(args.height_map)  # noqa: F841
+            height_transform = HeightMap.load(args.height_map)
             print(f"HeightMap: {args.height_map}")
 
             # ボード中央座標を計算
-            board_center = Point2d(outline.width / 2, outline.height / 2)  # noqa: F841
-            # TODO: PasteDispenser再実装後に復活させる
-            # toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
-            # center_machine = Compose([board_transform, toolhead_offset]).apply(
-            #     board_center
-            # )
-            # print(
-            #     f"ボード中央 (機械座標): X={center_machine.x:.3f}, Y={center_machine.y:.3f}"
-            # )
+            board_center = Point2d(outline.width / 2, outline.height / 2)
+            toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
+            center_machine = Compose([board_transform, toolhead_offset]).apply(
+                board_center
+            )
+            print(
+                f"ボード中央 (機械座標): X={center_machine.x:.3f}, Y={center_machine.y:.3f}"
+            )
 
             # PasteDispenser/nozzle_spec初期化
-            # TODO: PasteDispenser再実装後に復活させる
-            # dispenser_config = machine.paste_dispenser
-            # paste_dispenser = PasteDispenser(
-            #     klipper=klipper.readonly,
-            #     syringe_size=dispenser_config.syringe_size,
-            # )
-            # nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
+            dispenser_config = machine.paste_dispenser
+            paste_dispenser = PasteDispenser(
+                klipper=klipper.readonly,
+                rotations_per_ul=dispenser_config.rotations_per_ul,
+            )
+            nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
 
             # PasteApplicator作成
-            # TODO: PasteApplicator再実装後に復活させる
-            # applicator = PasteApplicator(
-            #     klipper=klipper,
-            #     paste_dispenser=paste_dispenser,
-            #     stage=stage,
-            #     nozzle_spec=nozzle_spec,
-            #     paste_velocity=dispenser_config.paste_velocity,
-            #     paste_thickness=dispenser_config.paste_thickness,
-            #     retraction=dispenser_config.retract_amount,
-            #     retraction_rate=dispenser_config.retract_rate,
-            #     retraction_accel_factor=dispenser_config.retract_accel_factor,
-            #     paste_accel=dispenser_config.dispense_accel,
-            #     paste_height=dispenser_config.paste_height,
-            #     transform=height_transform,
-            # )
+            with PasteApplicator(
+                klipper=klipper,
+                paste_dispenser=paste_dispenser,
+                stage=stage,
+                nozzle_spec=nozzle_spec,
+                paste_velocity=dispenser_config.paste_velocity,
+                paste_thickness=dispenser_config.paste_thickness,
+                retraction=dispenser_config.retract_amount,
+                retraction_rate=dispenser_config.retract_rate,
+                retraction_accel_factor=dispenser_config.retract_accel_factor,
+                paste_accel=dispenser_config.dispense_accel,
+                paste_height=dispenser_config.paste_height,
+                transform=height_transform,
+            ) as applicator:
+                # 対話的ローディング
+                interactive_loading(applicator, args.amount)
 
-            # 対話的ローディング
-            # TODO: PasteApplicator再実装後に復活させる
-            # interactive_loading(applicator, args.amount)
+                # リトラクション
+                print("\n=== リトラクション ===")
+                applicator.retract()
+                print("リトラクション完了")
 
-            # リトラクション
-            # TODO: PasteApplicator再実装後に復活させる
-            # print("\n=== リトラクション ===")
-            # applicator.retract()
-            # print("リトラクション完了")
-
-            # 円塗布
-            # TODO: PasteApplicator再実装後に復活させる
-            # print(f"\n=== 円塗布 (半径: {args.radius} mm) ===")
-            # circle = ShapelyPoint(center_machine.x, center_machine.y).buffer(
-            #     args.radius
-            # )
-            # applicator.apply([circle])
-            # print("塗布完了")
+                # 円塗布
+                print(f"\n=== 円塗布 (半径: {args.radius} mm) ===")
+                circle = ShapelyPoint(center_machine.x, center_machine.y).buffer(
+                    args.radius
+                )
+                applicator.apply([circle])
+                print("塗布完了")
 
         except KeyboardInterrupt:
             print("\n=== 緊急停止 ===")
