@@ -103,8 +103,8 @@ def send_moves(klipper: Klipper, stage: XYZStage, moves: list[Move]) -> None:
     klipper.send_gcode(stage.to_gcode(moves) + gcode.wait_for_done())
 
 
-def parse_relative(line: str) -> Move | None:
-    """入力文字列を相対Moveにパースする.
+def parse_position(line: str) -> Move | None:
+    """入力文字列を絶対座標Moveにパースする.
 
     無効な入力はNoneを返す.
     """
@@ -116,8 +116,8 @@ def parse_relative(line: str) -> Move | None:
     except ValueError:
         return None
     if len(values) == 2:
-        return Move(x=values[0], y=values[1], relative=True)
-    return Move(x=values[0], y=values[1], z=values[2], relative=True)
+        return Move(x=values[0], y=values[1])
+    return Move(x=values[0], y=values[1], z=values[2])
 
 
 def main() -> None:
@@ -171,30 +171,13 @@ def main() -> None:
         klipper.send_gcode(gcode.homing() + gcode.wait_for_done())
         print("ホーミング完了")
 
-        safe_z = args.size / 2 + args.lift
         tv = args.travel_speed
-        limits = stage.limits
-
-        # ステージ中央 + 安全高度へ移動
-        center_x = (limits.x.min + limits.x.max) / 2
-        center_y = (limits.y.min + limits.y.max) / 2
-        print(
-            f"ステージ中央 ({center_x:.1f}, {center_y:.1f}) + 安全高度 (Z-{safe_z}mm) へ移動中..."
-        )
-        send_moves(
-            klipper,
-            stage,
-            [
-                Move(x=center_x, y=center_y, v=tv),
-                Move(z=-safe_z, relative=True, v=tv),
-            ],
-        )
 
         print(f"\n描画サイズ: {args.size}mm, リフト: {args.lift}mm")
         print(f"描画速度: {args.speed}mm/s, 移動速度: {args.travel_speed}mm/s")
-        print("相対座標で位置を調整してください (x y [z])。'draw' で描画開始。\n")
+        print("座標を入力してください (x y [z])。'draw' で描画開始。\n")
 
-        # 位置決めループ（相対移動）
+        # 位置決めループ（絶対座標）
         while True:
             line = input("> ").strip()
             if not line:
@@ -202,26 +185,21 @@ def main() -> None:
             if line.lower() == "draw":
                 break
 
-            move = parse_relative(line)
+            move = parse_position(line)
             if move is None:
                 print("入力形式: x y [z]")
                 continue
-            send_moves(
-                klipper,
-                stage,
-                [Move(x=move.x, y=move.y, z=move.z, v=tv, relative=True)],
-            )
+            send_moves(klipper, stage, [Move(x=move.x, y=move.y, z=move.z, v=tv)])
             pos = stage.get_position()
             print(f"現在位置: ({pos.x:.2f}, {pos.y:.2f}, {pos.z:.2f})")
 
-        # 描画開始: 現在のXY位置を中心とする
+        # 描画開始: ペンは紙に接触している前提
+        # ペンを持ち上げてから開始（描画関数はペンUP状態で開始する前提）
         pos = stage.get_position()
         cx, cy = pos.x, pos.y
 
-        # ペンを下ろして描画高さへ（安全高度から size/2 下降）
-        send_moves(klipper, stage, [Move(z=-(args.size / 2), relative=True, v=tv)])
+        send_moves(klipper, stage, [Move(z=args.lift, relative=True, v=tv)])
 
-        # ここでペンは紙面から lift 分上にいる（描画関数の前提: ペンUP状態）
         print("正方形+対角線を描画中...")
         send_moves(
             klipper,
