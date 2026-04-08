@@ -3,7 +3,7 @@ host = "localhost"
 port = 7125
 
 [paste_dispenser]
-syringe_size = 9.0 # シリンジの直径 [mm]
+rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
 nozzle_size = "27G" # ノズルのゲージ
 dispense_rate = 5.0 # 吐出レート [uL/sec]
 dispense_accel = 10.0 # 吐出加速度 [uL/sec^2]
@@ -18,12 +18,11 @@ paste_thickness = 0.1 # ペースト膜厚 [mm]
 # カメラに対するツールヘッドの相対位置 (mm)
 
 # 設計値
-# x = -4.5
-# y = 48.86
+x = 0
+y = -26.46
 
 # 実測値
-x = -4.714802389293489
-y = 48.953912452257924
+
 
 [camera]
 device_id = 0

@@ -9,8 +9,7 @@ from pcb_assembly.config import (
     CornerOffsets,
     Klipper,
     Machine,
-    # TODO: PasteDispenser再実装後に復活させる
-    # PasteDispenser,
+    PasteDispenser,
     ReferencePoint,
     Toolhead,
 )
@@ -25,20 +24,19 @@ class TestMachine:
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.klipper == Klipper(host="192.168.1.100", port=7125)
-        # TODO: PasteDispenser再実装後に復活させる
-        # assert machine.paste_dispenser == PasteDispenser(
-        #     syringe_size=9.0,
-        #     nozzle_size="27G",
-        #     dispense_rate=5.0,
-        #     dispense_accel=10.0,
-        #     retract_amount=10.0,
-        #     retract_rate=50.0,
-        #     retract_accel_factor=2.0,
-        #     toolhead=Toolhead(x=13.2, y=54.7),
-        #     paste_velocity=5.0,
-        #     paste_height=0.1,
-        #     paste_thickness=0.1,
-        # )
+        assert machine.paste_dispenser == PasteDispenser(
+            rotations_per_ul=1.0,
+            nozzle_size="27G",
+            dispense_rate=5.0,
+            dispense_accel=10.0,
+            retract_amount=10.0,
+            retract_rate=50.0,
+            retract_accel_factor=2.0,
+            toolhead=Toolhead(x=13.2, y=54.7),
+            paste_velocity=5.0,
+            paste_height=0.1,
+            paste_thickness=0.1,
+        )
         assert machine.camera == Camera(
             device_id=0,
             width=640,
@@ -66,14 +64,13 @@ class TestMachine:
         assert machine.camera.device_id == 0
         assert machine.camera.format == "YUYV"
 
-    # TODO: PasteDispenser再実装後に復活させる
-    # def test_raises_key_error_when_config_not_defined(self):
-    #     machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
-    #
-    #     with pytest.raises(
-    #         KeyError, match="'paste_dispenser' は設定ファイルに定義されていません"
-    #     ):
-    #         machine.paste_dispenser
+    def test_raises_key_error_when_config_not_defined(self):
+        machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
+
+        with pytest.raises(
+            KeyError, match="'paste_dispenser' は設定ファイルに定義されていません"
+        ):
+            machine.paste_dispenser
 
 
 class TestCamera:

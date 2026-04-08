@@ -21,22 +21,21 @@ class Klipper:
     port: int = 7125
 
 
-# TODO: オーガー方式の設定モデルに書き直す
-# @attrs.frozen
-# class PasteDispenser:
-#     """ペーストディスペンサーの設定."""
-#
-#     syringe_size: float
-#     nozzle_size: str
-#     dispense_rate: float  # 吐出レート [uL/sec]
-#     dispense_accel: float  # 吐出加速度 [uL/sec^2]
-#     retract_amount: float  # リトラクション量 [uL]
-#     retract_rate: float  # リトラクションレート [uL/sec]
-#     retract_accel_factor: float  # リトラクション加速度係数
-#     toolhead: Toolhead
-#     paste_velocity: float  # 塗布時のXY移動速度 [mm/s]
-#     paste_height: float  # 塗布面のZ高さ [mm]
-#     paste_thickness: float  # ペースト膜厚 [mm]
+@attrs.frozen
+class PasteDispenser:
+    """ペーストディスペンサーの設定."""
+
+    rotations_per_ul: float  # 1μLあたりの回転数 [rev/μL]
+    nozzle_size: str
+    dispense_rate: float  # 吐出レート [μL/sec]
+    dispense_accel: float  # 吐出加速度 [μL/sec²]
+    retract_amount: float  # リトラクション量 [μL]
+    retract_rate: float  # リトラクションレート [μL/sec]
+    retract_accel_factor: float  # リトラクション加速度係数
+    toolhead: Toolhead
+    paste_velocity: float  # 塗布時のXY移動速度 [mm/s]
+    paste_height: float  # 塗布面のZ高さ [mm]
+    paste_thickness: float  # ペースト膜厚 [mm]
 
 
 @attrs.frozen
@@ -249,11 +248,10 @@ class Machine:
         """Klipper設定を取得する."""
         return self._get_config("klipper", Klipper)
 
-    # TODO: PasteDispenser再実装後に復活させる
-    # @property
-    # def paste_dispenser(self) -> PasteDispenser:
-    #     """ペーストディスペンサー設定を取得する."""
-    #     return self._get_config("paste_dispenser", PasteDispenser)
+    @property
+    def paste_dispenser(self) -> PasteDispenser:
+        """ペーストディスペンサー設定を取得する."""
+        return self._get_config("paste_dispenser", PasteDispenser)
 
     @property
     def camera(self) -> Camera:
