@@ -1,12 +1,31 @@
+import attrs
+
+from .air_pump import AirPump
 from .klipper import GCode, ReadonlyKlipper
 from .manual_stepper import ManualStepper
+
+
+@attrs.frozen
+class NozzleSpec:
+    """ディスペンサーノズルの仕様.
+
+    Attributes:
+        inner_diameter: 内径 [mm]
+    """
+
+    inner_diameter: float
+
+
+NOZZLE_SPECS: dict[str, NozzleSpec] = {
+    "27G": NozzleSpec(inner_diameter=0.19),
+}
 
 
 class PasteDispenser:
     """はんだペーストディスペンサーのHAL (オーガースクリュー方式).
 
-    マイクロリットル [μL] 単位のAPIを提供します。 内部的に ManualStepper を利用し、rotations_per_ul
-    で μL → 回転数に変換します。
+    マイクロリットル [μL] 単位のAPIを提供します。 内部的に ManualStepper と AirPump
+    を利用し、rotations_per_ul で μL → 回転数に変換します。
     """
 
     def __init__(
@@ -23,14 +42,23 @@ class PasteDispenser:
             stepper_name: manual_stepperの名前
 
         Raises:
-            RuntimeError: printer.cfgにmanual_stepperセクションがない場合
+            RuntimeError: printer.cfgにmanual_stepperセクションまたはair_pumpセクションがない場合
         """
         self._stepper = ManualStepper(klipper, stepper_name)
+        self._air_pump = AirPump(klipper)
         self._rotations_per_ul = rotations_per_ul
 
     def _ul_to_deg(self, microl: float) -> float:
         """マイクロリットル単位を角度に変換."""
         return microl * self._rotations_per_ul * 360
+
+    def enable(self) -> GCode:
+        """ディスペンサーを有効化するGCodeを生成する（AirPump ON + Stepper Enable）."""
+        return self._air_pump.on() + self._stepper.enable()
+
+    def disable(self) -> GCode:
+        """ディスペンサーを無効化するGCodeを生成する（AirPump OFF + Stepper Disable）."""
+        return self._air_pump.off() + self._stepper.disable()
 
     def pushpull(
         self,

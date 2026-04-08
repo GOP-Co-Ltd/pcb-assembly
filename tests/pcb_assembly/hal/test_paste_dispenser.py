@@ -3,11 +3,27 @@ from pytest_mock import MockerFixture
 
 from pcb_assembly.gcode import GCode
 from pcb_assembly.hal.klipper import Klipper
-from pcb_assembly.hal.paste_dispenser import PasteDispenser
+from pcb_assembly.hal.paste_dispenser import (
+    NOZZLE_SPECS,
+    NozzleSpec,
+    PasteDispenser,
+)
 from tests.helpers import mark_hardware
 
 STEPPER_NAME = "paste_dispenser"
 PREFIX = f"MANUAL_STEPPER STEPPER={STEPPER_NAME}"
+
+
+class TestNozzleSpec:
+    """NozzleSpecクラスのテスト."""
+
+    def test_nozzle_spec(self):
+        spec = NozzleSpec(inner_diameter=0.19)
+        assert spec.inner_diameter == 0.19
+
+    def test_nozzle_specs_27g(self):
+        assert "27G" in NOZZLE_SPECS
+        assert NOZZLE_SPECS["27G"].inner_diameter == 0.19
 
 
 class TestPasteDispenser:
@@ -21,7 +37,8 @@ class TestPasteDispenser:
             klipper.readonly,
             "get_config",
             return_value={
-                f"manual_stepper {STEPPER_NAME}": {"rotation_distance": "0.5"}
+                f"manual_stepper {STEPPER_NAME}": {"rotation_distance": "0.5"},
+                "output_pin air_pump": {},
             },
         )
         return klipper
@@ -33,12 +50,49 @@ class TestPasteDispenser:
 
     def test_init_missing_stepper_section(self, mocker: MockerFixture):
         klipper = Klipper()
-        mocker.patch.object(klipper.readonly, "get_config", return_value={})
+        mocker.patch.object(
+            klipper.readonly,
+            "get_config",
+            return_value={"output_pin air_pump": {}},
+        )
 
         with pytest.raises(
             RuntimeError, match=r"printer\.cfgに\[manual_stepper paste_dispenser\]"
         ):
             PasteDispenser(klipper.readonly, rotations_per_ul=0.5)
+
+    def test_init_missing_air_pump_section(self, mocker: MockerFixture):
+        klipper = Klipper()
+        mocker.patch.object(
+            klipper.readonly,
+            "get_config",
+            return_value={
+                f"manual_stepper {STEPPER_NAME}": {"rotation_distance": "0.5"},
+            },
+        )
+
+        with pytest.raises(
+            RuntimeError, match=r"printer\.cfgに\[output_pin air_pump\]"
+        ):
+            PasteDispenser(klipper.readonly, rotations_per_ul=0.5)
+
+    def test_enable(self, mock_klipper: Klipper):
+        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
+        gcode = dispenser.enable()
+
+        assert isinstance(gcode, GCode)
+        lines = gcode.to_list()
+        assert lines[0] == "SET_PIN PIN=air_pump VALUE=1"
+        assert lines[1] == f"{PREFIX} ENABLE=1"
+
+    def test_disable(self, mock_klipper: Klipper):
+        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
+        gcode = dispenser.disable()
+
+        assert isinstance(gcode, GCode)
+        lines = gcode.to_list()
+        assert lines[0] == "SET_PIN PIN=air_pump VALUE=0"
+        assert lines[1] == f"{PREFIX} ENABLE=0"
 
     @pytest.mark.parametrize(
         ("amount", "expected_move_sign"),
