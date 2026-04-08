@@ -103,17 +103,21 @@ def send_moves(klipper: Klipper, stage: XYZStage, moves: list[Move]) -> None:
     klipper.send_gcode(stage.to_gcode(moves) + gcode.wait_for_done())
 
 
-def parse_relative(line: str) -> Move:
-    """入力文字列を相対Moveにパースする."""
+def parse_relative(line: str) -> Move | None:
+    """入力文字列を相対Moveにパースする.
+
+    無効な入力はNoneを返す.
+    """
     parts = line.split()
-    if len(parts) == 2:
-        return Move(x=float(parts[0]), y=float(parts[1]), relative=True)
-    if len(parts) == 3:
-        return Move(
-            x=float(parts[0]), y=float(parts[1]), z=float(parts[2]), relative=True
-        )
-    msg = "入力形式: x y [z]"
-    raise ValueError(msg)
+    if len(parts) not in (2, 3):
+        return None
+    try:
+        values = [float(p) for p in parts]
+    except ValueError:
+        return None
+    if len(values) == 2:
+        return Move(x=values[0], y=values[1], relative=True)
+    return Move(x=values[0], y=values[1], z=values[2], relative=True)
 
 
 def main() -> None:
@@ -186,10 +190,9 @@ def main() -> None:
             if line.lower() == "draw":
                 break
 
-            try:
-                move = parse_relative(line)
-            except ValueError as e:
-                print(e)
+            move = parse_relative(line)
+            if move is None:
+                print("入力形式: x y [z]")
                 continue
             send_moves(
                 klipper,
