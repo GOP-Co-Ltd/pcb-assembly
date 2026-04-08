@@ -173,10 +173,22 @@ def main() -> None:
 
         safe_z = args.size / 2 + args.lift
         tv = args.travel_speed
+        limits = stage.limits
 
-        # 安全高度へ移動（描画サイズ半分 + リフト分）
-        print(f"安全高度へ移動中 (Z+{safe_z}mm)...")
-        send_moves(klipper, stage, [Move(z=-safe_z, relative=True, v=tv)])
+        # ステージ中央 + 安全高度へ移動
+        center_x = (limits.x.min + limits.x.max) / 2
+        center_y = (limits.y.min + limits.y.max) / 2
+        print(
+            f"ステージ中央 ({center_x:.1f}, {center_y:.1f}) + 安全高度 (Z-{safe_z}mm) へ移動中..."
+        )
+        send_moves(
+            klipper,
+            stage,
+            [
+                Move(x=center_x, y=center_y, v=tv),
+                Move(z=-safe_z, relative=True, v=tv),
+            ],
+        )
 
         print(f"\n描画サイズ: {args.size}mm, リフト: {args.lift}mm")
         print(f"描画速度: {args.speed}mm/s, 移動速度: {args.travel_speed}mm/s")
