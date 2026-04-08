@@ -239,16 +239,6 @@ def main() -> None:
             ],
         )
 
-        # 安全高度に戻る
-        send_moves(
-            klipper,
-            stage,
-            [
-                Move(x=cx, y=cy, v=tv),
-                Move(z=args.size / 2, relative=True, v=tv),
-            ],
-        )
-
         print("描画完了")
 
     except KeyboardInterrupt:
