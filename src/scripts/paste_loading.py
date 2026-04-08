@@ -1,80 +1,66 @@
 #!/usr/bin/env python3
 """はんだペーストローディングスクリプト.
 
-AirPump と ManualStepper (paste_dispenser) を使ってペーストをローディングする対話型スクリプト。
+PasteApplicator を使ってペーストを対話的にローディングする。
 """
 
 import argparse
 import logging
+from pathlib import Path
 
-from pcb_assembly.hal import AirPump, ManualStepper
-from pcb_assembly.hal.klipper import Klipper
+from pcb_assembly.config import Machine
+from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
+from pcb_assembly.hal import NOZZLE_SPECS, Klipper, PasteDispenser, XYZStage
 from pcb_assembly.utils import setup_logging
+
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 def main() -> None:
     setup_logging(logging.INFO)
     parser = argparse.ArgumentParser(description="はんだペーストローディングスクリプト")
     parser.add_argument(
-        "-H", "--host", type=str, default="localhost", help="Moonrakerホスト"
-    )
-    parser.add_argument("--port", type=int, default=7125, help="Moonrakerポート")
-    parser.add_argument(
-        "--rotations",
-        "-r",
-        type=float,
-        default=10,
-        help="デフォルト回転数 (回転)",
+        "--config",
+        "-c",
+        type=Path,
+        default=PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml",
+        help="設定ファイルのパス",
     )
     parser.add_argument(
-        "--rpm",
+        "--amount",
+        "-a",
         type=float,
-        default=60.0,
-        help="回転速度 (RPM)",
-    )
-    parser.add_argument(
-        "--accel-factor",
-        type=float,
-        default=5.0,
-        help="加速度係数 (accel = speed_mm_s × factor)",
+        default=10.0,
+        help="デフォルトの押し出し量 [μL]",
     )
     args = parser.parse_args()
 
-    klipper = Klipper(host=args.host, port=args.port)
-    air_pump = AirPump(klipper.readonly)
-    stepper = ManualStepper(klipper.readonly, "paste_dispenser")
+    machine = Machine(args.config)
+    klipper_config = machine.klipper
+    dispenser_config = machine.paste_dispenser
 
-    klipper.send_gcode(air_pump.on())
-    klipper.send_gcode(stepper.enable())
-
-    speed_deg_s = args.rpm * 6  # RPM → deg/s
-    accel = speed_deg_s * args.accel_factor
-
-    print(
-        f"回転速度: {args.rpm} RPM ({speed_deg_s:.1f} deg/s), 加速度係数: {args.accel_factor}"
+    klipper = Klipper(host=klipper_config.host, port=klipper_config.port)
+    paste_dispenser = PasteDispenser(
+        klipper=klipper.readonly,
+        rotations_per_ul=dispenser_config.rotations_per_ul,
     )
-    print("Enterで回転、回転数を入力して変更可、q/quit で終了")
+    stage = XYZStage(klipper.readonly)
+    nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
 
-    try:
-        while True:
-            raw = input("> ").strip()
-            if raw in ("q", "quit"):
-                break
-            if raw == "":
-                rotations = args.rotations
-            else:
-                try:
-                    rotations = float(raw)
-                except ValueError:
-                    print("不正な入力")
-                    continue
-            angle = rotations * 360
-            klipper.send_gcode(
-                stepper.reset_position() + stepper.rotate(angle, speed_deg_s, accel)
-            )
-    finally:
-        klipper.send_gcode(air_pump.off())
-        klipper.send_gcode(stepper.disable())
+    with PasteApplicator(
+        klipper=klipper,
+        paste_dispenser=paste_dispenser,
+        stage=stage,
+        nozzle_spec=nozzle_spec,
+        paste_velocity=dispenser_config.paste_velocity,
+        paste_thickness=dispenser_config.paste_thickness,
+        retraction=dispenser_config.retract_amount,
+        retraction_rate=dispenser_config.retract_rate,
+        retraction_accel_factor=dispenser_config.retract_accel_factor,
+        paste_accel=dispenser_config.dispense_accel,
+        paste_height=dispenser_config.paste_height,
+    ) as applicator:
+        interactive_loading(applicator, args.amount)
 
 
 if __name__ == "__main__":
