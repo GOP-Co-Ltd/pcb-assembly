@@ -186,7 +186,11 @@ def main() -> None:
             if line.lower() == "draw":
                 break
 
-            move = parse_relative(line)
+            try:
+                move = parse_relative(line)
+            except ValueError as e:
+                print(e)
+                continue
             send_moves(
                 klipper,
                 stage,
