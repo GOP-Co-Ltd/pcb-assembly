@@ -16,7 +16,6 @@ from pathlib import Path
 from pcb_assembly.control.adjust import HeightTransformMeasurer
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
-from pcb_assembly.geometry import Compose
 from pcb_assembly.hal import ProbeSensor
 from pcb_assembly.utils import setup_logging
 
@@ -75,7 +74,6 @@ def main() -> None:
 
     klipper = result.klipper
     stage = result.stage
-    machine = result.machine  # noqa: F841
     outline = result.pcb.outline
 
     probe = ProbeSensor(klipper.readonly)
