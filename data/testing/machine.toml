@@ -10,9 +10,8 @@ dispense_accel = 10.0
 retract_amount = 10.0
 retract_rate = 50.0
 retract_accel_factor = 2.0
-paste_velocity = 5.0
 paste_height = 0.1
-paste_thickness = 0.1
+ul_per_mm2 = 0.2
 
 [paste_dispenser.toolhead]
 x = 13.2

@@ -4,22 +4,21 @@
 ボード計測ベースのフロー:
 1. setup_board_calibration() で初期化〜Board変換計測
 2. HeightMap読み込み
-3. ボード中央座標を計算 → toolheadオフセット適用で機械座標に変換
+3. TOPレイヤーのパッドを取得・ソート
 4. PasteApplicator作成
-5. ローディング → リトラクション → 円塗布
+5. ローディング → リトラクション → パッド中心にポイント塗布
 """
 
 import argparse
 import logging
 from pathlib import Path
 
-from shapely import Point as ShapelyPoint
-
 from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
-from pcb_assembly.geometry import Compose, HeightMap, Point2d
-from pcb_assembly.hal import NOZZLE_SPECS, PasteDispenser
+from pcb_assembly.geometry import Compose, HeightMap, sort_by_nearest
+from pcb_assembly.hal import PasteDispenser
+from pcb_assembly.pcb import Layer
 from pcb_assembly.utils import setup_logging
 
 WINDOW_NAME = "Pasting Demo"
@@ -52,7 +51,6 @@ def main() -> None:
     parser.add_argument(
         "--amount", type=float, default=10.0, help="デフォルトの押し出し量 [uL]"
     )
-    parser.add_argument("--radius", type=float, default=3.0, help="塗布円の半径 [mm]")
     parser.add_argument(
         "--height-map",
         "-H",
@@ -74,7 +72,6 @@ def main() -> None:
         klipper = result.klipper
         stage = result.stage
         machine = result.machine
-        outline = result.pcb.outline
 
         board_transform = result.board_transform
 
@@ -84,38 +81,41 @@ def main() -> None:
             height_transform = HeightMap.load(args.height_map)
             print(f"HeightMap: {args.height_map}")
 
-            # ボード中央座標を計算
-            board_center = Point2d(outline.width / 2, outline.height / 2)
-            toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
-            center_machine = Compose([board_transform, toolhead_offset]).apply(
-                board_center
-            )
-            print(
-                f"ボード中央 (機械座標): X={center_machine.x:.3f}, Y={center_machine.y:.3f}"
-            )
+            # TOPレイヤーのパッドを取得
+            top_pads = [p for p in result.pcb.pads if p.layer == Layer.TOP]
+            print(f"TOPレイヤーのパッド数: {len(top_pads)}")
 
-            # PasteDispenser/nozzle_spec初期化
+            # nearest-neighborソート
+            current_pos = stage.get_position()
+            pad_centers_3d = [p.center.to3d() for p in top_pads]
+            sorted_centers = sort_by_nearest(pad_centers_3d, current_pos.to2d().to3d())
+            center_to_pad = {p.center.to3d(): p for p in top_pads}
+            sorted_pads = [center_to_pad[c] for c in sorted_centers]
+
+            # board→machine全変換 (board_transform + toolhead_offset + HeightMap)
+            toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
+            transform = Compose([board_transform, toolhead_offset, height_transform])
+
+            # PasteDispenser初期化
             dispenser_config = machine.paste_dispenser
             paste_dispenser = PasteDispenser(
                 klipper=klipper.readonly,
                 rotations_per_ul=dispenser_config.rotations_per_ul,
             )
-            nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
 
             # PasteApplicator作成
             with PasteApplicator(
                 klipper=klipper,
                 paste_dispenser=paste_dispenser,
                 stage=stage,
-                nozzle_spec=nozzle_spec,
-                paste_velocity=dispenser_config.paste_velocity,
-                paste_thickness=dispenser_config.paste_thickness,
+                dispense_rate=dispenser_config.dispense_rate,
+                dispense_accel=dispenser_config.dispense_accel,
+                ul_per_mm2=dispenser_config.ul_per_mm2,
                 retraction=dispenser_config.retract_amount,
                 retraction_rate=dispenser_config.retract_rate,
                 retraction_accel_factor=dispenser_config.retract_accel_factor,
-                paste_accel=dispenser_config.dispense_accel,
                 paste_height=dispenser_config.paste_height,
-                transform=height_transform,
+                transform=transform,
             ) as applicator:
                 # 対話的ローディング
                 interactive_loading(applicator, args.amount)
@@ -125,12 +125,9 @@ def main() -> None:
                 applicator.retract()
                 print("リトラクション完了")
 
-                # 円塗布
-                print(f"\n=== 円塗布 (半径: {args.radius} mm) ===")
-                circle = ShapelyPoint(center_machine.x, center_machine.y).buffer(
-                    args.radius
-                )
-                applicator.apply([circle])
+                # パッド中心にポイント塗布
+                print(f"\n=== パッド塗布 ({len(sorted_pads)} パッド) ===")
+                applicator.apply([pad.polygon for pad in sorted_pads])
                 print("塗布完了")
 
         except KeyboardInterrupt:

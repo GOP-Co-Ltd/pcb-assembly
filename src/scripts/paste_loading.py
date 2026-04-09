@@ -9,7 +9,7 @@ import logging
 
 from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
-from pcb_assembly.hal import NOZZLE_SPECS, Klipper, PasteDispenser, XYZStage
+from pcb_assembly.hal import Klipper, PasteDispenser, XYZStage
 from pcb_assembly.utils import setup_logging
 
 
@@ -42,19 +42,16 @@ def main() -> None:
         rotations_per_ul=dispenser_config.rotations_per_ul,
     )
     stage = XYZStage(klipper.readonly)
-    nozzle_spec = NOZZLE_SPECS[dispenser_config.nozzle_size]
-
     with PasteApplicator(
         klipper=klipper,
         paste_dispenser=paste_dispenser,
         stage=stage,
-        nozzle_spec=nozzle_spec,
-        paste_velocity=dispenser_config.paste_velocity,
-        paste_thickness=dispenser_config.paste_thickness,
+        dispense_rate=dispenser_config.dispense_rate,
+        dispense_accel=dispenser_config.dispense_accel,
+        ul_per_mm2=dispenser_config.ul_per_mm2,
         retraction=dispenser_config.retract_amount,
         retraction_rate=dispenser_config.retract_rate,
         retraction_accel_factor=dispenser_config.retract_accel_factor,
-        paste_accel=dispenser_config.dispense_accel,
         paste_height=dispenser_config.paste_height,
     ) as applicator:
         interactive_loading(applicator, args.amount)
