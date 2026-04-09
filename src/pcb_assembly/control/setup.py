@@ -77,17 +77,12 @@ class BoardCalibrationResult:
 
 
 def setup_board_calibration(
-    config_path: Path,
+    machine: Machine,
     pcb_file_path: Path,
     tolerance: float = 0.1,
     window_name: str = "Calibration",
 ) -> BoardCalibrationResult:
     """マシン初期化からBoard変換計測までの共通セットアップを実行する."""
-    # 設定読み込み
-    logger.info("=== 設定読み込み ===")
-    machine = Machine(config_path)
-    logger.info("設定ファイル: %s", config_path)
-
     # PCBファイル読み込み
     logger.info("=== PCBファイル読み込み ===")
     pcb = PcbFile(pcb_file_path)

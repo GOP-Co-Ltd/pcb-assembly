@@ -13,6 +13,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from pcb_assembly.config import Machine
 from pcb_assembly.control.adjust import HeightTransformMeasurer
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
@@ -66,8 +67,9 @@ def main() -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
         args.output = output_dir / f"{pcb_stem}_{timestamp}.json"
 
+    machine = Machine(args.config)
     result = setup_board_calibration(
-        config_path=args.config,
+        machine=machine,
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
         window_name=WINDOW_NAME,

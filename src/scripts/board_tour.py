@@ -22,6 +22,7 @@ from pathlib import Path
 import cv2
 
 from pcb_assembly import gcode
+from pcb_assembly.config import Machine
 from pcb_assembly.control.setup import (
     BoardCalibrationResult,
     machine_session,
@@ -98,8 +99,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    machine = Machine(args.config)
     result = setup_board_calibration(
-        config_path=args.config,
+        machine=machine,
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
         window_name=WINDOW_NAME,

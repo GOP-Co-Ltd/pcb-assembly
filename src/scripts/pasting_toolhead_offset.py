@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 from pcb_assembly import gcode
+from pcb_assembly.config import Machine
 from pcb_assembly.control.adjust import XYPositionAdjustor
 from pcb_assembly.control.pasting import (
     PasteApplicator,
@@ -118,8 +119,9 @@ def main() -> None:
 
     # === Phase 1: 初期化 & ボードキャリブレーション ===
 
+    machine = Machine(args.config)
     cal_result = setup_board_calibration(
-        config_path=args.config,
+        machine=machine,
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
         window_name=WINDOW_NAME,

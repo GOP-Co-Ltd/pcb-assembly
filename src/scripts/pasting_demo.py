@@ -15,6 +15,7 @@ from pathlib import Path
 
 from shapely import Point as ShapelyPoint
 
+from pcb_assembly.config import Machine
 from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
 from pcb_assembly.geometry import Compose, HeightMap, Point2d
@@ -62,8 +63,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    machine = Machine(args.config)
     result = setup_board_calibration(
-        config_path=args.config,
+        machine=machine,
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
         window_name=WINDOW_NAME,
