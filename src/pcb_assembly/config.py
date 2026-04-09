@@ -34,9 +34,8 @@ class PasteDispenser:
     retract_rate: float  # リトラクションレート [μL/sec]
     retract_accel_factor: float  # リトラクション加速度係数
     toolhead: Toolhead
-    paste_velocity: float  # 塗布時のXY移動速度 [mm/s]
     paste_height: float  # 塗布面のZ高さ [mm]
-    paste_thickness: float  # ペースト膜厚 [mm]
+    ul_per_mm2: float  # パッド面積あたりのペースト量 [μL/mm²]
 
 
 @attrs.frozen
