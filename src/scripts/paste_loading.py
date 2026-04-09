@@ -6,25 +6,22 @@ PasteApplicator を使ってペーストを対話的にローディングする�
 
 import argparse
 import logging
-from pathlib import Path
 
-from pcb_assembly.config import Machine
+from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
 from pcb_assembly.hal import NOZZLE_SPECS, Klipper, PasteDispenser, XYZStage
 from pcb_assembly.utils import setup_logging
-
-PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 def main() -> None:
     setup_logging(logging.INFO)
     parser = argparse.ArgumentParser(description="はんだペーストローディングスクリプト")
     parser.add_argument(
-        "--config",
-        "-c",
-        type=Path,
-        default=PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml",
-        help="設定ファイルのパス",
+        "--machine",
+        "-m",
+        type=str,
+        default="pd_china_frame",
+        help="マシン名",
     )
     parser.add_argument(
         "--amount",
@@ -35,7 +32,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    machine = Machine(args.config)
+    machine = get_machine_config(args.machine)
     klipper_config = machine.klipper
     dispenser_config = machine.paste_dispenser
 

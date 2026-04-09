@@ -13,14 +13,14 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.adjust import HeightTransformMeasurer
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
 from pcb_assembly.geometry import Compose
 from pcb_assembly.hal import ProbeSensor
-from pcb_assembly.utils import setup_logging
+from pcb_assembly.utils import PROJECT_ROOT, setup_logging
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent
 WINDOW_NAME = "Height Mesh"
 
 
@@ -28,11 +28,11 @@ def main() -> None:
     setup_logging(logging.INFO)
     parser = argparse.ArgumentParser(description="基板表面のbed mesh計測")
     parser.add_argument(
-        "--config",
-        "-c",
-        type=Path,
-        default=PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml",
-        help="設定ファイルのパス",
+        "--machine",
+        "-m",
+        type=str,
+        default="pd_china_frame",
+        help="マシン名",
     )
     parser.add_argument(
         "--pcb-file",
@@ -59,15 +59,16 @@ def main() -> None:
 
     # デフォルト出力先の生成
     if args.output is None:
-        config_name = Path(args.config).parent.name
+        config_name = args.machine
         pcb_stem = Path(args.pcb_file).stem
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = PROJECT_ROOT / "data" / "height_mesh" / config_name
         output_dir.mkdir(parents=True, exist_ok=True)
         args.output = output_dir / f"{pcb_stem}_{timestamp}.json"
 
+    machine = get_machine_config(args.machine)
     result = setup_board_calibration(
-        config_path=args.config,
+        machine=machine,
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
         window_name=WINDOW_NAME,

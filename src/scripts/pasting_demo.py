@@ -15,13 +15,13 @@ from pathlib import Path
 
 from shapely import Point as ShapelyPoint
 
+from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
 from pcb_assembly.geometry import Compose, HeightMap, Point2d
 from pcb_assembly.hal import NOZZLE_SPECS, PasteDispenser
 from pcb_assembly.utils import setup_logging
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent
 WINDOW_NAME = "Pasting Demo"
 
 
@@ -29,11 +29,11 @@ def main() -> None:
     setup_logging(logging.INFO)
     parser = argparse.ArgumentParser(description="ペースト塗布デモ")
     parser.add_argument(
-        "--config",
-        "-c",
-        type=Path,
-        default=PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml",
-        help="設定ファイルのパス",
+        "--machine",
+        "-m",
+        type=str,
+        default="pd_china_frame",
+        help="マシン名",
     )
     parser.add_argument(
         "--pcb-file",
@@ -62,8 +62,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    machine = get_machine_config(args.machine)
     result = setup_board_calibration(
-        config_path=args.config,
+        machine=machine,
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
         window_name=WINDOW_NAME,

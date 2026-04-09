@@ -7,10 +7,9 @@ from pathlib import Path
 import cv2
 
 from pcb_assembly.hal.camera import create_camera
+from pcb_assembly.utils import PROJECT_ROOT
 from pcb_assembly.vision.calibration import CalibrationResult
 from pcb_assembly.vision.detection import CircleDetector
-
-PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 def main() -> None:
