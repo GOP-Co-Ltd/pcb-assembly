@@ -12,6 +12,7 @@ from pcb_assembly.config import (
     PasteDispenser,
     ReferencePoint,
     Toolhead,
+    get_machine_config,
 )
 from pcb_assembly.geometry import Point2d, Shift
 from tests.helpers import TESTING_DATA_DIR
@@ -269,3 +270,49 @@ class TestReferencePoint:
         assert ref.get_reference_position(
             Corner.BOTTOM_RIGHT, board_width=100.0, board_height=50.0
         ) == Point2d(104.0, 77.0)
+
+
+class TestGetMachineConfig:
+    """get_machine_config関数のテスト."""
+
+    _MINIMAL_TOML = """\
+[klipper]
+
+[camera]
+width = 640
+height = 480
+fps = 30.0
+calibration_file = "calibration.json"
+
+[camera.crop]
+width = 400
+height = 400
+
+[reference_point]
+x = 20.0
+y = 10.0
+target_diameter = 3.0
+
+[reference_point.offsets]
+top_left = [0.0, 0.0]
+top_right = [0.0, 0.0]
+bottom_right = [0.0, 0.0]
+"""
+
+    def test_loads_machine_config(self, tmp_path, monkeypatch):
+        config_dir = tmp_path / "configs" / "test_machine"
+        config_dir.mkdir(parents=True)
+        (config_dir / "machine.toml").write_text(self._MINIMAL_TOML)
+
+        monkeypatch.setattr("pcb_assembly.config.PROJECT_ROOT", tmp_path)
+
+        machine = get_machine_config("test_machine")
+
+        assert isinstance(machine, Machine)
+        assert machine.klipper == Klipper(host="localhost", port=7125)
+
+    def test_raises_file_not_found_for_nonexistent_machine(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("pcb_assembly.config.PROJECT_ROOT", tmp_path)
+
+        with pytest.raises(FileNotFoundError):
+            get_machine_config("nonexistent")

@@ -11,9 +11,8 @@ import cv2
 from pcb_assembly.hal.camera import create_camera
 from pcb_assembly.hal.klipper import Klipper
 from pcb_assembly.hal.stage import XYZStage
+from pcb_assembly.utils import PROJECT_ROOT
 from pcb_assembly.vision.calibration import CheckerboardCalibrator
-
-PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 def main() -> None:

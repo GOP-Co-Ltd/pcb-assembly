@@ -13,15 +13,12 @@
 import argparse
 import logging
 import math
-from pathlib import Path
 
 from pcb_assembly import gcode
-from pcb_assembly.config import Machine
+from pcb_assembly.config import get_machine_config
 from pcb_assembly.geometry import Move
 from pcb_assembly.hal import Klipper, XYZStage
 from pcb_assembly.utils import setup_logging
-
-PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 def square_with_diagonals(
@@ -126,11 +123,11 @@ def main() -> None:
         description="CoreXY直行性テスト（ペン描画）",
     )
     parser.add_argument(
-        "--config",
-        "-c",
-        type=Path,
-        default=PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml",
-        help="設定ファイルのパス",
+        "--machine",
+        "-m",
+        type=str,
+        default="pd_china_frame",
+        help="マシン名",
     )
     parser.add_argument(
         "--size",
@@ -160,7 +157,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    machine = Machine(args.config)
+    machine = get_machine_config(args.machine)
     klipper_config = machine.klipper
     klipper = Klipper(host=klipper_config.host, port=klipper_config.port)
     stage = XYZStage(klipper.readonly)

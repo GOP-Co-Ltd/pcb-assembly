@@ -22,6 +22,7 @@ from pathlib import Path
 import cv2
 
 from pcb_assembly import gcode
+from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.setup import (
     BoardCalibrationResult,
     machine_session,
@@ -33,7 +34,6 @@ from pcb_assembly.pcb import Layer
 from pcb_assembly.utils import setup_logging
 from pcb_assembly.vision import draw_overlay
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent
 WINDOW_NAME = "Board Tour Demo"
 
 
@@ -76,11 +76,11 @@ def main() -> None:
     setup_logging(logging.INFO)
     parser = argparse.ArgumentParser(description="ボード巡回デモ")
     parser.add_argument(
-        "--config",
-        "-c",
-        type=Path,
-        default=PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml",
-        help="設定ファイルのパス",
+        "--machine",
+        "-m",
+        type=str,
+        default="pd_china_frame",
+        help="マシン名",
     )
     parser.add_argument(
         "--pcb-file",
@@ -98,8 +98,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    machine = get_machine_config(args.machine)
     result = setup_board_calibration(
-        config_path=args.config,
+        machine=machine,
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
         window_name=WINDOW_NAME,

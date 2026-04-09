@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 from pcb_assembly import gcode
+from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.adjust import XYPositionAdjustor
 from pcb_assembly.control.pasting import (
     PasteApplicator,
@@ -38,10 +39,9 @@ from pcb_assembly.control.setup import (
 )
 from pcb_assembly.geometry import Identity, Move, Point2d
 from pcb_assembly.hal import NOZZLE_SPECS, PasteDispenser, ProbeSensor
-from pcb_assembly.utils import setup_logging
+from pcb_assembly.utils import PROJECT_ROOT, setup_logging
 from pcb_assembly.vision import CircleDetector
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent
 WINDOW_NAME = "Toolhead Offset"
 
 
@@ -49,11 +49,11 @@ def main() -> None:
     setup_logging(logging.INFO)
     parser = argparse.ArgumentParser(description="ツールヘッドオフセット自動計測")
     parser.add_argument(
-        "--config",
-        "-c",
-        type=Path,
-        default=PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml",
-        help="設定ファイルのパス",
+        "--machine",
+        "-m",
+        type=str,
+        default="pd_china_frame",
+        help="マシン名",
     )
     parser.add_argument(
         "--pcb-file",
@@ -110,7 +110,7 @@ def main() -> None:
 
     # デフォルト出力先の生成
     if args.output is None:
-        config_name = Path(args.config).parent.name
+        config_name = args.machine
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = PROJECT_ROOT / "data" / "toolhead_offset" / config_name
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -118,8 +118,9 @@ def main() -> None:
 
     # === Phase 1: 初期化 & ボードキャリブレーション ===
 
+    machine = get_machine_config(args.machine)
     cal_result = setup_board_calibration(
-        config_path=args.config,
+        machine=machine,
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
         window_name=WINDOW_NAME,
