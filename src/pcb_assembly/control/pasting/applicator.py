@@ -7,7 +7,14 @@ from typing import Self
 from shapely import Polygon
 
 from pcb_assembly import gcode
-from pcb_assembly.geometry import Identity, Move, Point2d, Transform
+from pcb_assembly.geometry import (
+    Identity,
+    Move,
+    Point2d,
+    Point3d,
+    Trajectory,
+    Transform,
+)
 from pcb_assembly.hal import Klipper, PasteDispenser, XYZStage
 from pcb_assembly.utils import get_class_module_path
 
@@ -146,36 +153,45 @@ class PasteApplicator:
         """指定座標にポイント吐出を行う."""
         target = self._transform.apply(point.to3d(self._paste_height))
         lifted_z = target.z + self._lift_height
+        max_v = self._stage.max_velocity
 
         gc = gcode.GCode()
-        # 1. 始点XYへ移動 (lift_height)
-        gc.append(
-            self._stage.to_gcode(
-                Move(x=target.x, y=target.y, z=lifted_z, v=self._stage.max_velocity)
-            )
+
+        # 1. 目的地上空へ移動 → Z下降
+        descent = Trajectory(
+            origin=Point3d(target.x, target.y, lifted_z),
+            initial_velocity=max_v,
         )
-        # 2. paste_height まで下降
-        gc.append(self._stage.to_gcode(Move(z=target.z, v=self._stage.max_velocity)))
+        descent.add(
+            Move(x=target.x, y=target.y, z=lifted_z, v=max_v),
+            Move(z=target.z, v=max_v),
+        )
+        gc.append(self._stage.to_gcode(descent))
         gc.append(gcode.wait_for_done())
-        # 3. プライム
+
+        # 2. プライム → 吐出 → リトラクション
         gc.append(
             self._paste_dispenser.pushpull(
                 self._retraction, self._retraction_rate, self._retraction_accel
             )
         )
-        # 4. 吐出
         gc.append(
             self._paste_dispenser.pushpull(
                 amount, self._dispense_rate, self._dispense_accel
             )
         )
-        # 5. リトラクション
         gc.append(
             self._paste_dispenser.pushpull(
                 -self._retraction, self._retraction_rate, self._retraction_accel
             )
         )
-        # 6. 上昇
-        gc.append(self._stage.to_gcode(Move(z=lifted_z, v=self._stage.max_velocity)))
+
+        # 3. Z上昇
+        ascent = Trajectory(
+            Move(z=lifted_z, v=max_v),
+            origin=Point3d(target.x, target.y, target.z),
+            initial_velocity=max_v,
+        )
+        gc.append(self._stage.to_gcode(ascent))
 
         self._klipper.send_gcode(gc)
