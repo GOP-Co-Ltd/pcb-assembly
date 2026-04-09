@@ -11,6 +11,7 @@ import attrs
 import cattrs
 
 from pcb_assembly.geometry import Point2d, Shift, Transform
+from pcb_assembly.utils import PROJECT_ROOT
 
 
 @attrs.frozen
@@ -269,3 +270,17 @@ class Machine:
     def reference_point(self) -> ReferencePoint:
         """基準点設定を取得する."""
         return self._get_config("reference_point", ReferencePoint)
+
+
+def get_machine_config(name: str, file: str = "machine.toml") -> Machine:
+    """マシン名からMachine設定を読み込む.
+
+    Args:
+        name: マシン名（configs/ディレクトリ下のサブディレクトリ名）
+        file: 設定ファイル名
+
+    Returns:
+        Machine設定オブジェクト
+    """
+    path = PROJECT_ROOT / "configs" / name / file
+    return Machine(path)
