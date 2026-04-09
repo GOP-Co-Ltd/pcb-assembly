@@ -3,7 +3,7 @@ host = "localhost"
 port = 7125
 
 [paste_dispenser]
-rotations_per_ul = 10.0 # 1μLあたりの回転数 [rev/μL]
+rotations_per_ul = 20.0 # 1μLあたりの回転数 [rev/μL]
 nozzle_size = "27G" # ノズルのゲージ
 dispense_rate = 0.50 # 吐出レート [uL/sec]
 dispense_accel = 1.0 # 吐出加速度 [uL/sec^2]
@@ -11,7 +11,7 @@ retract_amount = 0.5 # リトラクション量 [uL]
 retract_rate = 0.5 # リトラクションレート [uL/sec]
 retract_accel_factor = 2.0 # リトラクション加速度係数
 paste_height = 0.1 # 塗布面のZ高さ [mm]
-ul_per_mm2 = 0.2 # パッド面積あたりのペースト量 [uL/mm^2]
+ul_per_mm2 = 4.0 # パッド面積あたりのペースト量 [uL/mm^2]
 
 [paste_dispenser.toolhead]
 # カメラに対するツールヘッドの相対位置 (mm)
@@ -21,8 +21,8 @@ ul_per_mm2 = 0.2 # パッド面積あたりのペースト量 [uL/mm^2]
 # y = 26.46
 
 # 実測値
-x = -1.770520410218026
-y = 22.999463541435127
+x = -1.747950281660934
+y = 22.87878806313949
 
 [camera]
 device_id = 0
