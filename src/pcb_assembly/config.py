@@ -37,6 +37,7 @@ class PasteDispenser:
     paste_velocity: float  # 塗布時のXY移動速度 [mm/s]
     paste_height: float  # 塗布面のZ高さ [mm]
     paste_thickness: float  # ペースト膜厚 [mm]
+    ul_per_mm2: float  # パッド面積あたりのペースト量 [μL/mm²]
 
 
 @attrs.frozen

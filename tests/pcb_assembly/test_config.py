@@ -37,6 +37,7 @@ class TestMachine:
             paste_velocity=5.0,
             paste_height=0.1,
             paste_thickness=0.1,
+            ul_per_mm2=0.2,
         )
         assert machine.camera == Camera(
             device_id=0,

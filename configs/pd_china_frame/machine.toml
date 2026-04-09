@@ -13,6 +13,7 @@ retract_accel_factor = 2.0 # リトラクション加速度係数
 paste_velocity = 5.0 # 塗布時のXY移動速度 [mm/s]
 paste_height = 0.1 # 塗布面のZ高さ [mm]
 paste_thickness = 0.1 # ペースト膜厚 [mm]
+ul_per_mm2 = 0.2 # パッド面積あたりのペースト量 [uL/mm^2]
 
 [paste_dispenser.toolhead]
 # カメラに対するツールヘッドの相対位置 (mm)
