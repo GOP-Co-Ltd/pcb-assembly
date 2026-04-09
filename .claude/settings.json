@@ -50,7 +50,8 @@
       "Bash(git cherry-pick:*)"
     ],
     "deny": [
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git -C:*)"
     ]
   }
 }
