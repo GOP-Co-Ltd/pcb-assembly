@@ -36,6 +36,7 @@ class PasteDispenser:
     toolhead: Toolhead
     paste_height: float  # 塗布面のZ高さ [mm]
     ul_per_mm2: float  # パッド面積あたりのペースト量 [μL/mm²]
+    prime_extra_delay: float = 0.0  # プライム後の追加遅延 [sec]
 
 
 @attrs.frozen

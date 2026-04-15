@@ -54,6 +54,7 @@ def main() -> None:
         retraction_rate=dispenser_config.retract_rate,
         retraction_accel_factor=dispenser_config.retract_accel_factor,
         paste_height=dispenser_config.paste_height,
+        prime_extra_delay=dispenser_config.prime_extra_delay,
     ) as applicator:
         interactive_loading(applicator, args.amount)
 

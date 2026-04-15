@@ -84,6 +84,7 @@ class PasteApplicator:
         paste_height: float = 0.1,
         lift_height: float = 5.0,
         perimeters: int = 1,
+        prime_extra_delay: float = 0.0,
     ) -> None:
         """PasteApplicatorを初期化する.
 
@@ -102,6 +103,7 @@ class PasteApplicator:
             paste_height: 塗布面のZ高さ [mm]
             lift_height: 塗布後の上昇高さ [mm]
             perimeters: 外周の周回数（デフォルト: 1）
+            prime_extra_delay: プライム後の追加遅延 [sec]（デフォルト: 0.0）
 
         Raises:
             ValueError: retraction_accel_factorが1.0以下の場合
@@ -133,6 +135,7 @@ class PasteApplicator:
         self._retraction_accel_factor = retraction_accel_factor
         self._lift_height = lift_height
         self._perimeters = perimeters
+        self._prime_extra_delay = prime_extra_delay
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
     def __enter__(self) -> Self:
@@ -248,10 +251,10 @@ class PasteApplicator:
         # 3. プライム後にステージ移動（距離0の場合はその点で待機）
         if path_length > 0 and dispense_time > 0:
             fill_trajectory = fill_trajectory.with_velocity(path_length / dispense_time)
-            gc.append(gcode.wait(prime_time))
+            gc.append(gcode.wait(prime_time + self._prime_extra_delay))
             gc.append(self._stage.to_gcode(fill_trajectory))
         else:
-            gc.append(gcode.wait(prime_time + dispense_time))
+            gc.append(gcode.wait(prime_time + self._prime_extra_delay + dispense_time))
         gc.append(gcode.wait_for_done())
 
         # 4. リトラクション
