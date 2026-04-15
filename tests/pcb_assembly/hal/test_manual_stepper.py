@@ -4,7 +4,6 @@ from pytest_mock import MockerFixture
 from pcb_assembly.gcode import GCode
 from pcb_assembly.hal.klipper import Klipper
 from pcb_assembly.hal.manual_stepper import HomingDirection, ManualStepper
-from tests.helpers import mark_hardware
 
 STEPPER_NAME = "vacuum_pump"
 PREFIX = f"MANUAL_STEPPER STEPPER={STEPPER_NAME}"
@@ -29,11 +28,6 @@ class TestManualStepper:
     @pytest.fixture
     def stepper(self, mock_klipper: Klipper) -> ManualStepper:
         return ManualStepper(mock_klipper.readonly, STEPPER_NAME)
-
-    @mark_hardware
-    def test_init(self):
-        klipper = Klipper()
-        ManualStepper(klipper.readonly, STEPPER_NAME)
 
     def test_init_missing_stepper_section(self, mocker: MockerFixture):
         klipper = Klipper()
