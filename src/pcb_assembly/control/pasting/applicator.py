@@ -14,23 +14,25 @@ from pcb_assembly.geometry import (
     Point3d,
     Trajectory,
     Transform,
+    generate_fill_path,
 )
 from pcb_assembly.hal import Klipper, PasteDispenser, XYZStage
+from pcb_assembly.hal.paste_dispenser import NOZZLE_SPECS
 from pcb_assembly.utils import get_class_module_path
 
 
 class PasteApplicator:
-    """ポリゴンへのポイント吐出によるペースト塗布を制御するクラス.
+    """ポリゴンへのジグザグフィル塗布によるペースト塗布を制御するクラス.
 
     ペーストのローディング・リトラクション・塗布を一貫して提供する。
-    各ポリゴンの重心にポイント吐出を行い、面積に応じた量を塗布する。
+    各ポリゴンに対してジグザグ経路を生成し、ステージ移動と同期して連続吐出を行う。
 
     Example:
         with PasteApplicator(
             klipper=klipper,
             paste_dispenser=dispenser,
             stage=stage,
-            dispense_rate=5.0,
+            nozzle_size="23G",
             dispense_accel=1.0,
             ul_per_mm2=0.05,
             retraction=10.0,
@@ -48,7 +50,7 @@ class PasteApplicator:
         klipper: Klipper,
         paste_dispenser: PasteDispenser,
         stage: XYZStage,
-        dispense_rate: float,
+        nozzle_size: str,
         dispense_accel: float,
         ul_per_mm2: float,
         retraction: float,
@@ -57,6 +59,8 @@ class PasteApplicator:
         transform: Transform = Identity(),
         paste_height: float = 0.1,
         lift_height: float = 5.0,
+        fill_velocity: float | None = None,
+        perimeters: int = 1,
     ) -> None:
         """PasteApplicatorを初期化する.
 
@@ -64,8 +68,8 @@ class PasteApplicator:
             klipper: Klipperクライアント
             paste_dispenser: ペーストディスペンサーHAL
             stage: XYZステージ
-            dispense_rate: ポイント吐出レート [μL/sec]
-            dispense_accel: ポイント吐出加速度 [μL/sec²]
+            nozzle_size: ノズルサイズ（例: "23G"）
+            dispense_accel: 吐出加速度 [μL/sec²]
             ul_per_mm2: 1mm²あたりの塗布量 [μL/mm²]
             retraction: リトラクション量 [μL]
             retraction_rate: リトラクション速度 [μL/sec]
@@ -73,20 +77,29 @@ class PasteApplicator:
             transform: 座標変換
             paste_height: 塗布面のZ高さ [mm]
             lift_height: 塗布後の上昇高さ [mm]
+            fill_velocity: フィル時のXY速度 [mm/sec]（None時はstage.max_velocity）
+            perimeters: 外周の周回数（デフォルト: 1）
 
         Raises:
             ValueError: retraction_accel_factorが1.0以下の場合
+            ValueError: nozzle_sizeが無効な場合
         """
         if retraction_accel_factor <= 1.0:
             raise ValueError(
                 f"retraction_accel_factorは1.0より大きい必要があります: "
                 f"{retraction_accel_factor}"
             )
+        if nozzle_size not in NOZZLE_SPECS:
+            raise ValueError(
+                f"無効なnozzle_sizeです: {nozzle_size} "
+                f"(有効値: {', '.join(NOZZLE_SPECS)})"
+            )
 
+        nozzle_spec = NOZZLE_SPECS[nozzle_size]
         self._klipper = klipper
         self._paste_dispenser = paste_dispenser
         self._stage = stage
-        self._dispense_rate = dispense_rate
+        self._nozzle_inner_diameter = nozzle_spec.inner_diameter
         self._dispense_accel = dispense_accel
         self._ul_per_mm2 = ul_per_mm2
         self._transform = transform
@@ -95,6 +108,8 @@ class PasteApplicator:
         self._retraction_rate = retraction_rate
         self._retraction_accel_factor = retraction_accel_factor
         self._lift_height = lift_height
+        self._fill_velocity = fill_velocity
+        self._perimeters = perimeters
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
     def __enter__(self) -> Self:
@@ -138,58 +153,94 @@ class PasteApplicator:
     def apply(self, polygons: Iterable[Polygon]) -> None:
         """複数ポリゴンへペースト塗布を実行する.
 
-        各ポリゴンの重心にポイント吐出を行う（ブロッキング）。
+        各ポリゴンに対してジグザグフィル経路を生成し、
+        ステージ移動と同期して連続吐出を行う（ブロッキング）。
 
         Args:
             polygons: 塗布対象のポリゴン群
         """
         for polygon in polygons:
-            centroid = polygon.centroid
-            point = Point2d(centroid.x, centroid.y)
-            amount = polygon.area * self._ul_per_mm2
-            self._put(point, amount)
+            self._fill(polygon)
 
-    def _put(self, point: Point2d, amount: float) -> None:
-        """指定座標にポイント吐出を行う."""
-        target = self._transform.apply(point.to3d(self._paste_height))
-        lifted_z = target.z + self._lift_height
+    def _fill(self, polygon: Polygon) -> None:
+        """ポリゴンをジグザグフィル経路で塗布する."""
+        fill_path = generate_fill_path(
+            polygon,
+            line_spacing=self._nozzle_inner_diameter,
+            perimeters=self._perimeters,
+            inset=self._nozzle_inner_diameter / 2,
+        )
+
+        if not fill_path:
+            self._logger.warning("フィルパスが空です。スキップします。")
+            return
+
+        # 各点を変換して3D化
+        transformed = [
+            self._transform.apply(p.to3d(self._paste_height)) for p in fill_path
+        ]
+
         max_v = self._stage.max_velocity
+        fill_v = self._fill_velocity if self._fill_velocity is not None else max_v
 
+        # フィル用Trajectoryを構築
+        first = transformed[0]
+        fill_trajectory = Trajectory(origin=first, initial_velocity=fill_v)
+        fill_trajectory.add(
+            move=[Move.from_point(p, v=fill_v) for p in transformed[1:]]
+        )
+
+        # 吐出パラメータ算出
+        total_amount = polygon.area * self._ul_per_mm2
+        traversal_time = fill_trajectory.time()
+        if traversal_time <= 0:
+            self._logger.warning("経路の所要時間が0です。スキップします。")
+            return
+        dispense_rate = total_amount / traversal_time
+
+        lifted_z = first.z + self._lift_height
+        last = transformed[-1]
         gc = gcode.GCode()
 
-        # 1. 目的地上空へ移動 → Z下降
+        # 1. 最初のポイント上空へ移動 → Z下降
         descent = Trajectory(
-            origin=Point3d(target.x, target.y, lifted_z),
+            origin=Point3d(first.x, first.y, lifted_z),
             initial_velocity=max_v,
         )
         descent.add(
-            Move(x=target.x, y=target.y, z=lifted_z, v=max_v),
-            Move(z=target.z, v=max_v),
+            Move(x=first.x, y=first.y, z=lifted_z, v=max_v),
+            Move(z=first.z, v=max_v),
         )
         gc.append(self._stage.to_gcode(descent))
         gc.append(gcode.wait_for_done())
 
-        # 2. プライム → 吐出 → リトラクション
+        # 2. プライム
         gc.append(
             self._paste_dispenser.pushpull(
                 self._retraction, self._retraction_rate, self._retraction_accel
             )
         )
+
+        # 3. 非同期吐出開始 + ステージ移動（並行実行）
         gc.append(
             self._paste_dispenser.pushpull(
-                amount, self._dispense_rate, self._dispense_accel
+                total_amount, dispense_rate, self._dispense_accel, sync=False
             )
         )
+        gc.append(self._stage.to_gcode(fill_trajectory))
+        gc.append(gcode.wait_for_done())
+
+        # 4. リトラクション
         gc.append(
             self._paste_dispenser.pushpull(
                 -self._retraction, self._retraction_rate, self._retraction_accel
             )
         )
 
-        # 3. Z上昇
+        # 5. Z上昇
         ascent = Trajectory(
-            Move(z=lifted_z, v=max_v),
-            origin=Point3d(target.x, target.y, target.z),
+            Move(z=last.z + self._lift_height, v=max_v),
+            origin=last,
             initial_velocity=max_v,
         )
         gc.append(self._stage.to_gcode(ascent))
