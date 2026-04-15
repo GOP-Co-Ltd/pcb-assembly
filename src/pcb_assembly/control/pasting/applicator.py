@@ -207,15 +207,11 @@ class PasteApplicator:
         total_amount = polygon.area * self._ul_per_mm2
         dispense_time = total_amount / self._dispense_rate
 
-        # フィル用Trajectoryを構築し、吐出時間で経路を走破する速度を設定
+        # Trajectoryを構築し経路長を算出
         first = transformed[0]
         fill_trajectory = Trajectory(origin=first, initial_velocity=1.0)
         fill_trajectory.add(move=[Move.from_point(p, v=1.0) for p in transformed[1:]])
         path_length = fill_trajectory.distance()
-        if path_length <= 0 or dispense_time <= 0:
-            self._logger.warning("経路長または吐出時間が0です。スキップします。")
-            return
-        fill_trajectory = fill_trajectory.with_velocity(path_length / dispense_time)
 
         # プライム時間: 台形速度プロファイルで retraction 分を吐出する時間
         prime_time = _trapezoidal_time(
@@ -249,9 +245,13 @@ class PasteApplicator:
             )
         )
 
-        # 3. プライム時間分だけ待機してからステージ移動開始
-        gc.append(gcode.wait(prime_time))
-        gc.append(self._stage.to_gcode(fill_trajectory))
+        # 3. プライム後にステージ移動（距離0の場合はその点で待機）
+        if path_length > 0 and dispense_time > 0:
+            fill_trajectory = fill_trajectory.with_velocity(path_length / dispense_time)
+            gc.append(gcode.wait(prime_time))
+            gc.append(self._stage.to_gcode(fill_trajectory))
+        else:
+            gc.append(gcode.wait(prime_time + dispense_time))
         gc.append(gcode.wait_for_done())
 
         # 4. リトラクション

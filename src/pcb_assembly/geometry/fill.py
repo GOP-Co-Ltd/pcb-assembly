@@ -50,7 +50,7 @@ def generate_fill_path(
     total_offset = inset + perimeters * line_spacing
     remaining = polygon.buffer(-total_offset)
     if remaining.is_empty:
-        return contour_path
+        return contour_path or _generate_linear_fallback(polygon)
 
     # ジグザグの開始点を決定
     cx = polygon.centroid.x
@@ -78,7 +78,32 @@ def generate_fill_path(
     if rot is not None and zigzag_path:
         zigzag_path = list(map(rot.apply, zigzag_path))
 
-    return contour_path + zigzag_path
+    result = contour_path + zigzag_path
+    if not result:
+        return _generate_linear_fallback(polygon)
+    return result
+
+
+def _generate_linear_fallback(polygon: Polygon) -> list[Point2d]:
+    """ポリゴンの最長軸に沿った直線パスを生成する.
+
+    通常のcontour+zigzagが空になる細長いポリゴン向けのフォールバック。
+    minimum_rotated_rectangleの短辺中点を結ぶ直線を返す。
+    """
+    mrr = polygon.minimum_rotated_rectangle
+    if not isinstance(mrr, Polygon):
+        mrr = Polygon(mrr.coords)
+    coords = list(mrr.exterior.coords)
+    mids = [
+        Point2d(
+            (coords[i][0] + coords[i + 1][0]) / 2, (coords[i][1] + coords[i + 1][1]) / 2
+        )
+        for i in range(4)
+    ]
+    # 対向する中点ペアのうち長い方（=最長軸の中心線）
+    if (mids[2] - mids[0]).norm >= (mids[3] - mids[1]).norm:
+        return [mids[0], mids[2]]
+    return [mids[1], mids[3]]
 
 
 def _generate_contours(
