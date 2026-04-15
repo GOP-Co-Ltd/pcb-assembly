@@ -239,9 +239,11 @@ class PasteApplicator:
         gc.append(gcode.wait_for_done())
 
         # 2. プライム+吐出を1つの連続動作として非同期開始
+        # extra delay中もディスペンサーは動き続けるため、その分の吐出量を加算
+        extra_amount = self._dispense_rate * self._prime_extra_delay
         gc.append(
             self._paste_dispenser.pushpull(
-                self._retraction + total_amount,
+                self._retraction + extra_amount + total_amount,
                 self._dispense_rate,
                 self._dispense_accel,
                 sync=False,
