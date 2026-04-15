@@ -36,7 +36,7 @@ def applicator(mock_klipper, mock_paste_dispenser, mock_stage):
         klipper=mock_klipper,
         paste_dispenser=mock_paste_dispenser,
         stage=mock_stage,
-        dispense_rate=5.0,
+        nozzle_size="23G",
         dispense_accel=1.0,
         ul_per_mm2=0.05,
         retraction=10.0,
@@ -62,12 +62,13 @@ class TestPasteApplicator:
 
         applicator.apply([polygon])
 
-        # pushpullは3回呼ばれる: プライム、吐出、リトラクション
+        # pushpullは3回呼ばれる: プライム、吐出（sync=False）、リトラクション
         calls = mock_paste_dispenser.pushpull.call_args_list
         assert len(calls) == 3
-        # 2回目の呼び出しが吐出 (amount, dispense_rate, dispense_accel)
+        # 2回目の呼び出しが吐出
         dispense_call = calls[1]
         assert dispense_call.args[0] == pytest.approx(expected_amount)
+        assert dispense_call.kwargs.get("sync") is False
 
     def test_apply_empty_polygons(self, applicator, mock_klipper):
         """空のポリゴンリストではsend_gcodeが呼ばれない."""
@@ -90,10 +91,25 @@ class TestPasteApplicator:
                 klipper=mock_klipper,
                 paste_dispenser=mock_paste_dispenser,
                 stage=mock_stage,
-                dispense_rate=5.0,
+                nozzle_size="23G",
                 dispense_accel=1.0,
                 ul_per_mm2=0.05,
                 retraction=10.0,
                 retraction_rate=10.0,
                 retraction_accel_factor=0.5,
+            )
+
+    def test_invalid_nozzle_size(self, mock_klipper, mock_paste_dispenser, mock_stage):
+        """無効なnozzle_sizeでValueError."""
+        with pytest.raises(ValueError, match="無効なnozzle_size"):
+            PasteApplicator(
+                klipper=mock_klipper,
+                paste_dispenser=mock_paste_dispenser,
+                stage=mock_stage,
+                nozzle_size="99G",
+                dispense_accel=1.0,
+                ul_per_mm2=0.05,
+                retraction=10.0,
+                retraction_rate=10.0,
+                retraction_accel_factor=2.0,
             )
