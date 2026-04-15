@@ -207,7 +207,7 @@ class PasteApplicator:
         total_amount = polygon.area * self._ul_per_mm2
         dispense_time = total_amount / self._dispense_rate
 
-        # fill_velocity: 吐出時間で経路を走破する速度
+        # フィル用Trajectoryを構築し、吐出時間で経路を走破する速度を設定
         first = transformed[0]
         fill_trajectory = Trajectory(origin=first, initial_velocity=1.0)
         fill_trajectory.add(move=[Move.from_point(p, v=1.0) for p in transformed[1:]])
@@ -215,13 +215,7 @@ class PasteApplicator:
         if path_length <= 0 or dispense_time <= 0:
             self._logger.warning("経路長または吐出時間が0です。スキップします。")
             return
-        fill_v = path_length / dispense_time
-
-        # fill_velocityで再構築
-        fill_trajectory = Trajectory(origin=first, initial_velocity=fill_v)
-        fill_trajectory.add(
-            move=[Move.from_point(p, v=fill_v) for p in transformed[1:]]
-        )
+        fill_trajectory = fill_trajectory.with_velocity(path_length / dispense_time)
 
         # プライム時間: 台形速度プロファイルで retraction 分を吐出する時間
         prime_time = _trapezoidal_time(
