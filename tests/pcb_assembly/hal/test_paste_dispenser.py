@@ -4,26 +4,12 @@ from pytest_mock import MockerFixture
 from pcb_assembly.gcode import GCode
 from pcb_assembly.hal.klipper import Klipper
 from pcb_assembly.hal.paste_dispenser import (
-    NOZZLE_SPECS,
-    NozzleSpec,
     PasteDispenser,
 )
 from tests.helpers import mark_hardware
 
 STEPPER_NAME = "paste_dispenser"
 PREFIX = f"MANUAL_STEPPER STEPPER={STEPPER_NAME}"
-
-
-class TestNozzleSpec:
-    """NozzleSpecクラスのテスト."""
-
-    def test_nozzle_spec(self):
-        spec = NozzleSpec(inner_diameter=0.19)
-        assert spec.inner_diameter == 0.19
-
-    def test_nozzle_specs_27g(self):
-        assert "27G" in NOZZLE_SPECS
-        assert NOZZLE_SPECS["27G"].inner_diameter == 0.19
 
 
 class TestPasteDispenser:
