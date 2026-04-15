@@ -19,57 +19,18 @@ import argparse
 import logging
 from pathlib import Path
 
-import cv2
-
 from pcb_assembly import gcode
 from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.setup import (
-    BoardCalibrationResult,
     machine_session,
     setup_board_calibration,
 )
+from pcb_assembly.control.tour import display_at_point, wait_for_keypress
 from pcb_assembly.geometry import Move, Point2d, sort_by_nearest
-from pcb_assembly.hal import Camera
 from pcb_assembly.pcb import Layer
 from pcb_assembly.utils import setup_logging
-from pcb_assembly.vision import draw_overlay
 
 WINDOW_NAME = "Board Tour Demo"
-
-
-def _display_at_point(
-    result: BoardCalibrationResult,
-    machine_pt: Point2d,
-    label: str,
-    duration: float = 0.5,
-) -> None:
-    """指定座標へ移動し、ラベル付きカメラ映像を一定時間表示する."""
-    result.klipper.send_gcode(
-        result.stage.to_gcode(Move(x=machine_pt.x, y=machine_pt.y, v=30))
-        + gcode.wait_for_done()
-    )
-
-    crop_size = result.machine.camera.crop.size
-    camera = result.camera
-    for _ in range(int(camera.resolution.fps * duration)):
-        frame = camera.capture()
-        img = draw_overlay(frame, crop_size).numpy()
-        cv2.putText(img, label, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.imshow(WINDOW_NAME, img)
-        if cv2.waitKey(1) == 27:  # Esc
-            print("中断しました")
-            break
-
-
-def _wait_for_keypress(camera: Camera, crop_size: tuple[int, int]) -> None:
-    """何かキーが押されるまでカメラ映像を表示し続ける."""
-    print("\n何かキーを押すと終了します...")
-    while True:
-        frame = camera.capture()
-        display = draw_overlay(frame, crop_size)
-        cv2.imshow(WINDOW_NAME, display.numpy())
-        if cv2.waitKey(100) != -1:
-            break
 
 
 def main() -> None:
@@ -128,7 +89,13 @@ def main() -> None:
                 f"{name}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) -> "
                 f"Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
             )
-            _display_at_point(result, machine_pt, f"Corner: {name}", duration=1.0)
+            display_at_point(
+                result,
+                machine_pt,
+                f"Corner: {name}",
+                duration=1.0,
+                window_name=WINDOW_NAME,
+            )
 
         print("四隅巡回完了")
 
@@ -153,7 +120,7 @@ def main() -> None:
             for i, comp in enumerate(sorted_components):
                 machine_pt = board_transform.apply(comp.position)
                 label = f"{comp.designator} ({i + 1}/{len(sorted_components)})"
-                _display_at_point(result, machine_pt, label)
+                display_at_point(result, machine_pt, label, window_name=WINDOW_NAME)
 
             print("コンポーネント巡回完了")
         else:
@@ -173,8 +140,11 @@ def main() -> None:
             print("巡回開始... (Escキーで中断)")
             for i, center_3d in enumerate(sorted_centers):
                 machine_pt = board_transform.apply(center_3d.to2d())
-                _display_at_point(
-                    result, machine_pt, f"Pad {i + 1}/{len(sorted_centers)}"
+                display_at_point(
+                    result,
+                    machine_pt,
+                    f"Pad {i + 1}/{len(sorted_centers)}",
+                    window_name=WINDOW_NAME,
                 )
 
             print("巡回完了")
@@ -188,7 +158,9 @@ def main() -> None:
             + gcode.wait_for_done()
         )
 
-        _wait_for_keypress(result.camera, result.machine.camera.crop.size)
+        wait_for_keypress(
+            result.camera, result.machine.camera.crop.size, window_name=WINDOW_NAME
+        )
 
 
 if __name__ == "__main__":
