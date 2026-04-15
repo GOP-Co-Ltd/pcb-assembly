@@ -71,20 +71,20 @@ def main() -> None:
         "-s",
         "--size",
         type=float,
-        default=30,
+        default=40,
         help="基板の一辺の長さ (mm, デフォルト: 30)",
     )
     parser.add_argument(
         "-n",
         "--divisions",
         type=int,
-        default=2,
+        default=3,
         help="グリッド分割数 (デフォルト: 2, パッド数=n^2)",
     )
     parser.add_argument(
         "--pad-size",
         type=float,
-        default=1.0,
+        default=0.5,
         help="パッドの一辺の長さ (mm, デフォルト: 1.0)",
     )
     parser.add_argument(
