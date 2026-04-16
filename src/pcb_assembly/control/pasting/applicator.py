@@ -192,9 +192,8 @@ class PasteApplicator:
         """ポリゴンをジグザグフィル経路で塗布する."""
         fill_path = generate_fill_path(
             polygon,
-            line_spacing=self._nozzle_inner_diameter,
+            nozzle_diameter=self._nozzle_inner_diameter,
             perimeters=self._perimeters,
-            inset=self._nozzle_inner_diameter / 2,
         )
 
         if not fill_path:

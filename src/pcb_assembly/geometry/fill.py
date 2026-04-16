@@ -12,36 +12,48 @@ from .transform import Compose, Point2d, Rotation, Shift
 
 def generate_fill_path(
     polygon: Polygon,
-    line_spacing: float,
+    nozzle_diameter: float,
     perimeters: int = 1,
-    inset: float = 0.0,
     angle: float = 0.0,
 ) -> list[Point2d]:
     """ポリゴンの塗りつぶしパスを生成する.
 
+    走査線間隔とインセットはノズル径から自動決定される
+    （line_spacing = nozzle_diameter, inset = nozzle_diameter / 2）。
     外周をperimeters回周回した後、残った内部をジグザグ走査線で塗りつぶす。
-    1周目はinset分内側にオフセットされ、以降はline_spacingずつ内側にオフセットされる。
+
+    `polygon.buffer(-nozzle_diameter)` が空となる細長いポリゴンでは、
+    zigzag を生成すると経路が短く中心にはんだが過多になるため、
+    早期に最長軸に沿った直線フォールバックへ切り替える。
 
     Args:
         polygon: 塗りつぶし対象のポリゴン（mm単位）
-        line_spacing: 走査線間隔（mm）
+        nozzle_diameter: ノズル内径（mm）。線間とインセットの基準。
         perimeters: 外周の周回数（デフォルト: 1）
-        inset: 1周目の外周からのオフセット（mm、デフォルト: 0.0）
         angle: ジグザグ走査線の角度（度、デフォルト: 0.0 = 水平）
 
     Returns:
         外周パス＋ジグザグ塗りつぶしパスの座標リスト
 
     Raises:
-        ValueError: line_spacingが0以下、またはperimetersが0未満の場合
+        ValueError: nozzle_diameterが0以下、またはperimetersが0未満の場合
     """
-    if line_spacing <= 0:
-        raise ValueError(f"line_spacingは正の値である必要があります: {line_spacing}")
+    if nozzle_diameter <= 0:
+        raise ValueError(
+            f"nozzle_diameterは正の値である必要があります: {nozzle_diameter}"
+        )
     if perimeters < 0:
         raise ValueError(f"perimetersは0以上である必要があります: {perimeters}")
 
     if polygon.is_empty or not polygon.is_valid:
         return []
+
+    line_spacing = nozzle_diameter
+    inset = nozzle_diameter / 2
+
+    # 細長いポリゴンは zigzag に向かないため早期 fallback
+    if polygon.buffer(-nozzle_diameter).is_empty:
+        return _generate_linear_fallback(polygon)
 
     # 外周の周回パスを生成
     contour_path = _generate_contours(polygon, line_spacing, perimeters, inset)

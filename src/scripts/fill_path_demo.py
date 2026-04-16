@@ -65,32 +65,32 @@ def main() -> None:
         (
             "1 perimeter",
             Polygon([(0, 0), (8, 0), (8, 6), (0, 6)]),
-            {"line_spacing": 0.8},
+            {"nozzle_diameter": 0.8},
         ),
         (
             "2 perimeters",
             Polygon([(0, 0), (8, 0), (8, 6), (0, 6)]),
-            {"line_spacing": 0.8, "perimeters": 2},
+            {"nozzle_diameter": 0.8, "perimeters": 2},
         ),
         (
-            "3 perimeters + inset",
+            "3 perimeters",
             Polygon([(0, 0), (8, 0), (8, 6), (0, 6)]),
-            {"line_spacing": 0.8, "perimeters": 3, "inset": 0.4},
+            {"nozzle_diameter": 0.8, "perimeters": 3},
         ),
         (
             "L-shape",
             Polygon([(0, 0), (8, 0), (8, 4), (4, 4), (4, 8), (0, 8)]),
-            {"line_spacing": 0.8},
+            {"nozzle_diameter": 0.8},
         ),
         (
             "Triangle (angle=45)",
             Polygon([(4, 0), (8, 6), (0, 6)]),
-            {"line_spacing": 0.8, "angle": 45.0},
+            {"nozzle_diameter": 0.8, "angle": 45.0},
         ),
         (
             "2 perimeters + angle=30",
             Polygon([(0, 0), (8, 0), (8, 6), (0, 6)]),
-            {"line_spacing": 0.8, "perimeters": 2, "angle": 30.0},
+            {"nozzle_diameter": 0.8, "perimeters": 2, "angle": 30.0},
         ),
     ]
 
