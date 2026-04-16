@@ -53,7 +53,7 @@ def generate_fill_path(
 
     # 細長ポリゴンは zigzag が短く中心にはんだが過多になるため、最長軸の直線で代替する
     if polygon.buffer(-nozzle_diameter).is_empty:
-        return _generate_linear_fallback(polygon)
+        return _generate_linear_fallback(polygon, nozzle_diameter)
 
     # 外周の周回パスを生成
     contour_path = _generate_contours(polygon, line_spacing, perimeters, inset)
@@ -63,7 +63,7 @@ def generate_fill_path(
     total_offset = inset + perimeters * line_spacing
     remaining = polygon.buffer(-total_offset)
     if remaining.is_empty:
-        return contour_path or _generate_linear_fallback(polygon)
+        return contour_path or _generate_linear_fallback(polygon, nozzle_diameter)
 
     # ジグザグの開始点を決定
     cx = polygon.centroid.x
@@ -94,15 +94,18 @@ def generate_fill_path(
     # 上記分岐をすべてすり抜けて空になる稀なケース（数値誤差等）の最終セーフティネット
     result = contour_path + zigzag_path
     if not result:
-        return _generate_linear_fallback(polygon)
+        return _generate_linear_fallback(polygon, nozzle_diameter)
     return result
 
 
-def _generate_linear_fallback(polygon: Polygon) -> list[Point2d]:
+def _generate_linear_fallback(
+    polygon: Polygon, nozzle_diameter: float
+) -> list[Point2d]:
     """ポリゴンの最長軸に沿った直線パスを生成する.
 
     通常のcontour+zigzagが空になる細長いポリゴン向けのフォールバック。
-    minimum_rotated_rectangleの短辺中点を結ぶ直線を返す。
+    minimum_rotated_rectangleの短辺中点を結ぶ直線を、両端をnozzle_diameter/2ずつ
+    内側に補正して返す。長辺がnozzle_diameter未満の場合は空リストを返す。
     """
     mrr = polygon.minimum_rotated_rectangle
     if not isinstance(mrr, Polygon):
@@ -116,8 +119,18 @@ def _generate_linear_fallback(polygon: Polygon) -> list[Point2d]:
     ]
     # 対向する中点ペアのうち長い方（=最長軸の中心線）
     if (mids[2] - mids[0]).norm >= (mids[3] - mids[1]).norm:
-        return [mids[0], mids[2]]
-    return [mids[1], mids[3]]
+        start, end = mids[0], mids[2]
+    else:
+        start, end = mids[1], mids[3]
+
+    direction = end - start
+    length = direction.norm
+    if length <= nozzle_diameter:
+        return []
+
+    inset = nozzle_diameter / 2
+    unit = direction * (1.0 / length)
+    return [start + unit * inset, end - unit * inset]
 
 
 def _generate_contours(

@@ -161,7 +161,6 @@ class TestGenerateFillPath:
     @pytest.mark.parametrize(
         "width,length,diameter",
         [
-            (1.0, 0.5, 1.0),  # 短辺がノズル径より小さい矩形
             (0.3, 2.0, 0.34),  # 細長パッド
             (0.8, 5.0, 1.0),  # 幅がノズル径の2倍未満
         ],
@@ -172,10 +171,13 @@ class TestGenerateFillPath:
         result = generate_fill_path(polygon, nozzle_diameter=diameter)
 
         assert len(result) == 2
-        # 最長軸方向に沿った直線（短辺の中点を結ぶ）
+        # 最長軸方向に沿った直線（短辺の中点を結ぶ）、両端をdia/2ずつ内側に補正
         long_axis_length = max(width, length)
         short_axis_mid = min(width, length) / 2
-        assert (result[1] - result[0]).norm == pytest.approx(long_axis_length, abs=0.01)
+        expected_path_length = long_axis_length - diameter
+        assert (result[1] - result[0]).norm == pytest.approx(
+            expected_path_length, abs=0.01
+        )
         constant_axis = "x" if length >= width else "y"
         assert getattr(result[0], constant_axis) == pytest.approx(
             short_axis_mid, abs=0.01
@@ -184,12 +186,19 @@ class TestGenerateFillPath:
             short_axis_mid, abs=0.01
         )
 
-    def test_very_small_polygon_returns_nonempty(self):
-        """非常に小さいポリゴンでも空にならない."""
-        polygon = Polygon([(0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1)])
-        result = generate_fill_path(polygon, nozzle_diameter=1.0)
+    @pytest.mark.parametrize(
+        "width,length,diameter",
+        [
+            (0.1, 0.1, 1.0),  # 極小ポリゴン（長辺 < diameter）
+            (1.0, 0.5, 1.0),  # 長辺 == diameter
+        ],
+    )
+    def test_too_small_polygon_returns_empty(self, width, length, diameter):
+        """長辺がノズル径以下のポリゴンは空リストを返す."""
+        polygon = Polygon([(0, 0), (width, 0), (width, length), (0, length)])
+        result = generate_fill_path(polygon, nozzle_diameter=diameter)
 
-        assert len(result) > 0
+        assert result == []
 
     def test_all_points_are_point2d(self):
         """戻り値がすべてPoint2dであることを確認."""
