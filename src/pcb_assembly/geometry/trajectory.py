@@ -167,6 +167,17 @@ class Trajectory:
 
         return Waypoint(x=x, y=y, z=z, v=v)
 
+    def with_velocity(self, v: float) -> Self:
+        """全ウェイポイントの速度を指定値に変更したコピーを返す."""
+        copy = self.__class__(origin=self._origin, initial_velocity=v)
+        copy._waypoints = [
+            Waypoint(x=wp.x, y=wp.y, z=wp.z, v=v) for wp in self._waypoints
+        ]
+        if self._waypoints:
+            copy._position = self._waypoints[-1].position
+        copy._velocity = v
+        return copy
+
     def distance(self) -> float:
         """軌道の総距離を返す."""
         if not self._waypoints:

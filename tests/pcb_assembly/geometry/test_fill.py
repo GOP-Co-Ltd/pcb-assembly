@@ -198,6 +198,27 @@ class TestGenerateFillPath:
         dist_to_end = (zigzag_end - contour_end).norm
         assert dist_to_start <= dist_to_end
 
+    def test_narrow_polygon_returns_linear_fallback(self):
+        """細長いポリゴンで直線フォールバックが返る."""
+        # 0.3mm x 2mm のパッド、line_spacing=0.34, inset=0.17
+        polygon = Polygon([(0, 0), (0.3, 0), (0.3, 2), (0, 2)])
+        result = generate_fill_path(
+            polygon, line_spacing=0.34, perimeters=1, inset=0.17
+        )
+
+        assert len(result) == 2
+        # 最長軸（Y軸方向）に沿った直線
+        assert result[0].x == pytest.approx(0.15, abs=0.01)
+        assert result[1].x == pytest.approx(0.15, abs=0.01)
+        assert abs(result[1].y - result[0].y) == pytest.approx(2.0, abs=0.01)
+
+    def test_very_small_polygon_returns_nonempty(self):
+        """非常に小さいポリゴンでも空にならない."""
+        polygon = Polygon([(0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1)])
+        result = generate_fill_path(polygon, line_spacing=1.0)
+
+        assert len(result) > 0
+
     def test_all_points_are_point2d(self):
         """戻り値がすべてPoint2dであることを確認."""
         polygon = Polygon([(0, 0), (10, 0), (10, 6), (0, 6)])

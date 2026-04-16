@@ -1,6 +1,7 @@
 """ペースト塗布の制御."""
 
 import logging
+import math
 from collections.abc import Iterable
 from typing import Self
 
@@ -21,11 +22,32 @@ from pcb_assembly.hal.paste_dispenser import NOZZLE_SPECS
 from pcb_assembly.utils import get_class_module_path
 
 
+def _trapezoidal_time(distance: float, rate: float, accel: float) -> float:
+    """台形速度プロファイルで距離を走行する時間を計算する.
+
+    速度0から加速し、rateに達したら定速走行する。
+
+    Args:
+        distance: 走行距離
+        rate: 最大速度
+        accel: 加速度
+
+    Returns:
+        走行時間 [sec]
+    """
+    d_accel = rate**2 / (2 * accel)
+    if distance <= d_accel:
+        return math.sqrt(2 * distance / accel)
+    return rate / accel + (distance - d_accel) / rate
+
+
 class PasteApplicator:
     """ポリゴンへのジグザグフィル塗布によるペースト塗布を制御するクラス.
 
     ペーストのローディング・リトラクション・塗布を一貫して提供する。
     各ポリゴンに対してジグザグ経路を生成し、ステージ移動と同期して連続吐出を行う。
+    プライムと吐出は1つの連続ステッパー動作として実行し、G4でプライム時間分
+    待機した後にステージ移動を開始する。
 
     Example:
         with PasteApplicator(
@@ -33,6 +55,7 @@ class PasteApplicator:
             paste_dispenser=dispenser,
             stage=stage,
             nozzle_size="23G",
+            dispense_rate=5.0,
             dispense_accel=1.0,
             ul_per_mm2=0.05,
             retraction=10.0,
@@ -51,6 +74,7 @@ class PasteApplicator:
         paste_dispenser: PasteDispenser,
         stage: XYZStage,
         nozzle_size: str,
+        dispense_rate: float,
         dispense_accel: float,
         ul_per_mm2: float,
         retraction: float,
@@ -59,8 +83,8 @@ class PasteApplicator:
         transform: Transform = Identity(),
         paste_height: float = 0.1,
         lift_height: float = 5.0,
-        fill_velocity: float | None = None,
         perimeters: int = 1,
+        prime_extra_delay: float = 0.0,
     ) -> None:
         """PasteApplicatorを初期化する.
 
@@ -69,6 +93,7 @@ class PasteApplicator:
             paste_dispenser: ペーストディスペンサーHAL
             stage: XYZステージ
             nozzle_size: ノズルサイズ（例: "23G"）
+            dispense_rate: 吐出レート [μL/sec]
             dispense_accel: 吐出加速度 [μL/sec²]
             ul_per_mm2: 1mm²あたりの塗布量 [μL/mm²]
             retraction: リトラクション量 [μL]
@@ -77,8 +102,8 @@ class PasteApplicator:
             transform: 座標変換
             paste_height: 塗布面のZ高さ [mm]
             lift_height: 塗布後の上昇高さ [mm]
-            fill_velocity: フィル時のXY速度 [mm/sec]（None時はstage.max_velocity）
             perimeters: 外周の周回数（デフォルト: 1）
+            prime_extra_delay: プライム後の追加遅延 [sec]（デフォルト: 0.0）
 
         Raises:
             ValueError: retraction_accel_factorが1.0以下の場合
@@ -100,6 +125,7 @@ class PasteApplicator:
         self._paste_dispenser = paste_dispenser
         self._stage = stage
         self._nozzle_inner_diameter = nozzle_spec.inner_diameter
+        self._dispense_rate = dispense_rate
         self._dispense_accel = dispense_accel
         self._ul_per_mm2 = ul_per_mm2
         self._transform = transform
@@ -108,8 +134,8 @@ class PasteApplicator:
         self._retraction_rate = retraction_rate
         self._retraction_accel_factor = retraction_accel_factor
         self._lift_height = lift_height
-        self._fill_velocity = fill_velocity
         self._perimeters = perimeters
+        self._prime_extra_delay = prime_extra_delay
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
     def __enter__(self) -> Self:
@@ -180,24 +206,22 @@ class PasteApplicator:
             self._transform.apply(p.to3d(self._paste_height)) for p in fill_path
         ]
 
-        max_v = self._stage.max_velocity
-        fill_v = self._fill_velocity if self._fill_velocity is not None else max_v
-
-        # フィル用Trajectoryを構築
-        first = transformed[0]
-        fill_trajectory = Trajectory(origin=first, initial_velocity=fill_v)
-        fill_trajectory.add(
-            move=[Move.from_point(p, v=fill_v) for p in transformed[1:]]
-        )
-
         # 吐出パラメータ算出
         total_amount = polygon.area * self._ul_per_mm2
-        traversal_time = fill_trajectory.time()
-        if traversal_time <= 0:
-            self._logger.warning("経路の所要時間が0です。スキップします。")
-            return
-        dispense_rate = total_amount / traversal_time
+        dispense_time = total_amount / self._dispense_rate
 
+        # Trajectoryを構築し経路長を算出
+        first = transformed[0]
+        fill_trajectory = Trajectory(origin=first, initial_velocity=1.0)
+        fill_trajectory.add(move=[Move.from_point(p, v=1.0) for p in transformed[1:]])
+        path_length = fill_trajectory.distance()
+
+        # プライム時間: 台形速度プロファイルで retraction 分を吐出する時間
+        prime_time = _trapezoidal_time(
+            self._retraction, self._dispense_rate, self._dispense_accel
+        )
+
+        max_v = self._stage.max_velocity
         lifted_z = first.z + self._lift_height
         last = transformed[-1]
         gc = gcode.GCode()
@@ -214,20 +238,25 @@ class PasteApplicator:
         gc.append(self._stage.to_gcode(descent))
         gc.append(gcode.wait_for_done())
 
-        # 2. プライム
+        # 2. プライム+吐出を1つの連続動作として非同期開始
+        # extra delay中もディスペンサーは動き続けるため、その分の吐出量を加算
+        extra_amount = self._dispense_rate * self._prime_extra_delay
         gc.append(
             self._paste_dispenser.pushpull(
-                self._retraction, self._retraction_rate, self._retraction_accel
+                self._retraction + extra_amount + total_amount,
+                self._dispense_rate,
+                self._dispense_accel,
+                sync=False,
             )
         )
 
-        # 3. 非同期吐出開始 + ステージ移動（並行実行）
-        gc.append(
-            self._paste_dispenser.pushpull(
-                total_amount, dispense_rate, self._dispense_accel, sync=False
-            )
-        )
-        gc.append(self._stage.to_gcode(fill_trajectory))
+        # 3. プライム後にステージ移動（距離0の場合はその点で待機）
+        if path_length > 0 and dispense_time > 0:
+            fill_trajectory = fill_trajectory.with_velocity(path_length / dispense_time)
+            gc.append(gcode.wait(prime_time + self._prime_extra_delay))
+            gc.append(self._stage.to_gcode(fill_trajectory))
+        else:
+            gc.append(gcode.wait(prime_time + self._prime_extra_delay + dispense_time))
         gc.append(gcode.wait_for_done())
 
         # 4. リトラクション

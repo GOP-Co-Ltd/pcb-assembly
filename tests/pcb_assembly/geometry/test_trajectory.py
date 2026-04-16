@@ -299,3 +299,31 @@ class TestTrajectory:
 
         # origin(0,0,0) → (10,0,0), distance=10, velocity=10, time=1.0
         assert traj.time() == 1.0
+
+    def test_with_velocity(self):
+        """全ウェイポイントの速度が変更されたコピーを返す."""
+        traj = Trajectory(origin=Point3d(0.0, 0.0, 0.0), initial_velocity=10.0)
+        traj.add(Move(x=5.0, y=0.0, z=0.0), Move(x=5.0, y=5.0, z=0.0))
+
+        result = traj.with_velocity(20.0)
+
+        # 元のTrajectoryは変更されない
+        assert traj.velocity == 10.0
+        assert all(wp.v == 10.0 for wp in traj.waypoints)
+        # コピーは新しい速度
+        assert result.velocity == 20.0
+        assert all(wp.v == 20.0 for wp in result.waypoints)
+        # 構造は同じ
+        assert len(result.waypoints) == 2
+        assert result.distance() == traj.distance()
+        assert result.position == traj.position
+
+    def test_with_velocity_empty(self):
+        """ウェイポイントなしのTrajectoryでも動作する."""
+        traj = Trajectory(origin=Point3d(1.0, 2.0, 3.0), initial_velocity=10.0)
+
+        result = traj.with_velocity(50.0)
+
+        assert result.velocity == 50.0
+        assert result.waypoints == []
+        assert result.position == Point3d(1.0, 2.0, 3.0)
