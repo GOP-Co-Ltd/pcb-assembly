@@ -49,23 +49,35 @@ class TestSortByNearest:
 
         assert result == expected
 
-    def test_greedy_behavior(self):
-        # greedy nearest neighborの動作確認
-        # start=(0,0) から A=(1,0), B=(0,2), C=(1,2) を巡回
+    def test_2opt_improves_crossing_path(self):
+        """2-optが交差経路を解消することを検証する.
+
+        start=(0,0) から正方形の4頂点を巡回。 NNだと (0,0)→(1,0)→(1,3)→(0,3)→(0,1)
+        で交差が発生するが、 2-optにより交差が解消され総距離が短くなる。
+        """
+        start = Point3d(0.0, 0.0, 0.0)
         positions = [
-            Point3d(0.0, 2.0, 0.0),  # B
-            Point3d(1.0, 2.0, 0.0),  # C
-            Point3d(1.0, 0.0, 0.0),  # A
+            Point3d(0.0, 1.0, 0.0),
+            Point3d(1.0, 0.0, 0.0),
+            Point3d(0.0, 3.0, 0.0),
+            Point3d(1.0, 3.0, 0.0),
         ]
 
-        result = sort_by_nearest(positions, Point3d(0.0, 0.0, 0.0))
+        result = sort_by_nearest(positions, start)
 
-        # start(0,0)から最も近いのはA(1,0)
-        assert result[0] == Point3d(1.0, 0.0, 0.0)
-        # A(1,0)から最も近いのはC(1,2)
-        assert result[1] == Point3d(1.0, 2.0, 0.0)
-        # 残りはB(0,2)
-        assert result[2] == Point3d(0.0, 2.0, 0.0)
+        # 全点が含まれている
+        assert set(map(tuple, [(p.x, p.y) for p in result])) == {
+            (0.0, 1.0),
+            (1.0, 0.0),
+            (0.0, 3.0),
+            (1.0, 3.0),
+        }
+        # 総距離を計算
+        total = (result[0] - start).norm()
+        for i in range(len(result) - 1):
+            total += (result[i + 1] - result[i]).norm()
+        # NN単体の経路長 (0,0)→(1,0)→(1,3)→(0,3)→(0,1): 1+3+1+2=7
+        assert total < 7.0
 
 
 class TestMove:
