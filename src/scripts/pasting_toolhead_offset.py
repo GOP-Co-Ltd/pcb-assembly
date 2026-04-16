@@ -72,7 +72,7 @@ def main() -> None:
     parser.add_argument(
         "--dispense-amount",
         type=float,
-        default=5,
+        default=1,
         help="吐出量 (uL)",
     )
     parser.add_argument(
@@ -96,7 +96,7 @@ def main() -> None:
     parser.add_argument(
         "--paste-diameter-max",
         type=float,
-        default=1.0,
+        default=2.0,
         help="検出する円の最大直径 (mm)",
     )
     parser.add_argument(
@@ -194,126 +194,134 @@ def main() -> None:
             applicator.retract()
             print("リトラクション完了")
 
-        # === Phase 4: ペースト吐出 ===
-        print("\n=== ペースト吐出 ===")
-        dispense_z = board_surface_z + dispenser_config.paste_height
+            # === Phase 4: ペースト吐出 ===
+            print("\n=== ペースト吐出 ===")
+            dispense_z = board_surface_z + dispenser_config.paste_height
 
-        # ステージを center_toolhead XY, Z=dispense_z へ移動
-        klipper.send_gcode(
-            stage.to_gcode(Move(x=center_toolhead.x, y=center_toolhead.y, z=dispense_z))
-            + gcode.wait_for_done()
-        )
-
-        # 吐出
-        klipper.send_gcode(
-            paste_dispenser.pushpull(
-                args.dispense_amount,
-                dispenser_config.dispense_rate,
-                dispenser_config.dispense_accel,
+            # ステージを center_toolhead XY, Z=dispense_z へ移動
+            klipper.send_gcode(
+                stage.to_gcode(
+                    Move(x=center_toolhead.x, y=center_toolhead.y, z=dispense_z)
+                )
+                + gcode.wait_for_done()
             )
-            + gcode.wait_for_done()
-        )
 
-        # リトラクション
-        retract_accel = (
-            dispenser_config.dispense_accel * dispenser_config.retract_accel_factor
-        )
-        klipper.send_gcode(
-            paste_dispenser.pushpull(
-                -dispenser_config.retract_amount,
-                dispenser_config.retract_rate,
-                retract_accel,
+            # 吐出
+            klipper.send_gcode(
+                paste_dispenser.pushpull(
+                    args.dispense_amount,
+                    dispenser_config.dispense_rate,
+                    dispenser_config.dispense_accel,
+                )
+                + gcode.wait_for_done()
             )
-            + gcode.wait_for_done()
-        )
 
-        # Z を lift_height 分持ち上げ
-        klipper.send_gcode(
-            stage.to_gcode(Move(z=dispense_z + args.lift_height))
-            + gcode.wait_for_done()
-        )
+            # リトラクション
+            retract_accel = (
+                dispenser_config.dispense_accel * dispenser_config.retract_accel_factor
+            )
+            klipper.send_gcode(
+                paste_dispenser.pushpull(
+                    -dispenser_config.retract_amount,
+                    dispenser_config.retract_rate,
+                    retract_accel,
+                )
+                + gcode.wait_for_done()
+            )
 
-        print(
-            f"吐出位置 (ステージ): ({center_toolhead.x:.3f}, {center_toolhead.y:.3f})"
-        )
+            # Z を lift_height 分持ち上げ
+            klipper.send_gcode(
+                stage.to_gcode(Move(z=dispense_z + args.lift_height))
+                + gcode.wait_for_done()
+            )
 
-        # === Phase 5: ペースト検出 & 位置合わせ ===
-        print("\n=== ペースト検出 & 位置合わせ ===")
+            print(
+                f"吐出位置 (ステージ): ({center_toolhead.x:.3f}, {center_toolhead.y:.3f})"
+            )
 
-        # ステージを center_camera 付近へ XY 移動
-        klipper.send_gcode(
-            stage.to_gcode(Move(x=center_camera.x, y=center_camera.y))
-            + gcode.wait_for_done()
-        )
-        time.sleep(1.0)
+            # === Phase 5: ペースト検出 & 位置合わせ ===
+            print("\n=== ペースト検出 & 位置合わせ ===")
 
-        # ペースト用 CircleDetector
-        target_diameter_mm = (args.paste_diameter_min + args.paste_diameter_max) / 2
-        diameter_tolerance_mm = (args.paste_diameter_max - args.paste_diameter_min) / 2
-        paste_detector = CircleDetector(
-            pixel_per_mm=calibration.pixel_per_mm,
-            target_diameter_mm=target_diameter_mm,
-            crop_size=cam_config.crop.size,
-            diameter_tolerance_mm=diameter_tolerance_mm,
-        )
+            # ステージを center_camera 付近へ XY 移動
+            klipper.send_gcode(
+                stage.to_gcode(Move(x=center_camera.x, y=center_camera.y))
+                + gcode.wait_for_done()
+            )
+            time.sleep(1.0)
 
-        # offset_transform を再利用してカメラ回転補正
-        paste_observer = OffsetObserver(
-            detector=paste_detector,
-            camera=cal_result.camera,
-            crop_size=cam_config.crop.size,
-            window_name=WINDOW_NAME,
-        )
+            # ペースト用 CircleDetector
+            target_diameter_mm = (args.paste_diameter_min + args.paste_diameter_max) / 2
+            diameter_tolerance_mm = (
+                args.paste_diameter_max - args.paste_diameter_min
+            ) / 2
+            paste_detector = CircleDetector(
+                pixel_per_mm=calibration.pixel_per_mm,
+                target_diameter_mm=target_diameter_mm,
+                crop_size=cam_config.crop.size,
+                diameter_tolerance_mm=diameter_tolerance_mm,
+            )
 
-        def corrected_paste_offset() -> Point2d:
-            return cal_result.offset_transform.apply(paste_observer())
+            # offset_transform を再利用してカメラ回転補正
+            paste_observer = OffsetObserver(
+                detector=paste_detector,
+                camera=cal_result.camera,
+                crop_size=cam_config.crop.size,
+                window_name=WINDOW_NAME,
+            )
 
-        # XYPositionAdjustor でペーストドット中心に自動位置合わせ
-        paste_adjustor = XYPositionAdjustor(
-            observe_offset=corrected_paste_offset,
-            klipper=klipper,
-            stage=stage,
-            tolerance=args.tolerance,
-        )
-        camera_final_pos = paste_adjustor.adjust()
-        print(f"カメラ最終位置: ({camera_final_pos.x:.3f}, {camera_final_pos.y:.3f})")
+            def corrected_paste_offset() -> Point2d:
+                return cal_result.offset_transform.apply(paste_observer())
 
-        # === Phase 6: オフセット算出 & 保存 ===
-        print("\n=== オフセット算出 & 保存 ===")
-        measured_offset = Point2d(
-            center_toolhead.x - camera_final_pos.x,
-            center_toolhead.y - camera_final_pos.y,
-        )
+            # XYPositionAdjustor でペーストドット中心に自動位置合わせ
+            paste_adjustor = XYPositionAdjustor(
+                observe_offset=corrected_paste_offset,
+                klipper=klipper,
+                stage=stage,
+                tolerance=args.tolerance,
+            )
+            camera_final_pos = paste_adjustor.adjust()
+            print(
+                f"カメラ最終位置: ({camera_final_pos.x:.3f}, {camera_final_pos.y:.3f})"
+            )
 
-        offset_result = ToolheadOffsetResult(
-            offset=measured_offset,
-            dispense_position=center_toolhead,
-            camera_position=camera_final_pos,
-            tolerance=args.tolerance,
-            calibrated_at=datetime.now(),
-        )
+            # === Phase 6: オフセット算出 & 保存 ===
+            print("\n=== オフセット算出 & 保存 ===")
+            measured_offset = Point2d(
+                center_toolhead.x - camera_final_pos.x,
+                center_toolhead.y - camera_final_pos.y,
+            )
 
-        # 保存
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        offset_result.save(args.output)
-        print(f"結果を保存しました: {args.output}")
+            offset_result = ToolheadOffsetResult(
+                offset=measured_offset,
+                dispense_position=center_toolhead,
+                camera_position=camera_final_pos,
+                tolerance=args.tolerance,
+                calibrated_at=datetime.now(),
+            )
 
-        # 結果表示
-        print("\n=== 計測結果 ===")
-        print(f"計測オフセット: X={measured_offset.x:.4f} Y={measured_offset.y:.4f}")
-        print()
-        print("machine.tomlに設定する値:")
-        print("[paste_dispenser.toolhead]")
-        print(f"x = {measured_offset.x}")
-        print(f"y = {measured_offset.y}")
+            # 保存
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            offset_result.save(args.output)
+            print(f"結果を保存しました: {args.output}")
 
-        # 現在設定値との差分
-        current_toolhead = machine.paste_dispenser.toolhead
-        diff_x = measured_offset.x - current_toolhead.x
-        diff_y = measured_offset.y - current_toolhead.y
-        print()
-        print(f"現在設定値: X={current_toolhead.x:.4f} Y={current_toolhead.y:.4f}")
-        print(f"差分: dX={diff_x:.4f} dY={diff_y:.4f}")
+            # 結果表示
+            print("\n=== 計測結果 ===")
+            print(
+                f"計測オフセット: X={measured_offset.x:.4f} Y={measured_offset.y:.4f}"
+            )
+            print()
+            print("machine.tomlに設定する値:")
+            print("[paste_dispenser.toolhead]")
+            print(f"x = {measured_offset.x}")
+            print(f"y = {measured_offset.y}")
+
+            # 現在設定値との差分
+            current_toolhead = machine.paste_dispenser.toolhead
+            diff_x = measured_offset.x - current_toolhead.x
+            diff_y = measured_offset.y - current_toolhead.y
+            print()
+            print(f"現在設定値: X={current_toolhead.x:.4f} Y={current_toolhead.y:.4f}")
+            print(f"差分: dX={diff_x:.4f} dY={diff_y:.4f}")
 
 
 if __name__ == "__main__":

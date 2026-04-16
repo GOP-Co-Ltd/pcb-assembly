@@ -22,8 +22,8 @@ prime_extra_delay = 0.4 # プライム後の追加遅延 [sec]
 # y = 26.46
 
 # 実測値
-x = -1.5857829783420527
-y = 23.455843397616672
+x = -1.4829347970566218
+y = 23.36368618204949
 
 [camera]
 device_id = 0
@@ -39,8 +39,8 @@ height = 600
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
-x = 19
-y = 0
+x = 20
+y = 5
 # 基準点の直径 (mm)
 target_diameter = 3.0
 

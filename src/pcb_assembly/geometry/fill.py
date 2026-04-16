@@ -12,45 +12,58 @@ from .transform import Compose, Point2d, Rotation, Shift
 
 def generate_fill_path(
     polygon: Polygon,
-    line_spacing: float,
+    nozzle_diameter: float,
     perimeters: int = 1,
-    inset: float = 0.0,
     angle: float = 0.0,
 ) -> list[Point2d]:
     """ポリゴンの塗りつぶしパスを生成する.
 
+    走査線間隔とインセットはノズル径から自動決定される
+    （line_spacing = nozzle_diameter, inset = nozzle_diameter / 2）。
     外周をperimeters回周回した後、残った内部をジグザグ走査線で塗りつぶす。
-    1周目はinset分内側にオフセットされ、以降はline_spacingずつ内側にオフセットされる。
+
+    `polygon.buffer(-nozzle_diameter)` が空となる細長いポリゴンでは、
+    zigzag を生成すると経路が短く中心にはんだが過多になるため、
+    早期に最長軸に沿った直線フォールバックへ切り替える。
 
     Args:
         polygon: 塗りつぶし対象のポリゴン（mm単位）
-        line_spacing: 走査線間隔（mm）
+        nozzle_diameter: ノズル内径（mm）。線間とインセットの基準。
         perimeters: 外周の周回数（デフォルト: 1）
-        inset: 1周目の外周からのオフセット（mm、デフォルト: 0.0）
         angle: ジグザグ走査線の角度（度、デフォルト: 0.0 = 水平）
 
     Returns:
         外周パス＋ジグザグ塗りつぶしパスの座標リスト
 
     Raises:
-        ValueError: line_spacingが0以下、またはperimetersが0未満の場合
+        ValueError: nozzle_diameterが0以下、またはperimetersが0未満の場合
     """
-    if line_spacing <= 0:
-        raise ValueError(f"line_spacingは正の値である必要があります: {line_spacing}")
+    if nozzle_diameter <= 0:
+        raise ValueError(
+            f"nozzle_diameterは正の値である必要があります: {nozzle_diameter}"
+        )
     if perimeters < 0:
         raise ValueError(f"perimetersは0以上である必要があります: {perimeters}")
 
     if polygon.is_empty or not polygon.is_valid:
         return []
 
+    line_spacing = nozzle_diameter
+    inset = nozzle_diameter / 2
+
+    # 細長ポリゴンは zigzag が短く中心にはんだが過多になるため、最長軸の直線で代替する
+    if polygon.buffer(-nozzle_diameter).is_empty:
+        return _generate_linear_fallback(polygon, nozzle_diameter)
+
     # 外周の周回パスを生成
     contour_path = _generate_contours(polygon, line_spacing, perimeters, inset)
 
-    # 最後の周回の内側がジグザグ領域
+    # 最後の周回の内側がジグザグ領域。perimeters=0 など早期 fallback を抜けても
+    # ジグザグ領域が空となる稀なケースのセーフティネットとして fallback を残す
     total_offset = inset + perimeters * line_spacing
     remaining = polygon.buffer(-total_offset)
     if remaining.is_empty:
-        return contour_path or _generate_linear_fallback(polygon)
+        return contour_path or _generate_linear_fallback(polygon, nozzle_diameter)
 
     # ジグザグの開始点を決定
     cx = polygon.centroid.x
@@ -78,17 +91,21 @@ def generate_fill_path(
     if rot is not None and zigzag_path:
         zigzag_path = list(map(rot.apply, zigzag_path))
 
+    # 上記分岐をすべてすり抜けて空になる稀なケース（数値誤差等）の最終セーフティネット
     result = contour_path + zigzag_path
     if not result:
-        return _generate_linear_fallback(polygon)
+        return _generate_linear_fallback(polygon, nozzle_diameter)
     return result
 
 
-def _generate_linear_fallback(polygon: Polygon) -> list[Point2d]:
+def _generate_linear_fallback(
+    polygon: Polygon, nozzle_diameter: float
+) -> list[Point2d]:
     """ポリゴンの最長軸に沿った直線パスを生成する.
 
     通常のcontour+zigzagが空になる細長いポリゴン向けのフォールバック。
-    minimum_rotated_rectangleの短辺中点を結ぶ直線を返す。
+    minimum_rotated_rectangleの短辺中点を結ぶ直線を、両端をnozzle_diameter/2ずつ
+    内側に補正して返す。長辺がnozzle_diameter未満の場合は空リストを返す。
     """
     mrr = polygon.minimum_rotated_rectangle
     if not isinstance(mrr, Polygon):
@@ -102,8 +119,18 @@ def _generate_linear_fallback(polygon: Polygon) -> list[Point2d]:
     ]
     # 対向する中点ペアのうち長い方（=最長軸の中心線）
     if (mids[2] - mids[0]).norm >= (mids[3] - mids[1]).norm:
-        return [mids[0], mids[2]]
-    return [mids[1], mids[3]]
+        start, end = mids[0], mids[2]
+    else:
+        start, end = mids[1], mids[3]
+
+    direction = end - start
+    length = direction.norm
+    if length <= nozzle_diameter:
+        return []
+
+    inset = nozzle_diameter / 2
+    unit = direction * (1.0 / length)
+    return [start + unit * inset, end - unit * inset]
 
 
 def _generate_contours(
