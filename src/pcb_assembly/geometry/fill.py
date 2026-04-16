@@ -51,14 +51,15 @@ def generate_fill_path(
     line_spacing = nozzle_diameter
     inset = nozzle_diameter / 2
 
-    # 細長いポリゴンは zigzag に向かないため早期 fallback
+    # 細長ポリゴンは zigzag が短く中心にはんだが過多になるため、最長軸の直線で代替する
     if polygon.buffer(-nozzle_diameter).is_empty:
         return _generate_linear_fallback(polygon)
 
     # 外周の周回パスを生成
     contour_path = _generate_contours(polygon, line_spacing, perimeters, inset)
 
-    # 最後の周回の内側がジグザグ領域
+    # 最後の周回の内側がジグザグ領域。perimeters=0 など早期 fallback を抜けても
+    # ジグザグ領域が空となる稀なケースのセーフティネットとして fallback を残す
     total_offset = inset + perimeters * line_spacing
     remaining = polygon.buffer(-total_offset)
     if remaining.is_empty:
@@ -90,6 +91,7 @@ def generate_fill_path(
     if rot is not None and zigzag_path:
         zigzag_path = list(map(rot.apply, zigzag_path))
 
+    # 上記分岐をすべてすり抜けて空になる稀なケース（数値誤差等）の最終セーフティネット
     result = contour_path + zigzag_path
     if not result:
         return _generate_linear_fallback(polygon)

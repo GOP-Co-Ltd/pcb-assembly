@@ -86,14 +86,6 @@ class TestGenerateFillPath:
                 second_ring_start - first_ring_end
             ).norm - 1e-6
 
-    def test_small_polygon_returns_linear_fallback(self):
-        """nozzle_diameterがポリゴンに対して大きい場合、直線fallbackが返る."""
-        # 1 x 0.5 のポリゴンに nozzle_diameter=1.0 → buffer(-1.0)が空 → fallback
-        polygon = Polygon([(0, 0), (1, 0), (1, 0.5), (0, 0.5)])
-        result = generate_fill_path(polygon, nozzle_diameter=1.0)
-
-        assert len(result) == 2
-
     def test_concave_l_shape_multiple_segments(self):
         """L字型凹ポリゴンでジグザグ走査線が分割される."""
         # L字: 下部は幅8, 上部は幅4 (大きめにしてジグザグが生成されるように)
@@ -166,29 +158,31 @@ class TestGenerateFillPath:
         dist_to_end = (zigzag_end - contour_end).norm
         assert dist_to_start <= dist_to_end
 
-    def test_narrow_polygon_returns_linear_fallback(self):
-        """細長いポリゴンで直線フォールバックが返る."""
-        # 0.3mm x 2mm のパッド、nozzle_diameter=0.34
-        polygon = Polygon([(0, 0), (0.3, 0), (0.3, 2), (0, 2)])
-        result = generate_fill_path(polygon, nozzle_diameter=0.34, perimeters=1)
+    @pytest.mark.parametrize(
+        "width,length,diameter",
+        [
+            (1.0, 0.5, 1.0),  # 短辺がノズル径より小さい矩形
+            (0.3, 2.0, 0.34),  # 細長パッド
+            (0.8, 5.0, 1.0),  # 幅がノズル径の2倍未満
+        ],
+    )
+    def test_narrow_polygon_returns_linear_fallback(self, width, length, diameter):
+        """buffer(-nozzle_diameter)が空になる細長ポリゴンで最長軸の直線fallbackが返る."""
+        polygon = Polygon([(0, 0), (width, 0), (width, length), (0, length)])
+        result = generate_fill_path(polygon, nozzle_diameter=diameter)
 
         assert len(result) == 2
-        # 最長軸（Y軸方向）に沿った直線
-        assert result[0].x == pytest.approx(0.15, abs=0.01)
-        assert result[1].x == pytest.approx(0.15, abs=0.01)
-        assert abs(result[1].y - result[0].y) == pytest.approx(2.0, abs=0.01)
-
-    def test_diameter_fallback_threshold(self):
-        """buffer(-nozzle_diameter)が空になる細長ポリゴンでlinear_fallbackが返る."""
-        # 幅0.8、長さ5.0、nozzle_diameter=1.0
-        # buffer(-1.0)は空 (幅0.8 < 2.0)
-        polygon = Polygon([(0, 0), (0.8, 0), (0.8, 5.0), (0, 5.0)])
-        result = generate_fill_path(polygon, nozzle_diameter=1.0)
-
-        assert len(result) == 2
-        # 最長軸（Y軸方向）に沿った直線
-        assert result[0].x == pytest.approx(0.4, abs=0.01)
-        assert result[1].x == pytest.approx(0.4, abs=0.01)
+        # 最長軸方向に沿った直線（短辺の中点を結ぶ）
+        long_axis_length = max(width, length)
+        short_axis_mid = min(width, length) / 2
+        assert (result[1] - result[0]).norm == pytest.approx(long_axis_length, abs=0.01)
+        constant_axis = "x" if length >= width else "y"
+        assert getattr(result[0], constant_axis) == pytest.approx(
+            short_axis_mid, abs=0.01
+        )
+        assert getattr(result[1], constant_axis) == pytest.approx(
+            short_axis_mid, abs=0.01
+        )
 
     def test_very_small_polygon_returns_nonempty(self):
         """非常に小さいポリゴンでも空にならない."""
