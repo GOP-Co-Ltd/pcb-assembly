@@ -61,7 +61,7 @@ def render_pcb(
     components: ComponentList,
     output_path: Path,
 ) -> None:
-    """PCBデータを画像として描画・保存する."""
+    """アウトライン・銅箔・パッド・部品位置を1枚のPNGに重ね描きして保存する."""
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_aspect("equal")
     ax.set_facecolor("#2a2a2a")

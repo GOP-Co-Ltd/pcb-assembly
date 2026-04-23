@@ -178,8 +178,9 @@ class PcbFile:
     def copper(self) -> CopperList:
         """電気的・物理的に接続された銅箔島のリスト（左上原点に正規化済み）.
 
-        各レイヤー（Top/Bottom）について、ゾーン・トラック・ビア・パッドを集約し、 unary_union
-        で接続している領域をひとつの島にまとめる.
+        各レイヤー（Top/Bottom）について、塗りつぶし済みゾーン・トラック・ビア
+        （pcbnewではTrack扱い）・パッドのポリゴンを集約し、unary_unionで結合した
+        うえで、連結成分ひとつを1つのCopperとして返す.
         """
         origin_x, origin_y = self._origin
         max_error = self._board.GetDesignSettings().m_MaxError
