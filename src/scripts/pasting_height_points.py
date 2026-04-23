@@ -55,7 +55,9 @@ def _visualize(height_points: HeightPoints, title: str, output_path: Path) -> No
         cmap="viridis",
         aspect="equal",
     )
-    ax.scatter(xs, ys, c=zs, cmap="viridis", edgecolor="white", s=60, label="計測点")
+    ax.scatter(
+        xs, ys, c=zs, cmap="viridis", edgecolor="white", s=60, label="Probe points"
+    )
     ax.set_xlabel("X [mm]")
     ax.set_ylabel("Y [mm]")
     ax.set_title(title)
