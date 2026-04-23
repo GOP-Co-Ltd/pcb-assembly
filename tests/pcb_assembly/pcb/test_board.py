@@ -8,6 +8,8 @@ from pcb_assembly.pcb.board import (
     PNP_CSV_HEADER,
     Component,
     ComponentList,
+    Copper,
+    CopperList,
     Layer,
     Outline,
     Pad,
@@ -202,6 +204,25 @@ class TestPad:
         assert restored.is_custom_shape == sample.is_custom_shape
         assert restored.polygon.equals(sample.polygon)
 
+    def test_pad_polygon_with_holes_roundtrip(self):
+        # 穴付きポリゴン (10x10 の外形に 2x2 の穴) でも往復できることを確認
+        exterior = [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
+        hole = [(4, 4), (6, 4), (6, 6), (4, 6), (4, 4)]
+        pad = Pad(
+            designator="U1",
+            pad_number="1",
+            net_name="VCC",
+            layer=Layer.TOP,
+            polygon=Polygon(exterior, holes=[hole]),
+        )
+
+        restored = Pad.from_dict(pad.to_dict())
+
+        assert restored.layer == pad.layer
+        assert restored.polygon.equals(pad.polygon)
+        assert len(list(restored.polygon.interiors)) == 1
+        assert restored.polygon.area == pytest.approx(100.0 - 4.0)
+
 
 class TestPadList:
     """PadListクラスのテスト."""
@@ -269,3 +290,59 @@ class TestPadList:
         empty = PadList()
         with pytest.raises(ValueError, match="PadList is empty"):
             empty.nearest(Point2d(x=0.0, y=0.0))
+
+
+class TestCopper:
+    """Copperクラスのテスト."""
+
+    @pytest.mark.parametrize("layer", [Layer.TOP, Layer.BOTTOM])
+    def test_copper_to_dict_from_dict_roundtrip(self, layer: Layer):
+        exterior = [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
+        hole = [(4, 4), (6, 4), (6, 6), (4, 6), (4, 4)]
+        copper = Copper(
+            layer=layer,
+            polygon=Polygon(exterior, holes=[hole]),
+        )
+
+        restored = Copper.from_dict(copper.to_dict())
+
+        assert restored.layer == copper.layer
+        assert restored.polygon.equals(copper.polygon)
+        assert restored.area == pytest.approx(copper.area)
+        assert restored.area == pytest.approx(100.0 - 4.0)
+
+    def test_area(self):
+        copper = Copper(
+            layer=Layer.TOP,
+            polygon=Polygon([(0, 0), (5, 0), (5, 4), (0, 4), (0, 0)]),
+        )
+        assert copper.area == pytest.approx(20.0)
+
+
+class TestCopperList:
+    """CopperListクラスのテスト."""
+
+    def test_save_and_load_roundtrip(self, tmp_path: Path):
+        coppers = CopperList(
+            [
+                Copper(
+                    layer=Layer.TOP,
+                    polygon=Polygon(
+                        [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)],
+                        holes=[[(4, 4), (6, 4), (6, 6), (4, 6), (4, 4)]],
+                    ),
+                ),
+                Copper(
+                    layer=Layer.BOTTOM,
+                    polygon=Polygon([(20, 20), (25, 20), (25, 25), (20, 25), (20, 20)]),
+                ),
+            ]
+        )
+        json_path = tmp_path / "copper.json"
+        coppers.save(json_path)
+        loaded = CopperList.load(json_path)
+
+        assert len(loaded) == len(coppers)
+        for original, restored in zip(coppers, loaded, strict=True):
+            assert restored.layer == original.layer
+            assert restored.polygon.equals(original.polygon)

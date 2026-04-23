@@ -26,8 +26,17 @@ class Layer(Enum):
 _converter = make_converter()
 _converter.register_unstructure_hook(Layer, lambda v: v.value)
 _converter.register_structure_hook(Layer, lambda v, _: Layer(v))
-_converter.register_unstructure_hook(Polygon, lambda p: list(p.exterior.coords))
-_converter.register_structure_hook(Polygon, lambda v, _: Polygon(v))
+_converter.register_unstructure_hook(
+    Polygon,
+    lambda p: {
+        "exterior": list(p.exterior.coords),
+        "holes": [list(interior.coords) for interior in p.interiors],
+    },
+)
+_converter.register_structure_hook(
+    Polygon,
+    lambda v, _: Polygon(v["exterior"], holes=v.get("holes", [])),
+)
 
 
 @attrs.frozen
@@ -256,3 +265,57 @@ class PadList(UserList[Pad]):
         for item in data:
             pads.append(Pad.from_dict(item))
         return pads
+
+
+@attrs.frozen
+class Copper:
+    """電気的・物理的に接続された銅箔島.
+
+    Attributes:
+        layer: レイヤー (Top/Bottom)
+        polygon: 銅箔島のポリゴン (mm単位、穴を含む場合あり)
+    """
+
+    layer: Layer
+    polygon: Polygon
+
+    @property
+    def area(self) -> float:
+        """ポリゴンの面積を計算 (mm^2)."""
+        return self.polygon.area
+
+    def to_dict(self) -> dict[str, Any]:
+        """辞書に変換."""
+        return _converter.unstructure(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        """辞書から生成."""
+        return _converter.structure(data, cls)
+
+
+class CopperList(UserList[Copper]):
+    """銅箔島情報のリスト.
+
+    JSONファイルの読み書きをサポート.
+
+    Example:
+        >>> coppers = CopperList.load(Path("board_copper.json"))
+        >>> coppers.save(Path("output_copper.json"))
+    """
+
+    def save(self, path: Path) -> None:
+        """JSONファイルに保存."""
+        data = [copper.to_dict() for copper in self.data]
+        path.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+    @classmethod
+    def load(cls, path: Path) -> Self:
+        """JSONファイルから読み込み."""
+        data = json.loads(path.read_text(encoding="utf-8"))
+        coppers = cls()
+        for item in data:
+            coppers.append(Copper.from_dict(item))
+        return coppers
