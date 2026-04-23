@@ -10,6 +10,7 @@ from pcb_assembly.config import (
     Klipper,
     Machine,
     PasteDispenser,
+    Probe,
     ReferencePoint,
     Toolhead,
     get_machine_config,
@@ -269,6 +270,64 @@ class TestReferencePoint:
         assert ref.get_reference_position(
             Corner.BOTTOM_RIGHT, board_width=100.0, board_height=50.0
         ) == Point2d(104.0, 77.0)
+
+
+class TestProbe:
+    """Probeクラスのテスト."""
+
+    def test_default_values(self):
+        probe = Probe(
+            servo_name="probe_gnd",
+            revolution_distance=40.0,
+            down_distance=5.0,
+        )
+
+        assert probe.min_radius == 1.5
+        assert probe.min_samples == 3
+        assert probe.max_samples == 9
+
+    def test_valid_custom_values(self):
+        probe = Probe(
+            servo_name="probe_gnd",
+            revolution_distance=40.0,
+            down_distance=5.0,
+            min_radius=1.5,
+            min_samples=3,
+            max_samples=9,
+        )
+
+        assert probe.min_radius == 1.5
+        assert probe.min_samples == 3
+        assert probe.max_samples == 9
+
+    def test_min_samples_less_than_3_raises(self):
+        with pytest.raises(ValueError, match="min_samplesは3以上"):
+            Probe(
+                servo_name="probe_gnd",
+                revolution_distance=40.0,
+                down_distance=5.0,
+                min_samples=2,
+            )
+
+    def test_min_samples_greater_than_max_samples_raises(self):
+        with pytest.raises(ValueError, match="min_samplesはmax_samples以下"):
+            Probe(
+                servo_name="probe_gnd",
+                revolution_distance=40.0,
+                down_distance=5.0,
+                min_samples=5,
+                max_samples=3,
+            )
+
+    @pytest.mark.parametrize("min_radius", [0.0, -1.0])
+    def test_min_radius_not_positive_raises(self, min_radius):
+        with pytest.raises(ValueError, match="min_radiusは正の値"):
+            Probe(
+                servo_name="probe_gnd",
+                revolution_distance=40.0,
+                down_distance=5.0,
+                min_radius=min_radius,
+            )
 
 
 class TestGetMachineConfig:

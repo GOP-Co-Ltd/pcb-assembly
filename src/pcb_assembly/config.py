@@ -46,6 +46,24 @@ class Probe:
     servo_name: str  # printer.cfgの[servo <name>]のname部分
     revolution_distance: float  # サーボ一回転あたりの移動量 [mm]
     down_distance: float  # グラウンドを下げる距離 [mm]
+    min_radius: float = 1.5  # ニードル-probe ground間の目測距離 [mm]
+    min_samples: int = 3  # 最小サンプル数 (3以上)
+    max_samples: int = 9  # 最大サンプル数
+
+    def __attrs_post_init__(self) -> None:
+        if self.min_radius <= 0:
+            raise ValueError(
+                f"min_radiusは正の値である必要があります。min_radius={self.min_radius}"
+            )
+        if self.min_samples < 3:
+            raise ValueError(
+                f"min_samplesは3以上である必要があります。min_samples={self.min_samples}"
+            )
+        if self.min_samples > self.max_samples:
+            raise ValueError(
+                "min_samplesはmax_samples以下である必要があります。"
+                f"min_samples={self.min_samples}, max_samples={self.max_samples}"
+            )
 
 
 @attrs.frozen
