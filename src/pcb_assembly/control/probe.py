@@ -2,7 +2,7 @@
 
 from pcb_assembly import gcode
 from pcb_assembly.geometry import Move
-from pcb_assembly.hal import Klipper, ProbeSensor, XYZStage
+from pcb_assembly.hal import Klipper, Probe, XYZStage
 
 
 class ProbeExecutor:
@@ -14,7 +14,7 @@ class ProbeExecutor:
     def __init__(
         self,
         klipper: Klipper,
-        probe: ProbeSensor,
+        probe: Probe,
         stage: XYZStage,
         *,
         lift_height: float = 5.0,
@@ -35,7 +35,7 @@ class ProbeExecutor:
             接触したZ座標 (mm)
         """
         self._klipper.send_gcode(
-            gcode.GCode("PROBE") + gcode.wait(self._settle_time) + gcode.wait_for_done()
+            self._probe.probe() + gcode.wait(self._settle_time) + gcode.wait_for_done()
         )
         z = self._probe.get_last_z_result()
         self._klipper.send_gcode(

@@ -36,6 +36,11 @@ calibration_file = "ov9281_20260304_114344.json"
 width = 600
 height = 600
 
+[probe]
+servo_name = "probe_gnd"
+revolution_distance = 40.0 # サーボ一回転あたりの移動量 [mm] ※暫定値
+down_distance = 20.0       # グラウンドを下げる距離 [mm] ※暫定値
+
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
 x = 6.0
