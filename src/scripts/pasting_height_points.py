@@ -5,17 +5,19 @@
 1. setup_board_calibration() で初期化〜Board変換計測
 2. ProbeExecutor初期化
 3. 高さ計測（HeightPointsMeasurer）
-4. matplotlibで計測点と補間サーフェスを3D可視化
+4. 補間した高さを2Dカラーヒートマップで描画しPNGに保存
 """
 
 import argparse
 import logging
+from datetime import datetime
 from pathlib import Path
-from typing import cast
 
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from mpl_toolkits.mplot3d import Axes3D
 
 from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.adjust import HeightPointsMeasurer
@@ -23,14 +25,14 @@ from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
 from pcb_assembly.geometry import Compose, HeightPoints, Point3d
 from pcb_assembly.hal import Probe
-from pcb_assembly.utils import setup_logging
+from pcb_assembly.utils import PROJECT_ROOT, setup_logging
 
 WINDOW_NAME = "Height Points"
 _MESH_RESOLUTION = 50
 
 
-def _visualize(height_points: HeightPoints, title: str) -> None:
-    """HeightPointsの計測点と補間サーフェスを3Dプロットする."""
+def _visualize(height_points: HeightPoints, title: str, output_path: Path) -> None:
+    """HeightPointsの高さを2DカラーヒートマップとしてPNGに保存する."""
     xs = [p.x for p in height_points.points]
     ys = [p.y for p in height_points.points]
     zs = [p.z for p in height_points.points]
@@ -38,7 +40,6 @@ def _visualize(height_points: HeightPoints, title: str) -> None:
     # z=0で入力するとapply後のz値が補間値そのものになる
     grid_x = np.linspace(min(xs), max(xs), _MESH_RESOLUTION)
     grid_y = np.linspace(min(ys), max(ys), _MESH_RESOLUTION)
-    mesh_x, mesh_y = np.meshgrid(grid_x, grid_y)
     mesh_z = np.array(
         [
             [height_points.apply(Point3d(float(x), float(y), 0.0)).z for x in grid_x]
@@ -46,24 +47,23 @@ def _visualize(height_points: HeightPoints, title: str) -> None:
         ]
     )
 
-    fig = plt.figure(figsize=(10, 8))
-    ax = cast(Axes3D, fig.add_subplot(111, projection="3d"))
-    ax.plot_surface(
-        mesh_x,
-        mesh_y,
+    fig, ax = plt.subplots(figsize=(10, 8))
+    heatmap = ax.imshow(
         mesh_z,
+        extent=(min(xs), max(xs), min(ys), max(ys)),
+        origin="lower",
         cmap="viridis",
-        alpha=0.7,
-        edgecolor="none",
+        aspect="equal",
     )
-    ax.scatter(xs, ys, zs=zs, color="red", s=40, label="計測点")  # pyright: ignore[reportArgumentType]
+    ax.scatter(xs, ys, c=zs, cmap="viridis", edgecolor="white", s=60, label="計測点")
     ax.set_xlabel("X [mm]")
     ax.set_ylabel("Y [mm]")
-    ax.set_zlabel("Z [mm]")
     ax.set_title(title)
-    ax.legend()
+    ax.legend(loc="upper right")
+    fig.colorbar(heatmap, ax=ax, label="Z [mm]")
     plt.tight_layout()
-    plt.show()
+    fig.savefig(output_path, dpi=120)
+    plt.close(fig)
 
 
 def main() -> None:
@@ -92,7 +92,21 @@ def main() -> None:
         default=0.1,
         help="位置合わせの許容誤差 (mm)",
     )
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        default=None,
+        help="可視化PNGの保存先 (省略時: data/height_points/<config名>/<pcb名>_<時刻>.png)",
+    )
     args = parser.parse_args()
+
+    if args.output is None:
+        pcb_stem = Path(args.pcb_file).stem
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = PROJECT_ROOT / "data" / "height_points" / args.machine
+        output_dir.mkdir(parents=True, exist_ok=True)
+        args.output = output_dir / f"{pcb_stem}_{timestamp}.png"
 
     machine = get_machine_config(args.machine)
     result = setup_board_calibration(
@@ -132,7 +146,10 @@ def main() -> None:
         )
 
     pcb_stem = Path(args.pcb_file).stem
-    _visualize(height_points, title=f"Height Points: {pcb_stem}")
+    _visualize(
+        height_points, title=f"Height Points: {pcb_stem}", output_path=args.output
+    )
+    print(f"\n可視化を保存しました: {args.output}")
 
 
 if __name__ == "__main__":
