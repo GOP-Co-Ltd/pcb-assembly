@@ -70,3 +70,45 @@ class TestPcbFile:
     def test_pads_center_is_within_polygon(self, pcb: PcbFile):
         for pad in pcb.pads:
             assert pad.polygon.contains(pad.polygon.centroid)
+
+    # copper プロパティ
+
+    def test_copper_exists_on_both_layers(self, pcb: PcbFile):
+        top = [c for c in pcb.copper if c.layer == Layer.TOP]
+        bottom = [c for c in pcb.copper if c.layer == Layer.BOTTOM]
+        assert len(top) >= 1
+        assert len(bottom) >= 1
+
+    def test_copper_polygons_are_valid(self, pcb: PcbFile):
+        for copper in pcb.copper:
+            assert copper.polygon.is_valid
+            assert copper.area > 0
+
+    def test_copper_polygons_normalized(self, pcb: PcbFile):
+        # 浮動小数点誤差を許容するための ε
+        eps = 0.01
+        max_x = pcb.outline.width + eps
+        max_y = pcb.outline.height + eps
+        for copper in pcb.copper:
+            minx, miny, maxx, maxy = copper.polygon.bounds
+            assert minx >= -eps
+            assert miny >= -eps
+            assert maxx <= max_x
+            assert maxy <= max_y
+
+    def test_copper_contains_connected_pad_centroids(self, pcb: PcbFile):
+        # LED1 ネットは TOP 層で U1.2, R1.1, R1.2, D1.1 を接続している
+        led1_pads = [
+            p for p in pcb.pads if p.net_name == "LED1" and p.layer == Layer.TOP
+        ]
+        u1_pad2 = next(p for p in led1_pads if p.designator == "U1")
+
+        top_copper = [c for c in pcb.copper if c.layer == Layer.TOP]
+        containing = next(
+            c for c in top_copper if c.polygon.contains(u1_pad2.polygon.centroid)
+        )
+
+        for pad in led1_pads:
+            assert containing.polygon.contains(
+                pad.polygon.centroid
+            ), f"{pad.designator}.{pad.pad_number} は同じ銅箔島に含まれていない"

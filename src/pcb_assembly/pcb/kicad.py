@@ -12,12 +12,22 @@ from functools import cached_property
 from pathlib import Path
 
 import pcbnew
-from shapely import Polygon
+import shapely.ops
+from shapely import MultiPolygon, Polygon
 from shapely.affinity import translate
 
 from pcb_assembly.geometry.transform import Point2d
 
-from .board import Component, ComponentList, Layer, Outline, Pad, PadList
+from .board import (
+    Component,
+    ComponentList,
+    Copper,
+    CopperList,
+    Layer,
+    Outline,
+    Pad,
+    PadList,
+)
 
 
 class PcbFile:
@@ -163,6 +173,90 @@ class PcbFile:
                     )
 
         return pads
+
+    @cached_property
+    def copper(self) -> CopperList:
+        """電気的・物理的に接続された銅箔島のリスト（左上原点に正規化済み）.
+
+        各レイヤー（Top/Bottom）について、塗りつぶし済みゾーン・トラック・ビア
+        （pcbnewではTrack扱い）・パッドのポリゴンを集約し、unary_unionで結合した
+        うえで、連結成分ひとつを1つのCopperとして返す.
+        """
+        origin_x, origin_y = self._origin
+        max_error = self._board.GetDesignSettings().m_MaxError
+        coppers = CopperList()
+
+        def to_polys(sps: pcbnew.SHAPE_POLY_SET) -> list[Polygon]:
+            return _shape_poly_set_to_polygons(sps, origin_x, origin_y)
+
+        for kicad_layer, layer in (
+            (pcbnew.F_Cu, Layer.TOP),
+            (pcbnew.B_Cu, Layer.BOTTOM),
+        ):
+            polygons: list[Polygon] = []
+
+            # ゾーンは事前に fill 済みのキャッシュを利用する（ここでは再 fill しない）
+            for zone in self._board.Zones():
+                if zone.IsOnLayer(kicad_layer):
+                    polygons.extend(to_polys(zone.GetFilledPolysList(kicad_layer)))
+
+            for track in self._board.GetTracks():
+                if not track.GetLayerSet().Contains(kicad_layer):
+                    continue
+                sps = pcbnew.SHAPE_POLY_SET()
+                track.TransformShapeToPolygon(
+                    sps, kicad_layer, 0, max_error, pcbnew.ERROR_INSIDE
+                )
+                polygons.extend(to_polys(sps))
+
+            for footprint in self._board.GetFootprints():
+                if footprint.IsDNP():
+                    continue
+                for pad in footprint.Pads():
+                    if pad.GetLayerSet().Contains(kicad_layer):
+                        polygons.extend(to_polys(pad.GetEffectivePolygon(kicad_layer)))
+
+            if not polygons:
+                continue
+
+            merged = shapely.ops.unary_union(polygons)
+            islands = merged.geoms if isinstance(merged, MultiPolygon) else [merged]
+            for island in islands:
+                if isinstance(island, Polygon) and not island.is_empty:
+                    coppers.append(Copper(layer=layer, polygon=island))
+
+        return coppers
+
+
+def _shape_poly_set_to_polygons(
+    sps: "pcbnew.SHAPE_POLY_SET", origin_x: float, origin_y: float
+) -> list[Polygon]:
+    """SHAPE_POLY_SET を shapely Polygon のリストに変換（nm→mm、原点平行移動）."""
+
+    def ring(outline: "pcbnew.SHAPE_LINE_CHAIN") -> list[tuple[float, float]]:
+        points = [
+            (_nm_to_mm(p.x) - origin_x, _nm_to_mm(p.y) - origin_y)
+            for p in outline.CPoints()
+        ]
+        if len(points) >= 3 and points[0] != points[-1]:
+            points.append(points[0])
+        return points
+
+    polygons: list[Polygon] = []
+    for i in range(sps.OutlineCount()):
+        exterior = ring(sps.Outline(i))
+        if len(exterior) < 3:
+            continue
+        holes = [
+            h
+            for h in (ring(sps.CHole(i, j)) for j in range(sps.HoleCount(i)))
+            if len(h) >= 3
+        ]
+        polygon = Polygon(exterior, holes=holes)
+        if not polygon.is_empty:
+            polygons.append(polygon)
+
+    return polygons
 
 
 def _nm_to_mm(nm: float) -> float:
