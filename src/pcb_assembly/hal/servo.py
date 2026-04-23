@@ -8,7 +8,7 @@ from .klipper import ReadonlyKlipper
 class Servo:
     """サーボモーターのHAL."""
 
-    def __init__(self, klipper: ReadonlyKlipper, name: str = "probe_gnd") -> None:
+    def __init__(self, klipper: ReadonlyKlipper, name: str) -> None:
         self._klipper = klipper
         self._name = name
         self._section = f"servo {name}"
