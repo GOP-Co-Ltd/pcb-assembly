@@ -3,6 +3,7 @@ from .trajectory import Move, Trajectory, Waypoint, sort_by_nearest
 from .transform import (
     Compose,
     HeightMap,
+    HeightPoints,
     Identity,
     Matrix2d,
     Point2d,
@@ -16,6 +17,7 @@ from .transform import (
 __all__ = [
     "Compose",
     "HeightMap",
+    "HeightPoints",
     "Identity",
     "generate_fill_path",
     "Matrix2d",
