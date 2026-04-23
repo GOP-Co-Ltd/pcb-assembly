@@ -38,7 +38,7 @@ from pcb_assembly.control.setup import (
     setup_board_calibration,
 )
 from pcb_assembly.geometry import Identity, Move, Point2d
-from pcb_assembly.hal import PasteDispenser, ProbeSensor
+from pcb_assembly.hal import PasteDispenser, Probe
 from pcb_assembly.utils import PROJECT_ROOT, setup_logging
 from pcb_assembly.vision import CircleDetector
 
@@ -133,7 +133,13 @@ def main() -> None:
     calibration = cal_result.calibration
     cam_config = machine.camera
 
-    probe = ProbeSensor(klipper.readonly)
+    probe_config = machine.probe
+    probe = Probe(
+        klipper.readonly,
+        servo_name=probe_config.servo_name,
+        revolution_distance=probe_config.revolution_distance,
+        down_distance=probe_config.down_distance,
+    )
     probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
 
     dispenser_config = machine.paste_dispenser
