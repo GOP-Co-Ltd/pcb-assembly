@@ -4,6 +4,8 @@ from .board import (
     PNP_CSV_HEADER,
     Component,
     ComponentList,
+    Copper,
+    CopperList,
     Layer,
     Outline,
     Pad,
@@ -14,6 +16,8 @@ from .kicad import PcbFile
 __all__ = [
     "Component",
     "ComponentList",
+    "Copper",
+    "CopperList",
     "Layer",
     "Outline",
     "Pad",
