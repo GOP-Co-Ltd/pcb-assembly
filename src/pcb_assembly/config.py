@@ -40,6 +40,15 @@ class PasteDispenser:
 
 
 @attrs.frozen
+class Probe:
+    """電気接触式プローブの設定."""
+
+    servo_name: str  # printer.cfgの[servo <name>]のname部分
+    revolution_distance: float  # サーボ一回転あたりの移動量 [mm]
+    down_distance: float  # グラウンドを下げる距離 [mm]
+
+
+@attrs.frozen
 class CameraCrop:
     """カメラのクロップ設定."""
 
@@ -270,6 +279,11 @@ class Machine:
     def reference_point(self) -> ReferencePoint:
         """基準点設定を取得する."""
         return self._get_config("reference_point", ReferencePoint)
+
+    @property
+    def probe(self) -> Probe:
+        """プローブ設定を取得する."""
+        return self._get_config("probe", Probe)
 
 
 def get_machine_config(name: str, file: str = "machine.toml") -> Machine:

@@ -18,7 +18,7 @@ from pcb_assembly.control.adjust import HeightTransformMeasurer
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
 from pcb_assembly.geometry import Compose
-from pcb_assembly.hal import ProbeSensor
+from pcb_assembly.hal import Probe
 from pcb_assembly.utils import PROJECT_ROOT, setup_logging
 
 WINDOW_NAME = "Height Mesh"
@@ -79,7 +79,13 @@ def main() -> None:
     machine = result.machine
     outline = result.pcb.outline
 
-    probe = ProbeSensor(klipper.readonly)
+    probe_config = machine.probe
+    probe = Probe(
+        klipper.readonly,
+        servo_name=probe_config.servo_name,
+        revolution_distance=probe_config.revolution_distance,
+        down_distance=probe_config.down_distance,
+    )
     probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
 
     with machine_session(klipper):
