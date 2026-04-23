@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""KiCad PCBファイルから部品・パッド情報を抽出し、可視化するスクリプト."""
+"""KiCad PCBファイルから部品・パッド・銅箔情報を抽出し、可視化するスクリプト."""
 
 import argparse
 from pathlib import Path
@@ -7,10 +7,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.artist import Artist
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch, Polygon as MplPolygon
+from matplotlib.patches import Patch, PathPatch, Polygon as MplPolygon
+from matplotlib.path import Path as MplPath
 
 from pcb_assembly.pcb import (
     ComponentList,
+    CopperList,
     Layer,
     Outline,
     PadList,
@@ -18,13 +20,48 @@ from pcb_assembly.pcb import (
 )
 
 
+def _polygon_with_holes_patch(
+    polygon, *, facecolor: str, edgecolor: str, alpha: float, linewidth: float
+) -> PathPatch:
+    """穴付きポリゴンをPathPatch化する (matplotlib.PolygonはholeをサポートしないためPath経由)."""
+    # MplPath.MOVETO等はnp.uint8だがPath()はint列を期待するため明示キャスト。
+    move_to, line_to, close_poly = (
+        int(MplPath.MOVETO),
+        int(MplPath.LINETO),
+        int(MplPath.CLOSEPOLY),
+    )
+    verts: list[tuple[float, float]] = []
+    codes: list[int] = []
+    # matplotlibはexteriorと逆向きの巻きを穴と解釈するため、interiorsは反転する。
+    rings = [list(polygon.exterior.coords)] + [
+        list(h.coords)[::-1] for h in polygon.interiors
+    ]
+    for ring in rings:
+        if len(ring) < 3:
+            continue
+        verts.extend(ring)
+        verts.append(ring[0])
+        codes.append(move_to)
+        codes.extend([line_to] * (len(ring) - 1))
+        codes.append(close_poly)
+
+    return PathPatch(
+        MplPath(verts, codes),
+        facecolor=facecolor,
+        edgecolor=edgecolor,
+        alpha=alpha,
+        linewidth=linewidth,
+    )
+
+
 def render_pcb(
     outline: Outline,
     pads: PadList,
+    copper: CopperList,
     components: ComponentList,
     output_path: Path,
 ) -> None:
-    """PCBデータを画像として描画・保存する."""
+    """アウトライン・銅箔・パッド・部品位置を1枚のPNGに重ね描きして保存する."""
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_aspect("equal")
     ax.set_facecolor("#2a2a2a")
@@ -40,6 +77,25 @@ def render_pcb(
         linestyle="--",
     )
     ax.add_patch(outline_polygon)
+
+    # 銅箔描画 (パッドより下に配置)
+    for cu in copper:
+        if cu.layer == Layer.TOP:
+            facecolor = "#cc8844"
+            edgecolor = "#cc8844"
+        else:
+            facecolor = "#884422"
+            edgecolor = "#884422"
+
+        ax.add_patch(
+            _polygon_with_holes_patch(
+                cu.polygon,
+                facecolor=facecolor,
+                edgecolor=edgecolor,
+                alpha=0.4,
+                linewidth=0.3,
+            )
+        )
 
     # パッド描画
     for pad in pads:
@@ -95,7 +151,7 @@ def render_pcb(
     # タイトル
     title = (
         f"Board: {outline.width:.1f}x{outline.height:.1f}mm, "
-        f"Pads: {len(pads)}, Components: {len(components)}"
+        f"Pads: {len(pads)}, Copper: {len(copper)}, Components: {len(components)}"
     )
     ax.set_title(title, color="white")
 
@@ -111,6 +167,18 @@ def render_pcb(
         ),
         Patch(facecolor="#00aa00", edgecolor="#00ff00", label="Top Pad"),
         Patch(facecolor="#aa0000", edgecolor="#ff0000", label="Bottom Pad"),
+        Patch(
+            facecolor="#cc8844",
+            edgecolor="#cc8844",
+            alpha=0.4,
+            label="Top Copper",
+        ),
+        Patch(
+            facecolor="#884422",
+            edgecolor="#884422",
+            alpha=0.4,
+            label="Bottom Copper",
+        ),
         Line2D(
             [0],
             [0],
@@ -194,10 +262,16 @@ def main() -> None:
     pads.save(json_path)
     print(f"  {len(pads)} パッド -> {json_path}")
 
+    # 銅箔情報を保存
+    copper = pcb.copper
+    copper_path = output_dir / f"{base_name}_copper.json"
+    copper.save(copper_path)
+    print(f"  {len(copper)} 銅箔島 -> {copper_path}")
+
     # 画像として描画・保存
     print("PCB画像を生成中...")
     image_path = output_dir / f"{base_name}_pcb.png"
-    render_pcb(outline, pads, components, image_path)
+    render_pcb(outline, pads, copper, components, image_path)
     print(f"  画像 -> {image_path}")
 
     print("完了")
