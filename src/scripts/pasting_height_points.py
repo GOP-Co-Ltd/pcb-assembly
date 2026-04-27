@@ -25,6 +25,7 @@ from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
 from pcb_assembly.geometry import Compose, HeightPoints, Point3d
 from pcb_assembly.hal import Probe
+from pcb_assembly.pcb import Layer
 from pcb_assembly.utils import PROJECT_ROOT, setup_logging
 
 WINDOW_NAME = "Height Points"
@@ -121,7 +122,7 @@ def main() -> None:
     klipper = result.klipper
     stage = result.stage
     machine = result.machine
-    outline = result.pcb.outline
+    top_coppers = [c for c in result.pcb.copper if c.layer == Layer.TOP]
 
     probe_config = machine.probe
     probe = Probe(
@@ -141,9 +142,10 @@ def main() -> None:
             probe_executor=probe_executor,
             klipper=klipper,
             stage=stage,
+            probe_config=probe_config,
         )
         height_points = height_measurer.measure(
-            outline=outline,
+            coppers=top_coppers,
             board_to_machine=Compose([board_transform, toolhead_offset]),
         )
 
