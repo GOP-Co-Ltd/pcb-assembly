@@ -3,9 +3,12 @@
 from unittest.mock import MagicMock
 
 import pytest
+from shapely.geometry import Polygon
 
+from pcb_assembly.config import Probe as ProbeConfig
 from pcb_assembly.control.adjust import HeightPointsMeasurer, HeightTransformMeasurer
 from pcb_assembly.geometry import HeightPoints
+from pcb_assembly.pcb import Copper, Layer
 
 
 class TestHeightTransformMeasurer:
@@ -134,7 +137,9 @@ class TestHeightPointsMeasurer:
 
     @pytest.fixture
     def mock_probe_executor(self):
-        return MagicMock()
+        executor = MagicMock()
+        executor.probe.return_value = -1.0
+        return executor
 
     @pytest.fixture
     def mock_stage(self):
@@ -144,117 +149,95 @@ class TestHeightPointsMeasurer:
         return stage
 
     @pytest.fixture
-    def mock_outline(self):
-        outline = MagicMock()
-        outline.width = 50.0
-        outline.height = 40.0
-        return outline
-
-    @pytest.fixture
     def mock_board_to_machine(self):
         """Identity transform (board coords = machine coords)."""
         transform = MagicMock()
         transform.apply.side_effect = lambda pt: pt
         return transform
 
+    @pytest.fixture
+    def probe_config(self):
+        return ProbeConfig(
+            servo_name="servo",
+            revolution_distance=10.0,
+            down_distance=5.0,
+            min_radius=1.5,
+            min_samples=3,
+            max_samples=9,
+        )
+
+    @pytest.fixture
+    def large_copper(self):
+        """十分な候補点が得られる大きな矩形銅箔."""
+        polygon = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)])
+        return Copper(layer=Layer.TOP, polygon=polygon)
+
     def test_measure_returns_height_points(
         self,
         mock_probe_executor,
         mock_klipper,
         mock_stage,
-        mock_outline,
         mock_board_to_machine,
+        probe_config,
+        large_copper,
     ):
         """measureがHeightPointsを返すことを確認."""
-        mock_probe_executor.probe.return_value = -1.0
-
         measurer = HeightPointsMeasurer(
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            grid_size=(3, 3),
-            inset=5.0,
+            probe_config=probe_config,
         )
         result = measurer.measure(
-            outline=mock_outline, board_to_machine=mock_board_to_machine
+            coppers=[large_copper], board_to_machine=mock_board_to_machine
         )
 
         assert isinstance(result, HeightPoints)
 
-    def test_measure_records_grid_points(
+    def test_measure_probe_call_count_within_bounds(
         self,
         mock_probe_executor,
         mock_klipper,
         mock_stage,
-        mock_outline,
         mock_board_to_machine,
+        probe_config,
+        large_copper,
     ):
-        """計測点がgrid_size通りに記録されることを確認."""
-        mock_probe_executor.probe.return_value = -1.0
-
+        """probeの呼び出し回数がmin_samples〜max_samplesの範囲内であることを確認."""
         measurer = HeightPointsMeasurer(
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            grid_size=(3, 4),
-            inset=5.0,
+            probe_config=probe_config,
         )
         result = measurer.measure(
-            outline=mock_outline, board_to_machine=mock_board_to_machine
+            coppers=[large_copper], board_to_machine=mock_board_to_machine
         )
 
-        assert len(result.points) == 3 * 4
+        assert (
+            probe_config.min_samples <= len(result.points) <= probe_config.max_samples
+        )
+        assert mock_probe_executor.probe.call_count == len(result.points)
 
-    def test_measure_records_probe_values(
+    def test_measure_raises_when_candidates_insufficient(
         self,
         mock_probe_executor,
         mock_klipper,
         mock_stage,
-        mock_outline,
         mock_board_to_machine,
+        probe_config,
     ):
-        """プローブの計測値がHeightPointsに記録されることを確認."""
-        z_values = [-1.0, -1.5, -2.0, -2.5]
-        mock_probe_executor.probe.side_effect = z_values
-
+        """min_samplesに満たない銅箔でValueErrorとなることを確認."""
+        # 1辺0.5mmの小さな矩形は min_radius=1.5 のbufferで消える
+        tiny = Copper(
+            layer=Layer.TOP,
+            polygon=Polygon([(0.0, 0.0), (0.5, 0.0), (0.5, 0.5), (0.0, 0.5)]),
+        )
         measurer = HeightPointsMeasurer(
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            grid_size=(2, 2),
-            inset=5.0,
+            probe_config=probe_config,
         )
-        result = measurer.measure(
-            outline=mock_outline, board_to_machine=mock_board_to_machine
-        )
-
-        zs = [p.z for p in result.points]
-        assert zs == pytest.approx(z_values)
-
-    def test_measure_records_board_coordinates(
-        self,
-        mock_probe_executor,
-        mock_klipper,
-        mock_stage,
-        mock_outline,
-        mock_board_to_machine,
-    ):
-        """Board座標（x, y）がinset分内側であることを確認."""
-        mock_probe_executor.probe.return_value = -1.0
-
-        measurer = HeightPointsMeasurer(
-            probe_executor=mock_probe_executor,
-            klipper=mock_klipper,
-            stage=mock_stage,
-            grid_size=(2, 2),
-            inset=5.0,
-        )
-        result = measurer.measure(
-            outline=mock_outline, board_to_machine=mock_board_to_machine
-        )
-
-        # outline.width=50, height=40, inset=5
-        xs = sorted({p.x for p in result.points})
-        ys = sorted({p.y for p in result.points})
-        assert xs == pytest.approx([5.0, 45.0])
-        assert ys == pytest.approx([5.0, 35.0])
+        with pytest.raises(ValueError):
+            measurer.measure(coppers=[tiny], board_to_machine=mock_board_to_machine)

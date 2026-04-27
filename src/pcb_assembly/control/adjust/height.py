@@ -1,11 +1,12 @@
 """基板表面のbed meshを計測する."""
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 
 import numpy as np
 
 from pcb_assembly import gcode
+from pcb_assembly.config import Probe as ProbeConfig
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.geometry import (
     HeightMap,
@@ -14,9 +15,10 @@ from pcb_assembly.geometry import (
     Point2d,
     Point3d,
     Transform,
+    sample_points_in_coppers,
 )
 from pcb_assembly.hal import Klipper, XYZStage
-from pcb_assembly.pcb import Outline
+from pcb_assembly.pcb import Copper, Outline
 from pcb_assembly.utils import get_class_module_path
 
 
@@ -141,9 +143,10 @@ class HeightTransformMeasurer:
 
 
 class HeightPointsMeasurer:
-    """Board座標系のグリッド上でプローブ計測し、散在点補間のHeightPointsを返す.
+    """銅箔島ベースでプローブ計測し、散在点補間のHeightPointsを返す.
 
-    計測点配置はHeightTransformMeasurerと同じだが、返す変換が散在点補間版。
+    入力銅箔を `sample_points_in_coppers` で疎にサンプリングし、
+    各点でプローブ計測を行う。
     """
 
     def __init__(
@@ -151,44 +154,53 @@ class HeightPointsMeasurer:
         probe_executor: ProbeExecutor,
         klipper: Klipper,
         stage: XYZStage,
+        probe_config: ProbeConfig,
         *,
-        grid_size: tuple[int, int] = (3, 3),
-        inset: float = 5.0,
         move_settle_time: float = 0.5,
         move_velocity_ratio: float = 0.9,
     ) -> None:
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
-        self._grid_size = grid_size
-        self._prober = _GridProber(
-            probe_executor=probe_executor,
-            klipper=klipper,
-            stage=stage,
-            grid_size=grid_size,
-            inset=inset,
-            move_settle_time=move_settle_time,
-            move_velocity_ratio=move_velocity_ratio,
-            logger=self._logger,
-        )
+        self._probe_executor = probe_executor
+        self._klipper = klipper
+        self._stage = stage
+        self._probe_config = probe_config
+        self._move_settle_time = move_settle_time
+        self._move_velocity_ratio = move_velocity_ratio
 
     def measure(
         self,
-        outline: Outline,
+        coppers: Iterable[Copper],
         board_to_machine: Transform,
     ) -> HeightPoints:
-        """Board上のグリッドで高さ計測し、HeightPointsを返す."""
-        rows, cols = self._grid_size
-        x_min, x_max, y_min, y_max = self._prober.bounds(outline)
-        self._logger.info(
-            f"Height points計測開始: {rows}x{cols}グリッド, "
-            f"Board範囲: ({x_min:.1f}, {y_min:.1f}) - ({x_max:.1f}, {y_max:.1f})"
+        """銅箔島内のサンプル点で高さ計測し、HeightPointsを返す."""
+        board_points = sample_points_in_coppers(
+            coppers,
+            min_radius=self._probe_config.min_radius,
+            min_samples=self._probe_config.min_samples,
+            max_samples=self._probe_config.max_samples,
         )
+        coord_str = ", ".join(f"({p.x:.1f}, {p.y:.1f})" for p in board_points)
+        self._logger.info(f"Probe点 {len(board_points)}個: {coord_str}")
 
-        points = [
-            Point3d(x=board_pt.x, y=board_pt.y, z=z)
-            for _i, _j, board_pt, z in self._prober.iter_points(
-                outline, board_to_machine
+        move_velocity = self._stage.max_velocity * self._move_velocity_ratio
+
+        results: list[Point3d] = []
+        for idx, board_pt in enumerate(board_points):
+            machine_pt = board_to_machine.apply(board_pt)
+            self._logger.info(
+                f"計測点 {idx}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) "
+                f"-> Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
             )
-        ]
+
+            self._klipper.send_gcode(
+                self._stage.to_gcode(Move.from_point(machine_pt, v=move_velocity))
+                + gcode.wait(self._move_settle_time)
+                + gcode.wait_for_done()
+            )
+
+            z = self._probe_executor.probe()
+            self._logger.info(f"Z={z:.4f}mm")
+            results.append(Point3d(x=board_pt.x, y=board_pt.y, z=z))
 
         self._logger.info("Height points計測完了")
-        return HeightPoints(points=tuple(points))
+        return HeightPoints(points=tuple(results))
