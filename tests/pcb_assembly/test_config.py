@@ -275,14 +275,14 @@ class TestReferencePoint:
 class TestProbe:
     """Probeクラスのテスト."""
 
-    def test_default_values(self):
+    def test_sample_defaults(self):
         probe = Probe(
             servo_name="probe_gnd",
             revolution_distance=40.0,
             down_distance=5.0,
+            min_radius=1.5,
         )
 
-        assert probe.min_radius == 1.5
         assert probe.min_samples == 3
         assert probe.max_samples == 9
 
@@ -291,14 +291,14 @@ class TestProbe:
             servo_name="probe_gnd",
             revolution_distance=40.0,
             down_distance=5.0,
-            min_radius=1.5,
-            min_samples=3,
-            max_samples=9,
+            min_radius=2.0,
+            min_samples=4,
+            max_samples=12,
         )
 
-        assert probe.min_radius == 1.5
-        assert probe.min_samples == 3
-        assert probe.max_samples == 9
+        assert probe.min_radius == 2.0
+        assert probe.min_samples == 4
+        assert probe.max_samples == 12
 
     def test_min_samples_less_than_3_raises(self):
         with pytest.raises(ValueError, match="min_samplesは3以上"):
@@ -306,6 +306,7 @@ class TestProbe:
                 servo_name="probe_gnd",
                 revolution_distance=40.0,
                 down_distance=5.0,
+                min_radius=1.5,
                 min_samples=2,
             )
 
@@ -315,6 +316,7 @@ class TestProbe:
                 servo_name="probe_gnd",
                 revolution_distance=40.0,
                 down_distance=5.0,
+                min_radius=1.5,
                 min_samples=5,
                 max_samples=3,
             )

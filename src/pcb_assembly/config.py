@@ -46,7 +46,7 @@ class Probe:
     servo_name: str  # printer.cfgの[servo <name>]のname部分
     revolution_distance: float  # サーボ一回転あたりの移動量 [mm]
     down_distance: float  # グラウンドを下げる距離 [mm]
-    min_radius: float = 1.5  # サンプル点が銅箔境界から確保すべき最小距離 [mm] (ニードル-probe ground間の目測距離に相当)
+    min_radius: float  # サンプル点が銅箔境界から確保すべき最小距離 [mm] (ニードル-probe ground間の目測距離に相当)
     min_samples: int = 3  # 最小サンプル数 (HeightPointsの三角形分割の必要数)
     max_samples: int = 9  # 最大サンプル数
 
