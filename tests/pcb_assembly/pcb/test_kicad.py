@@ -96,19 +96,22 @@ class TestPcbFile:
             assert maxx <= max_x
             assert maxy <= max_y
 
-    def test_copper_contains_connected_pad_centroids(self, pcb: PcbFile):
-        # LED1 ネットは TOP 層で U1.2, R1.1, R1.2, D1.1 を接続している
-        led1_pads = [
-            p for p in pcb.pads if p.net_name == "LED1" and p.layer == Layer.TOP
-        ]
-        u1_pad2 = next(p for p in led1_pads if p.designator == "U1")
-
+    def test_copper_contains_track_connected_pad_centroids(self, pcb: PcbFile):
+        # LED1 ネットは TOP 層で U1.2 -> R1.1, R1.2 -> D1.1 をトラックで結線している
+        # 同一ネットでも R1 本体で分断されるため、銅箔島は 2 つに分かれる
+        led1_pads = {
+            (p.designator, p.pad_number): p
+            for p in pcb.pads
+            if p.net_name == "LED1" and p.layer == Layer.TOP
+        }
         top_copper = [c for c in pcb.copper if c.layer == Layer.TOP]
-        containing = next(
-            c for c in top_copper if c.polygon.contains(u1_pad2.polygon.centroid)
-        )
 
-        for pad in led1_pads:
-            assert containing.polygon.contains(
-                pad.polygon.centroid
-            ), f"{pad.designator}.{pad.pad_number} は同じ銅箔島に含まれていない"
+        for left, right in [(("U1", "2"), ("R1", "1")), (("R1", "2"), ("D1", "1"))]:
+            left_pad = led1_pads[left]
+            right_pad = led1_pads[right]
+            island = next(
+                c for c in top_copper if c.polygon.contains(left_pad.polygon.centroid)
+            )
+            assert island.polygon.contains(
+                right_pad.polygon.centroid
+            ), f"{right[0]}.{right[1]} は {left[0]}.{left[1]} と同じ銅箔島に含まれていない"

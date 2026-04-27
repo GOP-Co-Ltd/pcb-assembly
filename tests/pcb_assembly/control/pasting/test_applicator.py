@@ -1,14 +1,11 @@
 """PasteApplicator のテスト."""
 
-import math
-
 import pytest
 from pytest_mock import MockerFixture
 from shapely import box
 
 from pcb_assembly import gcode
 from pcb_assembly.control.pasting import PasteApplicator
-from pcb_assembly.control.pasting.applicator import _trapezoidal_time
 
 
 @pytest.fixture
@@ -130,32 +127,3 @@ class TestPasteApplicator:
                 retraction_rate=10.0,
                 retraction_accel_factor=2.0,
             )
-
-
-class TestTrapezoidalTime:
-    def test_triangular_profile(self):
-        """加速中に距離を完了する場合（三角プロファイル）."""
-        # distance=2, rate=10, accel=4 → d_accel = 100/8 = 12.5 > 2
-        # t = sqrt(2*2/4) = 1.0
-        assert _trapezoidal_time(2.0, 10.0, 4.0) == pytest.approx(1.0)
-
-    def test_trapezoidal_profile(self):
-        """定速域に到達する場合（台形プロファイル）."""
-        # distance=20, rate=4, accel=8 → d_accel = 16/16 = 1.0
-        # t = 4/8 + (20-1)/4 = 0.5 + 4.75 = 5.25
-        assert _trapezoidal_time(20.0, 4.0, 8.0) == pytest.approx(5.25)
-
-    def test_exact_accel_distance(self):
-        """加速距離ちょうどで完了する場合."""
-        # distance = rate^2/(2*accel) = 50, rate=10, accel=1
-        # t = sqrt(2*50/1) = 10.0 (triangular) or rate/accel = 10.0 (trapezoidal)
-        assert _trapezoidal_time(50.0, 10.0, 1.0) == pytest.approx(10.0)
-
-    def test_zero_distance(self):
-        """距離0の場合は時間0."""
-        assert _trapezoidal_time(0.0, 10.0, 5.0) == pytest.approx(0.0)
-
-    def test_small_distance(self):
-        """非常に小さい距離."""
-        t = _trapezoidal_time(0.001, 10.0, 100.0)
-        assert t == pytest.approx(math.sqrt(2 * 0.001 / 100.0))
