@@ -155,11 +155,11 @@ def _count_points_per_island(coppers: list[Copper], points) -> list[int]:
     return counts
 
 
-class TestIslandLevelDistribution:
-    """島レベル優先のFPSによる分散の検証."""
+class TestSpreadAcrossIslands:
+    """複数銅箔島にわたる分散性の検証."""
 
-    def test_one_point_per_island_when_islands_equal_target(self):
-        """島数 == max_samples なら各島ちょうど1点ずつ選ばれる."""
+    def test_covers_all_islands_when_islands_equal_target(self):
+        """島数 == max_samples なら各島から少なくとも1点は取られる."""
         coppers = _nine_island_coppers()
 
         result = sample_points_in_coppers(
@@ -168,10 +168,10 @@ class TestIslandLevelDistribution:
 
         assert len(result) == 9
         counts = _count_points_per_island(coppers, result)
-        assert counts == [1] * 9
+        assert all(c >= 1 for c in counts), f"全島から1点以上のはず: {counts}"
 
-    def test_distributes_evenly_when_islands_fewer_than_max(self):
-        """島数 < max_samples なら各島へ均等に配分される."""
+    def test_distributes_when_islands_fewer_than_max(self):
+        """島数 < max_samples なら全島から最低2点ずつ取られる."""
         coppers = [
             Copper(layer=Layer.TOP, polygon=_rectangle(0, 0, 30, 30)),
             Copper(layer=Layer.TOP, polygon=_rectangle(100, 0, 130, 30)),
@@ -184,11 +184,11 @@ class TestIslandLevelDistribution:
 
         assert len(result) == 9
         counts = _count_points_per_island(coppers, result)
-        assert counts == [3, 3, 3]
+        assert all(c >= 2 for c in counts), f"全島から2点以上のはず: {counts}"
 
-    def test_redistributes_when_some_islands_lack_capacity(self):
-        """容量不足の島がある場合、余剰は容量に余裕のある島に再分配される."""
-        # 島1: buffer後に1候補のみ取れる小島 / 島2,3: 大島
+    def test_small_island_contributes_when_in_extreme_position(self):
+        """端に位置する小島(容量1)は最大三角形の頂点として採用される."""
+        # 島1: buffer後に1候補のみ取れる小島 (端に配置) / 島2,3: 大島
         coppers = [
             Copper(layer=Layer.TOP, polygon=_rectangle(0, 0, 7, 7)),
             Copper(layer=Layer.TOP, polygon=_rectangle(50, 0, 90, 40)),
@@ -201,7 +201,7 @@ class TestIslandLevelDistribution:
 
         assert len(result) == 9
         counts = _count_points_per_island(coppers, result)
-        # 小島(容量1)は1点、残り8点は大島2つに配分される
+        # 小島は最大三角形のseedとして1点取られる、残りは大島から
         assert counts[0] == 1
         assert counts[1] + counts[2] == 8
         assert counts[1] >= 3 and counts[2] >= 3

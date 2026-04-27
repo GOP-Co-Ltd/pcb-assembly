@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from itertools import combinations
 
 import numpy as np
 import numpy.typing as npt
+from scipy.spatial import ConvexHull, QhullError
 from shapely.geometry import Point as ShapelyPoint
 
 from pcb_assembly.geometry.transform import Point2d
@@ -24,12 +26,9 @@ def sample_points_in_coppers(
     """銅箔島の内部からprobe用の点をできる限りまばらにサンプルする.
 
     各島の polygon を min_radius だけ内側にオフセットし、その領域内に
-    2*min_radius ステップのグリッド候補を生成。基板全体に分散させるため、
-    島レベル優先のFPSを用いる。
-
-    - 島数が target 以上の場合: 島の代表点(centroid)でFPSしtarget個の島を選び、
-      各島から代表点に最も近い1点を採用。
-    - 島数が target 未満の場合: 各島へ均等に枠を配分し、各島内でFPS。
+    2*min_radius ステップのグリッド候補を生成。基板全体の凸包を最大限張るため、
+    まず候補から面積最大の三角形を成す3点をseedとして選び、その後Farthest Point
+    Samplingで残り (max_samples - 3) 点を密度均等になるよう追加する。
 
     Args:
         coppers: 入力の銅箔島（呼び出し側がLayerフィルタ済みを想定）
@@ -43,45 +42,27 @@ def sample_points_in_coppers(
     Raises:
         ValueError: 候補点が min_samples に満たない場合
     """
-    island_candidates = _collect_candidates(coppers, min_radius)
+    candidates = _collect_candidates(coppers, min_radius)
 
-    total = sum(len(c) for c in island_candidates)
-    if total < min_samples:
+    if len(candidates) < min_samples:
         raise ValueError(
             "probe点の候補数が min_samples に満たない: "
-            f"候補数={total}, min_samples={min_samples}, "
+            f"候補数={len(candidates)}, min_samples={min_samples}, "
             f"min_radius={min_radius}"
         )
 
-    n_islands = len(island_candidates)
-    target = min(max_samples, total)
-    selected: list[npt.NDArray[np.float64]] = []
-
-    if n_islands >= target:
-        # 各島の代表点(centroid)でFPSしtarget島を選び、各島から代表点に最も近い候補を1点採用
-        reps = np.array([cands.mean(axis=0) for cands in island_candidates])
-        for idx in _fps_indices(reps, target_count=target):
-            cands = island_candidates[idx]
-            rep_idx = int(np.linalg.norm(cands - reps[idx], axis=1).argmin())
-            selected.append(cands[rep_idx])
-    else:
-        # 各島へ容量上限付きで均等配分し、島内でFPS
-        capacities = [len(c) for c in island_candidates]
-        for cands, count in zip(
-            island_candidates, _allocate_per_island(capacities, target)
-        ):
-            if count > 0:
-                selected.extend(cands[_fps_indices(cands, target_count=count)])
-
-    return [Point2d(x=float(p[0]), y=float(p[1])) for p in selected]
+    target = min(max_samples, len(candidates))
+    seed = _largest_triangle_indices(candidates)[:target]
+    selected = _fps_indices(candidates, target_count=target, seed_indices=seed)
+    return [Point2d(x=float(p[0]), y=float(p[1])) for p in candidates[selected]]
 
 
 def _collect_candidates(
     coppers: Iterable[Copper], min_radius: float
-) -> list[npt.NDArray[np.float64]]:
-    """各島ごとの候補配列を返す（空島・候補0の島はスキップ）."""
+) -> npt.NDArray[np.float64]:
+    """各copperをmin_radius内側にオフセットしたグリッド候補を全島まとめて収集する."""
     step = 2.0 * min_radius
-    result: list[npt.NDArray[np.float64]] = []
+    points: list[tuple[float, float]] = []
 
     for copper in coppers:
         inner = copper.polygon.buffer(-min_radius)
@@ -91,65 +72,59 @@ def _collect_candidates(
         minx, miny, maxx, maxy = inner.bounds
         xs = np.arange(minx, maxx + _BOUNDS_EPS, step)
         ys = np.arange(miny, maxy + _BOUNDS_EPS, step)
-        points: list[tuple[float, float]] = []
         for x in xs:
             for y in ys:
                 fx, fy = float(x), float(y)
                 if inner.contains(ShapelyPoint(fx, fy)):
                     points.append((fx, fy))
 
-        if points:
-            result.append(np.array(points, dtype=np.float64))
+    if not points:
+        return np.empty((0, 2), dtype=np.float64)
+    return np.array(points, dtype=np.float64)
 
-    return result
 
+def _largest_triangle_indices(candidates: npt.NDArray[np.float64]) -> list[int]:
+    """候補(3点以上)から面積最大の三角形を成す3点のインデックスを返す.
 
-def _allocate_per_island(capacities: list[int], target: int) -> list[int]:
-    """target点をN個の島に均等配分する.
-
-    各島の容量(capacity)を上限とし、超過分は余裕のある島に再分配する。 戻り値の合計は min(target,
-    sum(capacities)) 以下。
+    最大面積三角形は必ず凸包頂点上にあるため、ConvexHullを取り頂点間の三重ループ O(H^3)
+    で探索する。全候補が共線等で凸包が2D化できない場合は先頭3点を返す。
     """
-    n = len(capacities)
-    if n == 0 or target <= 0:
-        return [0] * n
+    try:
+        hull_idxs = [int(i) for i in ConvexHull(candidates).vertices]
+    except QhullError:
+        return [0, 1, 2]
 
-    base, rem = divmod(target, n)
-    alloc = [base + (1 if i < rem else 0) for i in range(n)]
+    if len(hull_idxs) < 3:
+        return [0, 1, 2]
 
-    excess = 0
-    for i in range(n):
-        if alloc[i] > capacities[i]:
-            excess += alloc[i] - capacities[i]
-            alloc[i] = capacities[i]
-
-    while excess > 0:
-        progressed = False
-        for i in range(n):
-            if excess == 0:
-                break
-            if alloc[i] < capacities[i]:
-                alloc[i] += 1
-                excess -= 1
-                progressed = True
-        if not progressed:
-            break
-
-    return alloc
+    pts = candidates[hull_idxs]
+    best_area = -1.0
+    best = (hull_idxs[0], hull_idxs[1], hull_idxs[2])
+    for i, j, k in combinations(range(len(hull_idxs)), 3):
+        a, b, c = pts[i], pts[j], pts[k]
+        area = abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+        if area > best_area:
+            best_area = area
+            best = (hull_idxs[i], hull_idxs[j], hull_idxs[k])
+    return list(best)
 
 
 def _fps_indices(
-    candidates: npt.NDArray[np.float64], *, target_count: int
+    candidates: npt.NDArray[np.float64],
+    *,
+    target_count: int,
+    seed_indices: Iterable[int],
 ) -> list[int]:
-    """Farthest Point Samplingで候補のインデックスを選ぶ.
+    """Seed集合を初期選択としてFarthest Point Samplingでインデックスを選ぶ.
 
-    初期点は候補群の重心から最も遠い候補（決定論的）。 以降は既選択点集合との最小距離が最大になる候補を反復選択する。
+    既選択点集合との最小距離が最大になる候補を反復選択し、target_count に達するまで追加する。
     """
-    centroid = candidates.mean(axis=0)
-    first_idx = int(np.linalg.norm(candidates - centroid, axis=1).argmax())
+    selected = list(seed_indices)
+    min_dist = np.full(len(candidates), np.inf)
+    for idx in selected:
+        d = np.linalg.norm(candidates - candidates[idx], axis=1)
+        min_dist = np.minimum(min_dist, d)
 
-    selected = [first_idx]
-    min_dist = np.linalg.norm(candidates - candidates[first_idx], axis=1)
     while len(selected) < target_count:
         next_idx = int(min_dist.argmax())
         if min_dist[next_idx] == 0.0:
