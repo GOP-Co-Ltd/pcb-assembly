@@ -26,9 +26,9 @@ def sample_points_in_coppers(
     """銅箔島の内部からprobe用の点をできる限りまばらにサンプルする.
 
     各島の polygon を min_radius だけ内側にオフセットし、その領域内に
-    2*min_radius ステップのグリッド候補を生成。基板全体の凸包を最大限張るため、
-    まず候補から面積最大の三角形を成す3点をseedとして選び、その後Farthest Point
-    Samplingで残り (max_samples - 3) 点を密度均等になるよう追加する。
+    2*min_radius ステップのグリッド候補を生成。基板全体に3点を広く張るため、
+    まず候補から辺の和(周長)が最大の三角形を成す3点をseedとして選び、その後
+    Farthest Point Samplingで残り (max_samples - 3) 点を密度均等になるよう追加する。
 
     Args:
         coppers: 入力の銅箔島（呼び出し側がLayerフィルタ済みを想定）
@@ -52,7 +52,7 @@ def sample_points_in_coppers(
         )
 
     target = min(max_samples, len(candidates))
-    seed = _largest_triangle_indices(candidates)[:target]
+    seed = _max_perimeter_triangle_indices(candidates)[:target]
     selected = _fps_indices(candidates, target_count=target, seed_indices=seed)
     return [Point2d(x=float(p[0]), y=float(p[1])) for p in candidates[selected]]
 
@@ -83,10 +83,10 @@ def _collect_candidates(
     return np.array(points, dtype=np.float64)
 
 
-def _largest_triangle_indices(candidates: npt.NDArray[np.float64]) -> list[int]:
-    """候補(3点以上)から面積最大の三角形を成す3点のインデックスを返す.
+def _max_perimeter_triangle_indices(candidates: npt.NDArray[np.float64]) -> list[int]:
+    """候補(3点以上)から周長最大の三角形を成す3点のインデックスを返す.
 
-    最大面積三角形は必ず凸包頂点上にあるため、ConvexHullを取り頂点間の三重ループ O(H^3)
+    周長最大三角形は必ず凸包頂点上にあるため、ConvexHullを取り頂点間の三重ループ O(H^3)
     で探索する。全候補が共線等で凸包が2D化できない場合は先頭3点を返す。
     """
     try:
@@ -98,13 +98,17 @@ def _largest_triangle_indices(candidates: npt.NDArray[np.float64]) -> list[int]:
         return [0, 1, 2]
 
     pts = candidates[hull_idxs]
-    best_area = -1.0
+    best_perimeter = -1.0
     best = (hull_idxs[0], hull_idxs[1], hull_idxs[2])
     for i, j, k in combinations(range(len(hull_idxs)), 3):
         a, b, c = pts[i], pts[j], pts[k]
-        area = abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
-        if area > best_area:
-            best_area = area
+        perimeter = (
+            float(np.linalg.norm(b - a))
+            + float(np.linalg.norm(c - b))
+            + float(np.linalg.norm(c - a))
+        )
+        if perimeter > best_perimeter:
+            best_perimeter = perimeter
             best = (hull_idxs[i], hull_idxs[j], hull_idxs[k])
     return list(best)
 
