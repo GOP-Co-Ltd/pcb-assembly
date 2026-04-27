@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""基板表面の高さをプローブで計測し、HeightPointsを可視化するスクリプト.
-
-処理順:
-1. setup_board_calibration() で初期化〜Board変換計測
-2. ProbeExecutor初期化
-3. 高さ計測（HeightPointsMeasurer）
-4. 補間した高さを2Dカラーヒートマップで描画しPNGに保存
-"""
+"""基板表面の高さをHeightPointsMeasurerで計測し、2DヒートマップPNGとして保存する."""
 
 import argparse
 import logging

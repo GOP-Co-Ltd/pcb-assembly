@@ -86,7 +86,6 @@ def _farthest_point_sampling(
     """Farthest Point Samplingで候補から点を選ぶ.
 
     初期点は候補群の重心から最も遠い候補（決定論的）。 以降は既選択点集合との最小距離が最大になる候補を反復選択する。
-    既選択点との最小距離を逐次更新することでO(N*K)の素朴計算を避ける。
     """
     centroid = candidates.mean(axis=0)
     first_idx = int(np.linalg.norm(candidates - centroid, axis=1).argmax())
