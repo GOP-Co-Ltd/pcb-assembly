@@ -13,12 +13,13 @@ import argparse
 import logging
 from pathlib import Path
 
+from pcb_assembly import gcode
 from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.adjust import HeightPointsMeasurer
 from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
-from pcb_assembly.geometry import Compose, sort_by_nearest
+from pcb_assembly.geometry import Compose, Move, sort_by_nearest
 from pcb_assembly.hal import PasteDispenser, Probe
 from pcb_assembly.pcb import Layer
 from pcb_assembly.utils import setup_logging
@@ -53,7 +54,7 @@ def main() -> None:
     parser.add_argument(
         "--amount",
         type=float,
-        default=10.0,
+        default=1.0,
         help="ローディング時のデフォルト押し出し量 [uL]",
     )
     parser.add_argument(
@@ -145,7 +146,12 @@ def main() -> None:
             ) as applicator:
                 # 対話的ローディング
                 if args.interactive_loading:
+                    pos = stage.get_position()
+                    klipper.send_gcode(stage.to_gcode(Move(0, 0, 0)))
                     interactive_loading(applicator, args.amount)
+                    klipper.send_gcode(
+                        stage.to_gcode(Move.from_point(pos)) + gcode.wait_for_done()
+                    )
 
                 # リトラクション
                 print("\n=== リトラクション ===")
