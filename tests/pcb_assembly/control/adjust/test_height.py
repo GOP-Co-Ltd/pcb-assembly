@@ -5,10 +5,11 @@ from unittest.mock import MagicMock
 import pytest
 from shapely.geometry import Polygon
 
-from pcb_assembly.config import Probe as ProbeConfig
 from pcb_assembly.control.adjust import HeightPointsMeasurer, HeightTransformMeasurer
 from pcb_assembly.geometry import HeightPoints
 from pcb_assembly.pcb import Copper, Layer
+
+_SAMPLING_KWARGS = {"min_radius": 1.5, "min_samples": 3, "max_samples": 9}
 
 
 class TestHeightTransformMeasurer:
@@ -156,17 +157,6 @@ class TestHeightPointsMeasurer:
         return transform
 
     @pytest.fixture
-    def probe_config(self):
-        return ProbeConfig(
-            servo_name="servo",
-            revolution_distance=10.0,
-            down_distance=5.0,
-            min_radius=1.5,
-            min_samples=3,
-            max_samples=9,
-        )
-
-    @pytest.fixture
     def large_copper(self):
         """十分な候補点が得られる大きな矩形銅箔."""
         polygon = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)])
@@ -178,7 +168,6 @@ class TestHeightPointsMeasurer:
         mock_klipper,
         mock_stage,
         mock_board_to_machine,
-        probe_config,
         large_copper,
     ):
         """measureがHeightPointsを返すことを確認."""
@@ -186,7 +175,7 @@ class TestHeightPointsMeasurer:
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            probe_config=probe_config,
+            **_SAMPLING_KWARGS,
         )
         result = measurer.measure(
             coppers=[large_copper], board_to_machine=mock_board_to_machine
@@ -194,29 +183,25 @@ class TestHeightPointsMeasurer:
 
         assert isinstance(result, HeightPoints)
 
-    def test_measure_probe_call_count_within_bounds(
+    def test_measure_probe_call_count_matches_points(
         self,
         mock_probe_executor,
         mock_klipper,
         mock_stage,
         mock_board_to_machine,
-        probe_config,
         large_copper,
     ):
-        """probeの呼び出し回数がmin_samples〜max_samplesの範囲内であることを確認."""
+        """probe呼び出し回数が返却点数と一致することを確認."""
         measurer = HeightPointsMeasurer(
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            probe_config=probe_config,
+            **_SAMPLING_KWARGS,
         )
         result = measurer.measure(
             coppers=[large_copper], board_to_machine=mock_board_to_machine
         )
 
-        assert (
-            probe_config.min_samples <= len(result.points) <= probe_config.max_samples
-        )
         assert mock_probe_executor.probe.call_count == len(result.points)
 
     def test_measure_raises_when_candidates_insufficient(
@@ -225,7 +210,6 @@ class TestHeightPointsMeasurer:
         mock_klipper,
         mock_stage,
         mock_board_to_machine,
-        probe_config,
     ):
         """min_samplesに満たない銅箔でValueErrorとなることを確認."""
         # 1辺0.5mmの小さな矩形は min_radius=1.5 のbufferで消える
@@ -237,7 +221,7 @@ class TestHeightPointsMeasurer:
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            probe_config=probe_config,
+            **_SAMPLING_KWARGS,
         )
         with pytest.raises(ValueError):
             measurer.measure(coppers=[tiny], board_to_machine=mock_board_to_machine)

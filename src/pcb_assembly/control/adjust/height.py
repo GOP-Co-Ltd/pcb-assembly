@@ -6,7 +6,6 @@ from collections.abc import Iterable, Iterator
 import numpy as np
 
 from pcb_assembly import gcode
-from pcb_assembly.config import Probe as ProbeConfig
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.geometry import (
     HeightMap,
@@ -22,8 +21,8 @@ from pcb_assembly.pcb import Copper, Outline
 from pcb_assembly.utils import get_class_module_path
 
 
-class _GridProber:
-    """Board座標系のグリッド上で高さをプローブ計測する内部ヘルパ."""
+class _BoardPointProber:
+    """1点のBoard座標へ移動して高さをプローブ計測する内部ヘルパ."""
 
     def __init__(
         self,
@@ -31,8 +30,6 @@ class _GridProber:
         klipper: Klipper,
         stage: XYZStage,
         *,
-        grid_size: tuple[int, int],
-        inset: float,
         move_settle_time: float,
         move_velocity_ratio: float,
         logger: logging.Logger,
@@ -40,11 +37,44 @@ class _GridProber:
         self._probe_executor = probe_executor
         self._klipper = klipper
         self._stage = stage
+        self._move_settle_time = move_settle_time
+        self._move_velocity = stage.max_velocity * move_velocity_ratio
+        self._logger = logger
+
+    def probe_at(
+        self, board_pt: Point2d, board_to_machine: Transform, label: str
+    ) -> float:
+        """Board座標 board_pt へ移動して高さをプローブし、Z値を返す."""
+        machine_pt = board_to_machine.apply(board_pt)
+        self._logger.info(
+            f"計測点 {label}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) "
+            f"-> Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
+        )
+
+        self._klipper.send_gcode(
+            self._stage.to_gcode(Move.from_point(machine_pt, v=self._move_velocity))
+            + gcode.wait(self._move_settle_time)
+            + gcode.wait_for_done()
+        )
+
+        z = self._probe_executor.probe()
+        self._logger.info(f"Z={z:.4f}mm")
+        return z
+
+
+class _GridProber:
+    """Board座標系のグリッド上で高さをプローブ計測する内部ヘルパ."""
+
+    def __init__(
+        self,
+        point_prober: _BoardPointProber,
+        *,
+        grid_size: tuple[int, int],
+        inset: float,
+    ) -> None:
+        self._point_prober = point_prober
         self._grid_size = grid_size
         self._inset = inset
-        self._move_settle_time = move_settle_time
-        self._move_velocity_ratio = move_velocity_ratio
-        self._logger = logger
 
     def bounds(self, outline: Outline) -> tuple[float, float, float, float]:
         """(x_min, x_max, y_min, y_max) をinset適用後のBoard座標で返す."""
@@ -65,26 +95,13 @@ class _GridProber:
         x_min, x_max, y_min, y_max = self.bounds(outline)
         xs = np.linspace(x_min, x_max, cols)
         ys = np.linspace(y_min, y_max, rows)
-        move_velocity = self._stage.max_velocity * self._move_velocity_ratio
 
         for i, y in enumerate(ys):
             for j, x in enumerate(xs):
                 board_pt = Point2d(float(x), float(y))
-                machine_pt = board_to_machine.apply(board_pt)
-
-                self._logger.info(
-                    f"計測点 ({i},{j}): Board({board_pt.x:.1f}, {board_pt.y:.1f}) "
-                    f"-> Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
+                z = self._point_prober.probe_at(
+                    board_pt, board_to_machine, label=f"({i},{j})"
                 )
-
-                self._klipper.send_gcode(
-                    self._stage.to_gcode(Move.from_point(machine_pt, v=move_velocity))
-                    + gcode.wait(self._move_settle_time)
-                    + gcode.wait_for_done()
-                )
-
-                z = self._probe_executor.probe()
-                self._logger.info(f"Z={z:.4f}mm")
                 yield i, j, board_pt, z
 
 
@@ -105,14 +122,16 @@ class HeightTransformMeasurer:
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
         self._grid_size = grid_size
         self._prober = _GridProber(
-            probe_executor=probe_executor,
-            klipper=klipper,
-            stage=stage,
+            point_prober=_BoardPointProber(
+                probe_executor=probe_executor,
+                klipper=klipper,
+                stage=stage,
+                move_settle_time=move_settle_time,
+                move_velocity_ratio=move_velocity_ratio,
+                logger=self._logger,
+            ),
             grid_size=grid_size,
             inset=inset,
-            move_settle_time=move_settle_time,
-            move_velocity_ratio=move_velocity_ratio,
-            logger=self._logger,
         )
 
     def measure(
@@ -154,18 +173,25 @@ class HeightPointsMeasurer:
         probe_executor: ProbeExecutor,
         klipper: Klipper,
         stage: XYZStage,
-        probe_config: ProbeConfig,
         *,
+        min_radius: float,
+        min_samples: int,
+        max_samples: int,
         move_settle_time: float = 0.5,
         move_velocity_ratio: float = 0.9,
     ) -> None:
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
-        self._probe_executor = probe_executor
-        self._klipper = klipper
-        self._stage = stage
-        self._probe_config = probe_config
-        self._move_settle_time = move_settle_time
-        self._move_velocity_ratio = move_velocity_ratio
+        self._min_radius = min_radius
+        self._min_samples = min_samples
+        self._max_samples = max_samples
+        self._point_prober = _BoardPointProber(
+            probe_executor=probe_executor,
+            klipper=klipper,
+            stage=stage,
+            move_settle_time=move_settle_time,
+            move_velocity_ratio=move_velocity_ratio,
+            logger=self._logger,
+        )
 
     def measure(
         self,
@@ -175,32 +201,23 @@ class HeightPointsMeasurer:
         """銅箔島内のサンプル点で高さ計測し、HeightPointsを返す."""
         board_points = sample_points_in_coppers(
             coppers,
-            min_radius=self._probe_config.min_radius,
-            min_samples=self._probe_config.min_samples,
-            max_samples=self._probe_config.max_samples,
+            min_radius=self._min_radius,
+            min_samples=self._min_samples,
+            max_samples=self._max_samples,
         )
         coord_str = ", ".join(f"({p.x:.1f}, {p.y:.1f})" for p in board_points)
         self._logger.info(f"Probe点 {len(board_points)}個: {coord_str}")
 
-        move_velocity = self._stage.max_velocity * self._move_velocity_ratio
-
-        results: list[Point3d] = []
-        for idx, board_pt in enumerate(board_points):
-            machine_pt = board_to_machine.apply(board_pt)
-            self._logger.info(
-                f"計測点 {idx}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) "
-                f"-> Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
+        results = [
+            Point3d(
+                x=board_pt.x,
+                y=board_pt.y,
+                z=self._point_prober.probe_at(
+                    board_pt, board_to_machine, label=str(idx)
+                ),
             )
-
-            self._klipper.send_gcode(
-                self._stage.to_gcode(Move.from_point(machine_pt, v=move_velocity))
-                + gcode.wait(self._move_settle_time)
-                + gcode.wait_for_done()
-            )
-
-            z = self._probe_executor.probe()
-            self._logger.info(f"Z={z:.4f}mm")
-            results.append(Point3d(x=board_pt.x, y=board_pt.y, z=z))
+            for idx, board_pt in enumerate(board_points)
+        ]
 
         self._logger.info("Height points計測完了")
         return HeightPoints(points=tuple(results))

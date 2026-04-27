@@ -142,7 +142,9 @@ def main() -> None:
             probe_executor=probe_executor,
             klipper=klipper,
             stage=stage,
-            probe_config=probe_config,
+            min_radius=probe_config.min_radius,
+            min_samples=probe_config.min_samples,
+            max_samples=probe_config.max_samples,
         )
         height_points = height_measurer.measure(
             coppers=top_coppers,

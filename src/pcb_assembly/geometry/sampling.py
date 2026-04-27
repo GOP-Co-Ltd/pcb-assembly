@@ -86,23 +86,19 @@ def _farthest_point_sampling(
     """Farthest Point Samplingで候補から点を選ぶ.
 
     初期点は候補群の重心から最も遠い候補（決定論的）。 以降は既選択点集合との最小距離が最大になる候補を反復選択する。
+    既選択点との最小距離を逐次更新することでO(N*K)の素朴計算を避ける。
     """
-    n = len(candidates)
     centroid = candidates.mean(axis=0)
     first_idx = int(np.linalg.norm(candidates - centroid, axis=1).argmax())
 
-    selected_indices: list[int] = [first_idx]
-    mask = np.ones(n, dtype=bool)
-    mask[first_idx] = False
+    selected = [first_idx]
+    min_dist = np.linalg.norm(candidates - candidates[first_idx], axis=1)
+    while len(selected) < target_count:
+        next_idx = int(min_dist.argmax())
+        if min_dist[next_idx] == 0.0:
+            break  # 残候補がすべて既選択点と一致
+        selected.append(next_idx)
+        new_dist = np.linalg.norm(candidates - candidates[next_idx], axis=1)
+        min_dist = np.minimum(min_dist, new_dist)
 
-    while len(selected_indices) < target_count and mask.any():
-        selected_pts = candidates[selected_indices]
-        remain_idxs = np.where(mask)[0]
-        remain_pts = candidates[remain_idxs]
-        d = np.linalg.norm(remain_pts[:, None, :] - selected_pts[None, :, :], axis=-1)
-        min_d = d.min(axis=1)
-        next_idx = int(remain_idxs[int(min_d.argmax())])
-        selected_indices.append(next_idx)
-        mask[next_idx] = False
-
-    return candidates[selected_indices]
+    return candidates[selected]
