@@ -10,6 +10,7 @@
       "Bash(head:*)",
       "Bash(tail:*)",
       "Bash(wc:*)",
+      "Bash(awk:*)",
       "Bash(file:*)",
       "Bash(stat:*)",
       "Bash(git status:*)",
