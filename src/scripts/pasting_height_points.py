@@ -11,13 +11,20 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.patches import Polygon as MplPolygon
 
 from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.adjust import HeightPointsMeasurer
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
-from pcb_assembly.geometry import Compose, HeightPoints, Point3d
+from pcb_assembly.geometry import (
+    Compose,
+    HeightPoints,
+    Point2d,
+    Point3d,
+    sample_points_in_polygons,
+)
 from pcb_assembly.hal import Probe
 from pcb_assembly.pcb import Layer, PcbFile
 from pcb_assembly.utils import PROJECT_ROOT, setup_logging
@@ -25,6 +32,41 @@ from pcb_assembly.visualization import polygon_with_holes_patch
 
 WINDOW_NAME = "Height Points"
 _MESH_RESOLUTION = 50
+
+
+def _draw_pcb_background(ax: Axes, pcb: PcbFile) -> None:
+    """銅箔TOP層・基板アウトライン・軸範囲/ラベルを ax に描画する."""
+    for cu in pcb.copper:
+        if cu.layer != Layer.TOP:
+            continue
+        ax.add_patch(
+            polygon_with_holes_patch(
+                cu.polygon,
+                facecolor="#cc8844",
+                edgecolor="#cc8844",
+                alpha=0.3,
+                linewidth=0.3,
+            )
+        )
+
+    outline_coords = list(pcb.outline.polygon.exterior.coords)
+    ax.add_patch(
+        MplPolygon(
+            outline_coords,
+            closed=True,
+            facecolor="none",
+            edgecolor="#ffffff",
+            linewidth=1.5,
+            linestyle="--",
+        )
+    )
+
+    minx, miny, maxx, maxy = pcb.outline.polygon.bounds
+    ax.set_xlim(minx, maxx)
+    ax.set_ylim(miny, maxy)
+    ax.set_aspect("equal")
+    ax.set_xlabel("X [mm]")
+    ax.set_ylabel("Y [mm]")
 
 
 def _visualize(
@@ -57,47 +99,39 @@ def _visualize(
         aspect="equal",
     )
 
-    # 銅箔TOP層を半透明で重畳 (heatmapとprobe点の間)
-    for cu in pcb.copper:
-        if cu.layer != Layer.TOP:
-            continue
-        ax.add_patch(
-            polygon_with_holes_patch(
-                cu.polygon,
-                facecolor="#cc8844",
-                edgecolor="#cc8844",
-                alpha=0.3,
-                linewidth=0.3,
-            )
-        )
+    _draw_pcb_background(ax, pcb)
 
-    # 基板アウトラインを破線で重畳
-    outline_coords = list(pcb.outline.polygon.exterior.coords)
-    ax.add_patch(
-        MplPolygon(
-            outline_coords,
-            closed=True,
-            facecolor="none",
-            edgecolor="#ffffff",
-            linewidth=1.5,
-            linestyle="--",
-        )
-    )
-
-    # probe計測点 (最前面)
     ax.scatter(
         xs, ys, c=zs, cmap="viridis", edgecolor="white", s=60, label="Probe points"
     )
 
-    minx, miny, maxx, maxy = pcb.outline.polygon.bounds
-    ax.set_xlim(minx, maxx)
-    ax.set_ylim(miny, maxy)
-    ax.set_aspect("equal")
-    ax.set_xlabel("X [mm]")
-    ax.set_ylabel("Y [mm]")
     ax.set_title(title)
     ax.legend(loc="upper right")
     fig.colorbar(heatmap, ax=ax, label="Z [mm]")
+    plt.tight_layout()
+    fig.savefig(output_path, dpi=120)
+    plt.close(fig)
+
+
+def _visualize_planned(
+    planned_points: list[Point2d],
+    pcb: PcbFile,
+    title: str,
+    output_path: Path,
+) -> None:
+    """計測予定の probe 点を基板背景に重ねてPNG保存する."""
+    fig, ax = plt.subplots(figsize=(10, 8))
+    _draw_pcb_background(ax, pcb)
+    ax.scatter(
+        [p.x for p in planned_points],
+        [p.y for p in planned_points],
+        c="red",
+        marker="x",
+        s=80,
+        label="Planned probe points",
+    )
+    ax.set_title(title)
+    ax.legend(loc="upper right")
     plt.tight_layout()
     fig.savefig(output_path, dpi=120)
     plt.close(fig)
@@ -138,8 +172,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    pcb_stem = Path(args.pcb_file).stem
     if args.output is None:
-        pcb_stem = Path(args.pcb_file).stem
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = PROJECT_ROOT / "data" / "height_points" / args.machine
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -180,12 +214,33 @@ def main() -> None:
             min_samples=probe_config.min_samples,
             max_samples=probe_config.max_samples,
         )
+
+        planned_points = sample_points_in_polygons(
+            (c.polygon for c in top_coppers),
+            min_radius=probe_config.min_radius,
+            min_samples=probe_config.min_samples,
+            max_samples=probe_config.max_samples,
+        )
+
+        preview_path = args.output.with_name(args.output.stem + "_preview.png")
+        _visualize_planned(
+            planned_points,
+            pcb=result.pcb,
+            title=f"Planned probe points: {pcb_stem} ({len(planned_points)} points)",
+            output_path=preview_path,
+        )
+        print(f"\n計測予定ポイントを可視化しました: {preview_path}")
+        print(f"計測点数: {len(planned_points)}")
+        answer = input("これらの点を計測します。続行しますか？ [Y/n]: ").strip().lower()
+        if answer not in ("", "y", "yes"):
+            print("中止しました。")
+            return
+
         height_points = height_measurer.measure(
             coppers=top_coppers,
             board_to_machine=Compose([board_transform, toolhead_offset]),
         )
 
-    pcb_stem = Path(args.pcb_file).stem
     _visualize(
         height_points,
         pcb=result.pcb,
