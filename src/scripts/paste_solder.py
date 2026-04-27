@@ -58,6 +58,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--interactive-loading",
+        "-l",
         action="store_true",
         help="指定時のみ対話的ローディングを実行する",
     )
