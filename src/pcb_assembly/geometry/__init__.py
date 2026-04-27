@@ -1,8 +1,10 @@
 from .fill import generate_fill_path
+from .sampling import sample_points_in_coppers
 from .trajectory import Move, Trajectory, Waypoint, sort_by_nearest
 from .transform import (
     Compose,
     HeightMap,
+    HeightPoints,
     Identity,
     Matrix2d,
     Point2d,
@@ -16,6 +18,7 @@ from .transform import (
 __all__ = [
     "Compose",
     "HeightMap",
+    "HeightPoints",
     "Identity",
     "generate_fill_path",
     "Matrix2d",
@@ -28,5 +31,6 @@ __all__ = [
     "Transform",
     "Shift",
     "Waypoint",
+    "sample_points_in_coppers",
     "sort_by_nearest",
 ]

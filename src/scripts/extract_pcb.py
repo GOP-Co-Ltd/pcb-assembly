@@ -7,8 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.artist import Artist
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch, PathPatch, Polygon as MplPolygon
-from matplotlib.path import Path as MplPath
+from matplotlib.patches import Patch, Polygon as MplPolygon
 
 from pcb_assembly.pcb import (
     ComponentList,
@@ -18,40 +17,7 @@ from pcb_assembly.pcb import (
     PadList,
     PcbFile,
 )
-
-
-def _polygon_with_holes_patch(
-    polygon, *, facecolor: str, edgecolor: str, alpha: float, linewidth: float
-) -> PathPatch:
-    """穴付きポリゴンをPathPatch化する (matplotlib.PolygonはholeをサポートしないためPath経由)."""
-    # MplPath.MOVETO等はnp.uint8だがPath()はint列を期待するため明示キャスト。
-    move_to, line_to, close_poly = (
-        int(MplPath.MOVETO),
-        int(MplPath.LINETO),
-        int(MplPath.CLOSEPOLY),
-    )
-    verts: list[tuple[float, float]] = []
-    codes: list[int] = []
-    # matplotlibはexteriorと逆向きの巻きを穴と解釈するため、interiorsは反転する。
-    rings = [list(polygon.exterior.coords)] + [
-        list(h.coords)[::-1] for h in polygon.interiors
-    ]
-    for ring in rings:
-        if len(ring) < 3:
-            continue
-        verts.extend(ring)
-        verts.append(ring[0])
-        codes.append(move_to)
-        codes.extend([line_to] * (len(ring) - 1))
-        codes.append(close_poly)
-
-    return PathPatch(
-        MplPath(verts, codes),
-        facecolor=facecolor,
-        edgecolor=edgecolor,
-        alpha=alpha,
-        linewidth=linewidth,
-    )
+from pcb_assembly.visualization import polygon_with_holes_patch
 
 
 def render_pcb(
@@ -88,7 +54,7 @@ def render_pcb(
             edgecolor = "#884422"
 
         ax.add_patch(
-            _polygon_with_holes_patch(
+            polygon_with_holes_patch(
                 cu.polygon,
                 facecolor=facecolor,
                 edgecolor=edgecolor,
