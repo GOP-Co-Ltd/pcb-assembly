@@ -41,8 +41,8 @@ height = 600
 servo_name = "probe_gnd"
 # rack and pinion: π × module × teeth = π × 0.8 × 16 ≈ 40.212
 revolution_distance = 40.212 # サーボ一回転あたりの移動量 [mm]
-down_distance = 4.0          # グラウンドを下げる距離 [mm]
-min_radius = 1.5             # サンプル点が銅箔境界から確保すべき最小距離 [mm]
+down_distance = 3.8          # グラウンドを下げる距離 [mm]
+min_radius = 0.5             # サンプル点が銅箔境界から確保すべき最小距離 [mm]
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
