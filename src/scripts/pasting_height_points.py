@@ -11,6 +11,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.patches import Polygon as MplPolygon
 
 from pcb_assembly.config import get_machine_config
 from pcb_assembly.control.adjust import HeightPointsMeasurer
@@ -18,15 +19,21 @@ from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
 from pcb_assembly.geometry import Compose, HeightPoints, Point3d
 from pcb_assembly.hal import Probe
-from pcb_assembly.pcb import Layer
+from pcb_assembly.pcb import Layer, PcbFile
 from pcb_assembly.utils import PROJECT_ROOT, setup_logging
+from pcb_assembly.visualization import polygon_with_holes_patch
 
 WINDOW_NAME = "Height Points"
 _MESH_RESOLUTION = 50
 
 
-def _visualize(height_points: HeightPoints, title: str, output_path: Path) -> None:
-    """HeightPointsの高さを2DカラーヒートマップとしてPNGに保存する."""
+def _visualize(
+    height_points: HeightPoints,
+    pcb: PcbFile,
+    title: str,
+    output_path: Path,
+) -> None:
+    """HeightPointsの高さを2Dヒートマップ・基板アウトライン・銅箔と重ねてPNG保存する."""
     xs = [p.x for p in height_points.points]
     ys = [p.y for p in height_points.points]
     zs = [p.z for p in height_points.points]
@@ -49,9 +56,43 @@ def _visualize(height_points: HeightPoints, title: str, output_path: Path) -> No
         cmap="viridis",
         aspect="equal",
     )
+
+    # 銅箔TOP層を半透明で重畳 (heatmapとprobe点の間)
+    for cu in pcb.copper:
+        if cu.layer != Layer.TOP:
+            continue
+        ax.add_patch(
+            polygon_with_holes_patch(
+                cu.polygon,
+                facecolor="#cc8844",
+                edgecolor="#cc8844",
+                alpha=0.3,
+                linewidth=0.3,
+            )
+        )
+
+    # 基板アウトラインを破線で重畳
+    outline_coords = list(pcb.outline.polygon.exterior.coords)
+    ax.add_patch(
+        MplPolygon(
+            outline_coords,
+            closed=True,
+            facecolor="none",
+            edgecolor="#ffffff",
+            linewidth=1.5,
+            linestyle="--",
+        )
+    )
+
+    # probe計測点 (最前面)
     ax.scatter(
         xs, ys, c=zs, cmap="viridis", edgecolor="white", s=60, label="Probe points"
     )
+
+    minx, miny, maxx, maxy = pcb.outline.polygon.bounds
+    ax.set_xlim(minx, maxx)
+    ax.set_ylim(miny, maxy)
+    ax.set_aspect("equal")
     ax.set_xlabel("X [mm]")
     ax.set_ylabel("Y [mm]")
     ax.set_title(title)
@@ -146,7 +187,10 @@ def main() -> None:
 
     pcb_stem = Path(args.pcb_file).stem
     _visualize(
-        height_points, title=f"Height Points: {pcb_stem}", output_path=args.output
+        height_points,
+        pcb=result.pcb,
+        title=f"Height Points: {pcb_stem}",
+        output_path=args.output,
     )
     print(f"\n可視化を保存しました: {args.output}")
 
