@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import json
 import math
 from abc import ABC, abstractmethod
 from collections import UserList
 from collections.abc import Iterable
-from pathlib import Path
 from typing import Self, overload, override
 
 import attrs
@@ -339,130 +337,10 @@ class Matrix2d(Transform):
 
 
 @attrs.frozen
-class HeightMap(Transform):
-    """Board座標系の正則グリッド上のZ値による高さ補正変換.
-
-    双線形補間でXY位置に応じたZ補正を行う。計測点が矩形グリッドに並ぶ場合に使う。
-    グリッドに乗らない散在点からはHeightPointsを使うこと。
-    """
-
-    z_values: npt.NDArray[np.floating] = attrs.field(
-        eq=attrs.cmp_using(eq=np.array_equal)
-    )
-    x_min: float
-    x_max: float
-    y_min: float
-    y_max: float
-
-    def __attrs_post_init__(self) -> None:
-        if self.z_values.ndim != 2:
-            msg = f"z_valuesは2次元配列である必要があります。与えられた次元数: {self.z_values.ndim}"
-            raise ValueError(msg)
-        if self.z_values.shape[0] < 2 or self.z_values.shape[1] < 2:
-            msg = f"z_valuesは2x2以上である必要があります。与えられた形状: {self.z_values.shape}"
-            raise ValueError(msg)
-        if self.x_min >= self.x_max:
-            msg = f"x_minはx_maxより小さい必要があります。x_min={self.x_min}, x_max={self.x_max}"
-            raise ValueError(msg)
-        if self.y_min >= self.y_max:
-            msg = f"y_minはy_maxより小さい必要があります。y_min={self.y_min}, y_max={self.y_max}"
-            raise ValueError(msg)
-
-    @property
-    def rows(self) -> int:
-        return int(self.z_values.shape[0])
-
-    @property
-    def cols(self) -> int:
-        return int(self.z_values.shape[1])
-
-    def _interpolate(self, x: float, y: float) -> float:
-        """双線形補間でZ値を計算する."""
-        # Normalize to grid indices
-        fx = (x - self.x_min) / (self.x_max - self.x_min) * (self.cols - 1)
-        fy = (y - self.y_min) / (self.y_max - self.y_min) * (self.rows - 1)
-
-        # Clamp to grid bounds
-        fx = max(0.0, min(fx, self.cols - 1.0))
-        fy = max(0.0, min(fy, self.rows - 1.0))
-
-        # Bilinear interpolation
-        x0 = int(fx)
-        y0 = int(fy)
-        x1 = min(x0 + 1, self.cols - 1)
-        y1 = min(y0 + 1, self.rows - 1)
-
-        dx = fx - x0
-        dy = fy - y0
-
-        z = (
-            float(self.z_values[y0, x0]) * (1 - dx) * (1 - dy)
-            + float(self.z_values[y0, x1]) * dx * (1 - dy)
-            + float(self.z_values[y1, x0]) * (1 - dx) * dy
-            + float(self.z_values[y1, x1]) * dx * dy
-        )
-        return z
-
-    @overload
-    def apply(self, point: Point2d) -> Point2d: ...
-
-    @overload
-    def apply(self, point: Point3d) -> Point3d: ...
-
-    @override
-    def apply(self, point: Point) -> Point:
-        """点にZ高さ補正を適用する.
-
-        Point2dの場合はそのまま返す。Point3dの場合はXYでZ補間し加算する。
-        """
-        if isinstance(point, Point2d):
-            return point
-        z_offset = self._interpolate(point.x, point.y)
-        return Point3d(point.x, point.y, point.z + z_offset)
-
-    @override
-    def inverse(self) -> Self:
-        """逆変換（Z値を反転）を返す."""
-        return self.__class__(
-            z_values=-self.z_values,
-            x_min=self.x_min,
-            x_max=self.x_max,
-            y_min=self.y_min,
-            y_max=self.y_max,
-        )
-
-    def save(self, path: Path) -> None:
-        """JSONファイルに保存する."""
-        data = {
-            "z_values": self.z_values.tolist(),
-            "x_min": self.x_min,
-            "x_max": self.x_max,
-            "y_min": self.y_min,
-            "y_max": self.y_max,
-        }
-        path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-
-    @classmethod
-    def load(cls, path: Path) -> Self:
-        """JSONファイルから読み込む."""
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return cls(
-            z_values=np.array(data["z_values"]),
-            x_min=data["x_min"],
-            x_max=data["x_max"],
-            y_min=data["y_min"],
-            y_max=data["y_max"],
-        )
-
-
-@attrs.frozen
 class HeightPoints(Transform):
     """散在点 (x, y, z) からZ値を補間する高さ補正変換.
 
     Delaunay三角形分割+線形補間でXY位置に応じたZ補正を行う。凸包外は最近傍点のZを使う。
-    計測点がグリッドに乗る場合はHeightMapの方が軽量。
     """
 
     points: tuple[Point3d, ...]

@@ -1,32 +1,35 @@
 #!/usr/bin/env python3
-"""ペースト塗布のデモスクリプト.
+"""ペースト塗布の実機運用スクリプト.
 
 ボード計測ベースのフロー:
 1. setup_board_calibration() で初期化〜Board変換計測
-2. HeightMap読み込み
+2. HeightPointsMeasurer.measure() でその場で高さ計測
 3. TOPレイヤーのパッドを取得・ソート
 4. PasteApplicator作成
-5. ローディング → リトラクション → パッド中心にポイント塗布
+5. 任意で対話的ローディング → リトラクション → パッド中心にポイント塗布
 """
 
 import argparse
 import logging
 from pathlib import Path
 
+from pcb_assembly import gcode
 from pcb_assembly.config import get_machine_config
+from pcb_assembly.control.adjust import HeightPointsMeasurer
 from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
+from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
-from pcb_assembly.geometry import Compose, HeightMap, sort_by_nearest
-from pcb_assembly.hal import PasteDispenser
+from pcb_assembly.geometry import Compose, Move, sort_by_nearest
+from pcb_assembly.hal import PasteDispenser, Probe
 from pcb_assembly.pcb import Layer
 from pcb_assembly.utils import setup_logging
 
-WINDOW_NAME = "Pasting Demo"
+WINDOW_NAME = "Paste Solder"
 
 
 def main() -> None:
     setup_logging(logging.INFO)
-    parser = argparse.ArgumentParser(description="ペースト塗布デモ")
+    parser = argparse.ArgumentParser(description="ペースト塗布の実機運用スクリプト")
     parser.add_argument(
         "--machine",
         "-m",
@@ -49,17 +52,20 @@ def main() -> None:
         help="位置合わせの許容誤差 (mm)",
     )
     parser.add_argument(
-        "--amount", type=float, default=10.0, help="デフォルトの押し出し量 [uL]"
+        "--amount",
+        type=float,
+        default=1.0,
+        help="ローディング時のデフォルト押し出し量 [uL]",
     )
     parser.add_argument(
-        "--height-map",
-        "-H",
-        type=Path,
-        required=True,
-        help="HeightMapのJSONファイルパス",
+        "--interactive-loading",
+        "-l",
+        action="store_true",
+        help="指定時のみ対話的ローディングを実行する",
     )
     args = parser.parse_args()
 
+    # 初期化（machine_session の外）
     machine = get_machine_config(args.machine)
     result = setup_board_calibration(
         machine=machine,
@@ -67,23 +73,50 @@ def main() -> None:
         tolerance=args.tolerance,
         window_name=WINDOW_NAME,
     )
+    klipper = result.klipper
+    stage = result.stage
+    machine = result.machine
+    board_transform = result.board_transform
 
-    with machine_session(result.klipper):
-        klipper = result.klipper
-        stage = result.stage
-        machine = result.machine
+    # TOPレイヤーの銅箔・パッドを取得
+    top_coppers = [c for c in result.pcb.copper if c.layer == Layer.TOP]
+    top_pads = [p for p in result.pcb.pads if p.layer == Layer.TOP]
+    toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
 
-        board_transform = result.board_transform
+    # Probe / HeightPointsMeasurer初期化
+    probe_config = machine.probe
+    probe = Probe(
+        klipper.readonly,
+        servo_name=probe_config.servo_name,
+        revolution_distance=probe_config.revolution_distance,
+        down_distance=probe_config.down_distance,
+    )
+    probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
+    height_measurer = HeightPointsMeasurer(
+        probe_executor=probe_executor,
+        klipper=klipper,
+        stage=stage,
+        min_radius=probe_config.min_radius,
+        min_samples=probe_config.min_samples,
+        max_samples=probe_config.max_samples,
+    )
 
+    # PasteDispenser初期化
+    dispenser_config = machine.paste_dispenser
+    paste_dispenser = PasteDispenser(
+        klipper=klipper.readonly,
+        rotations_per_ul=dispenser_config.rotations_per_ul,
+    )
+
+    # 実行（machine_session 内）
+    with machine_session(klipper):
         try:
-            # HeightMap読み込み
-            print("\n=== HeightMap読み込み ===")
-            height_transform = HeightMap.load(args.height_map)
-            print(f"HeightMap: {args.height_map}")
-
-            # TOPレイヤーのパッドを取得
-            top_pads = [p for p in result.pcb.pads if p.layer == Layer.TOP]
-            print(f"TOPレイヤーのパッド数: {len(top_pads)}")
+            # Height points計測
+            print("\n=== Height points計測 ===")
+            height_points = height_measurer.measure(
+                coppers=top_coppers,
+                board_to_machine=Compose([board_transform, toolhead_offset]),
+            )
 
             # nearest-neighborソート
             current_pos = stage.get_position()
@@ -92,16 +125,8 @@ def main() -> None:
             center_to_pad = {p.center.to3d(): p for p in top_pads}
             sorted_pads = [center_to_pad[c] for c in sorted_centers]
 
-            # board→machine全変換 (board_transform + toolhead_offset + HeightMap)
-            toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
-            transform = Compose([board_transform, toolhead_offset, height_transform])
-
-            # PasteDispenser初期化
-            dispenser_config = machine.paste_dispenser
-            paste_dispenser = PasteDispenser(
-                klipper=klipper.readonly,
-                rotations_per_ul=dispenser_config.rotations_per_ul,
-            )
+            # board→machine全変換 (board_transform + toolhead_offset + height_points)
+            transform = Compose([board_transform, toolhead_offset, height_points])
 
             # PasteApplicator作成
             with PasteApplicator(
@@ -120,7 +145,13 @@ def main() -> None:
                 transform=transform,
             ) as applicator:
                 # 対話的ローディング
-                interactive_loading(applicator, args.amount)
+                if args.interactive_loading:
+                    pos = stage.get_position()
+                    klipper.send_gcode(stage.to_gcode(Move(0, 0, 0)))
+                    interactive_loading(applicator, args.amount)
+                    klipper.send_gcode(
+                        stage.to_gcode(Move.from_point(pos)) + gcode.wait_for_done()
+                    )
 
                 # リトラクション
                 print("\n=== リトラクション ===")
@@ -134,7 +165,7 @@ def main() -> None:
 
         except KeyboardInterrupt:
             print("\n=== 緊急停止 ===")
-            result.klipper.emergency_stop()
+            klipper.emergency_stop()
 
 
 if __name__ == "__main__":
