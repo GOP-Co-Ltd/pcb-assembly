@@ -14,7 +14,7 @@ from pcb_assembly.geometry import (
     Point2d,
     Point3d,
     Transform,
-    sample_points_in_coppers,
+    sample_points_in_polygons,
 )
 from pcb_assembly.hal import Klipper, XYZStage
 from pcb_assembly.pcb import Copper, Outline
@@ -164,7 +164,7 @@ class HeightTransformMeasurer:
 class HeightPointsMeasurer:
     """銅箔島ベースでプローブ計測し、散在点補間のHeightPointsを返す.
 
-    入力銅箔を `sample_points_in_coppers` で疎にサンプリングし、
+    入力銅箔を `sample_points_in_polygons` で疎にサンプリングし、
     各点でプローブ計測を行う。
     """
 
@@ -199,8 +199,8 @@ class HeightPointsMeasurer:
         board_to_machine: Transform,
     ) -> HeightPoints:
         """銅箔島内のサンプル点で高さ計測し、HeightPointsを返す."""
-        board_points = sample_points_in_coppers(
-            coppers,
+        board_points = sample_points_in_polygons(
+            (c.polygon for c in coppers),
             min_radius=self._min_radius,
             min_samples=self._min_samples,
             max_samples=self._max_samples,
