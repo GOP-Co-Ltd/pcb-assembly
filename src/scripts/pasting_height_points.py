@@ -180,6 +180,32 @@ def main() -> None:
         args.output = output_dir / f"{pcb_stem}_{timestamp}.png"
 
     machine = get_machine_config(args.machine)
+    probe_config = machine.probe
+
+    pcb = PcbFile(args.pcb_file)
+    top_coppers = [c for c in pcb.copper if c.layer == Layer.TOP]
+
+    planned_points = sample_points_in_polygons(
+        (c.polygon for c in top_coppers),
+        min_radius=probe_config.min_radius,
+        min_samples=probe_config.min_samples,
+        max_samples=probe_config.max_samples,
+    )
+
+    preview_path = args.output.with_name(args.output.stem + "_preview.png")
+    _visualize_planned(
+        planned_points,
+        pcb=pcb,
+        title=f"Planned probe points: {pcb_stem} ({len(planned_points)} points)",
+        output_path=preview_path,
+    )
+    print(f"\n計測予定ポイントを可視化しました: {preview_path}")
+    print(f"計測点数: {len(planned_points)}")
+    answer = input("これらの点を計測します。続行しますか？ [Y/n]: ").strip().lower()
+    if answer not in ("", "y", "yes"):
+        print("中止しました。")
+        return
+
     result = setup_board_calibration(
         machine=machine,
         pcb_file_path=args.pcb_file,
@@ -190,9 +216,7 @@ def main() -> None:
     klipper = result.klipper
     stage = result.stage
     machine = result.machine
-    top_coppers = [c for c in result.pcb.copper if c.layer == Layer.TOP]
 
-    probe_config = machine.probe
     probe = Probe(
         klipper.readonly,
         servo_name=probe_config.servo_name,
@@ -214,28 +238,6 @@ def main() -> None:
             min_samples=probe_config.min_samples,
             max_samples=probe_config.max_samples,
         )
-
-        planned_points = sample_points_in_polygons(
-            (c.polygon for c in top_coppers),
-            min_radius=probe_config.min_radius,
-            min_samples=probe_config.min_samples,
-            max_samples=probe_config.max_samples,
-        )
-
-        preview_path = args.output.with_name(args.output.stem + "_preview.png")
-        _visualize_planned(
-            planned_points,
-            pcb=result.pcb,
-            title=f"Planned probe points: {pcb_stem} ({len(planned_points)} points)",
-            output_path=preview_path,
-        )
-        print(f"\n計測予定ポイントを可視化しました: {preview_path}")
-        print(f"計測点数: {len(planned_points)}")
-        answer = input("これらの点を計測します。続行しますか？ [Y/n]: ").strip().lower()
-        if answer not in ("", "y", "yes"):
-            print("中止しました。")
-            return
-
         height_points = height_measurer.measure(
             coppers=top_coppers,
             board_to_machine=Compose([board_transform, toolhead_offset]),
@@ -243,7 +245,7 @@ def main() -> None:
 
     _visualize(
         height_points,
-        pcb=result.pcb,
+        pcb=pcb,
         title=f"Height Points: {pcb_stem}",
         output_path=args.output,
     )
