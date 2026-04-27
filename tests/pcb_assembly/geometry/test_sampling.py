@@ -121,3 +121,87 @@ class TestSamplePointsInCoppers:
         )
 
         assert len(result) == expected
+
+
+def _nine_island_coppers() -> list[Copper]:
+    """中央の大島と周囲8個の小島の合計9島."""
+    centers = [
+        (10, 10),
+        (90, 10),
+        (10, 90),
+        (90, 90),
+        (50, 10),
+        (10, 50),
+        (90, 50),
+        (50, 90),
+    ]
+    coppers = [Copper(layer=Layer.TOP, polygon=_rectangle(30, 30, 70, 70))]
+    for cx, cy in centers:
+        coppers.append(
+            Copper(
+                layer=Layer.TOP,
+                polygon=_rectangle(cx - 3.5, cy - 3.5, cx + 3.5, cy + 3.5),
+            )
+        )
+    return coppers
+
+
+def _count_points_per_island(coppers: list[Copper], points) -> list[int]:
+    """各copperに含まれる結果点の数を返す."""
+    counts: list[int] = []
+    for copper in coppers:
+        n = sum(1 for p in points if copper.polygon.contains(ShapelyPoint(p.x, p.y)))
+        counts.append(n)
+    return counts
+
+
+class TestIslandLevelDistribution:
+    """島レベル優先のFPSによる分散の検証."""
+
+    def test_one_point_per_island_when_islands_equal_target(self):
+        """島数 == max_samples なら各島ちょうど1点ずつ選ばれる."""
+        coppers = _nine_island_coppers()
+
+        result = sample_points_in_coppers(
+            coppers, min_radius=1.5, min_samples=3, max_samples=9
+        )
+
+        assert len(result) == 9
+        counts = _count_points_per_island(coppers, result)
+        assert counts == [1] * 9
+
+    def test_distributes_evenly_when_islands_fewer_than_max(self):
+        """島数 < max_samples なら各島へ均等に配分される."""
+        coppers = [
+            Copper(layer=Layer.TOP, polygon=_rectangle(0, 0, 30, 30)),
+            Copper(layer=Layer.TOP, polygon=_rectangle(100, 0, 130, 30)),
+            Copper(layer=Layer.TOP, polygon=_rectangle(0, 100, 30, 130)),
+        ]
+
+        result = sample_points_in_coppers(
+            coppers, min_radius=1.5, min_samples=3, max_samples=9
+        )
+
+        assert len(result) == 9
+        counts = _count_points_per_island(coppers, result)
+        assert counts == [3, 3, 3]
+
+    def test_redistributes_when_some_islands_lack_capacity(self):
+        """容量不足の島がある場合、余剰は容量に余裕のある島に再分配される."""
+        # 島1: buffer後に1候補のみ取れる小島 / 島2,3: 大島
+        coppers = [
+            Copper(layer=Layer.TOP, polygon=_rectangle(0, 0, 7, 7)),
+            Copper(layer=Layer.TOP, polygon=_rectangle(50, 0, 90, 40)),
+            Copper(layer=Layer.TOP, polygon=_rectangle(0, 50, 40, 90)),
+        ]
+
+        result = sample_points_in_coppers(
+            coppers, min_radius=1.5, min_samples=3, max_samples=9
+        )
+
+        assert len(result) == 9
+        counts = _count_points_per_island(coppers, result)
+        # 小島(容量1)は1点、残り8点は大島2つに配分される
+        assert counts[0] == 1
+        assert counts[1] + counts[2] == 8
+        assert counts[1] >= 3 and counts[2] >= 3
