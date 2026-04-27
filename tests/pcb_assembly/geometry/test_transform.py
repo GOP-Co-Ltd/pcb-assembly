@@ -6,6 +6,7 @@ import pytest
 from pcb_assembly.geometry.transform import (
     Compose,
     HeightMap,
+    HeightPoints,
     Identity,
     Matrix2d,
     Point2d,
@@ -645,3 +646,122 @@ class TestHeightMap:
                 y_min=0.0,
                 y_max=20.0,
             )
+
+
+class TestHeightPoints:
+    """HeightPointsクラスのテスト."""
+
+    @pytest.fixture
+    def triangle_points(self):
+        # 平面 z = 0.1x + 0.2y の3点
+        return (
+            Point3d(0.0, 0.0, 0.0),
+            Point3d(10.0, 0.0, 1.0),
+            Point3d(0.0, 10.0, 2.0),
+        )
+
+    @pytest.fixture
+    def height_points(self, triangle_points):
+        return HeightPoints(points=triangle_points)
+
+    def test_apply_point3d_interpolates_linearly(self, height_points):
+        # 三角形の重心に近い (5, 5) は z = 0.1*5 + 0.2*5 = 1.5
+        result = height_points.apply(Point3d(5.0, 5.0, 10.0))
+
+        assert result.x == 5.0
+        assert result.y == 5.0
+        assert result.z == pytest.approx(11.5)
+
+    @pytest.mark.parametrize(
+        ("x", "y", "expected_z_offset"),
+        [
+            (0.0, 0.0, 0.0),
+            (10.0, 0.0, 1.0),
+            (0.0, 10.0, 2.0),
+            (5.0, 0.0, 0.5),  # 辺上
+            (0.0, 5.0, 1.0),  # 辺上
+        ],
+    )
+    def test_corner_and_edge_values(self, height_points, x, y, expected_z_offset):
+        result = height_points.apply(Point3d(x, y, 0.0))
+
+        assert result.z == pytest.approx(expected_z_offset)
+
+    def test_apply_with_four_points(self):
+        # 長方形の4頂点で平面 z = 0.1x + 0.2y
+        points = (
+            Point3d(0.0, 0.0, 0.0),
+            Point3d(10.0, 0.0, 1.0),
+            Point3d(0.0, 10.0, 2.0),
+            Point3d(10.0, 10.0, 3.0),
+        )
+        hp = HeightPoints(points=points)
+
+        # 中心 (5,5) の期待値は 0.5 + 1.0 = 1.5
+        result = hp.apply(Point3d(5.0, 5.0, 0.0))
+
+        assert result.z == pytest.approx(1.5)
+
+    def test_outside_convex_hull_uses_nearest(self, height_points):
+        # 凸包外の点: (100, 100) に最も近いのは (0,0)、(10,0)、(0,10) のいずれか
+        # scipy の NearestNDInterpolator は最近傍を返す
+        # (100, 100) から各点までのユークリッド距離:
+        #   (0,0) -> sqrt(20000), (10,0) -> sqrt(18100), (0,10) -> sqrt(18100)
+        # 最も近いのは (10,0) or (0,10) のz=1.0 or 2.0
+        result = height_points.apply(Point3d(100.0, 100.0, 0.0))
+
+        assert result.x == 100.0
+        assert result.y == 100.0
+        assert result.z in (pytest.approx(1.0), pytest.approx(2.0))
+
+    def test_apply_point2d_returns_unchanged(self, height_points):
+        point = Point2d(5.0, 5.0)
+
+        result = height_points.apply(point)
+
+        assert isinstance(result, Point2d)
+        assert result == point
+
+    def test_inverse_roundtrip(self, height_points):
+        point = Point3d(5.0, 5.0, 100.0)
+
+        transformed = height_points.apply(point)
+        restored = height_points.inverse().apply(transformed)
+
+        assert restored.x == pytest.approx(point.x)
+        assert restored.y == pytest.approx(point.y)
+        assert restored.z == pytest.approx(point.z)
+
+    @pytest.mark.parametrize(
+        "points",
+        [
+            (),
+            (Point3d(0.0, 0.0, 0.0),),
+            (Point3d(0.0, 0.0, 0.0), Point3d(1.0, 1.0, 1.0)),
+        ],
+    )
+    def test_fewer_than_three_points_raises_value_error(self, points):
+        with pytest.raises(ValueError, match="3点以上"):
+            HeightPoints(points=points)
+
+    def test_collinear_points_raises_value_error(self):
+        points = (
+            Point3d(0.0, 0.0, 0.0),
+            Point3d(1.0, 0.0, 1.0),
+            Point3d(2.0, 0.0, 2.0),
+        )
+
+        with pytest.raises(ValueError, match="同一直線上"):
+            HeightPoints(points=points)
+
+    def test_collinear_four_points_raises_value_error(self):
+        # 4点でも共線ならNG
+        points = (
+            Point3d(0.0, 0.0, 0.0),
+            Point3d(1.0, 1.0, 1.0),
+            Point3d(2.0, 2.0, 2.0),
+            Point3d(3.0, 3.0, 3.0),
+        )
+
+        with pytest.raises(ValueError, match="同一直線上"):
+            HeightPoints(points=points)
