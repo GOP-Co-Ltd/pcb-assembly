@@ -113,3 +113,26 @@ class TestPasteDispenser:
 
         lines = gcode.to_list()
         assert lines[1].endswith("SYNC=0")
+
+    def test_rotate_revolutions(self, mock_klipper: Klipper):
+        # rotation_distance=0.5 (mock fixture)
+        # 10rev → 3600deg → 3600/360 * 0.5mm = 5.0mm
+        # 2.0rev/s → 720deg/s → 1.0mm/s
+        # 1.0rev/s² → 360deg/s² → 0.5mm/s²
+        # rotations_per_ul はこのメソッドの計算には使われないが任意値でインスタンス化する
+        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
+        gcode = dispenser.rotate_revolutions(rotations=10, rate=2.0, accel=1.0)
+
+        assert isinstance(gcode, GCode)
+        lines = gcode.to_list()
+        assert lines[0] == f"{PREFIX} SET_POSITION=0.0"
+        assert lines[1] == f"{PREFIX} MOVE=5.0 SPEED=1.0 ACCEL=0.5"
+
+    def test_rotate_revolutions_sync_false(self, mock_klipper: Klipper):
+        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
+        gcode = dispenser.rotate_revolutions(
+            rotations=1, rate=1.0, accel=1.0, sync=False
+        )
+
+        lines = gcode.to_list()
+        assert lines[1].endswith("SYNC=0")

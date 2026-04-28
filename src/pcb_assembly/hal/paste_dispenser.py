@@ -100,3 +100,36 @@ class PasteDispenser:
             )
         )
         return gcode
+
+    def rotate_revolutions(
+        self,
+        rotations: float,
+        rate: float,
+        accel: float,
+        *,
+        sync: bool = True,
+    ) -> GCode:
+        """流量キャリブレーション用にN回転をオーガースクリューに実行させるGCode.
+
+        rotations_per_ul が未知の場面（キャリブレーション）でも使えるよう、
+        μL単位を経由せず回転数で直接指定する。
+
+        Args:
+            rotations: 回転数 [rev]
+            rate: 角速度 [rev/sec]
+            accel: 角加速度 [rev/sec²]
+            sync: Trueの場合、動作完了まで待機する（デフォルト: True）
+
+        Returns:
+            キャリブレーション用のGCode
+        """
+        gcode = self._stepper.reset_position()
+        gcode.append(
+            self._stepper.rotate(
+                rotations * 360,
+                rate * 360,
+                accel * 360,
+                sync=sync,
+            )
+        )
+        return gcode
