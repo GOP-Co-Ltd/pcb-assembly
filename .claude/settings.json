@@ -48,7 +48,9 @@
       "Bash(git checkout:*)",
       "WebSearch",
       "WebFetch",
-      "Bash(git cherry-pick:*)"
+      "Bash(git cherry-pick:*)",
+      "Bash(xargs:*)",
+      "Bash(sort:*)"
     ],
     "deny": [
       "Bash(git push:*)",
