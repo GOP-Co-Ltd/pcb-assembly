@@ -176,6 +176,24 @@ class PasteApplicator:
         """
         self.load(-self._retraction)
 
+    def calibrate(self, rotations: float, rate: float, accel: float) -> None:
+        """流量キャリブレーション用にN回転を実行する（ブロッキング）.
+
+        Args:
+            rotations: 回転数 [rev]
+            rate: 角速度 [rev/sec]
+            accel: 角加速度 [rev/sec²]
+        """
+        self._logger.info(
+            "キャリブレーション: %s回転 @ %s rev/s, accel=%s rev/s^2",
+            rotations,
+            rate,
+            accel,
+        )
+        gc = self._paste_dispenser.rotate_revolutions(rotations, rate, accel)
+        self._klipper.send_gcode(gc + gcode.wait_for_done())
+        self._logger.info("キャリブレーション完了")
+
     def apply(self, polygons: Iterable[Polygon]) -> None:
         """複数ポリゴンへペースト塗布を実行する.
 

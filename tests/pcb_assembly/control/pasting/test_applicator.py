@@ -19,6 +19,7 @@ def mock_paste_dispenser(mocker: MockerFixture):
     dispenser.enable.return_value = gcode.GCode()
     dispenser.disable.return_value = gcode.GCode()
     dispenser.pushpull.return_value = gcode.GCode()
+    dispenser.rotate_revolutions.return_value = gcode.GCode()
     return dispenser
 
 
@@ -111,6 +112,13 @@ class TestPasteApplicator:
                 retraction_rate=10.0,
                 retraction_accel_factor=0.5,
             )
+
+    def test_calibrate(self, applicator, mock_klipper, mock_paste_dispenser):
+        """calibrate()がrotate_revolutionsを呼びsend_gcodeで実行する."""
+        applicator.calibrate(rotations=10.0, rate=1.0, accel=10.0)
+
+        mock_paste_dispenser.rotate_revolutions.assert_called_once_with(10.0, 1.0, 10.0)
+        mock_klipper.send_gcode.assert_called_once()
 
     def test_invalid_nozzle_size(self, mock_klipper, mock_paste_dispenser, mock_stage):
         """無効なnozzle_sizeでValueError."""
