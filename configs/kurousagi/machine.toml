@@ -3,16 +3,16 @@ host = "localhost"
 port = 7125
 
 [paste_dispenser]
-rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
+# rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
+rotations_per_ul = 79.166667 # キャリブレーション値 2026/04/28 S3X70-E150DN
 nozzle_size = "23G" # ノズルのゲージ
-dispense_rate = 3.0 # 吐出レート [uL/sec]
-dispense_accel = 10.0 # 吐出加速度 [uL/sec^2]
-retract_amount = 1 # リトラクション量 [uL]
-retract_rate = 5.0 # リトラクションレート [uL/sec]
+dispense_rate = 0.04 # 吐出レート [uL/sec]
+dispense_accel = 0.4 # 吐出加速度 [uL/sec^2]
+retract_amount = 0.01 # リトラクション量 [uL]
+retract_rate = 0.04 # リトラクションレート [uL/sec]
 retract_accel_factor = 2.0 # リトラクション加速度係数
-paste_height = 0.1
- # 塗布面のZ高さ [mm]
-ul_per_mm2 = 5.0 # パッド面積あたりのペースト量 [uL/mm^2]
+paste_height = 0.1 # 塗布面のZ高さ [mm]
+ul_per_mm2 = 0.08 # パッド面積あたりのペースト量 [uL/mm^2]
 prime_extra_delay = 0.4 # プライム後の追加遅延 [sec]
 
 [paste_dispenser.toolhead]
