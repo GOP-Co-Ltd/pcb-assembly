@@ -72,13 +72,13 @@ def main() -> None:
     parser.add_argument(
         "--dispense-amount",
         type=float,
-        default=1,
+        default=0.1,
         help="吐出量 (uL)",
     )
     parser.add_argument(
         "--loading-amount",
         type=float,
-        default=10.0,
+        default=0.1,
         help="ローディングデフォルト量 (uL)",
     )
     parser.add_argument(

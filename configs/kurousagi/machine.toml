@@ -6,13 +6,13 @@ port = 7125
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
 rotations_per_ul = 79.166667 # キャリブレーション値 2026/04/28 S3X70-E150DN
 nozzle_size = "23G" # ノズルのゲージ
-dispense_rate = 0.04 # 吐出レート [uL/sec]
+dispense_rate = 0.08 # 吐出レート [uL/sec]
 dispense_accel = 0.4 # 吐出加速度 [uL/sec^2]
 retract_amount = 0.01 # リトラクション量 [uL]
-retract_rate = 0.04 # リトラクションレート [uL/sec]
+retract_rate = 0.08 # リトラクションレート [uL/sec]
 retract_accel_factor = 2.0 # リトラクション加速度係数
 paste_height = 0.1 # 塗布面のZ高さ [mm]
-ul_per_mm2 = 0.08 # パッド面積あたりのペースト量 [uL/mm^2]
+ul_per_mm2 = 0.1 # パッド面積あたりのペースト量 [uL/mm^2]
 prime_extra_delay = 0.4 # プライム後の追加遅延 [sec]
 
 [paste_dispenser.toolhead]
@@ -23,8 +23,8 @@ prime_extra_delay = 0.4 # プライム後の追加遅延 [sec]
 # y = 26.46
 
 # 実測値
-x = -1.4829347970566218
-y = 23.36368618204949
+x = -1.206741044846467
+y = 23.052800506956228
 
 [camera]
 device_id = 0

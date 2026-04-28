@@ -54,7 +54,7 @@ def main() -> None:
     parser.add_argument(
         "--amount",
         type=float,
-        default=1.0,
+        default=0.1,
         help="ローディング時のデフォルト押し出し量 [uL]",
     )
     parser.add_argument(
