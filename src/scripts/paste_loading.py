@@ -46,7 +46,7 @@ def main() -> None:
         klipper=klipper,
         paste_dispenser=paste_dispenser,
         stage=stage,
-        nozzle_size=dispenser_config.nozzle_size,
+        nozzle_diameter=dispenser_config.nozzle_diameter,
         dispense_rate=dispenser_config.dispense_rate,
         dispense_accel=dispenser_config.dispense_accel,
         ul_per_mm2=dispenser_config.ul_per_mm2,

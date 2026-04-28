@@ -5,7 +5,7 @@ port = 7125
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
 rotations_per_ul = 79.166667 # キャリブレーション値 2026/04/28 S3X70-E150DN
-nozzle_size = "23G" # ノズルのゲージ
+nozzle_diameter = 0.34 # ノズル内径 [mm] (23G相当)
 dispense_rate = 0.08 # 吐出レート [uL/sec]
 dispense_accel = 0.4 # 吐出加速度 [uL/sec^2]
 retract_amount = 0.01 # リトラクション量 [uL]

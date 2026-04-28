@@ -27,7 +27,7 @@ class PasteDispenser:
     """ペーストディスペンサーの設定."""
 
     rotations_per_ul: float  # 1μLあたりの回転数 [rev/μL]
-    nozzle_size: str
+    nozzle_diameter: float  # ノズル内径 [mm]
     dispense_rate: float  # 吐出レート [μL/sec]
     dispense_accel: float  # 吐出加速度 [μL/sec²]
     retract_amount: float  # リトラクション量 [μL]
