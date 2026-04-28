@@ -2,7 +2,7 @@ from .air_pump import AirPump
 from .camera import Camera, CameraInfo, Resolution, create_camera, get_camera_info
 from .klipper import GCodeMacro, Klipper, ReadonlyKlipper
 from .manual_stepper import HomingDirection, ManualStepper
-from .paste_dispenser import NOZZLE_SPECS, NozzleSpec, PasteDispenser
+from .paste_dispenser import PasteDispenser
 from .probe import Probe
 from .servo import Servo
 from .stage import Limits, ScalarLimits, XYZStage
@@ -32,7 +32,5 @@ __all__ = [
     "Limits",
     "XYZStage",
     # dispenser
-    "NOZZLE_SPECS",
-    "NozzleSpec",
     "PasteDispenser",
 ]
