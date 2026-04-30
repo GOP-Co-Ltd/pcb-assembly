@@ -540,8 +540,8 @@ class TestHeightPlane:
     def height_plane(self, triangle_points):
         return HeightPlane(points=triangle_points)
 
-    def test_apply_point3d_interpolates_linearly(self, height_plane):
-        # 三角形の重心に近い (5, 5) は z = 0.1*5 + 0.2*5 = 1.5
+    def test_apply_point3d_evaluates_plane(self, height_plane):
+        # 平面式 z = 0.1x + 0.2y より (5, 5) では z = 0.1*5 + 0.2*5 = 1.5
         result = height_plane.apply(Point3d(5.0, 5.0, 10.0))
 
         assert result.x == 5.0
