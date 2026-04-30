@@ -50,7 +50,8 @@
       "WebFetch",
       "Bash(git cherry-pick:*)",
       "Bash(xargs:*)",
-      "Bash(sort:*)"
+      "Bash(sort:*)",
+      "Bash(git switch *)"
     ],
     "deny": [
       "Bash(git push:*)",
