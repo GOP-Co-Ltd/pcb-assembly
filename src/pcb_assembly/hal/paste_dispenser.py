@@ -1,35 +1,6 @@
-import attrs
-
 from .air_pump import AirPump
 from .klipper import GCode, ReadonlyKlipper
 from .manual_stepper import ManualStepper
-
-
-@attrs.frozen
-class NozzleSpec:
-    """ディスペンサーノズルの仕様.
-
-    Attributes:
-        inner_diameter: 内径 [mm]
-        outer_diameter: 外径 [mm]
-    """
-
-    inner_diameter: float
-    outer_diameter: float
-
-
-NOZZLE_SPECS: dict[str, NozzleSpec] = {
-    "18G": NozzleSpec(inner_diameter=0.92, outer_diameter=1.28),
-    "19G": NozzleSpec(inner_diameter=0.72, outer_diameter=1.08),
-    "20G": NozzleSpec(inner_diameter=0.61, outer_diameter=0.91),
-    "21G": NozzleSpec(inner_diameter=0.52, outer_diameter=0.82),
-    "22G": NozzleSpec(inner_diameter=0.42, outer_diameter=0.72),
-    "23G": NozzleSpec(inner_diameter=0.34, outer_diameter=0.64),
-    "24G": NozzleSpec(inner_diameter=0.31, outer_diameter=0.57),
-    "25G": NozzleSpec(inner_diameter=0.26, outer_diameter=0.52),
-    "26G": NozzleSpec(inner_diameter=0.25, outer_diameter=0.46),
-    "27G": NozzleSpec(inner_diameter=0.21, outer_diameter=0.42),
-}
 
 
 class PasteDispenser:
