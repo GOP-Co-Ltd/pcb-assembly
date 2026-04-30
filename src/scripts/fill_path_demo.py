@@ -33,6 +33,10 @@ def _plot_fill_path(
     ax.fill(poly_x, poly_y, alpha=0.15, color="gray")
     ax.plot(poly_x, poly_y, color="gray", linewidth=0.5, linestyle="--")
 
+    # 螺旋の中心起点となる代表点を赤丸で表示
+    rep = polygon.representative_point()
+    ax.plot([rep.x], [rep.y], "ro", markersize=4, zorder=3)
+
     if not path:
         ax.set_title(title)
         ax.set_aspect("equal")
