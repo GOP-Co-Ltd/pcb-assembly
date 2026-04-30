@@ -18,7 +18,6 @@ from pcb_assembly.geometry import (
     generate_fill_path,
 )
 from pcb_assembly.hal import Klipper, PasteDispenser, XYZStage
-from pcb_assembly.hal.paste_dispenser import NOZZLE_SPECS
 from pcb_assembly.utils import get_class_module_path
 
 
@@ -54,7 +53,7 @@ class PasteApplicator:
             klipper=klipper,
             paste_dispenser=dispenser,
             stage=stage,
-            nozzle_size="23G",
+            nozzle_diameter=0.34,
             dispense_rate=5.0,
             dispense_accel=1.0,
             ul_per_mm2=0.05,
@@ -73,7 +72,7 @@ class PasteApplicator:
         klipper: Klipper,
         paste_dispenser: PasteDispenser,
         stage: XYZStage,
-        nozzle_size: str,
+        nozzle_diameter: float,
         dispense_rate: float,
         dispense_accel: float,
         ul_per_mm2: float,
@@ -92,7 +91,7 @@ class PasteApplicator:
             klipper: Klipperクライアント
             paste_dispenser: ペーストディスペンサーHAL
             stage: XYZステージ
-            nozzle_size: ノズルサイズ（例: "23G"）
+            nozzle_diameter: ノズル内径 [mm]（例: 0.34）
             dispense_rate: 吐出レート [μL/sec]
             dispense_accel: 吐出加速度 [μL/sec²]
             ul_per_mm2: 1mm²あたりの塗布量 [μL/mm²]
@@ -107,24 +106,17 @@ class PasteApplicator:
 
         Raises:
             ValueError: retraction_accel_factorが1.0以下の場合
-            ValueError: nozzle_sizeが無効な場合
         """
         if retraction_accel_factor <= 1.0:
             raise ValueError(
                 f"retraction_accel_factorは1.0より大きい必要があります: "
                 f"{retraction_accel_factor}"
             )
-        if nozzle_size not in NOZZLE_SPECS:
-            raise ValueError(
-                f"無効なnozzle_sizeです: {nozzle_size} "
-                f"(有効値: {', '.join(NOZZLE_SPECS)})"
-            )
 
-        nozzle_spec = NOZZLE_SPECS[nozzle_size]
         self._klipper = klipper
         self._paste_dispenser = paste_dispenser
         self._stage = stage
-        self._nozzle_inner_diameter = nozzle_spec.inner_diameter
+        self._nozzle_diameter = nozzle_diameter
         self._dispense_rate = dispense_rate
         self._dispense_accel = dispense_accel
         self._ul_per_mm2 = ul_per_mm2
@@ -210,7 +202,7 @@ class PasteApplicator:
         """ポリゴンをジグザグフィル経路で塗布する."""
         fill_path = generate_fill_path(
             polygon,
-            nozzle_diameter=self._nozzle_inner_diameter,
+            nozzle_diameter=self._nozzle_diameter,
             perimeters=self._perimeters,
         )
 

@@ -4,7 +4,7 @@ port = 7125
 
 [paste_dispenser]
 rotations_per_ul = 1.0
-nozzle_size = "27G"
+nozzle_diameter = 0.21 # ノズル内径 [mm] (27G相当)
 dispense_rate = 5.0
 dispense_accel = 10.0
 retract_amount = 10.0

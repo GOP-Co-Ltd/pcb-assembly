@@ -28,7 +28,7 @@ class TestMachine:
         assert machine.klipper == Klipper(host="192.168.1.100", port=7125)
         assert machine.paste_dispenser == PasteDispenser(
             rotations_per_ul=1.0,
-            nozzle_size="27G",
+            nozzle_diameter=0.21,
             dispense_rate=5.0,
             dispense_accel=10.0,
             retract_amount=10.0,

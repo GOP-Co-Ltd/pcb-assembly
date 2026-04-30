@@ -37,7 +37,7 @@ def applicator(mock_klipper, mock_paste_dispenser, mock_stage):
         klipper=mock_klipper,
         paste_dispenser=mock_paste_dispenser,
         stage=mock_stage,
-        nozzle_size="23G",
+        nozzle_diameter=0.34,
         dispense_rate=5.0,
         dispense_accel=10.0,
         ul_per_mm2=0.05,
@@ -104,7 +104,7 @@ class TestPasteApplicator:
                 klipper=mock_klipper,
                 paste_dispenser=mock_paste_dispenser,
                 stage=mock_stage,
-                nozzle_size="23G",
+                nozzle_diameter=0.34,
                 dispense_rate=5.0,
                 dispense_accel=1.0,
                 ul_per_mm2=0.05,
@@ -119,19 +119,3 @@ class TestPasteApplicator:
 
         mock_paste_dispenser.rotate_revolutions.assert_called_once_with(10.0, 1.0, 10.0)
         mock_klipper.send_gcode.assert_called_once()
-
-    def test_invalid_nozzle_size(self, mock_klipper, mock_paste_dispenser, mock_stage):
-        """無効なnozzle_sizeでValueError."""
-        with pytest.raises(ValueError, match="無効なnozzle_size"):
-            PasteApplicator(
-                klipper=mock_klipper,
-                paste_dispenser=mock_paste_dispenser,
-                stage=mock_stage,
-                nozzle_size="99G",
-                dispense_rate=5.0,
-                dispense_accel=1.0,
-                ul_per_mm2=0.05,
-                retraction=10.0,
-                retraction_rate=10.0,
-                retraction_accel_factor=2.0,
-            )
