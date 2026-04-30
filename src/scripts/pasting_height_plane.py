@@ -30,7 +30,7 @@ from pcb_assembly.pcb import Layer, PcbFile
 from pcb_assembly.utils import PROJECT_ROOT, setup_logging
 from pcb_assembly.visualization import polygon_with_holes_patch
 
-WINDOW_NAME = "Height Points"
+WINDOW_NAME = "Height Plane"
 _MESH_RESOLUTION = 50
 
 
@@ -70,22 +70,22 @@ def _draw_pcb_background(ax: Axes, pcb: PcbFile) -> None:
 
 
 def _visualize(
-    height_points: HeightPlane,
+    height_plane: HeightPlane,
     pcb: PcbFile,
     title: str,
     output_path: Path,
 ) -> None:
     """HeightPlaneの高さを2Dヒートマップ・基板アウトライン・銅箔と重ねてPNG保存する."""
-    xs = [p.x for p in height_points.points]
-    ys = [p.y for p in height_points.points]
-    zs = [p.z for p in height_points.points]
+    xs = [p.x for p in height_plane.points]
+    ys = [p.y for p in height_plane.points]
+    zs = [p.z for p in height_plane.points]
 
     # z=0で入力するとapply後のz値が補間値そのものになる
     grid_x = np.linspace(min(xs), max(xs), _MESH_RESOLUTION)
     grid_y = np.linspace(min(ys), max(ys), _MESH_RESOLUTION)
     mesh_z = np.array(
         [
-            [height_points.apply(Point3d(float(x), float(y), 0.0)).z for x in grid_x]
+            [height_plane.apply(Point3d(float(x), float(y), 0.0)).z for x in grid_x]
             for y in grid_y
         ]
     )
@@ -140,7 +140,7 @@ def _visualize_planned(
 def main() -> None:
     setup_logging(logging.INFO)
     parser = argparse.ArgumentParser(
-        description="基板表面の高さ計測（散在点補間）と可視化"
+        description="基板表面の高さ計測（平面フィット）と可視化"
     )
     parser.add_argument(
         "--machine",
@@ -168,14 +168,14 @@ def main() -> None:
         "-o",
         type=Path,
         default=None,
-        help="可視化PNGの保存先 (省略時: data/height_points/<config名>/<pcb名>_<時刻>.png)",
+        help="可視化PNGの保存先 (省略時: data/height_plane/<config名>/<pcb名>_<時刻>.png)",
     )
     args = parser.parse_args()
 
     pcb_stem = Path(args.pcb_file).stem
     if args.output is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = PROJECT_ROOT / "data" / "height_points" / args.machine
+        output_dir = PROJECT_ROOT / "data" / "height_plane" / args.machine
         output_dir.mkdir(parents=True, exist_ok=True)
         args.output = output_dir / f"{pcb_stem}_{timestamp}.png"
 
@@ -228,7 +228,7 @@ def main() -> None:
     with machine_session(klipper):
         board_transform = result.board_transform
 
-        print("\n=== Height points計測 ===")
+        print("\n=== Height plane計測 ===")
         toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
         height_measurer = HeightPlaneMeasurer(
             probe_executor=probe_executor,
@@ -238,15 +238,15 @@ def main() -> None:
             min_samples=probe_config.min_samples,
             max_samples=probe_config.max_samples,
         )
-        height_points = height_measurer.measure(
+        height_plane = height_measurer.measure(
             coppers=top_coppers,
             board_to_machine=Compose([board_transform, toolhead_offset]),
         )
 
     _visualize(
-        height_points,
+        height_plane,
         pcb=pcb,
-        title=f"Height Points: {pcb_stem}",
+        title=f"Height Plane: {pcb_stem}",
         output_path=args.output,
     )
     print(f"\n可視化を保存しました: {args.output}")
