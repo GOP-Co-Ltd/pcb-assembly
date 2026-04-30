@@ -8,14 +8,13 @@ from typing import Self
 from shapely import Polygon
 
 from pcb_assembly import gcode
+from pcb_assembly.control.pasting.fill_path import build_paste_fill_path
 from pcb_assembly.geometry import (
     Identity,
     Move,
-    Point2d,
     Point3d,
     Trajectory,
     Transform,
-    generate_fill_path,
 )
 from pcb_assembly.hal import Klipper, PasteDispenser, XYZStage
 from pcb_assembly.utils import get_class_module_path
@@ -41,10 +40,10 @@ def _trapezoidal_time(distance: float, rate: float, accel: float) -> float:
 
 
 class PasteApplicator:
-    """ポリゴンへのジグザグフィル塗布によるペースト塗布を制御するクラス.
+    """ポリゴンへの螺旋フィル塗布によるペースト塗布を制御するクラス.
 
     ペーストのローディング・リトラクション・塗布を一貫して提供する。
-    各ポリゴンに対してジグザグ経路を生成し、ステージ移動と同期して連続吐出を行う。
+    各ポリゴンに対して螺旋経路を生成し、ステージ移動と同期して連続吐出を行う。
     プライムと吐出は1つの連続ステッパー動作として実行し、G4でプライム時間分
     待機した後にステージ移動を開始する。
 
@@ -82,7 +81,6 @@ class PasteApplicator:
         transform: Transform = Identity(),
         paste_height: float = 0.1,
         lift_height: float = 5.0,
-        perimeters: int = 1,
         prime_extra_delay: float = 0.0,
     ) -> None:
         """PasteApplicatorを初期化する.
@@ -101,7 +99,6 @@ class PasteApplicator:
             transform: 座標変換
             paste_height: 塗布面のZ高さ [mm]
             lift_height: 塗布後の上昇高さ [mm]
-            perimeters: 外周の周回数（デフォルト: 1）
             prime_extra_delay: プライム後の追加遅延 [sec]（デフォルト: 0.0）
 
         Raises:
@@ -126,7 +123,6 @@ class PasteApplicator:
         self._retraction_rate = retraction_rate
         self._retraction_accel_factor = retraction_accel_factor
         self._lift_height = lift_height
-        self._perimeters = perimeters
         self._prime_extra_delay = prime_extra_delay
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
@@ -189,7 +185,7 @@ class PasteApplicator:
     def apply(self, polygons: Iterable[Polygon]) -> None:
         """複数ポリゴンへペースト塗布を実行する.
 
-        各ポリゴンに対してジグザグフィル経路を生成し、
+        各ポリゴンに対して螺旋フィル経路を生成し、
         ステージ移動と同期して連続吐出を行う（ブロッキング）。
 
         Args:
@@ -199,11 +195,9 @@ class PasteApplicator:
             self._fill(polygon)
 
     def _fill(self, polygon: Polygon) -> None:
-        """ポリゴンをジグザグフィル経路で塗布する."""
-        fill_path = generate_fill_path(
-            polygon,
-            nozzle_diameter=self._nozzle_diameter,
-            perimeters=self._perimeters,
+        """ポリゴンを螺旋フィル経路で塗布する."""
+        fill_path = build_paste_fill_path(
+            polygon, nozzle_diameter=self._nozzle_diameter
         )
 
         if not fill_path:
