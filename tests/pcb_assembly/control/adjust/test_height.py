@@ -1,41 +1,41 @@
-"""HeightPointsMeasurerのテスト."""
-
-from unittest.mock import MagicMock
+"""HeightPlaneMeasurerのテスト."""
 
 import pytest
 from shapely.geometry import Polygon
 
-from pcb_assembly.control.adjust import HeightPointsMeasurer
+from pcb_assembly.control.adjust import HeightPlaneMeasurer
+from pcb_assembly.gcode import GCode
 from pcb_assembly.geometry import HeightPlane
 from pcb_assembly.pcb import Copper, Layer
 
 _SAMPLING_KWARGS = {"min_radius": 1.5, "min_samples": 3, "max_samples": 9}
 
 
-class TestHeightPointsMeasurer:
-    """HeightPointsMeasurerのテスト."""
+class TestHeightPlaneMeasurer:
+    """HeightPlaneMeasurerのテスト."""
 
     @pytest.fixture
-    def mock_klipper(self):
-        return MagicMock()
+    def mock_klipper(self, mocker):
+        return mocker.Mock()
 
     @pytest.fixture
-    def mock_probe_executor(self):
-        executor = MagicMock()
+    def mock_probe_executor(self, mocker):
+        executor = mocker.Mock()
         executor.probe.return_value = -1.0
         return executor
 
     @pytest.fixture
-    def mock_stage(self):
-        stage = MagicMock()
+    def mock_stage(self, mocker):
+        # stage.to_gcode の戻り値は `+ GCode` で連結されるため実体の GCode を返す
+        stage = mocker.Mock()
         stage.max_velocity = 100.0
-        stage.to_gcode.return_value = MagicMock()
+        stage.to_gcode.return_value = GCode()
         return stage
 
     @pytest.fixture
-    def mock_board_to_machine(self):
+    def mock_board_to_machine(self, mocker):
         """Identity transform (board coords = machine coords)."""
-        transform = MagicMock()
+        transform = mocker.Mock()
         transform.apply.side_effect = lambda pt: pt
         return transform
 
@@ -45,7 +45,7 @@ class TestHeightPointsMeasurer:
         polygon = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)])
         return Copper(layer=Layer.TOP, polygon=polygon)
 
-    def test_measure_returns_height_points(
+    def test_measure_returns_height_plane(
         self,
         mock_probe_executor,
         mock_klipper,
@@ -54,7 +54,7 @@ class TestHeightPointsMeasurer:
         large_copper,
     ):
         """measureがHeightPlaneを返すことを確認."""
-        measurer = HeightPointsMeasurer(
+        measurer = HeightPlaneMeasurer(
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
@@ -66,7 +66,7 @@ class TestHeightPointsMeasurer:
 
         assert isinstance(result, HeightPlane)
 
-    def test_measure_probe_call_count_matches_points(
+    def test_measure_probe_call_count_matches_sample_points(
         self,
         mock_probe_executor,
         mock_klipper,
@@ -75,7 +75,7 @@ class TestHeightPointsMeasurer:
         large_copper,
     ):
         """probe呼び出し回数が返却点数と一致することを確認."""
-        measurer = HeightPointsMeasurer(
+        measurer = HeightPlaneMeasurer(
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
@@ -100,7 +100,7 @@ class TestHeightPointsMeasurer:
             layer=Layer.TOP,
             polygon=Polygon([(0.0, 0.0), (0.5, 0.0), (0.5, 0.5), (0.0, 0.5)]),
         )
-        measurer = HeightPointsMeasurer(
+        measurer = HeightPlaneMeasurer(
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,

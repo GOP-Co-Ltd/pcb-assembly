@@ -59,8 +59,8 @@ class _BoardPointProber:
         return z
 
 
-class HeightPointsMeasurer:
-    """銅箔島ベースでプローブ計測し、散在点補間のHeightPointsを返す.
+class HeightPlaneMeasurer:
+    """銅箔島ベースでプローブ計測し、平面フィットしたHeightPlaneを返す.
 
     入力銅箔を `sample_points_in_polygons` で疎にサンプリングし、
     各点でプローブ計測を行う。
@@ -117,5 +117,5 @@ class HeightPointsMeasurer:
             for idx, board_pt in enumerate(board_points)
         ]
 
-        self._logger.info("Height points計測完了")
+        self._logger.info("Height plane計測完了")
         return HeightPlane(points=tuple(results))

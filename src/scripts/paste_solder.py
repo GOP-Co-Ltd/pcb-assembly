@@ -3,7 +3,7 @@
 
 ボード計測ベースのフロー:
 1. setup_board_calibration() で初期化〜Board変換計測
-2. HeightPointsMeasurer.measure() でその場で高さ計測
+2. HeightPlaneMeasurer.measure() でその場で高さ計測
 3. TOPレイヤーのパッドを取得・ソート
 4. PasteApplicator作成
 5. 任意で対話的ローディング → リトラクション → パッド中心にポイント塗布
@@ -15,7 +15,7 @@ from pathlib import Path
 
 from pcb_assembly import gcode
 from pcb_assembly.config import get_machine_config
-from pcb_assembly.control.adjust import HeightPointsMeasurer
+from pcb_assembly.control.adjust import HeightPlaneMeasurer
 from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
@@ -83,7 +83,7 @@ def main() -> None:
     top_pads = [p for p in result.pcb.pads if p.layer == Layer.TOP]
     toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
 
-    # Probe / HeightPointsMeasurer初期化
+    # Probe / HeightPlaneMeasurer初期化
     probe_config = machine.probe
     probe = Probe(
         klipper.readonly,
@@ -92,7 +92,7 @@ def main() -> None:
         down_distance=probe_config.down_distance,
     )
     probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
-    height_measurer = HeightPointsMeasurer(
+    height_measurer = HeightPlaneMeasurer(
         probe_executor=probe_executor,
         klipper=klipper,
         stage=stage,

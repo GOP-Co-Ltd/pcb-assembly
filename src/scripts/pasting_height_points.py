@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""基板表面の高さをHeightPointsMeasurerで計測し、2DヒートマップPNGとして保存する."""
+"""基板表面の高さをHeightPlaneMeasurerで計測し、2DヒートマップPNGとして保存する."""
 
 import argparse
 import logging
@@ -15,7 +15,7 @@ from matplotlib.axes import Axes
 from matplotlib.patches import Polygon as MplPolygon
 
 from pcb_assembly.config import get_machine_config
-from pcb_assembly.control.adjust import HeightPointsMeasurer
+from pcb_assembly.control.adjust import HeightPlaneMeasurer
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
 from pcb_assembly.geometry import (
@@ -230,7 +230,7 @@ def main() -> None:
 
         print("\n=== Height points計測 ===")
         toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
-        height_measurer = HeightPointsMeasurer(
+        height_measurer = HeightPlaneMeasurer(
             probe_executor=probe_executor,
             klipper=klipper,
             stage=stage,
