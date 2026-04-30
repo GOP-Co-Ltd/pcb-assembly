@@ -1,6 +1,5 @@
 from .fill import (
     generate_concentric_rings,
-    generate_fill_path,
     generate_linear_path,
     generate_spiral_path,
 )
@@ -24,7 +23,6 @@ __all__ = [
     "HeightPoints",
     "Identity",
     "generate_concentric_rings",
-    "generate_fill_path",
     "generate_linear_path",
     "generate_spiral_path",
     "Matrix2d",
