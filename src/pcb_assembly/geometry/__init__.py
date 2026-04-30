@@ -1,4 +1,8 @@
-from .fill import generate_fill_path
+from .fill import (
+    generate_concentric_rings,
+    generate_linear_path,
+    generate_spiral_path,
+)
 from .sampling import sample_points_in_polygons
 from .trajectory import Move, Trajectory, Waypoint, sort_by_nearest
 from .transform import (
@@ -18,7 +22,9 @@ __all__ = [
     "Compose",
     "HeightPoints",
     "Identity",
-    "generate_fill_path",
+    "generate_concentric_rings",
+    "generate_linear_path",
+    "generate_spiral_path",
     "Matrix2d",
     "Move",
     "Point2d",

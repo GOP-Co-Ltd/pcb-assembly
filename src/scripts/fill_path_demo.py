@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """ポリゴン塗りつぶしパスのデモスクリプト.
 
-複数のサンプルポリゴンに対して塗りつぶしパスを生成し、 ポリゴンの概形とパスをプロットしてPNG画像として保存する。
+geometry の純粋プリミティブ（generate_spiral_path / generate_linear_path）
+を複数のサンプルポリゴンへ適用し、ポリゴンの概形とパスをプロットして PNG 画像として保存する。
+螺旋の中心起点となる ``polygon.representative_point()`` を赤丸で重ね描きする。
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from shapely import Polygon
 
-from pcb_assembly.geometry.fill import generate_fill_path
+from pcb_assembly.geometry import (
+    Point2d,
+    generate_linear_path,
+    generate_spiral_path,
+)
 
 OUTPUT_PATH = Path(__file__).parent.parent.parent / "data" / "fill_path_demo.png"
 
@@ -19,13 +26,17 @@ def _plot_fill_path(
     ax: Axes,
     title: str,
     polygon: Polygon,
-    path: list,
+    path: list[Point2d],
 ) -> None:
     """1つのサブプロットにポリゴンとパスを描画する."""
     # ポリゴン外形（薄い塗りつぶし）
     poly_x, poly_y = polygon.exterior.xy
     ax.fill(poly_x, poly_y, alpha=0.15, color="gray")
     ax.plot(poly_x, poly_y, color="gray", linewidth=0.5, linestyle="--")
+
+    # 螺旋の中心起点となる代表点を赤丸で表示
+    rep = polygon.representative_point()
+    ax.plot([rep.x], [rep.y], "ro", markersize=4, zorder=3)
 
     if not path:
         ax.set_title(title)
@@ -61,44 +72,59 @@ def _plot_fill_path(
 
 
 def main() -> None:
-    samples = [
+    samples: list[tuple[str, Polygon, Callable[[Polygon], list[Point2d]]]] = [
         (
-            "1 perimeter",
+            "Spiral - rectangle",
             Polygon([(0, 0), (8, 0), (8, 6), (0, 6)]),
-            {"nozzle_diameter": 0.8},
+            lambda p: generate_spiral_path(p, line_spacing=0.8, initial_inset=0.4),
         ),
         (
-            "2 perimeters",
-            Polygon([(0, 0), (8, 0), (8, 6), (0, 6)]),
-            {"nozzle_diameter": 0.8, "perimeters": 2},
+            "Spiral - large rectangle",
+            Polygon([(0, 0), (12, 0), (12, 8), (0, 8)]),
+            lambda p: generate_spiral_path(p, line_spacing=0.8, initial_inset=0.4),
         ),
         (
-            "3 perimeters",
-            Polygon([(0, 0), (8, 0), (8, 6), (0, 6)]),
-            {"nozzle_diameter": 0.8, "perimeters": 3},
-        ),
-        (
-            "L-shape",
+            "Spiral - L-shape",
             Polygon([(0, 0), (8, 0), (8, 4), (4, 4), (4, 8), (0, 8)]),
-            {"nozzle_diameter": 0.8},
+            lambda p: generate_spiral_path(p, line_spacing=0.8, initial_inset=0.4),
         ),
         (
-            "Triangle (angle=45)",
+            "Spiral - triangle",
             Polygon([(4, 0), (8, 6), (0, 6)]),
-            {"nozzle_diameter": 0.8, "angle": 45.0},
+            lambda p: generate_spiral_path(p, line_spacing=0.8, initial_inset=0.4),
         ),
         (
-            "2 perimeters + angle=30",
-            Polygon([(0, 0), (8, 0), (8, 6), (0, 6)]),
-            {"nozzle_diameter": 0.8, "perimeters": 2, "angle": 30.0},
+            "Spiral - dumbbell (split)",
+            Polygon(
+                [
+                    (0, 0),
+                    (4, 0),
+                    (4, 1.4),
+                    (6, 1.4),
+                    (6, 0),
+                    (10, 0),
+                    (10, 4),
+                    (6, 4),
+                    (6, 2.6),
+                    (4, 2.6),
+                    (4, 4),
+                    (0, 4),
+                ]
+            ),
+            lambda p: generate_spiral_path(p, line_spacing=0.8, initial_inset=0.4),
+        ),
+        (
+            "Linear - narrow",
+            Polygon([(0, 0), (0.6, 0), (0.6, 5), (0, 5)]),
+            lambda p: generate_linear_path(p, end_inset=0.3),
         ),
     ]
 
     fig, axes = plt.subplots(2, 3, figsize=(15, 10))
     fig.suptitle("Fill Path Demo", fontsize=16)
 
-    for ax, (title, polygon, kwargs) in zip(axes.flat, samples):
-        path = generate_fill_path(polygon, **kwargs)
+    for ax, (title, polygon, build_path) in zip(axes.flat, samples):
+        path = build_path(polygon)
         _plot_fill_path(ax, title, polygon, path)
 
     plt.tight_layout()
