@@ -61,12 +61,14 @@ def generate_spiral_path(
     line_spacing: float,
     initial_inset: float,
 ) -> list[Point2d]:
-    """内側から外側へ向かう連続螺旋パスを生成する.
+    """中心起点でポリゴン形状追従の連続螺旋パスを生成する.
 
-    `truncate + rotate` 方式により、隣接リング間を半径方向 ``line_spacing``
-    程度のジャンプで連結した一筆書きの螺旋となる。最外周のみ truncate せず
-    完走する。``polygon`` が複数連結成分にまたがる場合（凹形状の `buffer(-d)`
-    が分裂する場合を含む）、各成分の螺旋を最近傍順で連結する。
+    パスの先頭点は ``polygon.representative_point()`` （凹形でも内部保証）に
+    固定され、そこから最内リングへ最短ジャンプして以降は ``truncate + rotate``
+    方式でポリゴン形状追従の同心オフセットリングを innermost → outermost に
+    辿る。最外周のみ truncate せず完走する。``polygon`` が複数連結成分に
+    またがる場合（凹形状の ``buffer(-d)`` が分裂する場合を含む）、各成分の
+    螺旋を最近傍順で連結する（最初の成分は中心起点に最も近いものを選択）。
 
     Args:
         polygon: 対象ポリゴン（mm単位）
@@ -74,8 +76,9 @@ def generate_spiral_path(
         initial_inset: 最内のオフセット深さ（mm、0以上）
 
     Returns:
-        innermost first の連続螺旋座標列。``polygon.buffer(-initial_inset)``
-        が空、もしくは入力が空／不正の場合は ``[]``。
+        中心点を先頭とする innermost-first の連続螺旋座標列。
+        ``polygon.buffer(-initial_inset)`` が空、もしくは入力が空／不正の場合
+        は ``[]``。
 
     Raises:
         ValueError: ``line_spacing`` が0以下、または ``initial_inset`` が負の場合
@@ -92,16 +95,21 @@ def generate_spiral_path(
     if not components:
         return []
 
+    rep = polygon.representative_point()
+    anchor = Point2d(rep.x, rep.y)
+
     spirals: list[list[Point2d]] = []
     for component in components:
-        spiral = _spiral_one_component(component, line_spacing, initial_inset)
+        spiral = _spiral_one_component(
+            component, line_spacing, initial_inset, anchor=anchor
+        )
         if spiral:
             spirals.append(spiral)
 
     if not spirals:
         return []
 
-    return _connect_nearest(spirals)
+    return [anchor] + _connect_nearest(spirals, anchor=anchor)
 
 
 def generate_linear_path(
@@ -243,12 +251,18 @@ def _spiral_one_component(
     component: Polygon,
     line_spacing: float,
     initial_inset: float,
+    *,
+    anchor: Point2d | None = None,
 ) -> list[Point2d]:
     """単一連結成分の螺旋を生成する.
 
     深さ ``initial_inset`` から ``line_spacing`` ずつ内側にオフセットしながら
     リングを集める。途中で複数連結成分に分裂した場合、各サブ成分から再帰的
     に螺旋を構成し、それを innermost として既存リング群（外側）の前に置く。
+
+    ``anchor`` 指定時は最内リングを anchor 最近傍頂点から開始するよう回転する
+    （最終的に呼び出し側が anchor を path 先頭に前置することを想定）。サブ
+    成分への再帰では ``anchor=None`` として伝播しない。
     """
     rings: list[list[Point2d]] = []  # outer -> inner の順
     depth = initial_inset
@@ -270,13 +284,13 @@ def _spiral_one_component(
                 if sub_spiral:
                     sub_spirals.append(sub_spiral)
             inner_path = _connect_nearest(sub_spirals) if sub_spirals else []
-            outer_path = _walk_rings_outward(rings)
+            outer_path = _walk_rings_outward(rings, anchor=anchor)
             return inner_path + outer_path
 
         rings.append(_ring_coords(sub_components[0]))
         depth += line_spacing
 
-    return _walk_rings_outward(rings)
+    return _walk_rings_outward(rings, anchor=anchor)
 
 
 def _sort_components_by_seed(
@@ -288,12 +302,17 @@ def _sort_components_by_seed(
 
 def _walk_rings_outward(
     rings_outer_to_inner: list[list[Point2d]],
+    *,
+    anchor: Point2d | None = None,
 ) -> list[Point2d]:
     """``outer -> inner`` 順に蓄積されたリング群から innermost-first 螺旋を生成する.
 
     最内リングから走査を開始し、各リング遷移時に直前の終端に最も近い頂点へ
     rotate して接続する。最外周以外は ``line_spacing`` 分 truncate して隣接
     リングへの遷移代を確保し、最外周は rotate のみで完走する。
+
+    ``anchor`` 指定時は最内リング（リング1本のみのケースではそのリング）を
+    anchor 最近傍頂点から開始するよう回転する。
     """
     if not rings_outer_to_inner:
         return []
@@ -306,22 +325,22 @@ def _walk_rings_outward(
         ring = rings_inner_to_outer[0]
         if not ring:
             return []
-        # rotate せず先頭から完走
+        if anchor is not None:
+            return _rotate_ring_to_nearest(ring, anchor)
         return ring[:]
 
     # 隣接リング遷移代を計算するため、各リング間の距離（line_spacing相当）が必要だが
     # ここでは呼び出し側 (_spiral_one_component) で常に等間隔オフセットされた
     # リング群が来る前提で、ring間の最短距離を line_spacing として採用する。
-    # 安全のため、リングの bounding box 差分から推定する代わりに、
-    # 実用上は呼び出し側が depth を line_spacing で進めているため、
-    # 任意のリングとその外側リングとの最短距離が概ね line_spacing になる。
     line_spacing = _estimate_ring_spacing(rings_inner_to_outer)
 
     path: list[Point2d] = []
-    # 最内リング: 任意の頂点（先頭）から開始して truncate
+    # 最内リング: anchor 指定時は anchor 最近傍頂点から、未指定なら先頭から開始
     innermost = rings_inner_to_outer[0]
     if not innermost:
         return []
+    if anchor is not None:
+        innermost = _rotate_ring_to_nearest(innermost, anchor)
     path.extend(_truncate_ring(innermost, line_spacing))
 
     # 中間リング: 直前点に最も近い頂点まで rotate、truncate
@@ -363,12 +382,17 @@ def _estimate_ring_spacing(rings_inner_to_outer: list[list[Point2d]]) -> float:
     return min_dist if min_dist != float("inf") else 0.0
 
 
-def _connect_nearest(spirals: list[list[Point2d]]) -> list[Point2d]:
+def _connect_nearest(
+    spirals: list[list[Point2d]],
+    *,
+    anchor: Point2d | None = None,
+) -> list[Point2d]:
     """複数の螺旋を最近傍順で連結する.
 
-    決定論的シードとして、最初に取り上げる螺旋は「先頭点が最も左、
-    同一xなら最も下」のものを選ぶ。以降は直前の終端に最も近い先頭点を
-    持つ螺旋を選んで連結する。``spirals`` が1要素の場合はそのまま返す。
+    ``anchor`` 指定時は最初の螺旋を「先頭点が anchor 最近傍」のものから
+    始める。未指定時は決定論的シードとして「先頭点が最も左、同一xなら最も
+    下」のものを選ぶ。以降は直前の終端に最も近い先頭点を持つ螺旋を選んで
+    連結する。``spirals`` が1要素の場合はそのまま返す。
     """
     if not spirals:
         return []
@@ -379,11 +403,17 @@ def _connect_nearest(spirals: list[list[Point2d]]) -> list[Point2d]:
     if not remaining:
         return []
 
-    # シード: 先頭点が最も左→最も下
-    seed_idx = min(
-        range(len(remaining)),
-        key=lambda i: (remaining[i][0].x, remaining[i][0].y),
-    )
+    if anchor is not None:
+        seed_idx = min(
+            range(len(remaining)),
+            key=lambda i: (remaining[i][0] - anchor).norm,
+        )
+    else:
+        # シード: 先頭点が最も左→最も下
+        seed_idx = min(
+            range(len(remaining)),
+            key=lambda i: (remaining[i][0].x, remaining[i][0].y),
+        )
     result = remaining.pop(seed_idx)[:]
 
     while remaining:

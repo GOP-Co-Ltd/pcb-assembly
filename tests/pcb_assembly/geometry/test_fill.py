@@ -15,6 +15,15 @@ from pcb_assembly.geometry.fill import (
 class TestGenerateSpiralPath:
     """generate_spiral_path 関数のテスト."""
 
+    def test_path_starts_at_center(self):
+        """先頭点が polygon.representative_point() と一致すること."""
+        polygon = Polygon([(0, 0), (10, 0), (10, 6), (0, 6)])
+        result = generate_spiral_path(polygon, line_spacing=1.0, initial_inset=0.5)
+        assert len(result) >= 2
+        rep = polygon.representative_point()
+        assert result[0].x == pytest.approx(rep.x, abs=1e-6)
+        assert result[0].y == pytest.approx(rep.y, abs=1e-6)
+
     def test_simple_rectangle_innermost_first(self):
         """矩形螺旋の先頭点が中心近傍、終端点が外周近傍にあること."""
         polygon = Polygon([(0, 0), (10, 0), (10, 6), (0, 6)])
