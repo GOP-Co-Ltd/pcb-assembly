@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from pcb_assembly import gcode
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.geometry import (
-    HeightPoints,
+    HeightPlane,
     Move,
     Point2d,
     Point3d,
@@ -95,8 +95,8 @@ class HeightPointsMeasurer:
         self,
         coppers: Iterable[Copper],
         board_to_machine: Transform,
-    ) -> HeightPoints:
-        """銅箔島内のサンプル点で高さ計測し、HeightPointsを返す."""
+    ) -> HeightPlane:
+        """銅箔島内のサンプル点で高さ計測し、HeightPlaneを返す."""
         board_points = sample_points_in_polygons(
             (c.polygon for c in coppers),
             min_radius=self._min_radius,
@@ -118,4 +118,4 @@ class HeightPointsMeasurer:
         ]
 
         self._logger.info("Height points計測完了")
-        return HeightPoints(points=tuple(results))
+        return HeightPlane(points=tuple(results))

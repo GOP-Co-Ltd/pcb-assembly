@@ -6,7 +6,7 @@ import pytest
 from shapely.geometry import Polygon
 
 from pcb_assembly.control.adjust import HeightPointsMeasurer
-from pcb_assembly.geometry import HeightPoints
+from pcb_assembly.geometry import HeightPlane
 from pcb_assembly.pcb import Copper, Layer
 
 _SAMPLING_KWARGS = {"min_radius": 1.5, "min_samples": 3, "max_samples": 9}
@@ -53,7 +53,7 @@ class TestHeightPointsMeasurer:
         mock_board_to_machine,
         large_copper,
     ):
-        """measureがHeightPointsを返すことを確認."""
+        """measureがHeightPlaneを返すことを確認."""
         measurer = HeightPointsMeasurer(
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
@@ -64,7 +64,7 @@ class TestHeightPointsMeasurer:
             coppers=[large_copper], board_to_machine=mock_board_to_machine
         )
 
-        assert isinstance(result, HeightPoints)
+        assert isinstance(result, HeightPlane)
 
     def test_measure_probe_call_count_matches_points(
         self,

@@ -20,7 +20,7 @@ from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
 from pcb_assembly.geometry import (
     Compose,
-    HeightPoints,
+    HeightPlane,
     Point2d,
     Point3d,
     sample_points_in_polygons,
@@ -70,12 +70,12 @@ def _draw_pcb_background(ax: Axes, pcb: PcbFile) -> None:
 
 
 def _visualize(
-    height_points: HeightPoints,
+    height_points: HeightPlane,
     pcb: PcbFile,
     title: str,
     output_path: Path,
 ) -> None:
-    """HeightPointsの高さを2Dヒートマップ・基板アウトライン・銅箔と重ねてPNG保存する."""
+    """HeightPlaneの高さを2Dヒートマップ・基板アウトライン・銅箔と重ねてPNG保存する."""
     xs = [p.x for p in height_points.points]
     ys = [p.y for p in height_points.points]
     zs = [p.z for p in height_points.points]

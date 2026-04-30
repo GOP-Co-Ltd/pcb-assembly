@@ -5,7 +5,7 @@ import pytest
 
 from pcb_assembly.geometry.transform import (
     Compose,
-    HeightPoints,
+    HeightPlane,
     Identity,
     Matrix2d,
     Point2d,
@@ -524,8 +524,8 @@ class TestCompose:
         assert inverse[1] == Scale(0.5, 1.0, 1.0)
 
 
-class TestHeightPoints:
-    """HeightPointsクラスのテスト."""
+class TestHeightPlane:
+    """HeightPlaneクラスのテスト."""
 
     @pytest.fixture
     def triangle_points(self):
@@ -537,12 +537,12 @@ class TestHeightPoints:
         )
 
     @pytest.fixture
-    def height_points(self, triangle_points):
-        return HeightPoints(points=triangle_points)
+    def height_plane(self, triangle_points):
+        return HeightPlane(points=triangle_points)
 
-    def test_apply_point3d_interpolates_linearly(self, height_points):
+    def test_apply_point3d_interpolates_linearly(self, height_plane):
         # 三角形の重心に近い (5, 5) は z = 0.1*5 + 0.2*5 = 1.5
-        result = height_points.apply(Point3d(5.0, 5.0, 10.0))
+        result = height_plane.apply(Point3d(5.0, 5.0, 10.0))
 
         assert result.x == 5.0
         assert result.y == 5.0
@@ -558,8 +558,8 @@ class TestHeightPoints:
             (0.0, 5.0, 1.0),  # 辺上
         ],
     )
-    def test_corner_and_edge_values(self, height_points, x, y, expected_z_offset):
-        result = height_points.apply(Point3d(x, y, 0.0))
+    def test_corner_and_edge_values(self, height_plane, x, y, expected_z_offset):
+        result = height_plane.apply(Point3d(x, y, 0.0))
 
         assert result.z == pytest.approx(expected_z_offset)
 
@@ -571,38 +571,34 @@ class TestHeightPoints:
             Point3d(0.0, 10.0, 2.0),
             Point3d(10.0, 10.0, 3.0),
         )
-        hp = HeightPoints(points=points)
+        hp = HeightPlane(points=points)
 
         # 中心 (5,5) の期待値は 0.5 + 1.0 = 1.5
         result = hp.apply(Point3d(5.0, 5.0, 0.0))
 
         assert result.z == pytest.approx(1.5)
 
-    def test_outside_convex_hull_uses_nearest(self, height_points):
-        # 凸包外の点: (100, 100) に最も近いのは (0,0)、(10,0)、(0,10) のいずれか
-        # scipy の NearestNDInterpolator は最近傍を返す
-        # (100, 100) から各点までのユークリッド距離:
-        #   (0,0) -> sqrt(20000), (10,0) -> sqrt(18100), (0,10) -> sqrt(18100)
-        # 最も近いのは (10,0) or (0,10) のz=1.0 or 2.0
-        result = height_points.apply(Point3d(100.0, 100.0, 0.0))
+    def test_outside_sample_extent_extrapolates_planarly(self, height_plane):
+        # 平面 z = 0.1x + 0.2y を全域に外挿。(100, 100) では 0.1*100 + 0.2*100 = 30.0
+        result = height_plane.apply(Point3d(100.0, 100.0, 0.0))
 
         assert result.x == 100.0
         assert result.y == 100.0
-        assert result.z in (pytest.approx(1.0), pytest.approx(2.0))
+        assert result.z == pytest.approx(30.0)
 
-    def test_apply_point2d_returns_unchanged(self, height_points):
+    def test_apply_point2d_returns_unchanged(self, height_plane):
         point = Point2d(5.0, 5.0)
 
-        result = height_points.apply(point)
+        result = height_plane.apply(point)
 
         assert isinstance(result, Point2d)
         assert result == point
 
-    def test_inverse_roundtrip(self, height_points):
+    def test_inverse_roundtrip(self, height_plane):
         point = Point3d(5.0, 5.0, 100.0)
 
-        transformed = height_points.apply(point)
-        restored = height_points.inverse().apply(transformed)
+        transformed = height_plane.apply(point)
+        restored = height_plane.inverse().apply(transformed)
 
         assert restored.x == pytest.approx(point.x)
         assert restored.y == pytest.approx(point.y)
@@ -618,7 +614,7 @@ class TestHeightPoints:
     )
     def test_fewer_than_three_points_raises_value_error(self, points):
         with pytest.raises(ValueError, match="3点以上"):
-            HeightPoints(points=points)
+            HeightPlane(points=points)
 
     def test_collinear_points_raises_value_error(self):
         points = (
@@ -628,7 +624,7 @@ class TestHeightPoints:
         )
 
         with pytest.raises(ValueError, match="同一直線上"):
-            HeightPoints(points=points)
+            HeightPlane(points=points)
 
     def test_collinear_four_points_raises_value_error(self):
         # 4点でも共線ならNG
@@ -640,4 +636,28 @@ class TestHeightPoints:
         )
 
         with pytest.raises(ValueError, match="同一直線上"):
-            HeightPoints(points=points)
+            HeightPlane(points=points)
+
+    def test_least_squares_fits_noisy_points(self):
+        rng = np.random.default_rng(seed=42)
+        true_a, true_b, true_c = 0.1, 0.2, 0.3
+        xys = [
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (0.0, 10.0),
+            (10.0, 10.0),
+            (5.0, 5.0),
+            (5.0, 0.0),
+            (2.0, 8.0),
+            (8.0, 2.0),
+        ]
+        noise = rng.normal(0.0, 0.01, size=len(xys))
+        points = tuple(
+            Point3d(x, y, true_a * x + true_b * y + true_c + n)
+            for (x, y), n in zip(xys, noise, strict=True)
+        )
+        hp = HeightPlane(points=points)
+
+        result = hp.apply(Point3d(5.0, 5.0, 0.0))
+
+        assert result.z == pytest.approx(true_a * 5 + true_b * 5 + true_c, abs=0.05)
