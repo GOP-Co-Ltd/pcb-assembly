@@ -3,6 +3,7 @@
 
 geometry の純粋プリミティブ（generate_spiral_path / generate_linear_path）
 を複数のサンプルポリゴンへ適用し、ポリゴンの概形とパスをプロットして PNG 画像として保存する。
+螺旋の中心起点となる ``polygon.representative_point()`` を赤丸で重ね描きする。
 """
 
 from collections.abc import Callable
