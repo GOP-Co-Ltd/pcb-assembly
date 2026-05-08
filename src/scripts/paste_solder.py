@@ -3,7 +3,7 @@
 
 ボード計測ベースのフロー:
 1. setup_board_calibration() で初期化〜Board変換計測
-2. HeightPointsMeasurer.measure() でその場で高さ計測
+2. HeightPlaneMeasurer.measure() でその場で高さ計測
 3. TOPレイヤーのパッドを取得・ソート
 4. PasteApplicator作成
 5. 任意で対話的ローディング → リトラクション → パッド中心にポイント塗布
@@ -15,7 +15,7 @@ from pathlib import Path
 
 from pcb_assembly import gcode
 from pcb_assembly.config import get_machine_config
-from pcb_assembly.control.adjust import HeightPointsMeasurer
+from pcb_assembly.control.adjust import HeightPlaneMeasurer
 from pcb_assembly.control.pasting import PasteApplicator, interactive_loading
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.control.setup import machine_session, setup_board_calibration
@@ -83,7 +83,7 @@ def main() -> None:
     top_pads = [p for p in result.pcb.pads if p.layer == Layer.TOP]
     toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
 
-    # Probe / HeightPointsMeasurer初期化
+    # Probe / HeightPlaneMeasurer初期化
     probe_config = machine.probe
     probe = Probe(
         klipper.readonly,
@@ -92,7 +92,7 @@ def main() -> None:
         down_distance=probe_config.down_distance,
     )
     probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
-    height_measurer = HeightPointsMeasurer(
+    height_measurer = HeightPlaneMeasurer(
         probe_executor=probe_executor,
         klipper=klipper,
         stage=stage,
@@ -111,9 +111,9 @@ def main() -> None:
     # 実行（machine_session 内）
     with machine_session(klipper):
         try:
-            # Height points計測
-            print("\n=== Height points計測 ===")
-            height_points = height_measurer.measure(
+            # Height plane計測
+            print("\n=== Height plane計測 ===")
+            height_plane = height_measurer.measure(
                 coppers=top_coppers,
                 board_to_machine=Compose([board_transform, toolhead_offset]),
             )
@@ -125,8 +125,8 @@ def main() -> None:
             center_to_pad = {p.center.to3d(): p for p in top_pads}
             sorted_pads = [center_to_pad[c] for c in sorted_centers]
 
-            # board→machine全変換 (board_transform + toolhead_offset + height_points)
-            transform = Compose([board_transform, toolhead_offset, height_points])
+            # board→machine全変換 (board_transform + toolhead_offset + height_plane)
+            transform = Compose([board_transform, toolhead_offset, height_plane])
 
             # PasteApplicator作成
             with PasteApplicator(

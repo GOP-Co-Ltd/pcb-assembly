@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from pcb_assembly import gcode
 from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.geometry import (
-    HeightPoints,
+    HeightPlane,
     Move,
     Point2d,
     Point3d,
@@ -59,8 +59,8 @@ class _BoardPointProber:
         return z
 
 
-class HeightPointsMeasurer:
-    """銅箔島ベースでプローブ計測し、散在点補間のHeightPointsを返す.
+class HeightPlaneMeasurer:
+    """銅箔島ベースでプローブ計測し、平面フィットしたHeightPlaneを返す.
 
     入力銅箔を `sample_points_in_polygons` で疎にサンプリングし、
     各点でプローブ計測を行う。
@@ -95,8 +95,8 @@ class HeightPointsMeasurer:
         self,
         coppers: Iterable[Copper],
         board_to_machine: Transform,
-    ) -> HeightPoints:
-        """銅箔島内のサンプル点で高さ計測し、HeightPointsを返す."""
+    ) -> HeightPlane:
+        """銅箔島内のサンプル点で高さ計測し、HeightPlaneを返す."""
         board_points = sample_points_in_polygons(
             (c.polygon for c in coppers),
             min_radius=self._min_radius,
@@ -117,5 +117,5 @@ class HeightPointsMeasurer:
             for idx, board_pt in enumerate(board_points)
         ]
 
-        self._logger.info("Height points計測完了")
-        return HeightPoints(points=tuple(results))
+        self._logger.info("Height plane計測完了")
+        return HeightPlane(points=tuple(results))

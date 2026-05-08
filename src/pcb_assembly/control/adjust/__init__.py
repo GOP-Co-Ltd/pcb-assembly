@@ -1,11 +1,11 @@
 from .board import BoardTransformMeasurer
-from .height import HeightPointsMeasurer
+from .height import HeightPlaneMeasurer
 from .offset import OffsetTransformMeasurer
 from .position import XYPositionAdjustor
 
 __all__ = [
     "BoardTransformMeasurer",
-    "HeightPointsMeasurer",
+    "HeightPlaneMeasurer",
     "OffsetTransformMeasurer",
     "XYPositionAdjustor",
 ]

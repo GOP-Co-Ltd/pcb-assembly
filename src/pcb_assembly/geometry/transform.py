@@ -9,7 +9,6 @@ from typing import Self, overload, override
 import attrs
 import numpy as np
 import numpy.typing as npt
-from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 
 
 @attrs.frozen
@@ -337,36 +336,33 @@ class Matrix2d(Transform):
 
 
 @attrs.frozen
-class HeightPoints(Transform):
-    """散在点 (x, y, z) からZ値を補間する高さ補正変換.
+class HeightPlane(Transform):
+    """全サンプル点に最小二乗で z = a*x + b*y + c をフィットする高さ補正変換.
 
-    Delaunay三角形分割+線形補間でXY位置に応じたZ補正を行う。凸包外は最近傍点のZを使う。
+    基板表面が平面であるという物理仮定のもとで、計測サンプル点に最小二乗フィッティング を行い、フィットされた平面の式に従って XY
+    位置に応じた Z 補正を加算する。 凸包外も同じ平面式で外挿される。
     """
 
     points: tuple[Point3d, ...]
-    _linear: LinearNDInterpolator = attrs.field(init=False, eq=False, repr=False)
-    _nearest: NearestNDInterpolator = attrs.field(init=False, eq=False, repr=False)
+    _a: float = attrs.field(init=False, eq=False)
+    _b: float = attrs.field(init=False, eq=False)
+    _c: float = attrs.field(init=False, eq=False)
 
     def __attrs_post_init__(self) -> None:
         if len(self.points) < 3:
             msg = f"pointsは3点以上必要です。与えられた点数: {len(self.points)}"
             raise ValueError(msg)
 
-        xy = np.array([[p.x, p.y] for p in self.points])
-        if np.linalg.matrix_rank(xy - xy[0], tol=1e-9) < 2:
+        design = np.array([[p.x, p.y, 1.0] for p in self.points])
+        if np.linalg.matrix_rank(design[:, :2] - design[0, :2], tol=1e-9) < 2:
             msg = "pointsのXYが同一直線上にあります。3点以上の非共線な点が必要です。"
             raise ValueError(msg)
 
         z = np.array([p.z for p in self.points])
-        object.__setattr__(self, "_linear", LinearNDInterpolator(xy, z))
-        object.__setattr__(self, "_nearest", NearestNDInterpolator(xy, z))
-
-    def _interpolate(self, x: float, y: float) -> float:
-        """凸包内は線形補間、凸包外は最近傍点のZを返す."""
-        z = float(self._linear(x, y))
-        if math.isnan(z):
-            z = float(self._nearest(x, y))
-        return z
+        a, b, c = np.linalg.lstsq(design, z, rcond=None)[0]
+        object.__setattr__(self, "_a", float(a))
+        object.__setattr__(self, "_b", float(b))
+        object.__setattr__(self, "_c", float(c))
 
     @overload
     def apply(self, point: Point2d) -> Point2d: ...
@@ -378,16 +374,17 @@ class HeightPoints(Transform):
     def apply(self, point: Point) -> Point:
         """点にZ高さ補正を適用する.
 
-        Point2dの場合はそのまま返す。Point3dの場合はXYでZ補間し加算する。
+        Point2dの場合はそのまま返す。Point3dの場合はXYから平面式 z = ax + by + c を評価して z
+        に加算する。
         """
         if isinstance(point, Point2d):
             return point
-        z_offset = self._interpolate(point.x, point.y)
+        z_offset = self._a * point.x + self._b * point.y + self._c
         return Point3d(point.x, point.y, point.z + z_offset)
 
     @override
     def inverse(self) -> Self:
-        """逆変換（各点のZ値を反転）を返す."""
+        """逆変換（各点のZ値を反転して再フィット）を返す."""
         return self.__class__(
             points=tuple(Point3d(p.x, p.y, -p.z) for p in self.points)
         )
