@@ -7,7 +7,7 @@ from .sampling import sample_points_in_polygons
 from .trajectory import Move, Trajectory, Waypoint, sort_by_nearest
 from .transform import (
     Compose,
-    HeightPoints,
+    HeightPlane,
     Identity,
     Matrix2d,
     Point2d,
@@ -20,7 +20,7 @@ from .transform import (
 
 __all__ = [
     "Compose",
-    "HeightPoints",
+    "HeightPlane",
     "Identity",
     "generate_concentric_rings",
     "generate_linear_path",
