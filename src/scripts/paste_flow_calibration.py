@@ -52,7 +52,7 @@ def main() -> None:
         "--machine", "-m", type=str, default="kurousagi", help="マシン名"
     )
     parser.add_argument(
-        "--rotations", "-n", type=float, default=10.0, help="回転数 [rev]"
+        "--rotations", "-n", type=float, default=30, help="回転数 [rev]"
     )
     parser.add_argument(
         "--rate", "-r", type=float, default=1.0, help="角速度 [rev/sec]"
@@ -63,7 +63,7 @@ def main() -> None:
     parser.add_argument(
         "--load-amount",
         type=float,
-        default=1.0,
+        default=0.1,
         help="interactive_loading のデフォルト押し出し量 [μL]",
     )
     args = parser.parse_args()
