@@ -19,7 +19,6 @@
       "Bash(git show:*)",
       "Bash(git branch:*)",
       "Bash(git remote:*)",
-      "Bash(git tag:*)",
       "Bash(git blame:*)",
       "Bash(git rev-parse:*)",
       "Bash(git commit:*)",
@@ -32,6 +31,8 @@
       "Bash(uv pip show:*)",
       "Bash(uv python3:*)",
       "Bash(uv python:*)",
+      "Bash(uv run python3:*)",
+      "Bash(uv run python:*)",
       "Bash(uv add:*)",
       "Bash(uv sync:*)",
       "Bash(make test-hardware:*)",
@@ -51,11 +52,19 @@
       "Bash(git cherry-pick:*)",
       "Bash(xargs:*)",
       "Bash(sort:*)",
-      "Bash(git switch *)"
+      "Bash(git switch *)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(diff:*)",
+      "Bash(touch:*)",
+      "Bash(git rm:*)",
+      "Bash(git mv:*)"
     ],
     "deny": [
       "Bash(git push:*)",
-      "Bash(git -C:*)"
+      "Bash(git -C:*)",
+      "Bash(git merge:*)",
+      "Bash(git tag:*)"
     ]
   }
 }
