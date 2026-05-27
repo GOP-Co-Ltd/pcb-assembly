@@ -236,6 +236,7 @@ def main() -> None:
     parser.add_argument("pcb_file", type=Path, help="KiCad PCBファイル (.kicad_pcb)")
     parser.add_argument(
         "--nozzle-diameter",
+        "-d",
         type=float,
         default=0.4,
         help="ノズル内径 [mm] (default: 0.4)",
