@@ -1,3 +1,6 @@
+# Claude
+.claude/settings.local.json
+
 # Our project
 .env
 
