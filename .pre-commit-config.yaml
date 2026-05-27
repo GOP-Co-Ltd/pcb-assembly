@@ -74,6 +74,9 @@ repos:
     hooks:
       - id: mdformat
         args: ["--number"]
+        # エージェント中間メモは自由形式 Markdown で mdformat-mkdocs が
+        # round-trip バグを起こすため除外（git 管理は継続）。
+        exclude: ^memory/agents/
         additional_dependencies:
           - mdformat-gfm
           - mdformat-tables
