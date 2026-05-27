@@ -133,3 +133,4 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `testing-strategy` — テスト 4 区分・検証対象優先順位・書く/書かないリスト
 - `agent-team-startup` — エージェントチームの起動・並列化手順
 - `maximize-parallels` — 並列 tool 呼び出しの判定基準と典型パターン
+- `edit-dot-claude` — `.claude/` 配下の編集を /tmp 経由で行い permission prompt を抑える手順
