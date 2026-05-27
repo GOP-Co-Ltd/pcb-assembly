@@ -5,7 +5,7 @@ from pytest_mock import MockerFixture
 from shapely import box
 
 from pcb_assembly import gcode
-from pcb_assembly.control.pasting import PasteApplicator
+from pcb_assembly.pasting import PasteApplicator
 
 
 @pytest.fixture

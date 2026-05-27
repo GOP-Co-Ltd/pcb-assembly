@@ -2,8 +2,8 @@
 
 from datetime import datetime
 
-from pcb_assembly.control.pasting import ToolheadOffsetResult
 from pcb_assembly.geometry import Point2d
+from pcb_assembly.pasting import ToolheadOffsetResult
 
 
 def _make_result() -> ToolheadOffsetResult:

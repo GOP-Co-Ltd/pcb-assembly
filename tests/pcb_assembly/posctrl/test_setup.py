@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 from pytest_mock import MockerFixture
 
-from pcb_assembly.control.setup import OffsetObserver, machine_session
 from pcb_assembly.geometry import Point2d
+from pcb_assembly.posctrl.setup import OffsetObserver, machine_session
 from pcb_assembly.vision import Image
 from pcb_assembly.vision.detection import OffsetStatistics
 
@@ -27,7 +27,7 @@ class TestOffsetObserver:
 
     @pytest.fixture
     def mock_cv2(self, mocker: MockerFixture):
-        mocker.patch("pcb_assembly.control.setup.cv2")
+        mocker.patch("pcb_assembly.posctrl.setup.cv2")
 
     def test_returns_mean_mm_on_success(
         self,
@@ -83,7 +83,7 @@ class TestMachineSession:
     def test_sends_m84_and_destroys_windows(self, mocker: MockerFixture):
         """セッション終了時にM84送信とcv2.destroyAllWindowsが呼ばれることを確認."""
         mock_klipper = mocker.Mock()
-        mock_destroy = mocker.patch("pcb_assembly.control.setup.cv2.destroyAllWindows")
+        mock_destroy = mocker.patch("pcb_assembly.posctrl.setup.cv2.destroyAllWindows")
 
         with machine_session(mock_klipper):
             pass
@@ -94,7 +94,7 @@ class TestMachineSession:
     def test_cleanup_on_exception(self, mocker: MockerFixture):
         """例外発生時でもクリーンアップが実行されることを確認."""
         mock_klipper = mocker.Mock()
-        mock_destroy = mocker.patch("pcb_assembly.control.setup.cv2.destroyAllWindows")
+        mock_destroy = mocker.patch("pcb_assembly.posctrl.setup.cv2.destroyAllWindows")
 
         with pytest.raises(ValueError, match="test error"):
             with machine_session(mock_klipper):

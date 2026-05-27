@@ -3,9 +3,9 @@
 import pytest
 from shapely.geometry import Polygon
 
-from pcb_assembly.control.adjust import HeightPlaneMeasurer
 from pcb_assembly.gcode import GCode
 from pcb_assembly.geometry import HeightPlane
+from pcb_assembly.pasting.height import HeightPlaneMeasurer
 from pcb_assembly.pcb import Copper, Layer
 
 _SAMPLING_KWARGS = {"min_radius": 1.5, "min_samples": 3, "max_samples": 9}

@@ -13,14 +13,12 @@ import cv2
 
 from pcb_assembly import gcode
 from pcb_assembly.config import Machine
-from pcb_assembly.control.adjust import (
-    BoardTransformMeasurer,
-    OffsetTransformMeasurer,
-    XYPositionAdjustor,
-)
 from pcb_assembly.geometry import Move, Point2d, Transform
 from pcb_assembly.hal import Camera, Klipper, XYZStage, create_camera
 from pcb_assembly.pcb import PcbFile
+from pcb_assembly.posctrl.board import BoardTransformMeasurer
+from pcb_assembly.posctrl.offset import OffsetTransformMeasurer
+from pcb_assembly.posctrl.position import XYPositionAdjustor
 from pcb_assembly.vision import (
     CalibrationResult,
     CircleDetector,

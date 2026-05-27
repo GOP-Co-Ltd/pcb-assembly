@@ -8,7 +8,6 @@ from typing import Self
 from shapely import Polygon
 
 from pcb_assembly import gcode
-from pcb_assembly.control.pasting.fill_path import build_paste_fill_path
 from pcb_assembly.geometry import (
     Identity,
     Move,
@@ -17,6 +16,7 @@ from pcb_assembly.geometry import (
     Transform,
 )
 from pcb_assembly.hal import Klipper, PasteDispenser, XYZStage
+from pcb_assembly.pasting.fill_path import build_paste_fill_path
 from pcb_assembly.utils import get_class_module_path
 
 

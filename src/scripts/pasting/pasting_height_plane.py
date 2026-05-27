@@ -15,9 +15,6 @@ from matplotlib.axes import Axes
 from matplotlib.patches import Polygon as MplPolygon
 
 from pcb_assembly.config import get_machine_config
-from pcb_assembly.control.adjust import HeightPlaneMeasurer
-from pcb_assembly.control.probe import ProbeExecutor
-from pcb_assembly.control.setup import machine_session, setup_board_calibration
 from pcb_assembly.geometry import (
     Compose,
     HeightPlane,
@@ -26,7 +23,9 @@ from pcb_assembly.geometry import (
     sample_points_in_polygons,
 )
 from pcb_assembly.hal import Probe
+from pcb_assembly.pasting import HeightPlaneMeasurer, ProbeExecutor
 from pcb_assembly.pcb import Layer, PcbFile
+from pcb_assembly.posctrl import machine_session, setup_board_calibration
 from pcb_assembly.utils import PROJECT_ROOT, setup_logging
 from pcb_assembly.visualization import polygon_with_holes_patch
 

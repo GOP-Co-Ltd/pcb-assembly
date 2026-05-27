@@ -2,7 +2,7 @@
 
 import logging
 
-from pcb_assembly.control.pasting.applicator import PasteApplicator
+from pcb_assembly.pasting.applicator import PasteApplicator
 
 logger = logging.getLogger(__name__)
 

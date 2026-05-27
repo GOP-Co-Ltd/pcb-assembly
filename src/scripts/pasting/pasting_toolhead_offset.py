@@ -25,20 +25,20 @@ from pathlib import Path
 
 from pcb_assembly import gcode
 from pcb_assembly.config import get_machine_config
-from pcb_assembly.control.adjust import XYPositionAdjustor
-from pcb_assembly.control.pasting import (
+from pcb_assembly.geometry import Identity, Move, Point2d
+from pcb_assembly.hal import PasteDispenser, Probe
+from pcb_assembly.pasting import (
     PasteApplicator,
+    ProbeExecutor,
     ToolheadOffsetResult,
     interactive_loading,
 )
-from pcb_assembly.control.probe import ProbeExecutor
-from pcb_assembly.control.setup import (
+from pcb_assembly.posctrl import (
     OffsetObserver,
+    XYPositionAdjustor,
     machine_session,
     setup_board_calibration,
 )
-from pcb_assembly.geometry import Identity, Move, Point2d
-from pcb_assembly.hal import PasteDispenser, Probe
 from pcb_assembly.utils import PROJECT_ROOT, setup_logging
 from pcb_assembly.vision import CircleDetector
 

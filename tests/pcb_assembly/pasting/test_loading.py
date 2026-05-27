@@ -5,7 +5,7 @@ import logging
 import pytest
 from pytest_mock import MockerFixture
 
-from pcb_assembly.control.pasting.loading import interactive_loading
+from pcb_assembly.pasting.loading import interactive_loading
 
 
 @pytest.fixture

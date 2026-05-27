@@ -4,7 +4,6 @@ import logging
 from collections.abc import Iterable
 
 from pcb_assembly import gcode
-from pcb_assembly.control.probe import ProbeExecutor
 from pcb_assembly.geometry import (
     HeightPlane,
     Move,
@@ -14,6 +13,7 @@ from pcb_assembly.geometry import (
     sample_points_in_polygons,
 )
 from pcb_assembly.hal import Klipper, XYZStage
+from pcb_assembly.pasting.probe import ProbeExecutor
 from pcb_assembly.pcb import Copper
 from pcb_assembly.utils import get_class_module_path
 

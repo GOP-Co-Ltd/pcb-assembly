@@ -3,9 +3,9 @@
 import cv2
 
 from pcb_assembly import gcode
-from pcb_assembly.control.setup import BoardCalibrationResult
 from pcb_assembly.geometry import Move, Point2d
 from pcb_assembly.hal import Camera
+from pcb_assembly.posctrl.setup import BoardCalibrationResult
 from pcb_assembly.vision import draw_overlay
 
 

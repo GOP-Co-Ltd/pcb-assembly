@@ -18,12 +18,12 @@ import argparse
 import logging
 
 from pcb_assembly.config import get_machine_config
-from pcb_assembly.control.pasting import (
+from pcb_assembly.hal import Klipper, PasteDispenser, XYZStage
+from pcb_assembly.pasting import (
     FlowCalibration,
     PasteApplicator,
     interactive_loading,
 )
-from pcb_assembly.hal import Klipper, PasteDispenser, XYZStage
 from pcb_assembly.utils import setup_logging
 
 

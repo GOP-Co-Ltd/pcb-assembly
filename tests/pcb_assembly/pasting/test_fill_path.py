@@ -4,12 +4,12 @@ import pytest
 from shapely import Polygon
 from shapely.geometry import Point as ShapelyPoint
 
-from pcb_assembly.control.pasting.fill_path import (
+from pcb_assembly.geometry import Point2d
+from pcb_assembly.pasting.fill_path import (
     _generate_linear_path,
     _generate_spiral_path,
     build_paste_fill_path,
 )
-from pcb_assembly.geometry import Point2d
 
 
 class TestBuildPasteFillPath:

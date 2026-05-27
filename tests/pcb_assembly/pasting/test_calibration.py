@@ -3,7 +3,7 @@
 import attrs
 import pytest
 
-from pcb_assembly.control.pasting.calibration import FlowCalibration
+from pcb_assembly.pasting.calibration import FlowCalibration
 
 
 class TestFlowCalibration:
