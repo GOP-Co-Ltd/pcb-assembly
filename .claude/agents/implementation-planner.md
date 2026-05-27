@@ -77,10 +77,14 @@ model: opus
 - PCBアセンブリのコード規約と整合するか（`memory/MEMORY.md`、skill `refactor-conventions`）
 - 既存の Makefile ターゲットで検証できる構造になっているか
 - 並列実装が可能な分割になっているか（複数モジュールに分かれる場合）
+- **公開インターフェース案がシグネチャレベル（関数名・引数・戻り値型）まで固まっているか** — 固まっていれば spec-test-author × plan-implementer を並列起動可能。曖昧なまま渡すと並列化できない
+- テスト観点が「正常系・異常系・エッジケース」に分けて列挙され、spec-test-author が観点単位でテスト関数に落とせる粒度になっているか
 
 ## 参照
 
 - 規約・フィードバック：`memory/MEMORY.md`
 - リファクタリング規約：skill `refactor-conventions`
 - ハードウェアテスト：skill `hardware-test`
+- テスト方針全般：skill `testing-strategy`
 - マルチエージェントフロー：skill `agent-team-startup`
+- 下流連携：`spec-test-author`（仕様 first フロー時にテストを書く）、`plan-implementer`（実装担当）

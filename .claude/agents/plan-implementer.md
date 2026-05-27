@@ -18,12 +18,14 @@ model: opus
 
 1. 計画書を読む
     - マルチエージェント時：`memory/agents/implementation-planner/<task>.md`
+    - **spec-test-author が engagement 済みなら `memory/agents/spec-test-author/<task>.md` も必ず読む**
     - 単独起動時：ユーザー提供の計画
 2. 既存コードを Read / Grep で把握する
 3. 実装する
     - 規約詳細は skill `refactor-conventions` 参照
     - ハードウェア関連テストは skill `hardware-test` 参照
 4. テストを書く（class TestXxx 形式、private直接テスト禁止）
+    - **spec-test-author が engagement 済みの場合：テストファイル（`tests/pcb_assembly/`）は編集しない**。実装で通すのが本 agent の役目
 5. `make format && make type && make test` を実行し、全てパスを確認する
 6. 結果と判断ログを報告する
 
@@ -32,7 +34,9 @@ model: opus
 - 計画が曖昧な点に直面したら、推測せず質問する
 - 計画外の改善余地に気づいたら、現タスクは計画通りに完了させ、別タスクとして提案する
 - 既存テストは原則変更しない。仕様変更を伴う場合のみ更新し、理由を報告に含める
+- spec-test-author 引継ぎ時：テストが「実装側のバグ」を指摘しているなら本番コードを修正する。テストが間違っていそうなら **編集せず** spec-test-author に差し戻し、仕様根拠を再確認する
 - 並列実装時に他 implementer に影響する IF 変更が発生したら、`memory/agents/plan-implementer/<task>-<instance>.md` に「IF変更通知」を明記する
+- spec-test-author と並列実行時：IF を勝手に変えない。計画書のシグネチャ案を逸脱する必要があれば、spec-test-author に通知してから進める
 
 ## 完了の定義
 
@@ -49,5 +53,7 @@ model: opus
 
 - 規約詳細：skill `refactor-conventions`
 - ハードウェアテスト：skill `hardware-test`
+- テスト方針全般：skill `testing-strategy`
+- spec-test-author との分担：skill `agent-team-startup`
 - フィードバック規約：`memory/MEMORY.md`
 - プロジェクトコマンド：CLAUDE.md

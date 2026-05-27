@@ -8,6 +8,7 @@
 ```
 agents/
 ├── implementation-planner/  # 計画書
+├── spec-test-author/        # テスト一覧、仕様根拠対応、実装側修正要求
 ├── plan-implementer/        # 実装ノート、計画外判断ログ、IF変更通知
 ├── code-simplifier/         # 簡素化ノート
 └── docs-keeper/             # ドキュメント整備ノート
@@ -26,11 +27,15 @@ agents/
 ```
 implementation-planner/<task>.md  ← planner が計画書を書く
         ↓
+spec-test-author/<task>.md         ← spec-test-author がテスト一覧と仕様根拠を残す（仕様 first フローで使用）
+        ↓
 plan-implementer/<task>.md         ← implementer が実装ノートを残す
         ↓
 code-simplifier/<task>.md          ← simplifier が簡素化ノートを残す
         ↓
 docs-keeper/<task>.md              ← docs-keeper がドキュメント整備ノートを残す
 ```
+
+`spec-test-author` は任意ステップ。仕様が明確で TDD 的に進めたいときに挟む。
 
 詳細手順は skill `agent-team-startup` 参照。
