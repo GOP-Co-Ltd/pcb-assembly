@@ -13,6 +13,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from matplotlib.artist import Artist
+from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Polygon as MplPolygon
 from shapely.geometry import LineString
@@ -21,6 +22,11 @@ from pcb_assembly.control.pasting.fill_path import build_paste_fill_path
 from pcb_assembly.geometry import Point2d
 from pcb_assembly.pcb import Layer, Outline, PadList, PcbFile
 from pcb_assembly.visualization import polygon_with_holes_patch
+
+# fill path 描画の配色（凡例とパス描画で共有）
+_HALO_COLOR = "#3399ff"
+_CENTER_COLOR = "#cce6ff"
+_START_COLOR = "#ff3333"
 
 
 def render_fill_paths(
@@ -75,67 +81,8 @@ def render_fill_paths(
         )
 
     # 各 pad の fill path
-    halo_face = "#3399ff"
-    halo_edge = "#3399ff"
-    center_color = "#cce6ff"
-    start_color = "#ff3333"
-
     for path in paths:
-        if len(path) < 2:
-            # 1点のみのパスは halo / 矢印を描けないので始点だけ打つ
-            if len(path) == 1:
-                ax.plot(
-                    path[0].x,
-                    path[0].y,
-                    "o",
-                    color=start_color,
-                    markersize=4,
-                    markeredgecolor=start_color,
-                )
-            continue
-
-        coords = [(p.x, p.y) for p in path]
-
-        # ノズル塗布幅 halo: shapely.buffer で mm 単位ポリゴン化
-        halo = LineString(coords).buffer(nozzle_diameter / 2)
-        if not halo.is_empty and halo.geom_type == "Polygon":
-            ax.add_patch(
-                polygon_with_holes_patch(
-                    halo,
-                    facecolor=halo_face,
-                    edgecolor=halo_edge,
-                    alpha=0.3,
-                    linewidth=0.0,
-                )
-            )
-
-        # 中心線 (細い青実線)
-        xs = [p.x for p in path]
-        ys = [p.y for p in path]
-        ax.plot(xs, ys, "-", color=center_color, linewidth=0.6)
-
-        # 始点 (赤丸)
-        ax.plot(
-            path[0].x,
-            path[0].y,
-            "o",
-            color=start_color,
-            markersize=4,
-            markeredgecolor=start_color,
-        )
-
-        # 方向矢印: 始点 -> 次点
-        start, nxt = path[0], path[1]
-        ax.annotate(
-            "",
-            xy=(nxt.x, nxt.y),
-            xytext=(start.x, start.y),
-            arrowprops={
-                "arrowstyle": "->",
-                "color": start_color,
-                "lw": 0.8,
-            },
-        )
+        _draw_fill_path(ax, path, nozzle_diameter)
 
     # 軸設定
     ax.autoscale()
@@ -165,19 +112,19 @@ def render_fill_paths(
             label=f"{layer.value} Paste Pad",
         ),
         Patch(
-            facecolor=halo_face,
-            edgecolor=halo_edge,
+            facecolor=_HALO_COLOR,
+            edgecolor=_HALO_COLOR,
             alpha=0.3,
             label="Nozzle Coverage",
         ),
-        Line2D([0], [0], color=center_color, linewidth=0.6, label="Fill Path"),
+        Line2D([0], [0], color=_CENTER_COLOR, linewidth=0.6, label="Fill Path"),
         Line2D(
             [0],
             [0],
             marker="o",
             color="w",
-            markerfacecolor=start_color,
-            markeredgecolor=start_color,
+            markerfacecolor=_START_COLOR,
+            markeredgecolor=_START_COLOR,
             markersize=4,
             linestyle="None",
             label="Path Start",
@@ -195,13 +142,75 @@ def render_fill_paths(
     plt.close(fig)
 
 
+def _draw_fill_path(ax: Axes, path: list[Point2d], nozzle_diameter: float) -> None:
+    """1本の fill path を ax に描画する.
+
+    - halo（ノズル塗布幅の半透明領域）
+    - 中心線
+    - 始点マーカー
+    - 始点→次点の方向矢印
+
+    1点パスは halo / 矢印を描けないため始点マーカーのみ描画する。
+    空パスは何も描かない。
+    """
+    if not path:
+        return
+
+    if len(path) == 1:
+        _plot_start_marker(ax, path[0])
+        return
+
+    # ノズル塗布幅 halo: shapely.buffer で mm 単位ポリゴン化
+    coords = [(p.x, p.y) for p in path]
+    halo = LineString(coords).buffer(nozzle_diameter / 2)
+    if not halo.is_empty and halo.geom_type == "Polygon":
+        ax.add_patch(
+            polygon_with_holes_patch(
+                halo,
+                facecolor=_HALO_COLOR,
+                edgecolor=_HALO_COLOR,
+                alpha=0.3,
+                linewidth=0.0,
+            )
+        )
+
+    # 中心線 (細い青実線)
+    xs = [p.x for p in path]
+    ys = [p.y for p in path]
+    ax.plot(xs, ys, "-", color=_CENTER_COLOR, linewidth=0.6)
+
+    # 始点 (赤丸)
+    _plot_start_marker(ax, path[0])
+
+    # 方向矢印: 始点 -> 次点
+    start, nxt = path[0], path[1]
+    ax.annotate(
+        "",
+        xy=(nxt.x, nxt.y),
+        xytext=(start.x, start.y),
+        arrowprops={
+            "arrowstyle": "->",
+            "color": _START_COLOR,
+            "lw": 0.8,
+        },
+    )
+
+
+def _plot_start_marker(ax: Axes, point: Point2d) -> None:
+    """パス始点の赤丸マーカーを描く."""
+    ax.plot(
+        point.x,
+        point.y,
+        "o",
+        color=_START_COLOR,
+        markersize=4,
+        markeredgecolor=_START_COLOR,
+    )
+
+
 def _pads_on_layer(pads: PadList, layer: Layer) -> PadList:
     """指定レイヤの pad のみを抽出する."""
-    filtered = PadList()
-    for pad in pads:
-        if pad.layer == layer:
-            filtered.append(pad)
-    return filtered
+    return PadList(pad for pad in pads if pad.layer == layer)
 
 
 def _build_paths(pads: PadList, nozzle_diameter: float) -> list[list[Point2d]]:
