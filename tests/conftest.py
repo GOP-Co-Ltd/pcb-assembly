@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from pytest_mock import MockerFixture
 
-from pcb_assembly.hal.camera import CameraInfo, Resolution
+from pcbasm.hal.camera import CameraInfo, Resolution
 
 
 @pytest.fixture
@@ -13,7 +13,7 @@ def mock_camera_backend(mocker: MockerFixture):
     mock_cam.set.return_value = True
     mock_cam.read.return_value = (True, np.zeros((720, 1280, 3), dtype=np.uint8))
     mocker.patch("cv2.VideoCapture", return_value=mock_cam)
-    mocker.patch("pcb_assembly.hal.camera._UsbCamera._validate_device_id")
+    mocker.patch("pcbasm.hal.camera._UsbCamera._validate_device_id")
 
     # get_camera_infoをモックして、デフォルトの解像度をサポートするカメラ情報を返す
     default_info = CameraInfo(
@@ -26,7 +26,7 @@ def mock_camera_backend(mocker: MockerFixture):
         },
     )
     mocker.patch(
-        "pcb_assembly.hal.camera.get_camera_info",
+        "pcbasm.hal.camera.get_camera_info",
         return_value=default_info,
     )
 
@@ -43,5 +43,5 @@ def mock_csi_camera_backend(mocker: MockerFixture):
     mock_picamera2.Picamera2.return_value.capture_array.return_value = np.zeros(
         (720, 1280, 3), dtype=np.uint8
     )
-    mocker.patch("pcb_assembly.hal.camera.picamera2", mock_picamera2)
+    mocker.patch("pcbasm.hal.camera.picamera2", mock_picamera2)
     return mock_picamera2

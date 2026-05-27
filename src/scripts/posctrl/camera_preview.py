@@ -5,7 +5,7 @@ import argparse
 
 import cv2
 
-from pcb_assembly.hal.camera import create_camera
+from pcbasm.hal.camera import create_camera
 
 
 def main() -> None:

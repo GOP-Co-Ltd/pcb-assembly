@@ -27,10 +27,10 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Polygon as MplPolygon
 from shapely.geometry import LineString
 
-from pcb_assembly.geometry import Point2d
-from pcb_assembly.pasting.fill_path import build_paste_fill_path
-from pcb_assembly.pcb import Layer, Outline, PadList, PcbFile
-from pcb_assembly.visualization import polygon_with_holes_patch
+from pcbasm.geometry import Point2d
+from pcbasm.pasting.fill_path import build_paste_fill_path
+from pcbasm.pcb import Layer, Outline, PadList, PcbFile
+from pcbasm.visualization import polygon_with_holes_patch
 
 # fill path 描画の配色（凡例とパス描画で共有）
 _HALO_COLOR = "#3399ff"

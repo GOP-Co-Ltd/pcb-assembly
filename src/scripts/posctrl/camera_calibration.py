@@ -8,11 +8,11 @@ from pathlib import Path
 import attrs
 import cv2
 
-from pcb_assembly.hal.camera import create_camera
-from pcb_assembly.hal.klipper import Klipper
-from pcb_assembly.hal.stage import XYZStage
-from pcb_assembly.utils import PROJECT_ROOT
-from pcb_assembly.vision.calibration import CheckerboardCalibrator
+from pcbasm.hal.camera import create_camera
+from pcbasm.hal.klipper import Klipper
+from pcbasm.hal.stage import XYZStage
+from pcbasm.utils import PROJECT_ROOT
+from pcbasm.vision.calibration import CheckerboardCalibrator
 
 
 def main() -> None:

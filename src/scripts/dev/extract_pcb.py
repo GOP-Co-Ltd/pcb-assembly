@@ -13,7 +13,7 @@ from matplotlib.artist import Artist
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Polygon as MplPolygon
 
-from pcb_assembly.pcb import (
+from pcbasm.pcb import (
     ComponentList,
     CopperList,
     Layer,
@@ -21,7 +21,7 @@ from pcb_assembly.pcb import (
     PadList,
     PcbFile,
 )
-from pcb_assembly.visualization import polygon_with_holes_patch
+from pcbasm.visualization import polygon_with_holes_patch
 
 
 def render_pcb(

@@ -23,24 +23,24 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from pcb_assembly import gcode
-from pcb_assembly.config import get_machine_config
-from pcb_assembly.geometry import Identity, Move, Point2d
-from pcb_assembly.hal import PasteDispenser, Probe
-from pcb_assembly.pasting import (
+from pcbasm import gcode
+from pcbasm.config import get_machine_config
+from pcbasm.geometry import Identity, Move, Point2d
+from pcbasm.hal import PasteDispenser, Probe
+from pcbasm.pasting import (
     PasteApplicator,
     ProbeExecutor,
     ToolheadOffsetResult,
     interactive_loading,
 )
-from pcb_assembly.posctrl import (
+from pcbasm.posctrl import (
     OffsetObserver,
     XYPositionAdjustor,
     machine_session,
     setup_board_calibration,
 )
-from pcb_assembly.utils import PROJECT_ROOT, setup_logging
-from pcb_assembly.vision import CircleDetector
+from pcbasm.utils import PROJECT_ROOT, setup_logging
+from pcbasm.vision import CircleDetector
 
 WINDOW_NAME = "Toolhead Offset"
 

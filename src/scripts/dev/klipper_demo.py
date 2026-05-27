@@ -3,8 +3,8 @@
 
 import argparse
 
-from pcb_assembly import gcode as gc
-from pcb_assembly.hal.klipper import Klipper
+from pcbasm import gcode as gc
+from pcbasm.hal.klipper import Klipper
 
 
 def main() -> None:

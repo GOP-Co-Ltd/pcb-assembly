@@ -14,20 +14,20 @@ import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.patches import Polygon as MplPolygon
 
-from pcb_assembly.config import get_machine_config
-from pcb_assembly.geometry import (
+from pcbasm.config import get_machine_config
+from pcbasm.geometry import (
     Compose,
     HeightPlane,
     Point2d,
     Point3d,
     sample_points_in_polygons,
 )
-from pcb_assembly.hal import Probe
-from pcb_assembly.pasting import HeightPlaneMeasurer, ProbeExecutor
-from pcb_assembly.pcb import Layer, PcbFile
-from pcb_assembly.posctrl import machine_session, setup_board_calibration
-from pcb_assembly.utils import PROJECT_ROOT, setup_logging
-from pcb_assembly.visualization import polygon_with_holes_patch
+from pcbasm.hal import Probe
+from pcbasm.pasting import HeightPlaneMeasurer, ProbeExecutor
+from pcbasm.pcb import Layer, PcbFile
+from pcbasm.posctrl import machine_session, setup_board_calibration
+from pcbasm.utils import PROJECT_ROOT, setup_logging
+from pcbasm.visualization import polygon_with_holes_patch
 
 WINDOW_NAME = "Height Plane"
 _MESH_RESOLUTION = 50

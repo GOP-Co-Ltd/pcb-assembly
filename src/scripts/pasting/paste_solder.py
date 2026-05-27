@@ -15,23 +15,23 @@ from pathlib import Path
 
 import attrs
 
-from pcb_assembly import gcode
-from pcb_assembly.config import Machine, get_machine_config
-from pcb_assembly.geometry import Compose, HeightPlane, Move, Transform, sort_by_nearest
-from pcb_assembly.hal import Klipper, PasteDispenser, Probe, XYZStage
-from pcb_assembly.pasting import (
+from pcbasm import gcode
+from pcbasm.config import Machine, get_machine_config
+from pcbasm.geometry import Compose, HeightPlane, Move, Transform, sort_by_nearest
+from pcbasm.hal import Klipper, PasteDispenser, Probe, XYZStage
+from pcbasm.pasting import (
     HeightPlaneMeasurer,
     PasteApplicator,
     ProbeExecutor,
     interactive_loading,
 )
-from pcb_assembly.pcb import Copper, Layer, Pad
-from pcb_assembly.posctrl import (
+from pcbasm.pcb import Copper, Layer, Pad
+from pcbasm.posctrl import (
     BoardCalibrationResult,
     machine_session,
     setup_board_calibration,
 )
-from pcb_assembly.utils import setup_logging
+from pcbasm.utils import setup_logging
 
 WINDOW_NAME = "Paste Solder"
 

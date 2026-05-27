@@ -6,10 +6,10 @@ from pathlib import Path
 
 import cv2
 
-from pcb_assembly.hal.camera import create_camera
-from pcb_assembly.utils import PROJECT_ROOT
-from pcb_assembly.vision.calibration import CalibrationResult
-from pcb_assembly.vision.detection import CircleDetector
+from pcbasm.hal.camera import create_camera
+from pcbasm.utils import PROJECT_ROOT
+from pcbasm.vision.calibration import CalibrationResult
+from pcbasm.vision.detection import CircleDetector
 
 
 def main() -> None:

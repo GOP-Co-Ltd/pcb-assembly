@@ -3,8 +3,8 @@
 
 import argparse
 
-from pcb_assembly.hal.klipper import Klipper
-from pcb_assembly.hal.stage import XYZStage
+from pcbasm.hal.klipper import Klipper
+from pcbasm.hal.stage import XYZStage
 
 
 def main() -> None:

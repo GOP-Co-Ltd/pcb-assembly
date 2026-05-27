@@ -19,17 +19,17 @@ import argparse
 import logging
 from pathlib import Path
 
-from pcb_assembly import gcode
-from pcb_assembly.config import get_machine_config
-from pcb_assembly.geometry import Move, Point2d, sort_by_nearest
-from pcb_assembly.pcb import Layer
-from pcb_assembly.posctrl import (
+from pcbasm import gcode
+from pcbasm.config import get_machine_config
+from pcbasm.geometry import Move, Point2d, sort_by_nearest
+from pcbasm.pcb import Layer
+from pcbasm.posctrl import (
     display_at_point,
     machine_session,
     setup_board_calibration,
     wait_for_keypress,
 )
-from pcb_assembly.utils import setup_logging
+from pcbasm.utils import setup_logging
 
 WINDOW_NAME = "Board Tour Demo"
 
