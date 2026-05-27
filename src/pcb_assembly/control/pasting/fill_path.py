@@ -1,4 +1,10 @@
-"""ペースト塗布用フィルパス生成."""
+"""ペースト塗布用フィルパス生成.
+
+公開 API は :func:`build_paste_fill_path` のみ。ノズル径からマシン固有の
+ヒューリスティクス（線間隔・インセット・線形フォールバック判定）を決定し、
+同モジュール内の private ヘルパー（``_generate_spiral_path`` /
+``_generate_linear_path`` および幾何ユーティリティ群）に委譲する。
+"""
 
 from __future__ import annotations
 
@@ -13,7 +19,7 @@ def build_paste_fill_path(polygon: Polygon, nozzle_diameter: float) -> list[Poin
     """ペーストフィルパスを生成する.
 
     ノズル径からマシン固有のヒューリスティクスで間隔・インセット・
-    フォールバック判定を行い、内部の純粋幾何APIに委譲する。
+    フォールバック判定を行い、内部の螺旋／線形ヘルパーに委譲する。
 
     - line_spacing  = nozzle_diameter
     - initial_inset = nozzle_diameter / 2

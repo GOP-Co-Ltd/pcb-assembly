@@ -4,6 +4,11 @@
 実 PCB データを読み込み、指定レイヤの paste pad に対して
 ``build_paste_fill_path`` で塗布経路を生成、PCB outline と重ねた
 1枚の PNG として書き出す。
+
+起動例::
+
+    uv run python -m scripts.fill_path_simulate <pcb_file> \\
+        --nozzle-diameter 0.4 --layer top -o /tmp/fill_path.png
 """
 
 from __future__ import annotations
@@ -224,6 +229,7 @@ def _parse_layer(value: str) -> Layer:
 
 
 def main() -> None:
+    """CLI エントリポイント: PCB を読み込み fill path を可視化 PNG に出力する."""
     parser = argparse.ArgumentParser(
         description=("実 PCB データを読み込み、paste pad ごとの fill path を可視化する")
     )
