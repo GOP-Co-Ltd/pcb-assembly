@@ -22,7 +22,7 @@ from pcbasm.geometry import (
     Point3d,
     sample_points_in_polygons,
 )
-from pcbasm.hal import Probe
+from pcbasm.hal import ServoGroundProbe
 from pcbasm.pasting import HeightPlaneMeasurer, ProbeExecutor
 from pcbasm.pcb import Layer, PcbFile
 from pcbasm.posctrl import machine_session, setup_board_calibration
@@ -216,7 +216,7 @@ def main() -> None:
     stage = result.stage
     machine = result.machine
 
-    probe = Probe(
+    probe = ServoGroundProbe(
         klipper.readonly,
         servo_name=probe_config.servo_name,
         revolution_distance=probe_config.revolution_distance,

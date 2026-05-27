@@ -26,7 +26,7 @@ from pathlib import Path
 from pcbasm import gcode
 from pcbasm.config import get_machine_config
 from pcbasm.geometry import Identity, Move, Point2d
-from pcbasm.hal import PasteDispenser, Probe
+from pcbasm.hal import PasteDispenser, ServoGroundProbe
 from pcbasm.pasting import (
     PasteApplicator,
     ProbeExecutor,
@@ -134,7 +134,7 @@ def main() -> None:
     cam_config = machine.camera
 
     probe_config = machine.probe
-    probe = Probe(
+    probe = ServoGroundProbe(
         klipper.readonly,
         servo_name=probe_config.servo_name,
         revolution_distance=probe_config.revolution_distance,

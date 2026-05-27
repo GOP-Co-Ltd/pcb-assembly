@@ -2,7 +2,7 @@
 
 from pcbasm import gcode
 from pcbasm.geometry import Move
-from pcbasm.hal import Klipper, Probe, XYZStage
+from pcbasm.hal import Klipper, ServoGroundProbe, XYZStage
 
 
 class ProbeExecutor:
@@ -14,7 +14,7 @@ class ProbeExecutor:
     def __init__(
         self,
         klipper: Klipper,
-        probe: Probe,
+        probe: ServoGroundProbe,
         stage: XYZStage,
         *,
         lift_height: float = 5.0,

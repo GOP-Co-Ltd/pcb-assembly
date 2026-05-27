@@ -3,7 +3,7 @@ from pytest_mock import MockerFixture
 
 from pcbasm.gcode import GCode
 from pcbasm.hal.klipper import Klipper
-from pcbasm.hal.probe import Probe, ProbeGround, ProbeSensor
+from pcbasm.hal.probe import ProbeGround, ProbeSensor, ServoGroundProbe
 
 
 @pytest.fixture
@@ -72,7 +72,7 @@ class TestProbeGround:
 
 class TestProbe:
     def test_probe_returns_down_probe_up_sequence(self, mock_klipper: Klipper):
-        probe = Probe(mock_klipper.readonly, "probe_gnd", 40.0, 5.0)
+        probe = ServoGroundProbe(mock_klipper.readonly, "probe_gnd", 40.0, 5.0)
         assert probe.probe().to_list() == [
             "SET_SERVO SERVO=probe_gnd ANGLE=45.0",
             "PROBE",
@@ -80,10 +80,10 @@ class TestProbe:
         ]
 
     def test_probe_is_gcode(self, mock_klipper: Klipper):
-        probe = Probe(mock_klipper.readonly, "probe_gnd", 40.0, 5.0)
+        probe = ServoGroundProbe(mock_klipper.readonly, "probe_gnd", 40.0, 5.0)
         assert isinstance(probe.probe(), GCode)
 
     def test_get_last_z_result(self, mock_klipper: Klipper, mocker: MockerFixture):
         mocker.patch.object(mock_klipper.readonly, "get_status", return_value=-3.5)
-        probe = Probe(mock_klipper.readonly, "probe_gnd", 40.0, 5.0)
+        probe = ServoGroundProbe(mock_klipper.readonly, "probe_gnd", 40.0, 5.0)
         assert probe.get_last_z_result() == -3.5

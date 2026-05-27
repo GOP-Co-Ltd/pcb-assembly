@@ -18,7 +18,7 @@ import attrs
 from pcbasm import gcode
 from pcbasm.config import Machine, get_machine_config
 from pcbasm.geometry import Compose, HeightPlane, Move, Transform, sort_by_nearest
-from pcbasm.hal import Klipper, PasteDispenser, Probe, XYZStage
+from pcbasm.hal import Klipper, PasteDispenser, ServoGroundProbe, XYZStage
 from pcbasm.pasting import (
     HeightPlaneMeasurer,
     PasteApplicator,
@@ -75,7 +75,7 @@ def _setup_environment(
 
     # Probe / HeightPlaneMeasurer初期化
     probe_config = machine.probe
-    probe = Probe(
+    probe = ServoGroundProbe(
         klipper.readonly,
         servo_name=probe_config.servo_name,
         revolution_distance=probe_config.revolution_distance,

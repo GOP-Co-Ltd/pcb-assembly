@@ -75,12 +75,12 @@ class ProbeGround:
         return self._servo.set_angle(0.0)
 
 
-class Probe:
+class ServoGroundProbe:
     """ProbeSensorとProbeGroundを統合した公開HAL.
 
     Example:
         klipper = Klipper()
-        probe = Probe(klipper.readonly, "probe_gnd", 40.0, 5.0)
+        probe = ServoGroundProbe(klipper.readonly, "probe_gnd", 40.0, 5.0)
         klipper.send_gcode(probe.probe())
         z = probe.get_last_z_result()
     """
@@ -92,7 +92,7 @@ class Probe:
         revolution_distance: float,
         down_distance: float,
     ) -> None:
-        """Probeを初期化する.
+        """ServoGroundProbeを初期化する.
 
         Args:
             klipper: Klipperクライアント
