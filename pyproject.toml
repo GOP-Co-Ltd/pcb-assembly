@@ -1,5 +1,5 @@
 [project]
-name = "pcb-assembly"
+name = "pcbasm"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -62,7 +62,7 @@ exclude = [
   "**/node_modules",
   "**/__pycache__",
   "**/.venv",
-  "./src/klipper"
+  "./klipper"
 ]
 reportMissingTypeStubs = false
 reportImplicitOverride = true

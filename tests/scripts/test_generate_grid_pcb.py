@@ -47,8 +47,8 @@ def mock_pcbnew(monkeypatch, mocker):
 def _import_generate(mock_pcbnew):
     """mock_pcbnew適用後にモジュールをインポートする."""
     # キャッシュされている場合はリロード
-    if "scripts.generate_grid_pcb" in sys.modules:
-        del sys.modules["scripts.generate_grid_pcb"]
+    if "scripts.dev.generate_grid_pcb" in sys.modules:
+        del sys.modules["scripts.dev.generate_grid_pcb"]
 
 
 class TestGenerateGridPcb:
@@ -56,7 +56,7 @@ class TestGenerateGridPcb:
 
     @pytest.mark.usefixtures("_import_generate")
     def test_default_2x2_grid(self, mock_pcbnew, tmp_path):
-        from scripts.generate_grid_pcb import generate_grid_pcb
+        from scripts.dev.generate_grid_pcb import generate_grid_pcb
 
         output = tmp_path / "test.kicad_pcb"
         generate_grid_pcb(size=30, divisions=2, pad_size=1.0, output=output)
@@ -71,7 +71,7 @@ class TestGenerateGridPcb:
 
     @pytest.mark.usefixtures("_import_generate")
     def test_3x3_grid_creates_9_pads(self, mock_pcbnew, tmp_path):
-        from scripts.generate_grid_pcb import generate_grid_pcb
+        from scripts.dev.generate_grid_pcb import generate_grid_pcb
 
         output = tmp_path / "test.kicad_pcb"
         generate_grid_pcb(size=40, divisions=3, pad_size=0.5, output=output)
@@ -82,7 +82,7 @@ class TestGenerateGridPcb:
 
     @pytest.mark.usefixtures("_import_generate")
     def test_1x1_grid_creates_1_pad(self, mock_pcbnew, tmp_path):
-        from scripts.generate_grid_pcb import generate_grid_pcb
+        from scripts.dev.generate_grid_pcb import generate_grid_pcb
 
         output = tmp_path / "test.kicad_pcb"
         generate_grid_pcb(size=10, divisions=1, pad_size=0.5, output=output)
@@ -93,7 +93,7 @@ class TestGenerateGridPcb:
 
     @pytest.mark.usefixtures("_import_generate")
     def test_output_directory_created(self, mock_pcbnew, tmp_path):
-        from scripts.generate_grid_pcb import generate_grid_pcb
+        from scripts.dev.generate_grid_pcb import generate_grid_pcb
 
         output = tmp_path / "sub" / "dir" / "test.kicad_pcb"
         generate_grid_pcb(size=30, divisions=2, pad_size=1.0, output=output)
@@ -102,7 +102,7 @@ class TestGenerateGridPcb:
 
     @pytest.mark.usefixtures("_import_generate")
     def test_footprint_references_are_sequential(self, mock_pcbnew, tmp_path, mocker):
-        from scripts.generate_grid_pcb import generate_grid_pcb
+        from scripts.dev.generate_grid_pcb import generate_grid_pcb
 
         # FOOTPRINT呼び出しごとにSetReferenceの引数を記録
         references = []
@@ -123,7 +123,7 @@ class TestGenerateGridPcb:
 
     @pytest.mark.usefixtures("_import_generate")
     def test_print_summary(self, mock_pcbnew, tmp_path, capsys):
-        from scripts.generate_grid_pcb import generate_grid_pcb
+        from scripts.dev.generate_grid_pcb import generate_grid_pcb
 
         output = tmp_path / "test.kicad_pcb"
         generate_grid_pcb(size=30, divisions=2, pad_size=1.0, output=output)
@@ -140,7 +140,7 @@ class TestMainArgparse:
 
     @pytest.mark.usefixtures("_import_generate")
     def test_required_output_argument(self, mock_pcbnew, monkeypatch):
-        from scripts.generate_grid_pcb import main
+        from scripts.dev.generate_grid_pcb import main
 
         monkeypatch.setattr(
             sys, "argv", ["generate_grid_pcb", "-o", "/tmp/out.kicad_pcb"]
@@ -150,7 +150,7 @@ class TestMainArgparse:
 
     @pytest.mark.usefixtures("_import_generate")
     def test_custom_arguments(self, mock_pcbnew, monkeypatch, tmp_path):
-        from scripts.generate_grid_pcb import main
+        from scripts.dev.generate_grid_pcb import main
 
         out = str(tmp_path / "custom.kicad_pcb")
         monkeypatch.setattr(
