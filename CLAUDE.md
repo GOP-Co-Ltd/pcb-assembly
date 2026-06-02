@@ -55,11 +55,13 @@ LLM コーディングで陥りがちなミスを減らすための行動指針�
 
 PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD を前提とし、ハードウェア抽象化レイヤ（HAL）、ビジョン処理、制御ロジック、3D 幾何計算を Python 3.12+ で実装する。
 
-主要モジュール構成（`src/pcb_assembly/`）:
+主要モジュール構成（`src/pcbasm/`）:
 
 - `hal/` — ハードウェア抽象化（カメラ、Klipper、プローブ、サーボ等）
 - `vision/` — 画像処理・キャリブレーション・特徴検出
-- `control/` — 機器制御ロジック（調整、ペースト流量制御等）
+- `posctrl/` — Board/オフセットの位置合わせ共通制御（setup, tour, board/position/offset 調整）
+- `pasting/` — ペースト塗布専用ロジック（applicator, calibration, fill_path, loading, probe, height 等）
+- `pnp/` — Pick and Place 用の名前空間（将来用）
 - `geometry/` — 3D 座標と幾何計算（Transform, HeightPlane, 軌跡生成等）
 - `pcb/` — PCB 設計情報の抽象化（KiCAD 読込、配置管理）
 
