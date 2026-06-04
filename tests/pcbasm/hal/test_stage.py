@@ -1,7 +1,7 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.geometry import Move, Point3d, Trajectory, Waypoint
+from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import Speed
 from pcbasm.hal.klipper import Klipper
 from pcbasm.hal.stage import Limits, ScalarLimits, XYZStage
@@ -117,56 +117,24 @@ class TestXYZStage:
         with pytest.raises(KeyError, match=r"max_velocity"):
             _ = stage.limits
 
-    def test_validate_is_valid_when_all_in_limits(self, mock_stage: XYZStage):
-        trajectory = Trajectory(
-            origin=Point3d(10.0, 10.0, 10.0), initial_velocity=100.0
-        )
-        trajectory.add(Move(x=50.0, y=100.0, z=25.0))
+    def test_to_gcode_emits_one_g1_per_point(self, mock_stage: XYZStage):
+        # Path の各点を解決済み feed 付き G1 として 1 行ずつ発行する。
+        # speed=Speed.absolute(100) → F = 100*60 = 6000.0。
+        path = Path([Point3d(50, 100, 25), Point3d(60, 100, 25)])
 
-        result = mock_stage.validate(trajectory)
+        result = mock_stage.to_gcode(path, speed=Speed.absolute(100))
 
-        assert result.is_valid
-        assert result.invalid_points == []
+        assert result.to_list() == [
+            "G1 X50.0 Y100.0 Z25.0 F6000.0",
+            "G1 X60.0 Y100.0 Z25.0 F6000.0",
+        ]
 
-    def test_validate_returns_invalid_waypoints(self, mock_stage: XYZStage):
-        trajectory = Trajectory(
-            origin=Point3d(10.0, 10.0, 10.0), initial_velocity=100.0
-        )
-        trajectory.add(
-            Move(x=50.0, y=100.0, z=25.0),  # 制限内
-            Move(x=150.0, y=100.0, z=25.0),  # x範囲外
-        )
+    def test_to_gcode_raises_when_any_point_out_of_limits(self, mock_stage: XYZStage):
+        # x=150 は x∈[0,100] の範囲外。
+        path = Path([Point3d(150, 100, 25)])
 
-        result = mock_stage.validate(trajectory)
-
-        assert not result.is_valid
-        assert len(result.invalid_points) == 1
-        assert result.invalid_points[0].x == 150.0
-
-    def test_move_returns_gcode(self, mock_stage: XYZStage):
-        trajectory = Trajectory(
-            origin=Point3d(10.0, 10.0, 10.0), initial_velocity=100.0
-        )
-        trajectory.add(
-            Move(x=50.0, y=100.0, z=25.0),
-            Move(x=60.0),
-        )
-
-        result = mock_stage.to_gcode(trajectory)
-
-        commands = result.to_list()
-        assert len(commands) == 2
-        assert commands[0] == "G1 X50.0 Y100.0 Z25.0 F6000.0"
-        assert commands[1] == "G1 X60.0 Y100.0 Z25.0 F6000.0"
-
-    def test_move_raises_when_out_of_limits(self, mock_stage: XYZStage):
-        trajectory = Trajectory(
-            origin=Point3d(10.0, 10.0, 10.0), initial_velocity=100.0
-        )
-        trajectory.add(Move(x=150.0))  # x範囲外
-
-        with pytest.raises(ValueError, match="制限外の経由点"):
-            mock_stage.to_gcode(trajectory)
+        with pytest.raises(ValueError, match="制限外"):
+            mock_stage.to_gcode(path, speed=Speed.absolute(100))
 
     @pytest.fixture
     def mock_stage_at_10(self, mocker: MockerFixture) -> XYZStage:
@@ -255,21 +223,6 @@ class TestLimits:
             z=ScalarLimits(min=0.0, max=50.0),
             v=ScalarLimits(min=0.0, max=300.0),
         )
-
-    @pytest.mark.parametrize(
-        ("waypoint", "expected"),
-        [
-            (Waypoint(x=50.0, y=100.0, z=25.0, v=150.0), True),  # 全制限内
-            (Waypoint(x=0.0, y=0.0, z=0.0, v=0.0), True),  # 全最小値
-            (Waypoint(x=100.0, y=200.0, z=50.0, v=300.0), True),  # 全最大値
-            (Waypoint(x=-1.0, y=100.0, z=25.0, v=150.0), False),  # x軸が範囲外
-            (Waypoint(x=50.0, y=201.0, z=25.0, v=150.0), False),  # y軸が範囲外
-            (Waypoint(x=50.0, y=100.0, z=51.0, v=150.0), False),  # z軸が範囲外
-            (Waypoint(x=50.0, y=100.0, z=25.0, v=301.0), False),  # 速度が範囲外
-        ],
-    )
-    def test_contains(self, limits: Limits, waypoint: Waypoint, expected: bool):
-        assert (waypoint in limits) == expected
 
     @pytest.mark.parametrize(
         ("point", "feed", "expected"),

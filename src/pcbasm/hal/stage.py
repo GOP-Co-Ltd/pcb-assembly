@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 from functools import cached_property
 
 import attrs
 
 from pcbasm import gcode
-from pcbasm.geometry import Move, Point3d, Trajectory, Waypoint
+from pcbasm.geometry import Path, Point3d
 
 from .klipper import ReadonlyKlipper
 from .speed import Speed
@@ -39,22 +38,6 @@ class Limits:
     y: ScalarLimits
     z: ScalarLimits
     v: ScalarLimits
-
-    def __contains__(self, waypoint: Waypoint) -> bool:
-        """経由点が全軸の可動域・速度制限内にあるか判定する.
-
-        Args:
-            waypoint: 判定する経由点
-
-        Returns:
-            全制限内であればTrue
-        """
-        return (
-            waypoint.x in self.x
-            and waypoint.y in self.y
-            and waypoint.z in self.z
-            and waypoint.v in self.v
-        )
 
     def contains(self, point: Point3d, feed: float) -> bool:
         """点とfeedが全軸の可動域・速度制限内か判定する.
@@ -196,60 +179,21 @@ class XYZStage:
 
         return gcode.move(x=point.x, y=point.y, z=point.z, velocity=feed)
 
-    def validate(self, trajectory: Trajectory) -> ValidationResult:
-        """Trajectoryの全経由点が制限内にあるか検証する.
-
-        Args:
-            trajectory: 検証するTrajectory
-
-        Returns:
-            検証結果
-        """
-        limits = self.limits
-        invalid = [wp for wp in trajectory.waypoints if wp not in limits]
-        return ValidationResult(invalid)
-
-    def to_gcode(self, trajectory: Trajectory | Move | Iterable[Move]) -> gcode.GCode:
-        """移動指示をG-codeに変換する.
-
-        Args:
-            trajectory: Trajectory, Move, またはMoveのイテラブル
-
-        Returns:
-            移動のGCode
+    def to_gcode(self, path: Path, *, speed: Speed) -> gcode.GCode:
+        """Path の各点を G1 移動に変換する。各点と feed を limits 検証する.
 
         Raises:
-            ValueError: 制限外の経由点がある場合
+            ValueError: 制限外の点がある場合
         """
-        if not isinstance(trajectory, Trajectory):
-            trajectory = Trajectory(
-                trajectory,
-                origin=self.get_position(),
-                initial_velocity=self.max_velocity,
-            )
-
-        result = self.validate(trajectory)
-        if not result.is_valid:
-            raise ValueError(f"制限外の経由点があります: {result.invalid_points}")
-
+        feed = float(speed.resolve(self.max_velocity))
+        invalid = [p for p in path if not self.limits.contains(p, feed)]
+        if invalid:
+            raise ValueError(f"制限外の経由点があります: {invalid}")
         commands = gcode.GCode()
-        for wp in trajectory.waypoints:
-            commands.append(gcode.move(x=wp.x, y=wp.y, z=wp.z, velocity=wp.v))
+        for point in path:
+            commands.append(
+                gcode.move(
+                    x=float(point.x), y=float(point.y), z=float(point.z), velocity=feed
+                )
+            )
         return commands
-
-
-@attrs.frozen
-class ValidationResult:
-    """Trajectory検証結果を保持するクラス."""
-
-    _invalid_points: list[Waypoint]
-
-    @property
-    def is_valid(self) -> bool:
-        """全経由点が制限内にあるか."""
-        return len(self._invalid_points) == 0
-
-    @property
-    def invalid_points(self) -> list[Waypoint]:
-        """制限外の経由点のリスト."""
-        return self._invalid_points.copy()
