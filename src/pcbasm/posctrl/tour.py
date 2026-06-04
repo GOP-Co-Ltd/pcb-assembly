@@ -3,8 +3,8 @@
 import cv2
 
 from pcbasm import gcode
-from pcbasm.geometry import Move, Point2d
-from pcbasm.hal import Camera
+from pcbasm.geometry import Point2d
+from pcbasm.hal import Camera, Speed
 from pcbasm.posctrl.setup import BoardCalibrationResult
 from pcbasm.vision import draw_overlay
 
@@ -18,7 +18,7 @@ def display_at_point(
 ):
     """指定座標へ移動し、ラベル付きカメラ映像を一定時間表示する."""
     result.klipper.send_gcode(
-        result.stage.to_gcode(Move(x=machine_pt.x, y=machine_pt.y, v=30))
+        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=Speed.absolute(30))
         + gcode.wait_for_done()
     )
 
@@ -42,7 +42,7 @@ def interactive_display_at_point(
 ):
     """指定座標へ移動し、キーが押されるまでラベル付きカメラ映像を表示する."""
     result.klipper.send_gcode(
-        result.stage.to_gcode(Move(x=machine_pt.x, y=machine_pt.y, v=30))
+        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=Speed.absolute(30))
         + gcode.wait_for_done()
     )
 

@@ -21,7 +21,8 @@ from pathlib import Path
 
 from pcbasm import gcode
 from pcbasm.config import get_machine_config
-from pcbasm.geometry import Move, Point2d, sort_by_nearest
+from pcbasm.geometry import Point2d, sort_by_nearest
+from pcbasm.hal import Speed
 from pcbasm.pcb import Layer
 from pcbasm.posctrl import (
     display_at_point,
@@ -155,7 +156,7 @@ def main() -> None:
         # ボード左上 (0, 0) に移動
         origin_machine = board_transform.apply(Point2d(0.0, 0.0))
         result.klipper.send_gcode(
-            stage.to_gcode(Move(x=origin_machine.x, y=origin_machine.y, v=30))
+            stage.move(x=origin_machine.x, y=origin_machine.y, speed=Speed.absolute(30))
             + gcode.wait_for_done()
         )
 
