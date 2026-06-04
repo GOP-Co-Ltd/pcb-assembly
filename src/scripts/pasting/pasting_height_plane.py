@@ -16,16 +16,14 @@ from matplotlib.patches import Polygon as MplPolygon
 
 from pcbasm.config import get_machine_config
 from pcbasm.geometry import (
-    Compose,
     HeightPlane,
     Point2d,
     Point3d,
     sample_points_in_polygons,
 )
-from pcbasm.hal import ServoGroundProbe
-from pcbasm.pasting import HeightPlaneMeasurer, ProbeExecutor
 from pcbasm.pcb import Layer, PcbFile
-from pcbasm.posctrl import machine_session, setup_board_calibration
+from pcbasm.posctrl import setup_board_calibration
+from pcbasm.session import PasteSession
 from pcbasm.utils import PROJECT_ROOT, setup_logging
 from pcbasm.visualization import polygon_with_holes_patch
 
@@ -211,35 +209,13 @@ def main() -> None:
         tolerance=args.tolerance,
         window_name=WINDOW_NAME,
     )
+    session = PasteSession.from_calibration(result)
 
-    klipper = result.klipper
-    stage = result.stage
-    machine = result.machine
-
-    probe = ServoGroundProbe(
-        klipper.readonly,
-        servo_name=probe_config.servo_name,
-        revolution_distance=probe_config.revolution_distance,
-        down_distance=probe_config.down_distance,
-    )
-    probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
-
-    with machine_session(klipper):
-        board_transform = result.board_transform
-
+    with session:
         print("\n=== Height plane計測 ===")
-        toolhead_offset = machine.paste_dispenser.toolhead.to_transform()
-        height_measurer = HeightPlaneMeasurer(
-            probe_executor=probe_executor,
-            klipper=klipper,
-            stage=stage,
-            min_radius=probe_config.min_radius,
-            min_samples=probe_config.min_samples,
-            max_samples=probe_config.max_samples,
-        )
-        height_plane = height_measurer.measure(
+        height_plane = session.height_measurer.measure(
             coppers=top_coppers,
-            board_to_machine=Compose([board_transform, toolhead_offset]),
+            board_to_machine=session.board_to_machine,
         )
 
     _visualize(

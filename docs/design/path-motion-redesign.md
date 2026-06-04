@@ -87,7 +87,7 @@ expand → migrate → contract。各段階を `make format && make type && make
 - [x] **P1** 基盤値オブジェクト追加（`geometry.Path` / `hal.Speed`）— 加算的・無破壊
 - [x] **P2** `XYZStage.move` + `Speed` 追加、単点呼び出しを `to_gcode(Move...)` → `stage.move(...)` に移行（legacy `to_gcode` は applicator に隔離）
 - [x] **P3** `pasting.FillSequence` 新設、`to_gcode(path, speed)` 最終形に置換、`applicator._fill` 書き換え、`Trajectory`/`Move`/`Waypoint` 削除、`sort_by_nearest` を `routing.py` へ移設
-- [ ] **P4**（別フェーズ）スクリプトのセッション化（`PasteRun`/`MachineSession`）で配線重複を吸収
+- [x] **P4** `pcbasm.PasteSession` 新設、`paste_solder` / `pasting_height_plane` を移行（`pasting_toolhead_offset` 等は同パターンで順次）
 
 ## スコープ外（非ブロッキング）
 
