@@ -26,10 +26,10 @@ class TestHeightPlaneMeasurer:
 
     @pytest.fixture
     def mock_stage(self, mocker):
-        # stage.to_gcode の戻り値は `+ GCode` で連結されるため実体の GCode を返す
+        # stage.move の戻り値は `+ gcode.wait(...)` で連結されるため実体の GCode を返す
         stage = mocker.Mock()
         stage.max_velocity = 100.0
-        stage.to_gcode.return_value = GCode()
+        stage.move.return_value = GCode()
         return stage
 
     @pytest.fixture

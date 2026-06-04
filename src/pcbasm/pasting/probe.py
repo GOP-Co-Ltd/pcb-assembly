@@ -1,7 +1,6 @@
 """PROBEコマンドを実行するクラス."""
 
 from pcbasm import gcode
-from pcbasm.geometry import Move
 from pcbasm.hal import Klipper, ServoGroundProbe, XYZStage
 
 
@@ -39,6 +38,6 @@ class ProbeExecutor:
         )
         z = self._probe.get_last_z_result()
         self._klipper.send_gcode(
-            self._stage.to_gcode(Move(z=z + self._lift_height)) + gcode.wait_for_done()
+            self._stage.move(z=z + self._lift_height) + gcode.wait_for_done()
         )
         return z

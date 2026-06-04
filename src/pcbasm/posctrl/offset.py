@@ -4,8 +4,8 @@ import logging
 from collections.abc import Callable
 
 from pcbasm import gcode
-from pcbasm.geometry import Move, Point2d, Rotation, Transform
-from pcbasm.hal import Klipper, XYZStage
+from pcbasm.geometry import Point2d, Rotation, Transform
+from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.utils import get_class_module_path
 
 
@@ -83,8 +83,11 @@ class OffsetTransformMeasurer:
         move_vector = Point2d(x=self._move_distance, y=0.0)
         move_velocity = self._stage.max_velocity * self._move_velocity_ratio
         self._move_to(
-            self._stage.to_gcode(
-                Move.from_point(move_vector, v=move_velocity, relative=True)
+            self._stage.move(
+                x=move_vector.x,
+                y=move_vector.y,
+                speed=Speed.absolute(move_velocity),
+                relative=True,
             ),
         )
 
@@ -95,7 +98,12 @@ class OffsetTransformMeasurer:
         # 4. 元の位置に戻る
         self._logger.info("元の位置に戻る")
         self._move_to(
-            self._stage.to_gcode(Move.from_point(start_pos, v=move_velocity)),
+            self._stage.move(
+                x=start_pos.x,
+                y=start_pos.y,
+                z=start_pos.z,
+                speed=Speed.absolute(move_velocity),
+            ),
         )
 
         # 5. 回転角を計算

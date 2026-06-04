@@ -25,7 +25,7 @@ from pathlib import Path
 
 from pcbasm import gcode
 from pcbasm.config import get_machine_config
-from pcbasm.geometry import Identity, Move, Point2d
+from pcbasm.geometry import Identity, Point2d
 from pcbasm.hal import PasteDispenser, ServoGroundProbe
 from pcbasm.pasting import (
     PasteApplicator,
@@ -160,8 +160,7 @@ def main() -> None:
 
         # XY移動 -> center_toolhead
         klipper.send_gcode(
-            stage.to_gcode(Move(x=center_toolhead.x, y=center_toolhead.y))
-            + gcode.wait_for_done()
+            stage.move(x=center_toolhead.x, y=center_toolhead.y) + gcode.wait_for_done()
         )
 
         # PROBE -> board_surface_z 取得
@@ -171,9 +170,7 @@ def main() -> None:
         # === Phase 3: ペーストロード（対話式） ===
         print("\n=== ペーストロード ===")
         klipper.send_gcode(
-            stage.to_gcode(
-                Move(z=0.0)  # ツールヘッドを上げる
-            )
+            stage.move(z=0.0)  # ツールヘッドを上げる
             + gcode.wait_for_done()
         )
 
@@ -206,9 +203,7 @@ def main() -> None:
 
             # ステージを center_toolhead XY, Z=dispense_z へ移動
             klipper.send_gcode(
-                stage.to_gcode(
-                    Move(x=center_toolhead.x, y=center_toolhead.y, z=dispense_z)
-                )
+                stage.move(x=center_toolhead.x, y=center_toolhead.y, z=dispense_z)
                 + gcode.wait_for_done()
             )
 
@@ -237,8 +232,7 @@ def main() -> None:
 
             # Z を lift_height 分持ち上げ
             klipper.send_gcode(
-                stage.to_gcode(Move(z=dispense_z + args.lift_height))
-                + gcode.wait_for_done()
+                stage.move(z=dispense_z + args.lift_height) + gcode.wait_for_done()
             )
 
             print(
@@ -250,8 +244,7 @@ def main() -> None:
 
             # ステージを center_camera 付近へ XY 移動
             klipper.send_gcode(
-                stage.to_gcode(Move(x=center_camera.x, y=center_camera.y))
-                + gcode.wait_for_done()
+                stage.move(x=center_camera.x, y=center_camera.y) + gcode.wait_for_done()
             )
             time.sleep(1.0)
 

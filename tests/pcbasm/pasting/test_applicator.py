@@ -27,6 +27,7 @@ def mock_paste_dispenser(mocker: MockerFixture):
 def mock_stage(mocker: MockerFixture):
     stage = mocker.Mock()
     stage.max_velocity = 100.0
+    stage.move.return_value = gcode.GCode()
     stage.to_gcode.return_value = gcode.GCode()
     return stage
 

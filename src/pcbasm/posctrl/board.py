@@ -10,11 +10,10 @@ from pcbasm.config import Corner, ReferencePoint
 from pcbasm.geometry import (
     Compose,
     Matrix2d,
-    Move,
     Point2d,
     Shift,
 )
-from pcbasm.hal import Klipper, XYZStage
+from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.pcb import Outline
 from pcbasm.utils import get_class_module_path
 
@@ -174,7 +173,9 @@ class BoardTransformMeasurer:
         self._logger.info(f"=== {corner.name} Reference Pointへ移動 ===")
         self._logger.info(f"目標位置: ({ref_pos.x:.3f}, {ref_pos.y:.3f})")
         self._move_to(
-            self._stage.to_gcode(Move.from_point(ref_pos, v=move_velocity)),
+            self._stage.move(
+                x=ref_pos.x, y=ref_pos.y, speed=Speed.absolute(move_velocity)
+            ),
         )
 
         self._logger.info(f"=== {corner.name} Reference Pointの位置補正 ===")

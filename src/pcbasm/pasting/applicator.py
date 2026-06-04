@@ -10,13 +10,12 @@ from shapely import Polygon
 from pcbasm import gcode
 from pcbasm.geometry import (
     Identity,
-    Move,
-    Point3d,
-    Trajectory,
+    Path,
     Transform,
 )
-from pcbasm.hal import Klipper, PasteDispenser, XYZStage
+from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
 from pcbasm.pasting.fill_path import build_paste_fill_path
+from pcbasm.pasting.fill_sequence import FillSequence
 from pcbasm.utils import get_class_module_path
 
 
@@ -196,85 +195,28 @@ class PasteApplicator:
 
     def _fill(self, polygon: Polygon) -> None:
         """ポリゴンを螺旋フィル経路で塗布する."""
-        fill_path = build_paste_fill_path(
-            polygon, nozzle_diameter=self._nozzle_diameter
-        )
-
-        if not fill_path:
+        raw = build_paste_fill_path(polygon, nozzle_diameter=self._nozzle_diameter)
+        if not raw:
             self._logger.warning("フィルパスが空です。スキップします。")
             return
 
-        # 各点を変換して3D化
-        transformed = [
-            self._transform.apply(p.to3d(self._paste_height)) for p in fill_path
-        ]
-
-        # 吐出パラメータ算出
-        total_amount = polygon.area * self._ul_per_mm2
-        dispense_time = total_amount / self._dispense_rate
-
-        # Trajectoryを構築し経路長を算出
-        first = transformed[0]
-        fill_trajectory = Trajectory(origin=first, initial_velocity=1.0)
-        fill_trajectory.add(move=[Move.from_point(p, v=1.0) for p in transformed[1:]])
-        path_length = fill_trajectory.distance()
-
-        # プライム時間: 台形速度プロファイルで retraction 分を吐出する時間
+        path = Path(p.to3d(self._paste_height) for p in raw).transformed(
+            self._transform
+        )
         prime_time = _trapezoidal_time(
             self._retraction, self._dispense_rate, self._dispense_accel
         )
-
-        max_v = self._stage.max_velocity
-        lifted_z = first.z + self._lift_height
-        last = transformed[-1]
-        gc = gcode.GCode()
-
-        # 1. 最初のポイント上空へ移動 → Z下降
-        descent = Trajectory(
-            origin=Point3d(first.x, first.y, lifted_z),
-            initial_velocity=max_v,
+        sequence = FillSequence(
+            path=path,
+            total_amount=polygon.area * self._ul_per_mm2,
+            retraction=self._retraction,
+            extra_amount=self._dispense_rate * self._prime_extra_delay,
+            dispense_rate=self._dispense_rate,
+            dispense_accel=self._dispense_accel,
+            retraction_rate=self._retraction_rate,
+            retraction_accel=self._retraction_accel,
+            prime_time=prime_time + self._prime_extra_delay,
+            lift_height=self._lift_height,
+            travel_speed=Speed.rate(1.0),
         )
-        descent.add(
-            Move(x=first.x, y=first.y, z=lifted_z, v=max_v),
-            Move(z=first.z, v=max_v),
-        )
-        gc.append(self._stage.to_gcode(descent))
-        gc.append(gcode.wait_for_done())
-
-        # 2. プライム+吐出を1つの連続動作として非同期開始
-        # extra delay中もディスペンサーは動き続けるため、その分の吐出量を加算
-        extra_amount = self._dispense_rate * self._prime_extra_delay
-        gc.append(
-            self._paste_dispenser.pushpull(
-                self._retraction + extra_amount + total_amount,
-                self._dispense_rate,
-                self._dispense_accel,
-                sync=False,
-            )
-        )
-
-        # 3. プライム後にステージ移動（距離0の場合はその点で待機）
-        if path_length > 0 and dispense_time > 0:
-            fill_trajectory = fill_trajectory.with_velocity(path_length / dispense_time)
-            gc.append(gcode.wait(prime_time + self._prime_extra_delay))
-            gc.append(self._stage.to_gcode(fill_trajectory))
-        else:
-            gc.append(gcode.wait(prime_time + self._prime_extra_delay + dispense_time))
-        gc.append(gcode.wait_for_done())
-
-        # 4. リトラクション
-        gc.append(
-            self._paste_dispenser.pushpull(
-                -self._retraction, self._retraction_rate, self._retraction_accel
-            )
-        )
-
-        # 5. Z上昇
-        ascent = Trajectory(
-            Move(z=last.z + self._lift_height, v=max_v),
-            origin=last,
-            initial_velocity=max_v,
-        )
-        gc.append(self._stage.to_gcode(ascent))
-
-        self._klipper.send_gcode(gc)
+        self._klipper.send_gcode(sequence.to_gcode(self._stage, self._paste_dispenser))
