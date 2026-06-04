@@ -2,6 +2,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from pcbasm.geometry import Move, Point3d, Trajectory, Waypoint
+from pcbasm.hal import Speed
 from pcbasm.hal.klipper import Klipper
 from pcbasm.hal.stage import Limits, ScalarLimits, XYZStage
 from tests.helpers import mark_hardware
@@ -167,6 +168,62 @@ class TestXYZStage:
         with pytest.raises(ValueError, match="制限外の経由点"):
             mock_stage.to_gcode(trajectory)
 
+    @pytest.fixture
+    def mock_stage_at_10(self, mocker: MockerFixture) -> XYZStage:
+        # move() の部分/相対座標解決用に、現在位置を (10, 10, 10) に固定した stage。
+        # limits は mock_stage と同じ。get_position は
+        # get_status("gcode_move","gcode_position") の [0:3] を読むため列を返す。
+        klipper = Klipper()
+        mocker.patch.object(
+            klipper.readonly,
+            "get_config",
+            return_value={
+                "stepper_x": {"position_min": "0", "position_max": "100"},
+                "stepper_y": {"position_min": "0", "position_max": "200"},
+                "stepper_z": {"position_min": "0", "position_max": "50"},
+                "printer": {"max_velocity": "300"},
+            },
+        )
+        mocker.patch.object(
+            klipper.readonly,
+            "get_status",
+            return_value=[10.0, 10.0, 10.0, 0.0],
+        )
+        return XYZStage(klipper.readonly)
+
+    def test_move_emits_single_g1_for_absolute_point(self, mock_stage: XYZStage):
+        # 全座標指定なので現在位置の解決は不要。
+        result = mock_stage.move(x=50, y=100, z=25, speed=Speed.absolute(100))
+
+        assert result.to_list() == ["G1 X50.0 Y100.0 Z25.0 F6000.0"]
+
+    def test_move_resolves_missing_coords_against_current_position(
+        self, mock_stage_at_10: XYZStage
+    ):
+        # x, y は省略。現在位置 (10, 10, 10) で補完され、z のみ更新される。
+        result = mock_stage_at_10.move(z=25, speed=Speed.absolute(100))
+
+        assert result.to_list() == ["G1 X10.0 Y10.0 Z25.0 F6000.0"]
+
+    def test_move_relative_adds_to_current_position(self, mock_stage_at_10: XYZStage):
+        # relative=True は現在位置 (10, 10, 10) への加算。z は省略のため変化なし。
+        result = mock_stage_at_10.move(
+            x=5, y=3, speed=Speed.absolute(100), relative=True
+        )
+
+        assert result.to_list() == ["G1 X15.0 Y13.0 Z10.0 F6000.0"]
+
+    def test_move_defaults_speed_to_max_velocity(self, mock_stage: XYZStage):
+        # speed 未指定なら max_velocity(=300) で解決され F = 300*60。
+        result = mock_stage.move(x=50, y=50, z=25)
+
+        assert result.to_list() == ["G1 X50.0 Y50.0 Z25.0 F18000.0"]
+
+    def test_move_raises_when_resolved_point_out_of_limits(self, mock_stage: XYZStage):
+        # x=150 は x∈[0,100] の範囲外。
+        with pytest.raises(ValueError, match="制限外"):
+            mock_stage.move(x=150, y=50, z=25, speed=Speed.absolute(100))
+
 
 class TestScalarLimits:
     """ScalarLimitsクラスのテスト."""
@@ -213,3 +270,20 @@ class TestLimits:
     )
     def test_contains(self, limits: Limits, waypoint: Waypoint, expected: bool):
         assert (waypoint in limits) == expected
+
+    @pytest.mark.parametrize(
+        ("point", "feed", "expected"),
+        [
+            (Point3d(x=50.0, y=100.0, z=25.0), 150.0, True),  # 全制限内
+            (Point3d(x=0.0, y=0.0, z=0.0), 0.0, True),  # 全最小値
+            (Point3d(x=100.0, y=200.0, z=50.0), 300.0, True),  # 全最大値
+            (Point3d(x=-1.0, y=100.0, z=25.0), 150.0, False),  # x軸が範囲外
+            (Point3d(x=50.0, y=201.0, z=25.0), 150.0, False),  # y軸が範囲外
+            (Point3d(x=50.0, y=100.0, z=51.0), 150.0, False),  # z軸が範囲外
+            (Point3d(x=50.0, y=100.0, z=25.0), 301.0, False),  # 速度が範囲外
+        ],
+    )
+    def test_contains_point_feed(
+        self, limits: Limits, point: Point3d, feed: float, expected: bool
+    ):
+        assert limits.contains(point, feed) == expected

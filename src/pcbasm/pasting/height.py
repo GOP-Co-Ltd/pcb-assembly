@@ -6,13 +6,12 @@ from collections.abc import Iterable
 from pcbasm import gcode
 from pcbasm.geometry import (
     HeightPlane,
-    Move,
     Point2d,
     Point3d,
     Transform,
     sample_points_in_polygons,
 )
-from pcbasm.hal import Klipper, XYZStage
+from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.pcb import Copper
 from pcbasm.utils import get_class_module_path
@@ -49,7 +48,11 @@ class _BoardPointProber:
         )
 
         self._klipper.send_gcode(
-            self._stage.to_gcode(Move.from_point(machine_pt, v=self._move_velocity))
+            self._stage.move(
+                x=machine_pt.x,
+                y=machine_pt.y,
+                speed=Speed.absolute(self._move_velocity),
+            )
             + gcode.wait(self._move_settle_time)
             + gcode.wait_for_done()
         )

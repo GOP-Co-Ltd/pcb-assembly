@@ -17,7 +17,7 @@ import attrs
 
 from pcbasm import gcode
 from pcbasm.config import Machine, get_machine_config
-from pcbasm.geometry import Compose, HeightPlane, Move, Transform, sort_by_nearest
+from pcbasm.geometry import Compose, HeightPlane, Transform, sort_by_nearest
 from pcbasm.hal import Klipper, PasteDispenser, ServoGroundProbe, XYZStage
 from pcbasm.pasting import (
     HeightPlaneMeasurer,
@@ -163,10 +163,10 @@ def _load_and_apply(
         # 対話的ローディング
         if args.interactive_loading:
             pos = stage.get_position()
-            klipper.send_gcode(stage.to_gcode(Move(0, 0, 0)))
+            klipper.send_gcode(stage.move(x=0, y=0, z=0))
             interactive_loading(applicator, args.amount)
             klipper.send_gcode(
-                stage.to_gcode(Move.from_point(pos)) + gcode.wait_for_done()
+                stage.move(x=pos.x, y=pos.y, z=pos.z) + gcode.wait_for_done()
             )
 
         # リトラクション

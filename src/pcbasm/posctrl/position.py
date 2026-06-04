@@ -4,8 +4,8 @@ import logging
 from collections.abc import Callable
 
 from pcbasm import gcode
-from pcbasm.geometry import Move, Point2d
-from pcbasm.hal import Klipper, XYZStage
+from pcbasm.geometry import Point2d
+from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.utils import get_class_module_path
 
 
@@ -94,7 +94,9 @@ class XYPositionAdjustor:
             )
 
             self._move_to(
-                self._stage.to_gcode(Move.from_point(target, v=move_velocity)),
+                self._stage.move(
+                    x=target.x, y=target.y, speed=Speed.absolute(move_velocity)
+                ),
             )
 
         raise RuntimeError(

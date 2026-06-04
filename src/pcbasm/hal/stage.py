@@ -9,6 +9,7 @@ from pcbasm import gcode
 from pcbasm.geometry import Move, Point3d, Trajectory, Waypoint
 
 from .klipper import ReadonlyKlipper
+from .speed import Speed
 
 
 @attrs.frozen
@@ -53,6 +54,23 @@ class Limits:
             and waypoint.y in self.y
             and waypoint.z in self.z
             and waypoint.v in self.v
+        )
+
+    def contains(self, point: Point3d, feed: float) -> bool:
+        """点とfeedが全軸の可動域・速度制限内か判定する.
+
+        Args:
+            point: 判定する座標
+            feed: 判定する送り速度[mm/s]
+
+        Returns:
+            全制限内であればTrue
+        """
+        return (
+            point.x in self.x
+            and point.y in self.y
+            and point.z in self.z
+            and feed in self.v
         )
 
 
@@ -126,6 +144,57 @@ class XYZStage:
     def max_velocity(self) -> float:
         """最大速度."""
         return self.limits.v.max
+
+    def move(
+        self,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        *,
+        speed: Speed | None = None,
+        relative: bool = False,
+    ) -> gcode.GCode:
+        """単点移動のG-codeを生成する.
+
+        None座標は現在位置を維持し、relative=Trueは相対移動として扱う。
+        speed=Noneのときmax_velocityで解決する。解決後の点とfeedをlimitsで
+        検証し、範囲外の場合はValueErrorを送出する。
+
+        Args:
+            x: X座標（Noneは現在位置を維持、relative時は0.0）
+            y: Y座標（Noneは現在位置を維持、relative時は0.0）
+            z: Z座標（Noneは現在位置を維持、relative時は0.0）
+            speed: 送り速度（Noneのときmax_velocity）
+            relative: 相対移動フラグ
+
+        Returns:
+            移動のGCode
+
+        Raises:
+            ValueError: 移動先またはfeedが制限外の場合
+        """
+        feed = float(
+            (speed if speed is not None else Speed.rate(1.0)).resolve(self.max_velocity)
+        )
+
+        if relative or x is None or y is None or z is None:
+            current = self.get_position()
+            if relative:
+                nx = current.x + (x if x is not None else 0.0)
+                ny = current.y + (y if y is not None else 0.0)
+                nz = current.z + (z if z is not None else 0.0)
+            else:
+                nx = x if x is not None else current.x
+                ny = y if y is not None else current.y
+                nz = z if z is not None else current.z
+        else:
+            nx, ny, nz = x, y, z
+
+        point = Point3d(float(nx), float(ny), float(nz))
+        if not self.limits.contains(point, feed):
+            raise ValueError(f"制限外の移動先です: {point}, feed={feed}")
+
+        return gcode.move(x=point.x, y=point.y, z=point.z, velocity=feed)
 
     def validate(self, trajectory: Trajectory) -> ValidationResult:
         """Trajectoryの全経由点が制限内にあるか検証する.

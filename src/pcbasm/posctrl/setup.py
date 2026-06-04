@@ -13,7 +13,7 @@ import cv2
 
 from pcbasm import gcode
 from pcbasm.config import Machine
-from pcbasm.geometry import Move, Point2d, Transform
+from pcbasm.geometry import Point2d, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl.board import BoardTransformMeasurer
@@ -134,7 +134,7 @@ def setup_board_calibration(
     if calibration.z_position is not None:
         logger.info("キャリブレーションZ位置: %.3f mm", calibration.z_position)
     klipper.send_gcode(
-        stage.to_gcode(Move(x=ref_config.x, y=ref_config.y, z=calibration.z_position))
+        stage.move(x=ref_config.x, y=ref_config.y, z=calibration.z_position)
         + gcode.wait_for_done()
     )
     logger.info("移動完了")
