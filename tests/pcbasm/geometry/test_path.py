@@ -1,0 +1,115 @@
+import pytest
+
+from pcbasm.geometry import Compose, Path, Point3d, Scale, Shift
+
+
+class TestPath:
+    """Pathクラスのテスト.
+
+    Pathは順序付き3D点列を表す純粋な幾何オブジェクト（速度・タイミングを持たない）。
+    """
+
+    @pytest.mark.parametrize(
+        ("points", "expected_length"),
+        [
+            # 空のPathは長さ0
+            ([], 0.0),
+            # 単一点のPathは長さ0
+            ([Point3d(1.0, 2.0, 3.0)], 0.0),
+            # 2点 3-4-5: (0,0,0)→(3,4,0) = 5
+            ([Point3d(0.0, 0.0, 0.0), Point3d(3.0, 4.0, 0.0)], 5.0),
+            # 多区間: (0,0,0)→(3,0,0)→(3,4,0) = 3 + 4 = 7
+            (
+                [
+                    Point3d(0.0, 0.0, 0.0),
+                    Point3d(3.0, 0.0, 0.0),
+                    Point3d(3.0, 4.0, 0.0),
+                ],
+                7.0,
+            ),
+        ],
+    )
+    def test_length(self, points, expected_length):
+        path = Path(points)
+
+        assert path.length() == expected_length
+
+    def test_transformed_shift(self):
+        path = Path([Point3d(0.0, 0.0, 0.0), Point3d(1.0, 1.0, 1.0)])
+
+        result = path.transformed(Shift(1.0, 2.0, 3.0))
+
+        assert result.points == (
+            Point3d(1.0, 2.0, 3.0),
+            Point3d(2.0, 3.0, 4.0),
+        )
+
+    def test_transformed_scale(self):
+        path = Path([Point3d(1.0, 2.0, 3.0), Point3d(4.0, 5.0, 6.0)])
+
+        result = path.transformed(Scale(2.0, 2.0, 2.0))
+
+        assert result.points == (
+            Point3d(2.0, 4.0, 6.0),
+            Point3d(8.0, 10.0, 12.0),
+        )
+
+    def test_transformed_compose(self):
+        # Composeは self[0] → self[1] の順で適用される。
+        # (1,1,1) → Shift(1,2,3) → (2,3,4) → Scale(2,2,2) → (4,6,8)
+        path = Path([Point3d(1.0, 1.0, 1.0)])
+
+        result = path.transformed(Compose([Shift(1.0, 2.0, 3.0), Scale(2.0, 2.0, 2.0)]))
+
+        assert result.points == (Point3d(4.0, 6.0, 8.0),)
+
+    def test_transformed_does_not_mutate_original(self):
+        original_points = (Point3d(0.0, 0.0, 0.0), Point3d(1.0, 1.0, 1.0))
+        path = Path(original_points)
+
+        path.transformed(Shift(10.0, 10.0, 10.0))
+
+        # 元のPathは変換の影響を受けない（イミュータブルな値）
+        assert path.points == original_points
+
+    def test_construction_from_list_and_generator_are_equal(self):
+        points = [Point3d(0.0, 0.0, 0.0), Point3d(1.0, 2.0, 3.0)]
+
+        from_list = Path(points)
+        from_generator = Path(p for p in points)
+
+        assert from_list == from_generator
+        assert from_list.points == from_generator.points
+
+    def test_points_is_tuple(self):
+        path = Path([Point3d(0.0, 0.0, 0.0), Point3d(1.0, 2.0, 3.0)])
+
+        assert isinstance(path.points, tuple)
+
+    def test_len(self):
+        path = Path([Point3d(0.0, 0.0, 0.0), Point3d(1.0, 2.0, 3.0)])
+
+        assert len(path) == 2
+
+    def test_len_empty(self):
+        path = Path([])
+
+        assert len(path) == 0
+
+    def test_iteration_yields_points_in_order(self):
+        points = [
+            Point3d(0.0, 0.0, 0.0),
+            Point3d(1.0, 0.0, 0.0),
+            Point3d(1.0, 1.0, 0.0),
+        ]
+        path = Path(points)
+
+        assert list(path) == points
+
+    def test_getitem_first_and_last(self):
+        first = Point3d(0.0, 0.0, 0.0)
+        last = Point3d(9.0, 9.0, 9.0)
+        path = Path([first, Point3d(5.0, 5.0, 5.0), last])
+
+        assert path[0] == first
+        assert path[-1] == last

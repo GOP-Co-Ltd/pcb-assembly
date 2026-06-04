@@ -1,3 +1,4 @@
+from .path import Path
 from .sampling import sample_points_in_polygons
 from .trajectory import Move, Trajectory, Waypoint, sort_by_nearest
 from .transform import (
@@ -19,6 +20,7 @@ __all__ = [
     "Identity",
     "Matrix2d",
     "Move",
+    "Path",
     "Point2d",
     "Point3d",
     "Rotation",

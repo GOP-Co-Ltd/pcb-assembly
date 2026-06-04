@@ -5,6 +5,7 @@ from .manual_stepper import HomingDirection, ManualStepper
 from .paste_dispenser import PasteDispenser
 from .probe import ServoGroundProbe
 from .servo import Servo
+from .speed import Speed
 from .stage import Limits, ScalarLimits, XYZStage
 
 __all__ = [
@@ -27,6 +28,8 @@ __all__ = [
     "ServoGroundProbe",
     # servo
     "Servo",
+    # speed
+    "Speed",
     # stage
     "ScalarLimits",
     "Limits",
