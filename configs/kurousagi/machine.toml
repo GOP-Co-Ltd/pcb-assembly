@@ -32,7 +32,7 @@ width = 1280
 height = 720
 fps = 30.0
 format = "YUYV"
-calibration_file = "ov9281_20260402_163428.json"
+calibration_file = "ov9281_20260604_141709.json"
 
 [camera.crop]
 width = 600
@@ -47,8 +47,8 @@ min_radius = 0.5            # サンプル点が銅箔境界から確保すべ�
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
-x = 16
-y = 5
+x = 14
+y = 6
 # 基準点の直径 (mm)
 target_diameter = 3.0
 
