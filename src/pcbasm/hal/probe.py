@@ -44,8 +44,8 @@ class ProbeSensor:
 class ProbeGround:
     """サーボでプローブ用グラウンドピンを上下させるHAL.
 
-    「一回転あたりの移動量」と「下げる距離」からサーボ角度を算出する。 up()は常に角度0、down()は`down_distance /
-    revolution_distance * 360`度。
+    「一回転あたりの移動量」と「下げる距離」からサーボ角度を算出する。
+    up()は常に角度0、down(distance)は`distance / revolution_distance * 360`度。
     """
 
     def __init__(
@@ -53,7 +53,6 @@ class ProbeGround:
         klipper: ReadonlyKlipper,
         servo_name: str,
         revolution_distance: float,
-        down_distance: float,
     ) -> None:
         """ProbeGroundを初期化する.
 
@@ -61,14 +60,17 @@ class ProbeGround:
             klipper: Klipperクライアント
             servo_name: printer.cfgの[servo <name>]のname部分
             revolution_distance: サーボ一回転あたりの移動量 [mm]
-            down_distance: グラウンドを下げる距離 [mm]
         """
         self._servo = Servo(klipper, servo_name)
-        self._down_angle = down_distance / revolution_distance * 360.0
+        self._revolution_distance = revolution_distance
 
-    def down(self) -> GCode:
-        """グラウンドを下げるGCodeを返す."""
-        return self._servo.set_angle(self._down_angle)
+    def down(self, distance: float) -> GCode:
+        """グラウンドを指定距離だけ下げるGCodeを返す.
+
+        Args:
+            distance: グラウンドを下げる距離 [mm]
+        """
+        return self._servo.set_angle(distance / self._revolution_distance * 360.0)
 
     def up(self) -> GCode:
         """グラウンドを上げるGCodeを返す."""
@@ -101,13 +103,14 @@ class ServoGroundProbe:
             down_distance: グラウンドを下げる距離 [mm]
         """
         self._sensor = ProbeSensor(klipper)
-        self._ground = ProbeGround(
-            klipper, servo_name, revolution_distance, down_distance
-        )
+        self._ground = ProbeGround(klipper, servo_name, revolution_distance)
+        self._down_distance = down_distance
 
     def probe(self) -> GCode:
         """グラウンドを下げ、PROBEを実行し、グラウンドを上げる一連のGCodeを返す."""
-        return self._ground.down() + GCode("PROBE") + self._ground.up()
+        return (
+            self._ground.down(self._down_distance) + GCode("PROBE") + self._ground.up()
+        )
 
     def get_last_z_result(self) -> float:
         """最後のプローブ計測のZ座標を返す.

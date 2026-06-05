@@ -41,7 +41,7 @@ class TestProbeGround:
         klipper = Klipper()
         mocker.patch.object(klipper.readonly, "get_config", return_value={})
         with pytest.raises(RuntimeError, match=r"printer\.cfgに\[servo probe_gnd\]"):
-            ProbeGround(klipper.readonly, "probe_gnd", 40.0, 5.0)
+            ProbeGround(klipper.readonly, "probe_gnd", 40.0)
 
     @pytest.mark.parametrize(
         ("revolution_distance", "down_distance", "expected_angle"),
@@ -58,15 +58,13 @@ class TestProbeGround:
         down_distance: float,
         expected_angle: float,
     ):
-        ground = ProbeGround(
-            mock_klipper.readonly, "probe_gnd", revolution_distance, down_distance
-        )
-        assert ground.down().to_list() == [
+        ground = ProbeGround(mock_klipper.readonly, "probe_gnd", revolution_distance)
+        assert ground.down(down_distance).to_list() == [
             f"SET_SERVO SERVO=probe_gnd ANGLE={expected_angle}"
         ]
 
     def test_up(self, mock_klipper: Klipper):
-        ground = ProbeGround(mock_klipper.readonly, "probe_gnd", 40.0, 5.0)
+        ground = ProbeGround(mock_klipper.readonly, "probe_gnd", 40.0)
         assert ground.up().to_list() == ["SET_SERVO SERVO=probe_gnd ANGLE=0.0"]
 
 
