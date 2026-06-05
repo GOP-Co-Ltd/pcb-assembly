@@ -7,7 +7,7 @@
 
 起動例::
 
-    uv run python -m scripts.fill_path_simulate <pcb_file> \\
+    uv run python -m scripts.dev.fill_path_simulate <pcb_file> \\
         --nozzle-diameter 0.4 --layer top -o /tmp/fill_path.png
 """
 
@@ -25,7 +25,9 @@ from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Polygon as MplPolygon
+from shapely import Polygon as ShapelyPolygon
 from shapely.geometry import LineString
+from shapely.ops import unary_union
 
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.fill_path import build_paste_fill_path
@@ -41,15 +43,15 @@ _START_COLOR = "#ff3333"
 def render_fill_paths(
     outline: Outline,
     pads: PadList,
-    paths: list[list[Point2d]],
+    paths: list[list[list[Point2d]]],
     nozzle_diameter: float,
     layer: Layer,
     output_path: Path,
 ) -> None:
     """Outline・paste pad・fill path を1枚の PNG に重ね描きして保存する.
 
-    ``paths`` は ``pads`` と同じ並びで、各要素は対応 pad の塗布経路。
-    パスが構築できなかった pad には空リストが入る想定。
+    ``paths`` は ``pads`` と同じ並びで、各要素は対応 pad の成分別塗布経路
+    （``list[list[Point2d]]``）。パスが構築できなかった pad には空リストが入る。
     """
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_aspect("equal")
@@ -89,9 +91,11 @@ def render_fill_paths(
             )
         )
 
-    # 各 pad の fill path
-    for path in paths:
-        _draw_fill_path(ax, path, nozzle_diameter)
+    # 各 pad の fill path（成分単位で描画）
+    for pad, components in zip(pads, paths):
+        for component in components:
+            _draw_fill_path(ax, component, nozzle_diameter)
+        _annotate_coverage(ax, pad.polygon, components, nozzle_diameter)
 
     # 軸設定
     ax.autoscale()
@@ -205,6 +209,48 @@ def _draw_fill_path(ax: Axes, path: list[Point2d], nozzle_diameter: float) -> No
     )
 
 
+def _annotate_coverage(
+    ax: Axes,
+    polygon: ShapelyPolygon,
+    components: list[list[Point2d]],
+    nozzle_diameter: float,
+) -> None:
+    """成分別パスのノズル幅 buffer による被覆率を pad 中心に注記する.
+
+    被覆率 = ``union(path.buffer(w/2)).area / polygon.area``（w = nozzle_diameter）。
+    パスが空、または面積0の場合は注記しない。
+    """
+    if polygon.area <= 0:
+        return
+
+    halos = []
+    for component in components:
+        if len(component) >= 2:
+            halos.append(
+                LineString([(p.x, p.y) for p in component]).buffer(nozzle_diameter / 2)
+            )
+        elif len(component) == 1:
+            halos.append(
+                LineString(
+                    [(component[0].x, component[0].y), (component[0].x, component[0].y)]
+                ).buffer(nozzle_diameter / 2)
+            )
+    if not halos:
+        return
+
+    covered = unary_union(halos).intersection(polygon).area
+    ratio = covered / polygon.area
+    rep = polygon.representative_point()
+    ax.annotate(
+        f"{ratio * 100:.0f}%",
+        xy=(rep.x, rep.y),
+        color="white",
+        fontsize=5,
+        ha="center",
+        va="center",
+    )
+
+
 def _plot_start_marker(ax: Axes, point: Point2d) -> None:
     """パス始点の赤丸マーカーを描く."""
     ax.plot(
@@ -222,8 +268,12 @@ def _pads_on_layer(pads: PadList, layer: Layer) -> PadList:
     return PadList(pad for pad in pads if pad.layer == layer)
 
 
-def _build_paths(pads: PadList, nozzle_diameter: float) -> list[list[Point2d]]:
-    """各 pad の塗布経路を ``pads`` と同じ並びで返す."""
+def _build_paths(pads: PadList, nozzle_diameter: float) -> list[list[list[Point2d]]]:
+    """各 pad の成分別塗布経路を ``pads`` と同じ並びで返す.
+
+    ``build_paste_fill_path`` は成分別ポリラインのリストを返すため、戻り値は
+    「パッド × 成分 × ポリライン点列」の三重リストとなる。
+    """
     return [build_paste_fill_path(pad.polygon, nozzle_diameter) for pad in pads]
 
 
@@ -284,7 +334,7 @@ def main() -> None:
     print(f"  {layer.value} レイヤの paste pad 数: {len(pads)}")
 
     paths = _build_paths(pads, args.nozzle_diameter)
-    non_empty = sum(1 for p in paths if p)
+    non_empty = sum(1 for components in paths if components)
     print(f"  fill path 生成: {non_empty} / {len(paths)} 成功")
 
     render_fill_paths(
