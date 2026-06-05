@@ -120,6 +120,9 @@ class PasteSession:
             retraction_accel_factor=cfg.retract_accel_factor,
             paste_height=cfg.paste_height,
             prime_extra_delay=cfg.prime_extra_delay,
+            bead_width_factor=cfg.bead_width_factor,
+            overlap=cfg.overlap,
+            boundary_margin=cfg.boundary_margin,
             transform=transform,
         )
 
