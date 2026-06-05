@@ -16,8 +16,8 @@ class ProbeExecutor:
         probe: ServoGroundProbe,
         stage: XYZStage,
         *,
-        lift_height: float = 5.0,
-        settle_time: float = 1.0,
+        lift_height: float = 2.0,
+        settle_time: float = 0.5,
     ) -> None:
         self._klipper = klipper
         self._probe = probe

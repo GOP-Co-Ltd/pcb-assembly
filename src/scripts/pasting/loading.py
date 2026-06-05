@@ -27,7 +27,7 @@ def main() -> None:
         "--amount",
         "-a",
         type=float,
-        default=10.0,
+        default=0.1,
         help="デフォルトの押し出し量 [μL]",
     )
     args = parser.parse_args()

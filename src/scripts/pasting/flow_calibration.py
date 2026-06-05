@@ -55,7 +55,7 @@ def main() -> None:
         "--rotations", "-n", type=float, default=30, help="回転数 [rev]"
     )
     parser.add_argument(
-        "--rate", "-r", type=float, default=1.0, help="角速度 [rev/sec]"
+        "--rate", "-r", type=float, default=5.0, help="角速度 [rev/sec]"
     )
     parser.add_argument(
         "--accel", "-a", type=float, default=10.0, help="角加速度 [rev/sec^2]"
