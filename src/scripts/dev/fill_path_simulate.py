@@ -5,10 +5,16 @@
 ``build_paste_fill_path`` で塗布経路を生成、PCB outline と重ねた
 1枚の PNG として書き出す。
 
+被覆パラメータ（``--bead-width-factor`` / ``--overlap`` / ``--boundary-margin``）で
+``build_paste_fill_path`` の塗布幅・行間・外周マージンを調整して可視化できる。
+
 起動例::
 
     uv run python -m scripts.dev.fill_path_simulate <pcb_file> \\
         --nozzle-diameter 0.4 --layer top -o /tmp/fill_path.png
+
+    uv run python -m scripts.dev.fill_path_simulate <pcb_file> \\
+        -d 0.4 --overlap 0.3 --boundary-margin 0.2 -o /tmp/fill_path.png
 """
 
 from __future__ import annotations
@@ -45,6 +51,9 @@ def render_fill_paths(
     pads: PadList,
     paths: list[list[list[Point2d]]],
     nozzle_diameter: float,
+    bead_width_factor: float,
+    overlap: float,
+    boundary_margin: float,
     layer: Layer,
     output_path: Path,
 ) -> None:
@@ -52,7 +61,9 @@ def render_fill_paths(
 
     ``paths`` は ``pads`` と同じ並びで、各要素は対応 pad の成分別塗布経路
     （``list[list[Point2d]]``）。パスが構築できなかった pad には空リストが入る。
+    halo / 被覆率はビード幅 ``w = nozzle_diameter * bead_width_factor`` で描く。
     """
+    bead_width = nozzle_diameter * bead_width_factor
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_aspect("equal")
     ax.set_facecolor("#2a2a2a")
@@ -94,8 +105,8 @@ def render_fill_paths(
     # 各 pad の fill path（成分単位で描画）
     for pad, components in zip(pads, paths):
         for component in components:
-            _draw_fill_path(ax, component, nozzle_diameter)
-        _annotate_coverage(ax, pad.polygon, components, nozzle_diameter)
+            _draw_fill_path(ax, component, bead_width)
+        _annotate_coverage(ax, pad.polygon, components, bead_width)
 
     # 軸設定
     ax.autoscale()
@@ -106,7 +117,9 @@ def render_fill_paths(
     title = (
         f"Board: {outline.width:.1f}x{outline.height:.1f}mm, "
         f"Pads ({layer.value}): {len(pads)}, "
-        f"Nozzle: {nozzle_diameter:.2f}mm"
+        f"Nozzle: {nozzle_diameter:.2f}mm\n"
+        f"bead×{bead_width_factor:.2f}  overlap={overlap:.2f}  "
+        f"margin={boundary_margin:.2f}mm"
     )
     ax.set_title(title, color="white")
 
@@ -155,10 +168,10 @@ def render_fill_paths(
     plt.close(fig)
 
 
-def _draw_fill_path(ax: Axes, path: list[Point2d], nozzle_diameter: float) -> None:
+def _draw_fill_path(ax: Axes, path: list[Point2d], bead_width: float) -> None:
     """1本の fill path を ax に描画する.
 
-    - halo（ノズル塗布幅の半透明領域）
+    - halo（ビード塗布幅 ``bead_width`` の半透明領域）
     - 中心線
     - 始点マーカー
     - 始点→次点の方向矢印
@@ -173,9 +186,9 @@ def _draw_fill_path(ax: Axes, path: list[Point2d], nozzle_diameter: float) -> No
         _plot_start_marker(ax, path[0])
         return
 
-    # ノズル塗布幅 halo: shapely.buffer で mm 単位ポリゴン化
+    # ビード塗布幅 halo: shapely.buffer で mm 単位ポリゴン化
     coords = [(p.x, p.y) for p in path]
-    halo = LineString(coords).buffer(nozzle_diameter / 2)
+    halo = LineString(coords).buffer(bead_width / 2)
     if not halo.is_empty and halo.geom_type == "Polygon":
         ax.add_patch(
             polygon_with_holes_patch(
@@ -213,11 +226,11 @@ def _annotate_coverage(
     ax: Axes,
     polygon: ShapelyPolygon,
     components: list[list[Point2d]],
-    nozzle_diameter: float,
+    bead_width: float,
 ) -> None:
-    """成分別パスのノズル幅 buffer による被覆率を pad 中心に注記する.
+    """成分別パスのビード幅 buffer による被覆率を pad 中心に注記する.
 
-    被覆率 = ``union(path.buffer(w/2)).area / polygon.area``（w = nozzle_diameter）。
+    被覆率 = ``union(path.buffer(w/2)).area / polygon.area``（w = bead_width）。
     パスが空、または面積0の場合は注記しない。
     """
     if polygon.area <= 0:
@@ -227,13 +240,13 @@ def _annotate_coverage(
     for component in components:
         if len(component) >= 2:
             halos.append(
-                LineString([(p.x, p.y) for p in component]).buffer(nozzle_diameter / 2)
+                LineString([(p.x, p.y) for p in component]).buffer(bead_width / 2)
             )
         elif len(component) == 1:
             halos.append(
                 LineString(
                     [(component[0].x, component[0].y), (component[0].x, component[0].y)]
-                ).buffer(nozzle_diameter / 2)
+                ).buffer(bead_width / 2)
             )
     if not halos:
         return
@@ -268,13 +281,30 @@ def _pads_on_layer(pads: PadList, layer: Layer) -> PadList:
     return PadList(pad for pad in pads if pad.layer == layer)
 
 
-def _build_paths(pads: PadList, nozzle_diameter: float) -> list[list[list[Point2d]]]:
+def _build_paths(
+    pads: PadList,
+    nozzle_diameter: float,
+    *,
+    bead_width_factor: float,
+    overlap: float,
+    boundary_margin: float,
+) -> list[list[list[Point2d]]]:
     """各 pad の成分別塗布経路を ``pads`` と同じ並びで返す.
 
     ``build_paste_fill_path`` は成分別ポリラインのリストを返すため、戻り値は
-    「パッド × 成分 × ポリライン点列」の三重リストとなる。
+    「パッド × 成分 × ポリライン点列」の三重リストとなる。被覆パラメータ
+    （``bead_width_factor`` / ``overlap`` / ``boundary_margin``）はそのまま委譲する。
     """
-    return [build_paste_fill_path(pad.polygon, nozzle_diameter) for pad in pads]
+    return [
+        build_paste_fill_path(
+            pad.polygon,
+            nozzle_diameter,
+            bead_width_factor=bead_width_factor,
+            overlap=overlap,
+            boundary_margin=boundary_margin,
+        )
+        for pad in pads
+    ]
 
 
 def _parse_layer(value: str) -> Layer:
@@ -311,6 +341,26 @@ def main() -> None:
         default="top",
         help="描画する paste pad のレイヤ (default: top)",
     )
+    parser.add_argument(
+        "--bead-width-factor",
+        "-b",
+        type=float,
+        default=1.0,
+        help="ビード幅係数 w = nozzle * factor (default: 1.0)",
+    )
+    parser.add_argument(
+        "--overlap",
+        type=float,
+        default=0.0,
+        help="ジグザグ行間オーバーラップ [0,1) (default: 0.0)",
+    )
+    parser.add_argument(
+        "--boundary-margin",
+        "-m",
+        type=float,
+        default=0.0,
+        help="外周マージン [mm] (default: 0.0)",
+    )
     args = parser.parse_args()
 
     pcb_path: Path = args.pcb_file
@@ -333,7 +383,13 @@ def main() -> None:
     pads = _pads_on_layer(pcb.pads, layer)
     print(f"  {layer.value} レイヤの paste pad 数: {len(pads)}")
 
-    paths = _build_paths(pads, args.nozzle_diameter)
+    paths = _build_paths(
+        pads,
+        args.nozzle_diameter,
+        bead_width_factor=args.bead_width_factor,
+        overlap=args.overlap,
+        boundary_margin=args.boundary_margin,
+    )
     non_empty = sum(1 for components in paths if components)
     print(f"  fill path 生成: {non_empty} / {len(paths)} 成功")
 
@@ -342,6 +398,9 @@ def main() -> None:
         pads=pads,
         paths=paths,
         nozzle_diameter=args.nozzle_diameter,
+        bead_width_factor=args.bead_width_factor,
+        overlap=args.overlap,
+        boundary_margin=args.boundary_margin,
         layer=layer,
         output_path=output_path,
     )
