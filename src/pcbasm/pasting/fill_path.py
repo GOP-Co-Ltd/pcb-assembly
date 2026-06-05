@@ -1,162 +1,308 @@
 """ペースト塗布用フィルパス生成.
 
-公開 API は :func:`build_paste_fill_path` のみ。ノズル径からマシン固有の
-ヒューリスティクス（線間隔・インセット・線形フォールバック判定）を決定し、
-同モジュール内の private ヘルパー（``_generate_spiral_path`` /
-``_generate_linear_path`` および幾何ユーティリティ群）に委譲する。
+公開 API は :func:`build_paste_fill_path` のみ。ノズル径と塗布パラメータから
+マシン固有のヒューリスティクス（線間隔・インセット・フォールバック判定）を
+決定し、同モジュール内の private ヘルパー（``_area_fill`` /
+``_outline_and_zigzag`` / ``_line_fill`` / ``_dot_fill`` および幾何
+ユーティリティ群）に委譲する。
+
+アルゴリズムは「面塗布（外周トレース＋牛耕式ジグザグ）→ 線塗布（最長軸中心線）
+→ 点塗布（代表点1点）」のフォールバック階層からなる。面塗布は
+``polygon.buffer(-inset)`` の各連結成分ごとに独立したポリラインを生成し、
+戻り値は成分別ポリラインのリスト ``list[list[Point2d]]`` となる。
 """
 
 from __future__ import annotations
 
 from shapely import MultiPolygon, Polygon
-from shapely.geometry import GeometryCollection
+from shapely.geometry import GeometryCollection, LineString, MultiLineString
 from shapely.geometry.base import BaseGeometry
 
 from pcbasm.geometry import Point2d
 
 
-def build_paste_fill_path(polygon: Polygon, nozzle_diameter: float) -> list[Point2d]:
-    """ペーストフィルパスを生成する.
+def build_paste_fill_path(
+    polygon: Polygon,
+    nozzle_diameter: float,
+    *,
+    bead_width_factor: float = 1.0,
+    overlap: float = 0.0,
+    boundary_margin: float = 0.0,
+) -> list[list[Point2d]]:
+    """ペーストフィルパスを成分別ポリラインのリストとして生成する.
 
-    ノズル径からマシン固有のヒューリスティクスで間隔・インセット・
-    フォールバック判定を行い、内部の螺旋／線形ヘルパーに委譲する。
+    ノズル径と塗布パラメータからビード幅・線間隔・インセットを決定し、
+    面 → 線 → 点 のフォールバック階層で塗布経路を構築する。
 
-    - line_spacing  = nozzle_diameter
-    - initial_inset = nozzle_diameter / 2
-    - polygon.buffer(-nozzle_diameter) が空 → 線形（end_inset = nozzle_diameter / 2）
-    - それ以外 → 螺旋。数値誤差で空になった場合は線形にフォールバック
+    数式::
+
+        w (bead_width) = nozzle_diameter * bead_width_factor
+        line_spacing   = w * (1 - overlap)
+        inset          = boundary_margin + w / 2     # 面塗布領域 = buffer(-inset)
+        end_inset      = boundary_margin + w / 2     # 線塗布の両端内側補正
+
+    フォールバック::
+
+        面塗布（_area_fill）が非空ならそれを返す
+        → 線塗布（_line_fill）が非空なら [line] を返す
+        → 点塗布（_dot_fill）を [[rep]] として返す（必ず非空）
 
     Args:
         polygon: 塗布対象のポリゴン（mm単位）
         nozzle_diameter: ノズル内径 [mm]
+        bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
+        overlap: ジグザグ行間オーバーラップ [0, 1)
+        boundary_margin: 外周マージン [mm]
 
     Returns:
-        塗布パスの座標リスト（パスが構築できなければ空リスト）
+        成分別ポリラインのリスト。各内側ポリラインは1点以上の ``Point2d``。
+        入力が空／不正なポリゴンの場合のみ ``[]``。
 
     Raises:
-        ValueError: nozzle_diameter が 0 以下の場合
+        ValueError: ``nozzle_diameter`` が0以下、``overlap`` が [0,1) 外、
+            ``boundary_margin`` が負、``bead_width_factor`` が0以下の場合
     """
     if nozzle_diameter <= 0:
         raise ValueError(
             f"nozzle_diameterは正の値である必要があります: {nozzle_diameter}"
         )
+    if not (0.0 <= overlap < 1.0):
+        raise ValueError(f"overlapは[0,1)である必要があります: {overlap}")
+    if boundary_margin < 0:
+        raise ValueError(
+            f"boundary_marginは0以上である必要があります: {boundary_margin}"
+        )
+    if bead_width_factor <= 0:
+        raise ValueError(
+            f"bead_width_factorは正の値である必要があります: {bead_width_factor}"
+        )
 
     if polygon.is_empty or not polygon.is_valid:
         return []
 
-    line_spacing = nozzle_diameter
-    initial_inset = nozzle_diameter / 2
+    w = nozzle_diameter * bead_width_factor
+    line_spacing = w * (1.0 - overlap)
+    inset = boundary_margin + w / 2.0
+    end_inset = boundary_margin + w / 2.0
 
-    if polygon.buffer(-nozzle_diameter).is_empty:
-        return _generate_linear_path(polygon, end_inset=initial_inset)
-
-    spiral = _generate_spiral_path(polygon, line_spacing, initial_inset)
-    if spiral:
-        return spiral
-    return _generate_linear_path(polygon, end_inset=initial_inset)
+    if paths := _area_fill(polygon, line_spacing, inset):
+        return paths
+    if line := _line_fill(polygon, end_inset):
+        return [line]
+    return [_dot_fill(polygon)]
 
 
-def _truncate_ring(ring: list[Point2d], gap: float) -> list[Point2d]:
-    """閉じたリングを、gap分手前で切り詰めたオープンパスを返す."""
-    points = ring[:-1]
-    if not points:
-        return []
+def _area_fill(
+    polygon: Polygon,
+    line_spacing: float,
+    inset: float,
+) -> list[list[Point2d]]:
+    """面塗布パスを成分別ポリラインのリストとして生成する.
 
-    n = len(points)
-    perimeter = sum((points[(i + 1) % n] - points[i]).norm for i in range(n))
-    target = perimeter - gap
-    if target <= 0:
-        return [points[0]]
+    ``polygon.buffer(-inset)`` の各連結成分（``_offset_components``）に
+    ``_outline_and_zigzag`` を適用し、空でないポリラインを集めて返す。
+    成分が無い（buffer 後が空）場合は ``[]``。
+    """
+    components = _offset_components(polygon, inset)
+    paths: list[list[Point2d]] = []
+    for component in components:
+        path = _outline_and_zigzag(component, line_spacing)
+        if path:
+            paths.append(path)
+    return paths
 
-    path = [points[0]]
-    accumulated = 0.0
-    for i in range(n):
-        next_p = points[(i + 1) % n]
-        edge_len = (next_p - points[i]).norm
-        if accumulated + edge_len >= target:
-            t = (target - accumulated) / edge_len if edge_len > 0 else 0.0
-            path.append(points[i] + (next_p - points[i]) * t)
-            break
-        accumulated += edge_len
-        path.append(next_p)
+
+def _outline_and_zigzag(
+    component: Polygon,
+    line_spacing: float,
+) -> list[Point2d]:
+    """1連結成分の外周トレース＋内部ジグザグを1ポリラインに結合して返す.
+
+    最小実装の方針（牛耕式）:
+
+    1. 外周: ``_ring_coords(component)`` で外環をトレースする。
+    2. ジグザグ: ``component.minimum_rotated_rectangle`` から最長軸方向を取り、
+       最長軸に垂直なスキャンラインを ``line_spacing`` 間隔で生成する。各
+       スキャンライン∩``component`` の区間を最長軸座標でソートし、行ごとに
+       方向を交互反転して（牛耕式に）繋ぐ。
+    3. 外周 → 内部ジグザグの順で、各遷移を最近傍接続で1ポリラインに結合する。
+
+    点が作れなければ ``[]`` を返す。
+    """
+    outline = _ring_coords(component)
+    zigzag = _zigzag_rows(component, line_spacing)
+
+    path: list[Point2d] = []
+    for segment in [outline, *zigzag]:
+        if not segment:
+            continue
+        if path:
+            # 直前終端への近さで接続向きを揃える
+            if (segment[-1] - path[-1]).norm < (segment[0] - path[-1]).norm:
+                segment = list(reversed(segment))
+            # 接続ジャンプが成分外を横切る場合は外周経由で繋ぐ（凹成分対策）
+            path.extend(_connect_via_outline(path[-1], segment[0], component))
+        path.extend(segment)
     return path
 
 
-def _rotate_ring_to_nearest(ring: list[Point2d], target: Point2d) -> list[Point2d]:
-    """閉じたリングを、targetに最も近い点から開始するように回転する."""
-    # 最後の点は最初の点と同じ（閉ループ）なので除外して検索
-    points = ring[:-1]
-    if not points:
-        return ring
-
-    min_idx = 0
-    min_dist = (points[0] - target).norm
-    for i, p in enumerate(points[1:], 1):
-        d = (p - target).norm
-        if d < min_dist:
-            min_dist = d
-            min_idx = i
-
-    # 回転して閉ループを再構成
-    rotated = points[min_idx:] + points[:min_idx]
-    rotated.append(rotated[0])
-    return rotated
-
-
-def _generate_spiral_path(
-    polygon: Polygon,
-    line_spacing: float,
-    initial_inset: float,
+def _connect_via_outline(
+    start: Point2d,
+    end: Point2d,
+    component: Polygon,
 ) -> list[Point2d]:
-    """中心起点でポリゴン形状追従の連続螺旋パスを生成する.
+    """``start`` → ``end`` の接続が成分外を横切る場合の中継点列を返す.
 
-    パスの先頭点は ``polygon.representative_point()`` （凹形でも内部保証）に
-    固定され、そこから最内リングへ最短ジャンプして以降は ``truncate + rotate``
-    方式でポリゴン形状追従の同心オフセットリングを innermost → outermost に
-    辿る。最外周のみ truncate せず完走する。``polygon`` が複数連結成分に
-    またがる場合（凹形状の ``buffer(-d)`` が分裂する場合を含む）、各成分の
-    螺旋を最近傍順で連結する（最初の成分は中心起点に最も近いものを選択）。
+    直線接続 ``[start, end]`` が ``component`` に収まるなら中継不要（``[]``）。
+    収まらない場合は、成分外周（``component.exterior``）上で ``start`` / ``end``
+    に最も近い頂点の間を外周に沿って辿る中継点列を返す。凹成分で牛耕式の行
+    遷移が成分外を横切るケースの局所対処（先回りの一般化はしない）。
+    """
+    jump = LineString([(start.x, start.y), (end.x, end.y)])
+    if component.buffer(1e-9).covers(jump):
+        return []
 
-    Args:
-        polygon: 対象ポリゴン（mm単位）
-        line_spacing: リング間隔（mm、正の値）
-        initial_inset: 最内のオフセット深さ（mm、0以上）
+    # _ring_coords は閉環（末尾が始点の重複）なので末尾を除いて巡回頂点とする
+    vertices = _ring_coords(component)[:-1]
+    n = len(vertices)
+    i_start = min(range(n), key=lambda i: (vertices[i] - start).norm)
+    i_end = min(range(n), key=lambda i: (vertices[i] - end).norm)
 
-    Returns:
-        中心点を先頭とする innermost-first の連続螺旋座標列。
-        ``polygon.buffer(-initial_inset)`` が空、もしくは入力が空／不正の場合
-        は ``[]``。
+    # 外周を時計回り・反時計回りの両方向で辿り、短い方を採用
+    forward = _ring_segment(vertices, i_start, i_end, step=1)
+    backward = _ring_segment(vertices, i_start, i_end, step=-1)
+    return (
+        forward if _polyline_length(forward) <= _polyline_length(backward) else backward
+    )
 
-    Raises:
-        ValueError: ``line_spacing`` が0以下、または ``initial_inset`` が負の場合
+
+def _ring_segment(
+    vertices: list[Point2d],
+    i_start: int,
+    i_end: int,
+    *,
+    step: int,
+) -> list[Point2d]:
+    """``vertices`` を ``i_start`` から ``i_end`` まで ``step`` 方向に巡回した点列."""
+    n = len(vertices)
+    path: list[Point2d] = []
+    i = i_start
+    while i != i_end:
+        path.append(vertices[i])
+        i = (i + step) % n
+    path.append(vertices[i_end])
+    return path
+
+
+def _polyline_length(points: list[Point2d]) -> float:
+    """ポリラインの総延長を返す."""
+    return sum((points[i + 1] - points[i]).norm for i in range(len(points) - 1))
+
+
+def _zigzag_rows(component: Polygon, line_spacing: float) -> list[list[Point2d]]:
+    """成分内部を最長軸方向の牛耕式ジグザグ行として生成する.
+
+    ``minimum_rotated_rectangle`` の最長辺方向を走査方向（最長軸）とし、それに
+    垂直なスキャンラインを ``line_spacing`` 間隔で並べる。各スキャンラインと
+    ``component`` の交線区間を最長軸座標でソートし、行ごとに方向を交互反転して
+    牛耕式に並べた行のリストを返す。交差区間が無ければ空行は含めない。
     """
     if line_spacing <= 0:
-        raise ValueError(f"line_spacingは正の値である必要があります: {line_spacing}")
-    if initial_inset < 0:
-        raise ValueError(f"initial_insetは0以上である必要があります: {initial_inset}")
-
-    if polygon.is_empty or not polygon.is_valid:
         return []
 
-    components = _offset_components(polygon, 0.0)
-    if not components:
+    mrr = component.minimum_rotated_rectangle
+    if not isinstance(mrr, Polygon):
+        return []
+    coords = list(mrr.exterior.coords)
+    if len(coords) < 5:
         return []
 
-    rep = polygon.representative_point()
-    anchor = Point2d(rep.x, rep.y)
+    corner = Point2d(coords[0][0], coords[0][1])
+    edge_a = Point2d(coords[1][0], coords[1][1]) - corner
+    edge_b = Point2d(coords[3][0], coords[3][1]) - corner
 
-    spirals: list[list[Point2d]] = []
-    for component in components:
-        spiral = _spiral_one_component(
-            component, line_spacing, initial_inset, anchor=anchor
+    # 最長辺方向 = 走査方向（最長軸 u）、もう一方 = 行送り方向 v
+    if edge_a.norm >= edge_b.norm:
+        long_edge, short_edge = edge_a, edge_b
+    else:
+        long_edge, short_edge = edge_b, edge_a
+
+    long_len = long_edge.norm
+    short_len = short_edge.norm
+    if long_len <= 0 or short_len <= 0:
+        return []
+
+    u = long_edge * (1.0 / long_len)  # 走査方向（最長軸）の単位ベクトル
+    v = short_edge * (1.0 / short_len)  # 行送り方向の単位ベクトル
+
+    # スキャンラインを行送り方向に line_spacing 間隔で配置（両端は半間隔内側）
+    n_rows = max(1, int(short_len / line_spacing))
+    rows: list[list[Point2d]] = []
+    for i in range(n_rows):
+        offset = (i + 0.5) * short_len / n_rows
+        base = corner + v * offset
+        # 最長軸方向に矩形を貫くスキャンライン
+        scan = LineString(
+            [
+                (base.x, base.y),
+                ((base + u * long_len).x, (base + u * long_len).y),
+            ]
         )
-        if spiral:
-            spirals.append(spiral)
+        intervals = _scanline_intervals(scan, component, base, u)
+        if not intervals:
+            continue
+        # 行ごとに走査向きを交互反転（牛耕式）
+        if i % 2 == 1:
+            intervals = list(reversed([(b, a) for a, b in intervals]))
+        for start, end in intervals:
+            rows.append([start, end])
+    return rows
 
-    if not spirals:
+
+def _scanline_intervals(
+    scan: LineString,
+    component: Polygon,
+    base: Point2d,
+    u: Point2d,
+) -> list[tuple[Point2d, Point2d]]:
+    """スキャンラインと成分の交線区間を最長軸座標でソートして返す.
+
+    ``scan ∩ component`` の各 ``LineString`` 区間の端点を、最長軸方向 ``u`` への
+    射影座標で昇順に並べた ``(start, end)`` のリストを返す。交差が無ければ空。
+    """
+    inter = scan.intersection(component)
+    if inter.is_empty:
         return []
 
-    return [anchor] + _connect_nearest(spirals, anchor=anchor)
+    if isinstance(inter, LineString):
+        lines: list[LineString] = [inter]
+    elif isinstance(inter, MultiLineString):
+        lines = [g for g in inter.geoms if isinstance(g, LineString)]
+    else:
+        return []
+
+    intervals: list[tuple[Point2d, Point2d]] = []
+    for line in lines:
+        pts = [Point2d(x, y) for x, y in line.coords]
+        if len(pts) < 2:
+            continue
+        # 端点を最長軸座標でソートして区間化
+        pts.sort(key=lambda p: (p - base).x * u.x + (p - base).y * u.y)
+        intervals.append((pts[0], pts[-1]))
+
+    intervals.sort(key=lambda seg: (seg[0] - base).x * u.x + (seg[0] - base).y * u.y)
+    return intervals
+
+
+def _line_fill(polygon: Polygon, end_inset: float) -> list[Point2d]:
+    """線塗布パスを生成する（``_generate_linear_path`` への委譲）."""
+    return _generate_linear_path(polygon, end_inset)
+
+
+def _dot_fill(polygon: Polygon) -> list[Point2d]:
+    """点塗布パスを生成する（代表点1点・必ず非空）."""
+    rep = polygon.representative_point()
+    return [Point2d(rep.x, rep.y)]
 
 
 def _generate_linear_path(
@@ -247,183 +393,3 @@ def _ring_coords(polygon: Polygon) -> list[Point2d]:
     ほぼ存在しないため当面は外環のみを扱う。
     """
     return [Point2d(x=x, y=y) for x, y in polygon.exterior.coords]
-
-
-def _spiral_one_component(
-    component: Polygon,
-    line_spacing: float,
-    initial_inset: float,
-    *,
-    anchor: Point2d | None = None,
-) -> list[Point2d]:
-    """単一連結成分の螺旋を生成する.
-
-    深さ ``initial_inset`` から ``line_spacing`` ずつ内側にオフセットしながら
-    リングを集める。途中で複数連結成分に分裂した場合、各サブ成分から再帰的
-    に螺旋を構成し、それを innermost として既存リング群（外側）の前に置く。
-
-    ``anchor`` 指定時は最内リングを anchor 最近傍頂点から開始するよう回転する
-    （最終的に呼び出し側が anchor を path 先頭に前置することを想定）。サブ
-    成分への再帰では ``anchor=None`` として伝播しない。
-    """
-    rings: list[list[Point2d]] = []  # outer -> inner の順
-    depth = initial_inset
-
-    while True:
-        sub_components = _offset_components(component, depth)
-        if not sub_components:
-            break
-        if len(sub_components) > 1:
-            # 螺旋途中での分裂: 各サブ成分の螺旋を innermost として接続
-            sub_components_sorted = _sort_components_by_seed(
-                sub_components, component.centroid
-            )
-            sub_spirals: list[list[Point2d]] = []
-            for sub in sub_components_sorted:
-                sub_spiral = _spiral_one_component(
-                    sub, line_spacing, depth + line_spacing
-                )
-                if sub_spiral:
-                    sub_spirals.append(sub_spiral)
-            inner_path = _connect_nearest(sub_spirals) if sub_spirals else []
-            outer_path = _walk_rings_outward(rings, anchor=anchor)
-            return inner_path + outer_path
-
-        rings.append(_ring_coords(sub_components[0]))
-        depth += line_spacing
-
-    return _walk_rings_outward(rings, anchor=anchor)
-
-
-def _sort_components_by_seed(
-    components: list[Polygon], reference: BaseGeometry
-) -> list[Polygon]:
-    """連結成分を参照点からの距離順にソートする（決定論性確保）."""
-    return sorted(components, key=lambda c: c.centroid.distance(reference))
-
-
-def _walk_rings_outward(
-    rings_outer_to_inner: list[list[Point2d]],
-    *,
-    anchor: Point2d | None = None,
-) -> list[Point2d]:
-    """``outer -> inner`` 順に蓄積されたリング群から innermost-first 螺旋を生成する.
-
-    最内リングから走査を開始し、各リング遷移時に直前の終端に最も近い頂点へ
-    rotate して接続する。最外周以外は ``line_spacing`` 分 truncate して隣接
-    リングへの遷移代を確保し、最外周は rotate のみで完走する。
-
-    ``anchor`` 指定時は最内リング（リング1本のみのケースではそのリング）を
-    anchor 最近傍頂点から開始するよう回転する。
-    """
-    if not rings_outer_to_inner:
-        return []
-
-    # 最後の要素（最も外側）以外を innermost first で走査
-    rings_inner_to_outer = list(reversed(rings_outer_to_inner))
-
-    if len(rings_inner_to_outer) == 1:
-        # リングが1本のみの場合は最外周なので完走
-        ring = rings_inner_to_outer[0]
-        if not ring:
-            return []
-        if anchor is not None:
-            return _rotate_ring_to_nearest(ring, anchor)
-        return ring[:]
-
-    # 隣接リング遷移代を計算するため、各リング間の距離（line_spacing相当）が必要だが
-    # ここでは呼び出し側 (_spiral_one_component) で常に等間隔オフセットされた
-    # リング群が来る前提で、ring間の最短距離を line_spacing として採用する。
-    line_spacing = _estimate_ring_spacing(rings_inner_to_outer)
-
-    path: list[Point2d] = []
-    # 最内リング: anchor 指定時は anchor 最近傍頂点から、未指定なら先頭から開始
-    innermost = rings_inner_to_outer[0]
-    if not innermost:
-        return []
-    if anchor is not None:
-        innermost = _rotate_ring_to_nearest(innermost, anchor)
-    path.extend(_truncate_ring(innermost, line_spacing))
-
-    # 中間リング: 直前点に最も近い頂点まで rotate、truncate
-    for ring in rings_inner_to_outer[1:-1]:
-        if not ring:
-            continue
-        rotated = _rotate_ring_to_nearest(ring, path[-1]) if path else ring
-        path.extend(_truncate_ring(rotated, line_spacing))
-
-    # 最外リング: rotate のみ、truncate なし
-    outermost = rings_inner_to_outer[-1]
-    if outermost:
-        rotated_outer = (
-            _rotate_ring_to_nearest(outermost, path[-1]) if path else outermost
-        )
-        path.extend(rotated_outer)
-
-    return path
-
-
-def _estimate_ring_spacing(rings_inner_to_outer: list[list[Point2d]]) -> float:
-    """隣接リング間の代表的な間隔を推定する.
-
-    最内2リング間の最短頂点距離を返す。1本のみなら ``0.0``（呼び出し側で
-    最外周の完走パスに使われ、``_truncate_ring`` には渡されない）。
-    """
-    if len(rings_inner_to_outer) < 2:
-        return 0.0
-    inner = rings_inner_to_outer[0][:-1]
-    outer = rings_inner_to_outer[1][:-1]
-    if not inner or not outer:
-        return 0.0
-    min_dist = float("inf")
-    for p in inner:
-        for q in outer:
-            d = (p - q).norm
-            if d < min_dist:
-                min_dist = d
-    return min_dist if min_dist != float("inf") else 0.0
-
-
-def _connect_nearest(
-    spirals: list[list[Point2d]],
-    *,
-    anchor: Point2d | None = None,
-) -> list[Point2d]:
-    """複数の螺旋を最近傍順で連結する.
-
-    ``anchor`` 指定時は最初の螺旋を「先頭点が anchor 最近傍」のものから
-    始める。未指定時は決定論的シードとして「先頭点が最も左、同一xなら最も
-    下」のものを選ぶ。以降は直前の終端に最も近い先頭点を持つ螺旋を選んで
-    連結する。``spirals`` が1要素の場合はそのまま返す。
-    """
-    if not spirals:
-        return []
-    if len(spirals) == 1:
-        return spirals[0][:]
-
-    remaining = [s for s in spirals if s]
-    if not remaining:
-        return []
-
-    if anchor is not None:
-        seed_idx = min(
-            range(len(remaining)),
-            key=lambda i: (remaining[i][0] - anchor).norm,
-        )
-    else:
-        # シード: 先頭点が最も左→最も下
-        seed_idx = min(
-            range(len(remaining)),
-            key=lambda i: (remaining[i][0].x, remaining[i][0].y),
-        )
-    result = remaining.pop(seed_idx)[:]
-
-    while remaining:
-        end = result[-1]
-        next_idx = min(
-            range(len(remaining)),
-            key=lambda i: (remaining[i][0] - end).norm,
-        )
-        result.extend(remaining.pop(next_idx))
-
-    return result
