@@ -32,11 +32,6 @@ def main() -> None:
     parser.add_argument(
         "--backend", "-b", type=str, default="csi", help="バックエンド (usb/csi)"
     )
-    parser.add_argument(
-        "--record-z",
-        action="store_true",
-        help="Z座標を記録する (Klipper接続が必要)",
-    )
     parser.add_argument("--host", type=str, default="localhost", help="KlipperホストIP")
     parser.add_argument("--port", type=int, default=7125, help="Klipperポート")
     args = parser.parse_args()
@@ -51,10 +46,8 @@ def main() -> None:
         backend=args.backend,
     )
 
-    stage: XYZStage | None = None
-    if args.record_z:
-        klipper = Klipper(host=args.host, port=args.port)
-        stage = XYZStage(klipper.readonly)
+    klipper = Klipper(host=args.host, port=args.port)
+    stage = XYZStage(klipper.readonly)
 
     calibrator = CheckerboardCalibrator(
         square_size_mm=args.square_size,
@@ -65,8 +58,7 @@ def main() -> None:
     print(f"解像度: {args.width}x{args.height}")
     print(f"クロップ: {args.crop_width}x{args.crop_height}")
     print(f"マスサイズ: {args.square_size}mm")
-    if stage is not None:
-        print(f"Klipper: {args.host}:{args.port}")
+    print(f"Klipper: {args.host}:{args.port}")
     print()
     print("操作方法:")
     print("  Space: 撮影してキャリブレーション")
@@ -105,10 +97,7 @@ def main() -> None:
 
             result, vis = detection
 
-            z_position: float | None = None
-            if stage is not None:
-                z_position = stage.get_position().z
-
+            z_position = stage.get_position().z
             result = attrs.evolve(result, z_position=z_position)
 
             # 結果を保存
