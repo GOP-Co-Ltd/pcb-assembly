@@ -3,7 +3,7 @@ from .camera import Camera, CameraInfo, Resolution, create_camera, get_camera_in
 from .klipper import GCodeMacro, Klipper, ReadonlyKlipper
 from .manual_stepper import HomingDirection, ManualStepper
 from .paste_dispenser import PasteDispenser
-from .probe import ServoGroundProbe
+from .probe import ProbeGround, ServoGroundProbe
 from .servo import Servo
 from .stage import Limits, ScalarLimits, Speed, XYZStage
 
@@ -24,6 +24,7 @@ __all__ = [
     "HomingDirection",
     "ManualStepper",
     # probe
+    "ProbeGround",
     "ServoGroundProbe",
     # servo
     "Servo",
