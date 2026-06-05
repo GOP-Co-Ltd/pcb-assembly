@@ -37,6 +37,11 @@ class PasteDispenser:
     paste_height: float  # 塗布面のZ高さ [mm]
     ul_per_mm2: float  # パッド面積あたりのペースト量 [μL/mm²]
     prime_extra_delay: float = 0.0  # プライム後の追加遅延 [sec]
+    bead_width_factor: float = (
+        1.0  # ビード幅係数 w = nozzle_diameter * bead_width_factor
+    )
+    overlap: float = 0.0  # ジグザグ行間オーバーラップ [0,1)
+    boundary_margin: float = 0.0  # 外周マージン [mm]
 
 
 @attrs.frozen

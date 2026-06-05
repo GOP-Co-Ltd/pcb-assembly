@@ -39,12 +39,13 @@ def _trapezoidal_time(distance: float, rate: float, accel: float) -> float:
 
 
 class PasteApplicator:
-    """ポリゴンへの螺旋フィル塗布によるペースト塗布を制御するクラス.
+    """ポリゴンへのフィル塗布によるペースト塗布を制御するクラス.
 
     ペーストのローディング・リトラクション・塗布を一貫して提供する。
-    各ポリゴンに対して螺旋経路を生成し、ステージ移動と同期して連続吐出を行う。
-    プライムと吐出は1つの連続ステッパー動作として実行し、G4でプライム時間分
-    待機した後にステージ移動を開始する。
+    各ポリゴンに対して面（外周トレース＋牛耕式ジグザグ）／線／点の
+    フォールバック階層で成分別のフィル経路を生成し、各成分ごとにステージ
+    移動と同期した連続吐出を行う。プライムと吐出は1つの連続ステッパー動作
+    として実行し、G4でプライム時間分待機した後にステージ移動を開始する。
 
     Example:
         with PasteApplicator(
@@ -81,6 +82,9 @@ class PasteApplicator:
         paste_height: float = 0.1,
         lift_height: float = 5.0,
         prime_extra_delay: float = 0.0,
+        bead_width_factor: float = 1.0,
+        overlap: float = 0.0,
+        boundary_margin: float = 0.0,
     ) -> None:
         """PasteApplicatorを初期化する.
 
@@ -99,6 +103,9 @@ class PasteApplicator:
             paste_height: 塗布面のZ高さ [mm]
             lift_height: 塗布後の上昇高さ [mm]
             prime_extra_delay: プライム後の追加遅延 [sec]（デフォルト: 0.0）
+            bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
+            overlap: ジグザグ行間オーバーラップ [0, 1)
+            boundary_margin: 外周マージン [mm]
 
         Raises:
             ValueError: retraction_accel_factorが1.0以下の場合
@@ -123,6 +130,9 @@ class PasteApplicator:
         self._retraction_accel_factor = retraction_accel_factor
         self._lift_height = lift_height
         self._prime_extra_delay = prime_extra_delay
+        self._bead_width_factor = bead_width_factor
+        self._overlap = overlap
+        self._boundary_margin = boundary_margin
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
     def __enter__(self) -> Self:
@@ -184,7 +194,7 @@ class PasteApplicator:
     def apply(self, polygons: Iterable[Polygon]) -> None:
         """複数ポリゴンへペースト塗布を実行する.
 
-        各ポリゴンに対して螺旋フィル経路を生成し、
+        各ポリゴンに対して成分別フィル経路を生成し、成分ごとに
         ステージ移動と同期して連続吐出を行う（ブロッキング）。
 
         Args:
@@ -194,29 +204,48 @@ class PasteApplicator:
             self._fill(polygon)
 
     def _fill(self, polygon: Polygon) -> None:
-        """ポリゴンを螺旋フィル経路で塗布する."""
-        raw = build_paste_fill_path(polygon, nozzle_diameter=self._nozzle_diameter)
-        if not raw:
+        """ポリゴンを成分別フィル経路で塗布する.
+
+        各成分は独立した ``FillSequence`` として送信する。
+        ``FillSequence.to_gcode`` が先頭点上空への travel → 下降 → 吐出 →
+        retract → ``lift_height`` 上昇を1本に組むため、成分間の移動は
+        ``FillSequence`` の連続送信だけで自然に実現される。``total_amount``
+        は元ポリゴン面積ベース（``polygon.area * ul_per_mm2``）を成分数で
+        均等配分する。
+        """
+        components = build_paste_fill_path(
+            polygon,
+            nozzle_diameter=self._nozzle_diameter,
+            bead_width_factor=self._bead_width_factor,
+            overlap=self._overlap,
+            boundary_margin=self._boundary_margin,
+        )
+        if not components:
             self._logger.warning("フィルパスが空です。スキップします。")
             return
 
-        path = Path(p.to3d(self._paste_height) for p in raw).transformed(
-            self._transform
-        )
+        total_amount = polygon.area * self._ul_per_mm2
         prime_time = _trapezoidal_time(
             self._retraction, self._dispense_rate, self._dispense_accel
         )
-        sequence = FillSequence(
-            path=path,
-            total_amount=polygon.area * self._ul_per_mm2,
-            retraction=self._retraction,
-            extra_amount=self._dispense_rate * self._prime_extra_delay,
-            dispense_rate=self._dispense_rate,
-            dispense_accel=self._dispense_accel,
-            retraction_rate=self._retraction_rate,
-            retraction_accel=self._retraction_accel,
-            prime_time=prime_time + self._prime_extra_delay,
-            lift_height=self._lift_height,
-            travel_speed=Speed.rate(1.0),
-        )
-        self._klipper.send_gcode(sequence.to_gcode(self._stage, self._paste_dispenser))
+
+        for raw in components:
+            path = Path(p.to3d(self._paste_height) for p in raw).transformed(
+                self._transform
+            )
+            sequence = FillSequence(
+                path=path,
+                total_amount=total_amount / len(components),
+                retraction=self._retraction,
+                extra_amount=self._dispense_rate * self._prime_extra_delay,
+                dispense_rate=self._dispense_rate,
+                dispense_accel=self._dispense_accel,
+                retraction_rate=self._retraction_rate,
+                retraction_accel=self._retraction_accel,
+                prime_time=prime_time + self._prime_extra_delay,
+                lift_height=self._lift_height,
+                travel_speed=Speed.rate(1.0),
+            )
+            self._klipper.send_gcode(
+                sequence.to_gcode(self._stage, self._paste_dispenser)
+            )
