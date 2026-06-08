@@ -45,7 +45,7 @@ servo_name = "probe_gnd"
 revolution_distance = 40.212 # サーボ一回転あたりの移動量 [mm]
 down_distance = 3.5          # グラウンドを下げる距離 [mm]
 min_radius = 0.5            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
-shift = [0.0, 0.0]         # プローブ点のヒューリスティックなシフト量 [x, y] (mm, マシン座標系)
+shift = [-0.5, 0.0]         # プローブ点のヒューリスティックなシフト量 [x, y] (mm, マシン座標系)
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
