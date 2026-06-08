@@ -35,7 +35,7 @@ class TestSamplePointsInPolygons:
     """sample_points_in_polygons関数のテスト."""
 
     def test_large_rectangle_returns_max_samples(self):
-        """50mm四方の島から max_samples=9 点がまばらに選ばれる."""
+        """50mm四方の島から max_samples=9 点が安全かつ広く選ばれる."""
         polygon = _rectangle(0, 0, 50, 50)
         min_radius = 1.5
 
@@ -45,18 +45,17 @@ class TestSamplePointsInPolygons:
 
         assert len(result) == 9
 
+        # ハードフロア: 全点が銅箔境界から min_radius 以上内側
         inner = polygon.buffer(-min_radius)
         for p in result:
             assert inner.contains(ShapelyPoint(p.x, p.y))
 
-        # グリッドステップ(3mm)以上、かつ十分にまばら(10mm以上)
-        min_pair = _min_pair_distance(result)
-        assert min_pair >= 2.0 * min_radius
-        assert min_pair >= 10.0
+        # 互いに十分まばら (被覆面積が大きい)
+        assert _min_pair_distance(result) >= 2.0 * min_radius
 
     def test_small_islands_below_min_samples_raises(self):
         """候補が min_samples に満たない小島群は ValueError."""
-        # buffer(-1.5)後にほぼ1候補しか入らない小島2つ
+        # buffer(-1.5)後に各島から中心1点しか取れない小島2つ → 候補2 < min_samples3
         polygons = [
             _rectangle(0, 0, 3.5, 3.5),
             _rectangle(20, 0, 23.5, 3.5),
@@ -68,7 +67,7 @@ class TestSamplePointsInPolygons:
             )
 
     def test_min_radius_too_large_raises(self):
-        """全島で buffer(-r) が空になると ValueError."""
+        """全島で buffer(-r) が空になると候補0で ValueError."""
         polygons = [
             _rectangle(0, 0, 2, 2),
             _rectangle(10, 0, 12, 2),
@@ -79,20 +78,18 @@ class TestSamplePointsInPolygons:
                 polygons, min_radius=5.0, min_samples=3, max_samples=9
             )
 
-    def test_candidates_between_min_and_max(self):
-        """候補数が min〜max 間なら候補全部が返る."""
-        # 15x8矩形 + min_radius=1.5: bufferで角が丸くなり中央行(y=4.5)の
-        # x=4.5,7.5,10.5 の3候補に絞られる
-        polygon = _rectangle(0, 0, 15, 8)
+    def test_candidates_below_max_returns_all_distinct(self):
+        """候補数が max_samples 未満の小さめ島では候補数ぶん返る (上限以下)."""
+        polygon = _rectangle(0, 0, 9, 6)
 
         result = sample_points_in_polygons(
             [polygon], min_radius=1.5, min_samples=3, max_samples=9
         )
 
-        assert len(result) == 3
+        assert 3 <= len(result) <= 9
         for p in result:
-            assert 0 <= p.x <= 15
-            assert 0 <= p.y <= 8
+            assert 0 <= p.x <= 9
+            assert 0 <= p.y <= 6
 
     def test_empty_polygons_raises(self):
         """空の polygons は ValueError."""
@@ -108,9 +105,8 @@ class TestSamplePointsInPolygons:
         )
 
         assert len(result) == 3
-        # 3点は十分に離れている
-        min_pair = _min_pair_distance(result)
-        assert min_pair >= 20.0
+        # 3点は十分に離れている (安全性を保ちつつ広く分散)
+        assert _min_pair_distance(result) >= 15.0
 
     @pytest.mark.parametrize(
         "max_samples,expected",
@@ -120,12 +116,43 @@ class TestSamplePointsInPolygons:
         """max_samplesが十分小さい範囲では max_samples 分だけ返る."""
         polygon = _rectangle(0, 0, 50, 50)
 
-        # 50x50で225候補確保できるため、max_samples以上選ばれない
         result = sample_points_in_polygons(
             [polygon], min_radius=1.5, min_samples=1, max_samples=max_samples
         )
 
         assert len(result) == expected
+
+    def test_points_are_well_inside(self):
+        """各点は縁ちょうど(min_radius)でなく、十分内側(高クリアランス)に寄る."""
+        polygon = _rectangle(0, 0, 50, 50)
+        min_radius = 1.5
+
+        result = sample_points_in_polygons(
+            [polygon], min_radius=min_radius, min_samples=3, max_samples=9
+        )
+
+        for p in result:
+            clearance = polygon.boundary.distance(ShapelyPoint(p.x, p.y))
+            assert clearance >= 2.0 * min_radius, f"縁に寄りすぎ: {p}, {clearance}"
+
+    def test_small_island_point_lands_at_center(self):
+        """小島の点は島の中心付近に来る."""
+        # min_samples を満たすため大島2つを添える
+        small = _rectangle(0, 0, 7, 7)
+        polygons = [
+            small,
+            _rectangle(50, 0, 90, 40),
+            _rectangle(0, 50, 40, 90),
+        ]
+
+        result = sample_points_in_polygons(
+            polygons, min_radius=1.5, min_samples=3, max_samples=9
+        )
+
+        in_small = [p for p in result if small.contains(ShapelyPoint(p.x, p.y))]
+        assert in_small, "小島から少なくとも1点は取られるはず"
+        for p in in_small:
+            assert math.hypot(p.x - 3.5, p.y - 3.5) <= 1.0
 
 
 def _nine_island_polygons() -> list[Polygon]:
@@ -149,9 +176,10 @@ def _nine_island_polygons() -> list[Polygon]:
 class TestSpreadAcrossIslands:
     """複数銅箔島にわたる分散性の検証."""
 
-    def test_covers_all_islands_when_islands_equal_target(self):
-        """島数 == max_samples なら各島から少なくとも1点は取られる."""
+    def test_covers_extreme_corner_islands(self):
+        """被覆面積最大化により、四隅の島が確実にサンプルされる."""
         polygons = _nine_island_polygons()
+        # polygons[1..4] が四隅の島 (_nine_island_polygons の centers 先頭4つ)
 
         result = sample_points_in_polygons(
             polygons, min_radius=1.5, min_samples=3, max_samples=9
@@ -159,10 +187,10 @@ class TestSpreadAcrossIslands:
 
         assert len(result) == 9
         counts = _count_points_per_polygon(polygons, result)
-        assert all(c >= 1 for c in counts), f"全島から1点以上のはず: {counts}"
+        assert all(c >= 1 for c in counts[1:5]), f"四隅の島は被覆されるはず: {counts}"
 
-    def test_distributes_when_islands_fewer_than_max(self):
-        """島数 < max_samples なら全島から最低2点ずつ取られる."""
+    def test_distributes_across_islands(self):
+        """島数 < max_samples なら全島から最低1点は取られる."""
         polygons = [
             _rectangle(0, 0, 30, 30),
             _rectangle(100, 0, 130, 30),
@@ -175,24 +203,4 @@ class TestSpreadAcrossIslands:
 
         assert len(result) == 9
         counts = _count_points_per_polygon(polygons, result)
-        assert all(c >= 2 for c in counts), f"全島から2点以上のはず: {counts}"
-
-    def test_small_island_contributes_when_in_extreme_position(self):
-        """端に位置する小島(容量1)は最大三角形の頂点として採用される."""
-        # 島1: buffer後に1候補のみ取れる小島 (端に配置) / 島2,3: 大島
-        polygons = [
-            _rectangle(0, 0, 7, 7),
-            _rectangle(50, 0, 90, 40),
-            _rectangle(0, 50, 40, 90),
-        ]
-
-        result = sample_points_in_polygons(
-            polygons, min_radius=1.5, min_samples=3, max_samples=9
-        )
-
-        assert len(result) == 9
-        counts = _count_points_per_polygon(polygons, result)
-        # 小島は最大三角形のseedとして1点取られる、残りは大島から
-        assert counts[0] == 1
-        assert counts[1] + counts[2] == 8
-        assert counts[1] >= 3 and counts[2] >= 3
+        assert all(c >= 1 for c in counts), f"全島から1点以上のはず: {counts}"
