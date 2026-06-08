@@ -54,6 +54,10 @@ class Probe:
     min_radius: float  # サンプル点が銅箔境界から確保すべき最小距離 [mm] (ニードル-probe ground間の目測距離に相当)
     min_samples: int = 3  # 最小サンプル数 (HeightPlaneのフィットに必要な最小点数)
     max_samples: int = 9  # 最大サンプル数
+    shift: tuple[float, float] = (
+        0.0,
+        0.0,
+    )  # プローブ点のヒューリスティックなシフト量 [x, y] (mm, マシン座標系)
 
     def __attrs_post_init__(self) -> None:
         if self.min_radius <= 0:

@@ -69,13 +69,24 @@ class TestProbeGround:
 
 
 class TestProbe:
-    def test_probe_returns_down_probe_up_sequence(self, mock_klipper: Klipper):
-        probe = ServoGroundProbe(mock_klipper.readonly, "probe_gnd", 40.0, 5.0)
+    def test_probe_returns_down_settle_probe_up_sequence(self, mock_klipper: Klipper):
+        probe = ServoGroundProbe(
+            mock_klipper.readonly, "probe_gnd", 40.0, 5.0, down_settle_time=0.5
+        )
         assert probe.probe().to_list() == [
             "SET_SERVO SERVO=probe_gnd ANGLE=45.0",
+            "G4 P500",
             "PROBE",
             "SET_SERVO SERVO=probe_gnd ANGLE=0.0",
         ]
+
+    def test_probe_settle_dwell_precedes_probe(self, mock_klipper: Klipper):
+        # down(SET_SERVO)後、PROBEより前にdwellが入ることを確認
+        probe = ServoGroundProbe(
+            mock_klipper.readonly, "probe_gnd", 40.0, 5.0, down_settle_time=1.2
+        )
+        commands = probe.probe().to_list()
+        assert commands.index("G4 P1200") < commands.index("PROBE")
 
     def test_probe_is_gcode(self, mock_klipper: Klipper):
         probe = ServoGroundProbe(mock_klipper.readonly, "probe_gnd", 40.0, 5.0)
