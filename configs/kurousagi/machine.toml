@@ -4,15 +4,15 @@ port = 7125
 
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
-rotations_per_ul = 395.833333 # キャリブレーション値 2026/06/05 S3X70-E150DN
+rotations_per_ul = 31.491713 # キャリブレーション値 2026/06/05 S3X70-E150DN
 # rotations_per_ul = 69.724771 # キャリブレーション値 2026/05/08 S3X70-E150DN
-nozzle_diameter = 0.31 # ノズル内径 [mm] (24G)
-dispense_rate = 0.01 # 吐出レート [uL/sec]
-dispense_accel = 0.1 # 吐出加速度 [uL/sec^2]
-retract_amount = 0.01 # リトラクション量 [uL]
-retract_rate = 0.01 # リトラクションレート [uL/sec]
+nozzle_diameter = 0.51 # ノズル内径 [mm] (24G)
+dispense_rate = 0.1 # 吐出レート [uL/sec]
+dispense_accel = 0.5 # 吐出加速度 [uL/sec^2]
+retract_amount = 0.1 # リトラクション量 [uL]
+retract_rate = 0.1 # リトラクションレート [uL/sec]
 retract_accel_factor = 2.0 # リトラクション加速度係数
-paste_height = 0.1 # 塗布面のZ高さ [mm]
+paste_height = 0.2 # 塗布面のZ高さ [mm]
 ul_per_mm2 = 0.16 # パッド面積あたりのペースト量 [uL/mm^2]
 prime_extra_delay = 0.4 # プライム後の追加遅延 [sec]
 
@@ -24,8 +24,8 @@ prime_extra_delay = 0.4 # プライム後の追加遅延 [sec]
 # y = 26.46
 
 # 実測値
-x = -0.8614063599807658
-y = 23.39277855281957
+x = -1.0518279820278167
+y = 23.641679449684514
 
 [camera]
 device_id = 0
@@ -44,7 +44,7 @@ servo_name = "probe_gnd"
 # rack and pinion: π × module × teeth = π × 0.8 × 16 ≈ 40.212
 revolution_distance = 40.212 # サーボ一回転あたりの移動量 [mm]
 down_distance = 3.5          # グラウン6ドを下げる距離 [mm]
-min_radius = 0.6            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
+min_radius = 1.0            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)

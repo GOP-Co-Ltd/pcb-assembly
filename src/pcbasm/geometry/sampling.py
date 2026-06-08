@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from itertools import combinations, product
+from itertools import product
 
 import numpy as np
 import numpy.typing as npt
-from scipy.spatial import ConvexHull, QhullError
+from shapely import get_parts
 from shapely.geometry import Point as ShapelyPoint, Polygon
+from shapely.ops import polylabel
 
 from pcbasm.geometry.transform import Point2d
 
@@ -22,12 +23,13 @@ def sample_points_in_polygons(
     min_samples: int,
     max_samples: int,
 ) -> list[Point2d]:
-    """ポリゴン領域の内部からprobe用の点をできる限りまばらにサンプルする.
+    """ポリゴン領域の内部からprobe用の点を安全かつ広く分散するようサンプルする.
 
-    各ポリゴンを min_radius だけ内側にオフセットし、その領域内に
-    2*min_radius ステップのグリッド候補を生成する。領域全体に3点を広く張るため、
-    まず候補から周長(辺の和)が最大の三角形を成す3点をseedとして選び、その後
-    Farthest Point Samplingで残り (max_samples - 3) 点を密度均等になるよう追加する。
+    各ポリゴンを min_radius だけ内側にオフセットした領域内に、min_radius ステップの
+    グリッド候補と各連結部分の中心(pole of inaccessibility)を生成する。各候補には
+    銅箔境界からのクリアランス(距離)を付与し、クリアランス重み付きの反復貪欲法
+    (weighted Farthest Point Sampling)で選ぶ。これにより「銅箔境界から十分内側
+    (安全)」かつ「互いに広く離れる(被覆面積が大きい)」点が得られる。
 
     Args:
         polygons: 入力ポリゴン群（例: 銅箔島のpolygon。呼び出し側でフィルタ済みを想定）
@@ -41,7 +43,7 @@ def sample_points_in_polygons(
     Raises:
         ValueError: 候補点が min_samples に満たない場合
     """
-    candidates = _collect_candidates(polygons, min_radius)
+    candidates, clearance = _collect_candidates(polygons, min_radius)
 
     if len(candidates) < min_samples:
         raise ValueError(
@@ -51,78 +53,75 @@ def sample_points_in_polygons(
         )
 
     target = min(max_samples, len(candidates))
-    seed = _max_perimeter_triangle_indices(candidates)[:target]
-    selected = _fps_indices(candidates, target_count=target, seed_indices=seed)
+    selected = _weighted_fps_indices(candidates, clearance, target_count=target)
     return [Point2d(x=float(x), y=float(y)) for x, y in candidates[selected]]
 
 
 def _collect_candidates(
     polygons: Iterable[Polygon], min_radius: float
-) -> npt.NDArray[np.float64]:
-    """各polygonをmin_radius内側にオフセットしたグリッド候補をまとめて収集する."""
-    step = 2.0 * min_radius
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """min_radius内側にオフセットした領域の候補点と、各点のクリアランスを収集する.
+
+    各polygonを min_radius 内側にオフセットし、min_radius ステップのグリッド点に加えて
+    各連結部分の中心 (pole of inaccessibility) を候補に含める。クリアランスは元の
+    ``polygon.boundary`` (穴を含む) からの距離で、銅箔境界からの安全余裕を表す。
+    全候補は ``buffer(-min_radius)`` の内部にあるため最小クリアランス min_radius を満たす。
+    """
+    step = min_radius
     points: list[tuple[float, float]] = []
+    clearances: list[float] = []
 
     for polygon in polygons:
         inner = polygon.buffer(-min_radius)
         if inner.is_empty:
             continue
+        boundary = polygon.boundary
 
         minx, miny, maxx, maxy = inner.bounds
         xs = np.arange(minx, maxx + _BOUNDS_EPS, step)
         ys = np.arange(miny, maxy + _BOUNDS_EPS, step)
         for x, y in product(xs, ys):
-            fx, fy = float(x), float(y)
-            if inner.contains(ShapelyPoint(fx, fy)):
-                points.append((fx, fy))
+            pt = ShapelyPoint(float(x), float(y))
+            if inner.contains(pt):
+                points.append((pt.x, pt.y))
+                clearances.append(boundary.distance(pt))
+
+        # 各連結部分の中心を確実に候補へ含める (小島でグリッドが中心を逃すのを防ぐ)
+        for part in get_parts(inner):
+            center = polylabel(part, tolerance=min_radius / 10.0)
+            points.append((center.x, center.y))
+            clearances.append(boundary.distance(center))
 
     if not points:
-        return np.empty((0, 2), dtype=np.float64)
-    return np.array(points, dtype=np.float64)
-
-
-def _max_perimeter_triangle_indices(candidates: npt.NDArray[np.float64]) -> list[int]:
-    """候補(3点以上)から周長最大の三角形を成す3点のインデックスを返す.
-
-    周長最大三角形は必ず凸包頂点上にあるため、ConvexHullを取り頂点間の三重ループ O(H^3)
-    で探索する。全候補が共線等で凸包が2D化できない場合は先頭3点を返す。
-    """
-    try:
-        hull_idxs = [int(i) for i in ConvexHull(candidates).vertices]
-    except QhullError:
-        return [0, 1, 2]
-
-    if len(hull_idxs) < 3:
-        return [0, 1, 2]
-
-    def _perimeter(i: int, j: int, k: int) -> float:
-        a, b, c = candidates[i], candidates[j], candidates[k]
-        return float(
-            np.linalg.norm(b - a) + np.linalg.norm(c - b) + np.linalg.norm(c - a)
+        return (
+            np.empty((0, 2), dtype=np.float64),
+            np.empty((0,), dtype=np.float64),
         )
+    return (
+        np.array(points, dtype=np.float64),
+        np.array(clearances, dtype=np.float64),
+    )
 
-    best = max(combinations(hull_idxs, 3), key=lambda ijk: _perimeter(*ijk))
-    return list(best)
 
-
-def _fps_indices(
+def _weighted_fps_indices(
     candidates: npt.NDArray[np.float64],
+    clearance: npt.NDArray[np.float64],
     *,
     target_count: int,
-    seed_indices: Iterable[int],
 ) -> list[int]:
-    """Seed集合を初期選択としてFarthest Point Samplingでインデックスを選ぶ.
+    """クリアランス重み付き反復貪欲法でインデックスを選ぶ.
 
-    既選択点集合との最小距離が最大になる候補を反復選択し、target_count に達するまで追加する。
+    初手は最もクリアランスの高い(最も安全な)点を選ぶ。以降は既選択集合への最小距離
+    ``d`` (被覆面積の伸びの代理量) と ``clearance`` (安全性) の積を最大化する候補を
+    反復選択する。両者とも大きいほど良い量の積なので、重みパラメータなしで安全性と
+    被覆を同時に最大化する。
     """
-    selected = list(seed_indices)
-    min_dist = np.full(len(candidates), np.inf)
-    for idx in selected:
-        d = np.linalg.norm(candidates - candidates[idx], axis=1)
-        min_dist = np.minimum(min_dist, d)
+    first = int(clearance.argmax())
+    selected = [first]
+    min_dist = np.linalg.norm(candidates - candidates[first], axis=1)
 
     while len(selected) < target_count:
-        next_idx = int(min_dist.argmax())
+        next_idx = int((min_dist * clearance).argmax())
         if min_dist[next_idx] == 0.0:
             break
         selected.append(next_idx)
