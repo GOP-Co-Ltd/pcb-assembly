@@ -242,9 +242,15 @@ def main() -> None:
             # === Phase 5: ペースト検出 & 位置合わせ ===
             print("\n=== ペースト検出 & 位置合わせ ===")
 
-            # ステージを center_camera 付近へ XY 移動
+            # ステージを center_camera 付近へ移動
+            # Z はカメラ検出高さ (board calibration の z 値) に合わせ、ピントを出す
             klipper.send_gcode(
-                stage.move(x=center_camera.x, y=center_camera.y) + gcode.wait_for_done()
+                stage.move(
+                    x=center_camera.x,
+                    y=center_camera.y,
+                    z=calibration.z_position,
+                )
+                + gcode.wait_for_done()
             )
             time.sleep(1.0)
 
