@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pcbasm.gcode import GCode
+from pcbasm.gcode import GCode, wait
 
 from .klipper import ReadonlyKlipper
 from .servo import Servo
@@ -93,6 +93,7 @@ class ServoGroundProbe:
         servo_name: str,
         revolution_distance: float,
         down_distance: float,
+        down_settle_time: float = 0.5,
     ) -> None:
         """ServoGroundProbeを初期化する.
 
@@ -101,15 +102,24 @@ class ServoGroundProbe:
             servo_name: グラウンド用サーボのname
             revolution_distance: サーボ一回転あたりの移動量 [mm]
             down_distance: グラウンドを下げる距離 [mm]
+            down_settle_time: down後、PROBE実行までサーボ可動を待つ時間 [秒]
         """
         self._sensor = ProbeSensor(klipper)
         self._ground = ProbeGround(klipper, servo_name, revolution_distance)
         self._down_distance = down_distance
+        self._down_settle_time = down_settle_time
 
     def probe(self) -> GCode:
-        """グラウンドを下げ、PROBEを実行し、グラウンドを上げる一連のGCodeを返す."""
+        """グラウンドを下げ、可動を待ってPROBEを実行し、グラウンドを上げる一連のGCodeを返す.
+
+        SET_SERVOは即座に完了扱いになるため、down後にサーボが物理的に下がりきる前に
+        PROBEが実行されないよう、down_settle_timeだけdwell(G4)を挟む。
+        """
         return (
-            self._ground.down(self._down_distance) + GCode("PROBE") + self._ground.up()
+            self._ground.down(self._down_distance)
+            + wait(self._down_settle_time)
+            + GCode("PROBE")
+            + self._ground.up()
         )
 
     def get_last_z_result(self) -> float:
