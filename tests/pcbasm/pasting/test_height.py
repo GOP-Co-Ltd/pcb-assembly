@@ -4,7 +4,7 @@ import pytest
 from shapely.geometry import Polygon
 
 from pcbasm.gcode import GCode
-from pcbasm.geometry import HeightPlane
+from pcbasm.geometry import HeightPlane, Identity
 from pcbasm.pasting.height import HeightPlaneMeasurer
 from pcbasm.pcb import Copper, Layer
 
@@ -33,11 +33,9 @@ class TestHeightPlaneMeasurer:
         return stage
 
     @pytest.fixture
-    def mock_board_to_machine(self, mocker):
+    def mock_board_to_machine(self):
         """Identity transform (board coords = machine coords)."""
-        transform = mocker.Mock()
-        transform.apply.side_effect = lambda pt: pt
-        return transform
+        return Identity()
 
     @pytest.fixture
     def large_copper(self):
@@ -108,3 +106,61 @@ class TestHeightPlaneMeasurer:
         )
         with pytest.raises(ValueError):
             measurer.measure(coppers=[tiny], board_to_machine=mock_board_to_machine)
+
+    def test_probe_shift_offsets_recorded_points(
+        self,
+        mock_probe_executor,
+        mock_klipper,
+        mock_stage,
+        mock_board_to_machine,
+        large_copper,
+    ):
+        """probe_shiftを与えると記録点がその分ずれることを確認."""
+        shift = (2.0, -3.0)
+
+        def run(probe_shift):
+            measurer = HeightPlaneMeasurer(
+                probe_executor=mock_probe_executor,
+                klipper=mock_klipper,
+                stage=mock_stage,
+                probe_shift=probe_shift,
+                **_SAMPLING_KWARGS,
+            )
+            return measurer.measure(
+                coppers=[large_copper], board_to_machine=mock_board_to_machine
+            )
+
+        # サンプリングは決定的なので base と shifted で同じ順序・点数になる
+        base = run((0.0, 0.0))
+        shifted = run(shift)
+
+        assert [(p.x, p.y) for p in shifted.points] == [
+            (p.x + shift[0], p.y + shift[1]) for p in base.points
+        ]
+
+    def test_probe_shift_applied_to_move_command(
+        self,
+        mock_probe_executor,
+        mock_klipper,
+        mock_stage,
+        mock_board_to_machine,
+        large_copper,
+    ):
+        """Move コマンドがシフト後の座標(=記録点, Identity逆変換)で発行されることを確認."""
+        shift = (2.0, -3.0)
+        measurer = HeightPlaneMeasurer(
+            probe_executor=mock_probe_executor,
+            klipper=mock_klipper,
+            stage=mock_stage,
+            probe_shift=shift,
+            **_SAMPLING_KWARGS,
+        )
+        result = measurer.measure(
+            coppers=[large_copper], board_to_machine=mock_board_to_machine
+        )
+
+        move_targets = sorted(
+            (c.kwargs["x"], c.kwargs["y"]) for c in mock_stage.move.call_args_list
+        )
+        recorded = sorted((p.x, p.y) for p in result.points)
+        assert move_targets == recorded

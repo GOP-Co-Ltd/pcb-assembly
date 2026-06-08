@@ -26,6 +26,7 @@ class _BoardPointProber:
         klipper: Klipper,
         stage: XYZStage,
         *,
+        shift: tuple[float, float],
         move_settle_time: float,
         move_velocity_ratio: float,
         logger: logging.Logger,
@@ -33,24 +34,27 @@ class _BoardPointProber:
         self._probe_executor = probe_executor
         self._klipper = klipper
         self._stage = stage
+        self._shift = shift
         self._move_settle_time = move_settle_time
         self._move_velocity = stage.max_velocity * move_velocity_ratio
         self._logger = logger
 
     def probe_at(
         self, board_pt: Point2d, board_to_machine: Transform, label: str
-    ) -> float:
-        """Board座標 board_pt へ移動して高さをプローブし、Z値を返す."""
+    ) -> Point3d:
+        """Board座標 board_pt をシフトしてプローブし、実接触点(Board座標)とZを返す."""
         machine_pt = board_to_machine.apply(board_pt)
+        dx, dy = self._shift
+        probe_pt = Point2d(x=machine_pt.x + dx, y=machine_pt.y + dy)
         self._logger.info(
             f"計測点 {label}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) "
-            f"-> Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
+            f"-> Machine({probe_pt.x:.3f}, {probe_pt.y:.3f})"
         )
 
         self._klipper.send_gcode(
             self._stage.move(
-                x=machine_pt.x,
-                y=machine_pt.y,
+                x=probe_pt.x,
+                y=probe_pt.y,
                 speed=Speed.absolute(self._move_velocity),
             )
             + gcode.wait(self._move_settle_time)
@@ -59,7 +63,8 @@ class _BoardPointProber:
 
         z = self._probe_executor.probe()
         self._logger.info(f"Z={z:.4f}mm")
-        return z
+        probed_board = board_to_machine.inverse().apply(probe_pt)
+        return Point3d(x=probed_board.x, y=probed_board.y, z=z)
 
 
 class HeightPlaneMeasurer:
@@ -78,6 +83,7 @@ class HeightPlaneMeasurer:
         min_radius: float,
         min_samples: int,
         max_samples: int,
+        probe_shift: tuple[float, float] = (0.0, 0.0),
         move_settle_time: float = 0.5,
         move_velocity_ratio: float = 0.9,
     ) -> None:
@@ -89,6 +95,7 @@ class HeightPlaneMeasurer:
             probe_executor=probe_executor,
             klipper=klipper,
             stage=stage,
+            shift=probe_shift,
             move_settle_time=move_settle_time,
             move_velocity_ratio=move_velocity_ratio,
             logger=self._logger,
@@ -110,13 +117,7 @@ class HeightPlaneMeasurer:
         self._logger.info(f"Probe点 {len(board_points)}個: {coord_str}")
 
         results = [
-            Point3d(
-                x=board_pt.x,
-                y=board_pt.y,
-                z=self._point_prober.probe_at(
-                    board_pt, board_to_machine, label=str(idx)
-                ),
-            )
+            self._point_prober.probe_at(board_pt, board_to_machine, label=str(idx))
             for idx, board_pt in enumerate(board_points)
         ]
 

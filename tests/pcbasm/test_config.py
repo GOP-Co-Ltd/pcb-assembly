@@ -300,6 +300,27 @@ class TestProbe:
         assert probe.min_samples == 4
         assert probe.max_samples == 12
 
+    def test_shift_default(self):
+        probe = Probe(
+            servo_name="probe_gnd",
+            revolution_distance=40.0,
+            down_distance=5.0,
+            min_radius=1.5,
+        )
+
+        assert probe.shift == (0.0, 0.0)
+
+    def test_shift_custom_value(self):
+        probe = Probe(
+            servo_name="probe_gnd",
+            revolution_distance=40.0,
+            down_distance=5.0,
+            min_radius=1.5,
+            shift=(2.0, -3.0),
+        )
+
+        assert probe.shift == (2.0, -3.0)
+
     def test_min_samples_less_than_3_raises(self):
         with pytest.raises(ValueError, match="min_samplesは3以上"):
             Probe(

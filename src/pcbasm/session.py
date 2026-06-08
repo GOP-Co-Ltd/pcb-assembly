@@ -80,6 +80,7 @@ class PasteSession:
             min_radius=probe_config.min_radius,
             min_samples=probe_config.min_samples,
             max_samples=probe_config.max_samples,
+            probe_shift=probe_config.shift,
         )
         paste_dispenser = PasteDispenser(
             klipper=result.klipper.readonly,
