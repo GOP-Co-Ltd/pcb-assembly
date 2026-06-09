@@ -4,7 +4,7 @@ import pytest
 from shapely.geometry import Polygon
 
 from pcbasm.gcode import GCode
-from pcbasm.geometry import HeightPlane, Identity
+from pcbasm.geometry import HeightPlane, Identity, Point2d
 from pcbasm.pasting.height import HeightPlaneMeasurer
 from pcbasm.pcb import Copper, Layer
 
@@ -164,3 +164,40 @@ class TestHeightPlaneMeasurer:
         )
         recorded = sorted((p.x, p.y) for p in result.points)
         assert move_targets == recorded
+
+    def test_measure_passes_outline_to_sampling(
+        self,
+        mocker,
+        mock_probe_executor,
+        mock_klipper,
+        mock_stage,
+        mock_board_to_machine,
+        large_copper,
+    ):
+        """outlineを指定するとsamplingへそのまま渡されることを確認."""
+        outline = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)])
+        sampler = mocker.patch(
+            "pcbasm.pasting.height.sample_points_in_polygons",
+            return_value=[
+                Point2d(0.0, 0.0),
+                Point2d(1.0, 0.0),
+                Point2d(0.0, 1.0),
+                Point2d(1.0, 1.0),
+                Point2d(2.0, 0.0),
+                Point2d(0.0, 2.0),
+            ],
+        )
+        measurer = HeightPlaneMeasurer(
+            probe_executor=mock_probe_executor,
+            klipper=mock_klipper,
+            stage=mock_stage,
+            **_SAMPLING_KWARGS,
+        )
+
+        measurer.measure(
+            coppers=[large_copper],
+            board_to_machine=mock_board_to_machine,
+            outline=outline,
+        )
+
+        assert sampler.call_args.kwargs["outline"] is outline

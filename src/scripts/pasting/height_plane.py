@@ -13,6 +13,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.patches import Polygon as MplPolygon
+from shapely.geometry import (
+    MultiPoint,
+    Point as ShapelyPoint,
+    Polygon as ShapelyPolygon,
+)
 
 from pcbasm.config import get_machine_config
 from pcbasm.geometry import (
@@ -21,7 +26,7 @@ from pcbasm.geometry import (
     Point3d,
     sample_points_in_polygons,
 )
-from pcbasm.pcb import Layer, PcbFile
+from pcbasm.pcb import Copper, Layer, PcbFile
 from pcbasm.posctrl import setup_board_calibration
 from pcbasm.session import PasteSession
 from pcbasm.utils import PROJECT_ROOT, setup_logging
@@ -120,6 +125,7 @@ def _visualize_planned(
     """計測予定の probe 点を基板背景に重ねてPNG保存する."""
     fig, ax = plt.subplots(figsize=(10, 8))
     _draw_pcb_background(ax, pcb)
+    _draw_planned_hull(ax, planned_points)
     ax.scatter(
         [p.x for p in planned_points],
         [p.y for p in planned_points],
@@ -128,11 +134,60 @@ def _visualize_planned(
         s=80,
         label="Planned probe points",
     )
+    for idx, p in enumerate(planned_points):
+        ax.annotate(
+            str(idx),
+            (p.x, p.y),
+            textcoords="offset points",
+            xytext=(5, 5),
+            fontsize=8,
+            color="darkred",
+        )
     ax.set_title(title)
     ax.legend(loc="upper right")
     plt.tight_layout()
     fig.savefig(output_path, dpi=120)
     plt.close(fig)
+
+
+def _draw_planned_hull(ax: Axes, planned_points: list[Point2d]) -> None:
+    """計測予定点の凸包を preview に薄線で描く."""
+    if len(planned_points) < 3:
+        return
+    hull = MultiPoint([(p.x, p.y) for p in planned_points]).convex_hull
+    if not isinstance(hull, ShapelyPolygon):
+        return
+    xs, ys = hull.exterior.xy
+    ax.plot(xs, ys, color="red", alpha=0.35, linewidth=1.0, label="Probe hull")
+
+
+def _print_sampling_diagnostics(
+    planned_points: list[Point2d],
+    top_coppers: list[Copper],
+    pcb: PcbFile,
+) -> None:
+    """Planned points の安全余裕と基板カバレッジを標準出力へ出す."""
+    if not planned_points:
+        return
+
+    clearances = [_clearance_to_copper(p, top_coppers) for p in planned_points]
+    hull = MultiPoint([(p.x, p.y) for p in planned_points]).convex_hull
+    outline_area = pcb.outline.polygon.area
+    hull_ratio = hull.area / outline_area if outline_area > 0.0 else 0.0
+    print(
+        "Sampling diagnostics: "
+        f"points={len(planned_points)}, "
+        f"min_clearance={min(clearances):.3f}mm, "
+        f"hull_area/outline_area={hull_ratio:.3f}"
+    )
+
+
+def _clearance_to_copper(point: Point2d, top_coppers: list[Copper]) -> float:
+    """点が乗っている銅箔境界までの最小距離を返す."""
+    shapely_point = ShapelyPoint(point.x, point.y)
+    containing = [c.polygon for c in top_coppers if c.polygon.covers(shapely_point)]
+    polygons = containing or [c.polygon for c in top_coppers]
+    return min(p.boundary.distance(shapely_point) for p in polygons)
 
 
 def main() -> None:
@@ -188,6 +243,7 @@ def main() -> None:
         min_radius=probe_config.min_radius,
         min_samples=probe_config.min_samples,
         max_samples=probe_config.max_samples,
+        outline=pcb.outline.polygon,
     )
 
     preview_path = args.output.with_name(args.output.stem + "_preview.png")
@@ -199,6 +255,7 @@ def main() -> None:
     )
     print(f"\n計測予定ポイントを可視化しました: {preview_path}")
     print(f"計測点数: {len(planned_points)}")
+    _print_sampling_diagnostics(planned_points, top_coppers, pcb)
     answer = input("これらの点を計測します。続行しますか？ [Y/n]: ").strip().lower()
     if answer not in ("", "y", "yes"):
         print("中止しました。")
@@ -217,6 +274,7 @@ def main() -> None:
         height_plane = session.height_measurer.measure(
             coppers=top_coppers,
             board_to_machine=session.board_to_machine,
+            outline=pcb.outline.polygon,
         )
 
     _visualize(

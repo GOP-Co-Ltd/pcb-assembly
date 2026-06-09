@@ -26,9 +26,17 @@ def _count_points_per_polygon(
 ) -> list[int]:
     """各polygonに含まれる結果点の数を返す."""
     return [
-        sum(1 for p in points if polygon.contains(ShapelyPoint(p.x, p.y)))
+        sum(1 for p in points if polygon.covers(ShapelyPoint(p.x, p.y)))
         for polygon in polygons
     ]
+
+
+def _min_clearance_to_covering_polygons(
+    polygons: list[Polygon], point: Point2d
+) -> float:
+    shapely_point = ShapelyPoint(point.x, point.y)
+    covering = [polygon for polygon in polygons if polygon.covers(shapely_point)]
+    return min(polygon.boundary.distance(shapely_point) for polygon in covering)
 
 
 class TestSamplePointsInPolygons:
@@ -48,14 +56,14 @@ class TestSamplePointsInPolygons:
         # ハードフロア: 全点が銅箔境界から min_radius 以上内側
         inner = polygon.buffer(-min_radius)
         for p in result:
-            assert inner.contains(ShapelyPoint(p.x, p.y))
+            assert inner.covers(ShapelyPoint(p.x, p.y))
 
         # 互いに十分まばら (被覆面積が大きい)
         assert _min_pair_distance(result) >= 2.0 * min_radius
 
     def test_small_islands_below_min_samples_raises(self):
         """候補が min_samples に満たない小島群は ValueError."""
-        # buffer(-1.5)後に各島から中心1点しか取れない小島2つ → 候補2 < min_samples3
+        # 境界寄り候補を追加しても、要求点数に届かない小島群ではエラーにする
         polygons = [
             _rectangle(0, 0, 3.5, 3.5),
             _rectangle(20, 0, 23.5, 3.5),
@@ -63,7 +71,7 @@ class TestSamplePointsInPolygons:
 
         with pytest.raises(ValueError, match="min_samples"):
             sample_points_in_polygons(
-                polygons, min_radius=1.5, min_samples=3, max_samples=9
+                polygons, min_radius=1.5, min_samples=20, max_samples=20
             )
 
     def test_min_radius_too_large_raises(self):
@@ -122,8 +130,8 @@ class TestSamplePointsInPolygons:
 
         assert len(result) == expected
 
-    def test_points_are_well_inside(self):
-        """各点は縁ちょうど(min_radius)でなく、十分内側(高クリアランス)に寄る."""
+    def test_points_respect_min_radius_floor(self):
+        """各点は銅箔境界から min_radius 以上の安全余裕を保つ."""
         polygon = _rectangle(0, 0, 50, 50)
         min_radius = 1.5
 
@@ -133,7 +141,21 @@ class TestSamplePointsInPolygons:
 
         for p in result:
             clearance = polygon.boundary.distance(ShapelyPoint(p.x, p.y))
-            assert clearance >= 2.0 * min_radius, f"縁に寄りすぎ: {p}, {clearance}"
+            assert clearance >= min_radius, f"安全余裕不足: {p}, {clearance}"
+
+    def test_explicit_none_outline_keeps_api_compatible(self):
+        """Outline=None を明示しても従来の呼び出しと同じように動く."""
+        polygon = _rectangle(0, 0, 50, 50)
+
+        result = sample_points_in_polygons(
+            [polygon],
+            min_radius=1.5,
+            min_samples=3,
+            max_samples=9,
+            outline=None,
+        )
+
+        assert len(result) == 9
 
     def test_small_island_point_lands_at_center(self):
         """小島の点は島の中心付近に来る."""
@@ -204,3 +226,30 @@ class TestSpreadAcrossIslands:
         assert len(result) == 9
         counts = _count_points_per_polygon(polygons, result)
         assert all(c >= 1 for c in counts), f"全島から1点以上のはず: {counts}"
+
+    def test_outline_anchors_cover_outer_rails(self):
+        """outline指定時は細い外周銅箔にも四隅・辺寄りの点を取る."""
+        outline = _rectangle(0, 0, 100, 100)
+        polygons = [
+            _rectangle(0, 0, 100, 4),
+            _rectangle(0, 96, 100, 100),
+            _rectangle(0, 0, 4, 100),
+            _rectangle(96, 0, 100, 100),
+            _rectangle(35, 35, 65, 65),
+        ]
+
+        result = sample_points_in_polygons(
+            polygons,
+            min_radius=1.0,
+            min_samples=6,
+            max_samples=9,
+            outline=outline,
+        )
+
+        assert len(result) == 9
+        assert any(p.x < 10 and p.y < 10 for p in result)
+        assert any(p.x > 90 and p.y < 10 for p in result)
+        assert any(p.x < 10 and p.y > 90 for p in result)
+        assert any(p.x > 90 and p.y > 90 for p in result)
+        for p in result:
+            assert _min_clearance_to_covering_polygons(polygons, p) >= 1.5
