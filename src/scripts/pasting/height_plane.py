@@ -78,8 +78,9 @@ def _visualize(
     zs = [p.z for p in height_plane.points]
 
     # z=0で入力するとapply後のz値が補間値そのものになる
-    grid_x = np.linspace(min(xs), max(xs), _MESH_RESOLUTION)
-    grid_y = np.linspace(min(ys), max(ys), _MESH_RESOLUTION)
+    minx, miny, maxx, maxy = pcb.outline.polygon.bounds
+    grid_x = np.linspace(minx, maxx, _MESH_RESOLUTION)
+    grid_y = np.linspace(miny, maxy, _MESH_RESOLUTION)
     mesh_z = np.array(
         [
             [height_plane.apply(Point3d(float(x), float(y), 0.0)).z for x in grid_x]
@@ -90,7 +91,7 @@ def _visualize(
     fig, ax = plt.subplots(figsize=(10, 8))
     heatmap = ax.imshow(
         mesh_z,
-        extent=(min(xs), max(xs), min(ys), max(ys)),
+        extent=(minx, maxx, miny, maxy),
         origin="lower",
         cmap="viridis",
         aspect="equal",
@@ -137,7 +138,7 @@ def _visualize_planned(
 def main() -> None:
     setup_logging(logging.INFO)
     parser = argparse.ArgumentParser(
-        description="基板表面の高さ計測（平面フィット）と可視化"
+        description="基板表面の高さ計測（2次曲面フィット）と可視化"
     )
     parser.add_argument(
         "--machine",

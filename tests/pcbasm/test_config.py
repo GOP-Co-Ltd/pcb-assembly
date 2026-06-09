@@ -284,7 +284,7 @@ class TestProbe:
             min_radius=1.5,
         )
 
-        assert probe.min_samples == 3
+        assert probe.min_samples == 6
         assert probe.max_samples == 9
 
     def test_valid_custom_values(self):
@@ -293,12 +293,12 @@ class TestProbe:
             revolution_distance=40.0,
             down_distance=5.0,
             min_radius=2.0,
-            min_samples=4,
+            min_samples=7,
             max_samples=12,
         )
 
         assert probe.min_radius == 2.0
-        assert probe.min_samples == 4
+        assert probe.min_samples == 7
         assert probe.max_samples == 12
 
     def test_shift_default(self):
@@ -322,25 +322,27 @@ class TestProbe:
 
         assert probe.shift == (2.0, -3.0)
 
-    def test_min_samples_less_than_3_raises(self):
-        with pytest.raises(ValueError, match="min_samplesは3以上"):
-            Probe(
-                servo_name="probe_gnd",
-                revolution_distance=40.0,
-                down_distance=5.0,
-                min_radius=1.5,
-                min_samples=2,
-            )
-
-    def test_min_samples_greater_than_max_samples_raises(self):
-        with pytest.raises(ValueError, match="min_samplesはmax_samples以下"):
+    def test_min_samples_less_than_6_raises(self):
+        # 2次曲面フィットには6点以上が必要なため min_samples < 6 は弾かれる。
+        with pytest.raises(ValueError, match="min_samplesは6以上"):
             Probe(
                 servo_name="probe_gnd",
                 revolution_distance=40.0,
                 down_distance=5.0,
                 min_radius=1.5,
                 min_samples=5,
-                max_samples=3,
+            )
+
+    def test_min_samples_greater_than_max_samples_raises(self):
+        # min/max とも6以上にして順序ガードのみを検証する。
+        with pytest.raises(ValueError, match="min_samplesはmax_samples以下"):
+            Probe(
+                servo_name="probe_gnd",
+                revolution_distance=40.0,
+                down_distance=5.0,
+                min_radius=1.5,
+                min_samples=8,
+                max_samples=6,
             )
 
     @pytest.mark.parametrize("min_radius", [0.0, -1.0])

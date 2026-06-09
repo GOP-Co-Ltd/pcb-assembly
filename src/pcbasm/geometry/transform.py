@@ -337,32 +337,43 @@ class Matrix2d(Transform):
 
 @attrs.frozen
 class HeightPlane(Transform):
-    """全サンプル点に最小二乗で z = a*x + b*y + c をフィットする高さ補正変換.
+    """全サンプル点に最小二乗で2次曲面をフィットする高さ補正変換.
 
-    基板表面が平面であるという物理仮定のもとで、計測サンプル点に最小二乗フィッティング を行い、フィットされた平面の式に従って XY
-    位置に応じた Z 補正を加算する。 凸包外も同じ平面式で外挿される。
+    基板表面が反り・ねじれを持つという物理仮定のもとで、計測サンプル点に2次曲面 z = c + a*x + b*y + d*x² +
+    e*y² + f*xy を最小二乗フィッティングし、その式に従って XY 位置に応じた Z 補正を加算する。x²・y² が反り、xy
+    がねじれを表現する。 凸包外も同じ式で外挿される。
     """
 
     points: tuple[Point3d, ...]
+    _c: float = attrs.field(init=False, eq=False)
     _a: float = attrs.field(init=False, eq=False)
     _b: float = attrs.field(init=False, eq=False)
-    _c: float = attrs.field(init=False, eq=False)
+    _d: float = attrs.field(init=False, eq=False)
+    _e: float = attrs.field(init=False, eq=False)
+    _f: float = attrs.field(init=False, eq=False)
 
     def __attrs_post_init__(self) -> None:
-        if len(self.points) < 3:
-            msg = f"pointsは3点以上必要です。与えられた点数: {len(self.points)}"
+        if len(self.points) < 6:
+            msg = f"pointsは6点以上必要です。与えられた点数: {len(self.points)}"
             raise ValueError(msg)
 
-        design = np.array([[p.x, p.y, 1.0] for p in self.points])
-        if np.linalg.matrix_rank(design[:, :2] - design[0, :2], tol=1e-9) < 2:
-            msg = "pointsのXYが同一直線上にあります。3点以上の非共線な点が必要です。"
+        design = np.array(
+            [[1.0, p.x, p.y, p.x**2, p.y**2, p.x * p.y] for p in self.points]
+        )
+        if np.linalg.matrix_rank(design, tol=1e-9) < 6:
+            msg = (
+                "pointsが退化しています。2次曲面フィットには非退化な6点以上が必要です。"
+            )
             raise ValueError(msg)
 
         z = np.array([p.z for p in self.points])
-        a, b, c = np.linalg.lstsq(design, z, rcond=None)[0]
+        c, a, b, d, e, f = np.linalg.lstsq(design, z, rcond=None)[0]
+        object.__setattr__(self, "_c", float(c))
         object.__setattr__(self, "_a", float(a))
         object.__setattr__(self, "_b", float(b))
-        object.__setattr__(self, "_c", float(c))
+        object.__setattr__(self, "_d", float(d))
+        object.__setattr__(self, "_e", float(e))
+        object.__setattr__(self, "_f", float(f))
 
     @overload
     def apply(self, point: Point2d) -> Point2d: ...
@@ -374,12 +385,20 @@ class HeightPlane(Transform):
     def apply(self, point: Point) -> Point:
         """点にZ高さ補正を適用する.
 
-        Point2dの場合はそのまま返す。Point3dの場合はXYから平面式 z = ax + by + c を評価して z
-        に加算する。
+        Point2dの場合はそのまま返す。Point3dの場合はXYから2次曲面式 z = c + ax + by + dx² +
+        ey² + fxy を評価して z に加算する。
         """
         if isinstance(point, Point2d):
             return point
-        z_offset = self._a * point.x + self._b * point.y + self._c
+        x, y = point.x, point.y
+        z_offset = (
+            self._c
+            + self._a * x
+            + self._b * y
+            + self._d * x**2
+            + self._e * y**2
+            + self._f * x * y
+        )
         return Point3d(point.x, point.y, point.z + z_offset)
 
     @override
