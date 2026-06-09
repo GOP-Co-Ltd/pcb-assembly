@@ -127,8 +127,8 @@ def main() -> None:
             height_plane = _measure_height(session, top_coppers)
             _load_and_apply(session, height_plane, top_pads, args)
         except KeyboardInterrupt:
-            print("\n=== 緊急停止 ===")
-            session.klipper.emergency_stop()
+            print("\n=== 中止 ===")
+            session.klipper.send_gcode(gcode.relax())
 
 
 if __name__ == "__main__":

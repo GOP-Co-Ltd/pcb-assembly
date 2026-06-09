@@ -179,7 +179,8 @@ def main() -> None:
             paste_dispenser=paste_dispenser,
             stage=stage,
             nozzle_diameter=dispenser_config.nozzle_diameter,
-            dispense_rate=dispenser_config.dispense_rate,
+            fill_speed=dispenser_config.fill_speed,
+            max_dispense_rate=dispenser_config.max_dispense_rate,
             dispense_accel=dispenser_config.dispense_accel,
             ul_per_mm2=dispenser_config.ul_per_mm2,
             retraction=dispenser_config.retract_amount,
@@ -211,7 +212,7 @@ def main() -> None:
             klipper.send_gcode(
                 paste_dispenser.pushpull(
                     args.dispense_amount,
-                    dispenser_config.dispense_rate,
+                    dispenser_config.max_dispense_rate,
                     dispenser_config.dispense_accel,
                 )
                 + gcode.wait_for_done()
