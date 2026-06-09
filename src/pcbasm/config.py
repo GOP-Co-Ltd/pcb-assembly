@@ -53,7 +53,9 @@ class Probe:
     revolution_distance: float  # サーボ一回転あたりの移動量 [mm]
     down_distance: float  # グラウンドを下げる距離 [mm]
     min_radius: float  # サンプル点が銅箔境界から確保すべき最小距離 [mm] (ニードル-probe ground間の目測距離に相当)
-    min_samples: int = 3  # 最小サンプル数 (HeightPlaneのフィットに必要な最小点数)
+    min_samples: int = (
+        6  # 最小サンプル数 (HeightPlaneの2次曲面フィットに必要な最小点数)
+    )
     max_samples: int = 9  # 最大サンプル数
     shift: tuple[float, float] = (
         0.0,
@@ -65,9 +67,9 @@ class Probe:
             raise ValueError(
                 f"min_radiusは正の値である必要があります。min_radius={self.min_radius}"
             )
-        if self.min_samples < 3:
+        if self.min_samples < 6:
             raise ValueError(
-                f"min_samplesは3以上である必要があります。min_samples={self.min_samples}"
+                f"min_samplesは6以上である必要があります。min_samples={self.min_samples}"
             )
         if self.min_samples > self.max_samples:
             raise ValueError(

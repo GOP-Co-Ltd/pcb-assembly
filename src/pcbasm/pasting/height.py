@@ -68,7 +68,7 @@ class _BoardPointProber:
 
 
 class HeightPlaneMeasurer:
-    """銅箔島ベースでプローブ計測し、平面フィットしたHeightPlaneを返す.
+    """銅箔島ベースでプローブ計測し、2次曲面フィットしたHeightPlaneを返す.
 
     入力銅箔を `sample_points_in_polygons` で疎にサンプリングし、
     各点でプローブ計測を行う。
@@ -106,7 +106,7 @@ class HeightPlaneMeasurer:
         coppers: Iterable[Copper],
         board_to_machine: Transform,
     ) -> HeightPlane:
-        """銅箔島内のサンプル点で高さ計測し、HeightPlaneを返す."""
+        """銅箔島内のサンプル点で高さ計測し、2次曲面フィットしたHeightPlaneを返す."""
         board_points = sample_points_in_polygons(
             (c.polygon for c in coppers),
             min_radius=self._min_radius,
