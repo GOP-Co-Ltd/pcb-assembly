@@ -29,6 +29,7 @@ def _measure_height(session: PasteSession, top_coppers: list[Copper]) -> HeightP
     return session.height_measurer.measure(
         coppers=top_coppers,
         board_to_machine=session.board_to_machine,
+        outline=session.pcb.outline.polygon,
     )
 
 
