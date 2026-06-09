@@ -8,15 +8,15 @@ rotations_per_ul = 45.783133 # キャリブレーション値 2026/06/08 23G S3X
 # rotations_per_ul = 31.491713 # キャリブレーション値 2026/06/05 S3X70-E150DN
 # rotations_per_ul = 69.724771 # キャリブレーション値 2026/05/08 S3X70-E150DN
 nozzle_diameter = 0.34 # ノズル内径 [mm] (23G)
-max_dispense_rate = 0.04 # 吐出レート上限 [uL/sec]
-fill_speed = 1.0 # 塗布移動速度 [mm/sec]（主設定。実機で 1812 が連続になるまで調整）
+max_dispense_rate = 0.1 # 吐出レート上限 [uL/sec]
+fill_speed = 1.4 # 塗布移動速度 [mm/sec]（主設定。実機で 1812 が連続になるまで調整）
 dispense_accel = 0.2 # 吐出加速度 [uL/sec^2]
 retract_amount = 0.05 # リトラクション量 [uL]
 retract_rate = 0.1 # リトラクションレート [uL/sec]
 retract_accel_factor = 2.0 # リトラクション加速度係数
-paste_height = 0.12 # 塗布面のZ高さ [mm]
-ul_per_mm2 = 0.08 # パッド面積あたりのペースト量 [uL/mm^2]
-prime_extra_delay = 0.2 # プライム後の追加遅延 [sec]
+paste_height = 0.1 # 塗布面のZ高さ [mm]
+ul_per_mm2 = 0.12 # パッド面積あたりのペースト量 [uL/mm^2]
+prime_extra_delay = 0.4 # プライム後の追加遅延 [sec]
 overlap = 0.4
 
 [paste_dispenser.toolhead]
