@@ -524,24 +524,39 @@ class TestCompose:
         assert inverse[1] == Scale(0.5, 1.0, 1.0)
 
 
+def _quadratic_z(x, y, c, a, b, d, e, f):
+    """2次曲面 z = c + ax + by + dx² + ey² + fxy を評価する補助関数."""
+    return c + a * x + b * y + d * x * x + e * y * y + f * x * y
+
+
 class TestHeightPlane:
-    """HeightPlaneクラスのテスト."""
+    """HeightPlaneクラスのテスト.
+
+    HeightPlane は計測点に z = c + ax + by + dx² + ey² + fxy の2次曲面を最小二乗で
+    フィットし、XY位置ごとの Z 補正を与える。2次曲面のフィットには6点以上が必要。
+    平面データを与えると2次項が≈0となり平面値を復元する（後方互換）。
+    """
 
     @pytest.fixture
-    def triangle_points(self):
-        # 平面 z = 0.1x + 0.2y の3点
-        return (
-            Point3d(0.0, 0.0, 0.0),
-            Point3d(10.0, 0.0, 1.0),
-            Point3d(0.0, 10.0, 2.0),
-        )
+    def plane_points(self):
+        # 平面 z = 0.1x + 0.2y（c=0, 2次項なし）を表す非退化な6点。
+        # 2次曲面フィットでも2次項≈0となり平面値を復元するはず。
+        xys = [
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (0.0, 10.0),
+            (10.0, 10.0),
+            (5.0, 7.0),
+            (3.0, 2.0),
+        ]
+        return tuple(Point3d(x, y, 0.1 * x + 0.2 * y) for x, y in xys)
 
     @pytest.fixture
-    def height_plane(self, triangle_points):
-        return HeightPlane(points=triangle_points)
+    def height_plane(self, plane_points):
+        return HeightPlane(points=plane_points)
 
     def test_apply_point3d_evaluates_plane(self, height_plane):
-        # 平面式 z = 0.1x + 0.2y より (5, 5) では z = 0.1*5 + 0.2*5 = 1.5
+        # 平面式 z = 0.1x + 0.2y より (5, 5) では z_offset = 1.5 が加算される
         result = height_plane.apply(Point3d(5.0, 5.0, 10.0))
 
         assert result.x == 5.0
@@ -561,30 +576,44 @@ class TestHeightPlane:
     def test_corner_and_edge_values(self, height_plane, x, y, expected_z_offset):
         result = height_plane.apply(Point3d(x, y, 0.0))
 
-        assert result.z == pytest.approx(expected_z_offset)
+        assert result.z == pytest.approx(expected_z_offset, abs=1e-9)
 
-    def test_apply_with_four_points(self):
-        # 長方形の4頂点で平面 z = 0.1x + 0.2y
-        points = (
-            Point3d(0.0, 0.0, 0.0),
-            Point3d(10.0, 0.0, 1.0),
-            Point3d(0.0, 10.0, 2.0),
-            Point3d(10.0, 10.0, 3.0),
-        )
-        hp = HeightPlane(points=points)
-
-        # 中心 (5,5) の期待値は 0.5 + 1.0 = 1.5
-        result = hp.apply(Point3d(5.0, 5.0, 0.0))
-
-        assert result.z == pytest.approx(1.5)
-
-    def test_outside_sample_extent_extrapolates_planarly(self, height_plane):
-        # 平面 z = 0.1x + 0.2y を全域に外挿。(100, 100) では 0.1*100 + 0.2*100 = 30.0
+    def test_outside_sample_extent_extrapolates(self, height_plane):
+        # 平面 z = 0.1x + 0.2y を全域に外挿。(100, 100) では 0.1*100 + 0.2*100 = 30.0。
+        # 平面データなら2次項≈0なので外挿しても平面値が出る。
         result = height_plane.apply(Point3d(100.0, 100.0, 0.0))
 
         assert result.x == 100.0
         assert result.y == 100.0
         assert result.z == pytest.approx(30.0)
+
+    def test_recovers_convex_paraboloid(self):
+        # 既知の凸パラボロイド z = -0.001(x²+y²) + 0.1x + 0.2y + 0.3 を9点でフィットし、
+        # サンプルに含まれない評価点で値を復元できることを検証する。
+        c, a, b, d, e, f = 0.3, 0.1, 0.2, -0.001, -0.001, 0.0
+        grid = [(x, y) for x in (0.0, 5.0, 10.0) for y in (0.0, 5.0, 10.0)]
+        points = tuple(
+            Point3d(x, y, _quadratic_z(x, y, c, a, b, d, e, f)) for x, y in grid
+        )
+        hp = HeightPlane(points=points)
+
+        result = hp.apply(Point3d(7.0, 3.0, 0.0))
+
+        assert result.z == pytest.approx(_quadratic_z(7.0, 3.0, c, a, b, d, e, f))
+
+    def test_recovers_twisted_surface(self):
+        # ねじれ項 xy を含む面 z = 0.002xy + 0.05x - 0.03y + 1.0 を9点でフィットし、
+        # サンプル外の評価点で値を復元できることを検証する。
+        c, a, b, d, e, f = 1.0, 0.05, -0.03, 0.0, 0.0, 0.002
+        grid = [(x, y) for x in (0.0, 5.0, 10.0) for y in (0.0, 5.0, 10.0)]
+        points = tuple(
+            Point3d(x, y, _quadratic_z(x, y, c, a, b, d, e, f)) for x, y in grid
+        )
+        hp = HeightPlane(points=points)
+
+        result = hp.apply(Point3d(7.0, 3.0, 0.0))
+
+        assert result.z == pytest.approx(_quadratic_z(7.0, 3.0, c, a, b, d, e, f))
 
     def test_apply_point2d_returns_unchanged(self, height_plane):
         point = Point2d(5.0, 5.0)
@@ -594,11 +623,28 @@ class TestHeightPlane:
         assert isinstance(result, Point2d)
         assert result == point
 
-    def test_inverse_roundtrip(self, height_plane):
+    def test_inverse_roundtrip_on_plane(self, height_plane):
         point = Point3d(5.0, 5.0, 100.0)
 
         transformed = height_plane.apply(point)
         restored = height_plane.inverse().apply(transformed)
+
+        assert restored.x == pytest.approx(point.x)
+        assert restored.y == pytest.approx(point.y)
+        assert restored.z == pytest.approx(point.z)
+
+    def test_inverse_roundtrip_on_quadratic_surface(self):
+        # 2次曲面（反り＋ねじれ）でも inverse のラウンドトリップが成立する。
+        c, a, b, d, e, f = 0.3, 0.1, 0.2, -0.001, -0.0005, 0.002
+        grid = [(x, y) for x in (0.0, 5.0, 10.0) for y in (0.0, 5.0, 10.0)]
+        points = tuple(
+            Point3d(x, y, _quadratic_z(x, y, c, a, b, d, e, f)) for x, y in grid
+        )
+        hp = HeightPlane(points=points)
+        point = Point3d(7.0, 3.0, 100.0)
+
+        transformed = hp.apply(point)
+        restored = hp.inverse().apply(transformed)
 
         assert restored.x == pytest.approx(point.x)
         assert restored.y == pytest.approx(point.y)
@@ -610,37 +656,30 @@ class TestHeightPlane:
             (),
             (Point3d(0.0, 0.0, 0.0),),
             (Point3d(0.0, 0.0, 0.0), Point3d(1.0, 1.0, 1.0)),
+            (
+                Point3d(0.0, 0.0, 0.0),
+                Point3d(1.0, 0.0, 0.0),
+                Point3d(0.0, 1.0, 0.0),
+                Point3d(1.0, 1.0, 0.0),
+                Point3d(2.0, 0.0, 0.0),
+            ),
         ],
     )
-    def test_fewer_than_three_points_raises_value_error(self, points):
-        with pytest.raises(ValueError, match="3点以上"):
+    def test_fewer_than_six_points_raises_value_error(self, points):
+        with pytest.raises(ValueError, match="6点以上"):
             HeightPlane(points=points)
 
     def test_collinear_points_raises_value_error(self):
-        points = (
-            Point3d(0.0, 0.0, 0.0),
-            Point3d(1.0, 0.0, 1.0),
-            Point3d(2.0, 0.0, 2.0),
-        )
+        # 共線な6点は design行列 [1,x,y,x²,y²,xy] の rank が6未満となり退化配置として弾かれる。
+        points = tuple(Point3d(float(i), float(i), float(i)) for i in range(6))
 
-        with pytest.raises(ValueError, match="同一直線上"):
+        with pytest.raises(ValueError, match="退化"):
             HeightPlane(points=points)
 
-    def test_collinear_four_points_raises_value_error(self):
-        # 4点でも共線ならNG
-        points = (
-            Point3d(0.0, 0.0, 0.0),
-            Point3d(1.0, 1.0, 1.0),
-            Point3d(2.0, 2.0, 2.0),
-            Point3d(3.0, 3.0, 3.0),
-        )
-
-        with pytest.raises(ValueError, match="同一直線上"):
-            HeightPlane(points=points)
-
-    def test_least_squares_fits_noisy_points(self):
+    def test_least_squares_fits_noisy_quadratic_points(self):
+        # ノイズ付きの2次曲面サンプルから最小二乗で係数を復元できる。
         rng = np.random.default_rng(seed=42)
-        true_a, true_b, true_c = 0.1, 0.2, 0.3
+        c, a, b, d, e, f = 0.3, 0.1, 0.2, -0.001, -0.001, 0.002
         xys = [
             (0.0, 0.0),
             (10.0, 0.0),
@@ -650,14 +689,17 @@ class TestHeightPlane:
             (5.0, 0.0),
             (2.0, 8.0),
             (8.0, 2.0),
+            (3.0, 6.0),
         ]
-        noise = rng.normal(0.0, 0.01, size=len(xys))
+        noise = rng.normal(0.0, 0.005, size=len(xys))
         points = tuple(
-            Point3d(x, y, true_a * x + true_b * y + true_c + n)
+            Point3d(x, y, _quadratic_z(x, y, c, a, b, d, e, f) + n)
             for (x, y), n in zip(xys, noise, strict=True)
         )
         hp = HeightPlane(points=points)
 
         result = hp.apply(Point3d(5.0, 5.0, 0.0))
 
-        assert result.z == pytest.approx(true_a * 5 + true_b * 5 + true_c, abs=0.05)
+        assert result.z == pytest.approx(
+            _quadratic_z(5.0, 5.0, c, a, b, d, e, f), abs=0.05
+        )
