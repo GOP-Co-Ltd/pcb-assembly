@@ -5,7 +5,8 @@ port = 7125
 [paste_dispenser]
 rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
 nozzle_diameter = 0.21 # ノズル内径 [mm] (27G相当)
-dispense_rate = 5.0 # 吐出レート [uL/sec]
+max_dispense_rate = 5.0 # 吐出レート上限 [uL/sec]
+fill_speed = 200.0 # 塗布移動速度 [mm/sec]。高値=吐出レート上限で律速（旧挙動踏襲・未調整）
 dispense_accel = 10.0 # 吐出加速度 [uL/sec^2]
 retract_amount = 50.0 # リトラクション量 [uL]
 retract_rate = 50.0 # リトラクションレート [uL/sec]

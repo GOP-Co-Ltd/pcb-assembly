@@ -7,7 +7,7 @@
 ``FillSequence.to_gcode`` は塗布吐出に ``dispenser.pushpull(amount, ...)`` を
 ``sync=False`` で発行し、その ``amount`` は
 ``retraction + extra_amount + total_amount`` である。``extra_amount`` は
-``dispense_rate * prime_extra_delay``（既定 0）なので、塗布 pushpull の量から
+``実効レート * prime_extra_delay``（既定 0）なので、塗布 pushpull の量から
 各成分の ``total_amount`` を復元して検証する。
 
 Klipper / PasteDispenser / XYZStage はいずれも自前 HAL ABC のため fake 可
@@ -72,7 +72,8 @@ def applicator(mock_klipper, mock_paste_dispenser, mock_stage):
         paste_dispenser=mock_paste_dispenser,
         stage=mock_stage,
         nozzle_diameter=0.34,
-        dispense_rate=5.0,
+        fill_speed=2.0,
+        max_dispense_rate=5.0,
         dispense_accel=10.0,
         ul_per_mm2=0.05,
         retraction=10.0,
@@ -249,12 +250,46 @@ class TestInitValidation:
                 paste_dispenser=mock_paste_dispenser,
                 stage=mock_stage,
                 nozzle_diameter=0.34,
-                dispense_rate=5.0,
+                fill_speed=2.0,
+                max_dispense_rate=5.0,
                 dispense_accel=1.0,
                 ul_per_mm2=0.05,
                 retraction=10.0,
                 retraction_rate=10.0,
                 retraction_accel_factor=0.5,
+            )
+
+    @pytest.mark.parametrize(
+        ("fill_speed", "max_dispense_rate", "match"),
+        [
+            (0.0, 5.0, "fill_speedは正の値"),
+            (2.0, 0.0, "max_dispense_rateは正の値"),
+        ],
+    )
+    def test_rate_and_speed_must_be_positive(
+        self,
+        mock_klipper,
+        mock_paste_dispenser,
+        mock_stage,
+        fill_speed,
+        max_dispense_rate,
+        match,
+    ):
+        # fill_speed / max_dispense_rate が 0 だと _effective_rate=0 →
+        # prime_time 計算で ZeroDivisionError になるため、入口で弾く。
+        with pytest.raises(ValueError, match=match):
+            PasteApplicator(
+                klipper=mock_klipper,
+                paste_dispenser=mock_paste_dispenser,
+                stage=mock_stage,
+                nozzle_diameter=0.34,
+                fill_speed=fill_speed,
+                max_dispense_rate=max_dispense_rate,
+                dispense_accel=1.0,
+                ul_per_mm2=0.05,
+                retraction=10.0,
+                retraction_rate=10.0,
+                retraction_accel_factor=2.0,
             )
 
 
