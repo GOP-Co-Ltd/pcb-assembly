@@ -28,7 +28,8 @@ class PasteDispenser:
 
     rotations_per_ul: float  # 1μLあたりの回転数 [rev/μL]
     nozzle_diameter: float  # ノズル内径 [mm]
-    dispense_rate: float  # 吐出レート [μL/sec]
+    fill_speed: float  # 塗布移動速度 [mm/sec]（主設定）
+    max_dispense_rate: float  # 吐出レート上限 [μL/sec]
     dispense_accel: float  # 吐出加速度 [μL/sec²]
     retract_amount: float  # リトラクション量 [μL]
     retract_rate: float  # リトラクションレート [μL/sec]
