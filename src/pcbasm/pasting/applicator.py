@@ -80,7 +80,7 @@ class PasteApplicator:
         retraction_accel_factor: float,
         transform: Transform = Identity(),
         paste_height: float = 0.1,
-        lift_height: float = 5.0,
+        lift_height: float = 2.0,
         prime_extra_delay: float = 0.0,
         bead_width_factor: float = 1.0,
         overlap: float = 0.0,
