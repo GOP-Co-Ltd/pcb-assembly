@@ -3,6 +3,8 @@
 import logging
 from collections.abc import Iterable
 
+from shapely.geometry import Polygon
+
 from pcbasm import gcode
 from pcbasm.geometry import (
     HeightPlane,
@@ -105,6 +107,7 @@ class HeightPlaneMeasurer:
         self,
         coppers: Iterable[Copper],
         board_to_machine: Transform,
+        outline: Polygon | None = None,
     ) -> HeightPlane:
         """銅箔島内のサンプル点で高さ計測し、2次曲面フィットしたHeightPlaneを返す."""
         board_points = sample_points_in_polygons(
@@ -112,6 +115,7 @@ class HeightPlaneMeasurer:
             min_radius=self._min_radius,
             min_samples=self._min_samples,
             max_samples=self._max_samples,
+            outline=outline,
         )
         coord_str = ", ".join(f"({p.x:.1f}, {p.y:.1f})" for p in board_points)
         self._logger.info(f"Probe点 {len(board_points)}個: {coord_str}")
