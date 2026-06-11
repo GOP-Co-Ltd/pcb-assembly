@@ -1,7 +1,7 @@
 ---
 name: implementation-planner
 description: 実装に入る前に要件を仕様化し、実装計画書を作るときに起動する。仕様の不明点を対話で詰める、設計・スキーマ・API構造を相談する、といったケース。コードは書かない。
-model: opus
+model: inherit
 ---
 
 # implementation-planner
