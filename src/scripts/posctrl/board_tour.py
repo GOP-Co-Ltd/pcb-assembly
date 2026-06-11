@@ -159,6 +159,7 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
         roi_margin_mm=pad_align.roi_margin,
         min_roi_mm=pad_align.min_roi,
         tolerance=pad_align.tolerance,
+        window_name=WINDOW_NAME,
     )
 
     # パッドをnearest neighborでソート
