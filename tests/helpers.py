@@ -1,8 +1,13 @@
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
+from typing import override
 
 import picamera2
 import pytest
+
+from pcbasm.hal import Camera, CameraInfo, Resolution
+from pcbasm.vision import Image
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -33,3 +38,34 @@ skip_if_no_csi_camera = pytest.mark.skipif(
     not picamera2.Picamera2.global_camera_info(),
     reason="CSIカメラが接続されていません",
 )
+
+
+class FakeCamera(Camera):
+    """固定 Image 列を順に返すテスト用の Camera 実装.
+
+    capture() のたびに与えられた画像を先頭から順に返し、 列を使い切った後は最後の画像を返し続ける。
+    """
+
+    def __init__(self, images: Sequence[Image], fps: float = 30.0) -> None:
+        if not images:
+            raise ValueError("imagesは1枚以上必要です")
+        self._images = list(images)
+        self._fps = fps
+        self._index = 0
+
+    @property
+    @override
+    def resolution(self) -> Resolution:
+        first = self._images[0]
+        return Resolution(width=first.width, height=first.height, fps=self._fps)
+
+    @property
+    @override
+    def info(self) -> CameraInfo:
+        return CameraInfo(name="FakeCamera", formats={"BGR": [self.resolution]})
+
+    @override
+    def capture(self) -> Image:
+        image = self._images[min(self._index, len(self._images) - 1)]
+        self._index += 1
+        return image

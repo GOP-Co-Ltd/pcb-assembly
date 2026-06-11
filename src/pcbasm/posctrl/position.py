@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 
 from pcbasm import gcode
-from pcbasm.geometry import Point2d
+from pcbasm.geometry import Point2d, Transform
 from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.utils import get_class_module_path
 
@@ -12,14 +12,16 @@ from pcbasm.utils import get_class_module_path
 class XYPositionAdjustor:
     """XY位置を反復的に補正するクラス.
 
-    大まかに位置合わせした状態から、観測されたオフセットを元に
-    許容誤差内に収束するまで位置を微調整する。
+    大まかに位置合わせした状態から、観測された想定→観測のTransform
+    （カメラmm空間、原点=画像中心）を元に許容誤差内に収束するまで
+    位置を微調整する。
 
     Example:
         adjustor = XYPositionAdjustor(
-            observe_offset=observe_offset,
+            observe=observer.observe,
             klipper=klipper,
             stage=stage,
+            offset_transform=offset_transform,
             tolerance=0.01,
         )
         final_pos = adjustor.adjust()
@@ -27,9 +29,10 @@ class XYPositionAdjustor:
 
     def __init__(
         self,
-        observe_offset: Callable[[], Point2d],
+        observe: Callable[[], Transform],
         klipper: Klipper,
         stage: XYZStage,
+        offset_transform: Transform,
         tolerance: float = 0.1,
         max_iterations: int = 10,
         move_velocity_ratio: float = 0.5,
@@ -38,17 +41,19 @@ class XYPositionAdjustor:
         """XYPositionAdjustorを初期化する.
 
         Args:
-            observe_offset: オフセットを検出して返す関数
+            observe: 想定→観測のTransform（カメラmm空間）を返す関数
             klipper: Klipperクライアント
             stage: XYZステージ
+            offset_transform: 観測オフセット系から機械座標系への変換
             tolerance: 許容誤差 (mm)
             max_iterations: 最大反復回数
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
             settle_time: 移動後の安定待機時間（秒）
         """
-        self._observe_offset = observe_offset
+        self._observe = observe
         self._klipper = klipper
         self._stage = stage
+        self._offset_transform = offset_transform
         self._tolerance = tolerance
         self._max_iterations = max_iterations
         self._move_velocity_ratio = move_velocity_ratio
@@ -70,7 +75,9 @@ class XYPositionAdjustor:
         move_velocity = self._stage.max_velocity * self._move_velocity_ratio
         offset = Point2d(x=0.0, y=0.0)
         for iteration in range(self._max_iterations):
-            offset = self._observe_offset()
+            offset = self._offset_transform.apply(
+                self._observe().apply(Point2d(0.0, 0.0))
+            )
             self._logger.info(
                 f"試行 {iteration + 1}/{self._max_iterations}: "
                 f"オフセット ({offset.x:.4f}, {offset.y:.4f}) mm, "

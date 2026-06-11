@@ -6,8 +6,18 @@ from .copper import (
     CopperProjection,
     CopperProjector,
     EdgeMatch,
+    PixelRect,
+    RigidEdgeMatch,
 )
+from .correction import to_machine_transform
 from .offset import OffsetTransformMeasurer
+from .pad import (
+    ComponentPads,
+    CopperPadObserver,
+    PadAligner,
+    PadAlignmentResult,
+    group_pads_by_component,
+)
 from .position import XYPositionAdjustor
 from .setup import (
     BoardCalibrationResult,
@@ -23,17 +33,25 @@ from .tour import (
 
 __all__ = [
     "BoardCalibrationResult",
+    "ComponentPads",
     "BoardTransformMeasurer",
     "CopperEdgeMatcher",
+    "CopperPadObserver",
     "CopperProjection",
     "CopperProjector",
     "EdgeMatch",
     "OffsetObserver",
     "OffsetTransformMeasurer",
+    "PadAligner",
+    "PadAlignmentResult",
+    "PixelRect",
+    "RigidEdgeMatch",
     "XYPositionAdjustor",
     "display_at_point",
+    "group_pads_by_component",
     "interactive_display_at_point",
     "machine_session",
     "setup_board_calibration",
+    "to_machine_transform",
     "wait_for_keypress",
 ]
