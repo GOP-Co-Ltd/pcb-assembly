@@ -17,13 +17,14 @@ Reference Pointの位置調整、Board座標→機械座標変換の計測も兼
 
 import argparse
 import logging
+import time
 from pathlib import Path
 
 import cv2
 import numpy as np
 
 from pcbasm import gcode
-from pcbasm.config import get_machine_config
+from pcbasm.config import PadAlign, get_machine_config
 from pcbasm.geometry import Point2d, sort_by_nearest
 from pcbasm.hal import Speed
 from pcbasm.pcb import Layer, Pad
@@ -42,30 +43,56 @@ from pcbasm.utils import setup_logging
 from pcbasm.vision import CopperEdgeDetector
 
 WINDOW_NAME = "Board Tour Demo"
-FILL_COLOR = (0, 0, 255)  # 想定銅箔overlayの色 (BGR)
+FILL_COLOR = (0, 0, 255)  # 対象pad overlayの色 (BGR)
 FILL_ALPHA = 0.35
+EXPECTED_COLOR = (0, 0, 255)  # 想定しているpadの輪郭 (BGR: 赤)
+DETECTED_COLOR = (0, 255, 0)  # 検出された銅箔輪郭 (BGR: 緑)
+RESULT_DISPLAY_SEC = 1.0  # 各padの結果表示時間（キー待ちはしない）
 
 
-def _wait_with_overlay(
+def _show_pad_result(
     result: BoardCalibrationResult,
     projector: CopperProjector,
+    edge_detector: CopperEdgeDetector,
+    pad: Pad,
+    pad_align: PadAlign,
     lines: list[str],
 ) -> bool:
-    """現在位置で再投影したfill overlayとステータスを表示してキーを待つ.
+    """対象padのROIに限定したoverlayを一定時間表示して自動で次へ進む.
+
+    対象pad領域の薄塗り + 想定しているpadの輪郭（赤）+
+    検出された銅箔輪郭（緑）を現在位置の再投影で描画する。
 
     Returns:
-        Escキーで中断された場合True、他キーならFalse
+        Escキーで中断された場合True
     """
-    projection = projector.project(result.stage.get_position().to2d())
-    fill = projection.fill_mask > 0
-    while True:
-        display = result.camera.capture().numpy().copy()
+    current = result.stage.get_position().to2d()
+    projection = projector.project(current)
+    x0, y0, x1, y1 = projector.roi_of(
+        pad.polygon,
+        current,
+        margin_mm=pad_align.roi_margin,
+        min_size_mm=pad_align.min_roi,
+    )
+    roi = np.zeros(projection.fill_mask.shape, dtype=bool)
+    roi[y0:y1, x0:x1] = True
+    fill = (projection.fill_mask > 0) & roi
+    expected = (projection.edge_mask > 0) & roi
+
+    deadline = time.monotonic() + RESULT_DISPLAY_SEC
+    while time.monotonic() < deadline:
+        image = result.camera.capture()
+        detected = (edge_detector.detect_edges(image) > 0) & roi
+
+        display = image.numpy().copy()
         color_layer = np.zeros_like(display)
         color_layer[:] = FILL_COLOR
         blended = cv2.addWeighted(
             display, 1.0 - FILL_ALPHA, color_layer, FILL_ALPHA, 0.0
         )
         display[fill] = blended[fill]
+        display[expected] = EXPECTED_COLOR
+        display[detected] = DETECTED_COLOR
 
         for i, line in enumerate(lines):
             position = (10, 25 + i * 25)
@@ -83,18 +110,17 @@ def _wait_with_overlay(
             )
 
         cv2.imshow(WINDOW_NAME, display)
-        key = cv2.waitKey(100)
-        if key == 27:  # Esc
+        if cv2.waitKey(50) == 27:  # Esc
             return True
-        if key != -1:
-            return False
+    return False
 
 
-def _tour_pads(result: BoardCalibrationResult, args: argparse.Namespace) -> None:
+def _tour_pads(result: BoardCalibrationResult) -> None:
     """全padを巡回し、銅箔照合で自動位置合わせして結果を表示する."""
     stage = result.stage
     pcb = result.pcb
     board_transform = result.board_transform
+    pad_align = result.machine.paste_dispenser.pad_align
 
     top_pads = [p for p in pcb.pads if p.layer == Layer.TOP]
     print(f"TOPレイヤーのパッド数: {len(top_pads)}")
@@ -113,13 +139,13 @@ def _tour_pads(result: BoardCalibrationResult, args: argparse.Namespace) -> None
     )
     matcher = CopperEdgeMatcher(
         pixel_per_mm=result.calibration.pixel_per_mm,
-        search_window_mm=args.search_window,
-        theta_range_degrees=args.theta_range,
+        search_window_mm=pad_align.search_window,
+        theta_range_degrees=pad_align.theta_range,
     )
     edge_detector = CopperEdgeDetector(
-        canny_low=args.canny_low,
-        canny_high=args.canny_high,
-        blur_ksize=args.blur_ksize,
+        canny_low=pad_align.canny_low,
+        canny_high=pad_align.canny_high,
+        blur_ksize=pad_align.blur_ksize,
     )
     aligner = PadAligner(
         camera=result.camera,
@@ -130,9 +156,9 @@ def _tour_pads(result: BoardCalibrationResult, args: argparse.Namespace) -> None
         edge_detector=edge_detector,
         board_transform=board_transform,
         offset_transform=result.offset_transform,
-        roi_margin_mm=args.roi_margin,
-        min_roi_mm=args.min_roi,
-        tolerance=args.copper_tolerance,
+        roi_margin_mm=pad_align.roi_margin,
+        min_roi_mm=pad_align.min_roi,
+        tolerance=pad_align.tolerance,
     )
 
     # パッドをnearest neighborでソート
@@ -151,7 +177,9 @@ def _tour_pads(result: BoardCalibrationResult, args: argparse.Namespace) -> None
             alignment = aligner.align(pad)
         except RuntimeError as exc:
             print(f"警告: {label} の位置合わせに失敗: {exc}")
-            if _wait_with_overlay(result, projector, [label, f"FAILED: {exc}"]):
+            if _show_pad_result(
+                result, projector, edge_detector, pad, pad_align, [label, "FAILED"]
+            ):
                 print("中断しました")
                 break
             continue
@@ -164,7 +192,7 @@ def _tour_pads(result: BoardCalibrationResult, args: argparse.Namespace) -> None
             f"theta: {alignment.rotation.degrees:+.3f} deg",
             f"mean distance: {alignment.match.mean_distance_px:.2f} px",
         ]
-        if _wait_with_overlay(result, projector, lines):
+        if _show_pad_result(result, projector, edge_detector, pad, pad_align, lines):
             print("中断しました")
             break
 
@@ -204,29 +232,6 @@ def main() -> None:
         type=float,
         default=0.1,
         help="位置合わせの許容誤差 (mm)",
-    )
-    parser.add_argument(
-        "--copper-tolerance",
-        type=float,
-        default=0.05,
-        help="pad銅箔照合の収束許容誤差 (mm)",
-    )
-    parser.add_argument(
-        "--search-window", type=float, default=2.0, help="照合の探索窓 片側幅 (mm)"
-    )
-    parser.add_argument(
-        "--roi-margin", type=float, default=1.0, help="pad ROIのマージン (mm)"
-    )
-    parser.add_argument(
-        "--min-roi", type=float, default=3.0, help="pad ROIの最小辺長 (mm)"
-    )
-    parser.add_argument(
-        "--theta-range", type=float, default=2.0, help="θ探索の片側範囲 (度)"
-    )
-    parser.add_argument("--canny-low", type=float, default=100.0, help="Canny下側閾値")
-    parser.add_argument("--canny-high", type=float, default=200.0, help="Canny上側閾値")
-    parser.add_argument(
-        "--blur-ksize", type=int, default=5, help="GaussianBlurカーネルサイズ (奇数)"
     )
     args = parser.parse_args()
 
@@ -299,7 +304,7 @@ def main() -> None:
 
         # パッド巡回デモ（銅箔照合による自動位置合わせ）
         print("\n=== パッド巡回デモ ===")
-        _tour_pads(result, args)
+        _tour_pads(result)
 
         # ボード左上 (0, 0) に移動
         origin_machine = board_transform.apply(Point2d(0.0, 0.0))
