@@ -163,6 +163,7 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
         roi_margin_mm=pad_align.roi_margin,
         min_roi_mm=pad_align.min_roi,
         tolerance=pad_align.tolerance,
+        max_correction_mm=pad_align.max_correction,
         window_name=WINDOW_NAME,
     )
 
@@ -218,13 +219,13 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
         pad, alignment = aligned
         alignments.append((group, pad, alignment))
         translation = alignment.translation
-        lines = [
-            f"{pad.designator}.{pad.pad_number} {progress} ({len(group.pads)} pads)",
-            f"dx,dy: ({translation.x:+.3f}, {translation.y:+.3f}) mm",
-            f"theta: {alignment.rotation.degrees:+.3f} deg",
-            f"mean distance: {alignment.match.mean_distance_px:.2f} px",
-        ]
-        if _show_pad_result(result, projector, edge_detector, pad, pad_align, lines):
+        print(
+            f"  {pad.designator}.{pad.pad_number}: "
+            f"dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
+            f"theta={alignment.rotation.degrees:+.3f} deg, "
+            f"mean_distance={alignment.match.mean_distance_px:.2f} px"
+        )
+        if cv2.waitKey(1) == 27:  # Esc
             aborted = True
             print("中断しました")
             break
