@@ -288,6 +288,26 @@ class TestCopperProjector:
 
         assert roi == (0, 0, 200, 200)
 
+    def test_roi_of_multiple_polygons_covers_union_bbox(self):
+        """複数ポリゴンを渡すと全体を覆う bbox になる.
+
+        ±1mm 角 2 つ（中心 (−2,0) と (+2,0)）→ x は −3..+3mm = 70..130px、
+        margin ±10px → 60..140。y は 90..110 + margin → 80..120。
+        """
+        projector = _projector([])
+
+        x0, y0, x1, y1 = projector.roi_of(
+            [_square(-2.0, 0.0, 1.0), _square(2.0, 0.0, 1.0)],
+            Point2d(0.0, 0.0),
+            margin_mm=1.0,
+            min_size_mm=3.0,
+        )
+
+        assert x0 == pytest.approx(60, abs=1)
+        assert x1 == pytest.approx(140, abs=1)
+        assert y0 == pytest.approx(80, abs=1)
+        assert y1 == pytest.approx(120, abs=1)
+
     def test_roi_of_covers_all_vertices_under_rotated_board_transform(self):
         """回転 board_transform では全頂点の投影 bbox を取る（mm bbox の変換ではない）.
 

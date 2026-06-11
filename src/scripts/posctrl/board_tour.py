@@ -32,13 +32,13 @@ from pcbasm.hal import Speed
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
     BoardCalibrationResult,
+    ComponentPads,
     CopperEdgeMatcher,
     CopperProjector,
     PadAligner,
     PadAlignmentResult,
-    PadGroup,
-    cluster_pads,
     display_at_point,
+    group_pads_by_component,
     machine_session,
     setup_board_calibration,
     wait_for_keypress,
@@ -58,13 +58,13 @@ def _show_pad_result(
     result: BoardCalibrationResult,
     projector: CopperProjector,
     edge_detector: CopperEdgeDetector,
-    pad: Pad,
+    polygons: Sequence[Polygon],
     pad_align: PadAlign,
     lines: list[str],
 ) -> bool:
-    """対象padのROIに限定したoverlayを一定時間表示して自動で次へ進む.
+    """対象領域のROIに限定したoverlayを一定時間表示して自動で次へ進む.
 
-    対象pad領域の薄塗り + 想定しているpadの輪郭（赤）+
+    対象領域の薄塗り + 想定している銅箔の輪郭（赤）+
     検出された銅箔輪郭（緑）を現在位置の再投影で描画する。
 
     Returns:
@@ -73,7 +73,7 @@ def _show_pad_result(
     current = result.stage.get_position().to2d()
     projection = projector.project(current)
     x0, y0, x1, y1 = projector.roi_of(
-        pad.polygon,
+        polygons,
         current,
         margin_mm=pad_align.roi_margin,
         min_size_mm=pad_align.min_roi,
@@ -167,47 +167,33 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
         window_name=WINDOW_NAME,
     )
 
-    # 近傍padのクラスタでグループ化し、代表padの位置でnearest neighborソート
-    groups = cluster_pads(
-        top_pads,
-        cluster_distance_mm=pad_align.cluster_distance,
-        pads_per_representative=pad_align.pads_per_representative,
-    )
-    print(
-        f"グループ数: {len(groups)} "
-        f"(クラスタ距離 {pad_align.cluster_distance} mm, "
-        f"代表1つあたり {pad_align.pads_per_representative} pads)"
-    )
+    # padをdesignatorで部品へ対応付け、部品座標でnearest neighborソート
+    top_components = [c for c in pcb.components if c.layer == Layer.TOP]
+    groups = group_pads_by_component(top_components, top_pads)
+    print(f"padを持つ部品数: {len(groups)}")
     current_pos = stage.get_position()
-    rep_centers_3d = [g.representative.center.to3d() for g in groups]
-    sorted_centers = sort_by_nearest(rep_centers_3d, current_pos.to2d().to3d())
-    center_to_group = {g.representative.center.to3d(): g for g in groups}
-    sorted_groups = [center_to_group[center] for center in sorted_centers]
+    positions_3d = [g.component.position.to3d() for g in groups]
+    sorted_positions = sort_by_nearest(positions_3d, current_pos.to2d().to3d())
+    position_to_group = {g.component.position.to3d(): g for g in groups}
+    sorted_groups = [position_to_group[position] for position in sorted_positions]
 
-    alignments: list[tuple[PadGroup, Pad, PadAlignmentResult]] = []
+    alignments: list[tuple[ComponentPads, PadAlignmentResult]] = []
     aborted = False
     print("巡回開始... (Escキーで中断)")
     for i, group in enumerate(sorted_groups):
-        progress = f"group {i + 1}/{len(sorted_groups)}"
+        designator = group.component.designator
+        progress = f"{designator} {i + 1}/{len(sorted_groups)}"
         print(f"--- {progress}: {len(group.pads)} pads ---")
 
-        # 重心に近い順に照合を試す（代表が失敗したら次のpadへフォールバック）
-        aligned: tuple[Pad, PadAlignmentResult] | None = None
-        for pad in group.pads:
-            label = f"{pad.designator}.{pad.pad_number} {progress}"
-            try:
-                aligned = (pad, aligner.align(pad))
-                break
-            except RuntimeError as exc:
-                print(f"警告: {label} の照合に失敗: {exc}")
-
-        if aligned is None:
-            print(f"警告: {progress} は全padで照合に失敗")
+        try:
+            alignment = aligner.align(group)
+        except RuntimeError as exc:
+            print(f"警告: {progress} の照合に失敗: {exc}")
             if _show_pad_result(
                 result,
                 projector,
                 edge_detector,
-                group.representative,
+                [p.polygon for p in group.pads],
                 pad_align,
                 [progress, "FAILED"],
             ):
@@ -216,11 +202,10 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
                 break
             continue
 
-        pad, alignment = aligned
-        alignments.append((group, pad, alignment))
+        alignments.append((group, alignment))
         translation = alignment.translation
         print(
-            f"  {pad.designator}.{pad.pad_number}: "
+            f"  {designator}: "
             f"dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
             f"theta={alignment.rotation.degrees:+.3f} deg, "
             f"mean_distance={alignment.match.mean_distance_px:.2f} px"
@@ -230,20 +215,18 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
             print("中断しました")
             break
 
-    # サマリ表示（グループ内の全padは代表のTransformを共有する）
-    print("\n=== 位置合わせサマリ（グループ内padは代表のTransformを共有） ===")
-    for group, pad, alignment in alignments:
+    # サマリ表示（部品の全padは部品のTransformを共有する）
+    print("\n=== 位置合わせサマリ（部品内padは部品のTransformを共有） ===")
+    for group, alignment in alignments:
         translation = alignment.translation
         print(
-            f"代表 {pad.designator}.{pad.pad_number} ({len(group.pads)} pads): "
+            f"{group.component.designator} ({len(group.pads)} pads): "
             f"dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
             f"theta={alignment.rotation.degrees:+.3f} deg, "
             f"mean_distance={alignment.match.mean_distance_px:.2f} px"
         )
-    aligned_pads = sum(len(group.pads) for group, _, _ in alignments)
-    print(
-        f"成功: {len(alignments)}/{len(sorted_groups)} グループ ({aligned_pads} pads)"
-    )
+    aligned_pads = sum(len(group.pads) for group, _ in alignments)
+    print(f"成功: {len(alignments)}/{len(sorted_groups)} 部品 ({aligned_pads} pads)")
 
     if not aborted and alignments:
         _tour_corrected_pads(result, edge_detector, polygons, alignments)
@@ -253,9 +236,9 @@ def _tour_corrected_pads(
     result: BoardCalibrationResult,
     edge_detector: CopperEdgeDetector,
     polygons: Sequence[Polygon],
-    alignments: list[tuple[PadGroup, Pad, PadAlignmentResult]],
+    alignments: list[tuple[ComponentPads, PadAlignmentResult]],
 ) -> None:
-    """所属グループの補正Transformを適用した位置で全padを巡回する.
+    """所属部品の補正Transformを適用した位置で全padを巡回する.
 
     各padの目標位置は corrected =
     machine_transform(board_transform(pad.center))。
@@ -265,9 +248,9 @@ def _tour_corrected_pads(
     pad_align = result.machine.paste_dispenser.pad_align
     image_size = result.camera.capture().size
 
-    # グループごとに補正済みのboard変換とprojectorを作り、padごとの巡回先を集める
-    entries: list[tuple[Pad, CopperProjector, Point2d, str]] = []
-    for group, rep, alignment in alignments:
+    # 部品ごとに補正済みのboard変換とprojectorを作り、padごとの巡回先を集める
+    entries: list[tuple[Pad, CopperProjector, Point2d]] = []
+    for group, alignment in alignments:
         corrected_transform = Compose(
             [result.board_transform, alignment.machine_transform]
         )
@@ -278,30 +261,34 @@ def _tour_corrected_pads(
             pixel_per_mm=result.calibration.pixel_per_mm,
             image_size=image_size,
         )
-        group_label = f"grp[{rep.designator}.{rep.pad_number}]"
         for pad in group.pads:
             target = corrected_transform.apply(pad.center)
-            entries.append((pad, corrected_projector, target, group_label))
+            entries.append((pad, corrected_projector, target))
 
     # 補正後の目標位置でnearest neighborソート
     current_pos = stage.get_position()
-    targets_3d = [target.to3d() for _, _, target, _ in entries]
+    targets_3d = [target.to3d() for _, _, target in entries]
     sorted_targets = sort_by_nearest(targets_3d, current_pos.to2d().to3d())
     target_to_entry = {entry[2].to3d(): entry for entry in entries}
     sorted_entries = [target_to_entry[target] for target in sorted_targets]
 
     print("\n=== 補正適用済みの全pad巡回 === (Escキーで中断)")
-    for i, (pad, corrected_projector, target, group_label) in enumerate(sorted_entries):
+    for i, (pad, corrected_projector, target) in enumerate(sorted_entries):
         result.klipper.send_gcode(
             stage.move(x=target.x, y=target.y, speed=Speed.rate(0.5))
             + gcode.wait_for_done()
         )
         lines = [
-            f"{pad.designator}.{pad.pad_number} {group_label} "
+            f"{pad.designator}.{pad.pad_number} "
             f"corrected {i + 1}/{len(sorted_entries)}"
         ]
         if _show_pad_result(
-            result, corrected_projector, edge_detector, pad, pad_align, lines
+            result,
+            corrected_projector,
+            edge_detector,
+            [pad.polygon],
+            pad_align,
+            lines,
         ):
             print("中断しました")
             break

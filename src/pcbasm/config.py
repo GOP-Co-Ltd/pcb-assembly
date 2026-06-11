@@ -28,8 +28,6 @@ class PadAlign:
 
     tolerance: float = 0.05  # 収束許容誤差 [mm]
     max_correction: float = 1.0  # 1回の照合で許容する最大ずれ [mm]。超過は照合失敗
-    cluster_distance: float = 5.0  # 同一クラスタとみなすpadポリゴン間距離 [mm]
-    pads_per_representative: int = 20  # 補正の代表1つあたりのpad数
     search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
     roi_margin: float = 1.0  # pad ROIのマージン [mm]
     min_roi: float = 3.0  # pad ROIの最小辺長 [mm]

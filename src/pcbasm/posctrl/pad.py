@@ -1,18 +1,15 @@
-"""pad単位の銅箔照合による自動位置合わせ."""
+"""部品単位の銅箔照合による自動位置合わせ."""
 
 import logging
-import math
 from collections.abc import Sequence
 
 import attrs
 import cv2
-import numpy as np
-import shapely
 
 from pcbasm import gcode
 from pcbasm.geometry import Point2d, Rotation, Transform
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
-from pcbasm.pcb import Pad
+from pcbasm.pcb import Component, Pad
 from pcbasm.posctrl.copper import (
     CopperEdgeMatcher,
     CopperProjection,
@@ -31,126 +28,42 @@ _ROI_COLOR = (255, 255, 255)  # ROI枠の表示色 (BGR: 白)
 
 
 @attrs.frozen
-class PadGroup:
-    """補正Transformを共有するpadのグループ.
+class ComponentPads:
+    """部品とそのpaste pad群.
 
-    グループの代表padで計測した補正Transformを、グループ内の全padで
-    共有するための単位。padsはグループ内padの重心に近い順に並び、
-    先頭が代表。代表で照合に失敗した場合は後続のpadを順に試せる。
+    部品の座標で計測した補正Transformを、部品に属する全padで共有する
+    ための単位。
 
     Attributes:
-        pads: グループ内のpad（重心に近い順）
+        component: 部品
+        pads: 部品に属するpad
     """
 
+    component: Component
     pads: tuple[Pad, ...]
 
-    @property
-    def representative(self) -> Pad:
-        """代表pad（グループ内padの重心に最も近いpad）."""
-        return self.pads[0]
 
-
-def _centroid(pads: Sequence[Pad]) -> Point2d:
-    """pad中心の重心を返す."""
-    return Point2d(
-        x=sum(p.center.x for p in pads) / len(pads),
-        y=sum(p.center.y for p in pads) / len(pads),
-    )
-
-
-def _ordered_group(pads: Sequence[Pad]) -> PadGroup:
-    """padを重心に近い順に並べたPadGroupを作る."""
-    centroid = _centroid(pads)
-    return PadGroup(pads=tuple(sorted(pads, key=lambda p: (p.center - centroid).norm)))
-
-
-def _split_cluster(members: Sequence[Pad], count: int) -> list[PadGroup]:
-    """クラスタをcount個のグループへ空間的に分割する.
-
-    pad中心を主成分軸（広がりが最大の方向）へ射影した順に並べ、 要素数が均等（差は高々1）な連続チャンクに切る。代表がクラスタの
-    長手方向へ等間隔に分散する。
-    """
-    if count <= 1:
-        return [_ordered_group(members)]
-
-    centers = np.array([[p.center.x, p.center.y] for p in members])
-    deviations = centers - centers.mean(axis=0)
-    # 共分散の第1固有ベクトル = 広がりが最大の方向
-    _, eigenvectors = np.linalg.eigh(deviations.T @ deviations)
-    axis = eigenvectors[:, -1]
-    order = np.argsort(deviations @ axis, kind="stable")
-    return [
-        _ordered_group([members[int(i)] for i in chunk])
-        for chunk in np.array_split(order, count)
-        if len(chunk) > 0
-    ]
-
-
-def cluster_pads(
-    pads: Sequence[Pad],
-    cluster_distance_mm: float,
-    pads_per_representative: int,
-) -> list[PadGroup]:
-    """近傍padを単一連結のクラスタにまとめ、代表を持つグループへ分割する.
-
-    padポリゴン同士の隙間距離がcluster_distance_mm以下なら同じ
-    クラスタに連結する（推移的）。クラスタの要素数が
-    pads_per_representativeを超える場合は ceil(要素数 / 同値) 個の
-    グループへ空間分割し、それぞれが代表を持つ。
+def group_pads_by_component(
+    components: Sequence[Component], pads: Sequence[Pad]
+) -> list[ComponentPads]:
+    """padをdesignatorで部品に対応付けてグループ化する.
 
     Args:
+        components: 対象部品列
         pads: 対象pad列
-        cluster_distance_mm: 同一クラスタとみなすpadポリゴン間の距離（mm）
-        pads_per_representative: 代表1つあたりのpad数
 
     Returns:
-        グループのリスト。各グループ内のpadは重心に近い順
-
-    Raises:
-        ValueError: cluster_distance_mmが正でない、または
-            pads_per_representativeが1未満の場合
+        padを1つ以上持つ部品のComponentPads（components順）
     """
-    if cluster_distance_mm <= 0:
-        raise ValueError(
-            f"cluster_distance_mmは正の値である必要があります: {cluster_distance_mm}"
-        )
-    if pads_per_representative < 1:
-        raise ValueError(
-            "pads_per_representativeは1以上である必要があります: "
-            f"{pads_per_representative}"
-        )
-    if not pads:
-        return []
+    by_designator: dict[str, list[Pad]] = {}
+    for pad in pads:
+        by_designator.setdefault(pad.designator, []).append(pad)
 
-    # ポリゴン間距離が閾値以下のペアを列挙し、union-findで連結成分を作る
-    polygons = [p.polygon for p in pads]
-    tree = shapely.STRtree(polygons)
-    left, right = tree.query(
-        polygons, predicate="dwithin", distance=cluster_distance_mm
-    )
-
-    parent = list(range(len(pads)))
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    for a, b in zip(left, right):
-        root_a, root_b = find(int(a)), find(int(b))
-        if root_a != root_b:
-            parent[root_b] = root_a
-
-    clusters: dict[int, list[Pad]] = {}
-    for i, pad in enumerate(pads):
-        clusters.setdefault(find(i), []).append(pad)
-
-    groups: list[PadGroup] = []
-    for members in clusters.values():
-        count = math.ceil(len(members) / pads_per_representative)
-        groups.extend(_split_cluster(members, count))
-    return groups
+    return [
+        ComponentPads(component=c, pads=tuple(by_designator[c.designator]))
+        for c in components
+        if c.designator in by_designator
+    ]
 
 
 class CopperPadObserver:
@@ -270,10 +183,11 @@ class PadAlignmentResult:
 
 
 class PadAligner:
-    """pad単位で銅箔照合による自動位置合わせを行うクラス.
+    """部品単位で銅箔照合による自動位置合わせを行うクラス.
 
-    pad中心へ移動し、指令位置に固定したアンカーで想定銅箔を投影、 pad
-    ROI限定の剛体照合とXYPositionAdjustorで収束させ、 machine空間の補正Transformを構築する。
+    部品の座標へ移動し、指令位置に固定したアンカーで想定銅箔を投影、
+    部品の全padを覆うROI限定の剛体照合とXYPositionAdjustorで収束させ、
+    machine空間の補正Transformを構築する。
     """
 
     def __init__(
@@ -334,14 +248,16 @@ class PadAligner:
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
-    def align(self, pad: Pad) -> PadAlignmentResult:
-        """padの中心へ移動し、銅箔照合で収束するまで位置補正する.
+    def align(self, target: ComponentPads) -> PadAlignmentResult:
+        """部品の座標へ移動し、銅箔照合で収束するまで位置補正する.
 
-        投影アンカーはpadの指令位置 s0 に固定し、収束ループ中は
-        再投影しない（毎反復同位置で再投影すると補正が収束しない）。
+        ROIは部品に属する全padポリゴンの投影bboxを覆うため、部品に
+        含まれる銅箔の輪郭で照合される。投影アンカーは部品の指令位置
+        s0 に固定し、収束ループ中は再投影しない（毎反復同位置で
+        再投影すると補正が収束しない）。
 
         Args:
-            pad: 対象pad
+            target: 対象部品とそのpad群
 
         Returns:
             位置合わせ結果
@@ -349,16 +265,16 @@ class PadAligner:
         Raises:
             RuntimeError: 照合に失敗、または収束しなかった場合
         """
-        anchor = self._board_transform.apply(pad.center)
+        component = target.component
+        anchor = self._board_transform.apply(component.position)
         self._logger.info(
-            "pad %s.%s の位置合わせを開始: anchor (%.4f, %.4f) mm",
-            pad.designator,
-            pad.pad_number,
+            "部品 %s の位置合わせを開始: anchor (%.4f, %.4f) mm",
+            component.designator,
             anchor.x,
             anchor.y,
         )
 
-        # pad中心へ移動
+        # 部品の座標へ移動
         self._klipper.send_gcode(
             self._stage.move(x=anchor.x, y=anchor.y, speed=Speed.rate(0.5))
             + gcode.wait(self._settle_time)
@@ -368,7 +284,7 @@ class PadAligner:
         # 投影とROIをアンカー s0 で固定する（ループ中は再投影しない）
         projection = self._projector.project(anchor)
         roi = self._projector.roi_of(
-            pad.polygon,
+            [p.polygon for p in target.pads],
             anchor,
             margin_mm=self._roi_margin_mm,
             min_size_mm=self._min_roi_mm,

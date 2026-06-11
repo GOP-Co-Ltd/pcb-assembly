@@ -206,18 +206,19 @@ class CopperProjector:
 
     def roi_of(
         self,
-        polygon: Polygon,
+        polygon: Polygon | Sequence[Polygon],
         stage_xy: Point2d,
         margin_mm: float = 1.0,
         min_size_mm: float = 3.0,
     ) -> PixelRect:
         """polygonの投影bboxにマージンを加えたROI矩形を返す.
 
-        exterior全頂点を投影してbboxを取り、margin_mmを加える。
-        min_size_mm未満の辺は中心対称に拡張し、フレームへクランプする。
+        exterior全頂点を投影してbboxを取り、margin_mmを加える。複数
+        ポリゴンを渡した場合は全体を覆うbboxを取る。min_size_mm未満の
+        辺は中心対称に拡張し、フレームへクランプする。
 
         Args:
-            polygon: 対象ポリゴン（shapely、mm単位、board座標）
+            polygon: 対象ポリゴン（shapely、mm単位、board座標）。複数可
             stage_xy: ステージのXY位置（機械座標、mm）
             margin_mm: bboxへ加えるマージン（mm）
             min_size_mm: ROIの最小辺長（mm）
@@ -225,9 +226,11 @@ class CopperProjector:
         Returns:
             ROI矩形 (x0, y0, x1, y1)。半開区間、全画面pixel座標
         """
+        polygons = [polygon] if isinstance(polygon, Polygon) else list(polygon)
         pixels = [
             self.pixel_of(Point2d(x=float(coord[0]), y=float(coord[1])), stage_xy)
-            for coord in polygon.exterior.coords
+            for poly in polygons
+            for coord in poly.exterior.coords
         ]
         margin_px = margin_mm * self._pixel_per_mm
         x0 = min(p.x for p in pixels) - margin_px

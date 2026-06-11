@@ -17,9 +17,13 @@ import pytest
 import shapely
 
 from pcbasm.geometry import Compose, Point2d, Rotation, Scale, Shift, Transform
-from pcbasm.pcb import Layer, Pad
+from pcbasm.pcb import Component, Layer, Pad
 from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjection, RigidEdgeMatch
-from pcbasm.posctrl.pad import CopperPadObserver, PadAlignmentResult, cluster_pads
+from pcbasm.posctrl.pad import (
+    CopperPadObserver,
+    PadAlignmentResult,
+    group_pads_by_component,
+)
 from pcbasm.vision import CopperEdgeDetector, Image, Offset
 from tests.helpers import FakeCamera
 
@@ -214,114 +218,68 @@ def _pad(designator: str, x: float, y: float, half: float = 0.4) -> Pad:
     )
 
 
-class TestClusterPads:
-    """cluster_padsのテスト."""
+class TestGroupPadsByComponent:
+    """group_pads_by_componentのテスト."""
 
-    def test_separates_distant_clusters(self):
-        """閾値より離れたpadのまとまりは別グループになる."""
-        pads = [
-            _pad("A1", 0.0, 0.0),
-            _pad("A2", 1.0, 0.0),
-            _pad("B1", 20.0, 0.0),
-            _pad("B2", 21.0, 0.0),
-        ]
-
-        groups = cluster_pads(pads, cluster_distance_mm=2.0, pads_per_representative=10)
-
-        members = {frozenset(p.designator for p in g.pads) for g in groups}
-        assert members == {frozenset({"A1", "A2"}), frozenset({"B1", "B2"})}
-
-    def test_chained_pads_form_single_cluster(self):
-        """推移的な近傍連結（A-B近い, B-C近い, A-C遠い）は1クラスタになる."""
-        # 隣接間の隙間 1.2mm (< 2.0)、両端間の隙間 4.2mm (> 2.0)
-        pads = [
-            _pad("A", 0.0, 0.0),
-            _pad("B", 2.5, 0.0),
-            _pad("C", 5.0, 0.0),
-        ]
-
-        groups = cluster_pads(pads, cluster_distance_mm=2.0, pads_per_representative=10)
-
-        assert len(groups) == 1
-        assert {p.designator for p in groups[0].pads} == {"A", "B", "C"}
-
-    def test_distance_is_polygon_gap_not_center_distance(self):
-        """距離はpadポリゴンの隙間で測る（中心間距離ではない）."""
-        # 中心間 6mm だが、大きいpad(half=5)と小pad(half=0.4)の隙間は 0.6mm
-        pads = [
-            _pad("BIG", 0.0, 0.0, half=5.0),
-            _pad("SMALL", 6.0, 0.0),
-        ]
-
-        groups = cluster_pads(pads, cluster_distance_mm=1.0, pads_per_representative=10)
-
-        assert len(groups) == 1
-
-    def test_representative_is_nearest_to_centroid(self):
-        """代表はグループ内padの重心に最も近いpad."""
-        # 重心は (4, 4) 付近 → R2 (5, 5) が最も近い
-        pads = [
-            _pad("R1", 1.0, 1.0),
-            _pad("R2", 5.0, 5.0),
-            _pad("R3", 6.0, 6.0),
-        ]
-
-        groups = cluster_pads(
-            pads, cluster_distance_mm=10.0, pads_per_representative=10
+    @staticmethod
+    def _component(designator: str, x: float, y: float) -> Component:
+        return Component(
+            designator=designator,
+            value="10k",
+            package="0402",
+            position=Point2d(x, y),
+            rotation=0.0,
+            layer=Layer.TOP,
         )
 
-        assert len(groups) == 1
-        assert groups[0].representative.designator == "R2"
-
-    def test_pads_are_ordered_by_distance_to_centroid(self):
-        """グループ内のpadは重心に近い順（照合フォールバックの試行順）."""
-        # 重心 = (11/3, 11/3) ≈ (3.67, 3.67)
-        # 距離: (4,4)→0.47 < (6,6)→3.30 < (1,1)→3.77
+    def test_groups_pads_by_designator(self):
+        """padはdesignatorで部品に対応付けられる."""
+        components = [
+            self._component("R1", 1.0, 1.0),
+            self._component("U1", 10.0, 10.0),
+        ]
         pads = [
-            _pad("FAR", 1.0, 1.0),
-            _pad("NEAR", 4.0, 4.0),
-            _pad("MID", 6.0, 6.0),
+            _pad("R1", 0.5, 1.0),
+            _pad("R1", 1.5, 1.0),
+            _pad("U1", 10.0, 10.0),
         ]
 
-        groups = cluster_pads(
-            pads, cluster_distance_mm=10.0, pads_per_representative=10
-        )
+        groups = group_pads_by_component(components, pads)
 
-        assert [p.designator for p in groups[0].pads] == ["NEAR", "MID", "FAR"]
+        by_designator = {g.component.designator: g for g in groups}
+        assert len(by_designator["R1"].pads) == 2
+        assert len(by_designator["U1"].pads) == 1
 
-    def test_large_cluster_splits_into_multiple_representatives(self):
-        """要素数がpads_per_representativeを超えるクラスタは複数グループに分割される."""
-        # 一直線に密集した8 pad、代表1つあたり4 pad → 2グループ
-        pads = [_pad(f"P{i}", float(i), 0.0) for i in range(8)]
-
-        groups = cluster_pads(pads, cluster_distance_mm=1.0, pads_per_representative=4)
-
-        assert len(groups) == 2
-        assert sorted(len(g.pads) for g in groups) == [4, 4]
-        # 分割は空間的（左半分・右半分）
-        members = sorted(tuple(sorted(p.designator for p in g.pads)) for g in groups)
-        assert members == [
-            ("P0", "P1", "P2", "P3"),
-            ("P4", "P5", "P6", "P7"),
+    def test_component_without_pads_is_excluded(self):
+        """padを持たない部品はグループに含まれない."""
+        components = [
+            self._component("R1", 1.0, 1.0),
+            self._component("J9", 50.0, 50.0),
         ]
+        pads = [_pad("R1", 1.0, 1.0)]
 
-    def test_empty_pads_returns_empty(self):
-        assert (
-            cluster_pads([], cluster_distance_mm=1.0, pads_per_representative=10) == []
-        )
+        groups = group_pads_by_component(components, pads)
 
-    def test_non_positive_distance_raises(self):
-        with pytest.raises(ValueError, match="正の値"):
-            cluster_pads(
-                [_pad("R1", 1.0, 1.0)],
-                cluster_distance_mm=0.0,
-                pads_per_representative=10,
-            )
+        assert [g.component.designator for g in groups] == ["R1"]
 
-    def test_pads_per_representative_below_one_raises(self):
-        with pytest.raises(ValueError, match="1以上"):
-            cluster_pads(
-                [_pad("R1", 1.0, 1.0)],
-                cluster_distance_mm=1.0,
-                pads_per_representative=0,
-            )
+    def test_pad_without_component_is_excluded(self):
+        """対応する部品がないpadはどのグループにも入らない."""
+        components = [self._component("R1", 1.0, 1.0)]
+        pads = [_pad("R1", 1.0, 1.0), _pad("ORPHAN", 5.0, 5.0)]
+
+        groups = group_pads_by_component(components, pads)
+
+        assert len(groups) == 1
+        assert {p.designator for p in groups[0].pads} == {"R1"}
+
+    def test_preserves_component_order(self):
+        """グループはcomponentsの順序を保つ."""
+        components = [
+            self._component("U2", 5.0, 5.0),
+            self._component("R1", 1.0, 1.0),
+        ]
+        pads = [_pad("R1", 1.0, 1.0), _pad("U2", 5.0, 5.0)]
+
+        groups = group_pads_by_component(components, pads)
+
+        assert [g.component.designator for g in groups] == ["U2", "R1"]
