@@ -136,3 +136,4 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `agent-team-startup` — エージェントチームの起動・並列化手順
 - `maximize-parallels` — 並列 tool 呼び出しの判定基準と典型パターン
 - `edit-dot-claude` — `.claude/` 配下の編集を /tmp 経由で行い permission prompt を抑える手順
+- `gitlab-mr` — ブランチを GitLab に push し glab で MR を作成する手順（対象ブランチはデフォルト main）
