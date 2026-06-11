@@ -20,7 +20,7 @@ class OffsetTransformMeasurer:
 
         move_distance = safe_move_distance(roi_size_mm)
         measurer = OffsetTransformMeasurer(
-            observe_offset=observe_offset,
+            observe=observer.observe,
             klipper=klipper,
             stage=stage,
             move_distance=move_distance,
@@ -31,7 +31,7 @@ class OffsetTransformMeasurer:
 
     def __init__(
         self,
-        observe_offset: Callable[[], Point2d],
+        observe: Callable[[], Transform],
         klipper: Klipper,
         stage: XYZStage,
         move_distance: float,
@@ -41,14 +41,14 @@ class OffsetTransformMeasurer:
         """OffsetTransformMeasurerを初期化する.
 
         Args:
-            observe_offset: オフセットを検出して返す関数
+            observe: 想定→観測のTransform（カメラmm空間）を返す関数
             klipper: Klipperクライアント
             stage: XYZステージ
             move_distance: X方向への移動距離（mm）
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
             settle_time: 移動後の安定待機時間（秒）
         """
-        self._observe_offset = observe_offset
+        self._observe = observe
         self._klipper = klipper
         self._stage = stage
         self._move_distance = move_distance
@@ -73,7 +73,7 @@ class OffsetTransformMeasurer:
         self._logger.info("オフセット補正の計測を開始")
 
         # 1. 現在位置で検出
-        o1 = self._observe_offset()
+        o1 = self._observe().apply(Point2d(0.0, 0.0))
         start_pos = self._stage.get_position()
         self._logger.info(
             f"初期位置: {start_pos}, オフセット o1: ({o1.x:.4f}, {o1.y:.4f}) mm"
@@ -92,7 +92,7 @@ class OffsetTransformMeasurer:
         )
 
         # 3. 移動後に検出
-        o2 = self._observe_offset()
+        o2 = self._observe().apply(Point2d(0.0, 0.0))
         self._logger.info(f"オフセット o2: ({o2.x:.4f}, {o2.y:.4f}) mm")
 
         # 4. 元の位置に戻る

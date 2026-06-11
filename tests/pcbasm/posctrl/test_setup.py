@@ -29,13 +29,17 @@ class TestOffsetObserver:
     def mock_cv2(self, mocker: MockerFixture):
         mocker.patch("pcbasm.posctrl.setup.cv2")
 
-    def test_returns_mean_mm_on_success(
+    def test_returns_mean_mm_shift_transform_on_success(
         self,
         mock_detector,
         mock_camera,
         mock_cv2,
     ):
-        """検出成功時にmean_mmを返すことを確認."""
+        """検出成功時に mean_mm の Shift を表す Transform を返すことを確認.
+
+        observer 契約統一（observe() -> Transform、想定→観測）。原点に 適用すると mean_mm
+        に一致する。
+        """
         expected_offset = Point2d(0.5, -0.3)
         mock_detector.detect_with_statistics.return_value = OffsetStatistics(
             mean=Point2d(50.0, -30.0),
@@ -52,10 +56,11 @@ class TestOffsetObserver:
             sample_count=10,
         )
 
-        result = observer()
+        transform = observer.observe()
 
-        assert result.x == pytest.approx(expected_offset.x)
-        assert result.y == pytest.approx(expected_offset.y)
+        offset = transform.apply(Point2d(0.0, 0.0))
+        assert offset.x == pytest.approx(expected_offset.x)
+        assert offset.y == pytest.approx(expected_offset.y)
 
     def test_raises_on_detection_failure(
         self,
@@ -74,7 +79,7 @@ class TestOffsetObserver:
         )
 
         with pytest.raises(RuntimeError, match="検出に失敗しました"):
-            observer()
+            observer.observe()
 
 
 class TestMachineSession:
