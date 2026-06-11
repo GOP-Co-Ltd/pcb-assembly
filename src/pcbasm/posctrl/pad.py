@@ -6,6 +6,8 @@ from collections.abc import Sequence
 
 import attrs
 import cv2
+import numpy as np
+import shapely
 
 from pcbasm import gcode
 from pcbasm.geometry import Point2d, Rotation, Transform
@@ -30,59 +32,124 @@ _ROI_COLOR = (255, 255, 255)  # ROI枠の表示色 (BGR: 白)
 
 @attrs.frozen
 class PadGroup:
-    """同一区画に属するpadのグループ.
+    """補正Transformを共有するpadのグループ.
 
-    区画の代表padで計測した補正Transformを、区画内の全padで共有する
-    ための単位。padsは区画内padの重心に近い順に並び、先頭が代表。
-    代表で照合に失敗した場合は後続のpadを順に試せる。
+    グループの代表padで計測した補正Transformを、グループ内の全padで
+    共有するための単位。padsはグループ内padの重心に近い順に並び、
+    先頭が代表。代表で照合に失敗した場合は後続のpadを順に試せる。
 
     Attributes:
-        cell: 区画のインデックス (列, 行)
-        pads: 区画内のpad（重心に近い順）
+        pads: グループ内のpad（重心に近い順）
     """
 
-    cell: tuple[int, int]
     pads: tuple[Pad, ...]
 
     @property
     def representative(self) -> Pad:
-        """代表pad（区画内padの重心に最も近いpad）."""
+        """代表pad（グループ内padの重心に最も近いpad）."""
         return self.pads[0]
 
 
-def group_pads(pads: Sequence[Pad], cell_size_mm: float) -> list[PadGroup]:
-    """padをboard座標の正方区画でグループ化する.
+def _centroid(pads: Sequence[Pad]) -> Point2d:
+    """pad中心の重心を返す."""
+    return Point2d(
+        x=sum(p.center.x for p in pads) / len(pads),
+        y=sum(p.center.y for p in pads) / len(pads),
+    )
+
+
+def _ordered_group(pads: Sequence[Pad]) -> PadGroup:
+    """padを重心に近い順に並べたPadGroupを作る."""
+    centroid = _centroid(pads)
+    return PadGroup(pads=tuple(sorted(pads, key=lambda p: (p.center - centroid).norm)))
+
+
+def _split_cluster(members: Sequence[Pad], count: int) -> list[PadGroup]:
+    """クラスタをcount個のグループへ空間的に分割する.
+
+    pad中心を主成分軸（広がりが最大の方向）へ射影した順に並べ、 要素数が均等（差は高々1）な連続チャンクに切る。代表がクラスタの
+    長手方向へ等間隔に分散する。
+    """
+    if count <= 1:
+        return [_ordered_group(members)]
+
+    centers = np.array([[p.center.x, p.center.y] for p in members])
+    deviations = centers - centers.mean(axis=0)
+    # 共分散の第1固有ベクトル = 広がりが最大の方向
+    _, eigenvectors = np.linalg.eigh(deviations.T @ deviations)
+    axis = eigenvectors[:, -1]
+    order = np.argsort(deviations @ axis, kind="stable")
+    return [
+        _ordered_group([members[int(i)] for i in chunk])
+        for chunk in np.array_split(order, count)
+        if len(chunk) > 0
+    ]
+
+
+def cluster_pads(
+    pads: Sequence[Pad],
+    cluster_distance_mm: float,
+    pads_per_representative: int,
+) -> list[PadGroup]:
+    """近傍padを単一連結のクラスタにまとめ、代表を持つグループへ分割する.
+
+    padポリゴン同士の隙間距離がcluster_distance_mm以下なら同じ
+    クラスタに連結する（推移的）。クラスタの要素数が
+    pads_per_representativeを超える場合は ceil(要素数 / 同値) 個の
+    グループへ空間分割し、それぞれが代表を持つ。
 
     Args:
         pads: 対象pad列
-        cell_size_mm: 区画の辺長（mm）
+        cluster_distance_mm: 同一クラスタとみなすpadポリゴン間の距離（mm）
+        pads_per_representative: 代表1つあたりのpad数
 
     Returns:
-        区画ごとのPadGroup。各グループ内のpadは重心に近い順
+        グループのリスト。各グループ内のpadは重心に近い順
 
     Raises:
-        ValueError: cell_size_mmが正でない場合
+        ValueError: cluster_distance_mmが正でない、または
+            pads_per_representativeが1未満の場合
     """
-    if cell_size_mm <= 0:
-        raise ValueError(f"cell_size_mmは正の値である必要があります: {cell_size_mm}")
-
-    cells: dict[tuple[int, int], list[Pad]] = {}
-    for pad in pads:
-        center = pad.center
-        key = (
-            math.floor(center.x / cell_size_mm),
-            math.floor(center.y / cell_size_mm),
+    if cluster_distance_mm <= 0:
+        raise ValueError(
+            f"cluster_distance_mmは正の値である必要があります: {cluster_distance_mm}"
         )
-        cells.setdefault(key, []).append(pad)
-
-    groups = []
-    for key, members in cells.items():
-        centroid = Point2d(
-            x=sum(p.center.x for p in members) / len(members),
-            y=sum(p.center.y for p in members) / len(members),
+    if pads_per_representative < 1:
+        raise ValueError(
+            "pads_per_representativeは1以上である必要があります: "
+            f"{pads_per_representative}"
         )
-        ordered = sorted(members, key=lambda p: (p.center - centroid).norm)
-        groups.append(PadGroup(cell=key, pads=tuple(ordered)))
+    if not pads:
+        return []
+
+    # ポリゴン間距離が閾値以下のペアを列挙し、union-findで連結成分を作る
+    polygons = [p.polygon for p in pads]
+    tree = shapely.STRtree(polygons)
+    left, right = tree.query(
+        polygons, predicate="dwithin", distance=cluster_distance_mm
+    )
+
+    parent = list(range(len(pads)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a, b in zip(left, right):
+        root_a, root_b = find(int(a)), find(int(b))
+        if root_a != root_b:
+            parent[root_b] = root_a
+
+    clusters: dict[int, list[Pad]] = {}
+    for i, pad in enumerate(pads):
+        clusters.setdefault(find(i), []).append(pad)
+
+    groups: list[PadGroup] = []
+    for members in clusters.values():
+        count = math.ceil(len(members) / pads_per_representative)
+        groups.extend(_split_cluster(members, count))
     return groups
 
 

@@ -16,7 +16,7 @@ from .pad import (
     PadAligner,
     PadAlignmentResult,
     PadGroup,
-    group_pads,
+    cluster_pads,
 )
 from .position import XYPositionAdjustor
 from .setup import (
@@ -48,7 +48,7 @@ __all__ = [
     "RigidEdgeMatch",
     "XYPositionAdjustor",
     "display_at_point",
-    "group_pads",
+    "cluster_pads",
     "interactive_display_at_point",
     "machine_session",
     "setup_board_calibration",

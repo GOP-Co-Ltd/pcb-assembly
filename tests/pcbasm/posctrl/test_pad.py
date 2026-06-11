@@ -19,7 +19,7 @@ import shapely
 from pcbasm.geometry import Compose, Point2d, Rotation, Scale, Shift, Transform
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjection, RigidEdgeMatch
-from pcbasm.posctrl.pad import CopperPadObserver, PadAlignmentResult, group_pads
+from pcbasm.posctrl.pad import CopperPadObserver, PadAlignmentResult, cluster_pads
 from pcbasm.vision import CopperEdgeDetector, Image, Offset
 from tests.helpers import FakeCamera
 
@@ -190,24 +190,51 @@ def _pad(designator: str, x: float, y: float, half: float = 0.4) -> Pad:
     )
 
 
-class TestGroupPads:
-    """group_padsのテスト."""
+class TestClusterPads:
+    """cluster_padsのテスト."""
 
-    def test_groups_pads_by_cell(self):
-        """同一区画のpadは1グループに、別区画のpadは別グループになる."""
+    def test_separates_distant_clusters(self):
+        """閾値より離れたpadのまとまりは別グループになる."""
         pads = [
-            _pad("R1", 2.0, 2.0),
-            _pad("R2", 8.0, 8.0),
-            _pad("R3", 12.0, 2.0),  # 隣の区画 (x方向)
+            _pad("A1", 0.0, 0.0),
+            _pad("A2", 1.0, 0.0),
+            _pad("B1", 20.0, 0.0),
+            _pad("B2", 21.0, 0.0),
         ]
 
-        groups = group_pads(pads, cell_size_mm=10.0)
+        groups = cluster_pads(pads, cluster_distance_mm=2.0, pads_per_representative=10)
 
-        cells = {g.cell: {p.designator for p in g.pads} for g in groups}
-        assert cells == {(0, 0): {"R1", "R2"}, (1, 0): {"R3"}}
+        members = {frozenset(p.designator for p in g.pads) for g in groups}
+        assert members == {frozenset({"A1", "A2"}), frozenset({"B1", "B2"})}
+
+    def test_chained_pads_form_single_cluster(self):
+        """推移的な近傍連結（A-B近い, B-C近い, A-C遠い）は1クラスタになる."""
+        # 隣接間の隙間 1.2mm (< 2.0)、両端間の隙間 4.2mm (> 2.0)
+        pads = [
+            _pad("A", 0.0, 0.0),
+            _pad("B", 2.5, 0.0),
+            _pad("C", 5.0, 0.0),
+        ]
+
+        groups = cluster_pads(pads, cluster_distance_mm=2.0, pads_per_representative=10)
+
+        assert len(groups) == 1
+        assert {p.designator for p in groups[0].pads} == {"A", "B", "C"}
+
+    def test_distance_is_polygon_gap_not_center_distance(self):
+        """距離はpadポリゴンの隙間で測る（中心間距離ではない）."""
+        # 中心間 6mm だが、大きいpad(half=5)と小pad(half=0.4)の隙間は 0.6mm
+        pads = [
+            _pad("BIG", 0.0, 0.0, half=5.0),
+            _pad("SMALL", 6.0, 0.0),
+        ]
+
+        groups = cluster_pads(pads, cluster_distance_mm=1.0, pads_per_representative=10)
+
+        assert len(groups) == 1
 
     def test_representative_is_nearest_to_centroid(self):
-        """代表は区画内padの重心に最も近いpad."""
+        """代表はグループ内padの重心に最も近いpad."""
         # 重心は (4, 4) 付近 → R2 (5, 5) が最も近い
         pads = [
             _pad("R1", 1.0, 1.0),
@@ -215,7 +242,9 @@ class TestGroupPads:
             _pad("R3", 6.0, 6.0),
         ]
 
-        groups = group_pads(pads, cell_size_mm=10.0)
+        groups = cluster_pads(
+            pads, cluster_distance_mm=10.0, pads_per_representative=10
+        )
 
         assert len(groups) == 1
         assert groups[0].representative.designator == "R2"
@@ -230,19 +259,45 @@ class TestGroupPads:
             _pad("MID", 6.0, 6.0),
         ]
 
-        groups = group_pads(pads, cell_size_mm=10.0)
+        groups = cluster_pads(
+            pads, cluster_distance_mm=10.0, pads_per_representative=10
+        )
 
         assert [p.designator for p in groups[0].pads] == ["NEAR", "MID", "FAR"]
 
-    def test_cell_boundary_belongs_to_next_cell(self):
-        """区画境界上 (x = cell_size) のpadは次の区画に属する."""
-        pads = [_pad("R1", 9.9, 0.0), _pad("R2", 10.0, 0.0)]
+    def test_large_cluster_splits_into_multiple_representatives(self):
+        """要素数がpads_per_representativeを超えるクラスタは複数グループに分割される."""
+        # 一直線に密集した8 pad、代表1つあたり4 pad → 2グループ
+        pads = [_pad(f"P{i}", float(i), 0.0) for i in range(8)]
 
-        groups = group_pads(pads, cell_size_mm=10.0)
+        groups = cluster_pads(pads, cluster_distance_mm=1.0, pads_per_representative=4)
 
-        cells = {g.cell for g in groups}
-        assert cells == {(0, 0), (1, 0)}
+        assert len(groups) == 2
+        assert sorted(len(g.pads) for g in groups) == [4, 4]
+        # 分割は空間的（左半分・右半分）
+        members = sorted(tuple(sorted(p.designator for p in g.pads)) for g in groups)
+        assert members == [
+            ("P0", "P1", "P2", "P3"),
+            ("P4", "P5", "P6", "P7"),
+        ]
 
-    def test_non_positive_cell_size_raises(self):
+    def test_empty_pads_returns_empty(self):
+        assert (
+            cluster_pads([], cluster_distance_mm=1.0, pads_per_representative=10) == []
+        )
+
+    def test_non_positive_distance_raises(self):
         with pytest.raises(ValueError, match="正の値"):
-            group_pads([_pad("R1", 1.0, 1.0)], cell_size_mm=0.0)
+            cluster_pads(
+                [_pad("R1", 1.0, 1.0)],
+                cluster_distance_mm=0.0,
+                pads_per_representative=10,
+            )
+
+    def test_pads_per_representative_below_one_raises(self):
+        with pytest.raises(ValueError, match="1以上"):
+            cluster_pads(
+                [_pad("R1", 1.0, 1.0)],
+                cluster_distance_mm=1.0,
+                pads_per_representative=0,
+            )

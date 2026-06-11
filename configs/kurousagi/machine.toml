@@ -33,7 +33,8 @@ y = 23.037508313709044
 [paste_dispenser.pad_align]
 # pad単位の銅箔照合による位置合わせ
 tolerance = 0.05    # 収束許容誤差 [mm]
-cell_size = 10.0    # 補正区画（グループ）の辺長 [mm]。区画の代表padで計測した補正を区画内で共有
+cluster_distance = 5.0       # 同一クラスタとみなすpadポリゴン間距離 [mm]。近傍padを連結してグループ化
+pads_per_representative = 20 # 補正の代表1つあたりのpad数。クラスタが大きいと複数代表に分割
 search_window = 2.0 # 照合の探索窓 片側幅 [mm]
 roi_margin = 1.0    # pad ROIのマージン [mm]
 min_roi = 1.0       # pad ROIの最小辺長 [mm]

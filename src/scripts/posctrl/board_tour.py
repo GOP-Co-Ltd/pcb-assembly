@@ -37,8 +37,8 @@ from pcbasm.posctrl import (
     PadAligner,
     PadAlignmentResult,
     PadGroup,
+    cluster_pads,
     display_at_point,
-    group_pads,
     machine_session,
     setup_board_calibration,
     wait_for_keypress,
@@ -166,9 +166,17 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
         window_name=WINDOW_NAME,
     )
 
-    # 区画ごとにグループ化し、代表padの位置でnearest neighborソート
-    groups = group_pads(top_pads, pad_align.cell_size)
-    print(f"区画数: {len(groups)} (区画サイズ {pad_align.cell_size} mm)")
+    # 近傍padのクラスタでグループ化し、代表padの位置でnearest neighborソート
+    groups = cluster_pads(
+        top_pads,
+        cluster_distance_mm=pad_align.cluster_distance,
+        pads_per_representative=pad_align.pads_per_representative,
+    )
+    print(
+        f"グループ数: {len(groups)} "
+        f"(クラスタ距離 {pad_align.cluster_distance} mm, "
+        f"代表1つあたり {pad_align.pads_per_representative} pads)"
+    )
     current_pos = stage.get_position()
     rep_centers_3d = [g.representative.center.to3d() for g in groups]
     sorted_centers = sort_by_nearest(rep_centers_3d, current_pos.to2d().to3d())
@@ -179,7 +187,7 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
     aborted = False
     print("巡回開始... (Escキーで中断)")
     for i, group in enumerate(sorted_groups):
-        progress = f"cell({group.cell[0]},{group.cell[1]}) {i + 1}/{len(sorted_groups)}"
+        progress = f"group {i + 1}/{len(sorted_groups)}"
         print(f"--- {progress}: {len(group.pads)} pads ---")
 
         # 重心に近い順に照合を試す（代表が失敗したら次のpadへフォールバック）
@@ -193,7 +201,7 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
                 print(f"警告: {label} の照合に失敗: {exc}")
 
         if aligned is None:
-            print(f"警告: 区画 {group.cell} は全padで照合に失敗")
+            print(f"警告: {progress} は全padで照合に失敗")
             if _show_pad_result(
                 result,
                 projector,
@@ -221,19 +229,20 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
             print("中断しました")
             break
 
-    # サマリ表示（区画内の全padは代表のTransformを共有する）
-    print("\n=== 位置合わせサマリ（区画ごと、区画内padは代表のTransformを共有） ===")
+    # サマリ表示（グループ内の全padは代表のTransformを共有する）
+    print("\n=== 位置合わせサマリ（グループ内padは代表のTransformを共有） ===")
     for group, pad, alignment in alignments:
         translation = alignment.translation
         print(
-            f"cell({group.cell[0]},{group.cell[1]}) "
             f"代表 {pad.designator}.{pad.pad_number} ({len(group.pads)} pads): "
             f"dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
             f"theta={alignment.rotation.degrees:+.3f} deg, "
             f"mean_distance={alignment.match.mean_distance_px:.2f} px"
         )
     aligned_pads = sum(len(group.pads) for group, _, _ in alignments)
-    print(f"成功: {len(alignments)}/{len(sorted_groups)} 区画 ({aligned_pads} pads)")
+    print(
+        f"成功: {len(alignments)}/{len(sorted_groups)} グループ ({aligned_pads} pads)"
+    )
 
     if not aborted and alignments:
         _tour_corrected_pads(result, edge_detector, polygons, alignments)
@@ -245,7 +254,7 @@ def _tour_corrected_pads(
     polygons: Sequence[Polygon],
     alignments: list[tuple[PadGroup, Pad, PadAlignmentResult]],
 ) -> None:
-    """所属区画の補正Transformを適用した位置で全padを巡回する.
+    """所属グループの補正Transformを適用した位置で全padを巡回する.
 
     各padの目標位置は corrected =
     machine_transform(board_transform(pad.center))。
@@ -255,9 +264,9 @@ def _tour_corrected_pads(
     pad_align = result.machine.paste_dispenser.pad_align
     image_size = result.camera.capture().size
 
-    # 区画ごとに補正済みのboard変換とprojectorを作り、padごとの巡回先を集める
+    # グループごとに補正済みのboard変換とprojectorを作り、padごとの巡回先を集める
     entries: list[tuple[Pad, CopperProjector, Point2d, str]] = []
-    for group, _, alignment in alignments:
+    for group, rep, alignment in alignments:
         corrected_transform = Compose(
             [result.board_transform, alignment.machine_transform]
         )
@@ -268,10 +277,10 @@ def _tour_corrected_pads(
             pixel_per_mm=result.calibration.pixel_per_mm,
             image_size=image_size,
         )
-        cell_label = f"cell({group.cell[0]},{group.cell[1]})"
+        group_label = f"grp[{rep.designator}.{rep.pad_number}]"
         for pad in group.pads:
             target = corrected_transform.apply(pad.center)
-            entries.append((pad, corrected_projector, target, cell_label))
+            entries.append((pad, corrected_projector, target, group_label))
 
     # 補正後の目標位置でnearest neighborソート
     current_pos = stage.get_position()
@@ -281,13 +290,13 @@ def _tour_corrected_pads(
     sorted_entries = [target_to_entry[target] for target in sorted_targets]
 
     print("\n=== 補正適用済みの全pad巡回 === (Escキーで中断)")
-    for i, (pad, corrected_projector, target, cell_label) in enumerate(sorted_entries):
+    for i, (pad, corrected_projector, target, group_label) in enumerate(sorted_entries):
         result.klipper.send_gcode(
             stage.move(x=target.x, y=target.y, speed=Speed.rate(0.5))
             + gcode.wait_for_done()
         )
         lines = [
-            f"{pad.designator}.{pad.pad_number} {cell_label} "
+            f"{pad.designator}.{pad.pad_number} {group_label} "
             f"corrected {i + 1}/{len(sorted_entries)}"
         ]
         if _show_pad_result(
