@@ -1,6 +1,8 @@
 """pad単位の銅箔照合による自動位置合わせ."""
 
 import logging
+import math
+from collections.abc import Sequence
 
 import attrs
 import cv2
@@ -24,6 +26,64 @@ from pcbasm.vision import CopperEdgeDetector, Image, ImageArray
 _EXPECTED_COLOR = (0, 0, 255)  # 想定エッジの表示色 (BGR: 赤)
 _DETECTED_COLOR = (0, 255, 0)  # 検出エッジの表示色 (BGR: 緑)
 _ROI_COLOR = (255, 255, 255)  # ROI枠の表示色 (BGR: 白)
+
+
+@attrs.frozen
+class PadGroup:
+    """同一区画に属するpadのグループ.
+
+    区画の代表padで計測した補正Transformを、区画内の全padで共有する
+    ための単位。padsは区画内padの重心に近い順に並び、先頭が代表。
+    代表で照合に失敗した場合は後続のpadを順に試せる。
+
+    Attributes:
+        cell: 区画のインデックス (列, 行)
+        pads: 区画内のpad（重心に近い順）
+    """
+
+    cell: tuple[int, int]
+    pads: tuple[Pad, ...]
+
+    @property
+    def representative(self) -> Pad:
+        """代表pad（区画内padの重心に最も近いpad）."""
+        return self.pads[0]
+
+
+def group_pads(pads: Sequence[Pad], cell_size_mm: float) -> list[PadGroup]:
+    """padをboard座標の正方区画でグループ化する.
+
+    Args:
+        pads: 対象pad列
+        cell_size_mm: 区画の辺長（mm）
+
+    Returns:
+        区画ごとのPadGroup。各グループ内のpadは重心に近い順
+
+    Raises:
+        ValueError: cell_size_mmが正でない場合
+    """
+    if cell_size_mm <= 0:
+        raise ValueError(f"cell_size_mmは正の値である必要があります: {cell_size_mm}")
+
+    cells: dict[tuple[int, int], list[Pad]] = {}
+    for pad in pads:
+        center = pad.center
+        key = (
+            math.floor(center.x / cell_size_mm),
+            math.floor(center.y / cell_size_mm),
+        )
+        cells.setdefault(key, []).append(pad)
+
+    groups = []
+    for key, members in cells.items():
+        centroid = Point2d(
+            x=sum(p.center.x for p in members) / len(members),
+            y=sum(p.center.y for p in members) / len(members),
+        )
+        ordered = sorted(members, key=lambda p: (p.center - centroid).norm)
+        groups.append(PadGroup(cell=key, pads=tuple(ordered)))
+    return groups
 
 
 class CopperPadObserver:

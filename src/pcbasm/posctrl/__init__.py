@@ -11,7 +11,13 @@ from .copper import (
 )
 from .correction import to_machine_transform
 from .offset import OffsetTransformMeasurer
-from .pad import CopperPadObserver, PadAligner, PadAlignmentResult
+from .pad import (
+    CopperPadObserver,
+    PadAligner,
+    PadAlignmentResult,
+    PadGroup,
+    group_pads,
+)
 from .position import XYPositionAdjustor
 from .setup import (
     BoardCalibrationResult,
@@ -37,10 +43,12 @@ __all__ = [
     "OffsetTransformMeasurer",
     "PadAligner",
     "PadAlignmentResult",
+    "PadGroup",
     "PixelRect",
     "RigidEdgeMatch",
     "XYPositionAdjustor",
     "display_at_point",
+    "group_pads",
     "interactive_display_at_point",
     "machine_session",
     "setup_board_calibration",

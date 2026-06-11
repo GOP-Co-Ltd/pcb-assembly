@@ -33,9 +33,10 @@ y = 23.037508313709044
 [paste_dispenser.pad_align]
 # pad単位の銅箔照合による位置合わせ
 tolerance = 0.05    # 収束許容誤差 [mm]
+cell_size = 10.0    # 補正区画（グループ）の辺長 [mm]。区画の代表padで計測した補正を区画内で共有
 search_window = 2.0 # 照合の探索窓 片側幅 [mm]
 roi_margin = 1.0    # pad ROIのマージン [mm]
-min_roi = 3.0       # pad ROIの最小辺長 [mm]
+min_roi = 1.0       # pad ROIの最小辺長 [mm]
 theta_range = 2.0   # 回転探索の片側範囲 [deg]
 canny_low = 100.0   # Cannyエッジ検出の下側閾値
 canny_high = 200.0  # Cannyエッジ検出の上側閾値

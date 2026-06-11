@@ -14,10 +14,12 @@ camera_transform の observer 契約（observe() -> Transform、カメラ mm・�
 import cv2
 import numpy as np
 import pytest
+import shapely
 
 from pcbasm.geometry import Compose, Point2d, Rotation, Scale, Shift, Transform
+from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjection, RigidEdgeMatch
-from pcbasm.posctrl.pad import CopperPadObserver, PadAlignmentResult
+from pcbasm.posctrl.pad import CopperPadObserver, PadAlignmentResult, group_pads
 from pcbasm.vision import CopperEdgeDetector, Image, Offset
 from tests.helpers import FakeCamera
 
@@ -168,3 +170,79 @@ class TestPadAlignmentResult:
         result = _result(machine, anchor=Point2d(2.0, 3.0))
 
         assert result.rotation.degrees == pytest.approx(-10.0, abs=1e-9)
+
+
+def _pad(designator: str, x: float, y: float, half: float = 0.4) -> Pad:
+    """中心 (x, y) の正方形padを作る."""
+    return Pad(
+        designator=designator,
+        pad_number="1",
+        net_name="NET",
+        layer=Layer.TOP,
+        polygon=shapely.Polygon(
+            [
+                (x - half, y - half),
+                (x + half, y - half),
+                (x + half, y + half),
+                (x - half, y + half),
+            ]
+        ),
+    )
+
+
+class TestGroupPads:
+    """group_padsのテスト."""
+
+    def test_groups_pads_by_cell(self):
+        """同一区画のpadは1グループに、別区画のpadは別グループになる."""
+        pads = [
+            _pad("R1", 2.0, 2.0),
+            _pad("R2", 8.0, 8.0),
+            _pad("R3", 12.0, 2.0),  # 隣の区画 (x方向)
+        ]
+
+        groups = group_pads(pads, cell_size_mm=10.0)
+
+        cells = {g.cell: {p.designator for p in g.pads} for g in groups}
+        assert cells == {(0, 0): {"R1", "R2"}, (1, 0): {"R3"}}
+
+    def test_representative_is_nearest_to_centroid(self):
+        """代表は区画内padの重心に最も近いpad."""
+        # 重心は (4, 4) 付近 → R2 (5, 5) が最も近い
+        pads = [
+            _pad("R1", 1.0, 1.0),
+            _pad("R2", 5.0, 5.0),
+            _pad("R3", 6.0, 6.0),
+        ]
+
+        groups = group_pads(pads, cell_size_mm=10.0)
+
+        assert len(groups) == 1
+        assert groups[0].representative.designator == "R2"
+
+    def test_pads_are_ordered_by_distance_to_centroid(self):
+        """グループ内のpadは重心に近い順（照合フォールバックの試行順）."""
+        # 重心 = (11/3, 11/3) ≈ (3.67, 3.67)
+        # 距離: (4,4)→0.47 < (6,6)→3.30 < (1,1)→3.77
+        pads = [
+            _pad("FAR", 1.0, 1.0),
+            _pad("NEAR", 4.0, 4.0),
+            _pad("MID", 6.0, 6.0),
+        ]
+
+        groups = group_pads(pads, cell_size_mm=10.0)
+
+        assert [p.designator for p in groups[0].pads] == ["NEAR", "MID", "FAR"]
+
+    def test_cell_boundary_belongs_to_next_cell(self):
+        """区画境界上 (x = cell_size) のpadは次の区画に属する."""
+        pads = [_pad("R1", 9.9, 0.0), _pad("R2", 10.0, 0.0)]
+
+        groups = group_pads(pads, cell_size_mm=10.0)
+
+        cells = {g.cell for g in groups}
+        assert cells == {(0, 0), (1, 0)}
+
+    def test_non_positive_cell_size_raises(self):
+        with pytest.raises(ValueError, match="正の値"):
+            group_pads([_pad("R1", 1.0, 1.0)], cell_size_mm=0.0)

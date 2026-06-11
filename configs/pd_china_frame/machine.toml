@@ -28,6 +28,7 @@ y = 48.953912452257924
 [paste_dispenser.pad_align]
 # pad単位の銅箔照合による位置合わせ
 tolerance = 0.05    # 収束許容誤差 [mm]
+cell_size = 10.0    # 補正区画（グループ）の辺長 [mm]。区画の代表padで計測した補正を区画内で共有
 search_window = 2.0 # 照合の探索窓 片側幅 [mm]
 roi_margin = 1.0    # pad ROIのマージン [mm]
 min_roi = 3.0       # pad ROIの最小辺長 [mm]

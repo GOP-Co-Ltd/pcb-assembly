@@ -27,6 +27,7 @@ class PadAlign:
     """pad単位の銅箔照合による位置合わせの設定."""
 
     tolerance: float = 0.05  # 収束許容誤差 [mm]
+    cell_size: float = 10.0  # 補正区画（グループ）の辺長 [mm]
     search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
     roi_margin: float = 1.0  # pad ROIのマージン [mm]
     min_roi: float = 3.0  # pad ROIの最小辺長 [mm]

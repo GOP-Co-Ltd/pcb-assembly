@@ -34,7 +34,9 @@ from pcbasm.posctrl import (
     CopperProjector,
     PadAligner,
     PadAlignmentResult,
+    PadGroup,
     display_at_point,
+    group_pads,
     machine_session,
     setup_board_calibration,
     wait_for_keypress,
@@ -162,33 +164,50 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
         window_name=WINDOW_NAME,
     )
 
-    # パッドをnearest neighborでソート
+    # 区画ごとにグループ化し、代表padの位置でnearest neighborソート
+    groups = group_pads(top_pads, pad_align.cell_size)
+    print(f"区画数: {len(groups)} (区画サイズ {pad_align.cell_size} mm)")
     current_pos = stage.get_position()
-    pad_centers_3d = [p.center.to3d() for p in top_pads]
-    sorted_centers = sort_by_nearest(pad_centers_3d, current_pos.to2d().to3d())
-    center_to_pad = {p.center.to3d(): p for p in top_pads}
-    sorted_pads = [center_to_pad[center] for center in sorted_centers]
+    rep_centers_3d = [g.representative.center.to3d() for g in groups]
+    sorted_centers = sort_by_nearest(rep_centers_3d, current_pos.to2d().to3d())
+    center_to_group = {g.representative.center.to3d(): g for g in groups}
+    sorted_groups = [center_to_group[center] for center in sorted_centers]
 
-    alignments: list[tuple[Pad, PadAlignmentResult]] = []
+    alignments: list[tuple[PadGroup, Pad, PadAlignmentResult]] = []
     print("巡回開始... (Escキーで中断)")
-    for i, pad in enumerate(sorted_pads):
-        label = f"{pad.designator}.{pad.pad_number} ({i + 1}/{len(sorted_pads)})"
-        print(f"--- {label} ---")
-        try:
-            alignment = aligner.align(pad)
-        except RuntimeError as exc:
-            print(f"警告: {label} の位置合わせに失敗: {exc}")
+    for i, group in enumerate(sorted_groups):
+        progress = f"cell({group.cell[0]},{group.cell[1]}) {i + 1}/{len(sorted_groups)}"
+        print(f"--- {progress}: {len(group.pads)} pads ---")
+
+        # 重心に近い順に照合を試す（代表が失敗したら次のpadへフォールバック）
+        aligned: tuple[Pad, PadAlignmentResult] | None = None
+        for pad in group.pads:
+            label = f"{pad.designator}.{pad.pad_number} {progress}"
+            try:
+                aligned = (pad, aligner.align(pad))
+                break
+            except RuntimeError as exc:
+                print(f"警告: {label} の照合に失敗: {exc}")
+
+        if aligned is None:
+            print(f"警告: 区画 {group.cell} は全padで照合に失敗")
             if _show_pad_result(
-                result, projector, edge_detector, pad, pad_align, [label, "FAILED"]
+                result,
+                projector,
+                edge_detector,
+                group.representative,
+                pad_align,
+                [progress, "FAILED"],
             ):
                 print("中断しました")
                 break
             continue
 
-        alignments.append((pad, alignment))
+        pad, alignment = aligned
+        alignments.append((group, pad, alignment))
         translation = alignment.translation
         lines = [
-            label,
+            f"{pad.designator}.{pad.pad_number} {progress} ({len(group.pads)} pads)",
             f"dx,dy: ({translation.x:+.3f}, {translation.y:+.3f}) mm",
             f"theta: {alignment.rotation.degrees:+.3f} deg",
             f"mean distance: {alignment.match.mean_distance_px:.2f} px",
@@ -197,17 +216,19 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
             print("中断しました")
             break
 
-    # サマリ表示
-    print("\n=== 位置合わせサマリ ===")
-    for pad, alignment in alignments:
+    # サマリ表示（区画内の全padは代表のTransformを共有する）
+    print("\n=== 位置合わせサマリ（区画ごと、区画内padは代表のTransformを共有） ===")
+    for group, pad, alignment in alignments:
         translation = alignment.translation
         print(
-            f"{pad.designator}.{pad.pad_number}: "
+            f"cell({group.cell[0]},{group.cell[1]}) "
+            f"代表 {pad.designator}.{pad.pad_number} ({len(group.pads)} pads): "
             f"dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
             f"theta={alignment.rotation.degrees:+.3f} deg, "
             f"mean_distance={alignment.match.mean_distance_px:.2f} px"
         )
-    print(f"成功: {len(alignments)}/{len(sorted_pads)}")
+    aligned_pads = sum(len(group.pads) for group, _, _ in alignments)
+    print(f"成功: {len(alignments)}/{len(sorted_groups)} 区画 ({aligned_pads} pads)")
 
 
 def main() -> None:
