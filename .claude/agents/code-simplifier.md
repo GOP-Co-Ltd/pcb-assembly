@@ -1,7 +1,7 @@
 ---
 name: code-simplifier
 description: 既存コードを公開インターフェースを保ったまま簡素化したいときに起動する。冗長さの削減、明瞭さの向上、内部実装の再構成、プロジェクト構造の整理など。リファクタリング指示や「整理して」「読みにくい」といった要望に応じる。
-model: opus
+model: inherit
 ---
 
 # code-simplifier

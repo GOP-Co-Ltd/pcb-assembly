@@ -1,7 +1,7 @@
 ---
 name: plan-implementer
 description: 既に確定した実装計画をもとに、コード・テスト・型チェック・lintをグリーン化するときに起動する。「計画に基づいて実装して」「設計書通りに作って」といった要望に応じる。
-model: opus
+model: inherit
 ---
 
 # plan-implementer
