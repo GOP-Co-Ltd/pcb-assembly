@@ -18,14 +18,16 @@ Reference Pointの位置調整、Board座標→機械座標変換の計測も兼
 import argparse
 import logging
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 import cv2
 import numpy as np
+from shapely import Polygon
 
 from pcbasm import gcode
 from pcbasm.config import PadAlign, get_machine_config
-from pcbasm.geometry import Point2d, sort_by_nearest
+from pcbasm.geometry import Compose, Point2d, sort_by_nearest
 from pcbasm.hal import Speed
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
@@ -174,6 +176,7 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
     sorted_groups = [center_to_group[center] for center in sorted_centers]
 
     alignments: list[tuple[PadGroup, Pad, PadAlignmentResult]] = []
+    aborted = False
     print("巡回開始... (Escキーで中断)")
     for i, group in enumerate(sorted_groups):
         progress = f"cell({group.cell[0]},{group.cell[1]}) {i + 1}/{len(sorted_groups)}"
@@ -199,6 +202,7 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
                 pad_align,
                 [progress, "FAILED"],
             ):
+                aborted = True
                 print("中断しました")
                 break
             continue
@@ -213,6 +217,7 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
             f"mean distance: {alignment.match.mean_distance_px:.2f} px",
         ]
         if _show_pad_result(result, projector, edge_detector, pad, pad_align, lines):
+            aborted = True
             print("中断しました")
             break
 
@@ -229,6 +234,69 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
         )
     aligned_pads = sum(len(group.pads) for group, _, _ in alignments)
     print(f"成功: {len(alignments)}/{len(sorted_groups)} 区画 ({aligned_pads} pads)")
+
+    if not aborted and alignments:
+        _tour_corrected_pads(result, edge_detector, polygons, alignments)
+
+
+def _tour_corrected_pads(
+    result: BoardCalibrationResult,
+    edge_detector: CopperEdgeDetector,
+    polygons: Sequence[Polygon],
+    alignments: list[tuple[PadGroup, Pad, PadAlignmentResult]],
+) -> None:
+    """所属区画の補正Transformを適用した位置で全padを巡回する.
+
+    各padの目標位置は corrected =
+    machine_transform(board_transform(pad.center))。
+    overlayも補正済みのboard変換で投影するため、補正が正しければ 想定輪郭（赤）が実銅箔（緑）に重なって見える。
+    """
+    stage = result.stage
+    pad_align = result.machine.paste_dispenser.pad_align
+    image_size = result.camera.capture().size
+
+    # 区画ごとに補正済みのboard変換とprojectorを作り、padごとの巡回先を集める
+    entries: list[tuple[Pad, CopperProjector, Point2d, str]] = []
+    for group, _, alignment in alignments:
+        corrected_transform = Compose(
+            [result.board_transform, alignment.machine_transform]
+        )
+        corrected_projector = CopperProjector(
+            polygons=polygons,
+            board_transform=corrected_transform,
+            offset_transform=result.offset_transform,
+            pixel_per_mm=result.calibration.pixel_per_mm,
+            image_size=image_size,
+        )
+        cell_label = f"cell({group.cell[0]},{group.cell[1]})"
+        for pad in group.pads:
+            target = corrected_transform.apply(pad.center)
+            entries.append((pad, corrected_projector, target, cell_label))
+
+    # 補正後の目標位置でnearest neighborソート
+    current_pos = stage.get_position()
+    targets_3d = [target.to3d() for _, _, target, _ in entries]
+    sorted_targets = sort_by_nearest(targets_3d, current_pos.to2d().to3d())
+    target_to_entry = {entry[2].to3d(): entry for entry in entries}
+    sorted_entries = [target_to_entry[target] for target in sorted_targets]
+
+    print("\n=== 補正適用済みの全pad巡回 === (Escキーで中断)")
+    for i, (pad, corrected_projector, target, cell_label) in enumerate(sorted_entries):
+        result.klipper.send_gcode(
+            stage.move(x=target.x, y=target.y, speed=Speed.rate(0.5))
+            + gcode.wait_for_done()
+        )
+        lines = [
+            f"{pad.designator}.{pad.pad_number} {cell_label} "
+            f"corrected {i + 1}/{len(sorted_entries)}"
+        ]
+        if _show_pad_result(
+            result, corrected_projector, edge_detector, pad, pad_align, lines
+        ):
+            print("中断しました")
+            break
+    else:
+        print(f"補正適用巡回完了: {len(sorted_entries)} pads")
 
 
 def main() -> None:
