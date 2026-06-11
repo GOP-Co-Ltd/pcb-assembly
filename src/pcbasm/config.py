@@ -23,6 +23,21 @@ class Klipper:
 
 
 @attrs.frozen
+class PadAlign:
+    """pad単位の銅箔照合による位置合わせの設定."""
+
+    tolerance: float = 0.05  # 収束許容誤差 [mm]
+    max_correction: float = 1.0  # 1回の照合で許容する最大ずれ [mm]。超過は照合失敗
+    search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
+    roi_margin: float = 1.0  # pad ROIのマージン [mm]
+    min_roi: float = 3.0  # pad ROIの最小辺長 [mm]
+    theta_range: float = 2.0  # 回転探索の片側範囲 [deg]
+    canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
+    canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
+    blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
+
+
+@attrs.frozen
 class PasteDispenser:
     """ペーストディスペンサーの設定."""
 
@@ -43,6 +58,7 @@ class PasteDispenser:
     )
     overlap: float = 0.0  # ジグザグ行間オーバーラップ [0,1)
     boundary_margin: float = 0.0  # 外周マージン [mm]
+    pad_align: PadAlign = attrs.field(factory=PadAlign)  # pad位置合わせ設定
 
 
 @attrs.frozen

@@ -9,6 +9,7 @@ from pcbasm.config import (
     CornerOffsets,
     Klipper,
     Machine,
+    PadAlign,
     PasteDispenser,
     Probe,
     ReferencePoint,
@@ -65,6 +66,25 @@ class TestMachine:
         assert machine.klipper == Klipper(host="localhost", port=7125)
         assert machine.camera.device_id == 0
         assert machine.camera.format == "YUYV"
+
+    def test_pad_align_defaults_when_section_absent(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.paste_dispenser.pad_align == PadAlign()
+        assert machine.paste_dispenser.pad_align.tolerance == pytest.approx(0.05)
+
+    def test_pad_align_section_overrides_defaults(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source + "\n[paste_dispenser.pad_align]\ntolerance = 0.08\nmin_roi = 5.0\n"
+        )
+
+        pad_align = Machine(path).paste_dispenser.pad_align
+
+        assert pad_align.tolerance == pytest.approx(0.08)
+        assert pad_align.min_roi == pytest.approx(5.0)
+        assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
 
     def test_raises_key_error_when_config_not_defined(self):
         machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")

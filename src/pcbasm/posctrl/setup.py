@@ -13,7 +13,7 @@ import cv2
 
 from pcbasm import gcode
 from pcbasm.config import Machine
-from pcbasm.geometry import Point2d, Transform
+from pcbasm.geometry import Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl.board import BoardTransformMeasurer
@@ -30,7 +30,10 @@ logger = logging.getLogger(__name__)
 
 
 class OffsetObserver:
-    """カメラ画像からオフセットを検出・表示するcallable."""
+    """カメラ画像からオフセットを検出・表示するobserver.
+
+    observe() -> Transform 契約（カメラmm空間、原点=画像中心、想定→観測）。
+    """
 
     def __init__(
         self,
@@ -46,7 +49,12 @@ class OffsetObserver:
         self._window_name = window_name
         self._sample_count = sample_count
 
-    def __call__(self) -> Point2d:
+    def observe(self) -> Transform:
+        """円検出オフセットを想定→観測のTransformとして返す.
+
+        Raises:
+            RuntimeError: 検出に失敗した場合
+        """
         result = self._detector.detect_with_statistics(
             self._camera.capture() for _ in range(self._sample_count)
         )
@@ -57,7 +65,7 @@ class OffsetObserver:
         cv2.imshow(self._window_name, display.numpy())
         cv2.waitKey(1)
 
-        return result.mean_mm
+        return Shift(result.mean_mm.x, result.mean_mm.y)
 
 
 @attrs.frozen
@@ -156,22 +164,19 @@ def setup_board_calibration(
         safe_move_distance(cam_config.crop.size, margin=0.3) / calibration.pixel_per_mm
     )
     offset_transform_measurer = OffsetTransformMeasurer(
-        observe_offset=observer,
+        observe=observer.observe,
         klipper=klipper,
         stage=stage,
         move_distance=move_distance,
     )
     offset_transform = offset_transform_measurer.measure()
 
-    # 補正済みオフセット関数を定義
-    def corrected_offset() -> Point2d:
-        return offset_transform.apply(observer())
-
     # 位置補正を行い最終座標を返す関数を定義
     position_adjustor = XYPositionAdjustor(
-        observe_offset=corrected_offset,
+        observe=observer.observe,
         klipper=klipper,
         stage=stage,
+        offset_transform=offset_transform,
         tolerance=tolerance,
     )
 
