@@ -167,6 +167,7 @@ class CopperPadObserver:
         projection: CopperProjection,
         roi: PixelRect,
         window_name: str | None = None,
+        max_offset_mm: float | None = None,
     ) -> None:
         """CopperPadObserverを初期化する.
 
@@ -178,6 +179,9 @@ class CopperPadObserver:
             roi: 照合に使うROI矩形（全画面px）
             window_name: 観測ごとに照合状況を表示するウィンドウ名。
                 Noneの場合は表示しない
+            max_offset_mm: 照合ずれの許容上限（mm）。boardキャリブレーション
+                済みでpadはほぼ合っている前提のもと、これを超えるずれは
+                誤マッチとみなして照合失敗にする。Noneの場合は無制限
         """
         self._camera = camera
         self._edge_detector = edge_detector
@@ -185,6 +189,7 @@ class CopperPadObserver:
         self._projection = projection
         self._roi = roi
         self._window_name = window_name
+        self._max_offset_mm = max_offset_mm
         self._last_match: RigidEdgeMatch | None = None
 
     def observe(self) -> Transform:
@@ -194,7 +199,8 @@ class CopperPadObserver:
             想定→観測のTransform（カメラmm空間）
 
         Raises:
-            RuntimeError: 照合に失敗した場合
+            RuntimeError: 照合に失敗した場合、または照合ずれが
+                max_offset_mmを超えた場合
         """
         image = self._camera.capture()
         edges = self._edge_detector.detect_edges(image)
@@ -205,6 +211,12 @@ class CopperPadObserver:
         )
         if match is None:
             raise RuntimeError("銅箔エッジの照合に失敗しました")
+        offset_norm = match.offset.mm.norm
+        if self._max_offset_mm is not None and offset_norm > self._max_offset_mm:
+            raise RuntimeError(
+                f"照合ずれ {offset_norm:.3f} mm が上限 "
+                f"{self._max_offset_mm} mm を超過しました（誤マッチの疑い）"
+            )
         self._last_match = match
         return match.camera_transform
 
@@ -278,6 +290,7 @@ class PadAligner:
         roi_margin_mm: float = 1.0,
         min_roi_mm: float = 3.0,
         tolerance: float = 0.05,
+        max_correction_mm: float | None = 1.0,
         max_iterations: int = 10,
         settle_time: float = 0.5,
         window_name: str | None = None,
@@ -296,6 +309,8 @@ class PadAligner:
             roi_margin_mm: pad投影bboxへ加えるROIマージン（mm）
             min_roi_mm: ROIの最小辺長（mm）
             tolerance: 収束の許容誤差（mm）
+            max_correction_mm: 1回の照合で許容する最大ずれ（mm）。
+                超過は誤マッチとみなして照合失敗にする。Noneは無制限
             max_iterations: 収束ループの最大反復回数
             settle_time: 移動後の安定待機時間（秒）
             window_name: 観測ごとに照合状況を表示するウィンドウ名。
@@ -312,6 +327,7 @@ class PadAligner:
         self._roi_margin_mm = roi_margin_mm
         self._min_roi_mm = min_roi_mm
         self._tolerance = tolerance
+        self._max_correction_mm = max_correction_mm
         self._max_iterations = max_iterations
         self._settle_time = settle_time
         self._window_name = window_name
@@ -365,6 +381,7 @@ class PadAligner:
             projection=projection,
             roi=roi,
             window_name=self._window_name,
+            max_offset_mm=self._max_correction_mm,
         )
         adjustor = XYPositionAdjustor(
             observe=observer.observe,

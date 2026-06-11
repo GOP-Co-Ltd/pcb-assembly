@@ -51,7 +51,9 @@ def _projection() -> CopperProjection:
     return CopperProjection(fill_mask=fill, edge_mask=edge)
 
 
-def _observer(camera: FakeCamera) -> CopperPadObserver:
+def _observer(
+    camera: FakeCamera, max_offset_mm: float | None = None
+) -> CopperPadObserver:
     """実 detector / matcher と固定投影で CopperPadObserver を組み立てる."""
     return CopperPadObserver(
         camera=camera,
@@ -59,6 +61,7 @@ def _observer(camera: FakeCamera) -> CopperPadObserver:
         matcher=CopperEdgeMatcher(pixel_per_mm=PPM),
         projection=_projection(),
         roi=(40, 40, 160, 160),
+        max_offset_mm=max_offset_mm,
     )
 
 
@@ -92,6 +95,27 @@ class TestCopperPadObserver:
 
         with pytest.raises(RuntimeError):
             observer.observe()
+
+    def test_observe_rejects_offset_beyond_max_offset(self):
+        """照合ずれが max_offset_mm を超えると誤マッチとして RuntimeError."""
+        # +15px = 1.5mm > 上限 1.0mm
+        camera = FakeCamera([_board_image(15, 0)])
+        observer = _observer(camera, max_offset_mm=1.0)
+
+        with pytest.raises(RuntimeError, match="超過"):
+            observer.observe()
+
+        assert observer.last_match is None  # 棄却された照合は保持しない
+
+    def test_observe_accepts_offset_within_max_offset(self):
+        """上限内のずれは通常どおり照合される."""
+        camera = FakeCamera([_board_image(6, -4)])  # 0.72mm < 1.0mm
+        observer = _observer(camera, max_offset_mm=1.0)
+
+        transform = observer.observe()
+
+        shift = transform.apply(Point2d(0.0, 0.0))
+        assert shift.x == pytest.approx(0.6, abs=0.2)
 
 
 def _dummy_match() -> RigidEdgeMatch:
