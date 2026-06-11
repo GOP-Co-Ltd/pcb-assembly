@@ -275,14 +275,12 @@ def main() -> None:
                 window_name=WINDOW_NAME,
             )
 
-            def corrected_paste_offset() -> Point2d:
-                return cal_result.offset_transform.apply(paste_observer())
-
             # XYPositionAdjustor でペーストドット中心に自動位置合わせ
             paste_adjustor = XYPositionAdjustor(
-                observe_offset=corrected_paste_offset,
+                observe=paste_observer.observe,
                 klipper=klipper,
                 stage=stage,
+                offset_transform=cal_result.offset_transform,
                 tolerance=args.tolerance,
             )
             camera_final_pos = paste_adjustor.adjust()
