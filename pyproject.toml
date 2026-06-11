@@ -62,7 +62,8 @@ exclude = [
   "**/node_modules",
   "**/__pycache__",
   "**/.venv",
-  "./klipper"
+  "./klipper",
+  ".claude/worktrees"
 ]
 reportMissingTypeStubs = false
 reportImplicitOverride = true
