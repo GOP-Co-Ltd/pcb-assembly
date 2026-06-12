@@ -110,4 +110,26 @@ if (pcbChip && browser) {
     showDirectory("").catch((err) => toast(err.message, false));
   });
   document.getElementById("fb-close").addEventListener("click", () => browser.close());
+
+  const uploadInput = document.getElementById("fb-upload-input");
+  document
+    .getElementById("fb-upload")
+    .addEventListener("click", () => uploadInput.click());
+  uploadInput.addEventListener("change", async () => {
+    const file = uploadInput.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const res = await fetch("/api/pcb-file/upload", { method: "POST", body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `${res.status} ${res.statusText}`);
+      browser.close();
+      window.location.reload();
+    } catch (err) {
+      toast(`アップロード失敗: ${err.message}`, false);
+    } finally {
+      uploadInput.value = "";
+    }
+  });
 }

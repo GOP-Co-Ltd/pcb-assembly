@@ -81,3 +81,52 @@ class TestPcbFileApi:
             )
 
         assert response.status_code == 409
+
+
+class TestPcbUploadApi:
+    """POST /api/pcb-file/upload — uploads/ へ保存しそのまま選択する."""
+
+    def test_upload_saves_and_selects(self, client: TestClient, pcb_root):
+        response = client.post(
+            "/api/pcb-file/upload",
+            files={"file": ("board.kicad_pcb", b"(kicad_pcb)")},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["pcb_file"] == "uploads/board.kicad_pcb"
+        saved = pcb_root / "uploads" / "board.kicad_pcb"
+        assert saved.read_bytes() == b"(kicad_pcb)"
+        # アップロード先はファイルブラウザからも見える
+        listing = client.get("/api/files", params={"path": "uploads"}).json()
+        assert {(e["name"], e["type"]) for e in listing["entries"]} == {
+            ("board.kicad_pcb", "file")
+        }
+
+    def test_upload_strips_directory_components(self, client: TestClient, pcb_root):
+        response = client.post(
+            "/api/pcb-file/upload",
+            files={"file": ("../evil.kicad_pcb", b"(kicad_pcb)")},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["pcb_file"] == "uploads/evil.kicad_pcb"
+        assert (pcb_root / "uploads" / "evil.kicad_pcb").is_file()
+        assert not (pcb_root.parent / "evil.kicad_pcb").exists()
+
+    def test_upload_non_kicad_pcb_returns_400(self, client: TestClient):
+        response = client.post(
+            "/api/pcb-file/upload", files={"file": ("notes.txt", b"not a pcb")}
+        )
+
+        assert response.status_code == 400
+
+    def test_upload_while_busy_returns_409(
+        self, client: TestClient, appstate: AppState
+    ):
+        with appstate.machine_lock("pytest-job"):
+            response = client.post(
+                "/api/pcb-file/upload",
+                files={"file": ("board.kicad_pcb", b"(kicad_pcb)")},
+            )
+
+        assert response.status_code == 409
