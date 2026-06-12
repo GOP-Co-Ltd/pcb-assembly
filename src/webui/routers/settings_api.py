@@ -9,7 +9,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from webui.app import SettingsDep, StateDep, StoreDep
+from webui.app import JobsDep, SettingsDep, StateDep, StoreDep
 from webui.config_store import MACHINE_FIELDS, MOTION_FIELDS, ConfigStore, FieldSpec
 from webui.state import AppState
 
@@ -84,13 +84,14 @@ def get_machine_settings(state: StateDep, store: StoreDep) -> MachineSettingsRes
 
 @router.put("/settings/machine")
 def put_machine_settings(
-    body: SettingsUpdate, state: StateDep, store: StoreDep
+    body: SettingsUpdate, state: StateDep, store: StoreDep, jobs: JobsDep
 ) -> MachineSettingsResponse:
     machine = state.selected_machine
     with state.machine_lock("settings"):
         store.write_machine_settings(machine, body.values)
         if any(key.startswith("camera.") for key in body.values):
             state.rebuild_camera()
+    jobs.publish_state_changed()
     return MachineSettingsResponse(
         machine=machine, fields=machine_settings_fields(store, machine)
     )
@@ -110,12 +111,13 @@ def get_motion_settings(
 
 @router.put("/settings/motion")
 def put_motion_settings(
-    body: MotionUpdate, state: StateDep, store: StoreDep
+    body: MotionUpdate, state: StateDep, store: StoreDep, jobs: JobsDep
 ) -> MotionUpdateResult:
     machine = state.selected_machine
     motion_values = _to_motion_values(body.values)
     with state.machine_lock("settings"):
         store.write_motion_settings(machine, motion_values)
+    jobs.publish_state_changed()
 
     if not body.restart:
         return MotionUpdateResult(

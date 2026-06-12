@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,6 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from webui.config_store import ConfigStore, UnknownFieldError
+from webui.jobs.catalog import JobCatalog, default_catalog
+from webui.jobs.manager import JobManager
 from webui.preview import PreviewService
 from webui.settings import Settings
 from webui.state import AppState, BusyError
@@ -40,16 +43,29 @@ def get_preview(request: Request) -> PreviewService:
     return request.app.state.preview
 
 
+def get_jobs(request: Request) -> JobManager:
+    return request.app.state.jobs
+
+
+def get_catalog(request: Request) -> JobCatalog:
+    return request.app.state.catalog
+
+
 StateDep = Annotated[AppState, Depends(get_state)]
 StoreDep = Annotated[ConfigStore, Depends(get_store)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 PreviewDep = Annotated[PreviewService, Depends(get_preview)]
+JobsDep = Annotated[JobManager, Depends(get_jobs)]
+CatalogDep = Annotated[JobCatalog, Depends(get_catalog)]
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # ワーカースレッド → WS のイベント橋渡し先 loop を登録する
+    app.state.jobs.bind_loop(asyncio.get_running_loop())
     yield
-    # シャットダウン後始末（FrameHub 停止 + カメラ参照破棄）
+    # シャットダウン後始末（ジョブ abort + join → FrameHub 停止）
+    app.state.jobs.shutdown()
     app.state.appstate.close()
 
 
@@ -67,14 +83,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     store = ConfigStore(settings.configs_root)
     state = AppState(settings, store)
+    preview = PreviewService(state)
+    catalog = default_catalog()
 
     app = FastAPI(title="pcb-assembly WebUI", lifespan=_lifespan)
     app.state.settings = settings
     app.state.store = store
     app.state.appstate = state
-    app.state.preview = PreviewService(state)
+    app.state.preview = preview
+    app.state.catalog = catalog
+    app.state.jobs = JobManager(state, preview, catalog, settings)
     app.state.templates = Jinja2Templates(directory=_PACKAGE_DIR / "templates")
     app.mount("/static", StaticFiles(directory=_PACKAGE_DIR / "static"), name="static")
+
+    # ジョブ成果物の配信（data/webui/<job_id>/...。traversal 防止は StaticFiles）
+    artifacts_dir = settings.data_dir / "webui"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/artifacts", StaticFiles(directory=artifacts_dir), name="artifacts")
 
     @app.exception_handler(BusyError)
     async def busy_error_handler(request: Request, exc: BusyError) -> JSONResponse:
@@ -91,10 +116,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 循環 import を避けるため、ルーターはここで import する
     from webui.routers import (
         files,
+        jobs,
         machine,
         machine_control,
         pages,
-        preview,
+        preview as preview_router,
         settings_api,
         system,
     )
@@ -104,7 +130,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(settings_api.router)
     app.include_router(machine_control.router)
     app.include_router(system.router)
-    app.include_router(preview.router)
+    app.include_router(preview_router.router)
+    app.include_router(jobs.router)
     # /{tab} のキャッチオールを持つため最後に登録する
     app.include_router(pages.router)
     return app

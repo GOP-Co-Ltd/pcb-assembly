@@ -5,7 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from webui.app import PreviewDep, SettingsDep, StateDep, StoreDep
+from webui.app import JobsDep, PreviewDep, SettingsDep, StateDep, StoreDep
+from webui.jobs.manager import JobManager
+from webui.models import JobBrief
 from webui.preview import PreviewService
 from webui.settings import Settings
 from webui.state import AppState
@@ -25,6 +27,7 @@ class StateResponse(BaseModel):
     focus_z: float | None
     mainsail_url: str
     preview_clients: int
+    job: JobBrief | None
 
 
 class MachinesResponse(BaseModel):
@@ -33,11 +36,12 @@ class MachinesResponse(BaseModel):
 
 
 def build_state_response(
-    state: AppState, settings: Settings, preview: PreviewService
+    state: AppState, settings: Settings, preview: PreviewService, jobs: JobManager
 ) -> StateResponse:
     """現在のアプリ状態から StateResponse を構築する."""
     owner = state.busy_owner
     pcb = state.selected_pcb
+    record = jobs.current()
     return StateResponse(
         machine=state.selected_machine,
         pcb_file=pcb.as_posix() if pcb else None,
@@ -46,14 +50,19 @@ def build_state_response(
         focus_z=state.focus_z(),
         mainsail_url=settings.mainsail_url,
         preview_clients=preview.client_count,
+        job=(
+            JobBrief(id=record.id, name=record.name, status=record.status.value)
+            if record is not None
+            else None
+        ),
     )
 
 
 @router.get("/state")
 def get_state(
-    state: StateDep, settings: SettingsDep, preview: PreviewDep
+    state: StateDep, settings: SettingsDep, preview: PreviewDep, jobs: JobsDep
 ) -> StateResponse:
-    return build_state_response(state, settings, preview)
+    return build_state_response(state, settings, preview, jobs)
 
 
 @router.get("/machines")
@@ -69,9 +78,10 @@ def get_machine(state: StateDep) -> MachineSelect:
 
 
 @router.put("/machine")
-def put_machine(body: MachineSelect, state: StateDep) -> MachineSelect:
+def put_machine(body: MachineSelect, state: StateDep, jobs: JobsDep) -> MachineSelect:
     try:
         state.select_machine(body.name)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    jobs.publish_state_changed()
     return MachineSelect(name=state.selected_machine)

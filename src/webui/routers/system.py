@@ -5,8 +5,8 @@ from __future__ import annotations
 import httpx
 from fastapi import APIRouter, HTTPException
 
-from pcbasm.hal import Klipper
-from webui.app import StateDep
+from pcbasm.hal import Klipper, XYZStage
+from webui.app import JobsDep, StateDep
 from webui.models import KlipperStatus, Position
 from webui.state import AppState
 
@@ -40,8 +40,27 @@ def get_klipper_status(state: StateDep) -> KlipperStatus:
     return fetch_status(create_klipper(state, STATUS_TIMEOUT))
 
 
+@router.get("/stage/limits")
+def get_stage_limits(state: StateDep) -> dict[str, dict[str, float]]:
+    """選択マシンの XYZ 可動域を返す（Moonraker 不通は 502）."""
+    klipper = create_klipper(state, STATUS_TIMEOUT)
+    try:
+        limits = XYZStage(klipper.readonly).limits
+    except (httpx.HTTPError, RuntimeError, KeyError) as exc:
+        raise HTTPException(
+            status_code=502, detail=str(exc) or type(exc).__name__
+        ) from exc
+    return {
+        "x": {"min": limits.x.min, "max": limits.x.max},
+        "y": {"min": limits.y.min, "max": limits.y.max},
+        "z": {"min": limits.z.min, "max": limits.z.max},
+    }
+
+
 @router.post("/emergency-stop")
-def post_emergency_stop(state: StateDep) -> dict[str, bool]:
+def post_emergency_stop(state: StateDep, jobs: JobsDep) -> dict[str, bool]:
+    # Klipper 送信が失敗しても abort フラグは必ず立てる（先頭で実行）
+    jobs.request_abort()
     klipper = create_klipper(state, STATUS_TIMEOUT)
     try:
         klipper.emergency_stop()

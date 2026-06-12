@@ -21,13 +21,14 @@ router = APIRouter(prefix="/api")
 
 
 class MachineControlRequest(BaseModel):
-    action: Literal["home", "jog", "move", "relax", "focus_z"]
+    action: Literal["home", "jog", "move", "relax", "focus_z", "gcode"]
     axes: list[Literal["x", "y", "z"]] | None = None
     axis: Literal["x", "y", "z"] | None = None
     distance: float | None = None
     x: float | None = None
     y: float | None = None
     z: float | None = None
+    gcode: str | None = None
 
 
 @router.post("/machine-control")
@@ -76,6 +77,10 @@ def _build_gcode(
             commands = stage.move(x=body.x, y=body.y, z=body.z)
         case "relax":
             return gcode.relax()
+        case "gcode":
+            if body.gcode is None or not body.gcode.strip():
+                raise ValueError("gcode が空です")
+            commands = gcode.GCode(body.gcode)
         case "focus_z":
             focus_z = state.focus_z()
             if focus_z is None:

@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from webui.app import SettingsDep, StateDep, StoreDep, get_templates
+from webui.app import CatalogDep, SettingsDep, StateDep, StoreDep, get_templates
 from webui.routers.settings_api import machine_settings_fields, motion_settings_fields
 
 # tab → feature slug 列（ヘッダのタブ表示順）
@@ -48,6 +48,11 @@ TAB_PHASES: dict[str, str] = {
 
 # 専用テンプレートを持つ feature（無いものは feature.html プレースホルダ）
 FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
+    ("dev", "extract_pcb"): "dev/job.html",
+    ("dev", "fill_path_simulate"): "dev/job.html",
+    ("dev", "generate_grid_pcb"): "dev/job.html",
+    ("dev", "make_fill_coverage_pcb"): "dev/job.html",
+    ("dev", "klipper_status"): "dev/klipper_status.html",
     ("posctrl", "camera_preview"): "posctrl/camera_preview.html",
     ("posctrl", "copper_detection"): "posctrl/copper_detection.html",
 }
@@ -127,6 +132,7 @@ def feature_page(
     state: StateDep,
     store: StoreDep,
     settings: SettingsDep,
+    catalog: CatalogDep,
 ) -> HTMLResponse:
     if tab not in TABS or feature not in TABS[tab]:
         raise HTTPException(
@@ -139,6 +145,10 @@ def feature_page(
         feature_label=_feature_label(feature),
         phase=TAB_PHASES[tab],
     )
+    template = FEATURE_TEMPLATES.get((tab, feature), "feature.html")
+    if template == "dev/job.html":
+        definition = catalog.get(feature)
+        context.update(job_name=definition.name, param_specs=definition.params)
     if feature == "copper_detection":
         pad_align = state.machine().paste_dispenser.pad_align
         context.update(
@@ -146,7 +156,6 @@ def feature_page(
             canny_high=pad_align.canny_high,
             blur_ksize=pad_align.blur_ksize,
         )
-    template = FEATURE_TEMPLATES.get((tab, feature), "feature.html")
     return get_templates(request).TemplateResponse(
         request=request, name=template, context=context
     )

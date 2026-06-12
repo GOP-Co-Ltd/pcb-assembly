@@ -160,11 +160,11 @@ class AppState:
             backend=camera.backend,
         )
 
-    @contextmanager
-    def machine_lock(self, owner: str) -> Iterator[None]:
+    def acquire_machine(self, owner: str) -> None:
         """装置排他ロックを非ブロッキングで取得する.
 
-        Phase 3 の JobManager もこの同一ロックを共有する。
+        JobManager がジョブ開始時（request スレッド）に取得し、ワーカー
+        終了時（別スレッド）に release_machine で解放する。
 
         Raises:
             BusyError: ロックが既に保持されている場合
@@ -172,11 +172,33 @@ class AppState:
         if not self._lock.acquire(blocking=False):
             raise BusyError(self._busy_owner or "unknown")
         self._busy_owner = owner
+
+    def release_machine(self) -> None:
+        """取得済みの装置排他ロックを解放する.
+
+        ``threading.Lock`` のため取得スレッドと別のスレッドからも解放できる。
+
+        Raises:
+            RuntimeError: ロックが取得されていない場合
+        """
+        self._busy_owner = None
+        self._lock.release()
+
+    @contextmanager
+    def machine_lock(self, owner: str) -> Iterator[None]:
+        """装置排他ロックを取得するコンテキストマネージャ.
+
+        JobManager もこの同一ロックを acquire_machine / release_machine
+        経由で共有する。
+
+        Raises:
+            BusyError: ロックが既に保持されている場合
+        """
+        self.acquire_machine(owner)
         try:
             yield
         finally:
-            self._busy_owner = None
-            self._lock.release()
+            self.release_machine()
 
     def _load_persisted(self) -> dict[str, str | None]:
         try:

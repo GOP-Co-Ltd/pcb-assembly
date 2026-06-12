@@ -1,0 +1,363 @@
+"use strict";
+
+// グローバル WS クライアント（/api/ws）+ ジョブコンソール UI。
+// tab.html から全タブで読み込まれ、window.webui.jobs を公開する。
+// ページに #job-console（data-job-name）があればコンソールを描画する。
+
+(() => {
+  const { toast, api } = window.webui;
+
+  const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
+  const STATUS_LABELS = {
+    idle: "待機中",
+    pending: "開始待ち",
+    running: "実行中",
+    waiting_input: "入力待ち",
+    succeeded: "成功",
+    failed: "失敗",
+    aborted: "中止",
+  };
+
+  const listeners = new Set();
+  let socket = null;
+  let reconnectDelay = 1000;
+  let currentJob = null;
+
+  function isActive(job) {
+    return job !== null && job !== undefined && !TERMINAL.has(job.status);
+  }
+
+  function send(message) {
+    if (socket === null || socket.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify(message));
+    return true;
+  }
+
+  // ---- 公開 API ----
+
+  window.webui.jobs = {
+    currentJob: () => currentJob,
+    onUpdate: (callback) => listeners.add(callback),
+    sendCommand: (command) => send({ type: "command", command }),
+    abort: () => {
+      if (!send({ type: "abort" })) {
+        api("POST", "/api/jobs/current/abort").catch((err) => toast(err.message, false));
+      }
+    },
+  };
+
+  // ---- WS 接続（指数バックオフ再接続 + 再同期）----
+
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    socket = new WebSocket(`${proto}://${location.host}/api/ws`);
+    socket.addEventListener("open", async () => {
+      reconnectDelay = 1000;
+      try {
+        const data = await api("GET", "/api/jobs/current");
+        applyJob(data.job);
+      } catch {
+        /* 再接続時に再試行される */
+      }
+    });
+    socket.addEventListener("message", (event) => handleEvent(JSON.parse(event.data)));
+    socket.addEventListener("close", () => {
+      socket = null;
+      setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+    });
+  }
+
+  function handleEvent(event) {
+    switch (event.type) {
+      case "job_status":
+        applyJob(event.job);
+        break;
+      case "log":
+        if (ownsEvent(event)) appendLog(event.line);
+        break;
+      case "progress":
+        if (ownsEvent(event)) renderProgress(event.stage, event.percent);
+        break;
+      case "prompt":
+        if (ownsEvent(event)) openPrompt(event.prompt);
+        break;
+      case "prompt_resolved":
+        if (ownsEvent(event)) closePrompt();
+        break;
+      case "state_changed":
+        refreshHeader();
+        break;
+      case "error":
+        toast(event.detail, false);
+        break;
+    }
+  }
+
+  async function refreshHeader() {
+    try {
+      const state = await api("GET", "/api/state");
+      const select = document.getElementById("machine-select");
+      if (select && select.value !== state.machine) select.value = state.machine;
+      const chip = document.getElementById("pcb-chip");
+      if (chip) chip.textContent = state.pcb_file || "PCB未選択";
+    } catch {
+      /* 表示更新のみなので無視 */
+    }
+  }
+
+  // ---- ジョブ状態の反映 ----
+
+  function applyJob(job) {
+    currentJob = job ?? null;
+    for (const callback of listeners) callback(currentJob);
+    renderConsole();
+  }
+
+  // ---- コンソール描画（#job-console があるページのみ）----
+
+  const consoleEl = document.getElementById("job-console");
+  const pageJobName = consoleEl ? consoleEl.dataset.jobName : null;
+  const form = document.getElementById("job-form");
+
+  function ownsJob(job) {
+    return consoleEl !== null && job !== null && job !== undefined && job.name === pageJobName;
+  }
+
+  function ownsEvent(event) {
+    return ownsJob(currentJob) && event.job_id === currentJob.id;
+  }
+
+  function el(id) {
+    return document.getElementById(id);
+  }
+
+  function appendLog(line) {
+    const log = el("jc-log");
+    log.textContent += (log.textContent ? "\n" : "") + line;
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function renderProgress(stage, percent) {
+    const bar = el("jc-progress-bar");
+    const text = el("jc-progress-text");
+    bar.style.width = percent === null || percent === undefined ? "0%" : `${percent}%`;
+    text.textContent =
+      percent === null || percent === undefined
+        ? stage || ""
+        : `${stage}（${Math.round(percent)}%）`;
+  }
+
+  function renderConsole() {
+    if (!consoleEl) return;
+    const job = currentJob;
+
+    // 実行ボタンはどのジョブ実行中でも無効（装置排他は全ジョブ共有）
+    if (form) {
+      const runButton = document.getElementById("job-run");
+      runButton.disabled = isActive(job);
+    }
+
+    if (!ownsJob(job)) {
+      el("jc-status").textContent = STATUS_LABELS.idle;
+      el("jc-status").dataset.status = "idle";
+      el("jc-abort").disabled = true;
+      return;
+    }
+
+    el("jc-status").textContent = STATUS_LABELS[job.status] || job.status;
+    el("jc-status").dataset.status = job.status;
+    el("jc-abort").disabled = !isActive(job);
+
+    // job_status はログ全量を持つため毎回同期する（再接続にも追従）
+    const log = el("jc-log");
+    const text = job.log_tail.join("\n");
+    if (log.textContent !== text) {
+      log.textContent = text;
+      log.scrollTop = log.scrollHeight;
+    }
+    renderProgress(job.progress_stage, job.progress_percent);
+
+    if (job.pending_prompt) {
+      openPrompt(job.pending_prompt);
+    } else {
+      closePrompt();
+    }
+
+    renderResult(job);
+  }
+
+  function renderResult(job) {
+    const resultEl = el("jc-result");
+    if (!TERMINAL.has(job.status)) {
+      resultEl.hidden = true;
+      return;
+    }
+    resultEl.hidden = false;
+    const summary = el("jc-summary");
+    if (job.status === "failed") {
+      summary.textContent = `エラー: ${job.error || "不明"}`;
+    } else if (job.status === "aborted") {
+      summary.textContent = "中止しました";
+    } else {
+      summary.textContent = job.result?.summary || "完了";
+    }
+
+    const artifactsEl = el("jc-artifacts");
+    artifactsEl.replaceChildren();
+    for (const artifact of job.result?.artifacts || []) {
+      if (artifact.kind === "image") {
+        const figure = document.createElement("figure");
+        const img = document.createElement("img");
+        img.src = artifact.url;
+        img.alt = artifact.label;
+        img.className = "jc-artifact-image";
+        const caption = document.createElement("figcaption");
+        const link = document.createElement("a");
+        link.href = artifact.url;
+        link.download = "";
+        link.textContent = `${artifact.label}（ダウンロード）`;
+        caption.appendChild(link);
+        figure.append(img, caption);
+        artifactsEl.appendChild(figure);
+      } else {
+        const link = document.createElement("a");
+        link.href = artifact.url;
+        link.download = "";
+        link.className = "jc-artifact-file";
+        link.textContent = artifact.label;
+        artifactsEl.appendChild(link);
+      }
+    }
+
+    const applyEl = el("jc-apply");
+    if (job.apply_available && job.result?.apply) {
+      applyEl.hidden = false;
+      el("jc-apply-label").textContent = job.result.apply.label;
+    } else {
+      applyEl.hidden = true;
+    }
+  }
+
+  // ---- プロンプトモーダル ----
+
+  let activePrompt = null;
+
+  function openPrompt(prompt) {
+    const dialog = el("jc-prompt");
+    if (activePrompt && activePrompt.id === prompt.id && dialog.open) return;
+    activePrompt = prompt;
+    el("jc-prompt-message").textContent = prompt.message;
+
+    const field = el("jc-prompt-field");
+    field.replaceChildren();
+    const noButton = el("jc-prompt-no");
+    const okButton = el("jc-prompt-ok");
+    noButton.hidden = prompt.kind !== "confirm";
+    okButton.textContent = prompt.kind === "confirm" ? "はい" : "OK";
+
+    if (prompt.kind === "number") {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.step = "any";
+      input.id = "jc-prompt-input";
+      if (prompt.default !== null && prompt.default !== undefined) input.value = prompt.default;
+      field.appendChild(input);
+    } else if (prompt.kind === "text") {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.id = "jc-prompt-input";
+      if (prompt.default !== null && prompt.default !== undefined) input.value = prompt.default;
+      field.appendChild(input);
+    } else if (prompt.kind === "choice") {
+      const select = document.createElement("select");
+      select.id = "jc-prompt-input";
+      for (const choice of prompt.choices) {
+        const option = document.createElement("option");
+        option.value = choice;
+        option.textContent = choice;
+        option.selected = choice === prompt.default;
+        select.appendChild(option);
+      }
+      field.appendChild(select);
+    }
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function closePrompt() {
+    activePrompt = null;
+    const dialog = el("jc-prompt");
+    if (dialog && dialog.open) dialog.close();
+  }
+
+  if (consoleEl) {
+    el("jc-prompt-form").addEventListener("submit", (event) => {
+      const prompt = activePrompt;
+      if (!prompt) return;
+      let answer;
+      if (prompt.kind === "confirm") {
+        answer = event.submitter?.id !== "jc-prompt-no";
+      } else if (prompt.kind === "number") {
+        answer = Number(el("jc-prompt-input").value);
+      } else {
+        answer = el("jc-prompt-input").value;
+      }
+      send({ type: "respond_prompt", prompt_id: prompt.id, answer });
+      activePrompt = null;
+    });
+
+    el("jc-abort").addEventListener("click", () => window.webui.jobs.abort());
+
+    el("jc-apply-btn").addEventListener("click", async () => {
+      try {
+        const data = await api("POST", "/api/jobs/last/apply");
+        toast(`設定に反映しました: ${JSON.stringify(data.applied)}`);
+        el("jc-apply").hidden = true;
+      } catch (err) {
+        toast(err.message, false);
+      }
+    });
+
+    el("jc-discard-btn").addEventListener("click", async () => {
+      try {
+        await api("POST", "/api/jobs/last/discard");
+        toast("計測結果を破棄しました");
+        el("jc-apply").hidden = true;
+      } catch (err) {
+        toast(err.message, false);
+      }
+    });
+  }
+
+  // ---- ジョブ開始フォーム ----
+
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const params = {};
+      for (const input of form.querySelectorAll("[data-param-type]")) {
+        const type = input.dataset.paramType;
+        if (type === "bool") {
+          params[input.name] = input.checked;
+        } else if (type === "float") {
+          params[input.name] = Number(input.value);
+        } else if (type === "int") {
+          params[input.name] = parseInt(input.value, 10);
+        } else {
+          params[input.name] = input.value;
+        }
+      }
+      try {
+        el("jc-log").textContent = "";
+        el("jc-result").hidden = true;
+        renderProgress("", null);
+        const data = await api("POST", `/api/jobs/${form.dataset.jobName}`, { params });
+        applyJob(data.job);
+      } catch (err) {
+        toast(err.message, false);
+      }
+    });
+  }
+
+  connect();
+})();
