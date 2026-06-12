@@ -204,6 +204,57 @@ class TestPad:
         assert restored.is_custom_shape == sample.is_custom_shape
         assert restored.polygon.equals(sample.polygon)
 
+    def test_copper_polygon_defaults_to_paste_polygon(self, sample: Pad):
+        # copper_polygon 未指定の構築では paste 開口の polygon にフォールバックする
+        assert sample.copper_polygon.equals(sample.polygon)
+
+    def test_copper_polygon_is_kept_when_specified(self):
+        paste = Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)])
+        copper = Polygon([(-1, -1), (2, -1), (2, 2), (-1, 2), (-1, -1)])
+        pad = Pad(
+            designator="U1",
+            pad_number="1",
+            net_name="VCC",
+            layer=Layer.TOP,
+            polygon=paste,
+            copper_polygon=copper,
+        )
+
+        assert pad.copper_polygon.equals(copper)
+        assert not pad.copper_polygon.equals(pad.polygon)
+
+    def test_to_dict_and_from_dict_roundtrip_with_copper_polygon(self):
+        pad = Pad(
+            designator="U1",
+            pad_number="1",
+            net_name="VCC",
+            layer=Layer.TOP,
+            polygon=Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]),
+            copper_polygon=Polygon([(-1, -1), (2, -1), (2, 2), (-1, 2), (-1, -1)]),
+        )
+
+        restored = Pad.from_dict(pad.to_dict())
+
+        assert restored.polygon.equals(pad.polygon)
+        assert restored.copper_polygon.equals(pad.copper_polygon)
+
+    def test_from_dict_without_copper_polygon_falls_back_to_polygon(self):
+        # 旧形式 JSON（copper_polygon キーなし）との後方互換ピン
+        exterior = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.0, 0.0]]
+        data = {
+            "designator": "U1",
+            "pad_number": "1",
+            "net_name": "VCC",
+            "layer": "Top",
+            "polygon": {"exterior": exterior, "holes": []},
+            "is_custom_shape": False,
+        }
+
+        pad = Pad.from_dict(data)
+
+        assert pad.polygon.equals(Polygon(exterior))
+        assert pad.copper_polygon.equals(pad.polygon)
+
     def test_pad_polygon_with_holes_roundtrip(self):
         # 穴付きポリゴン (10x10 の外形に 2x2 の穴) でも往復できることを確認
         exterior = [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
