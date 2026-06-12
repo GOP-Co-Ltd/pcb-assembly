@@ -128,6 +128,19 @@ def _tab_context(tab: str) -> dict[str, Any]:
     }
 
 
+def _fb_start(settings: SettingsDep) -> str:
+    """ファイルブラウザの初期表示パス（pcb_browse_root からの相対）."""
+    try:
+        start = (
+            settings.pcb_browse_start.resolve()
+            .relative_to(settings.pcb_browse_root.resolve())
+            .as_posix()
+        )
+    except ValueError:
+        return ""
+    return "" if start == "." else start
+
+
 def _base_context(
     request: Request, state: StateDep, store: StoreDep, settings: SettingsDep
 ) -> dict[str, Any]:
@@ -139,6 +152,7 @@ def _base_context(
         "machines": store.list_machines(),
         "selected_machine": state.selected_machine,
         "selected_pcb": pcb.as_posix() if pcb else None,
+        "fb_start": _fb_start(settings),
         "mainsail_url": settings.mainsail_url
         or f"http://{request.url.hostname or 'localhost'}",
         "focus_z": state.focus_z(),

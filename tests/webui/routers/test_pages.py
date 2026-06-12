@@ -73,6 +73,18 @@ class TestPages:
         for label in ("開発", "はんだ塗布", "部品実装", "位置合わせ"):
             assert label in text
 
+    def test_file_browser_start_path_is_rendered(self, webui_settings: Settings):
+        """Pcb_browse_start の pcb_browse_root 相対パスが data-fb-start に出る."""
+        evolved = attrs.evolve(
+            webui_settings, pcb_browse_root=webui_settings.pcb_browse_root.parent
+        )
+        app = create_app(evolved)
+        with TestClient(app) as client:
+            text = client.get("/posctrl").text
+
+        start = webui_settings.pcb_browse_start.name
+        assert f'data-fb-start="{start}"' in text
+
     def test_mainsail_link_follows_request_host_when_unset(
         self, webui_settings: Settings
     ):

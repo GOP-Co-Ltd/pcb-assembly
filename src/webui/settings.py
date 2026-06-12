@@ -21,7 +21,12 @@ class Settings:
 
     configs_root: Path = PROJECT_ROOT / "configs"
     data_dir: Path = PROJECT_ROOT / "data"
-    pcb_browse_root: Path = PROJECT_ROOT
+    # OS 全体を閲覧可能にする（USB マウント /media/... からの選択を想定）。
+    # ファイルブラウザの初期表示位置は pcb_browse_start
+    pcb_browse_root: Path = Path("/")
+    pcb_browse_start: Path = PROJECT_ROOT
+    # アップロード保存先。pcb_browse_root 配下であること（選択可能にするため）
+    pcb_upload_dir: Path = PROJECT_ROOT / "uploads"
     printer_cfg_link: Path = Path.home() / "printer_data/config/printer.cfg"
     # None の場合はページ閲覧元のホスト名に追従する（pages.py で解決）
     mainsail_url: str | None = None

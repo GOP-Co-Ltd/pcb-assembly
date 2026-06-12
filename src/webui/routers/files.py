@@ -15,9 +15,6 @@ router = APIRouter(prefix="/api")
 
 PCB_SUFFIX = ".kicad_pcb"
 
-# ブラウザからアップロードした PCB の保存先（pcb_browse_root 直下）
-UPLOAD_DIR_NAME = "uploads"
-
 
 class FileEntry(BaseModel):
     name: str
@@ -98,7 +95,7 @@ async def upload_pcb_file(
     preview: PreviewDep,
     jobs: JobsDep,
 ) -> StateResponse:
-    """PCB ファイルを uploads/ に保存し、そのまま選択する."""
+    """PCB ファイルを pcb_upload_dir に保存し、そのまま選択する."""
     # Path(...).name でディレクトリ成分を落とす（traversal 防止）
     filename = Path(file.filename or "").name
     if not filename or not filename.endswith(PCB_SUFFIX):
@@ -107,9 +104,9 @@ async def upload_pcb_file(
             detail=f"{PCB_SUFFIX} ファイルをアップロードしてください: {file.filename}",
         )
     root = settings.pcb_browse_root.resolve()
-    upload_dir = root / UPLOAD_DIR_NAME
+    upload_dir = settings.pcb_upload_dir
     upload_dir.mkdir(parents=True, exist_ok=True)
-    destination = upload_dir / filename
+    destination = upload_dir.resolve() / filename
     destination.write_bytes(await file.read())
     state.select_pcb(destination.relative_to(root))
     jobs.publish_state_changed()

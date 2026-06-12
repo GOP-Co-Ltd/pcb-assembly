@@ -6,8 +6,13 @@
 - PUT /api/pcb-file — StateResponse 返却。拡張子・root 外は 400、busy は 409
 """
 
+from pathlib import Path
+
+import attrs
 from fastapi.testclient import TestClient
 
+from webui.app import create_app
+from webui.settings import Settings
 from webui.state import AppState
 
 
@@ -81,6 +86,18 @@ class TestPcbFileApi:
             )
 
         assert response.status_code == 409
+
+    def test_browse_root_slash_allows_any_mounted_path(
+        self, webui_settings: Settings, pcb_root: Path
+    ):
+        """既定の pcb_browse_root="/" では USB マウント等の任意パスを選択できる."""
+        app = create_app(attrs.evolve(webui_settings, pcb_browse_root=Path("/")))
+        rel = (pcb_root / "top.kicad_pcb").resolve().relative_to(Path("/")).as_posix()
+        with TestClient(app) as client:
+            response = client.put("/api/pcb-file", json={"path": rel})
+
+        assert response.status_code == 200
+        assert response.json()["pcb_file"] == rel
 
 
 class TestPcbUploadApi:

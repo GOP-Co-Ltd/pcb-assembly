@@ -36,7 +36,10 @@ class TestSettingsFromEnv:
 
         assert settings.configs_root == PROJECT_ROOT / "configs"
         assert settings.data_dir == PROJECT_ROOT / "data"
-        assert settings.pcb_browse_root == PROJECT_ROOT
+        # OS 全体（USB マウント等）を閲覧可能。初期表示はプロジェクトルート
+        assert settings.pcb_browse_root == Path("/")
+        assert settings.pcb_browse_start == PROJECT_ROOT
+        assert settings.pcb_upload_dir == PROJECT_ROOT / "uploads"
         assert (
             settings.printer_cfg_link
             == Path.home() / "printer_data" / "config" / "printer.cfg"

@@ -107,7 +107,9 @@ async function showDirectory(path) {
 if (pcbChip && browser) {
   pcbChip.addEventListener("click", () => {
     browser.showModal();
-    showDirectory("").catch((err) => toast(err.message, false));
+    showDirectory(pcbChip.dataset.fbStart || "").catch((err) =>
+      toast(err.message, false)
+    );
   });
   document.getElementById("fb-close").addEventListener("click", () => browser.close());
 

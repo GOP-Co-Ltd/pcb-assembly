@@ -20,7 +20,8 @@
       <option value="{{ m }}"{% if m == selected_machine %} selected{% endif %}>{{ m }}</option>
       {% endfor %}
     </select>
-    <button id="pcb-chip" class="chip" title="PCB ファイル選択">
+    <button id="pcb-chip" class="chip" title="PCB ファイル選択"
+            data-fb-start="{{ fb_start }}">
       {{ selected_pcb or "PCB未選択" }}
     </button>
     <a href="/settings" class="icon-link" title="マシン設定">&#9881;</a>

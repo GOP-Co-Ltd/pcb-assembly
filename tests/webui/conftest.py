@@ -109,6 +109,8 @@ def webui_settings(tmp_path: Path, configs_root: Path, pcb_root: Path) -> Settin
         configs_root=configs_root,
         data_dir=data_dir,
         pcb_browse_root=pcb_root,
+        pcb_browse_start=pcb_root,
+        pcb_upload_dir=pcb_root / "uploads",
         printer_cfg_link=tmp_path / "printer_data" / "config" / "printer.cfg",
         mainsail_url="http://mainsail.invalid",
         default_machine="kurousagi",
