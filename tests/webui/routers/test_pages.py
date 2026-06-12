@@ -17,6 +17,13 @@ Phase 3 追記（計画書 webui-phase3.md「templates / static」節 + spec §1
 - dev のジョブ 4 ページは ParamSpec 由来のフォーム + job-console
 - klipper_status ページは G-code 送信ボックス + limits 表示
 - job_demo（hidden）はサイドバーに出ない
+
+Phase 4 追記（計画書 webui-phase4.md「templates / static」節 + spec §10 posctrl）:
+
+- posctrl のジョブ 3 ページは preview ペイン（overlay 切替）+ フォーム + job-console
+- reference_point_setup は preview + Record / Quit ボタン（ジョグはマシン操作
+  パネルのジョブモード）
+- 未実装プレースホルダの確認対象は pasting（Phase 5）へ移行
 """
 
 import pytest
@@ -130,8 +137,54 @@ class TestPreviewPages:
         assert "81" in response.text
         assert "192" in response.text
 
-    def test_other_features_keep_placeholder(self, client: TestClient):
-        response = client.get("/posctrl/reference_point_setup")
+    def test_pasting_features_keep_placeholder(self, client: TestClient):
+        # Phase 4 で posctrl は全 feature 実装済みのため、プレースホルダの
+        # 確認は pasting（Phase 5 予定）で行う
+        response = client.get("/pasting/paste_solder")
 
         assert response.status_code == 200
         assert "未実装" in response.text
+
+
+POSCTRL_JOB_FEATURES = ("camera_calibration", "board_tour", "orthogonality_test")
+
+
+class TestPosctrlJobPages:
+    """Phase 4: posctrl のジョブページ（計画書 webui-phase4.md「templates /
+    static」節 + spec §10 posctrl 表）."""
+
+    @pytest.mark.parametrize("feature", POSCTRL_JOB_FEATURES)
+    def test_posctrl_job_page_renders_console_preview_and_overlay_switch(
+        self, client: TestClient, feature: str
+    ):
+        response = client.get(f"/posctrl/{feature}")
+
+        assert response.status_code == 200
+        assert "job-console" in response.text
+        assert "preview-pane" in response.text
+        assert "crosshair" in response.text  # overlay 切替（none / crosshair）
+        # data-job-name 等でページのジョブ名が宣言される
+        assert feature in response.text
+
+    def test_camera_calibration_renders_param_form_fields(self, client: TestClient):
+        text = client.get("/posctrl/camera_calibration").text
+
+        for name in ("square_size", "crop_width", "crop_height"):
+            assert name in text
+
+    @pytest.mark.parametrize("feature", ("board_tour", "orthogonality_test"))
+    def test_tour_pages_render_tolerance_field(self, client: TestClient, feature: str):
+        assert "tolerance" in client.get(f"/posctrl/{feature}").text
+
+    def test_reference_point_setup_page_renders_record_and_quit(
+        self, client: TestClient
+    ):
+        response = client.get("/posctrl/reference_point_setup")
+
+        assert response.status_code == 200
+        text = response.text.lower()
+        assert "job-console" in text
+        assert "preview-pane" in text
+        assert "record" in text
+        assert "quit" in text
+        assert "reference_point_setup.js" in text

@@ -250,6 +250,59 @@ class TestFrame:
         wait_until(lambda: record.status.terminal)
 
 
+class TestOpenCamera:
+    """open_camera（Phase 4: bridge.hold_camera 経由のカメラ貸し出し）.
+
+    計画書 webui-phase4.md「src/webui/jobs/context.py」節が契約: open_camera は
+    カメラパイプラインを起動保持して FrameSource を貸し、退出で解放する。 PreviewService
+    と参照カウントを共有する（共有側の検証は test_preview.py）。
+    """
+
+    def test_open_camera_lends_capturable_camera_and_releases_hub(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        sizes: list[tuple[int, int]] = []
+        running_during: list[bool] = []
+
+        def run(ctx: JobContext) -> None:
+            with ctx.open_camera() as camera:
+                sizes.append(camera.capture().size)
+                running_during.append(state.frame_hub().running)
+
+        _register(catalog, run)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert sizes == [(1280, 720)]  # fake_camera.png のフレームが capture できる
+        assert running_during == [True]
+        assert not state.frame_hub().running  # 退出で解放（参照 0 で停止）
+
+    def test_open_camera_releases_hub_when_job_fails_inside(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        """With ブロック内の例外でも hub は解放される（FAILED で停止漏れなし）."""
+
+        def run(ctx: JobContext) -> None:
+            with ctx.open_camera():
+                raise RuntimeError("ジョブ内エラー")
+
+        _register(catalog, run)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.FAILED
+        assert not state.frame_hub().running
+
+
 class TestCheckpointAndNextCommand:
     """Checkpoint / next_command（abort 連動は test_manager.py）."""
 

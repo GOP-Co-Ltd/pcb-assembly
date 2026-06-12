@@ -30,6 +30,11 @@ TEST_FIXTURE_DIR = PROJECT_ROOT / "configs" / "test-fixture"
 
 FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"
 
+# 5x5 内部コーナー・1 マス約 66.7px のチェッカーボード（400x400）。
+# square_size=10mm で pixel_per_mm ≈ 6.67（tests/pcbasm/vision/test_calibration.py
+# と同一素材）。camera_calibration ジョブのフル結合テストに使う
+CHECKERBOARD_CAMERA_IMAGE = TESTING_DATA_DIR / "checkerboard.png"
+
 REAL_PCB_FIXTURE = TESTING_DATA_DIR / "fill_coverage" / "fill_coverage.kicad_pcb"
 
 
@@ -136,6 +141,27 @@ def fake_camera_appstate(
 ) -> AppState:
     """Lifespan 起動後の AppState（fake camera 版）."""
     return fake_camera_app.state.appstate
+
+
+@pytest.fixture
+def checkerboard_camera_settings(webui_settings: Settings) -> Settings:
+    """チェッカーボード固定画像カメラの Settings。camera_calibration ジョブの結合テスト用."""
+    return attrs.evolve(
+        webui_settings, fake_camera=True, fake_camera_image=CHECKERBOARD_CAMERA_IMAGE
+    )
+
+
+@pytest.fixture
+def checkerboard_camera_app(checkerboard_camera_settings: Settings) -> FastAPI:
+    return create_app(checkerboard_camera_settings)
+
+
+@pytest.fixture
+def checkerboard_camera_client(
+    checkerboard_camera_app: FastAPI,
+) -> Iterator[TestClient]:
+    with TestClient(checkerboard_camera_app) as test_client:
+        yield test_client
 
 
 @pytest.fixture

@@ -31,6 +31,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
+from pcbasm.vision import CalibrationResult
 from webui.jobs.catalog import JobDefinition
 from webui.jobs.context import JobContext
 from webui.jobs.manager import Artifact, JobManager, JobResult
@@ -525,6 +526,65 @@ class TestWebSocket:
             )
 
             _receive_until(ws, lambda m: m["type"] == "state_changed")
+
+
+class TestCameraCalibrationApplyFlow:
+    """Phase 4: camera_calibration の WS 完走 → POST /api/jobs/last/apply.
+
+    計画書 webui-phase4.md §4「tests/webui/routers/test_jobs.py（追記）」が契約:
+    checkerboard FakeCamera で WS 完走後、Apply で tmp configs の machine.toml
+    の calibration_file 更新 + JSON ファイル生成を実ファイルで確認する。
+    """
+
+    def test_ws_full_run_then_apply_writes_calibration_files(
+        self, checkerboard_camera_client: TestClient, configs_root: Path
+    ):
+        client = checkerboard_camera_client
+        with client.websocket_connect("/api/ws") as ws:
+            response = client.post(
+                "/api/jobs/camera_calibration",
+                # checkerboard.png（400x400・1 マス約 66.7px）に合わせた指定
+                json={
+                    "params": {
+                        "square_size": 10.0,
+                        "crop_width": 400,
+                        "crop_height": 400,
+                    }
+                },
+            )
+            assert response.status_code == 201
+
+            # 撮影確認 prompt(confirm) は _receive_until が True で応答する
+            final, _ = _receive_until(
+                ws,
+                lambda m: m["type"] == "job_status" and m["job"]["status"] in _TERMINAL,
+                answer_prompts=True,
+            )
+            assert final["job"]["status"] == "succeeded"
+            assert final["job"]["apply_available"] is True
+            apply_info = final["job"]["result"]["apply"]
+            assert apply_info is not None
+            assert "camera.calibration_file" in apply_info["values"]
+
+        response = client.post("/api/jobs/last/apply")
+
+        assert response.status_code == 200
+        applied = response.json()["applied"]
+        filename = applied["camera.calibration_file"]
+        assert isinstance(filename, str)
+        assert filename.endswith(".json")
+
+        # 既定選択マシン kurousagi の configs へ実ファイルが書かれる
+        machine_dir = configs_root / "kurousagi"
+        toml_text = (machine_dir / "machine.toml").read_text(encoding="utf-8")
+        assert filename in toml_text
+        # tomlkit によりコメントが保持される
+        assert "非リッスンポート" in toml_text
+
+        loaded = CalibrationResult.load(machine_dir / filename)
+        # 400px / 6 マス / 10mm ≈ 6.67 px/mm（素材と整合する実数値）
+        assert loaded.pixel_per_mm == pytest.approx(400 / 6 / 10, rel=0.01)
+        assert loaded.z_position is None  # Klipper 不通（port 7126）の best-effort
 
 
 class TestArtifacts:

@@ -47,6 +47,7 @@ def _register(
     name: str = "synthetic",
     params: tuple[ParamSpec, ...] = (),
     requires_pcb: bool = False,
+    uses_machine: bool = False,
     accepts_commands: bool = False,
 ) -> None:
     catalog.register(
@@ -57,7 +58,7 @@ def _register(
             run=run,
             params=params,
             requires_pcb=requires_pcb,
-            uses_machine=False,
+            uses_machine=uses_machine,
             accepts_commands=accepts_commands,
         )
     )
@@ -597,6 +598,69 @@ class TestApply:
     ):
         with pytest.raises(LookupError):
             manager.apply_payload()
+
+
+class TestRelaxOnTermination:
+    """ジョブ終了時の M84（relax）ベストエフォート送信（Phase 4）.
+
+    計画書 webui-phase4.md「src/webui/jobs/manager.py」節が契約:
+    uses_machine=True のジョブは終端ステータス確定後・ロック解放前に best-effort で M84
+    を送る。失敗（Moonraker 不通 = test-fixture の port 7126）は log
+    警告のみで終端ステータスは変えない。
+
+    relax → release_machine の順のため、log のアサート前に busy_owner の 解放をポーリングで待つ。
+    """
+
+    def test_relax_failure_is_logged_and_succeeded_status_kept(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        _register(catalog, lambda ctx: None, uses_machine=True)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+        wait_until(lambda: state.busy_owner is None)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert "M84" in "\n".join(record.log_lines)  # relax (M84) 送信失敗の警告
+
+    def test_relax_failure_does_not_change_failed_status(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        def run(ctx: JobContext) -> None:
+            raise RuntimeError("意図的な失敗")
+
+        _register(catalog, run, uses_machine=True)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+        wait_until(lambda: state.busy_owner is None)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "意図的な失敗" in record.error
+        assert "M84" in "\n".join(record.log_lines)
+
+    def test_no_relax_attempt_for_non_machine_job(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        """uses_machine=False（dev ジョブ相当）では relax を試行しない."""
+        _register(catalog, lambda ctx: None, uses_machine=False)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+        wait_until(lambda: state.busy_owner is None)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert "M84" not in "\n".join(record.log_lines)
 
 
 class TestShutdown:

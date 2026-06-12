@@ -106,6 +106,35 @@ class TestMachineSettings:
         values = store.read_machine_settings(FIXTURE)
         assert values["paste_dispenser.bead_width_factor"] == 1.5
 
+    def test_read_includes_camera_calibration_file(self, store: ConfigStore):
+        """Phase 4: camera.calibration_file がホワイトリストに含まれ既存値が読める."""
+        values = store.read_machine_settings(FIXTURE)
+
+        assert values["camera.calibration_file"] == "ov9281_test_fixture.json"
+
+    def test_write_calibration_file_changes_only_target_line(
+        self, store: ConfigStore, configs_root: Path
+    ):
+        """camera.calibration_file の書込は対象行のみ変更しコメント・構造を保つ."""
+        path = configs_root / FIXTURE / "machine.toml"
+        before = path.read_text(encoding="utf-8").splitlines()
+
+        store.write_machine_settings(
+            FIXTURE, {"camera.calibration_file": "ov9281_20260612.json"}
+        )
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["camera.calibration_file"] == "ov9281_20260612.json"
+        after = path.read_text(encoding="utf-8").splitlines()
+        assert len(after) == len(before)
+        changed = [(b, a) for b, a in zip(before, after) if b != a]
+        assert len(changed) == 1
+        assert "calibration_file" in changed[0][0]
+
+    def test_non_string_calibration_file_raises(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(FIXTURE, {"camera.calibration_file": 1.0})
+
     def test_unknown_key_raises_unknown_field_error(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings(FIXTURE, {"paste_dispenser.no_such_key": 1.0})

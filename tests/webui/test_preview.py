@@ -194,6 +194,75 @@ class TestOverrideSlot:
         assert frame[..., 1].mean() > 100
 
 
+class TestHoldCamera:
+    """ジョブ用のカメラ保持（Phase 4: JobContext.open_camera の受け口）.
+
+    計画書 webui-phase4.md「src/webui/preview.py」節が契約: hold_camera は
+    参照カウントを保持して FrameHub を貸し出し（0→1 で start、1→0 で stop）、 MJPEG
+    ストリームと同一カウントを共有する。
+    """
+
+    def test_hold_starts_hub_and_stops_on_exit(
+        self, service: PreviewService, state: AppState
+    ):
+        with service.hold_camera() as hub:
+            assert hub.running
+            assert state.frame_hub().running
+
+        assert not state.frame_hub().running
+
+    def test_hold_keeps_hub_running_after_stream_closes(
+        self, service: PreviewService, state: AppState
+    ):
+        """Preview クライアントの切断でジョブ使用中の hub は止まらない."""
+        stream = service.mjpeg_stream("none")
+        next(stream)
+
+        with service.hold_camera():
+            stream.close()
+            assert state.frame_hub().running  # ジョブが保持している間は稼働
+
+        assert not state.frame_hub().running
+
+    def test_stream_keeps_hub_running_after_hold_exits(
+        self, service: PreviewService, state: AppState
+    ):
+        """逆方向: ジョブ解放後も preview クライアントが残れば hub は止まらない."""
+        stream = service.mjpeg_stream("none")
+        next(stream)
+
+        with service.hold_camera():
+            pass
+
+        assert state.frame_hub().running
+        stream.close()
+        assert not state.frame_hub().running
+
+    def test_nested_holds_release_only_at_zero(
+        self, service: PreviewService, state: AppState
+    ):
+        with service.hold_camera():
+            with service.hold_camera():
+                assert state.frame_hub().running
+            assert state.frame_hub().running
+
+        assert not state.frame_hub().running
+
+    def test_camera_construction_failure_propagates(
+        self, fake_camera_settings: Settings, configs_root, tmp_path
+    ):
+        """カメラ初期化失敗は伝播する（ジョブ側で FAILED 化される）."""
+        settings = attrs.evolve(
+            fake_camera_settings, fake_camera_image=tmp_path / "missing.png"
+        )
+        state = AppState(settings, ConfigStore(configs_root))
+        service = PreviewService(state)
+
+        with pytest.raises(FileNotFoundError):
+            with service.hold_camera():
+                pass
+
+
 class TestSnapshot:
     """スポット確認用の 1 枚取得."""
 
