@@ -1,31 +1,36 @@
 {% extends "base.html" %}
 {% block title %}マシン設定 — PCB Assembly WebUI{% endblock %}
 {% block content %}
-{% macro settings_table(fields, prefix) %}
-<table class="settings-table">
-  <tbody>
-    {% for field in fields %}
-    <tr>
-      <th><label for="{{ prefix }}-{{ field.key }}">{{ field.label }}</label></th>
-      <td>
-        <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
-               data-type="{{ field.value_type }}"
-               type="{% if field.value_type == 'str' %}text{% else %}number{% endif %}"
-               {% if field.value_type != 'str' %}step="any"{% endif %}
-               value="{{ field.value if field.value is not none else '' }}"
-               placeholder="未設定">
-        {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+{% macro settings_groups(groups, prefix) %}
+{% for section_label, fields in groups %}
+<details class="settings-group" open>
+  <summary>{{ section_label }}</summary>
+  <table class="settings-table">
+    <tbody>
+      {% for field in fields %}
+      <tr>
+        <th><label for="{{ prefix }}-{{ field.key }}">{{ field.label }}</label></th>
+        <td>
+          <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
+                 data-type="{{ field.value_type }}"
+                 type="{% if field.value_type == 'str' %}text{% else %}number{% endif %}"
+                 {% if field.value_type != 'str' %}step="any"{% endif %}
+                 value="{{ field.value if field.value is not none else '' }}"
+                 placeholder="未設定">
+          {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+{% endfor %}
 {% endmacro %}
 <section class="settings">
   <h1>マシン設定 — {{ selected_machine }}</h1>
 
   <form id="machine-settings-form" data-endpoint="/api/settings/machine">
-    {{ settings_table(machine_fields, "ms") }}
+    {{ settings_groups(machine_groups, "ms") }}
     <button type="submit">保存</button>
   </form>
 
@@ -36,7 +41,7 @@
   </p>
   {% endif %}
   <form id="motion-settings-form" data-endpoint="/api/settings/motion">
-    {{ settings_table(motion_fields, "mo") }}
+    {{ settings_groups(motion_groups, "mo") }}
     <label class="restart-option">
       <input type="checkbox" id="motion-restart"> 保存後に Klipper を RESTART する
     </label>

@@ -33,6 +33,26 @@ class FieldSpec:
     unit: str | None = None
 
 
+# 設定セクション（key のドット区切り親パス）→ UI 表示名。
+# settings ページの階層表示に使う
+SECTION_LABELS: dict[str, str] = {
+    "paste_dispenser": "ペーストディスペンサー",
+    "paste_dispenser.toolhead": "ペーストディスペンサー / ツールヘッド",
+    "paste_dispenser.pad_align": "ペーストディスペンサー / パッド位置合わせ",
+    "probe": "プローブ",
+    "reference_point": "基準点",
+    "camera": "カメラ",
+    "camera.crop": "カメラ / クロップ",
+    "printer": "プリンター",
+    "manual_stepper paste_dispenser": "ディスペンサーステッパー",
+}
+
+
+def section_of(key: str) -> str:
+    """設定 key の属するセクション（最後のドットより前）を返す."""
+    return key.rsplit(".", 1)[0]
+
+
 MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     # [paste_dispenser]
     FieldSpec(

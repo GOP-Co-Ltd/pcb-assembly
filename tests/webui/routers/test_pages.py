@@ -93,6 +93,22 @@ class TestPages:
 
         assert response.status_code == 200
 
+    def test_settings_page_groups_fields_by_section(self, client: TestClient):
+        """設定項目はセクション単位の階層表示（settings-group）でまとまる."""
+        text = client.get("/settings").text
+
+        assert "settings-group" in text
+        for section_label in (
+            "ペーストディスペンサー",
+            "ペーストディスペンサー / パッド位置合わせ",
+            "プローブ",
+            "基準点",
+            "カメラ",
+            "プリンター",
+            "ディスペンサーステッパー",
+        ):
+            assert section_label in text
+
     def test_unknown_tab_returns_404(self, client: TestClient):
         assert client.get("/no-such-tab").status_code == 404
 

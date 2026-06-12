@@ -126,6 +126,18 @@ body {
   white-space: nowrap;
 }
 .settings-table input { width: 11rem; padding: 0.2rem 0.4rem; }
+.settings-group {
+  margin: 0.6rem 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.8rem;
+}
+.settings-group > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.3rem 0;
+}
+.settings-group .settings-table { margin-left: 0.8rem; }
 .unit { margin-left: 0.4rem; color: #777; }
 .warning {
   background: #fef3c7;

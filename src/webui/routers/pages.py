@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from itertools import groupby
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from webui.app import CatalogDep, SettingsDep, StateDep, StoreDep, get_templates
-from webui.routers.settings_api import machine_settings_fields, motion_settings_fields
+from webui.config_store import SECTION_LABELS, section_of
+from webui.routers.settings_api import (
+    SettingsField,
+    machine_settings_fields,
+    motion_settings_fields,
+)
 
 # tab → feature slug 列（ヘッダのタブ表示順）
 TABS: dict[str, tuple[str, ...]] = {
@@ -103,6 +109,16 @@ def _feature_label(slug: str) -> str:
     return slug.replace("_", " ").title()
 
 
+def _grouped_fields(
+    fields: list[SettingsField],
+) -> list[tuple[str, list[SettingsField]]]:
+    """設定項目をセクション単位にまとめる（定義順を保つ）."""
+    return [
+        (SECTION_LABELS.get(section, section), list(group))
+        for section, group in groupby(fields, key=lambda f: section_of(f.key))
+    ]
+
+
 def _tab_context(tab: str) -> dict[str, Any]:
     """タブ共通のコンテキスト（サイドバー描画用）."""
     return {
@@ -143,8 +159,8 @@ def settings_page(
     context = _base_context(request, state, store, settings)
     machine = state.selected_machine
     context.update(
-        machine_fields=machine_settings_fields(store, machine),
-        motion_fields=motion_settings_fields(store, machine),
+        machine_groups=_grouped_fields(machine_settings_fields(store, machine)),
+        motion_groups=_grouped_fields(motion_settings_fields(store, machine)),
         symlink_ok=store.symlink_points_to(machine, settings.printer_cfg_link),
     )
     return get_templates(request).TemplateResponse(
