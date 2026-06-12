@@ -24,6 +24,14 @@ def window_sink(window_name: str) -> FrameSink:
     return sink
 
 
+def _move_to(result: BoardCalibrationResult, machine_pt: Point2d) -> None:
+    """指定の機械座標へ移動し完了を待つ."""
+    result.klipper.send_gcode(
+        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=Speed.absolute(30))
+        + gcode.wait_for_done()
+    )
+
+
 def display_at_point(
     result: BoardCalibrationResult,
     machine_pt: Point2d,
@@ -32,10 +40,7 @@ def display_at_point(
     window_name: str = "Board Tour",
 ):
     """指定座標へ移動し、ラベル付きカメラ映像を一定時間表示する."""
-    result.klipper.send_gcode(
-        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=Speed.absolute(30))
-        + gcode.wait_for_done()
-    )
+    _move_to(result, machine_pt)
 
     crop_size = result.machine.camera.crop.size
     camera = result.camera
@@ -54,10 +59,7 @@ def interactive_display_at_point(
     window_name: str = "Board Tour",
 ):
     """指定座標へ移動し、キーが押されるまでラベル付きカメラ映像を表示する."""
-    result.klipper.send_gcode(
-        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=Speed.absolute(30))
-        + gcode.wait_for_done()
-    )
+    _move_to(result, machine_pt)
 
     crop_size = result.machine.camera.crop.size
     camera = result.camera

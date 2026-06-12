@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -393,6 +394,19 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
     )
 
 
+def _calibrated_board(ctx: JobContext, camera: Camera) -> BoardCalibrationResult:
+    """選択 PCB とジョブパラメータでボードキャリブレーションを実行する."""
+    assert ctx.pcb_path is not None  # requires_pcb=True
+    ctx.progress("セットアップ")
+    return setup_board_calibration(
+        machine=ctx.machine,
+        pcb_file_path=ctx.pcb_path,
+        tolerance=float(ctx.params["tolerance"]),
+        camera=camera,
+        frame_sink=ctx.frame,
+    )
+
+
 def _board_corners(result: BoardCalibrationResult) -> list[tuple[str, Point2d]]:
     """ボード四隅の (ラベル, board 座標) を返す."""
     outline = result.pcb.outline
@@ -404,11 +418,33 @@ def _board_corners(result: BoardCalibrationResult) -> list[tuple[str, Point2d]]:
     ]
 
 
-def _move_to(result: BoardCalibrationResult, machine_pt: Point2d) -> None:
+def _move_to(
+    result: BoardCalibrationResult,
+    machine_pt: Point2d,
+    speed: Speed = Speed.absolute(30),
+) -> None:
     """指定の機械座標へ移動し完了を待つ."""
     result.klipper.send_gcode(
-        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=Speed.absolute(30))
+        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=speed)
         + gcode.wait_for_done()
+    )
+
+
+def _pad_renderer(
+    result: BoardCalibrationResult,
+    session: PadAlignmentSession,
+    projector: CopperProjector,
+    pads: Sequence[Pad],
+    position: Point2d,
+) -> PadResultRenderer:
+    """Pad 群の照合結果 overlay 合成器を構築する."""
+    return PadResultRenderer(
+        projector=projector,
+        edge_detector=session.edge_detector,
+        roi_polygons=[p.copper_polygon for p in pads],
+        paste_polygons=[p.polygon for p in pads],
+        pad_align=result.machine.paste_dispenser.pad_align,
+        position=position,
     )
 
 
@@ -442,18 +478,8 @@ def _stream_pad_result(
 
 def _run_board_tour(ctx: JobContext) -> JobResult:
     """四隅巡回 → 銅箔照合 → 補正適用済み全 pad 巡回を実行する."""
-    assert ctx.pcb_path is not None  # requires_pcb=True
-    tolerance = float(ctx.params["tolerance"])
-
     with ctx.open_camera() as camera:
-        ctx.progress("セットアップ")
-        result = setup_board_calibration(
-            machine=ctx.machine,
-            pcb_file_path=ctx.pcb_path,
-            tolerance=tolerance,
-            camera=camera,
-            frame_sink=ctx.frame,
-        )
+        result = _calibrated_board(ctx, camera)
         board_transform = result.board_transform
 
         # 四隅巡回（左上に戻る 5 点）
@@ -472,7 +498,6 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
         groups = sorted_top_component_pads(result)
         ctx.log(f"padを持つ部品数: {len(groups)}")
         session = PadAlignmentSession.from_calibration(result, frame_sink=ctx.frame)
-        pad_align = result.machine.paste_dispenser.pad_align
         alignments: list[tuple[ComponentPads, PadAlignmentResult]] = []
         for index, group in enumerate(groups):
             ctx.progress("銅箔照合", 100.0 * index / len(groups))
@@ -481,13 +506,12 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             alignment = session.align(group)
             if alignment is None:
                 ctx.log(f"警告: {designator} の照合に失敗")
-                renderer = PadResultRenderer(
-                    projector=session.projector,
-                    edge_detector=session.edge_detector,
-                    roi_polygons=[p.copper_polygon for p in group.pads],
-                    paste_polygons=[p.polygon for p in group.pads],
-                    pad_align=pad_align,
-                    position=result.stage.get_position().to2d(),
+                renderer = _pad_renderer(
+                    result,
+                    session,
+                    session.projector,
+                    group.pads,
+                    result.stage.get_position().to2d(),
                 )
                 lines = [f"{designator} {index + 1}/{len(groups)}", "FAILED"]
                 _stream_pad_result(ctx, result, renderer, lines)
@@ -505,18 +529,8 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
         for index, (pad, renderer_projector, target) in enumerate(entries):
             ctx.progress("補正巡回", 100.0 * index / len(entries))
             ctx.checkpoint()
-            result.klipper.send_gcode(
-                result.stage.move(x=target.x, y=target.y, speed=Speed.rate(0.5))
-                + gcode.wait_for_done()
-            )
-            renderer = PadResultRenderer(
-                projector=renderer_projector,
-                edge_detector=session.edge_detector,
-                roi_polygons=[pad.copper_polygon],
-                paste_polygons=[pad.polygon],
-                pad_align=pad_align,
-                position=target,
-            )
+            _move_to(result, target, speed=Speed.rate(0.5))
+            renderer = _pad_renderer(result, session, renderer_projector, [pad], target)
             lines = [f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}"]
             _stream_pad_result(ctx, result, renderer, lines)
 
@@ -557,18 +571,8 @@ def _corrected_entries(
 
 def _run_orthogonality_test(ctx: JobContext) -> JobResult:
     """直行性指標の計測と四隅・グリッド交点の自動巡回を実行する."""
-    assert ctx.pcb_path is not None  # requires_pcb=True
-    tolerance = float(ctx.params["tolerance"])
-
     with ctx.open_camera() as camera:
-        ctx.progress("セットアップ")
-        result = setup_board_calibration(
-            machine=ctx.machine,
-            pcb_file_path=ctx.pcb_path,
-            tolerance=tolerance,
-            camera=camera,
-            frame_sink=ctx.frame,
-        )
+        result = _calibrated_board(ctx, camera)
         board_transform = result.board_transform
 
         metrics = orthogonality_metrics(board_transform)
