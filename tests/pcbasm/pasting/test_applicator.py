@@ -305,3 +305,131 @@ class TestCalibrate:
         # Assert
         mock_paste_dispenser.rotate_revolutions.assert_called_once_with(10.0, 1.0, 10.0)
         mock_klipper.send_gcode.assert_called_once()
+
+
+def _dispenser_config(**overrides: float):
+    """pcbasm.config.PasteDispenser を既定値込みで構築する（from_config 用）."""
+    import attrs
+
+    from pcbasm.config import PasteDispenser as PasteDispenserConfig, Toolhead
+
+    config = PasteDispenserConfig(
+        rotations_per_ul=45.0,
+        nozzle_diameter=0.34,
+        fill_speed=2.0,
+        max_dispense_rate=5.0,
+        dispense_accel=10.0,
+        retract_amount=10.0,
+        retract_rate=10.0,
+        retract_accel_factor=2.0,
+        toolhead=Toolhead(x=0.0, y=0.0),
+        paste_height=0.5,
+        ul_per_mm2=0.05,
+        prime_extra_delay=0.0,
+        bead_width_factor=1.0,
+        overlap=0.0,
+        boundary_margin=0.0,
+    )
+    return attrs.evolve(config, **overrides)
+
+
+class TestFromConfig:
+    """from_config（Phase 5 で追加。計画書 webui-phase5.md §1）.
+
+    scripts / webui に重複していた 12 kwargs の構築 boilerplate を classmethod
+    に集約する。config の各キーが手動 kwargs 構築と同じ動作（同じ dispenser 呼び出し）に配線されることを
+    retract / apply の 1 操作で検証する。
+    """
+
+    def _manual_applicator(self, config, mocker: MockerFixture):
+        klipper = mocker.Mock()
+        dispenser = mocker.Mock()
+        dispenser.enable.return_value = gcode.GCode()
+        dispenser.disable.return_value = gcode.GCode()
+        dispenser.pushpull.return_value = gcode.GCode()
+        stage = mocker.Mock()
+        stage.max_velocity = 100.0
+        stage.move.return_value = gcode.GCode()
+        stage.to_gcode.return_value = gcode.GCode()
+        applicator = PasteApplicator(
+            klipper=klipper,
+            paste_dispenser=dispenser,
+            stage=stage,
+            nozzle_diameter=config.nozzle_diameter,
+            fill_speed=config.fill_speed,
+            max_dispense_rate=config.max_dispense_rate,
+            dispense_accel=config.dispense_accel,
+            ul_per_mm2=config.ul_per_mm2,
+            retraction=config.retract_amount,
+            retraction_rate=config.retract_rate,
+            retraction_accel_factor=config.retract_accel_factor,
+            paste_height=config.paste_height,
+            prime_extra_delay=config.prime_extra_delay,
+            bead_width_factor=config.bead_width_factor,
+            overlap=config.overlap,
+            boundary_margin=config.boundary_margin,
+        )
+        return applicator, klipper, dispenser
+
+    def _config_applicator(self, config, mocker: MockerFixture):
+        klipper = mocker.Mock()
+        dispenser = mocker.Mock()
+        dispenser.enable.return_value = gcode.GCode()
+        dispenser.disable.return_value = gcode.GCode()
+        dispenser.pushpull.return_value = gcode.GCode()
+        stage = mocker.Mock()
+        stage.max_velocity = 100.0
+        stage.move.return_value = gcode.GCode()
+        stage.to_gcode.return_value = gcode.GCode()
+        applicator = PasteApplicator.from_config(klipper, dispenser, stage, config)
+        return applicator, klipper, dispenser
+
+    def test_retract_matches_manual_construction(self, mocker: MockerFixture):
+        """Retract の dispenser 呼び出し（量・レート・加速度）が手動構築と一致."""
+        config = _dispenser_config(
+            retract_amount=8.0, retract_rate=4.0, retract_accel_factor=3.0
+        )
+        manual, _, manual_dispenser = self._manual_applicator(config, mocker)
+        via_config, config_klipper, config_dispenser = self._config_applicator(
+            config, mocker
+        )
+
+        manual.retract()
+        via_config.retract()
+
+        assert (
+            config_dispenser.pushpull.call_args == manual_dispenser.pushpull.call_args
+        )
+        config_klipper.send_gcode.assert_called_once()
+
+    def test_apply_matches_manual_construction(self, mocker: MockerFixture):
+        """Apply の吐出列（ul_per_mm2 / フィル経路パラメータ）が手動構築と一致."""
+        config = _dispenser_config(ul_per_mm2=0.08)
+        polygon = box(0, 0, 5, 4)
+        manual, manual_klipper, manual_dispenser = self._manual_applicator(
+            config, mocker
+        )
+        via_config, config_klipper, config_dispenser = self._config_applicator(
+            config, mocker
+        )
+
+        manual.apply([polygon])
+        via_config.apply([polygon])
+
+        assert (
+            config_dispenser.pushpull.call_args_list
+            == manual_dispenser.pushpull.call_args_list
+        )
+        assert (
+            config_klipper.send_gcode.call_count == manual_klipper.send_gcode.call_count
+        )
+
+    def test_invalid_retract_accel_factor_in_config_raises(self, mocker: MockerFixture):
+        """Config の retract_accel_factor <= 1.0 は __init__ の検証で ValueError."""
+        config = _dispenser_config(retract_accel_factor=0.5)
+        klipper = mocker.Mock()
+        dispenser = mocker.Mock()
+        stage = mocker.Mock()
+
+        with pytest.raises(ValueError, match="retraction_accel_factor"):
+            PasteApplicator.from_config(klipper, dispenser, stage, config)

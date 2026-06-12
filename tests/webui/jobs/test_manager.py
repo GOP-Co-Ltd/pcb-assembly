@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
@@ -661,6 +662,61 @@ class TestRelaxOnTermination:
 
         assert record.status == JobStatus.SUCCEEDED
         assert "M84" not in "\n".join(record.log_lines)
+
+
+class TestPcbasmLogBridge:
+    """Pcbasm ログブリッジ（Phase 5）.
+
+    計画書 webui-phase5.md「src/webui/jobs/manager.py」節が契約: ジョブ実行中、 worker
+    スレッドが発する logger "pcbasm.*" の INFO ログを record.log_lines
+    （ジョブコンソール）へ転送する。worker 以外のスレッド由来は転送しない。 ジョブ終了後は handler が detach
+    され転送されない。
+    """
+
+    def test_worker_thread_pcbasm_log_appears_in_job_log(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        def run(ctx: JobContext) -> None:
+            logging.getLogger("pcbasm.bridge_test").info("ブリッジ転送されるログ")
+
+        _register(catalog, run)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert "ブリッジ転送されるログ" in "\n".join(record.log_lines)
+
+    def test_other_thread_pcbasm_log_is_not_forwarded(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        """Preview スレッド等の pcbasm ログを混ぜない（worker スレッド限定）."""
+
+        def run(ctx: JobContext) -> None:
+            other = threading.Thread(
+                target=lambda: logging.getLogger("pcbasm.bridge_test").info(
+                    "別スレッドのログ"
+                )
+            )
+            other.start()
+            other.join()
+
+        _register(catalog, run)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert "別スレッドのログ" not in "\n".join(record.log_lines)
+
+    def test_pcbasm_log_after_job_end_is_not_forwarded(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        _register(catalog, lambda ctx: None)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        logging.getLogger("pcbasm.bridge_test").info("終了後のログ")
+
+        assert "終了後のログ" not in "\n".join(record.log_lines)
 
 
 class TestShutdown:

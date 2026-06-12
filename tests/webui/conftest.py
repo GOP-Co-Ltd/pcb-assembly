@@ -37,6 +37,10 @@ CHECKERBOARD_CAMERA_IMAGE = TESTING_DATA_DIR / "checkerboard.png"
 
 REAL_PCB_FIXTURE = TESTING_DATA_DIR / "fill_coverage" / "fill_coverage.kicad_pcb"
 
+# TOP 銅箔ゾーンを持つ実 PCB（fill_coverage は pads のみで銅箔ゾーンが無く、
+# height_plane の probe 点サンプリングが成立しない。Phase 5 で追加）
+COPPER_PCB_FIXTURE = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
+
 
 def jpeg_payload(part: bytes) -> bytes:
     """MJPEG の 1 パート（boundary 行 + ヘッダ + JPEG + CRLF）から JPEG bytes を取り出す."""
@@ -83,6 +87,18 @@ def real_pcb_path(pcb_root: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(REAL_PCB_FIXTURE, destination)
     return Path("real/fill_coverage.kicad_pcb")
+
+
+@pytest.fixture
+def copper_pcb_path(pcb_root: Path) -> Path:
+    """TOP 銅箔ゾーンを持つ実 PCB fixture を pcb_browse_root へコピーし、相対パスを返す.
+
+    height_plane ジョブ（probe 点サンプリング）のテスト用（Phase 5）。
+    """
+    destination = pcb_root / "real" / "led_blinker.kicad_pcb"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(COPPER_PCB_FIXTURE, destination)
+    return Path("real/led_blinker.kicad_pcb")
 
 
 @pytest.fixture

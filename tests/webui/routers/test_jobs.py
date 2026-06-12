@@ -26,6 +26,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import cv2
+import numpy as np
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -585,6 +587,100 @@ class TestCameraCalibrationApplyFlow:
         # 400px / 6 マス / 10mm ≈ 6.67 px/mm（素材と整合する実数値）
         assert loaded.pixel_per_mm == pytest.approx(400 / 6 / 10, rel=0.01)
         assert loaded.z_position is None  # Klipper 不通（port 7126）の best-effort
+
+
+class TestPastingJobsOverWs:
+    """Phase 5: pasting ジョブの WS 往復と実行中 artifacts 配信（装置なし）.
+
+    計画書 webui-phase5.md §4「tests/webui/routers/test_jobs.py（追記）」が契約。
+    Klipper は test-fixture（port 7126 = 接続拒否）。
+    """
+
+    def test_probe_gnd_prompt_round_trip_ends_failed_and_releases_lock(
+        self, client: TestClient
+    ):
+        """Prompt(number) 往復 → 負数で再 prompt → 正数で FAILED（イベント列の決定性）."""
+        with client.websocket_connect("/api/ws") as ws:
+            response = client.post("/api/jobs/probe_gnd_down_adjust", json={})
+            assert response.status_code == 201
+
+            first, _ = _receive_until(ws, lambda m: m["type"] == "prompt")
+            assert first["prompt"]["kind"] == "number"
+            # 初回 default は machine.probe.down_distance（test-fixture: 2.0）
+            assert first["prompt"]["default"] == 2.0
+
+            # 負数は受理されず新しい prompt が来る
+            ws.send_json(
+                {
+                    "type": "respond_prompt",
+                    "prompt_id": first["prompt"]["id"],
+                    "answer": -1,
+                }
+            )
+            second, _ = _receive_until(
+                ws,
+                lambda m: m["type"] == "prompt"
+                and m["prompt"]["id"] != first["prompt"]["id"],
+            )
+            assert second["prompt"]["kind"] == "number"
+
+            # 正数 → down 送信が Klipper 不通で失敗 → FAILED
+            ws.send_json(
+                {
+                    "type": "respond_prompt",
+                    "prompt_id": second["prompt"]["id"],
+                    "answer": 1.5,
+                }
+            )
+            final, _ = _receive_until(
+                ws,
+                lambda m: m["type"] == "job_status" and m["job"]["status"] in _TERMINAL,
+            )
+            assert final["job"]["status"] == "failed"
+
+        # ロック解放の確認: 409（ジョブ占有）ではなく 502（Klipper 不通）
+        response = client.post("/api/machine-control", json={"action": "relax"})
+        assert response.status_code == 502
+
+    def test_height_plane_artifact_is_served_while_waiting_confirm(
+        self, client: TestClient, copper_pcb_path: Path
+    ):
+        """計画点 PNG はジョブ実行中（confirm 待ち）でも /artifacts から配信される."""
+        assert (
+            client.put(
+                "/api/pcb-file", json={"path": copper_pcb_path.as_posix()}
+            ).status_code
+            == 200
+        )
+        with client.websocket_connect("/api/ws") as ws:
+            response = client.post("/api/jobs/height_plane", json={})
+            assert response.status_code == 201
+            job_id = response.json()["job"]["id"]
+
+            prompt_msg, _ = _receive_until(ws, lambda m: m["type"] == "prompt")
+            assert prompt_msg["prompt"]["kind"] == "confirm"
+
+            artifact = client.get(f"/artifacts/{job_id}/planned_points.png")
+            assert artifact.status_code == 200
+            image = cv2.imdecode(
+                np.frombuffer(artifact.content, dtype=np.uint8), cv2.IMREAD_COLOR
+            )
+            assert image is not None
+            assert image.size > 0
+
+            # 後始末: confirm に「いいえ」で中止する
+            ws.send_json(
+                {
+                    "type": "respond_prompt",
+                    "prompt_id": prompt_msg["prompt"]["id"],
+                    "answer": False,
+                }
+            )
+            final, _ = _receive_until(
+                ws,
+                lambda m: m["type"] == "job_status" and m["job"]["status"] in _TERMINAL,
+            )
+            assert final["job"]["status"] == "aborted"
 
 
 class TestArtifacts:

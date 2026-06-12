@@ -24,6 +24,16 @@ Phase 4 追記（計画書 webui-phase4.md「templates / static」節 + spec §1
 - reference_point_setup は preview + Record / Quit ボタン（ジョグはマシン操作
   パネルのジョブモード）
 - 未実装プレースホルダの確認対象は pasting（Phase 5）へ移行
+
+Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / static」節
++ spec §10 pasting 表）:
+
+- pasting 6 feature ページは全て job-console + job-form
+- preview ペイン（overlay 切替なし）は paste_solder / height_plane /
+  toolhead_offset のみ
+- loading_controls（data-loading-stage="ローディング"）は paste_solder /
+  loading / flow_calibration / toolhead_offset のみ
+- pnp はプレースホルダのみ（サイドバー空 + 「機能を選択」）
 """
 
 import pytest
@@ -137,14 +147,6 @@ class TestPreviewPages:
         assert "81" in response.text
         assert "192" in response.text
 
-    def test_pasting_features_keep_placeholder(self, client: TestClient):
-        # Phase 4 で posctrl は全 feature 実装済みのため、プレースホルダの
-        # 確認は pasting（Phase 5 予定）で行う
-        response = client.get("/pasting/paste_solder")
-
-        assert response.status_code == 200
-        assert "未実装" in response.text
-
 
 POSCTRL_JOB_FEATURES = ("camera_calibration", "board_tour", "orthogonality_test")
 
@@ -188,3 +190,108 @@ class TestPosctrlJobPages:
         assert "record" in text
         assert "quit" in text
         assert "reference_point_setup.js" in text
+
+
+PASTING_JOB_FEATURES = (
+    "paste_solder",
+    "height_plane",
+    "loading",
+    "flow_calibration",
+    "toolhead_offset",
+    "probe_gnd_down_adjust",
+)
+
+# カメラを使うジョブのみ preview ペインを持つ（計画書 _PASTING_PREVIEW）
+PASTING_PREVIEW_FEATURES = ("paste_solder", "height_plane", "toolhead_offset")
+
+# ローディングボタン UI を持つ feature（計画書 _PASTING_LOADING_PARAM）
+PASTING_LOADING_FEATURES = (
+    "paste_solder",
+    "loading",
+    "flow_calibration",
+    "toolhead_offset",
+)
+
+
+class TestPastingJobPages:
+    """Phase 5: pasting のジョブページ（計画書 webui-phase5.md「templates /
+    static」節 + spec §10 pasting 表）."""
+
+    @pytest.mark.parametrize("feature", PASTING_JOB_FEATURES)
+    def test_pasting_job_page_renders_console_and_form(
+        self, client: TestClient, feature: str
+    ):
+        response = client.get(f"/pasting/{feature}")
+
+        assert response.status_code == 200
+        assert "job-console" in response.text
+        assert "job-form" in response.text
+        # data-job-name 等でページのジョブ名が宣言される
+        assert feature in response.text
+
+    @pytest.mark.parametrize("feature", PASTING_PREVIEW_FEATURES)
+    def test_camera_jobs_render_preview_pane_without_overlay_switch(
+        self, client: TestClient, feature: str
+    ):
+        """Preview ペインあり・overlay 切替なし（固定 none。spec §10 pasting）."""
+        text = client.get(f"/pasting/{feature}").text
+
+        assert "preview-pane" in text
+        assert "crosshair" not in text  # overlay 切替は出さない
+
+    @pytest.mark.parametrize(
+        "feature", ("loading", "flow_calibration", "probe_gnd_down_adjust")
+    )
+    def test_non_camera_jobs_have_no_preview_pane(
+        self, client: TestClient, feature: str
+    ):
+        assert "preview-pane" not in client.get(f"/pasting/{feature}").text
+
+    @pytest.mark.parametrize("feature", PASTING_LOADING_FEATURES)
+    def test_loading_jobs_render_loading_controls_with_stage_contract(
+        self, client: TestClient, feature: str
+    ):
+        """Loading_controls の data-loading-stage は LOADING_STAGE と一致させる."""
+        text = client.get(f"/pasting/{feature}").text
+
+        assert "loading-controls" in text
+        assert 'data-loading-stage="ローディング"' in text
+        assert 'value="0.1"' in text  # loading_default（該当 ParamSpec の既定値）
+
+    @pytest.mark.parametrize("feature", ("height_plane", "probe_gnd_down_adjust"))
+    def test_non_loading_jobs_have_no_loading_controls(
+        self, client: TestClient, feature: str
+    ):
+        assert "loading-controls" not in client.get(f"/pasting/{feature}").text
+
+    def test_flow_calibration_renders_param_form_fields(self, client: TestClient):
+        text = client.get("/pasting/flow_calibration").text
+
+        for name in ("rotations", "rate", "accel", "load_amount"):
+            assert name in text
+
+    def test_toolhead_offset_renders_param_form_fields(self, client: TestClient):
+        text = client.get("/pasting/toolhead_offset").text
+
+        for name in (
+            "tolerance",
+            "dispense_amount",
+            "loading_amount",
+            "lift_height",
+            "paste_diameter_min",
+            "paste_diameter_max",
+        ):
+            assert name in text
+
+
+class TestPnpPlaceholder:
+    """Pnp タブはプレースホルダのみ（Phase 5 で確認。spec §10 pnp）."""
+
+    def test_pnp_renders_placeholder_with_empty_sidebar(self, client: TestClient):
+        response = client.get("/pnp")
+
+        assert response.status_code == 200
+        assert "機能を選択" in response.text
+        # サイドバーに feature リンクが無い（他タブの feature 名が出ない）
+        for feature in PASTING_JOB_FEATURES + POSCTRL_JOB_FEATURES:
+            assert feature not in response.text
