@@ -1,4 +1,5 @@
 from .path import Path
+from .polygon import merge_islands
 from .routing import sort_by_nearest
 from .sampling import sample_points_in_polygons
 from .transform import (
@@ -26,6 +27,7 @@ __all__ = [
     "Scale",
     "Transform",
     "Shift",
+    "merge_islands",
     "sample_points_in_polygons",
     "sort_by_nearest",
 ]
