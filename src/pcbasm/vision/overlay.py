@@ -3,7 +3,16 @@
 import cv2
 
 from pcbasm.geometry import Point2d
-from pcbasm.vision.image import Image
+from pcbasm.vision.image import Image, ImageArray
+
+
+def draw_crosshair(img: ImageArray) -> None:
+    """画像中心に十字線を描画する（in-place）."""
+    h, w = img.shape[:2]
+    cx, cy = w // 2, h // 2
+    color = (0, 255, 0)
+    cv2.line(img, (cx - 30, cy), (cx + 30, cy), color, 1)
+    cv2.line(img, (cx, cy - 30), (cx, cy + 30), color, 1)
 
 
 def draw_overlay(
@@ -18,8 +27,7 @@ def draw_overlay(
 
     color = (0, 255, 0)
 
-    cv2.line(img, (cx - 30, cy), (cx + 30, cy), color, 1)
-    cv2.line(img, (cx, cy - 30), (cx, cy + 30), color, 1)
+    draw_crosshair(img)
 
     half_w, half_h = crop_size[0] // 2, crop_size[1] // 2
     x1, y1 = cx - half_w, cy - half_h
