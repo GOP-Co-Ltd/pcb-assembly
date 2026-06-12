@@ -1,0 +1,9 @@
+<fieldset id="loading-controls" class="loading-controls"
+          data-loading-stage="ローディング">
+  <legend>ローディング</legend>
+  <label for="lc-amount">量 <span class="unit">[uL]</span></label>
+  <input type="number" id="lc-amount" step="any" min="0" value="{{ loading_default }}">
+  <button id="lc-extrude" type="button" disabled>押出</button>
+  <button id="lc-suck" type="button" disabled>吸引</button>
+  <button id="lc-finish" type="button" disabled>ローディング終了</button>
+</fieldset>

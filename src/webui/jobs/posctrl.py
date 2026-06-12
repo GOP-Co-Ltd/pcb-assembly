@@ -37,10 +37,9 @@ from pcbasm.vision import (
 )
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import JobAborted, JobContext, PromptSpec
+from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
 from webui.jobs.manager import ApplyFile, ApplyPayload, Artifact, JobResult
 
-# wait_for_done (M400) を含む移動完了待ちのため長め（machine_control と同値）
-COMMAND_TIMEOUT = 60.0
 # camera_calibration の Z 取得（best-effort）のタイムアウト [sec]
 Z_QUERY_TIMEOUT = 5.0
 # 巡回先 1 点あたりのフレーム配信時間 [sec]
@@ -138,15 +137,6 @@ def orthogonality_metrics(transform: Transform) -> OrthogonalityMetrics:
     )
 
 
-def _create_klipper(machine: Machine) -> Klipper:
-    """選択マシンの設定で移動コマンド用 Klipper クライアントを生成する."""
-    return Klipper(
-        host=machine.klipper.host,
-        port=machine.klipper.port,
-        timeout=COMMAND_TIMEOUT,
-    )
-
-
 class _CachedPosition:
     """stage.get_position() の短期キャッシュ（毎フレームの往復を回避）."""
 
@@ -173,7 +163,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     マシン操作パネル（ジョブモード）の WS command でジョグし、record で 現在位置を確定、quit で中止する。
     """
     machine = ctx.machine
-    klipper = _create_klipper(machine)
+    klipper = create_command_klipper(machine)
     stage = XYZStage(klipper.readonly)
     cam_config = machine.camera
     try:
@@ -264,54 +254,18 @@ def _dispatch_reference_command(
     Raises:
         JobAborted: quit コマンドを受けた場合
     """
-    try:
-        match command:
-            case {"type": "record"}:
-                return True
-            case {"type": "quit"}:
-                ctx.log("中止しました。設定は変更していません")
-                raise JobAborted()
-            case {"type": "jog", "axis": str(axis), "dist": dist} if axis in (
-                "x",
-                "y",
-                "z",
-            ):
-                distance = float(dist)
-                klipper.send_gcode(
-                    stage.move(
-                        x=distance if axis == "x" else None,
-                        y=distance if axis == "y" else None,
-                        z=distance if axis == "z" else None,
-                        relative=True,
-                    )
-                    + gcode.wait_for_done()
-                )
-            case {"type": "home", "axes": list(axes)}:
-                klipper.send_gcode(
-                    gcode.homing(x="x" in axes, y="y" in axes, z="z" in axes)
-                    + gcode.wait_for_done()
-                )
-            case {"type": "move"}:
-                klipper.send_gcode(
-                    stage.move(
-                        x=command.get("x"), y=command.get("y"), z=command.get("z")
-                    )
-                    + gcode.wait_for_done()
-                )
-            case {"type": "relax"}:
-                klipper.send_gcode(gcode.relax())
-            case {"type": "focus_z"}:
-                if calibration.z_position is None:
-                    ctx.log("フォーカスZが未設定のため移動しません")
-                else:
-                    klipper.send_gcode(
-                        stage.move(z=calibration.z_position) + gcode.wait_for_done()
-                    )
-            case {"type": unknown}:
-                ctx.log(f"未知のコマンドです: {unknown!r}")
-    except ValueError as exc:
-        ctx.log(f"コマンドを実行できません: {exc}")
-    position.invalidate()
+    match command:
+        case {"type": "record"}:
+            return True
+        case {"type": "quit"}:
+            ctx.log("中止しました。設定は変更していません")
+            raise JobAborted()
+    if handle_machine_command(
+        ctx, klipper, stage, command, focus_z=calibration.z_position
+    ):
+        position.invalidate()
+    else:
+        ctx.log(f"未知のコマンドです: {command.get('type')!r}")
     return False
 
 

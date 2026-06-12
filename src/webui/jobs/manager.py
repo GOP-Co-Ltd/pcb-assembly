@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import enum
+import logging
 import queue
 import shutil
 import threading
@@ -13,7 +14,7 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, override
 
 import attrs
 
@@ -39,6 +40,27 @@ _ABORT_SENTINEL: Any = object()
 
 # ジョブ終了時の relax (M84) 送信タイムアウト [sec]
 RELAX_TIMEOUT = 5.0
+
+# ジョブコンソールへ転送する pcbasm ロガー名
+_PCBASM_LOGGER_NAME = "pcbasm"
+
+
+class _PcbasmLogBridge(logging.Handler):
+    """ワーカースレッドの pcbasm ログをジョブコンソールへ転送する Handler.
+
+    preview スレッド等、他スレッドからの pcbasm ログは混ぜない。
+    """
+
+    def __init__(self, runtime: _JobRuntime, thread_ident: int) -> None:
+        super().__init__(level=logging.INFO)
+        self._runtime = runtime
+        self._thread_ident = thread_ident
+
+    @override
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.thread != self._thread_ident:
+            return
+        self._runtime.log(record.getMessage())
 
 
 class JobStatus(enum.StrEnum):
@@ -560,6 +582,13 @@ class JobManager:
         self, definition: JobDefinition, runtime: _JobRuntime, context: JobContext
     ) -> None:
         record = runtime.record
+        logger = logging.getLogger(_PCBASM_LOGGER_NAME)
+        bridge = _PcbasmLogBridge(runtime, threading.get_ident())
+        # INFO が effective level で落ちる場合のみ下げる（finally で復元）
+        previous_level = logger.level
+        if logger.getEffectiveLevel() > logging.INFO:
+            logger.setLevel(logging.INFO)
+        logger.addHandler(bridge)
         try:
             record.set_status(JobStatus.RUNNING)
             runtime.publish_status()
@@ -580,6 +609,8 @@ class JobManager:
             # 終端ステータス確定 → job_status 発行 → ロック解放の順を守る
             runtime.publish_status()
         finally:
+            logger.removeHandler(bridge)
+            logger.setLevel(previous_level)
             self._state.release_machine()
 
     def _relax_machine(self, runtime: _JobRuntime, context: JobContext) -> None:

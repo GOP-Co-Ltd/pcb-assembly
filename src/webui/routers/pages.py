@@ -53,6 +53,12 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("dev", "generate_grid_pcb"): "dev/job.html",
     ("dev", "make_fill_coverage_pcb"): "dev/job.html",
     ("dev", "klipper_status"): "dev/klipper_status.html",
+    ("pasting", "paste_solder"): "pasting/job.html",
+    ("pasting", "height_plane"): "pasting/job.html",
+    ("pasting", "loading"): "pasting/job.html",
+    ("pasting", "flow_calibration"): "pasting/job.html",
+    ("pasting", "toolhead_offset"): "pasting/job.html",
+    ("pasting", "probe_gnd_down_adjust"): "pasting/job.html",
     ("posctrl", "camera_preview"): "posctrl/camera_preview.html",
     ("posctrl", "copper_detection"): "posctrl/copper_detection.html",
     ("posctrl", "camera_calibration"): "posctrl/job.html",
@@ -63,8 +69,24 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
 
 # ジョブコンテキスト（job_name / param_specs）を注入するテンプレート
 _JOB_TEMPLATES = frozenset(
-    {"dev/job.html", "posctrl/job.html", "posctrl/reference_point_setup.html"}
+    {
+        "dev/job.html",
+        "pasting/job.html",
+        "posctrl/job.html",
+        "posctrl/reference_point_setup.html",
+    }
 )
+
+# preview ペイン（ジョブ提供フレームのみ）を表示する pasting feature
+_PASTING_PREVIEW = frozenset({"paste_solder", "height_plane", "toolhead_offset"})
+
+# loading コマンド UI を表示する pasting feature → 既定量の ParamSpec 名
+_PASTING_LOADING_PARAM = {
+    "paste_solder": "amount",
+    "loading": "amount",
+    "flow_calibration": "load_amount",
+    "toolhead_offset": "loading_amount",
+}
 
 router = APIRouter()
 
@@ -158,6 +180,18 @@ def feature_page(
     if template in _JOB_TEMPLATES:
         definition = catalog.get(feature)
         context.update(job_name=definition.name, param_specs=definition.params)
+        if tab == "pasting":
+            context.update(show_preview=feature in _PASTING_PREVIEW)
+            loading_param = _PASTING_LOADING_PARAM.get(feature)
+            context.update(show_loading_controls=loading_param is not None)
+            if loading_param is not None:
+                context.update(
+                    loading_default=next(
+                        spec.default
+                        for spec in definition.params
+                        if spec.name == loading_param
+                    )
+                )
     if feature == "copper_detection":
         pad_align = state.machine().paste_dispenser.pad_align
         context.update(

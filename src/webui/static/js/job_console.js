@@ -77,6 +77,12 @@
         if (ownsEvent(event)) appendLog(event.line);
         break;
       case "progress":
+        // currentJob へ反映し listeners へ通知する（loading_controls 等の状態追従用）
+        if (currentJob && event.job_id === currentJob.id) {
+          currentJob.progress_stage = event.stage;
+          currentJob.progress_percent = event.percent;
+          for (const callback of listeners) callback(currentJob);
+        }
         if (ownsEvent(event)) renderProgress(event.stage, event.percent);
         break;
       case "prompt":
@@ -132,9 +138,38 @@
     return document.getElementById(id);
   }
 
+  // "/artifacts/..." パスをリンク化したログ 1 行分のノード列を作る
+  // （テキストはテキストノードとして追加されるためエスケープ維持）
+  function logLineNodes(line) {
+    const fragment = document.createDocumentFragment();
+    let last = 0;
+    for (const match of line.matchAll(/\/artifacts\/\S+/g)) {
+      fragment.append(line.slice(last, match.index));
+      const link = document.createElement("a");
+      link.href = match[0];
+      link.target = "_blank";
+      link.textContent = match[0];
+      fragment.append(link);
+      last = match.index + match[0].length;
+    }
+    fragment.append(line.slice(last));
+    return fragment;
+  }
+
+  function renderLogLines(lines) {
+    const log = el("jc-log");
+    log.replaceChildren();
+    lines.forEach((line, index) => {
+      if (index > 0) log.append("\n");
+      log.append(logLineNodes(line));
+    });
+    log.scrollTop = log.scrollHeight;
+  }
+
   function appendLog(line) {
     const log = el("jc-log");
-    log.textContent += (log.textContent ? "\n" : "") + line;
+    if (log.textContent) log.append("\n");
+    log.append(logLineNodes(line));
     log.scrollTop = log.scrollHeight;
   }
 
@@ -168,8 +203,7 @@
     const log = el("jc-log");
     const text = job.log_tail.join("\n");
     if (log.textContent !== text) {
-      log.textContent = text;
-      log.scrollTop = log.scrollHeight;
+      renderLogLines(job.log_tail);
     }
     renderProgress(job.progress_stage, job.progress_percent);
 
