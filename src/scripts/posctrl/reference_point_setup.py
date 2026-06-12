@@ -29,8 +29,7 @@ from pcbasm.utils import PROJECT_ROOT, setup_logging
 from pcbasm.vision import (
     CalibrationResult,
     CircleDetector,
-    DetectedCircle,
-    ImageArray,
+    draw_detected_circle,
     draw_overlay,
 )
 
@@ -39,26 +38,6 @@ logger = logging.getLogger(__name__)
 WINDOW_NAME = "Reference Point Setup"
 ENTER_KEYS = (10, 13)  # LF / CR
 QUIT_KEYS = (ord("q"), 27)  # q / Esc
-
-
-def draw_detected_circle(
-    preview: ImageArray, circle: DetectedCircle, crop_size: tuple[int, int]
-) -> None:
-    """検出円・その中心・カメラ中心と結ぶ線を preview に描画する.
-
-    circle.center はクロップ座標系(原点はクロップ左上)なので、フル画像座標へ変換する。
-    """
-    h, w = preview.shape[:2]
-    cx, cy = w // 2, h // 2
-    half_w, half_h = crop_size[0] // 2, crop_size[1] // 2
-
-    circle_x = int(cx - half_w + circle.center.x)
-    circle_y = int(cy - half_h + circle.center.y)
-    radius = int(circle.radius)
-
-    cv2.circle(preview, (circle_x, circle_y), radius, (0, 0, 255), 2)
-    cv2.circle(preview, (circle_x, circle_y), 3, (0, 0, 255), -1)
-    cv2.line(preview, (cx, cy), (circle_x, circle_y), (255, 0, 0), 2)
 
 
 def update_reference_point(config_path: Path, x: float, y: float) -> None:

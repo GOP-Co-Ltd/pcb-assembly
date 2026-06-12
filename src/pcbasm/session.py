@@ -1,7 +1,7 @@
 """塗布実行のための HAL 配線をまとめたセッション.
 
 各運用スクリプトが繰り返していた「マシン設定読み込み → Board 計測 → probe / height_measurer /
-dispenser の構築」をまとめ、コンテキストマネージャ として終了時のクリーンアップ（M84 + ウィンドウ破棄）まで面倒を見る。
+dispenser の構築」をまとめ、コンテキストマネージャ として終了時のクリーンアップ（M84）まで面倒を見る。
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Self
 
 import attrs
-import cv2
 
 from pcbasm.config import Machine, get_machine_config
 from pcbasm.geometry import Compose, Identity, Transform
@@ -18,7 +17,7 @@ from pcbasm.hal import Camera, Klipper, PasteDispenser, ServoGroundProbe, XYZSta
 from pcbasm.pasting import HeightPlaneMeasurer, PasteApplicator, ProbeExecutor
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl import BoardCalibrationResult, setup_board_calibration
-from pcbasm.vision import CalibrationResult
+from pcbasm.vision import CalibrationResult, FrameSink
 
 
 @attrs.frozen
@@ -26,7 +25,7 @@ class PasteSession:
     """マシン初期化〜Board 計測〜塗布用 HAL の配線をまとめた実行セッション.
 
     ``PasteSession.setup(...)`` で構築し、コンテキストマネージャとして使う
-    （終了時に M84 とウィンドウ破棄を行う）。
+    （終了時に M84 を送る）。
     """
 
     machine: Machine
@@ -47,7 +46,9 @@ class PasteSession:
         machine_name: str,
         pcb_file_path: Path,
         tolerance: float = 0.1,
-        window_name: str = "Calibration",
+        *,
+        camera: Camera | None = None,
+        frame_sink: FrameSink | None = None,
     ) -> Self:
         """マシン設定読み込み〜Board 計測〜塗布用 HAL 構築をまとめて実行する."""
         machine = get_machine_config(machine_name)
@@ -55,7 +56,8 @@ class PasteSession:
             machine=machine,
             pcb_file_path=pcb_file_path,
             tolerance=tolerance,
-            window_name=window_name,
+            camera=camera,
+            frame_sink=frame_sink,
         )
         return cls.from_calibration(result)
 
@@ -133,4 +135,3 @@ class PasteSession:
 
     def __exit__(self, *args: object) -> None:
         self.klipper.send_gcode("M84")
-        cv2.destroyAllWindows()

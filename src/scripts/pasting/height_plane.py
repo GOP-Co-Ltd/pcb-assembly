@@ -27,7 +27,7 @@ from pcbasm.geometry import (
     sample_points_in_polygons,
 )
 from pcbasm.pcb import Copper, Layer, PcbFile
-from pcbasm.posctrl import setup_board_calibration
+from pcbasm.posctrl import setup_board_calibration, window_sink
 from pcbasm.session import PasteSession
 from pcbasm.utils import PROJECT_ROOT, setup_logging
 from pcbasm.visualization import polygon_with_holes_patch
@@ -265,7 +265,7 @@ def main() -> None:
         machine=machine,
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
-        window_name=WINDOW_NAME,
+        frame_sink=window_sink(WINDOW_NAME),
     )
     session = PasteSession.from_calibration(result)
 

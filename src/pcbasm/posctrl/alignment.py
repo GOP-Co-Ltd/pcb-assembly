@@ -15,7 +15,7 @@ from pcbasm.posctrl.pad import (
     group_pads_by_component,
 )
 from pcbasm.posctrl.setup import BoardCalibrationResult
-from pcbasm.vision import CopperEdgeDetector
+from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 logger = logging.getLogger(__name__)
 
@@ -110,13 +110,13 @@ class PadAlignmentSession:
     """
 
     def __init__(
-        self, result: BoardCalibrationResult, window_name: str | None = None
+        self, result: BoardCalibrationResult, frame_sink: FrameSink | None = None
     ) -> None:
         """PadAlignmentSessionを初期化する.
 
         Args:
             result: ボードキャリブレーション結果
-            window_name: 照合状況を表示するウィンドウ名。Noneの場合は表示しない
+            frame_sink: 照合状況フレームを送る sink。Noneの場合は表示しない
         """
         pad_align = result.machine.paste_dispenser.pad_align
         self._polygons = [c.polygon for c in result.pcb.copper if c.layer == Layer.TOP]
@@ -155,23 +155,23 @@ class PadAlignmentSession:
             min_roi_mm=pad_align.min_roi,
             tolerance=pad_align.tolerance,
             max_correction_mm=pad_align.max_correction,
-            window_name=window_name,
+            frame_sink=frame_sink,
         )
 
     @classmethod
     def from_calibration(
-        cls, result: BoardCalibrationResult, window_name: str | None = None
+        cls, result: BoardCalibrationResult, frame_sink: FrameSink | None = None
     ) -> Self:
         """BoardCalibrationResultから配線済みセッションを構築する.
 
         Args:
             result: ボードキャリブレーション結果
-            window_name: 照合状況を表示するウィンドウ名。Noneの場合は表示しない
+            frame_sink: 照合状況フレームを送る sink。Noneの場合は表示しない
 
         Returns:
             配線済みのPadAlignmentSession
         """
-        return cls(result, window_name=window_name)
+        return cls(result, frame_sink=frame_sink)
 
     def align(self, target: ComponentPads) -> PadAlignmentResult | None:
         """部品単位の位置合わせを実行し、失敗時はNoneを返す.

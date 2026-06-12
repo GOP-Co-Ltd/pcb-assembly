@@ -24,6 +24,7 @@ from .pad import (
     group_pads_by_component,
 )
 from .position import XYPositionAdjustor
+from .render import PadResultRenderer, render_edge_match, render_label
 from .setup import (
     BoardCalibrationResult,
     OffsetObserver,
@@ -34,6 +35,7 @@ from .tour import (
     display_at_point,
     interactive_display_at_point,
     wait_for_keypress,
+    window_sink,
 )
 
 __all__ = [
@@ -51,6 +53,7 @@ __all__ = [
     "PadAligner",
     "PadAlignmentResult",
     "PadAlignmentSession",
+    "PadResultRenderer",
     "PixelRect",
     "RigidEdgeMatch",
     "XYPositionAdjustor",
@@ -58,8 +61,11 @@ __all__ = [
     "group_pads_by_component",
     "interactive_display_at_point",
     "machine_session",
+    "render_edge_match",
+    "render_label",
     "setup_board_calibration",
     "sorted_top_component_pads",
     "to_machine_transform",
     "wait_for_keypress",
+    "window_sink",
 ]

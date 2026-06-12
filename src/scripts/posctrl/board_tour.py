@@ -21,11 +21,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import cv2
-import numpy as np
 from shapely import Polygon
 
 from pcbasm import gcode
-from pcbasm.config import PadAlign, get_machine_config
+from pcbasm.config import Machine, PadAlign, get_machine_config
 from pcbasm.geometry import Compose, Point2d, sort_by_nearest
 from pcbasm.hal import Speed
 from pcbasm.pcb import Pad
@@ -35,20 +34,18 @@ from pcbasm.posctrl import (
     CopperProjector,
     PadAlignmentResult,
     PadAlignmentSession,
+    PadResultRenderer,
     display_at_point,
     machine_session,
     setup_board_calibration,
     sorted_top_component_pads,
     wait_for_keypress,
+    window_sink,
 )
 from pcbasm.utils import setup_logging
-from pcbasm.vision import CopperEdgeDetector, draw_crosshair
+from pcbasm.vision import CopperEdgeDetector
 
 WINDOW_NAME = "Board Tour Demo"
-FILL_COLOR = (0, 0, 255)  # 対象pad overlayの色 (BGR)
-FILL_ALPHA = 0.35
-EXPECTED_COLOR = (0, 0, 255)  # 想定しているpadの輪郭 (BGR: 赤)
-DETECTED_COLOR = (0, 255, 0)  # 検出された銅箔輪郭 (BGR: 緑)
 RESULT_DISPLAY_SEC = 1.0  # 各padの結果表示時間（キー待ちはしない）
 
 
@@ -63,69 +60,25 @@ def _show_pad_result(
 ) -> bool:
     """対象領域のROIに限定したoverlayを一定時間表示して自動で次へ進む.
 
-    塗布対象（ペーストpad領域）の薄塗り + 想定している銅箔の輪郭（赤）+
-    検出された銅箔輪郭（緑）+ 中心十字を現在位置の再投影で描画する。
-    ROIは実銅箔（roi_polygons）から決め、薄塗りはペースト開口
-    （paste_polygons）を投影する。
+    合成は PadResultRenderer に委譲し、現在位置で固定した投影を
+    一定時間ウィンドウへ流す。
 
     Returns:
         Escキーで中断された場合True
     """
-    current = result.stage.get_position().to2d()
-    projection = projector.project(current)
-    x0, y0, x1, y1 = projector.roi_of(
-        roi_polygons,
-        current,
-        margin_mm=pad_align.roi_margin,
-        min_size_mm=pad_align.min_roi,
+    renderer = PadResultRenderer(
+        projector=projector,
+        edge_detector=edge_detector,
+        roi_polygons=roi_polygons,
+        paste_polygons=paste_polygons,
+        pad_align=pad_align,
+        position=result.stage.get_position().to2d(),
     )
-    roi = np.zeros(projection.edge_mask.shape, dtype=bool)
-    roi[y0:y1, x0:x1] = True
-    expected = (projection.edge_mask > 0) & roi
-
-    # ペーストpad領域（塗布対象）を投影して薄塗りマスクを作る
-    fill_mask = np.zeros(projection.edge_mask.shape, dtype=np.uint8)
-    for paste in paste_polygons:
-        pixels = [
-            projector.pixel_of(Point2d(float(x), float(y)), current)
-            for x, y in paste.exterior.coords
-        ]
-        points = np.array([[round(p.x), round(p.y)] for p in pixels], dtype=np.int32)
-        cv2.fillPoly(fill_mask, [points], 255)
-    fill = fill_mask > 0
 
     deadline = time.monotonic() + RESULT_DISPLAY_SEC
     while time.monotonic() < deadline:
-        image = result.camera.capture()
-        detected = (edge_detector.detect_edges(image) > 0) & roi
-
-        display = image.numpy().copy()
-        color_layer = np.zeros_like(display)
-        color_layer[:] = FILL_COLOR
-        blended = cv2.addWeighted(
-            display, 1.0 - FILL_ALPHA, color_layer, FILL_ALPHA, 0.0
-        )
-        display[fill] = blended[fill]
-        display[expected] = EXPECTED_COLOR
-        display[detected] = DETECTED_COLOR
-        draw_crosshair(display)
-
-        for i, line in enumerate(lines):
-            position = (10, 25 + i * 25)
-            cv2.putText(
-                display, line, position, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3
-            )
-            cv2.putText(
-                display,
-                line,
-                position,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 255, 255),
-                1,
-            )
-
-        cv2.imshow(WINDOW_NAME, display)
+        display = renderer.render(result.camera.capture(), lines)
+        cv2.imshow(WINDOW_NAME, display.numpy())
         if cv2.waitKey(50) == 27:  # Esc
             return True
     return False
@@ -142,7 +95,9 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
         print("巡回するパッドがありません")
         return
 
-    session = PadAlignmentSession.from_calibration(result, window_name=WINDOW_NAME)
+    session = PadAlignmentSession.from_calibration(
+        result, frame_sink=window_sink(WINDOW_NAME)
+    )
 
     alignments: list[tuple[ComponentPads, PadAlignmentResult]] = []
     aborted = False
@@ -282,11 +237,19 @@ def main() -> None:
     args = parser.parse_args()
 
     machine = get_machine_config(args.machine)
+    try:
+        _run_tour(machine, args)
+    finally:
+        cv2.destroyAllWindows()
+
+
+def _run_tour(machine: Machine, args: argparse.Namespace) -> None:
+    """セットアップ〜四隅・パッド巡回の本体."""
     result = setup_board_calibration(
         machine=machine,
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
-        window_name=WINDOW_NAME,
+        frame_sink=window_sink(WINDOW_NAME),
     )
 
     with machine_session(result.klipper):

@@ -14,6 +14,7 @@ import argparse
 import logging
 from pathlib import Path
 
+import cv2
 from shapely import Polygon
 
 from pcbasm import gcode
@@ -35,6 +36,7 @@ from pcbasm.posctrl import (
     PadAlignmentSession,
     setup_board_calibration,
     sorted_top_component_pads,
+    window_sink,
 )
 from pcbasm.session import PasteSession
 from pcbasm.utils import setup_logging
@@ -49,7 +51,9 @@ def _align_components(result: BoardCalibrationResult) -> ComponentAlignments:
     sorted_groups = sorted_top_component_pads(result)
     print(f"padを持つ部品数: {len(sorted_groups)}")
 
-    session = PadAlignmentSession.from_calibration(result, window_name=WINDOW_NAME)
+    session = PadAlignmentSession.from_calibration(
+        result, frame_sink=window_sink(WINDOW_NAME)
+    )
     results: list[tuple[ComponentPads, PadAlignmentResult]] = []
     for i, group in enumerate(sorted_groups):
         progress = f"{group.component.designator} {i + 1}/{len(sorted_groups)}"
@@ -188,26 +192,29 @@ def main() -> None:
     args = parser.parse_args()
 
     machine = get_machine_config(args.machine)
-    result = setup_board_calibration(
-        machine=machine,
-        pcb_file_path=args.pcb_file,
-        tolerance=args.tolerance,
-        window_name=WINDOW_NAME,
-    )
-    session = PasteSession.from_calibration(result)
+    try:
+        result = setup_board_calibration(
+            machine=machine,
+            pcb_file_path=args.pcb_file,
+            tolerance=args.tolerance,
+            frame_sink=window_sink(WINDOW_NAME),
+        )
+        session = PasteSession.from_calibration(result)
 
-    with session:
-        # TOPレイヤーの銅箔・パッドを取得
-        top_coppers = [c for c in session.pcb.copper if c.layer == Layer.TOP]
-        top_pads = [p for p in session.pcb.pads if p.layer == Layer.TOP]
+        with session:
+            # TOPレイヤーの銅箔・パッドを取得
+            top_coppers = [c for c in session.pcb.copper if c.layer == Layer.TOP]
+            top_pads = [p for p in session.pcb.pads if p.layer == Layer.TOP]
 
-        try:
-            alignments = _align_components(result)
-            height_plane = _measure_height(session, top_coppers)
-            _load_and_apply(session, height_plane, top_pads, alignments, args)
-        except KeyboardInterrupt:
-            print("\n=== 中止 ===")
-            session.klipper.send_gcode(gcode.relax())
+            try:
+                alignments = _align_components(result)
+                height_plane = _measure_height(session, top_coppers)
+                _load_and_apply(session, height_plane, top_pads, alignments, args)
+            except KeyboardInterrupt:
+                print("\n=== 中止 ===")
+                session.klipper.send_gcode(gcode.relax())
+    finally:
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
