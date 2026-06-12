@@ -2,7 +2,7 @@ from .calibration import CalibrationResult, CheckerboardCalibrator
 from .copper import CopperEdgeDetector
 from .detection import CircleDetector, DetectedCircle, Offset
 from .image import Image, ImageArray, safe_move_distance
-from .overlay import draw_overlay
+from .overlay import draw_crosshair, draw_overlay
 
 __all__ = [
     "CalibrationResult",
@@ -13,6 +13,7 @@ __all__ = [
     "Image",
     "ImageArray",
     "Offset",
+    "draw_crosshair",
     "draw_overlay",
     "safe_move_distance",
 ]

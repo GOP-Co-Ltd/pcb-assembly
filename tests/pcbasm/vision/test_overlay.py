@@ -1,7 +1,28 @@
 import numpy as np
 
 from pcbasm.geometry import Point2d
-from pcbasm.vision import Image, draw_overlay
+from pcbasm.vision import Image, draw_crosshair, draw_overlay
+
+
+class TestDrawCrosshair:
+    """draw_crosshair関数のテスト."""
+
+    def test_crosshair_is_drawn_at_center_in_place(self):
+        arr = np.zeros((480, 640, 3), dtype=np.uint8)
+        cx, cy = 320, 240
+
+        draw_crosshair(arr)
+
+        assert arr[cy, cx, 1] > 0  # 緑チャネルが中心に描画されている
+        assert arr[cy, cx - 30, 1] > 0  # 横線の端
+        assert arr[cy - 30, cx, 1] > 0  # 縦線の端
+
+    def test_pixels_outside_crosshair_untouched(self):
+        arr = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        draw_crosshair(arr)
+
+        assert arr[10, 10].sum() == 0
 
 
 class TestDrawOverlay:
