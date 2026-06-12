@@ -38,6 +38,14 @@ TABS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# tab slug → 表示名（ヘッダのタブラベル）
+TAB_LABELS: dict[str, str] = {
+    "dev": "開発",
+    "pasting": "はんだ塗布",
+    "pnp": "部品実装",
+    "posctrl": "位置合わせ",
+}
+
 # feature 実装予定の Phase（プレースホルダ表示用）
 TAB_PHASES: dict[str, str] = {
     "dev": "Phase 3",
@@ -111,10 +119,12 @@ def _base_context(
     return {
         "request": request,
         "tabs": list(TABS),
+        "tab_labels": TAB_LABELS,
         "machines": store.list_machines(),
         "selected_machine": state.selected_machine,
         "selected_pcb": pcb.as_posix() if pcb else None,
-        "mainsail_url": settings.mainsail_url,
+        "mainsail_url": settings.mainsail_url
+        or f"http://{request.url.hostname or 'localhost'}",
         "focus_z": state.focus_z(),
         "active_tab": None,
         "active_feature": None,

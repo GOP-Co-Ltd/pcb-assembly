@@ -25,7 +25,7 @@ class StateResponse(BaseModel):
     busy: bool
     busy_owner: str | None
     focus_z: float | None
-    mainsail_url: str
+    mainsail_url: str | None
     preview_clients: int
     job: JobBrief | None
 

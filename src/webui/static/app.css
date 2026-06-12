@@ -39,6 +39,8 @@ body {
 
 .global-controls { display: flex; align-items: center; gap: 0.5rem; }
 
+.machine-select-label { font-size: 0.85rem; color: var(--text); white-space: nowrap; }
+
 .chip {
   max-width: 16rem;
   overflow: hidden;

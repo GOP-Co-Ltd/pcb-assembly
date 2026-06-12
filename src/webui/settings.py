@@ -23,7 +23,8 @@ class Settings:
     data_dir: Path = PROJECT_ROOT / "data"
     pcb_browse_root: Path = PROJECT_ROOT
     printer_cfg_link: Path = Path.home() / "printer_data/config/printer.cfg"
-    mainsail_url: str = "http://localhost"
+    # None の場合はページ閲覧元のホスト名に追従する（pages.py で解決）
+    mainsail_url: str | None = None
     default_machine: str = "kurousagi"
     host: str = "0.0.0.0"
     port: int = 8080

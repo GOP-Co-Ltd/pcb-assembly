@@ -41,7 +41,8 @@ class TestSettingsFromEnv:
             settings.printer_cfg_link
             == Path.home() / "printer_data" / "config" / "printer.cfg"
         )
-        assert settings.mainsail_url == "http://localhost"
+        # None は「ページ閲覧元ホストに追従」を意味する（pages.py で解決）
+        assert settings.mainsail_url is None
         assert settings.default_machine == "kurousagi"
         assert settings.port == 8080
 

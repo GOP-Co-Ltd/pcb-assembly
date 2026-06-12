@@ -36,9 +36,11 @@ Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / s
 - pnp はプレースホルダのみ（サイドバー空 + 「機能を選択」）
 """
 
+import attrs
 import pytest
 from fastapi.testclient import TestClient
 
+from webui.app import create_app
 from webui.settings import Settings
 
 TABS = ["dev", "pasting", "pnp", "posctrl"]
@@ -60,9 +62,26 @@ class TestPages:
         response = client.get(f"/{tab}")
 
         assert response.status_code == 200
-        assert "E-STOP" in response.text
+        assert "緊急停止" in response.text
         assert "machine-control" in response.text
+        assert "マシン選択:" in response.text
         assert webui_settings.mainsail_url in response.text
+
+    def test_tabs_render_japanese_labels(self, client: TestClient):
+        text = client.get("/posctrl").text
+
+        for label in ("開発", "はんだ塗布", "部品実装", "位置合わせ"):
+            assert label in text
+
+    def test_mainsail_link_follows_request_host_when_unset(
+        self, webui_settings: Settings
+    ):
+        """PCBASM_MAINSAIL_URL 未設定時はページ閲覧元のホスト名に追従する."""
+        app = create_app(attrs.evolve(webui_settings, mainsail_url=None))
+        with TestClient(app) as client:
+            text = client.get("/posctrl").text
+
+        assert 'href="http://testserver"' in text
 
     def test_known_feature_page_renders(self, client: TestClient):
         response = client.get("/posctrl/reference_point_setup")
