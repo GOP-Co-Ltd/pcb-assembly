@@ -82,17 +82,18 @@ class FrameSource(Camera):      # Camera ABC を実装
 
 ## 4. posctrl の表示責務分離（pcbasm 側の最小改修）
 
-現状、`OffsetObserver`（`src/pcbasm/posctrl/setup.py`）が `cv2.imshow` を直接呼び、`setup_board_calibration()` が内部で `create_camera()` を直接生成している。後方互換のまま注入点を開ける。
+現状、`OffsetObserver`（`src/pcbasm/posctrl/setup.py`）と `PadAligner`（`src/pcbasm/posctrl/pad.py`、`window_name` 指定時）が `cv2.imshow` を直接呼び、`setup_board_calibration()` が内部で `create_camera()` を直接生成している。後方互換のまま注入点を開ける。
 
 1. `OffsetObserver.__init__` に `frame_sink: Callable[[Image], None]` を追加。cv2 表示はデフォルトシンク（setup.py 内のプライベートヘルパ）として切り出す
 2. `setup_board_calibration(..., *, camera: Camera | None = None, frame_sink: Callable[[Image], None] | None = None)` を追加
     - `camera=None` なら従来どおり `create_camera()`（既存 scripts 無変更）。webui は `hub.subscribe()` を渡す
     - `frame_sink=None` なら従来どおり cv2 ウィンドウ。webui はジョブコンテキストの `ctx.frame` を渡す
-3. `PasteSession.setup()`（`src/pcbasm/session.py`）に同じパススルーを追加
-4. `machine_session` / `PasteSession.__exit__` の `cv2.destroyAllWindows()` はウィンドウが無ければ no-op なので触らない
-5. `tour.py` の表示ループ（`display_at_point` 等）は表示そのものが責務なので pcbasm は触らず、webui 側で「移動 → FrameSource から取得 → `draw_overlay` → preview へ push」を再実装する
+3. `PadAligner` / `PadAlignmentSession`（`src/pcbasm/posctrl/alignment.py`）に `frame_sink` を追加。照合状況の注釈付き画像（ROI 枠 + エッジ重畳）を `window_name` の cv2 表示と同列のシンクとして流す（`window_name=None, frame_sink=ctx.frame` が webui の使い方。両方 None なら表示なしで従来どおり）
+4. `PasteSession.setup()`（`src/pcbasm/session.py`）に同じパススルーを追加
+5. `machine_session` / `PasteSession.__exit__` の `cv2.destroyAllWindows()` はウィンドウが無ければ no-op なので触らない
+6. `tour.py` / `board_tour.py` の表示ループ（`display_at_point`、`_show_pad_result` 等）は表示そのものが責務なので pcbasm は触らず、webui 側で「移動 → FrameSource から取得 → オーバーレイ描画 → preview へ push」を再実装する
 
-検出・補正のコア（`CircleDetector`, `CopperDetector`, `XYPositionAdjustor`, `OffsetTransformMeasurer`, `BoardTransformMeasurer`, `HeightPlaneMeasurer`）は元から表示非依存であり無改造で再利用する。
+検出・補正のコア（`CircleDetector`, `CopperEdgeDetector`, `CopperEdgeMatcher`, `CopperProjector`, `XYPositionAdjustor`, `OffsetTransformMeasurer`, `BoardTransformMeasurer`, `HeightPlaneMeasurer`）は元から表示非依存であり無改造で再利用する。
 
 ## 5. webui/ モジュール構成
 
@@ -119,18 +120,19 @@ src/webui/
 │   ├── jobs.py            # ジョブ REST + WS /api/ws
 │   ├── preview.py         # MJPEG / snapshot
 │   ├── settings_api.py    # マシン設定・モーション設定の取得/保存
+│   ├── machine_control.py # マシン操作パネル（homing/ジョグ/移動/relax/フォーカスZ）
 │   └── system.py          # emergency stop、Klipper ステータス
 ├── templates/
 │   ├── base.html          # ヘッダ（タブ・マシン選択・PCB チップ・設定・console リンク・E-STOP）
 │   ├── {dev,pasting,pnp,posctrl}/…
 │   ├── settings.html
-│   └── partials/          # サイドバー、job console、preview ペイン、prompt モーダル
+│   └── partials/          # サイドバー、job console、preview ペイン、prompt モーダル、マシン操作パネル
 └── static/
     ├── app.css
     └── js/
         ├── job_console.js # WS クライアント（ログ/進捗/プロンプト/中止/Apply）
         ├── preview.js     # <img> の付け外し・overlay 切替
-        └── jog.js         # ジョグパネル
+        └── machine_control.js  # マシン操作パネル（REST / ジョブ command の送信切替）
 ```
 
 ### テスト容易性のフック
@@ -169,6 +171,24 @@ class JobContext:
 - 連続対話（ジョグ）: reference_point_setup はジョブとして起動後 `next_command()` ループで `{type:"jog", axis, dist}` / `{type:"record"}` / `{type:"quit"}` を消費。preview には `ctx.frame()` で円検出オーバーレイを流し続ける
 - 中止（abort）は協調的: フラグを立て、`prompt` / `next_command` 待ちは即 JobAborted 化、長い処理はループ内 `checkpoint()`。終了処理（finally）で M84（relax）を送る
 
+### マシン操作パネル（ジョブ外の単発操作）
+
+全タブから使える共通コンポーネント（サイドバー下部に折りたたみで常設）。Klipper console（Mainsail）リンクは残しつつ、基本操作は console に飛ばずに完結できるようにする。
+
+- **Homing**: X / Y / Z 軸個別 + 全軸（`gcode.homing()`）
+- **ジョグ**: X / Y / Z 共通で ±0.1 / ±1 / ±10 mm の 6 ボタン × 3 軸。`XYZStage.move(relative=True)` を使う（limits 検証込み。マシンサイズが小さいためこの 3 段で足りる）
+- **座標直接入力**: x / y / z の数値フィールド + 移動ボタン（絶対座標。空欄の軸は現在位置を維持 = `move()` の None 渡し）
+- **Relax**: M84
+- **フォーカス位置へ**: 選択マシンの calibration（`CalibrationResult.z_position` — camera_calibration 撮影時の Z 値）へ Z を移動。calibration 未設定や `z_position` が無い場合はボタンを無効化
+- パネルには現在位置と homed_axes を表示（`/api/klipper/status` をパネル展開中のみポーリング）
+
+実装と排他:
+
+- `POST /api/machine-control` ボディ `{action: "home" | "jog" | "move" | "relax" | "focus_z", …}`。1 リクエスト = 1 同期操作（G-code 送信 + `wait_for_done`、完了でレスポンス）
+- **ジョブと同じ排他ロックを共有する**: ジョブ実行中は 409 を返し、UI はパネルを disabled 表示にする。逆にマシン操作の実行中（移動完了待ち）もジョブ開始は 409
+- 未ホーミング軸への移動や limits 超過は `XYZStage` / Klipper のエラーをそのままエラートーストで表示する
+- reference_point_setup 等の**対話ジョブ中**のジョグは従来案どおり WS の `command`（`next_command`）経由。UI は同じパネル部品を「ジョブモード」へ切り替えて使う（送信先が REST か WS かの違いのみで、ボタン構成は共通）
+
 ### Emergency Stop
 
 ジョブ機構を**経由しない**。`POST /api/emergency-stop` がその場で `Klipper.emergency_stop()` を直接叩く（Moonraker は REST なのでジョブと独立に届く）。同時に abort フラグも立てる。UI のボタンは赤・常時表示・確認なし即時。
@@ -185,9 +205,9 @@ class JobContext:
 - `GET /api/preview/stream?overlay=none|crosshair|circle|copper` — MJPEG（`multipart/x-mixed-replace`）。同期ジェネレータ（FastAPI が threadpool で実行）で `hub.subscribe()` → capture → オーバーレイ → JPEG エンコード → yield。配信は min(カメラ fps, 15) に間引き
 - **起動/停止は参照カウント**: `PreviewService` がストリーム接続で `acquire()`（0→1 で `hub.start()`）、切断（GeneratorExit）で `release()`（1→0 で `hub.stop()`）。クライアントは posctrl 系ページにだけ `<img src="/api/preview/stream">` を置き、タブ遷移で img が DOM から消えれば自動停止する。明示的な start/stop API は不要
 - オーバーレイ:
-    - `crosshair`: 既存 `draw_overlay(frame, crop_size)`
-    - `circle`: `CircleDetector.detect_nearest_center` + 円描画
-    - `copper`: `CopperDetector.detect` + 輪郭描画
+    - `crosshair`: 既存 `draw_crosshair` + crop 枠
+    - `circle`: `CircleDetector` の検出結果 + 円描画（既存 `draw_overlay` 相当）
+    - `copper`: `CopperEdgeDetector.detect_edges` のエッジ重畳（copper_detection スクリプトと同等の表示。Canny low / high はクエリパラメータで上書き可）
     - 検出は重いので **~5fps に間引き、直近の検出結果を後続フレームに再利用**して描画する
 - **ジョブ実行中のオーバーライドスロット**: `ctx.frame()` が最新 1 枚 + タイムスタンプを書き、ストリームは「直近 1 秒以内にジョブ提供フレームがあればそれを優先、なければ生フレーム + overlay」を配信。`OffsetObserver` の注釈付き画像（検出円・オフセット表示）がそのまま画面に出る
 
@@ -197,7 +217,7 @@ class JobContext:
 
 ### 設定画面（ヘッダの歯車 → `/settings`）
 
-- machine.toml の編集可能項目を**ホワイトリスト化したフォーム**で表示: ディスペンサー諸元 `[paste_dispenser]`、プローブ `[probe]`、基準点 `[reference_point]`、カメラ `[camera]` 等。保存は tomlkit でコメント・構造を保持して書き戻す（既存パターン: `update_reference_point`（`src/scripts/posctrl/reference_point_setup.py`）の一般化）
+- machine.toml の編集可能項目を**ホワイトリスト化したフォーム**で表示: ディスペンサー諸元 `[paste_dispenser]`、pad 照合パラメータ `[paste_dispenser.pad_align]`（canny 閾値等）、プローブ `[probe]`、基準点 `[reference_point]`、カメラ `[camera]` 等。保存は tomlkit でコメント・構造を保持して書き戻す（既存パターン: `update_reference_point`（`src/scripts/posctrl/reference_point_setup.py`）の一般化）
 - printer.cfg は「モーション設定」セクションとして**限定編集**。初期ホワイトリスト: `[printer] max_velocity / max_accel`、`[manual_stepper paste_dispenser] velocity / accel`（ホワイトリストは拡張可能な定義方式）
     - 編集対象は `configs/<選択マシン>/printer.cfg`。`~/printer_data/config/printer.cfg` はここへの symlink（`install-printer-cfg.sh` 方式）なので、保存 → Klipper RESTART で反映される
     - 保存時は確認ダイアログ付きで Moonraker 経由の Klipper RESTART を実行
@@ -234,6 +254,7 @@ class JobContext:
 | POST    | `/api/jobs/last/apply`                    | 直近完了ジョブの計測結果を設定へ反映                                    |
 | GET/PUT | `/api/settings/machine`                   | マシン設定（machine.toml ホワイトリスト項目）                           |
 | GET/PUT | `/api/settings/motion`                    | モーション設定（printer.cfg 限定項目）+ RESTART                         |
+| POST    | `/api/machine-control`                    | homing / ジョグ / 絶対移動 / relax / フォーカス Z（§6。ジョブ中 409）   |
 | POST    | `/api/emergency-stop`                     | 即時 M112 相当（ジョブ非経由）                                          |
 | GET     | `/api/preview/stream?overlay=`            | MJPEG                                                                   |
 | GET     | `/api/preview/snapshot?overlay=`          | JPEG 1 枚（スポット確認用）                                             |
@@ -248,31 +269,31 @@ class JobContext:
 ### レイアウト
 
 - **ヘッダ**: タブ（dev / pasting / pnp / posctrl）+ マシン選択ドロップダウン + PCB ファイルチップ（クリックでファイルブラウザモーダル）+ 設定（歯車 → `/settings`）+ Klipper console リンク + **E-STOP（赤・常時表示・確認なし即時）**
-- **サイドバー**: タブ内の feature リスト。実行中ジョブがあればバッジ表示
+- **サイドバー**: タブ内の feature リスト。実行中ジョブがあればバッジ表示。下部に**マシン操作パネル**（§6。折りたたみ、全タブ共通）
 - **メインペイン**: feature ごとに「パラメータフォーム（argparse 引数から導出、デフォルト値も引き継ぐ）+ 実行ボタン + ジョブコンソール（ログ / 進捗バー / プロンプトモーダル / 中止 / Apply）+ 必要なら preview ペイン」
 - machine / pcb-file はグローバル選択値のため各フォームから除外。`data/webui_state.json` にこの 2 値のみ永続化（起動時に復元）
 
 ### posctrl タブ（常時 preview ペインあり）
 
-| 項目                  | 形態         | フォーム / 操作                                                                 |
-| --------------------- | ------------ | ------------------------------------------------------------------------------- |
-| Camera Preview        | preview のみ | overlay 切替（none / crosshair）                                                |
-| Copper Detection      | preview のみ | overlay=copper + 検出パラメータ（canny 閾値等を動的反映）                       |
-| Camera Calibration    | ジョブ       | crop サイズ等。prompt(confirm) で撮影を進行。結果は Apply で反映                |
-| Reference Point Setup | 対話ジョブ   | ジョグパネル（XY ±10/1/0.1/0.01mm）+ Record / Quit。preview に円検出 + 現在位置 |
-| Board Tour            | ジョブ       | tolerance。各点で prompt(confirm)「次へ」                                       |
-| Orthogonality Test    | ジョブ       | tolerance。結果数値を result 表示                                               |
+| 項目                  | 形態         | フォーム / 操作                                                                                                                                                     |
+| --------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Camera Preview        | preview のみ | overlay 切替（none / crosshair）                                                                                                                                    |
+| Copper Detection      | preview のみ | overlay=copper + Canny low / high スライダー（動的反映）。「設定に保存」で `[paste_dispenser.pad_align]` へ書き込み（現行スクリプトの調整専用フローを Apply 化）    |
+| Camera Calibration    | ジョブ       | crop サイズ等。prompt(confirm) で撮影を進行。結果は Apply で反映                                                                                                    |
+| Reference Point Setup | 対話ジョブ   | マシン操作パネル（ジョブモード、±0.1/1/10mm）+ Record / Quit。preview に円検出 + 現在位置                                                                           |
+| Board Tour            | ジョブ       | tolerance。四隅巡回 → 部品単位の銅箔照合（`PadAlignmentSession`）→ 補正適用済み全 pad 巡回。各点 1 秒の自動進行、照合 overlay を `ctx.frame()` で配信。中止は abort |
+| Orthogonality Test    | ジョブ       | tolerance。結果数値を result 表示                                                                                                                                   |
 
 ### pasting タブ（preview はジョブ提供フレームのみ）
 
-| 項目                  | フォーム / 操作                                                                                             |
-| --------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Paste Solder          | tolerance, amount, interactive-loading。進捗 = 計測 → ローディング → 塗布の stage 表示                      |
-| Height Plane          | tolerance, output。完了後ヒートマップ PNG をインライン表示（`data/webui/` へ保存し artifacts ルートで配信） |
-| Loading               | amount。コマンドボタン（押出 / 吸引 / 量変更 / 終了）= `next_command` 駆動                                  |
-| Flow Calibration      | rotations, rate, accel, load-amount。重量入力 prompt(number)。結果は Apply で反映                           |
-| Toolhead Offset       | tolerance, dispense-amount, loading-amount, lift-height, paste-diameter-min/max。結果は Apply で反映        |
-| Probe GND Down Adjust | prompt(number) ループで down distance 調整。結果は Apply で反映                                             |
+| 項目                  | フォーム / 操作                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Paste Solder          | tolerance, amount, interactive-loading。進捗 = 計測 → pad 位置合わせ（`PadAlignmentSession`）→ ローディング → 塗布の stage 表示 |
+| Height Plane          | tolerance, output。完了後ヒートマップ PNG をインライン表示（`data/webui/` へ保存し artifacts ルートで配信）                     |
+| Loading               | amount。コマンドボタン（押出 / 吸引 / 量変更 / 終了）= `next_command` 駆動                                                      |
+| Flow Calibration      | rotations, rate, accel, load-amount。重量入力 prompt(number)。結果は Apply で反映                                               |
+| Toolhead Offset       | tolerance, dispense-amount, loading-amount, lift-height, paste-diameter-min/max。結果は Apply で反映                            |
+| Probe GND Down Adjust | prompt(number) ループで down distance 調整。結果は Apply で反映                                                                 |
 
 ### dev タブ
 
@@ -321,7 +342,8 @@ skill `testing-strategy` のテスト 4 区分に従う。
 ### Phase 1: 骨格 + 状態管理 + 設定画面
 
 - 依存追加、`webui/` 骨格、`base.html` + 4 タブ + サイドバー、AppState、マシン / PCB 選択 + ファイルブラウザ、E-STOP、Klipper ステータスカード、設定画面（`config_store.py`、machine.toml / printer.cfg のホワイトリスト編集）、`configs/test-fixture/` 新設、Settings 注入フック、Makefile ターゲット
-- E2E: ページ巡回 + マシン選択 + 設定 PUT → test-fixture の実ファイル diff 確認（RESTART の実機確認のみユーザー）
+- **マシン操作パネル**（homing / ジョグ / 絶対移動 / relax / フォーカス Z、`POST /api/machine-control`）。排他ロックは AppState に置き、Phase 3 の JobManager が同じロックを共有する
+- E2E: ページ巡回 + マシン選択 + 設定 PUT → test-fixture の実ファイル diff 確認（RESTART・実移動の実機確認のみユーザー）
 
 ### Phase 2: FrameHub + MJPEG preview
 
@@ -336,8 +358,8 @@ skill `testing-strategy` のテスト 4 区分に従う。
 
 ### Phase 4: posctrl
 
-- `setup.py` への camera / frame_sink 注入（既存テスト・scripts の無風確認込み）
-- reference_point_setup（ジョグ + Record。machine.toml 書き込みは Apply フロー）、camera_calibration、board_tour、orthogonality_test
+- `setup.py` への camera / frame_sink 注入、`PadAligner` / `PadAlignmentSession` への frame_sink 注入（既存テスト・scripts の無風確認込み）
+- reference_point_setup（ジョグ + Record。machine.toml 書き込みは Apply フロー）、camera_calibration、board_tour（四隅 + 銅箔照合 + 補正巡回）、orthogonality_test、Copper Detection の調整値保存
 - E2E: FakeCamera + 録画画像で frame_sink 経路と WS 配信を確認。実機フローはユーザー
 
 ### Phase 5: pasting + 仕上げ
@@ -371,4 +393,5 @@ tomlkit>=0.13             # scripts が既に import しているが宣言漏れ
 | WS                      | グローバル 1 本                      | 同時ジョブ 1 件なので分離の利点なし。E-STOP / 状態通知も同送                   |
 | セッション保持          | ジョブごとに再計測                   | キャリブレーション流用はズレ事故リスク。現行スクリプトと同じ安全側             |
 | ジョブ履歴              | 直近 1 件のみ・非永続                | 単一オペレータの装置 UI に履歴 DB は過剰                                       |
+| マシン操作の排他        | ジョブと同一ロックの単発 REST        | 移動とジョブの同時実行を構造的に排除。対話ジョブ中のみ WS command に切替       |
 | 設定編集                | ホワイトリスト方式                   | machine.toml / printer.cfg の存在を隠しつつ、壊れる編集を構造的に防ぐ          |
