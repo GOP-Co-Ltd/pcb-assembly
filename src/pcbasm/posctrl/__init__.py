@@ -1,5 +1,10 @@
 """Board/オフセットの位置合わせ共通制御."""
 
+from .alignment import (
+    ComponentAlignments,
+    PadAlignmentSession,
+    sorted_top_component_pads,
+)
 from .board import BoardTransformMeasurer
 from .copper import (
     CopperEdgeMatcher,
@@ -33,6 +38,7 @@ from .tour import (
 
 __all__ = [
     "BoardCalibrationResult",
+    "ComponentAlignments",
     "ComponentPads",
     "BoardTransformMeasurer",
     "CopperEdgeMatcher",
@@ -44,6 +50,7 @@ __all__ = [
     "OffsetTransformMeasurer",
     "PadAligner",
     "PadAlignmentResult",
+    "PadAlignmentSession",
     "PixelRect",
     "RigidEdgeMatch",
     "XYPositionAdjustor",
@@ -52,6 +59,7 @@ __all__ = [
     "interactive_display_at_point",
     "machine_session",
     "setup_board_calibration",
+    "sorted_top_component_pads",
     "to_machine_transform",
     "wait_for_keypress",
 ]
