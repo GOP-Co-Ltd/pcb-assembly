@@ -71,6 +71,17 @@ class TestPcbFile:
         for pad in pcb.pads:
             assert pad.polygon.contains(pad.polygon.centroid)
 
+    def test_pads_copper_polygon_covers_paste_centroid(self, pcb: PcbFile):
+        # 各 paste pad の copper_polygon は実銅箔形状（GetEffectivePolygon）。
+        # valid・非空で、ペースト開口の中心を銅箔が覆う（銅箔 ⊇ paste の近似ピン）
+        for pad in pcb.pads:
+            assert pad.copper_polygon.is_valid, f"{pad.designator}.{pad.pad_number}"
+            assert not pad.copper_polygon.is_empty
+            assert pad.copper_polygon.area > 0
+            assert pad.copper_polygon.covers(
+                pad.polygon.centroid
+            ), f"{pad.designator}.{pad.pad_number} の銅箔が paste 中心を覆っていない"
+
     # copper プロパティ
 
     def test_copper_exists_on_both_layers(self, pcb: PcbFile):

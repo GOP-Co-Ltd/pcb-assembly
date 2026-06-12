@@ -193,6 +193,7 @@ class Pad:
         net_name: ネット名
         layer: レイヤー (Top/Bottom)
         polygon: ペースト領域のポリゴン (mm単位)
+        copper_polygon: 実銅箔領域のポリゴン (mm単位)。省略時はpolygonと同一
         is_custom_shape: カスタム形状かどうか
     """
 
@@ -201,6 +202,7 @@ class Pad:
     net_name: str
     layer: Layer
     polygon: Polygon
+    copper_polygon: Polygon = attrs.Factory(lambda self: self.polygon, takes_self=True)
     is_custom_shape: bool = False
 
     @property
