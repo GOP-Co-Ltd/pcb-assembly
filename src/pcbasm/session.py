@@ -109,24 +109,11 @@ class PasteSession:
 
     def make_applicator(self, transform: Transform = Identity()) -> PasteApplicator:
         """Machine 設定のパラメータで PasteApplicator を構築する."""
-        cfg = self.machine.paste_dispenser
-        return PasteApplicator(
+        return PasteApplicator.from_config(
             klipper=self.klipper,
             paste_dispenser=self.paste_dispenser,
             stage=self.stage,
-            nozzle_diameter=cfg.nozzle_diameter,
-            fill_speed=cfg.fill_speed,
-            max_dispense_rate=cfg.max_dispense_rate,
-            dispense_accel=cfg.dispense_accel,
-            ul_per_mm2=cfg.ul_per_mm2,
-            retraction=cfg.retract_amount,
-            retraction_rate=cfg.retract_rate,
-            retraction_accel_factor=cfg.retract_accel_factor,
-            paste_height=cfg.paste_height,
-            prime_extra_delay=cfg.prime_extra_delay,
-            bead_width_factor=cfg.bead_width_factor,
-            overlap=cfg.overlap,
-            boundary_margin=cfg.boundary_margin,
+            config=self.machine.paste_dispenser,
             transform=transform,
         )
 

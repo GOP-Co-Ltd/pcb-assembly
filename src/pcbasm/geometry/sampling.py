@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from itertools import product
 
+import attrs
 import numpy as np
 import numpy.typing as npt
 from shapely import get_parts
-from shapely.geometry import Point as ShapelyPoint, Polygon
+from shapely.geometry import MultiPoint, Point as ShapelyPoint, Polygon
 from shapely.ops import polylabel
 
 from pcbasm.geometry.transform import Point2d
@@ -67,6 +68,57 @@ def sample_points_in_polygons(
         outline=outline,
     )
     return [Point2d(x=float(x), y=float(y)) for x, y in candidates[selected]]
+
+
+@attrs.frozen
+class SamplingDiagnostics:
+    """Probe 計画点の安全余裕と基板カバレッジ.
+
+    Attributes:
+        point_count: 計画点数
+        min_clearance: 点が乗るポリゴン境界までの最小距離 [mm]
+        hull_area_ratio: 計画点凸包の面積 / outline 面積
+    """
+
+    point_count: int
+    min_clearance: float
+    hull_area_ratio: float
+
+
+def sampling_diagnostics(
+    points: Sequence[Point2d],
+    polygons: Sequence[Polygon],
+    outline: Polygon,
+) -> SamplingDiagnostics | None:
+    """計画 probe 点の安全余裕と基板カバレッジ指標を計算する.
+
+    Args:
+        points: 計画 probe 点
+        polygons: 点が乗る対象ポリゴン群（例: 銅箔島）
+        outline: 基板外形ポリゴン
+
+    Returns:
+        SamplingDiagnostics。points が空の場合は None
+    """
+    if not points:
+        return None
+    clearances = [_clearance_to_polygons(p, polygons) for p in points]
+    hull = MultiPoint([(p.x, p.y) for p in points]).convex_hull
+    outline_area = outline.area
+    hull_ratio = hull.area / outline_area if outline_area > 0.0 else 0.0
+    return SamplingDiagnostics(
+        point_count=len(points),
+        min_clearance=min(clearances),
+        hull_area_ratio=hull_ratio,
+    )
+
+
+def _clearance_to_polygons(point: Point2d, polygons: Sequence[Polygon]) -> float:
+    """点が乗っているポリゴン境界までの最小距離を返す."""
+    shapely_point = ShapelyPoint(point.x, point.y)
+    containing = [p for p in polygons if p.covers(shapely_point)]
+    candidates = containing or list(polygons)
+    return min(p.boundary.distance(shapely_point) for p in candidates)
 
 
 def _collect_candidates(

@@ -177,22 +177,13 @@ def main() -> None:
             + gcode.wait_for_done()
         )
 
-        with PasteApplicator(
-            klipper=klipper,
-            paste_dispenser=paste_dispenser,
-            stage=stage,
-            nozzle_diameter=dispenser_config.nozzle_diameter,
-            fill_speed=dispenser_config.fill_speed,
-            max_dispense_rate=dispenser_config.max_dispense_rate,
-            dispense_accel=dispenser_config.dispense_accel,
-            ul_per_mm2=dispenser_config.ul_per_mm2,
-            retraction=dispenser_config.retract_amount,
-            retraction_rate=dispenser_config.retract_rate,
-            retraction_accel_factor=dispenser_config.retract_accel_factor,
-            paste_height=dispenser_config.paste_height,
-            prime_extra_delay=dispenser_config.prime_extra_delay,
-            lift_height=args.lift_height,
+        with PasteApplicator.from_config(
+            klipper,
+            paste_dispenser,
+            stage,
+            dispenser_config,
             transform=Identity(),
+            lift_height=args.lift_height,
         ) as applicator:
             interactive_loading(applicator, args.loading_amount)
 
