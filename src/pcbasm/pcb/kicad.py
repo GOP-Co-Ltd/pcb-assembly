@@ -8,14 +8,15 @@ Note:
     すべての座標は基板アウトラインの左上を原点として正規化される.
 """
 
+import logging
 from functools import cached_property
 from pathlib import Path
 
 import pcbnew
-import shapely.ops
-from shapely import MultiPolygon, Polygon
+from shapely import Polygon
 from shapely.affinity import translate
 
+from pcbasm.geometry.polygon import merge_islands
 from pcbasm.geometry.transform import Point2d
 
 from .board import (
@@ -28,6 +29,8 @@ from .board import (
     Pad,
     PadList,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PcbFile:
@@ -179,9 +182,18 @@ class PcbFile:
         """電気的・物理的に接続された銅箔島のリスト（左上原点に正規化済み）.
 
         各レイヤー（Top/Bottom）について、塗りつぶし済みゾーン・トラック・ビア
-        （pcbnewではTrack扱い）・パッドのポリゴンを集約し、unary_unionで結合した
-        うえで、連結成分ひとつを1つのCopperとして返す.
+        （pcbnewではTrack扱い）・パッドのポリゴンを集約し、結合・closing後の
+        連結成分ひとつを1つのCopperとして返す.
         """
+        # ゾーンのfillキャッシュがstaleな場合に備え、読み込み時に1回だけ再fillする
+        try:
+            pcbnew.ZONE_FILLER(self._board).Fill(self._board.Zones())
+        except Exception:
+            logger.warning(
+                "zoneの再fillに失敗したため、ファイル内のfillキャッシュを使用する",
+                exc_info=True,
+            )
+
         origin_x, origin_y = self._origin
         max_error = self._board.GetDesignSettings().m_MaxError
         coppers = CopperList()
@@ -195,10 +207,21 @@ class PcbFile:
         ):
             polygons: list[Polygon] = []
 
-            # ゾーンは事前に fill 済みのキャッシュを利用する（ここでは再 fill しない）
+            has_zone = False
+            zone_polygon_count = 0
             for zone in self._board.Zones():
                 if zone.IsOnLayer(kicad_layer):
-                    polygons.extend(to_polys(zone.GetFilledPolysList(kicad_layer)))
+                    has_zone = True
+                    zone_polygons = to_polys(zone.GetFilledPolysList(kicad_layer))
+                    zone_polygon_count += len(zone_polygons)
+                    polygons.extend(zone_polygons)
+
+            if has_zone and zone_polygon_count == 0:
+                logger.warning(
+                    "レイヤー %s にzoneがあるがfillポリゴンが空 "
+                    "(zone fillが空 = PCBデータ不整合の可能性)",
+                    layer.name,
+                )
 
             for track in self._board.GetTracks():
                 if not track.GetLayerSet().Contains(kicad_layer):
@@ -219,11 +242,9 @@ class PcbFile:
             if not polygons:
                 continue
 
-            merged = shapely.ops.unary_union(polygons)
-            islands = merged.geoms if isinstance(merged, MultiPolygon) else [merged]
+            islands = merge_islands(polygons, snap_mm=2 * _nm_to_mm(max_error))
             for island in islands:
-                if isinstance(island, Polygon) and not island.is_empty:
-                    coppers.append(Copper(layer=layer, polygon=island))
+                coppers.append(Copper(layer=layer, polygon=island))
 
         return coppers
 
