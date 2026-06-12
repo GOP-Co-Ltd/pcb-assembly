@@ -139,16 +139,21 @@ class PcbFile:
             for pad in footprint.Pads():
                 layer_set = pad.GetLayerSet()
 
-                target_layer = None
                 if layer_set.Contains(pcbnew.F_Paste):
-                    target_layer = pcbnew.F_Paste
+                    target_layer, copper_layer = pcbnew.F_Paste, pcbnew.F_Cu
                 elif layer_set.Contains(pcbnew.B_Paste):
-                    target_layer = pcbnew.B_Paste
-
-                if target_layer is None:
+                    target_layer, copper_layer = pcbnew.B_Paste, pcbnew.B_Cu
+                else:
                     continue
 
                 shape_poly_set = pad.GetEffectivePolygon(target_layer)
+                copper_polygons = (
+                    _shape_poly_set_to_polygons(
+                        pad.GetEffectivePolygon(copper_layer), origin_x, origin_y
+                    )
+                    if layer_set.Contains(copper_layer)
+                    else []
+                )
 
                 for outline_idx in range(shape_poly_set.OutlineCount()):
                     outline = shape_poly_set.Outline(outline_idx)
@@ -162,6 +167,7 @@ class PcbFile:
                     if points and points[0] != points[-1]:
                         points.append(points[0])
 
+                    paste_polygon = Polygon(points)
                     pads.append(
                         Pad(
                             designator=footprint.GetReference(),
@@ -170,7 +176,10 @@ class PcbFile:
                             layer=Layer.TOP
                             if target_layer == pcbnew.F_Paste
                             else Layer.BOTTOM,
-                            polygon=Polygon(points),
+                            polygon=paste_polygon,
+                            copper_polygon=_copper_polygon_for(
+                                paste_polygon, copper_polygons
+                            ),
                             is_custom_shape=pad.GetShape() == pcbnew.PAD_SHAPE_CUSTOM,
                         )
                     )
@@ -247,6 +256,20 @@ class PcbFile:
                 coppers.append(Copper(layer=layer, polygon=island))
 
         return coppers
+
+
+def _copper_polygon_for(
+    paste_polygon: Polygon, copper_polygons: list[Polygon]
+) -> Polygon:
+    """Paste polygonに対応する実銅箔ポリゴンを選ぶ.
+
+    複数outlineを持つpadではpaste重心を覆うものを選び、無ければ先頭を使う。
+    銅箔ポリゴンが得られないpad（銅箔層を持たない等）はpaste polygonへフォールバックする。
+    """
+    if not copper_polygons:
+        return paste_polygon
+    centroid = paste_polygon.centroid
+    return next((p for p in copper_polygons if p.covers(centroid)), copper_polygons[0])
 
 
 def _shape_poly_set_to_polygons(

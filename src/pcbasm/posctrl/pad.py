@@ -251,7 +251,7 @@ class PadAligner:
     def align(self, target: ComponentPads) -> PadAlignmentResult:
         """部品の座標へ移動し、銅箔照合で収束するまで位置補正する.
 
-        ROIは部品に属する全padポリゴンの投影bboxを覆うため、部品に
+        ROIは部品に属する全padの実銅箔ポリゴンの投影bboxを覆うため、部品に
         含まれる銅箔の輪郭で照合される。投影アンカーは部品の指令位置
         s0 に固定し、収束ループ中は再投影しない（毎反復同位置で
         再投影すると補正が収束しない）。
@@ -284,7 +284,7 @@ class PadAligner:
         # 投影とROIをアンカー s0 で固定する（ループ中は再投影しない）
         projection = self._projector.project(anchor)
         roi = self._projector.roi_of(
-            [p.polygon for p in target.pads],
+            [p.copper_polygon for p in target.pads],
             anchor,
             margin_mm=self._roi_margin_mm,
             min_size_mm=self._min_roi_mm,

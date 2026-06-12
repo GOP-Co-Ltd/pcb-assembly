@@ -33,14 +33,13 @@ from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
     BoardCalibrationResult,
     ComponentPads,
-    CopperEdgeMatcher,
     CopperProjector,
-    PadAligner,
     PadAlignmentResult,
+    PadAlignmentSession,
     display_at_point,
-    group_pads_by_component,
     machine_session,
     setup_board_calibration,
+    sorted_top_component_pads,
     wait_for_keypress,
 )
 from pcbasm.utils import setup_logging
@@ -121,61 +120,16 @@ def _show_pad_result(
 
 def _tour_pads(result: BoardCalibrationResult) -> None:
     """全padを巡回し、銅箔照合で自動位置合わせして結果を表示する."""
-    stage = result.stage
-    pcb = result.pcb
-    board_transform = result.board_transform
     pad_align = result.machine.paste_dispenser.pad_align
 
-    top_pads = [p for p in pcb.pads if p.layer == Layer.TOP]
-    print(f"TOPレイヤーのパッド数: {len(top_pads)}")
-    if not top_pads:
+    # padをdesignatorで部品へ対応付け、部品座標でnearest neighborソート
+    sorted_groups = sorted_top_component_pads(result)
+    print(f"padを持つ部品数: {len(sorted_groups)}")
+    if not sorted_groups:
         print("巡回するパッドがありません")
         return
 
-    polygons = [c.polygon for c in pcb.copper if c.layer == Layer.TOP]
-    frame = result.camera.capture()
-    projector = CopperProjector(
-        polygons=polygons,
-        board_transform=board_transform,
-        offset_transform=result.offset_transform,
-        pixel_per_mm=result.calibration.pixel_per_mm,
-        image_size=frame.size,
-    )
-    matcher = CopperEdgeMatcher(
-        pixel_per_mm=result.calibration.pixel_per_mm,
-        search_window_mm=pad_align.search_window,
-        theta_range_degrees=pad_align.theta_range,
-    )
-    edge_detector = CopperEdgeDetector(
-        canny_low=pad_align.canny_low,
-        canny_high=pad_align.canny_high,
-        blur_ksize=pad_align.blur_ksize,
-    )
-    aligner = PadAligner(
-        camera=result.camera,
-        klipper=result.klipper,
-        stage=stage,
-        projector=projector,
-        matcher=matcher,
-        edge_detector=edge_detector,
-        board_transform=board_transform,
-        offset_transform=result.offset_transform,
-        roi_margin_mm=pad_align.roi_margin,
-        min_roi_mm=pad_align.min_roi,
-        tolerance=pad_align.tolerance,
-        max_correction_mm=pad_align.max_correction,
-        window_name=WINDOW_NAME,
-    )
-
-    # padをdesignatorで部品へ対応付け、部品座標でnearest neighborソート
-    top_components = [c for c in pcb.components if c.layer == Layer.TOP]
-    groups = group_pads_by_component(top_components, top_pads)
-    print(f"padを持つ部品数: {len(groups)}")
-    current_pos = stage.get_position()
-    positions_3d = [g.component.position.to3d() for g in groups]
-    sorted_positions = sort_by_nearest(positions_3d, current_pos.to2d().to3d())
-    position_to_group = {g.component.position.to3d(): g for g in groups}
-    sorted_groups = [position_to_group[position] for position in sorted_positions]
+    session = PadAlignmentSession.from_calibration(result, window_name=WINDOW_NAME)
 
     alignments: list[tuple[ComponentPads, PadAlignmentResult]] = []
     aborted = False
@@ -185,15 +139,14 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
         progress = f"{designator} {i + 1}/{len(sorted_groups)}"
         print(f"--- {progress}: {len(group.pads)} pads ---")
 
-        try:
-            alignment = aligner.align(group)
-        except RuntimeError as exc:
-            print(f"警告: {progress} の照合に失敗: {exc}")
+        alignment = session.align(group)
+        if alignment is None:
+            print(f"警告: {progress} の照合に失敗")
             if _show_pad_result(
                 result,
-                projector,
-                edge_detector,
-                [p.polygon for p in group.pads],
+                session.projector,
+                session.edge_detector,
+                [p.copper_polygon for p in group.pads],
                 pad_align,
                 [progress, "FAILED"],
             ):
@@ -229,13 +182,12 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
     print(f"成功: {len(alignments)}/{len(sorted_groups)} 部品 ({aligned_pads} pads)")
 
     if not aborted and alignments:
-        _tour_corrected_pads(result, edge_detector, polygons, alignments)
+        _tour_corrected_pads(result, session, alignments)
 
 
 def _tour_corrected_pads(
     result: BoardCalibrationResult,
-    edge_detector: CopperEdgeDetector,
-    polygons: Sequence[Polygon],
+    session: PadAlignmentSession,
     alignments: list[tuple[ComponentPads, PadAlignmentResult]],
 ) -> None:
     """所属部品の補正Transformを適用した位置で全padを巡回する.
@@ -246,7 +198,6 @@ def _tour_corrected_pads(
     """
     stage = result.stage
     pad_align = result.machine.paste_dispenser.pad_align
-    image_size = result.camera.capture().size
 
     # 部品ごとに補正済みのboard変換とprojectorを作り、padごとの巡回先を集める
     entries: list[tuple[Pad, CopperProjector, Point2d]] = []
@@ -254,23 +205,16 @@ def _tour_corrected_pads(
         corrected_transform = Compose(
             [result.board_transform, alignment.machine_transform]
         )
-        corrected_projector = CopperProjector(
-            polygons=polygons,
-            board_transform=corrected_transform,
-            offset_transform=result.offset_transform,
-            pixel_per_mm=result.calibration.pixel_per_mm,
-            image_size=image_size,
-        )
+        corrected_projector = session.corrected_projector(alignment.machine_transform)
         for pad in group.pads:
             target = corrected_transform.apply(pad.center)
             entries.append((pad, corrected_projector, target))
 
     # 補正後の目標位置でnearest neighborソート
     current_pos = stage.get_position()
-    targets_3d = [target.to3d() for _, _, target in entries]
-    sorted_targets = sort_by_nearest(targets_3d, current_pos.to2d().to3d())
-    target_to_entry = {entry[2].to3d(): entry for entry in entries}
-    sorted_entries = [target_to_entry[target] for target in sorted_targets]
+    sorted_entries = sort_by_nearest(
+        entries, current_pos.to2d().to3d(), key=lambda entry: entry[2].to3d()
+    )
 
     print("\n=== 補正適用済みの全pad巡回 === (Escキーで中断)")
     for i, (pad, corrected_projector, target) in enumerate(sorted_entries):
@@ -285,8 +229,8 @@ def _tour_corrected_pads(
         if _show_pad_result(
             result,
             corrected_projector,
-            edge_detector,
-            [pad.polygon],
+            session.edge_detector,
+            [pad.copper_polygon],
             pad_align,
             lines,
         ):
@@ -370,14 +314,11 @@ def main() -> None:
         if top_components:
             # コンポーネント位置をnearest neighborでソート
             current_pos = stage.get_position()
-            comp_positions_3d = [c.position.to3d() for c in top_components]
-            sorted_positions = sort_by_nearest(
-                comp_positions_3d, current_pos.to2d().to3d()
+            sorted_components = sort_by_nearest(
+                top_components,
+                current_pos.to2d().to3d(),
+                key=lambda c: c.position.to3d(),
             )
-
-            # ソート順にコンポーネントを並べ替え
-            pos_to_comp = {c.position.to3d(): c for c in top_components}
-            sorted_components = [pos_to_comp[pos] for pos in sorted_positions]
 
             print("巡回開始... (Escキーで中断)")
             for i, comp in enumerate(sorted_components):
