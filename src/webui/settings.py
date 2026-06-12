@@ -27,6 +27,10 @@ class Settings:
     default_machine: str = "kurousagi"
     host: str = "0.0.0.0"
     port: int = 8080
+    fake_camera: bool = False
+    fake_camera_image: Path = (
+        PROJECT_ROOT / "data" / "testing" / "webui" / "fake_camera.png"
+    )
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -35,7 +39,9 @@ class Settings:
         対応する環境変数:
             PCBASM_WEBUI_CONFIGS_ROOT, PCBASM_WEBUI_DATA_DIR,
             PCBASM_WEBUI_PCB_ROOT, PCBASM_WEBUI_PRINTER_CFG_LINK,
-            PCBASM_MAINSAIL_URL, PCBASM_WEBUI_PORT
+            PCBASM_MAINSAIL_URL, PCBASM_WEBUI_PORT,
+            PCBASM_WEBUI_FAKE_CAMERA（"1" で固定画像カメラを使用）,
+            PCBASM_WEBUI_FAKE_CAMERA_IMAGE
 
         Raises:
             ValueError: PCBASM_WEBUI_PORT が整数として解釈できない場合
@@ -51,4 +57,8 @@ class Settings:
             ),
             mainsail_url=os.environ.get("PCBASM_MAINSAIL_URL", base.mainsail_url),
             port=int(port_env) if port_env else base.port,
+            fake_camera=os.environ.get("PCBASM_WEBUI_FAKE_CAMERA") == "1",
+            fake_camera_image=_env_path(
+                "PCBASM_WEBUI_FAKE_CAMERA_IMAGE", base.fake_camera_image
+            ),
         )

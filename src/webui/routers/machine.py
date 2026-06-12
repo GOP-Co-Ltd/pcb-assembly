@@ -5,7 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from webui.app import SettingsDep, StateDep, StoreDep
+from webui.app import PreviewDep, SettingsDep, StateDep, StoreDep
+from webui.preview import PreviewService
 from webui.settings import Settings
 from webui.state import AppState
 
@@ -23,6 +24,7 @@ class StateResponse(BaseModel):
     busy_owner: str | None
     focus_z: float | None
     mainsail_url: str
+    preview_clients: int
 
 
 class MachinesResponse(BaseModel):
@@ -30,7 +32,9 @@ class MachinesResponse(BaseModel):
     selected: str
 
 
-def build_state_response(state: AppState, settings: Settings) -> StateResponse:
+def build_state_response(
+    state: AppState, settings: Settings, preview: PreviewService
+) -> StateResponse:
     """現在のアプリ状態から StateResponse を構築する."""
     owner = state.busy_owner
     pcb = state.selected_pcb
@@ -41,12 +45,15 @@ def build_state_response(state: AppState, settings: Settings) -> StateResponse:
         busy_owner=owner,
         focus_z=state.focus_z(),
         mainsail_url=settings.mainsail_url,
+        preview_clients=preview.client_count,
     )
 
 
 @router.get("/state")
-def get_state(state: StateDep, settings: SettingsDep) -> StateResponse:
-    return build_state_response(state, settings)
+def get_state(
+    state: StateDep, settings: SettingsDep, preview: PreviewDep
+) -> StateResponse:
+    return build_state_response(state, settings, preview)
 
 
 @router.get("/machines")

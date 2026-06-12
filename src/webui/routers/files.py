@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from webui.app import SettingsDep, StateDep
+from webui.app import PreviewDep, SettingsDep, StateDep
 from webui.routers.machine import StateResponse, build_state_response
 
 router = APIRouter(prefix="/api")
@@ -65,7 +65,7 @@ def list_files(settings: SettingsDep, path: str = "") -> FilesResponse:
 
 @router.put("/pcb-file")
 def put_pcb_file(
-    body: PcbFileSelect, state: StateDep, settings: SettingsDep
+    body: PcbFileSelect, state: StateDep, settings: SettingsDep, preview: PreviewDep
 ) -> StateResponse:
     root = settings.pcb_browse_root.resolve()
     resolved = _resolve_under_root(root, body.path)
@@ -79,4 +79,4 @@ def put_pcb_file(
             status_code=404, detail=f"ファイルが存在しません: {body.path}"
         )
     state.select_pcb(resolved.relative_to(root))
-    return build_state_response(state, settings)
+    return build_state_response(state, settings, preview)

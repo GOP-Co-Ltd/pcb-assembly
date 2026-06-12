@@ -89,6 +89,8 @@ def put_machine_settings(
     machine = state.selected_machine
     with state.machine_lock("settings"):
         store.write_machine_settings(machine, body.values)
+        if any(key.startswith("camera.") for key in body.values):
+            state.rebuild_camera()
     return MachineSettingsResponse(
         machine=machine, fields=machine_settings_fields(store, machine)
     )

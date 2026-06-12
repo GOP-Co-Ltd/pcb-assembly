@@ -46,6 +46,12 @@ TAB_PHASES: dict[str, str] = {
     "posctrl": "Phase 2/4",
 }
 
+# 専用テンプレートを持つ feature（無いものは feature.html プレースホルダ）
+FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
+    ("posctrl", "camera_preview"): "posctrl/camera_preview.html",
+    ("posctrl", "copper_detection"): "posctrl/copper_detection.html",
+}
+
 router = APIRouter()
 
 
@@ -133,6 +139,14 @@ def feature_page(
         feature_label=_feature_label(feature),
         phase=TAB_PHASES[tab],
     )
+    if feature == "copper_detection":
+        pad_align = state.machine().paste_dispenser.pad_align
+        context.update(
+            canny_low=pad_align.canny_low,
+            canny_high=pad_align.canny_high,
+            blur_ksize=pad_align.blur_ksize,
+        )
+    template = FEATURE_TEMPLATES.get((tab, feature), "feature.html")
     return get_templates(request).TemplateResponse(
-        request=request, name="feature.html", context=context
+        request=request, name=template, context=context
     )

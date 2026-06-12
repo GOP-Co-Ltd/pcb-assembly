@@ -9,8 +9,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from pcbasm.config import Machine
+from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.vision import CalibrationResult
 from webui.config_store import ConfigStore
+from webui.fake_camera import FixedImageCamera
 from webui.settings import Settings
 
 _STATE_FILENAME = "webui_state.json"
@@ -49,6 +51,9 @@ class AppState:
         self._lock = threading.Lock()
         self._busy_owner: str | None = None
         self._state_path = settings.data_dir / _STATE_FILENAME
+        # カメラ/FrameHub の遅延構築用（machine_lock とは別の内部ロック）
+        self._camera_lock = threading.Lock()
+        self._frame_hub: FrameHub | None = None
 
         persisted = self._load_persisted()
         self._selected_machine = self._resolve_machine(persisted.get("machine"))
@@ -82,6 +87,7 @@ class AppState:
         with self.machine_lock("select-machine"):
             self._selected_machine = name
             self._persist()
+            self.rebuild_camera()
 
     def select_pcb(self, path: Path) -> None:
         """PCB ファイルを選択し永続化する.
@@ -111,6 +117,48 @@ class AppState:
             return CalibrationResult.load(calibration_file).z_position
         except Exception:
             return None
+
+    def frame_hub(self) -> FrameHub:
+        """選択マシン用の FrameHub を返す（初回アクセスで遅延構築）.
+
+        start はしない（PreviewService の責務）。
+
+        Raises:
+            OSError: カメラデバイスが見つからない・開けない場合
+            RuntimeError: カメラがフォーマット等をサポートしない場合
+        """
+        with self._camera_lock:
+            if self._frame_hub is None:
+                self._frame_hub = FrameHub(self._build_camera())
+            return self._frame_hub
+
+    def rebuild_camera(self) -> None:
+        """現行 FrameHub を停止し参照を破棄する（次回 frame_hub() で再構築）.
+
+        未構築なら no-op（冪等）。
+        """
+        with self._camera_lock:
+            hub = self._frame_hub
+            self._frame_hub = None
+        if hub is not None:
+            hub.stop()
+
+    def close(self) -> None:
+        """シャットダウン後始末（FrameHub 停止 + 参照破棄）."""
+        self.rebuild_camera()
+
+    def _build_camera(self) -> Camera:
+        if self._settings.fake_camera:
+            return FixedImageCamera(self._settings.fake_camera_image, fps=15.0)
+        camera = self.machine().camera
+        return create_camera(
+            device_id=camera.device_id,
+            width=camera.width,
+            height=camera.height,
+            fps=camera.fps,
+            format=camera.format,
+            backend=camera.backend,
+        )
 
     @contextmanager
     def machine_lock(self, owner: str) -> Iterator[None]:
