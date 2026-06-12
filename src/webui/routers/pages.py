@@ -181,16 +181,16 @@ def feature_page(
         definition = catalog.get(feature)
         context.update(job_name=definition.name, param_specs=definition.params)
         if tab == "pasting":
-            context.update(show_preview=feature in _PASTING_PREVIEW)
             loading_param = _PASTING_LOADING_PARAM.get(feature)
-            context.update(show_loading_controls=loading_param is not None)
+            context.update(
+                show_preview=feature in _PASTING_PREVIEW,
+                show_loading_controls=loading_param is not None,
+            )
             if loading_param is not None:
-                context.update(
-                    loading_default=next(
-                        spec.default
-                        for spec in definition.params
-                        if spec.name == loading_param
-                    )
+                context["loading_default"] = next(
+                    spec.default
+                    for spec in definition.params
+                    if spec.name == loading_param
                 )
     if feature == "copper_detection":
         pad_align = state.machine().paste_dispenser.pad_align

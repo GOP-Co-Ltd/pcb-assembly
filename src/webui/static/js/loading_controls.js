@@ -13,14 +13,20 @@
   const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
   const loadingStage = panel.dataset.loadingStage;
   const amountInput = document.getElementById("lc-amount");
-  const buttons = ["lc-extrude", "lc-suck", "lc-finish"].map((id) =>
-    document.getElementById(id)
-  );
+  const buttons = [];
+  for (const [id, type] of [
+    ["lc-extrude", "extrude"],
+    ["lc-suck", "suck"],
+    ["lc-finish", "finish"],
+  ]) {
+    const button = document.getElementById(id);
+    button.addEventListener("click", () => sendAction(type));
+    buttons.push(button);
+  }
 
   function update(job) {
     const enabled =
-      job !== null &&
-      job !== undefined &&
+      job != null &&
       !TERMINAL.has(job.status) &&
       job.accepts_commands &&
       job.progress_stage === loadingStage;
@@ -46,8 +52,4 @@
       toast("WebSocket 未接続のため送信できません", false);
     }
   }
-
-  document.getElementById("lc-extrude").addEventListener("click", () => sendAction("extrude"));
-  document.getElementById("lc-suck").addEventListener("click", () => sendAction("suck"));
-  document.getElementById("lc-finish").addEventListener("click", () => sendAction("finish"));
 })();

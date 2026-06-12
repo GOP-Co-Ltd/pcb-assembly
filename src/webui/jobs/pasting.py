@@ -22,7 +22,14 @@ from pcbasm.geometry import (
     sort_by_nearest,
     transform_polygon,
 )
-from pcbasm.hal import Klipper, PasteDispenser, ProbeGround, ServoGroundProbe, XYZStage
+from pcbasm.hal import (
+    Camera,
+    Klipper,
+    PasteDispenser,
+    ProbeGround,
+    ServoGroundProbe,
+    XYZStage,
+)
 from pcbasm.pasting import (
     FlowCalibration,
     PasteApplicator,
@@ -31,6 +38,7 @@ from pcbasm.pasting import (
 )
 from pcbasm.pcb import Layer, PcbFile
 from pcbasm.posctrl import (
+    BoardCalibrationResult,
     ComponentAlignments,
     ComponentPads,
     OffsetObserver,
@@ -81,12 +89,11 @@ def parse_loading_command(command: Mapping[str, Any]) -> LoadingAction | None:
     amount 欠落・非正・非数・未知 type は None。
     """
     match command:
-        case {"type": "extrude", "amount": amount}:
+        case {"type": "extrude" | "suck" as kind, "amount": amount}:
             value = _positive_amount(amount)
-            return Extrude(value) if value is not None else None
-        case {"type": "suck", "amount": amount}:
-            value = _positive_amount(amount)
-            return Extrude(-value) if value is not None else None
+            if value is None:
+                return None
+            return Extrude(value if kind == "extrude" else -value)
         case {"type": "finish"}:
             return Finish()
     return None
@@ -200,15 +207,33 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
 # --- 共有ヘルパ ---
 
 
-def _dispenser_rig(machine: Machine) -> tuple[Klipper, XYZStage, PasteDispenser]:
-    """移動コマンド用 Klipper / ステージ / ディスペンサー HAL の定型 3 点を作る."""
+def _setup_calibration(
+    ctx: JobContext, camera: Camera, tolerance: float
+) -> BoardCalibrationResult:
+    """Progress("セットアップ") → ボード計測セットアップの定型."""
+    assert ctx.pcb_path is not None  # requires_pcb=True
+    ctx.progress("セットアップ")
+    return setup_board_calibration(
+        machine=ctx.machine,
+        pcb_file_path=ctx.pcb_path,
+        tolerance=tolerance,
+        camera=camera,
+        frame_sink=ctx.frame,
+    )
+
+
+def _dispenser_rig(machine: Machine) -> tuple[Klipper, XYZStage, PasteApplicator]:
+    """移動コマンド用 Klipper / ステージ / config 構成済み applicator の定型 3 点を作る."""
     klipper = create_command_klipper(machine)
     stage = XYZStage(klipper.readonly)
     dispenser = PasteDispenser(
         klipper=klipper.readonly,
         rotations_per_ul=machine.paste_dispenser.rotations_per_ul,
     )
-    return klipper, stage, dispenser
+    applicator = PasteApplicator.from_config(
+        klipper, dispenser, stage, machine.paste_dispenser
+    )
+    return klipper, stage, applicator
 
 
 def _run_loading_loop(
@@ -274,16 +299,8 @@ def _prompt_positive_number(
 
 def _run_paste_solder(ctx: JobContext) -> JobResult:
     """ボード計測 → 銅箔照合 → 高さ計測 → 補正適用 → ペースト塗布を通しで実行する."""
-    assert ctx.pcb_path is not None  # requires_pcb=True
     with ctx.open_camera() as camera:
-        ctx.progress("セットアップ")
-        result = setup_board_calibration(
-            machine=ctx.machine,
-            pcb_file_path=ctx.pcb_path,
-            tolerance=float(ctx.params["tolerance"]),
-            camera=camera,
-            frame_sink=ctx.frame,
-        )
+        result = _setup_calibration(ctx, camera, float(ctx.params["tolerance"]))
         session = PasteSession.from_calibration(result)
         top_coppers = [c for c in session.pcb.copper if c.layer == Layer.TOP]
         top_pads = [p for p in session.pcb.pads if p.layer == Layer.TOP]
@@ -424,14 +441,7 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
         raise JobAborted()
 
     with ctx.open_camera() as camera:
-        ctx.progress("セットアップ")
-        result = setup_board_calibration(
-            machine=ctx.machine,
-            pcb_file_path=ctx.pcb_path,
-            tolerance=float(ctx.params["tolerance"]),
-            camera=camera,
-            frame_sink=ctx.frame,
-        )
+        result = _setup_calibration(ctx, camera, float(ctx.params["tolerance"]))
         session = PasteSession.from_calibration(result)
         ctx.progress("高さ計測")
         height_plane = session.height_measurer.measure(
@@ -466,10 +476,7 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
 
 def _run_loading(ctx: JobContext) -> JobResult:
     """ペーストの command 駆動ローディングを実行する（カメラ・PCB 不要）."""
-    klipper, stage, dispenser = _dispenser_rig(ctx.machine)
-    applicator = PasteApplicator.from_config(
-        klipper, dispenser, stage, ctx.machine.paste_dispenser
-    )
+    klipper, stage, applicator = _dispenser_rig(ctx.machine)
     with applicator:
         total = _run_loading_loop(ctx, klipper, stage, applicator)
     return JobResult(summary=f"押出合計 {total:+.3f} uL")
@@ -478,10 +485,8 @@ def _run_loading(ctx: JobContext) -> JobResult:
 def _run_flow_calibration(ctx: JobContext) -> JobResult:
     """N 回転の実押出から rotations_per_ul を算出し、設定反映候補にする."""
     rotations = float(ctx.params["rotations"])
-    klipper, stage, dispenser = _dispenser_rig(ctx.machine)
-    with PasteApplicator.from_config(
-        klipper, dispenser, stage, ctx.machine.paste_dispenser
-    ) as applicator:
+    klipper, stage, applicator = _dispenser_rig(ctx.machine)
+    with applicator:
         _run_loading_loop(ctx, klipper, stage, applicator)
 
         proceed = ctx.prompt(
@@ -521,21 +526,13 @@ def _run_flow_calibration(ctx: JobContext) -> JobResult:
 
 def _run_toolhead_offset(ctx: JobContext) -> JobResult:
     """ペースト吐出と円検出からカメラ-ツールヘッド間 XY オフセットを計測する."""
-    assert ctx.pcb_path is not None  # requires_pcb=True
     tolerance = float(ctx.params["tolerance"])
     lift_height = float(ctx.params["lift_height"])
     diameter_min = float(ctx.params["paste_diameter_min"])
     diameter_max = float(ctx.params["paste_diameter_max"])
 
     with ctx.open_camera() as camera:
-        ctx.progress("セットアップ")
-        result = setup_board_calibration(
-            machine=ctx.machine,
-            pcb_file_path=ctx.pcb_path,
-            tolerance=tolerance,
-            camera=camera,
-            frame_sink=ctx.frame,
-        )
+        result = _setup_calibration(ctx, camera, tolerance)
         machine = result.machine
         klipper = result.klipper
         stage = result.stage
