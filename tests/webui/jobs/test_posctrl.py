@@ -1,0 +1,477 @@
+"""`webui.jobs.posctrl` の仕様テスト.
+
+計画書 memory/agents/implementation-planner/webui-phase4.md
+「src/webui/jobs/posctrl.py」節 + spec §10 posctrl 表が契約:
+
+- catalog: posctrl 4 ジョブ（reference_point_setup / camera_calibration /
+  board_tour / orthogonality_test）の name / requires_pcb / uses_machine /
+  accepts_commands / params の default
+- orthogonality_metrics: board_transform から直行性指標（軸間角ずれ・軸
+  スケール）を導出する純粋関数。剛体変換は誤差ゼロ、shear で既知の角度誤差
+- camera_calibration: チェッカーボード FakeCamera でのフル結合（prompt 往復、
+  artifacts、Apply payload、Klipper 不通での Z best-effort = z_position None）
+- board_tour / orthogonality_test / reference_point_setup の異常系:
+  test-fixture（Klipper port 7126 非リッスン）で graceful FAILED + ロック解放 +
+  relax (M84) 失敗警告。成功系のステージ移動・照合は pcbasm テストと実機区分で
+  カバーする分担（計画書 §4）
+- 実機通し（実カメラ + 実 Klipper）は `@mark_hardware` でユーザー実行
+
+cv2 / Moonraker のモックは使わない（skill `testing-strategy`）。Klipper 不通は
+test-fixture の実ポートへの接続拒否で検証する。
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Iterator
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from pcbasm.geometry import Compose, Identity, Matrix2d, Rotation, Shift
+from pcbasm.vision import CalibrationResult, Image
+from tests.helpers import mark_hardware
+from webui.config_store import ConfigStore
+from webui.jobs.catalog import JobCatalog, default_catalog
+from webui.jobs.manager import JobManager, JobRecord, JobStatus
+from webui.jobs.posctrl import orthogonality_metrics, register_posctrl_jobs
+from webui.preview import PreviewService
+from webui.settings import Settings
+from webui.state import AppState
+
+from .conftest import WaitUntil
+
+POSCTRL_JOBS = (
+    "reference_point_setup",
+    "camera_calibration",
+    "board_tour",
+    "orthogonality_test",
+)
+
+# checkerboard.png は 400x400・1 マス約 66.7px。square_size=10mm で
+# pixel_per_mm ≈ 400/6/10 ≈ 6.67（tests/pcbasm/vision/test_calibration.py と
+# 同一素材）。crop は画像サイズに合わせる（既定 600 は 400px 画像をはみ出す）
+CHECKERBOARD_PARAMS = {"square_size": 10.0, "crop_width": 400, "crop_height": 400}
+CHECKERBOARD_PIXEL_PER_MM = 400 / 6 / 10
+
+
+@pytest.fixture
+def catalog() -> JobCatalog:
+    """Posctrl 4 ジョブのみ登録した catalog（jobs/conftest の manager が使う）."""
+    catalog = JobCatalog()
+    register_posctrl_jobs(catalog)
+    return catalog
+
+
+@pytest.fixture
+def checkerboard_state(
+    checkerboard_camera_settings: Settings, store: ConfigStore
+) -> Iterator[AppState]:
+    state = AppState(checkerboard_camera_settings, store)
+    yield state
+    state.close()
+
+
+@pytest.fixture
+def checkerboard_manager(
+    checkerboard_state: AppState,
+    checkerboard_camera_settings: Settings,
+    catalog: JobCatalog,
+) -> Iterator[JobManager]:
+    manager = JobManager(
+        checkerboard_state,
+        PreviewService(checkerboard_state),
+        catalog,
+        checkerboard_camera_settings,
+    )
+    yield manager
+    manager.shutdown()
+
+
+def _answer_next_prompt(
+    record: JobRecord,
+    manager: JobManager,
+    wait_until: WaitUntil,
+    answer: object,
+    answered: set[str],
+) -> None:
+    """未応答の prompt を待って answer を返す（応答済み id は answered で管理）."""
+    wait_until(
+        lambda: (pending := record.pending_prompt) is not None
+        and pending[0] not in answered
+    )
+    pending = record.pending_prompt
+    assert pending is not None
+    manager.respond_prompt(pending[0], answer)
+    answered.add(pending[0])
+
+
+class TestCatalog:
+    """default_catalog への posctrl 4 ジョブ登録（計画書「ジョブ定義表」のピン）."""
+
+    @pytest.fixture
+    def default(self) -> JobCatalog:
+        return default_catalog()
+
+    def test_posctrl_tab_has_exactly_phase4_jobs(self, default: JobCatalog):
+        names = {definition.name for definition in default.list(tab="posctrl")}
+
+        assert names == set(POSCTRL_JOBS)
+
+    @pytest.mark.parametrize(
+        ("name", "requires_pcb", "accepts_commands"),
+        [
+            ("reference_point_setup", False, True),
+            ("camera_calibration", False, False),
+            ("board_tour", True, False),
+            ("orthogonality_test", True, False),
+        ],
+    )
+    def test_job_flags(
+        self,
+        default: JobCatalog,
+        name: str,
+        requires_pcb: bool,
+        accepts_commands: bool,
+    ):
+        definition = default.get(name)
+
+        assert definition.requires_pcb is requires_pcb
+        assert definition.uses_machine is True  # 全 posctrl ジョブが装置を使う
+        assert definition.accepts_commands is accepts_commands
+
+    def test_reference_point_setup_has_no_params(self, default: JobCatalog):
+        assert default.get("reference_point_setup").params == ()
+
+    def test_camera_calibration_params(self, default: JobCatalog):
+        params = {spec.name: spec for spec in default.get("camera_calibration").params}
+
+        assert set(params) == {"square_size", "crop_width", "crop_height"}
+        assert params["square_size"].value_type == "float"
+        assert params["square_size"].default is None  # 必須
+        assert params["crop_width"].value_type == "int"
+        assert params["crop_width"].default == 600
+        assert params["crop_height"].value_type == "int"
+        assert params["crop_height"].default == 600
+
+    @pytest.mark.parametrize("name", ["board_tour", "orthogonality_test"])
+    def test_tolerance_param_defaults(self, default: JobCatalog, name: str):
+        params = {spec.name: spec for spec in default.get(name).params}
+
+        assert set(params) == {"tolerance"}
+        assert params["tolerance"].value_type == "float"
+        assert params["tolerance"].default == 0.1
+
+
+class TestOrthogonalityMetrics:
+    """orthogonality_metrics（board_transform → 直行性指標の純粋関数）.
+
+    数値定義は計画書「_run_orthogonality_test」節で新規確定したもの: axis_angle_error_deg =
+    変換後の X/Y 軸間角の 90° からのずれ、 scale_x = |T(1,0)−T(0,0)|, scale_y =
+    |T(0,1)−T(0,0)|。
+    """
+
+    def test_identity_has_zero_error_and_unit_scales(self):
+        metrics = orthogonality_metrics(Identity())
+
+        assert metrics.axis_angle_error_deg == pytest.approx(0.0, abs=1e-9)
+        assert metrics.scale_x == pytest.approx(1.0, abs=1e-9)
+        assert metrics.scale_y == pytest.approx(1.0, abs=1e-9)
+
+    def test_rigid_transform_has_zero_error(self):
+        """回転 + 並進（実機の正常な board_transform 相当）は誤差ゼロ."""
+        metrics = orthogonality_metrics(Compose([Rotation(30.0), Shift(10.0, -5.0)]))
+
+        assert metrics.axis_angle_error_deg == pytest.approx(0.0, abs=1e-9)
+        assert metrics.scale_x == pytest.approx(1.0, abs=1e-9)
+        assert metrics.scale_y == pytest.approx(1.0, abs=1e-9)
+
+    def test_shear_yields_known_axis_angle_error(self):
+        """X 軸方向の shear（tan 2°）→ 軸間角が 88° = ずれの大きさ 2°.
+
+        符号の物理的解釈は実機検証待ち（計画書 判断保留点 2）のため、 大きさのみをピンする。
+        """
+        shear = Matrix2d(np.array([[1.0, math.tan(math.radians(2.0))], [0.0, 1.0]]))
+
+        metrics = orthogonality_metrics(shear)
+
+        assert abs(metrics.axis_angle_error_deg) == pytest.approx(2.0, abs=1e-6)
+        assert metrics.scale_x == pytest.approx(1.0, abs=1e-9)
+        # Y 軸単位ベクトル (tan2°, 1) の長さ = 1/cos2°
+        assert metrics.scale_y == pytest.approx(
+            1.0 / math.cos(math.radians(2.0)), abs=1e-9
+        )
+
+    def test_shear_error_is_rotation_invariant(self):
+        """剛体変換の合成は指標を変えない（座標系の取り方に依存しない）."""
+        shear = Matrix2d(np.array([[1.0, math.tan(math.radians(2.0))], [0.0, 1.0]]))
+        composed = Compose([shear, Rotation(45.0), Shift(3.0, 7.0)])
+
+        plain = orthogonality_metrics(shear)
+        rotated = orthogonality_metrics(composed)
+
+        assert rotated.axis_angle_error_deg == pytest.approx(
+            plain.axis_angle_error_deg, abs=1e-9
+        )
+        assert rotated.scale_x == pytest.approx(plain.scale_x, abs=1e-9)
+        assert rotated.scale_y == pytest.approx(plain.scale_y, abs=1e-9)
+
+    def test_axis_scales_match_diagonal_matrix(self):
+        metrics = orthogonality_metrics(Matrix2d(np.array([[2.0, 0.0], [0.0, 0.5]])))
+
+        assert metrics.axis_angle_error_deg == pytest.approx(0.0, abs=1e-9)
+        assert metrics.scale_x == pytest.approx(2.0, abs=1e-9)
+        assert metrics.scale_y == pytest.approx(0.5, abs=1e-9)
+
+
+class TestCameraCalibrationJob:
+    """camera_calibration のフル結合（FakeCamera + test-fixture、装置なし）."""
+
+    def test_full_run_with_checkerboard_yields_apply_payload(
+        self,
+        checkerboard_manager: JobManager,
+        checkerboard_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        """チェッカーボード画像で SUCCEEDED まで完走し Apply payload を返す.
+
+        - prompt(confirm) に True 応答で撮影 → 検出成功
+        - Z は best-effort: Klipper 不通（port 7126）でも続行し z_position=None、
+          summary に「未取得」（ユーザー決定 2026-06-12）
+        - artifacts: コーナー描画 PNG（image）+ calibration JSON（file）。
+          JSON は CalibrationResult.load で読め、数値が素材と整合する
+        - apply: values は camera.calibration_file のみ、files に JSON 1 件
+        """
+        record = checkerboard_manager.start("camera_calibration", CHECKERBOARD_PARAMS)
+        answered: set[str] = set()
+        _answer_next_prompt(record, checkerboard_manager, wait_until, True, answered)
+        wait_until(lambda: record.status.terminal, timeout=30.0)
+
+        assert record.status == JobStatus.SUCCEEDED
+        result = record.result
+        assert result is not None
+        assert result.summary is not None
+        assert "未取得" in result.summary  # Z best-effort 失敗の明示
+
+        kinds = {artifact.kind for artifact in result.artifacts}
+        assert kinds == {"image", "file"}
+        artifacts_root = checkerboard_camera_settings.data_dir / "webui"
+        png_artifact = next(a for a in result.artifacts if a.kind == "image")
+        json_artifact = next(a for a in result.artifacts if a.kind == "file")
+        Image.load(artifacts_root / png_artifact.path)  # 読めなければ例外
+        loaded = CalibrationResult.load(artifacts_root / json_artifact.path)
+        assert loaded.pixel_per_mm == pytest.approx(CHECKERBOARD_PIXEL_PER_MM, rel=0.01)
+        assert loaded.z_position is None  # Klipper 不通 → 記録なし
+
+        assert record.apply_available is True
+        payload = checkerboard_manager.apply_payload()
+        filename = payload.values["camera.calibration_file"]
+        assert isinstance(filename, str)
+        assert filename.endswith(".json")
+        assert set(payload.values) == {"camera.calibration_file"}
+        assert len(payload.files) == 1
+        assert payload.files[0].filename == filename
+
+    def test_decline_first_prompt_aborts_without_apply(
+        self, checkerboard_manager: JobManager, wait_until: WaitUntil
+    ):
+        """撮影確認に「いいえ」→ ABORTED（Apply なし）."""
+        record = checkerboard_manager.start("camera_calibration", CHECKERBOARD_PARAMS)
+        answered: set[str] = set()
+        _answer_next_prompt(record, checkerboard_manager, wait_until, False, answered)
+        wait_until(lambda: record.status.terminal, timeout=30.0)
+
+        assert record.status == JobStatus.ABORTED
+        assert record.apply_available is False
+
+    def test_undetectable_image_logs_warning_and_reprompts(
+        self, manager: JobManager, wait_until: WaitUntil
+    ):
+        """検出不能画像（fake_camera.png）→ 警告 log 後に再 prompt で継続できる.
+
+        jobs/conftest の manager は既定の fake_camera.png（チェッカーボード なし）を使う。再
+        prompt に「いいえ」で中止できる。
+        """
+        record = manager.start("camera_calibration", CHECKERBOARD_PARAMS)
+        answered: set[str] = set()
+        _answer_next_prompt(record, manager, wait_until, True, answered)
+
+        # 検出失敗 → 警告 log → 2 回目の prompt（別 id）が来る
+        _answer_next_prompt(record, manager, wait_until, False, answered)
+        wait_until(lambda: record.status.terminal, timeout=30.0)
+
+        assert len(answered) == 2
+        assert "検出できませんでした" in "\n".join(record.log_lines)
+        assert record.status == JobStatus.ABORTED
+
+
+class TestMachineJobsWithoutKlipper:
+    """装置ジョブの graceful FAILED（test-fixture: port 7126 = 接続拒否）.
+
+    成功系のステージ移動・照合は pcbasm のテスト（test_setup / test_alignment）
+    と実機区分でカバーする分担（計画書 §4）。
+    """
+
+    @pytest.mark.parametrize("name", ["board_tour", "orthogonality_test"])
+    def test_pcb_job_fails_gracefully_and_releases_lock(
+        self,
+        manager: JobManager,
+        state: AppState,
+        real_pcb_path: Path,
+        wait_until: WaitUntil,
+        name: str,
+    ):
+        state.select_pcb(real_pcb_path)
+        record = manager.start(name, {})
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+        wait_until(lambda: state.busy_owner is None)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error  # 接続エラーが error に載る
+        assert "M84" in "\n".join(record.log_lines)  # relax 失敗警告（manager 経由）
+        with state.machine_lock("after-failed-job"):  # ロックは解放済み
+            pass
+
+    def test_reference_point_setup_fails_gracefully_without_klipper(
+        self, manager: JobManager, state: AppState, wait_until: WaitUntil
+    ):
+        """ホーミング（G28）で Klipper 不通 → FAILED + ロック解放."""
+        record = manager.start("reference_point_setup", {})
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+        wait_until(lambda: state.busy_owner is None)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error
+        assert "M84" in "\n".join(record.log_lines)
+        with state.machine_lock("after-failed-job"):
+            pass
+
+    @pytest.mark.parametrize("name", ["board_tour", "orthogonality_test"])
+    def test_pcb_job_without_selection_raises_value_error(
+        self, manager: JobManager, name: str
+    ):
+        """requires_pcb=True: PCB 未選択は開始前に ValueError（→ 400）."""
+        with pytest.raises(ValueError):
+            manager.start(name, {})
+
+
+@pytest.fixture
+def real_state(real_settings: Settings) -> Iterator[AppState]:
+    """実機（実 Moonraker, kurousagi）向け AppState。`@mark_hardware` 専用."""
+    state = AppState(real_settings, ConfigStore(real_settings.configs_root))
+    yield state
+    state.close()
+
+
+@pytest.fixture
+def real_manager(
+    real_state: AppState, real_settings: Settings, catalog: JobCatalog
+) -> Iterator[JobManager]:
+    manager = JobManager(real_state, PreviewService(real_state), catalog, real_settings)
+    yield manager
+    manager.shutdown(timeout=60.0)
+
+
+@mark_hardware
+class TestPosctrlHardware:
+    """実機通し（実カメラ + 実 Moonraker、configs/kurousagi）。ユーザー実行.
+
+    前提（計画書 §5「ユーザーへ引き継ぐ実機確認項目」）:
+
+    - Moonraker が localhost:7125 で稼働し、各軸がホーミング可能であること
+    - 実カメラが接続済みでキャリブレーション済みであること
+    - camera_calibration: 1 マス 1.5mm の実チェッカーボードを視野に配置
+    - board_tour / orthogonality_test: data/testing/fill_coverage の基板が
+      ステージにセットされ、基準点マーカーが視野に入ること
+    """
+
+    def test_reference_point_setup_jog_and_record_yields_apply(
+        self, real_manager: JobManager, wait_until: WaitUntil
+    ):
+        """ジョグ → record で現在位置が Apply payload になる（spec §8）."""
+        record = real_manager.start("reference_point_setup", {})
+        wait_until(lambda: record.status == JobStatus.RUNNING, timeout=30.0)
+        # command はキューに積まれ、ホーミング完了後のループで順に消費される
+        real_manager.submit_command({"type": "jog", "axis": "x", "dist": 0.1})
+        real_manager.submit_command({"type": "record"})
+        wait_until(lambda: record.status.terminal, timeout=300.0)
+
+        assert record.status == JobStatus.SUCCEEDED
+        result = record.result
+        assert result is not None
+        assert result.summary is not None
+        assert "基準点" in result.summary
+        assert result.apply is not None
+        assert set(result.apply.values) == {"reference_point.x", "reference_point.y"}
+        for value in result.apply.values.values():
+            assert isinstance(value, float)
+
+    def test_reference_point_setup_quit_aborts_without_apply(
+        self, real_manager: JobManager, wait_until: WaitUntil
+    ):
+        record = real_manager.start("reference_point_setup", {})
+        wait_until(lambda: record.status == JobStatus.RUNNING, timeout=30.0)
+        real_manager.submit_command({"type": "quit"})
+        wait_until(lambda: record.status.terminal, timeout=300.0)
+
+        assert record.status == JobStatus.ABORTED
+        assert record.apply_available is False
+
+    def test_camera_calibration_records_z_position(
+        self,
+        real_manager: JobManager,
+        real_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        """実チェッカーボードで z_position が記録される（Z best-effort 成功側）."""
+        record = real_manager.start("camera_calibration", {"square_size": 1.5})
+        answered: set[str] = set()
+        _answer_next_prompt(record, real_manager, wait_until, True, answered)
+
+        # 検出失敗なら再 prompt が来る → 中止してセットアップ不備として fail
+        wait_until(
+            lambda: record.status.terminal
+            or (
+                (pending := record.pending_prompt) is not None
+                and pending[0] not in answered
+            ),
+            timeout=120.0,
+        )
+        if not record.status.terminal:
+            _answer_next_prompt(record, real_manager, wait_until, False, answered)
+            pytest.fail("チェッカーボードが検出されません。視野に配置してください")
+
+        assert record.status == JobStatus.SUCCEEDED
+        result = record.result
+        assert result is not None
+        json_artifact = next(a for a in result.artifacts if a.kind == "file")
+        loaded = CalibrationResult.load(
+            real_settings.data_dir / "webui" / json_artifact.path
+        )
+        assert loaded.z_position is not None  # 実 Klipper から Z を取得
+
+    @pytest.mark.parametrize(
+        ("name", "summary_keyword"),
+        [("board_tour", "照合"), ("orthogonality_test", "軸間角")],
+    )
+    def test_machine_job_runs_to_success(
+        self,
+        real_manager: JobManager,
+        real_state: AppState,
+        wait_until: WaitUntil,
+        name: str,
+        summary_keyword: str,
+    ):
+        """セットアップ → 巡回（→ 照合）の通しが SUCCEEDED で完了する."""
+        real_state.select_pcb(
+            Path("data/testing/fill_coverage/fill_coverage.kicad_pcb")
+        )
+        record = real_manager.start(name, {})
+        wait_until(lambda: record.status.terminal, timeout=900.0)
+
+        assert record.status == JobStatus.SUCCEEDED
+        result = record.result
+        assert result is not None
+        assert result.summary is not None
+        assert summary_keyword in result.summary

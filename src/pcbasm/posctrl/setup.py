@@ -9,7 +9,6 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import attrs
-import cv2
 
 from pcbasm import gcode
 from pcbasm.config import Machine
@@ -22,6 +21,7 @@ from pcbasm.posctrl.position import XYPositionAdjustor
 from pcbasm.vision import (
     CalibrationResult,
     CircleDetector,
+    FrameSink,
     draw_overlay,
     safe_move_distance,
 )
@@ -40,13 +40,23 @@ class OffsetObserver:
         detector: CircleDetector,
         camera: Camera,
         crop_size: tuple[int, int],
-        window_name: str,
+        *,
+        frame_sink: FrameSink | None = None,
         sample_count: int = 30,
     ) -> None:
+        """OffsetObserverを初期化する.
+
+        Args:
+            detector: 円検出器
+            camera: カメラ
+            crop_size: 関心領域サイズ (width, height)
+            frame_sink: 検出成功時に注釈画像を送る sink。Noneの場合は送らない
+            sample_count: 統計検出に使うフレーム数
+        """
         self._detector = detector
         self._camera = camera
         self._crop_size = crop_size
-        self._window_name = window_name
+        self._frame_sink = frame_sink
         self._sample_count = sample_count
 
     def observe(self) -> Transform:
@@ -61,9 +71,11 @@ class OffsetObserver:
         if result is None:
             raise RuntimeError("検出に失敗しました")
 
-        display = draw_overlay(self._camera.capture(), self._crop_size, result.mean_mm)
-        cv2.imshow(self._window_name, display.numpy())
-        cv2.waitKey(1)
+        if self._frame_sink is not None:
+            display = draw_overlay(
+                self._camera.capture(), self._crop_size, result.mean_mm
+            )
+            self._frame_sink(display)
 
         return Shift(result.mean_mm.x, result.mean_mm.y)
 
@@ -86,9 +98,19 @@ def setup_board_calibration(
     machine: Machine,
     pcb_file_path: Path,
     tolerance: float = 0.1,
-    window_name: str = "Calibration",
+    *,
+    camera: Camera | None = None,
+    frame_sink: FrameSink | None = None,
 ) -> BoardCalibrationResult:
-    """マシン初期化からBoard変換計測までの共通セットアップを実行する."""
+    """マシン初期化からBoard変換計測までの共通セットアップを実行する.
+
+    Args:
+        machine: マシン設定
+        pcb_file_path: KiCADファイルのパス
+        tolerance: 位置合わせの許容誤差 (mm)
+        camera: 使用するカメラ。Noneの場合はマシン設定から生成する
+        frame_sink: 検出注釈画像を送る sink。Noneの場合は表示しない
+    """
     # PCBファイル読み込み
     logger.info("=== PCBファイル読み込み ===")
     pcb = PcbFile(pcb_file_path)
@@ -106,14 +128,15 @@ def setup_board_calibration(
     # カメラ初期化
     logger.info("=== カメラ初期化 ===")
     cam_config = machine.camera
-    camera = create_camera(
-        device_id=cam_config.device_id,
-        width=cam_config.width,
-        height=cam_config.height,
-        fps=cam_config.fps,
-        format=cam_config.format,
-        backend=cam_config.backend,
-    )
+    if camera is None:
+        camera = create_camera(
+            device_id=cam_config.device_id,
+            width=cam_config.width,
+            height=cam_config.height,
+            fps=cam_config.fps,
+            format=cam_config.format,
+            backend=cam_config.backend,
+        )
     logger.info("カメラ: %s", camera.info.name)
     logger.info("解像度: %sx%s", cam_config.width, cam_config.height)
 
@@ -149,13 +172,11 @@ def setup_board_calibration(
     time.sleep(1.0)
 
     # オフセット検出関数を定義
-    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
-
     observer = OffsetObserver(
         detector=detector,
         camera=camera,
         crop_size=cam_config.crop.size,
-        window_name=window_name,
+        frame_sink=frame_sink,
     )
 
     # カメラ回転角の計測（2点法）
@@ -205,9 +226,8 @@ def setup_board_calibration(
 
 @contextmanager
 def machine_session(klipper: Klipper) -> Generator[None]:
-    """マシンセッションのクリーンアップを管理するコンテキストマネージャ."""
+    """マシンセッションのクリーンアップ（終了時 M84）を管理するコンテキストマネージャ."""
     try:
         yield
     finally:
         klipper.send_gcode("M84")
-        cv2.destroyAllWindows()

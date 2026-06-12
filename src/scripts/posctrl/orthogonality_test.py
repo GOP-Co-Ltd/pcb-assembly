@@ -15,13 +15,17 @@ import argparse
 import logging
 from pathlib import Path
 
+import cv2
+
 from pcbasm.config import get_machine_config
 from pcbasm.geometry import Point2d, sort_by_nearest
 from pcbasm.pcb import Layer
 from pcbasm.posctrl import (
+    BoardCalibrationResult,
     interactive_display_at_point,
     machine_session,
     setup_board_calibration,
+    window_sink,
 )
 from pcbasm.utils import setup_logging
 
@@ -57,13 +61,20 @@ def main() -> None:
     args = parser.parse_args()
 
     machine = get_machine_config(args.machine)
-    result = setup_board_calibration(
-        machine=machine,
-        pcb_file_path=args.pcb_file,
-        tolerance=args.tolerance,
-        window_name=WINDOW_NAME,
-    )
+    try:
+        result = setup_board_calibration(
+            machine=machine,
+            pcb_file_path=args.pcb_file,
+            tolerance=args.tolerance,
+            frame_sink=window_sink(WINDOW_NAME),
+        )
+        _run_tour(result)
+    finally:
+        cv2.destroyAllWindows()
 
+
+def _run_tour(result: BoardCalibrationResult) -> None:
+    """四隅・グリッド交点の対話巡回ループ."""
     with machine_session(result.klipper):
         board_transform = result.board_transform
         outline = result.pcb.outline

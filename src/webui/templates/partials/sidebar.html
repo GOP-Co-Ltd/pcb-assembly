@@ -1,0 +1,14 @@
+<nav class="features">
+  <ul>
+    {% for slug in features %}
+    <li>
+      <a href="/{{ active_tab }}/{{ slug }}"
+         class="{% if slug == active_feature %}active{% endif %}">
+        {{ feature_labels[slug] }}
+      </a>
+    </li>
+    {% else %}
+    <li class="placeholder">（未実装）</li>
+    {% endfor %}
+  </ul>
+</nav>

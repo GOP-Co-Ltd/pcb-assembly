@@ -28,15 +28,18 @@ class Klipper:
         position = klipper.get_status("gcode_move", "gcode_position")
     """
 
-    def __init__(self, host: str = "localhost", port: int = 7125) -> None:
+    def __init__(
+        self, host: str = "localhost", port: int = 7125, timeout: float | None = None
+    ) -> None:
         """Klipperクライアントを初期化する.
 
         Args:
             host: MoonrakerサーバーのホストIPアドレス
             port: Moonrakerサーバーのポート番号
+            timeout: HTTPリクエストのタイムアウト秒数（Noneは無制限）
         """
         self._base_url = f"http://{host}:{port}"
-        self._client = httpx.Client(timeout=None)
+        self._client = httpx.Client(timeout=timeout)
         self._readonly = ReadonlyKlipper(self)
 
     def __del__(self) -> None:

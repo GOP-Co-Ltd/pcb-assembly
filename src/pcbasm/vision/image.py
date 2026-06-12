@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Self
 
@@ -11,6 +12,7 @@ import numpy.typing as npt
 
 type ImageArray = npt.NDArray[Any]
 type ImageSize = tuple[int, int]
+type FrameSink = Callable[["Image"], None]
 
 
 def safe_move_distance(roi_size: tuple[float, float], margin: float = 0.2) -> float:

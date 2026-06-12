@@ -1,0 +1,7 @@
+{% extends "tab.html" %}
+{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+{% include "partials/job_form.html" %}
+{% include "partials/job_console.html" %}
+{% endblock %}

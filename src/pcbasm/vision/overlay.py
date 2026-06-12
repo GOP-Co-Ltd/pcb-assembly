@@ -3,7 +3,28 @@
 import cv2
 
 from pcbasm.geometry import Point2d
+from pcbasm.vision.detection import DetectedCircle
 from pcbasm.vision.image import Image, ImageArray
+
+
+def draw_detected_circle(
+    img: ImageArray, circle: DetectedCircle, crop_size: tuple[int, int]
+) -> None:
+    """検出円・その中心・カメラ中心と結ぶ線を描画する（in-place）.
+
+    circle.center はクロップ座標系（原点はクロップ左上）なので、 フル画像座標へ変換する。
+    """
+    h, w = img.shape[:2]
+    cx, cy = w // 2, h // 2
+    half_w, half_h = crop_size[0] // 2, crop_size[1] // 2
+
+    circle_x = int(cx - half_w + circle.center.x)
+    circle_y = int(cy - half_h + circle.center.y)
+    radius = int(circle.radius)
+
+    cv2.circle(img, (circle_x, circle_y), radius, (0, 0, 255), 2)
+    cv2.circle(img, (circle_x, circle_y), 3, (0, 0, 255), -1)
+    cv2.line(img, (cx, cy), (circle_x, circle_y), (255, 0, 0), 2)
 
 
 def draw_crosshair(img: ImageArray) -> None:

@@ -4,7 +4,6 @@ import logging
 from collections.abc import Sequence
 
 import attrs
-import cv2
 
 from pcbasm import gcode
 from pcbasm.geometry import Point2d, Rotation, Transform
@@ -19,12 +18,9 @@ from pcbasm.posctrl.copper import (
 )
 from pcbasm.posctrl.correction import to_machine_transform
 from pcbasm.posctrl.position import XYPositionAdjustor
+from pcbasm.posctrl.render import render_edge_match
 from pcbasm.utils import get_class_module_path
-from pcbasm.vision import CopperEdgeDetector, Image, ImageArray, draw_crosshair
-
-_EXPECTED_COLOR = (0, 0, 255)  # 想定エッジの表示色 (BGR: 赤)
-_DETECTED_COLOR = (0, 255, 0)  # 検出エッジの表示色 (BGR: 緑)
-_ROI_COLOR = (255, 255, 255)  # ROI枠の表示色 (BGR: 白)
+from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 
 @attrs.frozen
@@ -79,7 +75,7 @@ class CopperPadObserver:
         matcher: CopperEdgeMatcher,
         projection: CopperProjection,
         roi: PixelRect,
-        window_name: str | None = None,
+        frame_sink: FrameSink | None = None,
         max_offset_mm: float | None = None,
     ) -> None:
         """CopperPadObserverを初期化する.
@@ -90,8 +86,8 @@ class CopperPadObserver:
             matcher: エッジ照合器
             projection: アンカー位置で固定した想定銅箔の投影
             roi: 照合に使うROI矩形（全画面px）
-            window_name: 観測ごとに照合状況を表示するウィンドウ名。
-                Noneの場合は表示しない
+            frame_sink: 観測ごとに照合状況フレームを送る sink。
+                Noneの場合は送らない
             max_offset_mm: 照合ずれの許容上限（mm）。boardキャリブレーション
                 済みでpadはほぼ合っている前提のもと、これを超えるずれは
                 誤マッチとみなして照合失敗にする。Noneの場合は無制限
@@ -101,7 +97,7 @@ class CopperPadObserver:
         self._matcher = matcher
         self._projection = projection
         self._roi = roi
-        self._window_name = window_name
+        self._frame_sink = frame_sink
         self._max_offset_mm = max_offset_mm
         self._last_match: RigidEdgeMatch | None = None
 
@@ -117,8 +113,10 @@ class CopperPadObserver:
         """
         image = self._camera.capture()
         edges = self._edge_detector.detect_edges(image)
-        if self._window_name is not None:
-            self._show(self._window_name, image, edges)
+        if self._frame_sink is not None:
+            self._frame_sink(
+                render_edge_match(image, edges, self._projection.edge_mask, self._roi)
+            )
         match = self._matcher.match_rigid(
             edges, self._projection.edge_mask, roi=self._roi
         )
@@ -132,18 +130,6 @@ class CopperPadObserver:
             )
         self._last_match = match
         return match.camera_transform
-
-    def _show(self, window_name: str, image: Image, edges: ImageArray) -> None:
-        """ROI枠と想定（赤）・検出（緑）エッジ、中心十字を重ねて表示する."""
-        x0, y0, x1, y1 = self._roi
-        display = image.numpy().copy()
-        roi_view = display[y0:y1, x0:x1]
-        roi_view[self._projection.edge_mask[y0:y1, x0:x1] > 0] = _EXPECTED_COLOR
-        roi_view[edges[y0:y1, x0:x1] > 0] = _DETECTED_COLOR
-        cv2.rectangle(display, (x0, y0), (x1 - 1, y1 - 1), _ROI_COLOR, 1)
-        draw_crosshair(display)
-        cv2.imshow(window_name, display)
-        cv2.waitKey(1)
 
     @property
     def last_match(self) -> RigidEdgeMatch | None:
@@ -208,7 +194,7 @@ class PadAligner:
         max_correction_mm: float | None = 1.0,
         max_iterations: int = 10,
         settle_time: float = 0.5,
-        window_name: str | None = None,
+        frame_sink: FrameSink | None = None,
     ) -> None:
         """PadAlignerを初期化する.
 
@@ -228,8 +214,8 @@ class PadAligner:
                 超過は誤マッチとみなして照合失敗にする。Noneは無制限
             max_iterations: 収束ループの最大反復回数
             settle_time: 移動後の安定待機時間（秒）
-            window_name: 観測ごとに照合状況を表示するウィンドウ名。
-                Noneの場合は表示しない
+            frame_sink: 観測ごとに照合状況フレームを送る sink。
+                Noneの場合は送らない
         """
         self._camera = camera
         self._klipper = klipper
@@ -245,7 +231,7 @@ class PadAligner:
         self._max_correction_mm = max_correction_mm
         self._max_iterations = max_iterations
         self._settle_time = settle_time
-        self._window_name = window_name
+        self._frame_sink = frame_sink
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
@@ -297,7 +283,7 @@ class PadAligner:
             matcher=self._matcher,
             projection=projection,
             roi=roi,
-            window_name=self._window_name,
+            frame_sink=self._frame_sink,
             max_offset_mm=self._max_correction_mm,
         )
         adjustor = XYPositionAdjustor(

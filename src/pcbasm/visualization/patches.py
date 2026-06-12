@@ -1,4 +1,4 @@
-"""可視化ヘルパー: shapelyジオメトリをmatplotlibアーティストに変換する."""
+"""Shapely ジオメトリを matplotlib アーティストに変換するヘルパー."""
 
 from matplotlib.patches import PathPatch
 from matplotlib.path import Path as MplPath
