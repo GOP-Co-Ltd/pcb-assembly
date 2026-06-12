@@ -6,6 +6,10 @@
 - 409: machine_lock 取得失敗（detail に owner）
 - 502: Moonraker 接続不能（test-fixture port 7126 への実接続で検証、モック不使用）
 - 200: 実機（実 Moonraker）での操作完了 → `@mark_hardware`（ユーザー実行）
+
+Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変更」節）:
+
+- action="gcode": gcode 欠落・空文字は 400、送信成功系は実機区分
 """
 
 import json
@@ -46,6 +50,38 @@ class TestMachineControlValidation:
         response = client.post("/api/machine-control", json={"action": "focus_z"})
 
         assert response.status_code == 400
+
+
+class TestGcodeAction:
+    """Action="gcode"（Phase 3: dev タブの任意 G-code 送信）."""
+
+    def test_missing_gcode_returns_400(self, client: TestClient):
+        response = client.post("/api/machine-control", json={"action": "gcode"})
+
+        assert response.status_code == 400
+
+    def test_empty_gcode_returns_400(self, client: TestClient):
+        response = client.post(
+            "/api/machine-control", json={"action": "gcode", "gcode": ""}
+        )
+
+        assert response.status_code == 400
+
+    def test_unreachable_moonraker_returns_502(self, client: TestClient):
+        response = client.post(
+            "/api/machine-control", json={"action": "gcode", "gcode": "M400"}
+        )
+
+        assert response.status_code == 502
+
+    @mark_hardware
+    def test_gcode_send_returns_status(self, real_client: TestClient):
+        response = real_client.post(
+            "/api/machine-control", json={"action": "gcode", "gcode": "M400"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["connected"] is True
 
 
 class TestMachineControlExclusion:

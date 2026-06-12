@@ -1,10 +1,25 @@
-"""polygon_with_holes_patch のテスト."""
+"""`pcbasm.visualization` の仕様テスト.
 
+Phase 3 で scripts からレンダラを昇格しパッケージ化した（計画書
+webui-phase3.md「pcbasm 昇格」節）:
+
+- polygon_with_holes_patch: 既存テストが import 変更なしで通る（無風確認）
+- render_pcb / render_fill_paths: 実 PCB fixture から tmp_path へ PNG 出力 →
+  ファイル生成 + cv2 で読めてサイズ > 0（描画内容の厳密検証はしない）
+
+render 系の import はテスト内で行い、昇格完了前でも既存テストの収集を
+妨げない。
+"""
+
+import cv2
 import numpy as np
 from matplotlib.path import Path as MplPath
 from shapely import Polygon
 
 from pcbasm.visualization import polygon_with_holes_patch
+from tests.helpers import TESTING_DATA_DIR
+
+FILL_COVERAGE_PCB = TESTING_DATA_DIR / "fill_coverage" / "fill_coverage.kicad_pcb"
 
 
 class TestPolygonWithHolesPatch:
@@ -71,3 +86,51 @@ class TestPolygonWithHolesPatch:
         # exterior 1個 + hole 2個 = MOVETO×3, CLOSEPOLY×3
         assert codes.count(MplPath.MOVETO) == 3
         assert codes.count(MplPath.CLOSEPOLY) == 3
+
+
+class TestRenderPcb:
+    """render_pcb（extract_pcb スクリプトから昇格）."""
+
+    def test_renders_real_pcb_to_readable_png(self, tmp_path):
+        from pcbasm.pcb import PcbFile
+        from pcbasm.visualization import render_pcb
+
+        pcb = PcbFile(FILL_COVERAGE_PCB)
+        output = tmp_path / "pcb.png"
+
+        render_pcb(pcb.outline, pcb.pads, pcb.copper, pcb.components, output)
+
+        image = cv2.imread(str(output))
+        assert image is not None
+        assert image.size > 0
+
+
+class TestRenderFillPaths:
+    """render_fill_paths（fill_path_simulate スクリプトから昇格）."""
+
+    def test_renders_fill_paths_to_readable_png(self, tmp_path):
+        from pcbasm.pasting.fill_path import build_paste_fill_path
+        from pcbasm.pcb import Layer, PadList, PcbFile
+        from pcbasm.visualization import render_fill_paths
+
+        pcb = PcbFile(FILL_COVERAGE_PCB)
+        pads = PadList(pad for pad in pcb.pads if pad.layer == Layer.TOP)
+        assert len(pads) > 0
+        paths = [build_paste_fill_path(pad.polygon, 0.4) for pad in pads]
+        output = tmp_path / "fill_path.png"
+
+        render_fill_paths(
+            outline=pcb.outline,
+            pads=pads,
+            paths=paths,
+            nozzle_diameter=0.4,
+            bead_width_factor=1.0,
+            overlap=0.0,
+            boundary_margin=0.0,
+            layer=Layer.TOP,
+            output_path=output,
+        )
+
+        image = cv2.imread(str(output))
+        assert image is not None
+        assert image.size > 0

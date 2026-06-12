@@ -30,6 +30,8 @@ TEST_FIXTURE_DIR = PROJECT_ROOT / "configs" / "test-fixture"
 
 FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"
 
+REAL_PCB_FIXTURE = TESTING_DATA_DIR / "fill_coverage" / "fill_coverage.kicad_pcb"
+
 
 def jpeg_payload(part: bytes) -> bytes:
     """MJPEG の 1 パート（boundary 行 + ヘッダ + JPEG + CRLF）から JPEG bytes を取り出す."""
@@ -63,6 +65,19 @@ def pcb_root(tmp_path: Path) -> Path:
     (root / "top.kicad_pcb").write_text("(kicad_pcb)", encoding="utf-8")
     (tmp_path / "outside.kicad_pcb").write_text("(kicad_pcb)", encoding="utf-8")
     return root
+
+
+@pytest.fixture
+def real_pcb_path(pcb_root: Path) -> Path:
+    """実 KiCAD PCB fixture を pcb_browse_root へコピーし、相対パスを返す.
+
+    Phase 3 のジョブ（extract_pcb / fill_path_simulate）が実 PcbFile を
+    読むためのもの。要求されたテストでのみ pcb_root に追加されるため、 /api/files の一覧テストには影響しない。
+    """
+    destination = pcb_root / "real" / "fill_coverage.kicad_pcb"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(REAL_PCB_FIXTURE, destination)
+    return Path("real/fill_coverage.kicad_pcb")
 
 
 @pytest.fixture

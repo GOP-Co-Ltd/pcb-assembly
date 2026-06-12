@@ -6,8 +6,18 @@
 - POST /api/emergency-stop は接続不能で 502、ロック非経由
 - 実 Moonraker への status は `@mark_hardware`（ユーザー実行）。
   emergency_stop の実機テストは書かない（装置への副作用が大きい）
+
+Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変更」節）:
+
+- E-STOP は先頭で jobs.request_abort() を呼ぶ（Moonraker 不達で 502 でも
+  実行中ジョブは ABORTED になる）
+- GET /api/stage/limits は XYZStage.limits を返す。Moonraker 不通は 502
 """
 
+import time
+
+import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tests.helpers import mark_hardware
@@ -60,3 +70,56 @@ class TestEmergencyStop:
             response = client.post("/api/emergency-stop")
 
         assert response.status_code == 502
+
+    def test_aborts_running_job_even_when_moonraker_unreachable(
+        self, client: TestClient, app: FastAPI
+    ):
+        # Phase 3: E-STOP の先頭で jobs.request_abort()（Klipper 送信失敗でも
+        # abort フラグは立つ）
+        from webui.jobs.catalog import JobDefinition
+        from webui.jobs.context import JobContext
+
+        def run(ctx: JobContext) -> None:
+            while True:
+                ctx.checkpoint()
+                time.sleep(0.01)
+
+        app.state.catalog.register(
+            JobDefinition(
+                name="estop_target",
+                label="E-STOP 検証ジョブ",
+                tab="dev",
+                run=run,
+                uses_machine=False,
+                hidden=True,
+            )
+        )
+        assert client.post("/api/jobs/estop_target", json={}).status_code == 201
+
+        assert client.post("/api/emergency-stop").status_code == 502
+
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            job = client.get("/api/jobs/current").json()["job"]
+            if job is not None and job["status"] == "aborted":
+                return
+            time.sleep(0.02)
+        pytest.fail("E-STOP 後にジョブが aborted になりませんでした")
+
+
+class TestStageLimits:
+    """GET /api/stage/limits（Phase 3）."""
+
+    def test_unreachable_moonraker_returns_502(self, client: TestClient):
+        response = client.get("/api/stage/limits")
+
+        assert response.status_code == 502
+
+    @mark_hardware
+    def test_real_stage_reports_min_max_per_axis(self, real_client: TestClient):
+        response = real_client.get("/api/stage/limits")
+
+        assert response.status_code == 200
+        data = response.json()
+        for axis in ("x", "y", "z"):
+            assert data[axis]["min"] < data[axis]["max"]

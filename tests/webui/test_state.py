@@ -12,10 +12,18 @@ Phase 2 追記（計画書 webui-phase2.md「src/webui/state.py」節）:
 - frame_hub() は遅延構築 + キャッシュ。構築失敗は例外伝播
 - rebuild_camera() / close() は hub を停止して参照破棄（未構築なら no-op）
 - select_machine 成功時に hub を再構築する
+
+Phase 3 追記（計画書 webui-phase3.md「src/webui/state.py」節）:
+
+- acquire_machine / release_machine は machine_lock の取得・解放分離形。
+  ジョブは request スレッドで取得し worker スレッドで解放するため、
+  取得スレッドと別スレッドからの release を許す
+- machine_lock の従来挙動は不変（acquire/release の上に再実装）
 """
 
 import json
 import shutil
+import threading
 from pathlib import Path
 
 import attrs
@@ -161,6 +169,52 @@ class TestMachineLock:
         with state.machine_lock("job"):
             with pytest.raises(BusyError):
                 state.select_pcb(Path("boards/sample.kicad_pcb"))
+
+
+class TestAcquireReleaseMachine:
+    """取得・解放分離形の排他ロック（Phase 3）."""
+
+    def test_acquire_sets_busy_owner_and_release_clears_it(self, state: AppState):
+        state.acquire_machine("job:demo")
+
+        assert state.busy_owner == "job:demo"
+
+        state.release_machine()
+        assert state.busy_owner is None
+
+    def test_release_from_another_thread_unlocks(self, state: AppState):
+        # ジョブは request スレッドで取得し worker スレッドで解放する
+        state.acquire_machine("job:demo")
+
+        releaser = threading.Thread(target=state.release_machine)
+        releaser.start()
+        releaser.join(timeout=10.0)
+
+        assert not releaser.is_alive()
+        assert state.busy_owner is None
+        # 解放後に再取得できる
+        state.acquire_machine("job:next")
+        state.release_machine()
+
+    def test_acquire_while_held_raises_busy_error_with_owner(self, state: AppState):
+        state.acquire_machine("job:first")
+        try:
+            with pytest.raises(BusyError) as exc:
+                state.acquire_machine("job:second")
+            assert exc.value.owner == "job:first"
+        finally:
+            state.release_machine()
+
+    def test_machine_lock_conflicts_with_acquired_machine(self, state: AppState):
+        # machine_lock は acquire/release の上に再実装され、同一ロックを共有する
+        state.acquire_machine("job:demo")
+        try:
+            with pytest.raises(BusyError) as exc:
+                with state.machine_lock("machine-control"):
+                    pass
+            assert exc.value.owner == "job:demo"
+        finally:
+            state.release_machine()
 
 
 class TestMachineConfig:

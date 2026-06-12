@@ -11,6 +11,12 @@ Phase 2 追記（計画書 webui-phase2.md「既存ルーターへの変更」�
 
 - posctrl の camera_preview / copper_detection は専用テンプレート、
   他 feature は従来プレースホルダのまま
+
+Phase 3 追記（計画書 webui-phase3.md「templates / static」節 + spec §10 dev タブ）:
+
+- dev のジョブ 4 ページは ParamSpec 由来のフォーム + job-console
+- klipper_status ページは G-code 送信ボックス + limits 表示
+- job_demo（hidden）はサイドバーに出ない
 """
 
 import pytest
@@ -56,6 +62,49 @@ class TestPages:
 
     def test_unknown_feature_returns_404(self, client: TestClient):
         assert client.get("/posctrl/no-such-feature").status_code == 404
+
+
+DEV_JOB_FEATURES = (
+    "extract_pcb",
+    "fill_path_simulate",
+    "generate_grid_pcb",
+    "make_fill_coverage_pcb",
+)
+
+
+class TestDevJobPages:
+    """Phase 3: dev タブのジョブページと klipper_status ページ."""
+
+    @pytest.mark.parametrize("feature", DEV_JOB_FEATURES)
+    def test_dev_job_page_renders_job_console(self, client: TestClient, feature: str):
+        response = client.get(f"/dev/{feature}")
+
+        assert response.status_code == 200
+        assert "job-console" in response.text
+        # data-job-name 等でページのジョブ名が宣言される
+        assert feature in response.text
+
+    def test_fill_path_simulate_renders_param_form_fields(self, client: TestClient):
+        text = client.get("/dev/fill_path_simulate").text
+
+        for name in (
+            "nozzle_diameter",
+            "layer",
+            "bead_width_factor",
+            "overlap",
+            "boundary_margin",
+        ):
+            assert name in text
+
+    def test_klipper_status_page_renders_gcode_box_and_limits(self, client: TestClient):
+        response = client.get("/dev/klipper_status")
+
+        assert response.status_code == 200
+        assert "gcode" in response.text
+        assert "limits" in response.text
+
+    def test_job_demo_is_hidden_from_sidebar(self, client: TestClient):
+        assert "job_demo" not in client.get("/dev").text
 
 
 class TestPreviewPages:
