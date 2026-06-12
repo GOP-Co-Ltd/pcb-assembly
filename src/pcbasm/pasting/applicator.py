@@ -7,6 +7,7 @@ from typing import Self
 from shapely import Polygon
 
 from pcbasm import gcode
+from pcbasm.config import PasteDispenser as PasteDispenserConfig
 from pcbasm.geometry import (
     Identity,
     Path,
@@ -124,6 +125,51 @@ class PasteApplicator:
         self._overlap = overlap
         self._boundary_margin = boundary_margin
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
+
+    @classmethod
+    def from_config(
+        cls,
+        klipper: Klipper,
+        paste_dispenser: PasteDispenser,
+        stage: XYZStage,
+        config: PasteDispenserConfig,
+        *,
+        transform: Transform = Identity(),
+        lift_height: float = 2.0,
+    ) -> Self:
+        """Machine 設定の paste_dispenser セクションから構築する.
+
+        Args:
+            klipper: Klipperクライアント
+            paste_dispenser: ペーストディスペンサーHAL
+            stage: XYZステージ
+            config: ``Machine.paste_dispenser`` の設定
+            transform: 座標変換
+            lift_height: 塗布後の上昇高さ [mm]
+
+        Raises:
+            ValueError: 設定値が ``__init__`` の検証に通らない場合
+        """
+        return cls(
+            klipper=klipper,
+            paste_dispenser=paste_dispenser,
+            stage=stage,
+            nozzle_diameter=config.nozzle_diameter,
+            fill_speed=config.fill_speed,
+            max_dispense_rate=config.max_dispense_rate,
+            dispense_accel=config.dispense_accel,
+            ul_per_mm2=config.ul_per_mm2,
+            retraction=config.retract_amount,
+            retraction_rate=config.retract_rate,
+            retraction_accel_factor=config.retract_accel_factor,
+            transform=transform,
+            paste_height=config.paste_height,
+            lift_height=lift_height,
+            prime_extra_delay=config.prime_extra_delay,
+            bead_width_factor=config.bead_width_factor,
+            overlap=config.overlap,
+            boundary_margin=config.boundary_margin,
+        )
 
     def __enter__(self) -> Self:
         """ディスペンサーを有効化する（AirPump ON + Stepper Enable）."""

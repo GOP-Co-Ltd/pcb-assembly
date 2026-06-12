@@ -1,0 +1,561 @@
+"""Posctrl タブのジョブ定義（基準点設定 / カメラキャリブレーション / 巡回系）."""
+
+from __future__ import annotations
+
+import math
+import time
+from collections.abc import Sequence
+from datetime import datetime
+from typing import Any
+
+import attrs
+import cv2
+
+from pcbasm import gcode
+from pcbasm.config import Machine
+from pcbasm.geometry import Compose, Point2d, Point3d, Transform, sort_by_nearest
+from pcbasm.hal import Camera, Klipper, Speed, XYZStage
+from pcbasm.pcb import Layer, Pad
+from pcbasm.posctrl import (
+    BoardCalibrationResult,
+    ComponentPads,
+    CopperProjector,
+    PadAlignmentResult,
+    PadAlignmentSession,
+    PadResultRenderer,
+    render_label,
+    setup_board_calibration,
+    sorted_top_component_pads,
+)
+from pcbasm.vision import (
+    CalibrationResult,
+    CheckerboardCalibrator,
+    CircleDetector,
+    Image,
+    draw_detected_circle,
+    draw_overlay,
+)
+from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
+from webui.jobs.context import JobAborted, JobContext, PromptSpec
+from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
+from webui.jobs.manager import ApplyFile, ApplyPayload, Artifact, JobResult
+
+# camera_calibration の Z 取得（best-effort）のタイムアウト [sec]
+Z_QUERY_TIMEOUT = 5.0
+# 巡回先 1 点あたりのフレーム配信時間 [sec]
+RESULT_DISPLAY_SEC = 1.0
+# reference_point_setup の現在位置キャッシュ TTL [sec]
+POSITION_CACHE_SEC = 0.5
+
+_TEXT_COLOR = (0, 255, 255)  # 現在位置テキストの色 (BGR: 黄)
+
+
+def register_posctrl_jobs(catalog: JobCatalog) -> None:
+    """Posctrl タブの 4 ジョブを登録する."""
+    catalog.register(
+        JobDefinition(
+            name="reference_point_setup",
+            label="Reference Point Setup",
+            tab="posctrl",
+            run=_run_reference_point_setup,
+            uses_machine=True,
+            accepts_commands=True,
+        )
+    )
+    catalog.register(
+        JobDefinition(
+            name="camera_calibration",
+            label="Camera Calibration",
+            tab="posctrl",
+            run=_run_camera_calibration,
+            params=(
+                ParamSpec("square_size", "チェッカーボードの1マス", "float", unit="mm"),
+                ParamSpec("crop_width", "クロップ幅", "int", 600, unit="px"),
+                ParamSpec("crop_height", "クロップ高さ", "int", 600, unit="px"),
+            ),
+            uses_machine=True,
+        )
+    )
+    catalog.register(
+        JobDefinition(
+            name="board_tour",
+            label="Board Tour",
+            tab="posctrl",
+            run=_run_board_tour,
+            params=(
+                ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
+            ),
+            requires_pcb=True,
+            uses_machine=True,
+        )
+    )
+    catalog.register(
+        JobDefinition(
+            name="orthogonality_test",
+            label="Orthogonality Test",
+            tab="posctrl",
+            run=_run_orthogonality_test,
+            params=(
+                ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
+            ),
+            requires_pcb=True,
+            uses_machine=True,
+        )
+    )
+
+
+@attrs.frozen
+class OrthogonalityMetrics:
+    """board_transform から導出した直行性指標.
+
+    Attributes:
+        axis_angle_error_deg: 変換後の X/Y 軸間角の 90° からのずれ（deg）
+        scale_x: X 単位ベクトルの変換後の長さ |T(1,0)-T(0,0)|
+        scale_y: Y 単位ベクトルの変換後の長さ |T(0,1)-T(0,0)|
+    """
+
+    axis_angle_error_deg: float
+    scale_x: float
+    scale_y: float
+
+
+def orthogonality_metrics(transform: Transform) -> OrthogonalityMetrics:
+    """board_transform（3 点法計測の affine）から直行性指標を導出する.
+
+    軸間角は変換後の X/Y 単位ベクトルのなす角（[0, 180] deg、鏡映の影響を 受けない）とし、90° からのずれを返す。
+    """
+    origin = transform.apply(Point2d(0.0, 0.0))
+    axis_x = transform.apply(Point2d(1.0, 0.0)) - origin
+    axis_y = transform.apply(Point2d(0.0, 1.0)) - origin
+    cross = axis_x.x * axis_y.y - axis_x.y * axis_y.x
+    dot = axis_x.x * axis_y.x + axis_x.y * axis_y.y
+    angle_deg = math.degrees(math.atan2(abs(cross), dot))
+    return OrthogonalityMetrics(
+        axis_angle_error_deg=angle_deg - 90.0,
+        scale_x=axis_x.norm,
+        scale_y=axis_y.norm,
+    )
+
+
+class _CachedPosition:
+    """stage.get_position() の短期キャッシュ（毎フレームの往復を回避）."""
+
+    def __init__(self, stage: XYZStage, ttl: float = POSITION_CACHE_SEC) -> None:
+        self._stage = stage
+        self._ttl = ttl
+        self._cached: Point3d | None = None
+        self._expires = 0.0
+
+    def get(self) -> Point3d:
+        now = time.monotonic()
+        if self._cached is None or now >= self._expires:
+            self._cached = self._stage.get_position()
+            self._expires = now + self._ttl
+        return self._cached
+
+    def invalidate(self) -> None:
+        self._cached = None
+
+
+def _run_reference_point_setup(ctx: JobContext) -> JobResult:
+    """基準点 (top left) をジョグで合わせ、現在位置を設定反映候補にする.
+
+    マシン操作パネル（ジョブモード）の WS command でジョグし、record で 現在位置を確定、quit で中止する。
+    """
+    machine = ctx.machine
+    klipper = create_command_klipper(machine)
+    stage = XYZStage(klipper.readonly)
+    cam_config = machine.camera
+    try:
+        calibration = CalibrationResult.load(cam_config.calibration_file)
+    except Exception as exc:
+        raise RuntimeError(f"カメラキャリブレーションが読み込めません: {exc}") from exc
+    detector = CircleDetector(
+        pixel_per_mm=calibration.pixel_per_mm,
+        target_diameter_mm=machine.reference_point.target_diameter,
+        crop_size=cam_config.crop.size,
+        diameter_tolerance_mm=0.5,
+    )
+
+    ctx.progress("ホーミング")
+    klipper.send_gcode(gcode.homing(x=True, y=True, z=True) + gcode.wait_for_done())
+    if calibration.z_position is not None:
+        ctx.log(f"カメラ Z 高さへ移動: {calibration.z_position:.3f} mm")
+        klipper.send_gcode(stage.move(z=calibration.z_position) + gcode.wait_for_done())
+    else:
+        ctx.log("キャリブレーションに Z 位置がありません。Z は移動しません")
+
+    position = _CachedPosition(stage)
+    with ctx.open_camera() as camera:
+        ctx.progress("ジョグ待機")
+        ctx.log("マシン操作パネルでジョグし、Record で現在位置を記録してください")
+        while True:
+            ctx.frame(_reference_point_frame(camera, detector, machine, position))
+            command = ctx.next_command(timeout=0)
+            if command is not None and _dispatch_reference_command(
+                ctx, klipper, stage, calibration, position, command
+            ):
+                break
+            ctx.checkpoint()
+
+    pos = stage.get_position()
+    return JobResult(
+        summary=f"基準点: x={pos.x:.3f}, y={pos.y:.3f} mm",
+        apply=ApplyPayload(
+            label=f"[reference_point] x={pos.x:.3f}, y={pos.y:.3f} を設定に反映",
+            values={
+                "reference_point.x": round(pos.x, 3),
+                "reference_point.y": round(pos.y, 3),
+            },
+        ),
+    )
+
+
+def _reference_point_frame(
+    camera: Camera,
+    detector: CircleDetector,
+    machine: Machine,
+    position: _CachedPosition,
+) -> Image:
+    """円検出注釈 + 現在位置テキスト入りのプレビューフレームを合成する."""
+    crop_size = machine.camera.crop.size
+    image = camera.capture()
+    result = detector.detect_nearest_center(image)
+    offset = result.offset.mm if result is not None else None
+    preview = draw_overlay(image, crop_size, offset).numpy()
+    if result is not None:
+        draw_detected_circle(preview, result, crop_size)
+    pos = position.get()
+    cv2.putText(
+        preview,
+        f"Pos: X{pos.x:.3f}  Y{pos.y:.3f}",
+        (10, 100),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        _TEXT_COLOR,
+        2,
+    )
+    return Image(preview)
+
+
+def _dispatch_reference_command(
+    ctx: JobContext,
+    klipper: Klipper,
+    stage: XYZStage,
+    calibration: CalibrationResult,
+    position: _CachedPosition,
+    command: dict[str, Any],
+) -> bool:
+    """WS command を 1 件処理する.
+
+    Returns:
+        record によりループを離脱する場合 True
+
+    Raises:
+        JobAborted: quit コマンドを受けた場合
+    """
+    match command:
+        case {"type": "record"}:
+            return True
+        case {"type": "quit"}:
+            ctx.log("中止しました。設定は変更していません")
+            raise JobAborted()
+    if handle_machine_command(
+        ctx, klipper, stage, command, focus_z=calibration.z_position
+    ):
+        position.invalidate()
+    else:
+        ctx.log(f"未知のコマンドです: {command.get('type')!r}")
+    return False
+
+
+def _run_camera_calibration(ctx: JobContext) -> JobResult:
+    """チェッカーボードで pixel/mm をキャリブレーションし JSON を保存候補にする."""
+    square_size = float(ctx.params["square_size"])
+    crop_size = (int(ctx.params["crop_width"]), int(ctx.params["crop_height"]))
+    calibrator = CheckerboardCalibrator(square_size, crop_size)
+
+    with ctx.open_camera() as camera:
+        ctx.progress("撮影待ち")
+        while True:
+            proceed = ctx.prompt(
+                PromptSpec(
+                    kind="confirm",
+                    message="チェッカーボードを配置して撮影しますか?（いいえで中止）",
+                    default=True,
+                )
+            )
+            if not proceed:
+                raise JobAborted()
+            image = camera.capture()
+            ctx.frame(image)
+            ctx.progress("検出")
+            detection = calibrator.calibrate(image)
+            if detection is not None:
+                break
+            ctx.log("チェッカーボードが検出できませんでした")
+        result, vis = detection
+        camera_name = camera.info.name
+
+    ctx.frame(vis)
+    ctx.log(f"pixel/mm: {result.pixel_per_mm:.2f}")
+    ctx.log(f"1マスの距離の標準偏差: {result.std_distance_px:.2f} px")
+
+    # Z 位置は best-effort（Klipper 不通でも calibration 自体は成立させる）
+    z: float | None = None
+    try:
+        klipper = Klipper(
+            host=ctx.machine.klipper.host,
+            port=ctx.machine.klipper.port,
+            timeout=Z_QUERY_TIMEOUT,
+        )
+        z = XYZStage(klipper.readonly).get_position().z
+    except Exception as exc:
+        ctx.log(f"Z 位置の取得に失敗しました（z_position なしで続行）: {exc}")
+    result = attrs.evolve(result, z_position=z)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{camera_name}_{timestamp}.json"
+    png_name = f"{camera_name}_{timestamp}.png"
+    vis.save(ctx.artifacts_dir / png_name)
+    result.save(ctx.artifacts_dir / filename)
+    json_bytes = (ctx.artifacts_dir / filename).read_bytes()
+    ctx.progress("完了", 100.0)
+
+    return JobResult(
+        summary=(
+            f"pixel/mm: {result.pixel_per_mm:.2f}"
+            f" / σ: {result.std_distance_px:.2f} px"
+            f" / Z: {z if z is not None else '未取得'}"
+        ),
+        artifacts=(
+            Artifact(
+                label="コーナー検出",
+                path=f"{ctx.artifacts_dir.name}/{png_name}",
+                kind="image",
+            ),
+            Artifact(
+                label="キャリブレーション JSON",
+                path=f"{ctx.artifacts_dir.name}/{filename}",
+                kind="file",
+            ),
+        ),
+        apply=ApplyPayload(
+            label=f"{filename} を保存し [camera].calibration_file に設定",
+            values={"camera.calibration_file": filename},
+            files=(ApplyFile(filename, json_bytes),),
+        ),
+    )
+
+
+def _calibrated_board(ctx: JobContext, camera: Camera) -> BoardCalibrationResult:
+    """選択 PCB とジョブパラメータでボードキャリブレーションを実行する."""
+    assert ctx.pcb_path is not None  # requires_pcb=True
+    ctx.progress("セットアップ")
+    return setup_board_calibration(
+        machine=ctx.machine,
+        pcb_file_path=ctx.pcb_path,
+        tolerance=float(ctx.params["tolerance"]),
+        camera=camera,
+        frame_sink=ctx.frame,
+    )
+
+
+def _board_corners(result: BoardCalibrationResult) -> list[tuple[str, Point2d]]:
+    """ボード四隅の (ラベル, board 座標) を返す."""
+    outline = result.pcb.outline
+    return [
+        ("Top-Left", Point2d(0.0, 0.0)),
+        ("Top-Right", Point2d(outline.width, 0.0)),
+        ("Bottom-Right", Point2d(outline.width, outline.height)),
+        ("Bottom-Left", Point2d(0.0, outline.height)),
+    ]
+
+
+def _move_to(
+    result: BoardCalibrationResult,
+    machine_pt: Point2d,
+    speed: Speed = Speed.absolute(30),
+) -> None:
+    """指定の機械座標へ移動し完了を待つ."""
+    result.klipper.send_gcode(
+        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=speed)
+        + gcode.wait_for_done()
+    )
+
+
+def _pad_renderer(
+    result: BoardCalibrationResult,
+    session: PadAlignmentSession,
+    projector: CopperProjector,
+    pads: Sequence[Pad],
+    position: Point2d,
+) -> PadResultRenderer:
+    """Pad 群の照合結果 overlay 合成器を構築する."""
+    return PadResultRenderer(
+        projector=projector,
+        edge_detector=session.edge_detector,
+        roi_polygons=[p.copper_polygon for p in pads],
+        paste_polygons=[p.polygon for p in pads],
+        pad_align=result.machine.paste_dispenser.pad_align,
+        position=position,
+    )
+
+
+def _stream_labeled_frames(
+    ctx: JobContext,
+    result: BoardCalibrationResult,
+    label: str,
+    duration: float = RESULT_DISPLAY_SEC,
+) -> None:
+    """ラベル付きフレームを duration 秒間プレビューへ配信する."""
+    crop_size = result.machine.camera.crop.size
+    deadline = time.monotonic() + duration
+    while time.monotonic() < deadline:
+        ctx.frame(render_label(result.camera.capture(), crop_size, label))
+        ctx.checkpoint()
+
+
+def _stream_pad_result(
+    ctx: JobContext,
+    result: BoardCalibrationResult,
+    renderer: PadResultRenderer,
+    lines: list[str],
+    duration: float = RESULT_DISPLAY_SEC,
+) -> None:
+    """Pad 照合結果 overlay を duration 秒間プレビューへ配信する."""
+    deadline = time.monotonic() + duration
+    while time.monotonic() < deadline:
+        ctx.frame(renderer.render(result.camera.capture(), lines))
+        ctx.checkpoint()
+
+
+def _run_board_tour(ctx: JobContext) -> JobResult:
+    """四隅巡回 → 銅箔照合 → 補正適用済み全 pad 巡回を実行する."""
+    with ctx.open_camera() as camera:
+        result = _calibrated_board(ctx, camera)
+        board_transform = result.board_transform
+
+        # 四隅巡回（左上に戻る 5 点）
+        corners = [*_board_corners(result), ("Top-Left", Point2d(0.0, 0.0))]
+        for index, (name, board_pt) in enumerate(corners):
+            ctx.progress("四隅巡回", 100.0 * index / len(corners))
+            machine_pt = board_transform.apply(board_pt)
+            ctx.log(
+                f"{name}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) -> "
+                f"Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
+            )
+            _move_to(result, machine_pt)
+            _stream_labeled_frames(ctx, result, f"Corner: {name}")
+
+        # 銅箔照合（部品単位の自動位置合わせ）
+        groups = sorted_top_component_pads(result)
+        ctx.log(f"padを持つ部品数: {len(groups)}")
+        session = PadAlignmentSession.from_calibration(result, frame_sink=ctx.frame)
+        alignments: list[tuple[ComponentPads, PadAlignmentResult]] = []
+        for index, group in enumerate(groups):
+            ctx.progress("銅箔照合", 100.0 * index / len(groups))
+            ctx.checkpoint()
+            designator = group.component.designator
+            alignment = session.align(group)
+            if alignment is None:
+                ctx.log(f"警告: {designator} の照合に失敗")
+                renderer = _pad_renderer(
+                    result,
+                    session,
+                    session.projector,
+                    group.pads,
+                    result.stage.get_position().to2d(),
+                )
+                lines = [f"{designator} {index + 1}/{len(groups)}", "FAILED"]
+                _stream_pad_result(ctx, result, renderer, lines)
+                continue
+            alignments.append((group, alignment))
+            translation = alignment.translation
+            ctx.log(
+                f"{designator}: dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
+                f"theta={alignment.rotation.degrees:+.3f} deg, "
+                f"mean_distance={alignment.match.mean_distance_px:.2f} px"
+            )
+
+        # 補正適用済みの全 pad 巡回
+        entries = _corrected_entries(result, session, alignments)
+        for index, (pad, renderer_projector, target) in enumerate(entries):
+            ctx.progress("補正巡回", 100.0 * index / len(entries))
+            ctx.checkpoint()
+            _move_to(result, target, speed=Speed.rate(0.5))
+            renderer = _pad_renderer(result, session, renderer_projector, [pad], target)
+            lines = [f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}"]
+            _stream_pad_result(ctx, result, renderer, lines)
+
+        # board 原点へ戻して終了
+        _move_to(result, board_transform.apply(Point2d(0.0, 0.0)))
+
+    aligned_pads = sum(len(group.pads) for group, _ in alignments)
+    return JobResult(
+        summary=(
+            f"照合成功 {len(alignments)}/{len(groups)} 部品"
+            f"（{aligned_pads} pads）/ 補正巡回 {len(entries)} pads"
+        )
+    )
+
+
+def _corrected_entries(
+    result: BoardCalibrationResult,
+    session: PadAlignmentSession,
+    alignments: list[tuple[ComponentPads, PadAlignmentResult]],
+) -> list[tuple[Pad, CopperProjector, Point2d]]:
+    """補正適用済みの pad 巡回先を nearest neighbor 順で構築する."""
+    entries: list[tuple[Pad, CopperProjector, Point2d]] = []
+    for group, alignment in alignments:
+        corrected_transform = Compose(
+            [result.board_transform, alignment.machine_transform]
+        )
+        corrected_projector = session.corrected_projector(alignment.machine_transform)
+        for pad in group.pads:
+            entries.append(
+                (pad, corrected_projector, corrected_transform.apply(pad.center))
+            )
+
+    current = result.stage.get_position()
+    return sort_by_nearest(
+        entries, current.to2d().to3d(), key=lambda entry: entry[2].to3d()
+    )
+
+
+def _run_orthogonality_test(ctx: JobContext) -> JobResult:
+    """直行性指標の計測と四隅・グリッド交点の自動巡回を実行する."""
+    with ctx.open_camera() as camera:
+        result = _calibrated_board(ctx, camera)
+        board_transform = result.board_transform
+
+        metrics = orthogonality_metrics(board_transform)
+        ctx.log(f"軸間角の 90° からのずれ: {metrics.axis_angle_error_deg:+.3f} deg")
+        ctx.log(f"スケール X: {metrics.scale_x:.5f} / Y: {metrics.scale_y:.5f}")
+
+        # 四隅巡回（テンション調整の目視確認）
+        corners = _board_corners(result)
+        for index, (name, board_pt) in enumerate(corners):
+            ctx.progress("四隅巡回", 100.0 * index / len(corners))
+            ctx.checkpoint()
+            _move_to(result, board_transform.apply(board_pt))
+            _stream_labeled_frames(ctx, result, name)
+
+        # グリッド交点巡回（TOP 層 pad 中心）
+        top_pads = [p for p in result.pcb.pads if p.layer == Layer.TOP]
+        centers = sort_by_nearest(
+            [p.center.to3d() for p in top_pads],
+            result.stage.get_position().to2d().to3d(),
+        )
+        for index, center_3d in enumerate(centers):
+            ctx.progress("グリッド巡回", 100.0 * index / len(centers))
+            ctx.checkpoint()
+            _move_to(result, board_transform.apply(center_3d.to2d()))
+            _stream_labeled_frames(ctx, result, f"Grid {index + 1}/{len(centers)}")
+
+    return JobResult(
+        summary=(
+            f"軸間角ずれ {metrics.axis_angle_error_deg:+.3f} deg / "
+            f"scale X {metrics.scale_x:.5f} Y {metrics.scale_y:.5f}"
+        )
+    )

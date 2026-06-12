@@ -23,6 +23,7 @@ calibration は実 CalibrationResult、machine は実 Machine
 返す Mock を使う。合成矩形画像のイディオムは test_pad.py を踏襲する。
 """
 
+from collections.abc import Callable
 from datetime import datetime
 
 import cv2
@@ -294,6 +295,7 @@ class TestPadAlignmentSession:
         stage,
         pcb,
         board_transform: Transform | None = None,
+        frame_sink: Callable[[Image], None] | None = None,
     ) -> PadAlignmentSession:
         result = BoardCalibrationResult(
             machine=_machine_config(),
@@ -307,7 +309,7 @@ class TestPadAlignmentSession:
             ),
             pcb=pcb,
         )
-        return PadAlignmentSession.from_calibration(result)
+        return PadAlignmentSession.from_calibration(result, frame_sink=frame_sink)
 
     def test_align_returns_result_with_translation_matching_known_shift(
         self, klipper, stage, pcb
@@ -328,6 +330,24 @@ class TestPadAlignmentSession:
         assert result is not None
         assert result.translation.x == pytest.approx(-0.6, abs=0.2)
         assert result.translation.y == pytest.approx(0.4, abs=0.2)
+
+    def test_align_delivers_edge_match_frames_to_frame_sink(self, klipper, stage, pcb):
+        """frame_sink 指定時、align() 中に照合状況の合成フレームが届く.
+
+        Phase 4（webui-phase4.md §1）: window_name 全廃。照合の観測ごとに
+        render_edge_match の合成画像が frame_sink へ流れる（webui は ctx.frame
+        を渡してプレビューへ配信する）。
+        """
+        frames: list[Image] = []
+        camera = FakeCamera([_board_image(6, -4), _board_image()])
+        session = self._session(camera, klipper, stage, pcb, frame_sink=frames.append)
+        target = ComponentPads(component=pcb.components[0], pads=tuple(pcb.pads))
+
+        result = session.align(target)
+
+        assert result is not None
+        assert len(frames) >= 1  # 観測（observe）1 回につき 1 枚
+        assert frames[0].size == (WIDTH, HEIGHT)
 
     def test_align_returns_none_when_matching_fails(self, klipper, stage, pcb):
         """真っ黒な画像（エッジなし）では照合失敗を漏らさず None を返す."""

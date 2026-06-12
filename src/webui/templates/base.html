@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}PCB Assembly WebUI{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <nav class="tabs">
+    {% for tab in tabs %}
+    <a href="/{{ tab }}" class="tab{% if tab == active_tab %} active{% endif %}">{{ tab }}</a>
+    {% endfor %}
+  </nav>
+  <div class="global-controls">
+    <select id="machine-select" title="マシン選択">
+      {% for m in machines %}
+      <option value="{{ m }}"{% if m == selected_machine %} selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+    <button id="pcb-chip" class="chip" title="PCB ファイル選択">
+      {{ selected_pcb or "PCB未選択" }}
+    </button>
+    <a href="/settings" class="icon-link" title="マシン設定">&#9881;</a>
+    <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper console">console</a>
+    <button id="estop" class="estop" title="緊急停止">E-STOP</button>
+  </div>
+</header>
+<main class="layout">
+{% block content %}{% endblock %}
+</main>
+{% include "partials/file_browser.html" %}
+<div id="toasts" class="toasts"></div>
+<script src="/static/js/app.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

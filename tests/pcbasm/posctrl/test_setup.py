@@ -1,4 +1,14 @@
-"""Control/setup モジュールのテスト."""
+"""Control/setup モジュールのテスト.
+
+Phase 4（memory/agents/implementation-planner/webui-phase4.md §1）で posctrl
+から cv2 表示を全廃し frame_sink 注入に統一した:
+
+- OffsetObserver: ``window_name`` 全廃。``frame_sink``（None なら配信なし）へ
+  observe 成功時に注釈付き画像を 1 枚送る
+- machine_session: finally は M84 送信のみ（cv2.destroyAllWindows 削除）
+
+カメラは tests/helpers.py の FakeCamera（自前 HAL Camera の test Impl）を使う。
+"""
 
 import numpy as np
 import pytest
@@ -8,102 +18,98 @@ from pcbasm.geometry import Point2d
 from pcbasm.posctrl.setup import OffsetObserver, machine_session
 from pcbasm.vision import Image
 from pcbasm.vision.detection import OffsetStatistics
+from tests.helpers import FakeCamera
 
 
 class TestOffsetObserver:
-    """OffsetObserverのテスト."""
+    """OffsetObserver の observe() 契約と frame_sink 配信のテスト."""
 
     @pytest.fixture
-    def mock_camera(self, mocker: MockerFixture):
-        camera = mocker.Mock()
-        dummy_image = Image(np.zeros((720, 1280, 3), dtype=np.uint8))
-        camera.capture.return_value = dummy_image
-        return camera
+    def camera(self) -> FakeCamera:
+        return FakeCamera([Image(np.zeros((720, 1280, 3), dtype=np.uint8))])
 
     @pytest.fixture
-    def mock_detector(self, mocker: MockerFixture):
+    def detector(self, mocker: MockerFixture):
+        """Mean (50, -30) px / 100 px/mm の検出統計を返す detector."""
         detector = mocker.Mock()
-        return detector
-
-    @pytest.fixture
-    def mock_cv2(self, mocker: MockerFixture):
-        mocker.patch("pcbasm.posctrl.setup.cv2")
-
-    def test_returns_mean_mm_shift_transform_on_success(
-        self,
-        mock_detector,
-        mock_camera,
-        mock_cv2,
-    ):
-        """検出成功時に mean_mm の Shift を表す Transform を返すことを確認.
-
-        observer 契約統一（observe() -> Transform、想定→観測）。原点に 適用すると mean_mm
-        に一致する。
-        """
-        expected_offset = Point2d(0.5, -0.3)
-        mock_detector.detect_with_statistics.return_value = OffsetStatistics(
+        detector.detect_with_statistics.return_value = OffsetStatistics(
             mean=Point2d(50.0, -30.0),
             std=Point2d(1.0, 1.0),
             pixel_per_mm=100.0,
             sample_count=30,
         )
+        return detector
 
+    def test_returns_mean_mm_shift_transform_without_frame_sink(self, detector, camera):
+        """frame_sink=None（既定）でも observe は mean_mm の Shift を返す.
+
+        observer 契約統一（observe() -> Transform、想定→観測）。原点に 適用すると mean_mm
+        に一致する。表示なしで例外も出ない。
+        """
         observer = OffsetObserver(
-            detector=mock_detector,
-            camera=mock_camera,
+            detector=detector,
+            camera=camera,
             crop_size=(200, 200),
-            window_name="test",
             sample_count=10,
         )
 
         transform = observer.observe()
 
         offset = transform.apply(Point2d(0.0, 0.0))
-        assert offset.x == pytest.approx(expected_offset.x)
-        assert offset.y == pytest.approx(expected_offset.y)
+        assert offset.x == pytest.approx(0.5)
+        assert offset.y == pytest.approx(-0.3)
 
-    def test_raises_on_detection_failure(
-        self,
-        mock_detector,
-        mock_camera,
-        mock_cv2,
-    ):
-        """検出失敗時にRuntimeErrorを発生させることを確認."""
-        mock_detector.detect_with_statistics.return_value = None
-
+    def test_success_delivers_one_annotated_frame_to_frame_sink(self, detector, camera):
+        """Observe 成功時、frame_sink へ注釈付き画像が 1 枚届く."""
+        frames: list[Image] = []
         observer = OffsetObserver(
-            detector=mock_detector,
-            camera=mock_camera,
+            detector=detector,
+            camera=camera,
             crop_size=(200, 200),
-            window_name="test",
+            frame_sink=frames.append,
+            sample_count=10,
+        )
+
+        observer.observe()
+
+        assert len(frames) == 1
+        assert frames[0].size == (1280, 720)  # カメラフレームと同サイズの合成画像
+
+    def test_raises_on_detection_failure_without_sending_frame(self, detector, camera):
+        """検出失敗時は RuntimeError を送出し、frame_sink へは何も送らない."""
+        detector.detect_with_statistics.return_value = None
+        frames: list[Image] = []
+        observer = OffsetObserver(
+            detector=detector,
+            camera=camera,
+            crop_size=(200, 200),
+            frame_sink=frames.append,
         )
 
         with pytest.raises(RuntimeError, match="検出に失敗しました"):
             observer.observe()
 
+        assert frames == []
+
 
 class TestMachineSession:
-    """machine_sessionのテスト."""
+    """machine_session のテスト（M84 のみをピン。cv2 依存なし）."""
 
-    def test_sends_m84_and_destroys_windows(self, mocker: MockerFixture):
-        """セッション終了時にM84送信とcv2.destroyAllWindowsが呼ばれることを確認."""
-        mock_klipper = mocker.Mock()
-        mock_destroy = mocker.patch("pcbasm.posctrl.setup.cv2.destroyAllWindows")
+    def test_sends_m84_on_exit(self, mocker: MockerFixture):
+        """セッション終了時に M84 が送信される."""
+        klipper = mocker.Mock()
 
-        with machine_session(mock_klipper):
+        with machine_session(klipper):
             pass
 
-        mock_klipper.send_gcode.assert_called_once_with("M84")
-        mock_destroy.assert_called_once()
+        klipper.send_gcode.assert_called_once_with("M84")
 
-    def test_cleanup_on_exception(self, mocker: MockerFixture):
-        """例外発生時でもクリーンアップが実行されることを確認."""
-        mock_klipper = mocker.Mock()
-        mock_destroy = mocker.patch("pcbasm.posctrl.setup.cv2.destroyAllWindows")
+    def test_sends_m84_even_on_exception(self, mocker: MockerFixture):
+        """例外発生時でも M84 が送信され、例外は伝播する."""
+        klipper = mocker.Mock()
 
         with pytest.raises(ValueError, match="test error"):
-            with machine_session(mock_klipper):
+            with machine_session(klipper):
                 raise ValueError("test error")
 
-        mock_klipper.send_gcode.assert_called_once_with("M84")
-        mock_destroy.assert_called_once()
+        klipper.send_gcode.assert_called_once_with("M84")

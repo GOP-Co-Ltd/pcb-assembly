@@ -1,7 +1,11 @@
 from .path import Path
 from .polygon import merge_islands, transform_polygon
 from .routing import sort_by_nearest
-from .sampling import sample_points_in_polygons
+from .sampling import (
+    SamplingDiagnostics,
+    sample_points_in_polygons,
+    sampling_diagnostics,
+)
 from .transform import (
     Compose,
     HeightPlane,
@@ -24,11 +28,13 @@ __all__ = [
     "Point2d",
     "Point3d",
     "Rotation",
+    "SamplingDiagnostics",
     "Scale",
     "Transform",
     "Shift",
     "merge_islands",
     "sample_points_in_polygons",
+    "sampling_diagnostics",
     "sort_by_nearest",
     "transform_polygon",
 ]

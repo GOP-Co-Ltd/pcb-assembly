@@ -1,12 +1,35 @@
-"""Board巡回用のカメラ表示ユーティリティ."""
+"""Board巡回用のカメラ表示ユーティリティ（cv2 ウィンドウ専用）."""
 
 import cv2
 
 from pcbasm import gcode
 from pcbasm.geometry import Point2d
 from pcbasm.hal import Camera, Speed
+from pcbasm.posctrl.render import render_label
 from pcbasm.posctrl.setup import BoardCalibrationResult
-from pcbasm.vision import draw_overlay
+from pcbasm.vision import FrameSink, Image, draw_overlay
+
+
+def window_sink(window_name: str) -> FrameSink:
+    """フレームを cv2 ウィンドウへ表示する FrameSink を返す.
+
+    Args:
+        window_name: 表示先ウィンドウ名（cv2.imshow が自動生成する）
+    """
+
+    def sink(image: Image) -> None:
+        cv2.imshow(window_name, image.numpy())
+        cv2.waitKey(1)
+
+    return sink
+
+
+def _move_to(result: BoardCalibrationResult, machine_pt: Point2d) -> None:
+    """指定の機械座標へ移動し完了を待つ."""
+    result.klipper.send_gcode(
+        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=Speed.absolute(30))
+        + gcode.wait_for_done()
+    )
 
 
 def display_at_point(
@@ -17,18 +40,13 @@ def display_at_point(
     window_name: str = "Board Tour",
 ):
     """指定座標へ移動し、ラベル付きカメラ映像を一定時間表示する."""
-    result.klipper.send_gcode(
-        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=Speed.absolute(30))
-        + gcode.wait_for_done()
-    )
+    _move_to(result, machine_pt)
 
     crop_size = result.machine.camera.crop.size
     camera = result.camera
     for _ in range(int(camera.resolution.fps * duration)):
-        frame = camera.capture()
-        img = draw_overlay(frame, crop_size).numpy()
-        cv2.putText(img, label, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.imshow(window_name, img)
+        frame = render_label(camera.capture(), crop_size, label)
+        cv2.imshow(window_name, frame.numpy())
         if cv2.waitKey(1) == 27:  # Esc
             print("中断しました")
             break
@@ -41,18 +59,13 @@ def interactive_display_at_point(
     window_name: str = "Board Tour",
 ):
     """指定座標へ移動し、キーが押されるまでラベル付きカメラ映像を表示する."""
-    result.klipper.send_gcode(
-        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=Speed.absolute(30))
-        + gcode.wait_for_done()
-    )
+    _move_to(result, machine_pt)
 
     crop_size = result.machine.camera.crop.size
     camera = result.camera
     while True:
-        frame = camera.capture()
-        img = draw_overlay(frame, crop_size).numpy()
-        cv2.putText(img, label, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.imshow(window_name, img)
+        frame = render_label(camera.capture(), crop_size, label)
+        cv2.imshow(window_name, frame.numpy())
         if cv2.waitKey(100) != -1:
             break
 

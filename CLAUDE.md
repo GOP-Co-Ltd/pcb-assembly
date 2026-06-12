@@ -65,6 +65,8 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `geometry/` — 3D 座標と幾何計算（Transform, HeightPlane, 軌跡生成等）
 - `pcb/` — PCB 設計情報の抽象化（KiCAD 読込、配置管理）
 
+このほか `src/webui/` にブラウザ操作 UI（FastAPI。仕様：`docs/webui/specification.md`）、`src/scripts/` に単発実行スクリプトがある。
+
 ## 開発コマンド
 
 - `make setup` — 開発環境のセットアップ
@@ -73,6 +75,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `make format` — pre-commit フック（ruff, docformatter 等）
 - `make type` — pyright 型チェック
 - `make run` — `format` → `test` → `type` を順実行
+- `make webui` / `make webui-dev` — WebUI サーバー起動（port 8080、dev は auto-reload）
 
 ## 不変の原則
 

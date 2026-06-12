@@ -1,0 +1,24 @@
+{% extends "tab.html" %}
+{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+{% if show_preview %}
+{# ジョブ提供フレームのみ表示（オーバーレイ切替なし・固定 none） #}
+{% set preview_overlay = "none" %}
+{% include "partials/preview_pane.html" %}
+{% endif %}
+{% include "partials/job_form.html" %}
+{% if show_loading_controls %}
+{% include "partials/loading_controls.html" %}
+{% endif %}
+{% include "partials/job_console.html" %}
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+{% if show_preview %}
+<script src="/static/js/preview.js"></script>
+{% endif %}
+{% if show_loading_controls %}
+<script src="/static/js/loading_controls.js"></script>
+{% endif %}
+{% endblock %}

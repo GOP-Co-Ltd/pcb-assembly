@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ active_tab }} — PCB Assembly WebUI{% endblock %}
+{% block content %}
+<aside class="sidebar">
+  {% include "partials/sidebar.html" %}
+  {% include "partials/machine_control.html" %}
+</aside>
+<section class="main-pane">
+  {% block main %}
+  <p class="placeholder">左のリストから機能を選択してください。</p>
+  {% endblock %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/job_console.js"></script>
+<script src="/static/js/machine_control.js"></script>
+{% endblock %}

@@ -23,6 +23,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import cv2
+
 from pcbasm import gcode
 from pcbasm.config import get_machine_config
 from pcbasm.geometry import Identity, Point2d
@@ -38,6 +40,7 @@ from pcbasm.posctrl import (
     XYPositionAdjustor,
     machine_session,
     setup_board_calibration,
+    window_sink,
 )
 from pcbasm.utils import PROJECT_ROOT, setup_logging
 from pcbasm.vision import CircleDetector
@@ -123,7 +126,7 @@ def main() -> None:
         machine=machine,
         pcb_file_path=args.pcb_file,
         tolerance=args.tolerance,
-        window_name=WINDOW_NAME,
+        frame_sink=window_sink(WINDOW_NAME),
     )
 
     klipper = cal_result.klipper
@@ -174,22 +177,13 @@ def main() -> None:
             + gcode.wait_for_done()
         )
 
-        with PasteApplicator(
-            klipper=klipper,
-            paste_dispenser=paste_dispenser,
-            stage=stage,
-            nozzle_diameter=dispenser_config.nozzle_diameter,
-            fill_speed=dispenser_config.fill_speed,
-            max_dispense_rate=dispenser_config.max_dispense_rate,
-            dispense_accel=dispenser_config.dispense_accel,
-            ul_per_mm2=dispenser_config.ul_per_mm2,
-            retraction=dispenser_config.retract_amount,
-            retraction_rate=dispenser_config.retract_rate,
-            retraction_accel_factor=dispenser_config.retract_accel_factor,
-            paste_height=dispenser_config.paste_height,
-            prime_extra_delay=dispenser_config.prime_extra_delay,
-            lift_height=args.lift_height,
+        with PasteApplicator.from_config(
+            klipper,
+            paste_dispenser,
+            stage,
+            dispenser_config,
             transform=Identity(),
+            lift_height=args.lift_height,
         ) as applicator:
             interactive_loading(applicator, args.loading_amount)
 
@@ -272,7 +266,7 @@ def main() -> None:
                 detector=paste_detector,
                 camera=cal_result.camera,
                 crop_size=cam_config.crop.size,
-                window_name=WINDOW_NAME,
+                frame_sink=window_sink(WINDOW_NAME),
             )
 
             # XYPositionAdjustor でペーストドット中心に自動位置合わせ
@@ -326,6 +320,8 @@ def main() -> None:
             print()
             print(f"現在設定値: X={current_toolhead.x:.4f} Y={current_toolhead.y:.4f}")
             print(f"差分: dX={diff_x:.4f} dY={diff_y:.4f}")
+
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
