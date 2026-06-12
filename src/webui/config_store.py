@@ -182,10 +182,7 @@ class ConfigStore:
         values: dict[str, float | int | str | None] = {}
         for spec in MACHINE_FIELDS:
             raw = _lookup_toml(doc, spec.key)
-            if raw is None:
-                values[spec.key] = None
-            else:
-                values[spec.key] = _coerce(spec, raw)
+            values[spec.key] = None if raw is None else _coerce(spec, raw)
         return values
 
     def write_machine_settings(
@@ -224,12 +221,11 @@ class ConfigStore:
         Raises:
             FileNotFoundError: printer.cfg が存在しない場合
         """
-        text = self.printer_cfg_path(machine).read_text()
+        lines = self.printer_cfg_path(machine).read_text().splitlines()
         values: dict[str, float | None] = {}
         for spec in MOTION_FIELDS:
-            section, option = spec.key.rsplit(".", 1)
-            raw = _find_cfg_value(text, section, option)
-            values[spec.key] = float(raw) if raw is not None else None
+            found = _find_cfg_line(lines, spec.key)
+            values[spec.key] = float(found[1].group("value").strip()) if found else None
         return values
 
     def write_motion_settings(self, machine: str, values: Mapping[str, float]) -> None:
@@ -240,19 +236,20 @@ class ConfigStore:
         Raises:
             UnknownFieldError: 未知キー・型不一致・対象行が無い場合
         """
-        coerced: dict[str, float] = {}
-        for key, value in values.items():
-            if key not in _MOTION_FIELDS_BY_KEY:
-                raise UnknownFieldError(f"未知のモーション設定キーです: {key}")
-            result = _coerce(_MOTION_FIELDS_BY_KEY[key], value)
-            assert isinstance(result, float)
-            coerced[key] = result
-
+        coerced = {
+            key: float(_coerce(self._motion_spec(key), value))
+            for key, value in values.items()
+        }
         path = self.printer_cfg_path(machine)
         lines = path.read_text().splitlines(keepends=True)
         for key, value in coerced.items():
-            section, option = key.rsplit(".", 1)
-            lines = _replace_cfg_value(lines, section, option, value, key=key)
+            found = _find_cfg_line(lines, key)
+            if found is None:
+                raise UnknownFieldError(
+                    f"printer.cfg に編集対象の行がありません: {key}"
+                )
+            i, match = found
+            lines[i] = match.group("head") + f"{value:g}" + match.group("tail")
         path.write_text("".join(lines))
 
     def symlink_points_to(self, machine: str, link: Path) -> bool:
@@ -268,6 +265,11 @@ class ConfigStore:
         if key not in _MACHINE_FIELDS_BY_KEY:
             raise UnknownFieldError(f"未知のマシン設定キーです: {key}")
         return _MACHINE_FIELDS_BY_KEY[key]
+
+    def _motion_spec(self, key: str) -> FieldSpec:
+        if key not in _MOTION_FIELDS_BY_KEY:
+            raise UnknownFieldError(f"未知のモーション設定キーです: {key}")
+        return _MOTION_FIELDS_BY_KEY[key]
 
 
 def _lookup_toml(doc: tomlkit.TOMLDocument, key: str) -> object | None:
@@ -293,46 +295,18 @@ def _option_re(option: str) -> re.Pattern[str]:
     )
 
 
-def _find_cfg_value(text: str, section: str, option: str) -> str | None:
-    """printer.cfg テキストから [section] 内の option 値を返す（無ければ None）."""
-    pattern = _option_re(option)
-    current_section = None
-    for line in text.splitlines():
-        section_match = _SECTION_RE.match(line)
-        if section_match:
-            current_section = section_match.group("name").strip()
-            continue
-        if current_section != section:
-            continue
-        option_match = pattern.match(line)
-        if option_match:
-            return option_match.group("value").strip()
-    return None
+def _find_cfg_line(lines: list[str], key: str) -> tuple[int, re.Match[str]] | None:
+    """printer.cfg の行リストから key（"section.option"）の行を探す.
 
-
-def _replace_cfg_value(
-    lines: list[str], section: str, option: str, value: float, *, key: str
-) -> list[str]:
-    """printer.cfg の行リストで [section] 内の option 値を置換する.
-
-    Raises:
-        UnknownFieldError: 対象行が存在しない場合
+    Returns:
+        (行番号, オプション行のマッチ)。見つからなければ None
     """
+    section, option = key.rsplit(".", 1)
     pattern = _option_re(option)
     current_section = None
-    formatted = f"{value:g}"
     for i, line in enumerate(lines):
-        section_match = _SECTION_RE.match(line)
-        if section_match:
+        if section_match := _SECTION_RE.match(line):
             current_section = section_match.group("name").strip()
-            continue
-        if current_section != section:
-            continue
-        option_match = pattern.match(line)
-        if option_match:
-            new_lines = lines.copy()
-            new_lines[i] = (
-                option_match.group("head") + formatted + option_match.group("tail")
-            )
-            return new_lines
-    raise UnknownFieldError(f"printer.cfg に編集対象の行がありません: {key}")
+        elif current_section == section and (option_match := pattern.match(line)):
+            return i, option_match
+    return None

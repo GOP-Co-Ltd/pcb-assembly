@@ -1,28 +1,31 @@
 {% extends "base.html" %}
 {% block title %}マシン設定 — PCB Assembly WebUI{% endblock %}
 {% block content %}
+{% macro settings_table(fields, prefix) %}
+<table class="settings-table">
+  <tbody>
+    {% for field in fields %}
+    <tr>
+      <th><label for="{{ prefix }}-{{ field.key }}">{{ field.label }}</label></th>
+      <td>
+        <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
+               data-type="{{ field.value_type }}"
+               type="{% if field.value_type == 'str' %}text{% else %}number{% endif %}"
+               {% if field.value_type != 'str' %}step="any"{% endif %}
+               value="{{ field.value if field.value is not none else '' }}"
+               placeholder="未設定">
+        {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
 <section class="settings">
   <h1>マシン設定 — {{ selected_machine }}</h1>
 
   <form id="machine-settings-form" data-endpoint="/api/settings/machine">
-    <table class="settings-table">
-      <tbody>
-        {% for field in machine_fields %}
-        <tr>
-          <th><label for="ms-{{ field.key }}">{{ field.label }}</label></th>
-          <td>
-            <input id="ms-{{ field.key }}" name="{{ field.key }}"
-                   data-type="{{ field.value_type }}"
-                   type="{% if field.value_type == 'str' %}text{% else %}number{% endif %}"
-                   {% if field.value_type != 'str' %}step="any"{% endif %}
-                   value="{{ field.value if field.value is not none else '' }}"
-                   placeholder="未設定">
-            {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {{ settings_table(machine_fields, "ms") }}
     <button type="submit">保存</button>
   </form>
 
@@ -33,22 +36,7 @@
   </p>
   {% endif %}
   <form id="motion-settings-form" data-endpoint="/api/settings/motion">
-    <table class="settings-table">
-      <tbody>
-        {% for field in motion_fields %}
-        <tr>
-          <th><label for="mo-{{ field.key }}">{{ field.label }}</label></th>
-          <td>
-            <input id="mo-{{ field.key }}" name="{{ field.key }}"
-                   data-type="{{ field.value_type }}" type="number" step="any"
-                   value="{{ field.value if field.value is not none else '' }}"
-                   placeholder="未設定">
-            {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {{ settings_table(motion_fields, "mo") }}
     <label class="restart-option">
       <input type="checkbox" id="motion-restart"> 保存後に Klipper を RESTART する
     </label>

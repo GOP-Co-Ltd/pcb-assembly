@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from webui.app import SettingsDep, StateDep, StoreDep
+from webui.settings import Settings
+from webui.state import AppState
 
 router = APIRouter(prefix="/api")
 
@@ -28,7 +30,7 @@ class MachinesResponse(BaseModel):
     selected: str
 
 
-def build_state_response(state: StateDep, settings: SettingsDep) -> StateResponse:
+def build_state_response(state: AppState, settings: Settings) -> StateResponse:
     """現在のアプリ状態から StateResponse を構築する."""
     owner = state.busy_owner
     pcb = state.selected_pcb

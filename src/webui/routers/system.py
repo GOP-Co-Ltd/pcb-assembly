@@ -29,19 +29,20 @@ def fetch_status(klipper: Klipper) -> KlipperStatus:
     )
 
 
-def _create_klipper(state: AppState, timeout: float) -> Klipper:
+def create_klipper(state: AppState, timeout: float) -> Klipper:
+    """選択マシンの設定で Klipper クライアントを生成する."""
     klipper_config = state.machine().klipper
     return Klipper(host=klipper_config.host, port=klipper_config.port, timeout=timeout)
 
 
 @router.get("/klipper/status")
 def get_klipper_status(state: StateDep) -> KlipperStatus:
-    return fetch_status(_create_klipper(state, STATUS_TIMEOUT))
+    return fetch_status(create_klipper(state, STATUS_TIMEOUT))
 
 
 @router.post("/emergency-stop")
 def post_emergency_stop(state: StateDep) -> dict[str, bool]:
-    klipper = _create_klipper(state, STATUS_TIMEOUT)
+    klipper = create_klipper(state, STATUS_TIMEOUT)
     try:
         klipper.emergency_stop()
     except (httpx.HTTPError, RuntimeError) as exc:

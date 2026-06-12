@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
 import httpx
@@ -9,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from webui.app import SettingsDep, StateDep, StoreDep
-from webui.config_store import MACHINE_FIELDS, MOTION_FIELDS, ConfigStore
+from webui.config_store import MACHINE_FIELDS, MOTION_FIELDS, ConfigStore, FieldSpec
 from webui.state import AppState
 
 RESTART_TIMEOUT = 10.0
@@ -48,9 +49,9 @@ class MotionUpdateResult(BaseModel):
     restart_error: str | None
 
 
-def machine_settings_fields(store: ConfigStore, machine: str) -> list[SettingsField]:
-    """machine.toml のホワイトリスト項目を現在値付きで返す."""
-    values = store.read_machine_settings(machine)
+def _fields(
+    specs: tuple[FieldSpec, ...], values: Mapping[str, float | int | str | None]
+) -> list[SettingsField]:
     return [
         SettingsField(
             key=spec.key,
@@ -59,23 +60,18 @@ def machine_settings_fields(store: ConfigStore, machine: str) -> list[SettingsFi
             unit=spec.unit,
             value=values[spec.key],
         )
-        for spec in MACHINE_FIELDS
+        for spec in specs
     ]
+
+
+def machine_settings_fields(store: ConfigStore, machine: str) -> list[SettingsField]:
+    """machine.toml のホワイトリスト項目を現在値付きで返す."""
+    return _fields(MACHINE_FIELDS, store.read_machine_settings(machine))
 
 
 def motion_settings_fields(store: ConfigStore, machine: str) -> list[SettingsField]:
     """printer.cfg のホワイトリスト項目を現在値付きで返す."""
-    values = store.read_motion_settings(machine)
-    return [
-        SettingsField(
-            key=spec.key,
-            label=spec.label,
-            value_type=spec.value_type,
-            unit=spec.unit,
-            value=values[spec.key],
-        )
-        for spec in MOTION_FIELDS
-    ]
+    return _fields(MOTION_FIELDS, store.read_motion_settings(machine))
 
 
 @router.get("/settings/machine")
@@ -138,7 +134,7 @@ def _to_motion_values(values: dict[str, float | int | str]) -> dict[str, float]:
     """
     converted: dict[str, float] = {}
     for key, value in values.items():
-        if isinstance(value, bool) or isinstance(value, str):
+        if isinstance(value, (bool, str)):
             raise HTTPException(
                 status_code=400,
                 detail=f"{key}: 数値が必要です（与えられた値: {value!r}）",

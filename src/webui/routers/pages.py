@@ -53,6 +53,15 @@ def _feature_label(slug: str) -> str:
     return slug.replace("_", " ").title()
 
 
+def _tab_context(tab: str) -> dict[str, Any]:
+    """タブ共通のコンテキスト（サイドバー描画用）."""
+    return {
+        "active_tab": tab,
+        "features": TABS[tab],
+        "feature_labels": {slug: _feature_label(slug) for slug in TABS[tab]},
+    }
+
+
 def _base_context(
     request: Request, state: StateDep, store: StoreDep, settings: SettingsDep
 ) -> dict[str, Any]:
@@ -98,11 +107,7 @@ def tab_page(
     if tab not in TABS:
         raise HTTPException(status_code=404, detail=f"未知のタブです: {tab}")
     context = _base_context(request, state, store, settings)
-    context.update(
-        active_tab=tab,
-        features=TABS[tab],
-        feature_labels={slug: _feature_label(slug) for slug in TABS[tab]},
-    )
+    context.update(_tab_context(tab))
     return get_templates(request).TemplateResponse(
         request=request, name="tab.html", context=context
     )
@@ -123,10 +128,8 @@ def feature_page(
         )
     context = _base_context(request, state, store, settings)
     context.update(
-        active_tab=tab,
+        _tab_context(tab),
         active_feature=feature,
-        features=TABS[tab],
-        feature_labels={slug: _feature_label(slug) for slug in TABS[tab]},
         feature_label=_feature_label(feature),
         phase=TAB_PHASES[tab],
     )

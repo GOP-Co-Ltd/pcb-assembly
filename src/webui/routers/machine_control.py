@@ -9,10 +9,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from pcbasm import gcode
-from pcbasm.hal import Klipper, XYZStage
+from pcbasm.hal import XYZStage
 from webui.app import StateDep
 from webui.models import KlipperStatus
-from webui.routers.system import fetch_status
+from webui.routers.system import create_klipper, fetch_status
 from webui.state import AppState, BusyError
 
 MOVE_TIMEOUT = 60.0  # wait_for_done (M400) を含むため長め
@@ -34,12 +34,7 @@ class MachineControlRequest(BaseModel):
 def post_machine_control(body: MachineControlRequest, state: StateDep) -> KlipperStatus:
     try:
         with state.machine_lock("machine-control"):
-            klipper_config = state.machine().klipper
-            klipper = Klipper(
-                host=klipper_config.host,
-                port=klipper_config.port,
-                timeout=MOVE_TIMEOUT,
-            )
+            klipper = create_klipper(state, MOVE_TIMEOUT)
             stage = XYZStage(klipper.readonly)
             commands = _build_gcode(body, state, stage)
             klipper.send_gcode(commands)
