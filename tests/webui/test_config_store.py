@@ -2,22 +2,16 @@
 
 計画書「`src/webui/config_store.py`」節が契約:
 
-- machine.toml / printer.cfg のホワイトリスト読み書き
+- machine.toml のホワイトリスト読み書き
 - tomlkit によるコメント・構造保持（変更対象外の行は不変）
-- printer.cfg は既存行のみ書き換え（行追加しない）
-- 未知キー / 型不一致 / 対象行なし → UnknownFieldError
+- 未知キー / 型不一致 → UnknownFieldError
 """
 
 from pathlib import Path
 
 import pytest
 
-from webui.config_store import (
-    MACHINE_FIELDS,
-    MOTION_FIELDS,
-    ConfigStore,
-    UnknownFieldError,
-)
+from webui.config_store import MACHINE_FIELDS, ConfigStore, UnknownFieldError
 
 FIXTURE = "test-fixture"
 
@@ -154,77 +148,3 @@ class TestMachineSettings:
     def test_unknown_machine_raises_file_not_found(self, store: ConfigStore):
         with pytest.raises(FileNotFoundError):
             store.read_machine_settings("no-such-machine")
-
-
-class TestMotionSettings:
-    """printer.cfg のホワイトリスト読み書き（既存行のみ）."""
-
-    def test_read_returns_motion_values(self, store: ConfigStore):
-        values = store.read_motion_settings(FIXTURE)
-
-        assert values["printer.max_velocity"] == 50.0
-        assert values["printer.max_accel"] == 500.0
-        assert values["manual_stepper paste_dispenser.velocity"] == 1.0
-        assert values["manual_stepper paste_dispenser.accel"] == 10.0
-
-    def test_read_covers_every_whitelisted_key(self, store: ConfigStore):
-        values = store.read_motion_settings(FIXTURE)
-
-        assert set(values) == {spec.key for spec in MOTION_FIELDS}
-
-    def test_write_rewrites_only_target_line(
-        self, store: ConfigStore, configs_root: Path
-    ):
-        path = configs_root / FIXTURE / "printer.cfg"
-        before = path.read_text(encoding="utf-8").splitlines()
-
-        store.write_motion_settings(FIXTURE, {"printer.max_velocity": 45.0})
-
-        after = path.read_text(encoding="utf-8").splitlines()
-        assert len(after) == len(before)
-        changed = [(b, a) for b, a in zip(before, after) if b != a]
-        assert len(changed) == 1
-        assert "max_velocity" in changed[0][0]
-        assert store.read_motion_settings(FIXTURE)["printer.max_velocity"] == 45.0
-
-    def test_write_when_option_line_missing_raises(
-        self, store: ConfigStore, configs_root: Path
-    ):
-        path = configs_root / FIXTURE / "printer.cfg"
-        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-        path.write_text(
-            "".join(line for line in lines if not line.startswith("max_accel")),
-            encoding="utf-8",
-        )
-
-        with pytest.raises(UnknownFieldError):
-            store.write_motion_settings(FIXTURE, {"printer.max_accel": 600.0})
-
-    def test_unknown_key_raises_unknown_field_error(self, store: ConfigStore):
-        with pytest.raises(UnknownFieldError):
-            store.write_motion_settings(FIXTURE, {"printer.no_such_option": 1.0})
-
-
-class TestSymlinkPointsTo:
-    """printer_cfg_link の検証."""
-
-    def test_true_when_link_targets_machine_printer_cfg(
-        self, store: ConfigStore, configs_root: Path, tmp_path: Path
-    ):
-        link = tmp_path / "printer_data" / "config" / "printer.cfg"
-        link.parent.mkdir(parents=True)
-        link.symlink_to(configs_root / FIXTURE / "printer.cfg")
-
-        assert store.symlink_points_to(FIXTURE, link) is True
-
-    def test_false_when_link_targets_other_machine(
-        self, store: ConfigStore, configs_root: Path, tmp_path: Path
-    ):
-        link = tmp_path / "printer_data" / "config" / "printer.cfg"
-        link.parent.mkdir(parents=True)
-        link.symlink_to(configs_root / "kurousagi" / "printer.cfg")
-
-        assert store.symlink_points_to(FIXTURE, link) is False
-
-    def test_false_when_link_does_not_exist(self, store: ConfigStore, tmp_path: Path):
-        assert store.symlink_points_to(FIXTURE, tmp_path / "no-such-link") is False

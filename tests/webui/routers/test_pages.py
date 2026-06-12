@@ -116,10 +116,10 @@ class TestPages:
             "プローブ",
             "基準点",
             "カメラ",
-            "プリンター",
-            "ディスペンサーステッパー",
         ):
             assert section_label in text
+        # モーション設定（printer.cfg）は Mainsail 直編集に移行し画面から削除済み
+        assert "モーション設定" not in text
 
     def test_unknown_tab_returns_404(self, client: TestClient):
         assert client.get("/no-such-tab").status_code == 404

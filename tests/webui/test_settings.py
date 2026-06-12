@@ -14,7 +14,6 @@ ENV_VARS = (
     "PCBASM_WEBUI_CONFIGS_ROOT",
     "PCBASM_WEBUI_DATA_DIR",
     "PCBASM_WEBUI_PCB_ROOT",
-    "PCBASM_WEBUI_PRINTER_CFG_LINK",
     "PCBASM_MAINSAIL_URL",
     "PCBASM_WEBUI_PORT",
     "PCBASM_WEBUI_FAKE_CAMERA",
@@ -40,10 +39,6 @@ class TestSettingsFromEnv:
         assert settings.pcb_browse_root == Path("/")
         assert settings.pcb_browse_start == PROJECT_ROOT
         assert settings.pcb_upload_dir == PROJECT_ROOT / "uploads"
-        assert (
-            settings.printer_cfg_link
-            == Path.home() / "printer_data" / "config" / "printer.cfg"
-        )
         # None は「ページ閲覧元ホストに追従」を意味する（pages.py で解決）
         assert settings.mainsail_url is None
         assert settings.default_machine == "kurousagi"
@@ -55,7 +50,6 @@ class TestSettingsFromEnv:
         monkeypatch.setenv("PCBASM_WEBUI_CONFIGS_ROOT", str(tmp_path / "configs"))
         monkeypatch.setenv("PCBASM_WEBUI_DATA_DIR", str(tmp_path / "data"))
         monkeypatch.setenv("PCBASM_WEBUI_PCB_ROOT", str(tmp_path / "pcb"))
-        monkeypatch.setenv("PCBASM_WEBUI_PRINTER_CFG_LINK", str(tmp_path / "link.cfg"))
         monkeypatch.setenv("PCBASM_MAINSAIL_URL", "http://mainsail.example:8000")
         monkeypatch.setenv("PCBASM_WEBUI_PORT", "9001")
 
@@ -64,7 +58,6 @@ class TestSettingsFromEnv:
         assert settings.configs_root == tmp_path / "configs"
         assert settings.data_dir == tmp_path / "data"
         assert settings.pcb_browse_root == tmp_path / "pcb"
-        assert settings.printer_cfg_link == tmp_path / "link.cfg"
         assert settings.mainsail_url == "http://mainsail.example:8000"
         assert settings.port == 9001
 

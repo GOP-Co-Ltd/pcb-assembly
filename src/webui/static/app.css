@@ -192,13 +192,6 @@ body {
 }
 .settings-group .settings-table { margin-left: 0.8rem; }
 .unit { margin-left: 0.4rem; color: #777; }
-.warning {
-  background: #fef3c7;
-  border: 1px solid #f59e0b;
-  border-radius: 6px;
-  padding: 0.5rem 0.8rem;
-}
-.restart-option { display: block; margin: 0.6rem 0; }
 
 /* ---- file browser ---- */
 .file-browser { min-width: 28rem; border: 1px solid var(--border); border-radius: 8px; }

@@ -62,7 +62,6 @@ class TestMachineSelection:
             configs_root=configs,
             data_dir=data_dir,
             pcb_browse_root=tmp_path,
-            printer_cfg_link=tmp_path / "printer.cfg",
             default_machine="kurousagi",
         )
 

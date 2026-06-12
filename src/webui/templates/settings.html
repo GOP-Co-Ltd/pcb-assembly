@@ -33,20 +33,6 @@
     {{ settings_groups(machine_groups, "ms") }}
     <button type="submit">保存</button>
   </form>
-
-  <h2>モーション設定</h2>
-  {% if not symlink_ok %}
-  <p class="warning">
-    printer.cfg の symlink が選択マシンを指していません。保存しても装置には反映されません。
-  </p>
-  {% endif %}
-  <form id="motion-settings-form" data-endpoint="/api/settings/motion">
-    {{ settings_groups(motion_groups, "mo") }}
-    <label class="restart-option">
-      <input type="checkbox" id="motion-restart"> 保存後に Klipper を RESTART する
-    </label>
-    <button type="submit">保存</button>
-  </form>
 </section>
 {% endblock %}
 {% block scripts %}

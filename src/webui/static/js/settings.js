@@ -1,6 +1,6 @@
 "use strict";
 
-// 設定画面: フォーム値を収集して PUT。モーション設定は RESTART 確認付き。
+// 設定画面: フォーム値を収集して PUT。
 
 (() => {
   const { toast, api } = window.webui;
@@ -36,29 +36,4 @@
     });
   }
 
-  const motionForm = document.getElementById("motion-settings-form");
-  if (motionForm) {
-    motionForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const restart = document.getElementById("motion-restart").checked;
-      if (restart && !window.confirm("Klipper を RESTART します。よろしいですか？")) {
-        return;
-      }
-      try {
-        const result = await api("PUT", motionForm.dataset.endpoint, {
-          values: collectValues(motionForm),
-          restart,
-        });
-        if (!result.restart_requested) {
-          toast("モーション設定を保存しました（RESTART なし）");
-        } else if (result.restart_ok) {
-          toast("モーション設定を保存し、Klipper を RESTART しました");
-        } else {
-          toast(`保存しましたが RESTART に失敗: ${result.restart_error}`, false);
-        }
-      } catch (err) {
-        toast(`保存失敗: ${err.message}`, false);
-      }
-    });
-  }
 })();

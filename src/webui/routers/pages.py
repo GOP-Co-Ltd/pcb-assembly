@@ -10,11 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from webui.app import CatalogDep, SettingsDep, StateDep, StoreDep, get_templates
 from webui.config_store import SECTION_LABELS, section_of
-from webui.routers.settings_api import (
-    SettingsField,
-    machine_settings_fields,
-    motion_settings_fields,
-)
+from webui.routers.settings_api import SettingsField, machine_settings_fields
 
 # tab → feature slug 列（ヘッダのタブ表示順）
 TABS: dict[str, tuple[str, ...]] = {
@@ -174,8 +170,6 @@ def settings_page(
     machine = state.selected_machine
     context.update(
         machine_groups=_grouped_fields(machine_settings_fields(store, machine)),
-        motion_groups=_grouped_fields(motion_settings_fields(store, machine)),
-        symlink_ok=store.symlink_points_to(machine, settings.printer_cfg_link),
     )
     return get_templates(request).TemplateResponse(
         request=request, name="settings.html", context=context

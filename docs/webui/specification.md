@@ -130,7 +130,7 @@ src/webui/
 │   ├── files.py           # PCB ファイルブラウザ
 │   ├── jobs.py            # ジョブ REST + WS /api/ws
 │   ├── preview.py         # MJPEG / snapshot
-│   ├── settings_api.py    # マシン設定・モーション設定の取得/保存
+│   ├── settings_api.py    # マシン設定の取得/保存
 │   ├── machine_control.py # マシン操作パネル（homing/ジョグ/移動/relax/フォーカスZ）
 │   └── system.py          # emergency stop、Klipper ステータス
 ├── templates/
@@ -239,16 +239,13 @@ class JobContext:
 
 ## 8. 設定管理
 
-ユーザーには「マシン設定」という一つの画面として見せ、裏が machine.toml / printer.cfg であることは意識させない。
+ユーザーには「マシン設定」という一つの画面として見せ、裏が machine.toml であることは意識させない。
 
 ### 設定画面（ヘッダの歯車 → `/settings`）
 
-- machine.toml の編集可能項目を**ホワイトリスト化したフォーム**で表示: ディスペンサー諸元 `[paste_dispenser]`、pad 照合パラメータ `[paste_dispenser.pad_align]`（canny 閾値等）、プローブ `[probe]`、基準点 `[reference_point]`、カメラ `[camera]` 等。保存は tomlkit でコメント・構造を保持して書き戻す（既存パターン: `update_reference_point`（`src/scripts/posctrl/reference_point_setup.py`）の一般化）
-- printer.cfg は「モーション設定」セクションとして**限定編集**。初期ホワイトリスト: `[printer] max_velocity / max_accel`、`[manual_stepper paste_dispenser] velocity / accel`（ホワイトリストは拡張可能な定義方式）
-    - 編集対象は `configs/<選択マシン>/printer.cfg`。`~/printer_data/config/printer.cfg` はここへの symlink（`install-printer-cfg.sh` 方式）なので、保存 → Klipper RESTART で反映される
-    - 保存時は確認ダイアログ付きで Moonraker 経由の Klipper RESTART を実行
-    - symlink が選択マシンを指していない場合は警告を表示する
-- 読み書きは `webui/config_store.py` に集約（ホワイトリスト定義 + tomlkit 書き込み + printer.cfg の限定パーサ/ライタ）。ジョブ実行中の設定保存は 409
+- machine.toml の編集可能項目を**ホワイトリスト化したフォーム**で表示: ディスペンサー諸元 `[paste_dispenser]`、pad 照合パラメータ `[paste_dispenser.pad_align]`（canny 閾値等）、プローブ `[probe]`、基準点 `[reference_point]`、カメラ `[camera]` 等。TOML セクション単位の折りたたみ表示（`SECTION_LABELS`）。保存は tomlkit でコメント・構造を保持して書き戻す（既存パターン: `update_reference_point`（`src/scripts/posctrl/reference_point_setup.py`）の一般化）
+- printer.cfg（モーション設定）は WebUI では編集しない。ヘッダの「Klipper」リンクから Mainsail に飛び直接編集する（2026-06-12 のユーザー判断で「モーション設定」セクションを削除）
+- 読み書きは `webui/config_store.py` に集約（ホワイトリスト定義 + tomlkit 書き込み）。ジョブ実行中の設定保存は 409
 - 設定変更後はマシン設定を再ロード（AppState の Machine 再構築。カメラ設定が変わった場合は FrameHub/Camera を再生成）
 
 ### 計測結果の Apply / Discard フロー
@@ -280,7 +277,6 @@ class JobContext:
 | POST    | `/api/jobs/last/apply`                    | 直近完了ジョブの計測結果を設定へ反映                                                |
 | POST    | `/api/jobs/last/discard`                  | 直近完了ジョブの計測結果を破棄                                                      |
 | GET/PUT | `/api/settings/machine`                   | マシン設定（machine.toml ホワイトリスト項目）                                       |
-| GET/PUT | `/api/settings/motion`                    | モーション設定（printer.cfg 限定項目）+ RESTART                                     |
 | POST    | `/api/machine-control`                    | homing / ジョグ / 絶対移動 / relax / フォーカス Z / 任意 G-code（§6。ジョブ中 409） |
 | GET     | `/api/stage/limits`                       | XYZStage の移動範囲（ジョグ UI 用）                                                 |
 | POST    | `/api/emergency-stop`                     | 即時 M112 相当（ジョブ非経由）                                                      |
