@@ -20,7 +20,7 @@ from pcbasm.posctrl.copper import (
 from pcbasm.posctrl.correction import to_machine_transform
 from pcbasm.posctrl.position import XYPositionAdjustor
 from pcbasm.utils import get_class_module_path
-from pcbasm.vision import CopperEdgeDetector, Image, ImageArray
+from pcbasm.vision import CopperEdgeDetector, Image, ImageArray, draw_crosshair
 
 _EXPECTED_COLOR = (0, 0, 255)  # 想定エッジの表示色 (BGR: 赤)
 _DETECTED_COLOR = (0, 255, 0)  # 検出エッジの表示色 (BGR: 緑)
@@ -134,13 +134,14 @@ class CopperPadObserver:
         return match.camera_transform
 
     def _show(self, window_name: str, image: Image, edges: ImageArray) -> None:
-        """ROI枠と想定（赤）・検出（緑）エッジを重ねて表示する."""
+        """ROI枠と想定（赤）・検出（緑）エッジ、中心十字を重ねて表示する."""
         x0, y0, x1, y1 = self._roi
         display = image.numpy().copy()
         roi_view = display[y0:y1, x0:x1]
         roi_view[self._projection.edge_mask[y0:y1, x0:x1] > 0] = _EXPECTED_COLOR
         roi_view[edges[y0:y1, x0:x1] > 0] = _DETECTED_COLOR
         cv2.rectangle(display, (x0, y0), (x1 - 1, y1 - 1), _ROI_COLOR, 1)
+        draw_crosshair(display)
         cv2.imshow(window_name, display)
         cv2.waitKey(1)
 

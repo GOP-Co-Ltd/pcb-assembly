@@ -11,8 +11,7 @@ Reference Pointの位置調整、Board座標→機械座標変換の計測も兼
 5. カメラ回転角の計測（OffsetTransformMeasurer）
 6. Board変換の計測（BoardTransformMeasurer）
 7. ボード四隅を巡回
-8. 全コンポーネントを巡回
-9. 全パッドを巡回し、銅箔照合で自動位置合わせ
+8. 部品ごとに銅箔照合で自動位置合わせし、補正適用済みの全パッドを巡回
 """
 
 import argparse
@@ -29,7 +28,7 @@ from pcbasm import gcode
 from pcbasm.config import PadAlign, get_machine_config
 from pcbasm.geometry import Compose, Point2d, sort_by_nearest
 from pcbasm.hal import Speed
-from pcbasm.pcb import Layer, Pad
+from pcbasm.pcb import Pad
 from pcbasm.posctrl import (
     BoardCalibrationResult,
     ComponentPads,
@@ -43,7 +42,7 @@ from pcbasm.posctrl import (
     wait_for_keypress,
 )
 from pcbasm.utils import setup_logging
-from pcbasm.vision import CopperEdgeDetector
+from pcbasm.vision import CopperEdgeDetector, draw_crosshair
 
 WINDOW_NAME = "Board Tour Demo"
 FILL_COLOR = (0, 0, 255)  # 対象pad overlayの色 (BGR)
@@ -57,14 +56,17 @@ def _show_pad_result(
     result: BoardCalibrationResult,
     projector: CopperProjector,
     edge_detector: CopperEdgeDetector,
-    polygons: Sequence[Polygon],
+    roi_polygons: Sequence[Polygon],
+    paste_polygons: Sequence[Polygon],
     pad_align: PadAlign,
     lines: list[str],
 ) -> bool:
     """対象領域のROIに限定したoverlayを一定時間表示して自動で次へ進む.
 
-    対象領域の薄塗り + 想定している銅箔の輪郭（赤）+
-    検出された銅箔輪郭（緑）を現在位置の再投影で描画する。
+    塗布対象（ペーストpad領域）の薄塗り + 想定している銅箔の輪郭（赤）+
+    検出された銅箔輪郭（緑）+ 中心十字を現在位置の再投影で描画する。
+    ROIは実銅箔（roi_polygons）から決め、薄塗りはペースト開口
+    （paste_polygons）を投影する。
 
     Returns:
         Escキーで中断された場合True
@@ -72,15 +74,25 @@ def _show_pad_result(
     current = result.stage.get_position().to2d()
     projection = projector.project(current)
     x0, y0, x1, y1 = projector.roi_of(
-        polygons,
+        roi_polygons,
         current,
         margin_mm=pad_align.roi_margin,
         min_size_mm=pad_align.min_roi,
     )
-    roi = np.zeros(projection.fill_mask.shape, dtype=bool)
+    roi = np.zeros(projection.edge_mask.shape, dtype=bool)
     roi[y0:y1, x0:x1] = True
-    fill = (projection.fill_mask > 0) & roi
     expected = (projection.edge_mask > 0) & roi
+
+    # ペーストpad領域（塗布対象）を投影して薄塗りマスクを作る
+    fill_mask = np.zeros(projection.edge_mask.shape, dtype=np.uint8)
+    for paste in paste_polygons:
+        pixels = [
+            projector.pixel_of(Point2d(float(x), float(y)), current)
+            for x, y in paste.exterior.coords
+        ]
+        points = np.array([[round(p.x), round(p.y)] for p in pixels], dtype=np.int32)
+        cv2.fillPoly(fill_mask, [points], 255)
+    fill = fill_mask > 0
 
     deadline = time.monotonic() + RESULT_DISPLAY_SEC
     while time.monotonic() < deadline:
@@ -96,6 +108,7 @@ def _show_pad_result(
         display[fill] = blended[fill]
         display[expected] = EXPECTED_COLOR
         display[detected] = DETECTED_COLOR
+        draw_crosshair(display)
 
         for i, line in enumerate(lines):
             position = (10, 25 + i * 25)
@@ -147,6 +160,7 @@ def _tour_pads(result: BoardCalibrationResult) -> None:
                 session.projector,
                 session.edge_detector,
                 [p.copper_polygon for p in group.pads],
+                [p.polygon for p in group.pads],
                 pad_align,
                 [progress, "FAILED"],
             ):
@@ -231,6 +245,7 @@ def _tour_corrected_pads(
             corrected_projector,
             session.edge_detector,
             [pad.copper_polygon],
+            [pad.polygon],
             pad_align,
             lines,
         ):
@@ -305,30 +320,6 @@ def main() -> None:
             )
 
         print("四隅巡回完了")
-
-        # コンポーネント巡回デモ
-        print("\n=== コンポーネント巡回デモ ===")
-        top_components = [c for c in pcb.components if c.layer == Layer.TOP]
-        print(f"TOPレイヤーのコンポーネント数: {len(top_components)}")
-
-        if top_components:
-            # コンポーネント位置をnearest neighborでソート
-            current_pos = stage.get_position()
-            sorted_components = sort_by_nearest(
-                top_components,
-                current_pos.to2d().to3d(),
-                key=lambda c: c.position.to3d(),
-            )
-
-            print("巡回開始... (Escキーで中断)")
-            for i, comp in enumerate(sorted_components):
-                machine_pt = board_transform.apply(comp.position)
-                label = f"{comp.designator} ({i + 1}/{len(sorted_components)})"
-                display_at_point(result, machine_pt, label, window_name=WINDOW_NAME)
-
-            print("コンポーネント巡回完了")
-        else:
-            print("巡回するコンポーネントがありません")
 
         # パッド巡回デモ（銅箔照合による自動位置合わせ）
         print("\n=== パッド巡回デモ ===")
