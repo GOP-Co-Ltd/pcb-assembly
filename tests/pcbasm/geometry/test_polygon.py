@@ -1,9 +1,19 @@
-"""merge_islands のテスト."""
+"""merge_islands / transform_polygon のテスト."""
 
 import pytest
 from shapely import Polygon
+from shapely.geometry.polygon import LinearRing
 
-from pcbasm.geometry import merge_islands
+from pcbasm.geometry import (
+    Compose,
+    Identity,
+    Point2d,
+    Rotation,
+    Shift,
+    Transform,
+    merge_islands,
+    transform_polygon,
+)
 
 
 def _rectangle(x0: float, y0: float, x1: float, y1: float) -> Polygon:
@@ -85,3 +95,56 @@ class TestMergeIslands:
 
     def test_空入力は空リストを返す(self):
         assert merge_islands([], snap_mm=0.01) == []
+
+
+def _donut() -> Polygon:
+    """10mm 角矩形に 2mm 角の穴を持つ穴付きポリゴン."""
+    return Polygon(
+        [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+        holes=[[(4.0, 4.0), (6.0, 4.0), (6.0, 6.0), (4.0, 6.0)]],
+    )
+
+
+class TestTransformPolygon:
+    """transform_polygon のテスト.
+
+    exterior / interiors の各頂点に 2D Transform（transform.apply(Point2d)）を
+    適用した Polygon を返す契約。
+    """
+
+    @staticmethod
+    def _assert_ring_transformed(
+        result: LinearRing, original: LinearRing, transform: Transform
+    ) -> None:
+        """リングの各頂点が transform.apply(Point2d(...)) と一致することを検証する."""
+        assert len(result.coords) == len(original.coords)
+        for got, orig in zip(result.coords, original.coords, strict=True):
+            expected = transform.apply(Point2d(orig[0], orig[1]))
+            assert got[0] == pytest.approx(expected.x)
+            assert got[1] == pytest.approx(expected.y)
+
+    @pytest.mark.parametrize(
+        "transform",
+        [
+            Shift(2.5, -1.5),
+            Rotation(37.0),
+            Compose([Rotation(90.0), Shift(1.0, 2.0)]),
+        ],
+        ids=["shift", "rotation", "compose"],
+    )
+    def test_穴付き矩形の全頂点にtransformが適用される(self, transform: Transform):
+        donut = _donut()
+
+        result = transform_polygon(donut, transform)
+
+        self._assert_ring_transformed(result.exterior, donut.exterior, transform)
+        assert len(result.interiors) == len(donut.interiors)
+        for got_ring, orig_ring in zip(result.interiors, donut.interiors, strict=True):
+            self._assert_ring_transformed(got_ring, orig_ring, transform)
+
+    def test_identityの適用で形状は不変(self):
+        donut = _donut()
+
+        result = transform_polygon(donut, Identity())
+
+        assert result.equals(donut)

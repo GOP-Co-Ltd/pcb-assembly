@@ -1,6 +1,15 @@
+from typing import NamedTuple
+
 import pytest
 
 from pcbasm.geometry import Point3d, sort_by_nearest
+
+
+class _Stop(NamedTuple):
+    """Key 形式の検証用: 位置を属性に持つ任意オブジェクト."""
+
+    name: str
+    position: Point3d
 
 
 class TestSortByNearest:
@@ -77,3 +86,35 @@ class TestSortByNearest:
             total += (result[i + 1] - result[i]).norm()
         # NN単体の経路長 (0,0)→(1,0)→(1,3)→(0,3)→(0,1): 1+3+1+2=7
         assert total < 7.0
+
+    def test_key_sorts_objects_by_extracted_positions(self):
+        """Key で Point3d を抽出し、オブジェクト列を巡回順に並べ替える."""
+        stops = [
+            _Stop("far", Point3d(3.0, 0.0, 0.0)),
+            _Stop("near", Point3d(1.0, 0.0, 0.0)),
+            _Stop("mid", Point3d(2.0, 0.0, 0.0)),
+        ]
+
+        result = sort_by_nearest(
+            stops, Point3d(0.0, 0.0, 0.0), key=lambda s: s.position
+        )
+
+        assert [s.name for s in result] == ["near", "mid", "far"]
+
+    def test_key_preserves_elements_with_identical_positions(self):
+        """同一座標の要素が両方とも結果に残る（dict 逆引きで潰れない）."""
+        stops = [
+            _Stop("a", Point3d(1.0, 0.0, 0.0)),
+            _Stop("b", Point3d(1.0, 0.0, 0.0)),
+            _Stop("c", Point3d(2.0, 0.0, 0.0)),
+        ]
+
+        result = sort_by_nearest(
+            stops, Point3d(0.0, 0.0, 0.0), key=lambda s: s.position
+        )
+
+        assert len(result) == 3
+        assert {s.name for s in result} == {"a", "b", "c"}
+        # 同一座標の2要素は隣接し、より遠い c が最後
+        assert {s.name for s in result[:2]} == {"a", "b"}
+        assert result[2].name == "c"
