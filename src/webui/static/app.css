@@ -1,0 +1,163 @@
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --border: #d4d7dd;
+  --accent: #2563eb;
+  --danger: #dc2626;
+  --text: #1f2430;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Noto Sans JP", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ---- header ---- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0.8rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs { display: flex; gap: 0.25rem; }
+
+.tab {
+  padding: 0.35rem 0.9rem;
+  border-radius: 6px 6px 0 0;
+  text-decoration: none;
+  color: var(--text);
+}
+.tab.active { background: var(--accent); color: #fff; }
+
+.global-controls { display: flex; align-items: center; gap: 0.5rem; }
+
+.chip {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.icon-link { text-decoration: none; color: var(--accent); padding: 0.2rem 0.4rem; }
+
+.estop {
+  background: var(--danger);
+  color: #fff;
+  font-weight: 700;
+  border: none;
+  border-radius: 6px;
+  padding: 0.45rem 1rem;
+  cursor: pointer;
+}
+.estop:active { filter: brightness(0.85); }
+
+/* ---- layout ---- */
+.layout { display: flex; min-height: calc(100vh - 3rem); }
+
+.sidebar {
+  width: 17rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+.features ul { list-style: none; margin: 0; padding: 0; }
+.features a {
+  display: block;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--text);
+}
+.features a.active, .features a:hover { background: var(--bg); color: var(--accent); }
+
+.main-pane { flex: 1; padding: 1.2rem; }
+
+.placeholder { color: #777; }
+
+/* ---- machine control panel ---- */
+.machine-control {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+  background: var(--panel);
+  font-size: 0.85rem;
+}
+.machine-control summary { cursor: pointer; font-weight: 600; }
+.mc-status { display: flex; gap: 0.8rem; padding: 0.4rem 0; color: #555; }
+.mc-group { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem; padding: 0.2rem 0; }
+.mc-label { width: 4.5rem; color: #555; }
+.mc-jog-row { display: flex; align-items: center; gap: 0.25rem; }
+.machine-control button {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: pointer;
+}
+.machine-control button:disabled { opacity: 0.4; cursor: not-allowed; }
+.machine-control input[type="number"] { width: 4.5rem; }
+
+/* ---- settings ---- */
+.settings { max-width: 46rem; }
+.settings-table th {
+  text-align: left;
+  font-weight: 400;
+  padding: 0.2rem 0.8rem 0.2rem 0;
+  white-space: nowrap;
+}
+.settings-table input { width: 11rem; padding: 0.2rem 0.4rem; }
+.unit { margin-left: 0.4rem; color: #777; }
+.warning {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  padding: 0.5rem 0.8rem;
+}
+.restart-option { display: block; margin: 0.6rem 0; }
+
+/* ---- file browser ---- */
+.file-browser { min-width: 28rem; border: 1px solid var(--border); border-radius: 8px; }
+.fb-head { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 0.6rem; }
+.fb-path { font-family: monospace; color: #555; }
+.fb-entries { list-style: none; margin: 0; padding: 0; max-height: 24rem; overflow-y: auto; }
+.fb-entries li { padding: 0.25rem 0.4rem; cursor: pointer; border-radius: 4px; }
+.fb-entries li:hover { background: var(--bg); }
+.fb-entries .dir::before { content: "📁 "; }
+.fb-entries .file::before { content: "📄 "; }
+
+/* ---- toasts ---- */
+.toasts {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 100;
+}
+.toast {
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  color: #fff;
+  background: #16a34a;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+}
+.toast.error { background: var(--danger); }

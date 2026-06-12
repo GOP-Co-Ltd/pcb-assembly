@@ -27,5 +27,11 @@ test-no-hardware: ## Run tests without hardware
 type: ## Run type check
 	uv run pyright
 
+webui-dev: ## Run WebUI dev server (auto-reload)
+	uv run uvicorn webui.app:create_app --factory --reload --host 0.0.0.0 --port 8080
+
+webui: ## Run WebUI server
+	uv run python -m webui
+
 run: format test type ## Run all workflow.
 	@echo "All tasks completed successfully."
