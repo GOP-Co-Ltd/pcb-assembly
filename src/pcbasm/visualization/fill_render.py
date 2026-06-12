@@ -14,7 +14,7 @@ from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Polygon as MplPolygon
 from shapely import Polygon as ShapelyPolygon
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
 
 from pcbasm.geometry import Point2d
@@ -65,17 +65,14 @@ def render_fill_paths(
 
     # paste pad 多角形 (top: 緑 / bottom: 赤)
     if layer == Layer.TOP:
-        pad_facecolor = "#00aa00"
-        pad_edgecolor = "#00ff00"
+        pad_facecolor, pad_edgecolor = "#00aa00", "#00ff00"
     else:
-        pad_facecolor = "#aa0000"
-        pad_edgecolor = "#ff0000"
+        pad_facecolor, pad_edgecolor = "#aa0000", "#ff0000"
 
     for pad in pads:
-        coords = list(pad.polygon.exterior.coords)
         ax.add_patch(
             MplPolygon(
-                coords,
+                list(pad.polygon.exterior.coords),
                 closed=True,
                 facecolor=pad_facecolor,
                 edgecolor=pad_edgecolor,
@@ -225,11 +222,7 @@ def _annotate_coverage(
                 LineString([(p.x, p.y) for p in component]).buffer(bead_width / 2)
             )
         elif len(component) == 1:
-            halos.append(
-                LineString(
-                    [(component[0].x, component[0].y), (component[0].x, component[0].y)]
-                ).buffer(bead_width / 2)
-            )
+            halos.append(Point(component[0].x, component[0].y).buffer(bead_width / 2))
     if not halos:
         return
 

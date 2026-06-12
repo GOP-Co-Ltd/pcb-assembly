@@ -178,7 +178,7 @@ def _run_fill_path_simulate(ctx: JobContext) -> JobResult:
     paths = []
     for index, pad in enumerate(pads):
         ctx.checkpoint()
-        ctx.progress("fill path 生成", 100.0 * index / len(pads) if pads else None)
+        ctx.progress("fill path 生成", 100.0 * index / len(pads))
         paths.append(
             build_paste_fill_path(
                 pad.polygon,
@@ -189,7 +189,8 @@ def _run_fill_path_simulate(ctx: JobContext) -> JobResult:
             )
         )
     non_empty = sum(1 for components in paths if components)
-    ctx.log(f"fill path 生成: {non_empty} / {len(paths)} 成功")
+    summary = f"fill path 生成: {non_empty} / {len(paths)} 成功"
+    ctx.log(summary)
 
     ctx.progress("描画")
     png_name = f"{ctx.pcb_path.stem}_fill_path.png"
@@ -208,7 +209,7 @@ def _run_fill_path_simulate(ctx: JobContext) -> JobResult:
     ctx.progress("完了", 100.0)
 
     return JobResult(
-        summary=f"fill path 生成: {non_empty} / {len(paths)} 成功",
+        summary=summary,
         artifacts=(_artifact(ctx, "Fill Path 可視化", png_name, "image"),),
     )
 

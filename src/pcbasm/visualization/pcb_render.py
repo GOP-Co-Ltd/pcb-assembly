@@ -44,18 +44,12 @@ def render_pcb(
 
     # 銅箔描画 (パッドより下に配置)
     for cu in copper:
-        if cu.layer == Layer.TOP:
-            facecolor = "#cc8844"
-            edgecolor = "#cc8844"
-        else:
-            facecolor = "#884422"
-            edgecolor = "#884422"
-
+        color = "#cc8844" if cu.layer == Layer.TOP else "#884422"
         ax.add_patch(
             polygon_with_holes_patch(
                 cu.polygon,
-                facecolor=facecolor,
-                edgecolor=edgecolor,
+                facecolor=color,
+                edgecolor=color,
                 alpha=0.4,
                 linewidth=0.3,
             )
@@ -63,32 +57,24 @@ def render_pcb(
 
     # パッド描画
     for pad in pads:
-        coords = list(pad.polygon.exterior.coords)
-
         if pad.layer == Layer.TOP:
-            facecolor = "#00aa00"
-            edgecolor = "#00ff00"
+            facecolor, edgecolor = "#00aa00", "#00ff00"
         else:
-            facecolor = "#aa0000"
-            edgecolor = "#ff0000"
-
-        polygon = MplPolygon(
-            coords,
-            closed=True,
-            facecolor=facecolor,
-            edgecolor=edgecolor,
-            linewidth=0.5,
-            alpha=0.8,
+            facecolor, edgecolor = "#aa0000", "#ff0000"
+        ax.add_patch(
+            MplPolygon(
+                list(pad.polygon.exterior.coords),
+                closed=True,
+                facecolor=facecolor,
+                edgecolor=edgecolor,
+                linewidth=0.5,
+                alpha=0.8,
+            )
         )
-        ax.add_patch(polygon)
 
     # 部品位置描画
     for comp in components:
-        if comp.layer == Layer.TOP:
-            color = "#ffff00"
-        else:
-            color = "#00ffff"
-
+        color = "#ffff00" if comp.layer == Layer.TOP else "#00ffff"
         ax.plot(
             comp.position.x,
             comp.position.y,

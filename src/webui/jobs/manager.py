@@ -405,16 +405,8 @@ class JobManager:
         try:
             record = JobRecord(uuid.uuid4().hex, name, params, self._log_capacity)
             runtime = _JobRuntime(record, self._preview, self._publish)
-            with self._lock:
-                previous = self._record
-                if previous is not None:
-                    shutil.rmtree(
-                        self._artifacts_root / previous.id, ignore_errors=True
-                    )
-                artifacts_dir = self._artifacts_root / record.id
-                artifacts_dir.mkdir(parents=True, exist_ok=True)
-                self._record = record
-                self._runtime = runtime
+            artifacts_dir = self._artifacts_root / record.id
+            artifacts_dir.mkdir(parents=True, exist_ok=True)
             context = JobContext(
                 runtime,
                 params=params,
@@ -429,6 +421,12 @@ class JobManager:
                 daemon=True,
             )
             with self._lock:
+                if self._record is not None:
+                    shutil.rmtree(
+                        self._artifacts_root / self._record.id, ignore_errors=True
+                    )
+                self._record = record
+                self._runtime = runtime
                 self._worker = worker
             runtime.publish_status()
             worker.start()

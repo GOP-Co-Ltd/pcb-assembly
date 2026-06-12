@@ -139,13 +139,11 @@
   }
 
   function renderProgress(stage, percent) {
-    const bar = el("jc-progress-bar");
-    const text = el("jc-progress-text");
-    bar.style.width = percent === null || percent === undefined ? "0%" : `${percent}%`;
-    text.textContent =
-      percent === null || percent === undefined
-        ? stage || ""
-        : `${stage}（${Math.round(percent)}%）`;
+    const hasPercent = percent !== null && percent !== undefined;
+    el("jc-progress-bar").style.width = hasPercent ? `${percent}%` : "0%";
+    el("jc-progress-text").textContent = hasPercent
+      ? `${stage}（${Math.round(percent)}%）`
+      : stage || "";
   }
 
   function renderConsole() {
@@ -153,10 +151,7 @@
     const job = currentJob;
 
     // 実行ボタンはどのジョブ実行中でも無効（装置排他は全ジョブ共有）
-    if (form) {
-      const runButton = document.getElementById("job-run");
-      runButton.disabled = isActive(job);
-    }
+    if (form) el("job-run").disabled = isActive(job);
 
     if (!ownsJob(job)) {
       el("jc-status").textContent = STATUS_LABELS.idle;
@@ -256,16 +251,10 @@
     noButton.hidden = prompt.kind !== "confirm";
     okButton.textContent = prompt.kind === "confirm" ? "はい" : "OK";
 
-    if (prompt.kind === "number") {
+    if (prompt.kind === "number" || prompt.kind === "text") {
       const input = document.createElement("input");
-      input.type = "number";
-      input.step = "any";
-      input.id = "jc-prompt-input";
-      if (prompt.default !== null && prompt.default !== undefined) input.value = prompt.default;
-      field.appendChild(input);
-    } else if (prompt.kind === "text") {
-      const input = document.createElement("input");
-      input.type = "text";
+      input.type = prompt.kind;
+      if (prompt.kind === "number") input.step = "any";
       input.id = "jc-prompt-input";
       if (prompt.default !== null && prompt.default !== undefined) input.value = prompt.default;
       field.appendChild(input);
