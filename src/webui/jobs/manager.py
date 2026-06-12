@@ -11,11 +11,14 @@ import traceback
 import uuid
 from collections import deque
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Literal
 
 import attrs
 
+from pcbasm import gcode
+from pcbasm.hal import FrameHub, Klipper
 from pcbasm.vision import Image
 from webui.jobs.catalog import JobCatalog, JobDefinition
 from webui.jobs.context import (
@@ -33,6 +36,9 @@ type _Event = dict[str, Any]
 
 # next_command 待機を強制的に JobAborted 化するための番兵
 _ABORT_SENTINEL: Any = object()
+
+# ジョブ終了時の relax (M84) 送信タイムアウト [sec]
+RELAX_TIMEOUT = 5.0
 
 
 class JobStatus(enum.StrEnum):
@@ -317,6 +323,9 @@ class _JobRuntime:
         if self.abort_event.is_set():
             raise JobAborted()
 
+    def hold_camera(self) -> AbstractContextManager[FrameHub]:
+        return self._preview.hold_camera()
+
     # --- JobManager 側から呼ばれる対話操作 ---
 
     def respond(self, prompt_id: str, answer: object) -> None:
@@ -565,10 +574,26 @@ class JobManager:
                 for line in traceback.format_exc().splitlines():
                     runtime.log(line)
                 record.set_status(JobStatus.FAILED)
+            # 装置を動かすジョブは終了時に best-effort で relax する
+            if definition.uses_machine:
+                self._relax_machine(runtime, context)
             # 終端ステータス確定 → job_status 発行 → ロック解放の順を守る
             runtime.publish_status()
         finally:
             self._state.release_machine()
+
+    def _relax_machine(self, runtime: _JobRuntime, context: JobContext) -> None:
+        """ジョブ終了時に M84 を送る（失敗は log のみ、ステータスは変えない）."""
+        klipper_config = context.machine.klipper
+        try:
+            klipper = Klipper(
+                host=klipper_config.host,
+                port=klipper_config.port,
+                timeout=RELAX_TIMEOUT,
+            )
+            klipper.send_gcode(gcode.relax())
+        except Exception as exc:
+            runtime.log(f"relax (M84) 送信失敗: {exc}")
 
     def _pcb_path(self) -> Path | None:
         selected = self._state.selected_pcb

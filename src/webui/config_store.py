@@ -86,6 +86,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("reference_point.y", "基準点 Y", "float", "mm"),
     FieldSpec("reference_point.target_diameter", "基準点マーカー直径", "float", "mm"),
     # [camera]
+    FieldSpec("camera.calibration_file", "キャリブレーションファイル", "str"),
     FieldSpec("camera.device_id", "デバイスID", "int"),
     FieldSpec("camera.width", "幅", "int", "px"),
     FieldSpec("camera.height", "高さ", "int", "px"),

@@ -55,7 +55,16 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("dev", "klipper_status"): "dev/klipper_status.html",
     ("posctrl", "camera_preview"): "posctrl/camera_preview.html",
     ("posctrl", "copper_detection"): "posctrl/copper_detection.html",
+    ("posctrl", "camera_calibration"): "posctrl/job.html",
+    ("posctrl", "board_tour"): "posctrl/job.html",
+    ("posctrl", "orthogonality_test"): "posctrl/job.html",
+    ("posctrl", "reference_point_setup"): "posctrl/reference_point_setup.html",
 }
+
+# ジョブコンテキスト（job_name / param_specs）を注入するテンプレート
+_JOB_TEMPLATES = frozenset(
+    {"dev/job.html", "posctrl/job.html", "posctrl/reference_point_setup.html"}
+)
 
 router = APIRouter()
 
@@ -146,7 +155,7 @@ def feature_page(
         phase=TAB_PHASES[tab],
     )
     template = FEATURE_TEMPLATES.get((tab, feature), "feature.html")
-    if template == "dev/job.html":
+    if template in _JOB_TEMPLATES:
         definition = catalog.get(feature)
         context.update(job_name=definition.name, param_specs=definition.params)
     if feature == "copper_detection":

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Iterator
 from typing import Literal
 
 import cv2
@@ -18,6 +19,7 @@ from pcbasm.vision import (
     DetectedCircle,
     Image,
     ImageArray,
+    draw_detected_circle,
     draw_overlay,
 )
 from webui.state import AppState
@@ -35,26 +37,6 @@ def _draw_status_text(img: ImageArray, text: str) -> None:
     """黒縁取り + 白文字のステータステキストを左上に描画する（in-place）."""
     cv2.putText(img, text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
     cv2.putText(img, text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-
-
-def _draw_detected_circle(
-    img: ImageArray, circle: DetectedCircle, crop_size: tuple[int, int]
-) -> None:
-    """検出円・その中心・カメラ中心と結ぶ線を描画する（in-place）.
-
-    circle.center はクロップ座標系（原点はクロップ左上）なので、 フル画像座標へ変換する。
-    """
-    h, w = img.shape[:2]
-    cx, cy = w // 2, h // 2
-    half_w, half_h = crop_size[0] // 2, crop_size[1] // 2
-
-    circle_x = int(cx - half_w + circle.center.x)
-    circle_y = int(cy - half_h + circle.center.y)
-    radius = int(circle.radius)
-
-    cv2.circle(img, (circle_x, circle_y), radius, (0, 0, 255), 2)
-    cv2.circle(img, (circle_x, circle_y), 3, (0, 0, 255), -1)
-    cv2.line(img, (cx, cy), (circle_x, circle_y), (255, 0, 0), 2)
 
 
 class _CircleRenderer:
@@ -86,7 +68,7 @@ class _CircleRenderer:
         offset = self._circle.offset.mm if self._circle is not None else None
         img = draw_overlay(image, self._crop_size, offset).numpy()
         if self._circle is not None:
-            _draw_detected_circle(img, self._circle, self._crop_size)
+            draw_detected_circle(img, self._circle, self._crop_size)
         return Image(img)
 
 
@@ -165,6 +147,24 @@ class PreviewService:
         with self._override_lock:
             self._override = (image, time.monotonic())
 
+    @contextlib.contextmanager
+    def hold_camera(self) -> Iterator[FrameHub]:
+        """参照カウントを保持して FrameHub を貸し出す.
+
+        0→1 で hub を start、1→0 で stop する。MJPEG ストリームとジョブが
+        同一カウントを共有するため、preview クライアントの切断でジョブ使用中の
+        hub が止まることはない（逆も同様）。
+
+        Raises:
+            OSError: カメラデバイスが見つからない・開けない場合
+            RuntimeError: カメラがフォーマット等をサポートしない場合
+        """
+        hub = self._acquire()
+        try:
+            yield hub
+        finally:
+            self._release(hub)
+
     def mjpeg_stream(
         self,
         overlay: OverlayKind,
@@ -182,8 +182,7 @@ class PreviewService:
             canny_low: overlay=copper の Canny 下側閾値（None は machine.toml 値）
             canny_high: overlay=copper の Canny 上側閾値（None は machine.toml 値）
         """
-        hub = self._acquire()
-        try:
+        with self.hold_camera() as hub:
             source = hub.subscribe()
             renderer = self._build_renderer(overlay, canny_low, canny_high)
             interval = self._emit_interval(source.resolution.fps)
@@ -198,8 +197,6 @@ class PreviewService:
                 if image is None:
                     image = renderer(frame)
                 yield self._encode_part(image)
-        finally:
-            self._release(hub)
 
     def snapshot(
         self,
@@ -211,13 +208,10 @@ class PreviewService:
 
         ストリーム未接続時は hub の start/stop が 1 回走る。
         """
-        hub = self._acquire()
-        try:
+        with self.hold_camera() as hub:
             renderer = self._build_renderer(overlay, canny_low, canny_high)
             frame = hub.subscribe().capture()
             return self._encode_jpeg(renderer(frame))
-        finally:
-            self._release(hub)
 
     def _acquire(self) -> FrameHub:
         """参照カウントを +1 し、現行 hub を起動して返す（start は冪等）."""

@@ -130,12 +130,14 @@ class JobCatalog:
 
 
 def default_catalog() -> JobCatalog:
-    """Dev の 5 ジョブ（4 ジョブ + hidden の job_demo）登録済みカタログを返す."""
-    # 循環 import（dev → manager → catalog）を避けるため遅延 import する
+    """Dev 5 ジョブ + posctrl 4 ジョブ登録済みのカタログを返す."""
+    # 循環 import（dev/posctrl → manager → catalog）を避けるため遅延 import する
     from webui.jobs.dev import register_dev_jobs
+    from webui.jobs.posctrl import register_posctrl_jobs
 
     catalog = JobCatalog()
     register_dev_jobs(catalog)
+    register_posctrl_jobs(catalog)
     return catalog
 
 

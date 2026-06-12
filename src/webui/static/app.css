@@ -283,3 +283,7 @@ body {
 
 /* machine control panel blocked by running job */
 .mc-blocked { opacity: 0.55; }
+
+/* reference point setup (posctrl tab) */
+.rps-help { max-width: 36rem; color: var(--muted, #888); }
+.rps-actions { display: flex; gap: 0.6rem; margin-bottom: 1rem; }

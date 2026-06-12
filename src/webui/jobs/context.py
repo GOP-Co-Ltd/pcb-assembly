@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import contextlib
+from collections.abc import Iterator, Mapping
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
 import attrs
 
 from pcbasm.config import Machine
+from pcbasm.hal import Camera, FrameHub
 from pcbasm.vision import Image
 
 type Answer = bool | float | str
@@ -51,6 +54,8 @@ class JobBridge(Protocol):
     def next_command(self, timeout: float | None) -> dict[str, Any] | None: ...
 
     def checkpoint(self) -> None: ...
+
+    def hold_camera(self) -> AbstractContextManager[FrameHub]: ...
 
 
 class JobContext:
@@ -133,3 +138,17 @@ class JobContext:
             JobAborted: abort 要求済みの場合
         """
         self._bridge.checkpoint()
+
+    @contextlib.contextmanager
+    def open_camera(self) -> Iterator[Camera]:
+        """カメラパイプラインを起動保持し FrameSource を貸し出す.
+
+        PreviewService と参照カウントを共有するため、preview クライアントの
+        切断でジョブ使用中の hub が止まることはない（逆も同様）。
+
+        Raises:
+            OSError: カメラデバイスが見つからない・開けない場合
+            RuntimeError: カメラがフォーマット等をサポートしない場合
+        """
+        with self._bridge.hold_camera() as hub:
+            yield hub.subscribe()
