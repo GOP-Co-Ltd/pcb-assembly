@@ -6,14 +6,22 @@
 - select_machine / select_pcb は成功で永続化、busy 中は BusyError
 - machine_lock は非ブロッキング取得、失敗時 BusyError(現 owner)
 - focus_z は calibration JSON の z_position（ファイル欠落等は None）
+
+Phase 2 追記（計画書 webui-phase2.md「src/webui/state.py」節）:
+
+- frame_hub() は遅延構築 + キャッシュ。構築失敗は例外伝播
+- rebuild_camera() / close() は hub を停止して参照破棄（未構築なら no-op）
+- select_machine 成功時に hub を再構築する
 """
 
 import json
 import shutil
 from pathlib import Path
 
+import attrs
 import pytest
 
+from pcbasm.hal import FrameHub
 from webui.config_store import ConfigStore
 from webui.settings import Settings
 from webui.state import AppState, BusyError
@@ -180,3 +188,61 @@ class TestMachineConfig:
         path.write_text(json.dumps(data), encoding="utf-8")
 
         assert state.focus_z() is None
+
+
+class TestCameraLifecycle:
+    """FrameHub の遅延構築・再構築・後始末（Phase 2）."""
+
+    @pytest.fixture
+    def camera_state(
+        self, fake_camera_settings: Settings, store: ConfigStore
+    ) -> AppState:
+        return AppState(fake_camera_settings, store)
+
+    def test_frame_hub_is_constructed_lazily_and_cached(self, camera_state: AppState):
+        hub = camera_state.frame_hub()
+
+        assert isinstance(hub, FrameHub)
+        assert camera_state.frame_hub() is hub
+
+    def test_rebuild_camera_stops_hub_and_recreates(self, camera_state: AppState):
+        hub = camera_state.frame_hub()
+        hub.start()
+
+        camera_state.rebuild_camera()
+
+        assert not hub.running
+        assert camera_state.frame_hub() is not hub
+
+    def test_select_machine_rebuilds_hub(self, camera_state: AppState):
+        hub = camera_state.frame_hub()
+
+        camera_state.select_machine("test-fixture")
+
+        assert camera_state.frame_hub() is not hub
+
+    def test_close_stops_hub(self, camera_state: AppState):
+        hub = camera_state.frame_hub()
+        hub.start()
+
+        camera_state.close()
+
+        assert not hub.running
+
+    def test_rebuild_and_close_before_construction_are_noop(
+        self, camera_state: AppState
+    ):
+        # 未構築での呼び出しは例外なく完了する（冪等）
+        camera_state.rebuild_camera()
+        camera_state.close()
+
+    def test_frame_hub_propagates_camera_construction_failure(
+        self, fake_camera_settings: Settings, store: ConfigStore, tmp_path: Path
+    ):
+        settings = attrs.evolve(
+            fake_camera_settings, fake_camera_image=tmp_path / "missing.png"
+        )
+        state = AppState(settings, store)
+
+        with pytest.raises(FileNotFoundError):
+            state.frame_hub()

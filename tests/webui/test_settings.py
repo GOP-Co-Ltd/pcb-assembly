@@ -17,6 +17,8 @@ ENV_VARS = (
     "PCBASM_WEBUI_PRINTER_CFG_LINK",
     "PCBASM_MAINSAIL_URL",
     "PCBASM_WEBUI_PORT",
+    "PCBASM_WEBUI_FAKE_CAMERA",
+    "PCBASM_WEBUI_FAKE_CAMERA_IMAGE",
 )
 
 
@@ -69,3 +71,27 @@ class TestSettingsFromEnv:
 
         with pytest.raises(ValueError):
             Settings.from_env()
+
+
+class TestFakeCameraSettings:
+    """Phase 2 追加フィールド（計画書 webui-phase2.md「src/webui/settings.py」節）."""
+
+    def test_defaults_to_real_camera(self, clean_env: None):
+        settings = Settings.from_env()
+
+        assert settings.fake_camera is False
+        assert (
+            settings.fake_camera_image
+            == PROJECT_ROOT / "data" / "testing" / "webui" / "fake_camera.png"
+        )
+
+    def test_env_enables_fake_camera_and_overrides_image(
+        self, clean_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
+        monkeypatch.setenv("PCBASM_WEBUI_FAKE_CAMERA", "1")
+        monkeypatch.setenv("PCBASM_WEBUI_FAKE_CAMERA_IMAGE", str(tmp_path / "cam.png"))
+
+        settings = Settings.from_env()
+
+        assert settings.fake_camera is True
+        assert settings.fake_camera_image == tmp_path / "cam.png"

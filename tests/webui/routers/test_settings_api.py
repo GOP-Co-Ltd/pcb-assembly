@@ -7,6 +7,10 @@
 - motion GET は symlink_ok を返す
 - restart=True で Moonraker 不達（port 7126）でも保存成功なら 200 + restart_ok=false
 - 未知キー → 400、busy → 409
+
+Phase 2 追記（計画書 webui-phase2.md「既存ルーターへの変更」節 + spec §8）:
+
+- PUT /api/settings/machine で camera.* キーを書いたら FrameHub を再構築する
 """
 
 from pathlib import Path
@@ -172,3 +176,33 @@ class TestMotionSettingsApi:
             )
 
         assert response.status_code == 409
+
+
+class TestCameraSettingsRebuild:
+    """camera.* キーの保存による FrameHub 再構築（Phase 2）."""
+
+    def test_put_camera_key_rebuilds_frame_hub(
+        self, fake_camera_client: TestClient, fake_camera_appstate: AppState
+    ):
+        hub = fake_camera_appstate.frame_hub()
+
+        response = fake_camera_client.put(
+            "/api/settings/machine",
+            json={"values": {"camera.fps": 20.0}},
+        )
+
+        assert response.status_code == 200
+        assert fake_camera_appstate.frame_hub() is not hub
+
+    def test_put_without_camera_key_keeps_frame_hub(
+        self, fake_camera_client: TestClient, fake_camera_appstate: AppState
+    ):
+        hub = fake_camera_appstate.frame_hub()
+
+        response = fake_camera_client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.fill_speed": 0.9}},
+        )
+
+        assert response.status_code == 200
+        assert fake_camera_appstate.frame_hub() is hub

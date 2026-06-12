@@ -29,6 +29,7 @@ class TestStateApi:
         assert data["busy_owner"] is None
         assert data["focus_z"] == -25.0
         assert data["mainsail_url"] == webui_settings.mainsail_url
+        assert data["preview_clients"] == 0  # Phase 2: spec §9
 
     def test_state_reports_busy_while_locked(
         self, client: TestClient, appstate: AppState

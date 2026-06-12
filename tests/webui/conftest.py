@@ -13,16 +13,33 @@ import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
+import attrs
+import cv2
+import numpy as np
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import PROJECT_ROOT
+from pcbasm.vision import ImageArray
+from tests.helpers import PROJECT_ROOT, TESTING_DATA_DIR
 from webui.app import create_app
 from webui.settings import Settings
 from webui.state import AppState
 
 TEST_FIXTURE_DIR = PROJECT_ROOT / "configs" / "test-fixture"
+
+FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"
+
+
+def jpeg_payload(part: bytes) -> bytes:
+    """MJPEG の 1 パート（boundary 行 + ヘッダ + JPEG + CRLF）から JPEG bytes を取り出す."""
+    _, _, body = part.partition(b"\r\n\r\n")
+    return body.rstrip(b"\r\n")
+
+
+def decode_jpeg(data: bytes) -> ImageArray | None:
+    """JPEG bytes を BGR 配列に復号する（復号できなければ None）."""
+    return cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
 
 
 @pytest.fixture
@@ -77,6 +94,33 @@ def client(app: FastAPI) -> Iterator[TestClient]:
 def appstate(app: FastAPI, client: TestClient) -> AppState:
     """Lifespan 起動後の AppState（排他ロックの直接取得などに使う）."""
     return app.state.appstate
+
+
+@pytest.fixture
+def fake_camera_settings(webui_settings: Settings) -> Settings:
+    """FixedImageCamera（固定画像アセット）を使う Settings。preview / FrameHub 結合テスト用."""
+    return attrs.evolve(
+        webui_settings, fake_camera=True, fake_camera_image=FAKE_CAMERA_IMAGE
+    )
+
+
+@pytest.fixture
+def fake_camera_app(fake_camera_settings: Settings) -> FastAPI:
+    return create_app(fake_camera_settings)
+
+
+@pytest.fixture
+def fake_camera_client(fake_camera_app: FastAPI) -> Iterator[TestClient]:
+    with TestClient(fake_camera_app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def fake_camera_appstate(
+    fake_camera_app: FastAPI, fake_camera_client: TestClient
+) -> AppState:
+    """Lifespan 起動後の AppState（fake camera 版）."""
+    return fake_camera_app.state.appstate
 
 
 @pytest.fixture
