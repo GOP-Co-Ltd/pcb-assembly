@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Generator
 from typing import override
@@ -10,7 +11,7 @@ import anyio
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
-from starlette.types import Send
+from starlette.types import Receive, Scope, Send
 
 from webui.app import PreviewDep, StateDep
 from webui.preview import MJPEG_MEDIA_TYPE, OverlayKind
@@ -50,6 +51,14 @@ class _ClosingStreamingResponse(StreamingResponse):
     def __init__(self, content: Generator[bytes], media_type: str) -> None:
         super().__init__(content, media_type=media_type)
         self._sync_content = content
+
+    @override
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        except asyncio.CancelledError:
+            with anyio.CancelScope(shield=True):
+                await run_in_threadpool(_close_when_suspended, self._sync_content)
 
     @override
     async def stream_response(self, send: Send) -> None:

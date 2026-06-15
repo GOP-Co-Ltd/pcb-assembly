@@ -157,7 +157,7 @@ class TestContextProperties:
         wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.SUCCEEDED
-        assert captured[0] == fake_camera_settings.data_dir / "webui" / record.id
+        assert captured[0] == fake_camera_settings.webui_data_dir / record.id
 
 
 class TestBoardSettingsWiring:

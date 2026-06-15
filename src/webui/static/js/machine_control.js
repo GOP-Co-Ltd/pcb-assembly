@@ -12,6 +12,7 @@
   const sidebar = document.getElementById("mc-sidebar");
   const panel = document.getElementById("machine-control");
   if (!sidebar || !panel) return;
+  const layout = sidebar.closest(".layout");
 
   const positionEl = document.getElementById("mc-position");
   const homedEl = document.getElementById("mc-homed");
@@ -227,8 +228,14 @@
 
   function applyCollapsed(collapsed) {
     sidebar.classList.toggle("collapsed", collapsed);
-    // 右サイドバー: 展開中は ">"（右へ畳む）、折りたたみ中は "<"（左へ開く）
-    toggle.textContent = collapsed ? "<" : ">";
+    if (layout) {
+      layout.style.setProperty(
+        "--mc-track-w",
+        collapsed ? "2rem" : "var(--mc-w, 19rem)"
+      );
+    }
+    // 右サイドバー: 展開中は "<"（左へ畳む）、折りたたみ中は ">"（右へ開く）
+    toggle.textContent = collapsed ? ">" : "<";
     if (collapsed) {
       if (timer !== null) {
         clearInterval(timer);
@@ -257,7 +264,7 @@
 
   function applyWidth(px) {
     const clamped = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.round(px)));
-    sidebar.style.setProperty("--mc-w", `${clamped}px`);
+    if (layout) layout.style.setProperty("--mc-w", `${clamped}px`);
     return clamped;
   }
 

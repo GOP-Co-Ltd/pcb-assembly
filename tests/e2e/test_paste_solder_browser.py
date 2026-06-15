@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import shutil
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -247,6 +248,19 @@ class TestPasteSolderBrowserRendering:
         visible_pad.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         _assert_in_viewport(browser_page, visible_pad)
 
+        config = _get_pad_config(live_server)
+        size_text = browser_page.locator(_testid("pad-outline-size")).text_content(
+            timeout=_BROWSER_TIMEOUT_MS
+        )
+        assert f"{config['width']:g}" in size_text
+        assert f"{config['height']:g}" in size_text
+
+        first_top = next(pad for pad in config["pads"] if pad["layer"] == "Top")
+        title = browser_page.locator(_pad_selector(first_top["id"])).locator("title")
+        assert first_top["designator"] in title.text_content(
+            timeout=_BROWSER_TIMEOUT_MS
+        )
+
     def test_fake_camera_preview_image_loads(
         self, live_server: LiveServer, browser_page
     ):
@@ -265,7 +279,7 @@ class TestPasteSolderBrowserRendering:
 class TestPasteSolderBrowserPadInteraction:
     """実ブラウザ操作と API 永続化."""
 
-    def test_pad_click_toggles_enabled_and_persists(
+    def test_pad_click_selects_single_pad_without_toggling_enabled(
         self, live_server: LiveServer, browser_page
     ):
         _select_led_blinker(live_server)
@@ -277,10 +291,17 @@ class TestPasteSolderBrowserPadInteraction:
         polygon.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
 
         polygon.click()
-        _wait_for_pad_enabled(live_server, pad["id"], False)
-
-        polygon.click()
-        _wait_for_pad_enabled(live_server, pad["id"], True)
+        _wait_for_pad_enabled(live_server, pad["id"], pad["enabled"])
+        browser_page.wait_for_function(
+            """(selector) =>
+                document.querySelector(selector)?.textContent === "選択: 1" """,
+            arg=_testid("pad-selection-count"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+        assert "pad-selected" in polygon.get_attribute("class")
+        row = browser_page.locator(_row_selector(pad["node_ids"][-1]))
+        row.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert "pad-row-focus" in row.get_attribute("class")
 
     def test_layer_switch_and_bulk_enable_disable_persist(
         self, live_server: LiveServer, browser_page
@@ -343,9 +364,65 @@ class TestPasteSolderBrowserPadInteraction:
         assert browser_page.locator(_testid("pad-disable-all")).is_disabled()
         assert browser_page.locator(_testid("pad-setting-input")).nth(0).is_disabled()
 
+    def test_saved_override_file_can_be_imported(
+        self, live_server: LiveServer, browser_page, tmp_path: Path
+    ):
+        _select_led_blinker(live_server)
+        patch = httpx.patch(
+            f"{live_server.base_url}/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"fill_speed": 0.33}},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert patch.status_code == 200, patch.text
+        exported = httpx.get(
+            f"{live_server.base_url}/api/pasting/pad-config/export",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert exported.status_code == 200, exported.text
+        reset = httpx.post(
+            f"{live_server.base_url}/api/pasting/pad-config/reset",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert reset.status_code == 200, reset.text
+
+        import_path = tmp_path / "paste-overrides.json"
+        import_path.write_text(json.dumps(exported.json()), encoding="utf-8")
+        _open_paste_solder(browser_page, live_server)
+        browser_page.locator("#pad-import-config").set_input_files(str(import_path))
+
+        browser_page.wait_for_function(
+            """async (baseUrl) => {
+                const response = await fetch(`${baseUrl}/api/pasting/pad-config`);
+                const config = await response.json();
+                return config.overrides["L2:U1"]?.values?.fill_speed === 0.33;
+            }""",
+            arg=live_server.base_url,
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+
 
 class TestPasteSolderBrowserResponsiveLayout:
     """Desktop/tablet/mobile で主要パネルが横方向にはみ出さない."""
+
+    def test_machine_control_collapses_to_handle_width(
+        self, live_server: LiveServer, browser_page
+    ):
+        _select_led_blinker(live_server)
+        browser_page.set_viewport_size({"width": 1280, "height": 900})
+        browser_page.goto(live_server.base_url, wait_until="domcontentloaded")
+        browser_page.evaluate("localStorage.removeItem('mc-sidebar-collapsed')")
+        _open_paste_solder(browser_page, live_server)
+
+        browser_page.locator("#mc-toggle").click()
+        browser_page.wait_for_function(
+            """() => {
+                const sidebar = document.querySelector('[data-testid="machine-control-sidebar"]');
+                return sidebar && sidebar.classList.contains("collapsed")
+                    && sidebar.getBoundingClientRect().width <= 40;
+            }""",
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+        assert browser_page.locator(_testid("machine-control")).is_hidden()
 
     def test_key_panels_do_not_create_horizontal_overflow(
         self, live_server: LiveServer, browser_page

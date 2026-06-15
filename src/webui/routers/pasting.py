@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import attrs
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from pcbasm.config import PasteDispenser
@@ -37,7 +38,7 @@ from pcbasm.pcb import (
     build_pad_hierarchy,
 )
 from webui.app import BoardStoreDep, SettingsDep, StateDep
-from webui.board_settings import BoardSettingsStore
+from webui.board_settings import BoardSettingsStore, board_signature
 from webui.settings import Settings
 from webui.state import AppState
 
@@ -119,6 +120,12 @@ class PadEnablePatch(BaseModel):
 
     ids: list[str]
     enabled: bool
+
+
+class PadConfigImport(BaseModel):
+    """POST /api/pasting/pad-config/import のリクエスト."""
+
+    document: dict
 
 
 class AffectedPad(BaseModel):
@@ -230,6 +237,7 @@ class _Loaded:
     base_config: PasteDispenser
     pcb: PcbFile
     hierarchy: PadHierarchy
+    board_signature: str
     model: PasteSettingsModel
 
 
@@ -250,13 +258,17 @@ def _load(
     machine = state.selected_machine
     base_config = state.machine().paste_dispenser
     hierarchy = build_pad_hierarchy(pcb.components, pcb.pads)
-    model = board_store.load_or_init(machine, source_pcb, base_config)
+    signature = board_signature(hierarchy)
+    model = board_store.load_or_init(
+        machine, source_pcb, base_config, board_signature=signature
+    )
     return _Loaded(
         source_pcb=source_pcb,
         machine=machine,
         base_config=base_config,
         pcb=pcb,
         hierarchy=hierarchy,
+        board_signature=signature,
         model=model,
     )
 
@@ -408,7 +420,12 @@ def patch_pad_config_node(
     """ノードの enabled/values upsert・clear を適用し、影響 pad を返す."""
     loaded = _load(state, settings, board_store)
     new_model = _apply_node_patch(loaded.model, body, loaded.hierarchy)
-    board_store.save(loaded.machine, loaded.source_pcb, new_model)
+    board_store.save(
+        loaded.machine,
+        loaded.source_pcb,
+        new_model,
+        board_signature=loaded.board_signature,
+    )
     updated = attrs.evolve(loaded, model=new_model)
     return PatchResponse(affected_pads=_affected_pads(body.node, updated))
 
@@ -427,7 +444,12 @@ def patch_pad_config_pads(
         designator, _, pad_number = pad_id.partition(".")
         patch = NodePatch(node=f"L4:{designator}:{pad_number}", enabled=body.enabled)
         model = _apply_node_patch(model, patch, loaded.hierarchy)
-    board_store.save(loaded.machine, loaded.source_pcb, model)
+    board_store.save(
+        loaded.machine,
+        loaded.source_pcb,
+        model,
+        board_signature=loaded.board_signature,
+    )
 
     resolved = resolve_pad_settings(loaded.hierarchy, model)
     id_set = set(body.ids)
@@ -455,5 +477,59 @@ def reset_pad_config(
         base_enabled=True,
         levels={},
     )
-    board_store.save(loaded.machine, loaded.source_pcb, fresh)
+    board_store.save(
+        loaded.machine,
+        loaded.source_pcb,
+        fresh,
+        board_signature=loaded.board_signature,
+    )
     return _build_pad_config(attrs.evolve(loaded, model=fresh))
+
+
+@router.get("/pasting/pad-config/export")
+def export_pad_config(
+    state: StateDep, settings: SettingsDep, board_store: BoardStoreDep
+) -> JSONResponse:
+    """現在の基板 override 設定をダウンロード用 JSON として返す."""
+    loaded = _load(state, settings, board_store)
+    doc = board_store.export_doc(
+        loaded.machine,
+        loaded.source_pcb,
+        loaded.model,
+        board_signature=loaded.board_signature,
+    )
+    filename = (
+        f"pcbasm-paste-overrides-" f"{board_store.board_id(loaded.source_pcb)}.json"
+    )
+    return JSONResponse(
+        content=doc,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/pasting/pad-config/import")
+def import_pad_config(
+    body: PadConfigImport,
+    state: StateDep,
+    settings: SettingsDep,
+    board_store: BoardStoreDep,
+) -> PadConfigResponse:
+    """アップロードされた基板 override 設定を検証して保存し、最新設定を返す."""
+    loaded = _load(state, settings, board_store)
+    try:
+        model = board_store.model_from_doc(
+            body.document,
+            board_signature=loaded.board_signature,
+            expected_machine=loaded.machine,
+            expected_source_pcb=loaded.source_pcb,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    pruned = board_store.prune(
+        loaded.machine,
+        loaded.source_pcb,
+        model,
+        loaded.hierarchy,
+        board_signature=loaded.board_signature,
+    )
+    return _build_pad_config(attrs.evolve(loaded, model=pruned))

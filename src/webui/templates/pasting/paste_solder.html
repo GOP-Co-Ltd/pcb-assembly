@@ -8,14 +8,18 @@
 {% include "partials/pad_editor.html" %}
 </section>
 <section class="pasting-run-panel" data-testid="pasting-run-panel">
+  <div class="pasting-job-panel" data-testid="pasting-job-panel">
+  {% include "partials/job_form.html" %}
+  {% if show_loading_controls %}
+  {% include "partials/loading_controls.html" %}
+  {% endif %}
+  </div>
 {% if show_preview %}
 {# ジョブ提供フレームのみ表示（オーバーレイ切替なし・固定 none） #}
 {% set preview_overlay = "none" %}
+  <div class="pasting-preview-panel" data-testid="pasting-preview-panel">
 {% include "partials/preview_pane.html" %}
-{% endif %}
-{% include "partials/job_form.html" %}
-{% if show_loading_controls %}
-{% include "partials/loading_controls.html" %}
+  </div>
 {% endif %}
 </section>
 </div>

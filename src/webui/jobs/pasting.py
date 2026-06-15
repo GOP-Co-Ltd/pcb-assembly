@@ -41,7 +41,7 @@ from pcbasm.pasting import (
     resolve_pad_settings,
 )
 from pcbasm.pasting.fill_path import build_paste_fill_path
-from pcbasm.pcb import Layer, Pad, PadList, PcbFile, build_pad_hierarchy
+from pcbasm.pcb import Layer, Pad, PadHierarchy, PadList, PcbFile, build_pad_hierarchy
 from pcbasm.posctrl import (
     BoardCalibrationResult,
     ComponentAlignments,
@@ -60,6 +60,7 @@ from pcbasm.visualization import (
     render_height_plane,
     render_planned_points,
 )
+from webui.board_settings import board_signature
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import JobAborted, JobContext, PromptSpec
 from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
@@ -335,7 +336,9 @@ def _prompt_positive_number(
 # --- ジョブ実装 ---
 
 
-def _resolve_paste_model(ctx: JobContext) -> PasteSettingsModel:
+def _resolve_paste_model(
+    ctx: JobContext, hierarchy: PadHierarchy
+) -> PasteSettingsModel:
     """基板設定ストア（あれば）から塗布設定モデルを取得する.
 
     ストア／PCB が未配線なら ``machine.toml`` の ``[paste_dispenser]`` を
@@ -343,7 +346,10 @@ def _resolve_paste_model(ctx: JobContext) -> PasteSettingsModel:
     """
     if ctx.board_store is not None and ctx.source_pcb is not None:
         return ctx.board_store.load_or_init(
-            ctx.machine_name, ctx.source_pcb, ctx.machine.paste_dispenser
+            ctx.machine_name,
+            ctx.source_pcb,
+            ctx.machine.paste_dispenser,
+            board_signature=board_signature(hierarchy),
         )
     return PasteSettingsModel(
         base=base_override_from_config(ctx.machine.paste_dispenser),
@@ -378,7 +384,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
         hierarchy = build_pad_hierarchy(session.pcb.components, session.pcb.pads)
-        model = _resolve_paste_model(ctx)
+        model = _resolve_paste_model(ctx, hierarchy)
         resolved = resolve_pad_settings(hierarchy, model)
 
         # 有効 top pad のみ塗布対象にする（無効除外はここ一点）

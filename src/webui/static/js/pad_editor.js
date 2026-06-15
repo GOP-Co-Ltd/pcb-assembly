@@ -2,6 +2,7 @@
 
 import {
   FIELDS,
+  FIELD_LABELS,
   ancestorChain,
   buildNodeIndexes,
   cleanupSelection,
@@ -56,6 +57,10 @@ import {
   const svg = document.getElementById("pad-viewer");
   const tableBody = document.getElementById("pad-table-body");
   const countEl = document.getElementById("pad-selection-count");
+  const outlineSizeEl = document.getElementById("pad-outline-size");
+  const exportButton = document.getElementById("pad-export-config");
+  const importButton = document.getElementById("pad-import-config-button");
+  const importInput = document.getElementById("pad-import-config");
 
   async function load() {
     try {
@@ -85,10 +90,17 @@ import {
 
   function render() {
     renderViewer(svg, state.config, state);
+    renderOutlineSize();
     renderTable();
     renderSelectionCount();
     applyToolbarLock();
     syncNodePadHighlights();
+  }
+
+  function renderOutlineSize() {
+    if (!outlineSizeEl || !state.config) return;
+    outlineSizeEl.textContent =
+      `外形: ${round4(state.config.width)} × ${round4(state.config.height)} mm`;
   }
 
   function renderSelectionCount() {
@@ -156,7 +168,7 @@ import {
     if (state.locked) return;
 
     if (!hadRect) {
-      if (padId) togglePad(padId);
+      selectSinglePad(padId);
       return;
     }
     applyRectSelection(start, end);
@@ -174,11 +186,13 @@ import {
     refreshViewerState();
   }
 
-  async function togglePad(id) {
-    const pad = state.config.pads.find((candidate) => candidate.id === id);
-    if (!pad) return;
-    await patchPads([id], !pad.enabled);
-    revealPadRow(id);
+  function selectSinglePad(id) {
+    state.selected.clear();
+    if (id) {
+      state.selected.add(id);
+      revealPadRow(id);
+    }
+    refreshViewerState();
   }
 
   async function patchPads(ids, enabled) {
@@ -268,6 +282,7 @@ import {
       const toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "pad-row-toggle";
+      toggle.dataset.testid = "pad-tree-toggle";
       toggle.textContent = state.expanded.has(node.id) ? "▼" : "▶";
       toggle.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -334,6 +349,7 @@ import {
     input.dataset.field = field;
     input.dataset.nodeId = node.id;
     input.dataset.testid = "pad-setting-input";
+    input.title = FIELD_LABELS[field] || field;
     if (isOverride) {
       input.value = ownValue;
     } else {
@@ -484,6 +500,48 @@ import {
       if (!state.config) return;
       renderTable();
       applyToolbarLock();
+    });
+  }
+
+  if (exportButton) {
+    exportButton.addEventListener("click", async () => {
+      try {
+        const doc = await api("GET", "/api/pasting/pad-config/export");
+        const blob = new Blob([JSON.stringify(doc, null, 2)], {
+          type: "application/json",
+        });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `pcbasm-paste-overrides-${Date.now()}.json`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        toast("基板 override 設定を書き出しました");
+      } catch (err) {
+        toast(`書き出し失敗: ${err.message}`, false);
+      }
+    });
+  }
+
+  if (importButton && importInput) {
+    importButton.addEventListener("click", () => importInput.click());
+    importInput.addEventListener("change", async () => {
+      const file = importInput.files[0];
+      if (!file) return;
+      try {
+        const document = JSON.parse(await file.text());
+        const config = await api("POST", "/api/pasting/pad-config/import", {
+          document,
+        });
+        state.config = config;
+        state.selected.clear();
+        buildIndexes(config);
+        render();
+        toast("基板 override 設定を読み込みました");
+      } catch (err) {
+        toast(`読み込み失敗: ${err.message}`, false);
+      } finally {
+        importInput.value = "";
+      }
     });
   }
 

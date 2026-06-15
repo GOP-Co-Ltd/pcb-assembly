@@ -30,7 +30,7 @@
     <button id="estop" class="estop" title="緊急停止" data-testid="estop">緊急停止</button>
   </div>
 </header>
-<main class="layout">
+<main class="layout {% block layout_class %}{% endblock %}">
 {% block content %}{% endblock %}
 </main>
 {% include "partials/file_browser.html" %}

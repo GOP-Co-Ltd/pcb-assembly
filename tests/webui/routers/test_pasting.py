@@ -27,6 +27,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from webui.settings import Settings
 from webui.state import AppState
 
 # led_blinker の安定した参照点
@@ -280,6 +281,17 @@ class TestPatchPads:
         assert _pad_by_id(config, "U1.2")["enabled"] is False
         assert _pad_by_id(config, "U1.3")["enabled"] is True
 
+    def test_persistence_uses_webui_data_dir(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
+        selected_client.patch(
+            "/api/pasting/pad-config/pads",
+            json={"ids": ["U1.1"], "enabled": False},
+        )
+
+        assert list((webui_settings.webui_data_dir / "board_settings").rglob("*.json"))
+        assert not (webui_settings.data_dir / "board_settings").exists()
+
 
 class TestReset:
     """POST /api/pasting/pad-config/reset."""
@@ -296,3 +308,56 @@ class TestReset:
         config = response.json()
         assert set(config["overrides"]) == {"L0"}
         assert _pad_by_id(config, "U1.1")["resolved"]["fill_speed"] == 0.8
+
+
+class TestExportImport:
+    """GET export / POST import."""
+
+    def test_export_contains_version_signature_and_settings(
+        self, selected_client: TestClient
+    ):
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+        )
+
+        response = selected_client.get("/api/pasting/pad-config/export")
+
+        assert response.status_code == 200, response.text
+        assert "attachment" in response.headers["content-disposition"]
+        doc = response.json()
+        assert doc["version"] == 1
+        assert doc["machine"] == "kurousagi"
+        assert doc["source_pcb"].endswith("led_blinker.kicad_pcb")
+        assert isinstance(doc["board_signature"], str)
+        level = next(
+            item for item in doc["settings"]["levels"] if item["key"] == ["L2", "U1"]
+        )
+        assert level["override"]["fill_speed"] == 0.3
+
+    def test_import_restores_saved_override(self, selected_client: TestClient):
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+        )
+        doc = selected_client.get("/api/pasting/pad-config/export").json()
+        selected_client.post("/api/pasting/pad-config/reset")
+
+        response = selected_client.post(
+            "/api/pasting/pad-config/import", json={"document": doc}
+        )
+
+        assert response.status_code == 200, response.text
+        config = response.json()
+        assert config["overrides"]["L2:U1"]["values"]["fill_speed"] == 0.3
+        assert _pad_by_id(config, "U1.1")["resolved"]["fill_speed"] == 0.3
+
+    def test_import_rejects_wrong_signature(self, selected_client: TestClient):
+        doc = selected_client.get("/api/pasting/pad-config/export").json()
+        doc["board_signature"] = "wrong"
+
+        response = selected_client.post(
+            "/api/pasting/pad-config/import", json={"document": doc}
+        )
+
+        assert response.status_code == 400

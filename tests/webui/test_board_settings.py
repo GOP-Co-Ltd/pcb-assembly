@@ -29,7 +29,7 @@ from pcbasm.pasting import (
     settings_to_dict,
 )
 from pcbasm.pcb import Component, Layer, Pad, build_pad_hierarchy
-from webui.board_settings import BoardSettingsStore
+from webui.board_settings import BoardSettingsStore, board_signature
 
 
 def _base_config() -> PasteDispenser:
@@ -179,6 +179,25 @@ class TestJsonShape:
         assert doc["machine"] == "kurousagi"
         assert doc["settings"] == settings_to_dict(model)
 
+    def test_doc_can_include_board_signature(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        hierarchy = _hierarchy()
+        signature = board_signature(hierarchy)
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+
+        store.save(
+            "kurousagi",
+            "boards/a.kicad_pcb",
+            model,
+            board_signature=signature,
+        )
+
+        board_id = store.board_id("boards/a.kicad_pcb")
+        path = tmp_path / "board_settings" / "kurousagi" / f"{board_id}.json"
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        assert doc["board_signature"] == signature
+
     def test_unknown_version_raises(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         board_id = store.board_id("boards/a.kicad_pcb")
@@ -188,6 +207,70 @@ class TestJsonShape:
 
         with pytest.raises(ValueError):
             store.load_or_init("kurousagi", "boards/a.kicad_pcb", _base_config())
+
+    def test_legacy_root_is_read_only_fallback(self, tmp_path: Path):
+        current = tmp_path / "current"
+        legacy = tmp_path / "legacy" / "board_settings"
+        store = BoardSettingsStore(current, legacy_root=legacy)
+        config = _base_config()
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        edited = PasteSettingsModel(
+            base=model.base,
+            base_enabled=False,
+            levels={("L2", "U1"): LevelSetting(enabled=True)},
+        )
+        legacy_store = BoardSettingsStore(tmp_path / "legacy")
+        legacy_store.save("kurousagi", "boards/a.kicad_pcb", edited)
+
+        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+
+        assert loaded.base_enabled is False
+        assert list(current.rglob("*.json")) == []
+
+    def test_signature_mismatch_initializes_fresh_model(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        edited = PasteSettingsModel(
+            base=model.base,
+            base_enabled=False,
+            levels={("L2", "U1"): LevelSetting(enabled=True)},
+        )
+        store.save(
+            "kurousagi",
+            "boards/a.kicad_pcb",
+            edited,
+            board_signature="old-signature",
+        )
+
+        loaded = store.load_or_init(
+            "kurousagi",
+            "boards/a.kicad_pcb",
+            config,
+            board_signature="new-signature",
+        )
+
+        assert loaded.base_enabled is True
+        assert loaded.levels == {}
+
+    def test_model_from_doc_rejects_mismatched_signature(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        doc = store.export_doc(
+            "kurousagi",
+            "boards/a.kicad_pcb",
+            model,
+            board_signature="old-signature",
+        )
+
+        with pytest.raises(ValueError):
+            store.model_from_doc(
+                doc,
+                board_signature="new-signature",
+                expected_machine="kurousagi",
+                expected_source_pcb="boards/a.kicad_pcb",
+            )
 
 
 class TestPrune:

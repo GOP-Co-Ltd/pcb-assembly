@@ -19,6 +19,12 @@
         <button type="button" id="pad-disable-all" data-testid="pad-disable-all">全無効</button>
         <span id="pad-selection-count" class="pad-selection-count" data-testid="pad-selection-count">選択: 0</span>
       </div>
+      <div class="pad-config-tools" data-testid="pad-config-tools">
+        <span id="pad-outline-size" class="pad-outline-size" data-testid="pad-outline-size">外形: --</span>
+        <button type="button" id="pad-export-config" data-testid="pad-export-config">設定を書き出し</button>
+        <button type="button" id="pad-import-config-button" data-testid="pad-import-config-button">設定を読み込み</button>
+        <input id="pad-import-config" type="file" accept="application/json,.json" hidden>
+      </div>
     </div>
 
     <div class="pad-viewer-wrap" data-testid="pad-viewer-wrap">
@@ -33,13 +39,13 @@
           <tr>
             <th class="pad-col-node">ノード</th>
             <th class="pad-col-enabled">有効</th>
-            <th>ul_per_mm2</th>
-            <th>paste_height</th>
-            <th>fill_speed</th>
-            <th>prime_extra_delay</th>
-            <th>bead_width_factor</th>
-            <th>overlap</th>
-            <th>boundary_margin</th>
+            <th>面積あたりのペースト量</th>
+            <th>塗布高さ</th>
+            <th>塗布速度</th>
+            <th>プライム後追加遅延</th>
+            <th>ビード幅係数</th>
+            <th>重なり率</th>
+            <th>外周余白</th>
           </tr>
         </thead>
         <tbody id="pad-table-body"></tbody>

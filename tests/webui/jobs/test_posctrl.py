@@ -200,7 +200,7 @@ class TestGenerateGridPcb:
         outputs = [a for a in record.result.artifacts if a.path.endswith(".kicad_pcb")]
         assert len(outputs) == 1
 
-        pcb = PcbFile(fake_camera_settings.data_dir / "webui" / outputs[0].path)
+        pcb = PcbFile(fake_camera_settings.webui_data_dir / outputs[0].path)
         assert len(pcb.pads) == 4
 
 
@@ -296,7 +296,7 @@ class TestCameraCalibrationJob:
 
         kinds = {artifact.kind for artifact in result.artifacts}
         assert kinds == {"image", "file"}
-        artifacts_root = checkerboard_camera_settings.data_dir / "webui"
+        artifacts_root = checkerboard_camera_settings.webui_data_dir
         png_artifact = next(a for a in result.artifacts if a.kind == "image")
         json_artifact = next(a for a in result.artifacts if a.kind == "file")
         Image.load(artifacts_root / png_artifact.path)  # 読めなければ例外
@@ -487,7 +487,7 @@ class TestPosctrlHardware:
         assert result is not None
         json_artifact = next(a for a in result.artifacts if a.kind == "file")
         loaded = CalibrationResult.load(
-            real_settings.data_dir / "webui" / json_artifact.path
+            real_settings.webui_data_dir / json_artifact.path
         )
         assert loaded.z_position is not None  # 実 Klipper から Z を取得
 

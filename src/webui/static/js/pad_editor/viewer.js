@@ -42,6 +42,11 @@ export function renderViewer(svg, config, state) {
     el.dataset.layer = pad.layer;
     applyPadVisual(el, state, pad.enabled);
     el.style.display = pad.layer === state.layer ? "" : "none";
+    const title = document.createElementNS(SVG_NS, "title");
+    title.textContent =
+      `${pad.designator} pad ${pad.pad_number}` +
+      (pad.package ? ` / ${pad.package}` : "");
+    el.appendChild(title);
     state.padEls.set(pad.id, el);
     svg.appendChild(el);
   }

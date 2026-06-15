@@ -131,6 +131,7 @@ class PreviewService:
         self._client_count = 0
         self._override_lock = threading.Lock()
         self._override: tuple[Image, float] | None = None
+        self._shutdown_requested = threading.Event()
 
     @property
     def client_count(self) -> int:
@@ -146,6 +147,10 @@ class PreviewService:
         """
         with self._override_lock:
             self._override = (image, time.monotonic())
+
+    def request_shutdown(self) -> None:
+        """開いているプレビューストリームへ終了要求を通知する."""
+        self._shutdown_requested.set()
 
     @contextlib.contextmanager
     def hold_camera(self) -> Iterator[FrameHub]:
@@ -183,12 +188,17 @@ class PreviewService:
             canny_high: overlay=copper の Canny 上側閾値（None は machine.toml 値）
         """
         with self.hold_camera() as hub:
-            source = hub.subscribe()
+            source = hub.subscribe(timeout=1.0)
             renderer = self._build_renderer(overlay, canny_low, canny_high)
             interval = self._emit_interval(source.resolution.fps)
             next_emit = time.monotonic()
-            while True:
-                frame = source.capture()
+            while not self._shutdown_requested.is_set():
+                try:
+                    frame = source.capture()
+                except TimeoutError:
+                    if self._shutdown_requested.is_set():
+                        break
+                    raise
                 now = time.monotonic()
                 if now < next_emit:
                     continue

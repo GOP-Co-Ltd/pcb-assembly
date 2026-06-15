@@ -10,6 +10,16 @@ export const FIELDS = [
   "boundary_margin",
 ];
 
+export const FIELD_LABELS = {
+  ul_per_mm2: "面積あたりのペースト量",
+  paste_height: "塗布高さ",
+  fill_speed: "塗布速度",
+  prime_extra_delay: "プライム後追加遅延",
+  bead_width_factor: "ビード幅係数",
+  overlap: "重なり率",
+  boundary_margin: "外周余白",
+};
+
 export function buildNodeIndexes(tree) {
   const parentOf = new Map();
   const nodeById = new Map();

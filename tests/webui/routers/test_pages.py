@@ -104,6 +104,7 @@ class TestPages:
         response = client.get("/settings")
 
         assert response.status_code == 200
+        assert "settings-layout" in response.text
 
     def test_settings_page_groups_fields_by_section(self, client: TestClient):
         """設定項目はセクション単位の階層表示（settings-group）でまとまる."""
@@ -382,6 +383,10 @@ class TestPasteSolderPadEditor:
         assert "全無効" in text
         assert 'id="pad-table"' in text
         assert 'id="pad-editor-empty"' in text
+        assert 'id="pad-outline-size"' in text
+        assert 'id="pad-export-config"' in text
+        assert 'id="pad-import-config"' in text
+        assert "面積あたりのペースト量" in text
         assert "pad_editor.js" in text
         # レイヤ切替（Top/Bottom）
         assert 'name="pad-layer"' in text
@@ -393,6 +398,7 @@ class TestPasteSolderPadEditor:
         assert "job-console" in text
         assert "job-form" in text
         assert "preview-pane" in text  # _PASTING_PREVIEW に含まれる
+        assert "pasting-preview-panel" in text
         assert "crosshair" not in text  # overlay 切替は出さない
         assert "loading-controls" in text  # _PASTING_LOADING_PARAM に含まれる
 
