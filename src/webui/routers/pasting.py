@@ -64,6 +64,7 @@ class PadInfo(BaseModel):
     """1 pad のジオメトリと解決済み設定."""
 
     id: str
+    node_ids: list[str]
     designator: str
     pad_number: str
     package: str
@@ -199,9 +200,15 @@ def _resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
     )
 
 
-def _pad_info(pad: Pad, package: str, resolved: ResolvedPaste) -> PadInfo:
+def _pad_info(
+    pad: Pad,
+    package: str,
+    node_ids: list[str],
+    resolved: ResolvedPaste,
+) -> PadInfo:
     return PadInfo(
         id=_pad_id(pad),
+        node_ids=node_ids,
         designator=pad.designator,
         pad_number=pad.pad_number,
         package=package,
@@ -267,6 +274,7 @@ def _build_pad_config(loaded: _Loaded) -> PadConfigResponse:
         _pad_info(
             pad,
             package_by_designator.get(pad.designator, ""),
+            [_node_id(key) for key in hierarchy.node_keys_for_pad(pad)],
             resolved[(pad.designator, pad.pad_number)],
         )
         for pad in hierarchy.iter_pads()

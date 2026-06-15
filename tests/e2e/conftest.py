@@ -16,6 +16,7 @@ import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import attrs
 import pytest
@@ -108,3 +109,23 @@ def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
     finally:
         server.should_exit = True
         thread.join(timeout=_STARTUP_TIMEOUT)
+
+
+@pytest.fixture
+def browser_page():
+    """Playwright sync API の実 Chromium page.
+
+    pytest-playwright が未導入の環境では collection を壊さず skip する。Chromium
+    はこの環境にある system binary を優先し、無ければ Playwright 既定に任せる。
+    """
+    sync_api = pytest.importorskip("playwright.sync_api")
+    with sync_api.sync_playwright() as playwright:
+        launch_kwargs: dict[str, Any] = {"headless": True}
+        if Path("/usr/bin/chromium").exists():
+            launch_kwargs["executable_path"] = "/usr/bin/chromium"
+        browser = playwright.chromium.launch(**launch_kwargs)
+        page = browser.new_page()
+        try:
+            yield page
+        finally:
+            browser.close()

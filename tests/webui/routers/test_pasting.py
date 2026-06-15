@@ -52,6 +52,26 @@ def _pad_by_id(config: dict, pad_id: str) -> dict:
     return next(pad for pad in config["pads"] if pad["id"] == pad_id)
 
 
+def _node_by_id(node: dict, node_id: str) -> dict:
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current["id"] == node_id:
+            return current
+        stack.extend(current["children"])
+    raise AssertionError(f"node not found: {node_id}")
+
+
+def _leaf_pad_ids(node: dict) -> set[str]:
+    if node["level"] == 4:
+        _, designator, pad_number = node["id"].split(":", 2)
+        return {f"{designator}.{pad_number}"}
+    ids: set[str] = set()
+    for child in node["children"]:
+        ids |= _leaf_pad_ids(child)
+    return ids
+
+
 class TestPcbNotSelected:
     """PCB 未選択 → 409."""
 
@@ -103,6 +123,41 @@ class TestGetPadConfig:
         assert all(len(point) == 2 for point in pad["polygon"])
         assert pad["enabled"] is True
         assert pad["resolved"]["fill_speed"] == 0.8
+
+    def test_pad_exposes_full_node_id_path(self, selected_client: TestClient):
+        config = _get_config(selected_client)
+        pad = _pad_by_id(config, "U1.1")
+
+        node_ids = pad["node_ids"]
+        assert all(isinstance(node_id, str) for node_id in node_ids)
+        assert [node_id.split(":", 1)[0] for node_id in node_ids] == [
+            "L0",
+            "L1",
+            "L2",
+            "L3",
+            "L4",
+        ]
+        assert node_ids[0] == "L0"
+        assert "L1:SOT-23-6" in node_ids
+        assert "L2:U1" in node_ids
+        assert any(node_id.startswith("L3:U1:") for node_id in node_ids)
+        assert node_ids[-1] == "L4:U1:1"
+
+    def test_l3_membership_is_discoverable_from_node_ids(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+        l3_node = next(child for child in u1_node["children"] if child["level"] == 3)
+        l3_node_id = l3_node["id"]
+
+        expected_pad_ids = _leaf_pad_ids(l3_node)
+        matched_pad_ids = {
+            pad["id"] for pad in config["pads"] if l3_node_id in pad["node_ids"]
+        }
+
+        assert expected_pad_ids
+        assert matched_pad_ids == expected_pad_ids
 
     def test_overrides_include_l0(self, selected_client: TestClient):
         config = _get_config(selected_client)

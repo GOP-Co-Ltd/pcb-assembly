@@ -27,6 +27,9 @@ test-no-hardware: ## Run tests without hardware
 test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
 	uv run pytest -v -m e2e
 
+playwright-install: ## Install Playwright-managed Chromium when system chromium is unavailable
+	uv run playwright install chromium
+
 migrate-codex: ## Generate Codex rules from Claude settings
 	uv run python scripts/migrate_codex.py
 
