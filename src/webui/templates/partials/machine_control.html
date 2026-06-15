@@ -1,5 +1,5 @@
 <aside id="mc-sidebar" class="mc-sidebar">
-  <button id="mc-toggle" class="mc-toggle" type="button" title="マシン操作パネルの開閉">マシン操作</button>
+  <button id="mc-toggle" class="mc-toggle" type="button" title="マシン操作パネルの開閉">&gt;</button>
   <div id="machine-control" class="machine-control">
     <div class="mc-status">
       <span id="mc-position">位置: ---</span>
@@ -14,8 +14,9 @@
     <div class="mc-jog-area">
       <div id="mc-jogpad" class="mc-jogpad"></div>
       <div class="mc-zbar">
-        <span class="mc-zbar-label">Z</span>
-        {% for dist in [10, 1, 0.1, -0.1, -1, -10] %}
+        <span class="mc-zbar-label" title="上が Z マイナス（マシン設計上、上昇で Z 減少）">Z</span>
+        {# マシン設計上、上昇＝Z マイナス。上端を負（上昇）・下端を正（下降）に並べる #}
+        {% for dist in [-10, -1, -0.1, 0.1, 1, 10] %}
         <button data-mc-jog="z" data-mc-dist="{{ dist }}">{{ "%+g" | format(dist) }}</button>
         {% endfor %}
       </div>

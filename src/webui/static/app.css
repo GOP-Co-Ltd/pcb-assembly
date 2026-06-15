@@ -104,20 +104,22 @@ body {
   background: var(--panel);
   border-left: 1px solid var(--border);
 }
-.mc-sidebar.collapsed { width: 2.4rem; padding: 0.6rem 0.2rem; }
+.mc-sidebar.collapsed { width: 2rem; padding: 0.6rem 0.2rem; }
 .mc-sidebar.collapsed .machine-control { display: none; }
 .mc-toggle {
+  align-self: flex-end;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg);
-  font-weight: 600;
-  padding: 0.35rem 0.5rem;
+  font-weight: 700;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.2rem 0.55rem;
   cursor: pointer;
 }
 .mc-sidebar.collapsed .mc-toggle {
-  writing-mode: vertical-rl;
-  padding: 0.6rem 0.25rem;
-  height: 8rem;
+  align-self: stretch;
+  height: 100%;
 }
 
 .machine-control {

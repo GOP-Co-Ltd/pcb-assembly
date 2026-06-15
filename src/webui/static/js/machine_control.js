@@ -223,9 +223,12 @@
   // ---- サイドバーの開閉とポーリング ----
 
   let timer = null;
+  const toggle = document.getElementById("mc-toggle");
 
   function applyCollapsed(collapsed) {
     sidebar.classList.toggle("collapsed", collapsed);
+    // 右サイドバー: 展開中は ">"（右へ畳む）、折りたたみ中は "<"（左へ開く）
+    toggle.textContent = collapsed ? "<" : ">";
     if (collapsed) {
       if (timer !== null) {
         clearInterval(timer);
@@ -237,7 +240,7 @@
     }
   }
 
-  document.getElementById("mc-toggle").addEventListener("click", () => {
+  toggle.addEventListener("click", () => {
     const collapsed = !sidebar.classList.contains("collapsed");
     localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "");
     applyCollapsed(collapsed);
