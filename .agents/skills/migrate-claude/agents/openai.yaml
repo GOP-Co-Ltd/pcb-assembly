@@ -1,0 +1,4 @@
+interface:
+  display_name: "Migrate Claude Assets"
+  short_description: "Claude project assets into Codex-native repo configuration"
+  default_prompt: "Use $migrate-claude to migrate this repository from Claude Code assets to Codex."

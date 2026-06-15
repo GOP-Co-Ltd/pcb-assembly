@@ -1,0 +1,121 @@
+# AGENTS.md
+
+Codex がこのリポジトリで作業する際に常時参照するガイダンス。
+詳細な手続きは `memory/` と `.agents/skills/` に置く。
+
+## 開発原則
+
+慎重さを速度に優先する。trivial なタスクでは判断で簡略化してよい。
+
+### 1. 実装前に考える
+
+- 仮定を明示し、不確かな点は確認する
+- 複数の解釈やトレードオフがあれば表に出す
+- より単純な解決策があれば提示する
+- 不明瞭なまま実装を進めない
+
+### 2. シンプルさを優先
+
+- 要求されていない機能・柔軟性・抽象化を追加しない
+- 起こり得ないシナリオ向けの処理を増やさない
+- 問題を解く最小限のコードにする
+
+### 3. 必要な範囲だけ変更
+
+- 周辺コードをついでに整形・リファクタしない
+- 既存スタイルと公開インターフェースを尊重する
+- 自分の変更で生じた未使用コードだけを片付ける
+- diff の各行をユーザー要求へ直接トレースできる状態にする
+
+### 4. ゴール駆動
+
+検証可能な成功条件を先に置き、実装・検証を完了するまでループする。
+複数ステップの作業では短い計画と各ステップの検証方法を示す。
+
+## プロジェクト概要
+
+PCB アセンブリ装置の制御コード。Raspberry Pi 5、Klipper、KiCAD を前提に、
+Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算、FastAPI WebUI
+を実装する。
+
+主要構成:
+
+- `src/pcbasm/hal/`: カメラ、Klipper、プローブ、サーボ等の HAL
+- `src/pcbasm/vision/`: 画像処理、キャリブレーション、特徴検出
+- `src/pcbasm/posctrl/`: PCB の位置合わせ共通制御
+- `src/pcbasm/pasting/`: ペースト塗布ロジック
+- `src/pcbasm/pnp/`: Pick and Place 用名前空間
+- `src/pcbasm/geometry/`: 3D 座標と幾何計算
+- `src/pcbasm/pcb/`: KiCAD 読込と PCB 設計情報
+- `src/webui/`: FastAPI WebUI
+- `src/scripts/`: 装置操作・開発用スクリプト
+
+## 開発コマンド
+
+- `make setup`: 開発環境セットアップ
+- `make format`: pre-commit 実行
+- `make type`: pyright 型チェック
+- `make test`: E2E 以外の全テスト
+- `make test-no-hardware`: ハードウェア・E2E を除外
+- `make test-e2e`: WebUI E2E
+- `make run`: format、test、type
+- `make migrate-codex`: Claude Bash 権限から Codex rules を再生成
+- `make migrate-codex-check`: Codex rules の同期確認
+
+## 不変の原則
+
+### カプセル化
+
+- 内部実装と `__init__` で設定する属性は原則 `_` prefix
+- 外部から必要なものだけ public にする
+- private 属性をテスト都合で public にしない
+
+### テスト
+
+- 公開インターフェースと観測可能な振る舞いをテストする
+- 実データ・実リソースを優先し、モックを最小化する
+- テストは `class TestXxx` 形式に集約する
+- 3rd-party 表面や内部関数をモックしない
+- ハードウェアテストは `@mark_hardware` で分離する
+- 詳細は `testing-strategy`、`hardware-test`、`refactor-conventions` Skill
+
+## Git 運用
+
+- `main` から `<種別>/<日付>/<内容>` で分岐する
+- 種別は `feature`, `fix`, `refactor`, `docs`, `chore`
+- `main` に直接 commit しない。main への merge はユーザー判断
+- commit は `<種別>(<スコープ>): <内容>`、1 commit 1 関心事
+- 検証通過前に commit しない
+- force push、`git reset --hard`、未確認の破壊的操作を行わない
+
+標準フロー:
+
+要件確認 → ブランチ作成 → 実装 → `make format && make type && make test`
+→ commit。実機がない場合は理由を明示して `make test-no-hardware` を使う。
+
+## Custom Agents
+
+ユーザーがエージェント利用や並列作業を明示した場合は、`.codex/agents/` の
+custom agent と `agent-team-startup` Skill を使う。
+
+標準サイクル:
+
+`implementation-planner` → 任意 `spec-test-author` →
+`plan-implementer` → `code-simplifier` → `docs-keeper`
+
+中間メモは `memory/agents/<agent-name>/<task>.md` に置く。並列 agent は書き込み
+範囲を分離し、同じファイルを同時編集しない。
+
+## 参照先
+
+- `memory/MEMORY.md`: ユーザーとの対話で確立した規約・好み
+- `.agents/skills/hardware-test/`: 実機テスト
+- `.agents/skills/testing-strategy/`: テスト戦略
+- `.agents/skills/refactor-conventions/`: 実装・テスト規約
+- `.agents/skills/webui-e2e/`: WebUI E2E
+- `.agents/skills/agent-team-startup/`: custom agent 運用
+- `.agents/skills/maximize-parallels/`: tool 並列化
+- `.agents/skills/do-on-worktree/`: 独立タスクの worktree 運用
+- `.agents/skills/gitlab-mr/`: GitLab MR 作成
+- `.agents/skills/merge-main/`: MR 前の main 取り込み
+- `.agents/skills/migrate-claude/`: Claude 資産から Codex 資産への移行
