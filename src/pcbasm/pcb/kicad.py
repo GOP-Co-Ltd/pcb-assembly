@@ -115,9 +115,9 @@ class PcbFile:
 
             components.append(
                 Component(
-                    designator=footprint.GetReference(),
-                    value=footprint.GetValue(),
-                    package=footprint.GetFPID().GetLibItemName(),
+                    designator=str(footprint.GetReference()),
+                    value=str(footprint.GetValue()),
+                    package=str(footprint.GetFPID().GetLibItemName()),
                     position=Point2d(x=x, y=y),
                     rotation=rotation,
                     layer=layer,
@@ -170,9 +170,9 @@ class PcbFile:
                     paste_polygon = Polygon(points)
                     pads.append(
                         Pad(
-                            designator=footprint.GetReference(),
-                            pad_number=pad.GetNumber(),
-                            net_name=pad.GetNetname(),
+                            designator=str(footprint.GetReference()),
+                            pad_number=str(pad.GetNumber()),
+                            net_name=str(pad.GetNetname()),
                             layer=Layer.TOP
                             if target_layer == pcbnew.F_Paste
                             else Layer.BOTTOM,
