@@ -26,6 +26,7 @@ import pytest
 from pcbasm.config import Machine
 from pcbasm.vision import Image
 from tests.webui.conftest import decode_jpeg, jpeg_payload
+from webui.board_settings import BoardSettingsStore
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import JobContext
 from webui.jobs.manager import JobManager, JobResult, JobStatus
@@ -157,6 +158,54 @@ class TestContextProperties:
 
         assert record.status == JobStatus.SUCCEEDED
         assert captured[0] == fake_camera_settings.data_dir / "webui" / record.id
+
+
+class TestBoardSettingsWiring:
+    """machine_name / source_pcb / board_store の manager → JobContext 配線.
+
+    paste_solder ジョブが基板ごとの塗布設定ストアを引けるよう、manager は 選択中のマシン名・PCB 相対パス・共有
+    BoardSettingsStore を ctx へ渡す （計画書 Phase 5「JobContext への配線」節の契約）。
+    """
+
+    def test_source_pcb_and_machine_name_reflect_selection(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        real_pcb_path: Path,
+        wait_until: WaitUntil,
+    ):
+        state.select_pcb(real_pcb_path)
+        captured: list[tuple[str, str | None, BoardSettingsStore | None]] = []
+
+        def run(ctx: JobContext) -> None:
+            captured.append((ctx.machine_name, ctx.source_pcb, ctx.board_store))
+
+        _register(catalog, run, requires_pcb=True)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED
+        machine_name, source_pcb, board_store = captured[0]
+        # 既定選択マシン kurousagi（test-fixture コピー）
+        assert machine_name == "kurousagi"
+        # pcb_browse_root からの相対 posix パス（絶対パスではない）
+        assert source_pcb == real_pcb_path.as_posix()
+        assert isinstance(board_store, BoardSettingsStore)
+
+    def test_source_pcb_is_none_without_selection(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        captured: list[str | None] = []
+
+        def run(ctx: JobContext) -> None:
+            captured.append(ctx.source_pcb)
+
+        _register(catalog, run)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert captured == [None]
 
 
 class TestLogAndProgress:

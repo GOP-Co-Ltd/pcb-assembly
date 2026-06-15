@@ -433,3 +433,65 @@ class TestFromConfig:
 
         with pytest.raises(ValueError, match="retraction_accel_factor"):
             PasteApplicator.from_config(klipper, dispenser, stage, config)
+
+
+class TestPerPadOverride:
+    """Apply() の per-pad override 引数（None は __init__ 値を使う）.
+
+    pad ごとに塗布設定を変えるための上書き。各経路（total_amount / FillSequence /
+    build_paste_fill_path）へ実効値が伝わることを代表的に 検証する。
+    """
+
+    def test_ul_per_mm2_override_changes_total(self, applicator, mock_paste_dispenser):
+        # Arrange: init は ul_per_mm2=0.05。override で 0.08 に
+        polygon = box(0, 0, 5, 4)  # area = 20 mm^2
+        retraction = 10.0
+
+        # Act
+        applicator.apply([polygon], ul_per_mm2=0.08)
+
+        # Assert: total_amount = area * 上書き値
+        amounts = _dispense_amounts(mock_paste_dispenser)
+        assert amounts[0] == pytest.approx(retraction + 20 * 0.08)
+
+    def test_no_override_uses_init_value(self, applicator, mock_paste_dispenser):
+        # Arrange: 後方互換 — override 無しは init の ul_per_mm2=0.05
+        polygon = box(0, 0, 5, 4)
+        retraction = 10.0
+
+        # Act
+        applicator.apply([polygon])
+
+        # Assert
+        amounts = _dispense_amounts(mock_paste_dispenser)
+        assert amounts[0] == pytest.approx(retraction + 20 * 0.05)
+
+    def test_prime_extra_delay_override_adds_extra_amount(
+        self, applicator, mock_paste_dispenser
+    ):
+        # Arrange: delay=0 の基準量を取る
+        polygon = box(0, 0, 5, 4)
+        applicator.apply([polygon])
+        base_amount = _dispense_amounts(mock_paste_dispenser)[0]
+        mock_paste_dispenser.pushpull.reset_mock()
+
+        # Act: prime_extra_delay>0 で extra_amount = 実効レート*delay が加算
+        applicator.apply([polygon], prime_extra_delay=1.0)
+
+        # Assert
+        delayed_amount = _dispense_amounts(mock_paste_dispenser)[0]
+        assert delayed_amount > base_amount
+
+    def test_boundary_margin_override_changes_fill_path(self, applicator, mock_klipper):
+        # Arrange: 外周マージン 0 の塗布 GCode を取る
+        polygon = box(0, 0, 10, 10)
+        applicator.apply([polygon], boundary_margin=0.0)
+        without_margin = list(mock_klipper.send_gcode.call_args_list)
+        mock_klipper.send_gcode.reset_mock()
+
+        # Act: boundary_margin を上書きすると build_paste_fill_path の経路が変わる
+        applicator.apply([polygon], boundary_margin=2.0)
+        with_margin = list(mock_klipper.send_gcode.call_args_list)
+
+        # Assert: 上書きが build 経路に伝わり、送信される塗布パスが変化する
+        assert without_margin != with_margin

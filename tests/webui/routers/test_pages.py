@@ -341,6 +341,55 @@ class TestPastingJobPages:
             assert name in text
 
 
+class TestPasteSolderPadEditor:
+    """Phase 4: paste_solder の pad 編集フロント UI（計画書 Phase 4
+    「templates / static」節）.
+
+    paste_solder は専用テンプレ（pasting/paste_solder.html）に切り替わり、
+    pad editor の DOM フックを持ちつつ、従来どおり job-console / job-form /
+    preview ペイン / loading_controls も備える。他 pasting feature は
+    pasting/job.html のまま回帰しない（pad editor を持たない）。
+    """
+
+    def test_paste_solder_renders_pad_editor_hooks(self, client: TestClient):
+        text = client.get("/pasting/paste_solder").text
+
+        # SVG ビューア / 選択ツールバー / 階層表コンテナ / スクリプト
+        assert 'id="pad-viewer"' in text
+        assert 'id="pad-enable-selected"' in text
+        assert 'id="pad-disable-selected"' in text
+        assert "全有効" in text
+        assert "全無効" in text
+        assert 'id="pad-table"' in text
+        assert 'id="pad-editor-empty"' in text
+        assert "pad_editor.js" in text
+        # レイヤ切替（Top/Bottom）
+        assert 'name="pad-layer"' in text
+
+    def test_paste_solder_keeps_job_chrome(self, client: TestClient):
+        """専用テンプレでも job-console / job-form / preview / loading は維持."""
+        text = client.get("/pasting/paste_solder").text
+
+        assert "job-console" in text
+        assert "job-form" in text
+        assert "preview-pane" in text  # _PASTING_PREVIEW に含まれる
+        assert "crosshair" not in text  # overlay 切替は出さない
+        assert "loading-controls" in text  # _PASTING_LOADING_PARAM に含まれる
+
+    @pytest.mark.parametrize(
+        "feature",
+        ("height_plane", "loading", "toolhead_offset"),
+    )
+    def test_other_pasting_features_have_no_pad_editor(
+        self, client: TestClient, feature: str
+    ):
+        """Pad editor は paste_solder 専用。他 feature は pasting/job.html のまま."""
+        text = client.get(f"/pasting/{feature}").text
+
+        assert "pad-viewer" not in text
+        assert "pad_editor.js" not in text
+
+
 class TestPnpPlaceholder:
     """Pnp タブはプレースホルダのみ（Phase 5 で確認。spec §10 pnp）."""
 

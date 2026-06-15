@@ -1,0 +1,313 @@
+"""階層 group-by（L0–L4）と pad 形状分類のテスト.
+
+仕様: docs plan `claude-webui-1-pad-extract-eager-pine.md` Phase 1。 実
+Pad/Component/shapely.Polygon を直接構築し、build_pad_hierarchy の
+公開振る舞いを検証する（PcbFile/pcbnew は使わない）。
+"""
+
+from collections.abc import Sequence
+
+import pytest
+from shapely import Polygon
+from shapely.affinity import rotate, translate
+
+from pcbasm.geometry.transform import Point2d
+from pcbasm.pcb import Component, Layer, Pad
+from pcbasm.pcb.grouping import (
+    PadHierarchy,
+    PadHierarchyNode,
+    PadShapeKey,
+    build_pad_hierarchy,
+)
+
+
+def _rect(cx: float, cy: float, w: float, h: float) -> Polygon:
+    """中心 (cx, cy)・幅 w・高さ h の軸並行矩形を作る."""
+    hw, hh = w / 2.0, h / 2.0
+    return Polygon(
+        [
+            (cx - hw, cy - hh),
+            (cx + hw, cy - hh),
+            (cx + hw, cy + hh),
+            (cx - hw, cy + hh),
+        ]
+    )
+
+
+def _component(designator: str, package: str) -> Component:
+    return Component(
+        designator=designator,
+        value="",
+        package=package,
+        position=Point2d(x=0.0, y=0.0),
+        rotation=0.0,
+        layer=Layer.TOP,
+    )
+
+
+def _pad(
+    designator: str,
+    pad_number: str,
+    polygon: Polygon,
+    *,
+    is_custom_shape: bool = False,
+) -> Pad:
+    return Pad(
+        designator=designator,
+        pad_number=pad_number,
+        net_name="",
+        layer=Layer.TOP,
+        polygon=polygon,
+        is_custom_shape=is_custom_shape,
+    )
+
+
+def _node_at(hierarchy: PadHierarchy, key: tuple[str, ...]) -> PadHierarchyNode:
+    """Key に一致するノードを階層から 1 つ探す（テスト補助）."""
+    stack: list[PadHierarchyNode] = [hierarchy.root]
+    while stack:
+        node = stack.pop()
+        if node.key == key:
+            return node
+        stack.extend(node.children)
+    raise AssertionError(f"node {key} not found")
+
+
+def _all_keys(hierarchy: PadHierarchy) -> set[tuple[str, ...]]:
+    keys: set[tuple[str, ...]] = set()
+    stack: list[PadHierarchyNode] = [hierarchy.root]
+    while stack:
+        node = stack.pop()
+        keys.add(node.key)
+        stack.extend(node.children)
+    return keys
+
+
+class TestPadShapeKey:
+    """PadShapeKey.of の形状分類契約."""
+
+    def test_same_size_rectangles_at_different_positions_share_key(self):
+        # 0402 抵抗の 2 端子のように、同サイズ矩形を別位置に置いても同キー
+        a = _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9))
+        b = _pad("R1", "2", _rect(5.0, 7.0, 0.5, 0.9))
+
+        assert PadShapeKey.of(a) == PadShapeKey.of(b)
+
+    def test_rotated_same_shape_pad_shares_key(self):
+        # 同じ矩形を 90 度回転して配置 → 回転不変なので同キー（同 shape_label）
+        base = _rect(0.0, 0.0, 0.5, 0.9)
+        upright = _pad("U1", "1", base)
+        turned = _pad("U1", "2", rotate(base, 90, origin="centroid"))
+
+        assert PadShapeKey.of(upright) == PadShapeKey.of(turned)
+        assert PadShapeKey.of(upright).label == PadShapeKey.of(turned).label
+
+    def test_thermal_pad_and_signal_pad_have_distinct_keys(self):
+        # 大面積の熱パッドと小さな信号 pad は別キー
+        signal = _pad("U1", "1", _rect(0.0, 0.0, 0.3, 0.5))
+        thermal = _pad("U1", "9", _rect(0.0, 0.0, 4.2, 4.2))
+
+        assert PadShapeKey.of(signal) != PadShapeKey.of(thermal)
+
+    def test_custom_shape_flag_distinguishes_key(self):
+        # 同じ外形でも is_custom_shape が異なれば別キー
+        poly = _rect(0.0, 0.0, 1.0, 1.0)
+        plain = _pad("U1", "1", poly)
+        custom = _pad("U1", "2", poly, is_custom_shape=True)
+
+        assert PadShapeKey.of(plain) != PadShapeKey.of(custom)
+
+    def test_label_is_human_readable_string(self):
+        # ラベルは UI 表示用の文字列（具体桁は実装裁量だが寸法を含む）
+        key = PadShapeKey.of(_pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)))
+
+        assert isinstance(key.label, str)
+        assert key.label != ""
+
+    def test_quantum_collapses_near_identical_shapes(self):
+        # わずかな寸法差は shape_quantum 内で同一視される
+        a = _pad("R1", "1", _rect(0.0, 0.0, 0.500, 0.900))
+        b = _pad("R1", "2", _rect(0.0, 0.0, 0.503, 0.902))
+
+        assert PadShapeKey.of(a, quantum=0.01) == PadShapeKey.of(b, quantum=0.01)
+
+
+class TestBuildPadHierarchyKeys:
+    """L0–L4 のキー規約."""
+
+    @pytest.fixture
+    def simple(self) -> tuple[Sequence[Component], Sequence[Pad]]:
+        components = [_component("R1", "0402")]
+        pads = [
+            _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)),
+            _pad("R1", "2", _rect(1.0, 0.0, 0.5, 0.9)),
+        ]
+        return components, pads
+
+    def test_root_is_l0(self, simple):
+        components, pads = simple
+        hierarchy = build_pad_hierarchy(components, pads)
+
+        assert hierarchy.root.key == ("L0",)
+        assert hierarchy.root.level == 0
+
+    def test_l1_key_is_package(self, simple):
+        components, pads = simple
+        hierarchy = build_pad_hierarchy(components, pads)
+
+        assert ("L1", "0402") in _all_keys(hierarchy)
+
+    def test_l2_key_is_designator(self, simple):
+        components, pads = simple
+        hierarchy = build_pad_hierarchy(components, pads)
+
+        node = _node_at(hierarchy, ("L2", "R1"))
+        assert node.level == 2
+
+    def test_l3_key_is_designator_and_shape_label(self, simple):
+        components, pads = simple
+        hierarchy = build_pad_hierarchy(components, pads)
+
+        shape_label = PadShapeKey.of(pads[0]).label
+        node = _node_at(hierarchy, ("L3", "R1", shape_label))
+        assert node.level == 3
+
+    def test_l4_key_is_designator_and_pad_number(self, simple):
+        components, pads = simple
+        hierarchy = build_pad_hierarchy(components, pads)
+
+        assert ("L4", "R1", "1") in _all_keys(hierarchy)
+        assert ("L4", "R1", "2") in _all_keys(hierarchy)
+
+    def test_node_keys_for_pad_returns_five_levels(self, simple):
+        components, pads = simple
+        hierarchy = build_pad_hierarchy(components, pads)
+        pad = pads[0]
+
+        keys = hierarchy.node_keys_for_pad(pad)
+
+        shape_label = PadShapeKey.of(pad).label
+        assert keys == [
+            ("L0",),
+            ("L1", "0402"),
+            ("L2", "R1"),
+            ("L3", "R1", shape_label),
+            ("L4", "R1", "1"),
+        ]
+
+
+class TestBuildPadHierarchyShapeGrouping:
+    """L3（同一種類 pad）の形状分類。"""
+
+    def test_rotated_same_shape_pads_share_l3(self):
+        # 同じ矩形 pad を 0 度と 90 度で配置 → 同 L3 グループ（回転不変）
+        components = [_component("U1", "SOT-23")]
+        base = _rect(0.0, 0.0, 0.5, 0.9)
+        pads = [
+            _pad("U1", "1", base),
+            _pad("U1", "2", rotate(base, 90, origin="centroid")),
+        ]
+        hierarchy = build_pad_hierarchy(components, pads)
+
+        shape_label = PadShapeKey.of(pads[0]).label
+        l3 = _node_at(hierarchy, ("L3", "U1", shape_label))
+        numbers = {p.pad_number for p in l3.pads}
+        assert numbers == {"1", "2"}
+
+    def test_thermal_and_signal_pads_in_separate_l3(self):
+        # 同 designator 内で熱パッド（大面積）と信号 pad（小矩形）は別 L3
+        components = [_component("U1", "QFN-8")]
+        signal = _pad("U1", "1", _rect(0.0, 0.0, 0.3, 0.5))
+        thermal = _pad("U1", "9", _rect(0.0, 0.0, 4.2, 4.2))
+        hierarchy = build_pad_hierarchy(components, [signal, thermal])
+
+        l2 = _node_at(hierarchy, ("L2", "U1"))
+        l3_keys = {child.key for child in l2.children}
+        assert len(l3_keys) == 2
+
+        signal_l3 = _node_at(hierarchy, ("L3", "U1", PadShapeKey.of(signal).label))
+        thermal_l3 = _node_at(hierarchy, ("L3", "U1", PadShapeKey.of(thermal).label))
+        assert {p.pad_number for p in signal_l3.pads} == {"1"}
+        assert {p.pad_number for p in thermal_l3.pads} == {"9"}
+
+
+class TestBuildPadHierarchyExclusion:
+    """対応 Component の無い pad は階層から除外される。"""
+
+    def test_pad_without_matching_component_is_excluded(self):
+        components = [_component("R1", "0402")]
+        pads = [
+            _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)),
+            _pad("X9", "1", _rect(2.0, 0.0, 0.5, 0.9)),  # 対応部品なし
+        ]
+        hierarchy = build_pad_hierarchy(components, pads)
+
+        designators = {p.designator for p in hierarchy.iter_pads()}
+        assert designators == {"R1"}
+
+    def test_excluded_pad_does_not_create_l2_node(self):
+        components = [_component("R1", "0402")]
+        pads = [
+            _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)),
+            _pad("X9", "1", _rect(2.0, 0.0, 0.5, 0.9)),
+        ]
+        hierarchy = build_pad_hierarchy(components, pads)
+
+        assert ("L2", "X9") not in _all_keys(hierarchy)
+
+
+class TestPadHierarchyNodePads:
+    """各ノードの pads が配下の葉 pad をすべて含む。"""
+
+    @pytest.fixture
+    def multi(self) -> PadHierarchy:
+        components = [
+            _component("R1", "0402"),
+            _component("R2", "0402"),
+            _component("U1", "QFN-8"),
+        ]
+        pads = [
+            _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)),
+            _pad("R1", "2", _rect(1.0, 0.0, 0.5, 0.9)),
+            _pad("R2", "1", _rect(5.0, 0.0, 0.5, 0.9)),
+            _pad("R2", "2", _rect(6.0, 0.0, 0.5, 0.9)),
+            _pad("U1", "1", _rect(10.0, 0.0, 0.3, 0.5)),
+            _pad("U1", "9", _rect(11.0, 0.0, 4.2, 4.2)),
+        ]
+        return build_pad_hierarchy(components, pads)
+
+    def test_root_holds_all_pads(self, multi: PadHierarchy):
+        assert len(multi.root.pads) == 6
+
+    def test_l2_node_holds_all_pads_of_designator(self, multi: PadHierarchy):
+        node = _node_at(multi, ("L2", "U1"))
+        numbers = {p.pad_number for p in node.pads}
+        assert numbers == {"1", "9"}
+
+    def test_l1_node_groups_all_same_package_pads(self, multi: PadHierarchy):
+        node = _node_at(multi, ("L1", "0402"))
+        designators = {p.designator for p in node.pads}
+        assert designators == {"R1", "R2"}
+        assert len(node.pads) == 4
+
+    def test_l4_node_holds_single_pad(self, multi: PadHierarchy):
+        node = _node_at(multi, ("L4", "U1", "9"))
+        assert len(node.pads) == 1
+        assert node.pads[0].pad_number == "9"
+
+
+class TestIterPads:
+    """iter_pads は除外後の全 pad を列挙する。"""
+
+    def test_iter_pads_yields_all_included_pads(self):
+        components = [_component("R1", "0402"), _component("R2", "0402")]
+        pads = [
+            _pad("R1", "1", translate(_rect(0.0, 0.0, 0.5, 0.9), 0, 0)),
+            _pad("R1", "2", _rect(1.0, 0.0, 0.5, 0.9)),
+            _pad("R2", "1", _rect(5.0, 0.0, 0.5, 0.9)),
+        ]
+        hierarchy = build_pad_hierarchy(components, pads)
+
+        collected = list(hierarchy.iter_pads())
+        keys = {(p.designator, p.pad_number) for p in collected}
+        assert keys == {("R1", "1"), ("R1", "2"), ("R2", "1")}

@@ -276,6 +276,10 @@ class JobContext:
 | POST    | `/api/jobs/current/abort`                 | 協調的中止                                                                          |
 | POST    | `/api/jobs/last/apply`                    | 直近完了ジョブの計測結果を設定へ反映                                                |
 | POST    | `/api/jobs/last/discard`                  | 直近完了ジョブの計測結果を破棄                                                      |
+| GET     | `/api/pasting/pad-config`                 | 選択基板の outline / pads / 階層ツリー / 解決済み設定 / 疎 override（§15）          |
+| PATCH   | `/api/pasting/pad-config/node`            | ノードの enabled / override を upsert・clear（即保存、affected_pads を返す）        |
+| PATCH   | `/api/pasting/pad-config/pads`            | pad id 配列の enabled を L4 ノードとして一括設定                                    |
+| POST    | `/api/pasting/pad-config/reset`           | 全 override を破棄し machine.toml 由来の初期値へ戻す                                |
 | GET/PUT | `/api/settings/machine`                   | マシン設定（machine.toml ホワイトリスト項目）                                       |
 | POST    | `/api/machine-control`                    | homing / ジョグ / 絶対移動 / relax / フォーカス Z / 任意 G-code（§6。ジョブ中 409） |
 | GET     | `/api/stage/limits`                       | XYZStage の移動範囲（ジョグ UI 用）                                                 |
@@ -320,6 +324,27 @@ class JobContext:
 | Toolhead Offset       | tolerance, dispense-amount, loading-amount, lift-height, paste-diameter-min/max。結果 JSON は artifacts。結果は Apply で反映                                                                                   |
 | Probe GND Down Adjust | prompt(number) + 確定 confirm のループで down distance 調整。終了時（abort 含む）はダウン距離 0 へ復帰。結果は Apply で反映                                                                                    |
 | Fill Path Simulate    | nozzle-diameter, layer, bead-width-factor, overlap, boundary-margin。pad ごとの fill path を生成し結果 PNG をインライン表示（装置・カメラ非使用。dev タブから移設）                                            |
+
+#### Paste Solder の pad 編集（基板ビューア + 階層 override）
+
+`paste_solder` ジョブのフォーム上部に pad 編集 UI（`partials/pad_editor.html` + `static/js/pad_editor.js`、専用テンプレ `pasting/paste_solder.html`）を載せ、塗布対象 pad の有効/無効と、pad 種類/部品ごとの塗布設定上書きを基板単位で行う。設定は基板ごとに永続化し、`paste_solder` 実行はその設定で塗布する（後述 §15）。
+
+**基板ビューア**: SVG（`viewBox` を mm 系に一致させ pad の `polygon.exterior` を無変換描画、`vector-effect=non-scaling-stroke`）。Top / Bottom 切替。
+
+- pad クリック = 単 pad の有効/無効を即トグル
+- 左ドラッグ = 矩形選択（交差判定。修飾なし=置換 / Shift=追加 / Alt=除外）→「選択を有効化 / 無効化」「全有効 / 全無効」ボタンで一括
+- ビューア ⇄ 階層表の選択ハイライト連動
+
+**階層 override 表**: 5 階層を下位ほど優先（override）で解決する。
+
+- **L0** 全部品デフォルト → **L1** 同規格 package（例 `0402`）→ **L2** 各コンポーネント（designator）→ **L3** コンポーネント内の同形状 pad（`PadShapeKey` で分類。熱パッドと信号ピンを区別）→ **L4** 個別 pad
+- 各項目は非 None 値で上書き。**`enabled` は最具体レベルの明示値が勝つ**（L2 で false でも L4 で true なら有効）
+- 表示: 継承 = 薄字 placeholder（祖先チェーンを client 合成）/ override = ●（濃字）+ × でクリア（継承に戻す）/ 無効行 = 灰色 + 取消線 / 無効ノードの編集時は警告 toast
+- 編集は **PATCH で即時保存**。`window.webui.jobs.onUpdate` 購読で**ジョブ実行中は編集ロック**
+
+**override 対象 7 項目**: `fill_speed` / `paste_height` / `ul_per_mm2` / `prime_extra_delay` / `bead_width_factor` / `overlap` / `boundary_margin`（`PASTE_OVERRIDE_FIELDS`）。マシン固定（設定ページ §8 の `[paste_dispenser]` のまま、pad ごとに変えない）: `rotations_per_ul` / `nozzle_diameter` / `toolhead` / `pad_align`、および吐出・リトラクト動特性（`max_dispense_rate` / `dispense_accel` / `retract_*`）。
+
+**責務境界**: 階層 group-by（`pcbasm.pcb.grouping`）と override 解決（`pcbasm.pasting.settings`）は装置非依存の純ロジックとして pcbasm に置き、塗布実行（§15）と UI が**同一の解決規則**を共有する。永続化・API・UI は webui。
 
 ### dev タブ
 
@@ -367,6 +392,8 @@ skill `testing-strategy` のテスト 4 区分に従う。
 各 Phase の完了条件 = `make format && make type && make test-no-hardware` 通過 + §11 の Claude 自身による E2E 手順の通過。
 
 **進捗: Phase 1〜5 すべて実装完了（2026-06-12）。** pnp タブはプレースホルダのまま将来実装。実機での通し確認（塗布・キャリブレーション・scripts 回帰）はユーザー実施分が残る（各 Phase の `memory/agents/plan-implementer/webui-phase*.md` 参照）。
+
+**Phase 5 完了後の追加機能（2026-06-15）**: `paste_solder` の pad 有効/無効 + 階層 override 塗布設定（§10「Paste Solder の pad 編集」・§15）。pcbasm 純ロジック（grouping / settings）+ webui 永続化・API・UI・ジョブ統合。
 
 ### Phase 1: 骨格 + 状態管理 + 設定画面
 
@@ -424,3 +451,38 @@ tomlkit>=0.13             # scripts が既に import しているが宣言漏れ
 | ジョブ履歴              | 直近 1 件のみ・非永続                | 単一オペレータの装置 UI に履歴 DB は過剰                                       |
 | マシン操作の排他        | ジョブと同一ロックの単発 REST        | 移動とジョブの同時実行を構造的に排除。対話ジョブ中のみ WS command に切替       |
 | 設定編集                | ホワイトリスト方式                   | machine.toml / printer.cfg の存在を隠しつつ、壊れる編集を構造的に防ぐ          |
+
+## 15. はんだ塗布の pad 設定（Phase 5 完了後の追加機能）
+
+`paste_solder` を「全 Top pad を単一 `[paste_dispenser]` で一律塗布」から「**基板ごとの pad 有効/無効 + 階層 override 設定**で塗布」へ拡張する。UI は §10、API は §9 を参照。本節は永続化・API 契約・塗布実行統合をまとめる。
+
+### 永続化（`board_settings.py`）
+
+`BoardSettingsStore(data_dir)` が基板ごとの設定を JSON で保存する。
+
+- 保存先 `data_dir/board_settings/<machine>/<board_id>.json`（`board_id` = `source_pcb`（PCB browse root からの相対 posix パス）の SHA-256 先頭 16hex）。`version` / `source_pcb` / `machine` を付与
+- `load_or_init`: ファイルが在れば復元、無ければ `machine.toml` の `[paste_dispenser]` 値を L0 デフォルトに据えた新規モデルを返す（**この時点では保存しない** = 編集が入るまでファイルを作らない）
+- 真実の源は基板ごとの JSON。初回 bootstrap 以降は基板固有値を尊重し machine.toml から独立する（再現性）
+- 解決モデルは pcbasm の純ロジック: `PasteSettingsModel`（`base` = 全項目確定の L0 / `base_enabled` / `levels` = L1–L4 の疎マップ）と `resolve_pad_settings(hierarchy, model)`。階層は `build_pad_hierarchy(components, pads)`
+
+### API 契約（node_id 規約）
+
+`HierKey` tuple ⇔ node_id 文字列は `":".join(key)` / `tuple(node.split(":"))`。
+
+- node_id: `L0` / `L1:{package}` / `L2:{designator}` / `L3:{designator}:{shape_label}` / `L4:{designator}:{pad_number}`
+- pad id: `{designator}.{pad_number}`
+- `GET /api/pasting/pad-config` は outline + pads（ジオメトリ + 解決済み enabled/resolved）+ 階層 tree（構造のみ）+ 疎 overrides（L0 は常に存在、L1–L4 は明示設定があるノードのみ）を 1 発で返す
+- `PATCH .../node` は ノードの enabled / values(upsert) / clear(継承へ戻す) を適用し即保存、応答 `affected_pads` で配下 pad を部分更新（再 GET 不要）。`PATCH .../pads` は pad id 配列を L4 ノードの enabled として一括適用
+- 検証: PCB 未選択 409 / 未知 override 項目・未知 node 400 / L0 の `enabled=null` 400
+- `pcbnew`（PCB 読込）はリクエスト時に遅延 import するため、ルーター自体は KiCAD 未導入環境でも import 可能
+
+### 塗布実行統合（`jobs/pasting.py` の `_run_paste_solder`）
+
+`PasteApplicator.apply(polygons, *, fill_speed=None, ..., boundary_margin=None)` に per-pad override 引数（7 項目、`None` = `__init__` 値）を追加済み。`_run_paste_solder` は:
+
+1. `build_pad_hierarchy` + `BoardSettingsStore.load_or_init` + `resolve_pad_settings`（装置不要・前段で解決。store/`source_pcb` は `JobContext` 経由で配線）
+2. **有効 pad のみ**抽出（無効除外はここ一点。階層から除外された pad は後方互換で有効扱い）。有効 pad を 1 つ以上持つ部品のみ銅箔照合
+3. 補正 transform 適用後、各 pad を解決済み設定で `applicator.apply([polygon], ...)`
+4. summary に「有効 N / 全 M pads」を表示
+
+- **フォールバック**: 設定ファイル不在（または store/`source_pcb` 未配線）時は machine.toml デフォルトで全 pad 有効 = **現行と等価**
