@@ -181,8 +181,6 @@
       "Edit(~/.ssh/**)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
-      "Bash(git merge:*)",
-      "Bash(git tag:*)",
       "Bash(git reset --hard:*)",
       "Bash(git clean -f:*)",
       "Bash(git checkout .)",
