@@ -3,9 +3,11 @@
 計画書 memory/agents/implementation-planner/webui-phase4.md
 「src/webui/jobs/posctrl.py」節 + spec §10 posctrl 表が契約:
 
-- catalog: posctrl 4 ジョブ（reference_point_setup / camera_calibration /
-  board_tour / orthogonality_test）の name / requires_pcb / uses_machine /
-  accepts_commands / params の default
+- catalog: posctrl 5 ジョブ（reference_point_setup / camera_calibration /
+  board_tour / orthogonality_test / generate_grid_pcb）の name / requires_pcb /
+  uses_machine / accepts_commands / params の default
+- generate_grid_pcb: 出力 .kicad_pcb が PcbFile で読めて pad 数 = divisions^2
+  （装置非使用。dev タブから位置合わせタブへ移設）
 - orthogonality_metrics: board_transform から直行性指標（軸間角ずれ・軸
   スケール）を導出する純粋関数。剛体変換は誤差ゼロ、shear で既知の角度誤差
 - camera_calibration: チェッカーボード FakeCamera でのフル結合（prompt 往復、
@@ -30,6 +32,7 @@ import numpy as np
 import pytest
 
 from pcbasm.geometry import Compose, Identity, Matrix2d, Rotation, Shift
+from pcbasm.pcb import PcbFile
 from pcbasm.vision import CalibrationResult, Image
 from tests.helpers import mark_hardware
 from webui.config_store import ConfigStore
@@ -47,6 +50,7 @@ POSCTRL_JOBS = (
     "camera_calibration",
     "board_tour",
     "orthogonality_test",
+    "generate_grid_pcb",
 )
 
 # checkerboard.png は 400x400・1 マス約 66.7px。square_size=10mm で
@@ -58,7 +62,7 @@ CHECKERBOARD_PIXEL_PER_MM = 400 / 6 / 10
 
 @pytest.fixture
 def catalog() -> JobCatalog:
-    """Posctrl 4 ジョブのみ登録した catalog（jobs/conftest の manager が使う）."""
+    """Posctrl 5 ジョブのみ登録した catalog（jobs/conftest の manager が使う）."""
     catalog = JobCatalog()
     register_posctrl_jobs(catalog)
     return catalog
@@ -108,7 +112,7 @@ def _answer_next_prompt(
 
 
 class TestCatalog:
-    """default_catalog への posctrl 4 ジョブ登録（計画書「ジョブ定義表」のピン）."""
+    """default_catalog への posctrl 5 ジョブ登録（計画書「ジョブ定義表」のピン）."""
 
     @pytest.fixture
     def default(self) -> JobCatalog:
@@ -120,12 +124,14 @@ class TestCatalog:
         assert names == set(POSCTRL_JOBS)
 
     @pytest.mark.parametrize(
-        ("name", "requires_pcb", "accepts_commands"),
+        ("name", "requires_pcb", "uses_machine", "accepts_commands"),
         [
-            ("reference_point_setup", False, True),
-            ("camera_calibration", False, False),
-            ("board_tour", True, False),
-            ("orthogonality_test", True, False),
+            ("reference_point_setup", False, True, True),
+            ("camera_calibration", False, True, False),
+            ("board_tour", True, True, False),
+            ("orthogonality_test", True, True, False),
+            # 装置を使わない生成ジョブ（dev タブから移設）
+            ("generate_grid_pcb", False, False, False),
         ],
     )
     def test_job_flags(
@@ -133,12 +139,13 @@ class TestCatalog:
         default: JobCatalog,
         name: str,
         requires_pcb: bool,
+        uses_machine: bool,
         accepts_commands: bool,
     ):
         definition = default.get(name)
 
         assert definition.requires_pcb is requires_pcb
-        assert definition.uses_machine is True  # 全 posctrl ジョブが装置を使う
+        assert definition.uses_machine is uses_machine
         assert definition.accepts_commands is accepts_commands
 
     def test_reference_point_setup_has_no_params(self, default: JobCatalog):
@@ -162,6 +169,39 @@ class TestCatalog:
         assert set(params) == {"tolerance"}
         assert params["tolerance"].value_type == "float"
         assert params["tolerance"].default == 0.1
+
+    def test_generate_grid_pcb_params(self, default: JobCatalog):
+        params = {spec.name: spec for spec in default.get("generate_grid_pcb").params}
+
+        assert set(params) == {"size", "divisions", "pad_size"}
+        assert params["size"].value_type == "float"
+        assert params["divisions"].value_type == "int"
+        assert params["pad_size"].value_type == "float"
+
+
+class TestGenerateGridPcb:
+    """generate_grid_pcb（実 pcbnew・装置非使用。dev タブから移設）."""
+
+    def test_output_is_readable_with_divisions_squared_pads(
+        self,
+        manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        record = manager.start(
+            "generate_grid_pcb",
+            {"size": 30.0, "divisions": 2, "pad_size": 1.0},
+        )
+        # 実 pcbnew 読込は Raspberry Pi では数十秒かかり得る
+        wait_until(lambda: record.status.terminal, timeout=120.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert record.result is not None
+        outputs = [a for a in record.result.artifacts if a.path.endswith(".kicad_pcb")]
+        assert len(outputs) == 1
+
+        pcb = PcbFile(fake_camera_settings.data_dir / "webui" / outputs[0].path)
+        assert len(pcb.pads) == 4
 
 
 class TestOrthogonalityMetrics:

@@ -1,4 +1,4 @@
-"""Posctrl タブのジョブ定義（基準点設定 / カメラキャリブレーション / 巡回系）."""
+"""Posctrl タブのジョブ定義（基準点設定 / カメラキャリブレーション / 巡回系 / グリッド PCB 生成）."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ _TEXT_COLOR = (0, 255, 255)  # 現在位置テキストの色 (BGR: 黄)
 
 
 def register_posctrl_jobs(catalog: JobCatalog) -> None:
-    """Posctrl タブの 4 ジョブを登録する."""
+    """Posctrl タブの 5 ジョブを登録する."""
     catalog.register(
         JobDefinition(
             name="reference_point_setup",
@@ -100,6 +100,22 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
             ),
             requires_pcb=True,
             uses_machine=True,
+        )
+    )
+    catalog.register(
+        JobDefinition(
+            name="generate_grid_pcb",
+            label="Generate Grid Pcb",
+            tab="posctrl",
+            run=_run_generate_grid_pcb,
+            params=(
+                ParamSpec("size", "基板の一辺", "float", 40.0, unit="mm"),
+                ParamSpec(
+                    "divisions", "グリッド分割数", "int", 3, help="パッド数 = n^2"
+                ),
+                ParamSpec("pad_size", "パッドの一辺", "float", 0.5, unit="mm"),
+            ),
+            uses_machine=False,
         )
     )
 
@@ -558,4 +574,28 @@ def _run_orthogonality_test(ctx: JobContext) -> JobResult:
             f"軸間角ずれ {metrics.axis_angle_error_deg:+.3f} deg / "
             f"scale X {metrics.scale_x:.5f} Y {metrics.scale_y:.5f}"
         )
+    )
+
+
+def _run_generate_grid_pcb(ctx: JobContext) -> JobResult:
+    """直行性テスト用グリッド PCB を生成する（装置・カメラ不要）."""
+    # pcbnew 依存はジョブ実行時のみ（KiCAD 未導入でも webui は起動可）
+    from pcbasm.pcb.generate import generate_grid_pcb
+
+    size = float(ctx.params["size"])
+    divisions = int(ctx.params["divisions"])
+    pad_size = float(ctx.params["pad_size"])
+
+    ctx.progress("生成")
+    filename = f"grid_{divisions}x{divisions}.kicad_pcb"
+    generate_grid_pcb(size, divisions, pad_size, ctx.artifacts_dir / filename)
+    ctx.log(f"生成: {filename}（{size}x{size} mm, {divisions ** 2} パッド）")
+    ctx.progress("完了", 100.0)
+
+    return JobResult(
+        summary=f"{size:g}x{size:g} mm / {divisions}x{divisions} = "
+        f"{divisions ** 2} パッド",
+        artifacts=(
+            Artifact("グリッド PCB", f"{ctx.artifacts_dir.name}/{filename}", "file"),
+        ),
     )

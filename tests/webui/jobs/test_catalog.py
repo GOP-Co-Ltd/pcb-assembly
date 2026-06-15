@@ -7,7 +7,8 @@
 - validate_params は default 充填済み dict を返す。未知キー・型不一致・
   必須欠落・choice 範囲外は ValueError。型変換は config_store._coerce と同様
   （bool は value_type="bool" のみ受理、int→float 許容、float→int は整数値のみ）
-- default_catalog() は dev 5 ジョブ（4 ジョブ + job_demo）を登録済みで返す
+- default_catalog() は dev 3 ジョブ（2 ジョブ + job_demo）を登録済みで返す
+  （fill_path_simulate / generate_grid_pcb は他タブへ移設済み）
 """
 
 from typing import Literal
@@ -205,8 +206,6 @@ class TestDefaultCatalog:
 
         assert names == {
             "extract_pcb",
-            "fill_path_simulate",
-            "generate_grid_pcb",
             "make_fill_coverage_pcb",
             "job_demo",
         }
@@ -215,8 +214,6 @@ class TestDefaultCatalog:
         ("name", "requires_pcb"),
         [
             ("extract_pcb", True),
-            ("fill_path_simulate", True),
-            ("generate_grid_pcb", False),
             ("make_fill_coverage_pcb", False),
             ("job_demo", False),
         ],

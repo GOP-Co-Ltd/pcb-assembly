@@ -130,8 +130,6 @@ class TestPages:
 
 DEV_JOB_FEATURES = (
     "extract_pcb",
-    "fill_path_simulate",
-    "generate_grid_pcb",
     "make_fill_coverage_pcb",
 )
 
@@ -147,18 +145,6 @@ class TestDevJobPages:
         assert "job-console" in response.text
         # data-job-name 等でページのジョブ名が宣言される
         assert feature in response.text
-
-    def test_fill_path_simulate_renders_param_form_fields(self, client: TestClient):
-        text = client.get("/dev/fill_path_simulate").text
-
-        for name in (
-            "nozzle_diameter",
-            "layer",
-            "bead_width_factor",
-            "overlap",
-            "boundary_margin",
-        ):
-            assert name in text
 
     def test_klipper_status_page_renders_gcode_box_and_limits(self, client: TestClient):
         response = client.get("/dev/klipper_status")
@@ -238,6 +224,16 @@ class TestPosctrlJobPages:
         assert "quit" in text
         assert "reference_point_setup.js" in text
 
+    def test_generate_grid_pcb_renders_form_without_preview(self, client: TestClient):
+        """generate_grid_pcb はカメラ非依存の生成ジョブ（job.html、preview なし）."""
+        text = client.get("/posctrl/generate_grid_pcb").text
+
+        assert "job-console" in text
+        assert "job-form" in text
+        assert "preview-pane" not in text
+        for name in ("size", "divisions", "pad_size"):
+            assert name in text
+
 
 PASTING_JOB_FEATURES = (
     "paste_solder",
@@ -246,6 +242,7 @@ PASTING_JOB_FEATURES = (
     "flow_calibration",
     "toolhead_offset",
     "probe_gnd_down_adjust",
+    "fill_path_simulate",
 )
 
 # カメラを使うジョブのみ preview ペインを持つ（計画書 _PASTING_PREVIEW）
@@ -287,12 +284,25 @@ class TestPastingJobPages:
         assert "crosshair" not in text  # overlay 切替は出さない
 
     @pytest.mark.parametrize(
-        "feature", ("loading", "flow_calibration", "probe_gnd_down_adjust")
+        "feature",
+        ("loading", "flow_calibration", "probe_gnd_down_adjust", "fill_path_simulate"),
     )
     def test_non_camera_jobs_have_no_preview_pane(
         self, client: TestClient, feature: str
     ):
         assert "preview-pane" not in client.get(f"/pasting/{feature}").text
+
+    def test_fill_path_simulate_renders_param_form_fields(self, client: TestClient):
+        text = client.get("/pasting/fill_path_simulate").text
+
+        for name in (
+            "nozzle_diameter",
+            "layer",
+            "bead_width_factor",
+            "overlap",
+            "boundary_margin",
+        ):
+            assert name in text
 
     @pytest.mark.parametrize("feature", PASTING_LOADING_FEATURES)
     def test_loading_jobs_render_loading_controls_with_stage_contract(

@@ -1,4 +1,4 @@
-"""Dev タブのジョブ定義（PCB 抽出 / fill path / PCB 生成 / 機構検証デモ）.
+"""Dev タブのジョブ定義（PCB 抽出 / 塗布カバレッジ PCB 生成 / 機構検証デモ）.
 
 pcbnew に依存するジョブは関数内で遅延 import する（KiCAD 未導入環境でも webui 自体は起動できるようにするため）。
 """
@@ -11,17 +11,16 @@ from typing import Literal
 import cv2
 import numpy as np
 
-from pcbasm.pasting.fill_path import build_paste_fill_path
-from pcbasm.pcb import Layer, PadList, PcbFile
+from pcbasm.pcb import PcbFile
 from pcbasm.vision import Image
-from pcbasm.visualization import render_fill_paths, render_pcb
+from pcbasm.visualization import render_pcb
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import JobContext, PromptSpec
 from webui.jobs.manager import ApplyPayload, Artifact, JobResult
 
 
 def register_dev_jobs(catalog: JobCatalog) -> None:
-    """Dev タブの 4 ジョブと hidden の job_demo を登録する."""
+    """Dev タブの 2 ジョブと hidden の job_demo を登録する."""
     catalog.register(
         JobDefinition(
             name="extract_pcb",
@@ -29,51 +28,6 @@ def register_dev_jobs(catalog: JobCatalog) -> None:
             tab="dev",
             run=_run_extract_pcb,
             requires_pcb=True,
-            uses_machine=False,
-        )
-    )
-    catalog.register(
-        JobDefinition(
-            name="fill_path_simulate",
-            label="Fill Path Simulate",
-            tab="dev",
-            run=_run_fill_path_simulate,
-            params=(
-                ParamSpec("nozzle_diameter", "ノズル内径", "float", 0.4, unit="mm"),
-                ParamSpec("layer", "レイヤ", "choice", "top", ("top", "bottom")),
-                ParamSpec(
-                    "bead_width_factor",
-                    "ビード幅係数",
-                    "float",
-                    1.0,
-                    help="w = nozzle * factor",
-                ),
-                ParamSpec(
-                    "overlap",
-                    "行間オーバーラップ",
-                    "float",
-                    0.0,
-                    help="ジグザグ行間 [0,1)",
-                ),
-                ParamSpec("boundary_margin", "外周マージン", "float", 0.0, unit="mm"),
-            ),
-            requires_pcb=True,
-            uses_machine=False,
-        )
-    )
-    catalog.register(
-        JobDefinition(
-            name="generate_grid_pcb",
-            label="Generate Grid Pcb",
-            tab="dev",
-            run=_run_generate_grid_pcb,
-            params=(
-                ParamSpec("size", "基板の一辺", "float", 40.0, unit="mm"),
-                ParamSpec(
-                    "divisions", "グリッド分割数", "int", 3, help="パッド数 = n^2"
-                ),
-                ParamSpec("pad_size", "パッドの一辺", "float", 0.5, unit="mm"),
-            ),
             uses_machine=False,
         )
     )
@@ -157,82 +111,6 @@ def _run_extract_pcb(ctx: JobContext) -> JobResult:
             _artifact(ctx, "パッド", "pads.json", "file"),
             _artifact(ctx, "銅箔", "copper.json", "file"),
         ),
-    )
-
-
-def _run_fill_path_simulate(ctx: JobContext) -> JobResult:
-    """Paste pad ごとの fill path を生成し可視化 PNG を描く."""
-    assert ctx.pcb_path is not None  # requires_pcb=True
-    nozzle_diameter = float(ctx.params["nozzle_diameter"])
-    bead_width_factor = float(ctx.params["bead_width_factor"])
-    overlap = float(ctx.params["overlap"])
-    boundary_margin = float(ctx.params["boundary_margin"])
-    layer = Layer.TOP if ctx.params["layer"] == "top" else Layer.BOTTOM
-
-    ctx.progress("読込")
-    ctx.log(f"PCBファイルを読み込み中: {ctx.pcb_path}")
-    pcb = PcbFile(ctx.pcb_path)
-    pads = PadList(pad for pad in pcb.pads if pad.layer == layer)
-    ctx.log(f"{layer.value} レイヤの paste pad 数: {len(pads)}")
-
-    paths = []
-    for index, pad in enumerate(pads):
-        ctx.checkpoint()
-        ctx.progress("fill path 生成", 100.0 * index / len(pads))
-        paths.append(
-            build_paste_fill_path(
-                pad.polygon,
-                nozzle_diameter,
-                bead_width_factor=bead_width_factor,
-                overlap=overlap,
-                boundary_margin=boundary_margin,
-            )
-        )
-    non_empty = sum(1 for components in paths if components)
-    summary = f"fill path 生成: {non_empty} / {len(paths)} 成功"
-    ctx.log(summary)
-
-    ctx.progress("描画")
-    png_name = f"{ctx.pcb_path.stem}_fill_path.png"
-    render_fill_paths(
-        outline=pcb.outline,
-        pads=pads,
-        paths=paths,
-        nozzle_diameter=nozzle_diameter,
-        bead_width_factor=bead_width_factor,
-        overlap=overlap,
-        boundary_margin=boundary_margin,
-        layer=layer,
-        output_path=ctx.artifacts_dir / png_name,
-    )
-    ctx.log(f"画像 -> {png_name}")
-    ctx.progress("完了", 100.0)
-
-    return JobResult(
-        summary=summary,
-        artifacts=(_artifact(ctx, "Fill Path 可視化", png_name, "image"),),
-    )
-
-
-def _run_generate_grid_pcb(ctx: JobContext) -> JobResult:
-    """直行性テスト用グリッド PCB を生成する."""
-    # pcbnew 依存はジョブ実行時のみ（KiCAD 未導入でも webui は起動可）
-    from pcbasm.pcb.generate import generate_grid_pcb
-
-    size = float(ctx.params["size"])
-    divisions = int(ctx.params["divisions"])
-    pad_size = float(ctx.params["pad_size"])
-
-    ctx.progress("生成")
-    filename = f"grid_{divisions}x{divisions}.kicad_pcb"
-    generate_grid_pcb(size, divisions, pad_size, ctx.artifacts_dir / filename)
-    ctx.log(f"生成: {filename}（{size}x{size} mm, {divisions ** 2} パッド）")
-    ctx.progress("完了", 100.0)
-
-    return JobResult(
-        summary=f"{size:g}x{size:g} mm / {divisions}x{divisions} = "
-        f"{divisions ** 2} パッド",
-        artifacts=(_artifact(ctx, "グリッド PCB", filename, "file"),),
     )
 
 

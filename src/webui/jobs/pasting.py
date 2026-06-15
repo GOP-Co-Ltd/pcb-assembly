@@ -1,4 +1,4 @@
-"""Pasting タブのジョブ定義（塗布 / 高さ計測 / ローディング / キャリブレーション系）."""
+"""Pasting タブのジョブ定義（塗布 / 高さ計測 / ローディング / キャリブレーション / 塗布パスシミュレート）."""
 
 from __future__ import annotations
 
@@ -36,7 +36,8 @@ from pcbasm.pasting import (
     ProbeExecutor,
     ToolheadOffsetResult,
 )
-from pcbasm.pcb import Layer, PcbFile
+from pcbasm.pasting.fill_path import build_paste_fill_path
+from pcbasm.pcb import Layer, PadList, PcbFile
 from pcbasm.posctrl import (
     BoardCalibrationResult,
     ComponentAlignments,
@@ -50,7 +51,11 @@ from pcbasm.posctrl import (
 )
 from pcbasm.session import PasteSession
 from pcbasm.vision import CircleDetector, Image
-from pcbasm.visualization import render_height_plane, render_planned_points
+from pcbasm.visualization import (
+    render_fill_paths,
+    render_height_plane,
+    render_planned_points,
+)
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import JobAborted, JobContext, PromptSpec
 from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
@@ -107,7 +112,7 @@ def _positive_amount(value: object) -> float | None:
 
 
 def register_pasting_jobs(catalog: JobCatalog) -> None:
-    """Pasting タブの 6 ジョブを登録する."""
+    """Pasting タブの 7 ジョブを登録する."""
     catalog.register(
         JobDefinition(
             name="paste_solder",
@@ -200,6 +205,35 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             tab="pasting",
             run=_run_probe_gnd_down_adjust,
             uses_machine=True,
+        )
+    )
+    catalog.register(
+        JobDefinition(
+            name="fill_path_simulate",
+            label="Fill Path Simulate",
+            tab="pasting",
+            run=_run_fill_path_simulate,
+            params=(
+                ParamSpec("nozzle_diameter", "ノズル内径", "float", 0.4, unit="mm"),
+                ParamSpec("layer", "レイヤ", "choice", "top", ("top", "bottom")),
+                ParamSpec(
+                    "bead_width_factor",
+                    "ビード幅係数",
+                    "float",
+                    1.0,
+                    help="w = nozzle * factor",
+                ),
+                ParamSpec(
+                    "overlap",
+                    "行間オーバーラップ",
+                    "float",
+                    0.0,
+                    help="ジグザグ行間 [0,1)",
+                ),
+                ParamSpec("boundary_margin", "外周マージン", "float", 0.0, unit="mm"),
+            ),
+            requires_pcb=True,
+            uses_machine=False,
         )
     )
 
@@ -755,5 +789,63 @@ def _run_probe_gnd_down_adjust(ctx: JobContext) -> JobResult:
         apply=ApplyPayload(
             label=f"[probe] down_distance = {distance:.3f} を設定に反映",
             values={"probe.down_distance": round(distance, 3)},
+        ),
+    )
+
+
+def _run_fill_path_simulate(ctx: JobContext) -> JobResult:
+    """Paste pad ごとの fill path を生成し可視化 PNG を描く（装置・カメラ不要）."""
+    assert ctx.pcb_path is not None  # requires_pcb=True
+    nozzle_diameter = float(ctx.params["nozzle_diameter"])
+    bead_width_factor = float(ctx.params["bead_width_factor"])
+    overlap = float(ctx.params["overlap"])
+    boundary_margin = float(ctx.params["boundary_margin"])
+    layer = Layer.TOP if ctx.params["layer"] == "top" else Layer.BOTTOM
+
+    ctx.progress("読込")
+    ctx.log(f"PCBファイルを読み込み中: {ctx.pcb_path}")
+    pcb = PcbFile(ctx.pcb_path)
+    pads = PadList(pad for pad in pcb.pads if pad.layer == layer)
+    ctx.log(f"{layer.value} レイヤの paste pad 数: {len(pads)}")
+
+    paths = []
+    for index, pad in enumerate(pads):
+        ctx.checkpoint()
+        ctx.progress("fill path 生成", 100.0 * index / len(pads))
+        paths.append(
+            build_paste_fill_path(
+                pad.polygon,
+                nozzle_diameter,
+                bead_width_factor=bead_width_factor,
+                overlap=overlap,
+                boundary_margin=boundary_margin,
+            )
+        )
+    non_empty = sum(1 for components in paths if components)
+    summary = f"fill path 生成: {non_empty} / {len(paths)} 成功"
+    ctx.log(summary)
+
+    ctx.progress("描画")
+    png_name = f"{ctx.pcb_path.stem}_fill_path.png"
+    render_fill_paths(
+        outline=pcb.outline,
+        pads=pads,
+        paths=paths,
+        nozzle_diameter=nozzle_diameter,
+        bead_width_factor=bead_width_factor,
+        overlap=overlap,
+        boundary_margin=boundary_margin,
+        layer=layer,
+        output_path=ctx.artifacts_dir / png_name,
+    )
+    ctx.log(f"画像 -> {png_name}")
+    ctx.progress("完了", 100.0)
+
+    return JobResult(
+        summary=summary,
+        artifacts=(
+            Artifact(
+                "Fill Path 可視化", f"{ctx.artifacts_dir.name}/{png_name}", "image"
+            ),
         ),
     )

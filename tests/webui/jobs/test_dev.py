@@ -5,9 +5,10 @@
 実行して成果物を検証する:
 
 - extract_pcb: SUCCEEDED + artifacts 5 件（PNG 1 + データ 4）、PNG は cv2 で読める
-- fill_path_simulate: SUCCEEDED + PNG 生成 + summary に成功数
-- generate_grid_pcb: 出力 .kicad_pcb が PcbFile で読めて pad 数 = divisions^2
 - make_fill_coverage_pcb: 出力が PcbFile で読める
+
+（fill_path_simulate は塗布タブ → test_pasting.py、generate_grid_pcb は位置合わせ
+タブ → test_posctrl.py へ移設済み）
 - job_demo: prompt 2 回の往復で SUCCEEDED + apply payload（canny_low=応答値）/
   fail=True で FAILED / command_phase で jog エコー → quit
 - requires_pcb ジョブを PCB 未選択で start → ValueError
@@ -103,58 +104,6 @@ class TestExtractPcb:
 
         for artifact in files:
             assert _artifact_file(fake_camera_settings, artifact.path).is_file()
-
-
-class TestFillPathSimulate:
-    """fill_path_simulate（実 build_paste_fill_path + render_fill_paths）."""
-
-    def test_fill_path_simulate_renders_png_with_summary(
-        self,
-        dev_manager: JobManager,
-        state: AppState,
-        real_pcb_path: Path,
-        fake_camera_settings: Settings,
-        wait_until: WaitUntil,
-    ):
-        state.select_pcb(real_pcb_path)
-
-        record = dev_manager.start("fill_path_simulate", {})
-        wait_until(lambda: record.status.terminal, timeout=_JOB_TIMEOUT)
-
-        assert record.status == JobStatus.SUCCEEDED, record.error
-        assert record.result is not None
-        assert record.result.summary is not None
-        assert "成功" in record.result.summary
-
-        images = [a for a in record.result.artifacts if a.kind == "image"]
-        assert len(images) == 1
-        decoded = cv2.imread(str(_artifact_file(fake_camera_settings, images[0].path)))
-        assert decoded is not None
-        assert decoded.size > 0
-
-
-class TestGenerateGridPcb:
-    """generate_grid_pcb（実 pcbnew）."""
-
-    def test_output_is_readable_with_divisions_squared_pads(
-        self,
-        dev_manager: JobManager,
-        fake_camera_settings: Settings,
-        wait_until: WaitUntil,
-    ):
-        record = dev_manager.start(
-            "generate_grid_pcb",
-            {"size": 30.0, "divisions": 2, "pad_size": 1.0},
-        )
-        wait_until(lambda: record.status.terminal, timeout=_JOB_TIMEOUT)
-
-        assert record.status == JobStatus.SUCCEEDED, record.error
-        assert record.result is not None
-        outputs = [a for a in record.result.artifacts if a.path.endswith(".kicad_pcb")]
-        assert len(outputs) == 1
-
-        pcb = PcbFile(_artifact_file(fake_camera_settings, outputs[0].path))
-        assert len(pcb.pads) == 4
 
 
 class TestMakeFillCoveragePcb:

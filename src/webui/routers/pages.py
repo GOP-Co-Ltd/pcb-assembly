@@ -16,8 +16,6 @@ from webui.routers.settings_api import SettingsField, machine_settings_fields
 TABS: dict[str, tuple[str, ...]] = {
     "dev": (
         "extract_pcb",
-        "fill_path_simulate",
-        "generate_grid_pcb",
         "make_fill_coverage_pcb",
         "klipper_status",
     ),
@@ -28,6 +26,7 @@ TABS: dict[str, tuple[str, ...]] = {
         "flow_calibration",
         "toolhead_offset",
         "probe_gnd_down_adjust",
+        "fill_path_simulate",
     ),
     "pnp": (),
     "posctrl": (
@@ -37,6 +36,7 @@ TABS: dict[str, tuple[str, ...]] = {
         "reference_point_setup",
         "board_tour",
         "orthogonality_test",
+        "generate_grid_pcb",
     ),
 }
 
@@ -48,6 +48,27 @@ TAB_LABELS: dict[str, str] = {
     "posctrl": "位置合わせ",
 }
 
+# feature slug → 表示名（サイドバー / 見出し）。未定義は単語化フォールバック
+FEATURE_LABELS: dict[str, str] = {
+    "extract_pcb": "PCB 情報抽出",
+    "make_fill_coverage_pcb": "塗布カバレッジ PCB 生成",
+    "klipper_status": "Klipper ステータス",
+    "fill_path_simulate": "塗布パスシミュレート",
+    "paste_solder": "はんだ塗布",
+    "height_plane": "高さ平面計測",
+    "loading": "ペーストローディング",
+    "flow_calibration": "吐出量キャリブレーション",
+    "toolhead_offset": "ツールヘッドオフセット計測",
+    "probe_gnd_down_adjust": "GND プローブ下降量調整",
+    "camera_preview": "カメラプレビュー",
+    "copper_detection": "銅箔検出調整",
+    "camera_calibration": "カメラキャリブレーション",
+    "reference_point_setup": "基準点設定",
+    "board_tour": "ボード巡回",
+    "orthogonality_test": "直行性テスト",
+    "generate_grid_pcb": "グリッド PCB 生成",
+}
+
 # feature 実装予定の Phase（プレースホルダ表示用）
 TAB_PHASES: dict[str, str] = {
     "dev": "Phase 3",
@@ -57,11 +78,10 @@ TAB_PHASES: dict[str, str] = {
 }
 
 # 専用テンプレートを持つ feature（無いものは feature.html プレースホルダ）
+# job.html はカメラ preview を持たない汎用ジョブページ（タブ横断で共用）
 FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
-    ("dev", "extract_pcb"): "dev/job.html",
-    ("dev", "fill_path_simulate"): "dev/job.html",
-    ("dev", "generate_grid_pcb"): "dev/job.html",
-    ("dev", "make_fill_coverage_pcb"): "dev/job.html",
+    ("dev", "extract_pcb"): "job.html",
+    ("dev", "make_fill_coverage_pcb"): "job.html",
     ("dev", "klipper_status"): "dev/klipper_status.html",
     ("pasting", "paste_solder"): "pasting/job.html",
     ("pasting", "height_plane"): "pasting/job.html",
@@ -69,18 +89,20 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("pasting", "flow_calibration"): "pasting/job.html",
     ("pasting", "toolhead_offset"): "pasting/job.html",
     ("pasting", "probe_gnd_down_adjust"): "pasting/job.html",
+    ("pasting", "fill_path_simulate"): "job.html",
     ("posctrl", "camera_preview"): "posctrl/camera_preview.html",
     ("posctrl", "copper_detection"): "posctrl/copper_detection.html",
     ("posctrl", "camera_calibration"): "posctrl/job.html",
     ("posctrl", "board_tour"): "posctrl/job.html",
     ("posctrl", "orthogonality_test"): "posctrl/job.html",
     ("posctrl", "reference_point_setup"): "posctrl/reference_point_setup.html",
+    ("posctrl", "generate_grid_pcb"): "job.html",
 }
 
 # ジョブコンテキスト（job_name / param_specs）を注入するテンプレート
 _JOB_TEMPLATES = frozenset(
     {
-        "dev/job.html",
+        "job.html",
         "pasting/job.html",
         "posctrl/job.html",
         "posctrl/reference_point_setup.html",
@@ -102,7 +124,7 @@ router = APIRouter()
 
 
 def _feature_label(slug: str) -> str:
-    return slug.replace("_", " ").title()
+    return FEATURE_LABELS.get(slug, slug.replace("_", " ").title())
 
 
 def _grouped_fields(
