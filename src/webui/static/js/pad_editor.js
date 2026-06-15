@@ -114,6 +114,8 @@
       "viewBox",
       `${minX - MARGIN_MM} ${minY - MARGIN_MM} ${w + 2 * MARGIN_MM} ${h + 2 * MARGIN_MM}`
     );
+    svg.style.aspectRatio =
+      String(w + 2 * MARGIN_MM) + " / " + String(h + 2 * MARGIN_MM);
 
     // outline（基板外形）
     const outlineEl = document.createElementNS(SVG_NS, "polygon");
