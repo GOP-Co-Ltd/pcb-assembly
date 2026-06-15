@@ -11,6 +11,13 @@ from .board import (
     Pad,
     PadList,
 )
+from .grouping import (
+    HierKey,
+    PadHierarchy,
+    PadHierarchyNode,
+    PadShapeKey,
+    build_pad_hierarchy,
+)
 from .kicad import PcbFile
 
 __all__ = [
@@ -18,10 +25,15 @@ __all__ = [
     "ComponentList",
     "Copper",
     "CopperList",
+    "HierKey",
     "Layer",
     "Outline",
     "Pad",
+    "PadHierarchy",
+    "PadHierarchyNode",
     "PadList",
+    "PadShapeKey",
     "PNP_CSV_HEADER",
     "PcbFile",
+    "build_pad_hierarchy",
 ]
