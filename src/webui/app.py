@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from webui.board_settings import BoardSettingsStore
 from webui.config_store import ConfigStore, UnknownFieldError
 from webui.jobs.catalog import JobCatalog, default_catalog
 from webui.jobs.manager import JobManager
@@ -51,12 +52,17 @@ def get_catalog(request: Request) -> JobCatalog:
     return request.app.state.catalog
 
 
+def get_board_store(request: Request) -> BoardSettingsStore:
+    return request.app.state.board_store
+
+
 StateDep = Annotated[AppState, Depends(get_state)]
 StoreDep = Annotated[ConfigStore, Depends(get_store)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 PreviewDep = Annotated[PreviewService, Depends(get_preview)]
 JobsDep = Annotated[JobManager, Depends(get_jobs)]
 CatalogDep = Annotated[JobCatalog, Depends(get_catalog)]
+BoardStoreDep = Annotated[BoardSettingsStore, Depends(get_board_store)]
 
 
 @asynccontextmanager
@@ -92,6 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.appstate = state
     app.state.preview = preview
     app.state.catalog = catalog
+    app.state.board_store = BoardSettingsStore(settings.data_dir)
     app.state.jobs = JobManager(state, preview, catalog, settings)
     app.state.templates = Jinja2Templates(directory=_PACKAGE_DIR / "templates")
     app.mount("/static", StaticFiles(directory=_PACKAGE_DIR / "static"), name="static")
@@ -120,6 +127,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         machine,
         machine_control,
         pages,
+        pasting,
         preview as preview_router,
         settings_api,
         system,
@@ -132,6 +140,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(system.router)
     app.include_router(preview_router.router)
     app.include_router(jobs.router)
+    app.include_router(pasting.router)
     # /{tab} のキャッチオールを持つため最後に登録する
     app.include_router(pages.router)
     return app
