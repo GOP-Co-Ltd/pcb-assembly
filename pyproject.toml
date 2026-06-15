@@ -58,6 +58,7 @@ minversion = "6.0"
 testpaths = "tests/"
 markers = [
   "hardware: tests that require physical hardware (deselect with '-m \"not hardware\"')",
+  "e2e: full-stack tests against a live uvicorn server (run with 'make test-e2e')",
 ]
 asyncio_default_fixture_loop_scope = "function"
 

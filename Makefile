@@ -18,11 +18,14 @@ setup: clean  ## Setup development environment
 format: ## Run pre-commit hooks
 	uv run pre-commit run -a
 
-test: ## Run all tests
-	uv run pytest -v
+test: ## Run all tests (excludes e2e; see test-e2e)
+	uv run pytest -v -m "not e2e"
 
 test-no-hardware: ## Run tests without hardware
-	uv run pytest -v -m "not hardware"
+	uv run pytest -v -m "not hardware and not e2e"
+
+test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
+	uv run pytest -v -m e2e
 
 type: ## Run type check
 	uv run pyright
@@ -31,6 +34,12 @@ webui-dev: ## Run WebUI dev server (auto-reload)
 	uv run uvicorn webui.app:create_app --factory --reload --host 0.0.0.0 --port 8080
 
 webui: ## Run WebUI server
+	uv run python -m webui
+
+webui-fake: ## Run WebUI with fake camera (isolated data_dir/port; for manual/browser E2E)
+	PCBASM_WEBUI_FAKE_CAMERA=1 \
+	PCBASM_WEBUI_PORT=$${PCBASM_WEBUI_PORT:-8099} \
+	PCBASM_WEBUI_DATA_DIR=$${PCBASM_WEBUI_DATA_DIR:-/tmp/pcbasm-webui-fake} \
 	uv run python -m webui
 
 run: format test type ## Run all workflow.

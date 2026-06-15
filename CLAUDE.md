@@ -136,6 +136,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `hardware-test` — ハードウェアテストの記述・実行手順
 - `refactor-conventions` — テスト方針・カプセル化の詳細規約
 - `testing-strategy` — テスト 4 区分・検証対象優先順位・書く/書かないリスト
+- `webui-e2e` — WebUI を実サーバーで E2E 検証する手順（make test-e2e / webui-fake、常駐サーバー kill の回避策）
 - `agent-team-startup` — エージェントチームの起動・並列化手順
 - `maximize-parallels` — 並列 tool 呼び出しの判定基準と典型パターン
 - `edit-dot-claude` — `.claude/` 配下の編集を /tmp 経由で行い permission prompt を抑える手順
