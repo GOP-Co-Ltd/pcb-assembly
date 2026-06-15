@@ -25,10 +25,10 @@
 {% block scripts %}
 {{ super() }}
 {% if show_preview %}
-<script src="/static/js/preview.js"></script>
+<script src="{{ static_asset('js/preview.js') }}"></script>
 {% endif %}
 {% if show_loading_controls %}
-<script src="/static/js/loading_controls.js"></script>
+<script src="{{ static_asset('js/loading_controls.js') }}"></script>
 {% endif %}
-<script type="module" src="/static/js/pad_editor.js"></script>
+<script type="module" src="{{ static_asset('js/pad_editor.js') }}"></script>
 {% endblock %}

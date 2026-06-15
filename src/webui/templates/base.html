@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}PCB Assembly WebUI{% endblock %}</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="{{ static_asset('app.css') }}">
 </head>
 <body>
 <header class="topbar" data-testid="topbar">
@@ -35,7 +35,7 @@
 </main>
 {% include "partials/file_browser.html" %}
 <div id="toasts" class="toasts"></div>
-<script src="/static/js/app.js"></script>
+<script src="{{ static_asset('js/app.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

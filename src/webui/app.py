@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -22,6 +23,15 @@ from webui.settings import Settings
 from webui.state import AppState, BusyError
 
 _PACKAGE_DIR = Path(__file__).parent
+_STATIC_DIR = _PACKAGE_DIR / "static"
+_STATIC_CACHE_CONTROL = "no-cache, max-age=0, must-revalidate"
+
+
+def _static_asset_url(path: str) -> str:
+    normalized = path.lstrip("/")
+    asset_path = _STATIC_DIR / normalized
+    version = asset_path.stat().st_mtime_ns if asset_path.is_file() else 0
+    return f"/static/{quote(normalized, safe='/')}?v={version}"
 
 
 def get_state(request: Request) -> AppState:
@@ -101,12 +111,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.board_store = BoardSettingsStore(settings.data_dir)
     app.state.jobs = JobManager(state, preview, catalog, settings)
     app.state.templates = Jinja2Templates(directory=_PACKAGE_DIR / "templates")
-    app.mount("/static", StaticFiles(directory=_PACKAGE_DIR / "static"), name="static")
+    app.state.templates.env.globals["static_asset"] = _static_asset_url
+    app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
     # ジョブ成果物の配信（data/webui/<job_id>/...。traversal 防止は StaticFiles）
     artifacts_dir = settings.data_dir / "webui"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/artifacts", StaticFiles(directory=artifacts_dir), name="artifacts")
+
+    @app.middleware("http")
+    async def static_cache_control(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = _STATIC_CACHE_CONTROL
+        return response
 
     @app.exception_handler(BusyError)
     async def busy_error_handler(request: Request, exc: BusyError) -> JSONResponse:

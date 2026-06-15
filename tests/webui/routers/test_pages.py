@@ -128,6 +128,26 @@ class TestPages:
         assert client.get("/posctrl/no-such-feature").status_code == 404
 
 
+class TestStaticAssets:
+    """CSS / JS のブラウザキャッシュ対策."""
+
+    def test_page_renders_versioned_static_asset_urls(self, client: TestClient):
+        text = client.get("/pasting/paste_solder").text
+
+        assert 'href="/static/app.css?v=' in text
+        assert 'src="/static/js/app.js?v=' in text
+        assert 'src="/static/js/job_console.js?v=' in text
+        assert 'src="/static/js/pad_editor.js?v=' in text
+
+    def test_static_assets_require_browser_revalidation(self, client: TestClient):
+        response = client.get("/static/app.css")
+
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == (
+            "no-cache, max-age=0, must-revalidate"
+        )
+
+
 DEV_JOB_FEATURES = (
     "extract_pcb",
     "make_fill_coverage_pcb",
