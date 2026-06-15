@@ -1,0 +1,166 @@
+"""WebUI フルスタック E2E（実 uvicorn + 実 HTTP / WebSocket / MJPEG）.
+
+`make test-e2e` で実行する。TestClient では検証しづらい以下を実ネットワーク経由で確認する:
+
+- 無限 MJPEG ストリーム（TestClient は完全受信まで返らずハングする）
+- WebSocket のイベント往復（ジョブ起動 → ログ/進捗/プロンプト → 完走 → 設定反映）
+
+ジョブ通しの題材には hidden の ``job_demo``（uses_machine=False・実機不要）を使う。
+log / progress / prompt / prompt_resolved / apply を一通り通すための検証用ジョブで、
+prompt 2 回（confirm → number）に応答すると SUCCEEDED + apply ペイロードを返す。
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import httpx
+from websockets.sync.client import connect
+
+from tests.e2e.conftest import LiveServer
+from tests.webui.conftest import decode_jpeg, jpeg_payload
+
+_TERMINAL = ("succeeded", "failed", "aborted")
+_HTTP_TIMEOUT = 10.0
+_WS_TIMEOUT = 30.0
+
+
+def _respond_prompt(
+    ws: Any, prompt: dict[str, Any], answered: set[str], number_answer: float
+) -> None:
+    """Prompt（または job_status.pending_prompt）へ kind に応じて 1 度だけ応答する."""
+    prompt_id = prompt["id"]
+    if prompt_id in answered:
+        return
+    answer: bool | float = True if prompt["kind"] == "confirm" else number_answer
+    ws.send(
+        json.dumps({"type": "respond_prompt", "prompt_id": prompt_id, "answer": answer})
+    )
+    answered.add(prompt_id)
+
+
+def _drive_job_demo(
+    ws: Any, *, number_answer: float
+) -> tuple[dict[str, Any], set[str]]:
+    """WS イベントを受信駆動で処理し、終端 job_status とその間に観測した type 集合を返す.
+
+    prompt は confirm=True / number=number_answer で応答する。job_status の
+    pending_prompt 経由でも応答できるよう二重化し、prompt_id で重複応答を防ぐ。
+    """
+    answered: set[str] = set()
+    seen_types: set[str] = set()
+    while True:
+        event = json.loads(ws.recv(timeout=_WS_TIMEOUT))
+        seen_types.add(event["type"])
+        if event["type"] == "prompt":
+            _respond_prompt(ws, event["prompt"], answered, number_answer)
+        elif event["type"] == "job_status":
+            job = event["job"]
+            pending = job.get("pending_prompt")
+            if pending is not None:
+                _respond_prompt(ws, pending, answered, number_answer)
+            if job["status"] in _TERMINAL:
+                return job, seen_types
+
+
+def _read_mjpeg(base_url: str, path: str, boundary_count: int = 2) -> bytes:
+    """MJPEG ストリームを boundary_count 個の boundary 行まで読んで切断する."""
+    with httpx.Client(base_url=base_url, timeout=_HTTP_TIMEOUT) as client:
+        with client.stream("GET", path) as response:
+            assert response.status_code == 200
+            assert response.headers["content-type"] == (
+                "multipart/x-mixed-replace; boundary=frame"
+            )
+            data = b""
+            for chunk in response.iter_bytes():
+                data += chunk
+                if data.count(b"--frame") >= boundary_count:
+                    break
+    return data
+
+
+class TestHttpRoutes:
+    """実サーバーへの基本的な HTTP 経路."""
+
+    def test_root_page_is_served(self, live_server: LiveServer):
+        # / は既定タブへ 307 リダイレクトする。ブラウザ同様に追従する
+        response = httpx.get(
+            f"{live_server.base_url}/", timeout=_HTTP_TIMEOUT, follow_redirects=True
+        )
+
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+
+    def test_state_reports_selected_machine(self, live_server: LiveServer):
+        response = httpx.get(f"{live_server.base_url}/api/state", timeout=_HTTP_TIMEOUT)
+
+        assert response.status_code == 200
+        assert response.json()["machine"] == "kurousagi"
+
+    def test_machines_lists_fixtures(self, live_server: LiveServer):
+        response = httpx.get(
+            f"{live_server.base_url}/api/machines", timeout=_HTTP_TIMEOUT
+        )
+
+        body = response.json()
+        assert body["selected"] == "kurousagi"
+        assert {"kurousagi", "test-fixture"} <= set(body["machines"])
+
+
+class TestPreviewOverRealHttp:
+    """Fake カメラのプレビューを実 HTTP で取得する（snapshot / 無限 stream）."""
+
+    def test_snapshot_returns_decodable_jpeg(self, live_server: LiveServer):
+        response = httpx.get(
+            f"{live_server.base_url}/api/preview/snapshot", timeout=_HTTP_TIMEOUT
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/jpeg"
+        assert decode_jpeg(response.content) is not None
+
+    def test_stream_yields_decodable_mjpeg_frames(self, live_server: LiveServer):
+        data = _read_mjpeg(
+            live_server.base_url, "/api/preview/stream?overlay=crosshair"
+        )
+
+        assert b"Content-Type: image/jpeg" in data
+        frame = decode_jpeg(jpeg_payload(data.split(b"--frame")[1]))
+        assert frame is not None
+
+
+class TestJobLifecycleOverWebSocket:
+    """WS /api/ws のイベント往復とジョブ → 設定反映の通し検証."""
+
+    def test_job_demo_completes_and_applies(self, live_server: LiveServer):
+        with connect(f"{live_server.ws_url}/api/ws") as ws:
+            response = httpx.post(
+                f"{live_server.base_url}/api/jobs/job_demo",
+                json={"params": {"steps": 2, "interval": 0.0}},
+                timeout=_HTTP_TIMEOUT,
+            )
+            assert response.status_code == 201
+
+            job, seen_types = _drive_job_demo(ws, number_answer=77.0)
+
+        assert job["status"] == "succeeded"
+        assert job["apply_available"] is True
+        assert "77" in job["result"]["summary"]
+        # ジョブの全イベント種別が実ネットワーク経由で届いている
+        assert {"job_status", "log", "progress", "prompt", "prompt_resolved"} <= (
+            seen_types
+        )
+
+        # 直近 SUCCEEDED ジョブの計測値を設定へ反映する（apply 往復）
+        apply = httpx.post(
+            f"{live_server.base_url}/api/jobs/last/apply", timeout=_HTTP_TIMEOUT
+        )
+        assert apply.status_code == 200
+        assert apply.json()["applied"] == {"paste_dispenser.pad_align.canny_low": 77.0}
+
+        # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
+        machine_toml = (
+            live_server.settings.configs_root / "kurousagi" / "machine.toml"
+        ).read_text()
+        assert "canny_low = 77" in machine_toml
