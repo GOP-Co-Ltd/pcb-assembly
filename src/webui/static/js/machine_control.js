@@ -247,4 +247,44 @@
   });
 
   applyCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
+
+  // ---- 左端ハンドルのドラッグで幅を変更 ----
+
+  const WIDTH_KEY = "mc-sidebar-width";
+  const MIN_WIDTH = 220;
+  const MAX_WIDTH = 600;
+  const resizeHandle = document.getElementById("mc-resize");
+
+  function applyWidth(px) {
+    const clamped = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.round(px)));
+    sidebar.style.setProperty("--mc-w", `${clamped}px`);
+    return clamped;
+  }
+
+  const savedWidth = Number(localStorage.getItem(WIDTH_KEY));
+  if (savedWidth) applyWidth(savedWidth);
+
+  if (resizeHandle) {
+    resizeHandle.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = sidebar.getBoundingClientRect().width;
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+
+      const onMove = (moveEvent) => {
+        // 右サイドバー: 左へドラッグ（clientX 減少）で幅を広げる
+        const width = applyWidth(startWidth + (startX - moveEvent.clientX));
+        localStorage.setItem(WIDTH_KEY, String(width));
+      };
+      const onUp = () => {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+    });
+  }
 })();
