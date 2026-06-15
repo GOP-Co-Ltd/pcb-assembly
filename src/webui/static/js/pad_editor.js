@@ -318,16 +318,14 @@ import {
       node.id !== "L0" && (own.enabled === null || own.enabled === undefined);
     cb.addEventListener("change", () => patchNodeEnabled(node.id, cb.checked));
     enTd.appendChild(cb);
-    if (node.id !== "L0") {
-      const inheritBtn = document.createElement("button");
-      inheritBtn.type = "button";
-      inheritBtn.className = "pad-enabled-inherit";
-      inheritBtn.textContent = "継承";
-      inheritBtn.title = "有効/無効を継承に戻す";
-      inheritBtn.disabled = own.enabled === null || own.enabled === undefined;
-      inheritBtn.addEventListener("click", () => patchNodeEnabledInherit(node.id));
-      enTd.appendChild(inheritBtn);
-    }
+    const inheritBtn = document.createElement("button");
+    inheritBtn.type = "button";
+    inheritBtn.className = "pad-enabled-inherit";
+    inheritBtn.textContent = "継承";
+    inheritBtn.title = "有効/無効を継承に戻す";
+    inheritBtn.disabled = own.enabled === null || own.enabled === undefined;
+    inheritBtn.addEventListener("click", () => patchNodeEnabledInherit(node.id));
+    enTd.appendChild(inheritBtn);
     tr.appendChild(enTd);
 
     for (const field of FIELDS) tr.appendChild(buildValueCell(node, field));

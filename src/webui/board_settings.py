@@ -1,22 +1,22 @@
 """基板ごとの塗布設定の永続化ストア.
 
-塗布設定（``PasteSettingsModel``）を基板ごとの JSON として保存する。
-真実の源は基板ごとの JSON で、初回は ``machine.toml`` の
-``[paste_dispenser]`` 値で L0（base）を埋め、以後は独立して再現性を保つ。
+塗布設定（``PasteSettingsModel``）の基板ごとの差分だけを JSON として保存する。
+真実の源は ``machine.toml`` の ``[paste_dispenser]`` 値で、基板 JSON は
+L0（全部品）を含む明示 override だけを保持する。
 
 保存レイアウト::
 
     data/webui/board_settings/<machine>/<board_id>.json
 
-JSON はネスト方式で pcbasm のモデル dict（``settings``）と webui の
-メタ情報（version / source_pcb / machine）を分離する::
+JSON はネスト方式で pcbasm の階層 override dict（``settings.levels``）と
+webui のメタ情報（version / source_pcb / machine）を分離する::
 
     {
         "version": 1,
         "source_pcb": "<pcb_browse_root からの相対 posix パス>",
         "machine": "<マシン名>",
         "board_signature": "<現在の基板構成ハッシュ>",
-        "settings": <settings_to_dict(model)>,
+        "settings": {"levels": [...]},
     }
 """
 
@@ -30,6 +30,9 @@ import attrs
 
 from pcbasm.config import PasteDispenser
 from pcbasm.pasting import (
+    PASTE_OVERRIDE_FIELDS,
+    LevelSetting,
+    PasteOverride,
     PasteSettingsModel,
     base_override_from_config,
     find_orphans,
@@ -91,10 +94,10 @@ class BoardSettingsStore:
         *,
         board_signature: str | None = None,
     ) -> PasteSettingsModel:
-        """保存済み設定を読み込む。無ければ machine.toml 由来の初期値を返す.
+        """保存済み差分を読み込む。無ければ machine.toml 由来の初期値を返す.
 
         ファイルが存在すれば JSON を復元する。存在しなければ
-        ``base_config`` を L0 デフォルトに据えた新規モデルを返す
+        ``base_config`` をデフォルトに据えた新規モデルを返す
         （**この時点では保存しない** = 編集が入るまでファイルを作らない）。
 
         Args:
@@ -121,7 +124,7 @@ class BoardSettingsStore:
                 and saved_signature != board_signature
             ):
                 return self._fresh(base_config)
-            return settings_from_dict(doc["settings"])
+            return self._model_from_settings(doc["settings"], base_config)
         return self._fresh(base_config)
 
     def export_doc(
@@ -138,6 +141,7 @@ class BoardSettingsStore:
     def model_from_doc(
         self,
         doc: dict,
+        base_config: PasteDispenser,
         *,
         board_signature: str | None = None,
         expected_machine: str | None = None,
@@ -163,7 +167,7 @@ class BoardSettingsStore:
             and saved_signature != board_signature
         ):
             raise ValueError("基板構成が現在の PCB と一致しません")
-        return settings_from_dict(doc["settings"])
+        return self._model_from_settings(doc["settings"], base_config)
 
     def _fresh(self, base_config: PasteDispenser) -> PasteSettingsModel:
         return PasteSettingsModel(
@@ -235,11 +239,44 @@ class BoardSettingsStore:
             "version": _SCHEMA_VERSION,
             "source_pcb": source_pcb,
             "machine": machine,
-            "settings": settings_to_dict(model),
+            "settings": self._settings_doc(model),
         }
         if board_signature is not None:
             doc["board_signature"] = board_signature
         return doc
+
+    def _settings_doc(self, model: PasteSettingsModel) -> dict:
+        """基板固有 override だけを保存する settings dict を返す."""
+        data = settings_to_dict(model)
+        return {"levels": data["levels"]}
+
+    def _model_from_settings(
+        self, settings: dict, base_config: PasteDispenser
+    ) -> PasteSettingsModel:
+        """保存 settings を現在の machine.toml デフォルトに重ねて復元する."""
+        base = base_override_from_config(base_config)
+        stored = settings_from_dict(settings)
+        levels = dict(stored.levels)
+        if ("L0",) not in levels:
+            legacy_l0 = self._legacy_l0_setting(stored, base)
+            if legacy_l0 is not None:
+                levels[("L0",)] = legacy_l0
+        return PasteSettingsModel(base=base, base_enabled=True, levels=levels)
+
+    def _legacy_l0_setting(
+        self, stored: PasteSettingsModel, current_base: PasteOverride
+    ) -> LevelSetting | None:
+        """旧 v1 の base/base_enabled を L0 override へ必要分だけ移行する."""
+        values = {
+            field: saved
+            for field in PASTE_OVERRIDE_FIELDS
+            if (saved := getattr(stored.base, field)) is not None
+            and saved != getattr(current_base, field)
+        }
+        enabled = False if stored.base_enabled is False else None
+        if enabled is None and not values:
+            return None
+        return LevelSetting(enabled=enabled, override=PasteOverride(**values))
 
     def _path(self, machine: str, source_pcb: str) -> Path:
         return self._root / machine / f"{self.board_id(source_pcb)}.json"

@@ -47,7 +47,7 @@ export function ownOverride(config, nodeId) {
 }
 
 export function resolvedEnabled(config, parentOf, nodeId) {
-  let enabled = true;
+  let enabled = config.defaults?.enabled ?? true;
   for (const id of ancestorChain(parentOf, nodeId)) {
     const override = config.overrides[id];
     if (
@@ -62,7 +62,10 @@ export function resolvedEnabled(config, parentOf, nodeId) {
 }
 
 export function resolvedValue(config, parentOf, nodeId, field) {
-  let value = null;
+  let value =
+    config.defaults && config.defaults[field] !== undefined
+      ? config.defaults[field]
+      : null;
   for (const id of ancestorChain(parentOf, nodeId)) {
     const override = config.overrides[id];
     if (override && override.values && override.values[field] !== undefined) {
@@ -109,7 +112,7 @@ export function updateLocalOverride(config, body) {
   const empty =
     (override.enabled === null || override.enabled === undefined) &&
     Object.keys(override.values).length === 0;
-  if (empty && id !== "L0") delete config.overrides[id];
+  if (empty) delete config.overrides[id];
   else config.overrides[id] = override;
 }
 

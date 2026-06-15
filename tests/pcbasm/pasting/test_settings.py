@@ -166,6 +166,35 @@ class TestOverrideMerge:
         # 別部品 R1 は影響を受けない
         assert resolved[("R1", "1")].ul_per_mm2 == pytest.approx(0.1)
 
+    def test_l0_override_applies_to_all_pads_over_machine_default(self):
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={
+                ("L0",): LevelSetting(override=PasteOverride(fill_speed=0.45)),
+            },
+        )
+
+        resolved = resolve_pad_settings(hierarchy, model)
+
+        assert {paste.fill_speed for paste in resolved.values()} == {0.45}
+        assert {paste.ul_per_mm2 for paste in resolved.values()} == {0.1}
+
+    def test_l0_override_can_be_overridden_by_more_specific_level(self):
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={
+                ("L0",): LevelSetting(override=PasteOverride(fill_speed=0.45)),
+                ("L2", "U1"): LevelSetting(override=PasteOverride(fill_speed=0.9)),
+            },
+        )
+
+        resolved = resolve_pad_settings(hierarchy, model)
+
+        assert resolved[("R1", "1")].fill_speed == pytest.approx(0.45)
+        assert resolved[("U1", "1")].fill_speed == pytest.approx(0.9)
+
     def test_more_specific_level_wins_over_less_specific(self):
         # L4 が L2 を上書き、未指定 field は L2 から継承
         _, _, hierarchy = _two_component_hierarchy()

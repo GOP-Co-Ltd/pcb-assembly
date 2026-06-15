@@ -261,6 +261,14 @@ class TestPasteSolderBrowserRendering:
             timeout=_BROWSER_TIMEOUT_MS
         )
 
+        root_row = browser_page.locator(_row_selector("L0"))
+        first_setting = root_row.locator(_testid("pad-setting-input")).nth(0)
+        assert first_setting.input_value(timeout=_BROWSER_TIMEOUT_MS) == ""
+        assert first_setting.get_attribute("placeholder") == str(
+            config["defaults"]["ul_per_mm2"]
+        )
+        assert root_row.locator(".pad-override-marker").count() == 0
+
     def test_fake_camera_preview_image_loads(
         self, live_server: LiveServer, browser_page
     ):

@@ -6,8 +6,8 @@
 設定モデルは override 思想:
 
 - :class:`PasteOverride` の各項目は ``None`` = 継承（上位レベルの値を使う）
-- :class:`PasteSettingsModel.base` が全項目確定の L0 デフォルト
-- :class:`PasteSettingsModel.levels` が L1–L4 の疎マップ
+- :class:`PasteSettingsModel.base` が machine.toml 由来の全項目確定デフォルト
+- :class:`PasteSettingsModel.levels` が L0–L4 の疎マップ
 - 解決時は各 pad で L0→L4 を辿り、非 None 項目で上書き（**最具体が勝つ**）
 """
 
@@ -93,9 +93,9 @@ class PasteSettingsModel:
     """基板1枚分の塗布設定モデル.
 
     Attributes:
-        base: L0 デフォルト（全項目確定）
-        base_enabled: L0 の有効/無効
-        levels: L1–L4 の疎マップ（``HierKey`` -> 設定）
+        base: machine.toml 由来のデフォルト（全項目確定）
+        base_enabled: machine.toml 由来の有効/無効既定
+        levels: L0–L4 の疎マップ（``HierKey`` -> 設定）
     """
 
     base: PasteOverride

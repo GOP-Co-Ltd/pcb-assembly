@@ -100,7 +100,7 @@ class PadConfigResponse(BaseModel):
     outline: list[list[float]]
     width: float
     height: float
-    defaults: ResolvedSettings  # L0（base + base_enabled）を解決した値
+    defaults: ResolvedSettings  # machine.toml 由来の基板デフォルト
     tree: HierNodeInfo  # L0 ルートの階層ツリー（構造のみ）
     pads: list[PadInfo]
     overrides: dict[str, NodeOverrideInfo]  # node_id -> 明示 override（疎、L0 含む）
@@ -183,12 +183,8 @@ def _override_values(override: PasteOverride) -> dict[str, float]:
 
 
 def _overrides(model: PasteSettingsModel) -> dict[str, NodeOverrideInfo]:
-    """model.base/base_enabled（L0）と model.levels を node_id キーへ変換する."""
-    result: dict[str, NodeOverrideInfo] = {
-        "L0": NodeOverrideInfo(
-            enabled=model.base_enabled, values=_override_values(model.base)
-        )
-    }
+    """model.levels の明示 override を node_id キーへ変換する."""
+    result: dict[str, NodeOverrideInfo] = {}
     for key, setting in model.levels.items():
         result[_node_id(key)] = NodeOverrideInfo(
             enabled=setting.enabled, values=_override_values(setting.override)
@@ -197,9 +193,9 @@ def _overrides(model: PasteSettingsModel) -> dict[str, NodeOverrideInfo]:
 
 
 def _resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
-    """L0（base + base_enabled）だけを解決した既定値.
+    """machine.toml 由来の基板既定値を返す.
 
-    ``model.base`` は L0 デフォルトで全 7 項目が確定（非 None）。
+    ``model.base`` は machine.toml 由来で全 7 項目が確定（非 None）。
     """
     return ResolvedSettings(
         enabled=model.base_enabled,
@@ -348,25 +344,12 @@ def _apply_node_patch(
     _check_known_fields(list(patch.values))
     _check_known_fields(patch.clear)
 
-    enabled_sent = "enabled" in patch.model_fields_set
-    if patch.node == "L0":
-        return _apply_l0_patch(model, patch, enabled_sent)
-    return _apply_level_patch(model, patch, hierarchy, enabled_sent)
-
-
-def _apply_l0_patch(
-    model: PasteSettingsModel, patch: NodePatch, enabled_sent: bool
-) -> PasteSettingsModel:
-    base = attrs.evolve(model.base, **patch.values)
-    base_enabled = model.base_enabled
-    if enabled_sent:
-        # L0 は常に bool（継承元が無い）。null は不許可。
-        if patch.enabled is None:
-            raise HTTPException(
-                status_code=400, detail="L0 の enabled は null にできません"
-            )
-        base_enabled = patch.enabled
-    return attrs.evolve(model, base=base, base_enabled=base_enabled)
+    return _apply_level_patch(
+        model,
+        patch,
+        hierarchy,
+        enabled_sent="enabled" in patch.model_fields_set,
+    )
 
 
 def _apply_level_patch(
@@ -519,6 +502,7 @@ def import_pad_config(
     try:
         model = board_store.model_from_doc(
             body.document,
+            loaded.base_config,
             board_signature=loaded.board_signature,
             expected_machine=loaded.machine,
             expected_source_pcb=loaded.source_pcb,

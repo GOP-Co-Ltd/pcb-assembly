@@ -160,13 +160,10 @@ class TestGetPadConfig:
         assert expected_pad_ids
         assert matched_pad_ids == expected_pad_ids
 
-    def test_overrides_include_l0(self, selected_client: TestClient):
+    def test_overrides_start_empty(self, selected_client: TestClient):
         config = _get_config(selected_client)
 
-        assert "L0" in config["overrides"]
-        assert config["overrides"]["L0"]["enabled"] is True
-        # 初期状態では L1–L4 の override は無い（疎）
-        assert set(config["overrides"]) == {"L0"}
+        assert config["overrides"] == {}
 
     def test_tree_contains_u1_node(self, selected_client: TestClient):
         config = _get_config(selected_client)
@@ -237,9 +234,38 @@ class TestPatchNode:
 
         assert response.status_code == 200, response.text
         config = _get_config(selected_client)
-        assert config["defaults"]["enabled"] is False
+        assert config["defaults"]["enabled"] is True
+        assert config["overrides"]["L0"]["enabled"] is False
         # 全 pad が無効に解決される
         assert all(pad["enabled"] is False for pad in config["pads"])
+
+    def test_l0_value_override_persists(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L0", "values": {"fill_speed": 0.35}},
+        )
+
+        assert response.status_code == 200, response.text
+        config = _get_config(selected_client)
+        assert config["defaults"]["fill_speed"] == 0.8
+        assert config["overrides"]["L0"]["values"]["fill_speed"] == 0.35
+        assert all(pad["resolved"]["fill_speed"] == 0.35 for pad in config["pads"])
+
+    def test_l0_clear_returns_to_machine_default(self, selected_client: TestClient):
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L0", "values": {"fill_speed": 0.35}},
+        )
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L0", "clear": ["fill_speed"]},
+        )
+
+        assert response.status_code == 200, response.text
+        config = _get_config(selected_client)
+        assert "L0" not in config["overrides"]
+        assert _pad_by_id(config, "U1.1")["resolved"]["fill_speed"] == 0.8
 
     def test_unknown_value_key_returns_400(self, selected_client: TestClient):
         response = selected_client.patch(
@@ -306,7 +332,7 @@ class TestReset:
 
         assert response.status_code == 200, response.text
         config = response.json()
-        assert set(config["overrides"]) == {"L0"}
+        assert config["overrides"] == {}
         assert _pad_by_id(config, "U1.1")["resolved"]["fill_speed"] == 0.8
 
 
