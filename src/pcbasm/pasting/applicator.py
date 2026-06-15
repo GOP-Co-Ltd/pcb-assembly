@@ -227,19 +227,74 @@ class PasteApplicator:
         self._klipper.send_gcode(gc + gcode.wait_for_done())
         self._logger.info("キャリブレーション完了")
 
-    def apply(self, polygons: Iterable[Polygon]) -> None:
+    def apply(
+        self,
+        polygons: Iterable[Polygon],
+        *,
+        fill_speed: float | None = None,
+        paste_height: float | None = None,
+        ul_per_mm2: float | None = None,
+        prime_extra_delay: float | None = None,
+        bead_width_factor: float | None = None,
+        overlap: float | None = None,
+        boundary_margin: float | None = None,
+    ) -> None:
         """複数ポリゴンへペースト塗布を実行する.
 
         各ポリゴンに対して成分別フィル経路を生成し、成分ごとに
         ステージ移動と同期して連続吐出を行う（ブロッキング）。
 
+        キーワード引数は pad ごとの塗布設定の上書きで、``None`` の項目は
+        ``__init__`` で与えた既定値を使う（後方互換）。渡した値は
+        ``polygons`` の全ポリゴンに適用される。
+
         Args:
             polygons: 塗布対象のポリゴン群
+            fill_speed: 塗布移動速度 [mm/sec]
+            paste_height: 塗布面のZ高さ [mm]
+            ul_per_mm2: 面積あたりのペースト量 [μL/mm²]
+            prime_extra_delay: プライム後の追加遅延 [sec]
+            bead_width_factor: ビード幅係数（w = nozzle_diameter * factor）
+            overlap: ジグザグ行間オーバーラップ [0, 1)
+            boundary_margin: 外周マージン [mm]
         """
+        fill_speed = self._fill_speed if fill_speed is None else fill_speed
+        paste_height = self._paste_height if paste_height is None else paste_height
+        ul_per_mm2 = self._ul_per_mm2 if ul_per_mm2 is None else ul_per_mm2
+        prime_extra_delay = (
+            self._prime_extra_delay if prime_extra_delay is None else prime_extra_delay
+        )
+        bead_width_factor = (
+            self._bead_width_factor if bead_width_factor is None else bead_width_factor
+        )
+        overlap = self._overlap if overlap is None else overlap
+        boundary_margin = (
+            self._boundary_margin if boundary_margin is None else boundary_margin
+        )
         for polygon in polygons:
-            self._fill(polygon)
+            self._fill(
+                polygon,
+                fill_speed=fill_speed,
+                paste_height=paste_height,
+                ul_per_mm2=ul_per_mm2,
+                prime_extra_delay=prime_extra_delay,
+                bead_width_factor=bead_width_factor,
+                overlap=overlap,
+                boundary_margin=boundary_margin,
+            )
 
-    def _fill(self, polygon: Polygon) -> None:
+    def _fill(
+        self,
+        polygon: Polygon,
+        *,
+        fill_speed: float,
+        paste_height: float,
+        ul_per_mm2: float,
+        prime_extra_delay: float,
+        bead_width_factor: float,
+        overlap: float,
+        boundary_margin: float,
+    ) -> None:
         """ポリゴンを成分別フィル経路で塗布する.
 
         各成分は独立した ``FillSequence`` として送信する。
@@ -247,35 +302,34 @@ class PasteApplicator:
         retract → ``lift_height`` 上昇を1本に組むため、成分間の移動は
         ``FillSequence`` の連続送信だけで自然に実現される。``total_amount``
         は元ポリゴン面積ベース（``polygon.area * ul_per_mm2``）を成分数で
-        均等配分する。
+        均等配分する。塗布設定は呼び出し元（``apply``）が解決した実効値を
+        受け取る。
         """
         components = build_paste_fill_path(
             polygon,
             nozzle_diameter=self._nozzle_diameter,
-            bead_width_factor=self._bead_width_factor,
-            overlap=self._overlap,
-            boundary_margin=self._boundary_margin,
+            bead_width_factor=bead_width_factor,
+            overlap=overlap,
+            boundary_margin=boundary_margin,
         )
         if not components:
             self._logger.warning("フィルパスが空です。スキップします。")
             return
 
-        total_amount = polygon.area * self._ul_per_mm2
+        total_amount = polygon.area * ul_per_mm2
 
         for raw in components:
-            path = Path(p.to3d(self._paste_height) for p in raw).transformed(
-                self._transform
-            )
+            path = Path(p.to3d(paste_height) for p in raw).transformed(self._transform)
             sequence = FillSequence(
                 path=path,
                 total_amount=total_amount / len(components),
                 retraction=self._retraction,
-                fill_speed=self._fill_speed,
+                fill_speed=fill_speed,
                 max_dispense_rate=self._max_dispense_rate,
                 dispense_accel=self._dispense_accel,
                 retraction_rate=self._retraction_rate,
                 retraction_accel=self._retraction_accel,
-                prime_extra_delay=self._prime_extra_delay,
+                prime_extra_delay=prime_extra_delay,
                 lift_height=self._lift_height,
                 travel_speed=Speed.rate(1.0),
             )
