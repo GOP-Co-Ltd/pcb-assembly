@@ -374,8 +374,10 @@
         el("jc-log").textContent = "";
         el("jc-result").hidden = true;
         renderProgress("", null);
-        const data = await api("POST", `/api/jobs/${form.dataset.jobName}`, { params });
-        applyJob(data.job);
+        // 状態は WS の job_status を単一の真実とする。start() が開始時に即 publish し、
+        // _send_loop は送信時に最新状態を再構築するため、POST 応答（開始時点で古く
+        // なり得るスナップショット）は state には使わない（成功確定とエラー通知のみ）。
+        await api("POST", `/api/jobs/${form.dataset.jobName}`, { params });
       } catch (err) {
         toast(err.message, false);
       }

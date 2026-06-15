@@ -21,9 +21,14 @@ class Settings:
 
     configs_root: Path = PROJECT_ROOT / "configs"
     data_dir: Path = PROJECT_ROOT / "data"
-    pcb_browse_root: Path = PROJECT_ROOT
-    printer_cfg_link: Path = Path.home() / "printer_data/config/printer.cfg"
-    mainsail_url: str = "http://localhost"
+    # OS 全体を閲覧可能にする（USB マウント /media/... からの選択を想定）。
+    # ファイルブラウザの初期表示位置は pcb_browse_start
+    pcb_browse_root: Path = Path("/")
+    pcb_browse_start: Path = PROJECT_ROOT
+    # アップロード保存先。pcb_browse_root 配下であること（選択可能にするため）
+    pcb_upload_dir: Path = PROJECT_ROOT / "uploads"
+    # None の場合はページ閲覧元のホスト名に追従する（pages.py で解決）
+    mainsail_url: str | None = None
     default_machine: str = "kurousagi"
     host: str = "0.0.0.0"
     port: int = 8080
@@ -38,7 +43,7 @@ class Settings:
 
         対応する環境変数:
             PCBASM_WEBUI_CONFIGS_ROOT, PCBASM_WEBUI_DATA_DIR,
-            PCBASM_WEBUI_PCB_ROOT, PCBASM_WEBUI_PRINTER_CFG_LINK,
+            PCBASM_WEBUI_PCB_ROOT,
             PCBASM_MAINSAIL_URL, PCBASM_WEBUI_PORT,
             PCBASM_WEBUI_FAKE_CAMERA（"1" で固定画像カメラを使用）,
             PCBASM_WEBUI_FAKE_CAMERA_IMAGE
@@ -52,9 +57,6 @@ class Settings:
             configs_root=_env_path("PCBASM_WEBUI_CONFIGS_ROOT", base.configs_root),
             data_dir=_env_path("PCBASM_WEBUI_DATA_DIR", base.data_dir),
             pcb_browse_root=_env_path("PCBASM_WEBUI_PCB_ROOT", base.pcb_browse_root),
-            printer_cfg_link=_env_path(
-                "PCBASM_WEBUI_PRINTER_CFG_LINK", base.printer_cfg_link
-            ),
             mainsail_url=os.environ.get("PCBASM_MAINSAIL_URL", base.mainsail_url),
             port=int(port_env) if port_env else base.port,
             fake_camera=os.environ.get("PCBASM_WEBUI_FAKE_CAMERA") == "1",

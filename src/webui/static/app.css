@@ -39,6 +39,8 @@ body {
 
 .global-controls { display: flex; align-items: center; gap: 0.5rem; }
 
+.machine-select-label { font-size: 0.85rem; color: var(--text); white-space: nowrap; }
+
 .chip {
   max-width: 16rem;
   overflow: hidden;
@@ -92,19 +94,57 @@ body {
 
 .placeholder { color: #777; }
 
-/* ---- machine control panel ---- */
-.machine-control {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.4rem 0.6rem;
+/* ---- machine control sidebar ---- */
+/* 横並び: [幅変更ハンドル][開閉トグル(縦バー)][本体]。幅は --mc-w（ドラッグで可変） */
+.mc-sidebar {
+  display: flex;
+  flex-direction: row;
+  flex: 0 0 auto;
+  width: var(--mc-w, 19rem);
+  min-width: 0;
   background: var(--panel);
+  border-left: 1px solid var(--border);
+}
+.mc-sidebar.collapsed { width: auto; }
+.mc-sidebar.collapsed .machine-control,
+.mc-sidebar.collapsed .mc-resize { display: none; }
+
+/* 左端: ドラッグで幅を変更するハンドル */
+.mc-resize {
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: var(--border);
+  opacity: 0.4;
+}
+.mc-resize:hover { opacity: 1; background: var(--accent); }
+
+/* 左端: 開閉トグル（縦バー・全高） */
+.mc-toggle {
+  flex: 0 0 1.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  font-weight: 700;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.mc-toggle:hover { background: var(--panel); }
+
+.machine-control {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem;
   font-size: 0.85rem;
 }
-.machine-control summary { cursor: pointer; font-weight: 600; }
-.mc-status { display: flex; gap: 0.8rem; padding: 0.4rem 0; color: #555; }
-.mc-group { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem; padding: 0.2rem 0; }
-.mc-label { width: 4.5rem; color: #555; }
-.mc-jog-row { display: flex; align-items: center; gap: 0.25rem; }
+.mc-status { display: flex; flex-direction: column; gap: 0.2rem; color: #555; }
+.mc-group { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem; }
 .machine-control button {
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--border);
@@ -113,7 +153,39 @@ body {
   cursor: pointer;
 }
 .machine-control button:disabled { opacity: 0.4; cursor: not-allowed; }
-.machine-control input[type="number"] { width: 4.5rem; }
+
+.mc-jog-area { display: flex; align-items: center; gap: 0.4rem; }
+.mc-jogpad { flex: 1; min-width: 0; }
+.mc-jogpad-svg { width: 100%; height: auto; display: block; user-select: none; }
+.jog-seg path {
+  fill: var(--bg);
+  stroke: var(--border);
+  cursor: pointer;
+}
+.jog-seg:hover path { fill: var(--accent); }
+.jog-seg:hover text { fill: #fff; }
+.jog-seg text, .jog-center text {
+  fill: var(--text);
+  font-size: 13px;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+.jog-center circle { fill: var(--bg); stroke: var(--border); cursor: pointer; }
+.jog-center:hover circle { fill: var(--accent); }
+.jog-center:hover text { fill: #fff; }
+.jog-center text { font-size: 16px; }
+.mc-blocked .mc-jogpad { pointer-events: none; opacity: 0.4; }
+
+.mc-zbar { display: flex; flex-direction: column; gap: 0.2rem; align-items: stretch; }
+.mc-zbar-label { text-align: center; color: #555; font-weight: 600; }
+.mc-zbar button { min-width: 3.2rem; }
+
+.mc-abs { display: flex; gap: 0.3rem; }
+/* 3 欄が幅を等分し、座標欄は親幅に追従（見切れ防止・リサイズ追従） */
+.mc-abs-field { display: flex; align-items: center; gap: 0.2rem; color: #555; flex: 1; min-width: 0; }
+.mc-abs-field input { flex: 1; min-width: 0; width: auto; }
+.mc-abs-hint { margin: 0; color: #999; font-size: 0.75rem; }
 
 /* ---- settings ---- */
 .settings { max-width: 46rem; }
@@ -124,14 +196,19 @@ body {
   white-space: nowrap;
 }
 .settings-table input { width: 11rem; padding: 0.2rem 0.4rem; }
-.unit { margin-left: 0.4rem; color: #777; }
-.warning {
-  background: #fef3c7;
-  border: 1px solid #f59e0b;
+.settings-group {
+  margin: 0.6rem 0;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0.5rem 0.8rem;
+  padding: 0.3rem 0.8rem;
 }
-.restart-option { display: block; margin: 0.6rem 0; }
+.settings-group > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.3rem 0;
+}
+.settings-group .settings-table { margin-left: 0.8rem; }
+.unit { margin-left: 0.4rem; color: #777; }
 
 /* ---- file browser ---- */
 .file-browser { min-width: 28rem; border: 1px solid var(--border); border-radius: 8px; }

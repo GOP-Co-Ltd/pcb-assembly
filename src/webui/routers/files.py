@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from webui.app import JobsDep, PreviewDep, SettingsDep, StateDep
@@ -83,5 +83,31 @@ def put_pcb_file(
             status_code=404, detail=f"ファイルが存在しません: {body.path}"
         )
     state.select_pcb(resolved.relative_to(root))
+    jobs.publish_state_changed()
+    return build_state_response(state, settings, preview, jobs)
+
+
+@router.post("/pcb-file/upload", status_code=201)
+async def upload_pcb_file(
+    file: UploadFile,
+    state: StateDep,
+    settings: SettingsDep,
+    preview: PreviewDep,
+    jobs: JobsDep,
+) -> StateResponse:
+    """PCB ファイルを pcb_upload_dir に保存し、そのまま選択する."""
+    # Path(...).name でディレクトリ成分を落とす（traversal 防止）
+    filename = Path(file.filename or "").name
+    if not filename or not filename.endswith(PCB_SUFFIX):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{PCB_SUFFIX} ファイルをアップロードしてください: {file.filename}",
+        )
+    root = settings.pcb_browse_root.resolve()
+    upload_dir = settings.pcb_upload_dir
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    destination = upload_dir.resolve() / filename
+    destination.write_bytes(await file.read())
+    state.select_pcb(destination.relative_to(root))
     jobs.publish_state_changed()
     return build_state_response(state, settings, preview, jobs)

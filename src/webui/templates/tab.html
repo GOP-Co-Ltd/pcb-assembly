@@ -3,13 +3,13 @@
 {% block content %}
 <aside class="sidebar">
   {% include "partials/sidebar.html" %}
-  {% include "partials/machine_control.html" %}
 </aside>
 <section class="main-pane">
   {% block main %}
   <p class="placeholder">左のリストから機能を選択してください。</p>
   {% endblock %}
 </section>
+{% include "partials/machine_control.html" %}
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/job_console.js"></script>
