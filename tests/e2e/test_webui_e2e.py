@@ -13,13 +13,14 @@ prompt 2 回（confirm → number）に応答すると SUCCEEDED + apply ペイ�
 from __future__ import annotations
 
 import json
+import shutil
 from typing import Any
 
 import httpx
 from websockets.sync.client import connect
 
 from tests.e2e.conftest import LiveServer
-from tests.webui.conftest import decode_jpeg, jpeg_payload
+from tests.webui.conftest import COPPER_PCB_FIXTURE, decode_jpeg, jpeg_payload
 
 _TERMINAL = ("succeeded", "failed", "aborted")
 _HTTP_TIMEOUT = 10.0
@@ -164,3 +165,47 @@ class TestJobLifecycleOverWebSocket:
             live_server.settings.configs_root / "kurousagi" / "machine.toml"
         ).read_text()
         assert "canny_low = 77" in machine_toml
+
+
+class TestPadConfigOverRealHttp:
+    """Pad-config API を実 HTTP で叩く（PCB 選択 → GET → PATCH → 永続化）."""
+
+    def test_pad_config_get_patch_roundtrip(self, live_server: LiveServer):
+        # led_blinker を pcb_browse_root へ置いて選択する
+        shutil.copy(
+            COPPER_PCB_FIXTURE,
+            live_server.settings.pcb_browse_root / "led_blinker.kicad_pcb",
+        )
+        select = httpx.put(
+            f"{live_server.base_url}/api/pcb-file",
+            json={"path": "led_blinker.kicad_pcb"},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert select.status_code == 200, select.text
+
+        # GET: 実 PCB から outline / pads / 階層ツリー / defaults を返す
+        config = httpx.get(
+            f"{live_server.base_url}/api/pasting/pad-config", timeout=_HTTP_TIMEOUT
+        ).json()
+        assert config["pcb_file"].endswith("led_blinker.kicad_pcb")
+        assert config["tree"]["id"] == "L0"
+        assert config["pads"]
+        first = config["pads"][0]
+        assert first["enabled"] is True  # 既定は全 pad 有効
+
+        # PATCH pads: 1 pad を無効化 → affected_pads に反映
+        patch = httpx.patch(
+            f"{live_server.base_url}/api/pasting/pad-config/pads",
+            json={"ids": [first["id"]], "enabled": False},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert patch.status_code == 200
+        affected = {p["id"]: p for p in patch.json()["affected_pads"]}
+        assert affected[first["id"]]["enabled"] is False
+
+        # 再 GET: 無効が基板ごと設定として永続化されている
+        reread = httpx.get(
+            f"{live_server.base_url}/api/pasting/pad-config", timeout=_HTTP_TIMEOUT
+        ).json()
+        repad = next(p for p in reread["pads"] if p["id"] == first["id"])
+        assert repad["enabled"] is False

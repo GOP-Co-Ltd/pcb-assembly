@@ -33,11 +33,15 @@ from pcbasm.hal import (
 from pcbasm.pasting import (
     FlowCalibration,
     PasteApplicator,
+    PasteSettingsModel,
     ProbeExecutor,
+    ResolvedPaste,
     ToolheadOffsetResult,
+    base_override_from_config,
+    resolve_pad_settings,
 )
 from pcbasm.pasting.fill_path import build_paste_fill_path
-from pcbasm.pcb import Layer, PadList, PcbFile
+from pcbasm.pcb import Layer, Pad, PadList, PcbFile, build_pad_hierarchy
 from pcbasm.posctrl import (
     BoardCalibrationResult,
     ComponentAlignments,
@@ -331,17 +335,68 @@ def _prompt_positive_number(
 # --- ジョブ実装 ---
 
 
+def _resolve_paste_model(ctx: JobContext) -> PasteSettingsModel:
+    """基板設定ストア（あれば）から塗布設定モデルを取得する.
+
+    ストア／PCB が未配線なら ``machine.toml`` の ``[paste_dispenser]`` を
+    L0 デフォルトに据えた全 pad 有効のモデルを返す（= 現行等価のフォールバック）。
+    """
+    if ctx.board_store is not None and ctx.source_pcb is not None:
+        return ctx.board_store.load_or_init(
+            ctx.machine_name, ctx.source_pcb, ctx.machine.paste_dispenser
+        )
+    return PasteSettingsModel(
+        base=base_override_from_config(ctx.machine.paste_dispenser),
+        base_enabled=True,
+    )
+
+
+def _is_pad_enabled(
+    pad: Pad, resolved: Mapping[tuple[str, str], ResolvedPaste]
+) -> bool:
+    """Pad が塗布対象か判定する.
+
+    階層から除外された pad（対応 Component 無し = ``resolved`` に不在）は
+    後方互換で有効扱い、それ以外は解決済み ``enabled`` に従う。
+    """
+    r = resolved.get((pad.designator, pad.pad_number))
+    return r is None or r.enabled
+
+
 def _run_paste_solder(ctx: JobContext) -> JobResult:
-    """ボード計測 → 銅箔照合 → 高さ計測 → 補正適用 → ペースト塗布を通しで実行する."""
+    """ボード計測 → 銅箔照合 → 高さ計測 → 補正適用 → ペースト塗布を通しで実行する.
+
+    塗布対象は基板ごとの pad 有効/無効 + 階層 override 設定で絞り込み、各 pad に
+    解決済みの塗布設定を適用する。設定ファイル不在時は ``machine.toml`` デフォルトで
+    全 pad 有効 = 現行等価で動く。
+    """
     with ctx.open_camera() as camera:
         result = _setup_calibration(ctx, camera, float(ctx.params["tolerance"]))
         session = PasteSession.from_calibration(result)
         top_coppers = [c for c in session.pcb.copper if c.layer == Layer.TOP]
         top_pads = [p for p in session.pcb.pads if p.layer == Layer.TOP]
 
-        # 銅箔照合（部品単位の自動位置合わせ）
-        groups = sorted_top_component_pads(result)
-        ctx.log(f"padを持つ部品数: {len(groups)}")
+        # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
+        hierarchy = build_pad_hierarchy(session.pcb.components, session.pcb.pads)
+        model = _resolve_paste_model(ctx)
+        resolved = resolve_pad_settings(hierarchy, model)
+
+        # 有効 top pad のみ塗布対象にする（無効除外はここ一点）
+        enabled_pads = [p for p in top_pads if _is_pad_enabled(p, resolved)]
+        disabled_count = len(top_pads) - len(enabled_pads)
+        ctx.log(
+            f"塗布対象: 有効 {len(enabled_pads)} / 全 {len(top_pads)} pads"
+            f"（無効 {disabled_count} 件スキップ）"
+        )
+        enabled_designators = {p.designator for p in enabled_pads}
+
+        # 銅箔照合（部品単位）。有効 pad を 1 つ以上持つ部品のみ照合する。
+        groups = [
+            g
+            for g in sorted_top_component_pads(result)
+            if g.component.designator in enabled_designators
+        ]
+        ctx.log(f"照合対象の部品数: {len(groups)}")
         align_session = PadAlignmentSession.from_calibration(
             result, frame_sink=ctx.frame
         )
@@ -376,23 +431,24 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             outline=session.pcb.outline.polygon,
         )
 
-        # 補正適用（未照合 pad は無補正）→ 現在位置から nearest ソート
-        polygons: list[Polygon] = []
-        for pad in top_pads:
+        # 補正適用（未照合 pad は無補正）→ (polygon, ResolvedPaste) ペアで保持
+        pairs: list[tuple[Polygon, ResolvedPaste | None]] = []
+        for pad in enabled_pads:
+            r = resolved.get((pad.designator, pad.pad_number))
             correction = alignments.board_correction(pad.designator)
             if correction is None:
                 ctx.log(
                     f"警告: {pad.designator}.{pad.pad_number} は"
                     "未照合のため無補正で塗布します"
                 )
-                polygons.append(pad.polygon)
+                pairs.append((pad.polygon, r))
             else:
-                polygons.append(transform_polygon(pad.polygon, correction))
+                pairs.append((transform_polygon(pad.polygon, correction), r))
         stage = session.stage
-        sorted_polygons = sort_by_nearest(
-            polygons,
+        sorted_pairs = sort_by_nearest(
+            pairs,
             stage.get_position().to2d().to3d(),
-            key=lambda p: Point2d(x=p.centroid.x, y=p.centroid.y).to3d(),
+            key=lambda pair: Point2d(x=pair[0].centroid.x, y=pair[0].centroid.y).to3d(),
         )
 
         # board→machine全変換 (board_transform + toolhead_offset + height_plane)
@@ -412,16 +468,29 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             ctx.progress("リトラクション")
             applicator.retract()
 
-            # ポリゴンを 1 件ずつ apply して per-pad の進捗と abort 境界を確保
-            for index, polygon in enumerate(sorted_polygons):
-                ctx.progress("塗布", 100.0 * index / len(sorted_polygons))
+            # pad を 1 件ずつ apply して per-pad の進捗・設定・abort 境界を確保
+            for index, (polygon, r) in enumerate(sorted_pairs):
+                ctx.progress("塗布", 100.0 * index / len(sorted_pairs))
                 ctx.checkpoint()
-                applicator.apply([polygon])
+                if r is None:
+                    applicator.apply([polygon])
+                else:
+                    applicator.apply(
+                        [polygon],
+                        fill_speed=r.fill_speed,
+                        paste_height=r.paste_height,
+                        ul_per_mm2=r.ul_per_mm2,
+                        prime_extra_delay=r.prime_extra_delay,
+                        bead_width_factor=r.bead_width_factor,
+                        overlap=r.overlap,
+                        boundary_margin=r.boundary_margin,
+                    )
 
     return JobResult(
         summary=(
             f"照合成功 {len(aligned)}/{len(groups)} 部品 / "
-            f"塗布 {len(sorted_polygons)} pads（押出合計 {total:+.3f} uL）"
+            f"塗布 有効 {len(sorted_pairs)} / 全 {len(top_pads)} pads"
+            f"（無効 {disabled_count} 件スキップ・押出合計 {total:+.3f} uL）"
         )
     )
 
