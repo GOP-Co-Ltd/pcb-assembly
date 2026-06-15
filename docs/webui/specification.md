@@ -198,10 +198,10 @@ class JobContext:
 
 ### マシン操作パネル（ジョブ外の単発操作）
 
-全タブから使える共通コンポーネント（サイドバー下部に折りたたみで常設）。Klipper console（Mainsail）リンクは残しつつ、基本操作は console に飛ばずに完結できるようにする。
+全タブから使える共通コンポーネント（右サイドバーに常設。見出しの開閉ボタンで畳める。展開中は ">"（右へ畳む）、折りたたみ中は "\<"（左へ開く）の三角表示）。Klipper console（Mainsail）リンクは残しつつ、基本操作は console に飛ばずに完結できるようにする。
 
 - **Homing**: X / Y / Z 軸個別 + 全軸（`gcode.homing()`）
-- **ジョグ**: X / Y / Z 共通で ±0.1 / ±1 / ±10 mm の 6 ボタン × 3 軸。`XYZStage.move(relative=True)` を使う（limits 検証込み。マシンサイズが小さいためこの 3 段で足りる）
+- **ジョグ**: XY は円形ジョグパッド（SVG）、Z は縦バーで ±0.1 / ±1 / ±10 mm。`XYZStage.move(relative=True)` を使う（limits 検証込み）。Z はマシン設計上「上昇＝Z マイナス」のため、縦バーは上端を負（上昇）・下端を正（下降）に並べる
 - **座標直接入力**: x / y / z の数値フィールド + 移動ボタン（絶対座標。空欄の軸は現在位置を維持 = `move()` の None 渡し）
 - **Relax**: M84
 - **フォーカス位置へ**: 選択マシンの calibration（`CalibrationResult.z_position` — camera_calibration 撮影時の Z 値）へ Z を移動。calibration 未設定や `z_position` が無い場合はボタンを無効化
@@ -299,14 +299,15 @@ class JobContext:
 
 ### posctrl タブ（常時 preview ペインあり）
 
-| 項目                  | 形態         | フォーム / 操作                                                                                                                                                                                               |
-| --------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Camera Preview        | preview のみ | overlay 切替（none / crosshair）                                                                                                                                                                              |
-| Copper Detection      | preview のみ | overlay=copper + Canny low / high スライダー（動的反映）。「設定に保存」で `[paste_dispenser.pad_align]` へ書き込み（現行スクリプトの調整専用フローを Apply 化）                                              |
-| Camera Calibration    | ジョブ       | square_size（必須）+ crop サイズ。prompt(confirm) で撮影を進行。Z 位置は best-effort（Klipper 不通なら警告ログ + `z_position` なしで続行）。Apply で calibration JSON 保存 + `[camera].calibration_file` 反映 |
-| Reference Point Setup | 対話ジョブ   | マシン操作パネル（ジョブモード、±0.1/1/10mm。focus_z 含む）+ Record / Quit。preview に円検出 + 現在位置                                                                                                       |
-| Board Tour            | ジョブ       | tolerance。四隅巡回 → 部品単位の銅箔照合（`PadAlignmentSession`）→ 補正適用済み全 pad 巡回。各点 1 秒の自動進行、照合 overlay を `ctx.frame()` で配信。中止は abort                                           |
-| Orthogonality Test    | ジョブ       | tolerance。board_transform（3 点法）から導出した軸間角の 90° からのずれ [deg] と軸スケール X / Y を result 表示                                                                                               |
+| 項目                  | 形態             | フォーム / 操作                                                                                                                                                                                               |
+| --------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Camera Preview        | preview のみ     | overlay 切替（none / crosshair）                                                                                                                                                                              |
+| Copper Detection      | preview のみ     | overlay=copper + Canny low / high スライダー（動的反映）。「設定に保存」で `[paste_dispenser.pad_align]` へ書き込み（現行スクリプトの調整専用フローを Apply 化）                                              |
+| Camera Calibration    | ジョブ           | square_size（必須）+ crop サイズ。prompt(confirm) で撮影を進行。Z 位置は best-effort（Klipper 不通なら警告ログ + `z_position` なしで続行）。Apply で calibration JSON 保存 + `[camera].calibration_file` 反映 |
+| Reference Point Setup | 対話ジョブ       | マシン操作パネル（ジョブモード、±0.1/1/10mm。focus_z 含む）+ Record / Quit。preview に円検出 + 現在位置                                                                                                       |
+| Board Tour            | ジョブ           | tolerance。四隅巡回 → 部品単位の銅箔照合（`PadAlignmentSession`）→ 補正適用済み全 pad 巡回。各点 1 秒の自動進行、照合 overlay を `ctx.frame()` で配信。中止は abort                                           |
+| Orthogonality Test    | ジョブ           | tolerance。board_transform（3 点法）から導出した軸間角の 90° からのずれ [deg] と軸スケール X / Y を result 表示                                                                                               |
+| Generate Grid PCB     | ジョブ（非装置） | size / divisions / pad_size。直行性テスト用グリッド PCB を `data/webui/` に生成しダウンロードリンク（カメラ preview なし。dev タブから移設）                                                                  |
 
 ### pasting タブ（preview はジョブ提供フレームのみ）
 
@@ -318,15 +319,17 @@ class JobContext:
 | Flow Calibration      | rotations, rate, accel, load-amount。ローディング → タール confirm（いいえで中止）→ 回転 → 質量・比重の prompt(number)。結果は Apply で反映                                                                    |
 | Toolhead Offset       | tolerance, dispense-amount, loading-amount, lift-height, paste-diameter-min/max。結果 JSON は artifacts。結果は Apply で反映                                                                                   |
 | Probe GND Down Adjust | prompt(number) + 確定 confirm のループで down distance 調整。終了時（abort 含む）はダウン距離 0 へ復帰。結果は Apply で反映                                                                                    |
+| Fill Path Simulate    | nozzle-diameter, layer, bead-width-factor, overlap, boundary-margin。pad ごとの fill path を生成し結果 PNG をインライン表示（装置・カメラ非使用。dev タブから移設）                                            |
 
 ### dev タブ
 
-| 項目                                       | 形態                                                                                                  |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| Extract PCB                                | ジョブ（装置非使用）。結果 PNG をインライン表示                                                       |
-| Fill Path Simulate                         | ジョブ（非装置）。パラメータ多数、結果 PNG 表示                                                       |
-| Generate Grid PCB / Make Fill Coverage PCB | ジョブ（非装置）。`data/webui/` に生成しダウンロードリンク                                            |
-| Klipper / Stage Status                     | ステータスカード（`/api/klipper/status` をポーリング）+ 任意 G-code 送信ボックス（klipper_demo 代替） |
+| 項目                   | 形態                                                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| Extract PCB            | ジョブ（装置非使用）。結果 PNG をインライン表示                                                       |
+| Make Fill Coverage PCB | ジョブ（非装置）。`data/webui/` に生成しダウンロードリンク                                            |
+| Klipper / Stage Status | ステータスカード（`/api/klipper/status` をポーリング）+ 任意 G-code 送信ボックス（klipper_demo 代替） |
+
+> Fill Path Simulate は塗布タブ、Generate Grid PCB は位置合わせタブへ移設（feature のタブ所属は `pages.py` の `TABS` が真。サイドバー / 見出しの日本語表示名は `FEATURE_LABELS`）。
 
 ### pnp タブ
 
