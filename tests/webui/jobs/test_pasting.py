@@ -3,9 +3,12 @@
 計画書 memory/agents/implementation-planner/webui-phase5.md「src/webui/jobs/pasting.py」節
 + spec §10 pasting 表が契約:
 
-- catalog: pasting 6 ジョブ（paste_solder / height_plane / loading /
-  flow_calibration / toolhead_offset / probe_gnd_down_adjust）の name /
-  params（default・unit）/ requires_pcb / uses_machine / accepts_commands
+- catalog: pasting 7 ジョブ（paste_solder / height_plane / loading /
+  flow_calibration / toolhead_offset / probe_gnd_down_adjust /
+  fill_path_simulate）の name / params（default・unit）/ requires_pcb /
+  uses_machine / accepts_commands
+- fill_path_simulate: 実 build_paste_fill_path + render_fill_paths で PNG 生成、
+  summary に成功数（装置非使用。dev タブから塗布タブへ移設）
 - parse_loading_command: extrude / suck / finish の純粋パーサ。amount 欠落・
   非正・非数・未知 type は None
 - LOADING_STAGE: ジョブ実装・テンプレート data 属性・loading_controls.js の
@@ -62,12 +65,13 @@ PASTING_JOBS = (
     "flow_calibration",
     "toolhead_offset",
     "probe_gnd_down_adjust",
+    "fill_path_simulate",
 )
 
 
 @pytest.fixture
 def catalog() -> JobCatalog:
-    """Pasting 6 ジョブのみ登録した catalog（jobs/conftest の manager が使う）."""
+    """Pasting 7 ジョブのみ登録した catalog（jobs/conftest の manager が使う）."""
     catalog = JobCatalog()
     register_pasting_jobs(catalog)
     return catalog
@@ -95,7 +99,7 @@ def _answer_next_prompt(
 
 
 class TestCatalog:
-    """default_catalog への pasting 6 ジョブ登録（計画書「ジョブ定義表」のピン）."""
+    """default_catalog への pasting 7 ジョブ登録（計画書「ジョブ定義表」のピン）."""
 
     @pytest.fixture
     def default(self) -> JobCatalog:
@@ -107,18 +111,20 @@ class TestCatalog:
         assert names == set(PASTING_JOBS)
 
     def test_total_job_count_covers_all_tabs(self, default: JobCatalog):
-        """Dev 5 + posctrl 4 + pasting 6 = 15（重複登録・登録漏れの検知）."""
+        """Dev 3 + posctrl 5 + pasting 7 = 15（重複登録・登録漏れの検知）."""
         assert len(default.list()) == 15
 
     @pytest.mark.parametrize(
-        ("name", "requires_pcb", "accepts_commands"),
+        ("name", "requires_pcb", "uses_machine", "accepts_commands"),
         [
-            ("paste_solder", True, True),
-            ("height_plane", True, False),
-            ("loading", False, True),
-            ("flow_calibration", False, True),
-            ("toolhead_offset", True, True),
-            ("probe_gnd_down_adjust", False, False),
+            ("paste_solder", True, True, True),
+            ("height_plane", True, True, False),
+            ("loading", False, True, True),
+            ("flow_calibration", False, True, True),
+            ("toolhead_offset", True, True, True),
+            ("probe_gnd_down_adjust", False, True, False),
+            # 装置を使わないシミュレートジョブ（dev タブから移設）
+            ("fill_path_simulate", True, False, False),
         ],
     )
     def test_job_flags(
@@ -126,12 +132,13 @@ class TestCatalog:
         default: JobCatalog,
         name: str,
         requires_pcb: bool,
+        uses_machine: bool,
         accepts_commands: bool,
     ):
         definition = default.get(name)
 
         assert definition.requires_pcb is requires_pcb
-        assert definition.uses_machine is True  # 全 pasting ジョブが装置を使う
+        assert definition.uses_machine is uses_machine
         assert definition.accepts_commands is accepts_commands
 
     @pytest.mark.parametrize(
@@ -192,6 +199,51 @@ class TestCatalog:
 
     def test_probe_gnd_down_adjust_has_no_params(self, default: JobCatalog):
         assert default.get("probe_gnd_down_adjust").params == ()
+
+    def test_fill_path_simulate_params(self, default: JobCatalog):
+        params = {spec.name: spec for spec in default.get("fill_path_simulate").params}
+
+        assert set(params) == {
+            "nozzle_diameter",
+            "layer",
+            "bead_width_factor",
+            "overlap",
+            "boundary_margin",
+        }
+        assert params["layer"].value_type == "choice"
+        assert params["layer"].choices == ("top", "bottom")
+
+
+class TestFillPathSimulate:
+    """fill_path_simulate（実 build_paste_fill_path + render_fill_paths・装置非使用。
+    dev タブから塗布タブへ移設）."""
+
+    def test_renders_png_with_summary(
+        self,
+        manager: JobManager,
+        state: AppState,
+        real_pcb_path: Path,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        state.select_pcb(real_pcb_path)
+
+        record = manager.start("fill_path_simulate", {})
+        # matplotlib 描画 + 実 PcbFile 読込は Raspberry Pi では数十秒かかり得る
+        wait_until(lambda: record.status.terminal, timeout=120.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert record.result is not None
+        assert record.result.summary is not None
+        assert "成功" in record.result.summary
+
+        images = [a for a in record.result.artifacts if a.kind == "image"]
+        assert len(images) == 1
+        decoded = cv2.imread(
+            str(fake_camera_settings.data_dir / "webui" / images[0].path)
+        )
+        assert decoded is not None
+        assert decoded.size > 0
 
 
 class TestParseLoadingCommand:

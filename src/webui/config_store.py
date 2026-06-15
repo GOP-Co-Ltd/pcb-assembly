@@ -6,7 +6,6 @@ machine.toml は tomlkit でコメント・構造を保持して書き戻す。p
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
@@ -31,6 +30,24 @@ class FieldSpec:
     label: str
     value_type: Literal["float", "int", "str"]
     unit: str | None = None
+
+
+# 設定セクション（key のドット区切り親パス）→ UI 表示名。
+# settings ページの階層表示に使う
+SECTION_LABELS: dict[str, str] = {
+    "paste_dispenser": "ペーストディスペンサー",
+    "paste_dispenser.toolhead": "ペーストディスペンサー / ツールヘッド",
+    "paste_dispenser.pad_align": "ペーストディスペンサー / パッド位置合わせ",
+    "probe": "プローブ",
+    "reference_point": "基準点",
+    "camera": "カメラ",
+    "camera.crop": "カメラ / クロップ",
+}
+
+
+def section_of(key: str) -> str:
+    """設定 key の属するセクション（最後のドットより前）を返す."""
+    return key.rsplit(".", 1)[0]
 
 
 MACHINE_FIELDS: tuple[FieldSpec, ...] = (
@@ -97,22 +114,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("camera.crop.height", "クロップ高さ", "int", "px"),
 )
 
-MOTION_FIELDS: tuple[FieldSpec, ...] = (
-    FieldSpec("printer.max_velocity", "最大速度", "float", "mm/s"),
-    FieldSpec("printer.max_accel", "最大加速度", "float", "mm/s^2"),
-    FieldSpec(
-        "manual_stepper paste_dispenser.velocity", "ディスペンサー速度", "float", "mm/s"
-    ),
-    FieldSpec(
-        "manual_stepper paste_dispenser.accel",
-        "ディスペンサー加速度",
-        "float",
-        "mm/s^2",
-    ),
-)
-
 _MACHINE_FIELDS_BY_KEY = {spec.key: spec for spec in MACHINE_FIELDS}
-_MOTION_FIELDS_BY_KEY = {spec.key: spec for spec in MOTION_FIELDS}
 
 
 class UnknownFieldError(ValueError):
@@ -165,10 +167,6 @@ class ConfigStore:
         """machine.toml のパスを返す."""
         return self._configs_root / machine / "machine.toml"
 
-    def printer_cfg_path(self, machine: str) -> Path:
-        """printer.cfg のパスを返す."""
-        return self._configs_root / machine / "printer.cfg"
-
     def read_machine_settings(
         self, machine: str
     ) -> dict[str, float | int | str | None]:
@@ -214,63 +212,10 @@ class ConfigStore:
             table[option] = value
         path.write_text(tomlkit.dumps(doc))
 
-    def read_motion_settings(self, machine: str) -> dict[str, float | None]:
-        """printer.cfg のホワイトリスト項目の現在値を返す.
-
-        対象行が存在しないキーは None。
-
-        Raises:
-            FileNotFoundError: printer.cfg が存在しない場合
-        """
-        lines = self.printer_cfg_path(machine).read_text().splitlines()
-        values: dict[str, float | None] = {}
-        for spec in MOTION_FIELDS:
-            found = _find_cfg_line(lines, spec.key)
-            values[spec.key] = float(found[1].group("value").strip()) if found else None
-        return values
-
-    def write_motion_settings(self, machine: str, values: Mapping[str, float]) -> None:
-        """printer.cfg のホワイトリスト項目を行ベースで書き換える.
-
-        対象オプションの既存行のみ値を置換する（行追加はしない）。
-
-        Raises:
-            UnknownFieldError: 未知キー・型不一致・対象行が無い場合
-        """
-        coerced = {
-            key: float(_coerce(self._motion_spec(key), value))
-            for key, value in values.items()
-        }
-        path = self.printer_cfg_path(machine)
-        lines = path.read_text().splitlines(keepends=True)
-        for key, value in coerced.items():
-            found = _find_cfg_line(lines, key)
-            if found is None:
-                raise UnknownFieldError(
-                    f"printer.cfg に編集対象の行がありません: {key}"
-                )
-            i, match = found
-            lines[i] = match.group("head") + f"{value:g}" + match.group("tail")
-        path.write_text("".join(lines))
-
-    def symlink_points_to(self, machine: str, link: Path) -> bool:
-        """Link が configs/<machine>/printer.cfg を指す symlink か判定する."""
-        if not link.is_symlink():
-            return False
-        try:
-            return link.resolve() == self.printer_cfg_path(machine).resolve()
-        except OSError:
-            return False
-
     def _machine_spec(self, key: str) -> FieldSpec:
         if key not in _MACHINE_FIELDS_BY_KEY:
             raise UnknownFieldError(f"未知のマシン設定キーです: {key}")
         return _MACHINE_FIELDS_BY_KEY[key]
-
-    def _motion_spec(self, key: str) -> FieldSpec:
-        if key not in _MOTION_FIELDS_BY_KEY:
-            raise UnknownFieldError(f"未知のモーション設定キーです: {key}")
-        return _MOTION_FIELDS_BY_KEY[key]
 
 
 def _lookup_toml(doc: tomlkit.TOMLDocument, key: str) -> object | None:
@@ -283,31 +228,3 @@ def _lookup_toml(doc: tomlkit.TOMLDocument, key: str) -> object | None:
     if isinstance(node, (tomlkit.TOMLDocument, Table)):
         return None
     return node.unwrap() if isinstance(node, Item) else node
-
-
-_SECTION_RE = re.compile(r"^\s*\[(?P<name>[^\]]+)\]\s*(?:[#;].*)?$")
-
-
-def _option_re(option: str) -> re.Pattern[str]:
-    return re.compile(
-        rf"^(?P<head>{re.escape(option)}\s*[:=]\s*)"
-        r"(?P<value>[^#;\r\n]*?)"
-        r"(?P<tail>\s*(?:[#;].*)?(?:\r?\n)?)$"
-    )
-
-
-def _find_cfg_line(lines: list[str], key: str) -> tuple[int, re.Match[str]] | None:
-    """printer.cfg の行リストから key（"section.option"）の行を探す.
-
-    Returns:
-        (行番号, オプション行のマッチ)。見つからなければ None
-    """
-    section, option = key.rsplit(".", 1)
-    pattern = _option_re(option)
-    current_section = None
-    for i, line in enumerate(lines):
-        if section_match := _SECTION_RE.match(line):
-            current_section = section_match.group("name").strip()
-        elif current_section == section and (option_match := pattern.match(line)):
-            return i, option_match
-    return None

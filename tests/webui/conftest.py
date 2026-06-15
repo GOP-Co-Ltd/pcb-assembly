@@ -80,7 +80,7 @@ def pcb_root(tmp_path: Path) -> Path:
 def real_pcb_path(pcb_root: Path) -> Path:
     """実 KiCAD PCB fixture を pcb_browse_root へコピーし、相対パスを返す.
 
-    Phase 3 のジョブ（extract_pcb / fill_path_simulate）が実 PcbFile を
+    PCB を読むジョブ（extract_pcb / fill_path_simulate 等）が実 PcbFile を
     読むためのもの。要求されたテストでのみ pcb_root に追加されるため、 /api/files の一覧テストには影響しない。
     """
     destination = pcb_root / "real" / "fill_coverage.kicad_pcb"
@@ -109,7 +109,8 @@ def webui_settings(tmp_path: Path, configs_root: Path, pcb_root: Path) -> Settin
         configs_root=configs_root,
         data_dir=data_dir,
         pcb_browse_root=pcb_root,
-        printer_cfg_link=tmp_path / "printer_data" / "config" / "printer.cfg",
+        pcb_browse_start=pcb_root,
+        pcb_upload_dir=pcb_root / "uploads",
         mainsail_url="http://mainsail.invalid",
         default_machine="kurousagi",
     )
@@ -189,7 +190,6 @@ def real_settings(tmp_path: Path) -> Settings:
         configs_root=PROJECT_ROOT / "configs",
         data_dir=data_dir,
         pcb_browse_root=PROJECT_ROOT,
-        printer_cfg_link=Path.home() / "printer_data" / "config" / "printer.cfg",
         default_machine="kurousagi",
     )
 

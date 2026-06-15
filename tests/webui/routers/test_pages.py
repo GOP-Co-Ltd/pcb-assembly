@@ -36,9 +36,11 @@ Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / s
 - pnp はプレースホルダのみ（サイドバー空 + 「機能を選択」）
 """
 
+import attrs
 import pytest
 from fastapi.testclient import TestClient
 
+from webui.app import create_app
 from webui.settings import Settings
 
 TABS = ["dev", "pasting", "pnp", "posctrl"]
@@ -60,9 +62,38 @@ class TestPages:
         response = client.get(f"/{tab}")
 
         assert response.status_code == 200
-        assert "E-STOP" in response.text
+        assert "緊急停止" in response.text
         assert "machine-control" in response.text
+        assert "マシン選択:" in response.text
         assert webui_settings.mainsail_url in response.text
+
+    def test_tabs_render_japanese_labels(self, client: TestClient):
+        text = client.get("/posctrl").text
+
+        for label in ("開発", "はんだ塗布", "部品実装", "位置合わせ"):
+            assert label in text
+
+    def test_file_browser_start_path_is_rendered(self, webui_settings: Settings):
+        """Pcb_browse_start の pcb_browse_root 相対パスが data-fb-start に出る."""
+        evolved = attrs.evolve(
+            webui_settings, pcb_browse_root=webui_settings.pcb_browse_root.parent
+        )
+        app = create_app(evolved)
+        with TestClient(app) as client:
+            text = client.get("/posctrl").text
+
+        start = webui_settings.pcb_browse_start.name
+        assert f'data-fb-start="{start}"' in text
+
+    def test_mainsail_link_follows_request_host_when_unset(
+        self, webui_settings: Settings
+    ):
+        """PCBASM_MAINSAIL_URL 未設定時はページ閲覧元のホスト名に追従する."""
+        app = create_app(attrs.evolve(webui_settings, mainsail_url=None))
+        with TestClient(app) as client:
+            text = client.get("/posctrl").text
+
+        assert 'href="http://testserver"' in text
 
     def test_known_feature_page_renders(self, client: TestClient):
         response = client.get("/posctrl/reference_point_setup")
@@ -74,6 +105,22 @@ class TestPages:
 
         assert response.status_code == 200
 
+    def test_settings_page_groups_fields_by_section(self, client: TestClient):
+        """設定項目はセクション単位の階層表示（settings-group）でまとまる."""
+        text = client.get("/settings").text
+
+        assert "settings-group" in text
+        for section_label in (
+            "ペーストディスペンサー",
+            "ペーストディスペンサー / パッド位置合わせ",
+            "プローブ",
+            "基準点",
+            "カメラ",
+        ):
+            assert section_label in text
+        # モーション設定（printer.cfg）は Mainsail 直編集に移行し画面から削除済み
+        assert "モーション設定" not in text
+
     def test_unknown_tab_returns_404(self, client: TestClient):
         assert client.get("/no-such-tab").status_code == 404
 
@@ -83,8 +130,6 @@ class TestPages:
 
 DEV_JOB_FEATURES = (
     "extract_pcb",
-    "fill_path_simulate",
-    "generate_grid_pcb",
     "make_fill_coverage_pcb",
 )
 
@@ -100,18 +145,6 @@ class TestDevJobPages:
         assert "job-console" in response.text
         # data-job-name 等でページのジョブ名が宣言される
         assert feature in response.text
-
-    def test_fill_path_simulate_renders_param_form_fields(self, client: TestClient):
-        text = client.get("/dev/fill_path_simulate").text
-
-        for name in (
-            "nozzle_diameter",
-            "layer",
-            "bead_width_factor",
-            "overlap",
-            "boundary_margin",
-        ):
-            assert name in text
 
     def test_klipper_status_page_renders_gcode_box_and_limits(self, client: TestClient):
         response = client.get("/dev/klipper_status")
@@ -191,6 +224,16 @@ class TestPosctrlJobPages:
         assert "quit" in text
         assert "reference_point_setup.js" in text
 
+    def test_generate_grid_pcb_renders_form_without_preview(self, client: TestClient):
+        """generate_grid_pcb はカメラ非依存の生成ジョブ（job.html、preview なし）."""
+        text = client.get("/posctrl/generate_grid_pcb").text
+
+        assert "job-console" in text
+        assert "job-form" in text
+        assert "preview-pane" not in text
+        for name in ("size", "divisions", "pad_size"):
+            assert name in text
+
 
 PASTING_JOB_FEATURES = (
     "paste_solder",
@@ -199,6 +242,7 @@ PASTING_JOB_FEATURES = (
     "flow_calibration",
     "toolhead_offset",
     "probe_gnd_down_adjust",
+    "fill_path_simulate",
 )
 
 # カメラを使うジョブのみ preview ペインを持つ（計画書 _PASTING_PREVIEW）
@@ -240,12 +284,25 @@ class TestPastingJobPages:
         assert "crosshair" not in text  # overlay 切替は出さない
 
     @pytest.mark.parametrize(
-        "feature", ("loading", "flow_calibration", "probe_gnd_down_adjust")
+        "feature",
+        ("loading", "flow_calibration", "probe_gnd_down_adjust", "fill_path_simulate"),
     )
     def test_non_camera_jobs_have_no_preview_pane(
         self, client: TestClient, feature: str
     ):
         assert "preview-pane" not in client.get(f"/pasting/{feature}").text
+
+    def test_fill_path_simulate_renders_param_form_fields(self, client: TestClient):
+        text = client.get("/pasting/fill_path_simulate").text
+
+        for name in (
+            "nozzle_diameter",
+            "layer",
+            "bead_width_factor",
+            "overlap",
+            "boundary_margin",
+        ):
+            assert name in text
 
     @pytest.mark.parametrize("feature", PASTING_LOADING_FEATURES)
     def test_loading_jobs_render_loading_controls_with_stage_contract(

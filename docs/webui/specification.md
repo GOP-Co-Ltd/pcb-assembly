@@ -130,7 +130,7 @@ src/webui/
 │   ├── files.py           # PCB ファイルブラウザ
 │   ├── jobs.py            # ジョブ REST + WS /api/ws
 │   ├── preview.py         # MJPEG / snapshot
-│   ├── settings_api.py    # マシン設定・モーション設定の取得/保存
+│   ├── settings_api.py    # マシン設定の取得/保存
 │   ├── machine_control.py # マシン操作パネル（homing/ジョグ/移動/relax/フォーカスZ）
 │   └── system.py          # emergency stop、Klipper ステータス
 ├── templates/
@@ -198,10 +198,10 @@ class JobContext:
 
 ### マシン操作パネル（ジョブ外の単発操作）
 
-全タブから使える共通コンポーネント（サイドバー下部に折りたたみで常設）。Klipper console（Mainsail）リンクは残しつつ、基本操作は console に飛ばずに完結できるようにする。
+全タブから使える共通コンポーネント（右サイドバーに常設。左端の全高縦バー（開閉トグル）で畳める。展開中は ">"（右へ畳む）、折りたたみ中は "\<"（左へ開く）の三角表示。左端ハンドルのドラッグで幅を可変＝localStorage 永続）。Klipper console（Mainsail）リンクは残しつつ、基本操作は console に飛ばずに完結できるようにする。
 
 - **Homing**: X / Y / Z 軸個別 + 全軸（`gcode.homing()`）
-- **ジョグ**: X / Y / Z 共通で ±0.1 / ±1 / ±10 mm の 6 ボタン × 3 軸。`XYZStage.move(relative=True)` を使う（limits 検証込み。マシンサイズが小さいためこの 3 段で足りる）
+- **ジョグ**: XY は円形ジョグパッド（SVG）、Z は縦バーで ±0.1 / ±1 / ±10 mm。`XYZStage.move(relative=True)` を使う（limits 検証込み）。Z はマシン設計上「上昇＝Z マイナス」のため、縦バーは上端を負（上昇）・下端を正（下降）に並べる
 - **座標直接入力**: x / y / z の数値フィールド + 移動ボタン（絶対座標。空欄の軸は現在位置を維持 = `move()` の None 渡し）
 - **Relax**: M84
 - **フォーカス位置へ**: 選択マシンの calibration（`CalibrationResult.z_position` — camera_calibration 撮影時の Z 値）へ Z を移動。calibration 未設定や `z_position` が無い場合はボタンを無効化
@@ -239,16 +239,13 @@ class JobContext:
 
 ## 8. 設定管理
 
-ユーザーには「マシン設定」という一つの画面として見せ、裏が machine.toml / printer.cfg であることは意識させない。
+ユーザーには「マシン設定」という一つの画面として見せ、裏が machine.toml であることは意識させない。
 
 ### 設定画面（ヘッダの歯車 → `/settings`）
 
-- machine.toml の編集可能項目を**ホワイトリスト化したフォーム**で表示: ディスペンサー諸元 `[paste_dispenser]`、pad 照合パラメータ `[paste_dispenser.pad_align]`（canny 閾値等）、プローブ `[probe]`、基準点 `[reference_point]`、カメラ `[camera]` 等。保存は tomlkit でコメント・構造を保持して書き戻す（既存パターン: `update_reference_point`（`src/scripts/posctrl/reference_point_setup.py`）の一般化）
-- printer.cfg は「モーション設定」セクションとして**限定編集**。初期ホワイトリスト: `[printer] max_velocity / max_accel`、`[manual_stepper paste_dispenser] velocity / accel`（ホワイトリストは拡張可能な定義方式）
-    - 編集対象は `configs/<選択マシン>/printer.cfg`。`~/printer_data/config/printer.cfg` はここへの symlink（`install-printer-cfg.sh` 方式）なので、保存 → Klipper RESTART で反映される
-    - 保存時は確認ダイアログ付きで Moonraker 経由の Klipper RESTART を実行
-    - symlink が選択マシンを指していない場合は警告を表示する
-- 読み書きは `webui/config_store.py` に集約（ホワイトリスト定義 + tomlkit 書き込み + printer.cfg の限定パーサ/ライタ）。ジョブ実行中の設定保存は 409
+- machine.toml の編集可能項目を**ホワイトリスト化したフォーム**で表示: ディスペンサー諸元 `[paste_dispenser]`、pad 照合パラメータ `[paste_dispenser.pad_align]`（canny 閾値等）、プローブ `[probe]`、基準点 `[reference_point]`、カメラ `[camera]` 等。TOML セクション単位の折りたたみ表示（`SECTION_LABELS`）。保存は tomlkit でコメント・構造を保持して書き戻す（既存パターン: `update_reference_point`（`src/scripts/posctrl/reference_point_setup.py`）の一般化）
+- printer.cfg（モーション設定）は WebUI では編集しない。ヘッダの「Klipper」リンクから Mainsail に飛び直接編集する（2026-06-12 のユーザー判断で「モーション設定」セクションを削除）
+- 読み書きは `webui/config_store.py` に集約（ホワイトリスト定義 + tomlkit 書き込み）。ジョブ実行中の設定保存は 409
 - 設定変更後はマシン設定を再ロード（AppState の Machine 再構築。カメラ設定が変わった場合は FrameHub/Camera を再生成）
 
 ### 計測結果の Apply / Discard フロー
@@ -280,7 +277,6 @@ class JobContext:
 | POST    | `/api/jobs/last/apply`                    | 直近完了ジョブの計測結果を設定へ反映                                                |
 | POST    | `/api/jobs/last/discard`                  | 直近完了ジョブの計測結果を破棄                                                      |
 | GET/PUT | `/api/settings/machine`                   | マシン設定（machine.toml ホワイトリスト項目）                                       |
-| GET/PUT | `/api/settings/motion`                    | モーション設定（printer.cfg 限定項目）+ RESTART                                     |
 | POST    | `/api/machine-control`                    | homing / ジョグ / 絶対移動 / relax / フォーカス Z / 任意 G-code（§6。ジョブ中 409） |
 | GET     | `/api/stage/limits`                       | XYZStage の移動範囲（ジョグ UI 用）                                                 |
 | POST    | `/api/emergency-stop`                     | 即時 M112 相当（ジョブ非経由）                                                      |
@@ -303,14 +299,15 @@ class JobContext:
 
 ### posctrl タブ（常時 preview ペインあり）
 
-| 項目                  | 形態         | フォーム / 操作                                                                                                                                                                                               |
-| --------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Camera Preview        | preview のみ | overlay 切替（none / crosshair）                                                                                                                                                                              |
-| Copper Detection      | preview のみ | overlay=copper + Canny low / high スライダー（動的反映）。「設定に保存」で `[paste_dispenser.pad_align]` へ書き込み（現行スクリプトの調整専用フローを Apply 化）                                              |
-| Camera Calibration    | ジョブ       | square_size（必須）+ crop サイズ。prompt(confirm) で撮影を進行。Z 位置は best-effort（Klipper 不通なら警告ログ + `z_position` なしで続行）。Apply で calibration JSON 保存 + `[camera].calibration_file` 反映 |
-| Reference Point Setup | 対話ジョブ   | マシン操作パネル（ジョブモード、±0.1/1/10mm。focus_z 含む）+ Record / Quit。preview に円検出 + 現在位置                                                                                                       |
-| Board Tour            | ジョブ       | tolerance。四隅巡回 → 部品単位の銅箔照合（`PadAlignmentSession`）→ 補正適用済み全 pad 巡回。各点 1 秒の自動進行、照合 overlay を `ctx.frame()` で配信。中止は abort                                           |
-| Orthogonality Test    | ジョブ       | tolerance。board_transform（3 点法）から導出した軸間角の 90° からのずれ [deg] と軸スケール X / Y を result 表示                                                                                               |
+| 項目                  | 形態             | フォーム / 操作                                                                                                                                                                                               |
+| --------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Camera Preview        | preview のみ     | overlay 切替（none / crosshair）                                                                                                                                                                              |
+| Copper Detection      | preview のみ     | overlay=copper + Canny low / high スライダー（動的反映）。「設定に保存」で `[paste_dispenser.pad_align]` へ書き込み（現行スクリプトの調整専用フローを Apply 化）                                              |
+| Camera Calibration    | ジョブ           | square_size（必須）+ crop サイズ。prompt(confirm) で撮影を進行。Z 位置は best-effort（Klipper 不通なら警告ログ + `z_position` なしで続行）。Apply で calibration JSON 保存 + `[camera].calibration_file` 反映 |
+| Reference Point Setup | 対話ジョブ       | マシン操作パネル（ジョブモード、±0.1/1/10mm。focus_z 含む）+ Record / Quit。preview に円検出 + 現在位置                                                                                                       |
+| Board Tour            | ジョブ           | tolerance。四隅巡回 → 部品単位の銅箔照合（`PadAlignmentSession`）→ 補正適用済み全 pad 巡回。各点 1 秒の自動進行、照合 overlay を `ctx.frame()` で配信。中止は abort                                           |
+| Orthogonality Test    | ジョブ           | tolerance。board_transform（3 点法）から導出した軸間角の 90° からのずれ [deg] と軸スケール X / Y を result 表示                                                                                               |
+| Generate Grid PCB     | ジョブ（非装置） | size / divisions / pad_size。直行性テスト用グリッド PCB を `data/webui/` に生成しダウンロードリンク（カメラ preview なし。dev タブから移設）                                                                  |
 
 ### pasting タブ（preview はジョブ提供フレームのみ）
 
@@ -322,15 +319,17 @@ class JobContext:
 | Flow Calibration      | rotations, rate, accel, load-amount。ローディング → タール confirm（いいえで中止）→ 回転 → 質量・比重の prompt(number)。結果は Apply で反映                                                                    |
 | Toolhead Offset       | tolerance, dispense-amount, loading-amount, lift-height, paste-diameter-min/max。結果 JSON は artifacts。結果は Apply で反映                                                                                   |
 | Probe GND Down Adjust | prompt(number) + 確定 confirm のループで down distance 調整。終了時（abort 含む）はダウン距離 0 へ復帰。結果は Apply で反映                                                                                    |
+| Fill Path Simulate    | nozzle-diameter, layer, bead-width-factor, overlap, boundary-margin。pad ごとの fill path を生成し結果 PNG をインライン表示（装置・カメラ非使用。dev タブから移設）                                            |
 
 ### dev タブ
 
-| 項目                                       | 形態                                                                                                  |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| Extract PCB                                | ジョブ（装置非使用）。結果 PNG をインライン表示                                                       |
-| Fill Path Simulate                         | ジョブ（非装置）。パラメータ多数、結果 PNG 表示                                                       |
-| Generate Grid PCB / Make Fill Coverage PCB | ジョブ（非装置）。`data/webui/` に生成しダウンロードリンク                                            |
-| Klipper / Stage Status                     | ステータスカード（`/api/klipper/status` をポーリング）+ 任意 G-code 送信ボックス（klipper_demo 代替） |
+| 項目                   | 形態                                                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| Extract PCB            | ジョブ（装置非使用）。結果 PNG をインライン表示                                                       |
+| Make Fill Coverage PCB | ジョブ（非装置）。`data/webui/` に生成しダウンロードリンク                                            |
+| Klipper / Stage Status | ステータスカード（`/api/klipper/status` をポーリング）+ 任意 G-code 送信ボックス（klipper_demo 代替） |
+
+> Fill Path Simulate は塗布タブ、Generate Grid PCB は位置合わせタブへ移設（feature のタブ所属は `pages.py` の `TABS` が真。サイドバー / 見出しの日本語表示名は `FEATURE_LABELS`）。
 
 ### pnp タブ
 

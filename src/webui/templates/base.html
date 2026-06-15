@@ -10,21 +10,23 @@
 <header class="topbar">
   <nav class="tabs">
     {% for tab in tabs %}
-    <a href="/{{ tab }}" class="tab{% if tab == active_tab %} active{% endif %}">{{ tab }}</a>
+    <a href="/{{ tab }}" class="tab{% if tab == active_tab %} active{% endif %}">{{ tab_labels[tab] }}</a>
     {% endfor %}
   </nav>
   <div class="global-controls">
+    <label class="machine-select-label" for="machine-select">マシン選択:</label>
     <select id="machine-select" title="マシン選択">
       {% for m in machines %}
       <option value="{{ m }}"{% if m == selected_machine %} selected{% endif %}>{{ m }}</option>
       {% endfor %}
     </select>
-    <button id="pcb-chip" class="chip" title="PCB ファイル選択">
+    <button id="pcb-chip" class="chip" title="PCB ファイル選択"
+            data-fb-start="{{ fb_start }}">
       {{ selected_pcb or "PCB未選択" }}
     </button>
     <a href="/settings" class="icon-link" title="マシン設定">&#9881;</a>
-    <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper console">console</a>
-    <button id="estop" class="estop" title="緊急停止">E-STOP</button>
+    <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper (Mainsail) を開く">Klipper</a>
+    <button id="estop" class="estop" title="緊急停止">緊急停止</button>
   </div>
 </header>
 <main class="layout">
