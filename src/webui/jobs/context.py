@@ -13,6 +13,7 @@ import attrs
 from pcbasm.config import Machine
 from pcbasm.hal import Camera, FrameHub
 from pcbasm.vision import Image
+from webui.board_settings import BoardSettingsStore
 
 type Answer = bool | float | str
 type ParamValue = bool | float | int | str
@@ -74,12 +75,18 @@ class JobContext:
         pcb_path: Path | None,
         machine: Machine,
         artifacts_dir: Path,
+        machine_name: str = "",
+        source_pcb: str | None = None,
+        board_store: BoardSettingsStore | None = None,
     ) -> None:
         self._bridge = bridge
         self._params = dict(params)
         self._pcb_path = pcb_path
         self._machine = machine
         self._artifacts_dir = artifacts_dir
+        self._machine_name = machine_name
+        self._source_pcb = source_pcb
+        self._board_store = board_store
 
     @property
     def params(self) -> Mapping[str, ParamValue]:
@@ -100,6 +107,21 @@ class JobContext:
     def artifacts_dir(self) -> Path:
         """成果物ディレクトリ data/webui/<job_id>/（作成済み）."""
         return self._artifacts_dir
+
+    @property
+    def machine_name(self) -> str:
+        """選択マシン名（基板設定ストアのキー。未配線なら空文字）."""
+        return self._machine_name
+
+    @property
+    def source_pcb(self) -> str | None:
+        """選択 PCB の pcb_browse_root 相対 posix パス（未選択/未配線なら None）."""
+        return self._source_pcb
+
+    @property
+    def board_store(self) -> BoardSettingsStore | None:
+        """基板ごとの塗布設定ストア（未配線なら None）."""
+        return self._board_store
 
     def log(self, message: str) -> None:
         """ログのリングバッファへ追記し、WS "log" イベントを発行する."""

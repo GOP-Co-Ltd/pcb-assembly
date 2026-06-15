@@ -21,6 +21,7 @@ import attrs
 from pcbasm import gcode
 from pcbasm.hal import FrameHub, Klipper
 from pcbasm.vision import Image
+from webui.board_settings import BoardSettingsStore
 from webui.jobs.catalog import JobCatalog, JobDefinition
 from webui.jobs.context import (
     Answer,
@@ -403,6 +404,7 @@ class JobManager:
         self._settings = settings
         self._log_capacity = log_capacity
         self._artifacts_root = settings.data_dir / "webui"
+        self._board_store = BoardSettingsStore(settings.data_dir)
 
         self._lock = threading.Lock()
         self._record: JobRecord | None = None
@@ -438,12 +440,16 @@ class JobManager:
             runtime = _JobRuntime(record, self._preview, self._publish)
             artifacts_dir = self._artifacts_root / record.id
             artifacts_dir.mkdir(parents=True, exist_ok=True)
+            selected_pcb = self._state.selected_pcb
             context = JobContext(
                 runtime,
                 params=params,
                 pcb_path=pcb_path,
                 machine=machine,
                 artifacts_dir=artifacts_dir,
+                machine_name=self._state.selected_machine,
+                source_pcb=selected_pcb.as_posix() if selected_pcb else None,
+                board_store=self._board_store,
             )
             worker = threading.Thread(
                 target=self._run_worker,
