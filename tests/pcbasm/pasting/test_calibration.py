@@ -1,9 +1,11 @@
-"""FlowCalibration のテスト."""
+"""FlowCalibration / FlowCalibrationSet のテスト."""
+
+import statistics
 
 import attrs
 import pytest
 
-from pcbasm.pasting.calibration import FlowCalibration
+from pcbasm.pasting.calibration import FlowCalibration, FlowCalibrationSet
 
 
 class TestFlowCalibration:
@@ -36,3 +38,88 @@ class TestFlowCalibration:
         fc = FlowCalibration(rotations=10.0, mass_mg=200.0, specific_gravity=4.4)
         with pytest.raises(attrs.exceptions.FrozenInstanceError):
             fc.mass_mg = 300.0  # type: ignore[misc]
+
+
+class TestFlowCalibrationSet:
+    """FlowCalibrationSet クラスのテスト（複数回計測の集約）."""
+
+    @pytest.mark.parametrize(
+        ("rotations", "masses", "specific_gravity", "expected"),
+        [
+            # 1 回計測は単一 FlowCalibration と同じ: 10rev × 4.4 / 200mg = 0.22
+            (10.0, (200.0,), 4.4, 0.22),
+            # 同値 3 回 → 平均 200mg → 0.22
+            (10.0, (200.0, 200.0, 200.0), 4.4, 0.22),
+            # 異なる質量: 平均 (100+200)/2 = 150mg → 10 × 2.0 / 150 = 0.13333...
+            (10.0, (100.0, 200.0), 2.0, 10.0 * 2.0 / 150.0),
+        ],
+    )
+    def test_rotations_per_ul_uses_mean_mass(
+        self,
+        rotations: float,
+        masses: tuple[float, ...],
+        specific_gravity: float,
+        expected: float,
+    ):
+        fcs = FlowCalibrationSet(
+            rotations=rotations, masses_mg=masses, specific_gravity=specific_gravity
+        )
+        assert fcs.rotations_per_ul == pytest.approx(expected)
+
+    def test_mean_mass_mg(self):
+        fcs = FlowCalibrationSet(
+            rotations=10.0, masses_mg=(100.0, 200.0, 300.0), specific_gravity=2.0
+        )
+        assert fcs.mean_mass_mg == pytest.approx(200.0)
+
+    def test_per_measurement(self):
+        fcs = FlowCalibrationSet(
+            rotations=10.0, masses_mg=(100.0, 200.0), specific_gravity=2.0
+        )
+        per = fcs.per_measurement
+        assert [c.mass_mg for c in per] == [100.0, 200.0]
+        assert all(c.rotations == 10.0 and c.specific_gravity == 2.0 for c in per)
+        assert per[0].rotations_per_ul == pytest.approx(0.2)
+        assert per[1].rotations_per_ul == pytest.approx(0.1)
+
+    def test_stdev_matches_sample_stdev(self):
+        fcs = FlowCalibrationSet(
+            rotations=10.0, masses_mg=(100.0, 200.0), specific_gravity=2.0
+        )
+        expected = statistics.stdev([0.2, 0.1])
+        assert fcs.stdev_rotations_per_ul == pytest.approx(expected)
+
+    @pytest.mark.parametrize(
+        "masses",
+        [
+            (200.0,),  # 1 回計測 → ばらつきなし
+            (200.0, 200.0, 200.0),  # 全値同一 → ばらつきなし
+        ],
+    )
+    def test_stdev_zero(self, masses: tuple[float, ...]):
+        fcs = FlowCalibrationSet(rotations=10.0, masses_mg=masses, specific_gravity=4.4)
+        assert fcs.stdev_rotations_per_ul == 0.0
+
+    def test_single_measurement_matches_flow_calibration(self):
+        single = FlowCalibration(rotations=10.0, mass_mg=200.0, specific_gravity=4.4)
+        fcs = FlowCalibrationSet(
+            rotations=10.0, masses_mg=(200.0,), specific_gravity=4.4
+        )
+        assert fcs.rotations_per_ul == pytest.approx(single.rotations_per_ul)
+
+    def test_masses_accepts_list(self):
+        fcs = FlowCalibrationSet(
+            rotations=10.0, masses_mg=[200.0, 200.0], specific_gravity=4.4
+        )
+        assert fcs.masses_mg == (200.0, 200.0)
+
+    def test_empty_masses_raises(self):
+        with pytest.raises(ValueError):  # noqa: PT011 - attrs min_len のメッセージは固定でない
+            FlowCalibrationSet(rotations=10.0, masses_mg=(), specific_gravity=4.4)
+
+    def test_frozen(self):
+        fcs = FlowCalibrationSet(
+            rotations=10.0, masses_mg=(200.0,), specific_gravity=4.4
+        )
+        with pytest.raises(attrs.exceptions.FrozenInstanceError):
+            fcs.specific_gravity = 3.0  # type: ignore[misc]

@@ -30,7 +30,7 @@ from pcbasm.hal import (
     XYZStage,
 )
 from pcbasm.pasting import (
-    FlowCalibration,
+    FlowCalibrationSet,
     PasteApplicator,
     PasteSettingsModel,
     ProbeExecutor,
@@ -180,6 +180,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                 ParamSpec("rotations", "回転数", "float", 30, unit="rev"),
                 ParamSpec("rate", "角速度", "float", 5.0, unit="rev/s"),
                 ParamSpec("accel", "角加速度", "float", 10.0, unit="rev/s^2"),
+                ParamSpec("count", "計測回数", "int", 3, unit="回"),
                 ParamSpec("load_amount", "ローディング既定量", "float", 0.1, unit="uL"),
             ),
             uses_machine=True,
@@ -602,35 +603,57 @@ def _run_loading(ctx: JobContext) -> JobResult:
 
 
 def _run_flow_calibration(ctx: JobContext) -> JobResult:
-    """N 回転の実押出から rotations_per_ul を算出し、設定反映候補にする."""
+    """N 回転の実押出を count 回計測し、質量の平均から rotations_per_ul を算出する.
+
+    各回は タール (0g) 確認 → N 回転 → 質量入力 の独立計測。リトラクトは全計測の 最後に 1 回、比重も最後に 1
+    回入力する。タール確認に「いいえ」で中止する。
+    """
     rotations = float(ctx.params["rotations"])
+    rate = float(ctx.params["rate"])
+    accel = float(ctx.params["accel"])
+    count = max(1, int(ctx.params["count"]))
     klipper, stage, applicator = _dispenser_rig(ctx.machine)
+    masses: list[float] = []
     with applicator:
         _run_loading_loop(ctx, klipper, stage, applicator)
 
-        proceed = ctx.prompt(
-            PromptSpec(
-                kind="confirm",
-                message="はかりにキャッチ皿を置き、タール (0g) にしましたか?",
-                default=True,
+        for i in range(count):
+            proceed = ctx.prompt(
+                PromptSpec(
+                    kind="confirm",
+                    message=(
+                        f"[{i + 1}/{count}] はかりにキャッチ皿を置き、"
+                        "タール (0g) にしましたか?"
+                    ),
+                    default=True,
+                )
             )
-        )
-        if not proceed:
-            raise JobAborted()
+            if not proceed:
+                raise JobAborted()
 
-        ctx.progress("キャリブレーション回転")
-        applicator.calibrate(
-            rotations, float(ctx.params["rate"]), float(ctx.params["accel"])
-        )
-        mass = _prompt_positive_number(
-            ctx, "ペーストが安定したら計測した質量 (mg) を入力"
-        )
+            ctx.progress(f"キャリブレーション回転 {i + 1}/{count}", 100.0 * i / count)
+            applicator.calibrate(rotations, rate, accel)
+            masses.append(
+                _prompt_positive_number(
+                    ctx,
+                    f"[{i + 1}/{count}] ペーストが安定したら計測した質量 (mg) を入力",
+                )
+            )
+
         applicator.retract()
         sg = _prompt_positive_number(ctx, "ペーストの比重（水比重, データシート値）")
 
-    result = FlowCalibration(rotations=rotations, mass_mg=mass, specific_gravity=sg)
+    result = FlowCalibrationSet(
+        rotations=rotations, masses_mg=tuple(masses), specific_gravity=sg
+    )
+    per_ul = ", ".join(f"{c.rotations_per_ul:.4f}" for c in result.per_measurement)
+    mass_list = ", ".join(f"{m:.1f}" for m in masses)
     return JobResult(
-        summary=f"rotations_per_ul = {result.rotations_per_ul:.6f}",
+        summary=(
+            f"rotations_per_ul = {result.rotations_per_ul:.6f} "
+            f"± {result.stdev_rotations_per_ul:.6f} ({count} 回平均)\n"
+            f"各回: {per_ul} rev/μL / 質量: {mass_list} mg"
+        ),
         apply=ApplyPayload(
             label=(
                 f"[paste_dispenser] rotations_per_ul = "
