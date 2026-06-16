@@ -59,7 +59,6 @@ import {
   const svg = document.getElementById("pad-viewer");
   const tableBody = document.getElementById("pad-table-body");
   const countEl = document.getElementById("pad-selection-count");
-  const outlineSizeEl = document.getElementById("pad-outline-size");
   const exportButton = document.getElementById("pad-export-config");
   const importButton = document.getElementById("pad-import-config-button");
   const importInput = document.getElementById("pad-import-config");
@@ -95,18 +94,11 @@ import {
 
   function render() {
     renderViewer(svg, state.config, state);
-    renderOutlineSize();
     renderTable();
     renderSelectionCount();
     applyToolbarLock();
     renderRouteStatus();
     syncNodePadHighlights();
-  }
-
-  function renderOutlineSize() {
-    if (!outlineSizeEl || !state.config) return;
-    outlineSizeEl.textContent =
-      `外形: ${round4(state.config.width)} × ${round4(state.config.height)} mm`;
   }
 
   function renderSelectionCount() {
