@@ -16,8 +16,8 @@
 test-fixture（webui_settings の tmp data_dir 配下）。
 
 node_id 規約（契約）: L0 / L1:{package} / L2:{designator} /
-L3:{designator}:{shape_label} / L4:{designator}:{pad_number}。
-pad id = {designator}.{pad_number}。
+L3:{designator}:{shape_label} / L4:{designator}:{pad_ref}。
+pad id = {designator}.{pad_ref}。
 """
 
 from __future__ import annotations

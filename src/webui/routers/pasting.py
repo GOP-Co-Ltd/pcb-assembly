@@ -9,8 +9,9 @@ node_id 規約（フロントと共有する契約）:
 
 - ``HierKey`` tuple ⇔ node_id 文字列は ``":".join(key)`` / ``tuple(s.split(":"))``
 - L0 = ``"L0"``、L1 = ``"L1:{package}"``、L2 = ``"L2:{designator}"``、
-  L3 = ``"L3:{designator}:{shape_label}"``、L4 = ``"L4:{designator}:{pad_number}"``
-- pad id = ``f"{designator}.{pad_number}"``
+  L3 = ``"L3:{designator}:{shape_label}"``、L4 = ``"L4:{designator}:{pad_ref}"``
+- pad id = ``f"{designator}.{pad_ref}"``。通常 ``pad_ref == pad_number``。
+  同一 pad number の分割 pad は ``#1`` / ``#2`` suffix で区別する。
 """
 
 from __future__ import annotations
@@ -161,10 +162,6 @@ def _resolved_settings(resolved: ResolvedPaste) -> ResolvedSettings:
     return ResolvedSettings(**attrs.asdict(resolved))
 
 
-def _pad_id(pad: Pad) -> str:
-    return f"{pad.designator}.{pad.pad_number}"
-
-
 def _tree(node: PadHierarchyNode) -> HierNodeInfo:
     return HierNodeInfo(
         id=_node_id(node.key),
@@ -205,12 +202,13 @@ def _resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
 
 def _pad_info(
     pad: Pad,
+    pad_id: str,
     package: str,
     node_ids: list[str],
     resolved: ResolvedPaste,
 ) -> PadInfo:
     return PadInfo(
-        id=_pad_id(pad),
+        id=pad_id,
         node_ids=node_ids,
         designator=pad.designator,
         pad_number=pad.pad_number,
@@ -281,9 +279,10 @@ def _build_pad_config(loaded: _Loaded) -> PadConfigResponse:
     pads = [
         _pad_info(
             pad,
+            hierarchy.pad_id_for_pad(pad),
             package_by_designator.get(pad.designator, ""),
             [_node_id(key) for key in hierarchy.node_keys_for_pad(pad)],
-            resolved[(pad.designator, pad.pad_number)],
+            resolved[hierarchy.pad_ref_for_pad(pad)],
         )
         for pad in hierarchy.iter_pads()
     ]
@@ -311,10 +310,10 @@ def _affected_pads(node: str, loaded: _Loaded) -> list[AffectedPad]:
         keys = loaded.hierarchy.node_keys_for_pad(pad)
         if key not in keys:
             continue
-        paste = resolved[(pad.designator, pad.pad_number)]
+        paste = resolved[loaded.hierarchy.pad_ref_for_pad(pad)]
         affected.append(
             AffectedPad(
-                id=_pad_id(pad),
+                id=loaded.hierarchy.pad_id_for_pad(pad),
                 enabled=paste.enabled,
                 resolved=_resolved_settings(paste),
             )
@@ -424,8 +423,13 @@ def patch_pad_config_pads(
     loaded = _load(state, settings, board_store)
     model = loaded.model
     for pad_id in body.ids:
-        designator, _, pad_number = pad_id.partition(".")
-        patch = NodePatch(node=f"L4:{designator}:{pad_number}", enabled=body.enabled)
+        try:
+            l4_key = loaded.hierarchy.l4_key_for_pad_id(pad_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"未知の pad です: {pad_id}"
+            ) from exc
+        patch = NodePatch(node=_node_id(l4_key), enabled=body.enabled)
         model = _apply_node_patch(model, patch, loaded.hierarchy)
     board_store.save(
         loaded.machine,
@@ -438,13 +442,13 @@ def patch_pad_config_pads(
     id_set = set(body.ids)
     affected = [
         AffectedPad(
-            id=_pad_id(pad),
+            id=loaded.hierarchy.pad_id_for_pad(pad),
             enabled=paste.enabled,
             resolved=_resolved_settings(paste),
         )
         for pad in loaded.hierarchy.iter_pads()
-        if _pad_id(pad) in id_set
-        for paste in (resolved[(pad.designator, pad.pad_number)],)
+        if loaded.hierarchy.pad_id_for_pad(pad) in id_set
+        for paste in (resolved[loaded.hierarchy.pad_ref_for_pad(pad)],)
     ]
     return PatchResponse(affected_pads=affected)
 

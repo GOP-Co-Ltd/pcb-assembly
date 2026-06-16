@@ -39,25 +39,38 @@ from pcbasm.pasting import (
     settings_from_dict,
     settings_to_dict,
 )
-from pcbasm.pcb import PadHierarchy
+from pcbasm.pcb import Pad, PadHierarchy
 
 _SCHEMA_VERSION = 1
 
 
 def board_signature(hierarchy: PadHierarchy) -> str:
-    """Pad 階層から基板構成の安定ハッシュを作る."""
+    """Pad 階層から基板構成の安定ハッシュを作る.
+
+    L4 の分割 pad suffix は署名に含めない。旧 UI では同一 ``pad_number`` の
+    分割片が同じ L4 key に潰れていたため、ここを新 key にすると既存設定が
+    不必要に「別基板」扱いされる。
+    """
     records = []
     for pad in hierarchy.iter_pads():
         records.append(
             {
                 "id": f"{pad.designator}.{pad.pad_number}",
                 "layer": pad.layer.value,
-                "node_keys": [list(key) for key in hierarchy.node_keys_for_pad(pad)],
+                "node_keys": [
+                    _signature_key(key, pad) for key in hierarchy.node_keys_for_pad(pad)
+                ],
                 "polygon": [[x, y] for x, y in pad.polygon.exterior.coords],
             }
         )
     payload = json.dumps(records, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _signature_key(key: tuple[str, ...], pad: Pad) -> list[str]:
+    if key[0] == "L4":
+        return ["L4", key[1], pad.pad_number]
+    return list(key)
 
 
 class BoardSettingsStore:

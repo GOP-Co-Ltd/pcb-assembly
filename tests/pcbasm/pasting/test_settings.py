@@ -87,6 +87,19 @@ def _two_component_hierarchy() -> (
     return components, pads, build_pad_hierarchy(components, pads)
 
 
+def _duplicate_pad_number_hierarchy() -> (
+    tuple[Sequence[Component], Sequence[Pad], PadHierarchy]
+):
+    components = [_component("U1", "LFCSP-24")]
+    pads = [
+        _pad("U1", "", _rect(0.0, 0.0, 0.93, 0.93)),
+        _pad("U1", "", _rect(1.0, 0.0, 0.93, 0.93)),
+        _pad("U1", "", _rect(0.0, 1.0, 0.93, 0.93)),
+        _pad("U1", "", _rect(1.0, 1.0, 0.93, 0.93)),
+    ]
+    return components, pads, build_pad_hierarchy(components, pads)
+
+
 class TestBaseOverrideFromConfig:
     """base_override_from_config は PasteDispenser の 7 項目を写す。"""
 
@@ -115,7 +128,7 @@ class TestBaseOverrideFromConfig:
 class TestResolvePadSettingsKeys:
     """resolve_pad_settings の戻りキーと確定値。"""
 
-    def test_keys_are_designator_pad_number_pairs(self):
+    def test_unique_pad_numbers_use_designator_pad_number_pairs(self):
         _, _, hierarchy = _two_component_hierarchy()
         model = PasteSettingsModel(base=_full_base())
 
@@ -127,6 +140,25 @@ class TestResolvePadSettingsKeys:
             ("U1", "1"),
             ("U1", "9"),
         }
+
+    def test_duplicate_pad_numbers_are_distinct_resolved_keys(self):
+        _, pads, hierarchy = _duplicate_pad_number_hierarchy()
+        model = PasteSettingsModel(base=_full_base())
+
+        resolved = resolve_pad_settings(hierarchy, model)
+
+        assert set(resolved.keys()) == {
+            ("U1", "#1"),
+            ("U1", "#2"),
+            ("U1", "#3"),
+            ("U1", "#4"),
+        }
+        assert [hierarchy.pad_ref_for_pad(pad) for pad in pads] == [
+            ("U1", "#1"),
+            ("U1", "#2"),
+            ("U1", "#3"),
+            ("U1", "#4"),
+        ]
 
     def test_all_values_resolve_to_base_when_no_levels(self):
         _, _, hierarchy = _two_component_hierarchy()
@@ -311,6 +343,20 @@ class TestEnabledResolution:
         resolved = resolve_pad_settings(hierarchy, model)
 
         assert resolved[("U1", "1")].enabled is True  # base_enabled を維持
+
+    def test_l4_disable_affects_only_one_duplicate_pad_fragment(self):
+        _, _, hierarchy = _duplicate_pad_number_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={("L4", "U1", "#2"): LevelSetting(enabled=False)},
+        )
+
+        resolved = resolve_pad_settings(hierarchy, model)
+
+        assert resolved[("U1", "#1")].enabled is True
+        assert resolved[("U1", "#2")].enabled is False
+        assert resolved[("U1", "#3")].enabled is True
+        assert resolved[("U1", "#4")].enabled is True
 
 
 class TestSettingsRoundTrip:
