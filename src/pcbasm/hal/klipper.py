@@ -13,7 +13,7 @@ from pcbasm.gcode import GCode, GCodeLike
 
 logger = logging.getLogger(__name__)
 
-PRESENT_MACRO = "PRESENT"
+PRESENT_TIMEOUT = 30.0
 
 
 @attrs.frozen
@@ -58,11 +58,14 @@ class Klipper:
     def readonly(self) -> ReadonlyKlipper:
         return self._readonly
 
-    def send_gcode(self, gcode: GCodeLike) -> dict[str, Any]:
+    def send_gcode(
+        self, gcode: GCodeLike, *, timeout: float | None = None
+    ) -> dict[str, Any]:
         """G-codeを送信する.
 
         Args:
             gcode: 送信するG-codeコマンド（文字列、Iterable、またはGCodeオブジェクト）
+            timeout: この送信だけに適用するHTTPリクエストタイムアウト秒数
 
         Returns:
             Moonrakerからの応答
@@ -70,10 +73,12 @@ class Klipper:
         Raises:
             RuntimeError: G-codeの実行に失敗した場合
         """
-        response = self._client.post(
-            f"{self._base_url}/printer/gcode/script",
-            params={"script": str(GCode(gcode))},
-        )
+        url = f"{self._base_url}/printer/gcode/script"
+        params = {"script": str(GCode(gcode))}
+        if timeout is None:
+            response = self._client.post(url, params=params)
+        else:
+            response = self._client.post(url, params=params, timeout=timeout)
         if response.status_code >= 400:
             raise RuntimeError(response.reason_phrase)
         return response.json()
@@ -156,29 +161,31 @@ class Klipper:
         """
         return name in self.get_macros()
 
+    def send_present_or_relax(
+        self,
+        *,
+        warn: Callable[[str], None] | None = None,
+        timeout: float = PRESENT_TIMEOUT,
+    ) -> None:
+        """PRESENTマクロがあれば実行し、無ければ警告してM84にフォールバックする."""
+        warning = warn if warn is not None else logger.warning
+        try:
+            has_present = self.has_macro(gcode.PRESENT_MACRO)
+        except Exception as exc:
+            warning(
+                f"{gcode.PRESENT_MACRO} マクロ確認に失敗しました: {exc}。"
+                "relax (M84) にフォールバックします"
+            )
+        else:
+            if has_present:
+                self.send_gcode(gcode.present(), timeout=timeout)
+                return
+            warning(
+                f"{gcode.PRESENT_MACRO} マクロが見つかりません。"
+                "relax (M84) にフォールバックします"
+            )
 
-def send_present_or_relax(
-    klipper: Klipper, *, warn: Callable[[str], None] | None = None
-) -> None:
-    """PRESENTマクロがあれば実行し、無ければ警告してM84にフォールバックする."""
-    warning = warn if warn is not None else logger.warning
-    try:
-        has_present = klipper.has_macro(PRESENT_MACRO)
-    except Exception as exc:
-        warning(
-            f"{PRESENT_MACRO} マクロ確認に失敗しました: {exc}。"
-            "relax (M84) にフォールバックします"
-        )
-    else:
-        if has_present:
-            klipper.send_gcode(gcode.present())
-            return
-        warning(
-            f"{PRESENT_MACRO} マクロが見つかりません。"
-            "relax (M84) にフォールバックします"
-        )
-
-    klipper.send_gcode(gcode.relax())
+        self.send_gcode(gcode.relax(), timeout=timeout)
 
 
 class ReadonlyKlipper:
