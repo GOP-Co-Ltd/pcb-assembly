@@ -18,7 +18,8 @@ from typing import Any, Literal, override
 
 import attrs
 
-from pcbasm.hal import FrameHub, Klipper, send_present_or_relax
+from pcbasm.hal import FrameHub, Klipper
+from pcbasm.hal.klipper import PRESENT_TIMEOUT
 from pcbasm.vision import Image
 from webui.board_settings import BoardSettingsStore
 from webui.jobs.catalog import JobCatalog, JobDefinition
@@ -37,9 +38,6 @@ type _Event = dict[str, Any]
 
 # next_command 待機を強制的に JobAborted 化するための番兵
 _ABORT_SENTINEL: Any = object()
-
-# ジョブ終了時の PRESENT / relax 送信タイムアウト [sec]
-PRESENT_TIMEOUT = 5.0
 
 # ジョブコンソールへ転送する pcbasm ロガー名
 _PCBASM_LOGGER_NAME = "pcbasm"
@@ -629,7 +627,7 @@ class JobManager:
                 port=klipper_config.port,
                 timeout=PRESENT_TIMEOUT,
             )
-            send_present_or_relax(klipper, warn=runtime.log)
+            klipper.send_present_or_relax(warn=runtime.log, timeout=PRESENT_TIMEOUT)
         except Exception as exc:
             runtime.log(f"PRESENT / relax (M84) 送信失敗: {exc}")
 
