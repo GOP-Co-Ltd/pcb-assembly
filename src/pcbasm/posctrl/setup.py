@@ -13,7 +13,7 @@ import attrs
 from pcbasm import gcode
 from pcbasm.config import Machine
 from pcbasm.geometry import Shift, Transform
-from pcbasm.hal import Camera, Klipper, XYZStage, create_camera, send_present_or_relax
+from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl.board import BoardTransformMeasurer
 from pcbasm.posctrl.offset import OffsetTransformMeasurer
@@ -230,4 +230,4 @@ def machine_session(klipper: Klipper) -> Generator[None]:
     try:
         yield
     finally:
-        send_present_or_relax(klipper)
+        klipper.send_present_or_relax()

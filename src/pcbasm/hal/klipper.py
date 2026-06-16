@@ -13,8 +13,6 @@ from pcbasm.gcode import GCode, GCodeLike
 
 logger = logging.getLogger(__name__)
 
-PRESENT_MACRO = "PRESENT"
-
 
 @attrs.frozen
 class GCodeMacro:
@@ -156,29 +154,28 @@ class Klipper:
         """
         return name in self.get_macros()
 
+    def send_present_or_relax(
+        self, *, warn: Callable[[str], None] | None = None
+    ) -> None:
+        """PRESENTマクロがあれば実行し、無ければ警告してM84にフォールバックする."""
+        warning = warn if warn is not None else logger.warning
+        try:
+            has_present = self.has_macro(gcode.PRESENT_MACRO)
+        except Exception as exc:
+            warning(
+                f"{gcode.PRESENT_MACRO} マクロ確認に失敗しました: {exc}。"
+                "relax (M84) にフォールバックします"
+            )
+        else:
+            if has_present:
+                self.send_gcode(gcode.present())
+                return
+            warning(
+                f"{gcode.PRESENT_MACRO} マクロが見つかりません。"
+                "relax (M84) にフォールバックします"
+            )
 
-def send_present_or_relax(
-    klipper: Klipper, *, warn: Callable[[str], None] | None = None
-) -> None:
-    """PRESENTマクロがあれば実行し、無ければ警告してM84にフォールバックする."""
-    warning = warn if warn is not None else logger.warning
-    try:
-        has_present = klipper.has_macro(PRESENT_MACRO)
-    except Exception as exc:
-        warning(
-            f"{PRESENT_MACRO} マクロ確認に失敗しました: {exc}。"
-            "relax (M84) にフォールバックします"
-        )
-    else:
-        if has_present:
-            klipper.send_gcode(gcode.present())
-            return
-        warning(
-            f"{PRESENT_MACRO} マクロが見つかりません。"
-            "relax (M84) にフォールバックします"
-        )
-
-    klipper.send_gcode(gcode.relax())
+        self.send_gcode(gcode.relax())
 
 
 class ReadonlyKlipper:

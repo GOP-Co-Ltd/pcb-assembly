@@ -18,7 +18,7 @@ from typing import Any, Literal, override
 
 import attrs
 
-from pcbasm.hal import FrameHub, Klipper, send_present_or_relax
+from pcbasm.hal import FrameHub, Klipper
 from pcbasm.vision import Image
 from webui.board_settings import BoardSettingsStore
 from webui.jobs.catalog import JobCatalog, JobDefinition
@@ -629,7 +629,7 @@ class JobManager:
                 port=klipper_config.port,
                 timeout=PRESENT_TIMEOUT,
             )
-            send_present_or_relax(klipper, warn=runtime.log)
+            klipper.send_present_or_relax(warn=runtime.log)
         except Exception as exc:
             runtime.log(f"PRESENT / relax (M84) 送信失敗: {exc}")
 

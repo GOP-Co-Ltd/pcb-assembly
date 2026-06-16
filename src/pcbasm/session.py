@@ -19,7 +19,6 @@ from pcbasm.hal import (
     PasteDispenser,
     ServoGroundProbe,
     XYZStage,
-    send_present_or_relax,
 )
 from pcbasm.pasting import HeightPlaneMeasurer, PasteApplicator, ProbeExecutor
 from pcbasm.pcb import PcbFile
@@ -128,4 +127,4 @@ class PasteSession:
         return self
 
     def __exit__(self, *args: object) -> None:
-        send_present_or_relax(self.klipper)
+        self.klipper.send_present_or_relax()

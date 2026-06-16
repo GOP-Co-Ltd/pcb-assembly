@@ -14,7 +14,6 @@ import numpy as np
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d
 from pcbasm.posctrl.setup import OffsetObserver, machine_session
 from pcbasm.vision import Image
@@ -99,20 +98,18 @@ class TestMachineSession:
     def test_sends_present_on_exit(self, mocker: MockerFixture):
         """セッション終了時に PRESENT が送信される."""
         klipper = mocker.Mock()
-        klipper.has_macro.return_value = True
 
         with machine_session(klipper):
             pass
 
-        klipper.send_gcode.assert_called_once_with(GCode("PRESENT"))
+        klipper.send_present_or_relax.assert_called_once_with()
 
     def test_sends_present_even_on_exception(self, mocker: MockerFixture):
         """例外発生時でも PRESENT が送信され、例外は伝播する."""
         klipper = mocker.Mock()
-        klipper.has_macro.return_value = True
 
         with pytest.raises(ValueError, match="test error"):
             with machine_session(klipper):
                 raise ValueError("test error")
 
-        klipper.send_gcode.assert_called_once_with(GCode("PRESENT"))
+        klipper.send_present_or_relax.assert_called_once_with()

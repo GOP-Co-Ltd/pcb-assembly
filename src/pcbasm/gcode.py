@@ -67,6 +67,8 @@ class GCode:
 
 type GCodeLike = str | Iterable[str] | GCode
 
+PRESENT_MACRO = "PRESENT"
+
 
 def homing(x: bool = False, y: bool = False, z: bool = False) -> GCode:
     """ホーミングコマンドを生成する.
@@ -143,7 +145,7 @@ def wait_for_done() -> GCode:
 
 def present() -> GCode:
     """基板を差し出すPRESENTマクロを実行するコマンドを生成する."""
-    return GCode("PRESENT")
+    return GCode(PRESENT_MACRO)
 
 
 def relax() -> GCode:
