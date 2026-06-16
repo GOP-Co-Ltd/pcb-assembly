@@ -26,6 +26,7 @@ from webui.state import AppState
 
 type OverlayKind = Literal["none", "crosshair", "circle", "copper"]
 type _Renderer = Callable[[Image], Image]
+type _Override = tuple[Image, float | None]
 
 MJPEG_BOUNDARY = "frame"
 MJPEG_MEDIA_TYPE = f"multipart/x-mixed-replace; boundary={MJPEG_BOUNDARY}"
@@ -130,7 +131,7 @@ class PreviewService:
         self._count_lock = threading.Lock()
         self._client_count = 0
         self._override_lock = threading.Lock()
-        self._override: tuple[Image, float] | None = None
+        self._override: _Override | None = None
         self._shutdown_requested = threading.Event()
 
     @property
@@ -139,14 +140,21 @@ class PreviewService:
         with self._count_lock:
             return self._client_count
 
-    def submit_override(self, image: Image) -> None:
+    def submit_override(self, image: Image, *, persist: bool = False) -> None:
         """ジョブ用オーバーライドスロットへ書き込む（最新 1 枚のみ保持）.
 
-        Phase 3 の JobContext.frame() がこれを呼ぶ。直近 override_ttl 以内の
-        フレームは生フレームより優先して配信される。
+        Phase 3 の JobContext.frame() がこれを呼ぶ。既定では直近 override_ttl
+        以内のフレームを生フレームより優先して配信する。persist=True の場合は clear_override()
+        まで固定表示する。
         """
+        expires_at = None if persist else time.monotonic() + self._override_ttl
         with self._override_lock:
-            self._override = (image, time.monotonic())
+            self._override = (image, expires_at)
+
+    def clear_override(self) -> None:
+        """ジョブ用オーバーライドスロットを空にする."""
+        with self._override_lock:
+            self._override = None
 
     def request_shutdown(self) -> None:
         """開いているプレビューストリームへ終了要求を通知する."""
@@ -242,8 +250,11 @@ class PreviewService:
         with self._override_lock:
             if self._override is None:
                 return None
-            image, timestamp = self._override
-            if time.monotonic() - timestamp > self._override_ttl:
+            image, expires_at = self._override
+            if expires_at is None:
+                return image
+            if time.monotonic() > expires_at:
+                self._override = None
                 return None
             return image
 

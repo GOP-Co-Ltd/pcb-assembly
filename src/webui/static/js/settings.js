@@ -5,6 +5,19 @@
 (() => {
   const { toast, api } = window.webui;
 
+  function parseFloatPair(text, name) {
+    const trimmed = text.replace(/^\[/, "").replace(/\]$/, "");
+    const parts = trimmed.split(/[\s,]+/).filter(Boolean);
+    if (parts.length !== 2) {
+      throw new Error(`${name} は2つの数値で入力してください`);
+    }
+    const pair = parts.map((part) => Number(part));
+    if (pair.some((value) => Number.isNaN(value))) {
+      throw new Error(`${name} は2つの数値で入力してください`);
+    }
+    return pair;
+  }
+
   function collectValues(form) {
     const values = {};
     for (const input of form.querySelectorAll("input[name]")) {
@@ -14,6 +27,8 @@
         values[input.name] = text;
       } else if (input.dataset.type === "int") {
         values[input.name] = parseInt(text, 10);
+      } else if (input.dataset.type === "float_pair") {
+        values[input.name] = parseFloatPair(text, input.name);
       } else {
         values[input.name] = Number(text);
       }

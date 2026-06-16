@@ -28,8 +28,11 @@ class FieldSpec:
 
     key: str
     label: str
-    value_type: Literal["float", "int", "str"]
+    value_type: Literal["float", "int", "str", "float_pair"]
     unit: str | None = None
+
+
+type MachineSettingValue = float | int | str | list[float]
 
 
 # 設定セクション（key のドット区切り親パス）→ UI 表示名。
@@ -98,6 +101,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
     FieldSpec("probe.min_samples", "最小サンプル数", "int"),
     FieldSpec("probe.max_samples", "最大サンプル数", "int"),
+    FieldSpec("probe.shift", "プローブ点シフト", "float_pair", "mm"),
     # [reference_point]
     FieldSpec("reference_point.x", "基準点 X", "float", "mm"),
     FieldSpec("reference_point.y", "基準点 Y", "float", "mm"),
@@ -121,7 +125,7 @@ class UnknownFieldError(ValueError):
     """ホワイトリスト外のキー・型不一致・編集対象行の欠落を表す（→ HTTP 400）."""
 
 
-def _coerce(spec: FieldSpec, value: object) -> float | int | str:
+def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
     """値を FieldSpec の型に合わせて検証・変換する.
 
     Raises:
@@ -141,9 +145,24 @@ def _coerce(spec: FieldSpec, value: object) -> float | int | str:
         case "str":
             if isinstance(value, str):
                 return value
+        case "float_pair":
+            pair = _coerce_float_pair(value)
+            if pair is not None:
+                return pair
     raise UnknownFieldError(
         f"{spec.key}: {spec.value_type} 型の値が必要です（与えられた値: {value!r}）"
     )
+
+
+def _coerce_float_pair(value: object) -> list[float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    pair: list[float] = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            return None
+        pair.append(float(item))
+    return pair
 
 
 class ConfigStore:
@@ -169,7 +188,7 @@ class ConfigStore:
 
     def read_machine_settings(
         self, machine: str
-    ) -> dict[str, float | int | str | None]:
+    ) -> dict[str, MachineSettingValue | None]:
         """machine.toml のホワイトリスト項目の現在値を返す.
 
         toml に存在しないキーは None。
@@ -178,14 +197,14 @@ class ConfigStore:
             FileNotFoundError: machine.toml が存在しない場合
         """
         doc = tomlkit.parse(self.machine_toml_path(machine).read_text())
-        values: dict[str, float | int | str | None] = {}
+        values: dict[str, MachineSettingValue | None] = {}
         for spec in MACHINE_FIELDS:
             raw = _lookup_toml(doc, spec.key)
             values[spec.key] = None if raw is None else _coerce(spec, raw)
         return values
 
     def write_machine_settings(
-        self, machine: str, values: Mapping[str, float | int | str]
+        self, machine: str, values: Mapping[str, MachineSettingValue]
     ) -> None:
         """machine.toml へホワイトリスト項目を書き込む.
 

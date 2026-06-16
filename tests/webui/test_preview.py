@@ -7,7 +7,8 @@
   （参照カウント 0 で hub.stop）
 - オーバーレイ: crosshair（緑十字 + crop 枠）/ copper（エッジ緑重畳）/
   circle（検出円の赤描画）
-- submit_override はジョブ提供フレームを override_ttl 秒だけ優先配信する
+- submit_override はジョブ提供フレームを override_ttl 秒だけ優先配信する。
+  persist=True の場合は clear_override まで優先する
 - snapshot は acquire → 1 フレーム → release（hub は停止に戻る）
 - カメラ構築失敗は伝播する（ルーター層が 503 化）
 """
@@ -205,6 +206,26 @@ class TestOverrideSlot:
 
         # 生フレーム（明るい無彩色の基板風画像）に戻っている
         assert frame[..., 1].mean() > 100
+
+    def test_persistent_override_stays_until_cleared(self, state: AppState):
+        service = PreviewService(state, override_ttl=0.05)
+        magenta = Image(np.full((720, 1280, 3), (255, 0, 255), dtype=np.uint8))
+        stream = service.mjpeg_stream("none")
+        try:
+            next(stream)
+            service.submit_override(magenta, persist=True)
+            time.sleep(0.08)
+            persisted = _decoded_frame(next(stream))
+
+            service.clear_override()
+            cleared = _decoded_frame(next(stream))
+        finally:
+            stream.close()
+
+        assert persisted[..., 0].mean() > 200
+        assert persisted[..., 1].mean() < 50
+        assert persisted[..., 2].mean() > 200
+        assert cleared[..., 1].mean() > 100
 
 
 class TestHoldCamera:

@@ -35,6 +35,8 @@ class TestMachineSettingsApi:
         assert fill_speed["value"] == 0.8
         assert fill_speed["value_type"] == "float"
         assert fill_speed["label"]
+        assert fields["probe.shift"]["value"] == [-0.5, 0.0]
+        assert fields["probe.shift"]["value_type"] == "float_pair"
 
     def test_get_reports_none_for_missing_keys(self, client: TestClient):
         fields = {
@@ -56,6 +58,7 @@ class TestMachineSettingsApi:
                 "values": {
                     "paste_dispenser.fill_speed": 0.9,
                     "probe.down_distance": 2.5,
+                    "probe.shift": [0.25, -0.75],
                 }
             },
         )
@@ -64,12 +67,13 @@ class TestMachineSettingsApi:
         fields = {field["key"]: field for field in response.json()["fields"]}
         assert fields["paste_dispenser.fill_speed"]["value"] == 0.9
         assert fields["probe.down_distance"]["value"] == 2.5
+        assert fields["probe.shift"]["value"] == [0.25, -0.75]
 
         after_text = path.read_text(encoding="utf-8")
         after = after_text.splitlines()
         assert len(after) == len(before)
         changed = [(b, a) for b, a in zip(before, after) if b != a]
-        assert len(changed) == 2
+        assert len(changed) == 3
         # 変更対象外のコメントが無傷で残る
         assert "キャリブレーション値 2026/06/08" in after_text
 

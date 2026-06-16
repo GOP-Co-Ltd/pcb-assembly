@@ -538,7 +538,7 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
     )
     preview = cv2.imread(str(planned_path))
     if preview is not None:
-        ctx.frame(Image(preview))
+        ctx.frame(Image(preview), persist=True)
     ctx.log(f"計測予定点: /artifacts/{ctx.artifacts_dir.name}/planned_points.png")
     diagnostics = sampling_diagnostics(
         planned_points, [c.polygon for c in top_coppers], pcb.outline.polygon
@@ -550,13 +550,17 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
             f"凸包/外形面積比 {diagnostics.hull_area_ratio:.3f}"
         )
 
-    proceed = ctx.prompt(
-        PromptSpec(
-            kind="confirm",
-            message=f"{len(planned_points)} 点を計測します。続行しますか?",
-            default=True,
+    try:
+        proceed = ctx.prompt(
+            PromptSpec(
+                kind="confirm",
+                message=f"{len(planned_points)} 点を計測します。続行しますか?",
+                default=True,
+            )
         )
-    )
+    finally:
+        if preview is not None:
+            ctx.clear_frame()
     if not proceed:
         raise JobAborted()
 

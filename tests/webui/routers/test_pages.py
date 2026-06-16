@@ -105,6 +105,8 @@ class TestPages:
 
         assert response.status_code == 200
         assert "settings-layout" in response.text
+        assert 'name="probe.shift"' in response.text
+        assert 'value="-0.5, 0.0"' in response.text
 
     def test_settings_page_groups_fields_by_section(self, client: TestClient):
         """設定項目はセクション単位の階層表示（settings-group）でまとまる."""
