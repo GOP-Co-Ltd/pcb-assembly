@@ -1,26 +1,38 @@
 {% extends "tab.html" %}
 {% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
 {% block main %}
+<div class="pasting-workspace" data-testid="pasting-workspace">
 <h2>{{ feature_label }}</h2>
+<div class="pasting-grid">
+<section class="pasting-pad-panel" data-testid="pasting-pad-panel">
 {% include "partials/pad_editor.html" %}
+</section>
+<section class="pasting-run-panel" data-testid="pasting-run-panel">
+  <div class="pasting-job-panel" data-testid="pasting-job-panel">
+  {% include "partials/job_form.html" %}
+  {% if show_loading_controls %}
+  {% include "partials/loading_controls.html" %}
+  {% endif %}
+  </div>
 {% if show_preview %}
 {# ジョブ提供フレームのみ表示（オーバーレイ切替なし・固定 none） #}
 {% set preview_overlay = "none" %}
+  <div class="pasting-preview-panel" data-testid="pasting-preview-panel">
 {% include "partials/preview_pane.html" %}
+  </div>
 {% endif %}
-{% include "partials/job_form.html" %}
-{% if show_loading_controls %}
-{% include "partials/loading_controls.html" %}
-{% endif %}
+</section>
+</div>
 {% include "partials/job_console.html" %}
+</div>
 {% endblock %}
 {% block scripts %}
 {{ super() }}
 {% if show_preview %}
-<script src="/static/js/preview.js"></script>
+<script src="{{ static_asset('js/preview.js') }}"></script>
 {% endif %}
 {% if show_loading_controls %}
-<script src="/static/js/loading_controls.js"></script>
+<script src="{{ static_asset('js/loading_controls.js') }}"></script>
 {% endif %}
-<script src="/static/js/pad_editor.js" defer></script>
+<script type="module" src="{{ static_asset('js/pad_editor.js') }}"></script>
 {% endblock %}

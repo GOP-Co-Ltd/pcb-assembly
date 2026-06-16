@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}マシン設定 — PCB Assembly WebUI{% endblock %}
+{% block layout_class %}settings-layout{% endblock %}
 {% block content %}
 {% macro settings_groups(groups, prefix) %}
 {% for section_label, fields in groups %}
@@ -27,14 +28,21 @@
 {% endfor %}
 {% endmacro %}
 <section class="settings">
-  <h1>マシン設定 — {{ selected_machine }}</h1>
+  <header class="settings-header">
+    <div>
+      <h1>マシン設定</h1>
+      <p>{{ selected_machine }}</p>
+    </div>
+  </header>
 
   <form id="machine-settings-form" data-endpoint="/api/settings/machine">
+    <div class="settings-grid">
     {{ settings_groups(machine_groups, "ms") }}
+    </div>
     <button type="submit">保存</button>
   </form>
 </section>
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/settings.js"></script>
+<script src="{{ static_asset('js/settings.js') }}"></script>
 {% endblock %}

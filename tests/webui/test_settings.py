@@ -35,6 +35,7 @@ class TestSettingsFromEnv:
 
         assert settings.configs_root == PROJECT_ROOT / "configs"
         assert settings.data_dir == PROJECT_ROOT / "data"
+        assert settings.webui_data_dir == PROJECT_ROOT / "data" / "webui"
         # OS 全体（USB マウント等）を閲覧可能。初期表示はプロジェクトルート
         assert settings.pcb_browse_root == Path("/")
         assert settings.pcb_browse_start == PROJECT_ROOT
@@ -57,6 +58,7 @@ class TestSettingsFromEnv:
 
         assert settings.configs_root == tmp_path / "configs"
         assert settings.data_dir == tmp_path / "data"
+        assert settings.webui_data_dir == tmp_path / "data" / "webui"
         assert settings.pcb_browse_root == tmp_path / "pcb"
         assert settings.mainsail_url == "http://mainsail.example:8000"
         assert settings.port == 9001

@@ -196,6 +196,51 @@ class TestBuildPadHierarchyKeys:
         ]
 
 
+class TestBuildPadHierarchyDuplicatePadNumbers:
+    """同じ pad number を持つ分割ペースト領域の L4 キー."""
+
+    def test_duplicate_pad_numbers_get_distinct_l4_nodes(self):
+        components = [_component("U1", "LFCSP-24")]
+        pads = [
+            _pad("U1", "", _rect(0.0, 0.0, 0.93, 0.93)),
+            _pad("U1", "", _rect(1.0, 0.0, 0.93, 0.93)),
+            _pad("U1", "", _rect(0.0, 1.0, 0.93, 0.93)),
+            _pad("U1", "", _rect(1.0, 1.0, 0.93, 0.93)),
+        ]
+
+        hierarchy = build_pad_hierarchy(components, pads)
+
+        l2 = _node_at(hierarchy, ("L2", "U1"))
+        l3 = l2.children[0]
+        assert l3.label == "0.93x0.93mm"
+        assert len(l3.pads) == 4
+        assert [child.key for child in l3.children] == [
+            ("L4", "U1", "#1"),
+            ("L4", "U1", "#2"),
+            ("L4", "U1", "#3"),
+            ("L4", "U1", "#4"),
+        ]
+        assert [hierarchy.pad_id_for_pad(pad) for pad in pads] == [
+            "U1.#1",
+            "U1.#2",
+            "U1.#3",
+            "U1.#4",
+        ]
+
+    def test_duplicate_pad_number_node_keys_point_to_each_fragment(self):
+        components = [_component("U1", "LFCSP-24")]
+        pads = [
+            _pad("U1", "EP", _rect(0.0, 0.0, 0.93, 0.93)),
+            _pad("U1", "EP", _rect(1.0, 0.0, 0.93, 0.93)),
+        ]
+        hierarchy = build_pad_hierarchy(components, pads)
+
+        assert hierarchy.node_keys_for_pad(pads[0])[-1] == ("L4", "U1", "EP#1")
+        assert hierarchy.node_keys_for_pad(pads[1])[-1] == ("L4", "U1", "EP#2")
+        assert hierarchy.l4_key_for_pad_id("U1.EP#1") == ("L4", "U1", "EP#1")
+        assert hierarchy.l4_key_for_pad_id("U1.EP#2") == ("L4", "U1", "EP#2")
+
+
 class TestBuildPadHierarchyShapeGrouping:
     """L3（同一種類 pad）の形状分類。"""
 

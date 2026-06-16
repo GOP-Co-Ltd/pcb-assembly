@@ -239,9 +239,7 @@ class TestFillPathSimulate:
 
         images = [a for a in record.result.artifacts if a.kind == "image"]
         assert len(images) == 1
-        decoded = cv2.imread(
-            str(fake_camera_settings.data_dir / "webui" / images[0].path)
-        )
+        decoded = cv2.imread(str(fake_camera_settings.webui_data_dir / images[0].path))
         assert decoded is not None
         assert decoded.size > 0
 
@@ -369,7 +367,7 @@ class TestHeightPlaneFrontFlow:
         assert "計測します" in spec.message
 
         png_path = (
-            fake_camera_settings.data_dir / "webui" / record.id / "planned_points.png"
+            fake_camera_settings.webui_data_dir / record.id / "planned_points.png"
         )
         image = cv2.imread(str(png_path))
         assert image is not None
@@ -661,7 +659,7 @@ class TestPastingHardware:
         assert "点計測" in result.summary
         labels = {artifact.label for artifact in result.artifacts}
         assert labels == {"計測予定点", "ヒートマップ"}
-        artifacts_root = real_settings.data_dir / "webui"
+        artifacts_root = real_settings.webui_data_dir
         for artifact in result.artifacts:
             assert artifact.kind == "image"
             image = cv2.imread(str(artifacts_root / artifact.path))

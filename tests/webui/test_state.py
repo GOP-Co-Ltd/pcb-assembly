@@ -75,7 +75,8 @@ class TestMachineSelection:
         state.select_machine("test-fixture")
 
         assert state.selected_machine == "test-fixture"
-        assert (webui_settings.data_dir / "webui_state.json").exists()
+        assert (webui_settings.webui_data_dir / "webui_state.json").exists()
+        assert not (webui_settings.data_dir / "webui_state.json").exists()
         restored = AppState(webui_settings, store)
         assert restored.selected_machine == "test-fixture"
 
@@ -86,7 +87,10 @@ class TestMachineSelection:
     def test_corrupted_state_file_falls_back_to_default(
         self, webui_settings: Settings, store: ConfigStore
     ):
-        (webui_settings.data_dir / "webui_state.json").write_text(
+        (webui_settings.webui_data_dir / "webui_state.json").parent.mkdir(
+            parents=True, exist_ok=True
+        )
+        (webui_settings.webui_data_dir / "webui_state.json").write_text(
             "{ this is not json", encoding="utf-8"
         )
 
@@ -97,13 +101,27 @@ class TestMachineSelection:
     def test_state_file_with_unknown_machine_falls_back_to_default(
         self, webui_settings: Settings, store: ConfigStore
     ):
-        (webui_settings.data_dir / "webui_state.json").write_text(
+        (webui_settings.webui_data_dir / "webui_state.json").parent.mkdir(
+            parents=True, exist_ok=True
+        )
+        (webui_settings.webui_data_dir / "webui_state.json").write_text(
             json.dumps({"selected_machine": "ghost-machine"}), encoding="utf-8"
         )
 
         state = AppState(webui_settings, store)
 
         assert state.selected_machine == "kurousagi"
+
+    def test_legacy_state_file_is_read_when_new_file_missing(
+        self, webui_settings: Settings, store: ConfigStore
+    ):
+        (webui_settings.data_dir / "webui_state.json").write_text(
+            json.dumps({"machine": "test-fixture"}), encoding="utf-8"
+        )
+
+        state = AppState(webui_settings, store)
+
+        assert state.selected_machine == "test-fixture"
 
 
 class TestPcbSelection:

@@ -41,7 +41,15 @@ from pcbasm.pasting import (
     resolve_pad_settings,
 )
 from pcbasm.pasting.fill_path import build_paste_fill_path
-from pcbasm.pcb import Layer, Pad, PadList, PcbFile, build_pad_hierarchy
+from pcbasm.pcb import (
+    Layer,
+    Pad,
+    PadHierarchy,
+    PadList,
+    PadRef,
+    PcbFile,
+    build_pad_hierarchy,
+)
 from pcbasm.posctrl import (
     BoardCalibrationResult,
     ComponentAlignments,
@@ -60,6 +68,7 @@ from pcbasm.visualization import (
     render_height_plane,
     render_planned_points,
 )
+from webui.board_settings import board_signature
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import JobAborted, JobContext, PromptSpec
 from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
@@ -335,7 +344,9 @@ def _prompt_positive_number(
 # --- ジョブ実装 ---
 
 
-def _resolve_paste_model(ctx: JobContext) -> PasteSettingsModel:
+def _resolve_paste_model(
+    ctx: JobContext, hierarchy: PadHierarchy
+) -> PasteSettingsModel:
     """基板設定ストア（あれば）から塗布設定モデルを取得する.
 
     ストア／PCB が未配線なら ``machine.toml`` の ``[paste_dispenser]`` を
@@ -343,7 +354,10 @@ def _resolve_paste_model(ctx: JobContext) -> PasteSettingsModel:
     """
     if ctx.board_store is not None and ctx.source_pcb is not None:
         return ctx.board_store.load_or_init(
-            ctx.machine_name, ctx.source_pcb, ctx.machine.paste_dispenser
+            ctx.machine_name,
+            ctx.source_pcb,
+            ctx.machine.paste_dispenser,
+            board_signature=board_signature(hierarchy),
         )
     return PasteSettingsModel(
         base=base_override_from_config(ctx.machine.paste_dispenser),
@@ -352,14 +366,18 @@ def _resolve_paste_model(ctx: JobContext) -> PasteSettingsModel:
 
 
 def _is_pad_enabled(
-    pad: Pad, resolved: Mapping[tuple[str, str], ResolvedPaste]
+    pad: Pad, hierarchy: PadHierarchy, resolved: Mapping[PadRef, ResolvedPaste]
 ) -> bool:
     """Pad が塗布対象か判定する.
 
     階層から除外された pad（対応 Component 無し = ``resolved`` に不在）は
     後方互換で有効扱い、それ以外は解決済み ``enabled`` に従う。
     """
-    r = resolved.get((pad.designator, pad.pad_number))
+    try:
+        pad_ref = hierarchy.pad_ref_for_pad(pad)
+    except KeyError:
+        return True
+    r = resolved.get(pad_ref)
     return r is None or r.enabled
 
 
@@ -378,11 +396,11 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
         hierarchy = build_pad_hierarchy(session.pcb.components, session.pcb.pads)
-        model = _resolve_paste_model(ctx)
+        model = _resolve_paste_model(ctx, hierarchy)
         resolved = resolve_pad_settings(hierarchy, model)
 
         # 有効 top pad のみ塗布対象にする（無効除外はここ一点）
-        enabled_pads = [p for p in top_pads if _is_pad_enabled(p, resolved)]
+        enabled_pads = [p for p in top_pads if _is_pad_enabled(p, hierarchy, resolved)]
         disabled_count = len(top_pads) - len(enabled_pads)
         ctx.log(
             f"塗布対象: 有効 {len(enabled_pads)} / 全 {len(top_pads)} pads"
@@ -434,7 +452,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         # 補正適用（未照合 pad は無補正）→ (polygon, ResolvedPaste) ペアで保持
         pairs: list[tuple[Polygon, ResolvedPaste | None]] = []
         for pad in enabled_pads:
-            r = resolved.get((pad.designator, pad.pad_number))
+            r = resolved.get(hierarchy.pad_ref_for_pad(pad))
             correction = alignments.board_correction(pad.designator)
             if correction is None:
                 ctx.log(

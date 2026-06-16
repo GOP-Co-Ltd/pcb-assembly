@@ -83,6 +83,19 @@ class TestMjpegStream:
         assert service.client_count == 0
         assert not state.frame_hub().running
 
+    def test_shutdown_request_ends_stream_and_releases_camera(
+        self, service: PreviewService, state: AppState
+    ):
+        stream = service.mjpeg_stream("none")
+        next(stream)
+
+        service.request_shutdown()
+
+        with pytest.raises(StopIteration):
+            next(stream)
+        assert service.client_count == 0
+        assert not state.frame_hub().running
+
     def test_parallel_streams_share_hub_until_last_close(
         self, service: PreviewService, state: AppState
     ):

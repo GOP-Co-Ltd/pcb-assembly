@@ -18,6 +18,6 @@
 {% endblock %}
 {% block scripts %}
 {{ super() }}
-<script src="/static/js/preview.js"></script>
-<script src="/static/js/reference_point_setup.js"></script>
+<script src="{{ static_asset('js/preview.js') }}"></script>
+<script src="{{ static_asset('js/reference_point_setup.js') }}"></script>
 {% endblock %}

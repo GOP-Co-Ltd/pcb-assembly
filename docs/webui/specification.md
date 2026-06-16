@@ -12,7 +12,7 @@ PCB アセンブリ装置の操作を Web ブラウザから行うための WebU
 
 ### スコープ
 
-- `src/webui/` 新設（FastAPI + Jinja2 + vanilla JS、Node ビルド不要）
+- `src/webui/` 新設（FastAPI + Jinja2 + buildless ES modules + CSS、Node ビルド不要）
 - pcbasm 側の改修: FrameHub の新設（共通部品）、posctrl の表示責務分離（frame_sink 注入・cv2 GUI 依存の全廃、破壊的変更）、webui 再利用のための昇格 API（§4）
 - マシン設定の閲覧・編集（machine.toml + printer.cfg の限定項目）、計測結果の設定反映フロー
 - PCB ファイル選択、Klipper console（Mainsail）へのリンク、Emergency Stop
@@ -45,7 +45,7 @@ src/pcbasm/
 ```
 
 - ポートは 8080（Moonraker 7125 / Mainsail 80 と非衝突）
-- フロントは Jinja2 + vanilla JS のみ。動的部分（WS ジョブコンソール・MJPEG・ジョグ）は命令的 JS が本体であり、SPA フレームワークや htmx は採用しない
+- フロントは Jinja2 + buildless ES modules のみ。動的部分（WS ジョブコンソール・MJPEG・ジョグ）は命令的 JS が本体であり、SPA フレームワークや htmx は採用しない
 - 起動: `make webui-dev`（`uvicorn webui.app:create_app --factory --reload`）/ `make webui`（reload なし）。`[project.scripts]` は使わず `python -m webui`
 
 ## 3. FrameHub — カメラパイプライン（pcbasm 側の新共通部品）
@@ -144,6 +144,8 @@ src/webui/
         ├── job_console.js # WS クライアント（ログ/進捗/プロンプト/中止/Apply、/artifacts/ リンク化）
         ├── preview.js     # <img> の付け外し・overlay 切替
         ├── machine_control.js  # マシン操作パネル（REST / ジョブ command の送信切替）
+        ├── pad_editor.js       # buildless ES module entry（pasting pad 編集）
+        ├── pad_editor/         # model / viewer helper
         └── …                   # ページ別 JS（loading_controls / reference_point_setup / klipper_status / settings 等）
 ```
 
@@ -296,6 +298,8 @@ class JobContext:
 
 ### レイアウト
 
+装置操作用の静かな作業 UI として、過度な装飾より情報密度、視認性、状態の予測しやすさを優先する。フォーム、preview、pad viewer、job console、machine control は狭い viewport でも重ならず、操作中・disabled・error・selected・focus の状態を同じ表現体系で示す。
+
 - **ヘッダ**: タブ（dev / pasting / pnp / posctrl）+ マシン選択ドロップダウン + PCB ファイルチップ（クリックでファイルブラウザモーダル）+ 設定（歯車 → `/settings`）+ Klipper console リンク + **E-STOP（赤・常時表示・確認なし即時）**
 - **サイドバー**: タブ内の feature リスト。実行中ジョブがあればバッジ表示。下部に**マシン操作パネル**（§6。折りたたみ、全タブ共通）
 - **メインペイン**: feature ごとに「パラメータフォーム（argparse 引数から導出、デフォルト値も引き継ぐ）+ 実行ボタン + ジョブコンソール（ログ / 進捗バー / プロンプトモーダル / 中止 / Apply）+ 必要なら preview ペイン」
@@ -333,7 +337,8 @@ class JobContext:
 
 - pad クリック = 単 pad の有効/無効を即トグル
 - 左ドラッグ = 矩形選択（交差判定。修飾なし=置換 / Shift=追加 / Alt=除外）→「選択を有効化 / 無効化」「全有効 / 全無効」ボタンで一括
-- ビューア ⇄ 階層表の選択ハイライト連動
+- ビューア ⇄ 階層表の選択ハイライト連動。所属判定は API が返す `pad.node_ids` の membership を使う
+- 主要 DOM には `data-testid` を持たせ、SVG 表示・階層 highlight・ジョブ中 lock・responsive layout を実ブラウザ E2E で固定する
 
 **階層 override 表**: 5 階層を下位ほど優先（override）で解決する。
 
@@ -372,18 +377,18 @@ skill `testing-strategy` のテスト 4 区分に従う。
 
 - **unit**: `config_store` のホワイトリスト解釈・tomlkit 書き戻し、`JobManager` の状態遷移、`FrameHub` のカーソル管理。FakeCamera（自前 `Camera` ABC の test Impl）は `tests/helpers.py` に配置
 - **integration-with-fakes**: `fastapi.testclient.TestClient` + 注入 Settings（tmp_path にコピーした test-fixture configs、FakeCamera）で API〜設定ファイル書き込み〜WS イベントまでの結合を検証。`make test-no-hardware` の主体
+- **e2e**: `pytest-playwright` + 実 uvicorn + fake camera + 実 Chromium で HTTP / WebSocket / MJPEG / DOM / SVG / responsive layout を検証。`make test-e2e` で実行し、Chromium は `/usr/bin/chromium` を優先する。無い環境では `make playwright-install` で Playwright 管理 Chromium を入れる
 - **integration-hardware**: FrameHub × 実カメラのスモーク、Klipper status / RESTART 疎通など。`@mark_hardware` + `skip_if_no_*` で gating。**実機テストの実行はユーザーが行う**
 - 3rd-party 表面（picamera2, cv2, Moonraker REST）のモックは作らない。Moonraker が絡む結合は実機区分へ寄せる
 - `tests/webui/` は `src/webui/` を 1 対 1 でミラーする
 
-### Claude 自身による E2E 検証（各 Phase の受け入れ手順）
+### ブラウザ E2E と手動確認
 
-`PCBASM_WEBUI_FAKE_CAMERA=1 PCBASM_WEBUI_CONFIGS_ROOT=...` で uvicorn をバックグラウンド起動し、実 HTTP/WS に対して検証する。
+`make test-e2e` は pytest fixture 内で uvicorn を 127.0.0.1 のエフェメラルポートに起動し、tmp_path にコピーした test-fixture と fake camera を使う。実機設定や常駐サーバーを汚さず、有限コマンドとして起動から停止まで完結する。
 
-1. curl で全ページ（タブ・feature・settings）の 200 とレンダリング内容を確認
-2. curl で API シーケンス: マシン `test-fixture` 選択 → 設定 GET/PUT → `configs/test-fixture/machine.toml` の diff を実ファイルで確認（コメント保持も確認）→ `git checkout` で復元
-3. dev ジョブ（extract_pcb 等、装置非依存）を POST で起動し、python WS クライアント（httpx / websockets のワンショットスクリプト）で log / progress / prompt 往復・abort・排他 409 を通しで確認。成果物 PNG の生成を確認
-4. MJPEG ストリームを数フレーム取得し、multipart 境界と JPEG デコードを確認（FakeCamera）
+- `tests/e2e/test_webui_e2e.py`: ページ配信、実 HTTP の preview snapshot/MJPEG、WebSocket ジョブ lifecycle、pad-config の HTTP roundtrip
+- `tests/e2e/test_paste_solder_browser.py`: PCB 選択後の `paste_solder` DOM/SVG 表示、Top/Bottom 切替、pad click、bulk enable/disable、L2/L3/L4 の `node_ids` membership highlight、fake preview image、ジョブ中 lock、desktop/tablet/mobile の横溢れ検出
+- 手動確認は `make webui-fake` を使う。fake camera と隔離 data_dir で起動するため、ブラウザから UI polish や操作感を確認しやすい
 
 装置を動かすフロー（posctrl 補正・塗布・Klipper RESTART）の実機検証はユーザーが実施する。
 
@@ -434,7 +439,9 @@ jinja2>=3.1
 tomlkit>=0.13             # scripts が既に import しているが宣言漏れのため明示追加
 ```
 
-- `python-multipart` は不要（JSON 統一）。pydantic は fastapi 同梱。pytest-asyncio も不要（sync TestClient で WS テスト可）
+- dev dependency に `pytest-playwright` を追加し、実 Chromium で browser E2E を実行する
+- Node / npm / Vite / React は導入しない。装置制御 UI と Raspberry Pi 運用では、ビルド工程より実ブラウザ E2E と整理された buildless module 分割を優先する
+- pydantic は fastapi 同梱。pytest-asyncio は不要（sync TestClient / Playwright sync API / websockets sync API で検証可）
 - `[tool.uv.build-backend]` の module-name 追加は wheel 配布が必要になった時点で行う（editable 運用の現状では不要）
 
 ## 14. 主要トレードオフと採択理由
@@ -444,7 +451,7 @@ tomlkit>=0.13             # scripts が既に import しているが宣言漏れ
 | FrameHub の Camera 互換 | `subscribe() -> FrameSource(Camera)` | 消費者ごとカーソルで重複フレーム・奪い合いを防ぎつつ既存検出コードへ無改造注入 |
 | FrameHub の配置         | `pcbasm/hal/`                        | デバイスアクセス直列化は HAL の関心事。vision 非依存                           |
 | posctrl 改修範囲        | frame_sink / camera の引数注入のみ   | 既存 scripts・テスト無風で WebUI 要件を満たす最小差分                          |
-| フロント                | Jinja2 + vanilla JS                  | 動的部分は WS / MJPEG / ジョグで命令的 JS が本体。ビルド工程ゼロ               |
+| フロント                | Jinja2 + buildless ES modules        | 動的部分は WS / MJPEG / ジョグで命令的 JS が本体。ビルド工程ゼロ               |
 | ジョブ実行              | threading.Thread + queue 橋渡し      | pcbasm が同期コードのため。asyncio 化は改修範囲が爆発する                      |
 | WS                      | グローバル 1 本                      | 同時ジョブ 1 件なので分離の利点なし。E-STOP / 状態通知も同送                   |
 | セッション保持          | ジョブごとに再計測                   | キャリブレーション流用はズレ事故リスク。現行スクリプトと同じ安全側             |
@@ -471,7 +478,7 @@ tomlkit>=0.13             # scripts が既に import しているが宣言漏れ
 
 - node_id: `L0` / `L1:{package}` / `L2:{designator}` / `L3:{designator}:{shape_label}` / `L4:{designator}:{pad_number}`
 - pad id: `{designator}.{pad_number}`
-- `GET /api/pasting/pad-config` は outline + pads（ジオメトリ + 解決済み enabled/resolved）+ 階層 tree（構造のみ）+ 疎 overrides（L0 は常に存在、L1–L4 は明示設定があるノードのみ）を 1 発で返す
+- `GET /api/pasting/pad-config` は outline + pads（ジオメトリ + 解決済み enabled/resolved + `node_ids`）+ 階層 tree（構造のみ）+ 疎 overrides（L0 は常に存在、L1–L4 は明示設定があるノードのみ）を 1 発で返す。`node_ids` は各 pad が属する L0〜L4 node_id の配列で、L3 shape preview は designator ではなくこの membership で判定する
 - `PATCH .../node` は ノードの enabled / values(upsert) / clear(継承へ戻す) を適用し即保存、応答 `affected_pads` で配下 pad を部分更新（再 GET 不要）。`PATCH .../pads` は pad id 配列を L4 ノードの enabled として一括適用
 - 検証: PCB 未選択 409 / 未知 override 項目・未知 node 400 / L0 の `enabled=null` 400
 - `pcbnew`（PCB 読込）はリクエスト時に遅延 import するため、ルーター自体は KiCAD 未導入環境でも import 可能

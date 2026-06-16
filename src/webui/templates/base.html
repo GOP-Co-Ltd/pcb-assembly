@@ -4,37 +4,38 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}PCB Assembly WebUI{% endblock %}</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="{{ static_asset('app.css') }}">
 </head>
 <body>
-<header class="topbar">
-  <nav class="tabs">
+<header class="topbar" data-testid="topbar">
+  <nav class="tabs" data-testid="top-tabs">
     {% for tab in tabs %}
     <a href="/{{ tab }}" class="tab{% if tab == active_tab %} active{% endif %}">{{ tab_labels[tab] }}</a>
     {% endfor %}
   </nav>
   <div class="global-controls">
     <label class="machine-select-label" for="machine-select">マシン選択:</label>
-    <select id="machine-select" title="マシン選択">
+    <select id="machine-select" title="マシン選択" data-testid="machine-select">
       {% for m in machines %}
       <option value="{{ m }}"{% if m == selected_machine %} selected{% endif %}>{{ m }}</option>
       {% endfor %}
     </select>
     <button id="pcb-chip" class="chip" title="PCB ファイル選択"
+            data-testid="pcb-chip"
             data-fb-start="{{ fb_start }}">
       {{ selected_pcb or "PCB未選択" }}
     </button>
     <a href="/settings" class="icon-link" title="マシン設定">&#9881;</a>
     <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper (Mainsail) を開く">Klipper</a>
-    <button id="estop" class="estop" title="緊急停止">緊急停止</button>
+    <button id="estop" class="estop" title="緊急停止" data-testid="estop">緊急停止</button>
   </div>
 </header>
-<main class="layout">
+<main class="layout {% block layout_class %}{% endblock %}">
 {% block content %}{% endblock %}
 </main>
 {% include "partials/file_browser.html" %}
 <div id="toasts" class="toasts"></div>
-<script src="/static/js/app.js"></script>
+<script src="{{ static_asset('js/app.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
