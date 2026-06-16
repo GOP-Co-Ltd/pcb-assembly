@@ -100,7 +100,9 @@ class TestKlipper:
         klipper.send_present_or_relax()
 
         has_macro.assert_called_once_with(PRESENT_MACRO)
-        send_gcode.assert_called_once_with(GCode("PRESENT"))
+        send_gcode.assert_called_once()
+        assert send_gcode.call_args.args == (GCode("PRESENT"),)
+        assert send_gcode.call_args.kwargs["timeout"] > 10.0
 
     def test_send_present_or_relax_warns_and_relaxes_without_macro(
         self, mocker: MockerFixture
@@ -112,7 +114,9 @@ class TestKlipper:
 
         klipper.send_present_or_relax(warn=warnings.append)
 
-        send_gcode.assert_called_once_with(GCode("M84"))
+        send_gcode.assert_called_once()
+        assert send_gcode.call_args.args == (GCode("M84"),)
+        assert send_gcode.call_args.kwargs["timeout"] > 10.0
         assert len(warnings) == 1
         assert "PRESENT" in warnings[0]
         assert "M84" in warnings[0]
@@ -129,7 +133,9 @@ class TestKlipper:
 
         klipper.send_present_or_relax(warn=warnings.append)
 
-        send_gcode.assert_called_once_with(GCode("M84"))
+        send_gcode.assert_called_once()
+        assert send_gcode.call_args.args == (GCode("M84"),)
+        assert send_gcode.call_args.kwargs["timeout"] > 10.0
         assert len(warnings) == 1
         assert "PRESENT" in warnings[0]
         assert "config unavailable" in warnings[0]
