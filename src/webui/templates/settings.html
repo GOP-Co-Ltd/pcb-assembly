@@ -10,14 +10,33 @@
     <tbody>
       {% for field in fields %}
       <tr>
-        <th><label for="{{ prefix }}-{{ field.key }}">{{ field.label }}</label></th>
+        <th><label for="{{ prefix }}-{{ field.key }}{% if field.value_type == 'float_pair' %}-x{% endif %}">{{ field.label }}</label></th>
         <td>
+          {% if field.value_type == 'float_pair' %}
+          <div class="settings-pair" data-pair-key="{{ field.key }}">
+            <input id="{{ prefix }}-{{ field.key }}-x"
+                   data-pair-key="{{ field.key }}"
+                   data-pair-index="0"
+                   type="number"
+                   step="any"
+                   value="{{ field.value[0] if field.value is not none else '' }}"
+                   placeholder="X">
+            <input id="{{ prefix }}-{{ field.key }}-y"
+                   data-pair-key="{{ field.key }}"
+                   data-pair-index="1"
+                   type="number"
+                   step="any"
+                   value="{{ field.value[1] if field.value is not none else '' }}"
+                   placeholder="Y">
+          </div>
+          {% else %}
           <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
                  data-type="{{ field.value_type }}"
-                 type="{% if field.value_type == 'str' or field.value_type == 'float_pair' %}text{% else %}number{% endif %}"
-                 {% if field.value_type != 'str' and field.value_type != 'float_pair' %}step="any"{% endif %}
-                 value="{% if field.value_type == 'float_pair' and field.value is not none %}{{ field.value | join(', ') }}{% else %}{{ field.value if field.value is not none else '' }}{% endif %}"
+                 type="{% if field.value_type == 'str' %}text{% else %}number{% endif %}"
+                 {% if field.value_type != 'str' %}step="any"{% endif %}
+                 value="{{ field.value if field.value is not none else '' }}"
                  placeholder="未設定">
+          {% endif %}
           {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
         </td>
       </tr>
