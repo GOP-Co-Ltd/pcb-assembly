@@ -900,7 +900,7 @@ h2 {
 
 .pad-editor-toolbar {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 0.65rem;
   margin-bottom: 0.65rem;
@@ -940,6 +940,15 @@ h2 {
   min-width: 0;
 }
 
+.pad-route-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
 .pad-outline-size {
   color: var(--muted);
   font-size: 0.82rem;
@@ -947,6 +956,12 @@ h2 {
 }
 
 .pad-selection-count {
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.pad-route-status {
   color: var(--muted);
   font-size: 0.82rem;
   white-space: nowrap;
@@ -1009,6 +1024,41 @@ h2 {
 .pad-node-focus {
   stroke: var(--accent);
   stroke-width: 3.2;
+}
+
+.pad-route-overlay {
+  pointer-events: none;
+}
+
+.pad-route-segment {
+  stroke: #174f82;
+  stroke-width: 1.05;
+  stroke-opacity: 0.86;
+}
+
+.pad-route-arrow-head {
+  fill: #174f82;
+}
+
+.pad-route-endpoint circle {
+  stroke: #ffffff;
+  stroke-width: 0.12;
+}
+
+.pad-route-start circle {
+  fill: var(--ok);
+}
+
+.pad-route-end circle {
+  fill: var(--warn);
+}
+
+.pad-route-endpoint text {
+  fill: #ffffff;
+  font-size: 0.55px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
 }
 
 .pad-select-rect {
@@ -1249,6 +1299,7 @@ h2 {
 
   .pad-editor-toolbar,
   .pad-select-tools,
+  .pad-route-tools,
   .pad-config-tools {
     align-items: stretch;
     justify-content: flex-start;
@@ -1258,7 +1309,8 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .pad-select-tools button {
+  .pad-select-tools button,
+  .pad-route-tools button {
     flex: 1 1 8rem;
   }
 

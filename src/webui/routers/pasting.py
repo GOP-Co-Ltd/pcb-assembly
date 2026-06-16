@@ -29,6 +29,7 @@ from pcbasm.pasting import (
     PasteSettingsModel,
     ResolvedPaste,
     base_override_from_config,
+    plan_paste_route,
     resolve_pad_settings,
 )
 from pcbasm.pcb import (
@@ -105,6 +106,29 @@ class PadConfigResponse(BaseModel):
     tree: HierNodeInfo  # L0 ルートの階層ツリー（構造のみ）
     pads: list[PadInfo]
     overrides: dict[str, NodeOverrideInfo]  # node_id -> 明示 override（疎、L0 含む）
+
+
+class PasteRouteRequest(BaseModel):
+    """POST /api/pasting/pad-config/route のリクエスト."""
+
+    layer: str = "Top"
+
+
+class PasteRoutePad(BaseModel):
+    """順路上の 1 pad."""
+
+    id: str
+    order: int
+    group_label: str
+    area: float
+    center: list[float]
+
+
+class PasteRouteResponse(BaseModel):
+    """有効 pad の塗布順路."""
+
+    layer: str
+    pads: list[PasteRoutePad]
 
 
 class NodePatch(BaseModel):
@@ -301,6 +325,32 @@ def _build_pad_config(loaded: _Loaded) -> PadConfigResponse:
     )
 
 
+def _build_route(loaded: _Loaded, layer: str) -> PasteRouteResponse:
+    """ロード済みコンテキストから有効 pad の順路レスポンスを構築する."""
+    valid_layers = {"Top", "Bottom"}
+    if layer not in valid_layers:
+        raise HTTPException(status_code=400, detail=f"未知のレイヤです: {layer}")
+
+    resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
+    pads = [
+        pad
+        for pad in loaded.hierarchy.iter_pads()
+        if pad.layer.value == layer
+        and resolved[loaded.hierarchy.pad_ref_for_pad(pad)].enabled
+    ]
+    route = [
+        PasteRoutePad(
+            id=loaded.hierarchy.pad_id_for_pad(stop.pad),
+            order=stop.order,
+            group_label=stop.group_label,
+            area=stop.area,
+            center=[stop.pad.center.x, stop.pad.center.y],
+        )
+        for stop in plan_paste_route(pads)
+    ]
+    return PasteRouteResponse(layer=layer, pads=route)
+
+
 def _affected_pads(node: str, loaded: _Loaded) -> list[AffectedPad]:
     """指定ノード配下の全 pad を再解決して返す."""
     key = _key_from_node_id(node)
@@ -390,6 +440,17 @@ def get_pad_config(
 ) -> PadConfigResponse:
     """選択中基板の pad ジオメトリ・階層・解決済み設定・疎 override を返す."""
     return _build_pad_config(_load(state, settings, board_store))
+
+
+@router.post("/pasting/pad-config/route")
+def calculate_pad_route(
+    body: PasteRouteRequest,
+    state: StateDep,
+    settings: SettingsDep,
+    board_store: BoardStoreDep,
+) -> PasteRouteResponse:
+    """選択中基板の有効 pad だけを対象に塗布順路を返す."""
+    return _build_route(_load(state, settings, board_store), body.layer)
 
 
 @router.patch("/pasting/pad-config/node")

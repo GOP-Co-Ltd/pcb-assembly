@@ -19,7 +19,6 @@ from pcbasm.geometry import (
     Point2d,
     sample_points_in_polygons,
     sampling_diagnostics,
-    sort_by_nearest,
     transform_polygon,
 )
 from pcbasm.hal import (
@@ -38,6 +37,7 @@ from pcbasm.pasting import (
     ResolvedPaste,
     ToolheadOffsetResult,
     base_override_from_config,
+    plan_paste_route,
     resolve_pad_settings,
 )
 from pcbasm.pasting.fill_path import build_paste_fill_path
@@ -449,9 +449,12 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             outline=session.pcb.outline.polygon,
         )
 
-        # 補正適用（未照合 pad は無補正）→ (polygon, ResolvedPaste) ペアで保持
+        # 塗布順路（同種類連続・大面積優先）を決めてから補正を適用する
+        routed_pads = [stop.pad for stop in plan_paste_route(enabled_pads)]
+
+        # 補正適用（未照合 pad は無補正）→ 順路順の (polygon, ResolvedPaste) ペア
         pairs: list[tuple[Polygon, ResolvedPaste | None]] = []
-        for pad in enabled_pads:
+        for pad in routed_pads:
             r = resolved.get(hierarchy.pad_ref_for_pad(pad))
             correction = alignments.board_correction(pad.designator)
             if correction is None:
@@ -463,11 +466,6 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             else:
                 pairs.append((transform_polygon(pad.polygon, correction), r))
         stage = session.stage
-        sorted_pairs = sort_by_nearest(
-            pairs,
-            stage.get_position().to2d().to3d(),
-            key=lambda pair: Point2d(x=pair[0].centroid.x, y=pair[0].centroid.y).to3d(),
-        )
 
         # board→machine全変換 (board_transform + toolhead_offset + height_plane)
         transform = Compose(
@@ -487,8 +485,8 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             applicator.retract()
 
             # pad を 1 件ずつ apply して per-pad の進捗・設定・abort 境界を確保
-            for index, (polygon, r) in enumerate(sorted_pairs):
-                ctx.progress("塗布", 100.0 * index / len(sorted_pairs))
+            for index, (polygon, r) in enumerate(pairs):
+                ctx.progress("塗布", 100.0 * index / len(pairs))
                 ctx.checkpoint()
                 if r is None:
                     applicator.apply([polygon])
@@ -507,7 +505,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
     return JobResult(
         summary=(
             f"照合成功 {len(aligned)}/{len(groups)} 部品 / "
-            f"塗布 有効 {len(sorted_pairs)} / 全 {len(top_pads)} pads"
+            f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ・押出合計 {total:+.3f} uL）"
         )
     )

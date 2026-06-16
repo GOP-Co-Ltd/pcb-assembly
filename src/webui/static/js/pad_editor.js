@@ -45,6 +45,8 @@ import {
     locked: false,
     hoveredNode: null,
     focusedNode: null,
+    route: null,
+    routeLoading: false,
     padEls: new Map(),
     rowEls: new Map(),
     parentOf: new Map(),
@@ -61,11 +63,14 @@ import {
   const exportButton = document.getElementById("pad-export-config");
   const importButton = document.getElementById("pad-import-config-button");
   const importInput = document.getElementById("pad-import-config");
+  const routeButton = document.getElementById("pad-calculate-route");
+  const routeStatus = document.getElementById("pad-route-status");
 
   async function load() {
     try {
       const config = await api("GET", "/api/pasting/pad-config");
       state.config = config;
+      clearRoute();
       emptyEl.hidden = true;
       bodyEl.hidden = false;
       buildIndexes(config);
@@ -94,6 +99,7 @@ import {
     renderTable();
     renderSelectionCount();
     applyToolbarLock();
+    renderRouteStatus();
     syncNodePadHighlights();
   }
 
@@ -116,8 +122,11 @@ import {
   for (const radio of root.querySelectorAll("input[name='pad-layer']")) {
     radio.addEventListener("change", () => {
       if (!state.config) return;
+      clearRoute();
       showLayer(state.config, state, radio.value);
       renderSelectionCount();
+      renderViewer(svg, state.config, state);
+      renderRouteStatus();
       syncNodePadHighlights();
     });
   }
@@ -202,7 +211,7 @@ import {
         ids,
         enabled,
       });
-      applyAffected(res.affected_pads);
+      applyAffected(res.affected_pads, { invalidateRoute: true });
     } catch (err) {
       toast(`pad 更新失敗: ${err.message}`, false);
     }
@@ -233,7 +242,8 @@ import {
     .getElementById("pad-disable-all")
     .addEventListener("click", () => patchPads(allOnLayer(), false));
 
-  function applyAffected(affected) {
+  function applyAffected(affected, options = {}) {
+    if (options.invalidateRoute) clearRoute();
     const byId = new Map(state.config.pads.map((pad) => [pad.id, pad]));
     for (const ap of affected) {
       const pad = byId.get(ap.id);
@@ -244,6 +254,8 @@ import {
       if (el) applyPadVisual(el, state, ap.enabled);
     }
     renderTable();
+    renderViewer(svg, state.config, state);
+    renderRouteStatus();
     refreshViewerState();
   }
 
@@ -427,7 +439,7 @@ import {
     try {
       const res = await api("PATCH", "/api/pasting/pad-config/node", body);
       updateLocalOverride(state.config, body);
-      applyAffected(res.affected_pads);
+      applyAffected(res.affected_pads, { invalidateRoute: "enabled" in body });
     } catch (err) {
       toast(`設定更新失敗: ${err.message}`, false);
     }
@@ -488,6 +500,54 @@ import {
     for (const btn of root.querySelectorAll(".pad-select-tools button")) {
       btn.disabled = state.locked;
     }
+    for (const btn of root.querySelectorAll(".pad-route-tools button")) {
+      btn.disabled = state.locked || state.routeLoading;
+    }
+  }
+
+  function clearRoute() {
+    state.route = null;
+  }
+
+  function renderRouteStatus() {
+    if (!routeStatus) return;
+    if (state.routeLoading) {
+      routeStatus.textContent = "計算中";
+      return;
+    }
+    if (!state.route) {
+      routeStatus.textContent = "順路: --";
+      return;
+    }
+    routeStatus.textContent = `順路: ${state.route.pads.length} pads`;
+  }
+
+  async function calculateRoute() {
+    if (!state.config || state.locked || state.routeLoading) return;
+    state.routeLoading = true;
+    applyToolbarLock();
+    renderRouteStatus();
+    try {
+      state.route = await api("POST", "/api/pasting/pad-config/route", {
+        layer: state.layer,
+      });
+      renderViewer(svg, state.config, state);
+      renderRouteStatus();
+      syncNodePadHighlights();
+    } catch (err) {
+      clearRoute();
+      renderViewer(svg, state.config, state);
+      renderRouteStatus();
+      toast(`順路計算失敗: ${err.message}`, false);
+    } finally {
+      state.routeLoading = false;
+      applyToolbarLock();
+      renderRouteStatus();
+    }
+  }
+
+  if (routeButton) {
+    routeButton.addEventListener("click", calculateRoute);
   }
 
   if (window.webui.jobs) {
@@ -531,6 +591,7 @@ import {
           document,
         });
         state.config = config;
+        clearRoute();
         state.selected.clear();
         buildIndexes(config);
         render();
