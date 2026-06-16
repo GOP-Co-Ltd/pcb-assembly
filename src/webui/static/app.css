@@ -900,8 +900,8 @@ h2 {
 
 .pad-editor-toolbar {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  align-items: start;
   gap: 0.65rem;
   margin-bottom: 0.65rem;
 }
@@ -917,45 +917,53 @@ h2 {
   background: var(--surface);
 }
 
+.pad-layer-switch {
+  justify-self: start;
+}
+
 .pad-layer-switch legend {
   padding: 0 0.25rem;
   color: var(--muted);
 }
 
 .pad-select-tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  justify-content: stretch;
   gap: 0.35rem;
   min-width: 0;
 }
 
 .pad-config-tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  justify-content: stretch;
   gap: 0.35rem;
   min-width: 0;
 }
 
 .pad-route-tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  justify-content: stretch;
   gap: 0.35rem;
   min-width: 0;
 }
 
-.pad-outline-size {
-  color: var(--muted);
-  font-size: 0.82rem;
-  white-space: nowrap;
+.pad-select-tools button,
+.pad-config-tools button,
+.pad-route-tools button {
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
 }
 
 .pad-selection-count {
+  grid-column: 1 / -1;
+  justify-self: end;
   color: var(--muted);
   font-size: 0.82rem;
   white-space: nowrap;
@@ -988,6 +996,22 @@ h2 {
   fill: none;
   stroke: #8796aa;
   stroke-width: 1;
+}
+
+.pad-axis {
+  pointer-events: none;
+}
+
+.pad-axis-line {
+  stroke: #8796aa;
+  stroke-width: 0.8;
+  stroke-opacity: 0.82;
+}
+
+.pad-axis-label {
+  fill: var(--muted);
+  font-size: 0.62px;
+  dominant-baseline: central;
 }
 
 .pad {
@@ -1031,13 +1055,8 @@ h2 {
 }
 
 .pad-route-segment {
-  stroke: #174f82;
   stroke-width: 1.05;
   stroke-opacity: 0.86;
-}
-
-.pad-route-arrow-head {
-  fill: #174f82;
 }
 
 .pad-route-endpoint circle {
@@ -1302,16 +1321,15 @@ h2 {
   .pad-route-tools,
   .pad-config-tools {
     align-items: stretch;
-    justify-content: flex-start;
+    justify-content: stretch;
   }
 
   .pad-editor-toolbar {
     grid-template-columns: 1fr;
   }
 
-  .pad-select-tools button,
-  .pad-route-tools button {
-    flex: 1 1 8rem;
+  .pad-layer-switch {
+    justify-self: start;
   }
 
   .pad-viewer {

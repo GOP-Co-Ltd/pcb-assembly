@@ -259,11 +259,12 @@ class TestPasteSolderBrowserRendering:
         _assert_in_viewport(browser_page, visible_pad)
 
         config = _get_pad_config(live_server)
-        size_text = browser_page.locator(_testid("pad-outline-size")).text_content(
-            timeout=_BROWSER_TIMEOUT_MS
+        axis_labels = browser_page.eval_on_selector_all(
+            _testid("pad-axis-label"),
+            "(els) => els.map((el) => el.textContent)",
         )
-        assert f"{config['width']:g}" in size_text
-        assert f"{config['height']:g}" in size_text
+        assert f"{config['width']:g} mm" in axis_labels
+        assert f"{config['height']:g} mm" in axis_labels
 
         first_top = next(pad for pad in config["pads"] if pad["layer"] == "Top")
         title = browser_page.locator(_pad_selector(first_top["id"])).locator("title")
@@ -389,6 +390,16 @@ class TestPasteSolderBrowserPadInteraction:
             arg=_testid("pad-route-segment"),
             timeout=_BROWSER_TIMEOUT_MS,
         )
+        route_colors = browser_page.eval_on_selector_all(
+            _testid("pad-route-segment"),
+            "(els) => els.map((el) => getComputedStyle(el).stroke)",
+        )
+        assert len(set(route_colors)) > 1
+        arrow_colors = browser_page.eval_on_selector_all(
+            ".pad-route-arrow-head",
+            "(els) => els.map((el) => getComputedStyle(el).fill)",
+        )
+        assert arrow_colors == route_colors
         browser_page.wait_for_function(
             """(selector) => document.querySelector(selector)?.textContent.startsWith("順路: ")""",
             arg=_testid("pad-route-status"),
@@ -525,9 +536,49 @@ class TestPasteSolderBrowserResponsiveLayout:
                         outOfViewport,
                     };
                 }""",
-                ["pad-viewer", "preview-img", "job-run"],
+                [
+                    "pad-editor-toolbar",
+                    "pad-select-tools",
+                    "pad-route-tools",
+                    "pad-config-tools",
+                    "pad-viewer",
+                    "preview-img",
+                    "job-run",
+                ],
             )
 
             assert overflow["missing"] == [], name
             assert overflow["docOverflow"] <= 1, (name, overflow)
             assert overflow["outOfViewport"] == [], (name, overflow)
+
+    def test_selection_buttons_keep_two_by_two_grid_on_mobile(
+        self, live_server: LiveServer, browser_page
+    ):
+        _select_led_blinker(live_server)
+        browser_page.set_viewport_size({"width": 390, "height": 844})
+        _open_paste_solder(browser_page, live_server)
+
+        grid = browser_page.evaluate(
+            """(selector) => {
+                const tools = document.querySelector(selector);
+                const buttons = Array.from(tools.querySelectorAll("button"));
+                const rows = new Set(buttons.map((button) =>
+                    Math.round(button.getBoundingClientRect().top)
+                ));
+                const columns = new Set(buttons.map((button) =>
+                    Math.round(button.getBoundingClientRect().left)
+                ));
+                const rect = tools.getBoundingClientRect();
+                return {
+                    rowCount: rows.size,
+                    columnCount: columns.size,
+                    right: rect.right,
+                    viewportWidth: window.innerWidth,
+                };
+            }""",
+            _testid("pad-select-tools"),
+        )
+
+        assert grid["rowCount"] == 2
+        assert grid["columnCount"] == 2
+        assert grid["right"] <= grid["viewportWidth"] + 1
