@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from typing import Any
 
 import httpx
@@ -165,6 +166,43 @@ class TestJobLifecycleOverWebSocket:
             live_server.settings.configs_root / "kurousagi" / "machine.toml"
         ).read_text()
         assert "canny_low = 77" in machine_toml
+
+
+class TestSettingsOverBrowser:
+    """設定画面の実ブラウザ操作."""
+
+    def test_probe_shift_two_fields_save(self, live_server: LiveServer, browser_page):
+        browser_page.goto(
+            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
+        )
+        x_input = browser_page.locator(
+            'input[data-pair-key="probe.shift"][data-pair-index="0"]'
+        )
+        y_input = browser_page.locator(
+            'input[data-pair-key="probe.shift"][data-pair-index="1"]'
+        )
+        x_input.wait_for(state="visible", timeout=10_000)
+        y_input.wait_for(state="visible", timeout=10_000)
+
+        assert x_input.input_value() == "-0.5"
+        assert y_input.input_value() == "0.0"
+
+        x_input.fill("0.25")
+        y_input.fill("-0.75")
+        browser_page.locator("#machine-settings-form button[type=submit]").click()
+
+        deadline = time.monotonic() + 5.0
+        while True:
+            response = httpx.get(
+                f"{live_server.base_url}/api/settings/machine",
+                timeout=_HTTP_TIMEOUT,
+            )
+            fields = {field["key"]: field for field in response.json()["fields"]}
+            if fields["probe.shift"]["value"] == [0.25, -0.75]:
+                break
+            if time.monotonic() > deadline:
+                raise AssertionError("probe.shift が保存されない")
+            time.sleep(0.05)
 
 
 class TestPadConfigOverRealHttp:

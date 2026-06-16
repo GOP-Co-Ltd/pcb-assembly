@@ -48,7 +48,9 @@ class JobBridge(Protocol):
 
     def progress(self, stage: str, percent: float | None) -> None: ...
 
-    def frame(self, image: Image) -> None: ...
+    def frame(self, image: Image, *, persist: bool = False) -> None: ...
+
+    def clear_frame(self) -> None: ...
 
     def prompt(self, spec: PromptSpec) -> Answer: ...
 
@@ -131,9 +133,13 @@ class JobContext:
         """直近の進捗を record に保持し、WS "progress" イベントを発行する."""
         self._bridge.progress(stage, percent)
 
-    def frame(self, image: Image) -> None:
+    def frame(self, image: Image, *, persist: bool = False) -> None:
         """プレビューのオーバーライドスロットへフレームを書き込む."""
-        self._bridge.frame(image)
+        self._bridge.frame(image, persist=persist)
+
+    def clear_frame(self) -> None:
+        """プレビューのオーバーライドスロットを空にする."""
+        self._bridge.clear_frame()
 
     def prompt(self, spec: PromptSpec) -> Answer:
         """WAITING_INPUT へ遷移し、ユーザー応答までブロックする.
