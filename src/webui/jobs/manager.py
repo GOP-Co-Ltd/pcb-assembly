@@ -291,8 +291,11 @@ class _JobRuntime:
             }
         )
 
-    def frame(self, image: Image) -> None:
-        self._preview.submit_override(image)
+    def frame(self, image: Image, *, persist: bool = False) -> None:
+        self._preview.submit_override(image, persist=persist)
+
+    def clear_frame(self) -> None:
+        self._preview.clear_override()
 
     def prompt(self, spec: PromptSpec) -> Answer:
         self.checkpoint()

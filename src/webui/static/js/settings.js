@@ -18,6 +18,22 @@
         values[input.name] = Number(text);
       }
     }
+    for (const group of form.querySelectorAll("[data-pair-key]")) {
+      if (!group.classList.contains("settings-pair")) continue;
+      const key = group.dataset.pairKey;
+      const inputs = Array.from(group.querySelectorAll("input[data-pair-index]"))
+        .sort((a, b) => Number(a.dataset.pairIndex) - Number(b.dataset.pairIndex));
+      const texts = inputs.map((input) => input.value.trim());
+      if (texts.every((text) => text === "")) continue;
+      if (texts.some((text) => text === "")) {
+        throw new Error(`${key} は2つの数値で入力してください`);
+      }
+      const pair = texts.map((text) => Number(text));
+      if (pair.some((value) => Number.isNaN(value))) {
+        throw new Error(`${key} は2つの数値で入力してください`);
+      }
+      values[key] = pair;
+    }
     return values;
   }
 

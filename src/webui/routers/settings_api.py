@@ -9,7 +9,12 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from webui.app import JobsDep, StateDep, StoreDep
-from webui.config_store import MACHINE_FIELDS, ConfigStore, FieldSpec
+from webui.config_store import (
+    MACHINE_FIELDS,
+    ConfigStore,
+    FieldSpec,
+    MachineSettingValue,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -17,9 +22,9 @@ router = APIRouter(prefix="/api")
 class SettingsField(BaseModel):
     key: str
     label: str
-    value_type: Literal["float", "int", "str"]
+    value_type: Literal["float", "int", "str", "float_pair"]
     unit: str | None
-    value: float | int | str | None
+    value: MachineSettingValue | None
 
 
 class MachineSettingsResponse(BaseModel):
@@ -28,11 +33,11 @@ class MachineSettingsResponse(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    values: dict[str, float | int | str]
+    values: dict[str, MachineSettingValue]
 
 
 def _fields(
-    specs: tuple[FieldSpec, ...], values: Mapping[str, float | int | str | None]
+    specs: tuple[FieldSpec, ...], values: Mapping[str, MachineSettingValue | None]
 ) -> list[SettingsField]:
     return [
         SettingsField(

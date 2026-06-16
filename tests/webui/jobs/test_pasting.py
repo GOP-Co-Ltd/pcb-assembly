@@ -42,6 +42,7 @@ import cv2
 import pytest
 
 from tests.helpers import mark_hardware
+from tests.webui.conftest import decode_jpeg, jpeg_payload
 from webui.config_store import ConfigStore
 from webui.jobs.catalog import JobCatalog, default_catalog
 from webui.jobs.manager import JobManager, JobRecord, JobStatus
@@ -96,6 +97,17 @@ def _answer_next_prompt(
     assert pending is not None
     manager.respond_prompt(pending[0], answer)
     answered.add(pending[0])
+
+
+def _preview_frame(preview: PreviewService):
+    """プレビュー MJPEG の 1 フレームを公開経路から取得する."""
+    stream = preview.mjpeg_stream("none")
+    try:
+        frame = decode_jpeg(jpeg_payload(next(stream)))
+    finally:
+        stream.close()
+    assert frame is not None
+    return frame
 
 
 class TestCatalog:
@@ -391,6 +403,41 @@ class TestHeightPlaneFrontFlow:
 
         assert record.status == JobStatus.ABORTED
         assert record.apply_available is False
+
+    def test_planned_points_preview_stays_visible_while_confirm_waits(
+        self,
+        catalog: JobCatalog,
+        state: AppState,
+        fake_camera_settings: Settings,
+        copper_pcb_path: Path,
+        wait_until: WaitUntil,
+    ):
+        """Confirm 待ち中は planned_points プレビューを TTL で生カメラに戻さない."""
+        preview = PreviewService(state, override_ttl=0.0)
+        manager = JobManager(state, preview, catalog, fake_camera_settings)
+        state.select_pcb(copper_pcb_path)
+        record = manager.start("height_plane", {})
+        try:
+            wait_until(lambda: record.pending_prompt is not None, timeout=60.0)
+
+            png_path = (
+                fake_camera_settings.webui_data_dir / record.id / "planned_points.png"
+            )
+            planned = cv2.imread(str(png_path))
+            assert planned is not None
+            frame = _preview_frame(preview)
+            assert frame.shape == planned.shape
+            assert cv2.absdiff(frame, planned).mean() < 5.0
+
+            pending = record.pending_prompt
+            assert pending is not None
+            manager.respond_prompt(pending[0], False)
+            wait_until(lambda: record.status.terminal, timeout=60.0)
+
+            cleared = _preview_frame(preview)
+            assert cleared.shape == (720, 1280, 3)
+        finally:
+            manager.shutdown()
 
     def test_confirm_true_fails_gracefully_without_klipper(
         self,
