@@ -1,7 +1,18 @@
 "use strict";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const MARGIN_MM = 2;
+const MARGIN_MM = 4;
+const AXIS_OFFSET_MM = 0.9;
+const AXIS_TICK_MM = 0.35;
+const ROUTE_COLORS = [
+  "#d33f49",
+  "#e67700",
+  "#c99700",
+  "#2b9348",
+  "#009e9a",
+  "#2474bf",
+  "#7048e8",
+];
 
 export function renderViewer(svg, config, state) {
   svg.replaceChildren();
@@ -29,6 +40,7 @@ export function renderViewer(svg, config, state) {
   outlineEl.setAttribute("vector-effect", "non-scaling-stroke");
   outlineEl.dataset.testid = "pad-outline";
   svg.appendChild(outlineEl);
+  renderOutlineAxes(svg, minX, minY, width, height);
 
   for (const pad of config.pads) {
     const el = document.createElementNS(SVG_NS, "polygon");
@@ -144,8 +156,127 @@ function renderRouteOverlay(svg, route) {
   if (!route || route.pads.length === 0) return;
 
   const defs = document.createElementNS(SVG_NS, "defs");
+  svg.appendChild(defs);
+
+  const group = document.createElementNS(SVG_NS, "g");
+  group.setAttribute("class", "pad-route-overlay");
+  group.dataset.testid = "pad-route-overlay";
+  const segmentCount = route.pads.length - 1;
+
+  for (let index = 0; index < segmentCount; index += 1) {
+    const from = route.pads[index];
+    const to = route.pads[index + 1];
+    const color = routeColor(index, segmentCount);
+    const markerId = `pad-route-arrow-${index}`;
+    appendArrowMarker(defs, markerId, color);
+    const line = document.createElementNS(SVG_NS, "line");
+    line.setAttribute("x1", from.center[0]);
+    line.setAttribute("y1", from.center[1]);
+    line.setAttribute("x2", to.center[0]);
+    line.setAttribute("y2", to.center[1]);
+    line.setAttribute("class", "pad-route-segment");
+    line.setAttribute("stroke", color);
+    line.setAttribute("vector-effect", "non-scaling-stroke");
+    line.setAttribute("marker-end", `url(#${markerId})`);
+    line.dataset.testid = "pad-route-segment";
+    line.dataset.fromPadId = from.id;
+    line.dataset.toPadId = to.id;
+    line.dataset.routeColor = color;
+    group.appendChild(line);
+  }
+
+  appendEndpoint(group, route.pads[0], "start", "S");
+  appendEndpoint(group, route.pads[route.pads.length - 1], "end", "E");
+  svg.appendChild(group);
+}
+
+function renderOutlineAxes(svg, minX, minY, width, height) {
+  const maxX = minX + width;
+  const maxY = minY + height;
+  const axis = document.createElementNS(SVG_NS, "g");
+  axis.setAttribute("class", "pad-axis");
+  axis.dataset.testid = "pad-axis";
+
+  const xAxisY = maxY + AXIS_OFFSET_MM;
+  appendAxisLine(axis, minX, xAxisY, maxX, xAxisY);
+  const xTicks = axisTicks(width);
+  for (const [index, tick] of xTicks.entries()) {
+    const x = minX + tick;
+    appendAxisLine(axis, x, xAxisY - AXIS_TICK_MM, x, xAxisY + AXIS_TICK_MM);
+    appendAxisLabel(
+      axis,
+      x,
+      xAxisY + AXIS_TICK_MM + 0.5,
+      axisTickLabel(tick, index === xTicks.length - 1),
+      "middle"
+    );
+  }
+
+  const yAxisX = minX - AXIS_OFFSET_MM;
+  appendAxisLine(axis, yAxisX, minY, yAxisX, maxY);
+  const yTicks = axisTicks(height);
+  for (const [index, tick] of yTicks.entries()) {
+    const y = minY + tick;
+    appendAxisLine(axis, yAxisX - AXIS_TICK_MM, y, yAxisX + AXIS_TICK_MM, y);
+    appendAxisLabel(
+      axis,
+      yAxisX - AXIS_TICK_MM - 0.18,
+      y + 0.18,
+      axisTickLabel(tick, index === yTicks.length - 1),
+      "end"
+    );
+  }
+
+  svg.appendChild(axis);
+}
+
+function appendAxisLine(group, x1, y1, x2, y2) {
+  const line = document.createElementNS(SVG_NS, "line");
+  line.setAttribute("class", "pad-axis-line");
+  line.setAttribute("x1", x1);
+  line.setAttribute("y1", y1);
+  line.setAttribute("x2", x2);
+  line.setAttribute("y2", y2);
+  line.setAttribute("vector-effect", "non-scaling-stroke");
+  group.appendChild(line);
+}
+
+function appendAxisLabel(group, x, y, label, anchor) {
+  const text = document.createElementNS(SVG_NS, "text");
+  text.setAttribute("class", "pad-axis-label");
+  text.setAttribute("x", x);
+  text.setAttribute("y", y);
+  text.setAttribute("text-anchor", anchor);
+  text.textContent = label;
+  text.dataset.testid = "pad-axis-label";
+  group.appendChild(text);
+}
+
+function axisTicks(length) {
+  const roundedLength = roundAxisValue(length);
+  const step = roundedLength <= 8 ? 2 : roundedLength <= 25 ? 5 : 10;
+  const ticks = [0];
+  for (let tick = step; tick < roundedLength; tick += step) {
+    ticks.push(roundAxisValue(tick));
+  }
+  if (roundedLength > 0 && ticks[ticks.length - 1] !== roundedLength) {
+    ticks.push(roundedLength);
+  }
+  return ticks;
+}
+
+function axisTickLabel(value, includesUnit) {
+  const label = roundAxisValue(value).toString();
+  return includesUnit ? `${label} mm` : label;
+}
+
+function roundAxisValue(value) {
+  return Number(value.toFixed(4));
+}
+
+function appendArrowMarker(defs, id, color) {
   const marker = document.createElementNS(SVG_NS, "marker");
-  marker.setAttribute("id", "pad-route-arrow");
+  marker.setAttribute("id", id);
   marker.setAttribute("viewBox", "0 0 10 10");
   marker.setAttribute("refX", "8");
   marker.setAttribute("refY", "5");
@@ -155,34 +286,39 @@ function renderRouteOverlay(svg, route) {
   const arrow = document.createElementNS(SVG_NS, "path");
   arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
   arrow.setAttribute("class", "pad-route-arrow-head");
+  arrow.setAttribute("fill", color);
   marker.appendChild(arrow);
   defs.appendChild(marker);
-  svg.appendChild(defs);
+}
 
-  const group = document.createElementNS(SVG_NS, "g");
-  group.setAttribute("class", "pad-route-overlay");
-  group.dataset.testid = "pad-route-overlay";
+function routeColor(index, segmentCount) {
+  if (segmentCount <= 1) return ROUTE_COLORS[0];
+  const scaledIndex = (index / (segmentCount - 1)) * (ROUTE_COLORS.length - 1);
+  const fromIndex = Math.floor(scaledIndex);
+  const toIndex = Math.min(fromIndex + 1, ROUTE_COLORS.length - 1);
+  return mixHexColor(
+    ROUTE_COLORS[fromIndex],
+    ROUTE_COLORS[toIndex],
+    scaledIndex - fromIndex
+  );
+}
 
-  for (let index = 0; index < route.pads.length - 1; index += 1) {
-    const from = route.pads[index];
-    const to = route.pads[index + 1];
-    const line = document.createElementNS(SVG_NS, "line");
-    line.setAttribute("x1", from.center[0]);
-    line.setAttribute("y1", from.center[1]);
-    line.setAttribute("x2", to.center[0]);
-    line.setAttribute("y2", to.center[1]);
-    line.setAttribute("class", "pad-route-segment");
-    line.setAttribute("vector-effect", "non-scaling-stroke");
-    line.setAttribute("marker-end", "url(#pad-route-arrow)");
-    line.dataset.testid = "pad-route-segment";
-    line.dataset.fromPadId = from.id;
-    line.dataset.toPadId = to.id;
-    group.appendChild(line);
-  }
+function mixHexColor(from, to, ratio) {
+  const fromRgb = hexToRgb(from);
+  const toRgb = hexToRgb(to);
+  const mixed = fromRgb.map((channel, index) =>
+    Math.round(channel + (toRgb[index] - channel) * ratio)
+  );
+  const hex = mixed
+    .map((channel) => channel.toString(16).padStart(2, "0"))
+    .join("");
+  return `#${hex}`;
+}
 
-  appendEndpoint(group, route.pads[0], "start", "S");
-  appendEndpoint(group, route.pads[route.pads.length - 1], "end", "E");
-  svg.appendChild(group);
+function hexToRgb(value) {
+  return [1, 3, 5].map((start) =>
+    Number.parseInt(value.slice(start, start + 2), 16)
+  );
 }
 
 function appendEndpoint(group, pad, kind, label) {

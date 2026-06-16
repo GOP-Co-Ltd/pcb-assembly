@@ -383,7 +383,7 @@ class TestPasteSolderPadEditor:
         assert "全無効" in text
         assert 'id="pad-table"' in text
         assert 'id="pad-editor-empty"' in text
-        assert 'id="pad-outline-size"' in text
+        assert 'id="pad-outline-size"' not in text
         assert 'id="pad-export-config"' in text
         assert 'id="pad-import-config"' in text
         assert "面積あたりのペースト量" in text
