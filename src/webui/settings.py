@@ -37,6 +37,11 @@ class Settings:
         PROJECT_ROOT / "data" / "testing" / "webui" / "fake_camera.png"
     )
 
+    @property
+    def webui_data_dir(self) -> Path:
+        """WebUI が所有する永続データのルート."""
+        return self.data_dir / "webui"
+
     @classmethod
     def from_env(cls) -> Settings:
         """環境変数を反映した Settings を生成する.

@@ -15,8 +15,10 @@ from .grouping import (
     HierKey,
     PadHierarchy,
     PadHierarchyNode,
+    PadRef,
     PadShapeKey,
     build_pad_hierarchy,
+    pad_id_from_ref,
 )
 from .kicad import PcbFile
 
@@ -32,8 +34,10 @@ __all__ = [
     "PadHierarchy",
     "PadHierarchyNode",
     "PadList",
+    "PadRef",
     "PadShapeKey",
     "PNP_CSV_HEADER",
     "PcbFile",
     "build_pad_hierarchy",
+    "pad_id_from_ref",
 ]

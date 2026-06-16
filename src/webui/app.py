@@ -6,12 +6,14 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, override
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.responses import Response
 
 from webui.board_settings import BoardSettingsStore
 from webui.config_store import ConfigStore, UnknownFieldError
@@ -22,6 +24,25 @@ from webui.settings import Settings
 from webui.state import AppState, BusyError
 
 _PACKAGE_DIR = Path(__file__).parent
+_STATIC_DIR = _PACKAGE_DIR / "static"
+_STATIC_CACHE_CONTROL = "no-cache, max-age=0, must-revalidate"
+
+
+class _NoCacheStaticFiles(StaticFiles):
+    """静的アセットに再検証ヘッダを付ける StaticFiles."""
+
+    @override
+    async def get_response(self, path: str, scope) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = _STATIC_CACHE_CONTROL
+        return response
+
+
+def _static_asset_url(path: str) -> str:
+    normalized = path.lstrip("/")
+    asset_path = _STATIC_DIR / normalized
+    version = asset_path.stat().st_mtime_ns if asset_path.is_file() else 0
+    return f"/static/{quote(normalized, safe='/')}?v={version}"
 
 
 def get_state(request: Request) -> AppState:
@@ -98,13 +119,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.appstate = state
     app.state.preview = preview
     app.state.catalog = catalog
-    app.state.board_store = BoardSettingsStore(settings.data_dir)
+    app.state.board_store = BoardSettingsStore(
+        settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
+    )
     app.state.jobs = JobManager(state, preview, catalog, settings)
     app.state.templates = Jinja2Templates(directory=_PACKAGE_DIR / "templates")
-    app.mount("/static", StaticFiles(directory=_PACKAGE_DIR / "static"), name="static")
+    app.state.templates.env.globals["static_asset"] = _static_asset_url
+    app.mount("/static", _NoCacheStaticFiles(directory=_STATIC_DIR), name="static")
 
     # ジョブ成果物の配信（data/webui/<job_id>/...。traversal 防止は StaticFiles）
-    artifacts_dir = settings.data_dir / "webui"
+    artifacts_dir = settings.webui_data_dir
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/artifacts", StaticFiles(directory=artifacts_dir), name="artifacts")
 

@@ -9,14 +9,16 @@ node_id 規約（フロントと共有する契約）:
 
 - ``HierKey`` tuple ⇔ node_id 文字列は ``":".join(key)`` / ``tuple(s.split(":"))``
 - L0 = ``"L0"``、L1 = ``"L1:{package}"``、L2 = ``"L2:{designator}"``、
-  L3 = ``"L3:{designator}:{shape_label}"``、L4 = ``"L4:{designator}:{pad_number}"``
-- pad id = ``f"{designator}.{pad_number}"``
+  L3 = ``"L3:{designator}:{shape_label}"``、L4 = ``"L4:{designator}:{pad_ref}"``
+- pad id = ``f"{designator}.{pad_ref}"``。通常 ``pad_ref == pad_number``。
+  同一 pad number の分割 pad は ``#1`` / ``#2`` suffix で区別する。
 """
 
 from __future__ import annotations
 
 import attrs
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from pcbasm.config import PasteDispenser
@@ -37,7 +39,7 @@ from pcbasm.pcb import (
     build_pad_hierarchy,
 )
 from webui.app import BoardStoreDep, SettingsDep, StateDep
-from webui.board_settings import BoardSettingsStore
+from webui.board_settings import BoardSettingsStore, board_signature
 from webui.settings import Settings
 from webui.state import AppState
 
@@ -64,6 +66,7 @@ class PadInfo(BaseModel):
     """1 pad のジオメトリと解決済み設定."""
 
     id: str
+    node_ids: list[str]
     designator: str
     pad_number: str
     package: str
@@ -98,7 +101,7 @@ class PadConfigResponse(BaseModel):
     outline: list[list[float]]
     width: float
     height: float
-    defaults: ResolvedSettings  # L0（base + base_enabled）を解決した値
+    defaults: ResolvedSettings  # machine.toml 由来の基板デフォルト
     tree: HierNodeInfo  # L0 ルートの階層ツリー（構造のみ）
     pads: list[PadInfo]
     overrides: dict[str, NodeOverrideInfo]  # node_id -> 明示 override（疎、L0 含む）
@@ -118,6 +121,12 @@ class PadEnablePatch(BaseModel):
 
     ids: list[str]
     enabled: bool
+
+
+class PadConfigImport(BaseModel):
+    """POST /api/pasting/pad-config/import のリクエスト."""
+
+    document: dict
 
 
 class AffectedPad(BaseModel):
@@ -153,10 +162,6 @@ def _resolved_settings(resolved: ResolvedPaste) -> ResolvedSettings:
     return ResolvedSettings(**attrs.asdict(resolved))
 
 
-def _pad_id(pad: Pad) -> str:
-    return f"{pad.designator}.{pad.pad_number}"
-
-
 def _tree(node: PadHierarchyNode) -> HierNodeInfo:
     return HierNodeInfo(
         id=_node_id(node.key),
@@ -175,12 +180,8 @@ def _override_values(override: PasteOverride) -> dict[str, float]:
 
 
 def _overrides(model: PasteSettingsModel) -> dict[str, NodeOverrideInfo]:
-    """model.base/base_enabled（L0）と model.levels を node_id キーへ変換する."""
-    result: dict[str, NodeOverrideInfo] = {
-        "L0": NodeOverrideInfo(
-            enabled=model.base_enabled, values=_override_values(model.base)
-        )
-    }
+    """model.levels の明示 override を node_id キーへ変換する."""
+    result: dict[str, NodeOverrideInfo] = {}
     for key, setting in model.levels.items():
         result[_node_id(key)] = NodeOverrideInfo(
             enabled=setting.enabled, values=_override_values(setting.override)
@@ -189,9 +190,9 @@ def _overrides(model: PasteSettingsModel) -> dict[str, NodeOverrideInfo]:
 
 
 def _resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
-    """L0（base + base_enabled）だけを解決した既定値.
+    """machine.toml 由来の基板既定値を返す.
 
-    ``model.base`` は L0 デフォルトで全 7 項目が確定（非 None）。
+    ``model.base`` は machine.toml 由来で全 7 項目が確定（非 None）。
     """
     return ResolvedSettings(
         enabled=model.base_enabled,
@@ -199,9 +200,16 @@ def _resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
     )
 
 
-def _pad_info(pad: Pad, package: str, resolved: ResolvedPaste) -> PadInfo:
+def _pad_info(
+    pad: Pad,
+    pad_id: str,
+    package: str,
+    node_ids: list[str],
+    resolved: ResolvedPaste,
+) -> PadInfo:
     return PadInfo(
-        id=_pad_id(pad),
+        id=pad_id,
+        node_ids=node_ids,
         designator=pad.designator,
         pad_number=pad.pad_number,
         package=package,
@@ -223,6 +231,7 @@ class _Loaded:
     base_config: PasteDispenser
     pcb: PcbFile
     hierarchy: PadHierarchy
+    board_signature: str
     model: PasteSettingsModel
 
 
@@ -243,13 +252,17 @@ def _load(
     machine = state.selected_machine
     base_config = state.machine().paste_dispenser
     hierarchy = build_pad_hierarchy(pcb.components, pcb.pads)
-    model = board_store.load_or_init(machine, source_pcb, base_config)
+    signature = board_signature(hierarchy)
+    model = board_store.load_or_init(
+        machine, source_pcb, base_config, board_signature=signature
+    )
     return _Loaded(
         source_pcb=source_pcb,
         machine=machine,
         base_config=base_config,
         pcb=pcb,
         hierarchy=hierarchy,
+        board_signature=signature,
         model=model,
     )
 
@@ -266,8 +279,10 @@ def _build_pad_config(loaded: _Loaded) -> PadConfigResponse:
     pads = [
         _pad_info(
             pad,
+            hierarchy.pad_id_for_pad(pad),
             package_by_designator.get(pad.designator, ""),
-            resolved[(pad.designator, pad.pad_number)],
+            [_node_id(key) for key in hierarchy.node_keys_for_pad(pad)],
+            resolved[hierarchy.pad_ref_for_pad(pad)],
         )
         for pad in hierarchy.iter_pads()
     ]
@@ -295,10 +310,10 @@ def _affected_pads(node: str, loaded: _Loaded) -> list[AffectedPad]:
         keys = loaded.hierarchy.node_keys_for_pad(pad)
         if key not in keys:
             continue
-        paste = resolved[(pad.designator, pad.pad_number)]
+        paste = resolved[loaded.hierarchy.pad_ref_for_pad(pad)]
         affected.append(
             AffectedPad(
-                id=_pad_id(pad),
+                id=loaded.hierarchy.pad_id_for_pad(pad),
                 enabled=paste.enabled,
                 resolved=_resolved_settings(paste),
             )
@@ -328,25 +343,12 @@ def _apply_node_patch(
     _check_known_fields(list(patch.values))
     _check_known_fields(patch.clear)
 
-    enabled_sent = "enabled" in patch.model_fields_set
-    if patch.node == "L0":
-        return _apply_l0_patch(model, patch, enabled_sent)
-    return _apply_level_patch(model, patch, hierarchy, enabled_sent)
-
-
-def _apply_l0_patch(
-    model: PasteSettingsModel, patch: NodePatch, enabled_sent: bool
-) -> PasteSettingsModel:
-    base = attrs.evolve(model.base, **patch.values)
-    base_enabled = model.base_enabled
-    if enabled_sent:
-        # L0 は常に bool（継承元が無い）。null は不許可。
-        if patch.enabled is None:
-            raise HTTPException(
-                status_code=400, detail="L0 の enabled は null にできません"
-            )
-        base_enabled = patch.enabled
-    return attrs.evolve(model, base=base, base_enabled=base_enabled)
+    return _apply_level_patch(
+        model,
+        patch,
+        hierarchy,
+        enabled_sent="enabled" in patch.model_fields_set,
+    )
 
 
 def _apply_level_patch(
@@ -400,7 +402,12 @@ def patch_pad_config_node(
     """ノードの enabled/values upsert・clear を適用し、影響 pad を返す."""
     loaded = _load(state, settings, board_store)
     new_model = _apply_node_patch(loaded.model, body, loaded.hierarchy)
-    board_store.save(loaded.machine, loaded.source_pcb, new_model)
+    board_store.save(
+        loaded.machine,
+        loaded.source_pcb,
+        new_model,
+        board_signature=loaded.board_signature,
+    )
     updated = attrs.evolve(loaded, model=new_model)
     return PatchResponse(affected_pads=_affected_pads(body.node, updated))
 
@@ -416,22 +423,32 @@ def patch_pad_config_pads(
     loaded = _load(state, settings, board_store)
     model = loaded.model
     for pad_id in body.ids:
-        designator, _, pad_number = pad_id.partition(".")
-        patch = NodePatch(node=f"L4:{designator}:{pad_number}", enabled=body.enabled)
+        try:
+            l4_key = loaded.hierarchy.l4_key_for_pad_id(pad_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"未知の pad です: {pad_id}"
+            ) from exc
+        patch = NodePatch(node=_node_id(l4_key), enabled=body.enabled)
         model = _apply_node_patch(model, patch, loaded.hierarchy)
-    board_store.save(loaded.machine, loaded.source_pcb, model)
+    board_store.save(
+        loaded.machine,
+        loaded.source_pcb,
+        model,
+        board_signature=loaded.board_signature,
+    )
 
     resolved = resolve_pad_settings(loaded.hierarchy, model)
     id_set = set(body.ids)
     affected = [
         AffectedPad(
-            id=_pad_id(pad),
+            id=loaded.hierarchy.pad_id_for_pad(pad),
             enabled=paste.enabled,
             resolved=_resolved_settings(paste),
         )
         for pad in loaded.hierarchy.iter_pads()
-        if _pad_id(pad) in id_set
-        for paste in (resolved[(pad.designator, pad.pad_number)],)
+        if loaded.hierarchy.pad_id_for_pad(pad) in id_set
+        for paste in (resolved[loaded.hierarchy.pad_ref_for_pad(pad)],)
     ]
     return PatchResponse(affected_pads=affected)
 
@@ -447,5 +464,60 @@ def reset_pad_config(
         base_enabled=True,
         levels={},
     )
-    board_store.save(loaded.machine, loaded.source_pcb, fresh)
+    board_store.save(
+        loaded.machine,
+        loaded.source_pcb,
+        fresh,
+        board_signature=loaded.board_signature,
+    )
     return _build_pad_config(attrs.evolve(loaded, model=fresh))
+
+
+@router.get("/pasting/pad-config/export")
+def export_pad_config(
+    state: StateDep, settings: SettingsDep, board_store: BoardStoreDep
+) -> JSONResponse:
+    """現在の基板 override 設定をダウンロード用 JSON として返す."""
+    loaded = _load(state, settings, board_store)
+    doc = board_store.export_doc(
+        loaded.machine,
+        loaded.source_pcb,
+        loaded.model,
+        board_signature=loaded.board_signature,
+    )
+    filename = (
+        f"pcbasm-paste-overrides-" f"{board_store.board_id(loaded.source_pcb)}.json"
+    )
+    return JSONResponse(
+        content=doc,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/pasting/pad-config/import")
+def import_pad_config(
+    body: PadConfigImport,
+    state: StateDep,
+    settings: SettingsDep,
+    board_store: BoardStoreDep,
+) -> PadConfigResponse:
+    """アップロードされた基板 override 設定を検証して保存し、最新設定を返す."""
+    loaded = _load(state, settings, board_store)
+    try:
+        model = board_store.model_from_doc(
+            body.document,
+            loaded.base_config,
+            board_signature=loaded.board_signature,
+            expected_machine=loaded.machine,
+            expected_source_pcb=loaded.source_pcb,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    pruned = board_store.prune(
+        loaded.machine,
+        loaded.source_pcb,
+        model,
+        loaded.hierarchy,
+        board_signature=loaded.board_signature,
+    )
+    return _build_pad_config(attrs.evolve(loaded, model=pruned))

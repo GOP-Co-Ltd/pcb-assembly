@@ -3,7 +3,7 @@
 計画書 Phase 3「src/webui/board_settings.py」節が契約:
 
 - board_id は source_pcb（相対 posix パス）から安定して導出され、別パスでは衝突しない
-- load_or_init: 未存在 → machine.toml 由来の L0、存在 → 復元
+- load_or_init: 未存在 → machine.toml 由来の defaults、存在 → 差分復元
 - save → load の round-trip
 - JSON に version / source_pcb / machine / settings が入る（ネスト方式の契約ピン）
 - prune は orphan キーを除去して保存する
@@ -14,6 +14,7 @@ PcbFile / pcbnew には依存しない。``PasteSettingsModel`` / ``PadHierarchy
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -26,10 +27,9 @@ from pcbasm.pasting import (
     LevelSetting,
     PasteOverride,
     PasteSettingsModel,
-    settings_to_dict,
 )
 from pcbasm.pcb import Component, Layer, Pad, build_pad_hierarchy
-from webui.board_settings import BoardSettingsStore
+from webui.board_settings import BoardSettingsStore, board_signature
 
 
 def _base_config() -> PasteDispenser:
@@ -70,6 +70,15 @@ def _hierarchy():
     pads = [
         Pad("U1", "1", "n1", Layer.TOP, _square(0, 0)),
         Pad("U1", "2", "n2", Layer.TOP, _square(2, 0)),
+    ]
+    return build_pad_hierarchy(components, pads)
+
+
+def _duplicate_pad_number_hierarchy():
+    components = [Component("U1", "x", "LFCSP-24", Point2d(0.0, 0.0), 0.0, Layer.TOP)]
+    pads = [
+        Pad("U1", "", "gnd", Layer.TOP, _square(0, 0)),
+        Pad("U1", "", "gnd", Layer.TOP, _square(2, 0)),
     ]
     return build_pad_hierarchy(components, pads)
 
@@ -116,21 +125,25 @@ class TestLoadOrInit:
         store.load_or_init("kurousagi", "boards/a.kicad_pcb", _base_config())
         assert list(tmp_path.rglob("*.json")) == []
 
-    def test_load_restores_saved_model(self, tmp_path: Path):
+    def test_load_restores_saved_l0_and_level_overrides(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
         model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
-            base_enabled=False,
-            levels={("L2", "U1"): LevelSetting(enabled=True)},
+            levels={
+                ("L0",): LevelSetting(enabled=False),
+                ("L2", "U1"): LevelSetting(enabled=True),
+            },
         )
         store.save("kurousagi", "boards/a.kicad_pcb", edited)
 
         loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
 
-        assert loaded.base_enabled is False
+        assert loaded.base_enabled is True
+        assert loaded.levels[("L0",)].enabled is False
         assert loaded.levels[("L2", "U1")].enabled is True
+        assert loaded.base.fill_speed == config.fill_speed
 
 
 class TestRoundTrip:
@@ -177,7 +190,51 @@ class TestJsonShape:
         assert doc["version"] == 1
         assert doc["source_pcb"] == "boards/a.kicad_pcb"
         assert doc["machine"] == "kurousagi"
-        assert doc["settings"] == settings_to_dict(model)
+        assert doc["settings"] == {"levels": []}
+        assert "base" not in doc["settings"]
+        assert "base_enabled" not in doc["settings"]
+
+    def test_board_signature_keeps_legacy_l4_key_for_duplicate_pad_numbers(self):
+        hierarchy = _duplicate_pad_number_hierarchy()
+        records = []
+        for pad in hierarchy.iter_pads():
+            records.append(
+                {
+                    "id": f"{pad.designator}.{pad.pad_number}",
+                    "layer": pad.layer.value,
+                    "node_keys": [
+                        ["L0"],
+                        ["L1", "LFCSP-24"],
+                        ["L2", "U1"],
+                        ["L3", "U1", "1.00x1.00mm"],
+                        ["L4", "U1", ""],
+                    ],
+                    "polygon": [[x, y] for x, y in pad.polygon.exterior.coords],
+                }
+            )
+        payload = json.dumps(records, sort_keys=True, separators=(",", ":"))
+        expected = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+        assert board_signature(hierarchy) == expected
+
+    def test_doc_can_include_board_signature(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        hierarchy = _hierarchy()
+        signature = board_signature(hierarchy)
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+
+        store.save(
+            "kurousagi",
+            "boards/a.kicad_pcb",
+            model,
+            board_signature=signature,
+        )
+
+        board_id = store.board_id("boards/a.kicad_pcb")
+        path = tmp_path / "board_settings" / "kurousagi" / f"{board_id}.json"
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        assert doc["board_signature"] == signature
 
     def test_unknown_version_raises(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
@@ -188,6 +245,154 @@ class TestJsonShape:
 
         with pytest.raises(ValueError):
             store.load_or_init("kurousagi", "boards/a.kicad_pcb", _base_config())
+
+    def test_legacy_root_is_read_only_fallback(self, tmp_path: Path):
+        current = tmp_path / "current"
+        legacy = tmp_path / "legacy" / "board_settings"
+        store = BoardSettingsStore(current, legacy_root=legacy)
+        config = _base_config()
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        edited = PasteSettingsModel(
+            base=model.base,
+            levels={
+                ("L0",): LevelSetting(enabled=False),
+                ("L2", "U1"): LevelSetting(enabled=True),
+            },
+        )
+        legacy_store = BoardSettingsStore(tmp_path / "legacy")
+        legacy_store.save("kurousagi", "boards/a.kicad_pcb", edited)
+
+        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+
+        assert loaded.levels[("L0",)].enabled is False
+        assert list(current.rglob("*.json")) == []
+
+    def test_legacy_base_equal_to_machine_config_is_not_l0_override(
+        self, tmp_path: Path
+    ):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        board_id = store.board_id("boards/a.kicad_pcb")
+        path = tmp_path / "board_settings" / "kurousagi" / f"{board_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "source_pcb": "boards/a.kicad_pcb",
+                    "machine": "kurousagi",
+                    "settings": {
+                        "base": {
+                            "fill_speed": config.fill_speed,
+                            "paste_height": config.paste_height,
+                            "ul_per_mm2": config.ul_per_mm2,
+                            "prime_extra_delay": config.prime_extra_delay,
+                            "bead_width_factor": config.bead_width_factor,
+                            "overlap": config.overlap,
+                            "boundary_margin": config.boundary_margin,
+                        },
+                        "base_enabled": True,
+                        "levels": [],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+
+        assert ("L0",) not in loaded.levels
+
+    def test_legacy_base_difference_becomes_l0_override(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        old_model = PasteSettingsModel(
+            base=PasteOverride(
+                fill_speed=0.4,
+                paste_height=config.paste_height,
+                ul_per_mm2=config.ul_per_mm2,
+                prime_extra_delay=config.prime_extra_delay,
+                bead_width_factor=config.bead_width_factor,
+                overlap=config.overlap,
+                boundary_margin=config.boundary_margin,
+            ),
+            base_enabled=True,
+        )
+        board_id = store.board_id("boards/a.kicad_pcb")
+        path = tmp_path / "board_settings" / "kurousagi" / f"{board_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "source_pcb": "boards/a.kicad_pcb",
+                    "machine": "kurousagi",
+                    "settings": {
+                        "base": {
+                            "fill_speed": old_model.base.fill_speed,
+                            "paste_height": old_model.base.paste_height,
+                            "ul_per_mm2": old_model.base.ul_per_mm2,
+                            "prime_extra_delay": old_model.base.prime_extra_delay,
+                            "bead_width_factor": old_model.base.bead_width_factor,
+                            "overlap": old_model.base.overlap,
+                            "boundary_margin": old_model.base.boundary_margin,
+                        },
+                        "base_enabled": True,
+                        "levels": [],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+
+        assert loaded.base.fill_speed == config.fill_speed
+        assert loaded.levels[("L0",)].override.fill_speed == 0.4
+
+    def test_signature_mismatch_initializes_fresh_model(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        edited = PasteSettingsModel(
+            base=model.base,
+            levels={("L2", "U1"): LevelSetting(enabled=True)},
+        )
+        store.save(
+            "kurousagi",
+            "boards/a.kicad_pcb",
+            edited,
+            board_signature="old-signature",
+        )
+
+        loaded = store.load_or_init(
+            "kurousagi",
+            "boards/a.kicad_pcb",
+            config,
+            board_signature="new-signature",
+        )
+
+        assert loaded.levels == {}
+
+    def test_model_from_doc_rejects_mismatched_signature(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        doc = store.export_doc(
+            "kurousagi",
+            "boards/a.kicad_pcb",
+            model,
+            board_signature="old-signature",
+        )
+
+        with pytest.raises(ValueError):
+            store.model_from_doc(
+                doc,
+                config,
+                board_signature="new-signature",
+                expected_machine="kurousagi",
+                expected_source_pcb="boards/a.kicad_pcb",
+            )
 
 
 class TestPrune:

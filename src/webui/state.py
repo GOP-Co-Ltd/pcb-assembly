@@ -50,7 +50,8 @@ class AppState:
         self._store = store
         self._lock = threading.Lock()
         self._busy_owner: str | None = None
-        self._state_path = settings.data_dir / _STATE_FILENAME
+        self._state_path = settings.webui_data_dir / _STATE_FILENAME
+        self._legacy_state_path = settings.data_dir / _STATE_FILENAME
         # カメラ/FrameHub の遅延構築用（machine_lock とは別の内部ロック）
         self._camera_lock = threading.Lock()
         self._frame_hub: FrameHub | None = None
@@ -201,8 +202,11 @@ class AppState:
             self.release_machine()
 
     def _load_persisted(self) -> dict[str, str | None]:
+        path = (
+            self._state_path if self._state_path.is_file() else self._legacy_state_path
+        )
         try:
-            data = json.loads(self._state_path.read_text())
+            data = json.loads(path.read_text())
         except (OSError, ValueError):
             return {}
         if not isinstance(data, dict):

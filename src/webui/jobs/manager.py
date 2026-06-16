@@ -403,8 +403,10 @@ class JobManager:
         self._catalog = catalog
         self._settings = settings
         self._log_capacity = log_capacity
-        self._artifacts_root = settings.data_dir / "webui"
-        self._board_store = BoardSettingsStore(settings.data_dir)
+        self._artifacts_root = settings.webui_data_dir
+        self._board_store = BoardSettingsStore(
+            settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
+        )
 
         self._lock = threading.Lock()
         self._record: JobRecord | None = None

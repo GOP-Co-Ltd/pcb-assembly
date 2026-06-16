@@ -41,7 +41,7 @@ def dev_manager(make_manager: ManagerFactory) -> JobManager:
 
 def _artifact_file(settings: Settings, path: str) -> Path:
     """Artifact.path（data/webui からの相対）を実ファイルパスに解決する."""
-    return settings.data_dir / "webui" / path
+    return settings.webui_data_dir / path
 
 
 def _pending_prompt(manager: JobManager) -> tuple[str, PromptSpec] | None:

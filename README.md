@@ -35,6 +35,7 @@ make setup
 ```sh
 make webui      # 起動
 make webui-dev  # 開発用（auto-reload）
+make webui-fake # fake camera + 隔離 data_dir で起動
 ```
 
 環境変数で動作を切り替えられる（全量は `src/webui/settings.py`）:
@@ -42,3 +43,10 @@ make webui-dev  # 開発用（auto-reload）
 - `PCBASM_WEBUI_FAKE_CAMERA=1` — カメラ実機なしで固定画像を配信
 - `PCBASM_WEBUI_CONFIGS_ROOT` — configsルートの差し替え
 - `PCBASM_WEBUI_DATA_DIR` — 成果物・状態ファイルの保存先
+
+WebUI のブラウザ E2E は実 uvicorn と Chromium で検証する:
+
+```sh
+make test-e2e
+make playwright-install  # /usr/bin/chromium が無い環境向け
+```

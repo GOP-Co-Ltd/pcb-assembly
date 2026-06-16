@@ -6,8 +6,8 @@
 設定モデルは override 思想:
 
 - :class:`PasteOverride` の各項目は ``None`` = 継承（上位レベルの値を使う）
-- :class:`PasteSettingsModel.base` が全項目確定の L0 デフォルト
-- :class:`PasteSettingsModel.levels` が L1–L4 の疎マップ
+- :class:`PasteSettingsModel.base` が machine.toml 由来の全項目確定デフォルト
+- :class:`PasteSettingsModel.levels` が L0–L4 の疎マップ
 - 解決時は各 pad で L0→L4 を辿り、非 None 項目で上書き（**最具体が勝つ**）
 """
 
@@ -16,7 +16,7 @@ from collections.abc import Sequence
 import attrs
 
 from pcbasm.config import PasteDispenser
-from pcbasm.pcb.grouping import HierKey, PadHierarchy
+from pcbasm.pcb.grouping import HierKey, PadHierarchy, PadRef
 
 # override 可能な7項目のフィールド名（解決・JSON 変換の正準順）
 PASTE_OVERRIDE_FIELDS: tuple[str, ...] = (
@@ -93,9 +93,9 @@ class PasteSettingsModel:
     """基板1枚分の塗布設定モデル.
 
     Attributes:
-        base: L0 デフォルト（全項目確定）
-        base_enabled: L0 の有効/無効
-        levels: L1–L4 の疎マップ（``HierKey`` -> 設定）
+        base: machine.toml 由来のデフォルト（全項目確定）
+        base_enabled: machine.toml 由来の有効/無効既定
+        levels: L0–L4 の疎マップ（``HierKey`` -> 設定）
     """
 
     base: PasteOverride
@@ -135,7 +135,7 @@ def _apply_override(values: dict[str, float], override: PasteOverride) -> None:
 
 def resolve_pad_settings(
     hierarchy: PadHierarchy, model: PasteSettingsModel
-) -> dict[tuple[str, str], ResolvedPaste]:
+) -> dict[PadRef, ResolvedPaste]:
     """各 pad の確定塗布設定を解決する.
 
     各 pad で ``hierarchy.node_keys_for_pad(pad)`` の L0→L4 を順に辿り、
@@ -147,9 +147,11 @@ def resolve_pad_settings(
         model: 塗布設定モデル
 
     Returns:
-        ``(designator, pad_number)`` -> :class:`ResolvedPaste`
+        ``(designator, pad_ref)`` -> :class:`ResolvedPaste`。通常 pad では
+        ``pad_ref == pad_number``。同一 ``pad_number`` の分割 pad では
+        ``#1`` / ``#2`` suffix 付き参照になる。
     """
-    result: dict[tuple[str, str], ResolvedPaste] = {}
+    result: dict[PadRef, ResolvedPaste] = {}
     for pad in hierarchy.iter_pads():
         values: dict[str, float] = {
             field: getattr(model.base, field) for field in PASTE_OVERRIDE_FIELDS
@@ -162,7 +164,7 @@ def resolve_pad_settings(
             _apply_override(values, setting.override)
             if setting.enabled is not None:
                 enabled = setting.enabled
-        result[(pad.designator, pad.pad_number)] = ResolvedPaste(
+        result[hierarchy.pad_ref_for_pad(pad)] = ResolvedPaste(
             enabled=enabled, **values
         )
     return result
