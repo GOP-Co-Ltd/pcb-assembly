@@ -4,18 +4,18 @@ port = 7125
 
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
-rotations_per_ul = 45.783133 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
+rotations_per_ul = 43.282443 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
 # rotations_per_ul = 31.491713 # キャリブレーション値 2026/06/05 S3X70-E150DN
 # rotations_per_ul = 69.724771 # キャリブレーション値 2026/05/08 S3X70-E150DN
 nozzle_diameter = 0.34 # ノズル内径 [mm] (23G)
 max_dispense_rate = 0.1 # 吐出レート上限 [uL/sec]
 fill_speed = 0.8 # 塗布移動速度 [mm/sec]（主設定。実機で 1812 が連続になるまで調整）
 dispense_accel = 0.2 # 吐出加速度 [uL/sec^2]
-retract_amount = 0.1 # リトラクション量 [uL]
+retract_amount = 0.05 # リトラクション量 [uL]
 retract_rate = 0.1 # リトラクションレート [uL/sec]
 retract_accel_factor = 2.0 # リトラクション加速度係数
-paste_height = 0.05 # 塗布面のZ高さ [mm]
-ul_per_mm2 = 0.10 # パッド面積あたりのペースト量 [uL/mm^2]
+paste_height = 0.3 # 塗布面のZ高さ [mm]
+ul_per_mm2 = 0.2 # パッド面積あたりのペースト量 [uL/mm^2]
 prime_extra_delay = 0.0 # プライム後の追加遅延 [sec]
 overlap = 0.2
 
@@ -27,8 +27,8 @@ overlap = 0.2
 # y = 26.46
 
 # 実測値
-x = -1.7720002429415835
-y = 23.037508313709044
+x = -1.5245
+y = 22.7869
 
 [paste_dispenser.pad_align]
 # pad単位の銅箔照合による位置合わせ
@@ -58,16 +58,16 @@ height = 600
 servo_name = "probe_gnd"
 # rack and pinion: π × module × teeth = π × 0.8 × 16 ≈ 40.212
 revolution_distance = 40.212 # サーボ一回転あたりの移動量 [mm]
-down_distance = 2.0          # グラウンドを下げる距離 [mm]
+down_distance = 2.6          # グラウンドを下げる距離 [mm]
 min_radius = 0.7            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
 min_samples = 6             # 最小サンプル数 (2次曲面フィットに必要)
 max_samples = 15            # 最大サンプル数
-shift = [-0.5, 0.0]         # プローブ点のヒューリスティックなシフト量 [x, y] (mm, マシン座標系)
+shift = [-0.5, 0.5]         # プローブ点のヒューリスティックなシフト量 [x, y] (mm, マシン座標系)
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
-x = 14.0
-y = 1.5
+x = 13.2
+y = 2.5
 # 基準点の直径 (mm)
 target_diameter = 3.0
 
