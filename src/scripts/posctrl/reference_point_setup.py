@@ -24,7 +24,7 @@ from tomlkit.items import Table
 
 from pcbasm import gcode
 from pcbasm.config import Machine
-from pcbasm.hal import Klipper, XYZStage, create_camera
+from pcbasm.hal import Klipper, XYZStage, create_camera, send_present_or_relax
 from pcbasm.utils import PROJECT_ROOT, setup_logging
 from pcbasm.vision import (
     CalibrationResult,
@@ -157,7 +157,7 @@ def main() -> None:
             break
 
     cv2.destroyAllWindows()
-    klipper.send_gcode(gcode.relax())
+    send_present_or_relax(klipper)
     if recorded:
         print("記録完了")
 

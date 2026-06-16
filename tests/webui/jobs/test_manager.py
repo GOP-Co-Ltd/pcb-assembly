@@ -601,18 +601,10 @@ class TestApply:
             manager.apply_payload()
 
 
-class TestRelaxOnTermination:
-    """ジョブ終了時の M84（relax）ベストエフォート送信（Phase 4）.
+class TestPresentOnTermination:
+    """ジョブ終了時の PRESENT / M84（relax）ベストエフォート送信."""
 
-    計画書 webui-phase4.md「src/webui/jobs/manager.py」節が契約:
-    uses_machine=True のジョブは終端ステータス確定後・ロック解放前に best-effort で M84
-    を送る。失敗（Moonraker 不通 = test-fixture の port 7126）は log
-    警告のみで終端ステータスは変えない。
-
-    relax → release_machine の順のため、log のアサート前に busy_owner の 解放をポーリングで待つ。
-    """
-
-    def test_relax_failure_is_logged_and_succeeded_status_kept(
+    def test_present_failure_is_logged_and_succeeded_status_kept(
         self,
         manager: JobManager,
         catalog: JobCatalog,
@@ -625,9 +617,11 @@ class TestRelaxOnTermination:
         wait_until(lambda: state.busy_owner is None)
 
         assert record.status == JobStatus.SUCCEEDED
-        assert "M84" in "\n".join(record.log_lines)  # relax (M84) 送信失敗の警告
+        log_text = "\n".join(record.log_lines)
+        assert "PRESENT" in log_text
+        assert "M84" in log_text
 
-    def test_relax_failure_does_not_change_failed_status(
+    def test_present_failure_does_not_change_failed_status(
         self,
         manager: JobManager,
         catalog: JobCatalog,
@@ -645,22 +639,25 @@ class TestRelaxOnTermination:
         assert record.status == JobStatus.FAILED
         assert record.error is not None
         assert "意図的な失敗" in record.error
-        assert "M84" in "\n".join(record.log_lines)
+        log_text = "\n".join(record.log_lines)
+        assert "PRESENT" in log_text
+        assert "M84" in log_text
 
-    def test_no_relax_attempt_for_non_machine_job(
+    def test_no_present_attempt_for_non_machine_job(
         self,
         manager: JobManager,
         catalog: JobCatalog,
         state: AppState,
         wait_until: WaitUntil,
     ):
-        """uses_machine=False（dev ジョブ相当）では relax を試行しない."""
+        """uses_machine=False（dev ジョブ相当）では終了処理を試行しない."""
         _register(catalog, lambda ctx: None, uses_machine=False)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
         wait_until(lambda: state.busy_owner is None)
 
         assert record.status == JobStatus.SUCCEEDED
+        assert "PRESENT" not in "\n".join(record.log_lines)
         assert "M84" not in "\n".join(record.log_lines)
 
 

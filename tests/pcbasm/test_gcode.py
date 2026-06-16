@@ -1,6 +1,6 @@
 import pytest
 
-from pcbasm.gcode import GCode, homing, move, relax, wait, wait_for_done
+from pcbasm.gcode import GCode, homing, move, present, relax, wait, wait_for_done
 
 
 class TestGCode:
@@ -165,6 +165,13 @@ class TestWaitForDone:
 
     def test_wait_for_done(self):
         assert str(wait_for_done()) == "M400"
+
+
+class TestPresent:
+    """present関数のテスト."""
+
+    def test_present(self):
+        assert str(present()) == "PRESENT"
 
 
 class TestRelax:
