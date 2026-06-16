@@ -188,6 +188,13 @@ class TestCatalog:
             assert float_params[key].default == value, key
             assert float_params[key].unit == unit, key
 
+    def test_flow_calibration_count_is_int_defaulting_3(self, default: JobCatalog):
+        params = {spec.name: spec for spec in default.get("flow_calibration").params}
+
+        assert params["count"].value_type == "int"
+        assert params["count"].default == 3
+        assert params["count"].unit == "回"
+
     def test_paste_solder_interactive_loading_is_bool_defaulting_false(
         self, default: JobCatalog
     ):
@@ -582,25 +589,35 @@ class TestPastingHardware:
     def test_flow_calibration_full_run_yields_rotations_per_ul(
         self, real_manager: JobManager, wait_until: WaitUntil
     ):
-        """充填 finish → タール confirm → 回転 → 質量/比重入力 → Apply payload.
+        """充填 finish → (タール confirm → 回転 → 質量) × N → 比重入力 → Apply payload.
 
-        質量はダミー値（50mg）で応答する。Apply の妥当値確認は実運用で行う。
+        質量はダミー値（50mg）で応答する。複数回計測（count=2）で平均が算出され、 summary に「N
+        回平均」が載ることを確認する。Apply の妥当値確認は実運用で行う。
         """
+        count = 2
         record = real_manager.start(
             "flow_calibration",
-            {"rotations": 1.0, "rate": 1.0, "accel": 10.0, "load_amount": 0.05},
+            {
+                "rotations": 1.0,
+                "rate": 1.0,
+                "accel": 10.0,
+                "count": count,
+                "load_amount": 0.05,
+            },
         )
         _wait_loading_stage_and_settle(record, wait_until)
         real_manager.submit_command({"type": "finish"})
 
         answered: set[str] = set()
-        # タール confirm → True / 質量 (mg) → 50 / 比重 → 1.0
-        _answer_next_prompt(
-            record, real_manager, wait_until, True, answered, timeout=120.0
-        )
-        _answer_next_prompt(
-            record, real_manager, wait_until, 50.0, answered, timeout=300.0
-        )
+        # 各回: タール confirm → True / 質量 (mg) → 50
+        for _ in range(count):
+            _answer_next_prompt(
+                record, real_manager, wait_until, True, answered, timeout=120.0
+            )
+            _answer_next_prompt(
+                record, real_manager, wait_until, 50.0, answered, timeout=300.0
+            )
+        # 比重 → 1.0
         _answer_next_prompt(
             record, real_manager, wait_until, 1.0, answered, timeout=120.0
         )
@@ -611,6 +628,7 @@ class TestPastingHardware:
         assert result is not None
         assert result.summary is not None
         assert "rotations_per_ul" in result.summary
+        assert f"{count} 回平均" in result.summary
         assert result.apply is not None
         assert set(result.apply.values) == {"paste_dispenser.rotations_per_ul"}
         value = result.apply.values["paste_dispenser.rotations_per_ul"]

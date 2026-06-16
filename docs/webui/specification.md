@@ -319,15 +319,15 @@ class JobContext:
 
 ### pasting タブ（preview はジョブ提供フレームのみ）
 
-| 項目                  | フォーム / 操作                                                                                                                                                                                                |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Paste Solder          | tolerance, amount, interactive-loading。進捗 = セットアップ → 銅箔照合（`PadAlignmentSession`）→ 高さ計測 →（任意ローディング）→ 塗布の stage 表示                                                             |
-| Height Plane          | tolerance。計測前に計画点 PNG + サンプリング診断を artifacts 配信して prompt(confirm)。完了後ヒートマップ PNG をインライン表示（成果物は artifacts のみ・次ジョブ開始で削除。`--output` 相当の恒久保存はなし） |
-| Loading               | amount。コマンドボタン（押出 / 吸引 / 終了。量は数値フィールド常設）= `{type:"extrude"\|"suck", amount}` / `{type:"finish"}` の `next_command` 駆動。進捗 stage「ローディング」中のみ有効                      |
-| Flow Calibration      | rotations, rate, accel, load-amount。ローディング → タール confirm（いいえで中止）→ 回転 → 質量・比重の prompt(number)。結果は Apply で反映                                                                    |
-| Toolhead Offset       | tolerance, dispense-amount, loading-amount, lift-height, paste-diameter-min/max。結果 JSON は artifacts。結果は Apply で反映                                                                                   |
-| Probe GND Down Adjust | prompt(number) + 確定 confirm のループで down distance 調整。終了時（abort 含む）はダウン距離 0 へ復帰。結果は Apply で反映                                                                                    |
-| Fill Path Simulate    | nozzle-diameter, layer, bead-width-factor, overlap, boundary-margin。pad ごとの fill path を生成し結果 PNG をインライン表示（装置・カメラ非使用。dev タブから移設）                                            |
+| 項目                  | フォーム / 操作                                                                                                                                                                                                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Paste Solder          | tolerance, amount, interactive-loading。進捗 = セットアップ → 銅箔照合（`PadAlignmentSession`）→ 高さ計測 →（任意ローディング）→ 塗布の stage 表示                                                                                                                                             |
+| Height Plane          | tolerance。計測前に計画点 PNG + サンプリング診断を artifacts 配信して prompt(confirm)。完了後ヒートマップ PNG をインライン表示（成果物は artifacts のみ・次ジョブ開始で削除。`--output` 相当の恒久保存はなし）                                                                                 |
+| Loading               | amount。コマンドボタン（押出 / 吸引 / 終了。量は数値フィールド常設）= `{type:"extrude"\|"suck", amount}` / `{type:"finish"}` の `next_command` 駆動。進捗 stage「ローディング」中のみ有効                                                                                                      |
+| Flow Calibration      | rotations, rate, accel, count（計測回数, 既定 3）, load-amount。ローディング →（タール confirm（いいえで中止）→ 回転 → 質量 prompt(number)）× count → リトラクト → 比重 prompt(number)。質量の平均から rotations_per_ul を算出し、各回値・平均・標準偏差を summary に表示。結果は Apply で反映 |
+| Toolhead Offset       | tolerance, dispense-amount, loading-amount, lift-height, paste-diameter-min/max。結果 JSON は artifacts。結果は Apply で反映                                                                                                                                                                   |
+| Probe GND Down Adjust | prompt(number) + 確定 confirm のループで down distance 調整。終了時（abort 含む）はダウン距離 0 へ復帰。結果は Apply で反映                                                                                                                                                                    |
+| Fill Path Simulate    | nozzle-diameter, layer, bead-width-factor, overlap, boundary-margin。pad ごとの fill path を生成し結果 PNG をインライン表示（装置・カメラ非使用。dev タブから移設）                                                                                                                            |
 
 #### Paste Solder の pad 編集（基板ビューア + 階層 override）
 
