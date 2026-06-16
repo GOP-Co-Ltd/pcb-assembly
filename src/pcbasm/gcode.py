@@ -141,6 +141,11 @@ def wait_for_done() -> GCode:
     return GCode("M400")
 
 
+def present() -> GCode:
+    """基板を差し出すPRESENTマクロを実行するコマンドを生成する."""
+    return GCode("PRESENT")
+
+
 def relax() -> GCode:
     """モーターを脱力するコマンドを生成する."""
     return GCode("M84")

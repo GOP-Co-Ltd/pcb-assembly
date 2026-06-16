@@ -14,8 +14,8 @@
   artifacts、Apply payload、Klipper 不通での Z best-effort = z_position None）
 - board_tour / orthogonality_test / reference_point_setup の異常系:
   test-fixture（Klipper port 7126 非リッスン）で graceful FAILED + ロック解放 +
-  relax (M84) 失敗警告。成功系のステージ移動・照合は pcbasm テストと実機区分で
-  カバーする分担（計画書 §4）
+  PRESENT / relax (M84) 失敗警告。成功系のステージ移動・照合は pcbasm テストと
+  実機区分でカバーする分担（計画書 §4）
 - 実機通し（実カメラ + 実 Klipper）は `@mark_hardware` でユーザー実行
 
 cv2 / Moonraker のモックは使わない（skill `testing-strategy`）。Klipper 不通は

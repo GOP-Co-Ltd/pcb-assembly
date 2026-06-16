@@ -1,7 +1,7 @@
 from .air_pump import AirPump
 from .camera import Camera, CameraInfo, Resolution, create_camera, get_camera_info
 from .framehub import FrameHub, FrameSource
-from .klipper import GCodeMacro, Klipper, ReadonlyKlipper
+from .klipper import GCodeMacro, Klipper, ReadonlyKlipper, send_present_or_relax
 from .manual_stepper import HomingDirection, ManualStepper
 from .paste_dispenser import PasteDispenser
 from .probe import ProbeGround, ServoGroundProbe
@@ -24,6 +24,7 @@ __all__ = [
     "GCodeMacro",
     "Klipper",
     "ReadonlyKlipper",
+    "send_present_or_relax",
     # manual_stepper
     "HomingDirection",
     "ManualStepper",

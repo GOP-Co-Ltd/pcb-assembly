@@ -1,7 +1,7 @@
 """塗布実行のための HAL 配線をまとめたセッション.
 
 各運用スクリプトが繰り返していた「マシン設定読み込み → Board 計測 → probe / height_measurer /
-dispenser の構築」をまとめ、コンテキストマネージャ として終了時のクリーンアップ（M84）まで面倒を見る。
+dispenser の構築」をまとめ、コンテキストマネージャ として終了時のクリーンアップまで面倒を見る。
 """
 
 from __future__ import annotations
@@ -13,7 +13,14 @@ import attrs
 
 from pcbasm.config import Machine, get_machine_config
 from pcbasm.geometry import Compose, Identity, Transform
-from pcbasm.hal import Camera, Klipper, PasteDispenser, ServoGroundProbe, XYZStage
+from pcbasm.hal import (
+    Camera,
+    Klipper,
+    PasteDispenser,
+    ServoGroundProbe,
+    XYZStage,
+    send_present_or_relax,
+)
 from pcbasm.pasting import HeightPlaneMeasurer, PasteApplicator, ProbeExecutor
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl import BoardCalibrationResult, setup_board_calibration
@@ -25,7 +32,7 @@ class PasteSession:
     """マシン初期化〜Board 計測〜塗布用 HAL の配線をまとめた実行セッション.
 
     ``PasteSession.setup(...)`` で構築し、コンテキストマネージャとして使う
-    （終了時に M84 を送る）。
+    （終了時に PRESENT マクロを実行し、無ければ M84 を送る）。
     """
 
     machine: Machine
@@ -121,4 +128,4 @@ class PasteSession:
         return self
 
     def __exit__(self, *args: object) -> None:
-        self.klipper.send_gcode("M84")
+        send_present_or_relax(self.klipper)
