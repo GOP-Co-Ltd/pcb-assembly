@@ -71,6 +71,16 @@ def _get_pad_config(live_server: LiveServer) -> dict[str, Any]:
     return response.json()
 
 
+def _calculate_route(live_server: LiveServer, layer: str = "Top") -> dict[str, Any]:
+    response = httpx.post(
+        f"{live_server.base_url}/api/pasting/pad-config/route",
+        json={"layer": layer},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 def _open_paste_solder(page: Any, live_server: LiveServer):
     page.goto(
         f"{live_server.base_url}/pasting/paste_solder",
@@ -354,6 +364,54 @@ class TestPasteSolderBrowserPadInteraction:
         row.click()
         browser_page.mouse.move(1, 1)
         _wait_for_highlighted(browser_page, expected_ids)
+
+    def test_route_button_draws_route_and_enabled_change_clears_it(
+        self, live_server: LiveServer, browser_page
+    ):
+        _select_led_blinker(live_server)
+        route = _calculate_route(live_server)
+        assert len(route["pads"]) > 1
+        first = route["pads"][0]
+
+        _open_paste_solder(browser_page, live_server)
+        browser_page.locator(_testid("pad-calculate-route")).click()
+        browser_page.locator(_testid("pad-route-overlay")).wait_for(
+            state="attached", timeout=_BROWSER_TIMEOUT_MS
+        )
+        browser_page.locator(_testid("pad-route-start")).wait_for(
+            state="attached", timeout=_BROWSER_TIMEOUT_MS
+        )
+        browser_page.locator(_testid("pad-route-end")).wait_for(
+            state="attached", timeout=_BROWSER_TIMEOUT_MS
+        )
+        browser_page.wait_for_function(
+            """(selector) => document.querySelectorAll(selector).length > 0""",
+            arg=_testid("pad-route-segment"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+        browser_page.wait_for_function(
+            """(selector) => document.querySelector(selector)?.textContent.startsWith("順路: ")""",
+            arg=_testid("pad-route-status"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+
+        first_pad = browser_page.locator(_pad_selector(first["id"]))
+        assert first_pad.get_attribute("data-route-order") == "1"
+        assert "塗布順 1" in first_pad.locator("title").text_content(
+            timeout=_BROWSER_TIMEOUT_MS
+        )
+
+        first_pad.click()
+        browser_page.locator(_testid("pad-disable-selected")).click()
+        browser_page.locator(_testid("pad-route-overlay")).wait_for(
+            state="detached", timeout=_BROWSER_TIMEOUT_MS
+        )
+        assert (
+            browser_page.locator(_testid("pad-route-status")).text_content(
+                timeout=_BROWSER_TIMEOUT_MS
+            )
+            == "順路: --"
+        )
 
     def test_active_job_locks_pad_editor(self, live_server: LiveServer, browser_page):
         _select_led_blinker(live_server)
