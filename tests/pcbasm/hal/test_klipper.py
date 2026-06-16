@@ -2,7 +2,12 @@ import pytest
 from pytest_mock import MockerFixture
 
 from pcbasm.gcode import GCode
-from pcbasm.hal.klipper import GCodeMacro, Klipper, ReadonlyKlipper
+from pcbasm.hal.klipper import (
+    GCodeMacro,
+    Klipper,
+    ReadonlyKlipper,
+    send_present_or_relax,
+)
 from tests.helpers import mark_hardware
 
 
@@ -91,6 +96,43 @@ class TestKlipper:
         )
 
         assert klipper.has_macro(name) == expected
+
+    def test_send_present_or_relax_uses_present_macro(self, mocker: MockerFixture):
+        klipper = mocker.Mock(spec=Klipper)
+        klipper.has_macro.return_value = True
+
+        send_present_or_relax(klipper)
+
+        klipper.has_macro.assert_called_once_with("PRESENT")
+        klipper.send_gcode.assert_called_once_with(GCode("PRESENT"))
+
+    def test_send_present_or_relax_warns_and_relaxes_without_macro(
+        self, mocker: MockerFixture
+    ):
+        klipper = mocker.Mock(spec=Klipper)
+        klipper.has_macro.return_value = False
+        warnings: list[str] = []
+
+        send_present_or_relax(klipper, warn=warnings.append)
+
+        klipper.send_gcode.assert_called_once_with(GCode("M84"))
+        assert len(warnings) == 1
+        assert "PRESENT" in warnings[0]
+        assert "M84" in warnings[0]
+
+    def test_send_present_or_relax_warns_and_relaxes_when_macro_check_fails(
+        self, mocker: MockerFixture
+    ):
+        klipper = mocker.Mock(spec=Klipper)
+        klipper.has_macro.side_effect = RuntimeError("config unavailable")
+        warnings: list[str] = []
+
+        send_present_or_relax(klipper, warn=warnings.append)
+
+        klipper.send_gcode.assert_called_once_with(GCode("M84"))
+        assert len(warnings) == 1
+        assert "PRESENT" in warnings[0]
+        assert "config unavailable" in warnings[0]
 
 
 class TestReadonlyKlipper:

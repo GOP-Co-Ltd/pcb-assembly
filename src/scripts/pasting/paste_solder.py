@@ -212,7 +212,6 @@ def main() -> None:
                 _load_and_apply(session, height_plane, top_pads, alignments, args)
             except KeyboardInterrupt:
                 print("\n=== 中止 ===")
-                session.klipper.send_gcode(gcode.relax())
     finally:
         cv2.destroyAllWindows()
 

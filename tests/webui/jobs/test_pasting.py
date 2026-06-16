@@ -20,7 +20,7 @@
   diagnostics と /artifacts/ リンクを log してから confirm を挟む。
   confirm False → ABORTED / True → Klipper 不通（setup）で FAILED
 - 装置ジョブの異常系: test-fixture（Klipper port 7126 = 接続拒否）で graceful
-  FAILED + relax (M84) 失敗警告 + 排他ロック解放
+  FAILED + PRESENT / relax (M84) 失敗警告 + 排他ロック解放
 - Apply 反映先 3 キーは config_store のホワイトリスト登録済み（計画書 前提）
 
 実押出・SUCCEEDED 到達・Apply 反映は実機区分（`@mark_hardware`、ユーザー実行。
@@ -291,7 +291,7 @@ class TestProbeGndDownAdjust:
 
         - 初回 prompt は number、default = machine.probe.down_distance（2.0）
         - 終了時の down(0) best-effort 失敗 log は「ダウン距離」を含む（契約）
-        - relax (M84) 失敗警告 + 排他ロック解放
+        - PRESENT / relax (M84) 失敗警告 + 排他ロック解放
         """
         record = manager.start("probe_gnd_down_adjust", {})
         answered: set[str] = set()

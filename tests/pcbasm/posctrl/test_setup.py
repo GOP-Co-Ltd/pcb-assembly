@@ -5,7 +5,7 @@ Phase 4（memory/agents/implementation-planner/webui-phase4.md §1）で posctrl
 
 - OffsetObserver: ``window_name`` 全廃。``frame_sink``（None なら配信なし）へ
   observe 成功時に注釈付き画像を 1 枚送る
-- machine_session: finally は M84 送信のみ（cv2.destroyAllWindows 削除）
+- machine_session: finally は PRESENT 優先、無ければ M84（cv2.destroyAllWindows 削除）
 
 カメラは tests/helpers.py の FakeCamera（自前 HAL Camera の test Impl）を使う。
 """
@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from pytest_mock import MockerFixture
 
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d
 from pcbasm.posctrl.setup import OffsetObserver, machine_session
 from pcbasm.vision import Image
@@ -93,23 +94,25 @@ class TestOffsetObserver:
 
 
 class TestMachineSession:
-    """machine_session のテスト（M84 のみをピン。cv2 依存なし）."""
+    """machine_session のテスト（終了処理のみをピン。cv2 依存なし）."""
 
-    def test_sends_m84_on_exit(self, mocker: MockerFixture):
-        """セッション終了時に M84 が送信される."""
+    def test_sends_present_on_exit(self, mocker: MockerFixture):
+        """セッション終了時に PRESENT が送信される."""
         klipper = mocker.Mock()
+        klipper.has_macro.return_value = True
 
         with machine_session(klipper):
             pass
 
-        klipper.send_gcode.assert_called_once_with("M84")
+        klipper.send_gcode.assert_called_once_with(GCode("PRESENT"))
 
-    def test_sends_m84_even_on_exception(self, mocker: MockerFixture):
-        """例外発生時でも M84 が送信され、例外は伝播する."""
+    def test_sends_present_even_on_exception(self, mocker: MockerFixture):
+        """例外発生時でも PRESENT が送信され、例外は伝播する."""
         klipper = mocker.Mock()
+        klipper.has_macro.return_value = True
 
         with pytest.raises(ValueError, match="test error"):
             with machine_session(klipper):
                 raise ValueError("test error")
 
-        klipper.send_gcode.assert_called_once_with("M84")
+        klipper.send_gcode.assert_called_once_with(GCode("PRESENT"))

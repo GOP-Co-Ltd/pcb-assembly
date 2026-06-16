@@ -18,8 +18,7 @@ from typing import Any, Literal, override
 
 import attrs
 
-from pcbasm import gcode
-from pcbasm.hal import FrameHub, Klipper
+from pcbasm.hal import FrameHub, Klipper, send_present_or_relax
 from pcbasm.vision import Image
 from webui.board_settings import BoardSettingsStore
 from webui.jobs.catalog import JobCatalog, JobDefinition
@@ -39,8 +38,8 @@ type _Event = dict[str, Any]
 # next_command 待機を強制的に JobAborted 化するための番兵
 _ABORT_SENTINEL: Any = object()
 
-# ジョブ終了時の relax (M84) 送信タイムアウト [sec]
-RELAX_TIMEOUT = 5.0
+# ジョブ終了時の PRESENT / relax 送信タイムアウト [sec]
+PRESENT_TIMEOUT = 5.0
 
 # ジョブコンソールへ転送する pcbasm ロガー名
 _PCBASM_LOGGER_NAME = "pcbasm"
@@ -611,9 +610,9 @@ class JobManager:
                 for line in traceback.format_exc().splitlines():
                     runtime.log(line)
                 record.set_status(JobStatus.FAILED)
-            # 装置を動かすジョブは終了時に best-effort で relax する
+            # 装置を動かすジョブは終了時に best-effort で基板を差し出す
             if definition.uses_machine:
-                self._relax_machine(runtime, context)
+                self._present_machine(runtime, context)
             # 終端ステータス確定 → job_status 発行 → ロック解放の順を守る
             runtime.publish_status()
         finally:
@@ -621,18 +620,18 @@ class JobManager:
             logger.setLevel(previous_level)
             self._state.release_machine()
 
-    def _relax_machine(self, runtime: _JobRuntime, context: JobContext) -> None:
-        """ジョブ終了時に M84 を送る（失敗は log のみ、ステータスは変えない）."""
+    def _present_machine(self, runtime: _JobRuntime, context: JobContext) -> None:
+        """ジョブ終了時にPRESENT、無ければM84を送る（失敗はlogのみ）。"""
         klipper_config = context.machine.klipper
         try:
             klipper = Klipper(
                 host=klipper_config.host,
                 port=klipper_config.port,
-                timeout=RELAX_TIMEOUT,
+                timeout=PRESENT_TIMEOUT,
             )
-            klipper.send_gcode(gcode.relax())
+            send_present_or_relax(klipper, warn=runtime.log)
         except Exception as exc:
-            runtime.log(f"relax (M84) 送信失敗: {exc}")
+            runtime.log(f"PRESENT / relax (M84) 送信失敗: {exc}")
 
     def _pcb_path(self) -> Path | None:
         selected = self._state.selected_pcb

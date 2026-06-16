@@ -13,7 +13,7 @@ import attrs
 from pcbasm import gcode
 from pcbasm.config import Machine
 from pcbasm.geometry import Shift, Transform
-from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
+from pcbasm.hal import Camera, Klipper, XYZStage, create_camera, send_present_or_relax
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl.board import BoardTransformMeasurer
 from pcbasm.posctrl.offset import OffsetTransformMeasurer
@@ -226,8 +226,8 @@ def setup_board_calibration(
 
 @contextmanager
 def machine_session(klipper: Klipper) -> Generator[None]:
-    """マシンセッションのクリーンアップ（終了時 M84）を管理するコンテキストマネージャ."""
+    """マシンセッション終了時にPRESENT、無ければM84を送るコンテキストマネージャ."""
     try:
         yield
     finally:
-        klipper.send_gcode("M84")
+        send_present_or_relax(klipper)
