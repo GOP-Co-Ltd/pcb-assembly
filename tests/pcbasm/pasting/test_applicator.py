@@ -19,6 +19,7 @@ from pytest_mock import MockerFixture
 from shapely import Polygon, box
 
 from pcbasm import gcode
+from pcbasm.geometry import Compose, HeightPlane, Point3d, Shift
 from pcbasm.pasting import PasteApplicator
 
 # 既定ノズル径 0.34（inset=0.17）で 2 成分に分裂する細首ダンベル（凹形）。
@@ -39,6 +40,24 @@ _DUMBBELL_NECK_03 = Polygon(
         (0, 4),
     ]
 )
+
+
+def _machine_surface_z(x: float, y: float):
+    return 0.2 + 0.01 * x - 0.005 * y + 0.0002 * x**2 + 0.0001 * y**2 - 0.00015 * x * y
+
+
+def _machine_height_plane():
+    points = [
+        (100.0, 30.0),
+        (145.0, 32.0),
+        (104.0, 70.0),
+        (142.0, 68.0),
+        (120.0, 45.0),
+        (133.0, 58.0),
+    ]
+    return HeightPlane(
+        tuple(Point3d(x, y, _machine_surface_z(x, y)) for x, y in points)
+    )
 
 
 @pytest.fixture
@@ -236,6 +255,49 @@ class TestDispenseProtocol:
         # Assert
         mock_paste_dispenser.enable.assert_called_once()
         mock_paste_dispenser.disable.assert_called_once()
+
+
+class TestTransformApplication:
+    """塗布座標変換: board_transform → toolhead_offset → height_plane."""
+
+    def test_height_plane_evaluates_final_toolhead_machine_xy(
+        self, mock_klipper, mock_paste_dispenser, mock_stage
+    ):
+        paste_height = 0.5
+        board_transform = Shift(x=20.0, y=10.0, z=0.0)
+        toolhead_offset = Shift(x=100.0, y=30.0, z=0.0)
+        before_height_plane = Compose([board_transform, toolhead_offset])
+        applicator = PasteApplicator(
+            klipper=mock_klipper,
+            paste_dispenser=mock_paste_dispenser,
+            stage=mock_stage,
+            nozzle_diameter=0.34,
+            fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            ul_per_mm2=0.05,
+            retraction=10.0,
+            retraction_rate=10.0,
+            retraction_accel_factor=2.0,
+            transform=Compose(
+                [board_transform, toolhead_offset, _machine_height_plane()]
+            ),
+            paste_height=paste_height,
+            lift_height=5.0,
+        )
+
+        applicator.apply([box(0.0, 0.0, 5.0, 4.0)])
+
+        assert len(mock_stage.move.call_args_list) >= 2
+        down_move = mock_stage.move.call_args_list[1].kwargs
+        assert down_move["z"] == pytest.approx(
+            paste_height + _machine_surface_z(down_move["x"], down_move["y"])
+        )
+        board_space_point = before_height_plane.inverse().apply(
+            Point3d(down_move["x"], down_move["y"], 0.0)
+        )
+        board_space_z = _machine_surface_z(board_space_point.x, board_space_point.y)
+        assert down_move["z"] != pytest.approx(paste_height + board_space_z)
 
 
 class TestInitValidation:

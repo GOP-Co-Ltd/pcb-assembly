@@ -21,7 +21,7 @@ from pcbasm.utils import get_class_module_path
 
 
 class _BoardPointProber:
-    """1点のBoard座標へ移動して高さをプローブ計測する内部ヘルパ."""
+    """1点のBoard座標から機械座標へ移動して高さをプローブ計測する内部ヘルパ."""
 
     def __init__(
         self,
@@ -45,7 +45,7 @@ class _BoardPointProber:
     def probe_at(
         self, board_pt: Point2d, board_to_machine: Transform, label: str
     ) -> Point3d:
-        """Board座標 board_pt をシフトしてプローブし、実接触点(Board座標)とZを返す."""
+        """Board座標 board_pt をシフトしてプローブし、機械座標XYとZを返す."""
         probe_pt = self._probe_position(board_pt, board_to_machine)
         self._logger.info(
             f"計測点 {label}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) "
@@ -64,8 +64,7 @@ class _BoardPointProber:
 
         z = self._probe_executor.probe()
         self._logger.info(f"Z={z:.4f}mm")
-        probed_board = board_to_machine.inverse().apply(probe_pt)
-        return Point3d(x=probed_board.x, y=probed_board.y, z=z)
+        return Point3d(x=probe_pt.x, y=probe_pt.y, z=z)
 
     def route_points(
         self, board_points: Iterable[Point2d], board_to_machine: Transform
@@ -89,7 +88,8 @@ class HeightPlaneMeasurer:
     """銅箔島ベースでプローブ計測し、2次曲面フィットしたHeightPlaneを返す.
 
     入力銅箔を `sample_points_in_polygons` で疎にサンプリングし、
-    各点でプローブ計測を行う。
+    各Board点を機械座標へ写してプローブ計測を行う。返すHeightPlaneのXYは
+    実際にプローブした機械座標で、Zはその位置の絶対surface Z。
     """
 
     def __init__(
@@ -125,7 +125,7 @@ class HeightPlaneMeasurer:
         board_to_machine: Transform,
         outline: Polygon | None = None,
     ) -> HeightPlane:
-        """銅箔島内のサンプル点で高さ計測し、2次曲面フィットしたHeightPlaneを返す."""
+        """銅箔島内のBoard点で高さ計測し、機械XYのHeightPlaneを返す."""
         board_points = sample_points_in_polygons(
             (c.polygon for c in coppers),
             min_radius=self._min_radius,
