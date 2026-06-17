@@ -68,6 +68,14 @@ class FlowCalibrationSet:
             specific_gravity=self.specific_gravity,
         ).rotations_per_ul
 
+    def dispense_rate_for(self, rotation_rate: float) -> float:
+        """回転速度 [rev/sec] を吐出レート [μL/sec] に変換する."""
+        return rotation_rate / self.rotations_per_ul
+
+    def dispense_accel_for(self, rotation_accel: float) -> float:
+        """回転加速度 [rev/sec²] を吐出加速度 [μL/sec²] に変換する."""
+        return rotation_accel / self.rotations_per_ul
+
     @property
     def per_measurement(self) -> tuple[FlowCalibration, ...]:
         """各計測を単一の FlowCalibration として表したもの."""

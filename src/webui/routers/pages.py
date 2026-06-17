@@ -5,12 +5,15 @@ from __future__ import annotations
 from itertools import groupby
 from typing import Any
 
+import attrs
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from webui.app import CatalogDep, SettingsDep, StateDep, StoreDep, get_templates
 from webui.config_store import SECTION_LABELS, section_of
+from webui.jobs.catalog import JobDefinition, ParamSpec
 from webui.routers.settings_api import SettingsField, machine_settings_fields
+from webui.state import AppState
 
 # tab → feature slug 列（ヘッダのタブ表示順）
 TABS: dict[str, tuple[str, ...]] = {
@@ -160,6 +163,40 @@ def _fb_start(settings: SettingsDep) -> str:
     return "" if start == "." else start
 
 
+def _saved_default_matches(spec: ParamSpec, value: object) -> bool:
+    if spec.value_type == "bool":
+        return isinstance(value, bool)
+    if isinstance(value, bool):
+        return False
+    match spec.value_type:
+        case "float":
+            return isinstance(value, (int, float))
+        case "int":
+            return isinstance(value, int)
+        case "str":
+            return isinstance(value, str)
+        case "choice":
+            return isinstance(value, str) and value in spec.choices
+    return False
+
+
+def _param_specs_with_saved_defaults(
+    definition: JobDefinition, state: AppState
+) -> tuple[ParamSpec, ...]:
+    saved = state.job_param_defaults(definition.name)
+    if not saved or not definition.persisted_params:
+        return definition.params
+    persisted = set(definition.persisted_params)
+    return tuple(
+        attrs.evolve(spec, default=saved[spec.name])
+        if spec.name in persisted
+        and spec.name in saved
+        and _saved_default_matches(spec, saved[spec.name])
+        else spec
+        for spec in definition.params
+    )
+
+
 def _base_context(
     request: Request, state: StateDep, store: StoreDep, settings: SettingsDep
 ) -> dict[str, Any]:
@@ -236,7 +273,8 @@ def feature_page(
     template = FEATURE_TEMPLATES.get((tab, feature), "feature.html")
     if template in _JOB_TEMPLATES:
         definition = catalog.get(feature)
-        context.update(job_name=definition.name, param_specs=definition.params)
+        param_specs = _param_specs_with_saved_defaults(definition, state)
+        context.update(job_name=definition.name, param_specs=param_specs)
         if tab == "pasting":
             loading_param = _PASTING_LOADING_PARAM.get(feature)
             context.update(
@@ -245,9 +283,7 @@ def feature_page(
             )
             if loading_param is not None:
                 context["loading_default"] = next(
-                    spec.default
-                    for spec in definition.params
-                    if spec.name == loading_param
+                    spec.default for spec in param_specs if spec.name == loading_param
                 )
     if feature == "copper_detection":
         pad_align = state.machine().paste_dispenser.pad_align

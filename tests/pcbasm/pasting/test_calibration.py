@@ -107,6 +107,20 @@ class TestFlowCalibrationSet:
         )
         assert fcs.rotations_per_ul == pytest.approx(single.rotations_per_ul)
 
+    def test_dispense_rate_for_rotation_rate(self):
+        fcs = FlowCalibrationSet(
+            rotations=50.0, masses_mg=(1000.0,), specific_gravity=1.0
+        )
+
+        assert fcs.dispense_rate_for(2.5) == pytest.approx(50.0)
+
+    def test_dispense_accel_for_rotation_accel(self):
+        fcs = FlowCalibrationSet(
+            rotations=50.0, masses_mg=(1000.0,), specific_gravity=1.0
+        )
+
+        assert fcs.dispense_accel_for(25.0) == pytest.approx(500.0)
+
     def test_masses_accepts_list(self):
         fcs = FlowCalibrationSet(
             rotations=10.0, masses_mg=[200.0, 200.0], specific_gravity=4.4

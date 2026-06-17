@@ -165,9 +165,9 @@ class TestCatalog:
             (
                 "flow_calibration",
                 {
-                    "rotations": (30.0, "rev"),
-                    "rate": (5.0, "rev/s"),
-                    "accel": (10.0, "rev/s^2"),
+                    "rotations": (50.0, "rev"),
+                    "rate": (2.5, "rev/s"),
+                    "accel": (25.0, "rev/s^2"),
                     "load_amount": (0.1, "uL"),
                 },
             ),
@@ -206,6 +206,11 @@ class TestCatalog:
         assert params["count"].value_type == "int"
         assert params["count"].default == 3
         assert params["count"].unit == "回"
+
+    def test_flow_calibration_persists_measurement_params(self, default: JobCatalog):
+        definition = default.get("flow_calibration")
+
+        assert definition.persisted_params == ("rotations", "rate", "accel", "count")
 
     def test_paste_solder_interactive_loading_is_bool_defaulting_false(
         self, default: JobCatalog
@@ -509,11 +514,9 @@ class TestMachineJobsWithoutKlipper:
 
 
 class TestApplyTargetsWhitelisted:
-    """Apply 反映先 3 キーが config_store ホワイトリストに登録済みであること.
+    """Apply 反映先キーが config_store ホワイトリストに登録済みであること.
 
-    計画書 前提:「paste_dispenser.rotations_per_ul /
-    paste_dispenser.toolhead.x,y / probe.down_distance は MACHINE_FIELDS
-    に登録済み」。SUCCEEDED は実機でしか 作れないため、書込経路の成立をここでピンする。
+    SUCCEEDED は一部実機でしか作れないため、書込経路の成立をここでピンする。
     """
 
     def test_pasting_apply_keys_write_to_machine_toml(
@@ -523,6 +526,8 @@ class TestApplyTargetsWhitelisted:
             "test-fixture",
             {
                 "paste_dispenser.rotations_per_ul": 12.345678,
+                "paste_dispenser.max_dispense_rate": 0.123456,
+                "paste_dispenser.dispense_accel": 1.234567,
                 "paste_dispenser.toolhead.x": -1.2345,
                 "paste_dispenser.toolhead.y": 23.4567,
                 "probe.down_distance": 1.234,
@@ -533,6 +538,8 @@ class TestApplyTargetsWhitelisted:
             encoding="utf-8"
         )
         assert "12.345678" in toml_text
+        assert "0.123456" in toml_text
+        assert "1.234567" in toml_text
         assert "-1.2345" in toml_text
         assert "23.4567" in toml_text
         assert "1.234" in toml_text
@@ -677,10 +684,11 @@ class TestPastingHardware:
         assert "rotations_per_ul" in result.summary
         assert f"{count} 回平均" in result.summary
         assert result.apply is not None
-        assert set(result.apply.values) == {"paste_dispenser.rotations_per_ul"}
-        value = result.apply.values["paste_dispenser.rotations_per_ul"]
-        assert isinstance(value, float)
-        assert value > 0.0
+        assert result.apply.values == {
+            "paste_dispenser.rotations_per_ul": 0.02,
+            "paste_dispenser.max_dispense_rate": 50.0,
+            "paste_dispenser.dispense_accel": 500.0,
+        }
 
     def test_flow_calibration_tare_confirm_false_aborts(
         self, real_manager: JobManager, wait_until: WaitUntil
