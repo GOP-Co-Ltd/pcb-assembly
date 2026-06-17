@@ -12,6 +12,7 @@ from pcbasm.geometry import (
     Point3d,
     Transform,
     sample_points_in_polygons,
+    sort_by_nearest,
 )
 from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.pasting.probe import ProbeExecutor
@@ -45,9 +46,7 @@ class _BoardPointProber:
         self, board_pt: Point2d, board_to_machine: Transform, label: str
     ) -> Point3d:
         """Board座標 board_pt をシフトしてプローブし、実接触点(Board座標)とZを返す."""
-        machine_pt = board_to_machine.apply(board_pt)
-        dx, dy = self._shift
-        probe_pt = Point2d(x=machine_pt.x + dx, y=machine_pt.y + dy)
+        probe_pt = self._probe_position(board_pt, board_to_machine)
         self._logger.info(
             f"計測点 {label}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) "
             f"-> Machine({probe_pt.x:.3f}, {probe_pt.y:.3f})"
@@ -67,6 +66,23 @@ class _BoardPointProber:
         self._logger.info(f"Z={z:.4f}mm")
         probed_board = board_to_machine.inverse().apply(probe_pt)
         return Point3d(x=probed_board.x, y=probed_board.y, z=z)
+
+    def route_points(
+        self, board_points: Iterable[Point2d], board_to_machine: Transform
+    ) -> list[Point2d]:
+        """現在位置から実probe位置への移動距離が短くなる順へ並べる."""
+        return sort_by_nearest(
+            board_points,
+            self._stage.get_position(),
+            key=lambda p: self._probe_position(p, board_to_machine).to3d(),
+        )
+
+    def _probe_position(
+        self, board_pt: Point2d, board_to_machine: Transform
+    ) -> Point2d:
+        machine_pt = board_to_machine.apply(board_pt)
+        dx, dy = self._shift
+        return Point2d(x=machine_pt.x + dx, y=machine_pt.y + dy)
 
 
 class HeightPlaneMeasurer:
@@ -117,6 +133,7 @@ class HeightPlaneMeasurer:
             max_samples=self._max_samples,
             outline=outline,
         )
+        board_points = self._point_prober.route_points(board_points, board_to_machine)
         coord_str = ", ".join(f"({p.x:.1f}, {p.y:.1f})" for p in board_points)
         self._logger.info(f"Probe点 {len(board_points)}個: {coord_str}")
 
