@@ -4,9 +4,9 @@ PCB アセンブリ装置の操作を Web ブラウザから行うための WebU
 
 ## 1. 背景と目的
 
-`src/scripts/` の 18 スクリプト（dev 6 / pasting 6 / posctrl 6、pnp は将来用）は開発者向けの単発実行ツールとして成長してきた。これらの機能をブラウザから操作できるようにする。
+開発者向けの単発実行ツールとして成長してきた装置操作機能を、ブラウザから操作できるようにする。
 
-- scripts は単発実行ライブラリとして温存する。WebUI のロジックは `src/webui/` に**完全に別実装**する（コアロジックは pcbasm を再利用）
+- WebUI のロジックは `src/webui/` に実装する（コアロジックは pcbasm を再利用）
 - 現在は posctrl の補正処理中（30 フレーム連続キャプチャ等）にカメラ preview が止まる。WebUI では**位置合わせ中も常時 preview が走る**ことを必須要件とする
 - WebUI ユーザーには `machine.toml` / `printer.cfg` といった裏側のファイルの存在を意識させない
 
@@ -249,7 +249,7 @@ Firmware Restart もジョブ機構を**経由しない**。`POST /api/firmware-
 
 ### 設定画面（ヘッダの歯車 → `/settings`）
 
-- machine.toml の編集可能項目を**ホワイトリスト化したフォーム**で表示: ディスペンサー諸元 `[paste_dispenser]`、pad 照合パラメータ `[paste_dispenser.pad_align]`（canny 閾値等）、プローブ `[probe]`、基準点 `[reference_point]`、カメラ `[camera]` 等。TOML セクション単位の折りたたみ表示（`SECTION_LABELS`）。保存は tomlkit でコメント・構造を保持して書き戻す（既存パターン: `update_reference_point`（`src/scripts/posctrl/reference_point_setup.py`）の一般化）
+- machine.toml の編集可能項目を**ホワイトリスト化したフォーム**で表示: ディスペンサー諸元 `[paste_dispenser]`、pad 照合パラメータ `[paste_dispenser.pad_align]`（canny 閾値等）、プローブ `[probe]`、基準点 `[reference_point]`、カメラ `[camera]` 等。TOML セクション単位の折りたたみ表示（`SECTION_LABELS`）。保存は tomlkit でコメント・構造を保持して書き戻す
 - printer.cfg（モーション設定）は WebUI では編集しない。ヘッダの「Klipper」リンクから Mainsail に飛び直接編集する（2026-06-12 のユーザー判断で「モーション設定」セクションを削除）
 - 読み書きは `webui/config_store.py` に集約（ホワイトリスト定義 + tomlkit 書き込み）。ジョブ実行中の設定保存は 409
 - 設定変更後はマシン設定を再ロード（AppState の Machine 再構築。カメラ設定が変わった場合は FrameHub/Camera を再生成）

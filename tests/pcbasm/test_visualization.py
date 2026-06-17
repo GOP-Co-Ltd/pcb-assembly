@@ -218,3 +218,44 @@ class TestHeightRender:
         image = cv2.imread(str(output))
         assert image is not None
         assert image.size > 0
+
+    def test_render_height_plane_accepts_pcb_to_plane_frame(self, tmp_path):
+        from pcbasm.geometry import HeightPlane, Point3d, Shift
+        from pcbasm.pcb import PcbFile
+        from pcbasm.visualization import render_height_plane
+
+        pcb = PcbFile(LED_BLINKER_PCB)
+        pcb_to_plane = Shift(x=120.0, y=-80.0, z=0.0)
+        fractions = [
+            (0.1, 0.1),
+            (0.9, 0.1),
+            (0.1, 0.9),
+            (0.9, 0.9),
+            (0.5, 0.3),
+            (0.3, 0.6),
+        ]
+        board_points = _spread_points_in_outline(pcb, fractions)
+        plane_points = [pcb_to_plane.apply(p) for p in board_points]
+        height_plane = HeightPlane(
+            tuple(Point3d(p.x, p.y, 0.01 * p.x + 0.02 * p.y) for p in plane_points)
+        )
+        identity_output = tmp_path / "height_plane_identity_frame.png"
+        plane_output = tmp_path / "height_plane_machine_frame.png"
+
+        render_height_plane(height_plane, pcb, "Height Plane", identity_output)
+        render_height_plane(
+            height_plane,
+            pcb,
+            "Height Plane",
+            plane_output,
+            pcb_to_plane=pcb_to_plane,
+        )
+
+        identity_image = cv2.imread(str(identity_output))
+        plane_image = cv2.imread(str(plane_output))
+        assert identity_image is not None
+        assert plane_image is not None
+        assert plane_image.size > 0
+        assert plane_image.shape == identity_image.shape
+        diff = np.asarray(cv2.absdiff(plane_image, identity_image))
+        assert float(diff.mean()) > 0.1
