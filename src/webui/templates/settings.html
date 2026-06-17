@@ -10,7 +10,7 @@
     <tbody>
       {% for field in fields %}
       <tr>
-        <th><label for="{{ prefix }}-{{ field.key }}{% if field.value_type == 'float_pair' %}-x{% endif %}">{{ field.label }}</label></th>
+        <th><span class="settings-label">{{ field.label }}</span></th>
         <td>
           {% if field.value_type == 'float_pair' %}
           <div class="settings-pair" data-pair-key="{{ field.key }}">
@@ -19,6 +19,7 @@
                    data-pair-index="0"
                    type="number"
                    step="any"
+                   aria-label="{{ field.label }} X"
                    value="{{ field.value[0] if field.value is not none else '' }}"
                    placeholder="X">
             <input id="{{ prefix }}-{{ field.key }}-y"
@@ -26,6 +27,7 @@
                    data-pair-index="1"
                    type="number"
                    step="any"
+                   aria-label="{{ field.label }} Y"
                    value="{{ field.value[1] if field.value is not none else '' }}"
                    placeholder="Y">
           </div>
@@ -33,6 +35,7 @@
           <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
                  data-type="{{ field.value_type }}"
                  type="{% if field.value_type == 'str' %}text{% else %}number{% endif %}"
+                 aria-label="{{ field.label }}"
                  {% if field.value_type != 'str' %}step="any"{% endif %}
                  value="{{ field.value if field.value is not none else '' }}"
                  placeholder="未設定">
@@ -58,7 +61,6 @@
     <div class="settings-grid">
     {{ settings_groups(machine_groups, "ms") }}
     </div>
-    <button type="submit">保存</button>
   </form>
 </section>
 {% endblock %}
