@@ -37,6 +37,7 @@ class TestMachineSettingsApi:
         assert fill_speed["label"]
         assert fields["probe.shift"]["value"] == [-0.5, 0.0]
         assert fields["probe.shift"]["value_type"] == "float_pair"
+        assert fields["probe.lift_height"]["value_type"] == "float"
 
     def test_get_reports_none_for_missing_keys(self, client: TestClient):
         fields = {
@@ -45,6 +46,7 @@ class TestMachineSettingsApi:
         }
 
         assert fields["paste_dispenser.bead_width_factor"]["value"] is None
+        assert fields["probe.lift_height"]["value"] is None
 
     def test_put_writes_file_and_preserves_comments(
         self, client: TestClient, configs_root: Path
