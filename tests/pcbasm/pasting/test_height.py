@@ -176,6 +176,46 @@ class TestHeightPlaneMeasurer:
         recorded = sorted((p.x, p.y) for p in result.points)
         assert move_targets == recorded
 
+    def test_measure_records_machine_xy_probe_targets(
+        self,
+        mock_probe_executor,
+        mock_klipper,
+        mock_stage,
+        large_copper,
+    ):
+        """返却 HeightPlane の XY は board ではなく実 probe 先の machine XY."""
+        board_to_machine = Compose(
+            [
+                Scale(x=2.0, y=-1.0, z=1.0),
+                Shift(x=100.0, y=30.0, z=0.0),
+            ]
+        )
+        probe_shift = (1.25, -2.5)
+        probe_zs = [-1.0 - 0.05 * i for i in range(_SAMPLING_KWARGS["max_samples"])]
+        mock_probe_executor.probe.side_effect = probe_zs
+        measurer = HeightPlaneMeasurer(
+            probe_executor=mock_probe_executor,
+            klipper=mock_klipper,
+            stage=mock_stage,
+            probe_shift=probe_shift,
+            **_SAMPLING_KWARGS,
+        )
+
+        result = measurer.measure(
+            coppers=[large_copper], board_to_machine=board_to_machine
+        )
+
+        move_targets = [
+            (call.kwargs["x"], call.kwargs["y"])
+            for call in mock_stage.move.call_args_list
+        ]
+        assert len(result.points) == len(move_targets)
+        for point, move_target in zip(result.points, move_targets):
+            assert (point.x, point.y) == pytest.approx(move_target)
+        assert [p.z for p in result.points] == pytest.approx(
+            probe_zs[: len(result.points)]
+        )
+
     def test_measure_passes_outline_to_sampling(
         self,
         mocker,

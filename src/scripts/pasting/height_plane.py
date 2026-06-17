@@ -134,6 +134,7 @@ def main() -> None:
         pcb=pcb,
         title=f"Height Plane: {pcb_stem}",
         output_path=args.output,
+        pcb_to_plane=session.board_to_machine,
     )
     print(f"\n可視化を保存しました: {args.output}")
 
