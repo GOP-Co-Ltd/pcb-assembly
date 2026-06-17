@@ -315,6 +315,11 @@ class _JobRuntime:
 
         pending.event.wait()
         if not pending.resolved:  # abort で起こされた
+            with self._pending_lock:
+                if self._pending is pending:
+                    self._pending = None
+            self.record.set_pending_prompt(None)
+            self.publish_status()
             raise JobAborted()
 
         with self._pending_lock:
@@ -370,11 +375,15 @@ class _JobRuntime:
 
     def abort(self) -> None:
         """Abort フラグを立て、prompt / command 待機者を起こす."""
+        first_request = not self.abort_event.is_set()
         self.abort_event.set()
         self.commands.put(_ABORT_SENTINEL)
         with self._pending_lock:
             if self._pending is not None and not self._pending.resolved:
                 self._pending.event.set()
+        if first_request:
+            self.log("中止要求を受け付けました。安全な停止点で停止します")
+            self.publish_status()
 
 
 class JobManager:

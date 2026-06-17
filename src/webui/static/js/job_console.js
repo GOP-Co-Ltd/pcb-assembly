@@ -22,6 +22,7 @@
   let socket = null;
   let reconnectDelay = 1000;
   let currentJob = null;
+  let abortRequestedJobId = null;
 
   function isActive(job) {
     return job !== null && job !== undefined && !TERMINAL.has(job.status);
@@ -39,9 +40,18 @@
     currentJob: () => currentJob,
     onUpdate: (callback) => listeners.add(callback),
     sendCommand: (command) => send({ type: "command", command }),
-    abort: () => {
-      if (!send({ type: "abort" })) {
-        api("POST", "/api/jobs/current/abort").catch((err) => toast(err.message, false));
+    abort: async () => {
+      const job = currentJob;
+      if (!isActive(job) || abortRequestedJobId === job.id) return;
+      abortRequestedJobId = job.id;
+      renderConsole();
+      try {
+        await api("POST", "/api/jobs/current/abort");
+        toast("中止要求を送信しました");
+      } catch (err) {
+        abortRequestedJobId = null;
+        renderConsole();
+        toast(err.message, false);
       }
     },
   };
@@ -116,6 +126,9 @@
 
   function applyJob(job) {
     currentJob = job ?? null;
+    if (!isActive(currentJob) || currentJob.id !== abortRequestedJobId) {
+      abortRequestedJobId = null;
+    }
     for (const callback of listeners) callback(currentJob);
     renderConsole();
   }
@@ -192,12 +205,15 @@
       el("jc-status").textContent = STATUS_LABELS.idle;
       el("jc-status").dataset.status = "idle";
       el("jc-abort").disabled = true;
+      el("jc-abort").textContent = "中止";
       return;
     }
 
     el("jc-status").textContent = STATUS_LABELS[job.status] || job.status;
     el("jc-status").dataset.status = job.status;
-    el("jc-abort").disabled = !isActive(job);
+    const abortRequested = abortRequestedJobId === job.id;
+    el("jc-abort").disabled = !isActive(job) || abortRequested;
+    el("jc-abort").textContent = abortRequested ? "中止要求中" : "中止";
 
     // job_status はログ全量を持つため毎回同期する（再接続にも追従）
     const log = el("jc-log");
@@ -340,7 +356,9 @@
       activePrompt = null;
     });
 
-    el("jc-abort").addEventListener("click", () => window.webui.jobs.abort());
+    el("jc-abort").addEventListener("click", () => {
+      window.webui.jobs.abort();
+    });
 
     el("jc-apply-btn").addEventListener("click", async () => {
       try {
