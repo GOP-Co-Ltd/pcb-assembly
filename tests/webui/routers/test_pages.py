@@ -4,7 +4,7 @@
 
 - `GET /` → `/posctrl` へ 307 リダイレクト
 - 4 タブ + 既知 feature + `/settings` が 200
-- 全ページ共通の chrome（E-STOP・マシン操作パネル・mainsail console リンク）
+- 全ページ共通の chrome（安全操作・マシン操作パネル・mainsail console リンク）
 - 未知タブ / 未知 feature → 404
 
 Phase 2 追記（計画書 webui-phase2.md「既存ルーターへの変更」節 + spec §10）:
@@ -63,6 +63,7 @@ class TestPages:
 
         assert response.status_code == 200
         assert "緊急停止" in response.text
+        assert "ファームウェア再起動" in response.text
         assert "machine-control" in response.text
         assert "マシン選択:" in response.text
         assert webui_settings.mainsail_url in response.text

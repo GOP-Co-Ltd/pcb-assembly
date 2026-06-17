@@ -35,7 +35,7 @@ from starlette.testclient import WebSocketTestSession
 
 from pcbasm.vision import CalibrationResult
 from webui.jobs.catalog import JobDefinition
-from webui.jobs.context import JobContext
+from webui.jobs.context import JobContext, PromptSpec
 from webui.jobs.manager import Artifact, JobManager, JobResult
 from webui.state import AppState
 
@@ -423,6 +423,58 @@ class TestWebSocket:
             }
             assert "running" in statuses
             assert "waiting_input" in statuses
+
+    def test_prompt_labels_are_sent_over_ws_and_job_status(
+        self, client: TestClient, app: FastAPI
+    ):
+        def run(ctx: JobContext) -> None:
+            ctx.prompt(
+                PromptSpec(
+                    kind="confirm",
+                    message="安全確認",
+                    default=True,
+                    true_label="続行",
+                    false_label="中止",
+                )
+            )
+
+        app.state.catalog.register(
+            JobDefinition(
+                name="labeled_prompt_router",
+                label="ラベル付きプロンプト",
+                tab="dev",
+                run=run,
+                uses_machine=False,
+                hidden=True,
+            )
+        )
+
+        with client.websocket_connect("/api/ws") as ws:
+            response = client.post("/api/jobs/labeled_prompt_router", json={})
+            assert response.status_code == 201
+
+            prompt_msg, _ = _receive_until(ws, lambda m: m["type"] == "prompt")
+            assert prompt_msg["prompt"]["true_label"] == "続行"
+            assert prompt_msg["prompt"]["false_label"] == "中止"
+
+            current = client.get("/api/jobs/current")
+            assert current.status_code == 200
+            pending = current.json()["job"]["pending_prompt"]
+            assert pending["true_label"] == "続行"
+            assert pending["false_label"] == "中止"
+
+            ws.send_json(
+                {
+                    "type": "respond_prompt",
+                    "prompt_id": prompt_msg["prompt"]["id"],
+                    "answer": False,
+                }
+            )
+            final, _ = _receive_until(
+                ws,
+                lambda m: m["type"] == "job_status" and m["job"]["status"] in _TERMINAL,
+            )
+            assert final["job"]["status"] == "succeeded"
 
     def test_abort_message_aborts_running_job(self, client: TestClient):
         with client.websocket_connect("/api/ws") as ws:

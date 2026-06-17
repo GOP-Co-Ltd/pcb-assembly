@@ -662,6 +662,8 @@ def prompt_payload(prompt_id: str, spec: PromptSpec) -> dict[str, Any]:
         "kind": spec.kind,
         "message": spec.message,
         "default": spec.default,
+        "true_label": spec.true_label,
+        "false_label": spec.false_label,
         "choices": list(spec.choices),
     }
 

@@ -196,6 +196,19 @@ h2 {
   background: var(--surface-2);
 }
 
+.firmware-restart {
+  border-color: var(--warn);
+  color: var(--warn);
+  font-weight: 700;
+  background: var(--warn-weak);
+}
+
+.firmware-restart:hover:not(:disabled) {
+  border-color: #7f5312;
+  color: #7f5312;
+  background: #ead8bc;
+}
+
 .estop {
   border-color: var(--danger);
   color: #ffffff;

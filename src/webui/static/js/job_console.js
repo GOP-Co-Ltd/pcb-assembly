@@ -272,19 +272,18 @@
 
   let activePrompt = null;
 
-  function openPrompt(prompt) {
-    const dialog = el("jc-prompt");
-    if (activePrompt && activePrompt.id === prompt.id && dialog.open) return;
-    activePrompt = prompt;
-    el("jc-prompt-message").textContent = prompt.message;
-
-    const field = el("jc-prompt-field");
-    field.replaceChildren();
+  function configurePromptButtons(prompt) {
     const noButton = el("jc-prompt-no");
     const okButton = el("jc-prompt-ok");
-    noButton.hidden = prompt.kind !== "confirm";
-    okButton.textContent = prompt.kind === "confirm" ? "はい" : "OK";
+    const isConfirm = prompt.kind === "confirm";
+    noButton.hidden = !isConfirm;
+    noButton.textContent = isConfirm ? (prompt.false_label ?? "いいえ") : "いいえ";
+    okButton.textContent = isConfirm ? (prompt.true_label ?? "はい") : "OK";
+  }
 
+  function renderPromptField(prompt) {
+    const field = el("jc-prompt-field");
+    field.replaceChildren();
     if (prompt.kind === "number" || prompt.kind === "text") {
       const input = document.createElement("input");
       input.type = prompt.kind;
@@ -304,6 +303,25 @@
       }
       field.appendChild(select);
     }
+  }
+
+  function answerFromPromptSubmit(prompt, event) {
+    if (prompt.kind === "confirm") {
+      return event.submitter?.id !== "jc-prompt-no";
+    }
+    if (prompt.kind === "number") {
+      return Number(el("jc-prompt-input").value);
+    }
+    return el("jc-prompt-input").value;
+  }
+
+  function openPrompt(prompt) {
+    const dialog = el("jc-prompt");
+    if (activePrompt && activePrompt.id === prompt.id && dialog.open) return;
+    activePrompt = prompt;
+    el("jc-prompt-message").textContent = prompt.message;
+    configurePromptButtons(prompt);
+    renderPromptField(prompt);
     if (!dialog.open) dialog.showModal();
   }
 
@@ -317,14 +335,7 @@
     el("jc-prompt-form").addEventListener("submit", (event) => {
       const prompt = activePrompt;
       if (!prompt) return;
-      let answer;
-      if (prompt.kind === "confirm") {
-        answer = event.submitter?.id !== "jc-prompt-no";
-      } else if (prompt.kind === "number") {
-        answer = Number(el("jc-prompt-input").value);
-      } else {
-        answer = el("jc-prompt-input").value;
-      }
+      const answer = answerFromPromptSubmit(prompt, event);
       send({ type: "respond_prompt", prompt_id: prompt.id, answer });
       activePrompt = null;
     });

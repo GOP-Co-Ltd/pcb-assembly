@@ -69,3 +69,17 @@ def post_emergency_stop(state: StateDep, jobs: JobsDep) -> dict[str, bool]:
             status_code=502, detail=str(exc) or type(exc).__name__
         ) from exc
     return {"ok": True}
+
+
+@router.post("/firmware-restart")
+def post_firmware_restart(state: StateDep, jobs: JobsDep) -> dict[str, bool]:
+    # Klipper 送信が失敗しても abort フラグは必ず立てる（先頭で実行）
+    jobs.request_abort()
+    klipper = create_klipper(state, STATUS_TIMEOUT)
+    try:
+        klipper.firmware_restart()
+    except (httpx.HTTPError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=502, detail=str(exc) or type(exc).__name__
+        ) from exc
+    return {"ok": True}
