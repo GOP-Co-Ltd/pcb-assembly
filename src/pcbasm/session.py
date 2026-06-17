@@ -79,7 +79,10 @@ class PasteSession:
             down_distance=probe_config.down_distance,
         )
         probe_executor = ProbeExecutor(
-            klipper=result.klipper, probe=probe, stage=result.stage
+            klipper=result.klipper,
+            probe=probe,
+            stage=result.stage,
+            lift_height=probe_config.lift_height,
         )
         height_measurer = HeightPlaneMeasurer(
             probe_executor=probe_executor,

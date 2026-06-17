@@ -98,6 +98,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("probe.servo_name", "サーボ名", "str"),
     FieldSpec("probe.revolution_distance", "一回転あたりの移動量", "float", "mm"),
     FieldSpec("probe.down_distance", "グラウンド下降距離", "float", "mm"),
+    FieldSpec("probe.lift_height", "プローブ後の上昇高さ", "float", "mm"),
     FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
     FieldSpec("probe.min_samples", "最小サンプル数", "int"),
     FieldSpec("probe.max_samples", "最大サンプル数", "int"),
