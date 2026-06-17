@@ -148,6 +148,7 @@ class TestLifecycle:
 
         wait_until(lambda: record.status.terminal)
         assert record.status == JobStatus.ABORTED
+        assert any("中止要求を受け付けました" in line for line in record.log_lines)
 
     def test_request_abort_without_active_job_returns_false(self, manager: JobManager):
         assert manager.request_abort() is False
@@ -381,6 +382,8 @@ class TestPrompt:
 
         wait_until(lambda: record.status.terminal)
         assert record.status == JobStatus.ABORTED
+        assert record.pending_prompt is None
+        assert any("中止要求を受け付けました" in line for line in record.log_lines)
 
 
 class TestCommands:

@@ -335,4 +335,5 @@ class PasteApplicator:
             )
             self._klipper.send_gcode(
                 sequence.to_gcode(self._stage, self._paste_dispenser)
+                + gcode.wait_for_done()
             )

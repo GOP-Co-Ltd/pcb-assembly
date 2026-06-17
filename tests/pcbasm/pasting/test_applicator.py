@@ -226,6 +226,17 @@ class TestDispenseProtocol:
         assert calls[0].kwargs.get("sync") is False
         assert "sync" not in calls[1].kwargs or calls[1].kwargs["sync"] is True
 
+    def test_apply_waits_for_sequence_completion(self, applicator, mock_klipper):
+        # Arrange: 単一成分パッド
+        polygon = box(0, 0, 2, 3)
+
+        # Act
+        applicator.apply([polygon])
+
+        # Assert: pad ごとの中止境界が物理動作完了後になる
+        sent = mock_klipper.send_gcode.call_args.args[0]
+        assert str(sent).splitlines()[-1] == "M400"
+
     def test_context_manager_enables_and_disables(
         self, applicator, mock_paste_dispenser
     ):
