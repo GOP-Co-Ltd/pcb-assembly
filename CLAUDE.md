@@ -65,7 +65,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `geometry/` — 3D 座標と幾何計算（Transform, HeightPlane, 軌跡生成等）
 - `pcb/` — PCB 設計情報の抽象化（KiCAD 読込、配置管理）
 
-このほか `src/webui/` にブラウザ操作 UI（FastAPI。仕様：`docs/webui/specification.md`）、`src/scripts/` に単発実行スクリプトがある。
+このほか `src/webui/` にブラウザ操作 UI（FastAPI。仕様：`docs/webui/specification.md`）がある。
 
 ## 開発コマンド
 
