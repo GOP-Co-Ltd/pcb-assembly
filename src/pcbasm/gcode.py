@@ -148,6 +148,11 @@ def present() -> GCode:
     return GCode(PRESENT_MACRO)
 
 
+def firmware_restart() -> GCode:
+    """Klipper のファームウェア再起動コマンドを生成する."""
+    return GCode("FIRMWARE_RESTART")
+
+
 def relax() -> GCode:
     """モーターを脱力するコマンドを生成する."""
     return GCode("M84")

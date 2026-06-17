@@ -35,6 +35,8 @@ class PromptInfo(BaseModel):
     kind: Literal["confirm", "number", "text", "choice"]
     message: str
     default: bool | float | str | None = None
+    true_label: str | None = None
+    false_label: str | None = None
     choices: list[str] = []
 
 

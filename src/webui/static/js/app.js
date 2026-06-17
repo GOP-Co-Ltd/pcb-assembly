@@ -43,19 +43,40 @@ if (machineSelect) {
   });
 }
 
-// ---- E-STOP ----
+// ---- topbar safety controls ----
 
-const estop = document.getElementById("estop");
-if (estop) {
-  estop.addEventListener("click", async () => {
-    try {
-      await api("POST", "/api/emergency-stop");
-      toast("緊急停止を送信しました");
-    } catch (err) {
-      toast(`緊急停止失敗: ${err.message}`, false);
-    }
+async function postTopbarCommand(button, url, successMessage, failurePrefix) {
+  button.disabled = true;
+  try {
+    await api("POST", url);
+    toast(successMessage);
+  } catch (err) {
+    toast(`${failurePrefix}: ${err.message}`, false);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function bindTopbarCommand(buttonId, url, successMessage, failurePrefix) {
+  const button = document.getElementById(buttonId);
+  if (!button) return;
+  button.addEventListener("click", () => {
+    postTopbarCommand(button, url, successMessage, failurePrefix);
   });
 }
+
+bindTopbarCommand(
+  "estop",
+  "/api/emergency-stop",
+  "緊急停止を送信しました",
+  "緊急停止失敗"
+);
+bindTopbarCommand(
+  "firmware-restart",
+  "/api/firmware-restart",
+  "ファームウェア再起動を送信しました",
+  "ファームウェア再起動失敗"
+);
 
 // ---- PCB file browser ----
 

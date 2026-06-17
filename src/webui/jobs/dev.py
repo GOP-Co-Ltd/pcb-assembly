@@ -160,7 +160,13 @@ def _run_job_demo(ctx: JobContext) -> JobResult:
         raise RuntimeError("デモ失敗（fail=True）")
 
     proceed = ctx.prompt(
-        PromptSpec(kind="confirm", message="続行しますか?", default=True)
+        PromptSpec(
+            kind="confirm",
+            message="続行しますか?",
+            default=True,
+            true_label="続行",
+            false_label="中止",
+        )
     )
     ctx.log(f"confirm 応答: {proceed}")
 

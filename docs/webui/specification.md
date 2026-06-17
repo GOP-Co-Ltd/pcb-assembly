@@ -15,7 +15,7 @@ PCB アセンブリ装置の操作を Web ブラウザから行うための WebU
 - `src/webui/` 新設（FastAPI + Jinja2 + buildless ES modules + CSS、Node ビルド不要）
 - pcbasm 側の改修: FrameHub の新設（共通部品）、posctrl の表示責務分離（frame_sink 注入・cv2 GUI 依存の全廃、破壊的変更）、webui 再利用のための昇格 API（§4）
 - マシン設定の閲覧・編集（machine.toml + printer.cfg の限定項目）、計測結果の設定反映フロー
-- PCB ファイル選択、Klipper console（Mainsail）へのリンク、Emergency Stop
+- PCB ファイル選択、Klipper console（Mainsail）へのリンク、Emergency Stop / Firmware Restart
 
 ### 非スコープ
 
@@ -132,9 +132,9 @@ src/webui/
 │   ├── preview.py         # MJPEG / snapshot
 │   ├── settings_api.py    # マシン設定の取得/保存
 │   ├── machine_control.py # マシン操作パネル（homing/ジョグ/移動/relax/フォーカスZ）
-│   └── system.py          # emergency stop、Klipper ステータス
+│   └── system.py          # emergency stop、firmware restart、Klipper ステータス
 ├── templates/
-│   ├── base.html          # ヘッダ（タブ・マシン選択・PCB チップ・設定・console リンク・E-STOP）
+│   ├── base.html          # ヘッダ（タブ・マシン選択・PCB チップ・設定・console リンク・Firmware Restart・E-STOP）
 │   ├── {dev,pasting,pnp,posctrl}/…
 │   ├── settings.html
 │   └── partials/          # サイドバー、job console、preview ペイン、prompt モーダル、マシン操作パネル
@@ -194,6 +194,8 @@ class JobContext:
 
 - `input()` の代替: flow_calibration の重量入力 → `prompt(number)`、height_plane の Y/n → `prompt(confirm)`、probe_gnd_down_adjust の距離調整 → `prompt(number)` の繰り返し
 
+- `prompt(confirm)` は `true_label` / `false_label` で肯定・否定ボタンの表示名を指定できる。未指定時は従来どおり「はい」/「いいえ」
+
 - 連続対話（ジョグ）: reference_point_setup はジョブとして起動後 `next_command()` ループで `{type:"jog", axis, dist}` / `{type:"record"}` / `{type:"quit"}` を消費。preview には `ctx.frame()` で円検出オーバーレイを流し続ける
 
 - 中止（abort）は協調的: フラグを立て、`prompt` / `next_command` 待ちは即 JobAborted 化、長い処理はループ内 `checkpoint()`。終了時の M84 は manager が送る（上記）
@@ -217,9 +219,11 @@ class JobContext:
 - 未ホーミング軸への移動や limits 超過は `XYZStage` / Klipper のエラーをそのままエラートーストで表示する
 - reference_point_setup 等の**対話ジョブ中**のジョグは従来案どおり WS の `command`（`next_command`）経由。UI は同じパネル部品を「ジョブモード」へ切り替えて使う（送信先が REST か WS かの違いのみで、ボタン構成は共通）
 
-### Emergency Stop
+### Emergency Stop / Firmware Restart
 
 ジョブ機構を**経由しない**。`POST /api/emergency-stop` がその場で `Klipper.emergency_stop()` を直接叩く（Moonraker は REST なのでジョブと独立に届く）。同時に abort フラグも立てる。UI のボタンは赤・常時表示・確認なし即時。
+
+Firmware Restart もジョブ機構を**経由しない**。`POST /api/firmware-restart` が `FIRMWARE_RESTART` を送信し、送信前に abort フラグを立てる。UI のボタンはヘッダに常時表示し、確認なしで送信する。
 
 ### WebSocket
 
@@ -286,6 +290,7 @@ class JobContext:
 | POST    | `/api/machine-control`                    | homing / ジョグ / 絶対移動 / relax / フォーカス Z / 任意 G-code（§6。ジョブ中 409） |
 | GET     | `/api/stage/limits`                       | XYZStage の移動範囲（ジョグ UI 用）                                                 |
 | POST    | `/api/emergency-stop`                     | 即時 M112 相当（ジョブ非経由）                                                      |
+| POST    | `/api/firmware-restart`                   | Firmware Restart（ジョブ非経由、abort フラグ先行）                                  |
 | GET     | `/api/preview/stream?overlay=`            | MJPEG                                                                               |
 | GET     | `/api/preview/snapshot?overlay=`          | JPEG 1 枚（スポット確認用）                                                         |
 | GET     | `/api/klipper/status`                     | position / homed_axes 等（ステータスカード用）                                      |
@@ -300,7 +305,7 @@ class JobContext:
 
 装置操作用の静かな作業 UI として、過度な装飾より情報密度、視認性、状態の予測しやすさを優先する。フォーム、preview、pad viewer、job console、machine control は狭い viewport でも重ならず、操作中・disabled・error・selected・focus の状態を同じ表現体系で示す。
 
-- **ヘッダ**: タブ（dev / pasting / pnp / posctrl）+ マシン選択ドロップダウン + PCB ファイルチップ（クリックでファイルブラウザモーダル）+ 設定（歯車 → `/settings`）+ Klipper console リンク + **E-STOP（赤・常時表示・確認なし即時）**
+- **ヘッダ**: タブ（dev / pasting / pnp / posctrl）+ マシン選択ドロップダウン + PCB ファイルチップ（クリックでファイルブラウザモーダル）+ 設定（歯車 → `/settings`）+ Klipper console リンク + **Firmware Restart（警告色・常時表示・確認なし）** + **E-STOP（赤・常時表示・確認なし即時）**
 - **サイドバー**: タブ内の feature リスト。実行中ジョブがあればバッジ表示。下部に**マシン操作パネル**（§6。折りたたみ、全タブ共通）
 - **メインペイン**: feature ごとに「パラメータフォーム（argparse 引数から導出、デフォルト値も引き継ぐ）+ 実行ボタン + ジョブコンソール（ログ / 進捗バー / プロンプトモーダル / 中止 / Apply）+ 必要なら preview ペイン」
 - machine / pcb-file はグローバル選択値のため各フォームから除外。`data/webui_state.json` にこの 2 値のみ永続化（起動時に復元）
@@ -378,7 +383,7 @@ skill `testing-strategy` のテスト 4 区分に従う。
 - **unit**: `config_store` のホワイトリスト解釈・tomlkit 書き戻し、`JobManager` の状態遷移、`FrameHub` のカーソル管理。FakeCamera（自前 `Camera` ABC の test Impl）は `tests/helpers.py` に配置
 - **integration-with-fakes**: `fastapi.testclient.TestClient` + 注入 Settings（tmp_path にコピーした test-fixture configs、FakeCamera）で API〜設定ファイル書き込み〜WS イベントまでの結合を検証。`make test-no-hardware` の主体
 - **e2e**: `pytest-playwright` + 実 uvicorn + fake camera + 実 Chromium で HTTP / WebSocket / MJPEG / DOM / SVG / responsive layout を検証。`make test-e2e` で実行し、Chromium は `/usr/bin/chromium` を優先する。無い環境では `make playwright-install` で Playwright 管理 Chromium を入れる
-- **integration-hardware**: FrameHub × 実カメラのスモーク、Klipper status / RESTART 疎通など。`@mark_hardware` + `skip_if_no_*` で gating。**実機テストの実行はユーザーが行う**
+- **integration-hardware**: FrameHub × 実カメラのスモーク、Klipper status / FIRMWARE_RESTART 疎通など。`@mark_hardware` + `skip_if_no_*` で gating。**実機テストの実行はユーザーが行う**
 - 3rd-party 表面（picamera2, cv2, Moonraker REST）のモックは作らない。Moonraker が絡む結合は実機区分へ寄せる
 - `tests/webui/` は `src/webui/` を 1 対 1 でミラーする
 
@@ -390,7 +395,7 @@ skill `testing-strategy` のテスト 4 区分に従う。
 - `tests/e2e/test_paste_solder_browser.py`: PCB 選択後の `paste_solder` DOM/SVG 表示、Top/Bottom 切替、pad click、bulk enable/disable、L2/L3/L4 の `node_ids` membership highlight、fake preview image、ジョブ中 lock、desktop/tablet/mobile の横溢れ検出
 - 手動確認は `make webui-fake` を使う。fake camera と隔離 data_dir で起動するため、ブラウザから UI polish や操作感を確認しやすい
 
-装置を動かすフロー（posctrl 補正・塗布・Klipper RESTART）の実機検証はユーザーが実施する。
+装置を動かすフロー（posctrl 補正・塗布・Klipper FIRMWARE_RESTART）の実機検証はユーザーが実施する。
 
 ## 12. 段階実装ロードマップ
 
@@ -404,7 +409,7 @@ skill `testing-strategy` のテスト 4 区分に従う。
 
 - 依存追加、`webui/` 骨格、`base.html` + 4 タブ + サイドバー、AppState、マシン / PCB 選択 + ファイルブラウザ、E-STOP、Klipper ステータスカード、設定画面（`config_store.py`、machine.toml / printer.cfg のホワイトリスト編集）、`configs/test-fixture/` 新設、Settings 注入フック、Makefile ターゲット
 - **マシン操作パネル**（homing / ジョグ / 絶対移動 / relax / フォーカス Z、`POST /api/machine-control`）。排他ロックは AppState に置き、Phase 3 の JobManager が同じロックを共有する
-- E2E: ページ巡回 + マシン選択 + 設定 PUT → test-fixture の実ファイル diff 確認（RESTART・実移動の実機確認のみユーザー）
+- E2E: ページ巡回 + マシン選択 + 設定 PUT → test-fixture の実ファイル diff 確認（FIRMWARE_RESTART・実移動の実機確認のみユーザー）
 
 ### Phase 2: FrameHub + MJPEG preview
 

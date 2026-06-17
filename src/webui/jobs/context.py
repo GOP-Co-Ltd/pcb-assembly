@@ -33,12 +33,16 @@ class PromptSpec:
         message: 表示メッセージ
         default: 既定値（UI の初期値。None は既定値なし）
         choices: kind="choice" の選択肢（choice のみ必須）
+        true_label: kind="confirm" の true 側ボタンラベル
+        false_label: kind="confirm" の false 側ボタンラベル
     """
 
     kind: PromptKind
     message: str
     default: bool | float | str | None = None
     choices: tuple[str, ...] = ()
+    true_label: str | None = None
+    false_label: str | None = None
 
 
 class JobBridge(Protocol):

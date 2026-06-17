@@ -168,6 +168,57 @@ class TestJobLifecycleOverWebSocket:
         assert "canny_low = 77" in machine_toml
 
 
+class TestPromptDialogOverBrowser:
+    """実ブラウザ上の prompt modal 表示。"""
+
+    def test_confirm_dialog_uses_custom_button_labels(
+        self, live_server: LiveServer, browser_page
+    ):
+        shutil.copy(
+            COPPER_PCB_FIXTURE,
+            live_server.settings.pcb_browse_root / "led_blinker.kicad_pcb",
+        )
+        select = httpx.put(
+            f"{live_server.base_url}/api/pcb-file",
+            json={"path": "led_blinker.kicad_pcb"},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert select.status_code == 200, select.text
+
+        browser_page.goto(
+            f"{live_server.base_url}/pasting/height_plane",
+            wait_until="domcontentloaded",
+        )
+        browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
+
+        start = httpx.post(
+            f"{live_server.base_url}/api/jobs/height_plane", timeout=_HTTP_TIMEOUT
+        )
+        assert start.status_code == 201, start.text
+
+        dialog = browser_page.locator("#jc-prompt")
+        dialog.wait_for(state="visible", timeout=30_000)
+        ok_button = browser_page.locator("#jc-prompt-ok")
+        no_button = browser_page.locator("#jc-prompt-no")
+        ok_button.wait_for(state="visible", timeout=10_000)
+        no_button.wait_for(state="visible", timeout=10_000)
+
+        assert ok_button.inner_text() == "続行"
+        assert no_button.inner_text() == "中止"
+
+        no_button.click()
+        deadline = time.monotonic() + 10.0
+        while True:
+            current = httpx.get(
+                f"{live_server.base_url}/api/jobs/current", timeout=_HTTP_TIMEOUT
+            ).json()["job"]
+            if current is not None and current["status"] == "aborted":
+                break
+            if time.monotonic() > deadline:
+                raise AssertionError(f"height_plane が aborted にならない: {current}")
+            time.sleep(0.05)
+
+
 class TestSettingsOverBrowser:
     """設定画面の実ブラウザ操作."""
 

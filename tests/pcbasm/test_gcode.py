@@ -1,6 +1,15 @@
 import pytest
 
-from pcbasm.gcode import GCode, homing, move, present, relax, wait, wait_for_done
+from pcbasm.gcode import (
+    GCode,
+    firmware_restart,
+    homing,
+    move,
+    present,
+    relax,
+    wait,
+    wait_for_done,
+)
 
 
 class TestGCode:
@@ -172,6 +181,13 @@ class TestPresent:
 
     def test_present(self):
         assert str(present()) == "PRESENT"
+
+
+class TestFirmwareRestart:
+    """firmware_restart関数のテスト."""
+
+    def test_firmware_restart(self):
+        assert firmware_restart() == GCode("FIRMWARE_RESTART")
 
 
 class TestRelax:

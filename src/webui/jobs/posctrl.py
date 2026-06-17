@@ -299,6 +299,8 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
                     kind="confirm",
                     message="チェッカーボードを配置して撮影しますか?（いいえで中止）",
                     default=True,
+                    true_label="続行",
+                    false_label="中止",
                 )
             )
             if not proceed:

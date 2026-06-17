@@ -35,6 +35,7 @@ from webui.jobs.manager import (
     JobManager,
     JobResult,
     JobStatus,
+    prompt_payload,
 )
 from webui.state import AppState, BusyError
 
@@ -210,6 +211,43 @@ class TestPrompt:
         assert record.status == JobStatus.SUCCEEDED
         assert record.pending_prompt is None
         assert answers == [True]
+
+    def test_prompt_labels_are_preserved_in_pending_prompt_and_payload(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        answers = _register_prompting(
+            catalog,
+            PromptSpec(
+                kind="confirm",
+                message="安全確認",
+                default=True,
+                true_label="続行",
+                false_label="中止",
+            ),
+        )
+        record = manager.start("prompting", {})
+        wait_until(lambda: record.status == JobStatus.WAITING_INPUT)
+
+        pending = record.pending_prompt
+        assert pending is not None
+        prompt_id, spec = pending
+        assert spec.true_label == "続行"
+        assert spec.false_label == "中止"
+        assert prompt_payload(prompt_id, spec) == {
+            "id": prompt_id,
+            "kind": "confirm",
+            "message": "安全確認",
+            "default": True,
+            "choices": [],
+            "true_label": "続行",
+            "false_label": "中止",
+        }
+
+        manager.respond_prompt(prompt_id, False)
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert answers == [False]
 
     @pytest.mark.parametrize(
         ("spec", "answer", "expected"),
