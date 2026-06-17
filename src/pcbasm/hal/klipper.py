@@ -150,6 +150,10 @@ class Klipper:
         if response.status_code >= 400:
             raise RuntimeError(response.reason_phrase)
 
+    def firmware_restart(self) -> None:
+        """ファームウェア再起動を実行する."""
+        self.send_gcode(gcode.firmware_restart())
+
     def has_macro(self, name: str) -> bool:
         """指定した名前のマクロが存在するか確認する.
 

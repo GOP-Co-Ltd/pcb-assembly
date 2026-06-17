@@ -140,6 +140,14 @@ class TestKlipper:
         assert "PRESENT" in warnings[0]
         assert "config unavailable" in warnings[0]
 
+    def test_firmware_restart_sends_firmware_restart_gcode(self, mocker: MockerFixture):
+        klipper = Klipper()
+        send_gcode = mocker.patch.object(klipper, "send_gcode")
+
+        klipper.firmware_restart()
+
+        send_gcode.assert_called_once_with(GCode("FIRMWARE_RESTART"))
+
 
 class TestReadonlyKlipper:
     """ReadonlyKlipperのテスト."""

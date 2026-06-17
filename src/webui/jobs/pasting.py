@@ -556,6 +556,8 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
                 kind="confirm",
                 message=f"{len(planned_points)} 点を計測します。続行しますか?",
                 default=True,
+                true_label="続行",
+                false_label="中止",
             )
         )
     finally:
@@ -630,6 +632,8 @@ def _run_flow_calibration(ctx: JobContext) -> JobResult:
                         "タール (0g) にしましたか?"
                     ),
                     default=True,
+                    true_label="続行",
+                    false_label="中止",
                 )
             )
             if not proceed:
@@ -884,6 +888,8 @@ def _run_probe_gnd_down_adjust(ctx: JobContext) -> JobResult:
                         "（いいえで再調整）"
                     ),
                     default=False,
+                    true_label="確定",
+                    false_label="再調整",
                 )
             )
             if confirmed:
