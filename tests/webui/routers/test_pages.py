@@ -112,6 +112,9 @@ class TestPages:
         assert 'id="ms-probe.shift-y"' in response.text
         assert 'value="-0.5"' in response.text
         assert 'value="0.0"' in response.text
+        assert 'class="settings-label"' in response.text
+        assert '<label for="ms-' not in response.text
+        assert '<button type="submit">保存</button>' not in response.text
 
     def test_settings_page_groups_fields_by_section(self, client: TestClient):
         """設定項目はセクション単位の階層表示（settings-group）でまとまる."""

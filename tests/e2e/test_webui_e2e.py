@@ -222,7 +222,9 @@ class TestPromptDialogOverBrowser:
 class TestSettingsOverBrowser:
     """設定画面の実ブラウザ操作."""
 
-    def test_probe_shift_two_fields_save(self, live_server: LiveServer, browser_page):
+    def test_probe_shift_two_fields_autosave(
+        self, live_server: LiveServer, browser_page
+    ):
         browser_page.goto(
             f"{live_server.base_url}/settings", wait_until="domcontentloaded"
         )
@@ -240,7 +242,6 @@ class TestSettingsOverBrowser:
 
         x_input.fill("0.25")
         y_input.fill("-0.75")
-        browser_page.locator("#machine-settings-form button[type=submit]").click()
 
         deadline = time.monotonic() + 5.0
         while True:
@@ -254,6 +255,20 @@ class TestSettingsOverBrowser:
             if time.monotonic() > deadline:
                 raise AssertionError("probe.shift が保存されない")
             time.sleep(0.05)
+
+    def test_setting_label_does_not_focus_input(
+        self, live_server: LiveServer, browser_page
+    ):
+        browser_page.goto(
+            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
+        )
+        label = browser_page.locator(".settings-label").nth(0)
+        label.wait_for(state="visible", timeout=10_000)
+
+        label.click()
+
+        active_tag = browser_page.evaluate("document.activeElement?.tagName")
+        assert active_tag != "INPUT"
 
 
 class TestPadConfigOverRealHttp:
