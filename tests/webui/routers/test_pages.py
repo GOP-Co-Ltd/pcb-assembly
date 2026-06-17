@@ -42,6 +42,7 @@ from fastapi.testclient import TestClient
 
 from webui.app import create_app
 from webui.settings import Settings
+from webui.state import AppState
 
 TABS = ["dev", "pasting", "pnp", "posctrl"]
 
@@ -351,8 +352,25 @@ class TestPastingJobPages:
     def test_flow_calibration_renders_param_form_fields(self, client: TestClient):
         text = client.get("/pasting/flow_calibration").text
 
-        for name in ("rotations", "rate", "accel", "load_amount"):
+        for name in ("rotations", "rate", "accel", "count", "load_amount"):
             assert name in text
+        for value in ('value="50"', 'value="2.5"', 'value="25"', 'value="3"'):
+            assert value in text
+
+    def test_flow_calibration_renders_saved_param_defaults(
+        self, client: TestClient, appstate: AppState
+    ):
+        appstate.save_job_param_defaults(
+            "flow_calibration",
+            {"rotations": 60.0, "rate": 1.5, "accel": 20.0, "count": 4},
+        )
+
+        text = client.get("/pasting/flow_calibration").text
+
+        for value in ('value="60.0"', 'value="1.5"', 'value="20.0"', 'value="4"'):
+            assert value in text
+        assert 'name="load_amount"' in text
+        assert 'value="0.1"' in text
 
     def test_toolhead_offset_renders_param_form_fields(self, client: TestClient):
         text = client.get("/pasting/toolhead_offset").text

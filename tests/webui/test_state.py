@@ -152,6 +152,61 @@ class TestPcbSelection:
             state.select_pcb(Path("boards/ghost.kicad_pcb"))
 
 
+class TestJobParamDefaults:
+    """ジョブフォーム既定値の永続化."""
+
+    def test_save_job_param_defaults_persists_across_instances(
+        self, state: AppState, webui_settings: Settings, store: ConfigStore
+    ):
+        state.save_job_param_defaults(
+            "flow_calibration",
+            {"rotations": 60.0, "rate": 1.5, "accel": 20.0, "count": 4},
+        )
+
+        restored = AppState(webui_settings, store)
+
+        assert restored.job_param_defaults("flow_calibration") == {
+            "rotations": 60.0,
+            "rate": 1.5,
+            "accel": 20.0,
+            "count": 4,
+        }
+
+    def test_unknown_job_param_defaults_are_empty(self, state: AppState):
+        assert state.job_param_defaults("no-such-job") == {}
+
+    def test_state_file_with_invalid_job_param_defaults_ignores_bad_values(
+        self, webui_settings: Settings, store: ConfigStore
+    ):
+        (webui_settings.webui_data_dir / "webui_state.json").parent.mkdir(
+            parents=True, exist_ok=True
+        )
+        (webui_settings.webui_data_dir / "webui_state.json").write_text(
+            json.dumps(
+                {
+                    "machine": "kurousagi",
+                    "job_param_defaults": {
+                        "flow_calibration": {
+                            "rotations": 50.0,
+                            "rate": {"bad": "value"},
+                            "count": 3,
+                        },
+                        "bad-job": "not a dict",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        state = AppState(webui_settings, store)
+
+        assert state.job_param_defaults("flow_calibration") == {
+            "rotations": 50.0,
+            "count": 3,
+        }
+        assert state.job_param_defaults("bad-job") == {}
+
+
 class TestMachineLock:
     """非ブロッキング排他ロック."""
 

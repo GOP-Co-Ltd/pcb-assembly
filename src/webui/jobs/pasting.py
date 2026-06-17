@@ -77,6 +77,11 @@ from webui.jobs.manager import ApplyPayload, Artifact, JobResult
 # ローディングフェーズの progress stage 名
 # （loading_controls.html の data 属性・テストでピンする契約値）
 LOADING_STAGE = "ローディング"
+FLOW_CALIBRATION_DEFAULT_ROTATIONS = 50
+FLOW_CALIBRATION_DEFAULT_RATE = 2.5
+FLOW_CALIBRATION_DEFAULT_ACCEL = 25
+FLOW_CALIBRATION_DEFAULT_COUNT = 3
+FLOW_CALIBRATION_APPLY_DIGITS = 6
 
 
 @attrs.frozen
@@ -177,14 +182,39 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             tab="pasting",
             run=_run_flow_calibration,
             params=(
-                ParamSpec("rotations", "回転数", "float", 30, unit="rev"),
-                ParamSpec("rate", "角速度", "float", 5.0, unit="rev/s"),
-                ParamSpec("accel", "角加速度", "float", 10.0, unit="rev/s^2"),
-                ParamSpec("count", "計測回数", "int", 3, unit="回"),
+                ParamSpec(
+                    "rotations",
+                    "回転数",
+                    "float",
+                    FLOW_CALIBRATION_DEFAULT_ROTATIONS,
+                    unit="rev",
+                ),
+                ParamSpec(
+                    "rate",
+                    "角速度",
+                    "float",
+                    FLOW_CALIBRATION_DEFAULT_RATE,
+                    unit="rev/s",
+                ),
+                ParamSpec(
+                    "accel",
+                    "角加速度",
+                    "float",
+                    FLOW_CALIBRATION_DEFAULT_ACCEL,
+                    unit="rev/s^2",
+                ),
+                ParamSpec(
+                    "count",
+                    "計測回数",
+                    "int",
+                    FLOW_CALIBRATION_DEFAULT_COUNT,
+                    unit="回",
+                ),
                 ParamSpec("load_amount", "ローディング既定量", "float", 0.1, unit="uL"),
             ),
             uses_machine=True,
             accepts_commands=True,
+            persisted_params=("rotations", "rate", "accel", "count"),
         )
     )
     catalog.register(
@@ -654,21 +684,36 @@ def _run_flow_calibration(ctx: JobContext) -> JobResult:
     result = FlowCalibrationSet(
         rotations=rotations, masses_mg=tuple(masses), specific_gravity=sg
     )
+    rotations_per_ul = result.rotations_per_ul
+    max_dispense_rate = result.dispense_rate_for(rate)
+    dispense_accel = result.dispense_accel_for(accel)
     per_ul = ", ".join(f"{c.rotations_per_ul:.4f}" for c in result.per_measurement)
     mass_list = ", ".join(f"{m:.1f}" for m in masses)
     return JobResult(
         summary=(
-            f"rotations_per_ul = {result.rotations_per_ul:.6f} "
+            f"rotations_per_ul = {rotations_per_ul:.6f} "
             f"± {result.stdev_rotations_per_ul:.6f} ({count} 回平均)\n"
+            f"max_dispense_rate = {max_dispense_rate:.6f} uL/s / "
+            f"dispense_accel = {dispense_accel:.6f} uL/s^2\n"
             f"各回: {per_ul} rev/μL / 質量: {mass_list} mg"
         ),
         apply=ApplyPayload(
             label=(
                 f"[paste_dispenser] rotations_per_ul = "
-                f"{result.rotations_per_ul:.6f} を設定に反映"
+                f"{rotations_per_ul:.6f}, max_dispense_rate = "
+                f"{max_dispense_rate:.6f}, dispense_accel = "
+                f"{dispense_accel:.6f} を設定に反映"
             ),
             values={
-                "paste_dispenser.rotations_per_ul": round(result.rotations_per_ul, 6)
+                "paste_dispenser.rotations_per_ul": round(
+                    rotations_per_ul, FLOW_CALIBRATION_APPLY_DIGITS
+                ),
+                "paste_dispenser.max_dispense_rate": round(
+                    max_dispense_rate, FLOW_CALIBRATION_APPLY_DIGITS
+                ),
+                "paste_dispenser.dispense_accel": round(
+                    dispense_accel, FLOW_CALIBRATION_APPLY_DIGITS
+                ),
             },
         ),
     )

@@ -51,6 +51,7 @@ def _register(
     requires_pcb: bool = False,
     uses_machine: bool = False,
     accepts_commands: bool = False,
+    persisted_params: tuple[str, ...] = (),
 ) -> None:
     catalog.register(
         JobDefinition(
@@ -62,6 +63,7 @@ def _register(
             requires_pcb=requires_pcb,
             uses_machine=uses_machine,
             accepts_commands=accepts_commands,
+            persisted_params=persisted_params,
         )
     )
 
@@ -185,6 +187,29 @@ class TestLifecycle:
 
     def test_current_is_none_before_first_start(self, manager: JobManager):
         assert manager.current() is None
+
+    def test_start_persists_declared_param_defaults(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        _register(
+            catalog,
+            lambda ctx: None,
+            params=(
+                ParamSpec("ratio", "比率", "float", default=1.0),
+                ParamSpec("count", "回数", "int", default=3),
+                ParamSpec("label", "ラベル", "str", default="x"),
+            ),
+            persisted_params=("ratio", "count"),
+        )
+
+        record = manager.start("synthetic", {"ratio": 2.5, "count": 4, "label": "y"})
+        wait_until(lambda: record.status.terminal)
+
+        assert state.job_param_defaults("synthetic") == {"ratio": 2.5, "count": 4}
 
 
 class TestPrompt:

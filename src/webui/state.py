@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -16,6 +16,11 @@ from webui.fake_camera import FixedImageCamera
 from webui.settings import Settings
 
 _STATE_FILENAME = "webui_state.json"
+type StoredJobParamValue = bool | float | int | str
+
+
+def _is_stored_job_param_value(value: object) -> bool:
+    return isinstance(value, bool | float | int | str)
 
 
 class BusyError(RuntimeError):
@@ -59,6 +64,9 @@ class AppState:
         persisted = self._load_persisted()
         self._selected_machine = self._resolve_machine(persisted.get("machine"))
         self._selected_pcb = self._resolve_pcb(persisted.get("pcb_file"))
+        self._job_param_defaults = self._resolve_job_param_defaults(
+            persisted.get("job_param_defaults")
+        )
 
     @property
     def selected_machine(self) -> str:
@@ -118,6 +126,17 @@ class AppState:
             return CalibrationResult.load(calibration_file).z_position
         except Exception:
             return None
+
+    def job_param_defaults(self, job_name: str) -> dict[str, StoredJobParamValue]:
+        """ジョブフォーム用に保存された既定値を返す（未保存なら空 dict）."""
+        return dict(self._job_param_defaults.get(job_name, {}))
+
+    def save_job_param_defaults(
+        self, job_name: str, values: Mapping[str, StoredJobParamValue]
+    ) -> None:
+        """ジョブフォーム用の既定値を保存する."""
+        self._job_param_defaults[job_name] = dict(values)
+        self._persist()
 
     def frame_hub(self) -> FrameHub:
         """選択マシン用の FrameHub を返す（初回アクセスで遅延構築）.
@@ -201,7 +220,7 @@ class AppState:
         finally:
             self.release_machine()
 
-    def _load_persisted(self) -> dict[str, str | None]:
+    def _load_persisted(self) -> dict[str, object]:
         path = (
             self._state_path if self._state_path.is_file() else self._legacy_state_path
         )
@@ -211,37 +230,52 @@ class AppState:
             return {}
         if not isinstance(data, dict):
             return {}
-        return {
-            key: value
-            for key, value in data.items()
-            if isinstance(value, str) or value is None
-        }
+        return data
 
     def _persist(self) -> None:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "machine": self._selected_machine,
             "pcb_file": (self._selected_pcb.as_posix() if self._selected_pcb else None),
+            "job_param_defaults": self._job_param_defaults,
         }
         self._state_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
 
-    def _resolve_machine(self, persisted: str | None) -> str:
+    def _resolve_machine(self, persisted: object) -> str:
         machines = self._store.list_machines()
         if not machines:
             raise RuntimeError(
                 f"configs に machine.toml を持つマシンがありません: "
                 f"{self._settings.configs_root}"
             )
-        if persisted in machines:
+        if isinstance(persisted, str) and persisted in machines:
             return persisted
         if self._settings.default_machine in machines:
             return self._settings.default_machine
         return machines[0]
 
-    def _resolve_pcb(self, persisted: str | None) -> Path | None:
-        if persisted is None:
+    def _resolve_pcb(self, persisted: object) -> Path | None:
+        if not isinstance(persisted, str):
             return None
         return self._validate_pcb(Path(persisted))
+
+    def _resolve_job_param_defaults(
+        self, persisted: object
+    ) -> dict[str, dict[str, StoredJobParamValue]]:
+        if not isinstance(persisted, dict):
+            return {}
+        defaults: dict[str, dict[str, StoredJobParamValue]] = {}
+        for job_name, values in persisted.items():
+            if not isinstance(job_name, str) or not isinstance(values, dict):
+                continue
+            params = {
+                key: value
+                for key, value in values.items()
+                if isinstance(key, str) and _is_stored_job_param_value(value)
+            }
+            if params:
+                defaults[job_name] = params
+        return defaults
 
     def _validate_pcb(self, path: Path) -> Path | None:
         """PCB パスを検証し、正規化済み相対パスを返す（不正なら None）."""
