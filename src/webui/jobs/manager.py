@@ -438,6 +438,11 @@ class JobManager:
 
         self._state.acquire_machine(f"job:{name}")
         try:
+            persisted_params = {
+                key: params[key] for key in definition.persisted_params if key in params
+            }
+            if persisted_params:
+                self._state.save_job_param_defaults(name, persisted_params)
             record = JobRecord(uuid.uuid4().hex, name, params, self._log_capacity)
             runtime = _JobRuntime(record, self._preview, self._publish)
             artifacts_dir = self._artifacts_root / record.id

@@ -50,6 +50,7 @@ class JobDefinition:
         requires_pcb: True で PCB 未選択なら開始 400
         uses_machine: 装置を動かすか（Phase 3 では情報のみ）
         accepts_commands: ジョブモード対話（next_command）を受けるか
+        persisted_params: 起動時の値を次回フォーム既定値として保存するパラメータ名
         hidden: UI のフォーム導出から除外（POST は可）
     """
 
@@ -61,6 +62,7 @@ class JobDefinition:
     requires_pcb: bool = False
     uses_machine: bool = True
     accepts_commands: bool = False
+    persisted_params: tuple[str, ...] = ()
     hidden: bool = False
 
 
