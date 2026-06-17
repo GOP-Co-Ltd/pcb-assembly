@@ -306,6 +306,7 @@ class TestProbe:
 
         assert probe.min_samples == 6
         assert probe.max_samples == 9
+        assert probe.lift_height == 1.0
 
     def test_valid_custom_values(self):
         probe = Probe(
@@ -313,11 +314,13 @@ class TestProbe:
             revolution_distance=40.0,
             down_distance=5.0,
             min_radius=2.0,
+            lift_height=2.5,
             min_samples=7,
             max_samples=12,
         )
 
         assert probe.min_radius == 2.0
+        assert probe.lift_height == 2.5
         assert probe.min_samples == 7
         assert probe.max_samples == 12
 

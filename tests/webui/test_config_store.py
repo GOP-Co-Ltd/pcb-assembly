@@ -58,6 +58,7 @@ class TestMachineSettings:
 
         assert values["paste_dispenser.bead_width_factor"] is None
         assert values["paste_dispenser.boundary_margin"] is None
+        assert values["probe.lift_height"] is None
 
     def test_write_then_reread_reflects_value(self, store: ConfigStore):
         store.write_machine_settings(FIXTURE, {"paste_dispenser.fill_speed": 0.9})
@@ -116,6 +117,16 @@ class TestMachineSettings:
 
         values = store.read_machine_settings(FIXTURE)
         assert values["paste_dispenser.bead_width_factor"] == 1.5
+
+    def test_write_adds_probe_lift_height_missing_from_toml(
+        self, store: ConfigStore, configs_root: Path
+    ):
+        store.write_machine_settings(FIXTURE, {"probe.lift_height": 1.25})
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["probe.lift_height"] == 1.25
+        text = (configs_root / FIXTURE / "machine.toml").read_text(encoding="utf-8")
+        assert "lift_height = 1.25" in text
 
     def test_read_includes_camera_calibration_file(self, store: ConfigStore):
         """Phase 4: camera.calibration_file がホワイトリストに含まれ既存値が読める."""

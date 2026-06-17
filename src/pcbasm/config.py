@@ -69,6 +69,7 @@ class Probe:
     revolution_distance: float  # サーボ一回転あたりの移動量 [mm]
     down_distance: float  # グラウンドを下げる距離 [mm]
     min_radius: float  # サンプル点が銅箔境界から確保すべき最小距離 [mm] (ニードル-probe ground間の目測距離に相当)
+    lift_height: float = 1.0  # PROBE実行後に接触点から持ち上げる高さ [mm]
     min_samples: int = (
         6  # 最小サンプル数 (HeightPlaneの2次曲面フィットに必要な最小点数)
     )

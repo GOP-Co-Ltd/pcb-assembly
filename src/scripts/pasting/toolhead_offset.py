@@ -143,7 +143,12 @@ def main() -> None:
         revolution_distance=probe_config.revolution_distance,
         down_distance=probe_config.down_distance,
     )
-    probe_executor = ProbeExecutor(klipper=klipper, probe=probe, stage=stage)
+    probe_executor = ProbeExecutor(
+        klipper=klipper,
+        probe=probe,
+        stage=stage,
+        lift_height=probe_config.lift_height,
+    )
 
     dispenser_config = machine.paste_dispenser
     paste_dispenser = PasteDispenser(
