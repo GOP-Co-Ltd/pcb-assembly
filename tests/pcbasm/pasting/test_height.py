@@ -4,7 +4,17 @@ import pytest
 from shapely.geometry import Polygon
 
 from pcbasm.gcode import GCode
-from pcbasm.geometry import HeightPlane, Identity, Point2d
+from pcbasm.geometry import (
+    Compose,
+    HeightPlane,
+    Identity,
+    Point2d,
+    Point3d,
+    Scale,
+    Shift,
+    sample_points_in_polygons,
+    sort_by_nearest,
+)
 from pcbasm.pasting.height import HeightPlaneMeasurer
 from pcbasm.pcb import Copper, Layer
 
@@ -29,6 +39,7 @@ class TestHeightPlaneMeasurer:
         # stage.move の戻り値は `+ gcode.wait(...)` で連結されるため実体の GCode を返す
         stage = mocker.Mock()
         stage.max_velocity = 100.0
+        stage.get_position.return_value = Point3d(0.0, 0.0, 0.0)
         stage.move.return_value = GCode()
         return stage
 
@@ -201,3 +212,60 @@ class TestHeightPlaneMeasurer:
         )
 
         assert sampler.call_args.kwargs["outline"] is outline
+
+    def test_measure_routes_probe_points_by_nearest_actual_move_targets(
+        self,
+        mock_probe_executor,
+        mock_klipper,
+        mock_stage,
+        large_copper,
+    ):
+        """現在位置から変換後+shiftの実移動先が近くなる順にprobeする."""
+        board_to_machine = Compose(
+            [
+                Scale(x=-1.0, y=1.0, z=1.0),
+                Shift(x=100.0, y=20.0, z=0.0),
+            ]
+        )
+        probe_shift = (15.0, -30.0)
+        mock_stage.get_position.return_value = Point3d(105.0, 8.0, 0.0)
+        board_points = sample_points_in_polygons(
+            [large_copper.polygon],
+            **_SAMPLING_KWARGS,
+        )
+
+        def actual_move_target(board_point):
+            machine_point = board_to_machine.apply(board_point)
+            return Point3d(
+                x=machine_point.x + probe_shift[0],
+                y=machine_point.y + probe_shift[1],
+                z=0.0,
+            )
+
+        expected_board_points = sort_by_nearest(
+            board_points,
+            mock_stage.get_position.return_value,
+            key=actual_move_target,
+        )
+        expected_move_targets = [
+            (actual_move_target(p).x, actual_move_target(p).y)
+            for p in expected_board_points
+        ]
+        measurer = HeightPlaneMeasurer(
+            probe_executor=mock_probe_executor,
+            klipper=mock_klipper,
+            stage=mock_stage,
+            probe_shift=probe_shift,
+            **_SAMPLING_KWARGS,
+        )
+
+        measurer.measure(
+            coppers=[large_copper],
+            board_to_machine=board_to_machine,
+        )
+
+        move_targets = [
+            (call.kwargs["x"], call.kwargs["y"])
+            for call in mock_stage.move.call_args_list
+        ]
+        assert move_targets == pytest.approx(expected_move_targets)
