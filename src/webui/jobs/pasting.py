@@ -611,6 +611,7 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
         pcb=pcb,
         title=f"Height Plane: {ctx.pcb_path.stem}",
         output_path=ctx.artifacts_dir / "height_plane.png",
+        pcb_to_plane=session.board_to_machine,
     )
     zs = [p.z for p in height_plane.points]
     return JobResult(
