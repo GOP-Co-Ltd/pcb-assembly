@@ -349,7 +349,7 @@ Firmware Restart もジョブ機構を**経由しない**。`POST /api/firmware-
 
 - **L0** 全部品デフォルト → **L1** 同規格 package（例 `0402`）→ **L2** 各コンポーネント（designator）→ **L3** コンポーネント内の同形状 pad（`PadShapeKey` で分類。熱パッドと信号ピンを区別）→ **L4** 個別 pad
 - 各項目は非 None 値で上書き。**`enabled` は最具体レベルの明示値が勝つ**（L2 で false でも L4 で true なら有効）
-- 表示: 継承 = 薄字 placeholder（祖先チェーンを client 合成）/ override = ●（濃字）+ × でクリア（継承に戻す）/ 無効行 = 灰色 + 取消線 / 無効ノードの編集時は警告 toast
+- 表示: 継承 = 薄字 placeholder（祖先チェーンを client 合成）/ このノードの override = `*` バッジ、値セルは ●（濃字）+ × でクリア（継承に戻す）/ 子孫ノードに override がある祖先行・項目 = `v` バッジ（件数・対象項目を tooltip 表示）/ 無効行 = 灰色 + 取消線 / 無効ノードの編集時、および子孫 override がある項目を祖先側で編集した時は警告 toast
 - 編集は **PATCH で即時保存**。`window.webui.jobs.onUpdate` 購読で**ジョブ実行中は編集ロック**
 
 **override 対象 7 項目**: `fill_speed` / `paste_height` / `ul_per_mm2` / `prime_extra_delay` / `bead_width_factor` / `overlap` / `boundary_margin`（`PASTE_OVERRIDE_FIELDS`）。マシン固定（設定ページ §8 の `[paste_dispenser]` のまま、pad ごとに変えない）: `rotations_per_ul` / `nozzle_diameter` / `toolhead` / `pad_align`、および吐出・リトラクト動特性（`max_dispense_rate` / `dispense_accel` / `retract_*`）。
