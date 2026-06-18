@@ -654,6 +654,12 @@ h2 {
   background: var(--danger);
 }
 
+.toast.warning {
+  border: 1px solid var(--warn);
+  color: var(--text);
+  background: var(--warn-weak);
+}
+
 /* ---- job form ---- */
 .job-form {
   display: grid;
@@ -1160,6 +1166,46 @@ h2 {
 
 .pad-node-label {
   cursor: pointer;
+}
+
+.pad-node-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+}
+
+.pad-override-badge,
+.pad-descendant-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  padding: 0 0.24rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.pad-override-badge {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.pad-override-badge[data-scope="descendant"],
+.pad-descendant-marker {
+  border-color: #dfbd84;
+  color: var(--warn);
+  background: var(--warn-weak);
+}
+
+.pad-descendant-marker {
+  margin-left: 0.15rem;
 }
 
 .pad-row-disabled {

@@ -6,8 +6,10 @@ import {
   ancestorChain,
   buildNodeIndexes,
   cleanupSelection,
+  descendantOverrideSummary,
   l4NodeIdForPad,
   ownOverride,
+  ownOverrideSummary,
   padsUnderNode,
   resolvedEnabled,
   resolvedValue,
@@ -36,6 +38,7 @@ import {
 
   const { api, toast } = window.webui;
   const DEBOUNCE_MS = 300;
+  const TOAST_MS = 5000;
 
   const state = {
     config: null,
@@ -103,6 +106,94 @@ import {
 
   function renderSelectionCount() {
     countEl.textContent = `選択: ${state.selected.size}`;
+  }
+
+  function warningToast(message) {
+    const container = document.getElementById("toasts");
+    if (!container) {
+      toast(message);
+      return;
+    }
+    const el = document.createElement("div");
+    el.className = "toast warning";
+    el.textContent = message;
+    container.appendChild(el);
+    setTimeout(() => el.remove(), TOAST_MS);
+  }
+
+  function overrideFieldsTitle(fields) {
+    return fields.map((field) => FIELD_LABELS[field] || field).join("、");
+  }
+
+  function ownOverrideTitle(summary) {
+    const parts = [];
+    if (summary.enabled) parts.push("有効/無効");
+    if (summary.fields.length > 0) parts.push(overrideFieldsTitle(summary.fields));
+    return `このノードの override: ${parts.join("、")}`;
+  }
+
+  function descendantOverrideTitle(summary) {
+    const parts = [];
+    if (summary.enabledCount > 0) {
+      parts.push(`有効/無効 ${summary.enabledCount}件`);
+    }
+    if (summary.fields.length > 0) {
+      parts.push(overrideFieldsTitle(summary.fields));
+    }
+    return `子孫 ${summary.nodeCount} ノードに override: ${parts.join("、")}`;
+  }
+
+  function appendOverrideBadge(parent, label, count, title, testid, scope) {
+    if (count === 0) return;
+    const badge = document.createElement("span");
+    badge.className = "pad-override-badge";
+    badge.classList.add(`pad-${scope}-override-badge`);
+    if (scope === "descendant") {
+      badge.classList.add("pad-descendant-override-marker");
+    }
+    badge.dataset.testid = testid;
+    badge.dataset.scope = scope;
+    badge.dataset.count = String(count);
+    badge.textContent = count > 1 ? `${label}${count}` : label;
+    badge.title = title;
+    badge.setAttribute("aria-label", title);
+    parent.appendChild(badge);
+  }
+
+  function appendNodeOverrideBadges(parent, ownSummary, descendantSummary) {
+    if (ownSummary.count === 0 && descendantSummary.count === 0) return;
+    const badges = document.createElement("span");
+    badges.className = "pad-node-badges";
+    appendOverrideBadge(
+      badges,
+      "*",
+      ownSummary.count,
+      ownOverrideTitle(ownSummary),
+      "pad-own-override-badge",
+      "own"
+    );
+    appendOverrideBadge(
+      badges,
+      "v",
+      descendantSummary.count,
+      descendantOverrideTitle(descendantSummary),
+      "pad-descendant-override-badge",
+      "descendant"
+    );
+    parent.appendChild(badges);
+  }
+
+  function appendDescendantMarker(parent, title, testid, count, field = null) {
+    const marker = document.createElement("span");
+    marker.className = "pad-descendant-marker";
+    marker.classList.add(testid);
+    marker.dataset.testid = testid;
+    marker.dataset.count = String(count);
+    if (field !== null) marker.dataset.field = field;
+    marker.textContent = "v";
+    marker.title = title;
+    marker.setAttribute("aria-label", title);
+    parent.appendChild(marker);
   }
 
   function refreshViewerState() {
@@ -203,9 +294,20 @@ import {
         ids,
         enabled,
       });
+      updateLocalPadOverrides(ids, enabled);
       applyAffected(res.affected_pads, { invalidateRoute: true });
     } catch (err) {
       toast(`pad 更新失敗: ${err.message}`, false);
+    }
+  }
+
+  function updateLocalPadOverrides(ids, enabled) {
+    const byId = new Map(state.config.pads.map((pad) => [pad.id, pad]));
+    for (const id of ids) {
+      const pad = byId.get(id);
+      if (!pad) continue;
+      const node = l4NodeIdForPad(pad, state.nodeById);
+      if (node) updateLocalOverride(state.config, { node, enabled });
     }
   }
 
@@ -276,6 +378,17 @@ import {
     tr.dataset.nodeId = node.id;
     tr.dataset.testid = "pad-tree-row";
     const enabled = resolvedEnabled(state.config, state.parentOf, node.id);
+    const own = ownOverride(state.config, node.id);
+    const ownSummary = ownOverrideSummary(state.config, node.id);
+    const descendantSummary = descendantOverrideSummary(state.config, node);
+    if (ownSummary.count > 0) {
+      tr.classList.add("pad-row-own-override");
+      tr.dataset.ownOverrides = String(ownSummary.count);
+    }
+    if (descendantSummary.count > 0) {
+      tr.classList.add("pad-row-descendant-override");
+      tr.dataset.descendantOverrides = String(descendantSummary.count);
+    }
     if (!enabled) tr.classList.add("pad-row-disabled");
     if (node.id === state.focusedNode) tr.classList.add("pad-row-focus");
 
@@ -301,6 +414,7 @@ import {
     label.className = "pad-node-label";
     label.textContent = node.label;
     nameTd.appendChild(label);
+    appendNodeOverrideBadges(nameTd, ownSummary, descendantSummary);
     tr.addEventListener("mouseenter", () => {
       state.hoveredNode = node.id;
       syncNodePadHighlights();
@@ -316,7 +430,7 @@ import {
     enTd.className = "pad-col-enabled";
     const cb = document.createElement("input");
     cb.type = "checkbox";
-    const own = ownOverride(state.config, node.id);
+    cb.dataset.testid = "pad-enabled-checkbox";
     cb.checked = enabled;
     cb.indeterminate =
       node.id !== "L0" && (own.enabled === null || own.enabled === undefined);
@@ -325,24 +439,36 @@ import {
     const inheritBtn = document.createElement("button");
     inheritBtn.type = "button";
     inheritBtn.className = "pad-enabled-inherit";
+    inheritBtn.dataset.testid = "pad-enabled-inherit";
     inheritBtn.textContent = "継承";
     inheritBtn.title = "有効/無効を継承に戻す";
     inheritBtn.disabled = own.enabled === null || own.enabled === undefined;
     inheritBtn.addEventListener("click", () => patchNodeEnabledInherit(node.id));
     enTd.appendChild(inheritBtn);
+    if (descendantSummary.enabledCount > 0) {
+      appendDescendantMarker(
+        enTd,
+        `子孫ノードの有効/無効 override が ${descendantSummary.enabledCount} 件あります。`,
+        "pad-descendant-enabled-marker",
+        descendantSummary.enabledCount
+      );
+    }
     tr.appendChild(enTd);
 
-    for (const field of FIELDS) tr.appendChild(buildValueCell(node, field));
+    for (const field of FIELDS) {
+      tr.appendChild(buildValueCell(node, field, descendantSummary));
+    }
     return tr;
   }
 
-  function buildValueCell(node, field) {
+  function buildValueCell(node, field, descendantSummary) {
     const td = document.createElement("td");
     td.className = "pad-col-value";
     const own = ownOverride(state.config, node.id);
     const ownValue = own.values ? own.values[field] : undefined;
     const isOverride = ownValue !== undefined;
     const resolved = resolvedValue(state.config, state.parentOf, node.id, field);
+    const descendantCount = descendantSummary.fieldCounts[field] || 0;
 
     const input = document.createElement("input");
     input.type = "number";
@@ -358,29 +484,46 @@ import {
       input.value = "";
       input.placeholder = resolved !== null ? String(round4(resolved)) : "";
     }
-    input.addEventListener("change", () => commitCell(node.id, field, input));
+    input.addEventListener("change", () =>
+      commitCell(node.id, field, input, descendantCount)
+    );
     input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") commitCell(node.id, field, input);
+      if (event.key === "Enter") {
+        commitCell(node.id, field, input, descendantCount);
+      }
     });
     td.appendChild(input);
 
     if (isOverride) {
       const marker = document.createElement("span");
       marker.className = "pad-override-marker";
+      marker.dataset.testid = "pad-own-override-marker";
+      marker.dataset.field = field;
       marker.textContent = "●";
       td.insertBefore(marker, input);
       const clearBtn = document.createElement("button");
       clearBtn.type = "button";
       clearBtn.className = "pad-cell-clear";
+      clearBtn.dataset.testid = "pad-clear-override";
+      clearBtn.dataset.field = field;
       clearBtn.textContent = "×";
       clearBtn.title = "継承に戻す";
       clearBtn.addEventListener("click", () => patchNodeClear(node.id, field));
       td.appendChild(clearBtn);
     }
+    if (descendantCount > 0) {
+      appendDescendantMarker(
+        td,
+        `子孫ノードの ${FIELD_LABELS[field] || field} override が ${descendantCount} 件あります。`,
+        "pad-descendant-field-marker",
+        descendantCount,
+        field
+      );
+    }
     return td;
   }
 
-  function commitCell(nodeId, field, input) {
+  function commitCell(nodeId, field, input, descendantCount) {
     if (state.locked) return;
     const raw = input.value.trim();
     if (raw === "") {
@@ -397,17 +540,22 @@ import {
     if (!resolvedEnabled(state.config, state.parentOf, nodeId)) {
       toast("無効化されているパーツです", false);
     }
-    debouncePatchNode(nodeId, field, { values: { [field]: value } });
+    debouncePatchNode(
+      nodeId,
+      field,
+      { values: { [field]: value } },
+      { descendantField: field, descendantCount }
+    );
   }
 
-  function debouncePatchNode(nodeId, field, body) {
+  function debouncePatchNode(nodeId, field, body, options = {}) {
     const key = `${nodeId}|${field}`;
     clearTimeout(state.debounceTimers.get(key));
     state.debounceTimers.set(
       key,
       setTimeout(() => {
         state.debounceTimers.delete(key);
-        patchNode({ node: nodeId, ...body });
+        patchNode({ node: nodeId, ...body }, options);
       }, DEBOUNCE_MS)
     );
   }
@@ -427,11 +575,17 @@ import {
     patchNode({ node: nodeId, enabled: null });
   }
 
-  async function patchNode(body) {
+  async function patchNode(body, options = {}) {
     try {
       const res = await api("PATCH", "/api/pasting/pad-config/node", body);
       updateLocalOverride(state.config, body);
       applyAffected(res.affected_pads, { invalidateRoute: "enabled" in body });
+      if (options.descendantCount > 0) {
+        const label = FIELD_LABELS[options.descendantField] || options.descendantField;
+        warningToast(
+          `保存しました。子孫ノードの ${label} override ${options.descendantCount} 件は引き続き優先されます。`
+        );
+      }
     } catch (err) {
       toast(`設定更新失敗: ${err.message}`, false);
     }
@@ -472,7 +626,7 @@ import {
   function revealPadRow(padId) {
     const pad = state.config.pads.find((candidate) => candidate.id === padId);
     if (!pad) return;
-    const l4 = l4NodeIdForPad(pad);
+    const l4 = l4NodeIdForPad(pad, state.nodeById);
     if (!l4) return;
     for (const id of ancestorChain(state.parentOf, l4)) {
       if (state.nodeById.get(id)?.children.length) state.expanded.add(id);

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import time
 from pathlib import Path
@@ -21,6 +22,23 @@ from tests.webui.conftest import COPPER_PCB_FIXTURE
 _HTTP_TIMEOUT = 10.0
 _BROWSER_TIMEOUT_MS = 10_000
 _POLL_TIMEOUT = 5.0
+_DESCENDANT_OVERRIDE_MARKER_SELECTOR = ",".join(
+    [
+        '[data-testid="pad-descendant-override-marker"]',
+        ".pad-descendant-override-marker",
+        ".pad-descendant-override-badge",
+    ]
+)
+_DESCENDANT_FIELD_MARKER_SELECTOR = ",".join(
+    [
+        '[data-testid="pad-descendant-field-marker"]',
+        ".pad-descendant-field-marker",
+        ".pad-descendant-override-field-marker",
+    ]
+)
+_DESCENDANT_WARNING_RE = re.compile(
+    r"下位|配下|子孫|個別|override|上書き|継承", re.IGNORECASE
+)
 _HIGHLIGHT_SELECTOR = ",".join(
     [
         '[data-testid="pad-polygon"].pad-node-highlight',
@@ -75,6 +93,18 @@ def _calculate_route(live_server: LiveServer, layer: str = "Top") -> dict[str, A
     response = httpx.post(
         f"{live_server.base_url}/api/pasting/pad-config/route",
         json={"layer": layer},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _patch_pad_config_node(
+    live_server: LiveServer, node_id: str, values: dict[str, float]
+):
+    response = httpx.patch(
+        f"{live_server.base_url}/api/pasting/pad-config/node",
+        json={"node": node_id, "values": values},
         timeout=_HTTP_TIMEOUT,
     )
     assert response.status_code == 200, response.text
@@ -156,6 +186,25 @@ def _ensure_row_visible(page: Any, path_ids: list[str]) -> Any:
     raise AssertionError("tree row が見つからない")
 
 
+def _ensure_row_collapsed(page: Any, node_id: str, descendant_id: str):
+    row = page.locator(_row_selector(node_id))
+    row.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+    descendant = page.locator(_row_selector(descendant_id))
+    if descendant.count() > 0 and descendant.nth(0).is_visible():
+        row.locator(_testid("pad-tree-toggle")).nth(0).click()
+    descendant.wait_for(state="hidden", timeout=_BROWSER_TIMEOUT_MS)
+
+
+def _field_cell(row: Any, field: str) -> Any:
+    return row.locator(f"td:has(input[data-field={_css_string(field)}])")
+
+
+def _field_input(row: Any, field: str) -> Any:
+    return row.locator(
+        f'input[data-testid="pad-setting-input"][data-field={_css_string(field)}]'
+    )
+
+
 def _highlighted_pad_ids(page: Any) -> set[str]:
     ids = page.eval_on_selector_all(
         _HIGHLIGHT_SELECTOR,
@@ -192,6 +241,59 @@ def _wait_for_pad_enabled(live_server: LiveServer, pad_id: str, enabled: bool):
             return
         if time.monotonic() > deadline:
             raise AssertionError(f"{pad_id} enabled が {enabled} に更新されない")
+        time.sleep(0.05)
+
+
+def _wait_for_node_override_field(
+    live_server: LiveServer, node_id: str, field: str, expected: float
+) -> dict[str, Any]:
+    deadline = time.monotonic() + _POLL_TIMEOUT
+    while True:
+        config = _get_pad_config(live_server)
+        value = config["overrides"].get(node_id, {}).get("values", {}).get(field)
+        if value is not None and abs(float(value) - expected) < 1e-9:
+            return config
+        if time.monotonic() > deadline:
+            raise AssertionError(
+                f"{node_id} {field} override が {expected} に更新されない"
+            )
+        time.sleep(0.05)
+
+
+def _wait_for_node_enabled_override(
+    live_server: LiveServer, node_id: str, expected: bool
+):
+    deadline = time.monotonic() + _POLL_TIMEOUT
+    while True:
+        config = _get_pad_config(live_server)
+        value = config["overrides"].get(node_id, {}).get("enabled")
+        if value is expected:
+            return
+        if time.monotonic() > deadline:
+            raise AssertionError(
+                f"{node_id} enabled override が {expected} に更新されない"
+            )
+        time.sleep(0.05)
+
+
+def _wait_for_node_resolved_field(
+    live_server: LiveServer, node_id: str, field: str, expected: float
+):
+    deadline = time.monotonic() + _POLL_TIMEOUT
+    while True:
+        config = _get_pad_config(live_server)
+        values = [
+            pad["resolved"][field]
+            for pad in config["pads"]
+            if node_id in pad["node_ids"]
+        ]
+        if values and all(abs(float(value) - expected) < 1e-9 for value in values):
+            return
+        if time.monotonic() > deadline:
+            raise AssertionError(
+                f"{node_id} 配下 pad の {field} が "
+                f"{expected} に解決されない: {values}"
+            )
         time.sleep(0.05)
 
 
@@ -476,6 +578,88 @@ class TestPasteSolderBrowserPadInteraction:
             arg=live_server.base_url,
             timeout=_BROWSER_TIMEOUT_MS,
         )
+
+
+class TestPasteSolderBrowserOverrideVisibility:
+    """階層 override の祖先表示と編集時の競合警告."""
+
+    def test_descendant_override_stays_visible_and_specific_after_parent_edit(
+        self, live_server: LiveServer, browser_page
+    ):
+        _select_led_blinker(live_server)
+        _patch_pad_config_node(live_server, "L2:U1", {"fill_speed": 0.33})
+        config = _get_pad_config(live_server)
+        path = _tree_path_ids(config["tree"], "L2:U1")
+        assert path == ["L0", "L1:SOT-23-6", "L2:U1"]
+
+        _open_paste_solder(browser_page, live_server)
+        l1_row = browser_page.locator(_row_selector("L1:SOT-23-6"))
+        l1_row.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        _ensure_row_collapsed(browser_page, "L1:SOT-23-6", "L2:U1")
+
+        l1_row.locator(
+            f".pad-col-node {_DESCENDANT_OVERRIDE_MARKER_SELECTOR}"
+        ).first.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        l1_fill_speed_cell = _field_cell(l1_row, "fill_speed")
+        l1_fill_speed_cell.locator(_DESCENDANT_FIELD_MARKER_SELECTOR).first.wait_for(
+            state="visible", timeout=_BROWSER_TIMEOUT_MS
+        )
+
+        l1_fill_speed = _field_input(l1_row, "fill_speed")
+        l1_fill_speed.fill("0.77")
+        l1_fill_speed.press("Enter")
+
+        browser_page.locator(".toast").filter(
+            has_text=_DESCENDANT_WARNING_RE
+        ).first.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        _wait_for_node_override_field(live_server, "L1:SOT-23-6", "fill_speed", 0.77)
+        _wait_for_node_resolved_field(live_server, "L2:U1", "fill_speed", 0.33)
+
+        l2_row = _ensure_row_visible(browser_page, ["L0", "L1:SOT-23-6", "L2:U1"])
+        l2_fill_speed_cell = _field_cell(l2_row, "fill_speed")
+        l2_fill_speed_input = _field_input(l2_row, "fill_speed")
+        assert l2_fill_speed_input.input_value(timeout=_BROWSER_TIMEOUT_MS) == "0.33"
+        assert "override" in l2_fill_speed_input.get_attribute("class")
+        l2_fill_speed_cell.locator(".pad-override-marker").wait_for(
+            state="visible", timeout=_BROWSER_TIMEOUT_MS
+        )
+        l2_fill_speed_cell.locator(".pad-cell-clear").wait_for(
+            state="visible", timeout=_BROWSER_TIMEOUT_MS
+        )
+
+    def test_bulk_pad_enable_patch_updates_override_visibility_without_reload(
+        self, live_server: LiveServer, browser_page
+    ):
+        _select_led_blinker(live_server)
+        config = _get_pad_config(live_server)
+        target_pad = next(
+            pad
+            for pad in config["pads"]
+            if pad["layer"] == "Top" and "L2:U1" in pad["node_ids"]
+        )
+        target_l4 = next(
+            node_id for node_id in target_pad["node_ids"] if node_id.startswith("L4:")
+        )
+        target_path = _tree_path_ids(config["tree"], target_l4)
+        assert target_path[:3] == ["L0", "L1:SOT-23-6", "L2:U1"]
+
+        _open_paste_solder(browser_page, live_server)
+        l1_row = browser_page.locator(_row_selector("L1:SOT-23-6"))
+        l1_row.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        _ensure_row_collapsed(browser_page, "L1:SOT-23-6", "L2:U1")
+
+        browser_page.locator(_testid("pad-disable-all")).click()
+        _wait_for_node_enabled_override(live_server, target_l4, False)
+
+        l1_row.locator(_DESCENDANT_OVERRIDE_MARKER_SELECTOR).first.wait_for(
+            state="visible", timeout=_BROWSER_TIMEOUT_MS
+        )
+        l4_row = _ensure_row_visible(browser_page, target_path)
+        enabled_checkbox = l4_row.locator('.pad-col-enabled input[type="checkbox"]')
+        assert not enabled_checkbox.is_checked()
+        inherit_button = l4_row.locator(".pad-enabled-inherit")
+        inherit_button.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert not inherit_button.is_disabled()
 
 
 class TestPasteSolderBrowserResponsiveLayout:
