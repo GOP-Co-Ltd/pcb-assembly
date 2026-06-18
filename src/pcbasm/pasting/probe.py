@@ -17,7 +17,7 @@ class ProbeExecutor:
         stage: XYZStage,
         *,
         lift_height: float = 1.0,
-        settle_time: float = 0.5,
+        settle_time: float = 0.0,
     ) -> None:
         self._klipper = klipper
         self._probe = probe
