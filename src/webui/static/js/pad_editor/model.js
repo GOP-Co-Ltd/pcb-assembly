@@ -46,6 +46,55 @@ export function ownOverride(config, nodeId) {
   return config.overrides[nodeId] || { enabled: null, values: {} };
 }
 
+function summarizeOverride(override) {
+  const fields = FIELDS.filter(
+    (field) => override.values?.[field] !== undefined
+  );
+  const enabled = override.enabled !== null && override.enabled !== undefined;
+  return {
+    enabled,
+    fields,
+    count: fields.length + (enabled ? 1 : 0),
+  };
+}
+
+export function ownOverrideSummary(config, nodeId) {
+  return summarizeOverride(ownOverride(config, nodeId));
+}
+
+export function descendantOverrideSummary(config, node) {
+  const fieldCounts = Object.fromEntries(FIELDS.map((field) => [field, 0]));
+  const summary = {
+    enabledCount: 0,
+    fieldCounts,
+    fields: [],
+    nodeCount: 0,
+    count: 0,
+  };
+
+  const walk = (current) => {
+    const override = config.overrides[current.id];
+    if (override) {
+      const currentSummary = summarizeOverride(override);
+      if (currentSummary.enabled) {
+        summary.enabledCount += 1;
+      }
+      for (const field of currentSummary.fields) {
+        summary.fieldCounts[field] += 1;
+      }
+      if (currentSummary.count > 0) {
+        summary.count += currentSummary.count;
+        summary.nodeCount += 1;
+      }
+    }
+    for (const child of current.children || []) walk(child);
+  };
+
+  for (const child of node.children || []) walk(child);
+  summary.fields = FIELDS.filter((field) => summary.fieldCounts[field] > 0);
+  return summary;
+}
+
 export function resolvedEnabled(config, parentOf, nodeId) {
   let enabled = config.defaults?.enabled ?? true;
   for (const id of ancestorChain(parentOf, nodeId)) {
@@ -79,8 +128,11 @@ export function padsUnderNode(config, nodeId) {
   return config.pads.filter((pad) => pad.node_ids.includes(nodeId));
 }
 
-export function l4NodeIdForPad(pad) {
-  return pad.node_ids.find((id) => id.startsWith("L4:"));
+export function l4NodeIdForPad(pad, nodeById = null) {
+  if (nodeById) {
+    return pad.node_ids.find((id) => nodeById.get(id)?.level === 4);
+  }
+  return pad.node_ids[pad.node_ids.length - 1];
 }
 
 export function cleanupSelection(config, selected) {
