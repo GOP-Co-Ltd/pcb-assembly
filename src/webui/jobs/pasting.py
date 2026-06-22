@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Mapping
 from datetime import datetime
@@ -508,6 +509,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                         fill_speed=r.fill_speed,
                         paste_height=r.paste_height,
                         ul_per_mm2=r.ul_per_mm2,
+                        dispense_mode=r.dispense_mode,
                         prime_extra_delay=r.prime_extra_delay,
                         bead_width_factor=r.bead_width_factor,
                         overlap=r.overlap,
@@ -788,14 +790,20 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
 
             # ペースト吐出
             ctx.progress("吐出")
-            dispense_z = board_surface_z + dispenser_config.paste_height
+            dispense_amount = float(ctx.params["dispense_amount"])
+            paste_height = _dot_dispense_height(
+                dispenser_config.paste_height,
+                amount=dispense_amount,
+                nozzle_diameter=dispenser_config.nozzle_diameter,
+            )
+            dispense_z = board_surface_z + paste_height
             klipper.send_gcode(
                 stage.move(x=center_toolhead.x, y=center_toolhead.y, z=dispense_z)
                 + gcode.wait_for_done()
             )
             klipper.send_gcode(
                 paste_dispenser.pushpull(
-                    float(ctx.params["dispense_amount"]),
+                    dispense_amount,
                     dispenser_config.max_dispense_rate,
                     dispenser_config.dispense_accel,
                 )
@@ -967,3 +975,12 @@ def _run_probe_gnd_down_adjust(ctx: JobContext) -> JobResult:
             values={"probe.down_distance": round(distance, 3)},
         ),
     )
+
+
+def _dot_dispense_height(
+    paste_height: float | str, *, amount: float, nozzle_diameter: float
+) -> float:
+    if paste_height != "auto":
+        return float(paste_height)
+    nozzle_area = math.pi * (nozzle_diameter / 2.0) ** 2
+    return amount / nozzle_area

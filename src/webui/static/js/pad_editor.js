@@ -1,8 +1,10 @@
 "use strict";
 
 import {
+  DISPENSE_MODE_LABELS,
   FIELDS,
   FIELD_LABELS,
+  FIELD_KINDS,
   ancestorChain,
   buildNodeIndexes,
   cleanupSelection,
@@ -363,7 +365,7 @@ import {
     state.rowEls.clear();
     appendRows(state.config.tree, 0);
     if (state.locked) {
-      for (const el of tableBody.querySelectorAll("input, button")) {
+      for (const el of tableBody.querySelectorAll("input, select, button")) {
         el.disabled = true;
       }
     }
@@ -461,9 +463,169 @@ import {
     tr.appendChild(enTd);
 
     for (const field of FIELDS) {
-      tr.appendChild(buildValueCell(node, field, descendantSummary));
+      const kind = FIELD_KINDS[field] || "number";
+      if (kind === "mode") {
+        tr.appendChild(buildModeCell(node, field, descendantSummary));
+      } else if (kind === "height") {
+        tr.appendChild(buildHeightCell(node, field, descendantSummary));
+      } else {
+        tr.appendChild(buildValueCell(node, field, descendantSummary));
+      }
     }
     return tr;
+  }
+
+  function buildModeCell(node, field, descendantSummary) {
+    const td = document.createElement("td");
+    td.className = "pad-col-value";
+    const own = ownOverride(state.config, node.id);
+    const ownValue = own.values ? own.values[field] : undefined;
+    const isOverride = ownValue !== undefined;
+    const resolved = resolvedValue(state.config, state.parentOf, node.id, field);
+    const descendantCount = descendantSummary.fieldCounts[field] || 0;
+
+    const select = document.createElement("select");
+    select.className = isOverride ? "pad-cell override" : "pad-cell inherited";
+    select.dataset.field = field;
+    select.dataset.nodeId = node.id;
+    select.dataset.testid = "pad-dispense-mode-select";
+    select.title = FIELD_LABELS[field] || field;
+    appendSelectOption(
+      select,
+      "",
+      resolved ? `継承 (${DISPENSE_MODE_LABELS[resolved] || resolved})` : "継承",
+      !isOverride
+    );
+    for (const [value, label] of Object.entries(DISPENSE_MODE_LABELS)) {
+      appendSelectOption(select, value, label, ownValue === value);
+    }
+    select.addEventListener("change", () => {
+      if (state.locked) return;
+      if (select.value === "") patchNodeClear(node.id, field);
+      else {
+        patchNode(
+          { node: node.id, values: { [field]: select.value } },
+          { descendantField: field, descendantCount }
+        );
+      }
+    });
+    appendOverrideControls(td, node.id, field, isOverride);
+    td.appendChild(select);
+    appendDescendantFieldMarker(td, field, descendantCount);
+    return td;
+  }
+
+  function buildHeightCell(node, field, descendantSummary) {
+    const td = document.createElement("td");
+    td.className = "pad-col-value pad-col-height";
+    const own = ownOverride(state.config, node.id);
+    const ownValue = own.values ? own.values[field] : undefined;
+    const isOverride = ownValue !== undefined;
+    const resolved = resolvedValue(state.config, state.parentOf, node.id, field);
+    const descendantCount = descendantSummary.fieldCounts[field] || 0;
+
+    const select = document.createElement("select");
+    select.className = isOverride ? "pad-cell override" : "pad-cell inherited";
+    select.dataset.field = field;
+    select.dataset.nodeId = node.id;
+    select.dataset.testid = "pad-height-mode-select";
+    select.title = FIELD_LABELS[field] || field;
+    const resolvedLabel =
+      resolved === "auto"
+        ? "Auto"
+        : resolved === null || resolved === undefined
+          ? "未設定"
+          : round4(resolved);
+    appendSelectOption(select, "", `継承 (${resolvedLabel})`, !isOverride);
+    appendSelectOption(select, "auto", "Auto", ownValue === "auto");
+    appendSelectOption(
+      select,
+      "manual",
+      "手動",
+      isOverride && ownValue !== "auto"
+    );
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "any";
+    input.className = isOverride ? "pad-cell override" : "pad-cell inherited";
+    input.dataset.field = field;
+    input.dataset.nodeId = node.id;
+    input.dataset.testid = "pad-setting-input";
+    input.title = FIELD_LABELS[field] || field;
+    if (isOverride && ownValue !== "auto") {
+      input.value = ownValue;
+    } else {
+      input.value = "";
+      input.placeholder =
+        resolved === "auto" || resolved === null ? "" : String(round4(resolved));
+    }
+    input.hidden = select.value !== "manual";
+    input.addEventListener("change", () =>
+      commitHeightCell(node.id, field, select, input, descendantCount)
+    );
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        commitHeightCell(node.id, field, select, input, descendantCount);
+      }
+    });
+    select.addEventListener("change", () => {
+      if (state.locked) return;
+      input.hidden = select.value !== "manual";
+      if (select.value === "") patchNodeClear(node.id, field);
+      else if (select.value === "auto") {
+        patchNode(
+          { node: node.id, values: { [field]: "auto" } },
+          { descendantField: field, descendantCount }
+        );
+      } else {
+        commitHeightCell(node.id, field, select, input, descendantCount);
+      }
+    });
+
+    appendOverrideControls(td, node.id, field, isOverride);
+    td.appendChild(select);
+    td.appendChild(input);
+    appendDescendantFieldMarker(td, field, descendantCount);
+    return td;
+  }
+
+  function appendSelectOption(select, value, label, selected) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    option.selected = selected;
+    select.appendChild(option);
+  }
+
+  function appendOverrideControls(td, nodeId, field, isOverride) {
+    if (!isOverride) return;
+    const marker = document.createElement("span");
+    marker.className = "pad-override-marker";
+    marker.dataset.testid = "pad-own-override-marker";
+    marker.dataset.field = field;
+    marker.textContent = "●";
+    td.appendChild(marker);
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.className = "pad-cell-clear";
+    clearBtn.dataset.testid = "pad-clear-override";
+    clearBtn.dataset.field = field;
+    clearBtn.textContent = "×";
+    clearBtn.title = "継承に戻す";
+    clearBtn.addEventListener("click", () => patchNodeClear(nodeId, field));
+    td.appendChild(clearBtn);
+  }
+
+  function appendDescendantFieldMarker(td, field, descendantCount) {
+    if (descendantCount <= 0) return;
+    appendDescendantMarker(
+      td,
+      `子孫ノードの ${FIELD_LABELS[field] || field} override が ${descendantCount} 件あります。`,
+      "pad-descendant-field-marker",
+      descendantCount,
+      field
+    );
   }
 
   function buildValueCell(node, field, descendantSummary) {
@@ -499,33 +661,27 @@ import {
     });
     td.appendChild(input);
 
-    if (isOverride) {
-      const marker = document.createElement("span");
-      marker.className = "pad-override-marker";
-      marker.dataset.testid = "pad-own-override-marker";
-      marker.dataset.field = field;
-      marker.textContent = "●";
-      td.insertBefore(marker, input);
-      const clearBtn = document.createElement("button");
-      clearBtn.type = "button";
-      clearBtn.className = "pad-cell-clear";
-      clearBtn.dataset.testid = "pad-clear-override";
-      clearBtn.dataset.field = field;
-      clearBtn.textContent = "×";
-      clearBtn.title = "継承に戻す";
-      clearBtn.addEventListener("click", () => patchNodeClear(node.id, field));
-      td.appendChild(clearBtn);
-    }
-    if (descendantCount > 0) {
-      appendDescendantMarker(
-        td,
-        `子孫ノードの ${FIELD_LABELS[field] || field} override が ${descendantCount} 件あります。`,
-        "pad-descendant-field-marker",
-        descendantCount,
-        field
-      );
-    }
+    appendOverrideControls(td, node.id, field, isOverride);
+    appendDescendantFieldMarker(td, field, descendantCount);
     return td;
+  }
+
+  function commitHeightCell(nodeId, field, select, input, descendantCount) {
+    if (state.locked || select.value !== "manual") return;
+    const raw = input.value.trim();
+    if (raw === "") {
+      input.focus();
+      return;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      toast("正の数値を入力してください", false);
+      return;
+    }
+    patchNode(
+      { node: nodeId, values: { [field]: value } },
+      { descendantField: field, descendantCount }
+    );
   }
 
   function commitCell(nodeId, field, input, descendantCount) {

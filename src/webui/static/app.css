@@ -499,7 +499,8 @@ h2 {
   text-align: left;
 }
 
-.settings-table input {
+.settings-table input,
+.settings-table select {
   width: min(100%, 9rem);
 }
 
@@ -1446,7 +1447,8 @@ h2 {
     padding-top: 0;
   }
 
-  .settings-table input {
+  .settings-table input,
+  .settings-table select {
     width: 100%;
   }
 }

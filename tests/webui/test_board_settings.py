@@ -33,7 +33,7 @@ from webui.board_settings import BoardSettingsStore, board_signature
 
 
 def _base_config() -> PasteDispenser:
-    """テスト用の最小 PasteDispenser（7 項目 + 装置値）."""
+    """テスト用の最小 PasteDispenser（override 項目 + 装置値）."""
     return PasteDispenser(
         rotations_per_ul=10.0,
         nozzle_diameter=0.4,
@@ -44,8 +44,10 @@ def _base_config() -> PasteDispenser:
         retract_rate=1.0,
         retract_accel_factor=1.0,
         toolhead=Toolhead(x=0.0, y=0.0),
-        paste_height=1.5,
+        paste_height="auto",
         ul_per_mm2=0.05,
+        dispense_mode="auto",
+        auto_line_aspect_ratio=1.618,
         prime_extra_delay=0.2,
         bead_width_factor=1.1,
         overlap=0.3,
@@ -116,6 +118,7 @@ class TestLoadOrInit:
 
         assert model.base_enabled is True
         assert model.levels == {}
+        assert model.base.dispense_mode == config.dispense_mode
         assert model.base.fill_speed == config.fill_speed
         assert model.base.paste_height == config.paste_height
         assert model.base.boundary_margin == config.boundary_margin
