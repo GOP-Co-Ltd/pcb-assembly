@@ -28,7 +28,7 @@ Phase 4 追記（計画書 webui-phase4.md「templates / static」節 + spec §1
 Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / static」節
 + spec §10 pasting 表）:
 
-- pasting 8 feature ページは全て job-console + job-form
+- pasting 7 feature ページは全て job-console + job-form
 - preview ペイン（overlay 切替なし）は paste_solder / height_plane /
   toolhead_offset のみ
 - loading_controls（data-loading-stage="ローディング"）は paste_solder /
@@ -276,7 +276,6 @@ PASTING_JOB_FEATURES = (
     "generate_rect_pcb",
     "toolhead_offset",
     "probe_gnd_down_adjust",
-    "fill_path_simulate",
 )
 
 # カメラを使うジョブのみ preview ペインを持つ（計画書 _PASTING_PREVIEW）
@@ -324,7 +323,6 @@ class TestPastingJobPages:
             "flow_calibration",
             "generate_rect_pcb",
             "probe_gnd_down_adjust",
-            "fill_path_simulate",
         ),
     )
     def test_non_camera_jobs_have_no_preview_pane(
@@ -338,18 +336,6 @@ class TestPastingJobPages:
         assert "preview-pane" not in text
         assert "loading-controls" not in text
         for name in ("width", "height"):
-            assert name in text
-
-    def test_fill_path_simulate_renders_param_form_fields(self, client: TestClient):
-        text = client.get("/pasting/fill_path_simulate").text
-
-        for name in (
-            "nozzle_diameter",
-            "layer",
-            "bead_width_factor",
-            "overlap",
-            "boundary_margin",
-        ):
             assert name in text
 
     @pytest.mark.parametrize("feature", PASTING_LOADING_FEATURES)
@@ -432,6 +418,9 @@ class TestPasteSolderPadEditor:
         assert 'id="pad-outline-size"' not in text
         assert 'id="pad-export-config"' in text
         assert 'id="pad-import-config"' in text
+        assert 'id="pad-calculate-route"' in text
+        assert 'id="pad-calculate-fill-path"' in text
+        assert 'id="pad-route-status"' not in text
         assert "面積あたりのペースト量" in text
         assert "pad_editor.js" in text
         # レイヤ切替（Top/Bottom）

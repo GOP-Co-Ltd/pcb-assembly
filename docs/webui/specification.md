@@ -332,7 +332,6 @@ Firmware Restart もジョブ機構を**経由しない**。`POST /api/firmware-
 | Flow Calibration      | rotations, rate, accel, count（計測回数, 既定 3）, load-amount。ローディング →（タール confirm（いいえで中止）→ 回転 → 質量 prompt(number)）× count → リトラクト → 比重 prompt(number)。質量の平均から rotations_per_ul を算出し、各回値・平均・標準偏差を summary に表示。結果は Apply で反映 |
 | Toolhead Offset       | tolerance, dispense-amount, loading-amount, lift-height, paste-diameter-min/max。結果 JSON は artifacts。結果は Apply で反映                                                                                                                                                                   |
 | Probe GND Down Adjust | prompt(number) + 確定 confirm のループで down distance 調整。終了時（abort 含む）はダウン距離 0 へ復帰。結果は Apply で反映                                                                                                                                                                    |
-| Fill Path Simulate    | nozzle-diameter, layer, bead-width-factor, overlap, boundary-margin。pad ごとの fill path を生成し結果 PNG をインライン表示（装置・カメラ非使用。dev タブから移設）                                                                                                                            |
 
 #### Paste Solder の pad 編集（基板ビューア + 階層 override）
 
@@ -342,6 +341,7 @@ Firmware Restart もジョブ機構を**経由しない**。`POST /api/firmware-
 
 - pad クリック = 単 pad の有効/無効を即トグル
 - 左ドラッグ = 矩形選択（交差判定。修飾なし=置換 / Shift=追加 / Alt=除外）→「選択を有効化 / 無効化」「全有効 / 全無効」ボタンで一括
+- 「順路計算」は有効 pad の塗布順を SVG overlay 表示する。「塗布パス計算」は有効 pad のみを対象に、pad ごとの解決済み `bead_width_factor` / `overlap` / `boundary_margin` と machine の `nozzle_diameter` から fill path を SVG overlay 表示する。layer・enabled・設定値変更時は overlay を消し、再計算を要求する
 - ビューア ⇄ 階層表の選択ハイライト連動。所属判定は API が返す `pad.node_ids` の membership を使う
 - 主要 DOM には `data-testid` を持たせ、SVG 表示・階層 highlight・ジョブ中 lock・responsive layout を実ブラウザ E2E で固定する
 
@@ -364,7 +364,7 @@ Firmware Restart もジョブ機構を**経由しない**。`POST /api/firmware-
 | Make Fill Coverage PCB | ジョブ（非装置）。`data/webui/` に生成しダウンロードリンク                                            |
 | Klipper / Stage Status | ステータスカード（`/api/klipper/status` をポーリング）+ 任意 G-code 送信ボックス（klipper_demo 代替） |
 
-> Fill Path Simulate は塗布タブ、Generate Grid PCB は位置合わせタブへ移設（feature のタブ所属は `pages.py` の `TABS` が真。サイドバー / 見出しの日本語表示名は `FEATURE_LABELS`）。
+> Generate Grid PCB は位置合わせタブへ移設（feature のタブ所属は `pages.py` の `TABS` が真。サイドバー / 見出しの日本語表示名は `FEATURE_LABELS`）。
 
 ### pnp タブ
 
