@@ -1,4 +1,4 @@
-"""Pcbnew によるテスト用 PCB の生成（グリッド基板 / fill 網羅フィクスチャ）.
+"""Pcbnew によるテスト用 PCB の生成（矩形 / グリッド / fill 網羅フィクスチャ）.
 
 モジュールレベルで ``pcbnew``（KiCAD の Python API）を import するため、
 KiCAD 未導入環境では import できない。``pcbasm.pcb`` パッケージからは
@@ -19,24 +19,28 @@ def save_board(board: pcbnew.BOARD, output: Path) -> None:
     pcbnew.SaveBoard(str(output), board)
 
 
+def generate_rect_pcb(width: float, height: float) -> pcbnew.BOARD:
+    """外形だけを持つ矩形 PCB の ``BOARD`` を構築する."""
+    if width <= 0:
+        raise ValueError(f"width は正の値が必要です: {width}")
+    if height <= 0:
+        raise ValueError(f"height は正の値が必要です: {height}")
+
+    board = pcbnew.BOARD()
+    _add_outline(board, width=width, height=height)
+    return board
+
+
 def generate_grid_pcb(
     size: float, divisions: int, pad_size: float, output: Path
 ) -> None:
     """正方形テストPCBにn^2個のグリッドパッドを配置して保存する."""
-    board = pcbnew.BOARD()
+    if divisions < 1:
+        raise ValueError(f"divisions は 1 以上が必要です: {divisions}")
+    if pad_size <= 0:
+        raise ValueError(f"pad_size は正の値が必要です: {pad_size}")
 
-    # 1. Board outline on Edge.Cuts (4 line segments forming a square)
-    corners_mm = [(0.0, 0.0), (size, 0.0), (size, size), (0.0, size)]
-    for k in range(4):
-        seg = pcbnew.PCB_SHAPE(board)
-        seg.SetShape(pcbnew.SHAPE_T_SEGMENT)
-        seg.SetStart(_v(*corners_mm[k]))
-        seg.SetEnd(_v(*corners_mm[(k + 1) % 4]))
-        seg.SetLayer(pcbnew.Edge_Cuts)
-        seg.SetWidth(_mm(0.1))
-        board.Add(seg)
-
-    # 2. Create pads at grid intersections
+    board = generate_rect_pcb(size, size)
     n = divisions
     step = size / (n + 1)
     pad_idx = 1
@@ -254,4 +258,5 @@ def _add_outline(board: pcbnew.BOARD, width: float, height: float) -> None:
         seg.SetLayer(pcbnew.Edge_Cuts)
         seg.SetStart(_v(*corners[i]))
         seg.SetEnd(_v(*corners[(i + 1) % 4]))
+        seg.SetWidth(_mm(0.1))
         board.Add(seg)

@@ -3,8 +3,8 @@
 計画書 memory/agents/implementation-planner/webui-phase5.md「src/webui/jobs/pasting.py」節
 + spec §10 pasting 表が契約:
 
-- catalog: pasting 7 ジョブ（paste_solder / height_plane / loading /
-  flow_calibration / toolhead_offset / probe_gnd_down_adjust /
+- catalog: pasting 8 ジョブ（paste_solder / height_plane / loading /
+  flow_calibration / generate_rect_pcb / toolhead_offset / probe_gnd_down_adjust /
   fill_path_simulate）の name / params（default・unit）/ requires_pcb /
   uses_machine / accepts_commands
 - fill_path_simulate: 実 build_paste_fill_path + render_fill_paths で PNG 生成、
@@ -41,6 +41,7 @@ from pathlib import Path
 import cv2
 import pytest
 
+from pcbasm.pcb import PcbFile
 from tests.helpers import mark_hardware
 from tests.webui.conftest import decode_jpeg, jpeg_payload
 from webui.config_store import ConfigStore
@@ -64,6 +65,7 @@ PASTING_JOBS = (
     "height_plane",
     "loading",
     "flow_calibration",
+    "generate_rect_pcb",
     "toolhead_offset",
     "probe_gnd_down_adjust",
     "fill_path_simulate",
@@ -72,7 +74,7 @@ PASTING_JOBS = (
 
 @pytest.fixture
 def catalog() -> JobCatalog:
-    """Pasting 7 ジョブのみ登録した catalog（jobs/conftest の manager が使う）."""
+    """Pasting 8 ジョブのみ登録した catalog（jobs/conftest の manager が使う）."""
     catalog = JobCatalog()
     register_pasting_jobs(catalog)
     return catalog
@@ -111,7 +113,7 @@ def _preview_frame(preview: PreviewService):
 
 
 class TestCatalog:
-    """default_catalog への pasting 7 ジョブ登録（計画書「ジョブ定義表」のピン）."""
+    """default_catalog への pasting 8 ジョブ登録（計画書「ジョブ定義表」のピン）."""
 
     @pytest.fixture
     def default(self) -> JobCatalog:
@@ -123,8 +125,8 @@ class TestCatalog:
         assert names == set(PASTING_JOBS)
 
     def test_total_job_count_covers_all_tabs(self, default: JobCatalog):
-        """Dev 3 + posctrl 5 + pasting 7 = 15（重複登録・登録漏れの検知）."""
-        assert len(default.list()) == 15
+        """Dev 3 + posctrl 5 + pasting 8 = 16（重複登録・登録漏れの検知）."""
+        assert len(default.list()) == 16
 
     @pytest.mark.parametrize(
         ("name", "requires_pcb", "uses_machine", "accepts_commands"),
@@ -133,6 +135,7 @@ class TestCatalog:
             ("height_plane", True, True, False),
             ("loading", False, True, True),
             ("flow_calibration", False, True, True),
+            ("generate_rect_pcb", False, False, False),
             ("toolhead_offset", True, True, True),
             ("probe_gnd_down_adjust", False, True, False),
             # 装置を使わないシミュレートジョブ（dev タブから移設）
@@ -171,6 +174,7 @@ class TestCatalog:
                     "load_amount": (0.1, "uL"),
                 },
             ),
+            ("generate_rect_pcb", {"width": (40.0, "mm"), "height": (40.0, "mm")}),
             (
                 "toolhead_offset",
                 {
@@ -236,6 +240,31 @@ class TestCatalog:
         }
         assert params["layer"].value_type == "choice"
         assert params["layer"].choices == ("top", "bottom")
+
+
+class TestGenerateRectPcb:
+    """generate_rect_pcb（実 pcbnew・装置非使用）。"""
+
+    def test_output_is_readable_outline_only_pcb(
+        self,
+        manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        record = manager.start("generate_rect_pcb", {"width": 50.0, "height": 20.0})
+        # 実 pcbnew 読込は Raspberry Pi では数十秒かかり得る
+        wait_until(lambda: record.status.terminal, timeout=120.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert record.result is not None
+        outputs = [a for a in record.result.artifacts if a.path.endswith(".kicad_pcb")]
+        assert len(outputs) == 1
+
+        pcb = PcbFile(fake_camera_settings.webui_data_dir / outputs[0].path)
+        assert pcb.outline.width == pytest.approx(50.0, abs=0.1)
+        assert pcb.outline.height == pytest.approx(20.0, abs=0.1)
+        assert len(pcb.pads) == 0
+        assert len(pcb.copper) == 0
 
 
 class TestFillPathSimulate:
