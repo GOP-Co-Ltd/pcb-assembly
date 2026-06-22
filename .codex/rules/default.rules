@@ -2,7 +2,7 @@
 #
 # This generator only performs formal Bash permission migration.
 # Migrate Claude skills, agents, docs, and prose with migrate-claude.
-# Source summary: 167 shell allow rule(s), 8 shell deny rule(s).
+# Source summary: 167 shell allow rule(s), 9 shell deny rule(s).
 # Non-shell Claude permissions are handled by Codex tools/sandbox:
 # Edit(~/.ssh/**), Read(//usr/**), Read(//usr/include/**), Read(~/.ssh/**), WebFetch, WebSearch
 
@@ -54,6 +54,17 @@ prefix_rule(
     decision = "forbidden",
     justification = "Migrated from Claude forbidden permission.",
     match = ["git reset --hard"],
+)
+
+# Source: Bash(make test:*)
+prefix_rule(
+    pattern = [
+        "make",
+        ["test"],
+    ],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["make test"],
 )
 
 # Source: Bash(rm -fr:*), Bash(rm -rf:*)
