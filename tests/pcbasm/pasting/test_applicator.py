@@ -14,6 +14,8 @@ Klipper / PasteDispenser / XYZStage はいずれも自前 HAL ABC のため fake
 （``testing-strategy`` 準拠）。3rd-party 表面はモックしない。
 """
 
+import math
+
 import pytest
 from pytest_mock import MockerFixture
 from shapely import Polygon, box
@@ -365,8 +367,13 @@ class TestAutoPasteHeight:
 
         assert self._down_z(mock_stage) == pytest.approx(0.08)
 
-    def test_line_height_uses_amount_over_bead_width_and_path_length(
-        self, mock_klipper, mock_paste_dispenser, mock_stage
+    @pytest.mark.parametrize("dispense_mode", ["line", "auto"])
+    def test_line_height_uses_amount_over_slot_area(
+        self,
+        mock_klipper,
+        mock_paste_dispenser,
+        mock_stage,
+        dispense_mode: DispenseMode,
     ):
         nozzle_diameter = 0.5
         bead_width_factor = 1.2
@@ -377,7 +384,7 @@ class TestAutoPasteHeight:
             mock_paste_dispenser,
             mock_stage,
             nozzle_diameter=nozzle_diameter,
-            dispense_mode="line",
+            dispense_mode=dispense_mode,
             ul_per_mm2=ul_per_mm2,
             bead_width_factor=bead_width_factor,
         )
@@ -387,9 +394,8 @@ class TestAutoPasteHeight:
         amount = polygon.area * ul_per_mm2
         bead_width = nozzle_diameter * bead_width_factor
         path_length = 4.0 - bead_width
-        assert self._down_z(mock_stage) == pytest.approx(
-            amount / (bead_width * path_length)
-        )
+        slot_area = path_length * bead_width + math.pi * (bead_width / 2.0) ** 2
+        assert self._down_z(mock_stage) == pytest.approx(amount / slot_area)
 
     def test_dot_height_uses_amount_over_nozzle_area(
         self, mock_klipper, mock_paste_dispenser, mock_stage

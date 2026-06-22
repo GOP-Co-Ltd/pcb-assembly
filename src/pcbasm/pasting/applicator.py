@@ -21,7 +21,7 @@ from pcbasm.geometry import (
     Transform,
 )
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
-from pcbasm.pasting.fill_path import build_paste_fill_plan
+from pcbasm.pasting.fill_path import AppliedDispenseMode, build_paste_fill_plan
 from pcbasm.pasting.fill_sequence import FillSequence
 from pcbasm.utils import get_class_module_path
 
@@ -385,21 +385,25 @@ class PasteApplicator:
         self,
         paste_height: PasteHeight,
         *,
-        dispense_mode: str,
+        dispense_mode: AppliedDispenseMode,
         path_length: float,
         amount: float,
         ul_per_mm2: float,
         bead_width_factor: float,
     ) -> float:
         if paste_height != "auto":
-            return float(paste_height)
-        if dispense_mode == "area":
-            return ul_per_mm2
-        if dispense_mode == "line" and path_length > 0:
-            bead_width = self._nozzle_diameter * bead_width_factor
-            return amount / (bead_width * path_length)
-        nozzle_area = math.pi * (self._nozzle_diameter / 2.0) ** 2
-        return amount / nozzle_area
+            return paste_height
+
+        match dispense_mode:
+            case "area":
+                return ul_per_mm2
+            case "line" if path_length > 0:
+                bead_width = self._nozzle_diameter * bead_width_factor
+                slot_area = path_length * bead_width + math.pi * (bead_width / 2.0) ** 2
+                return amount / slot_area
+            case "line" | "dot":
+                nozzle_area = math.pi * (self._nozzle_diameter / 2.0) ** 2
+                return amount / nozzle_area
 
 
 def _polyline_length(points: list[Point2d]) -> float:

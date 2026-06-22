@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, assert_never
 
 import attrs
 from shapely import MultiPolygon, Polygon
@@ -140,18 +140,21 @@ def build_paste_fill_plan(
     end_inset = boundary_margin + w / 2.0
     mode = _resolve_auto_mode(polygon, dispense_mode, auto_line_aspect_ratio)
 
-    if mode == "dot":
-        return PasteFillPlan(dispense_mode="dot", paths=[_dot_fill(polygon)])
-    if mode == "line":
-        if line := _line_fill(polygon, end_inset):
-            return PasteFillPlan(dispense_mode="line", paths=[line])
-        return PasteFillPlan(dispense_mode="dot", paths=[_dot_fill(polygon)])
-
-    if paths := _area_fill(polygon, line_spacing, inset):
-        return PasteFillPlan(dispense_mode="area", paths=paths)
-    if line := _line_fill(polygon, end_inset):
-        return PasteFillPlan(dispense_mode="line", paths=[line])
-    return PasteFillPlan(dispense_mode="dot", paths=[_dot_fill(polygon)])
+    match mode:
+        case "dot":
+            return PasteFillPlan(dispense_mode="dot", paths=[_dot_fill(polygon)])
+        case "line":
+            if line := _line_fill(polygon, end_inset):
+                return PasteFillPlan(dispense_mode="line", paths=[line])
+            return PasteFillPlan(dispense_mode="dot", paths=[_dot_fill(polygon)])
+        case "area":
+            if paths := _area_fill(polygon, line_spacing, inset):
+                return PasteFillPlan(dispense_mode="area", paths=paths)
+            if line := _line_fill(polygon, end_inset):
+                return PasteFillPlan(dispense_mode="line", paths=[line])
+            return PasteFillPlan(dispense_mode="dot", paths=[_dot_fill(polygon)])
+        case _:
+            assert_never(mode)
 
 
 def _resolve_auto_mode(
@@ -159,13 +162,17 @@ def _resolve_auto_mode(
     dispense_mode: DispenseMode,
     auto_line_aspect_ratio: float,
 ) -> AppliedDispenseMode:
-    if dispense_mode != "auto":
-        return dispense_mode
-    return (
-        "line"
-        if _minimum_rotated_aspect_ratio(polygon) > auto_line_aspect_ratio
-        else "dot"
-    )
+    match dispense_mode:
+        case "auto":
+            return (
+                "line"
+                if _minimum_rotated_aspect_ratio(polygon) > auto_line_aspect_ratio
+                else "dot"
+            )
+        case "dot" | "line" | "area":
+            return dispense_mode
+        case _:
+            assert_never(dispense_mode)
 
 
 def _minimum_rotated_aspect_ratio(polygon: Polygon) -> float:
