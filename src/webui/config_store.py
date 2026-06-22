@@ -14,6 +14,8 @@ import attrs
 import tomlkit
 from tomlkit.items import Item, Table
 
+from pcbasm.config import DISPENSE_MODES
+
 
 @attrs.frozen
 class FieldSpec:
@@ -28,7 +30,9 @@ class FieldSpec:
 
     key: str
     label: str
-    value_type: Literal["float", "int", "str", "float_pair"]
+    value_type: Literal[
+        "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode"
+    ]
     unit: str | None = None
 
 
@@ -59,6 +63,12 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
         "paste_dispenser.rotations_per_ul", "1uLあたりの回転数", "float", "rev/uL"
     ),
     FieldSpec("paste_dispenser.nozzle_diameter", "ノズル内径", "float", "mm"),
+    FieldSpec("paste_dispenser.dispense_mode", "塗布方式", "dispense_mode"),
+    FieldSpec(
+        "paste_dispenser.auto_line_aspect_ratio",
+        "Auto線塗布しきい縦横比",
+        "float",
+    ),
     FieldSpec("paste_dispenser.fill_speed", "塗布移動速度", "float", "mm/s"),
     FieldSpec("paste_dispenser.max_dispense_rate", "吐出レート上限", "float", "uL/s"),
     FieldSpec("paste_dispenser.dispense_accel", "吐出加速度", "float", "uL/s^2"),
@@ -67,7 +77,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec(
         "paste_dispenser.retract_accel_factor", "リトラクション加速度係数", "float"
     ),
-    FieldSpec("paste_dispenser.paste_height", "塗布面のZ高さ", "float", "mm"),
+    FieldSpec("paste_dispenser.paste_height", "塗布面のZ高さ", "float_or_auto", "mm"),
     FieldSpec(
         "paste_dispenser.ul_per_mm2", "面積あたりのペースト量", "float", "uL/mm^2"
     ),
@@ -137,7 +147,21 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
     match spec.value_type:
         case "float":
             if isinstance(value, (int, float)):
-                return float(value)
+                coerced_float = float(value)
+                if (
+                    spec.key == "paste_dispenser.auto_line_aspect_ratio"
+                    and coerced_float <= 1.0
+                ):
+                    raise UnknownFieldError(f"{spec.key}: 1.0より大きい値が必要です")
+                return coerced_float
+        case "float_or_auto":
+            if value == "auto":
+                return "auto"
+            if isinstance(value, (int, float)):
+                coerced_float = float(value)
+                if spec.key == "paste_dispenser.paste_height" and coerced_float <= 0.0:
+                    raise UnknownFieldError(f"{spec.key}: 正の値が必要です")
+                return coerced_float
         case "int":
             if isinstance(value, int):
                 return value
@@ -145,6 +169,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 return int(value)
         case "str":
             if isinstance(value, str):
+                return value
+        case "dispense_mode":
+            if isinstance(value, str) and value in DISPENSE_MODES:
                 return value
         case "float_pair":
             pair = _coerce_float_pair(value)

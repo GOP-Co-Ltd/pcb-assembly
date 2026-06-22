@@ -19,6 +19,7 @@ from pytest_mock import MockerFixture
 from shapely import Polygon, box
 
 from pcbasm import gcode
+from pcbasm.config import DispenseMode
 from pcbasm.geometry import Compose, HeightPlane, Point3d, Shift
 from pcbasm.pasting import PasteApplicator
 
@@ -99,6 +100,7 @@ def applicator(mock_klipper, mock_paste_dispenser, mock_stage):
         retraction_rate=10.0,
         retraction_accel_factor=2.0,
         paste_height=0.5,
+        dispense_mode="area",
         lift_height=5.0,
     )
 
@@ -311,6 +313,106 @@ class TestTransformApplication:
         assert down_move["z"] != pytest.approx(paste_height + board_space_z)
 
 
+class TestAutoPasteHeight:
+    """paste_height=auto の mode 別高さ計算。"""
+
+    def _applicator(
+        self,
+        mock_klipper,
+        mock_paste_dispenser,
+        mock_stage,
+        *,
+        nozzle_diameter: float,
+        dispense_mode: DispenseMode,
+        ul_per_mm2: float = 0.05,
+        bead_width_factor: float = 1.0,
+    ) -> PasteApplicator:
+        return PasteApplicator(
+            klipper=mock_klipper,
+            paste_dispenser=mock_paste_dispenser,
+            stage=mock_stage,
+            nozzle_diameter=nozzle_diameter,
+            fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            ul_per_mm2=ul_per_mm2,
+            retraction=10.0,
+            retraction_rate=10.0,
+            retraction_accel_factor=2.0,
+            paste_height="auto",
+            dispense_mode=dispense_mode,
+            bead_width_factor=bead_width_factor,
+            lift_height=5.0,
+        )
+
+    def _down_z(self, mock_stage) -> float:
+        assert len(mock_stage.move.call_args_list) >= 2
+        return mock_stage.move.call_args_list[1].kwargs["z"]
+
+    def test_area_uses_ul_per_mm2_as_height(
+        self, mock_klipper, mock_paste_dispenser, mock_stage
+    ):
+        applicator = self._applicator(
+            mock_klipper,
+            mock_paste_dispenser,
+            mock_stage,
+            nozzle_diameter=0.5,
+            dispense_mode="area",
+            ul_per_mm2=0.08,
+        )
+
+        applicator.apply([box(0, 0, 5, 4)])
+
+        assert self._down_z(mock_stage) == pytest.approx(0.08)
+
+    def test_line_height_uses_amount_over_bead_width_and_path_length(
+        self, mock_klipper, mock_paste_dispenser, mock_stage
+    ):
+        nozzle_diameter = 0.5
+        bead_width_factor = 1.2
+        ul_per_mm2 = 0.05
+        polygon = box(0, 0, 1, 4)
+        applicator = self._applicator(
+            mock_klipper,
+            mock_paste_dispenser,
+            mock_stage,
+            nozzle_diameter=nozzle_diameter,
+            dispense_mode="line",
+            ul_per_mm2=ul_per_mm2,
+            bead_width_factor=bead_width_factor,
+        )
+
+        applicator.apply([polygon])
+
+        amount = polygon.area * ul_per_mm2
+        bead_width = nozzle_diameter * bead_width_factor
+        path_length = 4.0 - bead_width
+        assert self._down_z(mock_stage) == pytest.approx(
+            amount / (bead_width * path_length)
+        )
+
+    def test_dot_height_uses_amount_over_nozzle_area(
+        self, mock_klipper, mock_paste_dispenser, mock_stage
+    ):
+        nozzle_diameter = 0.5
+        ul_per_mm2 = 0.05
+        polygon = box(0, 0, 1, 1)
+        applicator = self._applicator(
+            mock_klipper,
+            mock_paste_dispenser,
+            mock_stage,
+            nozzle_diameter=nozzle_diameter,
+            dispense_mode="dot",
+            ul_per_mm2=ul_per_mm2,
+        )
+
+        applicator.apply([polygon])
+
+        amount = polygon.area * ul_per_mm2
+        nozzle_area = 3.141592653589793 * (nozzle_diameter / 2.0) ** 2
+        assert self._down_z(mock_stage) == pytest.approx(amount / nozzle_area)
+
+
 class TestInitValidation:
     """初期化バリデーション."""
 
@@ -380,7 +482,7 @@ class TestCalibrate:
         mock_klipper.send_gcode.assert_called_once()
 
 
-def _dispenser_config(**overrides: float):
+def _dispenser_config(**overrides: object):
     """pcbasm.config.PasteDispenser を既定値込みで構築する（from_config 用）."""
     import attrs
 
@@ -398,6 +500,8 @@ def _dispenser_config(**overrides: float):
         toolhead=Toolhead(x=0.0, y=0.0),
         paste_height=0.5,
         ul_per_mm2=0.05,
+        dispense_mode="area",
+        auto_line_aspect_ratio=1.618,
         prime_extra_delay=0.0,
         bead_width_factor=1.0,
         overlap=0.0,
@@ -437,6 +541,8 @@ class TestFromConfig:
             retraction_rate=config.retract_rate,
             retraction_accel_factor=config.retract_accel_factor,
             paste_height=config.paste_height,
+            dispense_mode=config.dispense_mode,
+            auto_line_aspect_ratio=config.auto_line_aspect_ratio,
             prime_extra_delay=config.prime_extra_delay,
             bead_width_factor=config.bead_width_factor,
             overlap=config.overlap,

@@ -125,7 +125,15 @@ class TestRenderFillPaths:
         pcb = PcbFile(FILL_COVERAGE_PCB)
         pads = PadList(pad for pad in pcb.pads if pad.layer == Layer.TOP)
         assert len(pads) > 0
-        paths = [build_paste_fill_path(pad.polygon, 0.4) for pad in pads]
+        paths = [
+            build_paste_fill_path(
+                pad.polygon,
+                0.4,
+                dispense_mode="area",
+                auto_line_aspect_ratio=1.618,
+            )
+            for pad in pads
+        ]
         output = tmp_path / "fill_path.png"
 
         render_fill_paths(

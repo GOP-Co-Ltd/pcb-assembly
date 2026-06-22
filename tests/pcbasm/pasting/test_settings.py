@@ -62,8 +62,9 @@ def _pad(designator: str, pad_number: str, polygon: Polygon) -> Pad:
 
 
 def _full_base() -> PasteOverride:
-    """全 7 項目が非 None の base override（= L0 確定値）."""
+    """全 override 項目が非 None の base override（= L0 確定値）."""
     return PasteOverride(
+        dispense_mode="auto",
         fill_speed=0.8,
         paste_height=0.05,
         ul_per_mm2=0.1,
@@ -101,24 +102,25 @@ def _duplicate_pad_number_hierarchy() -> (
 
 
 class TestBaseOverrideFromConfig:
-    """base_override_from_config は PasteDispenser の 7 項目を写す。"""
+    """base_override_from_config は PasteDispenser の override 項目を写す。"""
 
     @pytest.fixture
     def config(self):
         return Machine(TESTING_MACHINE_TOML).paste_dispenser
 
-    def test_copies_all_seven_override_fields(self, config):
+    def test_copies_all_override_fields(self, config):
         override = base_override_from_config(config)
 
+        assert override.dispense_mode == config.dispense_mode
         assert override.fill_speed == pytest.approx(config.fill_speed)
-        assert override.paste_height == pytest.approx(config.paste_height)
+        assert override.paste_height == config.paste_height
         assert override.ul_per_mm2 == pytest.approx(config.ul_per_mm2)
         assert override.prime_extra_delay == pytest.approx(config.prime_extra_delay)
         assert override.bead_width_factor == pytest.approx(config.bead_width_factor)
         assert override.overlap == pytest.approx(config.overlap)
         assert override.boundary_margin == pytest.approx(config.boundary_margin)
 
-    def test_all_seven_fields_are_non_none(self, config):
+    def test_all_fields_are_non_none(self, config):
         override = base_override_from_config(config)
 
         for field in PASTE_OVERRIDE_FIELDS:
@@ -169,6 +171,7 @@ class TestResolvePadSettingsKeys:
 
         for paste in resolved.values():
             assert paste.enabled is True
+            assert paste.dispense_mode == base.dispense_mode
             assert paste.fill_speed == pytest.approx(base.fill_speed)
             assert paste.paste_height == pytest.approx(base.paste_height)
             assert paste.ul_per_mm2 == pytest.approx(base.ul_per_mm2)
@@ -197,6 +200,30 @@ class TestOverrideMerge:
         assert u1.fill_speed == pytest.approx(0.8)  # 継承
         # 別部品 R1 は影響を受けない
         assert resolved[("R1", "1")].ul_per_mm2 == pytest.approx(0.1)
+
+    def test_mode_and_auto_height_override_inherit_like_numeric_fields(self):
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={
+                ("L2", "U1"): LevelSetting(
+                    override=PasteOverride(
+                        dispense_mode="line",
+                        paste_height="auto",
+                    )
+                ),
+            },
+        )
+
+        resolved = resolve_pad_settings(hierarchy, model)
+
+        u1 = resolved[("U1", "1")]
+        assert u1.dispense_mode == "line"
+        assert u1.paste_height == "auto"
+        assert u1.ul_per_mm2 == pytest.approx(0.1)
+        r1 = resolved[("R1", "1")]
+        assert r1.dispense_mode == "auto"
+        assert r1.paste_height == pytest.approx(0.05)
 
     def test_l0_override_applies_to_all_pads_over_machine_default(self):
         _, _, hierarchy = _two_component_hierarchy()
@@ -368,8 +395,29 @@ class TestSettingsRoundTrip:
         restored = settings_from_dict(settings_to_dict(model))
 
         assert restored.base_enabled is False
+        assert restored.base.dispense_mode == "auto"
         assert restored.base.fill_speed == pytest.approx(0.8)
+        assert restored.base.paste_height == pytest.approx(0.05)
         assert restored.base.ul_per_mm2 == pytest.approx(0.1)
+
+    def test_mode_and_auto_height_round_trip(self):
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={
+                ("L2", "U1"): LevelSetting(
+                    override=PasteOverride(
+                        dispense_mode="area",
+                        paste_height="auto",
+                    )
+                ),
+            },
+        )
+
+        restored = settings_from_dict(settings_to_dict(model))
+        override = restored.levels[("L2", "U1")].override
+
+        assert override.dispense_mode == "area"
+        assert override.paste_height == "auto"
 
     def test_levels_tuple_keys_are_restored(self):
         model = PasteSettingsModel(

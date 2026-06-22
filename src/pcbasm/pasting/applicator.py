@@ -1,20 +1,27 @@
 """ペースト塗布の制御."""
 
 import logging
+import math
 from collections.abc import Iterable
 from typing import Self
 
 from shapely import Polygon
 
 from pcbasm import gcode
-from pcbasm.config import PasteDispenser as PasteDispenserConfig
+from pcbasm.config import (
+    DEFAULT_AUTO_LINE_ASPECT_RATIO,
+    DispenseMode,
+    PasteDispenser as PasteDispenserConfig,
+    PasteHeight,
+)
 from pcbasm.geometry import (
     Identity,
     Path,
+    Point2d,
     Transform,
 )
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
-from pcbasm.pasting.fill_path import build_paste_fill_path
+from pcbasm.pasting.fill_path import build_paste_fill_plan
 from pcbasm.pasting.fill_sequence import FillSequence
 from pcbasm.utils import get_class_module_path
 
@@ -42,6 +49,7 @@ class PasteApplicator:
             retraction_rate=10.0,
             retraction_accel_factor=2.0,
             paste_height=0.5,
+            dispense_mode="auto",
         ) as applicator:
             applicator.load(2.0)
             applicator.retract()
@@ -62,8 +70,10 @@ class PasteApplicator:
         retraction_rate: float,
         retraction_accel_factor: float,
         transform: Transform = Identity(),
-        paste_height: float = 0.1,
+        paste_height: PasteHeight = "auto",
         lift_height: float = 2.0,
+        dispense_mode: DispenseMode = "auto",
+        auto_line_aspect_ratio: float = DEFAULT_AUTO_LINE_ASPECT_RATIO,
         prime_extra_delay: float = 0.0,
         bead_width_factor: float = 1.0,
         overlap: float = 0.0,
@@ -84,8 +94,10 @@ class PasteApplicator:
             retraction_rate: リトラクション速度 [μL/sec]
             retraction_accel_factor: リトラクション加速度係数（>1.0）
             transform: 座標変換
-            paste_height: 塗布面のZ高さ [mm]
+            paste_height: 塗布面のZ高さ [mm]、または auto
             lift_height: 塗布後の上昇高さ [mm]
+            dispense_mode: 塗布方式 auto / dot / line / area
+            auto_line_aspect_ratio: Auto 時に線塗布へ切り替える縦横比
             prime_extra_delay: プライム後の追加遅延 [sec]（デフォルト: 0.0）
             bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
             overlap: ジグザグ行間オーバーラップ [0, 1)
@@ -105,6 +117,11 @@ class PasteApplicator:
             raise ValueError(
                 f"max_dispense_rateは正の値である必要があります: {max_dispense_rate}"
             )
+        if auto_line_aspect_ratio <= 1.0:
+            raise ValueError(
+                "auto_line_aspect_ratioは1.0より大きい必要があります: "
+                f"{auto_line_aspect_ratio}"
+            )
 
         self._klipper = klipper
         self._paste_dispenser = paste_dispenser
@@ -115,7 +132,9 @@ class PasteApplicator:
         self._dispense_accel = dispense_accel
         self._ul_per_mm2 = ul_per_mm2
         self._transform = transform
-        self._paste_height = paste_height
+        self._paste_height: PasteHeight = paste_height
+        self._dispense_mode: DispenseMode = dispense_mode
+        self._auto_line_aspect_ratio = auto_line_aspect_ratio
         self._retraction = retraction
         self._retraction_rate = retraction_rate
         self._retraction_accel_factor = retraction_accel_factor
@@ -165,6 +184,8 @@ class PasteApplicator:
             transform=transform,
             paste_height=config.paste_height,
             lift_height=lift_height,
+            dispense_mode=config.dispense_mode,
+            auto_line_aspect_ratio=config.auto_line_aspect_ratio,
             prime_extra_delay=config.prime_extra_delay,
             bead_width_factor=config.bead_width_factor,
             overlap=config.overlap,
@@ -232,8 +253,9 @@ class PasteApplicator:
         polygons: Iterable[Polygon],
         *,
         fill_speed: float | None = None,
-        paste_height: float | None = None,
+        paste_height: PasteHeight | None = None,
         ul_per_mm2: float | None = None,
+        dispense_mode: DispenseMode | None = None,
         prime_extra_delay: float | None = None,
         bead_width_factor: float | None = None,
         overlap: float | None = None,
@@ -251,36 +273,43 @@ class PasteApplicator:
         Args:
             polygons: 塗布対象のポリゴン群
             fill_speed: 塗布移動速度 [mm/sec]
-            paste_height: 塗布面のZ高さ [mm]
+            paste_height: 塗布面のZ高さ [mm]、または auto
             ul_per_mm2: 面積あたりのペースト量 [μL/mm²]
+            dispense_mode: 塗布方式 auto / dot / line / area
             prime_extra_delay: プライム後の追加遅延 [sec]
             bead_width_factor: ビード幅係数（w = nozzle_diameter * factor）
             overlap: ジグザグ行間オーバーラップ [0, 1)
             boundary_margin: 外周マージン [mm]
         """
-        fill_speed = self._fill_speed if fill_speed is None else fill_speed
-        paste_height = self._paste_height if paste_height is None else paste_height
-        ul_per_mm2 = self._ul_per_mm2 if ul_per_mm2 is None else ul_per_mm2
-        prime_extra_delay = (
+        resolved_fill_speed = self._fill_speed if fill_speed is None else fill_speed
+        resolved_paste_height = (
+            self._paste_height if paste_height is None else paste_height
+        )
+        resolved_ul_per_mm2 = self._ul_per_mm2 if ul_per_mm2 is None else ul_per_mm2
+        resolved_dispense_mode = (
+            self._dispense_mode if dispense_mode is None else dispense_mode
+        )
+        resolved_prime_extra_delay = (
             self._prime_extra_delay if prime_extra_delay is None else prime_extra_delay
         )
-        bead_width_factor = (
+        resolved_bead_width_factor = (
             self._bead_width_factor if bead_width_factor is None else bead_width_factor
         )
-        overlap = self._overlap if overlap is None else overlap
-        boundary_margin = (
+        resolved_overlap = self._overlap if overlap is None else overlap
+        resolved_boundary_margin = (
             self._boundary_margin if boundary_margin is None else boundary_margin
         )
         for polygon in polygons:
             self._fill(
                 polygon,
-                fill_speed=fill_speed,
-                paste_height=paste_height,
-                ul_per_mm2=ul_per_mm2,
-                prime_extra_delay=prime_extra_delay,
-                bead_width_factor=bead_width_factor,
-                overlap=overlap,
-                boundary_margin=boundary_margin,
+                fill_speed=resolved_fill_speed,
+                paste_height=resolved_paste_height,
+                ul_per_mm2=resolved_ul_per_mm2,
+                dispense_mode=resolved_dispense_mode,
+                prime_extra_delay=resolved_prime_extra_delay,
+                bead_width_factor=resolved_bead_width_factor,
+                overlap=resolved_overlap,
+                boundary_margin=resolved_boundary_margin,
             )
 
     def _fill(
@@ -288,8 +317,9 @@ class PasteApplicator:
         polygon: Polygon,
         *,
         fill_speed: float,
-        paste_height: float,
+        paste_height: PasteHeight,
         ul_per_mm2: float,
+        dispense_mode: DispenseMode,
         prime_extra_delay: float,
         bead_width_factor: float,
         overlap: float,
@@ -305,24 +335,37 @@ class PasteApplicator:
         均等配分する。塗布設定は呼び出し元（``apply``）が解決した実効値を
         受け取る。
         """
-        components = build_paste_fill_path(
+        plan = build_paste_fill_plan(
             polygon,
             nozzle_diameter=self._nozzle_diameter,
+            dispense_mode=dispense_mode,
+            auto_line_aspect_ratio=self._auto_line_aspect_ratio,
             bead_width_factor=bead_width_factor,
             overlap=overlap,
             boundary_margin=boundary_margin,
         )
-        if not components:
+        if not plan.paths:
             self._logger.warning("フィルパスが空です。スキップします。")
             return
 
         total_amount = polygon.area * ul_per_mm2
+        per_component_amount = total_amount / len(plan.paths)
 
-        for raw in components:
-            path = Path(p.to3d(paste_height) for p in raw).transformed(self._transform)
+        for raw in plan.paths:
+            resolved_height = self._resolve_paste_height(
+                paste_height,
+                dispense_mode=plan.dispense_mode,
+                path_length=_polyline_length(raw),
+                amount=per_component_amount,
+                ul_per_mm2=ul_per_mm2,
+                bead_width_factor=bead_width_factor,
+            )
+            path = Path(p.to3d(resolved_height) for p in raw).transformed(
+                self._transform
+            )
             sequence = FillSequence(
                 path=path,
-                total_amount=total_amount / len(components),
+                total_amount=per_component_amount,
                 retraction=self._retraction,
                 fill_speed=fill_speed,
                 max_dispense_rate=self._max_dispense_rate,
@@ -337,3 +380,27 @@ class PasteApplicator:
                 sequence.to_gcode(self._stage, self._paste_dispenser)
                 + gcode.wait_for_done()
             )
+
+    def _resolve_paste_height(
+        self,
+        paste_height: PasteHeight,
+        *,
+        dispense_mode: str,
+        path_length: float,
+        amount: float,
+        ul_per_mm2: float,
+        bead_width_factor: float,
+    ) -> float:
+        if paste_height != "auto":
+            return float(paste_height)
+        if dispense_mode == "area":
+            return ul_per_mm2
+        if dispense_mode == "line" and path_length > 0:
+            bead_width = self._nozzle_diameter * bead_width_factor
+            return amount / (bead_width * path_length)
+        nozzle_area = math.pi * (self._nozzle_diameter / 2.0) ** 2
+        return amount / nozzle_area
+
+
+def _polyline_length(points: list[Point2d]) -> float:
+    return sum((points[i + 1] - points[i]).norm for i in range(len(points) - 1))

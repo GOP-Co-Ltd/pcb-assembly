@@ -15,13 +15,22 @@ from collections.abc import Sequence
 
 import attrs
 
-from pcbasm.config import PasteDispenser
+from pcbasm.config import DISPENSE_MODES, DispenseMode, PasteDispenser, PasteHeight
 from pcbasm.pcb.grouping import HierKey, PadHierarchy, PadRef
 
-# override 可能な7項目のフィールド名（解決・JSON 変換の正準順）
+# override 可能な項目のフィールド名（解決・JSON 変換の正準順）
 PASTE_OVERRIDE_FIELDS: tuple[str, ...] = (
+    "dispense_mode",
     "fill_speed",
     "paste_height",
+    "ul_per_mm2",
+    "prime_extra_delay",
+    "bead_width_factor",
+    "overlap",
+    "boundary_margin",
+)
+NUMERIC_PASTE_OVERRIDE_FIELDS: tuple[str, ...] = (
+    "fill_speed",
     "ul_per_mm2",
     "prime_extra_delay",
     "bead_width_factor",
@@ -31,23 +40,32 @@ PASTE_OVERRIDE_FIELDS: tuple[str, ...] = (
 
 # 有効/無効の3値（True / False / None=継承）
 EnableState = bool | None
+PasteSettingValue = float | str
 
 
 @attrs.frozen
 class PasteOverride:
     """塗布パラメータの差分上書き（``None`` = 継承）.
 
-    7項目すべてが ``float | None``。``None`` の項目は上位レベルの値を
-    継承する（JSON では欠落で表現）。
+    ``None`` の項目は上位レベルの値を継承する（JSON では欠落で表現）。
     """
 
+    dispense_mode: DispenseMode | None = None
     fill_speed: float | None = None
-    paste_height: float | None = None
+    paste_height: PasteHeight | None = None
     ul_per_mm2: float | None = None
     prime_extra_delay: float | None = None
     bead_width_factor: float | None = None
     overlap: float | None = None
     boundary_margin: float | None = None
+
+    def __attrs_post_init__(self) -> None:
+        if self.dispense_mode is not None and self.dispense_mode not in DISPENSE_MODES:
+            raise ValueError(f"未知の塗布方式です: {self.dispense_mode}")
+        if self.paste_height is not None:
+            _check_paste_height(self.paste_height)
+        for field in NUMERIC_PASTE_OVERRIDE_FIELDS:
+            _check_numeric(field, getattr(self, field))
 
 
 @attrs.frozen
@@ -69,8 +87,9 @@ class ResolvedPaste:
 
     Attributes:
         enabled: 塗布対象か
+        dispense_mode: 塗布方式 auto / dot / line / area
         fill_speed: 塗布移動速度 [mm/sec]
-        paste_height: 塗布面の Z 高さ [mm]
+        paste_height: 塗布面の Z 高さ [mm]、または auto
         ul_per_mm2: パッド面積あたりのペースト量 [μL/mm²]
         prime_extra_delay: プライム後の追加遅延 [sec]
         bead_width_factor: ビード幅係数
@@ -79,8 +98,9 @@ class ResolvedPaste:
     """
 
     enabled: bool
+    dispense_mode: DispenseMode
     fill_speed: float
-    paste_height: float
+    paste_height: PasteHeight
     ul_per_mm2: float
     prime_extra_delay: float
     bead_width_factor: float
@@ -115,6 +135,7 @@ def base_override_from_config(config: PasteDispenser) -> PasteOverride:
         全項目確定の :class:`PasteOverride`
     """
     return PasteOverride(
+        dispense_mode=config.dispense_mode,
         fill_speed=config.fill_speed,
         paste_height=config.paste_height,
         ul_per_mm2=config.ul_per_mm2,
@@ -125,7 +146,24 @@ def base_override_from_config(config: PasteDispenser) -> PasteOverride:
     )
 
 
-def _apply_override(values: dict[str, float], override: PasteOverride) -> None:
+def _check_numeric(field: str, value: object) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field}は数値である必要があります: {value!r}")
+
+
+def _check_paste_height(value: object) -> None:
+    if value == "auto":
+        return
+    _check_numeric("paste_height", value)
+    if isinstance(value, (int, float)) and value <= 0:
+        raise ValueError(f"paste_heightは正の値である必要があります: {value}")
+
+
+def _apply_override(
+    values: dict[str, PasteSettingValue], override: PasteOverride
+) -> None:
     """非 None 項目のみ ``values`` に上書きする（in-place）."""
     for field in PASTE_OVERRIDE_FIELDS:
         value = getattr(override, field)
@@ -153,7 +191,7 @@ def resolve_pad_settings(
     """
     result: dict[PadRef, ResolvedPaste] = {}
     for pad in hierarchy.iter_pads():
-        values: dict[str, float] = {
+        values: dict[str, PasteSettingValue] = {
             field: getattr(model.base, field) for field in PASTE_OVERRIDE_FIELDS
         }
         enabled = model.base_enabled
@@ -165,9 +203,39 @@ def resolve_pad_settings(
             if setting.enabled is not None:
                 enabled = setting.enabled
         result[hierarchy.pad_ref_for_pad(pad)] = ResolvedPaste(
-            enabled=enabled, **values
+            enabled=enabled,
+            dispense_mode=_dispense_mode_value(values["dispense_mode"]),
+            fill_speed=_float_value("fill_speed", values["fill_speed"]),
+            paste_height=_paste_height_value(values["paste_height"]),
+            ul_per_mm2=_float_value("ul_per_mm2", values["ul_per_mm2"]),
+            prime_extra_delay=_float_value(
+                "prime_extra_delay", values["prime_extra_delay"]
+            ),
+            bead_width_factor=_float_value(
+                "bead_width_factor", values["bead_width_factor"]
+            ),
+            overlap=_float_value("overlap", values["overlap"]),
+            boundary_margin=_float_value("boundary_margin", values["boundary_margin"]),
         )
     return result
+
+
+def _dispense_mode_value(value: PasteSettingValue) -> DispenseMode:
+    if isinstance(value, str) and value in DISPENSE_MODES:
+        return value
+    raise ValueError(f"未知の塗布方式です: {value!r}")
+
+
+def _paste_height_value(value: PasteSettingValue) -> PasteHeight:
+    if value == "auto":
+        return "auto"
+    return _float_value("paste_height", value)
+
+
+def _float_value(field: str, value: PasteSettingValue) -> float:
+    _check_numeric(field, value)
+    assert isinstance(value, (int, float))
+    return float(value)
 
 
 def find_orphans(model: PasteSettingsModel, hierarchy: PadHierarchy) -> list[HierKey]:
@@ -184,7 +252,7 @@ def find_orphans(model: PasteSettingsModel, hierarchy: PadHierarchy) -> list[Hie
     return [key for key in model.levels if key not in existing]
 
 
-def _override_to_dict(override: PasteOverride) -> dict[str, float]:
+def _override_to_dict(override: PasteOverride) -> dict[str, PasteSettingValue]:
     """非 None 項目のみの dict に変換する."""
     return {
         field: value

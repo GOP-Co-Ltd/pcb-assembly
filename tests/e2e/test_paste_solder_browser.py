@@ -110,7 +110,7 @@ def _calculate_fill_path(live_server: LiveServer, layer: str = "Top") -> dict[st
 
 
 def _patch_pad_config_node(
-    live_server: LiveServer, node_id: str, values: dict[str, float]
+    live_server: LiveServer, node_id: str, values: dict[str, float | str]
 ):
     response = httpx.patch(
         f"{live_server.base_url}/api/pasting/pad-config/node",
@@ -206,12 +206,18 @@ def _ensure_row_collapsed(page: Any, node_id: str, descendant_id: str):
 
 
 def _field_cell(row: Any, field: str) -> Any:
-    return row.locator(f"td:has(input[data-field={_css_string(field)}])")
+    return row.locator(f"td:has([data-field={_css_string(field)}])")
 
 
 def _field_input(row: Any, field: str) -> Any:
     return row.locator(
         f'input[data-testid="pad-setting-input"][data-field={_css_string(field)}]'
+    )
+
+
+def _field_select(row: Any, field: str, testid: str) -> Any:
+    return row.locator(
+        f"select[data-testid={_css_string(testid)}][data-field={_css_string(field)}]"
     )
 
 
@@ -266,6 +272,22 @@ def _wait_for_node_override_field(
         if time.monotonic() > deadline:
             raise AssertionError(
                 f"{node_id} {field} override が {expected} に更新されない"
+            )
+        time.sleep(0.05)
+
+
+def _wait_for_node_override_value(
+    live_server: LiveServer, node_id: str, field: str, expected: float | str
+) -> dict[str, Any]:
+    deadline = time.monotonic() + _POLL_TIMEOUT
+    while True:
+        config = _get_pad_config(live_server)
+        value = config["overrides"].get(node_id, {}).get("values", {}).get(field)
+        if value == expected:
+            return config
+        if time.monotonic() > deadline:
+            raise AssertionError(
+                f"{node_id} {field} override が {expected!r} に更新されない"
             )
         time.sleep(0.05)
 
@@ -452,6 +474,52 @@ class TestPasteSolderBrowserPadInteraction:
         browser_page.locator(_testid("pad-enable-all")).click()
         _wait_for_layer_enabled(live_server, "Bottom", True)
 
+    def test_dispense_mode_and_height_controls_persist_after_reload(
+        self, live_server: LiveServer, browser_page
+    ):
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_server)
+
+        root_row = browser_page.locator(_row_selector("L0"))
+        mode_select = _field_select(
+            root_row, "dispense_mode", "pad-dispense-mode-select"
+        )
+        mode_select.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert "Auto" in mode_select.locator("option:checked").text_content(
+            timeout=_BROWSER_TIMEOUT_MS
+        )
+
+        mode_select.select_option("line")
+        _wait_for_node_override_value(live_server, "L0", "dispense_mode", "line")
+        _open_paste_solder(browser_page, live_server)
+        root_row = browser_page.locator(_row_selector("L0"))
+        mode_select = _field_select(
+            root_row, "dispense_mode", "pad-dispense-mode-select"
+        )
+        assert mode_select.input_value(timeout=_BROWSER_TIMEOUT_MS) == "line"
+
+        mode_select.select_option("area")
+        _wait_for_node_override_value(live_server, "L0", "dispense_mode", "area")
+        _open_paste_solder(browser_page, live_server)
+        root_row = browser_page.locator(_row_selector("L0"))
+        mode_select = _field_select(
+            root_row, "dispense_mode", "pad-dispense-mode-select"
+        )
+        assert mode_select.input_value(timeout=_BROWSER_TIMEOUT_MS) == "area"
+
+        height_select = _field_select(
+            root_row, "paste_height", "pad-height-mode-select"
+        )
+        height_select.select_option("auto")
+        _wait_for_node_override_value(live_server, "L0", "paste_height", "auto")
+
+        height_select.select_option("manual")
+        height_input = _field_input(root_row, "paste_height")
+        height_input.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        height_input.fill("0.25")
+        height_input.press("Enter")
+        _wait_for_node_override_value(live_server, "L0", "paste_height", 0.25)
+
     def test_tree_row_highlights_pads_by_node_id_membership(
         self, live_server: LiveServer, browser_page
     ):
@@ -531,6 +599,7 @@ class TestPasteSolderBrowserPadInteraction:
         self, live_server: LiveServer, browser_page
     ):
         _select_led_blinker(live_server)
+        _patch_pad_config_node(live_server, "L0", {"dispense_mode": "area"})
         fill_path = _calculate_fill_path(live_server)
         assert fill_path["pads"]
         first = fill_path["pads"][0]

@@ -38,7 +38,10 @@ class TestMachineSettings:
     def test_read_returns_values_with_declared_types(self, store: ConfigStore):
         values = store.read_machine_settings(FIXTURE)
 
+        assert values["paste_dispenser.dispense_mode"] == "auto"
+        assert values["paste_dispenser.auto_line_aspect_ratio"] == 1.618
         assert values["paste_dispenser.fill_speed"] == 0.8
+        assert values["paste_dispenser.paste_height"] == "auto"
         assert values["paste_dispenser.toolhead.x"] == -1.772
         assert values["paste_dispenser.pad_align.blur_ksize"] == 5
         assert values["probe.servo_name"] == "probe_gnd"
@@ -65,6 +68,21 @@ class TestMachineSettings:
 
         values = store.read_machine_settings(FIXTURE)
         assert values["paste_dispenser.fill_speed"] == 0.9
+
+    def test_write_dispense_mode_then_reread_reflects_value(self, store: ConfigStore):
+        store.write_machine_settings(FIXTURE, {"paste_dispenser.dispense_mode": "line"})
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.dispense_mode"] == "line"
+
+    def test_write_auto_paste_height_then_reread_reflects_value(
+        self, store: ConfigStore
+    ):
+        store.write_machine_settings(FIXTURE, {"paste_dispenser.paste_height": 0.25})
+        store.write_machine_settings(FIXTURE, {"paste_dispenser.paste_height": "auto"})
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.paste_height"] == "auto"
 
     def test_write_keeps_untouched_lines_byte_identical(
         self, store: ConfigStore, configs_root: Path
@@ -166,6 +184,22 @@ class TestMachineSettings:
             store.write_machine_settings(
                 FIXTURE, {"paste_dispenser.fill_speed": "fast"}
             )
+
+    def test_unknown_dispense_mode_raises_unknown_field_error(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                FIXTURE, {"paste_dispenser.dispense_mode": "spray"}
+            )
+
+    def test_auto_line_aspect_ratio_must_exceed_one(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                FIXTURE, {"paste_dispenser.auto_line_aspect_ratio": 1.0}
+            )
+
+    def test_manual_paste_height_must_be_positive(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(FIXTURE, {"paste_dispenser.paste_height": 0.0})
 
     def test_non_integral_float_for_int_field_raises(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):

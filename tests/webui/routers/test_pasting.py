@@ -108,7 +108,9 @@ class TestGetPadConfig:
         defaults = config["defaults"]
 
         assert defaults["enabled"] is True
+        assert defaults["dispense_mode"] == "auto"
         assert defaults["fill_speed"] == 0.8  # test-fixture machine.toml 由来
+        assert defaults["paste_height"] == "auto"
         assert defaults["bead_width_factor"] == 1.0  # PasteDispenser 既定
         assert defaults["boundary_margin"] == 0.0
 
@@ -123,7 +125,9 @@ class TestGetPadConfig:
         assert len(pad["polygon"]) >= 4
         assert all(len(point) == 2 for point in pad["polygon"])
         assert pad["enabled"] is True
+        assert pad["resolved"]["dispense_mode"] == "auto"
         assert pad["resolved"]["fill_speed"] == 0.8
+        assert pad["resolved"]["paste_height"] == "auto"
 
     def test_pad_exposes_full_node_id_path(self, selected_client: TestClient):
         config = _get_config(selected_client)
@@ -209,6 +213,29 @@ class TestPatchNode:
         # U1 以外には波及しない
         assert _pad_by_id(config, "R1.1")["resolved"]["fill_speed"] == 0.8
 
+    def test_mode_and_height_upsert_persist_on_reget(self, selected_client: TestClient):
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={
+                "node": "L2:U1",
+                "values": {
+                    "dispense_mode": "line",
+                    "paste_height": "auto",
+                },
+            },
+        )
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L4:U1:1", "values": {"paste_height": 0.25}},
+        )
+
+        config = _get_config(selected_client)
+        assert config["overrides"]["L2:U1"]["values"]["dispense_mode"] == "line"
+        assert config["overrides"]["L2:U1"]["values"]["paste_height"] == "auto"
+        assert _pad_by_id(config, "U1.2")["resolved"]["dispense_mode"] == "line"
+        assert _pad_by_id(config, "U1.2")["resolved"]["paste_height"] == "auto"
+        assert _pad_by_id(config, "U1.1")["resolved"]["paste_height"] == 0.25
+
     def test_clear_returns_to_inheritance(self, selected_client: TestClient):
         selected_client.patch(
             "/api/pasting/pad-config/node",
@@ -271,6 +298,20 @@ class TestPatchNode:
         response = selected_client.patch(
             "/api/pasting/pad-config/node",
             json={"node": "L2:U1", "values": {"no_such_field": 1.0}},
+        )
+        assert response.status_code == 400
+
+    def test_unknown_dispense_mode_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"dispense_mode": "spray"}},
+        )
+        assert response.status_code == 400
+
+    def test_invalid_paste_height_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"paste_height": 0.0}},
         )
         assert response.status_code == 400
 
