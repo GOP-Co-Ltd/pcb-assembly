@@ -5,13 +5,18 @@ from __future__ import annotations
 import tomllib
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import attrs
 import cattrs
 
 from pcbasm.geometry import Point2d, Shift, Transform
 from pcbasm.utils import PROJECT_ROOT
+
+DISPENSE_MODES = ("auto", "dot", "line", "area")
+DispenseMode = Literal["auto", "dot", "line", "area"]
+PasteHeight = float | Literal["auto"]
+DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
 
 
 @attrs.frozen
@@ -50,8 +55,12 @@ class PasteDispenser:
     retract_rate: float  # リトラクションレート [μL/sec]
     retract_accel_factor: float  # リトラクション加速度係数
     toolhead: Toolhead
-    paste_height: float  # 塗布面のZ高さ [mm]
+    paste_height: PasteHeight  # 塗布面のZ高さ [mm]、または auto
     ul_per_mm2: float  # パッド面積あたりのペースト量 [μL/mm²]
+    dispense_mode: DispenseMode = "auto"  # 塗布方式 auto / dot / line / area
+    auto_line_aspect_ratio: float = (
+        DEFAULT_AUTO_LINE_ASPECT_RATIO  # Auto時に線塗布へ切り替える縦横比
+    )
     prime_extra_delay: float = 0.0  # プライム後の追加遅延 [sec]
     bead_width_factor: float = (
         1.0  # ビード幅係数 w = nozzle_diameter * bead_width_factor
@@ -59,6 +68,28 @@ class PasteDispenser:
     overlap: float = 0.0  # ジグザグ行間オーバーラップ [0,1)
     boundary_margin: float = 0.0  # 外周マージン [mm]
     pad_align: PadAlign = attrs.field(factory=PadAlign)  # pad位置合わせ設定
+
+    def __attrs_post_init__(self) -> None:
+        if self.dispense_mode not in DISPENSE_MODES:
+            raise ValueError(f"未知の塗布方式です: {self.dispense_mode}")
+        if self.auto_line_aspect_ratio <= 1.0:
+            raise ValueError(
+                "auto_line_aspect_ratioは1.0より大きい必要があります: "
+                f"{self.auto_line_aspect_ratio}"
+            )
+        if isinstance(self.paste_height, bool) or not isinstance(
+            self.paste_height, (int, float, str)
+        ):
+            raise ValueError(f"paste_heightが不正です: {self.paste_height!r}")
+        if isinstance(self.paste_height, str) and self.paste_height != "auto":
+            raise ValueError(
+                f"paste_heightは'auto'または数値である必要があります: "
+                f"{self.paste_height!r}"
+            )
+        if isinstance(self.paste_height, (int, float)) and self.paste_height <= 0:
+            raise ValueError(
+                f"paste_heightは正の値である必要があります: {self.paste_height}"
+            )
 
 
 @attrs.frozen
@@ -276,6 +307,22 @@ class ReferencePoint:
         return board_corner + self.offsets.get(corner)
 
 
+def _structure_dispense_mode(value: object, _: object) -> DispenseMode:
+    if isinstance(value, str) and value in DISPENSE_MODES:
+        return value
+    raise ValueError(f"未知の塗布方式です: {value!r}")
+
+
+def _structure_paste_height(value: object, _: object) -> PasteHeight:
+    if value == "auto":
+        return "auto"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(
+            f"paste_heightは'auto'または数値である必要があります: {value!r}"
+        )
+    return float(value)
+
+
 class Machine:
     """マシン設定をまとめるクラス.
 
@@ -293,6 +340,12 @@ class Machine:
             self._data = tomllib.load(f)
         self._config_dir = path.parent.resolve()
         self._converter = cattrs.Converter()
+        self._converter.register_structure_hook_func(
+            lambda t: t == DispenseMode, _structure_dispense_mode
+        )
+        self._converter.register_structure_hook_func(
+            lambda t: t == PasteHeight, _structure_paste_height
+        )
 
     def _get_config(self, key: str, cls: type[Any]) -> Any:
         """指定されたキーの設定を取得する."""

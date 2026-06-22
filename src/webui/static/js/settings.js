@@ -23,7 +23,12 @@
   function scalarValue(input) {
     const text = input.value.trim();
     if (text === "") return null;
-    if (input.dataset.type === "str") return text;
+    if (input.dataset.type === "str" || input.dataset.type === "dispense_mode") {
+      return text;
+    }
+    if (input.dataset.type === "float_or_auto" && text === "auto") {
+      return "auto";
+    }
 
     const value = parseNumber(text, input.name);
     if (input.dataset.type === "int" && !Number.isInteger(value)) {
@@ -92,14 +97,17 @@
     );
   }
 
-  for (const input of machineForm.querySelectorAll("input")) {
-    input.addEventListener("input", () => scheduleSave(input));
-    input.addEventListener("change", () => scheduleSave(input));
+  for (const control of machineForm.querySelectorAll("input, select")) {
+    control.addEventListener("input", () => scheduleSave(control));
+    control.addEventListener("change", () => scheduleSave(control));
   }
 
   machineForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (document.activeElement instanceof HTMLInputElement) {
+    if (
+      document.activeElement instanceof HTMLInputElement ||
+      document.activeElement instanceof HTMLSelectElement
+    ) {
       scheduleSave(document.activeElement);
       document.activeElement.blur();
     }

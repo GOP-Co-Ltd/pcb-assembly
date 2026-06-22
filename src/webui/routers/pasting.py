@@ -16,23 +16,27 @@ node_id 規約（フロントと共有する契約）:
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import attrs
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from pcbasm.config import PasteDispenser
+from pcbasm.config import DISPENSE_MODES, PasteDispenser
 from pcbasm.pasting import (
+    NUMERIC_PASTE_OVERRIDE_FIELDS,
     PASTE_OVERRIDE_FIELDS,
     LevelSetting,
     PasteOverride,
     PasteSettingsModel,
+    PasteSettingValue,
     ResolvedPaste,
     base_override_from_config,
     plan_paste_route,
     resolve_pad_settings,
 )
-from pcbasm.pasting.fill_path import build_paste_fill_path
+from pcbasm.pasting.fill_path import build_paste_fill_plan
 from pcbasm.pcb import (
     Pad,
     PadHierarchy,
@@ -52,11 +56,12 @@ router = APIRouter(prefix="/api")
 # pydantic 契約モデル
 # --------------------------------------------------------------------------- #
 class ResolvedSettings(BaseModel):
-    """解決済みの確定塗布設定（enabled + 7 項目）."""
+    """解決済みの確定塗布設定（enabled + override 項目）."""
 
     enabled: bool
+    dispense_mode: str
     fill_speed: float
-    paste_height: float
+    paste_height: float | str
     ul_per_mm2: float
     prime_extra_delay: float
     bead_width_factor: float
@@ -92,7 +97,7 @@ class NodeOverrideInfo(BaseModel):
     """1 ノードに明示された override（疎）."""
 
     enabled: bool | None = None  # 明示 enabled（無指定 = null）
-    values: dict[str, float] = {}  # override された項目のみ（疎）
+    values: dict[str, PasteSettingValue] = {}  # override された項目のみ（疎）
 
 
 class PadConfigResponse(BaseModel):
@@ -142,6 +147,7 @@ class PasteFillPathPad(BaseModel):
     """1 pad の塗布パス."""
 
     id: str
+    dispense_mode: str
     path_count: int
     point_count: int
     paths: list[list[list[float]]]
@@ -160,7 +166,7 @@ class NodePatch(BaseModel):
 
     node: str
     enabled: bool | None = None  # "enabled" in model_fields_set で送信有無を判定
-    values: dict[str, float] = {}  # upsert する override
+    values: dict[str, PasteSettingValue] = {}  # upsert する override
     clear: list[str] = []  # 継承に戻す override 項目
 
 
@@ -206,7 +212,7 @@ def _key_from_node_id(node: str) -> tuple[str, ...]:
 # 変換ヘルパ
 # --------------------------------------------------------------------------- #
 def _resolved_settings(resolved: ResolvedPaste) -> ResolvedSettings:
-    # ResolvedPaste と ResolvedSettings は同名フィールド（enabled + 7 項目）。
+    # ResolvedPaste と ResolvedSettings は同名フィールド（enabled + override 項目）。
     return ResolvedSettings(**attrs.asdict(resolved))
 
 
@@ -219,7 +225,7 @@ def _tree(node: PadHierarchyNode) -> HierNodeInfo:
     )
 
 
-def _override_values(override: PasteOverride) -> dict[str, float]:
+def _override_values(override: PasteOverride) -> dict[str, PasteSettingValue]:
     return {
         field: value
         for field in PASTE_OVERRIDE_FIELDS
@@ -240,7 +246,7 @@ def _overrides(model: PasteSettingsModel) -> dict[str, NodeOverrideInfo]:
 def _resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
     """machine.toml 由来の基板既定値を返す.
 
-    ``model.base`` は machine.toml 由来で全 7 項目が確定（非 None）。
+    ``model.base`` は machine.toml 由来で全 override 項目が確定（非 None）。
     """
     return ResolvedSettings(
         enabled=model.base_enabled,
@@ -385,9 +391,11 @@ def _build_fill_path(loaded: _Loaded, layer: str) -> PasteFillPathResponse:
         if pad.layer.value != layer or not paste.enabled:
             continue
         try:
-            paths = build_paste_fill_path(
+            plan = build_paste_fill_plan(
                 pad.polygon,
                 nozzle_diameter,
+                dispense_mode=paste.dispense_mode,
+                auto_line_aspect_ratio=loaded.base_config.auto_line_aspect_ratio,
                 bead_width_factor=paste.bead_width_factor,
                 overlap=paste.overlap,
                 boundary_margin=paste.boundary_margin,
@@ -396,10 +404,11 @@ def _build_fill_path(loaded: _Loaded, layer: str) -> PasteFillPathResponse:
             raise HTTPException(
                 status_code=400, detail=f"塗布パス設定が不正です: {exc}"
             ) from exc
-        points = [[[point.x, point.y] for point in path] for path in paths]
+        points = [[[point.x, point.y] for point in path] for path in plan.paths]
         pads.append(
             PasteFillPathPad(
                 id=loaded.hierarchy.pad_id_for_pad(pad),
+                dispense_mode=plan.dispense_mode,
                 path_count=len(points),
                 point_count=sum(len(path) for path in points),
                 paths=points,
@@ -449,6 +458,37 @@ def _check_known_fields(fields: list[str]) -> None:
         )
 
 
+def _validate_patch_values(values: dict[str, PasteSettingValue]) -> None:
+    _check_known_fields(list(values))
+    for field, value in values.items():
+        if field == "dispense_mode":
+            if not isinstance(value, str) or value not in DISPENSE_MODES:
+                raise HTTPException(
+                    status_code=400, detail=f"未知の塗布方式です: {value!r}"
+                )
+            continue
+        if field == "paste_height":
+            if value == "auto":
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"paste_heightはautoまたは数値で指定してください: {value!r}",
+                )
+            if value <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"paste_heightは正の値で指定してください: {value}",
+                )
+            continue
+        if field in NUMERIC_PASTE_OVERRIDE_FIELDS:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{field}は数値で指定してください: {value!r}",
+                )
+
+
 def _apply_node_patch(
     model: PasteSettingsModel, patch: NodePatch, hierarchy: PadHierarchy
 ) -> PasteSettingsModel:
@@ -457,7 +497,7 @@ def _apply_node_patch(
     Raises:
         HTTPException: 未知の項目（values/clear）・未知ノード（400）の場合
     """
-    _check_known_fields(list(patch.values))
+    _validate_patch_values(patch.values)
     _check_known_fields(patch.clear)
 
     return _apply_level_patch(
@@ -481,13 +521,13 @@ def _apply_level_patch(
     levels = dict(model.levels)
     current = levels.get(key, LevelSetting())
 
-    override_dict = {
+    override_dict: dict[str, PasteSettingValue | None] = {
         field: getattr(current.override, field) for field in PASTE_OVERRIDE_FIELDS
     }
     override_dict.update(patch.values)
     for field in patch.clear:
         override_dict[field] = None
-    new_override = PasteOverride(**override_dict)
+    new_override = PasteOverride(**cast(dict[str, Any], override_dict))
 
     enabled = patch.enabled if enabled_sent else current.enabled
 

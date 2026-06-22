@@ -22,7 +22,9 @@ router = APIRouter(prefix="/api")
 class SettingsField(BaseModel):
     key: str
     label: str
-    value_type: Literal["float", "int", "str", "float_pair"]
+    value_type: Literal[
+        "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode"
+    ]
     unit: str | None
     value: MachineSettingValue | None
 

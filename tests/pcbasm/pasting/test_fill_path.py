@@ -13,17 +13,34 @@
 """
 
 import math
+from typing import Any, cast
 
 import pytest
 from shapely import LineString, Polygon
+from shapely.affinity import rotate
 from shapely.geometry import Point as ShapelyPoint
 
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.fill_path import build_paste_fill_path
+from pcbasm.pasting.fill_path import (
+    build_paste_fill_path as _build_paste_fill_path,
+    build_paste_fill_plan,
+)
 
 # セグメント内包・外周マージン判定の浮動小数誤差を吸収する微小バッファ（定数）。
 # ジグザグ端点が外周に乗るため、境界一致を covers が拾えるよう微小に膨らませる。
 _EPS = 1e-6
+_AUTO_LINE_ASPECT_RATIO = 1.618
+
+
+def build_paste_fill_path(
+    polygon: Polygon,
+    nozzle_diameter: float,
+    **kwargs: Any,
+) -> list[list[Point2d]]:
+    """既存の面塗布契約テスト用に新 API の必須引数を明示する。"""
+    kwargs.setdefault("dispense_mode", "area")
+    kwargs.setdefault("auto_line_aspect_ratio", _AUTO_LINE_ASPECT_RATIO)
+    return _build_paste_fill_path(polygon, nozzle_diameter, **kwargs)
 
 
 def _rectangle(width: float, length: float) -> Polygon:
@@ -174,6 +191,93 @@ class TestFallbackHierarchy:
         # Assert: 点は polygon の内部代表点
         point = result[0][0]
         assert polygon.buffer(_EPS).covers(ShapelyPoint(point.x, point.y))
+
+
+class TestDispenseModes:
+    """塗布方式の明示指定と Auto 解決を公開 API 経由で検証する。"""
+
+    def test_dot_mode_uses_representative_point(self):
+        plan = build_paste_fill_plan(
+            _rectangle(10.0, 6.0),
+            nozzle_diameter=1.0,
+            dispense_mode="dot",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+        )
+
+        assert plan.dispense_mode == "dot"
+        assert len(plan.paths) == 1
+        assert len(plan.paths[0]) == 1
+
+    def test_line_mode_uses_long_axis_centerline(self):
+        plan = build_paste_fill_plan(
+            _rectangle(1.0, 4.0),
+            nozzle_diameter=0.5,
+            dispense_mode="line",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+        )
+
+        assert plan.dispense_mode == "line"
+        assert len(plan.paths) == 1
+        assert len(plan.paths[0]) == 2
+
+    def test_area_mode_falls_back_to_line_then_dot(self):
+        line_plan = build_paste_fill_plan(
+            _rectangle(0.8, 5.0),
+            nozzle_diameter=1.0,
+            dispense_mode="area",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+        )
+        dot_plan = build_paste_fill_plan(
+            _rectangle(0.2, 0.2),
+            nozzle_diameter=1.0,
+            dispense_mode="area",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+        )
+
+        assert line_plan.dispense_mode == "line"
+        assert len(line_plan.paths[0]) == 2
+        assert dot_plan.dispense_mode == "dot"
+        assert len(dot_plan.paths[0]) == 1
+
+    def test_auto_uses_minimum_rotated_bbox_aspect_ratio(self):
+        rotated = rotate(_rectangle(1.0, 3.0), 35.0, origin=(0.0, 0.0))
+
+        plan = build_paste_fill_plan(
+            rotated,
+            nozzle_diameter=0.34,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+        )
+
+        assert plan.dispense_mode == "line"
+
+    @pytest.mark.parametrize(
+        ("width", "height", "expected_mode"),
+        [
+            (1.0, 1.6, "dot"),
+            (1.0, 1.7, "line"),
+            (1.0, 1.0, "dot"),
+        ],
+    )
+    def test_auto_uses_golden_ratio_threshold(self, width, height, expected_mode):
+        plan = build_paste_fill_plan(
+            _rectangle(width, height),
+            nozzle_diameter=0.34,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+        )
+
+        assert plan.dispense_mode == expected_mode
+
+    def test_auto_threshold_boundary_is_dot(self):
+        plan = build_paste_fill_plan(
+            _rectangle(1.0, 2.0),
+            nozzle_diameter=0.34,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=2.0,
+        )
+
+        assert plan.dispense_mode == "dot"
 
 
 class TestAreaFill:
@@ -494,6 +598,28 @@ class TestInvalidInput:
         with pytest.raises(ValueError, match="bead_width_factor"):
             build_paste_fill_path(
                 polygon, nozzle_diameter=1.0, bead_width_factor=bead_width_factor
+            )
+
+    def test_auto_line_aspect_ratio_must_exceed_one(self):
+        polygon = _rectangle(10.0, 6.0)
+
+        with pytest.raises(ValueError, match="auto_line_aspect_ratio"):
+            build_paste_fill_plan(
+                polygon,
+                nozzle_diameter=1.0,
+                dispense_mode="auto",
+                auto_line_aspect_ratio=1.0,
+            )
+
+    def test_unknown_dispense_mode_raises(self):
+        polygon = _rectangle(10.0, 6.0)
+
+        with pytest.raises(ValueError, match="未知の塗布方式"):
+            build_paste_fill_plan(
+                polygon,
+                nozzle_diameter=1.0,
+                dispense_mode=cast(Any, "spray"),
+                auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             )
 
     def test_empty_polygon_returns_empty_list(self):

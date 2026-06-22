@@ -1,6 +1,7 @@
 "use strict";
 
 export const FIELDS = [
+  "dispense_mode",
   "ul_per_mm2",
   "paste_height",
   "fill_speed",
@@ -11,6 +12,7 @@ export const FIELDS = [
 ];
 
 export const FIELD_LABELS = {
+  dispense_mode: "塗布方式",
   ul_per_mm2: "面積あたりのペースト量",
   paste_height: "塗布高さ",
   fill_speed: "塗布速度",
@@ -18,6 +20,18 @@ export const FIELD_LABELS = {
   bead_width_factor: "ビード幅係数",
   overlap: "重なり率",
   boundary_margin: "外周余白",
+};
+
+export const FIELD_KINDS = {
+  dispense_mode: "mode",
+  paste_height: "height",
+};
+
+export const DISPENSE_MODE_LABELS = {
+  auto: "Auto",
+  dot: "点",
+  line: "線",
+  area: "面",
 };
 
 export function buildNodeIndexes(tree) {

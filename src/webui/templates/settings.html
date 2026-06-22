@@ -31,12 +31,20 @@
                    value="{{ field.value[1] if field.value is not none else '' }}"
                    placeholder="Y">
           </div>
+          {% elif field.value_type == 'dispense_mode' %}
+          <select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
+                  data-type="{{ field.value_type }}"
+                  aria-label="{{ field.label }}">
+            {% for option, label in [('auto', 'Auto'), ('dot', '点'), ('line', '線'), ('area', '面')] %}
+            <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
           {% else %}
           <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
                  data-type="{{ field.value_type }}"
-                 type="{% if field.value_type == 'str' %}text{% else %}number{% endif %}"
+                 type="{% if field.value_type in ('str', 'float_or_auto') %}text{% else %}number{% endif %}"
                  aria-label="{{ field.label }}"
-                 {% if field.value_type != 'str' %}step="any"{% endif %}
+                 {% if field.value_type not in ('str', 'float_or_auto') %}step="any"{% endif %}
                  value="{{ field.value if field.value is not none else '' }}"
                  placeholder="未設定">
           {% endif %}
