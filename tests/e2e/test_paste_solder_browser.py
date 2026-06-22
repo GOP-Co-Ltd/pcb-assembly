@@ -99,6 +99,16 @@ def _calculate_route(live_server: LiveServer, layer: str = "Top") -> dict[str, A
     return response.json()
 
 
+def _calculate_fill_path(live_server: LiveServer, layer: str = "Top") -> dict[str, Any]:
+    response = httpx.post(
+        f"{live_server.base_url}/api/pasting/pad-config/fill-path",
+        json={"layer": layer},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 def _patch_pad_config_node(
     live_server: LiveServer, node_id: str, values: dict[str, float]
 ):
@@ -502,11 +512,7 @@ class TestPasteSolderBrowserPadInteraction:
             "(els) => els.map((el) => getComputedStyle(el).fill)",
         )
         assert arrow_colors == route_colors
-        browser_page.wait_for_function(
-            """(selector) => document.querySelector(selector)?.textContent.startsWith("順路: ")""",
-            arg=_testid("pad-route-status"),
-            timeout=_BROWSER_TIMEOUT_MS,
-        )
+        assert browser_page.locator(_testid("pad-route-status")).count() == 0
 
         first_pad = browser_page.locator(_pad_selector(first["id"]))
         assert first_pad.get_attribute("data-route-order") == "1"
@@ -519,11 +525,67 @@ class TestPasteSolderBrowserPadInteraction:
         browser_page.locator(_testid("pad-route-overlay")).wait_for(
             state="detached", timeout=_BROWSER_TIMEOUT_MS
         )
-        assert (
-            browser_page.locator(_testid("pad-route-status")).text_content(
-                timeout=_BROWSER_TIMEOUT_MS
-            )
-            == "順路: --"
+        assert browser_page.locator(_testid("pad-route-status")).count() == 0
+
+    def test_fill_path_button_draws_paths_and_changes_clear_it(
+        self, live_server: LiveServer, browser_page
+    ):
+        _select_led_blinker(live_server)
+        fill_path = _calculate_fill_path(live_server)
+        assert fill_path["pads"]
+        first = fill_path["pads"][0]
+
+        _open_paste_solder(browser_page, live_server)
+        browser_page.locator(_testid("pad-calculate-fill-path")).click()
+        browser_page.locator(_testid("pad-fill-path-overlay")).wait_for(
+            state="attached", timeout=_BROWSER_TIMEOUT_MS
+        )
+        browser_page.wait_for_function(
+            """([lineSelector, pointSelector, directionSelector]) =>
+                document.querySelectorAll(lineSelector).length > 0
+                && document.querySelectorAll(pointSelector).length > 0
+                && document.querySelectorAll(directionSelector).length > 0""",
+            arg=[
+                _testid("pad-fill-path-polyline"),
+                _testid("pad-fill-path-point"),
+                _testid("pad-fill-path-direction"),
+            ],
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+        fill_path_colors = browser_page.eval_on_selector_all(
+            _testid("pad-fill-path-polyline"),
+            "(els) => els.map((el) => getComputedStyle(el).stroke)",
+        )
+        direction_colors = browser_page.eval_on_selector_all(
+            _testid("pad-fill-path-direction"),
+            "(els) => els.map((el) => getComputedStyle(el).stroke)",
+        )
+        arrow_colors = browser_page.eval_on_selector_all(
+            ".pad-fill-path-arrow-head",
+            "(els) => els.map((el) => getComputedStyle(el).fill)",
+        )
+        assert set(fill_path_colors) == {"rgb(255, 51, 51)"}
+        assert set(direction_colors) == {"rgb(255, 51, 51)"}
+        assert set(arrow_colors) == {"rgb(255, 51, 51)"}
+
+        root_row = browser_page.locator(_row_selector("L0"))
+        boundary_margin = _field_input(root_row, "boundary_margin")
+        boundary_margin.fill("0.3")
+        boundary_margin.press("Enter")
+        _wait_for_node_override_field(live_server, "L0", "boundary_margin", 0.3)
+        browser_page.locator(_testid("pad-fill-path-overlay")).wait_for(
+            state="detached", timeout=_BROWSER_TIMEOUT_MS
+        )
+
+        browser_page.locator(_testid("pad-calculate-fill-path")).click()
+        browser_page.locator(_testid("pad-fill-path-overlay")).wait_for(
+            state="attached", timeout=_BROWSER_TIMEOUT_MS
+        )
+        first_pad = browser_page.locator(_pad_selector(first["id"]))
+        first_pad.click()
+        browser_page.locator(_testid("pad-disable-selected")).click()
+        browser_page.locator(_testid("pad-fill-path-overlay")).wait_for(
+            state="detached", timeout=_BROWSER_TIMEOUT_MS
         )
 
     def test_active_job_locks_pad_editor(self, live_server: LiveServer, browser_page):

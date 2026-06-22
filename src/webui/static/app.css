@@ -1001,12 +1001,6 @@ h2 {
   white-space: nowrap;
 }
 
-.pad-route-status {
-  color: var(--muted);
-  font-size: 0.82rem;
-  white-space: nowrap;
-}
-
 .pad-viewer-wrap {
   min-width: 0;
   margin-bottom: 0.75rem;
@@ -1084,6 +1078,36 @@ h2 {
 
 .pad-route-overlay {
   pointer-events: none;
+}
+
+.pad-fill-path-overlay {
+  pointer-events: none;
+}
+
+.pad-fill-path-polyline {
+  fill: none;
+  stroke: #ff3333;
+  stroke-width: 0.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-opacity: 0.95;
+}
+
+.pad-fill-path-point {
+  fill: #ff3333;
+  stroke: #ffffff;
+  stroke-width: 0.12;
+}
+
+.pad-fill-path-direction {
+  stroke: #ff3333;
+  stroke-width: 1.05;
+  stroke-linecap: round;
+  stroke-opacity: 0.95;
+}
+
+.pad-fill-path-arrow-head {
+  fill: #ff3333;
 }
 
 .pad-route-segment {

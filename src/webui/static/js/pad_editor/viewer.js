@@ -13,6 +13,8 @@ const ROUTE_COLORS = [
   "#2474bf",
   "#7048e8",
 ];
+const FILL_PATH_COLOR = "#ff3333";
+const MIN_DIRECTION_LENGTH_MM = 0.000001;
 
 export function renderViewer(svg, config, state) {
   svg.replaceChildren();
@@ -68,6 +70,7 @@ export function renderViewer(svg, config, state) {
     svg.appendChild(el);
   }
 
+  renderFillPathOverlay(svg, state.fillPath);
   renderRouteOverlay(svg, state.route);
 }
 
@@ -190,6 +193,84 @@ function renderRouteOverlay(svg, route) {
   svg.appendChild(group);
 }
 
+function renderFillPathOverlay(svg, fillPath) {
+  if (!fillPath || fillPath.pads.length === 0) return;
+
+  const defs = document.createElementNS(SVG_NS, "defs");
+  svg.appendChild(defs);
+
+  const group = document.createElementNS(SVG_NS, "g");
+  group.setAttribute("class", "pad-fill-path-overlay");
+  group.dataset.testid = "pad-fill-path-overlay";
+  let markerIndex = 0;
+
+  for (const pad of fillPath.pads) {
+    for (const [index, path] of pad.paths.entries()) {
+      if (path.length === 0) continue;
+      if (path.length > 1) appendFillPathLine(group, pad, path, index);
+      appendFillPathPoint(group, pad, path[0], index);
+
+      const directionTo = fillPathDirectionTarget(path);
+      if (!directionTo) continue;
+      const markerId = `pad-fill-path-arrow-${markerIndex}`;
+      appendArrowMarker(defs, markerId, FILL_PATH_COLOR, "pad-fill-path-arrow-head");
+      appendFillPathDirection(group, pad, path[0], directionTo, index, markerId);
+      markerIndex += 1;
+    }
+  }
+
+  svg.appendChild(group);
+}
+
+function appendFillPathLine(group, pad, path, index) {
+  const line = document.createElementNS(SVG_NS, "polyline");
+  line.setAttribute("points", pointsAttr(path));
+  line.setAttribute("class", "pad-fill-path-polyline");
+  line.setAttribute("vector-effect", "non-scaling-stroke");
+  line.dataset.testid = "pad-fill-path-polyline";
+  line.dataset.padId = pad.id;
+  line.dataset.pathIndex = String(index);
+  group.appendChild(line);
+}
+
+function appendFillPathPoint(group, pad, point, index) {
+  const marker = document.createElementNS(SVG_NS, "circle");
+  marker.setAttribute("cx", point[0]);
+  marker.setAttribute("cy", point[1]);
+  marker.setAttribute("r", "0.18");
+  marker.setAttribute("class", "pad-fill-path-point");
+  marker.setAttribute("vector-effect", "non-scaling-stroke");
+  marker.dataset.testid = "pad-fill-path-point";
+  marker.dataset.padId = pad.id;
+  marker.dataset.pathIndex = String(index);
+  group.appendChild(marker);
+}
+
+function appendFillPathDirection(group, pad, from, to, index, markerId) {
+  const line = document.createElementNS(SVG_NS, "line");
+  line.setAttribute("x1", from[0]);
+  line.setAttribute("y1", from[1]);
+  line.setAttribute("x2", to[0]);
+  line.setAttribute("y2", to[1]);
+  line.setAttribute("class", "pad-fill-path-direction");
+  line.setAttribute("vector-effect", "non-scaling-stroke");
+  line.setAttribute("marker-end", `url(#${markerId})`);
+  line.dataset.testid = "pad-fill-path-direction";
+  line.dataset.padId = pad.id;
+  line.dataset.pathIndex = String(index);
+  group.appendChild(line);
+}
+
+function fillPathDirectionTarget(path) {
+  const start = path[0];
+  for (const point of path.slice(1)) {
+    const dx = point[0] - start[0];
+    const dy = point[1] - start[1];
+    if (Math.hypot(dx, dy) > MIN_DIRECTION_LENGTH_MM) return point;
+  }
+  return null;
+}
+
 function renderOutlineAxes(svg, minX, minY, width, height) {
   const maxX = minX + width;
   const maxY = minY + height;
@@ -274,7 +355,7 @@ function roundAxisValue(value) {
   return Number(value.toFixed(4));
 }
 
-function appendArrowMarker(defs, id, color) {
+function appendArrowMarker(defs, id, color, className = "pad-route-arrow-head") {
   const marker = document.createElementNS(SVG_NS, "marker");
   marker.setAttribute("id", id);
   marker.setAttribute("viewBox", "0 0 10 10");
@@ -285,7 +366,7 @@ function appendArrowMarker(defs, id, color) {
   marker.setAttribute("orient", "auto-start-reverse");
   const arrow = document.createElementNS(SVG_NS, "path");
   arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
-  arrow.setAttribute("class", "pad-route-arrow-head");
+  arrow.setAttribute("class", className);
   arrow.setAttribute("fill", color);
   marker.appendChild(arrow);
   defs.appendChild(marker);

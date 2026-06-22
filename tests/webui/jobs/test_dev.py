@@ -7,8 +7,7 @@
 - extract_pcb: SUCCEEDED + artifacts 5 件（PNG 1 + データ 4）、PNG は cv2 で読める
 - make_fill_coverage_pcb: 出力が PcbFile で読める
 
-（fill_path_simulate は塗布タブ → test_pasting.py、generate_grid_pcb は位置合わせ
-タブ → test_posctrl.py へ移設済み）
+（generate_grid_pcb は位置合わせタブ → test_posctrl.py へ移設済み）
 - job_demo: prompt 2 回の往復で SUCCEEDED + apply payload（canny_low=応答値）/
   fail=True で FAILED / command_phase で jog エコー → quit
 - requires_pcb ジョブを PCB 未選択で start → ValueError
