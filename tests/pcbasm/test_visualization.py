@@ -115,7 +115,7 @@ class TestRenderPcb:
 
 
 class TestRenderFillPaths:
-    """render_fill_paths（fill_path_simulate スクリプトから昇格）."""
+    """render_fill_paths（fill path 可視化処理から昇格）."""
 
     def test_renders_fill_paths_to_readable_png(self, tmp_path):
         from pcbasm.pasting.fill_path import build_paste_fill_path

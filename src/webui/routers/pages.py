@@ -30,7 +30,6 @@ TABS: dict[str, tuple[str, ...]] = {
         "generate_rect_pcb",
         "toolhead_offset",
         "probe_gnd_down_adjust",
-        "fill_path_simulate",
     ),
     "pnp": (),
     "posctrl": (
@@ -57,7 +56,6 @@ FEATURE_LABELS: dict[str, str] = {
     "extract_pcb": "PCB 情報抽出",
     "make_fill_coverage_pcb": "塗布カバレッジ PCB 生成",
     "klipper_status": "Klipper ステータス",
-    "fill_path_simulate": "塗布パスシミュレート",
     "paste_solder": "はんだ塗布",
     "height_plane": "高さ平面計測",
     "loading": "ペーストローディング",
@@ -95,7 +93,6 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("pasting", "generate_rect_pcb"): "pasting/job.html",
     ("pasting", "toolhead_offset"): "pasting/job.html",
     ("pasting", "probe_gnd_down_adjust"): "pasting/job.html",
-    ("pasting", "fill_path_simulate"): "job.html",
     ("posctrl", "camera_preview"): "posctrl/camera_preview.html",
     ("posctrl", "copper_detection"): "posctrl/copper_detection.html",
     ("posctrl", "camera_calibration"): "posctrl/job.html",

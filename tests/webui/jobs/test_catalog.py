@@ -8,7 +8,7 @@
   必須欠落・choice 範囲外は ValueError。型変換は config_store._coerce と同様
   （bool は value_type="bool" のみ受理、int→float 許容、float→int は整数値のみ）
 - default_catalog() は dev 3 ジョブ（2 ジョブ + job_demo）を登録済みで返す
-  （fill_path_simulate / generate_grid_pcb は他タブへ移設済み）
+  （generate_grid_pcb は他タブへ移設済み）
 """
 
 from typing import Literal

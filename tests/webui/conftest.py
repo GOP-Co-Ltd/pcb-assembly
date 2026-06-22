@@ -80,8 +80,8 @@ def pcb_root(tmp_path: Path) -> Path:
 def real_pcb_path(pcb_root: Path) -> Path:
     """実 KiCAD PCB fixture を pcb_browse_root へコピーし、相対パスを返す.
 
-    PCB を読むジョブ（extract_pcb / fill_path_simulate 等）が実 PcbFile を
-    読むためのもの。要求されたテストでのみ pcb_root に追加されるため、 /api/files の一覧テストには影響しない。
+    PCB を読むジョブ（extract_pcb 等）が実 PcbFile を 読むためのもの。要求されたテストでのみ pcb_root
+    に追加されるため、 /api/files の一覧テストには影響しない。
     """
     destination = pcb_root / "real" / "fill_coverage.kicad_pcb"
     destination.parent.mkdir(parents=True, exist_ok=True)

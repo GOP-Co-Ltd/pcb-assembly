@@ -32,6 +32,7 @@ from pcbasm.pasting import (
     plan_paste_route,
     resolve_pad_settings,
 )
+from pcbasm.pasting.fill_path import build_paste_fill_path
 from pcbasm.pcb import (
     Pad,
     PadHierarchy,
@@ -129,6 +130,29 @@ class PasteRouteResponse(BaseModel):
 
     layer: str
     pads: list[PasteRoutePad]
+
+
+class PasteFillPathRequest(BaseModel):
+    """POST /api/pasting/pad-config/fill-path のリクエスト."""
+
+    layer: str = "Top"
+
+
+class PasteFillPathPad(BaseModel):
+    """1 pad の塗布パス."""
+
+    id: str
+    path_count: int
+    point_count: int
+    paths: list[list[list[float]]]
+
+
+class PasteFillPathResponse(BaseModel):
+    """有効 pad の塗布パス."""
+
+    layer: str
+    nozzle_diameter: float
+    pads: list[PasteFillPathPad]
 
 
 class NodePatch(BaseModel):
@@ -327,9 +351,7 @@ def _build_pad_config(loaded: _Loaded) -> PadConfigResponse:
 
 def _build_route(loaded: _Loaded, layer: str) -> PasteRouteResponse:
     """ロード済みコンテキストから有効 pad の順路レスポンスを構築する."""
-    valid_layers = {"Top", "Bottom"}
-    if layer not in valid_layers:
-        raise HTTPException(status_code=400, detail=f"未知のレイヤです: {layer}")
+    _check_layer(layer)
 
     resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
     pads = [
@@ -349,6 +371,51 @@ def _build_route(loaded: _Loaded, layer: str) -> PasteRouteResponse:
         for stop in plan_paste_route(pads)
     ]
     return PasteRouteResponse(layer=layer, pads=route)
+
+
+def _build_fill_path(loaded: _Loaded, layer: str) -> PasteFillPathResponse:
+    """ロード済みコンテキストから有効 pad の塗布パスを構築する."""
+    _check_layer(layer)
+
+    nozzle_diameter = loaded.base_config.nozzle_diameter
+    resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
+    pads: list[PasteFillPathPad] = []
+    for pad in loaded.hierarchy.iter_pads():
+        paste = resolved[loaded.hierarchy.pad_ref_for_pad(pad)]
+        if pad.layer.value != layer or not paste.enabled:
+            continue
+        try:
+            paths = build_paste_fill_path(
+                pad.polygon,
+                nozzle_diameter,
+                bead_width_factor=paste.bead_width_factor,
+                overlap=paste.overlap,
+                boundary_margin=paste.boundary_margin,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"塗布パス設定が不正です: {exc}"
+            ) from exc
+        points = [[[point.x, point.y] for point in path] for path in paths]
+        pads.append(
+            PasteFillPathPad(
+                id=loaded.hierarchy.pad_id_for_pad(pad),
+                path_count=len(points),
+                point_count=sum(len(path) for path in points),
+                paths=points,
+            )
+        )
+    return PasteFillPathResponse(
+        layer=layer,
+        nozzle_diameter=nozzle_diameter,
+        pads=pads,
+    )
+
+
+def _check_layer(layer: str) -> None:
+    valid_layers = {"Top", "Bottom"}
+    if layer not in valid_layers:
+        raise HTTPException(status_code=400, detail=f"未知のレイヤです: {layer}")
 
 
 def _affected_pads(node: str, loaded: _Loaded) -> list[AffectedPad]:
@@ -451,6 +518,17 @@ def calculate_pad_route(
 ) -> PasteRouteResponse:
     """選択中基板の有効 pad だけを対象に塗布順路を返す."""
     return _build_route(_load(state, settings, board_store), body.layer)
+
+
+@router.post("/pasting/pad-config/fill-path")
+def calculate_pad_fill_path(
+    body: PasteFillPathRequest,
+    state: StateDep,
+    settings: SettingsDep,
+    board_store: BoardStoreDep,
+) -> PasteFillPathResponse:
+    """選択中基板の有効 pad だけを対象に塗布パスを返す."""
+    return _build_fill_path(_load(state, settings, board_store), body.layer)
 
 
 @router.patch("/pasting/pad-config/node")
