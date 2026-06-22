@@ -82,6 +82,20 @@ def _read_mjpeg(base_url: str, path: str, boundary_count: int = 2) -> bytes:
     return data
 
 
+def _wait_for_current_job(base_url: str, job_id: str) -> dict[str, Any]:
+    """現在ジョブが終端するまで REST 経由で待つ."""
+    deadline = time.monotonic() + 60.0
+    while True:
+        response = httpx.get(f"{base_url}/api/jobs/current", timeout=_HTTP_TIMEOUT)
+        assert response.status_code == 200
+        job = response.json()["job"]
+        if job is not None and job["id"] == job_id and job["status"] in _TERMINAL:
+            return job
+        if time.monotonic() > deadline:
+            raise AssertionError(f"ジョブが終端しない: {job}")
+        time.sleep(0.05)
+
+
 class TestHttpRoutes:
     """実サーバーへの基本的な HTTP 経路."""
 
@@ -108,6 +122,39 @@ class TestHttpRoutes:
         body = response.json()
         assert body["selected"] == "kurousagi"
         assert {"kurousagi", "test-fixture"} <= set(body["machines"])
+
+
+class TestGenerateRectPcbOverRealHttp:
+    """矩形 PCB 生成ジョブを実 HTTP 経由で実行する。"""
+
+    def test_page_and_job_artifact_are_served(self, live_server: LiveServer):
+        page = httpx.get(
+            f"{live_server.base_url}/pasting/generate_rect_pcb",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert page.status_code == 200
+        assert "job-form" in page.text
+
+        response = httpx.post(
+            f"{live_server.base_url}/api/jobs/generate_rect_pcb",
+            json={"params": {"width": 12.5, "height": 7.5}},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert response.status_code == 201, response.text
+
+        job = _wait_for_current_job(live_server.base_url, response.json()["job"]["id"])
+        assert job["status"] == "succeeded", job.get("error")
+        artifacts = job["result"]["artifacts"]
+        assert len(artifacts) == 1
+        artifact = artifacts[0]
+        assert artifact["kind"] == "file"
+        assert artifact["url"].endswith(".kicad_pcb")
+
+        download = httpx.get(
+            f"{live_server.base_url}{artifact['url']}", timeout=_HTTP_TIMEOUT
+        )
+        assert download.status_code == 200
+        assert b"(kicad_pcb" in download.content
 
 
 class TestPreviewOverRealHttp:

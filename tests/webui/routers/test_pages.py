@@ -28,7 +28,7 @@ Phase 4 追記（計画書 webui-phase4.md「templates / static」節 + spec §1
 Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / static」節
 + spec §10 pasting 表）:
 
-- pasting 6 feature ページは全て job-console + job-form
+- pasting 8 feature ページは全て job-console + job-form
 - preview ペイン（overlay 切替なし）は paste_solder / height_plane /
   toolhead_offset のみ
 - loading_controls（data-loading-stage="ローディング"）は paste_solder /
@@ -273,6 +273,7 @@ PASTING_JOB_FEATURES = (
     "height_plane",
     "loading",
     "flow_calibration",
+    "generate_rect_pcb",
     "toolhead_offset",
     "probe_gnd_down_adjust",
     "fill_path_simulate",
@@ -318,12 +319,26 @@ class TestPastingJobPages:
 
     @pytest.mark.parametrize(
         "feature",
-        ("loading", "flow_calibration", "probe_gnd_down_adjust", "fill_path_simulate"),
+        (
+            "loading",
+            "flow_calibration",
+            "generate_rect_pcb",
+            "probe_gnd_down_adjust",
+            "fill_path_simulate",
+        ),
     )
     def test_non_camera_jobs_have_no_preview_pane(
         self, client: TestClient, feature: str
     ):
         assert "preview-pane" not in client.get(f"/pasting/{feature}").text
+
+    def test_generate_rect_pcb_renders_param_form_fields(self, client: TestClient):
+        text = client.get("/pasting/generate_rect_pcb").text
+
+        assert "preview-pane" not in text
+        assert "loading-controls" not in text
+        for name in ("width", "height"):
+            assert name in text
 
     def test_fill_path_simulate_renders_param_form_fields(self, client: TestClient):
         text = client.get("/pasting/fill_path_simulate").text
@@ -348,7 +363,9 @@ class TestPastingJobPages:
         assert 'data-loading-stage="ローディング"' in text
         assert 'value="0.1"' in text  # loading_default（該当 ParamSpec の既定値）
 
-    @pytest.mark.parametrize("feature", ("height_plane", "probe_gnd_down_adjust"))
+    @pytest.mark.parametrize(
+        "feature", ("height_plane", "generate_rect_pcb", "probe_gnd_down_adjust")
+    )
     def test_non_loading_jobs_have_no_loading_controls(
         self, client: TestClient, feature: str
     ):

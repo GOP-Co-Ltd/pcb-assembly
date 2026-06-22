@@ -130,7 +130,7 @@ def _positive_amount(value: object) -> float | None:
 
 
 def register_pasting_jobs(catalog: JobCatalog) -> None:
-    """Pasting タブの 7 ジョブを登録する."""
+    """Pasting タブの 8 ジョブを登録する."""
     catalog.register(
         JobDefinition(
             name="paste_solder",
@@ -215,6 +215,19 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             uses_machine=True,
             accepts_commands=True,
             persisted_params=("rotations", "rate", "accel", "count"),
+        )
+    )
+    catalog.register(
+        JobDefinition(
+            name="generate_rect_pcb",
+            label="Generate Rect Pcb",
+            tab="pasting",
+            run=_run_generate_rect_pcb,
+            params=(
+                ParamSpec("width", "基板幅", "float", 40.0, unit="mm"),
+                ParamSpec("height", "基板高さ", "float", 40.0, unit="mm"),
+            ),
+            uses_machine=False,
         )
     )
     catalog.register(
@@ -716,6 +729,32 @@ def _run_flow_calibration(ctx: JobContext) -> JobResult:
                     dispense_accel, FLOW_CALIBRATION_APPLY_DIGITS
                 ),
             },
+        ),
+    )
+
+
+def _run_generate_rect_pcb(ctx: JobContext) -> JobResult:
+    """Flow calibration 用の外形だけ矩形 PCB を生成する（装置・カメラ不要）."""
+    # pcbnew 依存はジョブ実行時のみ（KiCAD 未導入でも webui は起動可）
+    from pcbasm.pcb.generate import generate_rect_pcb, save_board
+
+    width = float(ctx.params["width"])
+    height = float(ctx.params["height"])
+
+    ctx.progress("生成")
+    filename = f"flow_calibration_rect_{width:g}x{height:g}.kicad_pcb"
+    save_board(generate_rect_pcb(width, height), ctx.artifacts_dir / filename)
+    ctx.log(f"生成: {filename}（{width:g}x{height:g} mm）")
+    ctx.progress("完了", 100.0)
+
+    return JobResult(
+        summary=f"{width:g}x{height:g} mm の矩形 PCB を生成しました",
+        artifacts=(
+            Artifact(
+                "キャリブレーション矩形 PCB",
+                f"{ctx.artifacts_dir.name}/{filename}",
+                "file",
+            ),
         ),
     )
 
