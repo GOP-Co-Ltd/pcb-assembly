@@ -17,6 +17,7 @@ from pcbasm.pcb import PcbFile
 from pcbasm.pcb.generate import (
     build_fill_coverage_board,
     generate_grid_pcb,
+    generate_rect_pcb,
     save_board,
 )
 
@@ -113,6 +114,53 @@ class TestGenerateGridPcb:
         generate_grid_pcb(size=30, divisions=2, pad_size=1.0, output=output)
 
         assert references == ["P1", "P2", "P3", "P4"]
+
+    @pytest.mark.parametrize(
+        ("size", "divisions", "pad_size"),
+        [
+            (30.0, 0, 1.0),
+            (30.0, 2, 0.0),
+            (0.0, 2, 1.0),
+        ],
+    )
+    def test_invalid_params_raise_value_error(
+        self,
+        mock_pcbnew,
+        tmp_path,
+        size: float,
+        divisions: int,
+        pad_size: float,
+    ):
+        output = tmp_path / "test.kicad_pcb"
+
+        with pytest.raises(ValueError):
+            generate_grid_pcb(
+                size=size, divisions=divisions, pad_size=pad_size, output=output
+            )
+
+
+class TestGenerateRectPcb:
+    """generate_rect_pcb / save_board（実 pcbnew で読み戻し検証）."""
+
+    @pytest.fixture
+    def saved_pcb(self, tmp_path) -> PcbFile:
+        board = generate_rect_pcb(width=50.0, height=20.0)
+        output = tmp_path / "rect.kicad_pcb"
+        save_board(board, output)
+        return PcbFile(output)
+
+    def test_outline_is_requested_rectangle(self, saved_pcb: PcbFile):
+        assert saved_pcb.outline.width == pytest.approx(50.0, abs=0.1)
+        assert saved_pcb.outline.height == pytest.approx(20.0, abs=0.1)
+
+    def test_has_no_pads_or_copper(self, saved_pcb: PcbFile):
+        assert len(saved_pcb.pads) == 0
+        assert len(saved_pcb.copper) == 0
+
+    @pytest.mark.parametrize("width,height", [(0.0, 10.0), (10.0, 0.0), (-1.0, 2.0)])
+    def test_invalid_dimensions_raise_value_error(self, width: float, height: float):
+        with pytest.raises(ValueError):
+            generate_rect_pcb(width=width, height=height)
 
 
 class TestFillCoverageBoard:
