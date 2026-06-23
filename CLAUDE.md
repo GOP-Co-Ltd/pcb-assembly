@@ -3,6 +3,15 @@
 Claude Code がこのリポジトリで作業する際に常時参照するガイダンス。
 詳細な手続きは `memory/` と `.claude/skills/` にオフロードしている。
 
+## 応答言語
+
+ユーザーへの応答は日本語で行う。
+
+- 散文・説明・要約・確認・質問・計画は日本語で書く
+- コード・コマンド・ファイルパス・識別子・ログ/エラーの引用など、原文を保つべきものは原語のまま残す
+- コミットメッセージ・PR/MR タイトル等は「Git 運用」規約（英語形式）に従い、日本語化しない
+- 技術用語は無理に訳さず、自然な範囲でカタカナ/英語を併用してよい
+
 ## 開発原則
 
 LLM コーディングで陥りがちなミスを減らすための行動指針。**慎重さを速度に優先する**バイアスを置く。trivial なタスクでは判断で柔軟に運用してよい。
@@ -64,18 +73,21 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `pnp/` — Pick and Place 用の名前空間（将来用）
 - `geometry/` — 3D 座標と幾何計算（Transform, HeightPlane, 軌跡生成等）
 - `pcb/` — PCB 設計情報の抽象化（KiCAD 読込、配置管理）
+- `visualization/` — 塗布パス・高さ面・PCB のレンダリング/可視化
 
-このほか `src/webui/` にブラウザ操作 UI（FastAPI。仕様：`docs/webui/specification.md`）がある。
+このほか `src/webui/` にブラウザ操作 UI（FastAPI）、`src/scripts/` に開発・運用スクリプト（`dev`, `pasting`, `pnp`）がある。
 
 ## 開発コマンド
 
 - `make setup` — 開発環境のセットアップ
-- `make test` — 全テスト実行（ハードウェアテスト含む）
+- `make test` — 全テスト実行（ハードウェア含む・e2e は除く）
 - `make test-no-hardware` — ハードウェア以外のテスト実行
+- `make test-e2e` — WebUI フルスタック E2E（uvicorn 実起動・HTTP/WS/MJPEG）
 - `make format` — pre-commit フック（ruff, docformatter 等）
 - `make type` — pyright 型チェック
 - `make run` — `format` → `test` → `type` を順実行
 - `make webui` / `make webui-dev` — WebUI サーバー起動（port 8080、dev は auto-reload）
+- `make webui-fake` — fake カメラで WebUI 起動（隔離 data_dir/port、手動/ブラウザ E2E 用）
 
 ## 不変の原則
 
@@ -140,4 +152,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `agent-team-startup` — エージェントチームの起動・並列化手順
 - `maximize-parallels` — 並列 tool 呼び出しの判定基準と典型パターン
 - `edit-dot-claude` — `.claude/` 配下の編集を /tmp 経由で行い permission prompt を抑える手順
+- `do-on-worktree` — 進行中の別タスクを止めず、main 分岐の worktree で裏作業を進める手順
 - `gitlab-mr` — ブランチを GitLab に push し glab で MR を作成する手順（対象ブランチはデフォルト main）
+- `merge-main` — MR を出す前に最新の main を取り込み、コンフリクトを解消する手順
+- `japanese` — ユーザーへの応答を日本語に切り替える（上記「応答言語」を一時的に明示する用途）
