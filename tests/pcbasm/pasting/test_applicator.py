@@ -272,6 +272,19 @@ class TestDispenseProtocol:
         mock_paste_dispenser.disable.assert_called_once()
 
 
+class TestRawRotationLoading:
+    """Raw rotation ローディング."""
+
+    def test_load_rotations_uses_rotate_revolutions(
+        self, applicator, mock_klipper, mock_paste_dispenser
+    ):
+        applicator.load_rotations(5.0, 0.5, 0.5)
+
+        mock_paste_dispenser.rotate_revolutions.assert_called_once_with(5.0, 0.5, 0.5)
+        sent = mock_klipper.send_gcode.call_args.args[0]
+        assert str(sent).splitlines()[-1] == "M400"
+
+
 class TestTransformApplication:
     """塗布座標変換: board_transform → toolhead_offset → height_plane."""
 

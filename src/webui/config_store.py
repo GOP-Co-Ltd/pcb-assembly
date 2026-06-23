@@ -72,6 +72,12 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.fill_speed", "塗布移動速度", "float", "mm/s"),
     FieldSpec("paste_dispenser.max_dispense_rate", "吐出レート上限", "float", "uL/s"),
     FieldSpec("paste_dispenser.dispense_accel", "吐出加速度", "float", "uL/s^2"),
+    FieldSpec(
+        "paste_dispenser.solder_paste_density",
+        "はんだペースト密度",
+        "float",
+        "mg/uL",
+    ),
     FieldSpec("paste_dispenser.retract_amount", "リトラクション量", "float", "uL"),
     FieldSpec("paste_dispenser.retract_rate", "リトラクションレート", "float", "uL/s"),
     FieldSpec(
@@ -153,6 +159,11 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     and coerced_float <= 1.0
                 ):
                     raise UnknownFieldError(f"{spec.key}: 1.0より大きい値が必要です")
+                if (
+                    spec.key == "paste_dispenser.solder_paste_density"
+                    and coerced_float <= 0.0
+                ):
+                    raise UnknownFieldError(f"{spec.key}: 正の値が必要です")
                 return coerced_float
         case "float_or_auto":
             if value == "auto":

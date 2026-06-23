@@ -41,6 +41,7 @@ class TestMachineSettings:
         assert values["paste_dispenser.dispense_mode"] == "auto"
         assert values["paste_dispenser.auto_line_aspect_ratio"] == 1.618
         assert values["paste_dispenser.fill_speed"] == 0.8
+        assert values["paste_dispenser.solder_paste_density"] == 3.78
         assert values["paste_dispenser.paste_height"] == "auto"
         assert values["paste_dispenser.toolhead.x"] == -1.772
         assert values["paste_dispenser.pad_align.blur_ksize"] == 5
@@ -74,6 +75,16 @@ class TestMachineSettings:
 
         values = store.read_machine_settings(FIXTURE)
         assert values["paste_dispenser.dispense_mode"] == "line"
+
+    def test_write_solder_paste_density_then_reread_reflects_value(
+        self, store: ConfigStore
+    ):
+        store.write_machine_settings(
+            FIXTURE, {"paste_dispenser.solder_paste_density": 4.1}
+        )
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.solder_paste_density"] == 4.1
 
     def test_write_auto_paste_height_then_reread_reflects_value(
         self, store: ConfigStore
@@ -200,6 +211,12 @@ class TestMachineSettings:
     def test_manual_paste_height_must_be_positive(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings(FIXTURE, {"paste_dispenser.paste_height": 0.0})
+
+    def test_solder_paste_density_must_be_positive(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                FIXTURE, {"paste_dispenser.solder_paste_density": 0.0}
+            )
 
     def test_non_integral_float_for_int_field_raises(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):

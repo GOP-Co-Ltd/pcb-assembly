@@ -57,6 +57,7 @@ class PasteDispenser:
     toolhead: Toolhead
     paste_height: PasteHeight  # 塗布面のZ高さ [mm]、または auto
     ul_per_mm2: float  # パッド面積あたりのペースト量 [μL/mm²]
+    solder_paste_density: float = 3.78  # はんだペースト密度 [mg/μL] (S3X70-E150DN)
     dispense_mode: DispenseMode = "auto"  # 塗布方式 auto / dot / line / area
     auto_line_aspect_ratio: float = (
         DEFAULT_AUTO_LINE_ASPECT_RATIO  # Auto時に線塗布へ切り替える縦横比
@@ -89,6 +90,11 @@ class PasteDispenser:
         if isinstance(self.paste_height, (int, float)) and self.paste_height <= 0:
             raise ValueError(
                 f"paste_heightは正の値である必要があります: {self.paste_height}"
+            )
+        if self.solder_paste_density <= 0:
+            raise ValueError(
+                "solder_paste_densityは正の値である必要があります: "
+                f"{self.solder_paste_density}"
             )
 
 

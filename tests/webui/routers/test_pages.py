@@ -349,6 +349,57 @@ class TestPastingJobPages:
         assert 'data-loading-stage="ローディング"' in text
         assert 'value="0.1"' in text  # loading_default（該当 ParamSpec の既定値）
 
+    def test_loading_page_renders_rotation_controls_and_mass_calibration(
+        self, client: TestClient
+    ):
+        text = client.get("/pasting/loading").text
+
+        assert 'type="hidden" id="param-amount"' in text
+        assert "体積ローディング量" not in text
+        assert "回転ローディング回転数" not in text
+        assert "回転ローディング角速度" not in text
+        assert "回転ローディング角加速度" not in text
+        assert "loading-control-section" in text
+        assert "体積" in text
+        assert "回転" in text
+        assert 'id="lc-rotations"' in text
+        assert 'id="lc-rate"' in text
+        assert 'id="lc-accel"' in text
+        assert 'id="lc-extrude-rotations"' in text
+        assert 'id="lc-suck-rotations"' in text
+        assert 'id="loading-mass-calibration"' in text
+        assert 'id="lc-mass-mg"' in text
+        assert 'id="lc-rotations-per-ul"' in text
+        assert 'id="lc-apply-rotations-per-ul"' in text
+        assert 'data-density="3.78"' in text
+        assert 'data-job-names="loading"' in text
+        for value in ('value="5.0"', 'value="0.5"'):
+            assert value in text
+
+    def test_loading_page_renders_saved_loading_defaults(
+        self, client: TestClient, appstate: AppState
+    ):
+        appstate.save_job_param_defaults(
+            "loading",
+            {"amount": 0.2, "rotations": 6.0, "rate": 1.5, "accel": 2.5},
+        )
+
+        text = client.get("/pasting/loading").text
+
+        for value in ('value="0.2"', 'value="6.0"', 'value="1.5"', 'value="2.5"'):
+            assert value in text
+
+    @pytest.mark.parametrize(
+        "feature", ("paste_solder", "flow_calibration", "toolhead_offset")
+    )
+    def test_non_loading_pages_do_not_render_rotation_controls(
+        self, client: TestClient, feature: str
+    ):
+        text = client.get(f"/pasting/{feature}").text
+
+        assert 'id="lc-rotations"' not in text
+        assert "loading-mass-calibration" not in text
+
     @pytest.mark.parametrize(
         "feature", ("height_plane", "generate_rect_pcb", "probe_gnd_down_adjust")
     )
@@ -392,6 +443,9 @@ class TestPastingJobPages:
             "paste_diameter_max",
         ):
             assert name in text
+
+    def test_loading_mass_calibration_is_not_sidebar_feature(self, client: TestClient):
+        assert "loading-mass-calibration" not in client.get("/pasting").text
 
 
 class TestPasteSolderPadEditor:
