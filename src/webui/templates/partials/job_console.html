@@ -1,4 +1,5 @@
-<section id="job-console" class="job-console" data-job-name="{{ job_name }}">
+<section id="job-console" class="job-console" data-job-name="{{ job_name }}"
+         data-job-names="{{ (console_job_names if console_job_names is defined else (job_name,)) | join(' ') }}">
   <div class="jc-head">
     <span id="jc-status" class="jc-status" data-status="idle">待機中</span>
     <button id="jc-abort" type="button" disabled>中止</button>

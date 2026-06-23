@@ -3,7 +3,12 @@
 from pcbasm.config import DispenseMode, PasteHeight
 
 from .applicator import PasteApplicator
-from .calibration import FlowCalibration, FlowCalibrationSet
+from .calibration import (
+    FlowCalibration,
+    FlowCalibrationSet,
+    MassFlowCalibration,
+    TrapezoidalRotationProfile,
+)
 from .fill_path import PasteFillPlan, build_paste_fill_path, build_paste_fill_plan
 from .fill_sequence import FillSequence
 from .height import HeightPlaneMeasurer
@@ -35,6 +40,7 @@ __all__ = [
     "FlowCalibrationSet",
     "HeightPlaneMeasurer",
     "LevelSetting",
+    "MassFlowCalibration",
     "NUMERIC_PASTE_OVERRIDE_FIELDS",
     "PasteApplicator",
     "PasteFillPlan",
@@ -47,6 +53,7 @@ __all__ = [
     "ProbeExecutor",
     "ResolvedPaste",
     "ToolheadOffsetResult",
+    "TrapezoidalRotationProfile",
     "base_override_from_config",
     "build_paste_fill_path",
     "build_paste_fill_plan",
