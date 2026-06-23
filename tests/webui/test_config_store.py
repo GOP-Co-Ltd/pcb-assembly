@@ -231,3 +231,32 @@ class TestMachineSettings:
     def test_unknown_machine_raises_file_not_found(self, store: ConfigStore):
         with pytest.raises(FileNotFoundError):
             store.read_machine_settings("no-such-machine")
+
+
+class TestAirPumpEnabled:
+    """Bool 型フィールド air_pump_enabled の読み書き."""
+
+    def test_missing_air_pump_enabled_reads_as_none(self, store: ConfigStore):
+        values = store.read_machine_settings(FIXTURE)
+
+        assert values["paste_dispenser.air_pump_enabled"] is None
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_write_then_reread_reflects_bool(self, store: ConfigStore, enabled: bool):
+        store.write_machine_settings(
+            FIXTURE, {"paste_dispenser.air_pump_enabled": enabled}
+        )
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.air_pump_enabled"] is enabled
+
+    def test_bool_field_rejects_non_bool(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                FIXTURE, {"paste_dispenser.air_pump_enabled": 1.0}
+            )
+
+    def test_numeric_field_still_rejects_bool(self, store: ConfigStore):
+        # bool は int のサブクラスなので、数値フィールドへの bool 投入は拒否され続ける
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(FIXTURE, {"paste_dispenser.fill_speed": True})

@@ -96,6 +96,7 @@ class PasteSession:
         paste_dispenser = PasteDispenser(
             klipper=result.klipper.readonly,
             rotations_per_ul=machine.paste_dispenser.rotations_per_ul,
+            air_pump_enabled=machine.paste_dispenser.air_pump_enabled,
         )
         return cls(
             machine=machine,

@@ -101,6 +101,27 @@ class TestMachine:
         assert pad_align.min_roi == pytest.approx(5.0)
         assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
 
+    def test_air_pump_enabled_defaults_true_when_absent(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.paste_dispenser.air_pump_enabled is True
+
+    def test_air_pump_enabled_explicit_false(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source.replace(
+                "[paste_dispenser]\n",
+                "[paste_dispenser]\nair_pump_enabled = false\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.paste_dispenser.air_pump_enabled is False
+
     def test_raises_key_error_when_config_not_defined(self):
         machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
 
