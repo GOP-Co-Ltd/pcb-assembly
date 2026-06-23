@@ -2,7 +2,7 @@
 
 // グローバル WS クライアント（/api/ws）+ ジョブコンソール UI。
 // tab.html から全タブで読み込まれ、window.webui.jobs を公開する。
-// ページに #job-console（data-job-name）があればコンソールを描画する。
+// ページに #job-console（data-job-name / data-job-names）があればコンソールを描画する。
 
 (() => {
   const { toast, api } = window.webui;
@@ -136,11 +136,20 @@
   // ---- コンソール描画（#job-console があるページのみ）----
 
   const consoleEl = document.getElementById("job-console");
-  const pageJobName = consoleEl ? consoleEl.dataset.jobName : null;
-  const form = document.getElementById("job-form");
+  const pageJobNames = new Set(
+    (consoleEl ? consoleEl.dataset.jobNames || consoleEl.dataset.jobName || "" : "")
+      .split(/\s+/)
+      .filter(Boolean)
+  );
+  const forms = Array.from(document.querySelectorAll("form.job-form[data-job-name]"));
 
   function ownsJob(job) {
-    return consoleEl !== null && job !== null && job !== undefined && job.name === pageJobName;
+    return (
+      consoleEl !== null &&
+      job !== null &&
+      job !== undefined &&
+      pageJobNames.has(job.name)
+    );
   }
 
   function ownsEvent(event) {
@@ -199,7 +208,10 @@
     const job = currentJob;
 
     // 実行ボタンはどのジョブ実行中でも無効（装置排他は全ジョブ共有）
-    if (form) el("job-run").disabled = isActive(job);
+    for (const jobForm of forms) {
+      const submit = jobForm.querySelector("button[type='submit']");
+      if (submit) submit.disabled = isActive(job);
+    }
 
     if (!ownsJob(job)) {
       el("jc-status").textContent = STATUS_LABELS.idle;
@@ -383,11 +395,11 @@
 
   // ---- ジョブ開始フォーム ----
 
-  if (form) {
-    form.addEventListener("submit", async (event) => {
+  for (const jobForm of forms) {
+    jobForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const params = {};
-      for (const input of form.querySelectorAll("[data-param-type]")) {
+      for (const input of jobForm.querySelectorAll("[data-param-type]")) {
         const type = input.dataset.paramType;
         if (type === "bool") {
           params[input.name] = input.checked;
@@ -406,7 +418,7 @@
         // 状態は WS の job_status を単一の真実とする。start() が開始時に即 publish し、
         // _send_loop は送信時に最新状態を再構築するため、POST 応答（開始時点で古く
         // なり得るスナップショット）は state には使わない（成功確定とエラー通知のみ）。
-        await api("POST", `/api/jobs/${form.dataset.jobName}`, { params });
+        await api("POST", `/api/jobs/${jobForm.dataset.jobName}`, { params });
       } catch (err) {
         toast(err.message, false);
       }

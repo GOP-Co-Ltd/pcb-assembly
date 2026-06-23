@@ -49,6 +49,7 @@ from webui.jobs.pasting import (
     LOADING_STAGE,
     Extrude,
     Finish,
+    Rotate,
     parse_loading_command,
     register_pasting_jobs,
 )
@@ -110,7 +111,7 @@ def _preview_frame(preview: PreviewService):
 
 
 class TestCatalog:
-    """default_catalog への pasting 7 ジョブ登録（計画書「ジョブ定義表」のピン）."""
+    """default_catalog への pasting ジョブ登録（計画書「ジョブ定義表」のピン）."""
 
     @pytest.fixture
     def default(self) -> JobCatalog:
@@ -159,7 +160,15 @@ class TestCatalog:
                 {"tolerance": (0.1, "mm"), "amount": (0.1, "uL")},
             ),
             ("height_plane", {"tolerance": (0.1, "mm")}),
-            ("loading", {"amount": (0.1, "uL")}),
+            (
+                "loading",
+                {
+                    "amount": (0.1, "uL"),
+                    "rotations": (5.0, "rev"),
+                    "rate": (0.5, "rev/s"),
+                    "accel": (0.5, "rev/s^2"),
+                },
+            ),
             (
                 "flow_calibration",
                 {
@@ -210,6 +219,11 @@ class TestCatalog:
         definition = default.get("flow_calibration")
 
         assert definition.persisted_params == ("rotations", "rate", "accel", "count")
+
+    def test_loading_persists_volume_and_rotation_params(self, default: JobCatalog):
+        definition = default.get("loading")
+
+        assert definition.persisted_params == ("amount", "rotations", "rate", "accel")
 
     def test_paste_solder_interactive_loading_is_bool_defaulting_false(
         self, default: JobCatalog
@@ -262,6 +276,16 @@ class TestParseLoadingCommand:
     def test_suck_yields_negative_amount(self):
         assert parse_loading_command({"type": "suck", "amount": 2.5}) == Extrude(-2.5)
 
+    def test_extrude_rotations_yields_positive_rotation(self):
+        assert parse_loading_command(
+            {"type": "extrude_rotations", "rotations": 5.0, "rate": 0.5, "accel": 0.5}
+        ) == Rotate(5.0, 0.5, 0.5)
+
+    def test_suck_rotations_yields_negative_rotation(self):
+        assert parse_loading_command(
+            {"type": "suck_rotations", "rotations": 5.0, "rate": 0.5, "accel": 0.5}
+        ) == Rotate(-5.0, 0.5, 0.5)
+
     def test_finish_yields_finish(self):
         assert parse_loading_command({"type": "finish"}) == Finish()
 
@@ -274,6 +298,10 @@ class TestParseLoadingCommand:
             {"type": "extrude", "amount": "abc"},  # 非数
             {"type": "suck"},  # amount 欠落
             {"type": "suck", "amount": -0.5},  # 負
+            {"type": "extrude_rotations", "rotations": 0, "rate": 0.5, "accel": 0.5},
+            {"type": "extrude_rotations", "rotations": 5.0, "rate": 0, "accel": 0.5},
+            {"type": "extrude_rotations", "rotations": 5.0, "rate": 0.5},
+            {"type": "suck_rotations", "rotations": "5", "rate": 0.5, "accel": 0.5},
             {"type": "jog", "axis": "x", "dist": 0.1},  # 機械操作（後段判定へ）
             {"type": "bogus"},  # 未知 type
             {},  # キー無し
@@ -507,6 +535,7 @@ class TestApplyTargetsWhitelisted:
             "test-fixture",
             {
                 "paste_dispenser.rotations_per_ul": 12.345678,
+                "paste_dispenser.solder_paste_density": 3.78,
                 "paste_dispenser.max_dispense_rate": 0.123456,
                 "paste_dispenser.dispense_accel": 1.234567,
                 "paste_dispenser.toolhead.x": -1.2345,
@@ -519,6 +548,7 @@ class TestApplyTargetsWhitelisted:
             encoding="utf-8"
         )
         assert "12.345678" in toml_text
+        assert "3.78" in toml_text
         assert "0.123456" in toml_text
         assert "1.234567" in toml_text
         assert "-1.2345" in toml_text
@@ -601,6 +631,33 @@ class TestPastingHardware:
         wait_until(lambda: record.status.terminal, timeout=300.0)
 
         assert record.status == JobStatus.SUCCEEDED
+
+    def test_loading_rotation_extrude_then_finish_succeeds(
+        self, real_manager: JobManager, wait_until: WaitUntil
+    ):
+        """回転押出 → 終了で SUCCEEDED、summary に回転合計 [rev] が載る."""
+        record = real_manager.start(
+            "loading", {"rotations": 0.1, "rate": 0.5, "accel": 0.5}
+        )
+        _wait_loading_stage_and_settle(record, wait_until)
+
+        real_manager.submit_command(
+            {
+                "type": "extrude_rotations",
+                "rotations": 0.1,
+                "rate": 0.5,
+                "accel": 0.5,
+            }
+        )
+        real_manager.submit_command({"type": "finish"})
+        wait_until(lambda: record.status.terminal, timeout=300.0)
+
+        assert record.status == JobStatus.SUCCEEDED
+        result = record.result
+        assert result is not None
+        assert result.summary is not None
+        assert "回転合計" in result.summary
+        assert "rev" in result.summary
 
     def test_probe_gnd_down_adjust_confirm_yields_apply(
         self, real_manager: JobManager, wait_until: WaitUntil

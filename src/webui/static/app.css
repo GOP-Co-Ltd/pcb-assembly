@@ -1291,20 +1291,127 @@ h2 {
 
 /* ---- loading controls ---- */
 .loading-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
+  display: grid;
+  gap: 0.7rem;
   min-width: 0;
-  max-width: 42rem;
-  padding: 0.65rem;
+  max-width: 68rem;
+  padding: 0.75rem 0.9rem 0.9rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
 }
 
 .loading-controls input[type="number"] {
-  width: 6rem;
+  width: 7rem;
+}
+
+.loading-control-body {
+  display: grid;
+  grid-template-columns: minmax(16rem, max-content) minmax(26rem, 1fr);
+  gap: 0.8rem 1rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.loading-control-section {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.loading-control-section-rotation {
+  padding-left: 1rem;
+  border-left: 1px solid var(--line);
+}
+
+.loading-control-section-title {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.loading-control-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.loading-control-fields {
+  display: grid;
+  grid-template-columns: repeat(3, max-content minmax(6rem, 7rem));
+  gap: 0.45rem 0.55rem;
+}
+
+.loading-control-actions {
+  display: flex;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--line);
+}
+
+.loading-mass-calibration {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  max-width: 42rem;
+  margin-top: 0.9rem;
+  padding: 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.loading-mass-calibration h3 {
+  margin: 0;
+}
+
+.loading-calibration-result {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.45rem 0.8rem;
+  margin: 0;
+}
+
+.loading-calibration-result div {
+  min-width: 0;
+}
+
+.loading-calibration-result dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.loading-calibration-result dd {
+  margin: 0.1rem 0 0;
+  font-family: var(--mono);
+}
+
+.loading-calibration-message {
+  min-height: 1.2rem;
+  margin: 0;
+  color: var(--danger);
+}
+
+.loading-calibration-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+@media (max-width: 860px) {
+  .loading-control-body {
+    grid-template-columns: 1fr;
+  }
+
+  .loading-control-section-rotation {
+    padding-top: 0.65rem;
+    padding-left: 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .loading-control-fields {
+    grid-template-columns: max-content minmax(6rem, 1fr);
+  }
 }
 
 @media (max-width: 1180px) {

@@ -223,6 +223,27 @@ class PasteApplicator:
         self._klipper.send_gcode(push_gcode + gcode.wait_for_done())
         self._logger.info("ローディング完了")
 
+    def load_rotations(self, rotations: float, rate: float, accel: float) -> None:
+        """指定回転数でペーストを押し出す.
+
+        初期 `rotations_per_ul` が未確定のローディング・質量計測用に、
+        μL単位を経由せず raw rotation で動かす。
+
+        Args:
+            rotations: 回転数 [rev]（正: 吐出、負: 吸引）
+            rate: 角速度 [rev/sec]
+            accel: 角加速度 [rev/sec²]
+        """
+        self._logger.info(
+            "ペーストローディング: %s rev @ %s rev/s, accel=%s rev/s^2",
+            rotations,
+            rate,
+            accel,
+        )
+        gc = self._paste_dispenser.rotate_revolutions(rotations, rate, accel)
+        self._klipper.send_gcode(gc + gcode.wait_for_done())
+        self._logger.info("ローディング完了")
+
     def retract(self) -> None:
         """リトラクションを実行する.
 
@@ -238,15 +259,7 @@ class PasteApplicator:
             rate: 角速度 [rev/sec]
             accel: 角加速度 [rev/sec²]
         """
-        self._logger.info(
-            "キャリブレーション: %s回転 @ %s rev/s, accel=%s rev/s^2",
-            rotations,
-            rate,
-            accel,
-        )
-        gc = self._paste_dispenser.rotate_revolutions(rotations, rate, accel)
-        self._klipper.send_gcode(gc + gcode.wait_for_done())
-        self._logger.info("キャリブレーション完了")
+        self.load_rotations(rotations, rate, accel)
 
     def apply(
         self,

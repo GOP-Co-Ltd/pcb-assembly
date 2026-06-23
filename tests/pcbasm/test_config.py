@@ -39,6 +39,7 @@ class TestMachine:
             toolhead=Toolhead(x=13.2, y=54.7),
             paste_height="auto",
             ul_per_mm2=0.2,
+            solder_paste_density=3.78,
             dispense_mode="auto",
             auto_line_aspect_ratio=1.618,
         )
@@ -74,6 +75,18 @@ class TestMachine:
 
         assert machine.paste_dispenser.pad_align == PadAlign()
         assert machine.paste_dispenser.pad_align.tolerance == pytest.approx(0.05)
+
+    def test_solder_paste_density_defaults_when_absent(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source.replace("solder_paste_density = 3.78\n", ""),
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.paste_dispenser.solder_paste_density == pytest.approx(3.78)
 
     def test_pad_align_section_overrides_defaults(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()

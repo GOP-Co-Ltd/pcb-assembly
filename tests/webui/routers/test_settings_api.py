@@ -63,6 +63,7 @@ class TestMachineSettingsApi:
             "/api/settings/machine",
             json={
                 "values": {
+                    "paste_dispenser.rotations_per_ul": 9.876543,
                     "paste_dispenser.fill_speed": 0.9,
                     "probe.down_distance": 2.5,
                     "probe.shift": [0.25, -0.75],
@@ -72,6 +73,7 @@ class TestMachineSettingsApi:
 
         assert response.status_code == 200
         fields = {field["key"]: field for field in response.json()["fields"]}
+        assert fields["paste_dispenser.rotations_per_ul"]["value"] == 9.876543
         assert fields["paste_dispenser.fill_speed"]["value"] == 0.9
         assert fields["probe.down_distance"]["value"] == 2.5
         assert fields["probe.shift"]["value"] == [0.25, -0.75]
@@ -80,7 +82,7 @@ class TestMachineSettingsApi:
         after = after_text.splitlines()
         assert len(after) == len(before)
         changed = [(b, a) for b, a in zip(before, after) if b != a]
-        assert len(changed) == 3
+        assert len(changed) == 4
         # 変更対象外のコメントが無傷で残る
         assert "キャリブレーション値 2026/06/08" in after_text
 

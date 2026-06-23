@@ -88,7 +88,7 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("dev", "klipper_status"): "dev/klipper_status.html",
     ("pasting", "paste_solder"): "pasting/paste_solder.html",
     ("pasting", "height_plane"): "pasting/job.html",
-    ("pasting", "loading"): "pasting/job.html",
+    ("pasting", "loading"): "pasting/loading.html",
     ("pasting", "flow_calibration"): "pasting/job.html",
     ("pasting", "generate_rect_pcb"): "pasting/job.html",
     ("pasting", "toolhead_offset"): "pasting/job.html",
@@ -107,6 +107,7 @@ _JOB_TEMPLATES = frozenset(
     {
         "job.html",
         "pasting/job.html",
+        "pasting/loading.html",
         "pasting/paste_solder.html",
         "posctrl/job.html",
         "posctrl/reference_point_setup.html",
@@ -123,6 +124,8 @@ _PASTING_LOADING_PARAM = {
     "flow_calibration": "load_amount",
     "toolhead_offset": "loading_amount",
 }
+
+_LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel")
 
 router = APIRouter()
 
@@ -284,6 +287,18 @@ def feature_page(
             if loading_param is not None:
                 context["loading_default"] = next(
                     spec.default for spec in param_specs if spec.name == loading_param
+                )
+            if feature == "loading":
+                rotation_defaults = {
+                    spec.name: spec.default
+                    for spec in param_specs
+                    if spec.name in _LOADING_ROTATION_PARAMS
+                }
+                dispenser = state.machine().paste_dispenser
+                context.update(
+                    loading_rotation_defaults=rotation_defaults,
+                    solder_paste_density=dispenser.solder_paste_density,
+                    current_rotations_per_ul=dispenser.rotations_per_ul,
                 )
     if feature == "copper_detection":
         pad_align = state.machine().paste_dispenser.pad_align

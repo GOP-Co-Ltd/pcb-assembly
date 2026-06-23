@@ -75,6 +75,10 @@ from webui.jobs.manager import ApplyPayload, Artifact, JobResult
 # ローディングフェーズの progress stage 名
 # （loading_controls.html の data 属性・テストでピンする契約値）
 LOADING_STAGE = "ローディング"
+LOADING_DEFAULT_AMOUNT = 0.1
+LOADING_DEFAULT_ROTATIONS = 5.0
+LOADING_DEFAULT_ROTATION_RATE = 0.5
+LOADING_DEFAULT_ROTATION_ACCEL = 0.5
 FLOW_CALIBRATION_DEFAULT_ROTATIONS = 50
 FLOW_CALIBRATION_DEFAULT_RATE = 2.5
 FLOW_CALIBRATION_DEFAULT_ACCEL = 25
@@ -94,11 +98,34 @@ class Extrude:
 
 
 @attrs.frozen
+class Rotate:
+    """ローディング中の raw rotation 押出/吸引 1 回分.
+
+    Attributes:
+        rotations: 符号付き回転数 [rev]（吸引は負）
+        rate: 角速度 [rev/sec]
+        accel: 角加速度 [rev/sec²]
+    """
+
+    rotations: float
+    rate: float
+    accel: float
+
+
+@attrs.frozen
 class Finish:
     """ローディング終了."""
 
 
-type LoadingAction = Extrude | Finish
+@attrs.frozen
+class LoadingTotals:
+    """ローディングループ内の押出合計."""
+
+    amount_ul: float = 0.0
+    rotations: float = 0.0
+
+
+type LoadingAction = Extrude | Rotate | Finish
 
 
 def parse_loading_command(command: Mapping[str, Any]) -> LoadingAction | None:
@@ -115,6 +142,22 @@ def parse_loading_command(command: Mapping[str, Any]) -> LoadingAction | None:
             if value is None:
                 return None
             return Extrude(value if kind == "extrude" else -value)
+        case {
+            "type": "extrude_rotations" | "suck_rotations" as kind,
+            "rotations": rotations,
+            "rate": rate,
+            "accel": accel,
+        }:
+            rotation_value = _positive_amount(rotations)
+            rate_value = _positive_amount(rate)
+            accel_value = _positive_amount(accel)
+            if rotation_value is None or rate_value is None or accel_value is None:
+                return None
+            return Rotate(
+                rotation_value if kind == "extrude_rotations" else -rotation_value,
+                rate_value,
+                accel_value,
+            )
         case {"type": "finish"}:
             return Finish()
     return None
@@ -128,7 +171,7 @@ def _positive_amount(value: object) -> float | None:
 
 
 def register_pasting_jobs(catalog: JobCatalog) -> None:
-    """Pasting タブの 8 ジョブを登録する."""
+    """Pasting タブのジョブを登録する."""
     catalog.register(
         JobDefinition(
             name="paste_solder",
@@ -137,7 +180,13 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             run=_run_paste_solder,
             params=(
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
-                ParamSpec("amount", "ローディング既定量", "float", 0.1, unit="uL"),
+                ParamSpec(
+                    "amount",
+                    "ローディング既定量",
+                    "float",
+                    LOADING_DEFAULT_AMOUNT,
+                    unit="uL",
+                ),
                 ParamSpec(
                     "interactive_loading", "対話的ローディング", "bool", default=False
                 ),
@@ -167,10 +216,38 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             tab="pasting",
             run=_run_loading,
             params=(
-                ParamSpec("amount", "ローディング既定量", "float", 0.1, unit="uL"),
+                ParamSpec(
+                    "amount",
+                    "体積ローディング量",
+                    "float",
+                    LOADING_DEFAULT_AMOUNT,
+                    unit="uL",
+                ),
+                ParamSpec(
+                    "rotations",
+                    "回転ローディング回転数",
+                    "float",
+                    LOADING_DEFAULT_ROTATIONS,
+                    unit="rev",
+                ),
+                ParamSpec(
+                    "rate",
+                    "回転ローディング角速度",
+                    "float",
+                    LOADING_DEFAULT_ROTATION_RATE,
+                    unit="rev/s",
+                ),
+                ParamSpec(
+                    "accel",
+                    "回転ローディング角加速度",
+                    "float",
+                    LOADING_DEFAULT_ROTATION_ACCEL,
+                    unit="rev/s^2",
+                ),
             ),
             uses_machine=True,
             accepts_commands=True,
+            persisted_params=("amount", "rotations", "rate", "accel"),
         )
     )
     catalog.register(
@@ -208,7 +285,13 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     FLOW_CALIBRATION_DEFAULT_COUNT,
                     unit="回",
                 ),
-                ParamSpec("load_amount", "ローディング既定量", "float", 0.1, unit="uL"),
+                ParamSpec(
+                    "load_amount",
+                    "ローディング既定量",
+                    "float",
+                    LOADING_DEFAULT_AMOUNT,
+                    unit="uL",
+                ),
             ),
             uses_machine=True,
             accepts_commands=True,
@@ -236,9 +319,19 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             run=_run_toolhead_offset,
             params=(
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
-                ParamSpec("dispense_amount", "吐出量", "float", 0.1, unit="uL"),
                 ParamSpec(
-                    "loading_amount", "ローディング既定量", "float", 0.1, unit="uL"
+                    "dispense_amount",
+                    "吐出量",
+                    "float",
+                    LOADING_DEFAULT_AMOUNT,
+                    unit="uL",
+                ),
+                ParamSpec(
+                    "loading_amount",
+                    "ローディング既定量",
+                    "float",
+                    LOADING_DEFAULT_AMOUNT,
+                    unit="uL",
                 ),
                 ParamSpec("lift_height", "吐出後の上昇高さ", "float", 5.0, unit="mm"),
                 ParamSpec(
@@ -303,8 +396,8 @@ def _run_loading_loop(
     applicator: PasteApplicator,
     *,
     focus_z: float | None = None,
-) -> float:
-    """ローディング段階の command 駆動ループを実行し、押出合計 [uL] を返す.
+) -> LoadingTotals:
+    """ローディング段階の command 駆動ループを実行し、押出合計を返す.
 
     extrude / suck は ``applicator.load`` へ、マシン操作コマンドは
     ``handle_machine_command`` へ委譲する。Finish で離脱する。
@@ -322,7 +415,8 @@ def _run_loading_loop(
         ctx.log(f"ローディング開始前のコマンド {drained} 件を破棄しました")
 
     ctx.log("押出 / 吸引ボタンでローディングし、終了ボタンで完了してください")
-    total = 0.0
+    total_ul = 0.0
+    total_rotations = 0.0
     while True:
         command = ctx.next_command(timeout=None)
         assert command is not None  # timeout=None は取得（or abort）までブロック
@@ -330,11 +424,24 @@ def _run_loading_loop(
         match action:
             case Extrude(amount=amount):
                 applicator.load(amount)
-                total += amount
-                ctx.log(f"ローディング: {amount:+.3f} uL（累計 {total:+.3f} uL）")
+                total_ul += amount
+                ctx.log(
+                    f"体積ローディング: {amount:+.3f} uL" f"（累計 {total_ul:+.3f} uL）"
+                )
+            case Rotate(rotations=rotations, rate=rate, accel=accel):
+                applicator.load_rotations(rotations, rate, accel)
+                total_rotations += rotations
+                ctx.log(
+                    f"回転ローディング: {rotations:+.3f} rev "
+                    f"@ {rate:.3f} rev/s, accel={accel:.3f} rev/s^2"
+                    f"（累計 {total_rotations:+.3f} rev）"
+                )
             case Finish():
-                ctx.log(f"ローディング終了（押出合計 {total:+.3f} uL）")
-                return total
+                ctx.log(
+                    "ローディング終了"
+                    f"（体積 {total_ul:+.3f} uL / 回転 {total_rotations:+.3f} rev）"
+                )
+                return LoadingTotals(amount_ul=total_ul, rotations=total_rotations)
             case None:
                 if not handle_machine_command(
                     ctx, klipper, stage, command, focus_z=focus_z
@@ -484,7 +591,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         transform = Compose(
             [session.board_transform, session.toolhead_offset, height_plane]
         )
-        total = 0.0
+        total = LoadingTotals()
         with session.make_applicator(transform=transform) as applicator:
             if ctx.params["interactive_loading"]:
                 pos = stage.get_position()
@@ -520,7 +627,8 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         summary=(
             f"照合成功 {len(aligned)}/{len(groups)} 部品 / "
             f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
-            f"（無効 {disabled_count} 件スキップ・押出合計 {total:+.3f} uL）"
+            f"（無効 {disabled_count} 件スキップ・"
+            f"押出合計 {total.amount_ul:+.3f} uL）"
         )
     )
 
@@ -619,7 +727,12 @@ def _run_loading(ctx: JobContext) -> JobResult:
     klipper, stage, applicator = _dispenser_rig(ctx.machine)
     with applicator:
         total = _run_loading_loop(ctx, klipper, stage, applicator)
-    return JobResult(summary=f"押出合計 {total:+.3f} uL")
+    return JobResult(
+        summary=(
+            f"押出合計 {total.amount_ul:+.3f} uL / "
+            f"回転合計 {total.rotations:+.3f} rev"
+        )
+    )
 
 
 def _run_flow_calibration(ctx: JobContext) -> JobResult:

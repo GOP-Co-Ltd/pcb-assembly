@@ -7,6 +7,7 @@ port = 7125
 rotations_per_ul = 63.0 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
 # rotations_per_ul = 31.491713 # キャリブレーション値 2026/06/05 S3X70-E150DN
 # rotations_per_ul = 69.724771 # キャリブレーション値 2026/05/08 S3X70-E150DN
+solder_paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
 nozzle_diameter = 0.34 # ノズル内径 [mm] (23G)
 dispense_mode = "auto" # 塗布方式: auto / dot / line / area
 auto_line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比

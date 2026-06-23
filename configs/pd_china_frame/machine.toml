@@ -4,6 +4,7 @@ port = 7125
 
 [paste_dispenser]
 rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
+solder_paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
 nozzle_diameter = 0.21 # ノズル内径 [mm] (27G相当)
 dispense_mode = "auto" # 塗布方式: auto / dot / line / area
 auto_line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比

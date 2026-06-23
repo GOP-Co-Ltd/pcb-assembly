@@ -318,6 +318,58 @@ class TestSettingsOverBrowser:
         assert active_tag != "INPUT"
 
 
+class TestLoadingOverBrowser:
+    """ペーストローディング画面の実ブラウザ操作."""
+
+    def test_mass_calibration_calculates_and_applies_rotations_per_ul(
+        self, live_server: LiveServer, browser_page
+    ):
+        browser_page.goto(
+            f"{live_server.base_url}/pasting/loading",
+            wait_until="domcontentloaded",
+        )
+        browser_page.locator("#loading-mass-calibration").wait_for(
+            state="visible", timeout=10_000
+        )
+
+        browser_page.locator("#lc-amount").fill("0.2")
+        browser_page.locator("#lc-rotations").fill("5")
+        browser_page.locator("#lc-rate").fill("0.5")
+        browser_page.locator("#lc-accel").fill("0.5")
+        browser_page.locator("#lc-mass-mg").fill("10")
+
+        assert browser_page.locator("#param-amount").input_value() == "0.2"
+        assert browser_page.locator("#param-rotations").input_value() == "5"
+        assert browser_page.locator("#param-rate").input_value() == "0.5"
+        assert browser_page.locator("#param-accel").input_value() == "0.5"
+        assert browser_page.locator("#lc-effective-rotations").inner_text() == (
+            "4.500000"
+        )
+        assert browser_page.locator("#lc-volume-ul").inner_text() == "2.645503"
+        assert browser_page.locator("#lc-rotations-per-ul").inner_text() == "1.701000"
+
+        browser_page.locator("#lc-apply-rotations-per-ul").click()
+        deadline = time.monotonic() + 5.0
+        while True:
+            response = httpx.get(
+                f"{live_server.base_url}/api/settings/machine",
+                timeout=_HTTP_TIMEOUT,
+            )
+            fields = {field["key"]: field for field in response.json()["fields"]}
+            if fields["paste_dispenser.rotations_per_ul"]["value"] == 1.701:
+                break
+            if time.monotonic() > deadline:
+                raise AssertionError("rotations_per_ul が保存されない")
+            time.sleep(0.05)
+
+        browser_page.locator("#lc-rotations").fill("0.2")
+        assert browser_page.locator("#lc-effective-rotations").inner_text() == (
+            "0.000000"
+        )
+        assert browser_page.locator("#lc-rotations-per-ul").inner_text() == "-"
+        assert browser_page.locator("#lc-apply-rotations-per-ul").is_disabled()
+
+
 class TestPadConfigOverRealHttp:
     """Pad-config API を実 HTTP で叩く（PCB 選択 → GET → PATCH → 永続化）."""
 

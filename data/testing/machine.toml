@@ -4,6 +4,7 @@ port = 7125
 
 [paste_dispenser]
 rotations_per_ul = 1.0
+solder_paste_density = 3.78
 nozzle_diameter = 0.21 # ノズル内径 [mm] (27G相当)
 dispense_mode = "auto"
 auto_line_aspect_ratio = 1.618
