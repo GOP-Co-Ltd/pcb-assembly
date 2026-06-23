@@ -31,12 +31,12 @@ class FieldSpec:
     key: str
     label: str
     value_type: Literal[
-        "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode"
+        "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode", "bool"
     ]
     unit: str | None = None
 
 
-type MachineSettingValue = float | int | str | list[float]
+type MachineSettingValue = float | int | str | list[float] | bool
 
 
 # 設定セクション（key のドット区切り親パス）→ UI 表示名。
@@ -64,6 +64,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     ),
     FieldSpec("paste_dispenser.nozzle_diameter", "ノズル内径", "float", "mm"),
     FieldSpec("paste_dispenser.dispense_mode", "塗布方式", "dispense_mode"),
+    FieldSpec("paste_dispenser.air_pump_enabled", "エアポンプ", "bool"),
     FieldSpec(
         "paste_dispenser.auto_line_aspect_ratio",
         "Auto線塗布しきい縦横比",
@@ -148,9 +149,12 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
     Raises:
         UnknownFieldError: 型が一致しない場合
     """
-    if isinstance(value, bool):
+    if spec.value_type != "bool" and isinstance(value, bool):
         raise UnknownFieldError(f"{spec.key}: bool は受け付けません")
     match spec.value_type:
+        case "bool":
+            if isinstance(value, bool):
+                return value
         case "float":
             if isinstance(value, (int, float)):
                 coerced_float = float(value)

@@ -68,6 +68,7 @@ class PasteDispenser:
     )
     overlap: float = 0.0  # ジグザグ行間オーバーラップ [0,1)
     boundary_margin: float = 0.0  # 外周マージン [mm]
+    air_pump_enabled: bool = True  # エアポンプの有効/無効
     pad_align: PadAlign = attrs.field(factory=PadAlign)  # pad位置合わせ設定
 
     def __attrs_post_init__(self) -> None:

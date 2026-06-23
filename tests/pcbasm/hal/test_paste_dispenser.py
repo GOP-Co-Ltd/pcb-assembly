@@ -29,6 +29,19 @@ class TestPasteDispenser:
         )
         return klipper
 
+    @pytest.fixture
+    def mock_klipper_no_air_pump(self, mocker: MockerFixture):
+        """air_pumpセクションを含まないKlipperをモックするフィクスチャ."""
+        klipper = Klipper()
+        mocker.patch.object(
+            klipper.readonly,
+            "get_config",
+            return_value={
+                f"manual_stepper {STEPPER_NAME}": {"rotation_distance": "0.5"},
+            },
+        )
+        return klipper
+
     @mark_hardware
     def test_init(self):
         klipper = Klipper()
@@ -79,6 +92,38 @@ class TestPasteDispenser:
         lines = gcode.to_list()
         assert lines[0] == "SET_PIN PIN=air_pump VALUE=0"
         assert lines[1] == f"{PREFIX} ENABLE=0"
+
+    def test_init_air_pump_disabled_skips_section_check(
+        self, mock_klipper_no_air_pump: Klipper
+    ):
+        # air_pump_enabled=False なら air_pumpセクションが無くても例外を出さない
+        # （AirPump を生成しないためマクロ確認が走らない）
+        PasteDispenser(
+            mock_klipper_no_air_pump.readonly,
+            rotations_per_ul=0.5,
+            air_pump_enabled=False,
+        )
+
+    @pytest.mark.parametrize(
+        ("method_name", "expected_enable_value"),
+        [("enable", "1"), ("disable", "0")],
+    )
+    def test_air_pump_disabled_omits_set_pin(
+        self,
+        mock_klipper_no_air_pump: Klipper,
+        method_name: str,
+        expected_enable_value: str,
+    ):
+        dispenser = PasteDispenser(
+            mock_klipper_no_air_pump.readonly,
+            rotations_per_ul=0.5,
+            air_pump_enabled=False,
+        )
+
+        lines = getattr(dispenser, method_name)().to_list()
+
+        assert not any("SET_PIN" in line for line in lines)
+        assert lines[0] == f"{PREFIX} ENABLE={expected_enable_value}"
 
     @pytest.mark.parametrize(
         ("amount", "expected_move_sign"),

@@ -8,6 +8,9 @@ class PasteDispenser:
 
     マイクロリットル [μL] 単位のAPIを提供します。 内部的に ManualStepper と AirPump
     を利用し、rotations_per_ul で μL → 回転数に変換します。
+
+    ``air_pump_enabled=False`` のときは AirPump をインスタンス化せず、enable() /
+    disable() の GCode から air_pump 制御を除外します。
     """
 
     def __init__(
@@ -15,6 +18,7 @@ class PasteDispenser:
         klipper: ReadonlyKlipper,
         rotations_per_ul: float,
         stepper_name: str = "paste_dispenser",
+        air_pump_enabled: bool = True,
     ) -> None:
         """PasteDispenserを初期化する.
 
@@ -22,12 +26,16 @@ class PasteDispenser:
             klipper: Klipperクライアント
             rotations_per_ul: 1μLあたりのステッパー回転数 [rev/μL]
             stepper_name: manual_stepperの名前
+            air_pump_enabled: エアポンプの有効/無効。Falseの場合 AirPump を生成せず、
+                air_pumpセクションの存在チェックも行わない
 
         Raises:
-            RuntimeError: printer.cfgにmanual_stepperセクションまたはair_pumpセクションがない場合
+            RuntimeError: printer.cfgにmanual_stepperセクションがない場合。
+                air_pump_enabled=True かつ air_pumpセクションがない場合も同様。
+                air_pump_enabled=False のときは air_pumpセクションが無くても許容する。
         """
         self._stepper = ManualStepper(klipper, stepper_name)
-        self._air_pump = AirPump(klipper)
+        self._air_pump: AirPump | None = AirPump(klipper) if air_pump_enabled else None
         self._rotations_per_ul = rotations_per_ul
 
     def _ul_to_deg(self, microl: float) -> float:
@@ -35,12 +43,24 @@ class PasteDispenser:
         return microl * self._rotations_per_ul * 360
 
     def enable(self) -> GCode:
-        """ディスペンサーを有効化するGCodeを生成する（AirPump ON + Stepper Enable）."""
-        return self._air_pump.on() + self._stepper.enable()
+        """ディスペンサーを有効化するGCodeを生成する（AirPump ON + Stepper Enable）.
+
+        air_pumpが無効の場合は Stepper Enable のみを返す。
+        """
+        stepper_gcode = self._stepper.enable()
+        if self._air_pump is None:
+            return stepper_gcode
+        return self._air_pump.on() + stepper_gcode
 
     def disable(self) -> GCode:
-        """ディスペンサーを無効化するGCodeを生成する（AirPump OFF + Stepper Disable）."""
-        return self._air_pump.off() + self._stepper.disable()
+        """ディスペンサーを無効化するGCodeを生成する（AirPump OFF + Stepper Disable）.
+
+        air_pumpが無効の場合は Stepper Disable のみを返す。
+        """
+        stepper_gcode = self._stepper.disable()
+        if self._air_pump is None:
+            return stepper_gcode
+        return self._air_pump.off() + stepper_gcode
 
     def pushpull(
         self,

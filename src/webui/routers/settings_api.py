@@ -23,7 +23,7 @@ class SettingsField(BaseModel):
     key: str
     label: str
     value_type: Literal[
-        "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode"
+        "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode", "bool"
     ]
     unit: str | None
     value: MachineSettingValue | None
