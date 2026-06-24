@@ -428,3 +428,83 @@ class TestExportImport:
         )
 
         assert response.status_code == 400
+
+
+class TestLoadingCalibration:
+    """GET /api/pasting/loading/calibration（質量キャリブレーション算出）.
+
+    計画書「3. src/webui/routers/pasting.py」が契約。density はサーバが現在マシンの
+    ``solder_paste_density`` を使う（test-fixture machine.toml では 3.78）。
+    非正入力は該当値が ``null``（volume_ul は mass>0 のとき出る）。
+
+    PCB 選択は不要（machine 設定だけを参照する）なので素の ``client`` を使う。
+    """
+
+    def test_all_positive_inputs_return_full_result(self, client: TestClient):
+        # mass=10, rotations=5, density=3.78 → rotations_per_ul = 1.89,
+        # volume_ul = 10/3.78, rate/accel = 0.5/1.89
+        response = client.get(
+            "/api/pasting/loading/calibration",
+            params={"mass_mg": 10, "rotations": 5, "rate": 0.5, "accel": 0.5},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["volume_ul"] == pytest.approx(10.0 / 3.78)
+        assert body["rotations_per_ul"] == pytest.approx(1.89)
+        assert body["max_dispense_rate"] == pytest.approx(0.5 / 1.89)
+        assert body["dispense_accel"] == pytest.approx(0.5 / 1.89)
+
+    def test_zero_rotations_nulls_rotation_derived_values(self, client: TestClient):
+        # rotations=0 → rotations_per_ul を作れないので rpu / rate / accel は null。
+        # mass>0 なので volume_ul は出る。
+        response = client.get(
+            "/api/pasting/loading/calibration",
+            params={"mass_mg": 10, "rotations": 0, "rate": 0.5, "accel": 0.5},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["volume_ul"] == pytest.approx(10.0 / 3.78)
+        assert body["rotations_per_ul"] is None
+        assert body["max_dispense_rate"] is None
+        assert body["dispense_accel"] is None
+
+    def test_zero_mass_nulls_everything(self, client: TestClient):
+        # mass=0 → volume_ul も作れないので 4 値すべて null。
+        response = client.get(
+            "/api/pasting/loading/calibration",
+            params={"mass_mg": 0, "rotations": 5, "rate": 0.5, "accel": 0.5},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["volume_ul"] is None
+        assert body["rotations_per_ul"] is None
+        assert body["max_dispense_rate"] is None
+        assert body["dispense_accel"] is None
+
+    def test_zero_rate_nulls_only_dispense_rate(self, client: TestClient):
+        # rate=0（mass/rotations/accel 正）→ max_dispense_rate のみ null。他は値あり。
+        response = client.get(
+            "/api/pasting/loading/calibration",
+            params={"mass_mg": 10, "rotations": 5, "rate": 0, "accel": 0.5},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["volume_ul"] == pytest.approx(10.0 / 3.78)
+        assert body["rotations_per_ul"] == pytest.approx(1.89)
+        assert body["max_dispense_rate"] is None
+        assert body["dispense_accel"] == pytest.approx(0.5 / 1.89)
+
+    def test_all_params_omitted_returns_all_null(self, client: TestClient):
+        # クエリ省略時は各値 0.0 扱い → 4 値すべて null。
+        response = client.get("/api/pasting/loading/calibration")
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["volume_ul"] is None
+        assert body["rotations_per_ul"] is None
+        assert body["max_dispense_rate"] is None
+        assert body["dispense_accel"] is None

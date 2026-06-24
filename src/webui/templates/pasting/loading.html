@@ -12,10 +12,7 @@
   <button type="submit" id="job-run" data-testid="job-run">実行</button>
 </form>
 {% include "partials/loading_controls.html" %}
-<section id="loading-mass-calibration"
-         class="loading-mass-calibration"
-         data-density="{{ solder_paste_density }}"
-         data-current-rotations-per-ul="{{ current_rotations_per_ul }}">
+<section id="loading-mass-calibration" class="loading-mass-calibration">
   <h3>質量キャリブレーション</h3>
   <div class="loading-control-group">
     <label for="lc-mass-mg">計測質量 <span class="unit">[mg]</span></label>
@@ -23,29 +20,47 @@
   </div>
   <dl class="loading-calibration-result">
     <div>
-      <dt>定速区間回転数</dt>
-      <dd><output id="lc-effective-rotations">-</output> <span class="unit">rev</span></dd>
-    </div>
-    <div>
       <dt>体積</dt>
       <dd><output id="lc-volume-ul">-</output> <span class="unit">uL</span></dd>
-    </div>
-    <div>
-      <dt>rotations_per_ul</dt>
-      <dd><output id="lc-rotations-per-ul">-</output> <span class="unit">rev/uL</span></dd>
-    </div>
-    <div>
-      <dt>現在値</dt>
-      <dd><output id="lc-current-rotations-per-ul">{{ "%.6f"|format(current_rotations_per_ul) }}</output> <span class="unit">rev/uL</span></dd>
     </div>
     <div>
       <dt>密度</dt>
       <dd>{{ "%.3f"|format(solder_paste_density) }} <span class="unit">mg/uL</span></dd>
     </div>
   </dl>
+  <table class="loading-calibration-rows">
+    <thead>
+      <tr>
+        <th>項目</th>
+        <th>計算値</th>
+        <th>現在値</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th>rotations_per_ul <span class="unit">[rev/uL]</span></th>
+        <td><output id="lc-rotations-per-ul">-</output></td>
+        <td><output id="lc-current-rotations-per-ul">{{ "%.6f"|format(current_rotations_per_ul) }}</output></td>
+        <td><button id="lc-apply-rotations-per-ul" type="button" disabled>適用</button></td>
+      </tr>
+      <tr>
+        <th>max_dispense_rate <span class="unit">[uL/s]</span></th>
+        <td><output id="lc-dispense-rate">-</output></td>
+        <td><output id="lc-current-dispense-rate">{{ "%.6f"|format(current_max_dispense_rate) }}</output></td>
+        <td><button id="lc-apply-dispense-rate" type="button" disabled>適用</button></td>
+      </tr>
+      <tr>
+        <th>dispense_accel <span class="unit">[uL/s²]</span></th>
+        <td><output id="lc-dispense-accel">-</output></td>
+        <td><output id="lc-current-dispense-accel">{{ "%.6f"|format(current_dispense_accel) }}</output></td>
+        <td><button id="lc-apply-dispense-accel" type="button" disabled>適用</button></td>
+      </tr>
+    </tbody>
+  </table>
   <p id="lc-calibration-message" class="loading-calibration-message"></p>
   <div class="loading-calibration-actions">
-    <button id="lc-apply-rotations-per-ul" type="button" disabled>適用</button>
+    <button id="lc-apply-all" type="button" disabled>一括適用</button>
   </div>
 </section>
 {% include "partials/job_console.html" %}

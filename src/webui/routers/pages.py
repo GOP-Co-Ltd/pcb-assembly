@@ -299,6 +299,8 @@ def feature_page(
                     loading_rotation_defaults=rotation_defaults,
                     solder_paste_density=dispenser.solder_paste_density,
                     current_rotations_per_ul=dispenser.rotations_per_ul,
+                    current_max_dispense_rate=dispenser.max_dispense_rate,
+                    current_dispense_accel=dispenser.dispense_accel,
                 )
     if feature == "copper_detection":
         pad_align = state.machine().paste_dispenser.pad_align

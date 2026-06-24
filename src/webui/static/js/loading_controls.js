@@ -18,7 +18,16 @@
   const accelInput = document.getElementById("lc-accel");
   const massInput = document.getElementById("lc-mass-mg");
   const massCalibration = document.getElementById("loading-mass-calibration");
-  let calculatedRotationsPerUl = null;
+  const CALIBRATION_DELAY_MS = 250;
+  // 設定キー -> 現在値 output id（適用成功時に表示を更新するため）
+  const CURRENT_OUTPUT_FOR = {
+    "paste_dispenser.rotations_per_ul": "lc-current-rotations-per-ul",
+    "paste_dispenser.max_dispense_rate": "lc-current-dispense-rate",
+    "paste_dispenser.dispense_accel": "lc-current-dispense-accel",
+  };
+  // 最後に取得・表示した算出値（適用ボタンが送る値）。
+  let computed = { rpu: null, rate: null, accel: null };
+  let fetchTimer = null;
   const buttons = [];
   for (const [id, type] of [
     ["lc-extrude", "extrude"],
@@ -101,69 +110,110 @@
     if (!massCalibration || !massInput || !rotationsInput || !rateInput || !accelInput) {
       return;
     }
-    const applyButton = document.getElementById("lc-apply-rotations-per-ul");
-    applyButton.addEventListener("click", applyRotationsPerUl);
     for (const input of [massInput, rotationsInput, rateInput, accelInput]) {
-      input.addEventListener("input", renderMassCalibration);
+      input.addEventListener("input", scheduleFetch);
     }
-    renderMassCalibration();
+    bindApply("lc-apply-rotations-per-ul", () => ({
+      "paste_dispenser.rotations_per_ul": computed.rpu,
+    }));
+    bindApply("lc-apply-dispense-rate", () => ({
+      "paste_dispenser.max_dispense_rate": computed.rate,
+    }));
+    bindApply("lc-apply-dispense-accel", () => ({
+      "paste_dispenser.dispense_accel": computed.accel,
+    }));
+    bindApply("lc-apply-all", () => ({
+      "paste_dispenser.rotations_per_ul": computed.rpu,
+      "paste_dispenser.max_dispense_rate": computed.rate,
+      "paste_dispenser.dispense_accel": computed.accel,
+    }));
+    scheduleFetch();
   }
 
-  function renderMassCalibration() {
-    calculatedRotationsPerUl = null;
-    const density = Number(massCalibration.dataset.density);
-    const massMg = Number(massInput.value);
-    const rotations = Number(rotationsInput.value);
-    const rate = Number(rateInput.value);
-    const accel = Number(accelInput.value);
-    const rawEffectiveRotations = rotations - (rate * rate) / accel;
-    const effectiveRotations = Math.max(0, rawEffectiveRotations);
-    setOutput("lc-effective-rotations", effectiveRotations);
-    setOutput("lc-volume-ul", massMg > 0 && density > 0 ? massMg / density : null);
-    setOutput("lc-rotations-per-ul", null);
+  function bindApply(buttonId, valuesFor) {
+    const button = document.getElementById(buttonId);
+    if (!button) return;
+    button.addEventListener("click", () => applyValues(valuesFor(), buttonId));
+  }
 
+  function scheduleFetch() {
+    clearTimeout(fetchTimer);
+    fetchTimer = setTimeout(fetchCalibration, CALIBRATION_DELAY_MS);
+  }
+
+  async function fetchCalibration() {
+    const params = new URLSearchParams({
+      mass_mg: massInput.value || "0",
+      rotations: rotationsInput.value || "0",
+      rate: rateInput.value || "0",
+      accel: accelInput.value || "0",
+    });
     const message = document.getElementById("lc-calibration-message");
-    const applyButton = document.getElementById("lc-apply-rotations-per-ul");
-    applyButton.disabled = true;
-    if (!(massMg > 0 && density > 0 && rotations > 0 && rate > 0 && accel > 0)) {
-      message.textContent = "";
+    let result;
+    try {
+      result = await api(
+        "GET",
+        "/api/pasting/loading/calibration?" + params.toString()
+      );
+    } catch (err) {
+      message.textContent = err.message;
       return;
     }
-    if (!(effectiveRotations > 0)) {
-      message.textContent = "定速区間がないため計算できません";
-      return;
-    }
-
-    const volumeUl = massMg / density;
-    calculatedRotationsPerUl = effectiveRotations / volumeUl;
-    setOutput("lc-rotations-per-ul", calculatedRotationsPerUl);
     message.textContent = "";
-    applyButton.disabled = false;
+    computed = {
+      rpu: result.rotations_per_ul,
+      rate: result.max_dispense_rate,
+      accel: result.dispense_accel,
+    };
+    setOutput("lc-volume-ul", result.volume_ul);
+    setOutput("lc-rotations-per-ul", result.rotations_per_ul);
+    setOutput("lc-dispense-rate", result.max_dispense_rate);
+    setOutput("lc-dispense-accel", result.dispense_accel);
+    updateApplyButtons();
+  }
+
+  function updateApplyButtons() {
+    setDisabled("lc-apply-rotations-per-ul", !(computed.rpu > 0));
+    setDisabled("lc-apply-dispense-rate", !(computed.rate > 0));
+    setDisabled("lc-apply-dispense-accel", !(computed.accel > 0));
+    setDisabled(
+      "lc-apply-all",
+      !(computed.rpu > 0 && computed.rate > 0 && computed.accel > 0)
+    );
+  }
+
+  function setDisabled(id, disabled) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = disabled;
   }
 
   function setOutput(id, value) {
     const output = document.getElementById(id);
     if (!output) return;
-    output.value = value === null ? "-" : value.toFixed(6);
+    output.value = value === null || value === undefined ? "-" : value.toFixed(6);
     output.textContent = output.value;
   }
 
-  async function applyRotationsPerUl() {
-    if (!(calculatedRotationsPerUl > 0)) return;
-    const value = Number(calculatedRotationsPerUl.toFixed(6));
-    const applyButton = document.getElementById("lc-apply-rotations-per-ul");
-    applyButton.disabled = true;
+  async function applyValues(valuesObject, buttonId) {
+    const values = {};
+    for (const [key, raw] of Object.entries(valuesObject)) {
+      if (!(raw > 0)) return;
+      values[key] = Number(raw.toFixed(6));
+    }
+    setDisabled(buttonId, true);
     try {
-      await api("PUT", "/api/settings/machine", {
-        values: { "paste_dispenser.rotations_per_ul": value },
-      });
-      document.getElementById("lc-current-rotations-per-ul").textContent =
-        value.toFixed(6);
-      toast(`rotations_per_ul を ${value.toFixed(6)} に設定しました`);
+      await api("PUT", "/api/settings/machine", { values });
+      const labels = [];
+      for (const [key, value] of Object.entries(values)) {
+        const output = document.getElementById(CURRENT_OUTPUT_FOR[key]);
+        if (output) output.textContent = value.toFixed(6);
+        labels.push(`${key} を ${value.toFixed(6)}`);
+      }
+      toast(`${labels.join(", ")} に設定しました`);
     } catch (err) {
       toast(err.message, false);
     } finally {
-      renderMassCalibration();
+      updateApplyButtons();
     }
   }
 })();
