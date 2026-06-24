@@ -6,28 +6,6 @@ import attrs
 
 
 @attrs.frozen
-class TrapezoidalRotationProfile:
-    """回転ローディングの台形速度プロファイル.
-
-    加速区間・減速区間の押出を除き、定速区間だけを質量キャリブレーションの 実効回転数として扱う。
-    """
-
-    rotations: float = attrs.field(validator=attrs.validators.gt(0.0))
-    rate: float = attrs.field(validator=attrs.validators.gt(0.0))
-    accel: float = attrs.field(validator=attrs.validators.gt(0.0))
-
-    @property
-    def ramp_rotations(self) -> float:
-        """加速 + 減速に使われる回転数 [rev]."""
-        return self.rate**2 / self.accel
-
-    @property
-    def plateau_rotations(self) -> float:
-        """定速区間の回転数 [rev]。三角プロファイルなら 0."""
-        return max(0.0, self.rotations - self.ramp_rotations)
-
-
-@attrs.frozen
 class MassFlowCalibration:
     """質量計測から初期 `rotations_per_ul` を算出する結果.
 
@@ -41,21 +19,6 @@ class MassFlowCalibration:
     mass_mg: float = attrs.field(validator=attrs.validators.gt(0.0))
     density_mg_per_ul: float = attrs.field(validator=attrs.validators.gt(0.0))
 
-    @classmethod
-    def from_trapezoidal_profile(
-        cls,
-        *,
-        profile: TrapezoidalRotationProfile,
-        mass_mg: float,
-        density_mg_per_ul: float,
-    ) -> "MassFlowCalibration":
-        """台形速度プロファイルの定速区間からキャリブレーション結果を作る."""
-        return cls(
-            rotations=profile.plateau_rotations,
-            mass_mg=mass_mg,
-            density_mg_per_ul=density_mg_per_ul,
-        )
-
     @property
     def volume_ul(self) -> float:
         """質量と密度から算出した体積 [μL]."""
@@ -65,6 +28,14 @@ class MassFlowCalibration:
     def rotations_per_ul(self) -> float:
         """1μLあたりの回転数 [rev/μL]."""
         return self.rotations / self.volume_ul
+
+    def dispense_rate_for(self, rotation_rate: float) -> float:
+        """回転速度 [rev/sec] を吐出レート [μL/sec] に変換する."""
+        return rotation_rate / self.rotations_per_ul
+
+    def dispense_accel_for(self, rotation_accel: float) -> float:
+        """回転加速度 [rev/sec²] を吐出加速度 [μL/sec²] に変換する."""
+        return rotation_accel / self.rotations_per_ul
 
 
 @attrs.frozen

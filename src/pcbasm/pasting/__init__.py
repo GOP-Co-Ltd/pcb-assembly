@@ -7,7 +7,6 @@ from .calibration import (
     FlowCalibration,
     FlowCalibrationSet,
     MassFlowCalibration,
-    TrapezoidalRotationProfile,
 )
 from .fill_path import PasteFillPlan, build_paste_fill_path, build_paste_fill_plan
 from .fill_sequence import FillSequence
@@ -53,7 +52,6 @@ __all__ = [
     "ProbeExecutor",
     "ResolvedPaste",
     "ToolheadOffsetResult",
-    "TrapezoidalRotationProfile",
     "base_override_from_config",
     "build_paste_fill_path",
     "build_paste_fill_plan",

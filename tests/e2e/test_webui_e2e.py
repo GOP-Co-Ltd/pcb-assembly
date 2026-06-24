@@ -18,6 +18,7 @@ import time
 from typing import Any
 
 import httpx
+from playwright.sync_api import expect
 from websockets.sync.client import connect
 
 from tests.e2e.conftest import LiveServer
@@ -321,7 +322,23 @@ class TestSettingsOverBrowser:
 class TestLoadingOverBrowser:
     """ペーストローディング画面の実ブラウザ操作."""
 
-    def test_mass_calibration_calculates_and_applies_rotations_per_ul(
+    def _wait_machine_field(self, base_url: str, key: str, expected: float) -> None:
+        """Machine 設定の 1 フィールドが期待値になるまで REST 経由で待つ."""
+        deadline = time.monotonic() + 5.0
+        while True:
+            response = httpx.get(
+                f"{base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
+            )
+            fields = {field["key"]: field for field in response.json()["fields"]}
+            if fields[key]["value"] == expected:
+                return
+            if time.monotonic() > deadline:
+                raise AssertionError(
+                    f"{key} が {expected} に保存されない: {fields[key]}"
+                )
+            time.sleep(0.05)
+
+    def test_mass_calibration_calculates_and_applies_dispense_values(
         self, live_server: LiveServer, browser_page
     ):
         browser_page.goto(
@@ -338,36 +355,58 @@ class TestLoadingOverBrowser:
         browser_page.locator("#lc-accel").fill("0.5")
         browser_page.locator("#lc-mass-mg").fill("10")
 
+        # ローディング操作パネルの hidden へ各入力が同期される
         assert browser_page.locator("#param-amount").input_value() == "0.2"
         assert browser_page.locator("#param-rotations").input_value() == "5"
         assert browser_page.locator("#param-rate").input_value() == "0.5"
         assert browser_page.locator("#param-accel").input_value() == "0.5"
-        assert browser_page.locator("#lc-effective-rotations").inner_text() == (
-            "4.500000"
-        )
-        assert browser_page.locator("#lc-volume-ul").inner_text() == "2.645503"
-        assert browser_page.locator("#lc-rotations-per-ul").inner_text() == "1.701000"
 
+        # 算出値は debounce GET で非同期に届くので Playwright の自動待機で待つ。
+        # mass=10, rotations=5, density=3.78 → volume=2.645503, rpu=1.890000,
+        # rate/accel = 0.5/1.89 = 0.264550（toFixed(6) 表示）
+        expect(browser_page.locator("#lc-volume-ul")).to_have_text("2.645503")
+        expect(browser_page.locator("#lc-rotations-per-ul")).to_have_text("1.890000")
+        expect(browser_page.locator("#lc-dispense-rate")).to_have_text("0.264550")
+        expect(browser_page.locator("#lc-dispense-accel")).to_have_text("0.264550")
+
+        # 個別適用: rotations_per_ul のみ永続化 → 現在値 output が更新される
         browser_page.locator("#lc-apply-rotations-per-ul").click()
-        deadline = time.monotonic() + 5.0
-        while True:
-            response = httpx.get(
-                f"{live_server.base_url}/api/settings/machine",
-                timeout=_HTTP_TIMEOUT,
-            )
-            fields = {field["key"]: field for field in response.json()["fields"]}
-            if fields["paste_dispenser.rotations_per_ul"]["value"] == 1.701:
-                break
-            if time.monotonic() > deadline:
-                raise AssertionError("rotations_per_ul が保存されない")
-            time.sleep(0.05)
-
-        browser_page.locator("#lc-rotations").fill("0.2")
-        assert browser_page.locator("#lc-effective-rotations").inner_text() == (
-            "0.000000"
+        self._wait_machine_field(
+            live_server.base_url, "paste_dispenser.rotations_per_ul", 1.89
         )
-        assert browser_page.locator("#lc-rotations-per-ul").inner_text() == "-"
-        assert browser_page.locator("#lc-apply-rotations-per-ul").is_disabled()
+        expect(browser_page.locator("#lc-current-rotations-per-ul")).to_have_text(
+            "1.890000"
+        )
+
+        # 一括適用: 3 キーがまとめて永続化される
+        # 保存値は Number(toFixed(6)) のトリム後（1.89, 0.26455, 0.26455）
+        browser_page.locator("#lc-apply-all").click()
+        self._wait_machine_field(
+            live_server.base_url, "paste_dispenser.rotations_per_ul", 1.89
+        )
+        self._wait_machine_field(
+            live_server.base_url, "paste_dispenser.max_dispense_rate", 0.26455
+        )
+        self._wait_machine_field(
+            live_server.base_url, "paste_dispenser.dispense_accel", 0.26455
+        )
+        expect(browser_page.locator("#lc-current-dispense-rate")).to_have_text(
+            "0.264550"
+        )
+        expect(browser_page.locator("#lc-current-dispense-accel")).to_have_text(
+            "0.264550"
+        )
+
+        # 必須入力をクリア（mass=0）→ 4 出力が "-"、4 適用ボタンが全て無効化される
+        browser_page.locator("#lc-mass-mg").fill("0")
+        expect(browser_page.locator("#lc-volume-ul")).to_have_text("-")
+        expect(browser_page.locator("#lc-rotations-per-ul")).to_have_text("-")
+        expect(browser_page.locator("#lc-dispense-rate")).to_have_text("-")
+        expect(browser_page.locator("#lc-dispense-accel")).to_have_text("-")
+        expect(browser_page.locator("#lc-apply-rotations-per-ul")).to_be_disabled()
+        expect(browser_page.locator("#lc-apply-dispense-rate")).to_be_disabled()
+        expect(browser_page.locator("#lc-apply-dispense-accel")).to_be_disabled()
+        expect(browser_page.locator("#lc-apply-all")).to_be_disabled()
 
 
 class TestPadConfigOverRealHttp:

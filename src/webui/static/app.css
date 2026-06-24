@@ -1392,6 +1392,36 @@ h2 {
   color: var(--danger);
 }
 
+.loading-calibration-rows {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.loading-calibration-rows th,
+.loading-calibration-rows td {
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.loading-calibration-rows thead th {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: normal;
+}
+
+.loading-calibration-rows tbody th {
+  font-weight: normal;
+}
+
+.loading-calibration-rows output {
+  font-family: var(--mono);
+}
+
+.loading-calibration-rows td:last-child {
+  text-align: right;
+}
+
 .loading-calibration-actions {
   display: flex;
   gap: 0.5rem;
