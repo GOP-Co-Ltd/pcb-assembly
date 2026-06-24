@@ -1111,8 +1111,10 @@ def _calibrate_rotations_per_ul(
         )
         computed_rpu = flow.rotations_per_ul
         # 回転加速度 [rev/sec²] を保ったまま dispense_accel を新 rpu で再算出する
-        rev_accel = previous_rpu * calib.dispense_accel
-        computed_accel = rev_accel / computed_rpu
+        computed_accel = flow.rescaled_dispense_accel(
+            previous_dispense_accel=calib.dispense_accel,
+            previous_rotations_per_ul=previous_rpu,
+        )
         round_result = RotationsPerUlRound(previous=previous_rpu, computed=computed_rpu)
         ctx.log(
             f"算出 rotations_per_ul = {computed_rpu:.6f} rev/uL "
@@ -1298,26 +1300,17 @@ def _dispense_calibration_result(
     """実施したキャリブの確定値から summary と ApplyPayload を組む."""
     values: dict[str, float] = {}
     summary_parts: list[str] = []
-    if results.rotations_per_ul is not None:
-        values["paste_dispenser.rotations_per_ul"] = round(
-            results.rotations_per_ul, APPLY_DIGITS
-        )
-        summary_parts.append(f"rotations_per_ul = {results.rotations_per_ul:.6f}")
-    if results.dispense_accel is not None:
-        values["paste_dispenser.dispense_accel"] = round(
-            results.dispense_accel, APPLY_DIGITS
-        )
-        summary_parts.append(f"dispense_accel = {results.dispense_accel:.6f}")
-    if results.max_dispense_rate is not None:
-        values["paste_dispenser.max_dispense_rate"] = round(
-            results.max_dispense_rate, APPLY_DIGITS
-        )
-        summary_parts.append(f"max_dispense_rate = {results.max_dispense_rate:.6f}")
-    if results.max_fill_speed is not None:
-        values["paste_dispenser.max_fill_speed"] = round(
-            results.max_fill_speed, APPLY_DIGITS
-        )
-        summary_parts.append(f"max_fill_speed = {results.max_fill_speed:.6f}")
+    for field in (
+        "rotations_per_ul",
+        "dispense_accel",
+        "max_dispense_rate",
+        "max_fill_speed",
+    ):
+        value = getattr(results, field)
+        if value is None:
+            continue
+        values[f"paste_dispenser.{field}"] = round(value, APPLY_DIGITS)
+        summary_parts.append(f"{field} = {value:.6f}")
 
     if not values:
         return JobResult(summary="キャリブレーションを実施せず終了しました")

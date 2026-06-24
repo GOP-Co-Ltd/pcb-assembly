@@ -21,6 +21,7 @@ from pcbasm.geometry import (
     Transform,
 )
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
+from pcbasm.pasting.dispense_calibration import slot_area
 from pcbasm.pasting.fill_path import AppliedDispenseMode, build_paste_fill_plan
 from pcbasm.pasting.fill_sequence import FillSequence
 from pcbasm.utils import get_class_module_path
@@ -501,8 +502,7 @@ class PasteApplicator:
                 return ul_per_mm2
             case "line" if path_length > 0:
                 bead_width = self._nozzle_diameter * bead_width_factor
-                slot_area = path_length * bead_width + math.pi * (bead_width / 2.0) ** 2
-                return amount / slot_area
+                return amount / slot_area(path_length, bead_width)
             case "line" | "dot":
                 nozzle_area = math.pi * (self._nozzle_diameter / 2.0) ** 2
                 return amount / nozzle_area
