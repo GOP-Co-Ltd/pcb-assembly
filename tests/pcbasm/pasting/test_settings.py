@@ -18,6 +18,7 @@ from pcbasm.pasting.settings import (
     PasteSettingsModel,
     base_override_from_config,
     find_orphans,
+    resolve_node_settings,
     resolve_pad_settings,
     settings_from_dict,
     settings_to_dict,
@@ -386,6 +387,214 @@ class TestEnabledResolution:
         assert resolved[("U1", "#2")].enabled is False
         assert resolved[("U1", "#3")].enabled is True
         assert resolved[("U1", "#4")].enabled is True
+
+
+class TestResolveNodeSettings:
+    """resolve_node_settings は階層の全ノード（L0–L4）を pad と同一規則で解決する。
+
+    UI の階層表が各ノード行に解決済み値を表示するための算出。``resolve_pad_settings``
+    と同じ継承規則（最具体が勝つ・enabled は明示値が勝つ）を、ツリーのルートから
+    自ノードまでのパスで適用する。
+    """
+
+    def test_returns_all_hierarchy_node_keys(self):
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(base=_full_base())
+
+        resolved = resolve_node_settings(hierarchy, model)
+
+        assert set(resolved.keys()) == hierarchy.all_keys()
+
+    def test_root_key_resolves_to_base_values(self):
+        _, _, hierarchy = _two_component_hierarchy()
+        base = _full_base()
+        model = PasteSettingsModel(base=base, base_enabled=True)
+
+        resolved = resolve_node_settings(hierarchy, model)
+
+        root = resolved[("L0",)]
+        assert root.enabled is True
+        assert root.dispense_mode == base.dispense_mode
+        assert root.fill_speed == pytest.approx(base.fill_speed)
+        assert root.paste_height == pytest.approx(base.paste_height)
+        assert root.ul_per_mm2 == pytest.approx(base.ul_per_mm2)
+        assert root.prime_extra_delay == pytest.approx(base.prime_extra_delay)
+        assert root.bead_width_factor == pytest.approx(base.bead_width_factor)
+        assert root.overlap == pytest.approx(base.overlap)
+        assert root.boundary_margin == pytest.approx(base.boundary_margin)
+
+    def test_root_enabled_follows_base_enabled_false(self):
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(base=_full_base(), base_enabled=False)
+
+        resolved = resolve_node_settings(hierarchy, model)
+
+        assert resolved[("L0",)].enabled is False
+
+    def test_node_without_override_inherits_ancestor_values(self):
+        # L2:U1 に override を置くと、その配下の L3/L4 ノードは override 無しでも
+        # L2 の値を継承する。
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={("L2", "U1"): LevelSetting(override=PasteOverride(ul_per_mm2=0.5))},
+        )
+
+        resolved = resolve_node_settings(hierarchy, model)
+
+        assert resolved[("L2", "U1")].ul_per_mm2 == pytest.approx(0.5)
+        assert resolved[("L4", "U1", "1")].ul_per_mm2 == pytest.approx(0.5)
+        assert resolved[("L4", "U1", "9")].ul_per_mm2 == pytest.approx(0.5)
+        # 継承していない field は base のまま
+        assert resolved[("L4", "U1", "1")].fill_speed == pytest.approx(0.8)
+
+    def test_override_propagates_to_node_and_descendants_only(self):
+        # L2:U1 の override は U1 サブツリーにのみ伝播し、兄弟 L2:R1 と
+        # 祖先（L0/L1）には及ばない。
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={("L2", "U1"): LevelSetting(override=PasteOverride(fill_speed=0.3))},
+        )
+
+        resolved = resolve_node_settings(hierarchy, model)
+
+        # 自ノードと子孫は上書き
+        assert resolved[("L2", "U1")].fill_speed == pytest.approx(0.3)
+        assert resolved[("L4", "U1", "1")].fill_speed == pytest.approx(0.3)
+        assert resolved[("L4", "U1", "9")].fill_speed == pytest.approx(0.3)
+        # 兄弟部品 R1 は影響なし
+        assert resolved[("L2", "R1")].fill_speed == pytest.approx(0.8)
+        assert resolved[("L4", "R1", "1")].fill_speed == pytest.approx(0.8)
+        # 祖先 L0 は影響なし
+        assert resolved[("L0",)].fill_speed == pytest.approx(0.8)
+
+    def test_l1_package_override_reaches_same_package_nodes(self):
+        # L1 ノードに置いた override は同 package のサブツリー全体へ伝播する。
+        components = [_component("R1", "0402"), _component("R2", "0402")]
+        pads = [
+            _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)),
+            _pad("R2", "1", _rect(5.0, 0.0, 0.5, 0.9)),
+        ]
+        hierarchy = build_pad_hierarchy(components, pads)
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={
+                ("L1", "0402"): LevelSetting(
+                    override=PasteOverride(bead_width_factor=0.7)
+                ),
+            },
+        )
+
+        resolved = resolve_node_settings(hierarchy, model)
+
+        assert resolved[("L1", "0402")].bead_width_factor == pytest.approx(0.7)
+        assert resolved[("L4", "R1", "1")].bead_width_factor == pytest.approx(0.7)
+        assert resolved[("L4", "R2", "1")].bead_width_factor == pytest.approx(0.7)
+
+    def test_more_specific_node_override_wins_over_ancestor(self):
+        # L4 ノードの override が祖先 L2 を上書きし、未指定 field は L2 から継承。
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={
+                ("L2", "U1"): LevelSetting(
+                    override=PasteOverride(ul_per_mm2=0.5, fill_speed=1.5)
+                ),
+                ("L4", "U1", "9"): LevelSetting(override=PasteOverride(ul_per_mm2=0.9)),
+            },
+        )
+
+        resolved = resolve_node_settings(hierarchy, model)
+
+        thermal = resolved[("L4", "U1", "9")]
+        assert thermal.ul_per_mm2 == pytest.approx(0.9)  # L4 が勝つ
+        assert thermal.fill_speed == pytest.approx(1.5)  # L2 から継承
+        assert thermal.paste_height == pytest.approx(0.05)  # base から継承
+        # 同部品の別 L4 ノードは L4 override の影響を受けず L2 のまま
+        other = resolved[("L4", "U1", "1")]
+        assert other.ul_per_mm2 == pytest.approx(0.5)
+
+    def test_enabled_none_keeps_inherited_enabled(self):
+        # LevelSetting.enabled=None（override のみ）は enabled を上書きしない。
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            base_enabled=True,
+            levels={
+                ("L2", "U1"): LevelSetting(
+                    enabled=None, override=PasteOverride(ul_per_mm2=0.5)
+                ),
+            },
+        )
+
+        resolved = resolve_node_settings(hierarchy, model)
+
+        assert resolved[("L2", "U1")].enabled is True
+        assert resolved[("L4", "U1", "1")].enabled is True
+
+    def test_explicit_disable_propagates_and_explicit_enable_revives(self):
+        # L2=False で配下無効化、配下 L4=True で当該ノードのみ復活。
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={
+                ("L2", "U1"): LevelSetting(enabled=False),
+                ("L4", "U1", "9"): LevelSetting(enabled=True),
+            },
+        )
+
+        resolved = resolve_node_settings(hierarchy, model)
+
+        assert resolved[("L2", "U1")].enabled is False
+        assert resolved[("L4", "U1", "9")].enabled is True  # L4 で復活
+        assert resolved[("L4", "U1", "1")].enabled is False  # L2 のまま
+        # 兄弟部品 R1 は無関係
+        assert resolved[("L2", "R1")].enabled is True
+
+    def test_l4_node_values_match_resolve_pad_settings(self):
+        # parity: 各 L4 ノードキーの解決値が、その L4 配下 pad に対する
+        # resolve_pad_settings の解決値と一致する（同一規則の担保）。
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            base_enabled=True,
+            levels={
+                ("L1", "0402"): LevelSetting(override=PasteOverride(overlap=0.3)),
+                ("L2", "U1"): LevelSetting(
+                    enabled=False,
+                    override=PasteOverride(ul_per_mm2=0.5, fill_speed=1.5),
+                ),
+                ("L4", "U1", "9"): LevelSetting(
+                    enabled=True, override=PasteOverride(ul_per_mm2=0.9)
+                ),
+            },
+        )
+
+        node_resolved = resolve_node_settings(hierarchy, model)
+        pad_resolved = resolve_pad_settings(hierarchy, model)
+
+        for pad in hierarchy.iter_pads():
+            l4_key = hierarchy.node_keys_for_pad(pad)[-1]
+            pad_ref = hierarchy.pad_ref_for_pad(pad)
+            assert node_resolved[l4_key] == pad_resolved[pad_ref]
+
+    def test_l4_node_values_match_resolve_pad_settings_for_duplicate_pads(self):
+        # parity（分割 pad）: 同一 pad_number の分割片も L4 key が個別に分かれ、
+        # pad-level 解決と一致する。
+        _, _, hierarchy = _duplicate_pad_number_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={("L4", "U1", "#2"): LevelSetting(enabled=False)},
+        )
+
+        node_resolved = resolve_node_settings(hierarchy, model)
+        pad_resolved = resolve_pad_settings(hierarchy, model)
+
+        for pad in hierarchy.iter_pads():
+            l4_key = hierarchy.node_keys_for_pad(pad)[-1]
+            pad_ref = hierarchy.pad_ref_for_pad(pad)
+            assert node_resolved[l4_key] == pad_resolved[pad_ref]
 
 
 class TestSettingsRoundTrip:

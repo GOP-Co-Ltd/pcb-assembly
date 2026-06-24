@@ -17,7 +17,7 @@ from typing import Any, cast
 import attrs
 
 from pcbasm.config import DISPENSE_MODES, DispenseMode, PasteDispenser, PasteHeight
-from pcbasm.pcb.grouping import HierKey, PadHierarchy, PadRef
+from pcbasm.pcb.grouping import HierKey, PadHierarchy, PadHierarchyNode, PadRef
 
 # override 可能な項目のフィールド名（解決・JSON 変換の正準順）
 PASTE_OVERRIDE_FIELDS: tuple[str, ...] = (
@@ -284,22 +284,73 @@ def resolve_pad_settings(
             _apply_override(values, setting.override)
             if setting.enabled is not None:
                 enabled = setting.enabled
-        result[hierarchy.pad_ref_for_pad(pad)] = ResolvedPaste(
-            enabled=enabled,
-            dispense_mode=_dispense_mode_value(values["dispense_mode"]),
-            fill_speed=_float_value("fill_speed", values["fill_speed"]),
-            paste_height=_paste_height_value(values["paste_height"]),
-            ul_per_mm2=_float_value("ul_per_mm2", values["ul_per_mm2"]),
-            prime_extra_delay=_float_value(
-                "prime_extra_delay", values["prime_extra_delay"]
-            ),
-            bead_width_factor=_float_value(
-                "bead_width_factor", values["bead_width_factor"]
-            ),
-            overlap=_float_value("overlap", values["overlap"]),
-            boundary_margin=_float_value("boundary_margin", values["boundary_margin"]),
-        )
+        result[hierarchy.pad_ref_for_pad(pad)] = _resolved_from_values(enabled, values)
     return result
+
+
+def _resolved_from_values(
+    enabled: bool, values: dict[str, PasteSettingValue]
+) -> ResolvedPaste:
+    """解決済み values dict を :class:`ResolvedPaste` に変換する."""
+    return ResolvedPaste(
+        enabled=enabled,
+        dispense_mode=_dispense_mode_value(values["dispense_mode"]),
+        fill_speed=_float_value("fill_speed", values["fill_speed"]),
+        paste_height=_paste_height_value(values["paste_height"]),
+        ul_per_mm2=_float_value("ul_per_mm2", values["ul_per_mm2"]),
+        prime_extra_delay=_float_value(
+            "prime_extra_delay", values["prime_extra_delay"]
+        ),
+        bead_width_factor=_float_value(
+            "bead_width_factor", values["bead_width_factor"]
+        ),
+        overlap=_float_value("overlap", values["overlap"]),
+        boundary_margin=_float_value("boundary_margin", values["boundary_margin"]),
+    )
+
+
+def resolve_node_settings(
+    hierarchy: PadHierarchy, model: PasteSettingsModel
+) -> dict[HierKey, ResolvedPaste]:
+    """各階層ノード（L0–L4）の確定塗布設定を解決する.
+
+    pad 単位の :func:`resolve_pad_settings` と同じ規則を、ツリーの各ノードに
+    ついて「ルートから自ノードまで」のパスで適用する（最具体が勝つ）。UI の
+    階層表が各ノード行に解決済み値を表示するための算出。
+
+    Args:
+        hierarchy: pad 階層
+        model: 塗布設定モデル
+
+    Returns:
+        ``HierKey`` -> :class:`ResolvedPaste`
+    """
+    result: dict[HierKey, ResolvedPaste] = {}
+    base_values: dict[str, PasteSettingValue] = {
+        field: getattr(model.base, field) for field in PASTE_OVERRIDE_FIELDS
+    }
+    _resolve_node(hierarchy.root, base_values, model.base_enabled, model, result)
+    return result
+
+
+def _resolve_node(
+    node: PadHierarchyNode,
+    parent_values: dict[str, PasteSettingValue],
+    parent_enabled: bool,
+    model: PasteSettingsModel,
+    result: dict[HierKey, ResolvedPaste],
+) -> None:
+    """ルートから累積した値で ``node`` を解決し、子へ再帰する（in-place）."""
+    values = dict(parent_values)
+    enabled = parent_enabled
+    setting = model.levels.get(node.key)
+    if setting is not None:
+        _apply_override(values, setting.override)
+        if setting.enabled is not None:
+            enabled = setting.enabled
+    result[node.key] = _resolved_from_values(enabled, values)
+    for child in node.children:
+        _resolve_node(child, values, enabled, model, result)
 
 
 def _dispense_mode_value(value: PasteSettingValue) -> DispenseMode:
