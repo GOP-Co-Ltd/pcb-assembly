@@ -437,7 +437,6 @@ class TestPastingJobPages:
             "tolerance",
             "line_length",
             "line_count",
-            "specific_gravity",
             "rate_min",
             "rate_max",
             "rate_divisions",

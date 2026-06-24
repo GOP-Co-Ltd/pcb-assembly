@@ -102,7 +102,6 @@ DISPENSE_CALIBRATION_DEFAULT_LINE_LENGTH = 10.0
 DISPENSE_CALIBRATION_DEFAULT_LINE_COUNT = 10
 DISPENSE_CALIBRATION_DEFAULT_LINE_AMOUNT = 0.5
 DISPENSE_CALIBRATION_DEFAULT_ROW_PITCH = 3.0
-DISPENSE_CALIBRATION_DEFAULT_SPECIFIC_GRAVITY = 1.0
 DISPENSE_CALIBRATION_DEFAULT_RATE_MIN = 0.5
 DISPENSE_CALIBRATION_DEFAULT_RATE_MAX = 5.0
 DISPENSE_CALIBRATION_DEFAULT_RATE_DIVISIONS = 6
@@ -331,12 +330,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     DISPENSE_CALIBRATION_DEFAULT_ROW_PITCH,
                     unit="mm",
                 ),
-                ParamSpec(
-                    "specific_gravity",
-                    "ペースト比重",
-                    "float",
-                    DISPENSE_CALIBRATION_DEFAULT_SPECIFIC_GRAVITY,
-                ),
+                # 比重は machine.toml の solder_paste_density を参照（フォーム入力なし）
                 # ② max_dispense_rate（吐出効率の落ち検出）
                 ParamSpec(
                     "rate_min",
@@ -386,11 +380,11 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             persisted_params=(
                 "board_width",
                 "board_height",
+                "tolerance",
                 "line_length",
                 "line_count",
                 "line_amount",
                 "row_pitch",
-                "specific_gravity",
                 "rate_min",
                 "rate_max",
                 "rate_divisions",
@@ -1068,10 +1062,11 @@ def _calibrate_rotations_per_ul(
     """
     layout = _line_layout(ctx)
     amount = float(ctx.params["line_amount"])
-    specific_gravity = _prompt_positive_number(
-        ctx,
-        "ペーストの比重（水比重, データシート値）",
-        default=float(ctx.params["specific_gravity"]),
+    # 比重はマシン設定 (solder_paste_density [mg/uL]。水基準なので比重と数値が一致) を
+    # 真実とする。② が密度を machine から直接読むのと同じ扱い。
+    specific_gravity = ctx.machine.paste_dispenser.solder_paste_density
+    ctx.log(
+        f"ペースト比重（machine.toml の solder_paste_density）= {specific_gravity:.3f}"
     )
 
     rotations_per_ul = (

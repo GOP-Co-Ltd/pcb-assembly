@@ -140,7 +140,7 @@ _DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("共通土台（銅板・位置合わせ）", ("board_width", "board_height", "tolerance")),
     (
         "① rotations_per_ul の補正（線引き検証）",
-        ("line_length", "line_count", "line_amount", "row_pitch", "specific_gravity"),
+        ("line_length", "line_count", "line_amount", "row_pitch"),
     ),
     (
         "② max_dispense_rate（吐出効率の落ち検出）",

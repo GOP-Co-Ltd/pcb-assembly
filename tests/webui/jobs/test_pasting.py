@@ -180,7 +180,6 @@ class TestCatalog:
                     "line_length": (10.0, "mm"),
                     "line_amount": (0.5, "uL"),
                     "row_pitch": (3.0, "mm"),
-                    "specific_gravity": (1.0, None),
                     "rate_min": (0.5, "uL/s"),
                     "rate_max": (5.0, "uL/s"),
                     "speed_min": (1.0, "mm/s"),
@@ -240,15 +239,16 @@ class TestCatalog:
     ):
         definition = default.get("dispense_calibration")
 
-        # tolerance を除く土台/①/②/③ パラメータを次回フォーム既定値として保存する
+        # 土台/①/②/③ の入力パラメータを次回フォーム既定値として保存する
+        # （比重は machine.toml 参照のためフォーム入力から除外済み）
         assert definition.persisted_params == (
             "board_width",
             "board_height",
+            "tolerance",
             "line_length",
             "line_count",
             "line_amount",
             "row_pitch",
-            "specific_gravity",
             "rate_min",
             "rate_max",
             "rate_divisions",
