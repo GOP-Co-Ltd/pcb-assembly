@@ -23,7 +23,6 @@ from pcbasm.posctrl import (
     PadAlignmentResult,
     PadAlignmentSession,
     PadResultRenderer,
-    orthogonality_metrics,
     render_label,
     setup_board_calibration,
     sorted_top_component_pads,
@@ -515,7 +514,7 @@ def _run_orthogonality_test(ctx: JobContext) -> JobResult:
         result = _calibrated_board(ctx, camera)
         board_transform = result.board_transform
 
-        metrics = orthogonality_metrics(board_transform)
+        metrics = OrthogonalityMetrics.from_transform(board_transform)
         ctx.log(f"軸間角の 90° からのずれ: {metrics.axis_angle_error_deg:+.3f} deg")
         ctx.log(f"スケール X: {metrics.scale_x:.5f} / Y: {metrics.scale_y:.5f}")
 
