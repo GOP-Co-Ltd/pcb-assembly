@@ -63,5 +63,3 @@ loading_controls を include」と言う。loading_controls.js は
 - make format: pass（ruff / ruff-format / docformatter すべて Passed）
 - make type: pass（pyright 0 errors）
 - make test-no-hardware: pass（1353 passed / 62 deselected[hardware]）
-</content>
-</invoke>
