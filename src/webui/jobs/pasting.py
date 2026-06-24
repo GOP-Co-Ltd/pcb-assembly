@@ -930,7 +930,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             klipper.send_gcode(
                 paste_dispenser.pushpull(
                     -dispenser_config.retract_amount,
-                    dispenser_config.retract_rate,
+                    dispenser_config.effective_retract_rate,
                     retract_accel,
                 )
                 + gcode.wait_for_done()

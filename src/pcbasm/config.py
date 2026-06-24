@@ -52,7 +52,9 @@ class PasteDispenser:
     max_dispense_rate: float  # 吐出レート上限 [μL/sec]
     dispense_accel: float  # 吐出加速度 [μL/sec²]
     retract_amount: float  # リトラクション量 [μL]
-    retract_rate: float  # リトラクションレート [μL/sec]
+    retract_rate: float | None = attrs.field(
+        default=None, kw_only=True
+    )  # リトラクションレート [μL/sec]。未指定時は max_dispense_rate
     retract_accel_factor: float  # リトラクション加速度係数
     toolhead: Toolhead
     paste_height: PasteHeight  # 塗布面のZ高さ [mm]、または auto
@@ -97,6 +99,13 @@ class PasteDispenser:
                 "solder_paste_densityは正の値である必要があります: "
                 f"{self.solder_paste_density}"
             )
+
+    @property
+    def effective_retract_rate(self) -> float:
+        """retract_rate 未指定時は max_dispense_rate を返す."""
+        return (
+            self.max_dispense_rate if self.retract_rate is None else self.retract_rate
+        )
 
 
 @attrs.frozen
