@@ -40,7 +40,7 @@ class TestMachineSettings:
 
         assert values["paste_dispenser.dispense_mode"] == "auto"
         assert values["paste_dispenser.auto_line_aspect_ratio"] == 1.618
-        assert values["paste_dispenser.fill_speed"] == 0.8
+        assert values["paste_dispenser.max_fill_speed"] == 0.8
         assert values["paste_dispenser.solder_paste_density"] == 3.78
         assert values["paste_dispenser.paste_height"] == "auto"
         assert values["paste_dispenser.toolhead.x"] == -1.772
@@ -65,10 +65,10 @@ class TestMachineSettings:
         assert values["probe.lift_height"] is None
 
     def test_write_then_reread_reflects_value(self, store: ConfigStore):
-        store.write_machine_settings(FIXTURE, {"paste_dispenser.fill_speed": 0.9})
+        store.write_machine_settings(FIXTURE, {"paste_dispenser.max_fill_speed": 0.9})
 
         values = store.read_machine_settings(FIXTURE)
-        assert values["paste_dispenser.fill_speed"] == 0.9
+        assert values["paste_dispenser.max_fill_speed"] == 0.9
 
     def test_write_dispense_mode_then_reread_reflects_value(self, store: ConfigStore):
         store.write_machine_settings(FIXTURE, {"paste_dispenser.dispense_mode": "line"})
@@ -101,13 +101,13 @@ class TestMachineSettings:
         path = configs_root / FIXTURE / "machine.toml"
         before = path.read_text(encoding="utf-8").splitlines()
 
-        store.write_machine_settings(FIXTURE, {"paste_dispenser.fill_speed": 0.9})
+        store.write_machine_settings(FIXTURE, {"paste_dispenser.max_fill_speed": 0.9})
 
         after = path.read_text(encoding="utf-8").splitlines()
         assert len(after) == len(before)
         changed = [(b, a) for b, a in zip(before, after) if b != a]
         assert len(changed) == 1
-        assert "fill_speed" in changed[0][0]
+        assert "max_fill_speed" in changed[0][0]
 
     def test_write_keeps_inline_comment_on_changed_line(
         self, store: ConfigStore, configs_root: Path
@@ -193,7 +193,7 @@ class TestMachineSettings:
     def test_type_mismatch_raises_unknown_field_error(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.fill_speed": "fast"}
+                FIXTURE, {"paste_dispenser.max_fill_speed": "fast"}
             )
 
     def test_unknown_dispense_mode_raises_unknown_field_error(self, store: ConfigStore):
@@ -259,4 +259,6 @@ class TestAirPumpEnabled:
     def test_numeric_field_still_rejects_bool(self, store: ConfigStore):
         # bool は int のサブクラスなので、数値フィールドへの bool 投入は拒否され続ける
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(FIXTURE, {"paste_dispenser.fill_speed": True})
+            store.write_machine_settings(
+                FIXTURE, {"paste_dispenser.max_fill_speed": True}
+            )

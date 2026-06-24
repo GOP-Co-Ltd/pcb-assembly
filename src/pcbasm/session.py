@@ -117,11 +117,33 @@ class PasteSession:
         """Board 座標 → machine 座標の変換（board_transform + toolhead_offset）."""
         return Compose([self.board_transform, self.toolhead_offset])
 
-    def make_applicator(self, transform: Transform = Identity()) -> PasteApplicator:
-        """Machine 設定のパラメータで PasteApplicator を構築する."""
+    def make_applicator(
+        self,
+        transform: Transform = Identity(),
+        *,
+        rotations_per_ul: float | None = None,
+    ) -> PasteApplicator:
+        """Machine 設定のパラメータで PasteApplicator を構築する.
+
+        Args:
+            transform: 塗布座標に適用する変換
+            rotations_per_ul: μL → 回転数の係数 [rev/μL] を上書きする値。
+                ``None`` のとき machine 設定値を使う。キャリブ検証ループで
+                新値を反映した applicator を作り直すための経路。
+
+        Returns:
+            構築した :class:`PasteApplicator`
+        """
+        paste_dispenser = self.paste_dispenser
+        if rotations_per_ul is not None:
+            paste_dispenser = PasteDispenser(
+                klipper=self.klipper.readonly,
+                rotations_per_ul=rotations_per_ul,
+                air_pump_enabled=self.machine.paste_dispenser.air_pump_enabled,
+            )
         return PasteApplicator.from_config(
             klipper=self.klipper,
-            paste_dispenser=self.paste_dispenser,
+            paste_dispenser=paste_dispenser,
             stage=self.stage,
             config=self.machine.paste_dispenser,
             transform=transform,

@@ -46,11 +46,13 @@ from webui.config_store import ConfigStore
 from webui.jobs.catalog import JobCatalog, default_catalog
 from webui.jobs.manager import JobManager, JobRecord, JobStatus
 from webui.jobs.pasting import (
+    CALIBRATION_MENU_STAGE,
     LOADING_STAGE,
     Extrude,
     Finish,
     Rotate,
     parse_loading_command,
+    parse_run_calib_command,
     register_pasting_jobs,
 )
 from webui.preview import PreviewService
@@ -63,7 +65,7 @@ PASTING_JOBS = (
     "paste_solder",
     "height_plane",
     "loading",
-    "flow_calibration",
+    "dispense_calibration",
     "generate_rect_pcb",
     "toolhead_offset",
     "probe_gnd_down_adjust",
@@ -132,7 +134,7 @@ class TestCatalog:
             ("paste_solder", True, True, True),
             ("height_plane", True, True, False),
             ("loading", False, True, True),
-            ("flow_calibration", False, True, True),
+            ("dispense_calibration", False, True, True),
             ("generate_rect_pcb", False, False, False),
             ("toolhead_offset", True, True, True),
             ("probe_gnd_down_adjust", False, True, False),
@@ -170,12 +172,19 @@ class TestCatalog:
                 },
             ),
             (
-                "flow_calibration",
+                "dispense_calibration",
                 {
-                    "rotations": (50.0, "rev"),
-                    "rate": (2.5, "rev/s"),
-                    "accel": (25.0, "rev/s^2"),
-                    "load_amount": (0.1, "uL"),
+                    "board_width": (40.0, "mm"),
+                    "board_height": (40.0, "mm"),
+                    "tolerance": (0.1, "mm"),
+                    "line_length": (10.0, "mm"),
+                    "line_amount": (0.5, "uL"),
+                    "row_pitch": (3.0, "mm"),
+                    "specific_gravity": (1.0, None),
+                    "rate_min": (0.5, "uL/s"),
+                    "rate_max": (5.0, "uL/s"),
+                    "speed_min": (1.0, "mm/s"),
+                    "speed_max": (10.0, "mm/s"),
                 },
             ),
             ("generate_rect_pcb", {"width": (40.0, "mm"), "height": (40.0, "mm")}),
@@ -208,17 +217,45 @@ class TestCatalog:
             assert float_params[key].default == value, key
             assert float_params[key].unit == unit, key
 
-    def test_flow_calibration_count_is_int_defaulting_3(self, default: JobCatalog):
-        params = {spec.name: spec for spec in default.get("flow_calibration").params}
+    @pytest.mark.parametrize(
+        ("name", "default_value"),
+        [
+            ("line_count", 10),
+            ("rate_divisions", 6),
+            ("speed_divisions", 6),
+        ],
+    )
+    def test_dispense_calibration_int_params(
+        self, default: JobCatalog, name: str, default_value: int
+    ):
+        params = {
+            spec.name: spec for spec in default.get("dispense_calibration").params
+        }
 
-        assert params["count"].value_type == "int"
-        assert params["count"].default == 3
-        assert params["count"].unit == "回"
+        assert params[name].value_type == "int"
+        assert params[name].default == default_value
 
-    def test_flow_calibration_persists_measurement_params(self, default: JobCatalog):
-        definition = default.get("flow_calibration")
+    def test_dispense_calibration_persists_all_calibration_params(
+        self, default: JobCatalog
+    ):
+        definition = default.get("dispense_calibration")
 
-        assert definition.persisted_params == ("rotations", "rate", "accel", "count")
+        # tolerance を除く土台/①/②/③ パラメータを次回フォーム既定値として保存する
+        assert definition.persisted_params == (
+            "board_width",
+            "board_height",
+            "line_length",
+            "line_count",
+            "line_amount",
+            "row_pitch",
+            "specific_gravity",
+            "rate_min",
+            "rate_max",
+            "rate_divisions",
+            "speed_min",
+            "speed_max",
+            "speed_divisions",
+        )
 
     def test_loading_persists_volume_and_rotation_params(self, default: JobCatalog):
         definition = default.get("loading")
@@ -309,6 +346,35 @@ class TestParseLoadingCommand:
     )
     def test_invalid_command_yields_none(self, command: dict[str, object]):
         assert parse_loading_command(command) is None
+
+
+class TestParseRunCalibCommand:
+    """parse_run_calib_command（純粋関数）と CALIBRATION_MENU_STAGE の契約値."""
+
+    def test_menu_stage_is_pinned_for_template_and_js(self):
+        """ジョブ実装・data-calib-stage 属性・calibration_menu.js の契約値."""
+        assert CALIBRATION_MENU_STAGE == "キャリブレーションメニュー"
+
+    @pytest.mark.parametrize(
+        "which",
+        ["rotations_per_ul", "max_dispense_rate", "max_fill_speed", "all", "finish"],
+    )
+    def test_known_which_returns_which(self, which: str):
+        assert parse_run_calib_command({"type": "run_calib", "which": which}) == which
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            {"type": "run_calib"},  # which 欠落
+            {"type": "run_calib", "which": "bogus"},  # 未知 which
+            {"type": "run_calib", "which": 3},  # 非文字列
+            {"type": "extrude", "amount": 1.0},  # 別 type
+            {"type": "finish"},  # loading finish（run_calib ではない）
+            {},  # キー無し
+        ],
+    )
+    def test_invalid_command_yields_none(self, command: dict[str, object]):
+        assert parse_run_calib_command(command) is None
 
 
 class TestProbeGndDownAdjust:
@@ -476,7 +542,7 @@ class TestHeightPlaneFrontFlow:
 
 
 class TestMachineJobsWithoutKlipper:
-    """残り 4 ジョブの graceful FAILED（test-fixture: port 7126 = 接続拒否）.
+    """装置ジョブの graceful FAILED（test-fixture: port 7126 = 接続拒否）.
 
     実動作（押出・塗布・SUCCEEDED 到達）は実機区分でカバーする分担（計画書 §4）。
     """
@@ -487,7 +553,6 @@ class TestMachineJobsWithoutKlipper:
             ("paste_solder", True),
             ("toolhead_offset", True),
             ("loading", False),
-            ("flow_calibration", False),
         ],
     )
     def test_job_fails_gracefully_and_releases_lock(
@@ -503,6 +568,28 @@ class TestMachineJobsWithoutKlipper:
             state.select_pcb(real_pcb_path)
         record = manager.start(name, {})
         wait_until(lambda: record.status.terminal, timeout=60.0)
+        wait_until(lambda: state.busy_owner is None)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error  # 接続エラーが error に載る
+        assert "M84" in "\n".join(record.log_lines)  # relax 失敗警告
+        with state.machine_lock("after-failed-job"):  # ロックは解放済み
+            pass
+
+    def test_dispense_calibration_fails_gracefully_and_releases_lock(
+        self,
+        manager: JobManager,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        """共通土台でその場 PCB 生成 → カメラ確保 → ボード計測で Klipper 不通 → FAILED.
+
+        PCB 選択不要（``requires_pcb=False``）。実 pcbnew での銅板生成と FakeCamera
+        確保を越えてから接続拒否で落ちるため、長めに待つ。
+        """
+        record = manager.start("dispense_calibration", {})
+        # 実 pcbnew 読込・FakeCamera 起動・接続リトライを含むため長め
+        wait_until(lambda: record.status.terminal, timeout=180.0)
         wait_until(lambda: state.busy_owner is None)
 
         assert record.status == JobStatus.FAILED
@@ -538,6 +625,7 @@ class TestApplyTargetsWhitelisted:
                 "paste_dispenser.solder_paste_density": 3.78,
                 "paste_dispenser.max_dispense_rate": 0.123456,
                 "paste_dispenser.dispense_accel": 1.234567,
+                "paste_dispenser.max_fill_speed": 7.654321,
                 "paste_dispenser.toolhead.x": -1.2345,
                 "paste_dispenser.toolhead.y": 23.4567,
                 "probe.down_distance": 1.234,
@@ -551,6 +639,7 @@ class TestApplyTargetsWhitelisted:
         assert "3.78" in toml_text
         assert "0.123456" in toml_text
         assert "1.234567" in toml_text
+        assert "7.654321" in toml_text
         assert "-1.2345" in toml_text
         assert "23.4567" in toml_text
         assert "1.234" in toml_text
@@ -678,75 +767,10 @@ class TestPastingHardware:
         assert result.apply is not None
         assert result.apply.values == {"probe.down_distance": 0.5}
 
-    def test_flow_calibration_full_run_yields_rotations_per_ul(
-        self, real_manager: JobManager, wait_until: WaitUntil
-    ):
-        """充填 finish → (タール confirm → 回転 → 質量) × N → 比重入力 → Apply payload.
-
-        質量はダミー値（50mg）で応答する。複数回計測（count=2）で平均が算出され、 summary に「N
-        回平均」が載ることを確認する。Apply の妥当値確認は実運用で行う。
-        """
-        count = 2
-        record = real_manager.start(
-            "flow_calibration",
-            {
-                "rotations": 1.0,
-                "rate": 1.0,
-                "accel": 10.0,
-                "count": count,
-                "load_amount": 0.05,
-            },
-        )
-        _wait_loading_stage_and_settle(record, wait_until)
-        real_manager.submit_command({"type": "finish"})
-
-        answered: set[str] = set()
-        # 各回: タール confirm → True / 質量 (mg) → 50
-        for _ in range(count):
-            _answer_next_prompt(
-                record, real_manager, wait_until, True, answered, timeout=120.0
-            )
-            _answer_next_prompt(
-                record, real_manager, wait_until, 50.0, answered, timeout=300.0
-            )
-        # 比重 → 1.0
-        _answer_next_prompt(
-            record, real_manager, wait_until, 1.0, answered, timeout=120.0
-        )
-        wait_until(lambda: record.status.terminal, timeout=300.0)
-
-        assert record.status == JobStatus.SUCCEEDED
-        result = record.result
-        assert result is not None
-        assert result.summary is not None
-        assert "rotations_per_ul" in result.summary
-        assert f"{count} 回平均" in result.summary
-        assert result.apply is not None
-        assert result.apply.values == {
-            "paste_dispenser.rotations_per_ul": 0.02,
-            "paste_dispenser.max_dispense_rate": 50.0,
-            "paste_dispenser.dispense_accel": 500.0,
-        }
-
-    def test_flow_calibration_tare_confirm_false_aborts(
-        self, real_manager: JobManager, wait_until: WaitUntil
-    ):
-        """タール confirm に「いいえ」→ 回転前に ABORTED（判断保留点 7 の中止口）."""
-        record = real_manager.start(
-            "flow_calibration",
-            {"rotations": 1.0, "rate": 1.0, "accel": 10.0, "load_amount": 0.05},
-        )
-        _wait_loading_stage_and_settle(record, wait_until)
-        real_manager.submit_command({"type": "finish"})
-
-        answered: set[str] = set()
-        _answer_next_prompt(
-            record, real_manager, wait_until, False, answered, timeout=120.0
-        )
-        wait_until(lambda: record.status.terminal, timeout=300.0)
-
-        assert record.status == JobStatus.ABORTED
-        assert record.apply_available is False
+    # 吐出量キャリブレーション統合ジョブ（dispense_calibration）の ①②③ 実測は
+    # 実 Moonraker + 実カメラ + 実ペースト + 物理銅板の装着・計量を要する。手順が
+    # 対話的（ボード計測 → 線引き → 質量/番号入力）でブラウザ目視を伴うため、
+    # WebUI 手動 E2E（make webui-fake）でユーザーが検証する分担（large-refactor-workflow）。
 
     def test_height_plane_full_run_yields_heatmap_artifacts(
         self,

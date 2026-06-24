@@ -320,40 +320,30 @@ class TestSettingsOverBrowser:
 
 
 class TestLoadingOverBrowser:
-    """ペーストローディング画面の実ブラウザ操作."""
+    """ペーストローディング画面の実ブラウザ操作.
 
-    def _wait_machine_field(self, base_url: str, key: str, expected: float) -> None:
-        """Machine 設定の 1 フィールドが期待値になるまで REST 経由で待つ."""
-        deadline = time.monotonic() + 5.0
-        while True:
-            response = httpx.get(
-                f"{base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
-            )
-            fields = {field["key"]: field for field in response.json()["fields"]}
-            if fields[key]["value"] == expected:
-                return
-            if time.monotonic() > deadline:
-                raise AssertionError(
-                    f"{key} が {expected} に保存されない: {fields[key]}"
-                )
-            time.sleep(0.05)
+    質量キャリブレーション表は吐出量キャリブレーション統合ジョブ
+    （dispense_calibration）へ一本化したため、ローディング画面は押出/吸引の 操作パネルとパラメータ同期のみを持つ。
+    """
 
-    def test_mass_calibration_calculates_and_applies_dispense_values(
+    def test_loading_controls_sync_inputs_to_hidden_params(
         self, live_server: LiveServer, browser_page
     ):
         browser_page.goto(
             f"{live_server.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
-        browser_page.locator("#loading-mass-calibration").wait_for(
+        browser_page.locator("#loading-controls").wait_for(
             state="visible", timeout=10_000
         )
+
+        # 質量キャリブ表は削除済み
+        assert browser_page.locator("#loading-mass-calibration").count() == 0
 
         browser_page.locator("#lc-amount").fill("0.2")
         browser_page.locator("#lc-rotations").fill("5")
         browser_page.locator("#lc-rate").fill("0.5")
         browser_page.locator("#lc-accel").fill("0.5")
-        browser_page.locator("#lc-mass-mg").fill("10")
 
         # ローディング操作パネルの hidden へ各入力が同期される
         assert browser_page.locator("#param-amount").input_value() == "0.2"
@@ -361,52 +351,35 @@ class TestLoadingOverBrowser:
         assert browser_page.locator("#param-rate").input_value() == "0.5"
         assert browser_page.locator("#param-accel").input_value() == "0.5"
 
-        # 算出値は debounce GET で非同期に届くので Playwright の自動待機で待つ。
-        # mass=10, rotations=5, density=3.78 → volume=2.645503, rpu=1.890000,
-        # rate/accel = 0.5/1.89 = 0.264550（toFixed(6) 表示）
-        expect(browser_page.locator("#lc-volume-ul")).to_have_text("2.645503")
-        expect(browser_page.locator("#lc-rotations-per-ul")).to_have_text("1.890000")
-        expect(browser_page.locator("#lc-dispense-rate")).to_have_text("0.264550")
-        expect(browser_page.locator("#lc-dispense-accel")).to_have_text("0.264550")
 
-        # 個別適用: rotations_per_ul のみ永続化 → 現在値 output が更新される
-        browser_page.locator("#lc-apply-rotations-per-ul").click()
-        self._wait_machine_field(
-            live_server.base_url, "paste_dispenser.rotations_per_ul", 1.89
+class TestDispenseCalibrationOverBrowser:
+    """吐出量キャリブレーション統合ジョブ画面の実ブラウザ表示."""
+
+    def test_menu_and_loading_controls_render(
+        self, live_server: LiveServer, browser_page
+    ):
+        browser_page.goto(
+            f"{live_server.base_url}/pasting/dispense_calibration",
+            wait_until="domcontentloaded",
         )
-        expect(browser_page.locator("#lc-current-rotations-per-ul")).to_have_text(
-            "1.890000"
+        browser_page.locator("#calibration-menu").wait_for(
+            state="visible", timeout=10_000
         )
 
-        # 一括適用: 3 キーがまとめて永続化される
-        # 保存値は Number(toFixed(6)) のトリム後（1.89, 0.26455, 0.26455）
-        browser_page.locator("#lc-apply-all").click()
-        self._wait_machine_field(
-            live_server.base_url, "paste_dispenser.rotations_per_ul", 1.89
-        )
-        self._wait_machine_field(
-            live_server.base_url, "paste_dispenser.max_dispense_rate", 0.26455
-        )
-        self._wait_machine_field(
-            live_server.base_url, "paste_dispenser.dispense_accel", 0.26455
-        )
-        expect(browser_page.locator("#lc-current-dispense-rate")).to_have_text(
-            "0.264550"
-        )
-        expect(browser_page.locator("#lc-current-dispense-accel")).to_have_text(
-            "0.264550"
-        )
+        # ①②③/全実行/終了 のメニューボタン（ジョブ未実行なので全て disabled）
+        for button_id in (
+            "#calib-rotations-per-ul",
+            "#calib-max-dispense-rate",
+            "#calib-max-fill-speed",
+            "#calib-all",
+            "#calib-finish",
+        ):
+            expect(browser_page.locator(button_id)).to_be_disabled()
 
-        # 必須入力をクリア（mass=0）→ 4 出力が "-"、4 適用ボタンが全て無効化される
-        browser_page.locator("#lc-mass-mg").fill("0")
-        expect(browser_page.locator("#lc-volume-ul")).to_have_text("-")
-        expect(browser_page.locator("#lc-rotations-per-ul")).to_have_text("-")
-        expect(browser_page.locator("#lc-dispense-rate")).to_have_text("-")
-        expect(browser_page.locator("#lc-dispense-accel")).to_have_text("-")
-        expect(browser_page.locator("#lc-apply-rotations-per-ul")).to_be_disabled()
-        expect(browser_page.locator("#lc-apply-dispense-rate")).to_be_disabled()
-        expect(browser_page.locator("#lc-apply-dispense-accel")).to_be_disabled()
-        expect(browser_page.locator("#lc-apply-all")).to_be_disabled()
+        # プライム用 loading_controls はメニュー段階で有効化される設定
+        panel = browser_page.locator("#loading-controls")
+        panel.wait_for(state="visible", timeout=10_000)
+        assert panel.get_attribute("data-loading-stage") == "キャリブレーションメニュー"
 
 
 class TestPadConfigOverRealHttp:

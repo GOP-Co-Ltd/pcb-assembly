@@ -1,0 +1,15 @@
+{% extends "tab.html" %}
+{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+{% include "partials/job_form.html" %}
+{% include "partials/calibration_menu.html" %}
+{% include "partials/loading_controls.html" %}
+{% include "partials/job_console.html" %}
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/loading_controls.js') }}"></script>
+<script src="{{ static_asset('js/calibration_menu.js') }}"></script>
+{% endblock %}
+</content>

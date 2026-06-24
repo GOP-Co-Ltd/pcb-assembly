@@ -36,7 +36,7 @@ def _base_config() -> PasteDispenser:
     return PasteDispenser(
         rotations_per_ul=10.0,
         nozzle_diameter=0.4,
-        fill_speed=0.8,
+        max_fill_speed=0.8,
         max_dispense_rate=1.0,
         dispense_accel=1.0,
         retract_amount=0.1,
@@ -109,7 +109,7 @@ class TestLoadOrInit:
         assert model.base_enabled is True
         assert model.levels == {}
         assert model.base.dispense_mode == config.dispense_mode
-        assert model.base.fill_speed == config.fill_speed
+        assert model.base.prime_extra_delay == config.prime_extra_delay
         assert model.base.paste_height == config.paste_height
         assert model.base.boundary_margin == config.boundary_margin
 
@@ -136,7 +136,7 @@ class TestLoadOrInit:
         assert loaded.base_enabled is True
         assert loaded.levels[("L0",)].enabled is False
         assert loaded.levels[("L2", "U1")].enabled is True
-        assert loaded.base.fill_speed == config.fill_speed
+        assert loaded.base.prime_extra_delay == config.prime_extra_delay
 
 
 class TestRoundTrip:
@@ -151,7 +151,8 @@ class TestRoundTrip:
             base_enabled=True,
             levels={
                 ("L2", "U1"): LevelSetting(
-                    enabled=False, override=PasteOverride(fill_speed=0.5, overlap=0.1)
+                    enabled=False,
+                    override=PasteOverride(prime_extra_delay=0.5, overlap=0.1),
                 )
             },
         )
@@ -161,7 +162,7 @@ class TestRoundTrip:
 
         setting = loaded.levels[("L2", "U1")]
         assert setting.enabled is False
-        assert setting.override.fill_speed == 0.5
+        assert setting.override.prime_extra_delay == 0.5
         assert setting.override.overlap == 0.1
         # 未設定項目は継承（None）のまま
         assert setting.override.paste_height is None
@@ -253,7 +254,6 @@ class TestJsonShape:
                     "machine": "kurousagi",
                     "settings": {
                         "base": {
-                            "fill_speed": config.fill_speed,
                             "paste_height": config.paste_height,
                             "ul_per_mm2": config.ul_per_mm2,
                             "prime_extra_delay": config.prime_extra_delay,
@@ -278,10 +278,9 @@ class TestJsonShape:
         config = _base_config()
         old_model = PasteSettingsModel(
             base=PasteOverride(
-                fill_speed=0.4,
+                prime_extra_delay=0.4,
                 paste_height=config.paste_height,
                 ul_per_mm2=config.ul_per_mm2,
-                prime_extra_delay=config.prime_extra_delay,
                 bead_width_factor=config.bead_width_factor,
                 overlap=config.overlap,
                 boundary_margin=config.boundary_margin,
@@ -299,7 +298,6 @@ class TestJsonShape:
                     "machine": "kurousagi",
                     "settings": {
                         "base": {
-                            "fill_speed": old_model.base.fill_speed,
                             "paste_height": old_model.base.paste_height,
                             "ul_per_mm2": old_model.base.ul_per_mm2,
                             "prime_extra_delay": old_model.base.prime_extra_delay,
@@ -317,8 +315,8 @@ class TestJsonShape:
 
         loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
 
-        assert loaded.base.fill_speed == config.fill_speed
-        assert loaded.levels[("L0",)].override.fill_speed == 0.4
+        assert loaded.base.prime_extra_delay == config.prime_extra_delay
+        assert loaded.levels[("L0",)].override.prime_extra_delay == 0.4
 
     def test_signature_mismatch_initializes_fresh_model(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)

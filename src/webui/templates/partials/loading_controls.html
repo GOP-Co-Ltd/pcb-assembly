@@ -1,5 +1,5 @@
 <fieldset id="loading-controls" class="loading-controls"
-          data-loading-stage="ローディング">
+          data-loading-stage="{{ loading_stage if loading_stage is defined else 'ローディング' }}">
   <legend>ローディング</legend>
   <div class="loading-control-body">
     <div class="loading-control-section">

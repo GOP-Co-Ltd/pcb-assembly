@@ -41,7 +41,7 @@ class PasteApplicator:
             paste_dispenser=dispenser,
             stage=stage,
             nozzle_diameter=0.34,
-            fill_speed=1.0,
+            max_fill_speed=1.0,
             max_dispense_rate=5.0,
             dispense_accel=1.0,
             ul_per_mm2=0.05,
@@ -62,7 +62,7 @@ class PasteApplicator:
         paste_dispenser: PasteDispenser,
         stage: XYZStage,
         nozzle_diameter: float,
-        fill_speed: float,
+        max_fill_speed: float,
         max_dispense_rate: float,
         dispense_accel: float,
         ul_per_mm2: float,
@@ -86,7 +86,7 @@ class PasteApplicator:
             paste_dispenser: ペーストディスペンサーHAL
             stage: XYZステージ
             nozzle_diameter: ノズル内径 [mm]（例: 0.34）
-            fill_speed: 塗布移動速度 [mm/sec]（主設定）
+            max_fill_speed: 連続塗布できる移動速度上限 [mm/sec]（主設定）
             max_dispense_rate: 吐出レート上限 [μL/sec]
             dispense_accel: 吐出加速度 [μL/sec²]
             ul_per_mm2: 1mm²あたりの塗布量 [μL/mm²]
@@ -111,8 +111,10 @@ class PasteApplicator:
                 f"retraction_accel_factorは1.0より大きい必要があります: "
                 f"{retraction_accel_factor}"
             )
-        if fill_speed <= 0:
-            raise ValueError(f"fill_speedは正の値である必要があります: {fill_speed}")
+        if max_fill_speed <= 0:
+            raise ValueError(
+                f"max_fill_speedは正の値である必要があります: {max_fill_speed}"
+            )
         if max_dispense_rate <= 0:
             raise ValueError(
                 f"max_dispense_rateは正の値である必要があります: {max_dispense_rate}"
@@ -127,7 +129,7 @@ class PasteApplicator:
         self._paste_dispenser = paste_dispenser
         self._stage = stage
         self._nozzle_diameter = nozzle_diameter
-        self._fill_speed = fill_speed
+        self._max_fill_speed = max_fill_speed
         self._max_dispense_rate = max_dispense_rate
         self._dispense_accel = dispense_accel
         self._ul_per_mm2 = ul_per_mm2
@@ -174,7 +176,7 @@ class PasteApplicator:
             paste_dispenser=paste_dispenser,
             stage=stage,
             nozzle_diameter=config.nozzle_diameter,
-            fill_speed=config.fill_speed,
+            max_fill_speed=config.max_fill_speed,
             max_dispense_rate=config.max_dispense_rate,
             dispense_accel=config.dispense_accel,
             ul_per_mm2=config.ul_per_mm2,
@@ -265,7 +267,6 @@ class PasteApplicator:
         self,
         polygons: Iterable[Polygon],
         *,
-        fill_speed: float | None = None,
         paste_height: PasteHeight | None = None,
         ul_per_mm2: float | None = None,
         dispense_mode: DispenseMode | None = None,
@@ -285,7 +286,6 @@ class PasteApplicator:
 
         Args:
             polygons: 塗布対象のポリゴン群
-            fill_speed: 塗布移動速度 [mm/sec]
             paste_height: 塗布面のZ高さ [mm]、または auto
             ul_per_mm2: 面積あたりのペースト量 [μL/mm²]
             dispense_mode: 塗布方式 auto / dot / line / area
@@ -294,7 +294,6 @@ class PasteApplicator:
             overlap: ジグザグ行間オーバーラップ [0, 1)
             boundary_margin: 外周マージン [mm]
         """
-        resolved_fill_speed = self._fill_speed if fill_speed is None else fill_speed
         resolved_paste_height = (
             self._paste_height if paste_height is None else paste_height
         )
@@ -315,7 +314,6 @@ class PasteApplicator:
         for polygon in polygons:
             self._fill(
                 polygon,
-                fill_speed=resolved_fill_speed,
                 paste_height=resolved_paste_height,
                 ul_per_mm2=resolved_ul_per_mm2,
                 dispense_mode=resolved_dispense_mode,
@@ -325,11 +323,65 @@ class PasteApplicator:
                 boundary_margin=resolved_boundary_margin,
             )
 
+    def draw_line(
+        self,
+        start: Point2d,
+        end: Point2d,
+        *,
+        amount: float,
+        paste_height: PasteHeight | None = None,
+        prime_extra_delay: float | None = None,
+        bead_width_factor: float | None = None,
+        max_fill_speed: float | None = None,
+        rate_cap: float | None = None,
+    ) -> Speed | None:
+        """1 本の直線を ``amount`` [μL] で塗布する（キャリブ用プリミティブ）.
+
+        ``apply`` のポリゴン経路生成を通さず、``[start, end]`` を直接 1 本の
+        ``FillSequence`` として送信する。Z 補正・transform 適用・吐出同期は
+        ``apply`` の塗布と同一機構（``_draw_polyline``）を共用する。塗布面積は
+        スロット（stadium）近似で見積もり、auto 高さ算出に使う。
+
+        Args:
+            start: 線の始点（board 座標, mm）
+            end: 線の終点（board 座標, mm）
+            amount: 塗布量 [μL]
+            paste_height: 塗布面のZ高さ [mm]、または auto。``None`` で既定値
+            prime_extra_delay: プライム後の追加遅延 [sec]。``None`` で既定値
+            bead_width_factor: ビード幅係数。``None`` で既定値
+            max_fill_speed: 連続塗布できる移動速度上限 [mm/sec]。``None`` で既定値。
+                ③ の速度スイープのように既定値を超える速度を測りたいとき上書きする
+            rate_cap: 吐出レートの頭打ち値 [μL/sec]。``None``=max_dispense_rate、
+                ``math.inf``=cap 無効（移動速度のみで律速）
+
+        Returns:
+            実効塗布移動速度（``Speed``）。経路長 0 などで引けないとき ``None``
+        """
+        resolved_paste_height = (
+            self._paste_height if paste_height is None else paste_height
+        )
+        resolved_prime_extra_delay = (
+            self._prime_extra_delay if prime_extra_delay is None else prime_extra_delay
+        )
+        resolved_bead_width_factor = (
+            self._bead_width_factor if bead_width_factor is None else bead_width_factor
+        )
+        return self._draw_polyline(
+            [start, end],
+            total_amount=amount,
+            paste_height=resolved_paste_height,
+            dispense_mode="line",
+            ul_per_mm2=self._ul_per_mm2,
+            prime_extra_delay=resolved_prime_extra_delay,
+            bead_width_factor=resolved_bead_width_factor,
+            max_fill_speed=max_fill_speed,
+            rate_cap=rate_cap,
+        )
+
     def _fill(
         self,
         polygon: Polygon,
         *,
-        fill_speed: float,
         paste_height: PasteHeight,
         ul_per_mm2: float,
         dispense_mode: DispenseMode,
@@ -365,34 +417,71 @@ class PasteApplicator:
         per_component_amount = total_amount / len(plan.paths)
 
         for raw in plan.paths:
-            resolved_height = self._resolve_paste_height(
-                paste_height,
+            self._draw_polyline(
+                raw,
+                total_amount=per_component_amount,
+                paste_height=paste_height,
                 dispense_mode=plan.dispense_mode,
-                path_length=_polyline_length(raw),
-                amount=per_component_amount,
                 ul_per_mm2=ul_per_mm2,
+                prime_extra_delay=prime_extra_delay,
                 bead_width_factor=bead_width_factor,
             )
-            path = Path(p.to3d(resolved_height) for p in raw).transformed(
-                self._transform
-            )
-            sequence = FillSequence(
-                path=path,
-                total_amount=per_component_amount,
-                retraction=self._retraction,
-                fill_speed=fill_speed,
-                max_dispense_rate=self._max_dispense_rate,
-                dispense_accel=self._dispense_accel,
-                retraction_rate=self._retraction_rate,
-                retraction_accel=self._retraction_accel,
-                prime_extra_delay=prime_extra_delay,
-                lift_height=self._lift_height,
-                travel_speed=Speed.rate(1.0),
-            )
-            self._klipper.send_gcode(
-                sequence.to_gcode(self._stage, self._paste_dispenser)
-                + gcode.wait_for_done()
-            )
+
+    def _draw_polyline(
+        self,
+        raw: list[Point2d],
+        *,
+        total_amount: float,
+        paste_height: PasteHeight,
+        dispense_mode: AppliedDispenseMode,
+        ul_per_mm2: float,
+        prime_extra_delay: float,
+        bead_width_factor: float,
+        max_fill_speed: float | None = None,
+        rate_cap: float | None = None,
+    ) -> Speed | None:
+        """1 本のポリラインを ``total_amount`` [μL] で塗布する（共通プリミティブ）.
+
+        ``paste_height`` 解決 → 各点に Z 付与 → ``self._transform`` 適用 →
+        ``FillSequence`` 送信を 1 本ぶん行う。``_fill`` の各成分と公開
+        ``draw_line`` が共用する（塗布挙動を二重化しないためのキモ）。
+
+        ``max_fill_speed`` は ``None`` で既定値（``self._max_fill_speed``）。③ の
+        速度スイープのように per-line で既定値を超える速度を出したいとき上書きする。
+
+        Returns:
+            実効塗布移動速度（``Speed``）。経路長 0 などで塗布移動が無いとき ``None``
+        """
+        resolved_height = self._resolve_paste_height(
+            paste_height,
+            dispense_mode=dispense_mode,
+            path_length=_polyline_length(raw),
+            amount=total_amount,
+            ul_per_mm2=ul_per_mm2,
+            bead_width_factor=bead_width_factor,
+        )
+        path = Path(p.to3d(resolved_height) for p in raw).transformed(self._transform)
+        sequence = FillSequence(
+            path=path,
+            total_amount=total_amount,
+            retraction=self._retraction,
+            max_fill_speed=(
+                self._max_fill_speed if max_fill_speed is None else max_fill_speed
+            ),
+            max_dispense_rate=self._max_dispense_rate,
+            dispense_accel=self._dispense_accel,
+            retraction_rate=self._retraction_rate,
+            retraction_accel=self._retraction_accel,
+            prime_extra_delay=prime_extra_delay,
+            lift_height=self._lift_height,
+            travel_speed=Speed.rate(1.0),
+            rate_cap=rate_cap,
+        )
+        self._klipper.send_gcode(
+            sequence.to_gcode(self._stage, self._paste_dispenser)
+            + gcode.wait_for_done()
+        )
+        return sequence.fill_speed_actual()
 
     def _resolve_paste_height(
         self,

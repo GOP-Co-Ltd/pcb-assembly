@@ -70,7 +70,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
         "Auto線塗布しきい縦横比",
         "float",
     ),
-    FieldSpec("paste_dispenser.fill_speed", "塗布移動速度", "float", "mm/s"),
+    FieldSpec("paste_dispenser.max_fill_speed", "最大塗布速度", "float", "mm/s"),
     FieldSpec("paste_dispenser.max_dispense_rate", "吐出レート上限", "float", "uL/s"),
     FieldSpec("paste_dispenser.dispense_accel", "吐出加速度", "float", "uL/s^2"),
     FieldSpec(

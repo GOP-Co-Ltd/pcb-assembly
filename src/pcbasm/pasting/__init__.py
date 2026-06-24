@@ -8,6 +8,16 @@ from .calibration import (
     FlowCalibrationSet,
     MassFlowCalibration,
 )
+from .dispense_calibration import (
+    DispenseRateCalibration,
+    FillSpeedSweep,
+    LineLayout,
+    RateMeasurement,
+    RotationsPerUlRound,
+    dispense_rate_schedule,
+    fill_speed_schedule,
+    slot_area,
+)
 from .fill_path import PasteFillPlan, build_paste_fill_path, build_paste_fill_plan
 from .fill_sequence import FillSequence
 from .height import HeightPlaneMeasurer
@@ -35,16 +45,24 @@ from .settings import (
 from .toolhead_offset import ToolheadOffsetResult
 
 __all__ = [
+    "DispenseRateCalibration",
     "EnableState",
     "FillSequence",
+    "FillSpeedSweep",
     "DispenseMode",
     "FlowCalibration",
     "FlowCalibrationSet",
     "HeightPlaneMeasurer",
     "LevelSetting",
+    "LineLayout",
     "MassFlowCalibration",
     "NUMERIC_PASTE_OVERRIDE_FIELDS",
     "PasteApplicator",
+    "RateMeasurement",
+    "RotationsPerUlRound",
+    "dispense_rate_schedule",
+    "fill_speed_schedule",
+    "slot_area",
     "PasteFillPlan",
     "PasteHeight",
     "PasteOverride",

@@ -31,10 +31,10 @@ class TestMachineSettingsApi:
         fields = {field["key"]: field for field in data["fields"]}
         assert set(fields) == {spec.key for spec in MACHINE_FIELDS}
 
-        fill_speed = fields["paste_dispenser.fill_speed"]
-        assert fill_speed["value"] == 0.8
-        assert fill_speed["value_type"] == "float"
-        assert fill_speed["label"]
+        max_fill_speed = fields["paste_dispenser.max_fill_speed"]
+        assert max_fill_speed["value"] == 0.8
+        assert max_fill_speed["value_type"] == "float"
+        assert max_fill_speed["label"]
         assert fields["paste_dispenser.dispense_mode"]["value"] == "auto"
         assert fields["paste_dispenser.dispense_mode"]["value_type"] == "dispense_mode"
         assert fields["paste_dispenser.auto_line_aspect_ratio"]["value"] == 1.618
@@ -64,7 +64,7 @@ class TestMachineSettingsApi:
             json={
                 "values": {
                     "paste_dispenser.rotations_per_ul": 9.876543,
-                    "paste_dispenser.fill_speed": 0.9,
+                    "paste_dispenser.max_fill_speed": 0.9,
                     "probe.down_distance": 2.5,
                     "probe.shift": [0.25, -0.75],
                 }
@@ -74,7 +74,7 @@ class TestMachineSettingsApi:
         assert response.status_code == 200
         fields = {field["key"]: field for field in response.json()["fields"]}
         assert fields["paste_dispenser.rotations_per_ul"]["value"] == 9.876543
-        assert fields["paste_dispenser.fill_speed"]["value"] == 0.9
+        assert fields["paste_dispenser.max_fill_speed"]["value"] == 0.9
         assert fields["probe.down_distance"]["value"] == 2.5
         assert fields["probe.shift"]["value"] == [0.25, -0.75]
 
@@ -132,7 +132,7 @@ class TestMachineSettingsApi:
         with appstate.machine_lock("pytest-job"):
             response = client.put(
                 "/api/settings/machine",
-                json={"values": {"paste_dispenser.fill_speed": 0.9}},
+                json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
             )
 
         assert response.status_code == 409
@@ -161,7 +161,7 @@ class TestCameraSettingsRebuild:
 
         response = fake_camera_client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.fill_speed": 0.9}},
+            json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
         )
 
         assert response.status_code == 200
