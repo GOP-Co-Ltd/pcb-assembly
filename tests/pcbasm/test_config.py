@@ -122,6 +122,44 @@ class TestMachine:
 
         assert machine.paste_dispenser.air_pump_enabled is False
 
+    def test_effective_retract_rate_falls_back_to_max_dispense_rate_when_absent(
+        self, tmp_path
+    ):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source.replace("retract_rate = 50.0\n", ""),
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.paste_dispenser.retract_rate is None
+        assert machine.paste_dispenser.effective_retract_rate == pytest.approx(
+            machine.paste_dispenser.max_dispense_rate
+        )
+        assert machine.paste_dispenser.effective_retract_rate == pytest.approx(5.0)
+
+    def test_effective_retract_rate_returns_explicit_value(self):
+        dispenser = PasteDispenser(
+            rotations_per_ul=1.0,
+            nozzle_diameter=0.21,
+            fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            retract_amount=10.0,
+            retract_rate=50.0,
+            retract_accel_factor=2.0,
+            toolhead=Toolhead(x=13.2, y=54.7),
+            paste_height="auto",
+            ul_per_mm2=0.2,
+            solder_paste_density=3.78,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=1.618,
+        )
+
+        assert dispenser.effective_retract_rate == pytest.approx(50.0)
+
     def test_raises_key_error_when_config_not_defined(self):
         machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
 
