@@ -31,11 +31,9 @@
       return "auto";
     }
 
-    const value = parseNumber(text, input.name);
-    if (input.dataset.type === "int" && !Number.isInteger(value)) {
-      throw new Error(`${input.name} は整数で入力してください`);
-    }
-    return input.dataset.type === "int" ? value : Number(value);
+    // 整数制約はサーバ（config_store の int 検証）が 400 で弾く。
+    // ここでは数値化可否（parseNumber）のみ確認する。
+    return parseNumber(text, input.name);
   }
 
   function pairValue(group) {

@@ -16,6 +16,8 @@ node_id 規約（フロントと共有する契約）:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import attrs
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -31,6 +33,7 @@ from pcbasm.pasting import (
     ResolvedPaste,
     base_override_from_config,
     plan_paste_route,
+    resolve_node_settings,
     resolve_pad_settings,
     validate_field_names,
     validate_override_values,
@@ -83,20 +86,33 @@ class PadInfo(BaseModel):
     resolved: ResolvedSettings
 
 
-class HierNodeInfo(BaseModel):
-    """階層ツリーの 1 ノード（構造のみ。pad は含めない）."""
-
-    id: str
-    level: int
-    label: str
-    children: list[HierNodeInfo]
-
-
 class NodeOverrideInfo(BaseModel):
     """1 ノードに明示された override（疎）."""
 
     enabled: bool | None = None  # 明示 enabled（無指定 = null）
     values: dict[str, PasteSettingValue] = {}  # override された項目のみ（疎）
+
+
+class DescendantSummary(BaseModel):
+    """子孫ノードの override 集計（UI の継承マーカー表示用）."""
+
+    enabled_count: int = 0  # enabled を明示した子孫ノード数
+    field_counts: dict[str, int] = {}  # field ごとの子孫 override 数
+    fields: list[str] = []  # 子孫に override がある field
+    node_count: int = 0  # override を持つ子孫ノード数
+    count: int = 0  # 子孫 override の総数
+
+
+class HierNodeInfo(BaseModel):
+    """階層ツリーの 1 ノード（構造 + 解決値・own override・子孫集計）."""
+
+    id: str
+    level: int
+    label: str
+    resolved: ResolvedSettings  # このノードに解決される確定値（enabled 含む）
+    own_override: NodeOverrideInfo  # このノードの明示 override（疎）
+    descendant_summary: DescendantSummary  # 子孫ノードの override 集計
+    children: list[HierNodeInfo]
 
 
 class PadConfigResponse(BaseModel):
@@ -215,13 +231,63 @@ def _resolved_settings(resolved: ResolvedPaste) -> ResolvedSettings:
     return ResolvedSettings(**attrs.asdict(resolved))
 
 
-def _tree(node: PadHierarchyNode) -> HierNodeInfo:
+def _tree(
+    node: PadHierarchyNode,
+    model: PasteSettingsModel,
+    resolved: dict[tuple[str, ...], ResolvedPaste],
+) -> HierNodeInfo:
+    setting = model.levels.get(node.key)
+    own = NodeOverrideInfo(
+        enabled=setting.enabled if setting is not None else None,
+        values=_override_values(setting.override) if setting is not None else {},
+    )
     return HierNodeInfo(
         id=_node_id(node.key),
         level=node.level,
         label=node.label,
-        children=[_tree(child) for child in node.children],
+        resolved=_resolved_settings(resolved[node.key]),
+        own_override=own,
+        descendant_summary=_descendant_summary(node, model),
+        children=[_tree(child, model, resolved) for child in node.children],
     )
+
+
+def _descendant_summary(
+    node: PadHierarchyNode, model: PasteSettingsModel
+) -> DescendantSummary:
+    """``node`` の子孫（自身は含めない）の override を集計する."""
+    field_counts = {field: 0 for field in PASTE_OVERRIDE_FIELDS}
+    enabled_count = 0
+    node_count = 0
+    total = 0
+    for descendant in _iter_descendants(node):
+        setting = model.levels.get(descendant.key)
+        if setting is None:
+            continue
+        own_count = 0
+        if setting.enabled is not None:
+            enabled_count += 1
+            own_count += 1
+        for field in PASTE_OVERRIDE_FIELDS:
+            if getattr(setting.override, field) is not None:
+                field_counts[field] += 1
+                own_count += 1
+        if own_count > 0:
+            total += own_count
+            node_count += 1
+    return DescendantSummary(
+        enabled_count=enabled_count,
+        field_counts=field_counts,
+        fields=[field for field in PASTE_OVERRIDE_FIELDS if field_counts[field] > 0],
+        node_count=node_count,
+        count=total,
+    )
+
+
+def _iter_descendants(node: PadHierarchyNode) -> Iterator[PadHierarchyNode]:
+    for child in node.children:
+        yield child
+        yield from _iter_descendants(child)
 
 
 def _override_values(override: PasteOverride) -> dict[str, PasteSettingValue]:
@@ -327,6 +393,7 @@ def _build_pad_config(loaded: _Loaded) -> PadConfigResponse:
     model = loaded.model
 
     resolved = resolve_pad_settings(hierarchy, model)
+    node_resolved = resolve_node_settings(hierarchy, model)
     package_by_designator = {c.designator: c.package for c in pcb.components}
 
     pads = [
@@ -348,7 +415,7 @@ def _build_pad_config(loaded: _Loaded) -> PadConfigResponse:
         width=outline.width,
         height=outline.height,
         defaults=_resolved_default(model),
-        tree=_tree(hierarchy.root),
+        tree=_tree(hierarchy.root, model, node_resolved),
         pads=pads,
         overrides=_overrides(model),
     )

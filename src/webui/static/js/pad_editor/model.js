@@ -56,88 +56,6 @@ export function ancestorChain(parentOf, nodeId) {
   return chain;
 }
 
-export function ownOverride(config, nodeId) {
-  return config.overrides[nodeId] || { enabled: null, values: {} };
-}
-
-function summarizeOverride(override) {
-  const fields = FIELDS.filter(
-    (field) => override.values?.[field] !== undefined
-  );
-  const enabled = override.enabled !== null && override.enabled !== undefined;
-  return {
-    enabled,
-    fields,
-    count: fields.length + (enabled ? 1 : 0),
-  };
-}
-
-export function ownOverrideSummary(config, nodeId) {
-  return summarizeOverride(ownOverride(config, nodeId));
-}
-
-export function descendantOverrideSummary(config, node) {
-  const fieldCounts = Object.fromEntries(FIELDS.map((field) => [field, 0]));
-  const summary = {
-    enabledCount: 0,
-    fieldCounts,
-    fields: [],
-    nodeCount: 0,
-    count: 0,
-  };
-
-  const walk = (current) => {
-    const override = config.overrides[current.id];
-    if (override) {
-      const currentSummary = summarizeOverride(override);
-      if (currentSummary.enabled) {
-        summary.enabledCount += 1;
-      }
-      for (const field of currentSummary.fields) {
-        summary.fieldCounts[field] += 1;
-      }
-      if (currentSummary.count > 0) {
-        summary.count += currentSummary.count;
-        summary.nodeCount += 1;
-      }
-    }
-    for (const child of current.children || []) walk(child);
-  };
-
-  for (const child of node.children || []) walk(child);
-  summary.fields = FIELDS.filter((field) => summary.fieldCounts[field] > 0);
-  return summary;
-}
-
-export function resolvedEnabled(config, parentOf, nodeId) {
-  let enabled = config.defaults?.enabled ?? true;
-  for (const id of ancestorChain(parentOf, nodeId)) {
-    const override = config.overrides[id];
-    if (
-      override &&
-      override.enabled !== null &&
-      override.enabled !== undefined
-    ) {
-      enabled = override.enabled;
-    }
-  }
-  return enabled;
-}
-
-export function resolvedValue(config, parentOf, nodeId, field) {
-  let value =
-    config.defaults && config.defaults[field] !== undefined
-      ? config.defaults[field]
-      : null;
-  for (const id of ancestorChain(parentOf, nodeId)) {
-    const override = config.overrides[id];
-    if (override && override.values && override.values[field] !== undefined) {
-      value = override.values[field];
-    }
-  }
-  return value;
-}
-
 export function padsUnderNode(config, nodeId) {
   return config.pads.filter((pad) => pad.node_ids.includes(nodeId));
 }
@@ -154,32 +72,6 @@ export function cleanupSelection(config, selected) {
   for (const id of [...selected]) {
     if (!ids.has(id)) selected.delete(id);
   }
-}
-
-export function updateLocalOverride(config, body) {
-  const id = body.node;
-  const override = config.overrides[id]
-    ? {
-        enabled: config.overrides[id].enabled,
-        values: { ...config.overrides[id].values },
-      }
-    : { enabled: null, values: {} };
-
-  if ("enabled" in body) override.enabled = body.enabled;
-  if (body.values) {
-    for (const [key, value] of Object.entries(body.values)) {
-      override.values[key] = value;
-    }
-  }
-  if (body.clear) {
-    for (const key of body.clear) delete override.values[key];
-  }
-
-  const empty =
-    (override.enabled === null || override.enabled === undefined) &&
-    Object.keys(override.values).length === 0;
-  if (empty) delete config.overrides[id];
-  else config.overrides[id] = override;
 }
 
 export function round4(value) {
