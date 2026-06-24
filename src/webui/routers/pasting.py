@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from pcbasm.config import PasteDispenser
 from pcbasm.pasting import (
     PASTE_OVERRIDE_FIELDS,
+    MassFlowCalibration,
     PasteOverride,
     PasteSettingsModel,
     PasteSettingValue,
@@ -680,3 +681,48 @@ def import_pad_config(
         board_signature=loaded.board_signature,
     )
     return _build_pad_config(attrs.evolve(loaded, model=pruned))
+
+
+# --------------------------------------------------------------------------- #
+# ペーストローディング 質量キャリブレーション（算出のみ。適用は settings API）
+# --------------------------------------------------------------------------- #
+class LoadingCalibrationResult(BaseModel):
+    """質量キャリブレーションの算出結果（入力不足の値は null）."""
+
+    volume_ul: float | None
+    rotations_per_ul: float | None
+    max_dispense_rate: float | None
+    dispense_accel: float | None
+
+
+@router.get("/pasting/loading/calibration")
+def get_loading_calibration(
+    state: StateDep,
+    mass_mg: float = 0.0,
+    rotations: float = 0.0,
+    rate: float = 0.0,
+    accel: float = 0.0,
+) -> LoadingCalibrationResult:
+    """計測質量・回転数・速度・加速度から塗布キャリブレーション値を算出する.
+
+    密度はサーバ側のマシン設定 ``solder_paste_density`` を真実とする。
+    非正入力は該当値を ``None`` で返す（エラーにしない）。
+    """
+    density = state.machine().paste_dispenser.solder_paste_density
+    volume_ul = mass_mg / density if mass_mg > 0 and density > 0 else None
+    if not (mass_mg > 0 and density > 0 and rotations > 0):
+        return LoadingCalibrationResult(
+            volume_ul=volume_ul,
+            rotations_per_ul=None,
+            max_dispense_rate=None,
+            dispense_accel=None,
+        )
+    calib = MassFlowCalibration(
+        rotations=rotations, mass_mg=mass_mg, density_mg_per_ul=density
+    )
+    return LoadingCalibrationResult(
+        volume_ul=volume_ul,
+        rotations_per_ul=calib.rotations_per_ul,
+        max_dispense_rate=calib.dispense_rate_for(rate) if rate > 0 else None,
+        dispense_accel=calib.dispense_accel_for(accel) if accel > 0 else None,
+    )

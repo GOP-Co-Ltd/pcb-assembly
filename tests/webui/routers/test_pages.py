@@ -363,10 +363,14 @@ class TestPastingJobPages:
         assert 'data-loading-stage="キャリブレーションメニュー"' in text
         assert 'data-loading-stage="ローディング"' not in text
 
-    def test_loading_page_renders_rotation_controls_without_mass_calibration(
+    def test_loading_page_renders_rotation_controls_and_mass_calibration(
         self, client: TestClient
     ):
-        """ローディング画面は体積/回転コントロールを持つ（質量キャリブ表は削除済み）."""
+        """ローディング画面は体積/回転コントロール + 質量キャリブレーション表を持つ.
+
+        質量キャリブは初期 rotations_per_ul 等をゼロから設定するブートストラップ用。 既存値を線引きで補正する
+        dispense_calibration とは用途が別なので併存させる。
+        """
         text = client.get("/pasting/loading").text
 
         assert 'type="hidden" id="param-amount"' in text
@@ -382,11 +386,11 @@ class TestPastingJobPages:
         assert 'id="lc-accel"' in text
         assert 'id="lc-extrude-rotations"' in text
         assert 'id="lc-suck-rotations"' in text
-        # 質量キャリブレーション表は新ジョブへ一本化したため削除済み
-        assert 'id="loading-mass-calibration"' not in text
-        assert 'id="lc-mass-mg"' not in text
-        assert 'id="lc-rotations-per-ul"' not in text
-        assert 'id="lc-apply-rotations-per-ul"' not in text
+        # 質量キャリブレーション表（ブートストラップ用）はローディング画面に残す
+        assert 'id="loading-mass-calibration"' in text
+        assert 'id="lc-mass-mg"' in text
+        assert 'id="lc-rotations-per-ul"' in text
+        assert 'id="lc-apply-rotations-per-ul"' in text
         assert 'data-job-names="loading"' in text
         for value in ('value="5.0"', 'value="0.5"'):
             assert value in text
@@ -442,6 +446,15 @@ class TestPastingJobPages:
             "speed_divisions",
         ):
             assert name in text
+        # パラメータは ①②③ のセクション（fieldset）に分かれて表示される
+        assert "job-param-group" in text
+        for legend in (
+            "共通土台",
+            "① rotations_per_ul",
+            "② max_dispense_rate",
+            "③ max_fill_speed",
+        ):
+            assert legend in text
         assert "calibration-menu" in text
         for bid in (
             "calib-rotations-per-ul",

@@ -134,6 +134,24 @@ _LOADING_STAGE_OVERRIDE = {
 
 _LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel")
 
+# dispense_calibration フォームのセクション分け（表示のみ）。
+# ①②③ の依存順に沿ってパラメータを視覚的にグルーピングする。
+_DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("共通土台（銅板・位置合わせ）", ("board_width", "board_height", "tolerance")),
+    (
+        "① rotations_per_ul の補正（線引き検証）",
+        ("line_length", "line_count", "line_amount", "row_pitch", "specific_gravity"),
+    ),
+    (
+        "② max_dispense_rate（吐出効率の落ち検出）",
+        ("rate_min", "rate_max", "rate_divisions"),
+    ),
+    (
+        "③ max_fill_speed（連続塗布の最大速度）",
+        ("speed_min", "speed_max", "speed_divisions"),
+    ),
+)
+
 router = APIRouter()
 
 
@@ -302,7 +320,20 @@ def feature_page(
                     for spec in param_specs
                     if spec.name in _LOADING_ROTATION_PARAMS
                 }
-                context.update(loading_rotation_defaults=rotation_defaults)
+                dispenser = state.machine().paste_dispenser
+                context.update(
+                    loading_rotation_defaults=rotation_defaults,
+                    solder_paste_density=dispenser.solder_paste_density,
+                    current_rotations_per_ul=dispenser.rotations_per_ul,
+                    current_max_dispense_rate=dispenser.max_dispense_rate,
+                    current_dispense_accel=dispenser.dispense_accel,
+                )
+            if feature == "dispense_calibration":
+                specs_by_name = {spec.name: spec for spec in param_specs}
+                context["param_groups"] = [
+                    (legend, [specs_by_name[name] for name in names])
+                    for legend, names in _DISPENSE_CALIBRATION_PARAM_GROUPS
+                ]
     if feature == "copper_detection":
         pad_align = state.machine().paste_dispenser.pad_align
         context.update(

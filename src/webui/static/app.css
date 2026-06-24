@@ -694,6 +694,30 @@ h2 {
   color: var(--quiet);
 }
 
+.job-intro {
+  max-width: 42rem;
+  margin: 0 0 0.9rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.job-param-group {
+  display: grid;
+  gap: 0.55rem;
+  max-width: 42rem;
+  margin: 0 0 0.9rem;
+  padding: 0.6rem 0.85rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.job-param-group > legend {
+  padding: 0 0.4rem;
+  color: var(--accent, var(--muted));
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
 #job-run {
   width: fit-content;
   min-width: 6rem;
@@ -1349,7 +1373,8 @@ h2 {
   border-top: 1px solid var(--line);
 }
 
-.calibration-menu {
+.calibration-menu,
+.loading-mass-calibration {
   display: grid;
   gap: 0.55rem;
   min-width: 0;
@@ -1377,6 +1402,72 @@ h2 {
   display: flex;
   padding-top: 0.55rem;
   border-top: 1px solid var(--line);
+}
+
+.loading-mass-calibration h3 {
+  margin: 0;
+}
+
+.loading-calibration-result {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.45rem 0.8rem;
+  margin: 0;
+}
+
+.loading-calibration-result div {
+  min-width: 0;
+}
+
+.loading-calibration-result dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.loading-calibration-result dd {
+  margin: 0.1rem 0 0;
+  font-family: var(--mono);
+}
+
+.loading-calibration-message {
+  min-height: 1.2rem;
+  margin: 0;
+  color: var(--danger);
+}
+
+.loading-calibration-rows {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.loading-calibration-rows th,
+.loading-calibration-rows td {
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.loading-calibration-rows thead th {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: normal;
+}
+
+.loading-calibration-rows tbody th {
+  font-weight: normal;
+}
+
+.loading-calibration-rows output {
+  font-family: var(--mono);
+}
+
+.loading-calibration-rows td:last-child {
+  text-align: right;
+}
+
+.loading-calibration-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 @media (max-width: 860px) {
