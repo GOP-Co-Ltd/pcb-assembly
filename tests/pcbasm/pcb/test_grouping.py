@@ -5,6 +5,8 @@ Pad/Component/shapely.Polygon を直接構築し、build_pad_hierarchy の
 公開振る舞いを検証する（PcbFile/pcbnew は使わない）。
 """
 
+import hashlib
+import json
 from collections.abc import Sequence
 
 import pytest
@@ -356,3 +358,84 @@ class TestIterPads:
         collected = list(hierarchy.iter_pads())
         keys = {(p.designator, p.pad_number) for p in collected}
         assert keys == {("R1", "1"), ("R1", "2"), ("R2", "1")}
+
+
+class TestL4KeysForPadIds:
+    """l4_keys_for_pad_ids は pad id 列を L4 キーへ解決し、未知 id を分離する。"""
+
+    @pytest.fixture
+    def hierarchy(self) -> PadHierarchy:
+        components = [_component("R1", "0402"), _component("U1", "QFN-8")]
+        pads = [
+            _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)),
+            _pad("U1", "9", _rect(11.0, 0.0, 4.2, 4.2)),
+        ]
+        return build_pad_hierarchy(components, pads)
+
+    def test_resolves_known_ids_to_l4_keys(self, hierarchy: PadHierarchy):
+        l4_keys, unknown = hierarchy.l4_keys_for_pad_ids(["R1.1", "U1.9"])
+
+        assert l4_keys == [("L4", "R1", "1"), ("L4", "U1", "9")]
+        assert unknown == []
+
+    def test_unknown_ids_are_separated(self, hierarchy: PadHierarchy):
+        l4_keys, unknown = hierarchy.l4_keys_for_pad_ids(["R1.1", "Q9.1"])
+
+        assert l4_keys == [("L4", "R1", "1")]
+        assert unknown == ["Q9.1"]
+
+    def test_empty_input_returns_empty(self, hierarchy: PadHierarchy):
+        assert hierarchy.l4_keys_for_pad_ids([]) == ([], [])
+
+
+class TestSignature:
+    """Signature は pad 構成の安定ハッシュ（L4 分割 suffix は含めない）。"""
+
+    def test_same_construction_is_stable(self):
+        components = [_component("R1", "0402")]
+        pads = [_pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9))]
+
+        a = build_pad_hierarchy(components, pads).signature()
+        b = build_pad_hierarchy(components, pads).signature()
+
+        assert a == b
+
+    def test_changed_construction_changes_signature(self):
+        components = [_component("R1", "0402")]
+        base = build_pad_hierarchy(
+            components, [_pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9))]
+        ).signature()
+        moved = build_pad_hierarchy(
+            components, [_pad("R1", "1", _rect(2.0, 0.0, 0.5, 0.9))]
+        ).signature()
+
+        assert base != moved
+
+    def test_duplicate_pad_numbers_keep_legacy_l4_key(self):
+        # 同一 pad_number の分割片は L4 suffix を署名に含めない（旧 UI 互換）
+        components = [_component("U1", "LFCSP-24")]
+        pads = [
+            _pad("U1", "", _rect(0.0, 0.0, 0.93, 0.93)),
+            _pad("U1", "", _rect(1.0, 0.0, 0.93, 0.93)),
+        ]
+        hierarchy = build_pad_hierarchy(components, pads)
+        shape_label = PadShapeKey.of(pads[0]).label
+        records = [
+            {
+                "id": f"{pad.designator}.{pad.pad_number}",
+                "layer": pad.layer.value,
+                "node_keys": [
+                    ["L0"],
+                    ["L1", "LFCSP-24"],
+                    ["L2", "U1"],
+                    ["L3", "U1", shape_label],
+                    ["L4", "U1", ""],
+                ],
+                "polygon": [[x, y] for x, y in pad.polygon.exterior.coords],
+            }
+            for pad in hierarchy.iter_pads()
+        ]
+        payload = json.dumps(records, sort_keys=True, separators=(",", ":"))
+        expected = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+        assert hierarchy.signature() == expected

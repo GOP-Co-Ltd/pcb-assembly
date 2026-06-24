@@ -18,6 +18,8 @@ L3 の形状分類は :class:`PadShapeKey` による。回転配置された同�
 分割片を区別する。
 """
 
+import hashlib
+import json
 from collections.abc import Iterator, Sequence
 
 import attrs
@@ -204,10 +206,58 @@ class PadHierarchy:
             keys.update(pad_keys)
         return keys
 
+    def l4_keys_for_pad_ids(
+        self, pad_ids: Sequence[str]
+    ) -> tuple[list[HierKey], list[str]]:
+        """Pad id 列を L4 階層キー列に解決する.
+
+        Returns:
+            ``(解決できた L4 キー列, 未知だった pad id 列)``。未知 id は
+            例外ではなくリストで返す（呼び出し側でまとめて 400 にできる）。
+        """
+        resolved: list[HierKey] = []
+        unknown: list[str] = []
+        for pad_id in pad_ids:
+            ref = self._refs_by_pad_id.get(pad_id)
+            if ref is None:
+                unknown.append(pad_id)
+                continue
+            resolved.append(self._keys_by_pad_ref[ref][-1])
+        return resolved, unknown
+
+    def signature(self) -> str:
+        """Pad 構成の安定ハッシュ（L4 分割 suffix は含めない）を返す.
+
+        L4 の分割 pad suffix は署名に含めない。旧 UI では同一 ``pad_number``
+        の分割片が同じ L4 key に潰れていたため、ここを新 key にすると既存
+        設定が不必要に「別基板」扱いされる。
+        """
+        records = []
+        for pad in self.iter_pads():
+            records.append(
+                {
+                    "id": f"{pad.designator}.{pad.pad_number}",
+                    "layer": pad.layer.value,
+                    "node_keys": [
+                        _signature_key(key, pad) for key in self.node_keys_for_pad(pad)
+                    ],
+                    "polygon": [[x, y] for x, y in pad.polygon.exterior.coords],
+                }
+            )
+        payload = json.dumps(records, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
 
 def pad_id_from_ref(ref: PadRef) -> str:
     """PadRef を WebUI/API 用の文字列 id に変換する."""
     return f"{ref[0]}.{ref[1]}"
+
+
+def _signature_key(key: HierKey, pad: Pad) -> list[str]:
+    """署名用に L4 の分割 suffix を pad_number に戻したキー表現を返す."""
+    if key[0] == "L4":
+        return ["L4", key[1], pad.pad_number]
+    return list(key)
 
 
 def _hier_keys_for(

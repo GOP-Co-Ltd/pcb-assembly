@@ -12,6 +12,7 @@
 """
 
 from collections.abc import Sequence
+from typing import Any, cast
 
 import attrs
 
@@ -122,6 +123,49 @@ class PasteSettingsModel:
     base_enabled: bool = True
     levels: dict[HierKey, LevelSetting] = attrs.field(factory=dict)
 
+    def with_level_patch(
+        self,
+        key: HierKey,
+        *,
+        values: dict[str, PasteSettingValue] | None = None,
+        clear: Sequence[str] = (),
+        enabled: bool | None = None,
+        enabled_sent: bool = False,
+    ) -> "PasteSettingsModel":
+        """1 ノードの override を upsert/clear した新しいモデルを返す（不変）.
+
+        - ``values`` の項目で override を上書きする
+        - ``clear`` の項目を継承（``None``）に戻す
+        - ``enabled_sent`` が False のときは既存の ``enabled`` を保持する
+        - 結果が空（``enabled`` が None かつ override 全項目 None）なら
+          ``levels`` から ``key`` を除く
+        """
+        levels = dict(self.levels)
+        current = levels.get(key, LevelSetting())
+        override_dict: dict[str, PasteSettingValue | None] = {
+            field: getattr(current.override, field) for field in PASTE_OVERRIDE_FIELDS
+        }
+        if values:
+            override_dict.update(values)
+        for field in clear:
+            override_dict[field] = None
+        new_override = PasteOverride(**cast(dict[str, Any], override_dict))
+        new_enabled = enabled if enabled_sent else current.enabled
+        if new_enabled is None and not _has_override_values(new_override):
+            levels.pop(key, None)
+        else:
+            levels[key] = LevelSetting(enabled=new_enabled, override=new_override)
+        return attrs.evolve(self, levels=levels)
+
+    def with_pads_enabled(
+        self, l4_keys: Sequence[HierKey], *, enabled: bool
+    ) -> "PasteSettingsModel":
+        """指定 L4 ノード群の ``enabled`` を一括設定した新モデルを返す."""
+        model = self
+        for key in l4_keys:
+            model = model.with_level_patch(key, enabled=enabled, enabled_sent=True)
+        return model
+
 
 def base_override_from_config(config: PasteDispenser) -> PasteOverride:
     """``PasteDispenser`` 設定から L0 デフォルトの override を作る.
@@ -159,6 +203,44 @@ def _check_paste_height(value: object) -> None:
     _check_numeric("paste_height", value)
     if isinstance(value, (int, float)) and value <= 0:
         raise ValueError(f"paste_heightは正の値である必要があります: {value}")
+
+
+def _has_override_values(override: PasteOverride) -> bool:
+    """Override に非 None 項目が1つでもあるか."""
+    return any(getattr(override, field) is not None for field in PASTE_OVERRIDE_FIELDS)
+
+
+def validate_field_names(fields: Sequence[str]) -> str | None:
+    """``PASTE_OVERRIDE_FIELDS`` 外の項目があればエラー文、無ければ ``None``."""
+    unknown = [field for field in fields if field not in PASTE_OVERRIDE_FIELDS]
+    if unknown:
+        return f"未知の設定項目です: {', '.join(unknown)}"
+    return None
+
+
+def validate_override_values(values: dict[str, PasteSettingValue]) -> str | None:
+    """Override patch の値を検証し、不正なら日本語エラー文、正常なら ``None``.
+
+    ``PasteOverride`` 生成前に HTTP リクエスト値を検査するための None 返却
+    バリデーション。``PasteOverride.__attrs_post_init__`` と同一規則。
+    """
+    if (message := validate_field_names(list(values))) is not None:
+        return message
+    for field, value in values.items():
+        if field == "dispense_mode":
+            if not isinstance(value, str) or value not in DISPENSE_MODES:
+                return f"未知の塗布方式です: {value!r}"
+        elif field == "paste_height":
+            if value == "auto":
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return f"paste_heightはautoまたは数値で指定してください: {value!r}"
+            if value <= 0:
+                return f"paste_heightは正の値で指定してください: {value}"
+        elif field in NUMERIC_PASTE_OVERRIDE_FIELDS:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return f"{field}は数値で指定してください: {value!r}"
+    return None
 
 
 def _apply_override(

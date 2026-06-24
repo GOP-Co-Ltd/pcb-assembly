@@ -28,6 +28,8 @@ from .settings import (
     resolve_pad_settings,
     settings_from_dict,
     settings_to_dict,
+    validate_field_names,
+    validate_override_values,
 )
 from .toolhead_offset import ToolheadOffsetResult
 
@@ -61,4 +63,6 @@ __all__ = [
     "resolve_pad_settings",
     "settings_from_dict",
     "settings_to_dict",
+    "validate_field_names",
+    "validate_override_values",
 ]

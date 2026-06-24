@@ -16,6 +16,7 @@ from .copper import (
 )
 from .correction import to_machine_transform
 from .offset import OffsetTransformMeasurer
+from .orthogonality import OrthogonalityMetrics, orthogonality_metrics
 from .pad import (
     ComponentPads,
     CopperPadObserver,
@@ -50,6 +51,7 @@ __all__ = [
     "EdgeMatch",
     "OffsetObserver",
     "OffsetTransformMeasurer",
+    "OrthogonalityMetrics",
     "PadAligner",
     "PadAlignmentResult",
     "PadAlignmentSession",
@@ -61,6 +63,7 @@ __all__ = [
     "group_pads_by_component",
     "interactive_display_at_point",
     "machine_session",
+    "orthogonality_metrics",
     "render_edge_match",
     "render_label",
     "setup_board_calibration",
