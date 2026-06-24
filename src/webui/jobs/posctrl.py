@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import time
 from collections.abc import Sequence
 from datetime import datetime
@@ -13,13 +12,14 @@ import cv2
 
 from pcbasm import gcode
 from pcbasm.config import Machine
-from pcbasm.geometry import Compose, Point2d, Point3d, Transform, sort_by_nearest
+from pcbasm.geometry import Compose, Point2d, Point3d, sort_by_nearest
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
     BoardCalibrationResult,
     ComponentPads,
     CopperProjector,
+    OrthogonalityMetrics,
     PadAlignmentResult,
     PadAlignmentSession,
     PadResultRenderer,
@@ -117,39 +117,6 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
             ),
             uses_machine=False,
         )
-    )
-
-
-@attrs.frozen
-class OrthogonalityMetrics:
-    """board_transform から導出した直行性指標.
-
-    Attributes:
-        axis_angle_error_deg: 変換後の X/Y 軸間角の 90° からのずれ（deg）
-        scale_x: X 単位ベクトルの変換後の長さ |T(1,0)-T(0,0)|
-        scale_y: Y 単位ベクトルの変換後の長さ |T(0,1)-T(0,0)|
-    """
-
-    axis_angle_error_deg: float
-    scale_x: float
-    scale_y: float
-
-
-def orthogonality_metrics(transform: Transform) -> OrthogonalityMetrics:
-    """board_transform（3 点法計測の affine）から直行性指標を導出する.
-
-    軸間角は変換後の X/Y 単位ベクトルのなす角（[0, 180] deg、鏡映の影響を 受けない）とし、90° からのずれを返す。
-    """
-    origin = transform.apply(Point2d(0.0, 0.0))
-    axis_x = transform.apply(Point2d(1.0, 0.0)) - origin
-    axis_y = transform.apply(Point2d(0.0, 1.0)) - origin
-    cross = axis_x.x * axis_y.y - axis_x.y * axis_y.x
-    dot = axis_x.x * axis_y.x + axis_x.y * axis_y.y
-    angle_deg = math.degrees(math.atan2(abs(cross), dot))
-    return OrthogonalityMetrics(
-        axis_angle_error_deg=angle_deg - 90.0,
-        scale_x=axis_x.norm,
-        scale_y=axis_y.norm,
     )
 
 
@@ -547,7 +514,7 @@ def _run_orthogonality_test(ctx: JobContext) -> JobResult:
         result = _calibrated_board(ctx, camera)
         board_transform = result.board_transform
 
-        metrics = orthogonality_metrics(board_transform)
+        metrics = OrthogonalityMetrics.from_transform(board_transform)
         ctx.log(f"軸間角の 90° からのずれ: {metrics.axis_angle_error_deg:+.3f} deg")
         ctx.log(f"スケール X: {metrics.scale_x:.5f} / Y: {metrics.scale_y:.5f}")
 

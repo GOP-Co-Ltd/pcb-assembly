@@ -105,6 +105,15 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - ハードウェアテストは `@mark_hardware` で分離
 - 詳細：skill `refactor-conventions`, `hardware-test`
 
+### WebUI 設計（ロジックは pcbasm、JS は薄いラッパー）
+
+計算・ドメインロジックは pcbasm（`src/pcbasm/`）に集約し、算出結果はエンドポイントで公開する。`src/webui/` の router/JS は薄いラッパー（入出力変換・DOM 操作・表示更新）に徹する。
+
+- **Do**: 解決済み値・派生値・集計はサーバが算出して返す。JS は API レスポンスをそのまま表示に流し、編集後はサーバ応答（または再取得）で更新する。クライアント検証は UX 最小限（空欄・数値パース可否）に留める
+- **Don't**: ドメインルール（正値・整数・enum 許容値・階層 override 解決・幾何計算など）を JS や router に複製しない。ローカル状態を楽観的に再計算してサーバと二重管理しない。サーバが既に返す値を再導出しない
+- **判定基準**: 「この結果はサーバの真実と一致すべきか?」Yes なら Python へ。「描画のための座標/色変換か?」Yes なら JS 可（SVG 座標変換・色補間・極座標は移さない）
+- 詳細：skill `webui-thin-wrapper`、実起動検証は `webui-e2e`
+
 ## Git 運用
 
 ### ブランチ
@@ -149,6 +158,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `refactor-conventions` — テスト方針・カプセル化の詳細規約
 - `testing-strategy` — テスト 4 区分・検証対象優先順位・書く/書かないリスト
 - `webui-e2e` — WebUI を実サーバーで E2E 検証する手順（make test-e2e / webui-fake、常駐サーバー kill の回避策）
+- `webui-thin-wrapper` — WebUI を薄いラッパーに保つ手順（ロジックの pcbasm 集約・JS/router からのロジック除去・許容範囲の線引き）
 - `agent-team-startup` — エージェントチームの起動・並列化手順
 - `maximize-parallels` — 並列 tool 呼び出しの判定基準と典型パターン
 - `edit-dot-claude` — `.claude/` 配下の編集を /tmp 経由で行い permission prompt を抑える手順

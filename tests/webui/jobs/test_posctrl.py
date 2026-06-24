@@ -8,8 +8,6 @@
   uses_machine / accepts_commands / params の default
 - generate_grid_pcb: 出力 .kicad_pcb が PcbFile で読めて pad 数 = divisions^2
   （装置非使用。dev タブから位置合わせタブへ移設）
-- orthogonality_metrics: board_transform から直行性指標（軸間角ずれ・軸
-  スケール）を導出する純粋関数。剛体変換は誤差ゼロ、shear で既知の角度誤差
 - camera_calibration: チェッカーボード FakeCamera でのフル結合（prompt 往復、
   artifacts、Apply payload、Klipper 不通での Z best-effort = z_position None）
 - board_tour / orthogonality_test / reference_point_setup の異常系:
@@ -24,21 +22,18 @@ test-fixture の実ポートへの接続拒否で検証する。
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterator
 from pathlib import Path
 
-import numpy as np
 import pytest
 
-from pcbasm.geometry import Compose, Identity, Matrix2d, Rotation, Shift
 from pcbasm.pcb import PcbFile
 from pcbasm.vision import CalibrationResult, Image
 from tests.helpers import mark_hardware
 from webui.config_store import ConfigStore
 from webui.jobs.catalog import JobCatalog, default_catalog
 from webui.jobs.manager import JobManager, JobRecord, JobStatus
-from webui.jobs.posctrl import orthogonality_metrics, register_posctrl_jobs
+from webui.jobs.posctrl import register_posctrl_jobs
 from webui.preview import PreviewService
 from webui.settings import Settings
 from webui.state import AppState
@@ -202,67 +197,6 @@ class TestGenerateGridPcb:
 
         pcb = PcbFile(fake_camera_settings.webui_data_dir / outputs[0].path)
         assert len(pcb.pads) == 4
-
-
-class TestOrthogonalityMetrics:
-    """orthogonality_metrics（board_transform → 直行性指標の純粋関数）.
-
-    数値定義は計画書「_run_orthogonality_test」節で新規確定したもの: axis_angle_error_deg =
-    変換後の X/Y 軸間角の 90° からのずれ、 scale_x = |T(1,0)−T(0,0)|, scale_y =
-    |T(0,1)−T(0,0)|。
-    """
-
-    def test_identity_has_zero_error_and_unit_scales(self):
-        metrics = orthogonality_metrics(Identity())
-
-        assert metrics.axis_angle_error_deg == pytest.approx(0.0, abs=1e-9)
-        assert metrics.scale_x == pytest.approx(1.0, abs=1e-9)
-        assert metrics.scale_y == pytest.approx(1.0, abs=1e-9)
-
-    def test_rigid_transform_has_zero_error(self):
-        """回転 + 並進（実機の正常な board_transform 相当）は誤差ゼロ."""
-        metrics = orthogonality_metrics(Compose([Rotation(30.0), Shift(10.0, -5.0)]))
-
-        assert metrics.axis_angle_error_deg == pytest.approx(0.0, abs=1e-9)
-        assert metrics.scale_x == pytest.approx(1.0, abs=1e-9)
-        assert metrics.scale_y == pytest.approx(1.0, abs=1e-9)
-
-    def test_shear_yields_known_axis_angle_error(self):
-        """X 軸方向の shear（tan 2°）→ 軸間角が 88° = ずれの大きさ 2°.
-
-        符号の物理的解釈は実機検証待ち（計画書 判断保留点 2）のため、 大きさのみをピンする。
-        """
-        shear = Matrix2d(np.array([[1.0, math.tan(math.radians(2.0))], [0.0, 1.0]]))
-
-        metrics = orthogonality_metrics(shear)
-
-        assert abs(metrics.axis_angle_error_deg) == pytest.approx(2.0, abs=1e-6)
-        assert metrics.scale_x == pytest.approx(1.0, abs=1e-9)
-        # Y 軸単位ベクトル (tan2°, 1) の長さ = 1/cos2°
-        assert metrics.scale_y == pytest.approx(
-            1.0 / math.cos(math.radians(2.0)), abs=1e-9
-        )
-
-    def test_shear_error_is_rotation_invariant(self):
-        """剛体変換の合成は指標を変えない（座標系の取り方に依存しない）."""
-        shear = Matrix2d(np.array([[1.0, math.tan(math.radians(2.0))], [0.0, 1.0]]))
-        composed = Compose([shear, Rotation(45.0), Shift(3.0, 7.0)])
-
-        plain = orthogonality_metrics(shear)
-        rotated = orthogonality_metrics(composed)
-
-        assert rotated.axis_angle_error_deg == pytest.approx(
-            plain.axis_angle_error_deg, abs=1e-9
-        )
-        assert rotated.scale_x == pytest.approx(plain.scale_x, abs=1e-9)
-        assert rotated.scale_y == pytest.approx(plain.scale_y, abs=1e-9)
-
-    def test_axis_scales_match_diagonal_matrix(self):
-        metrics = orthogonality_metrics(Matrix2d(np.array([[2.0, 0.0], [0.0, 0.5]])))
-
-        assert metrics.axis_angle_error_deg == pytest.approx(0.0, abs=1e-9)
-        assert metrics.scale_x == pytest.approx(2.0, abs=1e-9)
-        assert metrics.scale_y == pytest.approx(0.5, abs=1e-9)
 
 
 class TestCameraCalibrationJob:

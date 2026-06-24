@@ -16,18 +16,14 @@ node_id 規約（フロントと共有する契約）:
 
 from __future__ import annotations
 
-from typing import Any, cast
-
 import attrs
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from pcbasm.config import DISPENSE_MODES, PasteDispenser
+from pcbasm.config import PasteDispenser
 from pcbasm.pasting import (
-    NUMERIC_PASTE_OVERRIDE_FIELDS,
     PASTE_OVERRIDE_FIELDS,
-    LevelSetting,
     MassFlowCalibration,
     PasteOverride,
     PasteSettingsModel,
@@ -36,6 +32,8 @@ from pcbasm.pasting import (
     base_override_from_config,
     plan_paste_route,
     resolve_pad_settings,
+    validate_field_names,
+    validate_override_values,
 )
 from pcbasm.pasting.fill_path import build_paste_fill_plan
 from pcbasm.pcb import (
@@ -46,7 +44,7 @@ from pcbasm.pcb import (
     build_pad_hierarchy,
 )
 from webui.app import BoardStoreDep, SettingsDep, StateDep
-from webui.board_settings import BoardSettingsStore, board_signature
+from webui.board_settings import BoardSettingsStore
 from webui.settings import Settings
 from webui.state import AppState
 
@@ -307,7 +305,7 @@ def _load(
     machine = state.selected_machine
     base_config = state.machine().paste_dispenser
     hierarchy = build_pad_hierarchy(pcb.components, pcb.pads)
-    signature = board_signature(hierarchy)
+    signature = hierarchy.signature()
     model = board_store.load_or_init(
         machine, source_pcb, base_config, board_signature=signature
     )
@@ -449,97 +447,6 @@ def _affected_pads(node: str, loaded: _Loaded) -> list[AffectedPad]:
 
 
 # --------------------------------------------------------------------------- #
-# ノード更新ロジック（webui 側で attrs.evolve。pcbasm settings.py は変更しない）
-# --------------------------------------------------------------------------- #
-def _check_known_fields(fields: list[str]) -> None:
-    unknown = [f for f in fields if f not in PASTE_OVERRIDE_FIELDS]
-    if unknown:
-        raise HTTPException(
-            status_code=400, detail=f"未知の設定項目です: {', '.join(unknown)}"
-        )
-
-
-def _validate_patch_values(values: dict[str, PasteSettingValue]) -> None:
-    _check_known_fields(list(values))
-    for field, value in values.items():
-        if field == "dispense_mode":
-            if not isinstance(value, str) or value not in DISPENSE_MODES:
-                raise HTTPException(
-                    status_code=400, detail=f"未知の塗布方式です: {value!r}"
-                )
-            continue
-        if field == "paste_height":
-            if value == "auto":
-                continue
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"paste_heightはautoまたは数値で指定してください: {value!r}",
-                )
-            if value <= 0:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"paste_heightは正の値で指定してください: {value}",
-                )
-            continue
-        if field in NUMERIC_PASTE_OVERRIDE_FIELDS:
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"{field}は数値で指定してください: {value!r}",
-                )
-
-
-def _apply_node_patch(
-    model: PasteSettingsModel, patch: NodePatch, hierarchy: PadHierarchy
-) -> PasteSettingsModel:
-    """Node patch を適用した新しいモデルを返す.
-
-    Raises:
-        HTTPException: 未知の項目（values/clear）・未知ノード（400）の場合
-    """
-    _validate_patch_values(patch.values)
-    _check_known_fields(patch.clear)
-
-    return _apply_level_patch(
-        model,
-        patch,
-        hierarchy,
-        enabled_sent="enabled" in patch.model_fields_set,
-    )
-
-
-def _apply_level_patch(
-    model: PasteSettingsModel,
-    patch: NodePatch,
-    hierarchy: PadHierarchy,
-    enabled_sent: bool,
-) -> PasteSettingsModel:
-    key = _key_from_node_id(patch.node)
-    if key not in hierarchy.all_keys():
-        raise HTTPException(status_code=400, detail=f"未知のノードです: {patch.node}")
-
-    levels = dict(model.levels)
-    current = levels.get(key, LevelSetting())
-
-    override_dict: dict[str, PasteSettingValue | None] = {
-        field: getattr(current.override, field) for field in PASTE_OVERRIDE_FIELDS
-    }
-    override_dict.update(patch.values)
-    for field in patch.clear:
-        override_dict[field] = None
-    new_override = PasteOverride(**cast(dict[str, Any], override_dict))
-
-    enabled = patch.enabled if enabled_sent else current.enabled
-
-    if enabled is None and not _override_values(new_override):
-        levels.pop(key, None)
-    else:
-        levels[key] = LevelSetting(enabled=enabled, override=new_override)
-    return attrs.evolve(model, levels=levels)
-
-
-# --------------------------------------------------------------------------- #
 # エンドポイント
 # --------------------------------------------------------------------------- #
 @router.get("/pasting/pad-config")
@@ -581,7 +488,20 @@ def patch_pad_config_node(
 ) -> PatchResponse:
     """ノードの enabled/values upsert・clear を適用し、影響 pad を返す."""
     loaded = _load(state, settings, board_store)
-    new_model = _apply_node_patch(loaded.model, body, loaded.hierarchy)
+    if (message := validate_override_values(body.values)) is not None:
+        raise HTTPException(status_code=400, detail=message)
+    if (message := validate_field_names(body.clear)) is not None:
+        raise HTTPException(status_code=400, detail=message)
+    key = _key_from_node_id(body.node)
+    if key not in loaded.hierarchy.all_keys():
+        raise HTTPException(status_code=400, detail=f"未知のノードです: {body.node}")
+    new_model = loaded.model.with_level_patch(
+        key,
+        values=body.values,
+        clear=body.clear,
+        enabled=body.enabled,
+        enabled_sent="enabled" in body.model_fields_set,
+    )
     board_store.save(
         loaded.machine,
         loaded.source_pcb,
@@ -601,16 +521,12 @@ def patch_pad_config_pads(
 ) -> PatchResponse:
     """Pad id 配列を L4 ノードの enabled 設定として一括適用する."""
     loaded = _load(state, settings, board_store)
-    model = loaded.model
-    for pad_id in body.ids:
-        try:
-            l4_key = loaded.hierarchy.l4_key_for_pad_id(pad_id)
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=400, detail=f"未知の pad です: {pad_id}"
-            ) from exc
-        patch = NodePatch(node=_node_id(l4_key), enabled=body.enabled)
-        model = _apply_node_patch(model, patch, loaded.hierarchy)
+    l4_keys, unknown = loaded.hierarchy.l4_keys_for_pad_ids(body.ids)
+    if unknown:
+        raise HTTPException(
+            status_code=400, detail=f"未知の pad です: {', '.join(unknown)}"
+        )
+    model = loaded.model.with_pads_enabled(l4_keys, enabled=body.enabled)
     board_store.save(
         loaded.machine,
         loaded.source_pcb,
