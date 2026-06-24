@@ -66,7 +66,6 @@ from pcbasm.visualization import (
     render_height_plane,
     render_planned_points,
 )
-from webui.board_settings import board_signature
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import JobAborted, JobContext, PromptSpec
 from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
@@ -478,7 +477,7 @@ def _resolve_paste_model(
             ctx.machine_name,
             ctx.source_pcb,
             ctx.machine.paste_dispenser,
-            board_signature=board_signature(hierarchy),
+            board_signature=hierarchy.signature(),
         )
     return PasteSettingsModel(
         base=base_override_from_config(ctx.machine.paste_dispenser),

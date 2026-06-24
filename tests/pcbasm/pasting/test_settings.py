@@ -21,6 +21,8 @@ from pcbasm.pasting.settings import (
     resolve_pad_settings,
     settings_from_dict,
     settings_to_dict,
+    validate_field_names,
+    validate_override_values,
 )
 from pcbasm.pcb import Component, Layer, Pad
 from pcbasm.pcb.grouping import PadHierarchy, build_pad_hierarchy
@@ -532,3 +534,117 @@ class TestFindOrphans:
         )
 
         assert find_orphans(model, hierarchy) == []
+
+
+class TestValidateOverrideValues:
+    """validate_override_values / validate_field_names の None 返却バリデーション。"""
+
+    def test_valid_values_return_none(self):
+        assert (
+            validate_override_values(
+                {"ul_per_mm2": 0.5, "dispense_mode": "line", "paste_height": "auto"}
+            )
+            is None
+        )
+
+    def test_unknown_field_is_rejected(self):
+        message = validate_override_values({"bogus": 1.0})
+
+        assert message is not None
+        assert "bogus" in message
+
+    def test_unknown_dispense_mode_is_rejected(self):
+        assert validate_override_values({"dispense_mode": "spray"}) is not None
+
+    def test_non_positive_paste_height_is_rejected(self):
+        assert validate_override_values({"paste_height": 0.0}) is not None
+        assert validate_override_values({"paste_height": -1.0}) is not None
+
+    def test_auto_paste_height_is_allowed(self):
+        assert validate_override_values({"paste_height": "auto"}) is None
+
+    def test_bool_numeric_is_rejected(self):
+        assert validate_override_values({"ul_per_mm2": True}) is not None
+
+    def test_non_numeric_value_is_rejected(self):
+        assert validate_override_values({"fill_speed": "fast"}) is not None
+
+    def test_validate_field_names_separates_unknown(self):
+        assert validate_field_names(["bogus"]) is not None
+        assert validate_field_names(["ul_per_mm2", "fill_speed"]) is None
+
+
+class TestWithLevelPatch:
+    """PasteSettingsModel.with_level_patch の upsert / clear / enabled 保持。"""
+
+    def test_upsert_values_keeps_other_fields_inherited(self):
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(base=_full_base())
+
+        patched = model.with_level_patch(("L2", "U1"), values={"ul_per_mm2": 0.5})
+
+        resolved = resolve_pad_settings(hierarchy, patched)
+        assert resolved[("U1", "1")].ul_per_mm2 == pytest.approx(0.5)
+        assert resolved[("U1", "1")].fill_speed == pytest.approx(0.8)  # 継承
+
+    def test_clear_restores_inheritance(self):
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={("L2", "U1"): LevelSetting(override=PasteOverride(ul_per_mm2=0.5))},
+        )
+
+        patched = model.with_level_patch(("L2", "U1"), clear=["ul_per_mm2"])
+
+        resolved = resolve_pad_settings(hierarchy, patched)
+        assert resolved[("U1", "1")].ul_per_mm2 == pytest.approx(0.1)  # base へ復帰
+
+    def test_enabled_not_sent_keeps_existing(self):
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={("L2", "U1"): LevelSetting(enabled=False)},
+        )
+
+        patched = model.with_level_patch(("L2", "U1"), values={"ul_per_mm2": 0.5})
+
+        assert patched.levels[("L2", "U1")].enabled is False  # enabled は保持
+
+    def test_enabled_sent_updates_enabled(self):
+        model = PasteSettingsModel(base=_full_base())
+
+        patched = model.with_level_patch(("L2", "U1"), enabled=False, enabled_sent=True)
+
+        assert patched.levels[("L2", "U1")].enabled is False
+
+    def test_empty_result_removes_level(self):
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={("L2", "U1"): LevelSetting(override=PasteOverride(ul_per_mm2=0.5))},
+        )
+
+        patched = model.with_level_patch(("L2", "U1"), clear=["ul_per_mm2"])
+
+        assert ("L2", "U1") not in patched.levels
+
+    def test_returns_new_model_without_mutating_original(self):
+        model = PasteSettingsModel(base=_full_base())
+
+        model.with_level_patch(("L2", "U1"), values={"ul_per_mm2": 0.5})
+
+        assert model.levels == {}
+
+
+class TestWithPadsEnabled:
+    """with_pads_enabled は指定 L4 群の enabled を一括設定する。"""
+
+    def test_disables_listed_pads_only(self):
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(base=_full_base())
+        l4_keys, _ = hierarchy.l4_keys_for_pad_ids(["U1.9"])
+
+        patched = model.with_pads_enabled(l4_keys, enabled=False)
+
+        resolved = resolve_pad_settings(hierarchy, patched)
+        assert resolved[("U1", "9")].enabled is False
+        assert resolved[("U1", "1")].enabled is True
+        assert resolved[("R1", "1")].enabled is True

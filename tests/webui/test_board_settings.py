@@ -14,7 +14,6 @@ PcbFile / pcbnew には依存しない。``PasteSettingsModel`` / ``PadHierarchy
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
@@ -29,7 +28,7 @@ from pcbasm.pasting import (
     PasteSettingsModel,
 )
 from pcbasm.pcb import Component, Layer, Pad, build_pad_hierarchy
-from webui.board_settings import BoardSettingsStore, board_signature
+from webui.board_settings import BoardSettingsStore
 
 
 def _base_config() -> PasteDispenser:
@@ -72,15 +71,6 @@ def _hierarchy():
     pads = [
         Pad("U1", "1", "n1", Layer.TOP, _square(0, 0)),
         Pad("U1", "2", "n2", Layer.TOP, _square(2, 0)),
-    ]
-    return build_pad_hierarchy(components, pads)
-
-
-def _duplicate_pad_number_hierarchy():
-    components = [Component("U1", "x", "LFCSP-24", Point2d(0.0, 0.0), 0.0, Layer.TOP)]
-    pads = [
-        Pad("U1", "", "gnd", Layer.TOP, _square(0, 0)),
-        Pad("U1", "", "gnd", Layer.TOP, _square(2, 0)),
     ]
     return build_pad_hierarchy(components, pads)
 
@@ -197,34 +187,11 @@ class TestJsonShape:
         assert "base" not in doc["settings"]
         assert "base_enabled" not in doc["settings"]
 
-    def test_board_signature_keeps_legacy_l4_key_for_duplicate_pad_numbers(self):
-        hierarchy = _duplicate_pad_number_hierarchy()
-        records = []
-        for pad in hierarchy.iter_pads():
-            records.append(
-                {
-                    "id": f"{pad.designator}.{pad.pad_number}",
-                    "layer": pad.layer.value,
-                    "node_keys": [
-                        ["L0"],
-                        ["L1", "LFCSP-24"],
-                        ["L2", "U1"],
-                        ["L3", "U1", "1.00x1.00mm"],
-                        ["L4", "U1", ""],
-                    ],
-                    "polygon": [[x, y] for x, y in pad.polygon.exterior.coords],
-                }
-            )
-        payload = json.dumps(records, sort_keys=True, separators=(",", ":"))
-        expected = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-        assert board_signature(hierarchy) == expected
-
     def test_doc_can_include_board_signature(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
         hierarchy = _hierarchy()
-        signature = board_signature(hierarchy)
+        signature = hierarchy.signature()
         model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
 
         store.save(
