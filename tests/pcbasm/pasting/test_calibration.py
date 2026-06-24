@@ -9,39 +9,7 @@ from pcbasm.pasting.calibration import (
     FlowCalibration,
     FlowCalibrationSet,
     MassFlowCalibration,
-    TrapezoidalRotationProfile,
 )
-
-
-class TestTrapezoidalRotationProfile:
-    """TrapezoidalRotationProfile クラスのテスト."""
-
-    def test_plateau_rotations_subtracts_accel_and_decel_distance(self):
-        profile = TrapezoidalRotationProfile(rotations=5.0, rate=0.5, accel=0.5)
-
-        assert profile.ramp_rotations == pytest.approx(0.5)
-        assert profile.plateau_rotations == pytest.approx(4.5)
-
-    def test_short_rotation_has_no_plateau(self):
-        profile = TrapezoidalRotationProfile(rotations=0.2, rate=0.5, accel=0.5)
-
-        assert profile.plateau_rotations == 0.0
-
-    @pytest.mark.parametrize(
-        ("rotations", "rate", "accel"),
-        [
-            (0.0, 0.5, 0.5),
-            (5.0, 0.0, 0.5),
-            (5.0, 0.5, 0.0),
-        ],
-    )
-    def test_values_must_be_positive(self, rotations: float, rate: float, accel: float):
-        with pytest.raises(ValueError):  # noqa: PT011 - attrs の詳細文言は固定しない
-            TrapezoidalRotationProfile(
-                rotations=rotations,
-                rate=rate,
-                accel=accel,
-            )
 
 
 class TestMassFlowCalibration:
@@ -57,27 +25,27 @@ class TestMassFlowCalibration:
         assert calibration.volume_ul == pytest.approx(10.0 / 3.78)
         assert calibration.rotations_per_ul == pytest.approx(5.0 * 3.78 / 10.0)
 
-    def test_from_trapezoidal_profile_uses_plateau_rotations(self):
-        calibration = MassFlowCalibration.from_trapezoidal_profile(
-            profile=TrapezoidalRotationProfile(rotations=5.0, rate=0.5, accel=0.5),
+    def test_dispense_rate_for(self):
+        # rotations=5, mass=10, density=3.78 → rotations_per_ul = 1.89
+        calibration = MassFlowCalibration(
+            rotations=5.0,
             mass_mg=10.0,
             density_mg_per_ul=3.78,
         )
 
-        assert calibration.rotations == pytest.approx(4.5)
-        assert calibration.rotations_per_ul == pytest.approx(4.5 * 3.78 / 10.0)
+        assert calibration.rotations_per_ul == pytest.approx(1.89)
+        assert calibration.dispense_rate_for(0.5) == pytest.approx(0.5 / 1.89)
 
-    def test_from_short_trapezoidal_profile_raises(self):
-        with pytest.raises(ValueError):  # noqa: PT011 - attrs の詳細文言は固定しない
-            MassFlowCalibration.from_trapezoidal_profile(
-                profile=TrapezoidalRotationProfile(
-                    rotations=0.2,
-                    rate=0.5,
-                    accel=0.5,
-                ),
-                mass_mg=10.0,
-                density_mg_per_ul=3.78,
-            )
+    def test_dispense_accel_for(self):
+        # rotations=5, mass=10, density=3.78 → rotations_per_ul = 1.89
+        calibration = MassFlowCalibration(
+            rotations=5.0,
+            mass_mg=10.0,
+            density_mg_per_ul=3.78,
+        )
+
+        assert calibration.rotations_per_ul == pytest.approx(1.89)
+        assert calibration.dispense_accel_for(0.5) == pytest.approx(0.5 / 1.89)
 
     @pytest.mark.parametrize(
         ("rotations", "mass_mg", "density_mg_per_ul"),

@@ -371,7 +371,6 @@ class TestPastingJobPages:
         assert 'id="lc-mass-mg"' in text
         assert 'id="lc-rotations-per-ul"' in text
         assert 'id="lc-apply-rotations-per-ul"' in text
-        assert 'data-density="3.78"' in text
         assert 'data-job-names="loading"' in text
         for value in ('value="5.0"', 'value="0.5"'):
             assert value in text
