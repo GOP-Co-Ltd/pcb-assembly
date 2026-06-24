@@ -179,7 +179,7 @@ class PasteApplicator:
             dispense_accel=config.dispense_accel,
             ul_per_mm2=config.ul_per_mm2,
             retraction=config.retract_amount,
-            retraction_rate=config.retract_rate,
+            retraction_rate=config.effective_retract_rate,
             retraction_accel_factor=config.retract_accel_factor,
             transform=transform,
             paste_height=config.paste_height,
