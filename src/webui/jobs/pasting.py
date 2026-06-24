@@ -382,6 +382,7 @@ def _dispenser_rig(machine: Machine) -> tuple[Klipper, XYZStage, PasteApplicator
     dispenser = PasteDispenser(
         klipper=klipper.readonly,
         rotations_per_ul=machine.paste_dispenser.rotations_per_ul,
+        air_pump_enabled=machine.paste_dispenser.air_pump_enabled,
     )
     applicator = PasteApplicator.from_config(
         klipper, dispenser, stage, machine.paste_dispenser
@@ -873,6 +874,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         paste_dispenser = PasteDispenser(
             klipper=klipper.readonly,
             rotations_per_ul=dispenser_config.rotations_per_ul,
+            air_pump_enabled=dispenser_config.air_pump_enabled,
         )
 
         # ボード中央へツールヘッド移動 & プローブ

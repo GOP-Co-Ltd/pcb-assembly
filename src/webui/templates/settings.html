@@ -39,6 +39,10 @@
             <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
+          {% elif field.value_type == 'bool' %}
+          <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
+                 data-type="bool" type="checkbox"
+                 {% if field.value is none or field.value %}checked{% endif %}>
           {% else %}
           <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
                  data-type="{{ field.value_type }}"
