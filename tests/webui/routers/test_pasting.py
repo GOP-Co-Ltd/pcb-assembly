@@ -174,6 +174,181 @@ class TestGetPadConfig:
         l1_ids = {child["id"] for child in config["tree"]["children"]}
         assert "L1:SOT-23-6" in l1_ids
 
+    def test_tree_node_carries_resolved_own_override_and_summary(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+
+        assert "resolved" in u1_node
+        assert "own_override" in u1_node
+        assert "descendant_summary" in u1_node
+
+
+class TestTreeNodeResolution:
+    """GET tree の各ノードの resolved / own_override / descendant_summary 契約.
+
+    計画書 Phase B「サーバ段階」が契約。各ノード行に解決済み値・自ノードの 明示 override・子孫 override
+    集計を載せ、JS が再計算せず表示できるようにする。
+    """
+
+    def test_root_resolved_matches_defaults_when_no_overrides(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        root = config["tree"]
+
+        assert root["resolved"] == config["defaults"]
+
+    def test_node_without_override_has_empty_own_override(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        root = config["tree"]
+
+        assert root["own_override"]["enabled"] is None
+        assert root["own_override"]["values"] == {}
+
+    def test_node_without_override_resolves_to_inherited_values(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+        defaults = config["defaults"]
+
+        # override 無しなので L2:U1 は defaults をそのまま継承
+        assert u1_node["resolved"] == defaults
+
+    def test_node_resolved_reflects_own_value_override(
+        self, selected_client: TestClient
+    ):
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+        )
+
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+
+        assert u1_node["resolved"]["fill_speed"] == 0.3
+        # 他 field は継承のまま
+        assert u1_node["resolved"]["bead_width_factor"] == 1.0
+
+    def test_descendant_node_inherits_ancestor_override(
+        self, selected_client: TestClient
+    ):
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+        )
+
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+        l4_node = _node_by_id(u1_node, "L4:U1:1")
+
+        assert l4_node["resolved"]["fill_speed"] == 0.3
+        # 子ノード自身は override を持たない
+        assert l4_node["own_override"]["values"] == {}
+
+    def test_own_override_records_set_value_keys(self, selected_client: TestClient):
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={
+                "node": "L2:U1",
+                "values": {"fill_speed": 0.3, "bead_width_factor": 0.8},
+            },
+        )
+
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+        own = u1_node["own_override"]
+
+        assert set(own["values"]) == {"fill_speed", "bead_width_factor"}
+        assert own["values"]["fill_speed"] == 0.3
+        assert own["values"]["bead_width_factor"] == 0.8
+        assert own["enabled"] is None  # enabled は明示していない
+
+    def test_own_override_records_explicit_enabled(self, selected_client: TestClient):
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "enabled": False},
+        )
+
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+        own = u1_node["own_override"]
+
+        assert own["enabled"] is False
+        assert own["values"] == {}
+
+    def test_descendant_summary_empty_without_descendant_overrides(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+        summary = u1_node["descendant_summary"]
+
+        assert summary["node_count"] == 0
+        assert summary["count"] == 0
+        assert summary["enabled_count"] == 0
+        assert summary["fields"] == []
+
+    def test_descendant_summary_counts_descendant_overrides(
+        self, selected_client: TestClient
+    ):
+        # L4:U1:1 に value override、L4:U1:2 に enabled をそれぞれ置く。
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L4:U1:1", "values": {"fill_speed": 0.3}},
+        )
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L4:U1:2", "enabled": False},
+        )
+
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+        summary = u1_node["descendant_summary"]
+
+        # 2 個の子孫ノードに override（自ノード L2:U1 は含めない）
+        assert summary["node_count"] == 2
+        assert summary["count"] == 2
+        assert summary["enabled_count"] == 1
+        assert summary["field_counts"]["fill_speed"] == 1
+        assert "fill_speed" in summary["fields"]
+
+    def test_descendant_summary_excludes_self(self, selected_client: TestClient):
+        # 自ノードに override を置いても descendant_summary には数えない。
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+        )
+
+        config = _get_config(selected_client)
+        u1_node = _node_by_id(config["tree"], "L2:U1")
+
+        assert u1_node["descendant_summary"]["node_count"] == 0
+        # 自ノードの own_override にだけ反映される
+        assert u1_node["own_override"]["values"]["fill_speed"] == 0.3
+
+    def test_root_summary_aggregates_all_overrides(self, selected_client: TestClient):
+        # ルート L0 の descendant_summary は全ノードの override を集計する。
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+        )
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L4:U1:1", "enabled": False},
+        )
+
+        config = _get_config(selected_client)
+        summary = config["tree"]["descendant_summary"]
+
+        assert summary["node_count"] == 2
+        assert summary["enabled_count"] == 1
+        assert summary["field_counts"]["fill_speed"] == 1
+
 
 class TestPatchNode:
     """PATCH /api/pasting/pad-config/node."""

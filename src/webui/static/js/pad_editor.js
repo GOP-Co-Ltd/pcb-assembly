@@ -8,15 +8,9 @@ import {
   ancestorChain,
   buildNodeIndexes,
   cleanupSelection,
-  descendantOverrideSummary,
   l4NodeIdForPad,
-  ownOverride,
-  ownOverrideSummary,
   padsUnderNode,
-  resolvedEnabled,
-  resolvedValue,
   round4,
-  updateLocalOverride,
 } from "./pad_editor/model.js";
 import {
   applyPadVisual,
@@ -74,14 +68,9 @@ import {
 
   async function load() {
     try {
-      const config = await api("GET", "/api/pasting/pad-config");
-      state.config = config;
-      clearRoute();
-      clearFillPath();
+      await reloadConfig({ invalidateRoute: true, invalidateFillPath: true });
       emptyEl.hidden = true;
       bodyEl.hidden = false;
-      buildIndexes(config);
-      render();
     } catch (err) {
       state.config = null;
       bodyEl.hidden = true;
@@ -91,6 +80,18 @@ import {
           ? `pad 設定を取得できません: ${err.message}`
           : "PCB を選択してください。";
     }
+  }
+
+  // 編集後にサーバから設定を取り直し、index と表示を更新する。
+  // tree の resolved/own_override/descendant_summary はサーバ算出なので、
+  // ローカル楽観更新ではなく再取得で同期する。
+  async function reloadConfig(options = {}) {
+    const config = await api("GET", "/api/pasting/pad-config");
+    state.config = config;
+    if (options.invalidateRoute) clearRoute();
+    if (options.invalidateFillPath) clearFillPath();
+    buildIndexes(config);
+    render();
   }
 
   function buildIndexes(config) {
@@ -138,13 +139,21 @@ import {
 
   function descendantOverrideTitle(summary) {
     const parts = [];
-    if (summary.enabledCount > 0) {
-      parts.push(`有効/無効 ${summary.enabledCount}件`);
+    if (summary.enabled_count > 0) {
+      parts.push(`有効/無効 ${summary.enabled_count}件`);
     }
     if (summary.fields.length > 0) {
       parts.push(overrideFieldsTitle(summary.fields));
     }
-    return `子孫 ${summary.nodeCount} ノードに override: ${parts.join("、")}`;
+    return `子孫 ${summary.node_count} ノードに override: ${parts.join("、")}`;
+  }
+
+  // own_override（サーバの疎 override）から表示用の小さな集計を導出する。
+  // 解決（継承）は含めず、ノード自身の明示 override のみを数える。
+  function ownOverrideSummary(own) {
+    const enabled = own.enabled != null;
+    const fields = FIELDS.filter((field) => own.values?.[field] !== undefined);
+    return { enabled, fields, count: fields.length + (enabled ? 1 : 0) };
   }
 
   function appendOverrideBadge(parent, label, count, title, testid, scope) {
@@ -298,23 +307,10 @@ import {
         ids,
         enabled,
       });
-      updateLocalPadOverrides(ids, enabled);
-      applyAffected(res.affected_pads, {
-        invalidateRoute: true,
-        invalidateFillPath: true,
-      });
+      applyPadVisuals(res.affected_pads);
+      await reloadConfig({ invalidateRoute: true, invalidateFillPath: true });
     } catch (err) {
       toast(`pad 更新失敗: ${err.message}`, false);
-    }
-  }
-
-  function updateLocalPadOverrides(ids, enabled) {
-    const byId = new Map(state.config.pads.map((pad) => [pad.id, pad]));
-    for (const id of ids) {
-      const pad = byId.get(id);
-      if (!pad) continue;
-      const node = l4NodeIdForPad(pad, state.nodeById);
-      if (node) updateLocalOverride(state.config, { node, enabled });
     }
   }
 
@@ -343,21 +339,13 @@ import {
     .getElementById("pad-disable-all")
     .addEventListener("click", () => patchPads(allOnLayer(), false));
 
-  function applyAffected(affected, options = {}) {
-    if (options.invalidateRoute) clearRoute();
-    if (options.invalidateFillPath) clearFillPath();
-    const byId = new Map(state.config.pads.map((pad) => [pad.id, pad]));
+  // PATCH 応答の affected_pads で pad 色を即時更新する（再取得前のスナップ反応）。
+  // tree/表は後続の reloadConfig がサーバ算出値で確定させる。
+  function applyPadVisuals(affected) {
     for (const ap of affected) {
-      const pad = byId.get(ap.id);
-      if (!pad) continue;
-      pad.enabled = ap.enabled;
-      pad.resolved = ap.resolved;
       const el = state.padEls.get(ap.id);
       if (el) applyPadVisual(el, state, ap.enabled);
     }
-    renderTable();
-    renderViewer(svg, state.config, state);
-    refreshViewerState();
   }
 
   function renderTable() {
@@ -384,10 +372,10 @@ import {
     const tr = document.createElement("tr");
     tr.dataset.nodeId = node.id;
     tr.dataset.testid = "pad-tree-row";
-    const enabled = resolvedEnabled(state.config, state.parentOf, node.id);
-    const own = ownOverride(state.config, node.id);
-    const ownSummary = ownOverrideSummary(state.config, node.id);
-    const descendantSummary = descendantOverrideSummary(state.config, node);
+    const enabled = node.resolved.enabled;
+    const own = node.own_override;
+    const ownSummary = ownOverrideSummary(own);
+    const descendantSummary = node.descendant_summary;
     if (ownSummary.count > 0) {
       tr.classList.add("pad-row-own-override");
       tr.dataset.ownOverrides = String(ownSummary.count);
@@ -452,12 +440,12 @@ import {
     inheritBtn.disabled = own.enabled === null || own.enabled === undefined;
     inheritBtn.addEventListener("click", () => patchNodeEnabledInherit(node.id));
     enTd.appendChild(inheritBtn);
-    if (descendantSummary.enabledCount > 0) {
+    if (descendantSummary.enabled_count > 0) {
       appendDescendantMarker(
         enTd,
-        `子孫ノードの有効/無効 override が ${descendantSummary.enabledCount} 件あります。`,
+        `子孫ノードの有効/無効 override が ${descendantSummary.enabled_count} 件あります。`,
         "pad-descendant-enabled-marker",
-        descendantSummary.enabledCount
+        descendantSummary.enabled_count
       );
     }
     tr.appendChild(enTd);
@@ -478,11 +466,11 @@ import {
   function buildModeCell(node, field, descendantSummary) {
     const td = document.createElement("td");
     td.className = "pad-col-value";
-    const own = ownOverride(state.config, node.id);
+    const own = node.own_override;
     const ownValue = own.values ? own.values[field] : undefined;
     const isOverride = ownValue !== undefined;
-    const resolved = resolvedValue(state.config, state.parentOf, node.id, field);
-    const descendantCount = descendantSummary.fieldCounts[field] || 0;
+    const resolved = node.resolved[field];
+    const descendantCount = descendantSummary.field_counts[field] || 0;
 
     const select = document.createElement("select");
     select.className = isOverride ? "pad-cell override" : "pad-cell inherited";
@@ -518,11 +506,11 @@ import {
   function buildHeightCell(node, field, descendantSummary) {
     const td = document.createElement("td");
     td.className = "pad-col-value pad-col-height";
-    const own = ownOverride(state.config, node.id);
+    const own = node.own_override;
     const ownValue = own.values ? own.values[field] : undefined;
     const isOverride = ownValue !== undefined;
-    const resolved = resolvedValue(state.config, state.parentOf, node.id, field);
-    const descendantCount = descendantSummary.fieldCounts[field] || 0;
+    const resolved = node.resolved[field];
+    const descendantCount = descendantSummary.field_counts[field] || 0;
 
     const select = document.createElement("select");
     select.className = isOverride ? "pad-cell override" : "pad-cell inherited";
@@ -631,11 +619,11 @@ import {
   function buildValueCell(node, field, descendantSummary) {
     const td = document.createElement("td");
     td.className = "pad-col-value";
-    const own = ownOverride(state.config, node.id);
+    const own = node.own_override;
     const ownValue = own.values ? own.values[field] : undefined;
     const isOverride = ownValue !== undefined;
-    const resolved = resolvedValue(state.config, state.parentOf, node.id, field);
-    const descendantCount = descendantSummary.fieldCounts[field] || 0;
+    const resolved = node.resolved[field];
+    const descendantCount = descendantSummary.field_counts[field] || 0;
 
     const input = document.createElement("input");
     input.type = "number";
@@ -674,8 +662,8 @@ import {
       return;
     }
     const value = Number(raw);
-    if (!Number.isFinite(value) || value <= 0) {
-      toast("正の数値を入力してください", false);
+    if (!Number.isFinite(value)) {
+      toast("数値を入力してください", false);
       return;
     }
     patchNode(
@@ -688,7 +676,9 @@ import {
     if (state.locked) return;
     const raw = input.value.trim();
     if (raw === "") {
-      if (ownOverride(state.config, nodeId).values?.[field] !== undefined) {
+      if (
+        state.nodeById.get(nodeId)?.own_override.values?.[field] !== undefined
+      ) {
         patchNodeClear(nodeId, field);
       }
       return;
@@ -698,7 +688,7 @@ import {
       toast("数値を入力してください", false);
       return;
     }
-    if (!resolvedEnabled(state.config, state.parentOf, nodeId)) {
+    if (!state.nodeById.get(nodeId)?.resolved.enabled) {
       toast("無効化されているパーツです", false);
     }
     debouncePatchNode(
@@ -739,8 +729,8 @@ import {
   async function patchNode(body, options = {}) {
     try {
       const res = await api("PATCH", "/api/pasting/pad-config/node", body);
-      updateLocalOverride(state.config, body);
-      applyAffected(res.affected_pads, {
+      applyPadVisuals(res.affected_pads);
+      await reloadConfig({
         invalidateRoute: "enabled" in body,
         invalidateFillPath: true,
       });
