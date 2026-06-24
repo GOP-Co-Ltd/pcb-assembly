@@ -364,6 +364,37 @@ class TestLoadingOverBrowser:
         assert browser_page.locator("#param-rate").input_value() == "0.5"
         assert browser_page.locator("#param-accel").input_value() == "0.5"
 
+    def test_loading_inputs_persist_across_reload(
+        self, live_server: LiveServer, browser_page
+    ):
+        browser_page.goto(
+            f"{live_server.base_url}/pasting/loading",
+            wait_until="domcontentloaded",
+        )
+        browser_page.locator("#loading-controls").wait_for(
+            state="visible", timeout=10_000
+        )
+
+        browser_page.locator("#lc-amount").fill("0.33")
+        browser_page.locator("#lc-rotations").fill("6.5")
+        browser_page.locator("#lc-rate").fill("1.25")
+        # 最後の入力が起こす debounce 即保存 POST を待ってからリロードする
+        # （「実行」していないので、即保存が効いていなければ値は失われる）
+        with browser_page.expect_response(
+            lambda r: "/param-defaults" in r.url and r.request.method == "POST"
+        ):
+            browser_page.locator("#lc-accel").fill("2.5")
+
+        browser_page.reload(wait_until="domcontentloaded")
+        browser_page.locator("#loading-controls").wait_for(
+            state="visible", timeout=10_000
+        )
+
+        expect(browser_page.locator("#lc-amount")).to_have_value("0.33")
+        expect(browser_page.locator("#lc-rotations")).to_have_value("6.5")
+        expect(browser_page.locator("#lc-rate")).to_have_value("1.25")
+        expect(browser_page.locator("#lc-accel")).to_have_value("2.5")
+
     def test_mass_calibration_calculates_and_applies_dispense_values(
         self, live_server: LiveServer, browser_page
     ):
