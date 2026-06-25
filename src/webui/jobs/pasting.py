@@ -637,6 +637,47 @@ def _prompt_positive_number(
         ctx.log(f"正の数値を入力してください（与えられた値: {answer}）")
 
 
+class _CalibrationCancelled(Exception):
+    """サブキャリブの中止要求。メニューループが捕捉してメニューへ戻す.
+
+    ジョブ全体を終了する ``JobAborted`` とは別物（こちらはメニューへ戻るだけ）。
+    多段ループ越しに None/False を手で伝播させる代わりに、既知ハンドラ（メニュー
+    ループ）への制御フローとして例外を使う。
+    """
+
+
+def _prompt_confirm(
+    ctx: JobContext,
+    message: str,
+    *,
+    true_label: str = "続行",
+    cancel_label: str = "中止",
+    default: bool = True,
+) -> None:
+    """続行 / 中止の confirm を出す。中止なら ``_CalibrationCancelled`` を送出する."""
+    ready = ctx.prompt(
+        PromptSpec(
+            kind="confirm",
+            message=message,
+            default=default,
+            true_label=true_label,
+            false_label=cancel_label,
+        )
+    )
+    if not ready:
+        raise _CalibrationCancelled
+
+
+def _prompt_mass(
+    ctx: JobContext, message: str, *, default: float | None = None
+) -> float:
+    """質量 (mg) を入力させる。中止なら ``_CalibrationCancelled`` を送出する."""
+    mass = _prompt_positive_number(ctx, message, default=default, cancel_label="中止")
+    if mass is None:
+        raise _CalibrationCancelled
+    return mass
+
+
 # --- ジョブ実装 ---
 
 
@@ -1087,15 +1128,20 @@ def _calibration_menu_loop(
         if which == "finish":
             ctx.log("吐出量キャリブレーションを終了します")
             return results
-        if which in ("rotations_per_ul", "all"):
-            results = _calibrate_rotations_per_ul(ctx, calib, results)
-            if results.finish:  # ① の「採用して終了」でジョブ全体を終了
-                ctx.log("吐出量キャリブレーションを終了します")
-                return results
-        if which in ("max_dispense_rate", "all"):
-            results = _calibrate_max_dispense_rate(ctx, calib, results)
-        if which in ("max_fill_speed", "all"):
-            results = _calibrate_max_fill_speed(ctx, calib, results)
+        # サブキャリブ中の「中止」はメニューへ戻る（誤選択のやり直し）。all 実行中の
+        # 中止は以降のサブキャリブをスキップしてメニューへ。JobAborted は捕捉しない。
+        try:
+            if which in ("rotations_per_ul", "all"):
+                results = _calibrate_rotations_per_ul(ctx, calib, results)
+                if results.finish:  # ① の「採用して終了」でジョブ全体を終了
+                    ctx.log("吐出量キャリブレーションを終了します")
+                    return results
+            if which in ("max_dispense_rate", "all"):
+                results = _calibrate_max_dispense_rate(ctx, calib, results)
+            if which in ("max_fill_speed", "all"):
+                results = _calibrate_max_fill_speed(ctx, calib, results)
+        except _CalibrationCancelled:
+            ctx.log("キャリブレーションを中止しました。メニューへ戻ります")
         ctx.progress(CALIBRATION_MENU_STAGE)
         ctx.log("メニューに戻りました。次のキャリブを選ぶか終了してください")
 
@@ -1183,22 +1229,12 @@ def _calibrate_rotations_per_ul(
             ctx, calib.session.klipper, calib.session.stage, calib.applicator
         )
 
-        # ── 電子天秤にセットしてタール（ゼロ）──
-        ready = ctx.prompt(
-            PromptSpec(
-                kind="confirm",
-                message=(
-                    "塗布対象を電子天秤にセットし、タール（ゼロ）してください。"
-                    "準備ができたら線引きへ進みます。"
-                ),
-                default=True,
-                true_label="続行",
-                false_label="中止",
-            )
+        # ── 電子天秤にセットしてタール（ゼロ）──（中止でメニューへ戻る）
+        _prompt_confirm(
+            ctx,
+            "塗布対象を電子天秤にセットし、タール（ゼロ）してください。"
+            "準備ができたら線引きへ進みます。",
         )
-        if not ready:
-            ctx.log("タール前に中止しました。メニューへ戻ります")
-            break
 
         ctx.progress("① rotations_per_ul: 線引き")
         previous_rpu = calib.rotations_per_ul
@@ -1221,15 +1257,11 @@ def _calibrate_rotations_per_ul(
         )
 
         rotations_used = layout.line_count * amount * previous_rpu
-        mass = _prompt_positive_number(
+        mass = _prompt_mass(
             ctx,
             f"{layout.line_count} 本の線の合計質量 (mg) を入力"
             f"（回転数 {rotations_used:.4f} rev 相当）",
-            cancel_label="中止",
         )
-        if mass is None:
-            ctx.log("質量入力を中止しました。メニューへ戻ります")
-            break
 
         flow = FlowCalibrationSet(
             rotations=rotations_used,
@@ -1343,14 +1375,10 @@ def _calibrate_max_dispense_rate(
         calib.session.klipper.send_gcode(
             calib.session.stage.move(z=removal_z) + gcode.wait_for_done()
         )
-        mass = _prompt_positive_number(
+        mass = _prompt_mass(
             ctx,
             f"[{index + 1}/{len(rates)}] レート {rate:.3f} uL/s の線の質量 (mg) を入力",
-            cancel_label="中止",
         )
-        if mass is None:
-            ctx.log("質量入力を中止しました。② を中断してメニューへ戻ります")
-            return results
         measured_ul = mass / density
         measurement = RateMeasurement(
             rate=rate, measured_ul=measured_ul, commanded_ul=amount
