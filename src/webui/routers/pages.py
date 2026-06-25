@@ -126,10 +126,12 @@ _PASTING_LOADING_PARAM = {
     "toolhead_offset": "loading_amount",
 }
 
-# loading_controls をローディング段階以外で有効化する feature → progress stage 名。
-# dispense_calibration はメニュー段階で押出/吸引（プライム）を許す。
+# loading_controls をローディング段階以外でも有効化する feature → progress stage 名
+# （カンマ区切りで複数可。loading_controls.js が Set として解釈する）。
+# dispense_calibration はメニュー段階のプライム（押出/吸引）と、① 専用ローディング段階
+# （"ローディング"）の両方でボタンを有効化する。
 _LOADING_STAGE_OVERRIDE = {
-    "dispense_calibration": "キャリブレーションメニュー",
+    "dispense_calibration": "キャリブレーションメニュー,ローディング",
 }
 
 _LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel", "retract_rotations")

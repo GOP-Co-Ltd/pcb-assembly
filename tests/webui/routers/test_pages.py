@@ -32,7 +32,7 @@ Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / s
 - preview ペイン（overlay 切替なし）は paste_solder / height_plane /
   toolhead_offset のみ
 - loading_controls は paste_solder / loading / toolhead_offset（stage="ローディング"）と
-  dispense_calibration（stage="キャリブレーションメニュー"・プライム用）
+  dispense_calibration（stage="キャリブレーションメニュー,ローディング"・プライム/① ローディング用）
 - pnp はプレースホルダのみ（サイドバー空 + 「機能を選択」）
 """
 
@@ -349,19 +349,18 @@ class TestPastingJobPages:
         assert 'data-loading-stage="ローディング"' in text
         assert 'value="0.1"' in text  # loading_default（該当 ParamSpec の既定値）
 
-    def test_dispense_calibration_loading_controls_use_menu_stage(
+    def test_dispense_calibration_loading_controls_use_menu_and_loading_stage(
         self, client: TestClient
     ):
-        """dispense_calibration の loading_controls はメニュー段階で有効化する.
+        """dispense_calibration の loading_controls はメニュー段階と ① ローディング段階で有効化する.
 
-        プライム（押出/吸引）をキャリブメニュー中に使うため、data-loading-stage は ローディング段階ではなく
-        "キャリブレーションメニュー"。
+        メニュー段階のプライム（押出/吸引）に加え、① rotations_per_ul の専用ローディング段階
+        （"ローディング"）でもボタンを使うため、data-loading-stage はカンマ区切りで両方を持つ。
         """
         text = client.get("/pasting/dispense_calibration").text
 
         assert "loading-controls" in text
-        assert 'data-loading-stage="キャリブレーションメニュー"' in text
-        assert 'data-loading-stage="ローディング"' not in text
+        assert 'data-loading-stage="キャリブレーションメニュー,ローディング"' in text
 
     def test_loading_page_renders_rotation_controls_and_mass_calibration(
         self, client: TestClient

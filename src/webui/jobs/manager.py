@@ -686,7 +686,8 @@ def _coerce_answer(spec: PromptSpec, answer: object) -> Answer:
     """プロンプト応答を PromptSpec の型に合わせて検証・変換する.
 
     confirm→bool, number→float（int は float 化）, text→str,
-    choice→choices 内の str。
+    choice→choices 内の str。false_label 付き number の中止（bool False）は
+    そのまま False を返す。
 
     Raises:
         ValueError: 型不一致・choice 範囲外の場合
@@ -696,6 +697,9 @@ def _coerce_answer(spec: PromptSpec, answer: object) -> Answer:
             if isinstance(answer, bool):
                 return answer
         case "number":
+            # false_label 付き number は中止可能。中止ボタンは bool False を送る。
+            if answer is False and spec.false_label is not None:
+                return False
             if not isinstance(answer, bool) and isinstance(answer, (int, float)):
                 return float(answer)
         case "text":

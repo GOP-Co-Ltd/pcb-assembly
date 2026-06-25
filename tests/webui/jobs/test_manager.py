@@ -281,6 +281,12 @@ class TestPrompt:
             (PromptSpec(kind="confirm", message="続行?"), False, False),
             (PromptSpec(kind="number", message="値?"), 60, 60.0),
             (PromptSpec(kind="number", message="値?"), 61.5, 61.5),
+            # false_label 付き number は中止（bool False）をそのまま受け取れる
+            (
+                PromptSpec(kind="number", message="質量?", false_label="中止"),
+                False,
+                False,
+            ),
             (PromptSpec(kind="text", message="名前?"), "abc", "abc"),
             (
                 PromptSpec(kind="choice", message="層?", choices=("top", "bottom")),
@@ -316,6 +322,8 @@ class TestPrompt:
         [
             (PromptSpec(kind="confirm", message="続行?"), "yes"),
             (PromptSpec(kind="number", message="値?"), "abc"),
+            # false_label 無しの number は中止（bool False）を受け付けない
+            (PromptSpec(kind="number", message="値?"), False),
             (PromptSpec(kind="text", message="名前?"), 1.0),
             (
                 PromptSpec(kind="choice", message="層?", choices=("top", "bottom")),

@@ -587,11 +587,27 @@ def _run_loading_loop(
 
 
 def _prompt_positive_number(
-    ctx: JobContext, message: str, default: float | None = None
-) -> float:
-    """正数が入力されるまで number プロンプトを繰り返す."""
+    ctx: JobContext,
+    message: str,
+    default: float | None = None,
+    cancel_label: str | None = None,
+) -> float | None:
+    """正数が入力されるまで number プロンプトを繰り返す.
+
+    ``cancel_label`` を渡すと入力欄に中止ボタンを表示し、押されたら ``None`` を返す
+    （計測のスキップに使う）。渡さなければ中止ボタンは出ず、常に正数を返す。
+    """
     while True:
-        answer = ctx.prompt(PromptSpec(kind="number", message=message, default=default))
+        answer = ctx.prompt(
+            PromptSpec(
+                kind="number",
+                message=message,
+                default=default,
+                false_label=cancel_label,
+            )
+        )
+        if answer is False:  # 中止ボタン（cancel_label 指定時のみ届く）
+            return None
         assert isinstance(answer, float)
         if answer > 0:
             return answer
@@ -984,12 +1000,17 @@ def _generate_calibration_board(ctx: JobContext, width: float, height: float) ->
 
 @attrs.frozen
 class _DispenseCalibrationResults:
-    """実施したキャリブの確定値（未実施は None）."""
+    """実施したキャリブの確定値（未実施は None）.
+
+    ``finish`` は ① の選択肢「採用して吐出量キャリブレーションを終了する」で True
+    になり、メニューループが検知してジョブ全体を終了する（設定反映へ進む）。
+    """
 
     rotations_per_ul: float | None = None
     dispense_accel: float | None = None
     max_dispense_rate: float | None = None
     max_fill_speed: float | None = None
+    finish: bool = False
 
 
 def parse_run_calib_command(command: Mapping[str, Any]) -> str | None:
@@ -1045,6 +1066,9 @@ def _calibration_menu_loop(
             return results
         if which in ("rotations_per_ul", "all"):
             results = _calibrate_rotations_per_ul(ctx, calib, results)
+            if results.finish:  # ① の「採用して終了」でジョブ全体を終了
+                ctx.log("吐出量キャリブレーションを終了します")
+                return results
         if which in ("max_dispense_rate", "all"):
             results = _calibrate_max_dispense_rate(ctx, calib, results)
         if which in ("max_fill_speed", "all"):
@@ -1093,12 +1117,14 @@ def _calibrate_rotations_per_ul(
     calib: _CalibrationContext,
     results: _DispenseCalibrationResults,
 ) -> _DispenseCalibrationResults:
-    """① rotations_per_ul を線引き → 計量 → 採用/再計測ループで確定する.
+    """① rotations_per_ul をローディング → 線引き → 計量 → 採用/再計測ループで確定する.
 
-    ``line_count`` 本の線を段ずらしで引き、合計質量から ``FlowCalibrationSet`` で
-    新 ``rotations_per_ul`` を算出する。採用すると新値で applicator を作り直し、
-    ``dispense_accel`` も回転加速度を保って連動更新する。収束（前後の相対差が
-    許容内）はヒントとして表示するのみで、ループ継続はユーザー判断。
+    各ラウンドの先頭でヘッドを Z=0 に上げてプライム/ふき取り（専用ローディング段階）を
+    行い、電子天秤にセットしてタール（ゼロ）してから ``line_count`` 本の線を段ずらしで
+    引く。合計質量から ``FlowCalibrationSet`` で新 ``rotations_per_ul`` を算出する。
+    採用すると新値で applicator を作り直し、``dispense_accel`` も回転加速度を保って
+    連動更新する。収束（前後の相対差が許容内）はヒントとして表示するのみで、ループ継続は
+    ユーザー判断。タール前の中止・質量入力の中止はいずれもメニューへ戻る。
     """
     layout = _line_layout(ctx)
     amount = float(ctx.params["line_amount"])
@@ -1121,6 +1147,33 @@ def _calibrate_rotations_per_ul(
     )
 
     while True:
+        # ── 専用ローディング段階：ヘッドを Z=0 に上げてプライム/ふき取り ──
+        # Z=0 へ上げることでローディング中のノズルふき取りがしやすくなる。
+        ctx.log("ヘッドを Z=0 に上げます。プライム/ふき取りをしてください")
+        calib.session.klipper.send_gcode(
+            calib.session.stage.move(z=0.0) + gcode.wait_for_done()
+        )
+        _run_loading_loop(
+            ctx, calib.session.klipper, calib.session.stage, calib.applicator
+        )
+
+        # ── 電子天秤にセットしてタール（ゼロ）──
+        ready = ctx.prompt(
+            PromptSpec(
+                kind="confirm",
+                message=(
+                    "塗布対象を電子天秤にセットし、タール（ゼロ）してください。"
+                    "準備ができたら線引きへ進みます。"
+                ),
+                default=True,
+                true_label="続行",
+                false_label="中止",
+            )
+        )
+        if not ready:
+            ctx.log("タール前に中止しました。メニューへ戻ります")
+            break
+
         ctx.progress("① rotations_per_ul: 線引き")
         previous_rpu = calib.rotations_per_ul
         # プライム済みのペーストを baseline まで引き戻してから引き始める
@@ -1138,7 +1191,12 @@ def _calibrate_rotations_per_ul(
             ctx,
             f"{layout.line_count} 本の線の合計質量 (mg) を入力"
             f"（回転数 {rotations_used:.4f} rev 相当）",
+            cancel_label="中止",
         )
+        if mass is None:
+            ctx.log("質量入力を中止しました。メニューへ戻ります")
+            break
+
         flow = FlowCalibrationSet(
             rotations=rotations_used,
             masses_mg=(mass,),
@@ -1166,22 +1224,39 @@ def _calibrate_rotations_per_ul(
         choice = ctx.prompt(
             PromptSpec(
                 kind="choice",
-                message="算出値をどうしますか?",
-                choices=("採用して再計測", "このまま再計測", "メニューへ戻る"),
-                default="メニューへ戻る",
+                message="算出した rotations_per_ul をどうしますか?",
+                choices=(
+                    "採用して再計測する",
+                    "採用せず再計測する",
+                    "採用して他のキャリブレーションへ進む",
+                    "採用して吐出量キャリブレーションを終了する",
+                ),
+                default="採用して他のキャリブレーションへ進む",
             )
         )
-        if choice == "採用して再計測":
-            rotations_per_ul = computed_rpu
-            dispense_accel = computed_accel
-            calib.rebuild_applicator(
-                rotations_per_ul=computed_rpu, dispense_accel=computed_accel
+        if choice == "採用せず再計測する":
+            # 算出値は採用せず、現状の rotations_per_ul のまま次ラウンドへ。
+            continue
+
+        # 残る 3 つはいずれも算出値を採用する。
+        rotations_per_ul = computed_rpu
+        dispense_accel = computed_accel
+        if choice == "採用して吐出量キャリブレーションを終了する":
+            # 再描画しないので applicator の作り直しは不要。finish でジョブを終了。
+            return attrs.evolve(
+                results,
+                rotations_per_ul=rotations_per_ul,
+                dispense_accel=dispense_accel,
+                finish=True,
             )
-            ctx.log("新 rotations_per_ul で applicator を再構成しました")
+        # 「再計測」「他のキャリブへ進む」は新値で applicator を作り直す。
+        calib.rebuild_applicator(
+            rotations_per_ul=computed_rpu, dispense_accel=computed_accel
+        )
+        ctx.log("新 rotations_per_ul で applicator を再構成しました")
+        if choice == "採用して再計測する":
             continue
-        if choice == "このまま再計測":
-            continue
-        break
+        break  # 採用して他のキャリブレーションへ進む
 
     return attrs.evolve(
         results,
@@ -1229,6 +1304,7 @@ def _calibrate_max_dispense_rate(
             ctx,
             f"[{index + 1}/{len(rates)}] レート {rate:.3f} uL/s の線の質量 (mg) を入力",
         )
+        assert mass is not None  # cancel_label 未指定なので中止は届かない
         measured_ul = mass / density
         measurement = RateMeasurement(
             rate=rate, measured_ul=measured_ul, commanded_ul=amount

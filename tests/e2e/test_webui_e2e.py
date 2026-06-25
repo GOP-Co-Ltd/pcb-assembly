@@ -490,10 +490,13 @@ class TestDispenseCalibrationOverBrowser:
         ):
             expect(browser_page.locator(button_id)).to_be_disabled()
 
-        # プライム用 loading_controls はメニュー段階で有効化される設定
+        # プライム用 loading_controls はメニュー段階と ① 専用ローディング段階で有効化される設定
         panel = browser_page.locator("#loading-controls")
         panel.wait_for(state="visible", timeout=10_000)
-        assert panel.get_attribute("data-loading-stage") == "キャリブレーションメニュー"
+        assert (
+            panel.get_attribute("data-loading-stage")
+            == "キャリブレーションメニュー,ローディング"
+        )
 
 
 class TestPadConfigOverRealHttp:

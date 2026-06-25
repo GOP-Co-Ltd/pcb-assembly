@@ -304,8 +304,10 @@
     const noButton = el("jc-prompt-no");
     const okButton = el("jc-prompt-ok");
     const isConfirm = prompt.kind === "confirm";
-    noButton.hidden = !isConfirm;
-    noButton.textContent = isConfirm ? (prompt.false_label ?? "いいえ") : "いいえ";
+    // confirm は常に 2 ボタン。number は false_label があるときだけ中止ボタンを出す。
+    const cancelable = prompt.kind === "number" && prompt.false_label != null;
+    noButton.hidden = !(isConfirm || cancelable);
+    noButton.textContent = prompt.false_label ?? "いいえ";
     okButton.textContent = isConfirm ? (prompt.true_label ?? "はい") : "OK";
   }
 
@@ -338,6 +340,8 @@
       return event.submitter?.id !== "jc-prompt-no";
     }
     if (prompt.kind === "number") {
+      // 中止ボタン（false_label 付き number のみ表示）は false を返す。
+      if (event.submitter?.id === "jc-prompt-no") return false;
       return Number(el("jc-prompt-input").value);
     }
     return el("jc-prompt-input").value;
