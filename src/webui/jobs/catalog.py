@@ -208,11 +208,14 @@ def _coerce_param(spec: ParamSpec, value: object) -> ParamValue:
     # 退避量オフセットは負にできない（退避 Z = z_max − offset がはみ出るため）。
     # 起動時 validate_params と実行中 validate_runtime_params の両経路で効くよう
     # coerce 共通層に置く。汎用の下限機構は需要が出るまで導入しない。
-    if spec.name == "removal_z_offset" and isinstance(coerced, (int, float)):
-        if coerced < 0:
-            raise ValueError(
-                f"{spec.name}: マイナスにできません（与えられた値: {coerced!r}）"
-            )
+    if (
+        spec.name == "removal_z_offset"
+        and isinstance(coerced, (int, float))
+        and coerced < 0
+    ):
+        raise ValueError(
+            f"{spec.name}: マイナスにできません（与えられた値: {coerced!r}）"
+        )
     return coerced
 
 
