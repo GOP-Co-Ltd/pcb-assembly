@@ -1121,13 +1121,16 @@ def _calibrate_rotations_per_ul(
 
     各ラウンドの先頭でヘッドを Z=0 に上げてプライム/ふき取り（専用ローディング段階）を
     行い、電子天秤にセットしてタール（ゼロ）してから ``line_count`` 本の線を段ずらしで
-    引く。合計質量から ``FlowCalibrationSet`` で新 ``rotations_per_ul`` を算出する。
+    引く。線引き後はヘッドを最大 Z（フルリトラクト）へ退避し、基板を取り出して計量
+    しやすくする。合計質量から ``FlowCalibrationSet`` で新 ``rotations_per_ul`` を算出する。
     採用すると新値で applicator を作り直し、``dispense_accel`` も回転加速度を保って
     連動更新する。収束（前後の相対差が許容内）はヒントとして表示するのみで、ループ継続は
     ユーザー判断。タール前の中止・質量入力の中止はいずれもメニューへ戻る。
     """
     layout = _line_layout(ctx)
     amount = float(ctx.params["line_amount"])
+    # 計量のため基板を取り出すときは Z を最大（フルリトラクト）まで上げて退避する。
+    removal_z = calib.session.stage.limits.z.max
     # 比重はマシン設定 (solder_paste_density [mg/uL]。水基準なので比重と数値が一致) を
     # 真実とする。② が密度を machine から直接読むのと同じ扱い。
     specific_gravity = ctx.machine.paste_dispenser.solder_paste_density
@@ -1185,6 +1188,14 @@ def _calibrate_rotations_per_ul(
             start, end = layout.line(index)
             calib.applicator.draw_line(start, end, amount=amount)
             ctx.log(f"線 {index + 1}/{layout.line_count} を {amount:.3f} uL で塗布")
+
+        # 線引き後はヘッドを最大 Z（フルリトラクト）へ退避し、基板を取り出して計量しやすくする。
+        ctx.log(
+            f"ヘッドを最大 Z={removal_z:.3f} へ退避します。基板を取り出して計測してください"
+        )
+        calib.session.klipper.send_gcode(
+            calib.session.stage.move(z=removal_z) + gcode.wait_for_done()
+        )
 
         rotations_used = layout.line_count * amount * previous_rpu
         mass = _prompt_positive_number(
@@ -1282,6 +1293,8 @@ def _calibrate_max_dispense_rate(
     rate_max = float(ctx.params["rate_max"])
     divisions = max(1, int(ctx.params["rate_divisions"]))
     density = ctx.machine.paste_dispenser.solder_paste_density
+    # 計量のため基板を取り出すときは Z を最大（フルリトラクト）まで上げて退避する。
+    removal_z = calib.session.stage.limits.z.max
 
     rates = dispense_rate_schedule(rate_min, rate_max, divisions)
     if not rates:
@@ -1300,11 +1313,21 @@ def _calibrate_max_dispense_rate(
         # 段ずらしで引く。本数が足りなければ折り返して再利用する。
         start, end = layout.line(index % layout.line_count)
         calib.applicator.draw_line(start, end, amount=amount, rate_cap=rate)
+        # 計量のため基板を取り出せるよう、線引き後に Z を最大まで上げて退避する。
+        ctx.log(
+            f"ヘッドを最大 Z={removal_z:.3f} へ退避します。基板を取り出して計測してください"
+        )
+        calib.session.klipper.send_gcode(
+            calib.session.stage.move(z=removal_z) + gcode.wait_for_done()
+        )
         mass = _prompt_positive_number(
             ctx,
             f"[{index + 1}/{len(rates)}] レート {rate:.3f} uL/s の線の質量 (mg) を入力",
+            cancel_label="中止",
         )
-        assert mass is not None  # cancel_label 未指定なので中止は届かない
+        if mass is None:
+            ctx.log("質量入力を中止しました。② を中断してメニューへ戻ります")
+            return results
         measured_ul = mass / density
         measurement = RateMeasurement(
             rate=rate, measured_ul=measured_ul, commanded_ul=amount
