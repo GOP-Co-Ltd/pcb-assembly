@@ -16,6 +16,7 @@
   const rotationsInput = document.getElementById("lc-rotations");
   const rateInput = document.getElementById("lc-rate");
   const accelInput = document.getElementById("lc-accel");
+  const retractRotationsInput = document.getElementById("lc-retract-rotations");
   const massInput = document.getElementById("lc-mass-mg");
   const massCalibration = document.getElementById("loading-mass-calibration");
   const CALIBRATION_DELAY_MS = 250;
@@ -78,6 +79,11 @@
       command.rotations = rotations;
       command.rate = rate;
       command.accel = accel;
+      if (type === "extrude_rotations") {
+        // 押出に引き戻しを 1 セットで付随（負値・非数は 0＝引き戻しなし）。
+        const retract = Number(retractRotationsInput.value);
+        command.retract_rotations = retract >= 0 ? retract : 0;
+      }
     }
     if (window.webui.jobs.sendCommand(command)) {
       toast("コマンドを送信しました");
@@ -95,6 +101,7 @@
       ["rotations", rotationsInput],
       ["rate", rateInput],
       ["accel", accelInput],
+      ["retract_rotations", retractRotationsInput],
     ];
     let saveTimer = null;
     function sync() {

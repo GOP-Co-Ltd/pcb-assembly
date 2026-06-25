@@ -169,6 +169,7 @@ class TestCatalog:
                     "rotations": (5.0, "rev"),
                     "rate": (0.5, "rev/s"),
                     "accel": (0.5, "rev/s^2"),
+                    "retract_rotations": (0.0, "rev"),
                 },
             ),
             (
@@ -260,7 +261,13 @@ class TestCatalog:
     def test_loading_persists_volume_and_rotation_params(self, default: JobCatalog):
         definition = default.get("loading")
 
-        assert definition.persisted_params == ("amount", "rotations", "rate", "accel")
+        assert definition.persisted_params == (
+            "amount",
+            "rotations",
+            "rate",
+            "accel",
+            "retract_rotations",
+        )
 
     def test_paste_solder_interactive_loading_is_bool_defaulting_false(
         self, default: JobCatalog
@@ -314,14 +321,37 @@ class TestParseLoadingCommand:
         assert parse_loading_command({"type": "suck", "amount": 2.5}) == Extrude(-2.5)
 
     def test_extrude_rotations_yields_positive_rotation(self):
+        # retract_rotations 欠落時は引き戻しなし（既定 0.0）。
         assert parse_loading_command(
             {"type": "extrude_rotations", "rotations": 5.0, "rate": 0.5, "accel": 0.5}
-        ) == Rotate(5.0, 0.5, 0.5)
+        ) == Rotate(5.0, 0.5, 0.5, retract_rotations=0.0)
+
+    def test_extrude_rotations_carries_retract(self):
+        assert parse_loading_command(
+            {
+                "type": "extrude_rotations",
+                "rotations": 5.0,
+                "rate": 0.5,
+                "accel": 0.5,
+                "retract_rotations": 1.5,
+            }
+        ) == Rotate(5.0, 0.5, 0.5, retract_rotations=1.5)
 
     def test_suck_rotations_yields_negative_rotation(self):
         assert parse_loading_command(
             {"type": "suck_rotations", "rotations": 5.0, "rate": 0.5, "accel": 0.5}
         ) == Rotate(-5.0, 0.5, 0.5)
+
+    def test_suck_rotations_ignores_retract(self):
+        assert parse_loading_command(
+            {
+                "type": "suck_rotations",
+                "rotations": 5.0,
+                "rate": 0.5,
+                "accel": 0.5,
+                "retract_rotations": 1.5,
+            }
+        ) == Rotate(-5.0, 0.5, 0.5, retract_rotations=0.0)
 
     def test_finish_yields_finish(self):
         assert parse_loading_command({"type": "finish"}) == Finish()
@@ -338,6 +368,13 @@ class TestParseLoadingCommand:
             {"type": "extrude_rotations", "rotations": 0, "rate": 0.5, "accel": 0.5},
             {"type": "extrude_rotations", "rotations": 5.0, "rate": 0, "accel": 0.5},
             {"type": "extrude_rotations", "rotations": 5.0, "rate": 0.5},
+            {  # retract が負
+                "type": "extrude_rotations",
+                "rotations": 5.0,
+                "rate": 0.5,
+                "accel": 0.5,
+                "retract_rotations": -1.0,
+            },
             {"type": "suck_rotations", "rotations": "5", "rate": 0.5, "accel": 0.5},
             {"type": "jog", "axis": "x", "dist": 0.1},  # 機械操作（後段判定へ）
             {"type": "bogus"},  # 未知 type
@@ -747,6 +784,34 @@ class TestPastingHardware:
         assert result.summary is not None
         assert "回転合計" in result.summary
         assert "rev" in result.summary
+
+    def test_loading_rotation_extrude_with_retract_nets_difference(
+        self, real_manager: JobManager, wait_until: WaitUntil
+    ):
+        """回転押出に引き戻しが付随し、回転合計が押出−引き戻しの純増になる."""
+        record = real_manager.start(
+            "loading", {"rotations": 0.1, "rate": 0.5, "accel": 0.5}
+        )
+        _wait_loading_stage_and_settle(record, wait_until)
+
+        real_manager.submit_command(
+            {
+                "type": "extrude_rotations",
+                "rotations": 0.1,
+                "rate": 0.5,
+                "accel": 0.5,
+                "retract_rotations": 0.05,
+            }
+        )
+        real_manager.submit_command({"type": "finish"})
+        wait_until(lambda: record.status.terminal, timeout=300.0)
+
+        assert record.status == JobStatus.SUCCEEDED
+        result = record.result
+        assert result is not None
+        assert result.summary is not None
+        # 0.1 押出 − 0.05 引き戻し = 0.05 rev の純増
+        assert "回転合計 +0.050 rev" in result.summary
 
     def test_probe_gnd_down_adjust_confirm_yields_apply(
         self, real_manager: JobManager, wait_until: WaitUntil
