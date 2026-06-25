@@ -161,7 +161,8 @@ class JobRecord:
 
     @property
     def params(self) -> Mapping[str, ParamValue]:
-        return self._params
+        with self._lock:
+            return dict(self._params)
 
     @property
     def status(self) -> JobStatus:
@@ -216,6 +217,11 @@ class JobRecord:
         with self._lock:
             self._status = status
 
+    def update_params(self, updates: Mapping[str, ParamValue]) -> None:
+        """実行中編集をレコードへ反映する（GET /jobs/current が新値を映す）."""
+        with self._lock:
+            self._params.update(updates)
+
     def set_error(self, error: str) -> None:
         with self._lock:
             self._error = error
@@ -269,6 +275,19 @@ class _JobRuntime:
         self._publish = publish
         self._pending_lock = threading.Lock()
         self._pending: _PendingPrompt | None = None
+        # 実行中パラメータ編集のライブストア（コマンドキュー非経由で適用）。
+        self._params_lock = threading.Lock()
+        self._params: dict[str, ParamValue] = dict(record.params)
+
+    def live_params(self) -> Mapping[str, ParamValue]:
+        """現在のパラメータのスナップショット（torn read 防止のコピー）."""
+        with self._params_lock:
+            return dict(self._params)
+
+    def update_params(self, updates: Mapping[str, ParamValue]) -> None:
+        """ライブストアへ patch を適用する（prompt / sleep 待機中でも反映）."""
+        with self._params_lock:
+            self._params.update(updates)
 
     def publish_status(self) -> None:
         """job_status イベントを発行する（中身は WS 送信時に最新化される）."""
@@ -528,6 +547,47 @@ class JobManager:
         if runtime is None:
             raise ValueError("応答待ちのプロンプトがありません")
         runtime.respond(prompt_id, answer)
+
+    def update_current_params(
+        self, values: Mapping[str, Any], *, persist: bool = False
+    ) -> dict[str, ParamValue]:
+        """実行中ジョブの runtime_editable パラメータを即時更新する.
+
+        コマンドキューを経由せず、prompt / sleep 待機中でも適用する。
+
+        Args:
+            values: 更新するパラメータ（runtime_editable な subset のみ）
+            persist: True で persisted_params 分を次回フォーム既定値へ保存する
+
+        Returns:
+            検証・coerce 済みの適用値
+
+        Raises:
+            ValueError: 実行中ジョブ無し / 終端 / 検証エラー（→ 400）
+        """
+        with self._lock:
+            record = self._record
+            runtime = self._runtime
+        if record is None or runtime is None or record.status.terminal:
+            raise ValueError("実行中のジョブがありません")
+        definition = self._catalog.get(record.name)
+        validated = self._catalog.validate_runtime_params(definition, values)
+        runtime.update_params(validated)
+        record.update_params(validated)
+        if persist:
+            persisted = {
+                key: validated[key]
+                for key in definition.persisted_params
+                if key in validated
+            }
+            if persisted:
+                merged = {
+                    **self._state.job_param_defaults(record.name),
+                    **persisted,
+                }
+                self._state.save_job_param_defaults(record.name, merged)
+        runtime.publish_status()
+        return validated
 
     def submit_command(self, command: Mapping[str, Any]) -> None:
         """実行中ジョブの command キューへ 1 件投入する.

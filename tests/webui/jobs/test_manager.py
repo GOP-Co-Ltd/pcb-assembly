@@ -790,6 +790,169 @@ class TestPcbasmLogBridge:
         assert "終了後のログ" not in "\n".join(record.log_lines)
 
 
+class TestUpdateCurrentParams:
+    """JobManager.update_current_params（計画書「能力 1」manager 節が契約）.
+
+    実行中ジョブに対する out-of-band な runtime_editable patch:
+    - アクティブ（非終端）ジョブが無ければ ValueError
+    - runtime_editable な値を適用し validated dict を返す
+    - runtime_editable=False（固定）の値は ValueError
+    - 適用後、実行中ジョブの ctx.params（ライブビュー）が新値を映す
+    - persist=True で次回フォーム既定値（job_param_defaults）にも保存される
+    """
+
+    _PARAMS = (
+        ParamSpec("board_width", "基板幅", "float", default=40.0),
+        ParamSpec("line_length", "線長", "float", default=10.0, runtime_editable=True),
+        ParamSpec("line_count", "本数", "int", default=3, runtime_editable=True),
+    )
+
+    def _register_param_reader(
+        self, catalog: JobCatalog, gate: threading.Event, reads: list[object]
+    ) -> None:
+        """Gate 前後で ctx.params["line_length"] を読み reads に追記する合成ジョブ."""
+
+        def run(ctx: JobContext) -> None:
+            reads.append(ctx.params["line_length"])
+            gate.wait(timeout=10.0)
+            reads.append(ctx.params["line_length"])
+
+        _register(
+            catalog,
+            run,
+            name="reader",
+            params=self._PARAMS,
+            persisted_params=("line_length",),
+        )
+
+    def test_update_without_active_job_raises_value_error(self, manager: JobManager):
+        with pytest.raises(ValueError):
+            manager.update_current_params({"line_length": 5.0})
+
+    def test_update_after_terminal_raises_value_error(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        _register(catalog, lambda ctx: None, params=self._PARAMS, name="quick")
+        record = manager.start("quick", {})
+        wait_until(lambda: record.status.terminal)
+
+        with pytest.raises(ValueError):
+            manager.update_current_params({"line_length": 5.0})
+
+    def test_returns_validated_runtime_subset(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        gate = threading.Event()
+        reads: list[object] = []
+        self._register_param_reader(catalog, gate, reads)
+        record = manager.start("reader", {})
+        wait_until(lambda: record.status == JobStatus.RUNNING)
+
+        try:
+            applied = manager.update_current_params({"line_length": 12.5})
+        finally:
+            gate.set()
+        wait_until(lambda: record.status.terminal)
+
+        assert applied == {"line_length": 12.5}
+
+    def test_fixed_param_update_raises_value_error(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        gate = threading.Event()
+        reads: list[object] = []
+        self._register_param_reader(catalog, gate, reads)
+        record = manager.start("reader", {})
+        wait_until(lambda: record.status == JobStatus.RUNNING)
+
+        try:
+            # board_width は runtime_editable=False（固定）
+            with pytest.raises(ValueError):
+                manager.update_current_params({"board_width": 99.0})
+        finally:
+            gate.set()
+        wait_until(lambda: record.status.terminal)
+
+    def test_live_params_reflect_update_on_next_read(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        """編集前の読みは旧値、編集後の読みは新値（ctx.params のライブビュー）."""
+        gate = threading.Event()
+        reads: list[object] = []
+        self._register_param_reader(catalog, gate, reads)
+        record = manager.start("reader", {"line_length": 10.0})
+        # gate 前の最初の読みが入るまで待つ
+        wait_until(lambda: len(reads) == 1)
+
+        manager.update_current_params({"line_length": 20.0})
+        gate.set()
+        wait_until(lambda: record.status.terminal)
+
+        # 1 回目（編集前）は開始時の値、2 回目（編集後）は新値
+        assert reads == [10.0, 20.0]
+
+    def test_record_params_reflect_update_for_get_current(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        """GET /jobs/current の元になる record.params も新値を映す."""
+        gate = threading.Event()
+        reads: list[object] = []
+        self._register_param_reader(catalog, gate, reads)
+        record = manager.start("reader", {"line_length": 10.0})
+        wait_until(lambda: record.status == JobStatus.RUNNING)
+
+        try:
+            manager.update_current_params({"line_length": 30.0})
+            assert record.params["line_length"] == 30.0
+        finally:
+            gate.set()
+        wait_until(lambda: record.status.terminal)
+
+    def test_persist_true_saves_next_form_default(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        gate = threading.Event()
+        reads: list[object] = []
+        self._register_param_reader(catalog, gate, reads)
+        record = manager.start("reader", {"line_length": 10.0})
+        wait_until(lambda: record.status == JobStatus.RUNNING)
+
+        try:
+            manager.update_current_params({"line_length": 42.0}, persist=True)
+        finally:
+            gate.set()
+        wait_until(lambda: record.status.terminal)
+
+        assert state.job_param_defaults("reader")["line_length"] == 42.0
+
+    def test_persist_false_does_not_save_next_form_default(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        gate = threading.Event()
+        reads: list[object] = []
+        self._register_param_reader(catalog, gate, reads)
+        record = manager.start("reader", {"line_length": 10.0})
+        wait_until(lambda: record.status == JobStatus.RUNNING)
+
+        try:
+            # persist 省略（既定 False）はライブのみで既定値保存しない
+            manager.update_current_params({"line_length": 55.0})
+        finally:
+            gate.set()
+        wait_until(lambda: record.status.terminal)
+
+        # 起動時に persisted_params で 10.0 が保存されたまま（55.0 にはならない）
+        assert state.job_param_defaults("reader")["line_length"] == 10.0
+
+
 class TestShutdown:
     """Lifespan shutdown 用の後始末."""
 

@@ -34,7 +34,7 @@ from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
 from pcbasm.vision import CalibrationResult
-from webui.jobs.catalog import JobDefinition
+from webui.jobs.catalog import JobDefinition, ParamSpec
 from webui.jobs.context import JobContext, PromptSpec
 from webui.jobs.manager import Artifact, JobManager, JobResult
 from webui.state import AppState
@@ -83,6 +83,51 @@ def _register_gated(app: FastAPI, name: str = "gated_router") -> threading.Event
         )
     )
     return gate
+
+
+def _register_runtime_editable(
+    app: FastAPI, name: str = "runtime_editable_router"
+) -> None:
+    """Confirm prompt で WAITING_INPUT に留まる、runtime_editable param 付き合成ジョブ.
+
+    board_width は固定（runtime_editable=False）、line_length と
+    removal_z_offset は 実行中変更可。PUT /jobs/current/params の即反映と検証（固定/未知/型/負
+    offset）を GET /jobs/current で観測するための題材（実 dispense_calibration の機械フローに
+    依存しない）。
+    """
+
+    def run(ctx: JobContext) -> None:
+        ctx.prompt(PromptSpec(kind="confirm", message="待機"))
+
+    app.state.catalog.register(
+        JobDefinition(
+            name=name,
+            label="実行中編集ジョブ",
+            tab="dev",
+            run=run,
+            params=(
+                ParamSpec("board_width", "基板幅", "float", default=40.0),
+                ParamSpec(
+                    "line_length",
+                    "線長",
+                    "float",
+                    default=10.0,
+                    runtime_editable=True,
+                ),
+                ParamSpec(
+                    "removal_z_offset",
+                    "退避Zオフセット",
+                    "float",
+                    default=0.0,
+                    unit="mm",
+                    runtime_editable=True,
+                ),
+            ),
+            persisted_params=("line_length",),
+            uses_machine=False,
+            hidden=True,
+        )
+    )
 
 
 def _receive_until(
@@ -344,6 +389,132 @@ class TestCurrentAndAbort:
         response = client.post("/api/jobs/current/abort")
 
         assert response.status_code == 409
+
+
+class TestUpdateCurrentParams:
+    """PUT /api/jobs/current/params（計画書「能力 1」routers 節が契約）.
+
+    実行中ジョブの runtime_editable な subset を out-of-band で patch する:
+    - アクティブジョブ無し → 400
+    - 固定キー / 未知キー / 型不正 / 負 removal_z_offset → 400
+    - 正常 → 200 で {"params": {...}} を返し、GET /jobs/current が新値を映す
+    """
+
+    def _put_params(
+        self, client: TestClient, values: dict[str, object], *, persist: bool = False
+    ):
+        return client.put(
+            "/api/jobs/current/params", json={"values": values, "persist": persist}
+        )
+
+    def test_without_active_job_returns_400(self, client: TestClient):
+        response = self._put_params(client, {"line_length": 5.0})
+
+        assert response.status_code == 400
+
+    def test_runtime_editable_update_returns_200_and_reflects_in_current(
+        self, client: TestClient, app: FastAPI
+    ):
+        _register_runtime_editable(app)
+        assert (
+            client.post("/api/jobs/runtime_editable_router", json={}).status_code == 201
+        )
+        _wait_job_status(client, "waiting_input")
+
+        response = self._put_params(client, {"line_length": 12.5})
+
+        assert response.status_code == 200, response.text
+        assert response.json()["params"] == {"line_length": 12.5}
+        # GET /jobs/current が即座に新値を映す
+        job = _current_job(client)
+        assert job is not None
+        assert job["params"]["line_length"] == 12.5
+
+        assert client.post("/api/jobs/current/abort").status_code == 200
+        _wait_job_status(client, "aborted")
+
+    def test_fixed_param_update_returns_400(self, client: TestClient, app: FastAPI):
+        _register_runtime_editable(app)
+        assert (
+            client.post("/api/jobs/runtime_editable_router", json={}).status_code == 201
+        )
+        _wait_job_status(client, "waiting_input")
+
+        # board_width は runtime_editable=False（固定）→ 400
+        response = self._put_params(client, {"board_width": 99.0})
+
+        assert response.status_code == 400
+
+        assert client.post("/api/jobs/current/abort").status_code == 200
+        _wait_job_status(client, "aborted")
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            {"no_such_param": 1.0},  # 未知キー
+            {"line_length": "fast"},  # 型不正
+        ],
+    )
+    def test_invalid_patch_returns_400(
+        self, client: TestClient, app: FastAPI, values: dict[str, object]
+    ):
+        _register_runtime_editable(app)
+        assert (
+            client.post("/api/jobs/runtime_editable_router", json={}).status_code == 201
+        )
+        _wait_job_status(client, "waiting_input")
+
+        response = self._put_params(client, values)
+
+        assert response.status_code == 400
+
+        assert client.post("/api/jobs/current/abort").status_code == 200
+        _wait_job_status(client, "aborted")
+
+    def test_negative_removal_z_offset_returns_400(
+        self, client: TestClient, app: FastAPI
+    ):
+        """removal_z_offset 負値は 400（負退避を拒否）.
+
+        退避 Z = max(z_min, z_max − offset)。負 offset はパラメータ検証で拒否する。
+        """
+        _register_runtime_editable(app)
+        assert (
+            client.post("/api/jobs/runtime_editable_router", json={}).status_code == 201
+        )
+        _wait_job_status(client, "waiting_input")
+
+        response = self._put_params(client, {"removal_z_offset": -1.0})
+
+        assert response.status_code == 400
+
+        assert client.post("/api/jobs/current/abort").status_code == 200
+        _wait_job_status(client, "aborted")
+
+    def test_persist_true_updates_next_form_default(
+        self, client: TestClient, app: FastAPI, appstate: AppState
+    ):
+        _register_runtime_editable(app)
+        assert (
+            client.post(
+                "/api/jobs/runtime_editable_router",
+                json={"params": {"line_length": 10.0}},
+            ).status_code
+            == 201
+        )
+        _wait_job_status(client, "waiting_input")
+
+        response = self._put_params(client, {"line_length": 42.0}, persist=True)
+
+        assert response.status_code == 200, response.text
+        # persisted_params に含まれる line_length が次回フォーム既定へ保存される
+        assert (
+            appstate.job_param_defaults("runtime_editable_router")["line_length"]
+            == 42.0
+        )
+
+        assert client.post("/api/jobs/current/abort").status_code == 200
+        _wait_job_status(client, "aborted")
 
 
 class TestStateBrief:

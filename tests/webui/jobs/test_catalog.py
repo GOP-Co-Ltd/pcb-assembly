@@ -194,6 +194,167 @@ class TestValidateParams:
             catalog.validate_params(definition, {"title": "x", "count": "many"})
 
 
+_RUNTIME_PARAMS = (
+    # 固定パラメータ（runtime_editable=False）
+    ParamSpec(name="board_width", label="基板幅", value_type="float", default=40.0),
+    # 実行中変更可（runtime_editable=True）
+    ParamSpec(
+        name="line_length",
+        label="線長",
+        value_type="float",
+        default=10.0,
+        runtime_editable=True,
+    ),
+    ParamSpec(
+        name="line_count",
+        label="本数",
+        value_type="int",
+        default=3,
+        runtime_editable=True,
+    ),
+    ParamSpec(
+        name="removal_z_offset",
+        label="退避Zオフセット",
+        value_type="float",
+        default=0.0,
+        unit="mm",
+        runtime_editable=True,
+    ),
+)
+
+
+class TestValidateRuntimeParams:
+    """validate_runtime_params の patch 検証（計画書「能力 1」catalog 節が契約）.
+
+    runtime_editable=True のキーだけを coerce して返す patch セマンティクス:
+    - default 充填はしない（与えたキーだけ返る）
+    - runtime_editable=False の固定キー / 未知キー / 型不一致は ValueError
+    - removal_z_offset の負値は ValueError
+    """
+
+    @pytest.fixture
+    def catalog(self) -> JobCatalog:
+        return JobCatalog()
+
+    @pytest.fixture
+    def definition(self) -> JobDefinition:
+        return _definition("runtime", params=_RUNTIME_PARAMS)
+
+    def test_returns_only_supplied_runtime_keys_without_default_filling(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        # patch なので line_count / removal_z_offset の default は充填されない
+        values = catalog.validate_runtime_params(definition, {"line_length": 12.0})
+
+        assert values == {"line_length": 12.0}
+
+    def test_empty_patch_returns_empty_dict(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        assert catalog.validate_runtime_params(definition, {}) == {}
+
+    def test_multiple_runtime_keys_are_all_coerced(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        values = catalog.validate_runtime_params(
+            definition, {"line_length": 5.0, "line_count": 4}
+        )
+
+        assert values == {"line_length": 5.0, "line_count": 4}
+
+    def test_int_param_accepts_integral_float(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        values = catalog.validate_runtime_params(definition, {"line_count": 4.0})
+
+        assert values["line_count"] == 4
+        assert isinstance(values["line_count"], int)
+
+    def test_int_param_rejects_fractional_float(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        with pytest.raises(ValueError):
+            catalog.validate_runtime_params(definition, {"line_count": 4.5})
+
+    def test_float_param_accepts_int(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        values = catalog.validate_runtime_params(definition, {"line_length": 7})
+
+        assert values["line_length"] == 7.0
+        assert isinstance(values["line_length"], float)
+
+    def test_fixed_param_is_rejected(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        # board_width は runtime_editable=False（キャリブ後固定）
+        with pytest.raises(ValueError) as exc:
+            catalog.validate_runtime_params(definition, {"board_width": 50.0})
+
+        assert "board_width" in str(exc.value)
+
+    def test_unknown_key_is_rejected(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        with pytest.raises(ValueError) as exc:
+            catalog.validate_runtime_params(definition, {"no_such_param": 1.0})
+
+        assert "no_such_param" in str(exc.value)
+
+    def test_type_mismatch_is_rejected(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        with pytest.raises(ValueError):
+            catalog.validate_runtime_params(definition, {"line_length": "abc"})
+
+    def test_negative_removal_z_offset_is_rejected(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        # 退避 Z = max(z_min, z_max − offset)。負 offset はパラメータ検証で拒否
+        with pytest.raises(ValueError):
+            catalog.validate_runtime_params(definition, {"removal_z_offset": -1.0})
+
+    def test_zero_removal_z_offset_is_accepted(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        # 既定 0.0（= 現状の全退避）は有効
+        values = catalog.validate_runtime_params(definition, {"removal_z_offset": 0.0})
+
+        assert values == {"removal_z_offset": 0.0}
+
+    def test_positive_removal_z_offset_is_accepted(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        values = catalog.validate_runtime_params(definition, {"removal_z_offset": 3.5})
+
+        assert values == {"removal_z_offset": 3.5}
+
+
+class TestRuntimeParamsProperty:
+    """JobDefinition.runtime_params（フォーム / router 補助用の name 集合）."""
+
+    def test_lists_only_runtime_editable_names(self):
+        definition = _definition("runtime", params=_RUNTIME_PARAMS)
+
+        assert set(definition.runtime_params) == {
+            "line_length",
+            "line_count",
+            "removal_z_offset",
+        }
+
+    def test_is_empty_when_no_runtime_editable_params(self):
+        definition = _definition(
+            "fixed",
+            params=(
+                ParamSpec(
+                    name="board_width", label="幅", value_type="float", default=1.0
+                ),
+            ),
+        )
+
+        assert definition.runtime_params == ()
+
+
 class TestDefaultCatalog:
     """default_catalog の登録内容（計画書「src/webui/jobs/dev.py」節のピン）."""
 
