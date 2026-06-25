@@ -109,6 +109,8 @@ DISPENSE_CALIBRATION_DEFAULT_RATE_DIVISIONS = 6
 DISPENSE_CALIBRATION_DEFAULT_SPEED_MIN = 1.0
 DISPENSE_CALIBRATION_DEFAULT_SPEED_MAX = 10.0
 DISPENSE_CALIBRATION_DEFAULT_SPEED_DIVISIONS = 6
+# 計量のため基板を取り出すときの退避 Z オフセット（z_max から引く量）。既定 0 = 全退避。
+DISPENSE_CALIBRATION_DEFAULT_REMOVAL_Z_OFFSET = 0.0
 # ① 収束判定の相対許容（採用→再計測ループの自動収束ヒント表示用）
 DISPENSE_CALIBRATION_CONVERGENCE_REL_TOL = 0.02
 # ① 段ずらしレイアウトの origin（銅板左下からのマージン）
@@ -312,7 +314,8 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             tab="pasting",
             run=_run_dispense_calibration,
             params=(
-                # 共通土台（その場生成する銅板 + ボード計測）
+                # 共通土台（その場生成する銅板 + ボード計測）。銅板は開始時に 1 回生成する
+                # ため board_width / board_height / tolerance はキャリブ後固定（実行中変更不可）。
                 ParamSpec(
                     "board_width",
                     "銅板幅",
@@ -328,13 +331,14 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     unit="mm",
                 ),
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
-                # ① rotations_per_ul（線引き検証ループ）
+                # 線の共通設定（①②③ 共有・実行中変更可）
                 ParamSpec(
                     "line_length",
                     "線の長さ",
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_LINE_LENGTH,
                     unit="mm",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "line_count",
@@ -342,6 +346,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "int",
                     DISPENSE_CALIBRATION_DEFAULT_LINE_COUNT,
                     unit="本",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "line_amount",
@@ -349,6 +354,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_LINE_AMOUNT,
                     unit="uL",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "row_pitch",
@@ -356,15 +362,26 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_ROW_PITCH,
                     unit="mm",
+                    runtime_editable=True,
+                ),
+                # 計量退避（実行中変更可）。退避 Z = max(z_min, z_max - offset)。
+                ParamSpec(
+                    "removal_z_offset",
+                    "計量退避 Z オフセット",
+                    "float",
+                    DISPENSE_CALIBRATION_DEFAULT_REMOVAL_Z_OFFSET,
+                    unit="mm",
+                    runtime_editable=True,
                 ),
                 # 比重は machine.toml の solder_paste_density を参照（フォーム入力なし）
-                # ② max_dispense_rate（吐出効率の落ち検出）
+                # ② max_dispense_rate（吐出効率の落ち検出・実行中変更可）
                 ParamSpec(
                     "rate_min",
                     "吐出レート最小",
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_RATE_MIN,
                     unit="uL/s",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "rate_max",
@@ -372,20 +389,23 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_RATE_MAX,
                     unit="uL/s",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "rate_divisions",
                     "吐出レート分割数",
                     "int",
                     DISPENSE_CALIBRATION_DEFAULT_RATE_DIVISIONS,
+                    runtime_editable=True,
                 ),
-                # ③ max_fill_speed（連続最大速度・目視選択）
+                # ③ max_fill_speed（連続最大速度・目視選択・実行中変更可）
                 ParamSpec(
                     "speed_min",
                     "塗布速度最小",
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_SPEED_MIN,
                     unit="mm/s",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "speed_max",
@@ -393,12 +413,14 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_SPEED_MAX,
                     unit="mm/s",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "speed_divisions",
                     "塗布速度分割数",
                     "int",
                     DISPENSE_CALIBRATION_DEFAULT_SPEED_DIVISIONS,
+                    runtime_editable=True,
                 ),
             ),
             requires_pcb=False,
@@ -412,6 +434,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                 "line_count",
                 "line_amount",
                 "row_pitch",
+                "removal_z_offset",
                 "rate_min",
                 "rate_max",
                 "rate_divisions",

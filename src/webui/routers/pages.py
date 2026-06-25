@@ -139,10 +139,13 @@ _LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel", "retract_rotations")
 # dispense_calibration フォームのセクション分け（表示のみ）。
 # ①②③ の依存順に沿ってパラメータを視覚的にグルーピングする。
 _DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("共通土台（銅板・位置合わせ）", ("board_width", "board_height", "tolerance")),
     (
-        "① rotations_per_ul の補正（線引き検証）",
-        ("line_length", "line_count", "line_amount", "row_pitch"),
+        "銅板・位置合わせ（キャリブ後固定）",
+        ("board_width", "board_height", "tolerance"),
+    ),
+    (
+        "線の共通設定（①②③ 共有・実行中変更可）",
+        ("line_length", "line_count", "line_amount", "row_pitch", "removal_z_offset"),
     ),
     (
         "② max_dispense_rate（吐出効率の落ち検出）",

@@ -427,7 +427,7 @@ class TestPastingJobPages:
         assert "loading-controls" not in client.get(f"/pasting/{feature}").text
 
     def test_dispense_calibration_renders_param_form_and_menu(self, client: TestClient):
-        """土台/①/②/③ のパラメータフォーム + ①②③/全実行/終了メニューが出る."""
+        """銅板/線共通/②/③ のパラメータフォーム + ①②③/全実行/終了メニューが出る."""
         text = client.get("/pasting/dispense_calibration").text
 
         for name in (
@@ -436,6 +436,7 @@ class TestPastingJobPages:
             "tolerance",
             "line_length",
             "line_count",
+            "removal_z_offset",
             "rate_min",
             "rate_max",
             "rate_divisions",
@@ -444,11 +445,11 @@ class TestPastingJobPages:
             "speed_divisions",
         ):
             assert name in text
-        # パラメータは ①②③ のセクション（fieldset）に分かれて表示される
+        # パラメータは固定土台/線共通/②/③ のセクション（fieldset）に分かれて表示される
         assert "job-param-group" in text
         for legend in (
-            "共通土台",
-            "① rotations_per_ul",
+            "銅板・位置合わせ（キャリブ後固定）",
+            "線の共通設定（①②③ 共有・実行中変更可）",
             "② max_dispense_rate",
             "③ max_fill_speed",
         ):
