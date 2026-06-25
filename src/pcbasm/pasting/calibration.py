@@ -109,6 +109,25 @@ class FlowCalibrationSet:
         """回転加速度 [rev/sec²] を吐出加速度 [μL/sec²] に変換する."""
         return rotation_accel / self.rotations_per_ul
 
+    def rescaled_dispense_accel(
+        self, previous_dispense_accel: float, previous_rotations_per_ul: float
+    ) -> float:
+        """rotations_per_ul 変更後も回転加速度を保つ dispense_accel を再算出する.
+
+        旧 ``previous_dispense_accel`` [μL/sec²] が表す回転加速度 [rev/sec²] を旧
+        ``previous_rotations_per_ul`` で逆算し、この計測の新 ``rotations_per_ul``
+        で吐出加速度へ再変換する。① 検証ループで新 rpu を採用する際に使う。
+
+        Args:
+            previous_dispense_accel: 採用前の吐出加速度 [μL/sec²]
+            previous_rotations_per_ul: 採用前の rotations_per_ul [rev/μL]
+
+        Returns:
+            新 rotations_per_ul に対応する吐出加速度 [μL/sec²]
+        """
+        rotation_accel = previous_dispense_accel * previous_rotations_per_ul
+        return self.dispense_accel_for(rotation_accel)
+
     @property
     def per_measurement(self) -> tuple[FlowCalibration, ...]:
         """各計測を単一の FlowCalibration として表したもの."""

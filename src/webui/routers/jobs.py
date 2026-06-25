@@ -87,6 +87,38 @@ def post_job(
     return {"job": job_summary(record, catalog.get(name))}
 
 
+class JobParamDefaultsRequest(BaseModel):
+    """フォーム入力の即保存リクエスト."""
+
+    values: dict[str, Any] = {}
+
+
+@router.post("/jobs/{name}/param-defaults")
+def post_job_param_defaults(
+    name: str,
+    catalog: CatalogDep,
+    state: StateDep,
+    body: JobParamDefaultsRequest | None = None,
+) -> dict[str, dict[str, bool | float | int | str]]:
+    """フォーム入力を「実行」を待たずに次回フォーム既定値として保存する.
+
+    入力時の即保存用（404: 未知ジョブ）。``persisted_params`` のうち型整合する値だけを
+    既存の保存済み既定値へマージする。入力途中の空欄・型不一致・persisted 外のキーは
+    無視する（実行前なのでエラーにしない）。
+    """
+    values = body.values if body is not None else {}
+    try:
+        definition = catalog.get(name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+    merged: dict[str, bool | float | int | str] = {
+        **state.job_param_defaults(name),
+        **catalog.filter_persisted_defaults(definition, values),
+    }
+    state.save_job_param_defaults(name, merged)
+    return {"defaults": merged}
+
+
 @router.get("/jobs/current")
 def get_current_job(jobs: JobsDep, catalog: CatalogDep) -> dict[str, JobSummary | None]:
     """直近ジョブの全量サマリ（WS 再接続時の同期用。無ければ null）."""

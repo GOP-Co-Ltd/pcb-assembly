@@ -22,7 +22,7 @@ from shapely import Polygon, box
 
 from pcbasm import gcode
 from pcbasm.config import DispenseMode
-from pcbasm.geometry import Compose, HeightPlane, Point3d, Shift
+from pcbasm.geometry import Compose, HeightPlane, Point2d, Point3d, Shift
 from pcbasm.pasting import PasteApplicator
 
 # 既定ノズル径 0.34（inset=0.17）で 2 成分に分裂する細首ダンベル（凹形）。
@@ -94,7 +94,7 @@ def applicator(mock_klipper, mock_paste_dispenser, mock_stage):
         paste_dispenser=mock_paste_dispenser,
         stage=mock_stage,
         nozzle_diameter=0.34,
-        fill_speed=2.0,
+        max_fill_speed=2.0,
         max_dispense_rate=5.0,
         dispense_accel=10.0,
         ul_per_mm2=0.05,
@@ -300,7 +300,7 @@ class TestTransformApplication:
             paste_dispenser=mock_paste_dispenser,
             stage=mock_stage,
             nozzle_diameter=0.34,
-            fill_speed=2.0,
+            max_fill_speed=2.0,
             max_dispense_rate=5.0,
             dispense_accel=10.0,
             ul_per_mm2=0.05,
@@ -347,7 +347,7 @@ class TestAutoPasteHeight:
             paste_dispenser=mock_paste_dispenser,
             stage=mock_stage,
             nozzle_diameter=nozzle_diameter,
-            fill_speed=2.0,
+            max_fill_speed=2.0,
             max_dispense_rate=5.0,
             dispense_accel=10.0,
             ul_per_mm2=ul_per_mm2,
@@ -444,7 +444,7 @@ class TestInitValidation:
                 paste_dispenser=mock_paste_dispenser,
                 stage=mock_stage,
                 nozzle_diameter=0.34,
-                fill_speed=2.0,
+                max_fill_speed=2.0,
                 max_dispense_rate=5.0,
                 dispense_accel=1.0,
                 ul_per_mm2=0.05,
@@ -454,9 +454,9 @@ class TestInitValidation:
             )
 
     @pytest.mark.parametrize(
-        ("fill_speed", "max_dispense_rate", "match"),
+        ("max_fill_speed", "max_dispense_rate", "match"),
         [
-            (0.0, 5.0, "fill_speedは正の値"),
+            (0.0, 5.0, "max_fill_speedは正の値"),
             (2.0, 0.0, "max_dispense_rateは正の値"),
         ],
     )
@@ -465,11 +465,11 @@ class TestInitValidation:
         mock_klipper,
         mock_paste_dispenser,
         mock_stage,
-        fill_speed,
+        max_fill_speed,
         max_dispense_rate,
         match,
     ):
-        # fill_speed / max_dispense_rate が 0 だと _effective_rate=0 →
+        # max_fill_speed / max_dispense_rate が 0 だと _effective_rate=0 →
         # prime_time 計算で ZeroDivisionError になるため、入口で弾く。
         with pytest.raises(ValueError, match=match):
             PasteApplicator(
@@ -477,7 +477,7 @@ class TestInitValidation:
                 paste_dispenser=mock_paste_dispenser,
                 stage=mock_stage,
                 nozzle_diameter=0.34,
-                fill_speed=fill_speed,
+                max_fill_speed=max_fill_speed,
                 max_dispense_rate=max_dispense_rate,
                 dispense_accel=1.0,
                 ul_per_mm2=0.05,
@@ -510,7 +510,7 @@ def _dispenser_config(**overrides: object):
     config = PasteDispenserConfig(
         rotations_per_ul=45.0,
         nozzle_diameter=0.34,
-        fill_speed=2.0,
+        max_fill_speed=2.0,
         max_dispense_rate=5.0,
         dispense_accel=10.0,
         retract_amount=10.0,
@@ -552,7 +552,7 @@ class TestFromConfig:
             paste_dispenser=dispenser,
             stage=stage,
             nozzle_diameter=config.nozzle_diameter,
-            fill_speed=config.fill_speed,
+            max_fill_speed=config.max_fill_speed,
             max_dispense_rate=config.max_dispense_rate,
             dispense_accel=config.dispense_accel,
             ul_per_mm2=config.ul_per_mm2,
@@ -631,6 +631,128 @@ class TestFromConfig:
 
         with pytest.raises(ValueError, match="retraction_accel_factor"):
             PasteApplicator.from_config(klipper, dispenser, stage, config)
+
+
+class TestDrawLine:
+    """公開 draw_line（キャリブ用の 1 本線塗布プリミティブ）.
+
+    apply のポリゴン経路生成を通さず ``[start, end]`` を直接 1 本の
+    FillSequence として送信する。Z 補正・吐出同期は apply の塗布と同一機構。
+    """
+
+    def test_sends_single_blocking_gcode(self, applicator, mock_klipper):
+        # 1 本の線 → send_gcode 1 回、末尾は M400（動作完了待ち）。
+        applicator.draw_line(Point2d(0.0, 0.0), Point2d(10.0, 0.0), amount=2.0)
+
+        assert mock_klipper.send_gcode.call_count == 1
+        sent = mock_klipper.send_gcode.call_args.args[0]
+        assert str(sent).splitlines()[-1] == "M400"
+
+    def test_dispense_amount_is_retraction_plus_amount(
+        self, applicator, mock_paste_dispenser
+    ):
+        # extra_amount=0（prime_extra_delay 既定 0）→ 塗布吐出量 = retraction + amount。
+        retraction = 10.0
+        applicator.draw_line(Point2d(0.0, 0.0), Point2d(10.0, 0.0), amount=2.0)
+
+        amounts = _dispense_amounts(mock_paste_dispenser)
+        assert len(amounts) == 1
+        assert amounts[0] == pytest.approx(retraction + 2.0)
+
+    def test_returns_effective_fill_speed(self, applicator):
+        # L=10, amount=2.0, max_fill_speed=2.0, max_dispense_rate=5.0:
+        # r_desired = 2*2/10 = 0.4 ≤ 5 → 非 cap。速度 = max_fill_speed = 2.0。
+        speed = applicator.draw_line(Point2d(0.0, 0.0), Point2d(10.0, 0.0), amount=2.0)
+
+        assert speed is not None
+        assert speed.resolve(100.0) == pytest.approx(2.0)
+
+    def test_explicit_paste_height_is_used_for_descent(self, applicator, mock_stage):
+        # paste_height を明示すると下降 Z（2 番目の move）にそのまま使われる。
+        applicator.draw_line(
+            Point2d(0.0, 0.0), Point2d(10.0, 0.0), amount=2.0, paste_height=0.7
+        )
+
+        down_move = mock_stage.move.call_args_list[1].kwargs
+        assert down_move["z"] == pytest.approx(0.7)
+
+    def test_rate_cap_inf_disables_capping(
+        self, mock_klipper, mock_paste_dispenser, mock_stage
+    ):
+        # cap 無効だと低 max_dispense_rate でも頭打ちされず、移動速度のみで律速。
+        # max_dispense_rate=0.1, max_fill_speed=2.0, L=10, amount=2.0:
+        # r_desired = 2*2/10 = 0.4。cap=None なら 0.1 に頭打ち→減速、cap=inf なら 0.4。
+        applicator = PasteApplicator(
+            klipper=mock_klipper,
+            paste_dispenser=mock_paste_dispenser,
+            stage=mock_stage,
+            nozzle_diameter=0.34,
+            max_fill_speed=2.0,
+            max_dispense_rate=0.1,
+            dispense_accel=10.0,
+            ul_per_mm2=0.05,
+            retraction=10.0,
+            retraction_rate=10.0,
+            retraction_accel_factor=2.0,
+            paste_height=0.5,
+            lift_height=5.0,
+        )
+
+        speed = applicator.draw_line(
+            Point2d(0.0, 0.0), Point2d(10.0, 0.0), amount=2.0, rate_cap=math.inf
+        )
+
+        assert speed is not None
+        assert speed.resolve(100.0) == pytest.approx(2.0)
+        assert _dispense_amounts(mock_paste_dispenser)[0] == pytest.approx(10.0 + 2.0)
+
+    def test_max_fill_speed_override_exceeds_instance_default(self, applicator):
+        # ③ 速度スイープの肝: per-line の max_fill_speed 上書きで、インスタンス既定
+        # （2.0）を超える速度を実際に達成できる（頭打ちさせない）。
+        # max_fill_speed=8.0, rate_cap=inf, L=10, amount=2.0:
+        # r_desired = 2*8/10 = 1.6、cap=inf → 非 cap。速度 = 8.0（既定 2.0 ではない）。
+        speed = applicator.draw_line(
+            Point2d(0.0, 0.0),
+            Point2d(10.0, 0.0),
+            amount=2.0,
+            max_fill_speed=8.0,
+            rate_cap=math.inf,
+        )
+
+        assert speed is not None
+        assert speed.resolve(100.0) == pytest.approx(8.0)
+
+    def test_auto_height_uses_slot_area(
+        self, mock_klipper, mock_paste_dispenser, mock_stage
+    ):
+        # paste_height="auto" の draw_line は line モードのスロット近似で高さ算出。
+        nozzle_diameter = 0.5
+        bead_width_factor = 1.2
+        applicator = PasteApplicator(
+            klipper=mock_klipper,
+            paste_dispenser=mock_paste_dispenser,
+            stage=mock_stage,
+            nozzle_diameter=nozzle_diameter,
+            max_fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            ul_per_mm2=0.05,
+            retraction=10.0,
+            retraction_rate=10.0,
+            retraction_accel_factor=2.0,
+            paste_height="auto",
+            bead_width_factor=bead_width_factor,
+            lift_height=5.0,
+        )
+        amount = 1.5
+        length = 10.0
+
+        applicator.draw_line(Point2d(0.0, 0.0), Point2d(length, 0.0), amount=amount)
+
+        bead_width = nozzle_diameter * bead_width_factor
+        slot_area = length * bead_width + math.pi * (bead_width / 2.0) ** 2
+        down_move = mock_stage.move.call_args_list[1].kwargs
+        assert down_move["z"] == pytest.approx(amount / slot_area)
 
 
 class TestPerPadOverride:

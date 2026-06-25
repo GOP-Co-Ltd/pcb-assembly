@@ -213,6 +213,77 @@ class TestStartJob:
         _wait_job_status(client, "succeeded")
 
 
+class TestSaveParamDefaults:
+    """POST /api/jobs/{name}/param-defaults（フォーム入力の即保存）.
+
+    「実行」を待たず、入力途中でも persisted_params の有効値を次回フォーム既定値へ
+    マージ保存する。型不一致・persisted 外キーは無視（404: 未知ジョブ）。
+    """
+
+    def test_saves_persisted_values_for_next_form(
+        self, client: TestClient, appstate: AppState
+    ):
+        response = client.post(
+            "/api/jobs/loading/param-defaults",
+            json={
+                "values": {
+                    "amount": 0.4,
+                    "rotations": 7.0,
+                    "rate": 1.5,
+                    "accel": 2.0,
+                }
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["defaults"] == {
+            "amount": 0.4,
+            "rotations": 7.0,
+            "rate": 1.5,
+            "accel": 2.0,
+        }
+        # 実行を経ずに次回フォーム描画へ反映される
+        assert appstate.job_param_defaults("loading")["rotations"] == 7.0
+        assert 'value="0.4"' in client.get("/pasting/loading").text
+
+    def test_ignores_non_persisted_and_invalid_values(
+        self, client: TestClient, appstate: AppState
+    ):
+        response = client.post(
+            "/api/jobs/loading/param-defaults",
+            json={
+                "values": {
+                    "amount": 0.5,  # persisted・有効
+                    "rate": "fast",  # 型不一致 → 無視
+                    "no_such": 1.0,  # persisted 外 → 無視
+                }
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["defaults"] == {"amount": 0.5}
+        assert appstate.job_param_defaults("loading") == {"amount": 0.5}
+
+    def test_merges_with_previously_saved(self, client: TestClient):
+        client.post(
+            "/api/jobs/loading/param-defaults",
+            json={"values": {"amount": 0.3, "rotations": 6.0}},
+        )
+        response = client.post(
+            "/api/jobs/loading/param-defaults",
+            json={"values": {"rotations": 9.0}},  # rotations だけ更新
+        )
+
+        assert response.json()["defaults"] == {"amount": 0.3, "rotations": 9.0}
+
+    def test_unknown_job_returns_404(self, client: TestClient):
+        response = client.post(
+            "/api/jobs/no-such-job/param-defaults", json={"values": {"amount": 1.0}}
+        )
+
+        assert response.status_code == 404
+
+
 class TestCurrentAndAbort:
     """GET /api/jobs/current / POST /api/jobs/current/abort."""
 
@@ -321,7 +392,7 @@ class TestExclusionPropagation:
             assert (
                 client.put(
                     "/api/settings/machine",
-                    json={"values": {"paste_dispenser.fill_speed": 0.9}},
+                    json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
                 ).status_code
                 == 409
             )

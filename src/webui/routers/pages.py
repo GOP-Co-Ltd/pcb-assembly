@@ -26,7 +26,7 @@ TABS: dict[str, tuple[str, ...]] = {
         "paste_solder",
         "height_plane",
         "loading",
-        "flow_calibration",
+        "dispense_calibration",
         "generate_rect_pcb",
         "toolhead_offset",
         "probe_gnd_down_adjust",
@@ -59,7 +59,7 @@ FEATURE_LABELS: dict[str, str] = {
     "paste_solder": "はんだ塗布",
     "height_plane": "高さ平面計測",
     "loading": "ペーストローディング",
-    "flow_calibration": "吐出量キャリブレーション",
+    "dispense_calibration": "吐出量キャリブレーション",
     "generate_rect_pcb": "キャリブレーション矩形 PCB 生成",
     "toolhead_offset": "ツールヘッドオフセット計測",
     "probe_gnd_down_adjust": "GND プローブ下降量調整",
@@ -89,7 +89,7 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("pasting", "paste_solder"): "pasting/paste_solder.html",
     ("pasting", "height_plane"): "pasting/job.html",
     ("pasting", "loading"): "pasting/loading.html",
-    ("pasting", "flow_calibration"): "pasting/job.html",
+    ("pasting", "dispense_calibration"): "pasting/dispense_calibration.html",
     ("pasting", "generate_rect_pcb"): "pasting/job.html",
     ("pasting", "toolhead_offset"): "pasting/job.html",
     ("pasting", "probe_gnd_down_adjust"): "pasting/job.html",
@@ -108,6 +108,7 @@ _JOB_TEMPLATES = frozenset(
         "job.html",
         "pasting/job.html",
         "pasting/loading.html",
+        "pasting/dispense_calibration.html",
         "pasting/paste_solder.html",
         "posctrl/job.html",
         "posctrl/reference_point_setup.html",
@@ -121,11 +122,35 @@ _PASTING_PREVIEW = frozenset({"paste_solder", "height_plane", "toolhead_offset"}
 _PASTING_LOADING_PARAM = {
     "paste_solder": "amount",
     "loading": "amount",
-    "flow_calibration": "load_amount",
+    "dispense_calibration": "line_amount",
     "toolhead_offset": "loading_amount",
 }
 
+# loading_controls をローディング段階以外で有効化する feature → progress stage 名。
+# dispense_calibration はメニュー段階で押出/吸引（プライム）を許す。
+_LOADING_STAGE_OVERRIDE = {
+    "dispense_calibration": "キャリブレーションメニュー",
+}
+
 _LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel")
+
+# dispense_calibration フォームのセクション分け（表示のみ）。
+# ①②③ の依存順に沿ってパラメータを視覚的にグルーピングする。
+_DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("共通土台（銅板・位置合わせ）", ("board_width", "board_height", "tolerance")),
+    (
+        "① rotations_per_ul の補正（線引き検証）",
+        ("line_length", "line_count", "line_amount", "row_pitch"),
+    ),
+    (
+        "② max_dispense_rate（吐出効率の落ち検出）",
+        ("rate_min", "rate_max", "rate_divisions"),
+    ),
+    (
+        "③ max_fill_speed（連続塗布の最大速度）",
+        ("speed_min", "speed_max", "speed_divisions"),
+    ),
+)
 
 router = APIRouter()
 
@@ -283,6 +308,7 @@ def feature_page(
             context.update(
                 show_preview=feature in _PASTING_PREVIEW,
                 show_loading_controls=loading_param is not None,
+                loading_stage=_LOADING_STAGE_OVERRIDE.get(feature, "ローディング"),
             )
             if loading_param is not None:
                 context["loading_default"] = next(
@@ -302,6 +328,12 @@ def feature_page(
                     current_max_dispense_rate=dispenser.max_dispense_rate,
                     current_dispense_accel=dispenser.dispense_accel,
                 )
+            if feature == "dispense_calibration":
+                specs_by_name = {spec.name: spec for spec in param_specs}
+                context["param_groups"] = [
+                    (legend, [specs_by_name[name] for name in names])
+                    for legend, names in _DISPENSE_CALIBRATION_PARAM_GROUPS
+                ]
     if feature == "copper_detection":
         pad_align = state.machine().paste_dispenser.pad_align
         context.update(

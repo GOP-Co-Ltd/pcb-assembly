@@ -68,10 +68,9 @@ def _full_base() -> PasteOverride:
     """全 override 項目が非 None の base override（= L0 確定値）."""
     return PasteOverride(
         dispense_mode="auto",
-        fill_speed=0.8,
         paste_height=0.05,
         ul_per_mm2=0.1,
-        prime_extra_delay=0.0,
+        prime_extra_delay=0.8,
         bead_width_factor=1.0,
         overlap=0.0,
         boundary_margin=0.0,
@@ -115,7 +114,6 @@ class TestBaseOverrideFromConfig:
         override = base_override_from_config(config)
 
         assert override.dispense_mode == config.dispense_mode
-        assert override.fill_speed == pytest.approx(config.fill_speed)
         assert override.paste_height == config.paste_height
         assert override.ul_per_mm2 == pytest.approx(config.ul_per_mm2)
         assert override.prime_extra_delay == pytest.approx(config.prime_extra_delay)
@@ -175,7 +173,6 @@ class TestResolvePadSettingsKeys:
         for paste in resolved.values():
             assert paste.enabled is True
             assert paste.dispense_mode == base.dispense_mode
-            assert paste.fill_speed == pytest.approx(base.fill_speed)
             assert paste.paste_height == pytest.approx(base.paste_height)
             assert paste.ul_per_mm2 == pytest.approx(base.ul_per_mm2)
             assert paste.prime_extra_delay == pytest.approx(base.prime_extra_delay)
@@ -200,7 +197,7 @@ class TestOverrideMerge:
 
         u1 = resolved[("U1", "1")]
         assert u1.ul_per_mm2 == pytest.approx(0.5)  # 上書き
-        assert u1.fill_speed == pytest.approx(0.8)  # 継承
+        assert u1.prime_extra_delay == pytest.approx(0.8)  # 継承
         # 別部品 R1 は影響を受けない
         assert resolved[("R1", "1")].ul_per_mm2 == pytest.approx(0.1)
 
@@ -233,13 +230,13 @@ class TestOverrideMerge:
         model = PasteSettingsModel(
             base=_full_base(),
             levels={
-                ("L0",): LevelSetting(override=PasteOverride(fill_speed=0.45)),
+                ("L0",): LevelSetting(override=PasteOverride(prime_extra_delay=0.45)),
             },
         )
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        assert {paste.fill_speed for paste in resolved.values()} == {0.45}
+        assert {paste.prime_extra_delay for paste in resolved.values()} == {0.45}
         assert {paste.ul_per_mm2 for paste in resolved.values()} == {0.1}
 
     def test_l0_override_can_be_overridden_by_more_specific_level(self):
@@ -247,15 +244,17 @@ class TestOverrideMerge:
         model = PasteSettingsModel(
             base=_full_base(),
             levels={
-                ("L0",): LevelSetting(override=PasteOverride(fill_speed=0.45)),
-                ("L2", "U1"): LevelSetting(override=PasteOverride(fill_speed=0.9)),
+                ("L0",): LevelSetting(override=PasteOverride(prime_extra_delay=0.45)),
+                ("L2", "U1"): LevelSetting(
+                    override=PasteOverride(prime_extra_delay=0.9)
+                ),
             },
         )
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        assert resolved[("R1", "1")].fill_speed == pytest.approx(0.45)
-        assert resolved[("U1", "1")].fill_speed == pytest.approx(0.9)
+        assert resolved[("R1", "1")].prime_extra_delay == pytest.approx(0.45)
+        assert resolved[("U1", "1")].prime_extra_delay == pytest.approx(0.9)
 
     def test_more_specific_level_wins_over_less_specific(self):
         # L4 が L2 を上書き、未指定 field は L2 から継承
@@ -264,7 +263,7 @@ class TestOverrideMerge:
             base=_full_base(),
             levels={
                 ("L2", "U1"): LevelSetting(
-                    override=PasteOverride(ul_per_mm2=0.5, fill_speed=1.5)
+                    override=PasteOverride(ul_per_mm2=0.5, prime_extra_delay=1.5)
                 ),
                 ("L4", "U1", "9"): LevelSetting(override=PasteOverride(ul_per_mm2=0.9)),
             },
@@ -274,12 +273,12 @@ class TestOverrideMerge:
 
         thermal = resolved[("U1", "9")]
         assert thermal.ul_per_mm2 == pytest.approx(0.9)  # L4 が勝つ
-        assert thermal.fill_speed == pytest.approx(1.5)  # L2 から継承
+        assert thermal.prime_extra_delay == pytest.approx(1.5)  # L2 から継承
         assert thermal.paste_height == pytest.approx(0.05)  # base から継承
         # 同部品の別 pad は L4 の影響を受けず L2 が効く
         other = resolved[("U1", "1")]
         assert other.ul_per_mm2 == pytest.approx(0.5)
-        assert other.fill_speed == pytest.approx(1.5)
+        assert other.prime_extra_delay == pytest.approx(1.5)
 
     def test_l1_package_override_applies_to_all_same_package(self):
         components = [_component("R1", "0402"), _component("R2", "0402")]
@@ -415,7 +414,6 @@ class TestResolveNodeSettings:
         root = resolved[("L0",)]
         assert root.enabled is True
         assert root.dispense_mode == base.dispense_mode
-        assert root.fill_speed == pytest.approx(base.fill_speed)
         assert root.paste_height == pytest.approx(base.paste_height)
         assert root.ul_per_mm2 == pytest.approx(base.ul_per_mm2)
         assert root.prime_extra_delay == pytest.approx(base.prime_extra_delay)
@@ -446,7 +444,7 @@ class TestResolveNodeSettings:
         assert resolved[("L4", "U1", "1")].ul_per_mm2 == pytest.approx(0.5)
         assert resolved[("L4", "U1", "9")].ul_per_mm2 == pytest.approx(0.5)
         # 継承していない field は base のまま
-        assert resolved[("L4", "U1", "1")].fill_speed == pytest.approx(0.8)
+        assert resolved[("L4", "U1", "1")].prime_extra_delay == pytest.approx(0.8)
 
     def test_override_propagates_to_node_and_descendants_only(self):
         # L2:U1 の override は U1 サブツリーにのみ伝播し、兄弟 L2:R1 と
@@ -454,20 +452,24 @@ class TestResolveNodeSettings:
         _, _, hierarchy = _two_component_hierarchy()
         model = PasteSettingsModel(
             base=_full_base(),
-            levels={("L2", "U1"): LevelSetting(override=PasteOverride(fill_speed=0.3))},
+            levels={
+                ("L2", "U1"): LevelSetting(
+                    override=PasteOverride(prime_extra_delay=0.3)
+                )
+            },
         )
 
         resolved = resolve_node_settings(hierarchy, model)
 
         # 自ノードと子孫は上書き
-        assert resolved[("L2", "U1")].fill_speed == pytest.approx(0.3)
-        assert resolved[("L4", "U1", "1")].fill_speed == pytest.approx(0.3)
-        assert resolved[("L4", "U1", "9")].fill_speed == pytest.approx(0.3)
+        assert resolved[("L2", "U1")].prime_extra_delay == pytest.approx(0.3)
+        assert resolved[("L4", "U1", "1")].prime_extra_delay == pytest.approx(0.3)
+        assert resolved[("L4", "U1", "9")].prime_extra_delay == pytest.approx(0.3)
         # 兄弟部品 R1 は影響なし
-        assert resolved[("L2", "R1")].fill_speed == pytest.approx(0.8)
-        assert resolved[("L4", "R1", "1")].fill_speed == pytest.approx(0.8)
+        assert resolved[("L2", "R1")].prime_extra_delay == pytest.approx(0.8)
+        assert resolved[("L4", "R1", "1")].prime_extra_delay == pytest.approx(0.8)
         # 祖先 L0 は影響なし
-        assert resolved[("L0",)].fill_speed == pytest.approx(0.8)
+        assert resolved[("L0",)].prime_extra_delay == pytest.approx(0.8)
 
     def test_l1_package_override_reaches_same_package_nodes(self):
         # L1 ノードに置いた override は同 package のサブツリー全体へ伝播する。
@@ -499,7 +501,7 @@ class TestResolveNodeSettings:
             base=_full_base(),
             levels={
                 ("L2", "U1"): LevelSetting(
-                    override=PasteOverride(ul_per_mm2=0.5, fill_speed=1.5)
+                    override=PasteOverride(ul_per_mm2=0.5, prime_extra_delay=1.5)
                 ),
                 ("L4", "U1", "9"): LevelSetting(override=PasteOverride(ul_per_mm2=0.9)),
             },
@@ -509,7 +511,7 @@ class TestResolveNodeSettings:
 
         thermal = resolved[("L4", "U1", "9")]
         assert thermal.ul_per_mm2 == pytest.approx(0.9)  # L4 が勝つ
-        assert thermal.fill_speed == pytest.approx(1.5)  # L2 から継承
+        assert thermal.prime_extra_delay == pytest.approx(1.5)  # L2 から継承
         assert thermal.paste_height == pytest.approx(0.05)  # base から継承
         # 同部品の別 L4 ノードは L4 override の影響を受けず L2 のまま
         other = resolved[("L4", "U1", "1")]
@@ -563,7 +565,7 @@ class TestResolveNodeSettings:
                 ("L1", "0402"): LevelSetting(override=PasteOverride(overlap=0.3)),
                 ("L2", "U1"): LevelSetting(
                     enabled=False,
-                    override=PasteOverride(ul_per_mm2=0.5, fill_speed=1.5),
+                    override=PasteOverride(ul_per_mm2=0.5, prime_extra_delay=1.5),
                 ),
                 ("L4", "U1", "9"): LevelSetting(
                     enabled=True, override=PasteOverride(ul_per_mm2=0.9)
@@ -607,7 +609,7 @@ class TestSettingsRoundTrip:
 
         assert restored.base_enabled is False
         assert restored.base.dispense_mode == "auto"
-        assert restored.base.fill_speed == pytest.approx(0.8)
+        assert restored.base.prime_extra_delay == pytest.approx(0.8)
         assert restored.base.paste_height == pytest.approx(0.05)
         assert restored.base.ul_per_mm2 == pytest.approx(0.1)
 
@@ -637,7 +639,7 @@ class TestSettingsRoundTrip:
                 ("L1", "0402"): LevelSetting(override=PasteOverride(ul_per_mm2=0.08)),
                 ("L2", "U1"): LevelSetting(enabled=False),
                 ("L4", "U1", "9"): LevelSetting(
-                    enabled=True, override=PasteOverride(fill_speed=1.2)
+                    enabled=True, override=PasteOverride(prime_extra_delay=1.2)
                 ),
             },
         )
@@ -654,9 +656,9 @@ class TestSettingsRoundTrip:
         )
         assert restored.levels[("L2", "U1")].enabled is False
         assert restored.levels[("L4", "U1", "9")].enabled is True
-        assert restored.levels[("L4", "U1", "9")].override.fill_speed == pytest.approx(
-            1.2
-        )
+        assert restored.levels[
+            ("L4", "U1", "9")
+        ].override.prime_extra_delay == pytest.approx(1.2)
 
     def test_unset_override_fields_stay_inherited_after_round_trip(self):
         # override の欠落（None = 継承）が round-trip 後も None のまま
@@ -671,7 +673,7 @@ class TestSettingsRoundTrip:
         override = restored.levels[("L2", "U1")].override
 
         assert override.ul_per_mm2 == pytest.approx(0.5)
-        assert override.fill_speed is None
+        assert override.prime_extra_delay is None
         assert override.paste_height is None
         assert override.boundary_margin is None
 
@@ -776,11 +778,11 @@ class TestValidateOverrideValues:
         assert validate_override_values({"ul_per_mm2": True}) is not None
 
     def test_non_numeric_value_is_rejected(self):
-        assert validate_override_values({"fill_speed": "fast"}) is not None
+        assert validate_override_values({"prime_extra_delay": "fast"}) is not None
 
     def test_validate_field_names_separates_unknown(self):
         assert validate_field_names(["bogus"]) is not None
-        assert validate_field_names(["ul_per_mm2", "fill_speed"]) is None
+        assert validate_field_names(["ul_per_mm2", "prime_extra_delay"]) is None
 
 
 class TestWithLevelPatch:
@@ -794,7 +796,7 @@ class TestWithLevelPatch:
 
         resolved = resolve_pad_settings(hierarchy, patched)
         assert resolved[("U1", "1")].ul_per_mm2 == pytest.approx(0.5)
-        assert resolved[("U1", "1")].fill_speed == pytest.approx(0.8)  # 継承
+        assert resolved[("U1", "1")].prime_extra_delay == pytest.approx(0.8)  # 継承
 
     def test_clear_restores_inheritance(self):
         _, _, hierarchy = _two_component_hierarchy()
