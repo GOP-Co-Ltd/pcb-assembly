@@ -6,11 +6,13 @@ mock し、発行される動作の順序・量・速度を call assertion で�
 stage/dispenser 側の責務なので（mock は空 GCode を返す）、 本テストは FillSequence が両 HAL
 をどう駆動するかの契約のみを固定する。
 
-速度モデル: 移動速度 ``fill_speed`` を主設定とし、吐出レートはこれに追従して導出する
-（``r = total_amount * fill_speed / path長``）。導出レートが ``max_dispense_rate`` を超える
-場合はレートを上限で頭打ちし、移動速度を ``max_dispense_rate * 長 / total`` に下げて
-``motion_time == dispense_time`` を保つ。
+速度モデル: 移動速度 ``max_fill_speed`` を主設定とし、吐出レートはこれに追従して導出する
+（``r = total_amount * max_fill_speed / path長``）。導出レートが頭打ち値（``rate_cap``、
+既定は ``max_dispense_rate``）を超える場合はレートを上限で頭打ちし、移動速度を
+``cap * 長 / total`` に下げて ``motion_time == dispense_time`` を保つ。
 """
+
+import math
 
 import pytest
 from pytest_mock import MockerFixture
@@ -37,21 +39,22 @@ def mock_dispenser(mocker: MockerFixture):
     return dispenser
 
 
-def _sequence(path: Path) -> FillSequence:
+def _sequence(path: Path, *, rate_cap: float | None = None) -> FillSequence:
     """具体的な数値で構成した FillSequence を返す（テスト間で共有）.
 
-    total_amount=20, fill_speed=2.0, max_dispense_rate=10.0。
+    total_amount=20, max_fill_speed=2.0, max_dispense_rate=10.0。
     - 経路長 L=10（cap 非バインド）: r_desired = 20*2/10 = 4 ≤ 10 → rate=4,
-      dispense_time = 20/4 = 5, 速度 = 10/5 = 2.0 = fill_speed。
+      dispense_time = 20/4 = 5, 速度 = 10/5 = 2.0 = max_fill_speed。
     - 経路長 L=2（cap バインド）: r_desired = 20*2/2 = 20 > 10 → rate=10,
-      dispense_time = 20/10 = 2, 速度 = 2/2 = 1.0 = max*L/total。
+      dispense_time = 20/10 = 2, 速度 = 2/2 = 1.0 = cap*L/total。
     prime_extra_delay=0.5 のとき extra = 実効レート * 0.5。
+    ``rate_cap`` 未指定（None）のとき頭打ち値は max_dispense_rate（現行等価）。
     """
     return FillSequence(
         path=path,
         total_amount=20.0,
         retraction=10.0,
-        fill_speed=2.0,
+        max_fill_speed=2.0,
         max_dispense_rate=10.0,
         dispense_accel=8.0,
         retraction_rate=5.0,
@@ -59,6 +62,7 @@ def _sequence(path: Path) -> FillSequence:
         prime_extra_delay=0.5,
         lift_height=3.0,
         travel_speed=Speed.absolute(30.0),
+        rate_cap=rate_cap,
     )
 
 
@@ -73,8 +77,8 @@ def _dispense_rate(mock_dispenser) -> float:
 class TestFillSequence:
     """FillSequence クラスのテスト."""
 
-    def test_fill_speed_resolves_to_fill_speed_when_rate_not_capped(self):
-        # L=10: r_desired=4 ≤ max=10 → 減速なし。速度 = fill_speed = 2.0。
+    def test_fill_speed_resolves_to_max_fill_speed_when_rate_not_capped(self):
+        # L=10: r_desired=4 ≤ max=10 → 減速なし。速度 = max_fill_speed = 2.0。
         path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
 
         speed = _sequence(path).fill_speed_actual()
@@ -101,7 +105,7 @@ class TestFillSequence:
     def test_dispense_rate_follows_speed_when_not_capped(
         self, mock_stage, mock_dispenser
     ):
-        # L=10（非 cap）: 実効レート = total*fill_speed/L = 20*2/10 = 4.0。
+        # L=10（非 cap）: 実効レート = total*max_fill_speed/L = 20*2/10 = 4.0。
         path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
 
         _sequence(path).to_gcode(mock_stage, mock_dispenser)
@@ -178,7 +182,7 @@ class TestFillSequence:
     def test_to_gcode_fills_along_path_with_fill_speed(
         self, mock_stage, mock_dispenser
     ):
-        # fill_speed が None でないとき、塗布移動を path 全体に対し1回発行する。
+        # 塗布速度が成立するとき、塗布移動を path 全体に対し1回発行する。
         path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
 
         _sequence(path).to_gcode(mock_stage, mock_dispenser)
@@ -188,7 +192,7 @@ class TestFillSequence:
         # path 全体を渡す（位置引数 or path= キーワードのどちらでも許容）。
         passed_path = call.kwargs.get("path", call.args[0] if call.args else None)
         assert passed_path == path
-        # 速度は fill_speed_actual（非 cap なので fill_speed = 2.0 mm/s）。
+        # 速度は fill_speed_actual（非 cap なので max_fill_speed = 2.0 mm/s）。
         passed_speed = call.kwargs["speed"]
         assert passed_speed.resolve(100.0) == pytest.approx(2.0)
 
@@ -211,3 +215,54 @@ class TestFillSequence:
         result = _sequence(path).to_gcode(mock_stage, mock_dispenser)
 
         assert isinstance(result, GCode)
+
+
+class TestRateCap:
+    """``rate_cap`` による吐出レート頭打ち値の切替テスト."""
+
+    def test_none_caps_at_max_dispense_rate(self, mock_stage, mock_dispenser):
+        # rate_cap=None は max_dispense_rate で頭打ち（現行等価）。
+        # L=2: r_desired=20 > cap=max=10 → rate=10、速度 = 2/2 = 1.0。
+        path = Path([Point3d(0.0, 0.0, 5.0), Point3d(2.0, 0.0, 5.0)])
+
+        seq = _sequence(path, rate_cap=None)
+        seq.to_gcode(mock_stage, mock_dispenser)
+
+        assert _dispense_rate(mock_dispenser) == pytest.approx(10.0)
+        speed = seq.fill_speed_actual()
+        assert speed is not None
+        assert speed.resolve(100.0) == pytest.approx(1.0)
+
+    def test_explicit_cap_overrides_max_dispense_rate(self, mock_stage, mock_dispenser):
+        # rate_cap=5.0（< max_dispense_rate=10）で頭打ち値を下げる。
+        # L=2: r_desired=20 > cap=5 → rate=5、dispense_time=20/5=4、速度=2/4=0.5。
+        path = Path([Point3d(0.0, 0.0, 5.0), Point3d(2.0, 0.0, 5.0)])
+
+        seq = _sequence(path, rate_cap=5.0)
+        seq.to_gcode(mock_stage, mock_dispenser)
+
+        assert _dispense_rate(mock_dispenser) == pytest.approx(5.0)
+        speed = seq.fill_speed_actual()
+        assert speed is not None
+        assert speed.resolve(100.0) == pytest.approx(0.5)
+
+    def test_inf_cap_disables_capping(self, mock_stage, mock_dispenser):
+        # rate_cap=inf は cap 無効。L=2: r_desired=20 をそのまま採用 →
+        # dispense_time=20/20=1、速度=2/1=2.0=max_fill_speed（減速なし）。
+        path = Path([Point3d(0.0, 0.0, 5.0), Point3d(2.0, 0.0, 5.0)])
+
+        seq = _sequence(path, rate_cap=math.inf)
+        seq.to_gcode(mock_stage, mock_dispenser)
+
+        assert _dispense_rate(mock_dispenser) == pytest.approx(20.0)
+        speed = seq.fill_speed_actual()
+        assert speed is not None
+        assert speed.resolve(100.0) == pytest.approx(2.0)
+
+    def test_explicit_cap_applies_to_point_fill(self, mock_stage, mock_dispenser):
+        # 点フィル（L=0）でも頭打ち値が反映される。rate_cap=5 → その場吐出レート=5。
+        path = Path([Point3d(0.0, 0.0, 5.0)])
+
+        _sequence(path, rate_cap=5.0).to_gcode(mock_stage, mock_dispenser)
+
+        assert _dispense_rate(mock_dispenser) == pytest.approx(5.0)

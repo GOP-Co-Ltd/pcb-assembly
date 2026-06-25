@@ -30,7 +30,7 @@ class TestMachine:
         assert machine.paste_dispenser == PasteDispenser(
             rotations_per_ul=1.0,
             nozzle_diameter=0.21,
-            fill_speed=2.0,
+            max_fill_speed=2.0,
             max_dispense_rate=5.0,
             dispense_accel=10.0,
             retract_amount=10.0,
@@ -144,7 +144,7 @@ class TestMachine:
         dispenser = PasteDispenser(
             rotations_per_ul=1.0,
             nozzle_diameter=0.21,
-            fill_speed=2.0,
+            max_fill_speed=2.0,
             max_dispense_rate=5.0,
             dispense_accel=10.0,
             retract_amount=10.0,

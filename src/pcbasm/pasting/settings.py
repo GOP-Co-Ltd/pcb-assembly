@@ -22,7 +22,6 @@ from pcbasm.pcb.grouping import HierKey, PadHierarchy, PadHierarchyNode, PadRef
 # override 可能な項目のフィールド名（解決・JSON 変換の正準順）
 PASTE_OVERRIDE_FIELDS: tuple[str, ...] = (
     "dispense_mode",
-    "fill_speed",
     "paste_height",
     "ul_per_mm2",
     "prime_extra_delay",
@@ -31,7 +30,6 @@ PASTE_OVERRIDE_FIELDS: tuple[str, ...] = (
     "boundary_margin",
 )
 NUMERIC_PASTE_OVERRIDE_FIELDS: tuple[str, ...] = (
-    "fill_speed",
     "ul_per_mm2",
     "prime_extra_delay",
     "bead_width_factor",
@@ -52,7 +50,6 @@ class PasteOverride:
     """
 
     dispense_mode: DispenseMode | None = None
-    fill_speed: float | None = None
     paste_height: PasteHeight | None = None
     ul_per_mm2: float | None = None
     prime_extra_delay: float | None = None
@@ -89,7 +86,6 @@ class ResolvedPaste:
     Attributes:
         enabled: 塗布対象か
         dispense_mode: 塗布方式 auto / dot / line / area
-        fill_speed: 塗布移動速度 [mm/sec]
         paste_height: 塗布面の Z 高さ [mm]、または auto
         ul_per_mm2: パッド面積あたりのペースト量 [μL/mm²]
         prime_extra_delay: プライム後の追加遅延 [sec]
@@ -100,7 +96,6 @@ class ResolvedPaste:
 
     enabled: bool
     dispense_mode: DispenseMode
-    fill_speed: float
     paste_height: PasteHeight
     ul_per_mm2: float
     prime_extra_delay: float
@@ -170,7 +165,7 @@ class PasteSettingsModel:
 def base_override_from_config(config: PasteDispenser) -> PasteOverride:
     """``PasteDispenser`` 設定から L0 デフォルトの override を作る.
 
-    7項目すべてが ``config`` 由来の確定値（非 None）になる。
+    全項目が ``config`` 由来の確定値（非 None）になる。
 
     Args:
         config: マシンのペーストディスペンサー設定
@@ -180,7 +175,6 @@ def base_override_from_config(config: PasteDispenser) -> PasteOverride:
     """
     return PasteOverride(
         dispense_mode=config.dispense_mode,
-        fill_speed=config.fill_speed,
         paste_height=config.paste_height,
         ul_per_mm2=config.ul_per_mm2,
         prime_extra_delay=config.prime_extra_delay,
@@ -295,7 +289,6 @@ def _resolved_from_values(
     return ResolvedPaste(
         enabled=enabled,
         dispense_mode=_dispense_mode_value(values["dispense_mode"]),
-        fill_speed=_float_value("fill_speed", values["fill_speed"]),
         paste_height=_paste_height_value(values["paste_height"]),
         ul_per_mm2=_float_value("ul_per_mm2", values["ul_per_mm2"]),
         prime_extra_delay=_float_value(

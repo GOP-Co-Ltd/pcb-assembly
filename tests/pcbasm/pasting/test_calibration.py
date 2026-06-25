@@ -179,6 +179,28 @@ class TestFlowCalibrationSet:
 
         assert fcs.dispense_accel_for(25.0) == pytest.approx(500.0)
 
+    def test_rescaled_dispense_accel(self):
+        # この計測の rotations_per_ul = 0.05 rev/μL。旧 (accel=2.0, rpu=0.1) を
+        # 採用する → rotation_accel = 2.0*0.1 = 0.2 rev/s² を 0.05 で割り 4.0 μL/s²。
+        fcs = FlowCalibrationSet(
+            rotations=50.0, masses_mg=(1000.0,), specific_gravity=1.0
+        )
+
+        assert fcs.rescaled_dispense_accel(
+            previous_dispense_accel=2.0, previous_rotations_per_ul=0.1
+        ) == pytest.approx(4.0)
+
+    def test_rescaled_dispense_accel_preserves_rotation_accel(self):
+        # 再算出後の (accel * rpu) は旧 (accel * rpu) と一致する（回転加速度保存）。
+        fcs = FlowCalibrationSet(
+            rotations=50.0, masses_mg=(1000.0,), specific_gravity=1.0
+        )
+        new_accel = fcs.rescaled_dispense_accel(
+            previous_dispense_accel=2.0, previous_rotations_per_ul=0.1
+        )
+
+        assert new_accel * fcs.rotations_per_ul == pytest.approx(2.0 * 0.1)
+
     def test_masses_accepts_list(self):
         fcs = FlowCalibrationSet(
             rotations=10.0, masses_mg=[200.0, 200.0], specific_gravity=4.4

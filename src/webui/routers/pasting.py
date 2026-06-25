@@ -62,7 +62,6 @@ class ResolvedSettings(BaseModel):
 
     enabled: bool
     dispense_mode: str
-    fill_speed: float
     paste_height: float | str
     ul_per_mm2: float
     prime_extra_delay: float
@@ -648,9 +647,7 @@ def export_pad_config(
         loaded.model,
         board_signature=loaded.board_signature,
     )
-    filename = (
-        f"pcbasm-paste-overrides-" f"{board_store.board_id(loaded.source_pcb)}.json"
-    )
+    filename = f"pcbasm-paste-overrides-{board_store.board_id(loaded.source_pcb)}.json"
     return JSONResponse(
         content=doc,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},

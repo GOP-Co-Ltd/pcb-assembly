@@ -62,11 +62,11 @@ def _testid(value: str) -> str:
 
 
 def _pad_selector(pad_id: str) -> str:
-    return f'{_testid("pad-polygon")}[data-pad-id={_css_string(pad_id)}]'
+    return f"{_testid('pad-polygon')}[data-pad-id={_css_string(pad_id)}]"
 
 
 def _row_selector(node_id: str) -> str:
-    return f'{_testid("pad-tree-row")}[data-node-id={_css_string(node_id)}]'
+    return f"{_testid('pad-tree-row')}[data-node-id={_css_string(node_id)}]"
 
 
 def _select_led_blinker(live_server: LiveServer):
@@ -187,7 +187,7 @@ def _ensure_row_visible(page: Any, path_ids: list[str]) -> Any:
 
         next_row = page.locator(_row_selector(path_ids[index + 1]))
         if next_row.count() == 0 or not next_row.nth(0).is_visible():
-            toggle = row.locator(f'{_testid("pad-tree-toggle")}, button')
+            toggle = row.locator(f"{_testid('pad-tree-toggle')}, button")
             if toggle.count() > 0:
                 toggle.nth(0).click()
             else:
@@ -323,8 +323,7 @@ def _wait_for_node_resolved_field(
             return
         if time.monotonic() > deadline:
             raise AssertionError(
-                f"{node_id} 配下 pad の {field} が "
-                f"{expected} に解決されない: {values}"
+                f"{node_id} 配下 pad の {field} が {expected} に解決されない: {values}"
             )
         time.sleep(0.05)
 
@@ -388,7 +387,7 @@ class TestPasteSolderBrowserRendering:
         assert point_counts
         assert all(count >= 3 for count in point_counts)
 
-        visible_pad = browser_page.locator(f'{_testid("pad-polygon")}:visible').nth(0)
+        visible_pad = browser_page.locator(f"{_testid('pad-polygon')}:visible").nth(0)
         visible_pad.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         _assert_in_viewport(browser_page, visible_pad)
 
@@ -680,7 +679,7 @@ class TestPasteSolderBrowserPadInteraction:
         _select_led_blinker(live_server)
         patch = httpx.patch(
             f"{live_server.base_url}/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"fill_speed": 0.33}},
+            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.33}},
             timeout=_HTTP_TIMEOUT,
         )
         assert patch.status_code == 200, patch.text
@@ -704,7 +703,7 @@ class TestPasteSolderBrowserPadInteraction:
             """async (baseUrl) => {
                 const response = await fetch(`${baseUrl}/api/pasting/pad-config`);
                 const config = await response.json();
-                return config.overrides["L2:U1"]?.values?.fill_speed === 0.33;
+                return config.overrides["L2:U1"]?.values?.prime_extra_delay === 0.33;
             }""",
             arg=live_server.base_url,
             timeout=_BROWSER_TIMEOUT_MS,
@@ -718,7 +717,7 @@ class TestPasteSolderBrowserOverrideVisibility:
         self, live_server: LiveServer, browser_page
     ):
         _select_led_blinker(live_server)
-        _patch_pad_config_node(live_server, "L2:U1", {"fill_speed": 0.33})
+        _patch_pad_config_node(live_server, "L2:U1", {"prime_extra_delay": 0.33})
         config = _get_pad_config(live_server)
         path = _tree_path_ids(config["tree"], "L2:U1")
         assert path == ["L0", "L1:SOT-23-6", "L2:U1"]
@@ -731,30 +730,35 @@ class TestPasteSolderBrowserOverrideVisibility:
         l1_row.locator(
             f".pad-col-node {_DESCENDANT_OVERRIDE_MARKER_SELECTOR}"
         ).first.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
-        l1_fill_speed_cell = _field_cell(l1_row, "fill_speed")
-        l1_fill_speed_cell.locator(_DESCENDANT_FIELD_MARKER_SELECTOR).first.wait_for(
-            state="visible", timeout=_BROWSER_TIMEOUT_MS
-        )
+        l1_prime_extra_delay_cell = _field_cell(l1_row, "prime_extra_delay")
+        l1_prime_extra_delay_cell.locator(
+            _DESCENDANT_FIELD_MARKER_SELECTOR
+        ).first.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
 
-        l1_fill_speed = _field_input(l1_row, "fill_speed")
-        l1_fill_speed.fill("0.77")
-        l1_fill_speed.press("Enter")
+        l1_prime_extra_delay = _field_input(l1_row, "prime_extra_delay")
+        l1_prime_extra_delay.fill("0.77")
+        l1_prime_extra_delay.press("Enter")
 
         browser_page.locator(".toast").filter(
             has_text=_DESCENDANT_WARNING_RE
         ).first.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
-        _wait_for_node_override_field(live_server, "L1:SOT-23-6", "fill_speed", 0.77)
-        _wait_for_node_resolved_field(live_server, "L2:U1", "fill_speed", 0.33)
+        _wait_for_node_override_field(
+            live_server, "L1:SOT-23-6", "prime_extra_delay", 0.77
+        )
+        _wait_for_node_resolved_field(live_server, "L2:U1", "prime_extra_delay", 0.33)
 
         l2_row = _ensure_row_visible(browser_page, ["L0", "L1:SOT-23-6", "L2:U1"])
-        l2_fill_speed_cell = _field_cell(l2_row, "fill_speed")
-        l2_fill_speed_input = _field_input(l2_row, "fill_speed")
-        assert l2_fill_speed_input.input_value(timeout=_BROWSER_TIMEOUT_MS) == "0.33"
-        assert "override" in l2_fill_speed_input.get_attribute("class")
-        l2_fill_speed_cell.locator(".pad-override-marker").wait_for(
+        l2_prime_extra_delay_cell = _field_cell(l2_row, "prime_extra_delay")
+        l2_prime_extra_delay_input = _field_input(l2_row, "prime_extra_delay")
+        assert (
+            l2_prime_extra_delay_input.input_value(timeout=_BROWSER_TIMEOUT_MS)
+            == "0.33"
+        )
+        assert "override" in l2_prime_extra_delay_input.get_attribute("class")
+        l2_prime_extra_delay_cell.locator(".pad-override-marker").wait_for(
             state="visible", timeout=_BROWSER_TIMEOUT_MS
         )
-        l2_fill_speed_cell.locator(".pad-cell-clear").wait_for(
+        l2_prime_extra_delay_cell.locator(".pad-cell-clear").wait_for(
             state="visible", timeout=_BROWSER_TIMEOUT_MS
         )
 

@@ -109,7 +109,7 @@ class TestGetPadConfig:
 
         assert defaults["enabled"] is True
         assert defaults["dispense_mode"] == "auto"
-        assert defaults["fill_speed"] == 0.8  # test-fixture machine.toml 由来
+        assert defaults["prime_extra_delay"] == 0.0  # test-fixture machine.toml 由来
         assert defaults["paste_height"] == "auto"
         assert defaults["bead_width_factor"] == 1.0  # PasteDispenser 既定
         assert defaults["boundary_margin"] == 0.0
@@ -126,7 +126,7 @@ class TestGetPadConfig:
         assert all(len(point) == 2 for point in pad["polygon"])
         assert pad["enabled"] is True
         assert pad["resolved"]["dispense_mode"] == "auto"
-        assert pad["resolved"]["fill_speed"] == 0.8
+        assert pad["resolved"]["prime_extra_delay"] == 0.0
         assert pad["resolved"]["paste_height"] == "auto"
 
     def test_pad_exposes_full_node_id_path(self, selected_client: TestClient):
@@ -224,13 +224,13 @@ class TestTreeNodeResolution:
     ):
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
         )
 
         config = _get_config(selected_client)
         u1_node = _node_by_id(config["tree"], "L2:U1")
 
-        assert u1_node["resolved"]["fill_speed"] == 0.3
+        assert u1_node["resolved"]["prime_extra_delay"] == 0.3
         # 他 field は継承のまま
         assert u1_node["resolved"]["bead_width_factor"] == 1.0
 
@@ -239,14 +239,14 @@ class TestTreeNodeResolution:
     ):
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
         )
 
         config = _get_config(selected_client)
         u1_node = _node_by_id(config["tree"], "L2:U1")
         l4_node = _node_by_id(u1_node, "L4:U1:1")
 
-        assert l4_node["resolved"]["fill_speed"] == 0.3
+        assert l4_node["resolved"]["prime_extra_delay"] == 0.3
         # 子ノード自身は override を持たない
         assert l4_node["own_override"]["values"] == {}
 
@@ -255,7 +255,7 @@ class TestTreeNodeResolution:
             "/api/pasting/pad-config/node",
             json={
                 "node": "L2:U1",
-                "values": {"fill_speed": 0.3, "bead_width_factor": 0.8},
+                "values": {"prime_extra_delay": 0.3, "bead_width_factor": 0.8},
             },
         )
 
@@ -263,8 +263,8 @@ class TestTreeNodeResolution:
         u1_node = _node_by_id(config["tree"], "L2:U1")
         own = u1_node["own_override"]
 
-        assert set(own["values"]) == {"fill_speed", "bead_width_factor"}
-        assert own["values"]["fill_speed"] == 0.3
+        assert set(own["values"]) == {"prime_extra_delay", "bead_width_factor"}
+        assert own["values"]["prime_extra_delay"] == 0.3
         assert own["values"]["bead_width_factor"] == 0.8
         assert own["enabled"] is None  # enabled は明示していない
 
@@ -299,7 +299,7 @@ class TestTreeNodeResolution:
         # L4:U1:1 に value override、L4:U1:2 に enabled をそれぞれ置く。
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L4:U1:1", "values": {"fill_speed": 0.3}},
+            json={"node": "L4:U1:1", "values": {"prime_extra_delay": 0.3}},
         )
         selected_client.patch(
             "/api/pasting/pad-config/node",
@@ -314,14 +314,14 @@ class TestTreeNodeResolution:
         assert summary["node_count"] == 2
         assert summary["count"] == 2
         assert summary["enabled_count"] == 1
-        assert summary["field_counts"]["fill_speed"] == 1
-        assert "fill_speed" in summary["fields"]
+        assert summary["field_counts"]["prime_extra_delay"] == 1
+        assert "prime_extra_delay" in summary["fields"]
 
     def test_descendant_summary_excludes_self(self, selected_client: TestClient):
         # 自ノードに override を置いても descendant_summary には数えない。
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
         )
 
         config = _get_config(selected_client)
@@ -329,13 +329,13 @@ class TestTreeNodeResolution:
 
         assert u1_node["descendant_summary"]["node_count"] == 0
         # 自ノードの own_override にだけ反映される
-        assert u1_node["own_override"]["values"]["fill_speed"] == 0.3
+        assert u1_node["own_override"]["values"]["prime_extra_delay"] == 0.3
 
     def test_root_summary_aggregates_all_overrides(self, selected_client: TestClient):
         # ルート L0 の descendant_summary は全ノードの override を集計する。
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
         )
         selected_client.patch(
             "/api/pasting/pad-config/node",
@@ -347,7 +347,7 @@ class TestTreeNodeResolution:
 
         assert summary["node_count"] == 2
         assert summary["enabled_count"] == 1
-        assert summary["field_counts"]["fill_speed"] == 1
+        assert summary["field_counts"]["prime_extra_delay"] == 1
 
 
 class TestPatchNode:
@@ -379,14 +379,14 @@ class TestPatchNode:
     def test_value_upsert_persists_on_reget(self, selected_client: TestClient):
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
         )
 
         config = _get_config(selected_client)
-        assert config["overrides"]["L2:U1"]["values"]["fill_speed"] == 0.3
-        assert _pad_by_id(config, "U1.1")["resolved"]["fill_speed"] == 0.3
+        assert config["overrides"]["L2:U1"]["values"]["prime_extra_delay"] == 0.3
+        assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.3
         # U1 以外には波及しない
-        assert _pad_by_id(config, "R1.1")["resolved"]["fill_speed"] == 0.8
+        assert _pad_by_id(config, "R1.1")["resolved"]["prime_extra_delay"] == 0.0
 
     def test_mode_and_height_upsert_persist_on_reget(self, selected_client: TestClient):
         selected_client.patch(
@@ -414,19 +414,19 @@ class TestPatchNode:
     def test_clear_returns_to_inheritance(self, selected_client: TestClient):
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
         )
 
         response = selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "clear": ["fill_speed"]},
+            json={"node": "L2:U1", "clear": ["prime_extra_delay"]},
         )
 
         assert response.status_code == 200, response.text
         config = _get_config(selected_client)
         # override が空 + enabled 継承 → ノードは overrides から消える（疎）
         assert "L2:U1" not in config["overrides"]
-        assert _pad_by_id(config, "U1.1")["resolved"]["fill_speed"] == 0.8
+        assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.0
 
     def test_l0_enable_toggle_persists(self, selected_client: TestClient):
         response = selected_client.patch(
@@ -444,35 +444,53 @@ class TestPatchNode:
     def test_l0_value_override_persists(self, selected_client: TestClient):
         response = selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L0", "values": {"fill_speed": 0.35}},
+            json={"node": "L0", "values": {"prime_extra_delay": 0.35}},
         )
 
         assert response.status_code == 200, response.text
         config = _get_config(selected_client)
-        assert config["defaults"]["fill_speed"] == 0.8
-        assert config["overrides"]["L0"]["values"]["fill_speed"] == 0.35
-        assert all(pad["resolved"]["fill_speed"] == 0.35 for pad in config["pads"])
+        assert config["defaults"]["prime_extra_delay"] == 0.0
+        assert config["overrides"]["L0"]["values"]["prime_extra_delay"] == 0.35
+        assert all(
+            pad["resolved"]["prime_extra_delay"] == 0.35 for pad in config["pads"]
+        )
 
     def test_l0_clear_returns_to_machine_default(self, selected_client: TestClient):
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L0", "values": {"fill_speed": 0.35}},
+            json={"node": "L0", "values": {"prime_extra_delay": 0.35}},
         )
 
         response = selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L0", "clear": ["fill_speed"]},
+            json={"node": "L0", "clear": ["prime_extra_delay"]},
         )
 
         assert response.status_code == 200, response.text
         config = _get_config(selected_client)
         assert "L0" not in config["overrides"]
-        assert _pad_by_id(config, "U1.1")["resolved"]["fill_speed"] == 0.8
+        assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.0
 
     def test_unknown_value_key_returns_400(self, selected_client: TestClient):
         response = selected_client.patch(
             "/api/pasting/pad-config/node",
             json={"node": "L2:U1", "values": {"no_such_field": 1.0}},
+        )
+        assert response.status_code == 400
+
+    def test_removed_fill_speed_value_returns_400(self, selected_client: TestClient):
+        # fill_speed は pad override から廃止された（max_fill_speed は装置一律設定）。
+        # PASTE_OVERRIDE_FIELDS から消えたため未知項目として 400 になる。
+        response = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+        )
+        assert response.status_code == 400
+
+    def test_removed_fill_speed_clear_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "clear": ["fill_speed"]},
         )
         assert response.status_code == 400
 
@@ -541,7 +559,7 @@ class TestReset:
     def test_reset_discards_overrides(self, selected_client: TestClient):
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
         )
 
         response = selected_client.post("/api/pasting/pad-config/reset")
@@ -549,7 +567,7 @@ class TestReset:
         assert response.status_code == 200, response.text
         config = response.json()
         assert config["overrides"] == {}
-        assert _pad_by_id(config, "U1.1")["resolved"]["fill_speed"] == 0.8
+        assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.0
 
 
 class TestExportImport:
@@ -560,7 +578,7 @@ class TestExportImport:
     ):
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
         )
 
         response = selected_client.get("/api/pasting/pad-config/export")
@@ -575,12 +593,12 @@ class TestExportImport:
         level = next(
             item for item in doc["settings"]["levels"] if item["key"] == ["L2", "U1"]
         )
-        assert level["override"]["fill_speed"] == 0.3
+        assert level["override"]["prime_extra_delay"] == 0.3
 
     def test_import_restores_saved_override(self, selected_client: TestClient):
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
+            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
         )
         doc = selected_client.get("/api/pasting/pad-config/export").json()
         selected_client.post("/api/pasting/pad-config/reset")
@@ -591,8 +609,8 @@ class TestExportImport:
 
         assert response.status_code == 200, response.text
         config = response.json()
-        assert config["overrides"]["L2:U1"]["values"]["fill_speed"] == 0.3
-        assert _pad_by_id(config, "U1.1")["resolved"]["fill_speed"] == 0.3
+        assert config["overrides"]["L2:U1"]["values"]["prime_extra_delay"] == 0.3
+        assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.3
 
     def test_import_rejects_wrong_signature(self, selected_client: TestClient):
         doc = selected_client.get("/api/pasting/pad-config/export").json()
@@ -608,9 +626,9 @@ class TestExportImport:
 class TestLoadingCalibration:
     """GET /api/pasting/loading/calibration（質量キャリブレーション算出）.
 
-    計画書「3. src/webui/routers/pasting.py」が契約。density はサーバが現在マシンの
-    ``solder_paste_density`` を使う（test-fixture machine.toml では 3.78）。
-    非正入力は該当値が ``null``（volume_ul は mass>0 のとき出る）。
+    density はサーバが現在マシンの ``solder_paste_density`` を使う
+    （test-fixture machine.toml では 3.78）。非正入力は該当値が ``null``
+    （volume_ul は mass>0 のとき出る）。
 
     PCB 選択は不要（machine 設定だけを参照する）なので素の ``client`` を使う。
     """

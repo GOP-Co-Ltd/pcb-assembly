@@ -130,6 +130,25 @@ class JobCatalog:
                 raise ValueError(f"必須パラメータがありません: {spec.name}")
         return validated
 
+    def filter_persisted_defaults(
+        self, definition: JobDefinition, values: Mapping[str, object]
+    ) -> dict[str, ParamValue]:
+        """persisted_params のうち型整合する値だけを coerce して返す.
+
+        フォーム入力途中の「即保存」用。``persisted_params`` 以外のキー・未提供・
+        型不一致は黙って除外する（実行前なので必須欠落でエラーにしない）。
+        """
+        specs = {spec.name: spec for spec in definition.params}
+        result: dict[str, ParamValue] = {}
+        for key in definition.persisted_params:
+            if key not in values:
+                continue
+            try:
+                result[key] = _coerce_param(specs[key], values[key])
+            except ValueError:
+                continue
+        return result
+
 
 def default_catalog() -> JobCatalog:
     """Dev 3 + posctrl 5 + pasting 7 ジョブ登録済みのカタログを返す."""

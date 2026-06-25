@@ -694,6 +694,30 @@ h2 {
   color: var(--quiet);
 }
 
+.job-intro {
+  max-width: 42rem;
+  margin: 0 0 0.9rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.job-param-group {
+  display: grid;
+  gap: 0.55rem;
+  max-width: 42rem;
+  margin: 0 0 0.9rem;
+  padding: 0.6rem 0.85rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.job-param-group > legend {
+  padding: 0 0.4rem;
+  color: var(--accent, var(--muted));
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
 #job-run {
   width: fit-content;
   min-width: 6rem;
@@ -1349,6 +1373,7 @@ h2 {
   border-top: 1px solid var(--line);
 }
 
+.calibration-menu,
 .loading-mass-calibration {
   display: grid;
   gap: 0.55rem;
@@ -1359,6 +1384,24 @@ h2 {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
+}
+
+.calibration-menu-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.calibration-menu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.calibration-menu-finish {
+  display: flex;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--line);
 }
 
 .loading-mass-calibration h3 {

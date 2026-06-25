@@ -31,8 +31,8 @@ Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / s
 - pasting 7 feature ページは全て job-console + job-form
 - preview ペイン（overlay 切替なし）は paste_solder / height_plane /
   toolhead_offset のみ
-- loading_controls（data-loading-stage="ローディング"）は paste_solder /
-  loading / flow_calibration / toolhead_offset のみ
+- loading_controls は paste_solder / loading / toolhead_offset（stage="ローディング"）と
+  dispense_calibration（stage="キャリブレーションメニュー"・プライム用）
 - pnp はプレースホルダのみ（サイドバー空 + 「機能を選択」）
 """
 
@@ -272,7 +272,7 @@ PASTING_JOB_FEATURES = (
     "paste_solder",
     "height_plane",
     "loading",
-    "flow_calibration",
+    "dispense_calibration",
     "generate_rect_pcb",
     "toolhead_offset",
     "probe_gnd_down_adjust",
@@ -282,10 +282,11 @@ PASTING_JOB_FEATURES = (
 PASTING_PREVIEW_FEATURES = ("paste_solder", "height_plane", "toolhead_offset")
 
 # ローディングボタン UI を持つ feature（計画書 _PASTING_LOADING_PARAM）
+# dispense_calibration はメニュー段階で押出/吸引（プライム）に使う
 PASTING_LOADING_FEATURES = (
     "paste_solder",
     "loading",
-    "flow_calibration",
+    "dispense_calibration",
     "toolhead_offset",
 )
 
@@ -320,7 +321,6 @@ class TestPastingJobPages:
         "feature",
         (
             "loading",
-            "flow_calibration",
             "generate_rect_pcb",
             "probe_gnd_down_adjust",
         ),
@@ -338,20 +338,39 @@ class TestPastingJobPages:
         for name in ("width", "height"):
             assert name in text
 
-    @pytest.mark.parametrize("feature", PASTING_LOADING_FEATURES)
+    @pytest.mark.parametrize("feature", ("paste_solder", "loading", "toolhead_offset"))
     def test_loading_jobs_render_loading_controls_with_stage_contract(
         self, client: TestClient, feature: str
     ):
-        """Loading_controls の data-loading-stage は LOADING_STAGE と一致させる."""
+        """ローディング段階のジョブは data-loading-stage を LOADING_STAGE と一致させる."""
         text = client.get(f"/pasting/{feature}").text
 
         assert "loading-controls" in text
         assert 'data-loading-stage="ローディング"' in text
         assert 'value="0.1"' in text  # loading_default（該当 ParamSpec の既定値）
 
+    def test_dispense_calibration_loading_controls_use_menu_stage(
+        self, client: TestClient
+    ):
+        """dispense_calibration の loading_controls はメニュー段階で有効化する.
+
+        プライム（押出/吸引）をキャリブメニュー中に使うため、data-loading-stage は ローディング段階ではなく
+        "キャリブレーションメニュー"。
+        """
+        text = client.get("/pasting/dispense_calibration").text
+
+        assert "loading-controls" in text
+        assert 'data-loading-stage="キャリブレーションメニュー"' in text
+        assert 'data-loading-stage="ローディング"' not in text
+
     def test_loading_page_renders_rotation_controls_and_mass_calibration(
         self, client: TestClient
     ):
+        """ローディング画面は体積/回転コントロール + 質量キャリブレーション表を持つ.
+
+        質量キャリブは初期 rotations_per_ul 等をゼロから設定するブートストラップ用。 既存値を線引きで補正する
+        dispense_calibration とは用途が別なので併存させる。
+        """
         text = client.get("/pasting/loading").text
 
         assert 'type="hidden" id="param-amount"' in text
@@ -367,6 +386,7 @@ class TestPastingJobPages:
         assert 'id="lc-accel"' in text
         assert 'id="lc-extrude-rotations"' in text
         assert 'id="lc-suck-rotations"' in text
+        # 質量キャリブレーション表（ブートストラップ用）はローディング画面に残す
         assert 'id="loading-mass-calibration"' in text
         assert 'id="lc-mass-mg"' in text
         assert 'id="lc-rotations-per-ul"' in text
@@ -389,7 +409,7 @@ class TestPastingJobPages:
             assert value in text
 
     @pytest.mark.parametrize(
-        "feature", ("paste_solder", "flow_calibration", "toolhead_offset")
+        "feature", ("paste_solder", "dispense_calibration", "toolhead_offset")
     )
     def test_non_loading_pages_do_not_render_rotation_controls(
         self, client: TestClient, feature: str
@@ -407,28 +427,56 @@ class TestPastingJobPages:
     ):
         assert "loading-controls" not in client.get(f"/pasting/{feature}").text
 
-    def test_flow_calibration_renders_param_form_fields(self, client: TestClient):
-        text = client.get("/pasting/flow_calibration").text
+    def test_dispense_calibration_renders_param_form_and_menu(self, client: TestClient):
+        """土台/①/②/③ のパラメータフォーム + ①②③/全実行/終了メニューが出る."""
+        text = client.get("/pasting/dispense_calibration").text
 
-        for name in ("rotations", "rate", "accel", "count", "load_amount"):
+        for name in (
+            "board_width",
+            "board_height",
+            "tolerance",
+            "line_length",
+            "line_count",
+            "rate_min",
+            "rate_max",
+            "rate_divisions",
+            "speed_min",
+            "speed_max",
+            "speed_divisions",
+        ):
             assert name in text
-        for value in ('value="50"', 'value="2.5"', 'value="25"', 'value="3"'):
-            assert value in text
+        # パラメータは ①②③ のセクション（fieldset）に分かれて表示される
+        assert "job-param-group" in text
+        for legend in (
+            "共通土台",
+            "① rotations_per_ul",
+            "② max_dispense_rate",
+            "③ max_fill_speed",
+        ):
+            assert legend in text
+        assert "calibration-menu" in text
+        for bid in (
+            "calib-rotations-per-ul",
+            "calib-max-dispense-rate",
+            "calib-max-fill-speed",
+            "calib-all",
+            "calib-finish",
+        ):
+            assert f'id="{bid}"' in text
+        assert "calibration_menu.js" in text
 
-    def test_flow_calibration_renders_saved_param_defaults(
+    def test_dispense_calibration_renders_saved_param_defaults(
         self, client: TestClient, appstate: AppState
     ):
         appstate.save_job_param_defaults(
-            "flow_calibration",
-            {"rotations": 60.0, "rate": 1.5, "accel": 20.0, "count": 4},
+            "dispense_calibration",
+            {"board_width": 30.0, "line_count": 8, "speed_max": 12.0},
         )
 
-        text = client.get("/pasting/flow_calibration").text
+        text = client.get("/pasting/dispense_calibration").text
 
-        for value in ('value="60.0"', 'value="1.5"', 'value="20.0"', 'value="4"'):
+        for value in ('value="30.0"', 'value="8"', 'value="12.0"'):
             assert value in text
-        assert 'name="load_amount"' in text
-        assert 'value="0.1"' in text
 
     def test_toolhead_offset_renders_param_form_fields(self, client: TestClient):
         text = client.get("/pasting/toolhead_offset").text
