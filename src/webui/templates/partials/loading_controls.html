@@ -24,6 +24,9 @@
         <label for="lc-accel">加速度 <span class="unit">[rev/s^2]</span></label>
         <input type="number" id="lc-accel" step="any" min="0"
                value="{{ loading_rotation_defaults.accel }}">
+        <label for="lc-retract-rotations">引き戻し回転数 <span class="unit">[rev]</span></label>
+        <input type="number" id="lc-retract-rotations" step="any" min="0"
+               value="{{ loading_rotation_defaults.retract_rotations }}">
       </div>
       <div class="loading-control-group">
         <button id="lc-extrude-rotations" type="button" disabled>回転押出</button>
