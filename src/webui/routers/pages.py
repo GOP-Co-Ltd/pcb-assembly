@@ -132,7 +132,7 @@ _LOADING_STAGE_OVERRIDE = {
     "dispense_calibration": "キャリブレーションメニュー",
 }
 
-_LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel")
+_LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel", "retract_rotations")
 
 # dispense_calibration フォームのセクション分け（表示のみ）。
 # ①②③ の依存順に沿ってパラメータを視覚的にグルーピングする。

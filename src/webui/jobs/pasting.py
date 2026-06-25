@@ -89,6 +89,7 @@ LOADING_DEFAULT_AMOUNT = 0.1
 LOADING_DEFAULT_ROTATIONS = 5.0
 LOADING_DEFAULT_ROTATION_RATE = 0.5
 LOADING_DEFAULT_ROTATION_ACCEL = 0.5
+LOADING_DEFAULT_RETRACT_ROTATIONS = 0.0
 APPLY_DIGITS = 6
 
 # 吐出量キャリブレーション統合ジョブ（①rotations_per_ul / ②max_dispense_rate /
@@ -133,11 +134,14 @@ class Rotate:
         rotations: 符号付き回転数 [rev]（吸引は負）
         rate: 角速度 [rev/sec]
         accel: 角加速度 [rev/sec²]
+        retract_rotations: 押出直後に逆回転で引き戻す回転数 [rev]（0 で無効）。
+            押出（rotations > 0）にのみ付随し、吸引には適用しない。
     """
 
     rotations: float
     rate: float
     accel: float
+    retract_rotations: float = 0.0
 
 
 @attrs.frozen
@@ -181,10 +185,13 @@ def parse_loading_command(command: Mapping[str, Any]) -> LoadingAction | None:
             accel_value = _positive_amount(accel)
             if rotation_value is None or rate_value is None or accel_value is None:
                 return None
+            if kind == "suck_rotations":
+                return Rotate(-rotation_value, rate_value, accel_value)
+            retract_value = _non_negative_amount(command.get("retract_rotations", 0.0))
+            if retract_value is None:
+                return None
             return Rotate(
-                rotation_value if kind == "extrude_rotations" else -rotation_value,
-                rate_value,
-                accel_value,
+                rotation_value, rate_value, accel_value, retract_rotations=retract_value
             )
         case {"type": "finish"}:
             return Finish()
@@ -196,6 +203,13 @@ def _positive_amount(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value) if value > 0 else None
+
+
+def _non_negative_amount(value: object) -> float | None:
+    """非負（0 含む）の数値なら float、それ以外は None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if value >= 0 else None
 
 
 def register_pasting_jobs(catalog: JobCatalog) -> None:
@@ -272,10 +286,23 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     LOADING_DEFAULT_ROTATION_ACCEL,
                     unit="rev/s^2",
                 ),
+                ParamSpec(
+                    "retract_rotations",
+                    "回転ローディング引き戻し回転数",
+                    "float",
+                    LOADING_DEFAULT_RETRACT_ROTATIONS,
+                    unit="rev",
+                ),
             ),
             uses_machine=True,
             accepts_commands=True,
-            persisted_params=("amount", "rotations", "rate", "accel"),
+            persisted_params=(
+                "amount",
+                "rotations",
+                "rate",
+                "accel",
+                "retract_rotations",
+            ),
         )
     )
     catalog.register(
@@ -525,7 +552,12 @@ def _run_loading_loop(
                 ctx.log(
                     f"体積ローディング: {amount:+.3f} uL（累計 {total_ul:+.3f} uL）"
                 )
-            case Rotate(rotations=rotations, rate=rate, accel=accel):
+            case Rotate(
+                rotations=rotations,
+                rate=rate,
+                accel=accel,
+                retract_rotations=retract_rotations,
+            ):
                 applicator.load_rotations(rotations, rate, accel)
                 total_rotations += rotations
                 ctx.log(
@@ -533,6 +565,14 @@ def _run_loading_loop(
                     f"@ {rate:.3f} rev/s, accel={accel:.3f} rev/s^2"
                     f"（累計 {total_rotations:+.3f} rev）"
                 )
+                if rotations > 0 and retract_rotations > 0:
+                    applicator.load_rotations(-retract_rotations, rate, accel)
+                    total_rotations -= retract_rotations
+                    ctx.log(
+                        f"引き戻し: {-retract_rotations:+.3f} rev "
+                        f"@ {rate:.3f} rev/s, accel={accel:.3f} rev/s^2"
+                        f"（累計 {total_rotations:+.3f} rev）"
+                    )
             case Finish():
                 ctx.log(
                     "ローディング終了"
