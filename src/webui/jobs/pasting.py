@@ -1181,6 +1181,16 @@ def _line_layout(ctx: JobContext) -> LineLayout:
     )
 
 
+def _removal_z(ctx: JobContext, calib: _CalibrationContext) -> float:
+    """計量で基板を取り出すときの退避 Z = max(z_min, z_max - offset).
+
+    既定 offset=0 で z_max（フルリトラクト）。``removal_z_offset`` は実行中変更可で、
+    純粋に ``ctx.params`` を読むため呼び出しごとに最新値を反映する。
+    """
+    z = calib.session.stage.limits.z
+    return max(z.min, z.max - float(ctx.params["removal_z_offset"]))
+
+
 def _calibrate_rotations_per_ul(
     ctx: JobContext,
     calib: _CalibrationContext,
@@ -1190,16 +1200,12 @@ def _calibrate_rotations_per_ul(
 
     各ラウンドの先頭でヘッドを Z=0 に上げてプライム/ふき取り（専用ローディング段階）を
     行い、電子天秤にセットしてタール（ゼロ）してから ``line_count`` 本の線を段ずらしで
-    引く。線引き後はヘッドを最大 Z（フルリトラクト）へ退避し、基板を取り出して計量
-    しやすくする。合計質量から ``FlowCalibrationSet`` で新 ``rotations_per_ul`` を算出する。
+    引く。線引き後はヘッドを退避 Z（z_max − removal_z_offset、既定は全退避）へ上げ、
+    基板を取り出して計量しやすくする。合計質量から ``FlowCalibrationSet`` で新 ``rotations_per_ul`` を算出する。
     採用すると新値で applicator を作り直し、``dispense_accel`` も回転加速度を保って
     連動更新する。収束（前後の相対差が許容内）はヒントとして表示するのみで、ループ継続は
     ユーザー判断。タール前の中止・質量入力の中止はいずれもメニューへ戻る。
     """
-    layout = _line_layout(ctx)
-    amount = float(ctx.params["line_amount"])
-    # 計量のため基板を取り出すときは Z を最大（フルリトラクト）まで上げて退避する。
-    removal_z = calib.session.stage.limits.z.max
     # 比重はマシン設定 (solder_paste_density [mg/uL]。水基準なので比重と数値が一致) を
     # 真実とする。② が密度を machine から直接読むのと同じ扱い。
     specific_gravity = ctx.machine.paste_dispenser.solder_paste_density
@@ -1219,6 +1225,9 @@ def _calibrate_rotations_per_ul(
     )
 
     while True:
+        # 線設定・塗布量は実行中変更可。ラウンド先頭で読み直し次ラウンドから反映する。
+        layout = _line_layout(ctx)
+        amount = float(ctx.params["line_amount"])
         # ── 専用ローディング段階：ヘッドを Z=0 に上げてプライム/ふき取り ──
         # Z=0 へ上げることでローディング中のノズルふき取りがしやすくなる。
         ctx.log("ヘッドを Z=0 に上げます。プライム/ふき取りをしてください")
@@ -1248,9 +1257,10 @@ def _calibrate_rotations_per_ul(
             calib.applicator.draw_line(start, end, amount=amount)
             ctx.log(f"線 {index + 1}/{layout.line_count} を {amount:.3f} uL で塗布")
 
-        # 線引き後はヘッドを最大 Z（フルリトラクト）へ退避し、基板を取り出して計量しやすくする。
+        # 線引き後はヘッドを退避 Z（= max(z_min, z_max - offset)）へ上げ、基板を取り出して計量しやすくする。
+        removal_z = _removal_z(ctx, calib)
         ctx.log(
-            f"ヘッドを最大 Z={removal_z:.3f} へ退避します。基板を取り出して計測してください"
+            f"ヘッドを退避 Z={removal_z:.3f} へ移動します。基板を取り出して計測してください"
         )
         calib.session.klipper.send_gcode(
             calib.session.stage.move(z=removal_z) + gcode.wait_for_done()
@@ -1340,7 +1350,9 @@ def _calibrate_max_dispense_rate(
 
     レート列の各点で同一 ``line_amount`` の線を引いて計量し、効率
     ``measured_ul / commanded_ul`` の落ちから ``DispenseRateCalibration`` が
-    ``max_dispense_rate`` を判定する。自動判定値を default に手動上書き可能。
+    ``max_dispense_rate`` を判定する。各点は独立計測のため、線引き後に退避 Z
+    （z_max − removal_z_offset）へ上げ、タール確認 → 質量入力の順で進める。タール／
+    質量入力の中止はいずれもメニューへ戻る。自動判定値を default に手動上書き可能。
     """
     layout = _line_layout(ctx)
     amount = float(ctx.params["line_amount"])
@@ -1348,8 +1360,6 @@ def _calibrate_max_dispense_rate(
     rate_max = float(ctx.params["rate_max"])
     divisions = max(1, int(ctx.params["rate_divisions"]))
     density = ctx.machine.paste_dispenser.solder_paste_density
-    # 計量のため基板を取り出すときは Z を最大（フルリトラクト）まで上げて退避する。
-    removal_z = calib.session.stage.limits.z.max
 
     rates = dispense_rate_schedule(rate_min, rate_max, divisions)
     if not rates:
@@ -1368,12 +1378,19 @@ def _calibrate_max_dispense_rate(
         # 段ずらしで引く。本数が足りなければ折り返して再利用する。
         start, end = layout.line(index % layout.line_count)
         calib.applicator.draw_line(start, end, amount=amount, rate_cap=rate)
-        # 計量のため基板を取り出せるよう、線引き後に Z を最大まで上げて退避する。
+        # 計量のため基板を取り出せるよう、線引き後に退避 Z（z_max - offset）へ上げる。
+        removal_z = _removal_z(ctx, calib)
         ctx.log(
-            f"ヘッドを最大 Z={removal_z:.3f} へ退避します。基板を取り出して計測してください"
+            f"ヘッドを退避 Z={removal_z:.3f} へ移動します。基板を取り出して計測してください"
         )
         calib.session.klipper.send_gcode(
             calib.session.stage.move(z=removal_z) + gcode.wait_for_done()
+        )
+        # 各レートは独立計測。質量入力前に必ず電子天秤のタールを確認する（中止でメニューへ）。
+        _prompt_confirm(
+            ctx,
+            f"[{index + 1}/{len(rates)}] 電子天秤をタール（ゼロ）してから"
+            "基板を載せ、続行を押してください",
         )
         mass = _prompt_mass(
             ctx,
