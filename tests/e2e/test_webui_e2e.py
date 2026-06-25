@@ -216,6 +216,125 @@ class TestJobLifecycleOverWebSocket:
         assert "canny_low = 77" in machine_toml
 
 
+def _wait_first_prompt(ws: Any) -> dict[str, Any]:
+    """最初の prompt イベントを受信して返す（WAITING_INPUT で停止した証跡）.
+
+    job_status の pending_prompt 経由でも捕捉できるよう二重化する。
+    """
+    while True:
+        event = json.loads(ws.recv(timeout=_WS_TIMEOUT))
+        if event["type"] == "prompt":
+            return event["prompt"]
+        if event["type"] == "job_status":
+            pending = event["job"].get("pending_prompt")
+            if pending is not None:
+                return pending
+
+
+class TestRuntimeParamUpdateOverWebSocket:
+    """PUT /api/jobs/current/params の実 HTTP + WS 通し検証（job_demo 題材）.
+
+    実行中（prompt 待機中）の out-of-band 反映、固定/未知キー 400、非アクティブ 400 を 実 uvicorn
+    で確認する。
+    """
+
+    def test_live_update_applies_while_waiting_prompt(self, live_server: LiveServer):
+        with connect(f"{live_server.ws_url}/api/ws") as ws:
+            response = httpx.post(
+                f"{live_server.base_url}/api/jobs/job_demo",
+                json={"params": {"steps": 1, "interval": 0.0}},
+                timeout=_HTTP_TIMEOUT,
+            )
+            assert response.status_code == 201
+
+            # 最初の prompt（confirm）= WAITING_INPUT で停止中。その間に PUT する
+            prompt = _wait_first_prompt(ws)
+            assert prompt["kind"] == "confirm"
+
+            put = httpx.put(
+                f"{live_server.base_url}/api/jobs/current/params",
+                json={"values": {"live_value": 42.0}, "persist": False},
+                timeout=_HTTP_TIMEOUT,
+            )
+            assert put.status_code == 200, put.text
+            assert put.json()["params"] == {"live_value": 42.0}
+
+            # out-of-band 適用が GET /jobs/current の summary へ即反映される
+            current = httpx.get(
+                f"{live_server.base_url}/api/jobs/current", timeout=_HTTP_TIMEOUT
+            ).json()["job"]
+            assert current is not None
+            assert current["params"]["live_value"] == 42.0
+
+            # confirm → number に応答してジョブを終端させる
+            answered: set[str] = set()
+            _respond_prompt(ws, prompt, answered, number_answer=60.0)
+            job, _ = _drive_job_demo(ws, number_answer=60.0)
+
+        assert job["status"] == "succeeded"
+        # ライブ反映した live_value が log/summary に出る経路の証跡
+        assert job["params"]["live_value"] == 42.0
+
+    def test_fixed_or_unknown_key_returns_400(self, live_server: LiveServer):
+        with connect(f"{live_server.ws_url}/api/ws") as ws:
+            response = httpx.post(
+                f"{live_server.base_url}/api/jobs/job_demo",
+                json={"params": {"steps": 1, "interval": 0.0}},
+                timeout=_HTTP_TIMEOUT,
+            )
+            assert response.status_code == 201
+            prompt = _wait_first_prompt(ws)
+
+            # steps は runtime_editable=False（固定）→ 400
+            fixed = httpx.put(
+                f"{live_server.base_url}/api/jobs/current/params",
+                json={"values": {"steps": 9}},
+                timeout=_HTTP_TIMEOUT,
+            )
+            assert fixed.status_code == 400, fixed.text
+
+            # 未知キー → 400
+            unknown = httpx.put(
+                f"{live_server.base_url}/api/jobs/current/params",
+                json={"values": {"no_such_param": 1.0}},
+                timeout=_HTTP_TIMEOUT,
+            )
+            assert unknown.status_code == 400, unknown.text
+
+            answered: set[str] = set()
+            _respond_prompt(ws, prompt, answered, number_answer=60.0)
+            job, _ = _drive_job_demo(ws, number_answer=60.0)
+        assert job["status"] == "succeeded"
+
+    def test_update_without_active_job_returns_400(self, live_server: LiveServer):
+        # ジョブを 1 度も起動していない状態で PUT → 400
+        response = httpx.put(
+            f"{live_server.base_url}/api/jobs/current/params",
+            json={"values": {"live_value": 1.0}},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert response.status_code == 400, response.text
+
+    def test_update_after_terminal_returns_400(self, live_server: LiveServer):
+        with connect(f"{live_server.ws_url}/api/ws") as ws:
+            response = httpx.post(
+                f"{live_server.base_url}/api/jobs/job_demo",
+                json={"params": {"steps": 1, "interval": 0.0}},
+                timeout=_HTTP_TIMEOUT,
+            )
+            assert response.status_code == 201
+            job, _ = _drive_job_demo(ws, number_answer=60.0)
+        assert job["status"] == "succeeded"
+
+        # 終端後（非アクティブ）の PUT → 400
+        response = httpx.put(
+            f"{live_server.base_url}/api/jobs/current/params",
+            json={"values": {"live_value": 1.0}},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert response.status_code == 400, response.text
+
+
 class TestPromptDialogOverBrowser:
     """実ブラウザ上の prompt modal 表示。"""
 
@@ -497,6 +616,29 @@ class TestDispenseCalibrationOverBrowser:
             panel.get_attribute("data-loading-stage")
             == "キャリブレーションメニュー,ローディング"
         )
+
+        # 実行中変更可（runtime_editable）の入力には目印が付き、固定値には付かない
+        assert (
+            browser_page.locator("#param-line_length").get_attribute(
+                "data-runtime-editable"
+            )
+            == "true"
+        )
+        assert (
+            browser_page.locator("#param-board_width").get_attribute(
+                "data-runtime-editable"
+            )
+            is None
+        )
+
+    def test_runtime_params_script_is_loaded(self, live_server: LiveServer):
+        # 実行中パラメータ編集 JS がページに読み込まれている（薄ラッパー）
+        page = httpx.get(
+            f"{live_server.base_url}/pasting/dispense_calibration",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert page.status_code == 200
+        assert "js/dispense_runtime_params.js" in page.text
 
 
 class TestPadConfigOverRealHttp:
