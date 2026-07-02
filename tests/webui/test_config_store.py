@@ -45,8 +45,7 @@ class TestMachineSettings:
         assert values["paste_dispenser.paste_height"] == "auto"
         assert values["paste_dispenser.toolhead.x"] == -1.772
         assert values["paste_dispenser.pad_align.blur_ksize"] == 5
-        assert values["probe.servo_name"] == "probe_gnd"
-        assert values["probe.shift"] == [-0.5, 0.0]
+        assert values["probe.min_radius"] == 0.7
         assert values["camera.device_id"] == 0
         assert values["camera.format"] == "YUYV"
         assert values["camera.crop.width"] == 600
@@ -112,32 +111,16 @@ class TestMachineSettings:
     def test_write_keeps_inline_comment_on_changed_line(
         self, store: ConfigStore, configs_root: Path
     ):
-        store.write_machine_settings(FIXTURE, {"probe.down_distance": 2.5})
+        store.write_machine_settings(FIXTURE, {"probe.min_radius": 2.5})
 
         path = configs_root / FIXTURE / "machine.toml"
         line = next(
             line
             for line in path.read_text(encoding="utf-8").splitlines()
-            if line.startswith("down_distance")
+            if line.startswith("min_radius")
         )
         assert "2.5" in line
-        assert "グラウンドを下げる距離" in line
-
-    def test_write_probe_shift_changes_array_value(
-        self, store: ConfigStore, configs_root: Path
-    ):
-        store.write_machine_settings(FIXTURE, {"probe.shift": [0.25, -0.75]})
-
-        values = store.read_machine_settings(FIXTURE)
-        assert values["probe.shift"] == [0.25, -0.75]
-        path = configs_root / FIXTURE / "machine.toml"
-        line = next(
-            line
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.startswith("shift")
-        )
-        assert "[0.25, -0.75]" in line
-        assert "プローブ点のシフト量" in line
+        assert "銅箔境界" in line
 
     def test_write_adds_whitelisted_key_missing_from_toml(self, store: ConfigStore):
         store.write_machine_settings(
@@ -223,10 +206,6 @@ class TestMachineSettings:
             store.write_machine_settings(
                 FIXTURE, {"paste_dispenser.pad_align.blur_ksize": 5.5}
             )
-
-    def test_invalid_float_pair_raises_unknown_field_error(self, store: ConfigStore):
-        with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(FIXTURE, {"probe.shift": [1.0, 2.0, 3.0]})
 
     def test_unknown_machine_raises_file_not_found(self, store: ConfigStore):
         with pytest.raises(FileNotFoundError):

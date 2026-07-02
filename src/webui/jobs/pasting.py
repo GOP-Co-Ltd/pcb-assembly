@@ -28,8 +28,6 @@ from pcbasm.hal import (
     Camera,
     Klipper,
     PasteDispenser,
-    ProbeGround,
-    ServoGroundProbe,
     XYZStage,
 )
 from pcbasm.pasting import (
@@ -467,15 +465,6 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             requires_pcb=True,
             uses_machine=True,
             accepts_commands=True,
-        )
-    )
-    catalog.register(
-        JobDefinition(
-            name="probe_gnd_down_adjust",
-            label="Probe Gnd Down Adjust",
-            tab="pasting",
-            run=_run_probe_gnd_down_adjust,
-            uses_machine=True,
         )
     )
 
@@ -1401,15 +1390,8 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         outline = result.pcb.outline
         calibration = result.calibration
         probe_config = machine.probe
-        probe = ServoGroundProbe(
-            klipper.readonly,
-            servo_name=probe_config.servo_name,
-            revolution_distance=probe_config.revolution_distance,
-            down_distance=probe_config.down_distance,
-        )
         probe_executor = ProbeExecutor(
             klipper=klipper,
-            probe=probe,
             stage=stage,
             lift_height=probe_config.lift_height,
         )
@@ -1559,78 +1541,6 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
                 "paste_dispenser.toolhead.x": round(measured_offset.x, 4),
                 "paste_dispenser.toolhead.y": round(measured_offset.y, 4),
             },
-        ),
-    )
-
-
-def _run_probe_gnd_down_adjust(ctx: JobContext) -> JobResult:
-    """グラウンドピンのダウン距離を対話的に調整し、設定反映候補にする.
-
-    終了時（abort / 失敗時を含む）はダウン距離 0 へ best-effort で戻す。
-    """
-    machine = ctx.machine
-    probe_config = machine.probe
-    klipper = create_command_klipper(machine)
-
-    # ProbeGround は構築時に Klipper の config を読む（= 接続する）ため、
-    # 最初の prompt より後で初回送信時に遅延構築する
-    ground: ProbeGround | None = None
-
-    def make_ground() -> ProbeGround:
-        nonlocal ground
-        if ground is None:
-            ground = ProbeGround(
-                klipper.readonly,
-                probe_config.servo_name,
-                probe_config.revolution_distance,
-            )
-        return ground
-
-    distance = probe_config.down_distance
-    try:
-        ctx.progress("距離調整")
-        while True:
-            answer = ctx.prompt(
-                PromptSpec(
-                    kind="number",
-                    message="ダウン距離 [mm] を入力",
-                    default=distance,
-                )
-            )
-            assert isinstance(answer, float)
-            if answer < 0:
-                ctx.log(f"0 以上の数値を入力してください（与えられた値: {answer}）")
-                continue
-            distance = answer
-            klipper.send_gcode(make_ground().down(distance) + gcode.wait_for_done())
-            ctx.log(f"ダウン: {distance:.3f} mm")
-            confirmed = ctx.prompt(
-                PromptSpec(
-                    kind="confirm",
-                    message=(
-                        f"down_distance = {distance:.3f} mm で確定しますか?"
-                        "（いいえで再調整）"
-                    ),
-                    default=False,
-                    true_label="確定",
-                    false_label="再調整",
-                )
-            )
-            if confirmed:
-                break
-    finally:
-        # 終了時は必ずダウン距離 0 へ戻す（送信失敗は log のみ）
-        try:
-            klipper.send_gcode(make_ground().down(0.0) + gcode.wait_for_done())
-            ctx.log("ダウン距離 0 へ戻しました")
-        except Exception as exc:
-            ctx.log(f"ダウン距離 0 への復帰に失敗しました: {exc}")
-
-    return JobResult(
-        summary=f"down_distance: {distance:.3f} mm",
-        apply=ApplyPayload(
-            label=f"[probe] down_distance = {distance:.3f} を設定に反映",
-            values={"probe.down_distance": round(distance, 3)},
         ),
     )
 
