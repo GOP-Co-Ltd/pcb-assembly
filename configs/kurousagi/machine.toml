@@ -4,21 +4,21 @@ port = 7125
 
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
-rotations_per_ul = 63.0 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
+rotations_per_ul = 34.892876 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
 # rotations_per_ul = 31.491713 # キャリブレーション値 2026/06/05 S3X70-E150DN
 # rotations_per_ul = 69.724771 # キャリブレーション値 2026/05/08 S3X70-E150DN
 solder_paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
-nozzle_diameter = 0.34 # ノズル内径 [mm] (23G)
+nozzle_diameter = 0.30 # ノズル内径 [mm] (23G)
 dispense_mode = "auto" # 塗布方式: auto / dot / line / area
 air_pump_enabled = true # エアポンプの有効/無効
 auto_line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比
-max_dispense_rate = 0.031746 # 吐出レート上限 [uL/sec]
+max_dispense_rate = 0.104762 # 吐出レート上限 [uL/sec]
 max_fill_speed = 0.8 # 連続塗布できる移動速度上限 [mm/sec]（実機で 1812 が連続になるまで調整）
-dispense_accel = 0.15873 # 吐出加速度 [uL/sec^2]
+dispense_accel = 0.155203 # 吐出加速度 [uL/sec^2]
 retract_amount = 0.025 # リトラクション量 [uL]
 retract_rate = 0.05 # リトラクションレート [uL/sec]
 retract_accel_factor = 2.0 # リトラクション加速度係数
-paste_height = "auto" # 塗布面のZ高さ [mm]、または auto
+paste_height = 0.2 # 塗布面のZ高さ [mm]、または auto
 ul_per_mm2 = 0.2 # パッド面積あたりのペースト量 [uL/mm^2]
 prime_extra_delay = 0.0 # プライム後の追加遅延 [sec]
 overlap = 0.0
@@ -31,8 +31,8 @@ overlap = 0.0
 # y = 26.46
 
 # 実測値
-x = -1.6123
-y = 22.543
+x = -1.6052
+y = 22.1727
 
 [paste_dispenser.pad_align]
 # pad単位の銅箔照合による位置合わせ
@@ -52,27 +52,22 @@ width = 1280
 height = 720
 fps = 30.0
 format = "YUYV"
-calibration_file = "ov9281_20260604_141709.json"
+calibration_file = "ov9281_20260701_132631.json"
 
 [camera.crop]
 width = 600
 height = 600
 
 [probe]
-servo_name = "probe_gnd"
-# rack and pinion: π × module × teeth = π × 0.8 × 16 ≈ 40.212
-revolution_distance = 40.212 # サーボ一回転あたりの移動量 [mm]
-down_distance = 2.0          # グラウンドを下げる距離 [mm]
-min_radius = 0.7            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
+min_radius = 0.3            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
 min_samples = 6             # 最小サンプル数 (2次曲面フィットに必要)
 max_samples = 15            # 最大サンプル数
-shift = [-0.5, 0.5]         # プローブ点のヒューリスティックなシフト量 [x, y] (mm, マシン座標系)
 lift_height = 0.5
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
 x = 13.2
-y = 2.5
+y = 3.6
 # 基準点の直径 (mm)
 target_diameter = 3.0
 

@@ -29,7 +29,6 @@ class _BoardPointProber:
         klipper: Klipper,
         stage: XYZStage,
         *,
-        shift: tuple[float, float],
         move_settle_time: float,
         move_velocity_ratio: float,
         logger: logging.Logger,
@@ -37,7 +36,6 @@ class _BoardPointProber:
         self._probe_executor = probe_executor
         self._klipper = klipper
         self._stage = stage
-        self._shift = shift
         self._move_settle_time = move_settle_time
         self._move_velocity = stage.max_velocity * move_velocity_ratio
         self._logger = logger
@@ -45,8 +43,8 @@ class _BoardPointProber:
     def probe_at(
         self, board_pt: Point2d, board_to_machine: Transform, label: str
     ) -> Point3d:
-        """Board座標 board_pt をシフトしてプローブし、機械座標XYとZを返す."""
-        probe_pt = self._probe_position(board_pt, board_to_machine)
+        """Board座標 board_pt をプローブし、機械座標XYとZを返す."""
+        probe_pt = board_to_machine.apply(board_pt)
         self._logger.info(
             f"計測点 {label}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) "
             f"-> Machine({probe_pt.x:.3f}, {probe_pt.y:.3f})"
@@ -73,15 +71,8 @@ class _BoardPointProber:
         return sort_by_nearest(
             board_points,
             self._stage.get_position(),
-            key=lambda p: self._probe_position(p, board_to_machine).to3d(),
+            key=lambda p: board_to_machine.apply(p).to3d(),
         )
-
-    def _probe_position(
-        self, board_pt: Point2d, board_to_machine: Transform
-    ) -> Point2d:
-        machine_pt = board_to_machine.apply(board_pt)
-        dx, dy = self._shift
-        return Point2d(x=machine_pt.x + dx, y=machine_pt.y + dy)
 
 
 class HeightPlaneMeasurer:
@@ -101,7 +92,6 @@ class HeightPlaneMeasurer:
         min_radius: float,
         min_samples: int,
         max_samples: int,
-        probe_shift: tuple[float, float] = (0.0, 0.0),
         move_settle_time: float = 0.5,
         move_velocity_ratio: float = 0.9,
     ) -> None:
@@ -113,7 +103,6 @@ class HeightPlaneMeasurer:
             probe_executor=probe_executor,
             klipper=klipper,
             stage=stage,
-            shift=probe_shift,
             move_settle_time=move_settle_time,
             move_velocity_ratio=move_velocity_ratio,
             logger=self._logger,

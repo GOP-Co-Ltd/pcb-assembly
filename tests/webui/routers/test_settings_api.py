@@ -40,8 +40,6 @@ class TestMachineSettingsApi:
         assert fields["paste_dispenser.auto_line_aspect_ratio"]["value"] == 1.618
         assert fields["paste_dispenser.paste_height"]["value"] == "auto"
         assert fields["paste_dispenser.paste_height"]["value_type"] == "float_or_auto"
-        assert fields["probe.shift"]["value"] == [-0.5, 0.0]
-        assert fields["probe.shift"]["value_type"] == "float_pair"
         assert fields["probe.lift_height"]["value_type"] == "float"
 
     def test_get_reports_none_for_missing_keys(self, client: TestClient):
@@ -65,8 +63,8 @@ class TestMachineSettingsApi:
                 "values": {
                     "paste_dispenser.rotations_per_ul": 9.876543,
                     "paste_dispenser.max_fill_speed": 0.9,
-                    "probe.down_distance": 2.5,
-                    "probe.shift": [0.25, -0.75],
+                    "probe.min_radius": 2.5,
+                    "probe.min_samples": 7,
                 }
             },
         )
@@ -75,8 +73,8 @@ class TestMachineSettingsApi:
         fields = {field["key"]: field for field in response.json()["fields"]}
         assert fields["paste_dispenser.rotations_per_ul"]["value"] == 9.876543
         assert fields["paste_dispenser.max_fill_speed"]["value"] == 0.9
-        assert fields["probe.down_distance"]["value"] == 2.5
-        assert fields["probe.shift"]["value"] == [0.25, -0.75]
+        assert fields["probe.min_radius"]["value"] == 2.5
+        assert fields["probe.min_samples"]["value"] == 7
 
         after_text = path.read_text(encoding="utf-8")
         after = after_text.splitlines()
