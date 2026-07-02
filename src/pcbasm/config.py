@@ -110,21 +110,14 @@ class PasteDispenser:
 
 @attrs.frozen
 class Probe:
-    """電気接触式プローブの設定."""
+    """ロードセルプローブの設定."""
 
-    servo_name: str  # printer.cfgの[servo <name>]のname部分
-    revolution_distance: float  # サーボ一回転あたりの移動量 [mm]
-    down_distance: float  # グラウンドを下げる距離 [mm]
-    min_radius: float  # サンプル点が銅箔境界から確保すべき最小距離 [mm] (ニードル-probe ground間の目測距離に相当)
+    min_radius: float  # サンプル点が銅箔境界から確保すべき最小距離 [mm] (ノズルが銅箔島の外に出ないためのクリアランス)
     lift_height: float = 1.0  # PROBE実行後に接触点から持ち上げる高さ [mm]
     min_samples: int = (
         6  # 最小サンプル数 (HeightPlaneの2次曲面フィットに必要な最小点数)
     )
     max_samples: int = 9  # 最大サンプル数
-    shift: tuple[float, float] = (
-        0.0,
-        0.0,
-    )  # プローブ点のヒューリスティックなシフト量 [x, y] (mm, マシン座標系)
 
     def __attrs_post_init__(self) -> None:
         if self.min_radius <= 0:

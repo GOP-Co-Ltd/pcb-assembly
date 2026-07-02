@@ -1,0 +1,53 @@
+{% extends "tab.html" %}
+{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+<section class="status-card">
+  <h3>概要</h3>
+  <p>
+    Z 高さ計測はロードセル（HX711）プローブで行う。較正・診断は Klipper コンソールから
+    G-code コマンドで実行する。コンソールは
+    <a href="{{ mainsail_url }}" target="_blank">Mainsail</a> の Console パネルから開ける。
+  </p>
+</section>
+<section class="status-card">
+  <h3>較正手順</h3>
+  <ol>
+    <li><code>LOAD_CELL_DIAGNOSTIC</code> — センサーの疎通・サンプル取得を確認する</li>
+    <li><code>LOAD_CELL_CALIBRATE</code> — 較正を開始する
+      <ol>
+        <li><code>TARE</code> — 無負荷状態で風袋引きする</li>
+        <li><code>CALIBRATE GRAMS=nnn</code> — 既知の重さ（グラム）を載せて実行する</li>
+        <li><code>ACCEPT</code> — 較正値を確定する</li>
+      </ol>
+    </li>
+    <li><code>SAVE_CONFIG</code> — 較正値を printer.cfg に保存する（Klipper が再起動する）</li>
+  </ol>
+</section>
+<section class="status-card">
+  <h3>較正値の永続化</h3>
+  <p>
+    Klipper はリポジトリの <code>configs/&lt;machine&gt;/printer.cfg</code> を直接参照しているため、
+    <code>SAVE_CONFIG</code> で保存した較正値はそのまま <code>git diff</code> に現れる。
+    内容を確認してコミットすること（バックアップ <code>printer-*.cfg</code> は gitignore 済み）。
+  </p>
+  <p>
+    注意: <code>SAVE_CONFIG</code> は未コミットの手元変更と autosave 追記が混ざり得るため、
+    printer.cfg を手編集したら都度コミットしておくことを推奨する。
+  </p>
+</section>
+<section class="status-card">
+  <h3>動作確認</h3>
+  <ul>
+    <li><code>LOAD_CELL_TEST_TAP</code> — タップ検出の動作を確認する</li>
+    <li><code>PROBE_ACCURACY</code> — プローブの再現性を確認する</li>
+  </ul>
+</section>
+<section class="status-card">
+  <h3>参考リンク</h3>
+  <ul>
+    <li><a href="https://www.klipper3d.org/Load_Cell.html" target="_blank">Klipper: Load Cell</a></li>
+    <li><a href="https://www.klipper3d.org/Config_Reference.html#load_cell_probe" target="_blank">Klipper: Config Reference — [load_cell_probe]</a></li>
+  </ul>
+</section>
+{% endblock %}

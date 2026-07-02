@@ -36,32 +36,10 @@
     return parseNumber(text, input.name);
   }
 
-  function pairValue(group) {
-    const key = group.dataset.pairKey;
-    const inputs = Array.from(group.querySelectorAll("input[data-pair-index]")).sort(
-      (a, b) => Number(a.dataset.pairIndex) - Number(b.dataset.pairIndex)
-    );
-    const texts = inputs.map((input) => input.value.trim());
-    if (texts.every((text) => text === "")) return null;
-    if (texts.some((text) => text === "")) return null;
-    return texts.map((text) => parseNumber(text, key));
-  }
-
   function valuesForControl(control) {
-    const group = control.closest("[data-pair-key].settings-pair");
-    if (group) {
-      const value = pairValue(group);
-      return value === null ? null : { [group.dataset.pairKey]: value };
-    }
-
     if (!control.name) return null;
     const value = scalarValue(control);
     return value === null ? null : { [control.name]: value };
-  }
-
-  function controlKey(control) {
-    const group = control.closest("[data-pair-key].settings-pair");
-    return group ? group.dataset.pairKey : control.name;
   }
 
   async function saveValues(values) {
@@ -77,7 +55,7 @@
   }
 
   function scheduleSave(control) {
-    const key = controlKey(control);
+    const key = control.name;
     if (!key) return;
     clearTimeout(pendingTimers.get(key));
     pendingTimers.set(

@@ -17,3 +17,6 @@ wheels/
 
 # WebUI からアップロードされた PCB ファイル
 uploads/
+
+# Klipper SAVE_CONFIG のバックアップ
+configs/*/printer-*.cfg

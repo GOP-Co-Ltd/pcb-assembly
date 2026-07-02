@@ -1,6 +1,9 @@
 #!/bin/bash
 # printer.cfg インストールスクリプト
-# configs/<machine_name>/printer.cfg から設定ファイルを選択し、~/printer_data/config/printer.cfg にシンボリックリンクを作成する
+# configs/<machine_name>/printer.cfg から設定ファイルを選択し、
+#   1. klipper.env の KLIPPER_ARGS の config パスを repo 実パスに向ける
+#      （SAVE_CONFIG が symlink を壊さず repo ファイルを直接更新するため）
+#   2. ~/printer_data/config/printer.cfg に閲覧用シンボリックリンクを作成する（Mainsail 用）
 
 set -e
 
@@ -8,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CFG_DIR="${SCRIPT_DIR}/configs"
 TARGET_DIR="${HOME}/printer_data/config"
 TARGET_FILE="${TARGET_DIR}/printer.cfg"
+KLIPPER_ENV="${HOME}/printer_data/systemd/klipper.env"
 
 # マシンディレクトリを列挙（printer.cfgを持つもののみ）
 machine_dirs=()
@@ -63,8 +67,20 @@ if [ -e "$TARGET_FILE" ] || [ -L "$TARGET_FILE" ]; then
     fi
 fi
 
-# シンボリックリンクを作成
+# シンボリックリンクを作成（Mainsail からの閲覧・編集用）
 ln -s "$source_path" "$TARGET_FILE"
 echo "シンボリックリンクを作成: ${TARGET_FILE} -> ${source_path}"
+
+# klipper.env の config パスを repo 実パスに向ける
+# （Klipper が symlink ではなく repo ファイルを直接参照することで、
+#   SAVE_CONFIG が symlink を破壊せず repo に git diff として現れる）
+if [ -f "$KLIPPER_ENV" ]; then
+    sed -i -E "s|(klippy/klippy\.py) [^ ]+\.cfg|\1 ${source_path}|" "$KLIPPER_ENV"
+    echo "klipper.env の config パスを更新: ${source_path}"
+    echo ""
+    echo "反映には Klipper の再起動が必要です: sudo systemctl restart klipper"
+else
+    echo "警告: ${KLIPPER_ENV} が見つかりません（klipper.env の更新をスキップ）"
+fi
 echo ""
 echo "完了しました"

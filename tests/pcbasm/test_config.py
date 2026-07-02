@@ -371,12 +371,7 @@ class TestProbe:
     """Probeクラスのテスト."""
 
     def test_sample_defaults(self):
-        probe = Probe(
-            servo_name="probe_gnd",
-            revolution_distance=40.0,
-            down_distance=5.0,
-            min_radius=1.5,
-        )
+        probe = Probe(min_radius=1.5)
 
         assert probe.min_samples == 6
         assert probe.max_samples == 9
@@ -384,9 +379,6 @@ class TestProbe:
 
     def test_valid_custom_values(self):
         probe = Probe(
-            servo_name="probe_gnd",
-            revolution_distance=40.0,
-            down_distance=5.0,
             min_radius=2.0,
             lift_height=2.5,
             min_samples=7,
@@ -398,59 +390,20 @@ class TestProbe:
         assert probe.min_samples == 7
         assert probe.max_samples == 12
 
-    def test_shift_default(self):
-        probe = Probe(
-            servo_name="probe_gnd",
-            revolution_distance=40.0,
-            down_distance=5.0,
-            min_radius=1.5,
-        )
-
-        assert probe.shift == (0.0, 0.0)
-
-    def test_shift_custom_value(self):
-        probe = Probe(
-            servo_name="probe_gnd",
-            revolution_distance=40.0,
-            down_distance=5.0,
-            min_radius=1.5,
-            shift=(2.0, -3.0),
-        )
-
-        assert probe.shift == (2.0, -3.0)
-
     def test_min_samples_less_than_6_raises(self):
         # 2次曲面フィットには6点以上が必要なため min_samples < 6 は弾かれる。
         with pytest.raises(ValueError, match="min_samplesは6以上"):
-            Probe(
-                servo_name="probe_gnd",
-                revolution_distance=40.0,
-                down_distance=5.0,
-                min_radius=1.5,
-                min_samples=5,
-            )
+            Probe(min_radius=1.5, min_samples=5)
 
     def test_min_samples_greater_than_max_samples_raises(self):
         # min/max とも6以上にして順序ガードのみを検証する。
         with pytest.raises(ValueError, match="min_samplesはmax_samples以下"):
-            Probe(
-                servo_name="probe_gnd",
-                revolution_distance=40.0,
-                down_distance=5.0,
-                min_radius=1.5,
-                min_samples=8,
-                max_samples=6,
-            )
+            Probe(min_radius=1.5, min_samples=8, max_samples=6)
 
     @pytest.mark.parametrize("min_radius", [0.0, -1.0])
     def test_min_radius_not_positive_raises(self, min_radius):
         with pytest.raises(ValueError, match="min_radiusは正の値"):
-            Probe(
-                servo_name="probe_gnd",
-                revolution_distance=40.0,
-                down_distance=5.0,
-                min_radius=min_radius,
-            )
+            Probe(min_radius=min_radius)
 
 
 class TestGetMachineConfig:
