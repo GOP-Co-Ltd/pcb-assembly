@@ -118,7 +118,7 @@ class TestHeightPlaneMeasurer:
         with pytest.raises(ValueError):
             measurer.measure(coppers=[tiny], board_to_machine=mock_board_to_machine)
 
-    def test_probe_shift_offsets_recorded_points(
+    def test_move_targets_match_recorded_points(
         self,
         mock_probe_executor,
         mock_klipper,
@@ -126,44 +126,11 @@ class TestHeightPlaneMeasurer:
         mock_board_to_machine,
         large_copper,
     ):
-        """probe_shiftを与えると記録点がその分ずれることを確認."""
-        shift = (2.0, -3.0)
-
-        def run(probe_shift):
-            measurer = HeightPlaneMeasurer(
-                probe_executor=mock_probe_executor,
-                klipper=mock_klipper,
-                stage=mock_stage,
-                probe_shift=probe_shift,
-                **_SAMPLING_KWARGS,
-            )
-            return measurer.measure(
-                coppers=[large_copper], board_to_machine=mock_board_to_machine
-            )
-
-        # サンプリングは決定的なので base と shifted で同じ順序・点数になる
-        base = run((0.0, 0.0))
-        shifted = run(shift)
-
-        assert [(p.x, p.y) for p in shifted.points] == [
-            (p.x + shift[0], p.y + shift[1]) for p in base.points
-        ]
-
-    def test_probe_shift_applied_to_move_command(
-        self,
-        mock_probe_executor,
-        mock_klipper,
-        mock_stage,
-        mock_board_to_machine,
-        large_copper,
-    ):
-        """Move コマンドがシフト後の座標(=記録点, Identity逆変換)で発行されることを確認."""
-        shift = (2.0, -3.0)
+        """Move コマンドが記録点と同じ座標(Identity変換)で発行されることを確認."""
         measurer = HeightPlaneMeasurer(
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            probe_shift=shift,
             **_SAMPLING_KWARGS,
         )
         result = measurer.measure(
@@ -190,14 +157,12 @@ class TestHeightPlaneMeasurer:
                 Shift(x=100.0, y=30.0, z=0.0),
             ]
         )
-        probe_shift = (1.25, -2.5)
         probe_zs = [-1.0 - 0.05 * i for i in range(_SAMPLING_KWARGS["max_samples"])]
         mock_probe_executor.probe.side_effect = probe_zs
         measurer = HeightPlaneMeasurer(
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            probe_shift=probe_shift,
             **_SAMPLING_KWARGS,
         )
 
@@ -260,14 +225,13 @@ class TestHeightPlaneMeasurer:
         mock_stage,
         large_copper,
     ):
-        """現在位置から変換後+shiftの実移動先が近くなる順にprobeする."""
+        """現在位置から変換後の実移動先が近くなる順にprobeする."""
         board_to_machine = Compose(
             [
                 Scale(x=-1.0, y=1.0, z=1.0),
                 Shift(x=100.0, y=20.0, z=0.0),
             ]
         )
-        probe_shift = (15.0, -30.0)
         mock_stage.get_position.return_value = Point3d(105.0, 8.0, 0.0)
         board_points = sample_points_in_polygons(
             [large_copper.polygon],
@@ -276,11 +240,7 @@ class TestHeightPlaneMeasurer:
 
         def actual_move_target(board_point):
             machine_point = board_to_machine.apply(board_point)
-            return Point3d(
-                x=machine_point.x + probe_shift[0],
-                y=machine_point.y + probe_shift[1],
-                z=0.0,
-            )
+            return Point3d(x=machine_point.x, y=machine_point.y, z=0.0)
 
         expected_board_points = sort_by_nearest(
             board_points,
@@ -295,7 +255,6 @@ class TestHeightPlaneMeasurer:
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            probe_shift=probe_shift,
             **_SAMPLING_KWARGS,
         )
 
