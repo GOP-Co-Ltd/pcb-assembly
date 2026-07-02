@@ -44,7 +44,7 @@ class _BoardPointProber:
         self, board_pt: Point2d, board_to_machine: Transform, label: str
     ) -> Point3d:
         """Board座標 board_pt をプローブし、機械座標XYとZを返す."""
-        probe_pt = self._probe_position(board_pt, board_to_machine)
+        probe_pt = board_to_machine.apply(board_pt)
         self._logger.info(
             f"計測点 {label}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) "
             f"-> Machine({probe_pt.x:.3f}, {probe_pt.y:.3f})"
@@ -71,13 +71,8 @@ class _BoardPointProber:
         return sort_by_nearest(
             board_points,
             self._stage.get_position(),
-            key=lambda p: self._probe_position(p, board_to_machine).to3d(),
+            key=lambda p: board_to_machine.apply(p).to3d(),
         )
-
-    def _probe_position(
-        self, board_pt: Point2d, board_to_machine: Transform
-    ) -> Point2d:
-        return board_to_machine.apply(board_pt)
 
 
 class HeightPlaneMeasurer:
