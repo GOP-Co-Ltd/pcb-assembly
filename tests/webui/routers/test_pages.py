@@ -185,6 +185,20 @@ class TestDevJobPages:
         assert "job_demo" not in client.get("/dev").text
 
 
+class TestJobConsolePrompt:
+    """job_console プロンプトの Enter（暗黙送信）既定ボタン契約."""
+
+    def test_ok_button_precedes_cancel_in_dom(self, client: TestClient):
+        """OK が最初の submit ボタン = Enter の既定ボタンになる.
+
+        中止（jc-prompt-no）が DOM 先頭にあると、数値入力後の Enter が
+        暗黙送信で中止ボタンを押した扱いになり、計測が勝手に中止される。
+        """
+        text = client.get("/pasting/dispense_calibration").text
+
+        assert text.index('id="jc-prompt-ok"') < text.index('id="jc-prompt-no"')
+
+
 class TestPreviewPages:
     """Phase 2: posctrl の preview 専用ページ."""
 

@@ -385,6 +385,52 @@ class TestPromptDialogOverBrowser:
                 raise AssertionError(f"height_plane が aborted にならない: {current}")
             time.sleep(0.05)
 
+    def test_enter_key_submits_ok_instead_of_cancel(
+        self, live_server: LiveServer, browser_page
+    ):
+        """Enter の暗黙送信は OK（続行）に落ちる.
+
+        中止が DOM 先頭の submit ボタンだと Enter が中止を押した扱いになり、
+        確認や質量入力のたびにジョブ/サブキャリブが勝手に中止されていた。 続行（True）ならセットアップへ進み、Klipper
+        不通（port 7126）で failed になる。旧実装（中止が既定）だと即 aborted になっていた。
+        """
+        shutil.copy(
+            COPPER_PCB_FIXTURE,
+            live_server.settings.pcb_browse_root / "led_blinker.kicad_pcb",
+        )
+        select = httpx.put(
+            f"{live_server.base_url}/api/pcb-file",
+            json={"path": "led_blinker.kicad_pcb"},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert select.status_code == 200, select.text
+
+        browser_page.goto(
+            f"{live_server.base_url}/pasting/height_plane",
+            wait_until="domcontentloaded",
+        )
+        browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
+
+        start = httpx.post(
+            f"{live_server.base_url}/api/jobs/height_plane", timeout=_HTTP_TIMEOUT
+        )
+        assert start.status_code == 201, start.text
+
+        browser_page.locator("#jc-prompt").wait_for(state="visible", timeout=30_000)
+        browser_page.keyboard.press("Enter")
+
+        deadline = time.monotonic() + 120.0
+        while True:
+            current = httpx.get(
+                f"{live_server.base_url}/api/jobs/current", timeout=_HTTP_TIMEOUT
+            ).json()["job"]
+            if current is not None and current["status"] in _TERMINAL:
+                break
+            if time.monotonic() > deadline:
+                raise AssertionError(f"height_plane が終端しない: {current}")
+            time.sleep(0.1)
+        assert current["status"] == "failed", current
+
 
 class TestSettingsOverBrowser:
     """設定画面の実ブラウザ操作."""
