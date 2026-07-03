@@ -5,6 +5,7 @@
 """
 
 import math
+from typing import Any
 
 import pytest
 
@@ -13,6 +14,7 @@ from pcbasm.pasting.dispense_calibration import (
     DispenseRateCalibration,
     FillSpeedSweep,
     LineLayout,
+    LineLayoutOverflowError,
     RateMeasurement,
     RotationsPerUlRound,
     dispense_rate_schedule,
@@ -56,56 +58,111 @@ class TestRateSweepAmount:
 
 
 class TestLineLayout:
-    """LineLayout 段ずらし幾何のテスト."""
+    """LineLayout 段ずらし・折り返し幾何のテスト.
 
-    def test_single_line_starts_at_origin(self):
-        layout = LineLayout(line_length=10.0, line_count=1, row_pitch=2.0)
+    既定は銅板 40×40 mm・マージン 5 mm（描画領域 30×30 mm）・線長 10 mm。 row_pitch=3 のとき 1
+    列 11 本 × 2 列 = 容量 22 本になる。
+    """
+
+    @staticmethod
+    def _layout(**kwargs: Any) -> LineLayout:
+        defaults: dict[str, Any] = dict(
+            line_length=10.0,
+            line_count=1,
+            row_pitch=2.0,
+            board_width=40.0,
+            board_height=40.0,
+            margin=5.0,
+        )
+        defaults.update(kwargs)
+        return LineLayout(**defaults)
+
+    def test_single_line_starts_at_margin(self):
+        layout = self._layout(line_count=1)
         start, end = layout.line(0)
-        assert start == Point2d(0.0, 0.0)
-        assert end == Point2d(10.0, 0.0)
+        assert start == Point2d(5.0, 5.0)
+        assert end == Point2d(15.0, 5.0)
 
-    def test_lines_are_staggered_by_row_pitch(self):
-        layout = LineLayout(line_length=10.0, line_count=3, row_pitch=2.0)
+    def test_lines_are_staggered_by_row_pitch_within_column(self):
+        layout = self._layout(line_count=3)
         lines = layout.lines
         assert len(lines) == 3
-        # 各線は X 方向に伸び、Y は index*row_pitch でずれる
+        # 各線は X 方向に伸び、Y は margin + index*row_pitch でずれる
         for i, (start, end) in enumerate(lines):
-            assert start == Point2d(0.0, i * 2.0)
-            assert end == Point2d(10.0, i * 2.0)
+            assert start == Point2d(5.0, 5.0 + i * 2.0)
+            assert end == Point2d(15.0, 5.0 + i * 2.0)
 
-    def test_origin_offsets_all_lines(self):
+    def test_margin_defaults_to_zero(self):
         layout = LineLayout(
-            line_length=5.0,
-            line_count=2,
-            row_pitch=1.5,
-            origin=Point2d(3.0, 4.0),
+            line_length=10.0,
+            line_count=1,
+            row_pitch=2.0,
+            board_width=10.0,
+            board_height=1.0,
         )
-        first, second = layout.lines
-        assert first == (Point2d(3.0, 4.0), Point2d(8.0, 4.0))
-        assert second == (Point2d(3.0, 5.5), Point2d(8.0, 5.5))
+        assert layout.line(0) == (Point2d(0.0, 0.0), Point2d(10.0, 0.0))
 
-    def test_span_is_zero_for_single_line(self):
-        layout = LineLayout(line_length=10.0, line_count=1, row_pitch=2.0)
-        assert layout.span == 0.0
+    def test_rows_per_column_includes_exact_fit_bottom_row(self):
+        # 描画領域高さ 30 / pitch 3 → 0,3,…,30 の 11 本（下端ちょうども含む）
+        assert self._layout(row_pitch=3.0).rows_per_column == 11
 
-    def test_span_covers_all_rows(self):
-        layout = LineLayout(line_length=10.0, line_count=4, row_pitch=2.0)
-        assert layout.span == pytest.approx(6.0)
+    def test_wraps_to_next_column_at_board_bottom(self):
+        layout = self._layout(line_count=12, row_pitch=3.0)
+        # 11 本目は列の下端（y = 40 - 5 = 35）ちょうど
+        assert layout.line(10)[0] == Point2d(5.0, 35.0)
+        # 12 本目は右隣の列（x += line_length + row_pitch = 13）の先頭へ折り返す
+        assert layout.line(11) == (Point2d(18.0, 5.0), Point2d(28.0, 5.0))
+
+    def test_capacity_is_rows_times_columns(self):
+        layout = self._layout(row_pitch=3.0)
+        # 幅 30 に線長 10 の列が column_pitch=13 で 2 列 → 11 × 2 = 22
+        assert layout.max_columns == 2
+        assert layout.capacity == 22
+
+    def test_full_capacity_layout_stays_within_drawing_area(self):
+        layout = self._layout(line_count=22, row_pitch=3.0)
+        for start, end in layout.lines:
+            for point in (start, end):
+                assert 5.0 <= point.x <= 35.0
+                assert 5.0 <= point.y <= 35.0
+
+    def test_overflow_raises_with_capacity(self):
+        with pytest.raises(LineLayoutOverflowError) as excinfo:
+            self._layout(line_count=23, row_pitch=3.0)
+        assert excinfo.value.line_count == 23
+        assert excinfo.value.capacity == 22
+
+    def test_line_longer_than_drawing_area_has_zero_capacity(self):
+        # 線長 31 > 描画領域幅 30 → 1 本も置けない
+        with pytest.raises(LineLayoutOverflowError) as excinfo:
+            self._layout(line_length=31.0)
+        assert excinfo.value.capacity == 0
+
+    def test_margin_exceeding_board_has_zero_capacity(self):
+        with pytest.raises(LineLayoutOverflowError):
+            self._layout(board_height=8.0)  # 2*margin=10 > 8
 
     def test_line_index_out_of_range_raises(self):
-        layout = LineLayout(line_length=10.0, line_count=2, row_pitch=2.0)
+        layout = self._layout(line_count=2)
         with pytest.raises(IndexError):
             layout.line(2)
         with pytest.raises(IndexError):
             layout.line(-1)
 
     @pytest.mark.parametrize(
-        ("length", "count", "pitch"),
-        [(0.0, 2, 1.0), (10.0, 0, 1.0), (10.0, 2, 0.0)],
+        ("field", "value"),
+        [
+            ("line_length", 0.0),
+            ("line_count", 0),
+            ("row_pitch", 0.0),
+            ("board_width", 0.0),
+            ("board_height", 0.0),
+            ("margin", -1.0),
+        ],
     )
-    def test_invalid_construction_raises(self, length, count, pitch):
+    def test_invalid_construction_raises(self, field, value):
         with pytest.raises(ValueError):
-            LineLayout(line_length=length, line_count=count, row_pitch=pitch)
+            self._layout(**{field: value})
 
 
 class TestDispenseRateSchedule:

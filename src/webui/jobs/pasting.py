@@ -35,6 +35,7 @@ from pcbasm.pasting import (
     FillSpeedSweep,
     FlowCalibrationSet,
     LineLayout,
+    LineLayoutOverflowError,
     PasteApplicator,
     PasteSettingsModel,
     ProbeExecutor,
@@ -112,7 +113,8 @@ DISPENSE_CALIBRATION_DEFAULT_SPEED_DIVISIONS = 6
 DISPENSE_CALIBRATION_DEFAULT_REMOVAL_Z_OFFSET = 0.0
 # ① 収束判定の相対許容（採用→再計測ループの自動収束ヒント表示用）
 DISPENSE_CALIBRATION_CONVERGENCE_REL_TOL = 0.02
-# ① 段ずらしレイアウトの origin（銅板左下からのマージン）
+# 段ずらしレイアウトの描画領域マージン（銅板端から全周）。折り返し位置と
+# 収容可能本数（LineLayout.capacity）の算出に使う。
 DISPENSE_CALIBRATION_LAYOUT_MARGIN = 5.0
 
 
@@ -1022,6 +1024,13 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
     board_height = float(ctx.params["board_height"])
     tolerance = float(ctx.params["tolerance"])
 
+    # 開始時点の線設定で銅板に収まらない場合はセットアップ前に失敗させる
+    # （線パラメータは実行中変更可のため、各キャリブ開始時にも再検証する）。
+    try:
+        _build_line_layout(ctx)
+    except LineLayoutOverflowError as exc:
+        raise ValueError(_layout_overflow_message(exc)) from exc
+
     with ctx.open_camera() as camera:
         ctx.progress("セットアップ")
         pcb_path = _generate_calibration_board(ctx, board_width, board_height)
@@ -1174,16 +1183,45 @@ def _handle_menu_loading_or_machine(
                 ctx.log(f"未知のコマンドです: {command.get('type')!r}")
 
 
-def _line_layout(ctx: JobContext) -> LineLayout:
-    """① / 計測線の段ずらしレイアウトをパラメータから構築する."""
+def _build_line_layout(ctx: JobContext) -> LineLayout:
+    """段ずらしレイアウトをパラメータから構築する.
+
+    Raises:
+        LineLayoutOverflowError: 折り返しても線が銅板の描画領域に収まらない場合
+    """
     return LineLayout(
         line_length=float(ctx.params["line_length"]),
         line_count=max(1, int(ctx.params["line_count"])),
         row_pitch=float(ctx.params["row_pitch"]),
-        origin=Point2d(
-            DISPENSE_CALIBRATION_LAYOUT_MARGIN, DISPENSE_CALIBRATION_LAYOUT_MARGIN
-        ),
+        board_width=float(ctx.params["board_width"]),
+        board_height=float(ctx.params["board_height"]),
+        margin=DISPENSE_CALIBRATION_LAYOUT_MARGIN,
     )
+
+
+def _layout_overflow_message(exc: LineLayoutOverflowError) -> str:
+    """レイアウト超過をユーザーに調整を促す文言へ変換する."""
+    return (
+        f"線 {exc.line_count} 本は折り返しても銅板の描画領域に収まりません"
+        f"（最大 {exc.capacity} 本）。線の本数・線の長さ・段ずらし間隔を"
+        "調整してください"
+    )
+
+
+def _line_layout(ctx: JobContext) -> LineLayout:
+    """各キャリブ用のレイアウトを構築する（収まらなければメニューへ戻す）.
+
+    線パラメータは実行中変更可のため、超過時はエラーを log してメニューへ
+    戻し、調整して再実行できるようにする。
+
+    Raises:
+        _CalibrationCancelled: 線が銅板の描画領域に収まらない場合
+    """
+    try:
+        return _build_line_layout(ctx)
+    except LineLayoutOverflowError as exc:
+        ctx.log(_layout_overflow_message(exc))
+        raise _CalibrationCancelled() from exc
 
 
 def _removal_z(ctx: JobContext, calib: _CalibrationContext) -> float:
@@ -1414,7 +1452,7 @@ def _calibrate_max_dispense_rate(
             f"続行するとレート {rate:.3f} uL/s（吐出量 {amount:.3f} uL）の"
             "線引きへ進みます",
         )
-        # 段ずらしで引く。本数が足りなければ折り返して再利用する。
+        # 段ずらしで引く。本数が足りなければ先頭の線位置を再利用する。
         start, end = layout.line(index % layout.line_count)
         calib.applicator.draw_line(
             start, end, amount=amount, max_fill_speed=fill_speed, rate_cap=rate

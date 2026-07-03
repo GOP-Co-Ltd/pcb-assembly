@@ -37,47 +37,100 @@ def slot_area(length: float, bead_width: float) -> float:
     return length * bead_width + math.pi * (bead_width / 2.0) ** 2
 
 
+class LineLayoutOverflowError(ValueError):
+    """段ずらしレイアウトが基板の描画領域に収まらない.
+
+    Attributes:
+        line_count: 要求された線の本数
+        capacity: 折り返しても描画領域に収まる最大本数
+    """
+
+    def __init__(self, line_count: int, capacity: int) -> None:
+        self.line_count = line_count
+        self.capacity = capacity
+        super().__init__(f"line_count={line_count} exceeds board capacity {capacity}")
+
+
+# 「ちょうど収まる」寸法が浮動小数点誤差で 1 行/1 列失われないための微小許容
+_GRID_EPSILON = 1e-9
+
+
 @attrs.frozen
 class LineLayout:
-    """段ずらし n 本の線を並べる純粋幾何.
+    """基板内に n 本の線を段ずらし・折り返しで並べる純粋幾何.
 
-    掃除不要のため、各線を行方向（Y）にずらして重ならないよう並べる。
+    各線は X 方向に ``line_length`` 伸び、Y 方向へ ``row_pitch`` 間隔で並ぶ。
+    描画領域（``margin`` を除いた基板内側）の下端に達したら右隣の列
+    （X を ``line_length + row_pitch`` ずらす）へ折り返し、基板の外には
+    決して出ない。折り返しても全 ``line_count`` 本が収まらない場合は
+    構築時に ``LineLayoutOverflowError``（``capacity`` に収容可能本数）。
     HAL 非依存で、各線の始点・終点座標のみを返す。
 
     Attributes:
         line_length: 各線の長さ [mm]（X 方向に伸びる）
         line_count: 線の本数（1 以上）
         row_pitch: 隣接する線の Y 方向間隔 [mm]
-        origin: 1 本目の始点座標（既定は原点）
+        board_width: 基板の幅 [mm]（X 方向）
+        board_height: 基板の高さ [mm]（Y 方向）
+        margin: 基板端から描画領域までのマージン [mm]（全周、既定 0）
     """
 
     line_length: float = attrs.field(validator=attrs.validators.gt(0.0))
     line_count: int = attrs.field(validator=attrs.validators.ge(1))
     row_pitch: float = attrs.field(validator=attrs.validators.gt(0.0))
-    origin: Point2d = attrs.field(factory=lambda: Point2d(0.0, 0.0))
+    board_width: float = attrs.field(validator=attrs.validators.gt(0.0))
+    board_height: float = attrs.field(validator=attrs.validators.gt(0.0))
+    margin: float = attrs.field(default=0.0, validator=attrs.validators.ge(0.0))
+
+    def __attrs_post_init__(self) -> None:
+        if self.line_count > self.capacity:
+            raise LineLayoutOverflowError(self.line_count, self.capacity)
+
+    @property
+    def rows_per_column(self) -> int:
+        """1 列に収まる線の本数（描画領域の高さから算出、収まらなければ 0）."""
+        usable_height = self.board_height - 2.0 * self.margin
+        if usable_height < 0.0:
+            return 0
+        return int(usable_height / self.row_pitch + _GRID_EPSILON) + 1
+
+    @property
+    def column_pitch(self) -> float:
+        """隣接する列の X 方向間隔 [mm]（線の長さ + 段ずらし間隔）."""
+        return self.line_length + self.row_pitch
+
+    @property
+    def max_columns(self) -> int:
+        """描画領域に収まる列数（1 本も収まらなければ 0）."""
+        usable_width = self.board_width - 2.0 * self.margin
+        if usable_width + _GRID_EPSILON < self.line_length:
+            return 0
+        return (
+            int((usable_width - self.line_length) / self.column_pitch + _GRID_EPSILON)
+            + 1
+        )
+
+    @property
+    def capacity(self) -> int:
+        """折り返しを使って描画領域に収まる線の最大本数."""
+        return self.rows_per_column * self.max_columns
 
     def line(self, index: int) -> tuple[Point2d, Point2d]:
         """Index 番目（0 始まり）の線の (始点, 終点) を返す.
 
-        各線は X 方向に ``line_length`` 伸び、Y 方向に ``index × row_pitch``
-        だけずれる。範囲外の index は IndexError。
+        線は列内を上から下（Y+）へ埋め、列が尽きたら右隣の列の先頭へ 折り返す。範囲外の index は IndexError。
         """
         if not 0 <= index < self.line_count:
             raise IndexError(index)
-        y = self.origin.y + index * self.row_pitch
-        start = Point2d(self.origin.x, y)
-        end = Point2d(self.origin.x + self.line_length, y)
-        return start, end
+        column, row = divmod(index, self.rows_per_column)
+        x = self.margin + column * self.column_pitch
+        y = self.margin + row * self.row_pitch
+        return Point2d(x, y), Point2d(x + self.line_length, y)
 
     @property
     def lines(self) -> tuple[tuple[Point2d, Point2d], ...]:
         """全線の (始点, 終点) を段ずらし順に並べたもの."""
         return tuple(self.line(i) for i in range(self.line_count))
-
-    @property
-    def span(self) -> float:
-        """全線を含む Y 方向の総幅 [mm]（1 本なら 0.0）."""
-        return (self.line_count - 1) * self.row_pitch
 
 
 def dispense_rate_schedule(
