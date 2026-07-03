@@ -667,6 +667,19 @@ def _prompt_mass(
     return mass
 
 
+def _apply_to_machine_toml(ctx: JobContext, values: Mapping[str, float]) -> None:
+    """確定したキャリブ値を machine.toml へ即時反映し、内容を log する.
+
+    採用のたびに書き込むことで、以降の中止・失敗でも計測結果を失わない。
+    """
+    rounded = {key: round(value, APPLY_DIGITS) for key, value in values.items()}
+    ctx.apply_machine_settings(rounded)
+    pairs = " / ".join(
+        f"{key.rsplit('.', 1)[1]} = {value:.6f}" for key, value in rounded.items()
+    )
+    ctx.log(f"machine.toml へ反映しました: {pairs}")
+
+
 # --- ジョブ実装 ---
 
 
@@ -997,7 +1010,7 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
     共通土台（その場生成した矩形銅板 → ボード計測 → 平面計測 → applicator）を
     確立し、メニュー（``run_calib`` コマンド）で ① rotations_per_ul /
     ② max_dispense_rate / ③ max_fill_speed を順次/個別に実行する。各キャリブの
-    確定値はワーカーローカルに集約し、終了時に実施分のみ ``ApplyPayload`` に入れる。
+    確定値は採用時点で machine.toml へ即時反映する（中止・失敗でも失われない）。
 
     算出/判定はすべて pcbasm（``FlowCalibrationSet`` / ``DispenseRateCalibration`` /
     ``FillSpeedSweep`` / ``LineLayout``）に委譲し、ここはループ制御と入出力に徹する。
@@ -1192,8 +1205,9 @@ def _calibrate_rotations_per_ul(
     引く。線引き後はヘッドを退避 Z（z_max − removal_z_offset、既定は全退避）へ上げ、
     基板を取り出して計量しやすくする。合計質量から ``FlowCalibrationSet`` で新 ``rotations_per_ul`` を算出する。
     採用すると新値で applicator を作り直し、``dispense_accel`` も回転加速度を保って
-    連動更新する。収束（前後の相対差が許容内）はヒントとして表示するのみで、ループ継続は
-    ユーザー判断。タール前の中止・質量入力の中止はいずれもメニューへ戻る。
+    連動更新する。採用時点で両値を machine.toml へ即時反映するため、以降の中止・失敗
+    でも計測結果は失われない。収束（前後の相対差が許容内）はヒントとして表示するのみで、
+    ループ継続はユーザー判断。タール前の中止・質量入力の中止はいずれもメニューへ戻る。
     """
     # 比重はマシン設定 (solder_paste_density [mg/uL]。水基準なので比重と数値が一致) を
     # 真実とする。② が密度を machine から直接読むのと同じ扱い。
@@ -1228,10 +1242,12 @@ def _calibrate_rotations_per_ul(
         )
 
         # ── 電子天秤にセットしてタール（ゼロ）──（中止でメニューへ戻る）
+        # 線引き前に基板ごとゼロにしておき、線引き後の計量値がそのまま
+        # ペーストの質量になるようにする。
         _prompt_confirm(
             ctx,
-            "塗布対象を電子天秤にセットし、タール（ゼロ）してください。"
-            "準備ができたら線引きへ進みます。",
+            "基板を電子天秤に載せてタール（ゼロ）し、基板を装置へ戻してから"
+            "続行を押してください。続行すると線引きへ進みます。",
         )
 
         ctx.progress("① rotations_per_ul: 線引き")
@@ -1258,7 +1274,7 @@ def _calibrate_rotations_per_ul(
         rotations_used = layout.line_count * amount * previous_rpu
         mass = _prompt_mass(
             ctx,
-            f"{layout.line_count} 本の線の合計質量 (mg) を入力"
+            f"基板を取り出して計量し、{layout.line_count} 本の線の合計質量 (mg) を入力"
             f"（回転数 {rotations_used:.4f} rev 相当）",
         )
 
@@ -1303,9 +1319,17 @@ def _calibrate_rotations_per_ul(
             # 算出値は採用せず、現状の rotations_per_ul のまま次ラウンドへ。
             continue
 
-        # 残る 3 つはいずれも算出値を採用する。
+        # 残る 3 つはいずれも算出値を採用する。採用時点で machine.toml へ反映し、
+        # 以降の中止・失敗で計測結果を失わないようにする。
         rotations_per_ul = computed_rpu
         dispense_accel = computed_accel
+        _apply_to_machine_toml(
+            ctx,
+            {
+                "paste_dispenser.rotations_per_ul": computed_rpu,
+                "paste_dispenser.dispense_accel": computed_accel,
+            },
+        )
         if choice == "採用して吐出量キャリブレーションを終了する":
             # 再描画しないので applicator の作り直しは不要。finish でジョブを終了。
             return attrs.evolve(
@@ -1339,9 +1363,10 @@ def _calibrate_max_dispense_rate(
 
     レート列の各点で同一 ``line_amount`` の線を引いて計量し、効率
     ``measured_ul / commanded_ul`` の落ちから ``DispenseRateCalibration`` が
-    ``max_dispense_rate`` を判定する。各点は独立計測のため、線引き後に退避 Z
-    （z_max − removal_z_offset）へ上げ、タール確認 → 質量入力の順で進める。タール／
-    質量入力の中止はいずれもメニューへ戻る。自動判定値を default に手動上書き可能。
+    ``max_dispense_rate`` を判定する。各点は独立計測のため、線引き前に基板ごと
+    タール（ゼロ）を確認してから引き、線引き後に退避 Z（z_max − removal_z_offset）
+    へ上げて質量を入力させる。タール／質量入力の中止はいずれもメニューへ戻る。
+    自動判定値を default に手動上書き可能で、確定値は machine.toml へ即時反映する。
     """
     layout = _line_layout(ctx)
     amount = float(ctx.params["line_amount"])
@@ -1364,6 +1389,14 @@ def _calibrate_max_dispense_rate(
     for index, rate in enumerate(rates):
         ctx.progress("② max_dispense_rate: 線引き", 100.0 * index / len(rates))
         ctx.checkpoint()
+        # 各レートは独立計測。線引き前に基板ごとタール（ゼロ）しておき、線引き後の
+        # 計量値がそのままこのレートのペースト質量になるようにする（中止でメニューへ）。
+        _prompt_confirm(
+            ctx,
+            f"[{index + 1}/{len(rates)}] 基板を電子天秤に載せてタール（ゼロ）し、"
+            "基板を装置へ戻してから続行を押してください。"
+            f"続行するとレート {rate:.3f} uL/s の線引きへ進みます",
+        )
         # 段ずらしで引く。本数が足りなければ折り返して再利用する。
         start, end = layout.line(index % layout.line_count)
         calib.applicator.draw_line(start, end, amount=amount, rate_cap=rate)
@@ -1375,15 +1408,10 @@ def _calibrate_max_dispense_rate(
         calib.session.klipper.send_gcode(
             calib.session.stage.move(z=removal_z) + gcode.wait_for_done()
         )
-        # 各レートは独立計測。質量入力前に必ず電子天秤のタールを確認する（中止でメニューへ）。
-        _prompt_confirm(
-            ctx,
-            f"[{index + 1}/{len(rates)}] 電子天秤をタール（ゼロ）してから"
-            "基板を載せ、続行を押してください",
-        )
         mass = _prompt_mass(
             ctx,
-            f"[{index + 1}/{len(rates)}] レート {rate:.3f} uL/s の線の質量 (mg) を入力",
+            f"[{index + 1}/{len(rates)}] 基板を取り出して計量し、"
+            f"レート {rate:.3f} uL/s の線の質量 (mg) を入力",
         )
         measured_ul = mass / density
         measurement = RateMeasurement(
@@ -1409,6 +1437,8 @@ def _calibrate_max_dispense_rate(
     chosen = _prompt_positive_number(
         ctx, "採用する max_dispense_rate (uL/s) を入力", default=auto
     )
+    assert chosen is not None  # cancel_label 無しの prompt は常に正数を返す
+    _apply_to_machine_toml(ctx, {"paste_dispenser.max_dispense_rate": chosen})
     return attrs.evolve(results, max_dispense_rate=chosen)
 
 
@@ -1481,38 +1511,31 @@ def _calibrate_max_fill_speed(
     chosen_index = int(str(selection).split(":", 1)[0])
     chosen = sweep.speed_at(chosen_index)
     assert chosen is not None  # 選択肢は speeds の範囲内
-    ctx.log(f"max_fill_speed = {chosen:.2f} mm/s を採用しました")
+    _apply_to_machine_toml(ctx, {"paste_dispenser.max_fill_speed": chosen})
     return attrs.evolve(results, max_fill_speed=chosen)
 
 
 def _dispense_calibration_result(
     results: _DispenseCalibrationResults,
 ) -> JobResult:
-    """実施したキャリブの確定値から summary と ApplyPayload を組む."""
-    values: dict[str, float] = {}
-    summary_parts: list[str] = []
-    for field in (
-        "rotations_per_ul",
-        "dispense_accel",
-        "max_dispense_rate",
-        "max_fill_speed",
-    ):
-        value = getattr(results, field)
-        if value is None:
-            continue
-        values[f"paste_dispenser.{field}"] = round(value, APPLY_DIGITS)
-        summary_parts.append(f"{field} = {value:.6f}")
-
-    if not values:
+    """実施したキャリブの確定値から summary を組む（値は採用時に反映済み）."""
+    summary_parts = [
+        f"{field} = {value:.6f}"
+        for field in (
+            "rotations_per_ul",
+            "dispense_accel",
+            "max_dispense_rate",
+            "max_fill_speed",
+        )
+        if (value := getattr(results, field)) is not None
+    ]
+    if not summary_parts:
         return JobResult(summary="キャリブレーションを実施せず終了しました")
-
-    summary = "キャリブレーション結果: " + " / ".join(summary_parts)
     return JobResult(
-        summary=summary,
-        apply=ApplyPayload(
-            label=f"[paste_dispenser] {' / '.join(summary_parts)} を設定に反映",
-            values=values,
-        ),
+        summary=(
+            "キャリブレーション結果（machine.toml 反映済み）: "
+            + " / ".join(summary_parts)
+        )
     )
 
 
