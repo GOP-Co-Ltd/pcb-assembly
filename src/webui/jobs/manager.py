@@ -267,12 +267,14 @@ class _JobRuntime:
         record: JobRecord,
         preview: PreviewService,
         publish: Callable[[_Event], None],
+        apply_settings: Callable[[Mapping[str, ParamValue]], None],
     ) -> None:
         self.record = record
         self.abort_event = threading.Event()
         self.commands: queue.Queue[Any] = queue.Queue()
         self._preview = preview
         self._publish = publish
+        self._apply_settings = apply_settings
         self._pending_lock = threading.Lock()
         self._pending: _PendingPrompt | None = None
         # 実行中パラメータ編集のライブストア（コマンドキュー非経由で適用）。
@@ -292,6 +294,10 @@ class _JobRuntime:
     def publish_status(self) -> None:
         """job_status イベントを発行する（中身は WS 送信時に最新化される）."""
         self._publish({"type": "job_status", "job_id": self.record.id})
+
+    def apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None:
+        """選択マシンの machine.toml へ即時書き込む（ワーカーからの確定値反映用）."""
+        self._apply_settings(values)
 
     # --- JobContext bridge ---
 
@@ -472,7 +478,9 @@ class JobManager:
             if persisted_params:
                 self._state.save_job_param_defaults(name, persisted_params)
             record = JobRecord(uuid.uuid4().hex, name, params, self._log_capacity)
-            runtime = _JobRuntime(record, self._preview, self._publish)
+            runtime = _JobRuntime(
+                record, self._preview, self._publish, self._apply_machine_settings
+            )
             artifacts_dir = self._artifacts_root / record.id
             artifacts_dir.mkdir(parents=True, exist_ok=True)
             selected_pcb = self._state.selected_pcb
@@ -657,6 +665,18 @@ class JobManager:
     def publish_state_changed(self) -> None:
         """マシン / PCB / 設定変更をクライアントに通知する."""
         self._publish({"type": "state_changed"})
+
+    def _apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None:
+        """実行中ジョブの確定値を machine.toml へ即時書き込み、変更を通知する.
+
+        呼び出し元のジョブワーカーが装置排他ロックを保持しているため、
+        Apply エンドポイントと同様の直列化が成立している。
+
+        Raises:
+            UnknownFieldError: ホワイトリスト外キー・型不一致の場合
+        """
+        self._state.write_machine_settings(values)
+        self.publish_state_changed()
 
     # --- 内部 ---
 

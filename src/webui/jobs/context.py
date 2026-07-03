@@ -50,6 +50,8 @@ class JobBridge(Protocol):
 
     def live_params(self) -> Mapping[str, ParamValue]: ...
 
+    def apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None: ...
+
     def log(self, message: str) -> None: ...
 
     def progress(self, stage: str, percent: float | None) -> None: ...
@@ -136,6 +138,18 @@ class JobContext:
     def board_store(self) -> BoardSettingsStore | None:
         """基板ごとの塗布設定ストア（未配線なら None）."""
         return self._board_store
+
+    def apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None:
+        """選択マシンの machine.toml へホワイトリスト項目を即時書き込む.
+
+        キャリブレーション値の確定時など、ジョブ完了（と Apply 操作）を
+        待たずに計測結果を永続化する用途。書き込み後は "state_changed" が
+        発行され、設定画面等が追従する。
+
+        Raises:
+            UnknownFieldError: ホワイトリスト外キー・型不一致の場合
+        """
+        self._bridge.apply_machine_settings(values)
 
     def log(self, message: str) -> None:
         """ログのリングバッファへ追記し、WS "log" イベントを発行する."""

@@ -675,6 +675,53 @@ class TestApply:
             manager.apply_payload()
 
 
+class TestApplyMachineSettingsFromWorker:
+    """ctx.apply_machine_settings による実行中の machine.toml 即時書き込み.
+
+    吐出量キャリブレーションが採用値をジョブ完了（と Apply 操作）を待たずに
+    永続化する経路（中止・失敗で計測結果を失わないための契約）。
+    """
+
+    def test_running_job_writes_machine_toml_before_termination(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        configs_root: Path,
+        wait_until: WaitUntil,
+    ):
+        gate = threading.Event()
+
+        def run(ctx: JobContext) -> None:
+            ctx.apply_machine_settings({"paste_dispenser.rotations_per_ul": 42.424242})
+            gate.wait(timeout=10.0)
+
+        _register(catalog, run)
+        record = manager.start("synthetic", {})
+        toml_path = configs_root / state.selected_machine / "machine.toml"
+        wait_until(lambda: "42.424242" in toml_path.read_text())
+
+        assert not record.status.terminal  # ジョブ完了前に永続化されている
+
+        gate.set()
+        wait_until(lambda: record.status.terminal)
+        assert record.status == JobStatus.SUCCEEDED
+
+    def test_unknown_key_fails_the_job(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        def run(ctx: JobContext) -> None:
+            ctx.apply_machine_settings({"bogus.key": 1.0})
+
+        _register(catalog, run)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "bogus.key" in record.error
+
+
 class TestPresentOnTermination:
     """ジョブ終了時の PRESENT / M84（relax）ベストエフォート送信."""
 
