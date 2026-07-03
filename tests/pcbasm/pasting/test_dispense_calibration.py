@@ -17,6 +17,7 @@ from pcbasm.pasting.dispense_calibration import (
     RotationsPerUlRound,
     dispense_rate_schedule,
     fill_speed_schedule,
+    rate_sweep_amount,
     slot_area,
 )
 
@@ -33,6 +34,25 @@ class TestSlotArea:
         # length=0 なら両端キャップ（1円）だけが残る
         area = slot_area(0.0, 0.6)
         assert area == pytest.approx(math.pi * 0.3**2)
+
+
+class TestRateSweepAmount:
+    """rate_sweep_amount 純粋関数のテスト.
+
+    FillSequence の速度モデル（rate = amount × speed / 経路長、rate_cap は
+    頭打ちのみ）に対し、移動速度を変えずに指令レートを実現する吐出量の導出。
+    """
+
+    def test_amount_scales_linearly_with_rate(self):
+        # rate=0.5, L=10, v=0.8 → 0.5*10/0.8 = 6.25 uL
+        assert rate_sweep_amount(0.5, 10.0, 0.8) == pytest.approx(6.25)
+        assert rate_sweep_amount(1.0, 10.0, 0.8) == pytest.approx(12.5)
+
+    def test_amount_reproduces_fill_sequence_rate_derivation(self):
+        # FillSequence の導出 r = amount × v / L に代入すると指令レートへ戻る
+        rate, length, speed = 3.0, 12.0, 1.5
+        amount = rate_sweep_amount(rate, length, speed)
+        assert amount * speed / length == pytest.approx(rate)
 
 
 class TestLineLayout:

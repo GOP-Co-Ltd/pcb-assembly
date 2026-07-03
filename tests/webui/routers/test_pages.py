@@ -454,7 +454,7 @@ class TestPastingJobPages:
         assert "job-param-group" in text
         for legend in (
             "銅板・位置合わせ（キャリブ後固定）",
-            "線の共通設定（①②③ 共有・実行中変更可）",
+            "線の共通設定（実行中変更可）",
             "② max_dispense_rate",
             "③ max_fill_speed",
         ):

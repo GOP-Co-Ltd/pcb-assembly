@@ -46,6 +46,7 @@ from pcbasm.pasting import (
     dispense_rate_schedule,
     fill_speed_schedule,
     plan_paste_route,
+    rate_sweep_amount,
     resolve_pad_settings,
     slot_area,
 )
@@ -329,7 +330,8 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     unit="mm",
                 ),
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
-                # 線の共通設定（①②③ 共有・実行中変更可）
+                # 線の共通設定（実行中変更可）。line_amount は ① 専用
+                # （② はレート × 線長 / 速度で吐出量を導出、③ は ul_per_mm2 起点）。
                 ParamSpec(
                     "line_length",
                     "線の長さ",
@@ -352,6 +354,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_LINE_AMOUNT,
                     unit="uL",
+                    help="① 専用。② はレート × 線長 / 速度、③ は面積換算で導出",
                     runtime_editable=True,
                 ),
                 ParamSpec(
@@ -1361,15 +1364,20 @@ def _calibrate_max_dispense_rate(
 ) -> _DispenseCalibrationResults:
     """② max_dispense_rate を吐出効率の落ち検出で確定する.
 
-    レート列の各点で同一 ``line_amount`` の線を引いて計量し、効率
-    ``measured_ul / commanded_ul`` の落ちから ``DispenseRateCalibration`` が
-    ``max_dispense_rate`` を判定する。各点は独立計測のため、線引き前に基板ごと
-    タール（ゼロ）を確認してから引き、線引き後に退避 Z（z_max − removal_z_offset）
-    へ上げて質量を入力させる。タール／質量入力の中止はいずれもメニューへ戻る。
-    自動判定値を default に手動上書き可能で、確定値は machine.toml へ即時反映する。
+    レート列の各点で線を引いて計量し、効率 ``measured_ul / commanded_ul`` の
+    落ちから ``DispenseRateCalibration`` が ``max_dispense_rate`` を判定する。
+    ``FillSequence`` は移動速度から吐出レートを導出し ``rate_cap`` は頭打ちに
+    しか働かないため、移動速度（``max_fill_speed``）は固定したまま吐出量を
+    ``rate_sweep_amount``（= rate × 線長 / 速度）でレートに比例させて指令
+    レートを実現する（``line_amount`` は使わない。cap を超えるのはこの掃引の
+    線引きだけで、実塗布の clamp 動作は変えない）。各点は独立計測のため、
+    線引き前に基板ごとタール（ゼロ）を確認してから引き、線引き後に退避 Z
+    （z_max − removal_z_offset）へ上げて質量を入力させる。タール／質量入力の
+    中止はいずれもメニューへ戻る。自動判定値を default に手動上書き可能で、
+    確定値は machine.toml へ即時反映する。
     """
     layout = _line_layout(ctx)
-    amount = float(ctx.params["line_amount"])
+    fill_speed = ctx.machine.paste_dispenser.max_fill_speed
     rate_min = float(ctx.params["rate_min"])
     rate_max = float(ctx.params["rate_max"])
     divisions = max(1, int(ctx.params["rate_divisions"]))
@@ -1383,23 +1391,34 @@ def _calibrate_max_dispense_rate(
         )
         return results
 
+    ctx.log(
+        f"移動速度 {fill_speed:.3f} mm/s 固定・"
+        "吐出量 = レート × 線長 / 速度 でレートを掃引します"
+    )
     measurements: list[RateMeasurement] = []
     # baseline まで引き戻してから引き始める（draw_line が retract を内包するので線間は不要）
     calib.applicator.retract()
     for index, rate in enumerate(rates):
         ctx.progress("② max_dispense_rate: 線引き", 100.0 * index / len(rates))
         ctx.checkpoint()
+        # 移動速度は変えず、吐出量をレートに比例させて指令レートを実現する
+        # （固定量のままだと吐出レートが移動速度由来の導出値で頭打ちされ、
+        #   掃引しても全点が同一レートになる）。
+        amount = rate_sweep_amount(rate, layout.line_length, fill_speed)
         # 各レートは独立計測。線引き前に基板ごとタール（ゼロ）しておき、線引き後の
         # 計量値がそのままこのレートのペースト質量になるようにする（中止でメニューへ）。
         _prompt_confirm(
             ctx,
             f"[{index + 1}/{len(rates)}] 基板を電子天秤に載せてタール（ゼロ）し、"
             "基板を装置へ戻してから続行を押してください。"
-            f"続行するとレート {rate:.3f} uL/s の線引きへ進みます",
+            f"続行するとレート {rate:.3f} uL/s（吐出量 {amount:.3f} uL）の"
+            "線引きへ進みます",
         )
         # 段ずらしで引く。本数が足りなければ折り返して再利用する。
         start, end = layout.line(index % layout.line_count)
-        calib.applicator.draw_line(start, end, amount=amount, rate_cap=rate)
+        calib.applicator.draw_line(
+            start, end, amount=amount, max_fill_speed=fill_speed, rate_cap=rate
+        )
         # 計量のため基板を取り出せるよう、線引き後に退避 Z（z_max - offset）へ上げる。
         removal_z = _removal_z(ctx, calib)
         ctx.log(

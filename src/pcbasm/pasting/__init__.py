@@ -16,6 +16,7 @@ from .dispense_calibration import (
     RotationsPerUlRound,
     dispense_rate_schedule,
     fill_speed_schedule,
+    rate_sweep_amount,
     slot_area,
 )
 from .fill_path import PasteFillPlan, build_paste_fill_path, build_paste_fill_plan
@@ -62,6 +63,7 @@ __all__ = [
     "RotationsPerUlRound",
     "dispense_rate_schedule",
     "fill_speed_schedule",
+    "rate_sweep_amount",
     "slot_area",
     "PasteFillPlan",
     "PasteHeight",

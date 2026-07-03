@@ -144,7 +144,7 @@ _DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("board_width", "board_height", "tolerance"),
     ),
     (
-        "線の共通設定（①②③ 共有・実行中変更可）",
+        "線の共通設定（実行中変更可）",
         ("line_length", "line_count", "line_amount", "row_pitch", "removal_z_offset"),
     ),
     (

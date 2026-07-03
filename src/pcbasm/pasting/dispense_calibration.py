@@ -121,6 +121,27 @@ def fill_speed_schedule(
     return _linspace(speed_min, speed_max, divisions)
 
 
+def rate_sweep_amount(rate: float, line_length: float, fill_speed: float) -> float:
+    """② のレート掃引で指令レートを実際に出すための 1 線あたりの吐出量 [μL].
+
+    ``FillSequence`` は移動速度を主設定とし、吐出レートを
+    ``total_amount × max_fill_speed / 経路長`` で導出する（``rate_cap`` は
+    頭打ちにしか働かない）。固定量のまま ``rate_cap`` を上げても導出レート
+    以上には上がらないため、移動速度 ``fill_speed`` を変えずに指令レート
+    ``rate`` を出すには吐出量を ``rate × line_length / fill_speed`` にする。
+    このとき実効レート = ``rate``、実効移動速度 = ``fill_speed`` になる。
+
+    Args:
+        rate: 指令吐出レート [μL/sec]（0 より大きい）
+        line_length: 線の長さ [mm]（0 より大きい）
+        fill_speed: 線引きの移動速度 [mm/sec]（0 より大きい）
+
+    Returns:
+        1 線あたりの吐出量 [μL]
+    """
+    return rate * line_length / fill_speed
+
+
 def _linspace(start: float, stop: float, count: int) -> list[float]:
     """start..stop を count 点に等間隔分割した列（端点含む）."""
     if count == 1:
