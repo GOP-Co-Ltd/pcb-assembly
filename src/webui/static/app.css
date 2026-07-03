@@ -504,19 +504,6 @@ h2 {
   width: min(100%, 9rem);
 }
 
-.settings-pair {
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.35rem;
-  width: min(100%, 12rem);
-  vertical-align: middle;
-}
-
-.settings-pair input {
-  min-width: 0;
-  width: 100%;
-}
-
 .unit {
   margin-left: 0.3rem;
   color: var(--quiet);

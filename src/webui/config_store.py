@@ -30,13 +30,11 @@ class FieldSpec:
 
     key: str
     label: str
-    value_type: Literal[
-        "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode", "bool"
-    ]
+    value_type: Literal["float", "int", "str", "float_or_auto", "dispense_mode", "bool"]
     unit: str | None = None
 
 
-type MachineSettingValue = float | int | str | list[float] | bool
+type MachineSettingValue = float | int | str | bool
 
 
 # 設定セクション（key のドット区切り親パス）→ UI 表示名。
@@ -112,14 +110,10 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),
     # [probe]
-    FieldSpec("probe.servo_name", "サーボ名", "str"),
-    FieldSpec("probe.revolution_distance", "一回転あたりの移動量", "float", "mm"),
-    FieldSpec("probe.down_distance", "グラウンド下降距離", "float", "mm"),
     FieldSpec("probe.lift_height", "プローブ後の上昇高さ", "float", "mm"),
     FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
     FieldSpec("probe.min_samples", "最小サンプル数", "int"),
     FieldSpec("probe.max_samples", "最大サンプル数", "int"),
-    FieldSpec("probe.shift", "プローブ点シフト", "float_pair", "mm"),
     # [reference_point]
     FieldSpec("reference_point.x", "基準点 X", "float", "mm"),
     FieldSpec("reference_point.y", "基準点 Y", "float", "mm"),
@@ -188,24 +182,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
         case "dispense_mode":
             if isinstance(value, str) and value in DISPENSE_MODES:
                 return value
-        case "float_pair":
-            pair = _coerce_float_pair(value)
-            if pair is not None:
-                return pair
     raise UnknownFieldError(
         f"{spec.key}: {spec.value_type} 型の値が必要です（与えられた値: {value!r}）"
     )
-
-
-def _coerce_float_pair(value: object) -> list[float] | None:
-    if not isinstance(value, (list, tuple)) or len(value) != 2:
-        return None
-    pair: list[float] = []
-    for item in value:
-        if isinstance(item, bool) or not isinstance(item, (int, float)):
-            return None
-        pair.append(float(item))
-    return pair
 
 
 class ConfigStore:

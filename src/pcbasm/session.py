@@ -17,7 +17,6 @@ from pcbasm.hal import (
     Camera,
     Klipper,
     PasteDispenser,
-    ServoGroundProbe,
     XYZStage,
 )
 from pcbasm.pasting import HeightPlaneMeasurer, PasteApplicator, ProbeExecutor
@@ -72,15 +71,8 @@ class PasteSession:
         """既存の BoardCalibrationResult から塗布用 HAL を組み立てる."""
         machine = result.machine
         probe_config = machine.probe
-        probe = ServoGroundProbe(
-            result.klipper.readonly,
-            servo_name=probe_config.servo_name,
-            revolution_distance=probe_config.revolution_distance,
-            down_distance=probe_config.down_distance,
-        )
         probe_executor = ProbeExecutor(
             klipper=result.klipper,
-            probe=probe,
             stage=result.stage,
             lift_height=probe_config.lift_height,
         )
@@ -91,7 +83,6 @@ class PasteSession:
             min_radius=probe_config.min_radius,
             min_samples=probe_config.min_samples,
             max_samples=probe_config.max_samples,
-            probe_shift=probe_config.shift,
         )
         paste_dispenser = PasteDispenser(
             klipper=result.klipper.readonly,

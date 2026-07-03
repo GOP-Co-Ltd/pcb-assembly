@@ -3,17 +3,13 @@
 計画書 memory/agents/implementation-planner/webui-phase5.md「src/webui/jobs/pasting.py」節
 + spec §10 pasting 表が契約:
 
-- catalog: pasting 7 ジョブ（paste_solder / height_plane / loading /
-  flow_calibration / generate_rect_pcb / toolhead_offset /
-  probe_gnd_down_adjust）の name / params（default・unit）/ requires_pcb /
-  uses_machine / accepts_commands
+- catalog: pasting 6 ジョブ（paste_solder / height_plane / loading /
+  dispense_calibration / generate_rect_pcb / toolhead_offset）の name /
+  params（default・unit）/ requires_pcb / uses_machine / accepts_commands
 - parse_loading_command: extrude / suck / finish の純粋パーサ。amount 欠落・
   非正・非数・未知 type は None
 - LOADING_STAGE: ジョブ実装・テンプレート data 属性・loading_controls.js の
   3 箇所で一致させる契約値 "ローディング"（計画書 判断保留点 6）
-- probe_gnd_down_adjust: prompt(number) ループ（負数は log + 再 prompt、初回
-  default は machine.probe.down_distance）。終了時（FAILED / ABORTED 含む）は
-  down(0) を best-effort 送信し、失敗 log は「ダウン距離」を含む（テスト契約）
 - height_plane: 計測前に planned_points.png を artifacts へ生成し、
   diagnostics と /artifacts/ リンクを log してから confirm を挟む。
   confirm False → ABORTED / True → Klipper 不通（setup）で FAILED
@@ -68,7 +64,6 @@ PASTING_JOBS = (
     "dispense_calibration",
     "generate_rect_pcb",
     "toolhead_offset",
-    "probe_gnd_down_adjust",
 )
 
 
@@ -125,8 +120,8 @@ class TestCatalog:
         assert names == set(PASTING_JOBS)
 
     def test_total_job_count_covers_all_tabs(self, default: JobCatalog):
-        """Dev 3 + posctrl 5 + pasting 7 = 15（重複登録・登録漏れの検知）."""
-        assert len(default.list()) == 15
+        """Dev 3 + posctrl 5 + pasting 6 = 14（重複登録・登録漏れの検知）."""
+        assert len(default.list()) == 14
 
     @pytest.mark.parametrize(
         ("name", "requires_pcb", "uses_machine", "accepts_commands"),
@@ -137,7 +132,6 @@ class TestCatalog:
             ("dispense_calibration", False, True, True),
             ("generate_rect_pcb", False, False, False),
             ("toolhead_offset", True, True, True),
-            ("probe_gnd_down_adjust", False, True, False),
         ],
     )
     def test_job_flags(
@@ -313,9 +307,6 @@ class TestCatalog:
         assert params["interactive_loading"].value_type == "bool"
         assert params["interactive_loading"].default is False
 
-    def test_probe_gnd_down_adjust_has_no_params(self, default: JobCatalog):
-        assert default.get("probe_gnd_down_adjust").params == ()
-
 
 class TestGenerateRectPcb:
     """generate_rect_pcb（実 pcbnew・装置非使用）。"""
@@ -447,61 +438,6 @@ class TestParseRunCalibCommand:
     )
     def test_invalid_command_yields_none(self, command: dict[str, object]):
         assert parse_run_calib_command(command) is None
-
-
-class TestProbeGndDownAdjust:
-    """probe_gnd_down_adjust のプロンプトフロー（装置なし・test-fixture）."""
-
-    def test_negative_distance_reprompts_then_send_failure_is_graceful(
-        self,
-        manager: JobManager,
-        state: AppState,
-        wait_until: WaitUntil,
-    ):
-        """負数 → 再 prompt、正数 → down 送信失敗で FAILED + down(0) 失敗 log.
-
-        - 初回 prompt は number、default = machine.probe.down_distance（2.0）
-        - 終了時の down(0) best-effort 失敗 log は「ダウン距離」を含む（契約）
-        - PRESENT / relax (M84) 失敗警告 + 排他ロック解放
-        """
-        record = manager.start("probe_gnd_down_adjust", {})
-        answered: set[str] = set()
-
-        wait_until(lambda: record.pending_prompt is not None)
-        pending = record.pending_prompt
-        assert pending is not None
-        assert pending[1].kind == "number"
-        assert pending[1].default == 2.0  # test-fixture の probe.down_distance
-
-        # 負数は受理されず log + 再 prompt（新 id）
-        _answer_next_prompt(record, manager, wait_until, -1.0, answered)
-        _answer_next_prompt(record, manager, wait_until, 1.5, answered)
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-        wait_until(lambda: state.busy_owner is None)
-
-        assert len(answered) == 2
-        assert record.status == JobStatus.FAILED
-        assert record.error  # 接続エラーが error に載る
-        log_text = "\n".join(record.log_lines)
-        assert "ダウン距離" in log_text  # finally の down(0) 復帰失敗警告
-        assert "M84" in log_text  # relax 失敗警告（manager 経由）
-        with state.machine_lock("after-failed-job"):  # ロックは解放済み
-            pass
-
-    def test_abort_while_waiting_prompt_aborts_and_attempts_down_zero(
-        self, manager: JobManager, state: AppState, wait_until: WaitUntil
-    ):
-        """Prompt 待ちの abort → ABORTED。finally の down(0) は abort でも実行."""
-        record = manager.start("probe_gnd_down_adjust", {})
-        wait_until(lambda: record.status == JobStatus.WAITING_INPUT)
-
-        assert manager.request_abort() is True
-
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-        wait_until(lambda: state.busy_owner is None)
-        assert record.status == JobStatus.ABORTED
-        assert record.apply_available is False
-        assert "ダウン距離" in "\n".join(record.log_lines)
 
 
 class TestHeightPlaneFrontFlow:
@@ -700,7 +636,6 @@ class TestApplyTargetsWhitelisted:
                 "paste_dispenser.max_fill_speed": 7.654321,
                 "paste_dispenser.toolhead.x": -1.2345,
                 "paste_dispenser.toolhead.y": 23.4567,
-                "probe.down_distance": 1.234,
             },
         )
 
@@ -714,7 +649,6 @@ class TestApplyTargetsWhitelisted:
         assert "7.654321" in toml_text
         assert "-1.2345" in toml_text
         assert "23.4567" in toml_text
-        assert "1.234" in toml_text
 
 
 @pytest.fixture
@@ -847,25 +781,6 @@ class TestPastingHardware:
         assert result.summary is not None
         # 0.1 押出 − 0.05 引き戻し = 0.05 rev の純増
         assert "回転合計 +0.050 rev" in result.summary
-
-    def test_probe_gnd_down_adjust_confirm_yields_apply(
-        self, real_manager: JobManager, wait_until: WaitUntil
-    ):
-        """距離入力 → 確定 confirm → SUCCEEDED + [probe].down_distance の Apply."""
-        record = real_manager.start("probe_gnd_down_adjust", {})
-        answered: set[str] = set()
-        _answer_next_prompt(record, real_manager, wait_until, 0.5, answered)
-        # 確定 confirm（default False）に True
-        _answer_next_prompt(record, real_manager, wait_until, True, answered)
-        wait_until(lambda: record.status.terminal, timeout=300.0)
-
-        assert record.status == JobStatus.SUCCEEDED
-        result = record.result
-        assert result is not None
-        assert result.summary is not None
-        assert "down_distance" in result.summary
-        assert result.apply is not None
-        assert result.apply.values == {"probe.down_distance": 0.5}
 
     # 吐出量キャリブレーション統合ジョブ（dispense_calibration）の ①②③ 実測は
     # 実 Moonraker + 実カメラ + 実ペースト + 物理銅板の装着・計量を要する。手順が

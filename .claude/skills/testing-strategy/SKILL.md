@@ -13,8 +13,8 @@ pcb-assembly はハードウェア装置制御が支配的なプロジェクト�
 
 ## 検証対象の優先順位
 
-1. **実機テスト (`@mark_hardware`)** — 真の検証。実カメラ (USB / CSI)、実 Klipper (シリアル / RPC)、実サーボ、実 GPIO、実 PCB に対して走らせる。実 PNG を実 OpenCV / picamera2 / RapidOCR に通す。`make test` で実機接続時にローカル実行。skip 条件 (`skip_if_no_usb_camera` 等) で gating する。
-2. **自前 HAL ABC の fake / 軽量代替** — `Camera`, `KlipperClient`, `Servo`, `Probe` など `src/pcb_assembly/hal/` で pcb-assembly が定義した抽象のみ fake してよい。`make test-no-hardware` の主体。ABC のみで具象が無い場合は `tests/helpers.py` に test 用 Impl を置く (`mocker.Mock` よりまず実 Impl を検討)。
+1. **実機テスト (`@mark_hardware`)** — 真の検証。実カメラ (USB / CSI)、実 Klipper (シリアル / RPC)、実ロードセル、実 GPIO、実 PCB に対して走らせる。実 PNG を実 OpenCV / picamera2 / RapidOCR に通す。`make test` で実機接続時にローカル実行。skip 条件 (`skip_if_no_usb_camera` 等) で gating する。
+2. **自前 HAL ABC の fake / 軽量代替** — `Camera`, `KlipperClient` など `src/pcb_assembly/hal/` で pcb-assembly が定義した抽象のみ fake してよい。`make test-no-hardware` の主体。ABC のみで具象が無い場合は `tests/helpers.py` に test 用 Impl を置く (`mocker.Mock` よりまず実 Impl を検討)。
 3. **3rd-party 表面のモック → 禁止**: `picamera2.Picamera2`, `v4l2` ioctl, `libgpiod`, Klipper の Moonraker / klippy RPC, `cv2.*`, `time.sleep` など外部ライブラリの面を直接モックしない。仮定のミラーになり upstream の挙動変更を検出できない。
 4. **内部関数モック → 禁止** — 自モジュール内の private 関数をモックしても、リファクタで壊れるだけで何の振る舞いも保証しない。
 

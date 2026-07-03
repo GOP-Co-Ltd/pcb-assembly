@@ -389,26 +389,14 @@ class TestPromptDialogOverBrowser:
 class TestSettingsOverBrowser:
     """設定画面の実ブラウザ操作."""
 
-    def test_probe_shift_two_fields_autosave(
-        self, live_server: LiveServer, browser_page
-    ):
+    def test_probe_lift_height_autosave(self, live_server: LiveServer, browser_page):
         browser_page.goto(
             f"{live_server.base_url}/settings", wait_until="domcontentloaded"
         )
-        x_input = browser_page.locator(
-            'input[data-pair-key="probe.shift"][data-pair-index="0"]'
-        )
-        y_input = browser_page.locator(
-            'input[data-pair-key="probe.shift"][data-pair-index="1"]'
-        )
-        x_input.wait_for(state="visible", timeout=10_000)
-        y_input.wait_for(state="visible", timeout=10_000)
+        field = browser_page.locator('input[name="probe.lift_height"]')
+        field.wait_for(state="visible", timeout=10_000)
 
-        assert x_input.input_value() == "-0.5"
-        assert y_input.input_value() == "0.0"
-
-        x_input.fill("0.25")
-        y_input.fill("-0.75")
+        field.fill("1.25")
 
         deadline = time.monotonic() + 5.0
         while True:
@@ -417,10 +405,10 @@ class TestSettingsOverBrowser:
                 timeout=_HTTP_TIMEOUT,
             )
             fields = {field["key"]: field for field in response.json()["fields"]}
-            if fields["probe.shift"]["value"] == [0.25, -0.75]:
+            if fields["probe.lift_height"]["value"] == 1.25:
                 break
             if time.monotonic() > deadline:
-                raise AssertionError("probe.shift が保存されない")
+                raise AssertionError("probe.lift_height が保存されない")
             time.sleep(0.05)
 
     def test_setting_label_does_not_focus_input(
@@ -639,6 +627,37 @@ class TestDispenseCalibrationOverBrowser:
         )
         assert page.status_code == 200
         assert "js/dispense_runtime_params.js" in page.text
+
+
+class TestProbeGuideOverRealHttp:
+    """ロードセルプローブのガイドページと旧サーボジョブの撤去（計画書 「WebUI ガイドページ」「ユーザー決定事項 1・2」節）."""
+
+    def test_probe_guide_page_is_served_with_calibration_steps(
+        self, live_server: LiveServer
+    ):
+        response = httpx.get(
+            f"{live_server.base_url}/pasting/probe_guide", timeout=_HTTP_TIMEOUT
+        )
+
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        # Klipper コンソールでの較正手順と公式ドキュメントリンク
+        assert "LOAD_CELL_CALIBRATE" in response.text
+        assert "SAVE_CONFIG" in response.text
+        assert "klipper3d.org" in response.text
+
+    def test_probe_gnd_down_adjust_is_removed_from_pasting_tab(
+        self, live_server: LiveServer
+    ):
+        tab = httpx.get(f"{live_server.base_url}/pasting", timeout=_HTTP_TIMEOUT)
+
+        assert tab.status_code == 200
+        assert "probe_gnd_down_adjust" not in tab.text
+        page = httpx.get(
+            f"{live_server.base_url}/pasting/probe_gnd_down_adjust",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert page.status_code == 404
 
 
 class TestPadConfigOverRealHttp:

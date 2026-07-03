@@ -1,0 +1,16 @@
+{
+  "pixel_per_mm": 50.95380745065171,
+  "square_size_mm": 1.5,
+  "mean_distance_px": 76.43071117597756,
+  "std_distance_px": 0.5402625461622385,
+  "resolution": [
+    1280,
+    720
+  ],
+  "crop_size": [
+    600,
+    600
+  ],
+  "calibrated_at": "2026-07-01T13:26:31.933275",
+  "z_position": -9.9998828125
+}

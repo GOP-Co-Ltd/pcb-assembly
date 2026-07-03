@@ -107,11 +107,6 @@ class TestPages:
 
         assert response.status_code == 200
         assert "settings-layout" in response.text
-        assert 'data-pair-key="probe.shift"' in response.text
-        assert 'id="ms-probe.shift-x"' in response.text
-        assert 'id="ms-probe.shift-y"' in response.text
-        assert 'value="-0.5"' in response.text
-        assert 'value="0.0"' in response.text
         assert 'name="probe.lift_height"' in response.text
         assert "プローブ後の上昇高さ" in response.text
         assert 'class="settings-label"' in response.text
@@ -275,7 +270,6 @@ PASTING_JOB_FEATURES = (
     "dispense_calibration",
     "generate_rect_pcb",
     "toolhead_offset",
-    "probe_gnd_down_adjust",
 )
 
 # カメラを使うジョブのみ preview ペインを持つ（計画書 _PASTING_PREVIEW）
@@ -322,7 +316,6 @@ class TestPastingJobPages:
         (
             "loading",
             "generate_rect_pcb",
-            "probe_gnd_down_adjust",
         ),
     )
     def test_non_camera_jobs_have_no_preview_pane(
@@ -418,9 +411,7 @@ class TestPastingJobPages:
         assert 'id="lc-rotations"' not in text
         assert "loading-mass-calibration" not in text
 
-    @pytest.mark.parametrize(
-        "feature", ("height_plane", "generate_rect_pcb", "probe_gnd_down_adjust")
-    )
+    @pytest.mark.parametrize("feature", ("height_plane", "generate_rect_pcb"))
     def test_non_loading_jobs_have_no_loading_controls(
         self, client: TestClient, feature: str
     ):
@@ -493,6 +484,36 @@ class TestPastingJobPages:
 
     def test_loading_mass_calibration_is_not_sidebar_feature(self, client: TestClient):
         assert "loading-mass-calibration" not in client.get("/pasting").text
+
+
+class TestProbeGuidePage:
+    """ロードセルプローブのガイドページ（計画書「WebUI ガイドページ」節）.
+
+    ジョブではない静的な説明ページ。旧サーボ方式の probe_gnd_down_adjust ジョブは削除済みで、タブ・URL
+    のどちらからも到達できない。
+    """
+
+    def test_probe_guide_page_renders_calibration_steps(self, client: TestClient):
+        response = client.get("/pasting/probe_guide")
+
+        assert response.status_code == 200
+        # 較正手順（Klipper コンソールで実行するコマンド）と公式ドキュメントリンク
+        assert "LOAD_CELL_CALIBRATE" in response.text
+        assert "SAVE_CONFIG" in response.text
+        assert "klipper3d.org" in response.text
+
+    def test_probe_guide_is_not_a_job_page(self, client: TestClient):
+        text = client.get("/pasting/probe_guide").text
+
+        assert "job-console" not in text
+        assert "job-form" not in text
+
+    def test_probe_guide_listed_in_pasting_sidebar(self, client: TestClient):
+        assert "probe_guide" in client.get("/pasting").text
+
+    def test_probe_gnd_down_adjust_is_removed(self, client: TestClient):
+        assert "probe_gnd_down_adjust" not in client.get("/pasting").text
+        assert client.get("/pasting/probe_gnd_down_adjust").status_code == 404
 
 
 class TestPasteSolderPadEditor:

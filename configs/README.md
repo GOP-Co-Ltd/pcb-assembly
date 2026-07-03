@@ -27,6 +27,8 @@ Klipperの設定ファイル。MCU、ステッパー、ドライバ、マクロ�
 ./install-printer-cfg.sh
 ```
 
+klipper.env の config パスを repo 実パスに向け（`SAVE_CONFIG` の較正値が git diff に現れる）、`~/printer_data/config/printer.cfg` に閲覧用シンボリックリンクを作成する。反映には Klipper の再起動が必要。
+
 ### machine.toml
 
 Klipper以外のハードウェア設定。GPIO、カメラ、その他のデバイス設定を記述する。

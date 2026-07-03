@@ -4,8 +4,6 @@ from .framehub import FrameHub, FrameSource
 from .klipper import GCodeMacro, Klipper, ReadonlyKlipper
 from .manual_stepper import HomingDirection, ManualStepper
 from .paste_dispenser import PasteDispenser
-from .probe import ProbeGround, ServoGroundProbe
-from .servo import Servo
 from .stage import Limits, ScalarLimits, Speed, XYZStage
 
 __all__ = [
@@ -27,11 +25,6 @@ __all__ = [
     # manual_stepper
     "HomingDirection",
     "ManualStepper",
-    # probe
-    "ProbeGround",
-    "ServoGroundProbe",
-    # servo
-    "Servo",
     # stage
     "ScalarLimits",
     "Limits",

@@ -890,52 +890,6 @@ class TestPastingJobsOverWs:
     Klipper は test-fixture（port 7126 = 接続拒否）。
     """
 
-    def test_probe_gnd_prompt_round_trip_ends_failed_and_releases_lock(
-        self, client: TestClient
-    ):
-        """Prompt(number) 往復 → 負数で再 prompt → 正数で FAILED（イベント列の決定性）."""
-        with client.websocket_connect("/api/ws") as ws:
-            response = client.post("/api/jobs/probe_gnd_down_adjust", json={})
-            assert response.status_code == 201
-
-            first, _ = _receive_until(ws, lambda m: m["type"] == "prompt")
-            assert first["prompt"]["kind"] == "number"
-            # 初回 default は machine.probe.down_distance（test-fixture: 2.0）
-            assert first["prompt"]["default"] == 2.0
-
-            # 負数は受理されず新しい prompt が来る
-            ws.send_json(
-                {
-                    "type": "respond_prompt",
-                    "prompt_id": first["prompt"]["id"],
-                    "answer": -1,
-                }
-            )
-            second, _ = _receive_until(
-                ws,
-                lambda m: m["type"] == "prompt"
-                and m["prompt"]["id"] != first["prompt"]["id"],
-            )
-            assert second["prompt"]["kind"] == "number"
-
-            # 正数 → down 送信が Klipper 不通で失敗 → FAILED
-            ws.send_json(
-                {
-                    "type": "respond_prompt",
-                    "prompt_id": second["prompt"]["id"],
-                    "answer": 1.5,
-                }
-            )
-            final, _ = _receive_until(
-                ws,
-                lambda m: m["type"] == "job_status" and m["job"]["status"] in _TERMINAL,
-            )
-            assert final["job"]["status"] == "failed"
-
-        # ロック解放の確認: 409（ジョブ占有）ではなく 502（Klipper 不通）
-        response = client.post("/api/machine-control", json={"action": "relax"})
-        assert response.status_code == 502
-
     def test_height_plane_artifact_is_served_while_waiting_confirm(
         self, client: TestClient, copper_pcb_path: Path
     ):
