@@ -3,6 +3,17 @@
 Codex がこのリポジトリで作業する際に常時参照するガイダンス。
 詳細な手続きは `memory/` と `.agents/skills/` に置く。
 
+## 応答言語
+
+ユーザーへの応答は日本語で行う。
+
+- 散文・説明・要約・確認・質問・計画は日本語で書く
+- コード・コマンド・ファイルパス・識別子・ログ/エラーの引用など、
+    原文を保つべきものは原語のまま残す
+- コミットメッセージ・PR/MR タイトル等は「Git 運用」規約に従い、
+    日本語化しない
+- 技術用語は無理に訳さず、自然な範囲でカタカナ/英語を併用してよい
+
 ## 開発原則
 
 慎重さを速度に優先する。trivial なタスクでは判断で簡略化してよい。
@@ -47,7 +58,9 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `src/pcbasm/pnp/`: Pick and Place 用名前空間
 - `src/pcbasm/geometry/`: 3D 座標と幾何計算
 - `src/pcbasm/pcb/`: KiCAD 読込と PCB 設計情報
+- `src/pcbasm/visualization/`: 塗布パス・高さ面・PCB の可視化
 - `src/webui/`: FastAPI WebUI
+- `src/scripts/`: 開発・運用スクリプト
 
 ## 開発コマンド
 
@@ -58,6 +71,8 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `make test-no-hardware`: ハードウェア・E2E を除外
 - `make test-e2e`: WebUI E2E
 - `make run`: format、test、type
+- `make webui` / `make webui-dev`: WebUI サーバー起動
+- `make webui-fake`: fake カメラで WebUI 起動
 - `make migrate-codex`: Claude Bash 権限から Codex rules を再生成
 - `make migrate-codex-check`: Codex rules の同期確認
 
@@ -77,6 +92,17 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - 3rd-party 表面や内部関数をモックしない
 - ハードウェアテストは `@mark_hardware` で分離する
 - 詳細は `testing-strategy`、`hardware-test`、`refactor-conventions` Skill
+
+### WebUI 設計
+
+計算・ドメインロジックは `pcbasm`（`src/pcbasm/`）に集約し、
+`src/webui/` の router/JS は入出力変換・DOM 操作・表示更新に徹する。
+
+- 解決済み値・派生値・集計はサーバーが算出して返す
+- JS は API レスポンスをそのまま表示へ流し、クライアント検証は UX 最小限にする
+- ドメインルール、階層 override 解決、幾何計算を JS や router に複製しない
+- サーバーが返す値を JS で再導出せず、編集後はサーバー応答または再取得で更新する
+- 詳細は `webui-thin-wrapper`、実起動検証は `webui-e2e` Skill
 
 ## Git 運用
 
@@ -112,6 +138,7 @@ custom agent と `agent-team-startup` Skill を使う。
 - `.agents/skills/testing-strategy/`: テスト戦略
 - `.agents/skills/refactor-conventions/`: 実装・テスト規約
 - `.agents/skills/webui-e2e/`: WebUI E2E
+- `.agents/skills/webui-thin-wrapper/`: WebUI 薄ラッパー方針
 - `.agents/skills/agent-team-startup/`: custom agent 運用
 - `.agents/skills/maximize-parallels/`: tool 並列化
 - `.agents/skills/do-on-worktree/`: 独立タスクの worktree 運用
