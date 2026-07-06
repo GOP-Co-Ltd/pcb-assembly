@@ -11,7 +11,7 @@ from pathlib import Path
 from pcbasm.config import Machine
 from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.vision import CalibrationResult
-from webui.config_store import ConfigStore
+from webui.config_store import ConfigStore, MachineSettingValue
 from webui.fake_camera import FixedImageCamera
 from webui.settings import Settings
 
@@ -118,6 +118,17 @@ class AppState:
     def machine(self) -> Machine:
         """選択マシンの Machine 設定を読み込んで返す（毎回ロード）."""
         return Machine(self._store.machine_toml_path(self._selected_machine))
+
+    def write_machine_settings(self, values: Mapping[str, MachineSettingValue]) -> None:
+        """選択マシンの machine.toml へホワイトリスト項目を書き込む.
+
+        装置排他ロックは取らない（ロック保持中のジョブワーカーからの
+        即時反映用。ロックが必要な経路は呼び出し側で取る）。
+
+        Raises:
+            UnknownFieldError: 未知キーまたは型不一致の場合
+        """
+        self._store.write_machine_settings(self._selected_machine, values)
 
     def focus_z(self) -> float | None:
         """カメラキャリブレーションの Z 位置を返す（取得できなければ None）."""

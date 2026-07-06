@@ -51,6 +51,9 @@ def register_dev_jobs(catalog: JobCatalog) -> None:
                 ParamSpec("interval", "ステップ間隔", "float", 0.2, unit="s"),
                 ParamSpec("fail", "途中で失敗させる", "bool", False),
                 ParamSpec("command_phase", "コマンド待機フェーズ", "bool", False),
+                ParamSpec(
+                    "live_value", "実行中編集値", "float", 1.0, runtime_editable=True
+                ),
             ),
             uses_machine=False,
             accepts_commands=True,
@@ -175,6 +178,7 @@ def _run_job_demo(ctx: JobContext) -> JobResult:
     )
     assert isinstance(canny_low, float)
     ctx.log(f"number 応答: {canny_low}")
+    ctx.log(f"live_value = {ctx.params['live_value']}")
 
     if ctx.params["command_phase"]:
         ctx.log("コマンド待機中（quit で離脱）")

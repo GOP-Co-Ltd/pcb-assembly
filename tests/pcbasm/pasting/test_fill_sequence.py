@@ -20,7 +20,7 @@ from pytest_mock import MockerFixture
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import Speed
-from pcbasm.pasting import FillSequence
+from pcbasm.pasting import FillSequence, rate_sweep_amount
 
 
 @pytest.fixture
@@ -266,3 +266,36 @@ class TestRateCap:
         _sequence(path, rate_cap=5.0).to_gcode(mock_stage, mock_dispenser)
 
         assert _dispense_rate(mock_dispenser) == pytest.approx(5.0)
+
+    @pytest.mark.parametrize("rate", [1.0, 4.0, 16.0])
+    def test_rate_sweep_amount_reaches_commanded_rate_at_fixed_speed(
+        self, mock_stage, mock_dispenser, rate: float
+    ):
+        """吐出量キャリブ ② のレート掃引契約.
+
+        rate_cap は頭打ちにしか働かないため、固定量では r_desired = 量×速度/長
+        を超えるレートを指令しても届かない。amount = rate_sweep_amount(rate, L, v) と
+        rate_cap=rate の組で、実効レート = 指令レート・実効移動速度 = v （max_dispense_rate
+        超えも掃引時は rate_cap 側が優先）を同時に満たす。
+        """
+        length, speed = 10.0, 2.0
+        sequence = FillSequence(
+            path=Path([Point3d(0.0, 0.0, 5.0), Point3d(length, 0.0, 5.0)]),
+            total_amount=rate_sweep_amount(rate, length, speed),
+            retraction=10.0,
+            max_fill_speed=speed,
+            max_dispense_rate=10.0,
+            dispense_accel=8.0,
+            retraction_rate=5.0,
+            retraction_accel=10.0,
+            prime_extra_delay=0.0,
+            lift_height=3.0,
+            travel_speed=Speed.absolute(30.0),
+            rate_cap=rate,
+        )
+        sequence.to_gcode(mock_stage, mock_dispenser)
+
+        assert _dispense_rate(mock_dispenser) == pytest.approx(rate)
+        actual = sequence.fill_speed_actual()
+        assert actual is not None
+        assert actual.resolve(100.0) == pytest.approx(speed)

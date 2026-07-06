@@ -3,7 +3,7 @@
 // ローディング操作パネル: ローディング段階の対話ジョブへ
 // extrude / suck / finish コマンドを WS で送る。
 // 有効化条件: 実行中ジョブが accepts_commands かつ
-// progress_stage が data-loading-stage と一致。
+// progress_stage が data-loading-stage（カンマ区切りの複数可）のいずれかと一致。
 
 (() => {
   const { toast, api } = window.webui;
@@ -11,7 +11,14 @@
   if (!panel || !window.webui.jobs) return;
 
   const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
-  const loadingStage = panel.dataset.loadingStage;
+  // data-loading-stage はカンマ区切りで複数 stage を許す（吐出量キャリブはメニュー段階の
+  // プライムと ① 専用ローディング段階の両方でボタンを有効化する）。
+  const loadingStages = new Set(
+    (panel.dataset.loadingStage || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
   const amountInput = document.getElementById("lc-amount");
   const rotationsInput = document.getElementById("lc-rotations");
   const rateInput = document.getElementById("lc-rate");
@@ -50,7 +57,7 @@
       job != null &&
       !TERMINAL.has(job.status) &&
       job.accepts_commands &&
-      job.progress_stage === loadingStage;
+      loadingStages.has(job.progress_stage);
     for (const button of buttons) button.disabled = !enabled;
   }
 

@@ -175,6 +175,7 @@ class TestCatalog:
                     "line_length": (10.0, "mm"),
                     "line_amount": (0.5, "uL"),
                     "row_pitch": (3.0, "mm"),
+                    "removal_z_offset": (0.0, "mm"),
                     "rate_min": (0.5, "uL/s"),
                     "rate_max": (5.0, "uL/s"),
                     "speed_min": (1.0, "mm/s"),
@@ -234,7 +235,7 @@ class TestCatalog:
     ):
         definition = default.get("dispense_calibration")
 
-        # 土台/①/②/③ の入力パラメータを次回フォーム既定値として保存する
+        # 土台/線共通/②/③ の入力パラメータを次回フォーム既定値として保存する
         # （比重は machine.toml 参照のためフォーム入力から除外済み）
         assert definition.persisted_params == (
             "board_width",
@@ -244,6 +245,7 @@ class TestCatalog:
             "line_count",
             "line_amount",
             "row_pitch",
+            "removal_z_offset",
             "rate_min",
             "rate_max",
             "rate_divisions",
@@ -251,6 +253,39 @@ class TestCatalog:
             "speed_max",
             "speed_divisions",
         )
+
+    def test_dispense_calibration_runtime_editable_split(self, default: JobCatalog):
+        definition = default.get("dispense_calibration")
+        params = {spec.name: spec for spec in definition.params}
+
+        # 銅板は開始時に 1 回生成するため board 寸法と許容誤差はキャリブ後固定。
+        for fixed in ("board_width", "board_height", "tolerance"):
+            assert params[fixed].runtime_editable is False
+
+        # 線設定・計量退避・②③ のスケジュールは実行中に変更可。
+        assert definition.runtime_params == (
+            "line_length",
+            "line_count",
+            "line_amount",
+            "row_pitch",
+            "removal_z_offset",
+            "rate_min",
+            "rate_max",
+            "rate_divisions",
+            "speed_min",
+            "speed_max",
+            "speed_divisions",
+        )
+
+    def test_dispense_calibration_removal_z_offset_default(self, default: JobCatalog):
+        params = {
+            spec.name: spec for spec in default.get("dispense_calibration").params
+        }
+
+        offset = params["removal_z_offset"]
+        assert offset.value_type == "float"
+        assert offset.default == 0.0
+        assert offset.runtime_editable is True
 
     def test_loading_persists_volume_and_rotation_params(self, default: JobCatalog):
         definition = default.get("loading")

@@ -35,6 +35,7 @@ from pcbasm.pasting import (
     FillSpeedSweep,
     FlowCalibrationSet,
     LineLayout,
+    LineLayoutOverflowError,
     PasteApplicator,
     PasteSettingsModel,
     ProbeExecutor,
@@ -46,6 +47,7 @@ from pcbasm.pasting import (
     dispense_rate_schedule,
     fill_speed_schedule,
     plan_paste_route,
+    rate_sweep_amount,
     resolve_pad_settings,
     slot_area,
 )
@@ -107,9 +109,12 @@ DISPENSE_CALIBRATION_DEFAULT_RATE_DIVISIONS = 6
 DISPENSE_CALIBRATION_DEFAULT_SPEED_MIN = 1.0
 DISPENSE_CALIBRATION_DEFAULT_SPEED_MAX = 10.0
 DISPENSE_CALIBRATION_DEFAULT_SPEED_DIVISIONS = 6
+# 計量のため基板を取り出すときの退避 Z オフセット（z_max から引く量）。既定 0 = 全退避。
+DISPENSE_CALIBRATION_DEFAULT_REMOVAL_Z_OFFSET = 0.0
 # ① 収束判定の相対許容（採用→再計測ループの自動収束ヒント表示用）
 DISPENSE_CALIBRATION_CONVERGENCE_REL_TOL = 0.02
-# ① 段ずらしレイアウトの origin（銅板左下からのマージン）
+# 段ずらしレイアウトの描画領域マージン（銅板端から全周）。折り返し位置と
+# 収容可能本数（LineLayout.capacity）の算出に使う。
 DISPENSE_CALIBRATION_LAYOUT_MARGIN = 5.0
 
 
@@ -310,7 +315,8 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             tab="pasting",
             run=_run_dispense_calibration,
             params=(
-                # 共通土台（その場生成する銅板 + ボード計測）
+                # 共通土台（その場生成する銅板 + ボード計測）。銅板は開始時に 1 回生成する
+                # ため board_width / board_height / tolerance はキャリブ後固定（実行中変更不可）。
                 ParamSpec(
                     "board_width",
                     "銅板幅",
@@ -326,13 +332,16 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     unit="mm",
                 ),
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
-                # ① rotations_per_ul（線引き検証ループ）
+                # 線の共通設定（実行中変更可）。line_count / line_amount は ① 専用
+                # （②③ は分割数ぶんの線を配置。② はレート × 線長 / 速度で吐出量を
+                # 導出、③ は ul_per_mm2 起点）。
                 ParamSpec(
                     "line_length",
                     "線の長さ",
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_LINE_LENGTH,
                     unit="mm",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "line_count",
@@ -340,6 +349,8 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "int",
                     DISPENSE_CALIBRATION_DEFAULT_LINE_COUNT,
                     unit="本",
+                    help="① 専用。②③ は分割数ぶんの線を配置",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "line_amount",
@@ -347,6 +358,8 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_LINE_AMOUNT,
                     unit="uL",
+                    help="① 専用。② はレート × 線長 / 速度、③ は面積換算で導出",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "row_pitch",
@@ -354,15 +367,26 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_ROW_PITCH,
                     unit="mm",
+                    runtime_editable=True,
+                ),
+                # 計量退避（実行中変更可）。退避 Z = max(z_min, z_max - offset)。
+                ParamSpec(
+                    "removal_z_offset",
+                    "計量退避 Z オフセット",
+                    "float",
+                    DISPENSE_CALIBRATION_DEFAULT_REMOVAL_Z_OFFSET,
+                    unit="mm",
+                    runtime_editable=True,
                 ),
                 # 比重は machine.toml の solder_paste_density を参照（フォーム入力なし）
-                # ② max_dispense_rate（吐出効率の落ち検出）
+                # ② max_dispense_rate（吐出効率の落ち検出・実行中変更可）
                 ParamSpec(
                     "rate_min",
                     "吐出レート最小",
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_RATE_MIN,
                     unit="uL/s",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "rate_max",
@@ -370,20 +394,23 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_RATE_MAX,
                     unit="uL/s",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "rate_divisions",
                     "吐出レート分割数",
                     "int",
                     DISPENSE_CALIBRATION_DEFAULT_RATE_DIVISIONS,
+                    runtime_editable=True,
                 ),
-                # ③ max_fill_speed（連続最大速度・目視選択）
+                # ③ max_fill_speed（連続最大速度・目視選択・実行中変更可）
                 ParamSpec(
                     "speed_min",
                     "塗布速度最小",
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_SPEED_MIN,
                     unit="mm/s",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "speed_max",
@@ -391,12 +418,14 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "float",
                     DISPENSE_CALIBRATION_DEFAULT_SPEED_MAX,
                     unit="mm/s",
+                    runtime_editable=True,
                 ),
                 ParamSpec(
                     "speed_divisions",
                     "塗布速度分割数",
                     "int",
                     DISPENSE_CALIBRATION_DEFAULT_SPEED_DIVISIONS,
+                    runtime_editable=True,
                 ),
             ),
             requires_pcb=False,
@@ -410,6 +439,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                 "line_count",
                 "line_amount",
                 "row_pitch",
+                "removal_z_offset",
                 "rate_min",
                 "rate_max",
                 "rate_divisions",
@@ -576,15 +606,85 @@ def _run_loading_loop(
 
 
 def _prompt_positive_number(
-    ctx: JobContext, message: str, default: float | None = None
-) -> float:
-    """正数が入力されるまで number プロンプトを繰り返す."""
+    ctx: JobContext,
+    message: str,
+    default: float | None = None,
+    cancel_label: str | None = None,
+) -> float | None:
+    """正数が入力されるまで number プロンプトを繰り返す.
+
+    ``cancel_label`` を渡すと入力欄に中止ボタンを表示し、押されたら ``None`` を返す
+    （計測のスキップに使う）。渡さなければ中止ボタンは出ず、常に正数を返す。
+    """
     while True:
-        answer = ctx.prompt(PromptSpec(kind="number", message=message, default=default))
+        answer = ctx.prompt(
+            PromptSpec(
+                kind="number",
+                message=message,
+                default=default,
+                false_label=cancel_label,
+            )
+        )
+        if answer is False:  # 中止ボタン（cancel_label 指定時のみ届く）
+            return None
         assert isinstance(answer, float)
         if answer > 0:
             return answer
         ctx.log(f"正の数値を入力してください（与えられた値: {answer}）")
+
+
+class _CalibrationCancelled(Exception):
+    """サブキャリブの中止要求。メニューループが捕捉してメニューへ戻す.
+
+    ジョブ全体を終了する ``JobAborted`` とは別物（こちらはメニューへ戻るだけ）。
+    多段ループ越しに None/False を手で伝播させる代わりに、既知ハンドラ（メニュー
+    ループ）への制御フローとして例外を使う。
+    """
+
+
+def _prompt_confirm(
+    ctx: JobContext,
+    message: str,
+    *,
+    true_label: str = "続行",
+    cancel_label: str = "中止",
+    default: bool = True,
+) -> None:
+    """続行 / 中止の confirm を出す。中止なら ``_CalibrationCancelled`` を送出する."""
+    ready = ctx.prompt(
+        PromptSpec(
+            kind="confirm",
+            message=message,
+            default=default,
+            true_label=true_label,
+            false_label=cancel_label,
+        )
+    )
+    if not ready:
+        raise _CalibrationCancelled
+
+
+def _prompt_mass(
+    ctx: JobContext, message: str, *, default: float | None = None
+) -> float:
+    """質量 (mg) を入力させる。中止なら ``_CalibrationCancelled`` を送出する."""
+    mass = _prompt_positive_number(ctx, message, default=default, cancel_label="中止")
+    if mass is None:
+        raise _CalibrationCancelled
+    return mass
+
+
+def _apply_to_machine_toml(ctx: JobContext, values: Mapping[str, float]) -> None:
+    """確定したキャリブ値を machine.toml へ即時反映し、内容を log する.
+
+    採用のたびに書き込むことで、以降の中止・失敗でも計測結果を失わない。
+    """
+    rounded = {key: round(value, APPLY_DIGITS) for key, value in values.items()}
+    ctx.apply_machine_settings(rounded)
+    pairs = " / ".join(
+        f"{key.rsplit('.', 1)[1]} = {value:.6f}" for key, value in rounded.items()
+    )
+    ctx.log(f"machine.toml へ反映しました: {pairs}")
 
 
 # --- ジョブ実装 ---
@@ -917,7 +1017,7 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
     共通土台（その場生成した矩形銅板 → ボード計測 → 平面計測 → applicator）を
     確立し、メニュー（``run_calib`` コマンド）で ① rotations_per_ul /
     ② max_dispense_rate / ③ max_fill_speed を順次/個別に実行する。各キャリブの
-    確定値はワーカーローカルに集約し、終了時に実施分のみ ``ApplyPayload`` に入れる。
+    確定値は採用時点で machine.toml へ即時反映する（中止・失敗でも失われない）。
 
     算出/判定はすべて pcbasm（``FlowCalibrationSet`` / ``DispenseRateCalibration`` /
     ``FillSpeedSweep`` / ``LineLayout``）に委譲し、ここはループ制御と入出力に徹する。
@@ -925,6 +1025,19 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
     board_width = float(ctx.params["board_width"])
     board_height = float(ctx.params["board_height"])
     tolerance = float(ctx.params["tolerance"])
+
+    # 開始時点の設定で ①（line_count 本）②（レート掃引点数）③（速度掃引点数）の
+    # いずれかが銅板に収まらない場合はセットアップ前に失敗させる
+    # （線パラメータは実行中変更可のため、各キャリブ開始時にも再検証する）。
+    needed_lines = max(
+        max(1, int(ctx.params["line_count"])),
+        max(1, int(ctx.params["rate_divisions"])),
+        max(1, int(ctx.params["speed_divisions"])),
+    )
+    try:
+        _build_line_layout(ctx, line_count=needed_lines)
+    except LineLayoutOverflowError as exc:
+        raise ValueError(_layout_overflow_message(exc)) from exc
 
     with ctx.open_camera() as camera:
         ctx.progress("セットアップ")
@@ -973,12 +1086,17 @@ def _generate_calibration_board(ctx: JobContext, width: float, height: float) ->
 
 @attrs.frozen
 class _DispenseCalibrationResults:
-    """実施したキャリブの確定値（未実施は None）."""
+    """実施したキャリブの確定値（未実施は None）.
+
+    ``finish`` は ① の選択肢「採用して吐出量キャリブレーションを終了する」で True
+    になり、メニューループが検知してジョブ全体を終了する（設定反映へ進む）。
+    """
 
     rotations_per_ul: float | None = None
     dispense_accel: float | None = None
     max_dispense_rate: float | None = None
     max_fill_speed: float | None = None
+    finish: bool = False
 
 
 def parse_run_calib_command(command: Mapping[str, Any]) -> str | None:
@@ -1032,12 +1150,20 @@ def _calibration_menu_loop(
         if which == "finish":
             ctx.log("吐出量キャリブレーションを終了します")
             return results
-        if which in ("rotations_per_ul", "all"):
-            results = _calibrate_rotations_per_ul(ctx, calib, results)
-        if which in ("max_dispense_rate", "all"):
-            results = _calibrate_max_dispense_rate(ctx, calib, results)
-        if which in ("max_fill_speed", "all"):
-            results = _calibrate_max_fill_speed(ctx, calib, results)
+        # サブキャリブ中の「中止」はメニューへ戻る（誤選択のやり直し）。all 実行中の
+        # 中止は以降のサブキャリブをスキップしてメニューへ。JobAborted は捕捉しない。
+        try:
+            if which in ("rotations_per_ul", "all"):
+                results = _calibrate_rotations_per_ul(ctx, calib, results)
+                if results.finish:  # ① の「採用して終了」でジョブ全体を終了
+                    ctx.log("吐出量キャリブレーションを終了します")
+                    return results
+            if which in ("max_dispense_rate", "all"):
+                results = _calibrate_max_dispense_rate(ctx, calib, results)
+            if which in ("max_fill_speed", "all"):
+                results = _calibrate_max_fill_speed(ctx, calib, results)
+        except _CalibrationCancelled:
+            ctx.log("キャリブレーションを中止しました。メニューへ戻ります")
         ctx.progress(CALIBRATION_MENU_STAGE)
         ctx.log("メニューに戻りました。次のキャリブを選ぶか終了してください")
 
@@ -1065,16 +1191,60 @@ def _handle_menu_loading_or_machine(
                 ctx.log(f"未知のコマンドです: {command.get('type')!r}")
 
 
-def _line_layout(ctx: JobContext) -> LineLayout:
-    """① / 計測線の段ずらしレイアウトをパラメータから構築する."""
+def _build_line_layout(ctx: JobContext, line_count: int | None = None) -> LineLayout:
+    """段ずらしレイアウトをパラメータから構築する.
+
+    ``line_count`` 省略時はパラメータ ``line_count``（① 用）。②③ は掃引点数を
+    渡し、掃引点ごとに専用の線位置を確保する（位置の再利用＝重ね書きをしない）。
+
+    Raises:
+        LineLayoutOverflowError: 折り返しても線が銅板の描画領域に収まらない場合
+    """
+    if line_count is None:
+        line_count = max(1, int(ctx.params["line_count"]))
     return LineLayout(
         line_length=float(ctx.params["line_length"]),
-        line_count=max(1, int(ctx.params["line_count"])),
+        line_count=line_count,
         row_pitch=float(ctx.params["row_pitch"]),
-        origin=Point2d(
-            DISPENSE_CALIBRATION_LAYOUT_MARGIN, DISPENSE_CALIBRATION_LAYOUT_MARGIN
-        ),
+        board_width=float(ctx.params["board_width"]),
+        board_height=float(ctx.params["board_height"]),
+        margin=DISPENSE_CALIBRATION_LAYOUT_MARGIN,
     )
+
+
+def _layout_overflow_message(exc: LineLayoutOverflowError) -> str:
+    """レイアウト超過をユーザーに調整を促す文言へ変換する."""
+    return (
+        f"線 {exc.line_count} 本は折り返しても銅板の描画領域に収まりません"
+        f"（最大 {exc.capacity} 本）。線の本数/分割数・線の長さ・段ずらし間隔を"
+        "調整してください"
+    )
+
+
+def _line_layout(ctx: JobContext, line_count: int | None = None) -> LineLayout:
+    """各キャリブ用のレイアウトを構築する（収まらなければメニューへ戻す）.
+
+    線パラメータは実行中変更可のため、超過時はエラーを log してメニューへ
+    戻し、調整して再実行できるようにする。
+
+    Raises:
+        _CalibrationCancelled: 線が銅板の描画領域に収まらない場合
+    """
+    try:
+        return _build_line_layout(ctx, line_count)
+    except LineLayoutOverflowError as exc:
+        ctx.log(_layout_overflow_message(exc))
+        raise _CalibrationCancelled() from exc
+
+
+def _removal_z(ctx: JobContext, calib: _CalibrationContext) -> float:
+    """計量で基板を取り出すときの退避 Z = max(z_min, z_max - offset).
+
+    既定 offset=0 で z_max（フルリトラクト）。``removal_z_offset`` は実行中変更可で、
+    純粋に ``ctx.params`` を読むため呼び出しごとに最新値を反映する。
+    """
+    z = calib.session.stage.limits.z
+    return max(z.min, z.max - float(ctx.params["removal_z_offset"]))
 
 
 def _calibrate_rotations_per_ul(
@@ -1082,15 +1252,17 @@ def _calibrate_rotations_per_ul(
     calib: _CalibrationContext,
     results: _DispenseCalibrationResults,
 ) -> _DispenseCalibrationResults:
-    """① rotations_per_ul を線引き → 計量 → 採用/再計測ループで確定する.
+    """① rotations_per_ul をローディング → 線引き → 計量 → 採用/再計測ループで確定する.
 
-    ``line_count`` 本の線を段ずらしで引き、合計質量から ``FlowCalibrationSet`` で
-    新 ``rotations_per_ul`` を算出する。採用すると新値で applicator を作り直し、
-    ``dispense_accel`` も回転加速度を保って連動更新する。収束（前後の相対差が
-    許容内）はヒントとして表示するのみで、ループ継続はユーザー判断。
+    各ラウンドの先頭でヘッドを Z=0 に上げてプライム/ふき取り（専用ローディング段階）を
+    行い、電子天秤にセットしてタール（ゼロ）してから ``line_count`` 本の線を段ずらしで
+    引く。線引き後はヘッドを退避 Z（z_max − removal_z_offset、既定は全退避）へ上げ、
+    基板を取り出して計量しやすくする。合計質量から ``FlowCalibrationSet`` で新 ``rotations_per_ul`` を算出する。
+    採用すると新値で applicator を作り直し、``dispense_accel`` も回転加速度を保って
+    連動更新する。採用時点で両値を machine.toml へ即時反映するため、以降の中止・失敗
+    でも計測結果は失われない。収束（前後の相対差が許容内）はヒントとして表示するのみで、
+    ループ継続はユーザー判断。タール前の中止・質量入力の中止はいずれもメニューへ戻る。
     """
-    layout = _line_layout(ctx)
-    amount = float(ctx.params["line_amount"])
     # 比重はマシン設定 (solder_paste_density [mg/uL]。水基準なので比重と数値が一致) を
     # 真実とする。② が密度を machine から直接読むのと同じ扱い。
     specific_gravity = ctx.machine.paste_dispenser.solder_paste_density
@@ -1110,6 +1282,28 @@ def _calibrate_rotations_per_ul(
     )
 
     while True:
+        # 線設定・塗布量は実行中変更可。ラウンド先頭で読み直し次ラウンドから反映する。
+        layout = _line_layout(ctx)
+        amount = float(ctx.params["line_amount"])
+        # ── 専用ローディング段階：ヘッドを Z=0 に上げてプライム/ふき取り ──
+        # Z=0 へ上げることでローディング中のノズルふき取りがしやすくなる。
+        ctx.log("ヘッドを Z=0 に上げます。プライム/ふき取りをしてください")
+        calib.session.klipper.send_gcode(
+            calib.session.stage.move(z=0.0) + gcode.wait_for_done()
+        )
+        _run_loading_loop(
+            ctx, calib.session.klipper, calib.session.stage, calib.applicator
+        )
+
+        # ── 電子天秤にセットしてタール（ゼロ）──（中止でメニューへ戻る）
+        # 線引き前に基板ごとゼロにしておき、線引き後の計量値がそのまま
+        # ペーストの質量になるようにする。
+        _prompt_confirm(
+            ctx,
+            "基板を電子天秤に載せてタール（ゼロ）し、基板を装置へ戻してから"
+            "続行を押してください。続行すると線引きへ進みます。",
+        )
+
         ctx.progress("① rotations_per_ul: 線引き")
         previous_rpu = calib.rotations_per_ul
         # プライム済みのペーストを baseline まで引き戻してから引き始める
@@ -1122,12 +1316,22 @@ def _calibrate_rotations_per_ul(
             calib.applicator.draw_line(start, end, amount=amount)
             ctx.log(f"線 {index + 1}/{layout.line_count} を {amount:.3f} uL で塗布")
 
+        # 線引き後はヘッドを退避 Z（= max(z_min, z_max - offset)）へ上げ、基板を取り出して計量しやすくする。
+        removal_z = _removal_z(ctx, calib)
+        ctx.log(
+            f"ヘッドを退避 Z={removal_z:.3f} へ移動します。基板を取り出して計測してください"
+        )
+        calib.session.klipper.send_gcode(
+            calib.session.stage.move(z=removal_z) + gcode.wait_for_done()
+        )
+
         rotations_used = layout.line_count * amount * previous_rpu
-        mass = _prompt_positive_number(
+        mass = _prompt_mass(
             ctx,
-            f"{layout.line_count} 本の線の合計質量 (mg) を入力"
+            f"基板を取り出して計量し、{layout.line_count} 本の線の合計質量 (mg) を入力"
             f"（回転数 {rotations_used:.4f} rev 相当）",
         )
+
         flow = FlowCalibrationSet(
             rotations=rotations_used,
             masses_mg=(mass,),
@@ -1155,22 +1359,47 @@ def _calibrate_rotations_per_ul(
         choice = ctx.prompt(
             PromptSpec(
                 kind="choice",
-                message="算出値をどうしますか?",
-                choices=("採用して再計測", "このまま再計測", "メニューへ戻る"),
-                default="メニューへ戻る",
+                message="算出した rotations_per_ul をどうしますか?",
+                choices=(
+                    "採用して再計測する",
+                    "採用せず再計測する",
+                    "採用して他のキャリブレーションへ進む",
+                    "採用して吐出量キャリブレーションを終了する",
+                ),
+                default="採用して他のキャリブレーションへ進む",
             )
         )
-        if choice == "採用して再計測":
-            rotations_per_ul = computed_rpu
-            dispense_accel = computed_accel
-            calib.rebuild_applicator(
-                rotations_per_ul=computed_rpu, dispense_accel=computed_accel
+        if choice == "採用せず再計測する":
+            # 算出値は採用せず、現状の rotations_per_ul のまま次ラウンドへ。
+            continue
+
+        # 残る 3 つはいずれも算出値を採用する。採用時点で machine.toml へ反映し、
+        # 以降の中止・失敗で計測結果を失わないようにする。
+        rotations_per_ul = computed_rpu
+        dispense_accel = computed_accel
+        _apply_to_machine_toml(
+            ctx,
+            {
+                "paste_dispenser.rotations_per_ul": computed_rpu,
+                "paste_dispenser.dispense_accel": computed_accel,
+            },
+        )
+        if choice == "採用して吐出量キャリブレーションを終了する":
+            # 再描画しないので applicator の作り直しは不要。finish でジョブを終了。
+            return attrs.evolve(
+                results,
+                rotations_per_ul=rotations_per_ul,
+                dispense_accel=dispense_accel,
+                finish=True,
             )
-            ctx.log("新 rotations_per_ul で applicator を再構成しました")
+        # 「再計測」「他のキャリブへ進む」は新値で applicator を作り直す。
+        calib.rebuild_applicator(
+            rotations_per_ul=computed_rpu, dispense_accel=computed_accel
+        )
+        ctx.log("新 rotations_per_ul で applicator を再構成しました")
+        if choice == "採用して再計測する":
             continue
-        if choice == "このまま再計測":
-            continue
-        break
+        break  # 採用して他のキャリブレーションへ進む
 
     return attrs.evolve(
         results,
@@ -1186,12 +1415,19 @@ def _calibrate_max_dispense_rate(
 ) -> _DispenseCalibrationResults:
     """② max_dispense_rate を吐出効率の落ち検出で確定する.
 
-    レート列の各点で同一 ``line_amount`` の線を引いて計量し、効率
-    ``measured_ul / commanded_ul`` の落ちから ``DispenseRateCalibration`` が
-    ``max_dispense_rate`` を判定する。自動判定値を default に手動上書き可能。
+    レート列の各点で線を引いて計量し、効率 ``measured_ul / commanded_ul`` の
+    落ちから ``DispenseRateCalibration`` が ``max_dispense_rate`` を判定する。
+    ``FillSequence`` は移動速度から吐出レートを導出し ``rate_cap`` は頭打ちに
+    しか働かないため、移動速度（``max_fill_speed``）は固定したまま吐出量を
+    ``rate_sweep_amount``（= rate × 線長 / 速度）でレートに比例させて指令
+    レートを実現する（``line_amount`` は使わない。cap を超えるのはこの掃引の
+    線引きだけで、実塗布の clamp 動作は変えない）。各点は独立計測のため、
+    線引き前に基板ごとタール（ゼロ）を確認してから引き、線引き後に退避 Z
+    （z_max − removal_z_offset）へ上げて質量を入力させる。タール／質量入力の
+    中止はいずれもメニューへ戻る。自動判定値を default に手動上書き可能で、
+    確定値は machine.toml へ即時反映する。
     """
-    layout = _line_layout(ctx)
-    amount = float(ctx.params["line_amount"])
+    fill_speed = ctx.machine.paste_dispenser.max_fill_speed
     rate_min = float(ctx.params["rate_min"])
     rate_max = float(ctx.params["rate_max"])
     divisions = max(1, int(ctx.params["rate_divisions"]))
@@ -1204,19 +1440,49 @@ def _calibrate_max_dispense_rate(
             "② をスキップします"
         )
         return results
+    # 掃引点ごとに専用の線位置を確保する（line_count に関係なく重ね書きしない）
+    layout = _line_layout(ctx, line_count=len(rates))
 
+    ctx.log(
+        f"移動速度 {fill_speed:.3f} mm/s 固定・"
+        "吐出量 = レート × 線長 / 速度 でレートを掃引します"
+    )
     measurements: list[RateMeasurement] = []
     # baseline まで引き戻してから引き始める（draw_line が retract を内包するので線間は不要）
     calib.applicator.retract()
     for index, rate in enumerate(rates):
         ctx.progress("② max_dispense_rate: 線引き", 100.0 * index / len(rates))
         ctx.checkpoint()
-        # 段ずらしで引く。本数が足りなければ折り返して再利用する。
-        start, end = layout.line(index % layout.line_count)
-        calib.applicator.draw_line(start, end, amount=amount, rate_cap=rate)
-        mass = _prompt_positive_number(
+        # 移動速度は変えず、吐出量をレートに比例させて指令レートを実現する
+        # （固定量のままだと吐出レートが移動速度由来の導出値で頭打ちされ、
+        #   掃引しても全点が同一レートになる）。
+        amount = rate_sweep_amount(rate, layout.line_length, fill_speed)
+        # 各レートは独立計測。線引き前に基板ごとタール（ゼロ）しておき、線引き後の
+        # 計量値がそのままこのレートのペースト質量になるようにする（中止でメニューへ）。
+        _prompt_confirm(
             ctx,
-            f"[{index + 1}/{len(rates)}] レート {rate:.3f} uL/s の線の質量 (mg) を入力",
+            f"[{index + 1}/{len(rates)}] 基板を電子天秤に載せてタール（ゼロ）し、"
+            "基板を装置へ戻してから続行を押してください。"
+            f"続行するとレート {rate:.3f} uL/s（吐出量 {amount:.3f} uL）の"
+            "線引きへ進みます",
+        )
+        # レートごとの専用位置に段ずらし（折り返し込み）で引く
+        start, end = layout.line(index)
+        calib.applicator.draw_line(
+            start, end, amount=amount, max_fill_speed=fill_speed, rate_cap=rate
+        )
+        # 計量のため基板を取り出せるよう、線引き後に退避 Z（z_max - offset）へ上げる。
+        removal_z = _removal_z(ctx, calib)
+        ctx.log(
+            f"ヘッドを退避 Z={removal_z:.3f} へ移動します。基板を取り出して計測してください"
+        )
+        calib.session.klipper.send_gcode(
+            calib.session.stage.move(z=removal_z) + gcode.wait_for_done()
+        )
+        mass = _prompt_mass(
+            ctx,
+            f"[{index + 1}/{len(rates)}] 基板を取り出して計量し、"
+            f"レート {rate:.3f} uL/s の線の質量 (mg) を入力",
         )
         measured_ul = mass / density
         measurement = RateMeasurement(
@@ -1242,6 +1508,8 @@ def _calibrate_max_dispense_rate(
     chosen = _prompt_positive_number(
         ctx, "採用する max_dispense_rate (uL/s) を入力", default=auto
     )
+    assert chosen is not None  # cancel_label 無しの prompt は常に正数を返す
+    _apply_to_machine_toml(ctx, {"paste_dispenser.max_dispense_rate": chosen})
     return attrs.evolve(results, max_dispense_rate=chosen)
 
 
@@ -1260,7 +1528,6 @@ def _calibrate_max_fill_speed(
     律速させないため。連続して綺麗に引けた最大の番号を choice prompt で選び、
     ``FillSpeedSweep.speed_at(index)`` で ``max_fill_speed`` を確定する。
     """
-    layout = _line_layout(ctx)
     speed_min = float(ctx.params["speed_min"])
     speed_max = float(ctx.params["speed_max"])
     divisions = max(1, int(ctx.params["speed_divisions"]))
@@ -1269,9 +1536,6 @@ def _calibrate_max_fill_speed(
         ctx.machine.paste_dispenser.nozzle_diameter
         * ctx.machine.paste_dispenser.bead_width_factor
     )
-    # 実塗布同等の総量。q = total_amount / line_length（実効単位長さ量）は
-    # FillSequence 側が rate から逆算するため、ここでは move 速度を直接渡す。
-    total_amount = ul_per_mm2 * slot_area(layout.line_length, bead_width)
 
     speeds = fill_speed_schedule(speed_min, speed_max, divisions)
     if not speeds:
@@ -1280,6 +1544,11 @@ def _calibrate_max_fill_speed(
             "③ をスキップします"
         )
         return results
+    # 掃引点ごとに専用の線位置を確保する（line_count に関係なく重ね書きしない）
+    layout = _line_layout(ctx, line_count=len(speeds))
+    # 実塗布同等の総量。q = total_amount / line_length（実効単位長さ量）は
+    # FillSequence 側が rate から逆算するため、ここでは move 速度を直接渡す。
+    total_amount = ul_per_mm2 * slot_area(layout.line_length, bead_width)
 
     sweep = FillSpeedSweep(speeds=tuple(speeds))
     # baseline まで引き戻してから引き始める（draw_line が retract を内包するので線間は不要）
@@ -1287,7 +1556,7 @@ def _calibrate_max_fill_speed(
     for index, speed in enumerate(speeds):
         ctx.progress("③ max_fill_speed: 線引き", 100.0 * index / len(speeds))
         ctx.checkpoint()
-        start, end = layout.line(index % layout.line_count)
+        start, end = layout.line(index)
         actual = calib.applicator.draw_line(
             start, end, amount=total_amount, max_fill_speed=speed, rate_cap=math.inf
         )
@@ -1314,38 +1583,31 @@ def _calibrate_max_fill_speed(
     chosen_index = int(str(selection).split(":", 1)[0])
     chosen = sweep.speed_at(chosen_index)
     assert chosen is not None  # 選択肢は speeds の範囲内
-    ctx.log(f"max_fill_speed = {chosen:.2f} mm/s を採用しました")
+    _apply_to_machine_toml(ctx, {"paste_dispenser.max_fill_speed": chosen})
     return attrs.evolve(results, max_fill_speed=chosen)
 
 
 def _dispense_calibration_result(
     results: _DispenseCalibrationResults,
 ) -> JobResult:
-    """実施したキャリブの確定値から summary と ApplyPayload を組む."""
-    values: dict[str, float] = {}
-    summary_parts: list[str] = []
-    for field in (
-        "rotations_per_ul",
-        "dispense_accel",
-        "max_dispense_rate",
-        "max_fill_speed",
-    ):
-        value = getattr(results, field)
-        if value is None:
-            continue
-        values[f"paste_dispenser.{field}"] = round(value, APPLY_DIGITS)
-        summary_parts.append(f"{field} = {value:.6f}")
-
-    if not values:
+    """実施したキャリブの確定値から summary を組む（値は採用時に反映済み）."""
+    summary_parts = [
+        f"{field} = {value:.6f}"
+        for field in (
+            "rotations_per_ul",
+            "dispense_accel",
+            "max_dispense_rate",
+            "max_fill_speed",
+        )
+        if (value := getattr(results, field)) is not None
+    ]
+    if not summary_parts:
         return JobResult(summary="キャリブレーションを実施せず終了しました")
-
-    summary = "キャリブレーション結果: " + " / ".join(summary_parts)
     return JobResult(
-        summary=summary,
-        apply=ApplyPayload(
-            label=f"[paste_dispenser] {' / '.join(summary_parts)} を設定に反映",
-            values=values,
-        ),
+        summary=(
+            "キャリブレーション結果（machine.toml 反映済み）: "
+            + " / ".join(summary_parts)
+        )
     )
 
 

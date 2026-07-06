@@ -161,7 +161,8 @@ class JobRecord:
 
     @property
     def params(self) -> Mapping[str, ParamValue]:
-        return self._params
+        with self._lock:
+            return dict(self._params)
 
     @property
     def status(self) -> JobStatus:
@@ -216,6 +217,11 @@ class JobRecord:
         with self._lock:
             self._status = status
 
+    def update_params(self, updates: Mapping[str, ParamValue]) -> None:
+        """実行中編集をレコードへ反映する（GET /jobs/current が新値を映す）."""
+        with self._lock:
+            self._params.update(updates)
+
     def set_error(self, error: str) -> None:
         with self._lock:
             self._error = error
@@ -261,18 +267,37 @@ class _JobRuntime:
         record: JobRecord,
         preview: PreviewService,
         publish: Callable[[_Event], None],
+        apply_settings: Callable[[Mapping[str, ParamValue]], None],
     ) -> None:
         self.record = record
         self.abort_event = threading.Event()
         self.commands: queue.Queue[Any] = queue.Queue()
         self._preview = preview
         self._publish = publish
+        self._apply_settings = apply_settings
         self._pending_lock = threading.Lock()
         self._pending: _PendingPrompt | None = None
+        # 実行中パラメータ編集のライブストア（コマンドキュー非経由で適用）。
+        self._params_lock = threading.Lock()
+        self._params: dict[str, ParamValue] = dict(record.params)
+
+    def live_params(self) -> Mapping[str, ParamValue]:
+        """現在のパラメータのスナップショット（torn read 防止のコピー）."""
+        with self._params_lock:
+            return dict(self._params)
+
+    def update_params(self, updates: Mapping[str, ParamValue]) -> None:
+        """ライブストアへ patch を適用する（prompt / sleep 待機中でも反映）."""
+        with self._params_lock:
+            self._params.update(updates)
 
     def publish_status(self) -> None:
         """job_status イベントを発行する（中身は WS 送信時に最新化される）."""
         self._publish({"type": "job_status", "job_id": self.record.id})
+
+    def apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None:
+        """選択マシンの machine.toml へ即時書き込む（ワーカーからの確定値反映用）."""
+        self._apply_settings(values)
 
     # --- JobContext bridge ---
 
@@ -453,7 +478,9 @@ class JobManager:
             if persisted_params:
                 self._state.save_job_param_defaults(name, persisted_params)
             record = JobRecord(uuid.uuid4().hex, name, params, self._log_capacity)
-            runtime = _JobRuntime(record, self._preview, self._publish)
+            runtime = _JobRuntime(
+                record, self._preview, self._publish, self._apply_machine_settings
+            )
             artifacts_dir = self._artifacts_root / record.id
             artifacts_dir.mkdir(parents=True, exist_ok=True)
             selected_pcb = self._state.selected_pcb
@@ -529,6 +556,47 @@ class JobManager:
             raise ValueError("応答待ちのプロンプトがありません")
         runtime.respond(prompt_id, answer)
 
+    def update_current_params(
+        self, values: Mapping[str, Any], *, persist: bool = False
+    ) -> dict[str, ParamValue]:
+        """実行中ジョブの runtime_editable パラメータを即時更新する.
+
+        コマンドキューを経由せず、prompt / sleep 待機中でも適用する。
+
+        Args:
+            values: 更新するパラメータ（runtime_editable な subset のみ）
+            persist: True で persisted_params 分を次回フォーム既定値へ保存する
+
+        Returns:
+            検証・coerce 済みの適用値
+
+        Raises:
+            ValueError: 実行中ジョブ無し / 終端 / 検証エラー（→ 400）
+        """
+        with self._lock:
+            record = self._record
+            runtime = self._runtime
+        if record is None or runtime is None or record.status.terminal:
+            raise ValueError("実行中のジョブがありません")
+        definition = self._catalog.get(record.name)
+        validated = self._catalog.validate_runtime_params(definition, values)
+        runtime.update_params(validated)
+        record.update_params(validated)
+        if persist:
+            persisted = {
+                key: validated[key]
+                for key in definition.persisted_params
+                if key in validated
+            }
+            if persisted:
+                merged = {
+                    **self._state.job_param_defaults(record.name),
+                    **persisted,
+                }
+                self._state.save_job_param_defaults(record.name, merged)
+        runtime.publish_status()
+        return validated
+
     def submit_command(self, command: Mapping[str, Any]) -> None:
         """実行中ジョブの command キューへ 1 件投入する.
 
@@ -597,6 +665,18 @@ class JobManager:
     def publish_state_changed(self) -> None:
         """マシン / PCB / 設定変更をクライアントに通知する."""
         self._publish({"type": "state_changed"})
+
+    def _apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None:
+        """実行中ジョブの確定値を machine.toml へ即時書き込み、変更を通知する.
+
+        呼び出し元のジョブワーカーが装置排他ロックを保持しているため、
+        Apply エンドポイントと同様の直列化が成立している。
+
+        Raises:
+            UnknownFieldError: ホワイトリスト外キー・型不一致の場合
+        """
+        self._state.write_machine_settings(values)
+        self.publish_state_changed()
 
     # --- 内部 ---
 
@@ -686,7 +766,8 @@ def _coerce_answer(spec: PromptSpec, answer: object) -> Answer:
     """プロンプト応答を PromptSpec の型に合わせて検証・変換する.
 
     confirm→bool, number→float（int は float 化）, text→str,
-    choice→choices 内の str。
+    choice→choices 内の str。false_label 付き number の中止（bool False）は
+    そのまま False を返す。
 
     Raises:
         ValueError: 型不一致・choice 範囲外の場合
@@ -696,6 +777,9 @@ def _coerce_answer(spec: PromptSpec, answer: object) -> Answer:
             if isinstance(answer, bool):
                 return answer
         case "number":
+            # false_label 付き number は中止可能。中止ボタンは bool False を送る。
+            if answer is False and spec.false_label is not None:
+                return False
             if not isinstance(answer, bool) and isinstance(answer, (int, float)):
                 return float(answer)
         case "text":

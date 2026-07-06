@@ -846,6 +846,11 @@ h2 {
   padding: 0;
 }
 
+/* OK は DOM 先頭（Enter の既定 submit）だが、視覚上は中止を左に置く。 */
+#jc-prompt-no {
+  order: -1;
+}
+
 /* ---- dev / posctrl extras ---- */
 .status-card {
   max-width: 42rem;
