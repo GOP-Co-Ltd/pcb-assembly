@@ -993,6 +993,53 @@ h2 {
   min-width: 0;
 }
 
+.pad-initial-purge-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(6rem, 0.8fr);
+  align-items: center;
+  gap: 0.35rem 0.45rem;
+  min-width: 0;
+}
+
+.pad-initial-purge-tools label {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.pad-initial-purge-tools input {
+  width: 100%;
+  min-width: 0;
+}
+
+.pad-initial-purge-pad {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pad-initial-purge-actions {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.pad-initial-purge-actions button {
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+}
+
 .pad-route-tools {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

@@ -40,6 +40,7 @@ from pcbasm.pasting import (
     PasteSettingsModel,
     ProbeExecutor,
     RateMeasurement,
+    ResolvedInitialPurge,
     ResolvedPaste,
     RotationsPerUlRound,
     ToolheadOffsetResult,
@@ -48,6 +49,7 @@ from pcbasm.pasting import (
     fill_speed_schedule,
     plan_paste_route,
     rate_sweep_amount,
+    resolve_initial_purge,
     resolve_pad_settings,
     slot_area,
 )
@@ -754,11 +756,33 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         )
         enabled_designators = {p.designator for p in enabled_pads}
 
+        # 塗布順路（同種類連続・大面積優先）を先に決める。
+        # 初回パージ pad 未指定時は、この route の先頭 pad を使う。
+        routed_pads = [stop.pad for stop in plan_paste_route(enabled_pads)]
+        initial_purge, initial_purge_error = resolve_initial_purge(
+            amount_ul=session.machine.paste_dispenser.initial_purge_ul,
+            pad_id=model.initial_purge_pad_id,
+            hierarchy=hierarchy,
+            routed_pads=routed_pads,
+            layer=Layer.TOP,
+        )
+        if initial_purge_error is not None:
+            raise ValueError(initial_purge_error)
+        if initial_purge is not None:
+            ctx.log(
+                f"初回パージ: {initial_purge.pad_id} に "
+                f"{initial_purge.amount_ul:.3f} uL"
+            )
+
         # 銅箔照合（部品単位）。有効 pad を 1 つ以上持つ部品のみ照合する。
+        # 初回パージ pad が disabled pad の場合も、位置補正できるよう照合対象に含める。
+        align_designators = set(enabled_designators)
+        if initial_purge is not None:
+            align_designators.add(initial_purge.pad.designator)
         groups = [
             g
             for g in sorted_top_component_pads(result)
-            if g.component.designator in enabled_designators
+            if g.component.designator in align_designators
         ]
         ctx.log(f"照合対象の部品数: {len(groups)}")
         align_session = PadAlignmentSession.from_calibration(
@@ -795,9 +819,6 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             outline=session.pcb.outline.polygon,
         )
 
-        # 塗布順路（同種類連続・大面積優先）を決めてから補正を適用する
-        routed_pads = [stop.pad for stop in plan_paste_route(enabled_pads)]
-
         # 補正適用（未照合 pad は無補正）→ 順路順の (polygon, ResolvedPaste) ペア
         pairs: list[tuple[Polygon, ResolvedPaste | None]] = []
         for pad in routed_pads:
@@ -811,6 +832,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 pairs.append((pad.polygon, r))
             else:
                 pairs.append((transform_polygon(pad.polygon, correction), r))
+        initial_purge_point = _initial_purge_point(ctx, initial_purge, alignments)
         stage = session.stage
 
         # board→machine全変換 (board_transform + toolhead_offset + height_plane)
@@ -829,6 +851,13 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
             ctx.progress("リトラクション")
             applicator.retract()
+
+            if initial_purge is not None and initial_purge_point is not None:
+                ctx.progress("初回パージ")
+                ctx.checkpoint()
+                applicator.deposit_at(
+                    initial_purge_point, amount=initial_purge.amount_ul
+                )
 
             # pad を 1 件ずつ apply して per-pad の進捗・設定・abort 境界を確保
             for index, (polygon, r) in enumerate(pairs):
@@ -853,9 +882,25 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             f"照合成功 {len(aligned)}/{len(groups)} 部品 / "
             f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ・"
+            f"初回パージ {initial_purge.amount_ul if initial_purge else 0.0:.3f} uL・"
             f"押出合計 {total.amount_ul:+.3f} uL）"
         )
     )
+
+
+def _initial_purge_point(
+    ctx: JobContext,
+    initial_purge: ResolvedInitialPurge | None,
+    alignments: ComponentAlignments,
+) -> Point2d | None:
+    """初回パージ pad 中心へ部品補正を適用した board 座標を返す."""
+    if initial_purge is None:
+        return None
+    correction = alignments.board_correction(initial_purge.pad.designator)
+    if correction is None:
+        ctx.log(f"警告: {initial_purge.pad_id} は未照合のため無補正で初回パージします")
+        return initial_purge.pad.center
+    return correction.apply(initial_purge.pad.center)
 
 
 def _run_height_plane(ctx: JobContext) -> JobResult:

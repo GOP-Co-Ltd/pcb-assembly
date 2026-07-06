@@ -33,6 +33,7 @@ from pcbasm.pasting import (
     ResolvedPaste,
     base_override_from_config,
     plan_paste_route,
+    resolve_initial_purge,
     resolve_node_settings,
     resolve_pad_settings,
     validate_field_names,
@@ -40,6 +41,7 @@ from pcbasm.pasting import (
 )
 from pcbasm.pasting.fill_path import build_paste_fill_plan
 from pcbasm.pcb import (
+    Layer,
     Pad,
     PadHierarchy,
     PadHierarchyNode,
@@ -114,6 +116,30 @@ class HierNodeInfo(BaseModel):
     children: list[HierNodeInfo]
 
 
+class ResolvedInitialPurgeInfo(BaseModel):
+    """初回パージの実行対象として解決された pad 情報."""
+
+    pad_id: str
+    amount: float
+    point: list[float]
+    source: str
+
+
+class InitialPurgeInfo(BaseModel):
+    """初回パージ設定とサーバ側解決結果."""
+
+    initial_purge_ul: float
+    pad_id: str | None
+    default_pad_id: str | None
+    resolved: ResolvedInitialPurgeInfo | None
+
+
+class InitialPurgeResponse(BaseModel):
+    """PATCH 初回パージ設定のレスポンス."""
+
+    initial_purge: InitialPurgeInfo
+
+
 class PadConfigResponse(BaseModel):
     """GET /api/pasting/pad-config のレスポンス."""
 
@@ -123,6 +149,7 @@ class PadConfigResponse(BaseModel):
     width: float
     height: float
     defaults: ResolvedSettings  # machine.toml 由来の基板デフォルト
+    initial_purge: InitialPurgeInfo
     tree: HierNodeInfo  # L0 ルートの階層ツリー（構造のみ）
     pads: list[PadInfo]
     overrides: dict[str, NodeOverrideInfo]  # node_id -> 明示 override（疎、L0 含む）
@@ -189,6 +216,13 @@ class PadEnablePatch(BaseModel):
 
     ids: list[str]
     enabled: bool
+
+
+class InitialPurgePatch(BaseModel):
+    """PATCH /api/pasting/pad-config/initial-purge のリクエスト."""
+
+    initial_purge_ul: float | None = None
+    pad_id: str | None = None
 
 
 class PadConfigImport(BaseModel):
@@ -318,6 +352,54 @@ def _resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
     )
 
 
+def _enabled_pads_for_layer(loaded: _Loaded, layer: str) -> list[Pad]:
+    """指定 layer の有効 pad を返す."""
+    resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
+    return [
+        pad
+        for pad in loaded.hierarchy.iter_pads()
+        if pad.layer.value == layer
+        and resolved[loaded.hierarchy.pad_ref_for_pad(pad)].enabled
+    ]
+
+
+def _routed_enabled_pads_for_layer(loaded: _Loaded, layer: str) -> list[Pad]:
+    """指定 layer の有効 pad を通常塗布順に並べて返す."""
+    return [
+        stop.pad for stop in plan_paste_route(_enabled_pads_for_layer(loaded, layer))
+    ]
+
+
+def _build_initial_purge(loaded: _Loaded) -> InitialPurgeInfo:
+    """ロード済みコンテキストから初回パージ設定の解決結果を返す."""
+    routed = _routed_enabled_pads_for_layer(loaded, Layer.TOP.value)
+    default_pad_id = loaded.hierarchy.pad_id_for_pad(routed[0]) if routed else None
+    resolved, error = resolve_initial_purge(
+        amount_ul=loaded.base_config.initial_purge_ul,
+        pad_id=loaded.model.initial_purge_pad_id,
+        hierarchy=loaded.hierarchy,
+        routed_pads=routed,
+        layer=Layer.TOP,
+    )
+    if error is not None:
+        raise HTTPException(status_code=400, detail=error)
+    return InitialPurgeInfo(
+        initial_purge_ul=loaded.base_config.initial_purge_ul,
+        pad_id=loaded.model.initial_purge_pad_id,
+        default_pad_id=default_pad_id,
+        resolved=(
+            ResolvedInitialPurgeInfo(
+                pad_id=resolved.pad_id,
+                amount=resolved.amount_ul,
+                point=[resolved.pad.center.x, resolved.pad.center.y],
+                source=resolved.source,
+            )
+            if resolved is not None
+            else None
+        ),
+    )
+
+
 def _pad_info(
     pad: Pad,
     pad_id: str,
@@ -414,6 +496,7 @@ def _build_pad_config(loaded: _Loaded) -> PadConfigResponse:
         width=outline.width,
         height=outline.height,
         defaults=_resolved_default(model),
+        initial_purge=_build_initial_purge(loaded),
         tree=_tree(hierarchy.root, model, node_resolved),
         pads=pads,
         overrides=_overrides(model),
@@ -424,13 +507,6 @@ def _build_route(loaded: _Loaded, layer: str) -> PasteRouteResponse:
     """ロード済みコンテキストから有効 pad の順路レスポンスを構築する."""
     _check_layer(layer)
 
-    resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
-    pads = [
-        pad
-        for pad in loaded.hierarchy.iter_pads()
-        if pad.layer.value == layer
-        and resolved[loaded.hierarchy.pad_ref_for_pad(pad)].enabled
-    ]
     route = [
         PasteRoutePad(
             id=loaded.hierarchy.pad_id_for_pad(stop.pad),
@@ -439,7 +515,7 @@ def _build_route(loaded: _Loaded, layer: str) -> PasteRouteResponse:
             area=stop.area,
             center=[stop.pad.center.x, stop.pad.center.y],
         )
-        for stop in plan_paste_route(pads)
+        for stop in plan_paste_route(_enabled_pads_for_layer(loaded, layer))
     ]
     return PasteRouteResponse(layer=layer, pads=route)
 
@@ -613,6 +689,93 @@ def patch_pad_config_pads(
         for paste in (resolved[loaded.hierarchy.pad_ref_for_pad(pad)],)
     ]
     return PatchResponse(affected_pads=affected)
+
+
+@router.patch("/pasting/pad-config/initial-purge")
+def patch_initial_purge(
+    body: InitialPurgePatch,
+    state: StateDep,
+    settings: SettingsDep,
+    board_store: BoardStoreDep,
+) -> InitialPurgeResponse:
+    """初回パージ量と pad 指定を即時保存し、解決済み設定を返す."""
+    loaded = _load(state, settings, board_store)
+    amount_sent = "initial_purge_ul" in body.model_fields_set
+    pad_sent = "pad_id" in body.model_fields_set
+    if amount_sent and body.initial_purge_ul is None:
+        raise HTTPException(
+            status_code=400, detail="initial_purge_ulは数値で指定してください"
+        )
+
+    next_amount = (
+        body.initial_purge_ul if amount_sent else loaded.base_config.initial_purge_ul
+    )
+    assert next_amount is not None
+    next_pad_id = (
+        _normalize_initial_purge_pad_id(body.pad_id)
+        if pad_sent
+        else loaded.model.initial_purge_pad_id
+    )
+    routed = _routed_enabled_pads_for_layer(loaded, Layer.TOP.value)
+    _validate_initial_purge_patch(
+        amount_ul=next_amount,
+        pad_id=next_pad_id,
+        pad_sent=pad_sent,
+        hierarchy=loaded.hierarchy,
+        routed_pads=routed,
+    )
+
+    if amount_sent:
+        with state.machine_lock("pasting-initial-purge"):
+            state.write_machine_settings(
+                {"paste_dispenser.initial_purge_ul": next_amount}
+            )
+    if pad_sent:
+        model = loaded.model.with_initial_purge_pad_id(next_pad_id)
+        board_store.save(
+            loaded.machine,
+            loaded.source_pcb,
+            model,
+            board_signature=loaded.board_signature,
+        )
+    return InitialPurgeResponse(
+        initial_purge=_build_initial_purge(_load(state, settings, board_store))
+    )
+
+
+def _normalize_initial_purge_pad_id(pad_id: str | None) -> str | None:
+    """API 入力の空文字を未指定へ正規化する."""
+    return None if pad_id in (None, "") else pad_id
+
+
+def _validate_initial_purge_patch(
+    *,
+    amount_ul: float,
+    pad_id: str | None,
+    pad_sent: bool,
+    hierarchy: PadHierarchy,
+    routed_pads: list[Pad],
+) -> None:
+    """初回パージ PATCH 値を検証し、不正なら HTTP 400 を送出する."""
+    _, error = resolve_initial_purge(
+        amount_ul=amount_ul,
+        pad_id=pad_id,
+        hierarchy=hierarchy,
+        routed_pads=routed_pads,
+        layer=Layer.TOP,
+    )
+    if error is not None:
+        raise HTTPException(status_code=400, detail=error)
+    if pad_sent and pad_id is not None and amount_ul == 0:
+        _, pad_error = resolve_initial_purge(
+            amount_ul=0.1,
+            pad_id=pad_id,
+            hierarchy=hierarchy,
+            routed_pads=routed_pads,
+            layer=Layer.TOP,
+        )
+        if pad_error is not None:
+            raise HTTPException(status_code=400, detail=pad_error)
 
 
 @router.post("/pasting/pad-config/reset")

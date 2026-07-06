@@ -65,6 +65,9 @@ class PasteDispenser:
         DEFAULT_AUTO_LINE_ASPECT_RATIO  # Auto時に線塗布へ切り替える縦横比
     )
     prime_extra_delay: float = 0.0  # プライム後の追加遅延 [sec]
+    initial_purge_ul: float = (
+        0.1  # fill sequence 前に pad 中心へ点塗布する初回パージ量 [μL]
+    )
     bead_width_factor: float = (
         1.0  # ビード幅係数 w = nozzle_diameter * bead_width_factor
     )
@@ -98,6 +101,11 @@ class PasteDispenser:
             raise ValueError(
                 "solder_paste_densityは正の値である必要があります: "
                 f"{self.solder_paste_density}"
+            )
+        if isinstance(self.initial_purge_ul, bool) or self.initial_purge_ul < 0:
+            raise ValueError(
+                "initial_purge_ulは0以上の値である必要があります: "
+                f"{self.initial_purge_ul}"
             )
 
     @property

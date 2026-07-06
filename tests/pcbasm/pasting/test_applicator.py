@@ -755,6 +755,42 @@ class TestDrawLine:
         assert down_move["z"] == pytest.approx(amount / slot_area)
 
 
+class TestDepositAt:
+    """公開 deposit_at（初回パージ用の単点塗布プリミティブ）."""
+
+    def test_sends_single_blocking_gcode(self, applicator, mock_klipper):
+        applicator.deposit_at(Point2d(4.0, 5.0), amount=0.2, paste_height=0.6)
+
+        assert mock_klipper.send_gcode.call_count == 1
+        sent = mock_klipper.send_gcode.call_args.args[0]
+        assert str(sent).splitlines()[-1] == "M400"
+
+    def test_uses_single_point_without_stage_path_motion(self, applicator, mock_stage):
+        point = Point2d(4.0, 5.0)
+
+        applicator.deposit_at(point, amount=0.2, paste_height=0.6)
+
+        first_move = mock_stage.move.call_args_list[0].kwargs
+        down_move = mock_stage.move.call_args_list[1].kwargs
+        assert first_move["x"] == pytest.approx(point.x)
+        assert first_move["y"] == pytest.approx(point.y)
+        assert down_move["x"] == pytest.approx(point.x)
+        assert down_move["y"] == pytest.approx(point.y)
+        assert down_move["z"] == pytest.approx(0.6)
+        mock_stage.to_gcode.assert_not_called()
+
+    def test_dispense_amount_is_retraction_plus_amount(
+        self, applicator, mock_paste_dispenser
+    ):
+        retraction = 10.0
+
+        applicator.deposit_at(Point2d(4.0, 5.0), amount=0.2, paste_height=0.6)
+
+        amounts = _dispense_amounts(mock_paste_dispenser)
+        assert len(amounts) == 1
+        assert amounts[0] == pytest.approx(retraction + 0.2)
+
+
 class TestPerPadOverride:
     """Apply() の per-pad override 引数（None は __init__ 値を使う）.
 

@@ -48,6 +48,7 @@ import {
     routeLoading: false,
     fillPath: null,
     fillPathLoading: false,
+    initialPurgeSaving: false,
     padEls: new Map(),
     rowEls: new Map(),
     parentOf: new Map(),
@@ -65,6 +66,18 @@ import {
   const importInput = document.getElementById("pad-import-config");
   const routeButton = document.getElementById("pad-calculate-route");
   const fillPathButton = document.getElementById("pad-calculate-fill-path");
+  const initialPurgeAmount = document.getElementById(
+    "pad-initial-purge-amount"
+  );
+  const initialPurgePadStatus = document.getElementById(
+    "pad-initial-purge-pad"
+  );
+  const initialPurgeSetPadButton = document.getElementById(
+    "pad-set-initial-purge-pad"
+  );
+  const initialPurgeClearPadButton = document.getElementById(
+    "pad-clear-initial-purge-pad"
+  );
 
   async function load() {
     try {
@@ -105,6 +118,7 @@ import {
     renderViewer(svg, state.config, state);
     renderTable();
     renderSelectionCount();
+    renderInitialPurgeControls();
     applyToolbarLock();
     syncNodePadHighlights();
   }
@@ -213,6 +227,51 @@ import {
     refreshSelectionVisual(state.config, state);
     syncNodePadHighlights();
     renderSelectionCount();
+    renderInitialPurgeControls({ syncAmount: false });
+    applyToolbarLock();
+  }
+
+  function renderInitialPurgeControls({ syncAmount = true } = {}) {
+    if (!state.config) return;
+    const purge = state.config.initial_purge;
+    if (syncAmount && initialPurgeAmount) {
+      initialPurgeAmount.value =
+        purge?.initial_purge_ul !== undefined
+          ? String(purge.initial_purge_ul)
+          : "";
+    }
+    if (initialPurgePadStatus) {
+      const currentLabel = purge?.pad_id
+        ? purge.pad_id
+        : purge?.default_pad_id
+          ? `自動 (${purge.default_pad_id})`
+          : "自動";
+      initialPurgePadStatus.textContent = currentLabel;
+      initialPurgePadStatus.dataset.padId = purge?.pad_id || "";
+      initialPurgePadStatus.dataset.mode = purge?.pad_id ? "explicit" : "auto";
+    }
+    if (initialPurgeSetPadButton) {
+      const pad = selectedInitialPurgePad();
+      initialPurgeSetPadButton.textContent = pad
+        ? `${pad.id} を設定`
+        : "選択パッドを設定";
+      initialPurgeSetPadButton.title = pad
+        ? `${pad.id} を初回パージパッドに設定`
+        : "パッドマップで Top 面のパッドを1つ選択";
+    }
+    if (initialPurgeClearPadButton) {
+      initialPurgeClearPadButton.title = "塗布順路先頭の自動選択に戻す";
+    }
+  }
+
+  function padById(id) {
+    return state.config?.pads.find((pad) => pad.id === id) || null;
+  }
+
+  function selectedInitialPurgePad() {
+    if (state.selected.size !== 1) return null;
+    const pad = padById([...state.selected][0]);
+    return pad?.layer === "Top" ? pad : null;
   }
 
   for (const radio of root.querySelectorAll("input[name='pad-layer']")) {
@@ -224,6 +283,8 @@ import {
       renderSelectionCount();
       renderViewer(svg, state.config, state);
       syncNodePadHighlights();
+      renderInitialPurgeControls({ syncAmount: false });
+      applyToolbarLock();
     });
   }
 
@@ -745,6 +806,45 @@ import {
     }
   }
 
+  function commitInitialPurgeAmount() {
+    if (state.locked || state.initialPurgeSaving || !initialPurgeAmount) return;
+    const raw = initialPurgeAmount.value.trim();
+    if (raw === "") return;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) {
+      toast("数値を入力してください", false);
+      return;
+    }
+    debounceInitialPurgePatch({ initial_purge_ul: value });
+  }
+
+  function debounceInitialPurgePatch(body) {
+    const key = "initial-purge";
+    clearTimeout(state.debounceTimers.get(key));
+    state.debounceTimers.set(
+      key,
+      setTimeout(() => {
+        state.debounceTimers.delete(key);
+        patchInitialPurge(body);
+      }, DEBOUNCE_MS)
+    );
+  }
+
+  async function patchInitialPurge(body) {
+    if (state.locked || state.initialPurgeSaving) return;
+    state.initialPurgeSaving = true;
+    applyToolbarLock();
+    try {
+      await api("PATCH", "/api/pasting/pad-config/initial-purge", body);
+      await reloadConfig({});
+    } catch (err) {
+      toast(`初回パージ設定更新失敗: ${err.message}`, false);
+    } finally {
+      state.initialPurgeSaving = false;
+      applyToolbarLock();
+    }
+  }
+
   function focusNodePads(nodeId) {
     state.focusedNode = nodeId;
     for (const [id, row] of state.rowEls) {
@@ -811,6 +911,16 @@ import {
         ? "塗布パス計算中"
         : "塗布パス計算";
     }
+    const editingLocked = state.locked || state.initialPurgeSaving;
+    if (initialPurgeAmount) initialPurgeAmount.disabled = editingLocked;
+    if (initialPurgeSetPadButton) {
+      initialPurgeSetPadButton.disabled =
+        editingLocked || selectedInitialPurgePad() === null;
+    }
+    if (initialPurgeClearPadButton) {
+      initialPurgeClearPadButton.disabled =
+        editingLocked || !state.config?.initial_purge?.pad_id;
+    }
   }
 
   function clearRoute() {
@@ -867,6 +977,29 @@ import {
 
   if (fillPathButton) {
     fillPathButton.addEventListener("click", calculateFillPath);
+  }
+
+  if (initialPurgeAmount) {
+    initialPurgeAmount.addEventListener("input", commitInitialPurgeAmount);
+    initialPurgeAmount.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") commitInitialPurgeAmount();
+    });
+  }
+
+  if (initialPurgeSetPadButton) {
+    initialPurgeSetPadButton.addEventListener("click", () => {
+      if (state.locked) return;
+      const pad = selectedInitialPurgePad();
+      if (!pad) return;
+      patchInitialPurge({ pad_id: pad.id });
+    });
+  }
+
+  if (initialPurgeClearPadButton) {
+    initialPurgeClearPadButton.addEventListener("click", () => {
+      if (state.locked) return;
+      patchInitialPurge({ pad_id: null });
+    });
   }
 
   if (window.webui.jobs) {

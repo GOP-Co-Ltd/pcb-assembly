@@ -56,9 +56,15 @@ class TestMachineSettings:
 
         assert set(values) == {spec.key for spec in MACHINE_FIELDS}
 
+    def test_initial_purge_ul_is_whitelisted(self):
+        assert "paste_dispenser.initial_purge_ul" in {
+            spec.key for spec in MACHINE_FIELDS
+        }
+
     def test_missing_keys_read_as_none(self, store: ConfigStore):
         values = store.read_machine_settings(FIXTURE)
 
+        assert values["paste_dispenser.initial_purge_ul"] is None
         assert values["paste_dispenser.bead_width_factor"] is None
         assert values["paste_dispenser.boundary_margin"] is None
         assert values["probe.lift_height"] is None
@@ -84,6 +90,20 @@ class TestMachineSettings:
 
         values = store.read_machine_settings(FIXTURE)
         assert values["paste_dispenser.solder_paste_density"] == 4.1
+
+    def test_write_initial_purge_ul_then_reread_reflects_value(
+        self, store: ConfigStore
+    ):
+        store.write_machine_settings(FIXTURE, {"paste_dispenser.initial_purge_ul": 0.2})
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.initial_purge_ul"] == 0.2
+
+    def test_write_zero_initial_purge_ul_disables_purge(self, store: ConfigStore):
+        store.write_machine_settings(FIXTURE, {"paste_dispenser.initial_purge_ul": 0.0})
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.initial_purge_ul"] == 0.0
 
     def test_write_auto_paste_height_then_reread_reflects_value(
         self, store: ConfigStore
@@ -199,6 +219,12 @@ class TestMachineSettings:
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings(
                 FIXTURE, {"paste_dispenser.solder_paste_density": 0.0}
+            )
+
+    def test_initial_purge_ul_must_not_be_negative(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                FIXTURE, {"paste_dispenser.initial_purge_ul": -0.01}
             )
 
     def test_non_integral_float_for_int_field_raises(self, store: ConfigStore):

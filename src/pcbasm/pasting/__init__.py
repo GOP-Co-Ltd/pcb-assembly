@@ -23,6 +23,7 @@ from .dispense_calibration import (
 from .fill_path import PasteFillPlan, build_paste_fill_path, build_paste_fill_plan
 from .fill_sequence import FillSequence
 from .height import HeightPlaneMeasurer
+from .initial_purge import ResolvedInitialPurge, resolve_initial_purge
 from .loading import interactive_loading
 from .probe import ProbeExecutor
 from .route import PasteRouteStop, plan_paste_route
@@ -62,6 +63,7 @@ __all__ = [
     "NUMERIC_PASTE_OVERRIDE_FIELDS",
     "PasteApplicator",
     "RateMeasurement",
+    "ResolvedInitialPurge",
     "RotationsPerUlRound",
     "dispense_rate_schedule",
     "fill_speed_schedule",
@@ -84,6 +86,7 @@ __all__ = [
     "interactive_loading",
     "plan_paste_route",
     "resolve_node_settings",
+    "resolve_initial_purge",
     "resolve_pad_settings",
     "settings_from_dict",
     "settings_to_dict",
