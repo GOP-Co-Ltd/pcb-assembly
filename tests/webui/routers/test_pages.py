@@ -32,7 +32,7 @@ Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / s
 - preview ペイン（overlay 切替なし）は paste_solder / height_plane /
   toolhead_offset のみ
 - loading_controls は paste_solder / loading / toolhead_offset（stage="ローディング"）と
-  dispense_calibration（stage="キャリブレーションメニュー"・プライム用）
+  dispense_calibration（stage="キャリブレーションメニュー,ローディング"・プライム/① ローディング用）
 - pnp はプレースホルダのみ（サイドバー空 + 「機能を選択」）
 """
 
@@ -183,6 +183,20 @@ class TestDevJobPages:
 
     def test_job_demo_is_hidden_from_sidebar(self, client: TestClient):
         assert "job_demo" not in client.get("/dev").text
+
+
+class TestJobConsolePrompt:
+    """job_console プロンプトの Enter（暗黙送信）既定ボタン契約."""
+
+    def test_ok_button_precedes_cancel_in_dom(self, client: TestClient):
+        """OK が最初の submit ボタン = Enter の既定ボタンになる.
+
+        中止（jc-prompt-no）が DOM 先頭にあると、数値入力後の Enter が
+        暗黙送信で中止ボタンを押した扱いになり、計測が勝手に中止される。
+        """
+        text = client.get("/pasting/dispense_calibration").text
+
+        assert text.index('id="jc-prompt-ok"') < text.index('id="jc-prompt-no"')
 
 
 class TestPreviewPages:
@@ -342,19 +356,18 @@ class TestPastingJobPages:
         assert 'data-loading-stage="ローディング"' in text
         assert 'value="0.1"' in text  # loading_default（該当 ParamSpec の既定値）
 
-    def test_dispense_calibration_loading_controls_use_menu_stage(
+    def test_dispense_calibration_loading_controls_use_menu_and_loading_stage(
         self, client: TestClient
     ):
-        """dispense_calibration の loading_controls はメニュー段階で有効化する.
+        """dispense_calibration の loading_controls はメニュー段階と ① ローディング段階で有効化する.
 
-        プライム（押出/吸引）をキャリブメニュー中に使うため、data-loading-stage は ローディング段階ではなく
-        "キャリブレーションメニュー"。
+        メニュー段階のプライム（押出/吸引）に加え、① rotations_per_ul の専用ローディング段階
+        （"ローディング"）でもボタンを使うため、data-loading-stage はカンマ区切りで両方を持つ。
         """
         text = client.get("/pasting/dispense_calibration").text
 
         assert "loading-controls" in text
-        assert 'data-loading-stage="キャリブレーションメニュー"' in text
-        assert 'data-loading-stage="ローディング"' not in text
+        assert 'data-loading-stage="キャリブレーションメニュー,ローディング"' in text
 
     def test_loading_page_renders_rotation_controls_and_mass_calibration(
         self, client: TestClient
@@ -419,7 +432,7 @@ class TestPastingJobPages:
         assert "loading-controls" not in client.get(f"/pasting/{feature}").text
 
     def test_dispense_calibration_renders_param_form_and_menu(self, client: TestClient):
-        """土台/①/②/③ のパラメータフォーム + ①②③/全実行/終了メニューが出る."""
+        """銅板/線共通/②/③ のパラメータフォーム + ①②③/全実行/終了メニューが出る."""
         text = client.get("/pasting/dispense_calibration").text
 
         for name in (
@@ -428,6 +441,7 @@ class TestPastingJobPages:
             "tolerance",
             "line_length",
             "line_count",
+            "removal_z_offset",
             "rate_min",
             "rate_max",
             "rate_divisions",
@@ -436,11 +450,11 @@ class TestPastingJobPages:
             "speed_divisions",
         ):
             assert name in text
-        # パラメータは ①②③ のセクション（fieldset）に分かれて表示される
+        # パラメータは固定土台/線共通/②/③ のセクション（fieldset）に分かれて表示される
         assert "job-param-group" in text
         for legend in (
-            "共通土台",
-            "① rotations_per_ul",
+            "銅板・位置合わせ（キャリブ後固定）",
+            "線の共通設定（実行中変更可）",
             "② max_dispense_rate",
             "③ max_fill_speed",
         ):

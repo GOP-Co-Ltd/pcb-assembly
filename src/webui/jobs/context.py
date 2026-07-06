@@ -48,6 +48,10 @@ class PromptSpec:
 class JobBridge(Protocol):
     """JobContext が委譲するワーカー同期機構（JobManager 内部が実装する）."""
 
+    def live_params(self) -> Mapping[str, ParamValue]: ...
+
+    def apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None: ...
+
     def log(self, message: str) -> None: ...
 
     def progress(self, stage: str, percent: float | None) -> None: ...
@@ -85,8 +89,10 @@ class JobContext:
         source_pcb: str | None = None,
         board_store: BoardSettingsStore | None = None,
     ) -> None:
+        # params は manager がブリッジのライブストア初期値として使う。
+        # JobContext 自身は live_params() 経由で都度読むため保持しない。
+        del params
         self._bridge = bridge
-        self._params = dict(params)
         self._pcb_path = pcb_path
         self._machine = machine
         self._artifacts_dir = artifacts_dir
@@ -96,8 +102,12 @@ class JobContext:
 
     @property
     def params(self) -> Mapping[str, ParamValue]:
-        """Catalog 検証済み（default 充填済み）のパラメータ."""
-        return self._params
+        """Catalog 検証済みのパラメータ（実行中編集を毎アクセスで反映）.
+
+        ライブストア（ブリッジの ``live_params()``）から都度読み直すため、
+        ``JobManager.update_current_params`` での変更が次回読みで反映される。
+        """
+        return self._bridge.live_params()
 
     @property
     def pcb_path(self) -> Path | None:
@@ -128,6 +138,18 @@ class JobContext:
     def board_store(self) -> BoardSettingsStore | None:
         """基板ごとの塗布設定ストア（未配線なら None）."""
         return self._board_store
+
+    def apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None:
+        """選択マシンの machine.toml へホワイトリスト項目を即時書き込む.
+
+        キャリブレーション値の確定時など、ジョブ完了（と Apply 操作）を
+        待たずに計測結果を永続化する用途。書き込み後は "state_changed" が
+        発行され、設定画面等が追従する。
+
+        Raises:
+            UnknownFieldError: ホワイトリスト外キー・型不一致の場合
+        """
+        self._bridge.apply_machine_settings(values)
 
     def log(self, message: str) -> None:
         """ログのリングバッファへ追記し、WS "log" イベントを発行する."""

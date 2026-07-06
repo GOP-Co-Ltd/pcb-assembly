@@ -126,10 +126,12 @@ _PASTING_LOADING_PARAM = {
     "toolhead_offset": "loading_amount",
 }
 
-# loading_controls をローディング段階以外で有効化する feature → progress stage 名。
-# dispense_calibration はメニュー段階で押出/吸引（プライム）を許す。
+# loading_controls をローディング段階以外でも有効化する feature → progress stage 名
+# （カンマ区切りで複数可。loading_controls.js が Set として解釈する）。
+# dispense_calibration はメニュー段階のプライム（押出/吸引）と、① 専用ローディング段階
+# （"ローディング"）の両方でボタンを有効化する。
 _LOADING_STAGE_OVERRIDE = {
-    "dispense_calibration": "キャリブレーションメニュー",
+    "dispense_calibration": "キャリブレーションメニュー,ローディング",
 }
 
 _LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel", "retract_rotations")
@@ -137,10 +139,13 @@ _LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel", "retract_rotations")
 # dispense_calibration フォームのセクション分け（表示のみ）。
 # ①②③ の依存順に沿ってパラメータを視覚的にグルーピングする。
 _DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("共通土台（銅板・位置合わせ）", ("board_width", "board_height", "tolerance")),
     (
-        "① rotations_per_ul の補正（線引き検証）",
-        ("line_length", "line_count", "line_amount", "row_pitch"),
+        "銅板・位置合わせ（キャリブ後固定）",
+        ("board_width", "board_height", "tolerance"),
+    ),
+    (
+        "線の共通設定（実行中変更可）",
+        ("line_length", "line_count", "line_amount", "row_pitch", "removal_z_offset"),
     ),
     (
         "② max_dispense_rate（吐出効率の落ち検出）",

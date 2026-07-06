@@ -136,6 +136,23 @@ def post_abort(jobs: JobsDep) -> dict[str, bool]:
     return {"aborted": True}
 
 
+class JobParamsUpdateRequest(BaseModel):
+    """実行中パラメータ編集リクエスト（runtime_editable な subset の置換）."""
+
+    values: dict[str, Any] = {}
+    persist: bool = False
+
+
+@router.put("/jobs/current/params")
+def put_current_params(jobs: JobsDep, body: JobParamsUpdateRequest) -> dict[str, Any]:
+    """実行中ジョブの runtime_editable パラメータを即時更新する（400: 不正）."""
+    try:
+        updated = jobs.update_current_params(body.values, persist=body.persist)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"params": updated}
+
+
 @router.post("/jobs/last/apply")
 def post_apply(
     jobs: JobsDep, state: StateDep, store: StoreDep, settings: SettingsDep
