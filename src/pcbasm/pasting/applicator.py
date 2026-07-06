@@ -379,6 +379,43 @@ class PasteApplicator:
             rate_cap=rate_cap,
         )
 
+    def deposit_at(
+        self,
+        point: Point2d,
+        *,
+        amount: float,
+        paste_height: PasteHeight | None = None,
+        prime_extra_delay: float | None = None,
+        bead_width_factor: float | None = None,
+        rate_cap: float | None = None,
+    ) -> Speed | None:
+        """指定点へ ``amount`` [μL] を点塗布する.
+
+        通常塗布と同じ ``FillSequence`` を使い、接近→下降→prime+吐出→
+        リトラクション→上昇の protocol で実行する。
+        """
+        if amount <= 0:
+            raise ValueError(f"amountは正の値である必要があります: {amount}")
+        resolved_paste_height = (
+            self._paste_height if paste_height is None else paste_height
+        )
+        resolved_prime_extra_delay = (
+            self._prime_extra_delay if prime_extra_delay is None else prime_extra_delay
+        )
+        resolved_bead_width_factor = (
+            self._bead_width_factor if bead_width_factor is None else bead_width_factor
+        )
+        return self._draw_polyline(
+            [point],
+            total_amount=amount,
+            paste_height=resolved_paste_height,
+            dispense_mode="dot",
+            ul_per_mm2=self._ul_per_mm2,
+            prime_extra_delay=resolved_prime_extra_delay,
+            bead_width_factor=resolved_bead_width_factor,
+            rate_cap=rate_cap,
+        )
+
     def _fill(
         self,
         polygon: Polygon,

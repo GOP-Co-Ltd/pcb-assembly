@@ -20,6 +20,27 @@ from pcbasm.geometry import Point2d, Shift
 from tests.helpers import TESTING_DATA_DIR
 
 
+def _paste_dispenser(**overrides):
+    values = {
+        "rotations_per_ul": 1.0,
+        "nozzle_diameter": 0.21,
+        "max_fill_speed": 2.0,
+        "max_dispense_rate": 5.0,
+        "dispense_accel": 10.0,
+        "retract_amount": 10.0,
+        "retract_rate": 50.0,
+        "retract_accel_factor": 2.0,
+        "toolhead": Toolhead(x=13.2, y=54.7),
+        "paste_height": "auto",
+        "ul_per_mm2": 0.2,
+        "solder_paste_density": 3.78,
+        "dispense_mode": "auto",
+        "auto_line_aspect_ratio": 1.618,
+    }
+    values.update(overrides)
+    return PasteDispenser(**values)
+
+
 class TestMachine:
     """Machineクラスのテスト."""
 
@@ -122,6 +143,43 @@ class TestMachine:
 
         assert machine.paste_dispenser.air_pump_enabled is False
 
+    def test_initial_purge_ul_defaults_when_absent(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.paste_dispenser.initial_purge_ul == pytest.approx(0.1)
+
+    def test_initial_purge_ul_reads_explicit_value(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source.replace(
+                "[paste_dispenser]\n",
+                "[paste_dispenser]\ninitial_purge_ul = 0.25\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.paste_dispenser.initial_purge_ul == pytest.approx(0.25)
+
+    def test_initial_purge_ul_allows_zero_to_disable(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source.replace(
+                "[paste_dispenser]\n",
+                "[paste_dispenser]\ninitial_purge_ul = 0.0\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.paste_dispenser.initial_purge_ul == pytest.approx(0.0)
+
     def test_effective_retract_rate_falls_back_to_max_dispense_rate_when_absent(
         self, tmp_path
     ):
@@ -140,23 +198,12 @@ class TestMachine:
         )
         assert machine.paste_dispenser.effective_retract_rate == pytest.approx(5.0)
 
+    def test_initial_purge_ul_rejects_negative_value(self):
+        with pytest.raises(ValueError, match="initial_purge_ul"):
+            _paste_dispenser(initial_purge_ul=-0.01)
+
     def test_effective_retract_rate_returns_explicit_value(self):
-        dispenser = PasteDispenser(
-            rotations_per_ul=1.0,
-            nozzle_diameter=0.21,
-            max_fill_speed=2.0,
-            max_dispense_rate=5.0,
-            dispense_accel=10.0,
-            retract_amount=10.0,
-            retract_rate=50.0,
-            retract_accel_factor=2.0,
-            toolhead=Toolhead(x=13.2, y=54.7),
-            paste_height="auto",
-            ul_per_mm2=0.2,
-            solder_paste_density=3.78,
-            dispense_mode="auto",
-            auto_line_aspect_ratio=1.618,
-        )
+        dispenser = _paste_dispenser()
 
         assert dispenser.effective_retract_rate == pytest.approx(50.0)
 
