@@ -69,7 +69,15 @@ import {
   const initialPurgeAmount = document.getElementById(
     "pad-initial-purge-amount"
   );
-  const initialPurgePad = document.getElementById("pad-initial-purge-pad");
+  const initialPurgePadStatus = document.getElementById(
+    "pad-initial-purge-pad"
+  );
+  const initialPurgeSetPadButton = document.getElementById(
+    "pad-set-initial-purge-pad"
+  );
+  const initialPurgeClearPadButton = document.getElementById(
+    "pad-clear-initial-purge-pad"
+  );
 
   async function load() {
     try {
@@ -219,34 +227,51 @@ import {
     refreshSelectionVisual(state.config, state);
     syncNodePadHighlights();
     renderSelectionCount();
+    renderInitialPurgeControls({ syncAmount: false });
+    applyToolbarLock();
   }
 
-  function renderInitialPurgeControls() {
-    if (!initialPurgeAmount || !initialPurgePad || !state.config) return;
+  function renderInitialPurgeControls({ syncAmount = true } = {}) {
+    if (!state.config) return;
     const purge = state.config.initial_purge;
-    initialPurgeAmount.value =
-      purge?.initial_purge_ul !== undefined
-        ? String(purge.initial_purge_ul)
-        : "";
-
-    initialPurgePad.replaceChildren();
-    const defaultLabel = purge?.default_pad_id
-      ? `自動 (${purge.default_pad_id})`
-      : "自動";
-    appendSelectOption(
-      initialPurgePad,
-      "",
-      defaultLabel,
-      !purge || purge.pad_id === null
-    );
-    for (const pad of state.config.pads.filter((p) => p.layer === "Top")) {
-      appendSelectOption(
-        initialPurgePad,
-        pad.id,
-        pad.enabled ? pad.id : `${pad.id} (無効)`,
-        purge?.pad_id === pad.id
-      );
+    if (syncAmount && initialPurgeAmount) {
+      initialPurgeAmount.value =
+        purge?.initial_purge_ul !== undefined
+          ? String(purge.initial_purge_ul)
+          : "";
     }
+    if (initialPurgePadStatus) {
+      const currentLabel = purge?.pad_id
+        ? purge.pad_id
+        : purge?.default_pad_id
+          ? `自動 (${purge.default_pad_id})`
+          : "自動";
+      initialPurgePadStatus.textContent = currentLabel;
+      initialPurgePadStatus.dataset.padId = purge?.pad_id || "";
+      initialPurgePadStatus.dataset.mode = purge?.pad_id ? "explicit" : "auto";
+    }
+    if (initialPurgeSetPadButton) {
+      const pad = selectedInitialPurgePad();
+      initialPurgeSetPadButton.textContent = pad
+        ? `${pad.id} を設定`
+        : "選択パッドを設定";
+      initialPurgeSetPadButton.title = pad
+        ? `${pad.id} を初回パージパッドに設定`
+        : "パッドマップで Top 面のパッドを1つ選択";
+    }
+    if (initialPurgeClearPadButton) {
+      initialPurgeClearPadButton.title = "塗布順路先頭の自動選択に戻す";
+    }
+  }
+
+  function padById(id) {
+    return state.config?.pads.find((pad) => pad.id === id) || null;
+  }
+
+  function selectedInitialPurgePad() {
+    if (state.selected.size !== 1) return null;
+    const pad = padById([...state.selected][0]);
+    return pad?.layer === "Top" ? pad : null;
   }
 
   for (const radio of root.querySelectorAll("input[name='pad-layer']")) {
@@ -258,6 +283,8 @@ import {
       renderSelectionCount();
       renderViewer(svg, state.config, state);
       syncNodePadHighlights();
+      renderInitialPurgeControls({ syncAmount: false });
+      applyToolbarLock();
     });
   }
 
@@ -884,8 +911,15 @@ import {
         ? "塗布パス計算中"
         : "塗布パス計算";
     }
-    for (const el of [initialPurgeAmount, initialPurgePad]) {
-      if (el) el.disabled = state.locked || state.initialPurgeSaving;
+    const editingLocked = state.locked || state.initialPurgeSaving;
+    if (initialPurgeAmount) initialPurgeAmount.disabled = editingLocked;
+    if (initialPurgeSetPadButton) {
+      initialPurgeSetPadButton.disabled =
+        editingLocked || selectedInitialPurgePad() === null;
+    }
+    if (initialPurgeClearPadButton) {
+      initialPurgeClearPadButton.disabled =
+        editingLocked || !state.config?.initial_purge?.pad_id;
     }
   }
 
@@ -952,10 +986,19 @@ import {
     });
   }
 
-  if (initialPurgePad) {
-    initialPurgePad.addEventListener("change", () => {
+  if (initialPurgeSetPadButton) {
+    initialPurgeSetPadButton.addEventListener("click", () => {
       if (state.locked) return;
-      patchInitialPurge({ pad_id: initialPurgePad.value || null });
+      const pad = selectedInitialPurgePad();
+      if (!pad) return;
+      patchInitialPurge({ pad_id: pad.id });
+    });
+  }
+
+  if (initialPurgeClearPadButton) {
+    initialPurgeClearPadButton.addEventListener("click", () => {
+      if (state.locked) return;
+      patchInitialPurge({ pad_id: null });
     });
   }
 

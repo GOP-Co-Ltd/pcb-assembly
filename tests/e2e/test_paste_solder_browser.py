@@ -471,28 +471,47 @@ class TestPasteSolderBrowserRendering:
 
         _open_paste_solder(browser_page, live_server)
         amount = browser_page.locator(_testid("pad-initial-purge-amount"))
-        pad_select = browser_page.locator(_testid("pad-initial-purge-pad"))
+        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
+        set_pad_button = browser_page.locator(_testid("pad-set-initial-purge-pad"))
+        clear_pad_button = browser_page.locator(_testid("pad-clear-initial-purge-pad"))
         amount.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         assert amount.input_value(timeout=_BROWSER_TIMEOUT_MS) == "0.1"
-        assert pad_select.input_value(timeout=_BROWSER_TIMEOUT_MS) == ""
+        assert "自動" in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
+        assert set_pad_button.is_disabled()
+        assert clear_pad_button.is_disabled()
 
         amount.fill("0.22")
         _wait_for_initial_purge(live_server, amount=0.22)
 
-        pad_select.select_option(target["id"])
+        browser_page.locator(_pad_selector(target["id"])).click()
+        browser_page.wait_for_function(
+            """(selector) => document.querySelector(selector)?.disabled === false""",
+            arg=_testid("pad-set-initial-purge-pad"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+        assert target["id"] in set_pad_button.text_content(timeout=_BROWSER_TIMEOUT_MS)
+        set_pad_button.click()
         _wait_for_initial_purge(
             live_server,
             amount=0.22,
             pad_id=target["id"],
             resolved_pad_id=target["id"],
         )
+        browser_page.wait_for_function(
+            """({selector, padId}) =>
+                document.querySelector(selector)?.textContent.includes(padId)""",
+            arg={"selector": _testid("pad-initial-purge-pad"), "padId": target["id"]},
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
 
         browser_page.reload(wait_until="domcontentloaded")
         amount = browser_page.locator(_testid("pad-initial-purge-amount"))
-        pad_select = browser_page.locator(_testid("pad-initial-purge-pad"))
+        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
+        clear_pad_button = browser_page.locator(_testid("pad-clear-initial-purge-pad"))
         amount.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         assert amount.input_value(timeout=_BROWSER_TIMEOUT_MS) == "0.22"
-        assert pad_select.input_value(timeout=_BROWSER_TIMEOUT_MS) == target["id"]
+        assert target["id"] in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
+        assert not clear_pad_button.is_disabled()
 
         machine_toml = live_server.settings.configs_root / "kurousagi" / "machine.toml"
         assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
