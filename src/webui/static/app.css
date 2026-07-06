@@ -993,6 +993,26 @@ h2 {
   min-width: 0;
 }
 
+.pad-initial-purge-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(5rem, 0.7fr);
+  align-items: center;
+  gap: 0.35rem 0.45rem;
+  min-width: 0;
+}
+
+.pad-initial-purge-tools label {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.pad-initial-purge-tools input,
+.pad-initial-purge-tools select {
+  width: 100%;
+  min-width: 0;
+}
+
 .pad-route-tools {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

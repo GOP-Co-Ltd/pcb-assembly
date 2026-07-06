@@ -20,6 +20,7 @@ retract_accel_factor = 2.0 # リトラクション加速度係数
 paste_height = 0.2 # 塗布面のZ高さ [mm]、または auto
 ul_per_mm2 = 0.2 # パッド面積あたりのペースト量 [uL/mm^2]
 prime_extra_delay = 0.0 # プライム後の追加遅延 [sec]
+initial_purge_ul = 0.1 # fill sequence前の初回パージ量 [uL]
 overlap = 0.0
 
 [paste_dispenser.toolhead]

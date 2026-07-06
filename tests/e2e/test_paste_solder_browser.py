@@ -340,6 +340,36 @@ def _wait_for_layer_enabled(live_server: LiveServer, layer: str, enabled: bool):
         time.sleep(0.05)
 
 
+def _wait_for_initial_purge(
+    live_server: LiveServer,
+    *,
+    amount: float | None = None,
+    pad_id: str | None = None,
+    resolved_pad_id: str | None = None,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + _POLL_TIMEOUT
+    while True:
+        config = _get_pad_config(live_server)
+        initial = config["initial_purge"]
+        amount_matches = (
+            amount is None or abs(float(initial["initial_purge_ul"]) - amount) < 1e-9
+        )
+        pad_matches = pad_id is None or initial["pad_id"] == pad_id
+        resolved = initial["resolved"]
+        resolved_matches = resolved_pad_id is None or (
+            resolved is not None and resolved["pad_id"] == resolved_pad_id
+        )
+        if amount_matches and pad_matches and resolved_matches:
+            return config
+        if time.monotonic() > deadline:
+            raise AssertionError(
+                "initial_purge が期待値に更新されない: "
+                f"amount={initial['initial_purge_ul']!r}, "
+                f"pad_id={initial['pad_id']!r}, resolved={resolved!r}"
+            )
+        time.sleep(0.05)
+
+
 def _assert_in_viewport(page: Any, locator: Any):
     box = locator.bounding_box(timeout=_BROWSER_TIMEOUT_MS)
     assert box is not None
@@ -426,6 +456,46 @@ class TestPasteSolderBrowserRendering:
             arg=preview.element_handle(),
             timeout=_BROWSER_TIMEOUT_MS,
         )
+
+    def test_initial_purge_controls_persist_amount_and_pad(
+        self, live_server: LiveServer, browser_page
+    ):
+        _select_led_blinker(live_server)
+        config = _get_pad_config(live_server)
+        current = config["initial_purge"]["resolved"]["pad_id"]
+        target = next(
+            pad
+            for pad in config["pads"]
+            if pad["layer"] == "Top" and pad["id"] != current
+        )
+
+        _open_paste_solder(browser_page, live_server)
+        amount = browser_page.locator(_testid("pad-initial-purge-amount"))
+        pad_select = browser_page.locator(_testid("pad-initial-purge-pad"))
+        amount.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert amount.input_value(timeout=_BROWSER_TIMEOUT_MS) == "0.1"
+        assert pad_select.input_value(timeout=_BROWSER_TIMEOUT_MS) == ""
+
+        amount.fill("0.22")
+        _wait_for_initial_purge(live_server, amount=0.22)
+
+        pad_select.select_option(target["id"])
+        _wait_for_initial_purge(
+            live_server,
+            amount=0.22,
+            pad_id=target["id"],
+            resolved_pad_id=target["id"],
+        )
+
+        browser_page.reload(wait_until="domcontentloaded")
+        amount = browser_page.locator(_testid("pad-initial-purge-amount"))
+        pad_select = browser_page.locator(_testid("pad-initial-purge-pad"))
+        amount.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert amount.input_value(timeout=_BROWSER_TIMEOUT_MS) == "0.22"
+        assert pad_select.input_value(timeout=_BROWSER_TIMEOUT_MS) == target["id"]
+
+        machine_toml = live_server.settings.configs_root / "kurousagi" / "machine.toml"
+        assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
 
 
 class TestPasteSolderBrowserPadInteraction:
@@ -859,6 +929,7 @@ class TestPasteSolderBrowserResponsiveLayout:
                     "pad-editor-toolbar",
                     "pad-select-tools",
                     "pad-route-tools",
+                    "pad-initial-purge-tools",
                     "pad-config-tools",
                     "pad-viewer",
                     "preview-img",

@@ -89,6 +89,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec(
         "paste_dispenser.prime_extra_delay", "プライム後の追加遅延", "float", "s"
     ),
+    FieldSpec("paste_dispenser.initial_purge_ul", "初回パージ量", "float", "uL"),
     FieldSpec("paste_dispenser.bead_width_factor", "ビード幅係数", "float"),
     FieldSpec("paste_dispenser.overlap", "ジグザグ行間オーバーラップ", "float"),
     FieldSpec("paste_dispenser.boundary_margin", "外周マージン", "float", "mm"),
@@ -162,6 +163,11 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     and coerced_float <= 0.0
                 ):
                     raise UnknownFieldError(f"{spec.key}: 正の値が必要です")
+                if (
+                    spec.key == "paste_dispenser.initial_purge_ul"
+                    and coerced_float < 0.0
+                ):
+                    raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
                 return coerced_float
         case "float_or_auto":
             if value == "auto":

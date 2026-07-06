@@ -48,6 +48,7 @@ import {
     routeLoading: false,
     fillPath: null,
     fillPathLoading: false,
+    initialPurgeSaving: false,
     padEls: new Map(),
     rowEls: new Map(),
     parentOf: new Map(),
@@ -65,6 +66,10 @@ import {
   const importInput = document.getElementById("pad-import-config");
   const routeButton = document.getElementById("pad-calculate-route");
   const fillPathButton = document.getElementById("pad-calculate-fill-path");
+  const initialPurgeAmount = document.getElementById(
+    "pad-initial-purge-amount"
+  );
+  const initialPurgePad = document.getElementById("pad-initial-purge-pad");
 
   async function load() {
     try {
@@ -105,6 +110,7 @@ import {
     renderViewer(svg, state.config, state);
     renderTable();
     renderSelectionCount();
+    renderInitialPurgeControls();
     applyToolbarLock();
     syncNodePadHighlights();
   }
@@ -213,6 +219,34 @@ import {
     refreshSelectionVisual(state.config, state);
     syncNodePadHighlights();
     renderSelectionCount();
+  }
+
+  function renderInitialPurgeControls() {
+    if (!initialPurgeAmount || !initialPurgePad || !state.config) return;
+    const purge = state.config.initial_purge;
+    initialPurgeAmount.value =
+      purge?.initial_purge_ul !== undefined
+        ? String(purge.initial_purge_ul)
+        : "";
+
+    initialPurgePad.replaceChildren();
+    const defaultLabel = purge?.default_pad_id
+      ? `自動 (${purge.default_pad_id})`
+      : "自動";
+    appendSelectOption(
+      initialPurgePad,
+      "",
+      defaultLabel,
+      !purge || purge.pad_id === null
+    );
+    for (const pad of state.config.pads.filter((p) => p.layer === "Top")) {
+      appendSelectOption(
+        initialPurgePad,
+        pad.id,
+        pad.enabled ? pad.id : `${pad.id} (無効)`,
+        purge?.pad_id === pad.id
+      );
+    }
   }
 
   for (const radio of root.querySelectorAll("input[name='pad-layer']")) {
@@ -745,6 +779,45 @@ import {
     }
   }
 
+  function commitInitialPurgeAmount() {
+    if (state.locked || state.initialPurgeSaving || !initialPurgeAmount) return;
+    const raw = initialPurgeAmount.value.trim();
+    if (raw === "") return;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) {
+      toast("数値を入力してください", false);
+      return;
+    }
+    debounceInitialPurgePatch({ initial_purge_ul: value });
+  }
+
+  function debounceInitialPurgePatch(body) {
+    const key = "initial-purge";
+    clearTimeout(state.debounceTimers.get(key));
+    state.debounceTimers.set(
+      key,
+      setTimeout(() => {
+        state.debounceTimers.delete(key);
+        patchInitialPurge(body);
+      }, DEBOUNCE_MS)
+    );
+  }
+
+  async function patchInitialPurge(body) {
+    if (state.locked || state.initialPurgeSaving) return;
+    state.initialPurgeSaving = true;
+    applyToolbarLock();
+    try {
+      await api("PATCH", "/api/pasting/pad-config/initial-purge", body);
+      await reloadConfig({});
+    } catch (err) {
+      toast(`初回パージ設定更新失敗: ${err.message}`, false);
+    } finally {
+      state.initialPurgeSaving = false;
+      applyToolbarLock();
+    }
+  }
+
   function focusNodePads(nodeId) {
     state.focusedNode = nodeId;
     for (const [id, row] of state.rowEls) {
@@ -811,6 +884,9 @@ import {
         ? "塗布パス計算中"
         : "塗布パス計算";
     }
+    for (const el of [initialPurgeAmount, initialPurgePad]) {
+      if (el) el.disabled = state.locked || state.initialPurgeSaving;
+    }
   }
 
   function clearRoute() {
@@ -867,6 +943,20 @@ import {
 
   if (fillPathButton) {
     fillPathButton.addEventListener("click", calculateFillPath);
+  }
+
+  if (initialPurgeAmount) {
+    initialPurgeAmount.addEventListener("input", commitInitialPurgeAmount);
+    initialPurgeAmount.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") commitInitialPurgeAmount();
+    });
+  }
+
+  if (initialPurgePad) {
+    initialPurgePad.addEventListener("change", () => {
+      if (state.locked) return;
+      patchInitialPurge({ pad_id: initialPurgePad.value || null });
+    });
   }
 
   if (window.webui.jobs) {

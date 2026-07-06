@@ -75,6 +75,17 @@ def _hierarchy():
     return build_pad_hierarchy(components, pads)
 
 
+def _saved_doc(
+    root: Path,
+    store: BoardSettingsStore,
+    source_pcb: str = "boards/a.kicad_pcb",
+    machine: str = "kurousagi",
+) -> dict:
+    board_id = store.board_id(source_pcb)
+    path = root / "board_settings" / machine / f"{board_id}.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 class TestBoardId:
     """board_id の安定性と衝突回避."""
 
@@ -166,6 +177,100 @@ class TestRoundTrip:
         assert setting.override.overlap == 0.1
         # 未設定項目は継承（None）のまま
         assert setting.override.paste_height is None
+
+
+class TestInitialPurgePadId:
+    """initial_purge_pad_id の基板単位保存."""
+
+    def test_default_is_none_and_not_saved_when_unset(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+
+        assert model.initial_purge_pad_id is None
+
+        store.save("kurousagi", "boards/a.kicad_pcb", model)
+        doc = _saved_doc(tmp_path, store)
+
+        assert "initial_purge_pad_id" not in doc["settings"]
+
+    def test_save_load_round_trip_when_explicit(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        edited = PasteSettingsModel(
+            base=model.base,
+            base_enabled=model.base_enabled,
+            levels=model.levels,
+            initial_purge_pad_id="U1.2",
+        )
+
+        store.save("kurousagi", "boards/a.kicad_pcb", edited)
+        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        doc = _saved_doc(tmp_path, store)
+
+        assert loaded.initial_purge_pad_id == "U1.2"
+        assert doc["settings"]["initial_purge_pad_id"] == "U1.2"
+
+    def test_export_import_round_trip_when_explicit(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        edited = PasteSettingsModel(
+            base=model.base,
+            base_enabled=model.base_enabled,
+            levels=model.levels,
+            initial_purge_pad_id="U1.1",
+        )
+
+        doc = store.export_doc("kurousagi", "boards/a.kicad_pcb", edited)
+        restored = store.model_from_doc(
+            doc,
+            config,
+            expected_machine="kurousagi",
+            expected_source_pcb="boards/a.kicad_pcb",
+        )
+
+        assert doc["settings"]["initial_purge_pad_id"] == "U1.1"
+        assert restored.initial_purge_pad_id == "U1.1"
+
+    def test_prune_keeps_existing_initial_purge_pad_id(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        hierarchy = _hierarchy()
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        edited = PasteSettingsModel(
+            base=model.base,
+            base_enabled=model.base_enabled,
+            levels=model.levels,
+            initial_purge_pad_id="U1.2",
+        )
+
+        pruned = store.prune("kurousagi", "boards/a.kicad_pcb", edited, hierarchy)
+        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+
+        assert pruned.initial_purge_pad_id == "U1.2"
+        assert loaded.initial_purge_pad_id == "U1.2"
+
+    def test_prune_clears_orphan_initial_purge_pad_id(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        hierarchy = _hierarchy()
+        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        edited = PasteSettingsModel(
+            base=model.base,
+            base_enabled=model.base_enabled,
+            levels=model.levels,
+            initial_purge_pad_id="U99.1",
+        )
+
+        pruned = store.prune("kurousagi", "boards/a.kicad_pcb", edited, hierarchy)
+        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        doc = _saved_doc(tmp_path, store)
+
+        assert pruned.initial_purge_pad_id is None
+        assert loaded.initial_purge_pad_id is None
+        assert "initial_purge_pad_id" not in doc["settings"]
 
 
 class TestJsonShape:

@@ -22,6 +22,7 @@ pad id = {designator}.{pad_ref}。
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,12 @@ def _leaf_pad_ids(node: dict) -> set[str]:
     for child in node["children"]:
         ids |= _leaf_pad_ids(child)
     return ids
+
+
+def _saved_board_settings_doc(webui_settings: Settings) -> dict:
+    paths = list((webui_settings.webui_data_dir / "board_settings").rglob("*.json"))
+    assert len(paths) == 1
+    return json.loads(paths[0].read_text(encoding="utf-8"))
 
 
 class TestPcbNotSelected:
@@ -183,6 +190,113 @@ class TestGetPadConfig:
         assert "resolved" in u1_node
         assert "own_override" in u1_node
         assert "descendant_summary" in u1_node
+
+
+class TestInitialPurgePadConfig:
+    """GET/PATCH initial_purge."""
+
+    def test_get_includes_default_initial_purge_resolution(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        initial = config["initial_purge"]
+
+        assert initial["initial_purge_ul"] == pytest.approx(0.1)
+        assert initial["pad_id"] is None
+        assert initial["resolved"]["pad_id"] == "D1.2"
+        assert initial["resolved"]["amount"] == pytest.approx(0.1)
+        assert initial["resolved"]["point"] == pytest.approx([15.0, 4.212500000000003])
+
+    def test_patch_saves_machine_amount_and_board_pad(
+        self,
+        selected_client: TestClient,
+        configs_root: Path,
+        webui_settings: Settings,
+    ):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"initial_purge_ul": 0.25, "pad_id": "U1.1"},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["initial_purge_ul"] == pytest.approx(0.25)
+        assert initial["pad_id"] == "U1.1"
+        assert initial["resolved"]["pad_id"] == "U1.1"
+
+        machine_toml = configs_root / "kurousagi" / "machine.toml"
+        assert "initial_purge_ul = 0.25" in machine_toml.read_text(encoding="utf-8")
+        doc = _saved_board_settings_doc(webui_settings)
+        assert doc["settings"]["initial_purge_pad_id"] == "U1.1"
+
+    def test_patch_pad_after_amount_preserves_machine_amount(
+        self,
+        selected_client: TestClient,
+        configs_root: Path,
+        webui_settings: Settings,
+    ):
+        amount_response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"initial_purge_ul": 0.22},
+        )
+        assert amount_response.status_code == 200, amount_response.text
+
+        pad_response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"pad_id": "U1.1"},
+        )
+
+        assert pad_response.status_code == 200, pad_response.text
+        initial = pad_response.json()["initial_purge"]
+        assert initial["initial_purge_ul"] == pytest.approx(0.22)
+        assert initial["pad_id"] == "U1.1"
+        assert initial["resolved"]["pad_id"] == "U1.1"
+
+        machine_toml = configs_root / "kurousagi" / "machine.toml"
+        assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
+        doc = _saved_board_settings_doc(webui_settings)
+        assert doc["settings"]["initial_purge_pad_id"] == "U1.1"
+
+    def test_patch_allows_disabled_top_pad(self, selected_client: TestClient):
+        disable = selected_client.patch(
+            "/api/pasting/pad-config/pads",
+            json={"ids": ["U1.1"], "enabled": False},
+        )
+        assert disable.status_code == 200, disable.text
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"initial_purge_ul": 0.25, "pad_id": "U1.1"},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["pad_id"] == "U1.1"
+        assert initial["resolved"]["pad_id"] == "U1.1"
+
+    def test_patch_unknown_pad_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"initial_purge_ul": 0.25, "pad_id": "NOPE.1"},
+        )
+
+        assert response.status_code == 400
+
+    def test_patch_bottom_pad_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"initial_purge_ul": 0.25, "pad_id": "R3.1"},
+        )
+
+        assert response.status_code == 400
+
+    def test_patch_without_selected_pcb_returns_409(self, client: TestClient):
+        response = client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"initial_purge_ul": 0.25, "pad_id": "U1.1"},
+        )
+
+        assert response.status_code == 409
 
 
 class TestTreeNodeResolution:

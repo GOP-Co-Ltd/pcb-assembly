@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 from pathlib import Path
 
 import attrs
@@ -178,7 +179,7 @@ class BoardSettingsStore:
         path = self._path(machine, source_pcb)
         path.parent.mkdir(parents=True, exist_ok=True)
         doc = self._doc(machine, source_pcb, model, board_signature=board_signature)
-        path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._write_doc(path, doc)
 
     def prune(
         self,
@@ -201,13 +202,24 @@ class BoardSettingsStore:
             孤児を除いた設定モデル（孤児が無ければ ``model`` と等価）
         """
         orphans = set(find_orphans(model, hierarchy))
-        if not orphans:
+        known_pad_ids = {hierarchy.pad_id_for_pad(pad) for pad in hierarchy.iter_pads()}
+        purge_pad_orphan = (
+            model.initial_purge_pad_id is not None
+            and model.initial_purge_pad_id not in known_pad_ids
+        )
+        if not orphans and not purge_pad_orphan:
             self.save(machine, source_pcb, model, board_signature=board_signature)
             return model
         levels = {
             key: setting for key, setting in model.levels.items() if key not in orphans
         }
-        pruned = attrs.evolve(model, levels=levels)
+        pruned = attrs.evolve(
+            model,
+            levels=levels,
+            initial_purge_pad_id=(
+                None if purge_pad_orphan else model.initial_purge_pad_id
+            ),
+        )
         self.save(machine, source_pcb, pruned, board_signature=board_signature)
         return pruned
 
@@ -229,10 +241,37 @@ class BoardSettingsStore:
             doc["board_signature"] = board_signature
         return doc
 
+    def _write_doc(self, path: Path, doc: dict) -> None:
+        """保存 JSON を同一 directory 内の atomic replace で書き込む."""
+        payload = json.dumps(doc, ensure_ascii=False, indent=2)
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                encoding="utf-8",
+                delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                tmp.write(payload)
+            tmp_path.replace(path)
+        except Exception:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink()
+                except FileNotFoundError:
+                    pass
+            raise
+
     def _settings_doc(self, model: PasteSettingsModel) -> dict:
         """基板固有 override だけを保存する settings dict を返す."""
         data = settings_to_dict(model)
-        return {"levels": data["levels"]}
+        result: dict[str, object] = {"levels": data["levels"]}
+        if data.get("initial_purge_pad_id") is not None:
+            result["initial_purge_pad_id"] = data["initial_purge_pad_id"]
+        return result
 
     def _model_from_settings(
         self, settings: dict, base_config: PasteDispenser
@@ -245,7 +284,12 @@ class BoardSettingsStore:
             legacy_l0 = self._legacy_l0_setting(stored, base)
             if legacy_l0 is not None:
                 levels[("L0",)] = legacy_l0
-        return PasteSettingsModel(base=base, base_enabled=True, levels=levels)
+        return PasteSettingsModel(
+            base=base,
+            base_enabled=True,
+            initial_purge_pad_id=stored.initial_purge_pad_id,
+            levels=levels,
+        )
 
     def _legacy_l0_setting(
         self, stored: PasteSettingsModel, current_base: PasteOverride

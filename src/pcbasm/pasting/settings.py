@@ -111,11 +111,13 @@ class PasteSettingsModel:
     Attributes:
         base: machine.toml 由来のデフォルト（全項目確定）
         base_enabled: machine.toml 由来の有効/無効既定
+        initial_purge_pad_id: 初回パージに使う pad id（None = fill sequence 先頭）
         levels: L0–L4 の疎マップ（``HierKey`` -> 設定）
     """
 
     base: PasteOverride
     base_enabled: bool = True
+    initial_purge_pad_id: str | None = None
     levels: dict[HierKey, LevelSetting] = attrs.field(factory=dict)
 
     def with_level_patch(
@@ -160,6 +162,10 @@ class PasteSettingsModel:
         for key in l4_keys:
             model = model.with_level_patch(key, enabled=enabled, enabled_sent=True)
         return model
+
+    def with_initial_purge_pad_id(self, pad_id: str | None) -> "PasteSettingsModel":
+        """初回パージ pad id を差し替えた新モデルを返す."""
+        return attrs.evolve(self, initial_purge_pad_id=pad_id)
 
 
 def base_override_from_config(config: PasteDispenser) -> PasteOverride:
@@ -408,6 +414,7 @@ def settings_to_dict(model: PasteSettingsModel) -> dict:
     return {
         "base": _override_to_dict(model.base),
         "base_enabled": model.base_enabled,
+        "initial_purge_pad_id": model.initial_purge_pad_id,
         "levels": [
             {
                 "key": list(key),
@@ -438,6 +445,7 @@ def settings_from_dict(data: dict) -> PasteSettingsModel:
     return PasteSettingsModel(
         base=_override_from_dict(data.get("base", {})),
         base_enabled=data.get("base_enabled", True),
+        initial_purge_pad_id=data.get("initial_purge_pad_id"),
         levels=levels,
     )
 
