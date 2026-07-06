@@ -332,8 +332,9 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     unit="mm",
                 ),
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
-                # 線の共通設定（実行中変更可）。line_amount は ① 専用
-                # （② はレート × 線長 / 速度で吐出量を導出、③ は ul_per_mm2 起点）。
+                # 線の共通設定（実行中変更可）。line_count / line_amount は ① 専用
+                # （②③ は分割数ぶんの線を配置。② はレート × 線長 / 速度で吐出量を
+                # 導出、③ は ul_per_mm2 起点）。
                 ParamSpec(
                     "line_length",
                     "線の長さ",
@@ -348,6 +349,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "int",
                     DISPENSE_CALIBRATION_DEFAULT_LINE_COUNT,
                     unit="本",
+                    help="① 専用。②③ は分割数ぶんの線を配置",
                     runtime_editable=True,
                 ),
                 ParamSpec(
@@ -1024,10 +1026,16 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
     board_height = float(ctx.params["board_height"])
     tolerance = float(ctx.params["tolerance"])
 
-    # 開始時点の線設定で銅板に収まらない場合はセットアップ前に失敗させる
+    # 開始時点の設定で ①（line_count 本）②（レート掃引点数）③（速度掃引点数）の
+    # いずれかが銅板に収まらない場合はセットアップ前に失敗させる
     # （線パラメータは実行中変更可のため、各キャリブ開始時にも再検証する）。
+    needed_lines = max(
+        max(1, int(ctx.params["line_count"])),
+        max(1, int(ctx.params["rate_divisions"])),
+        max(1, int(ctx.params["speed_divisions"])),
+    )
     try:
-        _build_line_layout(ctx)
+        _build_line_layout(ctx, line_count=needed_lines)
     except LineLayoutOverflowError as exc:
         raise ValueError(_layout_overflow_message(exc)) from exc
 
@@ -1183,15 +1191,20 @@ def _handle_menu_loading_or_machine(
                 ctx.log(f"未知のコマンドです: {command.get('type')!r}")
 
 
-def _build_line_layout(ctx: JobContext) -> LineLayout:
+def _build_line_layout(ctx: JobContext, line_count: int | None = None) -> LineLayout:
     """段ずらしレイアウトをパラメータから構築する.
+
+    ``line_count`` 省略時はパラメータ ``line_count``（① 用）。②③ は掃引点数を
+    渡し、掃引点ごとに専用の線位置を確保する（位置の再利用＝重ね書きをしない）。
 
     Raises:
         LineLayoutOverflowError: 折り返しても線が銅板の描画領域に収まらない場合
     """
+    if line_count is None:
+        line_count = max(1, int(ctx.params["line_count"]))
     return LineLayout(
         line_length=float(ctx.params["line_length"]),
-        line_count=max(1, int(ctx.params["line_count"])),
+        line_count=line_count,
         row_pitch=float(ctx.params["row_pitch"]),
         board_width=float(ctx.params["board_width"]),
         board_height=float(ctx.params["board_height"]),
@@ -1203,12 +1216,12 @@ def _layout_overflow_message(exc: LineLayoutOverflowError) -> str:
     """レイアウト超過をユーザーに調整を促す文言へ変換する."""
     return (
         f"線 {exc.line_count} 本は折り返しても銅板の描画領域に収まりません"
-        f"（最大 {exc.capacity} 本）。線の本数・線の長さ・段ずらし間隔を"
+        f"（最大 {exc.capacity} 本）。線の本数/分割数・線の長さ・段ずらし間隔を"
         "調整してください"
     )
 
 
-def _line_layout(ctx: JobContext) -> LineLayout:
+def _line_layout(ctx: JobContext, line_count: int | None = None) -> LineLayout:
     """各キャリブ用のレイアウトを構築する（収まらなければメニューへ戻す）.
 
     線パラメータは実行中変更可のため、超過時はエラーを log してメニューへ
@@ -1218,7 +1231,7 @@ def _line_layout(ctx: JobContext) -> LineLayout:
         _CalibrationCancelled: 線が銅板の描画領域に収まらない場合
     """
     try:
-        return _build_line_layout(ctx)
+        return _build_line_layout(ctx, line_count)
     except LineLayoutOverflowError as exc:
         ctx.log(_layout_overflow_message(exc))
         raise _CalibrationCancelled() from exc
@@ -1414,7 +1427,6 @@ def _calibrate_max_dispense_rate(
     中止はいずれもメニューへ戻る。自動判定値を default に手動上書き可能で、
     確定値は machine.toml へ即時反映する。
     """
-    layout = _line_layout(ctx)
     fill_speed = ctx.machine.paste_dispenser.max_fill_speed
     rate_min = float(ctx.params["rate_min"])
     rate_max = float(ctx.params["rate_max"])
@@ -1428,6 +1440,8 @@ def _calibrate_max_dispense_rate(
             "② をスキップします"
         )
         return results
+    # 掃引点ごとに専用の線位置を確保する（line_count に関係なく重ね書きしない）
+    layout = _line_layout(ctx, line_count=len(rates))
 
     ctx.log(
         f"移動速度 {fill_speed:.3f} mm/s 固定・"
@@ -1452,8 +1466,8 @@ def _calibrate_max_dispense_rate(
             f"続行するとレート {rate:.3f} uL/s（吐出量 {amount:.3f} uL）の"
             "線引きへ進みます",
         )
-        # 段ずらしで引く。本数が足りなければ先頭の線位置を再利用する。
-        start, end = layout.line(index % layout.line_count)
+        # レートごとの専用位置に段ずらし（折り返し込み）で引く
+        start, end = layout.line(index)
         calib.applicator.draw_line(
             start, end, amount=amount, max_fill_speed=fill_speed, rate_cap=rate
         )
@@ -1514,7 +1528,6 @@ def _calibrate_max_fill_speed(
     律速させないため。連続して綺麗に引けた最大の番号を choice prompt で選び、
     ``FillSpeedSweep.speed_at(index)`` で ``max_fill_speed`` を確定する。
     """
-    layout = _line_layout(ctx)
     speed_min = float(ctx.params["speed_min"])
     speed_max = float(ctx.params["speed_max"])
     divisions = max(1, int(ctx.params["speed_divisions"]))
@@ -1523,9 +1536,6 @@ def _calibrate_max_fill_speed(
         ctx.machine.paste_dispenser.nozzle_diameter
         * ctx.machine.paste_dispenser.bead_width_factor
     )
-    # 実塗布同等の総量。q = total_amount / line_length（実効単位長さ量）は
-    # FillSequence 側が rate から逆算するため、ここでは move 速度を直接渡す。
-    total_amount = ul_per_mm2 * slot_area(layout.line_length, bead_width)
 
     speeds = fill_speed_schedule(speed_min, speed_max, divisions)
     if not speeds:
@@ -1534,6 +1544,11 @@ def _calibrate_max_fill_speed(
             "③ をスキップします"
         )
         return results
+    # 掃引点ごとに専用の線位置を確保する（line_count に関係なく重ね書きしない）
+    layout = _line_layout(ctx, line_count=len(speeds))
+    # 実塗布同等の総量。q = total_amount / line_length（実効単位長さ量）は
+    # FillSequence 側が rate から逆算するため、ここでは move 速度を直接渡す。
+    total_amount = ul_per_mm2 * slot_area(layout.line_length, bead_width)
 
     sweep = FillSpeedSweep(speeds=tuple(speeds))
     # baseline まで引き戻してから引き始める（draw_line が retract を内包するので線間は不要）
@@ -1541,7 +1556,7 @@ def _calibrate_max_fill_speed(
     for index, speed in enumerate(speeds):
         ctx.progress("③ max_fill_speed: 線引き", 100.0 * index / len(speeds))
         ctx.checkpoint()
-        start, end = layout.line(index % layout.line_count)
+        start, end = layout.line(index)
         actual = calib.applicator.draw_line(
             start, end, amount=total_amount, max_fill_speed=speed, rate_cap=math.inf
         )
