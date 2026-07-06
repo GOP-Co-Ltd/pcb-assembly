@@ -9,6 +9,7 @@ from shapely import Polygon
 
 from pcbasm import gcode
 from pcbasm.config import (
+    DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR,
     DEFAULT_AUTO_LINE_ASPECT_RATIO,
     DispenseMode,
     PasteDispenser as PasteDispenserConfig,
@@ -75,6 +76,7 @@ class PasteApplicator:
         lift_height: float = 2.0,
         dispense_mode: DispenseMode = "auto",
         auto_line_aspect_ratio: float = DEFAULT_AUTO_LINE_ASPECT_RATIO,
+        auto_area_short_side_factor: float = DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR,
         prime_extra_delay: float = 0.0,
         bead_width_factor: float = 1.0,
         overlap: float = 0.0,
@@ -99,6 +101,7 @@ class PasteApplicator:
             lift_height: 塗布後の上昇高さ [mm]
             dispense_mode: 塗布方式 auto / dot / line / area
             auto_line_aspect_ratio: Auto 時に線塗布へ切り替える縦横比
+            auto_area_short_side_factor: Auto 時に面塗布へ切り替える短辺のノズル径倍率
             prime_extra_delay: プライム後の追加遅延 [sec]（デフォルト: 0.0）
             bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
             overlap: ジグザグ行間オーバーラップ [0, 1)
@@ -125,6 +128,11 @@ class PasteApplicator:
                 "auto_line_aspect_ratioは1.0より大きい必要があります: "
                 f"{auto_line_aspect_ratio}"
             )
+        if auto_area_short_side_factor <= 0:
+            raise ValueError(
+                "auto_area_short_side_factorは正の値である必要があります: "
+                f"{auto_area_short_side_factor}"
+            )
 
         self._klipper = klipper
         self._paste_dispenser = paste_dispenser
@@ -138,6 +146,7 @@ class PasteApplicator:
         self._paste_height: PasteHeight = paste_height
         self._dispense_mode: DispenseMode = dispense_mode
         self._auto_line_aspect_ratio = auto_line_aspect_ratio
+        self._auto_area_short_side_factor = auto_area_short_side_factor
         self._retraction = retraction
         self._retraction_rate = retraction_rate
         self._retraction_accel_factor = retraction_accel_factor
@@ -189,6 +198,7 @@ class PasteApplicator:
             lift_height=lift_height,
             dispense_mode=config.dispense_mode,
             auto_line_aspect_ratio=config.auto_line_aspect_ratio,
+            auto_area_short_side_factor=config.auto_area_short_side_factor,
             prime_extra_delay=config.prime_extra_delay,
             bead_width_factor=config.bead_width_factor,
             overlap=config.overlap,
@@ -443,6 +453,7 @@ class PasteApplicator:
             nozzle_diameter=self._nozzle_diameter,
             dispense_mode=dispense_mode,
             auto_line_aspect_ratio=self._auto_line_aspect_ratio,
+            auto_area_short_side_factor=self._auto_area_short_side_factor,
             bead_width_factor=bead_width_factor,
             overlap=overlap,
             boundary_margin=boundary_margin,

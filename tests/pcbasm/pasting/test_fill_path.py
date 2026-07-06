@@ -30,6 +30,9 @@ from pcbasm.pasting.fill_path import (
 # ジグザグ端点が外周に乗るため、境界一致を covers が拾えるよう微小に膨らませる。
 _EPS = 1e-6
 _AUTO_LINE_ASPECT_RATIO = 1.618
+_AUTO_AREA_SHORT_SIDE_FACTOR = 3.0
+# aspect(line/dot)分岐だけを検証したいとき、面塗布分岐を無効化する大きい倍率。
+_AREA_DISABLED_FACTOR = 100.0
 
 
 def build_paste_fill_path(
@@ -40,6 +43,7 @@ def build_paste_fill_path(
     """既存の面塗布契約テスト用に新 API の必須引数を明示する。"""
     kwargs.setdefault("dispense_mode", "area")
     kwargs.setdefault("auto_line_aspect_ratio", _AUTO_LINE_ASPECT_RATIO)
+    kwargs.setdefault("auto_area_short_side_factor", _AUTO_AREA_SHORT_SIDE_FACTOR)
     return _build_paste_fill_path(polygon, nozzle_diameter, **kwargs)
 
 
@@ -202,6 +206,7 @@ class TestDispenseModes:
             nozzle_diameter=1.0,
             dispense_mode="dot",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
         )
 
         assert plan.dispense_mode == "dot"
@@ -214,6 +219,7 @@ class TestDispenseModes:
             nozzle_diameter=0.5,
             dispense_mode="line",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
         )
 
         assert plan.dispense_mode == "line"
@@ -226,12 +232,14 @@ class TestDispenseModes:
             nozzle_diameter=1.0,
             dispense_mode="area",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
         )
         dot_plan = build_paste_fill_plan(
             _rectangle(0.2, 0.2),
             nozzle_diameter=1.0,
             dispense_mode="area",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
         )
 
         assert line_plan.dispense_mode == "line"
@@ -247,6 +255,7 @@ class TestDispenseModes:
             nozzle_diameter=0.34,
             dispense_mode="auto",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AREA_DISABLED_FACTOR,
         )
 
         assert plan.dispense_mode == "line"
@@ -265,6 +274,7 @@ class TestDispenseModes:
             nozzle_diameter=0.34,
             dispense_mode="auto",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AREA_DISABLED_FACTOR,
         )
 
         assert plan.dispense_mode == expected_mode
@@ -275,9 +285,146 @@ class TestDispenseModes:
             nozzle_diameter=0.34,
             dispense_mode="auto",
             auto_line_aspect_ratio=2.0,
+            auto_area_short_side_factor=_AREA_DISABLED_FACTOR,
         )
 
         assert plan.dispense_mode == "dot"
+
+    def test_auto_large_square_triggers_area(self):
+        # 短辺が閾値 nozzle*factor を十分上回る大正方形（従来は dot だった動機ケース）
+        nozzle_diameter = 0.34
+        factor = 3.0
+        side = nozzle_diameter * factor * 3.0  # 閾値の 3 倍 → 確実に area
+
+        plan = build_paste_fill_plan(
+            _rectangle(side, side),
+            nozzle_diameter=nozzle_diameter,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=factor,
+        )
+
+        assert plan.dispense_mode == "area"
+
+    def test_auto_wide_rectangle_prefers_area_over_line(self):
+        # aspect も短辺閾値も両方満たす矩形。area を line より優先する（順序の要）。
+        nozzle_diameter = 0.34
+        factor = 3.0
+        threshold = nozzle_diameter * factor
+        short = threshold * 1.5  # 短辺 > 閾値 → area 条件成立
+        long = short * 5.0  # aspect 5 > 1.618 → line 条件も成立するが area が勝つ
+
+        plan = build_paste_fill_plan(
+            _rectangle(short, long),
+            nozzle_diameter=nozzle_diameter,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=factor,
+        )
+
+        assert plan.dispense_mode == "area"
+
+    @pytest.mark.parametrize(
+        ("short_delta", "expected_mode"),
+        [
+            (0.1, "area"),  # 閾値の直上 → area
+            (-0.1, "line"),  # 閾値の直下 → line
+            (0.0, "line"),  # ちょうど閾値 → 厳密 > なので area にしない
+        ],
+    )
+    def test_auto_short_side_boundary(self, short_delta, expected_mode):
+        nozzle_diameter = 0.34
+        factor = 3.0
+        threshold = nozzle_diameter * factor
+        short = threshold + short_delta
+        long = (
+            threshold * 10.0
+        )  # aspect を十分大きく保ち line/area の切り分けを短辺に限定
+
+        plan = build_paste_fill_plan(
+            _rectangle(short, long),
+            nozzle_diameter=nozzle_diameter,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=factor,
+        )
+
+        assert plan.dispense_mode == expected_mode
+
+    def test_auto_narrow_elongated_still_line(self):
+        # 短辺 < 閾値 かつ aspect > 縦横比 → 従来どおり line
+        nozzle_diameter = 0.34
+        factor = 3.0
+        threshold = nozzle_diameter * factor
+        short = threshold * 0.5  # 閾値未満 → area にはならない
+        long = short * 8.0  # aspect 8 > 1.618 → line
+
+        plan = build_paste_fill_plan(
+            _rectangle(short, long),
+            nozzle_diameter=nozzle_diameter,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=factor,
+        )
+
+        assert plan.dispense_mode == "line"
+
+    def test_auto_tiny_still_dot(self):
+        # 短辺 < 閾値 かつ aspect < 縦横比 → 従来どおり dot
+        nozzle_diameter = 0.34
+        factor = 3.0
+        threshold = nozzle_diameter * factor
+        short = threshold * 0.5
+        long = short * 1.2  # aspect 1.2 < 1.618 → dot
+
+        plan = build_paste_fill_plan(
+            _rectangle(short, long),
+            nozzle_diameter=nozzle_diameter,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=factor,
+        )
+
+        assert plan.dispense_mode == "dot"
+
+    def test_auto_area_factor_is_the_knob(self):
+        # 同一パッド・同一 aspect で factor だけを振ると area/line が切り替わる。
+        nozzle_diameter = 0.34
+        short = 1.4
+        long = short * 6.0  # aspect 6 > 1.618（factor 大時は area でなく line へ）
+        polygon = _rectangle(short, long)
+
+        area_plan = build_paste_fill_plan(
+            polygon,
+            nozzle_diameter=nozzle_diameter,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=3.0,  # 閾値 1.02 < 1.4 → area
+        )
+        line_plan = build_paste_fill_plan(
+            polygon,
+            nozzle_diameter=nozzle_diameter,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=5.0,  # 閾値 1.70 > 1.4 → area にならず line
+        )
+
+        assert area_plan.dispense_mode == "area"
+        assert line_plan.dispense_mode == "line"
+
+    def test_auto_degenerate_sliver_resolves_without_error(self):
+        # ほぼ退化した極薄スライバでも auto がゼロ除算せず解決する（防御的契約）。
+        sliver = Polygon([(0, 0), (5, 0), (5, 1e-9), (0, 1e-9)])
+
+        plan = build_paste_fill_plan(
+            sliver,
+            nozzle_diameter=0.34,
+            dispense_mode="auto",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+        )
+
+        assert plan.dispense_mode in {"dot", "line", "area"}
 
 
 class TestAreaFill:
@@ -609,6 +756,20 @@ class TestInvalidInput:
                 nozzle_diameter=1.0,
                 dispense_mode="auto",
                 auto_line_aspect_ratio=1.0,
+                auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            )
+
+    @pytest.mark.parametrize("factor", [0.0, -0.5, -1.0])
+    def test_auto_area_short_side_factor_must_be_positive(self, factor):
+        polygon = _rectangle(10.0, 6.0)
+
+        with pytest.raises(ValueError, match="auto_area_short_side_factor"):
+            build_paste_fill_plan(
+                polygon,
+                nozzle_diameter=1.0,
+                dispense_mode="auto",
+                auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+                auto_area_short_side_factor=factor,
             )
 
     def test_unknown_dispense_mode_raises(self):
@@ -620,6 +781,7 @@ class TestInvalidInput:
                 nozzle_diameter=1.0,
                 dispense_mode=cast(Any, "spray"),
                 auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+                auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
             )
 
     def test_empty_polygon_returns_empty_list(self):
