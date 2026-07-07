@@ -50,7 +50,8 @@
     </div>
   </header>
 
-  <form id="machine-settings-form" data-endpoint="/api/settings/machine">
+  <form id="machine-settings-form" data-machine-settings
+        data-endpoint="/api/settings/machine">
     <div class="settings-grid">
     {{ settings_groups(machine_groups, "ms") }}
     </div>

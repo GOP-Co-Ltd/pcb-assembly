@@ -315,6 +315,22 @@ class TestPastingJobPages:
         # data-job-name 等でページのジョブ名が宣言される
         assert feature in response.text
 
+    def test_paste_solder_renders_auto_threshold_inputs(self, client: TestClient):
+        """はんだ塗布ページに auto しきい値（線塗布縦横比・面塗布短辺倍率）の 即保存フォームが machine
+        設定の現在値付きで出る."""
+        text = client.get("/pasting/paste_solder").text
+
+        # machine 全体設定の即保存フォーム（settings.js が data-machine-settings に bind）
+        assert "paste-auto-thresholds" in text
+        assert "data-machine-settings" in text
+        assert 'data-endpoint="/api/settings/machine"' in text
+        assert "settings.js" in text
+        # 2 フィールドが name（＝設定キー）とラベル付きで描画される
+        assert "paste_dispenser.auto_line_aspect_ratio" in text
+        assert "paste_dispenser.auto_area_short_side_factor" in text
+        assert "Auto線塗布しきい縦横比" in text
+        assert "Auto面塗布しきい短辺倍率" in text
+
     @pytest.mark.parametrize("feature", PASTING_PREVIEW_FEATURES)
     def test_camera_jobs_render_preview_pane_without_overlay_switch(
         self, client: TestClient, feature: str
