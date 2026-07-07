@@ -30,7 +30,7 @@ make setup
 
 ## WebUI
 
-装置をブラウザから操作するUI（port 8080）。仕様は [`docs/webui/specification.md`](docs/webui/specification.md)。
+装置をブラウザから操作するUI（port 8080）。
 
 ```sh
 make webui      # 起動
