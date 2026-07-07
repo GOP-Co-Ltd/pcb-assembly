@@ -329,7 +329,7 @@ class TestTransformApplication:
 
 
 class TestAutoPasteHeight:
-    """paste_height=auto の mode 別高さ計算。"""
+    """paste_height=auto は dispense_mode によらず ul_per_mm2（膜厚 [mm]）を高さに使う。"""
 
     def _applicator(
         self,
@@ -340,7 +340,6 @@ class TestAutoPasteHeight:
         nozzle_diameter: float,
         dispense_mode: DispenseMode,
         ul_per_mm2: float = 0.05,
-        bead_width_factor: float = 1.0,
     ) -> PasteApplicator:
         return PasteApplicator(
             klipper=mock_klipper,
@@ -356,7 +355,6 @@ class TestAutoPasteHeight:
             retraction_accel_factor=2.0,
             paste_height="auto",
             dispense_mode=dispense_mode,
-            bead_width_factor=bead_width_factor,
             lift_height=5.0,
         )
 
@@ -364,72 +362,34 @@ class TestAutoPasteHeight:
         assert len(mock_stage.move.call_args_list) >= 2
         return mock_stage.move.call_args_list[1].kwargs["z"]
 
-    def test_area_uses_ul_per_mm2_as_height(
-        self, mock_klipper, mock_paste_dispenser, mock_stage
+    @pytest.mark.parametrize(
+        ("dispense_mode", "polygon"),
+        [
+            ("area", box(0, 0, 5, 4)),
+            ("line", box(0, 0, 1, 4)),
+            ("dot", box(0, 0, 1, 1)),
+        ],
+    )
+    def test_auto_uses_ul_per_mm2_as_height(
+        self,
+        mock_klipper,
+        mock_paste_dispenser,
+        mock_stage,
+        dispense_mode: DispenseMode,
+        polygon,
     ):
         applicator = self._applicator(
             mock_klipper,
             mock_paste_dispenser,
             mock_stage,
             nozzle_diameter=0.5,
-            dispense_mode="area",
+            dispense_mode=dispense_mode,
             ul_per_mm2=0.08,
         )
 
-        applicator.apply([box(0, 0, 5, 4)])
+        applicator.apply([polygon])
 
         assert self._down_z(mock_stage) == pytest.approx(0.08)
-
-    @pytest.mark.parametrize("dispense_mode", ["line", "auto"])
-    def test_line_height_uses_amount_over_slot_area(
-        self,
-        mock_klipper,
-        mock_paste_dispenser,
-        mock_stage,
-        dispense_mode: DispenseMode,
-    ):
-        nozzle_diameter = 0.5
-        bead_width_factor = 1.2
-        ul_per_mm2 = 0.05
-        polygon = box(0, 0, 1, 4)
-        applicator = self._applicator(
-            mock_klipper,
-            mock_paste_dispenser,
-            mock_stage,
-            nozzle_diameter=nozzle_diameter,
-            dispense_mode=dispense_mode,
-            ul_per_mm2=ul_per_mm2,
-            bead_width_factor=bead_width_factor,
-        )
-
-        applicator.apply([polygon])
-
-        amount = polygon.area * ul_per_mm2
-        bead_width = nozzle_diameter * bead_width_factor
-        path_length = 4.0 - bead_width
-        slot_area = path_length * bead_width + math.pi * (bead_width / 2.0) ** 2
-        assert self._down_z(mock_stage) == pytest.approx(amount / slot_area)
-
-    def test_dot_height_uses_amount_over_nozzle_area(
-        self, mock_klipper, mock_paste_dispenser, mock_stage
-    ):
-        nozzle_diameter = 0.5
-        ul_per_mm2 = 0.05
-        polygon = box(0, 0, 1, 1)
-        applicator = self._applicator(
-            mock_klipper,
-            mock_paste_dispenser,
-            mock_stage,
-            nozzle_diameter=nozzle_diameter,
-            dispense_mode="dot",
-            ul_per_mm2=ul_per_mm2,
-        )
-
-        applicator.apply([polygon])
-
-        amount = polygon.area * ul_per_mm2
-        nozzle_area = 3.141592653589793 * (nozzle_diameter / 2.0) ** 2
-        assert self._down_z(mock_stage) == pytest.approx(amount / nozzle_area)
 
 
 class TestInitValidation:
@@ -722,17 +682,15 @@ class TestDrawLine:
         assert speed is not None
         assert speed.resolve(100.0) == pytest.approx(8.0)
 
-    def test_auto_height_uses_slot_area(
+    def test_auto_height_uses_ul_per_mm2(
         self, mock_klipper, mock_paste_dispenser, mock_stage
     ):
-        # paste_height="auto" の draw_line は line モードのスロット近似で高さ算出。
-        nozzle_diameter = 0.5
-        bead_width_factor = 1.2
+        # paste_height="auto" の draw_line は ul_per_mm2（膜厚 [mm]）を下降 Z に使う。
         applicator = PasteApplicator(
             klipper=mock_klipper,
             paste_dispenser=mock_paste_dispenser,
             stage=mock_stage,
-            nozzle_diameter=nozzle_diameter,
+            nozzle_diameter=0.5,
             max_fill_speed=2.0,
             max_dispense_rate=5.0,
             dispense_accel=10.0,
@@ -741,18 +699,13 @@ class TestDrawLine:
             retraction_rate=10.0,
             retraction_accel_factor=2.0,
             paste_height="auto",
-            bead_width_factor=bead_width_factor,
             lift_height=5.0,
         )
-        amount = 1.5
-        length = 10.0
 
-        applicator.draw_line(Point2d(0.0, 0.0), Point2d(length, 0.0), amount=amount)
+        applicator.draw_line(Point2d(0.0, 0.0), Point2d(10.0, 0.0), amount=1.5)
 
-        bead_width = nozzle_diameter * bead_width_factor
-        slot_area = length * bead_width + math.pi * (bead_width / 2.0) ** 2
         down_move = mock_stage.move.call_args_list[1].kwargs
-        assert down_move["z"] == pytest.approx(amount / slot_area)
+        assert down_move["z"] == pytest.approx(0.05)
 
 
 class TestDepositAt:
