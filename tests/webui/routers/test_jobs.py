@@ -121,6 +121,7 @@ def _register_runtime_editable(
                     default=0.0,
                     unit="mm",
                     runtime_editable=True,
+                    minimum=0.0,
                 ),
             ),
             persisted_params=("line_length",),

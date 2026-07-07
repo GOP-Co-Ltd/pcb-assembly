@@ -219,6 +219,7 @@ _RUNTIME_PARAMS = (
         default=0.0,
         unit="mm",
         runtime_editable=True,
+        minimum=0.0,
     ),
 )
 

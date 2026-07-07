@@ -372,6 +372,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     runtime_editable=True,
                 ),
                 # 計量退避（実行中変更可）。退避 Z = max(z_min, z_max - offset)。
+                # 負 offset は退避 Z がはみ出るため minimum=0.0 で拒否する。
                 ParamSpec(
                     "removal_z_offset",
                     "計量退避 Z オフセット",
@@ -379,6 +380,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     DISPENSE_CALIBRATION_DEFAULT_REMOVAL_Z_OFFSET,
                     unit="mm",
                     runtime_editable=True,
+                    minimum=0.0,
                 ),
                 # 比重は machine.toml の solder_paste_density を参照（フォーム入力なし）
                 # ② max_dispense_rate（吐出効率の落ち検出・実行中変更可）

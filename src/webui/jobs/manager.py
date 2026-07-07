@@ -80,8 +80,8 @@ class JobStatus(enum.StrEnum):
 class JobRecord:
     """直近 1 件のジョブ状態（mutable、JobManager がロック保護で更新する）.
 
-    更新系メソッド（set_* / append_log / consume_apply）は JobManager 内部 専用。外部からは
-    read プロパティのみ参照する。
+    更新系メソッド（set_* / finish / append_log / consume_apply）は JobManager 内部
+    専用。外部からは read プロパティのみ参照する。
     """
 
     def __init__(
@@ -170,18 +170,23 @@ class JobRecord:
         with self._lock:
             self._status = status
 
+    def finish(
+        self,
+        status: JobStatus,
+        *,
+        error: str | None = None,
+        result: JobResult | None = None,
+    ) -> None:
+        """終端ステータス・error・result を 1 ロックで原子的に確定する."""
+        with self._lock:
+            self._status = status
+            self._error = error
+            self._result = result
+
     def update_params(self, updates: Mapping[str, ParamValue]) -> None:
         """実行中編集をレコードへ反映する（GET /jobs/current が新値を映す）."""
         with self._lock:
             self._params.update(updates)
-
-    def set_error(self, error: str) -> None:
-        with self._lock:
-            self._error = error
-
-    def set_result(self, result: JobResult | None) -> None:
-        with self._lock:
-            self._result = result
 
     def append_log(self, line: str) -> None:
         with self._lock:
@@ -230,19 +235,14 @@ class _JobRuntime:
         self._apply_settings = apply_settings
         self._pending_lock = threading.Lock()
         self._pending: _PendingPrompt | None = None
-        # 実行中パラメータ編集のライブストア（コマンドキュー非経由で適用）。
-        self._params_lock = threading.Lock()
-        self._params: dict[str, ParamValue] = dict(record.params)
 
     def live_params(self) -> Mapping[str, ParamValue]:
-        """現在のパラメータのスナップショット（torn read 防止のコピー）."""
-        with self._params_lock:
-            return dict(self._params)
+        """現在のパラメータのスナップショット（record が唯一のストア）."""
+        return self.record.params
 
     def update_params(self, updates: Mapping[str, ParamValue]) -> None:
-        """ライブストアへ patch を適用する（prompt / sleep 待機中でも反映）."""
-        with self._params_lock:
-            self._params.update(updates)
+        """Record へ patch を適用する（prompt / sleep 待機中でも反映）."""
+        self.record.update_params(updates)
 
     def publish_status(self) -> None:
         """job_status イベントを発行する（中身は WS 送信時に最新化される）."""
@@ -534,7 +534,6 @@ class JobManager:
         definition = self._catalog.get(record.name)
         validated = self._catalog.validate_runtime_params(definition, values)
         runtime.update_params(validated)
-        record.update_params(validated)
         if persist:
             persisted = {
                 key: validated[key]
@@ -649,15 +648,13 @@ class JobManager:
             runtime.publish_status()
             try:
                 result = definition.run(context)
-                record.set_result(result)
-                record.set_status(JobStatus.SUCCEEDED)
+                record.finish(JobStatus.SUCCEEDED, result=result)
             except JobAborted:
-                record.set_status(JobStatus.ABORTED)
+                record.finish(JobStatus.ABORTED)
             except Exception as exc:
-                record.set_error(str(exc) or type(exc).__name__)
                 for line in traceback.format_exc().splitlines():
                     runtime.log(line)
-                record.set_status(JobStatus.FAILED)
+                record.finish(JobStatus.FAILED, error=str(exc) or type(exc).__name__)
             # 装置を動かすジョブは終了時に best-effort で基板を差し出す
             if definition.uses_machine:
                 self._present_machine(runtime, context)
