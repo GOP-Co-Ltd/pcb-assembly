@@ -15,7 +15,8 @@ from __future__ import annotations
 import json
 import shutil
 import time
-from typing import Any
+from html.parser import HTMLParser
+from typing import Any, override
 
 import httpx
 from playwright.sync_api import expect
@@ -23,6 +24,7 @@ from websockets.sync.client import connect
 
 from tests.e2e.conftest import LiveServer
 from tests.webui.conftest import COPPER_PCB_FIXTURE, decode_jpeg, jpeg_payload
+from webui.routers.pasting import ResolvedSettings
 
 _TERMINAL = ("succeeded", "failed", "aborted")
 _HTTP_TIMEOUT = 10.0
@@ -781,3 +783,66 @@ class TestAirPumpToggleOverRealHttp:
             live_server.settings.configs_root / "kurousagi" / "machine.toml"
         ).read_text()
         assert "air_pump_enabled = false" in machine_toml
+
+
+class _PadTableHeaderCounter(HTMLParser):
+    """Id="pad-table" の thead 内 <th> 個数を数える stdlib パーサ.
+
+    BeautifulSoup 等の HTML パーサは依存に無いため、stdlib の html.parser を使う。 pad-
+    table の thead はサーバーレンダリングの静的 HTML（tbody だけ JS が埋める）
+    なので、ページ取得だけでヘッダ列数を数えられる。
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._in_pad_table = False
+        self._in_thead = False
+        self.th_count = 0
+
+    @override
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attr = dict(attrs)
+        if tag == "table" and attr.get("id") == "pad-table":
+            self._in_pad_table = True
+        elif tag == "thead" and self._in_pad_table:
+            self._in_thead = True
+        elif tag == "th" and self._in_thead:
+            self.th_count += 1
+
+    @override
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "thead" and self._in_pad_table:
+            self._in_thead = False
+        elif tag == "table" and self._in_pad_table:
+            self._in_pad_table = False
+
+
+def _count_pad_table_header_columns(html: str) -> int:
+    """HTML から id="pad-table" の thead 内 <th> 個数を返す."""
+    counter = _PadTableHeaderCounter()
+    counter.feed(html)
+    return counter.th_count
+
+
+class TestPadTableHeaderOverRealHttp:
+    """はんだ塗布ページの pad-table ヘッダ列数がバックエンドモデルと構造整合する."""
+
+    def test_pad_table_header_column_count_matches_resolved_settings(
+        self, live_server: LiveServer
+    ):
+        # はんだ塗布ページの静的 HTML を実サーバーから取得する（PCB 未選択でも
+        # thead は常にレンダリングされる）
+        page = httpx.get(
+            f"{live_server.base_url}/pasting/paste_solder", timeout=_HTTP_TIMEOUT
+        )
+        assert page.status_code == 200
+
+        header_columns = _count_pad_table_header_columns(page.text)
+
+        # テーブルは「ノード列 + 有効(enabled)列 + 各設定フィールド列」で構成される。
+        # ResolvedSettings は enabled を含む解決済み設定の全フィールドを持つので、
+        # 期待 <th> 数は ノード列(1) + len(ResolvedSettings.model_fields)。数値を
+        # ハードコードせずモデルから導出することで、将来フィールドが増減したときの
+        # ヘッダ更新漏れ（本バグと同種のヘッダ/ボディ列ずれ）を検出できる。
+        expected_columns = 1 + len(ResolvedSettings.model_fields)
+        assert header_columns == expected_columns
