@@ -98,6 +98,14 @@ class DescendantSummary(BaseModel):
     count: int = 0  # 子孫 override の総数
 
 
+class OwnSummary(BaseModel):
+    """ノード自身の明示 override の集計（UI の行バッジ表示用）."""
+
+    enabled: bool  # enabled を明示しているか
+    fields: list[str]  # override された field（UI 表示順）
+    count: int  # fields + enabled の総数
+
+
 class HierNodeInfo(BaseModel):
     """階層ツリーの 1 ノード（構造 + 解決値・own override・子孫集計）."""
 
@@ -106,6 +114,7 @@ class HierNodeInfo(BaseModel):
     label: str
     resolved: ResolvedSettings  # このノードに解決される確定値（enabled 含む）
     own_override: NodeOverrideInfo  # このノードの明示 override（疎）
+    own_summary: OwnSummary  # own_override の表示用集計
     descendant_summary: DescendantSummary  # 子孫ノードの override 集計
     children: list[HierNodeInfo]
 
@@ -258,6 +267,28 @@ def resolved_settings(resolved: ResolvedPaste) -> ResolvedSettings:
     return ResolvedSettings(**attrs.asdict(resolved))
 
 
+# own_summary.fields の表示順。JS（pad_editor/model.js の FIELDS）の列順と
+# 一致させる契約（PASTE_OVERRIDE_FIELDS とは並びが異なる）。
+UI_FIELD_ORDER: tuple[str, ...] = (
+    "dispense_mode",
+    "ul_per_mm2",
+    "paste_height",
+    "prime_extra_delay",
+    "bead_width_factor",
+    "overlap",
+    "boundary_margin",
+)
+
+
+def own_override_summary(own: NodeOverrideInfo) -> OwnSummary:
+    """own_override から行バッジ表示用の集計を算出する（継承は数えない）."""
+    enabled = own.enabled is not None
+    fields = [field for field in UI_FIELD_ORDER if field in own.values]
+    return OwnSummary(
+        enabled=enabled, fields=fields, count=len(fields) + (1 if enabled else 0)
+    )
+
+
 def tree(
     node: PadHierarchyNode,
     model: PasteSettingsModel,
@@ -274,6 +305,7 @@ def tree(
         label=node.label,
         resolved=resolved_settings(resolved[node.key]),
         own_override=own,
+        own_summary=own_override_summary(own),
         descendant_summary=descendant_summary(node, model),
         children=[tree(child, model, resolved) for child in node.children],
     )

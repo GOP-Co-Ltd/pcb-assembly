@@ -28,6 +28,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from pcbasm.pasting import PASTE_OVERRIDE_FIELDS
+from webui.routers.pasting_view import UI_FIELD_ORDER
 from webui.settings import Settings
 from webui.state import AppState
 
@@ -394,6 +396,50 @@ class TestTreeNodeResolution:
 
         assert own["enabled"] is False
         assert own["values"] == {}
+
+    def test_own_summary_empty_without_overrides(self, selected_client: TestClient):
+        config = _get_config(selected_client)
+        root = config["tree"]
+
+        assert root["own_summary"] == {"enabled": False, "fields": [], "count": 0}
+
+    def test_own_summary_counts_enabled_and_fields_in_ui_order(
+        self, selected_client: TestClient
+    ):
+        # paste_height → ul_per_mm2 の順で設定しても fields は UI 表示順で返る。
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"paste_height": 0.2}},
+        )
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"ul_per_mm2": 0.5}},
+        )
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "enabled": False},
+        )
+
+        config = _get_config(selected_client)
+        own_summary = _node_by_id(config["tree"], "L2:U1")["own_summary"]
+
+        assert own_summary["enabled"] is True
+        # JS（pad_editor/model.js の FIELDS）の列順: ul_per_mm2 が paste_height に先行
+        assert own_summary["fields"] == ["ul_per_mm2", "paste_height"]
+        assert own_summary["count"] == 3
+
+    def test_own_summary_field_order_pins_js_fields_contract(self):
+        """UI_FIELD_ORDER は JS pad_editor/model.js の FIELDS と同順・同集合."""
+        assert UI_FIELD_ORDER == (
+            "dispense_mode",
+            "ul_per_mm2",
+            "paste_height",
+            "prime_extra_delay",
+            "bead_width_factor",
+            "overlap",
+            "boundary_margin",
+        )
+        assert set(UI_FIELD_ORDER) == set(PASTE_OVERRIDE_FIELDS)
 
     def test_descendant_summary_empty_without_descendant_overrides(
         self, selected_client: TestClient

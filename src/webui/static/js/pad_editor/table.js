@@ -48,7 +48,8 @@ function buildRow(state, actions, node, depth) {
   tr.dataset.testid = "pad-tree-row";
   const enabled = node.resolved.enabled;
   const own = node.own_override;
-  const ownSummary = ownOverrideSummary(own);
+  // own_summary はサーバ算出（own_override は isOverride 判定・select 初期値用に残る）
+  const ownSummary = node.own_summary;
   const descendantSummary = node.descendant_summary;
   if (ownSummary.count > 0) {
     tr.classList.add("pad-row-own-override");
@@ -395,14 +396,6 @@ function descendantOverrideTitle(summary) {
     parts.push(overrideFieldsTitle(summary.fields));
   }
   return `子孫 ${summary.node_count} ノードに override: ${parts.join("、")}`;
-}
-
-// own_override（サーバの疎 override）から表示用の小さな集計を導出する。
-// 解決（継承）は含めず、ノード自身の明示 override のみを数える。
-function ownOverrideSummary(own) {
-  const enabled = own.enabled != null;
-  const fields = FIELDS.filter((field) => own.values?.[field] !== undefined);
-  return { enabled, fields, count: fields.length + (enabled ? 1 : 0) };
 }
 
 function appendOverrideBadge(parent, label, count, title, testid, scope) {

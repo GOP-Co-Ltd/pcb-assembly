@@ -171,6 +171,8 @@ import {
   function selectedInitialPurgePad() {
     if (state.selected.size !== 1) return null;
     const pad = padById([...state.selected][0]);
+    // Top 面制約の真実はサーバ（PATCH initial-purge が Layer.TOP を検証し 400）。
+    // ここはボタン活性の描画ゲートとして同じ規則を写している。
     return pad?.layer === "Top" ? pad : null;
   }
 

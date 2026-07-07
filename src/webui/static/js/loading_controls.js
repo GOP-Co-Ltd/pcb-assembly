@@ -61,30 +61,19 @@
   bindLoadingParamSync();
   bindMassCalibration();
 
+  // 値の検証はサーバ（parse_loading_command）に一本化。不正値は
+  // InvalidLoadingCommand としてジョブコンソールのログに理由が出る。
   function sendAction(type) {
     const command = { type };
     if (type === "extrude" || type === "suck") {
-      const amount = Number(amountInput.value);
-      if (!(amount > 0)) {
-        toast("量には正の数値を入力してください", false);
-        return;
-      }
-      command.amount = amount;
+      command.amount = Number(amountInput.value);
     } else if (type === "extrude_rotations" || type === "suck_rotations") {
-      const rotations = Number(rotationsInput.value);
-      const rate = Number(rateInput.value);
-      const accel = Number(accelInput.value);
-      if (!(rotations > 0 && rate > 0 && accel > 0)) {
-        toast("回転数・速度・加速度には正の数値を入力してください", false);
-        return;
-      }
-      command.rotations = rotations;
-      command.rate = rate;
-      command.accel = accel;
+      command.rotations = Number(rotationsInput.value);
+      command.rate = Number(rateInput.value);
+      command.accel = Number(accelInput.value);
       if (type === "extrude_rotations") {
-        // 押出に引き戻しを 1 セットで付随（負値・非数は 0＝引き戻しなし）。
-        const retract = Number(retractRotationsInput.value);
-        command.retract_rotations = retract >= 0 ? retract : 0;
+        // 押出に引き戻しを 1 セットで付随
+        command.retract_rotations = Number(retractRotationsInput.value);
       }
     }
     jobs.sendCommandOrToast(command);
@@ -193,13 +182,14 @@
     updateApplyButtons();
   }
 
+  // サーバ（estimate_mass_flow）が算出不能な値を null で返す契約に依存する。
   function updateApplyButtons() {
-    setDisabled("lc-apply-rotations-per-ul", !(computed.rpu > 0));
-    setDisabled("lc-apply-dispense-rate", !(computed.rate > 0));
-    setDisabled("lc-apply-dispense-accel", !(computed.accel > 0));
+    setDisabled("lc-apply-rotations-per-ul", computed.rpu == null);
+    setDisabled("lc-apply-dispense-rate", computed.rate == null);
+    setDisabled("lc-apply-dispense-accel", computed.accel == null);
     setDisabled(
       "lc-apply-all",
-      !(computed.rpu > 0 && computed.rate > 0 && computed.accel > 0)
+      computed.rpu == null || computed.rate == null || computed.accel == null
     );
   }
 
@@ -218,8 +208,9 @@
   async function applyValues(valuesObject, buttonId) {
     const values = {};
     for (const [key, raw] of Object.entries(valuesObject)) {
-      if (!(raw > 0)) return;
-      values[key] = Number(raw.toFixed(6));
+      if (raw == null) return;
+      // サーバ算出値（丸め済み）を素通しで送る
+      values[key] = raw;
     }
     setDisabled(buttonId, true);
     try {
