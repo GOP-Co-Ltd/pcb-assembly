@@ -16,11 +16,6 @@ from webui.config_store import MACHINE_FIELDS, ConfigStore, UnknownFieldError
 FIXTURE = "test-fixture"
 
 
-@pytest.fixture
-def store(configs_root: Path) -> ConfigStore:
-    return ConfigStore(configs_root)
-
-
 class TestListMachines:
     """マシン列挙."""
 

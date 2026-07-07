@@ -12,9 +12,6 @@ prompt 2 回（confirm → number）に応答すると SUCCEEDED + apply ペイ�
 
 from __future__ import annotations
 
-import json
-import shutil
-import time
 from html.parser import HTMLParser
 from typing import Any, override
 
@@ -22,51 +19,20 @@ import httpx
 from playwright.sync_api import expect
 from websockets.sync.client import connect
 
-from tests.e2e.conftest import LiveServer
-from tests.webui.conftest import COPPER_PCB_FIXTURE, decode_jpeg, jpeg_payload
+from tests.e2e.conftest import (
+    TERMINAL as _TERMINAL,
+    LiveServer,
+    drive_job_demo as _drive_job_demo,
+    respond_prompt as _respond_prompt,
+    select_led_blinker as _select_led_blinker,
+    wait_first_prompt as _wait_first_prompt,
+    wait_machine_field as _wait_machine_field,
+)
+from tests.helpers import wait_until
+from tests.webui.conftest import decode_jpeg, jpeg_payload
 from webui.routers.pasting_view import ResolvedSettings
 
-_TERMINAL = ("succeeded", "failed", "aborted")
 _HTTP_TIMEOUT = 10.0
-_WS_TIMEOUT = 30.0
-
-
-def _respond_prompt(
-    ws: Any, prompt: dict[str, Any], answered: set[str], number_answer: float
-) -> None:
-    """Prompt（または job_status.pending_prompt）へ kind に応じて 1 度だけ応答する."""
-    prompt_id = prompt["id"]
-    if prompt_id in answered:
-        return
-    answer: bool | float = True if prompt["kind"] == "confirm" else number_answer
-    ws.send(
-        json.dumps({"type": "respond_prompt", "prompt_id": prompt_id, "answer": answer})
-    )
-    answered.add(prompt_id)
-
-
-def _drive_job_demo(
-    ws: Any, *, number_answer: float
-) -> tuple[dict[str, Any], set[str]]:
-    """WS イベントを受信駆動で処理し、終端 job_status とその間に観測した type 集合を返す.
-
-    prompt は confirm=True / number=number_answer で応答する。job_status の
-    pending_prompt 経由でも応答できるよう二重化し、prompt_id で重複応答を防ぐ。
-    """
-    answered: set[str] = set()
-    seen_types: set[str] = set()
-    while True:
-        event = json.loads(ws.recv(timeout=_WS_TIMEOUT))
-        seen_types.add(event["type"])
-        if event["type"] == "prompt":
-            _respond_prompt(ws, event["prompt"], answered, number_answer)
-        elif event["type"] == "job_status":
-            job = event["job"]
-            pending = job.get("pending_prompt")
-            if pending is not None:
-                _respond_prompt(ws, pending, answered, number_answer)
-            if job["status"] in _TERMINAL:
-                return job, seen_types
 
 
 def _read_mjpeg(base_url: str, path: str, boundary_count: int = 2) -> bytes:
@@ -85,18 +51,25 @@ def _read_mjpeg(base_url: str, path: str, boundary_count: int = 2) -> bytes:
     return data
 
 
+def _current_job(base_url: str) -> dict[str, Any] | None:
+    """GET /api/jobs/current の job（無ければ None）を返す."""
+    response = httpx.get(f"{base_url}/api/jobs/current", timeout=_HTTP_TIMEOUT)
+    assert response.status_code == 200
+    return response.json()["job"]
+
+
 def _wait_for_current_job(base_url: str, job_id: str) -> dict[str, Any]:
     """現在ジョブが終端するまで REST 経由で待つ."""
-    deadline = time.monotonic() + 60.0
-    while True:
-        response = httpx.get(f"{base_url}/api/jobs/current", timeout=_HTTP_TIMEOUT)
-        assert response.status_code == 200
-        job = response.json()["job"]
-        if job is not None and job["id"] == job_id and job["status"] in _TERMINAL:
-            return job
-        if time.monotonic() > deadline:
-            raise AssertionError(f"ジョブが終端しない: {job}")
-        time.sleep(0.05)
+    wait_until(
+        lambda: (job := _current_job(base_url)) is not None
+        and job["id"] == job_id
+        and job["status"] in _TERMINAL,
+        timeout=60.0,
+        interval=0.05,
+    )
+    job = _current_job(base_url)
+    assert job is not None
+    return job
 
 
 class TestHttpRoutes:
@@ -218,21 +191,6 @@ class TestJobLifecycleOverWebSocket:
         assert "canny_low = 77" in machine_toml
 
 
-def _wait_first_prompt(ws: Any) -> dict[str, Any]:
-    """最初の prompt イベントを受信して返す（WAITING_INPUT で停止した証跡）.
-
-    job_status の pending_prompt 経由でも捕捉できるよう二重化する。
-    """
-    while True:
-        event = json.loads(ws.recv(timeout=_WS_TIMEOUT))
-        if event["type"] == "prompt":
-            return event["prompt"]
-        if event["type"] == "job_status":
-            pending = event["job"].get("pending_prompt")
-            if pending is not None:
-                return pending
-
-
 class TestRuntimeParamUpdateOverWebSocket:
     """PUT /api/jobs/current/params の実 HTTP + WS 通し検証（job_demo 題材）.
 
@@ -343,16 +301,7 @@ class TestPromptDialogOverBrowser:
     def test_confirm_dialog_uses_custom_button_labels(
         self, live_server: LiveServer, browser_page
     ):
-        shutil.copy(
-            COPPER_PCB_FIXTURE,
-            live_server.settings.pcb_browse_root / "led_blinker.kicad_pcb",
-        )
-        select = httpx.put(
-            f"{live_server.base_url}/api/pcb-file",
-            json={"path": "led_blinker.kicad_pcb"},
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert select.status_code == 200, select.text
+        _select_led_blinker(live_server)
 
         browser_page.goto(
             f"{live_server.base_url}/pasting/height_plane",
@@ -376,16 +325,12 @@ class TestPromptDialogOverBrowser:
         assert no_button.inner_text() == "中止"
 
         no_button.click()
-        deadline = time.monotonic() + 10.0
-        while True:
-            current = httpx.get(
-                f"{live_server.base_url}/api/jobs/current", timeout=_HTTP_TIMEOUT
-            ).json()["job"]
-            if current is not None and current["status"] == "aborted":
-                break
-            if time.monotonic() > deadline:
-                raise AssertionError(f"height_plane が aborted にならない: {current}")
-            time.sleep(0.05)
+        wait_until(
+            lambda: (job := _current_job(live_server.base_url)) is not None
+            and job["status"] == "aborted",
+            timeout=10.0,
+            interval=0.05,
+        )
 
     def test_enter_key_submits_ok_instead_of_cancel(
         self, live_server: LiveServer, browser_page
@@ -396,16 +341,7 @@ class TestPromptDialogOverBrowser:
         確認や質量入力のたびにジョブ/サブキャリブが勝手に中止されていた。 続行（True）ならセットアップへ進み、Klipper
         不通（port 7126）で failed になる。旧実装（中止が既定）だと即 aborted になっていた。
         """
-        shutil.copy(
-            COPPER_PCB_FIXTURE,
-            live_server.settings.pcb_browse_root / "led_blinker.kicad_pcb",
-        )
-        select = httpx.put(
-            f"{live_server.base_url}/api/pcb-file",
-            json={"path": "led_blinker.kicad_pcb"},
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert select.status_code == 200, select.text
+        _select_led_blinker(live_server)
 
         browser_page.goto(
             f"{live_server.base_url}/pasting/height_plane",
@@ -421,16 +357,14 @@ class TestPromptDialogOverBrowser:
         browser_page.locator("#jc-prompt").wait_for(state="visible", timeout=30_000)
         browser_page.keyboard.press("Enter")
 
-        deadline = time.monotonic() + 120.0
-        while True:
-            current = httpx.get(
-                f"{live_server.base_url}/api/jobs/current", timeout=_HTTP_TIMEOUT
-            ).json()["job"]
-            if current is not None and current["status"] in _TERMINAL:
-                break
-            if time.monotonic() > deadline:
-                raise AssertionError(f"height_plane が終端しない: {current}")
-            time.sleep(0.1)
+        wait_until(
+            lambda: (job := _current_job(live_server.base_url)) is not None
+            and job["status"] in _TERMINAL,
+            timeout=120.0,
+            interval=0.1,
+        )
+        current = _current_job(live_server.base_url)
+        assert current is not None
         assert current["status"] == "failed", current
 
 
@@ -446,18 +380,7 @@ class TestSettingsOverBrowser:
 
         field.fill("1.25")
 
-        deadline = time.monotonic() + 5.0
-        while True:
-            response = httpx.get(
-                f"{live_server.base_url}/api/settings/machine",
-                timeout=_HTTP_TIMEOUT,
-            )
-            fields = {field["key"]: field for field in response.json()["fields"]}
-            if fields["probe.lift_height"]["value"] == 1.25:
-                break
-            if time.monotonic() > deadline:
-                raise AssertionError("probe.lift_height が保存されない")
-            time.sleep(0.05)
+        _wait_machine_field(live_server.base_url, "probe.lift_height", 1.25)
 
     def test_setting_label_does_not_focus_input(
         self, live_server: LiveServer, browser_page
@@ -480,22 +403,6 @@ class TestLoadingOverBrowser:
     質量キャリブレーション表（初期 rotations_per_ul 等のブートストラップ用）と、 押出/吸引の操作パネル +
     パラメータ同期を持つ。既存値を線引きで補正する dispense_calibration とは用途が別なので併存する。
     """
-
-    def _wait_machine_field(self, base_url: str, key: str, expected: float) -> None:
-        """Machine 設定の 1 フィールドが期待値になるまで REST 経由で待つ."""
-        deadline = time.monotonic() + 5.0
-        while True:
-            response = httpx.get(
-                f"{base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
-            )
-            fields = {field["key"]: field for field in response.json()["fields"]}
-            if fields[key]["value"] == expected:
-                return
-            if time.monotonic() > deadline:
-                raise AssertionError(
-                    f"{key} が {expected} に保存されない: {fields[key]}"
-                )
-            time.sleep(0.05)
 
     def test_loading_controls_sync_inputs_to_hidden_params(
         self, live_server: LiveServer, browser_page
@@ -583,7 +490,7 @@ class TestLoadingOverBrowser:
 
         # 個別適用: rotations_per_ul のみ永続化 → 現在値 output が更新される
         browser_page.locator("#lc-apply-rotations-per-ul").click()
-        self._wait_machine_field(
+        _wait_machine_field(
             live_server.base_url, "paste_dispenser.rotations_per_ul", 1.89
         )
         expect(browser_page.locator("#lc-current-rotations-per-ul")).to_have_text(
@@ -593,13 +500,13 @@ class TestLoadingOverBrowser:
         # 一括適用: 3 キーがまとめて永続化される
         # 保存値は Number(toFixed(6)) のトリム後（1.89, 0.26455, 0.26455）
         browser_page.locator("#lc-apply-all").click()
-        self._wait_machine_field(
+        _wait_machine_field(
             live_server.base_url, "paste_dispenser.rotations_per_ul", 1.89
         )
-        self._wait_machine_field(
+        _wait_machine_field(
             live_server.base_url, "paste_dispenser.max_dispense_rate", 0.26455
         )
-        self._wait_machine_field(
+        _wait_machine_field(
             live_server.base_url, "paste_dispenser.dispense_accel", 0.26455
         )
         expect(browser_page.locator("#lc-current-dispense-rate")).to_have_text(
@@ -713,16 +620,7 @@ class TestPadConfigOverRealHttp:
 
     def test_pad_config_get_patch_roundtrip(self, live_server: LiveServer):
         # led_blinker を pcb_browse_root へ置いて選択する
-        shutil.copy(
-            COPPER_PCB_FIXTURE,
-            live_server.settings.pcb_browse_root / "led_blinker.kicad_pcb",
-        )
-        select = httpx.put(
-            f"{live_server.base_url}/api/pcb-file",
-            json={"path": "led_blinker.kicad_pcb"},
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert select.status_code == 200, select.text
+        _select_led_blinker(live_server)
 
         # GET: 実 PCB から outline / pads / 階層ツリー / defaults を返す
         config = httpx.get(

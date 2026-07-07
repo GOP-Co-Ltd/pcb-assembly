@@ -11,22 +11,28 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
 import attrs
+import httpx
 import pytest
 import uvicorn
 
-from tests.webui.conftest import FAKE_CAMERA_IMAGE, TEST_FIXTURE_DIR
+from tests.webui.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE, TEST_FIXTURE_DIR
 from webui.app import create_app
 from webui.settings import Settings
 
 _STARTUP_TIMEOUT = 10.0
+_HTTP_TIMEOUT = 10.0
+_WS_TIMEOUT = 30.0
+
+TERMINAL = ("succeeded", "failed", "aborted")
 
 
 def pytest_collection_modifyitems(
@@ -57,6 +63,112 @@ class LiveServer:
     def ws_url(self) -> str:
         """WebSocket 用ベース URL（http -> ws）."""
         return "ws://" + self.base_url.removeprefix("http://")
+
+
+def select_led_blinker(live_server: LiveServer) -> None:
+    """実 fixture の led_blinker 一式を pcb root へ複製し、公開 API で選択する."""
+    destination = live_server.settings.pcb_browse_root / "led_blinker"
+    shutil.copytree(COPPER_PCB_FIXTURE.parent, destination)
+    response = httpx.put(
+        f"{live_server.base_url}/api/pcb-file",
+        json={"path": "led_blinker/led_blinker.kicad_pcb"},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert response.status_code == 200, response.text
+
+
+def get_pad_config(live_server: LiveServer) -> dict[str, Any]:
+    """GET /api/pasting/pad-config の現在値を返す."""
+    response = httpx.get(
+        f"{live_server.base_url}/api/pasting/pad-config",
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def wait_for_config(
+    live_server: LiveServer,
+    predicate: Callable[[dict[str, Any]], bool],
+    describe: str,
+    *,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    """Pad-config が predicate を満たすまで GET でポーリングし、満たした config を返す."""
+    deadline = time.monotonic() + timeout
+    while True:
+        config = get_pad_config(live_server)
+        if predicate(config):
+            return config
+        if time.monotonic() > deadline:
+            raise AssertionError(f"pad-config が期待状態にならない: {describe}")
+        time.sleep(0.05)
+
+
+def wait_machine_field(
+    base_url: str, key: str, expected: object, *, timeout: float = 5.0
+) -> None:
+    """Machine 設定の 1 フィールドが期待値になるまで REST 経由で待つ."""
+    deadline = time.monotonic() + timeout
+    while True:
+        response = httpx.get(f"{base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT)
+        fields = {field["key"]: field for field in response.json()["fields"]}
+        if fields[key]["value"] == expected:
+            return
+        if time.monotonic() > deadline:
+            raise AssertionError(f"{key} が {expected} に保存されない: {fields[key]}")
+        time.sleep(0.05)
+
+
+def respond_prompt(
+    ws: Any, prompt: dict[str, Any], answered: set[str], number_answer: float
+) -> None:
+    """Prompt（または job_status.pending_prompt）へ kind に応じて 1 度だけ応答する."""
+    prompt_id = prompt["id"]
+    if prompt_id in answered:
+        return
+    answer: bool | float = True if prompt["kind"] == "confirm" else number_answer
+    ws.send(
+        json.dumps({"type": "respond_prompt", "prompt_id": prompt_id, "answer": answer})
+    )
+    answered.add(prompt_id)
+
+
+def drive_job_demo(ws: Any, *, number_answer: float) -> tuple[dict[str, Any], set[str]]:
+    """WS イベントを受信駆動で処理し、終端 job_status とその間に観測した type 集合を返す.
+
+    prompt は confirm=True / number=number_answer で応答する。job_status の
+    pending_prompt 経由でも応答できるよう二重化し、prompt_id で重複応答を防ぐ。
+    """
+    answered: set[str] = set()
+    seen_types: set[str] = set()
+    while True:
+        event = json.loads(ws.recv(timeout=_WS_TIMEOUT))
+        seen_types.add(event["type"])
+        if event["type"] == "prompt":
+            respond_prompt(ws, event["prompt"], answered, number_answer)
+        elif event["type"] == "job_status":
+            job = event["job"]
+            pending = job.get("pending_prompt")
+            if pending is not None:
+                respond_prompt(ws, pending, answered, number_answer)
+            if job["status"] in TERMINAL:
+                return job, seen_types
+
+
+def wait_first_prompt(ws: Any) -> dict[str, Any]:
+    """最初の prompt イベントを受信して返す（WAITING_INPUT で停止した証跡）.
+
+    job_status の pending_prompt 経由でも捕捉できるよう二重化する。
+    """
+    while True:
+        event = json.loads(ws.recv(timeout=_WS_TIMEOUT))
+        if event["type"] == "prompt":
+            return event["prompt"]
+        if event["type"] == "job_status":
+            pending = event["job"].get("pending_prompt")
+            if pending is not None:
+                return pending
 
 
 @pytest.fixture

@@ -22,12 +22,11 @@ import pytest
 
 from pcbasm.pcb import PcbFile
 from webui.jobs.catalog import default_catalog
-from webui.jobs.context import PromptSpec
-from webui.jobs.manager import JobManager, JobStatus
+from webui.jobs.manager import JobManager, JobRecord, JobStatus
 from webui.settings import Settings
 from webui.state import AppState
 
-from .conftest import ManagerFactory, WaitUntil
+from .conftest import ManagerFactory, WaitUntil, answer_next_prompt
 
 # matplotlib 描画 + 実 pcbnew 読込は Raspberry Pi では数十秒かかり得る
 _JOB_TIMEOUT = 120.0
@@ -43,31 +42,13 @@ def _artifact_file(settings: Settings, path: str) -> Path:
     return settings.webui_data_dir / path
 
 
-def _pending_prompt(manager: JobManager) -> tuple[str, PromptSpec] | None:
-    record = manager.current()
-    return record.pending_prompt if record is not None else None
-
-
-def _answer_prompts(
-    manager: JobManager,
-    wait_until: WaitUntil,
-    *,
-    number_answer: float,
-    count: int = 2,
+def _answer_demo_prompts(
+    record: JobRecord, manager: JobManager, *, number_answer: float
 ) -> None:
-    """Pending prompt を kind に応じて count 回応答する（confirm=True, number=指定値）."""
+    """job_demo の prompt 2 回（confirm → number）へ順に応答する."""
     answered: set[str] = set()
-    for _ in range(count):
-        wait_until(
-            lambda: (p := _pending_prompt(manager)) is not None and p[0] not in answered
-        )
-        pending = _pending_prompt(manager)
-        assert pending is not None
-        prompt_id, spec = pending
-        manager.respond_prompt(
-            prompt_id, True if spec.kind == "confirm" else number_answer
-        )
-        answered.add(prompt_id)
+    answer_next_prompt(record, manager, True, answered)
+    answer_next_prompt(record, manager, number_answer, answered)
 
 
 class TestExtractPcb:
@@ -134,7 +115,7 @@ class TestJobDemo:
     ):
         record = dev_manager.start("job_demo", {"steps": 1, "interval": 0.01})
 
-        _answer_prompts(dev_manager, wait_until, number_answer=60.0)
+        _answer_demo_prompts(record, dev_manager, number_answer=60.0)
         wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.SUCCEEDED, record.error
@@ -162,7 +143,7 @@ class TestJobDemo:
         record = dev_manager.start(
             "job_demo", {"steps": 1, "interval": 0.01, "command_phase": True}
         )
-        _answer_prompts(dev_manager, wait_until, number_answer=60.0)
+        _answer_demo_prompts(record, dev_manager, number_answer=60.0)
         wait_until(lambda: record.status == JobStatus.RUNNING)
 
         dev_manager.submit_command({"type": "jog", "axis": "x", "dist": 0.1})

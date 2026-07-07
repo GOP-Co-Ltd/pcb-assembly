@@ -27,11 +27,6 @@ from .conftest import decode_jpeg, jpeg_payload
 
 
 @pytest.fixture
-def state(fake_camera_settings: Settings, configs_root) -> AppState:
-    return AppState(fake_camera_settings, ConfigStore(configs_root))
-
-
-@pytest.fixture
 def service(state: AppState) -> PreviewService:
     return PreviewService(state)
 

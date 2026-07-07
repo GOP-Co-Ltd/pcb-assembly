@@ -30,7 +30,6 @@ cv2 / Moonraker / matplotlib / time.sleep のモックは使わない
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
 from pathlib import Path
 
 import cv2
@@ -57,7 +56,7 @@ from webui.preview import PreviewService
 from webui.settings import Settings
 from webui.state import AppState
 
-from .conftest import WaitUntil
+from .conftest import WaitUntil, answer_next_prompt
 
 PASTING_JOBS = (
     "paste_solder",
@@ -75,27 +74,6 @@ def catalog() -> JobCatalog:
     catalog = JobCatalog()
     register_pasting_jobs(catalog)
     return catalog
-
-
-def _answer_next_prompt(
-    record: JobRecord,
-    manager: JobManager,
-    wait_until: WaitUntil,
-    answer: object,
-    answered: set[str],
-    *,
-    timeout: float = 60.0,
-) -> None:
-    """未応答の prompt を待って answer を返す（応答済み id は answered で管理）."""
-    wait_until(
-        lambda: (pending := record.pending_prompt) is not None
-        and pending[0] not in answered,
-        timeout=timeout,
-    )
-    pending = record.pending_prompt
-    assert pending is not None
-    manager.respond_prompt(pending[0], answer)
-    answered.add(pending[0])
 
 
 def _preview_frame(preview: PreviewService):
@@ -574,7 +552,7 @@ class TestHeightPlaneFrontFlow:
         state.select_pcb(copper_pcb_path)
         record = manager.start("height_plane", {})
         answered: set[str] = set()
-        _answer_next_prompt(record, manager, wait_until, True, answered)
+        answer_next_prompt(record, manager, True, answered)
         wait_until(lambda: record.status.terminal, timeout=60.0)
         wait_until(lambda: state.busy_owner is None)
 
@@ -685,23 +663,6 @@ class TestApplyTargetsWhitelisted:
         assert "7.654321" in toml_text
         assert "-1.2345" in toml_text
         assert "23.4567" in toml_text
-
-
-@pytest.fixture
-def real_state(real_settings: Settings) -> Iterator[AppState]:
-    """実機（実 Moonraker, kurousagi）向け AppState。`@mark_hardware` 専用."""
-    state = AppState(real_settings, ConfigStore(real_settings.configs_root))
-    yield state
-    state.close()
-
-
-@pytest.fixture
-def real_manager(
-    real_state: AppState, real_settings: Settings, catalog: JobCatalog
-) -> Iterator[JobManager]:
-    manager = JobManager(real_state, PreviewService(real_state), catalog, real_settings)
-    yield manager
-    manager.shutdown(timeout=60.0)
 
 
 def _wait_loading_stage_and_settle(
@@ -864,7 +825,7 @@ class TestPastingHardware:
         real_state.select_pcb(Path("data/testing/led_blinker/led_blinker.kicad_pcb"))
         record = real_manager.start("height_plane", {})
         answered: set[str] = set()
-        _answer_next_prompt(record, real_manager, wait_until, True, answered)
+        answer_next_prompt(record, real_manager, True, answered)
         wait_until(lambda: record.status.terminal, timeout=900.0)
 
         assert record.status == JobStatus.SUCCEEDED

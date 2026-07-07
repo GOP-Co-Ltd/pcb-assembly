@@ -34,7 +34,8 @@ from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
 from pcbasm.vision import CalibrationResult
-from webui.jobs.catalog import JobDefinition, ParamSpec
+from tests.webui.jobs.conftest import register_gated, register_synthetic
+from webui.jobs.catalog import ParamSpec
 from webui.jobs.context import Artifact, JobContext, JobResult, PromptSpec
 from webui.jobs.manager import JobManager
 from webui.state import AppState
@@ -65,24 +66,8 @@ def _wait_job_status(
 
 
 def _register_gated(app: FastAPI, name: str = "gated_router") -> threading.Event:
-    """gate.set() で成功し、abort は checkpoint で拾う合成ジョブを登録する."""
-    gate = threading.Event()
-
-    def run(ctx: JobContext) -> None:
-        while not gate.wait(timeout=0.02):
-            ctx.checkpoint()
-
-    app.state.catalog.register(
-        JobDefinition(
-            name=name,
-            label="ゲート付き合成ジョブ",
-            tab="dev",
-            run=run,
-            uses_machine=False,
-            hidden=True,
-        )
-    )
-    return gate
+    """App の catalog へ gated 合成ジョブを登録する（jobs/conftest 共有形の薄い委譲）."""
+    return register_gated(app.state.catalog, name=name, hidden=True)
 
 
 def _register_runtime_editable(
@@ -99,35 +84,32 @@ def _register_runtime_editable(
     def run(ctx: JobContext) -> None:
         ctx.prompt(PromptSpec(kind="confirm", message="待機"))
 
-    app.state.catalog.register(
-        JobDefinition(
-            name=name,
-            label="実行中編集ジョブ",
-            tab="dev",
-            run=run,
-            params=(
-                ParamSpec("board_width", "基板幅", "float", default=40.0),
-                ParamSpec(
-                    "line_length",
-                    "線長",
-                    "float",
-                    default=10.0,
-                    runtime_editable=True,
-                ),
-                ParamSpec(
-                    "removal_z_offset",
-                    "退避Zオフセット",
-                    "float",
-                    default=0.0,
-                    unit="mm",
-                    runtime_editable=True,
-                    minimum=0.0,
-                ),
+    register_synthetic(
+        app.state.catalog,
+        run,
+        name=name,
+        label="実行中編集ジョブ",
+        params=(
+            ParamSpec("board_width", "基板幅", "float", default=40.0),
+            ParamSpec(
+                "line_length",
+                "線長",
+                "float",
+                default=10.0,
+                runtime_editable=True,
             ),
-            persisted_params=("line_length",),
-            uses_machine=False,
-            hidden=True,
-        )
+            ParamSpec(
+                "removal_z_offset",
+                "退避Zオフセット",
+                "float",
+                default=0.0,
+                unit="mm",
+                runtime_editable=True,
+                minimum=0.0,
+            ),
+        ),
+        persisted_params=("line_length",),
+        hidden=True,
     )
 
 
@@ -681,15 +663,12 @@ class TestWebSocket:
                 )
             )
 
-        app.state.catalog.register(
-            JobDefinition(
-                name="labeled_prompt_router",
-                label="ラベル付きプロンプト",
-                tab="dev",
-                run=run,
-                uses_machine=False,
-                hidden=True,
-            )
+        register_synthetic(
+            app.state.catalog,
+            run,
+            name="labeled_prompt_router",
+            label="ラベル付きプロンプト",
+            hidden=True,
         )
 
         with client.websocket_connect("/api/ws") as ws:
@@ -950,15 +929,12 @@ class TestArtifacts:
                 )
             )
 
-        app.state.catalog.register(
-            JobDefinition(
-                name="artifact_job",
-                label="成果物ジョブ",
-                tab="dev",
-                run=run,
-                uses_machine=False,
-                hidden=True,
-            )
+        register_synthetic(
+            app.state.catalog,
+            run,
+            name="artifact_job",
+            label="成果物ジョブ",
+            hidden=True,
         )
         assert client.post("/api/jobs/artifact_job", json={}).status_code == 201
         job = _wait_job_status(client, "succeeded")
