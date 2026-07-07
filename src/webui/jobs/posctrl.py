@@ -55,7 +55,7 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="reference_point_setup",
-            label="Reference Point Setup",
+            label="基準点設定",
             tab="posctrl",
             run=_run_reference_point_setup,
             uses_machine=True,
@@ -65,7 +65,7 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="camera_calibration",
-            label="Camera Calibration",
+            label="カメラキャリブレーション",
             tab="posctrl",
             run=_run_camera_calibration,
             params=(
@@ -79,7 +79,7 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="board_tour",
-            label="Board Tour",
+            label="ボード巡回",
             tab="posctrl",
             run=_run_board_tour,
             params=(
@@ -92,7 +92,7 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="orthogonality_test",
-            label="Orthogonality Test",
+            label="直行性テスト",
             tab="posctrl",
             run=_run_orthogonality_test,
             params=(
@@ -105,7 +105,7 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="generate_grid_pcb",
-            label="Generate Grid Pcb",
+            label="グリッド PCB 生成",
             tab="posctrl",
             run=_run_generate_grid_pcb,
             params=(

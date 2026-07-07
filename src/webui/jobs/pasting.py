@@ -221,7 +221,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="paste_solder",
-            label="Paste Solder",
+            label="はんだ塗布",
             tab="pasting",
             run=_run_paste_solder,
             params=(
@@ -245,7 +245,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="height_plane",
-            label="Height Plane",
+            label="高さ平面計測",
             tab="pasting",
             run=_run_height_plane,
             params=(
@@ -258,7 +258,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="loading",
-            label="Loading",
+            label="ペーストローディング",
             tab="pasting",
             run=_run_loading,
             params=(
@@ -312,7 +312,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="dispense_calibration",
-            label="Dispense Calibration",
+            label="吐出量キャリブレーション",
             tab="pasting",
             run=_run_dispense_calibration,
             params=(
@@ -453,7 +453,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="generate_rect_pcb",
-            label="Generate Rect Pcb",
+            label="キャリブレーション矩形 PCB 生成",
             tab="pasting",
             run=_run_generate_rect_pcb,
             params=(
@@ -466,7 +466,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="toolhead_offset",
-            label="Toolhead Offset",
+            label="ツールヘッドオフセット計測",
             tab="pasting",
             run=_run_toolhead_offset,
             params=(

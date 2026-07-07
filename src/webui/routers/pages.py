@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from itertools import groupby
 from typing import Any
 
@@ -9,6 +10,7 @@ import attrs
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from webui.config_store import ConfigStore
 from webui.dependencies import (
     CatalogDep,
     SettingsDep,
@@ -16,7 +18,7 @@ from webui.dependencies import (
     StoreDep,
     get_templates,
 )
-from webui.jobs.catalog import JobDefinition, ParamSpec
+from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.routers.common import (
     SECTION_LABELS,
     SettingsField,
@@ -61,25 +63,13 @@ TAB_LABELS: dict[str, str] = {
     "posctrl": "位置合わせ",
 }
 
-# feature slug → 表示名（サイドバー / 見出し）。未定義は単語化フォールバック
+# 非ジョブ feature slug → 表示名（サイドバー / 見出し）。ジョブは catalog の
+# JobDefinition.label を正とする。未定義は単語化フォールバック
 FEATURE_LABELS: dict[str, str] = {
-    "extract_pcb": "PCB 情報抽出",
-    "make_fill_coverage_pcb": "塗布カバレッジ PCB 生成",
     "klipper_status": "Klipper ステータス",
-    "paste_solder": "はんだ塗布",
-    "height_plane": "高さ平面計測",
-    "loading": "ペーストローディング",
-    "dispense_calibration": "吐出量キャリブレーション",
-    "generate_rect_pcb": "キャリブレーション矩形 PCB 生成",
-    "toolhead_offset": "ツールヘッドオフセット計測",
     "probe_guide": "ロードセルプローブ ガイド",
     "camera_preview": "カメラプレビュー",
     "copper_detection": "銅箔検出調整",
-    "camera_calibration": "カメラキャリブレーション",
-    "reference_point_setup": "基準点設定",
-    "board_tour": "ボード巡回",
-    "orthogonality_test": "直行性テスト",
-    "generate_grid_pcb": "グリッド PCB 生成",
 }
 
 # feature 実装予定の Phase（プレースホルダ表示用）
@@ -176,8 +166,11 @@ _DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 router = APIRouter()
 
 
-def _feature_label(slug: str) -> str:
-    return FEATURE_LABELS.get(slug, slug.replace("_", " ").title())
+def _feature_label(catalog: JobCatalog, slug: str) -> str:
+    try:
+        return catalog.get(slug).label
+    except KeyError:
+        return FEATURE_LABELS.get(slug, slug.replace("_", " ").title())
 
 
 def _grouped_fields(
@@ -190,12 +183,12 @@ def _grouped_fields(
     ]
 
 
-def _tab_context(tab: str) -> dict[str, Any]:
+def _tab_context(tab: str, catalog: JobCatalog) -> dict[str, Any]:
     """タブ共通のコンテキスト（サイドバー描画用）."""
     return {
         "active_tab": tab,
         "features": TABS[tab],
-        "feature_labels": {slug: _feature_label(slug) for slug in TABS[tab]},
+        "feature_labels": {slug: _feature_label(catalog, slug) for slug in TABS[tab]},
     }
 
 
@@ -212,36 +205,20 @@ def _fb_start(settings: SettingsDep) -> str:
     return "" if start == "." else start
 
 
-def _saved_default_matches(spec: ParamSpec, value: object) -> bool:
-    if spec.value_type == "bool":
-        return isinstance(value, bool)
-    if isinstance(value, bool):
-        return False
-    match spec.value_type:
-        case "float":
-            return isinstance(value, (int, float))
-        case "int":
-            return isinstance(value, int)
-        case "str":
-            return isinstance(value, str)
-        case "choice":
-            return isinstance(value, str) and value in spec.choices
-    return False
-
-
 def _param_specs_with_saved_defaults(
-    definition: JobDefinition, state: AppState
+    definition: JobDefinition, state: AppState, catalog: JobCatalog
 ) -> tuple[ParamSpec, ...]:
+    """保存済み既定値を ParamSpec の default に反映する.
+
+    型判定・coerce は :meth:`JobCatalog.filter_persisted_defaults` に一本化する
+    （persisted_params 外・型不一致は黙って除外 = spec 既定値のまま）。
+    """
     saved = state.job_param_defaults(definition.name)
     if not saved or not definition.persisted_params:
         return definition.params
-    persisted = set(definition.persisted_params)
+    valid = catalog.filter_persisted_defaults(definition, saved)
     return tuple(
-        attrs.evolve(spec, default=saved[spec.name])
-        if spec.name in persisted
-        and spec.name in saved
-        and _saved_default_matches(spec, saved[spec.name])
-        else spec
+        attrs.evolve(spec, default=valid[spec.name]) if spec.name in valid else spec
         for spec in definition.params
     )
 
@@ -285,14 +262,87 @@ def settings_page(
     )
 
 
+def _loading_context(
+    state: AppState, param_specs: tuple[ParamSpec, ...]
+) -> dict[str, Any]:
+    """Loading ページ専用コンテキスト（回転既定値 + 現在のマシン設定値）."""
+    rotation_defaults = {
+        spec.name: spec.default
+        for spec in param_specs
+        if spec.name in _LOADING_ROTATION_PARAMS
+    }
+    dispenser = state.machine().paste_dispenser
+    return {
+        "loading_rotation_defaults": rotation_defaults,
+        "solder_paste_density": dispenser.solder_paste_density,
+        "current_rotations_per_ul": dispenser.rotations_per_ul,
+        "current_max_dispense_rate": dispenser.max_dispense_rate,
+        "current_dispense_accel": dispenser.dispense_accel,
+    }
+
+
+def _dispense_calibration_context(
+    state: AppState, param_specs: tuple[ParamSpec, ...]
+) -> dict[str, Any]:
+    """Dispense_calibration ページ専用コンテキスト（フォームのセクション分け）."""
+    specs_by_name = {spec.name: spec for spec in param_specs}
+    return {
+        "param_groups": [
+            (legend, [specs_by_name[name] for name in names])
+            for legend, names in _DISPENSE_CALIBRATION_PARAM_GROUPS
+        ]
+    }
+
+
+def _paste_solder_context(state: AppState, store: ConfigStore) -> dict[str, Any]:
+    """Paste_solder ページ専用コンテキスト（auto しきい値の即保存フォーム）."""
+    return {
+        "auto_threshold_fields": [
+            field
+            for field in machine_settings_fields(store, state.selected_machine)
+            if field.key in _PASTE_AUTO_THRESHOLD_KEYS
+        ]
+    }
+
+
+def _copper_detection_context(state: AppState, store: ConfigStore) -> dict[str, Any]:
+    """Copper_detection ページ専用コンテキスト（エッジ検出パラメータ現在値）."""
+    pad_align = state.machine().paste_dispenser.pad_align
+    return {
+        "canny_low": pad_align.canny_low,
+        "canny_high": pad_align.canny_high,
+        "blur_ksize": pad_align.blur_ksize,
+    }
+
+
+# feature slug → ジョブページ専用コンテキスト（param_specs 依存）
+_JOB_FEATURE_CONTEXT: dict[
+    str, Callable[[AppState, tuple[ParamSpec, ...]], dict[str, Any]]
+] = {
+    "loading": _loading_context,
+    "dispense_calibration": _dispense_calibration_context,
+}
+
+# feature slug → ページ専用コンテキスト（ジョブ有無に依らない）
+_FEATURE_CONTEXT: dict[str, Callable[[AppState, ConfigStore], dict[str, Any]]] = {
+    "paste_solder": _paste_solder_context,
+    "copper_detection": _copper_detection_context,
+}
+
+
 @router.get("/{tab}", response_class=HTMLResponse)
 def tab_page(
-    tab: str, request: Request, state: StateDep, store: StoreDep, settings: SettingsDep
+    tab: str,
+    request: Request,
+    state: StateDep,
+    store: StoreDep,
+    settings: SettingsDep,
+    catalog: CatalogDep,
 ) -> HTMLResponse:
     if tab not in TABS:
         raise HTTPException(status_code=404, detail=f"未知のタブです: {tab}")
     context = _base_context(request, state, store, settings)
-    context.update(_tab_context(tab))
+    context.update(_tab_context(tab, catalog))
     return get_templates(request).TemplateResponse(
         request=request, name="tab.html", context=context
     )
@@ -314,15 +364,15 @@ def feature_page(
         )
     context = _base_context(request, state, store, settings)
     context.update(
-        _tab_context(tab),
+        _tab_context(tab, catalog),
         active_feature=feature,
-        feature_label=_feature_label(feature),
+        feature_label=_feature_label(catalog, feature),
         phase=TAB_PHASES[tab],
     )
     template = FEATURE_TEMPLATES.get((tab, feature), "feature.html")
     if template in _JOB_TEMPLATES:
         definition = catalog.get(feature)
-        param_specs = _param_specs_with_saved_defaults(definition, state)
+        param_specs = _param_specs_with_saved_defaults(definition, state, catalog)
         context.update(job_name=definition.name, param_specs=param_specs)
         if tab == "pasting":
             loading_param = _PASTING_LOADING_PARAM.get(feature)
@@ -335,39 +385,10 @@ def feature_page(
                 context["loading_default"] = next(
                     spec.default for spec in param_specs if spec.name == loading_param
                 )
-            if feature == "loading":
-                rotation_defaults = {
-                    spec.name: spec.default
-                    for spec in param_specs
-                    if spec.name in _LOADING_ROTATION_PARAMS
-                }
-                dispenser = state.machine().paste_dispenser
-                context.update(
-                    loading_rotation_defaults=rotation_defaults,
-                    solder_paste_density=dispenser.solder_paste_density,
-                    current_rotations_per_ul=dispenser.rotations_per_ul,
-                    current_max_dispense_rate=dispenser.max_dispense_rate,
-                    current_dispense_accel=dispenser.dispense_accel,
-                )
-            if feature == "dispense_calibration":
-                specs_by_name = {spec.name: spec for spec in param_specs}
-                context["param_groups"] = [
-                    (legend, [specs_by_name[name] for name in names])
-                    for legend, names in _DISPENSE_CALIBRATION_PARAM_GROUPS
-                ]
-    if feature == "paste_solder":
-        context["auto_threshold_fields"] = [
-            field
-            for field in machine_settings_fields(store, state.selected_machine)
-            if field.key in _PASTE_AUTO_THRESHOLD_KEYS
-        ]
-    if feature == "copper_detection":
-        pad_align = state.machine().paste_dispenser.pad_align
-        context.update(
-            canny_low=pad_align.canny_low,
-            canny_high=pad_align.canny_high,
-            blur_ksize=pad_align.blur_ksize,
-        )
+        if (job_provider := _JOB_FEATURE_CONTEXT.get(feature)) is not None:
+            context.update(job_provider(state, param_specs))
+    if (provider := _FEATURE_CONTEXT.get(feature)) is not None:
+        context.update(provider(state, store))
     return get_templates(request).TemplateResponse(
         request=request, name=template, context=context
     )

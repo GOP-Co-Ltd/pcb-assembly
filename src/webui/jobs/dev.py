@@ -24,7 +24,7 @@ def register_dev_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="extract_pcb",
-            label="Extract PCB",
+            label="PCB 情報抽出",
             tab="dev",
             run=_run_extract_pcb,
             requires_pcb=True,
@@ -34,7 +34,7 @@ def register_dev_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="make_fill_coverage_pcb",
-            label="Make Fill Coverage Pcb",
+            label="塗布カバレッジ PCB 生成",
             tab="dev",
             run=_run_make_fill_coverage_pcb,
             uses_machine=False,
@@ -43,7 +43,7 @@ def register_dev_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="job_demo",
-            label="Job Demo",
+            label="ジョブデモ",
             tab="dev",
             run=_run_job_demo,
             params=(
