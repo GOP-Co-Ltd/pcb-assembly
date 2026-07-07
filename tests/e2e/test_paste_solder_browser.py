@@ -599,6 +599,13 @@ class TestPasteSolderBrowserPadInteraction:
         )
         height_select.select_option("auto")
         _wait_for_node_override_value(live_server, "L0", "paste_height", "auto")
+        # サーバー状態のポーリングだけでは patchNode 応答後の renderTable
+        # 完了と順序保証がなく、旧 DOM へ操作した直後に再描画で input が
+        # hidden な新要素へ差し替わるレースがあった。override マーカーの
+        # 出現（再描画後にのみ存在する）で UI 反映完了を待つ。
+        root_row.locator(
+            '[data-testid="pad-own-override-marker"][data-field="paste_height"]'
+        ).wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
 
         height_select.select_option("manual")
         height_input = _field_input(root_row, "paste_height")
