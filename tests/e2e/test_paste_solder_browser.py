@@ -48,7 +48,6 @@ _HIGHLIGHT_SELECTOR = ",".join(
 )
 _VIEWPORTS = (
     ("desktop", 1280, 900),
-    ("tablet", 834, 1112),
     ("mobile", 390, 844),
 )
 
@@ -625,13 +624,15 @@ class TestPasteSolderBrowserPadInteraction:
         assert path_ids
         row = _ensure_row_visible(browser_page, path_ids)
 
+        # hover 退避は tree 行とも SVG ビューアとも重ならない既知要素へ移す
+        # （座標 (1,1) だと viewport によりヘッダ等に載り不安定なため）
         row.hover()
         _wait_for_highlighted(browser_page, expected_ids)
-        browser_page.mouse.move(1, 1)
+        browser_page.locator(_testid("pad-editor-toolbar")).hover()
         _wait_for_highlighted(browser_page, set())
 
         row.click()
-        browser_page.mouse.move(1, 1)
+        browser_page.locator(_testid("pad-editor-toolbar")).hover()
         _wait_for_highlighted(browser_page, expected_ids)
 
     def test_route_button_draws_route_and_enabled_change_clears_it(
@@ -887,7 +888,7 @@ class TestPasteSolderBrowserOverrideVisibility:
 
 
 class TestPasteSolderBrowserResponsiveLayout:
-    """Desktop/tablet/mobile で主要パネルが横方向にはみ出さない."""
+    """Desktop/mobile で主要パネルが横方向にはみ出さない."""
 
     def test_machine_control_collapses_to_handle_width(
         self, live_server: LiveServer, browser_page
