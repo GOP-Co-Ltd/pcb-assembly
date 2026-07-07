@@ -35,8 +35,8 @@ from starlette.testclient import WebSocketTestSession
 
 from pcbasm.vision import CalibrationResult
 from webui.jobs.catalog import JobDefinition, ParamSpec
-from webui.jobs.context import JobContext, PromptSpec
-from webui.jobs.manager import Artifact, JobManager, JobResult
+from webui.jobs.context import Artifact, JobContext, JobResult, PromptSpec
+from webui.jobs.manager import JobManager
 from webui.state import AppState
 
 _TERMINAL = ("succeeded", "failed", "aborted")

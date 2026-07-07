@@ -14,9 +14,7 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any, Literal, override
-
-import attrs
+from typing import Any, override
 
 from pcbasm.hal import FrameHub, Klipper
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
@@ -25,8 +23,10 @@ from webui.board_settings import BoardSettingsStore
 from webui.jobs.catalog import JobCatalog, JobDefinition
 from webui.jobs.context import (
     Answer,
+    ApplyPayload,
     JobAborted,
     JobContext,
+    JobResult,
     ParamValue,
     PromptSpec,
 )
@@ -75,53 +75,6 @@ class JobStatus(enum.StrEnum):
     def terminal(self) -> bool:
         """終端ステータス（SUCCEEDED / FAILED / ABORTED）か."""
         return self in (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.ABORTED)
-
-
-@attrs.frozen
-class Artifact:
-    """ジョブ成果物 1 件.
-
-    Attributes:
-        label: UI 表示名
-        path: data/webui/ からの相対パス（URL = /artifacts/<path>）
-        kind: image はインライン表示、file はダウンロードリンク
-    """
-
-    label: str
-    path: str
-    kind: Literal["image", "file"]
-
-
-@attrs.frozen
-class ApplyFile:
-    """設定反映時に configs/<machine>/ 直下へ書き込むファイル（Phase 4 用）."""
-
-    filename: str
-    content: bytes
-
-
-@attrs.frozen
-class ApplyPayload:
-    """SUCCEEDED ジョブが提示する「設定に反映」ペイロード.
-
-    Attributes:
-        label: コンソール表示用（例「canny_low = 60.0 を設定に反映」）
-        values: machine.toml ホワイトリストキー → 値
-        files: configs/<machine>/ へ書き込む追加ファイル
-    """
-
-    label: str
-    values: Mapping[str, ParamValue]
-    files: tuple[ApplyFile, ...] = ()
-
-
-@attrs.frozen
-class JobResult:
-    """ジョブ関数の戻り値（成果サマリ・成果物・設定反映ペイロード）."""
-
-    summary: str | None = None
-    artifacts: tuple[Artifact, ...] = ()
-    apply: ApplyPayload | None = None
 
 
 class JobRecord:

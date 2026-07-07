@@ -36,9 +36,15 @@ from pcbasm.vision import (
     draw_overlay,
 )
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from webui.jobs.context import JobAborted, JobContext, PromptSpec
+from webui.jobs.context import (
+    ApplyFile,
+    ApplyPayload,
+    JobAborted,
+    JobContext,
+    JobResult,
+    PromptSpec,
+)
 from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
-from webui.jobs.manager import ApplyFile, ApplyPayload, Artifact, JobResult
 
 # camera_calibration の Z 取得（best-effort）のタイムアウト [sec]
 Z_QUERY_TIMEOUT = 5.0
@@ -314,16 +320,8 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
             f" / Z: {z if z is not None else '未取得'}"
         ),
         artifacts=(
-            Artifact(
-                label="コーナー検出",
-                path=f"{ctx.artifacts_dir.name}/{png_name}",
-                kind="image",
-            ),
-            Artifact(
-                label="キャリブレーション JSON",
-                path=f"{ctx.artifacts_dir.name}/{filename}",
-                kind="file",
-            ),
+            ctx.artifact("コーナー検出", png_name, "image"),
+            ctx.artifact("キャリブレーション JSON", filename, "file"),
         ),
         apply=ApplyPayload(
             label=f"{filename} を保存し [camera].calibration_file に設定",
@@ -564,7 +562,5 @@ def _run_generate_grid_pcb(ctx: JobContext) -> JobResult:
     return JobResult(
         summary=f"{size:g}x{size:g} mm / {divisions}x{divisions} = "
         f"{divisions ** 2} パッド",
-        artifacts=(
-            Artifact("グリッド PCB", f"{ctx.artifacts_dir.name}/{filename}", "file"),
-        ),
+        artifacts=(ctx.artifact("グリッド PCB", filename, "file"),),
     )

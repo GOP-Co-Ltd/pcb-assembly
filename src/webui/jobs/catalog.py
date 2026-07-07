@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import attrs
 
-from webui.jobs.context import ParamValue
-
-if TYPE_CHECKING:
-    from webui.jobs.context import JobContext
-    from webui.jobs.manager import JobResult
+from webui.jobs.context import JobContext, JobResult, ParamValue
 
 
 @attrs.frozen

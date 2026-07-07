@@ -79,9 +79,14 @@ from pcbasm.visualization import (
     render_planned_points,
 )
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from webui.jobs.context import JobAborted, JobContext, PromptSpec
+from webui.jobs.context import (
+    ApplyPayload,
+    JobAborted,
+    JobContext,
+    JobResult,
+    PromptSpec,
+)
 from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
-from webui.jobs.manager import ApplyPayload, Artifact, JobResult
 
 # ローディングフェーズの progress stage 名
 # （loading_controls.html の data 属性・テストでピンする契約値）
@@ -960,16 +965,8 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
     return JobResult(
         summary=f"{len(zs)} 点計測 / Z {min(zs):.3f}〜{max(zs):.3f} mm",
         artifacts=(
-            Artifact(
-                "計測予定点",
-                f"{ctx.artifacts_dir.name}/planned_points.png",
-                "image",
-            ),
-            Artifact(
-                "ヒートマップ",
-                f"{ctx.artifacts_dir.name}/height_plane.png",
-                "image",
-            ),
+            ctx.artifact("計測予定点", "planned_points.png", "image"),
+            ctx.artifact("ヒートマップ", "height_plane.png", "image"),
         ),
     )
 
@@ -1655,13 +1652,7 @@ def _run_generate_rect_pcb(ctx: JobContext) -> JobResult:
 
     return JobResult(
         summary=f"{width:g}x{height:g} mm の矩形 PCB を生成しました",
-        artifacts=(
-            Artifact(
-                "キャリブレーション矩形 PCB",
-                f"{ctx.artifacts_dir.name}/{filename}",
-                "file",
-            ),
-        ),
+        artifacts=(ctx.artifact("キャリブレーション矩形 PCB", filename, "file"),),
     )
 
 
@@ -1787,13 +1778,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             f"オフセット X={measured_offset.x:+.4f} Y={measured_offset.y:+.4f} mm"
             f"（現在設定との差 dX={diff_x:+.4f} dY={diff_y:+.4f}）"
         ),
-        artifacts=(
-            Artifact(
-                "計測結果 JSON",
-                f"{ctx.artifacts_dir.name}/toolhead_offset.json",
-                "file",
-            ),
-        ),
+        artifacts=(ctx.artifact("計測結果 JSON", "toolhead_offset.json", "file"),),
         apply=ApplyPayload(
             label=(
                 f"[paste_dispenser.toolhead] x={measured_offset.x:.4f}, "
