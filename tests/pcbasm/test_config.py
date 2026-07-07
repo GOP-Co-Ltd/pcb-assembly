@@ -148,6 +148,11 @@ class TestMachine:
 
         assert machine.paste_dispenser.initial_purge_ul == pytest.approx(0.1)
 
+    def test_auto_area_short_side_factor_defaults_when_absent(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.paste_dispenser.auto_area_short_side_factor == pytest.approx(3.0)
+
     def test_initial_purge_ul_reads_explicit_value(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path = tmp_path / "machine.toml"
@@ -201,6 +206,11 @@ class TestMachine:
     def test_initial_purge_ul_rejects_negative_value(self):
         with pytest.raises(ValueError, match="initial_purge_ul"):
             _paste_dispenser(initial_purge_ul=-0.01)
+
+    @pytest.mark.parametrize("factor", [0.0, -1.0])
+    def test_auto_area_short_side_factor_rejects_non_positive(self, factor):
+        with pytest.raises(ValueError, match="auto_area_short_side_factor"):
+            _paste_dispenser(auto_area_short_side_factor=factor)
 
     def test_effective_retract_rate_returns_explicit_value(self):
         dispenser = _paste_dispenser()

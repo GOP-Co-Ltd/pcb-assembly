@@ -6,8 +6,9 @@
   const { toast, api } = window.webui;
   const SAVE_DELAY_MS = 350;
 
-  const machineForm = document.getElementById("machine-settings-form");
-  if (!machineForm) return;
+  // 設定画面とはんだ塗布ページの両方で同じ即保存フォームを扱う。
+  const forms = document.querySelectorAll("form[data-machine-settings]");
+  if (forms.length === 0) return;
 
   const pendingTimers = new Map();
   let saveQueue = Promise.resolve();
@@ -42,21 +43,25 @@
     return value === null ? null : { [control.name]: value };
   }
 
-  async function saveValues(values) {
+  async function saveValues(endpoint, values) {
     try {
-      await api("PUT", machineForm.dataset.endpoint, { values });
+      await api("PUT", endpoint, { values });
     } catch (err) {
       toast(`保存失敗: ${err.message}`, false);
     }
   }
 
-  function enqueueSave(values) {
-    saveQueue = saveQueue.then(() => saveValues(values), () => saveValues(values));
+  function enqueueSave(endpoint, values) {
+    saveQueue = saveQueue.then(
+      () => saveValues(endpoint, values),
+      () => saveValues(endpoint, values)
+    );
   }
 
   function scheduleSave(control) {
     const key = control.name;
-    if (!key) return;
+    if (!key || !control.form) return;
+    const endpoint = control.form.dataset.endpoint;
     clearTimeout(pendingTimers.get(key));
     pendingTimers.set(
       key,
@@ -69,24 +74,26 @@
           toast(`保存失敗: ${err.message}`, false);
           return;
         }
-        if (values !== null) enqueueSave(values);
+        if (values !== null) enqueueSave(endpoint, values);
       }, SAVE_DELAY_MS)
     );
   }
 
-  for (const control of machineForm.querySelectorAll("input, select")) {
-    control.addEventListener("input", () => scheduleSave(control));
-    control.addEventListener("change", () => scheduleSave(control));
-  }
-
-  machineForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (
-      document.activeElement instanceof HTMLInputElement ||
-      document.activeElement instanceof HTMLSelectElement
-    ) {
-      scheduleSave(document.activeElement);
-      document.activeElement.blur();
+  for (const machineForm of forms) {
+    for (const control of machineForm.querySelectorAll("input, select")) {
+      control.addEventListener("input", () => scheduleSave(control));
+      control.addEventListener("change", () => scheduleSave(control));
     }
-  });
+
+    machineForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (
+        document.activeElement instanceof HTMLInputElement ||
+        document.activeElement instanceof HTMLSelectElement
+      ) {
+        scheduleSave(document.activeElement);
+        document.activeElement.blur();
+      }
+    });
+  }
 })();

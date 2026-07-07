@@ -118,6 +118,12 @@ _JOB_TEMPLATES = frozenset(
 # preview ペイン（ジョブ提供フレームのみ）を表示する pasting feature
 _PASTING_PREVIEW = frozenset({"paste_solder", "height_plane", "toolhead_offset"})
 
+# はんだ塗布ページに即保存フォームで載せる auto しきい値（machine 全体設定）
+_PASTE_AUTO_THRESHOLD_KEYS = (
+    "paste_dispenser.auto_line_aspect_ratio",
+    "paste_dispenser.auto_area_short_side_factor",
+)
+
 # loading コマンド UI を表示する pasting feature → 既定量の ParamSpec 名
 _PASTING_LOADING_PARAM = {
     "paste_solder": "amount",
@@ -339,6 +345,12 @@ def feature_page(
                     (legend, [specs_by_name[name] for name in names])
                     for legend, names in _DISPENSE_CALIBRATION_PARAM_GROUPS
                 ]
+    if feature == "paste_solder":
+        context["auto_threshold_fields"] = [
+            field
+            for field in machine_settings_fields(store, state.selected_machine)
+            if field.key in _PASTE_AUTO_THRESHOLD_KEYS
+        ]
     if feature == "copper_detection":
         pad_align = state.machine().paste_dispenser.pad_align
         context.update(
