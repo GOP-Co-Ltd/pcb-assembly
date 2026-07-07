@@ -2,7 +2,7 @@
 
 // グローバル WS クライアント（/api/ws）+ ジョブコンソール UI。
 // tab.html から全タブで読み込まれ、window.webui.jobs を公開する。
-// ページに #job-console（data-job-name / data-job-names）があればコンソールを描画する。
+// ページに #job-console（data-job-names）があればコンソールを描画する。
 
 (() => {
   const { toast, api, createBackoff } = window.webui;
@@ -159,9 +159,7 @@
 
   const consoleEl = document.getElementById("job-console");
   const pageJobNames = new Set(
-    (consoleEl ? consoleEl.dataset.jobNames || consoleEl.dataset.jobName || "" : "")
-      .split(/\s+/)
-      .filter(Boolean)
+    (consoleEl ? consoleEl.dataset.jobNames || "" : "").split(/\s+/).filter(Boolean)
   );
   const forms = Array.from(document.querySelectorAll("form.job-form[data-job-name]"));
 

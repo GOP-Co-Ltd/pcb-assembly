@@ -32,8 +32,7 @@
   {% endif %}
   </div>
 {% if show_preview %}
-{# ジョブ提供フレームのみ表示（オーバーレイ切替なし・固定 none） #}
-{% set preview_overlay = "none" %}
+{# ジョブ提供フレームのみ表示（オーバーレイ切替なし・既定の none） #}
   <div class="pasting-preview-panel" data-testid="pasting-preview-panel">
 {% include "partials/preview_pane.html" %}
   </div>
