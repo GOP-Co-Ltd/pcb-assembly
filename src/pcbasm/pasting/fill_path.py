@@ -41,6 +41,7 @@ def build_paste_fill_path(
     *,
     dispense_mode: DispenseMode,
     auto_line_aspect_ratio: float,
+    auto_area_short_side_factor: float,
     bead_width_factor: float = 1.0,
     overlap: float = 0.0,
     boundary_margin: float = 0.0,
@@ -55,6 +56,7 @@ def build_paste_fill_path(
         nozzle_diameter,
         dispense_mode=dispense_mode,
         auto_line_aspect_ratio=auto_line_aspect_ratio,
+        auto_area_short_side_factor=auto_area_short_side_factor,
         bead_width_factor=bead_width_factor,
         overlap=overlap,
         boundary_margin=boundary_margin,
@@ -67,6 +69,7 @@ def build_paste_fill_plan(
     *,
     dispense_mode: DispenseMode,
     auto_line_aspect_ratio: float,
+    auto_area_short_side_factor: float,
     bead_width_factor: float = 1.0,
     overlap: float = 0.0,
     boundary_margin: float = 0.0,
@@ -85,8 +88,10 @@ def build_paste_fill_plan(
 
     方式::
 
-        auto: 最小回転 bounding box の long / short が
-              auto_line_aspect_ratio を超えれば line、それ以外は dot
+        auto: 最小回転 bounding box の短辺が nozzle_diameter *
+              auto_area_short_side_factor を超えれば area、そうでなく
+              long / short が auto_line_aspect_ratio を超えれば line、
+              それ以外は dot
         dot : 点塗布（代表点1点）
         line: 線塗布。成立しなければ dot
         area: 面塗布。成立しなければ line、さらに無理なら dot
@@ -96,6 +101,7 @@ def build_paste_fill_plan(
         nozzle_diameter: ノズル内径 [mm]
         dispense_mode: 塗布方式
         auto_line_aspect_ratio: Auto 時に線塗布へ切り替える縦横比（>1.0）
+        auto_area_short_side_factor: Auto 時に面塗布へ切り替える短辺のノズル径倍率（>0）
         bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
         overlap: ジグザグ行間オーバーラップ [0, 1)
         boundary_margin: 外周マージン [mm]
@@ -107,7 +113,8 @@ def build_paste_fill_plan(
     Raises:
         ValueError: ``nozzle_diameter`` が0以下、``overlap`` が [0,1) 外、
             ``boundary_margin`` が負、``bead_width_factor`` が0以下、
-            ``auto_line_aspect_ratio`` が1.0以下、未知の ``dispense_mode`` の場合
+            ``auto_line_aspect_ratio`` が1.0以下、``auto_area_short_side_factor``
+            が0以下、未知の ``dispense_mode`` の場合
     """
     if nozzle_diameter <= 0:
         raise ValueError(
@@ -128,6 +135,11 @@ def build_paste_fill_plan(
             "auto_line_aspect_ratioは1.0より大きい必要があります: "
             f"{auto_line_aspect_ratio}"
         )
+    if auto_area_short_side_factor <= 0:
+        raise ValueError(
+            "auto_area_short_side_factorは正の値である必要があります: "
+            f"{auto_area_short_side_factor}"
+        )
     if dispense_mode not in DISPENSE_MODES:
         raise ValueError(f"未知の塗布方式です: {dispense_mode}")
 
@@ -138,7 +150,13 @@ def build_paste_fill_plan(
     line_spacing = w * (1.0 - overlap)
     inset = boundary_margin + w / 2.0
     end_inset = boundary_margin + w / 2.0
-    mode = _resolve_auto_mode(polygon, dispense_mode, auto_line_aspect_ratio)
+    mode = _resolve_auto_mode(
+        polygon,
+        dispense_mode,
+        nozzle_diameter,
+        auto_line_aspect_ratio=auto_line_aspect_ratio,
+        auto_area_short_side_factor=auto_area_short_side_factor,
+    )
 
     match mode:
         case "dot":
@@ -160,33 +178,38 @@ def build_paste_fill_plan(
 def _resolve_auto_mode(
     polygon: Polygon,
     dispense_mode: DispenseMode,
+    nozzle_diameter: float,
+    *,
     auto_line_aspect_ratio: float,
+    auto_area_short_side_factor: float,
 ) -> AppliedDispenseMode:
     match dispense_mode:
         case "auto":
-            return (
-                "line"
-                if _minimum_rotated_aspect_ratio(polygon) > auto_line_aspect_ratio
-                else "dot"
-            )
+            long, short = _minimum_rotated_dimensions(polygon)
+            if short <= 0:
+                return "dot"
+            if short > nozzle_diameter * auto_area_short_side_factor:
+                return "area"
+            return "line" if long / short > auto_line_aspect_ratio else "dot"
         case "dot" | "line" | "area":
             return dispense_mode
         case _:
             assert_never(dispense_mode)
 
 
-def _minimum_rotated_aspect_ratio(polygon: Polygon) -> float:
+def _minimum_rotated_dimensions(polygon: Polygon) -> tuple[float, float]:
+    """最小回転外接矩形の (長辺, 短辺) [mm] を返す。退化時は ``(0.0, 0.0)``."""
     mrr = polygon.minimum_rotated_rectangle
     if not isinstance(mrr, Polygon):
-        return 1.0
+        return (0.0, 0.0)
     coords = list(mrr.exterior.coords)
     if len(coords) < 5:
-        return 1.0
+        return (0.0, 0.0)
     edge_a = Point2d(coords[1][0], coords[1][1]) - Point2d(coords[0][0], coords[0][1])
     edge_b = Point2d(coords[2][0], coords[2][1]) - Point2d(coords[1][0], coords[1][1])
     long = max(edge_a.norm, edge_b.norm)
     short = min(edge_a.norm, edge_b.norm)
-    return long / short if short > 0 else 1.0
+    return (long, short)
 
 
 def _area_fill(

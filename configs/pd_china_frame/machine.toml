@@ -8,6 +8,7 @@ solder_paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
 nozzle_diameter = 0.21 # ノズル内径 [mm] (27G相当)
 dispense_mode = "auto" # 塗布方式: auto / dot / line / area
 auto_line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比
+auto_area_short_side_factor = 3.0 # Auto時に面塗布へ切り替える短辺のノズル径倍率
 max_dispense_rate = 5.0 # 吐出レート上限 [uL/sec]
 max_fill_speed = 200.0 # 連続塗布できる移動速度上限 [mm/sec]。高値=吐出レート上限で律速（旧挙動踏襲・未調整）
 dispense_accel = 10.0 # 吐出加速度 [uL/sec^2]
