@@ -128,7 +128,6 @@ class JobContext:
         self,
         bridge: JobBridge,
         *,
-        params: Mapping[str, ParamValue],
         pcb_path: Path | None,
         machine: Machine,
         artifacts_dir: Path,
@@ -136,9 +135,7 @@ class JobContext:
         source_pcb: str | None = None,
         board_store: BoardSettingsStore | None = None,
     ) -> None:
-        # params は manager がブリッジのライブストア初期値として使う。
-        # JobContext 自身は live_params() 経由で都度読むため保持しない。
-        del params
+        # パラメータは保持しない（ブリッジの live_params() 経由で都度読む）
         self._bridge = bridge
         self._pcb_path = pcb_path
         self._machine = machine

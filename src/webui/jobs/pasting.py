@@ -734,7 +734,6 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             f"塗布対象: 有効 {len(enabled_pads)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ）"
         )
-        enabled_designators = {p.designator for p in enabled_pads}
 
         # 塗布順路（同種類連続・大面積優先）を先に決める。
         # 初回パージ pad 未指定時は、この route の先頭 pad を使う。
@@ -756,7 +755,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
         # 銅箔照合（部品単位）。有効 pad を 1 つ以上持つ部品のみ照合する。
         # 初回パージ pad が disabled pad の場合も、位置補正できるよう照合対象に含める。
-        align_designators = set(enabled_designators)
+        align_designators = {p.designator for p in enabled_pads}
         if initial_purge is not None:
             align_designators.add(initial_purge.pad.designator)
         groups = [
@@ -1319,17 +1318,6 @@ def _calibrate_rotations_per_ul(
         f"ペースト比重（machine.toml の solder_paste_density）= {specific_gravity:.3f}"
     )
 
-    rotations_per_ul = (
-        results.rotations_per_ul
-        if results.rotations_per_ul is not None
-        else calib.rotations_per_ul
-    )
-    dispense_accel = (
-        results.dispense_accel
-        if results.dispense_accel is not None
-        else calib.dispense_accel
-    )
-
     while True:
         # 線設定・塗布量は実行中変更可。ラウンド先頭で読み直し次ラウンドから反映する。
         layout = _line_layout(ctx)
@@ -1418,8 +1406,6 @@ def _calibrate_rotations_per_ul(
 
         # 残る 3 つはいずれも算出値を採用する。採用時点で machine.toml へ反映し、
         # 以降の中止・失敗で計測結果を失わないようにする。
-        rotations_per_ul = computed_rpu
-        dispense_accel = computed_accel
         _apply_to_machine_toml(
             ctx,
             {
@@ -1427,14 +1413,12 @@ def _calibrate_rotations_per_ul(
                 "paste_dispenser.dispense_accel": computed_accel,
             },
         )
+        adopted = attrs.evolve(
+            results, rotations_per_ul=computed_rpu, dispense_accel=computed_accel
+        )
         if choice == "採用して吐出量キャリブレーションを終了する":
             # 再描画しないので applicator の作り直しは不要。finish でジョブを終了。
-            return attrs.evolve(
-                results,
-                rotations_per_ul=rotations_per_ul,
-                dispense_accel=dispense_accel,
-                finish=True,
-            )
+            return attrs.evolve(adopted, finish=True)
         # 「再計測」「他のキャリブへ進む」は新値で applicator を作り直す。
         calib.rebuild_applicator(
             rotations_per_ul=computed_rpu, dispense_accel=computed_accel
@@ -1442,13 +1426,7 @@ def _calibrate_rotations_per_ul(
         ctx.log("新 rotations_per_ul で applicator を再構成しました")
         if choice == "採用して再計測する":
             continue
-        break  # 採用して他のキャリブレーションへ進む
-
-    return attrs.evolve(
-        results,
-        rotations_per_ul=rotations_per_ul,
-        dispense_accel=dispense_accel,
-    )
+        return adopted  # 採用して他のキャリブレーションへ進む
 
 
 def _calibrate_max_dispense_rate(

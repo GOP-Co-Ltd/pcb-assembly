@@ -439,7 +439,6 @@ class JobManager:
             selected_pcb = self._state.selected_pcb
             context = JobContext(
                 runtime,
-                params=params,
                 pcb_path=pcb_path,
                 machine=machine,
                 artifacts_dir=artifacts_dir,
