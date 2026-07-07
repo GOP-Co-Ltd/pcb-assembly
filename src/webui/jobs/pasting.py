@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -519,6 +519,17 @@ def _dispenser_rig(machine: Machine) -> tuple[Klipper, XYZStage, PasteApplicator
     return klipper, stage, applicator
 
 
+def _drain_commands(ctx: JobContext) -> int:
+    """滞留コマンドを破棄し、破棄した件数を返す.
+
+    段階開始前に押されたボタン/ジョグの遅延実行を防ぐ。
+    """
+    drained = 0
+    while ctx.next_command(timeout=0) is not None:
+        drained += 1
+    return drained
+
+
 def _run_loading_loop(
     ctx: JobContext,
     klipper: Klipper,
@@ -538,9 +549,7 @@ def _run_loading_loop(
     ctx.progress(LOADING_STAGE)
 
     # 滞留コマンドを drain（ローディング段階以前のボタン/ジョグの遅延実行を防ぐ）
-    drained = 0
-    while ctx.next_command(timeout=0) is not None:
-        drained += 1
+    drained = _drain_commands(ctx)
     if drained:
         ctx.log(f"ローディング開始前のコマンド {drained} 件を破棄しました")
 
@@ -1116,8 +1125,7 @@ def _calibration_menu_loop(
     ctx.progress(CALIBRATION_MENU_STAGE)
 
     # 滞留コマンドを drain（メニュー段階以前のボタン/ジョグの遅延実行を防ぐ）
-    while ctx.next_command(timeout=0) is not None:
-        pass
+    _drain_commands(ctx)
     ctx.log(
         "メニューから ① rotations_per_ul / ② max_dispense_rate / "
         "③ max_fill_speed を選んで実行し、終了ボタンで設定反映へ進んでください"
@@ -1232,6 +1240,60 @@ def _removal_z(ctx: JobContext, calib: _CalibrationContext) -> float:
     return max(z.min, z.max - float(ctx.params["removal_z_offset"]))
 
 
+def _move_to_removal_z(ctx: JobContext, calib: _CalibrationContext) -> None:
+    """線引き後にヘッドを退避 Z（= max(z_min, z_max - offset)）へ上げる.
+
+    計量のため基板を取り出しやすくする退避。
+    """
+    removal_z = _removal_z(ctx, calib)
+    ctx.log(
+        f"ヘッドを退避 Z={removal_z:.3f} へ移動します。基板を取り出して計測してください"
+    )
+    calib.session.klipper.send_gcode(
+        calib.session.stage.move(z=removal_z) + gcode.wait_for_done()
+    )
+
+
+def _weighed_draw(
+    ctx: JobContext,
+    calib: _CalibrationContext,
+    *,
+    tare_message: str,
+    mass_message: str,
+    draw: Callable[[], None],
+) -> float:
+    """タール confirm → ``draw()`` → 退避 → 質量入力の 1 計量ラウンドを実行する.
+
+    線引き前に基板ごとタール（ゼロ）しておき、線引き後の計量値がそのまま
+    ペーストの質量になるようにする。タール／質量入力の中止はいずれも
+    ``_CalibrationCancelled`` でメニューへ戻る。
+
+    Returns:
+        入力された質量 (mg)
+    """
+    _prompt_confirm(ctx, tare_message)
+    draw()
+    _move_to_removal_z(ctx, calib)
+    return _prompt_mass(ctx, mass_message)
+
+
+def _layout_for_sweep(
+    ctx: JobContext, points: Sequence[float], empty_message: str
+) -> LineLayout | None:
+    """掃引点ごとに専用の線位置を確保したレイアウトを作る.
+
+    掃引列が空なら ``empty_message`` を log して None（呼び出し側がスキップ）。
+    line_count に関係なく掃引点数ぶんの線位置を取り、重ね書きをしない。
+
+    Raises:
+        _CalibrationCancelled: 線が銅板の描画領域に収まらない場合
+    """
+    if not points:
+        ctx.log(empty_message)
+        return None
+    return _line_layout(ctx, line_count=len(points))
+
+
 def _calibrate_rotations_per_ul(
     ctx: JobContext,
     calib: _CalibrationContext,
@@ -1280,41 +1342,35 @@ def _calibrate_rotations_per_ul(
             ctx, calib.session.klipper, calib.session.stage, calib.applicator
         )
 
-        # ── 電子天秤にセットしてタール（ゼロ）──（中止でメニューへ戻る）
-        # 線引き前に基板ごとゼロにしておき、線引き後の計量値がそのまま
-        # ペーストの質量になるようにする。
-        _prompt_confirm(
-            ctx,
-            "基板を電子天秤に載せてタール（ゼロ）し、基板を装置へ戻してから"
-            "続行を押してください。続行すると線引きへ進みます。",
-        )
-
-        ctx.progress("① rotations_per_ul: 線引き")
         previous_rpu = calib.rotations_per_ul
-        # プライム済みのペーストを baseline まで引き戻してから引き始める
-        # （各 draw_line の FillSequence が prime→吐出→retract を内包するので、
-        #   線間・線後の追加 retract は不要）
-        calib.applicator.retract()
-        for index in range(layout.line_count):
-            ctx.checkpoint()
-            start, end = layout.line(index)
-            calib.applicator.draw_line(start, end, amount=amount)
-            ctx.log(f"線 {index + 1}/{layout.line_count} を {amount:.3f} uL で塗布")
-
-        # 線引き後はヘッドを退避 Z（= max(z_min, z_max - offset)）へ上げ、基板を取り出して計量しやすくする。
-        removal_z = _removal_z(ctx, calib)
-        ctx.log(
-            f"ヘッドを退避 Z={removal_z:.3f} へ移動します。基板を取り出して計測してください"
-        )
-        calib.session.klipper.send_gcode(
-            calib.session.stage.move(z=removal_z) + gcode.wait_for_done()
-        )
-
         rotations_used = layout.line_count * amount * previous_rpu
-        mass = _prompt_mass(
+
+        def draw_lines() -> None:
+            ctx.progress("① rotations_per_ul: 線引き")
+            # プライム済みのペーストを baseline まで引き戻してから引き始める
+            # （各 draw_line の FillSequence が prime→吐出→retract を内包するので、
+            #   線間・線後の追加 retract は不要）
+            calib.applicator.retract()
+            for index in range(layout.line_count):
+                ctx.checkpoint()
+                start, end = layout.line(index)
+                calib.applicator.draw_line(start, end, amount=amount)
+                ctx.log(f"線 {index + 1}/{layout.line_count} を {amount:.3f} uL で塗布")
+
+        # 電子天秤にセットしてタール（ゼロ）→ 線引き → 退避 → 計量の 1 ラウンド
+        # （タール前・質量入力の中止はいずれもメニューへ戻る）。
+        mass = _weighed_draw(
             ctx,
-            f"基板を取り出して計量し、{layout.line_count} 本の線の合計質量 (mg) を入力"
-            f"（回転数 {rotations_used:.4f} rev 相当）",
+            calib,
+            tare_message=(
+                "基板を電子天秤に載せてタール（ゼロ）し、基板を装置へ戻してから"
+                "続行を押してください。続行すると線引きへ進みます。"
+            ),
+            mass_message=(
+                f"基板を取り出して計量し、{layout.line_count} 本の線の合計質量 (mg) "
+                f"を入力（回転数 {rotations_used:.4f} rev 相当）"
+            ),
+            draw=draw_lines,
         )
 
         flow = FlowCalibrationSet(
@@ -1419,14 +1475,14 @@ def _calibrate_max_dispense_rate(
     density = ctx.machine.paste_dispenser.solder_paste_density
 
     rates = dispense_rate_schedule(rate_min, rate_max, divisions)
-    if not rates:
-        ctx.log(
-            "吐出レート列が生成できません（rate_min / rate_max / divisions を確認）。"
-            "② をスキップします"
-        )
+    layout = _layout_for_sweep(
+        ctx,
+        rates,
+        "吐出レート列が生成できません（rate_min / rate_max / divisions を確認）。"
+        "② をスキップします",
+    )
+    if layout is None:
         return results
-    # 掃引点ごとに専用の線位置を確保する（line_count に関係なく重ね書きしない）
-    layout = _line_layout(ctx, line_count=len(rates))
 
     ctx.log(
         f"移動速度 {fill_speed:.3f} mm/s 固定・"
@@ -1442,32 +1498,30 @@ def _calibrate_max_dispense_rate(
         # （固定量のままだと吐出レートが移動速度由来の導出値で頭打ちされ、
         #   掃引しても全点が同一レートになる）。
         amount = rate_sweep_amount(rate, layout.line_length, fill_speed)
-        # 各レートは独立計測。線引き前に基板ごとタール（ゼロ）しておき、線引き後の
-        # 計量値がそのままこのレートのペースト質量になるようにする（中止でメニューへ）。
-        _prompt_confirm(
-            ctx,
-            f"[{index + 1}/{len(rates)}] 基板を電子天秤に載せてタール（ゼロ）し、"
-            "基板を装置へ戻してから続行を押してください。"
-            f"続行するとレート {rate:.3f} uL/s（吐出量 {amount:.3f} uL）の"
-            "線引きへ進みます",
-        )
         # レートごとの専用位置に段ずらし（折り返し込み）で引く
         start, end = layout.line(index)
-        calib.applicator.draw_line(
-            start, end, amount=amount, max_fill_speed=fill_speed, rate_cap=rate
-        )
-        # 計量のため基板を取り出せるよう、線引き後に退避 Z（z_max - offset）へ上げる。
-        removal_z = _removal_z(ctx, calib)
-        ctx.log(
-            f"ヘッドを退避 Z={removal_z:.3f} へ移動します。基板を取り出して計測してください"
-        )
-        calib.session.klipper.send_gcode(
-            calib.session.stage.move(z=removal_z) + gcode.wait_for_done()
-        )
-        mass = _prompt_mass(
+
+        def draw_line() -> None:
+            calib.applicator.draw_line(
+                start, end, amount=amount, max_fill_speed=fill_speed, rate_cap=rate
+            )
+
+        # 各レートは独立計測。タール（ゼロ）→ 線引き → 退避 → 計量の 1 ラウンド
+        # （中止でメニューへ）。
+        mass = _weighed_draw(
             ctx,
-            f"[{index + 1}/{len(rates)}] 基板を取り出して計量し、"
-            f"レート {rate:.3f} uL/s の線の質量 (mg) を入力",
+            calib,
+            tare_message=(
+                f"[{index + 1}/{len(rates)}] 基板を電子天秤に載せてタール（ゼロ）し、"
+                "基板を装置へ戻してから続行を押してください。"
+                f"続行するとレート {rate:.3f} uL/s（吐出量 {amount:.3f} uL）の"
+                "線引きへ進みます"
+            ),
+            mass_message=(
+                f"[{index + 1}/{len(rates)}] 基板を取り出して計量し、"
+                f"レート {rate:.3f} uL/s の線の質量 (mg) を入力"
+            ),
+            draw=draw_line,
         )
         measured_ul = mass / density
         measurement = RateMeasurement(
@@ -1523,14 +1577,14 @@ def _calibrate_max_fill_speed(
     )
 
     speeds = fill_speed_schedule(speed_min, speed_max, divisions)
-    if not speeds:
-        ctx.log(
-            "塗布速度列が生成できません（speed_min / speed_max / divisions を確認）。"
-            "③ をスキップします"
-        )
+    layout = _layout_for_sweep(
+        ctx,
+        speeds,
+        "塗布速度列が生成できません（speed_min / speed_max / divisions を確認）。"
+        "③ をスキップします",
+    )
+    if layout is None:
         return results
-    # 掃引点ごとに専用の線位置を確保する（line_count に関係なく重ね書きしない）
-    layout = _line_layout(ctx, line_count=len(speeds))
     # 実塗布同等の総量。q = total_amount / line_length（実効単位長さ量）は
     # FillSequence 側が rate から逆算するため、ここでは move 速度を直接渡す。
     total_amount = ul_per_mm2 * slot_area(layout.line_length, bead_width)
