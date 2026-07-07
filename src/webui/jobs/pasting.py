@@ -25,7 +25,6 @@ from pcbasm.geometry import (
     transform_polygon,
 )
 from pcbasm.hal import (
-    Camera,
     Klipper,
     PasteDispenser,
     XYZStage,
@@ -62,14 +61,10 @@ from pcbasm.pcb import (
     build_pad_hierarchy,
 )
 from pcbasm.posctrl import (
-    BoardCalibrationResult,
     ComponentAlignments,
-    ComponentPads,
     OffsetObserver,
-    PadAlignmentResult,
     PadAlignmentSession,
     XYPositionAdjustor,
-    setup_board_calibration,
     sorted_top_component_pads,
 )
 from pcbasm.session import PasteSession
@@ -78,6 +73,7 @@ from pcbasm.visualization import (
     render_height_plane,
     render_planned_points,
 )
+from webui.jobs.board_ops import align_component_groups, setup_board
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import (
     ApplyPayload,
@@ -508,21 +504,6 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
 # --- 共有ヘルパ ---
 
 
-def _setup_calibration(
-    ctx: JobContext, camera: Camera, tolerance: float
-) -> BoardCalibrationResult:
-    """Progress("セットアップ") → ボード計測セットアップの定型."""
-    assert ctx.pcb_path is not None  # requires_pcb=True
-    ctx.progress("セットアップ")
-    return setup_board_calibration(
-        machine=ctx.machine,
-        pcb_file_path=ctx.pcb_path,
-        tolerance=tolerance,
-        camera=camera,
-        frame_sink=ctx.frame,
-    )
-
-
 def _dispenser_rig(machine: Machine) -> tuple[Klipper, XYZStage, PasteApplicator]:
     """移動コマンド用 Klipper / ステージ / config 構成済み applicator の定型 3 点を作る."""
     klipper = create_command_klipper(machine)
@@ -725,7 +706,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
     全 pad 有効 = 現行等価で動く。
     """
     with ctx.open_camera() as camera:
-        result = _setup_calibration(ctx, camera, float(ctx.params["tolerance"]))
+        result = setup_board(ctx, camera)
         session = PasteSession.from_calibration(result)
         top_coppers = [c for c in session.pcb.copper if c.layer == Layer.TOP]
         top_pads = [p for p in session.pcb.pads if p.layer == Layer.TOP]
@@ -776,21 +757,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         align_session = PadAlignmentSession.from_calibration(
             result, frame_sink=ctx.frame
         )
-        aligned: list[tuple[ComponentPads, PadAlignmentResult]] = []
-        for index, group in enumerate(groups):
-            ctx.progress("銅箔照合", 100.0 * index / len(groups))
-            ctx.checkpoint()
-            designator = group.component.designator
-            alignment = align_session.align(group)
-            if alignment is None:
-                ctx.log(f"警告: {designator} の照合に失敗")
-                continue
-            translation = alignment.translation
-            ctx.log(
-                f"{designator}: dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
-                f"theta={alignment.rotation.degrees:+.3f} deg"
-            )
-            aligned.append((group, alignment))
+        aligned = align_component_groups(ctx, align_session, groups)
         alignments = ComponentAlignments(
             board_transform=result.board_transform, results=tuple(aligned)
         )
@@ -945,7 +912,7 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
         raise JobAborted()
 
     with ctx.open_camera() as camera:
-        result = _setup_calibration(ctx, camera, float(ctx.params["tolerance"]))
+        result = setup_board(ctx, camera)
         session = PasteSession.from_calibration(result)
         ctx.progress("高さ計測")
         height_plane = session.height_measurer.measure(
@@ -1065,15 +1032,8 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
         raise ValueError(_layout_overflow_message(exc)) from exc
 
     with ctx.open_camera() as camera:
-        ctx.progress("セットアップ")
         pcb_path = _generate_calibration_board(ctx, board_width, board_height)
-        result = setup_board_calibration(
-            machine=ctx.machine,
-            pcb_file_path=pcb_path,
-            tolerance=tolerance,
-            camera=camera,
-            frame_sink=ctx.frame,
-        )
+        result = setup_board(ctx, camera, tolerance=tolerance, pcb_path=pcb_path)
         session = PasteSession.from_calibration(result)
 
         ctx.progress("高さ計測")
@@ -1664,7 +1624,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
     diameter_max = float(ctx.params["paste_diameter_max"])
 
     with ctx.open_camera() as camera:
-        result = _setup_calibration(ctx, camera, tolerance)
+        result = setup_board(ctx, camera, tolerance=tolerance)
         machine = result.machine
         klipper = result.klipper
         stage = result.stage

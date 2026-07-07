@@ -24,7 +24,6 @@ from pcbasm.posctrl import (
     PadAlignmentSession,
     PadResultRenderer,
     render_label,
-    setup_board_calibration,
     sorted_top_component_pads,
 )
 from pcbasm.vision import (
@@ -35,6 +34,7 @@ from pcbasm.vision import (
     draw_detected_circle,
     draw_overlay,
 )
+from webui.jobs.board_ops import align_component_groups, setup_board
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import (
     ApplyFile,
@@ -331,19 +331,6 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
     )
 
 
-def _calibrated_board(ctx: JobContext, camera: Camera) -> BoardCalibrationResult:
-    """選択 PCB とジョブパラメータでボードキャリブレーションを実行する."""
-    assert ctx.pcb_path is not None  # requires_pcb=True
-    ctx.progress("セットアップ")
-    return setup_board_calibration(
-        machine=ctx.machine,
-        pcb_file_path=ctx.pcb_path,
-        tolerance=float(ctx.params["tolerance"]),
-        camera=camera,
-        frame_sink=ctx.frame,
-    )
-
-
 def _board_corners(result: BoardCalibrationResult) -> list[tuple[str, Point2d]]:
     """ボード四隅の (ラベル, board 座標) を返す."""
     outline = result.pcb.outline
@@ -416,7 +403,7 @@ def _stream_pad_result(
 def _run_board_tour(ctx: JobContext) -> JobResult:
     """四隅巡回 → 銅箔照合 → 補正適用済み全 pad 巡回を実行する."""
     with ctx.open_camera() as camera:
-        result = _calibrated_board(ctx, camera)
+        result = setup_board(ctx, camera)
         board_transform = result.board_transform
 
         # 四隅巡回（左上に戻る 5 点）
@@ -431,35 +418,28 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             _move_to(result, machine_pt)
             _stream_labeled_frames(ctx, result, f"Corner: {name}")
 
-        # 銅箔照合（部品単位の自動位置合わせ）
+        # 銅箔照合（部品単位の自動位置合わせ）。失敗時は FAILED overlay を配信する
         groups = sorted_top_component_pads(result)
         ctx.log(f"padを持つ部品数: {len(groups)}")
         session = PadAlignmentSession.from_calibration(result, frame_sink=ctx.frame)
-        alignments: list[tuple[ComponentPads, PadAlignmentResult]] = []
-        for index, group in enumerate(groups):
-            ctx.progress("銅箔照合", 100.0 * index / len(groups))
-            ctx.checkpoint()
-            designator = group.component.designator
-            alignment = session.align(group)
-            if alignment is None:
-                ctx.log(f"警告: {designator} の照合に失敗")
-                renderer = _pad_renderer(
-                    result,
-                    session,
-                    session.projector,
-                    group.pads,
-                    result.stage.get_position().to2d(),
-                )
-                lines = [f"{designator} {index + 1}/{len(groups)}", "FAILED"]
-                _stream_pad_result(ctx, result, renderer, lines)
-                continue
-            alignments.append((group, alignment))
-            translation = alignment.translation
-            ctx.log(
-                f"{designator}: dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
-                f"theta={alignment.rotation.degrees:+.3f} deg, "
-                f"mean_distance={alignment.match.mean_distance_px:.2f} px"
+
+        def render_failed(group: ComponentPads, index: int) -> None:
+            renderer = _pad_renderer(
+                result,
+                session,
+                session.projector,
+                group.pads,
+                result.stage.get_position().to2d(),
             )
+            lines = [
+                f"{group.component.designator} {index + 1}/{len(groups)}",
+                "FAILED",
+            ]
+            _stream_pad_result(ctx, result, renderer, lines)
+
+        alignments = align_component_groups(
+            ctx, session, groups, on_failure=render_failed
+        )
 
         # 補正適用済みの全 pad 巡回
         entries = _corrected_entries(result, session, alignments)
@@ -509,7 +489,7 @@ def _corrected_entries(
 def _run_orthogonality_test(ctx: JobContext) -> JobResult:
     """直行性指標の計測と四隅・グリッド交点の自動巡回を実行する."""
     with ctx.open_camera() as camera:
-        result = _calibrated_board(ctx, camera)
+        result = setup_board(ctx, camera)
         board_transform = result.board_transform
 
         metrics = OrthogonalityMetrics.from_transform(board_transform)
