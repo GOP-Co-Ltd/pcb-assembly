@@ -27,6 +27,7 @@ from webui.routers import (
     machine_control,
     pages,
     pasting,
+    pasting_loading,
     preview as preview_router,
     settings_api,
     system,
@@ -123,6 +124,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(preview_router.router)
     app.include_router(jobs.router)
     app.include_router(pasting.router)
+    app.include_router(pasting_loading.router)
     # /{tab} のキャッチオールを持つため最後に登録する
     app.include_router(pages.router)
     return app
