@@ -36,6 +36,8 @@ from pcbasm.pasting import (
     resolve_initial_purge,
     resolve_node_settings,
     resolve_pad_settings,
+    routed_enabled_pads,
+    select_enabled_pads,
     validate_field_names,
     validate_override_values,
 )
@@ -352,27 +354,16 @@ def _resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
     )
 
 
-def _enabled_pads_for_layer(loaded: _Loaded, layer: str) -> list[Pad]:
-    """指定 layer の有効 pad を返す."""
-    resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
-    return [
-        pad
-        for pad in loaded.hierarchy.iter_pads()
-        if pad.layer.value == layer
-        and resolved[loaded.hierarchy.pad_ref_for_pad(pad)].enabled
-    ]
-
-
-def _routed_enabled_pads_for_layer(loaded: _Loaded, layer: str) -> list[Pad]:
-    """指定 layer の有効 pad を通常塗布順に並べて返す."""
-    return [
-        stop.pad for stop in plan_paste_route(_enabled_pads_for_layer(loaded, layer))
-    ]
+def _layer_pads(loaded: _Loaded, layer: str) -> Iterator[Pad]:
+    """指定 layer の全 pad（有効/無効問わず）を返す."""
+    return (pad for pad in loaded.hierarchy.iter_pads() if pad.layer.value == layer)
 
 
 def _build_initial_purge(loaded: _Loaded) -> InitialPurgeInfo:
     """ロード済みコンテキストから初回パージ設定の解決結果を返す."""
-    routed = _routed_enabled_pads_for_layer(loaded, Layer.TOP.value)
+    routed = routed_enabled_pads(
+        _layer_pads(loaded, Layer.TOP.value), loaded.hierarchy, loaded.model
+    )
     default_pad_id = loaded.hierarchy.pad_id_for_pad(routed[0]) if routed else None
     resolved, error = resolve_initial_purge(
         amount_ul=loaded.base_config.initial_purge_ul,
@@ -515,7 +506,11 @@ def _build_route(loaded: _Loaded, layer: str) -> PasteRouteResponse:
             area=stop.area,
             center=[stop.pad.center.x, stop.pad.center.y],
         )
-        for stop in plan_paste_route(_enabled_pads_for_layer(loaded, layer))
+        for stop in plan_paste_route(
+            select_enabled_pads(
+                _layer_pads(loaded, layer), loaded.hierarchy, loaded.model
+            )
+        )
     ]
     return PasteRouteResponse(layer=layer, pads=route)
 
@@ -719,7 +714,9 @@ def patch_initial_purge(
         if pad_sent
         else loaded.model.initial_purge_pad_id
     )
-    routed = _routed_enabled_pads_for_layer(loaded, Layer.TOP.value)
+    routed = routed_enabled_pads(
+        _layer_pads(loaded, Layer.TOP.value), loaded.hierarchy, loaded.model
+    )
     _validate_initial_purge_patch(
         amount_ul=next_amount,
         pad_id=next_pad_id,

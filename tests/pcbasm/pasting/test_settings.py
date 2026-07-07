@@ -18,8 +18,10 @@ from pcbasm.pasting.settings import (
     PasteSettingsModel,
     base_override_from_config,
     find_orphans,
+    is_pad_enabled,
     resolve_node_settings,
     resolve_pad_settings,
+    select_enabled_pads,
     settings_from_dict,
     settings_to_dict,
     validate_field_names,
@@ -386,6 +388,75 @@ class TestEnabledResolution:
         assert resolved[("U1", "#2")].enabled is False
         assert resolved[("U1", "#3")].enabled is True
         assert resolved[("U1", "#4")].enabled is True
+
+
+class TestIsPadEnabled:
+    """is_pad_enabled は解決済み enabled と階層外 pad の後方互換を判定する。"""
+
+    def test_enabled_pad_returns_true(self):
+        _, pads, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(base=_full_base())
+        resolved = resolve_pad_settings(hierarchy, model)
+
+        assert is_pad_enabled(pads[0], hierarchy, resolved) is True
+
+    def test_disabled_pad_follows_resolved_enabled(self):
+        _, pads, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={("L2", "R1"): LevelSetting(enabled=False)},
+        )
+        resolved = resolve_pad_settings(hierarchy, model)
+
+        r1_pads = [pad for pad in pads if pad.designator == "R1"]
+        u1_pads = [pad for pad in pads if pad.designator == "U1"]
+        assert all(is_pad_enabled(p, hierarchy, resolved) is False for p in r1_pads)
+        assert all(is_pad_enabled(p, hierarchy, resolved) is True for p in u1_pads)
+
+    def test_pad_outside_hierarchy_is_enabled_for_backward_compat(self):
+        # 対応 Component が無い pad は階層から除外される。除外 pad は
+        # 全無効設定でも後方互換で有効扱い。
+        _, _, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(base=_full_base(), base_enabled=False)
+        resolved = resolve_pad_settings(hierarchy, model)
+        orphan = _pad("X9", "1", _rect(20.0, 0.0, 1.0, 1.0))
+
+        assert is_pad_enabled(orphan, hierarchy, resolved) is True
+
+
+class TestSelectEnabledPads:
+    """select_enabled_pads は有効 pad のみを元の順序で返す。"""
+
+    def test_returns_all_pads_when_no_overrides(self):
+        _, pads, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(base=_full_base())
+
+        assert select_enabled_pads(pads, hierarchy, model) == list(pads)
+
+    def test_excludes_disabled_pads_and_keeps_order(self):
+        _, pads, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={("L4", "U1", "1"): LevelSetting(enabled=False)},
+        )
+
+        selected = select_enabled_pads(pads, hierarchy, model)
+
+        assert [(p.designator, p.pad_number) for p in selected] == [
+            ("R1", "1"),
+            ("R1", "2"),
+            ("U1", "9"),
+        ]
+
+    def test_pad_without_component_is_kept_for_backward_compat(self):
+        # 階層に居ない pad（対応 Component 無し）は、全無効設定でも選ばれる。
+        _, pads, hierarchy = _two_component_hierarchy()
+        model = PasteSettingsModel(base=_full_base(), base_enabled=False)
+        orphan = _pad("X9", "1", _rect(20.0, 0.0, 1.0, 1.0))
+
+        selected = select_enabled_pads([*pads, orphan], hierarchy, model)
+
+        assert selected == [orphan]
 
 
 class TestResolveNodeSettings:

@@ -51,14 +51,13 @@ from pcbasm.pasting import (
     rate_sweep_amount,
     resolve_initial_purge,
     resolve_pad_settings,
+    select_enabled_pads,
     slot_area,
 )
 from pcbasm.pcb import (
     Copper,
     Layer,
-    Pad,
     PadHierarchy,
-    PadRef,
     PcbFile,
     build_pad_hierarchy,
 )
@@ -713,22 +712,6 @@ def _resolve_paste_model(
     )
 
 
-def _is_pad_enabled(
-    pad: Pad, hierarchy: PadHierarchy, resolved: Mapping[PadRef, ResolvedPaste]
-) -> bool:
-    """Pad が塗布対象か判定する.
-
-    階層から除外された pad（対応 Component 無し = ``resolved`` に不在）は
-    後方互換で有効扱い、それ以外は解決済み ``enabled`` に従う。
-    """
-    try:
-        pad_ref = hierarchy.pad_ref_for_pad(pad)
-    except KeyError:
-        return True
-    r = resolved.get(pad_ref)
-    return r is None or r.enabled
-
-
 def _run_paste_solder(ctx: JobContext) -> JobResult:
     """ボード計測 → 銅箔照合 → 高さ計測 → 補正適用 → ペースト塗布を通しで実行する.
 
@@ -748,7 +731,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         resolved = resolve_pad_settings(hierarchy, model)
 
         # 有効 top pad のみ塗布対象にする（無効除外はここ一点）
-        enabled_pads = [p for p in top_pads if _is_pad_enabled(p, hierarchy, resolved)]
+        enabled_pads = select_enabled_pads(top_pads, hierarchy, model)
         disabled_count = len(top_pads) - len(enabled_pads)
         ctx.log(
             f"塗布対象: 有効 {len(enabled_pads)} / 全 {len(top_pads)} pads"

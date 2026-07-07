@@ -26,7 +26,7 @@ from .height import HeightPlaneMeasurer
 from .initial_purge import ResolvedInitialPurge, resolve_initial_purge
 from .loading import interactive_loading
 from .probe import ProbeExecutor
-from .route import PasteRouteStop, plan_paste_route
+from .route import PasteRouteStop, plan_paste_route, routed_enabled_pads
 from .settings import (
     NUMERIC_PASTE_OVERRIDE_FIELDS,
     PASTE_OVERRIDE_FIELDS,
@@ -38,8 +38,10 @@ from .settings import (
     ResolvedPaste,
     base_override_from_config,
     find_orphans,
+    is_pad_enabled,
     resolve_node_settings,
     resolve_pad_settings,
+    select_enabled_pads,
     settings_from_dict,
     settings_to_dict,
     validate_field_names,
@@ -84,10 +86,13 @@ __all__ = [
     "build_paste_fill_plan",
     "find_orphans",
     "interactive_loading",
+    "is_pad_enabled",
     "plan_paste_route",
     "resolve_node_settings",
     "resolve_initial_purge",
     "resolve_pad_settings",
+    "routed_enabled_pads",
+    "select_enabled_pads",
     "settings_from_dict",
     "settings_to_dict",
     "validate_field_names",

@@ -11,12 +11,13 @@
 - 解決時は各 pad で L0→L4 を辿り、非 None 項目で上書き（**最具体が勝つ**）
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, cast
 
 import attrs
 
 from pcbasm.config import DISPENSE_MODES, DispenseMode, PasteDispenser, PasteHeight
+from pcbasm.pcb.board import Pad
 from pcbasm.pcb.grouping import HierKey, PadHierarchy, PadHierarchyNode, PadRef
 
 # override 可能な項目のフィールド名（解決・JSON 変換の正準順）
@@ -306,6 +307,35 @@ def _resolved_from_values(
         overlap=_float_value("overlap", values["overlap"]),
         boundary_margin=_float_value("boundary_margin", values["boundary_margin"]),
     )
+
+
+def is_pad_enabled(
+    pad: Pad, hierarchy: PadHierarchy, resolved: Mapping[PadRef, ResolvedPaste]
+) -> bool:
+    """Pad が塗布対象か判定する.
+
+    階層から除外された pad（対応 Component 無し = ``resolved`` に不在）は
+    後方互換で有効扱い、それ以外は解決済み ``enabled`` に従う。
+    """
+    try:
+        pad_ref = hierarchy.pad_ref_for_pad(pad)
+    except KeyError:
+        return True
+    r = resolved.get(pad_ref)
+    return r is None or r.enabled
+
+
+def select_enabled_pads(
+    pads: Iterable[Pad], hierarchy: PadHierarchy, model: PasteSettingsModel
+) -> list[Pad]:
+    """塗布対象（enabled）の pad だけを元の順序で返す.
+
+    :func:`resolve_pad_settings` を 1 回だけ呼び、:func:`is_pad_enabled` の
+    規則で filter する。プレビュー（webui router）と実行（webui job）が
+    同一の絞り込みを共有するための単一ソース。
+    """
+    resolved = resolve_pad_settings(hierarchy, model)
+    return [pad for pad in pads if is_pad_enabled(pad, hierarchy, resolved)]
 
 
 def resolve_node_settings(
