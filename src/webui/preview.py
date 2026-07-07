@@ -113,6 +113,7 @@ class PreviewService:
         detect_fps: float = 5.0,
         override_ttl: float = 1.0,
         jpeg_quality: int = 80,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         """PreviewService を初期化する.
 
@@ -122,12 +123,14 @@ class PreviewService:
             detect_fps: circle / copper 検出の実行上限
             override_ttl: ジョブ提供フレームの優先時間 [sec]
             jpeg_quality: JPEG エンコード品質
+            clock: override 期限判定用の単調時刻源（テストでの時刻注入用）
         """
         self._state = state
         self._max_fps = max_fps
         self._detect_fps = detect_fps
         self._override_ttl = override_ttl
         self._jpeg_quality = jpeg_quality
+        self._clock = clock
         self._count_lock = threading.Lock()
         self._client_count = 0
         self._override_lock = threading.Lock()
@@ -147,7 +150,7 @@ class PreviewService:
         以内のフレームを生フレームより優先して配信する。persist=True の場合は clear_override()
         まで固定表示する。
         """
-        expires_at = None if persist else time.monotonic() + self._override_ttl
+        expires_at = None if persist else self._clock() + self._override_ttl
         with self._override_lock:
             self._override = (image, expires_at)
 
@@ -253,7 +256,7 @@ class PreviewService:
             image, expires_at = self._override
             if expires_at is None:
                 return image
-            if time.monotonic() > expires_at:
+            if self._clock() > expires_at:
                 self._override = None
                 return None
             return image
