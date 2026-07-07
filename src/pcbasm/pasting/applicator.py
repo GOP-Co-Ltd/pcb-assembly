@@ -22,8 +22,9 @@ from pcbasm.geometry import (
     Transform,
 )
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
-from pcbasm.pasting.fill_path import build_paste_fill_plan
+from pcbasm.pasting.fill_path import build_pad_fill_plan_for
 from pcbasm.pasting.fill_sequence import FillSequence
+from pcbasm.pasting.settings import ResolvedPaste
 from pcbasm.utils import get_class_module_path
 
 
@@ -304,34 +305,30 @@ class PasteApplicator:
             overlap: ジグザグ行間オーバーラップ [0, 1)
             boundary_margin: 外周マージン [mm]
         """
-        resolved_paste_height = (
-            self._paste_height if paste_height is None else paste_height
-        )
-        resolved_ul_per_mm2 = self._ul_per_mm2 if ul_per_mm2 is None else ul_per_mm2
-        resolved_dispense_mode = (
-            self._dispense_mode if dispense_mode is None else dispense_mode
-        )
-        resolved_prime_extra_delay = (
-            self._prime_extra_delay if prime_extra_delay is None else prime_extra_delay
-        )
-        resolved_bead_width_factor = (
-            self._bead_width_factor if bead_width_factor is None else bead_width_factor
-        )
-        resolved_overlap = self._overlap if overlap is None else overlap
-        resolved_boundary_margin = (
-            self._boundary_margin if boundary_margin is None else boundary_margin
+        paste = ResolvedPaste(
+            enabled=True,
+            dispense_mode=(
+                self._dispense_mode if dispense_mode is None else dispense_mode
+            ),
+            paste_height=(self._paste_height if paste_height is None else paste_height),
+            ul_per_mm2=self._ul_per_mm2 if ul_per_mm2 is None else ul_per_mm2,
+            prime_extra_delay=(
+                self._prime_extra_delay
+                if prime_extra_delay is None
+                else prime_extra_delay
+            ),
+            bead_width_factor=(
+                self._bead_width_factor
+                if bead_width_factor is None
+                else bead_width_factor
+            ),
+            overlap=self._overlap if overlap is None else overlap,
+            boundary_margin=(
+                self._boundary_margin if boundary_margin is None else boundary_margin
+            ),
         )
         for polygon in polygons:
-            self._fill(
-                polygon,
-                paste_height=resolved_paste_height,
-                ul_per_mm2=resolved_ul_per_mm2,
-                dispense_mode=resolved_dispense_mode,
-                prime_extra_delay=resolved_prime_extra_delay,
-                bead_width_factor=resolved_bead_width_factor,
-                overlap=resolved_overlap,
-                boundary_margin=resolved_boundary_margin,
-            )
+            self._fill(polygon, paste=paste)
 
     def draw_line(
         self,
@@ -411,18 +408,7 @@ class PasteApplicator:
             rate_cap=rate_cap,
         )
 
-    def _fill(
-        self,
-        polygon: Polygon,
-        *,
-        paste_height: PasteHeight,
-        ul_per_mm2: float,
-        dispense_mode: DispenseMode,
-        prime_extra_delay: float,
-        bead_width_factor: float,
-        overlap: float,
-        boundary_margin: float,
-    ) -> None:
+    def _fill(self, polygon: Polygon, *, paste: ResolvedPaste) -> None:
         """ポリゴンを成分別フィル経路で塗布する.
 
         各成分は独立した ``FillSequence`` として送信する。
@@ -430,33 +416,31 @@ class PasteApplicator:
         retract → ``lift_height`` 上昇を1本に組むため、成分間の移動は
         ``FillSequence`` の連続送信だけで自然に実現される。``total_amount``
         は元ポリゴン面積ベース（``polygon.area * ul_per_mm2``）を成分数で
-        均等配分する。塗布設定は呼び出し元（``apply``）が解決した実効値を
-        受け取る。
+        均等配分する。塗布設定は呼び出し元（``apply``）が解決した実効値
+        （:class:`ResolvedPaste`）を受け取り、経路生成はプレビューと共通の
+        :func:`build_pad_fill_plan_for` に委譲する。
         """
-        plan = build_paste_fill_plan(
+        plan = build_pad_fill_plan_for(
             polygon,
             nozzle_diameter=self._nozzle_diameter,
-            dispense_mode=dispense_mode,
             auto_line_aspect_ratio=self._auto_line_aspect_ratio,
             auto_area_short_side_factor=self._auto_area_short_side_factor,
-            bead_width_factor=bead_width_factor,
-            overlap=overlap,
-            boundary_margin=boundary_margin,
+            paste=paste,
         )
         if not plan.paths:
             self._logger.warning("フィルパスが空です。スキップします。")
             return
 
-        total_amount = polygon.area * ul_per_mm2
+        total_amount = polygon.area * paste.ul_per_mm2
         per_component_amount = total_amount / len(plan.paths)
 
         for raw in plan.paths:
             self._draw_polyline(
                 raw,
                 total_amount=per_component_amount,
-                paste_height=paste_height,
-                ul_per_mm2=ul_per_mm2,
-                prime_extra_delay=prime_extra_delay,
+                paste_height=paste.paste_height,
+                ul_per_mm2=paste.ul_per_mm2,
+                prime_extra_delay=paste.prime_extra_delay,
             )
 
     def _draw_polyline(

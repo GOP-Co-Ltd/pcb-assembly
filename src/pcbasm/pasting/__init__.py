@@ -7,6 +7,8 @@ from .calibration import (
     FlowCalibration,
     FlowCalibrationSet,
     MassFlowCalibration,
+    MassFlowEstimate,
+    estimate_mass_flow,
 )
 from .dispense_calibration import (
     DispenseRateCalibration,
@@ -20,10 +22,19 @@ from .dispense_calibration import (
     rate_sweep_amount,
     slot_area,
 )
-from .fill_path import PasteFillPlan, build_paste_fill_path, build_paste_fill_plan
+from .fill_path import (
+    PasteFillPlan,
+    build_pad_fill_plan_for,
+    build_paste_fill_path,
+    build_paste_fill_plan,
+)
 from .fill_sequence import FillSequence
 from .height import HeightPlaneMeasurer
-from .initial_purge import ResolvedInitialPurge, resolve_initial_purge
+from .initial_purge import (
+    ResolvedInitialPurge,
+    resolve_initial_purge,
+    validate_initial_purge,
+)
 from .loading import interactive_loading
 from .probe import ProbeExecutor
 from .route import PasteRouteStop, plan_paste_route, routed_enabled_pads
@@ -62,6 +73,7 @@ __all__ = [
     "LineLayout",
     "LineLayoutOverflowError",
     "MassFlowCalibration",
+    "MassFlowEstimate",
     "NUMERIC_PASTE_OVERRIDE_FIELDS",
     "PasteApplicator",
     "RateMeasurement",
@@ -82,8 +94,10 @@ __all__ = [
     "ResolvedPaste",
     "ToolheadOffsetResult",
     "base_override_from_config",
+    "build_pad_fill_plan_for",
     "build_paste_fill_path",
     "build_paste_fill_plan",
+    "estimate_mass_flow",
     "find_orphans",
     "interactive_loading",
     "is_pad_enabled",
@@ -96,5 +110,6 @@ __all__ = [
     "settings_from_dict",
     "settings_to_dict",
     "validate_field_names",
+    "validate_initial_purge",
     "validate_override_values",
 ]

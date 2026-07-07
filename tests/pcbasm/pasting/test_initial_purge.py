@@ -4,7 +4,11 @@ import pytest
 from shapely import Polygon
 
 from pcbasm.geometry import Point2d
-from pcbasm.pasting import ResolvedInitialPurge, resolve_initial_purge
+from pcbasm.pasting import (
+    ResolvedInitialPurge,
+    resolve_initial_purge,
+    validate_initial_purge,
+)
 from pcbasm.pcb import Component, Layer, Pad, build_pad_hierarchy
 
 
@@ -137,3 +141,117 @@ class TestResolveInitialPurge:
         assert error is not None
         assert "R3.1" in error
         assert "Top" in error
+
+
+class TestValidateInitialPurge:
+    """validate_initial_purge は resolve と同一規則の None 返却バリデーション。
+
+    ただし ``amount_ul == 0``（機能無効）でも ``pad_id`` 指定時は pad の
+    存在とレイヤを検証する。
+    """
+
+    def test_valid_settings_return_none(self):
+        pad = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        hierarchy = _hierarchy([pad])
+
+        error = validate_initial_purge(
+            amount_ul=0.1,
+            pad_id="R1.1",
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+        )
+
+        assert error is None
+
+    def test_amount_zero_without_pad_returns_none(self):
+        pad = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        hierarchy = _hierarchy([pad])
+
+        error = validate_initial_purge(
+            amount_ul=0.0,
+            pad_id=None,
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+        )
+
+        assert error is None
+
+    def test_amount_zero_valid_pad_returns_none(self):
+        pad = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        hierarchy = _hierarchy([pad])
+
+        error = validate_initial_purge(
+            amount_ul=0.0,
+            pad_id="R1.1",
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+        )
+
+        assert error is None
+
+    def test_amount_zero_unknown_pad_returns_error(self):
+        # resolve_initial_purge は amount=0 で pad 解決をスキップするが、
+        # validate は不正 pad の保存を弾くため存在検証する。
+        pad = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        hierarchy = _hierarchy([pad])
+
+        error = validate_initial_purge(
+            amount_ul=0.0,
+            pad_id="R9.9",
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+        )
+
+        assert error is not None
+        assert "R9.9" in error
+        assert "未知" in error
+
+    def test_amount_zero_bottom_pad_returns_error(self):
+        top = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        bottom = _pad("R3", "1", center=Point2d(1.0, 1.0), layer=Layer.BOTTOM)
+        hierarchy = _hierarchy([top, bottom])
+
+        error = validate_initial_purge(
+            amount_ul=0.0,
+            pad_id="R3.1",
+            hierarchy=hierarchy,
+            routed_pads=[top],
+        )
+
+        assert error is not None
+        assert "R3.1" in error
+        assert "Top" in error
+
+    def test_negative_amount_returns_error(self):
+        pad = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        hierarchy = _hierarchy([pad])
+
+        error = validate_initial_purge(
+            amount_ul=-0.1,
+            pad_id=None,
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+        )
+
+        assert error is not None
+        assert "0以上" in error
+
+    def test_error_text_matches_resolve_initial_purge(self):
+        # エラー文言は resolve_initial_purge と同一ソース（文言の乖離防止）
+        pad = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        hierarchy = _hierarchy([pad])
+
+        _, resolve_error = resolve_initial_purge(
+            amount_ul=0.1,
+            pad_id="R9.9",
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+        )
+        validate_error = validate_initial_purge(
+            amount_ul=0.1,
+            pad_id="R9.9",
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+        )
+
+        assert validate_error == resolve_error
