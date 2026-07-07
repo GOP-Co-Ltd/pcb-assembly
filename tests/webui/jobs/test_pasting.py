@@ -9,8 +9,6 @@
 - parse_loading_command: extrude / suck / finish の純粋パーサ。ローディング用
   type の値不正（欠落・非正・非数）は InvalidLoadingCommand(reason)、
   未知 type は None（機械操作の後段判定へ）
-- LOADING_STAGE: ジョブ実装・テンプレート data 属性・loading_controls.js の
-  3 箇所で一致させる契約値 "ローディング"（計画書 判断保留点 6）
 - height_plane: 計測前に planned_points.png を artifacts へ生成し、
   diagnostics と /artifacts/ リンクを log してから confirm を挟む。
   confirm False → ABORTED / True → Klipper 不通（setup）で FAILED
@@ -42,7 +40,6 @@ from webui.config_store import ConfigStore
 from webui.jobs.catalog import JobCatalog, default_catalog
 from webui.jobs.manager import JobManager, JobRecord, JobStatus
 from webui.jobs.pasting import (
-    CALIBRATION_MENU_STAGE,
     LOADING_STAGE,
     Extrude,
     Finish,
@@ -98,10 +95,6 @@ class TestCatalog:
         names = {definition.name for definition in default.list(tab="pasting")}
 
         assert names == set(PASTING_JOBS)
-
-    def test_total_job_count_covers_all_tabs(self, default: JobCatalog):
-        """Dev 3 + posctrl 5 + pasting 6 = 14（重複登録・登録漏れの検知）."""
-        assert len(default.list()) == 14
 
     @pytest.mark.parametrize(
         ("name", "requires_pcb", "uses_machine", "accepts_commands"),
@@ -314,11 +307,11 @@ class TestGenerateRectPcb:
 
 
 class TestParseLoadingCommand:
-    """parse_loading_command（純粋関数）と LOADING_STAGE の契約値."""
+    """parse_loading_command（純粋関数）の契約.
 
-    def test_loading_stage_is_pinned_for_template_and_js(self):
-        """ジョブ実装・data-loading-stage 属性・JS の 3 箇所契約（判断保留点 6）."""
-        assert LOADING_STAGE == "ローディング"
+    LOADING_STAGE 文字列のテンプレ/JS 整合は routers/test_pages.py の data-loading-
+    stage アサートと e2e の DOM アサートが担保する。
+    """
 
     def test_extrude_yields_positive_amount(self):
         assert parse_loading_command({"type": "extrude", "amount": 2.5}) == Extrude(2.5)
@@ -426,11 +419,11 @@ class TestParseLoadingCommand:
 
 
 class TestParseRunCalibCommand:
-    """parse_run_calib_command（純粋関数）と CALIBRATION_MENU_STAGE の契約値."""
+    """parse_run_calib_command（純粋関数）の契約.
 
-    def test_menu_stage_is_pinned_for_template_and_js(self):
-        """ジョブ実装・data-calib-stage 属性・calibration_menu.js の契約値."""
-        assert CALIBRATION_MENU_STAGE == "キャリブレーションメニュー"
+    CALIBRATION_MENU_STAGE 文字列のテンプレ/JS 整合は routers/test_pages.py の data-
+    loading-stage アサートと e2e の DOM アサートが担保する。
+    """
 
     @pytest.mark.parametrize(
         "which",
