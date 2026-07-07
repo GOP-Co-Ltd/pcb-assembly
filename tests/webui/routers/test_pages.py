@@ -147,7 +147,7 @@ class TestStaticAssets:
         assert 'href="/static/app.css?v=' in text
         assert 'src="/static/js/app.js?v=' in text
         assert 'src="/static/js/job_console.js?v=' in text
-        assert 'src="/static/js/pad_editor.js?v=' in text
+        assert 'src="/static/js/pad_editor/index.js?v=' in text
 
     def test_static_assets_require_browser_revalidation(self, client: TestClient):
         response = client.get("/static/app.css")
@@ -576,7 +576,7 @@ class TestPasteSolderPadEditor:
         assert 'id="pad-calculate-fill-path"' in text
         assert 'id="pad-route-status"' not in text
         assert "面積あたりのペースト量" in text
-        assert "pad_editor.js" in text
+        assert "pad_editor/index.js" in text
         # レイヤ切替（Top/Bottom）
         assert 'name="pad-layer"' in text
 
@@ -602,7 +602,7 @@ class TestPasteSolderPadEditor:
         text = client.get(f"/pasting/{feature}").text
 
         assert "pad-viewer" not in text
-        assert "pad_editor.js" not in text
+        assert "pad_editor/index.js" not in text
 
 
 class TestTabsCatalogConsistency:
