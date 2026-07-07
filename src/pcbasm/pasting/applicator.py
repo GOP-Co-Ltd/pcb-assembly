@@ -1,7 +1,6 @@
 """ペースト塗布の制御."""
 
 import logging
-import math
 from collections.abc import Iterable
 from typing import Self
 
@@ -13,6 +12,7 @@ from pcbasm.config import (
     DispenseMode,
     PasteDispenser as PasteDispenserConfig,
     PasteHeight,
+    resolve_paste_height,
 )
 from pcbasm.geometry import (
     Identity,
@@ -21,8 +21,7 @@ from pcbasm.geometry import (
     Transform,
 )
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
-from pcbasm.pasting.dispense_calibration import slot_area
-from pcbasm.pasting.fill_path import AppliedDispenseMode, build_paste_fill_plan
+from pcbasm.pasting.fill_path import build_paste_fill_plan
 from pcbasm.pasting.fill_sequence import FillSequence
 from pcbasm.utils import get_class_module_path
 
@@ -332,7 +331,6 @@ class PasteApplicator:
         amount: float,
         paste_height: PasteHeight | None = None,
         prime_extra_delay: float | None = None,
-        bead_width_factor: float | None = None,
         max_fill_speed: float | None = None,
         rate_cap: float | None = None,
     ) -> Speed | None:
@@ -340,8 +338,7 @@ class PasteApplicator:
 
         ``apply`` のポリゴン経路生成を通さず、``[start, end]`` を直接 1 本の
         ``FillSequence`` として送信する。Z 補正・transform 適用・吐出同期は
-        ``apply`` の塗布と同一機構（``_draw_polyline``）を共用する。塗布面積は
-        スロット（stadium）近似で見積もり、auto 高さ算出に使う。
+        ``apply`` の塗布と同一機構（``_draw_polyline``）を共用する。
 
         Args:
             start: 線の始点（board 座標, mm）
@@ -349,7 +346,6 @@ class PasteApplicator:
             amount: 塗布量 [μL]
             paste_height: 塗布面のZ高さ [mm]、または auto。``None`` で既定値
             prime_extra_delay: プライム後の追加遅延 [sec]。``None`` で既定値
-            bead_width_factor: ビード幅係数。``None`` で既定値
             max_fill_speed: 連続塗布できる移動速度上限 [mm/sec]。``None`` で既定値。
                 ③ の速度スイープのように既定値を超える速度を測りたいとき上書きする
             rate_cap: 吐出レートの頭打ち値 [μL/sec]。``None``=max_dispense_rate、
@@ -364,17 +360,12 @@ class PasteApplicator:
         resolved_prime_extra_delay = (
             self._prime_extra_delay if prime_extra_delay is None else prime_extra_delay
         )
-        resolved_bead_width_factor = (
-            self._bead_width_factor if bead_width_factor is None else bead_width_factor
-        )
         return self._draw_polyline(
             [start, end],
             total_amount=amount,
             paste_height=resolved_paste_height,
-            dispense_mode="line",
             ul_per_mm2=self._ul_per_mm2,
             prime_extra_delay=resolved_prime_extra_delay,
-            bead_width_factor=resolved_bead_width_factor,
             max_fill_speed=max_fill_speed,
             rate_cap=rate_cap,
         )
@@ -386,7 +377,6 @@ class PasteApplicator:
         amount: float,
         paste_height: PasteHeight | None = None,
         prime_extra_delay: float | None = None,
-        bead_width_factor: float | None = None,
         rate_cap: float | None = None,
     ) -> Speed | None:
         """指定点へ ``amount`` [μL] を点塗布する.
@@ -402,17 +392,12 @@ class PasteApplicator:
         resolved_prime_extra_delay = (
             self._prime_extra_delay if prime_extra_delay is None else prime_extra_delay
         )
-        resolved_bead_width_factor = (
-            self._bead_width_factor if bead_width_factor is None else bead_width_factor
-        )
         return self._draw_polyline(
             [point],
             total_amount=amount,
             paste_height=resolved_paste_height,
-            dispense_mode="dot",
             ul_per_mm2=self._ul_per_mm2,
             prime_extra_delay=resolved_prime_extra_delay,
-            bead_width_factor=resolved_bead_width_factor,
             rate_cap=rate_cap,
         )
 
@@ -459,10 +444,8 @@ class PasteApplicator:
                 raw,
                 total_amount=per_component_amount,
                 paste_height=paste_height,
-                dispense_mode=plan.dispense_mode,
                 ul_per_mm2=ul_per_mm2,
                 prime_extra_delay=prime_extra_delay,
-                bead_width_factor=bead_width_factor,
             )
 
     def _draw_polyline(
@@ -471,10 +454,8 @@ class PasteApplicator:
         *,
         total_amount: float,
         paste_height: PasteHeight,
-        dispense_mode: AppliedDispenseMode,
         ul_per_mm2: float,
         prime_extra_delay: float,
-        bead_width_factor: float,
         max_fill_speed: float | None = None,
         rate_cap: float | None = None,
     ) -> Speed | None:
@@ -490,14 +471,7 @@ class PasteApplicator:
         Returns:
             実効塗布移動速度（``Speed``）。経路長 0 などで塗布移動が無いとき ``None``
         """
-        resolved_height = self._resolve_paste_height(
-            paste_height,
-            dispense_mode=dispense_mode,
-            path_length=_polyline_length(raw),
-            amount=total_amount,
-            ul_per_mm2=ul_per_mm2,
-            bead_width_factor=bead_width_factor,
-        )
+        resolved_height = resolve_paste_height(paste_height, ul_per_mm2)
         path = Path(p.to3d(resolved_height) for p in raw).transformed(self._transform)
         sequence = FillSequence(
             path=path,
@@ -520,30 +494,3 @@ class PasteApplicator:
             + gcode.wait_for_done()
         )
         return sequence.fill_speed_actual()
-
-    def _resolve_paste_height(
-        self,
-        paste_height: PasteHeight,
-        *,
-        dispense_mode: AppliedDispenseMode,
-        path_length: float,
-        amount: float,
-        ul_per_mm2: float,
-        bead_width_factor: float,
-    ) -> float:
-        if paste_height != "auto":
-            return paste_height
-
-        match dispense_mode:
-            case "area":
-                return ul_per_mm2
-            case "line" if path_length > 0:
-                bead_width = self._nozzle_diameter * bead_width_factor
-                return amount / slot_area(path_length, bead_width)
-            case "line" | "dot":
-                nozzle_area = math.pi * (self._nozzle_diameter / 2.0) ** 2
-                return amount / nozzle_area
-
-
-def _polyline_length(points: list[Point2d]) -> float:
-    return sum((points[i + 1] - points[i]).norm for i in range(len(points) - 1))

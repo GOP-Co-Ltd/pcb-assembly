@@ -19,6 +19,18 @@ PasteHeight = float | Literal["auto"]
 DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
 
 
+def resolve_paste_height(paste_height: PasteHeight, ul_per_mm2: float) -> float:
+    """塗布高さ [mm] を解決する.
+
+    ``auto`` のときは ``ul_per_mm2``（μL/mm² = mm³/mm² = mm、すなわち目標膜厚）を
+    そのまま塗布高さ（基板表面からのクリアランス [mm]）として使う。数値指定なら
+    その値を返す。
+    """
+    if paste_height == "auto":
+        return ul_per_mm2
+    return paste_height
+
+
 @attrs.frozen
 class Klipper:
     """Klipperの設定."""
