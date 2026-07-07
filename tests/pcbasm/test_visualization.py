@@ -131,6 +131,7 @@ class TestRenderFillPaths:
                 0.4,
                 dispense_mode="area",
                 auto_line_aspect_ratio=1.618,
+                auto_area_short_side_factor=3.0,
             )
             for pad in pads
         ]

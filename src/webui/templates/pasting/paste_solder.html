@@ -5,6 +5,23 @@
 <h2>{{ feature_label }}</h2>
 <div class="pasting-grid">
 <section class="pasting-pad-panel" data-testid="pasting-pad-panel">
+{% if auto_threshold_fields %}
+{# 塗布方式 auto の解決しきい値（machine 全体設定）。入力後は即保存する。 #}
+<form class="paste-auto-thresholds" data-testid="paste-auto-thresholds"
+      data-machine-settings data-endpoint="/api/settings/machine">
+  {% for field in auto_threshold_fields %}
+  <label for="pat-{{ field.key }}">{{ field.label }}
+    <input id="pat-{{ field.key }}" name="{{ field.key }}"
+           data-type="{{ field.value_type }}" type="number" step="any"
+           aria-label="{{ field.label }}"
+           value="{{ field.value if field.value is not none else '' }}"
+           placeholder="未設定"
+           data-testid="auto-threshold-{{ field.key }}">
+    {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+  </label>
+  {% endfor %}
+</form>
+{% endif %}
 {% include "partials/pad_editor.html" %}
 </section>
 <section class="pasting-run-panel" data-testid="pasting-run-panel">
@@ -35,4 +52,5 @@
 <script src="{{ static_asset('js/loading_controls.js') }}"></script>
 {% endif %}
 <script type="module" src="{{ static_asset('js/pad_editor.js') }}"></script>
+<script src="{{ static_asset('js/settings.js') }}"></script>
 {% endblock %}

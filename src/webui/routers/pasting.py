@@ -537,6 +537,9 @@ def _build_fill_path(loaded: _Loaded, layer: str) -> PasteFillPathResponse:
                 nozzle_diameter,
                 dispense_mode=paste.dispense_mode,
                 auto_line_aspect_ratio=loaded.base_config.auto_line_aspect_ratio,
+                auto_area_short_side_factor=(
+                    loaded.base_config.auto_area_short_side_factor
+                ),
                 bead_width_factor=paste.bead_width_factor,
                 overlap=paste.overlap,
                 boundary_margin=paste.boundary_margin,

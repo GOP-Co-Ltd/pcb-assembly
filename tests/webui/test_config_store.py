@@ -67,6 +67,7 @@ class TestMachineSettings:
         assert values["paste_dispenser.initial_purge_ul"] is None
         assert values["paste_dispenser.bead_width_factor"] is None
         assert values["paste_dispenser.boundary_margin"] is None
+        assert values["paste_dispenser.auto_area_short_side_factor"] is None
         assert values["probe.lift_height"] is None
 
     def test_write_then_reread_reflects_value(self, store: ConfigStore):
@@ -210,6 +211,25 @@ class TestMachineSettings:
             store.write_machine_settings(
                 FIXTURE, {"paste_dispenser.auto_line_aspect_ratio": 1.0}
             )
+
+    @pytest.mark.parametrize("factor", [0.0, -1.0])
+    def test_auto_area_short_side_factor_must_be_positive(
+        self, store: ConfigStore, factor: float
+    ):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                FIXTURE, {"paste_dispenser.auto_area_short_side_factor": factor}
+            )
+
+    def test_write_auto_area_short_side_factor_then_reread_reflects_value(
+        self, store: ConfigStore
+    ):
+        store.write_machine_settings(
+            FIXTURE, {"paste_dispenser.auto_area_short_side_factor": 4.0}
+        )
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.auto_area_short_side_factor"] == 4.0
 
     def test_manual_paste_height_must_be_positive(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):

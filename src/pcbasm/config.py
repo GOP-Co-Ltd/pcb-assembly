@@ -17,6 +17,7 @@ DISPENSE_MODES = ("auto", "dot", "line", "area")
 DispenseMode = Literal["auto", "dot", "line", "area"]
 PasteHeight = float | Literal["auto"]
 DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
+DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR = 3.0
 
 
 @attrs.frozen
@@ -64,6 +65,10 @@ class PasteDispenser:
     auto_line_aspect_ratio: float = (
         DEFAULT_AUTO_LINE_ASPECT_RATIO  # Auto時に線塗布へ切り替える縦横比
     )
+    auto_area_short_side_factor: float = (
+        # Auto時に面塗布へ切り替える短辺のノズル径倍率（短辺 > nozzle_diameter * この値 → area）
+        DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR
+    )
     prime_extra_delay: float = 0.0  # プライム後の追加遅延 [sec]
     initial_purge_ul: float = (
         0.1  # fill sequence 前に pad 中心へ点塗布する初回パージ量 [μL]
@@ -83,6 +88,11 @@ class PasteDispenser:
             raise ValueError(
                 "auto_line_aspect_ratioは1.0より大きい必要があります: "
                 f"{self.auto_line_aspect_ratio}"
+            )
+        if self.auto_area_short_side_factor <= 0:
+            raise ValueError(
+                "auto_area_short_side_factorは正の値である必要があります: "
+                f"{self.auto_area_short_side_factor}"
             )
         if isinstance(self.paste_height, bool) or not isinstance(
             self.paste_height, (int, float, str)
