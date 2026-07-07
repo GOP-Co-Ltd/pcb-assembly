@@ -1718,38 +1718,16 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             )
             applicator.retract()
 
-            # ペースト吐出
+            # ペースト吐出（実塗布と同一の deposit protocol に委譲。applicator は
+            # Identity transform 構築なので paste_height に絶対 Z を渡す）
             ctx.progress("吐出")
             dispense_amount = float(ctx.params["dispense_amount"])
             paste_height = resolve_paste_height(
                 dispenser_config.paste_height, dispenser_config.ul_per_mm2
             )
             dispense_z = board_surface_z + paste_height
-            klipper.send_gcode(
-                stage.move(x=center_toolhead.x, y=center_toolhead.y, z=dispense_z)
-                + gcode.wait_for_done()
-            )
-            klipper.send_gcode(
-                paste_dispenser.pushpull(
-                    dispense_amount,
-                    dispenser_config.max_dispense_rate,
-                    dispenser_config.dispense_accel,
-                )
-                + gcode.wait_for_done()
-            )
-            retract_accel = (
-                dispenser_config.dispense_accel * dispenser_config.retract_accel_factor
-            )
-            klipper.send_gcode(
-                paste_dispenser.pushpull(
-                    -dispenser_config.retract_amount,
-                    dispenser_config.effective_retract_rate,
-                    retract_accel,
-                )
-                + gcode.wait_for_done()
-            )
-            klipper.send_gcode(
-                stage.move(z=dispense_z + lift_height) + gcode.wait_for_done()
+            applicator.deposit_at(
+                center_toolhead, amount=dispense_amount, paste_height=dispense_z
             )
             ctx.log(
                 f"吐出位置 (ステージ): "
@@ -1792,17 +1770,13 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             )
 
     # オフセット算出 & 保存
-    measured_offset = Point2d(
-        center_toolhead.x - camera_final_pos.x,
-        center_toolhead.y - camera_final_pos.y,
-    )
-    offset_result = ToolheadOffsetResult(
-        offset=measured_offset,
+    offset_result = ToolheadOffsetResult.measure(
         dispense_position=center_toolhead,
         camera_position=camera_final_pos,
         tolerance=tolerance,
         calibrated_at=datetime.now(),
     )
+    measured_offset = offset_result.offset
     offset_result.save(ctx.artifacts_dir / "toolhead_offset.json")
 
     current_toolhead = machine.paste_dispenser.toolhead
