@@ -34,7 +34,6 @@ import {
 
   const { api, toast } = window.webui;
   const DEBOUNCE_MS = 300;
-  const TOAST_MS = 5000;
 
   const state = {
     config: null,
@@ -125,19 +124,6 @@ import {
 
   function renderSelectionCount() {
     countEl.textContent = `選択: ${state.selected.size}`;
-  }
-
-  function warningToast(message) {
-    const container = document.getElementById("toasts");
-    if (!container) {
-      toast(message);
-      return;
-    }
-    const el = document.createElement("div");
-    el.className = "toast warning";
-    el.textContent = message;
-    container.appendChild(el);
-    setTimeout(() => el.remove(), TOAST_MS);
   }
 
   function overrideFieldsTitle(fields) {
@@ -797,8 +783,9 @@ import {
       });
       if (options.descendantCount > 0) {
         const label = FIELD_LABELS[options.descendantField] || options.descendantField;
-        warningToast(
-          `保存しました。子孫ノードの ${label} override ${options.descendantCount} 件は引き続き優先されます。`
+        toast(
+          `保存しました。子孫ノードの ${label} override ${options.descendantCount} 件は引き続き優先されます。`,
+          "warning"
         );
       }
     } catch (err) {
@@ -892,8 +879,6 @@ import {
       focusNodePads(l4);
     }
   }
-
-  const TERMINAL = new Set(["succeeded", "failed", "aborted", "idle"]);
 
   function applyToolbarLock() {
     root.classList.toggle("pad-editor-locked", state.locked);
@@ -1004,7 +989,7 @@ import {
 
   if (window.webui.jobs) {
     window.webui.jobs.onUpdate((job) => {
-      const active = Boolean(job && !TERMINAL.has(job.status));
+      const active = window.webui.jobs.isActive(job);
       if (active === state.locked) return;
       state.locked = active;
       if (!state.config) return;

@@ -6,11 +6,10 @@
 // progress_stage が data-loading-stage（カンマ区切りの複数可）のいずれかと一致。
 
 (() => {
-  const { toast, api } = window.webui;
+  const { toast, api, debounce, jobs } = window.webui;
   const panel = document.getElementById("loading-controls");
-  if (!panel || !window.webui.jobs) return;
+  if (!panel || !jobs) return;
 
-  const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
   // data-loading-stage はカンマ区切りで複数 stage を許す（吐出量キャリブはメニュー段階の
   // プライムと ① 専用ローディング段階の両方でボタンを有効化する）。
   const loadingStages = new Set(
@@ -37,7 +36,7 @@
   };
   // 最後に取得・表示した算出値（適用ボタンが送る値）。
   let computed = { rpu: null, rate: null, accel: null };
-  let fetchTimer = null;
+  const scheduleFetch = debounce(fetchCalibration, CALIBRATION_DELAY_MS);
   const buttons = [];
   for (const [id, type] of [
     ["lc-extrude", "extrude"],
@@ -53,16 +52,12 @@
   }
 
   function update(job) {
-    const enabled =
-      job != null &&
-      !TERMINAL.has(job.status) &&
-      job.accepts_commands &&
-      loadingStages.has(job.progress_stage);
+    const enabled = jobs.commandReady(job, { stages: loadingStages });
     for (const button of buttons) button.disabled = !enabled;
   }
 
-  window.webui.jobs.onUpdate(update);
-  update(window.webui.jobs.currentJob());
+  jobs.onUpdate(update);
+  update(jobs.currentJob());
   bindLoadingParamSync();
   bindMassCalibration();
 
@@ -92,11 +87,7 @@
         command.retract_rotations = retract >= 0 ? retract : 0;
       }
     }
-    if (window.webui.jobs.sendCommand(command)) {
-      toast("コマンドを送信しました");
-    } else {
-      toast("WebSocket 未接続のため送信できません", false);
-    }
+    jobs.sendCommandOrToast(command);
   }
 
   function bindLoadingParamSync() {
@@ -110,7 +101,6 @@
       ["accel", accelInput],
       ["retract_rotations", retractRotationsInput],
     ];
-    let saveTimer = null;
     function sync() {
       for (const [name, source] of bindings) {
         const target = form.querySelector(`[name="${name}"]`);
@@ -119,7 +109,7 @@
     }
     // 「実行」を待たず、入力するそばから次回フォーム既定値として保存する
     // （質量キャリブのブートストラップ等、ジョブ未実行でもリロードで復元される）。
-    function persistDefaults() {
+    const persistDefaults = debounce(() => {
       if (!jobName) return;
       const values = {};
       for (const [name, source] of bindings) {
@@ -127,13 +117,10 @@
         const value = Number(source.value);
         if (Number.isFinite(value)) values[name] = value;
       }
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => {
-        api("POST", `/api/jobs/${jobName}/param-defaults`, { values }).catch(
-          () => {}
-        );
-      }, PARAM_SAVE_DELAY_MS);
-    }
+      api("POST", `/api/jobs/${jobName}/param-defaults`, { values }).catch(
+        () => {}
+      );
+    }, PARAM_SAVE_DELAY_MS);
     function onInput() {
       sync();
       persistDefaults();
@@ -173,11 +160,6 @@
     const button = document.getElementById(buttonId);
     if (!button) return;
     button.addEventListener("click", () => applyValues(valuesFor(), buttonId));
-  }
-
-  function scheduleFetch() {
-    clearTimeout(fetchTimer);
-    fetchTimer = setTimeout(fetchCalibration, CALIBRATION_DELAY_MS);
   }
 
   async function fetchCalibration() {

@@ -6,19 +6,16 @@
   const pane = document.getElementById("preview-pane");
   if (!pane) return;
 
-  const { toast, api } = window.webui;
+  const { toast, api, debounce, createBackoff } = window.webui;
   const img = document.getElementById("preview-img");
   const status = document.getElementById("preview-status");
   const cannyLow = document.getElementById("canny-low");
   const cannyHigh = document.getElementById("canny-high");
 
-  const RETRY_BASE_MS = 1000;
-  const RETRY_MAX_MS = 5000;
   const DEBOUNCE_MS = 300;
 
-  let retryDelay = RETRY_BASE_MS;
+  const retryBackoff = createBackoff(1000, 5000);
   let retryTimer = null;
-  let debounceTimer = null;
   let stopped = false;
 
   function currentOverlay() {
@@ -41,7 +38,7 @@
   }
 
   img.addEventListener("load", () => {
-    retryDelay = RETRY_BASE_MS;
+    retryBackoff.reset();
     status.textContent = "";
   });
 
@@ -50,14 +47,11 @@
     if (stopped) return;
     status.textContent = "切断されました。再接続します…";
     clearTimeout(retryTimer);
-    retryTimer = setTimeout(connect, retryDelay);
-    retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
+    retryTimer = setTimeout(connect, retryBackoff.next());
   });
 
-  function reconnect() {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(connect, DEBOUNCE_MS);
-  }
+  // overlay/Canny 変更の連打をまとめて再接続する（connect は stopped でガード済み）
+  const reconnect = debounce(connect, DEBOUNCE_MS);
 
   for (const radio of document.querySelectorAll("input[name='overlay']")) {
     radio.addEventListener("change", reconnect);
@@ -95,7 +89,6 @@
   window.addEventListener("pagehide", () => {
     stopped = true;
     clearTimeout(retryTimer);
-    clearTimeout(debounceTimer);
     img.removeAttribute("src");
   });
 

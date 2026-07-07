@@ -5,7 +5,7 @@
 // ページに #job-console（data-job-name / data-job-names）があればコンソールを描画する。
 
 (() => {
-  const { toast, api } = window.webui;
+  const { toast, api, createBackoff } = window.webui;
 
   const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
   const STATUS_LABELS = {
@@ -20,12 +20,23 @@
 
   const listeners = new Set();
   let socket = null;
-  let reconnectDelay = 1000;
+  const reconnectBackoff = createBackoff(1000, 15000);
   let currentJob = null;
   let abortRequestedJobId = null;
 
   function isActive(job) {
     return job !== null && job !== undefined && !TERMINAL.has(job.status);
+  }
+
+  // 「対話コマンドを受け付けるジョブか」の共通述語。
+  // stages: progress_stage がいずれかに一致する場合のみ / name: ジョブ名の限定。
+  function commandReady(job, { stages = null, name = null } = {}) {
+    return (
+      isActive(job) &&
+      job.accepts_commands &&
+      (stages === null || stages.has(job.progress_stage)) &&
+      (name === null || job.name === name)
+    );
   }
 
   function send(message) {
@@ -34,12 +45,24 @@
     return true;
   }
 
+  // command を送り、結果をトーストで通知する（successMessage=null で成功時無音）。
+  function sendCommandOrToast(command, successMessage = "コマンドを送信しました") {
+    if (send({ type: "command", command })) {
+      if (successMessage !== null) toast(successMessage);
+    } else {
+      toast("WebSocket 未接続のため送信できません", false);
+    }
+  }
+
   // ---- 公開 API ----
 
   window.webui.jobs = {
     currentJob: () => currentJob,
     onUpdate: (callback) => listeners.add(callback),
+    isActive,
+    commandReady,
     sendCommand: (command) => send({ type: "command", command }),
+    sendCommandOrToast,
     abort: async () => {
       const job = currentJob;
       if (!isActive(job) || abortRequestedJobId === job.id) return;
@@ -62,7 +85,7 @@
     const proto = location.protocol === "https:" ? "wss" : "ws";
     socket = new WebSocket(`${proto}://${location.host}/api/ws`);
     socket.addEventListener("open", async () => {
-      reconnectDelay = 1000;
+      reconnectBackoff.reset();
       try {
         const data = await api("GET", "/api/jobs/current");
         applyJob(data.job);
@@ -73,8 +96,7 @@
     socket.addEventListener("message", (event) => handleEvent(JSON.parse(event.data)));
     socket.addEventListener("close", () => {
       socket = null;
-      setTimeout(connect, reconnectDelay);
-      reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+      setTimeout(connect, reconnectBackoff.next());
     });
   }
 
