@@ -60,8 +60,12 @@ class FrameHub:
             self._thread.start()
         logger.info("FrameHub started")
 
-    def stop(self) -> None:
-        """キャプチャスレッドを停止して join する（冪等）。camera は閉じない."""
+    def stop(self, timeout: float = 5.0) -> None:
+        """キャプチャスレッドを停止して join する（冪等）。camera は閉じない.
+
+        Args:
+            timeout: join の待ち上限 [sec]。超過時は warning を出して戻る
+        """
         with self._cond:
             thread = self._thread
             self._thread = None
@@ -71,8 +75,11 @@ class FrameHub:
                 self._stop_event = None
             self._cond.notify_all()
         if thread is not None:
-            thread.join()
-            logger.info("FrameHub stopped")
+            thread.join(timeout)
+            if thread.is_alive():
+                logger.warning("FrameHub thread did not stop within %.1fs", timeout)
+            else:
+                logger.info("FrameHub stopped")
 
     def latest(self, timeout: float = 5.0) -> Image:
         """最新フレームを返す。初回到着まで待つ.
