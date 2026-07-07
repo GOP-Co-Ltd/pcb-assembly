@@ -21,7 +21,7 @@ from pcbasm.pasting import (
     validate_override_values,
 )
 from pcbasm.pcb import Layer
-from webui.dependencies import BoardStoreDep, SettingsDep, StateDep
+from webui.dependencies import BoardStoreDep, JobsDep, SettingsDep, StateDep, StoreDep
 from webui.routers.pasting_view import (
     InitialPurgePatch,
     InitialPurgeResponse,
@@ -142,6 +142,8 @@ def patch_initial_purge(
     state: StateDep,
     settings: SettingsDep,
     board_store: BoardStoreDep,
+    store: StoreDep,
+    jobs: JobsDep,
 ) -> InitialPurgeResponse:
     """初回パージ量と pad 指定を即時保存し、解決済み設定を返す."""
     loaded = load_board(state, settings, board_store)
@@ -176,9 +178,10 @@ def patch_initial_purge(
 
     if amount_sent:
         with state.machine_lock("pasting-initial-purge"):
-            state.write_machine_settings(
-                {"paste_dispenser.initial_purge_ul": next_amount}
+            store.write_machine_settings(
+                loaded.machine, {"paste_dispenser.initial_purge_ul": next_amount}
             )
+        jobs.publish_state_changed()
     if pad_sent:
         model = loaded.model.with_initial_purge_pad_id(next_pad_id)
         board_store.save(
