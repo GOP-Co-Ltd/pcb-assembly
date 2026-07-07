@@ -14,7 +14,7 @@ import cv2
 from shapely import Polygon
 
 from pcbasm import gcode
-from pcbasm.config import Machine
+from pcbasm.config import Machine, resolve_paste_height
 from pcbasm.geometry import (
     Compose,
     Identity,
@@ -1738,10 +1738,8 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             # ペースト吐出
             ctx.progress("吐出")
             dispense_amount = float(ctx.params["dispense_amount"])
-            paste_height = _dot_dispense_height(
-                dispenser_config.paste_height,
-                amount=dispense_amount,
-                nozzle_diameter=dispenser_config.nozzle_diameter,
+            paste_height = resolve_paste_height(
+                dispenser_config.paste_height, dispenser_config.ul_per_mm2
             )
             dispense_z = board_surface_z + paste_height
             klipper.send_gcode(
@@ -1850,12 +1848,3 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             },
         ),
     )
-
-
-def _dot_dispense_height(
-    paste_height: float | str, *, amount: float, nozzle_diameter: float
-) -> float:
-    if paste_height != "auto":
-        return float(paste_height)
-    nozzle_area = math.pi * (nozzle_diameter / 2.0) ** 2
-    return amount / nozzle_area

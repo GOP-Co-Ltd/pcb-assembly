@@ -15,6 +15,7 @@ from pcbasm.config import (
     ReferencePoint,
     Toolhead,
     get_machine_config,
+    resolve_paste_height,
 )
 from pcbasm.geometry import Point2d, Shift
 from tests.helpers import TESTING_DATA_DIR
@@ -507,3 +508,13 @@ bottom_right = [0.0, 0.0]
 
         with pytest.raises(FileNotFoundError):
             get_machine_config("nonexistent")
+
+
+class TestResolvePasteHeight:
+    """resolve_paste_height: auto は ul_per_mm2（膜厚 [mm]）を、数値はその値を返す。"""
+
+    def test_auto_returns_ul_per_mm2(self):
+        assert resolve_paste_height("auto", 0.08) == pytest.approx(0.08)
+
+    def test_numeric_returns_value(self):
+        assert resolve_paste_height(0.2, 0.08) == pytest.approx(0.2)
