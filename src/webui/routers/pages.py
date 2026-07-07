@@ -9,10 +9,20 @@ import attrs
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from webui.app import CatalogDep, SettingsDep, StateDep, StoreDep, get_templates
-from webui.config_store import SECTION_LABELS, section_of
+from webui.dependencies import (
+    CatalogDep,
+    SettingsDep,
+    StateDep,
+    StoreDep,
+    get_templates,
+)
 from webui.jobs.catalog import JobDefinition, ParamSpec
-from webui.routers.settings_api import SettingsField, machine_settings_fields
+from webui.routers.common import (
+    SECTION_LABELS,
+    SettingsField,
+    machine_settings_fields,
+    section_of,
+)
 from webui.state import AppState
 
 # tab → feature slug 列（ヘッダのタブ表示順）

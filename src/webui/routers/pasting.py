@@ -51,8 +51,8 @@ from pcbasm.pcb import (
     PcbFile,
     build_pad_hierarchy,
 )
-from webui.app import BoardStoreDep, SettingsDep, StateDep
 from webui.board_settings import BoardSettingsStore
+from webui.dependencies import BoardStoreDep, SettingsDep, StateDep
 from webui.settings import Settings
 from webui.state import AppState
 
