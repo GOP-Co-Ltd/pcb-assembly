@@ -17,7 +17,9 @@ design_ae6a2d5954cdfa25a.md Phase 12 に基づく。
 | Group E 着手前 | 588 | 41 |
 | E-1 後（ヘルパ集約のみ、増減なし） | 588 | 41 |
 | E-2 後（重複削除 −7 / −2） | 581 | 39 |
-| E-3 後（dead code テスト削除） | （コミット 3 で追記） | |
+| E-3 後（dead code テスト削除 −8 / −1） | 573 | 38 |
+
+（このほか tests/pcbasm/pasting/test_loading.py の 6 テストを E-3 で削除）
 
 ## E-2: 消したテスト → 担保先の対応表（MR 説明に転載する）
 
@@ -65,11 +67,38 @@ design_ae6a2d5954cdfa25a.md Phase 12 に基づく。
   hidden=True で登録していたため、挙動維持のため共有関数に hidden kwarg を持たせた。
   test_system.py の「while True + sleep(0.01) + checkpoint」ジョブは register_gated の
   「gate.wait(0.02) + checkpoint」と abort 挙動が同値のため gated へ置換（gate は未使用）。
-- **（E-3 で記録予定）** reset endpoint 削除に伴う import テストのセットアップ代替。
+- **reset endpoint 削除に伴う import テストのセットアップ代替**: 計画の選択肢は
+  「board_store 状態初期化を fixture（tmp_path 複製）で代替」だったが、既存の公開 API
+  `PATCH /pasting/pad-config/node` の `clear` で override を消す方が単純かつ公開経路のみで
+  完結するため、routers `test_import_restores_saved_override` と browser e2e
+  `test_saved_override_file_can_be_imported` の両方を clear パッチ + 「overrides から
+  消えたことの確認」に置換した（import が復元することの検証意図は不変）。
+- **PreviewService.snapshot メソッドも削除**: 承認リストは endpoint
+  `GET /api/preview/snapshot` だが、唯一の呼び出し元が該当 endpoint で、削除により
+  src 側 orphan になるためメソッドと unit テスト
+  （test_preview.py `TestSnapshot::test_snapshot_returns_jpeg_and_releases_hub`）も
+  併せて削除した（CLAUDE.md「自分の変更で生じた orphan は消す」）。
+  `_encode_jpeg` / `hold_camera` は mjpeg_stream 経路で使用中のため残置。
+
+## E-3: 削除した dead code と参照テスト
+
+| 削除対象 | src | 参照テスト |
+|---|---|---|
+| `POST /api/pasting/pad-config/reset` | routers/pasting.py（PasteSettingsModel / base_override_from_config import も不要化） | routers/test_pasting.py `TestReset`。reset を setup に使っていた 2 テストは clear パッチへ置換 |
+| `GET /api/preview/snapshot` + `PreviewService.snapshot` | routers/preview.py / preview.py | routers/test_preview.py `TestSnapshot`（4）、test_preview.py unit（1）、e2e snapshot（E-2 で削除済み） |
+| `GET /api/machines` + `GET /api/machine`（`MachinesResponse` モデル含む。PUT /api/machine と /api/state は残置 — app.js が PUT を使用、マシン一覧はサーバレンダ） | routers/machine.py | routers/test_machine.py（2）、e2e `test_machines_lists_fixtures`（1） |
+| `pcbasm.pasting.loading.interactive_loading`（CLI 用 input() ベース。モジュールごと削除、`__init__` の export も除去。webui の paste_solder param "interactive_loading" は別物で残置） | pcbasm/pasting/loading.py | tests/pcbasm/pasting/test_loading.py（ファイルごと、6 テスト） |
+
+削除後の参照確認: `grep -rn "snapshot|/api/machines|pad-config/reset|interactive_loading" src tests`
+で残存参照ゼロ（webui ジョブ param の interactive_loading と PUT /api/machine を除く）。
+`grep -rn '</content>' src tests` もヒットなし。
 
 ## 検証結果
 
 - E-1 後: `make format` / `make type` / `make test-no-hardware`（1481 passed）グリーン、
   collect 件数一致（588/41）、`make test-e2e` 41 passed
 - E-2 後: `make format` / `make type` / `make test-no-hardware`（1474 passed）グリーン、
-  `make test-e2e`（コミット後に実行、結果を追記）
+  `make test-e2e` 39 passed
+- E-3 後: `make format` / `make type` / `make test-no-hardware`（1460 passed）グリーン、
+  `make test-e2e`（最終コミット後に実行、結果は完了報告に記載）
+- `make test`（hardware）は計画どおり未実行（実機確認はユーザー分担）

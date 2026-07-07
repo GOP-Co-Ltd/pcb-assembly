@@ -3,7 +3,6 @@
 計画書「`src/webui/routers/preview.py`」節 + spec §7 / §9 が契約:
 
 - overlay 不正値は 422、カメラ構築失敗は 503
-- GET /api/preview/snapshot → image/jpeg 1 枚
 
 注: 本環境の starlette TestClient はレスポンスを完全受信してから返すため、
 無限 MJPEG ストリームを TestClient で読むとハングする。ストリーム配信・
@@ -17,7 +16,6 @@ import attrs
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.webui.conftest import decode_jpeg
 from webui.app import create_app
 from webui.settings import Settings
 
@@ -44,38 +42,5 @@ class TestPreviewStream:
 
     def test_camera_failure_returns_503(self, broken_camera_client: TestClient):
         response = broken_camera_client.get("/api/preview/stream")
-
-        assert response.status_code == 503
-
-
-class TestSnapshot:
-    """GET /api/preview/snapshot."""
-
-    def test_snapshot_returns_decodable_jpeg(self, fake_camera_client: TestClient):
-        response = fake_camera_client.get("/api/preview/snapshot")
-
-        assert response.status_code == 200
-        assert response.headers["content-type"] == "image/jpeg"
-        frame = decode_jpeg(response.content)
-        assert frame is not None
-        assert frame.shape == (720, 1280, 3)
-
-    def test_snapshot_accepts_overlay_and_canny_query(
-        self, fake_camera_client: TestClient
-    ):
-        response = fake_camera_client.get(
-            "/api/preview/snapshot?overlay=copper&canny_low=50&canny_high=150"
-        )
-
-        assert response.status_code == 200
-        assert decode_jpeg(response.content) is not None
-
-    def test_unknown_overlay_returns_422(self, fake_camera_client: TestClient):
-        response = fake_camera_client.get("/api/preview/snapshot?overlay=bogus")
-
-        assert response.status_code == 422
-
-    def test_camera_failure_returns_503(self, broken_camera_client: TestClient):
-        response = broken_camera_client.get("/api/preview/snapshot")
 
         assert response.status_code == 503

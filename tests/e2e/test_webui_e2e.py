@@ -90,15 +90,6 @@ class TestHttpRoutes:
         assert response.status_code == 200
         assert response.json()["machine"] == "kurousagi"
 
-    def test_machines_lists_fixtures(self, live_server: LiveServer):
-        response = httpx.get(
-            f"{live_server.base_url}/api/machines", timeout=_HTTP_TIMEOUT
-        )
-
-        body = response.json()
-        assert body["selected"] == "kurousagi"
-        assert {"kurousagi", "test-fixture"} <= set(body["machines"])
-
 
 class TestArtifactsOverRealHttp:
     """/artifacts mount の実 HTTP 配信（ジョブ実生成は jobs/test_pasting.py が担保）."""

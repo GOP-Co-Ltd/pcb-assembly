@@ -710,11 +710,14 @@ class TestPasteSolderBrowserPadInteraction:
             timeout=_HTTP_TIMEOUT,
         )
         assert exported.status_code == 200, exported.text
-        reset = httpx.post(
-            f"{live_server.base_url}/api/pasting/pad-config/reset",
+        # export 後に override を公開 API で消し、import が復元することを見る
+        cleared = httpx.patch(
+            f"{live_server.base_url}/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "clear": ["prime_extra_delay"]},
             timeout=_HTTP_TIMEOUT,
         )
-        assert reset.status_code == 200, reset.text
+        assert cleared.status_code == 200, cleared.text
+        assert "L2:U1" not in _get_pad_config(live_server)["overrides"]
 
         import_path = tmp_path / "paste-overrides.json"
         import_path.write_text(json.dumps(exported.json()), encoding="utf-8")

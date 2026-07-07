@@ -9,7 +9,6 @@
   resolved 反映、clear → 継承復帰）
 - PATCH pads 一括
 - 未知キー / 未知 node → 400
-- POST reset で override 破棄
 
 実 PCB（led_blinker）を読む経路は ``copper_pcb_path`` fixture を使う
 （pcbnew 依存。conftest が pcb_browse_root へコピー済み）。設定書き込み先は
@@ -713,23 +712,6 @@ class TestPatchPads:
         assert not (webui_settings.data_dir / "board_settings").exists()
 
 
-class TestReset:
-    """POST /api/pasting/pad-config/reset."""
-
-    def test_reset_discards_overrides(self, selected_client: TestClient):
-        selected_client.patch(
-            "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
-        )
-
-        response = selected_client.post("/api/pasting/pad-config/reset")
-
-        assert response.status_code == 200, response.text
-        config = response.json()
-        assert config["overrides"] == {}
-        assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.0
-
-
 class TestExportImport:
     """GET export / POST import."""
 
@@ -761,7 +743,13 @@ class TestExportImport:
             json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
         )
         doc = selected_client.get("/api/pasting/pad-config/export").json()
-        selected_client.post("/api/pasting/pad-config/reset")
+        # export 後に override を公開 API で消し、import が復元することを見る
+        cleared = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "clear": ["prime_extra_delay"]},
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert "L2:U1" not in _get_config(selected_client)["overrides"]
 
         response = selected_client.post(
             "/api/pasting/pad-config/import", json={"document": doc}
