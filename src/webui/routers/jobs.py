@@ -194,9 +194,10 @@ async def jobs_websocket(websocket: WebSocket) -> None:
     """
     jobs: JobManager = websocket.app.state.jobs
     catalog: JobCatalog = websocket.app.state.catalog
-    await websocket.accept()
+    # accept 前に subscribe し「接続完了 ↔ 購読開始」の取りこぼし窓を無くす
     events = jobs.subscribe()
     try:
+        await websocket.accept()
         sender = asyncio.create_task(_send_loop(websocket, jobs, catalog, events))
         receiver = asyncio.create_task(_receive_loop(websocket, jobs, events))
         done, pending = await asyncio.wait(

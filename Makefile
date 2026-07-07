@@ -25,7 +25,7 @@ test-no-hardware: ## Run tests without hardware
 	uv run pytest -v -m "not hardware and not e2e"
 
 test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
-	uv run pytest -v -m e2e
+	uv run pytest -v -m e2e --timeout=180
 
 playwright-install: ## Install Playwright-managed Chromium when system chromium is unavailable
 	uv run playwright install chromium

@@ -38,6 +38,7 @@ dev = [
     "pytest>=9.0.0",
     "pytest-mock>=3.15.1",
     "pytest-playwright>=0.8.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 
@@ -60,8 +61,8 @@ testpaths = "tests/"
 markers = [
   "hardware: tests that require physical hardware (deselect with '-m \"not hardware\"')",
   "e2e: full-stack tests against a live uvicorn server (run with 'make test-e2e')",
+  "browser: tests that drive a real Playwright browser",
 ]
-asyncio_default_fixture_loop_scope = "function"
 
 [tool.pyright]
 pythonVersion = "3.13"

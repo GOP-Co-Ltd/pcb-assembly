@@ -91,7 +91,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # ワーカースレッド → WS のイベント橋渡し先 loop を登録する
     app.state.jobs.bind_loop(asyncio.get_running_loop())
     yield
-    # シャットダウン後始末（ジョブ abort + join → FrameHub 停止）
+    # シャットダウン後始末（preview 終了通知 → ジョブ abort + join → FrameHub 停止）
+    app.state.preview.request_shutdown()
     app.state.jobs.shutdown()
     app.state.appstate.close()
 
