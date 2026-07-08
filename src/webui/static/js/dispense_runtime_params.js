@@ -8,32 +8,27 @@
 // ここは空欄スキップと Number.isFinite のパース可否だけを見て、サーバの 400 を toast する。
 
 (() => {
-  const { toast, api } = window.webui;
+  const { toast, api, debounce, jobs } = window.webui;
   const form = document.getElementById("job-form");
   if (!form || !form.classList.contains("dispense-calibration-form")) return;
-  if (!window.webui.jobs) return;
+  if (!jobs) return;
 
   const inputs = [...form.querySelectorAll('input[data-runtime-editable="true"]')];
   if (inputs.length === 0) return;
 
-  const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
   const SAVE_DELAY_MS = 400;
 
   let active = false;
   const pending = new Map();
-  let saveTimer = null;
 
   function update(job) {
-    active = job != null && !TERMINAL.has(job.status) && job.accepts_commands;
+    active = jobs.commandReady(job);
   }
 
-  window.webui.jobs.onUpdate(update);
-  update(window.webui.jobs.currentJob());
+  jobs.onUpdate(update);
+  update(jobs.currentJob());
 
-  function scheduleSave() {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(flush, SAVE_DELAY_MS);
-  }
+  const scheduleSave = debounce(flush, SAVE_DELAY_MS);
 
   async function flush() {
     // 実行中（アクティブ）でなければ送らずに破棄する。未実行時のフォーム既定は

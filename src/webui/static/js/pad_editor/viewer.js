@@ -1,6 +1,7 @@
 "use strict";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
+const { svgEl } = window.webui;
+
 const MARGIN_MM = 4;
 const AXIS_OFFSET_MM = 0.9;
 const AXIS_TICK_MM = 0.35;
@@ -36,19 +37,21 @@ export function renderViewer(svg, config, state) {
   );
   svg.style.aspectRatio = `${viewWidth} / ${viewHeight}`;
 
-  const outlineEl = document.createElementNS(SVG_NS, "polygon");
-  outlineEl.setAttribute("points", pointsAttr(outline));
-  outlineEl.setAttribute("class", "pad-outline");
-  outlineEl.setAttribute("vector-effect", "non-scaling-stroke");
+  const outlineEl = svgEl("polygon", {
+    points: pointsAttr(outline),
+    class: "pad-outline",
+    "vector-effect": "non-scaling-stroke",
+  });
   outlineEl.dataset.testid = "pad-outline";
   svg.appendChild(outlineEl);
   renderOutlineAxes(svg, minX, minY, width, height);
 
   for (const pad of config.pads) {
-    const el = document.createElementNS(SVG_NS, "polygon");
     const routePad = routeById.get(pad.id);
-    el.setAttribute("points", pointsAttr(pad.polygon));
-    el.setAttribute("vector-effect", "non-scaling-stroke");
+    const el = svgEl("polygon", {
+      points: pointsAttr(pad.polygon),
+      "vector-effect": "non-scaling-stroke",
+    });
     el.dataset.testid = "pad-polygon";
     el.dataset.padId = pad.id;
     el.dataset.nodeIds = pad.node_ids.join(" ");
@@ -60,7 +63,7 @@ export function renderViewer(svg, config, state) {
     else delete el.dataset.routeOrder;
     applyPadVisual(el, state, pad.enabled);
     el.style.display = pad.layer === state.layer ? "" : "none";
-    const title = document.createElementNS(SVG_NS, "title");
+    const title = svgEl("title", {});
     title.textContent =
       `${pad.designator} pad ${pad.pad_number}` +
       (pad.package ? ` / ${pad.package}` : "") +
@@ -109,9 +112,10 @@ export function svgPoint(svg, evt) {
 }
 
 export function createSelectionRect(svg) {
-  const rect = document.createElementNS(SVG_NS, "rect");
-  rect.setAttribute("class", "pad-select-rect");
-  rect.setAttribute("vector-effect", "non-scaling-stroke");
+  const rect = svgEl("rect", {
+    class: "pad-select-rect",
+    "vector-effect": "non-scaling-stroke",
+  });
   svg.appendChild(rect);
   return rect;
 }
@@ -158,11 +162,10 @@ function routeMap(route) {
 function renderRouteOverlay(svg, route) {
   if (!route || route.pads.length === 0) return;
 
-  const defs = document.createElementNS(SVG_NS, "defs");
+  const defs = svgEl("defs", {});
   svg.appendChild(defs);
 
-  const group = document.createElementNS(SVG_NS, "g");
-  group.setAttribute("class", "pad-route-overlay");
+  const group = svgEl("g", { class: "pad-route-overlay" });
   group.dataset.testid = "pad-route-overlay";
   const segmentCount = route.pads.length - 1;
 
@@ -172,15 +175,16 @@ function renderRouteOverlay(svg, route) {
     const color = routeColor(index, segmentCount);
     const markerId = `pad-route-arrow-${index}`;
     appendArrowMarker(defs, markerId, color);
-    const line = document.createElementNS(SVG_NS, "line");
-    line.setAttribute("x1", from.center[0]);
-    line.setAttribute("y1", from.center[1]);
-    line.setAttribute("x2", to.center[0]);
-    line.setAttribute("y2", to.center[1]);
-    line.setAttribute("class", "pad-route-segment");
-    line.setAttribute("stroke", color);
-    line.setAttribute("vector-effect", "non-scaling-stroke");
-    line.setAttribute("marker-end", `url(#${markerId})`);
+    const line = svgEl("line", {
+      x1: from.center[0],
+      y1: from.center[1],
+      x2: to.center[0],
+      y2: to.center[1],
+      class: "pad-route-segment",
+      stroke: color,
+      "vector-effect": "non-scaling-stroke",
+      "marker-end": `url(#${markerId})`,
+    });
     line.dataset.testid = "pad-route-segment";
     line.dataset.fromPadId = from.id;
     line.dataset.toPadId = to.id;
@@ -196,11 +200,10 @@ function renderRouteOverlay(svg, route) {
 function renderFillPathOverlay(svg, fillPath) {
   if (!fillPath || fillPath.pads.length === 0) return;
 
-  const defs = document.createElementNS(SVG_NS, "defs");
+  const defs = svgEl("defs", {});
   svg.appendChild(defs);
 
-  const group = document.createElementNS(SVG_NS, "g");
-  group.setAttribute("class", "pad-fill-path-overlay");
+  const group = svgEl("g", { class: "pad-fill-path-overlay" });
   group.dataset.testid = "pad-fill-path-overlay";
   let markerIndex = 0;
 
@@ -223,10 +226,11 @@ function renderFillPathOverlay(svg, fillPath) {
 }
 
 function appendFillPathLine(group, pad, path, index) {
-  const line = document.createElementNS(SVG_NS, "polyline");
-  line.setAttribute("points", pointsAttr(path));
-  line.setAttribute("class", "pad-fill-path-polyline");
-  line.setAttribute("vector-effect", "non-scaling-stroke");
+  const line = svgEl("polyline", {
+    points: pointsAttr(path),
+    class: "pad-fill-path-polyline",
+    "vector-effect": "non-scaling-stroke",
+  });
   line.dataset.testid = "pad-fill-path-polyline";
   line.dataset.padId = pad.id;
   line.dataset.pathIndex = String(index);
@@ -234,12 +238,13 @@ function appendFillPathLine(group, pad, path, index) {
 }
 
 function appendFillPathPoint(group, pad, point, index) {
-  const marker = document.createElementNS(SVG_NS, "circle");
-  marker.setAttribute("cx", point[0]);
-  marker.setAttribute("cy", point[1]);
-  marker.setAttribute("r", "0.18");
-  marker.setAttribute("class", "pad-fill-path-point");
-  marker.setAttribute("vector-effect", "non-scaling-stroke");
+  const marker = svgEl("circle", {
+    cx: point[0],
+    cy: point[1],
+    r: "0.18",
+    class: "pad-fill-path-point",
+    "vector-effect": "non-scaling-stroke",
+  });
   marker.dataset.testid = "pad-fill-path-point";
   marker.dataset.padId = pad.id;
   marker.dataset.pathIndex = String(index);
@@ -247,14 +252,15 @@ function appendFillPathPoint(group, pad, point, index) {
 }
 
 function appendFillPathDirection(group, pad, from, to, index, markerId) {
-  const line = document.createElementNS(SVG_NS, "line");
-  line.setAttribute("x1", from[0]);
-  line.setAttribute("y1", from[1]);
-  line.setAttribute("x2", to[0]);
-  line.setAttribute("y2", to[1]);
-  line.setAttribute("class", "pad-fill-path-direction");
-  line.setAttribute("vector-effect", "non-scaling-stroke");
-  line.setAttribute("marker-end", `url(#${markerId})`);
+  const line = svgEl("line", {
+    x1: from[0],
+    y1: from[1],
+    x2: to[0],
+    y2: to[1],
+    class: "pad-fill-path-direction",
+    "vector-effect": "non-scaling-stroke",
+    "marker-end": `url(#${markerId})`,
+  });
   line.dataset.testid = "pad-fill-path-direction";
   line.dataset.padId = pad.id;
   line.dataset.pathIndex = String(index);
@@ -274,8 +280,7 @@ function fillPathDirectionTarget(path) {
 function renderOutlineAxes(svg, minX, minY, width, height) {
   const maxX = minX + width;
   const maxY = minY + height;
-  const axis = document.createElementNS(SVG_NS, "g");
-  axis.setAttribute("class", "pad-axis");
+  const axis = svgEl("g", { class: "pad-axis" });
   axis.dataset.testid = "pad-axis";
 
   const xAxisY = maxY + AXIS_OFFSET_MM;
@@ -312,22 +317,24 @@ function renderOutlineAxes(svg, minX, minY, width, height) {
 }
 
 function appendAxisLine(group, x1, y1, x2, y2) {
-  const line = document.createElementNS(SVG_NS, "line");
-  line.setAttribute("class", "pad-axis-line");
-  line.setAttribute("x1", x1);
-  line.setAttribute("y1", y1);
-  line.setAttribute("x2", x2);
-  line.setAttribute("y2", y2);
-  line.setAttribute("vector-effect", "non-scaling-stroke");
+  const line = svgEl("line", {
+    class: "pad-axis-line",
+    x1,
+    y1,
+    x2,
+    y2,
+    "vector-effect": "non-scaling-stroke",
+  });
   group.appendChild(line);
 }
 
 function appendAxisLabel(group, x, y, label, anchor) {
-  const text = document.createElementNS(SVG_NS, "text");
-  text.setAttribute("class", "pad-axis-label");
-  text.setAttribute("x", x);
-  text.setAttribute("y", y);
-  text.setAttribute("text-anchor", anchor);
+  const text = svgEl("text", {
+    class: "pad-axis-label",
+    x,
+    y,
+    "text-anchor": anchor,
+  });
   text.textContent = label;
   text.dataset.testid = "pad-axis-label";
   group.appendChild(text);
@@ -356,18 +363,20 @@ function roundAxisValue(value) {
 }
 
 function appendArrowMarker(defs, id, color, className = "pad-route-arrow-head") {
-  const marker = document.createElementNS(SVG_NS, "marker");
-  marker.setAttribute("id", id);
-  marker.setAttribute("viewBox", "0 0 10 10");
-  marker.setAttribute("refX", "8");
-  marker.setAttribute("refY", "5");
-  marker.setAttribute("markerWidth", "5");
-  marker.setAttribute("markerHeight", "5");
-  marker.setAttribute("orient", "auto-start-reverse");
-  const arrow = document.createElementNS(SVG_NS, "path");
-  arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
-  arrow.setAttribute("class", className);
-  arrow.setAttribute("fill", color);
+  const marker = svgEl("marker", {
+    id,
+    viewBox: "0 0 10 10",
+    refX: "8",
+    refY: "5",
+    markerWidth: "5",
+    markerHeight: "5",
+    orient: "auto-start-reverse",
+  });
+  const arrow = svgEl("path", {
+    d: "M 0 0 L 10 5 L 0 10 z",
+    class: className,
+    fill: color,
+  });
   marker.appendChild(arrow);
   defs.appendChild(marker);
 }
@@ -403,20 +412,21 @@ function hexToRgb(value) {
 }
 
 function appendEndpoint(group, pad, kind, label) {
-  const marker = document.createElementNS(SVG_NS, "g");
-  marker.setAttribute("class", `pad-route-endpoint pad-route-${kind}`);
+  const marker = svgEl("g", {
+    class: `pad-route-endpoint pad-route-${kind}`,
+    transform: `translate(${pad.center[0]} ${pad.center[1]})`,
+  });
   marker.dataset.testid = `pad-route-${kind}`;
   marker.dataset.padId = pad.id;
-  marker.setAttribute("transform", `translate(${pad.center[0]} ${pad.center[1]})`);
 
-  const circle = document.createElementNS(SVG_NS, "circle");
-  circle.setAttribute("r", "0.45");
-  circle.setAttribute("vector-effect", "non-scaling-stroke");
+  const circle = svgEl("circle", {
+    r: "0.45",
+    "vector-effect": "non-scaling-stroke",
+  });
   marker.appendChild(circle);
 
-  const text = document.createElementNS(SVG_NS, "text");
+  const text = svgEl("text", { y: "0.04" });
   text.textContent = label;
-  text.setAttribute("y", "0.04");
   marker.appendChild(text);
   group.appendChild(marker);
 }

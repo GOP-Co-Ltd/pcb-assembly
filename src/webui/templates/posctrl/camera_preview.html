@@ -2,13 +2,8 @@
 {% block title %}Camera Preview — PCB Assembly WebUI{% endblock %}
 {% block main %}
 <h2>Camera Preview</h2>
-{% set preview_overlay = "none" %}
 {% include "partials/preview_pane.html" %}
-<fieldset class="preview-controls">
-  <legend>オーバーレイ</legend>
-  <label><input type="radio" name="overlay" value="none" checked> なし</label>
-  <label><input type="radio" name="overlay" value="crosshair"> 十字線</label>
-</fieldset>
+{% include "partials/preview_controls.html" %}
 {% endblock %}
 {% block scripts %}
 {{ super() }}

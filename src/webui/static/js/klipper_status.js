@@ -4,7 +4,7 @@
 // /api/stage/limits のページ表示時 1 回取得、任意 G-code 送信。
 
 (() => {
-  const { toast, api } = window.webui;
+  const { toast, api, formatPosition } = window.webui;
 
   const connectedEl = document.getElementById("ks-connected");
   const positionEl = document.getElementById("ks-position");
@@ -22,7 +22,7 @@
       }
       const p = status.position;
       connectedEl.textContent = "接続: OK";
-      positionEl.textContent = `位置: X${p.x.toFixed(3)} Y${p.y.toFixed(3)} Z${p.z.toFixed(3)}`;
+      positionEl.textContent = `位置: ${formatPosition(p)}`;
       homedEl.textContent = `homed: ${status.homed_axes || "なし"}`;
     } catch (err) {
       connectedEl.textContent = `接続: 取得失敗 (${err.message})`;

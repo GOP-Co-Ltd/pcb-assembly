@@ -6,8 +6,9 @@
 - catalog: pasting 6 ジョブ（paste_solder / height_plane / loading /
   dispense_calibration / generate_rect_pcb / toolhead_offset）の name /
   params（default・unit）/ requires_pcb / uses_machine / accepts_commands
-- parse_loading_command: extrude / suck / finish の純粋パーサ。amount 欠落・
-  非正・非数・未知 type は None
+- parse_loading_command: extrude / suck / finish の純粋パーサ。ローディング用
+  type の値不正（欠落・非正・非数）は InvalidLoadingCommand(reason)、
+  未知 type は None（機械操作の後段判定へ）
 - LOADING_STAGE: ジョブ実装・テンプレート data 属性・loading_controls.js の
   3 箇所で一致させる契約値 "ローディング"（計画書 判断保留点 6）
 - height_plane: 計測前に planned_points.png を artifacts へ生成し、
@@ -46,6 +47,7 @@ from webui.jobs.pasting import (
     LOADING_STAGE,
     Extrude,
     Finish,
+    InvalidLoadingCommand,
     Rotate,
     parse_loading_command,
     parse_run_calib_command,
@@ -393,7 +395,7 @@ class TestParseLoadingCommand:
             {"type": "suck", "amount": -0.5},  # 負
             {"type": "extrude_rotations", "rotations": 0, "rate": 0.5, "accel": 0.5},
             {"type": "extrude_rotations", "rotations": 5.0, "rate": 0, "accel": 0.5},
-            {"type": "extrude_rotations", "rotations": 5.0, "rate": 0.5},
+            {"type": "extrude_rotations", "rotations": 5.0, "rate": 0.5},  # accel 欠落
             {  # retract が負
                 "type": "extrude_rotations",
                 "rotations": 5.0,
@@ -402,12 +404,46 @@ class TestParseLoadingCommand:
                 "retract_rotations": -1.0,
             },
             {"type": "suck_rotations", "rotations": "5", "rate": 0.5, "accel": 0.5},
+        ],
+    )
+    def test_known_type_with_invalid_value_yields_reason(
+        self, command: dict[str, object]
+    ):
+        """ローディング用 type の値不正は理由付き InvalidLoadingCommand になる."""
+        result = parse_loading_command(command)
+
+        assert isinstance(result, InvalidLoadingCommand)
+        assert str(command["type"]) in result.reason
+
+    def test_invalid_amount_reason_is_user_facing(self):
+        result = parse_loading_command({"type": "extrude", "amount": -1.0})
+
+        assert result == InvalidLoadingCommand("extrude の量には正の数値が必要です")
+
+    def test_negative_retract_reason_mentions_non_negative(self):
+        result = parse_loading_command(
+            {
+                "type": "extrude_rotations",
+                "rotations": 5.0,
+                "rate": 0.5,
+                "accel": 0.5,
+                "retract_rotations": -1.0,
+            }
+        )
+
+        assert result == InvalidLoadingCommand(
+            "extrude_rotations の引き戻し回転数には 0 以上の数値が必要です"
+        )
+
+    @pytest.mark.parametrize(
+        "command",
+        [
             {"type": "jog", "axis": "x", "dist": 0.1},  # 機械操作（後段判定へ）
             {"type": "bogus"},  # 未知 type
             {},  # キー無し
         ],
     )
-    def test_invalid_command_yields_none(self, command: dict[str, object]):
+    def test_non_loading_command_yields_none(self, command: dict[str, object]):
         assert parse_loading_command(command) is None
 
 
@@ -713,6 +749,35 @@ class TestPastingHardware:
         assert "押出合計" in result.summary
         assert "uL" in result.summary
         assert result.apply is None  # loading に Apply はない
+
+    def test_loading_invalid_value_logs_reason_and_continues(
+        self, real_manager: JobManager, wait_until: WaitUntil
+    ):
+        """不正値コマンドは押し出さず理由をログし、ループは継続する.
+
+        検証（値不正 → InvalidLoadingCommand → ctx.log(reason)）はサーバに 一本化した（JS
+        の正値チェックは削除済み）。ループ到達に実 Moonraker 接続（AirPump ON）が必要なため e2e
+        ではなく実機区分でピンする。
+        """
+        record = real_manager.start("loading", {"amount": 0.1})
+        _wait_loading_stage_and_settle(record, wait_until)
+
+        real_manager.submit_command({"type": "extrude", "amount": -1.0})
+        wait_until(
+            lambda: any(
+                "extrude の量には正の数値が必要です" in line
+                for line in record.log_lines
+            ),
+            timeout=60.0,
+        )
+        real_manager.submit_command({"type": "finish"})
+        wait_until(lambda: record.status.terminal, timeout=300.0)
+
+        assert record.status == JobStatus.SUCCEEDED
+        result = record.result
+        assert result is not None
+        assert result.summary is not None
+        assert "押出合計 +0.000 uL" in result.summary  # 不正値は押し出していない
 
     def test_loading_accepts_machine_commands_in_loop(
         self, real_manager: JobManager, wait_until: WaitUntil
