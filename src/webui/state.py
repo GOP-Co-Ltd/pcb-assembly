@@ -141,6 +141,13 @@ class AppState:
         except Exception:
             return None
 
+    def machine_type(self) -> str | None:
+        """選択マシンのマシン種別を返す（取得できなければ None）."""
+        try:
+            return self.machine().machine_type
+        except Exception:
+            return None
+
     def job_param_defaults(self, job_name: str) -> dict[str, StoredJobParamValue]:
         """ジョブフォーム用に保存された既定値を返す（未保存なら空 dict）."""
         return dict(self._job_param_defaults.get(job_name, {}))

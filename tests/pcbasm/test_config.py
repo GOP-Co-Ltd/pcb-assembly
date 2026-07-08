@@ -9,6 +9,7 @@ from pcbasm.config import (
     CornerOffsets,
     Klipper,
     Machine,
+    NozzleCap,
     PadAlign,
     PasteDispenser,
     Probe,
@@ -225,6 +226,73 @@ class TestMachine:
             KeyError, match="'paste_dispenser' は設定ファイルに定義されていません"
         ):
             machine.paste_dispenser
+
+
+class TestMachineType:
+    """Machine.machine_type のテスト（nozzle-cap-parking 計画書「公開インターフェース」節）.
+
+    machine_type は必須キー: 欠落はアクセス時 KeyError、paste / pnp 以外は ValueError。
+    """
+
+    def test_reads_paste_from_config(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.machine_type == "paste"
+
+    def test_reads_pnp_from_config(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source.replace('machine_type = "paste"', 'machine_type = "pnp"', 1),
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.machine_type == "pnp"
+
+    def test_missing_machine_type_raises_key_error(self):
+        machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
+
+        with pytest.raises(KeyError, match="machine_type"):
+            machine.machine_type
+
+    def test_unknown_machine_type_raises_value_error(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source.replace('machine_type = "paste"', 'machine_type = "sander"', 1),
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        with pytest.raises(ValueError, match="machine_type"):
+            machine.machine_type
+
+
+class TestNozzleCap:
+    """Machine.nozzle_cap のテスト（nozzle-cap-parking 計画書「公開インターフェース」節）.
+
+    未記録（[nozzle_cap] セクションなし）が正常状態なので None を返す。
+    """
+
+    def test_missing_section_returns_none(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.nozzle_cap is None
+
+    def test_reads_recorded_position(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source + "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
 
 
 class TestCamera:

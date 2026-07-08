@@ -1,4 +1,4 @@
-"""ジョブモードのマシン操作コマンド（jog / home / move / relax / focus_z）の共有処理."""
+"""ジョブモードのマシン操作コマンド（jog / home / move / relax / focus_z / move_to_cap）の共有処理."""
 
 from __future__ import annotations
 
@@ -80,6 +80,14 @@ def handle_machine_command(
                     ctx.log("フォーカスZが未設定のため移動しません")
                 else:
                     klipper.send_gcode(stage.move(z=focus_z) + gcode.wait_for_done())
+            case {"type": "move_to_cap"}:
+                cap = ctx.machine.nozzle_cap
+                if cap is None:
+                    ctx.log("ノズルキャップ位置が未記録のため移動しません")
+                else:
+                    klipper.send_gcode(
+                        gcode.move_to_cap(cap.x, cap.y, cap.z) + gcode.wait_for_done()
+                    )
             case _:
                 return False
     except ValueError as exc:

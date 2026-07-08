@@ -302,6 +302,32 @@ class TestReferencePointOffsets:
             )
 
 
+class TestNozzleCapFields:
+    """Nozzle_cap.x/y/z フィールドの読み書き（nozzle-cap-parking 計画書「WebUI」節）.
+
+    Repo fixture には [nozzle_cap] を入れない（未記録が既定状態）ため、 欠落時は
+    None、記録エンドポイント相当の write 後は round-trip する。
+    """
+
+    def test_missing_nozzle_cap_reads_as_none(self, store: ConfigStore):
+        values = store.read_machine_settings(FIXTURE)
+
+        assert values["nozzle_cap.x"] is None
+        assert values["nozzle_cap.y"] is None
+        assert values["nozzle_cap.z"] is None
+
+    def test_write_then_reread_round_trips(self, store: ConfigStore):
+        store.write_machine_settings(
+            FIXTURE,
+            {"nozzle_cap.x": 10.123, "nozzle_cap.y": 20.456, "nozzle_cap.z": 3.789},
+        )
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["nozzle_cap.x"] == 10.123
+        assert values["nozzle_cap.y"] == 20.456
+        assert values["nozzle_cap.z"] == 3.789
+
+
 class TestAirPumpEnabled:
     """Bool 型フィールド air_pump_enabled の読み書き."""
 

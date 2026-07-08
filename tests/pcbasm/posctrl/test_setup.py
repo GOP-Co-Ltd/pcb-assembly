@@ -5,7 +5,9 @@ Phase 4（memory/agents/implementation-planner/webui-phase4.md §1）で posctrl
 
 - OffsetObserver: ``window_name`` 全廃。``frame_sink``（None なら配信なし）へ
   observe 成功時に注釈付き画像を 1 枚送る
-- machine_session: finally は PRESENT 優先、無ければ M84（cv2.destroyAllWindows 削除）
+- machine_session: 終了時の退避は park_or_present へ委譲
+  （nozzle-cap-parking 計画書「呼び出し 3 箇所の差し替え」節:
+  ``machine_session(klipper, machine)`` の 2 引数に破壊的変更）
 
 カメラは tests/helpers.py の FakeCamera（自前 HAL Camera の test Impl）を使う。
 """
@@ -14,11 +16,12 @@ import numpy as np
 import pytest
 from pytest_mock import MockerFixture
 
+from pcbasm.config import Machine
 from pcbasm.geometry import Point2d
 from pcbasm.posctrl.setup import OffsetObserver, machine_session
 from pcbasm.vision import Image
 from pcbasm.vision.detection import OffsetStatistics
-from tests.helpers import FakeCamera
+from tests.helpers import TESTING_DATA_DIR, FakeCamera
 
 
 class TestOffsetObserver:
@@ -93,23 +96,33 @@ class TestOffsetObserver:
 
 
 class TestMachineSession:
-    """machine_session のテスト（終了処理のみをピン。cv2 依存なし）."""
+    """machine_session のテスト（終了処理のみをピン）.
 
-    def test_sends_present_on_exit(self, mocker: MockerFixture):
-        """セッション終了時に PRESENT が送信される."""
+    nozzle-cap-parking 計画書「呼び出し 3 箇所の差し替え」節が契約: 終了時の退避判断（キャップ駐機 /
+    PRESENT フォールバック）は park_or_present に集約されるため、ここでは委譲だけをピンする。
+    """
+
+    def test_delegates_to_park_or_present_on_exit(self, mocker: MockerFixture):
+        """セッション終了時に park_or_present(klipper, machine) が 1 回呼ばれる."""
+        park = mocker.patch("pcbasm.posctrl.setup.park_or_present")
         klipper = mocker.Mock()
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
 
-        with machine_session(klipper):
+        with machine_session(klipper, machine):
             pass
 
-        klipper.send_present_or_relax.assert_called_once_with()
+        park.assert_called_once_with(klipper, machine)
 
-    def test_sends_present_even_on_exception(self, mocker: MockerFixture):
-        """例外発生時でも PRESENT が送信され、例外は伝播する."""
+    def test_delegates_to_park_or_present_even_on_exception(
+        self, mocker: MockerFixture
+    ):
+        """例外発生時でも park_or_present が呼ばれ、例外は伝播する."""
+        park = mocker.patch("pcbasm.posctrl.setup.park_or_present")
         klipper = mocker.Mock()
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
 
         with pytest.raises(ValueError, match="test error"):
-            with machine_session(klipper):
+            with machine_session(klipper, machine):
                 raise ValueError("test error")
 
-        klipper.send_present_or_relax.assert_called_once_with()
+        park.assert_called_once_with(klipper, machine)
