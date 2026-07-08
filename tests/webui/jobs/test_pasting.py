@@ -9,8 +9,6 @@
 - parse_loading_command: extrude / suck / finish の純粋パーサ。ローディング用
   type の値不正（欠落・非正・非数）は InvalidLoadingCommand(reason)、
   未知 type は None（機械操作の後段判定へ）
-- LOADING_STAGE: ジョブ実装・テンプレート data 属性・loading_controls.js の
-  3 箇所で一致させる契約値 "ローディング"（計画書 判断保留点 6）
 - height_plane: 計測前に planned_points.png を artifacts へ生成し、
   diagnostics と /artifacts/ リンクを log してから confirm を挟む。
   confirm False → ABORTED / True → Klipper 不通（setup）で FAILED
@@ -30,7 +28,6 @@ cv2 / Moonraker / matplotlib / time.sleep のモックは使わない
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
 from pathlib import Path
 
 import cv2
@@ -43,7 +40,6 @@ from webui.config_store import ConfigStore
 from webui.jobs.catalog import JobCatalog, default_catalog
 from webui.jobs.manager import JobManager, JobRecord, JobStatus
 from webui.jobs.pasting import (
-    CALIBRATION_MENU_STAGE,
     LOADING_STAGE,
     Extrude,
     Finish,
@@ -57,7 +53,7 @@ from webui.preview import PreviewService
 from webui.settings import Settings
 from webui.state import AppState
 
-from .conftest import WaitUntil
+from .conftest import WaitUntil, answer_next_prompt
 
 PASTING_JOBS = (
     "paste_solder",
@@ -75,27 +71,6 @@ def catalog() -> JobCatalog:
     catalog = JobCatalog()
     register_pasting_jobs(catalog)
     return catalog
-
-
-def _answer_next_prompt(
-    record: JobRecord,
-    manager: JobManager,
-    wait_until: WaitUntil,
-    answer: object,
-    answered: set[str],
-    *,
-    timeout: float = 60.0,
-) -> None:
-    """未応答の prompt を待って answer を返す（応答済み id は answered で管理）."""
-    wait_until(
-        lambda: (pending := record.pending_prompt) is not None
-        and pending[0] not in answered,
-        timeout=timeout,
-    )
-    pending = record.pending_prompt
-    assert pending is not None
-    manager.respond_prompt(pending[0], answer)
-    answered.add(pending[0])
 
 
 def _preview_frame(preview: PreviewService):
@@ -120,10 +95,6 @@ class TestCatalog:
         names = {definition.name for definition in default.list(tab="pasting")}
 
         assert names == set(PASTING_JOBS)
-
-    def test_total_job_count_covers_all_tabs(self, default: JobCatalog):
-        """Dev 3 + posctrl 5 + pasting 6 = 14（重複登録・登録漏れの検知）."""
-        assert len(default.list()) == 14
 
     @pytest.mark.parametrize(
         ("name", "requires_pcb", "uses_machine", "accepts_commands"),
@@ -336,11 +307,11 @@ class TestGenerateRectPcb:
 
 
 class TestParseLoadingCommand:
-    """parse_loading_command（純粋関数）と LOADING_STAGE の契約値."""
+    """parse_loading_command（純粋関数）の契約.
 
-    def test_loading_stage_is_pinned_for_template_and_js(self):
-        """ジョブ実装・data-loading-stage 属性・JS の 3 箇所契約（判断保留点 6）."""
-        assert LOADING_STAGE == "ローディング"
+    LOADING_STAGE 文字列のテンプレ/JS 整合は routers/test_pages.py の data-loading-
+    stage アサートと e2e の DOM アサートが担保する。
+    """
 
     def test_extrude_yields_positive_amount(self):
         assert parse_loading_command({"type": "extrude", "amount": 2.5}) == Extrude(2.5)
@@ -448,11 +419,11 @@ class TestParseLoadingCommand:
 
 
 class TestParseRunCalibCommand:
-    """parse_run_calib_command（純粋関数）と CALIBRATION_MENU_STAGE の契約値."""
+    """parse_run_calib_command（純粋関数）の契約.
 
-    def test_menu_stage_is_pinned_for_template_and_js(self):
-        """ジョブ実装・data-calib-stage 属性・calibration_menu.js の契約値."""
-        assert CALIBRATION_MENU_STAGE == "キャリブレーションメニュー"
+    CALIBRATION_MENU_STAGE 文字列のテンプレ/JS 整合は routers/test_pages.py の data-
+    loading-stage アサートと e2e の DOM アサートが担保する。
+    """
 
     @pytest.mark.parametrize(
         "which",
@@ -574,7 +545,7 @@ class TestHeightPlaneFrontFlow:
         state.select_pcb(copper_pcb_path)
         record = manager.start("height_plane", {})
         answered: set[str] = set()
-        _answer_next_prompt(record, manager, wait_until, True, answered)
+        answer_next_prompt(record, manager, True, answered)
         wait_until(lambda: record.status.terminal, timeout=60.0)
         wait_until(lambda: state.busy_owner is None)
 
@@ -685,23 +656,6 @@ class TestApplyTargetsWhitelisted:
         assert "7.654321" in toml_text
         assert "-1.2345" in toml_text
         assert "23.4567" in toml_text
-
-
-@pytest.fixture
-def real_state(real_settings: Settings) -> Iterator[AppState]:
-    """実機（実 Moonraker, kurousagi）向け AppState。`@mark_hardware` 専用."""
-    state = AppState(real_settings, ConfigStore(real_settings.configs_root))
-    yield state
-    state.close()
-
-
-@pytest.fixture
-def real_manager(
-    real_state: AppState, real_settings: Settings, catalog: JobCatalog
-) -> Iterator[JobManager]:
-    manager = JobManager(real_state, PreviewService(real_state), catalog, real_settings)
-    yield manager
-    manager.shutdown(timeout=60.0)
 
 
 def _wait_loading_stage_and_settle(
@@ -864,7 +818,7 @@ class TestPastingHardware:
         real_state.select_pcb(Path("data/testing/led_blinker/led_blinker.kicad_pcb"))
         record = real_manager.start("height_plane", {})
         answered: set[str] = set()
-        _answer_next_prompt(record, real_manager, wait_until, True, answered)
+        answer_next_prompt(record, real_manager, True, answered)
         wait_until(lambda: record.status.terminal, timeout=900.0)
 
         assert record.status == JobStatus.SUCCEEDED

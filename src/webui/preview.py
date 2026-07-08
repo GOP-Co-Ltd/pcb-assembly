@@ -219,21 +219,6 @@ class PreviewService:
                     image = renderer(frame)
                 yield self._encode_part(image)
 
-    def snapshot(
-        self,
-        overlay: OverlayKind,
-        canny_low: float | None = None,
-        canny_high: float | None = None,
-    ) -> bytes:
-        """1 フレーム取得してオーバーレイを描画し、JPEG bytes を返す.
-
-        ストリーム未接続時は hub の start/stop が 1 回走る。
-        """
-        with self.hold_camera() as hub:
-            renderer = self._build_renderer(overlay, canny_low, canny_high)
-            frame = hub.subscribe().capture()
-            return self._encode_jpeg(renderer(frame))
-
     def _acquire(self) -> FrameHub:
         """参照カウントを +1 し、現行 hub を起動して返す（start は冪等）."""
         hub = self._state.frame_hub()

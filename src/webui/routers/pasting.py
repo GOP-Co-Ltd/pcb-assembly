@@ -13,8 +13,6 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from pcbasm.pasting import (
-    PasteSettingsModel,
-    base_override_from_config,
     routed_enabled_pads,
     validate_field_names,
     validate_initial_purge,
@@ -198,26 +196,6 @@ def patch_initial_purge(
 def _normalize_initial_purge_pad_id(pad_id: str | None) -> str | None:
     """API 入力の空文字を未指定へ正規化する."""
     return None if pad_id in (None, "") else pad_id
-
-
-@router.post("/pasting/pad-config/reset")
-def reset_pad_config(
-    state: StateDep, settings: SettingsDep, board_store: BoardStoreDep
-) -> PadConfigResponse:
-    """全 override を破棄し、machine.toml 由来の新規モデルを保存して返す."""
-    loaded = load_board(state, settings, board_store)
-    fresh = PasteSettingsModel(
-        base=base_override_from_config(loaded.base_config),
-        base_enabled=True,
-        levels={},
-    )
-    board_store.save(
-        loaded.machine,
-        loaded.source_pcb,
-        fresh,
-        board_signature=loaded.board_signature,
-    )
-    return build_pad_config(attrs.evolve(loaded, model=fresh))
 
 
 @router.get("/pasting/pad-config/export")

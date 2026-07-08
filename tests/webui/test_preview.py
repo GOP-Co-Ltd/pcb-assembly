@@ -9,7 +9,6 @@
   circle（検出円の赤描画）
 - submit_override はジョブ提供フレームを override_ttl 秒だけ優先配信する。
   persist=True の場合は clear_override まで優先する
-- snapshot は acquire → 1 フレーム → release（hub は停止に戻る）
 - カメラ構築失敗は伝播する（ルーター層が 503 化）
 """
 
@@ -24,11 +23,6 @@ from webui.settings import Settings
 from webui.state import AppState
 
 from .conftest import decode_jpeg, jpeg_payload
-
-
-@pytest.fixture
-def state(fake_camera_settings: Settings, configs_root) -> AppState:
-    return AppState(fake_camera_settings, ConfigStore(configs_root))
 
 
 @pytest.fixture
@@ -309,18 +303,3 @@ class TestHoldCamera:
         with pytest.raises(FileNotFoundError):
             with service.hold_camera():
                 pass
-
-
-class TestSnapshot:
-    """スポット確認用の 1 枚取得."""
-
-    def test_snapshot_returns_jpeg_and_releases_hub(
-        self, service: PreviewService, state: AppState
-    ):
-        data = service.snapshot("none")
-
-        frame = decode_jpeg(data)
-        assert frame is not None
-        assert frame.shape == (720, 1280, 3)
-        assert service.client_count == 0
-        assert not state.frame_hub().running

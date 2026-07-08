@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 from pcbasm.vision import ImageArray
 from tests.helpers import PROJECT_ROOT, TESTING_DATA_DIR
 from webui.app import create_app
+from webui.config_store import ConfigStore
 from webui.settings import Settings
 from webui.state import AppState
 
@@ -51,6 +52,17 @@ def jpeg_payload(part: bytes) -> bytes:
 def decode_jpeg(data: bytes) -> ImageArray | None:
     """JPEG bytes を BGR 配列に復号する（復号できなければ None）."""
     return cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+
+
+def _camera_settings(webui_settings: Settings, image: Path) -> Settings:
+    """固定画像カメラ（FixedImageCamera）を有効化した Settings を作る."""
+    return attrs.evolve(webui_settings, fake_camera=True, fake_camera_image=image)
+
+
+def _lifespan_client(app: FastAPI) -> Iterator[TestClient]:
+    """Lifespan 起動込みの TestClient（client 系 fixture の共通形）."""
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 @pytest.fixture
@@ -123,8 +135,7 @@ def app(webui_settings: Settings) -> FastAPI:
 
 @pytest.fixture
 def client(app: FastAPI) -> Iterator[TestClient]:
-    with TestClient(app) as test_client:
-        yield test_client
+    yield from _lifespan_client(app)
 
 
 @pytest.fixture
@@ -134,11 +145,23 @@ def appstate(app: FastAPI, client: TestClient) -> AppState:
 
 
 @pytest.fixture
+def store(configs_root: Path) -> ConfigStore:
+    """Configs_root（test-fixture 2 マシン）を読む ConfigStore."""
+    return ConfigStore(configs_root)
+
+
+@pytest.fixture
+def state(fake_camera_settings: Settings, store: ConfigStore) -> Iterator[AppState]:
+    """FixedImageCamera を使う実 AppState（frame 経路の検証に必要）."""
+    state = AppState(fake_camera_settings, store)
+    yield state
+    state.close()
+
+
+@pytest.fixture
 def fake_camera_settings(webui_settings: Settings) -> Settings:
     """FixedImageCamera（固定画像アセット）を使う Settings。preview / FrameHub 結合テスト用."""
-    return attrs.evolve(
-        webui_settings, fake_camera=True, fake_camera_image=FAKE_CAMERA_IMAGE
-    )
+    return _camera_settings(webui_settings, FAKE_CAMERA_IMAGE)
 
 
 @pytest.fixture
@@ -148,8 +171,7 @@ def fake_camera_app(fake_camera_settings: Settings) -> FastAPI:
 
 @pytest.fixture
 def fake_camera_client(fake_camera_app: FastAPI) -> Iterator[TestClient]:
-    with TestClient(fake_camera_app) as test_client:
-        yield test_client
+    yield from _lifespan_client(fake_camera_app)
 
 
 @pytest.fixture
@@ -163,9 +185,7 @@ def fake_camera_appstate(
 @pytest.fixture
 def checkerboard_camera_settings(webui_settings: Settings) -> Settings:
     """チェッカーボード固定画像カメラの Settings。camera_calibration ジョブの結合テスト用."""
-    return attrs.evolve(
-        webui_settings, fake_camera=True, fake_camera_image=CHECKERBOARD_CAMERA_IMAGE
-    )
+    return _camera_settings(webui_settings, CHECKERBOARD_CAMERA_IMAGE)
 
 
 @pytest.fixture
@@ -177,8 +197,7 @@ def checkerboard_camera_app(checkerboard_camera_settings: Settings) -> FastAPI:
 def checkerboard_camera_client(
     checkerboard_camera_app: FastAPI,
 ) -> Iterator[TestClient]:
-    with TestClient(checkerboard_camera_app) as test_client:
-        yield test_client
+    yield from _lifespan_client(checkerboard_camera_app)
 
 
 @pytest.fixture

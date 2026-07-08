@@ -38,12 +38,11 @@ from .conftest import TEST_FIXTURE_DIR
 
 
 @pytest.fixture
-def store(configs_root: Path) -> ConfigStore:
-    return ConfigStore(configs_root)
-
-
-@pytest.fixture
 def state(webui_settings: Settings, store: ConfigStore) -> AppState:
+    """実カメラ設定なしの素の AppState（共有 fixture の fake camera 版を意図的に override）.
+
+    本モジュールは選択・永続化・ロックの検証が主目的で、camera / FrameHub を 構築しないため close も不要。
+    """
     return AppState(webui_settings, store)
 
 
