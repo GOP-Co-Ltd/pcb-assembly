@@ -22,9 +22,11 @@ from shapely.geometry import Point as ShapelyPoint
 
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.fill_path import (
+    build_pad_fill_plan_for,
     build_paste_fill_path as _build_paste_fill_path,
     build_paste_fill_plan,
 )
+from pcbasm.pasting.settings import ResolvedPaste
 
 # セグメント内包・外周マージン判定の浮動小数誤差を吸収する微小バッファ（定数）。
 # ジグザグ端点が外周に乗るため、境界一致を covers が拾えるよう微小に膨らませる。
@@ -837,3 +839,62 @@ class TestReturnType:
             for p in polyline:
                 assert math.isfinite(p.x)
                 assert math.isfinite(p.y)
+
+
+class TestBuildPadFillPlanFor:
+    """build_pad_fill_plan_for は ResolvedPaste から引数対応を単一ソース化する。
+
+    プレビュー（webui router）と実行（PasteApplicator._fill）が同一の対応で
+    build_paste_fill_plan を呼ぶための束ね関数。同じ入力に対して build_paste_fill_plan
+    の直接呼び出しと同一の計画を返すことを契約とする。
+    """
+
+    @staticmethod
+    def _paste(**overrides: object) -> ResolvedPaste:
+        values: dict = {
+            "enabled": True,
+            "dispense_mode": "area",
+            "paste_height": 0.05,
+            "ul_per_mm2": 0.1,
+            "prime_extra_delay": 0.0,
+            "bead_width_factor": 0.8,
+            "overlap": 0.2,
+            "boundary_margin": 0.05,
+        }
+        values.update(overrides)
+        return ResolvedPaste(**values)
+
+    @pytest.mark.parametrize("dispense_mode", ["auto", "dot", "line", "area"])
+    def test_matches_direct_build_paste_fill_plan(self, dispense_mode: str):
+        polygon = _rectangle(2.0, 6.0)
+        paste = self._paste(dispense_mode=dispense_mode)
+
+        plan = build_pad_fill_plan_for(
+            polygon,
+            nozzle_diameter=0.4,
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            paste=paste,
+        )
+
+        expected = build_paste_fill_plan(
+            polygon,
+            0.4,
+            dispense_mode=paste.dispense_mode,
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            bead_width_factor=paste.bead_width_factor,
+            overlap=paste.overlap,
+            boundary_margin=paste.boundary_margin,
+        )
+        assert plan == expected
+
+    def test_invalid_paste_settings_raise_value_error(self):
+        with pytest.raises(ValueError):
+            build_pad_fill_plan_for(
+                _rectangle(2.0, 6.0),
+                nozzle_diameter=0.4,
+                auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+                auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+                paste=self._paste(overlap=1.5),
+            )

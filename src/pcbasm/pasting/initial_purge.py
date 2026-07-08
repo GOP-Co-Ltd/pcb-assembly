@@ -62,14 +62,9 @@ def resolve_initial_purge(
             None,
         )
 
-    pad = _find_pad_by_id(hierarchy, pad_id)
+    pad, error = _resolve_pad_by_id(hierarchy, pad_id, layer)
     if pad is None:
-        return None, f"未知の初回パージ pad です: {pad_id}"
-    if pad.layer is not layer:
-        return (
-            None,
-            f"初回パージ pad は {layer.value} レイヤから選択してください: {pad_id}",
-        )
+        return None, error
     return (
         ResolvedInitialPurge(
             amount_ul=amount,
@@ -79,6 +74,50 @@ def resolve_initial_purge(
         ),
         None,
     )
+
+
+def validate_initial_purge(
+    *,
+    amount_ul: float,
+    pad_id: str | None,
+    hierarchy: PadHierarchy,
+    routed_pads: Sequence[Pad],
+    layer: Layer = Layer.TOP,
+) -> str | None:
+    """初回パージ設定を検証し、不正なら日本語エラー文、正常なら ``None``.
+
+    :func:`resolve_initial_purge` と同一規則の None 返却バリデーション。ただし
+    ``amount_ul == 0``（機能無効）でも ``pad_id`` 指定時は pad の存在とレイヤを
+    検証する（無効化中でも不正な pad 指定を保存させないため）。
+    """
+    resolved, error = resolve_initial_purge(
+        amount_ul=amount_ul,
+        pad_id=pad_id,
+        hierarchy=hierarchy,
+        routed_pads=routed_pads,
+        layer=layer,
+    )
+    if error is not None:
+        return error
+    if resolved is None and pad_id is not None:
+        _, pad_error = _resolve_pad_by_id(hierarchy, pad_id, layer)
+        return pad_error
+    return None
+
+
+def _resolve_pad_by_id(
+    hierarchy: PadHierarchy, pad_id: str, layer: Layer
+) -> tuple[Pad | None, str | None]:
+    """Pad id を検証付きで解決する（不在／レイヤ不一致はエラー文を返す）."""
+    pad = _find_pad_by_id(hierarchy, pad_id)
+    if pad is None:
+        return None, f"未知の初回パージ pad です: {pad_id}"
+    if pad.layer is not layer:
+        return (
+            None,
+            f"初回パージ pad は {layer.value} レイヤから選択してください: {pad_id}",
+        )
+    return pad, None
 
 
 def _find_pad_by_id(hierarchy: PadHierarchy, pad_id: str) -> Pad | None:
