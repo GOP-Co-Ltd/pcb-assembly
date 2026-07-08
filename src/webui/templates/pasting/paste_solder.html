@@ -32,8 +32,7 @@
   {% endif %}
   </div>
 {% if show_preview %}
-{# ジョブ提供フレームのみ表示（オーバーレイ切替なし・固定 none） #}
-{% set preview_overlay = "none" %}
+{# ジョブ提供フレームのみ表示（オーバーレイ切替なし・既定の none） #}
   <div class="pasting-preview-panel" data-testid="pasting-preview-panel">
 {% include "partials/preview_pane.html" %}
   </div>
@@ -51,6 +50,6 @@
 {% if show_loading_controls %}
 <script src="{{ static_asset('js/loading_controls.js') }}"></script>
 {% endif %}
-<script type="module" src="{{ static_asset('js/pad_editor.js') }}"></script>
+<script type="module" src="{{ static_asset('js/pad_editor/index.js') }}"></script>
 <script src="{{ static_asset('js/settings.js') }}"></script>
 {% endblock %}

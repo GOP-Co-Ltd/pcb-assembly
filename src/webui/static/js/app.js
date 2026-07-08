@@ -2,11 +2,13 @@
 
 // ---- shared helpers ----
 
-function toast(message, ok = true) {
+// level: true=通常 / false=エラー / "warning"=警告
+function toast(message, level = true) {
   const container = document.getElementById("toasts");
   if (!container) return;
   const el = document.createElement("div");
-  el.className = ok ? "toast" : "toast error";
+  el.className =
+    level === "warning" ? "toast warning" : level ? "toast" : "toast error";
   el.textContent = message;
   container.appendChild(el);
   setTimeout(() => el.remove(), 5000);
@@ -14,7 +16,10 @@ function toast(message, ok = true) {
 
 async function api(method, url, body) {
   const options = { method };
-  if (body !== undefined) {
+  if (body instanceof FormData) {
+    // multipart は fetch が boundary 付き Content-Type を自動設定する
+    options.body = body;
+  } else if (body !== undefined) {
     options.headers = { "Content-Type": "application/json" };
     options.body = JSON.stringify(body);
   }
@@ -26,8 +31,44 @@ async function api(method, url, body) {
   return data;
 }
 
+function svgEl(tag, attrs) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    el.setAttribute(key, value);
+  }
+  return el;
+}
+
+// 単一タイマーの debounce（キー別にまとめたい場合は各所の Map 実装を使う）
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
+// 指数バックオフの遅延生成器: next() が現在の遅延を返して倍化、reset() で初期化
+function createBackoff(baseMs, maxMs) {
+  let delay = baseMs;
+  return {
+    next() {
+      const current = delay;
+      delay = Math.min(delay * 2, maxMs);
+      return current;
+    },
+    reset() {
+      delay = baseMs;
+    },
+  };
+}
+
+function formatPosition(p) {
+  return `X${p.x.toFixed(3)} Y${p.y.toFixed(3)} Z${p.z.toFixed(3)}`;
+}
+
 // expose for other scripts
-window.webui = { toast, api };
+window.webui = { toast, api, svgEl, debounce, createBackoff, formatPosition };
 
 // ---- machine select ----
 
@@ -144,9 +185,7 @@ if (pcbChip && browser) {
     const form = new FormData();
     form.append("file", file);
     try {
-      const res = await fetch("/api/pcb-file/upload", { method: "POST", body: form });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || `${res.status} ${res.statusText}`);
+      await api("POST", "/api/pcb-file/upload", form);
       browser.close();
       window.location.reload();
     } catch (err) {

@@ -8,7 +8,7 @@
 //   （送信先が REST か WS かの違いのみで、操作系は共通）
 
 (() => {
-  const { toast, api } = window.webui;
+  const { toast, api, svgEl, formatPosition } = window.webui;
   const sidebar = document.getElementById("mc-sidebar");
   const panel = document.getElementById("machine-control");
   if (!sidebar || !panel) return;
@@ -17,12 +17,11 @@
   const positionEl = document.getElementById("mc-position");
   const homedEl = document.getElementById("mc-homed");
   const absInputs = [...panel.querySelectorAll("[data-mc-abs]")];
-  const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
   const COLLAPSE_KEY = "mc-sidebar-collapsed";
 
   function activeJob() {
     const job = window.webui.jobs ? window.webui.jobs.currentJob() : null;
-    return job && !TERMINAL.has(job.status) ? job : null;
+    return window.webui.jobs && window.webui.jobs.isActive(job) ? job : null;
   }
 
   function toCommand(payload) {
@@ -41,11 +40,7 @@
         toast("ジョブ実行中はマシン操作できません", false);
         return;
       }
-      if (window.webui.jobs.sendCommand(toCommand(payload))) {
-        toast("コマンドを送信しました");
-      } else {
-        toast("WebSocket 未接続のため送信できません", false);
-      }
+      window.webui.jobs.sendCommandOrToast(toCommand(payload));
       return;
     }
     try {
@@ -64,7 +59,7 @@
       [...panel.querySelectorAll("button, input")].filter((c) => c.disabled)
     );
     window.webui.jobs.onUpdate((job) => {
-      const blocked = job !== null && !TERMINAL.has(job.status) && !job.accepts_commands;
+      const blocked = window.webui.jobs.isActive(job) && !job.accepts_commands;
       panel.classList.toggle("mc-blocked", blocked);
       for (const control of panel.querySelectorAll("button, input")) {
         control.disabled = blocked || originallyDisabled.has(control);
@@ -79,7 +74,7 @@
       return;
     }
     const p = status.position;
-    positionEl.textContent = `位置: X${p.x.toFixed(3)} Y${p.y.toFixed(3)} Z${p.z.toFixed(3)}`;
+    positionEl.textContent = `位置: ${formatPosition(p)}`;
     homedEl.textContent = `homed: ${status.homed_axes || "なし"}`;
     // 座標欄は現在位置を常時表示する（編集中の欄は上書きしない）
     for (const input of absInputs) {
@@ -99,7 +94,6 @@
 
   // ---- 円形 XY ジョグパッド（SVG） ----
 
-  const SVG_NS = "http://www.w3.org/2000/svg";
   const CENTER = 100;
   // 内側から外側へ: 移動距離と扇形の半径範囲
   const RINGS = [
@@ -131,14 +125,6 @@
       `A${r1},${r1} 0 0 1 ${x2},${y2} L${x3},${y3} ` +
       `A${r0},${r0} 0 0 0 ${x0},${y0} Z`
     );
-  }
-
-  function svgEl(tag, attrs) {
-    const el = document.createElementNS(SVG_NS, tag);
-    for (const [key, value] of Object.entries(attrs)) {
-      el.setAttribute(key, value);
-    }
-    return el;
   }
 
   function buildJogPad(container) {

@@ -4,33 +4,26 @@
 // ジョブが実行中（accepts_commands）のときのみボタンを有効化する。
 
 (() => {
-  const { toast } = window.webui;
   const recordButton = document.getElementById("rps-record");
   const quitButton = document.getElementById("rps-quit");
   if (!recordButton || !quitButton || !window.webui.jobs) return;
 
-  const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
+  const { jobs } = window.webui;
 
   function update(job) {
-    const active =
-      job !== null &&
-      job !== undefined &&
-      job.name === "reference_point_setup" &&
-      !TERMINAL.has(job.status) &&
-      job.accepts_commands;
+    const active = jobs.commandReady(job, { name: "reference_point_setup" });
     recordButton.disabled = !active;
     quitButton.disabled = !active;
   }
 
-  function sendCommand(command) {
-    if (!window.webui.jobs.sendCommand(command)) {
-      toast("WebSocket 未接続のため送信できません", false);
-    }
-  }
+  // 成功トーストは出さない（現行挙動の維持）
+  recordButton.addEventListener("click", () =>
+    jobs.sendCommandOrToast({ type: "record" }, null)
+  );
+  quitButton.addEventListener("click", () =>
+    jobs.sendCommandOrToast({ type: "quit" }, null)
+  );
 
-  recordButton.addEventListener("click", () => sendCommand({ type: "record" }));
-  quitButton.addEventListener("click", () => sendCommand({ type: "quit" }));
-
-  window.webui.jobs.onUpdate(update);
-  update(window.webui.jobs.currentJob());
+  jobs.onUpdate(update);
+  update(jobs.currentJob());
 })();

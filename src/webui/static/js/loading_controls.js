@@ -6,11 +6,10 @@
 // progress_stage が data-loading-stage（カンマ区切りの複数可）のいずれかと一致。
 
 (() => {
-  const { toast, api } = window.webui;
+  const { toast, api, debounce, jobs } = window.webui;
   const panel = document.getElementById("loading-controls");
-  if (!panel || !window.webui.jobs) return;
+  if (!panel || !jobs) return;
 
-  const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
   // data-loading-stage はカンマ区切りで複数 stage を許す（吐出量キャリブはメニュー段階の
   // プライムと ① 専用ローディング段階の両方でボタンを有効化する）。
   const loadingStages = new Set(
@@ -37,7 +36,7 @@
   };
   // 最後に取得・表示した算出値（適用ボタンが送る値）。
   let computed = { rpu: null, rate: null, accel: null };
-  let fetchTimer = null;
+  const scheduleFetch = debounce(fetchCalibration, CALIBRATION_DELAY_MS);
   const buttons = [];
   for (const [id, type] of [
     ["lc-extrude", "extrude"],
@@ -53,50 +52,31 @@
   }
 
   function update(job) {
-    const enabled =
-      job != null &&
-      !TERMINAL.has(job.status) &&
-      job.accepts_commands &&
-      loadingStages.has(job.progress_stage);
+    const enabled = jobs.commandReady(job, { stages: loadingStages });
     for (const button of buttons) button.disabled = !enabled;
   }
 
-  window.webui.jobs.onUpdate(update);
-  update(window.webui.jobs.currentJob());
+  jobs.onUpdate(update);
+  update(jobs.currentJob());
   bindLoadingParamSync();
   bindMassCalibration();
 
+  // 値の検証はサーバ（parse_loading_command）に一本化。不正値は
+  // InvalidLoadingCommand としてジョブコンソールのログに理由が出る。
   function sendAction(type) {
     const command = { type };
     if (type === "extrude" || type === "suck") {
-      const amount = Number(amountInput.value);
-      if (!(amount > 0)) {
-        toast("量には正の数値を入力してください", false);
-        return;
-      }
-      command.amount = amount;
+      command.amount = Number(amountInput.value);
     } else if (type === "extrude_rotations" || type === "suck_rotations") {
-      const rotations = Number(rotationsInput.value);
-      const rate = Number(rateInput.value);
-      const accel = Number(accelInput.value);
-      if (!(rotations > 0 && rate > 0 && accel > 0)) {
-        toast("回転数・速度・加速度には正の数値を入力してください", false);
-        return;
-      }
-      command.rotations = rotations;
-      command.rate = rate;
-      command.accel = accel;
+      command.rotations = Number(rotationsInput.value);
+      command.rate = Number(rateInput.value);
+      command.accel = Number(accelInput.value);
       if (type === "extrude_rotations") {
-        // 押出に引き戻しを 1 セットで付随（負値・非数は 0＝引き戻しなし）。
-        const retract = Number(retractRotationsInput.value);
-        command.retract_rotations = retract >= 0 ? retract : 0;
+        // 押出に引き戻しを 1 セットで付随
+        command.retract_rotations = Number(retractRotationsInput.value);
       }
     }
-    if (window.webui.jobs.sendCommand(command)) {
-      toast("コマンドを送信しました");
-    } else {
-      toast("WebSocket 未接続のため送信できません", false);
-    }
+    jobs.sendCommandOrToast(command);
   }
 
   function bindLoadingParamSync() {
@@ -110,7 +90,6 @@
       ["accel", accelInput],
       ["retract_rotations", retractRotationsInput],
     ];
-    let saveTimer = null;
     function sync() {
       for (const [name, source] of bindings) {
         const target = form.querySelector(`[name="${name}"]`);
@@ -119,7 +98,7 @@
     }
     // 「実行」を待たず、入力するそばから次回フォーム既定値として保存する
     // （質量キャリブのブートストラップ等、ジョブ未実行でもリロードで復元される）。
-    function persistDefaults() {
+    const persistDefaults = debounce(() => {
       if (!jobName) return;
       const values = {};
       for (const [name, source] of bindings) {
@@ -127,13 +106,10 @@
         const value = Number(source.value);
         if (Number.isFinite(value)) values[name] = value;
       }
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => {
-        api("POST", `/api/jobs/${jobName}/param-defaults`, { values }).catch(
-          () => {}
-        );
-      }, PARAM_SAVE_DELAY_MS);
-    }
+      api("POST", `/api/jobs/${jobName}/param-defaults`, { values }).catch(
+        () => {}
+      );
+    }, PARAM_SAVE_DELAY_MS);
     function onInput() {
       sync();
       persistDefaults();
@@ -175,11 +151,6 @@
     button.addEventListener("click", () => applyValues(valuesFor(), buttonId));
   }
 
-  function scheduleFetch() {
-    clearTimeout(fetchTimer);
-    fetchTimer = setTimeout(fetchCalibration, CALIBRATION_DELAY_MS);
-  }
-
   async function fetchCalibration() {
     const params = new URLSearchParams({
       mass_mg: massInput.value || "0",
@@ -211,13 +182,14 @@
     updateApplyButtons();
   }
 
+  // サーバ（estimate_mass_flow）が算出不能な値を null で返す契約に依存する。
   function updateApplyButtons() {
-    setDisabled("lc-apply-rotations-per-ul", !(computed.rpu > 0));
-    setDisabled("lc-apply-dispense-rate", !(computed.rate > 0));
-    setDisabled("lc-apply-dispense-accel", !(computed.accel > 0));
+    setDisabled("lc-apply-rotations-per-ul", computed.rpu == null);
+    setDisabled("lc-apply-dispense-rate", computed.rate == null);
+    setDisabled("lc-apply-dispense-accel", computed.accel == null);
     setDisabled(
       "lc-apply-all",
-      !(computed.rpu > 0 && computed.rate > 0 && computed.accel > 0)
+      computed.rpu == null || computed.rate == null || computed.accel == null
     );
   }
 
@@ -236,8 +208,9 @@
   async function applyValues(valuesObject, buttonId) {
     const values = {};
     for (const [key, raw] of Object.entries(valuesObject)) {
-      if (!(raw > 0)) return;
-      values[key] = Number(raw.toFixed(6));
+      if (raw == null) return;
+      // サーバ算出値（丸め済み）を素通しで送る
+      values[key] = raw;
     }
     setDisabled(buttonId, true);
     try {

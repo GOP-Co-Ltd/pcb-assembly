@@ -155,6 +155,17 @@ class Finish:
 
 
 @attrs.frozen
+class InvalidLoadingCommand:
+    """ローディング用 type だが値が不正なコマンド（理由をログに出す用）.
+
+    Attributes:
+        reason: ユーザー向けの不正理由（ジョブコンソールへそのままログする）
+    """
+
+    reason: str
+
+
+@attrs.frozen
 class LoadingTotals:
     """ローディングループ内の押出合計."""
 
@@ -165,36 +176,38 @@ class LoadingTotals:
 type LoadingAction = Extrude | Rotate | Finish
 
 
-def parse_loading_command(command: Mapping[str, Any]) -> LoadingAction | None:
+def parse_loading_command(
+    command: Mapping[str, Any],
+) -> LoadingAction | InvalidLoadingCommand | None:
     """ローディング用 WS command を LoadingAction へ変換する.
 
     ``{type:"extrude", amount: 正数}`` → ``Extrude(+amount)``、
     ``{type:"suck", amount: 正数}`` → ``Extrude(-amount)``、
     ``{type:"finish"}`` → ``Finish()``。
-    amount 欠落・非正・非数・未知 type は None。
+    ローディング用 type だが値が欠落・非正・非数なら
+    ``InvalidLoadingCommand(reason)``、未知 type は None（機械操作の後段判定へ）。
     """
     match command:
-        case {"type": "extrude" | "suck" as kind, "amount": amount}:
-            value = _positive_amount(amount)
+        case {"type": "extrude" | "suck" as kind}:
+            value = _positive_amount(command.get("amount"))
             if value is None:
-                return None
+                return InvalidLoadingCommand(f"{kind} の量には正の数値が必要です")
             return Extrude(value if kind == "extrude" else -value)
-        case {
-            "type": "extrude_rotations" | "suck_rotations" as kind,
-            "rotations": rotations,
-            "rate": rate,
-            "accel": accel,
-        }:
-            rotation_value = _positive_amount(rotations)
-            rate_value = _positive_amount(rate)
-            accel_value = _positive_amount(accel)
+        case {"type": "extrude_rotations" | "suck_rotations" as kind}:
+            rotation_value = _positive_amount(command.get("rotations"))
+            rate_value = _positive_amount(command.get("rate"))
+            accel_value = _positive_amount(command.get("accel"))
             if rotation_value is None or rate_value is None or accel_value is None:
-                return None
+                return InvalidLoadingCommand(
+                    f"{kind} の回転数・速度・加速度には正の数値が必要です"
+                )
             if kind == "suck_rotations":
                 return Rotate(-rotation_value, rate_value, accel_value)
             retract_value = _non_negative_amount(command.get("retract_rotations", 0.0))
             if retract_value is None:
-                return None
+                return InvalidLoadingCommand(
+                    "extrude_rotations の引き戻し回転数には 0 以上の数値が必要です"
+                )
             return Rotate(
                 rotation_value, rate_value, accel_value, retract_rotations=retract_value
             )
@@ -596,6 +609,8 @@ def _run_loading_loop(
                     f"（体積 {total_ul:+.3f} uL / 回転 {total_rotations:+.3f} rev）"
                 )
                 return LoadingTotals(amount_ul=total_ul, rotations=total_rotations)
+            case InvalidLoadingCommand(reason=reason):
+                ctx.log(reason)
             case None:
                 if not handle_machine_command(
                     ctx, klipper, stage, command, focus_z=focus_z
@@ -1178,6 +1193,8 @@ def _handle_menu_loading_or_machine(
             ctx.log(f"プライム押出: {amount:+.3f} uL")
         case Finish():
             ctx.log("終了はメニューの「終了」ボタンを使ってください")
+        case InvalidLoadingCommand(reason=reason):
+            ctx.log(reason)
         case _:
             klipper = calib.session.klipper
             stage = calib.session.stage
