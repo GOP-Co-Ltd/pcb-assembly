@@ -12,7 +12,26 @@
       <tr>
         <th><span class="settings-label">{{ field.label }}</span></th>
         <td>
-          {% if field.value_type == 'dispense_mode' %}
+          {% if field.value_type == 'float_pair' %}
+          <div class="settings-pair" data-pair-key="{{ field.key }}">
+            <input id="{{ prefix }}-{{ field.key }}-x"
+                   data-pair-key="{{ field.key }}"
+                   data-pair-index="0"
+                   type="number"
+                   step="any"
+                   aria-label="{{ field.label }} X"
+                   value="{{ field.value[0] if field.value is not none else '' }}"
+                   placeholder="X">
+            <input id="{{ prefix }}-{{ field.key }}-y"
+                   data-pair-key="{{ field.key }}"
+                   data-pair-index="1"
+                   type="number"
+                   step="any"
+                   aria-label="{{ field.label }} Y"
+                   value="{{ field.value[1] if field.value is not none else '' }}"
+                   placeholder="Y">
+          </div>
+          {% elif field.value_type == 'dispense_mode' %}
           <select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
                   data-type="{{ field.value_type }}"
                   aria-label="{{ field.label }}">

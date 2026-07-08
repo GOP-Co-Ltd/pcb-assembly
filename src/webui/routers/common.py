@@ -146,6 +146,7 @@ SECTION_LABELS: dict[str, str] = {
     "paste_dispenser.pad_align": "ペーストディスペンサー / パッド位置合わせ",
     "probe": "プローブ",
     "reference_point": "基準点",
+    "reference_point.offsets": "基準点 / コーナーオフセット",
     "camera": "カメラ",
     "camera.crop": "カメラ / クロップ",
 }

@@ -8,10 +8,16 @@
 """
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 
-from webui.config_store import MACHINE_FIELDS, ConfigStore, UnknownFieldError
+from webui.config_store import (
+    MACHINE_FIELDS,
+    ConfigStore,
+    MachineSettingValue,
+    UnknownFieldError,
+)
 
 FIXTURE = "test-fixture"
 
@@ -251,6 +257,49 @@ class TestMachineSettings:
     def test_unknown_machine_raises_file_not_found(self, store: ConfigStore):
         with pytest.raises(FileNotFoundError):
             store.read_machine_settings("no-such-machine")
+
+
+class TestReferencePointOffsets:
+    """float_pair 型フィールド reference_point.offsets.* の読み書き."""
+
+    def test_read_returns_pairs_and_none_for_missing_corner(self, store: ConfigStore):
+        values = store.read_machine_settings(FIXTURE)
+
+        assert values["reference_point.offsets.top_left"] == [5.0, -5.0]
+        assert values["reference_point.offsets.top_right"] == [-5.0, -5.0]
+        assert values["reference_point.offsets.bottom_left"] == [5.0, 5.0]
+        assert values["reference_point.offsets.bottom_right"] is None
+
+    def test_write_missing_corner_then_reread_reflects_pair(self, store: ConfigStore):
+        store.write_machine_settings(
+            FIXTURE, {"reference_point.offsets.bottom_right": [-5.0, 5.0]}
+        )
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["reference_point.offsets.bottom_right"] == [-5.0, 5.0]
+
+    def test_write_pair_keeps_table_comment(
+        self, store: ConfigStore, configs_root: Path
+    ):
+        store.write_machine_settings(
+            FIXTURE, {"reference_point.offsets.top_left": [6.0, -6.0]}
+        )
+
+        text = (configs_root / FIXTURE / "machine.toml").read_text(encoding="utf-8")
+        assert "[reference_point.offsets] # [x, y]で記述" in text
+        assert "top_left = [6.0, -6.0]" in text
+
+    @pytest.mark.parametrize(
+        "value",
+        [[1.0], [1.0, 2.0, 3.0], ["a", 1.0], [True, 1.0], 1.0, "1,2"],
+    )
+    def test_invalid_pair_raises(self, store: ConfigStore, value: object):
+        # 型不一致の拒否を検証するため、意図的に契約外の値を渡す
+        ill_typed = cast("MachineSettingValue", value)
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                FIXTURE, {"reference_point.offsets.top_left": ill_typed}
+            )
 
 
 class TestAirPumpEnabled:
