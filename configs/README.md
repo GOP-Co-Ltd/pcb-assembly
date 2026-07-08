@@ -34,6 +34,8 @@ klipper.env の config パスを repo 実パスに向け（`SAVE_CONFIG` の較�
 Klipper以外のハードウェア設定。GPIO、カメラ、その他のデバイス設定を記述する。
 
 ```toml
+machine_type = "paste" # マシン種別: paste / pnp（必須）
+
 [klipper]
 host = "localhost"
 port = 7125
