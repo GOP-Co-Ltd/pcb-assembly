@@ -1,0 +1,40 @@
+{% extends "tab.html" %}
+{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+<section class="status-card">
+  <h3>概要</h3>
+  <p>
+    ペーストマシンはノズルの乾燥・詰まりを防ぐため、タスク終了時に必ず
+    ノズルキャップ位置へ移動（Z0 へ退避 → キャップ XY → キャップ Z）してから
+    脱力する。ここで記録した位置がタスク終了時の駐機先になる。
+    未記録の間は従来どおり PRESENT（無ければ M84）にフォールバックする。
+  </p>
+  <p>
+    Y を手前にした位置で記録すれば、駐機と基板取り出しを両立できる。
+  </p>
+</section>
+<section class="status-card">
+  <h3>記録手順</h3>
+  <ol>
+    <li>全軸をホーミングする（未ホーミングでは記録できない）</li>
+    <li>マシン操作パネルのジョグでノズルをキャップ位置へ合わせる</li>
+    <li>「現在位置を記録」を押す（machine.toml の [nozzle_cap] に保存される）</li>
+  </ol>
+</section>
+<section class="status-card">
+  <h3>記録位置</h3>
+  <div id="nc-current" data-testid="nozzle-cap-current">
+    {%- if nozzle_cap is not none -%}
+    X {{ "%.3f" | format(nozzle_cap.x) }} / Y {{ "%.3f" | format(nozzle_cap.y) }} / Z {{ "%.3f" | format(nozzle_cap.z) }}
+    {%- else -%}
+    未記録
+    {%- endif -%}
+  </div>
+  <button id="nc-record" data-testid="nozzle-cap-record">現在位置を記録</button>
+</section>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/nozzle_cap.js') }}"></script>
+{% endblock %}

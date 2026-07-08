@@ -1,3 +1,5 @@
+machine_type = "paste" # マシン種別: paste / pnp
+
 [klipper]
 host = "localhost"
 port = 7125

@@ -19,6 +19,7 @@ from pcbasm.hal import (
     PasteDispenser,
     XYZStage,
 )
+from pcbasm.parking import park_or_present
 from pcbasm.pasting import HeightPlaneMeasurer, PasteApplicator, ProbeExecutor
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl import BoardCalibrationResult, setup_board_calibration
@@ -30,7 +31,7 @@ class PasteSession:
     """マシン初期化〜Board 計測〜塗布用 HAL の配線をまとめた実行セッション.
 
     ``PasteSession.setup(...)`` で構築し、コンテキストマネージャとして使う
-    （終了時に PRESENT マクロを実行し、無ければ M84 を送る）。
+    （終了時にノズルキャップへ駐機し、できなければ PRESENT / M84 に退避する）。
     """
 
     machine: Machine
@@ -144,4 +145,4 @@ class PasteSession:
         return self
 
     def __exit__(self, *args: object) -> None:
-        self.klipper.send_present_or_relax()
+        park_or_present(self.klipper, self.machine)

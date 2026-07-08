@@ -727,6 +727,37 @@ class TestPresentOnTermination:
         assert "PRESENT" in log_text
         assert "M84" in log_text
 
+    def test_recorded_cap_failure_logs_park_message_without_present(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+        configs_root: Path,
+    ):
+        """キャップ記録済み（paste）はキャップ駐機経路になり、失敗ログは退避文言のみ.
+
+        nozzle-cap-parking 計画書「呼び出し 3 箇所の差し替え」節: catch-all 文言は
+        「タスク終了時の退避に失敗: {exc}」で "PRESENT" / "M84" の語を含めない
+        （フォールバック経路のログ断言との一意性を保つ）。
+        """
+        path = configs_root / "kurousagi" / "machine.toml"
+        path.write_text(
+            path.read_text(encoding="utf-8")
+            + "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
+            encoding="utf-8",
+        )
+        _register(catalog, lambda ctx: None, uses_machine=True)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+        wait_until(lambda: state.busy_owner is None)
+
+        assert record.status == JobStatus.SUCCEEDED
+        log_text = "\n".join(record.log_lines)
+        assert "退避に失敗" in log_text
+        assert "PRESENT" not in log_text
+        assert "M84" not in log_text
+
     def test_no_present_attempt_for_non_machine_job(
         self,
         manager: JobManager,

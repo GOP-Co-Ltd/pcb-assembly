@@ -19,6 +19,7 @@ Moonraker のモックは使わない（skill `testing-strategy`）。
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -145,3 +146,42 @@ class TestHandleMachineCommand:
 
         assert record.status == JobStatus.FAILED
         assert results == []
+
+    def test_move_to_cap_without_recorded_cap_logs_and_returns_true(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        """キャップ未記録なら move_to_cap は移動せず log のみ（True）.
+
+        nozzle-cap-parking 計画書「WebUI」節: ジョブ中 WS ミラー。未対応だと 「未知コマンド」で UX
+        が破綻するため、未記録でも処理済み（True）にする。
+        """
+        record, results = _run_handler_job(
+            manager, catalog, wait_until, [{"type": "move_to_cap"}], focus_z=None
+        )
+
+        assert record.status == JobStatus.SUCCEEDED  # 送信しないので不通でも成功
+        assert results == [True]
+        assert "キャップ" in "\n".join(record.log_lines)
+
+    def test_move_to_cap_with_recorded_cap_send_failure_propagates_to_job_failed(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+        configs_root: Path,
+    ):
+        """キャップ記録済みは移動を送信し、Klipper 不通の例外は伝播 → FAILED."""
+        path = configs_root / "kurousagi" / "machine.toml"
+        path.write_text(
+            path.read_text(encoding="utf-8")
+            + "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
+            encoding="utf-8",
+        )
+
+        record, results = _run_handler_job(
+            manager, catalog, wait_until, [{"type": "move_to_cap"}], focus_z=None
+        )
+
+        assert record.status == JobStatus.FAILED
+        assert record.error  # 接続エラーが error に載る
+        assert results == []  # True を返す前に送信例外で中断

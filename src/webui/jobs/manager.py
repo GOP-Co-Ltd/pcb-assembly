@@ -18,6 +18,7 @@ from typing import Any, override
 
 from pcbasm.hal import FrameHub, Klipper
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
+from pcbasm.parking import park_or_present
 from pcbasm.vision import Image
 from webui.board_settings import BoardSettingsStore
 from webui.jobs.catalog import JobCatalog, JobDefinition
@@ -654,9 +655,9 @@ class JobManager:
                 for line in traceback.format_exc().splitlines():
                     runtime.log(line)
                 record.finish(JobStatus.FAILED, error=str(exc) or type(exc).__name__)
-            # 装置を動かすジョブは終了時に best-effort で基板を差し出す
+            # 装置を動かすジョブは終了時に best-effort で退避する
             if definition.uses_machine:
-                self._present_machine(runtime, context)
+                self._park_machine(runtime, context)
             # 終端ステータス確定 → job_status 発行 → ロック解放の順を守る
             runtime.publish_status()
         finally:
@@ -664,8 +665,8 @@ class JobManager:
             logger.setLevel(previous_level)
             self._state.release_machine()
 
-    def _present_machine(self, runtime: _JobRuntime, context: JobContext) -> None:
-        """ジョブ終了時にPRESENT、無ければM84を送る（失敗はlogのみ）。"""
+    def _park_machine(self, runtime: _JobRuntime, context: JobContext) -> None:
+        """ジョブ終了時にノズルキャップ駐機（フォールバックは PRESENT / M84）を行う（失敗はlogのみ）。"""
         klipper_config = context.machine.klipper
         try:
             klipper = Klipper(
@@ -673,9 +674,11 @@ class JobManager:
                 port=klipper_config.port,
                 timeout=PRESENT_TIMEOUT,
             )
-            klipper.send_present_or_relax(warn=runtime.log, timeout=PRESENT_TIMEOUT)
+            park_or_present(
+                klipper, context.machine, warn=runtime.log, timeout=PRESENT_TIMEOUT
+            )
         except Exception as exc:
-            runtime.log(f"PRESENT / relax (M84) 送信失敗: {exc}")
+            runtime.log(f"タスク終了時の退避に失敗: {exc}")
 
     def _pcb_path(self) -> Path | None:
         selected = self._state.selected_pcb
