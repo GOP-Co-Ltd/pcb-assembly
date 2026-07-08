@@ -36,6 +36,8 @@ Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / s
 - pnp はプレースホルダのみ（サイドバー空 + 「機能を選択」）
 """
 
+from pathlib import Path
+
 import attrs
 import pytest
 from fastapi.testclient import TestClient
@@ -548,6 +550,66 @@ class TestProbeGuidePage:
     def test_probe_gnd_down_adjust_is_removed(self, client: TestClient):
         assert "probe_gnd_down_adjust" not in client.get("/pasting").text
         assert client.get("/pasting/probe_gnd_down_adjust").status_code == 404
+
+
+class TestNozzleCapPage:
+    """ノズルキャップ位置の設定ページ（nozzle-cap-parking 計画書「WebUI」節）.
+
+    ジョブではない静的な設定ページ（非ジョブテンプレート）。現在値が未記録 （repo fixture に [nozzle_cap]
+    なし）のときは「未記録」を表示する。
+    """
+
+    def test_nozzle_cap_listed_in_pasting_sidebar(self, client: TestClient):
+        text = client.get("/pasting").text
+
+        assert "nozzle_cap" in text
+        assert "ノズルキャップ位置の設定" in text
+
+    def test_page_renders_record_button_without_job_console(self, client: TestClient):
+        response = client.get("/pasting/nozzle_cap")
+
+        assert response.status_code == 200
+        text = response.text
+        assert "job-console" not in text
+        assert "job-form" not in text
+        assert "nozzle_cap.js" in text
+        assert "記録" in text
+
+    def test_unrecorded_cap_shows_placeholder(self, client: TestClient):
+        text = client.get("/pasting/nozzle_cap").text
+
+        assert "未記録" in text
+
+
+class TestMachineControlCapButton:
+    """マシン操作パネルの「キャップ位置に移動」ボタン（paste マシン限定表示）.
+
+    nozzle-cap-parking 計画書「WebUI」節: machine_control.html は machine_type
+    == "paste" のときのみ #mc-move-to-cap を出す。machine_type が読めない config でも
+    ページは 500 にならずボタンを隠す（state.machine_type() は broad except → None）。
+    """
+
+    def test_paste_machine_renders_move_to_cap_button(self, client: TestClient):
+        response = client.get("/posctrl")
+
+        assert response.status_code == 200
+        assert "mc-move-to-cap" in response.text
+
+    def test_missing_machine_type_hides_button_without_error(
+        self, client: TestClient, configs_root: Path
+    ):
+        path = configs_root / "kurousagi" / "machine.toml"
+        lines = [
+            line
+            for line in path.read_text(encoding="utf-8").splitlines(keepends=True)
+            if not line.startswith("machine_type")
+        ]
+        path.write_text("".join(lines), encoding="utf-8")
+
+        response = client.get("/posctrl")
+
+        assert response.status_code == 200
+        assert "mc-move-to-cap" not in response.text
 
 
 class TestPasteSolderPadEditor:

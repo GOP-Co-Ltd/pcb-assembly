@@ -116,6 +116,10 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec(
         "reference_point.offsets.bottom_right", "右下 [x, y]", "float_pair", "mm"
     ),
+    # [nozzle_cap] — タスク終了時の駐機先（マシン座標）
+    FieldSpec("nozzle_cap.x", "キャップ位置 X", "float", "mm"),
+    FieldSpec("nozzle_cap.y", "キャップ位置 Y", "float", "mm"),
+    FieldSpec("nozzle_cap.z", "キャップ位置 Z", "float", "mm"),
     # [camera]
     FieldSpec("camera.calibration_file", "キャリブレーションファイル", "str"),
     FieldSpec("camera.device_id", "デバイスID", "int"),

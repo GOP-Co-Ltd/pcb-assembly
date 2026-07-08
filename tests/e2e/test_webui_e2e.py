@@ -337,6 +337,27 @@ class TestAirPumpToggleOverRealHttp:
         assert "air_pump_enabled = false" in machine_toml
 
 
+class TestNozzleCapOverRealHttp:
+    """ノズルキャップ位置設定の実 HTTP 経路（nozzle-cap-parking 計画書「API 契約」節）."""
+
+    def test_machine_settings_fields_include_nozzle_cap(self, live_server: LiveServer):
+        response = httpx.get(
+            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
+        )
+
+        assert response.status_code == 200
+        keys = {field["key"] for field in response.json()["fields"]}
+        assert "nozzle_cap.x" in keys
+
+    def test_nozzle_cap_page_renders_record_button(self, live_server: LiveServer):
+        page = httpx.get(
+            f"{live_server.base_url}/pasting/nozzle_cap", timeout=_HTTP_TIMEOUT
+        )
+
+        assert page.status_code == 200
+        assert "記録" in page.text
+
+
 class _PadTableHeaderCounter(HTMLParser):
     """Id="pad-table" の thead 内 <th> 個数を数える stdlib パーサ.
 

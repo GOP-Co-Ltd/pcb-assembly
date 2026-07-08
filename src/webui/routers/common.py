@@ -147,6 +147,7 @@ SECTION_LABELS: dict[str, str] = {
     "probe": "プローブ",
     "reference_point": "基準点",
     "reference_point.offsets": "基準点 / コーナーオフセット",
+    "nozzle_cap": "ノズルキャップ",
     "camera": "カメラ",
     "camera.crop": "カメラ / クロップ",
 }

@@ -37,6 +37,9 @@
       <button id="mc-focus-z" {% if focus_z is none %}disabled{% endif %}>
         フォーカスZへ{% if focus_z is not none %} ({{ "%.3f" | format(focus_z) }}){% endif %}
       </button>
+      {% if machine_type == "paste" %}
+      <button id="mc-move-to-cap" title="ノズルキャップ位置に移動（Z0 → XY → Z）">キャップ位置へ</button>
+      {% endif %}
     </div>
   </div>
 </aside>

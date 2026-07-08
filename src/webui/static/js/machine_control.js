@@ -207,6 +207,14 @@
     sendControl({ action: "focus_z" });
   });
 
+  // paste マシン以外ではテンプレート側でボタンを出さない（null ガード）
+  const moveToCapButton = document.getElementById("mc-move-to-cap");
+  if (moveToCapButton) {
+    moveToCapButton.addEventListener("click", () => {
+      sendControl({ action: "move_to_cap" });
+    });
+  }
+
   // ---- サイドバーの開閉とポーリング ----
 
   let timer = null;

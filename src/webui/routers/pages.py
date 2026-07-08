@@ -42,6 +42,7 @@ TABS: dict[str, tuple[str, ...]] = {
         "generate_rect_pcb",
         "toolhead_offset",
         "probe_guide",
+        "nozzle_cap",
     ),
     "pnp": (),
     "posctrl": (
@@ -68,6 +69,7 @@ TAB_LABELS: dict[str, str] = {
 FEATURE_LABELS: dict[str, str] = {
     "klipper_status": "Klipper ステータス",
     "probe_guide": "ロードセルプローブ ガイド",
+    "nozzle_cap": "ノズルキャップ位置の設定",
     "camera_preview": "カメラプレビュー",
     "copper_detection": "銅箔検出調整",
 }
@@ -93,6 +95,7 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("pasting", "generate_rect_pcb"): "pasting/job.html",
     ("pasting", "toolhead_offset"): "pasting/job.html",
     ("pasting", "probe_guide"): "pasting/probe_guide.html",
+    ("pasting", "nozzle_cap"): "pasting/nozzle_cap.html",
     ("posctrl", "camera_preview"): "posctrl/camera_preview.html",
     ("posctrl", "copper_detection"): "posctrl/copper_detection.html",
     ("posctrl", "camera_calibration"): "posctrl/job.html",
@@ -238,6 +241,7 @@ def _base_context(
         "mainsail_url": settings.mainsail_url
         or f"http://{request.url.hostname or 'localhost'}",
         "focus_z": state.focus_z(),
+        "machine_type": state.machine_type(),
         "active_tab": None,
         "active_feature": None,
     }
@@ -315,6 +319,11 @@ def _copper_detection_context(state: AppState, store: ConfigStore) -> dict[str, 
     }
 
 
+def _nozzle_cap_context(state: AppState, store: ConfigStore) -> dict[str, Any]:
+    """Nozzle_cap ページ専用コンテキスト（記録済みキャップ位置の現在値）."""
+    return {"nozzle_cap": state.machine().nozzle_cap}
+
+
 # feature slug → ジョブページ専用コンテキスト（param_specs 依存）
 _JOB_FEATURE_CONTEXT: dict[
     str, Callable[[AppState, tuple[ParamSpec, ...]], dict[str, Any]]
@@ -327,6 +336,7 @@ _JOB_FEATURE_CONTEXT: dict[
 _FEATURE_CONTEXT: dict[str, Callable[[AppState, ConfigStore], dict[str, Any]]] = {
     "paste_solder": _paste_solder_context,
     "copper_detection": _copper_detection_context,
+    "nozzle_cap": _nozzle_cap_context,
 }
 
 

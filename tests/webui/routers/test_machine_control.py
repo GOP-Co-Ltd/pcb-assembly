@@ -84,6 +84,34 @@ class TestGcodeAction:
         assert response.json()["connected"] is True
 
 
+class TestMoveToCap:
+    """Action="move_to_cap"（nozzle-cap-parking 計画書「API 契約」節）.
+
+    キャップ未記録は 400。記録済みなら G-code 送信まで到達し、test-fixture の Klipper（port 7126
+    非リッスン）で 502 になる = バリデーション通過の証明。
+    """
+
+    def test_unrecorded_cap_returns_400(self, client: TestClient):
+        response = client.post("/api/machine-control", json={"action": "move_to_cap"})
+
+        assert response.status_code == 400
+        assert "ノズルキャップ" in response.text
+
+    def test_recorded_cap_passes_validation_and_returns_502(
+        self, client: TestClient, configs_root: Path
+    ):
+        path = configs_root / "kurousagi" / "machine.toml"
+        path.write_text(
+            path.read_text(encoding="utf-8")
+            + "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
+            encoding="utf-8",
+        )
+
+        response = client.post("/api/machine-control", json={"action": "move_to_cap"})
+
+        assert response.status_code == 502
+
+
 class TestMachineControlExclusion:
     """ジョブ共有ロックとの排他."""
 

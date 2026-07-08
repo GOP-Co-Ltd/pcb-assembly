@@ -1,4 +1,4 @@
-"""マシン操作パネル（homing / ジョグ / 絶対移動 / relax / フォーカスZ）の API."""
+"""マシン操作パネル（homing / ジョグ / 絶対移動 / relax / フォーカスZ / キャップ移動）の API."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api")
 
 
 class MachineControlRequest(BaseModel):
-    action: Literal["home", "jog", "move", "relax", "focus_z", "gcode"]
+    action: Literal["home", "jog", "move", "relax", "focus_z", "gcode", "move_to_cap"]
     axes: list[Literal["x", "y", "z"]] | None = None
     axis: Literal["x", "y", "z"] | None = None
     distance: float | None = None
@@ -52,7 +52,8 @@ def _build_gcode(
     """操作リクエストから送信する G-code を構築する.
 
     Raises:
-        ValueError: パラメータ不足・limits 超過・フォーカスZ未設定の場合
+        ValueError: パラメータ不足・limits 超過・フォーカスZ未設定・
+            キャップ位置未記録の場合
     """
     match body.action:
         case "home":
@@ -82,4 +83,9 @@ def _build_gcode(
                     "フォーカスZが取得できません（カメラキャリブレーション未設定）"
                 )
             commands = stage.move(z=focus_z)
+        case "move_to_cap":
+            cap = state.machine().nozzle_cap
+            if cap is None:
+                raise ValueError("ノズルキャップ位置が未記録です")
+            commands = gcode.move_to_cap(cap.x, cap.y, cap.z)
     return commands + gcode.wait_for_done()
