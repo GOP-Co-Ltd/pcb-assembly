@@ -32,14 +32,18 @@ _STARTUP_TIMEOUT = 10.0
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Tests/e2e 配下の全テストへ自動で e2e マーカーを付与する.
+    """Tests/e2e 配下の全テストへ自動で e2e / browser マーカーを付与する.
 
     個々のテストに付け忘れても `-m e2e` / `-m "not e2e"` の対象になるようにする。
+    実ブラウザ（browser_page）を使うテストには browser も付け、 `-m "e2e and not browser"`
+    での切り分けを可能にする。
     """
     e2e_dir = Path(__file__).parent
     for item in items:
         if item.path.is_relative_to(e2e_dir):
             item.add_marker(pytest.mark.e2e)
+            if "browser_page" in getattr(item, "fixturenames", ()):
+                item.add_marker(pytest.mark.browser)
 
 
 @attrs.frozen
@@ -111,12 +115,13 @@ def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
         thread.join(timeout=_STARTUP_TIMEOUT)
 
 
-@pytest.fixture
-def browser_page():
-    """Playwright sync API の実 Chromium page.
+@pytest.fixture(scope="session")
+def _browser():
+    """Session 共有の実 Chromium（起動はセッションで 1 回）.
 
     pytest-playwright が未導入の環境では collection を壊さず skip する。Chromium
-    はこの環境にある system binary を優先し、無ければ Playwright 既定に任せる。
+    はこの環境にある system binary を優先し、無ければ Playwright 既定に任せる。 テスト間の分離は
+    browser_page 側の browser context で担保する。
     """
     sync_api = pytest.importorskip("playwright.sync_api")
     with sync_api.sync_playwright() as playwright:
@@ -124,8 +129,21 @@ def browser_page():
         if Path("/usr/bin/chromium").exists():
             launch_kwargs["executable_path"] = "/usr/bin/chromium"
         browser = playwright.chromium.launch(**launch_kwargs)
-        page = browser.new_page()
         try:
-            yield page
+            yield browser
         finally:
             browser.close()
+
+
+@pytest.fixture
+def browser_page(_browser):
+    """Playwright sync API の実 Chromium page.
+
+    テストごとに新しい browser context（cookie / localStorage / viewport が
+    独立）を作り、teardown で context ごと閉じる。
+    """
+    context = _browser.new_context()
+    try:
+        yield context.new_page()
+    finally:
+        context.close()

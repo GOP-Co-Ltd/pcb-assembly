@@ -13,8 +13,6 @@
 - カメラ構築失敗は伝播する（ルーター層が 503 化）
 """
 
-import time
-
 import attrs
 import numpy as np
 import pytest
@@ -174,11 +172,25 @@ class TestOverlays:
         assert _count_dominant(frame, channel=2) > 100
 
 
+class _ManualClock:
+    """テストが明示的に進める単調クロック（実時間 sleep への依存を排除する）."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, dt: float) -> None:
+        self.now += dt
+
+
 class TestOverrideSlot:
     """ジョブ用オーバーライドスロット（Phase 3 の ctx.frame の受け口）."""
 
     def test_override_frame_takes_priority(self, state: AppState):
-        service = PreviewService(state, override_ttl=0.2)
+        clock = _ManualClock()
+        service = PreviewService(state, override_ttl=0.2, clock=clock)
         magenta = Image(np.full((720, 1280, 3), (255, 0, 255), dtype=np.uint8))
         stream = service.mjpeg_stream("none")
         try:
@@ -193,13 +205,14 @@ class TestOverrideSlot:
         assert frame[..., 2].mean() > 200  # R
 
     def test_override_expires_after_ttl(self, state: AppState):
-        service = PreviewService(state, override_ttl=0.2)
+        clock = _ManualClock()
+        service = PreviewService(state, override_ttl=0.2, clock=clock)
         magenta = Image(np.full((720, 1280, 3), (255, 0, 255), dtype=np.uint8))
         stream = service.mjpeg_stream("none")
         try:
             next(stream)
             service.submit_override(magenta)
-            time.sleep(0.25)
+            clock.advance(0.21)
             frame = _decoded_frame(next(stream))
         finally:
             stream.close()
@@ -208,13 +221,14 @@ class TestOverrideSlot:
         assert frame[..., 1].mean() > 100
 
     def test_persistent_override_stays_until_cleared(self, state: AppState):
-        service = PreviewService(state, override_ttl=0.05)
+        clock = _ManualClock()
+        service = PreviewService(state, override_ttl=0.05, clock=clock)
         magenta = Image(np.full((720, 1280, 3), (255, 0, 255), dtype=np.uint8))
         stream = service.mjpeg_stream("none")
         try:
             next(stream)
             service.submit_override(magenta, persist=True)
-            time.sleep(0.08)
+            clock.advance(1.0)  # TTL を大きく跨いでも persist が優先される
             persisted = _decoded_frame(next(stream))
 
             service.clear_override()
