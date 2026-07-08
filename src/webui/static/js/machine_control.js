@@ -102,11 +102,12 @@
     { dist: 10, r0: 74, r1: 98 },
   ];
   // 扇形の方向: 中心角（SVG 座標系。y は下向きが正なので上= -90°）
+  // カメラ座標系に合わせ、画面下方向を Y+ とする（上=Y-、下=Y+）
   const SECTORS = [
-    { axis: "x", sign: 1, mid: 0 },
-    { axis: "y", sign: -1, mid: 90 },
-    { axis: "x", sign: -1, mid: 180 },
-    { axis: "y", sign: 1, mid: 270 },
+    { axis: "x", sign: 1, mid: 0 },    // 右 = X+
+    { axis: "y", sign: 1, mid: 90 },   // 下 = Y+（カメラ座標系: 下が正）
+    { axis: "x", sign: -1, mid: 180 }, // 左 = X-
+    { axis: "y", sign: -1, mid: 270 }, // 上 = Y-
   ];
   const HALF_SPAN = 40; // 扇形の片側角度（隙間 10°）
 
