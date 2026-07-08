@@ -9,7 +9,6 @@
   resolved 反映、clear → 継承復帰）
 - PATCH pads 一括
 - 未知キー / 未知 node → 400
-- POST reset で override 破棄
 
 実 PCB（led_blinker）を読む経路は ``copper_pcb_path`` fixture を使う
 （pcbnew 依存。conftest が pcb_browse_root へコピー済み）。設定書き込み先は
@@ -713,23 +712,6 @@ class TestPatchPads:
         assert not (webui_settings.data_dir / "board_settings").exists()
 
 
-class TestReset:
-    """POST /api/pasting/pad-config/reset."""
-
-    def test_reset_discards_overrides(self, selected_client: TestClient):
-        selected_client.patch(
-            "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
-        )
-
-        response = selected_client.post("/api/pasting/pad-config/reset")
-
-        assert response.status_code == 200, response.text
-        config = response.json()
-        assert config["overrides"] == {}
-        assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.0
-
-
 class TestExportImport:
     """GET export / POST import."""
 
@@ -761,7 +743,13 @@ class TestExportImport:
             json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
         )
         doc = selected_client.get("/api/pasting/pad-config/export").json()
-        selected_client.post("/api/pasting/pad-config/reset")
+        # export 後に override を公開 API で消し、import が復元することを見る
+        cleared = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "clear": ["prime_extra_delay"]},
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert "L2:U1" not in _get_config(selected_client)["overrides"]
 
         response = selected_client.post(
             "/api/pasting/pad-config/import", json={"document": doc}
@@ -783,81 +771,141 @@ class TestExportImport:
         assert response.status_code == 400
 
 
-class TestLoadingCalibration:
-    """GET /api/pasting/loading/calibration（質量キャリブレーション算出）.
+class TestPadConfigRoute:
+    """POST /api/pasting/pad-config/route（選択基板の有効 pad を要求 layer で順路化）."""
 
-    density はサーバが現在マシンの ``solder_paste_density`` を使う
-    （test-fixture machine.toml では 3.78）。非正入力は該当値が ``null``
-    （volume_ul は mass>0 のとき出る）。
+    def _post_route(self, client: TestClient, layer: str) -> dict:
+        response = client.post("/api/pasting/pad-config/route", json={"layer": layer})
+        assert response.status_code == 200, response.text
+        return response.json()
 
-    PCB 選択は不要（machine 設定だけを参照する）なので素の ``client`` を使う。
-    """
-
-    def test_all_positive_inputs_return_full_result(self, client: TestClient):
-        # mass=10, rotations=5, density=3.78 → rotations_per_ul = 1.89,
-        # volume_ul = 10/3.78, rate/accel = 0.5/1.89（サーバ側で小数第 6 位に丸め済み）
-        response = client.get(
-            "/api/pasting/loading/calibration",
-            params={"mass_mg": 10, "rotations": 5, "rate": 0.5, "accel": 0.5},
+    def test_route_excludes_disabled_pad(self, selected_client: TestClient):
+        config = _get_config(selected_client)
+        target = next(
+            pad for pad in config["pads"] if pad["layer"] == "Top" and pad["enabled"]
         )
 
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert body["volume_ul"] == round(10.0 / 3.78, 6)
-        assert body["rotations_per_ul"] == round(1.89, 6)
-        assert body["max_dispense_rate"] == round(0.5 / 1.89, 6)
-        assert body["dispense_accel"] == round(0.5 / 1.89, 6)
+        patch = selected_client.patch(
+            "/api/pasting/pad-config/pads",
+            json={"ids": [target["id"]], "enabled": False},
+        )
+        assert patch.status_code == 200, patch.text
 
-    def test_zero_rotations_nulls_rotation_derived_values(self, client: TestClient):
-        # rotations=0 → rotations_per_ul を作れないので rpu / rate / accel は null。
-        # mass>0 なので volume_ul は出る。
-        response = client.get(
-            "/api/pasting/loading/calibration",
-            params={"mass_mg": 10, "rotations": 0, "rate": 0.5, "accel": 0.5},
+        route = self._post_route(selected_client, "Top")
+        routed_ids = {pad["id"] for pad in route["pads"]}
+        expected_ids = {
+            pad["id"]
+            for pad in config["pads"]
+            if pad["layer"] == "Top" and pad["enabled"] and pad["id"] != target["id"]
+        }
+
+        assert target["id"] not in routed_ids
+        assert routed_ids == expected_ids
+
+    def test_route_includes_only_requested_layer(self, selected_client: TestClient):
+        config = _get_config(selected_client)
+        expected_ids = {
+            pad["id"]
+            for pad in config["pads"]
+            if pad["layer"] == "Bottom" and pad["enabled"]
+        }
+
+        route = self._post_route(selected_client, "Bottom")
+
+        assert route["layer"] == "Bottom"
+        assert {pad["id"] for pad in route["pads"]} == expected_ids
+        assert [pad["order"] for pad in route["pads"]] == list(
+            range(1, len(route["pads"]) + 1)
+        )
+        assert all(len(pad["center"]) == 2 for pad in route["pads"])
+
+    def test_route_without_selected_pcb_returns_409(self, client: TestClient):
+        response = client.post("/api/pasting/pad-config/route", json={"layer": "Top"})
+
+        assert response.status_code == 409
+
+
+class TestPadConfigFillPath:
+    """POST /api/pasting/pad-config/fill-path（解決済み設定で有効 pad の塗布パス）."""
+
+    def _post_fill_path(self, client: TestClient, layer: str) -> dict:
+        response = client.post(
+            "/api/pasting/pad-config/fill-path", json={"layer": layer}
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_fill_path_includes_only_enabled_requested_layer(
+        self, selected_client: TestClient
+    ):
+        config = _get_config(selected_client)
+        expected_ids = {
+            pad["id"]
+            for pad in config["pads"]
+            if pad["layer"] == "Top" and pad["enabled"]
+        }
+
+        fill_path = self._post_fill_path(selected_client, "Top")
+
+        assert fill_path["layer"] == "Top"
+        assert fill_path["nozzle_diameter"] == pytest.approx(0.34)
+        assert {pad["id"] for pad in fill_path["pads"]} == expected_ids
+        assert fill_path["pads"]
+        for pad in fill_path["pads"]:
+            assert pad["dispense_mode"] in {"dot", "line", "area"}
+            assert pad["path_count"] == len(pad["paths"])
+            assert pad["point_count"] == sum(len(path) for path in pad["paths"])
+            assert all(len(point) == 2 for path in pad["paths"] for point in path)
+
+    def test_fill_path_excludes_disabled_pad(self, selected_client: TestClient):
+        config = _get_config(selected_client)
+        target = next(
+            pad for pad in config["pads"] if pad["layer"] == "Top" and pad["enabled"]
         )
 
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert body["volume_ul"] == pytest.approx(10.0 / 3.78)
-        assert body["rotations_per_ul"] is None
-        assert body["max_dispense_rate"] is None
-        assert body["dispense_accel"] is None
+        patch = selected_client.patch(
+            "/api/pasting/pad-config/pads",
+            json={"ids": [target["id"]], "enabled": False},
+        )
+        assert patch.status_code == 200, patch.text
 
-    def test_zero_mass_nulls_everything(self, client: TestClient):
-        # mass=0 → volume_ul も作れないので 4 値すべて null。
-        response = client.get(
-            "/api/pasting/loading/calibration",
-            params={"mass_mg": 0, "rotations": 5, "rate": 0.5, "accel": 0.5},
+        fill_path = self._post_fill_path(selected_client, "Top")
+
+        assert target["id"] not in {pad["id"] for pad in fill_path["pads"]}
+
+    def test_fill_path_uses_resolved_overrides(self, selected_client: TestClient):
+        selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L0", "values": {"dispense_mode": "area"}},
+        )
+        before = self._post_fill_path(selected_client, "Top")
+
+        patch = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L0", "values": {"boundary_margin": 0.3}},
+        )
+        assert patch.status_code == 200, patch.text
+
+        after = self._post_fill_path(selected_client, "Top")
+
+        assert after["pads"] != before["pads"]
+
+    def test_fill_path_uses_resolved_dispense_mode(self, selected_client: TestClient):
+        patch = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L0", "values": {"dispense_mode": "dot"}},
+        )
+        assert patch.status_code == 200, patch.text
+
+        fill_path = self._post_fill_path(selected_client, "Top")
+
+        assert fill_path["pads"]
+        assert {pad["dispense_mode"] for pad in fill_path["pads"]} == {"dot"}
+        assert all(pad["point_count"] == pad["path_count"] for pad in fill_path["pads"])
+
+    def test_fill_path_without_selected_pcb_returns_409(self, client: TestClient):
+        response = client.post(
+            "/api/pasting/pad-config/fill-path", json={"layer": "Top"}
         )
 
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert body["volume_ul"] is None
-        assert body["rotations_per_ul"] is None
-        assert body["max_dispense_rate"] is None
-        assert body["dispense_accel"] is None
-
-    def test_zero_rate_nulls_only_dispense_rate(self, client: TestClient):
-        # rate=0（mass/rotations/accel 正）→ max_dispense_rate のみ null。他は値あり。
-        response = client.get(
-            "/api/pasting/loading/calibration",
-            params={"mass_mg": 10, "rotations": 5, "rate": 0, "accel": 0.5},
-        )
-
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert body["volume_ul"] == round(10.0 / 3.78, 6)
-        assert body["rotations_per_ul"] == round(1.89, 6)
-        assert body["max_dispense_rate"] is None
-        assert body["dispense_accel"] == round(0.5 / 1.89, 6)
-
-    def test_all_params_omitted_returns_all_null(self, client: TestClient):
-        # クエリ省略時は各値 0.0 扱い → 4 値すべて null。
-        response = client.get("/api/pasting/loading/calibration")
-
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert body["volume_ul"] is None
-        assert body["rotations_per_ul"] is None
-        assert body["max_dispense_rate"] is None
-        assert body["dispense_accel"] is None
+        assert response.status_code == 409

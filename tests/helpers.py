@@ -1,5 +1,6 @@
 import subprocess
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import override
 
@@ -14,6 +15,24 @@ PROJECT_ROOT = Path(__file__).parent.parent
 TESTING_DATA_DIR = PROJECT_ROOT / "data" / "testing"
 
 mark_hardware = pytest.mark.hardware
+
+
+def wait_until(
+    predicate: Callable[[], bool],
+    *,
+    timeout: float = 10.0,
+    interval: float = 0.02,
+) -> None:
+    """条件が成立するまでポーリングする（タイミングのアサートはしない）.
+
+    成立しないまま timeout を超えたら pytest.fail する。sleep 固定値依存の アサートを避けるための共有ポーラ。
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(interval)
+    pytest.fail(f"{timeout}s 以内に条件が成立しませんでした")
 
 
 def _usb_camera_available() -> bool:

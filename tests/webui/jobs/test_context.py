@@ -27,37 +27,14 @@ from pcbasm.config import Machine
 from pcbasm.vision import Image
 from tests.webui.conftest import decode_jpeg, jpeg_payload
 from webui.board_settings import BoardSettingsStore
-from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
+from webui.jobs.catalog import JobCatalog, ParamSpec
 from webui.jobs.context import JobContext, JobResult
 from webui.jobs.manager import JobManager, JobStatus
 from webui.preview import PreviewService
 from webui.settings import Settings
 from webui.state import AppState
 
-from .conftest import WaitUntil
-
-
-def _register(
-    catalog: JobCatalog,
-    run,
-    *,
-    name: str = "synthetic",
-    params: tuple[ParamSpec, ...] = (),
-    requires_pcb: bool = False,
-    accepts_commands: bool = False,
-) -> None:
-    catalog.register(
-        JobDefinition(
-            name=name,
-            label="合成ジョブ",
-            tab="dev",
-            run=run,
-            params=params,
-            requires_pcb=requires_pcb,
-            uses_machine=False,
-            accepts_commands=accepts_commands,
-        )
-    )
+from .conftest import WaitUntil, register_synthetic as _register
 
 
 class TestContextProperties:

@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
+from webui.jobs.catalog import JobCatalog, ParamSpec
 from webui.jobs.context import ApplyPayload, JobContext, JobResult, PromptSpec
 from webui.jobs.manager import (
     JobManager,
@@ -37,47 +37,12 @@ from webui.jobs.manager import (
 )
 from webui.state import AppState, BusyError
 
-from .conftest import ManagerFactory, WaitUntil
-
-
-def _register(
-    catalog: JobCatalog,
-    run,
-    *,
-    name: str = "synthetic",
-    params: tuple[ParamSpec, ...] = (),
-    requires_pcb: bool = False,
-    uses_machine: bool = False,
-    accepts_commands: bool = False,
-    persisted_params: tuple[str, ...] = (),
-) -> None:
-    catalog.register(
-        JobDefinition(
-            name=name,
-            label="合成ジョブ",
-            tab="dev",
-            run=run,
-            params=params,
-            requires_pcb=requires_pcb,
-            uses_machine=uses_machine,
-            accepts_commands=accepts_commands,
-            persisted_params=persisted_params,
-        )
-    )
-
-
-def _register_gated(
-    catalog: JobCatalog, *, name: str = "gated", accepts_commands: bool = False
-) -> threading.Event:
-    """gate.set() で成功終了し、abort 要求は checkpoint で拾う合成ジョブを登録する."""
-    gate = threading.Event()
-
-    def run(ctx: JobContext) -> None:
-        while not gate.wait(timeout=0.02):
-            ctx.checkpoint()
-
-    _register(catalog, run, name=name, accepts_commands=accepts_commands)
-    return gate
+from .conftest import (
+    ManagerFactory,
+    WaitUntil,
+    register_gated as _register_gated,
+    register_synthetic as _register,
+)
 
 
 def _register_prompting(

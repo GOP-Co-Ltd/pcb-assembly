@@ -35,7 +35,6 @@ from .initial_purge import (
     resolve_initial_purge,
     validate_initial_purge,
 )
-from .loading import interactive_loading
 from .probe import ProbeExecutor
 from .route import PasteRouteStop, plan_paste_route, routed_enabled_pads
 from .settings import (
@@ -99,7 +98,6 @@ __all__ = [
     "build_paste_fill_plan",
     "estimate_mass_flow",
     "find_orphans",
-    "interactive_loading",
     "is_pad_enabled",
     "plan_paste_route",
     "resolve_node_settings",

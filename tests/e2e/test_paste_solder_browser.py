@@ -9,19 +9,20 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
-import time
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from tests.e2e.conftest import LiveServer
-from tests.webui.conftest import COPPER_PCB_FIXTURE
+from tests.e2e.conftest import (
+    LiveServer,
+    get_pad_config as _get_pad_config,
+    select_led_blinker as _select_led_blinker,
+    wait_for_config,
+)
 
 _HTTP_TIMEOUT = 10.0
 _BROWSER_TIMEOUT_MS = 10_000
-_POLL_TIMEOUT = 5.0
 _DESCENDANT_OVERRIDE_MARKER_SELECTOR = ",".join(
     [
         '[data-testid="pad-descendant-override-marker"]',
@@ -66,26 +67,6 @@ def _pad_selector(pad_id: str) -> str:
 
 def _row_selector(node_id: str) -> str:
     return f"{_testid('pad-tree-row')}[data-node-id={_css_string(node_id)}]"
-
-
-def _select_led_blinker(live_server: LiveServer):
-    destination = live_server.settings.pcb_browse_root / "led_blinker"
-    shutil.copytree(COPPER_PCB_FIXTURE.parent, destination)
-    response = httpx.put(
-        f"{live_server.base_url}/api/pcb-file",
-        json={"path": "led_blinker/led_blinker.kicad_pcb"},
-        timeout=_HTTP_TIMEOUT,
-    )
-    assert response.status_code == 200, response.text
-
-
-def _get_pad_config(live_server: LiveServer) -> dict[str, Any]:
-    response = httpx.get(
-        f"{live_server.base_url}/api/pasting/pad-config",
-        timeout=_HTTP_TIMEOUT,
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
 
 
 def _calculate_route(live_server: LiveServer, layer: str = "Top") -> dict[str, Any]:
@@ -248,95 +229,40 @@ def _wait_for_highlighted(page: Any, expected_ids: set[str]):
     assert _highlighted_pad_ids(page) == expected_ids
 
 
-def _wait_for_pad_enabled(live_server: LiveServer, pad_id: str, enabled: bool):
-    deadline = time.monotonic() + _POLL_TIMEOUT
-    while True:
-        config = _get_pad_config(live_server)
-        if _find_pad(config, pad_id)["enabled"] is enabled:
-            return
-        if time.monotonic() > deadline:
-            raise AssertionError(f"{pad_id} enabled が {enabled} に更新されない")
-        time.sleep(0.05)
+def _approx(value: object, expected: float) -> bool:
+    return value is not None and abs(float(value) - expected) < 1e-9  # type: ignore[arg-type]
 
 
-def _wait_for_node_override_field(
-    live_server: LiveServer, node_id: str, field: str, expected: float
-) -> dict[str, Any]:
-    deadline = time.monotonic() + _POLL_TIMEOUT
-    while True:
-        config = _get_pad_config(live_server)
-        value = config["overrides"].get(node_id, {}).get("values", {}).get(field)
-        if value is not None and abs(float(value) - expected) < 1e-9:
-            return config
-        if time.monotonic() > deadline:
-            raise AssertionError(
-                f"{node_id} {field} override が {expected} に更新されない"
-            )
-        time.sleep(0.05)
-
-
-def _wait_for_node_override_value(
+def _wait_for_override(
     live_server: LiveServer, node_id: str, field: str, expected: float | str
 ) -> dict[str, Any]:
-    deadline = time.monotonic() + _POLL_TIMEOUT
-    while True:
-        config = _get_pad_config(live_server)
+    """Node override の 1 field が期待値になるまで待つ（float は誤差許容）."""
+
+    def matches(config: dict[str, Any]) -> bool:
         value = config["overrides"].get(node_id, {}).get("values", {}).get(field)
-        if value == expected:
-            return config
-        if time.monotonic() > deadline:
-            raise AssertionError(
-                f"{node_id} {field} override が {expected!r} に更新されない"
-            )
-        time.sleep(0.05)
+        if isinstance(expected, float):
+            return _approx(value, expected)
+        return value == expected
+
+    return wait_for_config(
+        live_server, matches, f"{node_id} {field} override -> {expected!r}"
+    )
 
 
-def _wait_for_node_enabled_override(
-    live_server: LiveServer, node_id: str, expected: bool
-):
-    deadline = time.monotonic() + _POLL_TIMEOUT
-    while True:
-        config = _get_pad_config(live_server)
-        value = config["overrides"].get(node_id, {}).get("enabled")
-        if value is expected:
-            return
-        if time.monotonic() > deadline:
-            raise AssertionError(
-                f"{node_id} enabled override が {expected} に更新されない"
-            )
-        time.sleep(0.05)
-
-
-def _wait_for_node_resolved_field(
-    live_server: LiveServer, node_id: str, field: str, expected: float
-):
-    deadline = time.monotonic() + _POLL_TIMEOUT
-    while True:
-        config = _get_pad_config(live_server)
-        values = [
-            pad["resolved"][field]
-            for pad in config["pads"]
-            if node_id in pad["node_ids"]
-        ]
-        if values and all(abs(float(value) - expected) < 1e-9 for value in values):
-            return
-        if time.monotonic() > deadline:
-            raise AssertionError(
-                f"{node_id} 配下 pad の {field} が {expected} に解決されない: {values}"
-            )
-        time.sleep(0.05)
+def _wait_for_pad_enabled(live_server: LiveServer, pad_id: str, enabled: bool):
+    wait_for_config(
+        live_server,
+        lambda config: _find_pad(config, pad_id)["enabled"] is enabled,
+        f"{pad_id} enabled -> {enabled}",
+    )
 
 
 def _wait_for_layer_enabled(live_server: LiveServer, layer: str, enabled: bool):
-    deadline = time.monotonic() + _POLL_TIMEOUT
-    while True:
-        config = _get_pad_config(live_server)
+    def matches(config: dict[str, Any]) -> bool:
         layer_pads = [pad for pad in config["pads"] if pad["layer"] == layer]
-        if layer_pads and all(pad["enabled"] is enabled for pad in layer_pads):
-            return
-        if time.monotonic() > deadline:
-            raise AssertionError(f"{layer} pad enabled が {enabled} に揃わない")
-        time.sleep(0.05)
+        return bool(layer_pads) and all(pad["enabled"] is enabled for pad in layer_pads)
+
+    wait_for_config(live_server, matches, f"{layer} pad enabled -> {enabled}")
 
 
 def _wait_for_initial_purge(
@@ -346,27 +272,26 @@ def _wait_for_initial_purge(
     pad_id: str | None = None,
     resolved_pad_id: str | None = None,
 ) -> dict[str, Any]:
-    deadline = time.monotonic() + _POLL_TIMEOUT
-    while True:
-        config = _get_pad_config(live_server)
+    """initial_purge の amount / pad_id / resolved.pad_id が期待値になるまで待つ."""
+
+    def matches(config: dict[str, Any]) -> bool:
         initial = config["initial_purge"]
-        amount_matches = (
-            amount is None or abs(float(initial["initial_purge_ul"]) - amount) < 1e-9
-        )
-        pad_matches = pad_id is None or initial["pad_id"] == pad_id
         resolved = initial["resolved"]
-        resolved_matches = resolved_pad_id is None or (
-            resolved is not None and resolved["pad_id"] == resolved_pad_id
-        )
-        if amount_matches and pad_matches and resolved_matches:
-            return config
-        if time.monotonic() > deadline:
-            raise AssertionError(
-                "initial_purge が期待値に更新されない: "
-                f"amount={initial['initial_purge_ul']!r}, "
-                f"pad_id={initial['pad_id']!r}, resolved={resolved!r}"
+        return (
+            (amount is None or _approx(initial["initial_purge_ul"], amount))
+            and (pad_id is None or initial["pad_id"] == pad_id)
+            and (
+                resolved_pad_id is None
+                or (resolved is not None and resolved["pad_id"] == resolved_pad_id)
             )
-        time.sleep(0.05)
+        )
+
+    return wait_for_config(
+        live_server,
+        matches,
+        f"initial_purge -> amount={amount!r}, pad_id={pad_id!r}, "
+        f"resolved={resolved_pad_id!r}",
+    )
 
 
 def _assert_in_viewport(page: Any, locator: Any):
@@ -577,7 +502,7 @@ class TestPasteSolderBrowserPadInteraction:
         )
 
         mode_select.select_option("line")
-        _wait_for_node_override_value(live_server, "L0", "dispense_mode", "line")
+        _wait_for_override(live_server, "L0", "dispense_mode", "line")
         _open_paste_solder(browser_page, live_server)
         root_row = browser_page.locator(_row_selector("L0"))
         mode_select = _field_select(
@@ -586,7 +511,7 @@ class TestPasteSolderBrowserPadInteraction:
         assert mode_select.input_value(timeout=_BROWSER_TIMEOUT_MS) == "line"
 
         mode_select.select_option("area")
-        _wait_for_node_override_value(live_server, "L0", "dispense_mode", "area")
+        _wait_for_override(live_server, "L0", "dispense_mode", "area")
         _open_paste_solder(browser_page, live_server)
         root_row = browser_page.locator(_row_selector("L0"))
         mode_select = _field_select(
@@ -598,7 +523,7 @@ class TestPasteSolderBrowserPadInteraction:
             root_row, "paste_height", "pad-height-mode-select"
         )
         height_select.select_option("auto")
-        _wait_for_node_override_value(live_server, "L0", "paste_height", "auto")
+        _wait_for_override(live_server, "L0", "paste_height", "auto")
         # サーバー状態のポーリングだけでは patchNode 応答後の renderTable
         # 完了と順序保証がなく、旧 DOM へ操作した直後に再描画で input が
         # hidden な新要素へ差し替わるレースがあった。override マーカーの
@@ -612,7 +537,7 @@ class TestPasteSolderBrowserPadInteraction:
         height_input.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         height_input.fill("0.25")
         height_input.press("Enter")
-        _wait_for_node_override_value(live_server, "L0", "paste_height", 0.25)
+        _wait_for_override(live_server, "L0", "paste_height", 0.25)
 
     def test_tree_row_highlights_pads_by_node_id_membership(
         self, live_server: LiveServer, browser_page
@@ -737,7 +662,7 @@ class TestPasteSolderBrowserPadInteraction:
         boundary_margin = _field_input(root_row, "boundary_margin")
         boundary_margin.fill("0.3")
         boundary_margin.press("Enter")
-        _wait_for_node_override_field(live_server, "L0", "boundary_margin", 0.3)
+        _wait_for_override(live_server, "L0", "boundary_margin", 0.3)
         browser_page.locator(_testid("pad-fill-path-overlay")).wait_for(
             state="detached", timeout=_BROWSER_TIMEOUT_MS
         )
@@ -785,11 +710,14 @@ class TestPasteSolderBrowserPadInteraction:
             timeout=_HTTP_TIMEOUT,
         )
         assert exported.status_code == 200, exported.text
-        reset = httpx.post(
-            f"{live_server.base_url}/api/pasting/pad-config/reset",
+        # export 後に override を公開 API で消し、import が復元することを見る
+        cleared = httpx.patch(
+            f"{live_server.base_url}/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "clear": ["prime_extra_delay"]},
             timeout=_HTTP_TIMEOUT,
         )
-        assert reset.status_code == 200, reset.text
+        assert cleared.status_code == 200, cleared.text
+        assert "L2:U1" not in _get_pad_config(live_server)["overrides"]
 
         import_path = tmp_path / "paste-overrides.json"
         import_path.write_text(json.dumps(exported.json()), encoding="utf-8")
@@ -839,10 +767,16 @@ class TestPasteSolderBrowserOverrideVisibility:
         browser_page.locator(".toast").filter(
             has_text=_DESCENDANT_WARNING_RE
         ).first.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
-        _wait_for_node_override_field(
-            live_server, "L1:SOT-23-6", "prime_extra_delay", 0.77
+        _wait_for_override(live_server, "L1:SOT-23-6", "prime_extra_delay", 0.77)
+        wait_for_config(
+            live_server,
+            lambda config: all(
+                _approx(pad["resolved"]["prime_extra_delay"], 0.33)
+                for pad in config["pads"]
+                if "L2:U1" in pad["node_ids"]
+            ),
+            "L2:U1 配下 pad の prime_extra_delay が 0.33 に解決",
         )
-        _wait_for_node_resolved_field(live_server, "L2:U1", "prime_extra_delay", 0.33)
 
         l2_row = _ensure_row_visible(browser_page, ["L0", "L1:SOT-23-6", "L2:U1"])
         l2_prime_extra_delay_cell = _field_cell(l2_row, "prime_extra_delay")
@@ -881,7 +815,12 @@ class TestPasteSolderBrowserOverrideVisibility:
         _ensure_row_collapsed(browser_page, "L1:SOT-23-6", "L2:U1")
 
         browser_page.locator(_testid("pad-disable-all")).click()
-        _wait_for_node_enabled_override(live_server, target_l4, False)
+        wait_for_config(
+            live_server,
+            lambda config: config["overrides"].get(target_l4, {}).get("enabled")
+            is False,
+            f"{target_l4} enabled override -> False",
+        )
 
         l1_row.locator(_DESCENDANT_OVERRIDE_MARKER_SELECTOR).first.wait_for(
             state="visible", timeout=_BROWSER_TIMEOUT_MS

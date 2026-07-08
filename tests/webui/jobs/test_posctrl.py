@@ -32,13 +32,13 @@ from pcbasm.vision import CalibrationResult, Image
 from tests.helpers import mark_hardware
 from webui.config_store import ConfigStore
 from webui.jobs.catalog import JobCatalog, default_catalog
-from webui.jobs.manager import JobManager, JobRecord, JobStatus
+from webui.jobs.manager import JobManager, JobStatus
 from webui.jobs.posctrl import register_posctrl_jobs
 from webui.preview import PreviewService
 from webui.settings import Settings
 from webui.state import AppState
 
-from .conftest import WaitUntil
+from .conftest import WaitUntil, answer_next_prompt
 
 POSCTRL_JOBS = (
     "reference_point_setup",
@@ -86,24 +86,6 @@ def checkerboard_manager(
     )
     yield manager
     manager.shutdown()
-
-
-def _answer_next_prompt(
-    record: JobRecord,
-    manager: JobManager,
-    wait_until: WaitUntil,
-    answer: object,
-    answered: set[str],
-) -> None:
-    """未応答の prompt を待って answer を返す（応答済み id は answered で管理）."""
-    wait_until(
-        lambda: (pending := record.pending_prompt) is not None
-        and pending[0] not in answered
-    )
-    pending = record.pending_prompt
-    assert pending is not None
-    manager.respond_prompt(pending[0], answer)
-    answered.add(pending[0])
 
 
 class TestCatalog:
@@ -219,7 +201,7 @@ class TestCameraCalibrationJob:
         """
         record = checkerboard_manager.start("camera_calibration", CHECKERBOARD_PARAMS)
         answered: set[str] = set()
-        _answer_next_prompt(record, checkerboard_manager, wait_until, True, answered)
+        answer_next_prompt(record, checkerboard_manager, True, answered)
         wait_until(lambda: record.status.terminal, timeout=30.0)
 
         assert record.status == JobStatus.SUCCEEDED
@@ -253,7 +235,7 @@ class TestCameraCalibrationJob:
         """撮影確認に「いいえ」→ ABORTED（Apply なし）."""
         record = checkerboard_manager.start("camera_calibration", CHECKERBOARD_PARAMS)
         answered: set[str] = set()
-        _answer_next_prompt(record, checkerboard_manager, wait_until, False, answered)
+        answer_next_prompt(record, checkerboard_manager, False, answered)
         wait_until(lambda: record.status.terminal, timeout=30.0)
 
         assert record.status == JobStatus.ABORTED
@@ -269,10 +251,10 @@ class TestCameraCalibrationJob:
         """
         record = manager.start("camera_calibration", CHECKERBOARD_PARAMS)
         answered: set[str] = set()
-        _answer_next_prompt(record, manager, wait_until, True, answered)
+        answer_next_prompt(record, manager, True, answered)
 
         # 検出失敗 → 警告 log → 2 回目の prompt（別 id）が来る
-        _answer_next_prompt(record, manager, wait_until, False, answered)
+        answer_next_prompt(record, manager, False, answered)
         wait_until(lambda: record.status.terminal, timeout=30.0)
 
         assert len(answered) == 2
@@ -330,23 +312,6 @@ class TestMachineJobsWithoutKlipper:
             manager.start(name, {})
 
 
-@pytest.fixture
-def real_state(real_settings: Settings) -> Iterator[AppState]:
-    """実機（実 Moonraker, kurousagi）向け AppState。`@mark_hardware` 専用."""
-    state = AppState(real_settings, ConfigStore(real_settings.configs_root))
-    yield state
-    state.close()
-
-
-@pytest.fixture
-def real_manager(
-    real_state: AppState, real_settings: Settings, catalog: JobCatalog
-) -> Iterator[JobManager]:
-    manager = JobManager(real_state, PreviewService(real_state), catalog, real_settings)
-    yield manager
-    manager.shutdown(timeout=60.0)
-
-
 @mark_hardware
 class TestPosctrlHardware:
     """実機通し（実カメラ + 実 Moonraker、configs/kurousagi）。ユーザー実行.
@@ -401,7 +366,7 @@ class TestPosctrlHardware:
         """実チェッカーボードで z_position が記録される（Z best-effort 成功側）."""
         record = real_manager.start("camera_calibration", {"square_size": 1.5})
         answered: set[str] = set()
-        _answer_next_prompt(record, real_manager, wait_until, True, answered)
+        answer_next_prompt(record, real_manager, True, answered)
 
         # 検出失敗なら再 prompt が来る → 中止してセットアップ不備として fail
         wait_until(
@@ -413,7 +378,7 @@ class TestPosctrlHardware:
             timeout=120.0,
         )
         if not record.status.terminal:
-            _answer_next_prompt(record, real_manager, wait_until, False, answered)
+            answer_next_prompt(record, real_manager, False, answered)
             pytest.fail("チェッカーボードが検出されません。視野に配置してください")
 
         assert record.status == JobStatus.SUCCEEDED

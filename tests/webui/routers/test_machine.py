@@ -3,7 +3,7 @@
 計画書「routers」節:
 
 - GET /api/state — StateResponse の全フィールド
-- GET /api/machines / GET・PUT /api/machine
+- PUT /api/machine — マシン切替
 - 未知マシン PUT → 404、ロック保持中 → 409
 """
 
@@ -42,21 +42,7 @@ class TestStateApi:
 
 
 class TestMachineApi:
-    """マシン一覧・選択."""
-
-    def test_get_machines_lists_all_with_selection(self, client: TestClient):
-        response = client.get("/api/machines")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["machines"] == ["kurousagi", "test-fixture"]
-        assert data["selected"] == "kurousagi"
-
-    def test_get_machine_returns_current_selection(self, client: TestClient):
-        response = client.get("/api/machine")
-
-        assert response.status_code == 200
-        assert response.json() == {"name": "kurousagi"}
+    """マシン選択."""
 
     def test_put_machine_switches_selection(self, client: TestClient):
         response = client.put("/api/machine", json={"name": "test-fixture"})

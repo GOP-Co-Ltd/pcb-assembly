@@ -1,4 +1,4 @@
-"""カメラプレビュー（MJPEG ストリーム / スナップショット）の API."""
+"""カメラプレビュー（MJPEG ストリーム）の API."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import override
 
 import anyio
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.types import Receive, Scope, Send
 
@@ -86,22 +86,6 @@ def preview_stream(
         preview.mjpeg_stream(overlay, canny_low, canny_high),
         media_type=MJPEG_MEDIA_TYPE,
     )
-
-
-@router.get("/preview/snapshot")
-def preview_snapshot(
-    state: StateDep,
-    preview: PreviewDep,
-    overlay: OverlayKind = "none",
-    canny_low: float | None = None,
-    canny_high: float | None = None,
-) -> Response:
-    _build_hub_or_503(state)
-    try:
-        jpeg = preview.snapshot(overlay, canny_low, canny_high)
-    except (OSError, RuntimeError, TimeoutError) as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return Response(content=jpeg, media_type="image/jpeg")
 
 
 def _build_hub_or_503(state: AppState) -> None:

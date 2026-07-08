@@ -24,6 +24,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tests.helpers import mark_hardware
+from tests.webui.jobs.conftest import register_gated
 from webui.state import AppState
 
 
@@ -79,24 +80,7 @@ class TestEmergencyStop:
     ):
         # Phase 3: E-STOP の先頭で jobs.request_abort()（Klipper 送信失敗でも
         # abort フラグは立つ）
-        from webui.jobs.catalog import JobDefinition
-        from webui.jobs.context import JobContext
-
-        def run(ctx: JobContext) -> None:
-            while True:
-                ctx.checkpoint()
-                time.sleep(0.01)
-
-        app.state.catalog.register(
-            JobDefinition(
-                name="estop_target",
-                label="E-STOP 検証ジョブ",
-                tab="dev",
-                run=run,
-                uses_machine=False,
-                hidden=True,
-            )
-        )
+        register_gated(app.state.catalog, name="estop_target", hidden=True)
         assert client.post("/api/jobs/estop_target", json={}).status_code == 201
 
         assert client.post("/api/emergency-stop").status_code == 502
@@ -131,24 +115,7 @@ class TestFirmwareRestart:
     ):
         # firmware restart の先頭で jobs.request_abort()。
         # Klipper 送信が 502 でも実行中ジョブは abort へ進む。
-        from webui.jobs.catalog import JobDefinition
-        from webui.jobs.context import JobContext
-
-        def run(ctx: JobContext) -> None:
-            while True:
-                ctx.checkpoint()
-                time.sleep(0.01)
-
-        app.state.catalog.register(
-            JobDefinition(
-                name="firmware_restart_target",
-                label="firmware restart 検証ジョブ",
-                tab="dev",
-                run=run,
-                uses_machine=False,
-                hidden=True,
-            )
-        )
+        register_gated(app.state.catalog, name="firmware_restart_target", hidden=True)
         response = client.post("/api/jobs/firmware_restart_target", json={})
         assert response.status_code == 201
 
