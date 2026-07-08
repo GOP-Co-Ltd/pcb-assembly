@@ -14,6 +14,7 @@ from pcbasm import gcode
 from pcbasm.config import Machine
 from pcbasm.geometry import Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
+from pcbasm.parking import park_or_present
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl.board import BoardTransformMeasurer
 from pcbasm.posctrl.offset import OffsetTransformMeasurer
@@ -225,9 +226,9 @@ def setup_board_calibration(
 
 
 @contextmanager
-def machine_session(klipper: Klipper) -> Generator[None]:
-    """マシンセッション終了時にPRESENT、無ければM84を送るコンテキストマネージャ."""
+def machine_session(klipper: Klipper, machine: Machine) -> Generator[None]:
+    """マシンセッション終了時にノズルキャップ駐機（フォールバックは PRESENT / M84）を行うコンテキストマネージャ."""
     try:
         yield
     finally:
-        klipper.send_present_or_relax()
+        park_or_present(klipper, machine)

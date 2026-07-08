@@ -5,6 +5,7 @@ from pcbasm.gcode import (
     firmware_restart,
     homing,
     move,
+    move_to_cap,
     present,
     relax,
     wait,
@@ -181,6 +182,40 @@ class TestPresent:
 
     def test_present(self):
         assert str(present()) == "PRESENT"
+
+
+class TestMoveToCap:
+    """move_to_cap関数のテスト（nozzle-cap-parking 計画書「G-code 列」節が契約）.
+
+    「Z を 0 へ → キャップ XY へ → キャップ Z へ」の 3 段シーケンス。 中間セグメントに Z ワードを含めない（Z
+    先行の意味を壊さない）。 M400 / M84 は含めない（終了時経路が後置で合成する）。
+    """
+
+    def test_sequence_is_g90_then_z0_then_xy_then_z_at_present_speed(self):
+        result = move_to_cap(10.0, 20.0, 3.5)
+
+        assert result.to_list() == [
+            "G90",
+            "G1 Z0.0 F1200.0",
+            "G1 X10.0 Y20.0 F1200.0",
+            "G1 Z3.5 F1200.0",
+        ]
+
+    def test_sequence_contains_no_m400_or_m84(self):
+        lines = move_to_cap(10.0, 20.0, 3.5).to_list()
+
+        assert "M400" not in lines
+        assert "M84" not in lines
+
+    def test_velocity_override_changes_feedrate(self):
+        result = move_to_cap(1.0, 2.0, 3.0, velocity=30.0)
+
+        assert result.to_list() == [
+            "G90",
+            "G1 Z0.0 F1800.0",
+            "G1 X1.0 Y2.0 F1800.0",
+            "G1 Z3.0 F1800.0",
+        ]
 
 
 class TestFirmwareRestart:
