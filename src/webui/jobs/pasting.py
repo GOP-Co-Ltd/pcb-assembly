@@ -51,14 +51,13 @@ from pcbasm.pasting import (
     rate_sweep_amount,
     resolve_initial_purge,
     resolve_pad_settings,
+    select_enabled_pads,
     slot_area,
 )
 from pcbasm.pcb import (
     Copper,
     Layer,
-    Pad,
     PadHierarchy,
-    PadRef,
     PcbFile,
     build_pad_hierarchy,
 )
@@ -713,22 +712,6 @@ def _resolve_paste_model(
     )
 
 
-def _is_pad_enabled(
-    pad: Pad, hierarchy: PadHierarchy, resolved: Mapping[PadRef, ResolvedPaste]
-) -> bool:
-    """Pad が塗布対象か判定する.
-
-    階層から除外された pad（対応 Component 無し = ``resolved`` に不在）は
-    後方互換で有効扱い、それ以外は解決済み ``enabled`` に従う。
-    """
-    try:
-        pad_ref = hierarchy.pad_ref_for_pad(pad)
-    except KeyError:
-        return True
-    r = resolved.get(pad_ref)
-    return r is None or r.enabled
-
-
 def _run_paste_solder(ctx: JobContext) -> JobResult:
     """ボード計測 → 銅箔照合 → 高さ計測 → 補正適用 → ペースト塗布を通しで実行する.
 
@@ -748,7 +731,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         resolved = resolve_pad_settings(hierarchy, model)
 
         # 有効 top pad のみ塗布対象にする（無効除外はここ一点）
-        enabled_pads = [p for p in top_pads if _is_pad_enabled(p, hierarchy, resolved)]
+        enabled_pads = select_enabled_pads(top_pads, hierarchy, model)
         disabled_count = len(top_pads) - len(enabled_pads)
         ctx.log(
             f"塗布対象: 有効 {len(enabled_pads)} / 全 {len(top_pads)} pads"
@@ -1735,38 +1718,16 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             )
             applicator.retract()
 
-            # ペースト吐出
+            # ペースト吐出（実塗布と同一の deposit protocol に委譲。applicator は
+            # Identity transform 構築なので paste_height に絶対 Z を渡す）
             ctx.progress("吐出")
             dispense_amount = float(ctx.params["dispense_amount"])
             paste_height = resolve_paste_height(
                 dispenser_config.paste_height, dispenser_config.ul_per_mm2
             )
             dispense_z = board_surface_z + paste_height
-            klipper.send_gcode(
-                stage.move(x=center_toolhead.x, y=center_toolhead.y, z=dispense_z)
-                + gcode.wait_for_done()
-            )
-            klipper.send_gcode(
-                paste_dispenser.pushpull(
-                    dispense_amount,
-                    dispenser_config.max_dispense_rate,
-                    dispenser_config.dispense_accel,
-                )
-                + gcode.wait_for_done()
-            )
-            retract_accel = (
-                dispenser_config.dispense_accel * dispenser_config.retract_accel_factor
-            )
-            klipper.send_gcode(
-                paste_dispenser.pushpull(
-                    -dispenser_config.retract_amount,
-                    dispenser_config.effective_retract_rate,
-                    retract_accel,
-                )
-                + gcode.wait_for_done()
-            )
-            klipper.send_gcode(
-                stage.move(z=dispense_z + lift_height) + gcode.wait_for_done()
+            applicator.deposit_at(
+                center_toolhead, amount=dispense_amount, paste_height=dispense_z
             )
             ctx.log(
                 f"吐出位置 (ステージ): "
@@ -1809,17 +1770,13 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             )
 
     # オフセット算出 & 保存
-    measured_offset = Point2d(
-        center_toolhead.x - camera_final_pos.x,
-        center_toolhead.y - camera_final_pos.y,
-    )
-    offset_result = ToolheadOffsetResult(
-        offset=measured_offset,
+    offset_result = ToolheadOffsetResult.measure(
         dispense_position=center_toolhead,
         camera_position=camera_final_pos,
         tolerance=tolerance,
         calibrated_at=datetime.now(),
     )
+    measured_offset = offset_result.offset
     offset_result.save(ctx.artifacts_dir / "toolhead_offset.json")
 
     current_toolhead = machine.paste_dispenser.toolhead

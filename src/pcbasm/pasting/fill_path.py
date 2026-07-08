@@ -1,8 +1,9 @@
 """ペースト塗布用フィルパス生成.
 
-公開 API は :func:`build_paste_fill_path` のみ。ノズル径と塗布パラメータから
-マシン固有のヒューリスティクス（線間隔・インセット・フォールバック判定）を
-決定し、同モジュール内の private ヘルパー（``_area_fill`` /
+公開 API は :func:`build_paste_fill_plan`（互換の :func:`build_paste_fill_path`）
+と、解決済み塗布設定から引数を束ねる :func:`build_pad_fill_plan_for`。ノズル径と
+塗布パラメータからマシン固有のヒューリスティクス（線間隔・インセット・
+フォールバック判定）を決定し、同モジュール内の private ヘルパー（``_area_fill`` /
 ``_outline_and_zigzag`` / ``_line_fill`` / ``_dot_fill`` および幾何
 ユーティリティ群）に委譲する。
 
@@ -23,6 +24,7 @@ from shapely.geometry.base import BaseGeometry
 
 from pcbasm.config import DISPENSE_MODES, DispenseMode
 from pcbasm.geometry import Point2d
+from pcbasm.pasting.settings import ResolvedPaste
 
 AppliedDispenseMode = Literal["dot", "line", "area"]
 
@@ -173,6 +175,47 @@ def build_paste_fill_plan(
             return PasteFillPlan(dispense_mode="dot", paths=[_dot_fill(polygon)])
         case _:
             assert_never(mode)
+
+
+def build_pad_fill_plan_for(
+    polygon: Polygon,
+    *,
+    nozzle_diameter: float,
+    auto_line_aspect_ratio: float,
+    auto_area_short_side_factor: float,
+    paste: ResolvedPaste,
+) -> PasteFillPlan:
+    """解決済み塗布設定から pad 1 枚分の塗布計画を組み立てる.
+
+    :class:`ResolvedPaste` の per-pad 項目（dispense_mode / bead_width_factor /
+    overlap / boundary_margin）とマシン設定由来のヒューリスティクス 3 値を
+    :func:`build_paste_fill_plan` の引数へ束ねる対応の単一ソース。プレビュー
+    （webui router）と実行（``PasteApplicator._fill``）が同一の対応で計画を
+    生成し、両者の乖離を構造的に防ぐ。
+
+    Args:
+        polygon: 塗布対象のポリゴン（mm単位）
+        nozzle_diameter: ノズル内径 [mm]（``PasteDispenser.nozzle_diameter``）
+        auto_line_aspect_ratio: Auto 時に線塗布へ切り替える縦横比
+        auto_area_short_side_factor: Auto 時に面塗布へ切り替える短辺のノズル径倍率
+        paste: この pad の解決済み塗布設定
+
+    Returns:
+        実塗布方式と成分別ポリライン（:class:`PasteFillPlan`）
+
+    Raises:
+        ValueError: :func:`build_paste_fill_plan` の検証に通らない場合
+    """
+    return build_paste_fill_plan(
+        polygon,
+        nozzle_diameter,
+        dispense_mode=paste.dispense_mode,
+        auto_line_aspect_ratio=auto_line_aspect_ratio,
+        auto_area_short_side_factor=auto_area_short_side_factor,
+        bead_width_factor=paste.bead_width_factor,
+        overlap=paste.overlap,
+        boundary_margin=paste.boundary_margin,
+    )
 
 
 def _resolve_auto_mode(

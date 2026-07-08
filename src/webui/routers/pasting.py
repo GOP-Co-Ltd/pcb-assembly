@@ -26,20 +26,23 @@ from pydantic import BaseModel
 from pcbasm.config import PasteDispenser
 from pcbasm.pasting import (
     PASTE_OVERRIDE_FIELDS,
-    MassFlowCalibration,
     PasteOverride,
     PasteSettingsModel,
     PasteSettingValue,
     ResolvedPaste,
     base_override_from_config,
+    build_pad_fill_plan_for,
+    estimate_mass_flow,
     plan_paste_route,
     resolve_initial_purge,
     resolve_node_settings,
     resolve_pad_settings,
+    routed_enabled_pads,
+    select_enabled_pads,
     validate_field_names,
+    validate_initial_purge,
     validate_override_values,
 )
-from pcbasm.pasting.fill_path import build_paste_fill_plan
 from pcbasm.pcb import (
     Layer,
     Pad,
@@ -352,27 +355,16 @@ def _resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
     )
 
 
-def _enabled_pads_for_layer(loaded: _Loaded, layer: str) -> list[Pad]:
-    """指定 layer の有効 pad を返す."""
-    resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
-    return [
-        pad
-        for pad in loaded.hierarchy.iter_pads()
-        if pad.layer.value == layer
-        and resolved[loaded.hierarchy.pad_ref_for_pad(pad)].enabled
-    ]
-
-
-def _routed_enabled_pads_for_layer(loaded: _Loaded, layer: str) -> list[Pad]:
-    """指定 layer の有効 pad を通常塗布順に並べて返す."""
-    return [
-        stop.pad for stop in plan_paste_route(_enabled_pads_for_layer(loaded, layer))
-    ]
+def _layer_pads(loaded: _Loaded, layer: str) -> Iterator[Pad]:
+    """指定 layer の全 pad（有効/無効問わず）を返す."""
+    return (pad for pad in loaded.hierarchy.iter_pads() if pad.layer.value == layer)
 
 
 def _build_initial_purge(loaded: _Loaded) -> InitialPurgeInfo:
     """ロード済みコンテキストから初回パージ設定の解決結果を返す."""
-    routed = _routed_enabled_pads_for_layer(loaded, Layer.TOP.value)
+    routed = routed_enabled_pads(
+        _layer_pads(loaded, Layer.TOP.value), loaded.hierarchy, loaded.model
+    )
     default_pad_id = loaded.hierarchy.pad_id_for_pad(routed[0]) if routed else None
     resolved, error = resolve_initial_purge(
         amount_ul=loaded.base_config.initial_purge_ul,
@@ -515,7 +507,11 @@ def _build_route(loaded: _Loaded, layer: str) -> PasteRouteResponse:
             area=stop.area,
             center=[stop.pad.center.x, stop.pad.center.y],
         )
-        for stop in plan_paste_route(_enabled_pads_for_layer(loaded, layer))
+        for stop in plan_paste_route(
+            select_enabled_pads(
+                _layer_pads(loaded, layer), loaded.hierarchy, loaded.model
+            )
+        )
     ]
     return PasteRouteResponse(layer=layer, pads=route)
 
@@ -532,17 +528,14 @@ def _build_fill_path(loaded: _Loaded, layer: str) -> PasteFillPathResponse:
         if pad.layer.value != layer or not paste.enabled:
             continue
         try:
-            plan = build_paste_fill_plan(
+            plan = build_pad_fill_plan_for(
                 pad.polygon,
-                nozzle_diameter,
-                dispense_mode=paste.dispense_mode,
+                nozzle_diameter=nozzle_diameter,
                 auto_line_aspect_ratio=loaded.base_config.auto_line_aspect_ratio,
                 auto_area_short_side_factor=(
                     loaded.base_config.auto_area_short_side_factor
                 ),
-                bead_width_factor=paste.bead_width_factor,
-                overlap=paste.overlap,
-                boundary_margin=paste.boundary_margin,
+                paste=paste,
             )
         except ValueError as exc:
             raise HTTPException(
@@ -566,7 +559,7 @@ def _build_fill_path(loaded: _Loaded, layer: str) -> PasteFillPathResponse:
 
 
 def _check_layer(layer: str) -> None:
-    valid_layers = {"Top", "Bottom"}
+    valid_layers = {member.value for member in Layer}
     if layer not in valid_layers:
         raise HTTPException(status_code=400, detail=f"未知のレイヤです: {layer}")
 
@@ -719,14 +712,18 @@ def patch_initial_purge(
         if pad_sent
         else loaded.model.initial_purge_pad_id
     )
-    routed = _routed_enabled_pads_for_layer(loaded, Layer.TOP.value)
-    _validate_initial_purge_patch(
+    routed = routed_enabled_pads(
+        _layer_pads(loaded, Layer.TOP.value), loaded.hierarchy, loaded.model
+    )
+    error = validate_initial_purge(
         amount_ul=next_amount,
         pad_id=next_pad_id,
-        pad_sent=pad_sent,
         hierarchy=loaded.hierarchy,
         routed_pads=routed,
+        layer=Layer.TOP,
     )
+    if error is not None:
+        raise HTTPException(status_code=400, detail=error)
 
     if amount_sent:
         with state.machine_lock("pasting-initial-purge"):
@@ -749,36 +746,6 @@ def patch_initial_purge(
 def _normalize_initial_purge_pad_id(pad_id: str | None) -> str | None:
     """API 入力の空文字を未指定へ正規化する."""
     return None if pad_id in (None, "") else pad_id
-
-
-def _validate_initial_purge_patch(
-    *,
-    amount_ul: float,
-    pad_id: str | None,
-    pad_sent: bool,
-    hierarchy: PadHierarchy,
-    routed_pads: list[Pad],
-) -> None:
-    """初回パージ PATCH 値を検証し、不正なら HTTP 400 を送出する."""
-    _, error = resolve_initial_purge(
-        amount_ul=amount_ul,
-        pad_id=pad_id,
-        hierarchy=hierarchy,
-        routed_pads=routed_pads,
-        layer=Layer.TOP,
-    )
-    if error is not None:
-        raise HTTPException(status_code=400, detail=error)
-    if pad_sent and pad_id is not None and amount_ul == 0:
-        _, pad_error = resolve_initial_purge(
-            amount_ul=0.1,
-            pad_id=pad_id,
-            hierarchy=hierarchy,
-            routed_pads=routed_pads,
-            layer=Layer.TOP,
-        )
-        if pad_error is not None:
-            raise HTTPException(status_code=400, detail=pad_error)
 
 
 @router.post("/pasting/pad-config/reset")
@@ -872,23 +839,15 @@ def get_loading_calibration(
     """計測質量・回転数・速度・加速度から塗布キャリブレーション値を算出する.
 
     密度はサーバ側のマシン設定 ``solder_paste_density`` を真実とする。
-    非正入力は該当値を ``None`` で返す（エラーにしない）。
+    非正入力は該当値を ``None`` で返す（エラーにしない）。算出は
+    :func:`pcbasm.pasting.estimate_mass_flow` へ委譲する（丸め済み）。
     """
     density = state.machine().paste_dispenser.solder_paste_density
-    volume_ul = mass_mg / density if mass_mg > 0 and density > 0 else None
-    if not (mass_mg > 0 and density > 0 and rotations > 0):
-        return LoadingCalibrationResult(
-            volume_ul=volume_ul,
-            rotations_per_ul=None,
-            max_dispense_rate=None,
-            dispense_accel=None,
-        )
-    calib = MassFlowCalibration(
-        rotations=rotations, mass_mg=mass_mg, density_mg_per_ul=density
+    estimate = estimate_mass_flow(
+        mass_mg=mass_mg,
+        rotations=rotations,
+        rate=rate,
+        accel=accel,
+        density_mg_per_ul=density,
     )
-    return LoadingCalibrationResult(
-        volume_ul=volume_ul,
-        rotations_per_ul=calib.rotations_per_ul,
-        max_dispense_rate=calib.dispense_rate_for(rate) if rate > 0 else None,
-        dispense_accel=calib.dispense_accel_for(accel) if accel > 0 else None,
-    )
+    return LoadingCalibrationResult(**attrs.asdict(estimate))

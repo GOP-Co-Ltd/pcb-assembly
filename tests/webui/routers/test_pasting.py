@@ -749,7 +749,7 @@ class TestLoadingCalibration:
 
     def test_all_positive_inputs_return_full_result(self, client: TestClient):
         # mass=10, rotations=5, density=3.78 → rotations_per_ul = 1.89,
-        # volume_ul = 10/3.78, rate/accel = 0.5/1.89
+        # volume_ul = 10/3.78, rate/accel = 0.5/1.89（サーバ側で小数第 6 位に丸め済み）
         response = client.get(
             "/api/pasting/loading/calibration",
             params={"mass_mg": 10, "rotations": 5, "rate": 0.5, "accel": 0.5},
@@ -757,10 +757,10 @@ class TestLoadingCalibration:
 
         assert response.status_code == 200, response.text
         body = response.json()
-        assert body["volume_ul"] == pytest.approx(10.0 / 3.78)
-        assert body["rotations_per_ul"] == pytest.approx(1.89)
-        assert body["max_dispense_rate"] == pytest.approx(0.5 / 1.89)
-        assert body["dispense_accel"] == pytest.approx(0.5 / 1.89)
+        assert body["volume_ul"] == round(10.0 / 3.78, 6)
+        assert body["rotations_per_ul"] == round(1.89, 6)
+        assert body["max_dispense_rate"] == round(0.5 / 1.89, 6)
+        assert body["dispense_accel"] == round(0.5 / 1.89, 6)
 
     def test_zero_rotations_nulls_rotation_derived_values(self, client: TestClient):
         # rotations=0 → rotations_per_ul を作れないので rpu / rate / accel は null。
@@ -800,10 +800,10 @@ class TestLoadingCalibration:
 
         assert response.status_code == 200, response.text
         body = response.json()
-        assert body["volume_ul"] == pytest.approx(10.0 / 3.78)
-        assert body["rotations_per_ul"] == pytest.approx(1.89)
+        assert body["volume_ul"] == round(10.0 / 3.78, 6)
+        assert body["rotations_per_ul"] == round(1.89, 6)
         assert body["max_dispense_rate"] is None
-        assert body["dispense_accel"] == pytest.approx(0.5 / 1.89)
+        assert body["dispense_accel"] == round(0.5 / 1.89, 6)
 
     def test_all_params_omitted_returns_all_null(self, client: TestClient):
         # クエリ省略時は各値 0.0 扱い → 4 値すべて null。

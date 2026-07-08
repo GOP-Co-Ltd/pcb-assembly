@@ -33,6 +33,28 @@ class ToolheadOffsetResult:
     tolerance: float
     calibrated_at: datetime
 
+    @classmethod
+    def measure(
+        cls,
+        *,
+        dispense_position: Point2d,
+        camera_position: Point2d,
+        tolerance: float,
+        calibrated_at: datetime,
+    ) -> Self:
+        """吐出位置とカメラ検出位置からオフセットを算出して構築する.
+
+        ``offset = dispense_position - camera_position``（カメラ検出位置に
+        対するツールヘッドの XY オフセット）。
+        """
+        return cls(
+            offset=dispense_position - camera_position,
+            dispense_position=dispense_position,
+            camera_position=camera_position,
+            tolerance=tolerance,
+            calibrated_at=calibrated_at,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """辞書に変換."""
         return _converter.unstructure(self)

@@ -4,8 +4,14 @@ import pytest
 from shapely import Polygon
 
 from pcbasm.geometry import Point2d
-from pcbasm.pasting import plan_paste_route
-from pcbasm.pcb import Layer, Pad
+from pcbasm.pasting import (
+    LevelSetting,
+    PasteOverride,
+    PasteSettingsModel,
+    plan_paste_route,
+    routed_enabled_pads,
+)
+from pcbasm.pcb import Component, Layer, Pad, PadHierarchy, build_pad_hierarchy
 
 
 def _rect(cx: float, cy: float, w: float, h: float) -> Polygon:
@@ -39,6 +45,30 @@ def _pad(
 
 def _pad_id(pad: Pad) -> str:
     return f"{pad.designator}.{pad.pad_number}"
+
+
+def _component(designator: str, package: str) -> Component:
+    return Component(
+        designator=designator,
+        value="",
+        package=package,
+        position=Point2d(x=0.0, y=0.0),
+        rotation=0.0,
+        layer=Layer.TOP,
+    )
+
+
+def _full_base() -> PasteOverride:
+    """全 override 項目が非 None の base override（= L0 確定値）."""
+    return PasteOverride(
+        dispense_mode="auto",
+        paste_height=0.05,
+        ul_per_mm2=0.1,
+        prime_extra_delay=0.8,
+        bead_width_factor=1.0,
+        overlap=0.0,
+        boundary_margin=0.0,
+    )
 
 
 class TestPlanPasteRoute:
@@ -81,3 +111,46 @@ class TestPlanPasteRoute:
             "U1.far",
         ]
         assert len({stop.group_label for stop in stops}) == 1
+
+
+class TestRoutedEnabledPads:
+    """routed_enabled_pads は有効 pad の絞り込みと順路計算を 1 手で行う。"""
+
+    @staticmethod
+    def _fixture() -> tuple[list[Pad], PasteSettingsModel, PadHierarchy]:
+        components = [_component("R1", "0402"), _component("U1", "QFN-8")]
+        pads = [
+            _pad("R1", "1", center=Point2d(20.0, 0.0), width=0.5, height=1.0),
+            _pad("R1", "2", center=Point2d(21.0, 0.0), width=0.5, height=1.0),
+            _pad("U1", "1", center=Point2d(10.0, 0.0), width=2.0, height=2.0),
+            _pad("U1", "2", center=Point2d(11.0, 0.0), width=2.0, height=2.0),
+        ]
+        hierarchy = build_pad_hierarchy(components, pads)
+        return pads, PasteSettingsModel(base=_full_base()), hierarchy
+
+    def test_matches_plan_paste_route_when_all_enabled(self):
+        pads, model, hierarchy = self._fixture()
+
+        routed = routed_enabled_pads(pads, hierarchy, model)
+
+        assert routed == [stop.pad for stop in plan_paste_route(pads)]
+
+    def test_disabled_pad_is_excluded_from_route(self):
+        pads, model, hierarchy = self._fixture()
+        model = PasteSettingsModel(
+            base=_full_base(),
+            levels={("L4", "U1", "2"): LevelSetting(enabled=False)},
+        )
+
+        routed = routed_enabled_pads(pads, hierarchy, model)
+
+        assert [_pad_id(pad) for pad in routed] == ["U1.1", "R1.1", "R1.2"]
+
+    def test_pad_without_component_is_routed_for_backward_compat(self):
+        # 階層外 pad（対応 Component 無し）は後方互換で有効扱いのまま順路に乗る。
+        pads, model, hierarchy = self._fixture()
+        orphan = _pad("X9", "1", center=Point2d(30.0, 0.0), width=0.5, height=1.0)
+
+        routed = routed_enabled_pads([*pads, orphan], hierarchy, model)
+
+        assert orphan in routed

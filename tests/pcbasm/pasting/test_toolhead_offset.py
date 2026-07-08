@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+import pytest
+
 from pcbasm.geometry import Point2d
 from pcbasm.pasting import ToolheadOffsetResult
 
@@ -47,3 +49,34 @@ class TestToolheadOffsetResult:
         data = json.loads(path.read_text(encoding="utf-8"))
         assert isinstance(data, dict)
         assert "offset" in data
+
+
+class TestMeasure:
+    """Measure は吐出位置 − カメラ検出位置でオフセットを算出する。"""
+
+    def test_offset_is_dispense_minus_camera(self):
+        calibrated_at = datetime(2026, 3, 18, 12, 0, 0)
+
+        result = ToolheadOffsetResult.measure(
+            dispense_position=Point2d(x=100.0, y=200.0),
+            camera_position=Point2d(x=98.5, y=202.3),
+            tolerance=0.05,
+            calibrated_at=calibrated_at,
+        )
+
+        assert result.offset.x == pytest.approx(1.5)
+        assert result.offset.y == pytest.approx(-2.3)
+        assert result.dispense_position == Point2d(x=100.0, y=200.0)
+        assert result.camera_position == Point2d(x=98.5, y=202.3)
+        assert result.tolerance == pytest.approx(0.05)
+        assert result.calibrated_at == calibrated_at
+
+    def test_measured_result_round_trips_like_manual_construction(self):
+        measured = ToolheadOffsetResult.measure(
+            dispense_position=Point2d(x=100.0, y=200.0),
+            camera_position=Point2d(x=98.5, y=202.3),
+            tolerance=0.05,
+            calibrated_at=datetime(2026, 3, 18, 12, 0, 0),
+        )
+
+        assert ToolheadOffsetResult.from_dict(measured.to_dict()) == measured

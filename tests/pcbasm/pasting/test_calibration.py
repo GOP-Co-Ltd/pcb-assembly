@@ -9,6 +9,8 @@ from pcbasm.pasting.calibration import (
     FlowCalibration,
     FlowCalibrationSet,
     MassFlowCalibration,
+    MassFlowEstimate,
+    estimate_mass_flow,
 )
 
 
@@ -217,3 +219,90 @@ class TestFlowCalibrationSet:
         )
         with pytest.raises(attrs.exceptions.FrozenInstanceError):
             fcs.specific_gravity = 3.0  # type: ignore[misc]
+
+
+class TestEstimateMassFlow:
+    """estimate_mass_flow は部分入力から導出可能な値だけを丸めて返す。"""
+
+    def test_all_positive_inputs_return_full_estimate(self):
+        # mass=10, rotations=5, density=3.78 → rotations_per_ul = 1.89。
+        # 返却値は小数第 6 位へ丸め済み。
+        estimate = estimate_mass_flow(
+            mass_mg=10.0, rotations=5.0, rate=0.5, accel=0.5, density_mg_per_ul=3.78
+        )
+
+        assert estimate.volume_ul == round(10.0 / 3.78, 6)
+        assert estimate.rotations_per_ul == round(1.89, 6)
+        assert estimate.max_dispense_rate == round(0.5 / 1.89, 6)
+        assert estimate.dispense_accel == round(0.5 / 1.89, 6)
+
+    def test_values_are_rounded_to_six_digits(self):
+        estimate = estimate_mass_flow(
+            mass_mg=10.0, rotations=5.0, rate=0.5, accel=0.5, density_mg_per_ul=3.78
+        )
+
+        assert estimate.volume_ul == round(10.0 / 3.78, 6)
+        assert estimate.rotations_per_ul == round(5.0 * 3.78 / 10.0, 6)
+        assert estimate.max_dispense_rate == round(0.5 / 1.89, 6)
+        assert estimate.dispense_accel == round(0.5 / 1.89, 6)
+
+    def test_arithmetic_delegates_to_mass_flow_calibration(self):
+        calib = MassFlowCalibration(rotations=5.0, mass_mg=10.0, density_mg_per_ul=3.78)
+
+        estimate = estimate_mass_flow(
+            mass_mg=10.0, rotations=5.0, rate=0.5, accel=0.7, density_mg_per_ul=3.78
+        )
+
+        assert estimate.rotations_per_ul == round(calib.rotations_per_ul, 6)
+        assert estimate.max_dispense_rate == round(calib.dispense_rate_for(0.5), 6)
+        assert estimate.dispense_accel == round(calib.dispense_accel_for(0.7), 6)
+
+    def test_zero_rotations_nulls_rotation_derived_values(self):
+        estimate = estimate_mass_flow(
+            mass_mg=10.0, rotations=0.0, rate=0.5, accel=0.5, density_mg_per_ul=3.78
+        )
+
+        assert estimate.volume_ul == pytest.approx(10.0 / 3.78)
+        assert estimate.rotations_per_ul is None
+        assert estimate.max_dispense_rate is None
+        assert estimate.dispense_accel is None
+
+    @pytest.mark.parametrize(
+        ("mass_mg", "density_mg_per_ul"),
+        [(0.0, 3.78), (10.0, 0.0), (-1.0, 3.78)],
+    )
+    def test_non_positive_mass_or_density_nulls_everything(
+        self, mass_mg: float, density_mg_per_ul: float
+    ):
+        estimate = estimate_mass_flow(
+            mass_mg=mass_mg,
+            rotations=5.0,
+            rate=0.5,
+            accel=0.5,
+            density_mg_per_ul=density_mg_per_ul,
+        )
+
+        assert estimate == MassFlowEstimate(
+            volume_ul=None,
+            rotations_per_ul=None,
+            max_dispense_rate=None,
+            dispense_accel=None,
+        )
+
+    def test_zero_rate_nulls_only_dispense_rate(self):
+        estimate = estimate_mass_flow(
+            mass_mg=10.0, rotations=5.0, rate=0.0, accel=0.5, density_mg_per_ul=3.78
+        )
+
+        assert estimate.rotations_per_ul == round(1.89, 6)
+        assert estimate.max_dispense_rate is None
+        assert estimate.dispense_accel == round(0.5 / 1.89, 6)
+
+    def test_zero_accel_nulls_only_dispense_accel(self):
+        estimate = estimate_mass_flow(
+            mass_mg=10.0, rotations=5.0, rate=0.5, accel=0.0, density_mg_per_ul=3.78
+        )
+
+        assert estimate.rotations_per_ul == round(1.89, 6)
+        assert estimate.max_dispense_rate == round(0.5 / 1.89, 6)
+        assert estimate.dispense_accel is None

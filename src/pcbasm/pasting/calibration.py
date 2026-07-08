@@ -39,6 +39,74 @@ class MassFlowCalibration:
 
 
 @attrs.frozen
+class MassFlowEstimate:
+    """部分入力を許す質量キャリブレーションの見積り（導出不能の値は ``None``）.
+
+    Attributes:
+        volume_ul: 計測質量から算出した体積 [μL]
+        rotations_per_ul: 1μLあたりの回転数 [rev/μL]
+        max_dispense_rate: 回転速度を変換した吐出レート [μL/sec]
+        dispense_accel: 回転加速度を変換した吐出加速度 [μL/sec²]
+    """
+
+    volume_ul: float | None
+    rotations_per_ul: float | None
+    max_dispense_rate: float | None
+    dispense_accel: float | None
+
+
+def estimate_mass_flow(
+    *,
+    mass_mg: float,
+    rotations: float,
+    rate: float,
+    accel: float,
+    density_mg_per_ul: float,
+) -> MassFlowEstimate:
+    """質量計測の部分入力からキャリブレーション値を見積もる.
+
+    非正の入力から導出できない値は ``None`` を返す（エラーにしない）。算術は
+    :class:`MassFlowCalibration` へ委譲し（単一ソース維持）、確定値は
+    小数第 6 位へ丸めて返す。
+
+    Args:
+        mass_mg: 計測されたペースト質量 [mg]
+        rotations: キャリブレーションに使った実効回転数 [rev]
+        rate: 回転速度 [rev/sec]
+        accel: 回転加速度 [rev/sec²]
+        density_mg_per_ul: はんだペースト密度 [mg/μL]
+    """
+    volume_ul = (
+        mass_mg / density_mg_per_ul if mass_mg > 0 and density_mg_per_ul > 0 else None
+    )
+    if volume_ul is None or rotations <= 0:
+        return MassFlowEstimate(
+            volume_ul=_rounded(volume_ul),
+            rotations_per_ul=None,
+            max_dispense_rate=None,
+            dispense_accel=None,
+        )
+    calib = MassFlowCalibration(
+        rotations=rotations, mass_mg=mass_mg, density_mg_per_ul=density_mg_per_ul
+    )
+    return MassFlowEstimate(
+        volume_ul=_rounded(volume_ul),
+        rotations_per_ul=_rounded(calib.rotations_per_ul),
+        max_dispense_rate=(
+            _rounded(calib.dispense_rate_for(rate)) if rate > 0 else None
+        ),
+        dispense_accel=(
+            _rounded(calib.dispense_accel_for(accel)) if accel > 0 else None
+        ),
+    )
+
+
+def _rounded(value: float | None, digits: int = 6) -> float | None:
+    """確定値を丸める（``None`` はそのまま）."""
+    return None if value is None else round(value, digits)
+
+
+@attrs.frozen
 class FlowCalibration:
     """流量キャリブレーション結果.
 
