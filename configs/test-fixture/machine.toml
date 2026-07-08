@@ -68,7 +68,7 @@ y = 1.5
 # 基準点の直径 (mm)
 target_diameter = 3.0
 
-# 基盤からみた基準点の相対位置 (mm) — 配列値は Phase 1 ホワイトリスト対象外
+# 基盤からみた基準点の相対位置 (mm)
 [reference_point.offsets] # [x, y]で記述
 top_left = [5.0, -5.0]
 top_right = [-5.0, -5.0]

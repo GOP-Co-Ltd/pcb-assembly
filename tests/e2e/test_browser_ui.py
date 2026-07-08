@@ -115,6 +115,25 @@ class TestSettingsOverBrowser:
 
         _wait_machine_field(live_server.base_url, "probe.lift_height", 1.25)
 
+    def test_reference_point_offset_pair_autosave(
+        self, live_server: LiveServer, browser_page
+    ):
+        """float_pair 入力（X/Y 2 連）の編集が [x, y] 配列として保存される."""
+        browser_page.goto(
+            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
+        )
+        pair = 'input[data-pair-key="reference_point.offsets.top_left"]'
+        x_input = browser_page.locator(f'{pair}[data-pair-index="0"]')
+        y_input = browser_page.locator(f'{pair}[data-pair-index="1"]')
+        x_input.wait_for(state="visible", timeout=10_000)
+
+        x_input.fill("6.5")
+        y_input.fill("-4.5")
+
+        _wait_machine_field(
+            live_server.base_url, "reference_point.offsets.top_left", [6.5, -4.5]
+        )
+
     def test_setting_label_does_not_focus_input(
         self, live_server: LiveServer, browser_page
     ):

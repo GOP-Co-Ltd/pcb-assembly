@@ -16,7 +16,7 @@ from tomlkit.items import Item, Table
 from pcbasm.config import DISPENSE_MODES
 
 type SettingValueType = Literal[
-    "float", "int", "str", "float_or_auto", "dispense_mode", "bool"
+    "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode", "bool"
 ]
 
 
@@ -37,7 +37,7 @@ class FieldSpec:
     unit: str | None = None
 
 
-type MachineSettingValue = float | int | str | bool
+type MachineSettingValue = float | int | str | bool | list[float]
 
 
 MACHINE_FIELDS: tuple[FieldSpec, ...] = (
@@ -109,6 +109,13 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("reference_point.x", "基準点 X", "float", "mm"),
     FieldSpec("reference_point.y", "基準点 Y", "float", "mm"),
     FieldSpec("reference_point.target_diameter", "基準点マーカー直径", "float", "mm"),
+    # [reference_point.offsets] — 基盤コーナーから基準点マーカーへの相対位置 [x, y]
+    FieldSpec("reference_point.offsets.top_left", "左上 [x, y]", "float_pair", "mm"),
+    FieldSpec("reference_point.offsets.top_right", "右上 [x, y]", "float_pair", "mm"),
+    FieldSpec("reference_point.offsets.bottom_left", "左下 [x, y]", "float_pair", "mm"),
+    FieldSpec(
+        "reference_point.offsets.bottom_right", "右下 [x, y]", "float_pair", "mm"
+    ),
     # [camera]
     FieldSpec("camera.calibration_file", "キャリブレーションファイル", "str"),
     FieldSpec("camera.device_id", "デバイスID", "int"),
@@ -183,9 +190,24 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
         case "dispense_mode":
             if isinstance(value, str) and value in DISPENSE_MODES:
                 return value
+        case "float_pair":
+            pair = _coerce_float_pair(value)
+            if pair is not None:
+                return pair
     raise UnknownFieldError(
         f"{spec.key}: {spec.value_type} 型の値が必要です（与えられた値: {value!r}）"
     )
+
+
+def _coerce_float_pair(value: object) -> list[float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    pair: list[float] = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            return None
+        pair.append(float(item))
+    return pair
 
 
 class ConfigStore:
