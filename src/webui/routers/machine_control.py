@@ -4,16 +4,15 @@ from __future__ import annotations
 
 from typing import Literal
 
-import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from pcbasm import gcode
 from pcbasm.hal import XYZStage
-from webui.app import StateDep
+from webui.dependencies import StateDep
 from webui.models import KlipperStatus
-from webui.routers.system import create_klipper, fetch_status
-from webui.state import AppState, BusyError
+from webui.routers.common import create_klipper, fetch_status, klipper_errors_to_502
+from webui.state import AppState
 
 MOVE_TIMEOUT = 60.0  # wait_for_done (M400) を含むため長め
 
@@ -33,23 +32,18 @@ class MachineControlRequest(BaseModel):
 
 @router.post("/machine-control")
 def post_machine_control(body: MachineControlRequest, state: StateDep) -> KlipperStatus:
-    try:
-        with state.machine_lock("machine-control"):
-            klipper = create_klipper(state, MOVE_TIMEOUT)
-            stage = XYZStage(klipper.readonly)
-            commands = _build_gcode(body, state, stage)
-            klipper.send_gcode(commands)
-            return fetch_status(klipper)
-    except BusyError:
-        raise
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=502, detail=str(exc) or type(exc).__name__
-        ) from exc
-    except (RuntimeError, KeyError) as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # BusyError（RuntimeError 派生）は 502 変換に巻き込まず app.py の 409 ハンドラへ
+    # 流すため、machine_lock は klipper_errors_to_502 の外側で取る
+    with state.machine_lock("machine-control"):
+        try:
+            with klipper_errors_to_502():
+                klipper = create_klipper(state, MOVE_TIMEOUT)
+                stage = XYZStage(klipper.readonly)
+                commands = _build_gcode(body, state, stage)
+                klipper.send_gcode(commands)
+                return fetch_status(klipper)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _build_gcode(

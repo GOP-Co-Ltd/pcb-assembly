@@ -41,6 +41,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from webui.app import create_app
+from webui.jobs.catalog import default_catalog
+from webui.routers.pages import TABS as PAGE_TABS
 from webui.settings import Settings
 from webui.state import AppState
 
@@ -601,6 +603,19 @@ class TestPasteSolderPadEditor:
 
         assert "pad-viewer" not in text
         assert "pad_editor.js" not in text
+
+
+class TestTabsCatalogConsistency:
+    """TABS（サイドバー掲載）と catalog（ジョブ登録）の整合."""
+
+    def test_every_visible_job_is_listed_in_its_tab(self):
+        """Hidden 以外の全ジョブは所属タブの TABS に掲載されている."""
+        for definition in default_catalog().list():
+            if definition.hidden:
+                continue
+            assert (
+                definition.name in PAGE_TABS[definition.tab]
+            ), f"{definition.name} が TABS[{definition.tab!r}] に掲載されていません"
 
 
 class TestPnpPlaceholder:

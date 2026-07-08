@@ -1,4 +1,4 @@
-"""FastAPI アプリケーションファクトリと依存取得ヘルパ."""
+"""FastAPI アプリケーションファクトリ."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, override
+from typing import override
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -17,9 +17,21 @@ from starlette.responses import Response
 
 from webui.board_settings import BoardSettingsStore
 from webui.config_store import ConfigStore, UnknownFieldError
-from webui.jobs.catalog import JobCatalog, default_catalog
+from webui.jobs.catalog import default_catalog
 from webui.jobs.manager import JobManager
 from webui.preview import PreviewService
+from webui.routers import (
+    files,
+    jobs,
+    machine,
+    machine_control,
+    pages,
+    pasting,
+    pasting_loading,
+    preview as preview_router,
+    settings_api,
+    system,
+)
 from webui.settings import Settings
 from webui.state import AppState, BusyError
 
@@ -43,47 +55,6 @@ def _static_asset_url(path: str) -> str:
     asset_path = _STATIC_DIR / normalized
     version = asset_path.stat().st_mtime_ns if asset_path.is_file() else 0
     return f"/static/{quote(normalized, safe='/')}?v={version}"
-
-
-def get_state(request: Request) -> AppState:
-    return request.app.state.appstate
-
-
-def get_store(request: Request) -> ConfigStore:
-    return request.app.state.store
-
-
-def get_settings(request: Request) -> Settings:
-    return request.app.state.settings
-
-
-def get_templates(request: Request) -> Jinja2Templates:
-    return request.app.state.templates
-
-
-def get_preview(request: Request) -> PreviewService:
-    return request.app.state.preview
-
-
-def get_jobs(request: Request) -> JobManager:
-    return request.app.state.jobs
-
-
-def get_catalog(request: Request) -> JobCatalog:
-    return request.app.state.catalog
-
-
-def get_board_store(request: Request) -> BoardSettingsStore:
-    return request.app.state.board_store
-
-
-StateDep = Annotated[AppState, Depends(get_state)]
-StoreDep = Annotated[ConfigStore, Depends(get_store)]
-SettingsDep = Annotated[Settings, Depends(get_settings)]
-PreviewDep = Annotated[PreviewService, Depends(get_preview)]
-JobsDep = Annotated[JobManager, Depends(get_jobs)]
-CatalogDep = Annotated[JobCatalog, Depends(get_catalog)]
-BoardStoreDep = Annotated[BoardSettingsStore, Depends(get_board_store)]
 
 
 @asynccontextmanager
@@ -145,19 +116,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
-    # 循環 import を避けるため、ルーターはここで import する
-    from webui.routers import (
-        files,
-        jobs,
-        machine,
-        machine_control,
-        pages,
-        pasting,
-        preview as preview_router,
-        settings_api,
-        system,
-    )
-
     app.include_router(machine.router)
     app.include_router(files.router)
     app.include_router(settings_api.router)
@@ -166,6 +124,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(preview_router.router)
     app.include_router(jobs.router)
     app.include_router(pasting.router)
+    app.include_router(pasting_loading.router)
     # /{tab} のキャッチオールを持つため最後に登録する
     app.include_router(pages.router)
     return app

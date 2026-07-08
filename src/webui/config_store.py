@@ -1,7 +1,6 @@
-"""machine.toml / printer.cfg のホワイトリスト読み書き.
+"""machine.toml のホワイトリスト読み書き.
 
-machine.toml は tomlkit でコメント・構造を保持して書き戻す。printer.cfg は
-既存行の値のみを行ベースで書き換える（行追加はしない）。
+machine.toml は tomlkit でコメント・構造を保持して書き戻す。
 """
 
 from __future__ import annotations
@@ -15,6 +14,10 @@ import tomlkit
 from tomlkit.items import Item, Table
 
 from pcbasm.config import DISPENSE_MODES
+
+type SettingValueType = Literal[
+    "float", "int", "str", "float_or_auto", "dispense_mode", "bool"
+]
 
 
 @attrs.frozen
@@ -30,29 +33,11 @@ class FieldSpec:
 
     key: str
     label: str
-    value_type: Literal["float", "int", "str", "float_or_auto", "dispense_mode", "bool"]
+    value_type: SettingValueType
     unit: str | None = None
 
 
 type MachineSettingValue = float | int | str | bool
-
-
-# 設定セクション（key のドット区切り親パス）→ UI 表示名。
-# settings ページの階層表示に使う
-SECTION_LABELS: dict[str, str] = {
-    "paste_dispenser": "ペーストディスペンサー",
-    "paste_dispenser.toolhead": "ペーストディスペンサー / ツールヘッド",
-    "paste_dispenser.pad_align": "ペーストディスペンサー / パッド位置合わせ",
-    "probe": "プローブ",
-    "reference_point": "基準点",
-    "camera": "カメラ",
-    "camera.crop": "カメラ / クロップ",
-}
-
-
-def section_of(key: str) -> str:
-    """設定 key の属するセクション（最後のドットより前）を返す."""
-    return key.rsplit(".", 1)[0]
 
 
 MACHINE_FIELDS: tuple[FieldSpec, ...] = (

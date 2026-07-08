@@ -24,7 +24,6 @@ from pcbasm.posctrl import (
     PadAlignmentSession,
     PadResultRenderer,
     render_label,
-    setup_board_calibration,
     sorted_top_component_pads,
 )
 from pcbasm.vision import (
@@ -35,10 +34,17 @@ from pcbasm.vision import (
     draw_detected_circle,
     draw_overlay,
 )
+from webui.jobs.board_ops import align_component_groups, setup_board
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from webui.jobs.context import JobAborted, JobContext, PromptSpec
+from webui.jobs.context import (
+    ApplyFile,
+    ApplyPayload,
+    JobAborted,
+    JobContext,
+    JobResult,
+    PromptSpec,
+)
 from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
-from webui.jobs.manager import ApplyFile, ApplyPayload, Artifact, JobResult
 
 # camera_calibration の Z 取得（best-effort）のタイムアウト [sec]
 Z_QUERY_TIMEOUT = 5.0
@@ -55,7 +61,7 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="reference_point_setup",
-            label="Reference Point Setup",
+            label="基準点設定",
             tab="posctrl",
             run=_run_reference_point_setup,
             uses_machine=True,
@@ -65,7 +71,7 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="camera_calibration",
-            label="Camera Calibration",
+            label="カメラキャリブレーション",
             tab="posctrl",
             run=_run_camera_calibration,
             params=(
@@ -79,7 +85,7 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="board_tour",
-            label="Board Tour",
+            label="ボード巡回",
             tab="posctrl",
             run=_run_board_tour,
             params=(
@@ -92,7 +98,7 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="orthogonality_test",
-            label="Orthogonality Test",
+            label="直行性テスト",
             tab="posctrl",
             run=_run_orthogonality_test,
             params=(
@@ -105,7 +111,7 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="generate_grid_pcb",
-            label="Generate Grid Pcb",
+            label="グリッド PCB 生成",
             tab="posctrl",
             run=_run_generate_grid_pcb,
             params=(
@@ -314,35 +320,14 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
             f" / Z: {z if z is not None else '未取得'}"
         ),
         artifacts=(
-            Artifact(
-                label="コーナー検出",
-                path=f"{ctx.artifacts_dir.name}/{png_name}",
-                kind="image",
-            ),
-            Artifact(
-                label="キャリブレーション JSON",
-                path=f"{ctx.artifacts_dir.name}/{filename}",
-                kind="file",
-            ),
+            ctx.artifact("コーナー検出", png_name, "image"),
+            ctx.artifact("キャリブレーション JSON", filename, "file"),
         ),
         apply=ApplyPayload(
             label=f"{filename} を保存し [camera].calibration_file に設定",
             values={"camera.calibration_file": filename},
             files=(ApplyFile(filename, json_bytes),),
         ),
-    )
-
-
-def _calibrated_board(ctx: JobContext, camera: Camera) -> BoardCalibrationResult:
-    """選択 PCB とジョブパラメータでボードキャリブレーションを実行する."""
-    assert ctx.pcb_path is not None  # requires_pcb=True
-    ctx.progress("セットアップ")
-    return setup_board_calibration(
-        machine=ctx.machine,
-        pcb_file_path=ctx.pcb_path,
-        tolerance=float(ctx.params["tolerance"]),
-        camera=camera,
-        frame_sink=ctx.frame,
     )
 
 
@@ -418,7 +403,7 @@ def _stream_pad_result(
 def _run_board_tour(ctx: JobContext) -> JobResult:
     """四隅巡回 → 銅箔照合 → 補正適用済み全 pad 巡回を実行する."""
     with ctx.open_camera() as camera:
-        result = _calibrated_board(ctx, camera)
+        result = setup_board(ctx, camera)
         board_transform = result.board_transform
 
         # 四隅巡回（左上に戻る 5 点）
@@ -433,35 +418,28 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             _move_to(result, machine_pt)
             _stream_labeled_frames(ctx, result, f"Corner: {name}")
 
-        # 銅箔照合（部品単位の自動位置合わせ）
+        # 銅箔照合（部品単位の自動位置合わせ）。失敗時は FAILED overlay を配信する
         groups = sorted_top_component_pads(result)
         ctx.log(f"padを持つ部品数: {len(groups)}")
         session = PadAlignmentSession.from_calibration(result, frame_sink=ctx.frame)
-        alignments: list[tuple[ComponentPads, PadAlignmentResult]] = []
-        for index, group in enumerate(groups):
-            ctx.progress("銅箔照合", 100.0 * index / len(groups))
-            ctx.checkpoint()
-            designator = group.component.designator
-            alignment = session.align(group)
-            if alignment is None:
-                ctx.log(f"警告: {designator} の照合に失敗")
-                renderer = _pad_renderer(
-                    result,
-                    session,
-                    session.projector,
-                    group.pads,
-                    result.stage.get_position().to2d(),
-                )
-                lines = [f"{designator} {index + 1}/{len(groups)}", "FAILED"]
-                _stream_pad_result(ctx, result, renderer, lines)
-                continue
-            alignments.append((group, alignment))
-            translation = alignment.translation
-            ctx.log(
-                f"{designator}: dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
-                f"theta={alignment.rotation.degrees:+.3f} deg, "
-                f"mean_distance={alignment.match.mean_distance_px:.2f} px"
+
+        def render_failed(group: ComponentPads, index: int) -> None:
+            renderer = _pad_renderer(
+                result,
+                session,
+                session.projector,
+                group.pads,
+                result.stage.get_position().to2d(),
             )
+            lines = [
+                f"{group.component.designator} {index + 1}/{len(groups)}",
+                "FAILED",
+            ]
+            _stream_pad_result(ctx, result, renderer, lines)
+
+        alignments = align_component_groups(
+            ctx, session, groups, on_failure=render_failed
+        )
 
         # 補正適用済みの全 pad 巡回
         entries = _corrected_entries(result, session, alignments)
@@ -511,7 +489,7 @@ def _corrected_entries(
 def _run_orthogonality_test(ctx: JobContext) -> JobResult:
     """直行性指標の計測と四隅・グリッド交点の自動巡回を実行する."""
     with ctx.open_camera() as camera:
-        result = _calibrated_board(ctx, camera)
+        result = setup_board(ctx, camera)
         board_transform = result.board_transform
 
         metrics = OrthogonalityMetrics.from_transform(board_transform)
@@ -564,7 +542,5 @@ def _run_generate_grid_pcb(ctx: JobContext) -> JobResult:
     return JobResult(
         summary=f"{size:g}x{size:g} mm / {divisions}x{divisions} = "
         f"{divisions ** 2} パッド",
-        artifacts=(
-            Artifact("グリッド PCB", f"{ctx.artifacts_dir.name}/{filename}", "file"),
-        ),
+        artifacts=(ctx.artifact("グリッド PCB", filename, "file"),),
     )

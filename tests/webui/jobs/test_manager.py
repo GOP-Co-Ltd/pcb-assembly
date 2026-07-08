@@ -29,11 +29,9 @@ from pathlib import Path
 import pytest
 
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from webui.jobs.context import JobContext, PromptSpec
+from webui.jobs.context import ApplyPayload, JobContext, JobResult, PromptSpec
 from webui.jobs.manager import (
-    ApplyPayload,
     JobManager,
-    JobResult,
     JobStatus,
     prompt_payload,
 )

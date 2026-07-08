@@ -14,9 +14,7 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any, Literal, override
-
-import attrs
+from typing import Any, override
 
 from pcbasm.hal import FrameHub, Klipper
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
@@ -25,8 +23,10 @@ from webui.board_settings import BoardSettingsStore
 from webui.jobs.catalog import JobCatalog, JobDefinition
 from webui.jobs.context import (
     Answer,
+    ApplyPayload,
     JobAborted,
     JobContext,
+    JobResult,
     ParamValue,
     PromptSpec,
 )
@@ -77,58 +77,11 @@ class JobStatus(enum.StrEnum):
         return self in (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.ABORTED)
 
 
-@attrs.frozen
-class Artifact:
-    """ジョブ成果物 1 件.
-
-    Attributes:
-        label: UI 表示名
-        path: data/webui/ からの相対パス（URL = /artifacts/<path>）
-        kind: image はインライン表示、file はダウンロードリンク
-    """
-
-    label: str
-    path: str
-    kind: Literal["image", "file"]
-
-
-@attrs.frozen
-class ApplyFile:
-    """設定反映時に configs/<machine>/ 直下へ書き込むファイル（Phase 4 用）."""
-
-    filename: str
-    content: bytes
-
-
-@attrs.frozen
-class ApplyPayload:
-    """SUCCEEDED ジョブが提示する「設定に反映」ペイロード.
-
-    Attributes:
-        label: コンソール表示用（例「canny_low = 60.0 を設定に反映」）
-        values: machine.toml ホワイトリストキー → 値
-        files: configs/<machine>/ へ書き込む追加ファイル
-    """
-
-    label: str
-    values: Mapping[str, ParamValue]
-    files: tuple[ApplyFile, ...] = ()
-
-
-@attrs.frozen
-class JobResult:
-    """ジョブ関数の戻り値（成果サマリ・成果物・設定反映ペイロード）."""
-
-    summary: str | None = None
-    artifacts: tuple[Artifact, ...] = ()
-    apply: ApplyPayload | None = None
-
-
 class JobRecord:
     """直近 1 件のジョブ状態（mutable、JobManager がロック保護で更新する）.
 
-    更新系メソッド（set_* / append_log / consume_apply）は JobManager 内部 専用。外部からは
-    read プロパティのみ参照する。
+    更新系メソッド（set_* / finish / append_log / consume_apply）は JobManager 内部
+    専用。外部からは read プロパティのみ参照する。
     """
 
     def __init__(
@@ -217,18 +170,23 @@ class JobRecord:
         with self._lock:
             self._status = status
 
+    def finish(
+        self,
+        status: JobStatus,
+        *,
+        error: str | None = None,
+        result: JobResult | None = None,
+    ) -> None:
+        """終端ステータス・error・result を 1 ロックで原子的に確定する."""
+        with self._lock:
+            self._status = status
+            self._error = error
+            self._result = result
+
     def update_params(self, updates: Mapping[str, ParamValue]) -> None:
         """実行中編集をレコードへ反映する（GET /jobs/current が新値を映す）."""
         with self._lock:
             self._params.update(updates)
-
-    def set_error(self, error: str) -> None:
-        with self._lock:
-            self._error = error
-
-    def set_result(self, result: JobResult | None) -> None:
-        with self._lock:
-            self._result = result
 
     def append_log(self, line: str) -> None:
         with self._lock:
@@ -277,19 +235,14 @@ class _JobRuntime:
         self._apply_settings = apply_settings
         self._pending_lock = threading.Lock()
         self._pending: _PendingPrompt | None = None
-        # 実行中パラメータ編集のライブストア（コマンドキュー非経由で適用）。
-        self._params_lock = threading.Lock()
-        self._params: dict[str, ParamValue] = dict(record.params)
 
     def live_params(self) -> Mapping[str, ParamValue]:
-        """現在のパラメータのスナップショット（torn read 防止のコピー）."""
-        with self._params_lock:
-            return dict(self._params)
+        """現在のパラメータのスナップショット（record が唯一のストア）."""
+        return self.record.params
 
     def update_params(self, updates: Mapping[str, ParamValue]) -> None:
-        """ライブストアへ patch を適用する（prompt / sleep 待機中でも反映）."""
-        with self._params_lock:
-            self._params.update(updates)
+        """Record へ patch を適用する（prompt / sleep 待機中でも反映）."""
+        self.record.update_params(updates)
 
     def publish_status(self) -> None:
         """job_status イベントを発行する（中身は WS 送信時に最新化される）."""
@@ -486,7 +439,6 @@ class JobManager:
             selected_pcb = self._state.selected_pcb
             context = JobContext(
                 runtime,
-                params=params,
                 pcb_path=pcb_path,
                 machine=machine,
                 artifacts_dir=artifacts_dir,
@@ -581,7 +533,6 @@ class JobManager:
         definition = self._catalog.get(record.name)
         validated = self._catalog.validate_runtime_params(definition, values)
         runtime.update_params(validated)
-        record.update_params(validated)
         if persist:
             persisted = {
                 key: validated[key]
@@ -696,15 +647,13 @@ class JobManager:
             runtime.publish_status()
             try:
                 result = definition.run(context)
-                record.set_result(result)
-                record.set_status(JobStatus.SUCCEEDED)
+                record.finish(JobStatus.SUCCEEDED, result=result)
             except JobAborted:
-                record.set_status(JobStatus.ABORTED)
+                record.finish(JobStatus.ABORTED)
             except Exception as exc:
-                record.set_error(str(exc) or type(exc).__name__)
                 for line in traceback.format_exc().splitlines():
                     runtime.log(line)
-                record.set_status(JobStatus.FAILED)
+                record.finish(JobStatus.FAILED, error=str(exc) or type(exc).__name__)
             # 装置を動かすジョブは終了時に best-effort で基板を差し出す
             if definition.uses_machine:
                 self._present_machine(runtime, context)

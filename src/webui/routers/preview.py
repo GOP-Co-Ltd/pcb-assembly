@@ -13,7 +13,7 @@ from fastapi.responses import Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.types import Receive, Scope, Send
 
-from webui.app import PreviewDep, StateDep
+from webui.dependencies import PreviewDep, StateDep
 from webui.preview import MJPEG_MEDIA_TYPE, OverlayKind
 from webui.state import AppState
 

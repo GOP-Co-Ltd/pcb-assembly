@@ -9,7 +9,7 @@ from typing import Any, cast
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from webui.app import CatalogDep, JobsDep, SettingsDep, StateDep, StoreDep
+from webui.dependencies import CatalogDep, JobsDep, SettingsDep, StateDep, StoreDep
 from webui.jobs.catalog import JobCatalog, JobDefinition
 from webui.jobs.manager import JobManager, JobRecord, prompt_payload
 from webui.models import (
