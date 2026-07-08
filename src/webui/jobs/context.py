@@ -45,6 +45,53 @@ class PromptSpec:
     false_label: str | None = None
 
 
+@attrs.frozen
+class Artifact:
+    """ジョブ成果物 1 件.
+
+    Attributes:
+        label: UI 表示名
+        path: data/webui/ からの相対パス（URL = /artifacts/<path>）
+        kind: image はインライン表示、file はダウンロードリンク
+    """
+
+    label: str
+    path: str
+    kind: Literal["image", "file"]
+
+
+@attrs.frozen
+class ApplyFile:
+    """設定反映時に configs/<machine>/ 直下へ書き込むファイル（Phase 4 用）."""
+
+    filename: str
+    content: bytes
+
+
+@attrs.frozen
+class ApplyPayload:
+    """SUCCEEDED ジョブが提示する「設定に反映」ペイロード.
+
+    Attributes:
+        label: コンソール表示用（例「canny_low = 60.0 を設定に反映」）
+        values: machine.toml ホワイトリストキー → 値
+        files: configs/<machine>/ へ書き込む追加ファイル
+    """
+
+    label: str
+    values: Mapping[str, ParamValue]
+    files: tuple[ApplyFile, ...] = ()
+
+
+@attrs.frozen
+class JobResult:
+    """ジョブ関数の戻り値（成果サマリ・成果物・設定反映ペイロード）."""
+
+    summary: str | None = None
+    artifacts: tuple[Artifact, ...] = ()
+    apply: ApplyPayload | None = None
+
+
 class JobBridge(Protocol):
     """JobContext が委譲するワーカー同期機構（JobManager 内部が実装する）."""
 
@@ -81,7 +128,6 @@ class JobContext:
         self,
         bridge: JobBridge,
         *,
-        params: Mapping[str, ParamValue],
         pcb_path: Path | None,
         machine: Machine,
         artifacts_dir: Path,
@@ -89,9 +135,7 @@ class JobContext:
         source_pcb: str | None = None,
         board_store: BoardSettingsStore | None = None,
     ) -> None:
-        # params は manager がブリッジのライブストア初期値として使う。
-        # JobContext 自身は live_params() 経由で都度読むため保持しない。
-        del params
+        # パラメータは保持しない（ブリッジの live_params() 経由で都度読む）
         self._bridge = bridge
         self._pcb_path = pcb_path
         self._machine = machine
@@ -138,6 +182,14 @@ class JobContext:
     def board_store(self) -> BoardSettingsStore | None:
         """基板ごとの塗布設定ストア（未配線なら None）."""
         return self._board_store
+
+    def artifact(
+        self, label: str, filename: str, kind: Literal["image", "file"]
+    ) -> Artifact:
+        """``artifacts_dir`` 直下のファイルを指す Artifact を作る."""
+        return Artifact(
+            label=label, path=f"{self._artifacts_dir.name}/{filename}", kind=kind
+        )
 
     def apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None:
         """選択マシンの machine.toml へホワイトリスト項目を即時書き込む.

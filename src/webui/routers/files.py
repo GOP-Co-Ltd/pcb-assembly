@@ -8,8 +8,8 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from webui.app import JobsDep, PreviewDep, SettingsDep, StateDep
-from webui.routers.machine import StateResponse, build_state_response
+from webui.dependencies import JobsDep, PreviewDep, SettingsDep, StateDep
+from webui.routers.common import StateResponse, build_state_response
 
 router = APIRouter(prefix="/api")
 

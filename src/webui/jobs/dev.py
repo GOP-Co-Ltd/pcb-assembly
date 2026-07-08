@@ -6,7 +6,6 @@ pcbnew に依存するジョブは関数内で遅延 import する（KiCAD 未�
 from __future__ import annotations
 
 import time
-from typing import Literal
 
 import cv2
 import numpy as np
@@ -15,8 +14,12 @@ from pcbasm.pcb import PcbFile
 from pcbasm.vision import Image
 from pcbasm.visualization import render_pcb
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from webui.jobs.context import JobContext, PromptSpec
-from webui.jobs.manager import ApplyPayload, Artifact, JobResult
+from webui.jobs.context import (
+    ApplyPayload,
+    JobContext,
+    JobResult,
+    PromptSpec,
+)
 
 
 def register_dev_jobs(catalog: JobCatalog) -> None:
@@ -24,7 +27,7 @@ def register_dev_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="extract_pcb",
-            label="Extract PCB",
+            label="PCB 情報抽出",
             tab="dev",
             run=_run_extract_pcb,
             requires_pcb=True,
@@ -34,7 +37,7 @@ def register_dev_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="make_fill_coverage_pcb",
-            label="Make Fill Coverage Pcb",
+            label="塗布カバレッジ PCB 生成",
             tab="dev",
             run=_run_make_fill_coverage_pcb,
             uses_machine=False,
@@ -43,7 +46,7 @@ def register_dev_jobs(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
             name="job_demo",
-            label="Job Demo",
+            label="ジョブデモ",
             tab="dev",
             run=_run_job_demo,
             params=(
@@ -60,13 +63,6 @@ def register_dev_jobs(catalog: JobCatalog) -> None:
             hidden=True,
         )
     )
-
-
-def _artifact(
-    ctx: JobContext, label: str, filename: str, kind: Literal["image", "file"]
-) -> Artifact:
-    """ctx.artifacts_dir 直下のファイルを指す Artifact を作る."""
-    return Artifact(label=label, path=f"{ctx.artifacts_dir.name}/{filename}", kind=kind)
 
 
 def _run_extract_pcb(ctx: JobContext) -> JobResult:
@@ -108,11 +104,11 @@ def _run_extract_pcb(ctx: JobContext) -> JobResult:
             f"部品 {len(components)} / パッド {len(pads)} / 銅箔 {len(copper)}"
         ),
         artifacts=(
-            _artifact(ctx, "PCB 可視化", png_name, "image"),
-            _artifact(ctx, "アウトライン", "outline.json", "file"),
-            _artifact(ctx, "部品 (PnP)", "pnp.csv", "file"),
-            _artifact(ctx, "パッド", "pads.json", "file"),
-            _artifact(ctx, "銅箔", "copper.json", "file"),
+            ctx.artifact("PCB 可視化", png_name, "image"),
+            ctx.artifact("アウトライン", "outline.json", "file"),
+            ctx.artifact("部品 (PnP)", "pnp.csv", "file"),
+            ctx.artifact("パッド", "pads.json", "file"),
+            ctx.artifact("銅箔", "copper.json", "file"),
         ),
     )
 
@@ -130,7 +126,7 @@ def _run_make_fill_coverage_pcb(ctx: JobContext) -> JobResult:
 
     return JobResult(
         summary="fill 要件網羅フィクスチャを生成しました",
-        artifacts=(_artifact(ctx, "Fill Coverage PCB", filename, "file"),),
+        artifacts=(ctx.artifact("Fill Coverage PCB", filename, "file"),),
     )
 
 

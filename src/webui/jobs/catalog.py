@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import attrs
 
-from webui.jobs.context import ParamValue
-
-if TYPE_CHECKING:
-    from webui.jobs.context import JobContext
-    from webui.jobs.manager import JobResult
+from webui.jobs.context import JobContext, JobResult, ParamValue
 
 
 @attrs.frozen
@@ -27,6 +23,7 @@ class ParamSpec:
         unit: 表示用の単位（任意）
         help: 補足説明（任意）
         runtime_editable: 実行中に値を変更できるか（True で patch 受理）
+        minimum: 数値型の下限（None は制約なし。下回る値は検証エラー）
     """
 
     name: str
@@ -37,6 +34,7 @@ class ParamSpec:
     unit: str | None = None
     help: str | None = None
     runtime_editable: bool = False
+    minimum: float | None = None
 
 
 @attrs.frozen
@@ -143,12 +141,12 @@ class JobCatalog:
         """実行中編集用に runtime_editable な subset のみ検証して返す.
 
         与えられたキーだけを coerce して返す（default 充填はしない＝patch）。
-        型変換規則・int 規則・removal_z_offset の負値拒否は ``validate_params``
-        と同じ ``_coerce_param`` を共有する。
+        型変換規則・int 規則・minimum 下限は ``validate_params`` と同じ
+        ``_coerce_param`` を共有する。
 
         Raises:
             ValueError: runtime_editable でないキー（固定／未知）・型不一致・
-                負の removal_z_offset の場合
+                minimum 未満の場合
         """
         editable = {
             spec.name: spec for spec in definition.params if spec.runtime_editable
@@ -185,7 +183,7 @@ class JobCatalog:
 
 
 def default_catalog() -> JobCatalog:
-    """Dev 3 + posctrl 5 + pasting 7 ジョブ登録済みのカタログを返す."""
+    """Dev 3 + posctrl 5 + pasting 6 ジョブ登録済みのカタログを返す."""
     # 循環 import（dev/posctrl/pasting → manager → catalog）を避けるため遅延 import する
     from webui.jobs.dev import register_dev_jobs
     from webui.jobs.pasting import register_pasting_jobs
@@ -202,16 +200,16 @@ def _coerce_param(spec: ParamSpec, value: object) -> ParamValue:
     """値を ParamSpec の型に合わせて検証・変換する.
 
     Raises:
-        ValueError: 型が一致しない・choice 範囲外・removal_z_offset が負の場合
+        ValueError: 型が一致しない・choice 範囲外・minimum 未満の場合
     """
     coerced = _coerce_type(spec, value)
-    # 退避量オフセットは負にできない（退避 Z = z_max − offset がはみ出るため）。
-    # 起動時 validate_params と実行中 validate_runtime_params の両経路で効くよう
-    # coerce 共通層に置く。汎用の下限機構は需要が出るまで導入しない。
+    # 下限制約（minimum）は起動時 validate_params と実行中
+    # validate_runtime_params の両経路で効くよう coerce 共通層に置く。
     if (
-        spec.name == "removal_z_offset"
+        spec.minimum is not None
+        and not isinstance(coerced, bool)
         and isinstance(coerced, (int, float))
-        and coerced < 0
+        and coerced < spec.minimum
     ):
         raise ValueError(
             f"{spec.name}: マイナスにできません（与えられた値: {coerced!r}）"

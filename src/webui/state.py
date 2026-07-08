@@ -122,8 +122,11 @@ class AppState:
     def write_machine_settings(self, values: Mapping[str, MachineSettingValue]) -> None:
         """選択マシンの machine.toml へホワイトリスト項目を書き込む.
 
-        装置排他ロックは取らない（ロック保持中のジョブワーカーからの
-        即時反映用。ロックが必要な経路は呼び出し側で取る）。
+        ジョブワーカー専用（排他ロック保持中の即時反映。
+        ``JobManager._apply_machine_settings`` 経由でのみ呼ぶ）。装置排他
+        ロックは取らない。リクエスト経路は「``machine_lock(owner)`` 内で
+        ``ConfigStore.write_machine_settings`` → ``publish_state_changed()``」
+        パターンを使うこと。
 
         Raises:
             UnknownFieldError: 未知キーまたは型不一致の場合

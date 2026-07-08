@@ -24,7 +24,7 @@ from websockets.sync.client import connect
 
 from tests.e2e.conftest import LiveServer
 from tests.webui.conftest import COPPER_PCB_FIXTURE, decode_jpeg, jpeg_payload
-from webui.routers.pasting import ResolvedSettings
+from webui.routers.pasting_view import ResolvedSettings
 
 _TERMINAL = ("succeeded", "failed", "aborted")
 _HTTP_TIMEOUT = 10.0

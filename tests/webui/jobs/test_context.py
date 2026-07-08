@@ -28,8 +28,8 @@ from pcbasm.vision import Image
 from tests.webui.conftest import decode_jpeg, jpeg_payload
 from webui.board_settings import BoardSettingsStore
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from webui.jobs.context import JobContext
-from webui.jobs.manager import JobManager, JobResult, JobStatus
+from webui.jobs.context import JobContext, JobResult
+from webui.jobs.manager import JobManager, JobStatus
 from webui.preview import PreviewService
 from webui.settings import Settings
 from webui.state import AppState

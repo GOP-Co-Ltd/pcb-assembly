@@ -35,8 +35,8 @@ from starlette.testclient import WebSocketTestSession
 
 from pcbasm.vision import CalibrationResult
 from webui.jobs.catalog import JobDefinition, ParamSpec
-from webui.jobs.context import JobContext, PromptSpec
-from webui.jobs.manager import Artifact, JobManager, JobResult
+from webui.jobs.context import Artifact, JobContext, JobResult, PromptSpec
+from webui.jobs.manager import JobManager
 from webui.state import AppState
 
 _TERMINAL = ("succeeded", "failed", "aborted")
@@ -121,6 +121,7 @@ def _register_runtime_editable(
                     default=0.0,
                     unit="mm",
                     runtime_editable=True,
+                    minimum=0.0,
                 ),
             ),
             persisted_params=("line_length",),
