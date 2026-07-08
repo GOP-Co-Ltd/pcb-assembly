@@ -80,3 +80,8 @@ top_left = [2.5, -2.5]
 top_right = [-2.5, -2.5]
 bottom_left = [2.5, 2.5]
 bottom_right = [-2.5, 2.5]
+
+[nozzle_cap]
+x = 67.1
+y = 44.3
+z = -11.4
