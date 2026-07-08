@@ -102,6 +102,35 @@ class TestMachineSettingsApi:
         assert fields["paste_dispenser.paste_height"]["value"] == "auto"
         assert fields["paste_dispenser.auto_line_aspect_ratio"]["value"] == 1.7
 
+    def test_get_returns_reference_point_offset_pairs(self, client: TestClient):
+        fields = {
+            field["key"]: field
+            for field in client.get("/api/settings/machine").json()["fields"]
+        }
+
+        top_left = fields["reference_point.offsets.top_left"]
+        assert top_left["value"] == [5.0, -5.0]
+        assert top_left["value_type"] == "float_pair"
+        assert fields["reference_point.offsets.bottom_right"]["value"] is None
+
+    def test_put_writes_float_pair(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"reference_point.offsets.bottom_right": [-5.0, 5.0]}},
+        )
+
+        assert response.status_code == 200, response.text
+        fields = {field["key"]: field for field in response.json()["fields"]}
+        assert fields["reference_point.offsets.bottom_right"]["value"] == [-5.0, 5.0]
+
+    def test_put_invalid_float_pair_returns_400(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"reference_point.offsets.top_left": [1.0]}},
+        )
+
+        assert response.status_code == 400
+
     def test_put_unknown_key_returns_400(self, client: TestClient):
         response = client.put(
             "/api/settings/machine",
