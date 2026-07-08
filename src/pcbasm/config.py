@@ -15,6 +15,8 @@ from pcbasm.utils import PROJECT_ROOT
 
 DISPENSE_MODES = ("auto", "dot", "line", "area")
 DispenseMode = Literal["auto", "dot", "line", "area"]
+MACHINE_TYPES = ("paste", "pnp")
+MachineType = Literal["paste", "pnp"]
 PasteHeight = float | Literal["auto"]
 DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
 DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR = 3.0
@@ -346,6 +348,15 @@ class ReferencePoint:
         return board_corner + self.offsets.get(corner)
 
 
+@attrs.frozen
+class NozzleCap:
+    """ノズルキャップ位置の設定（マシン座標 [mm]）."""
+
+    x: float
+    y: float
+    z: float
+
+
 def _structure_dispense_mode(value: object, _: object) -> DispenseMode:
     if isinstance(value, str) and value in DISPENSE_MODES:
         return value
@@ -391,6 +402,28 @@ class Machine:
         if key not in self._data:
             raise KeyError(f"'{key}' は設定ファイルに定義されていません")
         return self._converter.structure(self._data[key], cls)
+
+    @property
+    def machine_type(self) -> MachineType:
+        """マシン種別を取得する.
+
+        Raises:
+            KeyError: machine_type が設定ファイルに定義されていない場合
+            ValueError: paste / pnp 以外の値の場合
+        """
+        if "machine_type" not in self._data:
+            raise KeyError("'machine_type' は設定ファイルに定義されていません")
+        value = self._data["machine_type"]
+        if value not in MACHINE_TYPES:
+            raise ValueError(f"未知のマシン種別です: machine_type={value!r}")
+        return value
+
+    @property
+    def nozzle_cap(self) -> NozzleCap | None:
+        """ノズルキャップ位置設定を取得する（未記録なら None）."""
+        if "nozzle_cap" not in self._data:
+            return None
+        return self._get_config("nozzle_cap", NozzleCap)
 
     @property
     def klipper(self) -> Klipper:
