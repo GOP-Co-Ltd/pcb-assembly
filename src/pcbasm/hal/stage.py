@@ -198,45 +198,55 @@ class XYZStage:
     ) -> gcode.GCode:
         """単点移動のG-codeを生成する.
 
-        None座標は現在位置を維持し、relative=Trueは相対移動として扱う。
-        speed=Noneのときmax_velocityで解決する。解決後の点とfeedをlimitsで
-        検証し、範囲外の場合はValueErrorを送出する。
+        指定した軸のみをG1に含め、None軸は出力しない（未指定軸は機械側が
+        現在位置に保持する）。relative=Trueは現在位置に対する相対移動として
+        絶対座標に解決する。speed=Noneのときmax_velocityで解決する。
+        指定軸とfeedをlimitsで検証し、範囲外の場合はValueErrorを送出する。
 
         Args:
-            x: X座標（Noneは現在位置を維持、relative時は0.0）
-            y: Y座標（Noneは現在位置を維持、relative時は0.0）
-            z: Z座標（Noneは現在位置を維持、relative時は0.0）
+            x: X座標（Noneは移動しない）
+            y: Y座標（Noneは移動しない）
+            z: Z座標（Noneは移動しない）
             speed: 送り速度（Noneのときmax_velocity）
             relative: 相対移動フラグ
 
         Returns:
-            移動のGCode
+            移動のGCode（指定軸のみ）
 
         Raises:
-            ValueError: 移動先またはfeedが制限外の場合
+            ValueError: 全軸が未指定の場合、移動先またはfeedが制限外の場合
         """
+        if x is None and y is None and z is None:
+            raise ValueError("移動する軸が指定されていません")
+
         feed = float(
             (speed if speed is not None else Speed.rate(1.0)).resolve(self.max_velocity)
         )
 
-        if relative or x is None or y is None or z is None:
+        nx, ny, nz = x, y, z
+        if relative:
             current = self.get_position()
-            if relative:
-                nx = current.x + (x if x is not None else 0.0)
-                ny = current.y + (y if y is not None else 0.0)
-                nz = current.z + (z if z is not None else 0.0)
-            else:
-                nx = x if x is not None else current.x
-                ny = y if y is not None else current.y
-                nz = z if z is not None else current.z
-        else:
-            nx, ny, nz = x, y, z
+            nx = current.x + x if x is not None else None
+            ny = current.y + y if y is not None else None
+            nz = current.z + z if z is not None else None
 
-        point = Point3d(float(nx), float(ny), float(nz))
-        if not self.limits.contains(point, feed):
-            raise ValueError(f"制限外の移動先です: {point}, feed={feed}")
+        targets: dict[str, float | None] = {
+            "x": float(nx) if nx is not None else None,
+            "y": float(ny) if ny is not None else None,
+            "z": float(nz) if nz is not None else None,
+        }
+        axis_limits = {"x": self.limits.x, "y": self.limits.y, "z": self.limits.z}
+        violations = [
+            f"{axis}={value}"
+            for axis, value in targets.items()
+            if value is not None and value not in axis_limits[axis]
+        ]
+        if feed not in self.limits.v:
+            violations.append(f"feed={feed}")
+        if violations:
+            raise ValueError(f"制限外の移動先です: {', '.join(violations)}")
 
-        return gcode.move(x=point.x, y=point.y, z=point.z, velocity=feed)
+        return gcode.move(x=targets["x"], y=targets["y"], z=targets["z"], velocity=feed)
 
     def to_gcode(self, path: Path, *, speed: Speed) -> gcode.GCode:
         """Path の各点を G1 移動に変換する。各点と feed を limits 検証する.

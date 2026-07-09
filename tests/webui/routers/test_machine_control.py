@@ -39,6 +39,11 @@ class TestMachineControlValidation:
 
         assert response.status_code == 400
 
+    def test_move_without_axes_returns_400(self, client: TestClient):
+        response = client.post("/api/machine-control", json={"action": "move"})
+
+        assert response.status_code == 400
+
     def test_focus_z_without_z_position_returns_400(
         self, client: TestClient, configs_root: Path
     ):
