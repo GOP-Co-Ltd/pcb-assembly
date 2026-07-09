@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from pcbasm import gcode
 from pcbasm.hal import XYZStage
+from pcbasm.parking import move_to_cap
 from webui.dependencies import StateDep
 from webui.models import KlipperStatus
 from webui.routers.common import create_klipper, fetch_status, klipper_errors_to_502
@@ -87,5 +88,5 @@ def _build_gcode(
             cap = state.machine().nozzle_cap
             if cap is None:
                 raise ValueError("ノズルキャップ位置が未記録です")
-            commands = gcode.move_to_cap(cap.x, cap.y, cap.z)
+            commands = move_to_cap(stage, cap)
     return commands + gcode.wait_for_done()

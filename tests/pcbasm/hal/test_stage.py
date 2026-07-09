@@ -165,21 +165,36 @@ class TestXYZStage:
 
         assert result.to_list() == ["G1 X50.0 Y100.0 Z25.0 F6000.0"]
 
-    def test_move_resolves_missing_coords_against_current_position(
-        self, mock_stage_at_10: XYZStage
-    ):
-        # x, y は省略。現在位置 (10, 10, 10) で補完され、z のみ更新される。
+    def test_move_emits_only_specified_axes(self, mock_stage_at_10: XYZStage):
+        # x, y は省略。現在位置 (10, 10, 10) で補完せず、指定した z のみ出力する。
         result = mock_stage_at_10.move(z=25, speed=Speed.absolute(100))
 
-        assert result.to_list() == ["G1 X10.0 Y10.0 Z25.0 F6000.0"]
+        assert result.to_list() == ["G1 Z25.0 F6000.0"]
 
     def test_move_relative_adds_to_current_position(self, mock_stage_at_10: XYZStage):
-        # relative=True は現在位置 (10, 10, 10) への加算。z は省略のため変化なし。
+        # relative=True は現在位置 (10, 10, 10) への加算。z は省略のため出力しない。
         result = mock_stage_at_10.move(
             x=5, y=3, speed=Speed.absolute(100), relative=True
         )
 
-        assert result.to_list() == ["G1 X15.0 Y13.0 Z10.0 F6000.0"]
+        assert result.to_list() == ["G1 X15.0 Y13.0 F6000.0"]
+
+    @pytest.mark.parametrize("relative", [False, True])
+    def test_move_without_axes_raises(self, mock_stage: XYZStage, relative: bool):
+        with pytest.raises(ValueError, match="軸が指定されていません"):
+            mock_stage.move(relative=relative)
+
+    def test_move_raises_when_specified_axis_out_of_limits(self, mock_stage: XYZStage):
+        # z=51 は z∈[0,50] の範囲外。
+        with pytest.raises(ValueError, match="制限外"):
+            mock_stage.move(z=51, speed=Speed.absolute(100))
+
+    def test_move_relative_raises_when_resolved_out_of_limits(
+        self, mock_stage_at_10: XYZStage
+    ):
+        # 現在位置 x=10 に +95 で 105 となり x∈[0,100] の範囲外。
+        with pytest.raises(ValueError, match="制限外"):
+            mock_stage_at_10.move(x=95, speed=Speed.absolute(100), relative=True)
 
     def test_move_defaults_speed_to_max_velocity(self, mock_stage: XYZStage):
         # speed 未指定なら max_velocity(=300) で解決され F = 300*60。

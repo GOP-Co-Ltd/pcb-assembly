@@ -8,6 +8,7 @@ from typing import Any
 from pcbasm import gcode
 from pcbasm.config import Machine
 from pcbasm.hal import Klipper, XYZStage
+from pcbasm.parking import move_to_cap
 from webui.jobs.context import JobContext
 
 # wait_for_done (M400) を含む移動完了待ちのため長め（machine_control と同値）
@@ -85,9 +86,7 @@ def handle_machine_command(
                 if cap is None:
                     ctx.log("ノズルキャップ位置が未記録のため移動しません")
                 else:
-                    klipper.send_gcode(
-                        gcode.move_to_cap(cap.x, cap.y, cap.z) + gcode.wait_for_done()
-                    )
+                    klipper.send_gcode(move_to_cap(stage, cap) + gcode.wait_for_done())
             case _:
                 return False
     except ValueError as exc:

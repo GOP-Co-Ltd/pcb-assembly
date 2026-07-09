@@ -69,9 +69,6 @@ type GCodeLike = str | Iterable[str] | GCode
 
 PRESENT_MACRO = "PRESENT"
 
-# ノズルキャップ移動速度 [mm/s]（PRESENT マクロの F1200 と同速）
-CAP_PARK_VELOCITY = 20.0
-
 
 def homing(x: bool = False, y: bool = False, z: bool = False) -> GCode:
     """ホーミングコマンドを生成する.
@@ -125,31 +122,6 @@ def move(
     if not parts:
         return GCode()
     return GCode(f"G1 {' '.join(parts)}")
-
-
-def move_to_cap(
-    x: float, y: float, z: float, *, velocity: float = CAP_PARK_VELOCITY
-) -> GCode:
-    """ノズルキャップ位置への移動コマンドを生成する.
-
-    Z を 0 へ退避してからキャップ XY へ移動し、最後にキャップ Z へ下ろす。
-    M400 / M84 は含めない。
-
-    Args:
-        x: キャップ位置のX座標 [mm]
-        y: キャップ位置のY座標 [mm]
-        z: キャップ位置のZ座標 [mm]
-        velocity: 移動速度 [mm/s]
-
-    Returns:
-        移動のGCode（G90 + 3 段の G1）
-    """
-    return (
-        GCode("G90")
-        + move(z=0.0, velocity=velocity)
-        + move(x=x, y=y, velocity=velocity)
-        + move(z=z, velocity=velocity)
-    )
 
 
 def wait(seconds: float) -> GCode:
