@@ -57,7 +57,11 @@ from .settings import (
     validate_field_names,
     validate_override_values,
 )
-from .toolhead_offset import ToolheadOffsetResult
+from .toolhead_offset import (
+    ToolheadOffsetResult,
+    locate_paste_blob,
+    validate_offset_correction,
+)
 
 __all__ = [
     "DispenseRateCalibration",
@@ -99,6 +103,7 @@ __all__ = [
     "estimate_mass_flow",
     "find_orphans",
     "is_pad_enabled",
+    "locate_paste_blob",
     "plan_paste_route",
     "resolve_node_settings",
     "resolve_initial_purge",
@@ -109,5 +114,6 @@ __all__ = [
     "settings_to_dict",
     "validate_field_names",
     "validate_initial_purge",
+    "validate_offset_correction",
     "validate_override_values",
 ]

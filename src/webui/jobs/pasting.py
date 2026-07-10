@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +18,7 @@ from pcbasm.geometry import (
     Compose,
     Identity,
     Point2d,
+    Shift,
     Transform,
     sample_points_in_polygons,
     sampling_diagnostics,
@@ -46,12 +46,14 @@ from pcbasm.pasting import (
     base_override_from_config,
     dispense_rate_schedule,
     fill_speed_schedule,
+    locate_paste_blob,
     plan_paste_route,
     rate_sweep_amount,
     resolve_initial_purge,
     resolve_pad_settings,
     select_enabled_pads,
     slot_area,
+    validate_offset_correction,
 )
 from pcbasm.pcb import (
     Copper,
@@ -61,14 +63,13 @@ from pcbasm.pcb import (
     build_pad_hierarchy,
 )
 from pcbasm.posctrl import (
+    BoardCalibrationResult,
     ComponentAlignments,
-    OffsetObserver,
     PadAlignmentSession,
-    XYPositionAdjustor,
     sorted_top_component_pads,
 )
 from pcbasm.session import PasteSession
-from pcbasm.vision import CircleDetector, Image
+from pcbasm.vision import Image
 from pcbasm.visualization import (
     render_height_plane,
     render_planned_points,
@@ -118,6 +119,13 @@ DISPENSE_CALIBRATION_CONVERGENCE_REL_TOL = 0.02
 # 段ずらしレイアウトの描画領域マージン（銅板端から全周）。折り返し位置と
 # 収容可能本数（LineLayout.capacity）の算出に使う。
 DISPENSE_CALIBRATION_LAYOUT_MARGIN = 5.0
+
+# ツールヘッドオフセット計測のペースト痕検出円の直径範囲 [mm]
+# （単発 toolhead_offset ジョブの既定値と paste_solder のパージ痕較正で共用）
+TOOLHEAD_OFFSET_PASTE_DIAMETER_MIN = 0.0
+TOOLHEAD_OFFSET_PASTE_DIAMETER_MAX = 2.0
+# パージ痕較正で許容するオフセット補正量の上限 [mm]（超過は誤検出とみなし中止）
+TOOLHEAD_OFFSET_MAX_CORRECTION = 1.0
 
 
 @attrs.frozen
@@ -249,6 +257,13 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                 ),
                 ParamSpec(
                     "interactive_loading", "対話的ローディング", "bool", default=False
+                ),
+                ParamSpec(
+                    "calibrate_toolhead_offset",
+                    "オフセットキャリブレーション",
+                    "bool",
+                    default=True,
+                    persist=True,
                 ),
             ),
             requires_pcb=True,
@@ -503,10 +518,18 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                 ),
                 ParamSpec("lift_height", "吐出後の上昇高さ", "float", 5.0, unit="mm"),
                 ParamSpec(
-                    "paste_diameter_min", "検出円の最小直径", "float", 0.0, unit="mm"
+                    "paste_diameter_min",
+                    "検出円の最小直径",
+                    "float",
+                    TOOLHEAD_OFFSET_PASTE_DIAMETER_MIN,
+                    unit="mm",
                 ),
                 ParamSpec(
-                    "paste_diameter_max", "検出円の最大直径", "float", 2.0, unit="mm"
+                    "paste_diameter_max",
+                    "検出円の最大直径",
+                    "float",
+                    TOOLHEAD_OFFSET_PASTE_DIAMETER_MAX,
+                    unit="mm",
                 ),
             ),
             requires_pcb=True,
@@ -820,6 +843,8 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             [session.board_transform, session.toolhead_offset, height_plane]
         )
         total = LoadingTotals()
+        offset_result: ToolheadOffsetResult | None = None
+        calibrate_offset = bool(ctx.params["calibrate_toolhead_offset"])
         with session.make_applicator(transform=transform) as applicator:
             if ctx.params["interactive_loading"]:
                 pos = stage.get_position()
@@ -838,6 +863,27 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 applicator.deposit_at(
                     initial_purge_point, amount=initial_purge.amount_ul
                 )
+                if calibrate_offset:
+                    ctx.progress("オフセット較正")
+                    offset_result = _calibrate_toolhead_offset_from_purge(
+                        ctx,
+                        result,
+                        session,
+                        initial_purge_point,
+                        float(ctx.params["tolerance"]),
+                    )
+                    offset = offset_result.offset
+                    applicator.set_transform(
+                        Compose(
+                            [
+                                session.board_transform,
+                                Shift(x=offset.x, y=offset.y),
+                                height_plane,
+                            ]
+                        )
+                    )
+            elif calibrate_offset:
+                ctx.log("初回パージ無効のためオフセット較正をスキップします")
 
             # pad を 1 件ずつ apply して per-pad の進捗・設定・abort 境界を確保
             for index, (polygon, r) in enumerate(pairs):
@@ -857,14 +903,25 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                         boundary_margin=r.boundary_margin,
                     )
 
+    calibration_summary = (
+        f" / オフセット較正 X={offset_result.offset.x:+.4f} "
+        f"Y={offset_result.offset.y:+.4f} mm"
+        if offset_result is not None
+        else ""
+    )
     return JobResult(
         summary=(
             f"照合成功 {len(aligned)}/{len(groups)} 部品 / "
             f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ・"
             f"初回パージ {initial_purge.amount_ul if initial_purge else 0.0:.3f} uL・"
-            f"押出合計 {total.amount_ul:+.3f} uL）"
-        )
+            f"押出合計 {total.amount_ul:+.3f} uL）" + calibration_summary
+        ),
+        artifacts=(
+            (ctx.artifact("オフセット計測結果 JSON", "toolhead_offset.json", "file"),)
+            if offset_result is not None
+            else ()
+        ),
     )
 
 
@@ -881,6 +938,69 @@ def _initial_purge_point(
         ctx.log(f"警告: {initial_purge.pad_id} は未照合のため無補正で初回パージします")
         return initial_purge.pad.center
     return correction.apply(initial_purge.pad.center)
+
+
+def _calibrate_toolhead_offset_from_purge(
+    ctx: JobContext,
+    result: BoardCalibrationResult,
+    session: PasteSession,
+    purge_point: Point2d,
+    tolerance: float,
+) -> ToolheadOffsetResult:
+    """パージ痕からツールヘッドオフセットを較正し machine.toml へ即時反映する.
+
+    パージ吐出のステージ XY は ``toolhead_offset.apply(board_transform.apply(
+    purge_point))``（HeightPlane は XY 保存のため吐出時と一致する）。カメラを
+    パージ痕へ移動して円検出し、収束位置との差から新オフセットを算出する。
+
+    Raises:
+        RuntimeError: パージ痕の検出失敗・収束失敗、または補正量が
+            ``TOOLHEAD_OFFSET_MAX_CORRECTION`` を超える場合（書き込み前に中止）
+    """
+    purge_camera = session.board_transform.apply(purge_point)
+    purge_toolhead = session.toolhead_offset.apply(purge_camera)
+    camera_final_pos = locate_paste_blob(
+        camera=result.camera,
+        klipper=result.klipper,
+        stage=result.stage,
+        calibration=result.calibration,
+        offset_transform=result.offset_transform,
+        crop_size=session.machine.camera.crop.size,
+        camera_position=purge_camera,
+        diameter_min=TOOLHEAD_OFFSET_PASTE_DIAMETER_MIN,
+        diameter_max=TOOLHEAD_OFFSET_PASTE_DIAMETER_MAX,
+        tolerance=tolerance,
+        frame_sink=ctx.frame,
+    )
+    offset_result = ToolheadOffsetResult.measure(
+        dispense_position=purge_toolhead,
+        camera_position=camera_final_pos,
+        tolerance=tolerance,
+        calibrated_at=datetime.now(),
+    )
+    measured_offset = offset_result.offset
+    current_toolhead = session.machine.paste_dispenser.toolhead
+    error = validate_offset_correction(
+        measured_offset,
+        Point2d(x=current_toolhead.x, y=current_toolhead.y),
+        TOOLHEAD_OFFSET_MAX_CORRECTION,
+    )
+    if error is not None:
+        raise RuntimeError(error)
+    offset_result.save(ctx.artifacts_dir / "toolhead_offset.json")
+    _apply_to_machine_toml(
+        ctx,
+        {
+            "paste_dispenser.toolhead.x": measured_offset.x,
+            "paste_dispenser.toolhead.y": measured_offset.y,
+        },
+    )
+    ctx.log(
+        f"オフセット較正: X={measured_offset.x:+.4f} Y={measured_offset.y:+.4f} mm"
+        f"（現在設定との差 dX={measured_offset.x - current_toolhead.x:+.4f} "
+        f"dY={measured_offset.y - current_toolhead.y:+.4f}）"
+    )
+    return offset_result
 
 
 def _run_height_plane(ctx: JobContext) -> JobResult:
@@ -1738,35 +1858,19 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
 
             # ペースト検出 & 位置合わせ
             ctx.progress("ペースト検出")
-            klipper.send_gcode(
-                stage.move(
-                    x=center_camera.x,
-                    y=center_camera.y,
-                    z=calibration.z_position,
-                )
-                + gcode.wait_for_done()
-            )
-            time.sleep(1.0)
-            paste_detector = CircleDetector(
-                pixel_per_mm=calibration.pixel_per_mm,
-                target_diameter_mm=(diameter_min + diameter_max) / 2,
-                crop_size=machine.camera.crop.size,
-                diameter_tolerance_mm=(diameter_max - diameter_min) / 2,
-            )
-            paste_observer = OffsetObserver(
-                detector=paste_detector,
+            camera_final_pos = locate_paste_blob(
                 camera=result.camera,
-                crop_size=machine.camera.crop.size,
-                frame_sink=ctx.frame,
-            )
-            paste_adjustor = XYPositionAdjustor(
-                observe=paste_observer.observe,
                 klipper=klipper,
                 stage=stage,
+                calibration=calibration,
                 offset_transform=result.offset_transform,
+                crop_size=machine.camera.crop.size,
+                camera_position=center_camera,
+                diameter_min=diameter_min,
+                diameter_max=diameter_max,
                 tolerance=tolerance,
+                frame_sink=ctx.frame,
             )
-            camera_final_pos = paste_adjustor.adjust()
             ctx.log(
                 f"カメラ最終位置: ({camera_final_pos.x:.3f}, {camera_final_pos.y:.3f})"
             )

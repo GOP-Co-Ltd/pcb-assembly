@@ -214,6 +214,14 @@ class PasteApplicator:
         """ディスペンサーを無効化する（AirPump OFF + Stepper Disable）."""
         self._klipper.send_gcode(self._paste_dispenser.disable())
 
+    def set_transform(self, transform: Transform) -> None:
+        """塗布座標変換を差し替える（ツールヘッドオフセット較正後のラン内反映用）.
+
+        machine.toml 書き込み後も session / 設定オブジェクトは旧値のままであり、
+        実行中ランへの反映点はこのメソッドのみ。
+        """
+        self._transform = transform
+
     @property
     def _retraction_accel(self) -> float:
         """リトラクション加速度 a_R [μL/sec²]."""

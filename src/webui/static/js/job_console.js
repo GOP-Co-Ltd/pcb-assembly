@@ -420,6 +420,26 @@
   // ---- ジョブ開始フォーム ----
 
   for (const jobForm of forms) {
+    // data-persist な入力の選択を localStorage に保存・復元する（UI 状態のみ）。
+    // キーは jobParam:<ジョブ名>:<入力名>、checkbox は "1"/"0" で保存する。
+    for (const input of jobForm.querySelectorAll("[data-persist]")) {
+      const key = `jobParam:${jobForm.dataset.jobName}:${input.name}`;
+      const saved = localStorage.getItem(key);
+      if (saved !== null) {
+        if (input.type === "checkbox") {
+          input.checked = saved === "1";
+        } else {
+          input.value = saved;
+        }
+      }
+      input.addEventListener("change", () => {
+        localStorage.setItem(
+          key,
+          input.type === "checkbox" ? (input.checked ? "1" : "0") : input.value
+        );
+      });
+    }
+
     jobForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const params = {};

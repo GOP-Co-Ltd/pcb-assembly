@@ -24,6 +24,7 @@ class ParamSpec:
         help: 補足説明（任意）
         runtime_editable: 実行中に値を変更できるか（True で patch 受理）
         minimum: 数値型の下限（None は制約なし。下回る値は検証エラー）
+        persist: 選択を localStorage に保存するかの opt-in
     """
 
     name: str
@@ -35,6 +36,7 @@ class ParamSpec:
     help: str | None = None
     runtime_editable: bool = False
     minimum: float | None = None
+    persist: bool = False
 
 
 @attrs.frozen

@@ -441,6 +441,69 @@ class TestPasteSolderBrowserRendering:
         assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
 
 
+_CALIBRATE_PARAM_SELECTOR = "#param-calibrate_toolhead_offset"
+_CALIBRATE_STORAGE_KEY = "jobParam:paste_solder:calibrate_toolhead_offset"
+
+
+class TestPasteSolderCalibrateToolheadOffsetCheckbox:
+    """オフセット較正チェックボックス（purge-toolhead-calibration 計画書 要件 4）.
+
+    job-form 内に表示・default ON。トグルは localStorage キー
+    ``jobParam:paste_solder:calibrate_toolhead_offset`` に "1"/"0" で保存され、
+    リロード後に復元される（machine.toml には保存しない）。
+    """
+
+    def _wait_for_checked_state(self, page: Any, expected: bool):
+        page.wait_for_function(
+            """([selector, expected]) =>
+                document.querySelector(selector)?.checked === expected""",
+            arg=[_CALIBRATE_PARAM_SELECTOR, expected],
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+
+    def _wait_for_stored_value(self, page: Any, expected: str):
+        page.wait_for_function(
+            """([key, expected]) => localStorage.getItem(key) === expected""",
+            arg=[_CALIBRATE_STORAGE_KEY, expected],
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+
+    def test_checkbox_renders_in_job_form_and_defaults_checked(
+        self, live_server: LiveServer, browser_page
+    ):
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_server)
+
+        checkbox = browser_page.locator(
+            f'{_testid("job-form")} {_CALIBRATE_PARAM_SELECTOR}'
+        )
+        checkbox.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert checkbox.get_attribute("data-param-type") == "bool"
+        assert checkbox.get_attribute("data-persist") == "1"
+        # 保存値なし（新規 browser context）→ テンプレート default の ON
+        assert checkbox.is_checked()
+
+    def test_toggle_is_saved_to_localstorage_and_restored_after_reload(
+        self, live_server: LiveServer, browser_page
+    ):
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_server)
+        checkbox = browser_page.locator(_CALIBRATE_PARAM_SELECTOR)
+        checkbox.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+
+        # OFF へトグル → "0" が保存され、リロードで OFF に復元
+        checkbox.uncheck()
+        self._wait_for_stored_value(browser_page, "0")
+        browser_page.reload(wait_until="domcontentloaded")
+        self._wait_for_checked_state(browser_page, False)
+
+        # ON へ戻す → "1" が保存され、リロードで ON に復元
+        browser_page.locator(_CALIBRATE_PARAM_SELECTOR).check()
+        self._wait_for_stored_value(browser_page, "1")
+        browser_page.reload(wait_until="domcontentloaded")
+        self._wait_for_checked_state(browser_page, True)
+
+
 class TestPasteSolderBrowserPadInteraction:
     """実ブラウザ操作と API 永続化."""
 
