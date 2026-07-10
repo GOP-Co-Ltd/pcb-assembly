@@ -228,6 +228,34 @@ class TestMachine:
             machine.paste_dispenser
 
 
+class TestPadAlignMaxFailures:
+    """PadAlign.max_failures のテスト（paste-align-max-failures 計画書「公開 IF」節）.
+
+    照合失敗の許容部品数。デフォルト 0（1 部品でも失敗したら塗布ジョブを即中止）。
+    """
+
+    def test_defaults_to_zero_when_absent(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.paste_dispenser.pad_align.max_failures == 0
+
+    def test_reads_explicit_value(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source + "\n[paste_dispenser.pad_align]\nmax_failures = 2\n",
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.paste_dispenser.pad_align.max_failures == 2
+
+    def test_rejects_negative_value(self):
+        with pytest.raises(ValueError, match="max_failures"):
+            PadAlign(max_failures=-1)
+
+
 class TestMachineType:
     """Machine.machine_type のテスト（nozzle-cap-parking 計画書「公開インターフェース」節）.
 

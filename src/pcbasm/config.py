@@ -55,6 +55,13 @@ class PadAlign:
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
     canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
     blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
+    max_failures: int = 0  # 照合失敗の許容部品数。超過で塗布ジョブを即中止
+
+    def __attrs_post_init__(self) -> None:
+        if isinstance(self.max_failures, bool) or self.max_failures < 0:
+            raise ValueError(
+                f"max_failuresは0以上の整数である必要があります: {self.max_failures}"
+            )
 
 
 @attrs.frozen
