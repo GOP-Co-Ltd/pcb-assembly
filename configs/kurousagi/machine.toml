@@ -6,7 +6,7 @@ port = 7125
 
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
-rotations_per_ul = 10.98572 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
+rotations_per_ul = 15.26692 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
 # rotations_per_ul = 31.491713 # キャリブレーション値 2026/06/05 S3X70-E150DN
 # rotations_per_ul = 69.724771 # キャリブレーション値 2026/05/08 S3X70-E150DN
 solder_paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
@@ -17,7 +17,7 @@ auto_line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比
 auto_area_short_side_factor = 4.0 # Auto時に面塗布へ切り替える短辺のノズル径倍率
 max_dispense_rate = 0.25 # 吐出レート上限 [uL/sec]
 max_fill_speed = 2.0 # 連続塗布できる移動速度上限 [mm/sec]（実機で 1812 が連続になるまで調整）
-dispense_accel = 0.5 # 吐出加速度 [uL/sec^2]
+dispense_accel = 0.359788 # 吐出加速度 [uL/sec^2]
 retract_amount = 0.04 # リトラクション量 [uL]
 retract_accel_factor = 2.0 # リトラクション加速度係数
 paste_height = 0.2 # 塗布面のZ高さ [mm]、または auto
@@ -83,5 +83,5 @@ bottom_right = [-2.5, 2.5]
 
 [nozzle_cap]
 x = 67.1
-y = 44.3
-z = -11.4
+y = 52.0
+z = -23.0
