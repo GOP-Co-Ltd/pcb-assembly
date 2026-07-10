@@ -770,6 +770,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
         # 銅箔照合（部品単位）。有効 pad を 1 つ以上持つ部品のみ照合する。
         # 初回パージ pad が disabled pad の場合も、位置補正できるよう照合対象に含める。
+        # 失敗が許容数（pad_align.max_failures）を超えたら即中止。
         align_designators = {p.designator for p in enabled_pads}
         if initial_purge is not None:
             align_designators.add(initial_purge.pad.designator)
@@ -782,7 +783,12 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         align_session = PadAlignmentSession.from_calibration(
             result, frame_sink=ctx.frame
         )
-        aligned = align_component_groups(ctx, align_session, groups)
+        aligned = align_component_groups(
+            ctx,
+            align_session,
+            groups,
+            max_failures=session.machine.paste_dispenser.pad_align.max_failures,
+        )
         alignments = ComponentAlignments(
             board_transform=result.board_transform, results=tuple(aligned)
         )

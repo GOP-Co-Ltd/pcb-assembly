@@ -357,3 +357,39 @@ class TestAirPumpEnabled:
             store.write_machine_settings(
                 FIXTURE, {"paste_dispenser.max_fill_speed": True}
             )
+
+
+class TestPadAlignMaxFailures:
+    """Int 型フィールド pad_align.max_failures の読み書き（paste-align-max-failures 計画書）.
+
+    Repo fixture には max_failures を書かない（デフォルト 0 で動く）ため、 欠落時は None、write
+    後は round-trip する。負値は UnknownFieldError。
+    """
+
+    def test_missing_max_failures_reads_as_none(self, store: ConfigStore):
+        values = store.read_machine_settings(FIXTURE)
+
+        assert values["paste_dispenser.pad_align.max_failures"] is None
+
+    def test_write_then_reread_reflects_value(self, store: ConfigStore):
+        store.write_machine_settings(
+            FIXTURE, {"paste_dispenser.pad_align.max_failures": 2}
+        )
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.pad_align.max_failures"] == 2
+
+    def test_write_zero_allows_no_failure(self, store: ConfigStore):
+        # 境界: 0 は「失敗を 1 つも許容しない」という有効値
+        store.write_machine_settings(
+            FIXTURE, {"paste_dispenser.pad_align.max_failures": 0}
+        )
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.pad_align.max_failures"] == 0
+
+    def test_negative_max_failures_raises(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                FIXTURE, {"paste_dispenser.pad_align.max_failures": -1}
+            )
