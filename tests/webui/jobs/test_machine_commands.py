@@ -111,6 +111,18 @@ class TestHandleMachineCommand:
         assert results == [True]
         assert record.log_lines  # 実行できない旨の log が出る
 
+    def test_move_without_axes_logs_and_returns_true(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        """Move の軸なしは ValueError を log して True（送信しないので不通でも成功）."""
+        record, results = _run_handler_job(
+            manager, catalog, wait_until, [{"type": "move"}], focus_z=None
+        )
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert results == [True]
+        assert record.log_lines  # 実行できない旨の log が出る
+
     @pytest.mark.parametrize(
         "command",
         [
