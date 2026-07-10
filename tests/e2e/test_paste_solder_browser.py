@@ -230,7 +230,8 @@ def _wait_for_highlighted(page: Any, expected_ids: set[str]):
 
 
 def _approx(value: object, expected: float) -> bool:
-    return value is not None and abs(float(value) - expected) < 1e-9  # type: ignore[arg-type]
+    # ポーリング中は旧値（"auto" 等の文字列）が返り得るため、非数値は不一致扱い
+    return isinstance(value, int | float) and abs(value - expected) < 1e-9
 
 
 def _wait_for_override(
