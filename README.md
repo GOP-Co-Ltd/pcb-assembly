@@ -38,6 +38,14 @@ make webui-dev  # 開発用（auto-reload）
 make webui-fake # fake camera + 隔離 data_dir で起動
 ```
 
+systemd サービスとして登録し、システム起動時に自動起動する場合:
+
+```bash
+./install-webui-service.sh install
+./install-webui-service.sh status
+./install-webui-service.sh remove  # サービス登録を削除
+```
+
 環境変数で動作を切り替えられる（全量は `src/webui/settings.py`）:
 
 - `PCBASM_WEBUI_FAKE_CAMERA=1` — カメラ実機なしで固定画像を配信
