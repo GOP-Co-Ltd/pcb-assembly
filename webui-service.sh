@@ -8,11 +8,14 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") <install|remove|status>
+Usage: $(basename "$0") <install|start|stop|restart|status|remove>
 
   install  ${SERVICE_NAME} を登録し、起動時に自動起動する
-  remove   サービスを停止・無効化し、登録を削除する
+  start    サービスを起動する
+  stop     サービスを一時停止する（次回のシステム起動時には自動起動する）
+  restart  最新のソースでサービスを再起動する
   status   サービスの状態を表示する
+  remove   サービスを停止・無効化し、登録を削除する
 EOF
 }
 
@@ -97,6 +100,21 @@ remove_service() {
     echo "${SERVICE_NAME} を停止し、登録を削除しました。"
 }
 
+control_service() {
+    local action="$1"
+
+    require_non_root
+    require_command sudo
+    require_command systemctl
+
+    if [ ! -e "${UNIT_PATH}" ]; then
+        echo "エラー: ${SERVICE_NAME} は登録されていません。先に '$0 install' を実行してください。" >&2
+        exit 1
+    fi
+
+    sudo systemctl "${action}" "${SERVICE_NAME}"
+}
+
 show_status() {
     require_command systemctl
     systemctl status --no-pager "${SERVICE_NAME}"
@@ -105,6 +123,15 @@ show_status() {
 case "${1:-}" in
     install)
         install_service
+        ;;
+    start)
+        control_service start
+        ;;
+    stop)
+        control_service stop
+        ;;
+    restart)
+        control_service restart
         ;;
     remove)
         remove_service

@@ -41,9 +41,12 @@ make webui-fake # fake camera + 隔離 data_dir で起動
 systemd サービスとして登録し、システム起動時に自動起動する場合:
 
 ```bash
-./install-webui-service.sh install
-./install-webui-service.sh status
-./install-webui-service.sh remove  # サービス登録を削除
+./webui-service.sh install  # サービス登録・自動起動を有効化
+./webui-service.sh start    # 起動
+./webui-service.sh stop     # 一時停止（次回のシステム起動時には自動起動）
+./webui-service.sh restart  # 最新のソースで再起動
+./webui-service.sh status   # 状態確認
+./webui-service.sh remove   # サービス登録を削除
 ```
 
 環境変数で動作を切り替えられる（全量は `src/webui/settings.py`）:
