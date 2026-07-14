@@ -68,18 +68,25 @@ max_samples = 12            # 最大サンプル数
 lift_height = 0.5
 
 [reference_point]
-# 基準点（top left）のおおよその絶対位置 (mm)
+corner = "top_left" # アンカーコーナー: top_left / top_right / bottom_left / bottom_right
+# アンカーコーナーの基準点マーカーのおおよその絶対位置 (mm)
 x = 10.7
 y = 6.7
 # 基準点の直径 (mm)
 target_diameter = 3.0
+offset = [2.5, -2.5] # 基板コーナー → マーカー のオフセット [x, y] (mm)
 
-# 基盤からみた基準点の相対位置 (mm)
-[reference_point.offsets] # [x, y]で記述
-top_left = [2.5, -2.5]
-top_right = [-2.5, -2.5]
-bottom_left = [2.5, 2.5]
-bottom_right = [-2.5, 2.5]
+[board_align]
+# 基板コーナーの輪郭照合による board 変換計測
+# 制約: edge_length + search_window はカメラ視野の半分以下にする
+tolerance = 0.05     # 各コーナーサーボの収束許容誤差 [mm]
+max_correction = 2.0 # 照合ずれの上限 [mm]。超過は誤マッチとして棄却
+search_window = 1.5  # 照合の探索窓 片側幅 [mm]
+edge_length = 2.0    # コーナーROIの片側辺長 = 含める外形エッジ長 [mm]
+theta_range = 2.0    # 回転探索の片側範囲 [deg]
+canny_low = 100.0    # Cannyエッジ検出の下側閾値
+canny_high = 200.0   # Cannyエッジ検出の上側閾値
+blur_ksize = 5       # GaussianBlurカーネルサイズ (奇数)
 
 [nozzle_cap]
 x = 67.1
