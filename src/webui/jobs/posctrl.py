@@ -147,9 +147,9 @@ class _CachedPosition:
 
 
 def _run_reference_point_setup(ctx: JobContext) -> JobResult:
-    """基準点 (top left) をジョグで合わせ、現在位置を設定反映候補にする.
+    """基準点 (top left) をジョグで合わせ、現在位置を設定へ保存する.
 
-    マシン操作パネル（ジョブモード）の WS command でジョグし、record で 現在位置を確定、quit で中止する。
+    マシン操作パネル（ジョブモード）の WS command でジョグし、record で 現在位置を確定・即時反映、quit で中止する。
     """
     machine = ctx.machine
     klipper = create_command_klipper(machine)
@@ -188,15 +188,15 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
             ctx.checkpoint()
 
     pos = stage.get_position()
+    ctx.apply_machine_settings(
+        {
+            "reference_point.x": round(pos.x, 3),
+            "reference_point.y": round(pos.y, 3),
+        }
+    )
+    ctx.log(f"基準点を設定に反映しました: x={pos.x:.3f}, y={pos.y:.3f}")
     return JobResult(
-        summary=f"基準点: x={pos.x:.3f}, y={pos.y:.3f} mm",
-        apply=ApplyPayload(
-            label=f"[reference_point] x={pos.x:.3f}, y={pos.y:.3f} を設定に反映",
-            values={
-                "reference_point.x": round(pos.x, 3),
-                "reference_point.y": round(pos.y, 3),
-            },
-        ),
+        summary=f"基準点を設定に反映しました: x={pos.x:.3f}, y={pos.y:.3f} mm"
     )
 
 

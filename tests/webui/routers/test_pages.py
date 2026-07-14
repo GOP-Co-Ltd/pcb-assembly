@@ -271,6 +271,7 @@ class TestPosctrlJobPages:
         assert "record" in text
         assert "quit" in text
         assert "reference_point_setup.js" in text
+        assert "設定へ即時反映" in response.text
 
     def test_generate_grid_pcb_renders_form_without_preview(self, client: TestClient):
         """generate_grid_pcb はカメラ非依存の生成ジョブ（job.html、preview なし）."""
