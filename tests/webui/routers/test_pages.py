@@ -36,6 +36,7 @@ Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / s
 - pnp はプレースホルダのみ（サイドバー空 + 「機能を選択」）
 """
 
+import re
 from pathlib import Path
 
 import attrs
@@ -336,6 +337,27 @@ class TestPastingJobPages:
         assert "paste_dispenser.auto_area_short_side_factor" in text
         assert "Auto線塗布しきい縦横比" in text
         assert "Auto面塗布しきい短辺倍率" in text
+
+    def test_paste_solder_renders_persisted_calibrate_toolhead_offset_checkbox(
+        self, client: TestClient
+    ):
+        """オフセット較正チェックボックスが default checked + data-persist="1" で出る.
+
+        purge-toolhead-calibration
+        計画書「templates/partials/job_params.html」節: spec.persist
+        が真のとき入力要素に data-persist="1" を出力する。
+        """
+        text = client.get("/pasting/paste_solder").text
+
+        match = re.search(
+            r'<input[^>]*id="param-calibrate_toolhead_offset"[^>]*>', text
+        )
+        assert match is not None
+        tag = match.group(0)
+        assert 'type="checkbox"' in tag
+        assert 'data-param-type="bool"' in tag
+        assert "checked" in tag  # default=True
+        assert 'data-persist="1"' in tag
 
     @pytest.mark.parametrize("feature", PASTING_PREVIEW_FEATURES)
     def test_camera_jobs_render_preview_pane_without_overlay_switch(

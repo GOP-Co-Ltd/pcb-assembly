@@ -744,6 +744,74 @@ class TestDepositAt:
         assert amounts[0] == pytest.approx(retraction + 0.2)
 
 
+class TestSetTransform:
+    """公開 set_transform（計画書 purge-toolhead-calibration.md「公開 IF」節）.
+
+    ツールヘッドオフセット較正後、実行中ランへ新しい塗布座標変換を反映する 唯一の入口。既存 transform
+    と合成ではなく「差し替え」である。
+    """
+
+    def test_deposit_at_uses_replaced_transform(self, applicator, mock_stage):
+        # Arrange: 既定 transform（Identity）を Shift へ差し替える
+        applicator.set_transform(Shift(x=3.0, y=-2.0, z=0.0))
+
+        # Act
+        applicator.deposit_at(Point2d(4.0, 5.0), amount=0.2, paste_height=0.6)
+
+        # Assert: 下降 move の XY が新変換適用後の座標になる
+        down_move = mock_stage.move.call_args_list[1].kwargs
+        assert down_move["x"] == pytest.approx(7.0)
+        assert down_move["y"] == pytest.approx(3.0)
+
+    def test_replaces_construction_transform_instead_of_composing(
+        self, mock_klipper, mock_paste_dispenser, mock_stage
+    ):
+        # Arrange: 構築時 transform とは別の Shift で差し替える
+        applicator = PasteApplicator(
+            klipper=mock_klipper,
+            paste_dispenser=mock_paste_dispenser,
+            stage=mock_stage,
+            nozzle_diameter=0.34,
+            max_fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            ul_per_mm2=0.05,
+            retraction=10.0,
+            retraction_rate=10.0,
+            retraction_accel_factor=2.0,
+            transform=Shift(x=100.0, y=30.0, z=0.0),
+            paste_height=0.5,
+            lift_height=5.0,
+        )
+        applicator.set_transform(Shift(x=1.0, y=2.0, z=0.0))
+
+        # Act
+        applicator.deposit_at(Point2d(4.0, 5.0), amount=0.2, paste_height=0.6)
+
+        # Assert: 旧変換 (100, 30) は残らず、新変換のみが効く
+        down_move = mock_stage.move.call_args_list[1].kwargs
+        assert down_move["x"] == pytest.approx(5.0)
+        assert down_move["y"] == pytest.approx(7.0)
+
+    def test_apply_after_set_transform_shifts_pad_fill_moves(
+        self, applicator, mock_stage
+    ):
+        # Arrange: 差し替え前の pad 塗布の下降 move を基準に取る
+        polygon = box(0, 0, 5, 4)
+        applicator.apply([polygon])
+        base_down = mock_stage.move.call_args_list[1].kwargs
+        mock_stage.move.reset_mock()
+
+        # Act: 差し替え後、そのランの pad 塗布から新オフセットを使用（要件 2）
+        applicator.set_transform(Shift(x=3.0, y=-2.0, z=0.0))
+        applicator.apply([polygon])
+
+        # Assert
+        shifted_down = mock_stage.move.call_args_list[1].kwargs
+        assert shifted_down["x"] == pytest.approx(base_down["x"] + 3.0)
+        assert shifted_down["y"] == pytest.approx(base_down["y"] - 2.0)
+
+
 class TestPerPadOverride:
     """Apply() の per-pad override 引数（None は __init__ 値を使う）.
 

@@ -276,9 +276,31 @@ class TestCatalog:
     ):
         params = {spec.name: spec for spec in default.get("paste_solder").params}
 
-        assert set(params) == {"tolerance", "amount", "interactive_loading"}
+        assert set(params) == {
+            "tolerance",
+            "amount",
+            "interactive_loading",
+            "calibrate_toolhead_offset",
+        }
         assert params["interactive_loading"].value_type == "bool"
         assert params["interactive_loading"].default is False
+
+    def test_paste_solder_calibrate_toolhead_offset_is_persisted_bool_on_by_default(
+        self, default: JobCatalog
+    ):
+        """初回パージ較正の on/off（purge-toolhead-calibration 計画書 要件 4）.
+
+        default ON・localStorage 保存 opt-in（persist=True）。machine.toml
+        には保存しない（persisted_params には含めない）。
+        """
+        definition = default.get("paste_solder")
+        params = {spec.name: spec for spec in definition.params}
+
+        spec = params["calibrate_toolhead_offset"]
+        assert spec.value_type == "bool"
+        assert spec.default is True
+        assert spec.persist is True
+        assert "calibrate_toolhead_offset" not in definition.persisted_params
 
 
 class TestGenerateRectPcb:

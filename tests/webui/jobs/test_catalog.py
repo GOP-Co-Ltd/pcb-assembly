@@ -331,6 +331,30 @@ class TestValidateRuntimeParams:
         assert values == {"removal_z_offset": 3.5}
 
 
+class TestParamSpecPersist:
+    """ParamSpec.persist（計画書 purge-toolhead-calibration.md「公開 IF」節）.
+
+    選択を localStorage に保存するかの opt-in フラグ。既定は保存しない （False）。公開 API
+    契約としてピンする。
+    """
+
+    def test_persist_defaults_to_false(self):
+        spec = ParamSpec(name="flag", label="フラグ", value_type="bool", default=False)
+
+        assert spec.persist is False
+
+    def test_persist_can_be_opted_in(self):
+        spec = ParamSpec(
+            name="flag",
+            label="フラグ",
+            value_type="bool",
+            default=True,
+            persist=True,
+        )
+
+        assert spec.persist is True
+
+
 class TestRuntimeParamsProperty:
     """JobDefinition.runtime_params（フォーム / router 補助用の name 集合）."""
 
