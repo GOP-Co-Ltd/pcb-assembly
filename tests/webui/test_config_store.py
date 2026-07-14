@@ -259,77 +259,47 @@ class TestMachineSettings:
             store.read_machine_settings("no-such-machine")
 
 
-class TestReferencePointCornerAndOffset:
-    """アンカーコーナー（corner 型）と単一 offset（float_pair）の読み書き.
+class TestReferencePointOffsets:
+    """float_pair 型フィールド reference_point.offsets.* の読み書き."""
 
-    board-corner-calibration 計画書「WebUI 設定ページ」節: value_type "corner" は
-    CORNERS のメンバーシップで検証（dispense_mode 前例）、 reference_point.offset
-    は基板コーナー → マーカー の単一ペア。
-    """
-
-    def test_read_returns_anchor_corner_and_offset_pair(self, store: ConfigStore):
+    def test_read_returns_pairs_and_none_for_missing_corner(self, store: ConfigStore):
         values = store.read_machine_settings(FIXTURE)
 
-        assert values["reference_point.corner"] == "top_left"
-        offset = values["reference_point.offset"]
-        assert isinstance(offset, list)
-        assert len(offset) == 2
+        assert values["reference_point.offsets.top_left"] == [5.0, -5.0]
+        assert values["reference_point.offsets.top_right"] == [-5.0, -5.0]
+        assert values["reference_point.offsets.bottom_left"] == [5.0, 5.0]
+        assert values["reference_point.offsets.bottom_right"] is None
 
-    def test_write_corner_then_reread_round_trips(self, store: ConfigStore):
+    def test_write_missing_corner_then_reread_reflects_pair(self, store: ConfigStore):
         store.write_machine_settings(
-            FIXTURE, {"reference_point.corner": "bottom_right"}
+            FIXTURE, {"reference_point.offsets.bottom_right": [-5.0, 5.0]}
         )
 
         values = store.read_machine_settings(FIXTURE)
-        assert values["reference_point.corner"] == "bottom_right"
+        assert values["reference_point.offsets.bottom_right"] == [-5.0, 5.0]
 
-    def test_unknown_corner_raises_unknown_field_error(self, store: ConfigStore):
-        with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(FIXTURE, {"reference_point.corner": "center"})
+    def test_write_pair_keeps_table_comment(
+        self, store: ConfigStore, configs_root: Path
+    ):
+        store.write_machine_settings(
+            FIXTURE, {"reference_point.offsets.top_left": [6.0, -6.0]}
+        )
 
-    def test_write_offset_pair_then_reread_round_trips(self, store: ConfigStore):
-        store.write_machine_settings(FIXTURE, {"reference_point.offset": [6.0, -6.0]})
-
-        values = store.read_machine_settings(FIXTURE)
-        assert values["reference_point.offset"] == [6.0, -6.0]
+        text = (configs_root / FIXTURE / "machine.toml").read_text(encoding="utf-8")
+        assert "[reference_point.offsets] # [x, y]で記述" in text
+        assert "top_left = [6.0, -6.0]" in text
 
     @pytest.mark.parametrize(
         "value",
         [[1.0], [1.0, 2.0, 3.0], ["a", 1.0], [True, 1.0], 1.0, "1,2"],
     )
-    def test_invalid_offset_pair_raises(self, store: ConfigStore, value: object):
+    def test_invalid_pair_raises(self, store: ConfigStore, value: object):
         # 型不一致の拒否を検証するため、意図的に契約外の値を渡す
         ill_typed = cast("MachineSettingValue", value)
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(FIXTURE, {"reference_point.offset": ill_typed})
-
-
-class TestBoardAlignFields:
-    """board_align.* 8 キーの読み書き（board-corner-calibration 計画書）.
-
-    設定エディタは既存行の編集のみのため、fixture には [board_align] 全キーが 存在する前提（計画書「Config
-    スキーマ」節の toml 移行）。
-    """
-
-    @pytest.mark.parametrize(
-        ("key", "value"),
-        [
-            ("board_align.tolerance", 0.07),
-            ("board_align.max_correction", 1.5),
-            ("board_align.search_window", 2.5),
-            ("board_align.edge_length", 3.0),
-            ("board_align.theta_range", 1.0),
-            ("board_align.canny_low", 80.0),
-            ("board_align.canny_high", 160.0),
-            ("board_align.blur_ksize", 7),
-        ],
-    )
-    def test_write_then_reread_round_trips(
-        self, store: ConfigStore, key: str, value: float | int
-    ):
-        store.write_machine_settings(FIXTURE, {key: value})
-
-        assert store.read_machine_settings(FIXTURE)[key] == value
+            store.write_machine_settings(
+                FIXTURE, {"reference_point.offsets.top_left": ill_typed}
+            )
 
 
 class TestNozzleCapFields:

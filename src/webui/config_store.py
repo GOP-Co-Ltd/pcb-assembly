@@ -13,17 +13,10 @@ import attrs
 import tomlkit
 from tomlkit.items import Item, Table
 
-from pcbasm.config import CORNERS, DISPENSE_MODES
+from pcbasm.config import DISPENSE_MODES
 
 type SettingValueType = Literal[
-    "float",
-    "int",
-    "str",
-    "float_pair",
-    "float_or_auto",
-    "dispense_mode",
-    "corner",
-    "bool",
+    "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode", "bool"
 ]
 
 
@@ -117,17 +110,13 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("reference_point.x", "基準点 X", "float", "mm"),
     FieldSpec("reference_point.y", "基準点 Y", "float", "mm"),
     FieldSpec("reference_point.target_diameter", "基準点マーカー直径", "float", "mm"),
-    FieldSpec("reference_point.corner", "アンカーコーナー", "corner"),
-    FieldSpec("reference_point.offset", "コーナーオフセット", "float_pair", "mm"),
-    # [board_align] — 基板コーナーの輪郭照合による board 変換計測
-    FieldSpec("board_align.tolerance", "収束許容誤差", "float", "mm"),
-    FieldSpec("board_align.max_correction", "最大ずれ", "float", "mm"),
-    FieldSpec("board_align.search_window", "探索窓 片側幅", "float", "mm"),
-    FieldSpec("board_align.edge_length", "コーナーROI辺長", "float", "mm"),
-    FieldSpec("board_align.theta_range", "回転探索 片側範囲", "float", "deg"),
-    FieldSpec("board_align.canny_low", "Canny下側閾値", "float"),
-    FieldSpec("board_align.canny_high", "Canny上側閾値", "float"),
-    FieldSpec("board_align.blur_ksize", "ブラーカーネルサイズ", "int"),
+    # [reference_point.offsets] — 基盤コーナーから基準点マーカーへの相対位置 [x, y]
+    FieldSpec("reference_point.offsets.top_left", "左上 [x, y]", "float_pair", "mm"),
+    FieldSpec("reference_point.offsets.top_right", "右上 [x, y]", "float_pair", "mm"),
+    FieldSpec("reference_point.offsets.bottom_left", "左下 [x, y]", "float_pair", "mm"),
+    FieldSpec(
+        "reference_point.offsets.bottom_right", "右下 [x, y]", "float_pair", "mm"
+    ),
     # [nozzle_cap] — タスク終了時の駐機先（マシン座標）
     FieldSpec("nozzle_cap.x", "キャップ位置 X", "float", "mm"),
     FieldSpec("nozzle_cap.y", "キャップ位置 Y", "float", "mm"),
@@ -207,9 +196,6 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 return value
         case "dispense_mode":
             if isinstance(value, str) and value in DISPENSE_MODES:
-                return value
-        case "corner":
-            if isinstance(value, str) and value in CORNERS:
                 return value
         case "float_pair":
             pair = _coerce_float_pair(value)

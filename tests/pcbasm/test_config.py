@@ -3,10 +3,10 @@ from pathlib import Path
 import pytest
 
 from pcbasm.config import (
-    BoardAlign,
     Camera,
     CameraCrop,
     Corner,
+    CornerOffsets,
     Klipper,
     Machine,
     NozzleCap,
@@ -79,8 +79,11 @@ class TestMachine:
             x=23.1,
             y=8.3,
             target_diameter=3.0,
-            offset=(0.0, -5.0),
-            corner=Corner.TOP_LEFT,
+            offsets=CornerOffsets(
+                top_left=(0.0, -5.0),
+                top_right=(0.0, -5.0),
+                bottom_left=(5.0, 5.0),
+            ),
         )
 
     def test_default_values(self):
@@ -353,111 +356,169 @@ class TestToolhead:
         assert toolhead.to_transform() == Shift(x=13.2, y=54.7)
 
 
-class TestCorner:
-    """Corner.board_position のテスト（board-corner-calibration 計画書「Config スキーマ」節）.
+class TestCornerOffsets:
+    """CornerOffsetsクラスのテスト."""
 
-    基板寸法 (width, height) から各コーナーの board 座標を返す。 TL=(0,0), TR=(w,0),
-    BL=(0,h), BR=(w,h)。
-    """
+    def test_requires_at_least_two_non_top_left_corners(self):
+        with pytest.raises(ValueError, match="少なくとも2つ"):
+            CornerOffsets(top_left=(0.0, -5.0))
 
-    @pytest.mark.parametrize(
-        ("corner", "expected"),
-        [
-            (Corner.TOP_LEFT, Point2d(0.0, 0.0)),
-            (Corner.TOP_RIGHT, Point2d(30.0, 0.0)),
-            (Corner.BOTTOM_LEFT, Point2d(0.0, 20.0)),
-            (Corner.BOTTOM_RIGHT, Point2d(30.0, 20.0)),
-        ],
-    )
-    def test_board_position_maps_dimensions_to_corner(
-        self, corner: Corner, expected: Point2d
-    ):
-        assert corner.board_position(30.0, 20.0) == expected
+    def test_requires_at_least_two_non_top_left_corners_with_one(self):
+        with pytest.raises(ValueError, match="少なくとも2つ"):
+            CornerOffsets(top_left=(0.0, -5.0), top_right=(0.0, -5.0))
+
+    def test_has_corner_returns_true_for_defined_corners(self):
+        offsets = CornerOffsets(
+            top_left=(0.0, -5.0),
+            top_right=(0.0, -5.0),
+            bottom_left=(5.0, 5.0),
+        )
+
+        assert offsets.has_corner(Corner.TOP_LEFT) is True
+        assert offsets.has_corner(Corner.TOP_RIGHT) is True
+        assert offsets.has_corner(Corner.BOTTOM_LEFT) is True
+        assert offsets.has_corner(Corner.BOTTOM_RIGHT) is False
+
+    def test_get_returns_point2d(self):
+        offsets = CornerOffsets(
+            top_left=(1.0, -2.0),
+            top_right=(3.0, -4.0),
+            bottom_left=(5.0, 5.0),
+        )
+
+        assert offsets.get(Corner.TOP_LEFT) == Point2d(1.0, -2.0)
+        assert offsets.get(Corner.TOP_RIGHT) == Point2d(3.0, -4.0)
+
+    def test_get_raises_for_undefined_corner(self):
+        offsets = CornerOffsets(
+            top_left=(0.0, -5.0),
+            top_right=(0.0, -5.0),
+            bottom_left=(5.0, 5.0),
+        )
+
+        with pytest.raises(ValueError, match="BOTTOM_RIGHT"):
+            offsets.get(Corner.BOTTOM_RIGHT)
 
 
 class TestReferencePoint:
-    """ReferencePoint（アンカー1コーナー + 単一 offset）のテスト.
+    """ReferencePointクラスのテスト."""
 
-    board-corner-calibration 計画書「Config スキーマ」節: marker = corner +
-    offset。基準点はアンカーコーナー1点のみで、コーナーは TOML 文字列で指定 する（省略時 top_left）。
-    """
-
-    def test_to_point_returns_marker_machine_position(self):
-        ref = ReferencePoint(x=10.0, y=20.0, target_diameter=3.0, offset=(2.5, -2.5))
+    def test_to_point(self):
+        ref = ReferencePoint(
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+            ),
+        )
 
         assert ref.to_point() == Point2d(10.0, 20.0)
 
-    def test_offset_point_returns_offset_as_point(self):
-        ref = ReferencePoint(x=10.0, y=20.0, target_diameter=3.0, offset=(2.5, -2.5))
-
-        assert ref.offset_point() == Point2d(2.5, -2.5)
-
-    def test_corner_structures_from_toml_string(self, tmp_path):
-        """TOML の corner = "bottom_right" が Corner.BOTTOM_RIGHT に structure
-        される."""
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace('corner = "top_left"', 'corner = "bottom_right"', 1),
-            encoding="utf-8",
+    def test_get_reference_position_default_is_top_left(self):
+        ref = ReferencePoint(
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+            ),
         )
 
-        machine = Machine(path)
+        assert ref.get_reference_position() == Point2d(10.0, 20.0)
 
-        assert machine.reference_point.corner == Corner.BOTTOM_RIGHT
-
-    def test_corner_defaults_to_top_left_when_absent(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace('corner = "top_left"\n', "", 1),
-            encoding="utf-8",
+    def test_get_reference_position_top_right(self):
+        # ref = (10, 20), offset_top_left = (1, -2)
+        # board_origin = (10, 20) - (1, -2) = (9, 22)
+        # board_top_right = (9 + 100, 22) = (109, 22)
+        # ref_top_right = (109, 22) + (3, -4) = (112, 18)
+        ref = ReferencePoint(
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(3.0, -4.0),
+                bottom_left=(5.0, 5.0),
+            ),
         )
 
-        machine = Machine(path)
+        assert ref.get_reference_position(
+            Corner.TOP_RIGHT, board_width=100.0
+        ) == Point2d(112.0, 18.0)
 
-        assert machine.reference_point.corner == Corner.TOP_LEFT
-
-
-class TestBoardAlign:
-    """BoardAlign と Machine.board_align のテスト（board-corner-calibration 計画書）.
-
-    [board_align] はトップレベル節で全項目に既定値があり、節欠落可。
-    """
-
-    def test_default_values(self):
-        board_align = BoardAlign()
-
-        assert board_align.tolerance == pytest.approx(0.05)
-        assert board_align.max_correction == pytest.approx(2.0)
-        assert board_align.search_window == pytest.approx(1.5)
-        assert board_align.edge_length == pytest.approx(2.0)
-        assert board_align.theta_range == pytest.approx(2.0)
-        assert board_align.canny_low == pytest.approx(100.0)
-        assert board_align.canny_high == pytest.approx(200.0)
-        assert board_align.blur_ksize == 5
-
-    def test_section_absent_returns_defaults(self, tmp_path):
-        path = tmp_path / "machine.toml"
-        path.write_text('machine_type = "paste"\n', encoding="utf-8")
-
-        machine = Machine(path)
-
-        assert machine.board_align == BoardAlign()
-
-    def test_toml_section_overrides_defaults(self, tmp_path):
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            'machine_type = "paste"\n'
-            "\n[board_align]\ntolerance = 0.08\nblur_ksize = 7\n",
-            encoding="utf-8",
+    def test_get_reference_position_top_right_requires_board_width(self):
+        ref = ReferencePoint(
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+            ),
         )
 
-        board_align = Machine(path).board_align
+        with pytest.raises(ValueError, match="board_widthが必要"):
+            ref.get_reference_position(Corner.TOP_RIGHT)
 
-        assert board_align.tolerance == pytest.approx(0.08)
-        assert board_align.blur_ksize == 7
-        assert board_align.search_window == pytest.approx(1.5)  # 未指定はデフォルト
+    def test_get_reference_position_bottom_left(self):
+        # board_origin = (10, 20) - (1, -2) = (9, 22)
+        # board_bottom_left = (9, 22 + 50) = (9, 72)
+        # ref_bottom_left = (9, 72) + (5, 5) = (14, 77)
+        ref = ReferencePoint(
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+            ),
+        )
+
+        assert ref.get_reference_position(
+            Corner.BOTTOM_LEFT, board_height=50.0
+        ) == Point2d(14.0, 77.0)
+
+    def test_get_reference_position_bottom_left_requires_board_height(self):
+        ref = ReferencePoint(
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+            ),
+        )
+
+        with pytest.raises(ValueError, match="board_heightが必要"):
+            ref.get_reference_position(Corner.BOTTOM_LEFT)
+
+    def test_get_reference_position_bottom_right(self):
+        # board_origin = (10, 20) - (1, -2) = (9, 22)
+        # board_bottom_right = (9 + 100, 22 + 50) = (109, 72)
+        # ref_bottom_right = (109, 72) + (-5, 5) = (104, 77)
+        ref = ReferencePoint(
+            x=10.0,
+            y=20.0,
+            target_diameter=3.0,
+            offsets=CornerOffsets(
+                top_left=(1.0, -2.0),
+                top_right=(1.0, -2.0),
+                bottom_left=(5.0, 5.0),
+                bottom_right=(-5.0, 5.0),
+            ),
+        )
+
+        assert ref.get_reference_position(
+            Corner.BOTTOM_RIGHT, board_width=100.0, board_height=50.0
+        ) == Point2d(104.0, 77.0)
 
 
 class TestProbe:
@@ -519,7 +580,11 @@ height = 400
 x = 20.0
 y = 10.0
 target_diameter = 3.0
-offset = [0.0, 0.0]
+
+[reference_point.offsets]
+top_left = [0.0, 0.0]
+top_right = [0.0, 0.0]
+bottom_right = [0.0, 0.0]
 """
 
     def test_loads_machine_config(self, tmp_path, monkeypatch):

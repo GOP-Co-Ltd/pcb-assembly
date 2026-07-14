@@ -39,14 +39,6 @@
             <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
-          {% elif field.value_type == 'corner' %}
-          <select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
-                  data-type="{{ field.value_type }}"
-                  aria-label="{{ field.label }}">
-            {% for option, label in corner_labels.items() %}
-            <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
           {% elif field.value_type == 'bool' %}
           <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
                  data-type="bool" type="checkbox"

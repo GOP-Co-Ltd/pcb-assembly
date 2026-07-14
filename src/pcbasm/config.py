@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tomllib
-from enum import Enum
+from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Literal
 
@@ -221,68 +221,138 @@ class Toolhead:
 class Corner(Enum):
     """ボードのコーナーを表す列挙型."""
 
-    TOP_LEFT = "top_left"
-    TOP_RIGHT = "top_right"
-    BOTTOM_LEFT = "bottom_left"
-    BOTTOM_RIGHT = "bottom_right"
+    TOP_LEFT = auto()
+    TOP_RIGHT = auto()
+    BOTTOM_LEFT = auto()
+    BOTTOM_RIGHT = auto()
 
-    def board_position(self, width: float, height: float) -> Point2d:
-        """基板座標系（左上原点）でのコーナー位置を返す.
 
-        Args:
-            width: 基板幅 (mm)
-            height: 基板高さ (mm)
-        """
-        match self:
+@attrs.frozen
+class CornerOffsets:
+    """各コーナーにおけるボード端から基準点マーカーへのオフセット.
+
+    top_leftは必須。それ以外は少なくとも1つ指定する必要がある。
+
+    Attributes:
+        top_left: 左上コーナーのオフセット [x, y] (mm)
+        top_right: 右上コーナーのオフセット [x, y] (mm)
+        bottom_left: 左下コーナーのオフセット [x, y] (mm)
+        bottom_right: 右下コーナーのオフセット [x, y] (mm)
+    """
+
+    top_left: tuple[float, float]
+    top_right: tuple[float, float] | None = None
+    bottom_left: tuple[float, float] | None = None
+    bottom_right: tuple[float, float] | None = None
+
+    def __attrs_post_init__(self) -> None:
+        if (self.top_right, self.bottom_left, self.bottom_right).count(None) >= 2:
+            raise ValueError(
+                "top_left以外に少なくとも2つのコーナーオフセットを指定してください"
+            )
+
+    def has_corner(self, corner: Corner) -> bool:
+        """指定コーナーのオフセットが定義されているか返す."""
+        match corner:
             case Corner.TOP_LEFT:
-                return Point2d(0.0, 0.0)
+                return True
             case Corner.TOP_RIGHT:
-                return Point2d(width, 0.0)
+                return self.top_right is not None
             case Corner.BOTTOM_LEFT:
-                return Point2d(0.0, height)
+                return self.bottom_left is not None
             case Corner.BOTTOM_RIGHT:
-                return Point2d(width, height)
+                return self.bottom_right is not None
 
+    def get(self, corner: Corner) -> Point2d:
+        """指定コーナーのオフセットをPoint2dで返す.
 
-CORNERS = tuple(corner.value for corner in Corner)
+        Raises:
+            ValueError: 指定コーナーのオフセットが未定義の場合
+        """
+        match corner:
+            case Corner.TOP_LEFT:
+                offset = self.top_left
+            case Corner.TOP_RIGHT:
+                offset = self.top_right
+            case Corner.BOTTOM_LEFT:
+                offset = self.bottom_left
+            case Corner.BOTTOM_RIGHT:
+                offset = self.bottom_right
+
+        if offset is None:
+            raise ValueError(f"{corner.name}のオフセットは定義されていません")
+        return Point2d(x=offset[0], y=offset[1])
 
 
 @attrs.frozen
 class ReferencePoint:
-    """基準点マーカーの設定.
+    """基準点の設定.
 
-    x, yはアンカーコーナーの基準点マーカーのおおよそのマシン座標。
-    cornerはマーカーを置くアンカーコーナー、offsetは基板コーナーから マーカーへのオフセット（マーカー位置 = 基板コーナー +
-    offset）。
+    x, yは左上基準点マーカーのマシン座標。
+    offsetsは各コーナーにおけるボード端から基準点マーカーへのオフセット。
+
+    座標関係:
+        - ボード左上コーナー = to_point() - offsets.get(TOP_LEFT)
+        - 各コーナーの基準点 = ボードコーナー + offsets.get(corner)
     """
 
     x: float
     y: float
     target_diameter: float
-    offset: tuple[float, float]
-    corner: Corner = Corner.TOP_LEFT
+    offsets: CornerOffsets
 
     def to_point(self) -> Point2d:
-        """基準点マーカーのマシン座標をPoint2dとして返す."""
+        """左上基準点マーカーのマシン座標をPoint2dとして返す."""
         return Point2d(self.x, self.y)
 
-    def offset_point(self) -> Point2d:
-        """基板コーナー→マーカーのオフセットをPoint2dとして返す."""
-        return Point2d(x=self.offset[0], y=self.offset[1])
+    def get_reference_position(
+        self,
+        corner: Corner = Corner.TOP_LEFT,
+        *,
+        board_width: float | None = None,
+        board_height: float | None = None,
+    ) -> Point2d:
+        """指定コーナーの基準点マーカー位置を返す.
 
+        Args:
+            corner: コーナー種別
+            board_width: ボード幅（TOP_RIGHT/BOTTOM_RIGHTで必須）
+            board_height: ボード高さ（BOTTOM_LEFT/BOTTOM_RIGHTで必須）
 
-@attrs.frozen
-class BoardAlign:
-    """基板コーナーの輪郭照合によるboard変換計測の設定."""
+        Returns:
+            基準点マーカーのマシン座標
 
-    tolerance: float = 0.05  # 各コーナーサーボの収束許容誤差 [mm]
-    max_correction: float = 2.0  # 照合ずれの上限 [mm]。超過は誤マッチとして棄却
-    search_window: float = 1.5  # 照合の探索窓 片側幅 [mm]
-    edge_length: float = 2.0  # コーナーROIの片側辺長 = 含める外形エッジ長 [mm]
-    theta_range: float = 2.0  # 回転探索の片側範囲 [deg]
-    canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
-    canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
-    blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
+        Raises:
+            ValueError: 必要なboard_width/board_heightが指定されていない場合
+        """
+        if corner == Corner.TOP_LEFT:
+            return self.to_point()
+
+        board_origin = self.to_point() - self.offsets.get(Corner.TOP_LEFT)
+
+        match corner:
+            case Corner.TOP_RIGHT:
+                if board_width is None:
+                    raise ValueError("TOP_RIGHTを計算するときはboard_widthが必要です")
+                board_corner = board_origin + Point2d(board_width, 0.0)
+            case Corner.BOTTOM_LEFT:
+                if board_height is None:
+                    raise ValueError(
+                        "BOTTOM_LEFTを計算するときはboard_heightが必要です"
+                    )
+                board_corner = board_origin + Point2d(0.0, board_height)
+            case Corner.BOTTOM_RIGHT:
+                if board_width is None:
+                    raise ValueError(
+                        "BOTTOM_RIGHTを計算するときはboard_widthが必要です"
+                    )
+                if board_height is None:
+                    raise ValueError(
+                        "BOTTOM_RIGHTを計算するときはboard_heightが必要です"
+                    )
+                board_corner = board_origin + Point2d(board_width, board_height)
+
+        return board_corner + self.offsets.get(corner)
 
 
 @attrs.frozen
@@ -388,13 +458,6 @@ class Machine:
     def reference_point(self) -> ReferencePoint:
         """基準点設定を取得する."""
         return self._get_config("reference_point", ReferencePoint)
-
-    @property
-    def board_align(self) -> BoardAlign:
-        """基板コーナー照合設定を取得する（節欠落時は既定値）."""
-        if "board_align" not in self._data:
-            return BoardAlign()
-        return self._get_config("board_align", BoardAlign)
 
     @property
     def probe(self) -> Probe:

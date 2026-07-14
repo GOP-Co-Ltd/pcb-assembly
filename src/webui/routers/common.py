@@ -146,18 +146,10 @@ SECTION_LABELS: dict[str, str] = {
     "paste_dispenser.pad_align": "ペーストディスペンサー / パッド位置合わせ",
     "probe": "プローブ",
     "reference_point": "基準点",
-    "board_align": "基板コーナー照合",
+    "reference_point.offsets": "基準点 / コーナーオフセット",
     "nozzle_cap": "ノズルキャップ",
     "camera": "カメラ",
     "camera.crop": "カメラ / クロップ",
-}
-
-# アンカーコーナー値 → UI 表示名（settings の select と posctrl 表示で共用）
-CORNER_LABELS: dict[str, str] = {
-    "top_left": "左上",
-    "top_right": "右上",
-    "bottom_left": "左下",
-    "bottom_right": "右下",
 }
 
 

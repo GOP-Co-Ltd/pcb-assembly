@@ -1,277 +1,190 @@
 """Board座標から機械座標への変換を計測する."""
 
 import logging
-import math
-from collections.abc import Sequence
+from collections.abc import Callable
 
 import numpy as np
 
 from pcbasm import gcode
-from pcbasm.config import BoardAlign, Corner, ReferencePoint
-from pcbasm.geometry import Compose, Matrix2d, Point2d, Shift, Transform
-from pcbasm.hal import Camera, Klipper, Speed, XYZStage
-from pcbasm.pcb import Outline
-from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjector, PixelRect
-from pcbasm.posctrl.orthogonality import OrthogonalityMetrics
-from pcbasm.posctrl.pad import CopperPadObserver
-from pcbasm.posctrl.position import XYPositionAdjustor
-from pcbasm.utils import get_class_module_path
-from pcbasm.vision import CopperEdgeDetector, FrameSink
-
-# 矩形順（時計回り）のコーナー巡回順
-_RECT_ORDER = (
-    Corner.TOP_LEFT,
-    Corner.TOP_RIGHT,
-    Corner.BOTTOM_RIGHT,
-    Corner.BOTTOM_LEFT,
+from pcbasm.config import Corner, ReferencePoint
+from pcbasm.geometry import (
+    Compose,
+    Matrix2d,
+    Point2d,
+    Shift,
 )
+from pcbasm.hal import Klipper, Speed, XYZStage
+from pcbasm.pcb import Outline
+from pcbasm.utils import get_class_module_path
 
 
-def _corner_order(anchor: Corner) -> tuple[Corner, ...]:
-    """アンカーを先頭にした矩形順のコーナー巡回順を返す."""
-    start = _RECT_ORDER.index(anchor)
-    return _RECT_ORDER[start:] + _RECT_ORDER[:start]
+def _select_corners(ref_point: ReferencePoint) -> tuple[Corner, Corner]:
+    """計測に使用する2つのコーナーを選択する.
 
-
-def fit_affine_transform(
-    board_points: Sequence[Point2d], machine_points: Sequence[Point2d]
-) -> Compose:
-    """対応点列の最小二乗フィットでboard→機械座標のアフィン変換を解く.
-
-    m ≈ M b + t を design=(n,3)[bx,by,1], target=(n,2)[mx,my] の
-    np.linalg.lstsq で解き、M=params[:2].T, t=params[2] を得る。
-
-    Args:
-        board_points: board座標の対応点列 (mm)
-        machine_points: 機械座標の対応点列 (mm)。board_pointsと同数
-
-    Returns:
-        Board座標→機械座標のCompose変換 (Matrix2d → Shift)
-
-    Raises:
-        ValueError: 対応点数が一致しない、または3点未満の場合
+    TOP_LEFT以外の利用可能なコーナーから2つを選択する。 優先順位: (TR, BL) → (TR, BR) → (BL, BR)
     """
-    if len(board_points) != len(machine_points):
-        raise ValueError(
-            "対応点数が一致しません: "
-            f"board={len(board_points)}, machine={len(machine_points)}"
-        )
-    if len(board_points) < 3:
-        raise ValueError(
-            f"アフィンフィットには3点以上の対応点が必要です: {len(board_points)}点"
-        )
-    design = np.array([[b.x, b.y, 1.0] for b in board_points])
-    target = np.array([[m.x, m.y] for m in machine_points])
-    params, *_ = np.linalg.lstsq(design, target, rcond=None)
-    matrix = Matrix2d(params[:2].T)
-    shift = Shift(x=float(params[2][0]), y=float(params[2][1]))
-    return Compose([matrix, shift])
+    offsets = ref_point.offsets
+    has_tr = offsets.has_corner(Corner.TOP_RIGHT)
+    has_bl = offsets.has_corner(Corner.BOTTOM_LEFT)
+
+    if has_tr and has_bl:
+        return Corner.TOP_RIGHT, Corner.BOTTOM_LEFT
+    if has_tr:
+        return Corner.TOP_RIGHT, Corner.BOTTOM_RIGHT
+    return Corner.BOTTOM_LEFT, Corner.BOTTOM_RIGHT
 
 
 class BoardTransformMeasurer:
-    """基板4隅の輪郭照合でboard座標→機械座標の変換を計測するクラス.
+    """Board座標から機械座標への変換を計測するクラス.
 
-    基準点マーカーへのサーボ収束位置から並進のみの初期変換 T0 を推定し、
-    T0 で基板4隅へカメラを運び、設計外形の投影と観測エッジの照合サーボで
-    各コーナーの機械座標を実測、4対応点の最小二乗フィットで並進・回転・
-    スケールを一括推定する。
-
-    コーナーは外形ポリゴンbboxの4隅（左上原点の矩形規約）。bboxコーナー
-    ±edge_length に外形ジオメトリが無い基板は照合できない。
+    3点法を用いて、reference pointの実測位置から
+    2x2変換行列と平行移動を計算する。
 
     Example:
+        from pcbasm.pcb import PcbFile
+
+        pcb = PcbFile(pcb_file)
         measurer = BoardTransformMeasurer(
-            camera=camera,
+            adjust_reference=adjust_reference,
             klipper=klipper,
             stage=stage,
             outline=pcb.outline,
             reference_point=machine.reference_point,
-            offset_transform=offset_transform,
-            pixel_per_mm=calibration.pixel_per_mm,
-            image_size=calibration.resolution,
-            board_align=machine.board_align,
         )
-        transform = measurer.measure(marker_pos)
+        transform = measurer.measure()
         machine_pos = transform.apply(board_pos)
     """
 
     def __init__(
         self,
-        *,
-        camera: Camera,
+        adjust_reference: Callable[[], Point2d],
         klipper: Klipper,
         stage: XYZStage,
         outline: Outline,
         reference_point: ReferencePoint,
-        offset_transform: Transform,
-        pixel_per_mm: float,
-        image_size: tuple[int, int],
-        board_align: BoardAlign,
+        move_velocity_ratio: float = 0.9,
         settle_time: float = 0.5,
-        frame_sink: FrameSink | None = None,
     ) -> None:
         """BoardTransformMeasurerを初期化する.
 
         Args:
-            camera: カメラ
+            adjust_reference: 補正済みオフセットを返す関数
             klipper: Klipperクライアント
             stage: XYZステージ
-            outline: Board Outline（外形ポリゴンとwidth/heightの取得に使用）
-            reference_point: 基準点設定（アンカーコーナーとオフセット）
-            offset_transform: 観測オフセット系から機械座標系への変換
-            pixel_per_mm: pixel/mm比率
-            image_size: カメラフレームのサイズ (width, height)
-            board_align: 基板コーナー照合の設定
+            outline: Board Outline（width/heightの取得に使用）
+            reference_point: 基準点設定
+            move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
             settle_time: 移動後の安定待機時間（秒）
-            frame_sink: 観測ごとに照合状況フレームを送る sink。
-                Noneの場合は送らない
         """
-        self._camera = camera
+        self._adjust_reference = adjust_reference
         self._klipper = klipper
         self._stage = stage
         self._outline = outline
         self._ref_point = reference_point
-        self._offset_transform = offset_transform
-        self._pixel_per_mm = pixel_per_mm
-        self._image_size = image_size
-        self._board_align = board_align
+        self._move_velocity_ratio = move_velocity_ratio
         self._settle_time = settle_time
-        self._frame_sink = frame_sink
-
-        self._edge_detector = CopperEdgeDetector(
-            canny_low=board_align.canny_low,
-            canny_high=board_align.canny_high,
-            blur_ksize=board_align.blur_ksize,
-        )
-        self._matcher = CopperEdgeMatcher(
-            pixel_per_mm=pixel_per_mm,
-            search_window_mm=board_align.search_window,
-            theta_range_degrees=board_align.theta_range,
-        )
-        self._roi = self._corner_roi()
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
-    def measure(self, marker_pos: Point2d) -> Compose:
-        """基板4隅の輪郭照合でboard→機械座標の変換を計測する.
+    def measure(self) -> Compose:
+        """3点法でboard→機械座標の変換を計測する.
 
-        Args:
-            marker_pos: 基準点マーカーへのサーボ収束位置（機械座標、mm）
+        TOP_LEFTと他2コーナーの実測位置から2x2変換行列を求める。
 
         Returns:
             Board座標→機械座標のCompose変換 (Matrix2d → Shift)
-
-        Raises:
-            RuntimeError: いずれかのコーナーで照合・収束に失敗した場合
         """
         self._logger.info("Board変換の計測を開始")
-        width = self._outline.width
-        height = self._outline.height
-        anchor = self._ref_point.corner
 
-        # 並進のみ・恒等回転の初期変換 T0（marker = T0(corner) + offset）
-        t0 = Shift.from_point(
-            marker_pos
-            - self._ref_point.offset_point()
-            - anchor.board_position(width, height)
-        )
-        projector = CopperProjector(
-            polygons=[self._outline.polygon],
-            board_transform=t0,
-            offset_transform=self._offset_transform,
-            pixel_per_mm=self._pixel_per_mm,
-            image_size=self._image_size,
-        )
+        corner_a, corner_b = _select_corners(self._ref_point)
+        self._logger.info(f"計測コーナー: TOP_LEFT, {corner_a.name}, {corner_b.name}")
 
-        corners = _corner_order(anchor)
-        board_points = [corner.board_position(width, height) for corner in corners]
-        machine_points = [
-            self._measure_corner(corner, t0.apply(board_point), projector)
-            for corner, board_point in zip(corners, board_points, strict=True)
-        ]
+        offset_tl = self._ref_point.offsets.get(Corner.TOP_LEFT)
+        move_velocity = self._stage.max_velocity * self._move_velocity_ratio
 
-        transform = fit_affine_transform(board_points, machine_points)
-        for corner, board_point, machine_point in zip(
-            corners, board_points, machine_points, strict=True
-        ):
-            residual = transform.apply(board_point) - machine_point
-            self._logger.info(
-                "残差 %s: (%.4f, %.4f) mm, 距離 %.4f mm",
-                corner.value,
-                residual.x,
-                residual.y,
-                residual.norm,
-            )
-        metrics = OrthogonalityMetrics.from_transform(transform)
+        # --- TOP_LEFT ---
+        pos_tl = self._measure_corner(Corner.TOP_LEFT, move_velocity)
+
+        # --- Corner A ---
+        pos_a = self._measure_corner(corner_a, move_velocity)
+
+        # --- Corner B ---
+        pos_b = self._measure_corner(corner_b, move_velocity)
+
+        # ボード空間でのTL→A, TL→Bベクトル（理論値）
+        ref_pos_tl = self._get_reference_position(Corner.TOP_LEFT)
+        board_vec_a = self._get_reference_position(corner_a) - ref_pos_tl
+        board_vec_b = self._get_reference_position(corner_b) - ref_pos_tl
+
+        # 機械空間での実測ベクトル
+        mach_vec_a = pos_a - pos_tl
+        mach_vec_b = pos_b - pos_tl
+
         self._logger.info(
-            "直交性: 軸間角ずれ %+.3f deg / scale X %.5f Y %.5f",
-            metrics.axis_angle_error_deg,
-            metrics.scale_x,
-            metrics.scale_y,
+            f"ボード空間ベクトルA: ({board_vec_a.x:.3f}, {board_vec_a.y:.3f})"
         )
+        self._logger.info(
+            f"ボード空間ベクトルB: ({board_vec_b.x:.3f}, {board_vec_b.y:.3f})"
+        )
+        self._logger.info(
+            f"機械空間ベクトルA: ({mach_vec_a.x:.4f}, {mach_vec_a.y:.4f})"
+        )
+        self._logger.info(
+            f"機械空間ベクトルB: ({mach_vec_b.x:.4f}, {mach_vec_b.y:.4f})"
+        )
+
+        # 2x2変換行列を計算: T = M @ B^(-1)
+        b_mat = np.array(
+            [[board_vec_a.x, board_vec_b.x], [board_vec_a.y, board_vec_b.y]]
+        )
+        m_mat = np.array([[mach_vec_a.x, mach_vec_b.x], [mach_vec_a.y, mach_vec_b.y]])
+        t_mat = m_mat @ np.linalg.inv(b_mat)
+        matrix = Matrix2d(t_mat)
+        self._logger.info(f"変換行列:\n{t_mat}")
+
+        # Board原点の機械座標を計算
+        board_origin = pos_tl - matrix.apply(offset_tl)
+        self._logger.info(
+            f"Board左上コーナーの機械座標: ({board_origin.x:.4f}, {board_origin.y:.4f})"
+        )
+
+        # 変換を構成（Matrix2d → Shift）
+        transform = Compose([matrix, Shift.from_point(board_origin)])
 
         self._logger.info("Board変換の計測完了")
         return transform
 
+    def _get_reference_position(self, corner: Corner) -> Point2d:
+        """指定コーナーの理論的な基準点位置を返す."""
+        return self._ref_point.get_reference_position(
+            corner,
+            board_width=self._outline.width,
+            board_height=self._outline.height,
+        )
+
     def _measure_corner(
-        self, corner: Corner, anchor: Point2d, projector: CopperProjector
+        self,
+        corner: Corner,
+        move_velocity: float,
     ) -> Point2d:
-        """指令位置anchorへ移動し、輪郭照合サーボの収束位置を返す.
+        """指定コーナーへ移動し、位置補正した座標を返す."""
+        ref_pos = self._get_reference_position(corner)
 
-        Raises:
-            RuntimeError: 照合不能・誤マッチ棄却・非収束の場合
-        """
-        self._logger.info(
-            "=== コーナー %s の照合: 指令位置 (%.3f, %.3f) ===",
-            corner.value,
-            anchor.x,
-            anchor.y,
+        self._logger.info(f"=== {corner.name} Reference Pointへ移動 ===")
+        self._logger.info(f"目標位置: ({ref_pos.x:.3f}, {ref_pos.y:.3f})")
+        self._move_to(
+            self._stage.move(
+                x=ref_pos.x, y=ref_pos.y, speed=Speed.absolute(move_velocity)
+            ),
         )
+
+        self._logger.info(f"=== {corner.name} Reference Pointの位置補正 ===")
+        pos = self._adjust_reference()
+        self._logger.info(f"{corner.name}位置: ({pos.x:.4f}, {pos.y:.4f})")
+        return pos
+
+    def _move_to(self, move_gcode: gcode.GCode) -> None:
+        """指定座標に移動し、安定を待つ."""
         self._klipper.send_gcode(
-            self._stage.move(x=anchor.x, y=anchor.y, speed=Speed.rate(0.5))
-            + gcode.wait(self._settle_time)
-            + gcode.wait_for_done()
-        )
-
-        # 投影アンカーは指令位置に固定する（サーボ中は再投影しない）
-        projection = projector.project(anchor)
-        observer = CopperPadObserver(
-            camera=self._camera,
-            edge_detector=self._edge_detector,
-            matcher=self._matcher,
-            projection=projection,
-            roi=self._roi,
-            frame_sink=self._frame_sink,
-            max_offset_mm=self._board_align.max_correction,
-        )
-        adjustor = XYPositionAdjustor(
-            observe=observer.observe,
-            klipper=self._klipper,
-            stage=self._stage,
-            offset_transform=self._offset_transform,
-            tolerance=self._board_align.tolerance,
-            settle_time=self._settle_time,
-        )
-        try:
-            position = adjustor.adjust()
-        except RuntimeError as exc:
-            raise RuntimeError(
-                f"コーナー {corner.value} の輪郭照合に失敗しました: {exc}"
-                "（基板の固定・クランプ位置・[board_align] のCanny閾値を"
-                "確認してください）"
-            ) from exc
-        self._logger.info(
-            "%s 収束位置: (%.4f, %.4f)", corner.value, position.x, position.y
-        )
-        return position
-
-    def _corner_roi(self) -> PixelRect:
-        """画像中心の固定正方形ROIを返す（片側 edge_length·ppm、フレームにクランプ）."""
-        width, height = self._image_size
-        half = self._board_align.edge_length * self._pixel_per_mm
-        return (
-            max(0, math.floor(width / 2 - half)),
-            max(0, math.floor(height / 2 - half)),
-            min(width, math.ceil(width / 2 + half)),
-            min(height, math.ceil(height / 2 + half)),
+            move_gcode + gcode.wait(self._settle_time) + gcode.wait_for_done()
         )
