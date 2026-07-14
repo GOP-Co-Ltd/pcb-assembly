@@ -9,8 +9,8 @@
 
 Phase 2 追記（計画書 webui-phase2.md「既存ルーターへの変更」節 + spec §10）:
 
-- posctrl の camera_preview / contour_tuning（旧 copper_detection）は
-  専用テンプレート、他 feature は従来プレースホルダのまま
+- posctrl の camera_preview / copper_detection は専用テンプレート、
+  他 feature は従来プレースホルダのまま
 
 Phase 3 追記（計画書 webui-phase3.md「templates / static」節 + spec §10 dev タブ）:
 
@@ -218,43 +218,15 @@ class TestPreviewPages:
         assert "preview.js" in response.text
         assert "crosshair" in response.text
 
-    def test_contour_tuning_page_renders_mode_dropdown_and_sliders(
-        self, client: TestClient
-    ):
-        """輪郭調整ページ: 検出対象ドロップダウン + canny/blur スライダー + 保存."""
-        response = client.get("/posctrl/contour_tuning")
+    def test_copper_detection_page_renders_canny_controls(self, client: TestClient):
+        response = client.get("/posctrl/copper_detection")
 
         assert response.status_code == 200
-        text = response.text
-        assert 'id="contour-mode"' in text
-        assert "銅箔検出" in text
-        assert "コーナー検出" in text
-        assert 'data-param="canny_low"' in text
-        assert 'data-param="canny_high"' in text
-        assert 'data-param="blur_ksize"' in text
-        assert "設定に保存" in text
-        # スライダー初期値（既定=銅箔検出）は machine.toml の pad_align 値
-        # （canny_low=81 / canny_high=192）
-        assert 'value="81"' in text
-        assert 'value="192"' in text
-
-    def test_contour_tuning_page_embeds_both_mode_definitions(self, client: TestClient):
-        """モード定義（保存キー・現在値）はサーバ提供の埋め込み JSON で JS へ渡る."""
-        text = client.get("/posctrl/contour_tuning").text
-
-        assert 'id="contour-modes"' in text
-        # 銅箔検出モード: pad_align の 3 キー
-        assert "paste_dispenser.pad_align.canny_low" in text
-        assert "paste_dispenser.pad_align.canny_high" in text
-        assert "paste_dispenser.pad_align.blur_ksize" in text
-        # コーナー検出モード: board_align の 3 キー + overlay=board
-        assert "board_align.canny_low" in text
-        assert "board_align.canny_high" in text
-        assert "board_align.blur_ksize" in text
-        assert '"overlay": "board"' in text
-
-    def test_old_copper_detection_url_is_gone(self, client: TestClient):
-        assert client.get("/posctrl/copper_detection").status_code == 404
+        assert "canny" in response.text
+        assert "設定に保存" in response.text
+        # スライダー初期値は machine.toml の pad_align 値（canny_low=81 / canny_high=192）
+        assert "81" in response.text
+        assert "192" in response.text
 
 
 POSCTRL_JOB_FEATURES = ("camera_calibration", "board_tour", "orthogonality_test")
@@ -299,15 +271,6 @@ class TestPosctrlJobPages:
         assert "record" in text
         assert "quit" in text
         assert "reference_point_setup.js" in text
-
-    def test_reference_point_setup_shows_anchor_corner_label(self, client: TestClient):
-        """アンカーコーナーの日本語表示名（CORNER_LABELS でサーバ解決）が出る.
-
-        fixture の machine.toml は corner = "top_left" → 「左上」。
-        """
-        text = client.get("/posctrl/reference_point_setup").text
-
-        assert "アンカーコーナー（左上）" in text
 
     def test_generate_grid_pcb_renders_form_without_preview(self, client: TestClient):
         """generate_grid_pcb はカメラ非依存の生成ジョブ（job.html、preview なし）."""

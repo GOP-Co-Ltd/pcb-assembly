@@ -1,0 +1,27 @@
+{% extends "tab.html" %}
+{% block title %}Copper Detection — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>Copper Detection</h2>
+{% set preview_overlay = "copper" %}
+{% include "partials/preview_pane.html" %}
+<fieldset class="preview-controls">
+  <legend>Canny パラメータ（blur_ksize: {{ blur_ksize }}）</legend>
+  <div class="canny-row">
+    <label for="canny-low">canny low</label>
+    <input type="range" id="canny-low" min="0" max="500" step="1"
+           value="{{ canny_low | round | int }}">
+    <span id="canny-low-value" class="canny-value">{{ canny_low | round | int }}</span>
+  </div>
+  <div class="canny-row">
+    <label for="canny-high">canny high</label>
+    <input type="range" id="canny-high" min="0" max="500" step="1"
+           value="{{ canny_high | round | int }}">
+    <span id="canny-high-value" class="canny-value">{{ canny_high | round | int }}</span>
+  </div>
+  <button id="canny-save" type="button">設定に保存</button>
+</fieldset>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/preview.js') }}"></script>
+{% endblock %}

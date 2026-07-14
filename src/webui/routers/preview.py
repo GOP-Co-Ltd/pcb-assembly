@@ -77,19 +77,13 @@ def preview_stream(
     overlay: OverlayKind = "none",
     canny_low: float | None = None,
     canny_high: float | None = None,
-    blur_ksize: int | None = None,
 ) -> StreamingResponse:
-    if blur_ksize is not None and (blur_ksize < 1 or blur_ksize % 2 == 0):
-        raise HTTPException(
-            status_code=422,
-            detail=f"blur_ksize は正の奇数を指定してください: {blur_ksize}",
-        )
     # ジェネレータ方式では最初のフレーム取得前にエラーを検出できないため、
     # カメラ構築エラーはここで 503 に変換する（配信開始後のエラーは
     # ストリーム切断として扱い、クライアントのリトライに任せる）
     _build_hub_or_503(state)
     return _ClosingStreamingResponse(
-        preview.mjpeg_stream(overlay, canny_low, canny_high, blur_ksize),
+        preview.mjpeg_stream(overlay, canny_low, canny_high),
         media_type=MJPEG_MEDIA_TYPE,
     )
 

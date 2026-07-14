@@ -40,21 +40,6 @@ class TestPreviewStream:
 
         assert response.status_code == 422
 
-    @pytest.mark.parametrize("blur_ksize", (4, 0, -3))
-    def test_invalid_blur_ksize_returns_422(
-        self, fake_camera_client: TestClient, blur_ksize: int
-    ):
-        """blur_ksize は正の奇数のみ（偶数・0・負値は 422）.
-
-        正常値の配信は TestClient ではハングするため、service 層
-        （tests/webui/test_preview.py）と実 uvicorn の e2e で検証する。
-        """
-        response = fake_camera_client.get(
-            f"/api/preview/stream?overlay=copper&blur_ksize={blur_ksize}"
-        )
-
-        assert response.status_code == 422
-
     def test_camera_failure_returns_503(self, broken_camera_client: TestClient):
         response = broken_camera_client.get("/api/preview/stream")
 
