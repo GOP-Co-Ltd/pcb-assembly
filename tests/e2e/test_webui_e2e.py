@@ -135,6 +135,15 @@ class TestPreviewOverRealHttp:
 
         assert decode_jpeg(jpeg_payload(data.split(b"--frame")[1])) is not None
 
+    def test_board_stream_accepts_canny_and_blur_query(self, live_server: LiveServer):
+        data = _read_mjpeg(
+            live_server.base_url,
+            "/api/preview/stream"
+            "?overlay=board&canny_low=50&canny_high=150&blur_ksize=7",
+        )
+
+        assert decode_jpeg(jpeg_payload(data.split(b"--frame")[1])) is not None
+
     def test_state_reports_streaming_client_count(self, live_server: LiveServer):
         with httpx.Client(base_url=live_server.base_url, timeout=10.0) as client:
             assert client.get("/api/state").json()["preview_clients"] == 0

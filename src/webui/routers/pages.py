@@ -10,6 +10,7 @@ import attrs
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from pcbasm.config import BoardAlign, PadAlign
 from webui.config_store import ConfigStore
 from webui.dependencies import (
     CatalogDep,
@@ -48,7 +49,7 @@ TABS: dict[str, tuple[str, ...]] = {
     "pnp": (),
     "posctrl": (
         "camera_preview",
-        "copper_detection",
+        "contour_tuning",
         "camera_calibration",
         "reference_point_setup",
         "board_tour",
@@ -72,7 +73,7 @@ FEATURE_LABELS: dict[str, str] = {
     "probe_guide": "ロードセルプローブ ガイド",
     "nozzle_cap": "ノズルキャップ位置の設定",
     "camera_preview": "カメラプレビュー",
-    "copper_detection": "銅箔検出調整",
+    "contour_tuning": "輪郭調整",
 }
 
 # feature 実装予定の Phase（プレースホルダ表示用）
@@ -98,7 +99,7 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("pasting", "probe_guide"): "pasting/probe_guide.html",
     ("pasting", "nozzle_cap"): "pasting/nozzle_cap.html",
     ("posctrl", "camera_preview"): "posctrl/camera_preview.html",
-    ("posctrl", "copper_detection"): "posctrl/copper_detection.html",
+    ("posctrl", "contour_tuning"): "posctrl/contour_tuning.html",
     ("posctrl", "camera_calibration"): "posctrl/job.html",
     ("posctrl", "board_tour"): "posctrl/job.html",
     ("posctrl", "orthogonality_test"): "posctrl/job.html",
@@ -311,14 +312,51 @@ def _paste_solder_context(state: AppState, store: ConfigStore) -> dict[str, Any]
     }
 
 
-def _copper_detection_context(state: AppState, store: ConfigStore) -> dict[str, Any]:
-    """Copper_detection ページ専用コンテキスト（エッジ検出パラメータ現在値）."""
-    pad_align = state.machine().paste_dispenser.pad_align
+def _contour_mode(
+    label: str, overlay: str, key_prefix: str, params: PadAlign | BoardAlign
+) -> dict[str, Any]:
+    """輪郭調整の 1 モード定義（label / overlay / 保存キーと現在値）を構築する.
+
+    params の属性名と machine.toml の保存キー末尾は同名なので、キーは key_prefix + 属性名で導出する。
+    """
     return {
-        "canny_low": pad_align.canny_low,
-        "canny_high": pad_align.canny_high,
-        "blur_ksize": pad_align.blur_ksize,
+        "label": label,
+        "overlay": overlay,
+        "params": {
+            name: {"key": f"{key_prefix}.{name}", "value": getattr(params, name)}
+            for name in ("canny_low", "canny_high", "blur_ksize")
+        },
     }
+
+
+def _contour_tuning_context(state: AppState, store: ConfigStore) -> dict[str, Any]:
+    """Contour_tuning ページ専用コンテキスト（両モードの定義と現在値）.
+
+    モード定義（overlay 種別・保存キー・パラメータ現在値）はサーバが提供し、 テンプレートが埋め込み JSON で JS
+    へ渡す（JS にドメイン知識を置かない）。
+    """
+    machine = state.machine()
+    return {
+        "contour_modes": {
+            "copper": _contour_mode(
+                "銅箔検出",
+                "copper",
+                "paste_dispenser.pad_align",
+                machine.paste_dispenser.pad_align,
+            ),
+            "board": _contour_mode(
+                "コーナー検出", "board", "board_align", machine.board_align
+            ),
+        }
+    }
+
+
+def _reference_point_setup_context(
+    state: AppState, store: ConfigStore
+) -> dict[str, Any]:
+    """Reference_point_setup ページ専用コンテキスト（アンカーコーナー表示名）."""
+    corner = state.machine().reference_point.corner
+    return {"anchor_label": CORNER_LABELS[corner.value]}
 
 
 def _nozzle_cap_context(state: AppState, store: ConfigStore) -> dict[str, Any]:
@@ -337,8 +375,9 @@ _JOB_FEATURE_CONTEXT: dict[
 # feature slug → ページ専用コンテキスト（ジョブ有無に依らない）
 _FEATURE_CONTEXT: dict[str, Callable[[AppState, ConfigStore], dict[str, Any]]] = {
     "paste_solder": _paste_solder_context,
-    "copper_detection": _copper_detection_context,
+    "contour_tuning": _contour_tuning_context,
     "nozzle_cap": _nozzle_cap_context,
+    "reference_point_setup": _reference_point_setup_context,
 }
 
 
