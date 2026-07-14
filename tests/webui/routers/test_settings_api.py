@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from pcbasm.config import CORNERS
 from webui.config_store import MACHINE_FIELDS
 from webui.state import AppState
 
@@ -65,6 +66,7 @@ class TestMachineSettingsApi:
                     "paste_dispenser.max_fill_speed": 0.9,
                     "probe.min_radius": 2.5,
                     "probe.min_samples": 7,
+                    "board_align.tolerance": 0.07,
                 }
             },
         )
@@ -75,12 +77,13 @@ class TestMachineSettingsApi:
         assert fields["paste_dispenser.max_fill_speed"]["value"] == 0.9
         assert fields["probe.min_radius"]["value"] == 2.5
         assert fields["probe.min_samples"]["value"] == 7
+        assert fields["board_align.tolerance"]["value"] == 0.07
 
         after_text = path.read_text(encoding="utf-8")
         after = after_text.splitlines()
         assert len(after) == len(before)
         changed = [(b, a) for b, a in zip(before, after) if b != a]
-        assert len(changed) == 4
+        assert len(changed) == 5
         # 変更対象外のコメントが無傷で残る
         assert "キャリブレーション値 2026/06/08" in after_text
 
@@ -102,31 +105,63 @@ class TestMachineSettingsApi:
         assert fields["paste_dispenser.paste_height"]["value"] == "auto"
         assert fields["paste_dispenser.auto_line_aspect_ratio"]["value"] == 1.7
 
-    def test_get_returns_reference_point_offset_pairs(self, client: TestClient):
+    def test_get_returns_reference_point_corner_and_offset(self, client: TestClient):
+        """GET に corner（value_type="corner"）と単一 offset ペアが載る."""
         fields = {
             field["key"]: field
             for field in client.get("/api/settings/machine").json()["fields"]
         }
 
-        top_left = fields["reference_point.offsets.top_left"]
-        assert top_left["value"] == [5.0, -5.0]
-        assert top_left["value_type"] == "float_pair"
-        assert fields["reference_point.offsets.bottom_right"]["value"] is None
+        corner = fields["reference_point.corner"]
+        assert corner["value_type"] == "corner"
+        assert corner["value"] in CORNERS
+        offset = fields["reference_point.offset"]
+        assert offset["value_type"] == "float_pair"
+        assert isinstance(offset["value"], list)
+        assert len(offset["value"]) == 2
 
-    def test_put_writes_float_pair(self, client: TestClient):
+    def test_get_returns_board_align_fields(self, client: TestClient):
+        fields = {
+            field["key"]: field
+            for field in client.get("/api/settings/machine").json()["fields"]
+        }
+
+        assert fields["board_align.tolerance"]["value_type"] == "float"
+        assert fields["board_align.search_window"]["value_type"] == "float"
+        assert fields["board_align.blur_ksize"]["value_type"] == "int"
+
+    def test_put_writes_corner(self, client: TestClient):
         response = client.put(
             "/api/settings/machine",
-            json={"values": {"reference_point.offsets.bottom_right": [-5.0, 5.0]}},
+            json={"values": {"reference_point.corner": "bottom_left"}},
         )
 
         assert response.status_code == 200, response.text
         fields = {field["key"]: field for field in response.json()["fields"]}
-        assert fields["reference_point.offsets.bottom_right"]["value"] == [-5.0, 5.0]
+        assert fields["reference_point.corner"]["value"] == "bottom_left"
+
+    def test_put_unknown_corner_returns_400(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"reference_point.corner": "center"}},
+        )
+
+        assert response.status_code == 400
+
+    def test_put_writes_float_pair(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"reference_point.offset": [2.5, -2.5]}},
+        )
+
+        assert response.status_code == 200, response.text
+        fields = {field["key"]: field for field in response.json()["fields"]}
+        assert fields["reference_point.offset"]["value"] == [2.5, -2.5]
 
     def test_put_invalid_float_pair_returns_400(self, client: TestClient):
         response = client.put(
             "/api/settings/machine",
-            json={"values": {"reference_point.offsets.top_left": [1.0]}},
+            json={"values": {"reference_point.offset": [1.0]}},
         )
 
         assert response.status_code == 400
