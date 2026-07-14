@@ -147,7 +147,7 @@ class _CachedPosition:
 
 
 def _run_reference_point_setup(ctx: JobContext) -> JobResult:
-    """基準点 (top left) をジョグで合わせ、現在位置を設定反映候補にする.
+    """基準点マーカー（アンカーコーナー）をジョグで合わせ、現在位置を設定反映候補にする.
 
     マシン操作パネル（ジョブモード）の WS command でジョグし、record で 現在位置を確定、quit で中止する。
     """
@@ -177,6 +177,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     position = _CachedPosition(stage)
     with ctx.open_camera() as camera:
         ctx.progress("ジョグ待機")
+        ctx.log(f"アンカーコーナー: {machine.reference_point.corner.value}")
         ctx.log("マシン操作パネルでジョグし、Record で現在位置を記録してください")
         while True:
             ctx.frame(_reference_point_frame(camera, detector, machine, position))

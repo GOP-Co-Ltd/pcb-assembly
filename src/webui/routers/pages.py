@@ -20,6 +20,7 @@ from webui.dependencies import (
 )
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.routers.common import (
+    CORNER_LABELS,
     SECTION_LABELS,
     SettingsField,
     machine_settings_fields,
@@ -260,6 +261,7 @@ def settings_page(
     machine = state.selected_machine
     context.update(
         machine_groups=_grouped_fields(machine_settings_fields(store, machine)),
+        corner_labels=CORNER_LABELS,
     )
     return get_templates(request).TemplateResponse(
         request=request, name="settings.html", context=context

@@ -322,7 +322,8 @@ class TestPosctrlHardware:
     - 実カメラが接続済みでキャリブレーション済みであること
     - camera_calibration: 1 マス 1.5mm の実チェッカーボードを視野に配置
     - board_tour / orthogonality_test: data/testing/fill_coverage の基板が
-      ステージにセットされ、基準点マーカーが視野に入ること
+      ステージにセットされ、アンカーコーナーの基準点マーカー1個と基板
+      4コーナーがすべてカメラ視野/可動域内にあること
     """
 
     def test_reference_point_setup_jog_and_record_yields_apply(

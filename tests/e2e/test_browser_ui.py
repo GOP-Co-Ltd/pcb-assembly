@@ -122,7 +122,7 @@ class TestSettingsOverBrowser:
         browser_page.goto(
             f"{live_server.base_url}/settings", wait_until="domcontentloaded"
         )
-        pair = 'input[data-pair-key="reference_point.offsets.top_left"]'
+        pair = 'input[data-pair-key="reference_point.offset"]'
         x_input = browser_page.locator(f'{pair}[data-pair-index="0"]')
         y_input = browser_page.locator(f'{pair}[data-pair-index="1"]')
         x_input.wait_for(state="visible", timeout=10_000)
@@ -130,8 +130,22 @@ class TestSettingsOverBrowser:
         x_input.fill("6.5")
         y_input.fill("-4.5")
 
+        _wait_machine_field(live_server.base_url, "reference_point.offset", [6.5, -4.5])
+
+    def test_reference_point_corner_select_autosave(
+        self, live_server: LiveServer, browser_page
+    ):
+        """アンカーコーナー select の変更が corner 値として自動保存される."""
+        browser_page.goto(
+            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
+        )
+        select = browser_page.locator('select[name="reference_point.corner"]')
+        select.wait_for(state="visible", timeout=10_000)
+
+        select.select_option("bottom_right")
+
         _wait_machine_field(
-            live_server.base_url, "reference_point.offsets.top_left", [6.5, -4.5]
+            live_server.base_url, "reference_point.corner", "bottom_right"
         )
 
     def test_setting_label_does_not_focus_input(

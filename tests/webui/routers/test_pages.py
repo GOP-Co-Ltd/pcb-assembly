@@ -113,7 +113,7 @@ class TestPages:
         assert "settings-layout" in response.text
         assert 'name="probe.lift_height"' in response.text
         assert "プローブ後の上昇高さ" in response.text
-        assert 'data-pair-key="reference_point.offsets.top_left"' in response.text
+        assert 'data-pair-key="reference_point.offset"' in response.text
         assert 'class="settings-label"' in response.text
         assert '<label for="ms-' not in response.text
         assert '<button type="submit">保存</button>' not in response.text
@@ -128,7 +128,7 @@ class TestPages:
             "ペーストディスペンサー / パッド位置合わせ",
             "プローブ",
             "基準点",
-            "基準点 / コーナーオフセット",
+            "基板コーナー照合",
             "カメラ",
         ):
             assert section_label in text
