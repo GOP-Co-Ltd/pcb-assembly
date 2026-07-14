@@ -90,6 +90,17 @@ class TestHttpRoutes:
         assert response.status_code == 200
         assert response.json()["machine"] == "kurousagi"
 
+    def test_reference_point_page_explains_record_applies_immediately(
+        self, live_server: LiveServer
+    ):
+        response = httpx.get(
+            f"{live_server.base_url}/posctrl/reference_point_setup",
+            timeout=_HTTP_TIMEOUT,
+        )
+
+        assert response.status_code == 200
+        assert "Record を押すと現在位置を記録し、設定へ即時反映します" in response.text
+
 
 class TestArtifactsOverRealHttp:
     """/artifacts mount の実 HTTP 配信（ジョブ実生成は jobs/test_pasting.py が担保）."""

@@ -325,10 +325,13 @@ class TestPosctrlHardware:
       ステージにセットされ、基準点マーカーが視野に入ること
     """
 
-    def test_reference_point_setup_jog_and_record_yields_apply(
-        self, real_manager: JobManager, wait_until: WaitUntil
+    def test_reference_point_setup_jog_and_record_applies_settings_immediately(
+        self,
+        real_manager: JobManager,
+        real_state: AppState,
+        wait_until: WaitUntil,
     ):
-        """ジョグ → record で現在位置が Apply payload になる（spec §8）."""
+        """ジョグ → record で現在位置を保存し、追加の Apply を要求しない."""
         record = real_manager.start("reference_point_setup", {})
         wait_until(lambda: record.status == JobStatus.RUNNING, timeout=30.0)
         # command はキューに積まれ、ホーミング完了後のループで順に消費される
@@ -340,11 +343,12 @@ class TestPosctrlHardware:
         result = record.result
         assert result is not None
         assert result.summary is not None
-        assert "基準点" in result.summary
-        assert result.apply is not None
-        assert set(result.apply.values) == {"reference_point.x", "reference_point.y"}
-        for value in result.apply.values.values():
-            assert isinstance(value, float)
+        assert "設定に反映しました" in result.summary
+        assert result.apply is None
+        assert record.apply_available is False
+        saved = real_state.machine().reference_point
+        assert f"x={saved.x:.3f}" in result.summary
+        assert f"y={saved.y:.3f}" in result.summary
 
     def test_reference_point_setup_quit_aborts_without_apply(
         self, real_manager: JobManager, wait_until: WaitUntil
