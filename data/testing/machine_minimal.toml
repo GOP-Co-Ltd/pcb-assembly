@@ -16,8 +16,5 @@ height = 400
 x = 20.0
 y = 10.0
 target_diameter = 3.0
-
-[reference_point.offsets]
-top_left = [0.0, 0.0]
-top_right = [0.0, 0.0]
-bottom_right = [0.0, 0.0]
+corner = "top_left" # アンカーコーナー: top_left / top_right / bottom_left / bottom_right
+offset = [0.0, 0.0] # 基板コーナー → マーカー のオフセット [x, y] (mm)
