@@ -1,6 +1,8 @@
 "use strict";
 
-// カメラプレビュー: MJPEG <img> の装着/切断・overlay/Canny の動的反映・自動再接続。
+// カメラプレビュー: MJPEG <img> の装着/切断・overlay/検出パラメータの動的反映・自動再接続。
+// 輪郭調整ページでは #contour-modes（サーバ提供のモード定義 JSON）を読み、
+// モード切替・スライダー反映・保存を data 駆動で行う（キー名は JS に持たない）。
 
 (() => {
   const pane = document.getElementById("preview-pane");
@@ -9,8 +11,10 @@
   const { toast, api, debounce, createBackoff } = window.webui;
   const img = document.getElementById("preview-img");
   const status = document.getElementById("preview-status");
-  const cannyLow = document.getElementById("canny-low");
-  const cannyHigh = document.getElementById("canny-high");
+  const sliders = Array.from(document.querySelectorAll("input[data-param]"));
+  const modesEl = document.getElementById("contour-modes");
+  const modes = modesEl ? JSON.parse(modesEl.textContent) : null;
+  const modeSelect = document.getElementById("contour-mode");
 
   const DEBOUNCE_MS = 300;
 
@@ -18,15 +22,20 @@
   let retryTimer = null;
   let stopped = false;
 
+  function currentMode() {
+    return modes && modeSelect ? modes[modeSelect.value] : null;
+  }
+
   function currentOverlay() {
+    const mode = currentMode();
+    if (mode) return mode.overlay;
     const radio = document.querySelector("input[name='overlay']:checked");
     return radio ? radio.value : pane.dataset.overlay || "none";
   }
 
   function streamUrl() {
     const params = new URLSearchParams({ overlay: currentOverlay() });
-    if (cannyLow) params.set("canny_low", cannyLow.value);
-    if (cannyHigh) params.set("canny_high", cannyHigh.value);
+    for (const slider of sliders) params.set(slider.dataset.param, slider.value);
     params.set("t", Date.now()); // 再接続時のキャッシュ回避
     return `${pane.dataset.streamUrl}?${params}`;
   }
@@ -50,35 +59,53 @@
     retryTimer = setTimeout(connect, retryBackoff.next());
   });
 
-  // overlay/Canny 変更の連打をまとめて再接続する（connect は stopped でガード済み）
+  // overlay/パラメータ変更の連打をまとめて再接続する（connect は stopped でガード済み）
   const reconnect = debounce(connect, DEBOUNCE_MS);
 
   for (const radio of document.querySelectorAll("input[name='overlay']")) {
     radio.addEventListener("change", reconnect);
   }
 
-  function bindSlider(slider, valueId) {
-    if (!slider) return;
-    const value = document.getElementById(valueId);
+  function showSliderValue(slider) {
+    const value = document.getElementById(`${slider.id}-value`);
+    if (value) value.textContent = slider.value;
+  }
+
+  for (const slider of sliders) {
     slider.addEventListener("input", () => {
-      if (value) value.textContent = slider.value;
+      showSliderValue(slider);
       reconnect();
     });
   }
-  bindSlider(cannyLow, "canny-low-value");
-  bindSlider(cannyHigh, "canny-high-value");
 
-  const saveButton = document.getElementById("canny-save");
-  if (saveButton && cannyLow && cannyHigh) {
+  if (modeSelect) {
+    // モード切替: フォーム値をそのモードの現在値に入替え、ストリームを再接続
+    modeSelect.addEventListener("change", () => {
+      const mode = currentMode();
+      if (!mode) return;
+      for (const slider of sliders) {
+        const param = mode.params[slider.dataset.param];
+        if (!param) continue;
+        slider.value = param.value;
+        showSliderValue(slider);
+      }
+      reconnect();
+    });
+  }
+
+  const saveButton = document.getElementById("contour-save");
+  if (saveButton && modes) {
     saveButton.addEventListener("click", async () => {
+      const mode = currentMode();
+      if (!mode) return;
+      const values = {};
+      for (const slider of sliders) {
+        const param = mode.params[slider.dataset.param];
+        if (param) values[param.key] = Number(slider.value);
+      }
       try {
-        await api("PUT", "/api/settings/machine", {
-          values: {
-            "paste_dispenser.pad_align.canny_low": Number(cannyLow.value),
-            "paste_dispenser.pad_align.canny_high": Number(cannyHigh.value),
-          },
-        });
-        toast("Canny パラメータを設定に保存しました");
+        await api("PUT", "/api/settings/machine", { values });
+        toast(`${mode.label}のパラメータを設定に保存しました`);
       } catch (err) {
         toast(`保存失敗: ${err.message}`, false);
       }

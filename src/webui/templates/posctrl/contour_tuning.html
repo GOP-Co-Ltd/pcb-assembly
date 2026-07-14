@@ -1,25 +1,41 @@
 {% extends "tab.html" %}
-{% block title %}Copper Detection — PCB Assembly WebUI{% endblock %}
+{% block title %}輪郭調整 — PCB Assembly WebUI{% endblock %}
 {% block main %}
-<h2>Copper Detection</h2>
-{% set preview_overlay = "copper" %}
+<h2>{{ feature_label }}</h2>
+{% set default_mode = contour_modes["copper"] %}
+{% set preview_overlay = default_mode.overlay %}
 {% include "partials/preview_pane.html" %}
 <fieldset class="preview-controls">
-  <legend>Canny パラメータ（blur_ksize: {{ blur_ksize }}）</legend>
+  <legend>輪郭検出パラメータ</legend>
+  <div class="canny-row">
+    <label for="contour-mode">検出対象</label>
+    <select id="contour-mode">
+      {% for mode_id, mode in contour_modes.items() %}
+      <option value="{{ mode_id }}">{{ mode.label }}</option>
+      {% endfor %}
+    </select>
+  </div>
   <div class="canny-row">
     <label for="canny-low">canny low</label>
-    <input type="range" id="canny-low" min="0" max="500" step="1"
-           value="{{ canny_low | round | int }}">
-    <span id="canny-low-value" class="canny-value">{{ canny_low | round | int }}</span>
+    <input type="range" id="canny-low" data-param="canny_low" min="0" max="500"
+           step="1" value="{{ default_mode.params.canny_low.value | round | int }}">
+    <span id="canny-low-value" class="canny-value">{{ default_mode.params.canny_low.value | round | int }}</span>
   </div>
   <div class="canny-row">
     <label for="canny-high">canny high</label>
-    <input type="range" id="canny-high" min="0" max="500" step="1"
-           value="{{ canny_high | round | int }}">
-    <span id="canny-high-value" class="canny-value">{{ canny_high | round | int }}</span>
+    <input type="range" id="canny-high" data-param="canny_high" min="0" max="500"
+           step="1" value="{{ default_mode.params.canny_high.value | round | int }}">
+    <span id="canny-high-value" class="canny-value">{{ default_mode.params.canny_high.value | round | int }}</span>
   </div>
-  <button id="canny-save" type="button">設定に保存</button>
+  <div class="canny-row">
+    <label for="blur-ksize">blur ksize</label>
+    <input type="range" id="blur-ksize" data-param="blur_ksize" min="1" max="31"
+           step="2" value="{{ default_mode.params.blur_ksize.value }}">
+    <span id="blur-ksize-value" class="canny-value">{{ default_mode.params.blur_ksize.value }}</span>
+  </div>
+  <button id="contour-save" type="button">設定に保存</button>
 </fieldset>
+<script type="application/json" id="contour-modes">{{ contour_modes | tojson }}</script>
 {% endblock %}
 {% block scripts %}
 {{ super() }}
