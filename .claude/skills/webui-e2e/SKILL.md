@@ -76,7 +76,7 @@ make webui-fake      # PCBASM_WEBUI_FAKE_CAMERA=1, PORT=8099, DATA_DIR=/tmp/pcba
 ## 隔離の鉄則（実機設定を汚さない）
 
 - 設定書き込みを伴う検証（apply / settings 保存）は **test-fixture マシン**に対して行う。
-    実マシン（kurousagi / pd_china_frame）の `configs/` 直下は触らない
+    実マシン（kurousagi）の `configs/` 直下は触らない
 - pytest E2E は test-fixture を tmp_path に複製するので自動的に隔離される
 - 手動起動も `PCBASM_WEBUI_DATA_DIR` を tmp に向け、`webui_state.json` を実運用と分ける
 
