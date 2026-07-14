@@ -19,7 +19,7 @@ corrected_projector(M) は Compose([board_transform, M]) ベースの投影を�
 カメラは tests/helpers.py の FakeCamera（自前 HAL Camera の test Impl）、
 klipper / stage は自前 HAL のため mocker.Mock（test_position.py のイディオム）、
 calibration は実 CalibrationResult、machine は実 Machine
-（configs/pd_china_frame/machine.toml）、pcb は components / pads / copper を
+（configs/test-fixture/machine.toml）、pcb は components / pads / copper を
 返す Mock を使う。合成矩形画像のイディオムは test_pad.py を踏襲する。
 """
 
@@ -226,7 +226,7 @@ def _board_image(shift_x: int = 0, shift_y: int = 0) -> Image:
 
 
 def _machine_config() -> Machine:
-    return Machine(PROJECT_ROOT / "configs" / "pd_china_frame" / "machine.toml")
+    return Machine(PROJECT_ROOT / "configs" / "test-fixture" / "machine.toml")
 
 
 def _calibration() -> CalibrationResult:
@@ -314,22 +314,22 @@ class TestPadAlignmentSession:
     def test_align_returns_result_with_translation_matching_known_shift(
         self, klipper, stage, pcb
     ):
-        """既知ずれの合成画像列で align が成功し translation ≈ (−0.6, +0.4) mm.
+        """既知ずれの合成画像列で align が成功し translation ≈ (−0.2, +0.2) mm.
 
-        Board が機械座標で (−0.6, +0.4) mm 変位したシナリオ: 1 枚目は anchor (0,0)
-        での観測（画像上 (+6,−4)px のずれ）、2 枚目は補正移動 (−0.6, +0.4)
-        後の観測（想定どおり）。machine_transform は設計→観測の ずれ Shift(−0.6, +0.4)
+        Board が機械座標で (−0.2, +0.2) mm 変位したシナリオ: 1 枚目は anchor (0,0)
+        での観測（画像上 (+2,−2)px のずれ）、2 枚目は補正移動 (−0.2, +0.2)
+        後の観測（想定どおり）。machine_transform は設計→観測の ずれ Shift(−0.2, +0.2)
         に収束し、translation がそれと整合する。
         """
-        camera = FakeCamera([_board_image(6, -4), _board_image()])
+        camera = FakeCamera([_board_image(2, -2), _board_image()])
         session = self._session(camera, klipper, stage, pcb)
         target = ComponentPads(component=pcb.components[0], pads=tuple(pcb.pads))
 
         result = session.align(target)
 
         assert result is not None
-        assert result.translation.x == pytest.approx(-0.6, abs=0.2)
-        assert result.translation.y == pytest.approx(0.4, abs=0.2)
+        assert result.translation.x == pytest.approx(-0.2, abs=0.1)
+        assert result.translation.y == pytest.approx(0.2, abs=0.1)
 
     def test_align_delivers_edge_match_frames_to_frame_sink(self, klipper, stage, pcb):
         """frame_sink 指定時、align() 中に照合状況の合成フレームが届く.
@@ -339,7 +339,7 @@ class TestPadAlignmentSession:
         を渡してプレビューへ配信する）。
         """
         frames: list[Image] = []
-        camera = FakeCamera([_board_image(6, -4), _board_image()])
+        camera = FakeCamera([_board_image(2, -2), _board_image()])
         session = self._session(camera, klipper, stage, pcb, frame_sink=frames.append)
         target = ComponentPads(component=pcb.components[0], pads=tuple(pcb.pads))
 

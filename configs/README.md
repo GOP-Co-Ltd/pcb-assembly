@@ -54,7 +54,7 @@ height = 400
 
 ## 命名規則
 
-- マシン名は小文字のスネークケース（例: `pd_china_frame`）
+- マシン名は小文字のスネークケース（例: `kurousagi`）
 - 略称を使う場合は先頭に付ける（例: `pd_` = paste dispenser）
 
 `test-fixture/` はテスト・WebUI E2E 用のフィクスチャマシン（実機設定を汚さないための git 管理ダミー。書き込み検証後は `git checkout` で復元する）。
