@@ -1,8 +1,9 @@
 import subprocess
 import time
 from collections.abc import Callable, Sequence
+from functools import wraps
 from pathlib import Path
-from typing import override
+from typing import ParamSpec, TypeVar, override
 
 import picamera2
 import pytest
@@ -15,6 +16,9 @@ PROJECT_ROOT = Path(__file__).parent.parent
 TESTING_DATA_DIR = PROJECT_ROOT / "data" / "testing"
 
 mark_hardware = pytest.mark.hardware
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
 
 
 def wait_until(
@@ -48,14 +52,37 @@ def _usb_camera_available() -> bool:
         return False
 
 
-skip_if_no_usb_camera = pytest.mark.skipif(
-    not _usb_camera_available(),
-    reason="USBカメラが接続されていません",
+def _csi_camera_available() -> bool:
+    """CSIカメラが接続されているか確認する."""
+    return bool(picamera2.Picamera2.global_camera_info())
+
+
+def _skip_if_camera_unavailable(
+    is_available: Callable[[], bool],
+    reason: str,
+) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
+    """実行時にカメラ接続を確認してテストをskipするdecoratorを返す."""
+
+    def decorator(test: Callable[_P, _R]) -> Callable[_P, _R]:
+        @wraps(test)
+        def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+            if not is_available():
+                pytest.skip(reason)
+            return test(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+skip_if_no_usb_camera = _skip_if_camera_unavailable(
+    _usb_camera_available,
+    "USBカメラが接続されていません",
 )
 
-skip_if_no_csi_camera = pytest.mark.skipif(
-    not picamera2.Picamera2.global_camera_info(),
-    reason="CSIカメラが接続されていません",
+skip_if_no_csi_camera = _skip_if_camera_unavailable(
+    _csi_camera_available,
+    "CSIカメラが接続されていません",
 )
 
 
