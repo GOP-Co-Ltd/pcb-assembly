@@ -161,7 +161,7 @@ def setup_board_calibration(
     logger.info("ホーミング完了")
 
     # Reference Pointへ移動
-    logger.info("=== Reference Point (top left) へ移動 ===")
+    logger.info("=== Reference Point (%s) へ移動 ===", ref_config.corner.value)
     logger.info("目標位置: (%s, %s)", ref_config.x, ref_config.y)
     if calibration.z_position is not None:
         logger.info("キャリブレーションZ位置: %.3f mm", calibration.z_position)
@@ -193,7 +193,8 @@ def setup_board_calibration(
     )
     offset_transform = offset_transform_measurer.measure()
 
-    # 位置補正を行い最終座標を返す関数を定義
+    # 基準点マーカーへのサーボ収束
+    logger.info("=== Reference Point (%s) の位置補正 ===", ref_config.corner.value)
     position_adjustor = XYPositionAdjustor(
         observe=observer.observe,
         klipper=klipper,
@@ -201,17 +202,23 @@ def setup_board_calibration(
         offset_transform=offset_transform,
         tolerance=tolerance,
     )
+    marker_pos = position_adjustor.adjust()
 
-    # Board変換の計測
+    # Board変換の計測（基板4隅の輪郭照合）
     logger.info("=== Board変換の計測 ===")
     board_transform_measurer = BoardTransformMeasurer(
-        adjust_reference=position_adjustor.adjust,
+        camera=camera,
         klipper=klipper,
         stage=stage,
         outline=outline,
         reference_point=ref_config,
+        offset_transform=offset_transform,
+        pixel_per_mm=calibration.pixel_per_mm,
+        image_size=calibration.resolution,
+        board_align=machine.board_align,
+        frame_sink=frame_sink,
     )
-    board_transform = board_transform_measurer.measure()
+    board_transform = board_transform_measurer.measure(marker_pos)
 
     return BoardCalibrationResult(
         machine=machine,
