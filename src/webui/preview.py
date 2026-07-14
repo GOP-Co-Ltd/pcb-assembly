@@ -10,7 +10,7 @@ from typing import Literal
 
 import cv2
 
-from pcbasm.config import Machine
+from pcbasm.config import BoardAlign, Machine, PadAlign
 from pcbasm.hal import FrameHub
 from pcbasm.vision import (
     CalibrationResult,
@@ -24,7 +24,7 @@ from pcbasm.vision import (
 )
 from webui.state import AppState
 
-type OverlayKind = Literal["none", "crosshair", "circle", "copper"]
+type OverlayKind = Literal["none", "crosshair", "circle", "copper", "board"]
 type _Renderer = Callable[[Image], Image]
 type _Override = tuple[Image, float | None]
 
@@ -186,6 +186,7 @@ class PreviewService:
         overlay: OverlayKind,
         canny_low: float | None = None,
         canny_high: float | None = None,
+        blur_ksize: int | None = None,
     ) -> Generator[bytes]:
         """MJPEG の multipart パート列を生成する同期ジェネレータ.
 
@@ -195,12 +196,14 @@ class PreviewService:
 
         Args:
             overlay: オーバーレイ種別
-            canny_low: overlay=copper の Canny 下側閾値（None は machine.toml 値）
-            canny_high: overlay=copper の Canny 上側閾値（None は machine.toml 値）
+            canny_low: overlay=copper/board の Canny 下側閾値（None は machine.toml 値）
+            canny_high: overlay=copper/board の Canny 上側閾値（None は machine.toml 値）
+            blur_ksize: overlay=copper/board のブラーカーネルサイズ（None は
+                machine.toml 値。正の奇数であることは呼び出し側が保証する）
         """
         with self.hold_camera() as hub:
             source = hub.subscribe(timeout=1.0)
-            renderer = self._build_renderer(overlay, canny_low, canny_high)
+            renderer = self._build_renderer(overlay, canny_low, canny_high, blur_ksize)
             interval = self._emit_interval(source.resolution.fps)
             next_emit = time.monotonic()
             while not self._shutdown_requested.is_set():
@@ -251,7 +254,11 @@ class PreviewService:
         return 1.0 / fps
 
     def _build_renderer(
-        self, overlay: OverlayKind, canny_low: float | None, canny_high: float | None
+        self,
+        overlay: OverlayKind,
+        canny_low: float | None,
+        canny_high: float | None,
+        blur_ksize: int | None,
     ) -> _Renderer:
         """ストリーム開始時に machine 設定を 1 回読んでレンダラを構築する."""
         if overlay == "none":
@@ -268,16 +275,30 @@ class PreviewService:
                 return _CircleRenderer(
                     self._build_circle_detector(machine), crop_size, detect_interval
                 )
-            case "copper":
-                pad_align = machine.paste_dispenser.pad_align
-                low = canny_low if canny_low is not None else pad_align.canny_low
-                high = canny_high if canny_high is not None else pad_align.canny_high
-                detector = CopperEdgeDetector(
-                    canny_low=low,
-                    canny_high=high,
-                    blur_ksize=pad_align.blur_ksize,
+            case "copper" | "board":
+                params = (
+                    machine.paste_dispenser.pad_align
+                    if overlay == "copper"
+                    else machine.board_align
                 )
-                return _CopperRenderer(detector, low, high, detect_interval)
+                return self._build_copper_renderer(
+                    params, canny_low, canny_high, blur_ksize, detect_interval
+                )
+
+    def _build_copper_renderer(
+        self,
+        params: PadAlign | BoardAlign,
+        canny_low: float | None,
+        canny_high: float | None,
+        blur_ksize: int | None,
+        detect_interval: float,
+    ) -> _CopperRenderer:
+        """設定値 + クエリ override から Canny エッジ緑マスクのレンダラを構築する."""
+        low = canny_low if canny_low is not None else params.canny_low
+        high = canny_high if canny_high is not None else params.canny_high
+        ksize = blur_ksize if blur_ksize is not None else params.blur_ksize
+        detector = CopperEdgeDetector(canny_low=low, canny_high=high, blur_ksize=ksize)
+        return _CopperRenderer(detector, low, high, detect_interval)
 
     def _build_circle_detector(self, machine: Machine) -> CircleDetector | None:
         """円検出器を構築する（calibration が読めなければ None）."""

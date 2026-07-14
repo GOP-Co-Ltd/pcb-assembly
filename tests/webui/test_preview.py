@@ -155,6 +155,39 @@ class TestOverlays:
 
         assert _count_dominant(frame, channel=1) > 500
 
+    def test_board_overlay_marks_edges_green(self, service: PreviewService):
+        # canny 既定値は machine.toml の board_align（100 / 200）。copper と
+        # 同じ Canny エッジ緑マスクを board_align パラメータで描画する
+        stream = service.mjpeg_stream("board")
+        try:
+            frame = _decoded_frame(next(stream))
+        finally:
+            stream.close()
+
+        assert _count_dominant(frame, channel=1) > 500
+
+    def test_board_overlay_accepts_canny_and_blur_override(
+        self, service: PreviewService
+    ):
+        stream = service.mjpeg_stream(
+            "board", canny_low=50.0, canny_high=150.0, blur_ksize=7
+        )
+        try:
+            frame = _decoded_frame(next(stream))
+        finally:
+            stream.close()
+
+        assert _count_dominant(frame, channel=1) > 500
+
+    def test_copper_overlay_accepts_blur_ksize_override(self, service: PreviewService):
+        stream = service.mjpeg_stream("copper", blur_ksize=7)
+        try:
+            frame = _decoded_frame(next(stream))
+        finally:
+            stream.close()
+
+        assert _count_dominant(frame, channel=1) > 500
+
     def test_circle_overlay_draws_red_circle(self, service: PreviewService):
         # 固定画像の直径 120px 円が検出され、赤の円描画が乗る
         stream = service.mjpeg_stream("circle")

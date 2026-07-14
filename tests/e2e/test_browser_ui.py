@@ -163,6 +163,73 @@ class TestSettingsOverBrowser:
         assert active_tag != "INPUT"
 
 
+class TestContourTuningOverBrowser:
+    """輪郭調整ページ（銅箔検出 / コーナー検出モード）の実ブラウザ操作.
+
+    モード定義（overlay・保存キー・現在値）はサーバ埋め込み JSON。保存は 選択モードの canny_low /
+    canny_high / blur_ksize 3 キーを 1 回の PUT で 一括書込する。range スライダーは fill
+    不可のため focus + ArrowRight で 1 ステップ動かす（input イベント経由でストリーム URL
+    にも反映される）。
+    """
+
+    def test_board_mode_save_writes_board_align_keys(
+        self, live_server: LiveServer, browser_page
+    ):
+        browser_page.goto(
+            f"{live_server.base_url}/posctrl/contour_tuning",
+            wait_until="domcontentloaded",
+        )
+        mode = browser_page.locator("#contour-mode")
+        mode.wait_for(state="visible", timeout=10_000)
+
+        # コーナー検出モードへ切替 → スライダーが board_align 現在値に入替わる
+        mode.select_option("board")
+        expect(browser_page.locator("#canny-low")).to_have_value("100")
+        expect(browser_page.locator("#canny-high")).to_have_value("200")
+        expect(browser_page.locator("#blur-ksize")).to_have_value("5")
+
+        slider = browser_page.locator("#canny-low")
+        slider.focus()
+        browser_page.keyboard.press("ArrowRight")  # 100 → 101
+        expect(browser_page.locator("#canny-low-value")).to_have_text("101")
+
+        browser_page.locator("#contour-save").click()
+
+        _wait_machine_field(live_server.base_url, "board_align.canny_low", 101)
+        _wait_machine_field(live_server.base_url, "board_align.canny_high", 200)
+        _wait_machine_field(live_server.base_url, "board_align.blur_ksize", 5)
+
+    def test_copper_mode_save_writes_pad_align_keys(
+        self, live_server: LiveServer, browser_page
+    ):
+        browser_page.goto(
+            f"{live_server.base_url}/posctrl/contour_tuning",
+            wait_until="domcontentloaded",
+        )
+        save = browser_page.locator("#contour-save")
+        save.wait_for(state="visible", timeout=10_000)
+
+        # 既定モードは銅箔検出（pad_align の現在値 81 / 192 / 5）
+        expect(browser_page.locator("#canny-low")).to_have_value("81")
+
+        slider = browser_page.locator("#canny-low")
+        slider.focus()
+        browser_page.keyboard.press("ArrowRight")  # 81 → 82
+        expect(browser_page.locator("#canny-low-value")).to_have_text("82")
+
+        save.click()
+
+        _wait_machine_field(
+            live_server.base_url, "paste_dispenser.pad_align.canny_low", 82
+        )
+        _wait_machine_field(
+            live_server.base_url, "paste_dispenser.pad_align.canny_high", 192
+        )
+        _wait_machine_field(
+            live_server.base_url, "paste_dispenser.pad_align.blur_ksize", 5
+        )
+
+
 class TestLoadingOverBrowser:
     """ペーストローディング画面の実ブラウザ操作.
 
