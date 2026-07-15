@@ -26,6 +26,8 @@ import uvicorn
 
 from tests.webui.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE, TEST_FIXTURE_DIR
 from webui.app import create_app
+from webui.jobs.catalog import JobCatalog, JobDefinition
+from webui.jobs.context import JobContext, JobResult
 from webui.settings import Settings
 
 _STARTUP_TIMEOUT = 10.0
@@ -33,6 +35,36 @@ _HTTP_TIMEOUT = 10.0
 _WS_TIMEOUT = 30.0
 
 TERMINAL = ("succeeded", "failed", "aborted")
+
+
+def _register_completion_notice_jobs(catalog: JobCatalog) -> None:
+    """終了通知のブラウザE2E用 hiddenジョブを登録する。"""
+
+    def succeed(ctx: JobContext) -> JobResult:
+        return JobResult(summary="通知テスト完了")
+
+    def fail(ctx: JobContext) -> None:
+        raise RuntimeError("通知テスト失敗")
+
+    def wait_for_abort(ctx: JobContext) -> None:
+        ctx.next_command(timeout=None)
+
+    for name, label, run in (
+        ("completion_notice_success", "通知テスト成功", succeed),
+        ("completion_notice_failure", "通知テスト失敗", fail),
+        ("completion_notice_abort", "通知テスト中止", wait_for_abort),
+    ):
+        catalog.register(
+            JobDefinition(
+                name=name,
+                label=label,
+                tab="dev",
+                run=run,
+                uses_machine=False,
+                notify_on_completion=True,
+                hidden=True,
+            )
+        )
 
 
 def pytest_collection_modifyitems(
@@ -204,8 +236,10 @@ def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
 
     port=0 でエフェメラルポートを OS に割り当てさせ、起動後に実ポートを取得する。
     """
+    app = create_app(e2e_settings)
+    _register_completion_notice_jobs(app.state.catalog)
     config = uvicorn.Config(
-        create_app(e2e_settings),
+        app,
         host="127.0.0.1",
         port=0,
         log_level="warning",

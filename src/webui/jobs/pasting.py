@@ -253,6 +253,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             ),
             requires_pcb=True,
             uses_machine=True,
+            notify_on_completion=True,
             accepts_commands=True,
         )
     )

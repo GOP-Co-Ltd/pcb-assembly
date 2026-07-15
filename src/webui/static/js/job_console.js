@@ -19,10 +19,15 @@
   };
 
   const listeners = new Set();
+  const originalTitle = document.title;
+  const completionNotice = document.getElementById("job-completion-notice");
+  const completionMessage = document.getElementById("job-completion-message");
   let socket = null;
   const reconnectBackoff = createBackoff(1000, 15000);
   let currentJob = null;
   let abortRequestedJobId = null;
+  let completionJobId = null;
+  let audioContext = null;
 
   function isActive(job) {
     return job !== null && job !== undefined && !TERMINAL.has(job.status);
@@ -52,6 +57,104 @@
     } else {
       toast("WebSocket 未接続のため送信できません", false);
     }
+  }
+
+  // Web Audio は user gesture 内で開始しておく必要がある。失敗しても
+  // 視覚通知とジョブ処理へ影響させない。
+  function prepareCompletionAudio() {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      if (audioContext === null) audioContext = new AudioContext();
+      if (audioContext.state === "suspended") {
+        audioContext.resume().catch(() => {});
+      }
+    } catch {
+      audioContext = null;
+    }
+  }
+
+  function scheduleTone(context, frequency, start, duration) {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(frequency, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(0.1, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(start);
+    oscillator.stop(start + duration + 0.01);
+  }
+
+  async function playCompletionSound(status) {
+    try {
+      prepareCompletionAudio();
+      if (audioContext === null) return;
+      if (audioContext.state === "suspended") await audioContext.resume();
+      if (audioContext.state !== "running") return;
+
+      const notes =
+        status === "succeeded"
+          ? [
+              [523.25, 0.0, 0.18],
+              [659.25, 0.16, 0.18],
+              [783.99, 0.32, 0.26],
+            ]
+          : [
+              [392.0, 0.0, 0.28],
+              [261.63, 0.24, 0.38],
+            ];
+      const start = audioContext.currentTime + 0.02;
+      for (const [frequency, offset, duration] of notes) {
+        scheduleTone(audioContext, frequency, start + offset, duration);
+      }
+    } catch {
+      // ブラウザの autoplay 制約や音声デバイス不在時も視覚通知は残す。
+    }
+  }
+
+  function dismissCompletionNotice() {
+    if (completionNotice === null || completionMessage === null) return;
+    completionNotice.hidden = true;
+    delete completionNotice.dataset.status;
+    completionMessage.textContent = "";
+    document.title = originalTitle;
+  }
+
+  function showCompletionNotice(job) {
+    if (completionNotice === null || completionMessage === null) return;
+    const succeeded = job.status === "succeeded";
+    completionNotice.dataset.status = succeeded ? "success" : "error";
+    completionMessage.textContent = succeeded
+      ? `${job.label}が完了しました`
+      : `${job.label}に失敗しました: ${job.error || "不明なエラー"}`;
+    completionNotice.hidden = false;
+    document.title = `${succeeded ? "【成功】" : "【失敗】"}${originalTitle}`;
+  }
+
+  function notifyIfCompleted(job) {
+    if (
+      completionJobId === null ||
+      job === null ||
+      job === undefined ||
+      job.id !== completionJobId ||
+      !TERMINAL.has(job.status)
+    ) {
+      return;
+    }
+    completionJobId = null;
+    if (job.status === "aborted") return;
+    showCompletionNotice(job);
+    playCompletionSound(job.status);
+  }
+
+  function armCompletionNotification(job) {
+    if (!job?.notify_on_completion) return;
+    completionJobId = job.id;
+    // POST より先に終端 job_status が届く高速ジョブも取りこぼさない。
+    notifyIfCompleted(currentJob);
   }
 
   // ---- 公開 API ----
@@ -153,6 +256,7 @@
     }
     for (const callback of listeners) callback(currentJob);
     renderConsole();
+    notifyIfCompleted(currentJob);
   }
 
   // ---- コンソール描画（#job-console があるページのみ）----
@@ -417,11 +521,19 @@
     });
   }
 
+  const completionDismiss = document.getElementById("job-completion-dismiss");
+  if (completionDismiss) {
+    completionDismiss.addEventListener("click", dismissCompletionNotice);
+  }
+
   // ---- ジョブ開始フォーム ----
 
   for (const jobForm of forms) {
     jobForm.addEventListener("submit", async (event) => {
       event.preventDefault();
+      completionJobId = null;
+      dismissCompletionNotice();
+      prepareCompletionAudio();
       const params = {};
       for (const input of jobForm.querySelectorAll("[data-param-type]")) {
         const type = input.dataset.paramType;
@@ -442,7 +554,10 @@
         // 状態は WS の job_status を単一の真実とする。start() が開始時に即 publish し、
         // _send_loop は送信時に最新状態を再構築するため、POST 応答（開始時点で古く
         // なり得るスナップショット）は state には使わない（成功確定とエラー通知のみ）。
-        await api("POST", `/api/jobs/${jobForm.dataset.jobName}`, { params });
+        const data = await api("POST", `/api/jobs/${jobForm.dataset.jobName}`, {
+          params,
+        });
+        armCompletionNotification(data.job);
       } catch (err) {
         toast(err.message, false);
       }

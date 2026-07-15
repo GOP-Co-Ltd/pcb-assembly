@@ -78,6 +78,7 @@ class JobSummary(BaseModel):
     pending_prompt: PromptInfo | None = None
     result: JobResultInfo | None = None
     accepts_commands: bool = False
+    notify_on_completion: bool = False
     apply_available: bool = False
 
 

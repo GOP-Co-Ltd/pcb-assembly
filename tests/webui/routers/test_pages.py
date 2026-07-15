@@ -162,6 +162,19 @@ class TestStaticAssets:
         )
 
 
+class TestCompletionNotice:
+    """ジョブ終了通知の全ページ共通 DOM 契約。"""
+
+    def test_pasting_page_renders_persistent_notice_hooks(self, client: TestClient):
+        text = client.get("/pasting/paste_solder").text
+
+        assert 'id="job-completion-notice"' in text
+        assert 'id="job-completion-message"' in text
+        assert 'id="job-completion-dismiss"' in text
+        assert 'aria-live="assertive"' in text
+        assert "hidden" in text
+
+
 DEV_JOB_FEATURES = (
     "extract_pcb",
     "make_fill_coverage_pcb",
