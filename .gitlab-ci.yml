@@ -55,6 +55,7 @@ pytest:
     OPENBLAS_NUM_THREADS: "1"
     OMP_NUM_THREADS: "1"
   script:
+    - git lfs pull
     - >-
       uv run --no-sync pytest -v -m "not hardware and not e2e"
       --timeout=180 --junitxml=pytest-report.xml

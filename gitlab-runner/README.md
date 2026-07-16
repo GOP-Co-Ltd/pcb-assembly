@@ -40,7 +40,7 @@ repositoryをcheckoutしたRaspberry Pi上で、`sudo`を付けずに実行す�
 次を一度に実行する。
 
 - GitLab公式APT repositoryとGitLab Runnerのインストール
-- CIに必要なOS package、`pcbnew`を提供するKiCad、`uv 0.10.9`のインストール
+- CIに必要なOS package、Git LFS、`pcbnew`を提供するKiCad、`uv 0.10.9`のインストール
 - `concurrent = 3`、runner `limit = 3`の設定
 - GitLab UIで発行した認証tokenの非表示入力
 - service、設定、GitLab接続の検証
@@ -82,6 +82,10 @@ OS packageはjobごとにインストールしない。各jobは独立した`.ve
 
 `pcbnew` Python moduleはTrixieの`kicad` packageから導入する。CIではsymbol、footprint、
 demoを使わないため、`kicad`の推奨packageはインストールしない。
+
+テスト画像・音声はGit LFSで管理する。`install`はGit LFS filterをsystem設定し、pytest
+jobはcheckout済みbuild directoryに対して`git lfs pull`を実行する。LFS objectは
+GitLab Runnerのbuild directory内にcacheされる。
 
 ```text
 /home/gitlab-runner/.cache/uv

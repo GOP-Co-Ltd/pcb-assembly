@@ -126,12 +126,15 @@ install_dependencies() {
         ca-certificates \
         curl \
         git \
+        git-lfs \
         libgl1 \
         libglib2.0-0t64 \
         make \
         python3 \
         python3-picamera2 \
         v4l-utils
+    sudo git lfs install --system --skip-repo
+    verify_git_lfs
     sudo apt-get install --yes --no-install-recommends kicad
     verify_pcbnew_import
 
@@ -146,6 +149,15 @@ install_dependencies() {
     sudo systemctl enable --now "${RUNNER_SERVICE}"
 
     echo "GitLab RunnerとCI依存関係をインストールしました。"
+}
+
+verify_git_lfs() {
+    if ! git lfs version >/dev/null; then
+        die "Git LFSを実行できません"
+    fi
+    if ! git config --system --get filter.lfs.process >/dev/null; then
+        die "Git LFSのsystem filter設定を確認できません"
+    fi
 }
 
 verify_pcbnew_import() {
@@ -307,6 +319,7 @@ verify_runner() {
     systemctl is-active --quiet "${RUNNER_SERVICE}" || \
         die "${RUNNER_SERVICE}が起動していません"
 
+    verify_git_lfs
     verify_pcbnew_import
     validate_runner_config
     sudo gitlab-runner verify
