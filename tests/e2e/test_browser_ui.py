@@ -28,6 +28,127 @@ def _current_job(base_url: str) -> dict | None:
     return response.json()["job"]
 
 
+def _start_completion_notice_job(
+    live_server: LiveServer, browser_page, job_name: str
+) -> None:
+    """実ページのフォームをテスト用 hiddenジョブへ向けて開始する。"""
+    browser_page.goto(
+        f"{live_server.base_url}/pasting/paste_solder",
+        wait_until="domcontentloaded",
+    )
+    form = browser_page.locator("#job-form")
+    form.wait_for(state="visible", timeout=10_000)
+    form.evaluate(
+        """(element, name) => {
+            element.dataset.jobName = name;
+            element.querySelectorAll('[data-param-type]').forEach((input) => input.remove());
+        }""",
+        job_name,
+    )
+    browser_page.locator("#job-run").click()
+
+
+class TestCompletionNoticeOverBrowser:
+    """実HTTP/WSを経由した終了通知バナーとタイトル。"""
+
+    def test_success_notice_persists_until_dismissed(
+        self, live_server: LiveServer, browser_page
+    ):
+        original_title = "はんだ塗布 — PCB Assembly WebUI"
+        with (
+            browser_page.expect_response(
+                lambda response: "paste-completion-success.wav" in response.url
+            ) as success_sound,
+            browser_page.expect_response(
+                lambda response: "paste-completion-failure.wav" in response.url
+            ) as failure_sound,
+        ):
+            _start_completion_notice_job(
+                live_server, browser_page, "completion_notice_success"
+            )
+
+        assert success_sound.value.ok
+        assert failure_sound.value.ok
+
+        notice = browser_page.locator("#job-completion-notice")
+        notice.wait_for(state="visible", timeout=10_000)
+        assert notice.get_attribute("data-status") == "success"
+        expect(browser_page.locator("#job-completion-message")).to_have_text(
+            "通知テスト成功が完了しました"
+        )
+        assert browser_page.title() == f"【成功】{original_title}"
+
+        browser_page.locator("#job-completion-dismiss").click()
+        expect(notice).to_be_hidden()
+        assert browser_page.title() == original_title
+
+    def test_failure_uses_error_notice_and_title(
+        self, live_server: LiveServer, browser_page
+    ):
+        _start_completion_notice_job(
+            live_server, browser_page, "completion_notice_failure"
+        )
+
+        notice = browser_page.locator("#job-completion-notice")
+        notice.wait_for(state="visible", timeout=10_000)
+        assert notice.get_attribute("data-status") == "error"
+        expect(browser_page.locator("#job-completion-message")).to_have_text(
+            "通知テスト失敗に失敗しました: 通知テスト失敗"
+        )
+        assert browser_page.title().startswith("【失敗】")
+
+    def test_manual_abort_does_not_notify(self, live_server: LiveServer, browser_page):
+        original_title = "はんだ塗布 — PCB Assembly WebUI"
+        _start_completion_notice_job(
+            live_server, browser_page, "completion_notice_abort"
+        )
+        wait_until(
+            lambda: (job := _current_job(live_server.base_url)) is not None
+            and job["status"] == "running",
+            timeout=10.0,
+            interval=0.05,
+        )
+
+        response = httpx.post(
+            f"{live_server.base_url}/api/jobs/current/abort", timeout=_HTTP_TIMEOUT
+        )
+        assert response.status_code == 200
+        browser_page.wait_for_function(
+            """() => window.webui.jobs.currentJob()?.status === 'aborted'""",
+            timeout=10_000,
+        )
+
+        expect(browser_page.locator("#job-completion-notice")).to_be_hidden()
+        assert browser_page.title() == original_title
+
+    def test_terminal_job_from_before_page_load_does_not_notify(
+        self, live_server: LiveServer, browser_page
+    ):
+        response = httpx.post(
+            f"{live_server.base_url}/api/jobs/completion_notice_success",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert response.status_code == 201
+        wait_until(
+            lambda: (job := _current_job(live_server.base_url)) is not None
+            and job["status"] == "succeeded",
+            timeout=10.0,
+            interval=0.05,
+        )
+
+        browser_page.goto(
+            f"{live_server.base_url}/pasting/paste_solder",
+            wait_until="domcontentloaded",
+        )
+        browser_page.wait_for_function(
+            """() => window.webui.jobs.currentJob()?.status === 'succeeded'""",
+            timeout=10_000,
+        )
+
+        expect(browser_page.locator("#job-completion-notice")).to_be_hidden()
+        assert browser_page.title() == "はんだ塗布 — PCB Assembly WebUI"
+
+
 class TestPromptDialogOverBrowser:
     """実ブラウザ上の prompt modal 表示。"""
 

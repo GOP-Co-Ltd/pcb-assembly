@@ -633,6 +633,39 @@ h2 {
 }
 
 /* ---- toasts ---- */
+.job-completion-notice {
+  position: fixed;
+  top: 4rem;
+  right: 1rem;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: min(30rem, calc(100vw - 2rem));
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--ok);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--ok-weak);
+  box-shadow: 0 6px 20px rgb(20 32 46 / 0.18);
+}
+
+.job-completion-notice[hidden] {
+  display: none;
+}
+
+.job-completion-notice[data-status="error"] {
+  border-color: var(--danger);
+  background: var(--danger-weak);
+}
+
+.job-completion-notice #job-completion-dismiss {
+  flex: 0 0 auto;
+  border-color: currentcolor;
+  background: transparent;
+}
+
 .toasts {
   position: fixed;
   right: 1rem;
@@ -1587,6 +1620,12 @@ h2 {
   .topbar {
     position: static;
     padding: 0.5rem;
+  }
+
+  .job-completion-notice {
+    top: 0.5rem;
+    right: 0.5rem;
+    width: calc(100vw - 1rem);
   }
 
   .chip,

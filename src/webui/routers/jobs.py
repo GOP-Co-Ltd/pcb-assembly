@@ -67,6 +67,7 @@ def job_summary(record: JobRecord, definition: JobDefinition) -> JobSummary:
         ),
         result=result_info,
         accepts_commands=definition.accepts_commands,
+        notify_on_completion=definition.notify_on_completion,
         apply_available=record.apply_available,
     )
 
