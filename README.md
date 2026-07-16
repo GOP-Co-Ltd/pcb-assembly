@@ -18,6 +18,11 @@
 
 OS以外のソフトウェア類は[`install-softwares.sh`](install-softwares.sh)を実行
 
+### GitLab CI Runner
+
+専用のRaspberry Pi 5をGitLab Runnerとして構築する場合は、
+[`gitlab-runner/README.md`](gitlab-runner/README.md)を参照する。
+
 ### 開発
 
 上記のソフトウェアをインストールしたうえで、次を実行
