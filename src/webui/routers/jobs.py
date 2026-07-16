@@ -189,7 +189,7 @@ def post_discard(jobs: JobsDep) -> dict[str, bool]:
 async def jobs_websocket(websocket: WebSocket) -> None:
     """グローバル 1 本のイベント / コマンドチャネル.
 
-    サーバー → クライアント: job_status / log / progress / prompt /
+    サーバー → クライアント: server_info / job_status / log / progress / prompt /
     prompt_resolved / state_changed / error。 クライアント → サーバー:
     respond_prompt / command / abort。
     """
@@ -199,6 +199,12 @@ async def jobs_websocket(websocket: WebSocket) -> None:
     events = jobs.subscribe()
     try:
         await websocket.accept()
+        await websocket.send_json(
+            {
+                "type": "server_info",
+                "instance_id": websocket.app.state.server_instance_id,
+            }
+        )
         sender = asyncio.create_task(_send_loop(websocket, jobs, catalog, events))
         receiver = asyncio.create_task(_receive_loop(websocket, jobs, events))
         done, pending = await asyncio.wait(

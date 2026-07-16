@@ -7,8 +7,8 @@
 - POST /api/jobs/current/abort → 200 {"aborted": true} / 409
 - POST /api/jobs/last/apply → 200 {"applied": {...}}（machine.toml へ書込・
   コメント保持）/ 409、POST /api/jobs/last/discard → 200（冪等）
-- WS /api/ws: job_status / log / progress / prompt / prompt_resolved /
-  state_changed / error、クライアント → respond_prompt / command / abort
+- WS /api/ws: 接続直後の server_info と job_status / log / progress / prompt /
+  prompt_resolved / state_changed / error、クライアント → respond_prompt / command / abort
 - 排他の波及: ジョブ実行中は machine-control / マシン切替 / 設定保存 /
   PCB 切替が 409
 - /artifacts: 成果物 URL 配信 + traversal 拒否
@@ -231,6 +231,19 @@ class TestStartJob:
         response = client.post("/api/jobs/no-such-job", json={})
 
         assert response.status_code == 404
+
+    def test_start_during_graceful_shutdown_returns_409(
+        self, client: TestClient, app: FastAPI
+    ):
+        app.state.jobs.begin_shutdown()
+
+        response = client.post(
+            "/api/jobs/job_demo",
+            json={"params": {"steps": 1, "interval": 0.01}},
+        )
+
+        assert response.status_code == 409
+        assert response.json()["owner"] == "webui-shutdown"
 
     @pytest.mark.parametrize(
         "params",
@@ -638,6 +651,17 @@ class TestApplyDiscard:
 
 class TestWebSocket:
     """WS /api/ws のイベント往復（受信駆動）."""
+
+    def test_connection_starts_with_stable_server_info(self, client: TestClient):
+        with client.websocket_connect("/api/ws") as first_ws:
+            first = first_ws.receive_json()
+        with client.websocket_connect("/api/ws") as second_ws:
+            second = second_ws.receive_json()
+
+        assert first["type"] == "server_info"
+        assert isinstance(first["instance_id"], str)
+        assert first["instance_id"]
+        assert second == first
 
     def test_job_demo_full_event_stream(self, client: TestClient):
         with client.websocket_connect("/api/ws") as ws:
