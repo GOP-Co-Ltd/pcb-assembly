@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -87,6 +88,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     catalog = default_catalog()
 
     app = FastAPI(title="pcb-assembly WebUI", lifespan=_lifespan)
+    server_instance_id = uuid.uuid4().hex
+    app.state.server_instance_id = server_instance_id
     app.state.settings = settings
     app.state.store = store
     app.state.appstate = state
@@ -98,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.jobs = JobManager(state, preview, catalog, settings)
     app.state.templates = Jinja2Templates(directory=_PACKAGE_DIR / "templates")
     app.state.templates.env.globals["static_asset"] = _static_asset_url
+    app.state.templates.env.globals["server_instance_id"] = server_instance_id
     app.mount("/static", _NoCacheStaticFiles(directory=_STATIC_DIR), name="static")
 
     # ジョブ成果物の配信（data/webui/<job_id>/...。traversal 防止は StaticFiles）

@@ -1,7 +1,7 @@
 "use strict";
 
 // グローバル WS クライアント（/api/ws）+ ジョブコンソール UI。
-// tab.html から全タブで読み込まれ、window.webui.jobs を公開する。
+// base.html から全ページで読み込まれ、window.webui.jobs を公開する。
 // ページに #job-console（data-job-names）があればコンソールを描画する。
 
 (() => {
@@ -19,6 +19,7 @@
   };
 
   const listeners = new Set();
+  const initialServerInstanceId = document.body.dataset.serverInstanceId;
   const originalTitle = document.title;
   const completionNotice = document.getElementById("job-completion-notice");
   const completionMessage = document.getElementById("job-completion-message");
@@ -33,6 +34,7 @@
   let abortRequestedJobId = null;
   let completionJobId = null;
   let audioContext = null;
+  let reloadRequested = false;
 
   function isActive(job) {
     return job !== null && job !== undefined && !TERMINAL.has(job.status);
@@ -208,6 +210,12 @@
 
   function handleEvent(event) {
     switch (event.type) {
+      case "server_info":
+        if (!reloadRequested && event.instance_id !== initialServerInstanceId) {
+          reloadRequested = true;
+          window.location.reload();
+        }
+        break;
       case "job_status":
         applyJob(event.job);
         break;

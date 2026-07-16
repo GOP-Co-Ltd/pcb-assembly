@@ -6,7 +6,7 @@
   <title>{% block title %}PCB Assembly WebUI{% endblock %}</title>
   <link rel="stylesheet" href="{{ static_asset('app.css') }}">
 </head>
-<body>
+<body data-server-instance-id="{{ server_instance_id }}">
 <header class="topbar" data-testid="topbar">
   <nav class="tabs" data-testid="top-tabs">
     {% for tab in tabs %}
@@ -45,6 +45,7 @@
 </section>
 <div id="toasts" class="toasts"></div>
 <script src="{{ static_asset('js/app.js') }}"></script>
+<script src="{{ static_asset('js/job_console.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

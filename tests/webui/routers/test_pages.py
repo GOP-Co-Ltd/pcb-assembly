@@ -36,6 +36,7 @@ Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / s
 - pnp はプレースホルダのみ（サイドバー空 + 「機能を選択」）
 """
 
+import re
 from pathlib import Path
 
 import attrs
@@ -160,6 +161,40 @@ class TestStaticAssets:
         assert response.headers["cache-control"] == (
             "no-cache, max-age=0, must-revalidate"
         )
+
+    @pytest.mark.parametrize(
+        "path",
+        (
+            "/settings",
+            "/dev",
+            "/pasting",
+            "/pnp",
+            "/posctrl",
+            "/posctrl/camera_preview",
+        ),
+    )
+    def test_every_page_embeds_instance_id_and_global_job_socket_client(
+        self, client: TestClient, path: str
+    ):
+        text = client.get(path).text
+
+        match = re.search(r'<body[^>]*data-server-instance-id="([^"]+)"', text)
+        assert match is not None
+        assert match.group(1)
+        assert text.count('src="/static/js/job_console.js?v=') == 1
+
+    def test_page_instance_id_matches_websocket_server_info(self, client: TestClient):
+        text = client.get("/settings").text
+        match = re.search(r'<body[^>]*data-server-instance-id="([^"]+)"', text)
+        assert match is not None
+
+        with client.websocket_connect("/api/ws") as ws:
+            server_info = ws.receive_json()
+
+        assert server_info == {
+            "type": "server_info",
+            "instance_id": match.group(1),
+        }
 
 
 class TestCompletionNotice:

@@ -33,7 +33,7 @@ from webui.jobs.context import (
 )
 from webui.preview import PreviewService
 from webui.settings import Settings
-from webui.state import AppState
+from webui.state import AppState, BusyError
 
 type _Event = dict[str, Any]
 
@@ -400,6 +400,7 @@ class JobManager:
         self._record: JobRecord | None = None
         self._runtime: _JobRuntime | None = None
         self._worker: threading.Thread | None = None
+        self._shutdown_started = False
 
         self._subscribers_lock = threading.Lock()
         self._subscribers: set[asyncio.Queue[_Event]] = set()
@@ -417,43 +418,46 @@ class JobManager:
             ValueError: パラメータ不正・PCB 未選択（→ 400）
             BusyError: 装置排他ロックが取得できない（→ 409）
         """
-        definition = self._catalog.get(name)
-        params = self._catalog.validate_params(definition, values)
-        pcb_path = self._pcb_path()
-        if definition.requires_pcb and pcb_path is None:
-            raise ValueError(f"ジョブ {name} には PCB ファイルの選択が必要です")
-        machine = self._state.machine()
-
-        self._state.acquire_machine(f"job:{name}")
-        try:
-            persisted_params = {
-                key: params[key] for key in definition.persisted_params if key in params
-            }
-            if persisted_params:
-                self._state.save_job_param_defaults(name, persisted_params)
-            record = JobRecord(uuid.uuid4().hex, name, params, self._log_capacity)
-            runtime = _JobRuntime(
-                record, self._preview, self._publish, self._apply_machine_settings
-            )
-            artifacts_dir = self._artifacts_root / record.id
-            artifacts_dir.mkdir(parents=True, exist_ok=True)
-            selected_pcb = self._state.selected_pcb
-            context = JobContext(
-                runtime,
-                pcb_path=pcb_path,
-                machine=machine,
-                artifacts_dir=artifacts_dir,
-                machine_name=self._state.selected_machine,
-                source_pcb=selected_pcb.as_posix() if selected_pcb else None,
-                board_store=self._board_store,
-            )
-            worker = threading.Thread(
-                target=self._run_worker,
-                args=(definition, runtime, context),
-                name=f"job-{name}",
-                daemon=True,
-            )
-            with self._lock:
+        with self._lock:
+            if self._shutdown_started:
+                raise BusyError("webui-shutdown")
+            definition = self._catalog.get(name)
+            params = self._catalog.validate_params(definition, values)
+            pcb_path = self._pcb_path()
+            if definition.requires_pcb and pcb_path is None:
+                raise ValueError(f"ジョブ {name} には PCB ファイルの選択が必要です")
+            machine = self._state.machine()
+            self._state.acquire_machine(f"job:{name}")
+            try:
+                persisted_params = {
+                    key: params[key]
+                    for key in definition.persisted_params
+                    if key in params
+                }
+                if persisted_params:
+                    self._state.save_job_param_defaults(name, persisted_params)
+                record = JobRecord(uuid.uuid4().hex, name, params, self._log_capacity)
+                runtime = _JobRuntime(
+                    record, self._preview, self._publish, self._apply_machine_settings
+                )
+                artifacts_dir = self._artifacts_root / record.id
+                artifacts_dir.mkdir(parents=True, exist_ok=True)
+                selected_pcb = self._state.selected_pcb
+                context = JobContext(
+                    runtime,
+                    pcb_path=pcb_path,
+                    machine=machine,
+                    artifacts_dir=artifacts_dir,
+                    machine_name=self._state.selected_machine,
+                    source_pcb=selected_pcb.as_posix() if selected_pcb else None,
+                    board_store=self._board_store,
+                )
+                worker = threading.Thread(
+                    target=self._run_worker,
+                    args=(definition, runtime, context),
+                    name=f"job-{name}",
+                    daemon=True,
+                )
                 if self._record is not None:
                     shutil.rmtree(
                         self._artifacts_root / self._record.id, ignore_errors=True
@@ -461,12 +465,12 @@ class JobManager:
                 self._record = record
                 self._runtime = runtime
                 self._worker = worker
-            runtime.publish_status()
-            worker.start()
-            return record
-        except BaseException:
-            self._state.release_machine()
-            raise
+                runtime.publish_status()
+                worker.start()
+                return record
+            except BaseException:
+                self._state.release_machine()
+                raise
 
     def current(self) -> JobRecord | None:
         """直近 1 件のジョブ record（実行中含む）。非永続."""
@@ -487,8 +491,22 @@ class JobManager:
         runtime.abort()
         return True
 
+    def begin_shutdown(self) -> None:
+        """新規ジョブを拒否する drain 状態へ移行する（冪等）."""
+        with self._lock:
+            self._shutdown_started = True
+
+    def wait_for_idle(self) -> None:
+        """実行中 worker の自然終了と後始末を無期限に待つ."""
+        self.begin_shutdown()
+        with self._lock:
+            worker = self._worker
+        if worker is not None and worker.is_alive():
+            worker.join()
+
     def shutdown(self, timeout: float = 10.0) -> None:
-        """request_abort + worker join（lifespan shutdown 用、冪等）."""
+        """Drain 開始後に request_abort + worker join する緊急停止用の安全弁."""
+        self.begin_shutdown()
         self.request_abort()
         with self._lock:
             worker = self._worker

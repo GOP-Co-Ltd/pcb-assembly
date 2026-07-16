@@ -49,6 +49,21 @@ systemd サービスとして登録し、システム起動時に自動起動す
 ./webui-service.sh remove   # サービス登録を削除
 ```
 
+`stop`、`restart`、`remove`、再度の `install`、および直接の
+`systemctl stop` は、実行中ジョブを中断せず、自然終了後の退避処理と装置ロック解放まで
+無期限に待ってからサービスを停止する。待機中は新規ジョブを拒否するが、HTTP / WebSocket /
+MJPEG は維持されるため、入力待ちジョブの prompt には引き続き応答できる。
+
+停止待機を緊急に打ち切る場合は、別の端末から次を実行する。
+
+```bash
+sudo systemctl kill --kill-whom=all --signal=SIGINT pcbasm-webui.service
+```
+
+この仕組みを初めて導入する際は、稼働中の旧プロセスには反映されない。ジョブが実行されて
+いないことを確認し、`./webui-service.sh install` を再実行する。SIGKILL、プロセスの crash、
+電源断ではジョブ完了待機は保証されない。
+
 環境変数で動作を切り替えられる（全量は `src/webui/settings.py`）:
 
 - `PCBASM_WEBUI_FAKE_CAMERA=1` — カメラ実機なしで固定画像を配信

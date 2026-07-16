@@ -17,7 +17,9 @@
 - 直近 1 件のみ保持: 新 start で旧 record 置換 + 旧成果物ディレクトリ削除
 - Apply: SUCCEEDED + payload のみ取得可。mark_applied / discard / 新ジョブ開始で
   LookupError
-- shutdown: 実行中ジョブを ABORTED にして join（冪等）
+- graceful shutdown: 新規 start を閉じ、実行中ジョブの自然終了・退避・
+  装置ロック解放まで無期限に待つ
+- shutdown: 緊急時の安全弁として実行中ジョブを ABORTED にして join（冪等）
 """
 
 from __future__ import annotations
@@ -995,7 +997,70 @@ class TestUpdateCurrentParams:
 
 
 class TestShutdown:
-    """Lifespan shutdown 用の後始末."""
+    """安全な自然終了待機と緊急時の abort 付き後始末."""
+
+    def test_graceful_shutdown_waits_for_natural_completion_and_lock_release(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        gate = _register_gated(catalog)
+        _register(catalog, lambda ctx: None, name="after-shutdown")
+        record = manager.start("gated", {})
+        wait_until(lambda: record.status == JobStatus.RUNNING)
+
+        manager.begin_shutdown()
+        manager.begin_shutdown()  # 冪等
+
+        with pytest.raises(BusyError) as exc:
+            manager.start("after-shutdown", {})
+        assert exc.value.owner == "webui-shutdown"
+
+        waiter_done = threading.Event()
+
+        def wait_for_idle() -> None:
+            manager.wait_for_idle()
+            waiter_done.set()
+
+        waiter = threading.Thread(target=wait_for_idle, daemon=True)
+        waiter.start()
+
+        # drain 中も active job は abort されず、waiter は終了を待つ。
+        assert waiter_done.wait(timeout=0.1) is False
+        assert record.status == JobStatus.RUNNING
+
+        gate.set()
+        assert waiter_done.wait(timeout=10.0)
+        waiter.join(timeout=10.0)
+        assert record.status == JobStatus.SUCCEEDED
+        assert state.busy_owner is None
+
+    def test_begin_shutdown_does_not_abort_prompt_waiting_job(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        answers = _register_prompting(
+            catalog, PromptSpec(kind="confirm", message="停止前に応答")
+        )
+        record = manager.start("prompting", {})
+        wait_until(lambda: record.status == JobStatus.WAITING_INPUT)
+
+        manager.begin_shutdown()
+        pending = record.pending_prompt
+        assert pending is not None
+        assert record.status == JobStatus.WAITING_INPUT
+
+        manager.respond_prompt(pending[0], True)
+        manager.wait_for_idle()
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert answers == [True]
+
+    def test_wait_for_idle_returns_without_a_job(self, manager: JobManager):
+        manager.begin_shutdown()
+
+        manager.wait_for_idle()
 
     def test_shutdown_aborts_running_job_and_is_idempotent(
         self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil

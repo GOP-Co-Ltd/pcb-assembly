@@ -10,12 +10,16 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") <install|start|stop|restart|status|remove>
 
-  install  ${SERVICE_NAME} を登録し、起動時に自動起動する
+  install  ${SERVICE_NAME} を登録し、起動時に自動起動する（再登録時は完了待ち）
   start    サービスを起動する
-  stop     サービスを一時停止する（次回のシステム起動時には自動起動する）
-  restart  最新のソースでサービスを再起動する
+  stop     実行中タスクの完了を待って一時停止する（自動起動設定は維持）
+  restart  実行中タスクの完了を待って最新のソースで再起動する
   status   サービスの状態を表示する
-  remove   サービスを停止・無効化し、登録を削除する
+  remove   実行中タスクの完了を待って停止・無効化し、登録を削除する
+
+停止待機中は新規タスクを拒否し、実行中タスクの完了まで無期限に待機します。
+緊急時は sudo systemctl kill --kill-whom=all --signal=SIGINT ${SERVICE_NAME} で
+待機を打ち切れます。
 EOF
 }
 
@@ -66,6 +70,7 @@ Environment="PATH=${executable_path}"
 ExecStart=${make_bin} webui
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=infinity
 
 [Install]
 WantedBy=multi-user.target
