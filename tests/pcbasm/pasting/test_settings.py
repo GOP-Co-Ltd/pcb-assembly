@@ -29,8 +29,9 @@ from pcbasm.pasting.settings import (
 )
 from pcbasm.pcb import Component, Layer, Pad
 from pcbasm.pcb.grouping import PadHierarchy, build_pad_hierarchy
+from tests.helpers import TESTING_DATA_DIR
 
-TESTING_MACHINE_TOML = "/home/gop/pcb-assembly/data/testing/machine.toml"
+TESTING_MACHINE_TOML = TESTING_DATA_DIR / "machine.toml"
 
 
 def _rect(cx: float, cy: float, w: float, h: float) -> Polygon:
