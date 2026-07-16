@@ -16,7 +16,7 @@ usage() {
 Usage: $(basename "$0") <setup|install|register|status|verify>
 
   setup     依存関係をインストールし、runnerを登録・検証する
-  install   OS依存関係、GitLab Runner、uvをインストールする
+  install   OS依存関係、GitLab Runner、uvを導入し、global concurrentを設定する
   register  GitLab UIで発行した認証tokenを使ってrunnerを登録する
   status    GitLab Runner serviceの状態を表示する
   verify    service、runner設定、GitLab接続、host resourceを検証する
@@ -138,6 +138,7 @@ install_dependencies() {
     sudo apt-get update
     sudo apt-get install --yes gitlab-runner
 
+    configure_global_concurrency
     install_uv
     prepare_runner_cache
     sudo systemctl enable --now "${RUNNER_SERVICE}"
@@ -145,7 +146,7 @@ install_dependencies() {
     echo "GitLab RunnerとCI依存関係をインストールしました。"
 }
 
-initialize_global_config() {
+configure_global_concurrency() {
     local configured_concurrency config_file
 
     sudo install -d -m 0755 "$(dirname "${RUNNER_CONFIG}")"
@@ -158,19 +159,39 @@ initialize_global_config() {
                 }' \
                 "${RUNNER_CONFIG}"
         )"
-        if [ "${configured_concurrency}" != "${RUNNER_CONCURRENCY}" ]; then
-            die "${RUNNER_CONFIG}のconcurrentを${RUNNER_CONCURRENCY}に設定してください"
+        if [ "${configured_concurrency}" = "${RUNNER_CONCURRENCY}" ]; then
+            return
         fi
-        return
+
+        if [ -n "${configured_concurrency}" ]; then
+            sudo sed --in-place --regexp-extended \
+                "0,/^[[:space:]]*concurrent[[:space:]]*=.*$/s//concurrent = ${RUNNER_CONCURRENCY}/" \
+                "${RUNNER_CONFIG}"
+        else
+            sudo sed --in-place \
+                "1i concurrent = ${RUNNER_CONCURRENCY}" \
+                "${RUNNER_CONFIG}"
+        fi
+    else
+        config_file="$(mktemp)"
+        trap 'rm -f "${config_file:-}"' EXIT
+        printf 'concurrent = %s\ncheck_interval = 0\n' \
+            "${RUNNER_CONCURRENCY}" >"${config_file}"
+        sudo install -m 0600 -o root -g root "${config_file}" "${RUNNER_CONFIG}"
+        rm -f "${config_file}"
+        trap - EXIT
     fi
 
-    config_file="$(mktemp)"
-    trap 'rm -f "${config_file:-}"' EXIT
-    printf 'concurrent = %s\ncheck_interval = 0\n' \
-        "${RUNNER_CONCURRENCY}" >"${config_file}"
-    sudo install -m 0600 -o root -g root "${config_file}" "${RUNNER_CONFIG}"
-    rm -f "${config_file}"
-    trap - EXIT
+    configured_concurrency="$(
+        sudo awk -F= \
+            '/^[[:space:]]*concurrent[[:space:]]*=/ {
+                gsub(/[[:space:]]/, "", $2); print $2; exit
+            }' \
+            "${RUNNER_CONFIG}"
+    )"
+    if [ "${configured_concurrency}" != "${RUNNER_CONCURRENCY}" ]; then
+        die "${RUNNER_CONFIG}のconcurrentを${RUNNER_CONCURRENCY}に設定できませんでした"
+    fi
 }
 
 runner_is_registered() {
@@ -218,7 +239,7 @@ register_runner() {
     require_command systemctl
     test -f "${RUNNER_TEMPLATE}" || die "設定templateがありません: ${RUNNER_TEMPLATE}"
 
-    initialize_global_config
+    configure_global_concurrency
 
     if runner_is_registered; then
         validate_runner_config

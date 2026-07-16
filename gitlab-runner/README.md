@@ -53,6 +53,9 @@ repositoryをcheckoutしたRaspberry Pi上で、`sudo`を付けずに実行す�
 ./gitlab-runner/setup.sh verify
 ```
 
+`install`は`/etc/gitlab-runner/config.toml`を作成または更新し、globalの
+`concurrent = 3`を設定する。再実行しても既存runnerの登録情報は保持される。
+
 認証tokenはコマンド引数、repository、shell履歴には保存されない。GitLab Runnerが
 `/etc/gitlab-runner/config.toml`へ保存するため、このファイルをrepositoryへコピー
 しないこと。
