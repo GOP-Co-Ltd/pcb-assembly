@@ -171,8 +171,26 @@ class TestCompletionNotice:
         assert 'id="job-completion-notice"' in text
         assert 'id="job-completion-message"' in text
         assert 'id="job-completion-dismiss"' in text
+        assert (
+            'data-success-sound-url="/static/audio/paste-completion-success.wav?v='
+            in text
+        )
+        assert (
+            'data-failure-sound-url="/static/audio/paste-completion-failure.wav?v='
+            in text
+        )
         assert 'aria-live="assertive"' in text
         assert "hidden" in text
+
+    @pytest.mark.parametrize(
+        "filename",
+        ("paste-completion-success.wav", "paste-completion-failure.wav"),
+    )
+    def test_completion_sound_asset_is_served(self, client: TestClient, filename: str):
+        response = client.get(f"/static/audio/{filename}")
+
+        assert response.status_code == 200
+        assert response.content.startswith(b"RIFF")
 
 
 DEV_JOB_FEATURES = (

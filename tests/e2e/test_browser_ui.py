@@ -55,9 +55,20 @@ class TestCompletionNoticeOverBrowser:
         self, live_server: LiveServer, browser_page
     ):
         original_title = "はんだ塗布 — PCB Assembly WebUI"
-        _start_completion_notice_job(
-            live_server, browser_page, "completion_notice_success"
-        )
+        with (
+            browser_page.expect_response(
+                lambda response: "paste-completion-success.wav" in response.url
+            ) as success_sound,
+            browser_page.expect_response(
+                lambda response: "paste-completion-failure.wav" in response.url
+            ) as failure_sound,
+        ):
+            _start_completion_notice_job(
+                live_server, browser_page, "completion_notice_success"
+            )
+
+        assert success_sound.value.ok
+        assert failure_sound.value.ok
 
         notice = browser_page.locator("#job-completion-notice")
         notice.wait_for(state="visible", timeout=10_000)

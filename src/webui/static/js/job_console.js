@@ -22,6 +22,11 @@
   const originalTitle = document.title;
   const completionNotice = document.getElementById("job-completion-notice");
   const completionMessage = document.getElementById("job-completion-message");
+  const completionSoundUrls = {
+    succeeded: completionNotice?.dataset.successSoundUrl,
+    failed: completionNotice?.dataset.failureSoundUrl,
+  };
+  const completionSoundLoads = new Map();
   let socket = null;
   const reconnectBackoff = createBackoff(1000, 15000);
   let currentJob = null;
@@ -59,8 +64,26 @@
     }
   }
 
-  // Web Audio は user gesture 内で開始しておく必要がある。失敗しても
-  // 視覚通知とジョブ処理へ影響させない。
+  function loadCompletionSound(status) {
+    const url = completionSoundUrls[status];
+    if (audioContext === null || !url) return null;
+    if (!completionSoundLoads.has(status)) {
+      const context = audioContext;
+      completionSoundLoads.set(
+        status,
+        fetch(url)
+          .then((response) => {
+            if (!response.ok) throw new Error(`音声ファイル取得失敗: ${url}`);
+            return response.arrayBuffer();
+          })
+          .then((data) => context.decodeAudioData(data)),
+      );
+    }
+    return completionSoundLoads.get(status);
+  }
+
+  // Web Audio は user gesture 内で開始し、終了時に備えて音声を読み込む。
+  // 失敗しても視覚通知とジョブ処理へ影響させない。
   function prepareCompletionAudio() {
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -69,23 +92,12 @@
       if (audioContext.state === "suspended") {
         audioContext.resume().catch(() => {});
       }
+      for (const status of Object.keys(completionSoundUrls)) {
+        loadCompletionSound(status)?.catch(() => {});
+      }
     } catch {
       audioContext = null;
     }
-  }
-
-  function scheduleTone(context, frequency, start, duration) {
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(frequency, start);
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(0.1, start + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start(start);
-    oscillator.stop(start + duration + 0.01);
   }
 
   async function playCompletionSound(status) {
@@ -95,21 +107,12 @@
       if (audioContext.state === "suspended") await audioContext.resume();
       if (audioContext.state !== "running") return;
 
-      const notes =
-        status === "succeeded"
-          ? [
-              [523.25, 0.0, 0.18],
-              [659.25, 0.16, 0.18],
-              [783.99, 0.32, 0.26],
-            ]
-          : [
-              [392.0, 0.0, 0.28],
-              [261.63, 0.24, 0.38],
-            ];
-      const start = audioContext.currentTime + 0.02;
-      for (const [frequency, offset, duration] of notes) {
-        scheduleTone(audioContext, frequency, start + offset, duration);
-      }
+      const buffer = await loadCompletionSound(status);
+      if (buffer === null) return;
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContext.destination);
+      source.start();
     } catch {
       // ブラウザの autoplay 制約や音声デバイス不在時も視覚通知は残す。
     }
