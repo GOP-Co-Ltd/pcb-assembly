@@ -132,6 +132,8 @@ install_dependencies() {
         python3 \
         python3-picamera2 \
         v4l-utils
+    sudo apt-get install --yes --no-install-recommends kicad
+    verify_pcbnew_import
 
     require_command curl
     install_gitlab_repository
@@ -144,6 +146,12 @@ install_dependencies() {
     sudo systemctl enable --now "${RUNNER_SERVICE}"
 
     echo "GitLab RunnerとCI依存関係をインストールしました。"
+}
+
+verify_pcbnew_import() {
+    if ! /usr/bin/python3 -c 'import pcbnew'; then
+        die "/usr/bin/python3からpcbnewをimportできません"
+    fi
 }
 
 configure_global_concurrency() {
@@ -299,6 +307,7 @@ verify_runner() {
     systemctl is-active --quiet "${RUNNER_SERVICE}" || \
         die "${RUNNER_SERVICE}が起動していません"
 
+    verify_pcbnew_import
     validate_runner_config
     sudo gitlab-runner verify
 
