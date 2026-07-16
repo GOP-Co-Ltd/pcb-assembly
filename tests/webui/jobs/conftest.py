@@ -57,6 +57,7 @@ def register_synthetic(
     params: tuple[ParamSpec, ...] = (),
     requires_pcb: bool = False,
     uses_machine: bool = False,
+    notify_on_completion: bool = False,
     accepts_commands: bool = False,
     persisted_params: tuple[str, ...] = (),
     hidden: bool = False,
@@ -71,6 +72,7 @@ def register_synthetic(
             params=params,
             requires_pcb=requires_pcb,
             uses_machine=uses_machine,
+            notify_on_completion=notify_on_completion,
             accepts_commands=accepts_commands,
             persisted_params=persisted_params,
             hidden=hidden,
@@ -83,6 +85,7 @@ def register_gated(
     *,
     name: str = "gated",
     accepts_commands: bool = False,
+    notify_on_completion: bool = False,
     hidden: bool = False,
 ) -> threading.Event:
     """gate.set() で成功終了し、abort 要求は checkpoint で拾う合成ジョブを登録する."""
@@ -93,7 +96,12 @@ def register_gated(
             ctx.checkpoint()
 
     register_synthetic(
-        catalog, run, name=name, accepts_commands=accepts_commands, hidden=hidden
+        catalog,
+        run,
+        name=name,
+        accepts_commands=accepts_commands,
+        notify_on_completion=notify_on_completion,
+        hidden=hidden,
     )
     return gate
 

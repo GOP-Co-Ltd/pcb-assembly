@@ -65,9 +65,19 @@ def _wait_job_status(
     pytest.fail(f"{timeout}s 以内に status={status} になりませんでした: {job}")
 
 
-def _register_gated(app: FastAPI, name: str = "gated_router") -> threading.Event:
+def _register_gated(
+    app: FastAPI,
+    name: str = "gated_router",
+    *,
+    notify_on_completion: bool = False,
+) -> threading.Event:
     """App の catalog へ gated 合成ジョブを登録する（jobs/conftest 共有形の薄い委譲）."""
-    return register_gated(app.state.catalog, name=name, hidden=True)
+    return register_gated(
+        app.state.catalog,
+        name=name,
+        notify_on_completion=notify_on_completion,
+        hidden=True,
+    )
 
 
 def _register_runtime_editable(
@@ -188,6 +198,19 @@ class TestStartJob:
 
         gate.set()
         _wait_job_status(client, "succeeded")
+
+    def test_summary_includes_completion_notification_policy(
+        self, client: TestClient, app: FastAPI
+    ):
+        gate = _register_gated(app, name="notifying_router", notify_on_completion=True)
+
+        response = client.post("/api/jobs/notifying_router", json={})
+
+        assert response.status_code == 201
+        assert response.json()["job"]["notify_on_completion"] is True
+        gate.set()
+        current = _wait_job_status(client, "succeeded")
+        assert current["notify_on_completion"] is True
 
     def test_start_fills_param_defaults_into_summary(self, client: TestClient):
         response = client.post(
@@ -648,6 +671,28 @@ class TestWebSocket:
             }
             assert "running" in statuses
             assert "waiting_input" in statuses
+
+    def test_job_status_includes_completion_notification_policy(
+        self, client: TestClient, app: FastAPI
+    ):
+        gate = _register_gated(app, name="notifying_ws", notify_on_completion=True)
+
+        with client.websocket_connect("/api/ws") as ws:
+            response = client.post("/api/jobs/notifying_ws", json={})
+            assert response.status_code == 201
+            running, _ = _receive_until(
+                ws,
+                lambda message: message["type"] == "job_status"
+                and message["job"]["status"] in ("pending", "running"),
+            )
+            assert running["job"]["notify_on_completion"] is True
+            gate.set()
+            final, _ = _receive_until(
+                ws,
+                lambda message: message["type"] == "job_status"
+                and message["job"]["status"] == "succeeded",
+            )
+            assert final["job"]["notify_on_completion"] is True
 
     def test_prompt_labels_are_sent_over_ws_and_job_status(
         self, client: TestClient, app: FastAPI
