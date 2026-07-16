@@ -1,0 +1,3 @@
+[[runners]]
+  limit = 3
+  shell = "bash"
