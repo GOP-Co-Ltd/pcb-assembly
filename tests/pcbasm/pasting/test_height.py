@@ -1,14 +1,13 @@
 """HeightPlaneMeasurerのテスト."""
 
 import pytest
-from shapely.geometry import Polygon
+from shapely.geometry import Point as ShapelyPoint, Polygon
 
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
     HeightPlane,
     Identity,
-    Point2d,
     Point3d,
     Scale,
     Shift,
@@ -19,6 +18,11 @@ from pcbasm.pasting.height import HeightPlaneMeasurer
 from pcbasm.pcb import Copper, Layer
 
 _SAMPLING_KWARGS = {"min_radius": 1.5, "min_samples": 3, "max_samples": 9}
+_BOARD_EDGE_MARGIN = 2.5
+_MEASURER_KWARGS = {
+    **_SAMPLING_KWARGS,
+    "board_edge_margin": _BOARD_EDGE_MARGIN,
+}
 
 
 class TestHeightPlaneMeasurer:
@@ -67,10 +71,12 @@ class TestHeightPlaneMeasurer:
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            **_SAMPLING_KWARGS,
+            **_MEASURER_KWARGS,
         )
         result = measurer.measure(
-            coppers=[large_copper], board_to_machine=mock_board_to_machine
+            coppers=[large_copper],
+            board_to_machine=mock_board_to_machine,
+            outline=large_copper.polygon,
         )
 
         assert isinstance(result, HeightPlane)
@@ -88,10 +94,12 @@ class TestHeightPlaneMeasurer:
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            **_SAMPLING_KWARGS,
+            **_MEASURER_KWARGS,
         )
         result = measurer.measure(
-            coppers=[large_copper], board_to_machine=mock_board_to_machine
+            coppers=[large_copper],
+            board_to_machine=mock_board_to_machine,
+            outline=large_copper.polygon,
         )
 
         assert mock_probe_executor.probe.call_count == len(result.points)
@@ -113,10 +121,20 @@ class TestHeightPlaneMeasurer:
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            **_SAMPLING_KWARGS,
+            **_MEASURER_KWARGS,
         )
-        with pytest.raises(ValueError):
-            measurer.measure(coppers=[tiny], board_to_machine=mock_board_to_machine)
+        outline = Polygon([(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)])
+
+        with pytest.raises(ValueError, match="min_samples"):
+            measurer.measure(
+                coppers=[tiny],
+                board_to_machine=mock_board_to_machine,
+                outline=outline,
+            )
+
+        mock_stage.move.assert_not_called()
+        mock_probe_executor.probe.assert_not_called()
+        mock_klipper.send_gcode.assert_not_called()
 
     def test_move_targets_match_recorded_points(
         self,
@@ -131,10 +149,12 @@ class TestHeightPlaneMeasurer:
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            **_SAMPLING_KWARGS,
+            **_MEASURER_KWARGS,
         )
         result = measurer.measure(
-            coppers=[large_copper], board_to_machine=mock_board_to_machine
+            coppers=[large_copper],
+            board_to_machine=mock_board_to_machine,
+            outline=large_copper.polygon,
         )
 
         move_targets = sorted(
@@ -163,11 +183,13 @@ class TestHeightPlaneMeasurer:
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            **_SAMPLING_KWARGS,
+            **_MEASURER_KWARGS,
         )
 
         result = measurer.measure(
-            coppers=[large_copper], board_to_machine=board_to_machine
+            coppers=[large_copper],
+            board_to_machine=board_to_machine,
+            outline=large_copper.polygon,
         )
 
         move_targets = [
@@ -181,42 +203,32 @@ class TestHeightPlaneMeasurer:
             probe_zs[: len(result.points)]
         )
 
-    def test_measure_passes_outline_to_sampling(
+    def test_measure_keeps_probe_points_inside_board_margin(
         self,
-        mocker,
         mock_probe_executor,
         mock_klipper,
         mock_stage,
         mock_board_to_machine,
         large_copper,
     ):
-        """outlineを指定するとsamplingへそのまま渡されることを確認."""
-        outline = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)])
-        sampler = mocker.patch(
-            "pcbasm.pasting.height.sample_points_in_polygons",
-            return_value=[
-                Point2d(0.0, 0.0),
-                Point2d(1.0, 0.0),
-                Point2d(0.0, 1.0),
-                Point2d(1.0, 1.0),
-                Point2d(2.0, 0.0),
-                Point2d(0.0, 2.0),
-            ],
-        )
+        """返却点が基板outlineから設定距離以上内側に収まる."""
+        outline = large_copper.polygon
         measurer = HeightPlaneMeasurer(
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            **_SAMPLING_KWARGS,
+            **_MEASURER_KWARGS,
         )
 
-        measurer.measure(
+        result = measurer.measure(
             coppers=[large_copper],
             board_to_machine=mock_board_to_machine,
             outline=outline,
         )
 
-        assert sampler.call_args.kwargs["outline"] is outline
+        safe_outline = outline.buffer(-_BOARD_EDGE_MARGIN)
+        for point in result.points:
+            assert safe_outline.covers(ShapelyPoint(point.x, point.y))
 
     def test_measure_routes_probe_points_by_nearest_actual_move_targets(
         self,
@@ -236,6 +248,8 @@ class TestHeightPlaneMeasurer:
         board_points = sample_points_in_polygons(
             [large_copper.polygon],
             **_SAMPLING_KWARGS,
+            outline=large_copper.polygon,
+            outline_margin=_BOARD_EDGE_MARGIN,
         )
 
         def actual_move_target(board_point):
@@ -255,12 +269,13 @@ class TestHeightPlaneMeasurer:
             probe_executor=mock_probe_executor,
             klipper=mock_klipper,
             stage=mock_stage,
-            **_SAMPLING_KWARGS,
+            **_MEASURER_KWARGS,
         )
 
         measurer.measure(
             coppers=[large_copper],
             board_to_machine=board_to_machine,
+            outline=large_copper.polygon,
         )
 
         move_targets = [

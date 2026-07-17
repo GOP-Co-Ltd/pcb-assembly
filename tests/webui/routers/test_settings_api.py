@@ -41,6 +41,8 @@ class TestMachineSettingsApi:
         assert fields["paste_dispenser.paste_height"]["value"] == "auto"
         assert fields["paste_dispenser.paste_height"]["value_type"] == "float_or_auto"
         assert fields["probe.lift_height"]["value_type"] == "float"
+        assert fields["probe.board_edge_margin"]["value"] == 2.5
+        assert fields["probe.board_edge_margin"]["value_type"] == "float"
 
     def test_get_reports_none_for_missing_keys(self, client: TestClient):
         fields = {
@@ -64,6 +66,7 @@ class TestMachineSettingsApi:
                     "paste_dispenser.rotations_per_ul": 9.876543,
                     "paste_dispenser.max_fill_speed": 0.9,
                     "probe.min_radius": 2.5,
+                    "probe.board_edge_margin": 3.0,
                     "probe.min_samples": 7,
                 }
             },
@@ -74,13 +77,14 @@ class TestMachineSettingsApi:
         assert fields["paste_dispenser.rotations_per_ul"]["value"] == 9.876543
         assert fields["paste_dispenser.max_fill_speed"]["value"] == 0.9
         assert fields["probe.min_radius"]["value"] == 2.5
+        assert fields["probe.board_edge_margin"]["value"] == 3.0
         assert fields["probe.min_samples"]["value"] == 7
 
         after_text = path.read_text(encoding="utf-8")
         after = after_text.splitlines()
         assert len(after) == len(before)
         changed = [(b, a) for b, a in zip(before, after) if b != a]
-        assert len(changed) == 4
+        assert len(changed) == 5
         # 変更対象外のコメントが無傷で残る
         assert "キャリブレーション値 2026/06/08" in after_text
 
@@ -154,6 +158,15 @@ class TestMachineSettingsApi:
         )
 
         assert response.status_code == 400
+
+    def test_put_non_positive_board_edge_margin_returns_400(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"probe.board_edge_margin": 0.0}},
+        )
+
+        assert response.status_code == 400
+        assert "board_edge_margin" in response.text
 
     def test_put_while_busy_returns_409(self, client: TestClient, appstate: AppState):
         with appstate.machine_lock("pytest-job"):

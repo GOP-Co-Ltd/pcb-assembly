@@ -47,6 +47,7 @@ class TestMachineSettings:
         assert values["paste_dispenser.toolhead.x"] == -1.772
         assert values["paste_dispenser.pad_align.blur_ksize"] == 5
         assert values["probe.min_radius"] == 0.7
+        assert values["probe.board_edge_margin"] == 2.5
         assert values["camera.device_id"] == 0
         assert values["camera.format"] == "YUYV"
         assert values["camera.crop.width"] == 600
@@ -162,6 +163,14 @@ class TestMachineSettings:
         text = (configs_root / FIXTURE / "machine.toml").read_text(encoding="utf-8")
         assert "lift_height = 1.25" in text
 
+    def test_write_board_edge_margin_then_reread_reflects_value(
+        self, store: ConfigStore
+    ):
+        store.write_machine_settings(FIXTURE, {"probe.board_edge_margin": 3.0})
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["probe.board_edge_margin"] == 3.0
+
     def test_read_includes_camera_calibration_file(self, store: ConfigStore):
         """Phase 4: camera.calibration_file がホワイトリストに含まれ既存値が読める."""
         values = store.read_machine_settings(FIXTURE)
@@ -240,6 +249,15 @@ class TestMachineSettings:
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings(
                 FIXTURE, {"paste_dispenser.solder_paste_density": 0.0}
+            )
+
+    @pytest.mark.parametrize("board_edge_margin", [0.0, -1.0])
+    def test_board_edge_margin_must_be_positive(
+        self, store: ConfigStore, board_edge_margin: float
+    ):
+        with pytest.raises(UnknownFieldError, match="board_edge_margin"):
+            store.write_machine_settings(
+                FIXTURE, {"probe.board_edge_margin": board_edge_margin}
             )
 
     def test_initial_purge_ul_must_not_be_negative(self, store: ConfigStore):

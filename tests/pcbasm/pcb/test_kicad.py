@@ -1,9 +1,16 @@
 import pytest
+from shapely.geometry import Point as ShapelyPoint
 
 from pcbasm.pcb import Layer, PcbFile
 from tests.helpers import TESTING_DATA_DIR
 
 LED_BLINKER_PCB = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
+VIA_CENTERS = (
+    (11.1, 11.7),
+    (4.49, 11.7),
+    (2.0, 2.0),
+    (18.0, 23.0),
+)
 
 
 class TestPcbFile:
@@ -106,6 +113,17 @@ class TestPcbFile:
             assert miny >= -eps
             assert maxx <= max_x
             assert maxy <= max_y
+
+    @pytest.mark.parametrize("layer", [Layer.TOP, Layer.BOTTOM])
+    def test_copper_excludes_via_drill_holes(self, pcb: PcbFile, layer: Layer):
+        layer_copper = [c.polygon for c in pcb.copper if c.layer == layer]
+
+        for x, y in VIA_CENTERS:
+            center = ShapelyPoint(x, y)
+            assert not any(polygon.covers(center) for polygon in layer_copper)
+            assert min(polygon.distance(center) for polygon in layer_copper) == (
+                pytest.approx(0.2, abs=0.02)
+            )
 
     def test_copper_contains_track_connected_pad_centroids(self, pcb: PcbFile):
         # LED1 ネットは TOP 層で U1.2 -> R1.1, R1.2 -> D1.1 をトラックで結線している
