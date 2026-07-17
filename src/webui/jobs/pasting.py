@@ -1835,16 +1835,22 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
                 )
 
         # オフセット計測フェーズ: 全点の塗布完了後に画像で位置を計測する。
+        paste_roi_side = max(1, round(point_spacing * calibration.pixel_per_mm))
+        paste_roi_size = (paste_roi_side, paste_roi_side)
+        ctx.log(
+            f"円検出ROI: {point_spacing:g} x {point_spacing:g} mm"
+            f"（{paste_roi_side} x {paste_roi_side} px）"
+        )
         paste_detector = CircleDetector(
             pixel_per_mm=calibration.pixel_per_mm,
             target_diameter_mm=(diameter_min + diameter_max) / 2,
-            crop_size=machine.camera.crop.size,
+            crop_size=paste_roi_size,
             diameter_tolerance_mm=(diameter_max - diameter_min) / 2,
         )
         paste_observer = OffsetObserver(
             detector=paste_detector,
             camera=result.camera,
-            crop_size=machine.camera.crop.size,
+            crop_size=paste_roi_size,
             frame_sink=ctx.frame,
         )
         paste_adjustor = XYPositionAdjustor(
