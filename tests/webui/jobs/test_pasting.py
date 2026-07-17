@@ -205,13 +205,13 @@ class TestCatalog:
         assert params[name].value_type == "int"
         assert params[name].default == default_value
 
-    def test_toolhead_offset_point_count_is_int_defaulting_to_nine(
+    def test_toolhead_offset_point_count_is_int_defaulting_to_ten(
         self, default: JobCatalog
     ):
         params = {spec.name: spec for spec in default.get("toolhead_offset").params}
 
         assert params["point_count"].value_type == "int"
-        assert params["point_count"].default == 9
+        assert params["point_count"].default == 10
 
     def test_toolhead_offset_persists_all_params(self, default: JobCatalog):
         definition = default.get("toolhead_offset")

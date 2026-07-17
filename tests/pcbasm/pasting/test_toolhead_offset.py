@@ -116,7 +116,7 @@ class TestToolheadOffsetResult:
 
 
 class TestPlanToolheadOffsetPoints:
-    def test_centered_grid_is_selected_and_ordered_in_snake_rows(self):
+    def test_points_are_sampled_from_top_left_in_row_major_order(self):
         outline = Polygon([(0, 0), (30, 0), (30, 30), (0, 30)])
 
         points = plan_toolhead_offset_points(
@@ -128,15 +128,15 @@ class TestPlanToolheadOffsetPoints:
         )
 
         assert points == (
-            Point2d(x=10.0, y=10.0),
-            Point2d(x=15.0, y=10.0),
-            Point2d(x=20.0, y=10.0),
-            Point2d(x=20.0, y=15.0),
-            Point2d(x=15.0, y=15.0),
-            Point2d(x=10.0, y=15.0),
-            Point2d(x=10.0, y=20.0),
-            Point2d(x=15.0, y=20.0),
-            Point2d(x=20.0, y=20.0),
+            Point2d(x=6.0, y=6.0),
+            Point2d(x=11.0, y=6.0),
+            Point2d(x=16.0, y=6.0),
+            Point2d(x=21.0, y=6.0),
+            Point2d(x=6.0, y=11.0),
+            Point2d(x=11.0, y=11.0),
+            Point2d(x=16.0, y=11.0),
+            Point2d(x=21.0, y=11.0),
+            Point2d(x=6.0, y=16.0),
         )
 
     def test_points_keep_paste_edge_clear_of_outline_and_cutout(self):
@@ -157,6 +157,28 @@ class TestPlanToolheadOffsetPoints:
 
         assert len(points) == 9
         assert all(safe_area.covers(ShapelyPoint(point.x, point.y)) for point in points)
+        assert all(
+            (left - right).norm >= 5.0 - 1e-9
+            for index, left in enumerate(points)
+            for right in points[index + 1 :]
+        )
+
+    def test_non_grid_candidate_avoids_error_around_cutout(self):
+        outline = Polygon(
+            [(0, 0), (15, 0), (15, 15), (0, 15)],
+            holes=[[(3, 3), (11, 3), (11, 11), (3, 11)]],
+        )
+
+        points = plan_toolhead_offset_points(
+            outline,
+            point_count=6,
+            point_spacing=5.0,
+            edge_margin=0.0,
+            paste_diameter_max=2.0,
+        )
+
+        assert len(points) == 6
+        assert Point2d(x=13.5, y=6.0) in points
 
     def test_points_stay_inside_concave_board_safe_area(self):
         outline = Polygon([(0, 0), (50, 0), (50, 20), (20, 20), (20, 50), (0, 50)])

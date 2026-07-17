@@ -515,17 +515,17 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "point_count",
                     "計測点数",
                     "int",
-                    9,
+                    10,
                     minimum=1,
-                    help="基板の安全領域内へ中央寄りの格子として自動配置します",
+                    help="基板の安全領域を左上から走査して自動配置します",
                 ),
                 ParamSpec(
                     "point_spacing",
-                    "格子間隔",
+                    "点間隔",
                     "float",
                     5.0,
                     unit="mm",
-                    help="自動配置する格子のXY間隔です",
+                    help="自動配置する計測点同士の最小距離です",
                 ),
                 ParamSpec(
                     "edge_margin",
@@ -1737,7 +1737,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
     total_points = len(planned_points)
     ctx.log(
         f"計測点を {total_points} 点配置"
-        f"（間隔 {point_spacing:g} mm / 外周margin {edge_margin:g} mm）"
+        f"（最小間隔 {point_spacing:g} mm / 外周margin {edge_margin:g} mm）"
     )
 
     with ctx.open_camera() as camera:
@@ -1759,6 +1759,82 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             air_pump_enabled=dispenser_config.air_pump_enabled,
         )
         toolhead_transform = dispenser_config.toolhead.to_transform()
+
+        # 高さ計測フェーズ: 全計測点を先にプローブし、後続フェーズで使う絶対Zを保存する。
+        measured_points: list[tuple[Point2d, Point2d, Point2d, float]] = []
+        for index, board_position in enumerate(planned_points, start=1):
+            ctx.checkpoint()
+            camera_position = result.board_transform.apply(board_position)
+            dispense_position = toolhead_transform.apply(camera_position)
+            ctx.progress(
+                f"高さ計測 {index}/{total_points}",
+                100.0 * (index - 1) / (3 * total_points),
+            )
+            klipper.send_gcode(
+                stage.move(x=dispense_position.x, y=dispense_position.y)
+                + gcode.wait_for_done()
+            )
+            board_surface_z = probe_executor.probe()
+            measured_points.append(
+                (
+                    board_position,
+                    camera_position,
+                    dispense_position,
+                    board_surface_z,
+                )
+            )
+            ctx.log(
+                f"高さ {index}/{total_points}: "
+                f"board=({board_position.x:.3f}, {board_position.y:.3f}) / "
+                f"dispense=({dispense_position.x:.3f}, "
+                f"{dispense_position.y:.3f}) / "
+                f"surface Z={board_surface_z:.4f}"
+            )
+
+        with PasteApplicator.from_config(
+            klipper,
+            paste_dispenser,
+            stage,
+            dispenser_config,
+            transform=Identity(),
+            lift_height=lift_height,
+        ) as applicator:
+            # ペーストフェーズの直前に一度だけロードする。
+            klipper.send_gcode(stage.move(z=0.0) + gcode.wait_for_done())
+            _run_loading_loop(
+                ctx, klipper, stage, applicator, focus_z=calibration.z_position
+            )
+            applicator.retract()
+
+            dispense_amount = float(ctx.params["dispense_amount"])
+            paste_height = resolve_paste_height(
+                dispenser_config.paste_height, dispenser_config.ul_per_mm2
+            )
+            for index, (
+                _board_position,
+                _camera_position,
+                dispense_position,
+                board_surface_z,
+            ) in enumerate(measured_points, start=1):
+                ctx.checkpoint()
+                ctx.progress(
+                    f"ペースト塗布 {index}/{total_points}",
+                    100.0 * (total_points + index - 1) / (3 * total_points),
+                )
+                # applicatorはIdentity transformなので、machine XYと絶対Zを渡す。
+                applicator.deposit_at(
+                    dispense_position,
+                    amount=dispense_amount,
+                    paste_height=board_surface_z + paste_height,
+                )
+                ctx.log(
+                    f"塗布 {index}/{total_points}: "
+                    f"dispense=({dispense_position.x:.3f}, "
+                    f"{dispense_position.y:.3f}) / "
+                    f"surface Z={board_surface_z:.4f}"
+                )
+
+        # オフセット計測フェーズ: 全点の塗布完了後に画像で位置を計測する。
         paste_detector = CircleDetector(
             pixel_per_mm=calibration.pixel_per_mm,
             target_diameter_mm=(diameter_min + diameter_max) / 2,
@@ -1778,75 +1854,43 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             offset_transform=result.offset_transform,
             tolerance=tolerance,
         )
-
-        with PasteApplicator.from_config(
-            klipper,
-            paste_dispenser,
-            stage,
-            dispenser_config,
-            transform=Identity(),
-            lift_height=lift_height,
-        ) as applicator:
-            # ペーストロード（command 駆動）
-            klipper.send_gcode(stage.move(z=0.0) + gcode.wait_for_done())
-            _run_loading_loop(
-                ctx, klipper, stage, applicator, focus_z=calibration.z_position
+        samples: list[ToolheadOffsetSample] = []
+        for index, (
+            board_position,
+            camera_position,
+            dispense_position,
+            _board_surface_z,
+        ) in enumerate(measured_points, start=1):
+            ctx.checkpoint()
+            ctx.progress(
+                f"オフセット計測 {index}/{total_points}",
+                100.0 * (2 * total_points + index - 1) / (3 * total_points),
             )
-            applicator.retract()
-
-            dispense_amount = float(ctx.params["dispense_amount"])
-            paste_height = resolve_paste_height(
-                dispenser_config.paste_height, dispenser_config.ul_per_mm2
+            klipper.send_gcode(
+                stage.move(
+                    x=camera_position.x,
+                    y=camera_position.y,
+                    z=calibration.z_position,
+                )
+                + gcode.wait_for_done()
             )
-            samples: list[ToolheadOffsetSample] = []
-            for index, board_position in enumerate(planned_points, start=1):
-                progress = 100.0 * (index - 1) / total_points
-                ctx.checkpoint()
-                camera_position = result.board_transform.apply(board_position)
-                dispense_position = toolhead_transform.apply(camera_position)
-
-                ctx.progress(f"プローブ {index}/{total_points}", progress)
-                klipper.send_gcode(
-                    stage.move(x=dispense_position.x, y=dispense_position.y)
-                    + gcode.wait_for_done()
-                )
-                board_surface_z = probe_executor.probe()
-
-                # applicatorはIdentity transformなので、machine XYと絶対Zを渡す。
-                ctx.progress(f"吐出 {index}/{total_points}", progress)
-                applicator.deposit_at(
-                    dispense_position,
-                    amount=dispense_amount,
-                    paste_height=board_surface_z + paste_height,
-                )
-
-                ctx.progress(f"ペースト検出 {index}/{total_points}", progress)
-                klipper.send_gcode(
-                    stage.move(
-                        x=camera_position.x,
-                        y=camera_position.y,
-                        z=calibration.z_position,
-                    )
-                    + gcode.wait_for_done()
-                )
-                time.sleep(1.0)
-                camera_final_position = paste_adjustor.adjust()
-                sample = ToolheadOffsetSample.from_positions(
-                    board_position=board_position,
-                    dispense_position=dispense_position,
-                    camera_position=camera_final_position,
-                )
-                samples.append(sample)
-                ctx.log(
-                    f"{index}/{total_points}: "
-                    f"board=({board_position.x:.3f}, {board_position.y:.3f}) / "
-                    f"surface Z={board_surface_z:.4f} / "
-                    f"dispense=({dispense_position.x:.3f}, "
-                    f"{dispense_position.y:.3f}) / "
-                    f"camera=({camera_final_position.x:.3f}, "
-                    f"{camera_final_position.y:.3f}) / "
-                    f"offset=({sample.offset.x:+.4f}, {sample.offset.y:+.4f})"
-                )
+            time.sleep(1.0)
+            camera_final_position = paste_adjustor.adjust()
+            sample = ToolheadOffsetSample.from_positions(
+                board_position=board_position,
+                dispense_position=dispense_position,
+                camera_position=camera_final_position,
+            )
+            samples.append(sample)
+            ctx.log(
+                f"オフセット {index}/{total_points}: "
+                f"board=({board_position.x:.3f}, {board_position.y:.3f}) / "
+                f"dispense=({dispense_position.x:.3f}, "
+                f"{dispense_position.y:.3f}) / "
+                f"camera=({camera_final_position.x:.3f}, "
+                f"{camera_final_position.y:.3f}) / "
+                f"offset=({sample.offset.x:+.4f}, {sample.offset.y:+.4f})"
+            )
 
     # オフセット算出 & 保存
     offset_result = ToolheadOffsetResult.measure(

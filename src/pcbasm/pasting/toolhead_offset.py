@@ -60,7 +60,7 @@ class ToolheadOffsetResult:
         standard_deviation: 各軸の母標準偏差 (mm)
         samples: 各計測点の結果
         tolerance: 収束許容誤差 (mm)
-        point_spacing: 計測点を配置した格子間隔 (mm)
+        point_spacing: 計測点同士の最小間隔設定 (mm)
         edge_margin: ペースト外縁から基板外周までのmargin (mm)
         calibrated_at: 計測日時
     """
@@ -143,10 +143,11 @@ def plan_toolhead_offset_points(
     edge_margin: float,
     paste_diameter_max: float,
 ) -> tuple[Point2d, ...]:
-    """基板の安全領域内へツールヘッドオフセット計測点を格子配置する.
+    """基板の安全領域内を左上から走査してオフセット計測点を配置する.
 
-    格子は安全領域のbbox中心を基準とし、中心が領域外なら領域内の代表点を
-    基準にする。中心に近い候補を必要数選び、移動順は行ごとのsnake順にする。
+    安全領域のbbox左上から細かく走査し、外形や穴によって領域外になる候補を
+    飛ばしながら、採用済み点との距離が ``point_spacing`` 以上の点を必要数採る。
+    そのため格子配置を優先しつつ、外形に合わせて半間隔ずれた点も利用できる。
     """
     if (
         isinstance(point_count, bool)
@@ -174,44 +175,30 @@ def plan_toolhead_offset_points(
         )
 
     min_x, min_y, max_x, max_y = safe_area.bounds
-    center = ShapelyPoint((min_x + max_x) / 2, (min_y + max_y) / 2)
-    anchor = center if safe_area.covers(center) else safe_area.representative_point()
+    scan_step = point_spacing / 2
+    column_count = math.floor((max_x - min_x) / scan_step + 1e-9) + 1
+    row_count = math.floor((max_y - min_y) / scan_step + 1e-9) + 1
+    minimum_distance_squared = point_spacing**2 * (1.0 - 1e-9)
 
-    min_column = math.ceil((min_x - anchor.x) / point_spacing)
-    max_column = math.floor((max_x - anchor.x) / point_spacing)
-    min_row = math.ceil((min_y - anchor.y) / point_spacing)
-    max_row = math.floor((max_y - anchor.y) / point_spacing)
+    selected: list[Point2d] = []
+    for row in range(row_count):
+        y = min_y + row * scan_step
+        for column in range(column_count):
+            candidate = Point2d(x=min_x + column * scan_step, y=y)
+            if not safe_area.covers(ShapelyPoint(candidate.x, candidate.y)):
+                continue
+            if any(
+                (candidate.x - point.x) ** 2 + (candidate.y - point.y) ** 2
+                < minimum_distance_squared
+                for point in selected
+            ):
+                continue
+            selected.append(candidate)
+            if len(selected) == point_count:
+                return tuple(selected)
 
-    candidates: list[tuple[int, int, Point2d]] = []
-    for row in range(min_row, max_row + 1):
-        y = anchor.y + row * point_spacing
-        for column in range(min_column, max_column + 1):
-            x = anchor.x + column * point_spacing
-            if safe_area.covers(ShapelyPoint(x, y)):
-                candidates.append((column, row, Point2d(x=x, y=y)))
-
-    if len(candidates) < point_count:
-        raise ValueError(
-            "基板の安全領域に指定数の計測点を配置できません"
-            f"（必要 {point_count} 点 / 配置可能 {len(candidates)} 点、"
-            f" 間隔={point_spacing:g} mm）"
-        )
-
-    selected = sorted(
-        candidates,
-        key=lambda candidate: (
-            (candidate[2].x - anchor.x) ** 2 + (candidate[2].y - anchor.y) ** 2,
-            candidate[1],
-            candidate[0],
-        ),
-    )[:point_count]
-
-    rows: dict[int, list[tuple[int, Point2d]]] = {}
-    for column, row, point in selected:
-        rows.setdefault(row, []).append((column, point))
-
-    planned: list[Point2d] = []
-    for row_index, row in enumerate(sorted(rows)):
-        row_points = sorted(rows[row], reverse=row_index % 2 == 1)
-        planned.extend(point for _, point in row_points)
-    return tuple(planned)
+    raise ValueError(
+        "基板の安全領域に指定数の計測点を配置できません"
+        f"（必要 {point_count} 点 / 配置可能 {len(selected)} 点、"
+        f" 最小間隔={point_spacing:g} mm）"
+    )
