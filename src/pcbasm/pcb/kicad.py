@@ -58,20 +58,8 @@ class PcbFile:
         """基板アウトラインのポリゴン（正規化前）."""
         outline_poly_set = pcbnew.SHAPE_POLY_SET()
         self._board.GetBoardPolygonOutlines(outline_poly_set)
-
-        if outline_poly_set.OutlineCount() == 0:
-            return Polygon()
-
-        outline = outline_poly_set.Outline(0)
-        points = [(_nm_to_mm(p.x), _nm_to_mm(p.y)) for p in outline.CPoints()]
-
-        if not points:
-            return Polygon()
-
-        if points[0] != points[-1]:
-            points.append(points[0])
-
-        return Polygon(points)
+        polygons = _shape_poly_set_to_polygons(outline_poly_set, 0.0, 0.0)
+        return polygons[0] if polygons else Polygon()
 
     @cached_property
     def _origin(self) -> tuple[float, float]:
