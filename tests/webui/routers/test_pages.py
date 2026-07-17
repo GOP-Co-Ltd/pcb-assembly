@@ -549,8 +549,24 @@ class TestPastingJobPages:
             "lift_height",
             "paste_diameter_min",
             "paste_diameter_max",
+            "point_count",
+            "point_spacing",
+            "edge_margin",
         ):
             assert name in text
+
+    def test_toolhead_offset_renders_saved_param_defaults(
+        self, client: TestClient, appstate: AppState
+    ):
+        appstate.save_job_param_defaults(
+            "toolhead_offset",
+            {"point_count": 7, "point_spacing": 6.25, "edge_margin": 4.75},
+        )
+
+        text = client.get("/pasting/toolhead_offset").text
+
+        for value in ('value="7"', 'value="6.25"', 'value="4.75"'):
+            assert value in text
 
     def test_loading_mass_calibration_is_not_sidebar_feature(self, client: TestClient):
         assert "loading-mass-calibration" not in client.get("/pasting").text

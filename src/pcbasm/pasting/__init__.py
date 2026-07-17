@@ -57,7 +57,11 @@ from .settings import (
     validate_field_names,
     validate_override_values,
 )
-from .toolhead_offset import ToolheadOffsetResult
+from .toolhead_offset import (
+    ToolheadOffsetResult,
+    ToolheadOffsetSample,
+    plan_toolhead_offset_points,
+)
 
 __all__ = [
     "DispenseRateCalibration",
@@ -92,6 +96,7 @@ __all__ = [
     "ProbeExecutor",
     "ResolvedPaste",
     "ToolheadOffsetResult",
+    "ToolheadOffsetSample",
     "base_override_from_config",
     "build_pad_fill_plan_for",
     "build_paste_fill_path",
@@ -100,6 +105,7 @@ __all__ = [
     "find_orphans",
     "is_pad_enabled",
     "plan_paste_route",
+    "plan_toolhead_offset_points",
     "resolve_node_settings",
     "resolve_initial_purge",
     "resolve_pad_settings",
