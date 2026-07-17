@@ -1,15 +1,26 @@
 {% extends "tab.html" %}
+{% import "partials/job_params.html" as job_params %}
 {% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
+<p class="job-intro">
+  実行すると全軸をホーミングし、指定した軸があればローディング位置へ移動します。
+</p>
 <form id="job-form" class="job-form loading-run-form"
       data-job-name="{{ job_name }}" data-testid="job-form">
-  {% for spec in param_specs %}
+  {% for spec in loading_control_specs %}
   <input type="hidden" id="param-{{ spec.name }}" name="{{ spec.name }}"
          data-param-type="{{ spec.value_type }}"
          value="{{ spec.default if spec.default is not none else '' }}">
   {% endfor %}
-  <button type="submit" id="job-run" data-testid="job-run">実行</button>
+  <fieldset class="job-param-group loading-position">
+    <legend>ローディング位置（任意）</legend>
+    {% for spec in loading_position_specs %}
+    {{ job_params.param_field(spec) }}
+    {% endfor %}
+    <small class="job-param-help">空欄の軸はホーミング後の位置を維持します。</small>
+  </fieldset>
+  <button type="submit" id="job-run" data-testid="job-run">ローディング開始</button>
 </form>
 {% include "partials/loading_controls.html" %}
 <section id="loading-mass-calibration" class="loading-mass-calibration">

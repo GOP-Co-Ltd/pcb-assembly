@@ -269,7 +269,7 @@ def settings_page(
 def _loading_context(
     state: AppState, param_specs: tuple[ParamSpec, ...]
 ) -> dict[str, Any]:
-    """Loading ページ専用コンテキスト（回転既定値 + 現在のマシン設定値）."""
+    """Loading ページ専用コンテキスト（開始位置・回転値・現在設定値）."""
     rotation_defaults = {
         spec.name: spec.default
         for spec in param_specs
@@ -277,6 +277,10 @@ def _loading_context(
     }
     dispenser = state.machine().paste_dispenser
     return {
+        "loading_control_specs": tuple(
+            spec for spec in param_specs if not spec.optional
+        ),
+        "loading_position_specs": tuple(spec for spec in param_specs if spec.optional),
         "loading_rotation_defaults": rotation_defaults,
         "solder_paste_density": dispenser.solder_paste_density,
         "current_rotations_per_ul": dispenser.rotations_per_ul,

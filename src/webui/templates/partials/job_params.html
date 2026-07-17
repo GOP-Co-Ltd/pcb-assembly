@@ -21,6 +21,7 @@
     {% else %}
     <input type="number" id="param-{{ spec.name }}" name="{{ spec.name }}" step="any"
            data-param-type="{{ spec.value_type }}"{% if spec.runtime_editable %} data-runtime-editable="true"{% endif %}
+           {% if spec.optional %}data-param-optional="true"{% endif %}
            value="{{ spec.default if spec.default is not none else '' }}">
     {% endif %}
     {% if spec.help %}<small class="job-param-help">{{ spec.help }}</small>{% endif %}
