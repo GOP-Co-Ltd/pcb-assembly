@@ -291,6 +291,32 @@ class TestLoadingOverBrowser:
     パラメータ同期を持つ。既存値を線引きで補正する dispense_calibration とは用途が別なので併存する。
     """
 
+    def test_start_sends_only_specified_position_axes_and_begins_homing(
+        self, live_server: LiveServer, browser_page
+    ):
+        browser_page.goto(
+            f"{live_server.base_url}/pasting/loading",
+            wait_until="domcontentloaded",
+        )
+        browser_page.locator("#param-position_x").fill("12.5")
+        browser_page.locator("#param-position_z").fill("3")
+
+        with browser_page.expect_response(
+            lambda response: response.url.endswith("/api/jobs/loading")
+            and response.request.method == "POST"
+        ) as response_info:
+            browser_page.locator("#job-run").click()
+
+        response = response_info.value
+        assert response.status == 201
+        payload = response.request.post_data_json
+        assert payload["params"]["position_x"] == 12.5
+        assert "position_y" not in payload["params"]
+        assert payload["params"]["position_z"] == 3
+
+        expect(browser_page.locator("#jc-status")).to_have_text("失敗", timeout=60_000)
+        expect(browser_page.locator("#jc-progress-text")).to_have_text("ホーミング")
+
     def test_loading_controls_sync_inputs_to_hidden_params(
         self, live_server: LiveServer, browser_page
     ):

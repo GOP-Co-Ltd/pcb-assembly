@@ -457,6 +457,16 @@ class TestPastingJobPages:
         for value in ('value="5.0"', 'value="0.5"'):
             assert value in text
 
+    def test_loading_page_renders_optional_start_position(self, client: TestClient):
+        text = client.get("/pasting/loading").text
+
+        assert "実行すると全軸をホーミング" in text
+        assert "ローディング位置（任意）" in text
+        assert "空欄の軸はホーミング後の位置を維持します" in text
+        for axis in ("x", "y", "z"):
+            assert f'id="param-position_{axis}"' in text
+        assert text.count('data-param-optional="true"') == 3
+
     def test_loading_page_renders_saved_loading_defaults(
         self, client: TestClient, appstate: AppState
     ):

@@ -540,6 +540,9 @@
       const params = {};
       for (const input of jobForm.querySelectorAll("[data-param-type]")) {
         const type = input.dataset.paramType;
+        if (input.dataset.paramOptional === "true" && input.value === "") {
+          continue;
+        }
         if (type === "bool") {
           params[input.name] = input.checked;
         } else if (type === "float") {
