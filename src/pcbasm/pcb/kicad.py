@@ -13,8 +13,9 @@ from functools import cached_property
 from pathlib import Path
 
 import pcbnew
-from shapely import Polygon
+from shapely import Point as ShapelyPoint, Polygon, get_parts
 from shapely.affinity import translate
+from shapely.ops import unary_union
 
 from pcbasm.geometry.polygon import merge_islands
 from pcbasm.geometry.transform import Point2d
@@ -192,7 +193,7 @@ class PcbFile:
 
         各レイヤー（Top/Bottom）について、塗りつぶし済みゾーン・トラック・ビア
         （pcbnewではTrack扱い）・パッドのポリゴンを集約し、結合・closing後の
-        連結成分ひとつを1つのCopperとして返す.
+        連結成分からビアのドリル穴を除いたものを1つのCopperとして返す.
         """
         # ゾーンのfillキャッシュがstaleな場合に備え、読み込み時に1回だけ再fillする
         try:
@@ -215,6 +216,7 @@ class PcbFile:
             (pcbnew.B_Cu, Layer.BOTTOM),
         ):
             polygons: list[Polygon] = []
+            via_drill_holes: list[Polygon] = []
 
             has_zone = False
             zone_polygon_count = 0
@@ -240,6 +242,10 @@ class PcbFile:
                     sps, kicad_layer, 0, max_error, pcbnew.ERROR_INSIDE
                 )
                 polygons.extend(to_polys(sps))
+                if isinstance(track, pcbnew.PCB_VIA) and track.HasDrilledHole():
+                    via_drill_holes.append(
+                        _via_drill_polygon(track, origin_x, origin_y, max_error)
+                    )
 
             for footprint in self._board.GetFootprints():
                 if footprint.IsDNP():
@@ -252,10 +258,30 @@ class PcbFile:
                 continue
 
             islands = merge_islands(polygons, snap_mm=2 * _nm_to_mm(max_error))
+            drill_area = unary_union(via_drill_holes)
             for island in islands:
-                coppers.append(Copper(layer=layer, polygon=island))
+                copper = island.difference(drill_area)
+                for part in get_parts(copper):
+                    if isinstance(part, Polygon) and not part.is_empty:
+                        coppers.append(Copper(layer=layer, polygon=part))
 
         return coppers
+
+
+def _via_drill_polygon(
+    via: "pcbnew.PCB_VIA",
+    origin_x: float,
+    origin_y: float,
+    max_error: float,
+) -> Polygon:
+    """ビアの円形ドリル穴を正規化済みshapely Polygonへ変換する."""
+    position = via.GetPosition()
+    center = ShapelyPoint(
+        _nm_to_mm(position.x) - origin_x,
+        _nm_to_mm(position.y) - origin_y,
+    )
+    radius = _nm_to_mm(via.GetDrillValue()) / 2.0
+    return center.buffer(radius + _nm_to_mm(max_error), quad_segs=32)
 
 
 def _copper_polygon_for(

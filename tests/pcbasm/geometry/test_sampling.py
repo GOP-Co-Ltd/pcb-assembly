@@ -163,6 +163,87 @@ class TestSamplePointsInPolygons:
 
         assert len(result) == 9
 
+    def test_outline_margin_and_copper_clearance_are_both_respected(self):
+        """基板外形と銅箔境界の両方から指定距離以上離れた点だけを返す."""
+        outline = _rectangle(0, 0, 50, 50)
+        copper = Polygon(
+            [(-10, -10), (60, -10), (60, 60), (-10, 60)],
+            holes=[[(20, 20), (30, 20), (30, 30), (20, 30)]],
+        )
+        min_radius = 1.5
+        outline_margin = 2.5
+
+        result = sample_points_in_polygons(
+            [copper],
+            min_radius=min_radius,
+            min_samples=6,
+            max_samples=9,
+            outline=outline,
+            outline_margin=outline_margin,
+        )
+
+        safe_outline = outline.buffer(-outline_margin)
+        for point in result:
+            shapely_point = ShapelyPoint(point.x, point.y)
+            assert safe_outline.covers(shapely_point)
+            assert copper.boundary.distance(shapely_point) >= min_radius
+
+    def test_positive_outline_margin_requires_outline(self):
+        """正のoutline_marginをoutlineなしでは使用できない."""
+        polygon = _rectangle(0, 0, 50, 50)
+
+        with pytest.raises(ValueError, match="outlineが必要"):
+            sample_points_in_polygons(
+                [polygon],
+                min_radius=1.5,
+                min_samples=6,
+                max_samples=9,
+                outline_margin=2.5,
+            )
+
+    @pytest.mark.parametrize("outline_margin", [-0.1, -2.5])
+    def test_negative_outline_margin_raises(self, outline_margin):
+        """負のoutline_marginは受け付けない."""
+        polygon = _rectangle(0, 0, 50, 50)
+
+        with pytest.raises(ValueError, match="0以上"):
+            sample_points_in_polygons(
+                [polygon],
+                min_radius=1.5,
+                min_samples=6,
+                max_samples=9,
+                outline=polygon,
+                outline_margin=outline_margin,
+            )
+
+    def test_outline_margin_that_removes_outline_raises(self):
+        """内側offsetで基板領域が消える場合は明示的に失敗する."""
+        outline = _rectangle(0, 0, 4, 4)
+
+        with pytest.raises(ValueError, match="probe可能領域が空"):
+            sample_points_in_polygons(
+                [outline],
+                min_radius=0.5,
+                min_samples=6,
+                max_samples=9,
+                outline=outline,
+                outline_margin=2.5,
+            )
+
+    def test_outline_margin_candidate_shortage_raises(self):
+        """安全領域内の候補がmin_samples未満ならmarginを緩和しない."""
+        outline = _rectangle(0, 0, 10, 10)
+
+        with pytest.raises(ValueError, match="min_samples"):
+            sample_points_in_polygons(
+                [outline],
+                min_radius=0.5,
+                min_samples=6,
+                max_samples=9,
+                outline=outline,
+                outline_margin=4.9,
+            )
+
     def test_small_island_point_lands_at_center(self):
         """小島の点は島の中心付近に来る."""
         # min_samples を満たすため大島2つを添える

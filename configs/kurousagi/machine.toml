@@ -63,6 +63,7 @@ height = 600
 
 [probe]
 min_radius = 0.3            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
+board_edge_margin = 2.5     # サンプル点が基板外形から確保すべき最小距離 [mm]
 min_samples = 6             # 最小サンプル数 (2次曲面フィットに必要)
 max_samples = 12            # 最大サンプル数
 lift_height = 0.5

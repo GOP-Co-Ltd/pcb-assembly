@@ -90,6 +90,7 @@ class HeightPlaneMeasurer:
         stage: XYZStage,
         *,
         min_radius: float,
+        board_edge_margin: float,
         min_samples: int,
         max_samples: int,
         move_settle_time: float = 0.5,
@@ -97,6 +98,7 @@ class HeightPlaneMeasurer:
     ) -> None:
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
         self._min_radius = min_radius
+        self._board_edge_margin = board_edge_margin
         self._min_samples = min_samples
         self._max_samples = max_samples
         self._point_prober = _BoardPointProber(
@@ -121,6 +123,7 @@ class HeightPlaneMeasurer:
             min_samples=self._min_samples,
             max_samples=self._max_samples,
             outline=outline,
+            outline_margin=self._board_edge_margin,
         )
         board_points = self._point_prober.route_points(board_points, board_to_machine)
         coord_str = ", ".join(f"({p.x:.1f}, {p.y:.1f})" for p in board_points)

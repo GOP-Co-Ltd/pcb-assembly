@@ -902,6 +902,7 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
         min_samples=probe_config.min_samples,
         max_samples=probe_config.max_samples,
         outline=pcb.outline.polygon,
+        outline_margin=probe_config.board_edge_margin,
     )
 
     planned_path = ctx.artifacts_dir / "planned_points.png"

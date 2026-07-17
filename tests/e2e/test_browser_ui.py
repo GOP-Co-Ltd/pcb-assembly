@@ -8,6 +8,7 @@ tests/e2e/test_webui_e2e.py に分担する。
 from __future__ import annotations
 
 import httpx
+import pytest
 from playwright.sync_api import expect
 
 from tests.e2e.conftest import (
@@ -225,16 +226,29 @@ class TestPromptDialogOverBrowser:
 class TestSettingsOverBrowser:
     """設定画面の実ブラウザ操作."""
 
-    def test_probe_lift_height_autosave(self, live_server: LiveServer, browser_page):
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("probe.lift_height", 1.25),
+            ("probe.board_edge_margin", 3.0),
+        ],
+    )
+    def test_probe_setting_autosave(
+        self,
+        live_server: LiveServer,
+        browser_page,
+        field_name: str,
+        value: float,
+    ):
         browser_page.goto(
             f"{live_server.base_url}/settings", wait_until="domcontentloaded"
         )
-        field = browser_page.locator('input[name="probe.lift_height"]')
+        field = browser_page.locator(f'input[name="{field_name}"]')
         field.wait_for(state="visible", timeout=10_000)
 
-        field.fill("1.25")
+        field.fill(str(value))
 
-        _wait_machine_field(live_server.base_url, "probe.lift_height", 1.25)
+        _wait_machine_field(live_server.base_url, field_name, value)
 
     def test_reference_point_offset_pair_autosave(
         self, live_server: LiveServer, browser_page

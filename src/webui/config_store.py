@@ -13,7 +13,7 @@ import attrs
 import tomlkit
 from tomlkit.items import Item, Table
 
-from pcbasm.config import DISPENSE_MODES
+from pcbasm.config import DISPENSE_MODES, validate_probe_board_edge_margin
 
 type SettingValueType = Literal[
     "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode", "bool"
@@ -104,6 +104,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     # [probe]
     FieldSpec("probe.lift_height", "プローブ後の上昇高さ", "float", "mm"),
     FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
+    FieldSpec("probe.board_edge_margin", "基板外形からの最小距離", "float", "mm"),
     FieldSpec("probe.min_samples", "最小サンプル数", "int"),
     FieldSpec("probe.max_samples", "最大サンプル数", "int"),
     # [reference_point]
@@ -175,6 +176,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     and coerced_float < 0.0
                 ):
                     raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
+                if spec.key == "probe.board_edge_margin":
+                    if error := validate_probe_board_edge_margin(coerced_float):
+                        raise UnknownFieldError(error)
                 return coerced_float
         case "float_or_auto":
             if value == "auto":

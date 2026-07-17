@@ -113,6 +113,8 @@ class TestPages:
         assert "settings-layout" in response.text
         assert 'name="probe.lift_height"' in response.text
         assert "プローブ後の上昇高さ" in response.text
+        assert 'name="probe.board_edge_margin"' in response.text
+        assert "基板外形からの最小距離" in response.text
         assert 'data-pair-key="reference_point.offsets.top_left"' in response.text
         assert 'class="settings-label"' in response.text
         assert '<label for="ms-' not in response.text
