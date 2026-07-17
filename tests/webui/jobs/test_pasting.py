@@ -165,6 +165,8 @@ class TestCatalog:
                     "lift_height": (5.0, "mm"),
                     "paste_diameter_min": (0.0, "mm"),
                     "paste_diameter_max": (2.0, "mm"),
+                    "point_spacing": (5.0, "mm"),
+                    "edge_margin": (5.0, "mm"),
                 },
             ),
         ],
@@ -202,6 +204,33 @@ class TestCatalog:
 
         assert params[name].value_type == "int"
         assert params[name].default == default_value
+
+    def test_toolhead_offset_point_count_is_int_defaulting_to_ten(
+        self, default: JobCatalog
+    ):
+        params = {spec.name: spec for spec in default.get("toolhead_offset").params}
+
+        assert params["point_count"].value_type == "int"
+        assert params["point_count"].default == 10
+
+    def test_toolhead_offset_persists_all_params(self, default: JobCatalog):
+        definition = default.get("toolhead_offset")
+
+        assert len(definition.params) == 9
+        assert set(definition.persisted_params) == {
+            "tolerance",
+            "dispense_amount",
+            "loading_amount",
+            "lift_height",
+            "paste_diameter_min",
+            "paste_diameter_max",
+            "point_count",
+            "point_spacing",
+            "edge_margin",
+        }
+        assert set(definition.persisted_params) == {
+            spec.name for spec in definition.params
+        }
 
     def test_dispense_calibration_persists_all_calibration_params(
         self, default: JobCatalog

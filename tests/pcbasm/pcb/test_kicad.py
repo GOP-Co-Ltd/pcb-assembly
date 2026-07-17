@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import pcbnew
 import pytest
 from shapely.geometry import Point as ShapelyPoint
 
@@ -11,6 +14,22 @@ VIA_CENTERS = (
     (2.0, 2.0),
     (18.0, 23.0),
 )
+
+
+def _add_edge_cuts_rectangle(
+    board: pcbnew.BOARD, corners: list[tuple[float, float]]
+) -> None:
+    """実pcbnew boardのEdge.Cutsへ閉じた矩形を追加する."""
+    for start, end in zip(corners, corners[1:] + corners[:1], strict=True):
+        segment = pcbnew.PCB_SHAPE(board)
+        segment.SetShape(pcbnew.SHAPE_T_SEGMENT)
+        segment.SetLayer(pcbnew.Edge_Cuts)
+        segment.SetStart(
+            pcbnew.VECTOR2I(pcbnew.FromMM(start[0]), pcbnew.FromMM(start[1]))
+        )
+        segment.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(end[0]), pcbnew.FromMM(end[1])))
+        segment.SetWidth(pcbnew.FromMM(0.1))
+        board.Add(segment)
 
 
 class TestPcbFile:
@@ -29,6 +48,28 @@ class TestPcbFile:
     def test_outline_extracts_valid_polygon(self, pcb: PcbFile):
         assert pcb.outline.polygon.is_valid
         assert pcb.outline.polygon.area > 0
+
+    def test_outline_preserves_edge_cuts_hole(self, tmp_path: Path):
+        board = pcbnew.BOARD()
+        _add_edge_cuts_rectangle(
+            board,
+            [(10.0, 20.0), (50.0, 20.0), (50.0, 60.0), (10.0, 60.0)],
+        )
+        _add_edge_cuts_rectangle(
+            board,
+            [(20.0, 30.0), (30.0, 30.0), (30.0, 40.0), (20.0, 40.0)],
+        )
+        path = tmp_path / "outline-with-hole.kicad_pcb"
+        pcbnew.SaveBoard(str(path), board)
+
+        outline = PcbFile(path).outline
+
+        assert outline.width == pytest.approx(40.0)
+        assert outline.height == pytest.approx(40.0)
+        assert outline.polygon.area == pytest.approx(1500.0)
+        assert len(outline.polygon.interiors) == 1
+        assert outline.polygon.covers(ShapelyPoint(5.0, 5.0))
+        assert not outline.polygon.covers(ShapelyPoint(15.0, 15.0))
 
     # components プロパティ
 
