@@ -147,11 +147,22 @@ class PasteDispenser:
         )
 
 
+def validate_probe_board_edge_margin(value: float) -> str | None:
+    """基板外形からのprobe点マージンを検証する."""
+    if value <= 0:
+        return (
+            "board_edge_marginは正の値である必要があります。"
+            f"board_edge_margin={value}"
+        )
+    return None
+
+
 @attrs.frozen
 class Probe:
     """ロードセルプローブの設定."""
 
     min_radius: float  # サンプル点が銅箔境界から確保すべき最小距離 [mm] (ノズルが銅箔島の外に出ないためのクリアランス)
+    board_edge_margin: float = 2.5  # サンプル点が基板外形から確保すべき最小距離 [mm]
     lift_height: float = 1.0  # PROBE実行後に接触点から持ち上げる高さ [mm]
     min_samples: int = (
         6  # 最小サンプル数 (HeightPlaneの2次曲面フィットに必要な最小点数)
@@ -163,6 +174,8 @@ class Probe:
             raise ValueError(
                 f"min_radiusは正の値である必要があります。min_radius={self.min_radius}"
             )
+        if error := validate_probe_board_edge_margin(self.board_edge_margin):
+            raise ValueError(error)
         if self.min_samples < 6:
             raise ValueError(
                 f"min_samplesは6以上である必要があります。min_samples={self.min_samples}"

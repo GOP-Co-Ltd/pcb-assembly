@@ -82,6 +82,7 @@ class PasteSession:
             klipper=result.klipper,
             stage=result.stage,
             min_radius=probe_config.min_radius,
+            board_edge_margin=probe_config.board_edge_margin,
             min_samples=probe_config.min_samples,
             max_samples=probe_config.max_samples,
         )

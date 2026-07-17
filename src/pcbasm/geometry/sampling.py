@@ -10,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 from shapely import get_parts
 from shapely.geometry import MultiPoint, Point as ShapelyPoint, Polygon
+from shapely.geometry.base import BaseGeometry
 from shapely.ops import polylabel
 
 from pcbasm.geometry.transform import Point2d
@@ -27,13 +28,15 @@ def sample_points_in_polygons(
     min_samples: int,
     max_samples: int,
     outline: Polygon | None = None,
+    outline_margin: float = 0.0,
 ) -> list[Point2d]:
     """ポリゴン領域の内部からprobe用の点を安全かつ広く分散するようサンプルする.
 
     各ポリゴンを min_radius だけ内側にオフセットした領域内に、細かめのグリッド候補、
     各連結部分の中心(pole of inaccessibility)、および内側領域の境界寄り候補を生成する。
-    outline が指定された場合は基板外形 bbox の anchor に近い候補を先に取り、残りを
-    clearance を飽和させた Farthest Point Sampling で選ぶ。
+    outline_margin が正の場合は、outline をその距離だけ内側にオフセットした領域との
+    交差内に候補を制限する。outline が指定された場合は基板外形 bbox の anchor に近い
+    候補を先に取り、残りを clearance を飽和させた Farthest Point Sampling で選ぶ。
 
     Args:
         polygons: 入力ポリゴン群（例: 銅箔島のpolygon。呼び出し側でフィルタ済みを想定）
@@ -41,20 +44,27 @@ def sample_points_in_polygons(
         min_samples: 最小サンプル数 (3以上を想定)
         max_samples: 最大サンプル数
         outline: 基板外形ポリゴン。指定時は外周側のカバレッジを優先する
+        outline_margin: probe点がoutline境界から確保すべき最小距離 [mm]
 
     Returns:
         選ばれたprobe点 (Point2d) のリスト。
 
     Raises:
-        ValueError: 候補点が min_samples に満たない場合
+        ValueError: outline_marginが不正、または候補点がmin_samplesに満たない場合
     """
-    candidates, clearance = _collect_candidates(polygons, min_radius)
+    sampling_outline = _inset_outline(outline, outline_margin)
+    allowed_region = sampling_outline if outline_margin > 0.0 else None
+    candidates, clearance = _collect_candidates(
+        polygons,
+        min_radius,
+        allowed_region=allowed_region,
+    )
 
     if len(candidates) < min_samples:
         raise ValueError(
             "probe点の候補数が min_samples に満たない: "
             f"候補数={len(candidates)}, min_samples={min_samples}, "
-            f"min_radius={min_radius}"
+            f"min_radius={min_radius}, outline_margin={outline_margin}"
         )
 
     target = min(max_samples, len(candidates))
@@ -65,9 +75,31 @@ def sample_points_in_polygons(
         clearance_weight,
         target_count=target,
         min_radius=min_radius,
-        outline=outline,
+        outline=sampling_outline,
     )
     return [Point2d(x=float(x), y=float(y)) for x, y in candidates[selected]]
+
+
+def _inset_outline(
+    outline: Polygon | None, outline_margin: float
+) -> BaseGeometry | None:
+    """samplingに使う内側outlineを返す."""
+    if outline_margin < 0.0:
+        raise ValueError(
+            f"outline_marginは0以上である必要があります。outline_margin={outline_margin}"
+        )
+    if outline_margin == 0.0:
+        return outline
+    if outline is None:
+        raise ValueError("outline_marginを指定する場合はoutlineが必要です")
+
+    inset = outline.buffer(-outline_margin)
+    if inset.is_empty:
+        raise ValueError(
+            "outline_marginにより基板内のprobe可能領域が空になりました。"
+            f"outline_margin={outline_margin}"
+        )
+    return inset
 
 
 @attrs.frozen
@@ -122,7 +154,10 @@ def _clearance_to_polygons(point: Point2d, polygons: Sequence[Polygon]) -> float
 
 
 def _collect_candidates(
-    polygons: Iterable[Polygon], min_radius: float
+    polygons: Iterable[Polygon],
+    min_radius: float,
+    *,
+    allowed_region: BaseGeometry | None = None,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """min_radius内側にオフセットした領域の候補点と、各点のクリアランスを収集する.
 
@@ -139,6 +174,8 @@ def _collect_candidates(
 
     for polygon in polygons:
         inner = polygon.buffer(-min_radius)
+        if allowed_region is not None:
+            inner = inner.intersection(allowed_region)
         if inner.is_empty:
             continue
         boundary = polygon.boundary
@@ -223,7 +260,7 @@ def _coverage_fps_indices(
     *,
     target_count: int,
     min_radius: float,
-    outline: Polygon | None,
+    outline: BaseGeometry | None,
 ) -> list[int]:
     """Anchor と clearance 飽和付き FPS でインデックスを選ぶ."""
     if target_count <= 0:
@@ -263,7 +300,7 @@ def _coverage_fps_indices(
     return selected
 
 
-def _outline_anchor_points(outline: Polygon) -> npt.NDArray[np.float64]:
+def _outline_anchor_points(outline: BaseGeometry) -> npt.NDArray[np.float64]:
     """Outline bbox の四隅・辺中央・中心を anchor として返す."""
     minx, miny, maxx, maxy = outline.bounds
     cx = (minx + maxx) / 2.0

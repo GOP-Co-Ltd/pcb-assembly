@@ -527,6 +527,7 @@ class TestProbe:
     def test_sample_defaults(self):
         probe = Probe(min_radius=1.5)
 
+        assert probe.board_edge_margin == 2.5
         assert probe.min_samples == 6
         assert probe.max_samples == 9
         assert probe.lift_height == 1.0
@@ -534,12 +535,14 @@ class TestProbe:
     def test_valid_custom_values(self):
         probe = Probe(
             min_radius=2.0,
+            board_edge_margin=3.0,
             lift_height=2.5,
             min_samples=7,
             max_samples=12,
         )
 
         assert probe.min_radius == 2.0
+        assert probe.board_edge_margin == 3.0
         assert probe.lift_height == 2.5
         assert probe.min_samples == 7
         assert probe.max_samples == 12
@@ -558,6 +561,11 @@ class TestProbe:
     def test_min_radius_not_positive_raises(self, min_radius):
         with pytest.raises(ValueError, match="min_radiusは正の値"):
             Probe(min_radius=min_radius)
+
+    @pytest.mark.parametrize("board_edge_margin", [0.0, -1.0])
+    def test_board_edge_margin_not_positive_raises(self, board_edge_margin):
+        with pytest.raises(ValueError, match="board_edge_marginは正の値"):
+            Probe(min_radius=1.5, board_edge_margin=board_edge_margin)
 
 
 class TestGetMachineConfig:
