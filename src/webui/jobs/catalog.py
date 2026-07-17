@@ -24,6 +24,7 @@ class ParamSpec:
         help: 補足説明（任意）
         runtime_editable: 実行中に値を変更できるか（True で patch 受理）
         minimum: 数値型の下限（None は制約なし。下回る値は検証エラー）
+        optional: True なら値の省略を許し、省略時は検証結果にキーを含めない
     """
 
     name: str
@@ -35,6 +36,7 @@ class ParamSpec:
     help: str | None = None
     runtime_editable: bool = False
     minimum: float | None = None
+    optional: bool = False
 
 
 @attrs.frozen
@@ -133,6 +135,8 @@ class JobCatalog:
                 validated[spec.name] = _coerce_param(spec, values[spec.name])
             elif spec.default is not None:
                 validated[spec.name] = spec.default
+            elif spec.optional:
+                continue
             else:
                 raise ValueError(f"必須パラメータがありません: {spec.name}")
         return validated

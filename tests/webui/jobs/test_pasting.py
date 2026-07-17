@@ -33,11 +33,13 @@ from pathlib import Path
 import cv2
 import pytest
 
+from pcbasm.hal import XYZStage
 from pcbasm.pcb import PcbFile
 from tests.helpers import mark_hardware
 from tests.webui.conftest import decode_jpeg, jpeg_payload
 from webui.config_store import ConfigStore
 from webui.jobs.catalog import JobCatalog, default_catalog
+from webui.jobs.machine_commands import create_command_klipper
 from webui.jobs.manager import JobManager, JobRecord, JobStatus
 from webui.jobs.pasting import (
     LOADING_STAGE,
@@ -179,7 +181,9 @@ class TestCatalog:
     ):
         params = {spec.name: spec for spec in default.get(name).params}
         float_params = {
-            key: spec for key, spec in params.items() if spec.value_type == "float"
+            key: spec
+            for key, spec in params.items()
+            if spec.value_type == "float" and not spec.optional
         }
 
         assert set(float_params) == set(expected)
@@ -299,6 +303,25 @@ class TestCatalog:
             "accel",
             "retract_rotations",
         )
+
+    def test_loading_position_axes_are_optional_and_not_persisted(
+        self, default: JobCatalog
+    ):
+        definition = default.get("loading")
+        params = {spec.name: spec for spec in definition.params}
+
+        for name in ("position_x", "position_y", "position_z"):
+            assert params[name].value_type == "float"
+            assert params[name].unit == "mm"
+            assert params[name].optional is True
+            assert name not in definition.persisted_params
+
+        validated = default.validate_params(
+            definition, {"position_x": 10, "position_z": 2.5}
+        )
+        assert validated["position_x"] == 10.0
+        assert "position_y" not in validated
+        assert validated["position_z"] == 2.5
 
     def test_paste_solder_interactive_loading_is_bool_defaulting_false(
         self, default: JobCatalog
@@ -620,6 +643,20 @@ class TestMachineJobsWithoutKlipper:
         with state.machine_lock("after-failed-job"):  # ロックは解放済み
             pass
 
+    def test_loading_starts_with_homing_before_enabling_dispenser(
+        self,
+        manager: JobManager,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        record = manager.start("loading", {"position_x": 10.0})
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+        wait_until(lambda: state.busy_owner is None)
+
+        assert record.status == JobStatus.FAILED
+        assert record.progress_stage == "ホーミング", record.error
+        assert "全軸ホーミングを実行します" in "\n".join(record.log_lines)
+
     def test_dispense_calibration_fails_gracefully_and_releases_lock(
         self,
         manager: JobManager,
@@ -732,6 +769,26 @@ class TestPastingHardware:
         assert "押出合計" in result.summary
         assert "uL" in result.summary
         assert result.apply is None  # loading に Apply はない
+
+    def test_loading_homes_and_moves_to_specified_x_position(
+        self,
+        real_manager: JobManager,
+        real_state: AppState,
+        wait_until: WaitUntil,
+    ):
+        """ローディング開始で全軸 homing 後、指定した X へ移動する."""
+        klipper = create_command_klipper(real_state.machine())
+        stage = XYZStage(klipper.readonly)
+        target_x = min(stage.limits.x.min + 1.0, stage.limits.x.max)
+
+        record = real_manager.start("loading", {"position_x": target_x})
+        _wait_loading_stage_and_settle(record, wait_until)
+        position = stage.get_position()
+        real_manager.submit_command({"type": "finish"})
+        wait_until(lambda: record.status.terminal, timeout=300.0)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert position.x == pytest.approx(target_x)
 
     def test_loading_invalid_value_logs_reason_and_continues(
         self, real_manager: JobManager, wait_until: WaitUntil

@@ -94,6 +94,11 @@ LOADING_DEFAULT_ROTATIONS = 5.0
 LOADING_DEFAULT_ROTATION_RATE = 0.5
 LOADING_DEFAULT_ROTATION_ACCEL = 0.5
 LOADING_DEFAULT_RETRACT_ROTATIONS = 0.0
+_LOADING_POSITION_PARAMS = (
+    ("position_x", "x"),
+    ("position_y", "y"),
+    ("position_z", "z"),
+)
 APPLY_DIGITS = 6
 
 # 吐出量キャリブレーション統合ジョブ（①rotations_per_ul / ②max_dispense_rate /
@@ -313,6 +318,27 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "float",
                     LOADING_DEFAULT_RETRACT_ROTATIONS,
                     unit="rev",
+                ),
+                ParamSpec(
+                    "position_x",
+                    "X",
+                    "float",
+                    unit="mm",
+                    optional=True,
+                ),
+                ParamSpec(
+                    "position_y",
+                    "Y",
+                    "float",
+                    unit="mm",
+                    optional=True,
+                ),
+                ParamSpec(
+                    "position_z",
+                    "Z",
+                    "float",
+                    unit="mm",
+                    optional=True,
                 ),
             ),
             uses_machine=True,
@@ -556,21 +582,6 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
 
 
 # --- 共有ヘルパ ---
-
-
-def _dispenser_rig(machine: Machine) -> tuple[Klipper, XYZStage, PasteApplicator]:
-    """移動コマンド用 Klipper / ステージ / config 構成済み applicator の定型 3 点を作る."""
-    klipper = create_command_klipper(machine)
-    stage = XYZStage(klipper.readonly)
-    dispenser = PasteDispenser(
-        klipper=klipper.readonly,
-        rotations_per_ul=machine.paste_dispenser.rotations_per_ul,
-        air_pump_enabled=machine.paste_dispenser.air_pump_enabled,
-    )
-    applicator = PasteApplicator.from_config(
-        klipper, dispenser, stage, machine.paste_dispenser
-    )
-    return klipper, stage, applicator
 
 
 def _drain_commands(ctx: JobContext) -> int:
@@ -1010,8 +1021,43 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
 
 
 def _run_loading(ctx: JobContext) -> JobResult:
-    """ペーストの command 駆動ローディングを実行する（カメラ・PCB 不要）."""
-    klipper, stage, applicator = _dispenser_rig(ctx.machine)
+    """全軸 homing と任意位置への移動後、command 駆動ローディングを実行する."""
+    klipper = create_command_klipper(ctx.machine)
+    stage = XYZStage(klipper.readonly)
+
+    target = {
+        axis: float(value)
+        for param, axis in _LOADING_POSITION_PARAMS
+        if (value := ctx.params.get(param)) is not None
+    }
+
+    ctx.progress("ホーミング")
+    ctx.log("全軸ホーミングを実行します")
+    klipper.send_gcode(gcode.homing(x=True, y=True, z=True) + gcode.wait_for_done())
+
+    if target:
+        position_label = ", ".join(
+            f"{axis.upper()}={value:.3f} mm" for axis, value in target.items()
+        )
+        ctx.progress("ローディング位置へ移動")
+        ctx.log(f"ローディング位置へ移動します: {position_label}")
+        klipper.send_gcode(
+            stage.move(
+                x=target.get("x"),
+                y=target.get("y"),
+                z=target.get("z"),
+            )
+            + gcode.wait_for_done()
+        )
+
+    dispenser = PasteDispenser(
+        klipper=klipper.readonly,
+        rotations_per_ul=ctx.machine.paste_dispenser.rotations_per_ul,
+        air_pump_enabled=ctx.machine.paste_dispenser.air_pump_enabled,
+    )
+    applicator = PasteApplicator.from_config(
+        klipper, dispenser, stage, ctx.machine.paste_dispenser
+    )
     with applicator:
         total = _run_loading_loop(ctx, klipper, stage, applicator)
     return JobResult(

@@ -5,7 +5,8 @@
 - register は名前重複で ValueError、get は未知ジョブで KeyError
 - list は hidden を含む全件（tab で絞り込み可）
 - validate_params は default 充填済み dict を返す。未知キー・型不一致・
-  必須欠落・choice 範囲外は ValueError。型変換は config_store._coerce と同様
+  必須欠落・choice 範囲外は ValueError。optional は省略時にキーを含めない。
+  型変換は config_store._coerce と同様
   （bool は value_type="bool" のみ受理、int→float 許容、float→int は整数値のみ）
 - default_catalog() は dev 3 ジョブ（2 ジョブ + job_demo）を登録済みで返す
   （generate_grid_pcb は他タブへ移設済み）
@@ -96,6 +97,12 @@ _PARAMS = (
     ),
     ParamSpec(name="flag", label="フラグ", value_type="bool", default=False),
     ParamSpec(name="title", label="表題", value_type="str"),  # default=None → 必須
+    ParamSpec(
+        name="position_x",
+        label="X",
+        value_type="float",
+        optional=True,
+    ),
 )
 
 
@@ -122,6 +129,14 @@ class TestValidateParams:
             "flag": False,
             "title": "x",
         }
+
+    def test_optional_value_is_coerced_when_supplied(
+        self, catalog: JobCatalog, definition: JobDefinition
+    ):
+        values = catalog.validate_params(definition, {"title": "x", "position_x": 12})
+
+        assert values["position_x"] == 12.0
+        assert isinstance(values["position_x"], float)
 
     def test_int_is_coerced_to_float_for_float_param(
         self, catalog: JobCatalog, definition: JobDefinition
