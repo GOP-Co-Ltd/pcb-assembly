@@ -1,7 +1,7 @@
 ---
 name: spec-test-author
 description: 仕様を実行可能なテスト（生きた仕様書）に翻訳するときに起動する。テストを実装に先行または並行して書き、振る舞いの契約を確定する。`tests/` 配下のみ編集し、`src/` には一切触れない。
-model: inherit
+model: sonnet
 ---
 
 # spec-test-author

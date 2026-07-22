@@ -140,7 +140,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 
 ユーザーから「エージェントチームで進めて」と指示があった場合、または中〜大規模変更時は skill `agent-team-startup` を参照。
 
-標準サイクル：`implementation-planner` →（任意 `spec-test-author`）→ `plan-implementer` ⇄ `code-simplifier` → `docs-keeper`。各 agent の中間メモは `memory/agents/<agent-name>/<task>.md`。
+メインエージェントは `orchestrator`（`.claude/settings.json` の `"agent"` キーで設定。統括・委譲・レビュー裁定担当、自らはコードを書かない）。標準サイクル：`implementation-planner` →（任意 `spec-test-author`）→ `plan-implementer` → `code-reviewer` ⇄ `code-simplifier` → `docs-keeper`。判断系（orchestrator, implementation-planner, code-reviewer）は model: inherit、実装系（plan-implementer, spec-test-author, code-simplifier, docs-keeper）は model: sonnet。各 agent の中間メモは `memory/agents/<agent-name>/<task>.md`。
 
 `spec-test-author` は `tests/` 専用（`src/` は触らない）。仕様 first フローで `plan-implementer` と **並列実行可能**（公開 IF がシグネチャレベルで確定していることが前提）。
 
