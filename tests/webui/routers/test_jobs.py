@@ -35,6 +35,7 @@ from starlette.testclient import WebSocketTestSession
 
 from pcbasm.vision import CalibrationResult
 from tests.webui.jobs.conftest import register_gated, register_synthetic
+from webui.config_store import ConfigStore
 from webui.jobs.catalog import ParamSpec
 from webui.jobs.context import Artifact, JobContext, JobResult, PromptSpec
 from webui.jobs.manager import JobManager
@@ -855,23 +856,28 @@ class TestCameraCalibrationApplyFlow:
     計画書 webui-phase4.md §4「tests/webui/routers/test_jobs.py（追記）」が契約:
     checkerboard FakeCamera で WS 完走後、Apply で tmp configs の machine.toml
     の calibration_file 更新 + JSON ファイル生成を実ファイルで確認する。
+
+    計画書 webui-camera-calib.md「設計判断 a」追記: crop は job param から
+    削除され machine.toml `[camera.crop]` 由来になったため、開始前に
+    ConfigStore で crop を checkerboard.png（400x400）へ合わせる。
     """
 
     def test_ws_full_run_then_apply_writes_calibration_files(
-        self, checkerboard_camera_client: TestClient, configs_root: Path
+        self,
+        checkerboard_camera_client: TestClient,
+        store: ConfigStore,
+        configs_root: Path,
     ):
+        # checkerboard.png（400x400・1 マス約 66.7px）に合わせて crop を書く
+        # （既定 600 は画像をはみ出す）
+        store.write_machine_settings(
+            "kurousagi", {"camera.crop.width": 400, "camera.crop.height": 400}
+        )
         client = checkerboard_camera_client
         with client.websocket_connect("/api/ws") as ws:
             response = client.post(
                 "/api/jobs/camera_calibration",
-                # checkerboard.png（400x400・1 マス約 66.7px）に合わせた指定
-                json={
-                    "params": {
-                        "square_size": 10.0,
-                        "crop_width": 400,
-                        "crop_height": 400,
-                    }
-                },
+                json={"params": {"square_size": 10.0}},
             )
             assert response.status_code == 201
 

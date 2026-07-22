@@ -9,10 +9,18 @@
 Phase 2 追記（計画書 webui-phase2.md「既存ルーターへの変更」節 + spec §8）:
 
 - PUT /api/settings/machine で camera.* キーを書いたら FrameHub を再構築する
+
+計画書 memory/agents/implementation-planner/webui-camera-calib.md「設計判断 b」
+「公開インターフェース案 3」が追記契約:
+
+- camera.crop.* は再構築条件から除外する（レンダラがフレーム毎に読むため
+  デバイス再構築不要。crop 変更でストリームを切断しない）
+- camera.crop.* は 1 以上の int（要確認事項 2 採用。0 / 負値 → 400）
 """
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from webui.config_store import MACHINE_FIELDS
@@ -212,7 +220,12 @@ class TestPadAlignMaxFailuresApi:
 
 
 class TestCameraSettingsRebuild:
-    """camera.* キーの保存による FrameHub 再構築（Phase 2）."""
+    """camera.* キーの保存による FrameHub 再構築（Phase 2 + webui-camera-calib 計画書「設計判断
+    b」）.
+
+    camera.crop.* はレンダラがフレーム毎に読むため再構築対象から除外される （camera.fps 等の他 camera.*
+    キーは従来どおり再構築する）。
+    """
 
     def test_put_camera_key_rebuilds_frame_hub(
         self, fake_camera_client: TestClient, fake_camera_appstate: AppState
@@ -239,3 +252,45 @@ class TestCameraSettingsRebuild:
 
         assert response.status_code == 200
         assert fake_camera_appstate.frame_hub() is hub
+
+    def test_put_camera_crop_key_keeps_frame_hub(
+        self, fake_camera_client: TestClient, fake_camera_appstate: AppState
+    ):
+        """Crop は camera.* 前置だが再構築しない（ストリーム非切断の要件）."""
+        hub = fake_camera_appstate.frame_hub()
+
+        response = fake_camera_client.put(
+            "/api/settings/machine",
+            json={"values": {"camera.crop.width": 300, "camera.crop.height": 300}},
+        )
+
+        assert response.status_code == 200, response.text
+        assert fake_camera_appstate.frame_hub() is hub
+
+    def test_put_camera_crop_and_other_camera_key_rebuilds_frame_hub(
+        self, fake_camera_client: TestClient, fake_camera_appstate: AppState
+    ):
+        """Camera.crop.* と他の camera.* キーが混在した PUT では再構築する（camera.crop.* 以外の
+        camera.* が 1 つでも含まれていれば rebuild する境界のピン）."""
+        hub = fake_camera_appstate.frame_hub()
+
+        response = fake_camera_client.put(
+            "/api/settings/machine",
+            json={"values": {"camera.fps": 20.0, "camera.crop.width": 300}},
+        )
+
+        assert response.status_code == 200, response.text
+        assert fake_camera_appstate.frame_hub() is not hub
+
+
+class TestCameraCropValidation:
+    """Camera.crop.* の 1 以上検証（webui-camera-calib 計画書・要確認事項 2）."""
+
+    @pytest.mark.parametrize("key", ["camera.crop.width", "camera.crop.height"])
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_put_non_positive_crop_returns_400(
+        self, client: TestClient, key: str, value: int
+    ):
+        response = client.put("/api/settings/machine", json={"values": {key: value}})
+
+        assert response.status_code == 400
