@@ -63,11 +63,11 @@ from pcbasm.pcb import (
     build_pad_hierarchy,
 )
 from pcbasm.posctrl import (
-    ComponentAlignments,
     OffsetObserver,
     PadAlignmentSession,
+    RegionAlignments,
     XYPositionAdjustor,
-    sorted_top_component_pads,
+    sorted_top_pad_regions,
 )
 from pcbasm.session import PasteSession
 from pcbasm.vision import CircleDetector, Image
@@ -75,7 +75,7 @@ from pcbasm.visualization import (
     render_height_plane,
     render_planned_points,
 )
-from webui.jobs.board_ops import align_component_groups, setup_board
+from webui.jobs.board_ops import align_pad_regions, setup_board
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import (
     ApplyPayload,
@@ -818,33 +818,29 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 f"{initial_purge.amount_ul:.3f} uL"
             )
 
-        # 銅箔照合（部品単位）。有効 pad を 1 つ以上持つ部品のみ照合する。
+        # 銅箔照合（関心領域(ROI)単位）。有効 pad ∪ 初回パージ pad から領域を実体化する。
         # 初回パージ pad が disabled pad の場合も、位置補正できるよう照合対象に含める。
         # 失敗が許容数（pad_align.max_failures）を超えたら即中止。
-        align_designators = {p.designator for p in enabled_pads}
-        if initial_purge is not None:
-            align_designators.add(initial_purge.pad.designator)
-        groups = [
-            g
-            for g in sorted_top_component_pads(result)
-            if g.component.designator in align_designators
-        ]
-        ctx.log(f"照合対象の部品数: {len(groups)}")
+        align_pads = list(enabled_pads)
+        if initial_purge is not None and initial_purge.pad not in align_pads:
+            align_pads.append(initial_purge.pad)
+        regions = sorted_top_pad_regions(result, align_pads)
+        ctx.log(f"照合対象の領域数: {len(regions)}")
         align_session = PadAlignmentSession.from_calibration(
             result, frame_sink=ctx.frame
         )
-        aligned = align_component_groups(
+        aligned = align_pad_regions(
             ctx,
             align_session,
-            groups,
+            regions,
             max_failures=session.machine.paste_dispenser.pad_align.max_failures,
         )
-        alignments = ComponentAlignments(
+        alignments = RegionAlignments(
             board_transform=result.board_transform, results=tuple(aligned)
         )
-        aligned_pads = sum(len(group.pads) for group, _ in aligned)
+        aligned_pads = sum(len(region.pads) for region, _ in aligned)
         ctx.log(
-            f"位置合わせ成功: {len(aligned)}/{len(groups)} 部品（{aligned_pads} pads）"
+            f"位置合わせ成功: {len(aligned)}/{len(regions)} 領域（{aligned_pads} pads）"
         )
 
         # 高さ計測
@@ -859,7 +855,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         pairs: list[tuple[Polygon, ResolvedPaste | None]] = []
         for pad in routed_pads:
             r = resolved.get(hierarchy.pad_ref_for_pad(pad))
-            correction = alignments.board_correction(pad.designator)
+            correction = alignments.board_correction(pad)
             if correction is None:
                 ctx.log(
                     f"警告: {pad.designator}.{pad.pad_number} は"
@@ -915,7 +911,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
     return JobResult(
         summary=(
-            f"照合成功 {len(aligned)}/{len(groups)} 部品 / "
+            f"照合成功 {len(aligned)}/{len(regions)} 領域（{aligned_pads} pads） / "
             f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ・"
             f"初回パージ {initial_purge.amount_ul if initial_purge else 0.0:.3f} uL・"
@@ -927,12 +923,12 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 def _initial_purge_point(
     ctx: JobContext,
     initial_purge: ResolvedInitialPurge | None,
-    alignments: ComponentAlignments,
+    alignments: RegionAlignments,
 ) -> Point2d | None:
-    """初回パージ pad 中心へ部品補正を適用した board 座標を返す."""
+    """初回パージ pad 中心へ領域補正を適用した board 座標を返す."""
     if initial_purge is None:
         return None
-    correction = alignments.board_correction(initial_purge.pad.designator)
+    correction = alignments.board_correction(initial_purge.pad)
     if correction is None:
         ctx.log(f"警告: {initial_purge.pad_id} は未照合のため無補正で初回パージします")
         return initial_purge.pad.center

@@ -1,9 +1,9 @@
 """Board/オフセットの位置合わせ共通制御."""
 
 from .alignment import (
-    ComponentAlignments,
     PadAlignmentSession,
-    sorted_top_component_pads,
+    RegionAlignments,
+    sorted_top_pad_regions,
 )
 from .board import BoardTransformMeasurer
 from .copper import (
@@ -18,11 +18,11 @@ from .correction import to_machine_transform
 from .offset import OffsetTransformMeasurer
 from .orthogonality import OrthogonalityMetrics
 from .pad import (
-    ComponentPads,
     CopperPadObserver,
     PadAligner,
     PadAlignmentResult,
-    group_pads_by_component,
+    PadRegion,
+    plan_pad_regions,
 )
 from .position import XYPositionAdjustor
 from .render import PadResultRenderer, render_edge_match, render_label
@@ -41,8 +41,6 @@ from .tour import (
 
 __all__ = [
     "BoardCalibrationResult",
-    "ComponentAlignments",
-    "ComponentPads",
     "BoardTransformMeasurer",
     "CopperEdgeMatcher",
     "CopperPadObserver",
@@ -55,18 +53,20 @@ __all__ = [
     "PadAligner",
     "PadAlignmentResult",
     "PadAlignmentSession",
+    "PadRegion",
     "PadResultRenderer",
     "PixelRect",
+    "RegionAlignments",
     "RigidEdgeMatch",
     "XYPositionAdjustor",
     "display_at_point",
-    "group_pads_by_component",
     "interactive_display_at_point",
     "machine_session",
+    "plan_pad_regions",
     "render_edge_match",
     "render_label",
     "setup_board_calibration",
-    "sorted_top_component_pads",
+    "sorted_top_pad_regions",
     "to_machine_transform",
     "wait_for_keypress",
     "window_sink",

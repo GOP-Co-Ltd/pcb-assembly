@@ -114,14 +114,11 @@ class TestMachine:
     def test_pad_align_section_overrides_defaults(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path = tmp_path / "machine.toml"
-        path.write_text(
-            source + "\n[paste_dispenser.pad_align]\ntolerance = 0.08\nmin_roi = 5.0\n"
-        )
+        path.write_text(source + "\n[paste_dispenser.pad_align]\ntolerance = 0.08\n")
 
         pad_align = Machine(path).paste_dispenser.pad_align
 
         assert pad_align.tolerance == pytest.approx(0.08)
-        assert pad_align.min_roi == pytest.approx(5.0)
         assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
 
     def test_air_pump_enabled_defaults_true_when_absent(self):

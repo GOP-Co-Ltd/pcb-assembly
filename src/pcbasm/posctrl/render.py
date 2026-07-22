@@ -28,6 +28,8 @@ _ROI_COLOR = (255, 255, 255)  # ROI枠の表示色 (BGR: 白)
 _FILL_COLOR = (0, 0, 255)  # 対象pad薄塗りの色 (BGR)
 _FILL_ALPHA = 0.35
 _LABEL_COLOR = (0, 255, 0)  # ラベル文字色 (BGR: 緑)
+_DEFAULT_MIN_ROI_MM = 1.0  # roi_polygons省略時に画像中心に取るROIの一辺 [mm]
+# 旧configsのpad_align.min_roi既定運用値(kurousagi/test-fixtureとも1.0)を保存
 
 
 def render_label(image: Image, crop_size: tuple[int, int], label: str) -> Image:
@@ -83,9 +85,9 @@ class PadResultRenderer:
             projector: 設計銅箔の投影器
             edge_detector: 銅箔エッジ検出器
             roi_polygons: ROI を決める実銅箔ポリゴン（board 座標、mm）。
-                空の場合は画像中心に min_roi サイズの ROI を取る
+                空の場合は画像中心に ``_DEFAULT_MIN_ROI_MM`` サイズの ROI を取る
             paste_polygons: 薄塗りするペースト開口ポリゴン（board 座標、mm）
-            pad_align: ROI マージン・最小辺長の設定
+            pad_align: ROI マージンの設定
             position: 表示位置（機械座標、mm）。投影と ROI をこの位置で固定する
         """
         self._edge_detector = edge_detector
@@ -95,11 +97,10 @@ class PadResultRenderer:
                 list(roi_polygons),
                 position,
                 margin_mm=pad_align.roi_margin,
-                min_size_mm=pad_align.min_roi,
             )
         else:
             x0, y0, x1, y1 = _centered_roi(
-                projector, position, projection.edge_mask.shape, pad_align.min_roi
+                projector, position, projection.edge_mask.shape, _DEFAULT_MIN_ROI_MM
             )
         self._roi = np.zeros(projection.edge_mask.shape, dtype=bool)
         self._roi[y0:y1, x0:x1] = True
