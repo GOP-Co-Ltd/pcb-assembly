@@ -382,23 +382,36 @@ class TestPadAlignMaxFailuresOverRealHttp:
         assert "max_failures = 2" in machine_toml
 
 
-class TestCameraCalibrationCropOverRealHttp:
-    """カメラキャリブレーションページの crop 即保存フォーム（webui-camera-calib 計画書「テスト観点」e2e 項）.
+class TestCameraCalibrationPageOverRealHttp:
+    """カメラキャリブレーションページの実 HTTP 配信（webui-camera-calib 計画書 「テスト観点」e2e 項 +
+    ユーザー追加指示: crop 編集 UI は settings ページへ統一）.
 
-    - ページが 200 で crop 入力・専用 JS を含む
-    - crop PUT 中も同一 MJPEG ストリームが生存する（再接続なしで反映の通し確認）
-    - PUT → GET → 隔離 tmp の machine.toml へ反映される
+    ページは square_size フォーム（専用 JS）のみを持ち、crop 入力は settings
+    ページへ一本化されたため置かない。
     """
 
-    def test_page_is_served_with_crop_form_and_script(self, live_server: LiveServer):
+    def test_page_is_served_without_crop_input(self, live_server: LiveServer):
         response = httpx.get(
             f"{live_server.base_url}/posctrl/camera_calibration",
             timeout=_HTTP_TIMEOUT,
         )
 
         assert response.status_code == 200
-        assert 'data-machine-key="camera.crop.width"' in response.text
         assert "js/camera_calibration.js" in response.text
+        assert 'data-machine-key="camera.crop.width"' not in response.text
+
+
+class TestCameraCropSettingsOverRealHttp:
+    """Camera.crop.* の実 HTTP 経路（webui-camera-calib 計画書「テスト観点」e2e 項）.
+
+    クロップ編集 UI は settings ページの汎用フォームへ統一されたが、
+    API 契約（rebuild しない・crosshair オーバーレイのフレーム毎反映）は不変。
+    どの経路から PUT されても crop 変更が MJPEG ストリームを切断せず
+    次フレームへ反映されることが本質のため、通し確認は API 直叩きで行う。
+
+    - crop PUT 中も同一 MJPEG ストリームが生存する（再接続なしで反映の通し確認）
+    - PUT → GET → 隔離 tmp の machine.toml へ反映される
+    """
 
     def test_crop_put_keeps_mjpeg_stream_open_and_reflects_in_toml(
         self, live_server: LiveServer

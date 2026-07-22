@@ -128,9 +128,6 @@ _PASTE_AUTO_THRESHOLD_KEYS = (
     "paste_dispenser.auto_area_short_side_factor",
 )
 
-# カメラキャリブレーションページに即保存フォームで載せるクロップ設定（machine 全体設定）
-_CAMERA_CROP_KEYS = ("camera.crop.width", "camera.crop.height")
-
 # loading コマンド UI を表示する pasting feature → 既定量の ParamSpec 名
 _PASTING_LOADING_PARAM = {
     "paste_solder": "amount",
@@ -317,17 +314,6 @@ def _paste_solder_context(state: AppState, store: ConfigStore) -> dict[str, Any]
     }
 
 
-def _camera_calibration_context(state: AppState, store: ConfigStore) -> dict[str, Any]:
-    """Camera_calibration ページ専用コンテキスト（クロップ設定の現在値）."""
-    return {
-        "crop_fields": [
-            field
-            for field in machine_settings_fields(store, state.selected_machine)
-            if field.key in _CAMERA_CROP_KEYS
-        ]
-    }
-
-
 def _copper_detection_context(state: AppState, store: ConfigStore) -> dict[str, Any]:
     """Copper_detection ページ専用コンテキスト（エッジ検出パラメータ現在値）."""
     pad_align = state.machine().paste_dispenser.pad_align
@@ -354,7 +340,6 @@ _JOB_FEATURE_CONTEXT: dict[
 # feature slug → ページ専用コンテキスト（ジョブ有無に依らない）
 _FEATURE_CONTEXT: dict[str, Callable[[AppState, ConfigStore], dict[str, Any]]] = {
     "paste_solder": _paste_solder_context,
-    "camera_calibration": _camera_calibration_context,
     "copper_detection": _copper_detection_context,
     "nozzle_cap": _nozzle_cap_context,
 }
