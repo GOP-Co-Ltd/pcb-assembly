@@ -1,7 +1,7 @@
 ---
 name: plan-implementer
 description: 既に確定した実装計画をもとに、コード・テスト・型チェック・lintをグリーン化するときに起動する。「計画に基づいて実装して」「設計書通りに作って」といった要望に応じる。
-model: inherit
+model: sonnet
 ---
 
 # plan-implementer
@@ -19,6 +19,7 @@ model: inherit
 1. 計画書を読む
     - マルチエージェント時：`memory/agents/implementation-planner/<task>.md`
     - **spec-test-author が engagement 済みなら `memory/agents/spec-test-author/<task>.md` も必ず読む**
+    - **code-reviewer からの差し戻し時：`memory/agents/code-reviewer/<task>.md` の must-fix を読む**
     - 単独起動時：ユーザー提供の計画
 2. 既存コードを Read / Grep で把握する
 3. 実装する
@@ -37,6 +38,7 @@ model: inherit
 - spec-test-author 引継ぎ時：テストが「実装側のバグ」を指摘しているなら本番コードを修正する。テストが間違っていそうなら **編集せず** spec-test-author に差し戻し、仕様根拠を再確認する
 - 並列実装時に他 implementer に影響する IF 変更が発生したら、`memory/agents/plan-implementer/<task>-<instance>.md` に「IF変更通知」を明記する
 - spec-test-author と並列実行時：IF を勝手に変えない。計画書のシグネチャ案を逸脱する必要があれば、spec-test-author に通知してから進める
+- code-reviewer 差し戻しへの対応では must-fix のみ修正し、範囲を広げない（should-fix は code-simplifier の担当）
 
 ## 完了の定義
 

@@ -7,9 +7,11 @@
 
 ```
 agents/
+├── orchestrator/            # 委譲判断・レビュー裁定・計画外決定のログ
 ├── implementation-planner/  # 計画書
 ├── spec-test-author/        # テスト一覧、仕様根拠対応、実装側修正要求
 ├── plan-implementer/        # 実装ノート、計画外判断ログ、IF変更通知
+├── code-reviewer/           # レビュー結果（verdict、must-fix / should-fix / nit）
 ├── code-simplifier/         # 簡素化ノート
 └── docs-keeper/             # ドキュメント整備ノート
 ```
@@ -31,9 +33,13 @@ spec-test-author/<task>.md         ← spec-test-author がテスト一覧と仕
         ↓
 plan-implementer/<task>.md         ← implementer が実装ノートを残す
         ↓
+code-reviewer/<task>.md            ← reviewer が verdict と指摘を残す（must-fix は implementer に差し戻し）
+        ↓
 code-simplifier/<task>.md          ← simplifier が簡素化ノートを残す
         ↓
 docs-keeper/<task>.md              ← docs-keeper がドキュメント整備ノートを残す
+
+orchestrator/<task>.md             ← 全体を通した委譲判断・レビュー裁定のログ（orchestrator が随時更新）
 ```
 
 `spec-test-author` は任意ステップ。仕様が明確で TDD 的に進めたいときに挟む。
