@@ -15,13 +15,16 @@ PadAlignmentSession は BoardCalibrationResult から照合の配線
 （CopperProjector / CopperEdgeMatcher / CopperEdgeDetector / PadAligner）を
 集約する。align() は照合失敗（RuntimeError）を漏らさず None を返し、
 corrected_projector(M) は Compose([board_transform, M]) ベースの投影を返す。
-__init__ 時に machine.camera.crop.size ÷ calibration.pixel_per_mm 由来の
-領域サイズが視野に収まるかを検証し、収まらなければ ValueError（設定エラー）。
+__init__ 時に machine.paste_dispenser.pad_align.region_size（mm、正方形）
+由来の領域サイズが視野に収まるかを検証し、収まらなければ ValueError（設定
+エラー）。crop÷pixel_per_mm 由来の導出はもう使わない（region-pad-align 計画
+書「設計変更・MR !138 提出後」節、memory/agents/orchestrator/region-pad-align.md）。
 
 sorted_top_pad_regions は TOP 層 pad（pads 省略時は result.pcb.pads）から
-plan_pad_regions で領域サイズ = crop.size ÷ pixel_per_mm を導出して分割し、
-領域中心を board_transform で機械座標化してから現在stage位置基準の巡回順
-（nearest neighbor + 2-opt）で返す（旧実装の board/machine 座標混在バグの修正）。
+plan_pad_regions で領域サイズ = machine.paste_dispenser.pad_align.region_size
+を導出して分割し、領域中心を board_transform で機械座標化してから現在stage
+位置基準の巡回順（nearest neighbor + 2-opt）で返す（旧実装の board/machine
+座標混在バグの修正）。
 
 カメラは tests/helpers.py の FakeCamera（自前 HAL Camera の test Impl）、
 klipper / stage は自前 HAL のため mocker.Mock（test_position.py のイディオム）、
@@ -306,14 +309,14 @@ class TestPadAlignmentSession:
     def test_init_raises_value_error_when_region_size_does_not_fit_field_of_view(
         self, klipper, stage, pcb
     ):
-        """Crop÷ppm由来の領域サイズが視野に収まらないと構築時に ValueError.
+        """Pad_align.region_size由来の領域サイズが視野に収まらないと構築時に ValueError.
 
         領域サイズ×ρ + 2×(roi_margin+search_window) ≤ FOV の収容制約
-        （計画書「設計（確定）」節）。test-fixture の crop 600px ÷ ppm 10 = 60mm
-        の領域サイズに対し、解像度を意図的に小さくして視野 40mm 四方まで 縮小し、制約を破る（60 + 2*(0.5+1.4) =
-        63.8mm > 40mm）。
+        （計画書「設計（確定）」節、region_size 分離後も維持）。test-fixture の region_size
+        10mm に対し、解像度を意図的に小さくして視野 10mm 四方まで 縮小し、制約を破る（10 + 2*(0.5+1.4) =
+        13.8mm > 10mm）。メッセージは 調整対象として region_size（設定キー名）を挙げる。
         """
-        tiny_calibration = _calibration(resolution=(400, 400))
+        tiny_calibration = _calibration(resolution=(100, 100))
         result = BoardCalibrationResult(
             machine=_machine_config(),
             klipper=klipper,
@@ -325,7 +328,7 @@ class TestPadAlignmentSession:
             pcb=pcb,
         )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="region_size"):
             PadAlignmentSession.from_calibration(result)
 
     def test_align_returns_result_with_translation_matching_known_shift(
@@ -474,20 +477,21 @@ class TestSortedTopPadRegions:
 
         assert [d for r in regions for d in r.designators] == ["T1"]
 
-    def test_region_size_is_derived_from_crop_size_and_pixel_per_mm(
+    def test_region_size_is_derived_from_pad_align_region_size_config(
         self, mocker: MockerFixture
     ):
-        """領域サイズ = camera.crop.size(600px) ÷ calibration.pixel_per_mm(10) =
-        60mm.
+        """領域サイズ = machine.paste_dispenser.pad_align.region_size(test-
+        fixture実値10mm).
 
-        Board x=1mmとx=55mmのpadは同一領域（60mm未満）に併合され、x=65mmのpad
-        は別領域（60mm超）に分かれることで、crop÷ppm由来の領域サイズ結線を 確認する。
+        Board x=1mmとx=5mmのpadは同一領域（10mm未満）に併合され、x=15mmのpad
+        は別領域（10mm以上）に分かれることで、region_size由来の領域サイズ
+        結線を確認する（crop÷pixel_per_mmはもう使わない）。
         """
         pcb = mocker.Mock()
         pcb.pads = [
             _pad("A", 1.0, 0.0),
-            _pad("B", 55.0, 0.0),
-            _pad("C", 65.0, 0.0),
+            _pad("B", 5.0, 0.0),
+            _pad("C", 15.0, 0.0),
         ]
         stage = mocker.Mock()
         stage.get_position.return_value = Point3d(0.0, 0.0, 5.0)

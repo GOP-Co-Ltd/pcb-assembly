@@ -23,15 +23,13 @@ logger = logging.getLogger(__name__)
 
 
 def _region_size(result: BoardCalibrationResult) -> tuple[float, float]:
-    """crop÷pixel_per_mmから領域サイズ [mm] を導出する.
+    """pad_align.region_size [mm] から正方形の領域サイズを返す.
 
-    crop（``machine.camera.crop``）はレンズ歪みの起こらない信頼範囲を
-    捉えた設定であり、位置合わせのROIもその範囲に収めるのが本質という
-    運用意図（計画書「設計（確定）」節）による。
+    領域サイズは ``machine.camera.crop``（円検出等の光学設定）とは独立に、
+    ``machine.paste_dispenser.pad_align.region_size`` で指定する。
     """
-    crop_width, crop_height = result.machine.camera.crop.size
-    pixel_per_mm = result.calibration.pixel_per_mm
-    return (crop_width / pixel_per_mm, crop_height / pixel_per_mm)
+    size = result.machine.paste_dispenser.pad_align.region_size
+    return (size, size)
 
 
 def sorted_top_pad_regions(
@@ -39,7 +37,8 @@ def sorted_top_pad_regions(
 ) -> list[PadRegion]:
     """TOP層のpadを関心領域(ROI)単位にまとめ、現在位置からの巡回順で返す.
 
-    領域サイズはcrop÷pixel_per_mmから導出する（``_region_size``）。
+    領域サイズは ``pad_align.region_size``（正方形）から導出する
+    （``_region_size``）。
 
     Args:
         result: ボードキャリブレーション結果
@@ -135,7 +134,7 @@ def _validate_region_fits_frame(
     roi_margin: float,
     search_window: float,
 ) -> None:
-    """crop由来の領域サイズが、board_transformの回転を考慮しても視野に 収まることを検証する.
+    """pad_align.region_size由来の領域サイズが、board_transformの回転を考慮しても視野に 収まることを検証する.
 
     領域サイズ(w, h)をθ回転した外接矩形の幅・高さ
     ``w×|cosθ| + h×|sinθ|`` / ``w×|sinθ| + h×|cosθ|``
@@ -161,7 +160,7 @@ def _validate_region_fits_frame(
             f"（board回転 {math.degrees(theta):+.2f} deg 考慮で "
             f"{required_width:.2f}x{required_height:.2f} mm 必要）が視野 "
             f"{fov_width:.2f}x{fov_height:.2f} mm に収まりません。"
-            "camera.crop を縮小するか、pad_align の"
+            "pad_align.region_size を縮小するか、"
             "roi_margin/search_window を調整してください"
         )
 
@@ -184,7 +183,7 @@ class PadAlignmentSession:
             frame_sink: 照合状況フレームを送る sink。Noneの場合は表示しない
 
         Raises:
-            ValueError: crop由来の領域サイズが視野に収まらない場合
+            ValueError: pad_align.region_size由来の領域サイズが視野に収まらない場合
         """
         pad_align = result.machine.paste_dispenser.pad_align
         self._polygons = [c.polygon for c in result.pcb.copper if c.layer == Layer.TOP]

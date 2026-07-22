@@ -39,6 +39,7 @@ y = 23.3367
 
 [paste_dispenser.pad_align]
 # pad単位の銅箔照合による位置合わせ
+region_size = 10.0   # 銅箔照合の関心領域の一辺 [mm]
 tolerance = 0.025    # 収束許容誤差 [mm]
 max_correction = 0.3         # 1回の照合で許容する最大ずれ [mm]。超過は誤マッチとして照合失敗
 search_window = 1.4 # 照合の探索窓 片側幅 [mm]

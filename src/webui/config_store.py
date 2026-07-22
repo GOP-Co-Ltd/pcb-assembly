@@ -87,6 +87,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.toolhead.x", "ツールヘッド相対位置 X", "float", "mm"),
     FieldSpec("paste_dispenser.toolhead.y", "ツールヘッド相対位置 Y", "float", "mm"),
     # [paste_dispenser.pad_align]
+    FieldSpec("paste_dispenser.pad_align.region_size", "関心領域サイズ", "float", "mm"),
     FieldSpec("paste_dispenser.pad_align.tolerance", "収束許容誤差", "float", "mm"),
     FieldSpec("paste_dispenser.pad_align.max_correction", "最大補正量", "float", "mm"),
     FieldSpec(
@@ -167,6 +168,11 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     raise UnknownFieldError(f"{spec.key}: 正の値が必要です")
                 if (
                     spec.key == "paste_dispenser.solder_paste_density"
+                    and coerced_float <= 0.0
+                ):
+                    raise UnknownFieldError(f"{spec.key}: 正の値が必要です")
+                if (
+                    spec.key == "paste_dispenser.pad_align.region_size"
                     and coerced_float <= 0.0
                 ):
                     raise UnknownFieldError(f"{spec.key}: 正の値が必要です")

@@ -411,3 +411,32 @@ class TestPadAlignMaxFailures:
             store.write_machine_settings(
                 FIXTURE, {"paste_dispenser.pad_align.max_failures": -1}
             )
+
+
+class TestPadAlignRegionSize:
+    """Float型フィールド pad_align.region_size の読み書き（region-pad-align 計画書 「設計変更・MR
+    !138 提出後」節）.
+
+    Repo fixture には region_size = 10.0 が明示されている（crop÷pixel_per_mm
+    導出はもう使わない）。正の値のみ許容し、0 以下は UnknownFieldError。
+    """
+
+    def test_read_returns_configured_value(self, store: ConfigStore):
+        values = store.read_machine_settings(FIXTURE)
+
+        assert values["paste_dispenser.pad_align.region_size"] == 10.0
+
+    def test_write_then_reread_reflects_value(self, store: ConfigStore):
+        store.write_machine_settings(
+            FIXTURE, {"paste_dispenser.pad_align.region_size": 12.5}
+        )
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.pad_align.region_size"] == 12.5
+
+    @pytest.mark.parametrize("region_size", [0.0, -1.0])
+    def test_non_positive_value_raises(self, store: ConfigStore, region_size: float):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                FIXTURE, {"paste_dispenser.pad_align.region_size": region_size}
+            )

@@ -422,6 +422,6 @@ class PadAligner:
             raise ValueError(
                 f"領域 {target.label} のROI {roi} が視野 {width}x{height}px に"
                 f"search_window={window}px の余白込みで収まりません。"
-                "camera.crop を縮小するか、pad_align の"
+                "pad_align.region_size を縮小するか、"
                 "roi_margin/search_window を調整してください"
             )
