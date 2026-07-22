@@ -250,10 +250,18 @@ class PreviewService:
         fps = min(camera_fps, self._max_fps) if camera_fps > 0 else self._max_fps
         return 1.0 / fps
 
+    def _crop_size(self) -> tuple[int, int]:
+        """machine.toml の [camera.crop] を都度読む（crop 変更の即時反映用）."""
+        return self._state.machine().camera.crop.size
+
     def _build_renderer(
         self, overlay: OverlayKind, canny_low: float | None, canny_high: float | None
     ) -> _Renderer:
-        """ストリーム開始時に machine 設定を 1 回読んでレンダラを構築する."""
+        """ストリーム開始時に machine 設定を 1 回読んでレンダラを構築する.
+
+        crosshair のみ例外: crop はストリームを切断せず変更できるため、
+        フレーム毎に :meth:`_crop_size` で machine.toml を読み直す。
+        """
         if overlay == "none":
             return lambda image: image
 
@@ -263,7 +271,7 @@ class PreviewService:
 
         match overlay:
             case "crosshair":
-                return lambda image: draw_overlay(image, crop_size)
+                return lambda image: draw_overlay(image, self._crop_size())
             case "circle":
                 return _CircleRenderer(
                     self._build_circle_detector(machine), crop_size, detect_interval

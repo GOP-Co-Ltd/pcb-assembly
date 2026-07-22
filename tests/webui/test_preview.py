@@ -10,6 +10,13 @@
 - submit_override はジョブ提供フレームを override_ttl 秒だけ優先配信する。
   persist=True の場合は clear_override まで優先する
 - カメラ構築失敗は伝播する（ルーター層が 503 化）
+
+計画書 memory/agents/implementation-planner/webui-camera-calib.md「設計判断 b」
+「公開インターフェース案 2」が追加契約:
+
+- crosshair の crop 枠はストリーム開始時の 1 回読みではなく、フレーム毎に
+  machine.toml `[camera.crop]` を読む。ストリーム継続中の crop 変更が
+  再接続なしで次フレームの枠位置へ反映される（circle / copper は対象外）
 """
 
 import attrs
@@ -44,6 +51,14 @@ def _count_dominant(frame: ImageArray, channel: int, margin: int = 60) -> int:
     planes = [frame[..., i].astype(int) for i in range(3)]
     target = planes.pop(channel)
     return int(((target - planes[0] > margin) & (target - planes[1] > margin)).sum())
+
+
+def _green_dominant_count_near_column(
+    frame: ImageArray, x: int, tolerance: int = 3, margin: int = 60
+) -> int:
+    """X 近傍（±tolerance 列）の緑ドミナント画素数（JPEG ノイズ許容）."""
+    band = frame[:, max(0, x - tolerance) : x + tolerance + 1]
+    return _count_dominant(band, channel=1, margin=margin)
 
 
 class TestMjpegStream:
@@ -134,6 +149,29 @@ class TestOverlays:
             stream.close()
 
         assert _count_dominant(frame, channel=1) > 100
+
+    def test_crosshair_crop_change_reflects_in_next_frame_without_reconnect(
+        self, service: PreviewService, store: ConfigStore
+    ):
+        """ストリーム継続中の crop 変更が、再接続なしで次フレームの ROI 枠へ反映される.
+
+        計画書「設計判断 b」: crosshair のレンダラはフレーム毎に machine.toml `[camera.crop]`
+        を読む。フレーム 1280x720・crop 600 の 既定枠左辺は x=340、crop 200 に変えると x=540
+        付近へ移る （テスト観点「crosshair ストリーム継続中の crop 変更が次フレームの ROI 枠へ反映」）。
+        """
+        stream = service.mjpeg_stream("crosshair")
+        try:
+            before = _decoded_frame(next(stream))
+            assert _green_dominant_count_near_column(before, x=340) > 50
+
+            store.write_machine_settings(
+                "kurousagi", {"camera.crop.width": 200, "camera.crop.height": 200}
+            )
+
+            after = _decoded_frame(next(stream))
+            assert _green_dominant_count_near_column(after, x=540) > 50
+        finally:
+            stream.close()
 
     def test_copper_overlay_marks_edges_green(self, service: PreviewService):
         # canny 既定値は machine.toml の pad_align（81 / 192）。固定画像の

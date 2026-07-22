@@ -382,6 +382,84 @@ class TestPadAlignMaxFailuresOverRealHttp:
         assert "max_failures = 2" in machine_toml
 
 
+class TestCameraCalibrationPageOverRealHttp:
+    """カメラキャリブレーションページの実 HTTP 配信（webui-camera-calib 計画書 「テスト観点」e2e 項 +
+    ユーザー追加指示: crop 編集 UI は settings ページへ統一）.
+
+    ページは square_size フォーム（専用 JS）のみを持ち、crop 入力は settings
+    ページへ一本化されたため置かない。
+    """
+
+    def test_page_is_served_without_crop_input(self, live_server: LiveServer):
+        response = httpx.get(
+            f"{live_server.base_url}/posctrl/camera_calibration",
+            timeout=_HTTP_TIMEOUT,
+        )
+
+        assert response.status_code == 200
+        assert "js/camera_calibration.js" in response.text
+        assert 'data-machine-key="camera.crop.width"' not in response.text
+
+
+class TestCameraCropSettingsOverRealHttp:
+    """Camera.crop.* の実 HTTP 経路（webui-camera-calib 計画書「テスト観点」e2e 項）.
+
+    クロップ編集 UI は settings ページの汎用フォームへ統一されたが、
+    API 契約（rebuild しない・crosshair オーバーレイのフレーム毎反映）は不変。
+    どの経路から PUT されても crop 変更が MJPEG ストリームを切断せず
+    次フレームへ反映されることが本質のため、通し確認は API 直叩きで行う。
+
+    - crop PUT 中も同一 MJPEG ストリームが生存する（再接続なしで反映の通し確認）
+    - PUT → GET → 隔離 tmp の machine.toml へ反映される
+    """
+
+    def test_crop_put_keeps_mjpeg_stream_open_and_reflects_in_toml(
+        self, live_server: LiveServer
+    ):
+        with httpx.Client(
+            base_url=live_server.base_url, timeout=_HTTP_TIMEOUT
+        ) as client:
+            with client.stream(
+                "GET", "/api/preview/stream?overlay=crosshair"
+            ) as response:
+                assert response.status_code == 200
+                chunks = response.iter_bytes()
+                data = next(chunks)
+                while data.count(b"--frame") < 1:
+                    data += next(chunks)
+
+                put = httpx.put(
+                    f"{live_server.base_url}/api/settings/machine",
+                    json={
+                        "values": {
+                            "camera.crop.width": 300,
+                            "camera.crop.height": 300,
+                        }
+                    },
+                    timeout=_HTTP_TIMEOUT,
+                )
+                assert put.status_code == 200, put.text
+
+                # 同一レスポンスから追加フレームが取得できる = crop PUT で切断されない
+                more = next(chunks)
+                while more.count(b"--frame") < 1:
+                    more += next(chunks)
+
+        after = httpx.get(
+            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
+        ).json()
+        fields = {field["key"]: field for field in after["fields"]}
+        assert fields["camera.crop.width"]["value"] == 300
+        assert fields["camera.crop.height"]["value"] == 300
+
+        # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
+        machine_toml = (
+            live_server.settings.configs_root / "kurousagi" / "machine.toml"
+        ).read_text()
+        assert "width = 300" in machine_toml
+        assert "height = 300" in machine_toml
+
+
 class TestNozzleCapOverRealHttp:
     """ノズルキャップ位置設定の実 HTTP 経路（nozzle-cap-parking 計画書「API 契約」節）."""
 
