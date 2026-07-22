@@ -1,14 +1,17 @@
-"""部品単位の銅箔照合による自動位置合わせ."""
+"""関心領域(ROI)単位の銅箔照合による自動位置合わせ."""
 
 import logging
+import math
 from collections.abc import Sequence
 
 import attrs
+import shapely
+from shapely import Polygon
 
 from pcbasm import gcode
 from pcbasm.geometry import Point2d, Rotation, Transform
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
-from pcbasm.pcb import Component, Pad
+from pcbasm.pcb import Pad
 from pcbasm.posctrl.copper import (
     CopperEdgeMatcher,
     CopperProjection,
@@ -24,41 +27,127 @@ from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 
 @attrs.frozen
-class ComponentPads:
-    """部品とそのpaste pad群.
-
-    部品の座標で計測した補正Transformを、部品に属する全padで共有する
-    ための単位。
+class PadRegion:
+    """Board原点固定グリッドで分割した pad の関心領域(ROI)単位.
 
     Attributes:
-        component: 部品
-        pads: 部品に属するpad
+        key: グリッドインデックス (col, row)。board原点(0,0)固定
+        bounds: セル矩形 (minx, miny, maxx, maxy) [mm]
+        pads: 割り当てられたpad（常に1つ以上）
     """
 
-    component: Component
+    key: tuple[int, int]
+    bounds: tuple[float, float, float, float]
     pads: tuple[Pad, ...]
 
+    @property
+    def center(self) -> Point2d:
+        """セル矩形中心（board座標、mm）。照合アンカー."""
+        minx, miny, maxx, maxy = self.bounds
+        return Point2d(x=(minx + maxx) / 2, y=(miny + maxy) / 2)
 
-def group_pads_by_component(
-    components: Sequence[Component], pads: Sequence[Pad]
-) -> list[ComponentPads]:
-    """padをdesignatorで部品に対応付けてグループ化する.
+    @property
+    def box(self) -> Polygon:
+        """セル矩形のshapely Polygon（roi_of・renderer用）."""
+        return shapely.box(*self.bounds)
+
+    @property
+    def label(self) -> str:
+        """グリッドインデックスに基づくラベル（例 "C3R5"）."""
+        col, row = self.key
+        return f"C{col}R{row}"
+
+    @property
+    def designators(self) -> tuple[str, ...]:
+        """領域内padの重複除去・ソート済みdesignator（表示用）."""
+        return tuple(sorted({pad.designator for pad in self.pads}))
+
+
+def _cell_bounds(
+    key: tuple[int, int], width: float, height: float
+) -> tuple[float, float, float, float]:
+    """グリッドインデックスからセル矩形bounds (minx, miny, maxx, maxy) を返す."""
+    col, row = key
+    return (col * width, row * height, (col + 1) * width, (row + 1) * height)
+
+
+def _cell_box(key: tuple[int, int], width: float, height: float) -> Polygon:
+    """グリッドインデックスからセル矩形のshapely Polygonを返す."""
+    return shapely.box(*_cell_bounds(key, width, height))
+
+
+def _assign_cell(pad: Pad, width: float, height: float) -> tuple[int, int]:
+    """padを割り当てるグリッドセルのインデックスを決める.
+
+    pad.centerのfloor除算で決まる中心セルへ割り当てる。ただし実銅箔
+    (copper_polygon)の輪郭が中心セルと交差しない巨大pad（サーマルパッド等、
+    セルが銅箔内部に完全に沈むケース）は、輪郭とセル矩形の交差長が最大の セルへ再割当てする（エッジ皆無セルでの照合失敗を回避）。
+    """
+    center = pad.center
+    primary = (math.floor(center.x / width), math.floor(center.y / height))
+    exterior = pad.copper_polygon.exterior
+    if exterior.intersects(_cell_box(primary, width, height)):
+        return primary
+    return _reassign_by_exterior_overlap(exterior, primary, width, height)
+
+
+def _reassign_by_exterior_overlap(
+    exterior: shapely.LinearRing,
+    primary: tuple[int, int],
+    width: float,
+    height: float,
+) -> tuple[int, int]:
+    """輪郭とセル矩形の交差長が最大となるセルへ再割当てする.
+
+    候補は輪郭のbboxが重なるセル全体。タイブレークは(col, row)昇順
+    （列優先の昇順走査で最初に見つかった最大値を保持することで実現する）。
+    """
+    minx, miny, maxx, maxy = exterior.bounds
+    col_lo, col_hi = math.floor(minx / width), math.floor(maxx / width)
+    row_lo, row_hi = math.floor(miny / height), math.floor(maxy / height)
+
+    best_key = primary
+    best_length = -1.0
+    for col in range(col_lo, col_hi + 1):
+        for row in range(row_lo, row_hi + 1):
+            key = (col, row)
+            length = exterior.intersection(_cell_box(key, width, height)).length
+            if length > best_length:
+                best_length = length
+                best_key = key
+    return best_key
+
+
+def plan_pad_regions(
+    pads: Sequence[Pad], region_size: tuple[float, float]
+) -> list[PadRegion]:
+    """padをboard原点固定グリッドの関心領域(ROI)単位に分割する.
+
+    セル = region_size (w, h) [mm] のグリッド（board原点(0,0)固定）へ、
+    pad.centerのfloor除算で割り当てる。実銅箔の輪郭が中心セルと交差しない
+    巨大pad（サーマルパッド等）は境界セルへ再割当てされる
+    （``_assign_cell`` 参照）。
 
     Args:
-        components: 対象部品列
         pads: 対象pad列
+        region_size: セルサイズ (width, height) [mm]
 
     Returns:
-        padを1つ以上持つ部品のComponentPads（components順）
+        padを1つ以上持つ領域を(col, row)昇順で返す。空入力は[]
     """
-    by_designator: dict[str, list[Pad]] = {}
+    width, height = region_size
+    assignments: dict[tuple[int, int], list[Pad]] = {}
     for pad in pads:
-        by_designator.setdefault(pad.designator, []).append(pad)
+        key = _assign_cell(pad, width, height)
+        assignments.setdefault(key, []).append(pad)
 
     return [
-        ComponentPads(component=c, pads=tuple(by_designator[c.designator]))
-        for c in components
-        if c.designator in by_designator
+        PadRegion(
+            key=key,
+            bounds=_cell_bounds(key, width, height),
+            pads=tuple(assignments[key]),
+        )
+        for key in sorted(assignments)
     ]
 
 
@@ -144,7 +233,7 @@ class PadAlignmentResult:
     Attributes:
         machine_transform: 設計machine点→観測machine点の変換（fill path合成用）
         match: 最終照合結果（表示用）
-        anchor: 投影アンカー s0 = board_transform.apply(pad.center)（機械座標、mm）
+        anchor: 投影アンカー s0 = board_transform.apply(region.center)（機械座標、mm）
         adjusted_position: 収束後のXY位置（機械座標、mm）
         roi: 照合に使ったROI矩形（全画面px）
     """
@@ -170,10 +259,10 @@ class PadAlignmentResult:
 
 
 class PadAligner:
-    """部品単位で銅箔照合による自動位置合わせを行うクラス.
+    """関心領域(ROI)単位で銅箔照合による自動位置合わせを行うクラス.
 
-    部品の座標へ移動し、指令位置に固定したアンカーで想定銅箔を投影、
-    部品の全padを覆うROI限定の剛体照合とXYPositionAdjustorで収束させ、
+    領域の座標へ移動し、指令位置に固定したアンカーで想定銅箔を投影、
+    領域矩形を覆うROI限定の剛体照合とXYPositionAdjustorで収束させ、
     machine空間の補正Transformを構築する。
     """
 
@@ -188,8 +277,9 @@ class PadAligner:
         edge_detector: CopperEdgeDetector,
         board_transform: Transform,
         offset_transform: Transform,
+        image_size: tuple[int, int],
+        search_window_px: int,
         roi_margin_mm: float = 1.0,
-        min_roi_mm: float = 3.0,
         tolerance: float = 0.05,
         max_correction_mm: float | None = 1.0,
         max_iterations: int = 10,
@@ -207,8 +297,10 @@ class PadAligner:
             edge_detector: 銅箔エッジ検出器
             board_transform: board座標→機械座標の変換
             offset_transform: 観測オフセット系から機械座標系への変換
-            roi_margin_mm: pad投影bboxへ加えるROIマージン（mm）
-            min_roi_mm: ROIの最小辺長（mm）
+            image_size: 撮像フレームサイズ (width, height) [px]
+            search_window_px: 照合の探索窓 片側幅 [px]。ROIがこの分の
+                余白をフレーム内に確保できるかの検証に使う
+            roi_margin_mm: 領域矩形へ加えるROIマージン（mm）
             tolerance: 収束の許容誤差（mm）
             max_correction_mm: 1回の照合で許容する最大ずれ（mm）。
                 超過は誤マッチとみなして照合失敗にする。Noneは無制限
@@ -225,8 +317,9 @@ class PadAligner:
         self._edge_detector = edge_detector
         self._board_transform = board_transform
         self._offset_transform = offset_transform
+        self._image_size = image_size
+        self._search_window_px = search_window_px
         self._roi_margin_mm = roi_margin_mm
-        self._min_roi_mm = min_roi_mm
         self._tolerance = tolerance
         self._max_correction_mm = max_correction_mm
         self._max_iterations = max_iterations
@@ -235,33 +328,33 @@ class PadAligner:
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
-    def align(self, target: ComponentPads) -> PadAlignmentResult:
-        """部品の座標へ移動し、銅箔照合で収束するまで位置補正する.
+    def align(self, target: PadRegion) -> PadAlignmentResult:
+        """領域の座標へ移動し、銅箔照合で収束するまで位置補正する.
 
-        ROIは部品に属する全padの実銅箔ポリゴンの投影bboxを覆うため、部品に
-        含まれる銅箔の輪郭で照合される。投影アンカーは部品の指令位置
-        s0 に固定し、収束ループ中は再投影しない（毎反復同位置で
-        再投影すると補正が収束しない）。
+        ROIは領域矩形（target.box）の投影bboxを覆う。投影アンカーは領域
+        矩形中心 s0 = board_transform.apply(target.center) に固定し、
+        収束ループ中は再投影しない（毎反復同位置で再投影すると補正が
+        収束しない）。
 
         Args:
-            target: 対象部品とそのpad群
+            target: 対象領域
 
         Returns:
             位置合わせ結果
 
         Raises:
             RuntimeError: 照合に失敗、または収束しなかった場合
+            ValueError: ROIがフレーム（search_window inset）に収まらない場合
         """
-        component = target.component
-        anchor = self._board_transform.apply(component.position)
+        anchor = self._board_transform.apply(target.center)
         self._logger.info(
-            "部品 %s の位置合わせを開始: anchor (%.4f, %.4f) mm",
-            component.designator,
+            "領域 %s の位置合わせを開始: anchor (%.4f, %.4f) mm",
+            target.label,
             anchor.x,
             anchor.y,
         )
 
-        # 部品の座標へ移動
+        # 領域の座標へ移動
         self._klipper.send_gcode(
             self._stage.move(x=anchor.x, y=anchor.y, speed=Speed.rate(0.5))
             + gcode.wait(self._settle_time)
@@ -271,11 +364,9 @@ class PadAligner:
         # 投影とROIをアンカー s0 で固定する（ループ中は再投影しない）
         projection = self._projector.project(anchor)
         roi = self._projector.roi_of(
-            [p.copper_polygon for p in target.pads],
-            anchor,
-            margin_mm=self._roi_margin_mm,
-            min_size_mm=self._min_roi_mm,
+            [target.box], anchor, margin_mm=self._roi_margin_mm
         )
+        self._validate_roi_fits_frame(roi, target)
 
         observer = CopperPadObserver(
             camera=self._camera,
@@ -314,3 +405,23 @@ class PadAligner:
             adjusted_position=adjusted_position,
             roi=roi,
         )
+
+    def _validate_roi_fits_frame(self, roi: PixelRect, target: PadRegion) -> None:
+        """ROIがフレームをsearch_window分の余白込みで収まっているか検証する.
+
+        収まらない場合、従来はroi_of内部でフレーム端に静かにクランプされ
+        精度劣化が可視化されなかった。これを排除するためValueErrorにする。
+
+        Raises:
+            ValueError: ROIがフレーム（search_window inset）に収まらない場合
+        """
+        width, height = self._image_size
+        window = self._search_window_px
+        x0, y0, x1, y1 = roi
+        if x0 < window or y0 < window or x1 > width - window or y1 > height - window:
+            raise ValueError(
+                f"領域 {target.label} のROI {roi} が視野 {width}x{height}px に"
+                f"search_window={window}px の余白込みで収まりません。"
+                "pad_align.region_size を縮小するか、"
+                "roi_margin/search_window を調整してください"
+            )

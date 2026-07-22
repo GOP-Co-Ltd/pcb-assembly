@@ -1,18 +1,20 @@
-"""部品単位pad位置合わせの配線と補正結果のlookup."""
+"""関心領域(ROI)単位pad位置合わせの配線と補正結果のlookup."""
 
 import logging
+import math
+from collections.abc import Sequence
 from typing import Self
 
 import attrs
 
-from pcbasm.geometry import Compose, Transform, sort_by_nearest
-from pcbasm.pcb import Layer
+from pcbasm.geometry import Compose, Point2d, Transform, sort_by_nearest
+from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjector
 from pcbasm.posctrl.pad import (
-    ComponentPads,
     PadAligner,
     PadAlignmentResult,
-    group_pads_by_component,
+    PadRegion,
+    plan_pad_regions,
 )
 from pcbasm.posctrl.setup import BoardCalibrationResult
 from pcbasm.vision import CopperEdgeDetector, FrameSink
@@ -20,77 +22,86 @@ from pcbasm.vision import CopperEdgeDetector, FrameSink
 logger = logging.getLogger(__name__)
 
 
-def sorted_top_component_pads(
-    result: BoardCalibrationResult,
-) -> list[ComponentPads]:
-    """TOP層のpadを部品ごとにまとめ、現在位置からの巡回順で返す.
+def _region_size(result: BoardCalibrationResult) -> tuple[float, float]:
+    """pad_align.region_size [mm] から正方形の領域サイズを返す.
+
+    領域サイズは ``machine.camera.crop``（円検出等の光学設定）とは独立に、
+    ``machine.paste_dispenser.pad_align.region_size`` で指定する。
+    """
+    size = result.machine.paste_dispenser.pad_align.region_size
+    return (size, size)
+
+
+def sorted_top_pad_regions(
+    result: BoardCalibrationResult, pads: Sequence[Pad] | None = None
+) -> list[PadRegion]:
+    """TOP層のpadを関心領域(ROI)単位にまとめ、現在位置からの巡回順で返す.
+
+    領域サイズは ``pad_align.region_size``（正方形）から導出する
+    （``_region_size``）。
 
     Args:
         result: ボードキャリブレーション結果
+        pads: 対象pad列。省略時は ``result.pcb.pads`` 全体
 
     Returns:
-        padを1つ以上持つTOP層部品のComponentPads
-        （現在のstage位置を起点にしたnearest neighbor巡回順）
+        padを1つ以上持つTOP層領域（領域中心をboard_transformで機械座標化
+        してから、現在のstage位置を起点にしたnearest neighbor + 2-opt
+        巡回順で返す）
     """
-    components = [c for c in result.pcb.components if c.layer == Layer.TOP]
-    pads = [p for p in result.pcb.pads if p.layer == Layer.TOP]
-    groups = group_pads_by_component(components, pads)
+    source = pads if pads is not None else result.pcb.pads
+    top_pads = [p for p in source if p.layer == Layer.TOP]
+    regions = plan_pad_regions(top_pads, _region_size(result))
+
+    board_transform = result.board_transform
     start = result.stage.get_position().to2d().to3d()
-    return sort_by_nearest(groups, start, key=lambda g: g.component.position.to3d())
+    return sort_by_nearest(
+        regions,
+        start,
+        key=lambda region: board_transform.apply(region.center).to3d(),
+    )
 
 
 @attrs.frozen
-class ComponentAlignments:
-    """部品ごとのpad位置合わせ結果のlookup.
+class RegionAlignments:
+    """領域ごとのpad位置合わせ結果のlookup.
 
     Attributes:
         board_transform: board座標→機械座標の変換
-        results: (部品pad群, 位置合わせ結果) の列
+        results: (領域, 位置合わせ結果) の列
     """
 
     board_transform: Transform
-    results: tuple[tuple[ComponentPads, PadAlignmentResult], ...]
+    results: tuple[tuple[PadRegion, PadAlignmentResult], ...]
 
-    def result_of(self, designator: str) -> PadAlignmentResult | None:
-        """designatorに対応する位置合わせ結果を返す.
+    def result_for(self, pad: Pad) -> PadAlignmentResult | None:
+        """padが属する領域の位置合わせ結果を返す.
+
+        Padのattrs同値比較で所属領域を線形探索する
+        （``(designator, pad_number)`` はKiCAD上一意でないため使わない）。
 
         Args:
-            designator: 部品リファレンス
+            pad: 対象pad
 
         Returns:
-            位置合わせ結果。未登録の部品はNone
+            位置合わせ結果。未登録の場合はNone
         """
-        for group, alignment in self.results:
-            if group.component.designator == designator:
+        for region, alignment in self.results:
+            if pad in region.pads:
                 return alignment
         return None
 
-    def corrected_board_transform(self, designator: str) -> Transform | None:
-        """補正済みのboard座標→機械座標の変換を返す.
-
-        Args:
-            designator: 部品リファレンス
-
-        Returns:
-            ``Compose([board_transform, machine_transform])``。
-            未登録の部品はNone
-        """
-        result = self.result_of(designator)
-        if result is None:
-            return None
-        return Compose([self.board_transform, result.machine_transform])
-
-    def board_correction(self, designator: str) -> Transform | None:
+    def board_correction(self, pad: Pad) -> Transform | None:
         """Board座標空間での補正変換 C = T_b⁻¹∘M∘T_b を返す.
 
         Args:
-            designator: 部品リファレンス
+            pad: 対象pad
 
         Returns:
             board座標の点を補正済みのboard座標へ写すTransform。
-            未登録の部品はNone
+            未登録の場合はNone
         """
-        result = self.result_of(designator)
+        result = self.result_for(pad)
         if result is None:
             return None
         return Compose(
@@ -102,11 +113,64 @@ class ComponentAlignments:
         )
 
 
+def _rotation_radians(transform: Transform) -> float:
+    """変換の実回転角（ラジアン）をx単位ベクトルの像から導出する.
+
+    board_transformはほぼ剛体（回転+並進+一様スケール）という前提のもと、
+    並進成分を打ち消したx軸単位ベクトルの写像先から回転角を近似する。
+    """
+    origin = transform.apply(Point2d(0.0, 0.0))
+    unit_x = transform.apply(Point2d(1.0, 0.0))
+    direction = unit_x - origin
+    return math.atan2(direction.y, direction.x)
+
+
+def _validate_region_fits_frame(
+    *,
+    region_size: tuple[float, float],
+    board_transform: Transform,
+    image_size: tuple[int, int],
+    pixel_per_mm: float,
+    roi_margin: float,
+    search_window: float,
+) -> None:
+    """pad_align.region_size由来の領域サイズが、board_transformの回転を考慮しても視野に 収まることを検証する.
+
+    領域サイズ(w, h)をθ回転した外接矩形の幅・高さ
+    ``w×|cosθ| + h×|sinθ|`` / ``w×|sinθ| + h×|cosθ|``
+    （θ=board_transformの実回転）に、それぞれ ``2×(roi_margin+search_window)``
+    を加えたものがFOVに収まることを検証する（計画書「設計（確定）」節）。
+
+    Raises:
+        ValueError: 収まらない場合
+    """
+    theta = _rotation_radians(board_transform)
+    cos_theta = abs(math.cos(theta))
+    sin_theta = abs(math.sin(theta))
+    inset = 2.0 * (roi_margin + search_window)
+    fov_width = image_size[0] / pixel_per_mm
+    fov_height = image_size[1] / pixel_per_mm
+    width, height = region_size
+    required_width = width * cos_theta + height * sin_theta + inset
+    required_height = width * sin_theta + height * cos_theta + inset
+
+    if required_width > fov_width or required_height > fov_height:
+        raise ValueError(
+            f"pad_align領域サイズ {region_size[0]:.2f}x{region_size[1]:.2f} mm"
+            f"（board回転 {math.degrees(theta):+.2f} deg 考慮で "
+            f"{required_width:.2f}x{required_height:.2f} mm 必要）が視野 "
+            f"{fov_width:.2f}x{fov_height:.2f} mm に収まりません。"
+            "pad_align.region_size を縮小するか、"
+            "roi_margin/search_window を調整してください"
+        )
+
+
 class PadAlignmentSession:
     """TOP層銅箔照合によるpad位置合わせの配線をまとめたセッション.
 
     BoardCalibrationResultからCopperProjector / CopperEdgeMatcher /
-    CopperEdgeDetector / PadAlignerを構築し、部品単位の位置合わせと 補正済み投影器の生成を提供する。
+    CopperEdgeDetector / PadAlignerを構築し、関心領域(ROI)単位の位置合わせと
+    補正済み投影器の生成を提供する。
     """
 
     def __init__(
@@ -117,6 +181,9 @@ class PadAlignmentSession:
         Args:
             result: ボードキャリブレーション結果
             frame_sink: 照合状況フレームを送る sink。Noneの場合は表示しない
+
+        Raises:
+            ValueError: pad_align.region_size由来の領域サイズが視野に収まらない場合
         """
         pad_align = result.machine.paste_dispenser.pad_align
         self._polygons = [c.polygon for c in result.pcb.copper if c.layer == Layer.TOP]
@@ -142,6 +209,15 @@ class PadAlignmentSession:
             canny_high=pad_align.canny_high,
             blur_ksize=pad_align.blur_ksize,
         )
+
+        _validate_region_fits_frame(
+            region_size=_region_size(result),
+            board_transform=self._board_transform,
+            image_size=self._image_size,
+            pixel_per_mm=self._pixel_per_mm,
+            roi_margin=pad_align.roi_margin,
+            search_window=pad_align.search_window,
+        )
         self._aligner = PadAligner(
             camera=result.camera,
             klipper=result.klipper,
@@ -151,8 +227,9 @@ class PadAlignmentSession:
             edge_detector=self._edge_detector,
             board_transform=self._board_transform,
             offset_transform=self._offset_transform,
+            image_size=self._image_size,
+            search_window_px=round(pad_align.search_window * self._pixel_per_mm),
             roi_margin_mm=pad_align.roi_margin,
-            min_roi_mm=pad_align.min_roi,
             tolerance=pad_align.tolerance,
             max_correction_mm=pad_align.max_correction,
             frame_sink=frame_sink,
@@ -173,19 +250,22 @@ class PadAlignmentSession:
         """
         return cls(result, frame_sink=frame_sink)
 
-    def align(self, target: ComponentPads) -> PadAlignmentResult | None:
-        """部品単位の位置合わせを実行し、失敗時はNoneを返す.
+    def align(self, target: PadRegion) -> PadAlignmentResult | None:
+        """領域単位の位置合わせを実行し、失敗時はNoneを返す.
 
         Args:
-            target: 対象部品とそのpad群
+            target: 対象領域
 
         Returns:
             位置合わせ結果。照合失敗・非収束の場合はNone
+
+        Raises:
+            ValueError: ROIがフレームに収まらない等の設定エラーの場合
         """
         try:
             return self._aligner.align(target)
         except RuntimeError as exc:
-            logger.warning("部品 %s の照合に失敗: %s", target.component.designator, exc)
+            logger.warning("領域 %s の照合に失敗: %s", target.label, exc)
             return None
 
     def corrected_projector(self, machine_transform: Transform) -> CopperProjector:

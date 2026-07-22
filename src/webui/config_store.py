@@ -87,20 +87,20 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.toolhead.x", "ツールヘッド相対位置 X", "float", "mm"),
     FieldSpec("paste_dispenser.toolhead.y", "ツールヘッド相対位置 Y", "float", "mm"),
     # [paste_dispenser.pad_align]
+    FieldSpec("paste_dispenser.pad_align.region_size", "関心領域サイズ", "float", "mm"),
     FieldSpec("paste_dispenser.pad_align.tolerance", "収束許容誤差", "float", "mm"),
     FieldSpec("paste_dispenser.pad_align.max_correction", "最大補正量", "float", "mm"),
     FieldSpec(
         "paste_dispenser.pad_align.search_window", "探索窓 片側幅", "float", "mm"
     ),
     FieldSpec("paste_dispenser.pad_align.roi_margin", "ROIマージン", "float", "mm"),
-    FieldSpec("paste_dispenser.pad_align.min_roi", "ROI最小辺長", "float", "mm"),
     FieldSpec(
         "paste_dispenser.pad_align.theta_range", "回転探索 片側範囲", "float", "deg"
     ),
     FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),
-    FieldSpec("paste_dispenser.pad_align.max_failures", "照合失敗の許容部品数", "int"),
+    FieldSpec("paste_dispenser.pad_align.max_failures", "照合失敗の許容領域数", "int"),
     # [probe]
     FieldSpec("probe.lift_height", "プローブ後の上昇高さ", "float", "mm"),
     FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
@@ -168,6 +168,11 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     raise UnknownFieldError(f"{spec.key}: 正の値が必要です")
                 if (
                     spec.key == "paste_dispenser.solder_paste_density"
+                    and coerced_float <= 0.0
+                ):
+                    raise UnknownFieldError(f"{spec.key}: 正の値が必要です")
+                if (
+                    spec.key == "paste_dispenser.pad_align.region_size"
                     and coerced_float <= 0.0
                 ):
                     raise UnknownFieldError(f"{spec.key}: 正の値が必要です")

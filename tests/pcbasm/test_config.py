@@ -115,13 +115,14 @@ class TestMachine:
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
-            source + "\n[paste_dispenser.pad_align]\ntolerance = 0.08\nmin_roi = 5.0\n"
+            source
+            + "\n[paste_dispenser.pad_align]\ntolerance = 0.08\nregion_size = 12.5\n"
         )
 
         pad_align = Machine(path).paste_dispenser.pad_align
 
         assert pad_align.tolerance == pytest.approx(0.08)
-        assert pad_align.min_roi == pytest.approx(5.0)
+        assert pad_align.region_size == pytest.approx(12.5)
         assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
 
     def test_air_pump_enabled_defaults_true_when_absent(self):
@@ -254,6 +255,22 @@ class TestPadAlignMaxFailures:
     def test_rejects_negative_value(self):
         with pytest.raises(ValueError, match="max_failures"):
             PadAlign(max_failures=-1)
+
+
+class TestPadAlignRegionSize:
+    """PadAlign.region_size のテスト（region-pad-align 計画書「設計変更・MR !138 提出後」節）.
+
+    位置合わせ関心領域の一辺の長さ [mm]（正方形）。デフォルト 10.0。 camera.crop ÷ pixel_per_mm
+    由来の導出はもう使わない。
+    """
+
+    def test_defaults_to_ten_mm(self):
+        assert PadAlign().region_size == pytest.approx(10.0)
+
+    @pytest.mark.parametrize("region_size", [0.0, -1.0])
+    def test_rejects_non_positive_value(self, region_size):
+        with pytest.raises(ValueError, match="region_size"):
+            PadAlign(region_size=region_size)
 
 
 class TestMachineType:

@@ -9,6 +9,7 @@ from typing import Any
 
 import attrs
 import cv2
+from shapely import Polygon
 
 from pcbasm import gcode
 from pcbasm.config import Machine
@@ -17,14 +18,14 @@ from pcbasm.hal import Camera, Klipper, Speed, XYZStage
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
     BoardCalibrationResult,
-    ComponentPads,
     CopperProjector,
     OrthogonalityMetrics,
     PadAlignmentResult,
     PadAlignmentSession,
+    PadRegion,
     PadResultRenderer,
     render_label,
-    sorted_top_component_pads,
+    sorted_top_pad_regions,
 )
 from pcbasm.vision import (
     CalibrationResult,
@@ -34,7 +35,7 @@ from pcbasm.vision import (
     draw_detected_circle,
     draw_overlay,
 )
-from webui.jobs.board_ops import align_component_groups, setup_board
+from webui.jobs.board_ops import align_pad_regions, setup_board
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import (
     ApplyFile,
@@ -52,6 +53,8 @@ Z_QUERY_TIMEOUT = 5.0
 RESULT_DISPLAY_SEC = 1.0
 # reference_point_setup の現在位置キャッシュ TTL [sec]
 POSITION_CACHE_SEC = 0.5
+# board_tour の失敗 overlay に表示する designator の先頭件数
+_LABEL_DESIGNATOR_LIMIT = 3
 
 _TEXT_COLOR = (0, 255, 255)  # 現在位置テキストの色 (BGR: 黄)
 
@@ -359,17 +362,27 @@ def _pad_renderer(
     session: PadAlignmentSession,
     projector: CopperProjector,
     pads: Sequence[Pad],
+    roi_polygons: Sequence[Polygon],
     position: Point2d,
 ) -> PadResultRenderer:
     """Pad 群の照合結果 overlay 合成器を構築する."""
     return PadResultRenderer(
         projector=projector,
         edge_detector=session.edge_detector,
-        roi_polygons=[p.copper_polygon for p in pads],
+        roi_polygons=roi_polygons,
         paste_polygons=[p.polygon for p in pads],
         pad_align=result.machine.paste_dispenser.pad_align,
         position=position,
     )
+
+
+def _truncated_designators(region: PadRegion) -> str:
+    """board_tour overlay 用に領域の designator を先頭数件へ短縮する."""
+    designators = region.designators
+    shown = ", ".join(designators[:_LABEL_DESIGNATOR_LIMIT])
+    if len(designators) > _LABEL_DESIGNATOR_LIMIT:
+        shown += ", ..."
+    return shown
 
 
 def _stream_labeled_frames(
@@ -418,28 +431,28 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             _move_to(result, machine_pt)
             _stream_labeled_frames(ctx, result, f"Corner: {name}")
 
-        # 銅箔照合（部品単位の自動位置合わせ）。失敗時は FAILED overlay を配信する
-        groups = sorted_top_component_pads(result)
-        ctx.log(f"padを持つ部品数: {len(groups)}")
+        # 銅箔照合（関心領域(ROI)単位の自動位置合わせ）。失敗時は FAILED overlay を配信する
+        regions = sorted_top_pad_regions(result)
+        ctx.log(f"padを持つ領域数: {len(regions)}")
         session = PadAlignmentSession.from_calibration(result, frame_sink=ctx.frame)
 
-        def render_failed(group: ComponentPads, index: int) -> None:
+        def render_failed(region: PadRegion, index: int) -> None:
             renderer = _pad_renderer(
                 result,
                 session,
                 session.projector,
-                group.pads,
+                region.pads,
+                [region.box],
                 result.stage.get_position().to2d(),
             )
             lines = [
-                f"{group.component.designator} {index + 1}/{len(groups)}",
+                f"{region.label} [{_truncated_designators(region)}] "
+                f"{index + 1}/{len(regions)}",
                 "FAILED",
             ]
             _stream_pad_result(ctx, result, renderer, lines)
 
-        alignments = align_component_groups(
-            ctx, session, groups, on_failure=render_failed
-        )
+        alignments = align_pad_regions(ctx, session, regions, on_failure=render_failed)
 
         # 補正適用済みの全 pad 巡回
         entries = _corrected_entries(result, session, alignments)
@@ -447,17 +460,19 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             ctx.progress("補正巡回", 100.0 * index / len(entries))
             ctx.checkpoint()
             _move_to(result, target, speed=Speed.rate(0.5))
-            renderer = _pad_renderer(result, session, renderer_projector, [pad], target)
+            renderer = _pad_renderer(
+                result, session, renderer_projector, [pad], [pad.copper_polygon], target
+            )
             lines = [f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}"]
             _stream_pad_result(ctx, result, renderer, lines)
 
         # board 原点へ戻して終了
         _move_to(result, board_transform.apply(Point2d(0.0, 0.0)))
 
-    aligned_pads = sum(len(group.pads) for group, _ in alignments)
+    aligned_pads = sum(len(region.pads) for region, _ in alignments)
     return JobResult(
         summary=(
-            f"照合成功 {len(alignments)}/{len(groups)} 部品"
+            f"照合成功 {len(alignments)}/{len(regions)} 領域"
             f"（{aligned_pads} pads）/ 補正巡回 {len(entries)} pads"
         )
     )
@@ -466,16 +481,16 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
 def _corrected_entries(
     result: BoardCalibrationResult,
     session: PadAlignmentSession,
-    alignments: list[tuple[ComponentPads, PadAlignmentResult]],
+    alignments: list[tuple[PadRegion, PadAlignmentResult]],
 ) -> list[tuple[Pad, CopperProjector, Point2d]]:
     """補正適用済みの pad 巡回先を nearest neighbor 順で構築する."""
     entries: list[tuple[Pad, CopperProjector, Point2d]] = []
-    for group, alignment in alignments:
+    for region, alignment in alignments:
         corrected_transform = Compose(
             [result.board_transform, alignment.machine_transform]
         )
         corrected_projector = session.corrected_projector(alignment.machine_transform)
-        for pad in group.pads:
+        for pad in region.pads:
             entries.append(
                 (pad, corrected_projector, corrected_transform.apply(pad.center))
             )

@@ -46,18 +46,22 @@ class Klipper:
 class PadAlign:
     """pad単位の銅箔照合による位置合わせの設定."""
 
+    region_size: float = 10.0  # 銅箔照合の関心領域の一辺 [mm]
     tolerance: float = 0.05  # 収束許容誤差 [mm]
     max_correction: float = 1.0  # 1回の照合で許容する最大ずれ [mm]。超過は照合失敗
     search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
     roi_margin: float = 1.0  # pad ROIのマージン [mm]
-    min_roi: float = 3.0  # pad ROIの最小辺長 [mm]
     theta_range: float = 2.0  # 回転探索の片側範囲 [deg]
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
     canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
     blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
-    max_failures: int = 0  # 照合失敗の許容部品数。超過で塗布ジョブを即中止
+    max_failures: int = 0  # 照合失敗の許容領域数。超過で塗布ジョブを即中止
 
     def __attrs_post_init__(self) -> None:
+        if self.region_size <= 0:
+            raise ValueError(
+                f"region_sizeは正の値である必要があります: {self.region_size}"
+            )
         if isinstance(self.max_failures, bool) or self.max_failures < 0:
             raise ValueError(
                 f"max_failuresは0以上の整数である必要があります: {self.max_failures}"
