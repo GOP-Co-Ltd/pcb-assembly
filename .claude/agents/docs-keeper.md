@@ -1,7 +1,7 @@
 ---
 name: docs-keeper
 description: README やプロジェクトドキュメント、docstring の作成・更新・整備が必要なときに起動する。大きなコード変更（プロジェクト構造、セットアップ、使い方への影響）の後にも有効。
-model: inherit
+model: sonnet
 ---
 
 # docs-keeper
