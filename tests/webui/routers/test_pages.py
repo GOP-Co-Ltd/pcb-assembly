@@ -34,6 +34,14 @@ Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / s
 - loading_controls は paste_solder / loading / toolhead_offset（stage="ローディング"）と
   dispense_calibration（stage="キャリブレーションメニュー,ローディング"・プライム/① ローディング用）
 - pnp はプレースホルダのみ（サイドバー空 + 「機能を選択」）
+
+webui-camera-calib 計画書「公開インターフェース案 5」+ 要確認事項 1・2 が
+camera_calibration ページへ追記契約:
+
+- ジョブパラメータフォームは square_size のみ（初回既定値 1.5）。crop_width /
+  crop_height は job param から削除済み
+- クロップは machine.toml `[camera.crop]` 連動の即保存フォーム（data-machine-key
+  input が machine 設定の現在値で出る）。専用 JS（camera_calibration.js）を読み込む
 """
 
 from pathlib import Path
@@ -282,11 +290,39 @@ class TestPosctrlJobPages:
         # data-job-name 等でページのジョブ名が宣言される
         assert feature in response.text
 
-    def test_camera_calibration_renders_param_form_fields(self, client: TestClient):
+    def test_camera_calibration_renders_square_size_form_with_default(
+        self, client: TestClient
+    ):
+        """ジョブパラメータフォームは square_size のみ（初回既定値 1.5mm）."""
         text = client.get("/posctrl/camera_calibration").text
 
-        for name in ("square_size", "crop_width", "crop_height"):
-            assert name in text
+        assert 'name="square_size"' in text
+        assert 'value="1.5"' in text
+        # crop は job param から削除済み（machine.toml 連動の即保存フォームへ移設）
+        assert "crop_width" not in text
+        assert "crop_height" not in text
+
+    def test_camera_calibration_renders_crop_auto_save_form_with_current_values(
+        self, client: TestClient
+    ):
+        """クロップは machine.toml 現在値付きの即保存フォームで出る（専用 JS 読込込み）."""
+        text = client.get("/posctrl/camera_calibration").text
+
+        assert 'data-machine-key="camera.crop.width"' in text
+        assert 'data-machine-key="camera.crop.height"' in text
+        # test-fixture の現在値（600, 600）が入力初期値として出る
+        assert text.count('value="600"') == 2
+        assert "js/camera_calibration.js" in text
+
+    def test_camera_calibration_renders_saved_square_size_default(
+        self, client: TestClient, appstate: AppState
+    ):
+        """入力途中の即保存値（param-defaults 相当）が次回描画の default に反映される."""
+        appstate.save_job_param_defaults("camera_calibration", {"square_size": 3.0})
+
+        text = client.get("/posctrl/camera_calibration").text
+
+        assert 'value="3.0"' in text
 
     @pytest.mark.parametrize("feature", ("board_tour", "orthogonality_test"))
     def test_tour_pages_render_tolerance_field(self, client: TestClient, feature: str):

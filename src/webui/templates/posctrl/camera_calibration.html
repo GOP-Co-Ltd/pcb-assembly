@@ -1,0 +1,24 @@
+{% extends "tab.html" %}
+{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+{% include "partials/preview_pane.html" %}
+{% include "partials/preview_controls.html" %}
+<fieldset class="preview-controls" id="camera-crop-settings" data-testid="camera-crop-settings">
+  <legend>クロップ設定（machine.toml と連動・変更即保存）</legend>
+  {% for field in crop_fields %}
+  <label for="crop-{{ loop.index }}">{{ field.label }} [{{ field.unit }}]</label>
+  <input type="number" id="crop-{{ loop.index }}" step="1" min="1"
+         data-machine-key="{{ field.key }}"
+         value="{{ field.value if field.value is not none else '' }}"
+         data-testid="crop-{{ field.key }}">
+  {% endfor %}
+</fieldset>
+{% include "partials/job_form.html" %}
+{% include "partials/job_console.html" %}
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/preview.js') }}"></script>
+<script src="{{ static_asset('js/camera_calibration.js') }}"></script>
+{% endblock %}
