@@ -120,3 +120,55 @@ docstring に atomic replace により torn read が発生しない旨を追記�
 
 should-fix（混在 PUT の rebuild テスト追加）・nit（settings.js 統合、debounce 中間値上書き）
 は本対応の範囲外（must-fix のみ修正の指示のため着手せず）。
+
+## 追加指示対応: crop 編集 UI を settings ページへ統一（MR !137 提出後）
+
+ユーザー追加指示「crop 値の編集 UI を settings ページのみに置く形に統一」を受け、
+orchestrator 指示どおり camera_calibration ページの crop 即保存フォームを撤去した。
+奇しくも上記「検討したが採用しなかった案」（settings.js の汎用フォームへ寄せる案）と
+同方向の結論に、ユーザー判断で着地した形になる。
+
+### 変更内容
+
+- `src/webui/templates/posctrl/camera_calibration.html`: crop fieldset
+  （`#camera-crop-settings`、`data-machine-key` input 群）を削除。
+  テンプレート自体・`js/camera_calibration.js` の読み込みは維持（square_size
+  即保存に必要）。結果として `posctrl/job.html` と同じ main 構成（preview_pane +
+  preview_controls + job_form + job_console）に戻った。
+- `src/webui/static/js/camera_calibration.js`: `bindCropAutoSave` を削除し
+  `bindSquareSizePersist` のみ残す。未使用になった `toast` の分割代入も削除
+  （orphan 除去）。先頭コメントを「square_size の入力時復元保存 + crop は
+  settings ページへ統一済み」に更新。
+- `src/webui/routers/pages.py`: `_CAMERA_CROP_KEYS` 定数、
+  `_camera_calibration_context` 関数、`_FEATURE_CONTEXT["camera_calibration"]`
+  エントリを削除（orphan なし。`grep` で `_CAMERA_CROP_KEYS` /
+  `_camera_calibration_context` / `crop_fields` / `data-machine-key` の残存
+  無しを確認）。
+
+### 変更していないもの（維持指示どおり）
+
+- `preview.py` のフレーム毎 crop 読み（`_crop_size`）: settings ページ経由の
+  保存でも crosshair オーバーレイへ即時反映される前提として維持。
+- `settings_api.py` の `camera.crop.*` rebuild 除外。
+- `config_store.py` の 1 以上検証・atomic 書込（上セクションの reviewer 対応）。
+- `square_size` の `default=1.5` + `persisted_params` + `bindSquareSizePersist`。
+- settings ページ側: 変更不要（`data-machine-settings` 汎用フォームが
+  `MACHINE_FIELDS` 全件＝`camera.crop.width`/`camera.crop.height` 含む を
+  既に描画していることを実際に `GET /settings` して確認した）。
+
+### 検証結果
+
+- `make format` / `make type`: グリーン。
+- 手動確認（TestClient）: `GET /posctrl/camera_calibration` に
+  `camera-crop-settings` / `data-machine-key` / `square_size` フォーム欠落が
+  無いこと、`js/camera_calibration.js` 読み込みは維持、を確認。
+  `GET /settings` に `camera.crop.width` が含まれることを確認。
+- `uv run pytest tests/webui -m "not hardware"`: 631 passed, 20 deselected
+  （spec-test-author が並行して `tests/webui/routers/test_pages.py` を
+  同方向に更新済みで、突き合わせ済み。テストは自分では編集していない）。
+- `</content>` 等の混入なし（`grep -rn "</content>" src/`）。
+- `make test` / `@mark_hardware`: 実行していない。
+
+### コミット
+
+orchestrator が行う方針のため、本対応でもコミットはしていない。

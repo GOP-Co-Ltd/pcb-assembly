@@ -186,3 +186,57 @@ orchestrator 裁定（要確認事項 1・2 とも採用）
   上書き窓）は非ブロッキングのまま残置で良い
 
 ### verdict: approve
+
+## 再レビュー（3 回目）: crop 編集 UI の settings ページ統一（MR !137 後の未コミット差分）
+
+ユーザー追加指示「crop 値の編集 UI を settings ページのみに置く形に統一」への対応。
+対象は `git diff`（HEAD 以降の未コミット分）のみ:
+`src/webui/routers/pages.py` / `src/webui/static/js/camera_calibration.js` /
+`src/webui/templates/posctrl/camera_calibration.html` /
+`tests/webui/routers/test_pages.py` / `tests/e2e/test_webui_e2e.py`（+ memory ノート 3 本）。
+
+### 撤去の取り残し → なし
+
+- src/ 全体 grep で `crop_fields` / `data-machine-key` / `bindCropAutoSave` /
+  `camera-crop-settings` / `_CAMERA_CROP_KEYS` / `_camera_calibration_context`
+  すべてヒット 0。tests/ 側の残存は契約説明の docstring と否定アサーションのみ（意図どおり）
+- `machine_settings_fields` の import は settings ページ（pages.py:263）と
+  `_paste_solder_context`（:311）で引き続き使用されており orphan ではない
+- JS は未使用になった `toast` を destructure から除去済み。`api` / `debounce` /
+  `DEBOUNCE_MS` は `bindSquareSizePersist` で使用継続
+- `camera_calibration.html` は job.html との差分が `js/camera_calibration.js`
+  読込 1 行になったが、square_size 永続化 JS のために専用テンプレートは引き続き必要
+  （FEATURE_TEMPLATES / _JOB_TEMPLATES の登録も維持で正しい）
+
+### 要件「オーバーレイ即時反映」の契約ピン → 維持
+
+- 実装側は今回 diff に含まれず不変: preview.py フレーム毎 `_crop_size` 読み /
+  settings_api.py の camera.crop.\* rebuild 除外 / config_store.py の
+  atomic replace + 1 以上検証 / jobs/posctrl.py の `ctx.machine.camera.crop.size`
+- テストのピンも全て存置: `test_crosshair_crop_change_reflects_in_next_frame_without_reconnect`
+  （test_preview.py）、crop 単独 PUT で FrameHub 維持 + 混在 PUT で再構築
+  （test_settings_api.py）、e2e の crop PUT 中ストリーム生存 + tmp toml 反映
+  （本文無変更のまま `TestCameraCropSettingsOverRealHttp` へ移動したことを diff で確認）
+- 新しい UI 分担のピン: `test_settings_page_renders_camera_crop_fields`
+  （`name="camera.crop.width"` / `"camera.crop.height"` + ラベル「クロップ幅/高さ」+
+  セクション「カメラ / クロップ」。ラベルは config_store.py:134-135 の FieldSpec、
+  セクションは common.py:152 の既存 SECTION_LABELS 由来で決定的）と
+  `test_camera_calibration_has_no_crop_input` / e2e
+  `test_page_is_served_without_crop_input`（否定側）で双方向にピンされている。
+  settings ページの編集経路自体は既存の汎用機構（settings.js、paste_solder でも使用中）
+  で、API 契約（PUT → 非 rebuild → フレーム毎反映）が上記でピン済みのため
+  ブラウザ JS 経路の追加 e2e は不要という整理も妥当
+
+### 前回 approve 範囲への回帰 → なし
+
+- 変更は撤去 + テストの契約張り替えのみ。square_size 1.5・永続化のピン
+  （renders_square_size_form_with_default へ JS 読込アサーション統合、
+  saved default テスト存置）も維持
+- 副次効果: 初回レビューの nit 3（settings.js との機構重複）と nit 4
+  （PUT 応答書き戻しの上書き窓）は `bindCropAutoSave` 削除により両方消滅
+
+### verdict: approve（3 回目・未コミット差分に指摘ゼロ）
+
+make format / type / test-no-hardware / test-e2e は orchestrator 側で実行中
+（両 agent 各自グリーン確認済み: 1579 passed / 51 passed の申告）。
+`</content>` 混入 grep は自分でも再確認しヒットなし。

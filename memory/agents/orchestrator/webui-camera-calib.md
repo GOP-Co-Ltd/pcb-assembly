@@ -41,6 +41,21 @@
   統合はテスト張り替えを伴い今回の外科的範囲を超える（reviewer 判断を支持）。
   ユーザーへ別タスク候補として報告する
 
+## 追加要件（ユーザー指示・MR !137 提出後）
+
+「汎用フォーム機構の重複」の解消として、**crop 値の編集 UI を settings ページのみに統一**
+することをユーザーが決定。カメラキャリブページの crop 即保存フォームは撤去する。
+
+- 撤去: camera_calibration.html の crop fieldset / camera_calibration.js の
+  bindCropAutoSave / pages.py の _CAMERA_CROP_KEYS・_camera_calibration_context・
+  _FEATURE_CONTEXT エントリ
+- 維持: フレーム毎 crop 読み（settings ページからの保存でも即時反映）、
+  camera.crop.* の rebuild 除外、atomic 書込、≥1 検証、square_size 1.5 + 永続化、
+  専用テンプレート（square_size 保存 JS の読み込みに必要）
+- settings ページは data-machine-settings 汎用フォームで camera.crop.* を既に表示
+  （pages.py:266 machine_settings_fields → settings.html:72）ことを orchestrator が確認済み
+- 小規模のため計画は orchestrator 自身が策定（planner 不使用）
+
 ## 申し送り
 
 - main 直下に不審な untracked ファイル `"\0014\253\006@W@8"` あり（本タスクと無関係。

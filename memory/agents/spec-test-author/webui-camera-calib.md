@@ -3,6 +3,67 @@
 計画書: `memory/agents/implementation-planner/webui-camera-calib.md`
 orchestrator 裁定: `memory/agents/orchestrator/webui-camera-calib.md`（要確認事項 1・2 とも採用）
 
+## 追記（MR !137 提出後・ユーザー追加指示への追従）
+
+ユーザー追加指示「crop 値の編集 UI を settings ページのみに置く形に統一」を受け、
+orchestrator 指示（tests/ 側担当）に基づき以下を更新した。plan-implementer は並行して
+`src/webui/templates/posctrl/camera_calibration.html`（crop fieldset 削除）・
+`src/webui/static/js/camera_calibration.js`（bindCropAutoSave 削除）を更新済み
+（`src/webui/routers/pages.py` の `_camera_calibration_context` / `_CAMERA_CROP_KEYS`
+はこの時点でまだ未整理だったが、テンプレートが `crop_fields` を参照しなくなった
+ため無害。plan-implementer 側のクリーンアップ待ち）。
+
+**変更ファイル**（`src/` は未編集）:
+
+1. `tests/webui/routers/test_pages.py`
+   - モジュール docstring に「ユーザー追加指示が上書き契約」節を追記
+     （crop UI は settings ページへ統一・camera_calibration ページには置かない）
+   - `test_camera_calibration_renders_crop_auto_save_form_with_current_values`
+     （前回追加分）を削除し、代わりに
+     `test_camera_calibration_has_no_crop_input` を追加
+     （`data-machine-key` / `id="camera-crop-settings"` / 「クロップ設定」の
+     いずれも camera_calibration ページに出ないことをピン）
+   - `test_camera_calibration_renders_square_size_form_with_default` に
+     `"js/camera_calibration.js" in text` のアサーションを合流
+     （crop フォーム側のテストで検証していた JS 読込確認の移設。square_size
+     の入力時復元保存が引き続きこの JS の役割）
+   - `test_settings_page_groups_fields_by_section` に「カメラ / クロップ」
+     セクションラベルを追加（既存テストが未ピンだった漏れ。
+     `SECTION_LABELS["camera.crop"]` は元々定義済みだった）
+   - 新規 `test_settings_page_renders_camera_crop_fields`: settings ページに
+     `name="camera.crop.width"` / `name="camera.crop.height"` とラベル
+     （クロップ幅・クロップ高さ）が描画されることをピン
+     （`camera.crop.*` の FieldSpec 自体は main に既存・本タスクでの新規追加
+     ではないため、既存の一般設定フォーム経由で自動的に出る契約の確認）
+2. `tests/e2e/test_webui_e2e.py`
+   - `TestCameraCalibrationCropOverRealHttp` を 2 クラスへ分割:
+     - `TestCameraCalibrationPageOverRealHttp::
+       test_page_is_served_without_crop_input`: ページ 200 +
+       `js/camera_calibration.js` あり + `data-machine-key="camera.crop.width"`
+       **なし**（前回の「あり」ピンを反転）
+     - `TestCameraCropSettingsOverRealHttp::
+       test_crop_put_keeps_mjpeg_stream_open_and_reflects_in_toml`:
+       **変更なしで維持**（API 契約は不変という orchestrator 指示どおり。
+       crosshair ストリーム開いたまま `PUT /api/settings/machine` の
+       camera.crop.\* が切断せず反映される通し確認。docstring のみ
+       「settings ページ経由の保存」文脈に合わせて更新）
+
+**検証結果**（実行済み・すべて green）:
+
+- `uv run pytest tests/webui tests/e2e -m "not hardware" --collect-only -q`:
+  682/702 collected, エラーなし
+- `uv run pre-commit run --files tests/webui/routers/test_pages.py
+  tests/e2e/test_webui_e2e.py`: 全 hook green（docformatter が 1 回
+  docstring を再フォーマット→再実行で green 確認）
+- `uv run pyright src/webui/routers/pages.py tests/webui/routers/test_pages.py
+  tests/e2e/test_webui_e2e.py`: 0 errors
+- `make test-no-hardware`: 1579 passed, 87 deselected（テスト分割で前回比 +2）
+- `make test-e2e`: 51 passed, 1615 deselected
+
+plan-implementer の template/js 変更がすでに合流済みだったため、新仕様の
+ページテストも赤を経ずに green で収束した。`@mark_hardware` は未実行、
+コミットもしていない（orchestrator 指示どおり）。
+
 ## 結論（最終状態）
 
 plan-implementer との並行編集を経て、`make format` / `make type` /
