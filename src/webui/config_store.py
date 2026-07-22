@@ -5,6 +5,7 @@ machine.toml は tomlkit でコメント・構造を保持して書き戻す。
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
@@ -194,6 +195,11 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
             if isinstance(value, int):
                 if spec.key == "paste_dispenser.pad_align.max_failures" and value < 0:
                     raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
+                if (
+                    spec.key in ("camera.crop.width", "camera.crop.height")
+                    and value < 1
+                ):
+                    raise UnknownFieldError(f"{spec.key}: 1以上の値が必要です")
                 return value
         case "str":
             if isinstance(value, str):
@@ -265,6 +271,8 @@ class ConfigStore:
         """machine.toml へホワイトリスト項目を書き込む.
 
         tomlkit によりコメント・構造を保持する。toml に無いキーは追加する。
+        同一ディレクトリ内の一時ファイル経由の atomic replace で書き込むため、
+        書き込み中に他プロセスが読んでも torn read（部分/空 TOML）は発生しない。
 
         Raises:
             UnknownFieldError: 未知キーまたは型不一致の場合
@@ -285,7 +293,27 @@ class ConfigStore:
                 assert isinstance(child, Table)
                 table = child
             table[option] = value
-        path.write_text(tomlkit.dumps(doc))
+        payload = tomlkit.dumps(doc)
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                encoding="utf-8",
+                delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                tmp.write(payload)
+            tmp_path.replace(path)
+        except Exception:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink()
+                except FileNotFoundError:
+                    pass
+            raise
 
     def _machine_spec(self, key: str) -> FieldSpec:
         if key not in _MACHINE_FIELDS_BY_KEY:

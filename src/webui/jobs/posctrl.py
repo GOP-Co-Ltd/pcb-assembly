@@ -75,10 +75,11 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
             tab="posctrl",
             run=_run_camera_calibration,
             params=(
-                ParamSpec("square_size", "チェッカーボードの1マス", "float", unit="mm"),
-                ParamSpec("crop_width", "クロップ幅", "int", 600, unit="px"),
-                ParamSpec("crop_height", "クロップ高さ", "int", 600, unit="px"),
+                ParamSpec(
+                    "square_size", "チェッカーボードの1マス", "float", 1.5, unit="mm"
+                ),
             ),
+            persisted_params=("square_size",),
             uses_machine=True,
         )
     )
@@ -261,7 +262,7 @@ def _dispatch_reference_command(
 def _run_camera_calibration(ctx: JobContext) -> JobResult:
     """チェッカーボードで pixel/mm をキャリブレーションし JSON を保存候補にする."""
     square_size = float(ctx.params["square_size"])
-    crop_size = (int(ctx.params["crop_width"]), int(ctx.params["crop_height"]))
+    crop_size = ctx.machine.camera.crop.size
     calibrator = CheckerboardCalibrator(square_size, crop_size)
 
     with ctx.open_camera() as camera:

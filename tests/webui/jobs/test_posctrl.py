@@ -16,6 +16,14 @@
   実機区分でカバーする分担（計画書 §4）
 - 実機通し（実カメラ + 実 Klipper）は `@mark_hardware` でユーザー実行
 
+計画書 memory/agents/implementation-planner/webui-camera-calib.md「公開インターフェース案」
+「1. src/webui/jobs/posctrl.py」節が追加契約:
+
+- camera_calibration の params は square_size のみ（default 1.5・persisted_params
+  に含む）。crop_width / crop_height は削除され、実行時は machine.toml
+  `[camera.crop]`（`ctx.machine.camera.crop.size`）を読む（真実は machine.toml
+  に一本化。二重管理の回避）
+
 cv2 / Moonraker のモックは使わない（skill `testing-strategy`）。Klipper 不通は
 test-fixture の実ポートへの接続拒否で検証する。
 """
@@ -50,8 +58,10 @@ POSCTRL_JOBS = (
 
 # checkerboard.png は 400x400・1 マス約 66.7px。square_size=10mm で
 # pixel_per_mm ≈ 400/6/10 ≈ 6.67（tests/pcbasm/vision/test_calibration.py と
-# 同一素材）。crop は画像サイズに合わせる（既定 600 は 400px 画像をはみ出す）
-CHECKERBOARD_PARAMS = {"square_size": 10.0, "crop_width": 400, "crop_height": 400}
+# 同一素材）。crop は machine.toml `[camera.crop]` 由来（checkerboard_state
+# fixture が 400x400 に書き換える。既定 600 は 400px 画像をはみ出す）
+CHECKERBOARD_PARAMS = {"square_size": 10.0}
+CHECKERBOARD_CROP_SIZE = (400, 400)
 CHECKERBOARD_PIXEL_PER_MM = 400 / 6 / 10
 
 
@@ -67,6 +77,12 @@ def catalog() -> JobCatalog:
 def checkerboard_state(
     checkerboard_camera_settings: Settings, store: ConfigStore
 ) -> Iterator[AppState]:
+    # checkerboard.png は 400x400。既定 crop 600 は画像をはみ出すため、
+    # tmp コピーの machine.toml へ 400x400 を書いてから AppState を作る
+    # （crop は machine.toml `[camera.crop]` から読まれる契約。要確認事項 a）
+    store.write_machine_settings(
+        "kurousagi", {"camera.crop.width": 400, "camera.crop.height": 400}
+    )
     state = AppState(checkerboard_camera_settings, store)
     yield state
     state.close()
@@ -129,15 +145,18 @@ class TestCatalog:
         assert default.get("reference_point_setup").params == ()
 
     def test_camera_calibration_params(self, default: JobCatalog):
-        params = {spec.name: spec for spec in default.get("camera_calibration").params}
+        """Square_size のみが params。crop は machine.toml 連動で params から削除済み.
 
-        assert set(params) == {"square_size", "crop_width", "crop_height"}
+        default 1.5（旧: 必須空欄）+ persisted_params に square_size を含む
+        （入力途中の即保存対象。計画書「要確認事項 1」採用）。
+        """
+        definition = default.get("camera_calibration")
+        params = {spec.name: spec for spec in definition.params}
+
+        assert set(params) == {"square_size"}
         assert params["square_size"].value_type == "float"
-        assert params["square_size"].default is None  # 必須
-        assert params["crop_width"].value_type == "int"
-        assert params["crop_width"].default == 600
-        assert params["crop_height"].value_type == "int"
-        assert params["crop_height"].default == 600
+        assert params["square_size"].default == 1.5
+        assert definition.persisted_params == ("square_size",)
 
     @pytest.mark.parametrize("name", ["board_tour", "orthogonality_test"])
     def test_tolerance_param_defaults(self, default: JobCatalog, name: str):
@@ -219,6 +238,8 @@ class TestCameraCalibrationJob:
         loaded = CalibrationResult.load(artifacts_root / json_artifact.path)
         assert loaded.pixel_per_mm == pytest.approx(CHECKERBOARD_PIXEL_PER_MM, rel=0.01)
         assert loaded.z_position is None  # Klipper 不通 → 記録なし
+        # crop は machine.toml 由来（checkerboard_state fixture が書いた 400x400）
+        assert loaded.crop_size == CHECKERBOARD_CROP_SIZE
 
         assert record.apply_available is True
         payload = checkerboard_manager.apply_payload()
@@ -240,6 +261,33 @@ class TestCameraCalibrationJob:
 
         assert record.status == JobStatus.ABORTED
         assert record.apply_available is False
+
+    def test_missing_square_size_uses_default_and_succeeds(
+        self, checkerboard_manager: JobManager, wait_until: WaitUntil
+    ):
+        """Square_size 省略は required エラーではなく default 1.5 で実行される.
+
+        旧仕様（必須空欄はエラー）からの挙動変更（計画書「要確認事項 1」）。
+        """
+        record = checkerboard_manager.start("camera_calibration", {})
+        answered: set[str] = set()
+        answer_next_prompt(record, checkerboard_manager, True, answered)
+        wait_until(lambda: record.status.terminal, timeout=30.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+
+    def test_removed_crop_param_is_rejected_as_unknown(
+        self, checkerboard_manager: JobManager
+    ):
+        """削除済み crop_width を渡すと開始前に ValueError（→ router で 400）.
+
+        crop は machine.toml `[camera.crop]` に一本化され job param からは
+        削除済み（計画書「設計判断 a」）。
+        """
+        with pytest.raises(ValueError, match="未知のパラメータ"):
+            checkerboard_manager.start(
+                "camera_calibration", {"square_size": 10.0, "crop_width": 400}
+            )
 
     def test_undetectable_image_logs_warning_and_reprompts(
         self, manager: JobManager, wait_until: WaitUntil

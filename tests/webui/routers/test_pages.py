@@ -34,6 +34,21 @@ Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / s
 - loading_controls は paste_solder / loading / toolhead_offset（stage="ローディング"）と
   dispense_calibration（stage="キャリブレーションメニュー,ローディング"・プライム/① ローディング用）
 - pnp はプレースホルダのみ（サイドバー空 + 「機能を選択」）
+
+webui-camera-calib 計画書「公開インターフェース案 5」+ 要確認事項 1・2 が
+camera_calibration ページへ追記契約:
+
+- ジョブパラメータフォームは square_size のみ（初回既定値 1.5）。crop_width /
+  crop_height は job param から削除済み
+- 専用 JS（camera_calibration.js）を読み込む（square_size の入力時復元保存用）
+
+ユーザー追加指示（crop 編集 UI の統一）が上書き契約:
+
+- crop の編集 UI は settings ページの汎用即保存フォームのみに統一する。
+  camera_calibration ページに crop 入力（data-machine-key /
+  `#camera-crop-settings`）は置かない
+- settings ページには camera.crop.width / camera.crop.height が
+  machine 設定として描画される（「カメラ / クロップ」セクション）
 """
 
 from pathlib import Path
@@ -132,10 +147,25 @@ class TestPages:
             "基準点",
             "基準点 / コーナーオフセット",
             "カメラ",
+            "カメラ / クロップ",
         ):
             assert section_label in text
         # モーション設定（printer.cfg）は Mainsail 直編集に移行し画面から削除済み
         assert "モーション設定" not in text
+
+    def test_settings_page_renders_camera_crop_fields(self, client: TestClient):
+        """クロップ編集 UI は settings ページの汎用フォームに統一されている.
+
+        camera_calibration ページからは crop 入力を撤去し、machine 設定の
+        汎用フォーム（camera.crop.width / camera.crop.height）へ一本化した （ユーザー追加指示:
+        'crop 値の編集 UI を settings ページのみに置く形に統一'）。
+        """
+        text = client.get("/settings").text
+
+        assert 'name="camera.crop.width"' in text
+        assert 'name="camera.crop.height"' in text
+        assert "クロップ幅" in text
+        assert "クロップ高さ" in text
 
     def test_unknown_tab_returns_404(self, client: TestClient):
         assert client.get("/no-such-tab").status_code == 404
@@ -282,11 +312,40 @@ class TestPosctrlJobPages:
         # data-job-name 等でページのジョブ名が宣言される
         assert feature in response.text
 
-    def test_camera_calibration_renders_param_form_fields(self, client: TestClient):
+    def test_camera_calibration_renders_square_size_form_with_default(
+        self, client: TestClient
+    ):
+        """ジョブパラメータフォームは square_size のみ（初回既定値 1.5mm）。専用 JS を読み込む."""
         text = client.get("/posctrl/camera_calibration").text
 
-        for name in ("square_size", "crop_width", "crop_height"):
-            assert name in text
+        assert 'name="square_size"' in text
+        assert 'value="1.5"' in text
+        assert "js/camera_calibration.js" in text
+        # crop は job param から削除済み（machine.toml 連動の即保存フォームへ移設）
+        assert "crop_width" not in text
+        assert "crop_height" not in text
+
+    def test_camera_calibration_has_no_crop_input(self, client: TestClient):
+        """クロップ編集 UI は settings ページへ統一済み。このページには置かない.
+
+        ユーザー追加指示: 'crop 値の編集 UI を settings ページのみに置く形に統一'。
+        当初計画（machine.toml 連動の即保存フォームをこのページへ）は撤回された。
+        """
+        text = client.get("/posctrl/camera_calibration").text
+
+        assert "data-machine-key" not in text
+        assert 'id="camera-crop-settings"' not in text
+        assert "クロップ設定" not in text
+
+    def test_camera_calibration_renders_saved_square_size_default(
+        self, client: TestClient, appstate: AppState
+    ):
+        """入力途中の即保存値（param-defaults 相当）が次回描画の default に反映される."""
+        appstate.save_job_param_defaults("camera_calibration", {"square_size": 3.0})
+
+        text = client.get("/posctrl/camera_calibration").text
+
+        assert 'value="3.0"' in text
 
     @pytest.mark.parametrize("feature", ("board_tour", "orthogonality_test"))
     def test_tour_pages_render_tolerance_field(self, client: TestClient, feature: str):

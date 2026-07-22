@@ -36,7 +36,11 @@ def put_machine_settings(
     machine = state.selected_machine
     with state.machine_lock("settings"):
         store.write_machine_settings(machine, body.values)
-        if any(key.startswith("camera.") for key in body.values):
+        # crop はレンダラが毎フレーム読むためデバイス再構築は不要（ストリームを切断しない）
+        if any(
+            key.startswith("camera.") and not key.startswith("camera.crop.")
+            for key in body.values
+        ):
             state.rebuild_camera()
     jobs.publish_state_changed()
     return MachineSettingsResponse(

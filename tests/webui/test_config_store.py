@@ -5,6 +5,12 @@
 - machine.toml のホワイトリスト読み書き
 - tomlkit によるコメント・構造保持（変更対象外の行は不変）
 - 未知キー / 型不一致 → UnknownFieldError
+
+計画書 memory/agents/implementation-planner/webui-camera-calib.md
+「公開インターフェース案 4」+ 要確認事項 2（orchestrator 採用）が追記契約:
+
+- camera.crop.width / camera.crop.height は 1 以上の int（0 / 負値は
+  UnknownFieldError）。change 即自動保存 UI での事故防止
 """
 
 from pathlib import Path
@@ -411,3 +417,26 @@ class TestPadAlignMaxFailures:
             store.write_machine_settings(
                 FIXTURE, {"paste_dispenser.pad_align.max_failures": -1}
             )
+
+
+class TestCameraCropFields:
+    """Int 型フィールド camera.crop.width / camera.crop.height の 1 以上検証 （webui-
+    camera-calib 計画書・要確認事項 2）.
+
+    Change 即自動保存 UI では 0 や負値が machine.toml に書かれる事故が 起きやすいため、max_failures
+    と同様の per-key 検証を追加する。
+    """
+
+    @pytest.mark.parametrize("key", ["camera.crop.width", "camera.crop.height"])
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_non_positive_value_raises(self, store: ConfigStore, key: str, value: int):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(FIXTURE, {key: value})
+
+    @pytest.mark.parametrize("key", ["camera.crop.width", "camera.crop.height"])
+    def test_minimum_valid_value_is_accepted(self, store: ConfigStore, key: str):
+        # 境界: 1 は有効な最小値
+        store.write_machine_settings(FIXTURE, {key: 1})
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values[key] == 1
