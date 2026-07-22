@@ -58,8 +58,8 @@ format = "YUYV"
 calibration_file = "ov9281_20260722_113444.json"
 
 [camera.crop]
-width = 600
-height = 600
+width = 300
+height = 300
 
 [probe]
 min_radius = 0.3            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
