@@ -55,7 +55,7 @@ width = 1280
 height = 720
 fps = 30.0
 format = "YUYV"
-calibration_file = "ov9281_20260701_132631.json"
+calibration_file = "ov9281_20260722_113444.json"
 
 [camera.crop]
 width = 600
@@ -70,8 +70,8 @@ lift_height = 0.5
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
-x = 10.5
-y = 3.7
+x = 12.0
+y = 3.8
 # 基準点の直径 (mm)
 target_diameter = 3.0
 
@@ -84,5 +84,5 @@ bottom_right = [-2.5, 5.0]
 
 [nozzle_cap]
 x = 67.1
-y = 52.0
-z = -24.3
+y = 52.8
+z = -9.0
