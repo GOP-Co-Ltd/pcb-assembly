@@ -80,6 +80,68 @@ ring.intersection(cell) の length:
 - plan-implementer が同一リポジトリで src/ を並列編集中のため、**このセッションでは対象ファイルに対する pytest 実行を意図的に見送った**（WIP中のsrcに対して実行すると不安定な中間状態を拾う恐れがあるため）。合流後に `make test-no-hardware -- tests/pcbasm/posctrl/test_pad.py tests/pcbasm/posctrl/test_alignment.py tests/webui/jobs/test_board_ops.py` 等での答え合わせを推奨
 - （解消済み。下記「追加対応」参照）`tests/pcbasm/test_config.py::test_pad_align_section_overrides_defaults`が`PadAlign.min_roi`を直接参照していた件は、orchestratorからの追加依頼で修正済み
 
+## 設計変更対応: region_size を camera.crop 分離 → pad_align.region_size（2026-07-22 再指示後）
+
+ユーザー再指示（orchestrator ノート「設計変更・MR !138 提出後」節）を受け、領域サイズの由来を
+`camera.crop.size ÷ calibration.pixel_per_mm` から新設定 `pad_align.region_size`
+（mm、既定 10.0、正方形）へ切り替える変更に追従した。凍結 IF は本メッセージ冒頭のもの
+（`plan_pad_regions` シグネチャ・収容制約検証は維持、`sorted_top_pad_regions` シグネチャ不変）。
+plan-implementer（impl-region-align / impl-region-size）が並列で src/config を実装中、確認時点で
+`src/pcbasm/config.py`（`PadAlign.region_size` + 正値検証）・`src/pcbasm/posctrl/alignment.py`
+（`_region_size` が config 由来に）・`src/webui/config_store.py`（`region_size` FieldSpec +
+正値検証）・`configs/{test-fixture,kurousagi}/machine.toml`（`region_size = 10.0` 明示追加）は
+既に反映済みだった。テストは実装完了後の状態と付き合わせて green を確認した（詳細下記）。
+
+### 変更したファイル
+
+1. **`tests/pcbasm/posctrl/test_alignment.py`**
+   - モジュール docstring: 「crop÷pixel_per_mm 由来」の記述を「pad_align.region_size 由来」へ更新
+   - `TestPadAlignmentSession::test_init_raises_value_error_when_region_size_does_not_fit_field_of_view`
+     — 収容制約違反の作り方を再設計。test-fixture の `region_size=10mm` に対し
+     `calibration.resolution=(100,100)` へ縮小して視野 10mm 四方にし、
+     `10 + 2*(0.5+1.4) = 13.8mm > 10mm` で制約違反を作る（旧: crop 600px÷ppm10=60mm →
+     resolution (400,400) で 40mm 四方にして破る、という設計だったものを region_size ベースへ）。
+     `pytest.raises(ValueError)` に `match="region_size"` を追加（旧は match 無し）。
+     「region_size」は既存の PadAlign/config_store の他フィールド検証テスト
+     （`max_failures`, `auto_area_short_side_factor` 等）が例外なく属性名そのものを
+     substring 検証に使っている慣例に倣った選択で、実装側メッセージも実際に
+     `pad_align.region_size を縮小するか、...` を含んでいることを確認済み
+   - `TestSortedTopPadRegions::test_region_size_is_derived_from_crop_size_and_pixel_per_mm`
+     → `test_region_size_is_derived_from_pad_align_region_size_config` に改名・再設計。
+     pad 間隔を crop 由来 60mm 境界（x=1/55mm 同一・x=65mm 別）から
+     region_size=10mm 境界（x=1/5mm 同一・x=15mm 別）へ変更
+2. **`tests/pcbasm/test_config.py`**
+   - `TestMachine::test_pad_align_section_overrides_defaults` に `region_size = 12.5` の
+     override 検証を追加（既存の `tolerance` override 検証と同居させる最小差分）
+   - 新設 `TestPadAlignRegionSize`（`TestPadAlignMaxFailures` の後、`TestMachineType` の前）
+     — `test_defaults_to_ten_mm`（`PadAlign().region_size == 10.0`）、
+     `test_rejects_non_positive_value`（`[0.0, -1.0]` パラメトリズ、
+     `match="region_size"`、`auto_area_short_side_factor_rejects_non_positive` と同型）
+3. **`tests/webui/test_config_store.py`**
+   - 新設 `TestPadAlignRegionSize`（`TestPadAlignMaxFailures` の直後）
+     — `test_read_returns_configured_value`（test-fixture の実値 10.0 を読む。
+     `region_size` は fixture に明示されているため `max_failures`/`nozzle_cap` と異なり
+     「欠落時 None」ではなく実値読み取りのテストにした）、
+     `test_write_then_reread_reflects_value`、
+     `test_non_positive_value_raises`（`[0.0, -1.0]` パラメトリズ、`UnknownFieldError`）
+
+`tests/pcbasm/posctrl/test_pad.py` は変更なし（`plan_pad_regions(pads, region_size: tuple[float,float])`
+はシグネチャ・契約とも無変更で、同ファイルは既に region_size を直接引数で渡す設計だったため
+crop/config 由来の結線に依存していなかった。grep で確認済み）。
+
+### 検証結果
+
+- `python -m py_compile` 3ファイルとも成功、`grep '</content>'` 検出なし
+- `pre-commit run --files <3ファイル>`: 全hook pass（初回 `docformatter` が軽微な整形を自動適用、
+  再実行で pass 確認済み）
+- **plan-implementer 側の実装が確認時点で既に完了していたため、今回は pytest 実行まで行った**
+  （通常は仕様 first で赤のまま引き継ぐ運用だが、src が先に green になっていたため答え合わせを実施）:
+  `tests/pcbasm/test_config.py` + `tests/pcbasm/posctrl/test_alignment.py` +
+  `tests/webui/test_config_store.py` → **126 passed**（新規/変更テスト全て pass）。
+  加えて `tests/webui/jobs/{test_board_ops,test_pasting,test_posctrl}.py` も回帰なし
+  （101 passed, 12 deselected=hardware）
+- 実装側への修正要求: **なし**（実装は凍結 IF・メッセージ慣例とも整合していた）
+
 ## 追加対応: tests/pcbasm/test_config.py の min_roi 参照修正
 
 orchestratorから、上記の申し送り事項が実は担当範囲内（`tests/`配下）であるとの指摘を受け、追従修正した。

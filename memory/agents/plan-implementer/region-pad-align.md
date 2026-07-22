@@ -63,3 +63,62 @@
   `RegionAlignments.result_for` の同値比較、`sorted_top_pad_regions` を
   FakeCamera + 実 test-fixture 設定で一通り smoke 実行し、全て期待通りの
   挙動を確認済み）
+
+## 設計変更対応（region_size 分離、MR !138 提出後のユーザー再指示）
+
+orchestrator ノート（`memory/agents/orchestrator/region-pad-align.md` の
+「設計変更・MR !138 提出後」項）と計画書 (`region-pad-align-plan.md` 差分は
+なし。凍結 IF は orchestrator からの追加指示テキストで指定) に基づき、
+領域サイズの導出元を `camera.crop÷pixel_per_mm` から新設定
+`pad_align.region_size`（正方形、既定 10.0mm）へ切り替えた。
+
+- **`src/pcbasm/config.py`**: `PadAlign.region_size: float = 10.0` を
+  フィールド先頭（`tolerance` の前）に追加。`__attrs_post_init__` に
+  `region_size <= 0` の ValueError を追加（既存 `max_failures` 検証と同じ
+  colon スタイルのメッセージ）。フィールド順は「領域サイズ→収束→検出→
+  失敗許容」の概念順で `tolerance` の直前に置いた（計画書に位置指定なし、
+  既存フィールドの並びは崩さず追加のみ）
+- **`src/pcbasm/posctrl/alignment.py`**: `_region_size` を
+  `result.machine.paste_dispenser.pad_align.region_size` を読んで
+  `(size, size)` を返すだけに変更（crop/pixel_per_mm 参照を削除）。
+  `sorted_top_pad_regions` / `_validate_region_fits_frame` /
+  `PadAlignmentSession.__init__` の docstring・エラーメッセージの
+  「crop由来」表現を「pad_align.region_size由来」に置換。収容制約の
+  数式（ρ=|cosθ|+|sinθ|、per-axis 検証）自体は変更していない（code-reviewer
+  が承認した現行実装のまま、入力元だけを差し替え）
+- **`src/pcbasm/posctrl/pad.py`（計画外・追従）**: `PadAligner.align()` の
+  belt-and-suspenders 検証 `_validate_roi_fits_frame` にも同一文言の
+  ValueError メッセージ「camera.crop を縮小するか...」が複製されていたのを
+  grep で発見（この二重チェック自体は前回セッションの計画外判断として
+  ログ済み・reviewer 承認済み）。凍結 IF・変更ファイル一覧には pad.py は
+  含まれていないが、タスク指示の「crop 由来を前提にした他の記述が src 内に
+  残っていないか grep（crop × posctrl）で確認し、位置合わせ経路のみ追従」に
+  従い、同じ文言修正（`pad_align.region_size を縮小するか...`）を適用した。
+  テストに文字列ピンがないことを事前に grep で確認済み
+  （`tests/pcbasm/posctrl/test_pad.py` に `camera.crop`/`を縮小` の一致なし）
+- **`src/webui/config_store.py`**: `paste_dispenser.pad_align.region_size`
+  の FieldSpec（ラベル「関心領域サイズ」、unit "mm"）を pad_align 系の先頭に
+  追加。`_coerce` の float 分岐に `solder_paste_density` と同型の正値検証
+  （`<= 0.0` で `UnknownFieldError`）を追加
+- **`configs/test-fixture/machine.toml` / `configs/kurousagi/machine.toml`**:
+  `[paste_dispenser.pad_align]` の先頭行に `region_size = 10.0` を明示追加
+  （既定値と同値だが、他の pad_align フィールドと同様に明示する既存スタイルに
+  合わせた）。`data/testing/machine.toml` は `[paste_dispenser.pad_align]`
+  テーブル自体を持たない（全デフォルト依存）ため変更不要と確認
+- **`src/pcbasm/posctrl/README.md`**: 「crop 由来サイズで分割」の記述を
+  「`pad_align.region_size` で分割」に修正（1 行）
+
+### 検証（本設計変更分）
+
+- `uv run pre-commit run --files <変更7ファイル>`: 初回 ruff-format が
+  config_store.py の新規 FieldSpec 行を1行化して green（再実行で全 hook
+  pass）
+- `uv run pyright src`: 0 errors, 0 warnings
+- `make test` / `make test-no-hardware` は指示により未実行（tests/ は
+  spec-test-author 側で並列対応中のため、テスト側の答え合わせは合流後の
+  orchestrator/code-reviewer 検証に委ねる）
+- `grep -rn '</content>' src configs`: 検出なし
+- `grep -rn "crop"` を `src/pcbasm/posctrl/` 全体に対して再実行し、位置合わせ
+  経路（alignment.py / pad.py）に crop 由来の記述が残っていないことを確認。
+  他ファイル（setup.py / tour.py / copper.py / render.py）の `crop_size` は
+  カメラの実クロップ機能（本タスクと無関係の別用途）であり意図的に不変

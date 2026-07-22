@@ -104,3 +104,80 @@ should-fix 1 件（非正方形 crop の収容制約式）は現行 configs（�
 - make test / @mark_hardware: 実行していない（実機はユーザー）
 - make test-e2e: 未実行（本レビューの権限外。計画書の検証項目に含まれるため合流後に orchestrator 判断。
   なお tests/e2e は paste_solder の pad editor UI のみで PadAlignmentSession は構築しないことを確認済み）
+
+______________________________________________________________________
+
+# 追加レビュー: region_size 分離（設計変更・MR !138 提出後）
+
+対象: `git diff HEAD`（未コミット差分のみ）
+根拠: memory/agents/orchestrator/region-pad-align.md「設計変更・MR !138 提出後」項
+（`pad_align.region_size: float = 10.0` [mm]・正方形・正値検証を新設し、crop÷ppm 導出を廃止。
+収容制約検証は維持、エラーメッセージは region_size 調整を促す文言へ、configs 両 toml に明示追加）
+
+## verdict: approve
+
+## must-fix
+
+なし。
+
+## should-fix
+
+なし。
+
+## nit
+
+なし（既存慣例からの逸脱・好みの範囲の指摘は該当なし）。
+
+## 重点観点の確認結果
+
+1. **crop 参照が位置合わせ経路から完全に消えているか（grep 裏取り）: 消えている ✓**
+   - `_region_size` は `result.machine.paste_dispenser.pad_align.region_size` のみ参照
+     （alignment.py:25-33）。alignment.py に残る "crop" はコード参照ではなく
+     「camera.crop（円検出等の光学設定）とは独立」という説明 docstring のみ
+   - pad.py / board_ops.py: crop 参照なし。エラーメッセージ 2 箇所（alignment.py の収容制約 /
+     pad.py:425 の ROI inset 検証）とも「camera.crop を縮小」→「pad_align.region_size を縮小」へ更新済み
+   - posctrl/webui に残る crop 参照はすべて位置合わせ外の正当用途であることを個別確認:
+     setup.py（board キャリブの円検出）、tour.py・render.py `render_label`（overlay 表示枠）、
+     copper.py `CopperEdgeMatcher.crop_size`（Session は None で未使用）、
+     jobs/posctrl.py（円検出・キャリブジョブ・overlay）、jobs/pasting.py:1880 付近
+     （purge toolhead 較正の円検出 ROI = `paste_roi_size`、pad align 無関係）
+2. **region_size の検証・FieldSpec の慣例整合: 整合 ✓**
+   - config.py: `__attrs_post_init__` の正値検証（メッセージ形式は max_failures と同型）。
+     float フィールドに bool ガードがないのは既存 float フィールド（tolerance 等）と同じ扱い
+   - config_store.py: FieldSpec は pad_align セクション先頭・「関心領域サイズ」・"float"・"mm" で
+     toml のキー順と一致。`_coerce` の per-key 正値検証は
+     `auto_area_short_side_factor` / `solder_paste_density` の既存 if ブロックと同型
+     （config.py 側 ValueError + config_store 側 UnknownFieldError の二重検証も
+     max_failures の既存パターンどおり）。JS への検証ロジック複製なし（thin-wrapper 維持）
+3. **テスト結線が region_size ベースに正しく置き換わっているか: 置き換わっている ✓**
+   - test_alignment.py: 結線テストは test-fixture 実値 10mm で 1mm/5mm 併合・15mm 分離
+     （旧: crop600÷ppm10=60mm の 55/65mm）。収容制約テストは resolution(100,100) → FOV 10mm vs
+     必要 10+2×(0.5+1.4)=13.8mm で違反を作り、`pytest.raises(ValueError, match="region_size")` で
+     調整対象キーがメッセージに載ることまでピン（文言更新の検証として適切、完全一致は回避）
+   - test_config.py: デフォルト 10.0 / TOML override 12.5 / 非正値(0.0, -1.0) ValueError
+   - test_config_store.py: 読み（fixture 明示値 10.0、configs/test-fixture に追加済みで整合）/
+     書き→再読 12.5 / 非正値 UnknownFieldError
+   - 実行結果: 3 ファイル 126 passed
+4. **収容制約の数式の退行なし ✓**
+   - 現行 `_validate_region_fits_frame`（alignment.py:128-166）は前回 should-fix の修正版
+     `w|cosθ|+h|sinθ|` / `w|sinθ|+h|cosθ|` を維持。region_size は正方形 `(size, size)` だが
+     式は一般形のまま正しい。前回裁定のもう 1 件（render.py `_DEFAULT_MIN_ROI_MM = 1.0`、
+     実機旧 min_roi 値へ復帰）も HEAD 反映済みを確認
+
+## 補足確認
+
+- 実機成立性: kurousagi region_size 10mm、FOV 42.2×23.8mm → 必要 10×√2+3.8 ≈ 17.9mm ≤ 23.8mm で
+  全回転角で収容 ✓
+- kurousagi camera.crop 300px（コミット 09bbd62）は region_size 分離後も円検出・overlay 用途として
+  残る（ユーザー実機チューニングとして経緯ノートにトレース可能）✓
+- posctrl/README.md: 旧シンボル（ComponentAlignments 等）残骸の解消と region_size 文言への更新を確認 ✓
+
+## 検証結果（追加レビュー分）
+
+- pytest（個別 3 ファイル: test_alignment.py / test_config.py / test_config_store.py）: pass（126 passed）
+  ※ make test-no-hardware が合流検証で並行実行中のため個別ファイルに限定
+- pyright（変更 7 ファイル指定）: pass（0 errors）
+- `grep -rn '</content>' src tests configs`: 検出なし
+- make format: 未実行（pre-commit は自動整形の書き込みを伴い、並行中の合流検証と競合するため。
+  合流側の make format 結果に委ねる）
+- make test / @mark_hardware: 実行していない

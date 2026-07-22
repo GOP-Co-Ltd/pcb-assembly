@@ -7,6 +7,7 @@
 
 - **implementation-planner は省略**: 計画は plan mode 内で Explore 3 本 + Plan agent 2 本（領域分割アルゴリズム / 実装変更計画）を経てユーザー承認済み。二重計画は冗長と判断
 - **領域サイズは camera.crop 由来**（ユーザー確定）: 当初推奨は新設定 region_size だったが、「crop はレンズ歪みの起こらない信頼範囲を捉えている」というユーザーの運用意図により crop.size ÷ pixel_per_mm 導出へ変更
+- **【設計変更・MR !138 提出後】領域サイズを crop から分離**（ユーザー再指示 2026-07-22）: 「やはり camera crop と位置合わせ関心領域は分離すべき。当初設計どおり px でなく mm 単位で」→ `pad_align.region_size: float = 10.0` [mm]（正方形）を新設し、sorted_top_pad_regions は crop÷ppm ではなく region_size を使う。収容制約検証は維持（エラーメッセージは region_size 調整を促す文言へ）。configs 両 toml に region_size = 10.0 を明示追加
 - **kurousagi camera.crop 600→300 の未コミット変更**（ユーザーの実機チューニング）: ユーザー確認の上、本ブランチの独立コミット 09bbd62 として取り込み
 - **設計 agent 間の裁定**（アルゴリズム設計 vs 実装計画で分かれた点）:
   - グリッド原点: board 原点固定を採用（pads bbox 起点は有効 pad 切替でタイルがずれるため却下）
