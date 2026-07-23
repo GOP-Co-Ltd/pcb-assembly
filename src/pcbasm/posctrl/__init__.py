@@ -2,7 +2,11 @@
 
 from .alignment import (
     ComponentAlignments,
+    PadAlignmentCandidates,
+    PadAlignments,
     PadAlignmentSession,
+    corrected_top_pad_entries,
+    rank_safe_pad_alignment_targets,
     sorted_top_component_pads,
 )
 from .board import BoardTransformMeasurer
@@ -22,6 +26,7 @@ from .pad import (
     CopperPadObserver,
     PadAligner,
     PadAlignmentResult,
+    PadAlignmentTarget,
     group_pads_by_component,
 )
 from .position import XYPositionAdjustor
@@ -53,18 +58,23 @@ __all__ = [
     "OffsetTransformMeasurer",
     "OrthogonalityMetrics",
     "PadAligner",
+    "PadAlignmentCandidates",
     "PadAlignmentResult",
     "PadAlignmentSession",
+    "PadAlignmentTarget",
+    "PadAlignments",
     "PadResultRenderer",
     "PixelRect",
     "RigidEdgeMatch",
     "XYPositionAdjustor",
     "display_at_point",
+    "corrected_top_pad_entries",
     "group_pads_by_component",
     "interactive_display_at_point",
     "machine_session",
     "render_edge_match",
     "render_label",
+    "rank_safe_pad_alignment_targets",
     "setup_board_calibration",
     "sorted_top_component_pads",
     "to_machine_transform",

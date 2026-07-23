@@ -19,6 +19,7 @@ from pcbasm.pasting.settings import (
     base_override_from_config,
     find_orphans,
     is_pad_enabled,
+    resolve_alignment_sample_count,
     resolve_node_settings,
     resolve_pad_settings,
     select_enabled_pads,
@@ -786,6 +787,75 @@ class TestSettingsRoundTrip:
         for key in before:
             assert before[key].enabled == after[key].enabled
             assert before[key].ul_per_mm2 == pytest.approx(after[key].ul_per_mm2)
+
+
+class TestAlignmentSampleCount:
+    """基板 override の継承・不変更新・JSON serde."""
+
+    @staticmethod
+    def _config():
+        return Machine(TESTING_MACHINE_TOML).paste_dispenser
+
+    def test_unset_value_inherits_machine_default(self):
+        model = PasteSettingsModel(base=_full_base())
+
+        assert model.alignment_sample_count is None
+        assert resolve_alignment_sample_count(model, self._config()) == 10
+
+    def test_explicit_value_overrides_machine_default(self):
+        original = PasteSettingsModel(base=_full_base())
+
+        edited = original.with_alignment_sample_count(6)
+
+        assert original.alignment_sample_count is None
+        assert edited.alignment_sample_count == 6
+        assert resolve_alignment_sample_count(edited, self._config()) == 6
+
+    def test_none_restores_machine_inheritance(self):
+        model = PasteSettingsModel(
+            base=_full_base(),
+            alignment_sample_count=4,
+        )
+
+        restored = model.with_alignment_sample_count(None)
+
+        assert restored.alignment_sample_count is None
+        assert resolve_alignment_sample_count(restored, self._config()) == 10
+
+    @pytest.mark.parametrize("sample_count", [0, -1, True, 1.5])
+    def test_rejects_invalid_override(self, sample_count):
+        model = PasteSettingsModel(base=_full_base())
+
+        with pytest.raises(ValueError, match="alignment_sample_count"):
+            model.with_alignment_sample_count(sample_count)
+
+    def test_explicit_override_round_trips(self):
+        model = PasteSettingsModel(
+            base=_full_base(),
+            alignment_sample_count=7,
+        )
+
+        data = settings_to_dict(model)
+        restored = settings_from_dict(data)
+
+        assert data["alignment_sample_count"] == 7
+        assert restored.alignment_sample_count == 7
+
+    def test_unset_override_is_omitted_and_old_document_inherits(self):
+        model = PasteSettingsModel(base=_full_base())
+
+        data = settings_to_dict(model)
+        restored = settings_from_dict(
+            {
+                "base": data["base"],
+                "base_enabled": data["base_enabled"],
+                "levels": data["levels"],
+            }
+        )
+
+        assert "alignment_sample_count" not in data
+        assert restored.alignment_sample_count is None
+        assert resolve_alignment_sample_count(restored, self._config()) == 10
 
 
 class TestFindOrphans:

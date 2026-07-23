@@ -1,9 +1,10 @@
-"""部品単位の銅箔照合による自動位置合わせ."""
+"""銅箔padの照合による自動位置合わせ."""
 
 import logging
 from collections.abc import Sequence
 
 import attrs
+from shapely import Polygon
 
 from pcbasm import gcode
 from pcbasm.geometry import Point2d, Rotation, Transform
@@ -37,6 +38,20 @@ class ComponentPads:
 
     component: Component
     pads: tuple[Pad, ...]
+
+
+@attrs.frozen
+class PadAlignmentTarget:
+    """1個の実銅箔padを対象とする位置合わせ単位."""
+
+    identifier: str
+    pad: Pad
+
+    @property
+    def position(self) -> Point2d:
+        """実銅箔ポリゴンの重心をboard座標で返す."""
+        centroid = self.pad.copper_polygon.centroid
+        return Point2d(x=float(centroid.x), y=float(centroid.y))
 
 
 def group_pads_by_component(
@@ -170,11 +185,12 @@ class PadAlignmentResult:
 
 
 class PadAligner:
-    """部品単位で銅箔照合による自動位置合わせを行うクラス.
+    """銅箔照合による自動位置合わせを行うクラス.
 
-    部品の座標へ移動し、指令位置に固定したアンカーで想定銅箔を投影、
-    部品の全padを覆うROI限定の剛体照合とXYPositionAdjustorで収束させ、
-    machine空間の補正Transformを構築する。
+    指令位置に固定したアンカーで想定銅箔を投影し、対象の実銅箔を覆う
+    ROI限定の剛体照合とXYPositionAdjustorで収束させる。
+
+    結果からmachine空間の補正Transformを構築する。
     """
 
     def __init__(
@@ -252,11 +268,42 @@ class PadAligner:
         Raises:
             RuntimeError: 照合に失敗、または収束しなかった場合
         """
-        component = target.component
-        anchor = self._board_transform.apply(component.position)
+        return self._align(
+            identifier=target.component.designator,
+            position=target.component.position,
+            copper_polygons=[pad.copper_polygon for pad in target.pads],
+        )
+
+    def align_pad(self, target: PadAlignmentTarget) -> PadAlignmentResult:
+        """対象padの銅箔重心へ移動し、単一padのROIで位置合わせする.
+
+        Args:
+            target: 対象pad
+
+        Returns:
+            位置合わせ結果
+
+        Raises:
+            RuntimeError: 照合に失敗、または収束しなかった場合
+        """
+        return self._align(
+            identifier=target.identifier,
+            position=target.position,
+            copper_polygons=[target.pad.copper_polygon],
+        )
+
+    def _align(
+        self,
+        *,
+        identifier: str,
+        position: Point2d,
+        copper_polygons: Sequence[Polygon],
+    ) -> PadAlignmentResult:
+        """指定位置とROI用銅箔で位置合わせする共通処理."""
+        anchor = self._board_transform.apply(position)
         self._logger.info(
-            "部品 %s の位置合わせを開始: anchor (%.4f, %.4f) mm",
-            component.designator,
+            "%s の位置合わせを開始: anchor (%.4f, %.4f) mm",
+            identifier,
             anchor.x,
             anchor.y,
         )
@@ -271,7 +318,7 @@ class PadAligner:
         # 投影とROIをアンカー s0 で固定する（ループ中は再投影しない）
         projection = self._projector.project(anchor)
         roi = self._projector.roi_of(
-            [p.copper_polygon for p in target.pads],
+            copper_polygons,
             anchor,
             margin_mm=self._roi_margin_mm,
             min_size_mm=self._min_roi_mm,

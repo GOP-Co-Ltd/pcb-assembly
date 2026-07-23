@@ -43,13 +43,20 @@ from pcbasm.geometry import (
     Shift,
     Transform,
 )
-from pcbasm.pcb import Component, Copper, CopperList, Layer, Pad
+from pcbasm.pcb import Component, Copper, CopperList, Layer, Pad, PcbFile
+from pcbasm.posctrl import (
+    PadAlignmentCandidates,
+    PadAlignments,
+    PadAlignmentTarget,
+    corrected_top_pad_entries,
+    rank_safe_pad_alignment_targets,
+)
 from pcbasm.posctrl.alignment import (
     ComponentAlignments,
     PadAlignmentSession,
     sorted_top_component_pads,
 )
-from pcbasm.posctrl.copper import CopperProjector, RigidEdgeMatch
+from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjector, RigidEdgeMatch
 from pcbasm.posctrl.pad import ComponentPads, PadAlignmentResult
 from pcbasm.posctrl.setup import BoardCalibrationResult
 from pcbasm.vision import CalibrationResult, Image, Offset
@@ -131,6 +138,31 @@ def _target(designator: str, x: float, y: float) -> ComponentPads:
     )
 
 
+def _pad_target(
+    identifier: str,
+    designator: str,
+    pad_number: str,
+    x: float,
+    y: float,
+    *,
+    size: float = 1.0,
+    layer: Layer = Layer.TOP,
+    copper_polygon: shapely.Polygon | None = None,
+) -> PadAlignmentTarget:
+    """候補順位テスト用の単一 copper pad target."""
+    pad = Pad(
+        designator=designator,
+        pad_number=pad_number,
+        net_name="NET",
+        layer=layer,
+        polygon=_square(x, y, size / 2.0),
+        copper_polygon=(
+            copper_polygon if copper_polygon is not None else _square(x, y, size / 2.0)
+        ),
+    )
+    return PadAlignmentTarget(identifier=identifier, pad=pad)
+
+
 class TestComponentAlignments:
     """ComponentAlignments の lookup と補正変換導出のテスト（純粋）."""
 
@@ -207,6 +239,268 @@ class TestComponentAlignments:
             assert lhs.y == pytest.approx(rhs.y)
 
 
+class TestPadAlignmentTarget:
+    """PadAlignmentTarget は paste 開口でなく実銅箔重心を照合位置にする."""
+
+    def test_position_is_copper_polygon_centroid(self):
+        copper = shapely.Polygon([(8.0, 3.0), (12.0, 3.0), (12.0, 5.0), (8.0, 5.0)])
+        target = _pad_target(
+            "U1.3",
+            "U1",
+            "3",
+            1.0,
+            2.0,
+            copper_polygon=copper,
+        )
+
+        assert target.position == Point2d(10.0, 4.0)
+
+
+class TestRankSafePadAlignmentTargets:
+    """安全距離による候補選別と二段階の決定的な順位."""
+
+    @staticmethod
+    def _rank(
+        targets: list[PadAlignmentTarget],
+        *,
+        max_correction_mm: float = 1.0,
+        tolerance_mm: float = 0.05,
+    ) -> PadAlignmentCandidates:
+        return rank_safe_pad_alignment_targets(
+            targets,
+            max_correction_mm=max_correction_mm,
+            tolerance_mm=tolerance_mm,
+        )
+
+    @pytest.mark.parametrize(
+        ("distance", "expected_identifiers"),
+        [
+            (2.05, []),
+            (2.049, []),
+            (2.051, ["R1.1", "R2.1"]),
+        ],
+    )
+    def test_requires_centroid_distance_strictly_greater_than_safety_limit(
+        self, distance: float, expected_identifiers: list[str]
+    ):
+        targets = [
+            _pad_target("R1.1", "R1", "1", 0.0, 0.0),
+            _pad_target("R2.1", "R2", "1", distance, 0.0),
+        ]
+
+        candidates = self._rank(targets)
+
+        assert [target.identifier for target in candidates.targets] == (
+            expected_identifiers
+        )
+
+    def test_same_centroid_split_pads_are_rejected(self):
+        targets = [
+            _pad_target("U1.#1", "U1", "1", 0.0, 0.0),
+            _pad_target("U1.#2", "U1", "1", 0.0, 0.0),
+        ]
+
+        candidates = self._rank(targets)
+
+        assert candidates.targets == ()
+        assert candidates.rejected_count == 2
+
+    def test_fine_pitch_array_is_rejected(self):
+        targets = [
+            _pad_target(f"U1.{number}", "U1", str(number), x, 0.0, size=0.2)
+            for number, x in enumerate((0.0, 0.5, 1.0), start=1)
+        ]
+
+        candidates = self._rank(targets)
+
+        assert candidates.targets == ()
+        assert candidates.preferred_component_count == 0
+        assert candidates.rejected_count == 3
+
+    def test_filters_bottom_empty_invalid_and_zero_area_copper(self):
+        invalid = shapely.Polygon([(20.0, 0.0), (21.0, 1.0), (20.0, 1.0), (21.0, 0.0)])
+        zero_area = shapely.Polygon([(30.0, 0.0), (31.0, 0.0), (32.0, 0.0)])
+        targets = [
+            _pad_target("R1.1", "R1", "1", 0.0, 0.0),
+            _pad_target("R2.1", "R2", "1", 10.0, 0.0, layer=Layer.BOTTOM),
+            _pad_target("R3.1", "R3", "1", 20.0, 0.0, copper_polygon=invalid),
+            _pad_target(
+                "R4.1",
+                "R4",
+                "1",
+                30.0,
+                0.0,
+                copper_polygon=zero_area,
+            ),
+            _pad_target(
+                "R5.1",
+                "R5",
+                "1",
+                40.0,
+                0.0,
+                copper_polygon=shapely.Polygon(),
+            ),
+        ]
+
+        candidates = self._rank(targets)
+
+        assert [target.identifier for target in candidates.targets] == ["R1.1"]
+        assert candidates.preferred_component_count == 1
+        assert candidates.rejected_count == 4
+
+    def test_places_one_smallest_pad_per_component_before_remaining_pads(self):
+        targets = [
+            _pad_target("R1.2", "R1", "2", 0.0, 0.0, size=2.0),
+            _pad_target("U1.1", "U1", "1", 10.0, 0.0, size=1.5),
+            _pad_target("C1.1", "C1", "1", 20.0, 0.0, size=1.75),
+            _pad_target("R1.1", "R1", "1", 30.0, 0.0, size=1.0),
+            _pad_target("U1.2", "U1", "2", 40.0, 0.0, size=0.5),
+        ]
+
+        candidates = self._rank(targets)
+
+        assert candidates.preferred_component_count == 3
+        assert [target.identifier for target in candidates.targets] == [
+            "U1.2",
+            "R1.1",
+            "C1.1",
+            "U1.1",
+            "R1.2",
+        ]
+
+    def test_equal_area_ties_use_designator_pad_number_and_centroid(self):
+        targets = [
+            _pad_target("U1.2-right", "U1", "2", 40.0, 0.0),
+            _pad_target("R1.1", "R1", "1", 0.0, 0.0),
+            _pad_target("U1.2-left", "U1", "2", 30.0, 0.0),
+            _pad_target("U1.1", "U1", "1", 20.0, 0.0),
+            _pad_target("C1.1", "C1", "1", 10.0, 0.0),
+        ]
+
+        candidates = self._rank(targets)
+
+        assert [target.identifier for target in candidates.targets] == [
+            "C1.1",
+            "R1.1",
+            "U1.1",
+            "U1.2-left",
+            "U1.2-right",
+        ]
+
+
+class TestPadAlignments:
+    """複数 pad の成功結果から共通 XY 補正だけを平均する."""
+
+    @staticmethod
+    def _alignment_result(dx: float, dy: float, theta: float) -> PadAlignmentResult:
+        anchor = Point2d(0.0, 0.0)
+        return _result(
+            Compose([Rotation(theta), Shift(dx, dy)]),
+            anchor=anchor,
+        )
+
+    def test_average_translation_is_arithmetic_mean_of_successful_xy(self):
+        targets = (
+            _pad_target("R1.1", "R1", "1", 0.0, 0.0),
+            _pad_target("U1.1", "U1", "1", 10.0, 0.0),
+            _pad_target("C1.1", "C1", "1", 20.0, 0.0),
+        )
+        alignments = PadAlignments(
+            board_transform=Identity(),
+            results=(
+                (targets[0], self._alignment_result(0.3, -0.2, 10.0)),
+                (targets[1], self._alignment_result(-0.1, 0.4, -5.0)),
+                (targets[2], self._alignment_result(0.1, 0.1, 2.0)),
+            ),
+        )
+
+        mean = alignments.average_translation()
+
+        assert mean.x == pytest.approx(0.1)
+        assert mean.y == pytest.approx(0.1)
+
+    def test_averaged_machine_transform_ignores_theta(self):
+        targets = (
+            _pad_target("R1.1", "R1", "1", 0.0, 0.0),
+            _pad_target("U1.1", "U1", "1", 10.0, 0.0),
+        )
+        alignments = PadAlignments(
+            board_transform=Identity(),
+            results=(
+                (targets[0], self._alignment_result(0.4, -0.2, 30.0)),
+                (targets[1], self._alignment_result(0.2, 0.2, -20.0)),
+            ),
+        )
+
+        transform = alignments.averaged_machine_transform()
+
+        origin = transform.apply(Point2d(0.0, 0.0))
+        other = transform.apply(Point2d(2.0, -1.0))
+        assert origin.x == pytest.approx(0.3)
+        assert origin.y == pytest.approx(0.0)
+        assert other.x == pytest.approx(2.3)
+        assert other.y == pytest.approx(-1.0)
+
+    def test_averaged_board_correction_is_conjugated_machine_shift(self):
+        board_transform = Compose([Rotation(30.0), Shift(10.0, 5.0)])
+        target = _pad_target("R1.1", "R1", "1", 0.0, 0.0)
+        alignments = PadAlignments(
+            board_transform=board_transform,
+            results=((target, self._alignment_result(0.4, -0.2, 15.0)),),
+        )
+
+        correction = alignments.averaged_board_correction()
+        machine = Shift(0.4, -0.2)
+
+        for board_point in (
+            Point2d(0.0, 0.0),
+            Point2d(1.0, 2.0),
+            Point2d(-3.5, 7.25),
+        ):
+            corrected_machine_point = board_transform.apply(
+                correction.apply(board_point)
+            )
+            expected = machine.apply(board_transform.apply(board_point))
+            assert corrected_machine_point.x == pytest.approx(expected.x)
+            assert corrected_machine_point.y == pytest.approx(expected.y)
+
+    def test_empty_results_are_rejected(self):
+        with pytest.raises(ValueError):
+            PadAlignments(board_transform=Identity(), results=())
+
+
+class TestCorrectedTopPadEntries:
+    """board_tour は照合対象外を含む全TOP padへ同じ平均補正を適用する."""
+
+    def test_returns_every_top_pad_with_one_common_machine_correction(self):
+        pads = [
+            _pad("R1", 0.0, 0.0),
+            _pad("U1", 10.0, 0.0),
+            Pad(
+                designator="R2",
+                pad_number="1",
+                net_name="NET",
+                layer=Layer.BOTTOM,
+                polygon=_square(20.0, 0.0, 0.4),
+            ),
+        ]
+        board_transform = Compose([Rotation(20.0), Shift(5.0, -3.0)])
+        machine_correction = Shift(0.3, -0.2)
+
+        entries = corrected_top_pad_entries(
+            pads,
+            board_transform=board_transform,
+            machine_correction=machine_correction,
+            start=Point2d(0.0, 0.0),
+        )
+
+        assert {pad.designator for pad, _ in entries} == {"R1", "U1"}
+        for pad, target in entries:
+            expected = machine_correction.apply(board_transform.apply(pad.center))
+            assert target.x == pytest.approx(expected.x)
+            assert target.y == pytest.approx(expected.y)
+
+
 def _board_image(shift_x: int = 0, shift_y: int = 0) -> Image:
     """黒地に白矩形 (600,320)-(680,400) を指定 px ずらして描いた合成画像.
 
@@ -223,6 +517,22 @@ def _board_image(shift_x: int = 0, shift_y: int = 0) -> Image:
         thickness=-1,
     )
     return Image(frame)
+
+
+def _mask_image(fill_mask: np.ndarray) -> Image:
+    """CopperProjectorの塗り潰しmaskを実Cannyへ入力できるBGR画像にする."""
+    return Image(cv2.cvtColor(fill_mask, cv2.COLOR_GRAY2BGR))
+
+
+def _copper_projector(polygons: list[shapely.Polygon]) -> CopperProjector:
+    """Identity変換・標準テスト解像度の実CopperProjectorを作る."""
+    return CopperProjector(
+        polygons=polygons,
+        board_transform=Identity(),
+        offset_transform=Identity(),
+        pixel_per_mm=PPM,
+        image_size=(WIDTH, HEIGHT),
+    )
 
 
 def _machine_config() -> Machine:
@@ -330,6 +640,141 @@ class TestPadAlignmentSession:
         assert result is not None
         assert result.translation.x == pytest.approx(-0.2, abs=0.1)
         assert result.translation.y == pytest.approx(0.2, abs=0.1)
+
+    def test_align_pad_matches_single_copper_pad_with_real_opencv(
+        self, klipper, stage, pcb
+    ):
+        """個別 pad API も合成画像を実 detector / matcher へ通して既知XYを復元する."""
+        camera = FakeCamera([_board_image(2, -2), _board_image()])
+        session = self._session(camera, klipper, stage, pcb)
+        target = PadAlignmentTarget(identifier="R1.1", pad=pcb.pads[0])
+
+        result = session.align_pad(target)
+
+        assert result is not None
+        assert result.anchor == target.position
+        assert result.translation.x == pytest.approx(-0.2, abs=0.1)
+        assert result.translation.y == pytest.approx(0.2, abs=0.1)
+
+    def test_align_pad_uses_target_polygon_roi_with_all_copper_in_expected_mask(
+        self, klipper, stage
+    ):
+        """ROIは対象padだけから決まり、範囲内の隣padも想定maskへ残る.
+
+        実KiCad基板のU1.1/U1.2は別々の銅箔で、U1.2の一部がU1.1由来ROIへ
+        入る。全TOP銅箔の実投影から合成画像を作り、実detector/matcherで
+        align_padを通したうえで、公開されたresult.roiとprojector maskを確認する。
+        """
+        pcb = PcbFile(
+            PROJECT_ROOT / "data" / "testing" / "led_blinker" / "led_blinker.kicad_pcb"
+        )
+        target_pad = next(
+            pad for pad in pcb.pads if pad.designator == "U1" and pad.pad_number == "1"
+        )
+        neighbor_pad = next(
+            pad for pad in pcb.pads if pad.designator == "U1" and pad.pad_number == "2"
+        )
+        target = PadAlignmentTarget(identifier="U1.1", pad=target_pad)
+        top_copper = [
+            copper.polygon for copper in pcb.copper if copper.layer == Layer.TOP
+        ]
+        source_projector = _copper_projector(top_copper)
+        camera = FakeCamera(
+            [_mask_image(source_projector.project(target.position).fill_mask)]
+        )
+        session = self._session(camera, klipper, stage, pcb)
+
+        result = session.align_pad(target)
+
+        assert result is not None
+        pad_align = _machine_config().paste_dispenser.pad_align
+        target_roi = session.projector.roi_of(
+            target_pad.copper_polygon,
+            target.position,
+            margin_mm=pad_align.roi_margin,
+            min_size_mm=pad_align.min_roi,
+        )
+        union_roi = session.projector.roi_of(
+            [target_pad.copper_polygon, neighbor_pad.copper_polygon],
+            target.position,
+            margin_mm=pad_align.roi_margin,
+            min_size_mm=pad_align.min_roi,
+        )
+        assert result.roi == target_roi
+        assert result.roi != union_roi
+
+        x0, y0, x1, y1 = result.roi
+        full_projection = session.projector.project(target.position)
+        target_projection = _copper_projector([target_pad.copper_polygon]).project(
+            target.position
+        )
+        neighbor_projection = _copper_projector([neighbor_pad.copper_polygon]).project(
+            target.position
+        )
+        target_inside_roi = target_projection.fill_mask[y0:y1, x0:x1] > 0
+        neighbor_inside_roi = neighbor_projection.fill_mask[y0:y1, x0:x1] > 0
+        full_inside_roi = full_projection.fill_mask[y0:y1, x0:x1] > 0
+
+        assert np.any(neighbor_inside_roi)
+        assert not np.any(target_inside_roi & neighbor_inside_roi)
+        assert np.all(full_inside_roi[neighbor_inside_roi])
+
+    def test_align_pad_rejects_neighbor_match_beyond_max_correction(
+        self, klipper, stage
+    ):
+        """隣padだけを観測して得た最良候補が上限超過ならNoneを返す.
+
+        実KiCad基板のC1.1/C1.2（重心間1.02mm）を使う。C1.1の想定ROIに
+        対してC1.2だけを撮像した合成画像を実matcherへ通すと隣pad方向の
+        約1mmずれが最良になるが、machine設定の0.3mm上限を超えるため
+        PadAlignmentSession.align_padは成功結果にしない。
+        """
+        pcb = PcbFile(
+            PROJECT_ROOT / "data" / "testing" / "led_blinker" / "led_blinker.kicad_pcb"
+        )
+        target_pad = next(
+            pad for pad in pcb.pads if pad.designator == "C1" and pad.pad_number == "1"
+        )
+        neighbor_pad = next(
+            pad for pad in pcb.pads if pad.designator == "C1" and pad.pad_number == "2"
+        )
+        target = PadAlignmentTarget(identifier="C1.1", pad=target_pad)
+        top_copper = [
+            copper.polygon for copper in pcb.copper if copper.layer == Layer.TOP
+        ]
+        full_projector = _copper_projector(top_copper)
+        neighbor_projector = _copper_projector([neighbor_pad.copper_polygon])
+        observed = _mask_image(neighbor_projector.project(target.position).fill_mask)
+        camera = FakeCamera([observed])
+        session = self._session(camera, klipper, stage, pcb)
+        pad_align = _machine_config().paste_dispenser.pad_align
+        roi = full_projector.roi_of(
+            target_pad.copper_polygon,
+            target.position,
+            margin_mm=pad_align.roi_margin,
+            min_size_mm=pad_align.min_roi,
+        )
+        match = CopperEdgeMatcher(
+            pixel_per_mm=PPM,
+            search_window_mm=pad_align.search_window,
+            theta_range_degrees=pad_align.theta_range,
+        ).match_rigid(
+            session.edge_detector.detect_edges(observed),
+            full_projector.project(target.position).edge_mask,
+            roi=roi,
+        )
+
+        assert match is not None
+        assert match.offset.mm.norm == pytest.approx(1.0, abs=0.2)
+        assert match.offset.mm.norm > pad_align.max_correction
+        assert session.align_pad(target) is None
+
+    def test_align_pad_returns_none_when_matching_fails(self, klipper, stage, pcb):
+        camera = FakeCamera([Image(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8))])
+        session = self._session(camera, klipper, stage, pcb)
+        target = PadAlignmentTarget(identifier="R1.1", pad=pcb.pads[0])
+
+        assert session.align_pad(target) is None
 
     def test_align_delivers_edge_match_frames_to_frame_sink(self, klipper, stage, pcb):
         """frame_sink 指定時、align() 中に照合状況の合成フレームが届く.

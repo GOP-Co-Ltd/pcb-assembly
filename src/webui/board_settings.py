@@ -271,6 +271,8 @@ class BoardSettingsStore:
         result: dict[str, object] = {"levels": data["levels"]}
         if data.get("initial_purge_pad_id") is not None:
             result["initial_purge_pad_id"] = data["initial_purge_pad_id"]
+        if data.get("alignment_sample_count") is not None:
+            result["alignment_sample_count"] = data["alignment_sample_count"]
         return result
 
     def _model_from_settings(
@@ -288,6 +290,7 @@ class BoardSettingsStore:
             base=base,
             base_enabled=True,
             initial_purge_pad_id=stored.initial_purge_pad_id,
+            alignment_sample_count=stored.alignment_sample_count,
             levels=levels,
         )
 
