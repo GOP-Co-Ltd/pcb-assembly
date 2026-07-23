@@ -9,6 +9,9 @@
 
 from fastapi.testclient import TestClient
 
+from tests.helpers import FakeAudioPlayer
+from webui.app import create_app
+from webui.settings import Settings
 from webui.state import AppState
 
 
@@ -35,3 +38,12 @@ class TestCreateApp:
 
         assert response.status_code == 200
         assert "text/css" in response.headers["content-type"]
+
+    def test_lifespan_closes_injected_audio_player_once(self, webui_settings: Settings):
+        player = FakeAudioPlayer()
+        app = create_app(webui_settings, audio_player=player)
+
+        with TestClient(app) as client:
+            assert client.get("/api/state").status_code == 200
+
+        assert player.close_calls == 1

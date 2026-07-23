@@ -5,6 +5,7 @@
 ### ハードウェア
 
 - Raspberry Pi 5
+- MAX98357A I2S 音声アンプ（通知音を使う場合。I2C デバイスではない）
 - Pick and PlaceまたはPaste Dispenser Machine
 
 ### ソフトウェア
@@ -15,6 +16,7 @@
         - Klipper + Moonraker + Mailsail
 - [KiCAD](https://www.kicad.org/download/linux/)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- `alsa-utils`（Raspberry Pi 本体から通知音を再生する `aplay` を含む）
 
 OS以外のソフトウェア類は[`install-softwares.sh`](install-softwares.sh)を実行
 
@@ -43,6 +45,11 @@ make webui-dev  # 開発用（auto-reload）
 make webui-fake # fake camera + 隔離 data_dir で起動
 ```
 
+選択中マシンに[`[audio]`](configs/README.md#audio)を設定すると、通知対象の
+ジョブ完了時に成功音または失敗音を Raspberry Pi 本体から再生する。開発タブ
+`/dev/audio_test` では両方の音を個別に確認できる。ブラウザからは音声を再生せず、
+完了時の視覚通知だけを表示する。
+
 systemd サービスとして登録し、システム起動時に自動起動する場合:
 
 ```bash
@@ -53,6 +60,9 @@ systemd サービスとして登録し、システム起動時に自動起動す
 ./webui-service.sh status   # 状態確認
 ./webui-service.sh remove   # サービス登録を削除
 ```
+
+音声を有効にする場合は、systemd サービスの実行ユーザーから設定した ALSA PCM を
+利用できることも確認する。
 
 環境変数で動作を切り替えられる（全量は `src/webui/settings.py`）:
 

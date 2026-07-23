@@ -56,20 +56,11 @@ class TestCompletionNoticeOverBrowser:
         self, live_server: LiveServer, browser_page
     ):
         original_title = "はんだ塗布 — PCB Assembly WebUI"
-        with (
-            browser_page.expect_response(
-                lambda response: "paste-completion-success.wav" in response.url
-            ) as success_sound,
-            browser_page.expect_response(
-                lambda response: "paste-completion-failure.wav" in response.url
-            ) as failure_sound,
-        ):
-            _start_completion_notice_job(
-                live_server, browser_page, "completion_notice_success"
-            )
-
-        assert success_sound.value.ok
-        assert failure_sound.value.ok
+        requested_urls: list[str] = []
+        browser_page.on("request", lambda request: requested_urls.append(request.url))
+        _start_completion_notice_job(
+            live_server, browser_page, "completion_notice_success"
+        )
 
         notice = browser_page.locator("#job-completion-notice")
         notice.wait_for(state="visible", timeout=10_000)
@@ -78,6 +69,7 @@ class TestCompletionNoticeOverBrowser:
             "通知テスト成功が完了しました"
         )
         assert browser_page.title() == f"【成功】{original_title}"
+        assert not any(url.endswith(".wav") for url in requested_urls)
 
         browser_page.locator("#job-completion-dismiss").click()
         expect(notice).to_be_hidden()

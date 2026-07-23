@@ -51,6 +51,7 @@ camera_calibration ページへ追記契約:
   machine 設定として描画される（「カメラ / クロップ」セクション）
 """
 
+import re
 from pathlib import Path
 
 import attrs
@@ -203,26 +204,10 @@ class TestCompletionNotice:
         assert 'id="job-completion-notice"' in text
         assert 'id="job-completion-message"' in text
         assert 'id="job-completion-dismiss"' in text
-        assert (
-            'data-success-sound-url="/static/audio/paste-completion-success.wav?v='
-            in text
-        )
-        assert (
-            'data-failure-sound-url="/static/audio/paste-completion-failure.wav?v='
-            in text
-        )
+        assert ".wav" not in text
+        assert "sound-url" not in text
         assert 'aria-live="assertive"' in text
         assert "hidden" in text
-
-    @pytest.mark.parametrize(
-        "filename",
-        ("paste-completion-success.wav", "paste-completion-failure.wav"),
-    )
-    def test_completion_sound_asset_is_served(self, client: TestClient, filename: str):
-        response = client.get(f"/static/audio/{filename}")
-
-        assert response.status_code == 200
-        assert response.content.startswith(b"RIFF")
 
 
 DEV_JOB_FEATURES = (
@@ -249,6 +234,16 @@ class TestDevJobPages:
         assert response.status_code == 200
         assert "gcode" in response.text
         assert "limits" in response.text
+
+    def test_audio_test_page_renders_two_server_playback_buttons(
+        self, client: TestClient
+    ):
+        response = client.get("/dev/audio_test")
+
+        assert response.status_code == 200
+        assert re.search(r'<button\b[^>]*\bdata-sound="success"', response.text)
+        assert re.search(r'<button\b[^>]*\bdata-sound="failure"', response.text)
+        assert 'src="/static/js/audio_test.js?v=' in response.text
 
     def test_job_demo_is_hidden_from_sidebar(self, client: TestClient):
         assert "job_demo" not in client.get("/dev").text

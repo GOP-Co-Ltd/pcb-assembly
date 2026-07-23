@@ -50,7 +50,20 @@ format = "MJPG"
 [camera.crop]
 width = 400
 height = 400
+
+[audio]
+device = "plughw:CARD=sndrpihifiberry,DEV=0"
+volume = 0.5
 ```
+
+#### audio
+
+Raspberry Pi 本体から通知音を再生する任意設定。`[audio]` を省略すると音声出力は
+無効になる。
+
+- `device`: Linux が ALSA PCM として扱う出力先。`aplay -L` で列挙し、カード番号
+    ではなく `plughw:CARD=sndrpihifiberry,DEV=0` のような安定名を指定する
+- `volume`: WAV データへ適用する 0 以上 1 以下の software gain。省略時は `1.0`
 
 ## 命名規則
 

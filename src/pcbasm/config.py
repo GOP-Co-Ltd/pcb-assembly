@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tomllib
 from enum import Enum, auto
+from math import isfinite
 from pathlib import Path
 from typing import Any, Literal
 
@@ -40,6 +41,29 @@ class Klipper:
 
     host: str = "localhost"
     port: int = 7125
+
+
+@attrs.frozen
+class Audio:
+    """音声出力の設定."""
+
+    device: str
+    volume: float = 1.0
+
+    def __attrs_post_init__(self) -> None:
+        if not isinstance(self.device, str) or not (device := self.device.strip()):
+            raise ValueError("audio.deviceは空でない文字列である必要があります")
+        if (
+            isinstance(self.volume, bool)
+            or not isinstance(self.volume, (int, float))
+            or not isfinite(self.volume)
+            or not 0.0 <= self.volume <= 1.0
+        ):
+            raise ValueError(
+                f"audio.volumeは0以上1以下の有限値である必要があります: {self.volume!r}"
+            )
+        object.__setattr__(self, "device", device)
+        object.__setattr__(self, "volume", float(self.volume))
 
 
 @attrs.frozen
@@ -444,6 +468,13 @@ class Machine:
         if "nozzle_cap" not in self._data:
             return None
         return self._get_config("nozzle_cap", NozzleCap)
+
+    @property
+    def audio(self) -> Audio | None:
+        """音声出力設定を取得する（未設定なら None）."""
+        if "audio" not in self._data:
+            return None
+        return self._get_config("audio", Audio)
 
     @property
     def klipper(self) -> Klipper:

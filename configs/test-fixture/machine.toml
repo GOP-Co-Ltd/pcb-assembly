@@ -10,6 +10,10 @@ machine_type = "paste" # マシン種別: paste / pnp
 host = "127.0.0.1" # localhost だと IPv6 フォールバックで接続失敗が遅くなるため IP 直指定
 port = 7126 # Moonraker 実機 (7125) と意図的にずらした非リッスンポート
 
+[audio]
+device = "null" # テスト時は ALSA の null PCM へ出力し、実デバイスを使わない
+volume = 1.0
+
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
 rotations_per_ul = 45.783133 # キャリブレーション値 2026/06/08 23G S3X70-E150DN

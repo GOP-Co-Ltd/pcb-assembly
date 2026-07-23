@@ -37,8 +37,6 @@
 </main>
 {% include "partials/file_browser.html" %}
 <section id="job-completion-notice" class="job-completion-notice" hidden
-         data-success-sound-url="{{ static_asset('audio/paste-completion-success.wav') }}"
-         data-failure-sound-url="{{ static_asset('audio/paste-completion-failure.wav') }}"
          role="status" aria-live="assertive" aria-atomic="true">
   <span id="job-completion-message"></span>
   <button id="job-completion-dismiss" type="button" aria-label="終了通知を閉じる">閉じる</button>

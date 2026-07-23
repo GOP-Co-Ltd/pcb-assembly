@@ -24,6 +24,7 @@ import httpx
 import pytest
 import uvicorn
 
+from tests.helpers import FakeAudioPlayer
 from tests.webui.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE, TEST_FIXTURE_DIR
 from webui.app import create_app
 from webui.jobs.catalog import JobCatalog, JobDefinition
@@ -236,7 +237,7 @@ def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
 
     port=0 でエフェメラルポートを OS に割り当てさせ、起動後に実ポートを取得する。
     """
-    app = create_app(e2e_settings)
+    app = create_app(e2e_settings, audio_player=FakeAudioPlayer())
     _register_completion_notice_jobs(app.state.catalog)
     config = uvicorn.Config(
         app,
