@@ -48,6 +48,8 @@ class TestMachineSettingsApi:
         assert fields["paste_dispenser.auto_line_aspect_ratio"]["value"] == 1.618
         assert fields["paste_dispenser.paste_height"]["value"] == "auto"
         assert fields["paste_dispenser.paste_height"]["value_type"] == "float_or_auto"
+        assert fields["paste_dispenser.lift_height"]["value"] == 2.0
+        assert fields["paste_dispenser.lift_height"]["value_type"] == "float"
         assert fields["probe.lift_height"]["value_type"] == "float"
         assert fields["probe.board_edge_margin"]["value"] == 2.5
         assert fields["probe.board_edge_margin"]["value_type"] == "float"
@@ -175,6 +177,15 @@ class TestMachineSettingsApi:
 
         assert response.status_code == 400
         assert "board_edge_margin" in response.text
+
+    def test_put_non_positive_paste_lift_height_returns_400(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.lift_height": 0.0}},
+        )
+
+        assert response.status_code == 400
+        assert "lift_height" in response.text
 
     def test_put_while_busy_returns_409(self, client: TestClient, appstate: AppState):
         with appstate.machine_lock("pytest-job"):
