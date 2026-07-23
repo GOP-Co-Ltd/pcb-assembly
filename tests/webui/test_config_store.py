@@ -50,6 +50,7 @@ class TestMachineSettings:
         assert values["paste_dispenser.max_fill_speed"] == 0.8
         assert values["paste_dispenser.solder_paste_density"] == 3.78
         assert values["paste_dispenser.paste_height"] == "auto"
+        assert values["paste_dispenser.lift_height"] == 2.0
         assert values["paste_dispenser.toolhead.x"] == -1.772
         assert values["paste_dispenser.pad_align.blur_ksize"] == 5
         assert values["probe.min_radius"] == 0.7
@@ -108,6 +109,15 @@ class TestMachineSettings:
         values = store.read_machine_settings(FIXTURE)
         assert values["paste_dispenser.initial_purge_ul"] == 0.2
 
+    @pytest.mark.parametrize("height", [0.0, -1.0])
+    def test_write_rejects_non_positive_lift_height(
+        self, store: ConfigStore, height: float
+    ):
+        with pytest.raises(UnknownFieldError, match="lift_height"):
+            store.write_machine_settings(
+                FIXTURE, {"paste_dispenser.lift_height": height}
+            )
+
     def test_write_zero_initial_purge_ul_disables_purge(self, store: ConfigStore):
         store.write_machine_settings(FIXTURE, {"paste_dispenser.initial_purge_ul": 0.0})
 
@@ -122,6 +132,12 @@ class TestMachineSettings:
 
         values = store.read_machine_settings(FIXTURE)
         assert values["paste_dispenser.paste_height"] == "auto"
+
+    def test_write_lift_height_then_reread_reflects_value(self, store: ConfigStore):
+        store.write_machine_settings(FIXTURE, {"paste_dispenser.lift_height": 3.25})
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.lift_height"] == 3.25
 
     def test_write_keeps_untouched_lines_byte_identical(
         self, store: ConfigStore, configs_root: Path

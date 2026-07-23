@@ -14,7 +14,11 @@ import attrs
 import tomlkit
 from tomlkit.items import Item, Table
 
-from pcbasm.config import DISPENSE_MODES, validate_probe_board_edge_margin
+from pcbasm.config import (
+    DISPENSE_MODES,
+    validate_paste_lift_height,
+    validate_probe_board_edge_margin,
+)
 
 type SettingValueType = Literal[
     "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode", "bool"
@@ -74,6 +78,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
         "paste_dispenser.retract_accel_factor", "リトラクション加速度係数", "float"
     ),
     FieldSpec("paste_dispenser.paste_height", "塗布面のZ高さ", "float_or_auto", "mm"),
+    FieldSpec("paste_dispenser.lift_height", "吐出後の上昇高さ", "float", "mm"),
     FieldSpec(
         "paste_dispenser.ul_per_mm2", "面積あたりのペースト量", "float", "uL/mm^2"
     ),
@@ -177,6 +182,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     and coerced_float < 0.0
                 ):
                     raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
+                if spec.key == "paste_dispenser.lift_height":
+                    if error := validate_paste_lift_height(coerced_float):
+                        raise UnknownFieldError(error)
                 if spec.key == "probe.board_edge_margin":
                     if error := validate_probe_board_edge_margin(coerced_float):
                         raise UnknownFieldError(error)
