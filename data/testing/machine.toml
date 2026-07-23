@@ -21,6 +21,7 @@ retract_amount = 10.0
 retract_rate = 50.0
 retract_accel_factor = 2.0
 paste_height = "auto"
+lift_height = 3.0
 ul_per_mm2 = 0.2
 
 [paste_dispenser.toolhead]

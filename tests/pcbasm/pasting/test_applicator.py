@@ -478,6 +478,7 @@ def _dispenser_config(**overrides: object):
         retract_accel_factor=2.0,
         toolhead=Toolhead(x=0.0, y=0.0),
         paste_height=0.5,
+        lift_height=2.0,
         ul_per_mm2=0.05,
         dispense_mode="area",
         auto_line_aspect_ratio=1.618,
@@ -520,6 +521,7 @@ class TestFromConfig:
             retraction_rate=config.retract_rate,
             retraction_accel_factor=config.retract_accel_factor,
             paste_height=config.paste_height,
+            lift_height=config.lift_height,
             dispense_mode=config.dispense_mode,
             auto_line_aspect_ratio=config.auto_line_aspect_ratio,
             prime_extra_delay=config.prime_extra_delay,
@@ -581,6 +583,22 @@ class TestFromConfig:
         assert (
             config_klipper.send_gcode.call_count == manual_klipper.send_gcode.call_count
         )
+
+    def test_deposit_uses_configured_lift_height(
+        self, mock_klipper, mock_paste_dispenser, mock_stage
+    ):
+        config = _dispenser_config(paste_height=0.5, lift_height=4.0)
+        applicator = PasteApplicator.from_config(
+            mock_klipper, mock_paste_dispenser, mock_stage, config
+        )
+
+        applicator.deposit_at(Point2d(1.0, 2.0), amount=0.1)
+
+        assert [call.kwargs["z"] for call in mock_stage.move.call_args_list] == [
+            4.5,
+            0.5,
+            4.5,
+        ]
 
     def test_invalid_retract_accel_factor_in_config_raises(self, mocker: MockerFixture):
         """Config の retract_accel_factor <= 1.0 は __init__ の検証で ValueError."""

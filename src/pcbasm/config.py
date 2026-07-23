@@ -88,6 +88,13 @@ class PadAlign:
             )
 
 
+def validate_paste_lift_height(value: float) -> str | None:
+    """塗布後の上昇高さを検証する."""
+    if isinstance(value, bool) or value <= 0:
+        return f"lift_heightは正の値である必要があります: {value}"
+    return None
+
+
 @attrs.frozen
 class PasteDispenser:
     """ペーストディスペンサーの設定."""
@@ -105,6 +112,7 @@ class PasteDispenser:
     toolhead: Toolhead
     paste_height: PasteHeight  # 塗布面のZ高さ [mm]、または auto
     ul_per_mm2: float  # パッド面積あたりのペースト量 [μL/mm²]
+    lift_height: float = 2.0  # 塗布後に持ち上げる高さ [mm]
     solder_paste_density: float = 3.78  # はんだペースト密度 [mg/μL] (S3X70-E150DN)
     dispense_mode: DispenseMode = "auto"  # 塗布方式 auto / dot / line / area
     auto_line_aspect_ratio: float = (
@@ -152,6 +160,8 @@ class PasteDispenser:
             raise ValueError(
                 f"paste_heightは正の値である必要があります: {self.paste_height}"
             )
+        if error := validate_paste_lift_height(self.lift_height):
+            raise ValueError(error)
         if self.solder_paste_density <= 0:
             raise ValueError(
                 "solder_paste_densityは正の値である必要があります: "

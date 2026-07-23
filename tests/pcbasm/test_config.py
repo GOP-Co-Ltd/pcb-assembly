@@ -62,6 +62,7 @@ class TestMachine:
             retract_accel_factor=2.0,
             toolhead=Toolhead(x=13.2, y=54.7),
             paste_height="auto",
+            lift_height=3.0,
             ul_per_mm2=0.2,
             solder_paste_density=3.78,
             dispense_mode="auto",
@@ -151,6 +152,18 @@ class TestMachine:
 
         assert machine.paste_dispenser.initial_purge_ul == pytest.approx(0.1)
 
+    def test_lift_height_defaults_when_absent(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source.replace("lift_height = 3.0\n", ""),
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.paste_dispenser.lift_height == pytest.approx(2.0)
+
     def test_auto_area_short_side_factor_defaults_when_absent(self):
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
 
@@ -209,6 +222,11 @@ class TestMachine:
     def test_initial_purge_ul_rejects_negative_value(self):
         with pytest.raises(ValueError, match="initial_purge_ul"):
             _paste_dispenser(initial_purge_ul=-0.01)
+
+    @pytest.mark.parametrize("height", [0.0, -1.0])
+    def test_lift_height_rejects_non_positive_value(self, height):
+        with pytest.raises(ValueError, match="lift_height"):
+            _paste_dispenser(lift_height=height)
 
     @pytest.mark.parametrize("factor", [0.0, -1.0])
     def test_auto_area_short_side_factor_rejects_non_positive(self, factor):

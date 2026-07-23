@@ -166,7 +166,7 @@ class PasteApplicator:
         config: PasteDispenserConfig,
         *,
         transform: Transform = Identity(),
-        lift_height: float = 2.0,
+        lift_height: float | None = None,
     ) -> Self:
         """Machine 設定の paste_dispenser セクションから構築する.
 
@@ -176,7 +176,7 @@ class PasteApplicator:
             stage: XYZステージ
             config: ``Machine.paste_dispenser`` の設定
             transform: 座標変換
-            lift_height: 塗布後の上昇高さ [mm]
+            lift_height: 塗布後の上昇高さ [mm]。None のとき config の値を使う
 
         Raises:
             ValueError: 設定値が ``__init__`` の検証に通らない場合
@@ -195,7 +195,7 @@ class PasteApplicator:
             retraction_accel_factor=config.retract_accel_factor,
             transform=transform,
             paste_height=config.paste_height,
-            lift_height=lift_height,
+            lift_height=config.lift_height if lift_height is None else lift_height,
             dispense_mode=config.dispense_mode,
             auto_line_aspect_ratio=config.auto_line_aspect_ratio,
             auto_area_short_side_factor=config.auto_area_short_side_factor,
