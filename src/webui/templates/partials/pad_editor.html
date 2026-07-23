@@ -38,14 +38,9 @@
         </div>
       </div>
       <div class="pad-alignment-tools" data-testid="pad-alignment-tools">
-        <label for="pad-alignment-sample-count">目標成功数</label>
-        <input type="number" id="pad-alignment-sample-count"
-               data-testid="pad-alignment-sample-count" step="any">
-        <button type="button" id="pad-alignment-reset"
-                data-testid="pad-alignment-reset">既定に戻す</button>
         <div class="pad-alignment-summary">
-          <span title="machine 既定">既定 <output id="pad-alignment-default-sample-count"
-                  data-testid="pad-alignment-default-sample-count">-</output></span>
+          <span title="machine設定の目標成功数">目標 <output id="pad-alignment-sample-count"
+                  data-testid="pad-alignment-sample-count">-</output></span>
           <span title="安全候補">安全 <output id="pad-alignment-safe-count"
                   data-testid="pad-alignment-safe-count">-</output></span>
           <span title="Component 分散候補">分散 <output id="pad-alignment-preferred-count"
@@ -53,7 +48,7 @@
         </div>
         <strong id="pad-alignment-limit" class="pad-alignment-limit"
                 data-testid="pad-alignment-limit" hidden></strong>
-        <small>paste_solder / board_tour 共用。候補不足時は自動調整します。</small>
+        <small>paste_solder / board_tour 共用。<a href="/settings">設定ページで変更</a></small>
       </div>
       <div class="pad-config-tools" data-testid="pad-config-tools">
         <button type="button" id="pad-export-config" data-testid="pad-export-config">設定を書き出し</button>

@@ -14,6 +14,7 @@ from playwright.sync_api import expect
 from tests.e2e.conftest import (
     TERMINAL as _TERMINAL,
     LiveServer,
+    get_pad_config as _get_pad_config,
     select_led_blinker as _select_led_blinker,
     wait_machine_field as _wait_machine_field,
 )
@@ -225,6 +226,28 @@ class TestPromptDialogOverBrowser:
 
 class TestSettingsOverBrowser:
     """設定画面の実ブラウザ操作."""
+
+    def test_alignment_sample_count_autosaves_and_updates_pad_diagnostics(
+        self, live_server: LiveServer, browser_page
+    ):
+        _select_led_blinker(live_server)
+        assert _get_pad_config(live_server)["alignment"]["sample_count"] == 10
+        browser_page.goto(
+            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
+        )
+        key = "paste_dispenser.pad_align.sample_count"
+        field = browser_page.locator(f'input[name="{key}"]')
+        field.wait_for(state="visible", timeout=10_000)
+        assert field.input_value() == "10"
+
+        field.fill("6")
+
+        _wait_machine_field(live_server.base_url, key, 6)
+        alignment = _get_pad_config(live_server)["alignment"]
+        assert alignment["sample_count"] == 6
+        assert alignment["effective_sample_count"] == min(
+            6, alignment["safe_pad_count"]
+        )
 
     @pytest.mark.parametrize(
         ("field_name", "value"),

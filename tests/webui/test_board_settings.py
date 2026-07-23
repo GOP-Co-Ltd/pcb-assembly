@@ -17,18 +17,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import attrs
 import pytest
 from shapely import Polygon
 
-from pcbasm.config import PadAlign, PasteDispenser, Toolhead
+from pcbasm.config import PasteDispenser, Toolhead
 from pcbasm.geometry import Point2d
-from pcbasm.pasting import (
-    LevelSetting,
-    PasteOverride,
-    PasteSettingsModel,
-    resolve_alignment_sample_count,
-)
+from pcbasm.pasting import LevelSetting, PasteOverride, PasteSettingsModel
 from pcbasm.pcb import Component, Layer, Pad, build_pad_hierarchy
 from webui.board_settings import BoardSettingsStore
 
@@ -275,125 +269,42 @@ class TestInitialPurgePadId:
         assert "initial_purge_pad_id" not in doc["settings"]
 
 
-class TestAlignmentSampleCount:
-    """alignment_sample_count は基板差分として v1 JSON に保存する."""
+class TestJsonShape:
+    """保存 JSON のネスト方式の契約ピン."""
 
-    @staticmethod
-    def _config(sample_count: int = 10) -> PasteDispenser:
-        return attrs.evolve(
-            _base_config(),
-            pad_align=PadAlign(sample_count=sample_count),
-        )
-
-    def test_default_inherits_machine_and_is_not_saved(self, tmp_path: Path):
-        store = BoardSettingsStore(tmp_path)
-        config = self._config(sample_count=12)
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
-
-        store.save("kurousagi", "boards/a.kicad_pcb", model)
-        doc = _saved_doc(tmp_path, store)
-
-        assert model.alignment_sample_count is None
-        assert resolve_alignment_sample_count(model, config) == 12
-        assert "alignment_sample_count" not in doc["settings"]
-
-    def test_save_load_round_trip_when_explicit(self, tmp_path: Path):
-        store = BoardSettingsStore(tmp_path)
-        config = self._config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
-
-        store.save(
-            "kurousagi",
-            "boards/a.kicad_pcb",
-            model.with_alignment_sample_count(6),
-        )
-        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
-        doc = _saved_doc(tmp_path, store)
-
-        assert loaded.alignment_sample_count == 6
-        assert resolve_alignment_sample_count(loaded, config) == 6
-        assert doc["settings"]["alignment_sample_count"] == 6
-
-    def test_export_import_round_trip_when_explicit(self, tmp_path: Path):
-        store = BoardSettingsStore(tmp_path)
-        config = self._config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
-        edited = model.with_alignment_sample_count(8)
-
-        doc = store.export_doc("kurousagi", "boards/a.kicad_pcb", edited)
-        restored = store.model_from_doc(
-            doc,
-            config,
-            expected_machine="kurousagi",
-            expected_source_pcb="boards/a.kicad_pcb",
-        )
-
-        assert doc["settings"]["alignment_sample_count"] == 8
-        assert restored.alignment_sample_count == 8
-
-    def test_prune_preserves_alignment_override(self, tmp_path: Path):
-        store = BoardSettingsStore(tmp_path)
-        config = self._config()
-        hierarchy = _hierarchy()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
-
-        pruned = store.prune(
-            "kurousagi",
-            "boards/a.kicad_pcb",
-            model.with_alignment_sample_count(5),
-            hierarchy,
-        )
-        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
-
-        assert pruned.alignment_sample_count == 5
-        assert loaded.alignment_sample_count == 5
-
-    def test_v1_document_without_field_inherits_machine_default(self, tmp_path: Path):
-        store = BoardSettingsStore(tmp_path)
-        config = self._config(sample_count=9)
-        doc = {
-            "version": 1,
-            "source_pcb": "boards/a.kicad_pcb",
-            "machine": "kurousagi",
-            "settings": {"levels": []},
-        }
-
-        restored = store.model_from_doc(
-            doc,
-            config,
-            expected_machine="kurousagi",
-            expected_source_pcb="boards/a.kicad_pcb",
-        )
-
-        assert restored.alignment_sample_count is None
-        assert resolve_alignment_sample_count(restored, config) == 9
-
-    def test_signature_mismatch_initializes_without_board_override(
+    def test_legacy_alignment_sample_count_is_ignored_and_not_reexported(
         self, tmp_path: Path
     ):
         store = BoardSettingsStore(tmp_path)
-        config = self._config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
-        store.save(
-            "kurousagi",
-            "boards/a.kicad_pcb",
-            model.with_alignment_sample_count(4),
-            board_signature="old-signature",
-        )
+        config = _base_config()
+        source_pcb = "boards/a.kicad_pcb"
+        legacy_doc = {
+            "version": 1,
+            "source_pcb": source_pcb,
+            "machine": "kurousagi",
+            "settings": {
+                "levels": [],
+                "alignment_sample_count": 6,
+            },
+        }
+        board_id = store.board_id(source_pcb)
+        path = tmp_path / "board_settings" / "kurousagi" / f"{board_id}.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(legacy_doc), encoding="utf-8")
 
-        loaded = store.load_or_init(
-            "kurousagi",
-            "boards/a.kicad_pcb",
+        loaded = store.load_or_init("kurousagi", source_pcb, config)
+        imported = store.model_from_doc(
+            legacy_doc,
             config,
-            board_signature="new-signature",
+            expected_machine="kurousagi",
+            expected_source_pcb=source_pcb,
         )
+        exported = store.export_doc("kurousagi", source_pcb, imported)
+        store.save("kurousagi", source_pcb, loaded)
+        saved = json.loads(path.read_text(encoding="utf-8"))
 
-        assert loaded.alignment_sample_count is None
-        assert resolve_alignment_sample_count(loaded, config) == 10
-
-
-class TestJsonShape:
-    """保存 JSON のネスト方式の契約ピン."""
+        assert "alignment_sample_count" not in exported["settings"]
+        assert "alignment_sample_count" not in saved["settings"]
 
     def test_doc_has_version_source_machine_settings(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)

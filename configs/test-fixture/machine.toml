@@ -45,6 +45,7 @@ theta_range = 2.0   # 回転探索の片側範囲 [deg]
 canny_low = 81.0    # Cannyエッジ検出の下側閾値
 canny_high = 192.0  # Cannyエッジ検出の上側閾値
 blur_ksize = 5      # GaussianBlurカーネルサイズ (奇数)
+sample_count = 10   # 目標とする照合成功pad数
 
 [camera]
 device_id = 0

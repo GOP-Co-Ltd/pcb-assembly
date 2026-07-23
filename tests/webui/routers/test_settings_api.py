@@ -219,6 +219,50 @@ class TestPadAlignMaxFailuresApi:
         assert response.status_code == 400
 
 
+class TestPadAlignSampleCountApi:
+    """paste_dispenser.pad_align.sample_count のmachine設定API."""
+
+    @staticmethod
+    def _fields(client: TestClient) -> dict[str, dict]:
+        response = client.get("/api/settings/machine")
+        assert response.status_code == 200, response.text
+        return {field["key"]: field for field in response.json()["fields"]}
+
+    def test_get_reports_machine_value_with_int_type(self, client: TestClient):
+        field = self._fields(client)["paste_dispenser.pad_align.sample_count"]
+
+        assert field["value"] == 10
+        assert field["value_type"] == "int"
+        assert field["label"] == "目標照合成功数"
+
+    def test_put_updates_machine_value(self, client: TestClient, configs_root: Path):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.pad_align.sample_count": 6}},
+        )
+
+        assert response.status_code == 200, response.text
+        fields = {field["key"]: field for field in response.json()["fields"]}
+        assert fields["paste_dispenser.pad_align.sample_count"]["value"] == 6
+        assert (
+            self._fields(client)["paste_dispenser.pad_align.sample_count"]["value"] == 6
+        )
+        machine_toml = configs_root / "kurousagi" / "machine.toml"
+        assert "sample_count = 6" in machine_toml.read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize("value", [0, -1, True, 1.5, "6"])
+    def test_put_rejects_non_positive_or_non_integer_value(
+        self, client: TestClient, value
+    ):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.pad_align.sample_count": value}},
+        )
+
+        assert response.status_code == 400
+        assert "sample_count" in response.text
+
+
 class TestCameraSettingsRebuild:
     """camera.* キーの保存による FrameHub 再構築（Phase 2 + webui-camera-calib 計画書「設計判断
     b」）.

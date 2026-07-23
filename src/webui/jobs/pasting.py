@@ -47,7 +47,6 @@ from pcbasm.pasting import (
     plan_paste_route,
     plan_toolhead_offset_points,
     rate_sweep_amount,
-    resolve_alignment_sample_count,
     resolve_initial_purge,
     resolve_pad_settings,
     select_enabled_pads,
@@ -814,9 +813,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             align_session,
             candidates,
             board_transform=result.board_transform,
-            sample_count=resolve_alignment_sample_count(
-                model, session.machine.paste_dispenser
-            ),
+            sample_count=pad_align.sample_count,
             max_failures=pad_align.max_failures,
         )
         alignments = alignment_execution.alignments

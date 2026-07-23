@@ -14,7 +14,6 @@ from pcbasm import gcode
 from pcbasm.config import Machine
 from pcbasm.geometry import Point2d, Point3d, sort_by_nearest
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
-from pcbasm.pasting import resolve_alignment_sample_count
 from pcbasm.pcb import Layer, Pad, build_pad_hierarchy
 from pcbasm.posctrl import (
     BoardCalibrationResult,
@@ -37,7 +36,6 @@ from pcbasm.vision import (
 )
 from webui.jobs.board_ops import (
     align_pad_targets,
-    load_board_paste_settings,
     setup_board,
     top_pad_alignment_targets,
 )
@@ -427,7 +425,6 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
 
         # 安全距離を満たす銅箔padをサンプリングする。
         hierarchy = build_pad_hierarchy(result.pcb.components, result.pcb.pads)
-        model = load_board_paste_settings(ctx, hierarchy)
         pad_align = result.machine.paste_dispenser.pad_align
         candidates = rank_safe_pad_alignment_targets(
             top_pad_alignment_targets(hierarchy),
@@ -462,9 +459,7 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             session,
             candidates,
             board_transform=result.board_transform,
-            sample_count=resolve_alignment_sample_count(
-                model, result.machine.paste_dispenser
-            ),
+            sample_count=pad_align.sample_count,
             max_failures=pad_align.max_failures,
             on_failure=render_failed,
         )

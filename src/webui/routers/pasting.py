@@ -12,7 +12,6 @@ import attrs
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
-from pcbasm.config import validate_pad_alignment_sample_count
 from pcbasm.pasting import (
     routed_enabled_pads,
     validate_field_names,
@@ -22,8 +21,6 @@ from pcbasm.pasting import (
 from pcbasm.pcb import Layer
 from webui.dependencies import BoardStoreDep, JobsDep, SettingsDep, StateDep, StoreDep
 from webui.routers.pasting_view import (
-    AlignmentPatch,
-    AlignmentResponse,
     InitialPurgePatch,
     InitialPurgeResponse,
     NodePatch,
@@ -37,7 +34,6 @@ from webui.routers.pasting_view import (
     PatchResponse,
     affected_pads,
     affected_pads_for_ids,
-    build_alignment,
     build_fill_path,
     build_initial_purge,
     build_pad_config,
@@ -194,34 +190,6 @@ def patch_initial_purge(
         )
     return InitialPurgeResponse(
         initial_purge=build_initial_purge(load_board(state, settings, board_store))
-    )
-
-
-@router.patch("/pasting/pad-config/alignment")
-def patch_pad_alignment(
-    body: AlignmentPatch,
-    state: StateDep,
-    settings: SettingsDep,
-    board_store: BoardStoreDep,
-) -> AlignmentResponse:
-    """pad位置合わせ目標成功数の基板overrideを保存する."""
-    if (
-        body.sample_count is not None
-        and (message := validate_pad_alignment_sample_count(body.sample_count))
-        is not None
-    ):
-        raise HTTPException(status_code=400, detail=message)
-    with state.machine_lock("pasting-alignment"):
-        loaded = load_board(state, settings, board_store)
-        model = loaded.model.with_alignment_sample_count(body.sample_count)
-        board_store.save(
-            loaded.machine,
-            loaded.source_pcb,
-            model,
-            board_signature=loaded.board_signature,
-        )
-    return AlignmentResponse(
-        alignment=build_alignment(attrs.evolve(loaded, model=model))
     )
 
 

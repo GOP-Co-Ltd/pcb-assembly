@@ -294,23 +294,6 @@ def _wait_for_initial_purge(
     )
 
 
-def _wait_for_alignment_sample_count(
-    live_server: LiveServer,
-    *,
-    sample_count: int,
-    override_sample_count: int | None,
-) -> dict[str, Any]:
-    return wait_for_config(
-        live_server,
-        lambda config: (
-            config["alignment"]["sample_count"] == sample_count
-            and config["alignment"]["override_sample_count"] == override_sample_count
-        ),
-        f"alignment sample_count -> {sample_count}, "
-        f"override -> {override_sample_count}",
-    )
-
-
 def _assert_in_viewport(page: Any, locator: Any):
     box = locator.bounding_box(timeout=_BROWSER_TIMEOUT_MS)
     assert box is not None
@@ -457,7 +440,7 @@ class TestPasteSolderBrowserRendering:
         machine_toml = live_server.settings.configs_root / "kurousagi" / "machine.toml"
         assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
 
-    def test_alignment_sample_count_persists_and_can_restore_machine_default(
+    def test_alignment_diagnostics_are_read_only_and_link_to_settings(
         self, live_server: LiveServer, browser_page
     ):
         _select_led_blinker(live_server)
@@ -465,19 +448,17 @@ class TestPasteSolderBrowserRendering:
         alignment = config["alignment"]
         _open_paste_solder(browser_page, live_server)
 
-        sample_input = browser_page.locator(_testid("pad-alignment-sample-count"))
-        default_count = browser_page.locator(
-            _testid("pad-alignment-default-sample-count")
-        )
+        sample_count = browser_page.locator(_testid("pad-alignment-sample-count"))
         preferred_count = browser_page.locator(_testid("pad-alignment-preferred-count"))
         safe_count = browser_page.locator(_testid("pad-alignment-safe-count"))
-        reset = browser_page.locator(_testid("pad-alignment-reset"))
         limit = browser_page.locator(_testid("pad-alignment-limit"))
         tools = browser_page.locator(_testid("pad-alignment-tools"))
+        settings_link = tools.locator('a[href="/settings"]')
 
-        sample_input.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
-        assert sample_input.input_value(timeout=_BROWSER_TIMEOUT_MS) == "10"
-        assert "10" in default_count.text_content(timeout=_BROWSER_TIMEOUT_MS)
+        sample_count.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert sample_count.text_content(timeout=_BROWSER_TIMEOUT_MS) == str(
+            alignment["sample_count"]
+        )
         assert str(
             alignment["preferred_component_count"]
         ) in preferred_count.text_content(timeout=_BROWSER_TIMEOUT_MS)
@@ -487,44 +468,22 @@ class TestPasteSolderBrowserRendering:
         help_text = tools.text_content(timeout=_BROWSER_TIMEOUT_MS)
         assert "paste_solder" in help_text
         assert "board_tour" in help_text
-        assert reset.is_disabled()
-
-        limited_count = alignment["safe_pad_count"] + 1
-        sample_input.fill(str(limited_count))
-        sample_input.press("Tab")
-        limited = _wait_for_alignment_sample_count(
-            live_server,
-            sample_count=limited_count,
-            override_sample_count=limited_count,
+        assert (
+            settings_link.text_content(timeout=_BROWSER_TIMEOUT_MS)
+            == "設定ページで変更"
         )
-        limit.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
-        assert str(limited["alignment"]["effective_sample_count"]) in (
-            limit.text_content(timeout=_BROWSER_TIMEOUT_MS)
+        assert tools.locator("input, button").count() == 0
+        if alignment["sample_count_limited"]:
+            limit.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+            assert str(alignment["effective_sample_count"]) in limit.text_content(
+                timeout=_BROWSER_TIMEOUT_MS
+            )
+        else:
+            assert limit.is_hidden()
+        settings_link.click()
+        browser_page.wait_for_url(
+            f"{live_server.base_url}/settings", timeout=_BROWSER_TIMEOUT_MS
         )
-
-        sample_input.fill("6")
-        sample_input.press("Tab")
-        _wait_for_alignment_sample_count(
-            live_server,
-            sample_count=6,
-            override_sample_count=6,
-        )
-
-        browser_page.reload(wait_until="domcontentloaded")
-        sample_input = browser_page.locator(_testid("pad-alignment-sample-count"))
-        reset = browser_page.locator(_testid("pad-alignment-reset"))
-        sample_input.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
-        assert sample_input.input_value(timeout=_BROWSER_TIMEOUT_MS) == "6"
-        assert not reset.is_disabled()
-
-        reset.click()
-        _wait_for_alignment_sample_count(
-            live_server,
-            sample_count=10,
-            override_sample_count=None,
-        )
-        assert sample_input.input_value(timeout=_BROWSER_TIMEOUT_MS) == "10"
-        assert reset.is_disabled()
 
 
 class TestPasteSolderBrowserPadInteraction:
@@ -780,8 +739,6 @@ class TestPasteSolderBrowserPadInteraction:
         )
         assert browser_page.locator(_testid("pad-disable-all")).is_disabled()
         assert browser_page.locator(_testid("pad-setting-input")).nth(0).is_disabled()
-        assert browser_page.locator(_testid("pad-alignment-sample-count")).is_disabled()
-        assert browser_page.locator(_testid("pad-alignment-reset")).is_disabled()
 
     def test_saved_override_file_can_be_imported(
         self, live_server: LiveServer, browser_page, tmp_path: Path

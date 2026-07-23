@@ -14,7 +14,11 @@ import attrs
 import tomlkit
 from tomlkit.items import Item, Table
 
-from pcbasm.config import DISPENSE_MODES, validate_probe_board_edge_margin
+from pcbasm.config import (
+    DISPENSE_MODES,
+    validate_pad_alignment_sample_count,
+    validate_probe_board_edge_margin,
+)
 
 type SettingValueType = Literal[
     "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode", "bool"
@@ -101,7 +105,8 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),
-    FieldSpec("paste_dispenser.pad_align.max_failures", "照合失敗の許容部品数", "int"),
+    FieldSpec("paste_dispenser.pad_align.sample_count", "目標照合成功数", "int"),
+    FieldSpec("paste_dispenser.pad_align.max_failures", "照合失敗の許容pad数", "int"),
     # [probe]
     FieldSpec("probe.lift_height", "プローブ後の上昇高さ", "float", "mm"),
     FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
@@ -193,6 +198,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
             if isinstance(value, float) and value.is_integer():
                 value = int(value)
             if isinstance(value, int):
+                if spec.key == "paste_dispenser.pad_align.sample_count":
+                    if error := validate_pad_alignment_sample_count(value):
+                        raise UnknownFieldError(error)
                 if spec.key == "paste_dispenser.pad_align.max_failures" and value < 0:
                     raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
                 if (

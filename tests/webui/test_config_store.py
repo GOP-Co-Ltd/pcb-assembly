@@ -52,6 +52,7 @@ class TestMachineSettings:
         assert values["paste_dispenser.paste_height"] == "auto"
         assert values["paste_dispenser.toolhead.x"] == -1.772
         assert values["paste_dispenser.pad_align.blur_ksize"] == 5
+        assert values["paste_dispenser.pad_align.sample_count"] == 10
         assert values["probe.min_radius"] == 0.7
         assert values["probe.board_edge_margin"] == 2.5
         assert values["camera.device_id"] == 0
@@ -416,6 +417,32 @@ class TestPadAlignMaxFailures:
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings(
                 FIXTURE, {"paste_dispenser.pad_align.max_failures": -1}
+            )
+
+
+class TestPadAlignSampleCount:
+    """目標成功数はmachine.tomlの正の整数として読み書きする."""
+
+    def test_write_then_reread_reflects_value(self, store: ConfigStore):
+        store.write_machine_settings(
+            FIXTURE, {"paste_dispenser.pad_align.sample_count": 6}
+        )
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["paste_dispenser.pad_align.sample_count"] == 6
+
+    @pytest.mark.parametrize("value", [0, -1, True, 1.5])
+    def test_non_positive_or_non_integer_value_raises(
+        self, store: ConfigStore, value: object
+    ):
+        with pytest.raises(UnknownFieldError, match="sample_count"):
+            store.write_machine_settings(
+                FIXTURE,
+                {
+                    "paste_dispenser.pad_align.sample_count": cast(
+                        "MachineSettingValue", value
+                    )
+                },
             )
 
 

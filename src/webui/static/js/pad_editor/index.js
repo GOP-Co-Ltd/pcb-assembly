@@ -45,7 +45,6 @@ import {
     fillPath: null,
     fillPathLoading: false,
     initialPurgeSaving: false,
-    alignmentSaving: false,
     padEls: new Map(),
     rowEls: new Map(),
     parentOf: new Map(),
@@ -78,16 +77,12 @@ import {
   const alignmentSampleCount = document.getElementById(
     "pad-alignment-sample-count"
   );
-  const alignmentDefaultSampleCount = document.getElementById(
-    "pad-alignment-default-sample-count"
-  );
   const alignmentSafeCount = document.getElementById(
     "pad-alignment-safe-count"
   );
   const alignmentPreferredCount = document.getElementById(
     "pad-alignment-preferred-count"
   );
-  const alignmentResetButton = document.getElementById("pad-alignment-reset");
   const alignmentLimit = document.getElementById("pad-alignment-limit");
 
   async function load() {
@@ -184,12 +179,7 @@ import {
     if (!state.config?.alignment) return;
     const alignment = state.config.alignment;
     if (alignmentSampleCount) {
-      alignmentSampleCount.value = String(alignment.sample_count);
-    }
-    if (alignmentDefaultSampleCount) {
-      alignmentDefaultSampleCount.textContent = String(
-        alignment.default_sample_count
-      );
+      alignmentSampleCount.textContent = String(alignment.sample_count);
     }
     if (alignmentSafeCount) {
       alignmentSafeCount.textContent = String(alignment.safe_pad_count);
@@ -462,37 +452,6 @@ import {
     }
   }
 
-  async function patchAlignmentSampleCount(sampleCount) {
-    if (state.locked || state.alignmentSaving) return;
-    state.alignmentSaving = true;
-    applyToolbarLock();
-    try {
-      const response = await api("PATCH", "/api/pasting/pad-config/alignment", {
-        sample_count: sampleCount,
-      });
-      state.config.alignment = response.alignment;
-      renderAlignmentControls();
-    } catch (err) {
-      renderAlignmentControls();
-      toast(`位置合わせ設定更新失敗: ${err.message}`, false);
-    } finally {
-      state.alignmentSaving = false;
-      applyToolbarLock();
-    }
-  }
-
-  function commitAlignmentSampleCount() {
-    if (state.locked || state.alignmentSaving || !alignmentSampleCount) return;
-    const raw = alignmentSampleCount.value.trim();
-    if (raw === "") return;
-    const value = Number(raw);
-    if (!Number.isFinite(value)) {
-      toast("数値を入力してください", false);
-      return;
-    }
-    patchAlignmentSampleCount(value);
-  }
-
   function focusNodePads(nodeId) {
     state.focusedNode = nodeId;
     for (const [id, row] of state.rowEls) {
@@ -566,13 +525,6 @@ import {
     if (initialPurgeClearPadButton) {
       initialPurgeClearPadButton.disabled =
         editingLocked || !state.config?.initial_purge?.pad_id;
-    }
-    const alignmentLocked = state.locked || state.alignmentSaving;
-    if (alignmentSampleCount) alignmentSampleCount.disabled = alignmentLocked;
-    if (alignmentResetButton) {
-      alignmentResetButton.disabled =
-        alignmentLocked ||
-        state.config?.alignment?.override_sample_count === null;
     }
   }
 
@@ -652,19 +604,6 @@ import {
     initialPurgeClearPadButton.addEventListener("click", () => {
       if (state.locked) return;
       patchInitialPurge({ pad_id: null });
-    });
-  }
-
-  if (alignmentSampleCount) {
-    alignmentSampleCount.addEventListener("change", commitAlignmentSampleCount);
-    alignmentSampleCount.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") commitAlignmentSampleCount();
-    });
-  }
-
-  if (alignmentResetButton) {
-    alignmentResetButton.addEventListener("click", () => {
-      patchAlignmentSampleCount(null);
     });
   }
 

@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterable, Iterator
 
 import attrs
 from fastapi import HTTPException
-from pydantic import BaseModel, StrictInt
+from pydantic import BaseModel
 
 from pcbasm.config import PasteDispenser
 from pcbasm.pasting import (
@@ -31,7 +31,6 @@ from pcbasm.pasting import (
     ResolvedPaste,
     build_pad_fill_plan_for,
     plan_paste_route,
-    resolve_alignment_sample_count,
     resolve_initial_purge,
     resolve_node_settings,
     resolve_pad_settings,
@@ -146,27 +145,13 @@ class InitialPurgeResponse(BaseModel):
 
 
 class AlignmentInfo(BaseModel):
-    """pad位置合わせの解決済み設定と安全候補集計."""
+    """pad位置合わせのmachine設定と安全候補集計."""
 
     sample_count: int
-    default_sample_count: int
-    override_sample_count: int | None
     preferred_component_count: int
     safe_pad_count: int
     effective_sample_count: int
     sample_count_limited: bool
-
-
-class AlignmentPatch(BaseModel):
-    """PATCH pad位置合わせ目標成功数の基板override."""
-
-    sample_count: StrictInt | None
-
-
-class AlignmentResponse(BaseModel):
-    """PATCH pad位置合わせ設定のレスポンス."""
-
-    alignment: AlignmentInfo
 
 
 class PadConfigResponse(BaseModel):
@@ -458,12 +443,10 @@ def build_alignment(loaded: Loaded) -> AlignmentInfo:
         max_correction_mm=pad_align.max_correction,
         tolerance_mm=pad_align.tolerance,
     )
-    sample_count = resolve_alignment_sample_count(loaded.model, loaded.base_config)
+    sample_count = pad_align.sample_count
     safe_pad_count = len(candidates.targets)
     return AlignmentInfo(
         sample_count=sample_count,
-        default_sample_count=pad_align.sample_count,
-        override_sample_count=loaded.model.alignment_sample_count,
         preferred_component_count=candidates.preferred_component_count,
         safe_pad_count=safe_pad_count,
         effective_sample_count=min(sample_count, safe_pad_count),

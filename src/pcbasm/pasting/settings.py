@@ -16,13 +16,7 @@ from typing import Any, cast
 
 import attrs
 
-from pcbasm.config import (
-    DISPENSE_MODES,
-    DispenseMode,
-    PasteDispenser,
-    PasteHeight,
-    validate_pad_alignment_sample_count,
-)
+from pcbasm.config import DISPENSE_MODES, DispenseMode, PasteDispenser, PasteHeight
 from pcbasm.pcb.board import Pad
 from pcbasm.pcb.grouping import HierKey, PadHierarchy, PadHierarchyNode, PadRef
 
@@ -119,27 +113,13 @@ class PasteSettingsModel:
         base: machine.toml 由来のデフォルト（全項目確定）
         base_enabled: machine.toml 由来の有効/無効既定
         initial_purge_pad_id: 初回パージに使う pad id（None = fill sequence 先頭）
-        alignment_sample_count: pad位置合わせ目標成功数（None = machine設定を継承）
         levels: L0–L4 の疎マップ（``HierKey`` -> 設定）
     """
 
     base: PasteOverride
     base_enabled: bool = True
     initial_purge_pad_id: str | None = None
-    alignment_sample_count: int | None = None
     levels: dict[HierKey, LevelSetting] = attrs.field(factory=dict)
-
-    def __attrs_post_init__(self) -> None:
-        if (
-            self.alignment_sample_count is not None
-            and (
-                error := validate_pad_alignment_sample_count(
-                    self.alignment_sample_count
-                )
-            )
-            is not None
-        ):
-            raise ValueError(f"alignment_sample_countが不正です: {error}")
 
     def with_level_patch(
         self,
@@ -187,21 +167,6 @@ class PasteSettingsModel:
     def with_initial_purge_pad_id(self, pad_id: str | None) -> "PasteSettingsModel":
         """初回パージ pad id を差し替えた新モデルを返す."""
         return attrs.evolve(self, initial_purge_pad_id=pad_id)
-
-    def with_alignment_sample_count(
-        self, sample_count: int | None
-    ) -> "PasteSettingsModel":
-        """pad位置合わせ目標成功数の基板overrideを差し替える."""
-        return attrs.evolve(self, alignment_sample_count=sample_count)
-
-
-def resolve_alignment_sample_count(
-    model: PasteSettingsModel, config: PasteDispenser
-) -> int:
-    """基板overrideまたはmachine既定の位置合わせ目標成功数を返す."""
-    if model.alignment_sample_count is not None:
-        return model.alignment_sample_count
-    return config.pad_align.sample_count
 
 
 def base_override_from_config(config: PasteDispenser) -> PasteOverride:
@@ -476,7 +441,7 @@ def settings_to_dict(model: PasteSettingsModel) -> dict:
     Returns:
         ``{"base": {...}, "base_enabled": bool, "levels": [...]}``
     """
-    data = {
+    return {
         "base": _override_to_dict(model.base),
         "base_enabled": model.base_enabled,
         "initial_purge_pad_id": model.initial_purge_pad_id,
@@ -489,9 +454,6 @@ def settings_to_dict(model: PasteSettingsModel) -> dict:
             for key, setting in model.levels.items()
         ],
     }
-    if model.alignment_sample_count is not None:
-        data["alignment_sample_count"] = model.alignment_sample_count
-    return data
 
 
 def settings_from_dict(data: dict) -> PasteSettingsModel:
@@ -514,7 +476,6 @@ def settings_from_dict(data: dict) -> PasteSettingsModel:
         base=_override_from_dict(data.get("base", {})),
         base_enabled=data.get("base_enabled", True),
         initial_purge_pad_id=data.get("initial_purge_pad_id"),
-        alignment_sample_count=data.get("alignment_sample_count"),
         levels=levels,
     )
 
