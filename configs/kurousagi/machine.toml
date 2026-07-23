@@ -6,7 +6,7 @@ port = 7125
 
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
-rotations_per_ul = 10.0 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
+rotations_per_ul = 8.0 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
 # rotations_per_ul = 31.491713 # キャリブレーション値 2026/06/05 S3X70-E150DN
 # rotations_per_ul = 69.724771 # キャリブレーション値 2026/05/08 S3X70-E150DN
 solder_paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
