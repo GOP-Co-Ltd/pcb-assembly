@@ -10,6 +10,7 @@ from .calibration import (
     MassFlowEstimate,
     estimate_mass_flow,
 )
+from .correction import CorrectedPasteTargets, correct_paste_targets
 from .dispense_calibration import (
     DispenseRateCalibration,
     FillSpeedSweep,
@@ -49,6 +50,7 @@ from .settings import (
     base_override_from_config,
     find_orphans,
     is_pad_enabled,
+    resolve_alignment_sample_count,
     resolve_node_settings,
     resolve_pad_settings,
     select_enabled_pads,
@@ -65,6 +67,7 @@ from .toolhead_offset import (
 
 __all__ = [
     "DispenseRateCalibration",
+    "CorrectedPasteTargets",
     "EnableState",
     "FillSequence",
     "FillSpeedSweep",
@@ -101,11 +104,13 @@ __all__ = [
     "build_pad_fill_plan_for",
     "build_paste_fill_path",
     "build_paste_fill_plan",
+    "correct_paste_targets",
     "estimate_mass_flow",
     "find_orphans",
     "is_pad_enabled",
     "plan_paste_route",
     "plan_toolhead_offset_points",
+    "resolve_alignment_sample_count",
     "resolve_node_settings",
     "resolve_initial_purge",
     "resolve_pad_settings",

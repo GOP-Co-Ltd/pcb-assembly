@@ -1086,6 +1086,57 @@ h2 {
   white-space: normal;
 }
 
+.pad-alignment-tools {
+  display: grid;
+  grid-template-columns: max-content minmax(3rem, 1fr) max-content;
+  align-items: center;
+  gap: 0.25rem 0.35rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.pad-alignment-tools input {
+  width: 100%;
+  min-width: 0;
+}
+
+.pad-alignment-summary {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  gap: 0.35rem;
+  min-width: 0;
+  font-size: 0.75rem;
+}
+
+.pad-alignment-summary output {
+  color: var(--text);
+  font-family: var(--mono);
+}
+
+.pad-alignment-tools strong,
+.pad-alignment-tools small {
+  grid-column: 1 / -1;
+}
+
+.pad-alignment-tools button {
+  width: auto;
+  padding-right: 0.45rem;
+  padding-left: 0.45rem;
+}
+
+.pad-alignment-tools small {
+  color: var(--quiet);
+  font-size: 0.72rem;
+  line-height: 1.15;
+}
+
+.pad-alignment-limit {
+  color: var(--warn);
+  font-weight: 600;
+}
+
 .pad-route-tools {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1687,6 +1738,7 @@ h2 {
   .pad-editor-toolbar,
   .pad-select-tools,
   .pad-route-tools,
+  .pad-alignment-tools,
   .pad-config-tools {
     align-items: stretch;
     justify-content: stretch;
@@ -1694,6 +1746,14 @@ h2 {
 
   .pad-editor-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .pad-alignment-tools {
+    grid-template-columns: minmax(0, 1fr) minmax(4rem, 0.5fr);
+  }
+
+  .pad-alignment-tools button {
+    grid-column: auto;
   }
 
   .pad-layer-switch {

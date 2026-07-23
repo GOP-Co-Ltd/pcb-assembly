@@ -231,13 +231,13 @@ class TestMachine:
 class TestPadAlignMaxFailures:
     """PadAlign.max_failures のテスト（paste-align-max-failures 計画書「公開 IF」節）.
 
-    照合失敗の許容部品数。デフォルト 0（1 部品でも失敗したら塗布ジョブを即中止）。
+    照合失敗の許容数。新しい pad サンプリング既定値は 3。
     """
 
-    def test_defaults_to_zero_when_absent(self):
+    def test_defaults_to_three_when_absent(self):
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
 
-        assert machine.paste_dispenser.pad_align.max_failures == 0
+        assert machine.paste_dispenser.pad_align.max_failures == 3
 
     def test_reads_explicit_value(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
@@ -254,6 +254,32 @@ class TestPadAlignMaxFailures:
     def test_rejects_negative_value(self):
         with pytest.raises(ValueError, match="max_failures"):
             PadAlign(max_failures=-1)
+
+
+class TestPadAlignSampleCount:
+    """PadAlign.sample_count は目標成功 pad 数を正の整数で保持する."""
+
+    def test_defaults_to_ten_when_absent(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.paste_dispenser.pad_align.sample_count == 10
+
+    def test_reads_explicit_value(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source + "\n[paste_dispenser.pad_align]\nsample_count = 6\n",
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.paste_dispenser.pad_align.sample_count == 6
+
+    @pytest.mark.parametrize("sample_count", [0, -1, True, 1.5])
+    def test_rejects_non_positive_bool_and_non_integer(self, sample_count):
+        with pytest.raises(ValueError, match="sample_count"):
+            PadAlign(sample_count=sample_count)
 
 
 class TestMachineType:

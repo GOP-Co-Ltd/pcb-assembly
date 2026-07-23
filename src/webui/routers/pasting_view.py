@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterable, Iterator
 
 import attrs
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictInt
 
 from pcbasm.config import PasteDispenser
 from pcbasm.pasting import (
@@ -31,6 +31,7 @@ from pcbasm.pasting import (
     ResolvedPaste,
     build_pad_fill_plan_for,
     plan_paste_route,
+    resolve_alignment_sample_count,
     resolve_initial_purge,
     resolve_node_settings,
     resolve_pad_settings,
@@ -45,6 +46,7 @@ from pcbasm.pcb import (
     PcbFile,
     build_pad_hierarchy,
 )
+from pcbasm.posctrl import PadAlignmentTarget, rank_safe_pad_alignment_targets
 from webui.board_settings import BoardSettingsStore
 from webui.settings import Settings
 from webui.state import AppState
@@ -143,6 +145,30 @@ class InitialPurgeResponse(BaseModel):
     initial_purge: InitialPurgeInfo
 
 
+class AlignmentInfo(BaseModel):
+    """pad位置合わせの解決済み設定と安全候補集計."""
+
+    sample_count: int
+    default_sample_count: int
+    override_sample_count: int | None
+    preferred_component_count: int
+    safe_pad_count: int
+    effective_sample_count: int
+    sample_count_limited: bool
+
+
+class AlignmentPatch(BaseModel):
+    """PATCH pad位置合わせ目標成功数の基板override."""
+
+    sample_count: StrictInt | None
+
+
+class AlignmentResponse(BaseModel):
+    """PATCH pad位置合わせ設定のレスポンス."""
+
+    alignment: AlignmentInfo
+
+
 class PadConfigResponse(BaseModel):
     """GET /api/pasting/pad-config のレスポンス."""
 
@@ -153,6 +179,7 @@ class PadConfigResponse(BaseModel):
     height: float
     defaults: ResolvedSettings  # machine.toml 由来の基板デフォルト
     initial_purge: InitialPurgeInfo
+    alignment: AlignmentInfo
     tree: HierNodeInfo  # L0 ルートの階層ツリー（構造のみ）
     pads: list[PadInfo]
     overrides: dict[str, NodeOverrideInfo]  # node_id -> 明示 override（疎、L0 含む）
@@ -415,6 +442,35 @@ def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
     )
 
 
+def build_alignment(loaded: Loaded) -> AlignmentInfo:
+    """ロード済み基板から位置合わせ設定と安全候補数を構築する."""
+    targets = tuple(
+        PadAlignmentTarget(
+            identifier=loaded.hierarchy.pad_id_for_pad(pad),
+            pad=pad,
+        )
+        for pad in loaded.hierarchy.iter_pads()
+        if pad.layer == Layer.TOP
+    )
+    pad_align = loaded.base_config.pad_align
+    candidates = rank_safe_pad_alignment_targets(
+        targets,
+        max_correction_mm=pad_align.max_correction,
+        tolerance_mm=pad_align.tolerance,
+    )
+    sample_count = resolve_alignment_sample_count(loaded.model, loaded.base_config)
+    safe_pad_count = len(candidates.targets)
+    return AlignmentInfo(
+        sample_count=sample_count,
+        default_sample_count=pad_align.sample_count,
+        override_sample_count=loaded.model.alignment_sample_count,
+        preferred_component_count=candidates.preferred_component_count,
+        safe_pad_count=safe_pad_count,
+        effective_sample_count=min(sample_count, safe_pad_count),
+        sample_count_limited=sample_count > safe_pad_count,
+    )
+
+
 def pad_info(
     pad: Pad,
     pad_id: str,
@@ -512,6 +568,7 @@ def build_pad_config(loaded: Loaded) -> PadConfigResponse:
         height=outline.height,
         defaults=resolved_default(model),
         initial_purge=build_initial_purge(loaded),
+        alignment=build_alignment(loaded),
         tree=tree(hierarchy.root, model, node_resolved),
         pads=pads,
         overrides=overrides(model),

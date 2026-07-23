@@ -1,23 +1,127 @@
-"""部品単位pad位置合わせの配線と補正結果のlookup."""
+"""銅箔pad位置合わせの候補選定、配線、補正結果."""
 
 import logging
+import math
+from collections.abc import Sequence
 from typing import Self
 
 import attrs
 
-from pcbasm.geometry import Compose, Transform, sort_by_nearest
-from pcbasm.pcb import Layer
+from pcbasm.geometry import Compose, Point2d, Shift, Transform, sort_by_nearest
+from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjector
 from pcbasm.posctrl.pad import (
     ComponentPads,
     PadAligner,
     PadAlignmentResult,
+    PadAlignmentTarget,
     group_pads_by_component,
 )
 from pcbasm.posctrl.setup import BoardCalibrationResult
 from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 logger = logging.getLogger(__name__)
+
+
+@attrs.frozen
+class PadAlignmentCandidates:
+    """安全距離を満たすpad位置合わせ候補と選定集計."""
+
+    targets: tuple[PadAlignmentTarget, ...]
+    preferred_component_count: int
+    rejected_count: int
+
+
+def rank_safe_pad_alignment_targets(
+    targets: Sequence[PadAlignmentTarget],
+    *,
+    max_correction_mm: float,
+    tolerance_mm: float,
+) -> PadAlignmentCandidates:
+    """安全なTOP銅箔padをComponent分散優先・面積順で返す.
+
+    対象padと他候補の実銅箔重心距離が
+    ``2 * max_correction_mm + tolerance_mm`` より大きいものだけを採用する。
+    各designatorの最小面積padを先に並べ、その後へ残りを面積順で続ける。
+    """
+    indexed: list[tuple[int, PadAlignmentTarget]] = []
+    for index, target in enumerate(targets):
+        polygon = target.pad.copper_polygon
+        if (
+            target.pad.layer != Layer.TOP
+            or not polygon.is_valid
+            or polygon.is_empty
+            or polygon.area <= 0
+        ):
+            continue
+        indexed.append((index, target))
+
+    minimum_distance = 2 * max_correction_mm + tolerance_mm
+    safe: list[tuple[int, PadAlignmentTarget]] = []
+    for index, target in indexed:
+        position = target.position
+        if all(
+            (position - other.position).norm > minimum_distance
+            for other_index, other in indexed
+            if other_index != index
+        ):
+            safe.append((index, target))
+
+    def key(item: tuple[int, PadAlignmentTarget]) -> tuple:
+        index, target = item
+        position = target.position
+        return (
+            target.pad.copper_polygon.area,
+            target.pad.designator,
+            target.pad.pad_number,
+            position.x,
+            position.y,
+            index,
+        )
+
+    ordered = sorted(safe, key=key)
+    preferred: list[tuple[int, PadAlignmentTarget]] = []
+    remaining: list[tuple[int, PadAlignmentTarget]] = []
+    seen_designators: set[str] = set()
+    for item in ordered:
+        designator = item[1].pad.designator
+        if designator not in seen_designators:
+            preferred.append(item)
+            seen_designators.add(designator)
+        else:
+            remaining.append(item)
+
+    ranked = [target for _, target in (*preferred, *remaining)]
+    return PadAlignmentCandidates(
+        targets=tuple(ranked),
+        preferred_component_count=len(preferred),
+        rejected_count=len(targets) - len(ranked),
+    )
+
+
+def corrected_top_pad_entries(
+    pads: Sequence[Pad],
+    *,
+    board_transform: Transform,
+    machine_correction: Transform,
+    start: Point2d,
+) -> tuple[tuple[Pad, Point2d], ...]:
+    """平均補正済みの全TOP pad巡回先をnearest neighbor順で返す."""
+    entries = [
+        (
+            pad,
+            machine_correction.apply(board_transform.apply(pad.center)),
+        )
+        for pad in pads
+        if pad.layer == Layer.TOP
+    ]
+    return tuple(
+        sort_by_nearest(
+            entries,
+            start.to3d(),
+            key=lambda entry: entry[1].to3d(),
+        )
+    )
 
 
 def sorted_top_component_pads(
@@ -102,11 +206,50 @@ class ComponentAlignments:
         )
 
 
+@attrs.frozen
+class PadAlignments:
+    """複数padの照合成功結果から算出する基板共通のXY補正.
+
+    個別照合の回転成分は共通補正へ含めない。
+    """
+
+    board_transform: Transform
+    results: tuple[tuple[PadAlignmentTarget, PadAlignmentResult], ...]
+
+    def __attrs_post_init__(self) -> None:
+        if not self.results:
+            raise ValueError("pad位置合わせ結果がありません")
+
+    def average_translation(self) -> Point2d:
+        """成功結果のmachine空間XY並進を算術平均する."""
+        count = len(self.results)
+        return Point2d(
+            math.fsum(result.translation.x for _, result in self.results) / count,
+            math.fsum(result.translation.y for _, result in self.results) / count,
+        )
+
+    def averaged_machine_transform(self) -> Transform:
+        """平均XY並進だけを適用するmachine空間Transformを返す."""
+        translation = self.average_translation()
+        return Shift(x=translation.x, y=translation.y)
+
+    def averaged_board_correction(self) -> Transform:
+        """平均並進をboard座標へ共役変換した補正を返す."""
+        return Compose(
+            [
+                self.board_transform,
+                self.averaged_machine_transform(),
+                self.board_transform.inverse(),
+            ]
+        )
+
+
 class PadAlignmentSession:
     """TOP層銅箔照合によるpad位置合わせの配線をまとめたセッション.
 
     BoardCalibrationResultからCopperProjector / CopperEdgeMatcher /
-    CopperEdgeDetector / PadAlignerを構築し、部品単位の位置合わせと 補正済み投影器の生成を提供する。
+    CopperEdgeDetector / PadAlignerを構築し、単一padと既存の部品単位の
+    位置合わせ、および補正済み投影器の生成を提供する。
     """
 
     def __init__(
@@ -186,6 +329,14 @@ class PadAlignmentSession:
             return self._aligner.align(target)
         except RuntimeError as exc:
             logger.warning("部品 %s の照合に失敗: %s", target.component.designator, exc)
+            return None
+
+    def align_pad(self, target: PadAlignmentTarget) -> PadAlignmentResult | None:
+        """単一padの位置合わせを実行し、失敗時はNoneを返す."""
+        try:
+            return self._aligner.align_pad(target)
+        except RuntimeError as exc:
+            logger.warning("%s の照合に失敗: %s", target.identifier, exc)
             return None
 
     def corrected_projector(self, machine_transform: Transform) -> CopperProjector:

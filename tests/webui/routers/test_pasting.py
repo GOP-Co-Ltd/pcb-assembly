@@ -193,6 +193,119 @@ class TestGetPadConfig:
         assert "descendant_summary" in u1_node
 
 
+class TestAlignmentPadConfig:
+    """GET/PATCH alignment sample count の解決値と基板 override."""
+
+    def test_get_includes_resolved_default_override_and_candidate_counts(
+        self, selected_client: TestClient
+    ):
+        alignment = _get_config(selected_client)["alignment"]
+
+        assert alignment["sample_count"] == 10
+        assert alignment["default_sample_count"] == 10
+        assert alignment["override_sample_count"] is None
+        assert isinstance(alignment["preferred_component_count"], int)
+        assert isinstance(alignment["safe_pad_count"], int)
+        assert (
+            0 <= alignment["preferred_component_count"] <= alignment["safe_pad_count"]
+        )
+        assert alignment["effective_sample_count"] == min(
+            alignment["sample_count"], alignment["safe_pad_count"]
+        )
+        assert alignment["sample_count_limited"] is (
+            alignment["sample_count"] > alignment["safe_pad_count"]
+        )
+
+    def test_patch_saves_board_override_without_changing_machine_default(
+        self,
+        selected_client: TestClient,
+        configs_root: Path,
+        webui_settings: Settings,
+    ):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/alignment",
+            json={"sample_count": 6},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["alignment"]["sample_count"] == 6
+        alignment = _get_config(selected_client)["alignment"]
+        assert alignment["sample_count"] == 6
+        assert alignment["default_sample_count"] == 10
+        assert alignment["override_sample_count"] == 6
+
+        doc = _saved_board_settings_doc(webui_settings)
+        assert doc["settings"]["alignment_sample_count"] == 6
+        machine_toml = configs_root / "kurousagi" / "machine.toml"
+        assert "sample_count" not in machine_toml.read_text(encoding="utf-8")
+
+    def test_null_clears_override_and_restores_default(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
+        set_response = selected_client.patch(
+            "/api/pasting/pad-config/alignment",
+            json={"sample_count": 4},
+        )
+        assert set_response.status_code == 200, set_response.text
+
+        clear_response = selected_client.patch(
+            "/api/pasting/pad-config/alignment",
+            json={"sample_count": None},
+        )
+
+        assert clear_response.status_code == 200, clear_response.text
+        assert clear_response.json()["alignment"]["sample_count"] == 10
+        alignment = _get_config(selected_client)["alignment"]
+        assert alignment["override_sample_count"] is None
+        assert alignment["sample_count"] == alignment["default_sample_count"] == 10
+        doc = _saved_board_settings_doc(webui_settings)
+        assert "alignment_sample_count" not in doc["settings"]
+
+    @pytest.mark.parametrize("sample_count", [0, -1])
+    def test_non_positive_value_returns_400(
+        self, selected_client: TestClient, sample_count: int
+    ):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/alignment",
+            json={"sample_count": sample_count},
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.parametrize("sample_count", [True, 1.5, "6"])
+    def test_non_integer_value_is_rejected_by_transport(
+        self, selected_client: TestClient, sample_count
+    ):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/alignment",
+            json={"sample_count": sample_count},
+        )
+
+        assert response.status_code == 422
+
+    def test_patch_without_selection_returns_409(self, client: TestClient):
+        response = client.patch(
+            "/api/pasting/pad-config/alignment",
+            json={"sample_count": 6},
+        )
+
+        assert response.status_code == 409
+
+    def test_patch_while_job_holds_machine_lock_returns_409(
+        self,
+        selected_client: TestClient,
+        appstate: AppState,
+    ):
+        with appstate.machine_lock("pytest-job"):
+            response = selected_client.patch(
+                "/api/pasting/pad-config/alignment",
+                json={"sample_count": 6},
+            )
+
+        assert response.status_code == 409
+        assert "pytest-job" in response.text
+
+
 class TestInitialPurgePadConfig:
     """GET/PATCH initial_purge."""
 

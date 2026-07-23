@@ -22,7 +22,6 @@ from pcbasm.geometry import (
     Transform,
     sample_points_in_polygons,
     sampling_diagnostics,
-    transform_polygon,
 )
 from pcbasm.hal import (
     Klipper,
@@ -36,20 +35,19 @@ from pcbasm.pasting import (
     LineLayout,
     LineLayoutOverflowError,
     PasteApplicator,
-    PasteSettingsModel,
     ProbeExecutor,
     RateMeasurement,
-    ResolvedInitialPurge,
     ResolvedPaste,
     RotationsPerUlRound,
     ToolheadOffsetResult,
     ToolheadOffsetSample,
-    base_override_from_config,
+    correct_paste_targets,
     dispense_rate_schedule,
     fill_speed_schedule,
     plan_paste_route,
     plan_toolhead_offset_points,
     rate_sweep_amount,
+    resolve_alignment_sample_count,
     resolve_initial_purge,
     resolve_pad_settings,
     select_enabled_pads,
@@ -63,11 +61,10 @@ from pcbasm.pcb import (
     build_pad_hierarchy,
 )
 from pcbasm.posctrl import (
-    ComponentAlignments,
     OffsetObserver,
     PadAlignmentSession,
     XYPositionAdjustor,
-    sorted_top_component_pads,
+    rank_safe_pad_alignment_targets,
 )
 from pcbasm.session import PasteSession
 from pcbasm.vision import CircleDetector, Image
@@ -75,7 +72,12 @@ from pcbasm.visualization import (
     render_height_plane,
     render_planned_points,
 )
-from webui.jobs.board_ops import align_component_groups, setup_board
+from webui.jobs.board_ops import (
+    align_pad_targets,
+    load_board_paste_settings,
+    setup_board,
+    top_pad_alignment_targets,
+)
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import (
     ApplyPayload,
@@ -753,27 +755,6 @@ def _apply_to_machine_toml(ctx: JobContext, values: Mapping[str, float]) -> None
 # --- ジョブ実装 ---
 
 
-def _resolve_paste_model(
-    ctx: JobContext, hierarchy: PadHierarchy
-) -> PasteSettingsModel:
-    """基板設定ストア（あれば）から塗布設定モデルを取得する.
-
-    ストア／PCB が未配線なら ``machine.toml`` の ``[paste_dispenser]`` を
-    L0 デフォルトに据えた全 pad 有効のモデルを返す（= 現行等価のフォールバック）。
-    """
-    if ctx.board_store is not None and ctx.source_pcb is not None:
-        return ctx.board_store.load_or_init(
-            ctx.machine_name,
-            ctx.source_pcb,
-            ctx.machine.paste_dispenser,
-            board_signature=hierarchy.signature(),
-        )
-    return PasteSettingsModel(
-        base=base_override_from_config(ctx.machine.paste_dispenser),
-        base_enabled=True,
-    )
-
-
 def _run_paste_solder(ctx: JobContext) -> JobResult:
     """ボード計測 → 銅箔照合 → 高さ計測 → 補正適用 → ペースト塗布を通しで実行する.
 
@@ -789,7 +770,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
         hierarchy = build_pad_hierarchy(session.pcb.components, session.pcb.pads)
-        model = _resolve_paste_model(ctx, hierarchy)
+        model = load_board_paste_settings(ctx, hierarchy)
         resolved = resolve_pad_settings(hierarchy, model)
 
         # 有効 top pad のみ塗布対象にする（無効除外はここ一点）
@@ -818,34 +799,28 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 f"{initial_purge.amount_ul:.3f} uL"
             )
 
-        # 銅箔照合（部品単位）。有効 pad を 1 つ以上持つ部品のみ照合する。
-        # 初回パージ pad が disabled pad の場合も、位置補正できるよう照合対象に含める。
-        # 失敗が許容数（pad_align.max_failures）を超えたら即中止。
-        align_designators = {p.designator for p in enabled_pads}
-        if initial_purge is not None:
-            align_designators.add(initial_purge.pad.designator)
-        groups = [
-            g
-            for g in sorted_top_component_pads(result)
-            if g.component.designator in align_designators
-        ]
-        ctx.log(f"照合対象の部品数: {len(groups)}")
+        # 全TOP銅箔padから、安全距離を満たす小面積候補をサンプリングする。
+        pad_align = session.machine.paste_dispenser.pad_align
+        candidates = rank_safe_pad_alignment_targets(
+            top_pad_alignment_targets(hierarchy),
+            max_correction_mm=pad_align.max_correction,
+            tolerance_mm=pad_align.tolerance,
+        )
         align_session = PadAlignmentSession.from_calibration(
             result, frame_sink=ctx.frame
         )
-        aligned = align_component_groups(
+        alignment_execution = align_pad_targets(
             ctx,
             align_session,
-            groups,
-            max_failures=session.machine.paste_dispenser.pad_align.max_failures,
+            candidates,
+            board_transform=result.board_transform,
+            sample_count=resolve_alignment_sample_count(
+                model, session.machine.paste_dispenser
+            ),
+            max_failures=pad_align.max_failures,
         )
-        alignments = ComponentAlignments(
-            board_transform=result.board_transform, results=tuple(aligned)
-        )
-        aligned_pads = sum(len(group.pads) for group, _ in aligned)
-        ctx.log(
-            f"位置合わせ成功: {len(aligned)}/{len(groups)} 部品（{aligned_pads} pads）"
-        )
+        alignments = alignment_execution.alignments
+        board_correction = alignments.averaged_board_correction()
 
         # 高さ計測
         ctx.progress("高さ計測")
@@ -855,20 +830,21 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             outline=session.pcb.outline.polygon,
         )
 
-        # 補正適用（未照合 pad は無補正）→ 順路順の (polygon, ResolvedPaste) ペア
-        pairs: list[tuple[Polygon, ResolvedPaste | None]] = []
-        for pad in routed_pads:
-            r = resolved.get(hierarchy.pad_ref_for_pad(pad))
-            correction = alignments.board_correction(pad.designator)
-            if correction is None:
-                ctx.log(
-                    f"警告: {pad.designator}.{pad.pad_number} は"
-                    "未照合のため無補正で塗布します"
-                )
-                pairs.append((pad.polygon, r))
-            else:
-                pairs.append((transform_polygon(pad.polygon, correction), r))
-        initial_purge_point = _initial_purge_point(ctx, initial_purge, alignments)
+        # 平均XY補正を全塗布padへ適用し、順路順の設定ペアを作る。
+        corrected_targets = correct_paste_targets(
+            routed_pads, initial_purge, board_correction
+        )
+        pairs: list[tuple[Polygon, ResolvedPaste | None]] = [
+            (
+                polygon,
+                resolved.get(hierarchy.pad_ref_for_pad(pad)),
+            )
+            for pad, polygon in zip(
+                routed_pads, corrected_targets.polygons, strict=True
+            )
+        ]
+        initial_purge_point = corrected_targets.initial_purge_point
+        ctx.log(f"共通補正を適用: 塗布 {len(pairs)} pads")
         stage = session.stage
 
         # board→machine全変換 (board_transform + toolhead_offset + height_plane)
@@ -913,30 +889,21 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                         boundary_margin=r.boundary_margin,
                     )
 
+    average = alignments.average_translation()
     return JobResult(
         summary=(
-            f"照合成功 {len(aligned)}/{len(groups)} 部品 / "
+            f"照合成功 {alignment_execution.success_count}/"
+            f"{alignment_execution.target_count} pads"
+            f"（試行 {alignment_execution.attempt_count} / "
+            f"候補 {alignment_execution.candidate_count} / "
+            f"失敗 {alignment_execution.failure_count}・"
+            f"平均 dx={average.x:+.4f} dy={average.y:+.4f} mm）/ "
             f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ・"
             f"初回パージ {initial_purge.amount_ul if initial_purge else 0.0:.3f} uL・"
             f"押出合計 {total.amount_ul:+.3f} uL）"
         )
     )
-
-
-def _initial_purge_point(
-    ctx: JobContext,
-    initial_purge: ResolvedInitialPurge | None,
-    alignments: ComponentAlignments,
-) -> Point2d | None:
-    """初回パージ pad 中心へ部品補正を適用した board 座標を返す."""
-    if initial_purge is None:
-        return None
-    correction = alignments.board_correction(initial_purge.pad.designator)
-    if correction is None:
-        ctx.log(f"警告: {initial_purge.pad_id} は未照合のため無補正で初回パージします")
-        return initial_purge.pad.center
-    return correction.apply(initial_purge.pad.center)
 
 
 def _run_height_plane(ctx: JobContext) -> JobResult:

@@ -22,6 +22,13 @@ DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
 DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR = 3.0
 
 
+def validate_pad_alignment_sample_count(value: object) -> str | None:
+    """pad位置合わせの目標成功数を検証する."""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return f"sample_countは正の整数である必要があります: {value!r}"
+    return None
+
+
 def resolve_paste_height(paste_height: PasteHeight, ul_per_mm2: float) -> float:
     """塗布高さ [mm] を解決する.
 
@@ -55,10 +62,17 @@ class PadAlign:
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
     canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
     blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
-    max_failures: int = 0  # 照合失敗の許容部品数。超過で塗布ジョブを即中止
+    sample_count: int = 10  # 目標とする照合成功pad数
+    max_failures: int = 3  # 照合失敗の許容pad数。超過でジョブを即中止
 
     def __attrs_post_init__(self) -> None:
-        if isinstance(self.max_failures, bool) or self.max_failures < 0:
+        if error := validate_pad_alignment_sample_count(self.sample_count):
+            raise ValueError(error)
+        if (
+            isinstance(self.max_failures, bool)
+            or not isinstance(self.max_failures, int)
+            or self.max_failures < 0
+        ):
             raise ValueError(
                 f"max_failuresは0以上の整数である必要があります: {self.max_failures}"
             )

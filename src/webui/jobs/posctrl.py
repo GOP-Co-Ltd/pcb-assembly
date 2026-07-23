@@ -12,19 +12,20 @@ import cv2
 
 from pcbasm import gcode
 from pcbasm.config import Machine
-from pcbasm.geometry import Compose, Point2d, Point3d, sort_by_nearest
+from pcbasm.geometry import Point2d, Point3d, sort_by_nearest
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
-from pcbasm.pcb import Layer, Pad
+from pcbasm.pasting import resolve_alignment_sample_count
+from pcbasm.pcb import Layer, Pad, build_pad_hierarchy
 from pcbasm.posctrl import (
     BoardCalibrationResult,
-    ComponentPads,
     CopperProjector,
     OrthogonalityMetrics,
-    PadAlignmentResult,
     PadAlignmentSession,
+    PadAlignmentTarget,
     PadResultRenderer,
+    corrected_top_pad_entries,
+    rank_safe_pad_alignment_targets,
     render_label,
-    sorted_top_component_pads,
 )
 from pcbasm.vision import (
     CalibrationResult,
@@ -34,7 +35,12 @@ from pcbasm.vision import (
     draw_detected_circle,
     draw_overlay,
 )
-from webui.jobs.board_ops import align_component_groups, setup_board
+from webui.jobs.board_ops import (
+    align_pad_targets,
+    load_board_paste_settings,
+    setup_board,
+    top_pad_alignment_targets,
+)
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import (
     ApplyFile,
@@ -419,71 +425,82 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             _move_to(result, machine_pt)
             _stream_labeled_frames(ctx, result, f"Corner: {name}")
 
-        # 銅箔照合（部品単位の自動位置合わせ）。失敗時は FAILED overlay を配信する
-        groups = sorted_top_component_pads(result)
-        ctx.log(f"padを持つ部品数: {len(groups)}")
+        # 安全距離を満たす銅箔padをサンプリングする。
+        hierarchy = build_pad_hierarchy(result.pcb.components, result.pcb.pads)
+        model = load_board_paste_settings(ctx, hierarchy)
+        pad_align = result.machine.paste_dispenser.pad_align
+        candidates = rank_safe_pad_alignment_targets(
+            top_pad_alignment_targets(hierarchy),
+            max_correction_mm=pad_align.max_correction,
+            tolerance_mm=pad_align.tolerance,
+        )
         session = PadAlignmentSession.from_calibration(result, frame_sink=ctx.frame)
 
-        def render_failed(group: ComponentPads, index: int) -> None:
+        def render_failed(
+            target: PadAlignmentTarget,
+            index: int,
+            success_count: int,
+            failure_count: int,
+            target_count: int,
+        ) -> None:
             renderer = _pad_renderer(
                 result,
                 session,
                 session.projector,
-                group.pads,
+                [target.pad],
                 result.stage.get_position().to2d(),
             )
             lines = [
-                f"{group.component.designator} {index + 1}/{len(groups)}",
+                f"{target.identifier} {index + 1}/{len(candidates.targets)}",
+                f"success {success_count}/{target_count} failure {failure_count}",
                 "FAILED",
             ]
             _stream_pad_result(ctx, result, renderer, lines)
 
-        alignments = align_component_groups(
-            ctx, session, groups, on_failure=render_failed
+        execution = align_pad_targets(
+            ctx,
+            session,
+            candidates,
+            board_transform=result.board_transform,
+            sample_count=resolve_alignment_sample_count(
+                model, result.machine.paste_dispenser
+            ),
+            max_failures=pad_align.max_failures,
+            on_failure=render_failed,
         )
 
-        # 補正適用済みの全 pad 巡回
-        entries = _corrected_entries(result, session, alignments)
-        for index, (pad, renderer_projector, target) in enumerate(entries):
+        # 平均補正を全TOP padへ共通適用して巡回する。
+        machine_correction = execution.alignments.averaged_machine_transform()
+        average = execution.alignments.average_translation()
+        renderer_projector = session.corrected_projector(machine_correction)
+        entries = corrected_top_pad_entries(
+            result.pcb.pads,
+            board_transform=result.board_transform,
+            machine_correction=machine_correction,
+            start=result.stage.get_position().to2d(),
+        )
+        for index, (pad, target) in enumerate(entries):
             ctx.progress("補正巡回", 100.0 * index / len(entries))
             ctx.checkpoint()
             _move_to(result, target, speed=Speed.rate(0.5))
             renderer = _pad_renderer(result, session, renderer_projector, [pad], target)
-            lines = [f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}"]
+            lines = [
+                f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}",
+                f"mean dx={average.x:+.4f} dy={average.y:+.4f} mm",
+            ]
             _stream_pad_result(ctx, result, renderer, lines)
 
         # board 原点へ戻して終了
         _move_to(result, board_transform.apply(Point2d(0.0, 0.0)))
 
-    aligned_pads = sum(len(group.pads) for group, _ in alignments)
     return JobResult(
         summary=(
-            f"照合成功 {len(alignments)}/{len(groups)} 部品"
-            f"（{aligned_pads} pads）/ 補正巡回 {len(entries)} pads"
+            f"照合成功 {execution.success_count}/{execution.target_count} pads"
+            f"（試行 {execution.attempt_count} / 候補 {execution.candidate_count} / "
+            f"失敗 {execution.failure_count}・"
+            f"平均 dx={average.x:+.4f} dy={average.y:+.4f} mm）/ "
+            f"補正巡回 {len(entries)} pads"
         )
-    )
-
-
-def _corrected_entries(
-    result: BoardCalibrationResult,
-    session: PadAlignmentSession,
-    alignments: list[tuple[ComponentPads, PadAlignmentResult]],
-) -> list[tuple[Pad, CopperProjector, Point2d]]:
-    """補正適用済みの pad 巡回先を nearest neighbor 順で構築する."""
-    entries: list[tuple[Pad, CopperProjector, Point2d]] = []
-    for group, alignment in alignments:
-        corrected_transform = Compose(
-            [result.board_transform, alignment.machine_transform]
-        )
-        corrected_projector = session.corrected_projector(alignment.machine_transform)
-        for pad in group.pads:
-            entries.append(
-                (pad, corrected_projector, corrected_transform.apply(pad.center))
-            )
-
-    current = result.stage.get_position()
-    return sort_by_nearest(
-        entries, current.to2d().to3d(), key=lambda entry: entry[2].to3d()
     )
 
 
