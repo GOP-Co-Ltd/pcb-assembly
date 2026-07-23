@@ -348,6 +348,35 @@ class TestAirPumpToggleOverRealHttp:
         assert "air_pump_enabled = false" in machine_toml
 
 
+class TestPasteLiftHeightOverRealHttp:
+    """吐出後の上昇高さを実 HTTP で PUT → GET → toml 反映まで検証."""
+
+    def test_put_lift_height_persists_and_reflects(self, live_server: LiveServer):
+        before = httpx.get(
+            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
+        ).json()
+        keys = {field["key"] for field in before["fields"]}
+        assert "paste_dispenser.lift_height" in keys
+
+        put = httpx.put(
+            f"{live_server.base_url}/api/settings/machine",
+            json={"values": {"paste_dispenser.lift_height": 3.25}},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert put.status_code == 200, put.text
+
+        after = httpx.get(
+            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
+        ).json()
+        fields = {field["key"]: field for field in after["fields"]}
+        assert fields["paste_dispenser.lift_height"]["value"] == 3.25
+
+        machine_toml = (
+            live_server.settings.configs_root / "kurousagi" / "machine.toml"
+        ).read_text()
+        assert "lift_height = 3.25" in machine_toml
+
+
 class TestPadAlignMaxFailuresOverRealHttp:
     """pad_align.max_failures を実 HTTP で PUT → GET → toml 反映まで検証 （paste-align-
     max-failures 計画書）."""
