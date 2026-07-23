@@ -127,6 +127,10 @@ class TestPages:
 
         assert response.status_code == 200
         assert "settings-layout" in response.text
+        assert 'name="audio.device"' in response.text
+        assert "音声出力デバイス" in response.text
+        assert 'name="audio.volume"' in response.text
+        assert "再生ボリューム" in response.text
         assert 'name="probe.lift_height"' in response.text
         assert "プローブ後の上昇高さ" in response.text
         assert 'name="probe.board_edge_margin"' in response.text
@@ -142,6 +146,7 @@ class TestPages:
 
         assert "settings-group" in text
         for section_label in (
+            "音声",
             "ペーストディスペンサー",
             "ペーストディスペンサー / パッド位置合わせ",
             "プローブ",

@@ -39,6 +39,10 @@ class TestMachineSettingsApi:
         fields = {field["key"]: field for field in data["fields"]}
         assert set(fields) == {spec.key for spec in MACHINE_FIELDS}
 
+        assert fields["audio.device"]["value"] == "null"
+        assert fields["audio.device"]["value_type"] == "str"
+        assert fields["audio.volume"]["value"] == 1.0
+        assert fields["audio.volume"]["value_type"] == "float"
         max_fill_speed = fields["paste_dispenser.max_fill_speed"]
         assert max_fill_speed["value"] == 0.8
         assert max_fill_speed["value_type"] == "float"
@@ -97,6 +101,34 @@ class TestMachineSettingsApi:
         assert len(changed) == 5
         # 変更対象外のコメントが無傷で残る
         assert "キャリブレーション値 2026/06/08" in after_text
+
+    def test_put_writes_audio_settings(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={
+                "values": {
+                    "audio.device": "plughw:CARD=Audio,DEV=0",
+                    "audio.volume": 0.4,
+                }
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        fields = {field["key"]: field for field in response.json()["fields"]}
+        assert fields["audio.device"]["value"] == "plughw:CARD=Audio,DEV=0"
+        assert fields["audio.volume"]["value"] == 0.4
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [("audio.device", " "), ("audio.volume", -0.1), ("audio.volume", 1.1)],
+    )
+    def test_put_invalid_audio_setting_returns_400(
+        self, client: TestClient, key: str, value: str | float
+    ):
+        response = client.put("/api/settings/machine", json={"values": {key: value}})
+
+        assert response.status_code == 400
+        assert key in response.text
 
     def test_put_writes_dispense_mode_and_auto_height(self, client: TestClient):
         response = client.put(

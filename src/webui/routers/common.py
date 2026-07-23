@@ -141,6 +141,7 @@ def machine_settings_fields(store: ConfigStore, machine: str) -> list[SettingsFi
 # 設定セクション（key のドット区切り親パス）→ UI 表示名。
 # settings ページの階層表示に使う
 SECTION_LABELS: dict[str, str] = {
+    "audio": "音声",
     "paste_dispenser": "ペーストディスペンサー",
     "paste_dispenser.toolhead": "ペーストディスペンサー / ツールヘッド",
     "paste_dispenser.pad_align": "ペーストディスペンサー / パッド位置合わせ",

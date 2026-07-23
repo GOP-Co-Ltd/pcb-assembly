@@ -45,6 +45,8 @@ class TestMachineSettings:
     def test_read_returns_values_with_declared_types(self, store: ConfigStore):
         values = store.read_machine_settings(FIXTURE)
 
+        assert values["audio.device"] == "null"
+        assert values["audio.volume"] == 1.0
         assert values["paste_dispenser.dispense_mode"] == "auto"
         assert values["paste_dispenser.auto_line_aspect_ratio"] == 1.618
         assert values["paste_dispenser.max_fill_speed"] == 0.8
@@ -84,6 +86,30 @@ class TestMachineSettings:
 
         values = store.read_machine_settings(FIXTURE)
         assert values["paste_dispenser.max_fill_speed"] == 0.9
+
+    def test_write_audio_settings_then_reread_reflects_values(self, store: ConfigStore):
+        store.write_machine_settings(
+            FIXTURE,
+            {
+                "audio.device": "  plughw:CARD=Audio,DEV=0  ",
+                "audio.volume": 0.25,
+            },
+        )
+
+        values = store.read_machine_settings(FIXTURE)
+        assert values["audio.device"] == "plughw:CARD=Audio,DEV=0"
+        assert values["audio.volume"] == 0.25
+
+    @pytest.mark.parametrize("volume", [float("nan"), -0.01, 1.01])
+    def test_write_rejects_invalid_audio_volume(
+        self, store: ConfigStore, volume: float
+    ):
+        with pytest.raises(UnknownFieldError, match="audio.volume"):
+            store.write_machine_settings(FIXTURE, {"audio.volume": volume})
+
+    def test_write_rejects_blank_audio_device(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError, match="audio.device"):
+            store.write_machine_settings(FIXTURE, {"audio.device": "  "})
 
     def test_write_dispense_mode_then_reread_reflects_value(self, store: ConfigStore):
         store.write_machine_settings(FIXTURE, {"paste_dispenser.dispense_mode": "line"})

@@ -221,6 +221,30 @@ class TestSettingsOverBrowser:
     @pytest.mark.parametrize(
         ("field_name", "value"),
         [
+            ("audio.device", "plughw:CARD=Audio,DEV=0"),
+            ("audio.volume", 0.4),
+        ],
+    )
+    def test_audio_setting_autosave(
+        self,
+        live_server: LiveServer,
+        browser_page,
+        field_name: str,
+        value: str | float,
+    ):
+        browser_page.goto(
+            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
+        )
+        field = browser_page.locator(f'input[name="{field_name}"]')
+        field.wait_for(state="visible", timeout=10_000)
+
+        field.fill(str(value))
+
+        _wait_machine_field(live_server.base_url, field_name, value)
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
             ("probe.lift_height", 1.25),
             ("probe.board_edge_margin", 3.0),
         ],

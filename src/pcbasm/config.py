@@ -23,6 +23,20 @@ DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
 DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR = 3.0
 
 
+def validate_audio_device(device: str) -> str | None:
+    """音声出力デバイス名を検証する."""
+    if not device.strip():
+        return "audio.deviceは空でない文字列である必要があります"
+    return None
+
+
+def validate_audio_volume(volume: float) -> str | None:
+    """音声出力ボリュームを検証する."""
+    if not isfinite(volume) or not 0.0 <= volume <= 1.0:
+        return f"audio.volumeは0以上1以下の有限値である必要があります: {volume!r}"
+    return None
+
+
 def resolve_paste_height(paste_height: PasteHeight, ul_per_mm2: float) -> float:
     """塗布高さ [mm] を解決する.
 
@@ -51,19 +65,19 @@ class Audio:
     volume: float = 1.0
 
     def __attrs_post_init__(self) -> None:
-        if not isinstance(self.device, str) or not (device := self.device.strip()):
+        if not isinstance(self.device, str):
             raise ValueError("audio.deviceは空でない文字列である必要があります")
-        if (
-            isinstance(self.volume, bool)
-            or not isinstance(self.volume, (int, float))
-            or not isfinite(self.volume)
-            or not 0.0 <= self.volume <= 1.0
-        ):
+        if error := validate_audio_device(self.device):
+            raise ValueError(error)
+        if isinstance(self.volume, bool) or not isinstance(self.volume, (int, float)):
             raise ValueError(
                 f"audio.volumeは0以上1以下の有限値である必要があります: {self.volume!r}"
             )
-        object.__setattr__(self, "device", device)
-        object.__setattr__(self, "volume", float(self.volume))
+        volume = float(self.volume)
+        if error := validate_audio_volume(volume):
+            raise ValueError(error)
+        object.__setattr__(self, "device", self.device.strip())
+        object.__setattr__(self, "volume", volume)
 
 
 @attrs.frozen
