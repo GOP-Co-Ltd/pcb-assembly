@@ -4,6 +4,7 @@ set -e
 # システム依存関係をインストール
 sudo apt-get update
 sudo apt-get install -y \
+    alsa-utils \
     v4l-utils \
     curl \
     kicad \

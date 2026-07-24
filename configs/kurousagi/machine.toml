@@ -4,6 +4,10 @@ machine_type = "paste" # マシン種別: paste / pnp
 host = "localhost"
 port = 7125
 
+[audio]
+device = "plughw:CARD=sndrpihifiberry,DEV=0"
+volume = 0.7
+
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
 rotations_per_ul = 8.0 # キャリブレーション値 2026/06/08 23G S3X70-E150DN

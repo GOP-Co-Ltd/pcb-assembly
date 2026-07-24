@@ -1,4 +1,5 @@
 from .air_pump import AirPump
+from .audio import AlsaAudioPlayer, AudioPlaybackError, AudioPlayer
 from .camera import Camera, CameraInfo, Resolution, create_camera, get_camera_info
 from .framehub import FrameHub, FrameSource
 from .klipper import GCodeMacro, Klipper, ReadonlyKlipper
@@ -9,6 +10,10 @@ from .stage import Limits, ScalarLimits, Speed, XYZStage
 __all__ = [
     # air_pump
     "AirPump",
+    # audio
+    "AlsaAudioPlayer",
+    "AudioPlaybackError",
+    "AudioPlayer",
     # camera
     "Camera",
     "CameraInfo",

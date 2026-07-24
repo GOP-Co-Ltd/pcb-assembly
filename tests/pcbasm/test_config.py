@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from pcbasm.config import (
+    Audio,
     Camera,
     CameraCrop,
     Corner,
@@ -244,6 +245,55 @@ class TestMachine:
             KeyError, match="'paste_dispenser' は設定ファイルに定義されていません"
         ):
             machine.paste_dispenser
+
+
+class TestAudio:
+    """Raspberry Pi 本体から再生する音声出力設定."""
+
+    def test_strips_device_and_defaults_volume(self):
+        audio = Audio(device="  plughw:CARD=Audio,DEV=0  ")
+
+        assert audio == Audio(device="plughw:CARD=Audio,DEV=0", volume=1.0)
+
+    @pytest.mark.parametrize("volume", [0.0, 0.25, 1.0])
+    def test_accepts_volume_in_closed_unit_interval(self, volume: float):
+        assert Audio(device="default", volume=volume).volume == pytest.approx(volume)
+
+    @pytest.mark.parametrize(
+        "volume",
+        [True, float("nan"), float("inf"), float("-inf"), -0.01, 1.01],
+        ids=["bool", "nan", "positive-infinity", "negative-infinity", "below", "above"],
+    )
+    def test_rejects_invalid_volume(self, volume: object):
+        with pytest.raises(ValueError, match="volume"):
+            Audio(device="default", volume=volume)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("device", ["", " ", "\t\n"])
+    def test_rejects_blank_device(self, device: str):
+        with pytest.raises(ValueError, match="device"):
+            Audio(device=device)
+
+
+class TestMachineAudio:
+    """Machine.audio の任意 [audio] section 読み込み."""
+
+    def test_reads_audio_section(self, tmp_path: Path):
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            '[audio]\ndevice = "  hw:0,0  "\nvolume = 0.35\n',
+            encoding="utf-8",
+        )
+
+        assert Machine(path).audio == Audio(device="hw:0,0", volume=0.35)
+
+    def test_defaults_volume_when_omitted(self, tmp_path: Path):
+        path = tmp_path / "machine.toml"
+        path.write_text('[audio]\ndevice = "default"\n', encoding="utf-8")
+
+        assert Machine(path).audio == Audio(device="default", volume=1.0)
+
+    def test_returns_none_when_section_is_absent(self):
+        assert Machine(TESTING_DATA_DIR / "machine_minimal.toml").audio is None
 
 
 class TestPadAlignMaxFailures:

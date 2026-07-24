@@ -16,6 +16,8 @@ from tomlkit.items import Item, Table
 
 from pcbasm.config import (
     DISPENSE_MODES,
+    validate_audio_device,
+    validate_audio_volume,
     validate_paste_lift_height,
     validate_probe_board_edge_margin,
 )
@@ -46,6 +48,9 @@ type MachineSettingValue = float | int | str | bool | list[float]
 
 
 MACHINE_FIELDS: tuple[FieldSpec, ...] = (
+    # [audio]
+    FieldSpec("audio.device", "音声出力デバイス", "str"),
+    FieldSpec("audio.volume", "再生ボリューム", "float"),
     # [paste_dispenser]
     FieldSpec(
         "paste_dispenser.rotations_per_ul", "1uLあたりの回転数", "float", "rev/uL"
@@ -162,6 +167,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
         case "float":
             if isinstance(value, (int, float)):
                 coerced_float = float(value)
+                if spec.key == "audio.volume":
+                    if error := validate_audio_volume(coerced_float):
+                        raise UnknownFieldError(error)
                 if (
                     spec.key == "paste_dispenser.auto_line_aspect_ratio"
                     and coerced_float <= 1.0
@@ -211,6 +219,10 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 return value
         case "str":
             if isinstance(value, str):
+                if spec.key == "audio.device":
+                    if error := validate_audio_device(value):
+                        raise UnknownFieldError(error)
+                    return value.strip()
                 return value
         case "dispense_mode":
             if isinstance(value, str) and value in DISPENSE_MODES:

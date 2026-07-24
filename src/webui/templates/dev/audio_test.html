@@ -1,0 +1,14 @@
+{% extends "tab.html" %}
+{% block title %}通知音テスト — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>通知音テスト</h2>
+<section class="status-card">
+  <p>Raspberry Pi 本体に接続されたスピーカーで通知音を再生します。</p>
+  <button type="button" data-sound="success">成功音を再生</button>
+  <button type="button" data-sound="failure">失敗音を再生</button>
+</section>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/audio_test.js') }}"></script>
+{% endblock %}

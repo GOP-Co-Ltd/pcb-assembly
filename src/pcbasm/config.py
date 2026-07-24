@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tomllib
 from enum import Enum, auto
+from math import isfinite
 from pathlib import Path
 from typing import Any, Literal
 
@@ -20,6 +21,20 @@ MachineType = Literal["paste", "pnp"]
 PasteHeight = float | Literal["auto"]
 DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
 DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR = 3.0
+
+
+def validate_audio_device(device: str) -> str | None:
+    """音声出力デバイス名を検証する."""
+    if not device.strip():
+        return "audio.deviceは空でない文字列である必要があります"
+    return None
+
+
+def validate_audio_volume(volume: float) -> str | None:
+    """音声出力ボリュームを検証する."""
+    if not isfinite(volume) or not 0.0 <= volume <= 1.0:
+        return f"audio.volumeは0以上1以下の有限値である必要があります: {volume!r}"
+    return None
 
 
 def resolve_paste_height(paste_height: PasteHeight, ul_per_mm2: float) -> float:
@@ -40,6 +55,29 @@ class Klipper:
 
     host: str = "localhost"
     port: int = 7125
+
+
+@attrs.frozen
+class Audio:
+    """音声出力の設定."""
+
+    device: str
+    volume: float = 1.0
+
+    def __attrs_post_init__(self) -> None:
+        if not isinstance(self.device, str):
+            raise ValueError("audio.deviceは空でない文字列である必要があります")
+        if error := validate_audio_device(self.device):
+            raise ValueError(error)
+        if isinstance(self.volume, bool) or not isinstance(self.volume, (int, float)):
+            raise ValueError(
+                f"audio.volumeは0以上1以下の有限値である必要があります: {self.volume!r}"
+            )
+        volume = float(self.volume)
+        if error := validate_audio_volume(volume):
+            raise ValueError(error)
+        object.__setattr__(self, "device", self.device.strip())
+        object.__setattr__(self, "volume", volume)
 
 
 @attrs.frozen
@@ -454,6 +492,13 @@ class Machine:
         if "nozzle_cap" not in self._data:
             return None
         return self._get_config("nozzle_cap", NozzleCap)
+
+    @property
+    def audio(self) -> Audio | None:
+        """音声出力設定を取得する（未設定なら None）."""
+        if "audio" not in self._data:
+            return None
+        return self._get_config("audio", Audio)
 
     @property
     def klipper(self) -> Klipper:
