@@ -17,6 +17,8 @@ _converter = make_converter()
 _converter.register_unstructure_hook(Point2d, lambda p: {"x": p.x, "y": p.y})
 _converter.register_structure_hook(Point2d, lambda d, _: Point2d(x=d["x"], y=d["y"]))
 
+MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT = 5
+
 
 @attrs.frozen
 class ToolheadOffsetSample:
@@ -85,8 +87,12 @@ class ToolheadOffsetResult:
     ) -> Self:
         """各計測点のオフセットから平均と母標準偏差を算出する."""
         measured_samples = tuple(samples)
-        if not measured_samples:
-            raise ValueError("ツールヘッドオフセットの計測点がありません")
+        if len(measured_samples) < MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT:
+            raise ValueError(
+                "ツールヘッドオフセットの有効な計測点が不足しています"
+                f"（有効 {len(measured_samples)} 点 / "
+                f"最低 {MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT} 点）"
+            )
 
         count = len(measured_samples)
         mean = Point2d(
@@ -111,6 +117,14 @@ class ToolheadOffsetResult:
             point_spacing=point_spacing,
             edge_margin=edge_margin,
             calibrated_at=calibrated_at,
+        )
+
+    @property
+    def is_within_tolerance(self) -> bool:
+        """各軸の標準偏差が位置合わせ許容誤差以内か返す."""
+        return (
+            self.standard_deviation.x <= self.tolerance
+            and self.standard_deviation.y <= self.tolerance
         )
 
     def to_dict(self) -> dict[str, Any]:

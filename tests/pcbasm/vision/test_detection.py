@@ -208,6 +208,29 @@ class TestCircleDetector:
         assert result is not None
         assert result.sample_count == 2
 
+    def test_detect_with_statistics_returns_none_below_minimum_sample_count(
+        self, detector: CircleDetector
+    ):
+        """検出結果があっても必要数に届かなければNoneを返す."""
+        result = detector.detect_with_statistics(
+            [self._circle_at(110), self._blank()],
+            minimum_sample_count=2,
+        )
+
+        assert result is None
+
+    @pytest.mark.parametrize("minimum_sample_count", [0, -1, True, 1.5])
+    def test_detect_with_statistics_rejects_invalid_minimum_sample_count(
+        self, detector: CircleDetector, minimum_sample_count
+    ):
+        with pytest.raises(ValueError) as exc_info:
+            detector.detect_with_statistics(
+                [],
+                minimum_sample_count=minimum_sample_count,
+            )
+
+        assert "minimum_sample_count" in str(exc_info.value)
+
     def test_detect_with_statistics_single_image(self, detector: CircleDetector):
         """1画像のみの場合、stdは0."""
         arr = np.full((200, 200, 3), 255, dtype=np.uint8)
@@ -220,3 +243,13 @@ class TestCircleDetector:
         assert result.mean.x == pytest.approx(10.0, abs=2.0)
         assert result.std.x == pytest.approx(0.0)
         assert result.std.y == pytest.approx(0.0)
+
+    @staticmethod
+    def _circle_at(center_x: int) -> Image:
+        array = np.full((200, 200, 3), 255, dtype=np.uint8)
+        cv2.circle(array, (center_x, 100), 15, (0, 0, 0), -1)
+        return Image(array)
+
+    @staticmethod
+    def _blank() -> Image:
+        return Image(np.full((200, 200, 3), 255, dtype=np.uint8))

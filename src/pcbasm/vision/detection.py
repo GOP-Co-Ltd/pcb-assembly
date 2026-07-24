@@ -173,16 +173,27 @@ class CircleDetector:
         return [c for c in circles if abs(c.radius - target_radius_px) <= tolerance_px]
 
     def detect_with_statistics(
-        self, images: Iterable[Image]
+        self,
+        images: Iterable[Image],
+        *,
+        minimum_sample_count: int = 1,
     ) -> OffsetStatistics | None:
         """複数画像から円を検出し、オフセットの統計を返す.
 
         Args:
             images: 入力画像のイテラブル
+            minimum_sample_count: 統計結果に必要な有効検出数
 
         Returns:
-            OffsetStatistics または有効な検出がない場合はNone
+            OffsetStatistics または有効な検出数が不足した場合はNone
         """
+        if (
+            isinstance(minimum_sample_count, bool)
+            or not isinstance(minimum_sample_count, int)
+            or minimum_sample_count < 1
+        ):
+            raise ValueError("minimum_sample_countは1以上の整数である必要があります")
+
         offsets_x: list[float] = []
         offsets_y: list[float] = []
 
@@ -192,7 +203,7 @@ class CircleDetector:
                 offsets_x.append(detected.offset.px.x)
                 offsets_y.append(detected.offset.px.y)
 
-        if not offsets_x:
+        if len(offsets_x) < minimum_sample_count:
             return None
 
         return OffsetStatistics(
