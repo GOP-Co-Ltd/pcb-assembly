@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -30,6 +31,7 @@ from pcbasm.hal import (
     XYZStage,
 )
 from pcbasm.pasting import (
+    MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     DispenseRateCalibration,
     FillSpeedSweep,
     FlowCalibrationSet,
@@ -63,6 +65,7 @@ from pcbasm.pcb import (
     build_pad_hierarchy,
 )
 from pcbasm.posctrl import (
+    CircleDetectionError,
     ComponentAlignments,
     OffsetObserver,
     PadAlignmentSession,
@@ -100,6 +103,9 @@ _LOADING_POSITION_PARAMS = (
     ("position_z", "z"),
 )
 APPLY_DIGITS = 6
+_TOOLHEAD_OFFSET_MIN_FRAME_DETECTIONS = 5
+_TOOLHEAD_OFFSET_DETECTION_MAX_ATTEMPTS = 3
+_TOOLHEAD_OFFSET_DETECTION_RETRY_DELAY = 0.5
 
 # 吐出量キャリブレーション統合ジョブ（①rotations_per_ul / ②max_dispense_rate /
 # ③max_fill_speed をメニュー駆動で順次/個別に回す）の progress stage 名と既定値。
@@ -542,7 +548,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     "計測点数",
                     "int",
                     10,
-                    minimum=1,
+                    minimum=MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
                     help="基板の安全領域を左上から走査して自動配置します",
                 ),
                 ParamSpec(
@@ -1898,6 +1904,10 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             camera=result.camera,
             crop_size=paste_roi_size,
             frame_sink=ctx.frame,
+            minimum_sample_count=_TOOLHEAD_OFFSET_MIN_FRAME_DETECTIONS,
+            max_attempts=_TOOLHEAD_OFFSET_DETECTION_MAX_ATTEMPTS,
+            retry_delay=_TOOLHEAD_OFFSET_DETECTION_RETRY_DELAY,
+            max_standard_deviation_mm=tolerance,
         )
         paste_adjustor = XYPositionAdjustor(
             observe=paste_observer.observe,
@@ -1907,6 +1917,15 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             tolerance=tolerance,
         )
         samples: list[ToolheadOffsetSample] = []
+        diagnostic_path = ctx.artifacts_dir / "toolhead_offset_diagnostics.json"
+        detection_failures: list[dict[str, Any]] = []
+        diagnostics: dict[str, Any] = {
+            "requested_point_count": total_points,
+            "minimum_valid_point_count": MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
+            "successful_point_count": 0,
+            "failures": detection_failures,
+        }
+        failure_images: list[tuple[int, str]] = []
         for index, (
             board_position,
             camera_position,
@@ -1927,7 +1946,36 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
                 + gcode.wait_for_done()
             )
             time.sleep(1.0)
-            camera_final_position = paste_adjustor.adjust()
+            try:
+                camera_final_position = paste_adjustor.adjust()
+            except CircleDetectionError as exc:
+                failure_image = result.camera.capture().crop_center(paste_roi_size)
+                filename = f"toolhead_offset_failure_{index:02d}.png"
+                failure_image.save(ctx.artifacts_dir / filename)
+                ctx.frame(failure_image, persist=True)
+                failure_images.append((index, filename))
+                detection_failures.append(
+                    {
+                        "index": index,
+                        "board_position": {
+                            "x": board_position.x,
+                            "y": board_position.y,
+                        },
+                        "reason": str(exc),
+                        "image": filename,
+                    }
+                )
+                diagnostics["successful_point_count"] = len(samples)
+                diagnostic_path.write_text(
+                    json.dumps(diagnostics, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                ctx.log(
+                    f"オフセット計測 {index}/{total_points}: 円検出失敗のためスキップ"
+                    f"（{exc}）"
+                )
+                ctx.log(f"失敗画像: /artifacts/{ctx.artifacts_dir.name}/{filename}")
+                continue
             sample = ToolheadOffsetSample.from_positions(
                 board_position=board_position,
                 dispense_position=dispense_position,
@@ -1944,6 +1992,22 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
                 f"offset=({sample.offset.x:+.4f}, {sample.offset.y:+.4f})"
             )
 
+    if failure_images:
+        diagnostics["successful_point_count"] = len(samples)
+        diagnostic_path.write_text(
+            json.dumps(diagnostics, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        ctx.log(
+            "円検出診断: " f"/artifacts/{ctx.artifacts_dir.name}/{diagnostic_path.name}"
+        )
+    if len(samples) < MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT:
+        raise RuntimeError(
+            "ツールヘッドオフセットの有効な計測点が不足しています"
+            f"（有効 {len(samples)} 点 / "
+            f"最低 {MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT} 点）"
+        )
+
     # オフセット算出 & 保存
     offset_result = ToolheadOffsetResult.measure(
         samples,
@@ -1955,20 +2019,41 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
     measured_offset = offset_result.offset
     standard_deviation = offset_result.standard_deviation
     offset_result.save(ctx.artifacts_dir / "toolhead_offset.json")
+    if not offset_result.is_within_tolerance:
+        ctx.log(
+            "ばらつきの大きい計測結果: "
+            f"/artifacts/{ctx.artifacts_dir.name}/toolhead_offset.json"
+        )
+        raise RuntimeError(
+            "ツールヘッドオフセットの標準偏差が位置合わせ許容誤差を超えました"
+            f"（X={standard_deviation.x:.4f}, Y={standard_deviation.y:.4f} mm / "
+            f"上限={tolerance:.4f} mm）"
+        )
 
     current_toolhead = dispenser_config.toolhead
     diff_x = measured_offset.x - current_toolhead.x
     diff_y = measured_offset.y - current_toolhead.y
     ctx.progress("完了", 100.0)
+    artifacts = [
+        ctx.artifact("計測結果 JSON", "toolhead_offset.json", "file"),
+    ]
+    if failure_images:
+        artifacts.append(
+            ctx.artifact("円検出診断 JSON", "toolhead_offset_diagnostics.json", "file")
+        )
+        artifacts.extend(
+            ctx.artifact(f"円検出失敗 {index}", filename, "image")
+            for index, filename in failure_images
+        )
     return JobResult(
         summary=(
-            f"{len(samples)}点の平均オフセット "
+            f"{len(samples)}/{total_points}点の平均オフセット "
             f"X={measured_offset.x:+.4f} Y={measured_offset.y:+.4f} mm"
             f"（標準偏差 X={standard_deviation.x:.4f} "
             f"Y={standard_deviation.y:.4f} mm / 現在設定との差 "
             f"dX={diff_x:+.4f} dY={diff_y:+.4f}）"
         ),
-        artifacts=(ctx.artifact("計測結果 JSON", "toolhead_offset.json", "file"),),
+        artifacts=tuple(artifacts),
         apply=ApplyPayload(
             label=(
                 f"[paste_dispenser.toolhead] x={measured_offset.x:.4f}, "
