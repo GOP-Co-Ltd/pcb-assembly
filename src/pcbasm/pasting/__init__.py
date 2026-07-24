@@ -58,6 +58,7 @@ from .settings import (
     validate_override_values,
 )
 from .toolhead_offset import (
+    MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ToolheadOffsetResult,
     ToolheadOffsetSample,
     plan_toolhead_offset_points,
@@ -77,6 +78,7 @@ __all__ = [
     "LineLayoutOverflowError",
     "MassFlowCalibration",
     "MassFlowEstimate",
+    "MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT",
     "NUMERIC_PASTE_OVERRIDE_FIELDS",
     "PasteApplicator",
     "RateMeasurement",

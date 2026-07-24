@@ -8,6 +8,7 @@ from shapely import Point as ShapelyPoint, Polygon
 
 from pcbasm.geometry import Point2d
 from pcbasm.pasting import (
+    MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ToolheadOffsetResult,
     ToolheadOffsetSample,
     plan_toolhead_offset_points,
@@ -32,6 +33,8 @@ def _make_result() -> ToolheadOffsetResult:
         _sample(0, Point2d(x=1.0, y=-2.0)),
         _sample(1, Point2d(x=2.0, y=-4.0)),
         _sample(2, Point2d(x=3.0, y=-6.0)),
+        _sample(3, Point2d(x=4.0, y=-8.0)),
+        _sample(4, Point2d(x=5.0, y=-10.0)),
     )
     return ToolheadOffsetResult.measure(
         samples,
@@ -61,27 +64,49 @@ class TestToolheadOffsetResult:
     def test_measure_uses_component_mean_and_population_standard_deviation(self):
         result = _make_result()
 
-        assert result.offset.x == pytest.approx(2.0)
-        assert result.offset.y == pytest.approx(-4.0)
-        assert result.standard_deviation.x == pytest.approx(math.sqrt(2 / 3))
-        assert result.standard_deviation.y == pytest.approx(math.sqrt(8 / 3))
-        assert len(result.samples) == 3
+        assert result.offset.x == pytest.approx(3.0)
+        assert result.offset.y == pytest.approx(-6.0)
+        assert result.standard_deviation.x == pytest.approx(math.sqrt(2))
+        assert result.standard_deviation.y == pytest.approx(math.sqrt(8))
+        assert len(result.samples) == 5
         assert result.tolerance == pytest.approx(0.05)
         assert result.point_spacing == pytest.approx(5.0)
         assert result.edge_margin == pytest.approx(5.0)
         assert result.calibrated_at == CALIBRATED_AT
 
-    def test_measure_rejects_empty_samples(self):
+    @pytest.mark.parametrize(
+        "sample_count", range(MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT)
+    )
+    def test_measure_rejects_too_few_samples(self, sample_count: int):
         with pytest.raises(ValueError) as exc_info:
             ToolheadOffsetResult.measure(
-                [],
+                [
+                    _sample(index, Point2d(x=1.0, y=-2.0))
+                    for index in range(sample_count)
+                ],
                 tolerance=0.05,
                 point_spacing=5.0,
                 edge_margin=5.0,
                 calibrated_at=CALIBRATED_AT,
             )
 
-        assert "計測点" in str(exc_info.value)
+        assert "最低 5 点" in str(exc_info.value)
+
+    def test_is_within_tolerance_uses_each_axis_standard_deviation(self):
+        stable = ToolheadOffsetResult.measure(
+            [
+                _sample(index, Point2d(x=1.0 + index * 0.01, y=-2.0))
+                for index in range(MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT)
+            ],
+            tolerance=0.05,
+            point_spacing=5.0,
+            edge_margin=5.0,
+            calibrated_at=CALIBRATED_AT,
+        )
+        variable = _make_result()
+
+        assert stable.is_within_tolerance is True
+        assert variable.is_within_tolerance is False
 
     def test_to_dict_from_dict_roundtrip_uses_multipoint_format(self):
         result = _make_result()
@@ -99,9 +124,9 @@ class TestToolheadOffsetResult:
             "edge_margin",
             "calibrated_at",
         }
-        assert data["offset"] == {"x": 2.0, "y": -4.0}
-        assert data["standard_deviation"]["x"] == pytest.approx(math.sqrt(2 / 3))
-        assert len(data["samples"]) == 3
+        assert data["offset"] == {"x": 3.0, "y": -6.0}
+        assert data["standard_deviation"]["x"] == pytest.approx(math.sqrt(2))
+        assert len(data["samples"]) == 5
         assert data["samples"][0]["board_position"] == {"x": 0.0, "y": 10.0}
         assert data["point_spacing"] == pytest.approx(5.0)
         assert data["edge_margin"] == pytest.approx(5.0)

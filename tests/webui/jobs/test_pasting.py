@@ -209,13 +209,22 @@ class TestCatalog:
         assert params[name].value_type == "int"
         assert params[name].default == default_value
 
-    def test_toolhead_offset_point_count_is_int_defaulting_to_ten(
+    def test_toolhead_offset_point_count_defaults_to_ten_with_minimum_five(
         self, default: JobCatalog
     ):
         params = {spec.name: spec for spec in default.get("toolhead_offset").params}
 
         assert params["point_count"].value_type == "int"
         assert params["point_count"].default == 10
+        assert params["point_count"].minimum == 5
+
+    def test_toolhead_offset_rejects_point_count_below_five(self, default: JobCatalog):
+        definition = default.get("toolhead_offset")
+
+        with pytest.raises(ValueError) as exc_info:
+            default.validate_params(definition, {"point_count": 4})
+
+        assert "point_count" in str(exc_info.value)
 
     def test_toolhead_offset_persists_all_params(self, default: JobCatalog):
         definition = default.get("toolhead_offset")

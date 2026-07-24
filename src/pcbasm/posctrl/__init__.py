@@ -28,6 +28,7 @@ from .position import XYPositionAdjustor
 from .render import PadResultRenderer, render_edge_match, render_label
 from .setup import (
     BoardCalibrationResult,
+    CircleDetectionError,
     OffsetObserver,
     machine_session,
     setup_board_calibration,
@@ -41,6 +42,7 @@ from .tour import (
 
 __all__ = [
     "BoardCalibrationResult",
+    "CircleDetectionError",
     "ComponentAlignments",
     "ComponentPads",
     "BoardTransformMeasurer",
