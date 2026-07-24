@@ -56,7 +56,7 @@ width = 1280
 height = 720
 fps = 30.0
 format = "YUYV"
-calibration_file = "ov9281_20260722_113444.json"
+calibration_file = "ov9281_20260724_165820.json"
 
 [camera.crop]
 width = 300
