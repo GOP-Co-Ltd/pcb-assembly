@@ -6,7 +6,7 @@ port = 7125
 
 [audio]
 device = "plughw:CARD=sndrpihifiberry,DEV=0"
-volume = 0.5
+volume = 0.7
 
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
@@ -88,6 +88,6 @@ bottom_left = [2.5, 5.0]
 bottom_right = [-2.5, 5.0]
 
 [nozzle_cap]
-x = 67.1
-y = 51.2
-z = -9.0
+x = 67.3
+y = 52.0
+z = -24.0
