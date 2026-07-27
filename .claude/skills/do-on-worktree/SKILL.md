@@ -7,7 +7,7 @@ description: 進行中の別タスクを止めずに、main から分岐した w
 
 現在のブランチで別タスクが進行中のまま、それとは独立した変更を `main` から分岐して並行で進めるための手順。進行中の作業を一切汚さずに、新しいブランチ・worktree で実装し、MR を出すところまでを担う。
 
-関連: memory `feedback-worktree-when-busy`、skill [gitlab-mr](../gitlab-mr/SKILL.md)、skill [edit-dot-claude](../edit-dot-claude/SKILL.md)。
+関連: skill [gitlab-mr](../gitlab-mr/SKILL.md)、skill [edit-dot-claude](../edit-dot-claude/SKILL.md)。
 
 ## いつ使うか
 

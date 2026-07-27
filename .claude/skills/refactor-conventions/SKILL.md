@@ -29,19 +29,11 @@ CLAUDE.md の要点を補完し、詳細な判断基準と具体例を提供す�
 
 ### モック方針
 
-- できる限りモックを使わず、実オブジェクト＋実データ（一時ファイル等）で検証
-- モック使用が許される条件:
-    - 外部API（ネットワーク通信）
-    - ハードウェアデバイス（GPIO/センサー等）
-    - ファイルシステム/DBなど再現困難な外部依存
-- **内部モジュール同士はモックしない**。実際に結合してテスト
+skill `testing-strategy` が単一の正典。ここでは要点のみ:
 
-### モック実装ルール（使用する場合）
-
-- `pytest_mock` を使用（unittest.mock は使わない）。`mocker.Mock` を使う
-- 複数テストで共有するモックは `tests/conftest.py` にフィクスチャとして定義
-- 特定テストでのみ振る舞いを変える場合は、フィクスチャの戻り値で上書き
-- ABC のみで具象クラスが存在しない場合、テスト用 Impl を `tests/helpers.py` に定義（モックは使わない）
+- fake してよいのは自前 HAL ABC（`src/pcbasm/hal/`）だけ
+- 3rd-party 表面（`picamera2`、`libgpiod`、Klipper RPC、`cv2.*`、`time.sleep` 等）と内部 private 関数のモックは禁止。仮定のミラーになり upstream 挙動変更を検出できないため
+- 実オブジェクト＋実データを優先する。ABC に具象が無ければ `tests/helpers.py` に実 Impl を置く（`mocker.Mock` より先に検討）
 
 ### ハードウェアテスト分離
 
@@ -125,10 +117,12 @@ def parse_position(s: str) -> Position:
 リファクタ・実装の完了条件：
 
 ```bash
-make format && make type && make test
+make format && make type && make test-no-hardware
 ```
 
 すべてパスして初めて完了。型チェックエラーや lint warning を放置しない。
+
+`make test`（実機テストを含む）は実行しない。`settings.json` で deny 済みであり、実行すると実機が動く。実機確認はユーザーが行う。
 
 ## Git運用との接続
 
