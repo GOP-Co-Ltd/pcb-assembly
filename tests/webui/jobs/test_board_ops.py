@@ -14,8 +14,12 @@ paste-align-max-failures 計画書「公開 IF」節が `pad_align_abort_message
 - prompt spec は kind="confirm" / default=True / true_label="次へ" /
   false_label="終了"、message に巡回先ラベルを含む（UI のボタン文言が
   「終了で正常終了」という意味を担うため契約として固定する）
+- `while_waiting` を受け取ったらそのまま `ctx.prompt` へ渡す（応答待ちの間ライブ
+  フレームを流し続けるための委譲。直行性テストの十字線常時表示がこれに依存する）
 - prompt 待機中の abort が JobAborted として伝播することは JobContext.prompt
-  一般の契約であり `test_manager.py::TestPrompt` が既に固定している（重複回避）
+  一般の契約であり `test_manager.py::TestPrompt` が既に固定している（重複回避）。
+  ポーリング待機中の abort / コールバック例外も同様に
+  `test_manager.py::TestPromptWhileWaiting` が固定している
 
 prompt 往復は実 JobManager + 実 JobContext を通す（合成ジョブ経由。モックなし）。
 """
@@ -145,3 +149,31 @@ class TestConfirmNextPoint:
         )
 
         assert "Bottom-Right" in specs[0].message
+
+    def test_while_waiting_callback_runs_during_the_wait(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        """`while_waiting` は ctx.prompt へ委譲され、応答待ちの間繰り返し呼ばれる."""
+        polls: list[int] = []
+        results: list[bool] = []
+
+        def run(ctx: JobContext) -> None:
+            results.append(
+                confirm_next_point(
+                    ctx, "Top-Left", while_waiting=lambda: polls.append(1)
+                )
+            )
+
+        register_synthetic(
+            catalog, run, name="confirm_polling", label="while_waiting 検証ジョブ"
+        )
+        record = manager.start("confirm_polling", {})
+        wait_until(lambda: len(polls) >= 2, timeout=60.0)
+
+        pending = record.pending_prompt
+        assert pending is not None
+        manager.respond_prompt(pending[0], True)
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert results == [True]

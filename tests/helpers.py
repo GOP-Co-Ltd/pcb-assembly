@@ -29,7 +29,7 @@ def wait_until(
 ) -> None:
     """条件が成立するまでポーリングする（タイミングのアサートはしない）.
 
-    成立しないまま timeout を超えたら pytest.fail する。sleep 固定値依存の アサートを避けるための共有ポーラ。
+    成立しないまま timeout を超えたら pytest.fail する。sleep 固定値依存のアサートを避けるための共有ポーラ。
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

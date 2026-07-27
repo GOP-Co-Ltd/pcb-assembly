@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -391,6 +391,28 @@ def _stream_labeled_frames(
         ctx.checkpoint()
 
 
+def _labeled_frame_sink(
+    ctx: JobContext, result: BoardCalibrationResult, label: str
+) -> Callable[[], None]:
+    """ラベル付きライブフレームを 1 枚プレビューへ出すコールバックを作る.
+
+    カメラ取得の失敗でツアーを落とさない。最初の 1 回だけログへ警告し、以降は黙って更新を見送る。
+    """
+    crop_size = result.machine.camera.crop.size
+    warned = False
+
+    def submit() -> None:
+        nonlocal warned
+        try:
+            ctx.frame(render_label(result.camera.capture(), crop_size, label))
+        except Exception as exc:
+            if not warned:
+                warned = True
+                ctx.log(f"プレビュー更新に失敗しました（巡回は継続します）: {exc}")
+
+    return submit
+
+
 def _stream_pad_result(
     ctx: JobContext,
     result: BoardCalibrationResult,
@@ -517,7 +539,8 @@ def _orthogonality_points(
 def _run_orthogonality_test(ctx: JobContext) -> JobResult:
     """調整前の直行性指標を計測し、四隅・グリッド交点を対話的に巡回する.
 
-    各巡回先で 1 秒ラベル付き overlay を出し、以降はライブ表示で待機する。
+    各巡回先では確認プロンプトの応答を待つ間、ラベル付き overlay（十字線・
+    関心領域・ラベル）を載せたライブフレームを配信し続ける。
 
     「次へ」で次の点へ進み、一周したら四隅から再開する。「終了」で正常終了する。
     巡回点列は開始時に 1 回だけ構築し、`Grid k/n` と pad の対応を周回間で固定する。
@@ -553,9 +576,10 @@ def _run_orthogonality_test(ctx: JobContext) -> JobResult:
                     f"Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
                 )
                 _move_to(result, machine_pt)
-                _stream_labeled_frames(ctx, result, label)
                 total_points += 1
-                if not confirm_next_point(ctx, label):
+                if not confirm_next_point(
+                    ctx, label, while_waiting=_labeled_frame_sink(ctx, result, label)
+                ):
                     finished = True
                     break
             else:

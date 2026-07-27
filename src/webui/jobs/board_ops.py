@@ -46,12 +46,16 @@ def setup_board(
     )
 
 
-def confirm_next_point(ctx: JobContext, label: str) -> bool:
+def confirm_next_point(
+    ctx: JobContext, label: str, *, while_waiting: Callable[[], None] | None = None
+) -> bool:
     """巡回先での確認プロンプトを出し、次へ進むなら True・終了なら False を返す.
 
     Args:
         ctx: 実行中ジョブのコンテキスト
         label: プロンプトに表示する巡回先のラベル
+        while_waiting: 応答待ちの間ポーリング間隔ごとに呼ばれるコールバック
+            （``JobContext.prompt`` へそのまま渡す）
 
     Raises:
         JobAborted: プロンプト待機中に abort された場合
@@ -64,7 +68,8 @@ def confirm_next_point(ctx: JobContext, label: str) -> bool:
                 default=True,
                 true_label="次へ",
                 false_label="終了",
-            )
+            ),
+            while_waiting=while_waiting,
         )
     )
 

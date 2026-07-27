@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -107,7 +107,9 @@ class JobBridge(Protocol):
 
     def clear_frame(self) -> None: ...
 
-    def prompt(self, spec: PromptSpec) -> Answer: ...
+    def prompt(
+        self, spec: PromptSpec, *, while_waiting: Callable[[], None] | None = None
+    ) -> Answer: ...
 
     def next_command(self, timeout: float | None) -> dict[str, Any] | None: ...
 
@@ -219,15 +221,25 @@ class JobContext:
         """プレビューのオーバーライドスロットを空にする."""
         self._bridge.clear_frame()
 
-    def prompt(self, spec: PromptSpec) -> Answer:
+    def prompt(
+        self, spec: PromptSpec, *, while_waiting: Callable[[], None] | None = None
+    ) -> Answer:
         """WAITING_INPUT へ遷移し、ユーザー応答までブロックする.
 
         応答後 RUNNING に復帰し "prompt_resolved" + "job_status" を発行する。
 
+        Args:
+            spec: 問い合わせ内容
+            while_waiting: 応答が来るまでポーリング間隔ごとに呼ばれるコールバック。
+                ``frame()`` の override は PreviewService の TTL で失効するため、
+                待機中もオーバーレイを出し続けたいジョブがライブフレームの
+                再送に使う。省略時はイベント待ちでブロックする（従来動作）。
+                コールバックが投げた例外はそのまま伝播し、ジョブは FAILED になる
+
         Raises:
             JobAborted: 待機中に abort された場合
         """
-        return self._bridge.prompt(spec)
+        return self._bridge.prompt(spec, while_waiting=while_waiting)
 
     def next_command(self, timeout: float | None = None) -> dict[str, Any] | None:
         """WS "command" のキューから 1 件取得する（timeout 超過は None）.

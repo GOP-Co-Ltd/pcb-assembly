@@ -1,6 +1,8 @@
-{# プレビューの overlay 切替（none / crosshair）。copper_detection の canny 版は固有なので対象外。 #}
+{# プレビューの overlay 切替（none / crosshair）。初期選択は preview_overlay（既定 none）。
+   copper_detection の canny 版は固有なので対象外。 #}
+{% set selected_overlay = preview_overlay | default('none') %}
 <fieldset class="preview-controls">
   <legend>オーバーレイ</legend>
-  <label><input type="radio" name="overlay" value="none" checked> なし</label>
-  <label><input type="radio" name="overlay" value="crosshair"> 十字線</label>
+  <label><input type="radio" name="overlay" value="none" {{ 'checked' if selected_overlay == 'none' }}> なし</label>
+  <label><input type="radio" name="overlay" value="crosshair" {{ 'checked' if selected_overlay == 'crosshair' }}> 十字線</label>
 </fieldset>

@@ -29,8 +29,10 @@
 - 巡回先は四隅（Top-Left / Top-Right / Bottom-Right / Bottom-Left）+ TOP 層 pad
   中心（`Grid {i+1}/{n}`、現在位置から machine 座標での nearest 順。点列は開始時に
   1 回だけ構築し周回間で固定）
-- 各点で移動 → ラベル付きプレビュー → `confirm_next_point`（board_ops）の確認
-  プロンプトを出し、ユーザー応答を待つ
+- 各点で移動 → `confirm_next_point`（board_ops）の確認プロンプトを出し、ユーザー
+  応答を待つ。待機は `while_waiting` 付きで、応答が来るまでポーリング間隔ごとに
+  十字線・ROI・ラベルを描いたライブフレームを `ctx.frame` へ流し続ける（到着時に
+  1 秒だけ表示するのではなく、待機中ずっとオーバーレイが見えている）
 - 「終了」（False）を受けた時点で **SUCCEEDED**（JobAborted は投げない）。summary
   に調整前の指標 + 巡回点数 + 周回数を含む
 - 1 周し終えると四隅から再開し、「終了」ボタンか abort までずっと周回する
@@ -39,9 +41,12 @@
 実 Klipper でのホーミングと基準点合わせを必須とし、test-fixture では最初の
 prompt に到達する前に FAILED になるため。よって分担は:
 
-- prompt の spec と True/False の意味 → `test_board_ops.py::TestConfirmNextPoint`
-  （実 JobManager 経由の合成ジョブ）
+- prompt の spec と True/False の意味・`while_waiting` の委譲 →
+  `test_board_ops.py::TestConfirmNextPoint`（実 JobManager 経由の合成ジョブ）
 - prompt 待機中 abort → `test_manager.py::TestPrompt`
+- 待機中のポーリング（繰り返し呼ばれる・応答後は呼ばれない・例外で FAILED）→
+  `test_manager.py::TestPromptWhileWaiting`
+- 実際に十字線が待機中ずっと出ているかは実機での目視（下の `@mark_hardware`）
 - 巡回の通し（周回・「終了」で SUCCEEDED）→ 下の `@mark_hardware` 区分
 - setup 段の graceful FAILED → `TestMachineJobsWithoutKlipper`（変更不要）
 
@@ -397,14 +402,18 @@ class TestPosctrlHardware:
 
     1. セットアップ後、四隅 → TOP 層 pad 中心の順に移動し、各点で
        「ベルトテンションを調整し…」の確認プロンプトが出て停止する
-    2. その点で調整・確認を済ませたら「次へ」を押す。1 周し終えると四隅から
+    2. 応答を待っている間、プレビューには十字線・ROI・巡回先ラベルを重ねた
+       ライブ映像が出続ける。**目視確認項目**: 待機が何秒続いてもオーバーレイが
+       消えない（到着直後だけ表示して消える挙動になっていないこと）
+    3. その点で調整・確認を済ませたら「次へ」を押す。1 周し終えると四隅から
        再開し、押し続ける限り周回する
-    3. 打ち切りたい点で「終了」を押す。中止ではなく **正常終了（SUCCEEDED）**
+    4. 打ち切りたい点で「終了」を押す。中止ではなく **正常終了（SUCCEEDED）**
        になり、summary に調整前の指標・巡回点数・周回数が出る（指標は開始時の
        1 回計測で、巡回中の調整は反映されない）
 
     下の自動テストは各点を「次へ」で通し最後に「終了」する流れだけを検証する。
-    ベルトテンション調整自体は WebUI から手動で実施する。
+    オーバーレイの表示継続とベルトテンション調整自体は WebUI から目視・手動で
+    実施する。
     """
 
     def test_reference_point_setup_jog_and_record_applies_settings_immediately(
