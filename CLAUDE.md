@@ -168,7 +168,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - **60% 通知。** statusLine (`.claude/scripts/statusline.sh`) が context 使用率を毎ターン算出し、閾値 (既定 60%) を超えると警告 marker を書く。`UserPromptSubmit` hook がそれを検出し、区切りで `/compact-prep` → `/compact` を促す。自動 compact に先を越されないための先回り。閾値 60% は 1M context 前提の設定 (60% でもまだ ~400k の作業余地が残る)。
 - **`/compact-prep`。** `/compact` 直前に実行する skill。要約に残りにくい判断構造 (採用/却下した案・現在フェーズ・委譲したサブエージェント) を `${TMPDIR:-/tmp}/claude-compact-state/<session_id>.md` へ退避する。
 - **圧縮後の復旧。** `PostCompact` hook が圧縮を marker で記録し、次の `UserPromptSubmit` hook が state file・TaskList・本ファイルの決定事項を読み戻すよう指示する。圧縮サマリーの next step は仮説として扱う。
-- 依存: hook / statusLine は `jq` を使う。**`jq` が PATH に無いと全て fail-open で無音になり、通知も復旧も起きない**。配線は `.claude/settings.json` の `statusLine` / `hooks`。marker は `${TMPDIR:-/tmp}` 配下で session_id ごとに分離するため、並行タスクと衝突しない。
+- 依存: hook / statusLine は `python3` のみを使う（かつて `jq` に依存していたが、未導入環境では fail-open で無音になり通知も復旧も起きなかったため置き換えた）。配線は `.claude/settings.json` の `statusLine` / `hooks`。marker は `${TMPDIR:-/tmp}` 配下で session_id ごとに分離するため、並行タスクと衝突しない。
 
 ## 参照先マップ
 

@@ -7,50 +7,100 @@
 # window で割って算出する。window は model id に "1m" を含めば 1,000,000、200k 超で
 # 走っていれば 1,000,000、それ以外 200,000。
 #
-# fail-open: 何が失敗しても最低限の 1 行を返し exit 0。依存: jq (devcontainer 同梱)。
+# fail-open: 何が失敗しても最低限の 1 行を返し exit 0。依存: python3 のみ。
 
 set -uo pipefail
 
 input=$(cat)
 
-j() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
+# JSON 解析と usage 集計を 1 回の python3 呼び出しにまとめる (毎ターン走るため)。
+# 出力は US (0x1f) 区切り 1 行: sid, model, cwd, window, pct
+# 区切りに TAB を使わないのは、TAB が bash の IFS whitespace 扱いになり
+# 空フィールドが脱落・連結してしまうため。
+parsed=$(
+  printf '%s' "$input" | python3 -c '
+import json
+import sys
 
-sid=$(j '.session_id // empty')
-model=$(j '.model.display_name // .model.id // "?"')
-model_id=$(j '.model.id // ""')
-transcript=$(j '.transcript_path // empty')
-cwd=$(j '.workspace.current_dir // .cwd // empty')
-exceeds=$(j '.exceeds_200k_tokens // false')
+
+SEP = "\x1f"
+
+
+def clean(value):
+    text = str(value or "")
+    for bad in ("\n", "\r", "\t", SEP):
+        text = text.replace(bad, " ")
+    return text.strip()
+
+
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    data = {}
+if not isinstance(data, dict):
+    data = {}
+
+model = data.get("model") or {}
+if not isinstance(model, dict):
+    model = {}
+workspace = data.get("workspace") or {}
+if not isinstance(workspace, dict):
+    workspace = {}
+
+sid = clean(data.get("session_id"))
+name = clean(model.get("display_name") or model.get("id")) or "?"
+model_id = str(model.get("id") or "").lower()
+cwd = clean(workspace.get("current_dir") or data.get("cwd"))
+
+window = 1000000 if "1m" in model_id or data.get("exceeds_200k_tokens") else 200000
+
+used = 0
+path = data.get("transcript_path") or ""
+if path:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            tail = handle.readlines()[-400:]
+        for line in tail:
+            try:
+                record = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(record, dict):
+                continue
+            message = record.get("message") or {}
+            usage = message.get("usage") if isinstance(message, dict) else None
+            if not isinstance(usage, dict):
+                continue
+            used = (
+                (usage.get("input_tokens") or 0)
+                + (usage.get("cache_read_input_tokens") or 0)
+                + (usage.get("cache_creation_input_tokens") or 0)
+                + (usage.get("output_tokens") or 0)
+            )
+    except Exception:
+        used = 0
+
+pct = used * 100 // window if window > 0 and used > 0 else 0
+print(SEP.join([sid, name, cwd, str(window), str(pct)]))
+' 2>/dev/null
+) || parsed=""
+
+sid=""
+model="?"
+cwd=""
+window=200000
+pct=0
+if [[ -n "$parsed" ]]; then
+  IFS=$'\x1f' read -r sid model cwd window pct <<<"$parsed"
+fi
+[[ "$window" =~ ^[0-9]+$ ]] || window=200000
+[[ "$pct" =~ ^[0-9]+$ ]] || pct=0
+[[ -n "$model" ]] || model="?"
 
 # git branch (cwd があれば)
 branch=""
 if [[ -n "$cwd" ]]; then
   branch=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-fi
-
-# context window の判定
-window=200000
-case "$model_id" in
-  *1m*) window=1000000 ;;
-esac
-if [[ "$exceeds" == "true" && "$window" -lt 1000000 ]]; then
-  window=1000000
-fi
-
-# 現在の context トークン数 = transcript 末尾側の最新 usage 合計
-used=0
-if [[ -n "$transcript" && -f "$transcript" ]]; then
-  used=$(tail -n 400 "$transcript" 2>/dev/null | jq -rs '
-    [ .[] | (.message.usage // empty)
-      | ((.input_tokens // 0) + (.cache_read_input_tokens // 0)
-         + (.cache_creation_input_tokens // 0) + (.output_tokens // 0)) ]
-    | last // 0' 2>/dev/null)
-fi
-[[ "$used" =~ ^[0-9]+$ ]] || used=0
-
-pct=0
-if [[ "$window" -gt 0 && "$used" -gt 0 ]]; then
-  pct=$((used * 100 / window))
 fi
 
 # 閾値超で 60% 警告 marker を書く (cooldown 中でなければ)
