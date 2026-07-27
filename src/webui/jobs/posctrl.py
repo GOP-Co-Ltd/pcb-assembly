@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -34,7 +34,11 @@ from pcbasm.vision import (
     draw_detected_circle,
     draw_overlay,
 )
-from webui.jobs.board_ops import align_component_groups, setup_board
+from webui.jobs.board_ops import (
+    align_component_groups,
+    confirm_next_point,
+    setup_board,
+)
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import (
     ApplyFile,
@@ -387,6 +391,28 @@ def _stream_labeled_frames(
         ctx.checkpoint()
 
 
+def _labeled_frame_sink(
+    ctx: JobContext, result: BoardCalibrationResult, label: str
+) -> Callable[[], None]:
+    """ラベル付きライブフレームを 1 枚プレビューへ出すコールバックを作る.
+
+    カメラ取得の失敗でツアーを落とさない。最初の 1 回だけログへ警告し、以降は黙って更新を見送る。
+    """
+    crop_size = result.machine.camera.crop.size
+    warned = False
+
+    def submit() -> None:
+        nonlocal warned
+        try:
+            ctx.frame(render_label(result.camera.capture(), crop_size, label))
+        except Exception as exc:
+            if not warned:
+                warned = True
+                ctx.log(f"プレビュー更新に失敗しました（巡回は継続します）: {exc}")
+
+    return submit
+
+
 def _stream_pad_result(
     ctx: JobContext,
     result: BoardCalibrationResult,
@@ -487,40 +513,83 @@ def _corrected_entries(
     )
 
 
+def _orthogonality_points(
+    result: BoardCalibrationResult,
+) -> list[tuple[str, Point2d]]:
+    """直行性テストの巡回点列（四隅 + TOP 層 pad 中心）を構築する.
+
+    pad 中心は現在位置からの nearest neighbor 順に並べる（machine 座標で比較）。
+    """
+    board_transform = result.board_transform
+    top_pads = [p for p in result.pcb.pads if p.layer == Layer.TOP]
+    centers = sort_by_nearest(
+        [p.center for p in top_pads],
+        result.stage.get_position().to2d().to3d(),
+        key=lambda center: board_transform.apply(center).to3d(),
+    )
+    return [
+        *_board_corners(result),
+        *(
+            (f"Grid {index + 1}/{len(centers)}", center)
+            for index, center in enumerate(centers)
+        ),
+    ]
+
+
 def _run_orthogonality_test(ctx: JobContext) -> JobResult:
-    """直行性指標の計測と四隅・グリッド交点の自動巡回を実行する."""
+    """調整前の直行性指標を計測し、四隅・グリッド交点を対話的に巡回する.
+
+    各巡回先では確認プロンプトの応答を待つ間、ラベル付き overlay（十字線・
+    関心領域・ラベル）を載せたライブフレームを配信し続ける。
+
+    「次へ」で次の点へ進み、一周したら四隅から再開する。「終了」で正常終了する。
+    巡回点列は開始時に 1 回だけ構築し、`Grid k/n` と pad の対応を周回間で固定する。
+    指標は開始時の 1 回計測なので、巡回中のテンション調整は反映されない。
+
+    Raises:
+        JobAborted: 巡回中またはプロンプト待機中に abort された場合
+    """
+    total_points = 0
+    cycle = 1
+    finished = False
     with ctx.open_camera() as camera:
         result = setup_board(ctx, camera)
         board_transform = result.board_transform
 
         metrics = OrthogonalityMetrics.from_transform(board_transform)
+        ctx.log("調整前の直行性指標:")
         ctx.log(f"軸間角の 90° からのずれ: {metrics.axis_angle_error_deg:+.3f} deg")
         ctx.log(f"スケール X: {metrics.scale_x:.5f} / Y: {metrics.scale_y:.5f}")
-
-        # 四隅巡回（テンション調整の目視確認）
-        corners = _board_corners(result)
-        for index, (name, board_pt) in enumerate(corners):
-            ctx.progress("四隅巡回", 100.0 * index / len(corners))
-            ctx.checkpoint()
-            _move_to(result, board_transform.apply(board_pt))
-            _stream_labeled_frames(ctx, result, name)
-
-        # グリッド交点巡回（TOP 層 pad 中心）
-        top_pads = [p for p in result.pcb.pads if p.layer == Layer.TOP]
-        centers = sort_by_nearest(
-            [p.center.to3d() for p in top_pads],
-            result.stage.get_position().to2d().to3d(),
+        ctx.log(
+            "各巡回先で確認プロンプトが出ます。"
+            "ベルトテンションを調整して「次へ」、やめるときは「終了」を押してください"
         )
-        for index, center_3d in enumerate(centers):
-            ctx.progress("グリッド巡回", 100.0 * index / len(centers))
-            ctx.checkpoint()
-            _move_to(result, board_transform.apply(center_3d.to2d()))
-            _stream_labeled_frames(ctx, result, f"Grid {index + 1}/{len(centers)}")
+
+        points = _orthogonality_points(result)
+        while not finished:
+            for index, (label, board_pt) in enumerate(points):
+                ctx.progress(f"巡回 {cycle} 周目", 100.0 * index / len(points))
+                ctx.checkpoint()
+                machine_pt = board_transform.apply(board_pt)
+                ctx.log(
+                    f"{label}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) -> "
+                    f"Machine({machine_pt.x:.3f}, {machine_pt.y:.3f})"
+                )
+                _move_to(result, machine_pt)
+                total_points += 1
+                if not confirm_next_point(
+                    ctx, label, while_waiting=_labeled_frame_sink(ctx, result, label)
+                ):
+                    finished = True
+                    break
+            else:
+                cycle += 1
 
     return JobResult(
         summary=(
-            f"軸間角ずれ {metrics.axis_angle_error_deg:+.3f} deg / "
-            f"scale X {metrics.scale_x:.5f} Y {metrics.scale_y:.5f}"
+            f"調整前の軸間角ずれ {metrics.axis_angle_error_deg:+.3f} deg / "
+            f"調整前 scale X {metrics.scale_x:.5f} Y {metrics.scale_y:.5f} / "
+            f"巡回 {total_points} 点（{cycle} 周目で終了）"
         )
     )
 

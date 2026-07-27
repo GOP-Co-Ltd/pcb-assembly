@@ -24,6 +24,32 @@
   `[camera.crop]`（`ctx.machine.camera.crop.size`）を読む（真実は machine.toml
   に一本化。二重管理の回避）
 
+「直行性テストを対話フローへ戻す」変更が `orthogonality_test` の追加契約:
+
+- 巡回先は四隅（Top-Left / Top-Right / Bottom-Right / Bottom-Left）+ TOP 層 pad
+  中心（`Grid {i+1}/{n}`、現在位置から machine 座標での nearest 順。点列は開始時に
+  1 回だけ構築し周回間で固定）
+- 各点で移動 → `confirm_next_point`（board_ops）の確認プロンプトを出し、ユーザー
+  応答を待つ。待機は `while_waiting` 付きで、応答が来るまでポーリング間隔ごとに
+  十字線・ROI・ラベルを描いたライブフレームを `ctx.frame` へ流し続ける（到着時に
+  1 秒だけ表示するのではなく、待機中ずっとオーバーレイが見えている）
+- 「終了」（False）を受けた時点で **SUCCEEDED**（JobAborted は投げない）。summary
+  に調整前の指標 + 巡回点数 + 周回数を含む
+- 1 周し終えると四隅から再開し、「終了」ボタンか abort までずっと周回する
+
+巡回本体（移動・プレビュー・周回）は装置なしでは検証できない。`setup_board` が
+実 Klipper でのホーミングと基準点合わせを必須とし、test-fixture では最初の
+prompt に到達する前に FAILED になるため。よって分担は:
+
+- prompt の spec と True/False の意味・`while_waiting` の委譲 →
+  `test_board_ops.py::TestConfirmNextPoint`（実 JobManager 経由の合成ジョブ）
+- prompt 待機中 abort → `test_manager.py::TestPrompt`
+- 待機中のポーリング（繰り返し呼ばれる・応答後は呼ばれない・例外で FAILED）→
+  `test_manager.py::TestPromptWhileWaiting`
+- 実際に十字線が待機中ずっと出ているかは実機での目視（下の `@mark_hardware`）
+- 巡回の通し（周回・「終了」で SUCCEEDED）→ 下の `@mark_hardware` 区分
+- setup 段の graceful FAILED → `TestMachineJobsWithoutKlipper`（変更不要）
+
 cv2 / Moonraker のモックは使わない（skill `testing-strategy`）。Klipper 不通は
 test-fixture の実ポートへの接続拒否で検証する。
 """
@@ -371,6 +397,23 @@ class TestPosctrlHardware:
     - camera_calibration: 1 マス 1.5mm の実チェッカーボードを視野に配置
     - board_tour / orthogonality_test: data/testing/fill_coverage の基板が
       ステージにセットされ、基準点マーカーが視野に入ること
+
+    orthogonality_test は対話フロー（巡回先ごとに確認プロンプト）:
+
+    1. セットアップ後、四隅 → TOP 層 pad 中心の順に移動し、各点で
+       「ベルトテンションを調整し…」の確認プロンプトが出て停止する
+    2. 応答を待っている間、プレビューには十字線・ROI・巡回先ラベルを重ねた
+       ライブ映像が出続ける。**目視確認項目**: 待機が何秒続いてもオーバーレイが
+       消えない（到着直後だけ表示して消える挙動になっていないこと）
+    3. その点で調整・確認を済ませたら「次へ」を押す。1 周し終えると四隅から
+       再開し、押し続ける限り周回する
+    4. 打ち切りたい点で「終了」を押す。中止ではなく **正常終了（SUCCEEDED）**
+       になり、summary に調整前の指標・巡回点数・周回数が出る（指標は開始時の
+       1 回計測で、巡回中の調整は反映されない）
+
+    下の自動テストは各点を「次へ」で通し最後に「終了」する流れだけを検証する。
+    オーバーレイの表示継続とベルトテンション調整自体は WebUI から目視・手動で
+    実施する。
     """
 
     def test_reference_point_setup_jog_and_record_applies_settings_immediately(
@@ -442,27 +485,51 @@ class TestPosctrlHardware:
         )
         assert loaded.z_position is not None  # 実 Klipper から Z を取得
 
-    @pytest.mark.parametrize(
-        ("name", "summary_keyword"),
-        [("board_tour", "照合"), ("orthogonality_test", "軸間角")],
-    )
-    def test_machine_job_runs_to_success(
+    def test_board_tour_runs_to_success(
         self,
         real_manager: JobManager,
         real_state: AppState,
         wait_until: WaitUntil,
-        name: str,
-        summary_keyword: str,
     ):
-        """セットアップ → 巡回（→ 照合）の通しが SUCCEEDED で完了する."""
+        """セットアップ → 巡回 → 照合の通しが SUCCEEDED で完了する（非対話）."""
         real_state.select_pcb(
             Path("data/testing/fill_coverage/fill_coverage.kicad_pcb")
         )
-        record = real_manager.start(name, {})
+        record = real_manager.start("board_tour", {})
         wait_until(lambda: record.status.terminal, timeout=900.0)
 
         assert record.status == JobStatus.SUCCEEDED
         result = record.result
         assert result is not None
         assert result.summary is not None
-        assert summary_keyword in result.summary
+        assert "照合" in result.summary
+
+    def test_orthogonality_test_prompts_each_point_and_quit_succeeds(
+        self,
+        real_manager: JobManager,
+        real_state: AppState,
+        wait_until: WaitUntil,
+    ):
+        """巡回先ごとに確認プロンプトが出て、「終了」で正常終了する.
+
+        四隅（4 点）を「次へ」で通し、5 点目（TOP 層 pad の 1 点目）で「終了」を 返す。中止扱いではなく
+        SUCCEEDED で、summary に指標と周回数が載る。
+        """
+        real_state.select_pcb(
+            Path("data/testing/fill_coverage/fill_coverage.kicad_pcb")
+        )
+        record = real_manager.start("orthogonality_test", {})
+        answered: set[str] = set()
+        # 1 点目のプロンプトはホーミング + 基準点合わせの後に来るため待ちが長い
+        for _ in range(4):
+            answer_next_prompt(record, real_manager, True, answered, timeout=900.0)
+        answer_next_prompt(record, real_manager, False, answered, timeout=300.0)
+        wait_until(lambda: record.status.terminal, timeout=300.0)
+
+        assert record.status == JobStatus.SUCCEEDED
+        result = record.result
+        assert result is not None
+        assert result.summary is not None
+        assert "軸間角" in result.summary
+        assert "巡回 5 点" in result.summary  # 「終了」を押した点まで数える
+        assert "1 周目で終了" in result.summary
