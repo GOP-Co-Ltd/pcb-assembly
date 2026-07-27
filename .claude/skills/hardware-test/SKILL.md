@@ -1,6 +1,6 @@
 ---
 name: hardware-test
-description: PCBアセンブリのハードウェアテスト記述・実行手順。@mark_hardware／skip_if_no_*camera の使い分け、make test-hardware の実行、v4l2-ctl での接続確認まで。GPIOやカメラ、ステージなど物理デバイス絡みのテストを書く／走らせるときに参照する。
+description: PCBアセンブリのハードウェアテスト記述・実行手順。@mark_hardware／skip_if_no_*camera の使い分け、pytest -m hardware の実行、v4l2-ctl での接続確認まで。GPIOやカメラ、ステージなど物理デバイス絡みのテストを書く／走らせるときに参照する。
 ---
 
 # ハードウェアテスト手順
@@ -54,18 +54,24 @@ uv run python -c "import picamera2; print(picamera2.Picamera2.global_camera_info
 
 ## テスト実行コマンド
 
-```bash
-# CI想定：ハードウェアテストを除外
-make test-no-hardware
+agent が実行してよいのはこれだけ:
 
-# 実機手元実行：すべて実行
+```bash
+# ハードウェアテストを除外
+make test-no-hardware
+```
+
+以下は**ユーザーが手元で実行する**コマンド。実機が動くため agent は実行しない（`make test` は `settings.json` で deny 済み）。
+
+```bash
+# すべて実行
 make test
 
 # ハードウェアテストのみ
 uv run pytest -m hardware
 
 # 特定モジュールのみ
-uv run pytest tests/pcb_assembly/hal/ -m hardware
+uv run pytest tests/pcbasm/hal/ -m hardware
 ```
 
 ## `tests/helpers.py` 拡張時の注意

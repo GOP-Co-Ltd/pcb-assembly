@@ -21,11 +21,15 @@
 ## 検証結果
 - make format: pass/fail
 - make type: pass/fail
-- make test: pass/fail
+- make test-no-hardware: pass/fail
 ```
 
 ## 読み手
 
-- `code-simplifier` が次に簡素化する際の前提として読む
+- `code-reviewer` が diff と突き合わせて仕様準拠を判定するために読む
+- `code-simplifier` が次に簡素化・ドキュメント同期する際の前提として読む
 - 並列 implementer 同士が IF 変更を共有するために読む
-- `docs-keeper` が「何が変わったか」を把握するために読む
+
+## 注意
+
+ノートは**書かれた時点の記録**であり、後続コミットで公開 IF・モジュール配置・エンドポイントが変わっていることがある。実装前に必ず現在のコードで確認する。「削除した」「新設した」という記述も、その後で復元／再削除されている場合がある。

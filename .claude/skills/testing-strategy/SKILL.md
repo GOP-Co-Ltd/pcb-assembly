@@ -14,7 +14,7 @@ pcb-assembly はハードウェア装置制御が支配的なプロジェクト�
 ## 検証対象の優先順位
 
 1. **実機テスト (`@mark_hardware`)** — 真の検証。実カメラ (USB / CSI)、実 Klipper (シリアル / RPC)、実ロードセル、実 GPIO、実 PCB に対して走らせる。実 PNG を実 OpenCV / picamera2 / RapidOCR に通す。`make test` で実機接続時にローカル実行。skip 条件 (`skip_if_no_usb_camera` 等) で gating する。
-2. **自前 HAL ABC の fake / 軽量代替** — `Camera`, `KlipperClient` など `src/pcb_assembly/hal/` で pcb-assembly が定義した抽象のみ fake してよい。`make test-no-hardware` の主体。ABC のみで具象が無い場合は `tests/helpers.py` に test 用 Impl を置く (`mocker.Mock` よりまず実 Impl を検討)。
+2. **自前 HAL ABC の fake / 軽量代替** — `Camera`, `KlipperClient` など `src/pcbasm/hal/` で pcb-assembly が定義した抽象のみ fake してよい。`make test-no-hardware` の主体。ABC のみで具象が無い場合は `tests/helpers.py` に test 用 Impl を置く (`mocker.Mock` よりまず実 Impl を検討)。
 3. **3rd-party 表面のモック → 禁止**: `picamera2.Picamera2`, `v4l2` ioctl, `libgpiod`, Klipper の Moonraker / klippy RPC, `cv2.*`, `time.sleep` など外部ライブラリの面を直接モックしない。仮定のミラーになり upstream の挙動変更を検出できない。
 4. **内部関数モック → 禁止** — 自モジュール内の private 関数をモックしても、リファクタで壊れるだけで何の振る舞いも保証しない。
 
@@ -27,15 +27,16 @@ pcb-assembly はハードウェア装置制御が支配的なプロジェクト�
 
 ## テストレイアウト
 
-`tests/pcb_assembly/` が `src/pcb_assembly/` を 1 対 1 でミラーリング:
+`tests/pcbasm/` が `src/pcbasm/` を 1 対 1 でミラーリング:
 
 ```
-src/pcb_assembly/hal/camera.py     ↔ tests/pcb_assembly/hal/test_camera.py
-src/pcb_assembly/vision/detect.py  ↔ tests/pcb_assembly/vision/test_detect.py
-src/pcb_assembly/geometry/plane.py ↔ tests/pcb_assembly/geometry/test_plane.py
+src/pcbasm/hal/camera.py     ↔ tests/pcbasm/hal/test_camera.py
+src/pcbasm/vision/detect.py  ↔ tests/pcbasm/vision/test_detect.py
+src/pcbasm/geometry/plane.py ↔ tests/pcbasm/geometry/test_plane.py
 ```
 
-- `tests/` 直下は `__init__.py`、`helpers.py`、`conftest.py`、必要なら `e2e/` のみ
+- `tests/webui/` が `src/webui/` を同様にミラーする
+- `tests/` 直下は `__init__.py`、`helpers.py`、`conftest.py`、`test_package.py`、`e2e/`（実サーバー E2E）のみ
 - `tests/helpers.py` が `mark_hardware` / `skip_if_no_*` / test 用 Impl の所在地
 - 1 source ファイル 1 test ファイル原則。バックエンド分割があればテストも分割
 
@@ -43,7 +44,7 @@ src/pcb_assembly/geometry/plane.py ↔ tests/pcb_assembly/geometry/test_plane.py
 
 | 区分                       | 配置                                        | 検証対象                                         | モック許容                     | 実行                           |
 | -------------------------- | ------------------------------------------- | ------------------------------------------------ | ------------------------------ | ------------------------------ |
-| **unit**                   | `tests/pcb_assembly/**/test_*.py`           | 純粋ロジック (geometry の数学、PCB 配置パース等) | なし                           | 常時                           |
+| **unit**                   | `tests/pcbasm/**/test_*.py`                 | 純粋ロジック (geometry の数学、PCB 配置パース等) | なし                           | 常時                           |
 | **integration-with-fakes** | 同上 (`tests/helpers.py` の Impl を import) | モジュール間結合                                 | 自前 HAL ABC のみ              | 常時 (`make test-no-hardware`) |
 | **integration-hardware**   | 同上、`@mark_hardware` 付与                 | adapter / 実機結合点                             | 実機、`skip_if_no_*` で gating | 実機接続時 (`make test`)       |
 | **e2e**                    | `tests/e2e/` (存在すれば)                   | 実機ボード上の通し動作                           | なし                           | 手動                           |
@@ -71,7 +72,7 @@ src/pcb_assembly/geometry/plane.py ↔ tests/pcb_assembly/geometry/test_plane.py
 
 外部利用者が依存する API 名・基底クラス・型エイリアスは契約として固定してよい:
 
-- 集約場所: `tests/pcb_assembly/test_api_contract.py` (新設する場合)
+- 集約場所: `tests/pcbasm/test_api_contract.py` (新設する場合)
 - マーカー: `@pytest.mark.api_contract`
 - 対象例: `__all__` 整合性、公開例外の継承元、型エイリアスの解決先
 
