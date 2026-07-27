@@ -1,4 +1,4 @@
-"""ボード計測セットアップと銅箔照合ループの共有処理."""
+"""ボード計測セットアップ・巡回プロンプト・銅箔照合ループの共有処理."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pcbasm.posctrl import (
     PadAlignmentSession,
     setup_board_calibration,
 )
-from webui.jobs.context import JobContext
+from webui.jobs.context import JobContext, PromptSpec
 
 
 def setup_board(
@@ -43,6 +43,29 @@ def setup_board(
         tolerance=tolerance,
         camera=camera,
         frame_sink=ctx.frame,
+    )
+
+
+def confirm_next_point(ctx: JobContext, label: str) -> bool:
+    """巡回先での確認プロンプトを出し、次へ進むなら True・終了なら False を返す.
+
+    Args:
+        ctx: 実行中ジョブのコンテキスト
+        label: プロンプトに表示する巡回先のラベル
+
+    Raises:
+        JobAborted: プロンプト待機中に abort された場合
+    """
+    return bool(
+        ctx.prompt(
+            PromptSpec(
+                kind="confirm",
+                message=f"{label}: ベルトテンションを調整し、確認できたら次へ進みます",
+                default=True,
+                true_label="次へ",
+                false_label="終了",
+            )
+        )
     )
 
 

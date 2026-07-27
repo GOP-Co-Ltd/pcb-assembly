@@ -27,8 +27,8 @@ Claude Code の `/compact` 直前に実行する。圧縮サマリーへ残り�
     - TodoWrite の TaskList (in-progress / 残タスク)
     - plan mode の計画 (あれば) と現在フェーズ・ステップ
     - このセッションで採用した案・却下した案とその理由
-    - 起動中・委譲済みのサブエージェント (implementation-planner / plan-implementer /
-        spec-test-author / code-simplifier / docs-keeper、エージェントチーム、
+    - 起動中・委譲済みのサブエージェント (implementation-planner / spec-test-author /
+        plan-implementer / code-reviewer / code-simplifier、エージェントチーム、
         do-on-worktree のバックグラウンド worktree) と担当
     - 編集中の file と、未保存・未検証・`make run` 未通過の注意点
 4. state file に次の見出しを **この順で** Write する。

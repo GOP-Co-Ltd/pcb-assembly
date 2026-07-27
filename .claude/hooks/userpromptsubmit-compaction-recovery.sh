@@ -2,12 +2,23 @@
 # UserPromptSubmit hook: PostCompact が残した圧縮 marker を検出し、additionalContext で
 # 圧縮復旧の指示を注入する (one-shot)。
 #
-# overhead: marker が無ければ即 exit。fail-open (常に exit 0)。依存: jq。
+# overhead: marker が無ければ即 exit。fail-open (常に exit 0)。依存: python3 のみ。
 
 set -uo pipefail
 
 input=$(cat)
-sid=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+sid=$(
+  printf '%s' "$input" | python3 -c '
+import json
+import sys
+
+try:
+    data = json.load(sys.stdin)
+    print(data.get("session_id") or "" if isinstance(data, dict) else "")
+except Exception:
+    pass
+' 2>/dev/null
+) || sid=""
 [[ -z "$sid" ]] && exit 0
 
 marker="${TMPDIR:-/tmp}/claude-compacted/$sid"
@@ -26,10 +37,19 @@ ctx+=$'\n'"- plan mode が解除されていないか確認し、計画の途中
 ctx+=$'\n'"- 却下済みのアプローチを再提案していないか、CLAUDE.md の決定事項と照合せよ"
 ctx+=$'\n'"- 委譲済みのサブエージェント / worktree の存在を忘れて自分で着手していないか確認せよ"
 
-jq -n --arg ctx "$ctx" '{
-  hookSpecificOutput: {
-    hookEventName: "UserPromptSubmit",
-    additionalContext: $ctx
-  }
-}'
+printf '%s' "$ctx" | python3 -c '
+import json
+import sys
+
+print(
+    json.dumps(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": sys.stdin.read(),
+            }
+        }
+    )
+)
+' 2>/dev/null || true
 exit 0

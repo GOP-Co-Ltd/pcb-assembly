@@ -7,7 +7,7 @@ description: WebUI（src/webui/）をロジックの薄いラッパーに保つ�
 
 計算・ドメインロジックは pcbasm（`src/pcbasm/`）に集約し、WebUI（`src/webui/`）は
 HTTP/WS/MJPEG の入出力変換と pcbasm 呼び出しに徹する。関連: CLAUDE.md「WebUI 設計」、
-memory `feedback-webui-no-logic-in-js`、skill `webui-e2e`。
+skill `webui-e2e`。
 
 ## レイヤ責務
 

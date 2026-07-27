@@ -3,12 +3,23 @@
 # PostCompact は additionalContext を返せないため、圧縮直後の指示注入は
 # UserPromptSubmit 側 (userpromptsubmit-compaction-recovery.sh) が担う。
 #
-# fail-open (常に exit 0)。依存: jq。
+# fail-open (常に exit 0)。依存: python3 のみ。
 
 set -uo pipefail
 
 input=$(cat)
-sid=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+sid=$(
+  printf '%s' "$input" | python3 -c '
+import json
+import sys
+
+try:
+    data = json.load(sys.stdin)
+    print(data.get("session_id") or "" if isinstance(data, dict) else "")
+except Exception:
+    pass
+' 2>/dev/null
+) || sid=""
 [[ -z "$sid" ]] && exit 0
 
 # 圧縮発生 marker を書く (UserPromptSubmit が検出して指示注入 → 削除する)

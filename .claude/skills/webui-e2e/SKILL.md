@@ -9,7 +9,7 @@ WebUI（`src/webui/`、FastAPI + uvicorn）を実サーバーで通し検証す�
 test-fixture マシン・隔離 data_dir を使い、実機もカメラも無くても HTTP / WebSocket /
 MJPEG を最後まで叩ける。
 
-関連: skill [testing-strategy](../testing-strategy/SKILL.md)、memory `feedback-webui-claude-self-e2e`（Claude 自身が E2E まで検証する／設定書き込みは test-fixture）。
+関連: skill [testing-strategy](../testing-strategy/SKILL.md)。E2E の検証は Claude 自身が最後まで行う（設定書き込みは test-fixture を使う）。
 
 ## 大原則: サーバーの生存期間を有限コマンドに閉じ込める
 
@@ -71,7 +71,7 @@ make webui-fake      # PCBASM_WEBUI_FAKE_CAMERA=1, PORT=8099, DATA_DIR=/tmp/pcba
 3. ブラウザでの体感確認はユーザーに依頼する（装置を動かすフローの実機確認と同様）。
 
 `pkill` でサーバーを止めるときはパターンが自分のシェルに一致して self-kill しないよう注意
-（例: `pkill -f "python -m webui"` ではなく対象ポート/PID を指定する。memory `webui-implementation` の教訓）。
+（例: `pkill -f "python -m webui"` ではなく対象ポート/PID を指定する）。
 
 ## 隔離の鉄則（実機設定を汚さない）
 
