@@ -624,7 +624,7 @@ class TestExclusion:
 
         try:
             with pytest.raises(BusyError):
-                state.select_machine("test-fixture")
+                state.select_pcb(Path("boards/sample.kicad_pcb"))
         finally:
             gate.set()
         wait_until(lambda: record.status.terminal)
@@ -788,7 +788,7 @@ class TestApplyMachineSettingsFromWorker:
         manager: JobManager,
         catalog: JobCatalog,
         state: AppState,
-        configs_root: Path,
+        config_dir: Path,
         wait_until: WaitUntil,
     ):
         gate = threading.Event()
@@ -799,7 +799,7 @@ class TestApplyMachineSettingsFromWorker:
 
         _register(catalog, run)
         record = manager.start("synthetic", {})
-        toml_path = configs_root / state.selected_machine / "machine.toml"
+        toml_path = config_dir / "machine.toml"
         wait_until(lambda: "42.424242" in toml_path.read_text())
 
         assert not record.status.terminal  # ジョブ完了前に永続化されている
@@ -871,7 +871,7 @@ class TestPresentOnTermination:
         catalog: JobCatalog,
         state: AppState,
         wait_until: WaitUntil,
-        configs_root: Path,
+        config_dir: Path,
     ):
         """キャップ記録済み（paste）はキャップ駐機経路になり、失敗ログは退避文言のみ.
 
@@ -879,7 +879,7 @@ class TestPresentOnTermination:
         「タスク終了時の退避に失敗: {exc}」で "PRESENT" / "M84" の語を含めない
         （フォールバック経路のログ断言との一意性を保つ）。
         """
-        path = configs_root / "kurousagi" / "machine.toml"
+        path = config_dir / "machine.toml"
         path.write_text(
             path.read_text(encoding="utf-8")
             + "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",

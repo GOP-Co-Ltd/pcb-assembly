@@ -11,7 +11,7 @@ from tests.helpers import PROJECT_ROOT
 from webui.settings import Settings
 
 ENV_VARS = (
-    "PCBASM_WEBUI_CONFIGS_ROOT",
+    "PCBASM_CONFIG_DIR",
     "PCBASM_WEBUI_DATA_DIR",
     "PCBASM_WEBUI_PCB_ROOT",
     "PCBASM_MAINSAIL_URL",
@@ -33,7 +33,7 @@ class TestSettingsFromEnv:
     def test_defaults_without_env(self, clean_env: None):
         settings = Settings.from_env()
 
-        assert settings.configs_root == PROJECT_ROOT / "configs"
+        assert settings.config_dir == PROJECT_ROOT / "config"
         assert settings.data_dir == PROJECT_ROOT / "data"
         assert settings.webui_data_dir == PROJECT_ROOT / "data" / "webui"
         # OS 全体（USB マウント等）を閲覧可能。初期表示はプロジェクトルート
@@ -42,13 +42,12 @@ class TestSettingsFromEnv:
         assert settings.pcb_upload_dir == PROJECT_ROOT / "uploads"
         # None は「ページ閲覧元ホストに追従」を意味する（pages.py で解決）
         assert settings.mainsail_url is None
-        assert settings.default_machine == "kurousagi"
         assert settings.port == 8080
 
     def test_env_overrides_each_field(
         self, clean_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ):
-        monkeypatch.setenv("PCBASM_WEBUI_CONFIGS_ROOT", str(tmp_path / "configs"))
+        monkeypatch.setenv("PCBASM_CONFIG_DIR", str(tmp_path / "config"))
         monkeypatch.setenv("PCBASM_WEBUI_DATA_DIR", str(tmp_path / "data"))
         monkeypatch.setenv("PCBASM_WEBUI_PCB_ROOT", str(tmp_path / "pcb"))
         monkeypatch.setenv("PCBASM_MAINSAIL_URL", "http://mainsail.example:8000")
@@ -56,7 +55,7 @@ class TestSettingsFromEnv:
 
         settings = Settings.from_env()
 
-        assert settings.configs_root == tmp_path / "configs"
+        assert settings.config_dir == tmp_path / "config"
         assert settings.data_dir == tmp_path / "data"
         assert settings.webui_data_dir == tmp_path / "data" / "webui"
         assert settings.pcb_browse_root == tmp_path / "pcb"

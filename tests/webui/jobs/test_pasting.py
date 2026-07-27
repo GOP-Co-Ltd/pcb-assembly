@@ -12,7 +12,7 @@
 - height_plane: 計測前に planned_points.png を artifacts へ生成し、
   diagnostics と /artifacts/ リンクを log してから confirm を挟む。
   confirm False → ABORTED / True → Klipper 不通（setup）で FAILED
-- 装置ジョブの異常系: test-fixture（Klipper port 7126 = 接続拒否）で graceful
+- 装置ジョブの異常系: テスト用 config（Klipper port 7126 = 接続拒否）で graceful
   FAILED + PRESENT / relax (M84) 失敗警告 + 排他ロック解放
 - Apply 反映先 3 キーは config_store のホワイトリスト登録済み（計画書 前提）
 
@@ -21,7 +21,7 @@ paste_solder / toolhead_offset の実機通しはプレビュー目視を伴う�
 E2E（計画書 §5 引き継ぎ 3・6）に委ねる）。
 
 cv2 / Moonraker / matplotlib / time.sleep のモックは使わない
-（skill `testing-strategy`）。Klipper 不通は test-fixture の実ポートへの
+（skill `testing-strategy`）。Klipper 不通は テスト用 config の実ポートへの
 接続拒否で検証する。
 """
 
@@ -509,7 +509,7 @@ class TestParseRunCalibCommand:
 
 
 class TestHeightPlaneFrontFlow:
-    """height_plane の計測前フロー（装置なし・FakeCamera + test-fixture）.
+    """height_plane の計測前フロー（装置なし・FakeCamera + テスト用 config）.
 
     fill_coverage は TOP 銅箔ゾーンを持たないため、サンプリング可能な led_blinker
     fixture（copper_pcb_path）を使う。
@@ -618,7 +618,7 @@ class TestHeightPlaneFrontFlow:
 
 
 class TestMachineJobsWithoutKlipper:
-    """装置ジョブの graceful FAILED（test-fixture: port 7126 = 接続拒否）.
+    """装置ジョブの graceful FAILED（テスト用 config: port 7126 = 接続拒否）.
 
     実動作（押出・塗布・SUCCEEDED 到達）は実機区分でカバーする分担（計画書 §4）。
     """
@@ -706,10 +706,9 @@ class TestApplyTargetsWhitelisted:
     """
 
     def test_pasting_apply_keys_write_to_machine_toml(
-        self, store: ConfigStore, configs_root: Path
+        self, store: ConfigStore, config_dir: Path
     ):
         store.write_machine_settings(
-            "test-fixture",
             {
                 "paste_dispenser.rotations_per_ul": 12.345678,
                 "paste_dispenser.solder_paste_density": 3.78,
@@ -721,9 +720,7 @@ class TestApplyTargetsWhitelisted:
             },
         )
 
-        toml_text = (configs_root / "test-fixture" / "machine.toml").read_text(
-            encoding="utf-8"
-        )
+        toml_text = (config_dir / "machine.toml").read_text(encoding="utf-8")
         assert "12.345678" in toml_text
         assert "3.78" in toml_text
         assert "0.123456" in toml_text
@@ -748,7 +745,7 @@ def _wait_loading_stage_and_settle(
 
 @mark_hardware
 class TestPastingHardware:
-    """実機通し（実 Moonraker、configs/kurousagi）。ユーザー実行.
+    """実機通し（実 Moonraker、実機 config/）。ユーザー実行.
 
     前提（計画書 §5「ユーザーへ引き継ぐ実機確認項目」1・2・4・5）:
 

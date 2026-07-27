@@ -100,7 +100,6 @@ def patch_pad_config_node(
         enabled_sent="enabled" in body.model_fields_set,
     )
     board_store.save(
-        loaded.machine,
         loaded.source_pcb,
         new_model,
         board_signature=loaded.board_signature,
@@ -125,7 +124,6 @@ def patch_pad_config_pads(
         )
     model = loaded.model.with_pads_enabled(l4_keys, enabled=body.enabled)
     board_store.save(
-        loaded.machine,
         loaded.source_pcb,
         model,
         board_signature=loaded.board_signature,
@@ -177,13 +175,12 @@ def patch_initial_purge(
     if amount_sent:
         with state.machine_lock("pasting-initial-purge"):
             store.write_machine_settings(
-                loaded.machine, {"paste_dispenser.initial_purge_ul": next_amount}
+                {"paste_dispenser.initial_purge_ul": next_amount}
             )
         jobs.publish_state_changed()
     if pad_sent:
         model = loaded.model.with_initial_purge_pad_id(next_pad_id)
         board_store.save(
-            loaded.machine,
             loaded.source_pcb,
             model,
             board_signature=loaded.board_signature,
@@ -205,7 +202,6 @@ def export_pad_config(
     """現在の基板 override 設定をダウンロード用 JSON として返す."""
     loaded = load_board(state, settings, board_store)
     doc = board_store.export_doc(
-        loaded.machine,
         loaded.source_pcb,
         loaded.model,
         board_signature=loaded.board_signature,
@@ -231,13 +227,11 @@ def import_pad_config(
             body.document,
             loaded.base_config,
             board_signature=loaded.board_signature,
-            expected_machine=loaded.machine,
             expected_source_pcb=loaded.source_pcb,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     pruned = board_store.prune(
-        loaded.machine,
         loaded.source_pcb,
         model,
         loaded.hierarchy,

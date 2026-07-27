@@ -157,16 +157,6 @@ h2 {
   min-width: 0;
 }
 
-.machine-select-label {
-  color: var(--muted);
-  font-size: 0.82rem;
-  white-space: nowrap;
-}
-
-#machine-select {
-  width: clamp(8rem, 14vw, 13rem);
-}
-
 .chip {
   min-width: 8rem;
   max-width: min(34vw, 24rem);
@@ -452,12 +442,6 @@ h2 {
   margin: 0;
   font-size: 1.45rem;
   letter-spacing: 0;
-}
-
-.settings-header p {
-  margin: 0.15rem 0 0;
-  color: var(--muted);
-  font-size: 1rem;
 }
 
 .settings-grid {
@@ -1628,8 +1612,7 @@ h2 {
     width: calc(100vw - 1rem);
   }
 
-  .chip,
-  #machine-select {
+  .chip {
     width: 100%;
     max-width: none;
   }
@@ -1637,10 +1620,6 @@ h2 {
   .global-controls {
     display: grid;
     grid-template-columns: 1fr 1fr;
-  }
-
-  .machine-select-label {
-    grid-column: 1 / -1;
   }
 
   .layout {

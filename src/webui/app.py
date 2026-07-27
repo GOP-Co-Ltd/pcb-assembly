@@ -21,9 +21,9 @@ from webui.jobs.catalog import default_catalog
 from webui.jobs.manager import JobManager
 from webui.preview import PreviewService
 from webui.routers import (
+    app_state,
     files,
     jobs,
-    machine,
     machine_control,
     nozzle_cap,
     pages,
@@ -81,7 +81,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = Settings.from_env()
 
-    store = ConfigStore(settings.configs_root)
+    store = ConfigStore(settings.config_dir)
+    if not store.machine_toml_path().is_file():
+        raise RuntimeError(
+            f"machine.toml がありません: {store.machine_toml_path()} "
+            f"（./setup-machine-config.sh を実行してください）"
+        )
     state = AppState(settings, store)
     preview = PreviewService(state)
     catalog = default_catalog()
@@ -117,7 +122,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
-    app.include_router(machine.router)
+    app.include_router(app_state.router)
     app.include_router(files.router)
     app.include_router(settings_api.router)
     app.include_router(machine_control.router)

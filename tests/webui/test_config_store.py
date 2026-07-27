@@ -25,25 +25,12 @@ from webui.config_store import (
     UnknownFieldError,
 )
 
-FIXTURE = "test-fixture"
-
-
-class TestListMachines:
-    """マシン列挙."""
-
-    def test_lists_only_directories_with_machine_toml_sorted(
-        self, store: ConfigStore, configs_root: Path
-    ):
-        (configs_root / "no-machine-toml").mkdir()
-
-        assert store.list_machines() == ["kurousagi", "test-fixture"]
-
 
 class TestMachineSettings:
     """machine.toml のホワイトリスト読み書き."""
 
     def test_read_returns_values_with_declared_types(self, store: ConfigStore):
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
 
         assert values["paste_dispenser.dispense_mode"] == "auto"
         assert values["paste_dispenser.auto_line_aspect_ratio"] == 1.618
@@ -61,7 +48,7 @@ class TestMachineSettings:
         assert values["reference_point.target_diameter"] == 3.0
 
     def test_read_covers_every_whitelisted_key(self, store: ConfigStore):
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
 
         assert set(values) == {spec.key for spec in MACHINE_FIELDS}
 
@@ -71,7 +58,7 @@ class TestMachineSettings:
         }
 
     def test_missing_keys_read_as_none(self, store: ConfigStore):
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
 
         assert values["paste_dispenser.initial_purge_ul"] is None
         assert values["paste_dispenser.bead_width_factor"] is None
@@ -80,33 +67,31 @@ class TestMachineSettings:
         assert values["probe.lift_height"] is None
 
     def test_write_then_reread_reflects_value(self, store: ConfigStore):
-        store.write_machine_settings(FIXTURE, {"paste_dispenser.max_fill_speed": 0.9})
+        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.max_fill_speed"] == 0.9
 
     def test_write_dispense_mode_then_reread_reflects_value(self, store: ConfigStore):
-        store.write_machine_settings(FIXTURE, {"paste_dispenser.dispense_mode": "line"})
+        store.write_machine_settings({"paste_dispenser.dispense_mode": "line"})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.dispense_mode"] == "line"
 
     def test_write_solder_paste_density_then_reread_reflects_value(
         self, store: ConfigStore
     ):
-        store.write_machine_settings(
-            FIXTURE, {"paste_dispenser.solder_paste_density": 4.1}
-        )
+        store.write_machine_settings({"paste_dispenser.solder_paste_density": 4.1})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.solder_paste_density"] == 4.1
 
     def test_write_initial_purge_ul_then_reread_reflects_value(
         self, store: ConfigStore
     ):
-        store.write_machine_settings(FIXTURE, {"paste_dispenser.initial_purge_ul": 0.2})
+        store.write_machine_settings({"paste_dispenser.initial_purge_ul": 0.2})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.initial_purge_ul"] == 0.2
 
     @pytest.mark.parametrize("height", [0.0, -1.0])
@@ -114,38 +99,36 @@ class TestMachineSettings:
         self, store: ConfigStore, height: float
     ):
         with pytest.raises(UnknownFieldError, match="lift_height"):
-            store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.lift_height": height}
-            )
+            store.write_machine_settings({"paste_dispenser.lift_height": height})
 
     def test_write_zero_initial_purge_ul_disables_purge(self, store: ConfigStore):
-        store.write_machine_settings(FIXTURE, {"paste_dispenser.initial_purge_ul": 0.0})
+        store.write_machine_settings({"paste_dispenser.initial_purge_ul": 0.0})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.initial_purge_ul"] == 0.0
 
     def test_write_auto_paste_height_then_reread_reflects_value(
         self, store: ConfigStore
     ):
-        store.write_machine_settings(FIXTURE, {"paste_dispenser.paste_height": 0.25})
-        store.write_machine_settings(FIXTURE, {"paste_dispenser.paste_height": "auto"})
+        store.write_machine_settings({"paste_dispenser.paste_height": 0.25})
+        store.write_machine_settings({"paste_dispenser.paste_height": "auto"})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.paste_height"] == "auto"
 
     def test_write_lift_height_then_reread_reflects_value(self, store: ConfigStore):
-        store.write_machine_settings(FIXTURE, {"paste_dispenser.lift_height": 3.25})
+        store.write_machine_settings({"paste_dispenser.lift_height": 3.25})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.lift_height"] == 3.25
 
     def test_write_keeps_untouched_lines_byte_identical(
-        self, store: ConfigStore, configs_root: Path
+        self, store: ConfigStore, config_dir: Path
     ):
-        path = configs_root / FIXTURE / "machine.toml"
+        path = config_dir / "machine.toml"
         before = path.read_text(encoding="utf-8").splitlines()
 
-        store.write_machine_settings(FIXTURE, {"paste_dispenser.max_fill_speed": 0.9})
+        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
 
         after = path.read_text(encoding="utf-8").splitlines()
         assert len(after) == len(before)
@@ -154,11 +137,11 @@ class TestMachineSettings:
         assert "max_fill_speed" in changed[0][0]
 
     def test_write_keeps_inline_comment_on_changed_line(
-        self, store: ConfigStore, configs_root: Path
+        self, store: ConfigStore, config_dir: Path
     ):
-        store.write_machine_settings(FIXTURE, {"probe.min_radius": 2.5})
+        store.write_machine_settings({"probe.min_radius": 2.5})
 
-        path = configs_root / FIXTURE / "machine.toml"
+        path = config_dir / "machine.toml"
         line = next(
             line
             for line in path.read_text(encoding="utf-8").splitlines()
@@ -168,49 +151,47 @@ class TestMachineSettings:
         assert "銅箔境界" in line
 
     def test_write_adds_whitelisted_key_missing_from_toml(self, store: ConfigStore):
-        store.write_machine_settings(
-            FIXTURE, {"paste_dispenser.bead_width_factor": 1.5}
-        )
+        store.write_machine_settings({"paste_dispenser.bead_width_factor": 1.5})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.bead_width_factor"] == 1.5
 
     def test_write_adds_probe_lift_height_missing_from_toml(
-        self, store: ConfigStore, configs_root: Path
+        self, store: ConfigStore, config_dir: Path
     ):
-        store.write_machine_settings(FIXTURE, {"probe.lift_height": 1.25})
+        store.write_machine_settings({"probe.lift_height": 1.25})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["probe.lift_height"] == 1.25
-        text = (configs_root / FIXTURE / "machine.toml").read_text(encoding="utf-8")
+        text = (config_dir / "machine.toml").read_text(encoding="utf-8")
         assert "lift_height = 1.25" in text
 
     def test_write_board_edge_margin_then_reread_reflects_value(
         self, store: ConfigStore
     ):
-        store.write_machine_settings(FIXTURE, {"probe.board_edge_margin": 3.0})
+        store.write_machine_settings({"probe.board_edge_margin": 3.0})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["probe.board_edge_margin"] == 3.0
 
     def test_read_includes_camera_calibration_file(self, store: ConfigStore):
         """Phase 4: camera.calibration_file がホワイトリストに含まれ既存値が読める."""
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
 
         assert values["camera.calibration_file"] == "ov9281_test_fixture.json"
 
     def test_write_calibration_file_changes_only_target_line(
-        self, store: ConfigStore, configs_root: Path
+        self, store: ConfigStore, config_dir: Path
     ):
         """camera.calibration_file の書込は対象行のみ変更しコメント・構造を保つ."""
-        path = configs_root / FIXTURE / "machine.toml"
+        path = config_dir / "machine.toml"
         before = path.read_text(encoding="utf-8").splitlines()
 
         store.write_machine_settings(
-            FIXTURE, {"camera.calibration_file": "ov9281_20260612.json"}
+            {"camera.calibration_file": "ov9281_20260612.json"}
         )
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["camera.calibration_file"] == "ov9281_20260612.json"
         after = path.read_text(encoding="utf-8").splitlines()
         assert len(after) == len(before)
@@ -220,28 +201,24 @@ class TestMachineSettings:
 
     def test_non_string_calibration_file_raises(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(FIXTURE, {"camera.calibration_file": 1.0})
+            store.write_machine_settings({"camera.calibration_file": 1.0})
 
     def test_unknown_key_raises_unknown_field_error(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(FIXTURE, {"paste_dispenser.no_such_key": 1.0})
+            store.write_machine_settings({"paste_dispenser.no_such_key": 1.0})
 
     def test_type_mismatch_raises_unknown_field_error(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.max_fill_speed": "fast"}
-            )
+            store.write_machine_settings({"paste_dispenser.max_fill_speed": "fast"})
 
     def test_unknown_dispense_mode_raises_unknown_field_error(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.dispense_mode": "spray"}
-            )
+            store.write_machine_settings({"paste_dispenser.dispense_mode": "spray"})
 
     def test_auto_line_aspect_ratio_must_exceed_one(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.auto_line_aspect_ratio": 1.0}
+                {"paste_dispenser.auto_line_aspect_ratio": 1.0}
             )
 
     @pytest.mark.parametrize("factor", [0.0, -1.0])
@@ -250,60 +227,52 @@ class TestMachineSettings:
     ):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.auto_area_short_side_factor": factor}
+                {"paste_dispenser.auto_area_short_side_factor": factor}
             )
 
     def test_write_auto_area_short_side_factor_then_reread_reflects_value(
         self, store: ConfigStore
     ):
         store.write_machine_settings(
-            FIXTURE, {"paste_dispenser.auto_area_short_side_factor": 4.0}
+            {"paste_dispenser.auto_area_short_side_factor": 4.0}
         )
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.auto_area_short_side_factor"] == 4.0
 
     def test_manual_paste_height_must_be_positive(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(FIXTURE, {"paste_dispenser.paste_height": 0.0})
+            store.write_machine_settings({"paste_dispenser.paste_height": 0.0})
 
     def test_solder_paste_density_must_be_positive(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.solder_paste_density": 0.0}
-            )
+            store.write_machine_settings({"paste_dispenser.solder_paste_density": 0.0})
 
     @pytest.mark.parametrize("board_edge_margin", [0.0, -1.0])
     def test_board_edge_margin_must_be_positive(
         self, store: ConfigStore, board_edge_margin: float
     ):
         with pytest.raises(UnknownFieldError, match="board_edge_margin"):
-            store.write_machine_settings(
-                FIXTURE, {"probe.board_edge_margin": board_edge_margin}
-            )
+            store.write_machine_settings({"probe.board_edge_margin": board_edge_margin})
 
     def test_initial_purge_ul_must_not_be_negative(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.initial_purge_ul": -0.01}
-            )
+            store.write_machine_settings({"paste_dispenser.initial_purge_ul": -0.01})
 
     def test_non_integral_float_for_int_field_raises(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.pad_align.blur_ksize": 5.5}
-            )
+            store.write_machine_settings({"paste_dispenser.pad_align.blur_ksize": 5.5})
 
-    def test_unknown_machine_raises_file_not_found(self, store: ConfigStore):
+    def test_missing_machine_toml_raises_file_not_found(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError):
-            store.read_machine_settings("no-such-machine")
+            ConfigStore(tmp_path / "no-such-config").read_machine_settings()
 
 
 class TestReferencePointOffsets:
     """float_pair 型フィールド reference_point.offsets.* の読み書き."""
 
     def test_read_returns_pairs_and_none_for_missing_corner(self, store: ConfigStore):
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
 
         assert values["reference_point.offsets.top_left"] == [5.0, -5.0]
         assert values["reference_point.offsets.top_right"] == [-5.0, -5.0]
@@ -312,20 +281,16 @@ class TestReferencePointOffsets:
 
     def test_write_missing_corner_then_reread_reflects_pair(self, store: ConfigStore):
         store.write_machine_settings(
-            FIXTURE, {"reference_point.offsets.bottom_right": [-5.0, 5.0]}
+            {"reference_point.offsets.bottom_right": [-5.0, 5.0]}
         )
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["reference_point.offsets.bottom_right"] == [-5.0, 5.0]
 
-    def test_write_pair_keeps_table_comment(
-        self, store: ConfigStore, configs_root: Path
-    ):
-        store.write_machine_settings(
-            FIXTURE, {"reference_point.offsets.top_left": [6.0, -6.0]}
-        )
+    def test_write_pair_keeps_table_comment(self, store: ConfigStore, config_dir: Path):
+        store.write_machine_settings({"reference_point.offsets.top_left": [6.0, -6.0]})
 
-        text = (configs_root / FIXTURE / "machine.toml").read_text(encoding="utf-8")
+        text = (config_dir / "machine.toml").read_text(encoding="utf-8")
         assert "[reference_point.offsets] # [x, y]で記述" in text
         assert "top_left = [6.0, -6.0]" in text
 
@@ -338,7 +303,7 @@ class TestReferencePointOffsets:
         ill_typed = cast("MachineSettingValue", value)
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings(
-                FIXTURE, {"reference_point.offsets.top_left": ill_typed}
+                {"reference_point.offsets.top_left": ill_typed}
             )
 
 
@@ -350,7 +315,7 @@ class TestNozzleCapFields:
     """
 
     def test_missing_nozzle_cap_reads_as_none(self, store: ConfigStore):
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
 
         assert values["nozzle_cap.x"] is None
         assert values["nozzle_cap.y"] is None
@@ -358,11 +323,10 @@ class TestNozzleCapFields:
 
     def test_write_then_reread_round_trips(self, store: ConfigStore):
         store.write_machine_settings(
-            FIXTURE,
             {"nozzle_cap.x": 10.123, "nozzle_cap.y": 20.456, "nozzle_cap.z": 3.789},
         )
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["nozzle_cap.x"] == 10.123
         assert values["nozzle_cap.y"] == 20.456
         assert values["nozzle_cap.z"] == 3.789
@@ -372,31 +336,25 @@ class TestAirPumpEnabled:
     """Bool 型フィールド air_pump_enabled の読み書き."""
 
     def test_missing_air_pump_enabled_reads_as_none(self, store: ConfigStore):
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
 
         assert values["paste_dispenser.air_pump_enabled"] is None
 
     @pytest.mark.parametrize("enabled", [True, False])
     def test_write_then_reread_reflects_bool(self, store: ConfigStore, enabled: bool):
-        store.write_machine_settings(
-            FIXTURE, {"paste_dispenser.air_pump_enabled": enabled}
-        )
+        store.write_machine_settings({"paste_dispenser.air_pump_enabled": enabled})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.air_pump_enabled"] is enabled
 
     def test_bool_field_rejects_non_bool(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.air_pump_enabled": 1.0}
-            )
+            store.write_machine_settings({"paste_dispenser.air_pump_enabled": 1.0})
 
     def test_numeric_field_still_rejects_bool(self, store: ConfigStore):
         # bool は int のサブクラスなので、数値フィールドへの bool 投入は拒否され続ける
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.max_fill_speed": True}
-            )
+            store.write_machine_settings({"paste_dispenser.max_fill_speed": True})
 
 
 class TestPadAlignMaxFailures:
@@ -407,32 +365,26 @@ class TestPadAlignMaxFailures:
     """
 
     def test_missing_max_failures_reads_as_none(self, store: ConfigStore):
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
 
         assert values["paste_dispenser.pad_align.max_failures"] is None
 
     def test_write_then_reread_reflects_value(self, store: ConfigStore):
-        store.write_machine_settings(
-            FIXTURE, {"paste_dispenser.pad_align.max_failures": 2}
-        )
+        store.write_machine_settings({"paste_dispenser.pad_align.max_failures": 2})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.pad_align.max_failures"] == 2
 
     def test_write_zero_allows_no_failure(self, store: ConfigStore):
         # 境界: 0 は「失敗を 1 つも許容しない」という有効値
-        store.write_machine_settings(
-            FIXTURE, {"paste_dispenser.pad_align.max_failures": 0}
-        )
+        store.write_machine_settings({"paste_dispenser.pad_align.max_failures": 0})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values["paste_dispenser.pad_align.max_failures"] == 0
 
     def test_negative_max_failures_raises(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(
-                FIXTURE, {"paste_dispenser.pad_align.max_failures": -1}
-            )
+            store.write_machine_settings({"paste_dispenser.pad_align.max_failures": -1})
 
 
 class TestCameraCropFields:
@@ -447,12 +399,12 @@ class TestCameraCropFields:
     @pytest.mark.parametrize("value", [0, -1])
     def test_non_positive_value_raises(self, store: ConfigStore, key: str, value: int):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings(FIXTURE, {key: value})
+            store.write_machine_settings({key: value})
 
     @pytest.mark.parametrize("key", ["camera.crop.width", "camera.crop.height"])
     def test_minimum_valid_value_is_accepted(self, store: ConfigStore, key: str):
         # 境界: 1 は有効な最小値
-        store.write_machine_settings(FIXTURE, {key: 1})
+        store.write_machine_settings({key: 1})
 
-        values = store.read_machine_settings(FIXTURE)
+        values = store.read_machine_settings()
         assert values[key] == 1

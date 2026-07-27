@@ -84,12 +84,6 @@ class TestHttpRoutes:
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
 
-    def test_state_reports_selected_machine(self, live_server: LiveServer):
-        response = httpx.get(f"{live_server.base_url}/api/state", timeout=_HTTP_TIMEOUT)
-
-        assert response.status_code == 200
-        assert response.json()["machine"] == "kurousagi"
-
     def test_reference_point_page_explains_record_applies_immediately(
         self, live_server: LiveServer
     ):
@@ -192,9 +186,7 @@ class TestJobLifecycleOverWebSocket:
         assert apply.json()["applied"] == {"paste_dispenser.pad_align.canny_low": 77.0}
 
         # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
-        machine_toml = (
-            live_server.settings.configs_root / "kurousagi" / "machine.toml"
-        ).read_text()
+        machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
         assert "canny_low = 77" in machine_toml
 
 
@@ -342,9 +334,7 @@ class TestAirPumpToggleOverRealHttp:
         assert fields["paste_dispenser.air_pump_enabled"]["value"] is False
 
         # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
-        machine_toml = (
-            live_server.settings.configs_root / "kurousagi" / "machine.toml"
-        ).read_text()
+        machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
         assert "air_pump_enabled = false" in machine_toml
 
 
@@ -371,9 +361,7 @@ class TestPasteLiftHeightOverRealHttp:
         fields = {field["key"]: field for field in after["fields"]}
         assert fields["paste_dispenser.lift_height"]["value"] == 3.25
 
-        machine_toml = (
-            live_server.settings.configs_root / "kurousagi" / "machine.toml"
-        ).read_text()
+        machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
         assert "lift_height = 3.25" in machine_toml
 
 
@@ -405,9 +393,7 @@ class TestPadAlignMaxFailuresOverRealHttp:
         assert fields["paste_dispenser.pad_align.max_failures"]["value"] == 2
 
         # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
-        machine_toml = (
-            live_server.settings.configs_root / "kurousagi" / "machine.toml"
-        ).read_text()
+        machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
         assert "max_failures = 2" in machine_toml
 
 
@@ -482,9 +468,7 @@ class TestCameraCropSettingsOverRealHttp:
         assert fields["camera.crop.height"]["value"] == 300
 
         # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
-        machine_toml = (
-            live_server.settings.configs_root / "kurousagi" / "machine.toml"
-        ).read_text()
+        machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
         assert "width = 300" in machine_toml
         assert "height = 300" in machine_toml
 

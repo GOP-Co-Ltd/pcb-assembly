@@ -11,7 +11,7 @@
 - camera_calibration: チェッカーボード FakeCamera でのフル結合（prompt 往復、
   artifacts、Apply payload、Klipper 不通での Z best-effort = z_position None）
 - board_tour / orthogonality_test / reference_point_setup の異常系:
-  test-fixture（Klipper port 7126 非リッスン）で graceful FAILED + ロック解放 +
+  テスト用 config（Klipper port 7126 非リッスン）で graceful FAILED + ロック解放 +
   PRESENT / relax (M84) 失敗警告。成功系のステージ移動・照合は pcbasm テストと
   実機区分でカバーする分担（計画書 §4）
 - 実機通し（実カメラ + 実 Klipper）は `@mark_hardware` でユーザー実行
@@ -38,7 +38,7 @@
 - 1 周し終えると四隅から再開し、「終了」ボタンか abort までずっと周回する
 
 巡回本体（移動・プレビュー・周回）は装置なしでは検証できない。`setup_board` が
-実 Klipper でのホーミングと基準点合わせを必須とし、test-fixture では最初の
+実 Klipper でのホーミングと基準点合わせを必須とし、テスト用 config では最初の
 prompt に到達する前に FAILED になるため。よって分担は:
 
 - prompt の spec と True/False の意味・`while_waiting` の委譲 →
@@ -51,7 +51,7 @@ prompt に到達する前に FAILED になるため。よって分担は:
 - setup 段の graceful FAILED → `TestMachineJobsWithoutKlipper`（変更不要）
 
 cv2 / Moonraker のモックは使わない（skill `testing-strategy`）。Klipper 不通は
-test-fixture の実ポートへの接続拒否で検証する。
+テスト用 config の実ポートへの接続拒否で検証する。
 """
 
 from __future__ import annotations
@@ -106,9 +106,7 @@ def checkerboard_state(
     # checkerboard.png は 400x400。既定 crop 600 は画像をはみ出すため、
     # tmp コピーの machine.toml へ 400x400 を書いてから AppState を作る
     # （crop は machine.toml `[camera.crop]` から読まれる契約。要確認事項 a）
-    store.write_machine_settings(
-        "kurousagi", {"camera.crop.width": 400, "camera.crop.height": 400}
-    )
+    store.write_machine_settings({"camera.crop.width": 400, "camera.crop.height": 400})
     state = AppState(checkerboard_camera_settings, store)
     yield state
     state.close()
@@ -227,7 +225,7 @@ class TestGenerateGridPcb:
 
 
 class TestCameraCalibrationJob:
-    """camera_calibration のフル結合（FakeCamera + test-fixture、装置なし）."""
+    """camera_calibration のフル結合（FakeCamera + テスト用 config、装置なし）."""
 
     def test_full_run_with_checkerboard_yields_apply_payload(
         self,
@@ -337,7 +335,7 @@ class TestCameraCalibrationJob:
 
 
 class TestMachineJobsWithoutKlipper:
-    """装置ジョブの graceful FAILED（test-fixture: port 7126 = 接続拒否）.
+    """装置ジョブの graceful FAILED（テスト用 config: port 7126 = 接続拒否）.
 
     成功系のステージ移動・照合は pcbasm のテスト（test_setup / test_alignment）
     と実機区分でカバーする分担（計画書 §4）。
@@ -388,7 +386,7 @@ class TestMachineJobsWithoutKlipper:
 
 @mark_hardware
 class TestPosctrlHardware:
-    """実機通し（実カメラ + 実 Moonraker、configs/kurousagi）。ユーザー実行.
+    """実機通し（実カメラ + 実 Moonraker、実機 config/）。ユーザー実行.
 
     前提（計画書 §5「ユーザーへ引き継ぐ実機確認項目」）:
 

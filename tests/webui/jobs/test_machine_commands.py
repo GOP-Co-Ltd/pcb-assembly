@@ -12,7 +12,7 @@
 - 未知 type は False を返す（log は呼び出し側の責務）
 
 jog / move / home の実送信は Moonraker 必須のため実機区分（posctrl の
-reference_point_setup 実機テストでカバー）。ここでは test-fixture
+reference_point_setup 実機テストでカバー）。ここではテスト用 config
 （Klipper port 7126 = 接続拒否）で戻り値契約と例外伝播のみ検証する。
 Moonraker のモックは使わない（skill `testing-strategy`）。
 """
@@ -180,10 +180,10 @@ class TestHandleMachineCommand:
         manager: JobManager,
         catalog: JobCatalog,
         wait_until: WaitUntil,
-        configs_root: Path,
+        config_dir: Path,
     ):
         """キャップ記録済みは移動を送信し、Klipper 不通の例外は伝播 → FAILED."""
-        path = configs_root / "kurousagi" / "machine.toml"
+        path = config_dir / "machine.toml"
         path.write_text(
             path.read_text(encoding="utf-8")
             + "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",

@@ -167,12 +167,11 @@ def post_apply(
         payload = jobs.apply_payload()
     except LookupError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    machine = state.selected_machine
     with state.machine_lock("apply-settings"):
-        store.write_machine_settings(machine, dict(payload.values))
-        configs_dir = store.machine_toml_path(machine).parent
+        store.write_machine_settings(dict(payload.values))
+        config_dir = store.machine_toml_path().parent
         for file in payload.files:
-            (configs_dir / file.filename).write_bytes(file.content)
+            (config_dir / file.filename).write_bytes(file.content)
     jobs.mark_applied()
     jobs.publish_state_changed()
     return {"applied": dict(payload.values)}

@@ -236,29 +236,21 @@ def _coerce_float_pair(value: object) -> list[float] | None:
 
 
 class ConfigStore:
-    """Configs/ 配下のマシン設定ファイルへの読み書きを集約するクラス."""
+    """`config/` 配下のマシン設定ファイルへの読み書きを集約するクラス."""
 
-    def __init__(self, configs_root: Path) -> None:
+    def __init__(self, config_dir: Path) -> None:
         """ConfigStore を初期化する.
 
         Args:
-            configs_root: configs ディレクトリのルート
+            config_dir: マシン設定ディレクトリ
         """
-        self._configs_root = configs_root
+        self._config_dir = config_dir
 
-    def list_machines(self) -> list[str]:
-        """machine.toml を持つマシン名をソート順で返す."""
-        return sorted(
-            path.parent.name for path in self._configs_root.glob("*/machine.toml")
-        )
-
-    def machine_toml_path(self, machine: str) -> Path:
+    def machine_toml_path(self) -> Path:
         """machine.toml のパスを返す."""
-        return self._configs_root / machine / "machine.toml"
+        return self._config_dir / "machine.toml"
 
-    def read_machine_settings(
-        self, machine: str
-    ) -> dict[str, MachineSettingValue | None]:
+    def read_machine_settings(self) -> dict[str, MachineSettingValue | None]:
         """machine.toml のホワイトリスト項目の現在値を返す.
 
         toml に存在しないキーは None。
@@ -266,16 +258,14 @@ class ConfigStore:
         Raises:
             FileNotFoundError: machine.toml が存在しない場合
         """
-        doc = tomlkit.parse(self.machine_toml_path(machine).read_text())
+        doc = tomlkit.parse(self.machine_toml_path().read_text())
         values: dict[str, MachineSettingValue | None] = {}
         for spec in MACHINE_FIELDS:
             raw = _lookup_toml(doc, spec.key)
             values[spec.key] = None if raw is None else _coerce(spec, raw)
         return values
 
-    def write_machine_settings(
-        self, machine: str, values: Mapping[str, MachineSettingValue]
-    ) -> None:
+    def write_machine_settings(self, values: Mapping[str, MachineSettingValue]) -> None:
         """machine.toml へホワイトリスト項目を書き込む.
 
         tomlkit によりコメント・構造を保持する。toml に無いキーは追加する。
@@ -289,7 +279,7 @@ class ConfigStore:
             key: _coerce(self._machine_spec(key), value)
             for key, value in values.items()
         }
-        path = self.machine_toml_path(machine)
+        path = self.machine_toml_path()
         doc = tomlkit.parse(path.read_text())
         for key, value in coerced.items():
             *table_keys, option = key.split(".")

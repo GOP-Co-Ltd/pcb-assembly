@@ -1,11 +1,11 @@
 """WebUI フルスタック E2E 用の live uvicorn サーバー fixture.
 
 実 uvicorn を 127.0.0.1 のエフェメラルポートに起動し、実 HTTP / WebSocket / MJPEG 経路を fake
-カメラ + test-fixture マシンで検証する。サーバーの生存期間を fixture（= pytest
+カメラ + テスト用 config で検証する。サーバーの生存期間を fixture（= pytest
 プロセス）内に閉じ込めるため常駐サーバーを別管理する必要がなく、 `make test-e2e` という有限コマンドの中で起動 → 検証 →
 停止が完結する（常駐サーバーは Bash のタイムアウトやプロセス後始末で kill されがちで、E2E デバッグの障害になる）。
 
-実機設定（configs/ 直下の kurousagi 等）を一切汚さないよう、test-fixture を tmp_path に
+実機の `config/` を一切汚さないよう、`data/testing/config` を tmp_path に
 複製して使う（[[feedback-webui-claude-self-e2e]] の方針）。
 """
 
@@ -24,7 +24,8 @@ import httpx
 import pytest
 import uvicorn
 
-from tests.webui.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE, TEST_FIXTURE_DIR
+from tests.helpers import copy_testing_config
+from tests.webui.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE
 from webui.app import create_app
 from webui.jobs.catalog import JobCatalog, JobDefinition
 from webui.jobs.context import JobContext, JobResult
@@ -205,26 +206,23 @@ def wait_first_prompt(ws: Any) -> dict[str, Any]:
 
 @pytest.fixture
 def e2e_settings(tmp_path: Path) -> Settings:
-    """Fake カメラ + test-fixture マシン + 隔離 data_dir の E2E 用 Settings.
+    """Fake カメラ + テスト用 config + 隔離 data_dir の E2E 用 Settings.
 
-    test-fixture を tmp_path 内に "kurousagi"（既定選択）と "test-fixture" の 2
-    マシンとして複製する。どちらも Klipper port 7126（非リッスン）なので、 誤って実機 Moonraker に接続しない。
+    `data/testing/config` を tmp_path 内に複製する。Klipper port 7126（非リッスン）なので、
+    誤って実機 Moonraker に接続しない。
     """
-    configs_root = tmp_path / "configs"
-    shutil.copytree(TEST_FIXTURE_DIR, configs_root / "kurousagi")
-    shutil.copytree(TEST_FIXTURE_DIR, configs_root / "test-fixture")
+    config_dir = copy_testing_config(tmp_path)
     pcb_root = tmp_path / "pcb"
     pcb_root.mkdir()
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     return Settings(
-        configs_root=configs_root,
+        config_dir=config_dir,
         data_dir=data_dir,
         pcb_browse_root=pcb_root,
         pcb_browse_start=pcb_root,
         pcb_upload_dir=pcb_root / "uploads",
         mainsail_url="http://mainsail.invalid",
-        default_machine="kurousagi",
         fake_camera=True,
         fake_camera_image=FAKE_CAMERA_IMAGE,
     )

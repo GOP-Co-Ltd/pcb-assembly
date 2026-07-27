@@ -12,7 +12,7 @@
 
 実 PCB（led_blinker）を読む経路は ``copper_pcb_path`` fixture を使う
 （pcbnew 依存。conftest が pcb_browse_root へコピー済み）。設定書き込み先は
-test-fixture（webui_settings の tmp data_dir 配下）。
+tmp（webui_settings の tmp data_dir 配下）。
 
 node_id 規約（契約）: L0 / L1:{package} / L2:{designator} /
 L3:{designator}:{shape_label} / L4:{designator}:{pad_ref}。
@@ -102,7 +102,6 @@ class TestGetPadConfig:
         config = _get_config(selected_client)
 
         assert config["pcb_file"].endswith("led_blinker.kicad_pcb")
-        assert config["machine"] == "kurousagi"
         assert config["width"] > 0
         assert config["height"] > 0
         assert len(config["outline"]) >= 4
@@ -117,7 +116,9 @@ class TestGetPadConfig:
 
         assert defaults["enabled"] is True
         assert defaults["dispense_mode"] == "auto"
-        assert defaults["prime_extra_delay"] == 0.0  # test-fixture machine.toml 由来
+        assert (
+            defaults["prime_extra_delay"] == 0.0
+        )  # テスト用 config の machine.toml 由来
         assert defaults["paste_height"] == "auto"
         assert defaults["bead_width_factor"] == 1.0  # PasteDispenser 既定
         assert defaults["boundary_margin"] == 0.0
@@ -211,7 +212,7 @@ class TestInitialPurgePadConfig:
     def test_patch_saves_machine_amount_and_board_pad(
         self,
         selected_client: TestClient,
-        configs_root: Path,
+        config_dir: Path,
         webui_settings: Settings,
     ):
         response = selected_client.patch(
@@ -225,7 +226,7 @@ class TestInitialPurgePadConfig:
         assert initial["pad_id"] == "U1.1"
         assert initial["resolved"]["pad_id"] == "U1.1"
 
-        machine_toml = configs_root / "kurousagi" / "machine.toml"
+        machine_toml = config_dir / "machine.toml"
         assert "initial_purge_ul = 0.25" in machine_toml.read_text(encoding="utf-8")
         doc = _saved_board_settings_doc(webui_settings)
         assert doc["settings"]["initial_purge_pad_id"] == "U1.1"
@@ -233,7 +234,7 @@ class TestInitialPurgePadConfig:
     def test_patch_pad_after_amount_preserves_machine_amount(
         self,
         selected_client: TestClient,
-        configs_root: Path,
+        config_dir: Path,
         webui_settings: Settings,
     ):
         amount_response = selected_client.patch(
@@ -253,7 +254,7 @@ class TestInitialPurgePadConfig:
         assert initial["pad_id"] == "U1.1"
         assert initial["resolved"]["pad_id"] == "U1.1"
 
-        machine_toml = configs_root / "kurousagi" / "machine.toml"
+        machine_toml = config_dir / "machine.toml"
         assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
         doc = _saved_board_settings_doc(webui_settings)
         assert doc["settings"]["initial_purge_pad_id"] == "U1.1"
@@ -729,7 +730,6 @@ class TestExportImport:
         assert "attachment" in response.headers["content-disposition"]
         doc = response.json()
         assert doc["version"] == 1
-        assert doc["machine"] == "kurousagi"
         assert doc["source_pcb"].endswith("led_blinker.kicad_pcb")
         assert isinstance(doc["board_signature"], str)
         level = next(

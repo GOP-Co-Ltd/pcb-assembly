@@ -44,8 +44,7 @@ def record_nozzle_cap(
             x=round(position.x, 3), y=round(position.y, 3), z=round(position.z, 3)
         )
         store.write_machine_settings(
-            state.selected_machine,
-            {"nozzle_cap.x": saved.x, "nozzle_cap.y": saved.y, "nozzle_cap.z": saved.z},
+            {"nozzle_cap.x": saved.x, "nozzle_cap.y": saved.y, "nozzle_cap.z": saved.z}
         )
     jobs.publish_state_changed()
     return saved

@@ -32,7 +32,7 @@ from webui.state import AppState
 
 
 def create_klipper(state: AppState, timeout: float) -> Klipper:
-    """選択マシンの設定で Klipper クライアントを生成する."""
+    """マシン設定で Klipper クライアントを生成する."""
     klipper_config = state.machine().klipper
     return Klipper(host=klipper_config.host, port=klipper_config.port, timeout=timeout)
 
@@ -72,7 +72,6 @@ def klipper_errors_to_502() -> Iterator[None]:
 
 
 class StateResponse(BaseModel):
-    machine: str
     pcb_file: str | None
     busy: bool
     busy_owner: str | None
@@ -90,7 +89,6 @@ def build_state_response(
     pcb = state.selected_pcb
     record = jobs.current()
     return StateResponse(
-        machine=state.selected_machine,
         pcb_file=pcb.as_posix() if pcb else None,
         busy=owner is not None,
         busy_owner=owner,
@@ -133,9 +131,9 @@ def _fields(
     ]
 
 
-def machine_settings_fields(store: ConfigStore, machine: str) -> list[SettingsField]:
+def machine_settings_fields(store: ConfigStore) -> list[SettingsField]:
     """machine.toml のホワイトリスト項目を現在値付きで返す."""
-    return _fields(MACHINE_FIELDS, store.read_machine_settings(machine))
+    return _fields(MACHINE_FIELDS, store.read_machine_settings())
 
 
 # 設定セクション（key のドット区切り親パス）→ UI 表示名。

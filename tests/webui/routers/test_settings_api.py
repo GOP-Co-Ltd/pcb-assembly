@@ -35,7 +35,6 @@ class TestMachineSettingsApi:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["machine"] == "kurousagi"
         fields = {field["key"]: field for field in data["fields"]}
         assert set(fields) == {spec.key for spec in MACHINE_FIELDS}
 
@@ -64,9 +63,9 @@ class TestMachineSettingsApi:
         assert fields["probe.lift_height"]["value"] is None
 
     def test_put_writes_file_and_preserves_comments(
-        self, client: TestClient, configs_root: Path
+        self, client: TestClient, config_dir: Path
     ):
-        path = configs_root / "kurousagi" / "machine.toml"
+        path = config_dir / "machine.toml"
         before = path.read_text(encoding="utf-8").splitlines()
 
         response = client.put(

@@ -19,7 +19,7 @@ corrected_projector(M) は Compose([board_transform, M]) ベースの投影を�
 カメラは tests/helpers.py の FakeCamera（自前 HAL Camera の test Impl）、
 klipper / stage は自前 HAL のため mocker.Mock（test_position.py のイディオム）、
 calibration は実 CalibrationResult、machine は実 Machine
-（configs/test-fixture/machine.toml）、pcb は components / pads / copper を
+（data/testing/config/machine.toml）、pcb は components / pads / copper を
 返す Mock を使う。合成矩形画像のイディオムは test_pad.py を踏襲する。
 """
 
@@ -53,7 +53,7 @@ from pcbasm.posctrl.copper import CopperProjector, RigidEdgeMatch
 from pcbasm.posctrl.pad import ComponentPads, PadAlignmentResult
 from pcbasm.posctrl.setup import BoardCalibrationResult
 from pcbasm.vision import CalibrationResult, Image, Offset
-from tests.helpers import PROJECT_ROOT, FakeCamera
+from tests.helpers import TESTING_CONFIG_DIR, FakeCamera
 
 WIDTH, HEIGHT = 1280, 720  # カメラフレームサイズ (px)
 PPM = 10.0  # pixel/mm
@@ -226,7 +226,7 @@ def _board_image(shift_x: int = 0, shift_y: int = 0) -> Image:
 
 
 def _machine_config() -> Machine:
-    return Machine(PROJECT_ROOT / "configs" / "test-fixture" / "machine.toml")
+    return Machine(TESTING_CONFIG_DIR / "machine.toml")
 
 
 def _calibration() -> CalibrationResult:

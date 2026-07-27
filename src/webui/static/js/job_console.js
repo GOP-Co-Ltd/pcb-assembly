@@ -241,8 +241,6 @@
   async function refreshHeader() {
     try {
       const state = await api("GET", "/api/state");
-      const select = document.getElementById("machine-select");
-      if (select && select.value !== state.machine) select.value = state.machine;
       const chip = document.getElementById("pcb-chip");
       if (chip) chip.textContent = state.pcb_file || "PCB未選択";
     } catch {
