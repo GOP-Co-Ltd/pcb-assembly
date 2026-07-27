@@ -182,7 +182,6 @@
       "Read(~/.ssh/**)",
       "Edit(~/.ssh/**)",
       "Bash(make test:*)",
-      "Bash(git -C:*)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(git reset --hard:*)",
