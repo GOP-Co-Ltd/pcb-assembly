@@ -71,8 +71,8 @@ lift_height = 0.5
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
-x = 12.0
-y = 3.8
+x = 21.0
+y = 6.0
 # 基準点の直径 (mm)
 target_diameter = 3.0
 
