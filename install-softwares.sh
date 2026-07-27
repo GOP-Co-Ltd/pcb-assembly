@@ -12,6 +12,11 @@ sudo apt-get install -y \
     git-lfs \
     python3-picamera2
 
+# git-lfsを有効化し、git-lfs未導入のままcloneして
+# ポインタのまま残った (破損した) LFSファイルを実体に置き換える
+git lfs install
+(cd "$(dirname "$0")" && git lfs pull)
+
 # KIAUHでKlipperをインストール
 cd ~ && git clone https://github.com/dw-0/kiauh.git
 ./kiauh/kiauh.sh
