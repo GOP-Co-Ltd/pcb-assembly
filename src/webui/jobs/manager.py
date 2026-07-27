@@ -43,6 +43,9 @@ _ABORT_SENTINEL: Any = object()
 # ジョブコンソールへ転送する pcbasm ロガー名
 _PCBASM_LOGGER_NAME = "pcbasm"
 
+# prompt(while_waiting=...) のポーリング間隔 [sec]
+_PROMPT_POLL_SEC = 0.05
+
 
 class _PcbasmLogBridge(logging.Handler):
     """ワーカースレッドの pcbasm ログをジョブコンソールへ転送する Handler.
@@ -276,7 +279,9 @@ class _JobRuntime:
     def clear_frame(self) -> None:
         self._preview.clear_override()
 
-    def prompt(self, spec: PromptSpec) -> Answer:
+    def prompt(
+        self, spec: PromptSpec, *, while_waiting: Callable[[], None] | None = None
+    ) -> Answer:
         self.checkpoint()
         pending = _PendingPrompt(spec)
         with self._pending_lock:
@@ -292,18 +297,22 @@ class _JobRuntime:
         )
         self.publish_status()
 
-        pending.event.wait()
-        if not pending.resolved:  # abort で起こされた
-            with self._pending_lock:
-                if self._pending is pending:
-                    self._pending = None
-            self.record.set_pending_prompt(None)
+        try:
+            if while_waiting is None:
+                pending.event.wait()
+            else:
+                while not pending.event.wait(_PROMPT_POLL_SEC):
+                    while_waiting()
+            if not pending.resolved:  # abort で起こされた
+                raise JobAborted()
+        except BaseException:
+            # 未解決のまま抜ける経路（abort / while_waiting の例外）でも掃除する。
+            # 残すと終端後もクライアントがプロンプトを開いたままになる。
+            self._discard_pending(pending)
             self.publish_status()
-            raise JobAborted()
+            raise
 
-        with self._pending_lock:
-            self._pending = None
-        self.record.set_pending_prompt(None)
+        self._discard_pending(pending)
         self.record.set_status(JobStatus.RUNNING)
         self._publish(
             {
@@ -315,6 +324,13 @@ class _JobRuntime:
         self.publish_status()
         assert pending.answer is not None
         return pending.answer
+
+    def _discard_pending(self, pending: _PendingPrompt) -> None:
+        """応答待ちプロンプトを runtime と record の両方から取り下げる."""
+        with self._pending_lock:
+            if self._pending is pending:
+                self._pending = None
+        self.record.set_pending_prompt(None)
 
     def next_command(self, timeout: float | None) -> dict[str, Any] | None:
         self.checkpoint()

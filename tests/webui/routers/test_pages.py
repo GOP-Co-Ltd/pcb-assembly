@@ -49,8 +49,15 @@ camera_calibration ページへ追記契約:
   `#camera-crop-settings`）は置かない
 - settings ページには camera.crop.width / camera.crop.height が
   machine 設定として描画される（「カメラ / クロップ」セクション）
+
+直行性テストのライブ十字線対応（fix/20260727/orthogonality-interactive）が追記契約:
+
+- overlay ラジオの初期選択はページ変数 `preview_overlay`（既定 "none"）で決まる。
+  posctrl のツアー系ジョブページ（board_tour / orthogonality_test）は "crosshair"、
+  他ページは "none" のまま
 """
 
+import re
 from pathlib import Path
 
 import attrs
@@ -64,6 +71,18 @@ from webui.settings import Settings
 from webui.state import AppState
 
 TABS = ["dev", "pasting", "pnp", "posctrl"]
+
+_OVERLAY_RADIO_RE = re.compile(r"<input[^>]*name=\"overlay\"[^>]*>")
+
+
+def _checked_overlay(html: str) -> str | None:
+    """Overlay ラジオのうち checked が付いている value を返す（無ければ None）."""
+    for tag in _OVERLAY_RADIO_RE.findall(html):
+        if "checked" not in tag:
+            continue
+        value = re.search(r"value=\"([^\"]+)\"", tag)
+        return value.group(1) if value else None
+    return None
 
 
 class TestPages:
@@ -281,6 +300,10 @@ class TestPreviewPages:
         assert "preview.js" in response.text
         assert "crosshair" in response.text
 
+    def test_camera_preview_page_defaults_overlay_to_none(self, client: TestClient):
+        """Overlay 既定はページごとに指定でき、camera_preview は素の映像（none）のまま."""
+        assert _checked_overlay(client.get("/posctrl/camera_preview").text) == "none"
+
     def test_copper_detection_page_renders_canny_controls(self, client: TestClient):
         response = client.get("/posctrl/copper_detection")
 
@@ -311,6 +334,24 @@ class TestPosctrlJobPages:
         assert "crosshair" in response.text  # overlay 切替（none / crosshair）
         # data-job-name 等でページのジョブ名が宣言される
         assert feature in response.text
+
+    @pytest.mark.parametrize(
+        ("feature", "expected"),
+        (
+            ("board_tour", "crosshair"),
+            ("orthogonality_test", "crosshair"),
+            ("camera_calibration", "none"),
+        ),
+    )
+    def test_posctrl_job_page_default_overlay(
+        self, client: TestClient, feature: str, expected: str
+    ):
+        """ツアー系（board_tour / orthogonality_test）は十字線を既定 ON で描画する.
+
+        ツアーは十字線を基準に位置を目視合わせするため、ユーザーがラジオを操作せずとも
+        十字線が出ている必要がある。camera_calibration は素の映像を見るページなので none。
+        """
+        assert _checked_overlay(client.get(f"/posctrl/{feature}").text) == expected
 
     def test_camera_calibration_renders_square_size_form_with_default(
         self, client: TestClient

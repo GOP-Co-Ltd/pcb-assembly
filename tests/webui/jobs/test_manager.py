@@ -8,6 +8,10 @@
 - prompt: WAITING_INPUT 遷移 + pending_prompt 公開、respond_prompt の型検証
   （confirm→bool, number→float（int は float 化）, text→str, choice→choices 内）、
   不一致は ValueError で prompt は未解決のまま
+- prompt(while_waiting=...): 応答が来るまでポーリング間隔ごとにコールバックを呼ぶ
+  （待機中もジョブがライブフレームを流し続けられるようにするための契約）。
+  応答後は呼ばない / 待機中 abort は while_waiting 無しと同じく JobAborted /
+  コールバックの例外は握りつぶさずジョブを FAILED にする
 - abort: checkpoint で JobAborted / prompt・next_command 待機中は即時 /
   アクティブジョブ無しは False
 - command: submit_command → next_command、"type" キー必須、
@@ -24,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -40,6 +45,7 @@ from webui.state import AppState, BusyError
 from .conftest import (
     ManagerFactory,
     WaitUntil,
+    answer_next_prompt,
     register_gated as _register_gated,
     register_synthetic as _register,
 )
@@ -53,6 +59,23 @@ def _register_prompting(
 
     def run(ctx: JobContext) -> None:
         answers.append(ctx.prompt(spec))
+
+    _register(catalog, run, name=name)
+    return answers
+
+
+def _register_polling_prompt(
+    catalog: JobCatalog,
+    spec: PromptSpec,
+    while_waiting: Callable[[], None],
+    *,
+    name: str = "polling_prompt",
+) -> list[object]:
+    """`while_waiting` 付きで prompt 1 回を待つ合成ジョブを登録する."""
+    answers: list[object] = []
+
+    def run(ctx: JobContext) -> None:
+        answers.append(ctx.prompt(spec, while_waiting=while_waiting))
 
     _register(catalog, run, name=name)
     return answers
@@ -355,6 +378,121 @@ class TestPrompt:
         assert record.status == JobStatus.ABORTED
         assert record.pending_prompt is None
         assert any("中止要求を受け付けました" in line for line in record.log_lines)
+
+
+class TestPromptWhileWaiting:
+    """prompt(while_waiting=...) のポーリングコールバック契約.
+
+    「直行性テスト中は十字線が常に表示されている」要求を満たすため、prompt は応答待ちの間
+    ポーリング間隔ごとに while_waiting を呼び、ジョブがライブフレームを流し続けられるように
+    する。ここで固定する契約:
+
+    - 応答が来るまで繰り返し呼ばれ、応答値は while_waiting 無しと同じく返る
+    - 応答後は呼ばれない（poll ループが応答で終わる）
+    - 待機中の abort は while_waiting 無しと同じく JobAborted → ABORTED
+    - while_waiting の例外は握りつぶさずジョブを FAILED にする
+    - resolved でない脱出（例外・abort）でも record の pending prompt は掃除される
+
+    while_waiting=None（既定）の従来挙動は `TestPrompt` が担保している。
+    """
+
+    _SPEC = PromptSpec(kind="confirm", message="続行しますか?")
+
+    def test_callback_is_called_repeatedly_until_the_answer_arrives(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        polls: list[int] = []
+        answers = _register_polling_prompt(catalog, self._SPEC, lambda: polls.append(1))
+        record = manager.start("polling_prompt", {})
+
+        # 応答前に複数回呼ばれる（1 回きりのフックではない）
+        wait_until(lambda: len(polls) >= 2)
+        assert record.status == JobStatus.WAITING_INPUT
+
+        pending = record.pending_prompt
+        assert pending is not None
+        manager.respond_prompt(pending[0], True)
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert answers == [True]
+
+    def test_callback_is_not_called_after_the_answer(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        """while_waiting は渡した prompt の待機期間だけで閉じる.
+
+        常駐スレッド等で待機期間を越えて呼ばれ続けないことを固定する。
+
+        2 つ目の prompt のポーリング進行を待つので固定 sleep が要らない。
+
+        応答検知の直前にもう 1 回呼ぶ実装はここでは判別できない。
+
+        events の append は worker の単一スレッドなので順序が保証される。
+        """
+        events: list[str] = []
+
+        def run(ctx: JobContext) -> None:
+            ctx.prompt(
+                PromptSpec(kind="confirm", message="1 点目"),
+                while_waiting=lambda: events.append("first-poll"),
+            )
+            events.append("answered")
+            ctx.prompt(
+                PromptSpec(kind="confirm", message="2 点目"),
+                while_waiting=lambda: events.append("second-poll"),
+            )
+
+        _register(catalog, run)
+        record = manager.start("synthetic", {})
+        answered: set[str] = set()
+        answer_next_prompt(record, manager, True, answered)
+
+        wait_until(lambda: events.count("second-poll") >= 3)
+
+        after_answer = events[events.index("answered") :]
+        assert "first-poll" not in after_answer
+
+        answer_next_prompt(record, manager, True, answered)
+        wait_until(lambda: record.status.terminal)
+        assert record.status == JobStatus.SUCCEEDED, record.error
+
+    def test_abort_while_polling_prompt_marks_aborted(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        polls: list[int] = []
+        _register_polling_prompt(catalog, self._SPEC, lambda: polls.append(1))
+        record = manager.start("polling_prompt", {})
+        wait_until(lambda: len(polls) >= 2)
+
+        assert manager.request_abort() is True
+
+        wait_until(lambda: record.status.terminal)
+        assert record.status == JobStatus.ABORTED
+        assert record.pending_prompt is None
+        assert any("中止要求を受け付けました" in line for line in record.log_lines)
+
+    def test_callback_exception_fails_the_job(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        """コールバックの例外はジョブを FAILED にし、pending prompt は掃除される.
+
+        掃除しないと終端後の job_status が pending_prompt を載せ続ける。
+
+        すると job_console.js がモーダルを開いたままにし、エラーが読めなくなる。
+        """
+
+        def boom() -> None:
+            raise RuntimeError("プレビュー配信に失敗")
+
+        _register_polling_prompt(catalog, self._SPEC, boom)
+        record = manager.start("polling_prompt", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "プレビュー配信に失敗" in record.error
+        assert record.pending_prompt is None
 
 
 class TestCommands:
