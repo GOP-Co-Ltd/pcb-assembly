@@ -6,12 +6,23 @@
 #   → 本 hook が検出 → 指示注入 → warn marker 削除 + warned(cooldown) marker 作成
 #   → PostCompact hook (compaction-recovery.sh) が warned marker を削除 (cooldown リセット)
 #
-# overhead: marker が無ければ即 exit。fail-open (常に exit 0)。依存: jq。
+# overhead: marker が無ければ即 exit。fail-open (常に exit 0)。依存: python3 のみ。
 
 set -uo pipefail
 
 input=$(cat)
-sid=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+sid=$(
+  printf '%s' "$input" | python3 -c '
+import json
+import sys
+
+try:
+    data = json.load(sys.stdin)
+    print(data.get("session_id") or "" if isinstance(data, dict) else "")
+except Exception:
+    pass
+' 2>/dev/null
+) || sid=""
 [[ -z "$sid" ]] && exit 0
 
 warn_marker="${TMPDIR:-/tmp}/claude-compact-warn/$sid"
@@ -32,10 +43,19 @@ ctx+=$'\n'"- \`/compact-prep\` 実行後、続けて \`/compact\` の実行を�
 ctx+=$'\n'"- scope 縮小や別セッション化ではなく、圧縮前 state 保存で対処せよ"
 ctx+=$'\n'"- 自動 compact に先を越される前に、区切りを作ることを優先せよ"
 
-jq -n --arg ctx "$ctx" '{
-  hookSpecificOutput: {
-    hookEventName: "UserPromptSubmit",
-    additionalContext: $ctx
-  }
-}'
+printf '%s' "$ctx" | python3 -c '
+import json
+import sys
+
+print(
+    json.dumps(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": sys.stdin.read(),
+            }
+        }
+    )
+)
+' 2>/dev/null || true
 exit 0

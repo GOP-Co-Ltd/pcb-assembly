@@ -14,7 +14,7 @@ description: .claude/ 配下のファイル編集は permission prompt を要求
 - `.claude/commands/*.md` の追加・編集
 - `.claude/` 配下のその他任意の file
 
-例外: `.claude/settings.json` / `.claude/settings.local.json` は skill [update-config](../update-config/SKILL.md) 経由で扱う方がよい (権限スキーマの検証・hooks 設定など他のロジックを共有するため)。
+例外: `.claude/settings.json` / `.claude/settings.local.json` はビルトイン skill `update-config` 経由で扱う (権限スキーマの検証・hooks 設定など他のロジックを共有するため)。
 
 ## 手順
 
