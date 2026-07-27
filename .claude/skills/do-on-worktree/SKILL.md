@@ -43,7 +43,7 @@ git status --short          # 進行中の未コミット変更
 
 ### 4. 検証
 
-変更内容に応じて検証する（コード変更なら `make format && make type && make test`）。**検証通過前にはコミットしない**。
+変更内容に応じて検証する（コード変更なら `make format && make type && make test-no-hardware`）。**検証通過前にはコミットしない**。
 
 ### 5. コミット
 
