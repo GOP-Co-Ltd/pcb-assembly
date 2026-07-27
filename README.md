@@ -33,6 +33,19 @@ make setup
 
 - VSCodeでリモートアクセスし、開発することを推奨する。
 
+### マシン設定の配置
+
+装置を動かす前に、テンプレートから `config/` を作る。
+
+```sh
+./setup-machine-config.sh       # data/config-templates/ から選んで config/ を作る
+sudo systemctl restart klipper  # printer.cfg の反映
+```
+
+`config/` は git 管理外（実測値の書き換えでリポジトリが dirty にならないようにするため）。
+テンプレートの規約と printer.cfg の運用は
+[`data/config-templates/README.md`](data/config-templates/README.md) を参照。
+
 ## WebUI
 
 装置をブラウザから操作するUI（port 8080）。
@@ -57,7 +70,7 @@ systemd サービスとして登録し、システム起動時に自動起動す
 環境変数で動作を切り替えられる（全量は `src/webui/settings.py`）:
 
 - `PCBASM_WEBUI_FAKE_CAMERA=1` — カメラ実機なしで固定画像を配信
-- `PCBASM_WEBUI_CONFIGS_ROOT` — configsルートの差し替え
+- `PCBASM_CONFIG_DIR` — マシン設定ディレクトリ（既定 `config/`）の差し替え。WebUI と pcbasm コア層で共通
 - `PCBASM_WEBUI_DATA_DIR` — 成果物・状態ファイルの保存先
 
 WebUI のブラウザ E2E は実 uvicorn と Chromium で検証する:
