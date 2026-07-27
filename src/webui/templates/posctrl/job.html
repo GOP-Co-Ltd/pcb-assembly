@@ -2,6 +2,8 @@
 {% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
+{# 巡回系ジョブ（ボード巡回 / 直行性テスト）は十字線を既定にする #}
+{% set preview_overlay = "crosshair" %}
 {% include "partials/preview_pane.html" %}
 {% include "partials/preview_controls.html" %}
 {% include "partials/job_form.html" %}
