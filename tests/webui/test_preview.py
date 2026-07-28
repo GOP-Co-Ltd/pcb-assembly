@@ -124,12 +124,12 @@ class TestMjpegStream:
         assert not state.frame_hub().running
 
     def test_camera_construction_failure_propagates(
-        self, fake_camera_settings: Settings, configs_root, tmp_path
+        self, fake_camera_settings: Settings, config_dir, tmp_path
     ):
         settings = attrs.evolve(
             fake_camera_settings, fake_camera_image=tmp_path / "missing.png"
         )
-        state = AppState(settings, ConfigStore(configs_root))
+        state = AppState(settings, ConfigStore(config_dir))
         service = PreviewService(state)
 
         stream = service.mjpeg_stream("none")
@@ -165,7 +165,7 @@ class TestOverlays:
             assert _green_dominant_count_near_column(before, x=340) > 50
 
             store.write_machine_settings(
-                "kurousagi", {"camera.crop.width": 200, "camera.crop.height": 200}
+                {"camera.crop.width": 200, "camera.crop.height": 200}
             )
 
             after = _decoded_frame(next(stream))
@@ -329,13 +329,13 @@ class TestHoldCamera:
         assert not state.frame_hub().running
 
     def test_camera_construction_failure_propagates(
-        self, fake_camera_settings: Settings, configs_root, tmp_path
+        self, fake_camera_settings: Settings, config_dir, tmp_path
     ):
         """カメラ初期化失敗は伝播する（ジョブ側で FAILED 化される）."""
         settings = attrs.evolve(
             fake_camera_settings, fake_camera_image=tmp_path / "missing.png"
         )
-        state = AppState(settings, ConfigStore(configs_root))
+        state = AppState(settings, ConfigStore(config_dir))
         service = PreviewService(state)
 
         with pytest.raises(FileNotFoundError):

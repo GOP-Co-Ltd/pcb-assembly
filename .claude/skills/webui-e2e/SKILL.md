@@ -6,10 +6,10 @@ description: WebUI（src/webui/、FastAPI）を実サーバーで E2E 検証・�
 # WebUI を E2E で検証・デバッグする
 
 WebUI（`src/webui/`、FastAPI + uvicorn）を実サーバーで通し検証する。fake カメラ・
-test-fixture マシン・隔離 data_dir を使い、実機もカメラも無くても HTTP / WebSocket /
+テスト用 config ディレクトリ・隔離 data_dir を使い、実機もカメラも無くても HTTP / WebSocket /
 MJPEG を最後まで叩ける。
 
-関連: skill [testing-strategy](../testing-strategy/SKILL.md)。E2E の検証は Claude 自身が最後まで行う（設定書き込みは test-fixture を使う）。
+関連: skill [testing-strategy](../testing-strategy/SKILL.md)。E2E の検証は Claude 自身が最後まで行う（設定書き込みは `data/testing/config` の複製を使う）。
 
 ## 大原則: サーバーの生存期間を有限コマンドに閉じ込める
 
@@ -38,7 +38,7 @@ make test-e2e        # = uv run pytest -v -m e2e
 - `tests/e2e/` 配下は conftest の `pytest_collection_modifyitems` で自動的に `e2e`
     マーカーが付く（個別の付与不要）。`make test` / `make test-no-hardware` からは
     `-m "not e2e"` で除外済み（e2e は手動区分）
-- fake カメラ + test-fixture を tmp_path に複製して使うので、実機設定（`configs/` 直下）は
+- fake カメラ + `data/testing/config` を tmp_path に複製して使うので、実機設定（`config/`）は
     汚さない
 - 新しい機能の E2E を足すときは `tests/e2e/test_webui_e2e.py` に追記する。WS ジョブ通しの
     雛形は `TestJobLifecycleOverWebSocket`（hidden の `job_demo` を題材に
@@ -75,9 +75,9 @@ make webui-fake      # PCBASM_WEBUI_FAKE_CAMERA=1, PORT=8099, DATA_DIR=/tmp/pcba
 
 ## 隔離の鉄則（実機設定を汚さない）
 
-- 設定書き込みを伴う検証（apply / settings 保存）は **test-fixture マシン**に対して行う。
-    実マシン（kurousagi）の `configs/` 直下は触らない
-- pytest E2E は test-fixture を tmp_path に複製するので自動的に隔離される
+- 設定書き込みを伴う検証（apply / settings 保存）は **`data/testing/config` の複製**に対して行う。
+    実機の `config/` は触らない
+- pytest E2E は `data/testing/config` を tmp_path に複製するので自動的に隔離される
 - 手動起動も `PCBASM_WEBUI_DATA_DIR` を tmp に向け、`webui_state.json` を実運用と分ける
 
 ## worktree で実行するときの注意
@@ -92,8 +92,8 @@ uv venv --clear --system-site-packages && uv sync --all-extras
 
 ## 関連設定
 
-- `src/webui/settings.py` — `PCBASM_WEBUI_FAKE_CAMERA` / `_PORT` / `_DATA_DIR` /
-    `_CONFIGS_ROOT` 等の env 上書き
+- `src/webui/settings.py` — `PCBASM_WEBUI_FAKE_CAMERA` / `_PORT` / `_DATA_DIR` や
+    `PCBASM_CONFIG_DIR`（pcbasm コア層と共通）等の env 上書き
 - `src/webui/fake_camera.py` — `FixedImageCamera`（固定画像を fps ペーシングで返す）
 - `data/testing/webui/fake_camera.png` — fake カメラの既定画像
-- `configs/test-fixture/` — 検証専用マシン（Klipper port 7126 = 非リッスン）
+- `data/testing/config/` — 検証専用のマシン設定（Klipper port 7126 = 非リッスン）

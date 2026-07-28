@@ -26,6 +26,8 @@ workflow:
     - changes:
         paths:
           - "**/*.py"
+          # テストが読む machine.toml / printer.cfg のフィクスチャ
+          - "data/testing/config/**"
           - pyproject.toml
           - uv.lock
           - .gitlab-ci.yml

@@ -14,12 +14,6 @@
     {% endfor %}
   </nav>
   <div class="global-controls">
-    <label class="machine-select-label" for="machine-select">マシン選択:</label>
-    <select id="machine-select" title="マシン選択" data-testid="machine-select">
-      {% for m in machines %}
-      <option value="{{ m }}"{% if m == selected_machine %} selected{% endif %}>{{ m }}</option>
-      {% endfor %}
-    </select>
     <button id="pcb-chip" class="chip" title="PCB ファイル選択"
             data-testid="pcb-chip"
             data-fb-start="{{ fb_start }}">

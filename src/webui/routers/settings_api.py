@@ -13,7 +13,6 @@ router = APIRouter(prefix="/api")
 
 
 class MachineSettingsResponse(BaseModel):
-    machine: str
     fields: list[SettingsField]
 
 
@@ -22,20 +21,16 @@ class SettingsUpdate(BaseModel):
 
 
 @router.get("/settings/machine")
-def get_machine_settings(state: StateDep, store: StoreDep) -> MachineSettingsResponse:
-    machine = state.selected_machine
-    return MachineSettingsResponse(
-        machine=machine, fields=machine_settings_fields(store, machine)
-    )
+def get_machine_settings(store: StoreDep) -> MachineSettingsResponse:
+    return MachineSettingsResponse(fields=machine_settings_fields(store))
 
 
 @router.put("/settings/machine")
 def put_machine_settings(
     body: SettingsUpdate, state: StateDep, store: StoreDep, jobs: JobsDep
 ) -> MachineSettingsResponse:
-    machine = state.selected_machine
     with state.machine_lock("settings"):
-        store.write_machine_settings(machine, body.values)
+        store.write_machine_settings(body.values)
         # crop はレンダラが毎フレーム読むためデバイス再構築は不要（ストリームを切断しない）
         if any(
             key.startswith("camera.") and not key.startswith("camera.crop.")
@@ -43,6 +38,4 @@ def put_machine_settings(
         ):
             state.rebuild_camera()
     jobs.publish_state_changed()
-    return MachineSettingsResponse(
-        machine=machine, fields=machine_settings_fields(store, machine)
-    )
+    return MachineSettingsResponse(fields=machine_settings_fields(store))

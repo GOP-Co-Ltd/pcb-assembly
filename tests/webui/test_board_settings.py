@@ -5,7 +5,7 @@
 - board_id は source_pcb（相対 posix パス）から安定して導出され、別パスでは衝突しない
 - load_or_init: 未存在 → machine.toml 由来の defaults、存在 → 差分復元
 - save → load の round-trip
-- JSON に version / source_pcb / machine / settings が入る（ネスト方式の契約ピン）
+- JSON に version / source_pcb / settings が入る（ネスト方式の契約ピン）
 - prune は orphan キーを除去して保存する
 
 PcbFile / pcbnew には依存しない。``PasteSettingsModel`` / ``PadHierarchy`` は
@@ -79,10 +79,9 @@ def _saved_doc(
     root: Path,
     store: BoardSettingsStore,
     source_pcb: str = "boards/a.kicad_pcb",
-    machine: str = "kurousagi",
 ) -> dict:
     board_id = store.board_id(source_pcb)
-    path = root / "board_settings" / machine / f"{board_id}.json"
+    path = root / "board_settings" / f"{board_id}.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -115,7 +114,7 @@ class TestLoadOrInit:
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
 
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert model.base_enabled is True
         assert model.levels == {}
@@ -126,13 +125,13 @@ class TestLoadOrInit:
 
     def test_init_does_not_write_file(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
-        store.load_or_init("kurousagi", "boards/a.kicad_pcb", _base_config())
+        store.load_or_init("boards/a.kicad_pcb", _base_config())
         assert list(tmp_path.rglob("*.json")) == []
 
     def test_load_restores_saved_l0_and_level_overrides(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
             levels={
@@ -140,9 +139,9 @@ class TestLoadOrInit:
                 ("L2", "U1"): LevelSetting(enabled=True),
             },
         )
-        store.save("kurousagi", "boards/a.kicad_pcb", edited)
+        store.save("boards/a.kicad_pcb", edited)
 
-        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert loaded.base_enabled is True
         assert loaded.levels[("L0",)].enabled is False
@@ -156,7 +155,7 @@ class TestRoundTrip:
     def test_override_values_survive(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
             base_enabled=True,
@@ -167,9 +166,9 @@ class TestRoundTrip:
                 )
             },
         )
-        store.save("kurousagi", "boards/a.kicad_pcb", edited)
+        store.save("boards/a.kicad_pcb", edited)
 
-        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
         setting = loaded.levels[("L2", "U1")]
         assert setting.enabled is False
@@ -185,11 +184,11 @@ class TestInitialPurgePadId:
     def test_default_is_none_and_not_saved_when_unset(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert model.initial_purge_pad_id is None
 
-        store.save("kurousagi", "boards/a.kicad_pcb", model)
+        store.save("boards/a.kicad_pcb", model)
         doc = _saved_doc(tmp_path, store)
 
         assert "initial_purge_pad_id" not in doc["settings"]
@@ -197,7 +196,7 @@ class TestInitialPurgePadId:
     def test_save_load_round_trip_when_explicit(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
             base_enabled=model.base_enabled,
@@ -205,8 +204,8 @@ class TestInitialPurgePadId:
             initial_purge_pad_id="U1.2",
         )
 
-        store.save("kurousagi", "boards/a.kicad_pcb", edited)
-        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        store.save("boards/a.kicad_pcb", edited)
+        loaded = store.load_or_init("boards/a.kicad_pcb", config)
         doc = _saved_doc(tmp_path, store)
 
         assert loaded.initial_purge_pad_id == "U1.2"
@@ -215,7 +214,7 @@ class TestInitialPurgePadId:
     def test_export_import_round_trip_when_explicit(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
             base_enabled=model.base_enabled,
@@ -223,11 +222,10 @@ class TestInitialPurgePadId:
             initial_purge_pad_id="U1.1",
         )
 
-        doc = store.export_doc("kurousagi", "boards/a.kicad_pcb", edited)
+        doc = store.export_doc("boards/a.kicad_pcb", edited)
         restored = store.model_from_doc(
             doc,
             config,
-            expected_machine="kurousagi",
             expected_source_pcb="boards/a.kicad_pcb",
         )
 
@@ -238,7 +236,7 @@ class TestInitialPurgePadId:
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
         hierarchy = _hierarchy()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
             base_enabled=model.base_enabled,
@@ -246,8 +244,8 @@ class TestInitialPurgePadId:
             initial_purge_pad_id="U1.2",
         )
 
-        pruned = store.prune("kurousagi", "boards/a.kicad_pcb", edited, hierarchy)
-        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        pruned = store.prune("boards/a.kicad_pcb", edited, hierarchy)
+        loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert pruned.initial_purge_pad_id == "U1.2"
         assert loaded.initial_purge_pad_id == "U1.2"
@@ -256,7 +254,7 @@ class TestInitialPurgePadId:
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
         hierarchy = _hierarchy()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
             base_enabled=model.base_enabled,
@@ -264,8 +262,8 @@ class TestInitialPurgePadId:
             initial_purge_pad_id="U99.1",
         )
 
-        pruned = store.prune("kurousagi", "boards/a.kicad_pcb", edited, hierarchy)
-        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        pruned = store.prune("boards/a.kicad_pcb", edited, hierarchy)
+        loaded = store.load_or_init("boards/a.kicad_pcb", config)
         doc = _saved_doc(tmp_path, store)
 
         assert pruned.initial_purge_pad_id is None
@@ -276,19 +274,18 @@ class TestInitialPurgePadId:
 class TestJsonShape:
     """保存 JSON のネスト方式の契約ピン."""
 
-    def test_doc_has_version_source_machine_settings(self, tmp_path: Path):
+    def test_doc_has_version_source_pcb_settings(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
-        store.save("kurousagi", "boards/a.kicad_pcb", model)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
+        store.save("boards/a.kicad_pcb", model)
 
         board_id = store.board_id("boards/a.kicad_pcb")
-        path = tmp_path / "board_settings" / "kurousagi" / f"{board_id}.json"
+        path = tmp_path / "board_settings" / f"{board_id}.json"
         doc = json.loads(path.read_text(encoding="utf-8"))
 
         assert doc["version"] == 1
         assert doc["source_pcb"] == "boards/a.kicad_pcb"
-        assert doc["machine"] == "kurousagi"
         assert doc["settings"] == {"levels": []}
         assert "base" not in doc["settings"]
         assert "base_enabled" not in doc["settings"]
@@ -298,36 +295,41 @@ class TestJsonShape:
         config = _base_config()
         hierarchy = _hierarchy()
         signature = hierarchy.signature()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
 
         store.save(
-            "kurousagi",
             "boards/a.kicad_pcb",
             model,
             board_signature=signature,
         )
 
         board_id = store.board_id("boards/a.kicad_pcb")
-        path = tmp_path / "board_settings" / "kurousagi" / f"{board_id}.json"
+        path = tmp_path / "board_settings" / f"{board_id}.json"
         doc = json.loads(path.read_text(encoding="utf-8"))
         assert doc["board_signature"] == signature
 
     def test_unknown_version_raises(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         board_id = store.board_id("boards/a.kicad_pcb")
-        path = tmp_path / "board_settings" / "kurousagi" / f"{board_id}.json"
+        path = tmp_path / "board_settings" / f"{board_id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"version": 99, "settings": {}}), encoding="utf-8")
 
         with pytest.raises(ValueError):
-            store.load_or_init("kurousagi", "boards/a.kicad_pcb", _base_config())
+            store.load_or_init("boards/a.kicad_pcb", _base_config())
 
     def test_legacy_root_is_read_only_fallback(self, tmp_path: Path):
+        """legacy_root は読込専用の fallback（書き戻さない）.
+
+        machine セグメント除去により、この fallback は実在しうる旧レイアウト
+        ``data/board_settings/<machine>/<board_id>.json`` とは一致しない。
+        ここでピンしているのは経路の read-only 性だけ。
+        """
         current = tmp_path / "current"
         legacy = tmp_path / "legacy" / "board_settings"
         store = BoardSettingsStore(current, legacy_root=legacy)
         config = _base_config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
             levels={
@@ -336,9 +338,9 @@ class TestJsonShape:
             },
         )
         legacy_store = BoardSettingsStore(tmp_path / "legacy")
-        legacy_store.save("kurousagi", "boards/a.kicad_pcb", edited)
+        legacy_store.save("boards/a.kicad_pcb", edited)
 
-        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert loaded.levels[("L0",)].enabled is False
         assert list(current.rglob("*.json")) == []
@@ -349,14 +351,13 @@ class TestJsonShape:
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
         board_id = store.board_id("boards/a.kicad_pcb")
-        path = tmp_path / "board_settings" / "kurousagi" / f"{board_id}.json"
+        path = tmp_path / "board_settings" / f"{board_id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             json.dumps(
                 {
                     "version": 1,
                     "source_pcb": "boards/a.kicad_pcb",
-                    "machine": "kurousagi",
                     "settings": {
                         "base": {
                             "paste_height": config.paste_height,
@@ -374,7 +375,7 @@ class TestJsonShape:
             encoding="utf-8",
         )
 
-        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert ("L0",) not in loaded.levels
 
@@ -393,14 +394,13 @@ class TestJsonShape:
             base_enabled=True,
         )
         board_id = store.board_id("boards/a.kicad_pcb")
-        path = tmp_path / "board_settings" / "kurousagi" / f"{board_id}.json"
+        path = tmp_path / "board_settings" / f"{board_id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             json.dumps(
                 {
                     "version": 1,
                     "source_pcb": "boards/a.kicad_pcb",
-                    "machine": "kurousagi",
                     "settings": {
                         "base": {
                             "paste_height": old_model.base.paste_height,
@@ -418,7 +418,7 @@ class TestJsonShape:
             encoding="utf-8",
         )
 
-        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert loaded.base.prime_extra_delay == config.prime_extra_delay
         assert loaded.levels[("L0",)].override.prime_extra_delay == 0.4
@@ -426,20 +426,18 @@ class TestJsonShape:
     def test_signature_mismatch_initializes_fresh_model(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
             levels={("L2", "U1"): LevelSetting(enabled=True)},
         )
         store.save(
-            "kurousagi",
             "boards/a.kicad_pcb",
             edited,
             board_signature="old-signature",
         )
 
         loaded = store.load_or_init(
-            "kurousagi",
             "boards/a.kicad_pcb",
             config,
             board_signature="new-signature",
@@ -450,9 +448,8 @@ class TestJsonShape:
     def test_model_from_doc_rejects_mismatched_signature(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
-        model = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        model = store.load_or_init("boards/a.kicad_pcb", config)
         doc = store.export_doc(
-            "kurousagi",
             "boards/a.kicad_pcb",
             model,
             board_signature="old-signature",
@@ -463,7 +460,6 @@ class TestJsonShape:
                 doc,
                 config,
                 board_signature="new-signature",
-                expected_machine="kurousagi",
                 expected_source_pcb="boards/a.kicad_pcb",
             )
 
@@ -476,7 +472,7 @@ class TestPrune:
         config = _base_config()
         hierarchy = _hierarchy()
         model = PasteSettingsModel(
-            base=store.load_or_init("kurousagi", "boards/a.kicad_pcb", config).base,
+            base=store.load_or_init("boards/a.kicad_pcb", config).base,
             base_enabled=True,
             levels={
                 ("L2", "U1"): LevelSetting(enabled=False),  # 現階層に存在
@@ -484,7 +480,7 @@ class TestPrune:
             },
         )
 
-        pruned = store.prune("kurousagi", "boards/a.kicad_pcb", model, hierarchy)
+        pruned = store.prune("boards/a.kicad_pcb", model, hierarchy)
 
         assert ("L2", "U1") in pruned.levels
         assert ("L2", "U99") not in pruned.levels
@@ -494,12 +490,12 @@ class TestPrune:
         config = _base_config()
         hierarchy = _hierarchy()
         model = PasteSettingsModel(
-            base=store.load_or_init("kurousagi", "boards/a.kicad_pcb", config).base,
+            base=store.load_or_init("boards/a.kicad_pcb", config).base,
             base_enabled=True,
             levels={("L2", "U99"): LevelSetting(enabled=False)},
         )
 
-        store.prune("kurousagi", "boards/a.kicad_pcb", model, hierarchy)
-        loaded = store.load_or_init("kurousagi", "boards/a.kicad_pcb", config)
+        store.prune("boards/a.kicad_pcb", model, hierarchy)
+        loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert ("L2", "U99") not in loaded.levels

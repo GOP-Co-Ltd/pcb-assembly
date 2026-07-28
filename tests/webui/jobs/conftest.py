@@ -149,8 +149,8 @@ def wait_until() -> WaitUntil:
 
 @pytest.fixture
 def real_state(real_settings: Settings) -> Iterator[AppState]:
-    """実機（実 Moonraker, kurousagi）向け AppState。`@mark_hardware` 専用."""
-    state = AppState(real_settings, ConfigStore(real_settings.configs_root))
+    """実機（実 Moonraker）向け AppState。`@mark_hardware` 専用."""
+    state = AppState(real_settings, ConfigStore(real_settings.config_dir))
     yield state
     state.close()
 

@@ -437,7 +437,7 @@ class TestPasteSolderBrowserRendering:
         assert target["id"] in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
         assert not clear_pad_button.is_disabled()
 
-        machine_toml = live_server.settings.configs_root / "kurousagi" / "machine.toml"
+        machine_toml = live_server.settings.config_dir / "machine.toml"
         assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
 
 

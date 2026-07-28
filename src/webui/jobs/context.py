@@ -62,7 +62,7 @@ class Artifact:
 
 @attrs.frozen
 class ApplyFile:
-    """設定反映時に configs/<machine>/ 直下へ書き込むファイル（Phase 4 用）."""
+    """設定反映時に config/ 直下へ書き込むファイル（Phase 4 用）."""
 
     filename: str
     content: bytes
@@ -75,7 +75,7 @@ class ApplyPayload:
     Attributes:
         label: コンソール表示用（例「canny_low = 60.0 を設定に反映」）
         values: machine.toml ホワイトリストキー → 値
-        files: configs/<machine>/ へ書き込む追加ファイル
+        files: config/ へ書き込む追加ファイル
     """
 
     label: str
@@ -133,7 +133,6 @@ class JobContext:
         pcb_path: Path | None,
         machine: Machine,
         artifacts_dir: Path,
-        machine_name: str = "",
         source_pcb: str | None = None,
         board_store: BoardSettingsStore | None = None,
     ) -> None:
@@ -142,7 +141,6 @@ class JobContext:
         self._pcb_path = pcb_path
         self._machine = machine
         self._artifacts_dir = artifacts_dir
-        self._machine_name = machine_name
         self._source_pcb = source_pcb
         self._board_store = board_store
 
@@ -169,11 +167,6 @@ class JobContext:
     def artifacts_dir(self) -> Path:
         """成果物ディレクトリ data/webui/<job_id>/（作成済み）."""
         return self._artifacts_dir
-
-    @property
-    def machine_name(self) -> str:
-        """選択マシン名（基板設定ストアのキー。未配線なら空文字）."""
-        return self._machine_name
 
     @property
     def source_pcb(self) -> str | None:

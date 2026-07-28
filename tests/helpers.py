@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import time
 from collections.abc import Callable, Sequence
@@ -15,7 +16,22 @@ PROJECT_ROOT = Path(__file__).parent.parent
 
 TESTING_DATA_DIR = PROJECT_ROOT / "data" / "testing"
 
+# WebUI / E2E 用の config ディレクトリ fixture（Klipper port 7126 = 非リッスン）。
+# コア層用の data/testing/machine.toml とは別物（用途差は data/config-templates/README.md 参照）
+TESTING_CONFIG_DIR = TESTING_DATA_DIR / "config"
+
 mark_hardware = pytest.mark.hardware
+
+
+def copy_testing_config(tmp_path: Path) -> Path:
+    """`data/testing/config` を `tmp_path/config` へ複製して返す（webui / e2e 共有）.
+
+    テストが machine.toml を書き換えるため、追跡下の fixture を汚さないよう毎回コピーする。
+    """
+    config_dir = tmp_path / "config"
+    shutil.copytree(TESTING_CONFIG_DIR, config_dir)
+    return config_dir
+
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")

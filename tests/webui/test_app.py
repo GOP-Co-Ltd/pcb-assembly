@@ -24,7 +24,9 @@ class TestCreateApp:
         self, client: TestClient, appstate: AppState
     ):
         with appstate.machine_lock("pytest-job"):
-            response = client.put("/api/machine", json={"name": "test-fixture"})
+            response = client.put(
+                "/api/pcb-file", json={"path": "boards/sample.kicad_pcb"}
+            )
 
         assert response.status_code == 409
         assert response.headers["content-type"].startswith("application/json")

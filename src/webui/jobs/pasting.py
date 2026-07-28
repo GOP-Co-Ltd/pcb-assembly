@@ -769,7 +769,6 @@ def _resolve_paste_model(
     """
     if ctx.board_store is not None and ctx.source_pcb is not None:
         return ctx.board_store.load_or_init(
-            ctx.machine_name,
             ctx.source_pcb,
             ctx.machine.paste_dispenser,
             board_signature=hierarchy.signature(),

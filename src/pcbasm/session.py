@@ -49,7 +49,6 @@ class PasteSession:
     @classmethod
     def setup(
         cls,
-        machine_name: str,
         pcb_file_path: Path,
         tolerance: float = 0.1,
         *,
@@ -57,7 +56,7 @@ class PasteSession:
         frame_sink: FrameSink | None = None,
     ) -> Self:
         """マシン設定読み込み〜Board 計測〜塗布用 HAL 構築をまとめて実行する."""
-        machine = get_machine_config(machine_name)
+        machine = get_machine_config()
         result = setup_board_calibration(
             machine=machine,
             pcb_file_path=pcb_file_path,

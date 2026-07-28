@@ -228,15 +228,13 @@ def _param_specs_with_saved_defaults(
 
 
 def _base_context(
-    request: Request, state: StateDep, store: StoreDep, settings: SettingsDep
+    request: Request, state: StateDep, settings: SettingsDep
 ) -> dict[str, Any]:
     pcb = state.selected_pcb
     return {
         "request": request,
         "tabs": list(TABS),
         "tab_labels": TAB_LABELS,
-        "machines": store.list_machines(),
-        "selected_machine": state.selected_machine,
         "selected_pcb": pcb.as_posix() if pcb else None,
         "fb_start": _fb_start(settings),
         "mainsail_url": settings.mainsail_url
@@ -257,10 +255,9 @@ def index() -> RedirectResponse:
 def settings_page(
     request: Request, state: StateDep, store: StoreDep, settings: SettingsDep
 ) -> HTMLResponse:
-    context = _base_context(request, state, store, settings)
-    machine = state.selected_machine
+    context = _base_context(request, state, settings)
     context.update(
-        machine_groups=_grouped_fields(machine_settings_fields(store, machine)),
+        machine_groups=_grouped_fields(machine_settings_fields(store)),
     )
     return get_templates(request).TemplateResponse(
         request=request, name="settings.html", context=context
@@ -308,7 +305,7 @@ def _paste_solder_context(state: AppState, store: ConfigStore) -> dict[str, Any]
     return {
         "auto_threshold_fields": [
             field
-            for field in machine_settings_fields(store, state.selected_machine)
+            for field in machine_settings_fields(store)
             if field.key in _PASTE_AUTO_THRESHOLD_KEYS
         ]
     }
@@ -350,13 +347,12 @@ def tab_page(
     tab: str,
     request: Request,
     state: StateDep,
-    store: StoreDep,
     settings: SettingsDep,
     catalog: CatalogDep,
 ) -> HTMLResponse:
     if tab not in TABS:
         raise HTTPException(status_code=404, detail=f"未知のタブです: {tab}")
-    context = _base_context(request, state, store, settings)
+    context = _base_context(request, state, settings)
     context.update(_tab_context(tab, catalog))
     return get_templates(request).TemplateResponse(
         request=request, name="tab.html", context=context
@@ -377,7 +373,7 @@ def feature_page(
         raise HTTPException(
             status_code=404, detail=f"未知のフィーチャーです: {tab}/{feature}"
         )
-    context = _base_context(request, state, store, settings)
+    context = _base_context(request, state, settings)
     context.update(
         _tab_context(tab, catalog),
         active_feature=feature,

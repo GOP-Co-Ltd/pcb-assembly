@@ -104,7 +104,6 @@ class TestPages:
         assert "緊急停止" in response.text
         assert "ファームウェア再起動" in response.text
         assert "machine-control" in response.text
-        assert "マシン選択:" in response.text
         assert webui_settings.mainsail_url in response.text
 
     def test_tabs_render_japanese_labels(self, client: TestClient):
@@ -756,9 +755,9 @@ class TestMachineControlCapButton:
         assert "mc-move-to-cap" in response.text
 
     def test_missing_machine_type_hides_button_without_error(
-        self, client: TestClient, configs_root: Path
+        self, client: TestClient, config_dir: Path
     ):
-        path = configs_root / "kurousagi" / "machine.toml"
+        path = config_dir / "machine.toml"
         lines = [
             line
             for line in path.read_text(encoding="utf-8").splitlines(keepends=True)

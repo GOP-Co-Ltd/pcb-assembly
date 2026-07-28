@@ -70,20 +70,6 @@ function formatPosition(p) {
 // expose for other scripts
 window.webui = { toast, api, svgEl, debounce, createBackoff, formatPosition };
 
-// ---- machine select ----
-
-const machineSelect = document.getElementById("machine-select");
-if (machineSelect) {
-  machineSelect.addEventListener("change", async () => {
-    try {
-      await api("PUT", "/api/machine", { name: machineSelect.value });
-      window.location.reload();
-    } catch (err) {
-      toast(`マシン切替失敗: ${err.message}`, false);
-    }
-  });
-}
-
 // ---- topbar safety controls ----
 
 async function postTopbarCommand(button, url, successMessage, failurePrefix) {

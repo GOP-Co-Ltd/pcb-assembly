@@ -1,6 +1,6 @@
 """`webui.routers.pasting_loading`（質量キャリブレーション算出 API）の仕様テスト.
 
-router は「現在マシンの ``solder_paste_density`` を引いて
+router は「machine.toml の ``solder_paste_density`` を引いて
 :func:`pcbasm.pasting.estimate_mass_flow` へ委譲する」配線のみを持つ。
 算術・丸め・null ゲーティングの網羅は
 tests/pcbasm/pasting/test_calibration.py::TestEstimateMassFlow が担保する。
@@ -17,8 +17,8 @@ from fastapi.testclient import TestClient
 class TestLoadingCalibration:
     """GET /api/pasting/loading/calibration."""
 
-    def test_density_comes_from_selected_machine(self, client: TestClient):
-        # mass=10, rotations=5, density=3.78（test-fixture machine.toml 由来）
+    def test_density_comes_from_machine_config(self, client: TestClient):
+        # mass=10, rotations=5, density=3.78（data/testing/config/machine.toml 由来）
         # → rotations_per_ul = 1.89。density 配線が正しいことのピン。
         response = client.get(
             "/api/pasting/loading/calibration",

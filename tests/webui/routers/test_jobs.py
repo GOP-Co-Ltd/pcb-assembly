@@ -547,7 +547,7 @@ class TestStateBrief:
 
 
 class TestExclusionPropagation:
-    """ジョブ実行中のマシン切替・設定保存・machine-control・PCB 切替は 409."""
+    """ジョブ実行中の設定保存・machine-control・PCB 切替は 409."""
 
     def test_machine_endpoints_return_409_while_job_running(
         self, client: TestClient, app: FastAPI
@@ -561,10 +561,6 @@ class TestExclusionPropagation:
                 client.post(
                     "/api/machine-control", json={"action": "relax"}
                 ).status_code
-                == 409
-            )
-            assert (
-                client.put("/api/machine", json={"name": "test-fixture"}).status_code
                 == 409
             )
             assert (
@@ -589,7 +585,7 @@ class TestApplyDiscard:
     """POST /api/jobs/last/apply / /api/jobs/last/discard."""
 
     def test_apply_writes_machine_toml_preserving_comments(
-        self, client: TestClient, app: FastAPI, configs_root: Path
+        self, client: TestClient, app: FastAPI, config_dir: Path
     ):
         _complete_job_demo(client, app, answer=61.5)
 
@@ -599,9 +595,7 @@ class TestApplyDiscard:
         applied = response.json()["applied"]
         assert applied == {"paste_dispenser.pad_align.canny_low": 61.5}
 
-        toml_text = (configs_root / "kurousagi" / "machine.toml").read_text(
-            encoding="utf-8"
-        )
+        toml_text = (config_dir / "machine.toml").read_text(encoding="utf-8")
         assert "61.5" in toml_text
         # tomlkit によりコメントが保持される
         assert "Cannyエッジ検出の下側閾値" in toml_text
@@ -840,10 +834,12 @@ class TestWebSocket:
             )
             assert final["job"]["status"] == "succeeded"
 
-    def test_machine_switch_broadcasts_state_changed(self, client: TestClient):
+    def test_pcb_switch_broadcasts_state_changed(self, client: TestClient):
         with client.websocket_connect("/api/ws") as ws:
             assert (
-                client.put("/api/machine", json={"name": "test-fixture"}).status_code
+                client.put(
+                    "/api/pcb-file", json={"path": "boards/sample.kicad_pcb"}
+                ).status_code
                 == 200
             )
 
@@ -854,7 +850,7 @@ class TestCameraCalibrationApplyFlow:
     """Phase 4: camera_calibration の WS 完走 → POST /api/jobs/last/apply.
 
     計画書 webui-phase4.md §4「tests/webui/routers/test_jobs.py（追記）」が契約:
-    checkerboard FakeCamera で WS 完走後、Apply で tmp configs の machine.toml
+    checkerboard FakeCamera で WS 完走後、Apply で tmp config の machine.toml
     の calibration_file 更新 + JSON ファイル生成を実ファイルで確認する。
 
     計画書 webui-camera-calib.md「設計判断 a」追記: crop は job param から
@@ -866,12 +862,12 @@ class TestCameraCalibrationApplyFlow:
         self,
         checkerboard_camera_client: TestClient,
         store: ConfigStore,
-        configs_root: Path,
+        config_dir: Path,
     ):
         # checkerboard.png（400x400・1 マス約 66.7px）に合わせて crop を書く
         # （既定 600 は画像をはみ出す）
         store.write_machine_settings(
-            "kurousagi", {"camera.crop.width": 400, "camera.crop.height": 400}
+            {"camera.crop.width": 400, "camera.crop.height": 400}
         )
         client = checkerboard_camera_client
         with client.websocket_connect("/api/ws") as ws:
@@ -901,14 +897,13 @@ class TestCameraCalibrationApplyFlow:
         assert isinstance(filename, str)
         assert filename.endswith(".json")
 
-        # 既定選択マシン kurousagi の configs へ実ファイルが書かれる
-        machine_dir = configs_root / "kurousagi"
-        toml_text = (machine_dir / "machine.toml").read_text(encoding="utf-8")
+        # config ディレクトリへ実ファイルが書かれる
+        toml_text = (config_dir / "machine.toml").read_text(encoding="utf-8")
         assert filename in toml_text
         # tomlkit によりコメントが保持される
         assert "非リッスンポート" in toml_text
 
-        loaded = CalibrationResult.load(machine_dir / filename)
+        loaded = CalibrationResult.load(config_dir / filename)
         # 400px / 6 マス / 10mm ≈ 6.67 px/mm（素材と整合する実数値）
         assert loaded.pixel_per_mm == pytest.approx(400 / 6 / 10, rel=0.01)
         assert loaded.z_position is None  # Klipper 不通（port 7126）の best-effort
@@ -918,7 +913,7 @@ class TestPastingJobsOverWs:
     """Phase 5: pasting ジョブの WS 往復と実行中 artifacts 配信（装置なし）.
 
     計画書 webui-phase5.md §4「tests/webui/routers/test_jobs.py（追記）」が契約。
-    Klipper は test-fixture（port 7126 = 接続拒否）。
+    Klipper は テスト用 config（port 7126 = 接続拒否）。
     """
 
     def test_height_plane_artifact_is_served_while_waiting_confirm(

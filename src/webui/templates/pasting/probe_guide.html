@@ -27,13 +27,18 @@
 <section class="status-card">
   <h3>較正値の永続化</h3>
   <p>
-    Klipper はリポジトリの <code>configs/&lt;machine&gt;/printer.cfg</code> を直接参照しているため、
-    <code>SAVE_CONFIG</code> で保存した較正値はそのまま <code>git diff</code> に現れる。
-    内容を確認してコミットすること（バックアップ <code>printer-*.cfg</code> は gitignore 済み）。
+    Klipper が読むのは <code>~/printer_data/config/printer.cfg</code>（実体）で、
+    リポジトリの <code>config/printer.cfg</code> はそこへのシンボリックリンク。
   </p>
   <p>
-    注意: <code>SAVE_CONFIG</code> は未コミットの手元変更と autosave 追記が混ざり得るため、
-    printer.cfg を手編集したら都度コミットしておくことを推奨する。
+    <code>SAVE_CONFIG</code> の autosave は <code>printer_data</code> 側に書かれ、
+    <code>config/</code> は <code>.gitignore</code> 済みなので <code>git diff</code> には現れない
+    （= リポジトリが dirty にならない）。
+  </p>
+  <p>
+    較正値を残したい場合は
+    <code>data/config-templates/&lt;マシン名&gt;.&lt;用途&gt;/printer.cfg</code>
+    に手で反映してコミットする。
   </p>
 </section>
 <section class="status-card">

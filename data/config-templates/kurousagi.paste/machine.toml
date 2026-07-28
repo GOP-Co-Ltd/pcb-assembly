@@ -56,7 +56,9 @@ width = 1280
 height = 720
 fps = 30.0
 format = "YUYV"
-calibration_file = "ov9281_20260724_165820.json"
+# キャリブレーション結果は機体固有なのでテンプレートには含めない。
+# WebUI の camera_calibration ジョブを実行し、Apply でこのキーごと更新する
+calibration_file = "calibration.json"
 
 [camera.crop]
 width = 300
@@ -71,8 +73,8 @@ lift_height = 0.5
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
-x = 21.0
-y = 6.0
+x = 12.0
+y = 3.8
 # 基準点の直径 (mm)
 target_diameter = 3.0
 
