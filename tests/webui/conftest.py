@@ -1,12 +1,15 @@
 """WebUI テスト共有フィクスチャ.
 
-tmp_path に `configs/test-fixture` をコピーした Settings を `create_app` に注入し、
+tmp_path に `data/testing/config` をコピーした Settings を `create_app` に注入し、
 `fastapi.testclient.TestClient` で実 HTTP 経路を検証する。
 
-- 既定選択マシンを計画書どおり "kurousagi" にするため、test-fixture のコピーを
-  "kurousagi" という名前でも複製する（どちらも Klipper port 7126 = 非リッスンで、
-  テストが誤って実機 Moonraker に接続しない）
-- 実機系（`@mark_hardware`）はリポジトリの実 `configs/`（kurousagi, port 7125）を使う
+- fixture の machine.toml は Klipper port 7126 = 非リッスンなので、テストが誤って
+  実機 Moonraker に接続しない
+- `data/testing/config/machine.toml` は WebUI / E2E 用（コメント保持・欠落キーの
+  テスト素材を含む）。pcbasm コア層の単体テストが使う `data/testing/machine.toml` /
+  `machine_minimal.toml` とは別物
+- 実機系（`@mark_hardware`）はリポジトリの実 `config/`（port 7125）を使う
+- Settings は env ではなく直接構築して注入する（env はプロセスグローバルで leak するため）
 """
 
 import shutil
@@ -21,13 +24,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.vision import ImageArray
-from tests.helpers import PROJECT_ROOT, TESTING_DATA_DIR
+from tests.helpers import PROJECT_ROOT, TESTING_DATA_DIR, copy_testing_config
 from webui.app import create_app
 from webui.config_store import ConfigStore
 from webui.settings import Settings
 from webui.state import AppState
-
-TEST_FIXTURE_DIR = PROJECT_ROOT / "configs" / "test-fixture"
 
 FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"
 
@@ -66,13 +67,9 @@ def _lifespan_client(app: FastAPI) -> Iterator[TestClient]:
 
 
 @pytest.fixture
-def configs_root(tmp_path: Path) -> Path:
-    """Test-fixture を "kurousagi" と "test-fixture" の 2 マシンとしてコピーした configs
-    ルート."""
-    root = tmp_path / "configs"
-    shutil.copytree(TEST_FIXTURE_DIR, root / "kurousagi")
-    shutil.copytree(TEST_FIXTURE_DIR, root / "test-fixture")
-    return root
+def config_dir(tmp_path: Path) -> Path:
+    """`data/testing/config` を tmp_path へコピーした単一 config ディレクトリ."""
+    return copy_testing_config(tmp_path)
 
 
 @pytest.fixture
@@ -114,17 +111,16 @@ def copper_pcb_path(pcb_root: Path) -> Path:
 
 
 @pytest.fixture
-def webui_settings(tmp_path: Path, configs_root: Path, pcb_root: Path) -> Settings:
+def webui_settings(tmp_path: Path, config_dir: Path, pcb_root: Path) -> Settings:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     return Settings(
-        configs_root=configs_root,
+        config_dir=config_dir,
         data_dir=data_dir,
         pcb_browse_root=pcb_root,
         pcb_browse_start=pcb_root,
         pcb_upload_dir=pcb_root / "uploads",
         mainsail_url="http://mainsail.invalid",
-        default_machine="kurousagi",
     )
 
 
@@ -145,9 +141,9 @@ def appstate(app: FastAPI, client: TestClient) -> AppState:
 
 
 @pytest.fixture
-def store(configs_root: Path) -> ConfigStore:
-    """Configs_root（test-fixture 2 マシン）を読む ConfigStore."""
-    return ConfigStore(configs_root)
+def store(config_dir: Path) -> ConfigStore:
+    """`tmp_path` にコピーした config ディレクトリを読む ConfigStore."""
+    return ConfigStore(config_dir)
 
 
 @pytest.fixture
@@ -202,14 +198,18 @@ def checkerboard_camera_client(
 
 @pytest.fixture
 def real_settings(tmp_path: Path) -> Settings:
-    """実機（実 Moonraker, kurousagi）向け Settings。`@mark_hardware` テスト専用."""
+    """実機向け Settings。`@mark_hardware` テスト専用.
+
+    実機の `config/`（`setup-machine-config.sh` 実行済み）を読む。`config/` は git
+    管理外なので実機以外には 存在しないが、`@mark_hardware` は `make test-no-hardware` では
+    collect されるだけで fixture が評価されない。
+    """
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     return Settings(
-        configs_root=PROJECT_ROOT / "configs",
+        config_dir=PROJECT_ROOT / "config",
         data_dir=data_dir,
         pcb_browse_root=PROJECT_ROOT,
-        default_machine="kurousagi",
     )
 
 

@@ -1,4 +1,4 @@
-"""WebUI のアプリケーション状態（選択マシン / PCB / 排他ロック）."""
+"""WebUI のアプリケーション状態（選択 PCB / 排他ロック）."""
 
 from __future__ import annotations
 
@@ -36,20 +36,16 @@ class BusyError(RuntimeError):
 
 
 class AppState:
-    """選択マシン / PCB の保持・永続化と装置排他ロックを担うクラス."""
+    """選択 PCB の保持・永続化と装置排他ロックを担うクラス."""
 
     def __init__(self, settings: Settings, store: ConfigStore) -> None:
         """AppState を初期化する.
 
-        data_dir/webui_state.json から選択状態を復元する。不正値は
-        default_machine（マシン一覧に無ければソート先頭）へフォールバックする。
+        data_dir/webui_state.json から選択状態を復元する。
 
         Args:
             settings: WebUI 設定
             store: 設定ファイルストア
-
-        Raises:
-            RuntimeError: 選択可能なマシンが 1 つも無い場合
         """
         self._settings = settings
         self._store = store
@@ -62,15 +58,10 @@ class AppState:
         self._frame_hub: FrameHub | None = None
 
         persisted = self._load_persisted()
-        self._selected_machine = self._resolve_machine(persisted.get("machine"))
         self._selected_pcb = self._resolve_pcb(persisted.get("pcb_file"))
         self._job_param_defaults = self._resolve_job_param_defaults(
             persisted.get("job_param_defaults")
         )
-
-    @property
-    def selected_machine(self) -> str:
-        return self._selected_machine
 
     @property
     def selected_pcb(self) -> Path | None:
@@ -83,20 +74,6 @@ class AppState:
         if self._lock.locked():
             return self._busy_owner or "unknown"
         return None
-
-    def select_machine(self, name: str) -> None:
-        """マシンを選択し永続化する.
-
-        Raises:
-            ValueError: 未知のマシン名の場合
-            BusyError: 排他ロックが取得できない場合
-        """
-        if name not in self._store.list_machines():
-            raise ValueError(f"未知のマシンです: {name}")
-        with self.machine_lock("select-machine"):
-            self._selected_machine = name
-            self._persist()
-            self.rebuild_camera()
 
     def select_pcb(self, path: Path) -> None:
         """PCB ファイルを選択し永続化する.
@@ -116,11 +93,11 @@ class AppState:
             self._persist()
 
     def machine(self) -> Machine:
-        """選択マシンの Machine 設定を読み込んで返す（毎回ロード）."""
-        return Machine(self._store.machine_toml_path(self._selected_machine))
+        """Machine 設定を読み込んで返す（毎回ロード）."""
+        return Machine(self._store.machine_toml_path())
 
     def write_machine_settings(self, values: Mapping[str, MachineSettingValue]) -> None:
-        """選択マシンの machine.toml へホワイトリスト項目を書き込む.
+        """machine.toml へホワイトリスト項目を書き込む.
 
         ジョブワーカー専用（排他ロック保持中の即時反映。
         ``JobManager._apply_machine_settings`` 経由でのみ呼ぶ）。装置排他
@@ -131,7 +108,7 @@ class AppState:
         Raises:
             UnknownFieldError: 未知キーまたは型不一致の場合
         """
-        self._store.write_machine_settings(self._selected_machine, values)
+        self._store.write_machine_settings(values)
 
     def focus_z(self) -> float | None:
         """カメラキャリブレーションの Z 位置を返す（取得できなければ None）."""
@@ -142,7 +119,7 @@ class AppState:
             return None
 
     def machine_type(self) -> str | None:
-        """選択マシンのマシン種別を返す（取得できなければ None）."""
+        """マシン種別を返す（取得できなければ None）."""
         try:
             return self.machine().machine_type
         except Exception:
@@ -160,7 +137,7 @@ class AppState:
         self._persist()
 
     def frame_hub(self) -> FrameHub:
-        """選択マシン用の FrameHub を返す（初回アクセスで遅延構築）.
+        """FrameHub を返す（初回アクセスで遅延構築）.
 
         start はしない（PreviewService の責務）。
 
@@ -256,24 +233,10 @@ class AppState:
     def _persist(self) -> None:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "machine": self._selected_machine,
             "pcb_file": (self._selected_pcb.as_posix() if self._selected_pcb else None),
             "job_param_defaults": self._job_param_defaults,
         }
         self._state_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-
-    def _resolve_machine(self, persisted: object) -> str:
-        machines = self._store.list_machines()
-        if not machines:
-            raise RuntimeError(
-                f"configs に machine.toml を持つマシンがありません: "
-                f"{self._settings.configs_root}"
-            )
-        if isinstance(persisted, str) and persisted in machines:
-            return persisted
-        if self._settings.default_machine in machines:
-            return self._settings.default_machine
-        return machines[0]
 
     def _resolve_pcb(self, persisted: object) -> Path | None:
         if not isinstance(persisted, str):

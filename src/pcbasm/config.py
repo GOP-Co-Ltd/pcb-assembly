@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from enum import Enum, auto
 from pathlib import Path
@@ -488,15 +489,23 @@ class Machine:
         return self._get_config("probe", Probe)
 
 
-def get_machine_config(name: str, file: str = "machine.toml") -> Machine:
-    """マシン名からMachine設定を読み込む.
+def get_config_dir() -> Path:
+    """マシン設定ディレクトリを返す.
 
-    Args:
-        name: マシン名（configs/ディレクトリ下のサブディレクトリ名）
-        file: 設定ファイル名
+    ``PCBASM_CONFIG_DIR`` が設定されていればそれを、無ければ
+    ``PROJECT_ROOT/config`` を返す。env は呼び出しごとに読む。
+
+    Returns:
+        マシン設定ディレクトリのパス
+    """
+    value = os.environ.get("PCBASM_CONFIG_DIR")
+    return Path(value) if value else PROJECT_ROOT / "config"
+
+
+def get_machine_config() -> Machine:
+    """`config/` ディレクトリの machine.toml を読み込む.
 
     Returns:
         Machine設定オブジェクト
     """
-    path = PROJECT_ROOT / "configs" / name / file
-    return Machine(path)
+    return Machine(get_config_dir() / "machine.toml")

@@ -15,11 +15,12 @@ from pcbasm.config import (
     Probe,
     ReferencePoint,
     Toolhead,
+    get_config_dir,
     get_machine_config,
     resolve_paste_height,
 )
 from pcbasm.geometry import Point2d, Shift
-from tests.helpers import TESTING_DATA_DIR
+from tests.helpers import PROJECT_ROOT, TESTING_DATA_DIR
 
 
 def _paste_dispenser(**overrides):
@@ -587,7 +588,10 @@ class TestProbe:
 
 
 class TestGetMachineConfig:
-    """get_machine_config関数のテスト."""
+    """get_config_dir / get_machine_config のテスト.
+
+    PCBASM_CONFIG_DIR env が唯一の注入口（コア層には Settings が無い）。
+    """
 
     _MINIMAL_TOML = """\
 [klipper]
@@ -613,23 +617,30 @@ top_right = [0.0, 0.0]
 bottom_right = [0.0, 0.0]
 """
 
-    def test_loads_machine_config(self, tmp_path, monkeypatch):
-        config_dir = tmp_path / "configs" / "test_machine"
-        config_dir.mkdir(parents=True)
+    def test_defaults_to_project_root_config(self, monkeypatch):
+        monkeypatch.delenv("PCBASM_CONFIG_DIR", raising=False)
+
+        assert get_config_dir() == PROJECT_ROOT / "config"
+
+    def test_loads_machine_config_from_env_dir(self, tmp_path, monkeypatch):
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
         (config_dir / "machine.toml").write_text(self._MINIMAL_TOML)
+        monkeypatch.setenv("PCBASM_CONFIG_DIR", str(config_dir))
 
-        monkeypatch.setattr("pcbasm.config.PROJECT_ROOT", tmp_path)
+        machine = get_machine_config()
 
-        machine = get_machine_config("test_machine")
-
+        assert get_config_dir() == config_dir
         assert isinstance(machine, Machine)
         assert machine.klipper == Klipper(host="localhost", port=7125)
 
-    def test_raises_file_not_found_for_nonexistent_machine(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("pcbasm.config.PROJECT_ROOT", tmp_path)
+    def test_raises_file_not_found_when_machine_toml_missing(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("PCBASM_CONFIG_DIR", str(tmp_path / "empty"))
 
         with pytest.raises(FileNotFoundError):
-            get_machine_config("nonexistent")
+            get_machine_config()
 
 
 class TestResolvePasteHeight:

@@ -4,7 +4,7 @@
 
 - 400: パラメータ不足（jog の axis/distance 欠落）/ focus_z 不可（z_position なし）/ limits 超過
 - 409: machine_lock 取得失敗（detail に owner）
-- 502: Moonraker 接続不能（test-fixture port 7126 への実接続で検証、モック不使用）
+- 502: Moonraker 接続不能（テスト用 config の port 7126 への実接続で検証、モック不使用）
 - 200: 実機（実 Moonraker）での操作完了 → `@mark_hardware`（ユーザー実行）
 
 Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変更」節）:
@@ -45,9 +45,9 @@ class TestMachineControlValidation:
         assert response.status_code == 400
 
     def test_focus_z_without_z_position_returns_400(
-        self, client: TestClient, configs_root: Path
+        self, client: TestClient, config_dir: Path
     ):
-        calibration = configs_root / "kurousagi" / "ov9281_test_fixture.json"
+        calibration = config_dir / "ov9281_test_fixture.json"
         data = json.loads(calibration.read_text(encoding="utf-8"))
         data["z_position"] = None
         calibration.write_text(json.dumps(data), encoding="utf-8")
@@ -92,7 +92,7 @@ class TestGcodeAction:
 class TestMoveToCap:
     """Action="move_to_cap"（nozzle-cap-parking 計画書「API 契約」節）.
 
-    キャップ未記録は 400。記録済みなら G-code 送信まで到達し、test-fixture の Klipper（port 7126
+    キャップ未記録は 400。記録済みなら G-code 送信まで到達し、テスト用 config の Klipper（port 7126
     非リッスン）で 502 になる = バリデーション通過の証明。
     """
 
@@ -103,9 +103,9 @@ class TestMoveToCap:
         assert "ノズルキャップ" in response.text
 
     def test_recorded_cap_passes_validation_and_returns_502(
-        self, client: TestClient, configs_root: Path
+        self, client: TestClient, config_dir: Path
     ):
-        path = configs_root / "kurousagi" / "machine.toml"
+        path = config_dir / "machine.toml"
         path.write_text(
             path.read_text(encoding="utf-8")
             + "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
@@ -141,7 +141,7 @@ class TestMachineControlMoonrakerDown:
 
 
 class TestMachineControlHardware:
-    """実 Moonraker（kurousagi）に対する操作。ユーザーが実行する."""
+    """実 Moonraker に対する操作。ユーザーが実行する."""
 
     @mark_hardware
     def test_relax_returns_status(self, real_client: TestClient):

@@ -459,7 +459,6 @@ class JobManager:
                 pcb_path=pcb_path,
                 machine=machine,
                 artifacts_dir=artifacts_dir,
-                machine_name=self._state.selected_machine,
                 source_pcb=selected_pcb.as_posix() if selected_pcb else None,
                 board_store=self._board_store,
             )

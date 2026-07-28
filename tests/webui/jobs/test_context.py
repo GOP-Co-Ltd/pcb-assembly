@@ -101,7 +101,7 @@ class TestContextProperties:
 
         assert captured == [None]
 
-    def test_machine_is_selected_machine_config(
+    def test_machine_is_config_dir_machine(
         self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
     ):
         captured: list[Machine] = []
@@ -113,7 +113,7 @@ class TestContextProperties:
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
 
-        # 既定選択マシン kurousagi（test-fixture コピー）の設定がロードされる
+        # tmp コピーした config/machine.toml の設定がロードされる
         assert captured[0].klipper.port == 7126
 
     def test_artifacts_dir_is_created_under_data_webui(
@@ -138,13 +138,13 @@ class TestContextProperties:
 
 
 class TestBoardSettingsWiring:
-    """machine_name / source_pcb / board_store の manager → JobContext 配線.
+    """source_pcb / board_store の manager → JobContext 配線.
 
-    paste_solder ジョブが基板ごとの塗布設定ストアを引けるよう、manager は 選択中のマシン名・PCB 相対パス・共有
+    paste_solder ジョブが基板ごとの塗布設定ストアを引けるよう、manager は 選択中の PCB 相対パス・共有
     BoardSettingsStore を ctx へ渡す （計画書 Phase 5「JobContext への配線」節の契約）。
     """
 
-    def test_source_pcb_and_machine_name_reflect_selection(
+    def test_source_pcb_reflects_selection(
         self,
         manager: JobManager,
         catalog: JobCatalog,
@@ -153,19 +153,17 @@ class TestBoardSettingsWiring:
         wait_until: WaitUntil,
     ):
         state.select_pcb(real_pcb_path)
-        captured: list[tuple[str, str | None, BoardSettingsStore | None]] = []
+        captured: list[tuple[str | None, BoardSettingsStore | None]] = []
 
         def run(ctx: JobContext) -> None:
-            captured.append((ctx.machine_name, ctx.source_pcb, ctx.board_store))
+            captured.append((ctx.source_pcb, ctx.board_store))
 
         _register(catalog, run, requires_pcb=True)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.SUCCEEDED
-        machine_name, source_pcb, board_store = captured[0]
-        # 既定選択マシン kurousagi（test-fixture コピー）
-        assert machine_name == "kurousagi"
+        source_pcb, board_store = captured[0]
         # pcb_browse_root からの相対 posix パス（絶対パスではない）
         assert source_pcb == real_pcb_path.as_posix()
         assert isinstance(board_store, BoardSettingsStore)

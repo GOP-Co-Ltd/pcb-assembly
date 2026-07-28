@@ -147,7 +147,6 @@ class PadConfigResponse(BaseModel):
     """GET /api/pasting/pad-config のレスポンス."""
 
     pcb_file: str
-    machine: str
     outline: list[list[float]]
     width: float
     height: float
@@ -442,7 +441,6 @@ def pad_info(
 @attrs.frozen
 class Loaded:
     source_pcb: str
-    machine: str
     base_config: PasteDispenser
     pcb: PcbFile
     hierarchy: PadHierarchy
@@ -464,16 +462,12 @@ def load_board(
     source_pcb = pcb_rel.as_posix()
     abs_path = settings.pcb_browse_root / pcb_rel
     pcb = PcbFile(abs_path)
-    machine = state.selected_machine
     base_config = state.machine().paste_dispenser
     hierarchy = build_pad_hierarchy(pcb.components, pcb.pads)
     signature = hierarchy.signature()
-    model = board_store.load_or_init(
-        machine, source_pcb, base_config, board_signature=signature
-    )
+    model = board_store.load_or_init(source_pcb, base_config, board_signature=signature)
     return Loaded(
         source_pcb=source_pcb,
-        machine=machine,
         base_config=base_config,
         pcb=pcb,
         hierarchy=hierarchy,
@@ -506,7 +500,6 @@ def build_pad_config(loaded: Loaded) -> PadConfigResponse:
     outline = pcb.outline
     return PadConfigResponse(
         pcb_file=loaded.source_pcb,
-        machine=loaded.machine,
         outline=[[x, y] for x, y in outline.polygon.exterior.coords],
         width=outline.width,
         height=outline.height,

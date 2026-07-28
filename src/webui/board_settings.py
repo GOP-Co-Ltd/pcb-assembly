@@ -6,15 +6,14 @@ L0（全部品）を含む明示 override だけを保持する。
 
 保存レイアウト::
 
-    data/webui/board_settings/<machine>/<board_id>.json
+    data/webui/board_settings/<board_id>.json
 
 JSON はネスト方式で pcbasm の階層 override dict（``settings.levels``）と
-webui のメタ情報（version / source_pcb / machine）を分離する::
+webui のメタ情報（version / source_pcb）を分離する::
 
     {
         "version": 1,
         "source_pcb": "<pcb_browse_root からの相対 posix パス>",
-        "machine": "<マシン名>",
         "board_signature": "<現在の基板構成ハッシュ>",
         "settings": {"levels": [...]},
     }
@@ -54,7 +53,9 @@ class BoardSettingsStore:
         Args:
             data_dir: WebUI のデータディレクトリ（保存先は
                 ``data_dir/board_settings``）
-            legacy_root: 旧レイアウト ``data/board_settings`` の読込専用パス
+            legacy_root: 旧レイアウト ``data/board_settings`` の読込専用パス。
+                machine セグメント除去により、実在しうる旧データ
+                ``data/board_settings/<machine>/<board_id>.json`` とは一致しない
         """
         self._root = data_dir / "board_settings"
         self._legacy_root = legacy_root
@@ -73,7 +74,6 @@ class BoardSettingsStore:
 
     def load_or_init(
         self,
-        machine: str,
         source_pcb: str,
         base_config: PasteDispenser,
         *,
@@ -86,7 +86,6 @@ class BoardSettingsStore:
         （**この時点では保存しない** = 編集が入るまでファイルを作らない）。
 
         Args:
-            machine: マシン名
             source_pcb: ``pcb_browse_root`` からの相対 posix パス
             base_config: マシンのペーストディスペンサー設定（L0 初期値）
 
@@ -96,8 +95,8 @@ class BoardSettingsStore:
         Raises:
             ValueError: JSON の schema version が未知の場合
         """
-        path = self._path(machine, source_pcb)
-        doc_path = self._doc_path(machine, source_pcb)
+        path = self._path(source_pcb)
+        doc_path = self._doc_path(source_pcb)
         if doc_path is not None:
             path = doc_path
             doc = json.loads(path.read_text(encoding="utf-8"))
@@ -114,14 +113,13 @@ class BoardSettingsStore:
 
     def export_doc(
         self,
-        machine: str,
         source_pcb: str,
         model: PasteSettingsModel,
         *,
         board_signature: str | None = None,
     ) -> dict:
         """ダウンロード用の保存 JSON ドキュメントを返す."""
-        return self._doc(machine, source_pcb, model, board_signature=board_signature)
+        return self._doc(source_pcb, model, board_signature=board_signature)
 
     def model_from_doc(
         self,
@@ -129,15 +127,10 @@ class BoardSettingsStore:
         base_config: PasteDispenser,
         *,
         board_signature: str | None = None,
-        expected_machine: str | None = None,
         expected_source_pcb: str | None = None,
     ) -> PasteSettingsModel:
         """アップロードされた保存 JSON を検証し、設定モデルへ復元する."""
         self._check_version(doc, Path("<uploaded board settings>"))
-        if expected_machine is not None and doc.get("machine") != expected_machine:
-            raise ValueError(
-                f"マシンが一致しません: {doc.get('machine')} != {expected_machine}"
-            )
         if (
             expected_source_pcb is not None
             and doc.get("source_pcb") != expected_source_pcb
@@ -163,7 +156,6 @@ class BoardSettingsStore:
 
     def save(
         self,
-        machine: str,
         source_pcb: str,
         model: PasteSettingsModel,
         *,
@@ -172,18 +164,16 @@ class BoardSettingsStore:
         """設定モデルを即時保存する.
 
         Args:
-            machine: マシン名
             source_pcb: ``pcb_browse_root`` からの相対 posix パス
             model: 保存する設定モデル
         """
-        path = self._path(machine, source_pcb)
+        path = self._path(source_pcb)
         path.parent.mkdir(parents=True, exist_ok=True)
-        doc = self._doc(machine, source_pcb, model, board_signature=board_signature)
+        doc = self._doc(source_pcb, model, board_signature=board_signature)
         self._write_doc(path, doc)
 
     def prune(
         self,
-        machine: str,
         source_pcb: str,
         model: PasteSettingsModel,
         hierarchy: PadHierarchy,
@@ -193,7 +183,6 @@ class BoardSettingsStore:
         """現階層に存在しない設定キー（孤児）を除去して保存する.
 
         Args:
-            machine: マシン名
             source_pcb: ``pcb_browse_root`` からの相対 posix パス
             model: 入力の設定モデル
             hierarchy: 現在の pad 階層
@@ -208,7 +197,7 @@ class BoardSettingsStore:
             and model.initial_purge_pad_id not in known_pad_ids
         )
         if not orphans and not purge_pad_orphan:
-            self.save(machine, source_pcb, model, board_signature=board_signature)
+            self.save(source_pcb, model, board_signature=board_signature)
             return model
         levels = {
             key: setting for key, setting in model.levels.items() if key not in orphans
@@ -220,12 +209,11 @@ class BoardSettingsStore:
                 None if purge_pad_orphan else model.initial_purge_pad_id
             ),
         )
-        self.save(machine, source_pcb, pruned, board_signature=board_signature)
+        self.save(source_pcb, pruned, board_signature=board_signature)
         return pruned
 
     def _doc(
         self,
-        machine: str,
         source_pcb: str,
         model: PasteSettingsModel,
         *,
@@ -234,7 +222,6 @@ class BoardSettingsStore:
         doc = {
             "version": _SCHEMA_VERSION,
             "source_pcb": source_pcb,
-            "machine": machine,
             "settings": self._settings_doc(model),
         }
         if board_signature is not None:
@@ -306,16 +293,16 @@ class BoardSettingsStore:
             return None
         return LevelSetting(enabled=enabled, override=PasteOverride(**values))
 
-    def _path(self, machine: str, source_pcb: str) -> Path:
-        return self._root / machine / f"{self.board_id(source_pcb)}.json"
+    def _path(self, source_pcb: str) -> Path:
+        return self._root / f"{self.board_id(source_pcb)}.json"
 
-    def _doc_path(self, machine: str, source_pcb: str) -> Path | None:
-        path = self._path(machine, source_pcb)
+    def _doc_path(self, source_pcb: str) -> Path | None:
+        path = self._path(source_pcb)
         if path.is_file():
             return path
         if self._legacy_root is None:
             return None
-        legacy_path = self._legacy_root / machine / f"{self.board_id(source_pcb)}.json"
+        legacy_path = self._legacy_root / f"{self.board_id(source_pcb)}.json"
         return legacy_path if legacy_path.is_file() else None
 
     def _check_version(self, doc: dict, path: Path) -> None:
