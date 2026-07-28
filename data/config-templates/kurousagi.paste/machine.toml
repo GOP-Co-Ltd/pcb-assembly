@@ -56,7 +56,9 @@ width = 1280
 height = 720
 fps = 30.0
 format = "YUYV"
-calibration_file = "ov9281_20260722_113444.json"
+# キャリブレーション結果は機体固有なのでテンプレートには含めない。
+# WebUI の camera_calibration ジョブを実行し、Apply でこのキーごと更新する
+calibration_file = "calibration.json"
 
 [camera.crop]
 width = 300

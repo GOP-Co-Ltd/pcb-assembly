@@ -27,18 +27,22 @@
 
 ```
 data/config-templates/
-├── README.md
 └── <マシン名>.<用途>/
-    ├── machine.toml          # Klipper 以外のハードウェア設定
-    ├── printer.cfg           # Klipper 設定
-    └── <camera>_<日時>.json  # カメラキャリブレーション結果（任意）
+    ├── machine.toml  # Klipper 以外のハードウェア設定
+    └── printer.cfg   # Klipper 設定
 ```
 
 `machine.toml` と `printer.cfg` の両方を持つディレクトリだけが
 `./setup-machine-config.sh` の選択肢に出る。
 
+**カメラキャリブレーション結果はテンプレートに含めない。** 機体固有の実測値であり、
+別の機体に配ると誤った `pixel_per_mm` で動くことになる。セットアップ後に WebUI の
+camera_calibration ジョブを実行し、Apply で `config/` に生成させる。
+
 `machine.toml` の `[camera] calibration_file` はファイル名のみで書く。設定ディレクトリからの
-相対パスとして解決されるため、`config/` へコピーした後もそのまま動く。
+相対パスとして解決されるため、`config/` へコピーした後もそのまま動く。テンプレートでは
+存在しないファイル名（`calibration.json`）を指しており、キャリブレーション実施までは
+フォーカス Z 位置が未取得（`None`）になるだけで起動や映像表示には影響しない。
 
 ## 命名規則
 
@@ -56,7 +60,7 @@ sudo systemctl restart klipper
 
 スクリプトは実行内容を表示してから 1 度だけ確認を取り、以下を行う。
 
-1. `config/` に `machine.toml` とカメラキャリブレーション JSON を配置する
+1. `config/` に `machine.toml` を配置する
 2. `printer.cfg` を `~/printer_data/config/printer.cfg` へ実ファイルとして配置する
 3. `config/printer.cfg` に 2 へのシンボリックリンクを張る（リポジトリから閲覧するため）
 4. `klipper.env` の `KLIPPER_ARGS` を 2 のパスに向ける
@@ -79,7 +83,7 @@ mv ~/printer_data/config/printer.cfg{,.bak} && ./setup-machine-config.sh  # prin
 
 ```sh
 mkdir data/config-templates/<マシン名>.<用途>
-# machine.toml / printer.cfg / カメラキャリブレーション JSON を置く
+# machine.toml と printer.cfg を置く（キャリブレーション結果は含めない）
 git add data/config-templates/<マシン名>.<用途>
 ```
 
@@ -132,5 +136,6 @@ git diff data/config-templates/kurousagi.paste/printer.cfg  # 意図した差分
 この書き戻しが頻繁で煩わしくなったら `setup-machine-config.sh` に snapshot サブコマンドを足す。
 現時点では `cp` 1 行で足りるため用意していない。
 
-同じ理由で、カメラキャリブレーション結果の JSON も今後コミットされない。良い較正値が得られたら
-テンプレートへコピーしておく。
+カメラキャリブレーション結果の JSON も同様に `config/` に置かれ追跡されないが、こちらは
+**テンプレートへ書き戻さない**（機体固有の実測値であり、別の機体に配ると誤った `pixel_per_mm`
+で動くことになる）。機体を組み直したら再キャリブレーションする。

@@ -2,11 +2,14 @@
 # マシン設定のセットアップスクリプト。
 # data/config-templates/<マシン名>.<用途>/ を選び、以下を行う。
 #
-#   1. machine.toml とカメラキャリブ JSON を config/ へ配置する（既存ファイルは常に保持）
+#   1. machine.toml を config/ へ配置する（既存なら常に保持）
 #   2. printer.cfg を Klipper 本来の場所（~/printer_data/config/printer.cfg）へ実ファイルとして
 #      配置する（既に実ファイルなら SAVE_CONFIG の較正値を守るため保持）
 #   3. config/printer.cfg に 2 のシンボリックリンクを張る（リポジトリから閲覧するため）
 #   4. klipper.env の KLIPPER_ARGS を 2 のパスに向ける
+#
+# カメラキャリブレーション結果は機体固有なのでテンプレートには含めない。セットアップ後に
+# WebUI の camera_calibration ジョブを実行し、Apply で config/ に生成させる。
 #
 # config/ は .gitignore 済み。SAVE_CONFIG の較正値は ~/printer_data 側に書かれるため
 # リポジトリは dirty にならない。詳細は data/config-templates/README.md を参照。
@@ -84,18 +87,6 @@ else
     copy_machine_toml=true
 fi
 
-json_to_copy=()
-for json in "${template_path}"/*.json; do
-    [ -e "$json" ] || continue
-    name="$(basename "$json")"
-    if [ -e "${CONFIG_DIR}/${name}" ]; then
-        plan+=("config/${name} : 既存を保持（スキップ）")
-    else
-        plan+=("config/${name} : テンプレートからコピー")
-        json_to_copy+=("$json")
-    fi
-done
-
 # printer.cfg も machine.toml と同じく実測値が蓄積する（SAVE_CONFIG が load_cell_probe の
 # 較正値や position_endstop を追記する）。実ファイルが既にあるなら Klipper 側の稼働設定が
 # 正なので、テンプレートで上書きせず保持する。差し替えたい場合は手動で退避させる。
@@ -150,11 +141,6 @@ if [ "$copy_machine_toml" = true ]; then
     cp "${template_path}/machine.toml" "${CONFIG_DIR}/machine.toml"
     echo "配置: ${CONFIG_DIR}/machine.toml"
 fi
-
-for json in ${json_to_copy+"${json_to_copy[@]}"}; do
-    cp "$json" "${CONFIG_DIR}/"
-    echo "配置: ${CONFIG_DIR}/$(basename "$json")"
-done
 
 if [ "$printer_action" = replace_symlink ]; then
     rm "$KLIPPER_CONFIG_FILE"
