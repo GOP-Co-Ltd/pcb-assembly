@@ -100,9 +100,6 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     ),
     FieldSpec("paste_dispenser.pad_align.roi_margin", "ROIマージン", "float", "mm"),
     FieldSpec("paste_dispenser.pad_align.min_roi", "ROI最小辺長", "float", "mm"),
-    FieldSpec(
-        "paste_dispenser.pad_align.theta_range", "回転探索 片側範囲", "float", "deg"
-    ),
     FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),

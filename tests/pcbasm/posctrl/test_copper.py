@@ -18,7 +18,6 @@ from pcbasm.posctrl import (
     CopperProjector,
     EdgeMatch,
 )
-from pcbasm.posctrl.copper import RigidEdgeMatch
 from pcbasm.vision import Offset
 
 PPM = 10.0  # pixel/mm
@@ -82,18 +81,6 @@ def _rect_vertices(center: Point2d, half_w: float, half_h: float) -> list[Point2
         Point2d(center.x + half_w, center.y + half_h),
         Point2d(center.x - half_w, center.y + half_h),
     ]
-
-
-def _rotated_vertices(
-    vertices: list[Point2d], degrees: float, center: Point2d
-) -> list[Point2d]:
-    """頂点列を center 回りに自前 Rotation 規約で回転する.
-
-    pcbasm.geometry.Rotation の数式（x右・y下の pixel 座標へそのまま適用）を ground truth
-    とするため、warpAffine には依存しない。
-    """
-    rotation = Rotation(degrees)
-    return [rotation.apply(v - center) + center for v in vertices]
 
 
 def _draw_ring(
@@ -427,102 +414,51 @@ class TestCopperEdgeMatcher:
         assert match.offset.px.y == pytest.approx(2.0, abs=1.0)
 
 
-class TestCopperEdgeMatcherRigid:
-    """CopperEdgeMatcher.match_rigid（並進+微小回転）のテスト.
+class TestCopperEdgeMatcherRoi:
+    """CopperEdgeMatcher.match の ROI 限定照合のテスト.
 
-    計画書 pad-alignment.md「match_rigid」に基づく。rotation は ROI 中心回り、 符号は
-    pcbasm.geometry.Rotation の規約（pixel/カメラmm 座標系、x右・y下）。 回転データの合成は想定頂点列を
-    Rotation.apply で回してから polylines 描画し、 実装側の warpAffine とは独立な ground
-    truth とする。
+    θ 撤去（memory/agents/spec-test-author/pad-align-drop-theta.md）により
+    match_rigid は match に統合され、照合は並進のみになった。ROI はテンプレートとして切り出す矩形（全画面
+    px）で、ROI 外の構造は結果に影響してはならない。
     """
 
     @pytest.fixture
     def matcher(self) -> CopperEdgeMatcher:
-        """標準 rigid matcher (10 px/mm, 窓2mm, θ±2.0°/coarse0.5°/fine0.1°)."""
+        """標準 matcher (10 px/mm, 窓 2mm = 20px)."""
         return CopperEdgeMatcher(pixel_per_mm=PPM)
 
-    def test_match_rigid_recovers_pure_translation_with_zero_rotation(
+    def test_match_with_roi_recovers_known_translation(
         self, matcher: CopperEdgeMatcher
     ):
-        """純並進 (+7,−4)px → offset≈(7,−4)・θ≈0・center_mm≈画像中心 (0,0).
+        """ROI 指定で既知の並進 (+5,+3)px を復元する.
 
-        roi=None は中央 crop へフォールバックし、回転中心はその中心 （=画像中心、カメラ mm 原点）になる。
-        """
-        match = matcher.match_rigid(_edge_ring(7, -4), _edge_ring())
-
-        assert isinstance(match, RigidEdgeMatch)
-        assert match.offset.px.x == pytest.approx(7.0, abs=1.0)
-        assert match.offset.px.y == pytest.approx(-4.0, abs=1.0)
-        assert match.rotation.degrees == pytest.approx(0.0, abs=0.15)
-        assert match.center_mm.x == pytest.approx(0.0, abs=0.1)
-        assert match.center_mm.y == pytest.approx(0.0, abs=0.1)
-
-    def test_match_rigid_recovers_positive_rotation_sign(
-        self, matcher: CopperEdgeMatcher
-    ):
-        """符号ピン: 想定リングを Rotation(+1.2°) で回した観測 → θ ≈ +1.2.
-
-        頂点列を自前 Rotation 規約で画像中心回りに回してから描画する。 getRotationMatrix2D
-        等の外部規約に依存した実装はここで符号が割れる。
-        """
-        center = Point2d(200.0, 200.0)
-        vertices = _rect_vertices(center, 120.0, 90.0)
-        expected = _draw_ring(vertices, shape=(400, 400))
-        observed = _draw_ring(
-            _rotated_vertices(vertices, 1.2, center), shape=(400, 400)
-        )
-
-        match = matcher.match_rigid(observed, expected)
-
-        assert match is not None
-        assert match.rotation.degrees == pytest.approx(1.2, abs=0.2)
-        assert match.offset.px.x == pytest.approx(0.0, abs=1.5)
-        assert match.offset.px.y == pytest.approx(0.0, abs=1.5)
-
-    def test_match_rigid_recovers_translation_and_rotation_together(
-        self, matcher: CopperEdgeMatcher
-    ):
-        """ROI 中心回り +1.0° と並進 (+5,+3)px の合成を同時に復元する.
-
-        ROI 中心 (240,180) は画像中心 (200,200) と異なり、center_mm は カメラ
-        mm（画像中心原点）で (4,−2) になる。θ の許容幅は 1px ラスタ化での 分解能（fine 0.1° +
-        並進量子化との結合）を考慮した値。
+        ROI 中心 (240,180) は画像中心 (200,200) と異なる。並進のみの照合なので 結果は ROI
+        中心の取り方に依存しない（回転中心という概念がない）。
         """
         center = Point2d(240.0, 180.0)
         vertices = _rect_vertices(center, 120.0, 90.0)
-        moved = [
-            v + Point2d(5.0, 3.0) for v in _rotated_vertices(vertices, 1.0, center)
-        ]
+        moved = [v + Point2d(5.0, 3.0) for v in vertices]
         expected = _draw_ring(vertices, shape=(400, 400))
         observed = _draw_ring(moved, shape=(400, 400))
 
-        match = matcher.match_rigid(observed, expected, roi=(110, 80, 370, 280))
+        match = matcher.match(observed, expected, roi=(110, 80, 370, 280))
 
         assert match is not None
-        assert match.offset.px.x == pytest.approx(5.0, abs=1.5)
-        assert match.offset.px.y == pytest.approx(3.0, abs=1.5)
-        assert match.rotation.degrees == pytest.approx(1.0, abs=0.3)
-        assert match.center_mm.x == pytest.approx(4.0, abs=0.15)
-        assert match.center_mm.y == pytest.approx(-2.0, abs=0.15)
+        assert match.offset.px.x == pytest.approx(5.0, abs=1.0)
+        assert match.offset.px.y == pytest.approx(3.0, abs=1.0)
 
-    def test_camera_transform_round_trips_expected_to_observed(
+    def test_camera_transform_maps_expected_vertices_onto_observed(
         self, matcher: CopperEdgeMatcher
     ):
-        """camera_transform（想定→観測）が合成時の頂点対応を mm 空間で再現する.
-
-        観測は ROI 中心回り +1.0° + (5,3)px で合成しているので、各想定頂点を camera_transform
-        に通すと対応する観測頂点（カメラ mm）に重なる。
-        """
+        """camera_transform（想定→観測）が合成時の頂点対応を mm 空間で再現する."""
         center = Point2d(240.0, 180.0)
         image_center = Point2d(200.0, 200.0)
         vertices = _rect_vertices(center, 120.0, 90.0)
-        moved = [
-            v + Point2d(5.0, 3.0) for v in _rotated_vertices(vertices, 1.0, center)
-        ]
+        moved = [v + Point2d(5.0, 3.0) for v in vertices]
         expected = _draw_ring(vertices, shape=(400, 400))
         observed = _draw_ring(moved, shape=(400, 400))
 
-        match = matcher.match_rigid(observed, expected, roi=(110, 80, 370, 280))
+        match = matcher.match(observed, expected, roi=(110, 80, 370, 280))
 
         assert match is not None
         transform = match.camera_transform
@@ -532,7 +468,7 @@ class TestCopperEdgeMatcherRigid:
             assert mapped.x == pytest.approx(target.x, abs=0.2)
             assert mapped.y == pytest.approx(target.y, abs=0.2)
 
-    def test_match_rigid_uses_only_template_inside_roi(self):
+    def test_match_uses_only_template_inside_roi(self):
         """ROI 外の逆ずれ構造が照合結果に影響しない（pad ROI 限定の核心）."""
         matcher = CopperEdgeMatcher(pixel_per_mm=PPM, search_window_mm=1.0)
         expected = np.zeros((200, 200), dtype=np.uint8)
@@ -546,14 +482,13 @@ class TestCopperEdgeMatcherRigid:
         cv2.rectangle(observed, (5 - 8, 5 - 6), (38 - 8, 38 - 6), 255, 1)
         cv2.rectangle(observed, (12 - 8, 12 - 6), (31 - 8, 31 - 6), 255, 1)
 
-        match = matcher.match_rigid(observed, expected, roi=(50, 50, 150, 150))
+        match = matcher.match(observed, expected, roi=(50, 50, 150, 150))
 
         assert match is not None
         assert match.offset.px.x == pytest.approx(4.0, abs=1.0)
         assert match.offset.px.y == pytest.approx(2.0, abs=1.0)
-        assert match.rotation.degrees == pytest.approx(0.0, abs=0.2)
 
-    def test_match_rigid_is_stable_with_edges_crossing_roi_boundary(
+    def test_match_is_stable_with_edges_crossing_roi_boundary(
         self, matcher: CopperEdgeMatcher
     ):
         """ROI 境界を横断する長いエッジがあっても既知ずれを復元する.
@@ -568,41 +503,42 @@ class TestCopperEdgeMatcherRigid:
         cv2.rectangle(observed, (73, 68), (133, 128), 255, 1)
         cv2.line(observed, (0, 98), (199, 98), 255, 1)
 
-        match = matcher.match_rigid(observed, expected, roi=(50, 50, 150, 150))
+        match = matcher.match(observed, expected, roi=(50, 50, 150, 150))
 
         assert match is not None
         assert match.offset.px.x == pytest.approx(3.0, abs=1.0)
         assert match.offset.px.y == pytest.approx(-2.0, abs=1.0)
 
-    def test_match_rigid_returns_none_when_roi_has_no_expected_edges(
+    def test_match_returns_none_when_roi_has_no_expected_edges(
         self, matcher: CopperEdgeMatcher
     ):
         """ROI 内に想定エッジが無い場合は None（偽照合しない）."""
         expected = np.zeros((200, 200), dtype=np.uint8)
         cv2.rectangle(expected, (5, 5), (50, 50), 255, 1)
 
-        match = matcher.match_rigid(_edge_ring(), expected, roi=(60, 60, 140, 140))
+        match = matcher.match(_edge_ring(), expected, roi=(60, 60, 140, 140))
 
         assert match is None
 
-    def test_camera_transform_formula_is_rotation_about_center_plus_offset(self):
-        """camera_transform = o ↦ Rot_θ(o−c) + c + d（c=center_mm, d=offset.mm）.
 
-        計画書の docstring 式を直接ピン留めする公開 API 契約。
+class TestEdgeMatch:
+    """EdgeMatch の camera_transform 契約のテスト."""
+
+    def test_camera_transform_is_pure_shift_by_offset(self):
+        """camera_transform = o ↦ o + d（d = offset.mm）.
+
+        θ 撤去後の camera_transform は Shift.from_point(offset.mm) と等価な純並進。
+        回転中心という概念が無く、どの点でも同じ変位ベクトルになる。
         """
-        center = Point2d(2.0, 1.0)
-        match = RigidEdgeMatch(
+        match = EdgeMatch(
             offset=Offset(px=Point2d(12.0, -8.0), pixel_per_mm=PPM),
-            rotation=Rotation(30.0),
-            center_mm=center,
             mean_distance_px=0.0,
         )
 
         transform = match.camera_transform
 
         d = Point2d(1.2, -0.8)  # offset.mm
-        for point in (Point2d(0.0, 0.0), center, Point2d(3.0, 1.0)):
-            expected = Rotation(30.0).apply(point - center) + center + d
+        for point in (Point2d(0.0, 0.0), Point2d(2.0, 1.0), Point2d(-30.0, 40.0)):
             mapped = transform.apply(point)
-            assert mapped.x == pytest.approx(expected.x, abs=1e-9)
-            assert mapped.y == pytest.approx(expected.y, abs=1e-9)
+            assert mapped.x == pytest.approx(point.x + d.x, abs=1e-9)
+            assert mapped.y == pytest.approx(point.y + d.y, abs=1e-9)

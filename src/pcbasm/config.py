@@ -52,7 +52,6 @@ class PadAlign:
     search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
     roi_margin: float = 1.0  # pad ROIのマージン [mm]
     min_roi: float = 3.0  # pad ROIの最小辺長 [mm]
-    theta_range: float = 2.0  # 回転探索の片側範囲 [deg]
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
     canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
     blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)

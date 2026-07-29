@@ -6,15 +6,15 @@ from collections.abc import Sequence
 import attrs
 
 from pcbasm import gcode
-from pcbasm.geometry import Point2d, Rotation, Transform
+from pcbasm.geometry import Point2d, Transform
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
 from pcbasm.pcb import Component, Pad
 from pcbasm.posctrl.copper import (
     CopperEdgeMatcher,
     CopperProjection,
     CopperProjector,
+    EdgeMatch,
     PixelRect,
-    RigidEdgeMatch,
 )
 from pcbasm.posctrl.correction import to_machine_transform
 from pcbasm.posctrl.position import XYPositionAdjustor
@@ -99,10 +99,10 @@ class CopperPadObserver:
         self._roi = roi
         self._frame_sink = frame_sink
         self._max_offset_mm = max_offset_mm
-        self._last_match: RigidEdgeMatch | None = None
+        self._last_match: EdgeMatch | None = None
 
     def observe(self) -> Transform:
-        """撮像→エッジ検出→剛体照合し、想定→観測のTransformを返す.
+        """撮像→エッジ検出→並進照合し、想定→観測のTransformを返す.
 
         Returns:
             想定→観測のTransform（カメラmm空間）
@@ -117,9 +117,7 @@ class CopperPadObserver:
             self._frame_sink(
                 render_edge_match(image, edges, self._projection.edge_mask, self._roi)
             )
-        match = self._matcher.match_rigid(
-            edges, self._projection.edge_mask, roi=self._roi
-        )
+        match = self._matcher.match(edges, self._projection.edge_mask, roi=self._roi)
         if match is None:
             raise RuntimeError("銅箔エッジの照合に失敗しました")
         offset_norm = match.offset.mm.norm
@@ -132,7 +130,7 @@ class CopperPadObserver:
         return match.camera_transform
 
     @property
-    def last_match(self) -> RigidEdgeMatch | None:
+    def last_match(self) -> EdgeMatch | None:
         """直近の照合結果."""
         return self._last_match
 
@@ -140,6 +138,9 @@ class CopperPadObserver:
 @attrs.frozen
 class PadAlignmentResult:
     """pad位置合わせの結果.
+
+    照合が並進のみなので machine_transform も純並進になり、補正量はアンカー
+    からの距離に依存しない。
 
     Attributes:
         machine_transform: 設計machine点→観測machine点の変換（fill path合成用）
@@ -150,7 +151,7 @@ class PadAlignmentResult:
     """
 
     machine_transform: Transform
-    match: RigidEdgeMatch
+    match: EdgeMatch
     anchor: Point2d
     adjusted_position: Point2d
     roi: PixelRect
@@ -160,20 +161,12 @@ class PadAlignmentResult:
         """アンカー点での並進補正量（machine mm）."""
         return self.machine_transform.apply(self.anchor) - self.anchor
 
-    @property
-    def rotation(self) -> Rotation:
-        """machine空間での回転成分（鏡映も自動処理）."""
-        ex = Point2d(1.0, 0.0)
-        origin = self.machine_transform.apply(self.anchor)
-        moved = self.machine_transform.apply(self.anchor + ex)
-        return Rotation.from_points(ex, moved - origin)
-
 
 class PadAligner:
     """部品単位で銅箔照合による自動位置合わせを行うクラス.
 
     部品の座標へ移動し、指令位置に固定したアンカーで想定銅箔を投影、
-    部品の全padを覆うROI限定の剛体照合とXYPositionAdjustorで収束させ、
+    部品の全padを覆うROI限定の並進照合とXYPositionAdjustorで収束させ、
     machine空間の補正Transformを構築する。
     """
 
