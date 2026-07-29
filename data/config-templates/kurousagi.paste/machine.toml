@@ -39,15 +39,16 @@ x = -2.9405
 y = 22.9727
 
 [paste_dispenser.pad_align]
-# pad単位の銅箔照合による位置合わせ
-tolerance = 0.05    # 収束許容誤差 [mm]。照合の並進は整数pixelで最小残差は斜め1px なので √2/pixel_per_mm より大きくする
-max_correction = 0.3         # 1回の照合で許容する最大ずれ [mm]。超過は誤マッチとして照合失敗
-search_window = 1.4 # 照合の探索窓 片側幅 [mm]
-roi_margin = 0.5    # pad ROIのマージン [mm]
-min_roi = 1.0       # pad ROIの最小辺長 [mm]
-canny_low = 55.0   # Cannyエッジ検出の下側閾値
-canny_high = 104.0  # Cannyエッジ検出の上側閾値
-blur_ksize = 3      # GaussianBlurカーネルサイズ (奇数)
+# 領域単位の銅箔照合による位置合わせ（基板全体の平均並進を 1 つ求める）
+max_correction = 0.3   # 1 照合で許容する最大ずれ [mm]。超過は誤マッチとして照合失敗
+search_window = 1.4    # 照合の探索窓 片側幅 [mm]
+region_size_px = 400   # 照合領域の一辺 [px]（400 + 2*42 = 484 でフレームに収まる）
+region_count = 4       # 計画する照合領域数
+min_regions = 3        # 成功が必要な最小領域数。下回ると塗布ジョブを中止
+min_sharpness = 0.15   # 拘束不足の棄却閾値（合成実測: 一方向のみ <= 0.06 / 良好 >= 0.5）
+canny_low = 55.0       # Cannyエッジ検出の下側閾値
+canny_high = 104.0     # Cannyエッジ検出の上側閾値
+blur_ksize = 3         # GaussianBlurカーネルサイズ (奇数)
 
 [camera]
 device_id = 0

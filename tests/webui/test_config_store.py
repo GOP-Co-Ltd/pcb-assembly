@@ -357,42 +357,64 @@ class TestAirPumpEnabled:
             store.write_machine_settings({"paste_dispenser.max_fill_speed": True})
 
 
-class TestPadAlignMaxFailures:
-    """Int 型フィールド pad_align.max_failures の読み書き（paste-align-max-failures 計画書）.
+class TestPadAlignRegionFields:
+    """領域照合キーの読み書きと per-key 検証（region-alignment-average 計画書）.
 
-    Repo fixture には max_failures を書かない（デフォルト 0 で動く）ため、 欠落時は None、write
-    後は round-trip する。負値は UnknownFieldError。
+    region_size_px / region_count / min_regions は 1 以上の int、
+    min_sharpness は 0 以上の float。change 即自動保存 UI では 0 や負値が machine.toml
+    へ書かれる事故が起きやすいので保存時に弾く。
     """
 
-    def test_missing_max_failures_reads_as_none(self, store: ConfigStore):
-        values = store.read_machine_settings()
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("paste_dispenser.pad_align.region_size_px", 320),
+            ("paste_dispenser.pad_align.region_count", 6),
+            ("paste_dispenser.pad_align.min_regions", 1),
+            ("paste_dispenser.pad_align.min_sharpness", 0.25),
+        ],
+    )
+    def test_write_then_reread_reflects_value(
+        self, store: ConfigStore, key: str, value: MachineSettingValue
+    ):
+        store.write_machine_settings({key: value})
 
-        assert values["paste_dispenser.pad_align.max_failures"] is None
+        assert store.read_machine_settings()[key] == value
 
-    def test_write_then_reread_reflects_value(self, store: ConfigStore):
-        store.write_machine_settings({"paste_dispenser.pad_align.max_failures": 2})
-
-        values = store.read_machine_settings()
-        assert values["paste_dispenser.pad_align.max_failures"] == 2
-
-    def test_write_zero_allows_no_failure(self, store: ConfigStore):
-        # 境界: 0 は「失敗を 1 つも許容しない」という有効値
-        store.write_machine_settings({"paste_dispenser.pad_align.max_failures": 0})
-
-        values = store.read_machine_settings()
-        assert values["paste_dispenser.pad_align.max_failures"] == 0
-
-    def test_negative_max_failures_raises(self, store: ConfigStore):
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "paste_dispenser.pad_align.region_size_px",
+            "paste_dispenser.pad_align.region_count",
+            "paste_dispenser.pad_align.min_regions",
+        ],
+    )
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_non_positive_int_raises(self, store: ConfigStore, key: str, value: int):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings({"paste_dispenser.pad_align.max_failures": -1})
+            store.write_machine_settings({key: value})
+
+    def test_negative_min_sharpness_raises(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                {"paste_dispenser.pad_align.min_sharpness": -0.1}
+            )
+
+    def test_zero_min_sharpness_is_allowed(self, store: ConfigStore):
+        # 境界: 0 は「拘束不足の棄却を無効化する」有効値
+        store.write_machine_settings({"paste_dispenser.pad_align.min_sharpness": 0.0})
+
+        assert store.read_machine_settings()[
+            "paste_dispenser.pad_align.min_sharpness"
+        ] == pytest.approx(0.0)
 
 
 class TestCameraCropFields:
     """Int 型フィールド camera.crop.width / camera.crop.height の 1 以上検証 （webui-
     camera-calib 計画書・要確認事項 2）.
 
-    Change 即自動保存 UI では 0 や負値が machine.toml に書かれる事故が 起きやすいため、max_failures
-    と同様の per-key 検証を追加する。
+    Change 即自動保存 UI では 0 や負値が machine.toml に書かれる事故が 起きやすいため、per-key の 1
+    以上検証を追加する。
     """
 
     @pytest.mark.parametrize("key", ["camera.crop.width", "camera.crop.height"])

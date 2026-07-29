@@ -365,36 +365,39 @@ class TestPasteLiftHeightOverRealHttp:
         assert "lift_height = 3.25" in machine_toml
 
 
-class TestPadAlignMaxFailuresOverRealHttp:
-    """pad_align.max_failures を実 HTTP で PUT → GET → toml 反映まで検証 （paste-align-
-    max-failures 計画書）."""
+class TestPadAlignRegionCountOverRealHttp:
+    """pad_align.region_count を実 HTTP で PUT → GET → toml 反映まで検証 （region-
+    alignment-average 計画書）."""
 
-    def test_put_max_failures_persists_and_reflects(self, live_server: LiveServer):
-        # ホワイトリストに max_failures が含まれる
+    def test_put_region_count_persists_and_reflects(self, live_server: LiveServer):
+        # ホワイトリストに領域照合キーが含まれる
         before = httpx.get(
             f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
         ).json()
         keys = {field["key"] for field in before["fields"]}
-        assert "paste_dispenser.pad_align.max_failures" in keys
+        assert "paste_dispenser.pad_align.region_count" in keys
+        assert "paste_dispenser.pad_align.region_size_px" in keys
+        assert "paste_dispenser.pad_align.min_regions" in keys
+        assert "paste_dispenser.pad_align.min_sharpness" in keys
 
-        # 2 を PUT
+        # 6 を PUT
         put = httpx.put(
             f"{live_server.base_url}/api/settings/machine",
-            json={"values": {"paste_dispenser.pad_align.max_failures": 2}},
+            json={"values": {"paste_dispenser.pad_align.region_count": 6}},
             timeout=_HTTP_TIMEOUT,
         )
         assert put.status_code == 200, put.text
 
-        # GET で 2 が反映される
+        # GET で 6 が反映される
         after = httpx.get(
             f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
         ).json()
         fields = {field["key"]: field for field in after["fields"]}
-        assert fields["paste_dispenser.pad_align.max_failures"]["value"] == 2
+        assert fields["paste_dispenser.pad_align.region_count"]["value"] == 6
 
         # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
         machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
-        assert "max_failures = 2" in machine_toml
+        assert "region_count = 6" in machine_toml
 
 
 class TestCameraCalibrationPageOverRealHttp:

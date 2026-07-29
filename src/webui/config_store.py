@@ -93,17 +93,19 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.toolhead.x", "ツールヘッド相対位置 X", "float", "mm"),
     FieldSpec("paste_dispenser.toolhead.y", "ツールヘッド相対位置 Y", "float", "mm"),
     # [paste_dispenser.pad_align]
-    FieldSpec("paste_dispenser.pad_align.tolerance", "収束許容誤差", "float", "mm"),
     FieldSpec("paste_dispenser.pad_align.max_correction", "最大補正量", "float", "mm"),
     FieldSpec(
         "paste_dispenser.pad_align.search_window", "探索窓 片側幅", "float", "mm"
     ),
-    FieldSpec("paste_dispenser.pad_align.roi_margin", "ROIマージン", "float", "mm"),
-    FieldSpec("paste_dispenser.pad_align.min_roi", "ROI最小辺長", "float", "mm"),
+    FieldSpec(
+        "paste_dispenser.pad_align.region_size_px", "照合領域の一辺", "int", "px"
+    ),
+    FieldSpec("paste_dispenser.pad_align.region_count", "照合領域数", "int"),
+    FieldSpec("paste_dispenser.pad_align.min_regions", "必要な成功領域数", "int"),
+    FieldSpec("paste_dispenser.pad_align.min_sharpness", "拘束の下限", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),
-    FieldSpec("paste_dispenser.pad_align.max_failures", "照合失敗の許容部品数", "int"),
     # [probe]
     FieldSpec("probe.lift_height", "プローブ後の上昇高さ", "float", "mm"),
     FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
@@ -185,6 +187,11 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 if spec.key == "probe.board_edge_margin":
                     if error := validate_probe_board_edge_margin(coerced_float):
                         raise UnknownFieldError(error)
+                if (
+                    spec.key == "paste_dispenser.pad_align.min_sharpness"
+                    and coerced_float < 0.0
+                ):
+                    raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
                 return coerced_float
         case "float_or_auto":
             if value == "auto":
@@ -198,8 +205,16 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
             if isinstance(value, float) and value.is_integer():
                 value = int(value)
             if isinstance(value, int):
-                if spec.key == "paste_dispenser.pad_align.max_failures" and value < 0:
-                    raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
+                if (
+                    spec.key
+                    in (
+                        "paste_dispenser.pad_align.region_size_px",
+                        "paste_dispenser.pad_align.region_count",
+                        "paste_dispenser.pad_align.min_regions",
+                    )
+                    and value < 1
+                ):
+                    raise UnknownFieldError(f"{spec.key}: 1以上の値が必要です")
                 if (
                     spec.key in ("camera.crop.width", "camera.crop.height")
                     and value < 1

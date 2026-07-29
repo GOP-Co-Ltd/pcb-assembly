@@ -126,6 +126,11 @@ class FakeCamera(Camera):
     def info(self) -> CameraInfo:
         return CameraInfo(name="FakeCamera", formats={"BGR": [self.resolution]})
 
+    @property
+    def capture_count(self) -> int:
+        """これまでに capture() が呼ばれた回数（撮像回数のピン用）."""
+        return self._index
+
     @override
     def capture(self) -> Image:
         image = self._images[min(self._index, len(self._images) - 1)]

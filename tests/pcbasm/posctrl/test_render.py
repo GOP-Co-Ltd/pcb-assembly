@@ -21,9 +21,8 @@ import numpy as np
 import pytest
 import shapely
 
-from pcbasm.config import PadAlign
 from pcbasm.geometry import Identity, Point2d
-from pcbasm.posctrl.copper import CopperProjector
+from pcbasm.posctrl.copper import CopperProjector, PixelRect, centered_roi
 from pcbasm.posctrl.render import PadResultRenderer, render_edge_match, render_label
 from pcbasm.vision import CopperEdgeDetector, Image
 
@@ -160,15 +159,20 @@ def _board_image(shift_x: int = 0, shift_y: int = 0) -> Image:
 
 
 class TestPadResultRenderer:
-    """PadResultRenderer の overlay 合成のテスト（実 projector / detector）."""
+    """PadResultRenderer の overlay 合成のテスト（実 projector / detector）.
+
+    ROI は照合領域（RegionAlignmentSession.region_roi）をそのまま受け取る。 pad ごとの投影
+    bbox からは決めない（領域単位の照合では pad 単位の ROI が 存在しないため）。
+    """
 
     COPPER = _square(0.0, 0.0, 4.0)  # 実銅箔 ±4mm → (600,320)-(680,400) px
     PASTE = _square(0.0, 0.0, 0.5)  # ペースト開口 ±0.5mm → (635,355)-(645,365) px
+    ROI = centered_roi((WIDTH, HEIGHT), 400)  # (440, 160, 840, 560)
 
     @staticmethod
     def _renderer(
-        roi_polygons: tuple[shapely.Polygon, ...],
         paste_polygons: tuple[shapely.Polygon, ...],
+        roi: PixelRect | None = None,
     ) -> PadResultRenderer:
         projector = CopperProjector(
             polygons=[TestPadResultRenderer.COPPER],
@@ -180,9 +184,8 @@ class TestPadResultRenderer:
         return PadResultRenderer(
             projector=projector,
             edge_detector=CopperEdgeDetector(),
-            roi_polygons=roi_polygons,
+            roi=roi if roi is not None else TestPadResultRenderer.ROI,
             paste_polygons=paste_polygons,
-            pad_align=PadAlign(),
             position=Point2d(0.0, 0.0),
         )
 
@@ -193,10 +196,10 @@ class TestPadResultRenderer:
         - 想定輪郭: 投影銅箔境界 (600,320)-(680,400) 上の画素が純赤
         - lines: 白文字（黒縁取り + 白）が左上領域に乗る
         """
-        renderer = self._renderer((self.COPPER,), (self.PASTE,))
+        renderer = self._renderer((self.PASTE,))
         image = Image(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8))
 
-        out = renderer.render(image, ["R1 1/3", "FAILED"]).numpy()
+        out = renderer.render(image, ["Region 1/4", "FAILED"]).numpy()
 
         fill_pixel = out[357, 638]  # ペースト開口内・十字線非干渉の画素
         assert int(fill_pixel[2]) == pytest.approx(89, abs=3)  # 0.35 * 255
@@ -207,15 +210,15 @@ class TestPadResultRenderer:
 
     def test_render_marks_detected_edges_green_inside_roi(self):
         """既知ずれの白矩形画像 → 検出エッジ（緑）が ROI 内に現れる."""
-        renderer = self._renderer((self.COPPER,), (self.PASTE,))
+        renderer = self._renderer((self.PASTE,))
 
-        out = renderer.render(_board_image(6, -4), ["R1"]).numpy()
+        out = renderer.render(_board_image(6, -4), ["Region 1/4"]).numpy()
 
         # 十字線（約 120 px）を大きく超える緑画素 = Canny 検出エッジの重畳
         assert _count_exact(out, GREEN) > 250
 
     def test_render_keeps_size_and_does_not_mutate_input(self):
-        renderer = self._renderer((self.COPPER,), (self.PASTE,))
+        renderer = self._renderer((self.PASTE,))
         image = _board_image()
         before = image.numpy().copy()
 
@@ -224,15 +227,15 @@ class TestPadResultRenderer:
         assert out.size == image.size
         assert np.array_equal(image.numpy(), before)
 
-    def test_empty_roi_polygons_falls_back_to_min_roi(self):
-        """roi_polygons が空でも min_roi の中心 ROI で合成が成立する.
+    def test_expected_contour_outside_the_given_roi_is_not_drawn(self):
+        """渡された ROI の外にある想定銅箔輪郭は描かれない.
 
-        中心 ROI（min_roi=3mm = 30px）の外にある銅箔輪郭は描かれない。
+        overlay は照合に使った範囲だけを可視化する。ROI を小さく取ると 銅箔上辺 (row 320) は範囲外になる。
         """
-        renderer = self._renderer((), (self.PASTE,))
+        renderer = self._renderer((self.PASTE,), roi=centered_roi((WIDTH, HEIGHT), 30))
         image = Image(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8))
 
         out = renderer.render(image, []).numpy()
 
         assert out.shape == (HEIGHT, WIDTH, 3)
-        assert tuple(out[320, 640]) == BLACK  # 銅箔上辺は中心 ROI の外
+        assert tuple(out[320, 640]) == BLACK  # 銅箔上辺は 30px 角 ROI の外

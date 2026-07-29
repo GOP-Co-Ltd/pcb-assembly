@@ -1,33 +1,26 @@
 """Posctrl/alignment の仕様テスト.
 
-計画書 memory/agents/implementation-planner/pad-alignment-reuse.md「Branch 2」に
-基づく。
+計画書 memory/agents/implementation-planner/region-alignment-average.md
+「公開インターフェース → src/pcbasm/posctrl/alignment.py」に基づく。
 
-ComponentAlignments は board_transform と部品ごとの照合結果から補正済み変換を
-導出する純粋なコンテナ:
+BoardAlignment は複数領域の計測から基板全体の**単一の平均並進**を導く純粋な
+コンテナ。領域ごとの補正を pad ごとに使い分けることはしない（平均で直らない
+誤差は spread に現れ、そこで初めて剛体フィットを検討する）。
 
-- corrected_board_transform(d) = Compose([board_transform, machine_transform])
-  （board_tour 実機検証済みの順序）
-- board_correction(d) = T_b⁻¹ ∘ M ∘ T_b（board 座標系での共役補正）。
-  ピン: 任意の board 点 b で T_b(C(b)) == M(T_b(b))
-
-PadAlignmentSession は BoardCalibrationResult から照合の配線
-（CopperProjector / CopperEdgeMatcher / CopperEdgeDetector / PadAligner）を
-集約する。align() は照合失敗（RuntimeError）を漏らさず None を返し、
+RegionAlignmentSession は BoardCalibrationResult から照合の配線
+（CopperProjector / CopperEdgeMatcher / CopperEdgeDetector / RegionAligner）を
+集約する。measure() は照合失敗（RuntimeError）を漏らさず None を返し、
 corrected_projector(M) は Compose([board_transform, M]) ベースの投影を返す。
 
 カメラは tests/helpers.py の FakeCamera（自前 HAL Camera の test Impl）、
-klipper / stage は自前 HAL のため mocker.Mock（test_position.py のイディオム）、
-calibration は実 CalibrationResult、machine は実 Machine
-（data/testing/config/machine.toml）、pcb は components / pads / copper を
-返す Mock を使う。合成矩形画像のイディオムは test_pad.py を踏襲する。
+klipper / stage は自前 HAL のため mocker.Mock、calibration は実
+CalibrationResult、machine は実 Machine（data/testing/config/machine.toml）、
+pcb は components / pads / copper を返す Mock を使う。
 """
 
 import logging
-import re
 from collections.abc import Callable
 from datetime import datetime
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -47,13 +40,10 @@ from pcbasm.geometry import (
     Transform,
 )
 from pcbasm.pcb import Component, Copper, CopperList, Layer, Pad
-from pcbasm.posctrl.alignment import (
-    ComponentAlignments,
-    PadAlignmentSession,
-    sorted_top_component_pads,
-)
-from pcbasm.posctrl.copper import CopperProjector, EdgeMatch
-from pcbasm.posctrl.pad import ComponentPads, PadAlignmentResult
+from pcbasm.posctrl.aligner import RegionAlignment
+from pcbasm.posctrl.alignment import BoardAlignment, RegionAlignmentSession
+from pcbasm.posctrl.copper import CopperProjector, EdgeMatch, centered_roi
+from pcbasm.posctrl.region import AlignmentRegion
 from pcbasm.posctrl.setup import BoardCalibrationResult
 from pcbasm.vision import CalibrationResult, Image, Offset
 from tests.helpers import TESTING_CONFIG_DIR, FakeCamera
@@ -90,122 +80,108 @@ def _pad(
     x: float,
     y: float,
     half: float = 0.4,
-    copper_half: float | None = None,
+    layer: Layer = Layer.TOP,
 ) -> Pad:
-    """中心 (x, y) の正方形 pad を作る（copper_half 指定時は実銅箔も設定）."""
-    kwargs = {}
-    if copper_half is not None:
-        kwargs["copper_polygon"] = _square(x, y, copper_half)
+    """中心 (x, y) の正方形 pad を作る."""
     return Pad(
         designator=designator,
         pad_number="1",
         net_name="NET",
-        layer=Layer.TOP,
+        layer=layer,
         polygon=_square(x, y, half),
-        **kwargs,
     )
 
 
-def _dummy_match() -> EdgeMatch:
+def _match(offset_px: Point2d = Point2d(0.0, 0.0)) -> EdgeMatch:
     """表示用フィールドを埋めるだけの照合結果."""
     return EdgeMatch(
-        offset=Offset(px=Point2d(0.0, 0.0), pixel_per_mm=PPM),
-        mean_distance_px=0.0,
+        offset=Offset(px=offset_px, pixel_per_mm=PPM),
+        rms_distance_px=0.4,
+        sharpness=0.7,
     )
 
 
-def _result(machine_transform: Transform, anchor: Point2d) -> PadAlignmentResult:
-    """machine_transform と anchor のみ可変の PadAlignmentResult を作る."""
-    return PadAlignmentResult(
-        machine_transform=machine_transform,
-        match=_dummy_match(),
+def _region(index: int, anchor: Point2d) -> AlignmentRegion:
+    return AlignmentRegion(
+        index=index,
         anchor=anchor,
-        adjusted_position=anchor,
-        roi=(0, 0, 10, 10),
+        roi=(0, 0, 100, 100),
+        constraint=120.0,
+        edge_length_px=240.0,
     )
 
 
-def _target(designator: str, x: float, y: float) -> ComponentPads:
-    return ComponentPads(
-        component=_component(designator, x, y),
-        pads=(_pad(designator, x, y),),
+def _alignment(index: int, anchor: Point2d, translation: Point2d) -> RegionAlignment:
+    """指定の並進を返す領域計測結果（純並進の machine_transform）."""
+    return RegionAlignment(
+        region=_region(index, anchor),
+        match=_match(),
+        machine_transform=Shift.from_point(translation),
     )
 
 
-class TestComponentAlignments:
-    """ComponentAlignments の lookup と補正変換導出のテスト（純粋）."""
+class TestBoardAlignment:
+    """BoardAlignment の平均・ばらつき・空検証（純粋）."""
 
-    @staticmethod
-    def _build(machine_transform: Transform) -> tuple[Transform, ComponentAlignments]:
-        """非自明な board_transform と R1 の照合結果を持つ ComponentAlignments."""
-        board_transform = Compose([Rotation(30.0), Shift(10.0, 5.0)])
-        anchor = board_transform.apply(Point2d(1.0, 2.0))
-        alignments = ComponentAlignments(
-            board_transform=board_transform,
-            results=((_target("R1", 1.0, 2.0), _result(machine_transform, anchor)),),
-        )
-        return board_transform, alignments
-
-    def test_result_of_returns_result_of_the_designator(self):
-        """登録済み designator ごとに対応する照合結果が返る."""
-        r1_result = _result(Shift(0.3, -0.2), anchor=Point2d(1.0, 2.0))
-        u1_result = _result(Shift(-0.1, 0.4), anchor=Point2d(8.0, 3.0))
-        alignments = ComponentAlignments(
-            board_transform=Identity(),
+    def test_translation_is_the_mean_of_region_translations(self):
+        """平均並進は各領域の並進の算術平均（領域の位置には依らない）."""
+        alignment = BoardAlignment(
             results=(
-                (_target("R1", 1.0, 2.0), r1_result),
-                (_target("U1", 8.0, 3.0), u1_result),
-            ),
+                _alignment(0, Point2d(10.0, 10.0), Point2d(0.10, -0.20)),
+                _alignment(1, Point2d(60.0, 10.0), Point2d(0.20, -0.40)),
+                _alignment(2, Point2d(60.0, 40.0), Point2d(0.30, -0.30)),
+            )
         )
 
-        assert alignments.result_of("R1") is r1_result
-        assert alignments.result_of("U1") is u1_result
+        assert alignment.translation.x == pytest.approx(0.20)
+        assert alignment.translation.y == pytest.approx(-0.30)
 
-    def test_unregistered_designator_returns_none(self):
-        """未登録 designator は全 lookup API で None."""
-        _, alignments = self._build(Shift(0.3, -0.2))
+    def test_machine_transform_is_a_pure_shift_by_the_mean(self):
+        """machine_transform = Shift(translation)（どの点も同じだけ動く）."""
+        alignment = BoardAlignment(
+            results=(
+                _alignment(0, Point2d(10.0, 10.0), Point2d(0.10, -0.20)),
+                _alignment(1, Point2d(60.0, 40.0), Point2d(0.30, -0.40)),
+            )
+        )
 
-        assert alignments.result_of("C9") is None
-        assert alignments.corrected_board_transform("C9") is None
-        assert alignments.board_correction("C9") is None
+        transform = alignment.machine_transform
 
-    def test_corrected_board_transform_composes_board_then_machine(self):
-        """corrected_board_transform = Compose([board_transform,
-        machine_transform]).
+        translation = alignment.translation
+        for point in (Point2d(0.0, 0.0), Point2d(80.0, -25.0)):
+            moved = transform.apply(point)
+            assert moved.x == pytest.approx(point.x + translation.x)
+            assert moved.y == pytest.approx(point.y + translation.y)
 
-        任意の board 点で Compose の適用結果と一致する（board_tour 実機検証済み の合成順序: T_b
-        を先に適用し M を後に適用）。
+    def test_spread_is_the_population_standard_deviation(self):
+        """Spread は領域間の母標準偏差（ddof=0）.
+
+        平均並進で直らない誤差（board キャリブレーションの回転・スケール、
+        基板の反り）はここに出る。実機診断ログの根拠なので定義を固定する。
         """
-        machine = Compose([Rotation(2.0), Shift(0.3, -0.2)])
-        board_transform, alignments = self._build(machine)
+        alignment = BoardAlignment(
+            results=(
+                _alignment(0, Point2d(10.0, 10.0), Point2d(0.10, -0.20)),
+                _alignment(1, Point2d(60.0, 40.0), Point2d(0.30, -0.40)),
+            )
+        )
 
-        corrected = alignments.corrected_board_transform("R1")
+        assert alignment.spread.x == pytest.approx(0.10)
+        assert alignment.spread.y == pytest.approx(0.10)
 
-        assert corrected is not None
-        expected = Compose([board_transform, machine])
-        for point in [Point2d(0.0, 0.0), Point2d(1.0, 2.0), Point2d(-3.5, 7.25)]:
-            got = corrected.apply(point)
-            want = expected.apply(point)
-            assert got.x == pytest.approx(want.x)
-            assert got.y == pytest.approx(want.y)
+    def test_single_region_has_zero_spread(self):
+        """1 領域なら ばらつきは (0, 0)."""
+        alignment = BoardAlignment(
+            results=(_alignment(0, Point2d(10.0, 10.0), Point2d(0.10, -0.20)),)
+        )
 
-    def test_board_correction_is_conjugation_of_machine_transform(self):
-        """共役ピン: C = T_b⁻¹∘M∘T_b ⇔ 任意の board 点 b で T_b(C(b)) == M(T_b(b)).
+        assert alignment.spread.x == pytest.approx(0.0)
+        assert alignment.spread.y == pytest.approx(0.0)
 
-        board 座標系の補正 C を board_transform で機械座標へ写すと、機械座標系の 補正 M
-        と一致する。回転+並進の非自明な T_b と M で符号・順序を固定する。
-        """
-        machine = Compose([Rotation(2.0), Shift(0.3, -0.2)])
-        board_transform, alignments = self._build(machine)
-
-        correction = alignments.board_correction("R1")
-
-        assert correction is not None
-        for b in [Point2d(0.0, 0.0), Point2d(1.0, 2.0), Point2d(10.5, -4.25)]:
-            lhs = board_transform.apply(correction.apply(b))
-            rhs = machine.apply(board_transform.apply(b))
-            assert lhs.x == pytest.approx(rhs.x)
-            assert lhs.y == pytest.approx(rhs.y)
+    def test_empty_results_raise_value_error(self):
+        """成功領域が 0 件の BoardAlignment は作れない（平均が定義できない）."""
+        with pytest.raises(ValueError):
+            BoardAlignment(results=())
 
 
 def _board_image(shift_x: int = 0, shift_y: int = 0) -> Image:
@@ -213,7 +189,7 @@ def _board_image(shift_x: int = 0, shift_y: int = 0) -> Image:
 
     銅箔 ±4mm 角（board 原点中心）、board/offset 変換 Identity、stage が anchor (0,0)
     のとき、投影公式 pixel = center + ppm*(s − b) で銅箔は (600,320)-(680,400) px
-    に投影される。実 CopperEdgeDetector の Canny で 矩形境界がエッジ化される入力。
+    に投影される（画像中心 400px ROI の内側）。
     """
     frame = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
     cv2.rectangle(
@@ -230,34 +206,23 @@ def _machine_config() -> Machine:
     return Machine(TESTING_CONFIG_DIR / "machine.toml")
 
 
-def _machine_config_with_tolerance(tmp_path: Path, tolerance: float) -> Machine:
-    """pad_align.tolerance だけを差し替えた Machine を作る.
-
-    フィクスチャ machine.toml の tolerance 値に依存しないよう、常に明示指定する。
-    """
-    source = (TESTING_CONFIG_DIR / "machine.toml").read_text(encoding="utf-8")
-    replaced = re.sub(r"(?m)^tolerance = .*$", f"tolerance = {tolerance}", source)
-    assert replaced != source  # キー名が変わったら気付けるようにする
-    path = tmp_path / "machine.toml"
-    path.write_text(replaced, encoding="utf-8")
-    return Machine(path)
-
-
-def _calibration() -> CalibrationResult:
+def _calibration(
+    resolution: tuple[int, int] = (WIDTH, HEIGHT),
+) -> CalibrationResult:
     return CalibrationResult(
         pixel_per_mm=PPM,
         square_size_mm=1.0,
         mean_distance_px=PPM,
         std_distance_px=0.0,
-        resolution=(WIDTH, HEIGHT),
+        resolution=resolution,
         crop_size=(600, 600),
         calibrated_at=datetime.now(),
         z_position=5.0,
     )
 
 
-class TestPadAlignmentSession:
-    """PadAlignmentSession の from_calibration 配線と align/None 契約のテスト."""
+class TestRegionAlignmentSession:
+    """RegionAlignmentSession の配線・領域計画・計測失敗の握りつぶし."""
 
     @pytest.fixture
     def klipper(self, mocker: MockerFixture):
@@ -287,17 +252,18 @@ class TestPadAlignmentSession:
     def pcb(self, mocker: MockerFixture):
         """TOP 層に board 原点中心 ±4mm の銅箔島を持つ PcbFile の Mock.
 
-        pad の paste 開口は ±0.5mm、実銅箔 copper_polygon は ±4mm。ROI が
-        copper_polygon ベースであれば矩形境界（±4mm）を覆い照合に成功する （paste 開口ベースだと ROI
-        内に想定エッジが無く照合できない）。
+        BOTTOM 層にも銅箔と pad を置き、TOP だけが照合対象になることを見る。
         """
         pcb = mocker.Mock()
         pcb.components = [_component("R1", 0.0, 0.0)]
-        pcb.pads = [_pad("R1", 0.0, 0.0, half=0.5, copper_half=4.0)]
+        pcb.pads = [
+            _pad("R1", 0.0, 0.0, half=0.5),
+            _pad("B1", 300.0, 300.0, half=0.5, layer=Layer.BOTTOM),
+        ]
         pcb.copper = CopperList(
             [
                 Copper(layer=Layer.TOP, polygon=_square(0.0, 0.0, 4.0)),
-                Copper(layer=Layer.BOTTOM, polygon=_square(30.0, 30.0, 4.0)),
+                Copper(layer=Layer.BOTTOM, polygon=_square(300.0, 300.0, 4.0)),
             ]
         )
         return pcb
@@ -310,125 +276,110 @@ class TestPadAlignmentSession:
         pcb,
         board_transform: Transform | None = None,
         frame_sink: Callable[[Image], None] | None = None,
-        machine: Machine | None = None,
-    ) -> PadAlignmentSession:
+        resolution: tuple[int, int] = (WIDTH, HEIGHT),
+    ) -> RegionAlignmentSession:
         result = BoardCalibrationResult(
-            machine=machine if machine is not None else _machine_config(),
+            machine=_machine_config(),
             klipper=klipper,
             stage=stage,
             camera=camera,
-            calibration=_calibration(),
+            calibration=_calibration(resolution),
             offset_transform=Identity(),
             board_transform=(
                 board_transform if board_transform is not None else Identity()
             ),
             pcb=pcb,
         )
-        return PadAlignmentSession.from_calibration(result, frame_sink=frame_sink)
+        return RegionAlignmentSession.from_calibration(result, frame_sink=frame_sink)
 
-    def test_align_returns_result_with_translation_matching_known_shift(
+    def test_region_roi_is_the_image_centered_square(self, klipper, stage, pcb):
+        """region_roi = centered_roi(キャリブレーション解像度, region_size_px).
+
+        overlay の描画範囲と照合 ROI が同一であることの根拠。
+        """
+        session = self._session(FakeCamera([_board_image()]), klipper, stage, pcb)
+
+        size = _machine_config().paste_dispenser.pad_align.region_size_px
+        assert session.region_roi == centered_roi((WIDTH, HEIGHT), size)
+
+    def test_region_plus_search_window_must_fit_in_the_resolution(
         self, klipper, stage, pcb
     ):
-        """既知ずれの合成画像列で align が成功し translation ≈ (−0.2, +0.2) mm.
+        """region_size_px + 2*window_px が解像度に収まらなければ構築時 ValueError.
 
-        Board が機械座標で (−0.2, +0.2) mm 変位したシナリオ: 1 枚目は anchor (0,0)
-        での観測（画像上 (+2,−2)px のずれ）、2 枚目は補正移動 (−0.2, +0.2)
-        後の観測（想定どおり）。machine_transform は設計→観測の ずれ Shift(−0.2, +0.2)
-        に収束し、translation がそれと整合する。
+        収まらない設定では探索窓が切り詰められ、ずれの計測範囲が黙って 狭くなる。設定ミスを実行時ではなく配線時に落とす。
         """
-        camera = FakeCamera([_board_image(2, -2), _board_image()])
-        session = self._session(camera, klipper, stage, pcb)
-        target = ComponentPads(component=pcb.components[0], pads=tuple(pcb.pads))
-
-        result = session.align(target)
-
-        assert result is not None
-        assert result.translation.x == pytest.approx(-0.2, abs=0.1)
-        assert result.translation.y == pytest.approx(0.2, abs=0.1)
-
-    def test_align_result_transform_has_no_lever_arm(self, klipper, stage, pcb):
-        """Align() が返す machine_transform は純並進（アンカー距離に依らない）.
-
-        θ が残っていると、アンカーから 10mm 離れた pad の補正量が anchor での補正量から |pad −
-        anchor| × θ だけずれる（θ=2° で 0.35mm）。照合を並進のみにした後は、
-        どの点でも変位ベクトルが一致しなければならない。
-        """
-        camera = FakeCamera([_board_image(2, -2), _board_image()])
-        session = self._session(camera, klipper, stage, pcb)
-        target = ComponentPads(component=pcb.components[0], pads=tuple(pcb.pads))
-
-        result = session.align(target)
-
-        assert result is not None
-        transform = result.machine_transform
-        anchor = result.anchor
-        for far in [
-            anchor + Point2d(10.0, 0.0),
-            anchor + Point2d(0.0, -10.0),
-            anchor + Point2d(-6.0, 8.0),
-        ]:
-            displacement = transform.apply(far) - far
-            assert displacement.x == pytest.approx(result.translation.x, abs=1e-9)
-            assert displacement.y == pytest.approx(result.translation.y, abs=1e-9)
-
-    def test_align_delivers_edge_match_frames_to_frame_sink(self, klipper, stage, pcb):
-        """frame_sink 指定時、align() 中に照合状況の合成フレームが届く.
-
-        Phase 4（webui-phase4.md §1）: window_name 全廃。照合の観測ごとに
-        render_edge_match の合成画像が frame_sink へ流れる（webui は ctx.frame
-        を渡してプレビューへ配信する）。
-        """
-        frames: list[Image] = []
-        camera = FakeCamera([_board_image(2, -2), _board_image()])
-        session = self._session(camera, klipper, stage, pcb, frame_sink=frames.append)
-        target = ComponentPads(component=pcb.components[0], pads=tuple(pcb.pads))
-
-        result = session.align(target)
-
-        assert result is not None
-        assert len(frames) >= 1  # 観測（observe）1 回につき 1 枚
-        assert frames[0].size == (WIDTH, HEIGHT)
-
-    @pytest.mark.parametrize(
-        ("tolerance", "warns"),
-        [
-            (0.05, True),  # 1px (0.1mm) 未満
-            (0.12, True),  # 1px 超だが √2px (0.1414mm) 未満
-            (0.2, False),  # √2px 超
-        ],
-    )
-    def test_warns_when_tolerance_below_diagonal_pixel(
-        self, klipper, stage, pcb, caplog, tmp_path, tolerance: float, warns: bool
-    ):
-        """収束閾値が斜め 1px（√2/ppm）未満なら警告を出す.
-
-        照合の並進は整数 px なので残差ノルムの取り得る値は 0, 1px, √2px, 2px…。 斜め 1px (±1, ±1)
-        の残差で収束するには tolerance > √2/pixel_per_mm が要る。 1px 超 √2px
-        未満の設定は「1px 基準では合格に見えるのに収束しない」領域で、 非収束の原因が沈黙しないようセッション構築時に警告する。
-        pixel_per_mm=10 なので 1px=0.1mm、√2px=0.1414mm。
-        """
-        camera = FakeCamera([_board_image()])
-
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(ValueError, match="region_size_px"):
             self._session(
-                camera,
+                FakeCamera([_board_image()]),
                 klipper,
                 stage,
                 pcb,
-                machine=_machine_config_with_tolerance(tmp_path, tolerance),
+                resolution=(400, 300),
             )
 
-        assert ("tolerance" in caplog.text) is warns
+    def test_plan_regions_uses_top_pads_and_the_shared_roi(self, klipper, stage, pcb):
+        """TOP pad の分布から領域を計画し、roi は region_roi と同一.
 
-    def test_align_returns_none_when_matching_fails(self, klipper, stage, pcb):
-        """真っ黒な画像（エッジなし）では照合失敗を漏らさず None を返す."""
+        BOTTOM 層の pad / 銅箔（300mm 離れた位置）は候補格子に影響しない。
+        """
+        session = self._session(FakeCamera([_board_image()]), klipper, stage, pcb)
+
+        regions = session.plan_regions()
+
+        assert len(regions) == 1  # TOP pad は 1 個 → 候補格子も 1 点
+        region = regions[0]
+        assert region.index == 0
+        assert region.roi == session.region_roi
+        assert region.anchor.x == pytest.approx(0.0, abs=1e-6)
+        assert region.anchor.y == pytest.approx(0.0, abs=1e-6)
+        assert region.constraint > 0.0
+
+    def test_measure_returns_alignment_for_a_known_shift(self, klipper, stage, pcb):
+        """既知ずれ (+2,−2)px の観測 → translation ≈ (−0.2, +0.2) mm.
+
+        1 ショットなので補正移動後の再撮像は行わない。
+        """
+        camera = FakeCamera([_board_image(2, -2)])
+        session = self._session(camera, klipper, stage, pcb)
+        region = session.plan_regions()[0]
+
+        alignment = session.measure(region)
+
+        assert alignment is not None
+        assert alignment.translation.x == pytest.approx(-0.2, abs=0.1)
+        assert alignment.translation.y == pytest.approx(0.2, abs=0.1)
+        assert camera.capture_count == 1
+
+    def test_measure_returns_none_and_warns_when_matching_fails(
+        self, klipper, stage, pcb, caplog
+    ):
+        """照合失敗（RuntimeError）は漏らさず警告 log の後 None を返す.
+
+        ループ側（measure_regions）が失敗領域を数えて続行できるようにする。
+        """
         camera = FakeCamera([Image(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8))])
         session = self._session(camera, klipper, stage, pcb)
-        target = ComponentPads(component=pcb.components[0], pads=tuple(pcb.pads))
+        region = session.plan_regions()[0]
 
-        result = session.align(target)
+        with caplog.at_level(logging.WARNING):
+            alignment = session.measure(region)
 
-        assert result is None
+        assert alignment is None
+        assert "照合" in caplog.text
+
+    def test_measure_delivers_edge_match_frames_to_frame_sink(
+        self, klipper, stage, pcb
+    ):
+        """frame_sink 指定時、照合状況の合成フレームが届く（webui プレビュー）."""
+        frames: list[Image] = []
+        camera = FakeCamera([_board_image(2, -2)])
+        session = self._session(camera, klipper, stage, pcb, frame_sink=frames.append)
+
+        session.measure(session.plan_regions()[0])
+
+        assert len(frames) == 1
+        assert frames[0].size == (WIDTH, HEIGHT)
 
     def test_corrected_projector_projects_with_composed_board_transform(
         self, klipper, stage, pcb
@@ -441,9 +392,12 @@ class TestPadAlignmentSession:
         """
         board_transform = Shift(5.0, -1.0)
         machine = Rotation(90.0)
-        camera = FakeCamera([_board_image()])
         session = self._session(
-            camera, klipper, stage, pcb, board_transform=board_transform
+            FakeCamera([_board_image()]),
+            klipper,
+            stage,
+            pcb,
+            board_transform=board_transform,
         )
 
         corrected = session.corrected_projector(machine)
@@ -463,54 +417,3 @@ class TestPadAlignmentSession:
             want = reference.pixel_of(board_point, stage_xy)
             assert got.x == pytest.approx(want.x)
             assert got.y == pytest.approx(want.y)
-
-
-class TestSortedTopComponentPads:
-    """sorted_top_component_pads のTOP層フィルタと巡回順のテスト."""
-
-    def test_top層のpadを部品ごとに現在位置からの巡回順で返す(
-        self, mocker: MockerFixture
-    ):
-        """BOTTOM層とpadなし部品を除外し、現在位置から近い順に並ぶ."""
-        pcb = mocker.Mock()
-        pcb.components = [
-            _component("FAR", 30.0, 0.0),
-            _component("NEAR", 1.0, 0.0),
-            _component("NOPAD", 2.0, 0.0),
-            Component(
-                designator="B1",
-                value="10k",
-                package="0402",
-                position=Point2d(0.5, 0.0),
-                rotation=0.0,
-                layer=Layer.BOTTOM,
-            ),
-        ]
-        pcb.pads = [
-            _pad("FAR", 30.0, 0.0),
-            _pad("NEAR", 1.0, 0.0),
-            Pad(
-                designator="B1",
-                pad_number="1",
-                net_name="NET",
-                layer=Layer.BOTTOM,
-                polygon=_square(0.5, 0.0, 0.4),
-            ),
-        ]
-        stage = mocker.Mock()
-        stage.get_position.return_value = Point3d(0.0, 0.0, 5.0)
-        result = BoardCalibrationResult(
-            machine=_machine_config(),
-            klipper=mocker.Mock(),
-            stage=stage,
-            camera=mocker.Mock(),
-            calibration=_calibration(),
-            offset_transform=Identity(),
-            board_transform=Identity(),
-            pcb=pcb,
-        )
-
-        groups = sorted_top_component_pads(result)
-
-        assert [g.component.designator for g in groups] == ["NEAR", "FAR"]
-        assert [p.designator for g in groups for p in g.pads] == ["NEAR", "FAR"]

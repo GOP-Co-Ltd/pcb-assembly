@@ -1,11 +1,15 @@
 """`webui.jobs.board_ops` の公開ヘルパの仕様テスト.
 
-paste-align-max-failures 計画書「公開 IF」節が `pad_align_abort_message` の契約:
+region-alignment-average 計画書「公開 IF → measure_regions」節が契約:
 
-- max_failures is None → None（無制限。board_tour が使用）
-- 失敗数 <= 許容数 → None（境界: 失敗数 == 許容数は許容）
-- 超過 → 失敗数・許容数・全 designator を含む日本語メッセージ文字列
-  （メッセージは部分一致で検証する。完全一致は禁止）
+- 領域ごとに progress / checkpoint / `session.measure` を回し、成功した
+  計測から BoardAlignment（基板全体の単一の平均並進）を返す
+- 失敗領域は警告 log の後 `on_failure` を呼んで**続行**する
+  （board_tour は FAILED overlay の配信に使う）
+- 成功数 < min_regions で ValueError（塗布ジョブを中止する根拠）
+- 計画領域数 < min_regions なら 1 領域も計測せずに ValueError
+  （ステージを動かす前に落とす）
+- メッセージは部分一致で検証する。完全一致は禁止
 
 `confirm_next_point` は「直行性テストを巡回先ごとのユーザー確認へ戻す」変更の
 公開 IF が契約:
@@ -21,17 +25,77 @@ paste-align-max-failures 計画書「公開 IF」節が `pad_align_abort_message
   ポーリング待機中の abort / コールバック例外も同様に
   `test_manager.py::TestPromptWhileWaiting` が固定している
 
-prompt 往復は実 JobManager + 実 JobContext を通す（合成ジョブ経由。モックなし）。
+prompt 往復と measure_regions のループは実 JobManager + 実 JobContext を通す
+（合成ジョブ経由。モックなし）。照合セッションだけは ``measure()`` の戻り値を
+差し替える手書き stub（`_StubSession`）に置く。
 """
+
+from collections.abc import Sequence
+from typing import cast
 
 import pytest
 
-from webui.jobs.board_ops import confirm_next_point, pad_align_abort_message
+from pcbasm.geometry import Point2d, Shift
+from pcbasm.posctrl import (
+    AlignmentRegion,
+    BoardAlignment,
+    EdgeMatch,
+    RegionAlignment,
+    RegionAlignmentSession,
+)
+from pcbasm.vision import Offset
+from webui.jobs.board_ops import confirm_next_point, measure_regions
 from webui.jobs.catalog import JobCatalog
 from webui.jobs.context import JobContext, PromptSpec
 from webui.jobs.manager import JobManager, JobRecord, JobStatus
 
 from .conftest import WaitUntil, register_synthetic
+
+PPM = 10.0  # pixel/mm
+
+
+class _StubSession:
+    """``measure(region)`` の戻り値だけを差し替える照合セッションの代替.
+
+    ``measure_regions`` がこのループで使うのは ``session.measure`` の
+    戻り値（``RegionAlignment`` か照合失敗の ``None``）だけ。領域ごとの
+    成功/失敗を実 session で作り分けるには合成画像を領域数だけ用意する
+    必要があり、ループの契約（progress / checkpoint / log / on_failure /
+    min_regions 判定）の検証から遠ざかる。実 session 自体の HAL 結合と
+    失敗の握りつぶしは tests/pcbasm/posctrl/test_alignment.py が
+    実 projector・実 Canny・FakeCamera で押さえている。
+    """
+
+    def __init__(self, outcomes: Sequence[RegionAlignment | None]) -> None:
+        self._outcomes = list(outcomes)
+        self.measured: list[AlignmentRegion] = []
+
+    def measure(self, region: AlignmentRegion) -> RegionAlignment | None:
+        index = len(self.measured)
+        self.measured.append(region)
+        return self._outcomes[index]
+
+
+def _region(index: int) -> AlignmentRegion:
+    return AlignmentRegion(
+        index=index,
+        anchor=Point2d(10.0 * index, 5.0),
+        roi=(0, 0, 100, 100),
+        constraint=120.0,
+        edge_length_px=240.0,
+    )
+
+
+def _alignment(index: int, translation: Point2d) -> RegionAlignment:
+    return RegionAlignment(
+        region=_region(index),
+        match=EdgeMatch(
+            offset=Offset(px=Point2d(0.0, 0.0), pixel_per_mm=PPM),
+            rms_distance_px=0.42,
+            sharpness=0.678,
+        ),
+        machine_transform=Shift.from_point(translation),
+    )
 
 
 def _run_confirm_job(
@@ -71,40 +135,197 @@ def _run_confirm_job(
     return record, results, specs
 
 
-class TestPadAlignAbortMessage:
-    """pad_align_abort_message: 失敗数が許容数を超えたときだけ中止メッセージを返す."""
+def _run_measure_job(
+    manager: JobManager,
+    catalog: JobCatalog,
+    wait_until: WaitUntil,
+    session: _StubSession,
+    regions: list[AlignmentRegion],
+    *,
+    min_regions: int,
+    on_failure=None,
+) -> tuple[JobRecord, dict[str, object]]:
+    """合成ジョブ内で measure_regions を呼び、戻り値または ValueError を持ち帰る."""
+    outcome: dict[str, object] = {}
 
-    @pytest.mark.parametrize(
-        ("failed", "max_failures"),
-        [
-            ([], 0),
-            (["R1"], 1),
-            (["R1", "R2"], 2),  # 境界: 失敗数 == 許容数は許容
-        ],
-    )
-    def test_within_limit_returns_none(self, failed: list[str], max_failures: int):
-        assert pad_align_abort_message(failed, max_failures) is None
+    def run(ctx: JobContext) -> None:
+        try:
+            outcome["board"] = measure_regions(
+                ctx,
+                cast(RegionAlignmentSession, session),
+                regions,
+                min_regions=min_regions,
+                on_failure=on_failure,
+            )
+        except ValueError as exc:
+            outcome["error"] = str(exc)
 
-    def test_none_max_failures_means_unlimited(self):
-        assert pad_align_abort_message(["R1", "R2", "R3"], None) is None
+    register_synthetic(catalog, run, name="measure", label="measure_regions 検証ジョブ")
+    record = manager.start("measure", {})
+    wait_until(lambda: record.status.terminal, timeout=60.0)
+    return record, outcome
 
-    def test_exceeding_limit_returns_message_with_counts_and_designator(self):
-        message = pad_align_abort_message(["R1"], 0)
 
-        assert message is not None
-        assert "失敗 1" in message
-        assert "許容 0" in message
-        assert "R1" in message
+class TestMeasureRegions:
+    """measure_regions: 領域照合ループの成功集約・失敗続行・不足中止."""
 
-    def test_message_lists_every_failed_designator(self):
-        message = pad_align_abort_message(["R1", "C3", "U2"], 2)
+    def test_all_regions_succeed_gives_the_mean_translation(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        """全領域成功 → 平均並進を持つ BoardAlignment を返す."""
+        regions = [_region(0), _region(1), _region(2)]
+        session = _StubSession(
+            [
+                _alignment(0, Point2d(0.10, -0.20)),
+                _alignment(1, Point2d(0.20, -0.40)),
+                _alignment(2, Point2d(0.30, -0.30)),
+            ]
+        )
 
-        assert message is not None
-        assert "失敗 3" in message
-        assert "許容 2" in message
-        assert "R1" in message
-        assert "C3" in message
-        assert "U2" in message
+        record, outcome = self._run(
+            manager, catalog, wait_until, session, regions, min_regions=3
+        )
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        board = outcome["board"]
+        assert isinstance(board, BoardAlignment)
+        assert len(board.results) == 3
+        assert board.translation.x == pytest.approx(0.20)
+        assert board.translation.y == pytest.approx(-0.30)
+
+    def test_logs_per_region_metrics_and_the_average(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        """領域ごとに dx/dy/rms/sharpness、最後に平均補正とばらつきを log する.
+
+        実機チューニングは全てこのログを見て行う（sharpness が閾値に近ければ min_sharpness
+        を下げる、spread が大きければ平均並進では直らない）。
+        """
+        regions = [_region(0), _region(1)]
+        session = _StubSession(
+            [
+                _alignment(0, Point2d(0.10, -0.20)),
+                _alignment(1, Point2d(0.30, -0.40)),
+            ]
+        )
+
+        record, _ = self._run(
+            manager, catalog, wait_until, session, regions, min_regions=1
+        )
+
+        text = "\n".join(record.log_lines)
+        assert "dx=+0.1000" in text
+        assert "dy=-0.2000" in text
+        assert "rms=0.42" in text
+        assert "sharpness=0.678" in text
+        assert "平均補正" in text
+        assert "dx=+0.2000" in text  # 平均
+        assert "ばらつき" in text
+        assert "sx=0.1000" in text
+
+    def test_failed_region_invokes_on_failure_and_continues(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        """照合失敗（None）の領域では on_failure を呼び、残りの領域を続行する."""
+        regions = [_region(0), _region(1), _region(2)]
+        session = _StubSession(
+            [
+                _alignment(0, Point2d(0.10, -0.20)),
+                None,
+                _alignment(2, Point2d(0.30, -0.40)),
+            ]
+        )
+        failed: list[AlignmentRegion] = []
+
+        record, outcome = self._run(
+            manager,
+            catalog,
+            wait_until,
+            session,
+            regions,
+            min_regions=2,
+            on_failure=failed.append,
+        )
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        board = outcome["board"]
+        assert isinstance(board, BoardAlignment)
+        assert len(board.results) == 2
+        assert [r.index for r in failed] == [1]
+        assert [r.index for r in session.measured] == [0, 1, 2]
+        assert "警告" in "\n".join(record.log_lines)
+
+    def test_too_few_successes_aborts(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        """成功領域数が min_regions を下回ったら ValueError で中止する."""
+        regions = [_region(0), _region(1)]
+        session = _StubSession([_alignment(0, Point2d(0.1, -0.2)), None])
+
+        _, outcome = self._run(
+            manager, catalog, wait_until, session, regions, min_regions=2
+        )
+
+        error = outcome.get("error")
+        assert isinstance(error, str)
+        assert "成功 1" in error
+        assert "必要 2" in error
+        assert "計画 2" in error
+
+    def test_too_few_planned_regions_aborts_before_measuring(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        """計画領域数が min_regions 未満なら 1 領域も計測せずに中止する.
+
+        ステージを動かす前に落とすことで、無駄な巡回と誤補正を避ける。
+        """
+        session = _StubSession([])
+
+        _, outcome = self._run(
+            manager, catalog, wait_until, session, [_region(0)], min_regions=3
+        )
+
+        error = outcome.get("error")
+        assert isinstance(error, str)
+        assert "1 個" in error
+        assert "必要 3" in error
+        assert session.measured == []
+
+    @staticmethod
+    def _run(
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+        session: _StubSession,
+        regions: list[AlignmentRegion],
+        *,
+        min_regions: int,
+        on_failure=None,
+    ) -> tuple[JobRecord, dict[str, object]]:
+        return _run_measure_job(
+            manager,
+            catalog,
+            wait_until,
+            session,
+            regions,
+            min_regions=min_regions,
+            on_failure=on_failure,
+        )
 
 
 class TestConfirmNextPoint:

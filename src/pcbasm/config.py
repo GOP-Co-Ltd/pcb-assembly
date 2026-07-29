@@ -45,22 +45,28 @@ class Klipper:
 
 @attrs.frozen
 class PadAlign:
-    """pad単位の銅箔照合による位置合わせの設定."""
+    """領域単位の銅箔照合による位置合わせの設定."""
 
-    tolerance: float = 0.05  # 収束許容誤差 [mm]
-    max_correction: float = 1.0  # 1回の照合で許容する最大ずれ [mm]。超過は照合失敗
+    max_correction: float = 1.0  # 1照合で許容する最大ずれ [mm]。超過は照合失敗
     search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
-    roi_margin: float = 1.0  # pad ROIのマージン [mm]
-    min_roi: float = 3.0  # pad ROIの最小辺長 [mm]
+    region_size_px: int = 400  # 照合領域の一辺 [px]
+    region_count: int = 4  # 計画する照合領域数
+    min_regions: int = 3  # 成功が必要な最小領域数。下回ると塗布ジョブを中止
+    min_sharpness: float = 0.15  # 拘束不足として棄却するsharpness閾値
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
     canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
     blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
-    max_failures: int = 0  # 照合失敗の許容部品数。超過で塗布ジョブを即中止
 
     def __attrs_post_init__(self) -> None:
-        if isinstance(self.max_failures, bool) or self.max_failures < 0:
+        # min_regions <= region_count は検証しない。設定ファイルが読めなくなるより、
+        # 実行時に measure_regions が明示的に中止するほうが直せる
+        for name in ("region_size_px", "region_count", "min_regions"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or value < 1:
+                raise ValueError(f"{name}は1以上の整数である必要があります: {value}")
+        if self.min_sharpness < 0:
             raise ValueError(
-                f"max_failuresは0以上の整数である必要があります: {self.max_failures}"
+                f"min_sharpnessは0以上である必要があります: {self.min_sharpness}"
             )
 
 

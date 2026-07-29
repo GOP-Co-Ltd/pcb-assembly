@@ -99,7 +99,7 @@ class TestMachine:
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.paste_dispenser.pad_align == PadAlign()
-        assert machine.paste_dispenser.pad_align.tolerance == pytest.approx(0.05)
+        assert machine.paste_dispenser.pad_align.region_size_px == 400
 
     def test_solder_paste_density_defaults_when_absent(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
@@ -117,13 +117,14 @@ class TestMachine:
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
-            source + "\n[paste_dispenser.pad_align]\ntolerance = 0.08\nmin_roi = 5.0\n"
+            source + "\n[paste_dispenser.pad_align]\nregion_size_px = 320\n"
+            "min_sharpness = 0.25\n"
         )
 
         pad_align = Machine(path).paste_dispenser.pad_align
 
-        assert pad_align.tolerance == pytest.approx(0.08)
-        assert pad_align.min_roi == pytest.approx(5.0)
+        assert pad_align.region_size_px == 320
+        assert pad_align.min_sharpness == pytest.approx(0.25)
         assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
 
     def test_air_pump_enabled_defaults_true_when_absent(self):
@@ -247,32 +248,49 @@ class TestMachine:
             machine.paste_dispenser
 
 
-class TestPadAlignMaxFailures:
-    """PadAlign.max_failures のテスト（paste-align-max-failures 計画書「公開 IF」節）.
+class TestPadAlignRegionSettings:
+    """PadAlign の領域照合キーの既定値と検証（region-alignment-average 計画書）.
 
-    照合失敗の許容部品数。デフォルト 0（1 部品でも失敗したら塗布ジョブを即中止）。
+    領域単位の照合では「一辺 region_size_px の領域を region_count 個計画し、 成功が min_regions
+    を下回ったら塗布ジョブを中止」する。いずれも 1 以上、 min_sharpness（拘束不足の棄却閾値）は 0
+    以上でなければならない。
     """
 
-    def test_defaults_to_zero_when_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+    def test_region_defaults_when_absent(self):
+        pad_align = Machine(TESTING_DATA_DIR / "machine.toml").paste_dispenser.pad_align
 
-        assert machine.paste_dispenser.pad_align.max_failures == 0
+        assert pad_align.region_size_px == 400
+        assert pad_align.region_count == 4
+        assert pad_align.min_regions == 3
+        assert pad_align.min_sharpness == pytest.approx(0.15)
 
-    def test_reads_explicit_value(self, tmp_path):
+    def test_reads_explicit_values(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
-            source + "\n[paste_dispenser.pad_align]\nmax_failures = 2\n",
+            source + "\n[paste_dispenser.pad_align]\nregion_count = 6\n"
+            "min_regions = 2\n",
             encoding="utf-8",
         )
 
-        machine = Machine(path)
+        pad_align = Machine(path).paste_dispenser.pad_align
 
-        assert machine.paste_dispenser.pad_align.max_failures == 2
+        assert pad_align.region_count == 6
+        assert pad_align.min_regions == 2
 
-    def test_rejects_negative_value(self):
-        with pytest.raises(ValueError, match="max_failures"):
-            PadAlign(max_failures=-1)
+    @pytest.mark.parametrize("key", ["region_size_px", "region_count", "min_regions"])
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_rejects_non_positive_counts(self, key: str, value: int):
+        with pytest.raises(ValueError, match=key):
+            PadAlign(**{key: value})
+
+    def test_rejects_negative_min_sharpness(self):
+        with pytest.raises(ValueError, match="min_sharpness"):
+            PadAlign(min_sharpness=-0.1)
+
+    def test_zero_min_sharpness_is_allowed(self):
+        """境界: 0 は「拘束不足の棄却を無効化する」有効値."""
+        assert PadAlign(min_sharpness=0.0).min_sharpness == pytest.approx(0.0)
 
 
 class TestMachineType:
