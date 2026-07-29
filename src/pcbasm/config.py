@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tomllib
 from enum import Enum, auto
+from math import isfinite
 from pathlib import Path
 from typing import Any, Literal
 
@@ -21,6 +22,8 @@ MachineType = Literal["paste", "pnp"]
 PasteHeight = float | Literal["auto"]
 DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
 DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR = 3.0
+DEFAULT_AUDIO_DEVICE = "default"  # ALSAのシステム既定PCM
+DEFAULT_AUDIO_VOLUME = 0.75
 
 
 def resolve_paste_height(paste_height: PasteHeight, ul_per_mm2: float) -> float:
@@ -41,6 +44,41 @@ class Klipper:
 
     host: str = "localhost"
     port: int = 7125
+
+
+def validate_audio_device(device: str) -> str | None:
+    """通知音の出力デバイス名を検証する."""
+    if not device.strip():
+        return "audio.deviceは空でない文字列である必要があります"
+    return None
+
+
+def validate_audio_volume(volume: float) -> str | None:
+    """通知音の音量を検証する."""
+    if not isfinite(volume) or not 0.0 <= volume <= 1.0:
+        return f"audio.volumeは0以上1以下の有限値である必要があります: {volume!r}"
+    return None
+
+
+@attrs.frozen
+class Audio:
+    """通知音の出力設定."""
+
+    device: str = DEFAULT_AUDIO_DEVICE
+    volume: float = DEFAULT_AUDIO_VOLUME
+
+    def __attrs_post_init__(self) -> None:
+        if error := validate_audio_device(self.device):
+            raise ValueError(error)
+        if isinstance(self.volume, bool) or not isinstance(self.volume, (int, float)):
+            raise ValueError(
+                f"audio.volumeは0以上1以下の有限値である必要があります: {self.volume!r}"
+            )
+        volume = float(self.volume)
+        if error := validate_audio_volume(volume):
+            raise ValueError(error)
+        object.__setattr__(self, "device", self.device.strip())
+        object.__setattr__(self, "volume", volume)
 
 
 @attrs.frozen
@@ -454,6 +492,11 @@ class Machine:
         if "nozzle_cap" not in self._data:
             return None
         return self._get_config("nozzle_cap", NozzleCap)
+
+    @property
+    def audio(self) -> Audio:
+        """通知音の出力設定を取得する（[audio] 未設定・キー欠落は既定値）."""
+        return self._converter.structure(self._data.get("audio", {}), Audio)
 
     @property
     def klipper(self) -> Klipper:
