@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pcbasm.config import Machine
 from pcbasm.hal import Camera, FrameHub, create_camera
-from pcbasm.vision import CalibrationResult
+from pcbasm.vision import CalibrationResult, load_undistorter
 from webui.config_store import ConfigStore, MachineSettingValue
 from webui.fake_camera import FixedImageCamera
 from webui.settings import Settings
@@ -139,6 +139,10 @@ class AppState:
     def frame_hub(self) -> FrameHub:
         """FrameHub を返す（初回アクセスで遅延構築）.
 
+        レンズ歪み補正器も同時に構築して渡す。校正 JSON が無い・読めない・実カメラと
+        解像度が違う場合は ``load_undistorter`` が warning を出して None を返し、
+        補正なしで映像を配信する（校正前でも校正ジョブが動けることの担保）。
+
         start はしない（PreviewService の責務）。
 
         Raises:
@@ -147,13 +151,19 @@ class AppState:
         """
         with self._camera_lock:
             if self._frame_hub is None:
-                self._frame_hub = FrameHub(self._build_camera())
+                camera = self._build_camera()
+                undistorter = load_undistorter(
+                    self.machine().camera.calibration_file, camera.resolution.size
+                )
+                self._frame_hub = FrameHub(camera, undistorter)
             return self._frame_hub
 
     def rebuild_camera(self) -> None:
         """現行 FrameHub を停止し参照を破棄する（次回 frame_hub() で再構築）.
 
-        未構築なら no-op（冪等）。
+        次の ``frame_hub()`` でカメラと歪み補正マップの両方を作り直すので、
+        校正 JSON の差し替え（Apply）もこの経路で反映される。未構築なら
+        no-op（冪等）。
         """
         with self._camera_lock:
             hub = self._frame_hub

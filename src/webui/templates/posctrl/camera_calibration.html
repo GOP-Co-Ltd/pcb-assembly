@@ -2,6 +2,8 @@
 {% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
+{# マス目を十字線へ手で合わせるため、表示時から十字線と関心領域の矩形を出す #}
+{% set preview_overlay = "crosshair" %}
 {% include "partials/preview_pane.html" %}
 {% include "partials/preview_controls.html" %}
 {% include "partials/job_form.html" %}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable, Sequence
 from datetime import datetime
@@ -17,23 +18,35 @@ from pcbasm.hal import Camera, Klipper, Speed, XYZStage
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
     BoardCalibrationResult,
+    CheckerboardScanner,
     ComponentPads,
     CopperProjector,
     OrthogonalityMetrics,
     PadAlignmentResult,
     PadAlignmentSession,
     PadResultRenderer,
+    ScanFailure,
+    ScanOutcome,
+    ScanProgress,
     render_label,
     sorted_top_component_pads,
 )
 from pcbasm.vision import (
+    MINIMUM_SCAN_VIEWS,
     CalibrationResult,
-    CheckerboardCalibrator,
+    CheckerboardDetector,
+    CheckerboardView,
     CircleDetector,
     Image,
+    IntrinsicsCalibrator,
+    ScanGrid,
     draw_detected_circle,
     draw_overlay,
+    draw_scan_coverage,
+    measure_pixel_per_mm,
+    undistort_views,
 )
+from pcbasm.visualization import render_scan_residuals
 from webui.jobs.board_ops import (
     align_component_groups,
     confirm_next_point,
@@ -43,6 +56,7 @@ from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import (
     ApplyFile,
     ApplyPayload,
+    Artifact,
     JobAborted,
     JobContext,
     JobResult,
@@ -50,8 +64,8 @@ from webui.jobs.context import (
 )
 from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
 
-# camera_calibration の Z 取得（best-effort）のタイムアウト [sec]
-Z_QUERY_TIMEOUT = 5.0
+# camera_calibration の corner_coverage.png に重ねる関心領域の候補サイズ [px]
+CROP_CANDIDATES_PX = ((300, 300), (600, 600))
 # 巡回先 1 点あたりのフレーム配信時間 [sec]
 RESULT_DISPLAY_SEC = 1.0
 # reference_point_setup の現在位置キャッシュ TTL [sec]
@@ -82,8 +96,17 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
                 ParamSpec(
                     "square_size", "チェッカーボードの1マス", "float", 1.5, unit="mm"
                 ),
+                ParamSpec(
+                    "residual_limit",
+                    "残差の上限",
+                    "float",
+                    30.0,
+                    unit="um",
+                    minimum=0.0,
+                    help="補正後の残差 RMS がこれを超えたら失敗扱い",
+                ),
             ),
-            persisted_params=("square_size",),
+            persisted_params=("square_size", "residual_limit"),
             uses_machine=True,
         )
     )
@@ -264,75 +287,232 @@ def _dispatch_reference_command(
 
 
 def _run_camera_calibration(ctx: JobContext) -> JobResult:
-    """チェッカーボードで pixel/mm をキャリブレーションし JSON を保存候補にする."""
+    """チェッカーボードを固定しステージを蛇行させ、レンズ歪みまで含めて校正する.
+
+    - ホーミングも Z 移動もしない。操作者が合わせたフォーカス Z を壊さないため、
+      実行前に手でホーミング + ジョグしておく前提
+    - 校正は必ず歪み補正前のフレーム（``raw=True``）で行う。補正済みフレームで
+      再校正すると残差歪みモデルになり、Apply で元の補正が静かに失われる
+    """
     square_size = float(ctx.params["square_size"])
-    crop_size = ctx.machine.camera.crop.size
-    calibrator = CheckerboardCalibrator(square_size, crop_size)
+    residual_limit = float(ctx.params["residual_limit"])
 
-    with ctx.open_camera() as camera:
-        ctx.progress("撮影待ち")
-        while True:
-            proceed = ctx.prompt(
-                PromptSpec(
-                    kind="confirm",
-                    message="チェッカーボードを配置して撮影しますか?（いいえで中止）",
-                    default=True,
-                    true_label="続行",
-                    false_label="中止",
-                )
-            )
-            if not proceed:
-                raise JobAborted()
-            image = camera.capture()
-            ctx.frame(image)
-            ctx.progress("検出")
-            detection = calibrator.calibrate(image)
-            if detection is not None:
-                break
-            ctx.log("チェッカーボードが検出できませんでした")
-        result, vis = detection
+    with ctx.open_camera(raw=True) as camera:
+        resolution = camera.resolution.size
         camera_name = camera.info.name
-
-    ctx.frame(vis)
-    ctx.log(f"pixel/mm: {result.pixel_per_mm:.2f}")
-    ctx.log(f"1マスの距離の標準偏差: {result.std_distance_px:.2f} px")
-
-    # Z 位置は best-effort（Klipper 不通でも calibration 自体は成立させる）
-    z: float | None = None
-    try:
-        klipper = Klipper(
-            host=ctx.machine.klipper.host,
-            port=ctx.machine.klipper.port,
-            timeout=Z_QUERY_TIMEOUT,
+        plan_view = _detect_planning_shot(ctx, camera)
+        pixel_per_mm = measure_pixel_per_mm(plan_view, square_size)
+        columns, rows = plan_view.pattern_size
+        ctx.log(
+            f"内部コーナー {columns}x{rows}"
+            f" / 計画用ショットの pixel/mm {pixel_per_mm:.2f}"
         )
-        z = XYZStage(klipper.readonly).get_position().z
-    except Exception as exc:
-        ctx.log(f"Z 位置の取得に失敗しました（z_position なしで続行）: {exc}")
-    result = attrs.evolve(result, z_position=z)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{camera_name}_{timestamp}.json"
-    png_name = f"{camera_name}_{timestamp}.png"
-    vis.save(ctx.artifacts_dir / png_name)
-    result.save(ctx.artifacts_dir / filename)
-    json_bytes = (ctx.artifacts_dir / filename).read_bytes()
+        klipper = create_command_klipper(ctx.machine)
+        stage = XYZStage(klipper.readonly)
+        homed_axes = klipper.get_status("toolhead", "homed_axes")
+        if not all(axis in homed_axes for axis in "xy"):
+            raise RuntimeError(
+                "先にホーミングし、カメラのフォーカス位置へジョグしてから"
+                "実行してください"
+            )
+        start = stage.get_position()
+
+        grid = ScanGrid.plan(
+            image_size=resolution,
+            corners=plan_view.corners,
+            pattern_size=plan_view.pattern_size,
+            pixel_per_mm=pixel_per_mm,
+        )
+        if grid is None:
+            raise RuntimeError(
+                "チェッカーボードが視野に対して大きすぎてステージスキャンできません"
+                "（マス目の小さいボードに替えるか、視野の半分程度に収まるボードを"
+                "使ってください）"
+            )
+        ctx.log(
+            f"格子 {grid.columns}x{grid.rows} = {len(grid.positions)}点"
+            f" / 移動幅 X={grid.span_mm[0]:.2f}mm Y={grid.span_mm[1]:.2f}mm"
+            f" / 想定コーナー被覆半径 {grid.max_corner_radius_px:.0f}px"
+        )
+
+        scanner = CheckerboardScanner(
+            klipper, stage, camera, pattern_size=plan_view.pattern_size
+        )
+        outcome = scanner.scan(grid, on_view=_report_scan_progress(ctx))
+
+    failure_artifacts = _save_scan_failures(ctx, outcome.failures)
+    if len(outcome.views) < MINIMUM_SCAN_VIEWS:
+        raise RuntimeError(
+            f"コーナーを検出できた視点が不足しています"
+            f"（有効 {len(outcome.views)}点 / 最低 {MINIMUM_SCAN_VIEWS}点）"
+        )
+
+    ctx.progress("校正")
+    try:
+        solved = IntrinsicsCalibrator(square_size, resolution).solve(outcome.views)
+    except ValueError as exc:
+        raise RuntimeError(f"内部パラメータを校正できません: {exc}") from exc
+    result = attrs.evolve(solved, z_position=start.z)
+
+    for line in result.quality.summary_lines():
+        ctx.log(line)
+    crop_side = result.usable_crop_side_px(residual_limit)
+    ctx.log(f"残差 {residual_limit:.0f}um 以内に収まる正方 crop の辺長: {crop_side}px")
+
+    filename = f"{camera_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    report_artifacts = _save_calibration_reports(ctx, result, outcome, grid, filename)
+    if result.quality.after.rms_um > residual_limit:
+        raise RuntimeError(
+            f"補正後の残差 RMS が上限を超えました"
+            f"（{result.quality.after.rms_um:.1f}um / 上限 {residual_limit:.1f}um）。"
+            "artifacts の residuals.png と scan_verification.json で"
+            "レンズ歪み以外の要因（ボードの傾き・フォーカス）を確認してください"
+        )
+
     ctx.progress("完了", 100.0)
-
     return JobResult(
         summary=(
-            f"pixel/mm: {result.pixel_per_mm:.2f}"
-            f" / σ: {result.std_distance_px:.2f} px"
-            f" / Z: {z if z is not None else '未取得'}"
+            f"pixel/mm {result.pixel_per_mm:.2f}（ステージ定規）"
+            f" / 残差 RMS 補正前 {result.quality.before.rms_um:.0f}um"
+            f" → 補正後 {result.quality.after.rms_um:.0f}um"
+            f"（上限 {residual_limit:.0f}um）"
+            f" / 有効視点 {len(outcome.views)}/{len(grid.positions)}"
+            f" / crop 使用可 辺長 {crop_side}px"
+            f" / Z={start.z:.3f}"
         ),
-        artifacts=(
-            ctx.artifact("コーナー検出", png_name, "image"),
-            ctx.artifact("キャリブレーション JSON", filename, "file"),
-        ),
+        artifacts=(*report_artifacts, *failure_artifacts),
         apply=ApplyPayload(
             label=f"{filename} を保存し [camera].calibration_file に設定",
             values={"camera.calibration_file": filename},
-            files=(ApplyFile(filename, json_bytes),),
+            files=(ApplyFile(filename, (ctx.artifacts_dir / filename).read_bytes()),),
         ),
+    )
+
+
+def _detect_planning_shot(ctx: JobContext, camera: Camera) -> CheckerboardView:
+    """確認プロンプト → 1 枚撮影して計画用ショットのコーナーを検出する.
+
+    パターンサイズ・pixel/mm・コーナー外接矩形の測定専用で、校正データには使わない
+    （中心は 15 点の格子に含まれる）。検出できなければ警告を出して再プロンプトする。
+    装置に触る前にカメラだけで完結する確認を済ませるため、Klipper 接続より先に行う。
+
+    Raises:
+        JobAborted: プロンプトで中止を選んだ場合
+    """
+    detector = CheckerboardDetector()
+    ctx.progress("撮影待ち")
+    while True:
+        proceed = ctx.prompt(
+            PromptSpec(
+                kind="confirm",
+                message=(
+                    "十字線にチェッカーボードのマス目を合わせ、"
+                    "フォーカスをプレビューで確認してください（いいえで中止）"
+                ),
+                default=True,
+                true_label="続行",
+                false_label="中止",
+            )
+        )
+        if not proceed:
+            raise JobAborted()
+        image = camera.capture()
+        ctx.frame(image)
+        ctx.progress("検出")
+        # ステージ位置は校正に使わない（この視点は格子に含まれない）
+        view = detector.detect(image, Point2d(0.0, 0.0))
+        if view is not None:
+            ctx.frame(detector.draw(image, view))
+            return view
+        ctx.log("チェッカーボードが検出できませんでした")
+
+
+def _report_scan_progress(ctx: JobContext) -> Callable[[ScanProgress], None]:
+    """CheckerboardScanner の 1 点ごとのコールバックを作る."""
+
+    def report(progress: ScanProgress) -> None:
+        ctx.checkpoint()
+        done = progress.index + 1
+        ctx.progress(f"スキャン {done}/{progress.total}", 100.0 * done / progress.total)
+        if progress.annotated is None:
+            ctx.log(f"視点 {done}/{progress.total}: コーナーを検出できませんでした")
+        else:
+            ctx.frame(progress.annotated)
+
+    return report
+
+
+def _save_scan_failures(
+    ctx: JobContext, failures: Sequence[ScanFailure]
+) -> tuple[Artifact, ...]:
+    """検出できなかった視点の生フレームを診断用に保存する."""
+    artifacts: list[Artifact] = []
+    for failure in failures:
+        filename = f"scan_failure_{failure.index}.png"
+        failure.raw.save(ctx.artifacts_dir / filename)
+        ctx.frame(failure.raw, persist=True)
+        artifacts.append(
+            ctx.artifact(f"検出失敗 視点{failure.index}", filename, "image")
+        )
+        ctx.log(
+            f"検出失敗 視点{failure.index}: /artifacts/{ctx.artifacts_dir.name}/{filename}"
+        )
+    return tuple(artifacts)
+
+
+def _save_calibration_reports(
+    ctx: JobContext,
+    result: CalibrationResult,
+    outcome: ScanOutcome,
+    grid: ScanGrid,
+    filename: str,
+) -> tuple[Artifact, ...]:
+    """残差レポート・被覆図・検証 JSON・キャリブレーション JSON を保存する.
+
+    残差の上限超過でも診断できるよう、合否判定より先に呼ぶ。
+    """
+    render_scan_residuals(
+        result.quality,
+        outcome.views,
+        undistort_views(outcome.views, result.intrinsics),
+        ctx.artifacts_dir / "residuals.png",
+    )
+    draw_scan_coverage(result.resolution, outcome.views, CROP_CANDIDATES_PX).save(
+        ctx.artifacts_dir / "corner_coverage.png"
+    )
+    (ctx.artifacts_dir / "scan_verification.json").write_text(
+        json.dumps(
+            {
+                "quality": result.to_dict()["quality"],
+                "grid": {
+                    "columns": grid.columns,
+                    "rows": grid.rows,
+                    "point_count": len(grid.positions),
+                    "span_mm": list(grid.span_mm),
+                    "max_corner_radius_px": grid.max_corner_radius_px,
+                },
+                "effective_view_count": len(outcome.views),
+                "failed_view_indices": [f.index for f in outcome.failures],
+            },
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    result.save(ctx.artifacts_dir / filename)
+    # 残差超過で FAILED になると JobResult.artifacts が返らないので、図と JSON の
+    # URL はログに出しておく（エラー文がこの 2 つを見るよう案内している）
+    for label, name in (
+        ("残差レポート", "residuals.png"),
+        ("検証 JSON", "scan_verification.json"),
+    ):
+        ctx.log(f"{label}: /artifacts/{ctx.artifacts_dir.name}/{name}")
+    return (
+        ctx.artifact("残差レポート", "residuals.png", "image"),
+        ctx.artifact("コーナー被覆", "corner_coverage.png", "image"),
+        ctx.artifact("検証 JSON", "scan_verification.json", "file"),
+        ctx.artifact("キャリブレーション JSON", filename, "file"),
     )
 
 

@@ -251,15 +251,20 @@ class JobContext:
         self._bridge.checkpoint()
 
     @contextlib.contextmanager
-    def open_camera(self) -> Iterator[Camera]:
+    def open_camera(self, *, raw: bool = False) -> Iterator[Camera]:
         """カメラパイプラインを起動保持し FrameSource を貸し出す.
 
         PreviewService と参照カウントを共有するため、preview クライアントの
         切断でジョブ使用中の hub が止まることはない（逆も同様）。
+
+        Args:
+            raw: True のときレンズ歪み補正前のフレームを配信する。カメラ校正
+                ジョブ専用。補正済みフレームで再校正すると「残差歪みモデル」が
+                得られ、Apply で元の補正が静かに失われる
 
         Raises:
             OSError: カメラデバイスが見つからない・開けない場合
             RuntimeError: カメラがフォーマット等をサポートしない場合
         """
         with self._bridge.hold_camera() as hub:
-            yield hub.subscribe()
+            yield hub.subscribe(raw=raw)
