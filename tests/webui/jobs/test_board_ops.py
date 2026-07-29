@@ -82,7 +82,7 @@ def _region(index: int) -> AlignmentRegion:
         anchor=Point2d(10.0 * index, 5.0),
         roi=(0, 0, 100, 100),
         constraint=120.0,
-        edge_length_px=240.0,
+        edge_point_count=240,
     )
 
 

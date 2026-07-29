@@ -236,6 +236,14 @@ class TestPadAlignRegionCountApi:
 
         assert response.status_code == 400
 
+    def test_put_negative_board_edge_margin_returns_400(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.pad_align.board_edge_margin": -0.1}},
+        )
+
+        assert response.status_code == 400
+
 
 class TestCameraSettingsRebuild:
     """camera.* キーの保存による FrameHub 再構築（Phase 2 + webui-camera-calib 計画書「設計判断

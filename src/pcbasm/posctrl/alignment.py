@@ -148,18 +148,22 @@ class RegionAlignmentSession:
         return cls(result, frame_sink=frame_sink)
 
     def plan_regions(self) -> list[AlignmentRegion]:
-        """TOP padの分布から照合領域を計画する（撮像・移動なし）.
+        """基板外形の内側から照合領域を計画する（撮像・移動なし）.
 
-        巡回起点は呼び出し時の ``stage.get_position()``。
+        巡回起点は呼び出し時の ``stage.get_position()``。照合を許す領域は基板外形を
+        ``board_edge_margin`` [mm] 縮めたもので、ROI 全体がその内側に収まる位置しか
+        候補にならない。外周はやすり掛けで銅箔が削れやすく、かつ基板外形線が
+        想定エッジに含まれない偽エッジとして働くため。
 
         Returns:
-            巡回順の照合領域
+            巡回順の照合領域。外形を縮めた領域が空なら空リスト
         """
-        pad_centers = [p.center for p in self._pcb.pads if p.layer == Layer.TOP]
         return plan_alignment_regions(
             self._projector,
-            pad_centers,
             self._board_transform,
+            safe_area=self._pcb.outline.polygon.buffer(
+                -self._pad_align.board_edge_margin
+            ),
             region_size_px=self._pad_align.region_size_px,
             count=self._pad_align.region_count,
             image_size=self._image_size,

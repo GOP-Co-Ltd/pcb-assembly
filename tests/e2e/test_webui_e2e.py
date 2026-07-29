@@ -379,6 +379,7 @@ class TestPadAlignRegionCountOverRealHttp:
         assert "paste_dispenser.pad_align.region_size_px" in keys
         assert "paste_dispenser.pad_align.min_regions" in keys
         assert "paste_dispenser.pad_align.min_sharpness" in keys
+        assert "paste_dispenser.pad_align.board_edge_margin" in keys
 
         # 6 を PUT
         put = httpx.put(

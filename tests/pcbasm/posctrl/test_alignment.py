@@ -39,7 +39,7 @@ from pcbasm.geometry import (
     Shift,
     Transform,
 )
-from pcbasm.pcb import Component, Copper, CopperList, Layer, Pad
+from pcbasm.pcb import Component, Copper, CopperList, Layer, Outline, Pad
 from pcbasm.posctrl.aligner import RegionAlignment
 from pcbasm.posctrl.alignment import BoardAlignment, RegionAlignmentSession
 from pcbasm.posctrl.copper import CopperProjector, EdgeMatch, centered_roi
@@ -107,7 +107,7 @@ def _region(index: int, anchor: Point2d) -> AlignmentRegion:
         anchor=anchor,
         roi=(0, 0, 100, 100),
         constraint=120.0,
-        edge_length_px=240.0,
+        edge_point_count=240,
     )
 
 
@@ -252,7 +252,9 @@ class TestRegionAlignmentSession:
     def pcb(self, mocker: MockerFixture):
         """TOP 層に board 原点中心 ±4mm の銅箔島を持つ PcbFile の Mock.
 
-        BOTTOM 層にも銅箔と pad を置き、TOP だけが照合対象になることを見る。
+        BOTTOM 層にも銅箔と pad を置き、TOP だけが照合対象になることを見る。 外形は board 原点中心 ±35mm
+        角。外周マージン 2mm を引いた ±33mm に 400px (= 40mm) の ROI が収まる格子点は原点 1
+        点だけになる。
         """
         pcb = mocker.Mock()
         pcb.components = [_component("R1", 0.0, 0.0)]
@@ -260,6 +262,7 @@ class TestRegionAlignmentSession:
             _pad("R1", 0.0, 0.0, half=0.5),
             _pad("B1", 300.0, 300.0, half=0.5, layer=Layer.BOTTOM),
         ]
+        pcb.outline = Outline(_square(0.0, 0.0, 35.0))
         pcb.copper = CopperList(
             [
                 Copper(layer=Layer.TOP, polygon=_square(0.0, 0.0, 4.0)),
@@ -318,22 +321,39 @@ class TestRegionAlignmentSession:
                 resolution=(400, 300),
             )
 
-    def test_plan_regions_uses_top_pads_and_the_shared_roi(self, klipper, stage, pcb):
-        """TOP pad の分布から領域を計画し、roi は region_roi と同一.
+    def test_plan_regions_uses_the_board_outline_and_the_shared_roi(
+        self, klipper, stage, pcb
+    ):
+        """基板外形の内側から領域を計画し、roi は region_roi と同一.
 
-        BOTTOM 層の pad / 銅箔（300mm 離れた位置）は候補格子に影響しない。
+        BOTTOM 層の銅箔（300mm 離れた位置）は外形の外なので候補にならない。
         """
         session = self._session(FakeCamera([_board_image()]), klipper, stage, pcb)
 
         regions = session.plan_regions()
 
-        assert len(regions) == 1  # TOP pad は 1 個 → 候補格子も 1 点
+        assert len(regions) == 1  # ROI が収まる格子点は原点 1 点だけ
         region = regions[0]
         assert region.index == 0
         assert region.roi == session.region_roi
         assert region.anchor.x == pytest.approx(0.0, abs=1e-6)
         assert region.anchor.y == pytest.approx(0.0, abs=1e-6)
         assert region.constraint > 0.0
+
+    def test_plan_regions_shrinks_the_outline_by_board_edge_margin(
+        self, klipper, stage, pcb
+    ):
+        """照合領域は outline.buffer(-board_edge_margin) の内側からしか選ばない.
+
+        外形 ±30mm 角なら ROI (400px = 40mm) が収まる格子点は ±10mm に出るが、 既定マージン 2mm
+        を引いた ±28mm 角には 1 つも残らないので領域 0 個。
+        外形をそのまま使っていれば領域が選ばれてしまうので、マージンが実際に
+        効いていることのピンになる（外周部でマッチしないというユーザー要求）。
+        """
+        pcb.outline = Outline(_square(0.0, 0.0, 30.0))
+        session = self._session(FakeCamera([_board_image()]), klipper, stage, pcb)
+
+        assert session.plan_regions() == []
 
     def test_measure_returns_alignment_for_a_known_shift(self, klipper, stage, pcb):
         """既知ずれ (+2,−2)px の観測 → translation ≈ (−0.2, +0.2) mm.

@@ -361,8 +361,8 @@ class TestPadAlignRegionFields:
     """領域照合キーの読み書きと per-key 検証（region-alignment-average 計画書）.
 
     region_size_px / region_count / min_regions は 1 以上の int、
-    min_sharpness は 0 以上の float。change 即自動保存 UI では 0 や負値が machine.toml
-    へ書かれる事故が起きやすいので保存時に弾く。
+    min_sharpness と board_edge_margin（照合領域が基板外形から確保する最小距離 [mm]）は 0 以上の
+    float。change 即自動保存 UI では 0 や負値が machine.toml へ書かれる事故が起きやすいので保存時に弾く。
     """
 
     @pytest.mark.parametrize(
@@ -372,6 +372,7 @@ class TestPadAlignRegionFields:
             ("paste_dispenser.pad_align.region_count", 6),
             ("paste_dispenser.pad_align.min_regions", 1),
             ("paste_dispenser.pad_align.min_sharpness", 0.25),
+            ("paste_dispenser.pad_align.board_edge_margin", 1.5),
         ],
     )
     def test_write_then_reread_reflects_value(
@@ -406,6 +407,33 @@ class TestPadAlignRegionFields:
 
         assert store.read_machine_settings()[
             "paste_dispenser.pad_align.min_sharpness"
+        ] == pytest.approx(0.0)
+
+    def test_board_edge_margin_is_a_float_field_in_millimetres(self):
+        """UI が数値入力＋単位 mm で描けるよう value_type / unit を固定する."""
+        spec = next(
+            s
+            for s in MACHINE_FIELDS
+            if s.key == "paste_dispenser.pad_align.board_edge_margin"
+        )
+
+        assert spec.value_type == "float"
+        assert spec.unit == "mm"
+
+    def test_negative_board_edge_margin_raises(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError, match="board_edge_margin"):
+            store.write_machine_settings(
+                {"paste_dispenser.pad_align.board_edge_margin": -0.1}
+            )
+
+    def test_zero_board_edge_margin_is_allowed(self, store: ConfigStore):
+        # 境界: 0 は「外形いっぱいまで照合を許す」有効値（probe 側と違い 0 を弾かない）
+        store.write_machine_settings(
+            {"paste_dispenser.pad_align.board_edge_margin": 0.0}
+        )
+
+        assert store.read_machine_settings()[
+            "paste_dispenser.pad_align.board_edge_margin"
         ] == pytest.approx(0.0)
 
 

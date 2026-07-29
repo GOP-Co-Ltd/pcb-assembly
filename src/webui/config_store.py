@@ -102,6 +102,12 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     ),
     FieldSpec("paste_dispenser.pad_align.region_count", "照合領域数", "int"),
     FieldSpec("paste_dispenser.pad_align.min_regions", "必要な成功領域数", "int"),
+    FieldSpec(
+        "paste_dispenser.pad_align.board_edge_margin",
+        "基板外形からの最小距離",
+        "float",
+        "mm",
+    ),
     FieldSpec("paste_dispenser.pad_align.min_sharpness", "拘束の下限", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
@@ -188,7 +194,11 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     if error := validate_probe_board_edge_margin(coerced_float):
                         raise UnknownFieldError(error)
                 if (
-                    spec.key == "paste_dispenser.pad_align.min_sharpness"
+                    spec.key
+                    in (
+                        "paste_dispenser.pad_align.board_edge_margin",
+                        "paste_dispenser.pad_align.min_sharpness",
+                    )
                     and coerced_float < 0.0
                 ):
                     raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")

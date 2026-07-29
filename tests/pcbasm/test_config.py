@@ -252,8 +252,8 @@ class TestPadAlignRegionSettings:
     """PadAlign の領域照合キーの既定値と検証（region-alignment-average 計画書）.
 
     領域単位の照合では「一辺 region_size_px の領域を region_count 個計画し、 成功が min_regions
-    を下回ったら塗布ジョブを中止」する。いずれも 1 以上、 min_sharpness（拘束不足の棄却閾値）は 0
-    以上でなければならない。
+    を下回ったら塗布ジョブを中止」する。いずれも 1 以上、 min_sharpness（拘束不足の棄却閾値）と
+    board_edge_margin（照合領域が基板外形から確保する最小距離 [mm]）は 0 以上でなければならない。
     """
 
     def test_region_defaults_when_absent(self):
@@ -263,6 +263,8 @@ class TestPadAlignRegionSettings:
         assert pad_align.region_count == 4
         assert pad_align.min_regions == 3
         assert pad_align.min_sharpness == pytest.approx(0.15)
+        # 外周 1〜2mm はやすり掛けで削れるため、既定で 2mm 内側の銅箔だけを照合する
+        assert pad_align.board_edge_margin == pytest.approx(2.0)
 
     def test_reads_explicit_values(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
@@ -291,6 +293,15 @@ class TestPadAlignRegionSettings:
     def test_zero_min_sharpness_is_allowed(self):
         """境界: 0 は「拘束不足の棄却を無効化する」有効値."""
         assert PadAlign(min_sharpness=0.0).min_sharpness == pytest.approx(0.0)
+
+    def test_rejects_negative_board_edge_margin(self):
+        """負のマージンは外形を外へ広げてしまうので拒否する."""
+        with pytest.raises(ValueError, match="board_edge_margin"):
+            PadAlign(board_edge_margin=-0.1)
+
+    def test_zero_board_edge_margin_is_allowed(self):
+        """境界: 0 は「外形いっぱいまで照合を許す」有効値."""
+        assert PadAlign(board_edge_margin=0.0).board_edge_margin == pytest.approx(0.0)
 
 
 class TestMachineType:

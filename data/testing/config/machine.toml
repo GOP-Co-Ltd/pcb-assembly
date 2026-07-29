@@ -42,6 +42,7 @@ search_window = 1.4    # 照合の探索窓 片側幅 [mm]
 region_size_px = 400   # 照合領域の一辺 [px]（400 + 2*42 = 484 でフレームに収まる）
 region_count = 4       # 計画する照合領域数
 min_regions = 3        # 成功が必要な最小領域数。下回ると塗布ジョブを中止
+board_edge_margin = 2.0 # 照合ROIが基板外形から確保する最小距離 [mm]（外周は削れやすく外形線が偽エッジになる）
 min_sharpness = 0.15   # 拘束不足の棄却閾値（合成実測: 一方向のみ <= 0.06 / 良好 >= 0.5）
 canny_low = 81.0       # Cannyエッジ検出の下側閾値
 canny_high = 192.0     # Cannyエッジ検出の上側閾値

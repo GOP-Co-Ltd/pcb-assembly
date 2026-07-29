@@ -85,7 +85,7 @@ def _region(anchor: Point2d = ANCHOR, index: int = 0) -> AlignmentRegion:
         anchor=anchor,
         roi=centered_roi(IMAGE_SIZE, REGION_PX),
         constraint=120.0,
-        edge_length_px=240.0,
+        edge_point_count=240,
     )
 
 

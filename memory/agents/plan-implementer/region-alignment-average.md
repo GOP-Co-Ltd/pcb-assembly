@@ -166,3 +166,181 @@ code-reviewer 対応（S4 / S5 / S8）を入れた後の最終状態。`spec-tes
 - `grep -rn 'tolerance|roi_margin|min_roi|max_failures|mean_distance|roi_of|crop_size' src/`:
   `pad_align` 由来の残骸なし（board キャリブレーションの `tolerance`、カメラの
   `crop_size`、チェッカーボードの `mean_distance_px` のみ残る＝別物）。
+
+---
+
+# 追補（MR !151 に対するユーザー追加要求 2 件）
+
+`src/` と `data/` の設定テンプレートのみ担当。`tests/` は一切触っていない（後続 agent が修正）。
+
+## 実装した 3 変更
+
+1. **基板外周の除外** — `PadAlign.board_edge_margin: float = 2.0`（0 以上を検証）を追加。
+   `plan_alignment_regions` は「ROI の 4 隅を board 座標へ写した多角形が `safe_area` に
+   `within` で収まる」候補だけを採点する。ROI ごと内側に入れる理由は、削れた銅箔を避ける
+   だけでなく、**基板外形そのものの強いエッジを視野に入れないため**（外形線は
+   `CopperProjector` の想定エッジに含まれないので、片方向 chamfer では一切ペナルティを
+   受けない偽エッジとして働く）。docstring / README に明記した。
+2. **`_clipped_lengths`（Liang-Barsky）を削除**し、`_projected_segments` を
+   `_projected_edge_points(projector, matrix, shift) -> (P, N)` に置換。線分を
+   `max(1, round(length))` 個の約 1px 区間に割り、その中点へ点を置く。点は候補に依存しない
+   ので 1 回だけ作り、候補ごとは矩形マスク → `N[inside].T @ N[inside]` の 2 行。
+   `AlignmentRegion.edge_length_px: float` → `edge_point_count: int`。
+3. **`pad_centers` を廃止し `safe_area: Polygon` に統合** — 候補格子は `safe_area` の bbox に
+   張り、ROI 収容判定も同じ図形。`RegionAlignmentSession.plan_regions` が
+   `pcb.outline.polygon.buffer(-board_edge_margin)` を作って渡す。空なら領域 0 個
+   （例外は投げない。中止判定は呼び出し側 `min_regions` の責務）。**縮めた結果が分裂して
+   MultiPolygon になっても、使うのは bbox と `within` だけなので同じに扱える**
+   （pyright は `Polygon.buffer` の戻りを `Polygon` と推論するので型注釈は `Polygon`）。
+
+## 実測 1: TJ-56-67 の領域数（既定値は変更不要）
+
+`data/TJ-56-67/TJ-56-67.kicad_pcb`（外形 89.5 × 58.0 mm）/ `pixel_per_mm = 30.225091`
+（`config/ov9281_20260729_113115.json`）/ crop 600×600 / `region_size_px = 400`（= 13.234mm）/
+`region_count = 4`。候補格子 14 × 10 = 140 点のうち **ROI が safe_area に収まるのは 60 点**、
+そのうち銅箔があって `λmin > 0` は 17 点。
+
+| `board_edge_margin` | 取れた領域数 | 予測 sharpness |
+|---|---|---|
+| 0.0 | 4 | 0.648 / 0.656 / 0.659 / 0.661 |
+| 1.0 | 4 | 0.638 / 0.661 / 0.659 / 0.690 |
+| **2.0（既定）** | **4** | **0.681 / 0.649 / 0.663 / 0.659** |
+| 3.0 | 4 | 0.655 / **0.385** / 0.663 / 0.675 |
+
+**`region_size_px = 400` のまま 4 個取れるので既定値は一切変えていない。** margin 2.0 の
+4 領域は board 座標 (15.15, 14.00) / (41.46, 14.00) / (61.19, 14.00) / (67.77, 26.00)、
+λmin = 450.0 / 48.1 / 363.4 / 302.3、点数 970 / 114 / 827 / 696。予測 sharpness の最小は
+**0.649**、`min_sharpness = 0.15` に対して 4.3 倍の余裕がある。採点全体は **14 ms**。
+
+（margin 3.0 にすると 2 番目の領域が λmin 4.3 / 点数 29 の貧弱な領域に落ちて予測 0.385 まで
+下がる。2.0 はまだ健全側。）
+
+## 実測 2: 点サンプリングは「単純化」だが「精度改善」ではなかった
+
+**orchestrator の指示にあった「点で数えれば斜め支配の +22% が直る」は成立しない。**
+`sharpness = sqrt(λmin(A) / count)` は `A` と `count` が同じ点集合の和なので、
+**サンプリング密度に対して不変**。密度を変えても形状ごとの比は動かない。
+
+同じ 4 領域で、旧（クリップ線分長）と新（点数）の予測を実測 sharpness（想定マスクを
+(+2,+3)px ずらして `match`）と比べた:
+
+| 領域中心 | 旧予測 | 新予測 | 実測 | 旧/実測 | 新/実測 |
+|---|---|---|---|---|---|
+| (15.15, 14.00) | 0.6725 | 0.6811 | 0.6523 | 1.031 | 1.044 |
+| (61.19, 14.00) | 0.6500 | 0.6629 | 0.5920 | 1.098 | 1.120 |
+| (67.77, 26.00) | 0.6425 | 0.6591 | 0.6082 | 1.056 | 1.084 |
+| (41.46, 14.00) | 0.6457 | 0.6493 | 0.6303 | 1.025 | 1.030 |
+
+合成形状（300px ROI）でも:
+
+| 形状 | 旧予測 | 新予測 | 実測 | 旧/実測 | 新/実測 |
+|---|---|---|---|---|---|
+| 軸平行 正方リング 100×100 | 0.7071 | 0.7071 | 0.7059 | 1.002 | 1.002 |
+| 45° ダイヤ（斜めのみ） | 0.7071 | 0.7071 | 0.5774 | **1.225** | **1.225** |
+
+→ **斜め支配の +22.5% は 1px 点サンプリングでは変わらない。** 原因は正規化の定義ではなく、
+`distanceTransform` が測るのが「Bresenham の階段」への距離で、理想線分への `|s·n|` から
+ずれること。Chebyshev 間隔（`max(|dx|,|dy|)` 個 = ラスタライズ画素数と厳密一致、ダイヤで
+n = |T| = 280 になる）も試したが**予測値は 0.7071 で不変**だったので、指示どおり
+Euclid 約 1px 間隔にした。この乖離を消すにはラスタライズをモデル化する必要があり、
+「単純化する」という今回の主旨に反するので手を付けていない。
+
+`predicted_sharpness` の docstring には「数 % 〜 十数 % 楽観側、斜め支配で最大 +22%」と
+実測値ベースで書いた。**削除した Liang-Barsky の特殊ケース（境界平行かつ外側の線分の
+丸ごと棄却など）が消えたことが、この変更の実質的な利得。**
+
+参考: 実 PCB では点数 `n` は template 画素数 `|T|` より 1.35〜1.42 倍多い（970 vs 684 等）。
+隣接ポリゴンが共有する線分・重複頂点がラスタライズでは 1 画素に潰れるため。よって
+「`|T|` と厳密に同じ定義」ではなく「`|T|` と同種の量」と書いてある。
+
+## 落ちる既存テスト（41 件、すべて `tests/` 配下。修正は後続 agent）
+
+`make format` pass / `pyright src` **0 errors** / `make test-e2e` **51 passed**。
+`make type` は `tests/` の 8 error で赤（内容は下表と同じ原因）。
+`grep -rn '</content>' src data` ヒットなし。
+
+| ファイル | 件数 | 原因 | 直し方 |
+|---|---|---|---|
+| `tests/pcbasm/posctrl/test_region.py` | 18 | `plan_alignment_regions(proj, pad_centers, board_transform, ...)` の 3 引数呼び出し | 第 2 位置引数を削り `safe_area=` を渡す。`test_empty_pad_centers_raises` は**削除**し、代わりに「空 `safe_area` で空リスト」「ROI が収まらなければ空リスト」を書く |
+| `tests/pcbasm/posctrl/test_aligner.py` | 10 | `AlignmentRegion(..., edge_length_px=...)` | `edge_point_count=<int>` |
+| `tests/pcbasm/posctrl/test_alignment.py` | 8 | 4 件は `edge_length_px`、4 件は `pcb` fixture に `outline` が無く `Mock.buffer()` の戻りが Mock → `is_empty` が truthy → 領域 0 個（`assert 0 == 1` / `IndexError`） | fixture に `pcb.outline = Outline(_square(0, 0, 35))` を足す。**`half=35` は検証済みで anchor (0,0) / 予測 sharpness 0.707 の 1 領域が出る**。`half<=30` だと 0 個になる（`region_size_px=400` / `PPM=10` → ROI 40mm、格子 step 20mm が bbox 中心に乗るには span ∈ (60, 80] が必要） |
+| `tests/webui/jobs/test_board_ops.py` | 5 | `edge_length_px` | `edge_point_count=<int>` |
+
+新設定キーのテストは未追加: `PadAlign.board_edge_margin` の既定 2.0 / 負値 ValueError
+（メッセージ `board_edge_marginは0以上である必要があります: {value}`）/ `config_store` の
+`paste_dispenser.pad_align.board_edge_margin` FieldSpec（`float` / `mm` / 負値で 400）。
+
+## 計画外の判断
+
+- `PadAlign.__attrs_post_init__` の `min_sharpness` 単独チェックを
+  `("board_edge_margin", "min_sharpness")` のループに畳んだ。**既存の例外メッセージは
+  1 文字も変わらない**（`{name}は0以上である必要があります: {value}`）。
+- `src/webui/jobs/posctrl.py` は `edge_length_px` を参照していなかったので無変更。
+- `src/pcbasm/posctrl/README.md` の銅箔照合節を 1 項目 → 2 項目に更新（点サンプリングと
+  `safe_area`）。
+- `config/machine.toml`（gitignore・実機設定）は指示どおり未更新。`board_edge_margin` は
+  既定 2.0 で動く。ユーザーが WebUI で調整可。
+- リポジトリ直下に元から untracked のゴミファイル `"\0014\253\006@W@8"` がある。私の生成物では
+  ないので消していない。
+
+---
+
+# 追補: `_candidate_grid` の丸め誤差不感化（spec-test-author 指摘）
+
+## 症状（実測で再現）
+
+`_candidate_grid` の `math.ceil((hi - lo) / step)` が丸め誤差に跳ぶ。`step` は
+`region_mm / 2` で、`region_mm = region_size_px / hypot(matrix[0,0], matrix[1,0])`
+なので `board_transform` に回転があると最終桁が振れる（`Rotation(30°)` で
+`region_mm = 9.999999999999995`）。`span / step` がちょうど整数になる配置では、
+その振れだけで分割数が 1 段増え、格子間隔が不連続に変わる。
+
+## 修正
+
+`ratio = (hi - lo) / step` を出し、`math.ceil(ratio - _GRID_RATIO_TOLERANCE * max(ratio, 1.0))`
+で分割数を決める。`_GRID_RATIO_TOLERANCE = 1e-9`（相対）。倍精度の相対誤差
+（~1e-16）より十分大きく、実寸の差より十分小さい。数式・他ロジックは無変更で、
+変更は `_candidate_grid` と新定数のみ。
+
+- 絶対許容ではなく相対にしたのは、`span / step` が大きい（分割数が多い）場合でも
+  同じ強さで効かせるため。
+- `round` ベースには**しなかった**。`ratio = 2.4` で `round` は 2 分割（間隔 1.2·step）
+  を返し、「格子間隔は step 以下」という既存の性質を壊す。`ceil` + 相対許容なら
+  整数近傍の跳びだけを吸収し、それ以外の分割数は 1 つも変わらない。
+
+## 実測（read-only、`CopperProjector.board_to_pixel_affine` の実コードパス）
+
+`safe_area` bbox span 40.0mm / `region_size_px=100` / `PPM=10`（公称 `region_mm` 10.0mm、
+`step` 5.0mm、`span/step = 8`）。修正前は 15 角度中 7 角度で分割数 8 → 9 に跳び、
+格子間隔 5.000000mm → 4.444444mm。修正後は全角度で 8 分割・5.000000mm。
+
+| angle | region_mm | span/step | 修正前 n / 間隔 | 修正後 n / 間隔 |
+|---|---|---|---|---|
+| 0 | 10.0 | 8.0 | 8 / 5.000000 | 8 / 5.000000 |
+| 5 | 9.999999999999996 | 8.000000000000004 | **9 / 4.444444** | 8 / 5.000000 |
+| 10 | 10.000000000000005 | 7.999999999999996 | 8 / 5.000000 | 8 / 5.000000 |
+| 15 | 10.000000000000002 | 7.999999999999998 | 8 / 5.000000 | 8 / 5.000000 |
+| 20 | 10.000000000000002 | 7.999999999999998 | 8 / 5.000000 | 8 / 5.000000 |
+| **30** | **9.999999999999995** | 8.000000000000004 | **9 / 4.444444** | 8 / 5.000000 |
+| 33 | 10.0 | 8.0 | 8 / 5.000000 | 8 / 5.000000 |
+| 37 | 10.000000000000014 | 7.9999999999999885 | 8 / 5.000000 | 8 / 5.000000 |
+| 40 | 9.99999999999999 | 8.000000000000009 | **9 / 4.444444** | 8 / 5.000000 |
+| 45 | 10.000000000000009 | 7.999999999999993 | 8 / 5.000000 | 8 / 5.000000 |
+| 60 | 10.000000000000012 | 7.99999999999999 | 8 / 5.000000 | 8 / 5.000000 |
+| 75 | 9.99999999999999 | 8.000000000000009 | **9 / 4.444444** | 8 / 5.000000 |
+| 90 | 9.999999999999996 | 8.000000000000004 | **9 / 4.444444** | 8 / 5.000000 |
+| 120 | 9.999999999999996 | 8.000000000000004 | **9 / 4.444444** | 8 / 5.000000 |
+| 210 | 9.999999999999998 | 8.000000000000002 | **9 / 4.444444** | 8 / 5.000000 |
+
+整数でない `span/step` では分割数が 1 つも変わらないことも確認（`span=40/step=3` → 14、
+`span=37.5/step=5` → 8、`span=0` → 0 分割 = 1 点）。
+
+## 挙動が変わる境界（意図的）
+
+span が step の 1e-9 倍未満（例 span=1e-12mm, step=5mm）だと 1 分割 → 0 分割になり、
+その軸の候補が 2 点から 1 点に減る。潰れた bbox の縮退ケースで、実寸では起こらない。
+
+## 検証
+
+`make format` / `make type` (0 errors) / `make test-no-hardware` **1680 passed** /
+`make test-e2e` **51 passed**。`tests/` は未変更。実機テストは未実行。

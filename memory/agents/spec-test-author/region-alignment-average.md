@@ -214,3 +214,119 @@ Bresenham の階段状ラスタライズで斜め線への chamfer 距離が理�
 `measure_regions` のループ契約（progress / checkpoint / log / on_failure / min_regions 判定）の
 テストは 5 本すべて維持（実 `JobManager` + 実 `JobContext` の合成ジョブ経由も維持）。
 `cast(RegionAlignmentSession, session)` は pyright 用に残している。
+
+---
+
+## 追記（2026-07-29）— MR !151 ユーザー要求 2 件への `tests/` 追随
+
+`src/` 側は着地済み（`PadAlign.board_edge_margin` 追加 / `plan_alignment_regions` の
+`pad_centers` → `safe_area` 置換 / `edge_length_px` → `edge_point_count` / `_clipped_lengths` 削除）。
+`tests/` のみを追随させた。`src/` は 1 行も触っていない。
+
+### 1. 外周マージンの直接ピン（ユーザー要求 1 の生きた仕様）
+
+**`tests/pcbasm/posctrl/test_region.py::TestBoardEdgeMargin`** を新設。60×40mm の外形
+（`shapely.box(0, 0, 60, 40)`）に 5mm ピッチで小さな銅箔島を敷き詰め（隅から 1mm まで）、
+「外周寄りの候補が *銅箔が無いから* ではなく *ROI が外周に掛かるから* 落ちる」地形を作った。
+
+- `test_every_selected_roi_stays_inside_the_shrunk_outline` — `margin ∈ {0, 1, 2, 3}` ×
+  `board_transform ∈ {Identity, Rotation(20°)}` の 8 通りで、**選ばれた全領域の ROI を board 座標へ
+  写した多角形が `outline.buffer(-margin)` に収まる**ことを検証。回転があると ROI は board 空間で
+  軸平行にならないので中心だけでは足りず 4 隅すべてを見る。空振り防止に `assert regions` も置いた。
+- `test_margin_keeps_the_roi_away_from_the_board_edge` — margin 0 と 3mm の対比。
+  margin 0 では外形線に接する領域が実際に選ばれる（最小距離 0.0mm）が、3mm では 7.7mm まで離れる。
+  anchor 集合が一致しないことも合わせて assert（マージンが効いていることの対偶）。
+- `test_margin_larger_than_the_board_yields_no_regions` — `buffer(-25)` が空 → **領域 0 個・例外なし**
+  （中止判定は `min_regions` を持つ呼び出し側の責務）。
+- `test_safe_area_smaller_than_the_roi_yields_no_regions` — ROI が収まる格子点が無ければ空リスト。
+
+ROI の board 座標への写像は `_roi_in_board()` ヘルパで、実装の行列計算を複製せず
+**投影公式そのもの**から導いた：`offset_transform` が Identity なので anchor へ移動したときの ROI は
+機械座標で anchor 中心・一辺 `region_size_px / pixel_per_mm` の軸平行正方形。board へは
+`board_transform.inverse()` で戻す。dense sampling（`projector.pixel_of` で 4 万点）と
+一致することを確認済みで、解析式のほうを採用した（正確かつ 3 桁速い）。
+
+**変異検出を確認**: `region.Polygon` を `within → True` の偽物に差し替えると（= ROI 包含ゲートの撤去）
+上記 2 本がどちらも赤くなる。
+
+セッション層のピンは **`test_alignment.py::TestRegionAlignmentSession`** に 1 本追加：
+`test_plan_regions_shrinks_the_outline_by_board_edge_margin` — 外形 ±30mm 角なら ROI（400px = 40mm）が
+収まる格子点は ±10mm に出るが、既定マージン 2mm を引いた ±28mm 角には 1 つも残らないので領域 0 個。
+外形をそのまま使っていれば領域が選ばれるので、`outline.buffer(-board_edge_margin)` を
+実際に使っていることのピンになる。
+
+### 2. 落ちていた 41 件の修正内容
+
+| ファイル | 件数 | 修正 |
+|---|---|---|
+| `test_region.py` | 18 | ヘルパ `_plan` の第 2 位置引数 `pad_centers` を削り `safe_area=` へ。候補集合を safe_area で設計し直した（下記） |
+| `test_aligner.py` | 10 | `_region()` の `edge_length_px=240.0` → `edge_point_count=240`（1 箇所） |
+| `test_alignment.py` | 8 | `_region()` を同上 + `pcb` fixture に `pcb.outline = Outline(_square(0, 0, 35))` を追加 |
+| `test_board_ops.py` | 5 | `_region()` を同上（1 箇所） |
+
+`test_region.py` の候補集合の作り直しが要点。`safe_area` は候補格子の定義域と ROI 包含判定を兼ねるので、
+`pad_centers` 時代の「1 点だけ渡せば候補 1 個」が使えない。2 種類の safe_area ヘルパを用意した：
+
+- **`_solo_area(cx, cy, region_mm)` = `Point(cx, cy).buffer(0.9 * region_mm)`** — 候補を中心 1 点に絞る。
+  中心の ROI（対角半径 `0.707*region_mm`）は収まるが、格子間隔 `0.45*region_mm` 離れた隣接点の ROI は
+  必ず隅が円外に出る。**`2r/step = 3.6` が整数から離れている**ことが重要で、
+  `region_mm = region_size_px / hypot(matrix[0,0], matrix[1,0])` は回転があると
+  `9.999999999999991` のように振れ、`_candidate_grid` の `math.ceil` が 1 段跳ねる
+  （実測: `Rotation(30°)` で格子間隔が 5.0 → 4.0 に変わり中心が格子から外れた）。
+  半径を `1.0 * region_mm` に取るとこの丸めで壊れるので 0.9 倍にしてある。
+- **`WIDE_AREA = box(-25, -10, 25, 10)`** — 貪欲選択・巡回順・count 上限など複数領域が必要なテスト用。
+  x は ±20mm・y は ±5mm まで候補になり、`pad_centers` 時代と同じ候補集合（±15/0mm）を再現する。
+
+`test_anchor_is_the_board_point_mapped_to_machine_coordinates` は
+`Shift(5, -1) / Rotation(30°) / Rotation(-45°)` の parametrize に**強化**した
+（旧テストは `Rotation(30°)` 単体。`_solo_area` が回転下でも候補 1 点を保つので並進と線形部の両方を見られる）。
+
+### 3. 削除したテストと引き継ぎ先
+
+| 削除 | 引き継ぎ先 | 理由 |
+|---|---|---|
+| `test_empty_pad_centers_raises`（`pad_centers` が空 → `ValueError`） | `TestBoardEdgeMargin::test_margin_larger_than_the_board_yields_no_regions` と `::test_safe_area_smaller_than_the_roi_yields_no_regions` | `pad_centers` 引数自体が無くなった。「領域選定の定義域が空」の契約は *例外* から *空リスト* へ変わったので、同じ状況を新しい契約で固定し直した |
+| `TestPlanAlignmentRegionsSelection.PADS` 定数 | `WIDE_AREA` | 候補格子の供給元が置き換わっただけ。候補集合（±15/0mm）は同一 |
+
+`test_plan_regions_uses_top_pads_and_the_shared_roi` は
+`test_plan_regions_uses_the_board_outline_and_the_shared_roi` へ改名（削除ではなく仕様追随）。
+BOTTOM 層の銅箔（300mm 離れた位置）が候補にならないことの検証は維持している
+（外形の外なので `safe_area` に入らない）。
+
+`TestPredictedSharpnessMatchesMeasured` は許容（`rel=0.05` / `0.15`、`predicted >= measured`）を**据え置き**。
+点サンプリング化で予測値はほぼ不変（軸平行リング 0.7071、混在 0.7067 → 0.7066）で実測も不変。
+class docstring の実 PCB 数値だけ MR !151 の実測（margin 2mm で予測 0.649〜0.681、
+予測/実測 1.030〜1.120、斜め支配で最大 1.225）へ更新した。点サンプリング密度を上げても比は縮まらない
+（`sqrt(λmin/count)` は密度に不変）ことも書き添えてある。
+
+### 4. 追加した新規テスト（設定系）
+
+- `tests/pcbasm/test_config.py::TestPadAlignRegionSettings` — 既定 2.0 の assert 追加、
+  `test_rejects_negative_board_edge_margin` / `test_zero_board_edge_margin_is_allowed`
+- `tests/webui/test_config_store.py::TestPadAlignRegionFields` — 読み書き往復（1.5）を parametrize に追加、
+  `test_board_edge_margin_is_a_float_field_in_millimetres`（`value_type == "float"` / `unit == "mm"`）、
+  負値拒否、0 許容（`probe.board_edge_margin` が 0 を弾くのと**逆**なので明示的に分けてある）
+- `tests/webui/routers/test_settings_api.py` — `test_put_negative_board_edge_margin_returns_400`
+- `tests/e2e/test_webui_e2e.py` — pad_align キー集合に `board_edge_margin` を追加
+
+### 5. 全緑の確認結果
+
+- `make format` — 通過（ruff-format / docformatter が初回に整形、2 回目クリーン）
+- `make type` — pyright エラー 0 / 警告 0
+- `make test-no-hardware` — **1680 passed, 87 deselected**
+- `make test-e2e` — **51 passed**
+- `grep -rn '</content>' tests` — ヒット 0
+
+`tests/pcbasm/posctrl/test_correction.py` は 1 行も変更していない（実機検証済み符号規約 A2/A4 の安全網）。
+既存の重要ピン（斜め一方向で `match is None` / サブピクセル復元 0.15px / `rms_distance_px` / 純並進
+`machine_transform` の det<0 parametrize / `CopperEdgeDetector` の 1px 細線 / `_StubSession` 手書き）は
+いずれも触っていない。
+
+### 6. 実装側への申し送り（テスト側では直さない）
+
+`_candidate_grid` の `math.ceil((hi - lo) / step)` が丸め誤差に敏感。`board_transform` に回転があると
+`region_mm` が `10.0` ではなく `9.999999999999991` になり、`ceil(20 / 4.9999...)` が 4 ではなく 5 を返して
+**格子間隔が 5.0mm から 4.0mm へ跳ぶ**（実測、`Rotation(30°)`）。領域選定の結果が回転角の
+丸め誤差で変わるので、`step` を `region_mm / 2` そのままではなく相対誤差を吸収した形にするか、
+格子点数を `round` ベースにする改善余地がある。実機挙動を壊す不具合ではない（候補が少し粗く／細かく
+なるだけ）のでテスト側は 0.9 倍半径の safe_area で回避しており、修正要求ではなく観測の共有。

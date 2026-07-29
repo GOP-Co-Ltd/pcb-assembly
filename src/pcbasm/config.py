@@ -52,6 +52,7 @@ class PadAlign:
     region_size_px: int = 400  # 照合領域の一辺 [px]
     region_count: int = 4  # 計画する照合領域数
     min_regions: int = 3  # 成功が必要な最小領域数。下回ると塗布ジョブを中止
+    board_edge_margin: float = 2.0  # 照合領域が基板外形から確保する最小距離 [mm] (外周はやすり掛けで銅箔が削れ、外形線自体が偽エッジになる)
     min_sharpness: float = 0.15  # 拘束不足として棄却するsharpness閾値
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
     canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
@@ -64,10 +65,10 @@ class PadAlign:
             value = getattr(self, name)
             if isinstance(value, bool) or value < 1:
                 raise ValueError(f"{name}は1以上の整数である必要があります: {value}")
-        if self.min_sharpness < 0:
-            raise ValueError(
-                f"min_sharpnessは0以上である必要があります: {self.min_sharpness}"
-            )
+        for name in ("board_edge_margin", "min_sharpness"):
+            value = getattr(self, name)
+            if value < 0:
+                raise ValueError(f"{name}は0以上である必要があります: {value}")
 
 
 def validate_paste_lift_height(value: float) -> str | None:
