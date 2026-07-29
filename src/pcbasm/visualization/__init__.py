@@ -4,6 +4,7 @@ from .fill_render import render_fill_paths
 from .height_render import render_height_plane, render_planned_points
 from .patches import polygon_with_holes_patch
 from .pcb_render import render_pcb
+from .residual_render import render_scan_residuals
 
 __all__ = [
     "polygon_with_holes_patch",
@@ -11,4 +12,5 @@ __all__ = [
     "render_height_plane",
     "render_pcb",
     "render_planned_points",
+    "render_scan_residuals",
 ]
