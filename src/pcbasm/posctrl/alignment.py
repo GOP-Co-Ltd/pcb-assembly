@@ -1,6 +1,7 @@
 """部品単位pad位置合わせの配線と補正結果のlookup."""
 
 import logging
+import math
 from typing import Self
 
 import attrs
@@ -123,6 +124,16 @@ class PadAlignmentSession:
         self._board_transform = result.board_transform
         self._offset_transform = result.offset_transform
         self._pixel_per_mm = result.calibration.pixel_per_mm
+        # 収束判定は |offset| < tolerance で、offset は整数pxの並進を回転させたもの
+        # （ノルム保存）。非ゼロの最小ノルムは斜め1px = √2 px なのでこれが下限になる
+        diagonal_pixel_mm = math.sqrt(2) / self._pixel_per_mm
+        if pad_align.tolerance < diagonal_pixel_mm:
+            logger.warning(
+                "tolerance %.4f mm が斜め1px (√2 px = %.4f mm) 未満です。"
+                "照合の並進は整数pxのため収束しない可能性があります",
+                pad_align.tolerance,
+                diagonal_pixel_mm,
+            )
         # 配線時にフレームを消費しないよう、キャリブレーション時の解像度を使う
         self._image_size = result.calibration.resolution
         self._projector = CopperProjector(
@@ -135,7 +146,6 @@ class PadAlignmentSession:
         matcher = CopperEdgeMatcher(
             pixel_per_mm=self._pixel_per_mm,
             search_window_mm=pad_align.search_window,
-            theta_range_degrees=pad_align.theta_range,
         )
         self._edge_detector = CopperEdgeDetector(
             canny_low=pad_align.canny_low,
