@@ -1,16 +1,59 @@
 {
+  "intrinsics": {
+    "camera_matrix": [
+      [
+        4000.0,
+        0.0,
+        640.0
+      ],
+      [
+        0.0,
+        4000.0,
+        360.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "distortion": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "resolution": [
+      1280,
+      720
+    ]
+  },
   "pixel_per_mm": 40.0,
   "square_size_mm": 1.5,
-  "mean_distance_px": 60.0,
-  "std_distance_px": 0.25,
-  "resolution": [
-    1280,
-    720
-  ],
-  "crop_size": [
-    600,
-    600
-  ],
+  "quality": {
+    "reprojection_rms_px": 0.0,
+    "before": {
+      "pixel_per_mm": 40.0,
+      "rotation_deg": 0.0,
+      "rms_um": 0.0,
+      "max_um": 0.0,
+      "buckets": [],
+      "view_residuals": [],
+      "corner_count": 0
+    },
+    "after": {
+      "pixel_per_mm": 40.0,
+      "rotation_deg": 0.0,
+      "rms_um": 0.0,
+      "max_um": 0.0,
+      "buckets": [],
+      "view_residuals": [],
+      "corner_count": 0
+    },
+    "pixel_per_mm_std": 0.0,
+    "view_count": 15
+  },
   "calibrated_at": "2026-06-12T00:00:00",
   "z_position": -25.0
 }
