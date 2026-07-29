@@ -6,6 +6,12 @@ from .alignment import (
     sorted_top_component_pads,
 )
 from .board import BoardTransformMeasurer
+from .checkerboard_scan import (
+    CheckerboardScanner,
+    ScanFailure,
+    ScanOutcome,
+    ScanProgress,
+)
 from .copper import (
     CopperEdgeMatcher,
     CopperProjection,
@@ -46,6 +52,7 @@ __all__ = [
     "ComponentAlignments",
     "ComponentPads",
     "BoardTransformMeasurer",
+    "CheckerboardScanner",
     "CopperEdgeMatcher",
     "CopperPadObserver",
     "CopperProjection",
@@ -60,6 +67,9 @@ __all__ = [
     "PadResultRenderer",
     "PixelRect",
     "RigidEdgeMatch",
+    "ScanFailure",
+    "ScanOutcome",
+    "ScanProgress",
     "XYPositionAdjustor",
     "display_at_point",
     "group_pads_by_component",

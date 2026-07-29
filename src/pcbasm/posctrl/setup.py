@@ -14,7 +14,7 @@ import attrs
 from pcbasm import gcode
 from pcbasm.config import Machine
 from pcbasm.geometry import Shift, Transform
-from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
+from pcbasm.hal import Camera, Klipper, XYZStage
 from pcbasm.parking import park_or_present
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl.board import BoardTransformMeasurer
@@ -177,7 +177,7 @@ def setup_board_calibration(
     pcb_file_path: Path,
     tolerance: float = 0.1,
     *,
-    camera: Camera | None = None,
+    camera: Camera,
     frame_sink: FrameSink | None = None,
 ) -> BoardCalibrationResult:
     """マシン初期化からBoard変換計測までの共通セットアップを実行する.
@@ -186,7 +186,8 @@ def setup_board_calibration(
         machine: マシン設定
         pcb_file_path: KiCADファイルのパス
         tolerance: 位置合わせの許容誤差 (mm)
-        camera: 使用するカメラ。Noneの場合はマシン設定から生成する
+        camera: 使用するカメラ。``FrameHub`` 由来のものを渡すこと（デバイスを直接
+            開くフォールバックは持たない ― hub を経由しないと歪み補正が効かない）
         frame_sink: 検出注釈画像を送る sink。Noneの場合は表示しない
     """
     # PCBファイル読み込み
@@ -206,15 +207,6 @@ def setup_board_calibration(
     # カメラ初期化
     logger.info("=== カメラ初期化 ===")
     cam_config = machine.camera
-    if camera is None:
-        camera = create_camera(
-            device_id=cam_config.device_id,
-            width=cam_config.width,
-            height=cam_config.height,
-            fps=cam_config.fps,
-            format=cam_config.format,
-            backend=cam_config.backend,
-        )
     logger.info("カメラ: %s", camera.info.name)
     logger.info("解像度: %sx%s", cam_config.width, cam_config.height)
 

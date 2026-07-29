@@ -52,7 +52,7 @@ class PasteSession:
         pcb_file_path: Path,
         tolerance: float = 0.1,
         *,
-        camera: Camera | None = None,
+        camera: Camera,
         frame_sink: FrameSink | None = None,
     ) -> Self:
         """マシン設定読み込み〜Board 計測〜塗布用 HAL 構築をまとめて実行する."""
