@@ -10,6 +10,8 @@ JobManager だけが生成するため、合成ジョブを manager 経由で実
 - log / progress は record へ反映、frame は preview のオーバーライドスロットへ
 - checkpoint は abort 未要求なら no-op
 - next_command は timeout 超過で None
+- open_camera は hub を起動保持して FrameSource を貸す。`raw=True` で歪み補正前の
+  フレームを配信する（レンズ歪み補正計画 §3・§6）
 
 prompt / abort 経由の挙動は test_manager.py（respond_prompt / request_abort
 側の契約）で検証する。
@@ -18,15 +20,24 @@ prompt / abort 経由の挙動は test_manager.py（respond_prompt / request_abo
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from pcbasm.config import Machine
-from pcbasm.vision import Image
-from tests.webui.conftest import decode_jpeg, jpeg_payload
+from pcbasm.vision import (
+    CalibrationQuality,
+    CalibrationResult,
+    CameraIntrinsics,
+    Image,
+    ResidualReport,
+)
+from tests.webui.conftest import FAKE_CAMERA_IMAGE, decode_jpeg, jpeg_payload
 from webui.board_settings import BoardSettingsStore
+from webui.config_store import ConfigStore
 from webui.jobs.catalog import JobCatalog, ParamSpec
 from webui.jobs.context import JobContext, JobResult
 from webui.jobs.manager import JobManager, JobStatus
@@ -325,6 +336,107 @@ class TestOpenCamera:
 
         assert record.status == JobStatus.FAILED
         assert not state.frame_hub().running
+
+
+def _distorted_calibration(resolution: tuple[int, int]) -> CalibrationResult:
+    """樽型歪み（k1=-0.2）を持つ CalibrationResult（歪み補正の有無を見分ける題材）."""
+    width, height = resolution
+    empty_report = ResidualReport(
+        pixel_per_mm=30.0,
+        rotation_deg=0.0,
+        rms_um=0.0,
+        max_um=0.0,
+        buckets=(),
+        view_residuals=(),
+        corner_count=0,
+    )
+    return CalibrationResult(
+        intrinsics=CameraIntrinsics(
+            camera_matrix=(
+                (float(width), 0.0, width / 2.0),
+                (0.0, float(width), height / 2.0),
+                (0.0, 0.0, 1.0),
+            ),
+            distortion=(-0.2, 0.0, 0.0, 0.0, 0.0),
+            resolution=resolution,
+        ),
+        pixel_per_mm=30.0,
+        square_size_mm=1.5,
+        quality=CalibrationQuality(
+            reprojection_rms_px=0.0,
+            before=empty_report,
+            after=empty_report,
+            pixel_per_mm_std=0.0,
+            view_count=0,
+        ),
+        calibrated_at=datetime.now(),
+        z_position=-25.0,
+    )
+
+
+class TestOpenCameraRawFrames:
+    """open_camera(raw=True) が歪み補正前のフレームを配信する（レンズ歪み補正計画 §3）.
+
+    カメラ校正ジョブが補正済みフレームで再校正すると「残差歪みモデル」が 得られ、Apply
+    でそれに置き換わって元の補正が静かに失われる（2 回目の実行で 機械が劣化する）。`raw=True` はこれを塞ぐための経路で、
+    JobContext → JobBridge → PreviewService → FrameHub.subscribe(raw=)
+    まで 伝播しなければ意味を持たない。
+
+    fake camera は fake_camera.png（1280x720）をそのまま返すので、 「生フレーム ==
+    元画像」「補正済みフレーム != 元画像」で伝播を判定できる。
+    """
+
+    @pytest.fixture
+    def distorted_state(
+        self, fake_camera_settings: Settings, store: ConfigStore
+    ) -> Iterator[AppState]:
+        """歪み係数入りの校正を config へ置いた AppState（frame_hub は遅延構築）."""
+        state = AppState(fake_camera_settings, store)
+        _distorted_calibration((1280, 720)).save(
+            state.machine().camera.calibration_file
+        )
+        yield state
+        state.close()
+
+    @pytest.fixture
+    def distorted_manager(
+        self,
+        distorted_state: AppState,
+        fake_camera_settings: Settings,
+        catalog: JobCatalog,
+    ) -> Iterator[JobManager]:
+        manager = JobManager(
+            distorted_state,
+            PreviewService(distorted_state),
+            catalog,
+            fake_camera_settings,
+        )
+        yield manager
+        manager.shutdown()
+
+    def test_raw_frames_bypass_undistortion_while_default_frames_are_corrected(
+        self,
+        distorted_manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        captured: dict[str, np.ndarray] = {}
+
+        def run(ctx: JobContext) -> None:
+            with ctx.open_camera(raw=True) as camera:
+                captured["raw"] = camera.capture().numpy()
+            with ctx.open_camera() as camera:
+                captured["corrected"] = camera.capture().numpy()
+
+        _register(catalog, run)
+        record = distorted_manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        source = Image.load(FAKE_CAMERA_IMAGE).numpy()
+        assert np.array_equal(captured["raw"], source)
+        assert not np.array_equal(captured["corrected"], source)
+        assert captured["corrected"].shape == source.shape
 
 
 class TestCheckpointAndNextCommand:

@@ -18,10 +18,18 @@ Phase 3 追記（計画書 webui-phase3.md「src/webui/state.py」節）:
   ジョブは request スレッドで取得し worker スレッドで解放するため、
   取得スレッドと別スレッドからの release を許す
 - machine_lock の従来挙動は不変（acquire/release の上に再実装）
+
+レンズ歪み補正計画（`~/.claude/plans/claude-pixels-mm-0-1mm-300-x-swirling-robin.md`
+§4「補正なしへの degrade」）追記:
+
+- frame_hub() は歪み補正器（Undistorter）を組んで FrameHub へ渡す。校正が
+  不在・読めない・解像度不一致のいずれでも例外を出さず「補正なし」で映像を
+  流し続ける（校正前に校正ジョブが動けることの担保）
 """
 
 import json
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 
 import attrs
@@ -304,3 +312,77 @@ class TestCameraLifecycle:
 
         with pytest.raises(FileNotFoundError):
             state.frame_hub()
+
+
+class TestUndistortionDegrade:
+    """歪み補正が組めないときに映像経路が生き残ること（レンズ歪み補正計画 §4）.
+
+    `frame_hub()` は `load_undistorter(calibration_file,
+    camera.resolution.size)` の結果を FrameHub へ渡す。この関数は作れなければ warning 1
+    行を出して None （＝補正なし）を返す**単一の degrade 点**であり、ここで例外を漏らすと 「旧 JSON が読めない →
+    映像が出ない → 校正ジョブを実行できない」という デッドロックになる。校正 JSON は破壊的変更で旧形式が読めなくなるため、
+    この経路は必須要件。
+    """
+
+    CALIBRATION_FILE = "ov9281_test_fixture.json"
+
+    @pytest.fixture
+    def camera_state(
+        self, fake_camera_settings: Settings, store: ConfigStore
+    ) -> Iterator[AppState]:
+        state = AppState(fake_camera_settings, store)
+        yield state
+        state.close()
+
+    @staticmethod
+    def _assert_frames_flow(state: AppState) -> None:
+        """Hub を起動して 1 フレーム取得できることを確かめる（補正の有無に関わらず）."""
+        hub = state.frame_hub()
+        source = hub.subscribe()
+        hub.start()
+        try:
+            frame = source.capture()
+        finally:
+            hub.stop()
+
+        assert frame.size == source.resolution.size
+
+    def test_frames_flow_when_the_calibration_file_is_missing(
+        self, camera_state: AppState, config_dir: Path
+    ):
+        """校正前（JSON 不在）でも映像が出る = 校正ジョブを実行できる."""
+        (config_dir / self.CALIBRATION_FILE).unlink()
+
+        self._assert_frames_flow(camera_state)
+
+    def test_frames_flow_when_the_calibration_file_is_unreadable(
+        self, camera_state: AppState, config_dir: Path
+    ):
+        """壊れた JSON・旧スキーマでも映像が出る（再校正への導線を残す）."""
+        (config_dir / self.CALIBRATION_FILE).write_text(
+            json.dumps({"pixel_per_mm": 40.0, "resolution": [1280, 720]}),
+            encoding="utf-8",
+        )
+
+        self._assert_frames_flow(camera_state)
+
+    def test_frames_flow_when_the_calibration_resolution_mismatches(
+        self, checkerboard_camera_settings: Settings, store: ConfigStore
+    ):
+        """解像度不一致でも映像が出る（K のリスケールで救わず補正なしへ落とす）.
+
+        checkerboard.png は 400x400 で、fixture の校正は 1280x720。
+        """
+        state = AppState(checkerboard_camera_settings, store)
+        try:
+            self._assert_frames_flow(state)
+        finally:
+            state.close()
+
+    def test_frames_flow_with_a_matching_calibration(self, camera_state: AppState):
+        """解像度が一致する校正（歪み全ゼロ = 恒等写像）でも映像が出る.
+
+        fake_camera.png は 1280x720 で fixture の校正と一致するため、 こちらは実際に
+        Undistorter を通る経路になる（対照）。
+        """
+        self._assert_frames_flow(camera_state)

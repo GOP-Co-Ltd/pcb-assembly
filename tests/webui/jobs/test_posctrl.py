@@ -8,21 +8,29 @@
   uses_machine / accepts_commands / params の default
 - generate_grid_pcb: 出力 .kicad_pcb が PcbFile で読めて pad 数 = divisions^2
   （装置非使用。dev タブから位置合わせタブへ移設）
-- camera_calibration: チェッカーボード FakeCamera でのフル結合（prompt 往復、
-  artifacts、Apply payload、Klipper 不通での Z best-effort = z_position None）
+- camera_calibration: チェッカーボード FakeCamera での prompt 往復と、Klipper
+  不通での graceful FAILED（ステージスキャンが必須になったため装置なしでは
+  完走しない。歪み校正の通しは pcbasm 側と `@mark_hardware` が担当）
 - board_tour / orthogonality_test / reference_point_setup の異常系:
   テスト用 config（Klipper port 7126 非リッスン）で graceful FAILED + ロック解放 +
   PRESENT / relax (M84) 失敗警告。成功系のステージ移動・照合は pcbasm テストと
   実機区分でカバーする分担（計画書 §4）
 - 実機通し（実カメラ + 実 Klipper）は `@mark_hardware` でユーザー実行
 
-計画書 memory/agents/implementation-planner/webui-camera-calib.md「公開インターフェース案」
-「1. src/webui/jobs/posctrl.py」節が追加契約:
+計画書 `~/.claude/plans/claude-pixels-mm-0-1mm-300-x-swirling-robin.md`（レンズ歪み
+補正）§6 と §10 が camera_calibration の上書き契約:
 
-- camera_calibration の params は square_size のみ（default 1.5・persisted_params
-  に含む）。crop_width / crop_height は削除され、実行時は machine.toml
-  `[camera.crop]`（`ctx.machine.camera.crop.size`）を読む（真実は machine.toml
-  に一本化。二重管理の回避）
+- params は square_size（float 1.5mm）+ residual_limit（float 30.0um・minimum 0.0）。
+  両方が persisted_params。crop_width / crop_height は引き続き job param では
+  なく machine.toml `[camera.crop]` が真実（二重管理の回避）
+- accepts_commands=False を維持（ホーミングも Z 移動もせず、操作者が合わせた
+  フォーカス Z を破壊しない）
+- フロー: prompt(confirm) → 計画用ショットで検出 → Klipper 接続 + homed_axes 確認
+  → ScanGrid.plan → CheckerboardScanner.scan で 15 点 → IntrinsicsCalibrator.solve
+  → quality.after.rms_um > residual_limit なら artifacts 保存後に RuntimeError
+- prompt は Klipper チェックより**先**（カメラだけで完結する安価なチェックを
+  装置に触る前に済ませる）。よって prompt 往復の 2 テストは装置なしで成立する
+- z_position は best-effort をやめ必須記録（実機区分で検証）
 
 「直行性テストを対話フローへ戻す」変更が `orthogonality_test` の追加契約:
 
@@ -62,7 +70,7 @@ from pathlib import Path
 import pytest
 
 from pcbasm.pcb import PcbFile
-from pcbasm.vision import CalibrationResult, Image
+from pcbasm.vision import CalibrationResult
 from tests.helpers import mark_hardware
 from webui.config_store import ConfigStore
 from webui.jobs.catalog import JobCatalog, default_catalog
@@ -82,13 +90,10 @@ POSCTRL_JOBS = (
     "generate_grid_pcb",
 )
 
-# checkerboard.png は 400x400・1 マス約 66.7px。square_size=10mm で
-# pixel_per_mm ≈ 400/6/10 ≈ 6.67（tests/pcbasm/vision/test_calibration.py と
-# 同一素材）。crop は machine.toml `[camera.crop]` 由来（checkerboard_state
-# fixture が 400x400 に書き換える。既定 600 は 400px 画像をはみ出す）
+# checkerboard.png は 400x400・1 マス約 66.7px（tests/pcbasm/vision/test_calibration.py
+# と同一素材）。計画用ショットの検出だけが装置なしで到達できる範囲なので、
+# square_size の値そのものは結果に効かない
 CHECKERBOARD_PARAMS = {"square_size": 10.0}
-CHECKERBOARD_CROP_SIZE = (400, 400)
-CHECKERBOARD_PIXEL_PER_MM = 400 / 6 / 10
 
 
 @pytest.fixture
@@ -103,9 +108,10 @@ def catalog() -> JobCatalog:
 def checkerboard_state(
     checkerboard_camera_settings: Settings, store: ConfigStore
 ) -> Iterator[AppState]:
-    # checkerboard.png は 400x400。既定 crop 600 は画像をはみ出すため、
-    # tmp コピーの machine.toml へ 400x400 を書いてから AppState を作る
-    # （crop は machine.toml `[camera.crop]` から読まれる契約。要確認事項 a）
+    # checkerboard.png は 400x400。crop は job param ではなく machine.toml
+    # `[camera.crop]` から読まれる契約なので、画像をはみ出す既定 600 ではなく
+    # 400x400 を tmp コピーの machine.toml へ書いてから AppState を作る
+    # （プレビューの十字線・関心領域オーバーレイがこの値を毎フレーム読む）
     store.write_machine_settings({"camera.crop.width": 400, "camera.crop.height": 400})
     state = AppState(checkerboard_camera_settings, store)
     yield state
@@ -169,18 +175,37 @@ class TestCatalog:
         assert default.get("reference_point_setup").params == ()
 
     def test_camera_calibration_params(self, default: JobCatalog):
-        """Square_size のみが params。crop は machine.toml 連動で params から削除済み.
+        """Params は square_size + residual_limit。crop は machine.toml 連動で params
+        外.
 
-        default 1.5（旧: 必須空欄）+ persisted_params に square_size を含む
-        （入力途中の即保存対象。計画書「要確認事項 1」採用）。
+        residual_limit（歪み補正後の残差 RMS 上限 [um]）は合否ゲートで実機の 調整対象になるため
+        param（board_tour / toolhead_offset の tolerance と
+        同じ役割）。負値は意味を持たないので minimum=0.0。両方が入力途中の 即保存対象（persisted_params）。
         """
         definition = default.get("camera_calibration")
         params = {spec.name: spec for spec in definition.params}
 
-        assert set(params) == {"square_size"}
+        assert set(params) == {"square_size", "residual_limit"}
         assert params["square_size"].value_type == "float"
         assert params["square_size"].default == 1.5
-        assert definition.persisted_params == ("square_size",)
+        assert params["residual_limit"].value_type == "float"
+        assert params["residual_limit"].default == 30.0
+        assert params["residual_limit"].minimum == 0.0
+        assert set(definition.persisted_params) == {"square_size", "residual_limit"}
+
+    def test_camera_calibration_params_are_all_optional_with_defaults(
+        self, default: JobCatalog
+    ):
+        """空 body でも両 param が既定値で埋まる（フォーム未入力で実行できる）.
+
+        旧仕様（square_size は必須空欄でエラー）からの挙動変更を維持しつつ、 residual_limit
+        にも同じ規約を適用する。
+        """
+        definition = default.get("camera_calibration")
+
+        validated = default.validate_params(definition, {})
+
+        assert validated == {"square_size": 1.5, "residual_limit": 30.0}
 
     @pytest.mark.parametrize("name", ["board_tour", "orthogonality_test"])
     def test_tolerance_param_defaults(self, default: JobCatalog, name: str):
@@ -225,59 +250,22 @@ class TestGenerateGridPcb:
 
 
 class TestCameraCalibrationJob:
-    """camera_calibration のフル結合（FakeCamera + テスト用 config、装置なし）."""
+    """camera_calibration の装置なし部分（FakeCamera + テスト用 config）.
 
-    def test_full_run_with_checkerboard_yields_apply_payload(
-        self,
-        checkerboard_manager: JobManager,
-        checkerboard_camera_settings: Settings,
-        wait_until: WaitUntil,
-    ):
-        """チェッカーボード画像で SUCCEEDED まで完走し Apply payload を返す.
-
-        - prompt(confirm) に True 応答で撮影 → 検出成功
-        - Z は best-effort: Klipper 不通（port 7126）でも続行し z_position=None、
-          summary に「未取得」（ユーザー決定 2026-06-12）
-        - artifacts: コーナー描画 PNG（image）+ calibration JSON（file）。
-          JSON は CalibrationResult.load で読め、数値が素材と整合する
-        - apply: values は camera.calibration_file のみ、files に JSON 1 件
-        """
-        record = checkerboard_manager.start("camera_calibration", CHECKERBOARD_PARAMS)
-        answered: set[str] = set()
-        answer_next_prompt(record, checkerboard_manager, True, answered)
-        wait_until(lambda: record.status.terminal, timeout=30.0)
-
-        assert record.status == JobStatus.SUCCEEDED
-        result = record.result
-        assert result is not None
-        assert result.summary is not None
-        assert "未取得" in result.summary  # Z best-effort 失敗の明示
-
-        kinds = {artifact.kind for artifact in result.artifacts}
-        assert kinds == {"image", "file"}
-        artifacts_root = checkerboard_camera_settings.webui_data_dir
-        png_artifact = next(a for a in result.artifacts if a.kind == "image")
-        json_artifact = next(a for a in result.artifacts if a.kind == "file")
-        Image.load(artifacts_root / png_artifact.path)  # 読めなければ例外
-        loaded = CalibrationResult.load(artifacts_root / json_artifact.path)
-        assert loaded.pixel_per_mm == pytest.approx(CHECKERBOARD_PIXEL_PER_MM, rel=0.01)
-        assert loaded.z_position is None  # Klipper 不通 → 記録なし
-        # crop は machine.toml 由来（checkerboard_state fixture が書いた 400x400）
-        assert loaded.crop_size == CHECKERBOARD_CROP_SIZE
-
-        assert record.apply_available is True
-        payload = checkerboard_manager.apply_payload()
-        filename = payload.values["camera.calibration_file"]
-        assert isinstance(filename, str)
-        assert filename.endswith(".json")
-        assert set(payload.values) == {"camera.calibration_file"}
-        assert len(payload.files) == 1
-        assert payload.files[0].filename == filename
+    ステージスキャン（15 点）が必須になったため、装置なしで到達できるのは
+    prompt 往復と計画用ショットの検出まで。歪み校正そのものの通し検証は
+    `tests/pcbasm/vision/test_calibration.py::TestDistortionRecovery` /
+    `tests/pcbasm/posctrl/test_checkerboard_scan.py` と `@mark_hardware`
+    区分が担当する（`TestMachineJobsWithoutKlipper` と同じ分担方針）。
+    """
 
     def test_decline_first_prompt_aborts_without_apply(
         self, checkerboard_manager: JobManager, wait_until: WaitUntil
     ):
-        """撮影確認に「いいえ」→ ABORTED（Apply なし）."""
+        """撮影確認に「いいえ」→ ABORTED（Apply なし）.
+
+        prompt が Klipper 接続チェックより先に出ることの担保でもある。
+        """
         record = checkerboard_manager.start("camera_calibration", CHECKERBOARD_PARAMS)
         answered: set[str] = set()
         answer_next_prompt(record, checkerboard_manager, False, answered)
@@ -286,19 +274,29 @@ class TestCameraCalibrationJob:
         assert record.status == JobStatus.ABORTED
         assert record.apply_available is False
 
-    def test_missing_square_size_uses_default_and_succeeds(
-        self, checkerboard_manager: JobManager, wait_until: WaitUntil
+    def test_fails_gracefully_after_confirm_without_klipper(
+        self,
+        checkerboard_manager: JobManager,
+        checkerboard_state: AppState,
+        wait_until: WaitUntil,
     ):
-        """Square_size 省略は required エラーではなく default 1.5 で実行される.
+        """確認に「はい」→ 計画用ショットは通るが Klipper 不通で FAILED + ロック解放.
 
-        旧仕様（必須空欄はエラー）からの挙動変更（計画書「要確認事項 1」）。
+        テスト用 config は Klipper port 7126（非リッスン）なので、計画用 ショットの検出後に置かれた接続 /
+        homed_axes チェックで必ず落ちる。 Apply を出さず、装置排他ロックを解放して終わることが契約。
         """
-        record = checkerboard_manager.start("camera_calibration", {})
+        record = checkerboard_manager.start("camera_calibration", CHECKERBOARD_PARAMS)
         answered: set[str] = set()
         answer_next_prompt(record, checkerboard_manager, True, answered)
-        wait_until(lambda: record.status.terminal, timeout=30.0)
+        wait_until(lambda: record.status.terminal, timeout=120.0)
+        wait_until(lambda: checkerboard_state.busy_owner is None)
 
-        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert record.status == JobStatus.FAILED
+        assert record.error  # 接続エラーが error に載る
+        assert record.apply_available is False
+        assert "M84" in "\n".join(record.log_lines)  # relax 失敗警告（manager 経由）
+        with checkerboard_state.machine_lock("after-failed-job"):  # 解放済み
+            pass
 
     def test_removed_crop_param_is_rejected_as_unknown(
         self, checkerboard_manager: JobManager
@@ -391,8 +389,11 @@ class TestPosctrlHardware:
     前提（計画書 §5「ユーザーへ引き継ぐ実機確認項目」）:
 
     - Moonraker が localhost:7125 で稼働し、各軸がホーミング可能であること
-    - 実カメラが接続済みでキャリブレーション済みであること
-    - camera_calibration: 1 マス 1.5mm の実チェッカーボードを視野に配置
+    - 実カメラが接続済みであること（キャリブレーション済みであることを要求するのは
+      それを前提にする各テストで、camera_calibration は逆に未校正から始める）
+    - camera_calibration: 手動セットアップの前提が多いため、下記
+      `test_camera_calibration_scan_yields_camera_matrix_and_residual_report`
+      の docstring に個別に列挙してある
     - board_tour / orthogonality_test: data/testing/fill_coverage の基板が
       ステージにセットされ、基準点マーカーが視野に入ること
 
@@ -450,13 +451,30 @@ class TestPosctrlHardware:
         assert record.status == JobStatus.ABORTED
         assert record.apply_available is False
 
-    def test_camera_calibration_records_z_position(
+    def test_camera_calibration_scan_yields_camera_matrix_and_residual_report(
         self,
         real_manager: JobManager,
         real_settings: Settings,
         wait_until: WaitUntil,
     ):
-        """実チェッカーボードで z_position が記録される（Z best-effort 成功側）."""
+        """ステージ 15 点スキャンで intrinsics を推定し、残差が補正で改善する.
+
+        **このテストを実行する前に手で整えておく前提**（ジョブはホーミングも
+        Z 移動もしないため、満たさないと即 FAILED になる）:
+
+        1. Moonraker が localhost:7125 で稼働している
+        2. 全軸（x / y / z）がホーミング済みである（`homed_axes` の確認が入る）
+        3. カメラのフォーカス Z へジョグ済みである（その Z が z_position として
+           記録される。ジョブは Z を動かさない）
+        4. **1 マス 1.5mm・12x9 マス（内部コーナー 11x8）のチェッカーボード**が
+           ステージにセットされ、そのマス目が画像中央の十字線に合っている
+        5. 現在位置の周囲 **±11.3mm(X) / ±4.4mm(Y)** が可動域内である
+           （5x3 格子・span 22.6 x 8.7mm を蛇行で巡回し、最後に開始位置へ戻る）
+
+        検証するのは「補正が有効な (K,D) を得て、残差が実測で改善する」ことのみ。
+        残差の絶対値は `residual_limit`（既定 30um）が既にゲートしているので
+        ここでは重ねず、`before → after` の単調改善だけをアサートする。
+        """
         record = real_manager.start("camera_calibration", {"square_size": 1.5})
         answered: set[str] = set()
         answer_next_prompt(record, real_manager, True, answered)
@@ -468,20 +486,40 @@ class TestPosctrlHardware:
                 (pending := record.pending_prompt) is not None
                 and pending[0] not in answered
             ),
-            timeout=120.0,
+            timeout=300.0,
         )
         if not record.status.terminal:
             answer_next_prompt(record, real_manager, False, answered)
             pytest.fail("チェッカーボードが検出されません。視野に配置してください")
 
-        assert record.status == JobStatus.SUCCEEDED
+        assert record.status == JobStatus.SUCCEEDED, record.error
         result = record.result
         assert result is not None
-        json_artifact = next(a for a in result.artifacts if a.kind == "file")
+        artifact_names = {Path(a.path).name for a in result.artifacts}
+        assert "scan_verification.json" in artifact_names
+        assert "residuals.png" in artifact_names
+
+        # 採用候補の JSON は Apply payload の filename で特定する（命名規約に依存しない）
+        payload = real_manager.apply_payload()
+        filename = payload.values["camera.calibration_file"]
+        json_artifact = next(
+            a for a in result.artifacts if Path(a.path).name == filename
+        )
         loaded = CalibrationResult.load(
             real_settings.webui_data_dir / json_artifact.path
         )
-        assert loaded.z_position is not None  # 実 Klipper から Z を取得
+
+        assert loaded.z_position is not None  # フォーカス Z が必須記録される
+        # 使い物になる K が出ている（焦点距離が正・主点が視野内・歪みが非ゼロ）
+        width, height = loaded.resolution
+        matrix = loaded.intrinsics.camera_matrix
+        assert matrix[0][0] > 0.0
+        assert matrix[1][1] > 0.0
+        assert 0.0 < matrix[0][2] < width
+        assert 0.0 < matrix[1][2] < height
+        assert any(coefficient != 0.0 for coefficient in loaded.intrinsics.distortion)
+        # 補正で残差が改善している（歪みが実際にモデル化できた証拠）
+        assert loaded.quality.after.rms_um < loaded.quality.before.rms_um
 
     def test_board_tour_runs_to_success(
         self,

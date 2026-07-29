@@ -268,3 +268,93 @@ class TestHeightRender:
         assert plane_image.shape == identity_image.shape
         diff = np.asarray(cv2.absdiff(plane_image, identity_image))
         assert float(diff.mean()) > 0.1
+
+
+def _scan_quality(distortion=(-0.12, 0.03, 0.0, 0.0, 0.0)):
+    """既知の歪みを持つ 4 視点から CalibrationQuality を組み立てる.
+
+    残差フィットはステージ変位が 2 方向に広がっている必要があるため、矩形に
+    並べた 4 視点を使う。画像レンダリングは不要なので `cv2.projectPoints` から
+    コーナーを直接作る（歪み復元の精度検証は test_calibration.py の担当）。
+    """
+    from pcbasm.geometry import Point2d
+    from pcbasm.vision import (
+        CalibrationQuality,
+        CameraIntrinsics,
+        ResidualReport,
+        undistort_views,
+    )
+    from tests.helpers import SyntheticCheckerboardCamera
+
+    resolution = (1280, 720)
+    camera = SyntheticCheckerboardCamera(
+        position=lambda: Point2d(0.0, 0.0),
+        image_size=resolution,
+        dist_coeffs=distortion,
+    )
+    before = tuple(
+        camera.project_view(position)
+        for position in (
+            Point2d(-5.0, -3.0),
+            Point2d(5.0, -3.0),
+            Point2d(5.0, 3.0),
+            Point2d(-5.0, 3.0),
+        )
+    )
+    after = undistort_views(
+        before,
+        CameraIntrinsics.of(camera.camera_matrix, camera.dist_coeffs, resolution),
+    )
+    quality = CalibrationQuality(
+        reprojection_rms_px=0.09,
+        before=ResidualReport.measure(before),
+        after=ResidualReport.measure(after),
+        pixel_per_mm_std=0.01,
+        view_count=len(before),
+    )
+    return quality, before, after
+
+
+class TestResidualRender:
+    """render_scan_residuals（計画書 §8 の `residuals.png`）.
+
+    matplotlib はモックせず実物で PNG を吐かせ、cv2 で復号できることを見る （既存 TestHeightRender
+    と同粒度）。
+    """
+
+    def test_renders_before_and_after_residuals_to_readable_png(self, tmp_path):
+        from pcbasm.visualization import render_scan_residuals
+
+        quality, before, after = _scan_quality()
+        output = tmp_path / "residuals.png"
+
+        render_scan_residuals(quality, before, after, output)
+
+        image = cv2.imread(str(output))
+        assert image is not None
+        assert image.size > 0
+        # 2 パネル + 半径 vs RMS の折れ線を収める非自明なサイズ
+        assert image.shape[0] > 400
+        assert image.shape[1] > 400
+
+    def test_output_differs_between_distortion_shapes(self, tmp_path):
+        """歪みが違えば図も違う（引数が実際に描画へ反映されている）."""
+        from pcbasm.visualization import render_scan_residuals
+
+        barrel_output = tmp_path / "barrel.png"
+        pincushion_output = tmp_path / "pincushion.png"
+
+        render_scan_residuals(
+            *_scan_quality((-0.12, 0.03, 0.0, 0.0, 0.0)), barrel_output
+        )
+        render_scan_residuals(
+            *_scan_quality((0.15, -0.04, 0.0, 0.0, 0.0)), pincushion_output
+        )
+
+        barrel = cv2.imread(str(barrel_output))
+        pincushion = cv2.imread(str(pincushion_output))
+        assert barrel is not None
+        assert pincushion is not None
+        assert barrel.shape == pincushion.shape
+        diff = np.asarray(cv2.absdiff(barrel, pincushion))
+        assert float(diff.mean()) > 0.1
