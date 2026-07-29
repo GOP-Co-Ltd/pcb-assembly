@@ -32,7 +32,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+import tomlkit
 
+from pcbasm.config import Audio
+from pcbasm.hal import AudioPlaybackError
+from tests.helpers import FakeAudioPlayer
 from webui.jobs.catalog import JobCatalog, ParamSpec
 from webui.jobs.context import ApplyPayload, JobContext, JobResult, PromptSpec
 from webui.jobs.manager import (
@@ -49,6 +53,16 @@ from .conftest import (
     register_gated as _register_gated,
     register_synthetic as _register,
 )
+
+
+def _configure_audio(config_dir: Path) -> Audio:
+    """machine.toml へ `[audio]` を書き、書いた設定を返す."""
+    config = Audio(device="test-speaker", volume=0.3)
+    path = config_dir / "machine.toml"
+    document = tomlkit.parse(path.read_text(encoding="utf-8"))
+    document["audio"] = {"device": config.device, "volume": config.volume}
+    path.write_text(tomlkit.dumps(document), encoding="utf-8")
+    return config
 
 
 def _register_prompting(
@@ -1130,6 +1144,154 @@ class TestUpdateCurrentParams:
 
         # 起動時に persisted_params で 10.0 が保存されたまま（55.0 にはならない）
         assert state.job_param_defaults("reader")["line_length"] == 10.0
+
+
+class TestAudioCompletionNotification:
+    """notify_on_completion ジョブの Raspberry Pi 本体からの通知音.
+
+    webui-audio-output 計画書「`src/webui/jobs/manager.py`」節が契約:
+
+    - 成功 → success / 失敗 → failure を 1 回だけ鳴らす
+    - ABORTED と notify_on_completion=False は鳴らさない
+    - `[audio]` 未設定でも既定値（Machine.audio）で鳴る
+    - 再生失敗は warning のみでジョブ status に影響しない
+    """
+
+    def test_success_plays_success_sound_once(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        config_dir: Path,
+        wait_until: WaitUntil,
+    ):
+        config = _configure_audio(config_dir)
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+        _register(catalog, lambda ctx: None, notify_on_completion=True)
+
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+        wait_until(lambda: len(player.played) == 1)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert player.played == (("success", config),)
+
+    def test_failure_plays_failure_sound_once(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        config_dir: Path,
+        wait_until: WaitUntil,
+    ):
+        config = _configure_audio(config_dir)
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+
+        def fail(ctx: JobContext) -> None:
+            raise RuntimeError("意図的な失敗")
+
+        _register(catalog, fail, notify_on_completion=True)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+        wait_until(lambda: len(player.played) == 1)
+
+        assert record.status == JobStatus.FAILED
+        assert player.played == (("failure", config),)
+
+    def test_aborted_job_does_not_play(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        config_dir: Path,
+        wait_until: WaitUntil,
+    ):
+        _configure_audio(config_dir)
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+        _register_gated(catalog, notify_on_completion=True)
+        record = manager.start("gated", {})
+        wait_until(lambda: record.status == JobStatus.RUNNING)
+
+        assert manager.request_abort() is True
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.ABORTED
+        assert player.played == ()
+
+    def test_notification_disabled_job_does_not_play(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        config_dir: Path,
+        wait_until: WaitUntil,
+    ):
+        _configure_audio(config_dir)
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+        _register(catalog, lambda ctx: None, notify_on_completion=False)
+
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert player.played == ()
+
+    def test_missing_audio_section_plays_with_defaults(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        """`[audio]` を書かない fixture でも既定デバイス・既定音量で鳴る."""
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+        _register(catalog, lambda ctx: None, notify_on_completion=True)
+
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+        wait_until(lambda: len(player.played) == 1)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert player.played == (("success", Audio()),)
+
+    @pytest.mark.parametrize(
+        ("job_fails", "expected_status"),
+        [(False, JobStatus.SUCCEEDED), (True, JobStatus.FAILED)],
+    )
+    def test_playback_failure_warns_without_changing_job_status(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        config_dir: Path,
+        wait_until: WaitUntil,
+        caplog: pytest.LogCaptureFixture,
+        job_fails: bool,
+        expected_status: JobStatus,
+    ):
+        _configure_audio(config_dir)
+        player = FakeAudioPlayer(
+            playback_error=AudioPlaybackError("speaker disconnected")
+        )
+        manager = make_manager(catalog, audio_player=player)
+
+        def run(ctx: JobContext) -> None:
+            if job_fails:
+                raise RuntimeError("job failure")
+
+        _register(catalog, run, notify_on_completion=True)
+        with caplog.at_level(logging.WARNING):
+            record = manager.start("synthetic", {})
+            wait_until(lambda: record.status.terminal)
+            wait_until(
+                lambda: any(
+                    item.levelno >= logging.WARNING
+                    and "speaker disconnected" in item.getMessage()
+                    for item in caplog.records
+                )
+            )
+
+        assert record.status == expected_status
+        assert len(player.played) == 1
 
 
 class TestShutdown:

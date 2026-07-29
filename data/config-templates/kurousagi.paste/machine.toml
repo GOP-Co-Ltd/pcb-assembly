@@ -88,3 +88,9 @@ bottom_right = [-2.5, 5.0]
 x = 67.3
 y = 52.0
 z = -24.0
+
+# ジョブ完了通知音の出力先。省略時は ALSA のシステム既定デバイス・音量 0.75。
+# WebUI の /dev/audio で選ぶと config/machine.toml 側に書き込まれる
+# [audio]
+# device = "default" # aplay -L の PCM 名（例 plughw:CARD=sndrpihifiberry,DEV=0）
+# volume = 0.75      # 0.0〜1.0
