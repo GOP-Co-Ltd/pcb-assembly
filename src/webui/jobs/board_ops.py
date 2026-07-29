@@ -107,7 +107,7 @@ def align_component_groups(
     """部品単位の銅箔照合ループの共通骨格.
 
     部品ごとに progress("銅箔照合") → checkpoint → ``session.align`` →
-    dx/dy/theta/mean_distance の log を行い、成功した (group, alignment) を
+    dx/dy/mean_distance の log を行い、成功した (group, alignment) を
     集めて返す。失敗は警告 log の後 ``on_failure``（あれば）を呼んで続行する
     （board_tour が失敗 overlay の配信に使う）。
 
@@ -141,7 +141,6 @@ def align_component_groups(
         translation = alignment.translation
         ctx.log(
             f"{designator}: dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
-            f"theta={alignment.rotation.degrees:+.3f} deg, "
             f"mean_distance={alignment.match.mean_distance_px:.2f} px"
         )
         aligned.append((group, alignment))

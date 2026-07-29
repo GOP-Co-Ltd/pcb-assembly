@@ -1,11 +1,14 @@
 """Posctrl/pad の仕様テスト.
 
 計画書 memory/agents/implementation-planner/pad-alignment.md「posctrl/pad.py」に
-基づく。CopperPadObserver は capture → detect_edges → match_rigid(roi) →
+基づく。CopperPadObserver は capture → detect_edges → match(roi) →
 camera_transform の observer 契約（observe() -> Transform、カメラ mm・画像中心
-原点・想定→観測）。PadAlignmentResult は machine_transform から表示用の並進・
-回転を導出する。PadAligner の収束ループ自体は XYPositionAdjustor のテストと
+原点・想定→観測）。PadAlignmentResult は machine_transform から表示用の並進を
+導出する。PadAligner の収束ループ自体は XYPositionAdjustor のテストと
 実機検証でカバーする（計画書テスト計画）。
+
+θ 撤去（memory/agents/spec-test-author/pad-align-drop-theta.md）により照合は
+並進のみになり、camera_transform は Shift、PadAlignmentResult.rotation は廃止された。
 
 カメラは tests/helpers.py の FakeCamera（自前 HAL Camera の test Impl）、
 エッジ検出は実 CopperEdgeDetector（Canny）を使う。
@@ -18,7 +21,8 @@ import shapely
 
 from pcbasm.geometry import Compose, Point2d, Rotation, Scale, Shift, Transform
 from pcbasm.pcb import Component, Layer, Pad
-from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjection, RigidEdgeMatch
+from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjection, EdgeMatch
+from pcbasm.posctrl.correction import to_machine_transform
 from pcbasm.posctrl.pad import (
     CopperPadObserver,
     PadAlignmentResult,
@@ -88,7 +92,7 @@ class TestCopperPadObserver:
         assert shift.x == pytest.approx(0.6, abs=0.2)
         assert shift.y == pytest.approx(-0.4, abs=0.2)
         match = observer.last_match
-        assert isinstance(match, RigidEdgeMatch)
+        assert isinstance(match, EdgeMatch)
         assert match.offset.px.x == pytest.approx(6.0, abs=2.0)
         assert match.offset.px.y == pytest.approx(-4.0, abs=2.0)
 
@@ -122,12 +126,10 @@ class TestCopperPadObserver:
         assert shift.x == pytest.approx(0.6, abs=0.2)
 
 
-def _dummy_match() -> RigidEdgeMatch:
-    """表示用フィールドを埋めるだけの照合結果."""
-    return RigidEdgeMatch(
-        offset=Offset(px=Point2d(0.0, 0.0), pixel_per_mm=PPM),
-        rotation=Rotation(0.0),
-        center_mm=Point2d(0.0, 0.0),
+def _dummy_match(offset_px: Point2d = Point2d(0.0, 0.0)) -> EdgeMatch:
+    """指定 px ずれの照合結果（既定はずれなし）."""
+    return EdgeMatch(
+        offset=Offset(px=offset_px, pixel_per_mm=PPM),
         mean_distance_px=0.0,
     )
 
@@ -175,29 +177,70 @@ class TestPadAlignmentResult:
         assert translation.x == pytest.approx(0.5, abs=1e-9)
         assert translation.y == pytest.approx(0.0, abs=1e-9)
 
-    def test_rotation_recovers_machine_angle(self):
-        """Rotation = from_points(ex, M(anchor+ex) − M(anchor)) → 回転角 30°."""
-        anchor = Point2d(12.0, 34.0)
-        machine = Compose(
-            [
-                Shift(-anchor.x, -anchor.y),
-                Rotation(30.0),
-                Shift(anchor.x + 0.5, anchor.y),
-            ]
+
+class TestPadAlignmentIsPureTranslation:
+    """照合結果から作る machine_transform が純並進であることのピン.
+
+    θ が乗ると M(p) = Q(p − anchor) + … となり、補正量が |p − anchor| に比例して 増える（θ=2°
+    でレバー腕 1mm あたり 35µm、10mm 部品で 0.35mm）。これが board_tour で
+    部品ごとにバラバラなずれが出た原因。θ 撤去後は camera_transform が Shift になり、 共役 M
+    も純並進でなければならない。
+    """
+
+    @staticmethod
+    def _machine_transform(offset_transform: Transform) -> tuple[Transform, Point2d]:
+        """実照合と同じ経路（EdgeMatch → to_machine_transform）で M を作る."""
+        anchor = Point2d(120.0, 85.0)
+        match = _dummy_match(Point2d(12.0, -8.0))
+        machine_transform = to_machine_transform(
+            match.camera_transform,
+            offset_transform,
+            projection_anchor=anchor,
+            observed_at=Point2d(120.3, 84.6),
         )
-        result = _result(machine, anchor=anchor)
+        return machine_transform, anchor
 
-        assert result.rotation.degrees == pytest.approx(30.0, abs=1e-9)
+    @pytest.mark.parametrize(
+        "offset_transform",
+        [
+            Rotation(0.0),
+            Rotation(30.0),
+            Compose([Rotation(90.0), Shift(1.0, -2.0)]),
+            # 下向きカメラは画像 y が機械 Y と逆向きになり det<0 になり得る
+            Compose([Rotation(30.0), Scale.flip(y=True)]),
+        ],
+    )
+    def test_displacement_is_independent_of_lever_arm(
+        self, offset_transform: Transform
+    ):
+        """アンカーから 10mm 離れた 2 点の変位ベクトルが一致する（レバー腕ゼロ）."""
+        machine_transform, anchor = self._machine_transform(offset_transform)
 
-    def test_rotation_flips_sign_under_mirror_transform(self):
-        """鏡映を含む M（det<0）でも from_points 導出で自動処理される.
+        far_a = anchor + Point2d(10.0, 0.0)
+        far_b = anchor + Point2d(-6.0, 8.0)  # anchor から 10mm、別方向
+        displacement_at_anchor = machine_transform.apply(anchor) - anchor
+        displacement_a = machine_transform.apply(far_a) - far_a
+        displacement_b = machine_transform.apply(far_b) - far_b
 
-        M = Rotation(10) → flip_y: ex の像は (cos10, −sin10) → 角度 −10°。
+        assert displacement_a.x == pytest.approx(displacement_at_anchor.x, abs=1e-9)
+        assert displacement_a.y == pytest.approx(displacement_at_anchor.y, abs=1e-9)
+        assert displacement_b.x == pytest.approx(displacement_at_anchor.x, abs=1e-9)
+        assert displacement_b.y == pytest.approx(displacement_at_anchor.y, abs=1e-9)
+
+    def test_result_translation_applies_to_every_pad_of_the_component(self):
+        """PadAlignmentResult.translation が部品内のどの pad にも同じだけ効く.
+
+        translation は anchor（フットプリント原点）での変位。純並進なら 10mm 離れた pad
+        の補正量もこれと一致する。
         """
-        machine = Compose([Rotation(10.0), Scale.flip(y=True)])
-        result = _result(machine, anchor=Point2d(2.0, 3.0))
+        machine_transform, anchor = self._machine_transform(Rotation(30.0))
+        result = _result(machine_transform, anchor=anchor)
 
-        assert result.rotation.degrees == pytest.approx(-10.0, abs=1e-9)
+        pad_far = anchor + Point2d(10.0, 0.0)
+        displacement = machine_transform.apply(pad_far) - pad_far
+
+        assert displacement.x == pytest.approx(result.translation.x, abs=1e-9)
+        assert displacement.y == pytest.approx(result.translation.y, abs=1e-9)
 
 
 def _pad(designator: str, x: float, y: float, half: float = 0.4) -> Pad:

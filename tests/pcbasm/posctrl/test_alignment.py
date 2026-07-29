@@ -23,8 +23,11 @@ calibration は実 CalibrationResult、machine は実 Machine
 返す Mock を使う。合成矩形画像のイディオムは test_pad.py を踏襲する。
 """
 
+import logging
+import re
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -49,7 +52,7 @@ from pcbasm.posctrl.alignment import (
     PadAlignmentSession,
     sorted_top_component_pads,
 )
-from pcbasm.posctrl.copper import CopperProjector, RigidEdgeMatch
+from pcbasm.posctrl.copper import CopperProjector, EdgeMatch
 from pcbasm.posctrl.pad import ComponentPads, PadAlignmentResult
 from pcbasm.posctrl.setup import BoardCalibrationResult
 from pcbasm.vision import CalibrationResult, Image, Offset
@@ -103,12 +106,10 @@ def _pad(
     )
 
 
-def _dummy_match() -> RigidEdgeMatch:
+def _dummy_match() -> EdgeMatch:
     """表示用フィールドを埋めるだけの照合結果."""
-    return RigidEdgeMatch(
+    return EdgeMatch(
         offset=Offset(px=Point2d(0.0, 0.0), pixel_per_mm=PPM),
-        rotation=Rotation(0.0),
-        center_mm=Point2d(0.0, 0.0),
         mean_distance_px=0.0,
     )
 
@@ -229,6 +230,19 @@ def _machine_config() -> Machine:
     return Machine(TESTING_CONFIG_DIR / "machine.toml")
 
 
+def _machine_config_with_tolerance(tmp_path: Path, tolerance: float) -> Machine:
+    """pad_align.tolerance だけを差し替えた Machine を作る.
+
+    フィクスチャ machine.toml の tolerance 値に依存しないよう、常に明示指定する。
+    """
+    source = (TESTING_CONFIG_DIR / "machine.toml").read_text(encoding="utf-8")
+    replaced = re.sub(r"(?m)^tolerance = .*$", f"tolerance = {tolerance}", source)
+    assert replaced != source  # キー名が変わったら気付けるようにする
+    path = tmp_path / "machine.toml"
+    path.write_text(replaced, encoding="utf-8")
+    return Machine(path)
+
+
 def _calibration() -> CalibrationResult:
     return CalibrationResult(
         pixel_per_mm=PPM,
@@ -296,9 +310,10 @@ class TestPadAlignmentSession:
         pcb,
         board_transform: Transform | None = None,
         frame_sink: Callable[[Image], None] | None = None,
+        machine: Machine | None = None,
     ) -> PadAlignmentSession:
         result = BoardCalibrationResult(
-            machine=_machine_config(),
+            machine=machine if machine is not None else _machine_config(),
             klipper=klipper,
             stage=stage,
             camera=camera,
@@ -331,6 +346,31 @@ class TestPadAlignmentSession:
         assert result.translation.x == pytest.approx(-0.2, abs=0.1)
         assert result.translation.y == pytest.approx(0.2, abs=0.1)
 
+    def test_align_result_transform_has_no_lever_arm(self, klipper, stage, pcb):
+        """Align() が返す machine_transform は純並進（アンカー距離に依らない）.
+
+        θ が残っていると、アンカーから 10mm 離れた pad の補正量が anchor での補正量から |pad −
+        anchor| × θ だけずれる（θ=2° で 0.35mm）。照合を並進のみにした後は、
+        どの点でも変位ベクトルが一致しなければならない。
+        """
+        camera = FakeCamera([_board_image(2, -2), _board_image()])
+        session = self._session(camera, klipper, stage, pcb)
+        target = ComponentPads(component=pcb.components[0], pads=tuple(pcb.pads))
+
+        result = session.align(target)
+
+        assert result is not None
+        transform = result.machine_transform
+        anchor = result.anchor
+        for far in [
+            anchor + Point2d(10.0, 0.0),
+            anchor + Point2d(0.0, -10.0),
+            anchor + Point2d(-6.0, 8.0),
+        ]:
+            displacement = transform.apply(far) - far
+            assert displacement.x == pytest.approx(result.translation.x, abs=1e-9)
+            assert displacement.y == pytest.approx(result.translation.y, abs=1e-9)
+
     def test_align_delivers_edge_match_frames_to_frame_sink(self, klipper, stage, pcb):
         """frame_sink 指定時、align() 中に照合状況の合成フレームが届く.
 
@@ -348,6 +388,37 @@ class TestPadAlignmentSession:
         assert result is not None
         assert len(frames) >= 1  # 観測（observe）1 回につき 1 枚
         assert frames[0].size == (WIDTH, HEIGHT)
+
+    @pytest.mark.parametrize(
+        ("tolerance", "warns"),
+        [
+            (0.05, True),  # 1px (0.1mm) 未満
+            (0.12, True),  # 1px 超だが √2px (0.1414mm) 未満
+            (0.2, False),  # √2px 超
+        ],
+    )
+    def test_warns_when_tolerance_below_diagonal_pixel(
+        self, klipper, stage, pcb, caplog, tmp_path, tolerance: float, warns: bool
+    ):
+        """収束閾値が斜め 1px（√2/ppm）未満なら警告を出す.
+
+        照合の並進は整数 px なので残差ノルムの取り得る値は 0, 1px, √2px, 2px…。 斜め 1px (±1, ±1)
+        の残差で収束するには tolerance > √2/pixel_per_mm が要る。 1px 超 √2px
+        未満の設定は「1px 基準では合格に見えるのに収束しない」領域で、 非収束の原因が沈黙しないようセッション構築時に警告する。
+        pixel_per_mm=10 なので 1px=0.1mm、√2px=0.1414mm。
+        """
+        camera = FakeCamera([_board_image()])
+
+        with caplog.at_level(logging.WARNING):
+            self._session(
+                camera,
+                klipper,
+                stage,
+                pcb,
+                machine=_machine_config_with_tolerance(tmp_path, tolerance),
+            )
+
+        assert ("tolerance" in caplog.text) is warns
 
     def test_align_returns_none_when_matching_fails(self, klipper, stage, pcb):
         """真っ黒な画像（エッジなし）では照合失敗を漏らさず None を返す."""

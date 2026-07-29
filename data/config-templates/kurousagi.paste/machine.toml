@@ -40,12 +40,11 @@ y = 22.9727
 
 [paste_dispenser.pad_align]
 # pad単位の銅箔照合による位置合わせ
-tolerance = 0.025    # 収束許容誤差 [mm]
+tolerance = 0.05    # 収束許容誤差 [mm]。照合の並進は整数pixelで最小残差は斜め1px なので √2/pixel_per_mm より大きくする
 max_correction = 0.3         # 1回の照合で許容する最大ずれ [mm]。超過は誤マッチとして照合失敗
 search_window = 1.4 # 照合の探索窓 片側幅 [mm]
 roi_margin = 0.5    # pad ROIのマージン [mm]
 min_roi = 1.0       # pad ROIの最小辺長 [mm]
-theta_range = 2.0   # 回転探索の片側範囲 [deg]
 canny_low = 55.0   # Cannyエッジ検出の下側閾値
 canny_high = 104.0  # Cannyエッジ検出の上側閾値
 blur_ksize = 3      # GaussianBlurカーネルサイズ (奇数)

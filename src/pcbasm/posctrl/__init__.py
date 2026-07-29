@@ -12,7 +12,6 @@ from .copper import (
     CopperProjector,
     EdgeMatch,
     PixelRect,
-    RigidEdgeMatch,
 )
 from .correction import to_machine_transform
 from .offset import OffsetTransformMeasurer
@@ -59,7 +58,6 @@ __all__ = [
     "PadAlignmentSession",
     "PadResultRenderer",
     "PixelRect",
-    "RigidEdgeMatch",
     "XYPositionAdjustor",
     "display_at_point",
     "group_pads_by_component",
