@@ -1,21 +1,63 @@
-from .calibration import CalibrationResult, CheckerboardCalibrator
+from .calibration import (
+    MINIMUM_SCAN_VIEWS,
+    RESIDUAL_BUCKET_EDGES_PX,
+    SCAN_COLUMNS,
+    SCAN_ROWS,
+    CalibrationQuality,
+    CalibrationResult,
+    CheckerboardDetector,
+    CheckerboardView,
+    IntrinsicsCalibrator,
+    RadialResidualBucket,
+    ResidualReport,
+    ScanGrid,
+    ViewResidual,
+    load_undistorter,
+    measure_pixel_per_mm,
+    residual_field,
+    undistort_views,
+)
 from .copper import CopperEdgeDetector
 from .detection import CircleDetector, DetectedCircle, Offset
 from .image import FrameSink, Image, ImageArray, safe_move_distance
-from .overlay import draw_crosshair, draw_detected_circle, draw_overlay
+from .intrinsics import CameraIntrinsics, Undistorter
+from .overlay import (
+    draw_crosshair,
+    draw_detected_circle,
+    draw_overlay,
+    draw_scan_coverage,
+)
 
 __all__ = [
+    "MINIMUM_SCAN_VIEWS",
+    "RESIDUAL_BUCKET_EDGES_PX",
+    "SCAN_COLUMNS",
+    "SCAN_ROWS",
+    "CalibrationQuality",
     "CalibrationResult",
-    "CheckerboardCalibrator",
+    "CameraIntrinsics",
+    "CheckerboardDetector",
+    "CheckerboardView",
     "CircleDetector",
     "CopperEdgeDetector",
     "DetectedCircle",
     "FrameSink",
     "Image",
     "ImageArray",
+    "IntrinsicsCalibrator",
     "Offset",
+    "RadialResidualBucket",
+    "ResidualReport",
+    "ScanGrid",
+    "Undistorter",
+    "ViewResidual",
     "draw_crosshair",
     "draw_detected_circle",
     "draw_overlay",
+    "draw_scan_coverage",
+    "load_undistorter",
+    "measure_pixel_per_mm",
+    "residual_field",
     "safe_move_distance",
+    "undistort_views",
 ]

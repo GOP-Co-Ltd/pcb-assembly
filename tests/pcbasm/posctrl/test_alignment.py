@@ -52,7 +52,14 @@ from pcbasm.posctrl.alignment import (
 from pcbasm.posctrl.copper import CopperProjector, RigidEdgeMatch
 from pcbasm.posctrl.pad import ComponentPads, PadAlignmentResult
 from pcbasm.posctrl.setup import BoardCalibrationResult
-from pcbasm.vision import CalibrationResult, Image, Offset
+from pcbasm.vision import (
+    CalibrationQuality,
+    CalibrationResult,
+    CameraIntrinsics,
+    Image,
+    Offset,
+    ResidualReport,
+)
 from tests.helpers import TESTING_CONFIG_DIR, FakeCamera
 
 WIDTH, HEIGHT = 1280, 720  # カメラフレームサイズ (px)
@@ -230,13 +237,35 @@ def _machine_config() -> Machine:
 
 
 def _calibration() -> CalibrationResult:
+    """歪みゼロの CalibrationResult（このテストは pixel_per_mm だけを使う）."""
+    empty_report = ResidualReport(
+        pixel_per_mm=PPM,
+        rotation_deg=0.0,
+        rms_um=0.0,
+        max_um=0.0,
+        buckets=(),
+        view_residuals=(),
+        corner_count=0,
+    )
     return CalibrationResult(
+        intrinsics=CameraIntrinsics(
+            camera_matrix=(
+                (float(WIDTH), 0.0, WIDTH / 2.0),
+                (0.0, float(WIDTH), HEIGHT / 2.0),
+                (0.0, 0.0, 1.0),
+            ),
+            distortion=(0.0, 0.0, 0.0, 0.0, 0.0),
+            resolution=(WIDTH, HEIGHT),
+        ),
         pixel_per_mm=PPM,
         square_size_mm=1.0,
-        mean_distance_px=PPM,
-        std_distance_px=0.0,
-        resolution=(WIDTH, HEIGHT),
-        crop_size=(600, 600),
+        quality=CalibrationQuality(
+            reprojection_rms_px=0.0,
+            before=empty_report,
+            after=empty_report,
+            pixel_per_mm_std=0.0,
+            view_count=0,
+        ),
         calibrated_at=datetime.now(),
         z_position=5.0,
     )

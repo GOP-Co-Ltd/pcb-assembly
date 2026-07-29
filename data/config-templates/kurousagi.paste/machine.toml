@@ -61,8 +61,12 @@ format = "YUYV"
 calibration_file = "calibration.json"
 
 [camera.crop]
-width = 300
-height = 300
+# レンズ歪み補正が前提。キャリブレーション JSON のカメラ行列で FrameHub がフレームを
+# undistort するため、周辺まで単一の pixel_per_mm が成立し 600 px を使える。
+# 補正なし（キャリブレーション未実施・旧スキーマの JSON）では隅の系統誤差が
+# 100 um を超えるので、その状態で使うなら 300 に戻すこと
+width = 600
+height = 600
 
 [probe]
 min_radius = 0.3            # サンプル点が銅箔境界から確保すべき最小距離 [mm]

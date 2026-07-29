@@ -44,6 +44,16 @@ camera_calibration ジョブを実行し、Apply で `config/` に生成させ�
 存在しないファイル名（`calibration.json`）を指しており、キャリブレーション実施までは
 フォーカス Z 位置が未取得（`None`）になるだけで起動や映像表示には影響しない。
 
+キャリブレーション JSON は `pixel_per_mm` だけでなく**カメラ行列と歪み係数（`intrinsics`）を持つ**。
+WebUI は起動時にこれを読んでレンズ歪み補正マップを作り、`FrameHub` の撮像ループでフレームを
+undistort する。これにより単一スカラーの `pixel_per_mm` が視野全域で成立し、`[camera.crop]` を
+600 px まで広げられる。
+
+**`intrinsics` を持たない旧スキーマの JSON は読めない。** 再キャリブレーションが必要。読めない
+JSON（不在・旧スキーマ・カメラ解像度との不一致）では警告ログを 1 行出して「歪み補正なし」で
+続行するので、WebUI の起動と映像配信は維持され camera_calibration ジョブを実行できる。ただし
+`reference_point_setup` / `board_tour` は `pixel_per_mm` が無いため明示的に失敗する。
+
 ## 命名規則
 
 `<マシン名>.<用途>` — 用途は `machine.toml` の `machine_type`（`paste` / `pnp`）に一致させる。

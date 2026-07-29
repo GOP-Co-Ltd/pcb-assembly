@@ -6,7 +6,8 @@
 - GET /api/jobs/current → {"job": JobSummary | null}（WS 再接続時の同期用）
 - POST /api/jobs/current/abort → 200 {"aborted": true} / 409
 - POST /api/jobs/last/apply → 200 {"applied": {...}}（machine.toml へ書込・
-  コメント保持）/ 409、POST /api/jobs/last/discard → 200（冪等）
+  コメント保持 + ApplyPayload.files を config ディレクトリへ書出）/ 409、
+  POST /api/jobs/last/discard → 200（冪等）
 - WS /api/ws: job_status / log / progress / prompt / prompt_resolved /
   state_changed / error、クライアント → respond_prompt / command / abort
 - 排他の波及: ジョブ実行中は machine-control / マシン切替 / 設定保存 /
@@ -33,11 +34,16 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
-from pcbasm.vision import CalibrationResult
 from tests.webui.jobs.conftest import register_gated, register_synthetic
-from webui.config_store import ConfigStore
 from webui.jobs.catalog import ParamSpec
-from webui.jobs.context import Artifact, JobContext, JobResult, PromptSpec
+from webui.jobs.context import (
+    ApplyFile,
+    ApplyPayload,
+    Artifact,
+    JobContext,
+    JobResult,
+    PromptSpec,
+)
 from webui.jobs.manager import JobManager
 from webui.state import AppState
 
@@ -581,8 +587,55 @@ class TestExclusionPropagation:
         _wait_job_status(client, "succeeded")
 
 
+def _register_apply_with_file(
+    app: FastAPI, name: str = "apply_file_router", *, filename: str = "probe_calib.json"
+) -> bytes:
+    """ApplyPayload.files を返す合成ジョブを登録し、その内容を返す.
+
+    ApplyFile は「JSON を config/ へ置ける唯一の経路」（camera_calibration の キャリブレーション
+    JSON がこれを使う）。装置なしでその router 契約を 検証するための題材で、ジョブの中身には依存しない。
+    """
+    content = b'{"pixel_per_mm": 30.28}\n'
+
+    def run(ctx: JobContext) -> JobResult:
+        return JobResult(
+            summary="合成の反映ペイロード",
+            apply=ApplyPayload(
+                label=f"{filename} を保存し [camera].calibration_file に設定",
+                values={"camera.calibration_file": filename},
+                files=(ApplyFile(filename, content),),
+            ),
+        )
+
+    register_synthetic(app.state.catalog, run, name=name, hidden=True)
+    return content
+
+
 class TestApplyDiscard:
     """POST /api/jobs/last/apply / /api/jobs/last/discard."""
+
+    def test_apply_writes_payload_files_into_the_config_dir(
+        self, client: TestClient, app: FastAPI, config_dir: Path
+    ):
+        """ApplyPayload.files が config ディレクトリへ実ファイルとして書かれる.
+
+        machine.toml のキーだけでは表せない成果物（カメラキャリブレーション
+        JSON）を設定へ反映する唯一の経路。values の書込とファイル生成が 同一トランザクション（machine_lock
+        内）で行われる。
+        """
+        content = _register_apply_with_file(app)
+        client.post("/api/jobs/apply_file_router", json={"params": {}})
+        _wait_job_status(client, "succeeded")
+
+        response = client.post("/api/jobs/last/apply")
+
+        assert response.status_code == 200
+        assert response.json()["applied"] == {
+            "camera.calibration_file": "probe_calib.json"
+        }
+        assert (config_dir / "probe_calib.json").read_bytes() == content
+        toml_text = (config_dir / "machine.toml").read_text(encoding="utf-8")
+        assert "probe_calib.json" in toml_text
 
     def test_apply_writes_machine_toml_preserving_comments(
         self, client: TestClient, app: FastAPI, config_dir: Path
@@ -844,69 +897,6 @@ class TestWebSocket:
             )
 
             _receive_until(ws, lambda m: m["type"] == "state_changed")
-
-
-class TestCameraCalibrationApplyFlow:
-    """Phase 4: camera_calibration の WS 完走 → POST /api/jobs/last/apply.
-
-    計画書 webui-phase4.md §4「tests/webui/routers/test_jobs.py（追記）」が契約:
-    checkerboard FakeCamera で WS 完走後、Apply で tmp config の machine.toml
-    の calibration_file 更新 + JSON ファイル生成を実ファイルで確認する。
-
-    計画書 webui-camera-calib.md「設計判断 a」追記: crop は job param から
-    削除され machine.toml `[camera.crop]` 由来になったため、開始前に
-    ConfigStore で crop を checkerboard.png（400x400）へ合わせる。
-    """
-
-    def test_ws_full_run_then_apply_writes_calibration_files(
-        self,
-        checkerboard_camera_client: TestClient,
-        store: ConfigStore,
-        config_dir: Path,
-    ):
-        # checkerboard.png（400x400・1 マス約 66.7px）に合わせて crop を書く
-        # （既定 600 は画像をはみ出す）
-        store.write_machine_settings(
-            {"camera.crop.width": 400, "camera.crop.height": 400}
-        )
-        client = checkerboard_camera_client
-        with client.websocket_connect("/api/ws") as ws:
-            response = client.post(
-                "/api/jobs/camera_calibration",
-                json={"params": {"square_size": 10.0}},
-            )
-            assert response.status_code == 201
-
-            # 撮影確認 prompt(confirm) は _receive_until が True で応答する
-            final, _ = _receive_until(
-                ws,
-                lambda m: m["type"] == "job_status" and m["job"]["status"] in _TERMINAL,
-                answer_prompts=True,
-            )
-            assert final["job"]["status"] == "succeeded"
-            assert final["job"]["apply_available"] is True
-            apply_info = final["job"]["result"]["apply"]
-            assert apply_info is not None
-            assert "camera.calibration_file" in apply_info["values"]
-
-        response = client.post("/api/jobs/last/apply")
-
-        assert response.status_code == 200
-        applied = response.json()["applied"]
-        filename = applied["camera.calibration_file"]
-        assert isinstance(filename, str)
-        assert filename.endswith(".json")
-
-        # config ディレクトリへ実ファイルが書かれる
-        toml_text = (config_dir / "machine.toml").read_text(encoding="utf-8")
-        assert filename in toml_text
-        # tomlkit によりコメントが保持される
-        assert "非リッスンポート" in toml_text
-
-        loaded = CalibrationResult.load(config_dir / filename)
-        # 400px / 6 マス / 10mm ≈ 6.67 px/mm（素材と整合する実数値）
-        assert loaded.pixel_per_mm == pytest.approx(400 / 6 / 10, rel=0.01)
-        assert loaded.z_position is None  # Klipper 不通（port 7126）の best-effort
 
 
 class TestPastingJobsOverWs:

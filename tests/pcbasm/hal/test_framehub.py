@@ -12,6 +12,16 @@
   リセットされない（停止前からの FrameSource が再開後も使える）
 - 新フレームが来ない状態（未 start・停止済み）では RuntimeError、timeout 超過は
   TimeoutError
+
+計画書「カメラキャリブレーションのレンズ歪み補正対応」§3 で二系統バッファを追加:
+
+- `FrameHub(camera, undistorter)` は capture ループで 1 回だけ補正し、補正済みと
+  生を同一シーケンス番号で公開する（消費者ごとに補正すると remap が消費者数ぶん
+  走り、包み忘れたら生になって不変条件が消える）
+- `subscribe(raw=True)` は校正ジョブ専用。補正済みフレームで再校正すると
+  「残差歪みモデル」が得られ、Apply で元の補正が静かに失われる
+- `undistorter=None` なら素通し（校正前に校正ジョブが動けることの担保）。
+  `FrameSource` は 1 行も変わらない
 """
 
 import threading
@@ -23,7 +33,7 @@ import numpy as np
 import pytest
 
 from pcbasm.hal import Camera, CameraInfo, FrameHub, Resolution, create_camera
-from pcbasm.vision import CircleDetector, Image
+from pcbasm.vision import CameraIntrinsics, CircleDetector, Image, Undistorter
 from tests.helpers import (
     TESTING_DATA_DIR,
     FakeCamera,
@@ -32,6 +42,9 @@ from tests.helpers import (
 )
 
 FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"
+
+# 歪み補正テスト用のフレームサイズ（補正で画素が動くだけの余地がある最小サイズ）
+PATTERN_SIZE = (64, 64)
 
 
 class CaptureFailure(Exception):
@@ -96,6 +109,69 @@ class GatedCamera(_StaticInfoCamera):
                 raise CaptureFailure("テストがゲートを開けないまま放置した")
             self._count += 1
             self._frame = _solid_image(self._count)
+        return self._frame
+
+
+def _pattern_image(shift: int) -> Image:
+    """歪み補正で画素値が動く 64x64 の高周波格子（shift でフレームを区別する）."""
+    data = np.zeros(PATTERN_SIZE, dtype=np.uint8)
+    data[::4, :] = 255
+    data[:, ::4] = 255
+    return Image(np.roll(data, shift % 4, axis=0))
+
+
+def _undistorter() -> Undistorter:
+    """64x64 用の強い樽型歪みの補正器（実 OpenCV のマップを使う）."""
+    return Undistorter(
+        CameraIntrinsics(
+            camera_matrix=((64.0, 0.0, 32.0), (0.0, 64.0, 32.0), (0.0, 0.0, 1.0)),
+            distortion=(-0.3, 0.1, 0.0, 0.0, 0.0),
+            resolution=PATTERN_SIZE,
+        )
+    )
+
+
+class GatedPatternCamera(Camera):
+    """テスト側がゲートを開けるまで capture() がブロックする 64x64 パターンカメラ.
+
+    GatedCamera と同じ流儀（テスト終了時は必ず release_all() してから hub.stop()）だが、
+    歪み補正の効果が画素値に現れるフレームを返す。
+    """
+
+    def __init__(self) -> None:
+        self._gate = threading.Semaphore(0)
+        self._free_run = threading.Event()
+        self._count = 0
+        self._frame = _pattern_image(0)
+
+    @property
+    @override
+    def resolution(self) -> Resolution:
+        width, height = PATTERN_SIZE
+        return Resolution(width=width, height=height, fps=30.0)
+
+    @property
+    @override
+    def info(self) -> CameraInfo:
+        return CameraInfo(name="GatedPatternCamera", formats={"BGR": [self.resolution]})
+
+    def allow_frames(self, count: int = 1) -> None:
+        """Capture() を count 回分だけ通過させる."""
+        for _ in range(count):
+            self._gate.release()
+
+    def release_all(self) -> None:
+        """以後の capture() をブロックさせない（テスト後始末用）."""
+        self._free_run.set()
+        self._gate.release()
+
+    @override
+    def capture(self) -> Image:
+        if not self._free_run.is_set():
+            if not self._gate.acquire(timeout=10.0):
+                raise CaptureFailure("テストがゲートを開けないまま放置した")
+            self._count += 1
+            self._frame = _pattern_image(self._count)
         return self._frame
 
 
@@ -280,6 +356,109 @@ class TestFrameSource:
 
         assert stats is not None
         assert stats.sample_count == 30
+
+
+class TestUndistortedFrames:
+    """二系統バッファ: 補正済みと生を同一シーケンスで公開する."""
+
+    def test_subscribe_delivers_corrected_frames(self):
+        camera = GatedPatternCamera()
+        undistorter = _undistorter()
+        hub = FrameHub(camera, undistorter)
+        hub.start()
+        try:
+            source = hub.subscribe(timeout=5.0)
+            camera.allow_frames(1)
+            corrected = source.capture()
+        finally:
+            camera.release_all()
+            hub.stop()
+
+        expected = undistorter.apply(_pattern_image(1))
+        assert np.array_equal(corrected.numpy(), expected.numpy())
+        # 補正が実際に画素を動かしている（素通しではない）
+        assert not np.array_equal(corrected.numpy(), _pattern_image(1).numpy())
+
+    def test_subscribe_raw_delivers_uncorrected_frames(self):
+        # 補正済みフレームで再校正すると元の補正が静かに失われるため、
+        # 校正ジョブは必ず生フレームを使う
+        camera = GatedPatternCamera()
+        hub = FrameHub(camera, _undistorter())
+        hub.start()
+        try:
+            source = hub.subscribe(timeout=5.0, raw=True)
+            camera.allow_frames(1)
+            raw = source.capture()
+        finally:
+            camera.release_all()
+            hub.stop()
+
+        assert np.array_equal(raw.numpy(), _pattern_image(1).numpy())
+
+    def test_corrected_and_raw_sources_share_the_same_frame(self):
+        camera = GatedPatternCamera()
+        undistorter = _undistorter()
+        hub = FrameHub(camera, undistorter)
+        hub.start()
+        try:
+            corrected_source = hub.subscribe(timeout=5.0)
+            raw_source = hub.subscribe(timeout=5.0, raw=True)
+
+            camera.allow_frames(1)
+            corrected = corrected_source.capture()
+            raw = raw_source.capture()
+        finally:
+            camera.release_all()
+            hub.stop()
+
+        # 同一シーケンスのフレームなので、生を補正すると補正済みに一致する
+        assert np.array_equal(corrected.numpy(), undistorter.apply(raw).numpy())
+
+    def test_latest_returns_the_corrected_frame(self):
+        camera = GatedPatternCamera()
+        undistorter = _undistorter()
+        hub = FrameHub(camera, undistorter)
+        hub.start()
+        try:
+            camera.allow_frames(1)
+            frame = hub.latest(timeout=5.0)
+        finally:
+            camera.release_all()
+            hub.stop()
+
+        assert np.array_equal(
+            frame.numpy(), undistorter.apply(_pattern_image(1)).numpy()
+        )
+
+    def test_without_undistorter_both_streams_yield_the_same_object(self):
+        # 校正前でも校正ジョブが動けることの担保。コピーもメモリ増もない
+        camera = GatedPatternCamera()
+        hub = FrameHub(camera)
+        hub.start()
+        try:
+            corrected_source = hub.subscribe(timeout=5.0)
+            raw_source = hub.subscribe(timeout=5.0, raw=True)
+
+            camera.allow_frames(1)
+            corrected = corrected_source.capture()
+            raw = raw_source.capture()
+        finally:
+            camera.release_all()
+            hub.stop()
+
+        assert corrected is raw
+
+    def test_frame_source_resolution_is_unaffected_by_undistortion(self):
+        # FrameSource の公開インターフェースは 1 行も変わらない
+        camera = GatedPatternCamera()
+        hub = FrameHub(camera, _undistorter())
+
+        corrected_source = hub.subscribe()
+        raw_source = hub.subscribe(raw=True)
+
+        assert corrected_source.resolution == camera.resolution
+        assert raw_source.resolution == camera.resolution
+        assert corrected_source.info == camera.info
 
 
 class TestErrors:

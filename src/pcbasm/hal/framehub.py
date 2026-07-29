@@ -9,7 +9,8 @@ from collections.abc import Callable
 from typing import override
 
 from pcbasm.hal.camera import Camera, CameraInfo, Resolution
-from pcbasm.vision import Image
+from pcbasm.vision.image import Image
+from pcbasm.vision.intrinsics import Undistorter
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +23,19 @@ class FrameHub:
     専有スレッド 1 本だけが ``camera.capture()`` を呼び、消費者は Condition を
     wait するだけでデバイスに触れない。``Image`` はイミュータブルなので
     最新フレームは参照共有する（コピーしない）。
+
+    ``undistorter`` を渡すとレンズ歪み補正を hub 内で 1 回だけ適用し、補正済みと
+    生の 2 系統を同一シーケンス番号で公開する。補正なしのときは同一オブジェクトを
+    2 属性に入れるだけでコピーもメモリ増もない。
     """
 
-    def __init__(self, camera: Camera) -> None:
+    def __init__(self, camera: Camera, undistorter: Undistorter | None = None) -> None:
         self._camera = camera
+        self._undistorter = undistorter
         self._cond = threading.Condition()
         self._seq = 0  # 単調増加シーケンス番号（stop/start でリセットしない）
-        self._frame: Image | None = None
+        self._frame: Image | None = None  # 歪み補正済み
+        self._frame_raw: Image | None = None  # 生
         self._error: BaseException | None = None
         self._running = False
         self._thread: threading.Thread | None = None
@@ -82,7 +89,7 @@ class FrameHub:
                 logger.info("FrameHub stopped")
 
     def latest(self, timeout: float = 5.0) -> Image:
-        """最新フレームを返す。初回到着まで待つ.
+        """最新の歪み補正済みフレームを返す。初回到着まで待つ.
 
         停止後でも最後のフレームが存在すれば待たずに返す。
 
@@ -92,24 +99,37 @@ class FrameHub:
             BaseException: キャプチャスレッドの保持例外（再送出、繰り返し可）
         """
         with self._cond:
-            frame, _ = self._wait_for(lambda seq: self._frame is not None, timeout)
+            frame, _, _ = self._wait_for(lambda seq: self._frame is not None, timeout)
             return frame
 
-    def subscribe(self, timeout: float = 5.0) -> FrameSource:
+    def subscribe(self, timeout: float = 5.0, *, raw: bool = False) -> FrameSource:
         """消費者カーソル付きの FrameSource を返す.
 
         Args:
             timeout: ``FrameSource.capture()`` 1 回あたりの待ち上限 [sec]
+            raw: True のとき歪み補正前のフレームを配信する（カメラ校正ジョブ専用）。
+                補正済みフレームで再校正すると「残差歪みモデル」が得られ、Apply で
+                元の補正が静かに失われるため、校正経路は必ず生フレームを使う
         """
-        return FrameSource(self._camera, self._wait_next, timeout)
+        wait_next = self._wait_next_raw if raw else self._wait_next
+        return FrameSource(self._camera, wait_next, timeout)
 
     def _wait_next(self, cursor: int, timeout: float) -> tuple[Image, int]:
-        """``cursor`` より新しいフレームを待って (フレーム, シーケンス番号) を返す."""
+        """``cursor`` より新しい補正済みフレームを待って (フレーム, seq) を返す."""
         with self._cond:
-            return self._wait_for(lambda seq: seq > cursor, timeout)
+            frame, _, seq = self._wait_for(lambda seq: seq > cursor, timeout)
+            return frame, seq
 
-    def _wait_for(self, ready: _ReadyPredicate, timeout: float) -> tuple[Image, int]:
-        """``ready(seq)`` が真になるまで待ち、(フレーム, シーケンス番号) を返す.
+    def _wait_next_raw(self, cursor: int, timeout: float) -> tuple[Image, int]:
+        """``cursor`` より新しい生フレームを待って (フレーム, seq) を返す."""
+        with self._cond:
+            _, raw, seq = self._wait_for(lambda seq: seq > cursor, timeout)
+            return raw, seq
+
+    def _wait_for(
+        self, ready: _ReadyPredicate, timeout: float
+    ) -> tuple[Image, Image, int]:
+        """``ready(seq)`` が真になるまで待ち、(補正済み, 生, seq) を返す.
 
         呼び出し側が ``self._cond`` を保持していること。
         """
@@ -117,8 +137,12 @@ class FrameHub:
         while True:
             if self._error is not None:
                 raise self._error
-            if ready(self._seq) and self._frame is not None:
-                return self._frame, self._seq
+            if (
+                ready(self._seq)
+                and self._frame is not None
+                and self._frame_raw is not None
+            ):
+                return self._frame, self._frame_raw, self._seq
             if not self._running:
                 raise RuntimeError(
                     "FrameHub は停止しています（新しいフレームは到着しません）"
@@ -134,10 +158,14 @@ class FrameHub:
     def _capture_loop(self, stop_event: threading.Event) -> None:
         try:
             while not stop_event.is_set():
-                frame = self._camera.capture()
+                raw = self._camera.capture()
+                frame = (
+                    raw if self._undistorter is None else self._undistorter.apply(raw)
+                )
                 with self._cond:
                     self._seq += 1
                     self._frame = frame
+                    self._frame_raw = raw
                     self._cond.notify_all()
         except BaseException as exc:  # noqa: BLE001 — 消費者へ保持・再送出する
             with self._cond:

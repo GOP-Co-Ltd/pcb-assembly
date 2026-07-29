@@ -38,7 +38,7 @@ Phase 5 追記（計画書 webui-phase5.md「routers/pages.py」「templates / s
 webui-camera-calib 計画書「公開インターフェース案 5」+ 要確認事項 1・2 が
 camera_calibration ページへ追記契約:
 
-- ジョブパラメータフォームは square_size のみ（初回既定値 1.5）。crop_width /
+- ジョブパラメータフォームは square_size（初回既定値 1.5）。crop_width /
   crop_height は job param から削除済み
 - 専用 JS（camera_calibration.js）を読み込む（square_size の入力時復元保存用）
 
@@ -55,6 +55,15 @@ camera_calibration ページへ追記契約:
 - overlay ラジオの初期選択はページ変数 `preview_overlay`（既定 "none"）で決まる。
   posctrl のツアー系ジョブページ（board_tour / orthogonality_test）は "crosshair"、
   他ページは "none" のまま
+
+レンズ歪み補正計画（`~/.claude/plans/claude-pixels-mm-0-1mm-300-x-swirling-robin.md`
+§6 / §10）が camera_calibration ページの上書き契約:
+
+- `preview_overlay = "crosshair"`。チェッカーボードのマス目を画像中央へ手で
+  合わせる手順があるため、ページ表示時から十字線 + 関心領域の矩形が出ている
+  ことが必須（ユーザー明示要求）。ラジオの checked と preview ペインの
+  `data-overlay` の両方が crosshair でなければ初期表示に反映されない
+- job param は square_size（1.5mm）+ residual_limit（30.0um）の 2 つ
 """
 
 import re
@@ -339,23 +348,37 @@ class TestPosctrlJobPages:
         (
             ("board_tour", "crosshair"),
             ("orthogonality_test", "crosshair"),
-            ("camera_calibration", "none"),
+            ("camera_calibration", "crosshair"),
         ),
     )
     def test_posctrl_job_page_default_overlay(
         self, client: TestClient, feature: str, expected: str
     ):
-        """ツアー系（board_tour / orthogonality_test）は十字線を既定 ON で描画する.
+        """Posctrl のジョブページは 3 つとも十字線を既定 ON で描画する.
 
-        ツアーは十字線を基準に位置を目視合わせするため、ユーザーがラジオを操作せずとも
-        十字線が出ている必要がある。camera_calibration は素の映像を見るページなので none。
+        ツアー系（board_tour / orthogonality_test）は十字線を基準に位置を目視合わせ
+        するため。camera_calibration も、開始前にユーザーがチェッカーボードのマス目を
+        画像中央へ手で合わせる手順（計画 §6 手順 [1]）があるため、ラジオを操作せずとも
+        十字線と関心領域の矩形が出ていなければならない（ユーザー明示要求）。
         """
         assert _checked_overlay(client.get(f"/posctrl/{feature}").text) == expected
+
+    def test_camera_calibration_preview_pane_declares_crosshair_overlay(
+        self, client: TestClient
+    ):
+        """Preview ペイン側も crosshair 宣言する（ラジオだけでは映像が素のままになる）.
+
+        MJPEG のクエリは preview.js が `data-overlay` から組むため、ラジオの checked と
+        `data-overlay` の両方が crosshair でないと初期表示に 十字線・関心領域が出ない。
+        """
+        text = client.get("/posctrl/camera_calibration").text
+
+        assert 'data-overlay="crosshair"' in text
 
     def test_camera_calibration_renders_square_size_form_with_default(
         self, client: TestClient
     ):
-        """ジョブパラメータフォームは square_size のみ（初回既定値 1.5mm）。専用 JS を読み込む."""
+        """ジョブパラメータフォームに square_size（初回既定値 1.5mm）。専用 JS を読み込む."""
         text = client.get("/posctrl/camera_calibration").text
 
         assert 'name="square_size"' in text
@@ -364,6 +387,20 @@ class TestPosctrlJobPages:
         # crop は job param から削除済み（machine.toml 連動の即保存フォームへ移設）
         assert "crop_width" not in text
         assert "crop_height" not in text
+
+    def test_camera_calibration_renders_residual_limit_form_with_default(
+        self, client: TestClient
+    ):
+        """残差上限 residual_limit（既定 30.0um）も同じフォームに描画される.
+
+        合否ゲートは実機で調整対象になるため job param として画面に出す （tolerance と同じ扱い）。単位 um
+        がラベルに添えられる。
+        """
+        text = client.get("/posctrl/camera_calibration").text
+
+        assert 'name="residual_limit"' in text
+        assert 'value="30.0"' in text
+        assert "[um]" in text
 
     def test_camera_calibration_has_no_crop_input(self, client: TestClient):
         """クロップ編集 UI は settings ページへ統一済み。このページには置かない.
