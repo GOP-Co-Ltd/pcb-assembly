@@ -62,6 +62,7 @@ class RegionAlignmentSession:
         self._pad_align = pad_align
         self._board_transform = result.board_transform
         self._image_size = result.calibration.resolution
+        match_area = result.pcb.outline.polygon.buffer(-pad_align.board_edge_margin)
         self._projector = CopperProjector(
             polygons=[
                 copper.polygon
@@ -97,6 +98,7 @@ class RegionAlignmentSession:
             matcher=matcher,
             edge_detector=self._edge_detector,
             offset_transform=result.offset_transform,
+            match_area=match_area,
             max_correction_mm=pad_align.max_correction,
             max_passes=pad_align.max_passes,
             converge_tolerance_mm=pad_align.converge_tolerance,
@@ -109,9 +111,7 @@ class RegionAlignmentSession:
             self._projector,
             self._board_transform,
             pad_centers,
-            safe_area=self._pcb.outline.polygon.buffer(
-                -self._pad_align.board_edge_margin
-            ),
+            outline=self._pcb.outline.polygon,
             region_size_px=self._pad_align.region_size_px,
             overlap=self._pad_align.region_overlap,
             image_size=self._image_size,

@@ -77,6 +77,27 @@ def _bounds_overlap(a: _Bounds, b: _Bounds) -> bool:
     return a[0] <= b[2] and b[0] <= a[2] and a[1] <= b[3] and b[1] <= a[3]
 
 
+def _polygon_mask(
+    polygon: Polygon,
+    matrix: ImageArray,
+    shift: ImageArray,
+    image_size: tuple[int, int],
+) -> ImageArray:
+    """Polygon内部を255とするpixel maskを返す."""
+    width, height = image_size
+    mask = np.zeros((height, width), dtype=np.uint8)
+    if polygon.is_empty:
+        return mask
+    exterior = _ring_to_pixels(polygon.exterior.coords, matrix, shift)
+    cv2.fillPoly(mask, [exterior], 255)
+    interiors = [
+        _ring_to_pixels(ring.coords, matrix, shift) for ring in polygon.interiors
+    ]
+    if interiors:
+        cv2.fillPoly(mask, interiors, 0)
+    return mask
+
+
 class CopperProjector:
     """設計銅箔ポリゴンをカメラpixel空間へ投影するクラス.
 
@@ -123,6 +144,11 @@ class CopperProjector:
             image_size=self._image_size,
         )
 
+    def project_mask(self, polygon: Polygon, stage_xy: Point2d) -> ImageArray:
+        """Board座標のpolygon内部を有効とするpixel maskを返す."""
+        matrix, shift = self.board_to_pixel_affine(stage_xy)
+        return _polygon_mask(polygon, matrix, shift, self._image_size)
+
     def project(self, stage_xy: Point2d) -> CopperProjection:
         """指定ステージ位置で視野内に想定される銅箔を投影する.
 
@@ -149,10 +175,7 @@ class CopperProjector:
 
             # 穴の中に別の銅箔島が入れ子になり得るため、polygonごとに
             # exterior→255 / interiors→0 を描いてから合成する
-            single = np.zeros_like(fill_mask)
-            cv2.fillPoly(single, [exterior], 255)
-            if interiors:
-                cv2.fillPoly(single, interiors, 0)
+            single = _polygon_mask(polygon, matrix, shift, self._image_size)
             np.maximum(fill_mask, single, out=fill_mask)
 
             # フレーム端のクリップ線が偽エッジにならないよう、fillの輪郭では
@@ -267,6 +290,8 @@ class CopperEdgeMatcher:
         observed_edges: ImageArray,
         expected_edges: ImageArray,
         roi: PixelRect,
+        *,
+        mask: ImageArray | None = None,
     ) -> EdgeMatch | None:
         """観測エッジと想定エッジの並進ずれを照合する.
 
@@ -277,11 +302,15 @@ class CopperEdgeMatcher:
             observed_edges: 観測エッジマスク (uint8, 0/255)
             expected_edges: 想定エッジマスク (uint8, 0/255)。同サイズ
             roi: テンプレート矩形 (x0, y0, x1, y1)
+            mask: 照合に使う有効pixel (uint8, 0/255)。Noneは全pixel有効
 
         Returns:
             照合結果（offset = 観測 − 想定）。観測エッジまたはROI内の
             想定エッジが空の場合はNone
         """
+        if mask is not None:
+            observed_edges = cv2.bitwise_and(observed_edges, mask)
+            expected_edges = cv2.bitwise_and(expected_edges, mask)
         if np.count_nonzero(observed_edges) == 0:
             return None
 

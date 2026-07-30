@@ -1,6 +1,7 @@
 """領域単位の銅箔照合による位置ずれの反復計測."""
 
 import attrs
+from shapely import Polygon
 
 from pcbasm import gcode
 from pcbasm.geometry import Point2d, Shift, Transform
@@ -36,6 +37,7 @@ class RegionAligner:
         matcher: CopperEdgeMatcher,
         edge_detector: CopperEdgeDetector,
         offset_transform: Transform,
+        match_area: Polygon,
         max_correction_mm: float = 1.0,
         max_passes: int = 5,
         converge_tolerance_mm: float = 0.03,
@@ -56,6 +58,7 @@ class RegionAligner:
         self._matcher = matcher
         self._edge_detector = edge_detector
         self._offset_transform = offset_transform
+        self._match_area = match_area
         self._max_correction_mm = max_correction_mm
         self._max_passes = max_passes
         self._converge_tolerance_mm = converge_tolerance_mm
@@ -84,7 +87,12 @@ class RegionAligner:
                 self._frame_sink(
                     render_edge_match(image, edges, projection.edge_mask, region.roi)
                 )
-            match = self._matcher.match(edges, projection.edge_mask, region.roi)
+            match = self._matcher.match(
+                edges,
+                projection.edge_mask,
+                region.roi,
+                mask=projector.project_mask(self._match_area, target),
+            )
             if match is None:
                 raise RuntimeError(
                     f"領域 {region.index} の銅箔エッジ照合に失敗しました"

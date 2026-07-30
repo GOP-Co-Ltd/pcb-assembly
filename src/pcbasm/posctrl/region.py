@@ -5,7 +5,6 @@ from collections.abc import Sequence
 import attrs
 import numpy as np
 from shapely import Point, Polygon
-from shapely.geometry.base import BaseGeometry
 
 from pcbasm.geometry import Point2d, Transform, sort_by_nearest
 from pcbasm.posctrl.copper import CopperProjector, PixelRect, centered_roi
@@ -31,7 +30,7 @@ def plan_alignment_regions(
     board_transform: Transform,
     pad_centers: Sequence[Point2d],
     *,
-    safe_area: BaseGeometry,
+    outline: Polygon,
     region_size_px: int,
     overlap: float,
     image_size: tuple[int, int],
@@ -55,38 +54,39 @@ def plan_alignment_regions(
         or not 0.0 <= overlap < 1.0
     ):
         raise ValueError(f"overlapは0以上1未満である必要があります: {overlap}")
-    if not projector.polygons or not pad_centers or safe_area.is_empty:
+    if not projector.polygons or not pad_centers or outline.is_empty:
         return []
 
-    minx, miny, maxx, maxy = safe_area.bounds
+    minx, miny, maxx, maxy = outline.bounds
     reference_center = Point2d((minx + maxx) / 2, (miny + maxy) / 2)
     matrix, shift = projector.board_to_pixel_affine(
         board_transform.apply(reference_center)
     )
     inverse = np.linalg.inv(matrix)
-    pad_pixels = np.array([[p.x, p.y] for p in pad_centers]) @ matrix.T + shift
+    outline_pixels = np.asarray(outline.exterior.coords) @ matrix.T + shift
 
     half = region_size_px / 2
     stride = region_size_px * (1.0 - overlap)
-    base = pad_pixels.mean(axis=0)
-    lower = np.ceil((pad_pixels.min(axis=0) - half - base) / stride).astype(int)
-    upper = np.floor((pad_pixels.max(axis=0) + half - base) / stride).astype(int)
+    first_start = outline_pixels.min(axis=0) - region_size_px * overlap
+    region_counts = np.ceil((outline_pixels.max(axis=0) - first_start) / stride).astype(
+        int
+    )
     corner_offsets_px = np.array(
         [[-half, -half], [half, -half], [half, half], [-half, half]]
     )
 
     candidates: list[tuple[Point2d, Polygon]] = []
-    for column in range(int(lower[0]), int(upper[0]) + 1):
-        for row in range(int(lower[1]), int(upper[1]) + 1):
-            center_px = base + np.array([column, row]) * stride
+    for column in range(int(region_counts[0])):
+        for row in range(int(region_counts[1])):
+            center_px = (
+                first_start + np.array([column, row]) * stride + np.array([half, half])
+            )
             board_center_xy = (center_px - shift) @ inverse.T
             board_center = Point2d(
                 x=float(board_center_xy[0]), y=float(board_center_xy[1])
             )
             corners = (center_px + corner_offsets_px - shift) @ inverse.T
             board_area = Polygon(corners)
-            if not safe_area.covers(board_area):
-                continue
             if not any(
                 board_area.covers(Point(center.x, center.y)) for center in pad_centers
             ):

@@ -112,6 +112,7 @@ def _aligner(
         ),
         edge_detector=CopperEdgeDetector(),
         offset_transform=Identity(),
+        match_area=shapely.box(-1.0, -1.0, 1.0, 1.0),
         max_correction_mm=1.0,
         max_passes=max_passes,
         converge_tolerance_mm=converge_tolerance_mm,

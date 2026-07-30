@@ -8,9 +8,10 @@ Board/オフセットの位置合わせを担う共通制御モジュール。
 - 重複領域ベースの銅箔照合と pad ごとの局所補正
 - Board 巡回用のカメラ表示
 
-銅箔位置合わせでは、基板 outline を既定 0.5 mm inset した safe area 内に、
-既定 100 px・overlap 0.5 の `AlignmentRegion` を計画する。対象 pad の所属は
-中心点で判定し、中心点を含まない候補領域は計画から除外する。
+銅箔位置合わせでは、基板 outline より overlap 幅ぶん外側から、既定
+100 px・overlap 0.5 の `AlignmentRegion` を計画する。対象 pad の所属は中心点で判定し、
+中心点を含まない候補領域は計画から除外する。ROI が基板外へ出ることは許可し、outline を
+既定 0.5 mm inset した pixel mask の外側を照合から除外する。
 
 `RegionAligner` は各領域を反復計測し、既定 0.03 mm 以下の増分で収束した
 `RegionAlignment` だけを採用する。照合失敗・補正上限超過・非収束の領域は

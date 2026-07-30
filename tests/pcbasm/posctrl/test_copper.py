@@ -217,6 +217,16 @@ class TestCopperProjector:
         assert np.any(edge[98:103, 88:93] > 0)  # 内リング左辺 (col≈90)
         assert not np.any(edge[98:103, 78:84])  # バンド中央にエッジなし
 
+    def test_project_mask_limits_valid_pixels_to_polygon_interior(self):
+        """照合用 mask は外形内だけを有効にする."""
+        mask = _projector([]).project_mask(
+            _square(0.0, 0.0, 2.0),
+            Point2d(0.0, 0.0),
+        )
+
+        assert mask[100, 100] == 255
+        assert mask[100, 130] == 0
+
     def test_out_of_view_polygon_yields_empty_masks(self):
         """視野外の polygon は何も描かれない（bbox フィルタ経路）."""
         projection = _projector([_square(100.0, 100.0, 1.0)]).project(Point2d(0.0, 0.0))
@@ -362,6 +372,29 @@ class TestCopperEdgeMatcher:
         cv2.rectangle(observed, (12 - 8, 12 - 6), (31 - 8, 31 - 6), 255, 1)
 
         match = matcher.match(observed, expected, (50, 50, 150, 150))
+
+        assert match is not None
+        assert match.offset.px.x == pytest.approx(4.0, abs=1.0)
+        assert match.offset.px.y == pytest.approx(2.0, abs=1.0)
+
+    def test_mask_excludes_edges_outside_valid_area(self):
+        """Mask 外の逆ずれ構造を無視して mask 内のずれを復元する."""
+        matcher = CopperEdgeMatcher(pixel_per_mm=PPM, search_window_mm=1.0)
+        expected = np.zeros((200, 200), dtype=np.uint8)
+        observed = np.zeros((200, 200), dtype=np.uint8)
+        cv2.rectangle(expected, (60, 70), (100, 130), 255, 1)
+        cv2.rectangle(observed, (64, 72), (104, 132), 255, 1)
+        cv2.rectangle(expected, (140, 70), (175, 130), 255, 1)
+        cv2.rectangle(observed, (132, 64), (167, 124), 255, 1)
+        mask = np.zeros((200, 200), dtype=np.uint8)
+        mask[:, :120] = 255
+
+        match = matcher.match(
+            observed,
+            expected,
+            MATCH_ROI,
+            mask=mask,
+        )
 
         assert match is not None
         assert match.offset.px.x == pytest.approx(4.0, abs=1.0)
