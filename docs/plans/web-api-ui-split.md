@@ -286,11 +286,21 @@ ______________________________________________________________________
 
 ### MR7 — `chore`: 運用（systemd 2 unit / Makefile 確定 / ドキュメント）
 
-`webui-service.sh` の `install_service` をユニット名で引数化し、`pcbasm-api.service`（backend）と `pcbasm-ui.service`（frontend）の 2 本に。`usage` を `install [api|ui|both]` に拡張。**起動順の依存は付けない**（`After=pcbasm-api.service` を付けると同居機で backend の起動失敗が frontend を止める。frontend は backend が落ちていても起動でき 503 を返すだけ）。`After=avahi-daemon.service` も不要（python-zeroconf は avahi に依存しない）。`Makefile` の `webui` エイリアスを削除して `api` / `ui` に確定。
+**`webui-service.sh` → `web-service.sh`（`git mv`）**。単一 unit（`pcbasm-webui.service` / `ExecStart=make webui`）を `pcbasm-api.service`（backend）と `pcbasm-ui.service`（frontend）の 2 本にする。
+
+```
+web-service.sh install|start|stop|restart|status|remove [api|ui|all]     # 対象の既定は api
+```
+
+- 現行の `SERVICE_NAME` / `UNIT_PATH` のグローバル定数と `install_service` / `remove_service` / `control_service` / `show_status` をターゲット引数で受ける形に変え、`all` は api → ui の順に同じ処理を回すだけにする（unit 生成のテンプレートは `Description` と `ExecStart` だけが違う）。
+- **対象の既定は `api`** — 機体ごとに置く backend が最多数で、frontend は 1 台だけ明示的に `install ui`、同居機だけ `install all` を使う。
+- **`install` は旧 `pcbasm-webui.service` を検出したら disable + 削除する**。MR7 で `Makefile` の `webui` エイリアスを消すため、放置すると `ExecStart=make webui` が解決できず restart ループに入る。
+- **起動順の依存は付けない**（`After=pcbasm-api.service` を付けると同居機で backend の起動失敗が frontend を止める。frontend は backend が落ちていても起動でき 503 を返すだけ）。`After=avahi-daemon.service` も不要（python-zeroconf は avahi に依存しない）。
+- `Makefile` の `webui` エイリアスを削除して `api` / `ui` に確定。`README.md:62-67` の `./webui-service.sh …` の 6 行も差し替える。
 
 `README.md`: 2 プロセス構成、ポート、`config/machines.toml` の書式、2 unit のインストール、env 一覧、**「PCB ファイル / USB は backend 機に挿す」**、「探索できない環境では静的登録」、「1 ブラウザプロファイル = 1 人（共有キオスクでは分けられない）」、無認証 LAN 公開のリスク。`CLAUDE.md` の主要モジュール構成（`src/web/{api,ui}`）・make ターゲット・WebUI 設計節（「frontend の page ハンドラは backend の JSON を受けてテンプレに渡すだけ」「表示文字列の組み立てはサーバ側」）。`.claude/skills/`: `webui-e2e`（`live_ui` / `live_ui_two` / `browser_pages`、2 プロセス起動、`ASGITransport` が MJPEG / WS に使えない理由、mDNS テストの隔離の鉄則）、`testing-strategy`（`tests/web/{api,ui}/` の追加、`skip_if_no_mdns` は実行時能力プローブ、実 zeroconf は実オブジェクト検証）、`webui-thin-wrapper`。
 
-**実機確認** — 再起動後に 2 unit が自動起動。frontend が backend より先に上がっても復帰する。既存インストールは `./webui-service.sh install` の再実行が必要。
+**実機確認** — 既存インストール機で `./web-service.sh install all`（同居機）/ `install api`（機体）を実行し、旧 `pcbasm-webui.service` が消えて新 unit に置き換わる。再起動後に自動起動する。frontend が backend より先に上がっても復帰する。
 
 ## 検証
 
