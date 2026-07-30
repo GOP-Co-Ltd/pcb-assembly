@@ -6,6 +6,7 @@
 
 - Raspberry Pi 5
 - Pick and PlaceまたはPaste Dispenser Machine
+- スピーカー（通知音を使う場合。I2S DAC / アンプまたは HDMI 音声出力）
 
 ### ソフトウェア
 
@@ -15,6 +16,7 @@
         - Klipper + Moonraker + Mailsail
 - [KiCAD](https://www.kicad.org/download/linux/)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- `alsa-utils`（通知音を再生する `aplay` を含む）
 
 OS以外のソフトウェア類は[`install-softwares.sh`](install-softwares.sh)を実行
 
@@ -56,6 +58,18 @@ make webui-dev  # 開発用（auto-reload）
 make webui-fake # fake camera + 隔離 data_dir で起動
 ```
 
+### 通知音
+
+通知対象ジョブ（はんだ塗布など）の成功・失敗時に、Raspberry Pi 本体に接続したスピーカーから
+通知音を再生する。ブラウザからは音を鳴らさず、完了通知は画面表示のみ。
+
+開発タブの `/dev/audio` で出力デバイス・音量を選び、テスト再生で確認できる。設定は
+`config/machine.toml` の `[audio]` に保存される（未設定時は ALSA のシステム既定デバイス・音量 75%）。
+
+音声ファイルを差し替える場合は `src/pcbasm/hal/sounds/success.wav` と `failure.wav` を
+**非圧縮 16-bit PCM WAV** で同名のまま上書きする（git-lfs 追跡下）。差し替え後は `/dev/audio` の
+テスト再生で確認する。
+
 systemd サービスとして登録し、システム起動時に自動起動する場合:
 
 ```bash
@@ -66,6 +80,8 @@ systemd サービスとして登録し、システム起動時に自動起動す
 ./webui-service.sh status   # 状態確認
 ./webui-service.sh remove   # サービス登録を削除
 ```
+
+通知音を使う場合は、サービスの実行ユーザーから対象の ALSA PCM を再生できることも確認する。
 
 環境変数で動作を切り替えられる（全量は `src/webui/settings.py`）:
 

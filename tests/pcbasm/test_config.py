@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from pcbasm.config import (
+    Audio,
     Camera,
     CameraCrop,
     Corner,
@@ -245,6 +246,58 @@ class TestMachine:
             KeyError, match="'paste_dispenser' は設定ファイルに定義されていません"
         ):
             machine.paste_dispenser
+
+
+class TestAudio:
+    """Raspberry Pi 本体から再生する通知音の出力設定."""
+
+    def test_defaults_to_system_default_device_and_75_percent(self):
+        assert Audio() == Audio("default", 0.75)
+
+    def test_strips_device(self):
+        assert Audio(device="  plughw:CARD=Audio,DEV=0  ") == Audio(
+            device="plughw:CARD=Audio,DEV=0"
+        )
+
+    @pytest.mark.parametrize("volume", [0.0, 0.25, 1.0])
+    def test_accepts_volume_in_closed_unit_interval(self, volume: float):
+        assert Audio(device="default", volume=volume).volume == pytest.approx(volume)
+
+    @pytest.mark.parametrize(
+        "volume",
+        [True, float("nan"), float("inf"), float("-inf"), -0.01, 1.01],
+        ids=["bool", "nan", "positive-infinity", "negative-infinity", "below", "above"],
+    )
+    def test_rejects_invalid_volume(self, volume: object):
+        with pytest.raises(ValueError, match="volume"):
+            Audio(device="default", volume=volume)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("device", ["", " ", "\t\n"])
+    def test_rejects_blank_device(self, device: str):
+        with pytest.raises(ValueError, match="device"):
+            Audio(device=device)
+
+
+class TestMachineAudio:
+    """Machine.audio の任意 [audio] section 読み込み（欠落は既定値）."""
+
+    def test_reads_audio_section(self, tmp_path: Path):
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            '[audio]\ndevice = "  hw:0,0  "\nvolume = 0.35\n',
+            encoding="utf-8",
+        )
+
+        assert Machine(path).audio == Audio(device="hw:0,0", volume=0.35)
+
+    def test_defaults_volume_when_omitted(self, tmp_path: Path):
+        path = tmp_path / "machine.toml"
+        path.write_text('[audio]\ndevice = "plughw:CARD=X,DEV=0"\n', encoding="utf-8")
+
+        assert Machine(path).audio == Audio(device="plughw:CARD=X,DEV=0", volume=0.75)
+
+    def test_defaults_whole_config_when_section_is_absent(self):
+        assert Machine(TESTING_DATA_DIR / "machine_minimal.toml").audio == Audio()
 
 
 class TestPadAlignMaxFailures:

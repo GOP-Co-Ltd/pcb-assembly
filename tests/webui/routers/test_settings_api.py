@@ -115,6 +115,46 @@ class TestMachineSettingsApi:
         assert fields["paste_dispenser.paste_height"]["value"] == "auto"
         assert fields["paste_dispenser.auto_line_aspect_ratio"]["value"] == 1.7
 
+    def test_get_returns_audio_fields_as_unset(self, client: TestClient):
+        """`[audio]` は fixture に無い（未設定でも既定値で鳴る）ので value は None."""
+        fields = {
+            field["key"]: field
+            for field in client.get("/api/settings/machine").json()["fields"]
+        }
+
+        assert fields["audio.device"]["value"] is None
+        assert fields["audio.device"]["value_type"] == "str"
+        assert fields["audio.volume"]["value"] is None
+        assert fields["audio.volume"]["value_type"] == "float"
+
+    def test_put_writes_audio_settings(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={
+                "values": {
+                    "audio.device": "plughw:CARD=Audio,DEV=0",
+                    "audio.volume": 0.4,
+                }
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        fields = {field["key"]: field for field in response.json()["fields"]}
+        assert fields["audio.device"]["value"] == "plughw:CARD=Audio,DEV=0"
+        assert fields["audio.volume"]["value"] == 0.4
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [("audio.device", " "), ("audio.volume", -0.1), ("audio.volume", 1.1)],
+    )
+    def test_put_invalid_audio_setting_returns_400(
+        self, client: TestClient, key: str, value: str | float
+    ):
+        response = client.put("/api/settings/machine", json={"values": {key: value}})
+
+        assert response.status_code == 400
+        assert key in response.text
+
     def test_get_returns_reference_point_offset_pairs(self, client: TestClient):
         fields = {
             field["key"]: field

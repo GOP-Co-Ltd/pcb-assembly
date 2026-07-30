@@ -16,6 +16,8 @@ from tomlkit.items import Item, Table
 
 from pcbasm.config import (
     DISPENSE_MODES,
+    validate_audio_device,
+    validate_audio_volume,
     validate_paste_lift_height,
     validate_probe_board_edge_margin,
 )
@@ -135,6 +137,9 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     # [camera.crop]
     FieldSpec("camera.crop.width", "クロップ幅", "int", "px"),
     FieldSpec("camera.crop.height", "クロップ高さ", "int", "px"),
+    # [audio] — ジョブ完了通知音（Raspberry Pi 本体スピーカー）
+    FieldSpec("audio.device", "出力デバイス", "str"),
+    FieldSpec("audio.volume", "音量", "float"),
 )
 
 _MACHINE_FIELDS_BY_KEY = {spec.key: spec for spec in MACHINE_FIELDS}
@@ -185,6 +190,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 if spec.key == "probe.board_edge_margin":
                     if error := validate_probe_board_edge_margin(coerced_float):
                         raise UnknownFieldError(error)
+                if spec.key == "audio.volume":
+                    if error := validate_audio_volume(coerced_float):
+                        raise UnknownFieldError(error)
                 return coerced_float
         case "float_or_auto":
             if value == "auto":
@@ -208,6 +216,10 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 return value
         case "str":
             if isinstance(value, str):
+                if spec.key == "audio.device":
+                    if error := validate_audio_device(value):
+                        raise UnknownFieldError(error)
+                    return value.strip()
                 return value
         case "dispense_mode":
             if isinstance(value, str) and value in DISPENSE_MODES:

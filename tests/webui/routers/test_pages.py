@@ -55,6 +55,13 @@ camera_calibration ページへ追記契約:
 - overlay ラジオの初期選択はページ変数 `preview_overlay`（既定 "none"）で決まる。
   posctrl のツアー系ジョブページ（board_tour / orthogonality_test）は "crosshair"、
   他ページは "none" のまま
+
+webui-audio-output 計画書「開発ページ」「ブラウザ Web Audio 削除」節が追記契約:
+
+- dev タブに通知音ページ（/dev/audio）が並ぶ。デバイス選択（select）・音量
+  （type="range"）は汎用即保存フォーム、テスト再生は data-sound ボタン 2 個
+- settings ページに「通知音」セクション（audio.device / audio.volume）が出る
+- 終了通知バナーから音声 URL 属性は消え、ブラウザは wav を取得しない
 """
 
 import re
@@ -159,6 +166,7 @@ class TestPages:
 
         assert "settings-group" in text
         for section_label in (
+            "通知音",
             "ペーストディスペンサー",
             "ペーストディスペンサー / パッド位置合わせ",
             "プローブ",
@@ -184,6 +192,15 @@ class TestPages:
         assert 'name="camera.crop.height"' in text
         assert "クロップ幅" in text
         assert "クロップ高さ" in text
+
+    def test_settings_page_renders_audio_fields(self, client: TestClient):
+        """通知音（[audio]）も汎用即保存フォームに machine 設定として並ぶ."""
+        text = client.get("/settings").text
+
+        assert 'name="audio.device"' in text
+        assert 'name="audio.volume"' in text
+        assert "出力デバイス" in text
+        assert "音量" in text
 
     def test_unknown_tab_returns_404(self, client: TestClient):
         assert client.get("/no-such-tab").status_code == 404
@@ -221,26 +238,11 @@ class TestCompletionNotice:
         assert 'id="job-completion-notice"' in text
         assert 'id="job-completion-message"' in text
         assert 'id="job-completion-dismiss"' in text
-        assert (
-            'data-success-sound-url="/static/audio/paste-completion-success.wav?v='
-            in text
-        )
-        assert (
-            'data-failure-sound-url="/static/audio/paste-completion-failure.wav?v='
-            in text
-        )
+        # 通知音は Raspberry Pi 本体で鳴らす。ブラウザは音声を一切取得しない
+        assert ".wav" not in text
+        assert "sound-url" not in text
         assert 'aria-live="assertive"' in text
         assert "hidden" in text
-
-    @pytest.mark.parametrize(
-        "filename",
-        ("paste-completion-success.wav", "paste-completion-failure.wav"),
-    )
-    def test_completion_sound_asset_is_served(self, client: TestClient, filename: str):
-        response = client.get(f"/static/audio/{filename}")
-
-        assert response.status_code == 200
-        assert response.content.startswith(b"RIFF")
 
 
 DEV_JOB_FEATURES = (
@@ -267,6 +269,30 @@ class TestDevJobPages:
         assert response.status_code == 200
         assert "gcode" in response.text
         assert "limits" in response.text
+
+    def test_audio_page_renders_settings_form_and_test_buttons(
+        self, client: TestClient
+    ):
+        """通知音ページはデバイス選択・音量スライダー・テスト再生を持つ.
+
+        保存は汎用即保存フォーム（settings.js）に委ね、専用 PUT は作らない。
+        """
+        response = client.get("/dev/audio")
+
+        assert response.status_code == 200
+        text = response.text
+        assert re.search(r'<select\b[^>]*\bname="audio\.device"', text)
+        assert re.search(
+            r'<input\b[^>]*\bname="audio\.volume"[^>]*\btype="range"', text
+        )
+        assert 'data-endpoint="/api/settings/machine"' in text
+        assert re.search(r'<button\b[^>]*\bdata-sound="success"', text)
+        assert re.search(r'<button\b[^>]*\bdata-sound="failure"', text)
+        assert 'src="/static/js/settings.js?v=' in text
+        assert 'src="/static/js/audio.js?v=' in text
+
+    def test_audio_page_is_listed_in_dev_sidebar(self, client: TestClient):
+        assert "通知音" in client.get("/dev").text
 
     def test_job_demo_is_hidden_from_sidebar(self, client: TestClient):
         assert "job_demo" not in client.get("/dev").text

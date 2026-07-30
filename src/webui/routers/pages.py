@@ -33,6 +33,7 @@ TABS: dict[str, tuple[str, ...]] = {
         "extract_pcb",
         "make_fill_coverage_pcb",
         "klipper_status",
+        "audio",
     ),
     "pasting": (
         "paste_solder",
@@ -68,6 +69,7 @@ TAB_LABELS: dict[str, str] = {
 # JobDefinition.label を正とする。未定義は単語化フォールバック
 FEATURE_LABELS: dict[str, str] = {
     "klipper_status": "Klipper ステータス",
+    "audio": "通知音",
     "probe_guide": "ロードセルプローブ ガイド",
     "nozzle_cap": "ノズルキャップ位置の設定",
     "camera_preview": "カメラプレビュー",
@@ -88,6 +90,7 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("dev", "extract_pcb"): "job.html",
     ("dev", "make_fill_coverage_pcb"): "job.html",
     ("dev", "klipper_status"): "dev/klipper_status.html",
+    ("dev", "audio"): "dev/audio.html",
     ("pasting", "paste_solder"): "pasting/paste_solder.html",
     ("pasting", "height_plane"): "pasting/job.html",
     ("pasting", "loading"): "pasting/loading.html",
