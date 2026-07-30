@@ -58,6 +58,24 @@ class TestCopperEdgeDetector:
 
         assert not np.any(mask)
 
+    def test_detected_edges_are_one_pixel_thin(self, detector: CopperEdgeDetector):
+        """検出エッジが 1px 細線であること（2x2 が全て非零になるブロックが無い）.
+
+        銅箔照合は「想定エッジ 1 点あたりの chamfer 距離」をコストにする。 エッジが太い帯になると距離 0
+        の画素が増え、コストが下がる方向にしか 働かないので誤マッチしても品質指標に現れない。現行は Canny の non-
+        maximum suppression 済みで morphology 処理も無いため細線だが、 将来 dilate が 1
+        行入ると照合が静かに壊れる。その前提をピンする。
+        """
+        arr = _dark_background()
+        cv2.rectangle(arr, (50, 60), (150, 120), (60, 140, 180), -1)
+        cv2.circle(arr, (100, 90), 20, (200, 200, 200), 3)
+
+        mask = detector.detect_edges(Image(arr)) > 0
+
+        assert mask.any()
+        filled_2x2 = mask[:-1, :-1] & mask[:-1, 1:] & mask[1:, :-1] & mask[1:, 1:]
+        assert not filled_2x2.any()
+
     def test_high_thresholds_suppress_weak_edges(self):
         """コントラストの弱い境界は閾値を上げると検出されなくなる."""
         arr = _dark_background()

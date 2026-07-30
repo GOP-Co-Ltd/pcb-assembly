@@ -9,22 +9,24 @@ from typing import Any
 
 import attrs
 import cv2
+from shapely import Polygon
 
 from pcbasm import gcode
 from pcbasm.config import Machine
-from pcbasm.geometry import Compose, Point2d, Point3d, sort_by_nearest
+from pcbasm.geometry import Point2d, Point3d, sort_by_nearest
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
+    AlignmentRegion,
+    BoardAlignment,
     BoardCalibrationResult,
-    ComponentPads,
     CopperProjector,
     OrthogonalityMetrics,
-    PadAlignmentResult,
-    PadAlignmentSession,
     PadResultRenderer,
+    RegionAlignment,
+    RegionAlignmentSession,
+    corrected_pad_targets,
     render_label,
-    sorted_top_component_pads,
 )
 from pcbasm.vision import (
     CalibrationResult,
@@ -35,8 +37,9 @@ from pcbasm.vision import (
     draw_overlay,
 )
 from webui.jobs.board_ops import (
-    align_component_groups,
+    alignment_summary,
     confirm_next_point,
+    measure_regions,
     setup_board,
 )
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
@@ -360,19 +363,17 @@ def _move_to(
 
 
 def _pad_renderer(
-    result: BoardCalibrationResult,
-    session: PadAlignmentSession,
+    session: RegionAlignmentSession,
     projector: CopperProjector,
-    pads: Sequence[Pad],
+    paste_polygons: Sequence[Polygon],
     position: Point2d,
 ) -> PadResultRenderer:
     """Pad 群の照合結果 overlay 合成器を構築する."""
     return PadResultRenderer(
         projector=projector,
         edge_detector=session.edge_detector,
-        roi_polygons=[p.copper_polygon for p in pads],
-        paste_polygons=[p.polygon for p in pads],
-        pad_align=result.machine.paste_dispenser.pad_align,
+        roi=session.region_roi,
+        paste_polygons=paste_polygons,
         position=position,
     )
 
@@ -445,71 +446,96 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             _move_to(result, machine_pt)
             _stream_labeled_frames(ctx, result, f"Corner: {name}")
 
-        # 銅箔照合（部品単位の自動位置合わせ）。失敗時は FAILED overlay を配信する
-        groups = sorted_top_component_pads(result)
-        ctx.log(f"padを持つ部品数: {len(groups)}")
-        session = PadAlignmentSession.from_calibration(result, frame_sink=ctx.frame)
-
-        def render_failed(group: ComponentPads, index: int) -> None:
-            renderer = _pad_renderer(
-                result,
-                session,
-                session.projector,
-                group.pads,
-                result.stage.get_position().to2d(),
+        # 銅箔照合（領域単位）。成功は dx/dy と rms/sharpness、失敗は FAILED を
+        # overlay に出す（巡回中に人が見るのは overlay なので指標をそこへ出す）
+        session = RegionAlignmentSession.from_calibration(result, frame_sink=ctx.frame)
+        regions = session.plan_regions(
+            [pad.center for pad in result.pcb.pads if pad.layer == Layer.TOP]
+        )
+        ctx.log(f"照合領域数: {len(regions)}")
+        for region in regions:
+            ctx.log(
+                f"領域 {region.index + 1}: anchor=({region.anchor.x:.2f}, "
+                f"{region.anchor.y:.2f}) mm, "
+                f"予測 sharpness={region.predicted_sharpness:.3f}"
             )
-            lines = [
-                f"{group.component.designator} {index + 1}/{len(groups)}",
-                "FAILED",
-            ]
-            _stream_pad_result(ctx, result, renderer, lines)
 
-        alignments = align_component_groups(
-            ctx, session, groups, on_failure=render_failed
+        def _region_overlay(region: AlignmentRegion, lines: list[str]) -> None:
+            renderer = _pad_renderer(
+                session, session.projector, [], result.stage.get_position().to2d()
+            )
+            _stream_pad_result(
+                ctx,
+                result,
+                renderer,
+                [f"Region {region.index + 1}/{len(regions)}", *lines],
+            )
+
+        def render_measured(measured: RegionAlignment) -> None:
+            displacement, match = measured.displacement, measured.match
+            _region_overlay(
+                measured.region,
+                [
+                    f"dx={displacement.x:+.4f} dy={displacement.y:+.4f} mm",
+                    f"rms={match.rms_distance_px:.2f} px",
+                    f"sharpness={match.sharpness:.3f}",
+                    f"passes={measured.passes}"
+                    f" (+{measured.increment.norm * 1000:.1f} um)"
+                    + ("" if measured.converged else " NOT CONVERGED"),
+                ],
+            )
+
+        def render_failed(region: AlignmentRegion) -> None:
+            _region_overlay(region, ["FAILED"])
+
+        # board_tour は診断ツールなので下限は 1（BoardAlignment が空を許さない）。
+        # 塗布の厳しさは paste_solder 側の pad_align.min_regions が担う
+        alignment = measure_regions(
+            ctx,
+            session,
+            regions,
+            min_regions=1,
+            on_success=render_measured,
+            on_failure=render_failed,
         )
 
-        # 補正適用済みの全 pad 巡回
-        entries = _corrected_entries(result, session, alignments)
-        for index, (pad, renderer_projector, target) in enumerate(entries):
+        # 局所補正を適用した全 TOP pad 巡回（補正は pad ごとに引く）
+        entries = _corrected_entries(result, alignment)
+        for index, (pad, target) in enumerate(entries):
             ctx.progress("補正巡回", 100.0 * index / len(entries))
             ctx.checkpoint()
             _move_to(result, target, speed=Speed.rate(0.5))
-            renderer = _pad_renderer(result, session, renderer_projector, [pad], target)
+            projector = session.projector.with_correction(
+                alignment.correction_for(pad.center)
+            )
+            renderer = _pad_renderer(session, projector, [pad.polygon], target)
             lines = [f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}"]
             _stream_pad_result(ctx, result, renderer, lines)
 
         # board 原点へ戻して終了
         _move_to(result, board_transform.apply(Point2d(0.0, 0.0)))
 
-    aligned_pads = sum(len(group.pads) for group, _ in alignments)
     return JobResult(
         summary=(
-            f"照合成功 {len(alignments)}/{len(groups)} 部品"
-            f"（{aligned_pads} pads）/ 補正巡回 {len(entries)} pads"
+            f"{alignment_summary(alignment, len(regions))} / "
+            f"補正巡回 {len(entries)} pads"
         )
     )
 
 
 def _corrected_entries(
     result: BoardCalibrationResult,
-    session: PadAlignmentSession,
-    alignments: list[tuple[ComponentPads, PadAlignmentResult]],
-) -> list[tuple[Pad, CopperProjector, Point2d]]:
-    """補正適用済みの pad 巡回先を nearest neighbor 順で構築する."""
-    entries: list[tuple[Pad, CopperProjector, Point2d]] = []
-    for group, alignment in alignments:
-        corrected_transform = Compose(
-            [result.board_transform, alignment.machine_transform]
-        )
-        corrected_projector = session.corrected_projector(alignment.machine_transform)
-        for pad in group.pads:
-            entries.append(
-                (pad, corrected_projector, corrected_transform.apply(pad.center))
-            )
-
+    alignment: BoardAlignment,
+) -> list[tuple[Pad, Point2d]]:
+    """局所補正を適用した全 TOP pad の巡回先を nearest neighbor 順に並べ替える."""
+    entries = corrected_pad_targets(
+        result.board_transform,
+        alignment,
+        [pad for pad in result.pcb.pads if pad.layer == Layer.TOP],
+    )
     current = result.stage.get_position()
     return sort_by_nearest(
-        entries, current.to2d().to3d(), key=lambda entry: entry[2].to3d()
+        entries, current.to2d().to3d(), key=lambda entry: entry[1].to3d()
     )
 
 

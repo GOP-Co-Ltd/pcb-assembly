@@ -357,42 +357,123 @@ class TestAirPumpEnabled:
             store.write_machine_settings({"paste_dispenser.max_fill_speed": True})
 
 
-class TestPadAlignMaxFailures:
-    """Int 型フィールド pad_align.max_failures の読み書き（paste-align-max-failures 計画書）.
+class TestPadAlignRegionFields:
+    """領域照合キーの読み書きと per-key 検証（region-affine-correction 計画書）.
 
-    Repo fixture には max_failures を書かない（デフォルト 0 で動く）ため、 欠落時は None、write
-    後は round-trip する。負値は UnknownFieldError。
+    region_size_px / min_regions / max_passes は 1 以上の
+    int、converge_tolerance （収束とみなすパス増分 [mm]）は正の float、min_sharpness と
+    board_edge_margin （照合 ROI が基板外形から確保する最小距離 [mm]）は 0 以上の float。change
+    即 自動保存 UI では 0 や負値が machine.toml へ書かれる事故が起きやすいので保存時に弾く。
     """
 
-    def test_missing_max_failures_reads_as_none(self, store: ConfigStore):
-        values = store.read_machine_settings()
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("paste_dispenser.pad_align.region_size_px", 320),
+            ("paste_dispenser.pad_align.min_regions", 1),
+            ("paste_dispenser.pad_align.max_passes", 3),
+            ("paste_dispenser.pad_align.converge_tolerance", 0.02),
+            ("paste_dispenser.pad_align.min_sharpness", 0.25),
+            ("paste_dispenser.pad_align.board_edge_margin", 1.5),
+        ],
+    )
+    def test_write_then_reread_reflects_value(
+        self, store: ConfigStore, key: str, value: MachineSettingValue
+    ):
+        store.write_machine_settings({key: value})
 
-        assert values["paste_dispenser.pad_align.max_failures"] is None
+        assert store.read_machine_settings()[key] == value
 
-    def test_write_then_reread_reflects_value(self, store: ConfigStore):
-        store.write_machine_settings({"paste_dispenser.pad_align.max_failures": 2})
-
-        values = store.read_machine_settings()
-        assert values["paste_dispenser.pad_align.max_failures"] == 2
-
-    def test_write_zero_allows_no_failure(self, store: ConfigStore):
-        # 境界: 0 は「失敗を 1 つも許容しない」という有効値
-        store.write_machine_settings({"paste_dispenser.pad_align.max_failures": 0})
-
-        values = store.read_machine_settings()
-        assert values["paste_dispenser.pad_align.max_failures"] == 0
-
-    def test_negative_max_failures_raises(self, store: ConfigStore):
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "paste_dispenser.pad_align.region_size_px",
+            "paste_dispenser.pad_align.min_regions",
+            "paste_dispenser.pad_align.max_passes",
+        ],
+    )
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_non_positive_int_raises(self, store: ConfigStore, key: str, value: int):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings({"paste_dispenser.pad_align.max_failures": -1})
+            store.write_machine_settings({key: value})
+
+    def test_max_passes_is_an_int_field(self):
+        """UI が整数入力で描けるよう value_type を固定する."""
+        spec = next(
+            s for s in MACHINE_FIELDS if s.key == "paste_dispenser.pad_align.max_passes"
+        )
+
+        assert spec.value_type == "int"
+
+    def test_converge_tolerance_is_a_float_field_in_millimetres(self):
+        """収束判定の増分は mm 単位の float（UI の単位表示の根拠）."""
+        spec = next(
+            s
+            for s in MACHINE_FIELDS
+            if s.key == "paste_dispenser.pad_align.converge_tolerance"
+        )
+
+        assert spec.value_type == "float"
+        assert spec.unit == "mm"
+
+    @pytest.mark.parametrize("value", [0.0, -0.01])
+    def test_non_positive_converge_tolerance_raises(
+        self, store: ConfigStore, value: float
+    ):
+        """0 は「絶対に収束しない」設定になるので保存時に弾く."""
+        with pytest.raises(UnknownFieldError, match="converge_tolerance"):
+            store.write_machine_settings(
+                {"paste_dispenser.pad_align.converge_tolerance": value}
+            )
+
+    def test_negative_min_sharpness_raises(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                {"paste_dispenser.pad_align.min_sharpness": -0.1}
+            )
+
+    def test_zero_min_sharpness_is_allowed(self, store: ConfigStore):
+        # 境界: 0 は「拘束不足の棄却を無効化する」有効値
+        store.write_machine_settings({"paste_dispenser.pad_align.min_sharpness": 0.0})
+
+        assert store.read_machine_settings()[
+            "paste_dispenser.pad_align.min_sharpness"
+        ] == pytest.approx(0.0)
+
+    def test_board_edge_margin_is_a_float_field_in_millimetres(self):
+        """UI が数値入力＋単位 mm で描けるよう value_type / unit を固定する."""
+        spec = next(
+            s
+            for s in MACHINE_FIELDS
+            if s.key == "paste_dispenser.pad_align.board_edge_margin"
+        )
+
+        assert spec.value_type == "float"
+        assert spec.unit == "mm"
+
+    def test_negative_board_edge_margin_raises(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError, match="board_edge_margin"):
+            store.write_machine_settings(
+                {"paste_dispenser.pad_align.board_edge_margin": -0.1}
+            )
+
+    def test_zero_board_edge_margin_is_allowed(self, store: ConfigStore):
+        # 境界: 0 は「外形いっぱいまで照合を許す」有効値（probe 側と違い 0 を弾かない）
+        store.write_machine_settings(
+            {"paste_dispenser.pad_align.board_edge_margin": 0.0}
+        )
+
+        assert store.read_machine_settings()[
+            "paste_dispenser.pad_align.board_edge_margin"
+        ] == pytest.approx(0.0)
 
 
 class TestCameraCropFields:
     """Int 型フィールド camera.crop.width / camera.crop.height の 1 以上検証 （webui-
     camera-calib 計画書・要確認事項 2）.
 
-    Change 即自動保存 UI では 0 や負値が machine.toml に書かれる事故が 起きやすいため、max_failures
-    と同様の per-key 検証を追加する。
+    Change 即自動保存 UI では 0 や負値が machine.toml に書かれる事故が 起きやすいため、per-key の 1
+    以上検証を追加する。
     """
 
     @pytest.mark.parametrize("key", ["camera.crop.width", "camera.crop.height"])

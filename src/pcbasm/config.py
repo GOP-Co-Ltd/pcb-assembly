@@ -45,23 +45,36 @@ class Klipper:
 
 @attrs.frozen
 class PadAlign:
-    """pad単位の銅箔照合による位置合わせの設定."""
+    """領域単位の銅箔照合による位置合わせの設定."""
 
-    tolerance: float = 0.05  # 収束許容誤差 [mm]
-    max_correction: float = 1.0  # 1回の照合で許容する最大ずれ [mm]。超過は照合失敗
+    max_correction: float = 1.0  # 1領域で許容する累積ずれ [mm]。超過は照合失敗
     search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
-    roi_margin: float = 1.0  # pad ROIのマージン [mm]
-    min_roi: float = 3.0  # pad ROIの最小辺長 [mm]
+    region_size_px: int = 100  # 照合領域の一辺 [px] (実測: 100 が最良、200 まで実用)
+    min_regions: int = 4  # 成功が必要な最小領域数。下回ると塗布ジョブを中止
+    max_passes: int = 5  # 1領域あたりの再計測回数の上限
+    converge_tolerance: float = 0.005  # このパス増分以下で収束とみなす [mm]
+    board_edge_margin: float = 2.0  # 照合領域が基板外形から確保する最小距離 [mm] (外周はやすり掛けで銅箔が削れ、外形線自体が偽エッジになる)
+    min_sharpness: float = 0.15  # 拘束不足として棄却するsharpness閾値
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
     canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
     blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
-    max_failures: int = 0  # 照合失敗の許容部品数。超過で塗布ジョブを即中止
 
     def __attrs_post_init__(self) -> None:
-        if isinstance(self.max_failures, bool) or self.max_failures < 0:
+        # 計画領域数 >= min_regions は検証できない（基板の pad 分布で決まる）。
+        # 実行時に measure_regions が明示的に中止する
+        for name in ("region_size_px", "min_regions", "max_passes"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or value < 1:
+                raise ValueError(f"{name}は1以上の整数である必要があります: {value}")
+        if self.converge_tolerance <= 0:
             raise ValueError(
-                f"max_failuresは0以上の整数である必要があります: {self.max_failures}"
+                f"converge_toleranceは正の値である必要があります: "
+                f"{self.converge_tolerance}"
             )
+        for name in ("board_edge_margin", "min_sharpness"):
+            value = getattr(self, name)
+            if value < 0:
+                raise ValueError(f"{name}は0以上である必要があります: {value}")
 
 
 def validate_paste_lift_height(value: float) -> str | None:

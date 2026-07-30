@@ -196,34 +196,61 @@ class TestMachineSettingsApi:
         assert response.status_code == 409
 
 
-class TestPadAlignMaxFailuresApi:
-    """paste_dispenser.pad_align.max_failures の GET / PUT（paste-align-max-
-    failures 計画書）."""
+class TestPadAlignMaxPassesApi:
+    """paste_dispenser.pad_align.max_passes の GET / PUT（region-affine-
+    correction 計画書）."""
 
-    def test_get_reports_none_with_int_type_when_missing(self, client: TestClient):
+    def test_get_reports_int_type(self, client: TestClient):
         fields = {
             field["key"]: field
             for field in client.get("/api/settings/machine").json()["fields"]
         }
 
-        field = fields["paste_dispenser.pad_align.max_failures"]
-        assert field["value"] is None
+        field = fields["paste_dispenser.pad_align.max_passes"]
         assert field["value_type"] == "int"
 
     def test_put_writes_value(self, client: TestClient):
         response = client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.pad_align.max_failures": 2}},
+            json={"values": {"paste_dispenser.pad_align.max_passes": 3}},
         )
 
         assert response.status_code == 200, response.text
         fields = {field["key"]: field for field in response.json()["fields"]}
-        assert fields["paste_dispenser.pad_align.max_failures"]["value"] == 2
+        assert fields["paste_dispenser.pad_align.max_passes"]["value"] == 3
 
-    def test_put_negative_value_returns_400(self, client: TestClient):
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_put_non_positive_value_returns_400(self, client: TestClient, value: int):
         response = client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.pad_align.max_failures": -1}},
+            json={"values": {"paste_dispenser.pad_align.max_passes": value}},
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.parametrize("value", [0.0, -0.01])
+    def test_put_non_positive_converge_tolerance_returns_400(
+        self, client: TestClient, value: float
+    ):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.pad_align.converge_tolerance": value}},
+        )
+
+        assert response.status_code == 400
+
+    def test_put_negative_min_sharpness_returns_400(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.pad_align.min_sharpness": -0.1}},
+        )
+
+        assert response.status_code == 400
+
+    def test_put_negative_board_edge_margin_returns_400(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.pad_align.board_edge_margin": -0.1}},
         )
 
         assert response.status_code == 400

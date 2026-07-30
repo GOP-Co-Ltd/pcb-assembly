@@ -39,15 +39,22 @@ x = -2.9405
 y = 22.9727
 
 [paste_dispenser.pad_align]
-# pad単位の銅箔照合による位置合わせ
-tolerance = 0.05    # 収束許容誤差 [mm]。照合の並進は整数pixelで最小残差は斜め1px なので √2/pixel_per_mm より大きくする
-max_correction = 0.3         # 1回の照合で許容する最大ずれ [mm]。超過は誤マッチとして照合失敗
-search_window = 1.4 # 照合の探索窓 片側幅 [mm]
-roi_margin = 0.5    # pad ROIのマージン [mm]
-min_roi = 1.0       # pad ROIの最小辺長 [mm]
-canny_low = 55.0   # Cannyエッジ検出の下側閾値
-canny_high = 104.0  # Cannyエッジ検出の上側閾値
-blur_ksize = 3      # GaussianBlurカーネルサイズ (奇数)
+# 領域単位の銅箔照合 → 区ごとの局所補正（pad は最近傍の成功区の変位をそのまま使う）
+# 実銅箔は設計から局所的にずれる（実測: 3.3mm 離れた隣接区で 0.36mm 違う）ため、
+# 平均や大域アフィンで均さず、pad が属する区の変位をそのまま当てる
+max_correction = 0.3   # 1 領域で許容する累積ずれ [mm]。超過は誤マッチとして照合失敗
+search_window = 1.4    # 照合の探索窓 片側幅 [mm]
+region_size_px = 100   # 照合領域の一辺 [px]（100 + 2*42 = 184 でフレームに収まる。
+                       # 実測で 100 が最良・200 まで実用。広いと chamfer が局所変動を平均して鈍る）
+min_regions = 4        # 成功が必要な最小領域数。下回ると塗布ジョブを中止
+                       # （遠方の区の変位を全 pad へ当てるのを防ぐ絶対最小値）
+max_passes = 5         # 1 領域あたりの再計測回数の上限（累積で投影を補正して再照合。実測で 5 回ほどで収束）
+converge_tolerance = 0.005 # パス増分がこれ以下で収束とみなす [mm]（下限は指令位置の量子化 ≈2.5um）
+board_edge_margin = 2.0 # 照合ROIが基板外形から確保する最小距離 [mm]（外周は削れやすく外形線が偽エッジになる）
+min_sharpness = 0.15   # 拘束不足の棄却閾値（合成実測: 一方向のみ <= 0.06 / 良好 >= 0.5）
+canny_low = 55.0       # Cannyエッジ検出の下側閾値
+canny_high = 104.0     # Cannyエッジ検出の上側閾値
+blur_ksize = 3         # GaussianBlurカーネルサイズ (奇数)
 
 [camera]
 device_id = 0

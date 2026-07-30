@@ -22,7 +22,7 @@ from shapely import Polygon, box
 
 from pcbasm import gcode
 from pcbasm.config import DispenseMode
-from pcbasm.geometry import Compose, HeightPlane, Point2d, Point3d, Shift
+from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Point3d, Shift
 from pcbasm.pasting import PasteApplicator
 
 # 既定ノズル径 0.34（inset=0.17）で 2 成分に分裂する細首ダンベル（凹形）。
@@ -124,7 +124,7 @@ class TestSingleComponentPad:
         polygon = box(0, 0, 5, 4)
 
         # Act
-        applicator.apply([polygon])
+        applicator.apply([polygon], transform=Identity())
 
         # Assert: 成分 1 つ → send_gcode 1 回
         assert mock_klipper.send_gcode.call_count == 1
@@ -137,7 +137,7 @@ class TestSingleComponentPad:
         expected_total = polygon.area * ul_per_mm2
 
         # Act
-        applicator.apply([polygon])
+        applicator.apply([polygon], transform=Identity())
 
         # Assert: 塗布吐出量 = retraction + total_amount（extra_amount=0）
         amounts = _dispense_amounts(mock_paste_dispenser)
@@ -149,7 +149,7 @@ class TestSingleComponentPad:
         polygons = [box(0, 0, 2, 3), box(5, 5, 8, 9)]
 
         # Act
-        applicator.apply(polygons)
+        applicator.apply(polygons, transform=Identity())
 
         # Assert: 各パッド単一成分 → 合計 2 回
         assert mock_klipper.send_gcode.call_count == 2
@@ -163,7 +163,7 @@ class TestMultiComponentPad:
         polygon = _DUMBBELL_NECK_03
 
         # Act
-        applicator.apply([polygon])
+        applicator.apply([polygon], transform=Identity())
 
         # Assert: 成分数 N=2 → send_gcode 2 回
         assert mock_klipper.send_gcode.call_count == 2
@@ -177,7 +177,7 @@ class TestMultiComponentPad:
         per_component_total = polygon.area * ul_per_mm2 / n_components
 
         # Act
-        applicator.apply([polygon])
+        applicator.apply([polygon], transform=Identity())
 
         # Assert: 各塗布吐出量が retraction + (area*ul / N)
         amounts = _dispense_amounts(mock_paste_dispenser)
@@ -193,7 +193,7 @@ class TestMultiComponentPad:
         expected_total = polygon.area * ul_per_mm2
 
         # Act
-        applicator.apply([polygon])
+        applicator.apply([polygon], transform=Identity())
 
         # Assert: sum(total_amount) == area*ul_per_mm2
         amounts = _dispense_amounts(mock_paste_dispenser)
@@ -209,7 +209,7 @@ class TestEmptyFallback:
         polygon = Polygon()
 
         # Act
-        applicator.apply([polygon])
+        applicator.apply([polygon], transform=Identity())
 
         # Assert: 1 本も送信しない
         mock_klipper.send_gcode.assert_not_called()
@@ -220,14 +220,14 @@ class TestEmptyFallback:
         assert not invalid.is_valid  # 前提: 不正形状
 
         # Act
-        applicator.apply([invalid])
+        applicator.apply([invalid], transform=Identity())
 
         # Assert
         mock_klipper.send_gcode.assert_not_called()
 
     def test_empty_polygon_list_skips(self, applicator, mock_klipper):
         # Act
-        applicator.apply([])
+        applicator.apply([], transform=Identity())
 
         # Assert
         mock_klipper.send_gcode.assert_not_called()
@@ -241,7 +241,7 @@ class TestDispenseProtocol:
         polygon = box(0, 0, 2, 3)
 
         # Act
-        applicator.apply([polygon])
+        applicator.apply([polygon], transform=Identity())
 
         # Assert: プライム+吐出（sync=False）、リトラクション（sync=True）の 2 回
         calls = mock_paste_dispenser.pushpull.call_args_list
@@ -254,7 +254,7 @@ class TestDispenseProtocol:
         polygon = box(0, 0, 2, 3)
 
         # Act
-        applicator.apply([polygon])
+        applicator.apply([polygon], transform=Identity())
 
         # Assert: pad ごとの中止境界が物理動作完了後になる
         sent = mock_klipper.send_gcode.call_args.args[0]
@@ -295,6 +295,7 @@ class TestTransformApplication:
         board_transform = Shift(x=20.0, y=10.0, z=0.0)
         toolhead_offset = Shift(x=100.0, y=30.0, z=0.0)
         before_height_plane = Compose([board_transform, toolhead_offset])
+        transform = Compose([board_transform, toolhead_offset, _machine_height_plane()])
         applicator = PasteApplicator(
             klipper=mock_klipper,
             paste_dispenser=mock_paste_dispenser,
@@ -307,14 +308,11 @@ class TestTransformApplication:
             retraction=10.0,
             retraction_rate=10.0,
             retraction_accel_factor=2.0,
-            transform=Compose(
-                [board_transform, toolhead_offset, _machine_height_plane()]
-            ),
             paste_height=paste_height,
             lift_height=5.0,
         )
 
-        applicator.apply([box(0.0, 0.0, 5.0, 4.0)])
+        applicator.apply([box(0.0, 0.0, 5.0, 4.0)], transform=transform)
 
         assert len(mock_stage.move.call_args_list) >= 2
         down_move = mock_stage.move.call_args_list[1].kwargs
@@ -326,6 +324,136 @@ class TestTransformApplication:
         )
         board_space_z = _machine_surface_z(board_space_point.x, board_space_point.y)
         assert down_move["z"] != pytest.approx(paste_height + board_space_z)
+
+
+class TestPerPadCorrection:
+    """Per-pad の局所補正: 機械座標へ出る最後の 1 回だけ pad ごとの transform で適用する.
+
+    銅箔照合の補正は pad ごとに違う値（実機では 3.3mm 離れた区の間で 0.36mm 違う）に
+    なったので、`apply` / `deposit_at` は呼び出しごとに transform を差し替える。
+    ここで固定するのは 2 点:
+
+    1. フィル経路と吐出量は **board 座標のポリゴン**から計算され、補正は最後の
+       座標変換でしか効かない（経路の点数も吐出量も変わらず、機械座標だけが
+       平行移動する）。純並進の補正なら共役適用でも面積は変わらないので、これは
+       「面積が変わる」ことのピンではなく「補正が経路生成より後段にある」ことの
+       ピンである
+    2. 同じ applicator で pad ごとに違う補正を渡せる（1 つの補正を全 pad へ
+       使い回す実装だと per-pad 補正が成立しない）
+    3. `transform` の渡し忘れは TypeError（黙って無補正で塗らない）
+    """
+
+    BOARD = Shift(x=20.0, y=10.0, z=0.0)
+    TOOLHEAD = Shift(x=100.0, y=30.0, z=0.0)
+    PAD = box(0.0, 0.0, 5.0, 4.0)
+    CORRECTION_A = Shift(x=0.46, y=-0.18, z=0.0)
+    CORRECTION_B = Shift(x=0.10, y=-0.20, z=0.0)
+
+    @pytest.fixture
+    def applicator(self, mock_klipper, mock_paste_dispenser, mock_stage):
+        return PasteApplicator(
+            klipper=mock_klipper,
+            paste_dispenser=mock_paste_dispenser,
+            stage=mock_stage,
+            nozzle_diameter=0.34,
+            max_fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            ul_per_mm2=0.05,
+            retraction=10.0,
+            retraction_rate=10.0,
+            retraction_accel_factor=2.0,
+            transform=Compose([self.BOARD, self.TOOLHEAD]),
+            paste_height=0.5,
+            lift_height=5.0,
+        )
+
+    def _corrected(self, correction):
+        """Board → 補正 → toolhead の順に合成した pad 1 枚ぶんの変換."""
+        return Compose([self.BOARD, correction, self.TOOLHEAD])
+
+    @staticmethod
+    def _machine_xy(mock_stage):
+        """stage.move へ渡った機械座標 XY を呼び出し順に取り出す."""
+        return [
+            (call.kwargs["x"], call.kwargs["y"])
+            for call in mock_stage.move.call_args_list
+            if "x" in call.kwargs and "y" in call.kwargs
+        ]
+
+    def test_correction_shifts_machine_xy_without_changing_amount_or_path(
+        self, applicator, mock_stage, mock_paste_dispenser
+    ):
+        """補正は機械座標を平行移動するだけ（吐出量と経路の点数は不変）."""
+        applicator.apply([self.PAD], transform=Compose([self.BOARD, self.TOOLHEAD]))
+        baseline_xy = self._machine_xy(mock_stage)
+        baseline_amounts = _dispense_amounts(mock_paste_dispenser)
+        mock_stage.move.reset_mock()
+        mock_paste_dispenser.pushpull.reset_mock()
+
+        applicator.apply([self.PAD], transform=self._corrected(self.CORRECTION_A))
+
+        corrected_xy = self._machine_xy(mock_stage)
+        assert _dispense_amounts(mock_paste_dispenser) == pytest.approx(
+            baseline_amounts
+        )
+        assert len(corrected_xy) == len(baseline_xy)
+        assert baseline_xy, "経路点が 1 つも無いと比較が空振りする"
+        for (x, y), (bx, by) in zip(corrected_xy, baseline_xy, strict=True):
+            assert x == pytest.approx(bx + 0.46, abs=1e-9)
+            assert y == pytest.approx(by - 0.18, abs=1e-9)
+
+    def test_each_pad_can_use_its_own_correction(self, applicator, mock_stage):
+        """同じ applicator で pad ごとに違う補正を渡せる.
+
+        2 回の apply の機械座標の差が、渡した 2 つの補正の差そのものになる （平均や最初の補正を使い回していれば差が 0
+        になって落ちる）。
+        """
+        applicator.apply([self.PAD], transform=self._corrected(self.CORRECTION_A))
+        first_xy = self._machine_xy(mock_stage)
+        mock_stage.move.reset_mock()
+
+        applicator.apply([self.PAD], transform=self._corrected(self.CORRECTION_B))
+
+        second_xy = self._machine_xy(mock_stage)
+        assert len(second_xy) == len(first_xy)
+        for (ax, ay), (bx, by) in zip(first_xy, second_xy, strict=True):
+            assert ax - bx == pytest.approx(0.46 - 0.10, abs=1e-9)
+            assert ay - by == pytest.approx(-0.18 - (-0.20), abs=1e-9)
+
+    def test_omitting_transform_is_a_type_error(self, applicator, mock_klipper):
+        """Transform 省略は TypeError（渡し忘れが無補正の塗布になるのを防ぐ）.
+
+        `__init__` の transform へ黙ってフォールバックすると、pad ごとの補正を
+        渡し忘れた塗布が「動くけれど 100um ずれている」形で成立してしまう。
+        実機で基板 1 枚を無駄にするまで気づけないので、型で落とす。
+        """
+        with pytest.raises(TypeError, match="transform"):
+            applicator.apply([self.PAD])  # type: ignore[call-arg]
+
+        assert mock_klipper.send_gcode.call_count == 0
+
+    def test_omitting_transform_in_deposit_at_is_a_type_error(
+        self, applicator, mock_klipper
+    ):
+        """点塗布（初回パージ）でも transform 省略は TypeError."""
+        with pytest.raises(TypeError, match="transform"):
+            applicator.deposit_at(Point2d(3.0, 2.0), amount=0.5)  # type: ignore[call-arg]
+
+        assert mock_klipper.send_gcode.call_count == 0
+
+    def test_deposit_at_accepts_a_per_pad_transform(self, applicator, mock_stage):
+        """点塗布（初回パージ）も pad ごとの補正を受け取る."""
+        point = Point2d(3.0, 2.0)
+
+        applicator.deposit_at(
+            point, amount=0.5, transform=self._corrected(self.CORRECTION_A)
+        )
+
+        want = self._corrected(self.CORRECTION_A).apply(Point3d(point.x, point.y, 0.0))
+        for x, y in self._machine_xy(mock_stage):
+            assert x == pytest.approx(want.x, abs=1e-9)
+            assert y == pytest.approx(want.y, abs=1e-9)
 
 
 class TestAutoPasteHeight:
@@ -387,7 +515,7 @@ class TestAutoPasteHeight:
             ul_per_mm2=0.08,
         )
 
-        applicator.apply([polygon])
+        applicator.apply([polygon], transform=Identity())
 
         assert self._down_z(mock_stage) == pytest.approx(0.08)
 
@@ -573,8 +701,8 @@ class TestFromConfig:
             config, mocker
         )
 
-        manual.apply([polygon])
-        via_config.apply([polygon])
+        manual.apply([polygon], transform=Identity())
+        via_config.apply([polygon], transform=Identity())
 
         assert (
             config_dispenser.pushpull.call_args_list
@@ -592,7 +720,7 @@ class TestFromConfig:
             mock_klipper, mock_paste_dispenser, mock_stage, config
         )
 
-        applicator.deposit_at(Point2d(1.0, 2.0), amount=0.1)
+        applicator.deposit_at(Point2d(1.0, 2.0), amount=0.1, transform=Identity())
 
         assert [call.kwargs["z"] for call in mock_stage.move.call_args_list] == [
             4.5,
@@ -730,7 +858,9 @@ class TestDepositAt:
     """公開 deposit_at（初回パージ用の単点塗布プリミティブ）."""
 
     def test_sends_single_blocking_gcode(self, applicator, mock_klipper):
-        applicator.deposit_at(Point2d(4.0, 5.0), amount=0.2, paste_height=0.6)
+        applicator.deposit_at(
+            Point2d(4.0, 5.0), amount=0.2, paste_height=0.6, transform=Identity()
+        )
 
         assert mock_klipper.send_gcode.call_count == 1
         sent = mock_klipper.send_gcode.call_args.args[0]
@@ -739,7 +869,7 @@ class TestDepositAt:
     def test_uses_single_point_without_stage_path_motion(self, applicator, mock_stage):
         point = Point2d(4.0, 5.0)
 
-        applicator.deposit_at(point, amount=0.2, paste_height=0.6)
+        applicator.deposit_at(point, amount=0.2, paste_height=0.6, transform=Identity())
 
         first_move = mock_stage.move.call_args_list[0].kwargs
         down_move = mock_stage.move.call_args_list[1].kwargs
@@ -755,7 +885,9 @@ class TestDepositAt:
     ):
         retraction = 10.0
 
-        applicator.deposit_at(Point2d(4.0, 5.0), amount=0.2, paste_height=0.6)
+        applicator.deposit_at(
+            Point2d(4.0, 5.0), amount=0.2, paste_height=0.6, transform=Identity()
+        )
 
         amounts = _dispense_amounts(mock_paste_dispenser)
         assert len(amounts) == 1
@@ -775,7 +907,7 @@ class TestPerPadOverride:
         retraction = 10.0
 
         # Act
-        applicator.apply([polygon], ul_per_mm2=0.08)
+        applicator.apply([polygon], ul_per_mm2=0.08, transform=Identity())
 
         # Assert: total_amount = area * 上書き値
         amounts = _dispense_amounts(mock_paste_dispenser)
@@ -787,7 +919,7 @@ class TestPerPadOverride:
         retraction = 10.0
 
         # Act
-        applicator.apply([polygon])
+        applicator.apply([polygon], transform=Identity())
 
         # Assert
         amounts = _dispense_amounts(mock_paste_dispenser)
@@ -798,12 +930,12 @@ class TestPerPadOverride:
     ):
         # Arrange: delay=0 の基準量を取る
         polygon = box(0, 0, 5, 4)
-        applicator.apply([polygon])
+        applicator.apply([polygon], transform=Identity())
         base_amount = _dispense_amounts(mock_paste_dispenser)[0]
         mock_paste_dispenser.pushpull.reset_mock()
 
         # Act: prime_extra_delay>0 で extra_amount = 実効レート*delay が加算
-        applicator.apply([polygon], prime_extra_delay=1.0)
+        applicator.apply([polygon], prime_extra_delay=1.0, transform=Identity())
 
         # Assert
         delayed_amount = _dispense_amounts(mock_paste_dispenser)[0]
@@ -812,12 +944,12 @@ class TestPerPadOverride:
     def test_boundary_margin_override_changes_fill_path(self, applicator, mock_klipper):
         # Arrange: 外周マージン 0 の塗布 GCode を取る
         polygon = box(0, 0, 10, 10)
-        applicator.apply([polygon], boundary_margin=0.0)
+        applicator.apply([polygon], boundary_margin=0.0, transform=Identity())
         without_margin = list(mock_klipper.send_gcode.call_args_list)
         mock_klipper.send_gcode.reset_mock()
 
         # Act: boundary_margin を上書きすると build_paste_fill_path の経路が変わる
-        applicator.apply([polygon], boundary_margin=2.0)
+        applicator.apply([polygon], boundary_margin=2.0, transform=Identity())
         with_margin = list(mock_klipper.send_gcode.call_args_list)
 
         # Assert: 上書きが build 経路に伝わり、送信される塗布パスが変化する

@@ -6,13 +6,14 @@ dispenser の構築」をまとめ、コンテキストマネージャ として
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Self
 
 import attrs
 
 from pcbasm.config import Machine, get_machine_config
-from pcbasm.geometry import Compose, Identity, Transform
+from pcbasm.geometry import Compose, Identity, Point2d, Transform
 from pcbasm.hal import (
     Camera,
     Klipper,
@@ -21,8 +22,13 @@ from pcbasm.hal import (
 )
 from pcbasm.parking import park_or_present
 from pcbasm.pasting import HeightPlaneMeasurer, PasteApplicator, ProbeExecutor
-from pcbasm.pcb import PcbFile
-from pcbasm.posctrl import BoardCalibrationResult, setup_board_calibration
+from pcbasm.pcb import Pad, PcbFile
+from pcbasm.posctrl import (
+    BoardAlignment,
+    BoardCalibrationResult,
+    corrected_board_transform,
+    setup_board_calibration,
+)
 from pcbasm.vision import CalibrationResult, FrameSink
 
 
@@ -109,6 +115,66 @@ class PasteSession:
         """Board 座標 → machine 座標の変換（board_transform + toolhead_offset）."""
         return Compose([self.board_transform, self.toolhead_offset])
 
+    def pad_to_machine(
+        self,
+        board_point: Point2d,
+        *,
+        alignment: BoardAlignment,
+        height_plane: Transform,
+    ) -> Compose:
+        """その pad の board 座標 → ノズル機械座標の全変換を組む（局所補正込み）.
+
+        銅箔照合の局所補正は ``toolhead_offset`` の**前**（変位はカメラの機械座標系
+        で定義されているため）、``height_plane`` は定義域がノズル機械 XY なので
+        **最後尾**。この順序が塗布の座標系規則そのものなので、job 側で組み直さない。
+
+        Args:
+            board_point: 補正を引く点（board座標、mm）。塗布なら pad 中心
+            alignment: 区ごとの局所補正
+            height_plane: 基板高さ面（ノズル機械 XY → Z 補正）
+
+        Returns:
+            board座標→ノズル機械座標の合成変換
+        """
+        return Compose(
+            [
+                corrected_board_transform(self.board_transform, alignment, board_point),
+                self.toolhead_offset,
+                height_plane,
+            ]
+        )
+
+    def pad_transforms(
+        self,
+        pads: Sequence[Pad],
+        *,
+        alignment: BoardAlignment,
+        height_plane: Transform,
+    ) -> list[tuple[Pad, Compose]]:
+        """Pad ごとの board 座標 → ノズル機械座標の変換を入力順で返す.
+
+        補正は各 pad の中心で引くので pad ごとに違う。塗布ループも初回パージも
+        この 1 本の列から変換を受け取るため、「どの pad にどの変換を当てるか」の
+        対応が呼び出し側のループの書き方に依存しない。
+
+        Args:
+            pads: 対象pad（塗布順・パージ pad を含めてよい）
+            alignment: 区ごとの局所補正
+            height_plane: 基板高さ面（ノズル機械 XY → Z 補正）
+
+        Returns:
+            入力 pads と同順・同数の (pad, board→ノズル機械座標の変換)
+        """
+        return [
+            (
+                pad,
+                self.pad_to_machine(
+                    pad.center, alignment=alignment, height_plane=height_plane
+                ),
+            )
+            for pad in pads
+        ]
+
     def make_applicator(
         self,
         transform: Transform = Identity(),
@@ -118,7 +184,9 @@ class PasteSession:
         """Machine 設定のパラメータで PasteApplicator を構築する.
 
         Args:
-            transform: 塗布座標に適用する変換
+            transform: ``draw_line``（キャリブ用プリミティブ）に使う座標変換。
+                ``apply`` / ``deposit_at`` は pad ごとの変換を引数で受け取るので
+                これを見ない
             rotations_per_ul: μL → 回転数の係数 [rev/μL] を上書きする値。
                 ``None`` のとき machine 設定値を使う。キャリブ検証ループで
                 新値を反映した applicator を作り直すための経路。

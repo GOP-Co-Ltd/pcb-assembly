@@ -99,7 +99,7 @@ class TestMachine:
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.paste_dispenser.pad_align == PadAlign()
-        assert machine.paste_dispenser.pad_align.tolerance == pytest.approx(0.05)
+        assert machine.paste_dispenser.pad_align.region_size_px == 100
 
     def test_solder_paste_density_defaults_when_absent(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
@@ -117,13 +117,14 @@ class TestMachine:
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
-            source + "\n[paste_dispenser.pad_align]\ntolerance = 0.08\nmin_roi = 5.0\n"
+            source + "\n[paste_dispenser.pad_align]\nregion_size_px = 320\n"
+            "min_sharpness = 0.25\n"
         )
 
         pad_align = Machine(path).paste_dispenser.pad_align
 
-        assert pad_align.tolerance == pytest.approx(0.08)
-        assert pad_align.min_roi == pytest.approx(5.0)
+        assert pad_align.region_size_px == 320
+        assert pad_align.min_sharpness == pytest.approx(0.25)
         assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
 
     def test_air_pump_enabled_defaults_true_when_absent(self):
@@ -247,32 +248,75 @@ class TestMachine:
             machine.paste_dispenser
 
 
-class TestPadAlignMaxFailures:
-    """PadAlign.max_failures のテスト（paste-align-max-failures 計画書「公開 IF」節）.
+class TestPadAlignRegionSettings:
+    """PadAlign の領域照合キーの既定値と検証（region-local-correction）.
 
-    照合失敗の許容部品数。デフォルト 0（1 部品でも失敗したら塗布ジョブを即中止）。
+    領域単位の照合では「塗布対象 pad を含むタイルを条件を満たす限り全部計画し、 区ごとに最大 max_passes
+    回まで反復計測し、成功が min_regions を下回ったら 塗布ジョブを中止」する。region_size_px /
+    min_regions / max_passes は 1 以上、 converge_tolerance（収束とみなすパス増分
+    [mm]）は正、min_sharpness（拘束不足の 棄却閾値）と board_edge_margin（照合 ROI
+    が基板外形から確保する最小距離 [mm]）は 0 以上でなければならない。区数の上限（旧 region_count）は撤去した。
     """
 
-    def test_defaults_to_zero_when_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+    def test_region_defaults_when_absent(self):
+        pad_align = Machine(TESTING_DATA_DIR / "machine.toml").paste_dispenser.pad_align
 
-        assert machine.paste_dispenser.pad_align.max_failures == 0
+        # 実測: 100px = 3.3mm が最良。ROI が 10mm あると内部で 100um 変動する場を
+        # chamfer 距離が平均してしまい照合が鈍る
+        assert pad_align.region_size_px == 100
+        # 局所補正では区が補正の空間分解能。4 区未満は基板を代表できない
+        assert pad_align.min_regions == 4
+        # 実機では 5 回ほどで収束する
+        assert pad_align.max_passes == 5
+        # 0.005mm = 0.15px @ 30.2px/mm（サブピクセル再現性 3.6um の上）
+        assert pad_align.converge_tolerance == pytest.approx(0.005)
+        assert pad_align.min_sharpness == pytest.approx(0.15)
+        # 外周 1〜2mm はやすり掛けで削れるため、既定で 2mm 内側の銅箔だけを照合する
+        assert pad_align.board_edge_margin == pytest.approx(2.0)
 
-    def test_reads_explicit_value(self, tmp_path):
+    def test_reads_explicit_values(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
-            source + "\n[paste_dispenser.pad_align]\nmax_failures = 2\n",
+            source + "\n[paste_dispenser.pad_align]\nmax_passes = 3\n"
+            "min_regions = 2\nconverge_tolerance = 0.02\n",
             encoding="utf-8",
         )
 
-        machine = Machine(path)
+        pad_align = Machine(path).paste_dispenser.pad_align
 
-        assert machine.paste_dispenser.pad_align.max_failures == 2
+        assert pad_align.max_passes == 3
+        assert pad_align.min_regions == 2
+        assert pad_align.converge_tolerance == pytest.approx(0.02)
 
-    def test_rejects_negative_value(self):
-        with pytest.raises(ValueError, match="max_failures"):
-            PadAlign(max_failures=-1)
+    @pytest.mark.parametrize("key", ["region_size_px", "min_regions", "max_passes"])
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_rejects_non_positive_counts(self, key: str, value: int):
+        with pytest.raises(ValueError, match=key):
+            PadAlign(**{key: value})
+
+    @pytest.mark.parametrize("value", [0.0, -0.01])
+    def test_rejects_non_positive_converge_tolerance(self, value: float):
+        """0 は「絶対に収束しない」設定になるので拒否する（正の値のみ）."""
+        with pytest.raises(ValueError, match="converge_tolerance"):
+            PadAlign(converge_tolerance=value)
+
+    def test_rejects_negative_min_sharpness(self):
+        with pytest.raises(ValueError, match="min_sharpness"):
+            PadAlign(min_sharpness=-0.1)
+
+    def test_zero_min_sharpness_is_allowed(self):
+        """境界: 0 は「拘束不足の棄却を無効化する」有効値."""
+        assert PadAlign(min_sharpness=0.0).min_sharpness == pytest.approx(0.0)
+
+    def test_rejects_negative_board_edge_margin(self):
+        """負のマージンは外形を外へ広げてしまうので拒否する."""
+        with pytest.raises(ValueError, match="board_edge_margin"):
+            PadAlign(board_edge_margin=-0.1)
+
+    def test_zero_board_edge_margin_is_allowed(self):
+        """境界: 0 は「外形いっぱいまで照合を許す」有効値."""
+        assert PadAlign(board_edge_margin=0.0).board_edge_margin == pytest.approx(0.0)
 
 
 class TestMachineType:
