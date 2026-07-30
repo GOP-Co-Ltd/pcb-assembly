@@ -12,7 +12,6 @@ rotations_per_ul = 8.0 # キャリブレーション値 2026/06/08 23G S3X70-E15
 solder_paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
 nozzle_diameter = 0.30 # ノズル内径 [mm] (23G)
 dispense_mode = "auto" # 塗布方式: auto / dot / line / area
-air_pump_enabled = true # エアポンプの有効/無効
 auto_line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比
 auto_area_short_side_factor = 4.0 # Auto時に面塗布へ切り替える短辺のノズル径倍率
 max_dispense_rate = 0.2 # 吐出レート上限 [uL/sec]

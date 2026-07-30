@@ -192,6 +192,15 @@ class TestMachineSettingsApi:
 
         assert response.status_code == 400
 
+    def test_put_bool_value_returns_400(self, client: TestClient):
+        # bool を受け付けるフィールドは無く、数値へ暗黙変換もされない
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.max_fill_speed": True}},
+        )
+
+        assert response.status_code == 400
+
     def test_put_unknown_dispense_mode_returns_400(self, client: TestClient):
         response = client.put(
             "/api/settings/machine",
