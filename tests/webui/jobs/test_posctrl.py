@@ -72,7 +72,7 @@ from webui.preview import PreviewService
 from webui.settings import Settings
 from webui.state import AppState
 
-from .conftest import WaitUntil, answer_next_prompt
+from .conftest import WaitUntil, answer_next_prompt, make_board_store
 
 POSCTRL_JOBS = (
     "reference_point_setup",
@@ -123,6 +123,7 @@ def checkerboard_manager(
         PreviewService(checkerboard_state),
         catalog,
         checkerboard_camera_settings,
+        make_board_store(checkerboard_camera_settings),
     )
     yield manager
     manager.shutdown()

@@ -112,11 +112,9 @@ def post_job_param_defaults(
         definition = catalog.get(name)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
-    merged: dict[str, bool | float | int | str] = {
-        **state.job_param_defaults(name),
-        **catalog.filter_persisted_defaults(definition, values),
-    }
-    state.save_job_param_defaults(name, merged)
+    merged = state.merge_job_param_defaults(
+        name, catalog.filter_persisted_defaults(definition, values)
+    )
     return {"defaults": merged}
 
 

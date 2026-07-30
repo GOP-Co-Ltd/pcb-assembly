@@ -11,6 +11,7 @@ from pathlib import Path
 from pcbasm.config import Machine
 from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.vision import CalibrationResult
+from webui.atomic import write_text_atomic
 from webui.config_store import ConfigStore, MachineSettingValue
 from webui.fake_camera import FixedImageCamera
 from webui.settings import Settings
@@ -36,7 +37,11 @@ class BusyError(RuntimeError):
 
 
 class AppState:
-    """選択 PCB の保持・永続化と装置排他ロックを担うクラス."""
+    """選択 PCB の保持・永続化と装置排他ロックを担うクラス.
+
+    ロック順序は ``machine_lock`` → ``_persist_lock`` に固定する
+    （``_persist_lock`` 保持中に装置排他ロックを取る経路を作らない）。
+    """
 
     def __init__(self, settings: Settings, store: ConfigStore) -> None:
         """AppState を初期化する.
@@ -56,6 +61,8 @@ class AppState:
         # カメラ/FrameHub の遅延構築用（machine_lock とは別の内部ロック）
         self._camera_lock = threading.Lock()
         self._frame_hub: FrameHub | None = None
+        # webui_state.json の read-modify-write 直列化用（machine_lock の内側）
+        self._persist_lock = threading.Lock()
 
         persisted = self._load_persisted()
         self._selected_pcb = self._resolve_pcb(persisted.get("pcb_file"))
@@ -90,7 +97,8 @@ class AppState:
             raise ValueError(f"PCB ファイルとして選択できません: {path}")
         with self.machine_lock("select-pcb"):
             self._selected_pcb = relative
-            self._persist()
+            with self._persist_lock:
+                self._persist()
 
     def machine(self) -> Machine:
         """Machine 設定を読み込んで返す（毎回ロード）."""
@@ -127,14 +135,29 @@ class AppState:
 
     def job_param_defaults(self, job_name: str) -> dict[str, StoredJobParamValue]:
         """ジョブフォーム用に保存された既定値を返す（未保存なら空 dict）."""
-        return dict(self._job_param_defaults.get(job_name, {}))
+        with self._persist_lock:
+            return dict(self._job_param_defaults.get(job_name, {}))
 
-    def save_job_param_defaults(
+    def merge_job_param_defaults(
         self, job_name: str, values: Mapping[str, StoredJobParamValue]
-    ) -> None:
-        """ジョブフォーム用の既定値を保存する."""
-        self._job_param_defaults[job_name] = dict(values)
-        self._persist()
+    ) -> dict[str, StoredJobParamValue]:
+        """ジョブフォーム既定値へ ``values`` をマージして保存し、結果を返す.
+
+        ロック内で「現在値を読む → マージ → 永続化」を行うため、同時保存でも
+        先行の値が失われない。呼び出し側で読んでからマージし直す必要はない。
+
+        Args:
+            job_name: ジョブ名
+            values: 上書きするキーと値（既存キーは置換、他は保持）
+
+        Returns:
+            マージ後の既定値
+        """
+        with self._persist_lock:
+            merged = {**self._job_param_defaults.get(job_name, {}), **values}
+            self._job_param_defaults[job_name] = merged
+            self._persist()
+            return dict(merged)
 
     def frame_hub(self) -> FrameHub:
         """FrameHub を返す（初回アクセスで遅延構築）.
@@ -231,12 +254,15 @@ class AppState:
         return data
 
     def _persist(self) -> None:
+        """状態を JSON へ書き出す（呼び出し側が ``_persist_lock`` を保持する）."""
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "pcb_file": (self._selected_pcb.as_posix() if self._selected_pcb else None),
             "job_param_defaults": self._job_param_defaults,
         }
-        self._state_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        write_text_atomic(
+            self._state_path, json.dumps(data, ensure_ascii=False, indent=2)
+        )
 
     def _resolve_pcb(self, persisted: object) -> Path | None:
         if not isinstance(persisted, str):

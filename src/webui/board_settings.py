@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-import tempfile
+import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import attrs
@@ -40,12 +41,22 @@ from pcbasm.pasting import (
     settings_to_dict,
 )
 from pcbasm.pcb import Pad, PadHierarchy
+from webui.atomic import write_text_atomic
 
 _SCHEMA_VERSION = 1
 
 
 class BoardSettingsStore:
-    """基板ごとの塗布設定 JSON を読み書きするストア."""
+    """基板ごとの塗布設定 JSON を読み書きするストア.
+
+    pad PATCH 経路の read-modify-write は :meth:`update` に集約し、インスタンス
+    内ロックで直列化する。**プロセス内で 1 インスタンスを共有すること**
+    （HTTP 経路とジョブワーカーが別インスタンスを持つとロックが効かない）。
+
+    :meth:`prune` と import（:meth:`model_from_doc` → :meth:`save`）は
+    アップロード済み doc や呼び出し側が持つモデルからの**全量上書き**なので
+    ロックの対象外で、pad PATCH と同時に走ったときの原子性は保証しない。
+    """
 
     def __init__(self, data_dir: Path, *, legacy_root: Path | None = None) -> None:
         """ストアを初期化する.
@@ -59,6 +70,7 @@ class BoardSettingsStore:
         """
         self._root = data_dir / "board_settings"
         self._legacy_root = legacy_root
+        self._update_lock = threading.Lock()
 
     def board_id(self, source_pcb: str) -> str:
         """PCB 相対パスから安定した基板 ID を導出する.
@@ -161,7 +173,10 @@ class BoardSettingsStore:
         *,
         board_signature: str | None = None,
     ) -> None:
-        """設定モデルを即時保存する.
+        """設定モデルを即時保存する（単発上書き専用）.
+
+        保存済み内容を読んで変換する編集（read-modify-write）には使わない。
+        並行編集が互いを上書きするため :meth:`update` を使うこと。
 
         Args:
             source_pcb: ``pcb_browse_root`` からの相対 posix パス
@@ -171,6 +186,42 @@ class BoardSettingsStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         doc = self._doc(source_pcb, model, board_signature=board_signature)
         self._write_doc(path, doc)
+
+    def update(
+        self,
+        source_pcb: str,
+        base_config: PasteDispenser,
+        *,
+        board_signature: str | None = None,
+        mutate: Callable[[PasteSettingsModel], PasteSettingsModel],
+    ) -> PasteSettingsModel:
+        """保存済み設定を読み直して変換し、保存した結果を返す.
+
+        ロック内で「再 :meth:`load_or_init` → ``mutate`` → atomic write」を
+        行うため、同時編集でも先行の変更が失われない（lost update の排除）。
+
+        ``mutate`` には :class:`PasteSettingsModel` の純変換だけを渡すこと
+        （``with_level_patch`` / ``with_pads_enabled`` /
+        ``with_initial_purge_pad_id`` 等）。I/O やロックを取る処理を渡すと
+        ロック保持時間が伸び、デッドロックの経路にもなる。PCB のパース・
+        階層構築・入力検証はロック外で済ませてから呼ぶ。
+
+        Args:
+            source_pcb: ``pcb_browse_root`` からの相対 posix パス
+            base_config: マシンのペーストディスペンサー設定（L0 初期値）
+            board_signature: 現在の基板構成ハッシュ
+            mutate: 読み直したモデルを受け取り、保存するモデルを返す純関数
+
+        Returns:
+            保存した :class:`PasteSettingsModel`
+        """
+        with self._update_lock:
+            current = self.load_or_init(
+                source_pcb, base_config, board_signature=board_signature
+            )
+            model = mutate(current)
+            self.save(source_pcb, model, board_signature=board_signature)
+            return model
 
     def prune(
         self,
@@ -230,27 +281,7 @@ class BoardSettingsStore:
 
     def _write_doc(self, path: Path, doc: dict) -> None:
         """保存 JSON を同一 directory 内の atomic replace で書き込む."""
-        payload = json.dumps(doc, ensure_ascii=False, indent=2)
-        tmp_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                "w",
-                dir=path.parent,
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-                encoding="utf-8",
-                delete=False,
-            ) as tmp:
-                tmp_path = Path(tmp.name)
-                tmp.write(payload)
-            tmp_path.replace(path)
-        except Exception:
-            if tmp_path is not None:
-                try:
-                    tmp_path.unlink()
-                except FileNotFoundError:
-                    pass
-            raise
+        write_text_atomic(path, json.dumps(doc, ensure_ascii=False, indent=2))
 
     def _settings_doc(self, model: PasteSettingsModel) -> dict:
         """基板固有 override だけを保存する settings dict を返す."""

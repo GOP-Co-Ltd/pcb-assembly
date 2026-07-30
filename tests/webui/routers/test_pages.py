@@ -381,7 +381,7 @@ class TestPosctrlJobPages:
         self, client: TestClient, appstate: AppState
     ):
         """入力途中の即保存値（param-defaults 相当）が次回描画の default に反映される."""
-        appstate.save_job_param_defaults("camera_calibration", {"square_size": 3.0})
+        appstate.merge_job_param_defaults("camera_calibration", {"square_size": 3.0})
 
         text = client.get("/posctrl/camera_calibration").text
 
@@ -569,7 +569,7 @@ class TestPastingJobPages:
     def test_loading_page_renders_saved_loading_defaults(
         self, client: TestClient, appstate: AppState
     ):
-        appstate.save_job_param_defaults(
+        appstate.merge_job_param_defaults(
             "loading",
             {"amount": 0.2, "rotations": 6.0, "rate": 1.5, "accel": 2.5},
         )
@@ -638,7 +638,7 @@ class TestPastingJobPages:
     def test_dispense_calibration_renders_saved_param_defaults(
         self, client: TestClient, appstate: AppState
     ):
-        appstate.save_job_param_defaults(
+        appstate.merge_job_param_defaults(
             "dispense_calibration",
             {"board_width": 30.0, "line_count": 8, "speed_max": 12.0},
         )
@@ -667,7 +667,7 @@ class TestPastingJobPages:
     def test_toolhead_offset_renders_saved_param_defaults(
         self, client: TestClient, appstate: AppState
     ):
-        appstate.save_job_param_defaults(
+        appstate.merge_job_param_defaults(
             "toolhead_offset",
             {"point_count": 7, "point_spacing": 6.25, "edge_margin": 4.75},
         )

@@ -97,10 +97,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.appstate = state
     app.state.preview = preview
     app.state.catalog = catalog
-    app.state.board_store = BoardSettingsStore(
+    board_store = BoardSettingsStore(
         settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
     )
-    app.state.jobs = JobManager(state, preview, catalog, settings)
+    app.state.board_store = board_store
+    app.state.jobs = JobManager(state, preview, catalog, settings, board_store)
     app.state.templates = Jinja2Templates(directory=_PACKAGE_DIR / "templates")
     app.state.templates.env.globals["static_asset"] = _static_asset_url
     app.mount("/static", _NoCacheStaticFiles(directory=_STATIC_DIR), name="static")

@@ -16,6 +16,7 @@ from collections.abc import Callable, Iterator
 import pytest
 
 from tests import helpers
+from webui.board_settings import BoardSettingsStore
 from webui.config_store import ConfigStore
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import JobContext, JobResult
@@ -117,16 +118,37 @@ def catalog() -> JobCatalog:
     return JobCatalog()
 
 
+def make_board_store(settings: Settings) -> BoardSettingsStore:
+    """Settings に対応する基板設定ストア（JobManager への DI 用）."""
+    return BoardSettingsStore(
+        settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
+    )
+
+
+@pytest.fixture
+def board_store(fake_camera_settings: Settings) -> BoardSettingsStore:
+    """Fake camera 設定に対応する基板設定ストア."""
+    return make_board_store(fake_camera_settings)
+
+
 @pytest.fixture
 def make_manager(
-    state: AppState, preview: PreviewService, fake_camera_settings: Settings
+    state: AppState,
+    preview: PreviewService,
+    fake_camera_settings: Settings,
+    board_store: BoardSettingsStore,
 ) -> Iterator[ManagerFactory]:
     """JobManager のファクトリ。生成した manager はテスト終了時に shutdown する."""
     managers: list[JobManager] = []
 
     def _make(catalog: JobCatalog, *, log_capacity: int = 500) -> JobManager:
         manager = JobManager(
-            state, preview, catalog, fake_camera_settings, log_capacity=log_capacity
+            state,
+            preview,
+            catalog,
+            fake_camera_settings,
+            board_store,
+            log_capacity=log_capacity,
         )
         managers.append(manager)
         return manager
@@ -160,6 +182,12 @@ def real_manager(
     real_state: AppState, real_settings: Settings, catalog: JobCatalog
 ) -> Iterator[JobManager]:
     """実機向け JobManager。`@mark_hardware` 専用（catalog は各モジュールの override）."""
-    manager = JobManager(real_state, PreviewService(real_state), catalog, real_settings)
+    manager = JobManager(
+        real_state,
+        PreviewService(real_state),
+        catalog,
+        real_settings,
+        make_board_store(real_settings),
+    )
     yield manager
     manager.shutdown(timeout=60.0)

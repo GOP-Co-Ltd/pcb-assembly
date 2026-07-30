@@ -909,3 +909,80 @@ class TestPadConfigFillPath:
         )
 
         assert response.status_code == 409
+
+
+class TestExpectedPcb:
+    """expected_pcb による PCB 切替の検出（MR1: 409 / None は無検査）."""
+
+    def test_matching_expected_pcb_is_accepted(self, selected_client: TestClient):
+        pcb_file = _get_config(selected_client)["pcb_file"]
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L0", "enabled": False, "expected_pcb": pcb_file},
+        )
+
+        assert response.status_code == 200, response.text
+
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [
+            ("/api/pasting/pad-config/node", {"node": "L0", "enabled": False}),
+            ("/api/pasting/pad-config/pads", {"ids": ["U1.1"], "enabled": False}),
+            ("/api/pasting/pad-config/initial-purge", {"initial_purge_ul": 1.0}),
+        ],
+    )
+    def test_other_pcb_is_rejected_with_409(
+        self, selected_client: TestClient, path: str, body: dict
+    ):
+        response = selected_client.patch(
+            path, json={**body, "expected_pcb": "boards/other.kicad_pcb"}
+        )
+
+        assert response.status_code == 409, response.text
+
+    def test_rejected_patch_does_not_persist(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
+        # 先に成功する PATCH を通して JSON を作る（「一度も書かれていない」
+        # 状態と「409 で書かれなかった」状態を区別するため）
+        accepted = selected_client.patch(
+            "/api/pasting/pad-config/pads",
+            json={"ids": ["U1.2"], "enabled": False},
+        )
+        assert accepted.status_code == 200, accepted.text
+        before = _saved_board_settings_doc(webui_settings)
+
+        selected_client.patch(
+            "/api/pasting/pad-config/pads",
+            json={
+                "ids": ["U1.1"],
+                "enabled": False,
+                "expected_pcb": "boards/other.kicad_pcb",
+            },
+        )
+
+        assert _saved_board_settings_doc(webui_settings) == before
+        assert _pad_by_id(_get_config(selected_client), "U1.1")["enabled"] is True
+
+    def test_rejected_initial_purge_does_not_touch_machine_toml(
+        self, selected_client: TestClient, config_dir: Path
+    ):
+        """machine.toml は基板横断のグローバル設定なので 409 で不変であること."""
+        machine_toml = config_dir / "machine.toml"
+        before = machine_toml.read_text(encoding="utf-8")
+        # fixture は未設定（解決値 0.1 は PasteDispenser の既定）
+        assert "initial_purge_ul" not in before
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={
+                "initial_purge_ul": 0.42,
+                "expected_pcb": "boards/other.kicad_pcb",
+            },
+        )
+
+        assert response.status_code == 409, response.text
+        assert machine_toml.read_text(encoding="utf-8") == before
+        initial = _get_config(selected_client)["initial_purge"]
+        assert initial["initial_purge_ul"] == pytest.approx(0.1)

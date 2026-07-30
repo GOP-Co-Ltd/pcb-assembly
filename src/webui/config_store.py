@@ -5,7 +5,6 @@ machine.toml は tomlkit でコメント・構造を保持して書き戻す。
 
 from __future__ import annotations
 
-import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
@@ -19,6 +18,7 @@ from pcbasm.config import (
     validate_paste_lift_height,
     validate_probe_board_edge_margin,
 )
+from webui.atomic import write_text_atomic
 
 type SettingValueType = Literal[
     "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode", "bool"
@@ -291,27 +291,7 @@ class ConfigStore:
                 assert isinstance(child, Table)
                 table = child
             table[option] = value
-        payload = tomlkit.dumps(doc)
-        tmp_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                "w",
-                dir=path.parent,
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-                encoding="utf-8",
-                delete=False,
-            ) as tmp:
-                tmp_path = Path(tmp.name)
-                tmp.write(payload)
-            tmp_path.replace(path)
-        except Exception:
-            if tmp_path is not None:
-                try:
-                    tmp_path.unlink()
-                except FileNotFoundError:
-                    pass
-            raise
+        write_text_atomic(path, tomlkit.dumps(doc))
 
     def _machine_spec(self, key: str) -> FieldSpec:
         if key not in _MACHINE_FIELDS_BY_KEY:

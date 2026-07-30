@@ -211,6 +211,7 @@ class NodePatch(BaseModel):
     enabled: bool | None = None  # "enabled" in model_fields_set で送信有無を判定
     values: dict[str, PasteSettingValue] = {}  # upsert する override
     clear: list[str] = []  # 継承に戻す override 項目
+    expected_pcb: str | None = None  # 編集開始時の PCB（不一致なら 409）
 
 
 class PadEnablePatch(BaseModel):
@@ -218,6 +219,7 @@ class PadEnablePatch(BaseModel):
 
     ids: list[str]
     enabled: bool
+    expected_pcb: str | None = None  # 編集開始時の PCB（不一致なら 409）
 
 
 class InitialPurgePatch(BaseModel):
@@ -225,6 +227,7 @@ class InitialPurgePatch(BaseModel):
 
     initial_purge_ul: float | None = None
     pad_id: str | None = None
+    expected_pcb: str | None = None  # 編集開始時の PCB（不一致なら 409）
 
 
 class PadConfigImport(BaseModel):

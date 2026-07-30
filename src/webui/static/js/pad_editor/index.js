@@ -263,13 +263,19 @@ import {
     refreshViewerState();
   }
 
+  // 編集開始時の PCB をそのまま添えて送る。切替済みなら サーバが 409 を返す。
+  function withExpectedPcb(body) {
+    return { ...body, expected_pcb: state.config?.pcb_file ?? null };
+  }
+
   async function patchPads(ids, enabled) {
     if (ids.length === 0) return;
     try {
-      const res = await api("PATCH", "/api/pasting/pad-config/pads", {
-        ids,
-        enabled,
-      });
+      const res = await api(
+        "PATCH",
+        "/api/pasting/pad-config/pads",
+        withExpectedPcb({ ids, enabled })
+      );
       applyPadVisuals(res.affected_pads);
       await reloadConfig({ invalidateRoute: true, invalidateFillPath: true });
     } catch (err) {
@@ -362,7 +368,11 @@ import {
 
   async function patchNode(body, options = {}) {
     try {
-      const res = await api("PATCH", "/api/pasting/pad-config/node", body);
+      const res = await api(
+        "PATCH",
+        "/api/pasting/pad-config/node",
+        withExpectedPcb(body)
+      );
       applyPadVisuals(res.affected_pads);
       await reloadConfig({
         invalidateRoute: "enabled" in body,
@@ -409,7 +419,11 @@ import {
     state.initialPurgeSaving = true;
     applyToolbarLock();
     try {
-      await api("PATCH", "/api/pasting/pad-config/initial-purge", body);
+      await api(
+        "PATCH",
+        "/api/pasting/pad-config/initial-purge",
+        withExpectedPcb(body)
+      );
       await reloadConfig({});
     } catch (err) {
       toast(`初回パージ設定更新失敗: ${err.message}`, false);

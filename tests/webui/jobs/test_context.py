@@ -142,6 +142,9 @@ class TestBoardSettingsWiring:
 
     paste_solder ジョブが基板ごとの塗布設定ストアを引けるよう、manager は 選択中の PCB 相対パス・共有
     BoardSettingsStore を ctx へ渡す （計画書 Phase 5「JobContext への配線」節の契約）。
+
+    MR1 追記: ctx へ渡るのは注入されたインスタンスそのものでなければならない （manager
+    が自前生成に戻ると更新ロックが効かない）。
     """
 
     def test_source_pcb_reflects_selection(
@@ -149,6 +152,7 @@ class TestBoardSettingsWiring:
         manager: JobManager,
         catalog: JobCatalog,
         state: AppState,
+        board_store: BoardSettingsStore,
         real_pcb_path: Path,
         wait_until: WaitUntil,
     ):
@@ -163,10 +167,11 @@ class TestBoardSettingsWiring:
         wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.SUCCEEDED
-        source_pcb, board_store = captured[0]
+        source_pcb, ctx_board_store = captured[0]
         # pcb_browse_root からの相対 posix パス（絶対パスではない）
         assert source_pcb == real_pcb_path.as_posix()
-        assert isinstance(board_store, BoardSettingsStore)
+        # 注入した同一インスタンス（等価ではなく同一性）
+        assert ctx_board_store is board_store
 
     def test_source_pcb_is_none_without_selection(
         self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
@@ -235,12 +240,13 @@ class TestFrame:
         state: AppState,
         catalog: JobCatalog,
         fake_camera_settings: Settings,
+        board_store: BoardSettingsStore,
         wait_until: WaitUntil,
     ):
         # TTL を長くした PreviewService で「直近のジョブ提供フレーム優先」を
         # 決定的に観測する
         preview = PreviewService(state, override_ttl=60.0)
-        manager = JobManager(state, preview, catalog, fake_camera_settings)
+        manager = JobManager(state, preview, catalog, fake_camera_settings, board_store)
         frame_sent = threading.Event()
         gate = threading.Event()
         magenta = np.zeros((48, 64, 3), dtype=np.uint8)

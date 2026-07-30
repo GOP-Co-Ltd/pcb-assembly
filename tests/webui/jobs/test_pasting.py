@@ -37,6 +37,7 @@ from pcbasm.hal import XYZStage
 from pcbasm.pcb import PcbFile
 from tests.helpers import mark_hardware
 from tests.webui.conftest import decode_jpeg, jpeg_payload
+from webui.board_settings import BoardSettingsStore
 from webui.config_store import ConfigStore
 from webui.jobs.catalog import JobCatalog, default_catalog
 from webui.jobs.machine_commands import create_command_klipper
@@ -565,12 +566,13 @@ class TestHeightPlaneFrontFlow:
         catalog: JobCatalog,
         state: AppState,
         fake_camera_settings: Settings,
+        board_store: BoardSettingsStore,
         copper_pcb_path: Path,
         wait_until: WaitUntil,
     ):
         """Confirm 待ち中は planned_points プレビューを TTL で生カメラに戻さない."""
         preview = PreviewService(state, override_ttl=0.0)
-        manager = JobManager(state, preview, catalog, fake_camera_settings)
+        manager = JobManager(state, preview, catalog, fake_camera_settings, board_store)
         state.select_pcb(copper_pcb_path)
         record = manager.start("height_plane", {})
         try:
