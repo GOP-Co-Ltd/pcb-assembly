@@ -819,12 +819,12 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 f"{initial_purge.amount_ul:.3f} uL"
             )
 
-        # 銅箔照合（領域単位）。基板全体の平均並進を 1 つ求める。
+        # 銅箔照合（領域単位）。基板全体のアフィン補正を 1 つ求める。
         # 成功領域が pad_align.min_regions を下回ったら即中止。
         align_session = RegionAlignmentSession.from_calibration(
             result, frame_sink=ctx.frame
         )
-        regions = align_session.plan_regions()
+        regions = align_session.plan_regions([pad.center for pad in routed_pads])
         ctx.log(f"照合領域数: {len(regions)}")
         alignment = measure_regions(
             ctx,
@@ -850,7 +850,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         ]
         stage = session.stage
 
-        # board→machine 全変換（平均補正は toolhead_offset の前。M はカメラ機械
+        # board→machine 全変換（アフィン補正は toolhead_offset の前。M はカメラ機械
         # 座標系で定義されているため。height_plane の定義域はノズル機械 XY なので最後尾）
         transform = Compose(
             [
@@ -901,6 +901,10 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
     return JobResult(
         summary=(
             f"照合成功 {len(alignment.results)}/{len(regions)} 領域 / "
+            f"補正 {alignment.model} "
+            f"dx={alignment.translation.x:+.4f} dy={alignment.translation.y:+.4f} mm"
+            f"（残差 RMS {alignment.residual_rms * 1000:.1f}um / "
+            f"最大 {alignment.residual_max * 1000:.1f}um）/ "
             f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ・"
             f"初回パージ {initial_purge.amount_ul if initial_purge else 0.0:.3f} uL・"

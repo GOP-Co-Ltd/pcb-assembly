@@ -196,9 +196,9 @@ class TestMachineSettingsApi:
         assert response.status_code == 409
 
 
-class TestPadAlignRegionCountApi:
-    """paste_dispenser.pad_align.region_count の GET / PUT（region-alignment-
-    average 計画書）."""
+class TestPadAlignMaxPassesApi:
+    """paste_dispenser.pad_align.max_passes の GET / PUT（region-affine-
+    correction 計画書）."""
 
     def test_get_reports_int_type(self, client: TestClient):
         fields = {
@@ -206,24 +206,35 @@ class TestPadAlignRegionCountApi:
             for field in client.get("/api/settings/machine").json()["fields"]
         }
 
-        field = fields["paste_dispenser.pad_align.region_count"]
+        field = fields["paste_dispenser.pad_align.max_passes"]
         assert field["value_type"] == "int"
 
     def test_put_writes_value(self, client: TestClient):
         response = client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.pad_align.region_count": 6}},
+            json={"values": {"paste_dispenser.pad_align.max_passes": 3}},
         )
 
         assert response.status_code == 200, response.text
         fields = {field["key"]: field for field in response.json()["fields"]}
-        assert fields["paste_dispenser.pad_align.region_count"]["value"] == 6
+        assert fields["paste_dispenser.pad_align.max_passes"]["value"] == 3
 
     @pytest.mark.parametrize("value", [0, -1])
     def test_put_non_positive_value_returns_400(self, client: TestClient, value: int):
         response = client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.pad_align.region_count": value}},
+            json={"values": {"paste_dispenser.pad_align.max_passes": value}},
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.parametrize("value", [0.0, -0.01])
+    def test_put_non_positive_converge_tolerance_returns_400(
+        self, client: TestClient, value: float
+    ):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.pad_align.converge_tolerance": value}},
         )
 
         assert response.status_code == 400

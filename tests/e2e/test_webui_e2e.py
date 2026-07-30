@@ -365,40 +365,42 @@ class TestPasteLiftHeightOverRealHttp:
         assert "lift_height = 3.25" in machine_toml
 
 
-class TestPadAlignRegionCountOverRealHttp:
-    """pad_align.region_count を実 HTTP で PUT → GET → toml 反映まで検証 （region-
-    alignment-average 計画書）."""
+class TestPadAlignMaxPassesOverRealHttp:
+    """pad_align.max_passes を実 HTTP で PUT → GET → toml 反映まで検証 （region- affine-
+    correction 計画書）."""
 
-    def test_put_region_count_persists_and_reflects(self, live_server: LiveServer):
-        # ホワイトリストに領域照合キーが含まれる
+    def test_put_max_passes_persists_and_reflects(self, live_server: LiveServer):
+        # ホワイトリストに領域照合キーが含まれる（region_count は撤去済み）
         before = httpx.get(
             f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
         ).json()
         keys = {field["key"] for field in before["fields"]}
-        assert "paste_dispenser.pad_align.region_count" in keys
+        assert "paste_dispenser.pad_align.max_passes" in keys
+        assert "paste_dispenser.pad_align.converge_tolerance" in keys
         assert "paste_dispenser.pad_align.region_size_px" in keys
         assert "paste_dispenser.pad_align.min_regions" in keys
         assert "paste_dispenser.pad_align.min_sharpness" in keys
         assert "paste_dispenser.pad_align.board_edge_margin" in keys
+        assert "paste_dispenser.pad_align.region_count" not in keys
 
-        # 6 を PUT
+        # 3 を PUT
         put = httpx.put(
             f"{live_server.base_url}/api/settings/machine",
-            json={"values": {"paste_dispenser.pad_align.region_count": 6}},
+            json={"values": {"paste_dispenser.pad_align.max_passes": 3}},
             timeout=_HTTP_TIMEOUT,
         )
         assert put.status_code == 200, put.text
 
-        # GET で 6 が反映される
+        # GET で 3 が反映される
         after = httpx.get(
             f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
         ).json()
         fields = {field["key"]: field for field in after["fields"]}
-        assert fields["paste_dispenser.pad_align.region_count"]["value"] == 6
+        assert fields["paste_dispenser.pad_align.max_passes"]["value"] == 3
 
         # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
         machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
-        assert "region_count = 6" in machine_toml
+        assert "max_passes = 3" in machine_toml
 
 
 class TestCameraCalibrationPageOverRealHttp:

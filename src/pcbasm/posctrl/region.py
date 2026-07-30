@@ -1,16 +1,23 @@
 """銅箔照合の関心領域を幾何計算だけで選ぶ（HAL 非依存・撮像不要）.
 
-想定エッジを約 1px 間隔の点に落とし、ROI 内に入った点の単位法線 ``n`` から
-拘束行列 ``A = Σ n nᵀ`` を積む。これは chamfer コストの 2 次近似のヘッセそのもので、
-``λ_min(A)`` が「最も弱く拘束されている方向の拘束量」。一方向のエッジしか無い
-領域は ``λ_min ≈ 0`` になって自動的に落ちる。
+領域は pixel 空間に張った一辺 ``region_size_px`` のタイル格子で、重なりが無い。
+格子の位相は塗布対象 pad 中心の重心に合わせるので、タイル位置はタイル数に
+依存せず、board 変換の回転で格子が跳ばない。
 
-候補にできるのは ROI 全体が ``safe_area``（基板外形を外周マージンだけ内側へ
-縮めた領域）に収まる位置だけ。領域選定の定義域と外周除外はこの 1 つの図形で
-決まる。
+採否は 3 条件だけ:
+
+1. ROI 全体が ``safe_area``（基板外形を外周マージンだけ内側へ縮めた領域）に収まる
+2. 区内に塗布対象 pad の中心が 1 つ以上ある
+3. 予測 sharpness が ``min_sharpness`` 以上
+
+3 の予測 sharpness は、想定エッジを約 1px 間隔の点に落とし、ROI 内に入った点の
+単位法線 ``n`` から積んだ拘束行列 ``A = Σ n nᵀ`` の ``λ_min``（chamfer コストの
+2 次近似のヘッセそのもの）から出す。一方向のエッジしか無い領域は ``λ_min ≈ 0``
+になり、移動する前に落ちる。
 """
 
 import math
+from collections.abc import Sequence
 from typing import NamedTuple
 
 import attrs
@@ -24,10 +31,10 @@ from pcbasm.vision import ImageArray
 # 線分とみなす最小長 [px]。これ未満は重複頂点として捨てる
 _MIN_SEGMENT_PX = 1e-9
 
-# 候補格子の分割数を決める ceil の相対許容。step が回転由来の丸め誤差で
-# 振れても分割数が変わらない大きさ（倍精度の相対誤差より十分大きく、
-# 実寸の差より十分小さい）
-_GRID_RATIO_TOLERANCE = 1e-9
+
+def _sharpness(constraint: float, edge_point_count: int) -> float:
+    """拘束行列のλ_minを、実測sharpnessと同じ尺度へ正規化する."""
+    return math.sqrt(constraint / edge_point_count)
 
 
 @attrs.frozen
@@ -59,7 +66,7 @@ class AlignmentRegion:
         実 PCB では実測より数 % 〜 十数 % 楽観側に出る。斜めエッジが支配的な
         形状ではラスタライズの階段が chamfer 距離を変えるため最大 +22% ずれる。
         """
-        return math.sqrt(self.constraint / self.edge_point_count)
+        return _sharpness(self.constraint, self.edge_point_count)
 
 
 class _Candidate(NamedTuple):
@@ -110,39 +117,23 @@ def _projected_edge_points(
     return p0[index] + fractions[:, None] * delta[index], normals[index]
 
 
-def _candidate_grid(safe_area: Polygon, step: float) -> list[Point2d]:
-    """safe_areaのbboxにstep間隔の格子を張り、board座標の候補点列を返す.
-
-    分割数は ``ceil(span / step)``。ただし ``span / step`` がちょうど整数になる
-    配置では、``step`` に乗った丸め誤差（回転を含む変換から出るので避けられない）
-    だけで ceil が 1 段跳び、格子間隔が不連続に変わる。相対許容を引いてその跳びを
-    吸収する。
-
-    bboxが1軸で潰れている（hi == lo）場合、その軸の候補はその1点だけになる。
-    """
-    minx, miny, maxx, maxy = safe_area.bounds
-    axes: list[ImageArray] = []
-    for lo, hi in ((minx, maxx), (miny, maxy)):
-        ratio = (hi - lo) / step
-        divisions = math.ceil(ratio - _GRID_RATIO_TOLERANCE * max(ratio, 1.0))
-        axes.append(np.linspace(lo, hi, divisions + 1))
-    return [Point2d(x=float(x), y=float(y)) for x in axes[0] for y in axes[1]]
-
-
 def plan_alignment_regions(
     projector: CopperProjector,
     board_transform: Transform,
+    pad_centers: Sequence[Point2d],
     *,
     safe_area: Polygon,
     region_size_px: int,
-    count: int,
+    min_sharpness: float,
     image_size: tuple[int, int],
     tour_start: Point2d,
 ) -> list[AlignmentRegion]:
-    """拘束の強い関心領域をcount個まで選び、巡回順に並べて返す.
+    """塗布対象padを含む区を重なりなしのタイルとして選び、巡回順に並べて返す.
 
-    候補は ``safe_area`` のbboxに張った格子のうち、**ROI 全体が ``safe_area`` に
-    収まる**ものだけ。ROI ごと内側に入れるのは、やすり掛けで削れた外周の銅箔を
+    タイル格子は pixel 空間で一辺 ``region_size_px``、位相は pad 中心の重心に
+    合わせる（タイル位置がタイル数に依存しないので、格子の丸めで配置が跳ばない）。
+
+    ROI ごと ``safe_area`` の内側に入れるのは、やすり掛けで削れた外周の銅箔を
     避けるためだけでなく、基板外形そのものの強いエッジを視野に入れないため。
     外形線は ``CopperProjector`` が描く想定エッジに一切含まれないので、視野に
     入ると片方向 chamfer では一切ペナルティを受けない偽エッジとして働く。
@@ -150,32 +141,29 @@ def plan_alignment_regions(
     Args:
         projector: 設計銅箔の投影器（ポリゴンとアフィンの供給元）
         board_transform: board座標→機械座標の変換（anchorの算出に使う）
+        pad_centers: 塗布対象padの中心（board座標、mm）。空なら領域は0個
         safe_area: 照合を許す領域（board座標、mm）。基板外形を外周マージンだけ
             内側へ縮めたもの。使うのはbboxと包含判定だけなので、縮めた結果が
             分裂して MultiPolygon になっていても同じに扱える。空なら領域は0個
         region_size_px: 領域の一辺 [px]
-        count: 選ぶ領域数の上限
+        min_sharpness: 予測sharpnessの下限（これ未満の区は移動前に落とす）
         image_size: カメラ画像サイズ (width, height)
         tour_start: 巡回の起点（機械座標、mm）
 
     Returns:
-        0個以上count個以下のAlignmentRegion（巡回順、indexは0始まりで振り直し）。
-        safe_areaが空 / ROIが収まる候補が無い / constraint <= 0 の候補しか無い
-        場合は空リスト。不足しても例外は投げない（min_regionsの判定は
-        呼び出し側の責務）
+        0個以上のAlignmentRegion（巡回順、indexは0始まりで振り直し。上限なし）。
+        不足しても例外は投げない（min_regionsの判定は呼び出し側の責務）
 
     Raises:
-        ValueError: region_size_px < 1 / count < 1 / region_size_px > min(image_size)
+        ValueError: region_size_px < 1 / region_size_px > min(image_size)
     """
     if region_size_px < 1:
         raise ValueError(f"region_size_pxは1以上である必要があります: {region_size_px}")
-    if count < 1:
-        raise ValueError(f"countは1以上である必要があります: {count}")
     if region_size_px > min(image_size):
         raise ValueError(
             f"region_size_px {region_size_px} が画像サイズ {image_size} を超えています"
         )
-    if safe_area.is_empty:
+    if not pad_centers or safe_area.is_empty:
         return []
 
     # 参照アンカーのフレームで採点する。pixel_of は board 点について線形で、
@@ -184,49 +172,60 @@ def plan_alignment_regions(
     minx, miny, maxx, maxy = safe_area.bounds
     bbox_center = Point2d(x=(minx + maxx) / 2, y=(miny + maxy) / 2)
     matrix, shift = projector.board_to_pixel_affine(board_transform.apply(bbox_center))
-    pixel_per_board_mm = math.hypot(matrix[0, 0], matrix[1, 0])
-    region_mm = region_size_px / pixel_per_board_mm
+    inverse = np.linalg.inv(matrix)
 
     points, normals = _projected_edge_points(projector, matrix, shift)
     if len(points) == 0:
         return []
     half = region_size_px / 2
-    # ROIの4隅は候補中心からpixel空間で ±half。board座標へ戻した相対位置は
-    # 候補に依らないので1回だけ求める（回転があるので軸平行にはならない）
+    # ROIの4隅は区の中心からpixel空間で ±half。board座標へ戻した相対位置は
+    # 区に依らないので1回だけ求める（回転があるので軸平行にはならない）
     corner_offsets = (
         np.array([[-half, -half], [half, -half], [half, half], [-half, half]])
-        @ np.linalg.inv(matrix).T
+        @ inverse.T
     )
 
-    scored: list[_Candidate] = []
-    for board_xy in _candidate_grid(safe_area, region_mm / 2):
-        origin = np.array([board_xy.x, board_xy.y])
-        if not Polygon(corner_offsets + origin).within(safe_area):
-            continue
-        center = origin @ matrix.T + shift
-        inside = (np.abs(points[:, 0] - center[0]) <= half) & (
-            np.abs(points[:, 1] - center[1]) <= half
-        )
-        roi_normals = normals[inside]
-        constraint = float(np.linalg.eigvalsh(roi_normals.T @ roi_normals)[0])
-        if constraint <= 0.0:
-            continue
-        scored.append(_Candidate(constraint, int(inside.sum()), board_xy))
+    pad_px = np.array([[p.x, p.y] for p in pad_centers]) @ matrix.T + shift
+    # 格子の位相はpad重心。中心がpadから half 以内にない区は
+    # pad包含条件で必ず落ちるので、走査範囲はこれで十分
+    base = pad_px.mean(axis=0)
+    k_lo = np.ceil((pad_px.min(axis=0) - half - base) / region_size_px).astype(np.int64)
+    k_hi = np.floor((pad_px.max(axis=0) + half - base) / region_size_px).astype(
+        np.int64
+    )
 
-    # 拘束の強い順に、既選択から領域サイズ以上離れているものを貪欲に採る
-    selected: list[_Candidate] = []
-    for candidate in sorted(scored, key=lambda c: c.constraint, reverse=True):
-        if len(selected) >= count:
-            break
-        if all(
-            (candidate.board_xy - other.board_xy).norm >= region_mm
-            for other in selected
-        ):
-            selected.append(candidate)
+    candidates: list[_Candidate] = []
+    for i in range(int(k_lo[0]), int(k_hi[0]) + 1):
+        for j in range(int(k_lo[1]), int(k_hi[1]) + 1):
+            center = base + np.array([i, j]) * region_size_px
+            board_xy = (center - shift) @ inverse.T
+            if not Polygon(corner_offsets + board_xy).within(safe_area):
+                continue
+            if not np.any(np.all(np.abs(pad_px - center) <= half, axis=1)):
+                continue
+            inside = np.all(np.abs(points - center) <= half, axis=1)
+            edge_point_count = int(inside.sum())
+            if edge_point_count == 0:
+                continue
+            roi_normals = normals[inside]
+            # λ_min はGram行列の固有値なので数学的に非負。丸めで出る微小な
+            # 負値はここで落として predicted_sharpness を常に定義域に保つ
+            constraint = max(
+                float(np.linalg.eigvalsh(roi_normals.T @ roi_normals)[0]), 0.0
+            )
+            if _sharpness(constraint, edge_point_count) < min_sharpness:
+                continue
+            candidates.append(
+                _Candidate(
+                    constraint,
+                    edge_point_count,
+                    Point2d(x=float(board_xy[0]), y=float(board_xy[1])),
+                )
+            )
 
     roi = centered_roi(image_size, region_size_px)
     ordered = sort_by_nearest(
-        [(board_transform.apply(c.board_xy), c) for c in selected],
+        [(board_transform.apply(c.board_xy), c) for c in candidates],
         tour_start.to3d(),
         key=lambda entry: entry[0].to3d(),
     )

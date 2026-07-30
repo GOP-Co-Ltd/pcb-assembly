@@ -1,18 +1,22 @@
 """Posctrl/region の仕様テスト.
 
-計画書 memory/agents/implementation-planner/region-alignment-average.md
+計画書 memory/agents/implementation-planner/region-affine-correction.md
 「公開インターフェース → src/pcbasm/posctrl/region.py」に基づく。
 
-plan_alignment_regions は撮像もステージ移動もしない純幾何関数。想定エッジを
-約 1px 間隔の点に落とし、ROI 内に入った点の単位法線から拘束行列 A = Σ n nᵀ を
-積み、その最小固有値 λ_min を「最も弱く拘束されている方向の拘束量」として
-候補を採点する。これ 1 本で「エッジ量が十分」と「x/y 両方向に拘束がある」を
-同時に表すので、一方向エッジだけの領域（開口問題）は λ_min = 0 で自動的に落ちる。
+plan_alignment_regions は撮像もステージ移動もしない純幾何関数。領域は
+**pixel 空間に張った重なりなしのタイル**で、位相は塗布対象 pad 中心の重心に
+合わせる（safe_area の bbox 端に合わせると board_transform の回転で位相が動き、
+実測で計画区数が θ=0° 9 → 0.5° 4 → 2° 3 と暴れた）。
 
-候補にできるのは **ROI 全体が safe_area に収まる位置だけ**。safe_area は基板外形を
-外周マージンだけ内側へ縮めた図形で、領域選定の定義域と外周除外をこの 1 つの
-引数が兼ねる（TestBoardEdgeMargin がユーザー要求「外周部でマッチしてはいけない」
-の直接ピン）。
+採否は 3 条件だけ:
+
+1. ROI 全体が safe_area に収まる（safe_area = 基板外形を外周マージンだけ内側へ
+   縮めた図形。ユーザー要求「外周部でマッチしてはいけない」の直接ピン）
+2. 区内に塗布対象 pad の中心が 1 つ以上ある
+3. 予測 sharpness >= min_sharpness（一方向エッジだけの区を移動前に落とす保険）
+
+区数の上限は無い（旧 count / 貪欲選択 / 最小離間は撤去）。条件を満たす区は
+全部使い、アフィン当てはめのレバー腕にする。
 
 予測 sharpness = sqrt(constraint / edge_point_count) は照合後の実測 sharpness
 （CopperEdgeMatcher）と同じ量で、等方な正方リングでは sqrt(1/2) = 0.707。
@@ -36,8 +40,7 @@ IMAGE_SIZE = (400, 400)
 REGION_PX = 100  # = 10mm @ 10 px/mm
 REGION_MM = REGION_PX / PPM
 
-# 候補格子は safe_area の bbox に REGION_MM/2 間隔で張られ、ROI 全体が safe_area に
-# 収まる格子点だけが候補になる。横長のこの矩形では x が ±20mm・y が ±5mm まで候補。
+# 横長の safe_area。ROI (10mm 角) 全体が収まるのは x |x| <= 20 / y |y| <= 5 の帯
 WIDE_AREA = shapely.box(-25.0, -10.0, 25.0, 10.0)
 
 
@@ -59,12 +62,10 @@ def _horizontal_strip(x0: float, x1: float) -> shapely.Polygon:
 
 
 def _solo_area(cx: float, cy: float, region_mm: float = REGION_MM) -> shapely.Polygon:
-    """候補を (cx, cy) の 1 点だけに絞る safe_area（board 座標、mm）.
+    """タイルを (cx, cy) 中心の 1 枚だけに絞る safe_area（board 座標、mm）.
 
-    半径 0.9*region_mm の円。中心の ROI（対角半径 0.707*region_mm）は収まるが、 格子間隔
-    0.45*region_mm だけ離れた隣接点の ROI は必ず隅が円外に出る。 2r/step = 3.6
-    が整数から離れているので、bbox の格子が中心を通ることが region_mm
-    の丸め誤差に左右されない（board_transform に回転があっても同じ）。
+    半径 0.9*region_mm の円。中心のタイルの ROI（対角半径 0.707*region_mm）は
+    収まるが、region_mm 離れた隣のタイルは中心がすでに円外なので必ず落ちる。
     """
     return shapely.Point(cx, cy).buffer(0.9 * region_mm)
 
@@ -83,11 +84,12 @@ def _projector(
 
 def _plan(
     polygons: list[shapely.Polygon],
+    pad_centers: list[Point2d],
     safe_area: shapely.Polygon,
     *,
-    count: int = 4,
     board_transform: Transform | None = None,
     region_size_px: int = REGION_PX,
+    min_sharpness: float = 0.0,
     image_size: tuple[int, int] = IMAGE_SIZE,
     tour_start: Point2d = Point2d(0.0, 0.0),
 ) -> list[AlignmentRegion]:
@@ -95,9 +97,10 @@ def _plan(
     return plan_alignment_regions(
         _projector(polygons, transform),
         transform,
+        pad_centers,
         safe_area=safe_area,
         region_size_px=region_size_px,
-        count=count,
+        min_sharpness=min_sharpness,
         image_size=image_size,
         tour_start=tour_start,
     )
@@ -121,109 +124,66 @@ def _roi_in_board(
     return shapely.Polygon([(c.x, c.y) for c in corners])
 
 
-class TestPlanAlignmentRegionsScoring:
-    """λ_min による採点（拘束の強い領域が選ばれる）."""
+def _grid_pads(
+    xs: range | tuple[float, ...], ys: range | tuple[float, ...]
+) -> list[Point2d]:
+    return [Point2d(float(x), float(y)) for x in xs for y in ys]
 
-    def test_isotropic_copper_region_is_planned_with_high_constraint(self):
-        """両方向に拘束のある正方リングの領域は予測 sharpness ≈ 0.707."""
-        regions = _plan([_square(0.0, 0.0, 3.0)], _solo_area(0.0, 0.0))
 
-        assert len(regions) == 1
-        assert regions[0].constraint > 0.0
-        assert regions[0].predicted_sharpness > 0.5
+class TestTiling:
+    """重なりなしのタイル張り（旧・貪欲選択 + 最小離間の置き換え）."""
 
-    def test_one_directional_copper_yields_no_region(self):
-        """水平エッジしか無い銅箔は λ_min = 0 なので候補が全滅する.
+    # pad を 10mm 格子（= region_mm）に並べ、各 pad の位置に等方な銅箔を置く。
+    # 位相が pad 重心に合うので、タイル中心はそのまま pad 中心に一致する。
+    PADS = _grid_pads(range(-40, 41, 10), (-10.0, 0.0, 10.0))
+    COPPER = [_square(p.x, p.y, 3.0) for p in PADS]
+    AREA = shapely.box(-60.0, -30.0, 60.0, 30.0)
 
-        開口問題の領域を計画段階で落とす。この銅箔の法線は (0, ±1) だけなので A = [[0, 0], [0, n]] となり
-        λ_min は厳密に 0 になる。
+    def test_tiles_do_not_overlap(self):
+        """どの 2 区も一辺 region_size_px の正方形として重ならない.
+
+        board_transform が相似写像（Identity / 回転）なので、board 座標での 中心間距離が
+        region_mm 以上あれば pixel 空間で重なっていない。
         """
-        regions = _plan([_horizontal_strip(-60.0, 60.0)], WIDE_AREA)
+        regions = _plan(self.COPPER, self.PADS, self.AREA)
 
-        assert regions == []
-
-    def test_isotropic_region_is_preferred_over_one_directional(self):
-        """1 領域だけ選ぶなら一方向エッジ側ではなく等方な銅箔側を取る."""
-        polygons = [_square(-15.0, 0.0, 3.0), _horizontal_strip(10.0, 60.0)]
-
-        regions = _plan(polygons, WIDE_AREA, count=1)
-
-        assert len(regions) == 1
-        assert regions[0].anchor.x == pytest.approx(-15.0, abs=REGION_MM / 2)
-        assert regions[0].predicted_sharpness > 0.5
-
-    def test_no_copper_yields_empty_list(self):
-        """銅箔が無ければ空リスト（不足でも例外は投げない）."""
-        assert _plan([], _solo_area(0.0, 0.0)) == []
-
-
-class TestPlanAlignmentRegionsSelection:
-    """貪欲選択・領域数の上限・巡回順."""
-
-    POLYGONS = [
-        _square(-15.0, 0.0, 3.0),
-        _square(0.0, 0.0, 3.0),
-        _square(15.0, 0.0, 3.0),
-    ]
-
-    def test_selected_regions_are_separated_by_at_least_one_region_size(self):
-        """選ばれた領域どうしは board 上で region_size 以上離れている."""
-        regions = _plan(self.POLYGONS, WIDE_AREA, count=3)
-
-        assert len(regions) == 3
+        assert len(regions) >= 10
         anchors = [r.anchor for r in regions]
-        for i, a in enumerate(anchors):
-            for b in anchors[i + 1 :]:
-                assert (a - b).norm >= REGION_MM - 1e-6
+        for index, a in enumerate(anchors):
+            for b in anchors[index + 1 :]:
+                assert max(abs(a.x - b.x), abs(a.y - b.y)) >= REGION_MM - 1e-6
 
-    def test_count_caps_the_number_of_regions(self):
-        """Count を超えて選ばない."""
-        regions = _plan(self.POLYGONS, WIDE_AREA, count=2)
+    def test_every_qualifying_tile_is_returned_without_a_cap(self):
+        """条件を満たす区は上限なく全部返る（旧 count が無いことのピン）.
 
-        assert len(regions) == 2
-
-    def test_fewer_candidates_than_count_returns_what_is_available(self):
-        """候補が count に満たなければ候補数まで返す（例外は投げない）.
-
-        銅箔が 1 島だけなら、周囲の格子点は全てその島から region_size 以内なので 貪欲選択が 1 領域で打ち切る。
+        アフィン当てはめは区数よりレバー腕の広がりが効くが、区を落とす理由は 3 条件以外に無い。
         """
-        regions = _plan([_square(0.0, 0.0, 3.0)], WIDE_AREA, count=4)
+        regions = _plan(self.COPPER, self.PADS, self.AREA)
 
-        assert len(regions) == 1
+        assert len(regions) == len(self.PADS)
+        assert [r.index for r in regions] == list(range(len(regions)))
 
-    @pytest.mark.parametrize(
-        ("tour_start", "first_x"),
-        [(Point2d(-40.0, 0.0), -15.0), (Point2d(40.0, 0.0), 15.0)],
-    )
-    def test_regions_are_ordered_from_the_tour_start(
-        self, tour_start: Point2d, first_x: float
-    ):
-        """巡回起点に近い領域が先頭に来る（index は巡回順に 0 から振り直す）."""
-        polygons = [_square(-15.0, 0.0, 3.0), _square(15.0, 0.0, 3.0)]
+    def test_tile_phase_is_aligned_to_the_pad_centroid(self):
+        """タイル位相は pad 中心の**重心**（bbox の端や最小値ではない）.
 
-        regions = _plan(polygons, WIDE_AREA, count=2, tour_start=tour_start)
+        safe_area bbox 端に位相を合わせると回転で格子が跳び、計画区数が回転角で 暴れる。pad
+        重心位相ならタイル位置がタイル数に依存しない。
 
-        assert len(regions) == 2
-        assert [r.index for r in regions] == [0, 1]
-        assert regions[0].anchor.x == pytest.approx(first_x, abs=REGION_MM / 2)
-
-
-class TestPlanAlignmentRegionsRoiAndAnchor:
-    """ROI と anchor の契約."""
-
-    def test_roi_is_the_same_image_centered_square_for_every_region(self):
-        """全 region の roi が画像中心の region_size_px 正方形で同一.
-
-        アンカーへ移動すると対象領域が画像中心へ来るので、ROI は固定でよい。
+        pad を x = 0 / 9 / 11 と非対称に置くと重心 20/3 = 6.667mm は bbox の最小値 0・最大値
+        11・中点 5.5 のいずれとも違う値になる。safe_area は重心中心の 半径 9mm
+        の円なので、位相がそこからずれると（min なら格子は 0 と 10mm、 max なら 1 と 11mm）どのタイルも ROI
+        の隅が円外に出て領域 0 個になる。 位相の定義を取り違えた実装をこの 1 件で弁別できる。
         """
+        centroid_x = 20.0 / 3.0
+        pads = [Point2d(0.0, 2.0), Point2d(9.0, 2.0), Point2d(11.0, 2.0)]
+
         regions = _plan(
-            [_square(-15.0, 0.0, 3.0), _square(15.0, 0.0, 3.0)],
-            WIDE_AREA,
-            count=2,
+            [_square(centroid_x, 2.0, 3.0)], pads, _solo_area(centroid_x, 2.0)
         )
 
-        assert len(regions) == 2
-        assert {r.roi for r in regions} == {centered_roi(IMAGE_SIZE, REGION_PX)}
+        assert len(regions) == 1
+        assert regions[0].anchor.x == pytest.approx(centroid_x, abs=1e-6)
+        assert regions[0].anchor.y == pytest.approx(2.0, abs=1e-6)
 
     @pytest.mark.parametrize(
         "board_transform", [Shift(5.0, -1.0), Rotation(30.0), Rotation(-45.0)]
@@ -231,13 +191,10 @@ class TestPlanAlignmentRegionsRoiAndAnchor:
     def test_anchor_is_the_board_point_mapped_to_machine_coordinates(
         self, board_transform: Transform
     ):
-        """Anchor = board_transform.apply(領域中心の board 点).
-
-        safe_area で候補を board (4, 2) の 1 点に絞り、回転（線形部）と並進の どちらも anchor
-        に反映されることを見る。
-        """
+        """Anchor = board_transform.apply(区中心の board 点)（回転と並進の両方）."""
         regions = _plan(
-            [_square(0.0, 0.0, 3.0)],
+            [_square(4.0, 2.0, 3.0)],
+            [Point2d(4.0, 2.0)],
             _solo_area(4.0, 2.0),
             board_transform=board_transform,
         )
@@ -247,20 +204,119 @@ class TestPlanAlignmentRegionsRoiAndAnchor:
         assert regions[0].anchor.x == pytest.approx(want.x, abs=1e-6)
         assert regions[0].anchor.y == pytest.approx(want.y, abs=1e-6)
 
-    def test_rotated_board_transform_keeps_the_roi_an_image_aligned_square(self):
-        """board_transform に回転が入っても ROI は pixel 空間の正方形のまま.
+    def test_roi_is_the_same_image_centered_square_for_every_region(self):
+        """全 region の roi が画像中心の region_size_px 正方形で同一.
 
-        採点も pixel 空間で行うので、board 空間の正方形が画像上で正方形に ならない回転下でも領域と ROI
-        が食い違わない。
+        アンカーへ移動すると対象領域が画像中心へ来るので、ROI は固定でよい。
         """
+        regions = _plan(self.COPPER, self.PADS, self.AREA)
+
+        assert {r.roi for r in regions} == {centered_roi(IMAGE_SIZE, REGION_PX)}
+
+    def test_tile_count_is_stable_under_board_rotation(self):
+        """回転を入れても区数が崩れない（±1 個以内）.
+
+        pad 重心位相の直接の効能。実測は θ=0° で 6 区、θ=2° で 5 区。
+        """
+        upright = len(_plan(self.COPPER, self.PADS, self.AREA))
+
+        rotated = len(
+            _plan(
+                self.COPPER,
+                self.PADS,
+                self.AREA,
+                board_transform=Rotation(2.0),
+            )
+        )
+
+        assert abs(rotated - upright) <= 1
+
+    @pytest.mark.parametrize(
+        ("tour_start", "first_x"),
+        [(Point2d(-40.0, 0.0), -11.0), (Point2d(40.0, 0.0), 9.0)],
+    )
+    def test_regions_are_ordered_from_the_tour_start(
+        self, tour_start: Point2d, first_x: float
+    ):
+        """巡回起点に近い領域が先頭に来る（index は巡回順に 0 から振り直す）.
+
+        pad 重心 (−1, 0) に位相が合うのでタイル中心は −11 と 9 になる。
+        """
+        pads = [Point2d(-11.0, 0.0), Point2d(9.0, 0.0)]
+        polygons = [_square(p.x, p.y, 3.0) for p in pads]
+
+        regions = _plan(polygons, pads, WIDE_AREA, tour_start=tour_start)
+
+        assert len(regions) == 2
+        assert [r.index for r in regions] == [0, 1]
+        assert regions[0].anchor.x == pytest.approx(first_x, abs=1e-6)
+
+
+class TestPadCoverage:
+    """塗布対象 pad を含まない区はスキップする."""
+
+    # 3 枚のタイル位置すべてに等方な銅箔があるが、pad は端の 2 つだけに置く
+    PADS = [Point2d(-11.0, 0.0), Point2d(9.0, 0.0)]
+    COPPER = [_square(x, 0.0, 3.0) for x in (-11.0, -1.0, 9.0)]
+
+    def test_tiles_without_a_pad_center_are_skipped(self):
+        """銅箔が広く分布していても、pad 中心が無い区は返らない.
+
+        照合の目的は塗布する pad を合わせること。pad の無い区は測っても
+        レバー腕を伸ばす以外の意味がなく、区数が実機時間に直結する。
+        """
+        regions = _plan(self.COPPER, self.PADS, WIDE_AREA)
+
+        assert len(regions) == 2
+        assert sorted(round(r.anchor.x, 6) for r in regions) == [-11.0, 9.0]
+
+    def test_single_pad_yields_only_the_tile_containing_it(self):
+        """Pad 1 個だけ渡すと、その pad を含む区だけが返る."""
+        regions = _plan(self.COPPER, [Point2d(9.0, 0.0)], WIDE_AREA)
+
+        assert len(regions) == 1
+        assert regions[0].anchor.x == pytest.approx(9.0, abs=1e-6)
+
+    def test_no_pad_centers_yields_empty_list(self):
+        """塗布対象 pad が空なら領域 0 個（例外は投げない）."""
+        assert _plan(self.COPPER, [], WIDE_AREA) == []
+
+    def test_no_copper_yields_empty_list(self):
+        """銅箔が無ければ空リスト（不足でも例外は投げない）."""
+        assert _plan([], self.PADS, WIDE_AREA) == []
+
+
+class TestSharpnessThreshold:
+    """予測 sharpness による移動前の棄却（λ_min の閾値フィルタ）."""
+
+    STRIP = [_horizontal_strip(-30.0, 30.0)]
+    PADS = [Point2d(0.0, 0.0)]
+
+    def test_one_directional_copper_is_rejected_at_the_default_threshold(self):
+        """水平エッジしか無い銅箔は λ_min = 0 なので min_sharpness=0.15 で落ちる.
+
+        開口問題の区をステージを動かす前に落とす（実機時間と誤マッチの節約）。
+        """
+        assert _plan(self.STRIP, self.PADS, WIDE_AREA, min_sharpness=0.15) == []
+
+    def test_one_directional_copper_passes_when_the_threshold_is_zero(self):
+        """棄却が閾値によることのピン: min_sharpness=0.0 なら同じ区が返る."""
+        regions = _plan(self.STRIP, self.PADS, WIDE_AREA, min_sharpness=0.0)
+
+        assert len(regions) == 1
+        assert regions[0].predicted_sharpness == pytest.approx(0.0, abs=1e-9)
+
+    def test_isotropic_copper_passes_the_default_threshold(self):
+        """両方向に拘束のある正方リングは予測 sharpness ≈ 0.707 で通る."""
         regions = _plan(
             [_square(0.0, 0.0, 3.0)],
+            self.PADS,
             _solo_area(0.0, 0.0),
-            board_transform=Rotation(30.0),
+            min_sharpness=0.15,
         )
 
         assert len(regions) == 1
-        assert regions[0].roi == centered_roi(IMAGE_SIZE, REGION_PX)
+        assert regions[0].constraint > 0.0
         assert regions[0].predicted_sharpness > 0.5
 
 
@@ -277,11 +333,12 @@ class TestBoardEdgeMargin:
     """
 
     OUTLINE = shapely.box(0.0, 0.0, 60.0, 40.0)
-    # 外形の隅から 1mm の位置まで銅箔を敷く。外周寄りの候補が「銅箔が無いから」
-    # ではなく「ROI が外周に掛かるから」落ちることを見るための地形。
-    COPPER = [
-        _square(x + 2.5, y + 2.5, 1.5) for x in range(0, 60, 5) for y in range(0, 40, 5)
-    ]
+    # 外形いっぱいに銅箔と pad を敷く。外周寄りの区が「pad が無いから」ではなく
+    # 「ROI が外周に掛かるから」落ちることを見るための地形。pad 重心が
+    # (25.5, 15.5) になるよう並べているので、タイル格子（10mm 間隔）の端の 1 枚は
+    # 外形線から 0.5mm の位置に来る = margin 0 なら外周ぎりぎりの区が実際に選ばれる。
+    PADS = _grid_pads((5.5, 15.5, 25.5, 35.5, 45.5), (5.5, 15.5, 25.5))
+    COPPER = [_square(p.x, p.y, 1.5) for p in PADS]
 
     @pytest.mark.parametrize("margin", [0.0, 1.0, 2.0, 3.0])
     @pytest.mark.parametrize("board_transform", [Identity(), Rotation(20.0)])
@@ -295,9 +352,13 @@ class TestBoardEdgeMargin:
         """
         safe_area = self.OUTLINE.buffer(-margin)
 
-        regions = _plan(self.COPPER, safe_area, board_transform=board_transform)
+        regions = _plan(
+            self.COPPER, self.PADS, safe_area, board_transform=board_transform
+        )
 
-        assert regions, "銅箔を敷き詰めた基板なので領域は選ばれるはず（空振り防止）"
+        assert (
+            regions
+        ), "銅箔と pad を敷き詰めた基板なので領域は選ばれるはず（空振り防止）"
         for region in regions:
             roi = _roi_in_board(region, board_transform)
             assert roi.within(safe_area.buffer(1e-9)), region.anchor
@@ -308,8 +369,8 @@ class TestBoardEdgeMargin:
         margin = 0 では外形に接する領域が実際に選ばれる（＝マージンが効いている
         ことの対偶）。この距離差がユーザー要求そのもの。
         """
-        no_margin = _plan(self.COPPER, self.OUTLINE)
-        with_margin = _plan(self.COPPER, self.OUTLINE.buffer(-3.0))
+        no_margin = _plan(self.COPPER, self.PADS, self.OUTLINE)
+        with_margin = _plan(self.COPPER, self.PADS, self.OUTLINE.buffer(-3.0))
 
         def closest_edge_distance(regions: list[AlignmentRegion]) -> float:
             return min(
@@ -317,11 +378,9 @@ class TestBoardEdgeMargin:
                 for r in regions
             )
 
-        assert closest_edge_distance(no_margin) < 0.5
+        assert closest_edge_distance(no_margin) < 1.0
         assert closest_edge_distance(with_margin) >= 3.0
-        assert {(r.anchor.x, r.anchor.y) for r in no_margin} != {
-            (r.anchor.x, r.anchor.y) for r in with_margin
-        }
+        assert len(with_margin) < len(no_margin)
 
     def test_margin_larger_than_the_board_yields_no_regions(self):
         """縮めた外形が空（マージンが基板より大きい）なら領域 0 個・例外なし.
@@ -331,11 +390,14 @@ class TestBoardEdgeMargin:
         safe_area = self.OUTLINE.buffer(-25.0)
 
         assert safe_area.is_empty
-        assert _plan(self.COPPER, safe_area) == []
+        assert _plan(self.COPPER, self.PADS, safe_area) == []
 
     def test_safe_area_smaller_than_the_roi_yields_no_regions(self):
-        """ROI が収まる格子点が 1 つも無ければ空リスト（例外は投げない）."""
-        assert _plan([_square(0.0, 0.0, 3.0)], _square(0.0, 0.0, 3.0)) == []
+        """ROI が収まるタイルが 1 つも無ければ空リスト（例外は投げない）."""
+        assert (
+            _plan([_square(0.0, 0.0, 3.0)], [Point2d(0.0, 0.0)], _square(0.0, 0.0, 3.0))
+            == []
+        )
 
 
 class TestPredictedSharpnessMatchesMeasured:
@@ -392,9 +454,10 @@ class TestPredictedSharpnessMatchesMeasured:
         regions = plan_alignment_regions(
             projector,
             Identity(),
+            [Point2d(0.0, 0.0)],
             safe_area=_solo_area(0.0, 0.0, region_size_px / PPM),
             region_size_px=region_size_px,
-            count=1,
+            min_sharpness=0.0,
             image_size=IMAGE_SIZE,
             tour_start=Point2d(0.0, 0.0),
         )
@@ -415,16 +478,18 @@ class TestPlanAlignmentRegionsValidation:
 
     def test_region_size_below_one_raises(self):
         with pytest.raises(ValueError, match="region_size_px"):
-            _plan([_square(0.0, 0.0, 3.0)], WIDE_AREA, region_size_px=0)
-
-    def test_count_below_one_raises(self):
-        with pytest.raises(ValueError, match="count"):
-            _plan([_square(0.0, 0.0, 3.0)], WIDE_AREA, count=0)
+            _plan(
+                [_square(0.0, 0.0, 3.0)],
+                [Point2d(0.0, 0.0)],
+                WIDE_AREA,
+                region_size_px=0,
+            )
 
     def test_region_larger_than_the_frame_raises(self):
         with pytest.raises(ValueError, match="region_size_px"):
             _plan(
                 [_square(0.0, 0.0, 3.0)],
+                [Point2d(0.0, 0.0)],
                 WIDE_AREA,
                 region_size_px=min(IMAGE_SIZE) + 1,
             )

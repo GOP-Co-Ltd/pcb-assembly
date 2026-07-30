@@ -99,7 +99,7 @@ class TestMachine:
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.paste_dispenser.pad_align == PadAlign()
-        assert machine.paste_dispenser.pad_align.region_size_px == 400
+        assert machine.paste_dispenser.pad_align.region_size_px == 300
 
     def test_solder_paste_density_defaults_when_absent(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
@@ -249,19 +249,25 @@ class TestMachine:
 
 
 class TestPadAlignRegionSettings:
-    """PadAlign の領域照合キーの既定値と検証（region-alignment-average 計画書）.
+    """PadAlign の領域照合キーの既定値と検証（region-affine-correction 計画書）.
 
-    領域単位の照合では「一辺 region_size_px の領域を region_count 個計画し、 成功が min_regions
-    を下回ったら塗布ジョブを中止」する。いずれも 1 以上、 min_sharpness（拘束不足の棄却閾値）と
-    board_edge_margin（照合領域が基板外形から確保する最小距離 [mm]）は 0 以上でなければならない。
+    領域単位の照合では「塗布対象 pad を含むタイルを条件を満たす限り全部計画し、 区ごとに最大 max_passes
+    回まで反復計測し、成功が min_regions を下回ったら 塗布ジョブを中止」する。region_size_px /
+    min_regions / max_passes は 1 以上、 converge_tolerance（収束とみなすパス増分
+    [mm]）は正、min_sharpness（拘束不足の 棄却閾値）と board_edge_margin（照合 ROI
+    が基板外形から確保する最小距離 [mm]）は 0 以上でなければならない。区数の上限（旧 region_count）は撤去した。
     """
 
     def test_region_defaults_when_absent(self):
         pad_align = Machine(TESTING_DATA_DIR / "machine.toml").paste_dispenser.pad_align
 
-        assert pad_align.region_size_px == 400
-        assert pad_align.region_count == 4
-        assert pad_align.min_regions == 3
+        # 実測: 300px なら実 PCB で 9 区・アンカー広がり 6.26mm・残存誤差 3.7um
+        assert pad_align.region_size_px == 300
+        # アフィンの下限は非共線 3 区。4 なら残差の自由度が 2 残る
+        assert pad_align.min_regions == 4
+        assert pad_align.max_passes == 2
+        # 0.01mm = 0.3px @ 30.2px/mm（サブピクセル再現性 3.6um の上）
+        assert pad_align.converge_tolerance == pytest.approx(0.01)
         assert pad_align.min_sharpness == pytest.approx(0.15)
         # 外周 1〜2mm はやすり掛けで削れるため、既定で 2mm 内側の銅箔だけを照合する
         assert pad_align.board_edge_margin == pytest.approx(2.0)
@@ -270,21 +276,28 @@ class TestPadAlignRegionSettings:
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
-            source + "\n[paste_dispenser.pad_align]\nregion_count = 6\n"
-            "min_regions = 2\n",
+            source + "\n[paste_dispenser.pad_align]\nmax_passes = 3\n"
+            "min_regions = 2\nconverge_tolerance = 0.02\n",
             encoding="utf-8",
         )
 
         pad_align = Machine(path).paste_dispenser.pad_align
 
-        assert pad_align.region_count == 6
+        assert pad_align.max_passes == 3
         assert pad_align.min_regions == 2
+        assert pad_align.converge_tolerance == pytest.approx(0.02)
 
-    @pytest.mark.parametrize("key", ["region_size_px", "region_count", "min_regions"])
+    @pytest.mark.parametrize("key", ["region_size_px", "min_regions", "max_passes"])
     @pytest.mark.parametrize("value", [0, -1])
     def test_rejects_non_positive_counts(self, key: str, value: int):
         with pytest.raises(ValueError, match=key):
             PadAlign(**{key: value})
+
+    @pytest.mark.parametrize("value", [0.0, -0.01])
+    def test_rejects_non_positive_converge_tolerance(self, value: float):
+        """0 は「絶対に収束しない」設定になるので拒否する（正の値のみ）."""
+        with pytest.raises(ValueError, match="converge_tolerance"):
+            PadAlign(converge_tolerance=value)
 
     def test_rejects_negative_min_sharpness(self):
         with pytest.raises(ValueError, match="min_sharpness"):

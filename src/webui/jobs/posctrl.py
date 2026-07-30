@@ -447,7 +447,9 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
         # 銅箔照合（領域単位）。成功は dx/dy と rms/sharpness、失敗は FAILED を
         # overlay に出す（巡回中に人が見るのは overlay なので指標をそこへ出す）
         session = RegionAlignmentSession.from_calibration(result, frame_sink=ctx.frame)
-        regions = session.plan_regions()
+        regions = session.plan_regions(
+            [pad.center for pad in result.pcb.pads if pad.layer == Layer.TOP]
+        )
         ctx.log(f"照合領域数: {len(regions)}")
         for region in regions:
             ctx.log(
@@ -468,13 +470,16 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             )
 
         def render_measured(measured: RegionAlignment) -> None:
-            translation, match = measured.translation, measured.match
+            displacement, match = measured.displacement, measured.match
             _region_overlay(
                 measured.region,
                 [
-                    f"dx={translation.x:+.4f} dy={translation.y:+.4f} mm",
+                    f"dx={displacement.x:+.4f} dy={displacement.y:+.4f} mm",
                     f"rms={match.rms_distance_px:.2f} px",
                     f"sharpness={match.sharpness:.3f}",
+                    f"passes={measured.passes}"
+                    f" (+{measured.increment.norm * 1000:.1f} um)"
+                    + ("" if measured.converged else " NOT CONVERGED"),
                 ],
             )
 
@@ -492,7 +497,7 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             on_failure=render_failed,
         )
 
-        # 平均補正を適用した全 TOP pad 巡回
+        # アフィン補正を適用した全 TOP pad 巡回
         projector, entries = _corrected_entries(result, session, alignment)
         for index, (pad, target) in enumerate(entries):
             ctx.progress("補正巡回", 100.0 * index / len(entries))
@@ -508,9 +513,11 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
     return JobResult(
         summary=(
             f"照合成功 {len(alignment.results)}/{len(regions)} 領域 / "
-            f"平均補正 dx={alignment.translation.x:+.4f} "
+            f"補正 {alignment.model} "
+            f"dx={alignment.translation.x:+.4f} "
             f"dy={alignment.translation.y:+.4f} mm"
-            f"（ばらつき {alignment.spread.x:.4f}, {alignment.spread.y:.4f} mm）/ "
+            f"（残差 RMS {alignment.residual_rms * 1000:.1f}um / "
+            f"最大 {alignment.residual_max * 1000:.1f}um）/ "
             f"補正巡回 {len(entries)} pads"
         )
     )
@@ -521,9 +528,9 @@ def _corrected_entries(
     session: RegionAlignmentSession,
     alignment: BoardAlignment,
 ) -> tuple[CopperProjector, list[tuple[Pad, Point2d]]]:
-    """平均補正を適用した全 TOP pad の巡回先を nearest neighbor 順で構築する."""
+    """アフィン補正を適用した全 TOP pad の巡回先を nearest neighbor 順で構築する."""
     corrected_transform = Compose([result.board_transform, alignment.machine_transform])
-    projector = session.corrected_projector(alignment.machine_transform)
+    projector = session.projector.with_correction(alignment.machine_transform)
     entries = [
         (pad, corrected_transform.apply(pad.center))
         for pad in result.pcb.pads

@@ -1,7 +1,13 @@
 """Board/オフセットの位置合わせ共通制御."""
 
 from .aligner import RegionAligner, RegionAlignment
-from .alignment import BoardAlignment, RegionAlignmentSession
+from .alignment import (
+    BoardAlignment,
+    DisplacementFit,
+    DisplacementModel,
+    RegionAlignmentSession,
+    fit_displacement,
+)
 from .board import BoardTransformMeasurer
 from .copper import (
     CopperEdgeMatcher,
@@ -40,6 +46,8 @@ __all__ = [
     "CopperEdgeMatcher",
     "CopperProjection",
     "CopperProjector",
+    "DisplacementFit",
+    "DisplacementModel",
     "EdgeMatch",
     "OffsetObserver",
     "OffsetTransformMeasurer",
@@ -52,6 +60,7 @@ __all__ = [
     "XYPositionAdjustor",
     "centered_roi",
     "display_at_point",
+    "fit_displacement",
     "interactive_display_at_point",
     "machine_session",
     "plan_alignment_regions",

@@ -358,19 +358,21 @@ class TestAirPumpEnabled:
 
 
 class TestPadAlignRegionFields:
-    """領域照合キーの読み書きと per-key 検証（region-alignment-average 計画書）.
+    """領域照合キーの読み書きと per-key 検証（region-affine-correction 計画書）.
 
-    region_size_px / region_count / min_regions は 1 以上の int、
-    min_sharpness と board_edge_margin（照合領域が基板外形から確保する最小距離 [mm]）は 0 以上の
-    float。change 即自動保存 UI では 0 や負値が machine.toml へ書かれる事故が起きやすいので保存時に弾く。
+    region_size_px / min_regions / max_passes は 1 以上の
+    int、converge_tolerance （収束とみなすパス増分 [mm]）は正の float、min_sharpness と
+    board_edge_margin （照合 ROI が基板外形から確保する最小距離 [mm]）は 0 以上の float。change
+    即 自動保存 UI では 0 や負値が machine.toml へ書かれる事故が起きやすいので保存時に弾く。
     """
 
     @pytest.mark.parametrize(
         ("key", "value"),
         [
             ("paste_dispenser.pad_align.region_size_px", 320),
-            ("paste_dispenser.pad_align.region_count", 6),
             ("paste_dispenser.pad_align.min_regions", 1),
+            ("paste_dispenser.pad_align.max_passes", 3),
+            ("paste_dispenser.pad_align.converge_tolerance", 0.02),
             ("paste_dispenser.pad_align.min_sharpness", 0.25),
             ("paste_dispenser.pad_align.board_edge_margin", 1.5),
         ],
@@ -386,14 +388,43 @@ class TestPadAlignRegionFields:
         "key",
         [
             "paste_dispenser.pad_align.region_size_px",
-            "paste_dispenser.pad_align.region_count",
             "paste_dispenser.pad_align.min_regions",
+            "paste_dispenser.pad_align.max_passes",
         ],
     )
     @pytest.mark.parametrize("value", [0, -1])
     def test_non_positive_int_raises(self, store: ConfigStore, key: str, value: int):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings({key: value})
+
+    def test_max_passes_is_an_int_field(self):
+        """UI が整数入力で描けるよう value_type を固定する."""
+        spec = next(
+            s for s in MACHINE_FIELDS if s.key == "paste_dispenser.pad_align.max_passes"
+        )
+
+        assert spec.value_type == "int"
+
+    def test_converge_tolerance_is_a_float_field_in_millimetres(self):
+        """収束判定の増分は mm 単位の float（UI の単位表示の根拠）."""
+        spec = next(
+            s
+            for s in MACHINE_FIELDS
+            if s.key == "paste_dispenser.pad_align.converge_tolerance"
+        )
+
+        assert spec.value_type == "float"
+        assert spec.unit == "mm"
+
+    @pytest.mark.parametrize("value", [0.0, -0.01])
+    def test_non_positive_converge_tolerance_raises(
+        self, store: ConfigStore, value: float
+    ):
+        """0 は「絶対に収束しない」設定になるので保存時に弾く."""
+        with pytest.raises(UnknownFieldError, match="converge_tolerance"):
+            store.write_machine_settings(
+                {"paste_dispenser.pad_align.converge_tolerance": value}
+            )
 
     def test_negative_min_sharpness_raises(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):

@@ -370,6 +370,84 @@ class TestCopperProjector:
         assert list(exposed) == polygons
 
 
+class TestCopperProjectorWithCorrection:
+    """with_correction: 機械座標の補正を board 変換の後段へ挿した投影器.
+
+    計画書 region-affine-correction.md「実装ステップ 1」。反復計測（累積変位で
+    投影を補正して再照合）と補正巡回（board_tour）が同じ 1 本を使う。
+    """
+
+    POLYGONS = [_square(0.0, 0.0, 2.0), _square(5.0, 5.0, 1.0)]
+
+    def test_projects_with_the_composed_board_transform(self):
+        """pixel_of が Compose([board_transform, correction]) 投影になる.
+
+        非可換な board_transform=Shift と correction=Rotation の組で合成順序 （T_b
+        を先、補正を後）を固定する。順序が逆だと補正が board 座標側に 効いてしまい、機械座標の補正という意味が崩れる。
+        """
+        board_transform = Shift(5.0, -1.0)
+        correction = Rotation(90.0)
+        projector = _projector(self.POLYGONS, board_transform=board_transform)
+        reference = _projector(
+            self.POLYGONS, board_transform=Compose([board_transform, correction])
+        )
+
+        corrected = projector.with_correction(correction)
+
+        for board_point, stage_xy in [
+            (Point2d(0.0, 0.0), Point2d(0.0, 0.0)),
+            (Point2d(1.0, 0.5), Point2d(3.0, 2.0)),
+        ]:
+            got = corrected.pixel_of(board_point, stage_xy)
+            want = reference.pixel_of(board_point, stage_xy)
+            assert got.x == pytest.approx(want.x, abs=1e-9)
+            assert got.y == pytest.approx(want.y, abs=1e-9)
+
+    def test_shift_correction_moves_the_projection_by_the_shift(self):
+        """並進補正 Shift(d) は投影を −ppm*d だけ動かす（反復計測の中身）.
+
+        投影公式 pixel = center + ppm*(s − T_b(b) − d) の d の効き方を直接ピンする。
+        これが効かないと 2 パス目が同じ変位を再び測って二重計上する。
+        """
+        projector = _projector([_square(0.0, 0.0, 2.0)])
+        stage_xy = Point2d(0.0, 0.0)
+        base = projector.pixel_of(Point2d(0.0, 0.0), stage_xy)
+
+        corrected = projector.with_correction(Shift(0.3, -0.2))
+
+        moved = corrected.pixel_of(Point2d(0.0, 0.0), stage_xy)
+        assert moved.x == pytest.approx(base.x - PPM * 0.3, abs=1e-9)
+        assert moved.y == pytest.approx(base.y + PPM * 0.2, abs=1e-9)
+
+    def test_inherits_polygons_and_pixel_scale_and_image_size(self):
+        """ポリゴン・pixel/mm・画像サイズを引き継ぐ（設定の取りこぼし防止）."""
+        projector = _projector(self.POLYGONS, image_size=(320, 200))
+
+        corrected = projector.with_correction(Shift(0.0, 0.0))
+
+        assert list(corrected.polygons) == self.POLYGONS
+        # pixel/mm と image_size は private なので投影結果で確認する
+        assert corrected.project(Point2d(0.0, 0.0)).edge_mask.shape == (200, 320)
+        origin = corrected.pixel_of(Point2d(0.0, 0.0), Point2d(0.0, 0.0))
+        unit_x = corrected.pixel_of(Point2d(1.0, 0.0), Point2d(0.0, 0.0))
+        assert abs(unit_x.x - origin.x) == pytest.approx(PPM, abs=1e-9)
+
+    def test_original_projector_is_unchanged(self):
+        """元の投影器は変わらない（不変性）.
+
+        反復計測は同じ RegionAligner の中でパスごとに補正を差し替えるので、 元の投影器が汚れると 3
+        パス目以降が壊れる。
+        """
+        projector = _projector(self.POLYGONS)
+        before = projector.pixel_of(Point2d(0.0, 0.0), Point2d(0.0, 0.0))
+
+        projector.with_correction(Shift(10.0, 10.0))
+
+        after = projector.pixel_of(Point2d(0.0, 0.0), Point2d(0.0, 0.0))
+        assert after.x == pytest.approx(before.x, abs=1e-12)
+        assert after.y == pytest.approx(before.y, abs=1e-12)
+
+
 class TestCopperEdgeMatcherTranslation:
     """CopperEdgeMatcher.match の並進復元（正常系）."""
 

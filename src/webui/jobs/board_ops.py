@@ -10,6 +10,7 @@ from pcbasm.posctrl import (
     AlignmentRegion,
     BoardAlignment,
     BoardCalibrationResult,
+    OrthogonalityMetrics,
     RegionAlignment,
     RegionAlignmentSession,
     setup_board_calibration,
@@ -87,9 +88,10 @@ def measure_regions(
     """領域単位の銅箔照合ループの共通骨格.
 
     領域ごとに progress("銅箔照合") → checkpoint → ``session.measure`` →
-    dx/dy/rms/sharpness の log。成功は ``on_success``（あれば）、失敗は警告 log の後
-    ``on_failure``（あれば）を呼んで続行する。最後に成功数が min_regions 未満なら
-    中止する。
+    dx/dy/rms/sharpness/passes の log。成功は ``on_success``（あれば）、失敗は
+    警告 log の後 ``on_failure``（あれば）を呼んで続行する。最後に成功数が
+    min_regions 未満なら中止し、足りていれば当てはめた補正モデル・スケール・
+    スキュー・区ごとの残差を判定材料として log に出す。
 
     Args:
         ctx: 実行中ジョブのコンテキスト
@@ -102,7 +104,7 @@ def measure_regions(
             overlay に使う）
 
     Returns:
-        成功した領域計測から得た基板全体の平均並進補正
+        成功した領域計測から得た基板全体のアフィン補正
 
     Raises:
         ValueError: 計画領域数が min_regions 未満の場合（移動前に判定）、
@@ -111,10 +113,10 @@ def measure_regions(
     if len(regions) < min_regions:
         raise ValueError(
             f"照合領域を {len(regions)} 個しか計画できませんでした"
-            f"（必要 {min_regions}）。領域は互いに領域サイズ以上離して選ぶため、"
-            f"pad の分布が region_size_px の数倍に収まる小さい基板では"
-            f"必要数を確保できません。region_size_px を小さくするか、"
-            f"region_count と min_regions を下げてください"
+            f"（必要 {min_regions}）。領域は塗布対象 pad を含み、ROI 全体が"
+            f"基板外形の内側（board_edge_margin）に収まるタイルだけを使います。"
+            f"region_size_px を小さくするか board_edge_margin を下げ、"
+            f"それでも足りなければ min_regions を下げてください"
         )
     results = []
     for index, region in enumerate(regions):
@@ -127,12 +129,15 @@ def measure_regions(
             if on_failure is not None:
                 on_failure(region)
             continue
-        translation, match = alignment.translation, alignment.match
+        displacement, match = alignment.displacement, alignment.match
         ctx.log(
             f"{label}: "
-            f"dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
+            f"dx={displacement.x:+.4f} dy={displacement.y:+.4f} mm, "
             f"rms={match.rms_distance_px:.2f} px, "
-            f"sharpness={match.sharpness:.3f}"
+            f"sharpness={match.sharpness:.3f}, "
+            f"passes={alignment.passes} "
+            f"(増分 {alignment.increment.norm * 1000:.1f} um)"
+            + ("" if alignment.converged else " ※収束せず")
         )
         results.append(alignment)
         if on_success is not None:
@@ -147,8 +152,46 @@ def measure_regions(
             f"それでも足りなければ min_regions を下げてください"
         )
     board = BoardAlignment(results=tuple(results))
-    ctx.log(
-        f"平均補正: dx={board.translation.x:+.4f} dy={board.translation.y:+.4f} mm / "
-        f"領域間ばらつき: sx={board.spread.x:.4f} sy={board.spread.y:.4f} mm"
-    )
+    _log_alignment(ctx, board)
     return board
+
+
+def _log_alignment(ctx: JobContext, board: BoardAlignment) -> None:
+    """当てはめた補正の判定材料（モデル・スケール・スキュー・残差）を log に出す."""
+    if board.model == "translation":
+        remedy = (
+            "区が 3 つ以上必要です"
+            if len(board.results) < 3
+            else "region_size_px を小さくして区の配置を広げてください"
+        )
+        ctx.log(
+            f"警告: アンカーの広がりが不足（{len(board.results)} 区・最小主軸 "
+            f"{board.fit.anchor_spread_mm:.2f} mm）のためアフィンを諦め"
+            f"並進のみで補正します。{remedy}"
+        )
+    metrics = OrthogonalityMetrics.from_transform(board.machine_transform)
+    translation = board.translation
+    ctx.log(
+        f"補正モデル: {board.model} / "
+        f"並進 dx={translation.x:+.4f} dy={translation.y:+.4f} mm / "
+        f"スケール x={(metrics.scale_x - 1) * 1e6:+.0f} "
+        f"y={(metrics.scale_y - 1) * 1e6:+.0f} ppm / "
+        f"スキュー {metrics.axis_angle_error_deg:+.4f} deg"
+    )
+    ctx.log(
+        f"残差 RMS={board.residual_rms * 1000:.1f} um "
+        f"最大={board.residual_max * 1000:.1f} um"
+        f"（照合ノイズは区あたり 5um 級。数倍を超える場合は"
+        f"非線形なひずみが残っている）"
+    )
+    for index, residual in enumerate(board.residuals):
+        ctx.log(
+            f"  領域 {index + 1}: "
+            f"rx={residual.x * 1000:+.1f} ry={residual.y * 1000:+.1f} um"
+        )
+    unconverged = sum(1 for r in board.results if not r.converged)
+    if unconverged:
+        ctx.log(
+            f"警告: {unconverged}/{len(board.results)} 領域が上限パス数でも"
+            f"収束しませんでした（採用はしています）"
+        )

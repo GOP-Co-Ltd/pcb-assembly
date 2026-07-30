@@ -9,7 +9,7 @@ import numpy as np
 from shapely import Polygon
 from shapely.coords import CoordinateSequence
 
-from pcbasm.geometry import Point2d, Shift, Transform
+from pcbasm.geometry import Compose, Point2d, Shift, Transform
 from pcbasm.vision import ImageArray, Offset
 
 type _Bounds = tuple[float, float, float, float]
@@ -124,6 +124,27 @@ class CopperProjector:
     def polygons(self) -> tuple[Polygon, ...]:
         """投影対象の銅箔ポリゴン（board座標、mm）."""
         return tuple(self._polygons)
+
+    def with_correction(self, machine_transform: Transform) -> "CopperProjector":
+        """機械座標の補正をboard変換の後段へ挿した投影器を返す.
+
+        ``board_transform`` を ``Compose([board_transform, machine_transform])``
+        に差し替えた同設定の投影器。反復計測（累積変位で投影を補正）と
+        補正巡回（board_tour）の両方で使う。
+
+        Args:
+            machine_transform: 機械座標系の補正Transform
+
+        Returns:
+            補正後のboard変換で投影する新しいCopperProjector（自身は変わらない）
+        """
+        return CopperProjector(
+            polygons=self._polygons,
+            board_transform=Compose([self._board_transform, machine_transform]),
+            offset_transform=self._offset_transform,
+            pixel_per_mm=self._pixel_per_mm,
+            image_size=self._image_size,
+        )
 
     def project(self, stage_xy: Point2d) -> CopperProjection:
         """指定ステージ位置で視野内に想定される銅箔を投影する.

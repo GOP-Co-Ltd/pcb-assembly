@@ -100,8 +100,11 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec(
         "paste_dispenser.pad_align.region_size_px", "照合領域の一辺", "int", "px"
     ),
-    FieldSpec("paste_dispenser.pad_align.region_count", "照合領域数", "int"),
     FieldSpec("paste_dispenser.pad_align.min_regions", "必要な成功領域数", "int"),
+    FieldSpec("paste_dispenser.pad_align.max_passes", "再計測の上限回数", "int"),
+    FieldSpec(
+        "paste_dispenser.pad_align.converge_tolerance", "収束判定の増分", "float", "mm"
+    ),
     FieldSpec(
         "paste_dispenser.pad_align.board_edge_margin",
         "基板外形からの最小距離",
@@ -202,6 +205,11 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     and coerced_float < 0.0
                 ):
                     raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
+                if (
+                    spec.key == "paste_dispenser.pad_align.converge_tolerance"
+                    and coerced_float <= 0.0
+                ):
+                    raise UnknownFieldError(f"{spec.key}: 正の値が必要です")
                 return coerced_float
         case "float_or_auto":
             if value == "auto":
@@ -219,8 +227,8 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     spec.key
                     in (
                         "paste_dispenser.pad_align.region_size_px",
-                        "paste_dispenser.pad_align.region_count",
                         "paste_dispenser.pad_align.min_regions",
+                        "paste_dispenser.pad_align.max_passes",
                     )
                     and value < 1
                 ):
