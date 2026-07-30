@@ -229,6 +229,17 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/pretooluse-block-hardware-tests.py\""
+          }
+        ]
+      }
     ]
   }
 }
