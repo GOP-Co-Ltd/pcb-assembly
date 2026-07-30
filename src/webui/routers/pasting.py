@@ -23,6 +23,7 @@ from webui.dependencies import BoardStoreDep, JobsDep, SettingsDep, StateDep, St
 from webui.routers.pasting_view import (
     InitialPurgePatch,
     InitialPurgeResponse,
+    Loaded,
     NodePatch,
     PadConfigImport,
     PadConfigResponse,
@@ -85,6 +86,7 @@ def patch_pad_config_node(
 ) -> PatchResponse:
     """ノードの enabled/values upsert・clear を適用し、影響 pad を返す."""
     loaded = load_board(state, settings, board_store)
+    _check_expected_pcb(body.expected_pcb, loaded)
     if (message := validate_override_values(body.values)) is not None:
         raise HTTPException(status_code=400, detail=message)
     if (message := validate_field_names(body.clear)) is not None:
@@ -92,17 +94,18 @@ def patch_pad_config_node(
     key = key_from_node_id(body.node)
     if key not in loaded.hierarchy.all_keys():
         raise HTTPException(status_code=400, detail=f"未知のノードです: {body.node}")
-    new_model = loaded.model.with_level_patch(
-        key,
-        values=body.values,
-        clear=body.clear,
-        enabled=body.enabled,
-        enabled_sent="enabled" in body.model_fields_set,
-    )
-    board_store.save(
+    enabled_sent = "enabled" in body.model_fields_set
+    new_model = board_store.update(
         loaded.source_pcb,
-        new_model,
+        loaded.base_config,
         board_signature=loaded.board_signature,
+        mutate=lambda current: current.with_level_patch(
+            key,
+            values=body.values,
+            clear=body.clear,
+            enabled=body.enabled,
+            enabled_sent=enabled_sent,
+        ),
     )
     updated = attrs.evolve(loaded, model=new_model)
     return PatchResponse(affected_pads=affected_pads(body.node, updated))
@@ -117,16 +120,17 @@ def patch_pad_config_pads(
 ) -> PatchResponse:
     """Pad id 配列を L4 ノードの enabled 設定として一括適用する."""
     loaded = load_board(state, settings, board_store)
+    _check_expected_pcb(body.expected_pcb, loaded)
     l4_keys, unknown = loaded.hierarchy.l4_keys_for_pad_ids(body.ids)
     if unknown:
         raise HTTPException(
             status_code=400, detail=f"未知の pad です: {', '.join(unknown)}"
         )
-    model = loaded.model.with_pads_enabled(l4_keys, enabled=body.enabled)
-    board_store.save(
+    model = board_store.update(
         loaded.source_pcb,
-        model,
+        loaded.base_config,
         board_signature=loaded.board_signature,
+        mutate=lambda current: current.with_pads_enabled(l4_keys, enabled=body.enabled),
     )
     updated = attrs.evolve(loaded, model=model)
     return PatchResponse(affected_pads=affected_pads_for_ids(body.ids, updated))
@@ -143,6 +147,7 @@ def patch_initial_purge(
 ) -> InitialPurgeResponse:
     """初回パージ量と pad 指定を即時保存し、解決済み設定を返す."""
     loaded = load_board(state, settings, board_store)
+    _check_expected_pcb(body.expected_pcb, loaded)
     amount_sent = "initial_purge_ul" in body.model_fields_set
     pad_sent = "pad_id" in body.model_fields_set
     if amount_sent and body.initial_purge_ul is None:
@@ -178,16 +183,32 @@ def patch_initial_purge(
                 {"paste_dispenser.initial_purge_ul": next_amount}
             )
         jobs.publish_state_changed()
+    model = loaded.model
     if pad_sent:
-        model = loaded.model.with_initial_purge_pad_id(next_pad_id)
-        board_store.save(
+        model = board_store.update(
             loaded.source_pcb,
-            model,
+            loaded.base_config,
             board_signature=loaded.board_signature,
+            mutate=lambda current: current.with_initial_purge_pad_id(next_pad_id),
         )
-    return InitialPurgeResponse(
-        initial_purge=build_initial_purge(load_board(state, settings, board_store))
+    # PCB は再パースせず、machine.toml へ書いた分だけ base_config を読み直す
+    updated = attrs.evolve(
+        loaded,
+        model=model,
+        base_config=(
+            state.machine().paste_dispenser if amount_sent else loaded.base_config
+        ),
     )
+    return InitialPurgeResponse(initial_purge=build_initial_purge(updated))
+
+
+def _check_expected_pcb(expected_pcb: str | None, loaded: Loaded) -> None:
+    """編集開始時の PCB と選択中 PCB の不一致を 409 で弾く（None は無検査）."""
+    if expected_pcb is not None and expected_pcb != loaded.source_pcb:
+        raise HTTPException(
+            status_code=409,
+            detail="PCB が切り替わりました。ページを再読み込みしてください",
+        )
 
 
 def _normalize_initial_purge_pad_id(pad_id: str | None) -> str | None:

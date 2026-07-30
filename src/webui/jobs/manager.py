@@ -390,6 +390,7 @@ class JobManager:
         preview: PreviewService,
         catalog: JobCatalog,
         settings: Settings,
+        board_store: BoardSettingsStore,
         *,
         log_capacity: int = 500,
     ) -> None:
@@ -400,6 +401,8 @@ class JobManager:
             preview: ctx.frame() の委譲先
             catalog: ジョブ定義カタログ
             settings: WebUI 設定（data_dir / pcb_browse_root）
+            board_store: 基板設定ストア。**HTTP 経路と同一インスタンス**を
+                渡すこと（別インスタンスだと更新ロックが効かない）
             log_capacity: ログのリングバッファ行数
         """
         self._state = state
@@ -408,9 +411,7 @@ class JobManager:
         self._settings = settings
         self._log_capacity = log_capacity
         self._artifacts_root = settings.webui_data_dir
-        self._board_store = BoardSettingsStore(
-            settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
-        )
+        self._board_store = board_store
 
         self._lock = threading.Lock()
         self._record: JobRecord | None = None
@@ -446,7 +447,7 @@ class JobManager:
                 key: params[key] for key in definition.persisted_params if key in params
             }
             if persisted_params:
-                self._state.save_job_param_defaults(name, persisted_params)
+                self._state.merge_job_param_defaults(name, persisted_params)
             record = JobRecord(uuid.uuid4().hex, name, params, self._log_capacity)
             runtime = _JobRuntime(
                 record, self._preview, self._publish, self._apply_machine_settings
@@ -556,11 +557,7 @@ class JobManager:
                 if key in validated
             }
             if persisted:
-                merged = {
-                    **self._state.job_param_defaults(record.name),
-                    **persisted,
-                }
-                self._state.save_job_param_defaults(record.name, merged)
+                self._state.merge_job_param_defaults(record.name, persisted)
         runtime.publish_status()
         return validated
 

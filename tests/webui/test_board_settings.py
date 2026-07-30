@@ -8,6 +8,13 @@
 - JSON に version / source_pcb / settings が入る（ネスト方式の契約ピン）
 - prune は orphan キーを除去して保存する
 
+MR1 追記（計画書 web-api-ui-split.md「MR1」節）:
+
+- update はロック内で「再 load → mutate → atomic write」を行い、同時編集で
+  先行の変更が失われない
+- ロックは排他（先行 update の mutate が返るまで後続は mutate に入れない）
+- prune / import は ``save`` による全量上書きで、この排他の対象外
+
 PcbFile / pcbnew には依存しない。``PasteSettingsModel`` / ``PadHierarchy`` は
 直接構築する。
 """
@@ -15,6 +22,8 @@ PcbFile / pcbnew には依存しない。``PasteSettingsModel`` / ``PadHierarchy
 from __future__ import annotations
 
 import json
+import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -29,6 +38,8 @@ from pcbasm.pasting import (
 )
 from pcbasm.pcb import Component, Layer, Pad, build_pad_hierarchy
 from webui.board_settings import BoardSettingsStore
+
+type Mutate = Callable[[PasteSettingsModel], PasteSettingsModel]
 
 
 def _base_config() -> PasteDispenser:
@@ -499,3 +510,184 @@ class TestPrune:
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert ("L2", "U99") not in loaded.levels
+
+
+class TestUpdate:
+    """Update（ロック内で 再 load → mutate → atomic write）."""
+
+    def test_returns_and_persists_mutated_model(self, tmp_path: Path):
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+
+        result = store.update(
+            "boards/a.kicad_pcb",
+            config,
+            mutate=lambda model: model.with_level_patch(
+                ("L2", "U1"), enabled=False, enabled_sent=True
+            ),
+        )
+        loaded = store.load_or_init("boards/a.kicad_pcb", config)
+
+        assert result.levels[("L2", "U1")].enabled is False
+        assert loaded.levels[("L2", "U1")].enabled is False
+
+    def test_reloads_before_mutate_so_external_write_is_not_lost(self, tmp_path: Path):
+        """Mutate 前に再 load する証明。A の後にファイルを直接書き換えても B が拾う.
+
+        ロック内かどうかまでは見ない（それは
+        ``test_second_update_blocks_until_first_mutate_returns`` が担う）。
+        """
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        store.update(
+            "boards/a.kicad_pcb",
+            config,
+            mutate=lambda model: model.with_level_patch(
+                ("L2", "U1"), enabled=False, enabled_sent=True
+            ),
+        )
+
+        # store の外（別プロセス相当）で U2 の設定を足す
+        path = (
+            tmp_path / "board_settings" / f"{store.board_id('boards/a.kicad_pcb')}.json"
+        )
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        doc["settings"]["levels"].append({"key": ["L2", "U2"], "enabled": False})
+        path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+
+        result = store.update(
+            "boards/a.kicad_pcb",
+            config,
+            mutate=lambda model: model.with_level_patch(
+                ("L2", "U3"), enabled=False, enabled_sent=True
+            ),
+        )
+
+        assert ("L2", "U2") in result.levels
+        assert ("L2", "U3") in result.levels
+
+    def test_second_update_blocks_until_first_mutate_returns(self, tmp_path: Path):
+        """``update`` が排他であることの決定的な証明.
+
+        A の ``mutate`` を Event で止めたまま B を起動し、B が ``mutate`` に
+        到達できないことを確認する。A を解放したら B が完走し、B の結果には
+        A の変更が含まれる（ロック内で再 load している）。
+        """
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        a_entered = threading.Event()
+        a_may_finish = threading.Event()
+        b_entered = threading.Event()
+        errors: list[BaseException] = []
+        results: dict[str, PasteSettingsModel] = {}
+
+        def mutate_a(model: PasteSettingsModel) -> PasteSettingsModel:
+            a_entered.set()
+            assert a_may_finish.wait(timeout=10.0)
+            return model.with_level_patch(
+                ("L2", "U1"), enabled=False, enabled_sent=True
+            )
+
+        def mutate_b(model: PasteSettingsModel) -> PasteSettingsModel:
+            b_entered.set()
+            return model.with_level_patch(
+                ("L2", "U2"), enabled=False, enabled_sent=True
+            )
+
+        def run(name: str, mutate: Mutate) -> None:
+            try:
+                results[name] = store.update(
+                    "boards/a.kicad_pcb", config, mutate=mutate
+                )
+            except BaseException as exc:
+                errors.append(exc)
+
+        thread_a = threading.Thread(target=run, args=("a", mutate_a))
+        thread_a.start()
+        assert a_entered.wait(timeout=10.0)
+        thread_b = threading.Thread(target=run, args=("b", mutate_b))
+        thread_b.start()
+
+        # A がロックを保持している間、B は mutate に入れない
+        assert not b_entered.wait(timeout=0.5)
+
+        a_may_finish.set()
+        thread_a.join(timeout=10.0)
+        thread_b.join(timeout=10.0)
+
+        assert errors == []
+        assert not thread_a.is_alive()
+        assert not thread_b.is_alive()
+        assert b_entered.is_set()
+        assert ("L2", "U1") in results["b"].levels
+        assert ("L2", "U2") in results["b"].levels
+
+    def test_concurrent_updates_of_distinct_nodes_both_survive(self, tmp_path: Path):
+        """2 スレッドが別ノードを同時編集しても、片方の変更が消えない.
+
+        U1 側は 1 回だけ編集し、U2 側は編集を反復する。直列化されていないと U2 の反復書き込みが U1
+        の変更を含まないモデルで上書きしてしまう。
+
+        これは実スレッドでの通し確認（smoke）であって、検出は**確率的**（実測: ロックを
+        no-op にすると 13/20 で失敗）。``_update_lock`` の排他そのものを決定的に守るのは
+        :meth:`test_second_update_blocks_until_first_mutate_returns` の方なので、
+        本テストが緑であることを lost update が無い根拠にはしない。
+        """
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def edit(node: str, times: int) -> None:
+            try:
+                barrier.wait(timeout=10.0)
+                for _ in range(times):
+                    store.update(
+                        "boards/a.kicad_pcb",
+                        config,
+                        mutate=lambda model: model.with_level_patch(
+                            ("L2", node), enabled=False, enabled_sent=True
+                        ),
+                    )
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=edit, args=("U1", 1)),
+            threading.Thread(target=edit, args=("U2", 200)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30.0)
+
+        assert errors == []
+        for thread in threads:
+            assert not thread.is_alive()
+        loaded = store.load_or_init("boards/a.kicad_pcb", config)
+
+        assert ("L2", "U1") in loaded.levels
+        assert ("L2", "U2") in loaded.levels
+
+    def test_signature_mismatch_discards_stale_file_content(self, tmp_path: Path):
+        """再 load は load_or_init と同じ signature 判定に従う."""
+        store = BoardSettingsStore(tmp_path)
+        config = _base_config()
+        store.update(
+            "boards/a.kicad_pcb",
+            config,
+            board_signature="sig-old",
+            mutate=lambda model: model.with_level_patch(
+                ("L2", "U1"), enabled=False, enabled_sent=True
+            ),
+        )
+
+        result = store.update(
+            "boards/a.kicad_pcb",
+            config,
+            board_signature="sig-new",
+            mutate=lambda model: model.with_initial_purge_pad_id("U1.1"),
+        )
+
+        assert result.levels == {}
+        assert result.initial_purge_pad_id == "U1.1"

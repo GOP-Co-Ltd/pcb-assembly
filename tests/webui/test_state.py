@@ -18,6 +18,15 @@ Phase 3 追記（計画書 webui-phase3.md「src/webui/state.py」節）:
   ジョブは request スレッドで取得し worker スレッドで解放するため、
   取得スレッドと別スレッドからの release を許す
 - machine_lock の従来挙動は不変（acquire/release の上に再実装）
+
+MR1 追記（計画書 web-api-ui-split.md「MR1」節）:
+
+- merge_job_param_defaults はロック内で「読む → マージ → 永続化」を行い、
+  マージ結果を返す（呼び出し側の手書き二重マージを不要にする）
+- 永続化は atomic replace のため、同時保存でも webui_state.json は常に valid JSON
+- _persist_lock は「dumps → 一時ファイル → replace」を直列化するため、同時
+  merge でも保存済みジョブ名がファイルから巻き戻らない
+- ロック順序は machine_lock → _persist_lock（装置ロック保持中でも merge は進む）
 """
 
 import json
@@ -100,10 +109,10 @@ class TestPcbSelection:
 class TestJobParamDefaults:
     """ジョブフォーム既定値の永続化."""
 
-    def test_save_job_param_defaults_persists_across_instances(
+    def test_merge_job_param_defaults_persists_across_instances(
         self, state: AppState, webui_settings: Settings, store: ConfigStore
     ):
-        state.save_job_param_defaults(
+        state.merge_job_param_defaults(
             "flow_calibration",
             {"rotations": 60.0, "rate": 1.5, "accel": 20.0, "count": 4},
         )
@@ -149,6 +158,171 @@ class TestJobParamDefaults:
             "count": 3,
         }
         assert state.job_param_defaults("bad-job") == {}
+
+    def test_merge_keeps_untouched_keys_and_returns_merged(self, state: AppState):
+        state.merge_job_param_defaults("flow_calibration", {"rotations": 60.0})
+
+        merged = state.merge_job_param_defaults(
+            "flow_calibration", {"rate": 1.5, "rotations": 70.0}
+        )
+
+        assert merged == {"rotations": 70.0, "rate": 1.5}
+        assert state.job_param_defaults("flow_calibration") == merged
+
+    def test_merge_is_scoped_per_job(self, state: AppState):
+        state.merge_job_param_defaults("flow_calibration", {"rotations": 60.0})
+
+        state.merge_job_param_defaults("height_plane", {"grid": 3})
+
+        assert state.job_param_defaults("flow_calibration") == {"rotations": 60.0}
+        assert state.job_param_defaults("height_plane") == {"grid": 3}
+
+    def test_returned_dict_is_a_copy(self, state: AppState):
+        merged = state.merge_job_param_defaults("flow_calibration", {"rotations": 60.0})
+
+        merged["rotations"] = 999.0
+
+        assert state.job_param_defaults("flow_calibration") == {"rotations": 60.0}
+
+    def test_concurrent_merges_keep_state_file_valid_json(
+        self, state: AppState, webui_settings: Settings
+    ):
+        """保存中に読んでも壊れた JSON を見ない（``write_text_atomic`` の契約）.
+
+        ピンしているのは atomic replace だけで、キーの生き残りは
+        ``test_concurrent_merges_of_distinct_jobs_all_persist`` が担う。
+        """
+        path = webui_settings.webui_data_dir / "webui_state.json"
+        state.merge_job_param_defaults("flow_calibration", {"seed": 0})
+        barrier = threading.Barrier(3)
+        stop = threading.Event()
+        invalid: list[str] = []
+        reads: list[int] = []
+        errors: list[BaseException] = []
+
+        def merge(key: str, times: int) -> None:
+            try:
+                barrier.wait(timeout=10.0)
+                for index in range(times):
+                    state.merge_job_param_defaults("flow_calibration", {key: index})
+            except BaseException as exc:
+                errors.append(exc)
+
+        def read_repeatedly() -> None:
+            try:
+                barrier.wait(timeout=10.0)
+                while not stop.is_set():
+                    text = path.read_text(encoding="utf-8")
+                    reads.append(len(text))
+                    try:
+                        json.loads(text)
+                    except ValueError:
+                        invalid.append(text)
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=merge, args=("rotations", 1)),
+            threading.Thread(target=merge, args=("rate", 200)),
+            threading.Thread(target=read_repeatedly),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads[:2]:
+            thread.join(timeout=30.0)
+        stop.set()
+        threads[2].join(timeout=10.0)
+
+        assert errors == []
+        for thread in threads:
+            assert not thread.is_alive()
+        # 読み手が 1 度も読めていない vacuous pass を潰す
+        assert reads
+        assert invalid == []
+
+    def test_concurrent_merges_never_roll_back_the_state_file(
+        self, state: AppState, webui_settings: Settings
+    ):
+        """別ジョブ名の同時 merge で、保存済みジョブ名がファイルから消えない.
+
+        ``_persist_lock`` が無いと「A が JSON を組む → B が組んで書く →
+        A が古い snapshot で replace」の順序が起きて、B が保存した内容が
+        ファイルから巻き戻る。メモリ上は両方残るので、検出には
+        書き込み中のファイルを観測する必要がある。
+        """
+        path = webui_settings.webui_data_dir / "webui_state.json"
+        rounds = 200
+        state.merge_job_param_defaults("seed", {"value": 0})
+        barrier = threading.Barrier(3)
+        stop = threading.Event()
+        errors: list[BaseException] = []
+        rollbacks: list[set[str]] = []
+        reads: list[int] = []
+
+        def merge(job_prefix: str) -> None:
+            try:
+                barrier.wait(timeout=10.0)
+                for index in range(rounds):
+                    state.merge_job_param_defaults(
+                        f"{job_prefix}{index}", {"value": index}
+                    )
+            except BaseException as exc:
+                errors.append(exc)
+
+        def watch_persisted_keys() -> None:
+            seen: set[str] = set()
+            try:
+                barrier.wait(timeout=10.0)
+                while not stop.is_set():
+                    doc = json.loads(path.read_text(encoding="utf-8"))
+                    keys = set(doc["job_param_defaults"])
+                    reads.append(len(keys))
+                    if lost := seen - keys:
+                        rollbacks.append(lost)
+                    seen |= keys
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=merge, args=("alpha",)),
+            threading.Thread(target=merge, args=("bravo",)),
+            threading.Thread(target=watch_persisted_keys),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads[:2]:
+            thread.join(timeout=30.0)
+        stop.set()
+        threads[2].join(timeout=10.0)
+
+        assert errors == []
+        for thread in threads:
+            assert not thread.is_alive()
+        # 監視スレッドが 1 度も読めていない vacuous pass を潰す
+        assert reads
+        assert rollbacks == []
+
+    def test_merge_does_not_block_while_machine_lock_is_held(self, state: AppState):
+        """ロック順序 machine_lock → _persist_lock の回帰（merge は装置ロックを待たない）."""
+        done = threading.Event()
+        errors: list[BaseException] = []
+
+        def merge() -> None:
+            try:
+                state.merge_job_param_defaults("flow_calibration", {"rotations": 60.0})
+            except BaseException as exc:
+                errors.append(exc)
+            done.set()
+
+        with state.machine_lock("job-a"):
+            thread = threading.Thread(target=merge)
+            thread.start()
+            assert done.wait(timeout=10.0)
+            thread.join(timeout=10.0)
+
+        assert errors == []
+        assert not thread.is_alive()
+        assert state.job_param_defaults("flow_calibration") == {"rotations": 60.0}
 
 
 class TestMachineLock:
