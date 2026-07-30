@@ -30,7 +30,7 @@ class BoardAlignment:
     def correction_for(
         self, board_point: Point2d, *, designator: str | None = None
     ) -> Transform:
-        """点を覆う全成功領域の変位を算術平均した純並進を返す.
+        """点を覆う成功領域のうち中心が最も近い領域の純並進を返す.
 
         Raises:
             ValueError: 点を覆う成功領域がない場合
@@ -45,8 +45,11 @@ class BoardAlignment:
                 else f"({board_point.x:.3f}, {board_point.y:.3f})"
             )
             raise ValueError(f"{target} を覆う位置合わせ成功領域がありません")
-        total = sum((result.displacement for result in covering), Point2d(0.0, 0.0))
-        return Shift.from_point(total / len(covering))
+        nearest = min(
+            covering,
+            key=lambda result: (result.region.board_center - board_point).norm,
+        )
+        return Shift.from_point(nearest.displacement)
 
 
 class RegionAlignmentSession:

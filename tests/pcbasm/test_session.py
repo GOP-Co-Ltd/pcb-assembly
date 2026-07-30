@@ -83,16 +83,13 @@ def _pad(designator: str, center: Point2d) -> Pad:
 
 
 class TestPasteSessionPadToMachine:
-    """Board→平均補正→toolhead→height の合成順を検証する."""
+    """Board→局所補正→toolhead→height の合成順を検証する."""
 
     def test_applies_transforms_in_agreed_order(self):
         pad = _pad("U1", Point2d(1.0, 2.0))
         area = shapely.box(-5.0, -5.0, 5.0, 5.0)
         alignment = BoardAlignment(
-            results=(
-                _region_result(0, area, Point2d(0.2, -0.1)),
-                _region_result(1, area, Point2d(0.4, 0.3)),
-            )
+            results=(_region_result(0, area, Point2d(0.3, 0.1)),)
         )
 
         moved = (
@@ -105,7 +102,7 @@ class TestPasteSessionPadToMachine:
             .apply(pad.center.to3d(0.4))
         )
 
-        # Rotation90(1,2)=(-2,1), 平均補正=(0.3,0.1),
+        # Rotation90(1,2)=(-2,1), 局所補正=(0.3,0.1),
         # toolhead=(10,20) より最終 XY=(8.3,21.1)。
         assert moved.x == pytest.approx(8.3, abs=1e-9)
         assert moved.y == pytest.approx(21.1, abs=1e-9)

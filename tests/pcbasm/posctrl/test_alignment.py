@@ -40,63 +40,28 @@ def _shift_at(alignment: BoardAlignment, point: Point2d) -> Point2d:
 
 
 class TestBoardAlignmentCorrectionFor:
-    """覆う全成功領域の machine displacement を算術平均する."""
+    """Pad 中心に最も近い成功領域の machine displacement を採用する."""
 
-    @pytest.mark.parametrize(
-        ("displacements", "expected"),
-        [
-            (
-                [Point2d(0.10, -0.20), Point2d(0.30, 0.10)],
-                Point2d(0.20, -0.05),
-            ),
-            (
-                [
-                    Point2d(0.10, -0.20),
-                    Point2d(0.30, 0.10),
-                    Point2d(-0.10, 0.30),
-                    Point2d(0.50, -0.20),
-                ],
-                Point2d(0.20, 0.00),
-            ),
-        ],
-        ids=["two-regions", "four-regions"],
-    )
-    def test_returns_arithmetic_mean_of_all_covering_regions(
-        self, displacements, expected
-    ):
-        area = shapely.box(-1.0, -1.0, 1.0, 1.0)
-        alignment = BoardAlignment(
-            results=tuple(
-                _alignment(index, area, displacement)
-                for index, displacement in enumerate(displacements)
-            )
-        )
-
-        shift = _shift_at(alignment, Point2d(0.0, 0.0))
-
-        assert shift.x == pytest.approx(expected.x, abs=1e-12)
-        assert shift.y == pytest.approx(expected.y, abs=1e-12)
-
-    def test_boundary_point_uses_every_region_that_covers_it(self):
+    def test_uses_covering_region_with_nearest_center(self):
         alignment = BoardAlignment(
             results=(
                 _alignment(
                     0,
-                    shapely.box(-2.0, -2.0, 0.0, 2.0),
-                    Point2d(0.10, -0.10),
+                    shapely.box(-4.0, -2.0, 2.0, 2.0),
+                    Point2d(0.50, 0.30),
                 ),
                 _alignment(
                     1,
-                    shapely.box(0.0, -2.0, 2.0, 2.0),
-                    Point2d(0.30, 0.20),
+                    shapely.box(-1.0, -1.0, 1.0, 1.0),
+                    Point2d(0.10, -0.20),
                 ),
             )
         )
 
-        shift = _shift_at(alignment, Point2d(0.0, 0.0))
+        shift = _shift_at(alignment, Point2d(0.5, 0.0))
 
-        assert shift.x == pytest.approx(0.20, abs=1e-12)
-        assert shift.y == pytest.approx(0.05, abs=1e-12)
+        assert shift.x == pytest.approx(0.10, abs=1e-12)
+        assert shift.y == pytest.approx(-0.20, abs=1e-12)
 
     def test_different_pads_select_different_covering_region_sets(self):
         alignment = BoardAlignment(

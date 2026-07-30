@@ -15,9 +15,9 @@ Board/オフセットの位置合わせを担う共通制御モジュール。
 
 `RegionAligner` は各領域を反復計測し、既定 0.03 mm 以下の増分で収束した
 `RegionAlignment` だけを採用する。照合失敗・補正上限超過・非収束の領域は
-`RegionAlignmentSession` が棄却する。`BoardAlignment` は pad 中心を覆う全成功領域の
-変位を平均して補正し、塗布前の確認で成功領域に覆われない pad が1つでもあれば
-ジョブ全体を中止する。
+`RegionAlignmentSession` が棄却する。`BoardAlignment` は pad 中心を覆う成功領域のうち、
+領域中心が pad 中心に最も近いものの変位で補正する。塗布前の確認で成功領域に覆われない
+pad が1つでもあればジョブ全体を中止する。
 
 Board / オフセット調整用の観測は `observe() -> Transform`
 （カメラ mm 空間、原点=画像中心、想定→観測）契約の observer で統一している。
