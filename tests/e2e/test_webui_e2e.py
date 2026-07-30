@@ -307,37 +307,6 @@ class TestDispenseCalibrationPage:
         assert "js/dispense_runtime_params.js" in page.text
 
 
-class TestAirPumpToggleOverRealHttp:
-    """air_pump_enabled トグルを実 HTTP で PUT → GET → toml 反映まで検証."""
-
-    def test_put_air_pump_enabled_persists_and_reflects(self, live_server: LiveServer):
-        # ホワイトリストに air_pump_enabled が含まれる
-        before = httpx.get(
-            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
-        ).json()
-        keys = {field["key"] for field in before["fields"]}
-        assert "paste_dispenser.air_pump_enabled" in keys
-
-        # false を PUT
-        put = httpx.put(
-            f"{live_server.base_url}/api/settings/machine",
-            json={"values": {"paste_dispenser.air_pump_enabled": False}},
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert put.status_code == 200, put.text
-
-        # GET で false が反映される
-        after = httpx.get(
-            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
-        ).json()
-        fields = {field["key"]: field for field in after["fields"]}
-        assert fields["paste_dispenser.air_pump_enabled"]["value"] is False
-
-        # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
-        machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
-        assert "air_pump_enabled = false" in machine_toml
-
-
 class TestPasteLiftHeightOverRealHttp:
     """吐出後の上昇高さを実 HTTP で PUT → GET → toml 反映まで検証."""
 

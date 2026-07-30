@@ -22,7 +22,6 @@
   }
 
   function scalarValue(input) {
-    if (input.dataset.type === "bool") return input.checked;
     const text = input.value.trim();
     if (text === "") return null;
     if (input.dataset.type === "str" || input.dataset.type === "dispense_mode") {
