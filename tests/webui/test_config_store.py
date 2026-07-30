@@ -408,3 +408,54 @@ class TestCameraCropFields:
 
         values = store.read_machine_settings()
         assert values[key] == 1
+
+
+class TestAudioFields:
+    """`[audio]` の読み書き（webui-audio-output 計画書「WebUI 配線」節）.
+
+    Repo fixture には `[audio]` を入れない（未設定でも既定値で鳴るのが要件）ため、
+    欠落時は None、write 後は round-trip する。device の空白のみ・volume の
+    0..1 外は UnknownFieldError。
+    """
+
+    def test_missing_audio_reads_as_none(self, store: ConfigStore):
+        values = store.read_machine_settings()
+
+        assert values["audio.device"] is None
+        assert values["audio.volume"] is None
+
+    def test_write_then_reread_reflects_values(self, store: ConfigStore):
+        store.write_machine_settings(
+            {"audio.device": "  plughw:CARD=Audio,DEV=0  ", "audio.volume": 0.25}
+        )
+
+        values = store.read_machine_settings()
+        assert values["audio.device"] == "plughw:CARD=Audio,DEV=0"
+        assert values["audio.volume"] == 0.25
+
+    @pytest.mark.parametrize("volume", [0.0, 1.0])
+    def test_volume_boundaries_are_accepted(self, store: ConfigStore, volume: float):
+        store.write_machine_settings({"audio.volume": volume})
+
+        values = store.read_machine_settings()
+        assert values["audio.volume"] == volume
+
+    @pytest.mark.parametrize("volume", [float("nan"), -0.01, 1.01])
+    def test_write_rejects_invalid_volume(self, store: ConfigStore, volume: float):
+        with pytest.raises(UnknownFieldError, match="audio.volume"):
+            store.write_machine_settings({"audio.volume": volume})
+
+    def test_write_rejects_blank_device(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError, match="audio.device"):
+            store.write_machine_settings({"audio.device": "  "})
+
+    def test_creating_audio_table_keeps_existing_comments(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """`[audio]` テーブルの新規作成でも既存コメントは失われない."""
+        store.write_machine_settings({"audio.volume": 0.5})
+
+        text = (config_dir / "machine.toml").read_text(encoding="utf-8")
+        assert "キャリブレーション値 2026/06/08" in text
+        assert "[reference_point.offsets] # [x, y]で記述" in text
+        assert "volume = 0.5" in text

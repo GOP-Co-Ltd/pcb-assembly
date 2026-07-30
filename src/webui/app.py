@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
+from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
 from webui.board_settings import BoardSettingsStore
 from webui.config_store import ConfigStore, UnknownFieldError
 from webui.jobs.catalog import default_catalog
@@ -22,6 +23,7 @@ from webui.jobs.manager import JobManager
 from webui.preview import PreviewService
 from webui.routers import (
     app_state,
+    audio,
     files,
     jobs,
     machine_control,
@@ -63,17 +65,22 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # ワーカースレッド → WS のイベント橋渡し先 loop を登録する
     app.state.jobs.bind_loop(asyncio.get_running_loop())
     yield
-    # シャットダウン後始末（preview 終了通知 → ジョブ abort + join → FrameHub 停止）
+    # シャットダウン後始末（preview 通知 → ジョブ join → 通知音終了 → FrameHub 停止）
+    # 通知音の close はジョブ join 後（実行中ジョブの完了音を捨てない）
     app.state.preview.request_shutdown()
     app.state.jobs.shutdown()
+    app.state.audio_player.close()
     app.state.appstate.close()
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, *, audio_player: AudioPlayer | None = None
+) -> FastAPI:
     """WebUI の FastAPI アプリを構築する.
 
     Args:
         settings: WebUI 設定（None なら環境変数から構築。uvicorn --factory 用）
+        audio_player: 通知音プレイヤー（None なら ALSA 実装を構築）
 
     Returns:
         構成済みの FastAPI アプリ
@@ -90,6 +97,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     state = AppState(settings, store)
     preview = PreviewService(state)
     catalog = default_catalog()
+    if audio_player is None:
+        audio_player = AlsaAudioPlayer()
 
     app = FastAPI(title="pcb-assembly WebUI", lifespan=_lifespan)
     app.state.settings = settings
@@ -97,10 +106,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.appstate = state
     app.state.preview = preview
     app.state.catalog = catalog
+    app.state.audio_player = audio_player
     app.state.board_store = BoardSettingsStore(
         settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
     )
-    app.state.jobs = JobManager(state, preview, catalog, settings)
+    app.state.jobs = JobManager(
+        state, preview, catalog, settings, audio_player=audio_player
+    )
     app.state.templates = Jinja2Templates(directory=_PACKAGE_DIR / "templates")
     app.state.templates.env.globals["static_asset"] = _static_asset_url
     app.mount("/static", _NoCacheStaticFiles(directory=_STATIC_DIR), name="static")
@@ -125,6 +137,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(app_state.router)
     app.include_router(files.router)
     app.include_router(settings_api.router)
+    app.include_router(audio.router)
     app.include_router(machine_control.router)
     app.include_router(system.router)
     app.include_router(preview_router.router)

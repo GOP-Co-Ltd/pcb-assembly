@@ -148,6 +148,7 @@ SECTION_LABELS: dict[str, str] = {
     "nozzle_cap": "ノズルキャップ",
     "camera": "カメラ",
     "camera.crop": "カメラ / クロップ",
+    "audio": "通知音",
 }
 
 

@@ -5,10 +5,18 @@
 - create_app(settings) で注入 Settings のアプリが起動する
 - BusyError → 409 JSON の exception handler が登録される
 - /static 配下の静的ファイル配信
+
+webui-audio-output 計画書「`src/webui/app.py`」節が追記契約:
+
+- create_app(audio_player=...) で注入したプレイヤーを lifespan 終了時に
+  1 回だけ close する（ジョブ join の後に閉じる）
 """
 
 from fastapi.testclient import TestClient
 
+from tests.helpers import FakeAudioPlayer
+from webui.app import create_app
+from webui.settings import Settings
 from webui.state import AppState
 
 
@@ -37,3 +45,12 @@ class TestCreateApp:
 
         assert response.status_code == 200
         assert "text/css" in response.headers["content-type"]
+
+    def test_lifespan_closes_injected_audio_player_once(self, webui_settings: Settings):
+        player = FakeAudioPlayer()
+        app = create_app(webui_settings, audio_player=player)
+
+        with TestClient(app) as client:
+            assert client.get("/api/state").status_code == 200
+
+        assert player.close_calls == 1
