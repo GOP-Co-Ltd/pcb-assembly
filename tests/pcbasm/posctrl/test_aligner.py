@@ -1,7 +1,7 @@
 """Posctrl/aligner の仕様テスト.
 
-計画書 memory/agents/implementation-planner/region-affine-correction.md
-「公開インターフェース → src/pcbasm/posctrl/aligner.py」「実装ステップ 3」に基づく。
+region-local-correction の仕様「反復計測」に基づく（この反復計測は補正モデルを
+アフィンから局所補正へ作り直しても一切変わらない）。
 
 RegionAligner は領域のアンカーへ移動し、最大 ``max_passes`` 回まで反復して
 累積変位を測る。**測れる offset はステージ位置に不変**（想定投影と観測が画像内で
@@ -19,12 +19,15 @@ RegionAligner は領域のアンカーへ移動し、最大 ``max_passes`` 回�
 klipper / stage は自前 HAL のため手書き stub、エッジ検出・照合・投影は実物を使う。
 """
 
+import inspect
+
 import cv2
 import numpy as np
 import pytest
 from shapely import Polygon
 
 from pcbasm import gcode
+from pcbasm.config import PadAlign
 from pcbasm.geometry import (
     Compose,
     Identity,
@@ -93,9 +96,10 @@ def _black_image() -> Image:
 
 
 def _region(anchor: Point2d = ANCHOR, index: int = 0) -> AlignmentRegion:
-    """画像中心 ROI を持つ照合領域."""
+    """画像中心 ROI を持つ照合領域（board_transform = Identity なので中心 = anchor）."""
     return AlignmentRegion(
         index=index,
+        board_center=anchor,
         anchor=anchor,
         roi=centered_roi(IMAGE_SIZE, REGION_PX),
         constraint=120.0,
@@ -401,7 +405,7 @@ class TestRegionAlignerMeasure:
         """同じ観測ずれなら、アンカーがどこでも同じ displacement になる.
 
         補正がレバー腕に依存しないこと（MR !149 のピンの移植）。区ごとの変位が
-        アンカー位置で汚れると、アフィン当てはめの入力そのものが壊れる。
+        アンカー位置で汚れると、区ごとの局所補正そのものが壊れる。
         """
         camera = FakeCamera([_board_image(-6, 4), _board_image()])
         aligner = self._aligner(camera, klipper, stage, anchor=anchor)
@@ -410,6 +414,33 @@ class TestRegionAlignerMeasure:
 
         assert alignment.displacement.x == pytest.approx(0.6, abs=0.02)
         assert alignment.displacement.y == pytest.approx(-0.4, abs=0.02)
+
+
+class TestLibraryDefaultsMatchTheConfigDefaults:
+    """RegionAligner のライブラリ既定が PadAlign の既定と一致すること.
+
+    同じ概念の既定値が `RegionAligner.__init__` と `[paste_dispenser.pad_align]` の
+    2 箇所にあり、設定を通さない呼び出し（スクリプト・診断ツール）は前者を使う。
+    片方だけ更新すると本番と違う反復回数・収束判定で動き、実機でしか気づけない。
+    値そのものではなく **2 つの既定が一致すること** を契約として固定する。
+    """
+
+    @pytest.mark.api_contract
+    @pytest.mark.parametrize(
+        ("parameter", "config_key"),
+        [
+            ("max_passes", "max_passes"),
+            ("converge_tolerance_mm", "converge_tolerance"),
+        ],
+    )
+    def test_default_equals_the_pad_align_default(
+        self, parameter: str, config_key: str
+    ):
+        default = (
+            inspect.signature(RegionAligner.__init__).parameters[parameter].default
+        )
+
+        assert default == pytest.approx(getattr(PadAlign(), config_key))
 
 
 def _dummy_match(offset_px: Point2d = Point2d(0.0, 0.0)) -> EdgeMatch:

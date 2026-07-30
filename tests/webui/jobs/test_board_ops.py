@@ -1,15 +1,15 @@
 """`webui.jobs.board_ops` の公開ヘルパの仕様テスト.
 
-region-affine-correction 計画書「公開 IF → measure_regions」「実装ステップ 5」が契約:
+region-local-correction（区ごとの局所補正）の `measure_regions` が契約:
 
 - 領域ごとに progress / checkpoint / `session.measure` を回し、成功した
-  計測から BoardAlignment（基板全体の単一のアフィン補正）を返す
+  計測から BoardAlignment（区ごとの局所補正の集まり）を返す
 - 領域ごとの log は dx/dy/rms/sharpness に加えて passes と収束状況を出す
-- BoardAlignment 構築後に判定材料をまとめて出す: 補正モデル / 並進 /
-  スケール ppm / スキュー deg / 残差 RMS・最大 / 区ごとの残差。実機で
-  「アフィンで足りているか、非線形が残っているか」を見る唯一の材料
-- 並進へ縮退した（アンカーの広がり不足）ときと、収束しなかった区が
-  あるときは警告 log を出すが、いずれも採用して続行する
+- BoardAlignment 構築後に 1 行で全体像を出す: 成功区数 / 平均変位 /
+  ばらつき（軸ごとの母標準偏差）。補正モデル・スケール ppm・スキュー・
+  残差 RMS/最大・区ごとの残差は**大域アフィンごと撤去した**（実機で
+  スケール +9563ppm / 残差 RMS 114um という破綻した値しか出なかった）
+- 収束しなかった区があるときは警告 log を出すが、採用して続行する
 - 失敗領域は警告 log の後 `on_failure` を呼んで**続行**する
   （board_tour は FAILED overlay の配信に使う）
 - 成功数 < min_regions で ValueError（塗布ジョブを中止する根拠）
@@ -82,21 +82,21 @@ class _StubSession:
         return self._outcomes[index]
 
 
-# 非共線かつ y 方向にも 2.0mm 以上広がったアンカー（アフィン当てはめが成立する配置）
-SPREAD_ANCHORS = [
+# 3.3mm 格子に並んだ区中心（board 座標）とその機械座標アンカー
+REGION_CENTERS = [
     Point2d(0.0, 0.0),
-    Point2d(20.0, 0.0),
-    Point2d(0.0, 15.0),
-    Point2d(20.0, 15.0),
+    Point2d(3.3, 0.0),
+    Point2d(0.0, 3.3),
+    Point2d(3.3, 3.3),
 ]
-# 1 行に並んだアンカー（spread = 0 なので並進へ縮退する）
-COLLINEAR_ANCHORS = [Point2d(10.0 * index, 5.0) for index in range(4)]
 
 
-def _region(index: int, anchor: Point2d | None = None) -> AlignmentRegion:
+def _region(index: int, board_center: Point2d | None = None) -> AlignmentRegion:
+    center = board_center if board_center is not None else REGION_CENTERS[index]
     return AlignmentRegion(
         index=index,
-        anchor=anchor if anchor is not None else COLLINEAR_ANCHORS[index],
+        board_center=center,
+        anchor=Point2d(100.0 + center.x, 50.0 + center.y),
         roi=(0, 0, 100, 100),
         constraint=120.0,
         edge_point_count=240,
@@ -107,12 +107,12 @@ def _alignment(
     index: int,
     displacement: Point2d,
     *,
-    anchor: Point2d | None = None,
+    board_center: Point2d | None = None,
     passes: int = 2,
     converged: bool = True,
 ) -> RegionAlignment:
     return RegionAlignment(
-        region=_region(index, anchor),
+        region=_region(index, board_center),
         match=EdgeMatch(
             offset=Offset(px=Point2d(0.0, 0.0), pixel_per_mm=PPM),
             rms_distance_px=0.42,
@@ -198,35 +198,38 @@ class TestMeasureRegions:
     """measure_regions: 領域照合ループの成功集約・失敗続行・不足中止・判定材料ログ."""
 
     @staticmethod
-    def _affine_case() -> tuple[list[AlignmentRegion], _StubSession]:
-        """アフィン当てはめが成立する 4 区（成功のみ）の入力."""
+    def _local_case() -> tuple[list[AlignmentRegion], _StubSession, list[Point2d]]:
+        """4 区とも成功する入力（区ごとに変位が違う局所的な場）."""
         displacements = [
             Point2d(0.10, -0.20),
-            Point2d(0.20, -0.40),
+            Point2d(0.46, -0.40),
             Point2d(0.30, -0.30),
-            Point2d(0.40, -0.10),
+            Point2d(0.20, -0.10),
         ]
         regions = [
-            _region(index, anchor) for index, anchor in enumerate(SPREAD_ANCHORS)
+            _region(index, center) for index, center in enumerate(REGION_CENTERS)
         ]
         session = _StubSession(
             [
-                _alignment(index, displacement, anchor=anchor)
-                for index, (anchor, displacement) in enumerate(
-                    zip(SPREAD_ANCHORS, displacements, strict=True)
+                _alignment(index, displacement, board_center=center)
+                for index, (center, displacement) in enumerate(
+                    zip(REGION_CENTERS, displacements, strict=True)
                 )
             ]
         )
-        return regions, session
+        return regions, session, displacements
 
-    def test_all_regions_succeed_gives_the_affine_correction(
+    def test_all_regions_succeed_gives_the_local_correction(
         self,
         manager: JobManager,
         catalog: JobCatalog,
         wait_until: WaitUntil,
     ):
-        """全領域成功 → 全区の計測から当てはめた BoardAlignment を返す."""
-        regions, session = self._affine_case()
+        """全領域成功 → 区ごとの補正を引ける BoardAlignment を返す.
+
+        pad ごとのルックアップが「自分の区の値」を返すこと（平均へ潰れて いないこと）まで見る。
+        """
+        regions, session, displacements = self._local_case()
 
         record, outcome = self._run(
             manager, catalog, wait_until, session, regions, min_regions=4
@@ -236,9 +239,15 @@ class TestMeasureRegions:
         board = outcome["board"]
         assert isinstance(board, BoardAlignment)
         assert len(board.results) == 4
-        assert board.model == "affine"
-        assert board.translation.x == pytest.approx(0.25)
-        assert board.translation.y == pytest.approx(-0.25)
+        assert board.mean_displacement.x == pytest.approx(0.265)
+        assert board.mean_displacement.y == pytest.approx(-0.25)
+        for center, displacement in zip(REGION_CENTERS, displacements, strict=True):
+            # 区中心そのものではなく隣へ 1.3mm 寄せた点で引く（3.3mm 格子の内側）。
+            # 中心ちょうどでは補間実装でも正しい値が出てしまい空振りする
+            probe = Point2d(center.x + 1.3, center.y + 1.3)
+            moved = board.correction_for(probe).apply(probe)
+            assert moved.x - probe.x == pytest.approx(displacement.x, abs=1e-12)
+            assert moved.y - probe.y == pytest.approx(displacement.y, abs=1e-12)
 
     def test_logs_per_region_metrics_including_passes(
         self,
@@ -251,7 +260,7 @@ class TestMeasureRegions:
         実機チューニングは全てこのログを見て行う（sharpness が閾値に近ければ min_sharpness
         を下げる、passes の増分が常に微小なら max_passes=1 に落とす）。
         """
-        regions, session = self._affine_case()
+        regions, session, _ = self._local_case()
 
         record, _ = self._run(
             manager, catalog, wait_until, session, regions, min_regions=1
@@ -264,18 +273,18 @@ class TestMeasureRegions:
         assert "sharpness=0.678" in text
         assert "passes=2" in text
 
-    def test_logs_the_correction_model_scale_and_residuals(
+    def test_logs_the_local_correction_summary(
         self,
         manager: JobManager,
         catalog: JobCatalog,
         wait_until: WaitUntil,
     ):
-        """補正モデル・並進・スケール ppm・スキュー・残差（全体と区ごと）を log する.
+        """成功区数・平均変位・ばらつきを 1 行で log する.
 
-        「アフィンで足りているか、非線形なひずみが残っているか」をユーザーが
-        実機で判定する唯一の材料。残差が出ていなければ判定できない。
+        ユーザーが実機で読む値は「平均がどれだけ動いたか」と「区ごとの局所変動が 照合ノイズ（5um 級）に比べてどれだけ大きいか」の
+        2 つだけ。
         """
-        regions, session = self._affine_case()
+        regions, session, _ = self._local_case()
 
         record, outcome = self._run(
             manager, catalog, wait_until, session, regions, min_regions=1
@@ -283,48 +292,33 @@ class TestMeasureRegions:
 
         board = outcome["board"]
         assert isinstance(board, BoardAlignment)
-        assert board.residual_rms > 0.0  # この入力は純アフィンではない
+        assert board.displacement_spread.x > 0.0  # 区ごとに違う変位を与えている
         text = "\n".join(record.log_lines)
-        assert "affine" in text
-        assert "dx=+0.2500" in text  # 重心での並進
-        assert "ppm" in text  # スケール偏差
-        assert "スキュー" in text
-        assert "残差" in text
-        assert "RMS" in text
-        assert "領域 1:" in text  # 区ごとの残差行
+        assert "局所補正" in text
+        assert "平均変位" in text
+        assert "dx=+0.2650" in text
+        assert "ばらつき" in text
 
-    def test_warns_when_the_model_degenerates_to_translation(
+    def test_does_not_log_the_removed_global_affine_diagnostics(
         self,
         manager: JobManager,
         catalog: JobCatalog,
         wait_until: WaitUntil,
     ):
-        """アンカーが 1 行（広がり不足）なら並進へ縮退した旨を警告 log する.
+        """撤去した大域アフィンの指標をログに出さない.
 
-        縮退したこと自体は正しい挙動だが、region_size_px を下げて区の配置を
-        広げれば改善するので、ユーザーに気づける形で出す。
+        補正モデル名・スケール ppm・スキュー・残差 RMS/最大は局所補正では 意味を持たない（残差は定義上
+        0）。実機で破綻した値を判断材料として 出し続けると誤ったチューニングを誘発する。
         """
-        regions = [
-            _region(index, anchor) for index, anchor in enumerate(COLLINEAR_ANCHORS)
-        ]
-        session = _StubSession(
-            [
-                _alignment(index, Point2d(0.10 * (index + 1), -0.20), anchor=anchor)
-                for index, anchor in enumerate(COLLINEAR_ANCHORS)
-            ]
-        )
+        regions, session, _ = self._local_case()
 
-        record, outcome = self._run(
+        record, _ = self._run(
             manager, catalog, wait_until, session, regions, min_regions=1
         )
 
-        board = outcome["board"]
-        assert isinstance(board, BoardAlignment)
-        assert board.model == "translation"
         text = "\n".join(record.log_lines)
-        assert "警告" in text
-        assert "広がり" in text
-        assert "translation" in text
+        for removed in ("affine", "translation", "ppm", "スキュー", "残差", "RMS="):
+            assert removed not in text, removed
 
     def test_warns_when_a_region_did_not_converge(
         self,
@@ -332,19 +326,19 @@ class TestMeasureRegions:
         catalog: JobCatalog,
         wait_until: WaitUntil,
     ):
-        """収束しなかった区は採用しつつ、区ごとの行と全体の警告に出す（裁定 3）."""
+        """収束しなかった区は採用しつつ、区ごとの行と全体の警告に出す."""
         regions = [
-            _region(index, anchor) for index, anchor in enumerate(SPREAD_ANCHORS)
+            _region(index, center) for index, center in enumerate(REGION_CENTERS)
         ]
         session = _StubSession(
             [
-                _alignment(0, Point2d(0.10, -0.20), anchor=SPREAD_ANCHORS[0]),
-                _alignment(1, Point2d(0.20, -0.40), anchor=SPREAD_ANCHORS[1]),
-                _alignment(2, Point2d(0.30, -0.30), anchor=SPREAD_ANCHORS[2]),
+                _alignment(0, Point2d(0.10, -0.20), board_center=REGION_CENTERS[0]),
+                _alignment(1, Point2d(0.20, -0.40), board_center=REGION_CENTERS[1]),
+                _alignment(2, Point2d(0.30, -0.30), board_center=REGION_CENTERS[2]),
                 _alignment(
                     3,
                     Point2d(0.40, -0.10),
-                    anchor=SPREAD_ANCHORS[3],
+                    board_center=REGION_CENTERS[3],
                     converged=False,
                 ),
             ]

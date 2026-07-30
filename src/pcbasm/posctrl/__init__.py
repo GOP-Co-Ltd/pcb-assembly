@@ -3,10 +3,10 @@
 from .aligner import RegionAligner, RegionAlignment
 from .alignment import (
     BoardAlignment,
-    DisplacementFit,
-    DisplacementModel,
+    BorrowedCorrections,
     RegionAlignmentSession,
-    fit_displacement,
+    corrected_board_transform,
+    corrected_pad_targets,
 )
 from .board import BoardTransformMeasurer
 from .copper import (
@@ -42,12 +42,11 @@ __all__ = [
     "BoardAlignment",
     "BoardCalibrationResult",
     "BoardTransformMeasurer",
+    "BorrowedCorrections",
     "CircleDetectionError",
     "CopperEdgeMatcher",
     "CopperProjection",
     "CopperProjector",
-    "DisplacementFit",
-    "DisplacementModel",
     "EdgeMatch",
     "OffsetObserver",
     "OffsetTransformMeasurer",
@@ -59,8 +58,9 @@ __all__ = [
     "RegionAlignmentSession",
     "XYPositionAdjustor",
     "centered_roi",
+    "corrected_board_transform",
+    "corrected_pad_targets",
     "display_at_point",
-    "fit_displacement",
     "interactive_display_at_point",
     "machine_session",
     "plan_alignment_regions",

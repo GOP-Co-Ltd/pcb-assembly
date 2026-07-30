@@ -1,15 +1,14 @@
-"""領域単位の銅箔照合の配線と、基板全体のアフィン補正."""
+"""領域単位の銅箔照合の配線と、区ごとの局所補正."""
 
 import logging
-import math
+import statistics
 from collections.abc import Sequence
-from typing import Literal, Self
+from typing import Self
 
 import attrs
-import numpy as np
 
-from pcbasm.geometry import Compose, Matrix2d, Point2d, Shift, Transform
-from pcbasm.pcb import Layer
+from pcbasm.geometry import Compose, Point2d, Shift, Transform
+from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl.aligner import RegionAligner, RegionAlignment
 from pcbasm.posctrl.copper import (
     CopperEdgeMatcher,
@@ -23,163 +22,168 @@ from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 logger = logging.getLogger(__name__)
 
-type DisplacementModel = Literal["affine", "translation"]
-
-# アンカーの最小主軸方向 RMS 広がりの下限 [mm]。これ未満はアフィンを諦める。
-# 実測: spread 1.5mm 付近で並進のみに負け、0.16mm では p95 853um まで暴れる
-_MIN_ANCHOR_SPREAD_MM = 2.0
-
 
 @attrs.frozen
-class DisplacementFit:
-    """機械座標の変位場 d(p) = L (p − c) + t のアフィン最小二乗当てはめ.
+class BorrowedCorrections:
+    """自区を持たない pad が、どれだけ離れた区の補正を借りたかの要約（診断用）.
+
+    ROI 全体を基板外形の内側に収める条件で外周付近のタイルが落ちるため、
+    全区が成功しても自分の区を持たない pad が残る。実銅箔の局所ずれには
+    勾配があるので（実測 0.36mm / 3.3mm）、借用距離がそのまま誤差の上限になる。
 
     Attributes:
-        model: 使用した模型。アンカーが3点未満または準共線なら "translation"
-        centroid: アンカーの重心 c（機械座標、mm）
-        translation: 重心での変位 t = mean(d_i)（mm）
-        anchor_spread_mm: アンカーの最小主軸方向 RMS 広がり [mm]
-        machine_transform: 補正 p ↦ p + d(p)
+        pad_count: 対象 pad の総数
+        borrowed_count: 自区を持たず、離れた区の補正を借りた pad の数
+        median_distance: 借用した pad の借用距離の中央値 [mm]（借用0なら0.0）
+        max_distance: 借用距離の最大 [mm]（借用0なら0.0）
     """
 
-    model: DisplacementModel
-    centroid: Point2d
-    translation: Point2d
-    anchor_spread_mm: float
-    machine_transform: Transform
-
-    def predict(self, machine_point: Point2d) -> Point2d:
-        """その点での変位 d(p) を返す（= machine_transform.apply(p) − p）."""
-        return self.machine_transform.apply(machine_point) - machine_point
-
-
-def fit_displacement(
-    anchors: Sequence[Point2d], displacements: Sequence[Point2d]
-) -> DisplacementFit:
-    """区ごとの (アンカー, 変位) からアフィン変位場を最小二乗で当てはめる.
-
-    ``d(p) = L (p − c) + t`` を最小二乗すると ``Σ (p_i − c) = 0`` から t と L が
-    分離し、``t = mean(d_i)``・``L`` は重心化した連立の最小二乗解になる。
-    最小主軸方向の広がりが ``_MIN_ANCHOR_SPREAD_MM`` 未満ならレバー腕が
-    信頼できないので並進のみへ縮退する（2点以下は広がり0なので必ず縮退する）。
-
-    Args:
-        anchors: 区のアンカー（機械座標、mm）
-        displacements: 各アンカーで測った変位（mm、anchorsと同順・同数）
-
-    Returns:
-        当てはめ結果
-
-    Raises:
-        ValueError: anchorsが空、または長さがdisplacementsと違う場合
-    """
-    if not anchors:
-        raise ValueError("fit_displacementには1件以上のアンカーが必要です")
-    if len(anchors) != len(displacements):
-        raise ValueError(
-            f"anchorsとdisplacementsの長さが違います: "
-            f"{len(anchors)} != {len(displacements)}"
-        )
-
-    positions = np.array([[a.x, a.y] for a in anchors])
-    observed = np.array([[d.x, d.y] for d in displacements])
-    centroid = positions.mean(axis=0)
-    centered = positions - centroid
-    translation = observed.mean(axis=0)
-    # 最小特異値がそのまま最小主軸方向の広がり。2点以下は必ず0になる
-    spread = float(np.linalg.svd(centered, compute_uv=False)[-1]) / math.sqrt(
-        len(anchors)
-    )
-
-    model: DisplacementModel
-    if spread < _MIN_ANCHOR_SPREAD_MM:
-        model = "translation"
-        linear = np.zeros((2, 2))
-    else:
-        model = "affine"
-        linear = np.linalg.lstsq(centered, observed - translation, rcond=None)[0].T
-
-    # p ↦ p + d(p) = (I + L)(p − c) + (c + t)
-    machine_transform = Compose(
-        [
-            Shift(x=-float(centroid[0]), y=-float(centroid[1])),
-            Matrix2d(np.eye(2) + linear),
-            Shift(
-                x=float(centroid[0] + translation[0]),
-                y=float(centroid[1] + translation[1]),
-            ),
-        ]
-    )
-    return DisplacementFit(
-        model=model,
-        centroid=Point2d(x=float(centroid[0]), y=float(centroid[1])),
-        translation=Point2d(x=float(translation[0]), y=float(translation[1])),
-        anchor_spread_mm=spread,
-        machine_transform=machine_transform,
-    )
+    pad_count: int
+    borrowed_count: int
+    median_distance: float
+    max_distance: float
 
 
 @attrs.frozen
 class BoardAlignment:
-    """複数領域の計測から得た基板全体のアフィン補正.
+    """成功した領域計測から pad ごとの局所補正を引くルックアップ.
+
+    実銅箔は設計から**局所的に**ずれる（エッチングのレジストレーション誤差・
+    基板の伸び・反り）。実測では隣接区の変位が 3.3mm 離れただけで 0.36mm 違い、
+    大域アフィンでは残差 RMS 114um（照合ノイズの 20 倍以上）が残った。
+    ペーストを乗せる相手は設計 pad ではなく実銅箔なので、平均や当てはめで
+    情報を捨てず、pad が属する区の変位をそのまま使う。
 
     Attributes:
         results: 成功した領域計測（1件以上）
-        fit: resultsから当てはめた変位場
     """
 
     results: tuple[RegionAlignment, ...]
-    fit: DisplacementFit = attrs.field(init=False, eq=False)
 
     def __attrs_post_init__(self) -> None:
-        """結果が空でないことを検証し、変位場を当てはめる.
+        """結果が空でないことを検証する.
 
         Raises:
             ValueError: resultsが空の場合
         """
         if not self.results:
             raise ValueError("BoardAlignmentには1件以上の領域計測が必要です")
-        object.__setattr__(
-            self,
-            "fit",
-            fit_displacement(
-                [r.region.anchor for r in self.results],
-                [r.displacement for r in self.results],
+
+    def correction_for(self, board_point: Point2d) -> Transform:
+        """board座標の点に最も近い成功区の補正（純並進）を返す.
+
+        区は pixel 空間の等サイズ正方格子タイルなので、最近傍の区中心を選ぶことが
+        実質的に「その点を含む区を選ぶ」ことになる。含む区が無い（計画外・照合失敗）
+        点にはそのまま最近傍の成功区が使われるので、包含判定とフォールバックを
+        分ける必要はない。距離は board 座標で測る（同距離なら results の先頭）。
+
+        board→pixel が相似写像でない（3点法の board 変換はスキューを持ち得る）と
+        「最近傍 = 包含」は厳密には成り立たないが、外れるのは区境界のごく細い帯
+        だけ。実測でスキュー 0.06° なら境界から 1.4um、1° でも 27.9um の帯であり、
+        照合ノイズ（区あたり 5um 級）以下なので実用上は問題にならない。
+
+        Args:
+            board_point: 補正を引く点（board座標、mm）
+
+        Returns:
+            機械座標の補正Transform（Shift）
+        """
+        nearest = min(self.results, key=lambda r: self._distance(r, board_point))
+        return Shift.from_point(nearest.displacement)
+
+    def borrowed_corrections(
+        self, board_points: Sequence[Point2d], *, region_size_mm: float
+    ) -> BorrowedCorrections:
+        """自区を持たない点が借りた補正の距離を集計する（ログ用の診断値）.
+
+        「自区を持つ」は最近傍の成功区までの距離が区の半辺以下かどうかで判定する
+        （等格子なので厳密な包含判定は要らない）。
+
+        Args:
+            board_points: 対象点（board座標、mm）。塗布なら pad 中心
+            region_size_mm: 区の一辺を board 座標に直した長さ [mm]
+
+        Returns:
+            借用の件数と距離の要約
+        """
+        half = region_size_mm / 2
+        distances = [
+            distance
+            for point in board_points
+            if (distance := min(self._distance(r, point) for r in self.results)) > half
+        ]
+        return BorrowedCorrections(
+            pad_count=len(board_points),
+            borrowed_count=len(distances),
+            median_distance=statistics.median(distances) if distances else 0.0,
+            max_distance=max(distances, default=0.0),
+        )
+
+    @property
+    def mean_displacement(self) -> Point2d:
+        """区の変位の単純平均 [mm]（ログ用。補正には使わない）."""
+        total = sum((r.displacement for r in self.results), Point2d(0.0, 0.0))
+        return total / len(self.results)
+
+    @property
+    def displacement_spread(self) -> Point2d:
+        """区の変位の軸ごとの母標準偏差 [mm]（ログ用。補正には使わない）."""
+        return Point2d(
+            x=statistics.pstdev(r.displacement.x for r in self.results),
+            y=statistics.pstdev(r.displacement.y for r in self.results),
+        )
+
+    @staticmethod
+    def _distance(result: RegionAlignment, board_point: Point2d) -> float:
+        """区の中心から点までの距離 [mm]（board座標）."""
+        return (result.region.board_center - board_point).norm
+
+
+def corrected_board_transform(
+    board_transform: Transform, alignment: BoardAlignment, board_point: Point2d
+) -> Compose:
+    """その点用の board 座標 → カメラ機械座標の変換（局所補正込み）を組む.
+
+    補正は board 変換の**直後**に置く。照合で測った変位はカメラの機械座標系で
+    定義されているので、この位置以外に挿すと意味が変わる。
+
+    Args:
+        board_transform: board座標→機械座標の変換（3点法の計測結果）
+        alignment: 区ごとの局所補正
+        board_point: 補正を引く点（board座標、mm）。塗布なら pad 中心
+
+    Returns:
+        board座標→カメラ機械座標の合成変換
+    """
+    return Compose([board_transform, alignment.correction_for(board_point)])
+
+
+def corrected_pad_targets(
+    board_transform: Transform, alignment: BoardAlignment, pads: Sequence[Pad]
+) -> list[tuple[Pad, Point2d]]:
+    """Pad ごとに局所補正を引き、(pad, 補正後のカメラ機械座標) を入力順で返す.
+
+    補正を引く点は各 pad の中心なので、pad ごとに違う区の補正が当たる。対応を
+    値として返すことで、「どの pad にどの補正を当てたか」が呼び出し側の
+    ループの書き方に依存しなくなる。
+
+    Args:
+        board_transform: board座標→機械座標の変換（3点法の計測結果）
+        alignment: 区ごとの局所補正
+        pads: 対象pad
+
+    Returns:
+        入力 pads と同順・同数の (pad, 補正後のカメラ機械座標)
+    """
+    return [
+        (
+            pad,
+            corrected_board_transform(board_transform, alignment, pad.center).apply(
+                pad.center
             ),
         )
-
-    @property
-    def machine_transform(self) -> Transform:
-        """補正Transform（fit.machine_transform）."""
-        return self.fit.machine_transform
-
-    @property
-    def model(self) -> DisplacementModel:
-        """使用した模型（"affine" / "translation"）."""
-        return self.fit.model
-
-    @property
-    def translation(self) -> Point2d:
-        """重心での変位 [mm]（ログ・summary 用）."""
-        return self.fit.translation
-
-    @property
-    def residuals(self) -> tuple[Point2d, ...]:
-        """区ごとの残差 r_i = d_i − d̂(anchor_i) [mm]（resultsと同順）."""
-        return tuple(
-            r.displacement - self.fit.predict(r.region.anchor) for r in self.results
-        )
-
-    @property
-    def residual_rms(self) -> float:
-        """残差のRMSノルム [mm] = sqrt(mean(|r_i|²))."""
-        residuals = self.residuals
-        return math.sqrt(sum(r.norm**2 for r in residuals) / len(residuals))
-
-    @property
-    def residual_max(self) -> float:
-        """残差ノルムの最大 [mm]."""
-        return max(r.norm for r in self.residuals)
+        for pad in pads
+    ]
 
 
 class RegionAlignmentSession:
@@ -318,6 +322,11 @@ class RegionAlignmentSession:
     def edge_detector(self) -> CopperEdgeDetector:
         """銅箔エッジ検出器（表示用）."""
         return self._edge_detector
+
+    @property
+    def region_size_mm(self) -> float:
+        """区の一辺を board 座標に直した長さ [mm]（借用距離の判定に使う）."""
+        return self._pad_align.region_size_px / self._pixel_per_mm
 
     @property
     def region_roi(self) -> PixelRect:

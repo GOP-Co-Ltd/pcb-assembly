@@ -1,12 +1,17 @@
 """Posctrl/region の仕様テスト.
 
-計画書 memory/agents/implementation-planner/region-affine-correction.md
-「公開インターフェース → src/pcbasm/posctrl/region.py」に基づく。
+region-local-correction（区ごとの局所補正）の仕様に基づく。
 
 plan_alignment_regions は撮像もステージ移動もしない純幾何関数。領域は
 **pixel 空間に張った重なりなしのタイル**で、位相は塗布対象 pad 中心の重心に
 合わせる（safe_area の bbox 端に合わせると board_transform の回転で位相が動き、
 実測で計画区数が θ=0° 9 → 0.5° 4 → 2° 3 と暴れた）。
+
+``AlignmentRegion.board_center`` は区中心の board 座標。タイルが**等サイズの
+正方格子**なので「board 座標で最も近い区中心」＝「その点を含む区」になり、
+``BoardAlignment.correction_for`` は包含判定とフォールバックの場合分けを持たずに
+距離最小の 1 規則だけで pad ごとの補正を引ける。この格子性が本ファイルの
+中心的なピン（``TestBoardCenter``）。
 
 採否は 3 条件だけ:
 
@@ -16,17 +21,20 @@ plan_alignment_regions は撮像もステージ移動もしない純幾何関数
 3. 予測 sharpness >= min_sharpness（一方向エッジだけの区を移動前に落とす保険）
 
 区数の上限は無い（旧 count / 貪欲選択 / 最小離間は撤去）。条件を満たす区は
-全部使い、アフィン当てはめのレバー腕にする。
+全部使い、それぞれが自分の区内の pad の補正になる。
 
 予測 sharpness = sqrt(constraint / edge_point_count) は照合後の実測 sharpness
 （CopperEdgeMatcher）と同じ量で、等方な正方リングでは sqrt(1/2) = 0.707。
 """
 
+import math
+
+import numpy as np
 import pytest
 import shapely
 from shapely import affinity
 
-from pcbasm.geometry import Identity, Point2d, Rotation, Shift, Transform
+from pcbasm.geometry import Identity, Matrix2d, Point2d, Rotation, Shift, Transform
 from pcbasm.posctrl import (
     AlignmentRegion,
     CopperEdgeMatcher,
@@ -124,6 +132,13 @@ def _roi_in_board(
     return shapely.Polygon([(c.x, c.y) for c in corners])
 
 
+def _nearest_region(
+    regions: list[AlignmentRegion], board_point: Point2d
+) -> AlignmentRegion:
+    """Board 座標で最も近い区中心を持つ領域（correction_for のルックアップ規則）."""
+    return min(regions, key=lambda region: (region.board_center - board_point).norm)
+
+
 def _grid_pads(
     xs: range | tuple[float, ...], ys: range | tuple[float, ...]
 ) -> list[Point2d]:
@@ -156,7 +171,7 @@ class TestTiling:
     def test_every_qualifying_tile_is_returned_without_a_cap(self):
         """条件を満たす区は上限なく全部返る（旧 count が無いことのピン）.
 
-        アフィン当てはめは区数よりレバー腕の広がりが効くが、区を落とす理由は 3 条件以外に無い。
+        局所補正では区の数がそのまま補正の空間分解能になるので、区を落とす理由は 3 条件以外に無い。
         """
         regions = _plan(self.COPPER, self.PADS, self.AREA)
 
@@ -203,6 +218,9 @@ class TestTiling:
         want = board_transform.apply(Point2d(4.0, 2.0))
         assert regions[0].anchor.x == pytest.approx(want.x, abs=1e-6)
         assert regions[0].anchor.y == pytest.approx(want.y, abs=1e-6)
+        # board_center は同じ区中心の board 座標側の表現
+        assert regions[0].board_center.x == pytest.approx(4.0, abs=1e-6)
+        assert regions[0].board_center.y == pytest.approx(2.0, abs=1e-6)
 
     def test_roi_is_the_same_image_centered_square_for_every_region(self):
         """全 region の roi が画像中心の region_size_px 正方形で同一.
@@ -250,6 +268,127 @@ class TestTiling:
         assert len(regions) == 2
         assert [r.index for r in regions] == [0, 1]
         assert regions[0].anchor.x == pytest.approx(first_x, abs=1e-6)
+
+
+class TestBoardCenter:
+    """board_center: 等サイズ正方格子だから「最近傍の区中心」=「その点を含む区」.
+
+    ``BoardAlignment.correction_for`` はこの性質に全面的に依存している。区中心が
+    等間隔の格子に乗っていれば、pad が属する区は「board 座標で最も近い区中心」で
+    一意に決まり、包含判定と「区が無い / 失敗したときの近傍探索」を距離最小の
+    1 規則で兼ねられる。格子性が崩れる（例: board_center を区中心ではなく区内の
+    pad 中心に置く）と、pad が自分の区ではない補正を受け取り得る。
+
+    pad は格子間隔の整数倍から意図的にずらして置く（重心位相なので区中心は pad
+    位置と一致しない）。
+    """
+
+    # 不規則な x 配置。重心 (1.6, 0.0) が位相になるので区中心は
+    # (1.6 + 10i, 10j) に来て、どの pad 中心とも一致しない
+    PADS = _grid_pads((-24.0, -13.0, -2.0, 9.0, 38.0), (-8.0, 8.0))
+    COPPER = [_square(p.x, p.y, 3.0) for p in PADS]
+    AREA = shapely.box(-40.0, -20.0, 50.0, 20.0)
+
+    def _regions(self, board_transform: Transform | None = None):
+        regions = _plan(
+            self.COPPER, self.PADS, self.AREA, board_transform=board_transform
+        )
+        assert len(regions) >= 8, "格子性を見るには複数行・複数列の区が必要"
+        return regions
+
+    def test_board_centers_lie_on_a_uniform_grid(self):
+        """どの 2 区の中心も、軸ごとの差が region_mm の整数倍になる.
+
+        これが「最近傍 = 包含」の前提。board_center を区中心以外（pad 中心・ ROI
+        の隅など）にすると整数倍から外れ、最近傍が包含と一致しなくなる。
+        """
+        regions = self._regions()
+
+        for region in regions:
+            for other in regions:
+                for delta in (
+                    region.board_center.x - other.board_center.x,
+                    region.board_center.y - other.board_center.y,
+                ):
+                    quotient = delta / REGION_MM
+                    assert quotient == pytest.approx(round(quotient), abs=1e-6)
+
+    def test_board_center_is_the_anchor_pulled_back_to_board_coordinates(self):
+        """board_transform.apply(board_center) == anchor（同じ区の 2 つの表現）."""
+        for board_transform in (Identity(), Shift(12.0, -5.0), Rotation(15.0)):
+            for region in self._regions(board_transform):
+                want = board_transform.apply(region.board_center)
+                assert region.anchor.x == pytest.approx(want.x, abs=1e-6)
+                assert region.anchor.y == pytest.approx(want.y, abs=1e-6)
+
+    @pytest.mark.parametrize("board_transform", [Identity(), Rotation(25.0)])
+    def test_nearest_board_center_is_the_tile_that_contains_the_point(
+        self, board_transform: Transform
+    ):
+        """区内のどの点でも、最近傍の区中心はその区自身になる.
+
+        各区の ROI 内部を 5x5 に刻んで、`min(regions, key=距離)` が必ず自分の区を
+        返すことを確かめる。回転が入っても board 座標の距離は pixel 距離の定数倍 （board_transform
+        は相似写像）なので同じ性質が成り立つ。
+        """
+        regions = self._regions(board_transform)
+        fractions = (-0.49, -0.25, 0.0, 0.25, 0.49)
+
+        for region in regions:
+            for fx in fractions:
+                for fy in fractions:
+                    # 区中心からの相対位置は board 座標でも軸平行にならないので、
+                    # 機械座標で刻んでから board 座標へ引き戻す
+                    offset = Point2d(fx * REGION_MM, fy * REGION_MM)
+                    point = board_transform.inverse().apply(region.anchor + offset)
+
+                    assert _nearest_region(regions, point).index == region.index, (
+                        region.index,
+                        fx,
+                        fy,
+                    )
+
+
+class TestBoardCenterUnderSkew:
+    """スキューを持つ board 変換でも「最近傍 = 包含」が実用範囲で成り立つこと.
+
+    3 点法の board 変換は一般 2x2 なのでスキューを持ち得る（`board.py` の
+    `M @ B⁻¹`）。タイルは pixel 空間の正方格子なので board 空間では平行四辺形に
+    なり、board 座標で測った Voronoi 分割とは厳密には一致しない。ずれるのは区境界の
+    細い帯だけで、実測ではスキュー 0.06° で境界から 1.4um、1° でも 27.9um。
+    照合ノイズ（区あたり 5um 級）以下なので実用上は問題にならない。
+
+    「厳密に一致する」ではなく「境界から十分内側なら一致する」を契約にする。
+    """
+
+    PADS = TestBoardCenter.PADS
+    COPPER = TestBoardCenter.COPPER
+    AREA = TestBoardCenter.AREA
+    # スキュー 1 度（実測で最悪 27.9um の帯。0.3mm の余裕から見て 10 倍以上小さい）
+    SKEW = Matrix2d(np.array([[1.0, math.tan(math.radians(1.0))], [0.0, 1.0]]))
+
+    def test_points_well_inside_a_tile_resolve_to_their_own_tile(self):
+        """境界から 0.3mm 以上内側の点は、スキューがあっても自分の区を引く.
+
+        誤った区を引く帯は境界から 30um 以下なので、0.3mm の余裕があれば 1 点も外れない。この余裕を 0 にすると（=
+        区の隅ちょうど）保証は無い。
+        """
+        regions = _plan(self.COPPER, self.PADS, self.AREA, board_transform=self.SKEW)
+        assert len(regions) >= 8
+
+        # 半辺 5mm に対して ±4.7mm = 境界から 0.3mm 内側まで
+        fractions = (-0.47, -0.25, 0.0, 0.25, 0.47)
+        for region in regions:
+            for fx in fractions:
+                for fy in fractions:
+                    offset = Point2d(fx * REGION_MM, fy * REGION_MM)
+                    point = self.SKEW.inverse().apply(region.anchor + offset)
+
+                    assert _nearest_region(regions, point).index == region.index, (
+                        region.index,
+                        fx,
+                        fy,
+                    )
 
 
 class TestPadCoverage:

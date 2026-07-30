@@ -60,8 +60,8 @@ class RegionAligner:
         edge_detector: CopperEdgeDetector,
         offset_transform: Transform,
         max_correction_mm: float | None = 1.0,
-        max_passes: int = 2,
-        converge_tolerance_mm: float = 0.01,
+        max_passes: int = 5,
+        converge_tolerance_mm: float = 0.005,
         settle_time: float = 0.5,
         frame_sink: FrameSink | None = None,
     ) -> None:

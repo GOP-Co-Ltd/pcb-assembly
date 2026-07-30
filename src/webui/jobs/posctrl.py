@@ -13,7 +13,7 @@ from shapely import Polygon
 
 from pcbasm import gcode
 from pcbasm.config import Machine
-from pcbasm.geometry import Compose, Point2d, Point3d, sort_by_nearest
+from pcbasm.geometry import Point2d, Point3d, sort_by_nearest
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
@@ -25,6 +25,7 @@ from pcbasm.posctrl import (
     PadResultRenderer,
     RegionAlignment,
     RegionAlignmentSession,
+    corrected_pad_targets,
     render_label,
 )
 from pcbasm.vision import (
@@ -36,6 +37,7 @@ from pcbasm.vision import (
     draw_overlay,
 )
 from webui.jobs.board_ops import (
+    alignment_summary,
     confirm_next_point,
     measure_regions,
     setup_board,
@@ -497,12 +499,15 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             on_failure=render_failed,
         )
 
-        # アフィン補正を適用した全 TOP pad 巡回
-        projector, entries = _corrected_entries(result, session, alignment)
+        # 局所補正を適用した全 TOP pad 巡回（補正は pad ごとに引く）
+        entries = _corrected_entries(result, alignment)
         for index, (pad, target) in enumerate(entries):
             ctx.progress("補正巡回", 100.0 * index / len(entries))
             ctx.checkpoint()
             _move_to(result, target, speed=Speed.rate(0.5))
+            projector = session.projector.with_correction(
+                alignment.correction_for(pad.center)
+            )
             renderer = _pad_renderer(session, projector, [pad.polygon], target)
             lines = [f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}"]
             _stream_pad_result(ctx, result, renderer, lines)
@@ -512,12 +517,7 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
 
     return JobResult(
         summary=(
-            f"照合成功 {len(alignment.results)}/{len(regions)} 領域 / "
-            f"補正 {alignment.model} "
-            f"dx={alignment.translation.x:+.4f} "
-            f"dy={alignment.translation.y:+.4f} mm"
-            f"（残差 RMS {alignment.residual_rms * 1000:.1f}um / "
-            f"最大 {alignment.residual_max * 1000:.1f}um）/ "
+            f"{alignment_summary(alignment, len(regions))} / "
             f"補正巡回 {len(entries)} pads"
         )
     )
@@ -525,19 +525,16 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
 
 def _corrected_entries(
     result: BoardCalibrationResult,
-    session: RegionAlignmentSession,
     alignment: BoardAlignment,
-) -> tuple[CopperProjector, list[tuple[Pad, Point2d]]]:
-    """アフィン補正を適用した全 TOP pad の巡回先を nearest neighbor 順で構築する."""
-    corrected_transform = Compose([result.board_transform, alignment.machine_transform])
-    projector = session.projector.with_correction(alignment.machine_transform)
-    entries = [
-        (pad, corrected_transform.apply(pad.center))
-        for pad in result.pcb.pads
-        if pad.layer == Layer.TOP
-    ]
+) -> list[tuple[Pad, Point2d]]:
+    """局所補正を適用した全 TOP pad の巡回先を nearest neighbor 順に並べ替える."""
+    entries = corrected_pad_targets(
+        result.board_transform,
+        alignment,
+        [pad for pad in result.pcb.pads if pad.layer == Layer.TOP],
+    )
     current = result.stage.get_position()
-    return projector, sort_by_nearest(
+    return sort_by_nearest(
         entries, current.to2d().to3d(), key=lambda entry: entry[1].to3d()
     )
 

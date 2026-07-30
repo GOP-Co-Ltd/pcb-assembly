@@ -49,10 +49,10 @@ class PadAlign:
 
     max_correction: float = 1.0  # 1領域で許容する累積ずれ [mm]。超過は照合失敗
     search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
-    region_size_px: int = 300  # 照合領域の一辺 [px]
+    region_size_px: int = 100  # 照合領域の一辺 [px] (実測: 100 が最良、200 まで実用)
     min_regions: int = 4  # 成功が必要な最小領域数。下回ると塗布ジョブを中止
-    max_passes: int = 2  # 1領域あたりの再計測回数の上限
-    converge_tolerance: float = 0.01  # このパス増分以下で収束とみなす [mm]
+    max_passes: int = 5  # 1領域あたりの再計測回数の上限
+    converge_tolerance: float = 0.005  # このパス増分以下で収束とみなす [mm]
     board_edge_margin: float = 2.0  # 照合領域が基板外形から確保する最小距離 [mm] (外周はやすり掛けで銅箔が削れ、外形線自体が偽エッジになる)
     min_sharpness: float = 0.15  # 拘束不足として棄却するsharpness閾値
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値

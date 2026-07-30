@@ -12,7 +12,6 @@ from typing import Any
 
 import attrs
 import cv2
-from shapely import Polygon
 
 from pcbasm import gcode
 from pcbasm.config import Machine, resolve_paste_height
@@ -58,6 +57,7 @@ from pcbasm.pasting import (
 from pcbasm.pcb import (
     Copper,
     Layer,
+    Pad,
     PadHierarchy,
     PcbFile,
     build_pad_hierarchy,
@@ -74,7 +74,7 @@ from pcbasm.visualization import (
     render_height_plane,
     render_planned_points,
 )
-from webui.jobs.board_ops import measure_regions, setup_board
+from webui.jobs.board_ops import alignment_summary, measure_regions, setup_board
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import (
     ApplyPayload,
@@ -819,12 +819,13 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 f"{initial_purge.amount_ul:.3f} uL"
             )
 
-        # 銅箔照合（領域単位）。基板全体のアフィン補正を 1 つ求める。
+        # 銅箔照合（領域単位）。pad ごとに最近傍の成功区の補正を引く。
         # 成功領域が pad_align.min_regions を下回ったら即中止。
         align_session = RegionAlignmentSession.from_calibration(
             result, frame_sink=ctx.frame
         )
-        regions = align_session.plan_regions([pad.center for pad in routed_pads])
+        pad_centers = [pad.center for pad in routed_pads]
+        regions = align_session.plan_regions(pad_centers)
         ctx.log(f"照合領域数: {len(regions)}")
         alignment = measure_regions(
             ctx,
@@ -832,7 +833,17 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             regions,
             min_regions=session.machine.paste_dispenser.pad_align.min_regions,
         )
-        correction = alignment.machine_transform
+        # 自区を持たない pad は離れた区の補正を借りる。実銅箔の局所ずれには勾配が
+        # あるので（実測 0.36mm / 3.3mm）、借用距離がそのまま誤差の上限になる
+        borrowed = alignment.borrowed_corrections(
+            pad_centers, region_size_mm=align_session.region_size_mm
+        )
+        ctx.log(
+            f"借用補正: 自区なし {borrowed.borrowed_count}/{borrowed.pad_count} pad / "
+            f"借用距離 中央値 {borrowed.median_distance:.1f} mm "
+            f"最大 {borrowed.max_distance:.1f} mm"
+            f"（借用が多い・遠いときは board_edge_margin を下げると区が増えます）"
+        )
 
         # 高さ計測
         ctx.progress("高さ計測")
@@ -842,26 +853,24 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             outline=session.pcb.outline.polygon,
         )
 
-        # 順路順の (polygon, ResolvedPaste) ペア。pad polygon は board 座標のまま渡し、
-        # 補正は機械座標へ出る瞬間（transform）に 1 回だけ掛ける
-        pairs: list[tuple[Polygon, ResolvedPaste | None]] = [
-            (pad.polygon, resolved.get(hierarchy.pad_ref_for_pad(pad)))
-            for pad in routed_pads
+        # pad ごとの board→machine 変換。初回パージ pad も同じ列の先頭から引く
+        # （別扱いにすると補正が抜ける）。pad polygon は board 座標のまま渡し、
+        # 補正は機械座標へ出る瞬間（transform）に pad ごとに 1 回だけ掛かる
+        purge_pads = [] if initial_purge is None else [initial_purge.pad]
+        pad_entries = session.pad_transforms(
+            [*purge_pads, *routed_pads],
+            alignment=alignment,
+            height_plane=height_plane,
+        )
+        # 順路順の (pad, ResolvedPaste, transform)
+        pairs: list[tuple[Pad, ResolvedPaste | None, Compose]] = [
+            (pad, resolved.get(hierarchy.pad_ref_for_pad(pad)), transform)
+            for pad, transform in pad_entries[len(purge_pads) :]
         ]
         stage = session.stage
 
-        # board→machine 全変換（アフィン補正は toolhead_offset の前。M はカメラ機械
-        # 座標系で定義されているため。height_plane の定義域はノズル機械 XY なので最後尾）
-        transform = Compose(
-            [
-                session.board_transform,
-                correction,
-                session.toolhead_offset,
-                height_plane,
-            ]
-        )
         total = LoadingTotals()
-        with session.make_applicator(transform=transform) as applicator:
+        with session.make_applicator() as applicator:
             if ctx.params["interactive_loading"]:
                 pos = stage.get_position()
                 session.klipper.send_gcode(stage.move(x=0, y=0, z=0))
@@ -877,18 +886,20 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 ctx.progress("初回パージ")
                 ctx.checkpoint()
                 applicator.deposit_at(
-                    initial_purge.pad.center, amount=initial_purge.amount_ul
+                    initial_purge.pad.center,
+                    amount=initial_purge.amount_ul,
+                    transform=pad_entries[0][1],  # パージ pad は列の先頭
                 )
 
             # pad を 1 件ずつ apply して per-pad の進捗・設定・abort 境界を確保
-            for index, (polygon, r) in enumerate(pairs):
+            for index, (pad, r, transform) in enumerate(pairs):
                 ctx.progress("塗布", 100.0 * index / len(pairs))
                 ctx.checkpoint()
                 if r is None:
-                    applicator.apply([polygon])
+                    applicator.apply([pad.polygon], transform=transform)
                 else:
                     applicator.apply(
-                        [polygon],
+                        [pad.polygon],
                         paste_height=r.paste_height,
                         ul_per_mm2=r.ul_per_mm2,
                         dispense_mode=r.dispense_mode,
@@ -896,15 +907,12 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                         bead_width_factor=r.bead_width_factor,
                         overlap=r.overlap,
                         boundary_margin=r.boundary_margin,
+                        transform=transform,
                     )
 
     return JobResult(
         summary=(
-            f"照合成功 {len(alignment.results)}/{len(regions)} 領域 / "
-            f"補正 {alignment.model} "
-            f"dx={alignment.translation.x:+.4f} dy={alignment.translation.y:+.4f} mm"
-            f"（残差 RMS {alignment.residual_rms * 1000:.1f}um / "
-            f"最大 {alignment.residual_max * 1000:.1f}um）/ "
+            f"{alignment_summary(alignment, len(regions))} / "
             f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ・"
             f"初回パージ {initial_purge.amount_ul if initial_purge else 0.0:.3f} uL・"
@@ -1841,11 +1849,12 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
                     f"ペースト塗布 {index}/{total_points}",
                     100.0 * (total_points + index - 1) / (3 * total_points),
                 )
-                # applicatorはIdentity transformなので、machine XYと絶対Zを渡す。
+                # このジョブは machine XY と絶対 Z で座標を組むので変換は不要。
                 applicator.deposit_at(
                     dispense_position,
                     amount=dispense_amount,
                     paste_height=board_surface_z + paste_height,
+                    transform=Identity(),
                 )
                 ctx.log(
                     f"塗布 {index}/{total_points}: "

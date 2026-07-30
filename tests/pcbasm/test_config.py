@@ -99,7 +99,7 @@ class TestMachine:
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.paste_dispenser.pad_align == PadAlign()
-        assert machine.paste_dispenser.pad_align.region_size_px == 300
+        assert machine.paste_dispenser.pad_align.region_size_px == 100
 
     def test_solder_paste_density_defaults_when_absent(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
@@ -249,7 +249,7 @@ class TestMachine:
 
 
 class TestPadAlignRegionSettings:
-    """PadAlign の領域照合キーの既定値と検証（region-affine-correction 計画書）.
+    """PadAlign の領域照合キーの既定値と検証（region-local-correction）.
 
     領域単位の照合では「塗布対象 pad を含むタイルを条件を満たす限り全部計画し、 区ごとに最大 max_passes
     回まで反復計測し、成功が min_regions を下回ったら 塗布ジョブを中止」する。region_size_px /
@@ -261,13 +261,15 @@ class TestPadAlignRegionSettings:
     def test_region_defaults_when_absent(self):
         pad_align = Machine(TESTING_DATA_DIR / "machine.toml").paste_dispenser.pad_align
 
-        # 実測: 300px なら実 PCB で 9 区・アンカー広がり 6.26mm・残存誤差 3.7um
-        assert pad_align.region_size_px == 300
-        # アフィンの下限は非共線 3 区。4 なら残差の自由度が 2 残る
+        # 実測: 100px = 3.3mm が最良。ROI が 10mm あると内部で 100um 変動する場を
+        # chamfer 距離が平均してしまい照合が鈍る
+        assert pad_align.region_size_px == 100
+        # 局所補正では区が補正の空間分解能。4 区未満は基板を代表できない
         assert pad_align.min_regions == 4
-        assert pad_align.max_passes == 2
-        # 0.01mm = 0.3px @ 30.2px/mm（サブピクセル再現性 3.6um の上）
-        assert pad_align.converge_tolerance == pytest.approx(0.01)
+        # 実機では 5 回ほどで収束する
+        assert pad_align.max_passes == 5
+        # 0.005mm = 0.15px @ 30.2px/mm（サブピクセル再現性 3.6um の上）
+        assert pad_align.converge_tolerance == pytest.approx(0.005)
         assert pad_align.min_sharpness == pytest.approx(0.15)
         # 外周 1〜2mm はやすり掛けで削れるため、既定で 2mm 内側の銅箔だけを照合する
         assert pad_align.board_edge_margin == pytest.approx(2.0)

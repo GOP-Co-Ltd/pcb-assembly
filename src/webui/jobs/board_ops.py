@@ -10,7 +10,6 @@ from pcbasm.posctrl import (
     AlignmentRegion,
     BoardAlignment,
     BoardCalibrationResult,
-    OrthogonalityMetrics,
     RegionAlignment,
     RegionAlignmentSession,
     setup_board_calibration,
@@ -90,8 +89,8 @@ def measure_regions(
     領域ごとに progress("銅箔照合") → checkpoint → ``session.measure`` →
     dx/dy/rms/sharpness/passes の log。成功は ``on_success``（あれば）、失敗は
     警告 log の後 ``on_failure``（あれば）を呼んで続行する。最後に成功数が
-    min_regions 未満なら中止し、足りていれば当てはめた補正モデル・スケール・
-    スキュー・区ごとの残差を判定材料として log に出す。
+    min_regions 未満なら中止し、足りていれば成功区数・変位の平均とばらつきを
+    判定材料として log に出す。
 
     Args:
         ctx: 実行中ジョブのコンテキスト
@@ -104,7 +103,7 @@ def measure_regions(
             overlay に使う）
 
     Returns:
-        成功した領域計測から得た基板全体のアフィン補正
+        成功した領域計測から pad ごとの局所補正を引くルックアップ
 
     Raises:
         ValueError: 計画領域数が min_regions 未満の場合（移動前に判定）、
@@ -148,50 +147,39 @@ def measure_regions(
             f"（成功 {len(results)} / 必要 {min_regions} / 計画 {len(regions)}）。"
             f"基板の向き・種類と照明、Canny 閾値（canny_low / canny_high）を"
             f"確認してください。ログの sharpness が min_sharpness を下回っている"
-            f"場合は min_sharpness を下げるか region_size_px を大きくし、"
-            f"それでも足りなければ min_regions を下げてください"
+            f"場合は min_sharpness を下げてください（region_size_px を広げると"
+            f"拘束は増えますが局所変動を平均して鈍るので 200 px 程度までです）"
         )
     board = BoardAlignment(results=tuple(results))
-    _log_alignment(ctx, board)
+    mean, spread = board.mean_displacement, board.displacement_spread
+    ctx.log(
+        f"局所補正: 成功 {len(results)}/{len(regions)} 区 / "
+        f"平均変位 dx={mean.x:+.4f} dy={mean.y:+.4f} mm / "
+        f"ばらつき sx={spread.x * 1000:.1f} sy={spread.y * 1000:.1f} um"
+        f"（pad ごとに最近傍の区の補正を使います）"
+    )
+    unconverged = sum(1 for r in results if not r.converged)
+    if unconverged:
+        ctx.log(
+            f"警告: {unconverged}/{len(results)} 領域が上限パス数でも"
+            f"収束しませんでした（採用はしています）"
+        )
     return board
 
 
-def _log_alignment(ctx: JobContext, board: BoardAlignment) -> None:
-    """当てはめた補正の判定材料（モデル・スケール・スキュー・残差）を log に出す."""
-    if board.model == "translation":
-        remedy = (
-            "区が 3 つ以上必要です"
-            if len(board.results) < 3
-            else "region_size_px を小さくして区の配置を広げてください"
-        )
-        ctx.log(
-            f"警告: アンカーの広がりが不足（{len(board.results)} 区・最小主軸 "
-            f"{board.fit.anchor_spread_mm:.2f} mm）のためアフィンを諦め"
-            f"並進のみで補正します。{remedy}"
-        )
-    metrics = OrthogonalityMetrics.from_transform(board.machine_transform)
-    translation = board.translation
-    ctx.log(
-        f"補正モデル: {board.model} / "
-        f"並進 dx={translation.x:+.4f} dy={translation.y:+.4f} mm / "
-        f"スケール x={(metrics.scale_x - 1) * 1e6:+.0f} "
-        f"y={(metrics.scale_y - 1) * 1e6:+.0f} ppm / "
-        f"スキュー {metrics.axis_angle_error_deg:+.4f} deg"
+def alignment_summary(alignment: BoardAlignment, planned_regions: int) -> str:
+    """銅箔照合の結果を JobResult.summary の先頭に載せる 1 行にまとめる.
+
+    Args:
+        alignment: 照合結果から引く局所補正
+        planned_regions: 計画した領域数（成功数の分母）
+
+    Returns:
+        成功区数と、変位の平均・ばらつき（ログ用の記述統計）の要約
+    """
+    mean, spread = alignment.mean_displacement, alignment.displacement_spread
+    return (
+        f"照合成功 {len(alignment.results)}/{planned_regions} 領域 / "
+        f"局所補正 平均 dx={mean.x:+.4f} dy={mean.y:+.4f} mm"
+        f"（ばらつき sx={spread.x * 1000:.1f} sy={spread.y * 1000:.1f} um）"
     )
-    ctx.log(
-        f"残差 RMS={board.residual_rms * 1000:.1f} um "
-        f"最大={board.residual_max * 1000:.1f} um"
-        f"（照合ノイズは区あたり 5um 級。数倍を超える場合は"
-        f"非線形なひずみが残っている）"
-    )
-    for index, residual in enumerate(board.residuals):
-        ctx.log(
-            f"  領域 {index + 1}: "
-            f"rx={residual.x * 1000:+.1f} ry={residual.y * 1000:+.1f} um"
-        )
-    unconverged = sum(1 for r in board.results if not r.converged)
-    if unconverged:
-        ctx.log(
-            f"警告: {unconverged}/{len(board.results)} 領域が上限パス数でも"
-            f"収束しませんでした（採用はしています）"
-        )

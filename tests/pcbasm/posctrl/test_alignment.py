@@ -1,23 +1,28 @@
 """Posctrl/alignment の仕様テスト.
 
-計画書 memory/agents/implementation-planner/region-affine-correction.md
-「公開インターフェース → src/pcbasm/posctrl/alignment.py」に基づく。
+region-local-correction（区ごとの局所補正）の仕様に基づく。
 
-区ごとに測った変位 d_i から基板全体の **6 自由度アフィン**
-（並進 + 回転 + スケール + スキュー）を最小二乗で 1 つ求める
-（`fit_displacement` → `DisplacementFit`）。平均並進はその特別な場合として
-自動的に再現される（純並進の場では L = 0）。
+実機 GENS_Power_Section_5（47.5x20mm）のログで、区ごとに測った変位から
+**大域アフィン**を最小二乗した結果は `スケール x=+9563ppm / スキュー -1.24deg`
+という物理的にありえない値になった。アンカーの y 方向の広がりが 10.1mm しか
+無いので、100um 級の局所変動が短いレバー腕で 1 万 ppm 級に増幅されたため。
+残差 RMS 114.2um / 最大 225.2um は照合ノイズ（5um 級）の 20〜45 倍で、
+3.3mm しか離れていない隣接区の間でも dx が 0.36mm 振れる。つまり**実際の銅箔が
+設計から局所的にずれている**（エッチングのレジストレーション誤差・基板の伸び・
+反り）。ペーストを乗せる相手は設計 pad ではなく実銅箔なので、大域モデルを
+当てはめるのではなく **pad ごとに最も近い区の変位をそのまま使う**のが正しい。
 
-アンカーが 3 点未満、または準共線（最小主軸方向 RMS 広がりが
-`_MIN_ANCHOR_SPREAD_MM = 2.0` 未満）なら並進のみへ縮退する。実測では
-spread 1.5mm 付近でアフィンが並進に負け、0.16mm では p95 853um まで暴れるため、
-縮退は「安全側へ倒す」正しい挙動（計画書「4. 共線縮退の閾値」）。
+したがって `BoardAlignment` は模型を持たない:
 
-区ごとの残差 r_i = d_i − d̂(anchor_i) は「アフィンで取り切れなかった分」で、
-実機では「残差 RMS ≈ 照合ノイズならアフィンで足りている / 数倍なら非線形な
-ひずみが残っている」の判定材料になる（計画書「5. 残差の解釈」）。
-残差が観測可能であること自体が本タスクの成果物なので、純アフィン場で ~0、
-2 次の場で有意に立つことをテストで固定する。
+- `correction_for(board_point)` は board 座標で最も近い成功区の `Shift` を返す
+- タイルは等サイズの正方格子なので**最近傍の区中心 = その点を含む区**。
+  「属する区を使う」と「区が無い / 失敗したら近傍を使う」が距離最小の 1 規則で
+  表現でき、実装に包含判定とフォールバックの場合分けがあってはならない
+- `mean_displacement` / `displacement_spread` はログと summary のための記述統計で、
+  補正そのものには使わない（平均で補正すると局所性が消える）
+
+距離重み付き補間は却下された設計なので、隣接区の値が混ざったら落ちるテストを
+置く（`TestBoardAlignmentLocality`）。
 
 RegionAlignmentSession は BoardCalibrationResult から照合の配線
 （CopperProjector / CopperEdgeMatcher / CopperEdgeDetector / RegionAligner）を
@@ -41,14 +46,14 @@ import shapely
 
 from pcbasm import gcode
 from pcbasm.config import Machine
-from pcbasm.geometry import Identity, Point2d, Point3d, Transform
+from pcbasm.geometry import Identity, Point2d, Point3d, Rotation, Transform
 from pcbasm.pcb import Component, Copper, CopperList, Layer, Outline, Pad
 from pcbasm.posctrl.aligner import RegionAlignment
 from pcbasm.posctrl.alignment import (
     BoardAlignment,
-    DisplacementFit,
     RegionAlignmentSession,
-    fit_displacement,
+    corrected_board_transform,
+    corrected_pad_targets,
 )
 from pcbasm.posctrl.copper import EdgeMatch, centered_roi
 from pcbasm.posctrl.region import AlignmentRegion
@@ -109,28 +114,43 @@ def _match(offset_px: Point2d = Point2d(0.0, 0.0)) -> EdgeMatch:
     )
 
 
-def _region(index: int, anchor: Point2d) -> AlignmentRegion:
+def _region(
+    index: int, board_center: Point2d, anchor: Point2d | None = None
+) -> AlignmentRegion:
+    """指定の board 中心を持つ領域（anchor 既定は board 中心の鏡像写し）."""
     return AlignmentRegion(
         index=index,
-        anchor=anchor,
+        board_center=board_center,
+        anchor=anchor if anchor is not None else _mirrored_anchor(board_center),
         roi=(0, 0, 100, 100),
         constraint=120.0,
         edge_point_count=240,
     )
 
 
+def _mirrored_anchor(board_center: Point2d) -> Point2d:
+    """Board 中心を x 反転 + 平行移動した機械座標.
+
+    ルックアップの距離が **board 座標**で測られていることを見るための細工。
+    x を反転すると board 座標での近傍順と anchor での近傍順が食い違うので、
+    誤って `anchor` を使った実装は違う区の補正を返す。
+    """
+    return Point2d(100.0 - board_center.x, 50.0 + board_center.y)
+
+
 def _alignment(
     index: int,
-    anchor: Point2d,
+    board_center: Point2d,
     displacement: Point2d,
     *,
+    anchor: Point2d | None = None,
     increment: Point2d = Point2d(0.0, 0.0),
     passes: int = 1,
     converged: bool = True,
 ) -> RegionAlignment:
     """指定の累積変位を持つ領域計測結果."""
     return RegionAlignment(
-        region=_region(index, anchor),
+        region=_region(index, board_center, anchor),
         match=_match(),
         displacement=displacement,
         increment=increment,
@@ -139,288 +159,511 @@ def _alignment(
     )
 
 
-def _affine_field(
-    anchors: Sequence[Point2d], matrix: np.ndarray, translation: Point2d
-) -> list[Point2d]:
-    """D(p) = L (p − c) + t をアンカー上で評価した変位列を作る."""
-    centroid = _centroid_of(anchors)
-    field: list[Point2d] = []
-    for anchor in anchors:
-        relative = np.array([anchor.x - centroid.x, anchor.y - centroid.y])
-        moved = matrix @ relative
-        field.append(
-            Point2d(float(moved[0]) + translation.x, float(moved[1]) + translation.y)
+REGION_MM = 3.3  # 実機の region_size_px=100 @ 30.2px/mm 相当
+HALF_MM = REGION_MM / 2
+
+# board 座標 3.3mm 格子の 3x2 区と、そこで測った変位。実機で観測された
+# 「3.3mm 離れた隣の区で dx が 0.36mm 違う」局所変動をそのまま持たせている。
+# 大域アフィンならこの場は残差 100um 級を残すが、局所補正なら残差は無い。
+LOCAL_FIELD: dict[tuple[int, int], Point2d] = {
+    (0, 0): Point2d(0.10, -0.20),
+    (1, 0): Point2d(0.46, -0.18),  # (0,0) と dx が 0.36mm 違う
+    (2, 0): Point2d(0.20, -0.05),
+    (0, 1): Point2d(-0.05, 0.12),
+    (1, 1): Point2d(0.30, 0.08),
+    (2, 1): Point2d(0.02, -0.30),
+}
+
+
+def _center(cell: tuple[int, int]) -> Point2d:
+    """区 (i, j) の board 座標中心."""
+    return Point2d(cell[0] * REGION_MM, cell[1] * REGION_MM)
+
+
+def _local_board(cells: Sequence[tuple[int, int]] | None = None) -> BoardAlignment:
+    """LOCAL_FIELD の指定区だけを成功区として持つ BoardAlignment."""
+    used = list(LOCAL_FIELD) if cells is None else list(cells)
+    return BoardAlignment(
+        results=tuple(
+            _alignment(index, _center(cell), LOCAL_FIELD[cell])
+            for index, cell in enumerate(used)
         )
-    return field
-
-
-def _centroid_of(anchors: Sequence[Point2d]) -> Point2d:
-    return Point2d(
-        x=float(np.mean([a.x for a in anchors])),
-        y=float(np.mean([a.y for a in anchors])),
     )
 
 
-# 非共線かつ y 方向にも十分広がったアンカー配置（spread >= 2.0mm）
-SPREAD_ANCHORS = [
-    Point2d(0.0, 0.0),
-    Point2d(20.0, 0.0),
-    Point2d(0.0, 13.2),
-    Point2d(20.0, 13.2),
-    Point2d(10.0, 6.6),
-]
-# 3 点法誤差の残りとして現実的な大きさ（回転 0.02°・スケール 300ppm 相当）
-FIELD_MATRIX = np.array([[3.0e-4, -3.5e-4], [3.5e-4, -2.0e-4]])
-FIELD_TRANSLATION = Point2d(0.08, -0.05)
+def _shift_of(correction: Transform) -> Point2d:
+    """純並進の補正 Transform が全点に与える平行移動ベクトル.
+
+    2 点で同じ値になることを確かめてから返すので、レバー腕（点に依存する補正）が 紛れ込んでいれば assert で落ちる。
+    """
+    probes = (Point2d(0.0, 0.0), Point2d(180.0, -75.0))
+    shifts = [correction.apply(point) - point for point in probes]
+    assert shifts[0].x == pytest.approx(shifts[1].x, abs=1e-12)
+    assert shifts[0].y == pytest.approx(shifts[1].y, abs=1e-12)
+    return shifts[0]
 
 
-class TestFitDisplacementAffine:
-    """アフィン変位場の復元（本タスクの存在理由）."""
+class TestBoardAlignmentCorrectionFor:
+    """correction_for: pad を含む区の補正を、距離最小の 1 規則で引く."""
 
-    def test_recovers_a_known_affine_field(self):
-        """既知の L / t で作った変位から、任意の点で d(p) を再現する.
+    @pytest.mark.parametrize("cell", list(LOCAL_FIELD))
+    @pytest.mark.parametrize(
+        ("fx", "fy"), [(0.0, 0.0), (-0.9, -0.9), (0.9, -0.9), (-0.9, 0.9), (0.9, 0.9)]
+    )
+    def test_returns_the_correction_of_the_containing_region(
+        self, cell: tuple[int, int], fx: float, fy: float
+    ):
+        """区の内側のどこでも、その区で測った変位そのものが返る.
 
-        平均並進では 46um 残っていた（実測）誤差の主因が回転・スケール・スキュー
-        なので、この復元が成り立つことが補正精度の根拠になる。
+        等サイズ正方格子では最近傍の区中心 = 包含区なので、区の隅 （中心から 0.9 *
+        半辺）でも隣の区の値に切り替わってはならない。
         """
-        displacements = _affine_field(SPREAD_ANCHORS, FIELD_MATRIX, FIELD_TRANSLATION)
+        board = _local_board()
+        point = Point2d(_center(cell).x + fx * HALF_MM, _center(cell).y + fy * HALF_MM)
 
-        fit = fit_displacement(SPREAD_ANCHORS, displacements)
+        shift = _shift_of(board.correction_for(point))
 
-        assert fit.model == "affine"
-        centroid = _centroid_of(SPREAD_ANCHORS)
-        assert fit.centroid.x == pytest.approx(centroid.x, abs=1e-9)
-        assert fit.centroid.y == pytest.approx(centroid.y, abs=1e-9)
-        assert fit.translation.x == pytest.approx(FIELD_TRANSLATION.x, abs=1e-9)
-        assert fit.translation.y == pytest.approx(FIELD_TRANSLATION.y, abs=1e-9)
-        # アンカー集合の外側も含めて変位場そのものを再現する
-        for point in (Point2d(0.0, 0.0), Point2d(87.0, -30.0), Point2d(-15.0, 40.0)):
-            relative = np.array([point.x - centroid.x, point.y - centroid.y])
-            want = FIELD_MATRIX @ relative
-            moved = fit.machine_transform.apply(point)
-            assert moved.x == pytest.approx(
-                point.x + float(want[0]) + FIELD_TRANSLATION.x, abs=1e-9
-            )
-            assert moved.y == pytest.approx(
-                point.y + float(want[1]) + FIELD_TRANSLATION.y, abs=1e-9
-            )
+        assert shift.x == pytest.approx(LOCAL_FIELD[cell].x, abs=1e-12)
+        assert shift.y == pytest.approx(LOCAL_FIELD[cell].y, abs=1e-12)
 
-    def test_predict_is_the_displacement_of_the_machine_transform(self):
-        """Predict(p) = machine_transform.apply(p) − p（式を二重に持たない）."""
-        displacements = _affine_field(SPREAD_ANCHORS, FIELD_MATRIX, FIELD_TRANSLATION)
+    def test_distance_is_measured_in_board_coordinates(self):
+        """ルックアップは board 座標の距離で行う（機械座標の anchor ではない）.
 
-        fit = fit_displacement(SPREAD_ANCHORS, displacements)
-
-        for point in (Point2d(3.0, 4.0), Point2d(-40.0, 55.0)):
-            moved = fit.machine_transform.apply(point)
-            predicted = fit.predict(point)
-            assert predicted.x == pytest.approx(moved.x - point.x, abs=1e-12)
-            assert predicted.y == pytest.approx(moved.y - point.y, abs=1e-12)
-
-    def test_pure_translation_field_degenerates_to_the_mean_translation(self):
-        """全区が同じ変位なら、どの点も同じだけ動く（従来挙動への退化）.
-
-        アフィンにしたことで純並進の場が壊れないことのピン。
+        anchor は board 中心を x 反転して 100mm 平行移動した位置に置いてあるので、 board 点をそのまま
+        anchor と比べた実装は必ず端の区を返す。
         """
-        shift = Point2d(0.12, -0.34)
-        displacements = [shift] * len(SPREAD_ANCHORS)
+        board = _local_board()
 
-        fit = fit_displacement(SPREAD_ANCHORS, displacements)
+        shift = _shift_of(board.correction_for(_center((0, 0))))
 
-        assert fit.translation.x == pytest.approx(shift.x, abs=1e-12)
-        assert fit.translation.y == pytest.approx(shift.y, abs=1e-12)
-        for point in (Point2d(0.0, 0.0), Point2d(90.0, -60.0)):
-            moved = fit.machine_transform.apply(point)
-            assert moved.x == pytest.approx(point.x + shift.x, abs=1e-9)
-            assert moved.y == pytest.approx(point.y + shift.y, abs=1e-9)
+        assert shift.x == pytest.approx(LOCAL_FIELD[(0, 0)].x, abs=1e-12)
+        assert shift.y == pytest.approx(LOCAL_FIELD[(0, 0)].y, abs=1e-12)
 
-    def test_translation_is_the_mean_of_the_measured_displacements(self):
-        """重心での変位 t は d_i の算術平均（Σ(p_i − c) = 0 による分離）."""
-        displacements = [
-            Point2d(0.10, -0.20),
-            Point2d(0.20, -0.40),
-            Point2d(0.30, -0.30),
-            Point2d(0.40, -0.10),
-            Point2d(0.00, 0.00),
+    def test_correction_is_a_pure_shift(self):
+        """補正は純並進（アンカーからの距離に依存しない）.
+
+        レバー腕を持つ補正は pad の位置で誤差が線形に伸び、まさに大域アフィンを
+        棄却した理由。`_shift_of` の内部 assert がこれを担保するが、
+        意図として 1 件独立に置く。
+        """
+        board = _local_board()
+        correction = board.correction_for(_center((1, 1)))
+
+        far = Point2d(_center((1, 1)).x + 30.0, _center((1, 1)).y - 45.0)
+        near_shift = correction.apply(_center((1, 1))) - _center((1, 1))
+        far_shift = correction.apply(far) - far
+
+        assert far_shift.x == pytest.approx(near_shift.x, abs=1e-12)
+        assert far_shift.y == pytest.approx(near_shift.y, abs=1e-12)
+
+    def test_missing_region_falls_back_to_the_nearest_successful_one(self):
+        """照合に失敗してスキップされた区の pad は、最も近い成功区の補正を受ける.
+
+        区 (1,0) が results に無い状態。その区の中心から x に −0.6mm 寄った点は (0,0)
+        が最近傍（2.7mm）で、次に近いのは (1,1)（3.35mm）。包含判定と 近傍探索を分けた場合分けが要らないことのピン。
+        """
+        board = _local_board([c for c in LOCAL_FIELD if c != (1, 0)])
+        point = Point2d(_center((1, 0)).x - 0.6, _center((1, 0)).y)
+
+        shift = _shift_of(board.correction_for(point))
+
+        assert shift.x == pytest.approx(LOCAL_FIELD[(0, 0)].x, abs=1e-12)
+        assert shift.y == pytest.approx(LOCAL_FIELD[(0, 0)].y, abs=1e-12)
+
+    def test_point_far_outside_every_region_uses_the_nearest_region(self):
+        """全区の外側の pad でも例外にせず、最近傍の区の補正を使う.
+
+        pad を含む区しか計画しないので通常は起きないが、区が失敗で落ちれば 起こり得る。塗布を止めるのは min_regions
+        の役目で、ここではない。
+        """
+        board = _local_board()
+        point = Point2d(_center((2, 1)).x + 40.0, _center((2, 1)).y + 40.0)
+
+        shift = _shift_of(board.correction_for(point))
+
+        assert shift.x == pytest.approx(LOCAL_FIELD[(2, 1)].x, abs=1e-12)
+        assert shift.y == pytest.approx(LOCAL_FIELD[(2, 1)].y, abs=1e-12)
+
+    def test_equidistant_regions_resolve_to_the_first_result_deterministically(self):
+        """同距離なら results の先頭が勝ち、何度呼んでも同じ値を返す.
+
+        等サイズ格子では起きないが、ルックアップが呼ぶたびに違う区を返す （dict / set の反復順に依存する）実装だと pad
+        ごとに補正が揺れる。
+        """
+        board = _local_board([(0, 0), (2, 0)])
+        midpoint = Point2d((_center((0, 0)).x + _center((2, 0)).x) / 2, 0.0)
+
+        shifts = [_shift_of(board.correction_for(midpoint)) for _ in range(5)]
+
+        assert {(s.x, s.y) for s in shifts} == {
+            (LOCAL_FIELD[(0, 0)].x, LOCAL_FIELD[(0, 0)].y)
+        }
+
+
+class TestBoardAlignmentLocality:
+    """隣接区の値が混ざらないこと（距離重み付き補間は却下された設計）."""
+
+    def test_adjacent_regions_keep_their_own_displacement(self):
+        """隣り合う区の pad が、それぞれ自分の区の値を厳密に受け取る.
+
+        実機で観測された 0.36mm / 3.3mm の勾配。中心から 0.8 * 半辺 だけ隣の区へ 寄せた 2
+        点でも、補間せず自分の区の値のままでなければならない。
+        """
+        board = _local_board()
+        left = Point2d(_center((0, 0)).x + 0.8 * HALF_MM, 0.0)
+        right = Point2d(_center((1, 0)).x - 0.8 * HALF_MM, 0.0)
+
+        left_shift = _shift_of(board.correction_for(left))
+        right_shift = _shift_of(board.correction_for(right))
+
+        assert left_shift.x == pytest.approx(LOCAL_FIELD[(0, 0)].x, abs=1e-12)
+        assert right_shift.x == pytest.approx(LOCAL_FIELD[(1, 0)].x, abs=1e-12)
+
+    def test_the_correction_steps_discontinuously_across_the_region_boundary(self):
+        """区境界をまたぐ 0.2mm で補正が 0.36mm まるごと切り替わる.
+
+        距離重み付き補間・平均・多項式当てはめのいずれでも、0.2mm しか離れて いない 2
+        点の補正差はこの段差にならない（連続な場は作れない）。 混ざった実装をこの 1 件で落とす。
+        """
+        board = _local_board()
+        boundary = (_center((0, 0)).x + _center((1, 0)).x) / 2  # 1.65mm
+        inside_left = Point2d(boundary - 0.1, 0.0)
+        inside_right = Point2d(boundary + 0.1, 0.0)
+
+        left_shift = _shift_of(board.correction_for(inside_left))
+        right_shift = _shift_of(board.correction_for(inside_right))
+
+        step = LOCAL_FIELD[(1, 0)].x - LOCAL_FIELD[(0, 0)].x
+        assert step == pytest.approx(0.36, abs=1e-12)
+        assert left_shift.x == pytest.approx(LOCAL_FIELD[(0, 0)].x, abs=1e-12)
+        assert right_shift.x == pytest.approx(LOCAL_FIELD[(1, 0)].x, abs=1e-12)
+        assert right_shift.x - left_shift.x == pytest.approx(step, abs=1e-12)
+
+    def test_no_region_receives_the_mean_of_the_field(self):
+        """どの区の pad も平均変位を受け取らない（平均補正への退化の否定）.
+
+        大域アフィンを捨てたからといって「平均で 1 回補正する」に戻ると、実機の 局所変動（区ごとに最大
+        225um）がそのまま誤差として残る。
+        """
+        board = _local_board()
+        mean = board.mean_displacement
+
+        for cell, displacement in LOCAL_FIELD.items():
+            shift = _shift_of(board.correction_for(_center(cell)))
+            assert shift.x == pytest.approx(displacement.x, abs=1e-12)
+            assert abs(shift.x - mean.x) > 1e-3  # どの区も平均から 1um 以上離れている
+
+
+class TestBorrowedCorrections:
+    """借用補正の診断: 自区を持たない pad がどれだけ離れた区の補正を借りたか.
+
+    ROI 全体を基板外形の内側へ収める条件で外周付近のタイルが落ちるので、全区が 成功しても自区を持たない pad が残る（実測
+    19/48 pad・中央値 3.8mm）。局所ずれ には勾配があるので（0.36mm /
+    3.3mm）、借用距離がそのまま誤差の上限になる。 判定は「最近傍区までの距離が区の半辺以下か」の 1 規則だけ。
+    """
+
+    def test_points_inside_their_own_region_are_not_borrowing(self):
+        """自区の内側の点は 1 件も借用にならない."""
+        board = _local_board()
+        points = [
+            Point2d(_center(cell).x + 0.4 * HALF_MM, _center(cell).y - 0.4 * HALF_MM)
+            for cell in LOCAL_FIELD
         ]
 
-        fit = fit_displacement(SPREAD_ANCHORS, displacements)
+        borrowed = board.borrowed_corrections(points, region_size_mm=REGION_MM)
 
-        assert fit.translation.x == pytest.approx(0.20, abs=1e-12)
-        assert fit.translation.y == pytest.approx(-0.20, abs=1e-12)
+        assert borrowed.pad_count == len(points)
+        assert borrowed.borrowed_count == 0
+        assert borrowed.median_distance == pytest.approx(0.0)
+        assert borrowed.max_distance == pytest.approx(0.0)
 
+    def test_distance_exactly_at_the_half_edge_is_not_borrowing(self):
+        """半辺ちょうどは自区扱い（境界の向きを固定する）.
 
-class TestFitDisplacementDegeneracy:
-    """準共線・少数アンカーでの並進フォールバック."""
-
-    def test_collinear_anchors_fall_back_to_translation(self):
-        """Y が全て同じ（spread = 0）なら並進のみ。使ったモデルが結果に現れる.
-
-        アフィンのままだと最小二乗が y 方向のレバー腕を持たず、pad へ外挿した ときに暴れる（実測 spread 0.16mm で
-        p95 853um）。
+        判定が `>` か `>=` かで、格子の境界に乗った pad が丸ごと借用側へ倒れる。
         """
-        anchors = [Point2d(x, 7.0) for x in (0.0, 15.0, 30.0, 45.0)]
-        displacements = [
-            Point2d(0.10, -0.20),
-            Point2d(0.20, -0.30),
-            Point2d(0.30, -0.40),
-            Point2d(0.40, -0.10),
+        board = _local_board([(0, 0)])
+        on_boundary = Point2d(_center((0, 0)).x + HALF_MM, _center((0, 0)).y)
+        just_outside = Point2d(_center((0, 0)).x + HALF_MM + 1e-6, _center((0, 0)).y)
+
+        assert (
+            board.borrowed_corrections(
+                [on_boundary], region_size_mm=REGION_MM
+            ).borrowed_count
+            == 0
+        )
+        assert (
+            board.borrowed_corrections(
+                [just_outside], region_size_mm=REGION_MM
+            ).borrowed_count
+            == 1
+        )
+
+    def test_counts_and_summarises_only_the_borrowing_points(self):
+        """中央値・最大の母集団は借用した点だけ（自区がある点は含めない）.
+
+        自区の点（距離ほぼ 0）を母集団に混ぜると中央値が 0 側へ引っ張られ、
+        「どれだけ遠くから借りているか」という判断材料にならなくなる。
+        """
+        board = _local_board([(0, 0)])
+        origin = _center((0, 0))
+        points = [
+            origin,  # 自区（距離 0）
+            Point2d(origin.x + 3.0, origin.y),  # 借用 3.0mm
+            Point2d(origin.x + 4.0, origin.y),  # 借用 4.0mm
+            Point2d(origin.x + 9.0, origin.y),  # 借用 9.0mm
         ]
 
-        fit = fit_displacement(anchors, displacements)
+        borrowed = board.borrowed_corrections(points, region_size_mm=REGION_MM)
 
-        assert fit.model == "translation"
-        assert fit.anchor_spread_mm == pytest.approx(0.0, abs=1e-9)
-        mean = Point2d(0.25, -0.25)
-        for point in (Point2d(0.0, 0.0), Point2d(80.0, 40.0)):
-            moved = fit.machine_transform.apply(point)
-            assert moved.x == pytest.approx(point.x + mean.x, abs=1e-9)
-            assert moved.y == pytest.approx(point.y + mean.y, abs=1e-9)
+        assert borrowed.pad_count == 4
+        assert borrowed.borrowed_count == 3
+        assert borrowed.median_distance == pytest.approx(4.0, abs=1e-9)
+        assert borrowed.max_distance == pytest.approx(9.0, abs=1e-9)
 
-    def test_near_collinear_anchors_fall_back_to_translation(self):
-        """Spread が 2.0mm 未満（y に ±1mm の 6 点 = 1.0mm）なら並進のみ.
+    def test_distance_is_measured_to_the_nearest_successful_region(self):
+        """借用距離は最近傍の**成功**区までの距離.
 
-        厳密な共線より準共線のほうが危険（lstsq の最小ノルム解が効かない帯）。
+        失敗した区の中心までの距離で測ると、実際に使われる補正の出所と食い違う。
         """
-        anchors = [
-            Point2d(x, 1.0 if index % 2 == 0 else -1.0)
-            for index, x in enumerate((0.0, 10.0, 20.0, 30.0, 40.0, 50.0))
-        ]
-        displacements = _affine_field(anchors, FIELD_MATRIX, FIELD_TRANSLATION)
+        board = _local_board([(0, 0), (2, 1)])
+        # 落ちた区 (1,0) の中心。成功区 (0,0) までは REGION_MM
+        point = _center((1, 0))
 
-        fit = fit_displacement(anchors, displacements)
+        borrowed = board.borrowed_corrections([point], region_size_mm=REGION_MM)
 
-        assert 0.0 < fit.anchor_spread_mm < 2.0  # 実測 0.96mm（閾値 2.0mm 未満）
-        assert fit.model == "translation"
+        assert borrowed.borrowed_count == 1
+        assert borrowed.max_distance == pytest.approx(REGION_MM, abs=1e-9)
 
-    def test_two_rows_of_anchors_are_enough_for_affine(self):
-        """Y が 0 と 13.2mm の 2 行なら spread 6.6mm でアフィンを使う.
+    def test_no_points_yields_zero_counts(self):
+        """対象点が空でも例外にせず 0 を返す（ログの分母が 0 になるだけ）."""
+        borrowed = _local_board().borrowed_corrections([], region_size_mm=REGION_MM)
 
-        タイル格子ではアンカー間隔が region_mm の整数倍になるので、2 行に 分かれていれば spread は
-        region_mm のオーダーになる。
+        assert borrowed.pad_count == 0
+        assert borrowed.borrowed_count == 0
+        assert borrowed.median_distance == pytest.approx(0.0)
+
+
+class TestCorrectedBoardTransform:
+    """corrected_board_transform: 「補正は board 変換の直後」というドメイン規則.
+
+    照合で測った変位は**カメラの機械座標系**で定義されている。board 変換の前に
+    挿す（= board 空間へ補正を持ち込む共役適用）と、board_transform が回転や
+    スケールを持つぶんだけ補正がねじれる。この規則はコード全体でこの関数 1 箇所
+    にしか書かれていないので、ここを厚くピンする。
+    """
+
+    BOARD = Rotation(30.0)
+
+    def test_applies_the_local_correction_in_machine_coordinates(self):
+        """T(p) = board_transform(p) + その区の変位（機械座標での平行移動）."""
+        board = _local_board()
+
+        for cell, displacement in LOCAL_FIELD.items():
+            point = Point2d(_center(cell).x + 0.8 * HALF_MM, _center(cell).y)
+            moved = corrected_board_transform(self.BOARD, board, point).apply(point)
+
+            want = self.BOARD.apply(point)
+            assert moved.x == pytest.approx(want.x + displacement.x, abs=1e-9)
+            assert moved.y == pytest.approx(want.y + displacement.y, abs=1e-9)
+
+    def test_correction_is_not_conjugated_into_board_space(self):
+        """Board 空間で補正してから board 変換する構造とは違う結果になる.
+
+        board_transform が 30° 回転なので、共役適用（先に board 座標を動かす）は 変位を 30°
+        回した量だけずらす。ユーザーが明示的に却下した構造。
         """
-        anchors = [
-            Point2d(0.0, 0.0),
-            Point2d(20.0, 0.0),
-            Point2d(0.0, 13.2),
-            Point2d(20.0, 13.2),
-        ]
-        displacements = _affine_field(anchors, FIELD_MATRIX, FIELD_TRANSLATION)
+        board = _local_board()
+        point = _center((1, 0))
+        displacement = LOCAL_FIELD[(1, 0)]
 
-        fit = fit_displacement(anchors, displacements)
+        moved = corrected_board_transform(self.BOARD, board, point).apply(point)
 
-        assert fit.anchor_spread_mm == pytest.approx(6.6, abs=1e-9)
-        assert fit.model == "affine"
+        conjugated = self.BOARD.apply(point + displacement)
+        assert moved.x != pytest.approx(conjugated.x, abs=1e-6)
+        assert moved.y != pytest.approx(conjugated.y, abs=1e-6)
 
-    @pytest.mark.parametrize("count", [1, 2])
-    def test_fewer_than_three_anchors_fall_back_to_translation(self, count: int):
-        """アフィンの下限は非共線 3 点なので 1〜2 区では並進のみ."""
-        anchors = [Point2d(0.0, 0.0), Point2d(20.0, 13.2)][:count]
-        displacements = [Point2d(0.10, -0.20), Point2d(0.30, -0.40)][:count]
+    def test_each_point_gets_its_own_region_correction(self):
+        """引数の点ごとに違う補正が入る（全点で同じ変換を返さない）.
 
-        fit = fit_displacement(anchors, displacements)
+        呼び出し側が 1 回だけ組んで全 pad に使い回す退行を落とす。
+        """
+        board = _local_board()
+        left = Point2d(_center((0, 0)).x + 0.8 * HALF_MM, 0.0)
+        right = Point2d(_center((1, 0)).x - 0.8 * HALF_MM, 0.0)
 
-        assert fit.model == "translation"
-        mean = _centroid_of(displacements)
-        moved = fit.machine_transform.apply(Point2d(50.0, 50.0))
-        assert moved.x == pytest.approx(50.0 + mean.x, abs=1e-9)
-        assert moved.y == pytest.approx(50.0 + mean.y, abs=1e-9)
+        left_shift = corrected_board_transform(self.BOARD, board, left).apply(
+            left
+        ) - self.BOARD.apply(left)
+        right_shift = corrected_board_transform(self.BOARD, board, right).apply(
+            right
+        ) - self.BOARD.apply(right)
+
+        assert left_shift.x == pytest.approx(LOCAL_FIELD[(0, 0)].x, abs=1e-9)
+        assert right_shift.x == pytest.approx(LOCAL_FIELD[(1, 0)].x, abs=1e-9)
+        assert right_shift.x - left_shift.x == pytest.approx(0.36, abs=1e-9)
+
+    def test_the_correction_is_looked_up_at_the_given_point_not_the_applied_one(self):
+        """補正を引く点と、変換を適用する点は独立に選べる.
+
+        pad 中心で引いた補正を pad ポリゴンの全頂点へ適用する（塗布の使い方）。 頂点ごとに引き直すと 1 つの pad
+        が区境界をまたいだとき形が割れる。
+        """
+        board = _local_board()
+        center = Point2d(_center((0, 0)).x + 0.8 * HALF_MM, 0.0)
+        transform = corrected_board_transform(self.BOARD, board, center)
+
+        # 区境界の向こう側にある頂点も、pad 中心で引いた補正で動く
+        vertex = Point2d(center.x + REGION_MM, center.y)
+        moved = transform.apply(vertex)
+
+        want = self.BOARD.apply(vertex)
+        assert moved.x == pytest.approx(want.x + LOCAL_FIELD[(0, 0)].x, abs=1e-9)
+        assert moved.y == pytest.approx(want.y + LOCAL_FIELD[(0, 0)].y, abs=1e-9)
 
 
-class TestFitDisplacementValidation:
-    """引数検証（いずれも ValueError）."""
+class TestCorrectedPadTargets:
+    """corrected_pad_targets: pad と補正後の機械座標の対応を値として返す.
 
-    def test_empty_anchors_raise(self):
-        with pytest.raises(ValueError):
-            fit_displacement([], [])
+    board_tour は「どの pad にどの補正を当てたか」をこの戻り値から受け取る。
+    対応をループの書き方に委ねると、補正を引く点を固定してしまう退行
+    （全 pad が同じ補正で巡回する）が job 層で起きても誰も気づけない。
+    """
 
-    def test_length_mismatch_raises(self):
-        with pytest.raises(ValueError):
-            fit_displacement(
-                [Point2d(0.0, 0.0), Point2d(10.0, 0.0)], [Point2d(0.1, 0.1)]
-            )
-
-
-class TestBoardAlignmentResiduals:
-    """区ごとの残差（アフィンで取り切れない分の観測可能性）."""
+    BOARD = Rotation(30.0)
 
     @staticmethod
-    def _board(displacements: Sequence[Point2d]) -> BoardAlignment:
-        return BoardAlignment(
+    def _pad_at(designator: str, center: Point2d) -> Pad:
+        return _pad(designator, center.x, center.y, half=0.3)
+
+    def _adjacent_pads(self) -> tuple[Pad, Pad]:
+        """区 (0,0) と (1,0) にそれぞれ入る 2 pad（変位差 0.36mm）."""
+        return (
+            self._pad_at("R1", Point2d(_center((0, 0)).x + 0.8 * HALF_MM, 0.0)),
+            self._pad_at("R2", Point2d(_center((1, 0)).x - 0.8 * HALF_MM, 0.0)),
+        )
+
+    def test_each_pad_target_uses_the_correction_of_its_own_region(self):
+        """巡回先 = board 変換 + **その pad の区**の変位.
+
+        補正を引く点を固定した実装では 2 pad のずれが揃ってしまい、0.36mm の 段差が消える。
+        """
+        board = _local_board()
+        pads = self._adjacent_pads()
+
+        targets = corrected_pad_targets(self.BOARD, board, pads)
+
+        shifts = [target - self.BOARD.apply(pad.center) for pad, target in targets]
+        assert shifts[0].x == pytest.approx(LOCAL_FIELD[(0, 0)].x, abs=1e-9)
+        assert shifts[1].x == pytest.approx(LOCAL_FIELD[(1, 0)].x, abs=1e-9)
+        assert shifts[1].x - shifts[0].x == pytest.approx(0.36, abs=1e-9)
+
+    def test_keeps_the_input_pads_in_order(self):
+        """戻り値は入力 pad と同順・同数（並べ替えない）.
+
+        呼び出し側は index で pad と巡回先を対応づけるので、順序が変わると 「どの pad
+        へ向かっているか」の表示と実際の移動先がずれる。designator の 辞書順とは違う並びで渡し、値と designator
+        の対応もあわせて見る。
+        """
+        board = _local_board()
+        left, right = self._adjacent_pads()
+        pads = [
+            self._pad_at("R9", right.center),
+            self._pad_at("R1", left.center),
+            self._pad_at("R5", right.center),
+        ]
+
+        targets = corrected_pad_targets(self.BOARD, board, pads)
+
+        assert [pad.designator for pad, _ in targets] == ["R9", "R1", "R5"]
+        expected = [
+            LOCAL_FIELD[(1, 0)].x,
+            LOCAL_FIELD[(0, 0)].x,
+            LOCAL_FIELD[(1, 0)].x,
+        ]
+        for (pad, target), want in zip(targets, expected, strict=True):
+            shift = target - self.BOARD.apply(pad.center)
+            assert shift.x == pytest.approx(want, abs=1e-9)
+
+    def test_no_pads_yields_an_empty_list(self):
+        """Pad が空でも例外にしない（塗布対象 0 件は呼び出し側の判断）."""
+        assert corrected_pad_targets(self.BOARD, _local_board(), []) == []
+
+
+class TestBoardAlignmentStatistics:
+    """mean_displacement / displacement_spread（ログ・summary 用の記述統計）."""
+
+    def test_mean_displacement_is_the_arithmetic_mean(self):
+        board = _local_board()
+
+        mean = board.mean_displacement
+
+        assert mean.x == pytest.approx(
+            float(np.mean([d.x for d in LOCAL_FIELD.values()])), abs=1e-12
+        )
+        assert mean.y == pytest.approx(
+            float(np.mean([d.y for d in LOCAL_FIELD.values()])), abs=1e-12
+        )
+
+    def test_displacement_spread_is_the_per_axis_population_std(self):
+        """ばらつきは軸ごとの母標準偏差（n で割る）.
+
+        ユーザーが実機で「局所変動が照合ノイズ（5um 級）に対してどれだけ大きいか」 を読む値。標本標準偏差（n-1）や peak-
+        to-peak では意味が変わる。
+        """
+        board = _local_board()
+
+        spread = board.displacement_spread
+
+        assert spread.x == pytest.approx(
+            float(np.std([d.x for d in LOCAL_FIELD.values()])), abs=1e-12
+        )
+        assert spread.y == pytest.approx(
+            float(np.std([d.y for d in LOCAL_FIELD.values()])), abs=1e-12
+        )
+        assert spread.x > 0.1  # この場は 100um 級に振れている
+
+    def test_displacement_spread_is_zero_for_a_single_region(self):
+        """1 区だけならばらつきは 0（統計として定義できる下限）."""
+        board = _local_board([(0, 0)])
+
+        spread = board.displacement_spread
+
+        assert spread.x == pytest.approx(0.0, abs=1e-12)
+        assert spread.y == pytest.approx(0.0, abs=1e-12)
+
+    def test_uniform_field_has_zero_spread_and_the_common_mean(self):
+        """全区が同じ変位なら平均 = その値・ばらつき 0（純並進の場への退化）."""
+        shift = Point2d(0.12, -0.34)
+        board = BoardAlignment(
             results=tuple(
-                _alignment(index, anchor, displacement)
-                for index, (anchor, displacement) in enumerate(
-                    zip(SPREAD_ANCHORS, displacements, strict=True)
-                )
+                _alignment(index, _center(cell), shift)
+                for index, cell in enumerate(LOCAL_FIELD)
             )
         )
 
-    def test_fit_is_derived_from_the_region_measurements(self):
-        """Fit は (anchor, displacement) の対から当てはめる（results と整合）."""
-        displacements = _affine_field(SPREAD_ANCHORS, FIELD_MATRIX, FIELD_TRANSLATION)
+        assert board.mean_displacement.x == pytest.approx(shift.x, abs=1e-12)
+        assert board.mean_displacement.y == pytest.approx(shift.y, abs=1e-12)
+        assert board.displacement_spread.x == pytest.approx(0.0, abs=1e-12)
+        assert board.displacement_spread.y == pytest.approx(0.0, abs=1e-12)
+        for cell in LOCAL_FIELD:
+            assert _shift_of(board.correction_for(_center(cell))).x == pytest.approx(
+                shift.x, abs=1e-12
+            )
 
-        board = self._board(displacements)
+    def test_results_keeps_the_successful_measurements_in_order(self):
+        """Results は成功区のみを計測順に保持する（ログの領域番号との対応）."""
+        cells = [c for c in LOCAL_FIELD if c != (1, 1)]
 
-        assert isinstance(board.fit, DisplacementFit)
-        assert board.model == "affine"
-        assert board.translation.x == pytest.approx(FIELD_TRANSLATION.x, abs=1e-9)
-        assert board.translation.y == pytest.approx(FIELD_TRANSLATION.y, abs=1e-9)
-        moved = board.machine_transform.apply(SPREAD_ANCHORS[0])
-        want = board.fit.machine_transform.apply(SPREAD_ANCHORS[0])
-        assert moved.x == pytest.approx(want.x, abs=1e-12)
-        assert moved.y == pytest.approx(want.y, abs=1e-12)
+        board = _local_board(cells)
 
-    def test_pure_affine_field_leaves_no_residual(self):
-        """純アフィンな入力では残差が消える（当てはめが正しいことの裏）."""
-        displacements = _affine_field(SPREAD_ANCHORS, FIELD_MATRIX, FIELD_TRANSLATION)
-
-        board = self._board(displacements)
-
-        assert len(board.residuals) == len(board.results)
-        assert board.residual_rms == pytest.approx(0.0, abs=1e-9)
-        assert board.residual_max == pytest.approx(0.0, abs=1e-9)
-
-    def test_nonlinear_field_leaves_a_measurable_residual(self):
-        """2 次の変位場（d = (k x², 0)）では残差 RMS が有意に立つ.
-
-        「アフィンで取り切れない歪みが残っているかどうか」をユーザーが実機で 判定する唯一の材料。残差が常に 0
-        に潰れる実装では非線形を見逃す。 k = 5e-4 /mm は 20mm 幅で 200um 級の 2 次項 （実測で残差
-        16um を出した 50um の 2 次ひずみより大きい）に相当する。
-        """
-        curvature = 5.0e-4
-        displacements = [
-            Point2d(curvature * anchor.x**2, 0.0) for anchor in SPREAD_ANCHORS
-        ]
-
-        board = self._board(displacements)
-
-        assert board.residual_rms > 5.0e-3  # 5um 超（区あたり照合ノイズと同程度以上）
-        assert board.residual_max >= board.residual_rms
-        assert len(board.residuals) == len(board.results)
-        # 残差は results と同順（区ごとのログ行が領域番号と対応する根拠）
-        for result, residual in zip(board.results, board.residuals, strict=True):
-            want = result.displacement - board.fit.predict(result.region.anchor)
-            assert residual.x == pytest.approx(want.x, abs=1e-12)
-            assert residual.y == pytest.approx(want.y, abs=1e-12)
-
-    def test_residual_rms_and_max_agree_with_the_residual_list(self):
-        """RMS と最大は residuals のノルムから定義される."""
-        curvature = 1.0e-4
-        displacements = [
-            Point2d(curvature * anchor.x**2, curvature * anchor.y**2)
-            for anchor in SPREAD_ANCHORS
-        ]
-
-        board = self._board(displacements)
-
-        norms = [r.norm for r in board.residuals]
-        assert board.residual_rms == pytest.approx(
-            float(np.sqrt(np.mean(np.square(norms)))), abs=1e-12
-        )
-        assert board.residual_max == pytest.approx(max(norms), abs=1e-12)
+        assert len(board.results) == len(cells)
+        for result, cell in zip(board.results, cells, strict=True):
+            assert result.region.board_center.x == pytest.approx(_center(cell).x)
+            assert result.region.board_center.y == pytest.approx(_center(cell).y)
 
     def test_empty_results_raise_value_error(self):
-        """成功領域が 0 件の BoardAlignment は作れない（当てはめが定義できない）."""
+        """成功領域が 0 件の BoardAlignment は作れない（補正が定義できない）."""
         with pytest.raises(ValueError):
             BoardAlignment(results=())
 
@@ -595,13 +838,15 @@ class TestRegionAlignmentSession:
 
         収まらない設定では探索窓が切り詰められ、ずれの計測範囲が黙って狭くなる。 設定ミスを実行時ではなく配線時に落とす。
         """
+        # 解像度を region_size_px そのものにすると探索窓の余地が必ず無くなる
+        size = _machine_config().paste_dispenser.pad_align.region_size_px
         with pytest.raises(ValueError, match="region_size_px"):
             self._session(
                 FakeCamera([_board_image()]),
                 klipper,
                 stage,
                 self._pcb(),
-                resolution=(200, 200),
+                resolution=(size, size),
             )
 
     def test_plan_regions_uses_the_pad_centers_and_the_shared_roi(self, klipper, stage):
@@ -622,7 +867,23 @@ class TestRegionAlignmentSession:
         assert region.roi == session.region_roi
         assert region.anchor.x == pytest.approx(0.0, abs=1e-6)
         assert region.anchor.y == pytest.approx(0.0, abs=1e-6)
+        # board_center は correction_for のルックアップ鍵（board 座標）
+        assert region.board_center.x == pytest.approx(0.0, abs=1e-6)
+        assert region.board_center.y == pytest.approx(0.0, abs=1e-6)
         assert region.constraint > 0.0
+
+    def test_region_size_mm_is_the_tile_edge_in_board_millimetres(self, klipper, stage):
+        """region_size_mm = region_size_px / pixel_per_mm（借用距離の判定に使う）.
+
+        borrowed_corrections の「半辺以下なら自区」判定はこの値が正しいことに 依存する。px と mm
+        を取り違えると借用件数が桁で狂う。
+        """
+        session = self._session(
+            FakeCamera([_board_image()]), klipper, stage, self._pcb()
+        )
+
+        size_px = _machine_config().paste_dispenser.pad_align.region_size_px
+        assert session.region_size_mm == pytest.approx(size_px / PPM)
 
     def test_plan_regions_without_pads_returns_no_regions(self, klipper, stage):
         """塗布対象 pad が無ければ領域も 0 個（例外は投げない）."""

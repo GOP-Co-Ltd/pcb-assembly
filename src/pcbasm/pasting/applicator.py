@@ -55,7 +55,7 @@ class PasteApplicator:
         ) as applicator:
             applicator.load(2.0)
             applicator.retract()
-            applicator.apply([polygon])
+            applicator.apply([polygon], transform=board_to_machine)
     """
 
     def __init__(
@@ -96,7 +96,8 @@ class PasteApplicator:
             retraction: リトラクション量 [μL]
             retraction_rate: リトラクション速度 [μL/sec]
             retraction_accel_factor: リトラクション加速度係数（>1.0）
-            transform: 座標変換
+            transform: ``draw_line``（キャリブ用プリミティブ）に使う座標変換。
+                ``apply`` / ``deposit_at`` は pad ごとに違うので呼び出し側から受け取る
             paste_height: 塗布面のZ高さ [mm]、または auto
             lift_height: 塗布後の上昇高さ [mm]
             dispense_mode: 塗布方式 auto / dot / line / area
@@ -175,7 +176,7 @@ class PasteApplicator:
             paste_dispenser: ペーストディスペンサーHAL
             stage: XYZステージ
             config: ``Machine.paste_dispenser`` の設定
-            transform: 座標変換
+            transform: ``draw_line`` に使う座標変換
             lift_height: 塗布後の上昇高さ [mm]。None のとき config の値を使う
 
         Raises:
@@ -285,6 +286,7 @@ class PasteApplicator:
         bead_width_factor: float | None = None,
         overlap: float | None = None,
         boundary_margin: float | None = None,
+        transform: Transform,
     ) -> None:
         """複数ポリゴンへペースト塗布を実行する.
 
@@ -304,6 +306,9 @@ class PasteApplicator:
             bead_width_factor: ビード幅係数（w = nozzle_diameter * factor）
             overlap: ジグザグ行間オーバーラップ [0, 1)
             boundary_margin: 外周マージン [mm]
+            transform: board座標→機械座標の変換。pad ごとに違う銅箔照合の
+                局所補正を含むため、呼び出しごとに必須で受け取る（渡し忘れが
+                黙って無補正の塗布になるのを型で防ぐ）
         """
         paste = ResolvedPaste(
             enabled=True,
@@ -328,7 +333,7 @@ class PasteApplicator:
             ),
         )
         for polygon in polygons:
-            self._fill(polygon, paste=paste)
+            self._fill(polygon, paste=paste, transform=transform)
 
     def draw_line(
         self,
@@ -375,6 +380,7 @@ class PasteApplicator:
             prime_extra_delay=resolved_prime_extra_delay,
             max_fill_speed=max_fill_speed,
             rate_cap=rate_cap,
+            transform=self._transform,
         )
 
     def deposit_at(
@@ -385,11 +391,13 @@ class PasteApplicator:
         paste_height: PasteHeight | None = None,
         prime_extra_delay: float | None = None,
         rate_cap: float | None = None,
+        transform: Transform,
     ) -> Speed | None:
         """指定点へ ``amount`` [μL] を点塗布する.
 
         通常塗布と同じ ``FillSequence`` を使い、接近→下降→prime+吐出→
-        リトラクション→上昇の protocol で実行する。
+        リトラクション→上昇の protocol で実行する。``transform`` は ``apply``
+        と同じく board座標→機械座標の変換で、呼び出しごとに必須。
         """
         if amount <= 0:
             raise ValueError(f"amountは正の値である必要があります: {amount}")
@@ -406,9 +414,12 @@ class PasteApplicator:
             ul_per_mm2=self._ul_per_mm2,
             prime_extra_delay=resolved_prime_extra_delay,
             rate_cap=rate_cap,
+            transform=transform,
         )
 
-    def _fill(self, polygon: Polygon, *, paste: ResolvedPaste) -> None:
+    def _fill(
+        self, polygon: Polygon, *, paste: ResolvedPaste, transform: Transform
+    ) -> None:
         """ポリゴンを成分別フィル経路で塗布する.
 
         各成分は独立した ``FillSequence`` として送信する。
@@ -441,6 +452,7 @@ class PasteApplicator:
                 paste_height=paste.paste_height,
                 ul_per_mm2=paste.ul_per_mm2,
                 prime_extra_delay=paste.prime_extra_delay,
+                transform=transform,
             )
 
     def _draw_polyline(
@@ -453,10 +465,11 @@ class PasteApplicator:
         prime_extra_delay: float,
         max_fill_speed: float | None = None,
         rate_cap: float | None = None,
+        transform: Transform,
     ) -> Speed | None:
         """1 本のポリラインを ``total_amount`` [μL] で塗布する（共通プリミティブ）.
 
-        ``paste_height`` 解決 → 各点に Z 付与 → ``self._transform`` 適用 →
+        ``paste_height`` 解決 → 各点に Z 付与 → ``transform`` 適用 →
         ``FillSequence`` 送信を 1 本ぶん行う。``_fill`` の各成分と公開
         ``draw_line`` が共用する（塗布挙動を二重化しないためのキモ）。
 
@@ -467,7 +480,7 @@ class PasteApplicator:
             実効塗布移動速度（``Speed``）。経路長 0 などで塗布移動が無いとき ``None``
         """
         resolved_height = resolve_paste_height(paste_height, ul_per_mm2)
-        path = Path(p.to3d(resolved_height) for p in raw).transformed(self._transform)
+        path = Path(p.to3d(resolved_height) for p in raw).transformed(transform)
         sequence = FillSequence(
             path=path,
             total_amount=total_amount,

@@ -43,6 +43,7 @@ class AlignmentRegion:
 
     Attributes:
         index: 巡回順の0始まり通し番号
+        board_center: 区の中心（board座標 [mm]）。pad から最近傍の区を引くのに使う
         anchor: 機械座標 [mm]。ここへ移動して撮像すると領域が画像中心に来る
         roi: 照合ROI（全画面px）。全regionで同一の画像中心固定矩形
         constraint: λ_min(A)。A = Σ n nᵀ（ROI内に入ったエッジ点の単位法線n）
@@ -50,6 +51,7 @@ class AlignmentRegion:
     """
 
     index: int
+    board_center: Point2d
     anchor: Point2d
     roi: PixelRect
     constraint: float
@@ -232,6 +234,7 @@ def plan_alignment_regions(
     return [
         AlignmentRegion(
             index=index,
+            board_center=candidate.board_xy,
             anchor=anchor,
             roi=roi,
             constraint=candidate.constraint,
