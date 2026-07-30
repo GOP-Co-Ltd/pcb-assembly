@@ -21,6 +21,7 @@ from pcbasm.posctrl import (
 from pcbasm.vision import Offset
 
 PPM = 10.0  # pixel/mm
+MATCH_ROI = (20, 20, 180, 180)
 
 
 def _square(cx: float, cy: float, half: float) -> shapely.Polygon:
@@ -70,6 +71,31 @@ def _edge_ring(shift_x: int = 0, shift_y: int = 0) -> np.ndarray:
         255,
         1,
     )
+    return mask
+
+
+def _subpixel_circles(shift_x: float = 0.0, shift_y: float = 0.0) -> np.ndarray:
+    """1/16px 精度で描いた円4個を非整数量ずらしたエッジマスク."""
+    mask = np.zeros((200, 200), dtype=np.uint8)
+    for offset_x, offset_y in ((-30, -30), (30, -30), (-30, 30), (30, 30)):
+        cv2.circle(
+            mask,
+            (
+                round((100 + offset_x + shift_x) * 16),
+                round((100 + offset_y + shift_y) * 16),
+            ),
+            15 * 16,
+            255,
+            1,
+            shift=4,
+        )
+    return mask
+
+
+def _horizontal_edge(y: int) -> np.ndarray:
+    """X方向に拘束のない水平エッジ."""
+    mask = np.zeros((200, 200), dtype=np.uint8)
+    cv2.line(mask, (10, y), (190, y), 255, 1)
     return mask
 
 
@@ -236,82 +262,6 @@ class TestCopperProjector:
         assert pixel.x == pytest.approx(155.0, abs=1e-6)
         assert pixel.y == pytest.approx(80.0, abs=1e-6)
 
-    def test_roi_of_returns_projected_bbox_with_margin(self):
-        """roi_of = exterior 全頂点の投影 bbox + マージン (1mm=10px).
-
-        ±2mm 角の投影 bbox は 80..120px、margin ±10px → 70..130（丸め ±1px）。
-        """
-        projector = _projector([])
-
-        x0, y0, x1, y1 = projector.roi_of(
-            _square(0.0, 0.0, 2.0), Point2d(0.0, 0.0), margin_mm=1.0, min_size_mm=3.0
-        )
-
-        assert x0 == pytest.approx(70, abs=1)
-        assert y0 == pytest.approx(70, abs=1)
-        assert x1 == pytest.approx(130, abs=1)
-        assert y1 == pytest.approx(130, abs=1)
-
-    def test_roi_of_expands_small_pad_to_min_size(self):
-        """0.5mm 角 pad は margin 込み 25px → min_size 3mm=30px へ中心対称拡張."""
-        projector = _projector([])
-
-        x0, y0, x1, y1 = projector.roi_of(
-            _square(0.0, 0.0, 0.25), Point2d(0.0, 0.0), margin_mm=1.0, min_size_mm=3.0
-        )
-
-        assert x1 - x0 >= 30
-        assert y1 - y0 >= 30
-        assert x1 - x0 <= 33  # 過剰拡張しない
-        assert y1 - y0 <= 33
-        assert (x0 + x1) / 2 == pytest.approx(100.0, abs=1.5)  # 中心対称
-        assert (y0 + y1) / 2 == pytest.approx(100.0, abs=1.5)
-
-    def test_roi_of_clamps_to_frame(self):
-        """フレームからはみ出す投影 bbox はフレーム境界へクランプされる."""
-        projector = _projector([])
-
-        roi = projector.roi_of(_square(0.0, 0.0, 12.0), Point2d(0.0, 0.0))
-
-        assert roi == (0, 0, 200, 200)
-
-    def test_roi_of_multiple_polygons_covers_union_bbox(self):
-        """複数ポリゴンを渡すと全体を覆う bbox になる.
-
-        ±1mm 角 2 つ（中心 (−2,0) と (+2,0)）→ x は −3..+3mm = 70..130px、
-        margin ±10px → 60..140。y は 90..110 + margin → 80..120。
-        """
-        projector = _projector([])
-
-        x0, y0, x1, y1 = projector.roi_of(
-            [_square(-2.0, 0.0, 1.0), _square(2.0, 0.0, 1.0)],
-            Point2d(0.0, 0.0),
-            margin_mm=1.0,
-            min_size_mm=3.0,
-        )
-
-        assert x0 == pytest.approx(60, abs=1)
-        assert x1 == pytest.approx(140, abs=1)
-        assert y0 == pytest.approx(80, abs=1)
-        assert y1 == pytest.approx(120, abs=1)
-
-    def test_roi_of_covers_all_vertices_under_rotated_board_transform(self):
-        """回転 board_transform では全頂点の投影 bbox を取る（mm bbox の変換ではない）.
-
-        三角形 (−2,0),(2,0),(0,3) を Rotation(45) で回すと投影頂点は
-        x: 85.9/114.1/121.2, y: 78.8/85.9/114.1 → bbox+10px ≈ (76, 69, 131, 124)。
-        board 空間 bbox の4隅を変換する誤実装では x1 ≈ 145 になり区別できる。
-        """
-        projector = _projector([], board_transform=Rotation(45.0))
-        triangle = shapely.Polygon([(-2.0, 0.0), (2.0, 0.0), (0.0, 3.0)])
-
-        x0, y0, x1, y1 = projector.roi_of(triangle, Point2d(0.0, 0.0))
-
-        assert x0 == pytest.approx(75.9, abs=2)
-        assert y0 == pytest.approx(68.8, abs=2)
-        assert x1 == pytest.approx(131.2, abs=2)
-        assert y1 == pytest.approx(124.1, abs=2)
-
 
 class TestCopperEdgeMatcher:
     """CopperEdgeMatcher の chamfer マッチングのテスト."""
@@ -330,7 +280,7 @@ class TestCopperEdgeMatcher:
         observed = _edge_ring(7, -4)
         expected = _edge_ring()
 
-        match = matcher.match(observed, expected)
+        match = matcher.match(observed, expected, MATCH_ROI)
 
         assert match is not None
         assert match.offset.px.x == pytest.approx(7.0, abs=1.0)
@@ -338,25 +288,29 @@ class TestCopperEdgeMatcher:
 
     def test_identical_masks_match_with_zero_offset(self, matcher: CopperEdgeMatcher):
         """観測と想定が完全一致 → offset (0,0) かつ mean_distance ≈ 0."""
-        match = matcher.match(_edge_ring(), _edge_ring())
+        match = matcher.match(_edge_ring(), _edge_ring(), MATCH_ROI)
 
         assert isinstance(match, EdgeMatch)
         assert match.offset.px.x == pytest.approx(0.0, abs=1.0)
         assert match.offset.px.y == pytest.approx(0.0, abs=1.0)
-        assert match.mean_distance_px == pytest.approx(0.0, abs=0.5)
+        assert match.rms_distance_px == pytest.approx(0.0, abs=0.5)
 
-    def test_match_recovers_shift_with_partially_missing_observed_edges(
-        self, matcher: CopperEdgeMatcher
+    @pytest.mark.parametrize(
+        ("shift_x", "shift_y"),
+        [(2.4, -1.2), (-1.6, 0.8), (0.5, 0.5)],
+    )
+    def test_match_recovers_subpixel_shift(
+        self, matcher: CopperEdgeMatcher, shift_x: float, shift_y: float
     ):
-        """観測エッジの下半分が欠損していてもずれを復元できる."""
-        observed = _edge_ring(5, 3)
-        observed[110:, :] = 0  # 下半分欠損（下辺と縦辺の下部が消える）
-
-        match = matcher.match(observed, _edge_ring())
+        match = matcher.match(
+            _subpixel_circles(shift_x, shift_y),
+            _subpixel_circles(),
+            MATCH_ROI,
+        )
 
         assert match is not None
-        assert match.offset.px.x == pytest.approx(5.0, abs=1.0)
-        assert match.offset.px.y == pytest.approx(3.0, abs=1.0)
+        assert match.offset.px.x == pytest.approx(shift_x, abs=0.15)
+        assert match.offset.px.y == pytest.approx(shift_y, abs=0.15)
 
     def test_match_recovers_shift_despite_noise_edges(self, matcher: CopperEdgeMatcher):
         """観測にノイズエッジ画素が混ざってもずれを復元できる."""
@@ -365,7 +319,7 @@ class TestCopperEdgeMatcher:
         noise = rng.integers(0, 200, size=(40, 2))
         observed[noise[:, 0], noise[:, 1]] = 255
 
-        match = matcher.match(observed, _edge_ring())
+        match = matcher.match(observed, _edge_ring(), MATCH_ROI)
 
         assert match is not None
         assert match.offset.px.x == pytest.approx(6.0, abs=1.0)
@@ -377,25 +331,25 @@ class TestCopperEdgeMatcher:
         """どちらかのマスクが空なら None を返す."""
         empty = np.zeros((200, 200), dtype=np.uint8)
 
-        assert matcher.match(empty, _edge_ring()) is None
-        assert matcher.match(_edge_ring(), empty) is None
+        assert matcher.match(empty, _edge_ring(), MATCH_ROI) is None
+        assert matcher.match(_edge_ring(), empty, MATCH_ROI) is None
 
-    def test_shift_beyond_window_stays_in_window_with_large_distance(
-        self, matcher: CopperEdgeMatcher
-    ):
-        """窓 (2mm=20px) を超える 30px ずれ → |offset| ≤ 窓、mean_distance 大."""
-        match = matcher.match(_edge_ring(30, 0), _edge_ring())
+    def test_shift_beyond_window_returns_none(self, matcher: CopperEdgeMatcher):
+        """窓 (2mm=20px) を超えるずれは探索窓端の偽解として棄却する."""
+        match = matcher.match(_edge_ring(30, 0), _edge_ring(), MATCH_ROI)
 
-        assert match is not None
-        assert abs(match.offset.px.x) <= 21.0
-        assert abs(match.offset.px.y) <= 21.0
-        assert match.mean_distance_px > 2.0
+        assert match is None
+
+    def test_one_directional_edges_return_none(self, matcher: CopperEdgeMatcher):
+        """一方向にしか拘束のない領域は解を捏造せず棄却する."""
+        assert (
+            matcher.match(_horizontal_edge(102), _horizontal_edge(100), MATCH_ROI)
+            is None
+        )
 
     def test_expected_edges_outside_crop_do_not_affect_match(self):
         """crop_size 外の想定エッジ（別のずれを示唆する構造）が結果に影響しない."""
-        matcher = CopperEdgeMatcher(
-            pixel_per_mm=PPM, search_window_mm=1.0, crop_size=(100, 100)
-        )
+        matcher = CopperEdgeMatcher(pixel_per_mm=PPM, search_window_mm=1.0)
         expected = np.zeros((200, 200), dtype=np.uint8)
         observed = np.zeros((200, 200), dtype=np.uint8)
         # crop 内 (rows/cols 50..150): (+4, +2)px ずれたリング
@@ -407,7 +361,7 @@ class TestCopperEdgeMatcher:
         cv2.rectangle(observed, (5 - 8, 5 - 6), (38 - 8, 38 - 6), 255, 1)
         cv2.rectangle(observed, (12 - 8, 12 - 6), (31 - 8, 31 - 6), 255, 1)
 
-        match = matcher.match(observed, expected)
+        match = matcher.match(observed, expected, (50, 50, 150, 150))
 
         assert match is not None
         assert match.offset.px.x == pytest.approx(4.0, abs=1.0)
@@ -532,7 +486,7 @@ class TestEdgeMatch:
         """
         match = EdgeMatch(
             offset=Offset(px=Point2d(12.0, -8.0), pixel_per_mm=PPM),
-            mean_distance_px=0.0,
+            rms_distance_px=0.0,
         )
 
         transform = match.camera_transform
