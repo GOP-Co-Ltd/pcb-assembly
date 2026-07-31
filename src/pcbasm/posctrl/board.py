@@ -18,27 +18,10 @@ from pcbasm.pcb import Outline
 from pcbasm.utils import get_class_module_path
 
 
-def _select_corners(ref_point: ReferencePoint) -> tuple[Corner, Corner]:
-    """計測に使用する2つのコーナーを選択する.
-
-    TOP_LEFT以外の利用可能なコーナーから2つを選択する。 優先順位: (TR, BL) → (TR, BR) → (BL, BR)
-    """
-    offsets = ref_point.offsets
-    has_tr = offsets.has_corner(Corner.TOP_RIGHT)
-    has_bl = offsets.has_corner(Corner.BOTTOM_LEFT)
-
-    if has_tr and has_bl:
-        return Corner.TOP_RIGHT, Corner.BOTTOM_LEFT
-    if has_tr:
-        return Corner.TOP_RIGHT, Corner.BOTTOM_RIGHT
-    return Corner.BOTTOM_LEFT, Corner.BOTTOM_RIGHT
-
-
 class BoardTransformMeasurer:
     """Board座標から機械座標への変換を計測するクラス.
 
-    3点法を用いて、reference pointの実測位置から
-    2x2変換行列と平行移動を計算する。
+    4つのreference pointの実測位置からaffine変換を最小二乗推定する。
 
     Example:
         from pcbasm.pcb import PcbFile
@@ -87,80 +70,68 @@ class BoardTransformMeasurer:
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
     def measure(self) -> Compose:
-        """3点法でboard→機械座標の変換を計測する.
-
-        TOP_LEFTと他2コーナーの実測位置から2x2変換行列を求める。
+        """4点の最小二乗法でboard→機械座標の変換を計測する.
 
         Returns:
             Board座標→機械座標のCompose変換 (Matrix2d → Shift)
+
+        Raises:
+            ValueError: 基準点配置のdesign matrixのrankが3未満の場合
         """
         self._logger.info("Board変換の計測を開始")
 
-        corner_a, corner_b = _select_corners(self._ref_point)
-        self._logger.info(f"計測コーナー: TOP_LEFT, {corner_a.name}, {corner_b.name}")
-
-        offset_tl = self._ref_point.offsets.get(Corner.TOP_LEFT)
+        corners = (
+            Corner.TOP_LEFT,
+            Corner.TOP_RIGHT,
+            Corner.BOTTOM_LEFT,
+            Corner.BOTTOM_RIGHT,
+        )
+        self._logger.info(
+            "計測コーナー: TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT"
+        )
         move_velocity = self._stage.max_velocity * self._move_velocity_ratio
+        machine_points = [
+            self._measure_corner(corner, move_velocity) for corner in corners
+        ]
 
-        # --- TOP_LEFT ---
-        pos_tl = self._measure_corner(Corner.TOP_LEFT, move_velocity)
-
-        # --- Corner A ---
-        pos_a = self._measure_corner(corner_a, move_velocity)
-
-        # --- Corner B ---
-        pos_b = self._measure_corner(corner_b, move_velocity)
-
-        # ボード空間でのTL→A, TL→Bベクトル（理論値）
-        ref_pos_tl = self._get_reference_position(Corner.TOP_LEFT)
-        board_vec_a = self._get_reference_position(corner_a) - ref_pos_tl
-        board_vec_b = self._get_reference_position(corner_b) - ref_pos_tl
-
-        # 機械空間での実測ベクトル
-        mach_vec_a = pos_a - pos_tl
-        mach_vec_b = pos_b - pos_tl
-
-        self._logger.info(
-            f"ボード空間ベクトルA: ({board_vec_a.x:.3f}, {board_vec_a.y:.3f})"
+        offsets = self._ref_point.offsets
+        board_points = (
+            offsets.get(Corner.TOP_LEFT),
+            Point2d(self._outline.width, 0.0) + offsets.get(Corner.TOP_RIGHT),
+            Point2d(0.0, self._outline.height) + offsets.get(Corner.BOTTOM_LEFT),
+            Point2d(self._outline.width, self._outline.height)
+            + offsets.get(Corner.BOTTOM_RIGHT),
         )
-        self._logger.info(
-            f"ボード空間ベクトルB: ({board_vec_b.x:.3f}, {board_vec_b.y:.3f})"
+        design = np.array(
+            [[point.x, point.y, 1.0] for point in board_points],
         )
-        self._logger.info(
-            f"機械空間ベクトルA: ({mach_vec_a.x:.4f}, {mach_vec_a.y:.4f})"
-        )
-        self._logger.info(
-            f"機械空間ベクトルB: ({mach_vec_b.x:.4f}, {mach_vec_b.y:.4f})"
-        )
+        measured = np.array([[point.x, point.y] for point in machine_points])
+        params, _, rank, _ = np.linalg.lstsq(design, measured, rcond=None)
+        if rank < 3:
+            raise ValueError(
+                f"基準点配置のdesign matrixのrankが不足しています: rank={rank}"
+            )
 
-        # 2x2変換行列を計算: T = M @ B^(-1)
-        b_mat = np.array(
-            [[board_vec_a.x, board_vec_b.x], [board_vec_a.y, board_vec_b.y]]
-        )
-        m_mat = np.array([[mach_vec_a.x, mach_vec_b.x], [mach_vec_a.y, mach_vec_b.y]])
-        t_mat = m_mat @ np.linalg.inv(b_mat)
-        matrix = Matrix2d(t_mat)
-        self._logger.info(f"変換行列:\n{t_mat}")
-
-        # Board原点の機械座標を計算
-        board_origin = pos_tl - matrix.apply(offset_tl)
-        self._logger.info(
-            f"Board左上コーナーの機械座標: ({board_origin.x:.4f}, {board_origin.y:.4f})"
-        )
+        matrix_values = params[:2].T
+        translation = params[2]
+        matrix = Matrix2d(matrix_values)
+        shift = Shift(x=float(translation[0]), y=float(translation[1]))
+        self._logger.info(f"変換行列:\n{matrix_values}")
+        self._logger.info(f"Board原点の機械座標: ({shift.x:.4f}, {shift.y:.4f})")
 
         # 変換を構成（Matrix2d → Shift）
-        transform = Compose([matrix, Shift.from_point(board_origin)])
+        transform = Compose([matrix, shift])
+        for corner, board_point, machine_point in zip(
+            corners, board_points, machine_points, strict=True
+        ):
+            residual = transform.apply(board_point) - machine_point
+            self._logger.info(
+                f"残差 {corner.name}: ({residual.x:.4f}, {residual.y:.4f}) mm, "
+                f"距離 {residual.norm:.4f} mm"
+            )
 
         self._logger.info("Board変換の計測完了")
         return transform
-
-    def _get_reference_position(self, corner: Corner) -> Point2d:
-        """指定コーナーの理論的な基準点位置を返す."""
-        return self._ref_point.get_reference_position(
-            corner,
-            board_width=self._outline.width,
-            board_height=self._outline.height,
-        )
 
     def _measure_corner(
         self,
@@ -168,7 +139,11 @@ class BoardTransformMeasurer:
         move_velocity: float,
     ) -> Point2d:
         """指定コーナーへ移動し、位置補正した座標を返す."""
-        ref_pos = self._get_reference_position(corner)
+        ref_pos = self._ref_point.get_reference_position(
+            corner,
+            board_width=self._outline.width,
+            board_height=self._outline.height,
+        )
 
         self._logger.info(f"=== {corner.name} Reference Pointへ移動 ===")
         self._logger.info(f"目標位置: ({ref_pos.x:.3f}, {ref_pos.y:.3f})")

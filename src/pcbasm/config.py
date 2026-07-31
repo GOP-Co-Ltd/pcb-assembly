@@ -291,8 +291,6 @@ class Corner(Enum):
 class CornerOffsets:
     """各コーナーにおけるボード端から基準点マーカーへのオフセット.
 
-    top_leftは必須。それ以外は少なくとも1つ指定する必要がある。
-
     Attributes:
         top_left: 左上コーナーのオフセット [x, y] (mm)
         top_right: 右上コーナーのオフセット [x, y] (mm)
@@ -301,34 +299,12 @@ class CornerOffsets:
     """
 
     top_left: tuple[float, float]
-    top_right: tuple[float, float] | None = None
-    bottom_left: tuple[float, float] | None = None
-    bottom_right: tuple[float, float] | None = None
-
-    def __attrs_post_init__(self) -> None:
-        if (self.top_right, self.bottom_left, self.bottom_right).count(None) >= 2:
-            raise ValueError(
-                "top_left以外に少なくとも2つのコーナーオフセットを指定してください"
-            )
-
-    def has_corner(self, corner: Corner) -> bool:
-        """指定コーナーのオフセットが定義されているか返す."""
-        match corner:
-            case Corner.TOP_LEFT:
-                return True
-            case Corner.TOP_RIGHT:
-                return self.top_right is not None
-            case Corner.BOTTOM_LEFT:
-                return self.bottom_left is not None
-            case Corner.BOTTOM_RIGHT:
-                return self.bottom_right is not None
+    top_right: tuple[float, float]
+    bottom_left: tuple[float, float]
+    bottom_right: tuple[float, float]
 
     def get(self, corner: Corner) -> Point2d:
-        """指定コーナーのオフセットをPoint2dで返す.
-
-        Raises:
-            ValueError: 指定コーナーのオフセットが未定義の場合
-        """
+        """指定コーナーのオフセットをPoint2dで返す."""
         match corner:
             case Corner.TOP_LEFT:
                 offset = self.top_left
@@ -339,8 +315,6 @@ class CornerOffsets:
             case Corner.BOTTOM_RIGHT:
                 offset = self.bottom_right
 
-        if offset is None:
-            raise ValueError(f"{corner.name}のオフセットは定義されていません")
         return Point2d(x=offset[0], y=offset[1])
 
 
@@ -348,12 +322,12 @@ class CornerOffsets:
 class ReferencePoint:
     """基準点の設定.
 
-    x, yは左上基準点マーカーのマシン座標。
-    offsetsは各コーナーにおけるボード端から基準点マーカーへのオフセット。
+    x, yは左上基準点マーカーへ移動するための概略マシン座標。
+    offsetsは各ボードコーナーから対応する基準点マーカーへのPCB座標系ベクトル。
 
-    座標関係:
-        - ボード左上コーナー = to_point() - offsets.get(TOP_LEFT)
-        - 各コーナーの基準点 = ボードコーナー + offsets.get(corner)
+    概略移動先の座標関係:
+        - ボード左上コーナーの概略位置 = to_point() - offsets.get(TOP_LEFT)
+        - 各コーナーの概略基準点位置 = ボードコーナーの概略位置 + offsets.get(corner)
     """
 
     x: float
@@ -362,7 +336,7 @@ class ReferencePoint:
     offsets: CornerOffsets
 
     def to_point(self) -> Point2d:
-        """左上基準点マーカーのマシン座標をPoint2dとして返す."""
+        """左上基準点マーカーの概略マシン座標をPoint2dとして返す."""
         return Point2d(self.x, self.y)
 
     def get_reference_position(
@@ -380,7 +354,7 @@ class ReferencePoint:
             board_height: ボード高さ（BOTTOM_LEFT/BOTTOM_RIGHTで必須）
 
         Returns:
-            基準点マーカーのマシン座標
+            基準点マーカーへ移動するための概略マシン座標
 
         Raises:
             ValueError: 必要なboard_width/board_heightが指定されていない場合
