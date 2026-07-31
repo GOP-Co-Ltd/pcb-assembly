@@ -114,6 +114,7 @@ class TestMachine:
 
         assert machine.paste_dispenser.pad_align == PadAlign()
         assert machine.paste_dispenser.pad_align.region_size_px == 100
+        assert machine.paste_dispenser.pad_align.sharpen_amount == pytest.approx(0.5)
 
     def test_solder_paste_density_defaults_when_absent(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
@@ -133,6 +134,8 @@ class TestMachine:
         path.write_text(
             source + "\n[paste_dispenser.pad_align]\nregion_size_px = 160\n"
             "region_overlap = 0.25\n"
+            "blur_ksize = 3\n"
+            "sharpen_amount = 1.2\n"
         )
 
         pad_align = Machine(path).paste_dispenser.pad_align
@@ -140,6 +143,8 @@ class TestMachine:
         assert pad_align.region_size_px == 160
         assert pad_align.region_overlap == pytest.approx(0.25)
         assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
+        assert pad_align.blur_ksize == 3
+        assert pad_align.sharpen_amount == pytest.approx(1.2)
 
     def test_initial_purge_ul_defaults_when_absent(self):
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
@@ -304,6 +309,8 @@ class TestPadAlignRegionSettings:
         assert pad_align.board_edge_margin == pytest.approx(0.5)
         assert pad_align.max_passes == 5
         assert pad_align.converge_tolerance == pytest.approx(0.03)
+        assert pad_align.blur_ksize == 5
+        assert pad_align.sharpen_amount == pytest.approx(0.5)
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -343,6 +350,41 @@ class TestPadAlignRegionSettings:
     def test_rejects_invalid_distance_settings(self, key, value):
         with pytest.raises(ValueError, match=key):
             PadAlign(**{key: value})
+
+    @pytest.mark.parametrize(
+        "blur_ksize",
+        [0, -1, 2, 4, True, 3.5],
+        ids=["zero", "negative", "even-two", "even-four", "bool", "non-integer"],
+    )
+    def test_rejects_blur_kernel_that_is_not_a_positive_odd_integer(self, blur_ksize):
+        with pytest.raises(ValueError, match="blur_ksize"):
+            PadAlign(blur_ksize=blur_ksize)
+
+    @pytest.mark.parametrize(
+        "sharpen_amount",
+        [-0.01, float("nan"), float("inf"), float("-inf"), True],
+        ids=["negative", "nan", "positive-infinity", "negative-infinity", "bool"],
+    )
+    def test_rejects_sharpen_amount_that_is_not_finite_and_nonnegative(
+        self, sharpen_amount
+    ):
+        with pytest.raises(ValueError, match="sharpen_amount"):
+            PadAlign(sharpen_amount=sharpen_amount)
+
+    @pytest.mark.parametrize(
+        ("blur_ksize", "sharpen_amount"),
+        [(1, 0.0), (3, 0.5), (7, 2.0)],
+    )
+    def test_accepts_valid_preprocessing_settings(
+        self, blur_ksize: int, sharpen_amount: float
+    ):
+        pad_align = PadAlign(
+            blur_ksize=blur_ksize,
+            sharpen_amount=sharpen_amount,
+        )
+
+        assert pad_align.blur_ksize == blur_ksize
+        assert pad_align.sharpen_amount == pytest.approx(sharpen_amount)
 
 
 class TestMachineType:

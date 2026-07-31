@@ -1,5 +1,5 @@
 {# プレビューの overlay 切替（none / crosshair）。初期選択は preview_overlay（既定 none）。
-   copper_detection の canny 版は固有なので対象外。 #}
+   copper_detection のエッジ検出版は固有なので対象外。 #}
 {% set selected_overlay = preview_overlay | default('none') %}
 <fieldset class="preview-controls">
   <legend>オーバーレイ</legend>

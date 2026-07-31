@@ -329,15 +329,26 @@ class TestPreviewPages:
         """Overlay 既定はページごとに指定でき、camera_preview は素の映像（none）のまま."""
         assert _checked_overlay(client.get("/posctrl/camera_preview").text) == "none"
 
-    def test_copper_detection_page_renders_canny_controls(self, client: TestClient):
+    def test_copper_detection_page_renders_preprocessing_controls(
+        self, client: TestClient
+    ):
         response = client.get("/posctrl/copper_detection")
 
         assert response.status_code == 200
-        assert "canny" in response.text
-        assert "設定に保存" in response.text
+        text = response.text
+        assert "canny" in text
+        assert "設定に保存" in text
         # スライダー初期値は machine.toml の pad_align 値（canny_low=81 / canny_high=192）
-        assert "81" in response.text
-        assert "192" in response.text
+        assert 'id="canny-low"' in text
+        assert 'value="81"' in text
+        assert 'id="canny-high"' in text
+        assert 'value="192"' in text
+        assert re.search(
+            r'<input\b(?=[^>]*\bid="sharpen-amount")'
+            r'(?=[^>]*\bmin="0")(?=[^>]*\bmax="2")'
+            r'(?=[^>]*\bstep="0\.1")(?=[^>]*\bvalue="0\.5")[^>]*>',
+            text,
+        )
 
 
 POSCTRL_JOB_FEATURES = ("camera_calibration", "board_tour", "orthogonality_test")
