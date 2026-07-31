@@ -59,7 +59,8 @@ class TestSettingsFromEnv:
         # None は「machine_id（= hostname）から解決」を意味する（routers/common.py）
         assert settings.mainsail_url is None
         assert settings.hostname is None
-        assert settings.port == 8080
+        # 8080 は UI frontend の既定。backend は 8081（同居機で共存させる）
+        assert settings.port == 8081
 
     def test_env_overrides_each_field(
         self, clean_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

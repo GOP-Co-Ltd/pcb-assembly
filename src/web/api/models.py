@@ -119,13 +119,27 @@ class StateResponse(BaseModel):
 
 
 class SettingsField(BaseModel):
-    """machine.toml のホワイトリスト項目 1 件（現在値付き）."""
+    """machine.toml のホワイトリスト項目 1 件（現在値 + 実効値）.
+
+    ``value`` は machine.toml に**書かれている値**（未記載なら None）で、設定フォームの
+    入力値になる。``resolved`` は既定値まで解決した**実効値**（装置が実際に使う値）で、
+    現在値の表示に使う。両方を返すのは、未記載キーを 0 などで代替して描くと、その値が
+    保存フォームに乗って machine.toml へ書き戻されるため。セクションごと欠けている /
+    壊れている場合は ``resolved`` も None。
+    """
 
     key: str
     label: str
     value_type: SettingValueType
     unit: str | None
     value: MachineSettingValue | None
+    resolved: MachineSettingValue | None
+
+
+class MachineSettingsResponse(BaseModel):
+    """/api/settings/machine の machine.toml ホワイトリスト項目一覧."""
+
+    fields: list[SettingsField]
 
 
 class MachineInfo(BaseModel):

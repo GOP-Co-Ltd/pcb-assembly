@@ -1,0 +1,10 @@
+{# マシン選択ドロップダウン。表示名と遷移先 URL はサーバが組む（JS は遷移だけ）。 #}
+{% if machines %}
+<select id="machine-select" class="machine-select" title="マシンを選択"
+        aria-label="マシンを選択" data-testid="machine-select">
+  {% for machine in machines %}
+  <option value="{{ '/m/' ~ machine.machine_id ~ '/' ~ current_suffix }}"
+          {% if machine.machine_id == machine_id %}selected{% endif %}>{{ machine.label }}</option>
+  {% endfor %}
+</select>
+{% endif %}

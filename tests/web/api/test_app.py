@@ -4,12 +4,15 @@
 
 - create_app(settings) で注入 Settings のアプリが起動する
 - BusyError → 409 JSON の exception handler が登録される
-- /static 配下の静的ファイル配信
 
 MR1 追記（計画書 web-api-ui-split.md「MR1」節）:
 
 - JobManager と HTTP 経路は同一の BoardSettingsStore を共有する
   （別インスタンスだと更新ロックが効かず、ジョブ実行中の pad 編集が消える）
+
+MR4 追記（同「MR4」節）: ``templates`` / ``static`` は frontend (`web.ui`) へ移設した
+ため、backend は静的資産を配信しない（ブラウザキャッシュを 1 本で共有するために
+``/static`` は frontend が prefix なしで持つ）。
 """
 
 from fastapi import FastAPI
@@ -42,11 +45,11 @@ class TestCreateApp:
         assert response.headers["content-type"].startswith("application/json")
         assert "pytest-job" in response.text
 
-    def test_static_css_is_served(self, client: TestClient):
+    def test_static_assets_are_not_served_by_backend(self, client: TestClient):
+        """静的資産は frontend の所有（backend に二重に置かない）."""
         response = client.get("/static/app.css")
 
-        assert response.status_code == 200
-        assert "text/css" in response.headers["content-type"]
+        assert response.status_code == 404
 
 
 class TestBoardStoreSharing:

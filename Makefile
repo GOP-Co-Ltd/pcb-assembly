@@ -40,7 +40,7 @@ type: ## Run type check
 	uv run pyright
 
 api-dev: ## Run backend WebAPI dev server (auto-reload)
-	uv run uvicorn web.api.app:create_app --factory --reload --host 0.0.0.0 --port 8080
+	uv run uvicorn web.api.app:create_app --factory --reload --host 0.0.0.0 --port 8081
 
 api: ## Run backend WebAPI server
 	uv run python -m web.api
@@ -50,6 +50,22 @@ api-fake: ## Run backend WebAPI with fake camera (isolated data_dir/port; for ma
 	PCBASM_API_PORT=$${PCBASM_API_PORT:-8099} \
 	PCBASM_API_DATA_DIR=$${PCBASM_API_DATA_DIR:-/tmp/pcbasm-webui-fake} \
 	uv run python -m web.api
+
+ui-dev: ## Run UI frontend dev server (auto-reload)
+	uv run uvicorn web.ui.app:create_app --factory --reload --host 0.0.0.0 --port 8080
+
+ui: ## Run UI frontend server
+	uv run python -m web.ui
+
+# 隔離ポートの frontend を api-fake（8099）へ向ける。machines は env で渡せない
+# （マシン一覧は machines_file と mDNS 探索が真実）ので静的登録を 1 台だけ生成する
+ui-fake: ## Run UI frontend against api-fake (isolated port; for manual/browser E2E)
+	@mkdir -p $${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}
+	@printf '[[machine]]\nmachine_id = "fake"\nhost = "127.0.0.1"\nport = %s\nname = "fake backend"\n' \
+		"$${PCBASM_API_PORT:-8099}" > $${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}/machines.toml
+	PCBASM_UI_PORT=$${PCBASM_UI_PORT:-8098} \
+	PCBASM_UI_MACHINES_FILE=$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}/machines.toml \
+	uv run python -m web.ui
 
 # 旧名のエイリアス。実機の pcbasm-webui.service が ExecStart=make webui を参照している
 # ため、systemd unit を api / ui の 2 本に分けるまで残す

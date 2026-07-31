@@ -48,7 +48,7 @@ sudo systemctl restart klipper  # printer.cfg の反映
 
 ## WebUI
 
-装置をブラウザから操作するUI（port 8080）。
+装置をブラウザから操作するUI。backend WebAPI は port 8081（UI frontend は 8080）。
 
 ```sh
 make api      # 起動

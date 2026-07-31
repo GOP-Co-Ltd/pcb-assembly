@@ -221,6 +221,23 @@
   let timer = null;
   const toggle = document.getElementById("mc-toggle");
 
+  function startPolling() {
+    if (timer !== null) return;
+    pollStatus();
+    timer = setInterval(pollStatus, 2000);
+  }
+
+  function stopPolling() {
+    clearInterval(timer);
+    timer = null;
+  }
+
+  // 折りたたみ中と背景タブでは Moonraker を叩かない（放置タブ分の負荷を削る）
+  function updatePolling() {
+    if (sidebar.classList.contains("collapsed") || document.hidden) stopPolling();
+    else startPolling();
+  }
+
   function applyCollapsed(collapsed) {
     sidebar.classList.toggle("collapsed", collapsed);
     if (layout) {
@@ -231,15 +248,7 @@
     }
     // 右サイドバー: 展開中は "<"（左へ畳む）、折りたたみ中は ">"（右へ開く）
     toggle.textContent = collapsed ? ">" : "<";
-    if (collapsed) {
-      if (timer !== null) {
-        clearInterval(timer);
-        timer = null;
-      }
-    } else if (timer === null) {
-      pollStatus();
-      timer = setInterval(pollStatus, 2000);
-    }
+    updatePolling();
   }
 
   toggle.addEventListener("click", () => {
@@ -249,6 +258,7 @@
   });
 
   applyCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
+  document.addEventListener("visibilitychange", updatePolling);
 
   // ---- 左端ハンドルのドラッグで幅を変更 ----
 

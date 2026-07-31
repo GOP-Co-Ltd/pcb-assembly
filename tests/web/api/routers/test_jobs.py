@@ -414,9 +414,10 @@ class TestSaveParamDefaults:
             "rate": 1.5,
             "accel": 2.0,
         }
-        # 実行を経ずに次回フォーム描画へ反映される
+        # 実行を経ずに次回フォームの既定値になる（MR4 以降、これが描画に乗ることは
+        # frontend 側の tests/web/ui/test_pages.py が `GET /api/jobs` 経由で確かめる）
         assert appstate.job_param_defaults("loading")["rotations"] == 7.0
-        assert 'value="0.4"' in client.get("/pasting/loading").text
+        assert appstate.job_param_defaults("loading")["amount"] == 0.4
 
     def test_ignores_non_persisted_and_invalid_values(
         self, client: TestClient, appstate: AppState

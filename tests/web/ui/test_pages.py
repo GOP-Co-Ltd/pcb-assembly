@@ -68,21 +68,40 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が上書き契約:
 - `machine_name` は `SECTION_LABELS` の「マシン」セクションに出る（トップレベルの
   bare key なので、エントリが無いと `<summary>` に生キーが出る）
 - machine.toml がパース不能でも、`AppState` の防御を通るページは 200 を返す
+
+MR4（同「MR4」節）が上書き契約: ページを描くのは frontend（`web.ui`）で、値は backend の
+`GET /api/machine-info` / `/api/state` / `/api/jobs` / `/api/settings/machine` から取る。
+`tests/web/api/routers/test_pages.py` からの移設で、**本文を変えたのは 3 件だけ**
+（`/` の 307 先・backend Settings 差し替えの 2 件。それぞれの docstring に理由がある）。
+これに加えて machine.toml 依存ページの期待値を 503 として新規に固定した 1 件がある:
+
+- 実体の URL は `/m/{machine_id}/…`。未 prefix の URL は既知マシン 1 台なら 307 する
+  ので、`follow_redirects` 既定 True の `TestClient` では従来どおりのパスで叩ける
+- backend の Settings を差し替える 2 件は、その backend を上流に挿した frontend を
+  組む（`_frontend_over`）
+- machine.toml 依存ページ（`_MACHINE_TOML_DEPENDENT_URLS`）は 500 ではなく 503
+  （`MachineClient` が `/api/settings/machine` の 500 を `BackendUnavailable` に畳む）
 """
 
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import attrs
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from web.api.app import create_app
-from web.api.jobs.catalog import default_catalog
-from web.api.routers.pages import TABS as PAGE_TABS
-from web.api.settings import Settings
+from web.api.app import create_app as create_backend_app
+from web.api.jobs.catalog import JobCatalog, default_catalog
+from web.api.settings import Settings as ApiSettings
 from web.api.state import AppState
+from web.ui.app import create_app as create_frontend_app
+from web.ui.layout import TABS as PAGE_TABS
+from web.ui.machines import MachineEndpoint
+from web.ui.settings import Settings as UiSettings
 
 TABS = ["dev", "pasting", "pnp", "posctrl"]
 
@@ -95,7 +114,8 @@ ALL_PAGE_URLS = ["/settings"] + [
 
 # machine.toml を `AppState` の防御の外で読むページ。設定フォームの現在値
 # （ConfigStore / tomlkit）や paste_dispenser・pad_align の現在値をコンテキストに
-# 載せるため、machine.toml がパース不能だと 500 になる（MR2 の防御対象外）
+# 載せるため、machine.toml がパース不能だと backend の `/api/settings/machine` が
+# 500 になり、frontend は 503 ページを返す（MR2 の防御対象外）
 _MACHINE_TOML_DEPENDENT_URLS = frozenset(
     {
         "/settings",
@@ -132,18 +152,157 @@ def _checked_overlay(html: str) -> str | None:
     return None
 
 
+@pytest.fixture
+def client(frontend_client: TestClient) -> TestClient:
+    """UI frontend の TestClient.
+
+    このファイルのページ取得はすべて frontend 経由（`web.ui`）で、上流には
+    in-process の実 backend が挿さっている。移設前の `client` と同名にしてあるのは、
+    テスト本文を変えずに移設できたことを diff で見えるようにするため。
+    """
+    return frontend_client
+
+
+@pytest.fixture
+def config_dir(backend_settings: ApiSettings) -> Path:
+    """上流 backend が読む config ディレクトリ（machine.toml の書き換え材料）."""
+    return backend_settings.config_dir
+
+
+@pytest.fixture
+def appstate(backend_app: FastAPI) -> AppState:
+    """上流 backend の AppState（保存済みジョブ既定値の注入に使う）."""
+    return backend_app.state.appstate
+
+
+@pytest.fixture
+def partial_nozzle_cap(config_dir: Path) -> Path:
+    """`[nozzle_cap]` に x だけを書いた machine.toml を用意する（そのパスを返す）.
+
+    設定画面から 1 軸だけ保存すると実際にこの配置になり、`Machine.nozzle_cap` の
+    structure は例外を投げる。`/api/state` と SSR がこれで 500 しないことをピンする
+    ための素材（`AppState.nozzle_cap()` の防御が要）。
+    """
+    with config_dir.joinpath("machine.toml").open(
+        "a", encoding="utf-8"
+    ) as machine_toml:
+        machine_toml.write("\n[nozzle_cap]\nx = 12.5\n")
+    return config_dir / "machine.toml"
+
+
+@pytest.fixture
+def broken_machine_toml(config_dir: Path) -> Path:
+    """終端されていない文字列を追記して machine.toml をパース不能にする（そのパスを返す）.
+
+    `Machine()` も `tomlkit` もこの machine.toml で例外を投げる。全ページの SSR が
+    共通で使う `/api/machine-info` / `/api/state`（`machine_name()` /
+    `machine_type()` / `focus_z()` の broad except → None）が効いていることをピンする
+    ための素材。
+    """
+    with config_dir.joinpath("machine.toml").open(
+        "a", encoding="utf-8"
+    ) as machine_toml:
+        machine_toml.write('\nbroken_key = "unterminated\n')
+    return config_dir / "machine.toml"
+
+
+@pytest.fixture
+def machine_toml_without_defaulted_keys(config_dir: Path) -> Path:
+    """既定値を持つキーを machine.toml から削除する（未記載 → 既定値解決の素材）.
+
+    実機の machine.toml はテンプレートから作るので、テンプレートに無いキーは普通に 未記載になる。未記載を frontend
+    が 0 で埋めると、その 0 が画面に出たうえで 「設定に保存」で書き戻される。
+    """
+    path = config_dir / "machine.toml"
+    dropped = ("canny_low", "canny_high", "blur_ksize", "solder_paste_density")
+    path.write_text(
+        "".join(
+            line
+            for line in path.read_text(encoding="utf-8").splitlines(keepends=True)
+            if not line.startswith(dropped)
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+@pytest.fixture
+def machine_toml_without_required_paste_dispenser_key(config_dir: Path) -> Path:
+    """`[paste_dispenser]` の必須キー（既定値なし）を 1 本落とす（そのパスを返す）.
+
+    TOML としては読めるので backend の `/api/settings/machine` は 200 を返すが、
+    cattrs が `PasteDispenser` を組めないため `paste_dispenser.*` の実効値
+    （`resolved`）が全て None になる（backend は 1 セクションの不備で他セクションの
+    実効値まで失わせないよう、キー単位で例外を潰す）。テンプレートから作った
+    machine.toml に必須キーが無い実機で普通に起きる状態。
+    """
+    path = config_dir / "machine.toml"
+    path.write_text(
+        "".join(
+            line
+            for line in path.read_text(encoding="utf-8").splitlines(keepends=True)
+            if not line.startswith("nozzle_diameter")
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+@contextmanager
+def _frontend_over(
+    ui_settings: UiSettings,
+    backend_settings: ApiSettings,
+    *,
+    catalog: JobCatalog | None = None,
+) -> Iterator[TestClient]:
+    """Settings を差し替えた backend を上流に挿した frontend の TestClient.
+
+    MR4 でページを描くのは frontend なので、backend の Settings を変えた影響を
+    ページで見るには、その backend を上流にした frontend を組む必要がある
+    （conftest の `frontend_client` は既定の `backend_settings` 固定）。
+
+    Args:
+        ui_settings: frontend 設定（登録マシン 1 台）
+        backend_settings: 上流 backend の設定
+        catalog: backend のジョブカタログの差し替え（版ずれの再現に使う）
+    """
+    backend = create_backend_app(backend_settings)
+    if catalog is not None:
+        backend.state.catalog = catalog
+    frontend = create_frontend_app(
+        ui_settings,
+        transport_factory=lambda _endpoint: httpx.ASGITransport(app=backend),
+    )
+    try:
+        with TestClient(frontend) as test_client:
+            yield test_client
+    finally:
+        # backend の lifespan は ASGITransport では走らないので明示的に後始末する
+        backend.state.preview.request_shutdown()
+        backend.state.jobs.shutdown()
+        backend.state.appstate.close()
+
+
 class TestPages:
     """Jinja2 ページ配信."""
 
-    def test_root_redirects_to_posctrl(self, client: TestClient):
+    def test_root_redirects_to_posctrl(
+        self, client: TestClient, ui_settings: UiSettings
+    ):
+        """MR4: 既知マシンが 1 台なら `/m/{machine_id}/posctrl` へ 307 する.
+
+        リダイレクト先に machine prefix が付く点だけが移設前と違う（従来は
+        `/posctrl`）。prefix が無いと `/{tab}` の入口へ戻ってループする。
+        """
         response = client.get("/", follow_redirects=False)
 
         assert response.status_code == 307
-        assert response.headers["location"] == "/posctrl"
+        machine_id = ui_settings.machines[0].machine_id
+        assert response.headers["location"] == f"/m/{machine_id}/posctrl"
 
     @pytest.mark.parametrize("tab", TABS)
     def test_tab_page_renders_with_common_chrome(
-        self, client: TestClient, webui_settings: Settings, tab: str
+        self, client: TestClient, backend_settings: ApiSettings, tab: str
     ):
         response = client.get(f"/{tab}")
 
@@ -151,7 +310,7 @@ class TestPages:
         assert "緊急停止" in response.text
         assert "ファームウェア再起動" in response.text
         assert "machine-control" in response.text
-        assert webui_settings.mainsail_url in response.text
+        assert backend_settings.mainsail_url in response.text
 
     def test_tabs_render_japanese_labels(self, client: TestClient):
         text = client.get("/posctrl").text
@@ -159,20 +318,25 @@ class TestPages:
         for label in ("開発", "はんだ塗布", "部品実装", "位置合わせ"):
             assert label in text
 
-    def test_file_browser_start_path_is_rendered(self, webui_settings: Settings):
-        """Pcb_browse_start の pcb_browse_root 相対パスが data-fb-start に出る."""
+    def test_file_browser_start_path_is_rendered(
+        self, ui_settings: UiSettings, backend_settings: ApiSettings
+    ):
+        """Pcb_browse_start の pcb_browse_root 相対パスが data-fb-start に出る.
+
+        MR4: 値は backend が `/api/machine-info` の `fb_start` で解決するので、
+        差し替えた backend Settings を上流に挿した frontend でページを取る。
+        """
         evolved = attrs.evolve(
-            webui_settings, pcb_browse_root=webui_settings.pcb_browse_root.parent
+            backend_settings, pcb_browse_root=backend_settings.pcb_browse_root.parent
         )
-        app = create_app(evolved)
-        with TestClient(app) as client:
+        with _frontend_over(ui_settings, evolved) as client:
             text = client.get("/posctrl").text
 
-        start = webui_settings.pcb_browse_start.name
+        start = backend_settings.pcb_browse_start.name
         assert f'data-fb-start="{start}"' in text
 
     def test_mainsail_link_resolves_from_machine_id_when_unset(
-        self, webui_settings: Settings
+        self, ui_settings: UiSettings, backend_settings: ApiSettings
     ):
         """PCBASM_MAINSAIL_URL 未設定時は backend の machine_id から `.local` で解決する.
 
@@ -180,9 +344,14 @@ class TestPages:
         ページ閲覧元は frontend 機になるため、リクエストのホスト名を使うと必ず誤った
         Mainsail を指す。裸のホスト名だと LAN の他端末（mDNS しか引けない）から開けない
         ので `.local` を付ける。SSR も `/api/machine-info` と同じ解決結果を使う。
+
+        MR4: frontend は backend が解決した値をそのまま描く（frontend 側に解決規則を
+        持たない）。`/api/machine-info` はプロキシ経由で同じ値を返す。
         """
-        settings = attrs.evolve(webui_settings, mainsail_url=None, hostname="paste-01")
-        with TestClient(create_app(settings)) as client:
+        settings = attrs.evolve(
+            backend_settings, mainsail_url=None, hostname="paste-01"
+        )
+        with _frontend_over(ui_settings, settings) as client:
             text = client.get("/posctrl").text
             info = client.get("/api/machine-info").json()
 
@@ -763,9 +932,9 @@ class TestJobDefinitionDrivenContext:
 
     @pytest.mark.parametrize("feature", PASTING_JOB_FEATURES)
     def test_preview_pane_presence_matches_provides_preview(
-        self, client: TestClient, app: FastAPI, feature: str
+        self, client: TestClient, backend_app: FastAPI, feature: str
     ):
-        definition = app.state.catalog.get(feature)
+        definition = backend_app.state.catalog.get(feature)
 
         text = client.get(f"/pasting/{feature}").text
 
@@ -773,7 +942,7 @@ class TestJobDefinitionDrivenContext:
 
     @pytest.mark.parametrize("feature", PASTING_JOB_FEATURES)
     def test_loading_controls_derive_stage_and_default_from_definition(
-        self, client: TestClient, app: FastAPI, feature: str
+        self, client: TestClient, backend_app: FastAPI, feature: str
     ):
         """Loading UI の段階と既定値が定義側の値と一致する.
 
@@ -782,7 +951,7 @@ class TestJobDefinitionDrivenContext:
         `"loading-controls" in text` が定数 True になる（検出力ゼロ）。段階文字列と
         `#lc-amount` の value を見て、4 feature すべてで定義との一致を確かめる。
         """
-        definition = app.state.catalog.get(feature)
+        definition = backend_app.state.catalog.get(feature)
 
         text = client.get(f"/pasting/{feature}").text
 
@@ -886,6 +1055,95 @@ class TestBrokenMachineTomlPages:
         self, broken_machine_toml: Path, client: TestClient, url: str
     ):
         assert client.get(url).status_code == 200
+
+    @pytest.mark.parametrize("url", sorted(_MACHINE_TOML_DEPENDENT_URLS))
+    def test_machine_toml_dependent_pages_return_503(
+        self, broken_machine_toml: Path, client: TestClient, url: str
+    ):
+        """設定の現在値を要るページは 500 ではなく 503 を返す（MR4）.
+
+        frontend が全ページで `/api/settings/machine` を取ると、machine.toml が
+        壊れただけで案内も出せない 503 が全画面に出る。取得を必要なページに限って
+        いることの裏返しとして、必要なページだけがここに落ちる。
+        """
+        assert client.get(url).status_code == 503
+
+
+class TestUnsetMachineSettingsShowResolvedValues:
+    """machine.toml に未記載のキーは backend が解決した実効値で描く（MR4）.
+
+    frontend が「未記載 → 0.0」で埋めると、copper_detection は canny 0 / blur_ksize 0 を
+    描き、その 0 が「設定に保存」で machine.toml へ書き戻されて銅箔検出が壊れる
+    （loading は密度 0.000 mg/uL を出す）。既定値の出所は backend の `resolved` だけに
+    保ち、frontend は既定値を持たない。
+    """
+
+    def test_copper_detection_renders_resolved_canny_values(
+        self, machine_toml_without_defaulted_keys: Path, client: TestClient
+    ):
+        text = client.get("/posctrl/copper_detection").text
+
+        # PadAlign の既定値（canny_low=100 / canny_high=200 / blur_ksize=5）
+        assert "blur_ksize: 5" in text
+        assert '<span id="canny-low-value" class="canny-value">100</span>' in text
+        assert '<span id="canny-high-value" class="canny-value">200</span>' in text
+        # スライダーの value がそのまま PUT されるので、捏造した 0 を載せない
+        assert '<span id="canny-low-value" class="canny-value">0</span>' not in text
+        assert "blur_ksize: 0" not in text
+
+    def test_loading_renders_resolved_paste_density(
+        self, machine_toml_without_defaulted_keys: Path, client: TestClient
+    ):
+        text = client.get("/pasting/loading").text
+
+        # PasteDispenser.solder_paste_density の既定値
+        assert '<dd>3.780 <span class="unit">mg/uL</span></dd>' in text
+        assert '<dd>0.000 <span class="unit">mg/uL</span></dd>' not in text
+        # machine.toml に書かれているキーは書かれている値のまま
+        assert ">45.783133</output>" in text
+
+
+class TestUnresolvableMachineSettingsAreNotFabricated:
+    """実効値が解決できないときは 0 を捏造せず 503 を返す（MR4 / M1）.
+
+    backend が落ちているわけではない（`/api/settings/machine` は 200）ので、frontend が
+    `resolved: None` を 0.0 で埋めると copper_detection は canny 0 / blur_ksize
+    0 を描き、 その 0 がスライダーの value として「設定に保存」で実機の machine.toml へ書き戻される。
+    実効値の出所は backend だけに保ち、解決できないなら描かない。
+    """
+
+    def test_settings_api_answers_200_with_unresolved_values(
+        self,
+        machine_toml_without_required_paste_dispenser_key: Path,
+        client: TestClient,
+        ui_settings: UiSettings,
+    ):
+        """Backend は 200 を返し、失うのは実効値だけ（生値は tomlkit で読めるまま）.
+
+        frontend が 503 にするのは「backend が落ちているから」ではなく
+        「実効値が無いから」であることを、上流の応答側から示す。
+        """
+        machine_id = ui_settings.machines[0].machine_id
+
+        response = client.get(f"/m/{machine_id}/api/settings/machine")
+
+        assert response.status_code == 200
+        fields = {field["key"]: field for field in response.json()["fields"]}
+        assert fields["paste_dispenser.pad_align.canny_low"]["resolved"] is None
+        assert fields["paste_dispenser.rotations_per_ul"]["value"] == 45.783133
+        # 欠けているのは [paste_dispenser] だけ = 他セクションの実効値は残る
+        assert fields["probe.min_samples"]["resolved"] == 6
+
+    def test_copper_detection_returns_503_instead_of_zero(
+        self,
+        machine_toml_without_required_paste_dispenser_key: Path,
+        client: TestClient,
+    ):
+        response = client.get("/posctrl/copper_detection")
+
+        assert response.status_code == 503
+        # 0 を描いたページを見せない（スライダーの value がそのまま PUT される）
+        assert "canny-low-value" not in response.text
 
 
 class TestMachineControlCapButton:
@@ -1000,3 +1258,260 @@ class TestPnpPlaceholder:
         # サイドバーに feature リンクが無い（他タブの feature 名が出ない）
         for feature in PASTING_JOB_FEATURES + POSCTRL_JOB_FEATURES:
             assert feature not in response.text
+
+
+def _frontend_only(machines: tuple[MachineEndpoint, ...], tmp_path: Path) -> TestClient:
+    """Backend を持たない frontend の TestClient.
+
+    レジストリだけで描けるページ（ピッカー・未登録の案内・到達不能の 503）用。
+    `machines_file` は不在パスにしてリポジトリの `config/machines.toml` を拾わない。
+    """
+    return TestClient(
+        create_frontend_app(
+            UiSettings(machines=machines, machines_file=tmp_path / "absent.toml")
+        )
+    )
+
+
+class TestMachinePrefixedUrls:
+    """`/m/{machine_id}` prefix の URL 空間（MR4）.
+
+    未 prefix の URL は入口（307）で、実体は prefix 付き。prefix が落ちると ブラウザは同居 backend
+    や別マシンを叩いてしまうため、リンク・フォーム・ ドロップダウンの遷移先すべてに prefix が乗っている必要がある。
+    """
+
+    def test_unprefixed_feature_url_redirects_to_the_only_machine(
+        self, client: TestClient, ui_settings: UiSettings
+    ):
+        machine_id = ui_settings.machines[0].machine_id
+
+        response = client.get("/pasting/loading", follow_redirects=False)
+
+        assert response.status_code == 307
+        assert response.headers["location"] == f"/m/{machine_id}/pasting/loading"
+
+    def test_every_navigation_link_is_machine_prefixed(
+        self, client: TestClient, ui_settings: UiSettings
+    ):
+        """タブ・サイドバー・設定リンクと JS の base が prefix 付きになる.
+
+        `app.js` は `data-machine-base` を全 `fetch` の prefix に使うので、この属性が
+        落ちると frontend 自身に `/api/...` を投げて 404 になる。
+        """
+        machine_id = ui_settings.machines[0].machine_id
+        base = f"/m/{machine_id}"
+
+        text = client.get(f"{base}/pasting").text
+
+        assert f'data-machine-base="{base}"' in text
+        assert f'href="{base}/posctrl"' in text
+        assert f'href="{base}/settings"' in text
+        assert f'href="{base}/pasting/loading"' in text
+        # 未 prefix の内部リンクが 1 本も残っていない（外部リンクは mainsail のみ）。
+        # /static は意図的に prefix しない（キャッシュを全マシンで 1 本共有する）
+        internal = [
+            href
+            for href in re.findall(r'href="(/[^"]*)"', text)
+            if not href.startswith("/static/")
+        ]
+        assert internal
+        assert [href for href in internal if not href.startswith(f"{base}/")] == []
+
+    def test_api_path_is_proxied_and_not_eaten_by_the_pages_router(
+        self, client: TestClient, ui_settings: UiSettings
+    ):
+        """`/m/{id}/api/state` はプロキシに届く（登録順の回帰）.
+
+        pages ルータを先に登録すると `/m/{machine_id}/{tab}/{feature}` が
+        `/m/x/api/state` を飲み込み、404 HTML が返って UI 全体が動かなくなる。
+        """
+        machine_id = ui_settings.machines[0].machine_id
+
+        response = client.get(f"/m/{machine_id}/api/state")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/json")
+        assert "busy" in response.json()
+
+    def test_artifacts_path_is_proxied_and_not_eaten_by_the_pages_router(
+        self, client: TestClient, ui_settings: UiSettings, backend_settings: ApiSettings
+    ):
+        """`/m/{id}/artifacts/...` も同じ（成果物リンクとジョブの画像表示）."""
+        backend_settings.webui_data_dir.mkdir(parents=True, exist_ok=True)
+        (backend_settings.webui_data_dir / "probe.txt").write_text("ok", "utf-8")
+        machine_id = ui_settings.machines[0].machine_id
+
+        response = client.get(f"/m/{machine_id}/artifacts/probe.txt")
+
+        assert response.status_code == 200
+        assert response.text == "ok"
+
+    def test_machine_selector_keeps_the_current_page_when_switching(
+        self, client: TestClient, ui_settings: UiSettings
+    ):
+        """ドロップダウンの遷移先は「同じページの別マシン」."""
+        machine = ui_settings.machines[0]
+
+        text = client.get(f"/m/{machine.machine_id}/posctrl/camera_preview").text
+
+        assert f'value="/m/{machine.machine_id}/posctrl/camera_preview"' in text
+        assert machine.label in text
+
+    def test_machine_id_alone_redirects_to_the_default_tab(
+        self, client: TestClient, ui_settings: UiSettings
+    ):
+        """`/m/{id}` 単体は既定タブへ 307 する.
+
+        この登録が `/{tab}/{feature}` より後だと tab="m" / feature=machine_id として
+        食われ、`/m/{id}/m/{id}` へ 307 したうえで 404 になる。
+        """
+        machine_id = ui_settings.machines[0].machine_id
+
+        response = client.get(f"/m/{machine_id}", follow_redirects=False)
+
+        assert response.status_code == 307
+        assert response.headers["location"] == f"/m/{machine_id}/posctrl"
+
+    def test_unknown_machine_returns_404_page_with_the_selector(
+        self, client: TestClient, ui_settings: UiSettings
+    ):
+        """未知の machine_id は 404 HTML（ドロップダウンから戻れる）."""
+        response = client.get("/m/no-such-machine/posctrl")
+
+        assert response.status_code == 404
+        assert response.headers["content-type"].startswith("text/html")
+        assert ui_settings.machines[0].label in response.text
+        # 未知のマシンを base にするとタブが全部 404 になるので prefix は付けない
+        assert 'href="/posctrl"' in response.text
+
+
+class TestWithoutMachines:
+    """マシン登録 0 台（machine.toml が無いホストでの単独起動）."""
+
+    def test_create_app_succeeds_and_serves_guidance(self, tmp_path: Path):
+        """機体設定を一切読まずに起動でき、案内ページを返す.
+
+        frontend が `get_config_dir()` や machine.toml に触ると、機体でない PC で
+        起動できなくなる（MR4 の要件）。
+        """
+        with _frontend_only((), tmp_path) as client:
+            response = client.get("/")
+
+        assert response.status_code == 200
+        assert "machines.toml" in response.text
+
+    def test_settings_url_is_reachable_without_a_backend(self, tmp_path: Path):
+        with _frontend_only((), tmp_path) as client:
+            response = client.get("/settings")
+
+        assert response.status_code == 200
+
+    def test_no_machine_selector_is_rendered(self, tmp_path: Path):
+        with _frontend_only((), tmp_path) as client:
+            text = client.get("/").text
+
+        assert 'data-testid="machine-select"' not in text
+
+
+class TestDefaultBackendPort:
+    """Port を省略した `machines.toml` の登録に使う port（MR4）.
+
+    `PCBASM_UI_DEFAULT_BACKEND_PORT` を設定できるのに効かない（`load_machines_file` が
+    module 定数を直参照する）状態は、host しか判らないマシンを扱う MR5 で
+    「設定したのに 8081 へ繋ぐ」形で表面化する。
+    """
+
+    def test_env_default_port_applies_to_entries_without_a_port(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        machines_file = tmp_path / "machines.toml"
+        machines_file.write_text(
+            '[[machine]]\nmachine_id = "alpha"\nhost = "127.0.0.1"\n', encoding="utf-8"
+        )
+        monkeypatch.setenv("PCBASM_UI_MACHINES_FILE", str(machines_file))
+        monkeypatch.setenv("PCBASM_UI_DEFAULT_BACKEND_PORT", "19999")
+
+        # settings 未指定 = Settings.from_env()（uvicorn --factory と同じ経路）
+        with TestClient(create_frontend_app()) as client:
+            response = client.get("/m/alpha/posctrl")
+
+        # 誰も listen していない port なので 503。到達を試みた URL が本文に出る
+        assert response.status_code == 503
+        assert "http://127.0.0.1:19999" in response.text
+
+
+class TestMultipleMachines:
+    """マシンが複数登録されているとき（どれを開くかは選ばせる）."""
+
+    @staticmethod
+    def _machines() -> tuple[MachineEndpoint, ...]:
+        return (
+            MachineEndpoint(machine_id="alpha", host="alpha.local", port=8081),
+            MachineEndpoint(
+                machine_id="bravo", host="bravo.local", port=8081, name="2 号機"
+            ),
+        )
+
+    def test_root_shows_a_picker_instead_of_redirecting(self, tmp_path: Path):
+        with _frontend_only(self._machines(), tmp_path) as client:
+            response = client.get("/", follow_redirects=False)
+
+        assert response.status_code == 200
+        for machine in self._machines():
+            assert machine.label in response.text
+
+    def test_picker_options_keep_the_requested_page(self, tmp_path: Path):
+        """未 prefix のページで選ばせるときも遷移先はそのページ."""
+        with _frontend_only(self._machines(), tmp_path) as client:
+            text = client.get("/pasting/loading").text
+
+        assert 'value="/m/alpha/pasting/loading"' in text
+        assert 'value="/m/bravo/pasting/loading"' in text
+
+
+class TestUnreachableBackendPage:
+    """Backend に到達できないときのページ（`BackendUnavailable` → 503）.
+
+    上流は実ソケット（誰も listen していない port）。欠損値のフォームを描くより
+    503 を出す方針（`MachineClient` の契約）が SSR ページでも守られていること。
+    """
+
+    @staticmethod
+    def _dead() -> tuple[MachineEndpoint, ...]:
+        return (MachineEndpoint(machine_id="dead", host="127.0.0.1", port=1),)
+
+    def test_page_returns_503_html_with_the_machine_selector(self, tmp_path: Path):
+        with _frontend_only(self._dead(), tmp_path) as client:
+            response = client.get("/m/dead/posctrl")
+
+        assert response.status_code == 503
+        assert response.headers["content-type"].startswith("text/html")
+        # ドロップダウンは frontend の登録一覧から描くので backend 不要 = 必ず出る
+        assert 'data-testid="machine-select"' in response.text
+        assert self._dead()[0].label in response.text
+
+    def test_page_asks_the_browser_to_retry(self, tmp_path: Path):
+        with _frontend_only(self._dead(), tmp_path) as client:
+            response = client.get("/m/dead/posctrl")
+
+        assert response.headers["retry-after"] == "5"
+
+
+class TestBackendContractMismatch:
+    """Backend の申告がページの前提を満たさないとき（frontend と版がずれた状態）.
+
+    ジョブページの `job_name` / `param_specs` は backend の `GET /api/jobs` が唯一の
+    出所なので、そこに無いジョブのフォームは描けない。空欄のフォームを見て実行
+    ボタンを押されるより 503 を出す（`MachineClient` と同じ方針）。
+    """
+
+    def test_job_page_returns_503_when_the_backend_omits_the_job(
+        self, ui_settings: UiSettings, backend_settings: ApiSettings
+    ):
+        with _frontend_over(
+            ui_settings, backend_settings, catalog=JobCatalog()
+        ) as client:
+            response = client.get("/pasting/height_plane")
+
+        assert response.status_code == 503
+        assert "height_plane" in response.text

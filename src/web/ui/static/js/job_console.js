@@ -5,7 +5,7 @@
 // ページに #job-console（data-job-names）があればコンソールを描画する。
 
 (() => {
-  const { toast, api, createBackoff } = window.webui;
+  const { toast, api, createBackoff, withBase } = window.webui;
 
   const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
   const STATUS_LABELS = {
@@ -189,7 +189,7 @@
 
   function connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    socket = new WebSocket(`${proto}://${location.host}/api/ws`);
+    socket = new WebSocket(`${proto}://${location.host}${withBase("/api/ws")}`);
     socket.addEventListener("open", async () => {
       reconnectBackoff.reset();
       try {
@@ -293,7 +293,8 @@
     for (const match of line.matchAll(/\/artifacts\/\S+/g)) {
       fragment.append(line.slice(last, match.index));
       const link = document.createElement("a");
-      link.href = match[0];
+      // ログ本文の成果物パスは backend 相対（"/artifacts/...")。表示は原文のまま
+      link.href = withBase(match[0]);
       link.target = "_blank";
       link.textContent = match[0];
       fragment.append(link);
@@ -388,15 +389,17 @@
     const artifactsEl = el("jc-artifacts");
     artifactsEl.replaceChildren();
     for (const artifact of job.result?.artifacts || []) {
+      // artifact.url は backend 相対（"/artifacts/...")。機体 prefix はここで 1 回付ける
+      const url = withBase(artifact.url);
       if (artifact.kind === "image") {
         const figure = document.createElement("figure");
         const img = document.createElement("img");
-        img.src = artifact.url;
+        img.src = url;
         img.alt = artifact.label;
         img.className = "jc-artifact-image";
         const caption = document.createElement("figcaption");
         const link = document.createElement("a");
-        link.href = artifact.url;
+        link.href = url;
         link.download = "";
         link.textContent = `${artifact.label}（ダウンロード）`;
         caption.appendChild(link);
@@ -404,7 +407,7 @@
         artifactsEl.appendChild(figure);
       } else {
         const link = document.createElement("a");
-        link.href = artifact.url;
+        link.href = url;
         link.download = "";
         link.className = "jc-artifact-file";
         link.textContent = artifact.label;

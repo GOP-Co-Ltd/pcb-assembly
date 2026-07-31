@@ -1,5 +1,8 @@
 # Claude
 .claude/settings.local.json
+# サブエージェントの隔離用 git worktree（リポジトリ全体の複製が置かれる）。
+# 無視しないと `git add -A` でリポジトリの複製が丸ごとコミットに入る
+.claude/worktrees/
 
 # Our project
 .env

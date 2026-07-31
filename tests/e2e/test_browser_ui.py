@@ -2,7 +2,7 @@
 
 `make test-e2e` で実行する。pad editor 専用のブラウザテストは
 tests/e2e/test_paste_solder_browser.py、HTTP / WS / MJPEG の純粋な 実ネットワーク検証は
-tests/e2e/test_webui_e2e.py に分担する。
+tests/e2e/test_api_e2e.py に分担する。
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from playwright.sync_api import expect
 from tests.e2e.conftest import (
     TERMINAL as _TERMINAL,
     LiveServer,
+    LiveUi,
     select_led_blinker as _select_led_blinker,
     wait_machine_field as _wait_machine_field,
 )
@@ -29,12 +30,10 @@ def _current_job(base_url: str) -> dict | None:
     return response.json()["job"]
 
 
-def _start_completion_notice_job(
-    live_server: LiveServer, browser_page, job_name: str
-) -> None:
+def _start_completion_notice_job(live_ui: LiveUi, browser_page, job_name: str) -> None:
     """実ページのフォームをテスト用 hiddenジョブへ向けて開始する。"""
     browser_page.goto(
-        f"{live_server.base_url}/pasting/paste_solder",
+        f"{live_ui.base_url}/pasting/paste_solder",
         wait_until="domcontentloaded",
     )
     form = browser_page.locator("#job-form")
@@ -53,7 +52,7 @@ class TestCompletionNoticeOverBrowser:
     """実HTTP/WSを経由した終了通知バナーとタイトル。"""
 
     def test_success_notice_persists_until_dismissed(
-        self, live_server: LiveServer, browser_page
+        self, live_ui: LiveUi, browser_page
     ):
         original_title = "はんだ塗布 — PCB Assembly WebUI"
         with (
@@ -65,7 +64,7 @@ class TestCompletionNoticeOverBrowser:
             ) as failure_sound,
         ):
             _start_completion_notice_job(
-                live_server, browser_page, "completion_notice_success"
+                live_ui, browser_page, "completion_notice_success"
             )
 
         assert success_sound.value.ok
@@ -83,12 +82,8 @@ class TestCompletionNoticeOverBrowser:
         expect(notice).to_be_hidden()
         assert browser_page.title() == original_title
 
-    def test_failure_uses_error_notice_and_title(
-        self, live_server: LiveServer, browser_page
-    ):
-        _start_completion_notice_job(
-            live_server, browser_page, "completion_notice_failure"
-        )
+    def test_failure_uses_error_notice_and_title(self, live_ui: LiveUi, browser_page):
+        _start_completion_notice_job(live_ui, browser_page, "completion_notice_failure")
 
         notice = browser_page.locator("#job-completion-notice")
         notice.wait_for(state="visible", timeout=10_000)
@@ -98,11 +93,11 @@ class TestCompletionNoticeOverBrowser:
         )
         assert browser_page.title().startswith("【失敗】")
 
-    def test_manual_abort_does_not_notify(self, live_server: LiveServer, browser_page):
+    def test_manual_abort_does_not_notify(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
         original_title = "はんだ塗布 — PCB Assembly WebUI"
-        _start_completion_notice_job(
-            live_server, browser_page, "completion_notice_abort"
-        )
+        _start_completion_notice_job(live_ui, browser_page, "completion_notice_abort")
         wait_until(
             lambda: (job := _current_job(live_server.base_url)) is not None
             and job["status"] == "running",
@@ -123,7 +118,7 @@ class TestCompletionNoticeOverBrowser:
         assert browser_page.title() == original_title
 
     def test_terminal_job_from_before_page_load_does_not_notify(
-        self, live_server: LiveServer, browser_page
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         response = httpx.post(
             f"{live_server.base_url}/api/jobs/completion_notice_success",
@@ -138,7 +133,7 @@ class TestCompletionNoticeOverBrowser:
         )
 
         browser_page.goto(
-            f"{live_server.base_url}/pasting/paste_solder",
+            f"{live_ui.base_url}/pasting/paste_solder",
             wait_until="domcontentloaded",
         )
         browser_page.wait_for_function(
@@ -154,12 +149,12 @@ class TestPromptDialogOverBrowser:
     """実ブラウザ上の prompt modal 表示。"""
 
     def test_confirm_dialog_uses_custom_button_labels(
-        self, live_server: LiveServer, browser_page
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         _select_led_blinker(live_server)
 
         browser_page.goto(
-            f"{live_server.base_url}/pasting/height_plane",
+            f"{live_ui.base_url}/pasting/height_plane",
             wait_until="domcontentloaded",
         )
         browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
@@ -188,7 +183,7 @@ class TestPromptDialogOverBrowser:
         )
 
     def test_enter_key_submits_ok_instead_of_cancel(
-        self, live_server: LiveServer, browser_page
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         """Enter の暗黙送信は OK（続行）に落ちる.
 
@@ -199,7 +194,7 @@ class TestPromptDialogOverBrowser:
         _select_led_blinker(live_server)
 
         browser_page.goto(
-            f"{live_server.base_url}/pasting/height_plane",
+            f"{live_ui.base_url}/pasting/height_plane",
             wait_until="domcontentloaded",
         )
         browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
@@ -236,13 +231,12 @@ class TestSettingsOverBrowser:
     def test_probe_setting_autosave(
         self,
         live_server: LiveServer,
+        live_ui: LiveUi,
         browser_page,
         field_name: str,
         value: float,
     ):
-        browser_page.goto(
-            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
-        )
+        browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
         field = browser_page.locator(f'input[name="{field_name}"]')
         field.wait_for(state="visible", timeout=10_000)
 
@@ -251,12 +245,10 @@ class TestSettingsOverBrowser:
         _wait_machine_field(live_server.base_url, field_name, value)
 
     def test_reference_point_offset_pair_autosave(
-        self, live_server: LiveServer, browser_page
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         """float_pair 入力（X/Y 2 連）の編集が [x, y] 配列として保存される."""
-        browser_page.goto(
-            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
-        )
+        browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
         pair = 'input[data-pair-key="reference_point.offsets.top_left"]'
         x_input = browser_page.locator(f'{pair}[data-pair-index="0"]')
         y_input = browser_page.locator(f'{pair}[data-pair-index="1"]')
@@ -269,12 +261,8 @@ class TestSettingsOverBrowser:
             live_server.base_url, "reference_point.offsets.top_left", [6.5, -4.5]
         )
 
-    def test_setting_label_does_not_focus_input(
-        self, live_server: LiveServer, browser_page
-    ):
-        browser_page.goto(
-            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
-        )
+    def test_setting_label_does_not_focus_input(self, live_ui: LiveUi, browser_page):
+        browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
         label = browser_page.locator(".settings-label").nth(0)
         label.wait_for(state="visible", timeout=10_000)
 
@@ -292,10 +280,10 @@ class TestLoadingOverBrowser:
     """
 
     def test_start_sends_only_specified_position_axes_and_begins_homing(
-        self, live_server: LiveServer, browser_page
+        self, live_ui: LiveUi, browser_page
     ):
         browser_page.goto(
-            f"{live_server.base_url}/pasting/loading",
+            f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
         browser_page.locator("#param-position_x").fill("12.5")
@@ -318,10 +306,10 @@ class TestLoadingOverBrowser:
         expect(browser_page.locator("#jc-progress-text")).to_have_text("ホーミング")
 
     def test_loading_controls_sync_inputs_to_hidden_params(
-        self, live_server: LiveServer, browser_page
+        self, live_ui: LiveUi, browser_page
     ):
         browser_page.goto(
-            f"{live_server.base_url}/pasting/loading",
+            f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
         browser_page.locator("#loading-controls").wait_for(
@@ -339,11 +327,9 @@ class TestLoadingOverBrowser:
         assert browser_page.locator("#param-rate").input_value() == "0.5"
         assert browser_page.locator("#param-accel").input_value() == "0.5"
 
-    def test_loading_inputs_persist_across_reload(
-        self, live_server: LiveServer, browser_page
-    ):
+    def test_loading_inputs_persist_across_reload(self, live_ui: LiveUi, browser_page):
         browser_page.goto(
-            f"{live_server.base_url}/pasting/loading",
+            f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
         browser_page.locator("#loading-controls").wait_for(
@@ -371,10 +357,10 @@ class TestLoadingOverBrowser:
         expect(browser_page.locator("#lc-accel")).to_have_value("2.5")
 
     def test_mass_calibration_calculates_and_applies_dispense_values(
-        self, live_server: LiveServer, browser_page
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         browser_page.goto(
-            f"{live_server.base_url}/pasting/loading",
+            f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
         browser_page.locator("#loading-mass-calibration").wait_for(
@@ -444,11 +430,9 @@ class TestLoadingOverBrowser:
 class TestDispenseCalibrationOverBrowser:
     """吐出量キャリブレーション統合ジョブ画面の実ブラウザ表示."""
 
-    def test_menu_and_loading_controls_render(
-        self, live_server: LiveServer, browser_page
-    ):
+    def test_menu_and_loading_controls_render(self, live_ui: LiveUi, browser_page):
         browser_page.goto(
-            f"{live_server.base_url}/pasting/dispense_calibration",
+            f"{live_ui.base_url}/pasting/dispense_calibration",
             wait_until="domcontentloaded",
         )
         browser_page.locator("#calibration-menu").wait_for(

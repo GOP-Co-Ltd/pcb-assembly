@@ -28,8 +28,25 @@
       connectedEl.textContent = `接続: 取得失敗 (${err.message})`;
     }
   }
-  pollStatus();
-  setInterval(pollStatus, 2000);
+  // 放置タブ分の Moonraker 負荷を削る（背景タブでは止め、復帰時に即 1 回取得して再開）
+  let timer = null;
+
+  function startPolling() {
+    if (timer !== null) return;
+    pollStatus();
+    timer = setInterval(pollStatus, 2000);
+  }
+
+  function stopPolling() {
+    clearInterval(timer);
+    timer = null;
+  }
+
+  startPolling();
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopPolling();
+    else startPolling();
+  });
 
   // limits は静的なのでページ表示時に 1 回だけ取得する
   (async () => {

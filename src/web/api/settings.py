@@ -39,7 +39,9 @@ class Settings:
     # （1 ホストに複数 backend を立てる E2E で区別するための注入口）
     hostname: str | None = None
     host: str = "0.0.0.0"
-    port: int = 8080
+    # 同居機では 8080 = UI frontend / 8081 = backend WebAPI に分ける
+    # （既存ブックマークの :8080 がそのまま UI に着地する）
+    port: int = 8081
     fake_camera: bool = False
     fake_camera_image: Path = (
         PROJECT_ROOT / "data" / "testing" / "webui" / "fake_camera.png"

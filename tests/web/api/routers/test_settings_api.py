@@ -62,6 +62,52 @@ class TestMachineSettingsApi:
         assert fields["paste_dispenser.bead_width_factor"]["value"] is None
         assert fields["probe.lift_height"]["value"] is None
 
+    def test_get_resolves_defaults_for_missing_keys(self, client: TestClient):
+        """未記載キーは `value` が None でも `resolved` に実効値（既定値）が入る（MR4）.
+
+        SSR ページはこの実効値で現在値を描く。frontend 側で 0 などに代替すると、その値が 「設定に保存」で
+        machine.toml へ書き戻されて装置の挙動を壊す。
+        """
+        fields = {
+            field["key"]: field
+            for field in client.get("/api/settings/machine").json()["fields"]
+        }
+
+        assert fields["paste_dispenser.bead_width_factor"]["resolved"] == 1.0
+        assert fields["probe.lift_height"]["resolved"] == 1.0
+        # 記載があるキーは書かれている値がそのまま実効値
+        assert fields["paste_dispenser.max_fill_speed"]["resolved"] == 0.8
+        assert fields["paste_dispenser.paste_height"]["resolved"] == "auto"
+        assert fields["reference_point.offsets.top_left"]["resolved"] == [5.0, -5.0]
+
+    def test_get_resolves_each_section_independently(
+        self, client: TestClient, config_dir: Path
+    ):
+        """必須キーを欠いたセクションだけが `resolved` を失う（他セクションは残る）.
+
+        `[probe]` の `min_radius` は既定値を持たないので、消すと cattrs が `Probe` を
+        組めない。1 セクションの不備で全項目の実効値を失うと、無関係なページまで
+        現在値を描けなくなる。
+        """
+        path = config_dir / "machine.toml"
+        path.write_text(
+            "".join(
+                line
+                for line in path.read_text(encoding="utf-8").splitlines(keepends=True)
+                if not line.startswith("min_radius")
+            ),
+            encoding="utf-8",
+        )
+
+        fields = {
+            field["key"]: field
+            for field in client.get("/api/settings/machine").json()["fields"]
+        }
+
+        assert fields["probe.min_samples"]["resolved"] is None
+        assert fields["probe.min_samples"]["value"] == 6
+        assert fields["paste_dispenser.pad_align.canny_low"]["resolved"] == 81.0
+
     def test_put_writes_file_and_preserves_comments(
         self, client: TestClient, config_dir: Path
     ):
