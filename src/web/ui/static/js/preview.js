@@ -6,7 +6,7 @@
   const pane = document.getElementById("preview-pane");
   if (!pane) return;
 
-  const { toast, api, debounce, createBackoff } = window.webui;
+  const { toast, api, debounce, createBackoff, withBase } = window.webui;
   const img = document.getElementById("preview-img");
   const status = document.getElementById("preview-status");
   const cannyLow = document.getElementById("canny-low");
@@ -28,7 +28,8 @@
     if (cannyLow) params.set("canny_low", cannyLow.value);
     if (cannyHigh) params.set("canny_high", cannyHigh.value);
     params.set("t", Date.now()); // 再接続時のキャッシュ回避
-    return `${pane.dataset.streamUrl}?${params}`;
+    // data-stream-url は backend 相対のまま（prefix はここで 1 回だけ付ける）
+    return `${withBase(pane.dataset.streamUrl)}?${params}`;
   }
 
   function connect() {

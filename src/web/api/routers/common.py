@@ -2,8 +2,8 @@
 
 2 つ以上の router から使われるものだけを置く（1 router 専用のヘルパは 各 router に残す）。
 
-pydantic モデルの定義は `web.api.models` に集約してある。``StateResponse`` /
-``SettingsField`` は既存 import を壊さないためここから再 export する。
+pydantic モデルの定義は `web.api.models` に集約してある。``StateResponse`` は既存
+import を壊さないためここから再 export する。
 """
 
 from __future__ import annotations
@@ -11,11 +11,13 @@ from __future__ import annotations
 import socket
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from pathlib import Path
 
 import attrs
 import httpx
 from fastapi import HTTPException
 
+from pcbasm.config import Machine
 from pcbasm.hal import Klipper
 from web.api.config_store import (
     MACHINE_FIELDS,
@@ -184,7 +186,9 @@ def param_specs_with_saved_defaults(
 
 
 def _fields(
-    specs: tuple[FieldSpec, ...], values: Mapping[str, MachineSettingValue | None]
+    specs: tuple[FieldSpec, ...],
+    values: Mapping[str, MachineSettingValue | None],
+    resolved: Mapping[str, MachineSettingValue | None],
 ) -> list[SettingsField]:
     return [
         SettingsField(
@@ -193,33 +197,62 @@ def _fields(
             value_type=spec.value_type,
             unit=spec.unit,
             value=values[spec.key],
+            resolved=resolved.get(spec.key),
         )
         for spec in specs
     ]
 
 
-def machine_settings_fields(store: ConfigStore) -> list[SettingsField]:
-    """machine.toml のホワイトリスト項目を現在値付きで返す."""
-    return _fields(MACHINE_FIELDS, store.read_machine_settings())
+def machine_settings_fields(store: ConfigStore, state: AppState) -> list[SettingsField]:
+    """machine.toml のホワイトリスト項目を現在値と実効値付きで返す.
+
+    実効値（``resolved``）は cattrs が既定値を埋めたあとの値で、SSR ページが現在値を
+    表示するために使う。未記載キーの代替値を frontend 側に置くとプロセス境界の両側で
+    二重管理になり、片方がずれると誤った値が保存フォームに乗る。
+    """
+    return _fields(
+        MACHINE_FIELDS, store.read_machine_settings(), _resolved_values(state)
+    )
 
 
-# 設定セクション（key のドット区切り親パス）→ UI 表示名。
-# settings ページの階層表示に使う
-SECTION_LABELS: dict[str, str] = {
-    # トップレベル（bare key）は section_of が生キーを返すため、明示的にラベルを持たせる
-    "machine_name": "マシン",
-    "paste_dispenser": "ペーストディスペンサー",
-    "paste_dispenser.toolhead": "ペーストディスペンサー / ツールヘッド",
-    "paste_dispenser.pad_align": "ペーストディスペンサー / パッド位置合わせ",
-    "probe": "プローブ",
-    "reference_point": "基準点",
-    "reference_point.offsets": "基準点 / コーナーオフセット",
-    "nozzle_cap": "ノズルキャップ",
-    "camera": "カメラ",
-    "camera.crop": "カメラ / クロップ",
-}
+def _resolved_values(state: AppState) -> dict[str, MachineSettingValue | None]:
+    """ホワイトリスト項目の実効値（machine.toml が読めなければ全て None）.
+
+    machine.toml の不在・破損で例外にしないのは `AppState` の他の getter と同じ理由
+    （設定を直す画面まで開けなくなる）。
+    """
+    try:
+        machine = state.machine()
+    except Exception:
+        return {}
+    return {spec.key: _resolved_value(machine, spec.key) for spec in MACHINE_FIELDS}
 
 
-def section_of(key: str) -> str:
-    """設定 key の属するセクション（最後のドットより前）を返す."""
-    return key.rsplit(".", 1)[0]
+def _resolved_value(machine: Machine, key: str) -> MachineSettingValue | None:
+    """ドット区切りキーを `Machine` から辿って実効値を読む（読めなければ None）.
+
+    セクションが machine.toml に無い / 必須キーが欠けている場合は `Machine` の
+    プロパティか cattrs が例外を投げる。1 セクションの不備で他セクションの実効値まで
+    失わないよう、キー単位で None に潰す。
+    """
+    try:
+        node: object = machine
+        for part in key.split("."):
+            node = getattr(node, part)
+            if node is None:
+                return None
+        return _as_setting_value(node)
+    except Exception:
+        return None
+
+
+def _as_setting_value(value: object) -> MachineSettingValue | None:
+    """`Machine` の値を API の設定値表現へ落とす（表現できないものは None）."""
+    if isinstance(value, Path):
+        return value.as_posix()
+    if isinstance(value, tuple):
+        # reference_point.offsets.* の [x, y]
+        return [float(item) for item in value]
+    if isinstance(value, bool | int | float | str):
+        return value
+    return None

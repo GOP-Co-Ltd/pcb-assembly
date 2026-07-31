@@ -21,6 +21,7 @@ dependencies = [
     "shapely>=2.1.2",
     "tomlkit>=0.13",
     "uvicorn[standard]>=0.34",
+    "websockets>=16.0",
 ]
 
 [build-system]

@@ -776,6 +776,7 @@ dependencies = [
     { name = "shapely" },
     { name = "tomlkit" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
@@ -803,6 +804,7 @@ requires-dist = [
     { name = "shapely", specifier = ">=2.1.2" },
     { name = "tomlkit", specifier = ">=0.13" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
+    { name = "websockets", specifier = ">=16.0" },
 ]
 
 [package.metadata.requires-dev]

@@ -1,5 +1,16 @@
 "use strict";
 
+// ---- machine prefix ----
+
+// サーバが組んだ機体 prefix（"/m/<machine_id>"）。マシン非依存のページでは空。
+// backend 相対のパス（"/api/..." / "/artifacts/..."）を機体宛てに直す funnel は
+// ここ 1 箇所だけにする（各所の URL literal は backend 相対のまま残す）。
+const BASE = document.body.dataset.machineBase ?? "";
+
+function withBase(path) {
+  return `${BASE}${path}`;
+}
+
 // ---- shared helpers ----
 
 // level: true=通常 / false=エラー / "warning"=警告
@@ -23,7 +34,7 @@ async function api(method, url, body) {
     options.headers = { "Content-Type": "application/json" };
     options.body = JSON.stringify(body);
   }
-  const res = await fetch(url, options);
+  const res = await fetch(withBase(url), options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.detail || `${res.status} ${res.statusText}`);
@@ -68,7 +79,15 @@ function formatPosition(p) {
 }
 
 // expose for other scripts
-window.webui = { toast, api, svgEl, debounce, createBackoff, formatPosition };
+window.webui = {
+  toast,
+  api,
+  svgEl,
+  debounce,
+  createBackoff,
+  formatPosition,
+  withBase,
+};
 
 // ---- topbar safety controls ----
 

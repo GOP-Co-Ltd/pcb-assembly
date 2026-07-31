@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import Depends, Request
-from fastapi.templating import Jinja2Templates
 
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
@@ -26,10 +25,6 @@ def get_store(request: Request) -> ConfigStore:
 
 def get_settings(request: Request) -> Settings:
     return request.app.state.settings
-
-
-def get_templates(request: Request) -> Jinja2Templates:
-    return request.app.state.templates
 
 
 def get_preview(request: Request) -> PreviewService:

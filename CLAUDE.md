@@ -98,9 +98,11 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `make format` — pre-commit フック（ruff, docformatter 等）
 - `make type` — pyright 型チェック
 - `make run` — `format` → `test` → `type` を順実行（実機テストを含む。ユーザー用）
-- `make api` / `make api-dev` — WebUI backend サーバー起動（port 8080、dev は auto-reload）
+- `make api` / `make api-dev` — WebUI backend サーバー起動（port 8081、dev は auto-reload）
 - `make api-fake` — fake カメラで backend 起動（隔離 data_dir/port、手動/ブラウザ E2E 用）
-- `make webui` / `make webui-dev` / `make webui-fake` — 上記へのエイリアス（systemd unit の `ExecStart=make webui` 用に残置）
+- `make ui` / `make ui-dev` — UI frontend サーバー起動（port 8080、dev は auto-reload）
+- `make ui-fake` — `api-fake`（8099）を上流にした frontend 起動（隔離ポート 8098、手動/ブラウザ E2E 用）
+- `make webui` / `make webui-dev` / `make webui-fake` — `api` 系へのエイリアス（systemd unit の `ExecStart=make webui` 用に残置）
 
 ## 不変の原則
 

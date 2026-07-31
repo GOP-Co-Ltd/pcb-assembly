@@ -7,13 +7,10 @@ from pydantic import BaseModel
 
 from web.api.config_store import MachineSettingValue
 from web.api.dependencies import JobsDep, StateDep, StoreDep
-from web.api.routers.common import SettingsField, machine_settings_fields
+from web.api.models import MachineSettingsResponse
+from web.api.routers.common import machine_settings_fields
 
 router = APIRouter(prefix="/api")
-
-
-class MachineSettingsResponse(BaseModel):
-    fields: list[SettingsField]
 
 
 class SettingsUpdate(BaseModel):
@@ -21,8 +18,8 @@ class SettingsUpdate(BaseModel):
 
 
 @router.get("/settings/machine")
-def get_machine_settings(store: StoreDep) -> MachineSettingsResponse:
-    return MachineSettingsResponse(fields=machine_settings_fields(store))
+def get_machine_settings(state: StateDep, store: StoreDep) -> MachineSettingsResponse:
+    return MachineSettingsResponse(fields=machine_settings_fields(store, state))
 
 
 @router.put("/settings/machine")
@@ -38,4 +35,4 @@ def put_machine_settings(
         ):
             state.rebuild_camera()
     jobs.publish_state_changed()
-    return MachineSettingsResponse(fields=machine_settings_fields(store))
+    return MachineSettingsResponse(fields=machine_settings_fields(store, state))

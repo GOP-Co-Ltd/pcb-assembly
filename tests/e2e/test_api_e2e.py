@@ -1,9 +1,12 @@
-"""WebUI フルスタック E2E（実 uvicorn + 実 HTTP / WebSocket / MJPEG）.
+"""Backend WebAPI のフルスタック E2E（実 uvicorn + 実 HTTP / WebSocket / MJPEG）.
 
 `make test-e2e` で実行する。TestClient では検証しづらい以下を実ネットワーク経由で確認する:
 
 - 無限 MJPEG ストリーム（TestClient は完全受信まで返らずハングする）
 - WebSocket のイベント往復（ジョブ起動 → ログ/進捗/プロンプト → 完走 → 設定反映）
+
+API は `live_server`（backend 直）へ、SSR ページは `live_ui`（frontend 経由）へ投げる。
+プロキシ経路そのものの検証は tests/e2e/test_proxy_e2e.py が担当する。
 
 ジョブ通しの題材には hidden の ``job_demo``（uses_machine=False・実機不要）を使う。
 log / progress / prompt / prompt_resolved / apply を一通り通すための検証用ジョブで、
@@ -22,6 +25,7 @@ from websockets.sync.client import connect
 from tests.e2e.conftest import (
     TERMINAL as _TERMINAL,
     LiveServer,
+    LiveUi,
     drive_job_demo as _drive_job_demo,
     respond_prompt as _respond_prompt,
     select_led_blinker as _select_led_blinker,
@@ -73,22 +77,22 @@ def _wait_for_current_job(base_url: str, job_id: str) -> dict[str, Any]:
 
 
 class TestHttpRoutes:
-    """実サーバーへの基本的な HTTP 経路."""
+    """実サーバーへの基本的な HTTP 経路（SSR は frontend 経由）."""
 
-    def test_root_page_is_served(self, live_server: LiveServer):
-        # / は既定タブへ 307 リダイレクトする。ブラウザ同様に追従する
+    def test_root_page_is_served(self, live_ui: LiveUi):
+        # / は既知 1 台の既定タブへ 307 リダイレクトする。ブラウザ同様に追従する
         response = httpx.get(
-            f"{live_server.base_url}/", timeout=_HTTP_TIMEOUT, follow_redirects=True
+            f"{live_ui.origin}/", timeout=_HTTP_TIMEOUT, follow_redirects=True
         )
 
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
 
     def test_reference_point_page_explains_record_applies_immediately(
-        self, live_server: LiveServer
+        self, live_ui: LiveUi
     ):
         response = httpx.get(
-            f"{live_server.base_url}/posctrl/reference_point_setup",
+            f"{live_ui.base_url}/posctrl/reference_point_setup",
             timeout=_HTTP_TIMEOUT,
         )
 
@@ -297,10 +301,10 @@ class TestRuntimeParamUpdateOverWebSocket:
 class TestDispenseCalibrationPage:
     """吐出量キャリブレーション画面の HTTP 配信."""
 
-    def test_runtime_params_script_is_loaded(self, live_server: LiveServer):
+    def test_runtime_params_script_is_loaded(self, live_ui: LiveUi):
         # 実行中パラメータ編集 JS がページに読み込まれている（薄ラッパー）
         page = httpx.get(
-            f"{live_server.base_url}/pasting/dispense_calibration",
+            f"{live_ui.base_url}/pasting/dispense_calibration",
             timeout=_HTTP_TIMEOUT,
         )
         assert page.status_code == 200
@@ -405,9 +409,9 @@ class TestCameraCalibrationPageOverRealHttp:
     ページへ一本化されたため置かない。
     """
 
-    def test_page_is_served_without_crop_input(self, live_server: LiveServer):
+    def test_page_is_served_without_crop_input(self, live_ui: LiveUi):
         response = httpx.get(
-            f"{live_server.base_url}/posctrl/camera_calibration",
+            f"{live_ui.base_url}/posctrl/camera_calibration",
             timeout=_HTTP_TIMEOUT,
         )
 
@@ -485,9 +489,9 @@ class TestNozzleCapOverRealHttp:
         keys = {field["key"] for field in response.json()["fields"]}
         assert "nozzle_cap.x" in keys
 
-    def test_nozzle_cap_page_renders_record_button(self, live_server: LiveServer):
+    def test_nozzle_cap_page_renders_record_button(self, live_ui: LiveUi):
         page = httpx.get(
-            f"{live_server.base_url}/pasting/nozzle_cap", timeout=_HTTP_TIMEOUT
+            f"{live_ui.base_url}/pasting/nozzle_cap", timeout=_HTTP_TIMEOUT
         )
 
         assert page.status_code == 200
@@ -537,12 +541,12 @@ class TestPadTableHeaderOverRealHttp:
     """はんだ塗布ページの pad-table ヘッダ列数がバックエンドモデルと構造整合する."""
 
     def test_pad_table_header_column_count_matches_resolved_settings(
-        self, live_server: LiveServer
+        self, live_ui: LiveUi
     ):
         # はんだ塗布ページの静的 HTML を実サーバーから取得する（PCB 未選択でも
         # thead は常にレンダリングされる）
         page = httpx.get(
-            f"{live_server.base_url}/pasting/paste_solder", timeout=_HTTP_TIMEOUT
+            f"{live_ui.base_url}/pasting/paste_solder", timeout=_HTTP_TIMEOUT
         )
         assert page.status_code == 200
 
