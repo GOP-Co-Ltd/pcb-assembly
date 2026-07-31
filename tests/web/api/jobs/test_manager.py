@@ -1,4 +1,4 @@
-"""`webui.jobs.manager` の仕様テスト.
+"""`web.api.jobs.manager` の仕様テスト.
 
 計画書 webui-phase3.md「src/webui/jobs/manager.py」節 + spec §6 が契約:
 
@@ -33,14 +33,14 @@ from pathlib import Path
 
 import pytest
 
-from webui.jobs.catalog import JobCatalog, ParamSpec
-from webui.jobs.context import ApplyPayload, JobContext, JobResult, PromptSpec
-from webui.jobs.manager import (
+from web.api.jobs.catalog import JobCatalog, ParamSpec
+from web.api.jobs.context import ApplyPayload, JobContext, JobResult, PromptSpec
+from web.api.jobs.manager import (
     JobManager,
     JobStatus,
     prompt_payload,
 )
-from webui.state import AppState, BusyError
+from web.api.state import AppState, BusyError
 
 from .conftest import (
     ManagerFactory,

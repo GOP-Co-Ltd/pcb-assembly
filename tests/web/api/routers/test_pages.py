@@ -1,4 +1,4 @@
-"""`webui.routers.pages` の仕様テスト.
+"""`web.api.routers.pages` の仕様テスト.
 
 計画書「routers」節 + spec §10:
 
@@ -78,11 +78,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from webui.app import create_app
-from webui.jobs.catalog import default_catalog
-from webui.routers.pages import TABS as PAGE_TABS
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.app import create_app
+from web.api.jobs.catalog import default_catalog
+from web.api.routers.pages import TABS as PAGE_TABS
+from web.api.settings import Settings
+from web.api.state import AppState
 
 TABS = ["dev", "pasting", "pnp", "posctrl"]
 

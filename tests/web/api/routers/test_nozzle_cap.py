@@ -1,4 +1,4 @@
-"""`webui.routers.nozzle_cap` の仕様テスト.
+"""`web.api.routers.nozzle_cap` の仕様テスト.
 
 計画書 memory/agents/implementation-planner/nozzle-cap-parking.md
 「src/webui/routers/nozzle_cap.py」節 + 「API 契約」節が契約:
@@ -15,8 +15,8 @@
 from fastapi.testclient import TestClient
 
 from tests.helpers import mark_hardware
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.settings import Settings
+from web.api.state import AppState
 
 
 class TestRecordNozzleCap:

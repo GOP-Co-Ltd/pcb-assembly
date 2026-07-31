@@ -7,13 +7,13 @@ from typing import Annotated
 from fastapi import Depends, Request
 from fastapi.templating import Jinja2Templates
 
-from webui.board_settings import BoardSettingsStore
-from webui.config_store import ConfigStore
-from webui.jobs.catalog import JobCatalog
-from webui.jobs.manager import JobManager
-from webui.preview import PreviewService
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.board_settings import BoardSettingsStore
+from web.api.config_store import ConfigStore
+from web.api.jobs.catalog import JobCatalog
+from web.api.jobs.manager import JobManager
+from web.api.preview import PreviewService
+from web.api.settings import Settings
+from web.api.state import AppState
 
 
 def get_state(request: Request) -> AppState:

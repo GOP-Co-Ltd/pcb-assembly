@@ -1,4 +1,4 @@
-"""`webui.routers.system` の仕様テスト.
+"""`web.api.routers.system` の仕様テスト.
 
 計画書「routers」節:
 
@@ -24,8 +24,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tests.helpers import mark_hardware
-from tests.webui.jobs.conftest import register_gated
-from webui.state import AppState
+from tests.web.api.jobs.conftest import register_gated
+from web.api.state import AppState
 
 
 class TestKlipperStatus:

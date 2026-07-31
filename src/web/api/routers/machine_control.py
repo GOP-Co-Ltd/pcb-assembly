@@ -10,10 +10,10 @@ from pydantic import BaseModel
 from pcbasm import gcode
 from pcbasm.hal import XYZStage
 from pcbasm.parking import move_to_cap
-from webui.dependencies import StateDep
-from webui.models import KlipperStatus
-from webui.routers.common import create_klipper, fetch_status, klipper_errors_to_502
-from webui.state import AppState
+from web.api.dependencies import StateDep
+from web.api.models import KlipperStatus
+from web.api.routers.common import create_klipper, fetch_status, klipper_errors_to_502
+from web.api.state import AppState
 
 MOVE_TIMEOUT = 60.0  # wait_for_done (M400) を含むため長め
 

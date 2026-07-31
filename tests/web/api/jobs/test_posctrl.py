@@ -1,4 +1,4 @@
-"""`webui.jobs.posctrl` の仕様テスト.
+"""`web.api.jobs.posctrl` の仕様テスト.
 
 計画書 memory/agents/implementation-planner/webui-phase4.md
 「src/webui/jobs/posctrl.py」節 + spec §10 posctrl 表が契約:
@@ -64,13 +64,13 @@ import pytest
 from pcbasm.pcb import PcbFile
 from pcbasm.vision import CalibrationResult, Image
 from tests.helpers import mark_hardware
-from webui.config_store import ConfigStore
-from webui.jobs.catalog import JobCatalog, default_catalog
-from webui.jobs.manager import JobManager, JobStatus
-from webui.jobs.posctrl import register_posctrl_jobs
-from webui.preview import PreviewService
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.config_store import ConfigStore
+from web.api.jobs.catalog import JobCatalog, default_catalog
+from web.api.jobs.manager import JobManager, JobStatus
+from web.api.jobs.posctrl import register_posctrl_jobs
+from web.api.preview import PreviewService
+from web.api.settings import Settings
+from web.api.state import AppState
 
 from .conftest import WaitUntil, answer_next_prompt, make_board_store
 

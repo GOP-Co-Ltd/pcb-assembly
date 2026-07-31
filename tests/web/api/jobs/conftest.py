@@ -1,11 +1,11 @@
-"""`webui.jobs` テスト共有フィクスチャ・共有ヘルパ.
+"""`web.api.jobs` テスト共有フィクスチャ・共有ヘルパ.
 
 計画書 webui-phase3.md「公開インターフェース案」が契約。JobManager は
 実 AppState / 実 PreviewService / 実 ConfigStore と結合する（モックなし）。
 
 worker スレッドとの同期は threading.Event ゲート付きの合成ジョブと
 `wait_until` のポーリングで決定的に行う（sleep 固定値依存のアサート禁止）。
-store / state（fake camera 付き）fixture は tests/webui/conftest.py にある。
+store / state（fake camera 付き）fixture は tests/web/api/conftest.py にある。
 """
 
 from __future__ import annotations
@@ -16,14 +16,14 @@ from collections.abc import Callable, Iterator
 import pytest
 
 from tests import helpers
-from webui.board_settings import BoardSettingsStore
-from webui.config_store import ConfigStore
-from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from webui.jobs.context import JobContext, JobResult
-from webui.jobs.manager import JobManager, JobRecord
-from webui.preview import PreviewService
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.board_settings import BoardSettingsStore
+from web.api.config_store import ConfigStore
+from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.context import JobContext, JobResult
+from web.api.jobs.manager import JobManager, JobRecord
+from web.api.preview import PreviewService
+from web.api.settings import Settings
+from web.api.state import AppState
 
 type WaitUntil = Callable[..., None]
 type ManagerFactory = Callable[..., JobManager]

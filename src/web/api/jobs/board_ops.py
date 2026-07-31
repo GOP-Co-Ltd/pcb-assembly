@@ -13,7 +13,7 @@ from pcbasm.posctrl import (
     PadAlignmentSession,
     setup_board_calibration,
 )
-from webui.jobs.context import JobContext, PromptSpec
+from web.api.jobs.context import JobContext, PromptSpec
 
 
 def setup_board(

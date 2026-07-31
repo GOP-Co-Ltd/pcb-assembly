@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from webui.dependencies import JobsDep, PreviewDep, SettingsDep, StateDep
-from webui.models import MachineInfo
-from webui.routers.common import StateResponse, build_machine_info, build_state_response
+from web.api.dependencies import JobsDep, PreviewDep, SettingsDep, StateDep
+from web.api.models import MachineInfo
+from web.api.routers.common import (
+    StateResponse,
+    build_machine_info,
+    build_state_response,
+)
 
 router = APIRouter(prefix="/api")
 

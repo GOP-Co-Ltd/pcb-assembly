@@ -25,11 +25,11 @@ import pytest
 import uvicorn
 
 from tests.helpers import copy_testing_config
-from tests.webui.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE
-from webui.app import create_app
-from webui.jobs.catalog import JobCatalog, JobDefinition
-from webui.jobs.context import JobContext, JobResult
-from webui.settings import Settings
+from tests.web.api.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE
+from web.api.app import create_app
+from web.api.jobs.catalog import JobCatalog, JobDefinition
+from web.api.jobs.context import JobContext, JobResult
+from web.api.settings import Settings
 
 _STARTUP_TIMEOUT = 10.0
 _HTTP_TIMEOUT = 10.0

@@ -1,4 +1,4 @@
-"""`webui.jobs.catalog` の仕様テスト.
+"""`web.api.jobs.catalog` の仕様テスト.
 
 計画書 webui-phase3.md「src/webui/jobs/catalog.py」節が契約:
 
@@ -16,8 +16,8 @@ from typing import Literal
 
 import pytest
 
-from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec, default_catalog
-from webui.jobs.context import JobContext
+from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec, default_catalog
+from web.api.jobs.context import JobContext
 
 
 def _noop(ctx: JobContext) -> None:

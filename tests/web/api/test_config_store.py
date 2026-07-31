@@ -1,4 +1,4 @@
-"""`webui.config_store.ConfigStore` の仕様テスト.
+"""`web.api.config_store.ConfigStore` の仕様テスト.
 
 計画書「`src/webui/config_store.py`」節が契約:
 
@@ -25,7 +25,7 @@ from typing import cast
 
 import pytest
 
-from webui.config_store import (
+from web.api.config_store import (
     MACHINE_FIELDS,
     ConfigStore,
     MachineSettingValue,

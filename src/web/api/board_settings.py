@@ -41,7 +41,7 @@ from pcbasm.pasting import (
     settings_to_dict,
 )
 from pcbasm.pcb import Pad, PadHierarchy
-from webui.atomic import write_text_atomic
+from web.api.atomic import write_text_atomic
 
 _SCHEMA_VERSION = 1
 

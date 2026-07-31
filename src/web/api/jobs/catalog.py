@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 import attrs
 
-from webui.jobs.context import JobContext, JobResult, ParamValue
+from web.api.jobs.context import JobContext, JobResult, ParamValue
 
 
 @attrs.frozen
@@ -199,9 +199,9 @@ class JobCatalog:
 def default_catalog() -> JobCatalog:
     """Dev 3 + posctrl 5 + pasting 6 ジョブ登録済みのカタログを返す."""
     # 循環 import（dev/posctrl/pasting → manager → catalog）を避けるため遅延 import する
-    from webui.jobs.dev import register_dev_jobs
-    from webui.jobs.pasting import register_pasting_jobs
-    from webui.jobs.posctrl import register_posctrl_jobs
+    from web.api.jobs.dev import register_dev_jobs
+    from web.api.jobs.pasting import register_pasting_jobs
+    from web.api.jobs.posctrl import register_posctrl_jobs
 
     catalog = JobCatalog()
     register_dev_jobs(catalog)

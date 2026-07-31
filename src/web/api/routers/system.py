@@ -7,11 +7,11 @@ from collections.abc import Callable
 from fastapi import APIRouter
 
 from pcbasm.hal import Klipper, XYZStage
-from webui.dependencies import JobsDep, StateDep
-from webui.jobs.manager import JobManager
-from webui.models import KlipperStatus
-from webui.routers.common import create_klipper, fetch_status, klipper_errors_to_502
-from webui.state import AppState
+from web.api.dependencies import JobsDep, StateDep
+from web.api.jobs.manager import JobManager
+from web.api.models import KlipperStatus
+from web.api.routers.common import create_klipper, fetch_status, klipper_errors_to_502
+from web.api.state import AppState
 
 STATUS_TIMEOUT = 10.0
 

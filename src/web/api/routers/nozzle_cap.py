@@ -6,8 +6,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from pcbasm.hal import XYZStage
-from webui.dependencies import JobsDep, StateDep, StoreDep
-from webui.routers.common import create_klipper, klipper_errors_to_502
+from web.api.dependencies import JobsDep, StateDep, StoreDep
+from web.api.routers.common import create_klipper, klipper_errors_to_502
 
 STATUS_TIMEOUT = 10.0  # 位置・homed_axes の読み取りのみ（移動なし）
 

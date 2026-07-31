@@ -25,10 +25,10 @@ from fastapi.testclient import TestClient
 
 from pcbasm.vision import ImageArray
 from tests.helpers import PROJECT_ROOT, TESTING_DATA_DIR, copy_testing_config
-from webui.app import create_app
-from webui.config_store import ConfigStore
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.app import create_app
+from web.api.config_store import ConfigStore
+from web.api.settings import Settings
+from web.api.state import AppState
 
 FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"
 

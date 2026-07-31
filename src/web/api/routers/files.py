@@ -13,9 +13,9 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from webui.dependencies import JobsDep, PreviewDep, SettingsDep, StateDep
-from webui.routers.common import StateResponse, build_state_response
-from webui.settings import Settings
+from web.api.dependencies import JobsDep, PreviewDep, SettingsDep, StateDep
+from web.api.routers.common import StateResponse, build_state_response
+from web.api.settings import Settings
 
 router = APIRouter(prefix="/api")
 

@@ -1,4 +1,4 @@
-"""`webui.jobs.machine_commands` の仕様テスト.
+"""`web.api.jobs.machine_commands` の仕様テスト.
 
 計画書 memory/agents/implementation-planner/webui-phase5.md
 「src/webui/jobs/machine_commands.py」節が契約:
@@ -25,13 +25,13 @@ from typing import Any
 import pytest
 
 from pcbasm.hal import XYZStage
-from webui.jobs.catalog import JobCatalog, JobDefinition
-from webui.jobs.context import JobContext
-from webui.jobs.machine_commands import (
+from web.api.jobs.catalog import JobCatalog, JobDefinition
+from web.api.jobs.context import JobContext
+from web.api.jobs.machine_commands import (
     create_command_klipper,
     handle_machine_command,
 )
-from webui.jobs.manager import JobManager, JobRecord, JobStatus
+from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 
 from .conftest import WaitUntil
 

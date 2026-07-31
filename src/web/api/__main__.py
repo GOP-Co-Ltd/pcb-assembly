@@ -1,4 +1,4 @@
-"""`python -m webui` のエントリポイント."""
+"""`python -m web.api` のエントリポイント."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from typing import override
 import uvicorn
 
 from pcbasm.utils import setup_logging
-from webui.app import create_app
-from webui.preview import PreviewService
-from webui.settings import Settings
+from web.api.app import create_app
+from web.api.preview import PreviewService
+from web.api.settings import Settings
 
 
 class _WebUIServer(uvicorn.Server):
@@ -29,7 +29,7 @@ class _WebUIServer(uvicorn.Server):
 
 def main() -> None:
     # FrameHub の start/stop ログ（E2E の停止確認に使う）を含めて出力する
-    setup_logging(logging.INFO, namespaces=("pcbasm", "webui"))
+    setup_logging(logging.INFO, namespaces=("pcbasm", "web"))
     settings = Settings.from_env()
     app = create_app(settings)
     config = uvicorn.Config(

@@ -15,12 +15,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from webui.board_settings import BoardSettingsStore
-from webui.config_store import ConfigStore, UnknownFieldError
-from webui.jobs.catalog import default_catalog
-from webui.jobs.manager import JobManager
-from webui.preview import PreviewService
-from webui.routers import (
+from web.api.board_settings import BoardSettingsStore
+from web.api.config_store import ConfigStore, UnknownFieldError
+from web.api.jobs.catalog import default_catalog
+from web.api.jobs.manager import JobManager
+from web.api.preview import PreviewService
+from web.api.routers import (
     app_state,
     files,
     jobs,
@@ -33,8 +33,8 @@ from webui.routers import (
     settings_api,
     system,
 )
-from webui.settings import Settings
-from webui.state import AppState, BusyError
+from web.api.settings import Settings
+from web.api.state import AppState, BusyError
 
 _PACKAGE_DIR = Path(__file__).parent
 _STATIC_DIR = _PACKAGE_DIR / "static"

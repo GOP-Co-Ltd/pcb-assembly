@@ -13,8 +13,8 @@ import numpy as np
 from pcbasm.pcb import PcbFile
 from pcbasm.vision import Image
 from pcbasm.visualization import render_pcb
-from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from webui.jobs.context import (
+from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.context import (
     ApplyPayload,
     JobContext,
     JobResult,

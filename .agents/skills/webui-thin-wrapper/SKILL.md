@@ -1,18 +1,18 @@
 ---
 name: webui-thin-wrapper
-description: WebUI（src/webui/）をロジックの薄いラッパーに保つ手順。計算/ドメインロジックを pcbasm コア層へ集約しエンドポイントで公開、JS は DOM/fetch/表示更新のみに限定する。WebUI の JS や router を書く/直す、ロジックが JS や router に漏れていないか点検する、サーバ resolved を返す API を設計するときに参照する。
+description: WebUI（src/web/api/）をロジックの薄いラッパーに保つ手順。計算/ドメインロジックを pcbasm コア層へ集約しエンドポイントで公開、JS は DOM/fetch/表示更新のみに限定する。WebUI の JS や router を書く/直す、ロジックが JS や router に漏れていないか点検する、サーバ resolved を返す API を設計するときに参照する。
 ---
 
 # WebUI 薄ラッパー化
 
-計算・ドメインロジックは pcbasm（`src/pcbasm/`）に集約し、WebUI（`src/webui/`）は
+計算・ドメインロジックは pcbasm（`src/pcbasm/`）に集約し、WebUI（`src/web/api/`）は
 HTTP/WS/MJPEG の入出力変換と pcbasm 呼び出しに徹する。関連:
 `AGENTS.md`「WebUI 設計」、skill [webui-e2e](../webui-e2e/SKILL.md)。
 
 ## レイヤ責務
 
 - **pcbasm（`src/pcbasm/`）**: 計算・ドメインルール・解決の唯一の真実。装置非依存の純ロジック
-- **routers（`src/webui/routers/`）**: pcbasm を呼び、resolved/集計を pydantic で公開。HTTP 例外への変換のみ
+- **routers（`src/web/api/routers/`）**: pcbasm を呼び、resolved/集計を pydantic で公開。HTTP 例外への変換のみ
 - **static/js**: fetch・DOM 操作・表示更新のみ
 
 ## 「ロジックが漏れている」サイン（点検チェックリスト）
@@ -45,4 +45,4 @@ HTTP/WS/MJPEG の入出力変換と pcbasm 呼び出しに徹する。関連:
 ## 検証
 
 - `make test-no-hardware`（router の resolved/集計/バリデーションテスト、pcbasm の純ロジック契約テスト）
-- `make test-e2e` / `make webui-fake`（ブラウザで表示が API 由来であることを確認）。詳細は skill `webui-e2e`
+- `make test-e2e` / `make api-fake`（ブラウザで表示が API 由来であることを確認）。詳細は skill `webui-e2e`

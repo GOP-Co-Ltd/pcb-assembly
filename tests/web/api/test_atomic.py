@@ -1,4 +1,4 @@
-"""`webui.atomic.write_text_atomic` の仕様テスト（unit）.
+"""`web.api.atomic.write_text_atomic` の仕様テスト（unit）.
 
 計画書 MR1「新規 src/webui/atomic.py」節が契約:
 
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from webui.atomic import write_text_atomic
+from web.api.atomic import write_text_atomic
 
 
 class TestWriteTextAtomic:

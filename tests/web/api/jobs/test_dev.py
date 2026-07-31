@@ -1,4 +1,4 @@
-"""`webui.jobs.dev` の仕様テスト（integration-with-fakes）.
+"""`web.api.jobs.dev` の仕様テスト（integration-with-fakes）.
 
 計画書 webui-phase3.md「src/webui/jobs/dev.py」節が契約。実 PcbFile /
 実 pcbnew / 実 matplotlib を使い、default_catalog のジョブを manager 経由で
@@ -21,10 +21,10 @@ import cv2
 import pytest
 
 from pcbasm.pcb import PcbFile
-from webui.jobs.catalog import default_catalog
-from webui.jobs.manager import JobManager, JobRecord, JobStatus
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.jobs.catalog import default_catalog
+from web.api.jobs.manager import JobManager, JobRecord, JobStatus
+from web.api.settings import Settings
+from web.api.state import AppState
 
 from .conftest import ManagerFactory, WaitUntil, answer_next_prompt
 

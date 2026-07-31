@@ -59,7 +59,7 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `src/pcbasm/geometry/`: 3D 座標と幾何計算
 - `src/pcbasm/pcb/`: KiCAD 読込と PCB 設計情報
 - `src/pcbasm/visualization/`: 塗布パス・高さ面・PCB の可視化
-- `src/webui/`: FastAPI WebUI
+- `src/web/api/`: FastAPI backend WebAPI
 - `src/scripts/`: 開発・運用スクリプト
 
 ## 開発コマンド
@@ -71,8 +71,9 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `make test-no-hardware`: ハードウェア・E2E を除外
 - `make test-e2e`: WebUI E2E
 - `make run`: format、test、type
-- `make webui` / `make webui-dev`: WebUI サーバー起動
-- `make webui-fake`: fake カメラで WebUI 起動
+- `make api` / `make api-dev`: WebUI backend サーバー起動
+- `make api-fake`: fake カメラで backend 起動
+- `make webui` / `make webui-dev` / `make webui-fake`: 上記へのエイリアス（systemd unit 用に残置）
 - `make migrate-codex`: Claude Bash 権限から Codex rules を再生成
 - `make migrate-codex-check`: Codex rules の同期確認
 
@@ -96,7 +97,7 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 ### WebUI 設計
 
 計算・ドメインロジックは `pcbasm`（`src/pcbasm/`）に集約し、
-`src/webui/` の router/JS は入出力変換・DOM 操作・表示更新に徹する。
+`src/web/api/` の router/JS は入出力変換・DOM 操作・表示更新に徹する。
 
 - 解決済み値・派生値・集計はサーバーが算出して返す
 - JS は API レスポンスをそのまま表示へ流し、クライアント検証は UX 最小限にする

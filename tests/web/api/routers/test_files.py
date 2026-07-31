@@ -1,4 +1,4 @@
-"""`webui.routers.files` の仕様テスト.
+"""`web.api.routers.files` の仕様テスト.
 
 計画書「routers」節:
 
@@ -24,9 +24,9 @@ import attrs
 import pytest
 from fastapi.testclient import TestClient
 
-from webui.app import create_app
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.app import create_app
+from web.api.settings import Settings
+from web.api.state import AppState
 
 
 def _rel_to_slash(path: Path) -> str:

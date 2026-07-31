@@ -9,16 +9,16 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from webui.config_store import ConfigStore
-from webui.dependencies import (
+from web.api.config_store import ConfigStore
+from web.api.dependencies import (
     CatalogDep,
     SettingsDep,
     StateDep,
     StoreDep,
     get_templates,
 )
-from webui.jobs.catalog import JobCatalog, ParamSpec
-from webui.routers.common import (
+from web.api.jobs.catalog import JobCatalog, ParamSpec
+from web.api.routers.common import (
     SECTION_LABELS,
     SettingsField,
     build_machine_info,
@@ -26,7 +26,7 @@ from webui.routers.common import (
     param_specs_with_saved_defaults,
     section_of,
 )
-from webui.state import AppState
+from web.api.state import AppState
 
 # tab → feature slug 列（ヘッダのタブ表示順）
 TABS: dict[str, tuple[str, ...]] = {

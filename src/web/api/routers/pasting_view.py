@@ -3,7 +3,7 @@
 選択中の基板について、pad ジオメトリ・階層ツリー・解決済み塗布設定・
 疎な override をレスポンス形式へ変換する。pcbnew 依存は ``PcbFile`` が
 関数内 import するため、本モジュール自体は KiCAD 未導入環境でも import
-できる。エンドポイント定義は :mod:`webui.routers.pasting` に置く。
+できる。エンドポイント定義は :mod:`web.api.routers.pasting` に置く。
 
 node_id 規約（フロントと共有する契約）:
 
@@ -45,9 +45,9 @@ from pcbasm.pcb import (
     PcbFile,
     build_pad_hierarchy,
 )
-from webui.board_settings import BoardSettingsStore
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.board_settings import BoardSettingsStore
+from web.api.settings import Settings
+from web.api.state import AppState
 
 
 # --------------------------------------------------------------------------- #

@@ -78,16 +78,16 @@ from pcbasm.visualization import (
     render_height_plane,
     render_planned_points,
 )
-from webui.jobs.board_ops import align_component_groups, setup_board
-from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from webui.jobs.context import (
+from web.api.jobs.board_ops import align_component_groups, setup_board
+from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.context import (
     ApplyPayload,
     JobAborted,
     JobContext,
     JobResult,
     PromptSpec,
 )
-from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
+from web.api.jobs.machine_commands import create_command_klipper, handle_machine_command
 
 # ローディングフェーズの progress stage 名
 # （loading_controls.html の data 属性・テストでピンする契約値）

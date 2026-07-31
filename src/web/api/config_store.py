@@ -17,11 +17,11 @@ from pcbasm.config import (
     validate_paste_lift_height,
     validate_probe_board_edge_margin,
 )
-from webui.atomic import write_text_atomic
+from web.api.atomic import write_text_atomic
 
 # 型エイリアスの定義は API 契約モジュール（pydantic のみ依存）に置き、ここから
-# 再 export する。既存の `from webui.config_store import ...` を壊さない
-from webui.models import MachineSettingValue, SettingValueType
+# 再 export する。既存の `from web.api.config_store import ...` を壊さない
+from web.api.models import MachineSettingValue, SettingValueType
 
 
 @attrs.frozen

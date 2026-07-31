@@ -1,4 +1,4 @@
-"""`webui.routers.settings_api` の仕様テスト.
+"""`web.api.routers.settings_api` の仕様テスト.
 
 計画書「routers」節 + spec §8:
 
@@ -23,8 +23,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from webui.config_store import MACHINE_FIELDS
-from webui.state import AppState
+from web.api.config_store import MACHINE_FIELDS
+from web.api.state import AppState
 
 
 class TestMachineSettingsApi:

@@ -1,4 +1,4 @@
-"""`webui.board_settings.BoardSettingsStore` の仕様テスト（unit）.
+"""`web.api.board_settings.BoardSettingsStore` の仕様テスト（unit）.
 
 計画書 Phase 3「src/webui/board_settings.py」節が契約:
 
@@ -37,7 +37,7 @@ from pcbasm.pasting import (
     PasteSettingsModel,
 )
 from pcbasm.pcb import Component, Layer, Pad, build_pad_hierarchy
-from webui.board_settings import BoardSettingsStore
+from web.api.board_settings import BoardSettingsStore
 
 type Mutate = Callable[[PasteSettingsModel], PasteSettingsModel]
 

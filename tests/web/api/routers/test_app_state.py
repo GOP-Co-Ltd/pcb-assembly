@@ -1,4 +1,4 @@
-"""`webui.routers.app_state` の仕様テスト.
+"""`web.api.routers.app_state` の仕様テスト.
 
 計画書「routers」節:
 
@@ -24,10 +24,10 @@ from pathlib import Path
 import attrs
 from fastapi.testclient import TestClient
 
-from webui.app import create_app
-from webui.config_store import ConfigStore
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.app import create_app
+from web.api.config_store import ConfigStore
+from web.api.settings import Settings
+from web.api.state import AppState
 
 
 class TestStateApi:
@@ -100,7 +100,7 @@ class TestMachineInfoApi:
             "mainsail_url": settings.mainsail_url,
             # pcb_browse_start == pcb_browse_root なので初期表示は root
             "fb_start": "",
-            # frontend / discovery の互換判定に使う値なので、`webui.models.API_VERSION`
+            # frontend / discovery の互換判定に使う値なので、`web.api.models.API_VERSION`
             # を import せずリテラルで固定する（import すると同語反復になり、うっかりの
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
             "api_version": 1,

@@ -11,10 +11,10 @@ from pathlib import Path
 from pcbasm.config import Machine, NozzleCap
 from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.vision import CalibrationResult
-from webui.atomic import write_text_atomic
-from webui.config_store import ConfigStore, MachineSettingValue
-from webui.fake_camera import FixedImageCamera
-from webui.settings import Settings
+from web.api.atomic import write_text_atomic
+from web.api.config_store import ConfigStore, MachineSettingValue
+from web.api.fake_camera import FixedImageCamera
+from web.api.settings import Settings
 
 _STATE_FILENAME = "webui_state.json"
 type StoredJobParamValue = bool | float | int | str

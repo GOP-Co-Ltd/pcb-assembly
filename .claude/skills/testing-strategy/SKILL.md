@@ -35,7 +35,7 @@ src/pcbasm/vision/detect.py  ↔ tests/pcbasm/vision/test_detect.py
 src/pcbasm/geometry/plane.py ↔ tests/pcbasm/geometry/test_plane.py
 ```
 
-- `tests/webui/` が `src/webui/` を同様にミラーする
+- `tests/web/api/` が `src/web/api/` を同様にミラーする
 - `tests/` 直下は `__init__.py`、`helpers.py`、`conftest.py`、`test_package.py`、`e2e/`（実サーバー E2E）のみ
 - `tests/helpers.py` が `mark_hardware` / `skip_if_no_*` / test 用 Impl の所在地
 - 1 source ファイル 1 test ファイル原則。バックエンド分割があればテストも分割

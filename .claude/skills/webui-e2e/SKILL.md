@@ -1,11 +1,11 @@
 ---
 name: webui-e2e
-description: WebUI（src/webui/、FastAPI）を実サーバーで E2E 検証・デバッグする手順。pytest E2E スイート（make test-e2e）と手動/ブラウザ用の隔離起動（make webui-fake）、および「Claude が常駐サーバーを起動すると kill される」問題の回避策。WebUI の HTTP/WS/MJPEG を通しで確認したいとき、E2E がデバッグできないとき、ブラウザで体感確認したいときに参照する。
+description: WebUI（src/web/api/、FastAPI）を実サーバーで E2E 検証・デバッグする手順。pytest E2E スイート（make test-e2e）と手動/ブラウザ用の隔離起動（make api-fake）、および「Claude が常駐サーバーを起動すると kill される」問題の回避策。WebUI の HTTP/WS/MJPEG を通しで確認したいとき、E2E がデバッグできないとき、ブラウザで体感確認したいときに参照する。
 ---
 
 # WebUI を E2E で検証・デバッグする
 
-WebUI（`src/webui/`、FastAPI + uvicorn）を実サーバーで通し検証する。fake カメラ・
+WebUI（`src/web/api/`、FastAPI + uvicorn）を実サーバーで通し検証する。fake カメラ・
 テスト用 config ディレクトリ・隔離 data_dir を使い、実機もカメラも無くても HTTP / WebSocket /
 MJPEG を最後まで叩ける。
 
@@ -15,7 +15,7 @@ MJPEG を最後まで叩ける。
 
 **Claude が常駐 web サーバーを起動しようとすると kill されやすい。**
 
-- foreground 起動（`make webui` 等）は Bash の 120s タイムアウトで殺される
+- foreground 起動（`make api` 等）は Bash の 120s タイムアウトで殺される
 - detach が不十分な background プロセスはツール終了時のプロセス後始末で殺される
 - sandbox 自体はループバック（127.0.0.1）のリッスン・到達を許可している（ネット制約が原因ではない）
 
@@ -44,7 +44,7 @@ make test-e2e        # = uv run pytest -v -m e2e
     雛形は `TestJobLifecycleOverWebSocket`（hidden の `job_demo` を題材に
     起動 → log/progress/prompt 往復 → 完走 → 設定反映まで検証）
 
-WS イベントの形（`src/webui/routers/jobs.py` / `jobs/manager.py` が契約）:
+WS イベントの形（`src/web/api/routers/jobs.py` / `jobs/manager.py` が契約）:
 
 - server → client: `job_status` / `log` / `progress` / `prompt` / `prompt_resolved` / `state_changed` / `error`
 - client → server: `respond_prompt` {prompt_id, answer} / `command` {command} / `abort`
@@ -56,13 +56,13 @@ WS イベントの形（`src/webui/routers/jobs.py` / `jobs/manager.py` が契�
 data_dir + 別ポート（既定 8099。実運用の 8080 と衝突しない）で起動する。
 
 ```bash
-make webui-fake      # PCBASM_WEBUI_FAKE_CAMERA=1, PORT=8099, DATA_DIR=/tmp/pcbasm-webui-fake
-# 上書きしたいとき: PCBASM_WEBUI_PORT=9000 PCBASM_WEBUI_DATA_DIR=/tmp/foo make webui-fake
+make api-fake      # PCBASM_API_FAKE_CAMERA=1, PORT=8099, DATA_DIR=/tmp/pcbasm-webui-fake
+# 上書きしたいとき: PCBASM_API_PORT=9000 PCBASM_API_DATA_DIR=/tmp/foo make api-fake
 ```
 
 ### Claude が叩く場合（kill 回避の実務）
 
-`make webui-fake` は foreground なので Claude が直接呼ぶと 120s で殺される。Claude は次のどちらか:
+`make api-fake` は foreground なので Claude が直接呼ぶと 120s で殺される。Claude は次のどちらか:
 
 1. **基本は A（pytest E2E）で済ませる。** ほとんどの検証は live_server fixture で足りる。
 2. どうしても常駐が要る一発確認は、`run_in_background: true` の Bash で起動し、別の Bash で
@@ -71,14 +71,14 @@ make webui-fake      # PCBASM_WEBUI_FAKE_CAMERA=1, PORT=8099, DATA_DIR=/tmp/pcba
 3. ブラウザでの体感確認はユーザーに依頼する（装置を動かすフローの実機確認と同様）。
 
 `pkill` でサーバーを止めるときはパターンが自分のシェルに一致して self-kill しないよう注意
-（例: `pkill -f "python -m webui"` ではなく対象ポート/PID を指定する）。
+（例: `pkill -f "python -m web.api"` ではなく対象ポート/PID を指定する）。
 
 ## 隔離の鉄則（実機設定を汚さない）
 
 - 設定書き込みを伴う検証（apply / settings 保存）は **`data/testing/config` の複製**に対して行う。
     実機の `config/` は触らない
 - pytest E2E は `data/testing/config` を tmp_path に複製するので自動的に隔離される
-- 手動起動も `PCBASM_WEBUI_DATA_DIR` を tmp に向け、`webui_state.json` を実運用と分ける
+- 手動起動も `PCBASM_API_DATA_DIR` を tmp に向け、`webui_state.json` を実運用と分ける
 
 ## worktree で実行するときの注意
 
@@ -92,8 +92,8 @@ uv venv --clear --system-site-packages && uv sync --all-extras
 
 ## 関連設定
 
-- `src/webui/settings.py` — `PCBASM_WEBUI_FAKE_CAMERA` / `_PORT` / `_DATA_DIR` や
+- `src/web/api/settings.py` — `PCBASM_API_FAKE_CAMERA` / `_PORT` / `_DATA_DIR` や
     `PCBASM_CONFIG_DIR`（pcbasm コア層と共通）等の env 上書き
-- `src/webui/fake_camera.py` — `FixedImageCamera`（固定画像を fps ペーシングで返す）
+- `src/web/api/fake_camera.py` — `FixedImageCamera`（固定画像を fps ペーシングで返す）
 - `data/testing/webui/fake_camera.png` — fake カメラの既定画像
 - `data/testing/config/` — 検証専用のマシン設定（Klipper port 7126 = 非リッスン）

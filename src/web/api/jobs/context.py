@@ -13,7 +13,7 @@ import attrs
 from pcbasm.config import Machine
 from pcbasm.hal import Camera, FrameHub
 from pcbasm.vision import Image
-from webui.board_settings import BoardSettingsStore
+from web.api.board_settings import BoardSettingsStore
 
 type Answer = bool | float | str
 type ParamValue = bool | float | int | str

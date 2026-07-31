@@ -1,4 +1,4 @@
-"""`webui.jobs.pasting` の仕様テスト.
+"""`web.api.jobs.pasting` の仕様テスト.
 
 計画書 memory/agents/implementation-planner/webui-phase5.md「src/webui/jobs/pasting.py」節
 + spec §10 pasting 表が契約:
@@ -36,13 +36,13 @@ import pytest
 from pcbasm.hal import XYZStage
 from pcbasm.pcb import PcbFile
 from tests.helpers import mark_hardware
-from tests.webui.conftest import decode_jpeg, jpeg_payload
-from webui.board_settings import BoardSettingsStore
-from webui.config_store import ConfigStore
-from webui.jobs.catalog import JobCatalog, default_catalog
-from webui.jobs.machine_commands import create_command_klipper
-from webui.jobs.manager import JobManager, JobRecord, JobStatus
-from webui.jobs.pasting import (
+from tests.web.api.conftest import decode_jpeg, jpeg_payload
+from web.api.board_settings import BoardSettingsStore
+from web.api.config_store import ConfigStore
+from web.api.jobs.catalog import JobCatalog, default_catalog
+from web.api.jobs.machine_commands import create_command_klipper
+from web.api.jobs.manager import JobManager, JobRecord, JobStatus
+from web.api.jobs.pasting import (
     LOADING_STAGE,
     Extrude,
     Finish,
@@ -52,9 +52,9 @@ from webui.jobs.pasting import (
     parse_run_calib_command,
     register_pasting_jobs,
 )
-from webui.preview import PreviewService
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.preview import PreviewService
+from web.api.settings import Settings
+from web.api.state import AppState
 
 from .conftest import WaitUntil, answer_next_prompt
 
@@ -898,7 +898,7 @@ class TestPastingHardware:
     # 吐出量キャリブレーション統合ジョブ（dispense_calibration）の ①②③ 実測は
     # 実 Moonraker + 実カメラ + 実ペースト + 物理銅板の装着・計量を要する。手順が
     # 対話的（ボード計測 → 線引き → 質量/番号入力）でブラウザ目視を伴うため、
-    # WebUI 手動 E2E（make webui-fake）でユーザーが検証する分担（large-refactor-workflow）。
+    # WebUI 手動 E2E（make api-fake）でユーザーが検証する分担（large-refactor-workflow）。
 
     def test_height_plane_full_run_yields_heatmap_artifacts(
         self,

@@ -1,4 +1,4 @@
-"""`webui.state.AppState` / `BusyError` の仕様テスト.
+"""`web.api.state.AppState` / `BusyError` の仕様テスト.
 
 計画書「`src/webui/state.py`」節が契約:
 
@@ -37,9 +37,9 @@ import attrs
 import pytest
 
 from pcbasm.hal import FrameHub
-from webui.config_store import ConfigStore
-from webui.settings import Settings
-from webui.state import AppState, BusyError
+from web.api.config_store import ConfigStore
+from web.api.settings import Settings
+from web.api.state import AppState, BusyError
 
 
 @pytest.fixture

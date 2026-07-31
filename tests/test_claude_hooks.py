@@ -25,7 +25,7 @@ HOOK = PROJECT_ROOT / ".claude" / "hooks" / "pretooluse-block-hardware-tests.py"
 _COMMIT_WITH_HEREDOC = """git commit -q -m "$(cat <<'EOF'
 chore(safety): 実機テスト実行を禁止する
 
-`make test` の deny だけでは `uv run pytest tests/webui` が通る。
+`make test` の deny だけでは `uv run pytest tests/web/api` が通る。
 EOF
 )\""""
 
@@ -33,22 +33,22 @@ BLOCKED = [
     pytest.param("make test", id="make-test"),
     pytest.param("make run", id="make-run-includes-test"),
     pytest.param("for i in 1 2; do make test; done", id="make-test-in-loop"),
-    pytest.param("uv run pytest tests/webui -q", id="pytest-without-marker"),
+    pytest.param("uv run pytest tests/web/api -q", id="pytest-without-marker"),
     pytest.param(
-        "timeout 900 uv run pytest tests/webui -q -x --timeout=120 2>&1 | tail -5",
+        "timeout 900 uv run pytest tests/web/api -q -x --timeout=120 2>&1 | tail -5",
         id="pytest-wrapped-in-timeout",
     ),
-    pytest.param(".venv/bin/pytest tests/webui -q", id="pytest-absolute-path"),
+    pytest.param(".venv/bin/pytest tests/web/api -q", id="pytest-absolute-path"),
     pytest.param("uv run pytest -m hardware", id="explicitly-selects-hardware"),
     pytest.param(
         'uv run pytest -m "hardware"', id="explicitly-selects-hardware-quoted"
     ),
     pytest.param(
-        "for i in 1 2 3; do uv run pytest tests/webui/test_state.py -q; done",
+        "for i in 1 2 3; do uv run pytest tests/web/api/test_state.py -q; done",
         id="pytest-in-loop-body",
     ),
     pytest.param(
-        'bash -c "uv run pytest tests/webui -q"', id="pytest-nested-in-bash-c"
+        'bash -c "uv run pytest tests/web/api -q"', id="pytest-nested-in-bash-c"
     ),
     pytest.param(
         "cd /home/gop/pcb-assembly && uv run pytest tests/pcbasm/hal -q",
@@ -67,7 +67,7 @@ ALLOWED = [
         'uv run pytest -v -m "not hardware and not e2e"', id="marker-excluded"
     ),
     pytest.param(
-        'uv run pytest tests/webui/test_atomic.py -q -m "not hardware"',
+        'uv run pytest tests/web/api/test_atomic.py -q -m "not hardware"',
         id="scoped-with-marker",
     ),
     pytest.param(
@@ -130,7 +130,7 @@ class TestBlockHardwareTests:
         assert _decide(command) is None, f"誤って拒否された: {command}"
 
     def test_ignores_non_bash_tools(self):
-        assert _decide("uv run pytest tests/webui -q", tool="Read") is None
+        assert _decide("uv run pytest tests/web/api -q", tool="Read") is None
 
     def test_passes_through_unreadable_input(self):
         """入力が JSON でないときは通す（fail-open。他フックと同じ方針）."""
@@ -158,5 +158,5 @@ class TestHardwareMarkerLayout:
             if "@mark_hardware" in path.read_text(encoding="utf-8")
         }
         assert marked, "@mark_hardware を含むテストが 1 つも無い"
-        # webui 配下にも実機テストがある = `pytest tests/webui` は marker 必須
-        assert any(name.startswith("tests/webui/") for name in marked)
+        # web/api 配下にも実機テストがある = `pytest tests/web/api` は marker 必須
+        assert any(name.startswith("tests/web/api/") for name in marked)

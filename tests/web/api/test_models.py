@@ -1,8 +1,8 @@
-"""`webui.models` の依存境界の回帰テスト.
+"""`web.api.models` の依存境界の回帰テスト.
 
 計画書 docs/plans/web-api-ui-split.md「MR2」節が契約:
 
-- `webui/models.py` は API 境界の contract を集約し、**pydantic と標準ライブラリのみ**を
+- `web/api/models.py` は API 境界の contract を集約し、**pydantic と標準ライブラリのみ**を
   import する。frontend を別プロセス（`web.ui`）へ分離したあとも、そのまま import できる
   唯一の contract モジュールに保つため
 
@@ -10,7 +10,7 @@
 覗く形では、他テストが先に読み込んだモジュールと区別できない。
 
 この制約の代償として `JobSpecInfo` は `JobDefinition` のフィールド既定値を**手で複製**
-している（`webui.jobs.catalog` を import できないため）。片方だけ書き換わると
+している（`web.api.jobs.catalog` を import できないため）。片方だけ書き換わると
 `/api/jobs` が値を埋める現在は無害でも、frontend が `JobSpecInfo` を直接構築する
 MR4/MR5 で契約がずれるので、同期を `TestJobSpecInfoMirrorsJobDefinition` でピンする。
 """
@@ -22,9 +22,9 @@ from pathlib import Path
 import attrs
 import pytest
 
-import webui.models
-from webui.jobs.catalog import JobDefinition
-from webui.models import JobSpecInfo
+import web.api.models
+from web.api.jobs.catalog import JobDefinition
+from web.api.models import JobSpecInfo
 
 _ALLOWED_THIRD_PARTY = frozenset({"pydantic"})
 
@@ -59,14 +59,14 @@ _MIRRORED_NAMES = sorted(
 
 
 def _imported_roots(source: str) -> set[str]:
-    """Import 文からトップレベルのモジュール名を集める（相対 import は "webui" 扱い）."""
+    """Import 文からトップレベルのモジュール名を集める（相対 import は "web" 扱い）."""
     roots: set[str] = set()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             roots.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             if node.level > 0 or node.module is None:
-                roots.add("webui")
+                roots.add("web")
             else:
                 roots.add(node.module.split(".")[0])
     return roots
@@ -76,7 +76,7 @@ class TestContractModuleDependencies:
     """分割後も frontend からそのまま import できる依存関係を保つ."""
 
     def test_models_imports_only_pydantic_and_stdlib(self):
-        source = Path(webui.models.__file__).read_text(encoding="utf-8")
+        source = Path(web.api.models.__file__).read_text(encoding="utf-8")
 
         roots = _imported_roots(source)
 
@@ -89,7 +89,7 @@ class TestContractModuleDependencies:
 class TestJobSpecInfoMirrorsJobDefinition:
     """手で複製している既定値が `JobDefinition` と一致し続ける.
 
-    `models.py` は `webui.jobs.catalog` を import できない（上の依存境界）ため、
+    `models.py` は `web.api.jobs.catalog` を import できない（上の依存境界）ため、
     `JobSpecInfo` は `JobDefinition` の既定値を書き写している。省略時に見える値が
     ずれていないことを、両者の最小構築インスタンスで確認する。
     """

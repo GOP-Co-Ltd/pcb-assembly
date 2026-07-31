@@ -2,7 +2,7 @@
 
 2 つ以上の router から使われるものだけを置く（1 router 専用のヘルパは 各 router に残す）。
 
-pydantic モデルの定義は `webui.models` に集約してある。``StateResponse`` /
+pydantic モデルの定義は `web.api.models` に集約してある。``StateResponse`` /
 ``SettingsField`` は既存 import を壊さないためここから再 export する。
 """
 
@@ -17,15 +17,15 @@ import httpx
 from fastapi import HTTPException
 
 from pcbasm.hal import Klipper
-from webui.config_store import (
+from web.api.config_store import (
     MACHINE_FIELDS,
     ConfigStore,
     FieldSpec,
     MachineSettingValue,
 )
-from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from webui.jobs.manager import JobManager
-from webui.models import (
+from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.manager import JobManager
+from web.api.models import (
     API_VERSION,
     JobBrief,
     KlipperStatus,
@@ -34,9 +34,9 @@ from webui.models import (
     SettingsField,
     StateResponse,
 )
-from webui.preview import PreviewService
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.preview import PreviewService
+from web.api.settings import Settings
+from web.api.state import AppState
 
 # --------------------------------------------------------------------------- #
 # Klipper 接続

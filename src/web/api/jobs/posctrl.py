@@ -34,13 +34,13 @@ from pcbasm.vision import (
     draw_detected_circle,
     draw_overlay,
 )
-from webui.jobs.board_ops import (
+from web.api.jobs.board_ops import (
     align_component_groups,
     confirm_next_point,
     setup_board,
 )
-from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
-from webui.jobs.context import (
+from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
+from web.api.jobs.context import (
     ApplyFile,
     ApplyPayload,
     JobAborted,
@@ -48,7 +48,7 @@ from webui.jobs.context import (
     JobResult,
     PromptSpec,
 )
-from webui.jobs.machine_commands import create_command_klipper, handle_machine_command
+from web.api.jobs.machine_commands import create_command_klipper, handle_machine_command
 
 # camera_calibration の Z 取得（best-effort）のタイムアウト [sec]
 Z_QUERY_TIMEOUT = 5.0

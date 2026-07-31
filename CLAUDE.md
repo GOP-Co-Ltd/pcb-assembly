@@ -87,7 +87,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `pcb/` — PCB 設計情報の抽象化（KiCAD 読込、配置管理）
 - `visualization/` — 塗布パス・高さ面・PCB のレンダリング/可視化
 
-このほか `src/webui/` にブラウザ操作 UI（FastAPI）がある。開発・運用の操作は WebUI のジョブとして提供する。リポジトリ直下の `scripts/` には `migrate_codex.py` のみを置く。
+このほか `src/web/api/` にブラウザ操作 UI の backend WebAPI（FastAPI）がある。開発・運用の操作は WebUI のジョブとして提供する。リポジトリ直下の `scripts/` には `migrate_codex.py` のみを置く。
 
 ## 開発コマンド
 
@@ -98,8 +98,9 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `make format` — pre-commit フック（ruff, docformatter 等）
 - `make type` — pyright 型チェック
 - `make run` — `format` → `test` → `type` を順実行（実機テストを含む。ユーザー用）
-- `make webui` / `make webui-dev` — WebUI サーバー起動（port 8080、dev は auto-reload）
-- `make webui-fake` — fake カメラで WebUI 起動（隔離 data_dir/port、手動/ブラウザ E2E 用）
+- `make api` / `make api-dev` — WebUI backend サーバー起動（port 8080、dev は auto-reload）
+- `make api-fake` — fake カメラで backend 起動（隔離 data_dir/port、手動/ブラウザ E2E 用）
+- `make webui` / `make webui-dev` / `make webui-fake` — 上記へのエイリアス（systemd unit の `ExecStart=make webui` 用に残置）
 
 ## 不変の原則
 
@@ -119,7 +120,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 
 ### WebUI 設計（ロジックは pcbasm、JS は薄いラッパー）
 
-計算・ドメインロジックは pcbasm（`src/pcbasm/`）に集約し、算出結果はエンドポイントで公開する。`src/webui/` の router/JS は薄いラッパー（入出力変換・DOM 操作・表示更新）に徹する。
+計算・ドメインロジックは pcbasm（`src/pcbasm/`）に集約し、算出結果はエンドポイントで公開する。`src/web/api/` の router/JS は薄いラッパー（入出力変換・DOM 操作・表示更新）に徹する。
 
 - **Do**: 解決済み値・派生値・集計はサーバが算出して返す。JS は API レスポンスをそのまま表示に流し、編集後はサーバ応答（または再取得）で更新する。クライアント検証は UX 最小限（空欄・数値パース可否）に留める
 - **Don't**: ドメインルール（正値・整数・enum 許容値・階層 override 解決・幾何計算など）を JS や router に複製しない。ローカル状態を楽観的に再計算してサーバと二重管理しない。サーバが既に返す値を再導出しない

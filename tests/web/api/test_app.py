@@ -1,4 +1,4 @@
-"""`webui.app.create_app` の仕様テスト.
+"""`web.api.app.create_app` の仕様テスト.
 
 計画書「`src/webui/app.py` / `__main__.py`」節:
 
@@ -16,10 +16,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tests.helpers import wait_until
-from webui.board_settings import BoardSettingsStore
-from webui.jobs.catalog import JobDefinition
-from webui.jobs.context import JobContext
-from webui.state import AppState
+from web.api.board_settings import BoardSettingsStore
+from web.api.jobs.catalog import JobDefinition
+from web.api.jobs.context import JobContext
+from web.api.state import AppState
 
 
 class TestCreateApp:

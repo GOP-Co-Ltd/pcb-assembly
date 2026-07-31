@@ -1,4 +1,4 @@
-"""`webui.jobs.board_ops` の公開ヘルパの仕様テスト.
+"""`web.api.jobs.board_ops` の公開ヘルパの仕様テスト.
 
 paste-align-max-failures 計画書「公開 IF」節が `pad_align_abort_message` の契約:
 
@@ -26,10 +26,10 @@ prompt 往復は実 JobManager + 実 JobContext を通す（合成ジョブ経�
 
 import pytest
 
-from webui.jobs.board_ops import confirm_next_point, pad_align_abort_message
-from webui.jobs.catalog import JobCatalog
-from webui.jobs.context import JobContext, PromptSpec
-from webui.jobs.manager import JobManager, JobRecord, JobStatus
+from web.api.jobs.board_ops import confirm_next_point, pad_align_abort_message
+from web.api.jobs.catalog import JobCatalog
+from web.api.jobs.context import JobContext, PromptSpec
+from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 
 from .conftest import WaitUntil, register_synthetic
 

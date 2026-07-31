@@ -1,4 +1,4 @@
-"""`webui.routers.jobs` の仕様テスト（REST + WS /api/ws）.
+"""`web.api.routers.jobs` の仕様テスト（REST + WS /api/ws）.
 
 計画書 webui-phase3.md「src/webui/routers/jobs.py」節 + spec §6 / §9 が契約:
 
@@ -41,12 +41,12 @@ from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
 from pcbasm.vision import CalibrationResult
-from tests.webui.jobs.conftest import register_gated, register_synthetic
-from webui.config_store import ConfigStore
-from webui.jobs.catalog import ParamSpec
-from webui.jobs.context import Artifact, JobContext, JobResult, PromptSpec
-from webui.jobs.manager import JobManager
-from webui.state import AppState
+from tests.web.api.jobs.conftest import register_gated, register_synthetic
+from web.api.config_store import ConfigStore
+from web.api.jobs.catalog import ParamSpec
+from web.api.jobs.context import Artifact, JobContext, JobResult, PromptSpec
+from web.api.jobs.manager import JobManager
+from web.api.state import AppState
 
 _TERMINAL = ("succeeded", "failed", "aborted")
 

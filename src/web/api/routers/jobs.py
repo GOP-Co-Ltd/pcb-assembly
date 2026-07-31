@@ -9,10 +9,10 @@ from typing import Any, cast
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from webui.dependencies import CatalogDep, JobsDep, SettingsDep, StateDep, StoreDep
-from webui.jobs.catalog import JobCatalog, JobDefinition
-from webui.jobs.manager import JobManager, JobRecord, prompt_payload
-from webui.models import (
+from web.api.dependencies import CatalogDep, JobsDep, SettingsDep, StateDep, StoreDep
+from web.api.jobs.catalog import JobCatalog, JobDefinition
+from web.api.jobs.manager import JobManager, JobRecord, prompt_payload
+from web.api.models import (
     ApplyInfo,
     ArtifactInfo,
     JobCatalogResponse,
@@ -23,8 +23,8 @@ from webui.models import (
     ParamSpecInfo,
     PromptInfo,
 )
-from webui.routers.common import param_specs_with_saved_defaults
-from webui.state import AppState
+from web.api.routers.common import param_specs_with_saved_defaults
+from web.api.state import AppState
 
 router = APIRouter(prefix="/api")
 

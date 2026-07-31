@@ -13,9 +13,9 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.types import Receive, Scope, Send
 
-from webui.dependencies import PreviewDep, StateDep
-from webui.preview import MJPEG_MEDIA_TYPE, OverlayKind
-from webui.state import AppState
+from web.api.dependencies import PreviewDep, StateDep
+from web.api.preview import MJPEG_MEDIA_TYPE, OverlayKind
+from web.api.state import AppState
 
 router = APIRouter(prefix="/api")
 

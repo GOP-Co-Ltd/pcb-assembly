@@ -20,9 +20,9 @@ from pcbasm.hal import FrameHub, Klipper
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
 from pcbasm.parking import park_or_present
 from pcbasm.vision import Image
-from webui.board_settings import BoardSettingsStore
-from webui.jobs.catalog import JobCatalog, JobDefinition
-from webui.jobs.context import (
+from web.api.board_settings import BoardSettingsStore
+from web.api.jobs.catalog import JobCatalog, JobDefinition
+from web.api.jobs.context import (
     Answer,
     ApplyPayload,
     JobAborted,
@@ -31,9 +31,9 @@ from webui.jobs.context import (
     ParamValue,
     PromptSpec,
 )
-from webui.preview import PreviewService
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.preview import PreviewService
+from web.api.settings import Settings
+from web.api.state import AppState
 
 type _Event = dict[str, Any]
 

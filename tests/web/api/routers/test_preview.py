@@ -1,4 +1,4 @@
-"""`webui.routers.preview` の仕様テスト.
+"""`web.api.routers.preview` の仕様テスト.
 
 計画書「`src/webui/routers/preview.py`」節 + spec §7 / §9 が契約:
 
@@ -16,8 +16,8 @@ import attrs
 import pytest
 from fastapi.testclient import TestClient
 
-from webui.app import create_app
-from webui.settings import Settings
+from web.api.app import create_app
+from web.api.settings import Settings
 
 
 @pytest.fixture

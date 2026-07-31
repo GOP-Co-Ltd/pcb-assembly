@@ -1,4 +1,4 @@
-"""`webui.preview.PreviewService` の仕様テスト.
+"""`web.api.preview.PreviewService` の仕様テスト.
 
 計画書「`src/webui/preview.py`」節 + spec §7 が契約:
 
@@ -24,10 +24,10 @@ import numpy as np
 import pytest
 
 from pcbasm.vision import Image, ImageArray
-from webui.config_store import ConfigStore
-from webui.preview import PreviewService
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.config_store import ConfigStore
+from web.api.preview import PreviewService
+from web.api.settings import Settings
+from web.api.state import AppState
 
 from .conftest import decode_jpeg, jpeg_payload
 

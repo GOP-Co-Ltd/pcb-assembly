@@ -1,4 +1,4 @@
-"""`webui.settings.Settings` の仕様テスト.
+"""`web.api.settings.Settings` の仕様テスト.
 
 計画書「`src/webui/settings.py`」節: 既定値と `from_env` の env 上書きが契約。
 
@@ -7,7 +7,7 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 - `pcb_browse_allowed` — 実際に公開するサブツリー。既定はリポジトリルート +
   `/media` + `/mnt`（`pcb_browse_root` は board_id の基準なので `/` から動かさない）
 - `hostname` — backend の自己申告 ID の注入口。既定 None（`socket.gethostname()`）
-- `PCBASM_WEBUI_PCB_ROOT` を与えたときは、その root も `pcb_browse_allowed` に入る
+- `PCBASM_API_PCB_ROOT` を与えたときは、その root も `pcb_browse_allowed` に入る
   （入れないとファイルブラウザが全パス 400 になる）
 """
 
@@ -18,17 +18,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.helpers import PROJECT_ROOT
-from webui.app import create_app
-from webui.settings import Settings
+from web.api.app import create_app
+from web.api.settings import Settings
 
 ENV_VARS = (
     "PCBASM_CONFIG_DIR",
-    "PCBASM_WEBUI_DATA_DIR",
-    "PCBASM_WEBUI_PCB_ROOT",
+    "PCBASM_API_DATA_DIR",
+    "PCBASM_API_PCB_ROOT",
     "PCBASM_MAINSAIL_URL",
-    "PCBASM_WEBUI_PORT",
-    "PCBASM_WEBUI_FAKE_CAMERA",
-    "PCBASM_WEBUI_FAKE_CAMERA_IMAGE",
+    "PCBASM_API_PORT",
+    "PCBASM_API_FAKE_CAMERA",
+    "PCBASM_API_FAKE_CAMERA_IMAGE",
 )
 
 
@@ -65,10 +65,10 @@ class TestSettingsFromEnv:
         self, clean_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ):
         monkeypatch.setenv("PCBASM_CONFIG_DIR", str(tmp_path / "config"))
-        monkeypatch.setenv("PCBASM_WEBUI_DATA_DIR", str(tmp_path / "data"))
-        monkeypatch.setenv("PCBASM_WEBUI_PCB_ROOT", str(tmp_path / "pcb"))
+        monkeypatch.setenv("PCBASM_API_DATA_DIR", str(tmp_path / "data"))
+        monkeypatch.setenv("PCBASM_API_PCB_ROOT", str(tmp_path / "pcb"))
         monkeypatch.setenv("PCBASM_MAINSAIL_URL", "http://mainsail.example:8000")
-        monkeypatch.setenv("PCBASM_WEBUI_PORT", "9001")
+        monkeypatch.setenv("PCBASM_API_PORT", "9001")
 
         settings = Settings.from_env()
 
@@ -83,7 +83,7 @@ class TestSettingsFromEnv:
         self, clean_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ):
         """Root を env で差し替えたら公開範囲もそこへ追従する（既定 3 パスは残す）."""
-        monkeypatch.setenv("PCBASM_WEBUI_PCB_ROOT", str(tmp_path / "pcb"))
+        monkeypatch.setenv("PCBASM_API_PCB_ROOT", str(tmp_path / "pcb"))
 
         settings = Settings.from_env()
 
@@ -97,14 +97,14 @@ class TestSettingsFromEnv:
     def test_non_numeric_port_raises_value_error(
         self, clean_env: None, monkeypatch: pytest.MonkeyPatch
     ):
-        monkeypatch.setenv("PCBASM_WEBUI_PORT", "not-a-number")
+        monkeypatch.setenv("PCBASM_API_PORT", "not-a-number")
 
         with pytest.raises(ValueError):
             Settings.from_env()
 
 
 class TestPcbRootEnvIsBrowsable:
-    """`PCBASM_WEBUI_PCB_ROOT` で差し替えた root が実アプリで閲覧・選択できる.
+    """`PCBASM_API_PCB_ROOT` で差し替えた root が実アプリで閲覧・選択できる.
 
     `Settings` を組むだけの assert では、`pcb_browse_allowed` が root に追従して
     いなくても通ってしまう（実測: 追従前は `GET /api/files` と `PUT /api/pcb-file` が
@@ -123,8 +123,8 @@ class TestPcbRootEnvIsBrowsable:
     ) -> Iterator[TestClient]:
         """Env だけで組み立てた Settings（`from_env`）で起動した TestClient."""
         monkeypatch.setenv("PCBASM_CONFIG_DIR", str(config_dir))
-        monkeypatch.setenv("PCBASM_WEBUI_DATA_DIR", str(tmp_path / "data"))
-        monkeypatch.setenv("PCBASM_WEBUI_PCB_ROOT", str(pcb_root))
+        monkeypatch.setenv("PCBASM_API_DATA_DIR", str(tmp_path / "data"))
+        monkeypatch.setenv("PCBASM_API_PCB_ROOT", str(pcb_root))
         with TestClient(create_app(Settings.from_env())) as client:
             yield client
 
@@ -158,8 +158,8 @@ class TestFakeCameraSettings:
     def test_env_enables_fake_camera_and_overrides_image(
         self, clean_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ):
-        monkeypatch.setenv("PCBASM_WEBUI_FAKE_CAMERA", "1")
-        monkeypatch.setenv("PCBASM_WEBUI_FAKE_CAMERA_IMAGE", str(tmp_path / "cam.png"))
+        monkeypatch.setenv("PCBASM_API_FAKE_CAMERA", "1")
+        monkeypatch.setenv("PCBASM_API_FAKE_CAMERA_IMAGE", str(tmp_path / "cam.png"))
 
         settings = Settings.from_env()
 

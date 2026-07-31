@@ -5,9 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from webui.config_store import MachineSettingValue
-from webui.dependencies import JobsDep, StateDep, StoreDep
-from webui.routers.common import SettingsField, machine_settings_fields
+from web.api.config_store import MachineSettingValue
+from web.api.dependencies import JobsDep, StateDep, StoreDep
+from web.api.routers.common import SettingsField, machine_settings_fields
 
 router = APIRouter(prefix="/api")
 

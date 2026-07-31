@@ -1,4 +1,4 @@
-"""`webui.routers.pasting_loading`（質量キャリブレーション算出 API）の仕様テスト.
+"""`web.api.routers.pasting_loading`（質量キャリブレーション算出 API）の仕様テスト.
 
 router は「machine.toml の ``solder_paste_density`` を引いて
 :func:`pcbasm.pasting.estimate_mass_flow` へ委譲する」配線のみを持つ。

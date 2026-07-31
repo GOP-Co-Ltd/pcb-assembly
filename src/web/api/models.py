@@ -1,8 +1,8 @@
 """API 境界で共有する pydantic モデル.
 
-このモジュールは **pydantic と標準ライブラリのみ**に依存する（`tests/webui/test_models.py`
+このモジュールは **pydantic と標準ライブラリのみ**に依存する（`tests/web/api/test_models.py`
 が静的に回帰をピンする）。frontend を別プロセスへ分離してもそのまま import できる唯一の contract
-モジュールに保つため、pcbasm / webui の他モジュールを import しない。
+モジュールに保つため、pcbasm / web.api の他モジュールを import しない。
 """
 
 from __future__ import annotations

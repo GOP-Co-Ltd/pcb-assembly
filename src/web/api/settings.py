@@ -55,12 +55,12 @@ class Settings:
         """環境変数を反映した Settings を生成する.
 
         対応する環境変数:
-            PCBASM_WEBUI_DATA_DIR, PCBASM_WEBUI_PCB_ROOT,
-            PCBASM_MAINSAIL_URL, PCBASM_WEBUI_PORT,
-            PCBASM_WEBUI_FAKE_CAMERA（"1" で固定画像カメラを使用）,
-            PCBASM_WEBUI_FAKE_CAMERA_IMAGE
+            PCBASM_API_DATA_DIR, PCBASM_API_PCB_ROOT,
+            PCBASM_MAINSAIL_URL, PCBASM_API_PORT,
+            PCBASM_API_FAKE_CAMERA（"1" で固定画像カメラを使用）,
+            PCBASM_API_FAKE_CAMERA_IMAGE
 
-        ``PCBASM_WEBUI_PCB_ROOT`` を与えたときは、その root を
+        ``PCBASM_API_PCB_ROOT`` を与えたときは、その root を
         ``pcb_browse_allowed`` にも追加する（root をわざわざ差し替える運用は
         「そこを見せる」意図しかなく、追加しないとファイルブラウザが全パス 400 に
         なる）。既定の 3 パスはそのまま残す。
@@ -69,14 +69,14 @@ class Settings:
         （``pcbasm.config.get_config_dir``）ここでは扱わない。
 
         Raises:
-            ValueError: PCBASM_WEBUI_PORT が整数として解釈できない場合
+            ValueError: PCBASM_API_PORT が整数として解釈できない場合
         """
         base = cls()
-        port_env = os.environ.get("PCBASM_WEBUI_PORT")
-        pcb_root_env = os.environ.get("PCBASM_WEBUI_PCB_ROOT")
+        port_env = os.environ.get("PCBASM_API_PORT")
+        pcb_root_env = os.environ.get("PCBASM_API_PCB_ROOT")
         pcb_browse_root = Path(pcb_root_env) if pcb_root_env else base.pcb_browse_root
         return cls(
-            data_dir=_env_path("PCBASM_WEBUI_DATA_DIR", base.data_dir),
+            data_dir=_env_path("PCBASM_API_DATA_DIR", base.data_dir),
             pcb_browse_root=pcb_browse_root,
             pcb_browse_allowed=(
                 (*base.pcb_browse_allowed, pcb_browse_root)
@@ -85,8 +85,8 @@ class Settings:
             ),
             mainsail_url=os.environ.get("PCBASM_MAINSAIL_URL", base.mainsail_url),
             port=int(port_env) if port_env else base.port,
-            fake_camera=os.environ.get("PCBASM_WEBUI_FAKE_CAMERA") == "1",
+            fake_camera=os.environ.get("PCBASM_API_FAKE_CAMERA") == "1",
             fake_camera_image=_env_path(
-                "PCBASM_WEBUI_FAKE_CAMERA_IMAGE", base.fake_camera_image
+                "PCBASM_API_FAKE_CAMERA_IMAGE", base.fake_camera_image
             ),
         )

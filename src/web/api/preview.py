@@ -22,7 +22,7 @@ from pcbasm.vision import (
     draw_detected_circle,
     draw_overlay,
 )
-from webui.state import AppState
+from web.api.state import AppState
 
 type OverlayKind = Literal["none", "crosshair", "circle", "copper"]
 type _Renderer = Callable[[Image], Image]

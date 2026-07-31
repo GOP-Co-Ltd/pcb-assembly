@@ -3,7 +3,7 @@
 選択中の基板について、pad ジオメトリ・階層ツリー・解決済み塗布設定・
 疎な override を 1 発で返し（GET）、ノード/pad 単位の編集を即時保存する
 （PATCH）。契約モデルとレスポンス構築ヘルパ（node_id 規約を含む）は
-:mod:`webui.routers.pasting_view` に置く。
+:mod:`web.api.routers.pasting_view` に置く。
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ from pcbasm.pasting import (
     validate_override_values,
 )
 from pcbasm.pcb import Layer
-from webui.dependencies import BoardStoreDep, JobsDep, SettingsDep, StateDep, StoreDep
-from webui.routers.pasting_view import (
+from web.api.dependencies import BoardStoreDep, JobsDep, SettingsDep, StateDep, StoreDep
+from web.api.routers.pasting_view import (
     InitialPurgePatch,
     InitialPurgeResponse,
     Loaded,

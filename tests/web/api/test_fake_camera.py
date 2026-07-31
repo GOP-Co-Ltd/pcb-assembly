@@ -1,4 +1,4 @@
-"""`webui.fake_camera.FixedImageCamera` の仕様テスト.
+"""`web.api.fake_camera.FixedImageCamera` の仕様テスト.
 
 計画書「`src/webui/fake_camera.py`」節が契約:
 
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from webui.fake_camera import FixedImageCamera
+from web.api.fake_camera import FixedImageCamera
 
 from .conftest import FAKE_CAMERA_IMAGE
 

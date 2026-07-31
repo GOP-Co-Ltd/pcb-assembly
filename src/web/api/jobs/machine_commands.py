@@ -9,7 +9,7 @@ from pcbasm import gcode
 from pcbasm.config import Machine
 from pcbasm.hal import Klipper, XYZStage
 from pcbasm.parking import move_to_cap
-from webui.jobs.context import JobContext
+from web.api.jobs.context import JobContext
 
 # wait_for_done (M400) を含む移動完了待ちのため長め（machine_control と同値）
 COMMAND_TIMEOUT = 60.0

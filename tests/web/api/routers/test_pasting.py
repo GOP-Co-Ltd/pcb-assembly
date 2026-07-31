@@ -1,4 +1,4 @@
-"""`webui.routers.pasting`（pad-config API）の仕様テスト.
+"""`web.api.routers.pasting`（pad-config API）の仕様テスト.
 
 計画書 Phase 3「src/webui/routers/pasting.py」節が契約:
 
@@ -28,9 +28,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.pasting import PASTE_OVERRIDE_FIELDS
-from webui.routers.pasting_view import UI_FIELD_ORDER
-from webui.settings import Settings
-from webui.state import AppState
+from web.api.routers.pasting_view import UI_FIELD_ORDER
+from web.api.settings import Settings
+from web.api.state import AppState
 
 # led_blinker の安定した参照点
 _U1_PADS = {f"U1.{n}" for n in range(1, 7)}  # U1 は 6 pad、全て同形状（L3 単一）

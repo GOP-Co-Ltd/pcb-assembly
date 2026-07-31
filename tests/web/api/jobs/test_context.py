@@ -1,4 +1,4 @@
-"""`webui.jobs.context` の仕様テスト.
+"""`web.api.jobs.context` の仕様テスト.
 
 計画書 webui-phase3.md「src/webui/jobs/context.py」節が契約。JobContext は
 JobManager だけが生成するため、合成ジョブを manager 経由で実行し、worker に
@@ -25,14 +25,14 @@ import pytest
 
 from pcbasm.config import Machine
 from pcbasm.vision import Image
-from tests.webui.conftest import decode_jpeg, jpeg_payload
-from webui.board_settings import BoardSettingsStore
-from webui.jobs.catalog import JobCatalog, ParamSpec
-from webui.jobs.context import JobContext, JobResult
-from webui.jobs.manager import JobManager, JobStatus
-from webui.preview import PreviewService
-from webui.settings import Settings
-from webui.state import AppState
+from tests.web.api.conftest import decode_jpeg, jpeg_payload
+from web.api.board_settings import BoardSettingsStore
+from web.api.jobs.catalog import JobCatalog, ParamSpec
+from web.api.jobs.context import JobContext, JobResult
+from web.api.jobs.manager import JobManager, JobStatus
+from web.api.preview import PreviewService
+from web.api.settings import Settings
+from web.api.state import AppState
 
 from .conftest import WaitUntil, register_synthetic as _register
 
