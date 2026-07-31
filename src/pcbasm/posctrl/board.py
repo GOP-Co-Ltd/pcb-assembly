@@ -83,11 +83,11 @@ class BoardTransformMeasurer:
         corners = (
             Corner.TOP_LEFT,
             Corner.TOP_RIGHT,
-            Corner.BOTTOM_LEFT,
             Corner.BOTTOM_RIGHT,
+            Corner.BOTTOM_LEFT,
         )
         self._logger.info(
-            "計測コーナー: TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT"
+            "計測コーナー: TOP_LEFT, TOP_RIGHT, BOTTOM_RIGHT, BOTTOM_LEFT"
         )
         move_velocity = self._stage.max_velocity * self._move_velocity_ratio
         machine_points = [
@@ -98,9 +98,9 @@ class BoardTransformMeasurer:
         board_points = (
             offsets.get(Corner.TOP_LEFT),
             Point2d(self._outline.width, 0.0) + offsets.get(Corner.TOP_RIGHT),
-            Point2d(0.0, self._outline.height) + offsets.get(Corner.BOTTOM_LEFT),
             Point2d(self._outline.width, self._outline.height)
             + offsets.get(Corner.BOTTOM_RIGHT),
+            Point2d(0.0, self._outline.height) + offsets.get(Corner.BOTTOM_LEFT),
         )
         design = np.array(
             [[point.x, point.y, 1.0] for point in board_points],

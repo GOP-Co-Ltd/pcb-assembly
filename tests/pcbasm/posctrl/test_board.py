@@ -43,10 +43,10 @@ class TestBoardTransformMeasurer:
         stage.move.return_value = gcode.GCode("G1")
         return stage
 
-    def test_measure_recovers_known_affine_and_observes_corners_in_fixed_order(
+    def test_measure_recovers_known_affine_and_observes_corners_clockwise(
         self, klipper, stage
     ):
-        """既知affineを復元し、TL→TR→BL→BRの順に4点を観測する."""
+        """既知affineを復元し、TL→TR→BR→BLの順に4点を観測する."""
         outline = Outline(
             Polygon([(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)])
         )
@@ -64,14 +64,14 @@ class TestBoardTransformMeasurer:
         move_targets = (
             Point2d(10.0, 20.0),
             Point2d(112.0, 18.0),
-            Point2d(14.0, 77.0),
             Point2d(104.0, 77.0),
+            Point2d(14.0, 77.0),
         )
         board_markers = (
             Point2d(1.0, -2.0),
             Point2d(103.0, -4.0),
-            Point2d(5.0, 55.0),
             Point2d(95.0, 55.0),
+            Point2d(5.0, 55.0),
         )
         expected = Compose(
             [
@@ -129,8 +129,8 @@ class TestBoardTransformMeasurer:
         measurements = [
             Point2d(0.0, 0.0),
             Point2d(2.0, 0.0),
-            Point2d(0.0, 2.0),
             Point2d(2.0, 2.0),
+            Point2d(0.0, 2.0),
         ]
         point = measurements[perturbed_corner_index]
         measurements[perturbed_corner_index] = Point2d(point.x + 4.0, point.y)
