@@ -39,17 +39,25 @@ migrate-codex-check: ## Check whether generated Codex rules are current
 type: ## Run type check
 	uv run pyright
 
-webui-dev: ## Run WebUI dev server (auto-reload)
-	uv run uvicorn webui.app:create_app --factory --reload --host 0.0.0.0 --port 8080
+api-dev: ## Run backend WebAPI dev server (auto-reload)
+	uv run uvicorn web.api.app:create_app --factory --reload --host 0.0.0.0 --port 8080
 
-webui: ## Run WebUI server
-	uv run python -m webui
+api: ## Run backend WebAPI server
+	uv run python -m web.api
 
-webui-fake: ## Run WebUI with fake camera (isolated data_dir/port; for manual/browser E2E)
-	PCBASM_WEBUI_FAKE_CAMERA=1 \
-	PCBASM_WEBUI_PORT=$${PCBASM_WEBUI_PORT:-8099} \
-	PCBASM_WEBUI_DATA_DIR=$${PCBASM_WEBUI_DATA_DIR:-/tmp/pcbasm-webui-fake} \
-	uv run python -m webui
+api-fake: ## Run backend WebAPI with fake camera (isolated data_dir/port; for manual/browser E2E)
+	PCBASM_API_FAKE_CAMERA=1 \
+	PCBASM_API_PORT=$${PCBASM_API_PORT:-8099} \
+	PCBASM_API_DATA_DIR=$${PCBASM_API_DATA_DIR:-/tmp/pcbasm-webui-fake} \
+	uv run python -m web.api
+
+# 旧名のエイリアス。実機の pcbasm-webui.service が ExecStart=make webui を参照している
+# ため、systemd unit を api / ui の 2 本に分けるまで残す
+webui-dev: api-dev ## Alias for api-dev (deprecated)
+
+webui: api ## Alias for api (referenced by pcbasm-webui.service)
+
+webui-fake: api-fake ## Alias for api-fake (deprecated)
 
 run: format test type ## Run all workflow.
 	@echo "All tasks completed successfully."

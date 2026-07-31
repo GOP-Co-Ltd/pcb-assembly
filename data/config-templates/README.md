@@ -110,7 +110,7 @@ width = 400
 height = 400
 ```
 
-書き込み可能なキーの全量は `src/webui/config_store.py` の `MACHINE_FIELDS` を参照。
+書き込み可能なキーの全量は `src/web/api/config_store.py` の `MACHINE_FIELDS` を参照。
 
 ## printer.cfg のバージョン管理について
 

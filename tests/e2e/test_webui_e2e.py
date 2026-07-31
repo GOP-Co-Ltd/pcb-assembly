@@ -29,8 +29,8 @@ from tests.e2e.conftest import (
     wait_machine_field as _wait_machine_field,
 )
 from tests.helpers import wait_until
-from tests.webui.conftest import decode_jpeg, jpeg_payload
-from webui.routers.pasting_view import ResolvedSettings
+from tests.web.api.conftest import decode_jpeg, jpeg_payload
+from web.api.routers.pasting_view import ResolvedSettings
 
 _HTTP_TIMEOUT = 10.0
 

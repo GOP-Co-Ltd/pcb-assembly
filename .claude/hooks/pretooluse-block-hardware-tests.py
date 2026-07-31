@@ -6,7 +6,7 @@
 とサブエージェントは実機テストを実行しない （`memory/MEMORY.md` の "No hardware test
 execution"）。
 
-指示文だけでは、サブエージェントが `uv run pytest tests/webui` のように 「実機テストを含むディレクトリを
+指示文だけでは、サブエージェントが `uv run pytest tests/web/api` のように 「実機テストを含むディレクトリを
 marker 無しで指定する」経路を塞げないため、 機構として拒否する。
 
 判定は「コマンド位置に pytest があるか」で行い、`grep pytest Makefile` のような
@@ -107,7 +107,7 @@ _FIX = (
     '  uv run pytest <path> -m "not hardware" -q    # 範囲を絞る場合\n'
     "pytest を直接叩くときは対象パスに関係なく "
     '-m "not hardware" を必ず付けてください'
-    "（tests/webui/ と tests/pcbasm/hal/ には @mark_hardware が含まれます）。"
+    "（tests/web/api/ と tests/pcbasm/hal/ には @mark_hardware が含まれます）。"
 )
 
 
