@@ -276,21 +276,21 @@ class TestMachineSettings:
 class TestReferencePointOffsets:
     """float_pair 型フィールド reference_point.offsets.* の読み書き."""
 
-    def test_read_returns_pairs_and_none_for_missing_corner(self, store: ConfigStore):
+    def test_read_returns_all_four_corner_pairs(self, store: ConfigStore):
         values = store.read_machine_settings()
 
         assert values["reference_point.offsets.top_left"] == [5.0, -5.0]
         assert values["reference_point.offsets.top_right"] == [-5.0, -5.0]
         assert values["reference_point.offsets.bottom_left"] == [5.0, 5.0]
-        assert values["reference_point.offsets.bottom_right"] is None
+        assert values["reference_point.offsets.bottom_right"] == [-5.0, 5.0]
 
-    def test_write_missing_corner_then_reread_reflects_pair(self, store: ConfigStore):
+    def test_write_corner_then_reread_reflects_pair(self, store: ConfigStore):
         store.write_machine_settings(
-            {"reference_point.offsets.bottom_right": [-5.0, 5.0]}
+            {"reference_point.offsets.bottom_right": [-4.0, 4.0]}
         )
 
         values = store.read_machine_settings()
-        assert values["reference_point.offsets.bottom_right"] == [-5.0, 5.0]
+        assert values["reference_point.offsets.bottom_right"] == [-4.0, 4.0]
 
     def test_write_pair_keeps_table_comment(self, store: ConfigStore, config_dir: Path):
         store.write_machine_settings({"reference_point.offsets.top_left": [6.0, -6.0]})
