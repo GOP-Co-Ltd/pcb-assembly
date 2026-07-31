@@ -1,4 +1,4 @@
-"""WebUI の起動設定。env による上書きをサポートする."""
+"""Backend WebAPI の起動設定。env による上書きをサポートする."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _env_path(name: str, default: Path) -> Path:
 
 @attrs.frozen
 class Settings:
-    """WebUI サーバーの設定値."""
+    """Backend WebAPI サーバーの設定値."""
 
     config_dir: Path = attrs.field(factory=get_config_dir)
     data_dir: Path = PROJECT_ROOT / "data"
@@ -47,7 +47,11 @@ class Settings:
 
     @property
     def webui_data_dir(self) -> Path:
-        """WebUI が所有する永続データのルート."""
+        """Backend WebAPI が所有する永続データのルート.
+
+        ディレクトリ名は ``webui`` のまま保つ（実機の選択 PCB・基板別塗布 override・
+        ジョブ成果物がこの下にあり、改名すると丸ごと孤立する）。
+        """
         return self.data_dir / "webui"
 
     @classmethod

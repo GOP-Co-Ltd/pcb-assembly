@@ -226,6 +226,55 @@ docstring に記載）。**この判断を承認**。4 ページの 500 は MR2 
 「既定値を持たせず required にする」案は採らなかった（`JobDefinition` 側が既定値持ちなので
 required 化すると `/api/jobs` 以外の構築側に無意味な必須引数が増える）。この判断も承認。
 
+## MR3 の裁定
+
+「振る舞い変更ゼロ」を**印象ではなく逆置換で機械的に証明**させた。リネーム後のツリーに
+逆変換（`web.api.` → `webui.`、`PCBASM_API_` → `PCBASM_WEBUI_`、ディレクトリを戻す）を
+当てて `git archive 7a24c96` と `diff -ru` を取り、残った差分を全件分類させる手続き。
+
+両監査とも verdict は **`mechanical-only`**。`src/web/api/` の settings.py / state.py /
+board_settings.py / config_store.py / app.py / 全 routers / 全 jobs / 全 templates /
+全 static JS と、`tests/web/api/` の全テストが**完全一致**した。これが振る舞い変更ゼロの
+実証。テストの assert / 期待値の変更 0 件、ロジック書き換え 0 件、import 順の変更 0 件。
+
+**逆置換は誤置換を復元しない**ため、`webui_data_dir` → `web_api_data_dir` のような事故は
+差分に現れる。現れなかったこと自体がデータパス無改変の証明になっている。あわせて実機の
+`data/webui/webui_state.json`（994 B）・`board_settings/`・成果物 10 ディレクトリへの
+到達性と、`pcbasm-webui.service` の `ExecStart=make webui` がエイリアスで生きることも実測。
+
+### 採用
+
+`src/web/api/__init__.py` と `settings.py` の docstring が「WebUI」を名乗ったままだった点。
+**このリネーム自身が作った不整合**（CLAUDE.md は同じコミットで「backend WebAPI」に
+書き換えている）なので追随に含める。`webui_data_dir` の docstring には「ディレクトリ名は
+`webui` のまま保つ」理由も書いた。
+
+`FastAPI(title="pcb-assembly WebUI")` は**据え置き**。OpenAPI に出る値なので変えると
+振る舞い変更になる。MR4 で frontend の app を作るときに両方揃える。
+
+### 送り先を決めたもの
+
+| nit | 送り先 | 理由 |
+| --- | ------ | ---- |
+| `tests/e2e/test_webui_e2e.py` のファイル名 | **MR4** | 計画書 MR3 の改名対象は `src/webui` と `tests/webui` の 2 つに限定。MR4 で e2e の分割方針自体が変わるので、今動かすと二度動かすことになる |
+| skill ディレクトリ名 `webui-e2e` / `webui-thin-wrapper` | **MR7** | 計画書 MR7 が skills を対象に挙げている |
+| `Makefile` の `/tmp/pcbasm-webui-fake` 既定値 | **MR7** | tmp の作業ディレクトリ名。skill の記述と一致しており不整合は無い |
+| `jobs/*.py` の散文「KiCAD 未導入でも webui は起動可」 | **MR4** | 計画書が置換範囲を「`\bwebui\.` のモジュール参照と import 行のみ」と切っており、CLAUDE.md の「周辺コメントをついでに改善しない」にも合致。`web.ui` が登場した時点で曖昧になるのでそこで扱う |
+
+### 却下
+
+`.agents/skills/testing-strategy/SKILL.md` のミラードリフト（`.claude` 版にある行が
+`.agents` 版に無い）。`git show 7a24c96` での実測で **MR3 以前からの既存ドリフト**と判明し、
+置換対象の `webui` 文字列がそもそも無かった。実装者の取りこぼしではない。
+
+### ブリーフの不備
+
+「`grep -rn '\bwebui\b'` の残存は**データパス系だけ**」という完了条件は文字どおりには
+達成不可能だった。`\bwebui\b` は `webui-phase3.md` のような**実在する計画書ファイル名**にも
+一致し、書き換えると `memory/agents/**` への参照が dangling になる。実装者は 161 件を
+9 カテゴリに分類して報告し、禁止カテゴリ（モジュール参照・import・env prefix）が 0 件で
+あることを示した。**この分類のほうが完了条件として正しい。**
+
 ## 残課題（MR2 では直さない）
 
 - **壊れた machine.toml で 4 ページが 500 する**（上記）。MR2 前からの既存挙動。`/settings` は
