@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Literal
 
 import attrs
 import tomlkit
@@ -20,9 +19,9 @@ from pcbasm.config import (
 )
 from webui.atomic import write_text_atomic
 
-type SettingValueType = Literal[
-    "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode", "bool"
-]
+# 型エイリアスの定義は API 契約モジュール（pydantic のみ依存）に置き、ここから
+# 再 export する。既存の `from webui.config_store import ...` を壊さない
+from webui.models import MachineSettingValue, SettingValueType
 
 
 @attrs.frozen
@@ -42,10 +41,9 @@ class FieldSpec:
     unit: str | None = None
 
 
-type MachineSettingValue = float | int | str | bool | list[float]
-
-
 MACHINE_FIELDS: tuple[FieldSpec, ...] = (
+    # トップレベル（bare key）
+    FieldSpec("machine_name", "マシン名", "str"),
     # [paste_dispenser]
     FieldSpec(
         "paste_dispenser.rotations_per_ul", "1uLあたりの回転数", "float", "rev/uL"

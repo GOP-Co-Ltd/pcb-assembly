@@ -73,6 +73,34 @@ def config_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def partial_nozzle_cap(config_dir: Path) -> Path:
+    """`[nozzle_cap]` に x だけを書いた machine.toml を用意する（そのパスを返す）.
+
+    設定画面から 1 軸だけ保存すると実際にこの配置になり、`Machine.nozzle_cap` の
+    structure は例外を投げる。`/api/state` と全ページ SSR がこれで 500 しないことを
+    ピンするための素材（`AppState.nozzle_cap()` の防御が要）。
+    """
+    path = config_dir / "machine.toml"
+    with path.open("a", encoding="utf-8") as machine_toml:
+        machine_toml.write("\n[nozzle_cap]\nx = 12.5\n")
+    return path
+
+
+@pytest.fixture
+def broken_machine_toml(config_dir: Path) -> Path:
+    """終端されていない文字列を追記して machine.toml をパース不能にする（そのパスを返す）.
+
+    `Machine()` も `tomlkit` もこの machine.toml で例外を投げる。全ページの SSR が
+    共通で呼ぶ `AppState.machine_name()` / `machine_type()` / `focus_z()` の防御
+    （broad except → None）が効いていることをピンするための素材。
+    """
+    path = config_dir / "machine.toml"
+    with path.open("a", encoding="utf-8") as machine_toml:
+        machine_toml.write('\nbroken_key = "unterminated\n')
+    return path
+
+
+@pytest.fixture
 def pcb_root(tmp_path: Path) -> Path:
     """PCB ファイルブラウザ用のディレクトリツリー."""
     root = tmp_path / "pcb"
@@ -82,6 +110,11 @@ def pcb_root(tmp_path: Path) -> Path:
     (root / "docs").mkdir()
     (root / "top.kicad_pcb").write_text("(kicad_pcb)", encoding="utf-8")
     (tmp_path / "outside.kicad_pcb").write_text("(kicad_pcb)", encoding="utf-8")
+    # 許可サブツリーの prefix 兄弟（".../pcb" に対する ".../pcb-evil"）。許可判定を
+    # 前方一致で書くと脱出できてしまう最も起こりやすい誤実装を留めるための素材
+    sibling = root.parent / f"{root.name}-evil"
+    sibling.mkdir()
+    (sibling / "secret.kicad_pcb").write_text("(kicad_pcb)", encoding="utf-8")
     return root
 
 
@@ -118,6 +151,9 @@ def webui_settings(tmp_path: Path, config_dir: Path, pcb_root: Path) -> Settings
         config_dir=config_dir,
         data_dir=data_dir,
         pcb_browse_root=pcb_root,
+        # 公開範囲はセキュリティ境界なので既定（リポジトリ + /media + /mnt）から
+        # 暗黙に広がらない。tmp の pcb root を使うテストは明示的に許可する
+        pcb_browse_allowed=(pcb_root,),
         pcb_browse_start=pcb_root,
         pcb_upload_dir=pcb_root / "uploads",
         mainsail_url="http://mainsail.invalid",
@@ -210,6 +246,7 @@ def real_settings(tmp_path: Path) -> Settings:
         config_dir=PROJECT_ROOT / "config",
         data_dir=data_dir,
         pcb_browse_root=PROJECT_ROOT,
+        pcb_browse_allowed=(PROJECT_ROOT,),
     )
 
 

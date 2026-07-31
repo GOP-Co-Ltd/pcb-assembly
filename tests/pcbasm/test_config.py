@@ -318,6 +318,50 @@ class TestMachineType:
             machine.machine_type
 
 
+class TestMachineName:
+    """Machine.machine_name のテスト.
+
+    計画書 docs/plans/web-api-ui-split.md「MR2」節: 表示名は任意キーなので未設定は None
+    を返す。ホスト名などへのフォールバックは環境依存なので API 層の責務。
+    """
+
+    def test_missing_key_returns_none(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.machine_name is None
+
+    def test_reads_top_level_bare_key(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source.replace(
+                'machine_type = "paste"',
+                'machine_type = "paste"\nmachine_name = "黒兎 2 号機"',
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.machine_name == "黒兎 2 号機"
+
+    def test_non_string_value_reads_as_none(self, tmp_path):
+        """型が違う値でも例外にしない（表示名が壊れてもページを落とさない）."""
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source.replace(
+                'machine_type = "paste"', 'machine_type = "paste"\nmachine_name = 42', 1
+            ),
+            encoding="utf-8",
+        )
+
+        machine = Machine(path)
+
+        assert machine.machine_name is None
+
+
 class TestNozzleCap:
     """Machine.nozzle_cap のテスト（nozzle-cap-parking 計画書「公開インターフェース」節）.
 

@@ -8,7 +8,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
-from pcbasm.config import Machine
+from pcbasm.config import Machine, NozzleCap
 from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.vision import CalibrationResult
 from webui.atomic import write_text_atomic
@@ -130,6 +130,26 @@ class AppState:
         """マシン種別を返す（取得できなければ None）."""
         try:
             return self.machine().machine_type
+        except Exception:
+            return None
+
+    def machine_name(self) -> str | None:
+        """マシンの表示名を返す（未設定・取得できなければ None）."""
+        try:
+            return self.machine().machine_name
+        except Exception:
+            return None
+
+    def nozzle_cap(self) -> NozzleCap | None:
+        """ノズルキャップ位置を返す（未記録・取得できなければ None）.
+
+        ``[nozzle_cap]`` テーブルが x/y/z の一部しか持たない（設定画面から 1 軸だけ
+        保存した）場合、``Machine.nozzle_cap`` の structure は例外を投げる。この値を
+        読むのは ``/api/state``・ノズルキャップページ・``move_to_cap`` の 3 経路なので、
+        ここで None へ潰して「未記録」として扱えるようにする。
+        """
+        try:
+            return self.machine().nozzle_cap
         except Exception:
             return None
 

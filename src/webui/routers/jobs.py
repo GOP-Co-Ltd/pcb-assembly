@@ -15,11 +15,16 @@ from webui.jobs.manager import JobManager, JobRecord, prompt_payload
 from webui.models import (
     ApplyInfo,
     ArtifactInfo,
+    JobCatalogResponse,
     JobResultInfo,
+    JobSpecInfo,
     JobStatusName,
     JobSummary,
+    ParamSpecInfo,
     PromptInfo,
 )
+from webui.routers.common import param_specs_with_saved_defaults
+from webui.state import AppState
 
 router = APIRouter(prefix="/api")
 
@@ -69,6 +74,55 @@ def job_summary(record: JobRecord, definition: JobDefinition) -> JobSummary:
         accepts_commands=definition.accepts_commands,
         notify_on_completion=definition.notify_on_completion,
         apply_available=record.apply_available,
+    )
+
+
+def job_spec_info(
+    definition: JobDefinition, state: AppState, catalog: JobCatalog
+) -> JobSpecInfo:
+    """JobDefinition を公開表現へ変換する（params は保存済み既定値を反映）."""
+    return JobSpecInfo(
+        name=definition.name,
+        label=definition.label,
+        tab=definition.tab,
+        params=[
+            ParamSpecInfo(
+                name=spec.name,
+                label=spec.label,
+                value_type=spec.value_type,
+                default=spec.default,
+                choices=list(spec.choices),
+                unit=spec.unit,
+                help=spec.help,
+                runtime_editable=spec.runtime_editable,
+                minimum=spec.minimum,
+                optional=spec.optional,
+            )
+            for spec in param_specs_with_saved_defaults(definition, state, catalog)
+        ],
+        requires_pcb=definition.requires_pcb,
+        uses_machine=definition.uses_machine,
+        notify_on_completion=definition.notify_on_completion,
+        accepts_commands=definition.accepts_commands,
+        persisted_params=list(definition.persisted_params),
+        runtime_params=list(definition.runtime_params),
+        hidden=definition.hidden,
+        provides_preview=definition.provides_preview,
+        loading_param=definition.loading_param,
+        loading_stages=definition.loading_stages,
+    )
+
+
+@router.get("/jobs")
+def get_jobs(state: StateDep, catalog: CatalogDep) -> JobCatalogResponse:
+    """登録済みジョブ定義を登録順で全件返す（hidden も含む）.
+
+    hidden ジョブも実行時登録され POST できるため、frontend が扱えるよう filter しない。
+    """
+    return JobCatalogResponse(
+        jobs=[
+            job_spec_info(definition, state, catalog) for definition in catalog.list()
+        ]
     )
 
 

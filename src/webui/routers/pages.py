@@ -6,7 +6,6 @@ from collections.abc import Callable
 from itertools import groupby
 from typing import Any
 
-import attrs
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -18,11 +17,13 @@ from webui.dependencies import (
     StoreDep,
     get_templates,
 )
-from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
+from webui.jobs.catalog import JobCatalog, ParamSpec
 from webui.routers.common import (
     SECTION_LABELS,
     SettingsField,
+    build_machine_info,
     machine_settings_fields,
+    param_specs_with_saved_defaults,
     section_of,
 )
 from webui.state import AppState
@@ -119,30 +120,11 @@ _JOB_TEMPLATES = frozenset(
     }
 )
 
-# preview ペイン（ジョブ提供フレームのみ）を表示する pasting feature
-_PASTING_PREVIEW = frozenset({"paste_solder", "height_plane", "toolhead_offset"})
-
 # はんだ塗布ページに即保存フォームで載せる auto しきい値（machine 全体設定）
 _PASTE_AUTO_THRESHOLD_KEYS = (
     "paste_dispenser.auto_line_aspect_ratio",
     "paste_dispenser.auto_area_short_side_factor",
 )
-
-# loading コマンド UI を表示する pasting feature → 既定量の ParamSpec 名
-_PASTING_LOADING_PARAM = {
-    "paste_solder": "amount",
-    "loading": "amount",
-    "dispense_calibration": "line_amount",
-    "toolhead_offset": "loading_amount",
-}
-
-# loading_controls をローディング段階以外でも有効化する feature → progress stage 名
-# （カンマ区切りで複数可。loading_controls.js が Set として解釈する）。
-# dispense_calibration はメニュー段階のプライム（押出/吸引）と、① 専用ローディング段階
-# （"ローディング"）の両方でボタンを有効化する。
-_LOADING_STAGE_OVERRIDE = {
-    "dispense_calibration": "キャリブレーションメニュー,ローディング",
-}
 
 _LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel", "retract_rotations")
 
@@ -196,51 +178,22 @@ def _tab_context(tab: str, catalog: JobCatalog) -> dict[str, Any]:
     }
 
 
-def _fb_start(settings: SettingsDep) -> str:
-    """ファイルブラウザの初期表示パス（pcb_browse_root からの相対）."""
-    try:
-        start = (
-            settings.pcb_browse_start.resolve()
-            .relative_to(settings.pcb_browse_root.resolve())
-            .as_posix()
-        )
-    except ValueError:
-        return ""
-    return "" if start == "." else start
-
-
-def _param_specs_with_saved_defaults(
-    definition: JobDefinition, state: AppState, catalog: JobCatalog
-) -> tuple[ParamSpec, ...]:
-    """保存済み既定値を ParamSpec の default に反映する.
-
-    型判定・coerce は :meth:`JobCatalog.filter_persisted_defaults` に一本化する
-    （persisted_params 外・型不一致は黙って除外 = spec 既定値のまま）。
-    """
-    saved = state.job_param_defaults(definition.name)
-    if not saved or not definition.persisted_params:
-        return definition.params
-    valid = catalog.filter_persisted_defaults(definition, saved)
-    return tuple(
-        attrs.evolve(spec, default=valid[spec.name]) if spec.name in valid else spec
-        for spec in definition.params
-    )
-
-
 def _base_context(
     request: Request, state: StateDep, settings: SettingsDep
 ) -> dict[str, Any]:
     pcb = state.selected_pcb
+    # SSR も /api/machine-info と同じ解決結果を使う（mainsail_url はリクエストの
+    # ホスト名に依存させない。プロキシ配下で必ず誤るため）
+    machine_info = build_machine_info(state, settings)
     return {
         "request": request,
         "tabs": list(TABS),
         "tab_labels": TAB_LABELS,
         "selected_pcb": pcb.as_posix() if pcb else None,
-        "fb_start": _fb_start(settings),
-        "mainsail_url": settings.mainsail_url
-        or f"http://{request.url.hostname or 'localhost'}",
+        "fb_start": machine_info.fb_start,
+        "mainsail_url": machine_info.mainsail_url,
         "focus_z": state.focus_z(),
-        "machine_type": state.machine_type(),
+        "machine_type": machine_info.machine_type,
         "active_tab": None,
         "active_feature": None,
     }
@@ -323,7 +276,7 @@ def _copper_detection_context(state: AppState, store: ConfigStore) -> dict[str, 
 
 def _nozzle_cap_context(state: AppState, store: ConfigStore) -> dict[str, Any]:
     """Nozzle_cap ページ専用コンテキスト（記録済みキャップ位置の現在値）."""
-    return {"nozzle_cap": state.machine().nozzle_cap}
+    return {"nozzle_cap": state.nozzle_cap()}
 
 
 # feature slug → ジョブページ専用コンテキスト（param_specs 依存）
@@ -383,19 +336,21 @@ def feature_page(
     template = FEATURE_TEMPLATES.get((tab, feature), "feature.html")
     if template in _JOB_TEMPLATES:
         definition = catalog.get(feature)
-        param_specs = _param_specs_with_saved_defaults(definition, state, catalog)
-        context.update(job_name=definition.name, param_specs=param_specs)
-        if tab == "pasting":
-            loading_param = _PASTING_LOADING_PARAM.get(feature)
-            context.update(
-                show_preview=feature in _PASTING_PREVIEW,
-                show_loading_controls=loading_param is not None,
-                loading_stage=_LOADING_STAGE_OVERRIDE.get(feature, "ローディング"),
+        param_specs = param_specs_with_saved_defaults(definition, state, catalog)
+        # preview ペインとローディング UI の有無は backend の事実（フレーム提供の有無・
+        # progress_stage 文字列）なので JobDefinition から導出する
+        loading_param = definition.loading_param
+        context.update(
+            job_name=definition.name,
+            param_specs=param_specs,
+            show_preview=definition.provides_preview,
+            show_loading_controls=loading_param is not None,
+            loading_stage=definition.loading_stages,
+        )
+        if loading_param is not None:
+            context["loading_default"] = next(
+                spec.default for spec in param_specs if spec.name == loading_param
             )
-            if loading_param is not None:
-                context["loading_default"] = next(
-                    spec.default for spec in param_specs if spec.name == loading_param
-                )
         if (job_provider := _JOB_FEATURE_CONTEXT.get(feature)) is not None:
             context.update(job_provider(state, param_specs))
     if (provider := _FEATURE_CONTEXT.get(feature)) is not None:

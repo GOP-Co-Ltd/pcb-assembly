@@ -268,6 +268,8 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             uses_machine=True,
             notify_on_completion=True,
             accepts_commands=True,
+            provides_preview=True,
+            loading_param="amount",
         )
     )
     catalog.register(
@@ -281,6 +283,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             ),
             requires_pcb=True,
             uses_machine=True,
+            provides_preview=True,
         )
     )
     catalog.register(
@@ -356,6 +359,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                 "accel",
                 "retract_rotations",
             ),
+            loading_param="amount",
         )
     )
     catalog.register(
@@ -499,6 +503,10 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                 "speed_max",
                 "speed_divisions",
             ),
+            loading_param="line_amount",
+            # メニュー段階のプライム（押出/吸引）と ① 専用ローディング段階の両方で
+            # ボタンを有効化する
+            loading_stages="キャリブレーションメニュー,ローディング",
         )
     )
     catalog.register(
@@ -583,6 +591,8 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                 "point_spacing",
                 "edge_margin",
             ),
+            provides_preview=True,
+            loading_param="loading_amount",
         )
     )
 
