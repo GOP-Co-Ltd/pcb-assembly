@@ -1027,7 +1027,6 @@ def _run_loading(ctx: JobContext) -> JobResult:
     dispenser = PasteDispenser(
         klipper=klipper.readonly,
         rotations_per_ul=ctx.machine.paste_dispenser.rotations_per_ul,
-        air_pump_enabled=ctx.machine.paste_dispenser.air_pump_enabled,
     )
     applicator = PasteApplicator.from_config(
         klipper, dispenser, stage, ctx.machine.paste_dispenser
@@ -1776,7 +1775,6 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         paste_dispenser = PasteDispenser(
             klipper=klipper.readonly,
             rotations_per_ul=dispenser_config.rotations_per_ul,
-            air_pump_enabled=dispenser_config.air_pump_enabled,
         )
         toolhead_transform = dispenser_config.toolhead.to_transform()
 

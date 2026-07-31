@@ -210,6 +210,11 @@ class TestMachineSettings:
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings({"paste_dispenser.max_fill_speed": "fast"})
 
+    def test_numeric_field_rejects_bool(self, store: ConfigStore):
+        # bool は int のサブクラスなので、数値フィールドへの bool 投入は拒否する
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings({"paste_dispenser.max_fill_speed": True})
+
     def test_unknown_dispense_mode_raises_unknown_field_error(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings({"paste_dispenser.dispense_mode": "spray"})
@@ -270,21 +275,21 @@ class TestMachineSettings:
 class TestReferencePointOffsets:
     """float_pair 型フィールド reference_point.offsets.* の読み書き."""
 
-    def test_read_returns_pairs_and_none_for_missing_corner(self, store: ConfigStore):
+    def test_read_returns_all_four_corner_pairs(self, store: ConfigStore):
         values = store.read_machine_settings()
 
         assert values["reference_point.offsets.top_left"] == [5.0, -5.0]
         assert values["reference_point.offsets.top_right"] == [-5.0, -5.0]
         assert values["reference_point.offsets.bottom_left"] == [5.0, 5.0]
-        assert values["reference_point.offsets.bottom_right"] is None
+        assert values["reference_point.offsets.bottom_right"] == [-5.0, 5.0]
 
-    def test_write_missing_corner_then_reread_reflects_pair(self, store: ConfigStore):
+    def test_write_corner_then_reread_reflects_pair(self, store: ConfigStore):
         store.write_machine_settings(
-            {"reference_point.offsets.bottom_right": [-5.0, 5.0]}
+            {"reference_point.offsets.bottom_right": [-4.0, 4.0]}
         )
 
         values = store.read_machine_settings()
-        assert values["reference_point.offsets.bottom_right"] == [-5.0, 5.0]
+        assert values["reference_point.offsets.bottom_right"] == [-4.0, 4.0]
 
     def test_write_pair_keeps_table_comment(self, store: ConfigStore, config_dir: Path):
         store.write_machine_settings({"reference_point.offsets.top_left": [6.0, -6.0]})
@@ -329,31 +334,6 @@ class TestNozzleCapFields:
         assert values["nozzle_cap.x"] == 10.123
         assert values["nozzle_cap.y"] == 20.456
         assert values["nozzle_cap.z"] == 3.789
-
-
-class TestAirPumpEnabled:
-    """Bool 型フィールド air_pump_enabled の読み書き."""
-
-    def test_missing_air_pump_enabled_reads_as_none(self, store: ConfigStore):
-        values = store.read_machine_settings()
-
-        assert values["paste_dispenser.air_pump_enabled"] is None
-
-    @pytest.mark.parametrize("enabled", [True, False])
-    def test_write_then_reread_reflects_bool(self, store: ConfigStore, enabled: bool):
-        store.write_machine_settings({"paste_dispenser.air_pump_enabled": enabled})
-
-        values = store.read_machine_settings()
-        assert values["paste_dispenser.air_pump_enabled"] is enabled
-
-    def test_bool_field_rejects_non_bool(self, store: ConfigStore):
-        with pytest.raises(UnknownFieldError):
-            store.write_machine_settings({"paste_dispenser.air_pump_enabled": 1.0})
-
-    def test_numeric_field_still_rejects_bool(self, store: ConfigStore):
-        # bool は int のサブクラスなので、数値フィールドへの bool 投入は拒否され続ける
-        with pytest.raises(UnknownFieldError):
-            store.write_machine_settings({"paste_dispenser.max_fill_speed": True})
 
 
 class TestPadAlignRegionSettings:

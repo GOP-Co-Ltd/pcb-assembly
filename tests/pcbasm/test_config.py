@@ -86,6 +86,7 @@ class TestMachine:
                 top_left=(0.0, -5.0),
                 top_right=(0.0, -5.0),
                 bottom_left=(5.0, 5.0),
+                bottom_right=(5.0, 5.0),
             ),
         )
 
@@ -95,6 +96,18 @@ class TestMachine:
         assert machine.klipper == Klipper(host="localhost", port=7125)
         assert machine.camera.device_id == 0
         assert machine.camera.format == "YUYV"
+
+    def test_rejects_legacy_three_corner_offsets(self, tmp_path):
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            source.replace("bottom_right = [5.0, 5.0]\n", ""),
+            encoding="utf-8",
+        )
+        machine = Machine(path)
+
+        with pytest.raises(ExceptionGroup):
+            machine.reference_point
 
     def test_pad_align_defaults_when_section_absent(self):
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
@@ -127,27 +140,6 @@ class TestMachine:
         assert pad_align.region_size_px == 160
         assert pad_align.region_overlap == pytest.approx(0.25)
         assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
-
-    def test_air_pump_enabled_defaults_true_when_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
-
-        assert machine.paste_dispenser.air_pump_enabled is True
-
-    def test_air_pump_enabled_explicit_false(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace(
-                "[paste_dispenser]\n",
-                "[paste_dispenser]\nair_pump_enabled = false\n",
-                1,
-            ),
-            encoding="utf-8",
-        )
-
-        machine = Machine(path)
-
-        assert machine.paste_dispenser.air_pump_enabled is False
 
     def test_initial_purge_ul_defaults_when_absent(self):
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
@@ -456,45 +448,42 @@ class TestToolhead:
 class TestCornerOffsets:
     """CornerOffsetsクラスのテスト."""
 
-    def test_requires_at_least_two_non_top_left_corners(self):
-        with pytest.raises(ValueError, match="少なくとも2つ"):
-            CornerOffsets(top_left=(0.0, -5.0))
+    @pytest.mark.parametrize(
+        "missing_corner",
+        ["top_left", "top_right", "bottom_left", "bottom_right"],
+    )
+    def test_requires_all_four_corners(self, missing_corner: str):
+        values = {
+            "top_left": (0.0, -5.0),
+            "top_right": (0.0, -5.0),
+            "bottom_left": (5.0, 5.0),
+            "bottom_right": (-5.0, 5.0),
+        }
+        del values[missing_corner]
 
-    def test_requires_at_least_two_non_top_left_corners_with_one(self):
-        with pytest.raises(ValueError, match="少なくとも2つ"):
-            CornerOffsets(top_left=(0.0, -5.0), top_right=(0.0, -5.0))
+        with pytest.raises(TypeError):
+            CornerOffsets(**values)
 
-    def test_has_corner_returns_true_for_defined_corners(self):
-        offsets = CornerOffsets(
-            top_left=(0.0, -5.0),
-            top_right=(0.0, -5.0),
-            bottom_left=(5.0, 5.0),
-        )
-
-        assert offsets.has_corner(Corner.TOP_LEFT) is True
-        assert offsets.has_corner(Corner.TOP_RIGHT) is True
-        assert offsets.has_corner(Corner.BOTTOM_LEFT) is True
-        assert offsets.has_corner(Corner.BOTTOM_RIGHT) is False
-
-    def test_get_returns_point2d(self):
+    @pytest.mark.parametrize(
+        ("corner", "expected"),
+        [
+            (Corner.TOP_LEFT, Point2d(1.0, -2.0)),
+            (Corner.TOP_RIGHT, Point2d(3.0, -4.0)),
+            (Corner.BOTTOM_LEFT, Point2d(5.0, 5.0)),
+            (Corner.BOTTOM_RIGHT, Point2d(-5.0, 5.0)),
+        ],
+    )
+    def test_get_returns_each_corner_as_point2d(
+        self, corner: Corner, expected: Point2d
+    ):
         offsets = CornerOffsets(
             top_left=(1.0, -2.0),
             top_right=(3.0, -4.0),
             bottom_left=(5.0, 5.0),
+            bottom_right=(-5.0, 5.0),
         )
 
-        assert offsets.get(Corner.TOP_LEFT) == Point2d(1.0, -2.0)
-        assert offsets.get(Corner.TOP_RIGHT) == Point2d(3.0, -4.0)
-
-    def test_get_raises_for_undefined_corner(self):
-        offsets = CornerOffsets(
-            top_left=(0.0, -5.0),
-            top_right=(0.0, -5.0),
-            bottom_left=(5.0, 5.0),
-        )
-
-        with pytest.raises(ValueError, match="BOTTOM_RIGHT"):
-            offsets.get(Corner.BOTTOM_RIGHT)
+        assert offsets.get(corner) == expected
 
 
 class TestReferencePoint:
@@ -509,6 +498,7 @@ class TestReferencePoint:
                 top_left=(1.0, -2.0),
                 top_right=(1.0, -2.0),
                 bottom_left=(5.0, 5.0),
+                bottom_right=(-5.0, 5.0),
             ),
         )
 
@@ -523,6 +513,7 @@ class TestReferencePoint:
                 top_left=(1.0, -2.0),
                 top_right=(1.0, -2.0),
                 bottom_left=(5.0, 5.0),
+                bottom_right=(-5.0, 5.0),
             ),
         )
 
@@ -541,6 +532,7 @@ class TestReferencePoint:
                 top_left=(1.0, -2.0),
                 top_right=(3.0, -4.0),
                 bottom_left=(5.0, 5.0),
+                bottom_right=(-5.0, 5.0),
             ),
         )
 
@@ -557,6 +549,7 @@ class TestReferencePoint:
                 top_left=(1.0, -2.0),
                 top_right=(1.0, -2.0),
                 bottom_left=(5.0, 5.0),
+                bottom_right=(-5.0, 5.0),
             ),
         )
 
@@ -575,6 +568,7 @@ class TestReferencePoint:
                 top_left=(1.0, -2.0),
                 top_right=(1.0, -2.0),
                 bottom_left=(5.0, 5.0),
+                bottom_right=(-5.0, 5.0),
             ),
         )
 
@@ -591,6 +585,7 @@ class TestReferencePoint:
                 top_left=(1.0, -2.0),
                 top_right=(1.0, -2.0),
                 bottom_left=(5.0, 5.0),
+                bottom_right=(-5.0, 5.0),
             ),
         )
 
@@ -692,6 +687,7 @@ target_diameter = 3.0
 [reference_point.offsets]
 top_left = [0.0, 0.0]
 top_right = [0.0, 0.0]
+bottom_left = [0.0, 0.0]
 bottom_right = [0.0, 0.0]
 """
 
