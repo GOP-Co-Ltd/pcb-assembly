@@ -55,7 +55,7 @@ class PasteApplicator:
         ) as applicator:
             applicator.load(2.0)
             applicator.retract()
-            applicator.apply([polygon])
+            applicator.apply([polygon], transform=Identity())
     """
 
     def __init__(
@@ -278,6 +278,7 @@ class PasteApplicator:
         self,
         polygons: Iterable[Polygon],
         *,
+        transform: Transform,
         paste_height: PasteHeight | None = None,
         ul_per_mm2: float | None = None,
         dispense_mode: DispenseMode | None = None,
@@ -297,6 +298,7 @@ class PasteApplicator:
 
         Args:
             polygons: 塗布対象のポリゴン群
+            transform: このpadのboard座標→機械座標変換
             paste_height: 塗布面のZ高さ [mm]、または auto
             ul_per_mm2: 面積あたりのペースト量 [μL/mm²]
             dispense_mode: 塗布方式 auto / dot / line / area
@@ -328,7 +330,7 @@ class PasteApplicator:
             ),
         )
         for polygon in polygons:
-            self._fill(polygon, paste=paste)
+            self._fill(polygon, paste=paste, transform=transform)
 
     def draw_line(
         self,
@@ -375,6 +377,7 @@ class PasteApplicator:
             prime_extra_delay=resolved_prime_extra_delay,
             max_fill_speed=max_fill_speed,
             rate_cap=rate_cap,
+            transform=self._transform,
         )
 
     def deposit_at(
@@ -382,6 +385,7 @@ class PasteApplicator:
         point: Point2d,
         *,
         amount: float,
+        transform: Transform,
         paste_height: PasteHeight | None = None,
         prime_extra_delay: float | None = None,
         rate_cap: float | None = None,
@@ -406,9 +410,12 @@ class PasteApplicator:
             ul_per_mm2=self._ul_per_mm2,
             prime_extra_delay=resolved_prime_extra_delay,
             rate_cap=rate_cap,
+            transform=transform,
         )
 
-    def _fill(self, polygon: Polygon, *, paste: ResolvedPaste) -> None:
+    def _fill(
+        self, polygon: Polygon, *, paste: ResolvedPaste, transform: Transform
+    ) -> None:
         """ポリゴンを成分別フィル経路で塗布する.
 
         各成分は独立した ``FillSequence`` として送信する。
@@ -441,6 +448,7 @@ class PasteApplicator:
                 paste_height=paste.paste_height,
                 ul_per_mm2=paste.ul_per_mm2,
                 prime_extra_delay=paste.prime_extra_delay,
+                transform=transform,
             )
 
     def _draw_polyline(
@@ -451,12 +459,13 @@ class PasteApplicator:
         paste_height: PasteHeight,
         ul_per_mm2: float,
         prime_extra_delay: float,
+        transform: Transform,
         max_fill_speed: float | None = None,
         rate_cap: float | None = None,
     ) -> Speed | None:
         """1 本のポリラインを ``total_amount`` [μL] で塗布する（共通プリミティブ）.
 
-        ``paste_height`` 解決 → 各点に Z 付与 → ``self._transform`` 適用 →
+        ``paste_height`` 解決 → 各点に Z 付与 → 渡された ``transform`` 適用 →
         ``FillSequence`` 送信を 1 本ぶん行う。``_fill`` の各成分と公開
         ``draw_line`` が共用する（塗布挙動を二重化しないためのキモ）。
 
@@ -467,7 +476,7 @@ class PasteApplicator:
             実効塗布移動速度（``Speed``）。経路長 0 などで塗布移動が無いとき ``None``
         """
         resolved_height = resolve_paste_height(paste_height, ul_per_mm2)
-        path = Path(p.to3d(resolved_height) for p in raw).transformed(self._transform)
+        path = Path(p.to3d(resolved_height) for p in raw).transformed(transform)
         sequence = FillSequence(
             path=path,
             total_amount=total_amount,

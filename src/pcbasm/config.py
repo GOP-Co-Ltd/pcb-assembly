@@ -83,23 +83,71 @@ class Audio:
 
 @attrs.frozen
 class PadAlign:
-    """pad単位の銅箔照合による位置合わせの設定."""
+    """重複領域の銅箔照合による位置合わせの設定."""
 
-    tolerance: float = 0.05  # 収束許容誤差 [mm]
-    max_correction: float = 1.0  # 1回の照合で許容する最大ずれ [mm]。超過は照合失敗
+    region_size_px: int = 100  # 照合領域の一辺 [px]
+    region_overlap: float = 0.5  # 隣接する照合領域の重なり [0, 1)
+    board_edge_margin: float = 0.5  # 基板外形から照合領域までの余白 [mm]
+    max_passes: int = 5  # 1領域あたりの再計測上限
+    converge_tolerance: float = 0.03  # 収束とみなす増分 [mm]
+    max_correction: float = 1.0  # 1領域で許容する累積ずれ [mm]
     search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
-    roi_margin: float = 1.0  # pad ROIのマージン [mm]
-    min_roi: float = 3.0  # pad ROIの最小辺長 [mm]
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
     canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
     blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
-    max_failures: int = 0  # 照合失敗の許容部品数。超過で塗布ジョブを即中止
 
     def __attrs_post_init__(self) -> None:
-        if isinstance(self.max_failures, bool) or self.max_failures < 0:
+        if (
+            isinstance(self.region_size_px, bool)
+            or not isinstance(self.region_size_px, int)
+            or self.region_size_px < 1
+        ):
             raise ValueError(
-                f"max_failuresは0以上の整数である必要があります: {self.max_failures}"
+                f"region_size_pxは1以上の整数である必要があります: "
+                f"{self.region_size_px}"
             )
+        if error := validate_region_overlap(self.region_overlap):
+            raise ValueError(error)
+        if (
+            isinstance(self.max_passes, bool)
+            or not isinstance(self.max_passes, int)
+            or self.max_passes < 1
+        ):
+            raise ValueError(
+                f"max_passesは1以上の整数である必要があります: {self.max_passes}"
+            )
+        for name in (
+            "board_edge_margin",
+            "converge_tolerance",
+            "max_correction",
+            "search_window",
+        ):
+            if error := validate_positive_number(name, getattr(self, name)):
+                raise ValueError(error)
+
+
+def validate_region_overlap(value: float) -> str | None:
+    """照合領域の重なり率を検証する."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not isfinite(value)
+        or not 0.0 <= value < 1.0
+    ):
+        return f"region_overlapは0以上1未満の有限値である必要があります: {value!r}"
+    return None
+
+
+def validate_positive_number(name: str, value: float) -> str | None:
+    """正の有限値であるべき設定値を検証する."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not isfinite(value)
+        or value <= 0
+    ):
+        return f"{name}は正の有限値である必要があります: {value!r}"
+    return None
 
 
 def validate_paste_lift_height(value: float) -> str | None:

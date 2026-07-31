@@ -245,34 +245,45 @@ class TestMachineSettingsApi:
         assert response.status_code == 409
 
 
-class TestPadAlignMaxFailuresApi:
-    """paste_dispenser.pad_align.max_failures の GET / PUT（paste-align-max-
-    failures 計画書）."""
+class TestPadAlignRegionSettingsApi:
+    """重複領域の寸法と overlap を GET / PUT できる."""
 
-    def test_get_reports_none_with_int_type_when_missing(self, client: TestClient):
+    def test_get_reports_region_fields_when_missing(self, client: TestClient):
         fields = {
             field["key"]: field
             for field in client.get("/api/settings/machine").json()["fields"]
         }
 
-        field = fields["paste_dispenser.pad_align.max_failures"]
-        assert field["value"] is None
-        assert field["value_type"] == "int"
+        size = fields["paste_dispenser.pad_align.region_size_px"]
+        overlap = fields["paste_dispenser.pad_align.region_overlap"]
+        assert size["value"] is None
+        assert size["value_type"] == "int"
+        assert overlap["value"] is None
+        assert overlap["value_type"] == "float"
 
-    def test_put_writes_value(self, client: TestClient):
+    def test_put_writes_values(self, client: TestClient):
         response = client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.pad_align.max_failures": 2}},
+            json={
+                "values": {
+                    "paste_dispenser.pad_align.region_size_px": 160,
+                    "paste_dispenser.pad_align.region_overlap": 0.25,
+                }
+            },
         )
 
         assert response.status_code == 200, response.text
         fields = {field["key"]: field for field in response.json()["fields"]}
-        assert fields["paste_dispenser.pad_align.max_failures"]["value"] == 2
+        assert fields["paste_dispenser.pad_align.region_size_px"]["value"] == 160
+        assert fields["paste_dispenser.pad_align.region_overlap"][
+            "value"
+        ] == pytest.approx(0.25)
 
-    def test_put_negative_value_returns_400(self, client: TestClient):
+    @pytest.mark.parametrize("overlap", [-0.01, 1.0])
+    def test_put_invalid_overlap_returns_400(self, client: TestClient, overlap: float):
         response = client.put(
             "/api/settings/machine",
-            json={"values": {"paste_dispenser.pad_align.max_failures": -1}},
+            json={"values": {"paste_dispenser.pad_align.region_overlap": overlap}},
         )
 
         assert response.status_code == 400

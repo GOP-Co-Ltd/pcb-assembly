@@ -21,7 +21,6 @@ import numpy as np
 import pytest
 import shapely
 
-from pcbasm.config import PadAlign
 from pcbasm.geometry import Identity, Point2d
 from pcbasm.posctrl.copper import CopperProjector
 from pcbasm.posctrl.render import PadResultRenderer, render_edge_match, render_label
@@ -167,7 +166,6 @@ class TestPadResultRenderer:
 
     @staticmethod
     def _renderer(
-        roi_polygons: tuple[shapely.Polygon, ...],
         paste_polygons: tuple[shapely.Polygon, ...],
     ) -> PadResultRenderer:
         projector = CopperProjector(
@@ -180,9 +178,8 @@ class TestPadResultRenderer:
         return PadResultRenderer(
             projector=projector,
             edge_detector=CopperEdgeDetector(),
-            roi_polygons=roi_polygons,
+            roi=(590, 310, 690, 410),
             paste_polygons=paste_polygons,
-            pad_align=PadAlign(),
             position=Point2d(0.0, 0.0),
         )
 
@@ -193,7 +190,7 @@ class TestPadResultRenderer:
         - 想定輪郭: 投影銅箔境界 (600,320)-(680,400) 上の画素が純赤
         - lines: 白文字（黒縁取り + 白）が左上領域に乗る
         """
-        renderer = self._renderer((self.COPPER,), (self.PASTE,))
+        renderer = self._renderer((self.PASTE,))
         image = Image(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8))
 
         out = renderer.render(image, ["R1 1/3", "FAILED"]).numpy()
@@ -207,7 +204,7 @@ class TestPadResultRenderer:
 
     def test_render_marks_detected_edges_green_inside_roi(self):
         """既知ずれの白矩形画像 → 検出エッジ（緑）が ROI 内に現れる."""
-        renderer = self._renderer((self.COPPER,), (self.PASTE,))
+        renderer = self._renderer((self.PASTE,))
 
         out = renderer.render(_board_image(6, -4), ["R1"]).numpy()
 
@@ -215,7 +212,7 @@ class TestPadResultRenderer:
         assert _count_exact(out, GREEN) > 250
 
     def test_render_keeps_size_and_does_not_mutate_input(self):
-        renderer = self._renderer((self.COPPER,), (self.PASTE,))
+        renderer = self._renderer((self.PASTE,))
         image = _board_image()
         before = image.numpy().copy()
 
@@ -223,16 +220,3 @@ class TestPadResultRenderer:
 
         assert out.size == image.size
         assert np.array_equal(image.numpy(), before)
-
-    def test_empty_roi_polygons_falls_back_to_min_roi(self):
-        """roi_polygons が空でも min_roi の中心 ROI で合成が成立する.
-
-        中心 ROI（min_roi=3mm = 30px）の外にある銅箔輪郭は描かれない。
-        """
-        renderer = self._renderer((), (self.PASTE,))
-        image = Image(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8))
-
-        out = renderer.render(image, []).numpy()
-
-        assert out.shape == (HEIGHT, WIDTH, 3)
-        assert tuple(out[320, 640]) == BLACK  # 銅箔上辺は中心 ROI の外

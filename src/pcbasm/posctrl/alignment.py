@@ -1,227 +1,145 @@
-"""部品単位pad位置合わせの配線と補正結果のlookup."""
+"""領域単位の銅箔照合の配線とpad別の局所補正."""
 
 import logging
-import math
-from typing import Self
+from collections.abc import Sequence
 
 import attrs
 
-from pcbasm.geometry import Compose, Transform, sort_by_nearest
+from pcbasm.geometry import Point2d, Shift, Transform
 from pcbasm.pcb import Layer
-from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjector
-from pcbasm.posctrl.pad import (
-    ComponentPads,
-    PadAligner,
-    PadAlignmentResult,
-    group_pads_by_component,
+from pcbasm.posctrl.aligner import RegionAligner, RegionAlignment
+from pcbasm.posctrl.copper import (
+    CopperEdgeMatcher,
+    CopperProjector,
+    PixelRect,
+    centered_roi,
 )
+from pcbasm.posctrl.region import AlignmentRegion, plan_alignment_regions
 from pcbasm.posctrl.setup import BoardCalibrationResult
 from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 logger = logging.getLogger(__name__)
 
 
-def sorted_top_component_pads(
-    result: BoardCalibrationResult,
-) -> list[ComponentPads]:
-    """TOP層のpadを部品ごとにまとめ、現在位置からの巡回順で返す.
-
-    Args:
-        result: ボードキャリブレーション結果
-
-    Returns:
-        padを1つ以上持つTOP層部品のComponentPads
-        （現在のstage位置を起点にしたnearest neighbor巡回順）
-    """
-    components = [c for c in result.pcb.components if c.layer == Layer.TOP]
-    pads = [p for p in result.pcb.pads if p.layer == Layer.TOP]
-    groups = group_pads_by_component(components, pads)
-    start = result.stage.get_position().to2d().to3d()
-    return sort_by_nearest(groups, start, key=lambda g: g.component.position.to3d())
-
-
 @attrs.frozen
-class ComponentAlignments:
-    """部品ごとのpad位置合わせ結果のlookup.
+class BoardAlignment:
+    """成功した領域の変位からpad中心の補正を求める."""
 
-    Attributes:
-        board_transform: board座標→機械座標の変換
-        results: (部品pad群, 位置合わせ結果) の列
-    """
+    results: tuple[RegionAlignment, ...]
 
-    board_transform: Transform
-    results: tuple[tuple[ComponentPads, PadAlignmentResult], ...]
+    def correction_for(
+        self, board_point: Point2d, *, designator: str | None = None
+    ) -> Transform:
+        """点を覆う成功領域のうち中心が最も近い領域の純並進を返す.
 
-    def result_of(self, designator: str) -> PadAlignmentResult | None:
-        """designatorに対応する位置合わせ結果を返す.
-
-        Args:
-            designator: 部品リファレンス
-
-        Returns:
-            位置合わせ結果。未登録の部品はNone
+        Raises:
+            ValueError: 点を覆う成功領域がない場合
         """
-        for group, alignment in self.results:
-            if group.component.designator == designator:
-                return alignment
-        return None
-
-    def corrected_board_transform(self, designator: str) -> Transform | None:
-        """補正済みのboard座標→機械座標の変換を返す.
-
-        Args:
-            designator: 部品リファレンス
-
-        Returns:
-            ``Compose([board_transform, machine_transform])``。
-            未登録の部品はNone
-        """
-        result = self.result_of(designator)
-        if result is None:
-            return None
-        return Compose([self.board_transform, result.machine_transform])
-
-    def board_correction(self, designator: str) -> Transform | None:
-        """Board座標空間での補正変換 C = T_b⁻¹∘M∘T_b を返す.
-
-        Args:
-            designator: 部品リファレンス
-
-        Returns:
-            board座標の点を補正済みのboard座標へ写すTransform。
-            未登録の部品はNone
-        """
-        result = self.result_of(designator)
-        if result is None:
-            return None
-        return Compose(
-            [
-                self.board_transform,
-                result.machine_transform,
-                self.board_transform.inverse(),
-            ]
+        covering = [
+            result for result in self.results if result.region.covers(board_point)
+        ]
+        if not covering:
+            target = (
+                designator
+                if designator is not None
+                else f"({board_point.x:.3f}, {board_point.y:.3f})"
+            )
+            raise ValueError(f"{target} を覆う位置合わせ成功領域がありません")
+        nearest = min(
+            covering,
+            key=lambda result: (result.region.board_center - board_point).norm,
         )
+        return Shift.from_point(nearest.displacement)
 
 
-class PadAlignmentSession:
-    """TOP層銅箔照合によるpad位置合わせの配線をまとめたセッション.
-
-    BoardCalibrationResultからCopperProjector / CopperEdgeMatcher /
-    CopperEdgeDetector / PadAlignerを構築し、部品単位の位置合わせと 補正済み投影器の生成を提供する。
-    """
+class RegionAlignmentSession:
+    """TOP層銅箔の領域計画と照合依存をまとめるセッション."""
 
     def __init__(
         self, result: BoardCalibrationResult, frame_sink: FrameSink | None = None
     ) -> None:
-        """PadAlignmentSessionを初期化する.
-
-        Args:
-            result: ボードキャリブレーション結果
-            frame_sink: 照合状況フレームを送る sink。Noneの場合は表示しない
-        """
+        """BoardCalibrationResultから照合器を配線する."""
         pad_align = result.machine.paste_dispenser.pad_align
-        self._polygons = [c.polygon for c in result.pcb.copper if c.layer == Layer.TOP]
+        self._pcb = result.pcb
+        self._stage = result.stage
+        self._pad_align = pad_align
         self._board_transform = result.board_transform
-        self._offset_transform = result.offset_transform
-        self._pixel_per_mm = result.calibration.pixel_per_mm
-        # 収束判定は |offset| < tolerance で、offset は整数pxの並進を回転させたもの
-        # （ノルム保存）。非ゼロの最小ノルムは斜め1px = √2 px なのでこれが下限になる
-        diagonal_pixel_mm = math.sqrt(2) / self._pixel_per_mm
-        if pad_align.tolerance < diagonal_pixel_mm:
-            logger.warning(
-                "tolerance %.4f mm が斜め1px (√2 px = %.4f mm) 未満です。"
-                "照合の並進は整数pxのため収束しない可能性があります",
-                pad_align.tolerance,
-                diagonal_pixel_mm,
-            )
-        # 配線時にフレームを消費しないよう、キャリブレーション時の解像度を使う
         self._image_size = result.calibration.resolution
+        match_area = result.pcb.outline.polygon.buffer(-pad_align.board_edge_margin)
         self._projector = CopperProjector(
-            polygons=self._polygons,
-            board_transform=self._board_transform,
-            offset_transform=self._offset_transform,
-            pixel_per_mm=self._pixel_per_mm,
+            polygons=[
+                copper.polygon
+                for copper in result.pcb.copper
+                if copper.layer == Layer.TOP
+            ],
+            board_transform=result.board_transform,
+            offset_transform=result.offset_transform,
+            pixel_per_mm=result.calibration.pixel_per_mm,
             image_size=self._image_size,
         )
         matcher = CopperEdgeMatcher(
-            pixel_per_mm=self._pixel_per_mm,
+            pixel_per_mm=result.calibration.pixel_per_mm,
             search_window_mm=pad_align.search_window,
         )
+        required = pad_align.region_size_px + 2 * matcher.window_px
+        if required > min(self._image_size):
+            raise ValueError(
+                f"region_size_px {pad_align.region_size_px} px + 探索窓 "
+                f"{matcher.window_px} px x2 = {required} px が"
+                f"キャリブレーション解像度 {self._image_size} に収まりません"
+            )
         self._edge_detector = CopperEdgeDetector(
             canny_low=pad_align.canny_low,
             canny_high=pad_align.canny_high,
             blur_ksize=pad_align.blur_ksize,
         )
-        self._aligner = PadAligner(
+        self._aligner = RegionAligner(
             camera=result.camera,
             klipper=result.klipper,
             stage=result.stage,
             projector=self._projector,
             matcher=matcher,
             edge_detector=self._edge_detector,
-            board_transform=self._board_transform,
-            offset_transform=self._offset_transform,
-            roi_margin_mm=pad_align.roi_margin,
-            min_roi_mm=pad_align.min_roi,
-            tolerance=pad_align.tolerance,
+            offset_transform=result.offset_transform,
+            match_area=match_area,
             max_correction_mm=pad_align.max_correction,
+            max_passes=pad_align.max_passes,
+            converge_tolerance_mm=pad_align.converge_tolerance,
             frame_sink=frame_sink,
         )
 
-    @classmethod
-    def from_calibration(
-        cls, result: BoardCalibrationResult, frame_sink: FrameSink | None = None
-    ) -> Self:
-        """BoardCalibrationResultから配線済みセッションを構築する.
-
-        Args:
-            result: ボードキャリブレーション結果
-            frame_sink: 照合状況フレームを送る sink。Noneの場合は表示しない
-
-        Returns:
-            配線済みのPadAlignmentSession
-        """
-        return cls(result, frame_sink=frame_sink)
-
-    def align(self, target: ComponentPads) -> PadAlignmentResult | None:
-        """部品単位の位置合わせを実行し、失敗時はNoneを返す.
-
-        Args:
-            target: 対象部品とそのpad群
-
-        Returns:
-            位置合わせ結果。照合失敗・非収束の場合はNone
-        """
-        try:
-            return self._aligner.align(target)
-        except RuntimeError as exc:
-            logger.warning("部品 %s の照合に失敗: %s", target.component.designator, exc)
-            return None
-
-    def corrected_projector(self, machine_transform: Transform) -> CopperProjector:
-        """board変換を補正済みに差し替えたCopperProjectorを生成する.
-
-        Args:
-            machine_transform: 位置合わせで得たmachine空間の補正Transform
-
-        Returns:
-            ``Compose([board_transform, machine_transform])`` で投影する
-            CopperProjector
-        """
-        return CopperProjector(
-            polygons=self._polygons,
-            board_transform=Compose([self._board_transform, machine_transform]),
-            offset_transform=self._offset_transform,
-            pixel_per_mm=self._pixel_per_mm,
+    def plan_regions(self, pad_centers: Sequence[Point2d]) -> list[AlignmentRegion]:
+        """塗布対象pad中心を覆う照合領域を計画する."""
+        return plan_alignment_regions(
+            self._projector,
+            self._board_transform,
+            pad_centers,
+            outline=self._pcb.outline.polygon,
+            region_size_px=self._pad_align.region_size_px,
+            overlap=self._pad_align.region_overlap,
             image_size=self._image_size,
+            tour_start=self._stage.get_position().to2d(),
         )
+
+    def align(self, region: AlignmentRegion) -> RegionAlignment | None:
+        """領域を照合し、失敗または非収束ならNoneを返す."""
+        try:
+            return self._aligner.measure(region)
+        except RuntimeError as exc:
+            logger.warning("領域 %d の照合に失敗: %s", region.index, exc)
+            return None
 
     @property
     def projector(self) -> CopperProjector:
-        """キャリブレーション時のboard変換による投影器（表示用）."""
+        """キャリブレーション時のboard変換による投影器."""
         return self._projector
 
     @property
     def edge_detector(self) -> CopperEdgeDetector:
-        """銅箔エッジ検出器（表示用）."""
+        """overlay表示に使う銅箔エッジ検出器."""
         return self._edge_detector
+
+    @property
+    def region_roi(self) -> PixelRect:
+        """全領域共通の画像中心ROI."""
+        return centered_roi(self._image_size, self._pad_align.region_size_px)
