@@ -5,7 +5,7 @@
 {% set preview_overlay = "copper" %}
 {% include "partials/preview_pane.html" %}
 <fieldset class="preview-controls">
-  <legend>Canny パラメータ（blur_ksize: {{ blur_ksize }}）</legend>
+  <legend>エッジ検出パラメータ（blur_ksize: {{ blur_ksize }}）</legend>
   <div class="canny-row">
     <label for="canny-low">canny low</label>
     <input type="range" id="canny-low" min="0" max="500" step="1"
@@ -17,6 +17,12 @@
     <input type="range" id="canny-high" min="0" max="500" step="1"
            value="{{ canny_high | round | int }}">
     <span id="canny-high-value" class="canny-value">{{ canny_high | round | int }}</span>
+  </div>
+  <div class="canny-row">
+    <label for="sharpen-amount">アンシャープマスク強度</label>
+    <input type="range" id="sharpen-amount" min="0" max="2" step="0.1"
+           value="{{ sharpen_amount }}">
+    <span id="sharpen-amount-value" class="canny-value">{{ sharpen_amount }}</span>
   </div>
   <button id="canny-save" type="button">設定に保存</button>
 </fieldset>
