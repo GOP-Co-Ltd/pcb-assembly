@@ -10,6 +10,11 @@
 Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変更」節）:
 
 - action="gcode": gcode 欠落・空文字は 400、送信成功系は実機区分
+
+MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
+
+- action="move_to_cap" は `AppState.nozzle_cap()` を読む。x/y/z が揃っていない
+  `[nozzle_cap]` も「未記録」として 400 で断る（500 にしない）
 """
 
 import json
@@ -101,6 +106,20 @@ class TestMoveToCap:
 
         assert response.status_code == 400
         assert "ノズルキャップ" in response.text
+
+    def test_partially_recorded_cap_returns_400(
+        self, partial_nozzle_cap: Path, client: TestClient
+    ):
+        """X だけ保存された `[nozzle_cap]` は「未記録」として 400 で断る（MR2）.
+
+        `Machine.nozzle_cap` の structure が投げる `ClassValidationError` は
+        `ExceptionGroup` 派生で `ValueError` ではないため、生の
+        `state.machine().nozzle_cap` を読んでいると 400 分岐に到達せず 500 になる。
+        """
+        response = client.post("/api/machine-control", json={"action": "move_to_cap"})
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "ノズルキャップ位置が未記録です"
 
     def test_recorded_cap_passes_validation_and_returns_502(
         self, client: TestClient, config_dir: Path

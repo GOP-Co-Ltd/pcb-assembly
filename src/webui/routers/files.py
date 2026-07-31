@@ -1,4 +1,9 @@
-"""PCB ファイルブラウザの API."""
+"""PCB ファイルブラウザの API.
+
+`pcb_browse_root` は `board_id` の算出基準なので `/` 固定だが、実際に読める範囲は
+`Settings.pcb_browse_allowed` のサブツリーに限る。許可サブツリーへ辿り着くための
+祖先ディレクトリは列挙だけ許す（`/` から `/media` の USB を選べるようにするため）。
+"""
 
 from __future__ import annotations
 
@@ -10,6 +15,7 @@ from pydantic import BaseModel
 
 from webui.dependencies import JobsDep, PreviewDep, SettingsDep, StateDep
 from webui.routers.common import StateResponse, build_state_response
+from webui.settings import Settings
 
 router = APIRouter(prefix="/api")
 
@@ -30,6 +36,21 @@ class PcbFileSelect(BaseModel):
     path: str
 
 
+def _allowed_roots(settings: Settings) -> tuple[Path, ...]:
+    """公開を許可するサブツリーの絶対パス（symlink 解決済み）."""
+    return tuple(allowed.resolve() for allowed in settings.pcb_browse_allowed)
+
+
+def _is_allowed(resolved: Path, allowed: tuple[Path, ...]) -> bool:
+    """許可サブツリーの内側か（= 中身を読める / 選択できる）."""
+    return any(resolved.is_relative_to(root) for root in allowed)
+
+
+def _leads_to_allowed(resolved: Path, allowed: tuple[Path, ...]) -> bool:
+    """許可サブツリー自身か、そこへ辿る途中の祖先ディレクトリか（列挙のみ許す）."""
+    return any(root.is_relative_to(resolved) for root in allowed)
+
+
 def _resolve_under_root(root: Path, rel: str) -> Path:
     """Root 配下の絶対パスへ解決する.
 
@@ -45,18 +66,46 @@ def _resolve_under_root(root: Path, rel: str) -> Path:
     return resolved
 
 
+def _resolve_browsable(settings: Settings, rel: str) -> Path:
+    """Root 配下へ解決し、許可サブツリーの内側であることを検証する.
+
+    Raises:
+        HTTPException: 許可サブツリー外の場合（400）
+    """
+    resolved = _resolve_under_root(settings.pcb_browse_root.resolve(), rel)
+    if not _is_allowed(resolved, _allowed_roots(settings)):
+        raise HTTPException(
+            status_code=400, detail=f"公開が許可されていないパスです: {rel}"
+        )
+    return resolved
+
+
 @router.get("/files")
 def list_files(settings: SettingsDep, path: str = "") -> FilesResponse:
     root = settings.pcb_browse_root.resolve()
+    allowed = _allowed_roots(settings)
     directory = _resolve_under_root(root, path)
+    inside = _is_allowed(directory, allowed)
+    if not inside and not _leads_to_allowed(directory, allowed):
+        raise HTTPException(
+            status_code=400, detail=f"公開が許可されていないパスです: {path}"
+        )
     if not directory.is_dir():
         raise HTTPException(
             status_code=404, detail=f"ディレクトリが存在しません: {path}"
         )
 
+    children = sorted(directory.iterdir(), key=lambda p: p.name)
+    if not inside:
+        # 許可サブツリーへ辿る途中のディレクトリ。中身は見せず、続きの道だけ出す
+        children = [
+            child
+            for child in children
+            if child.is_dir() and _leads_to_allowed(child, allowed)
+        ]
     entries = [
         FileEntry(name=child.name, type="dir" if child.is_dir() else "file")
-        for child in sorted(directory.iterdir(), key=lambda p: p.name)
+        for child in children
         if child.is_dir() or child.suffix == PCB_SUFFIX
     ]
     rel = "" if directory == root else directory.relative_to(root).as_posix()
@@ -72,7 +121,7 @@ def put_pcb_file(
     jobs: JobsDep,
 ) -> StateResponse:
     root = settings.pcb_browse_root.resolve()
-    resolved = _resolve_under_root(root, body.path)
+    resolved = _resolve_browsable(settings, body.path)
     if resolved.suffix != PCB_SUFFIX:
         raise HTTPException(
             status_code=400,
@@ -104,9 +153,14 @@ async def upload_pcb_file(
             detail=f"{PCB_SUFFIX} ファイルをアップロードしてください: {file.filename}",
         )
     root = settings.pcb_browse_root.resolve()
-    upload_dir = settings.pcb_upload_dir
+    upload_dir = settings.pcb_upload_dir.resolve()
+    if not _is_allowed(upload_dir, _allowed_roots(settings)):
+        raise HTTPException(
+            status_code=400,
+            detail=f"アップロード先が公開範囲外です: {upload_dir}",
+        )
     upload_dir.mkdir(parents=True, exist_ok=True)
-    destination = upload_dir.resolve() / filename
+    destination = upload_dir / filename
     destination.write_bytes(await file.read())
     state.select_pcb(destination.relative_to(root))
     jobs.publish_state_changed()

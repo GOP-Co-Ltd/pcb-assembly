@@ -55,6 +55,19 @@ camera_calibration ページへ追記契約:
 - overlay ラジオの初期選択はページ変数 `preview_overlay`（既定 "none"）で決まる。
   posctrl のツアー系ジョブページ（board_tour / orthogonality_test）は "crosshair"、
   他ページは "none" のまま
+
+MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が上書き契約:
+
+- mainsail リンクは backend が解決した値を使う。`request.url.hostname` フォールバックは
+  撤去した（プロキシ配下では frontend 機を指してしまい必ず誤る）。未設定時は
+  `http://{machine_id}.local`（LAN の他端末からは mDNS の `*.local` しか引けない）
+- preview ペイン / ローディング UI の有無は `JobDefinition` の provides_preview /
+  loading_param / loading_stages から導出する。pages.py の 3 つのハードコード辞書と
+  `if tab == "pasting"` 特別扱いは撤去し、`JobDefinition.provides_preview` /
+  `JobDefinition.loading_param` / `JobDefinition.loading_stages` に移した
+- `machine_name` は `SECTION_LABELS` の「マシン」セクションに出る（トップレベルの
+  bare key なので、エントリが無いと `<summary>` に生キーが出る）
+- machine.toml がパース不能でも、`AppState` の防御を通るページは 200 を返す
 """
 
 import re
@@ -62,6 +75,7 @@ from pathlib import Path
 
 import attrs
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from webui.app import create_app
@@ -72,7 +86,40 @@ from webui.state import AppState
 
 TABS = ["dev", "pasting", "pnp", "posctrl"]
 
+# SSR で描画される全ページ（/ は 307 なので除く）
+ALL_PAGE_URLS = ["/settings"] + [
+    url
+    for tab, features in PAGE_TABS.items()
+    for url in (f"/{tab}", *(f"/{tab}/{feature}" for feature in features))
+]
+
+# machine.toml を `AppState` の防御の外で読むページ。設定フォームの現在値
+# （ConfigStore / tomlkit）や paste_dispenser・pad_align の現在値をコンテキストに
+# 載せるため、machine.toml がパース不能だと 500 になる（MR2 の防御対象外）
+_MACHINE_TOML_DEPENDENT_URLS = frozenset(
+    {
+        "/settings",
+        "/pasting/paste_solder",
+        "/pasting/loading",
+        "/posctrl/copper_detection",
+    }
+)
+
+# パース不能な machine.toml でも描画できるべきページ
+ROBUST_PAGE_URLS = [
+    url for url in ALL_PAGE_URLS if url not in _MACHINE_TOML_DEPENDENT_URLS
+]
+
 _OVERLAY_RADIO_RE = re.compile(r"<input[^>]*name=\"overlay\"[^>]*>")
+
+
+def _loading_amount_input(default: object) -> str:
+    """ローディング量入力（`#lc-amount`）の value を含む HTML 断片.
+
+    同じ既定値の別 input が同一ページに 2〜4 箇所あるため、`value="..."` 単体では
+    `loading_default` の注入が消えても通ってしまう（実測）。
+    """
+    return f'id="lc-amount" step="any" min="0" value="{default}"'
 
 
 def _checked_overlay(html: str) -> str | None:
@@ -124,15 +171,36 @@ class TestPages:
         start = webui_settings.pcb_browse_start.name
         assert f'data-fb-start="{start}"' in text
 
-    def test_mainsail_link_follows_request_host_when_unset(
+    def test_mainsail_link_resolves_from_machine_id_when_unset(
         self, webui_settings: Settings
     ):
-        """PCBASM_MAINSAIL_URL 未設定時はページ閲覧元のホスト名に追従する."""
-        app = create_app(attrs.evolve(webui_settings, mainsail_url=None))
-        with TestClient(app) as client:
-            text = client.get("/posctrl").text
+        """PCBASM_MAINSAIL_URL 未設定時は backend の machine_id から `.local` で解決する.
 
-        assert 'href="http://testserver"' in text
+        MR2 で `request.url.hostname` フォールバックは撤去した。frontend を分離すると
+        ページ閲覧元は frontend 機になるため、リクエストのホスト名を使うと必ず誤った
+        Mainsail を指す。裸のホスト名だと LAN の他端末（mDNS しか引けない）から開けない
+        ので `.local` を付ける。SSR も `/api/machine-info` と同じ解決結果を使う。
+        """
+        settings = attrs.evolve(webui_settings, mainsail_url=None, hostname="paste-01")
+        with TestClient(create_app(settings)) as client:
+            text = client.get("/posctrl").text
+            info = client.get("/api/machine-info").json()
+
+        assert 'href="http://paste-01.local"' in text
+        assert info["mainsail_url"] == "http://paste-01.local"
+        assert "http://testserver" not in text
+
+    def test_settings_page_labels_the_machine_name_section(self, client: TestClient):
+        """トップレベル bare key の machine_name は「マシン」セクションに出る（MR2）.
+
+        `section_of` はドットを含まない key をそのまま返すため、`SECTION_LABELS` に
+        エントリが無いと `<summary>` に生キー `machine_name` が出る。
+        """
+        text = client.get("/settings").text
+
+        assert "<summary>マシン</summary>" in text
+        assert '<span class="settings-label">マシン名</span>' in text
+        assert "<summary>machine_name</summary>" not in text
 
     def test_known_feature_page_renders(self, client: TestClient):
         response = client.get("/posctrl/reference_point_setup")
@@ -174,9 +242,9 @@ class TestPages:
     def test_settings_page_renders_camera_crop_fields(self, client: TestClient):
         """クロップ編集 UI は settings ページの汎用フォームに統一されている.
 
-        camera_calibration ページからは crop 入力を撤去し、machine 設定の
-        汎用フォーム（camera.crop.width / camera.crop.height）へ一本化した （ユーザー追加指示:
-        'crop 値の編集 UI を settings ページのみに置く形に統一'）。
+        camera_calibration ページからは crop 入力を撤去し、machine 設定の汎用フォーム
+        （camera.crop.width / camera.crop.height）へ一本化した。 ユーザー追加指示: 'crop
+        値の編集 UI を settings ページのみに置く形に統一'。
         """
         text = client.get("/settings").text
 
@@ -425,10 +493,10 @@ PASTING_JOB_FEATURES = (
     "toolhead_offset",
 )
 
-# カメラを使うジョブのみ preview ペインを持つ（計画書 _PASTING_PREVIEW）
+# カメラを使うジョブのみ preview ペインを持つ（JobDefinition.provides_preview）
 PASTING_PREVIEW_FEATURES = ("paste_solder", "height_plane", "toolhead_offset")
 
-# ローディングボタン UI を持つ feature（計画書 _PASTING_LOADING_PARAM）
+# ローディングボタン UI を持つ feature（JobDefinition.loading_param）
 # dispense_calibration はメニュー段階で押出/吸引（プライム）に使う
 PASTING_LOADING_FEATURES = (
     "paste_solder",
@@ -455,8 +523,10 @@ class TestPastingJobPages:
         assert feature in response.text
 
     def test_paste_solder_renders_auto_threshold_inputs(self, client: TestClient):
-        """はんだ塗布ページに auto しきい値（線塗布縦横比・面塗布短辺倍率）の 即保存フォームが machine
-        設定の現在値付きで出る."""
+        """はんだ塗布ページに auto しきい値の即保存フォームが現在値付きで出る.
+
+        線塗布縦横比・面塗布短辺倍率の 2 フィールドを machine 全体設定として描画する。
+        """
         text = client.get("/pasting/paste_solder").text
 
         # machine 全体設定の即保存フォーム（settings.js が data-machine-settings に bind）
@@ -509,7 +579,8 @@ class TestPastingJobPages:
 
         assert "loading-controls" in text
         assert 'data-loading-stage="ローディング"' in text
-        assert 'value="0.1"' in text  # loading_default（該当 ParamSpec の既定値）
+        # loading_default（該当 ParamSpec の既定値）が量入力に入る
+        assert _loading_amount_input(0.1) in text
 
     def test_dispense_calibration_loading_controls_use_menu_and_loading_stage(
         self, client: TestClient
@@ -576,7 +647,8 @@ class TestPastingJobPages:
 
         text = client.get("/pasting/loading").text
 
-        for value in ('value="0.2"', 'value="6.0"', 'value="1.5"', 'value="2.5"'):
+        assert _loading_amount_input(0.2) in text
+        for value in ('value="6.0"', 'value="1.5"', 'value="2.5"'):
             assert value in text
 
     @pytest.mark.parametrize(
@@ -681,6 +753,51 @@ class TestPastingJobPages:
         assert "loading-mass-calibration" not in client.get("/pasting").text
 
 
+class TestJobDefinitionDrivenContext:
+    """Preview / ローディング UI は JobDefinition から導出する（MR2）.
+
+    以前は pages.py の 3 つのハードコード辞書と `if tab == "pasting"` 特別扱いが正
+    だった。preview フレームの提供有無と progress_stage 文字列は backend の事実なので
+    ジョブ定義側へ移し、ページはそれを読むだけにした（`/api/jobs` と同じ値になる）。
+    """
+
+    @pytest.mark.parametrize("feature", PASTING_JOB_FEATURES)
+    def test_preview_pane_presence_matches_provides_preview(
+        self, client: TestClient, app: FastAPI, feature: str
+    ):
+        definition = app.state.catalog.get(feature)
+
+        text = client.get(f"/pasting/{feature}").text
+
+        assert ("preview-pane" in text) is definition.provides_preview
+
+    @pytest.mark.parametrize("feature", PASTING_JOB_FEATURES)
+    def test_loading_controls_derive_stage_and_default_from_definition(
+        self, client: TestClient, app: FastAPI, feature: str
+    ):
+        """Loading UI の段階と既定値が定義側の値と一致する.
+
+        `loading.html` / `dispense_calibration.html` は loading_controls を
+        `show_loading_controls` で gate せず無条件 include するため、この 2 feature では
+        `"loading-controls" in text` が定数 True になる（検出力ゼロ）。段階文字列と
+        `#lc-amount` の value を見て、4 feature すべてで定義との一致を確かめる。
+        """
+        definition = app.state.catalog.get(feature)
+
+        text = client.get(f"/pasting/{feature}").text
+
+        if definition.loading_param is None:
+            assert "loading-controls" not in text
+            return
+        assert f'data-loading-stage="{definition.loading_stages}"' in text
+        default = next(
+            spec.default
+            for spec in definition.params
+            if spec.name == definition.loading_param
+        )
+        assert _loading_amount_input(default) in text
+
+
 class TestProbeGuidePage:
     """ロードセルプローブのガイドページ（計画書「WebUI ガイドページ」節）.
 
@@ -738,6 +855,37 @@ class TestNozzleCapPage:
         text = client.get("/pasting/nozzle_cap").text
 
         assert "未記録" in text
+
+    def test_partially_recorded_cap_shows_placeholder(
+        self, partial_nozzle_cap: Path, client: TestClient
+    ):
+        """設定画面から X だけ保存した状態でも 500 にせず「未記録」を出す（MR2）.
+
+        `Machine.nozzle_cap` の structure は x/y/z 必須なので、`state.machine()` を
+        直接読んでいた頃はこのページだけが 500 していた。nozzle_cap を読むのは
+        このページと `/api/state`・`move_to_cap` だけで、他ページの SSR には載らない。
+        """
+        response = client.get("/pasting/nozzle_cap")
+
+        assert response.status_code == 200
+        assert "未記録" in response.text
+
+
+class TestBrokenMachineTomlPages:
+    """パース不能な machine.toml でも SSR が落ちない（MR2）.
+
+    `_base_context` は全ページで `machine_name()` / `machine_type()` / `focus_z()` を
+    呼ぶ。この 3 つの防御（broad except → None）を外すと、machine.toml が壊れただけで
+    ページが軒並み 500 する。設定フォームの現在値や paste_dispenser の現在値を
+    コンテキストに載せるページ（`_MACHINE_TOML_DEPENDENT_URLS`）は machine.toml を
+    防御の外で読むため対象外＝この防御では守れない（MR2 の範囲外の別課題）。
+    """
+
+    @pytest.mark.parametrize("url", ROBUST_PAGE_URLS)
+    def test_broken_machine_toml_keeps_pages_renderable(
+        self, broken_machine_toml: Path, client: TestClient, url: str
+    ):
+        assert client.get(url).status_code == 200
 
 
 class TestMachineControlCapButton:
@@ -809,10 +957,10 @@ class TestPasteSolderPadEditor:
 
         assert "job-console" in text
         assert "job-form" in text
-        assert "preview-pane" in text  # _PASTING_PREVIEW に含まれる
+        assert "preview-pane" in text  # JobDefinition.provides_preview
         assert "pasting-preview-panel" in text
         assert "crosshair" not in text  # overlay 切替は出さない
-        assert "loading-controls" in text  # _PASTING_LOADING_PARAM に含まれる
+        assert "loading-controls" in text  # JobDefinition.loading_param
 
     @pytest.mark.parametrize(
         "feature",

@@ -11,8 +11,15 @@
 
 - camera.crop.width / camera.crop.height は 1 以上の int（0 / 負値は
   UnknownFieldError）。change 即自動保存 UI での事故防止
+
+MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
+
+- machine_name（ドットの無いトップレベル bare key）を書き込める。tomlkit が
+  トップレベルへ挿入する挙動に依存するので、書込後に tomllib で再パースして
+  トップレベルに残ることをピンする（テーブルへ吸い込まれたら気づけるように）
 """
 
+import tomllib
 from pathlib import Path
 from typing import cast
 
@@ -198,6 +205,40 @@ class TestMachineSettings:
         changed = [(b, a) for b, a in zip(before, after) if b != a]
         assert len(changed) == 1
         assert "calibration_file" in changed[0][0]
+
+    def test_write_machine_name_stays_a_top_level_bare_key(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """machine_name はテーブルに吸い込まれずトップレベルに残る（tomllib で再パース）.
+
+        tomlkit がドットの無いキーを `[klipper]` などのテーブル内へ挿入すると
+        `Machine.machine_name` から読めなくなるため、挙動を明示的にピンする。
+        """
+        path = config_dir / "machine.toml"
+
+        store.write_machine_settings({"machine_name": "黒兎 2 号機"})
+
+        parsed = tomllib.loads(path.read_text(encoding="utf-8"))
+        assert parsed["machine_name"] == "黒兎 2 号機"
+        assert store.read_machine_settings()["machine_name"] == "黒兎 2 号機"
+
+    def test_write_machine_name_preserves_comments_and_other_lines(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """行の追加は machine_name の 1 行だけ。既存のコメント・構造は不変."""
+        path = config_dir / "machine.toml"
+        before = path.read_text(encoding="utf-8").splitlines()
+
+        store.write_machine_settings({"machine_name": "黒兎 2 号機"})
+
+        after = path.read_text(encoding="utf-8").splitlines()
+        assert len(after) == len(before) + 1
+        added = [line for line in after if line not in before]
+        assert added == ['machine_name = "黒兎 2 号機"']
+
+    def test_non_string_machine_name_raises(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError, match="machine_name"):
+            store.write_machine_settings({"machine_name": 2.0})
 
     def test_non_string_calibration_file_raises(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):

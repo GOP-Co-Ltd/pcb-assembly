@@ -85,7 +85,7 @@ def _build_gcode(
                 )
             commands = stage.move(z=focus_z)
         case "move_to_cap":
-            cap = state.machine().nozzle_cap
+            cap = state.nozzle_cap()
             if cap is None:
                 raise ValueError("ノズルキャップ位置が未記録です")
             commands = move_to_cap(stage, cap)

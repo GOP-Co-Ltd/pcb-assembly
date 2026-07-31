@@ -14,6 +14,13 @@
 - /artifacts: 成果物 URL 配信 + traversal 拒否
 - /api/state に job ブリーフ
 
+MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
+
+- GET /api/jobs → {"jobs": [JobSpecInfo]}。登録順の全件（hidden も filter しない）で、
+  `params` は保存済み既定値を `default` に反映した状態
+- preview ペイン / ローディング UI の有無は JobDefinition の provides_preview /
+  loading_param / loading_stages が正（pages.py のハードコード辞書は撤去済み）
+
 同期待ちは threading.Event ゲート付き合成ジョブ + ポーリング / WS 受信駆動で
 決定的に行う（sleep 固定値のアサート禁止）。
 """
@@ -181,6 +188,119 @@ def _complete_job_demo(
             pytest.fail(f"job_demo が {job['status']} になりました: {job}")
         time.sleep(0.02)
     pytest.fail("job_demo が完走しませんでした")
+
+
+def _jobs_by_name(client: TestClient) -> dict[str, dict[str, Any]]:
+    """GET /api/jobs のジョブ一覧を name 引きの dict にする."""
+    response = client.get("/api/jobs")
+    assert response.status_code == 200
+    return {job["name"]: job for job in response.json()["jobs"]}
+
+
+class TestJobCatalogApi:
+    """GET /api/jobs — ジョブカタログの公開表現（MR2）."""
+
+    def test_lists_every_registered_job_in_registration_order(
+        self, client: TestClient, app: FastAPI
+    ):
+        names = [job["name"] for job in client.get("/api/jobs").json()["jobs"]]
+
+        assert names == [d.name for d in app.state.catalog.list()]
+
+    def test_includes_hidden_jobs(self, client: TestClient, app: FastAPI):
+        """Hidden ジョブも filter しない（実行時登録され POST もできるため）."""
+        register_synthetic(
+            app.state.catalog,
+            lambda ctx: JobResult(summary="ok"),
+            name="hidden_router_job",
+            hidden=True,
+        )
+
+        jobs = _jobs_by_name(client)
+
+        assert jobs["hidden_router_job"]["hidden"] is True
+        assert jobs["paste_solder"]["hidden"] is False
+
+    def test_reports_preview_and_loading_facts_from_definition(
+        self, client: TestClient
+    ):
+        """Preview ペイン / ローディング UI の有無は JobDefinition が正（SSR と同じ値）."""
+        jobs = _jobs_by_name(client)
+
+        paste_solder = jobs["paste_solder"]
+        assert paste_solder["provides_preview"] is True
+        assert paste_solder["loading_param"] == "amount"
+        assert paste_solder["loading_stages"] == "ローディング"
+
+        # メニュー段階のプライムでもボタンを有効化する（カンマ区切り）
+        assert jobs["dispense_calibration"]["loading_stages"] == (
+            "キャリブレーションメニュー,ローディング"
+        )
+
+        # カメラもローディングも使わない生成ジョブ
+        assert jobs["generate_rect_pcb"]["provides_preview"] is False
+        assert jobs["generate_rect_pcb"]["loading_param"] is None
+
+    def test_reports_start_policy_flags(self, client: TestClient, app: FastAPI):
+        definition = app.state.catalog.get("paste_solder")
+
+        job = _jobs_by_name(client)["paste_solder"]
+
+        assert job["label"] == definition.label
+        assert job["tab"] == definition.tab
+        assert job["requires_pcb"] == definition.requires_pcb
+        assert job["uses_machine"] == definition.uses_machine
+        assert job["notify_on_completion"] == definition.notify_on_completion
+        assert job["accepts_commands"] == definition.accepts_commands
+        assert job["persisted_params"] == list(definition.persisted_params)
+        assert job["runtime_params"] == list(definition.runtime_params)
+
+    def test_param_specs_expose_every_declared_field(
+        self, client: TestClient, app: FastAPI
+    ):
+        """ParamSpec の全フィールドがそのまま公開される（フォーム描画に必要な全量）."""
+        specs = {spec.name: spec for spec in app.state.catalog.get("loading").params}
+
+        params = {p["name"]: p for p in _jobs_by_name(client)["loading"]["params"]}
+
+        assert set(params) == set(specs)
+        for name, spec in specs.items():
+            assert params[name] == {
+                "name": spec.name,
+                "label": spec.label,
+                "value_type": spec.value_type,
+                "default": spec.default,
+                "choices": list(spec.choices),
+                "unit": spec.unit,
+                "help": spec.help,
+                "runtime_editable": spec.runtime_editable,
+                "minimum": spec.minimum,
+                "optional": spec.optional,
+            }
+
+    def test_params_reflect_saved_defaults(
+        self, client: TestClient, appstate: AppState
+    ):
+        """保存済み既定値が ParamSpec.default に反映された状態で返る（SSR と同じ）."""
+        appstate.merge_job_param_defaults("loading", {"amount": 0.2, "rate": 1.5})
+
+        params = {p["name"]: p for p in _jobs_by_name(client)["loading"]["params"]}
+
+        assert params["amount"]["default"] == 0.2
+        assert params["rate"]["default"] == 1.5
+
+    def test_params_ignore_type_mismatched_saved_values(
+        self, client: TestClient, app: FastAPI, appstate: AppState
+    ):
+        """型不一致の保存値は黙って除外され、spec 既定値のまま返る."""
+        spec_default = {
+            spec.name: spec.default for spec in app.state.catalog.get("loading").params
+        }
+        appstate.merge_job_param_defaults("loading", {"amount": "とても多め"})
+
+        params = {p["name"]: p for p in _jobs_by_name(client)["loading"]["params"]}
+
+        assert params["amount"]["default"] == spec_default["amount"]
 
 
 class TestStartJob:

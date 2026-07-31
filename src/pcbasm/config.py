@@ -450,6 +450,16 @@ class Machine:
         return value
 
     @property
+    def machine_name(self) -> str | None:
+        """マシンの表示名を取得する（未設定なら None）.
+
+        ``machine_type`` と同様に cattrs を通さず ``_data`` を直接読む。
+        未設定時の代替名（ホスト名など）の解決は環境依存なので API 層に任せる。
+        """
+        value = self._data.get("machine_name")
+        return value if isinstance(value, str) else None
+
+    @property
     def nozzle_cap(self) -> NozzleCap | None:
         """ノズルキャップ位置設定を取得する（未記録なら None）."""
         if "nozzle_cap" not in self._data:

@@ -55,6 +55,11 @@ class JobDefinition:
         accepts_commands: ジョブモード対話（next_command）を受けるか
         persisted_params: 起動時の値を次回フォーム既定値として保存するパラメータ名
         hidden: UI のフォーム導出から除外（POST は可）
+        provides_preview: ジョブがカメラフレームを提供するか（preview ペインの有無）
+        loading_param: ローディング UI の既定量に使う ParamSpec 名
+            （None ならローディング UI を出さない）
+        loading_stages: ローディング UI を有効化する progress_stage 名。
+            カンマ区切りで複数指定できる（loading_controls.js が Set として解釈する）
     """
 
     name: str
@@ -68,6 +73,9 @@ class JobDefinition:
     accepts_commands: bool = False
     persisted_params: tuple[str, ...] = ()
     hidden: bool = False
+    provides_preview: bool = False
+    loading_param: str | None = None
+    loading_stages: str = "ローディング"
 
     @property
     def runtime_params(self) -> tuple[str, ...]:

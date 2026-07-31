@@ -220,6 +220,9 @@ def e2e_settings(tmp_path: Path) -> Settings:
         config_dir=config_dir,
         data_dir=data_dir,
         pcb_browse_root=pcb_root,
+        # 公開範囲は既定（リポジトリ + /media + /mnt）から暗黙に広がらないため、
+        # tmp の pcb root を明示的に許可する
+        pcb_browse_allowed=(pcb_root,),
         pcb_browse_start=pcb_root,
         pcb_upload_dir=pcb_root / "uploads",
         mainsail_url="http://mainsail.invalid",
