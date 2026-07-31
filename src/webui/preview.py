@@ -81,25 +81,28 @@ class _CopperRenderer:
         detector: CopperEdgeDetector,
         canny_low: float,
         canny_high: float,
+        sharpen_amount: float,
         detect_interval: float,
     ) -> None:
         self._detector = detector
-        self._text = f"canny: {canny_low:g} / {canny_high:g}"
+        self._text = (
+            f"canny: {canny_low:g} / {canny_high:g}, sharpen: {sharpen_amount:g}"
+        )
         self._detect_interval = detect_interval
         self._next_detect = 0.0
-        self._edges: ImageArray | None = None
+        self._frame: Image | None = None
 
     def __call__(self, image: Image) -> Image:
         now = time.monotonic()
-        if now >= self._next_detect:
-            self._edges = self._detector.detect_edges(image)
+        if self._frame is None or now >= self._next_detect:
+            detection = self._detector.detect(image)
+            img = detection.processed.numpy().copy()
+            img[detection.edges > 0] = _GREEN
+            _draw_status_text(img, self._text)
+            self._frame = Image(img)
             self._next_detect = now + self._detect_interval
 
-        img = image.numpy().copy()
-        if self._edges is not None:
-            img[self._edges > 0] = _GREEN
-        _draw_status_text(img, self._text)
-        return Image(img)
+        return self._frame
 
 
 class PreviewService:
@@ -186,6 +189,7 @@ class PreviewService:
         overlay: OverlayKind,
         canny_low: float | None = None,
         canny_high: float | None = None,
+        sharpen_amount: float | None = None,
     ) -> Generator[bytes]:
         """MJPEG の multipart パート列を生成する同期ジェネレータ.
 
@@ -197,10 +201,14 @@ class PreviewService:
             overlay: オーバーレイ種別
             canny_low: overlay=copper の Canny 下側閾値（None は machine.toml 値）
             canny_high: overlay=copper の Canny 上側閾値（None は machine.toml 値）
+            sharpen_amount: overlay=copper のアンシャープマスク強度
+                （None は machine.toml 値）
         """
         with self.hold_camera() as hub:
             source = hub.subscribe(timeout=1.0)
-            renderer = self._build_renderer(overlay, canny_low, canny_high)
+            renderer = self._build_renderer(
+                overlay, canny_low, canny_high, sharpen_amount
+            )
             interval = self._emit_interval(source.resolution.fps)
             next_emit = time.monotonic()
             while not self._shutdown_requested.is_set():
@@ -255,7 +263,11 @@ class PreviewService:
         return self._state.machine().camera.crop.size
 
     def _build_renderer(
-        self, overlay: OverlayKind, canny_low: float | None, canny_high: float | None
+        self,
+        overlay: OverlayKind,
+        canny_low: float | None,
+        canny_high: float | None,
+        sharpen_amount: float | None,
     ) -> _Renderer:
         """ストリーム開始時に machine 設定を 1 回読んでレンダラを構築する.
 
@@ -280,12 +292,18 @@ class PreviewService:
                 pad_align = machine.paste_dispenser.pad_align
                 low = canny_low if canny_low is not None else pad_align.canny_low
                 high = canny_high if canny_high is not None else pad_align.canny_high
+                sharp = (
+                    sharpen_amount
+                    if sharpen_amount is not None
+                    else pad_align.sharpen_amount
+                )
                 detector = CopperEdgeDetector(
                     canny_low=low,
                     canny_high=high,
                     blur_ksize=pad_align.blur_ksize,
+                    sharpen_amount=sharp,
                 )
-                return _CopperRenderer(detector, low, high, detect_interval)
+                return _CopperRenderer(detector, low, high, sharp, detect_interval)
 
     def _build_circle_detector(self, machine: Machine) -> CircleDetector | None:
         """円検出器を構築する（calibration が読めなければ None）."""

@@ -18,8 +18,10 @@ from pcbasm.config import (
     DISPENSE_MODES,
     validate_audio_device,
     validate_audio_volume,
+    validate_nonnegative_number,
     validate_paste_lift_height,
     validate_positive_number,
+    validate_positive_odd_integer,
     validate_probe_board_edge_margin,
     validate_region_overlap,
 )
@@ -119,6 +121,9 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),
+    FieldSpec(
+        "paste_dispenser.pad_align.sharpen_amount", "アンシャープマスク強度", "float"
+    ),
     # [probe]
     FieldSpec("probe.lift_height", "プローブ後の上昇高さ", "float", "mm"),
     FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
@@ -206,6 +211,11 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 if spec.key == "paste_dispenser.pad_align.region_overlap":
                     if error := validate_region_overlap(coerced_float):
                         raise UnknownFieldError(error)
+                if spec.key == "paste_dispenser.pad_align.sharpen_amount":
+                    if error := validate_nonnegative_number(
+                        "sharpen_amount", coerced_float
+                    ):
+                        raise UnknownFieldError(error)
                 if spec.key in {
                     "paste_dispenser.pad_align.board_edge_margin",
                     "paste_dispenser.pad_align.converge_tolerance",
@@ -237,6 +247,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     and value < 1
                 ):
                     raise UnknownFieldError(f"{spec.key}: 1以上の値が必要です")
+                if spec.key == "paste_dispenser.pad_align.blur_ksize":
+                    if error := validate_positive_odd_integer("blur_ksize", value):
+                        raise UnknownFieldError(error)
                 if (
                     spec.key in ("camera.crop.width", "camera.crop.height")
                     and value < 1

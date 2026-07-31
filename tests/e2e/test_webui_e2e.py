@@ -16,6 +16,7 @@ from html.parser import HTMLParser
 from typing import Any, override
 
 import httpx
+import numpy as np
 import pytest
 from playwright.sync_api import expect
 from websockets.sync.client import connect
@@ -133,13 +134,21 @@ class TestPreviewOverRealHttp:
         assert frame is not None
         assert frame.shape == (720, 1280, 3)
 
-    def test_copper_stream_accepts_canny_query(self, live_server: LiveServer):
+    def test_copper_stream_accepts_preprocessing_query(self, live_server: LiveServer):
         data = _read_mjpeg(
             live_server.base_url,
-            "/api/preview/stream?overlay=copper&canny_low=50&canny_high=150",
+            "/api/preview/stream?overlay=copper"
+            "&canny_low=50&canny_high=150&sharpen_amount=1.2",
         )
 
-        assert decode_jpeg(jpeg_payload(data.split(b"--frame")[1])) is not None
+        frame = decode_jpeg(jpeg_payload(data.split(b"--frame")[1]))
+        assert frame is not None
+        channels = frame.astype(int)
+        green = (channels[..., 1] - channels[..., 0] > 60) & (
+            channels[..., 1] - channels[..., 2] > 60
+        )
+        assert np.any(green)
+        assert np.quantile(np.ptp(channels[~green], axis=1), 0.95) < 15
 
     def test_state_reports_streaming_client_count(self, live_server: LiveServer):
         with httpx.Client(base_url=live_server.base_url, timeout=10.0) as client:
@@ -362,6 +371,49 @@ class TestPadAlignRegionSettingsOverRealHttp:
 
         machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
         assert "region_overlap = 0.25" in machine_toml
+
+
+class TestCopperDetectionPageOverRealHttp:
+    """銅箔前処理スライダーを実ブラウザで保存し、設定 API まで通す."""
+
+    def test_save_persists_canny_thresholds_and_sharpen_amount(
+        self, live_server: LiveServer, browser_page
+    ):
+        browser_page.goto(f"{live_server.base_url}/posctrl/copper_detection")
+        expect(browser_page.locator("#sharpen-amount")).to_have_value("0.5")
+
+        for selector, value in (
+            ("#canny-low", "91"),
+            ("#canny-high", "193"),
+            ("#sharpen-amount", "1.2"),
+        ):
+            browser_page.locator(selector).evaluate(
+                """(element, value) => {
+                    element.value = value;
+                    element.dispatchEvent(new Event("input", { bubbles: true }));
+                }""",
+                value,
+            )
+
+        browser_page.locator("#canny-save").click()
+
+        _wait_machine_field(
+            live_server.base_url,
+            "paste_dispenser.pad_align.canny_low",
+            91.0,
+        )
+        _wait_machine_field(
+            live_server.base_url,
+            "paste_dispenser.pad_align.canny_high",
+            193.0,
+        )
+        _wait_machine_field(
+            live_server.base_url,
+            "paste_dispenser.pad_align.sharpen_amount",
+            1.2,
+        )
+        machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
+        assert "sharpen_amount = 1.2" in machine_toml
 
 
 class TestCameraCalibrationPageOverRealHttp:
