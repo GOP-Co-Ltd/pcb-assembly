@@ -12,7 +12,6 @@ from typing import Any
 
 import attrs
 import cv2
-from shapely import Polygon
 
 from pcbasm import gcode
 from pcbasm.config import Machine, resolve_paste_height
@@ -23,7 +22,6 @@ from pcbasm.geometry import (
     Transform,
     sample_points_in_polygons,
     sampling_diagnostics,
-    transform_polygon,
 )
 from pcbasm.hal import (
     Klipper,
@@ -41,7 +39,6 @@ from pcbasm.pasting import (
     PasteSettingsModel,
     ProbeExecutor,
     RateMeasurement,
-    ResolvedInitialPurge,
     ResolvedPaste,
     RotationsPerUlRound,
     ToolheadOffsetResult,
@@ -65,12 +62,11 @@ from pcbasm.pcb import (
     build_pad_hierarchy,
 )
 from pcbasm.posctrl import (
+    BoardAlignment,
     CircleDetectionError,
-    ComponentAlignments,
     OffsetObserver,
-    PadAlignmentSession,
+    RegionAlignmentSession,
     XYPositionAdjustor,
-    sorted_top_component_pads,
 )
 from pcbasm.session import PasteSession
 from pcbasm.vision import CircleDetector, Image
@@ -78,7 +74,7 @@ from pcbasm.visualization import (
     render_height_plane,
     render_planned_points,
 )
-from webui.jobs.board_ops import align_component_groups, setup_board
+from webui.jobs.board_ops import align_regions, setup_board
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from webui.jobs.context import (
     ApplyPayload,
@@ -823,34 +819,22 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 f"{initial_purge.amount_ul:.3f} uL"
             )
 
-        # 銅箔照合（部品単位）。有効 pad を 1 つ以上持つ部品のみ照合する。
-        # 初回パージ pad が disabled pad の場合も、位置補正できるよう照合対象に含める。
-        # 失敗が許容数（pad_align.max_failures）を超えたら即中止。
-        align_designators = {p.designator for p in enabled_pads}
-        if initial_purge is not None:
-            align_designators.add(initial_purge.pad.designator)
-        groups = [
-            g
-            for g in sorted_top_component_pads(result)
-            if g.component.designator in align_designators
-        ]
-        ctx.log(f"照合対象の部品数: {len(groups)}")
-        align_session = PadAlignmentSession.from_calibration(
-            result, frame_sink=ctx.frame
-        )
-        aligned = align_component_groups(
-            ctx,
-            align_session,
-            groups,
-            max_failures=session.machine.paste_dispenser.pad_align.max_failures,
-        )
-        alignments = ComponentAlignments(
-            board_transform=result.board_transform, results=tuple(aligned)
-        )
-        aligned_pads = sum(len(group.pads) for group, _ in aligned)
-        ctx.log(
-            f"位置合わせ成功: {len(aligned)}/{len(groups)} 部品（{aligned_pads} pads）"
-        )
+        alignment_pads = list(routed_pads)
+        if initial_purge is not None and not any(
+            pad.designator == initial_purge.pad.designator
+            and pad.pad_number == initial_purge.pad.pad_number
+            for pad in alignment_pads
+        ):
+            alignment_pads.append(initial_purge.pad)
+        align_session = RegionAlignmentSession(result, frame_sink=ctx.frame)
+        regions = align_session.plan_regions([pad.center for pad in alignment_pads])
+        ctx.log(f"照合対象の領域数: {len(regions)}")
+        aligned = align_regions(ctx, align_session, regions)
+        alignment = BoardAlignment(results=tuple(aligned))
+        # 最初の補正移動・高さ計測より前に、全対象padが成功領域を持つか確認する。
+        for pad in alignment_pads:
+            alignment.correction_for(pad.center, designator=pad.designator)
+        ctx.log(f"位置合わせ成功: {len(aligned)}/{len(regions)} 領域")
 
         # 高さ計測
         ctx.progress("高さ計測")
@@ -860,28 +844,25 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             outline=session.pcb.outline.polygon,
         )
 
-        # 補正適用（未照合 pad は無補正）→ 順路順の (polygon, ResolvedPaste) ペア
-        pairs: list[tuple[Polygon, ResolvedPaste | None]] = []
-        for pad in routed_pads:
-            r = resolved.get(hierarchy.pad_ref_for_pad(pad))
-            correction = alignments.board_correction(pad.designator)
-            if correction is None:
-                ctx.log(
-                    f"警告: {pad.designator}.{pad.pad_number} は"
-                    "未照合のため無補正で塗布します"
-                )
-                pairs.append((pad.polygon, r))
-            else:
-                pairs.append((transform_polygon(pad.polygon, correction), r))
-        initial_purge_point = _initial_purge_point(ctx, initial_purge, alignments)
+        pairs = [
+            (pad, transform, resolved.get(hierarchy.pad_ref_for_pad(pad)))
+            for pad, transform in session.pad_transforms(
+                routed_pads, alignment=alignment, height_plane=height_plane
+            )
+        ]
+        purge_transform = (
+            session.pad_to_machine(
+                initial_purge.pad,
+                alignment=alignment,
+                height_plane=height_plane,
+            )
+            if initial_purge is not None
+            else None
+        )
         stage = session.stage
 
-        # board→machine全変換 (board_transform + toolhead_offset + height_plane)
-        transform = Compose(
-            [session.board_transform, session.toolhead_offset, height_plane]
-        )
         total = LoadingTotals()
-        with session.make_applicator(transform=transform) as applicator:
+        with session.make_applicator() as applicator:
             if ctx.params["interactive_loading"]:
                 pos = stage.get_position()
                 session.klipper.send_gcode(stage.move(x=0, y=0, z=0))
@@ -893,22 +874,25 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             ctx.progress("リトラクション")
             applicator.retract()
 
-            if initial_purge is not None and initial_purge_point is not None:
+            if initial_purge is not None and purge_transform is not None:
                 ctx.progress("初回パージ")
                 ctx.checkpoint()
                 applicator.deposit_at(
-                    initial_purge_point, amount=initial_purge.amount_ul
+                    initial_purge.pad.center,
+                    amount=initial_purge.amount_ul,
+                    transform=purge_transform,
                 )
 
             # pad を 1 件ずつ apply して per-pad の進捗・設定・abort 境界を確保
-            for index, (polygon, r) in enumerate(pairs):
+            for index, (pad, transform, r) in enumerate(pairs):
                 ctx.progress("塗布", 100.0 * index / len(pairs))
                 ctx.checkpoint()
                 if r is None:
-                    applicator.apply([polygon])
+                    applicator.apply([pad.polygon], transform=transform)
                 else:
                     applicator.apply(
-                        [polygon],
+                        [pad.polygon],
+                        transform=transform,
                         paste_height=r.paste_height,
                         ul_per_mm2=r.ul_per_mm2,
                         dispense_mode=r.dispense_mode,
@@ -920,28 +904,13 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
     return JobResult(
         summary=(
-            f"照合成功 {len(aligned)}/{len(groups)} 部品 / "
+            f"照合成功 {len(aligned)}/{len(regions)} 領域 / "
             f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ・"
             f"初回パージ {initial_purge.amount_ul if initial_purge else 0.0:.3f} uL・"
             f"押出合計 {total.amount_ul:+.3f} uL）"
         )
     )
-
-
-def _initial_purge_point(
-    ctx: JobContext,
-    initial_purge: ResolvedInitialPurge | None,
-    alignments: ComponentAlignments,
-) -> Point2d | None:
-    """初回パージ pad 中心へ部品補正を適用した board 座標を返す."""
-    if initial_purge is None:
-        return None
-    correction = alignments.board_correction(initial_purge.pad.designator)
-    if correction is None:
-        ctx.log(f"警告: {initial_purge.pad_id} は未照合のため無補正で初回パージします")
-        return initial_purge.pad.center
-    return correction.apply(initial_purge.pad.center)
 
 
 def _run_height_plane(ctx: JobContext) -> JobResult:
@@ -1874,6 +1843,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
                 applicator.deposit_at(
                     dispense_position,
                     amount=dispense_amount,
+                    transform=Identity(),
                     paste_height=board_surface_z + paste_height,
                 )
                 ctx.log(

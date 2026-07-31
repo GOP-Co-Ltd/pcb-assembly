@@ -39,7 +39,6 @@ class TestMachineSettings:
         assert values["paste_dispenser.paste_height"] == "auto"
         assert values["paste_dispenser.lift_height"] == 2.0
         assert values["paste_dispenser.toolhead.x"] == -1.772
-        assert values["paste_dispenser.pad_align.blur_ksize"] == 5
         assert values["probe.min_radius"] == 0.7
         assert values["probe.board_edge_margin"] == 2.5
         assert values["camera.device_id"] == 0
@@ -337,42 +336,46 @@ class TestNozzleCapFields:
         assert values["nozzle_cap.z"] == 3.789
 
 
-class TestPadAlignMaxFailures:
-    """Int 型フィールド pad_align.max_failures の読み書き（paste-align-max-failures 計画書）.
+class TestPadAlignRegionSettings:
+    """重複領域の寸法・overlap 設定を読み書きする."""
 
-    Repo fixture には max_failures を書かない（デフォルト 0 で動く）ため、 欠落時は None、write
-    後は round-trip する。負値は UnknownFieldError。
-    """
-
-    def test_missing_max_failures_reads_as_none(self, store: ConfigStore):
+    def test_missing_region_settings_read_as_none(self, store: ConfigStore):
         values = store.read_machine_settings()
 
-        assert values["paste_dispenser.pad_align.max_failures"] is None
+        assert values["paste_dispenser.pad_align.region_size_px"] is None
+        assert values["paste_dispenser.pad_align.region_overlap"] is None
 
-    def test_write_then_reread_reflects_value(self, store: ConfigStore):
-        store.write_machine_settings({"paste_dispenser.pad_align.max_failures": 2})
+    def test_write_then_reread_reflects_values(self, store: ConfigStore):
+        store.write_machine_settings(
+            {
+                "paste_dispenser.pad_align.region_size_px": 160,
+                "paste_dispenser.pad_align.region_overlap": 0.25,
+            }
+        )
 
         values = store.read_machine_settings()
-        assert values["paste_dispenser.pad_align.max_failures"] == 2
+        assert values["paste_dispenser.pad_align.region_size_px"] == 160
+        assert values["paste_dispenser.pad_align.region_overlap"] == pytest.approx(0.25)
 
-    def test_write_zero_allows_no_failure(self, store: ConfigStore):
-        # 境界: 0 は「失敗を 1 つも許容しない」という有効値
-        store.write_machine_settings({"paste_dispenser.pad_align.max_failures": 0})
-
-        values = store.read_machine_settings()
-        assert values["paste_dispenser.pad_align.max_failures"] == 0
-
-    def test_negative_max_failures_raises(self, store: ConfigStore):
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("paste_dispenser.pad_align.region_size_px", 0),
+            ("paste_dispenser.pad_align.region_overlap", -0.01),
+            ("paste_dispenser.pad_align.region_overlap", 1.0),
+        ],
+    )
+    def test_invalid_values_raise(self, store: ConfigStore, key: str, value):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings({"paste_dispenser.pad_align.max_failures": -1})
+            store.write_machine_settings({key: value})
 
 
 class TestCameraCropFields:
     """Int 型フィールド camera.crop.width / camera.crop.height の 1 以上検証 （webui-
     camera-calib 計画書・要確認事項 2）.
 
-    Change 即自動保存 UI では 0 や負値が machine.toml に書かれる事故が 起きやすいため、max_failures
-    と同様の per-key 検証を追加する。
+    Change 即自動保存 UI では 0 や負値が machine.toml に書かれる事故が 起きやすいため、per-key
+    検証を追加する。
     """
 
     @pytest.mark.parametrize("key", ["camera.crop.width", "camera.crop.height"])

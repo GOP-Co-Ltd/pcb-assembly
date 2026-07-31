@@ -113,7 +113,7 @@ class TestMachine:
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
 
         assert machine.paste_dispenser.pad_align == PadAlign()
-        assert machine.paste_dispenser.pad_align.tolerance == pytest.approx(0.05)
+        assert machine.paste_dispenser.pad_align.region_size_px == 100
 
     def test_solder_paste_density_defaults_when_absent(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
@@ -131,13 +131,14 @@ class TestMachine:
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
-            source + "\n[paste_dispenser.pad_align]\ntolerance = 0.08\nmin_roi = 5.0\n"
+            source + "\n[paste_dispenser.pad_align]\nregion_size_px = 160\n"
+            "region_overlap = 0.25\n"
         )
 
         pad_align = Machine(path).paste_dispenser.pad_align
 
-        assert pad_align.tolerance == pytest.approx(0.08)
-        assert pad_align.min_roi == pytest.approx(5.0)
+        assert pad_align.region_size_px == 160
+        assert pad_align.region_overlap == pytest.approx(0.25)
         assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
 
     def test_initial_purge_ul_defaults_when_absent(self):
@@ -292,32 +293,56 @@ class TestMachineAudio:
         assert Machine(TESTING_DATA_DIR / "machine_minimal.toml").audio == Audio()
 
 
-class TestPadAlignMaxFailures:
-    """PadAlign.max_failures のテスト（paste-align-max-failures 計画書「公開 IF」節）.
+class TestPadAlignRegionSettings:
+    """重複領域による銅箔位置合わせ設定の公開契約."""
 
-    照合失敗の許容部品数。デフォルト 0（1 部品でも失敗したら塗布ジョブを即中止）。
-    """
+    def test_defaults_to_agreed_region_alignment_values(self):
+        pad_align = PadAlign()
 
-    def test_defaults_to_zero_when_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+        assert pad_align.region_size_px == 100
+        assert pad_align.region_overlap == pytest.approx(0.5)
+        assert pad_align.board_edge_margin == pytest.approx(0.5)
+        assert pad_align.max_passes == 5
+        assert pad_align.converge_tolerance == pytest.approx(0.03)
 
-        assert machine.paste_dispenser.pad_align.max_failures == 0
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("region_size_px", 0),
+            ("region_size_px", -1),
+            ("region_size_px", True),
+            ("region_size_px", 1.5),
+            ("max_passes", 0),
+            ("max_passes", -1),
+            ("max_passes", True),
+            ("max_passes", 1.5),
+        ],
+    )
+    def test_rejects_non_positive_dimensions_and_counts(self, key, value):
+        with pytest.raises(ValueError, match=key):
+            PadAlign(**{key: value})
 
-    def test_reads_explicit_value(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source + "\n[paste_dispenser.pad_align]\nmax_failures = 2\n",
-            encoding="utf-8",
-        )
+    @pytest.mark.parametrize("overlap", [-0.01, 1.0, 1.01])
+    def test_rejects_overlap_outside_half_open_unit_interval(self, overlap):
+        with pytest.raises(ValueError, match="region_overlap"):
+            PadAlign(region_overlap=overlap)
 
-        machine = Machine(path)
+    @pytest.mark.parametrize("overlap", [0.0, 0.5, 0.999])
+    def test_accepts_overlap_inside_half_open_unit_interval(self, overlap):
+        assert PadAlign(region_overlap=overlap).region_overlap == pytest.approx(overlap)
 
-        assert machine.paste_dispenser.pad_align.max_failures == 2
-
-    def test_rejects_negative_value(self):
-        with pytest.raises(ValueError, match="max_failures"):
-            PadAlign(max_failures=-1)
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("converge_tolerance", 0.0),
+            ("converge_tolerance", -0.01),
+            ("board_edge_margin", 0.0),
+            ("board_edge_margin", -0.01),
+        ],
+    )
+    def test_rejects_invalid_distance_settings(self, key, value):
+        with pytest.raises(ValueError, match=key):
+            PadAlign(**{key: value})
 
 
 class TestMachineType:

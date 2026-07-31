@@ -1,12 +1,5 @@
 """`webui.jobs.board_ops` の公開ヘルパの仕様テスト.
 
-paste-align-max-failures 計画書「公開 IF」節が `pad_align_abort_message` の契約:
-
-- max_failures is None → None（無制限。board_tour が使用）
-- 失敗数 <= 許容数 → None（境界: 失敗数 == 許容数は許容）
-- 超過 → 失敗数・許容数・全 designator を含む日本語メッセージ文字列
-  （メッセージは部分一致で検証する。完全一致は禁止）
-
 `confirm_next_point` は「直行性テストを巡回先ごとのユーザー確認へ戻す」変更の
 公開 IF が契約:
 
@@ -24,9 +17,7 @@ paste-align-max-failures 計画書「公開 IF」節が `pad_align_abort_message
 prompt 往復は実 JobManager + 実 JobContext を通す（合成ジョブ経由。モックなし）。
 """
 
-import pytest
-
-from webui.jobs.board_ops import confirm_next_point, pad_align_abort_message
+from webui.jobs.board_ops import confirm_next_point
 from webui.jobs.catalog import JobCatalog
 from webui.jobs.context import JobContext, PromptSpec
 from webui.jobs.manager import JobManager, JobRecord, JobStatus
@@ -69,42 +60,6 @@ def _run_confirm_job(
 
     wait_until(lambda: record.status.terminal, timeout=60.0)
     return record, results, specs
-
-
-class TestPadAlignAbortMessage:
-    """pad_align_abort_message: 失敗数が許容数を超えたときだけ中止メッセージを返す."""
-
-    @pytest.mark.parametrize(
-        ("failed", "max_failures"),
-        [
-            ([], 0),
-            (["R1"], 1),
-            (["R1", "R2"], 2),  # 境界: 失敗数 == 許容数は許容
-        ],
-    )
-    def test_within_limit_returns_none(self, failed: list[str], max_failures: int):
-        assert pad_align_abort_message(failed, max_failures) is None
-
-    def test_none_max_failures_means_unlimited(self):
-        assert pad_align_abort_message(["R1", "R2", "R3"], None) is None
-
-    def test_exceeding_limit_returns_message_with_counts_and_designator(self):
-        message = pad_align_abort_message(["R1"], 0)
-
-        assert message is not None
-        assert "失敗 1" in message
-        assert "許容 0" in message
-        assert "R1" in message
-
-    def test_message_lists_every_failed_designator(self):
-        message = pad_align_abort_message(["R1", "C3", "U2"], 2)
-
-        assert message is not None
-        assert "失敗 3" in message
-        assert "許容 2" in message
-        assert "R1" in message
-        assert "C3" in message
-        assert "U2" in message
 
 
 class TestConfirmNextPoint:
