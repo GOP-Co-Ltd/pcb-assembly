@@ -112,7 +112,6 @@ def _aligner(
         ),
         edge_detector=CopperEdgeDetector(),
         offset_transform=Identity(),
-        match_area=shapely.box(-1.0, -1.0, 1.0, 1.0),
         max_correction_mm=1.0,
         max_passes=max_passes,
         converge_tolerance_mm=converge_tolerance_mm,
@@ -148,6 +147,18 @@ class TestRegionAligner:
         assert result.displacement.x == pytest.approx(-0.2, abs=0.02)
         assert result.displacement.y == pytest.approx(0.0, abs=0.02)
         assert result.increment.norm <= 0.06
+
+    def test_accumulates_from_initial_displacement(self):
+        aligner = _aligner(
+            [(5, 0)],
+            max_passes=1,
+            converge_tolerance_mm=0.06,
+        )
+
+        result = aligner.measure(_region(), initial_displacement=Point2d(0.2, -0.1))
+
+        assert result.displacement.x == pytest.approx(0.15, abs=0.02)
+        assert result.displacement.y == pytest.approx(-0.1, abs=0.02)
 
     def test_rejects_region_that_does_not_converge_within_max_passes(self):
         aligner = _aligner(

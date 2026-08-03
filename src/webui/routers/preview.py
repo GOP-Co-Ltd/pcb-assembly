@@ -77,14 +77,13 @@ def preview_stream(
     overlay: OverlayKind = "none",
     canny_low: float | None = None,
     canny_high: float | None = None,
-    sharpen_amount: float | None = None,
 ) -> StreamingResponse:
     # ジェネレータ方式では最初のフレーム取得前にエラーを検出できないため、
     # カメラ構築エラーはここで 503 に変換する（配信開始後のエラーは
     # ストリーム切断として扱い、クライアントのリトライに任せる）
     _build_hub_or_503(state)
     return _ClosingStreamingResponse(
-        preview.mjpeg_stream(overlay, canny_low, canny_high, sharpen_amount),
+        preview.mjpeg_stream(overlay, canny_low, canny_high),
         media_type=MJPEG_MEDIA_TYPE,
     )
 

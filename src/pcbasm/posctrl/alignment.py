@@ -4,6 +4,7 @@ import logging
 from collections.abc import Sequence
 
 import attrs
+from shapely import Polygon
 
 from pcbasm.geometry import Point2d, Shift, Transform
 from pcbasm.pcb import Layer
@@ -26,30 +27,52 @@ class BoardAlignment:
     """成功した領域の変位からpad中心の補正を求める."""
 
     results: tuple[RegionAlignment, ...]
+    fallback_results: tuple[RegionAlignment, ...] = ()
 
     def correction_for(
         self, board_point: Point2d, *, designator: str | None = None
     ) -> Transform:
-        """点を覆う成功領域のうち中心が最も近い領域の純並進を返す.
+        """点を覆う成功領域、なければ最近傍の成功領域から純並進を返す.
 
         Raises:
-            ValueError: 点を覆う成功領域がない場合
+            ValueError: 成功領域が1件もない場合
         """
-        covering = [
-            result for result in self.results if result.region.covers(board_point)
-        ]
-        if not covering:
+        available = self.results or self.fallback_results
+        if not available:
             target = (
                 designator
                 if designator is not None
                 else f"({board_point.x:.3f}, {board_point.y:.3f})"
             )
-            raise ValueError(f"{target} を覆う位置合わせ成功領域がありません")
-        nearest = min(
+            raise ValueError(f"{target} の補正に使える位置合わせ成功領域がありません")
+        covering = [
+            result for result in self.results if result.region.covers(board_point)
+        ]
+        if not covering and self.fallback_results:
+            return BoardAlignment(self.fallback_results).correction_for(
+                board_point, designator=designator
+            )
+        if not covering:
+            nearest = min(
+                available,
+                key=lambda result: (
+                    (result.region.board_center - board_point).norm,
+                    result.match.rms_distance_px,
+                ),
+            )
+            return Shift.from_point(nearest.displacement)
+        selected = min(
             covering,
-            key=lambda result: (result.region.board_center - board_point).norm,
+            key=lambda result: (
+                sum(
+                    (result.displacement - other.displacement).norm
+                    for other in covering
+                ),
+                result.match.rms_distance_px,
+                (result.region.board_center - board_point).norm,
+            ),
         )
-        return Shift.from_point(nearest.displacement)
+        return Shift.from_point(selected.displacement)
 
 
 class RegionAlignmentSession:
@@ -65,7 +88,6 @@ class RegionAlignmentSession:
         self._pad_align = pad_align
         self._board_transform = result.board_transform
         self._image_size = result.calibration.resolution
-        match_area = result.pcb.outline.polygon.buffer(-pad_align.board_edge_margin)
         self._projector = CopperProjector(
             polygons=[
                 copper.polygon
@@ -92,7 +114,6 @@ class RegionAlignmentSession:
             canny_low=pad_align.canny_low,
             canny_high=pad_align.canny_high,
             blur_ksize=pad_align.blur_ksize,
-            sharpen_amount=pad_align.sharpen_amount,
         )
         self._aligner = RegionAligner(
             camera=result.camera,
@@ -102,7 +123,6 @@ class RegionAlignmentSession:
             matcher=matcher,
             edge_detector=self._edge_detector,
             offset_transform=result.offset_transform,
-            match_area=match_area,
             max_correction_mm=pad_align.max_correction,
             max_passes=pad_align.max_passes,
             converge_tolerance_mm=pad_align.converge_tolerance,
@@ -115,7 +135,9 @@ class RegionAlignmentSession:
             self._projector,
             self._board_transform,
             pad_centers,
-            outline=self._pcb.outline.polygon,
+            safe_area=self._pcb.outline.polygon.buffer(
+                -self._pad_align.board_edge_margin
+            ),
             region_size_px=self._pad_align.region_size_px,
             overlap=self._pad_align.region_overlap,
             image_size=self._image_size,
@@ -128,6 +150,35 @@ class RegionAlignmentSession:
             return self._aligner.measure(region)
         except RuntimeError as exc:
             logger.warning("領域 %d の照合に失敗: %s", region.index, exc)
+            return None
+
+    def refine(
+        self,
+        board_point: Point2d,
+        initial_correction: Transform,
+        board_area: Polygon,
+    ) -> RegionAlignment | None:
+        """領域補正を初期値に、pad中心で銅箔照合を収束させる."""
+        anchor = self._board_transform.apply(board_point)
+        initial_displacement = initial_correction.apply(anchor) - anchor
+        region = AlignmentRegion(
+            index=-1,
+            board_center=board_point,
+            anchor=anchor,
+            roi=self.region_roi,
+            board_area=board_area,
+        )
+        try:
+            return self._aligner.measure(
+                region, initial_displacement=initial_displacement
+            )
+        except RuntimeError as exc:
+            logger.warning(
+                "pad中心 (%.3f, %.3f) の再照合に失敗: %s",
+                board_point.x,
+                board_point.y,
+                exc,
+            )
             return None
 
     @property

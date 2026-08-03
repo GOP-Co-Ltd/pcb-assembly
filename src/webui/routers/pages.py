@@ -321,7 +321,6 @@ def _copper_detection_context(state: AppState, store: ConfigStore) -> dict[str, 
         "canny_low": pad_align.canny_low,
         "canny_high": pad_align.canny_high,
         "blur_ksize": pad_align.blur_ksize,
-        "sharpen_amount": pad_align.sharpen_amount,
     }
 
 

@@ -13,7 +13,6 @@ from pcbasm.posctrl import (
 PPM = 10.0
 IMAGE_SIZE = (400, 400)
 REGION_SIZE_PX = 100
-REGION_SIZE_MM = REGION_SIZE_PX / PPM
 
 
 def _square(cx: float, cy: float, half: float) -> shapely.Polygon:
@@ -37,7 +36,7 @@ def _plan(
     pad_centers: list[Point2d],
     *,
     polygons: list[shapely.Polygon] | None = None,
-    outline: shapely.Polygon | None = None,
+    safe_area: shapely.Polygon | None = None,
     board_transform: Transform = Identity(),
     region_size_px: int = REGION_SIZE_PX,
     overlap: float = 0.5,
@@ -49,7 +48,7 @@ def _plan(
         ),
         board_transform,
         pad_centers,
-        outline=_square(0.0, 0.0, 30.0) if outline is None else outline,
+        safe_area=_square(0.0, 0.0, 30.0) if safe_area is None else safe_area,
         region_size_px=region_size_px,
         overlap=overlap,
         image_size=IMAGE_SIZE,
@@ -77,7 +76,7 @@ class TestAlignmentRegion:
 
 
 class TestPlanAlignmentRegions:
-    """Pixel 格子、pad 所属、外周への張り出しをまとめて検証する."""
+    """Pixel 格子、pad 所属、外周除外をまとめて検証する."""
 
     def test_half_overlap_uses_half_region_stride(self):
         pads = [Point2d(-7.0, 0.0), Point2d(7.0, 0.0)]
@@ -90,6 +89,23 @@ class TestPlanAlignmentRegions:
         ]
         assert gaps_px
         assert min(gaps_px) == pytest.approx(REGION_SIZE_PX * 0.5, abs=1e-6)
+
+    def test_grid_is_anchored_at_safe_area_top_left(self):
+        outline = shapely.box(-20.0, -15.0, 20.0, 15.0)
+        safe_area = outline.buffer(-1.0)
+
+        regions = _plan([Point2d(0.0, 0.0)], safe_area=safe_area)
+
+        centers = {
+            (round(region.board_center.x, 9), round(region.board_center.y, 9))
+            for region in regions
+        }
+        assert centers == {
+            (-4.0, -4.0),
+            (-4.0, 1.0),
+            (1.0, -4.0),
+            (1.0, 1.0),
+        }
 
     def test_only_regions_covering_a_target_pad_are_returned(self):
         pads = [Point2d(-7.0, 0.0), Point2d(7.0, 0.0)]
@@ -112,43 +128,63 @@ class TestPlanAlignmentRegions:
         "board_transform",
         [Identity(), Rotation(23.0)],
     )
-    def test_edge_pad_is_covered_by_region_crossing_outline(
-        self,
-        board_transform: Transform,
+    def test_every_roi_footprint_is_inside_outline_buffer(
+        self, board_transform: Transform
     ):
         outline = shapely.box(-20.0, -15.0, 20.0, 15.0)
-        pad = Point2d(-19.0, -14.0)
+        safe_area = outline.buffer(-0.5)
+        pads = [
+            Point2d(-12.0, -7.0),
+            Point2d(0.0, 0.0),
+            Point2d(12.0, 7.0),
+        ]
 
         regions = _plan(
-            [pad],
-            outline=outline,
+            pads,
+            safe_area=safe_area,
             board_transform=board_transform,
         )
 
         assert regions
-        assert any(region.covers(pad) for region in regions)
-        assert any(not outline.covers(region.board_area) for region in regions)
-
-    def test_grid_starts_one_overlap_width_outside_outline(self):
-        outline = shapely.box(-20.0, -15.0, 20.0, 15.0)
-        overlap = 0.5
-
-        regions = _plan(
-            [Point2d(-19.0, -14.0)],
-            outline=outline,
-            overlap=overlap,
-        )
-
-        margin_mm = REGION_SIZE_MM * overlap
-        assert min(region.board_area.bounds[0] for region in regions) == pytest.approx(
-            outline.bounds[0] - margin_mm
-        )
-        assert min(region.board_area.bounds[1] for region in regions) == pytest.approx(
-            outline.bounds[1] - margin_mm
-        )
+        assert all(safe_area.covers(region.board_area) for region in regions)
 
     @pytest.mark.parametrize(
-        ("pad_centers", "polygons", "outline"),
+        ("pad", "bound_index", "expected_edge"),
+        [
+            (Point2d(20.25, 0.0), 2, 20.0),
+            (Point2d(0.0, -15.25), 1, -15.0),
+        ],
+        ids=["right", "bottom"],
+    )
+    @pytest.mark.parametrize("board_transform", [Identity(), Rotation(23.0)])
+    def test_regions_crossing_safe_area_are_shifted_inward(
+        self,
+        pad: Point2d,
+        bound_index: int,
+        expected_edge: float,
+        board_transform: Transform,
+    ):
+        safe_area = shapely.box(-20.0, -15.0, 20.0, 15.0)
+
+        regions = _plan([pad], safe_area=safe_area, board_transform=board_transform)
+
+        assert regions
+        assert all(safe_area.covers(region.board_area) for region in regions)
+        assert len(
+            {
+                (round(region.board_center.x, 9), round(region.board_center.y, 9))
+                for region in regions
+            }
+        ) == len(regions)
+        assert all(
+            region.board_area.bounds[bound_index]
+            == pytest.approx(expected_edge, abs=1e-9)
+            for region in regions
+        )
+        assert not any(region.covers(pad) for region in regions)
+
+    @pytest.mark.parametrize(
+        ("pad_centers", "polygons", "safe_area"),
         [
             ([], [_square(0.0, 0.0, 10.0)], _square(0.0, 0.0, 20.0)),
             (
@@ -162,10 +198,10 @@ class TestPlanAlignmentRegions:
                 shapely.Polygon(),
             ),
         ],
-        ids=["no-pads", "no-copper", "empty-outline"],
+        ids=["no-pads", "no-copper", "empty-safe-area"],
     )
-    def test_empty_inputs_yield_no_regions(self, pad_centers, polygons, outline):
-        assert _plan(pad_centers, polygons=polygons, outline=outline) == []
+    def test_empty_inputs_yield_no_regions(self, pad_centers, polygons, safe_area):
+        assert _plan(pad_centers, polygons=polygons, safe_area=safe_area) == []
 
 
 class TestPlanAlignmentRegionsValidation:

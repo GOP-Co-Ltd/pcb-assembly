@@ -49,7 +49,6 @@ search_window = 1.4           # 照合の探索窓 片側幅 [mm]
 canny_low = 55.0   # Cannyエッジ検出の下側閾値
 canny_high = 104.0  # Cannyエッジ検出の上側閾値
 blur_ksize = 3      # GaussianBlurカーネルサイズ (奇数)
-sharpen_amount = 0.5 # アンシャープマスク強度（0で無効）
 
 [camera]
 device_id = 0

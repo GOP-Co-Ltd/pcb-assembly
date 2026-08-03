@@ -343,12 +343,7 @@ class TestPreviewPages:
         assert 'value="81"' in text
         assert 'id="canny-high"' in text
         assert 'value="192"' in text
-        assert re.search(
-            r'<input\b(?=[^>]*\bid="sharpen-amount")'
-            r'(?=[^>]*\bmin="0")(?=[^>]*\bmax="2")'
-            r'(?=[^>]*\bstep="0\.1")(?=[^>]*\bvalue="0\.5")[^>]*>',
-            text,
-        )
+        assert "sharpen-amount" not in text
 
 
 POSCTRL_JOB_FEATURES = ("camera_calibration", "board_tour", "orthogonality_test")

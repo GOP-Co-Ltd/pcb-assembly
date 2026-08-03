@@ -210,7 +210,6 @@ class TestOverlays:
             "copper",
             canny_low=50.0,
             canny_high=150.0,
-            sharpen_amount=1.2,
         )
         try:
             frame = _decoded_frame(next(stream))
@@ -238,34 +237,6 @@ class TestOverlays:
         # processed のグレースケール（B/G/R がほぼ同値）である。
         background_chroma = np.ptp(planes[~green], axis=1)
         assert np.quantile(background_chroma, 0.95) < 15
-
-    def test_copper_overlay_reflects_config_and_query_sharpen_amount(
-        self,
-        reflective_board_service: PreviewService,
-        store: ConfigStore,
-    ):
-        store.write_machine_settings({"paste_dispenser.pad_align.sharpen_amount": 0.0})
-        config_zero = reflective_board_service.mjpeg_stream("copper")
-        try:
-            zero_frame = _decoded_frame(next(config_zero))
-        finally:
-            config_zero.close()
-
-        query_two = reflective_board_service.mjpeg_stream("copper", sharpen_amount=2.0)
-        try:
-            query_frame = _decoded_frame(next(query_two))
-        finally:
-            query_two.close()
-
-        store.write_machine_settings({"paste_dispenser.pad_align.sharpen_amount": 2.0})
-        config_two = reflective_board_service.mjpeg_stream("copper")
-        try:
-            config_frame = _decoded_frame(next(config_two))
-        finally:
-            config_two.close()
-
-        assert not np.array_equal(zero_frame, query_frame)
-        assert np.array_equal(config_frame, query_frame)
 
     def test_circle_overlay_draws_red_circle(self, service: PreviewService):
         # 固定画像の直径 120px 円が検出され、赤の円描画が乗る

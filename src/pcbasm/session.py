@@ -137,7 +137,7 @@ class PasteSession:
         alignment: BoardAlignment,
         height_plane: Transform,
     ) -> list[tuple[Pad, Transform]]:
-        """pad別変換を入力順に構築し、補正不能padがあれば塗布前に失敗する."""
+        """pad別変換を入力順に構築し、成功領域がなければ塗布前に失敗する."""
         return [
             (
                 pad,
