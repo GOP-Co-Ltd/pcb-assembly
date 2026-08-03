@@ -58,6 +58,13 @@ class XYCalibrationGrid:
             for column in range(self.columns)
         )
 
+    def detection_roi_size(self, pixel_per_mm: float) -> tuple[int, int]:
+        """1グリッド間隔を一辺とする正方形の検出ROIをpixelで返す."""
+        if not math.isfinite(pixel_per_mm) or pixel_per_mm <= 0:
+            raise ValueError("pixel_per_mmは正の有限値である必要があります")
+        side = max(1, round(self.spacing_mm * pixel_per_mm))
+        return side, side
+
 
 @attrs.frozen
 class XYCalibrationTransform:

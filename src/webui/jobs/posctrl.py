@@ -189,11 +189,17 @@ def _run_xy_calibration(ctx: JobContext) -> JobResult:
     if calibration.z_position is None:
         raise RuntimeError("カメラキャリブレーションにfocus Zがありません")
     old_transform = _load_machine_xy_transform(machine)
+    detection_roi_size = grid.detection_roi_size(calibration.pixel_per_mm)
+    if detection_roi_size[0] > min(machine.camera.width, machine.camera.height):
+        raise ValueError(
+            f"グリッド間隔{grid.spacing_mm} mmの検出ROI "
+            f"{detection_roi_size[0]} pxがカメラ画像を超えています"
+        )
 
     detector = CircleDetector(
         pixel_per_mm=calibration.pixel_per_mm,
         target_diameter_mm=grid.hole_diameter_mm,
-        crop_size=machine.camera.crop.size,
+        crop_size=detection_roi_size,
         diameter_tolerance_mm=min(0.5, grid.hole_diameter_mm * 0.25),
     )
     klipper = create_command_klipper(machine)
@@ -208,7 +214,9 @@ def _run_xy_calibration(ctx: JobContext) -> JobResult:
         ctx.progress("左上位置合わせ")
         ctx.log("左上ホールを十字へ合わせ、Recordを押してください")
         while True:
-            ctx.frame(_reference_point_frame(camera, detector, machine, position))
+            ctx.frame(
+                _reference_point_frame(camera, detector, detection_roi_size, position)
+            )
             command = ctx.next_command(timeout=0)
             if command is not None and _dispatch_reference_command(
                 ctx, klipper, raw_stage, calibration, position, command
@@ -221,7 +229,7 @@ def _run_xy_calibration(ctx: JobContext) -> JobResult:
         observer = OffsetObserver(
             detector,
             camera,
-            machine.camera.crop.size,
+            detection_roi_size,
             frame_sink=ctx.frame,
             sample_count=XY_SAMPLE_COUNT,
             minimum_sample_count=XY_MINIMUM_SAMPLE_COUNT,
@@ -232,7 +240,7 @@ def _run_xy_calibration(ctx: JobContext) -> JobResult:
             klipper=klipper,
             stage=raw_stage,
             move_distance=min(
-                safe_move_distance(machine.camera.crop.size, margin=0.3)
+                safe_move_distance(detection_roi_size, margin=0.3)
                 / calibration.pixel_per_mm,
                 grid.spacing_mm * 0.3,
             ),
@@ -453,7 +461,9 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
         ctx.progress("ジョグ待機")
         ctx.log("マシン操作パネルでジョグし、Record で現在位置を記録してください")
         while True:
-            ctx.frame(_reference_point_frame(camera, detector, machine, position))
+            ctx.frame(
+                _reference_point_frame(camera, detector, cam_config.crop.size, position)
+            )
             command = ctx.next_command(timeout=0)
             if command is not None and _dispatch_reference_command(
                 ctx, klipper, stage, calibration, position, command
@@ -477,11 +487,10 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
 def _reference_point_frame(
     camera: Camera,
     detector: CircleDetector,
-    machine: Machine,
+    crop_size: tuple[int, int],
     position: _CachedPosition,
 ) -> Image:
     """円検出注釈 + 現在位置テキスト入りのプレビューフレームを合成する."""
-    crop_size = machine.camera.crop.size
     image = camera.capture()
     result = detector.detect_nearest_center(image)
     offset = result.offset.mm if result is not None else None

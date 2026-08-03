@@ -59,6 +59,11 @@ class TestXYCalibrationGrid:
             Point2d(20.0, 10.0),
         )
 
+    def test_detection_roi_is_one_grid_interval_square(self):
+        grid = XYCalibrationGrid(3.0, 10.0, 5, 5)
+
+        assert grid.detection_roi_size(pixel_per_mm=40.0) == (400, 400)
+
     @pytest.mark.parametrize(
         "kwargs",
         [
