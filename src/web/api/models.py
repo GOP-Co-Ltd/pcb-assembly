@@ -105,6 +105,33 @@ class JobBrief(BaseModel):
     status: str
 
 
+class ControlInfo(BaseModel):
+    """操作権リースの公開スナップショット（生の session_id は含まない）.
+
+    誰も保持していないときも ``held: false`` の形で返す（null にしないのは、
+    frontend の分岐を減らすため）。「自分が保持者か」は ``key`` を
+    ``ClientInfo.key`` と比べて判定する。
+    """
+
+    key: str | None = None
+    display_name: str | None = None
+    held: bool = False
+    connections: int = 0
+
+
+class ClientInfo(BaseModel):
+    """リクエスト元クライアント自身の公開キー（`ControlInfo.key` との比較用）."""
+
+    key: str = ""
+
+
+class ControlStateResponse(BaseModel):
+    """/api/control/* の戻り（`StateResponse` の control / you と同じ形）."""
+
+    control: ControlInfo
+    you: ClientInfo
+
+
 class StateResponse(BaseModel):
     """/api/state のアプリ状態レスポンス."""
 
@@ -116,6 +143,11 @@ class StateResponse(BaseModel):
     preview_clients: int
     job: JobBrief | None
     nozzle_cap: Position | None
+    # 既定値を持たせるのは、この 2 つを返さない古い backend を frontend が
+    # そのまま parse できるようにするため（既定は「保持者なし」+ 空キー =
+    # どの保持者とも一致しない fail-closed な値）
+    control: ControlInfo = ControlInfo()
+    you: ClientInfo = ClientInfo()
 
 
 class SettingsField(BaseModel):

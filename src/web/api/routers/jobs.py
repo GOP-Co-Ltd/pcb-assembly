@@ -9,7 +9,16 @@ from typing import Any, cast
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from web.api.dependencies import CatalogDep, JobsDep, SettingsDep, StateDep, StoreDep
+from web.api.control import ClientIdentity, ControlDeniedError, ControlLease
+from web.api.dependencies import (
+    CatalogDep,
+    ControlDep,
+    JobsDep,
+    SettingsDep,
+    StateDep,
+    StoreDep,
+)
+from web.api.identity import get_identity
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.manager import JobManager, JobRecord, prompt_payload
 from web.api.models import (
@@ -128,7 +137,11 @@ def get_jobs(state: StateDep, catalog: CatalogDep) -> JobCatalogResponse:
 
 @router.post("/jobs/{name}", status_code=201)
 def post_job(
-    name: str, jobs: JobsDep, catalog: CatalogDep, body: JobStartRequest | None = None
+    name: str,
+    jobs: JobsDep,
+    catalog: CatalogDep,
+    _control: ControlDep,
+    body: JobStartRequest | None = None,
 ) -> dict[str, JobSummary]:
     """ジョブを開始する（404: 未知ジョブ / 400: パラメータ不正 / 409: 実行中）."""
     values = body.params if body is not None else {}
@@ -153,6 +166,7 @@ def post_job_param_defaults(
     name: str,
     catalog: CatalogDep,
     state: StateDep,
+    _control: ControlDep,
     body: JobParamDefaultsRequest | None = None,
 ) -> dict[str, dict[str, bool | float | int | str]]:
     """フォーム入力を「実行」を待たずに次回フォーム既定値として保存する.
@@ -183,7 +197,10 @@ def get_current_job(jobs: JobsDep, catalog: CatalogDep) -> dict[str, JobSummary 
 
 @router.post("/jobs/current/abort")
 def post_abort(jobs: JobsDep) -> dict[str, bool]:
-    """実行中ジョブへ協調的中止を要求する（409: アクティブジョブ無し）."""
+    """実行中ジョブへ協調的中止を要求する（409: アクティブジョブ無し）.
+
+    安全機能なので操作権でゲートしない（**ControlDep を足さない**）。
+    """
     if not jobs.request_abort():
         raise HTTPException(status_code=409, detail="実行中のジョブがありません")
     return {"aborted": True}
@@ -197,7 +214,9 @@ class JobParamsUpdateRequest(BaseModel):
 
 
 @router.put("/jobs/current/params")
-def put_current_params(jobs: JobsDep, body: JobParamsUpdateRequest) -> dict[str, Any]:
+def put_current_params(
+    jobs: JobsDep, body: JobParamsUpdateRequest, _control: ControlDep
+) -> dict[str, Any]:
     """実行中ジョブの runtime_editable パラメータを即時更新する（400: 不正）."""
     try:
         updated = jobs.update_current_params(body.values, persist=body.persist)
@@ -208,7 +227,11 @@ def put_current_params(jobs: JobsDep, body: JobParamsUpdateRequest) -> dict[str,
 
 @router.post("/jobs/last/apply")
 def post_apply(
-    jobs: JobsDep, state: StateDep, store: StoreDep, settings: SettingsDep
+    jobs: JobsDep,
+    state: StateDep,
+    store: StoreDep,
+    settings: SettingsDep,
+    _control: ControlDep,
 ) -> dict[str, dict[str, bool | float | int | str]]:
     """直近 SUCCEEDED ジョブの計測結果を設定へ反映する.
 
@@ -230,7 +253,7 @@ def post_apply(
 
 
 @router.post("/jobs/last/discard")
-def post_discard(jobs: JobsDep) -> dict[str, bool]:
+def post_discard(jobs: JobsDep, _control: ControlDep) -> dict[str, bool]:
     """直近ジョブの設定反映ペイロードを破棄する（冪等）."""
     jobs.discard()
     return {"ok": True}
@@ -241,17 +264,26 @@ async def jobs_websocket(websocket: WebSocket) -> None:
     """グローバル 1 本のイベント / コマンドチャネル.
 
     サーバー → クライアント: job_status / log / progress / prompt /
-    prompt_resolved / state_changed / error。 クライアント → サーバー:
-    respond_prompt / command / abort。
+    prompt_resolved / state_changed / control_changed / error。 クライアント →
+    サーバー: respond_prompt / command / abort。
+
+    接続は誰にでも許す（閲覧は自由）。在線は操作権リースの liveness なので、 subscribe と同じく accept
+    前に登録し、finally で必ず解除する。
     """
     jobs: JobManager = websocket.app.state.jobs
     catalog: JobCatalog = websocket.app.state.catalog
+    lease: ControlLease = websocket.app.state.control
+    identity = get_identity(websocket)
     # accept 前に subscribe し「接続完了 ↔ 購読開始」の取りこぼし窓を無くす
+    # （control_changed も同じキューへ届く = JobManager.publish が唯一の配布点）
     events = jobs.subscribe()
+    lease.connect(identity)
     try:
         await websocket.accept()
         sender = asyncio.create_task(_send_loop(websocket, jobs, catalog, events))
-        receiver = asyncio.create_task(_receive_loop(websocket, jobs, events))
+        receiver = asyncio.create_task(
+            _receive_loop(websocket, jobs, events, lease, identity)
+        )
         done, pending = await asyncio.wait(
             {sender, receiver}, return_when=asyncio.FIRST_COMPLETED
         )
@@ -264,6 +296,7 @@ async def jobs_websocket(websocket: WebSocket) -> None:
             if exc is not None and not isinstance(exc, WebSocketDisconnect):
                 raise exc
     finally:
+        lease.disconnect(identity)
         jobs.unsubscribe(events)
 
 
@@ -290,11 +323,18 @@ async def _send_loop(
 
 
 async def _receive_loop(
-    websocket: WebSocket, jobs: JobManager, events: asyncio.Queue[dict[str, Any]]
+    websocket: WebSocket,
+    jobs: JobManager,
+    events: asyncio.Queue[dict[str, Any]],
+    lease: ControlLease,
+    identity: ClientIdentity,
 ) -> None:
     """クライアントメッセージを処理する（不正は error イベントで応答）.
 
     送信は _send_loop に一本化するため、error は購読キューへ直接積む。
+    `ControlDeniedError` も同じ経路で返す（**ここで捕まえないと `asyncio.wait` を
+    抜けて WS が切断され、クライアントが再接続ループに入る**。FastAPI の
+    `exception_handler` は WebSocket に効かない）。
     """
     while True:
         try:
@@ -303,24 +343,35 @@ async def _receive_loop(
             events.put_nowait({"type": "error", "detail": "不正な JSON です"})
             continue
         try:
-            _dispatch(message, jobs)
-        except (ValueError, KeyError) as exc:
+            _dispatch(message, jobs, lease, identity)
+        except (ValueError, KeyError, ControlDeniedError) as exc:
             events.put_nowait({"type": "error", "detail": str(exc)})
 
 
-def _dispatch(message: dict[str, Any], jobs: JobManager) -> None:
+def _dispatch(
+    message: dict[str, Any],
+    jobs: JobManager,
+    lease: ControlLease,
+    identity: ClientIdentity,
+) -> None:
     """クライアントメッセージ 1 件を JobManager へ振り分ける.
+
+    `abort` は安全機能なので操作権を要求しない（**リース保持者が応答できない状態でも
+    誰かが必ず止められる**ようにするため）。
 
     Raises:
         ValueError: 未知 type・必須フィールド欠落・JobManager の検証エラー
+        ControlDeniedError: 他クライアントが操作権を保持している場合
     """
     match message.get("type"):
         case "respond_prompt":
+            lease.claim(identity)
             jobs.respond_prompt(str(message.get("prompt_id")), message.get("answer"))
         case "command":
             command = message.get("command")
             if not isinstance(command, dict):
                 raise ValueError("command オブジェクトが必要です")
+            lease.claim(identity)
             jobs.submit_command(cast(dict[str, Any], command))
         case "abort":
             jobs.request_abort()

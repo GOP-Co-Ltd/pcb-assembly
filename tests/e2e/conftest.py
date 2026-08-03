@@ -43,11 +43,15 @@ from web.api.jobs.context import JobContext, JobResult
 from web.api.settings import Settings
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint
+from web.ui.proxy import SESSION_COOKIE
 from web.ui.settings import Settings as UiSettings
 
 _STARTUP_TIMEOUT = 10.0
 _HTTP_TIMEOUT = 10.0
 _WS_TIMEOUT = 30.0
+
+# 操作権の状態がブラウザへ届くまでの上限（GET /api/state 1 往復 + 描画）
+_CONTROL_TIMEOUT_MS = 10_000
 
 TERMINAL = ("succeeded", "failed", "aborted")
 
@@ -212,6 +216,54 @@ def select_led_blinker(live_server: LiveServer) -> None:
         timeout=_HTTP_TIMEOUT,
     )
     assert response.status_code == 200, response.text
+
+
+def acquire_control(page: Any, *, timeout_ms: float = _CONTROL_TIMEOUT_MS) -> None:
+    """開いているページで操作権を確保し、`data-control` が held になるまで待つ.
+
+    UI は fail-closed で、ページを開いた直後は `body[data-control] = "viewer"`、
+    `data-requires-control` の要素には `inert` が付いている（クリックが届かない）。
+    ブラウザから変更操作をする検証は先に操作権を取る必要がある。
+
+    空いていれば取得、他クライアントが保持していれば奪取する。テストの下準備は
+    backend を直叩きするので（`select_led_blinker` 等はゲート付きエンドポイントを
+    叩き、セッションヘッダが無いため `anonymous` がリースを握る）、ブラウザ側は
+    閲覧者から始まるのが普通。
+
+    SSR の初期値も `viewer` で「サーバがそう言っている」のと区別できないため、
+    先に `control.refresh()` でサーバの事実を取り込んでから押すボタンを決める。
+    """
+    page.wait_for_function(
+        "() => window.webui?.control !== undefined", timeout=timeout_ms
+    )
+    state = page.evaluate(
+        """async () => {
+            await window.webui.control.refresh();
+            return document.body.dataset.control;
+        }"""
+    )
+    assert state in ("free", "viewer", "held"), f"操作権の状態が読めない: {state}"
+    if state == "free":
+        page.locator("#control-acquire").click(timeout=timeout_ms)
+    elif state == "viewer":
+        page.locator("#control-takeover").click(timeout=timeout_ms)
+    page.wait_for_function(
+        "() => document.body.dataset.control === 'held'", timeout=timeout_ms
+    )
+
+
+def session_headers(page: Any) -> dict[str, str]:
+    """ブラウザのセッションを backend 直叩き用のヘッダにする（同一クライアント扱い）.
+
+    `pcbasm_session` は httpOnly なのでページの JS からは読めない。テストが backend を
+    直に叩くとき（ジョブ開始など）に、ブラウザと同じ操作権で通す必要があるので
+    browser context から取り出してヘッダへ載せる（frontend 経由と違い backend 直叩き
+    では自称ヘッダがそのまま採用される）。
+    """
+    for cookie in page.context.cookies():
+        if cookie["name"] == SESSION_COOKIE:
+            return {"X-Pcbasm-Session": cookie["value"]}
+    raise AssertionError(f"{SESSION_COOKIE} cookie がまだ発行されていない")
 
 
 def get_pad_config(live_server: LiveServer) -> dict[str, Any]:

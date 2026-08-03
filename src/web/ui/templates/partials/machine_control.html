@@ -1,7 +1,10 @@
 <aside id="mc-sidebar" class="mc-sidebar" data-testid="machine-control-sidebar">
   <div id="mc-resize" class="mc-resize" title="ドラッグで幅を変更"></div>
   <button id="mc-toggle" class="mc-toggle" type="button" title="マシン操作パネルの開閉">&gt;</button>
-  <div id="machine-control" class="machine-control" data-testid="machine-control">
+  {# 開閉（#mc-toggle）と幅変更（#mc-resize）は表示操作なので開放し、
+     ジョグ・ホーミング・移動だけを操作権に紐づける #}
+  <div id="machine-control" class="machine-control" data-testid="machine-control"
+       data-requires-control>
     <div class="mc-status">
       <span id="mc-position">位置: ---</span>
       <span id="mc-homed">homed: ---</span>

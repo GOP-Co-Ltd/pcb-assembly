@@ -18,7 +18,8 @@
            value="{{ canny_high | round | int }}">
     <span id="canny-high-value" class="canny-value">{{ canny_high | round | int }}</span>
   </div>
-  <button id="canny-save" type="button">設定に保存</button>
+  {# スライダーはプレビューのオーバーレイだけを変えるので開放。保存は machine 設定の PUT #}
+  <button id="canny-save" type="button" data-requires-control>設定に保存</button>
 </fieldset>
 {% endblock %}
 {% block scripts %}

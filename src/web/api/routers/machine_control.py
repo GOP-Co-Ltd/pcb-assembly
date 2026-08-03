@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from pcbasm import gcode
 from pcbasm.hal import XYZStage
 from pcbasm.parking import move_to_cap
-from web.api.dependencies import StateDep
+from web.api.dependencies import ControlDep, StateDep
 from web.api.models import KlipperStatus
 from web.api.routers.common import create_klipper, fetch_status, klipper_errors_to_502
 from web.api.state import AppState
@@ -32,9 +32,12 @@ class MachineControlRequest(BaseModel):
 
 
 @router.post("/machine-control")
-def post_machine_control(body: MachineControlRequest, state: StateDep) -> KlipperStatus:
+def post_machine_control(
+    body: MachineControlRequest, state: StateDep, _control: ControlDep
+) -> KlipperStatus:
     # BusyError（RuntimeError 派生）は 502 変換に巻き込まず app.py の 409 ハンドラへ
-    # 流すため、machine_lock は klipper_errors_to_502 の外側で取る
+    # 流すため、machine_lock は klipper_errors_to_502 の外側で取る。操作権の検証も
+    # 同じ理由で ControlDep（ハンドラ本体の外）に置く
     with state.machine_lock("machine-control"):
         try:
             with klipper_errors_to_502():

@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from pcbasm.hal import XYZStage
-from web.api.dependencies import JobsDep, StateDep, StoreDep
+from web.api.dependencies import ControlDep, JobsDep, StateDep, StoreDep
 from web.api.routers.common import create_klipper, klipper_errors_to_502
 
 STATUS_TIMEOUT = 10.0  # 位置・homed_axes の読み取りのみ（移動なし）
@@ -22,7 +22,7 @@ class NozzleCapPosition(BaseModel):
 
 @router.post("/pasting/nozzle-cap/record")
 def record_nozzle_cap(
-    state: StateDep, store: StoreDep, jobs: JobsDep
+    state: StateDep, store: StoreDep, jobs: JobsDep, _control: ControlDep
 ) -> NozzleCapPosition:
     """現在のマシン座標をノズルキャップ位置として記録する.
 

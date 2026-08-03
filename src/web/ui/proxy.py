@@ -15,12 +15,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import TYPE_CHECKING, override
+from urllib.parse import quote, unquote
 
 import anyio
 import httpx
 import websockets
-from starlette.datastructures import Headers
-from starlette.requests import Request
+from starlette.requests import HTTPConnection, Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket, WebSocketState
@@ -28,6 +28,10 @@ from starlette.websockets import WebSocket, WebSocketState
 from web.ui.machines import MachineEndpoint, MachineRegistry, UnknownMachine
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from starlette.datastructures import Headers
+
     from web.ui.machine_client import BackendGateway
 
 logger = logging.getLogger(__name__)
@@ -46,9 +50,25 @@ _HOP_BY_HOP = frozenset(
     }
 )
 
+# 操作権リースのセッション同定に使う cookie（発行は `web.ui.pages` の HTML 応答だけ）。
+# `pcbasm_name` は JS が読み書きする表示名（httpOnly にしない）
+SESSION_COOKIE = "pcbasm_session"
+NAME_COOKIE = "pcbasm_name"
+
+# cookie から翻訳して backend へ渡すヘッダ（`web.api` の `get_identity` が読む）
+_SESSION_HEADER = b"x-pcbasm-session"
+_NAME_HEADER = b"x-pcbasm-client-name"
+
 # host は上流の URL から httpx / websockets が付け直す。
 # cookie は frontend のセッション cookie を backend に漏らさないために落とす
-_DROP_REQUEST_HEADERS = _HOP_BY_HOP | {"host", "cookie"}
+# （落とす前に読んでセッションヘッダへ翻訳する = `_session_headers`）。
+# セッションヘッダはクライアントが付けた値を素通しせず、必ず cookie から組み直す
+# （組み立て点を 1 箇所に保つ）
+_DROP_REQUEST_HEADERS = (
+    _HOP_BY_HOP
+    | {"host", "cookie"}
+    | {_SESSION_HEADER.decode("ascii"), _NAME_HEADER.decode("ascii")}
+)
 
 # websockets が handshake で自前に組むヘッダ。そのまま渡すと重複して壊れる
 # （sec-websocket-protocol は scope["subprotocols"] 経由で渡す）
@@ -118,11 +138,7 @@ class ProxyApp:
         upstream_request = client.build_request(
             request.method,
             url,
-            headers=_forward_headers(
-                request.headers,
-                request.client.host if request.client else None,
-                _DROP_REQUEST_HEADERS,
-            ),
+            headers=_forward_headers(request, _DROP_REQUEST_HEADERS),
             # ボディは pull chain で流す（1 チャンクしかメモリに載らず
             # バックプレッシャが効く）。ボディが無いメソッドで content を渡すと
             # httpx が GET に chunked を付けてしまうため、ある時だけ渡す
@@ -173,10 +189,7 @@ class ProxyApp:
         try:
             upstream = await websockets.connect(
                 url,
-                additional_headers=_forward_websocket_headers(
-                    websocket.headers,
-                    websocket.client.host if websocket.client else None,
-                ),
+                additional_headers=_forward_websocket_headers(websocket),
                 subprotocols=scope.get("subprotocols") or None,
                 # 既定の proxy=True は HTTP_PROXY / ALL_PROXY を読むため、proxy env の
                 # ある環境で LAN 内の backend への WS が全滅する
@@ -369,34 +382,77 @@ def _websocket_target_url(
 
 
 def _forward_headers(
-    headers: Headers, client_host: str | None, drop: frozenset[str]
+    connection: HTTPConnection, drop: frozenset[str]
 ) -> list[tuple[bytes, bytes]]:
-    """上流へ渡すリクエストヘッダを組む（`x-forwarded-for` だけ足す）.
+    """上流へ渡すリクエストヘッダを組む（`x-forwarded-for` とセッションを足す）.
+
+    http と websocket の両方がここを通る（組み立て点は 1 箇所）。
 
     `X-Forwarded-Proto` / `X-Forwarded-Host` は足さない。uvicorn の
     `ProxyHeadersMiddleware` は `X-Forwarded-Host` を読まず、`trusted_hosts` の既定が
     `127.0.0.1` なので LAN 越しでは無視されるため。
     """
+    headers = connection.headers
     forwarded = [
         (key, value)
         for key, value in headers.raw
         if key.decode("latin-1").lower() not in drop | {"x-forwarded-for"}
     ]
+    client_host = connection.client.host if connection.client else None
     if client_host:
         existing = headers.get("x-forwarded-for")
         chain = f"{existing}, {client_host}" if existing else client_host
         forwarded.append((b"x-forwarded-for", chain.encode("latin-1")))
+    forwarded.extend(_session_headers(connection.cookies))
     return forwarded
 
 
-def _forward_websocket_headers(
-    headers: Headers, client_host: str | None
-) -> list[tuple[str, str]]:
+def _session_headers(cookies: Mapping[str, str]) -> list[tuple[bytes, bytes]]:
+    """ブラウザの cookie を backend が読むセッションヘッダへ翻訳する.
+
+    ブラウザは `img.src`（MJPEG）と WS ハンドシェイクに独自ヘッダを付けられないため、
+    セッションを載せられるのは cookie しかない。一方 cookie は backend へ渡さないので、
+    翻訳が要る。
+
+    表示名は HTTP/1.1 ヘッダが latin-1 なので `quote` して ASCII にする（生の日本語名は
+    uvicorn / httpx が壊す）。JS は `encodeURIComponent` で cookie に書く = 既に
+    quote 済みなので、`unquote` を挟んで二重エンコードを避ける（backend の `unquote`
+    1 回で元の表示名に戻る）。
+
+    **これは認証ではなく自己申告**で、LAN 上の誰でも他人を騙れる。認証が無い現状より
+    悪化しないので受容している。
+    """
+    headers: list[tuple[bytes, bytes]] = []
+    session = cookies.get(SESSION_COOKIE)
+    if session:
+        # cookie 値は latin-1 のヘッダ由来なので必ず latin-1 へ戻せる
+        headers.append((_SESSION_HEADER, session.encode("latin-1")))
+    display_name = cookies.get(NAME_COOKIE)
+    if display_name and (encoded := _reencoded_name(display_name)) is not None:
+        headers.append((_NAME_HEADER, encoded))
+    return headers
+
+
+def _reencoded_name(cookie_value: str) -> bytes | None:
+    """表示名 cookie をヘッダ用に組み直す（復元できない値は None = ヘッダを付けない）.
+
+    `unquote` の既定（``errors="replace"``）は壊れた percent-encoding を U+FFFD へ
+    「修復」してしまい、それを quote し直すと**正当な encoding として backend へ渡る**。
+    backend 側の「復元できない値は既定名へ落とす」防御（`web.api.identity`）が
+    到達不能になり、文字化け 1 文字が表示名として全クライアントへ配られる。ここで
+    落として backend のフォールバックに委ねる。
+    """
+    try:
+        decoded = unquote(cookie_value, errors="strict")
+    except UnicodeDecodeError:
+        return None
+    return quote(decoded).encode("ascii")
+
+
+def _forward_websocket_headers(websocket: WebSocket) -> list[tuple[str, str]]:
     return [
         (key.decode("latin-1"), value.decode("latin-1"))
-        for key, value in _forward_headers(
-            headers, client_host, _DROP_WEBSOCKET_HEADERS
-        )
+        for key, value in _forward_headers(websocket, _DROP_WEBSOCKET_HEADERS)
     ]
 
 

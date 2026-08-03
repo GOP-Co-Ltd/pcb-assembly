@@ -9,7 +9,8 @@
   Record を押すと現在位置を記録し、設定へ即時反映します。
 </p>
 {% include "partials/job_form.html" %}
-<div class="rps-actions">
+{# Record / Quit は実行中ジョブへの WS command（保持者だけが送れる） #}
+<div class="rps-actions" data-requires-control>
   <button id="rps-record" type="button" disabled>Record（現在位置を記録）</button>
   <button id="rps-quit" type="button" disabled>Quit（中止）</button>
 </div>

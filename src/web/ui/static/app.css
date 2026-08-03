@@ -71,6 +71,12 @@ button {
   white-space: nowrap;
 }
 
+/* UA の `[hidden] { display: none }` は上の `button` 規則に負けるため打ち消す
+   （hidden のままレイアウトに残ると、隣の要素の上に重なってクリックを奪う） */
+button[hidden] {
+  display: none;
+}
+
 button:hover:not(:disabled) {
   border-color: var(--line-strong);
   background: var(--surface-2);
@@ -81,6 +87,13 @@ input:disabled,
 select:disabled {
   cursor: not-allowed;
   opacity: 0.52;
+}
+
+/* 操作権を持たない間は control.js が inert を付ける。inert にブラウザ既定の見た目
+   変化は無いので、「押せない理由」が見えるようにここで見た目を与える */
+[inert] {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 input[type="text"],
@@ -155,6 +168,33 @@ h2 {
   justify-content: flex-end;
   gap: 0.45rem;
   min-width: 0;
+}
+
+/* 操作権リースのバー。1 行に収める（折り返すとヘッダが伸びて全ページの本文が
+   下へずれる）。1280px 幅のヘッダには余白がほぼ無いので、内側の 2 要素を縮める
+   ことで幅を譲る（縮み代が無いと中身が隣の要素へはみ出してクリックを奪う） */
+.control-lease {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+/* 誰が保持しているか。詰まったら省略記号で縮むが `min-width` の分は必ず残す */
+.control-holder {
+  flex: 0 1 auto;
+  overflow: hidden;
+  min-width: 4rem;
+  max-width: 9rem;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control-name {
+  flex: 0 1 5rem;
+  min-width: 3rem;
 }
 
 .chip {
@@ -861,6 +901,33 @@ h2 {
   width: min(28rem, calc(100vw - 2rem));
   border: 1px solid var(--line);
   border-radius: var(--radius);
+}
+
+/* 非モーダル（`show()`）で開くので、中央寄せと重なり順を自分で持つ。モーダルに
+   しないのは ::backdrop が緊急停止 / 中止を覆ってしまうため（job_console.js 参照） */
+.jc-prompt[open] {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  margin: auto;
+  height: fit-content;
+  /* UA の `dialog:modal` が持つクランプを自分で持つ（`show()` では効かない）。
+     無いと長い本文で OK が画面外に出る。`position: fixed` なのでページスクロールでは
+     届かず、ダイアログ自身もスクロールしないため応答不能になる */
+  max-height: calc(100% - 6px - 2em);
+  overflow: auto;
+  box-shadow: 0 10px 32px rgb(20 32 46 / 0.28);
+}
+
+/* 操作権の案内（誰の応答待ちか / 取得を促す）。本文より控えめに出す */
+.jc-prompt-hint {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.jc-prompt-hint:empty {
+  display: none;
 }
 
 .jc-prompt-field input,

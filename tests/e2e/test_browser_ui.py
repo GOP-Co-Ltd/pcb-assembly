@@ -19,8 +19,10 @@ from tests.e2e.conftest import (
     TERMINAL as _TERMINAL,
     LiveServer,
     LiveUi,
+    acquire_control as _acquire_control,
     make_ui_settings as _make_ui_settings,
     select_led_blinker as _select_led_blinker,
+    session_headers as _session_headers,
     start_app as _start_app,
     wait_machine_field as _wait_machine_field,
 )
@@ -83,6 +85,7 @@ def _start_completion_notice_job(live_ui: LiveUi, browser_page, job_name: str) -
         f"{live_ui.base_url}/pasting/paste_solder",
         wait_until="domcontentloaded",
     )
+    _acquire_control(browser_page)
     form = browser_page.locator("#job-form")
     form.wait_for(state="visible", timeout=10_000)
     form.evaluate(
@@ -204,10 +207,13 @@ class TestPromptDialogOverBrowser:
             f"{live_ui.base_url}/pasting/height_plane",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
 
         start = httpx.post(
-            f"{live_server.base_url}/api/jobs/height_plane", timeout=_HTTP_TIMEOUT
+            f"{live_server.base_url}/api/jobs/height_plane",
+            headers=_session_headers(browser_page),
+            timeout=_HTTP_TIMEOUT,
         )
         assert start.status_code == 201, start.text
 
@@ -229,6 +235,49 @@ class TestPromptDialogOverBrowser:
             interval=0.05,
         )
 
+    def test_long_prompt_keeps_the_ok_button_reachable(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        """本文が長くても、ダイアログ内スクロールで OK に届く.
+
+        `show()`（非モーダル）で開くので UA の `dialog:modal` の高さクランプが効かない。
+        `.jc-prompt[open]` に `max-height` / `overflow` が無いとダイアログが viewport より
+        高くなり、`position: fixed` のためページスクロールでも OK に届かず、ダイアログ
+        自身もスクロールしないので**応答できないプロンプト**になる。
+        """
+        _select_led_blinker(live_server)
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/height_plane",
+            wait_until="domcontentloaded",
+        )
+        browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
+
+        metrics = browser_page.evaluate(
+            """(message) => {
+                const dialog = document.getElementById("jc-prompt");
+                document.getElementById("jc-prompt-message").textContent = message;
+                // job_console.js と同じ非モーダル表示（::backdrop で緊急停止を覆わない）
+                dialog.show();
+                dialog.scrollTop = dialog.scrollHeight;
+                const button = document
+                    .getElementById("jc-prompt-ok")
+                    .getBoundingClientRect();
+                return {
+                    dialog: dialog.getBoundingClientRect().height,
+                    top: button.top,
+                    bottom: button.bottom,
+                    viewport: window.innerHeight,
+                };
+            }""",
+            "この確認は本文が長いときの表示を見るためのものです。" * 60,
+        )
+
+        # ダイアログ自身が viewport に収まる（max-height）
+        assert metrics["dialog"] <= metrics["viewport"], metrics
+        # スクロールすれば OK が viewport 内に入る（overflow）
+        assert metrics["top"] >= 0, metrics
+        assert metrics["bottom"] <= metrics["viewport"], metrics
+
     def test_enter_key_submits_ok_instead_of_cancel(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
@@ -244,10 +293,13 @@ class TestPromptDialogOverBrowser:
             f"{live_ui.base_url}/pasting/height_plane",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
 
         start = httpx.post(
-            f"{live_server.base_url}/api/jobs/height_plane", timeout=_HTTP_TIMEOUT
+            f"{live_server.base_url}/api/jobs/height_plane",
+            headers=_session_headers(browser_page),
+            timeout=_HTTP_TIMEOUT,
         )
         assert start.status_code == 201, start.text
 
@@ -284,6 +336,7 @@ class TestSettingsOverBrowser:
         value: float,
     ):
         browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
+        _acquire_control(browser_page)
         field = browser_page.locator(f'input[name="{field_name}"]')
         field.wait_for(state="visible", timeout=10_000)
 
@@ -296,6 +349,7 @@ class TestSettingsOverBrowser:
     ):
         """float_pair 入力（X/Y 2 連）の編集が [x, y] 配列として保存される."""
         browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
+        _acquire_control(browser_page)
         pair = 'input[data-pair-key="reference_point.offsets.top_left"]'
         x_input = browser_page.locator(f'{pair}[data-pair-index="0"]')
         y_input = browser_page.locator(f'{pair}[data-pair-index="1"]')
@@ -310,6 +364,7 @@ class TestSettingsOverBrowser:
 
     def test_setting_label_does_not_focus_input(self, live_ui: LiveUi, browser_page):
         browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
+        _acquire_control(browser_page)
         label = browser_page.locator(".settings-label").nth(0)
         label.wait_for(state="visible", timeout=10_000)
 
@@ -333,6 +388,7 @@ class TestLoadingOverBrowser:
             f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#param-position_x").fill("12.5")
         browser_page.locator("#param-position_z").fill("3")
 
@@ -359,6 +415,7 @@ class TestLoadingOverBrowser:
             f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#loading-controls").wait_for(
             state="visible", timeout=10_000
         )
@@ -379,6 +436,7 @@ class TestLoadingOverBrowser:
             f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#loading-controls").wait_for(
             state="visible", timeout=10_000
         )
@@ -410,6 +468,7 @@ class TestLoadingOverBrowser:
             f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#loading-mass-calibration").wait_for(
             state="visible", timeout=10_000
         )

@@ -17,8 +17,10 @@ import httpx
 from tests.e2e.conftest import (
     LiveServer,
     LiveUi,
+    acquire_control as _acquire_control,
     get_pad_config as _get_pad_config,
     select_led_blinker as _select_led_blinker,
+    session_headers as _session_headers,
     wait_for_config,
 )
 
@@ -107,6 +109,8 @@ def _open_paste_solder(page: Any, live_ui: LiveUi):
         f"{live_ui.base_url}/pasting/paste_solder",
         wait_until="domcontentloaded",
     )
+    # 変更系（pad 編集・ジョブ開始）は操作権が無いと inert でクリックが届かない
+    _acquire_control(page)
     page.locator(_testid("pad-viewer")).wait_for(
         state="visible", timeout=_BROWSER_TIMEOUT_MS
     )
@@ -688,6 +692,7 @@ class TestPasteSolderBrowserPadInteraction:
         start = httpx.post(
             f"{live_server.base_url}/api/jobs/job_demo",
             json={"params": {"steps": 1, "interval": 0.1}},
+            headers=_session_headers(browser_page),
             timeout=_HTTP_TIMEOUT,
         )
         assert start.status_code == 201, start.text

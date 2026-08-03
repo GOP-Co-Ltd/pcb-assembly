@@ -11,7 +11,7 @@
 ので黒箱からは観測できない。一方キャンセル経路を潰す変更ではここが落ちる。
 
 待ちを含むテストはすべて**自前の締め切り**を持たせる（`ws.recv(timeout=…)` /
-`httpx` の timeout / `wait_until` / `_before_deadline`）。pytest-timeout は
+`httpx` の timeout / `wait_until` / `before_deadline`）。pytest-timeout は
 `TestClient` や sync WS の待ちを中断できずハングすることがあり、「守っているつもりで
 守っていない」状態になる。
 
@@ -24,8 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -51,7 +50,7 @@ from tests.e2e.conftest import (
     start_app,
     wait_first_prompt as _wait_first_prompt,
 )
-from tests.helpers import wait_until
+from tests.helpers import before_deadline, wait_until
 from web.api.app import create_app as create_backend_app
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint
@@ -77,32 +76,6 @@ _SHORT_PROXY_READ_TIMEOUT = 0.5
 # 上流が使う独自 close code / reason（1000 固定に潰されていないか見る）
 _UPSTREAM_CLOSE_CODE = 4001
 _UPSTREAM_CLOSE_REASON = "上流の都合で終了しました"
-
-
-def _before_deadline[T](call: Callable[[], T]) -> T:
-    """`_DEADLINE` 以内に返らなければ失敗させる（ハングをテスト失敗に変える）.
-
-    中継が read timeout を効かせていない / 効かせすぎている場合、応答は返らないか
-    永久に待つ。ハングは「テストが落ちる」ではなく「テストが終わらない」なので、
-    締め切りをテスト側に持たせる（`pytest.mark.timeout` はこの待ちを中断できない）。
-    """
-    outcome: list[T] = []
-    failures: list[BaseException] = []
-
-    def run() -> None:
-        try:
-            outcome.append(call())
-        except BaseException as exc:  # noqa: BLE001 - 呼び出し元へそのまま送り直す
-            failures.append(exc)
-
-    worker = threading.Thread(target=run, daemon=True)
-    worker.start()
-    worker.join(_DEADLINE)
-    if failures:
-        raise failures[0]
-    if not outcome:
-        pytest.fail(f"{_DEADLINE}s 以内に応答が返りませんでした")
-    return outcome[0]
 
 
 async def _echo_request_over_websocket(websocket: WebSocket) -> None:
@@ -420,7 +393,9 @@ class TestProxyReadTimeout:
     ):
         url = f"{ui_over_inspection_upstream.base_url}/api/slow"
 
-        response = _before_deadline(lambda: httpx.get(url, timeout=_HTTP_TIMEOUT))
+        response = before_deadline(
+            lambda: httpx.get(url, timeout=_HTTP_TIMEOUT), deadline=_DEADLINE
+        )
 
         assert response.status_code == 200, response.text
         assert response.json()["slept"] == _UPSTREAM_DELAY
@@ -455,7 +430,7 @@ class TestPreviewStreamIsExemptFromReadTimeout:
                 # 打ち切られるとイテレータが例外か終端で抜ける（ハングしない）
                 return pytest.fail(f"2 フレーム目が届きませんでした: {received!r}")
 
-        received = _before_deadline(read_two_frames)
+        received = before_deadline(read_two_frames, deadline=_DEADLINE)
 
         assert received.count(b"--frame") >= 2
 
@@ -465,7 +440,9 @@ class TestPreviewStreamIsExemptFromReadTimeout:
         """同じ設定でも `/preview/stream` 以外は 504（例外がこの 1 経路に限られる）."""
         url = f"{ui_with_short_read_timeout.base_url}/api/slow"
 
-        response = _before_deadline(lambda: httpx.get(url, timeout=_HTTP_TIMEOUT))
+        response = before_deadline(
+            lambda: httpx.get(url, timeout=_HTTP_TIMEOUT), deadline=_DEADLINE
+        )
 
         assert response.status_code == 504, response.text
 

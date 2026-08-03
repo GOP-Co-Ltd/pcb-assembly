@@ -7,7 +7,7 @@ from collections.abc import Callable
 from fastapi import APIRouter
 
 from pcbasm.hal import Klipper, XYZStage
-from web.api.dependencies import JobsDep, StateDep
+from web.api.dependencies import ControlDep, JobsDep, StateDep
 from web.api.jobs.manager import JobManager
 from web.api.models import KlipperStatus
 from web.api.routers.common import create_klipper, fetch_status, klipper_errors_to_502
@@ -50,9 +50,13 @@ def _klipper_action(
 
 @router.post("/emergency-stop")
 def post_emergency_stop(state: StateDep, jobs: JobsDep) -> dict[str, bool]:
+    """緊急停止（安全機能なので操作権でゲートしない。**ControlDep を足さない**）."""
     return _klipper_action(state, jobs, Klipper.emergency_stop)
 
 
 @router.post("/firmware-restart")
-def post_firmware_restart(state: StateDep, jobs: JobsDep) -> dict[str, bool]:
+def post_firmware_restart(
+    state: StateDep, jobs: JobsDep, _control: ControlDep
+) -> dict[str, bool]:
+    """ファームウェア再起動（復帰操作なので操作権が必要）."""
     return _klipper_action(state, jobs, Klipper.firmware_restart)

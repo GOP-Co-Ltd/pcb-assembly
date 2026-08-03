@@ -1,5 +1,6 @@
 {% import "partials/job_params.html" as job_params %}
-<form id="job-form" class="job-form" data-job-name="{{ job_name }}" data-testid="job-form">
+<form id="job-form" class="job-form" data-job-name="{{ job_name }}" data-testid="job-form"
+      data-requires-control>
   {% for spec in param_specs %}
   {{ job_params.param_field(spec) }}
   {% endfor %}

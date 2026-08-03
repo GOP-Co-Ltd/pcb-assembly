@@ -37,7 +37,12 @@ async function api(method, url, body) {
   const res = await fetch(withBase(url), options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.detail || `${res.status} ${res.statusText}`);
+    const err = new Error(data.detail || `${res.status} ${res.statusText}`);
+    err.status = res.status;
+    err.data = data;
+    // 423 = 操作権を持っていない。UI 全体の状態を即座に閲覧モードへ寄せる
+    if (res.status === 423) window.webui.control?.onDenied(data);
+    throw err;
   }
   return data;
 }

@@ -7,7 +7,7 @@
 <section class="pasting-pad-panel" data-testid="pasting-pad-panel">
 {% if auto_threshold_fields %}
 {# 塗布方式 auto の解決しきい値（machine 全体設定）。入力後は即保存する。 #}
-<form class="paste-auto-thresholds" data-testid="paste-auto-thresholds"
+<form class="paste-auto-thresholds" data-testid="paste-auto-thresholds" data-requires-control
       data-machine-settings data-endpoint="/api/settings/machine">
   {% for field in auto_threshold_fields %}
   <label for="pat-{{ field.key }}">{{ field.label }}

@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from web.api.dependencies import JobsDep, PreviewDep, SettingsDep, StateDep
+from web.api.dependencies import (
+    IdentityDep,
+    JobsDep,
+    LeaseDep,
+    PreviewDep,
+    SettingsDep,
+    StateDep,
+)
 from web.api.models import MachineInfo
 from web.api.routers.common import (
     StateResponse,
@@ -17,9 +24,18 @@ router = APIRouter(prefix="/api")
 
 @router.get("/state")
 def get_state(
-    state: StateDep, settings: SettingsDep, preview: PreviewDep, jobs: JobsDep
+    state: StateDep,
+    settings: SettingsDep,
+    preview: PreviewDep,
+    jobs: JobsDep,
+    lease: LeaseDep,
+    identity: IdentityDep,
 ) -> StateResponse:
-    return build_state_response(state, settings, preview, jobs)
+    # 閲覧は自由なので操作権でゲートしない（`control` は snapshot、`you` は
+    # リクエスト元自身のキー。両者の比較で frontend が「自分が保持者か」を決める）
+    return build_state_response(
+        state, settings, preview, jobs, lease.snapshot(), identity
+    )
 
 
 @router.get("/machine-info")

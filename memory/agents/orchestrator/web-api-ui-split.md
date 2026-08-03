@@ -512,3 +512,119 @@ await あり → 即消える）。**正常終了した機体が全 frontend の
 独立検証 1 体（xhigh）→ 仕上げ 1 体（high）→ orchestrator が最終検証。
 MR4 で確立した型どおり。`nproc` = 4（同時実行上限 2）なので幅は増やせず、
 直列ステージの削減で速度を出す方針を維持した。
+
+______________________________________________________________________
+
+# MR6（操作権リース + 閲覧モード） — `feat/20260730/control-lease`
+
+## 進め方: 2 トラック並列（MR6 で初めて成功した形）
+
+`nproc` = 4（同時実行上限 2）で幅は増やせないが、**所有ファイルが完全に分離できる 2 つ**に
+割れば 2 スロットを使い切れる。
+
+- **トラック A（backend）** — `src/web/api/**` / `tests/web/api/**`
+- **トラック B（frontend）** — `src/web/ui/**` / `tests/web/ui/**`
+- **統合トラック** — 合流検証 + `tests/e2e/test_multi_user_browser.py`
+
+A と B は import 関係も無い。結果: A は 35 分・B は 40 分で独立に完走（逐次なら 75 分）。
+
+### 並列を成立させた 2 つの規約
+
+1. **ツリー全体のコマンドを両トラックに禁止**（`make format` / `make type` /
+   `make test-*` / `git add -A` / `git commit`）。相手の編集途中のコードを巻き込んで
+   失敗し、判断を誤る。各自 `uv run pyright src/web/api tests/web/api` のように
+   自分の範囲だけを検証し、**合流検証は統合トラックが初めて行う**
+2. **ワイヤ契約（契約 §10）を先に確定**し「相手のコードを読んで推測しない」を明示。
+   結果 **キー名レベルでずれ 0 件**（ヘッダ名 / cookie 名 / 423 body の `holder` /
+   `control_changed` の payload / `body.dataset.control` の値域）
+
+共有テスト基盤（`tests/conftest.py` / `tests/helpers.py` / `tests/e2e/**`）は
+**どちらの所有でもない**とし、必要になったら `shared_infra_requests` で報告させて
+統合トラックが入れる形にした。これは実際に機能した（`jobs/manager.py` の
+`_publish` → public `publish` 化で `ControlEventHub` 45 行と購読キューの二重管理が消えた）。
+
+## 統合段で見つかった実在の詰み 3 件（レビューではなく統合で出た）
+
+1. **prompt ダイアログの `showModal()` が緊急停止と abort を物理的に覆っていた。**
+   契約 §4 は「abort は誰でも可なので deadlock にならない」と書いたが、**`inert` を
+   付けなくてもモーダルの backdrop が上に乗ればクリックは届かない**。保持者本人も
+   応答待ち中は緊急停止を押せなかった。ジョブ実行中の prompt はまさに緊急停止が
+   必要になりやすい局面。`dialog.show()`（非モーダル）へ変更
+2. **`app.css` の `button { display: inline-flex }` が UA の `[hidden] { display: none }` に
+   勝っていた。** 操作権バーの 3 ボタンが hidden のままレイアウトに残り、
+   `#machine-select` と `#pcb-chip` の上に重なってクリックを奪っていた
+3. **fail-closed の初期値が既存ブラウザ E2E 22 件を落とした。** 仕様どおりの帰結。
+   `acquire_control(page)` を前提処理として 13 箇所に足して解決（アサート自体は弱めていない）
+
+**教訓: 権限で「無効化」するとき、`inert` / `disabled` だけでなく
+「クリックを覆う経路」（モーダル backdrop・z-index・hidden なのに display が残る要素）も
+安全機能に対して確認する。**
+
+## レビュー裁定（12 件 → 採用 7 / 却下 2 / 承認 1）
+
+安全境界の視点は `approve`、契約準拠の視点は `request-changes`。
+
+### 採用 must-fix
+
+- **M1: WS `command` のゲートが未検証。** `respond_prompt` 側だけがテストされており、
+  `lease.claim` を消しても **unit 2105 件 + e2e 85 件が緑**。実装は正しく拒否するが
+  誰も見ていない。退行すると閲覧者が実行中ジョブへ Record/Quit や machine コマンドを送れる
+
+### 採用 should-fix
+
+- **S1: 423 → `onDenied` の挙動が未検証**（既存 2 件はソース文字列のピンだけ。既存 e2e の
+  423 検証は httpx で backend を直叩きしており**ブラウザの `api()` 経路を通らない**）
+- **S2: `test_state_is_fetched_from_the_backend_on_load` が名前どおり検証していない**
+- **S3: `busy=lambda: state.busy_owner is not None` の配線が未検証。** `lambda: True` でも
+  `lambda: False` でも全緑。「長時間ジョブ中に無操作失効しない」という §1 の裁定の成否を
+  決める唯一の箇所。`create_app` に `clock` の注入口を足して両方向を検出させた
+  （`web.ui.app` の `transport_factory` / `Settings.hostname` と同じ前例）
+
+### 採用 nit
+
+- **プロキシの `unquote` が backend の防御を無効化していた。** `errors="replace"` の既定が
+  壊れた cookie を U+FFFD へ「修復」し**正当な percent-encoding として backend に渡す**ため、
+  `identity._decode_name` の `errors="strict"` / `isascii()` が実質到達不能。
+  文字化け 1 文字が表示名として全クライアントへ `control_changed` で配られていた
+- 非モーダル化で UA の `dialog:modal` の高さクランプが失われた（CSS 2 行 + e2e）。
+  Chromium では `overflow: visible` だと `max-height` のクランプも効かないので**2 行が組**
+- 案内ページの死んだ「取得」ボタン（`{% if base %}` で操作権バーを描かない）
+
+### 却下
+
+- **保持者判定を `ControlLease.is_holder()` へ移す案** — `control.py` は凍結対象で、
+  `info.key == identity.key` は公開キー 2 つの同値比較であってドメインルールの複製ではない。
+  凍結を解いて再レビューするコストに見合わない
+- **実装ノートを契約 §7.3 の名前に統一する案** — トラック別 4 本の方が読みやすい。
+  契約の指定名の方を実態に合わせる
+
+### 承認（トラック所有リスト外の 3 ファイル変更）
+
+`src/web/api/jobs/manager.py`（public `publish`）/ `src/web/ui/static/app.css` /
+`tests/helpers.py`。いずれもトラックの `shared_infra_requests` 経由か、統合段が見つけた
+実在の詰みの修正に必須。**意図した流れそのもの**なので承認。
+
+## 私（orchestrator）の契約書が間違っていた 1 件
+
+契約 §10 は WS の認可拒否を `{"type":"error","message":...}` と定めたが**誤り**。
+既存の `job_console.js` は `event.detail` を読み、既存 backend も `detail` で publish する。
+**トラック A と B が独立に `detail` を選び互いに一致させていた**ので実装が正しい。
+契約書を訂正した。**教訓: ワイヤ契約を書くときは既存の慣習を先に確認する。**
+
+## 独立検証で受容した残課題
+
+- **`create_app` の `clock` 既定側（`time.monotonic`）が無保護。** `lambda: 0.0` に
+  差し替えても検出されない。守るには private 属性を覗くか実時間依存のテストを書くしかなく、
+  どちらも避けたい。**壊れても影響は「リースが失効しなくなる」= takeover は常に開いている**
+  ので安全境界には触れない。**受容**
+- **503 ページ（登録済みだが到達不能）には操作権バーが残る。** N3 の記述で 503 を対象に
+  挙げたのは私の誤りで、`{% if base %}` では原理的に発火しない。**503 では正しい挙動**
+  （マシンは登録されており、backend が戻ればボタンは機能する）。**受容**
+
+## 委譲の記録
+
+A ∥ B（high）→ 統合（high）→ レビュー 2 体（xhigh、並列）→ 裁定 → 修正 1 体（high）→
+独立検証 1 体（xhigh）→ orchestrator が最終検証。
+独立検証は安全境界を **3 段**（in-process ライブ / 全ルート掃引 / 実ブラウザ）で叩き直し、
+`require_control` の付いた 15 エンドポイントすべてが非保持者に 423（500/502 は 0 件）、
+ゲート無し write は 423 が 0 件であることを実測した。
