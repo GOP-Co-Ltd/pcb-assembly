@@ -113,6 +113,8 @@ class JobBridge(Protocol):
 
     def next_command(self, timeout: float | None) -> dict[str, Any] | None: ...
 
+    def set_accepts_commands(self, enabled: bool) -> None: ...
+
     def checkpoint(self) -> None: ...
 
     def hold_camera(self) -> AbstractContextManager[FrameHub]: ...
@@ -241,6 +243,10 @@ class JobContext:
             JobAborted: 待機中に abort された場合
         """
         return self._bridge.next_command(timeout)
+
+    def set_accepts_commands(self, enabled: bool) -> None:
+        """実行中ジョブのcommand受付可否を即時切り替える."""
+        self._bridge.set_accepts_commands(enabled)
 
     def checkpoint(self) -> None:
         """Abort 要求済みなら JobAborted を送出する（それ以外は no-op）.

@@ -50,6 +50,7 @@ TABS: dict[str, tuple[str, ...]] = {
         "camera_preview",
         "copper_detection",
         "camera_calibration",
+        "xy_calibration",
         "reference_point_setup",
         "board_tour",
         "orthogonality_test",
@@ -102,6 +103,7 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("posctrl", "camera_preview"): "posctrl/camera_preview.html",
     ("posctrl", "copper_detection"): "posctrl/copper_detection.html",
     ("posctrl", "camera_calibration"): "posctrl/camera_calibration.html",
+    ("posctrl", "xy_calibration"): "posctrl/xy_calibration.html",
     ("posctrl", "board_tour"): "posctrl/job.html",
     ("posctrl", "orthogonality_test"): "posctrl/job.html",
     ("posctrl", "reference_point_setup"): "posctrl/reference_point_setup.html",
@@ -118,6 +120,7 @@ _JOB_TEMPLATES = frozenset(
         "pasting/paste_solder.html",
         "posctrl/job.html",
         "posctrl/camera_calibration.html",
+        "posctrl/xy_calibration.html",
         "posctrl/reference_point_setup.html",
     }
 )

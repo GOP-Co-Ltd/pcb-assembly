@@ -148,6 +148,8 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("camera.height", "高さ", "int", "px"),
     FieldSpec("camera.fps", "フレームレート", "float", "fps"),
     FieldSpec("camera.format", "ピクセルフォーマット", "str"),
+    # [xy_calibration]
+    FieldSpec("xy_calibration.calibration_file", "XYキャリブレーションファイル", "str"),
     # [camera.crop]
     FieldSpec("camera.crop.width", "クロップ幅", "int", "px"),
     FieldSpec("camera.crop.height", "クロップ高さ", "int", "px"),
@@ -346,6 +348,31 @@ class ConfigStore:
             ) as tmp:
                 tmp_path = Path(tmp.name)
                 tmp.write(payload)
+            tmp_path.replace(path)
+        except Exception:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink()
+                except FileNotFoundError:
+                    pass
+            raise
+
+    def write_file_atomic(self, filename: str, content: bytes) -> None:
+        """config直下へ成果物をatomic保存する."""
+        if not filename or Path(filename).name != filename:
+            raise ValueError(f"不正な設定ファイル名です: {filename!r}")
+        path = self._config_dir / filename
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "wb",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                tmp.write(content)
             tmp_path.replace(path)
         except Exception:
             if tmp_path is not None:

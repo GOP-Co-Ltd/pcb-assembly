@@ -14,7 +14,7 @@ import attrs
 from pcbasm import gcode
 from pcbasm.config import Machine
 from pcbasm.geometry import Shift, Transform
-from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
+from pcbasm.hal import Camera, Klipper, XYZStage, create_camera, create_xyz_stage
 from pcbasm.parking import park_or_present
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl.board import BoardTransformMeasurer
@@ -201,7 +201,7 @@ def setup_board_calibration(
     logger.info("=== Klipper接続 ===")
     klipper = Klipper(host=machine.klipper.host, port=machine.klipper.port)
     logger.info("接続先: %s:%s", machine.klipper.host, machine.klipper.port)
-    stage = XYZStage(klipper.readonly)
+    stage = create_xyz_stage(machine, klipper.readonly)
 
     # カメラ初期化
     logger.info("=== カメラ初期化 ===")

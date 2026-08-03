@@ -97,6 +97,7 @@ class JobRecord:
         name: str,
         params: Mapping[str, ParamValue],
         log_capacity: int,
+        accepts_commands: bool = False,
     ) -> None:
         self._lock = threading.Lock()
         self._id = job_id
@@ -110,6 +111,7 @@ class JobRecord:
         self._progress_percent: float | None = None
         self._pending_prompt: tuple[str, PromptSpec] | None = None
         self._apply_consumed = False
+        self._accepts_commands = accepts_commands
 
     @property
     def id(self) -> str:
@@ -171,6 +173,11 @@ class JobRecord:
                 and not self._apply_consumed
             )
 
+    @property
+    def accepts_commands(self) -> bool:
+        with self._lock:
+            return self._accepts_commands
+
     # --- 以下は JobManager 内部専用の更新メソッド ---
 
     def set_status(self, status: JobStatus) -> None:
@@ -211,6 +218,10 @@ class JobRecord:
     def consume_apply(self) -> None:
         with self._lock:
             self._apply_consumed = True
+
+    def set_accepts_commands(self, enabled: bool) -> None:
+        with self._lock:
+            self._accepts_commands = enabled
 
 
 class _PendingPrompt:
@@ -345,6 +356,16 @@ class _JobRuntime:
             raise JobAborted()
         return item
 
+    def set_accepts_commands(self, enabled: bool) -> None:
+        self.record.set_accepts_commands(enabled)
+        if not enabled:
+            while True:
+                try:
+                    self.commands.get_nowait()
+                except queue.Empty:
+                    break
+        self.publish_status()
+
     def checkpoint(self) -> None:
         if self.abort_event.is_set():
             raise JobAborted()
@@ -453,7 +474,13 @@ class JobManager:
             }
             if persisted_params:
                 self._state.save_job_param_defaults(name, persisted_params)
-            record = JobRecord(uuid.uuid4().hex, name, params, self._log_capacity)
+            record = JobRecord(
+                uuid.uuid4().hex,
+                name,
+                params,
+                self._log_capacity,
+                accepts_commands=definition.accepts_commands,
+            )
             runtime = _JobRuntime(
                 record, self._preview, self._publish, self._apply_machine_settings
             )
@@ -584,7 +611,7 @@ class JobManager:
             runtime = self._runtime
         if record is None or runtime is None or record.status.terminal:
             raise ValueError("コマンドを受け付けるジョブが実行中ではありません")
-        if not self._catalog.get(record.name).accepts_commands:
+        if not record.accepts_commands:
             raise ValueError(f"ジョブ {record.name} はコマンドを受け付けません")
         runtime.commands.put(dict(command))
 

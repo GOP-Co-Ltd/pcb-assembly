@@ -76,6 +76,7 @@ from .conftest import WaitUntil, answer_next_prompt
 
 POSCTRL_JOBS = (
     "reference_point_setup",
+    "xy_calibration",
     "camera_calibration",
     "board_tour",
     "orthogonality_test",
@@ -129,7 +130,7 @@ def checkerboard_manager(
 
 
 class TestCatalog:
-    """default_catalog への posctrl 5 ジョブ登録（計画書「ジョブ定義表」のピン）."""
+    """default_catalog への posctrl ジョブ登録（計画書「ジョブ定義表」のピン）."""
 
     @pytest.fixture
     def default(self) -> JobCatalog:
@@ -144,6 +145,7 @@ class TestCatalog:
         ("name", "requires_pcb", "uses_machine", "accepts_commands"),
         [
             ("reference_point_setup", False, True, True),
+            ("xy_calibration", False, True, True),
             ("camera_calibration", False, True, False),
             ("board_tour", True, True, False),
             ("orthogonality_test", True, True, False),
@@ -167,6 +169,31 @@ class TestCatalog:
 
     def test_reference_point_setup_has_no_params(self, default: JobCatalog):
         assert default.get("reference_point_setup").params == ()
+
+    def test_xy_calibration_has_only_the_four_board_inputs(self, default: JobCatalog):
+        definition = default.get("xy_calibration")
+        params = {spec.name: spec for spec in definition.params}
+
+        assert set(params) == {
+            "hole_diameter",
+            "spacing",
+            "rows",
+            "columns",
+        }
+        assert params["hole_diameter"].value_type == "float"
+        assert params["hole_diameter"].default == 3.0
+        assert params["spacing"].value_type == "float"
+        assert params["spacing"].default == 10.0
+        assert params["rows"].value_type == "int"
+        assert params["rows"].default == 5
+        assert params["columns"].value_type == "int"
+        assert params["columns"].default == 5
+        assert definition.persisted_params == (
+            "hole_diameter",
+            "spacing",
+            "rows",
+            "columns",
+        )
 
     def test_camera_calibration_params(self, default: JobCatalog):
         """Square_size のみが params。crop は machine.toml 連動で params から削除済み.
@@ -361,16 +388,22 @@ class TestMachineJobsWithoutKlipper:
         with state.machine_lock("after-failed-job"):  # ロックは解放済み
             pass
 
-    def test_reference_point_setup_fails_gracefully_without_klipper(
-        self, manager: JobManager, state: AppState, wait_until: WaitUntil
+    @pytest.mark.parametrize("name", ["reference_point_setup", "xy_calibration"])
+    def test_non_pcb_setup_job_fails_gracefully_without_klipper(
+        self,
+        manager: JobManager,
+        state: AppState,
+        wait_until: WaitUntil,
+        name: str,
     ):
         """ホーミング（G28）で Klipper 不通 → FAILED + ロック解放."""
-        record = manager.start("reference_point_setup", {})
+        record = manager.start(name, {})
         wait_until(lambda: record.status.terminal, timeout=60.0)
         wait_until(lambda: state.busy_owner is None)
 
         assert record.status == JobStatus.FAILED
         assert record.error
+        assert record.apply_available is False
         assert "M84" in "\n".join(record.log_lines)
         with state.machine_lock("after-failed-job"):
             pass

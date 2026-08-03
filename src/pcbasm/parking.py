@@ -13,7 +13,7 @@ from collections.abc import Callable
 
 from pcbasm import gcode
 from pcbasm.config import Machine, NozzleCap
-from pcbasm.hal import Klipper, Speed, XYZStage
+from pcbasm.hal import Klipper, Speed, XYZStage, create_xyz_stage
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
 
 logger = logging.getLogger(__name__)
@@ -90,11 +90,13 @@ def park_or_present(
 
     commands: gcode.GCode | None = None
     if cap is not None:
+        # 補正ファイルの欠落・破損はfail closedとし、rawのPRESENTへ逃がさない。
+        stage = create_xyz_stage(machine, klipper.readonly)
         # クリーンアップ経路のため、可動域外（ValueError）や printer.cfg の
         # limits 設定不備（KeyError）は例外にせずフォールバックする。
         # 接続系のエラーはフォールバック先も失敗するだけなので伝播させる
         try:
-            commands = move_to_cap(XYZStage(klipper.readonly), cap)
+            commands = move_to_cap(stage, cap)
         except (ValueError, KeyError) as exc:
             warning(
                 f"ノズルキャップへ移動できません: {exc}。"

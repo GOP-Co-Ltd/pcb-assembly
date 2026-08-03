@@ -1,0 +1,22 @@
+{% extends "tab.html" %}
+{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+{% set preview_overlay = "crosshair" %}
+{% include "partials/preview_pane.html" %}
+<p>
+  ホーミング後、左上ホールをカメラ中心へ合わせてRecordを押してください。
+  以降は四隅、全グリッド点、逆順の精度検証を自動で行います。
+</p>
+{% include "partials/job_form.html" %}
+<div class="rps-actions">
+  <button id="xyc-record" type="button" disabled>Record（左上ホール）</button>
+  <button id="xyc-quit" type="button" disabled>Quit（中止）</button>
+</div>
+{% include "partials/job_console.html" %}
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/preview.js') }}"></script>
+<script src="{{ static_asset('js/xy_calibration.js') }}"></script>
+{% endblock %}
