@@ -831,7 +831,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         ctx.log(f"照合対象の領域数: {len(regions)}")
         aligned = align_regions(ctx, align_session, regions)
         alignment = BoardAlignment(results=tuple(aligned))
-        # 最初の補正移動・高さ計測より前に、全対象padが成功領域を持つか確認する。
+        # 最初の補正移動・高さ計測より前に、成功領域が1件以上あるか確認する。
         for pad in alignment_pads:
             alignment.correction_for(pad.center, designator=pad.designator)
         ctx.log(f"位置合わせ成功: {len(aligned)}/{len(regions)} 領域")

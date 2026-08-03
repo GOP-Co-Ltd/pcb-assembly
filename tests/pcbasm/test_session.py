@@ -147,13 +147,14 @@ class TestPasteSessionPadTransforms:
             assert moved.x - base.x == pytest.approx(expected.x, abs=1e-9)
             assert moved.y - base.y == pytest.approx(expected.y, abs=1e-9)
 
-    def test_missing_success_region_aborts_with_designator(self):
+    def test_uncovered_pad_uses_nearest_success_region(self):
+        expected = Point2d(0.1, -0.2)
         alignment = BoardAlignment(
             results=(
                 _region_result(
                     0,
                     shapely.box(-2.0, -2.0, 0.0, 2.0),
-                    Point2d(0.1, -0.2),
+                    expected,
                 ),
             )
         )
@@ -161,11 +162,30 @@ class TestPasteSessionPadTransforms:
             _pad("R1", Point2d(-1.0, 0.0)),
             _pad("C17", Point2d(5.0, 0.0)),
         ]
+        session = _session()
+
+        entries = session.pad_transforms(
+            pads,
+            alignment=alignment,
+            height_plane=_height_plane(),
+        )
+
+        assert [pad.designator for pad, _ in entries] == ["R1", "C17"]
+        for pad, transform in entries:
+            moved = transform.apply(pad.center.to3d(0.0))
+            base = session.toolhead_offset.apply(
+                session.board_transform.apply(pad.center).to3d(0.0)
+            )
+            assert moved.x - base.x == pytest.approx(expected.x, abs=1e-9)
+            assert moved.y - base.y == pytest.approx(expected.y, abs=1e-9)
+
+    def test_no_success_region_aborts_with_designator(self):
+        pad = _pad("C17", Point2d(5.0, 0.0))
 
         with pytest.raises(ValueError) as exc_info:
             _session().pad_transforms(
-                pads,
-                alignment=alignment,
+                [pad],
+                alignment=BoardAlignment(results=()),
                 height_plane=_height_plane(),
             )
 

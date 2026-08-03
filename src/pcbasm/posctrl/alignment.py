@@ -30,21 +30,30 @@ class BoardAlignment:
     def correction_for(
         self, board_point: Point2d, *, designator: str | None = None
     ) -> Transform:
-        """点を覆う成功領域から周囲と最も整合する純並進を返す.
+        """点を覆う成功領域、なければ最近傍の成功領域から純並進を返す.
 
         Raises:
-            ValueError: 点を覆う成功領域がない場合
+            ValueError: 成功領域が1件もない場合
         """
-        covering = [
-            result for result in self.results if result.region.covers(board_point)
-        ]
-        if not covering:
+        if not self.results:
             target = (
                 designator
                 if designator is not None
                 else f"({board_point.x:.3f}, {board_point.y:.3f})"
             )
-            raise ValueError(f"{target} を覆う位置合わせ成功領域がありません")
+            raise ValueError(f"{target} の補正に使える位置合わせ成功領域がありません")
+        covering = [
+            result for result in self.results if result.region.covers(board_point)
+        ]
+        if not covering:
+            nearest = min(
+                self.results,
+                key=lambda result: (
+                    (result.region.board_center - board_point).norm,
+                    result.match.rms_distance_px,
+                ),
+            )
+            return Shift.from_point(nearest.displacement)
         selected = min(
             covering,
             key=lambda result: (
@@ -72,7 +81,6 @@ class RegionAlignmentSession:
         self._pad_align = pad_align
         self._board_transform = result.board_transform
         self._image_size = result.calibration.resolution
-        match_area = result.pcb.outline.polygon.buffer(-pad_align.board_edge_margin)
         self._projector = CopperProjector(
             polygons=[
                 copper.polygon
@@ -109,7 +117,6 @@ class RegionAlignmentSession:
             matcher=matcher,
             edge_detector=self._edge_detector,
             offset_transform=result.offset_transform,
-            match_area=match_area,
             max_correction_mm=pad_align.max_correction,
             max_passes=pad_align.max_passes,
             converge_tolerance_mm=pad_align.converge_tolerance,
@@ -122,7 +129,9 @@ class RegionAlignmentSession:
             self._projector,
             self._board_transform,
             pad_centers,
-            outline=self._pcb.outline.polygon,
+            safe_area=self._pcb.outline.polygon.buffer(
+                -self._pad_align.board_edge_margin
+            ),
             region_size_px=self._pad_align.region_size_px,
             overlap=self._pad_align.region_overlap,
             image_size=self._image_size,

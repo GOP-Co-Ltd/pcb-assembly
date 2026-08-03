@@ -155,7 +155,7 @@ class TestBoardAlignmentCorrectionFor:
             assert shift.x == pytest.approx(0.25, abs=1e-12)
             assert shift.y == pytest.approx(-0.15, abs=1e-12)
 
-    def test_no_covering_success_region_raises_without_nearest_fallback(self):
+    def test_uses_nearest_success_region_when_no_region_covers_point(self):
         alignment = BoardAlignment(
             results=(
                 _alignment(
@@ -163,8 +163,21 @@ class TestBoardAlignmentCorrectionFor:
                     shapely.box(-1.0, -1.0, 1.0, 1.0),
                     Point2d(0.25, -0.15),
                 ),
+                _alignment(
+                    1,
+                    shapely.box(9.0, 9.0, 11.0, 11.0),
+                    Point2d(-0.10, 0.30),
+                ),
             )
         )
+
+        shift = _shift_at(alignment, Point2d(20.0, 20.0))
+
+        assert shift.x == pytest.approx(-0.10, abs=1e-12)
+        assert shift.y == pytest.approx(0.30, abs=1e-12)
+
+    def test_no_success_region_raises(self):
+        alignment = BoardAlignment(results=())
 
         with pytest.raises(ValueError) as exc_info:
             alignment.correction_for(Point2d(20.0, 20.0), designator="C17")
