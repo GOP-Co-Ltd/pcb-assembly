@@ -95,7 +95,6 @@ class PadAlign:
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
     canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
     blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
-    sharpen_amount: float = 0.5  # アンシャープマスク強度（0で無効）
 
     def __attrs_post_init__(self) -> None:
         if (
@@ -127,8 +126,6 @@ class PadAlign:
                 raise ValueError(error)
         if error := validate_positive_odd_integer("blur_ksize", self.blur_ksize):
             raise ValueError(error)
-        if error := validate_nonnegative_number("sharpen_amount", self.sharpen_amount):
-            raise ValueError(error)
 
 
 def validate_region_overlap(value: float) -> str | None:
@@ -152,18 +149,6 @@ def validate_positive_number(name: str, value: float) -> str | None:
         or value <= 0
     ):
         return f"{name}は正の有限値である必要があります: {value!r}"
-    return None
-
-
-def validate_nonnegative_number(name: str, value: object) -> str | None:
-    """0以上の有限値であるべき設定値を検証する."""
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not isfinite(value)
-        or value < 0
-    ):
-        return f"{name}は0以上の有限値である必要があります: {value!r}"
     return None
 
 

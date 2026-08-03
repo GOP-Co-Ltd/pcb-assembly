@@ -11,7 +11,6 @@
   const status = document.getElementById("preview-status");
   const cannyLow = document.getElementById("canny-low");
   const cannyHigh = document.getElementById("canny-high");
-  const sharpenAmount = document.getElementById("sharpen-amount");
 
   const DEBOUNCE_MS = 300;
 
@@ -28,7 +27,6 @@
     const params = new URLSearchParams({ overlay: currentOverlay() });
     if (cannyLow) params.set("canny_low", cannyLow.value);
     if (cannyHigh) params.set("canny_high", cannyHigh.value);
-    if (sharpenAmount) params.set("sharpen_amount", sharpenAmount.value);
     params.set("t", Date.now()); // 再接続時のキャッシュ回避
     return `${pane.dataset.streamUrl}?${params}`;
   }
@@ -69,19 +67,15 @@
   }
   bindSlider(cannyLow, "canny-low-value");
   bindSlider(cannyHigh, "canny-high-value");
-  bindSlider(sharpenAmount, "sharpen-amount-value");
 
   const saveButton = document.getElementById("canny-save");
-  if (saveButton && cannyLow && cannyHigh && sharpenAmount) {
+  if (saveButton && cannyLow && cannyHigh) {
     saveButton.addEventListener("click", async () => {
       try {
         await api("PUT", "/api/settings/machine", {
           values: {
             "paste_dispenser.pad_align.canny_low": Number(cannyLow.value),
             "paste_dispenser.pad_align.canny_high": Number(cannyHigh.value),
-            "paste_dispenser.pad_align.sharpen_amount": Number(
-              sharpenAmount.value,
-            ),
           },
         });
         toast("エッジ検出パラメータを設定に保存しました");
