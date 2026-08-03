@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from pcbasm import gcode
-from pcbasm.config import Machine
+from pcbasm.config import Machine, XYCalibration
 from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage, create_xyz_stage
 from pcbasm.pcb import Layer, Pad
@@ -67,7 +67,6 @@ _TEXT_COLOR = (0, 255, 255)  # 現在位置テキストの色 (BGR: 黄)
 
 XY_SAMPLE_COUNT = 30
 XY_MINIMUM_SAMPLE_COUNT = 20
-XY_MAX_STANDARD_DEVIATION_MM = 0.03
 XY_CENTER_TOLERANCE_MM = 0.02
 XY_CENTER_MAX_ITERATIONS = 10
 XY_RMS_LIMIT_MM = 0.03
@@ -185,6 +184,7 @@ def _run_xy_calibration(ctx: JobContext) -> JobResult:
         columns=int(ctx.params["columns"]),
     )
     machine = ctx.machine
+    xy_calibration = machine.xy_calibration or XYCalibration()
     calibration = CalibrationResult.load(machine.camera.calibration_file)
     if calibration.z_position is None:
         raise RuntimeError("カメラキャリブレーションにfocus Zがありません")
@@ -233,7 +233,7 @@ def _run_xy_calibration(ctx: JobContext) -> JobResult:
             frame_sink=ctx.frame,
             sample_count=XY_SAMPLE_COUNT,
             minimum_sample_count=XY_MINIMUM_SAMPLE_COUNT,
-            max_standard_deviation_mm=XY_MAX_STANDARD_DEVIATION_MM,
+            max_standard_deviation_mm=xy_calibration.max_standard_deviation,
         )
         offset_transform = OffsetTransformMeasurer(
             observe=observer.observe,
@@ -403,9 +403,10 @@ def _apply_affine(affine: np.ndarray, point: Point2d) -> Point2d:
 
 
 def _load_machine_xy_transform(machine: Machine) -> XYCalibrationTransform:
-    if machine.xy_calibration is None:
+    calibration = machine.xy_calibration
+    if calibration is None or calibration.calibration_file is None:
         return XYCalibrationTransform.identity()
-    return XYCalibrationResult.load(machine.xy_calibration.calibration_file).transform
+    return XYCalibrationResult.load(calibration.calibration_file).transform
 
 
 class _CachedPosition:

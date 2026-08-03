@@ -3,7 +3,7 @@ from pathlib import Path as FilePath
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.config import Machine
+from pcbasm.config import Machine, XYCalibration
 from pcbasm.geometry import Path, Point3d
 from pcbasm.geometry.transform import Point2d
 from pcbasm.hal import Speed, create_xyz_stage
@@ -331,6 +331,23 @@ class TestCalibratedXYZStage:
 
 
 class TestCreateXYZStage:
+    def test_settings_without_calibration_file_keep_identity(self, tmp_path: FilePath):
+        machine_path = tmp_path / "machine.toml"
+        machine_path.write_text(
+            """
+machine_type = "paste"
+[xy_calibration]
+max_standard_deviation = 0.05
+""".strip()
+        )
+        machine = Machine(machine_path)
+        klipper = Klipper()
+
+        stage = create_xyz_stage(machine, klipper.readonly)
+
+        assert machine.xy_calibration == XYCalibration(max_standard_deviation=0.05)
+        assert isinstance(stage, XYZStage)
+
     def test_configured_missing_calibration_file_fails_closed(self, tmp_path: FilePath):
         machine_path = tmp_path / "machine.toml"
         machine_path.write_text(

@@ -65,6 +65,7 @@ class TestMachineSettings:
         assert values["paste_dispenser.auto_area_short_side_factor"] is None
         assert values["probe.lift_height"] is None
         assert values["xy_calibration.calibration_file"] is None
+        assert values["xy_calibration.max_standard_deviation"] is None
 
     def test_xy_calibration_file_can_be_activated_by_apply(self, store: ConfigStore):
         store.write_machine_settings(
@@ -79,6 +80,23 @@ class TestMachineSettings:
     def test_xy_calibration_file_rejects_non_string(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings({"xy_calibration.calibration_file": 1.0})
+
+    def test_xy_calibration_standard_deviation_can_be_configured(
+        self, store: ConfigStore
+    ):
+        store.write_machine_settings({"xy_calibration.max_standard_deviation": 0.05})
+
+        values = store.read_machine_settings()
+        assert values["xy_calibration.max_standard_deviation"] == 0.05
+
+    @pytest.mark.parametrize("value", [0.0, -0.01, float("inf"), float("nan")])
+    def test_xy_calibration_standard_deviation_rejects_invalid_value(
+        self, store: ConfigStore, value: float
+    ):
+        with pytest.raises(UnknownFieldError, match="max_standard_deviation"):
+            store.write_machine_settings(
+                {"xy_calibration.max_standard_deviation": value}
+            )
 
     def test_write_then_reread_reflects_value(self, store: ConfigStore):
         store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})

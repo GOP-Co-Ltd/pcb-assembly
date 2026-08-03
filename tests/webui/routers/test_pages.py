@@ -174,6 +174,7 @@ class TestPages:
             "基準点 / コーナーオフセット",
             "カメラ",
             "カメラ / クロップ",
+            "XYキャリブレーション",
         ):
             assert section_label in text
         # モーション設定（printer.cfg）は Mainsail 直編集に移行し画面から削除済み
@@ -192,6 +193,12 @@ class TestPages:
         assert 'name="camera.crop.height"' in text
         assert "クロップ幅" in text
         assert "クロップ高さ" in text
+
+    def test_settings_page_renders_xy_calibration_stability(self, client: TestClient):
+        text = client.get("/settings").text
+
+        assert 'name="xy_calibration.max_standard_deviation"' in text
+        assert "円検出位置の標準偏差上限" in text
 
     def test_settings_page_renders_audio_fields(self, client: TestClient):
         """通知音（[audio]）も汎用即保存フォームに machine 設定として並ぶ."""

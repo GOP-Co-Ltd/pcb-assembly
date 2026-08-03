@@ -300,8 +300,11 @@ def create_xyz_stage(
     設定が無い場合は従来どおりidentityになる。設定があるのにファイルが 読めない場合は例外を伝播し、未補正のまま装置を動かさない。
     """
     transform = XYCalibrationTransform.identity()
-    if calibrated and machine.xy_calibration is not None:
-        transform = XYCalibrationResult.load(
-            machine.xy_calibration.calibration_file
-        ).transform
+    calibration = machine.xy_calibration
+    if (
+        calibrated
+        and calibration is not None
+        and calibration.calibration_file is not None
+    ):
+        transform = XYCalibrationResult.load(calibration.calibration_file).transform
     return XYZStage(klipper, transform)

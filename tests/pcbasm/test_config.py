@@ -16,6 +16,7 @@ from pcbasm.config import (
     Probe,
     ReferencePoint,
     Toolhead,
+    XYCalibration,
     get_config_dir,
     get_machine_config,
     resolve_paste_height,
@@ -452,6 +453,19 @@ class TestCameraCrop:
         crop = CameraCrop(width=400, height=300)
 
         assert crop.size == (400, 300)
+
+
+class TestXYCalibration:
+    def test_defaults_allow_settings_before_calibration_file_exists(self):
+        assert XYCalibration() == XYCalibration(
+            calibration_file=None,
+            max_standard_deviation=0.05,
+        )
+
+    @pytest.mark.parametrize("value", [0.0, -0.01, float("inf"), float("nan")])
+    def test_rejects_non_positive_or_non_finite_standard_deviation(self, value):
+        with pytest.raises(ValueError, match="max_standard_deviation"):
+            XYCalibration(max_standard_deviation=value)
 
 
 class TestToolhead:

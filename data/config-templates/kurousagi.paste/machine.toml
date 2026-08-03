@@ -64,6 +64,10 @@ calibration_file = "calibration.json"
 width = 300
 height = 300
 
+[xy_calibration]
+# 円検出位置のフレーム間標準偏差上限 [mm]
+max_standard_deviation = 0.05
+
 [probe]
 min_radius = 0.3            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
 board_edge_margin = 2.0     # サンプル点が基板外形から確保すべき最小距離 [mm]

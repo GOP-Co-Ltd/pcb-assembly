@@ -150,6 +150,12 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("camera.format", "ピクセルフォーマット", "str"),
     # [xy_calibration]
     FieldSpec("xy_calibration.calibration_file", "XYキャリブレーションファイル", "str"),
+    FieldSpec(
+        "xy_calibration.max_standard_deviation",
+        "円検出位置の標準偏差上限",
+        "float",
+        "mm",
+    ),
     # [camera.crop]
     FieldSpec("camera.crop.width", "クロップ幅", "int", "px"),
     FieldSpec("camera.crop.height", "クロップ高さ", "int", "px"),
@@ -214,6 +220,7 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     "paste_dispenser.pad_align.converge_tolerance",
                     "paste_dispenser.pad_align.max_correction",
                     "paste_dispenser.pad_align.search_window",
+                    "xy_calibration.max_standard_deviation",
                 }:
                     name = spec.key.rsplit(".", 1)[-1]
                     if error := validate_positive_number(name, coerced_float):

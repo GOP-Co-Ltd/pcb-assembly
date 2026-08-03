@@ -464,7 +464,17 @@ class NozzleCap:
 class XYCalibration:
     """XYステージキャリブレーションの設定."""
 
-    calibration_file: Path
+    calibration_file: Path | None = None
+    max_standard_deviation: float = 0.05
+
+    def __attrs_post_init__(self) -> None:
+        if error := validate_positive_number(
+            "max_standard_deviation", self.max_standard_deviation
+        ):
+            raise ValueError(error)
+        object.__setattr__(
+            self, "max_standard_deviation", float(self.max_standard_deviation)
+        )
 
 
 def _structure_dispense_mode(value: object, _: object) -> DispenseMode:
@@ -541,9 +551,10 @@ class Machine:
         if "xy_calibration" not in self._data:
             return None
         calibration_data = self._data["xy_calibration"].copy()
-        calibration_data["calibration_file"] = (
-            self._config_dir / calibration_data["calibration_file"]
-        )
+        if "calibration_file" in calibration_data:
+            calibration_data["calibration_file"] = (
+                self._config_dir / calibration_data["calibration_file"]
+            )
         return self._converter.structure(calibration_data, XYCalibration)
 
     @property
