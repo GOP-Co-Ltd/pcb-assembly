@@ -7,7 +7,7 @@
 注: 本環境の starlette TestClient はレスポンスを完全受信してから返すため、
 無限 MJPEG ストリームを TestClient で読むとハングする。ストリーム配信・
 preview_clients の実挙動は実 uvicorn の e2e
-（tests/e2e/test_webui_e2e.py::TestPreviewOverRealHttp）で検証する。
+（tests/e2e/test_api_e2e.py::TestPreviewOverRealHttp）で検証する。
 """
 
 from collections.abc import Iterator

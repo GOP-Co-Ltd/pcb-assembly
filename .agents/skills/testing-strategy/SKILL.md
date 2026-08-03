@@ -1,6 +1,6 @@
 ---
 name: testing-strategy
-description: pcb-assembly のテスト戦略。実機を最優先・自前 HAL ABC のみ fake 可・3rd-party 表面 (picamera2 / libgpiod / Klipper RPC / OpenCV / time.sleep 等) のモック禁止。4 区分 (unit / integration-with-fakes / integration-hardware / e2e)、tests ミラーレイアウト、書く/書かないリスト、公開 API 契約ピン例外、@mark_hardware と make test-no-hardware の使い分け。テストコードを書く・壊れたテストを調査する・pytest 周りを設定する前に読む
+description: pcb-assembly のテスト戦略。実機を最優先・自前 HAL ABC のみ fake 可・3rd-party 表面 (picamera2 / libgpiod / Klipper RPC / OpenCV / time.sleep 等) のモック禁止。4 区分 (unit / integration-with-fakes / integration-hardware / e2e)、tests ミラーレイアウト (tests/web/api と tests/web/ui を含む)、書く/書かないリスト、公開 API 契約ピン例外、実 zeroconf と skip_if_no_mdns の扱い、@mark_hardware と make test-no-hardware の使い分け。テストコードを書く・壊れたテストを調査する・pytest 周りを設定する前に読む
 ---
 
 # pcb-assembly テスト方針リファレンス
@@ -35,9 +35,24 @@ src/pcbasm/vision/detect.py  ↔ tests/pcbasm/vision/test_detect.py
 src/pcbasm/geometry/plane.py ↔ tests/pcbasm/geometry/test_plane.py
 ```
 
-- `tests/` 直下は `__init__.py`、`helpers.py`、`conftest.py`、必要なら `e2e/` のみ
-- `tests/helpers.py` が `mark_hardware` / `skip_if_no_*` / test 用 Impl の所在地
+- `tests/web/api/` が `src/web/api/`（backend WebAPI）を、`tests/web/ui/` が `src/web/ui/`（UI frontend）を同様にミラーする
+- `tests/` 直下に置けるのは共通資産（`__init__.py` / `helpers.py` / `conftest.py`）と `e2e/`
+    （実サーバー E2E）、それに **`src/` 側にミラー元が無い対象のテスト**だけ。後者は
+    `test_package.py`（パッケージ構成）、`test_claude_hooks.py`（`.claude/` の hook）、
+    `test_makefile_fake_targets.py`（`Makefile`）、`test_web_service_script.py`（`web-service.sh`）
+    のようにリポジトリ資産そのものを検証するもので、ミラー先が無いから直下に置く
+- `tests/helpers.py` が `mark_hardware` / `skip_if_no_*` / test 用 Impl の所在地。締め切り付き
+    実行の `before_deadline`（ハングをテスト失敗に変える）、`wait_until`、
+    `random_service_type` もここ
 - 1 source ファイル 1 test ファイル原則。バックエンド分割があればテストも分割
+
+WebUI は 2 プロセスなので、どちらのテストに置くかで検証範囲が変わる。
+
+- `tests/web/api/` — backend 単体（`TestClient` で backend app を直に駆動）
+- `tests/web/ui/` — frontend + 上流に実物の backend app（httpx `ASGITransport` で in-process）。
+    **JSON プロキシと SSR ページだけ**書ける。MJPEG / WS / ジョブ実行は `ASGITransport` では
+    成立しないので `tests/e2e/` へ（理由は skill `webui-e2e`）
+- `tests/e2e/` — 実 uvicorn の backend + frontend を 2 プロセス起動して通しで叩く
 
 ## テスト 4 区分
 
@@ -46,7 +61,7 @@ src/pcbasm/geometry/plane.py ↔ tests/pcbasm/geometry/test_plane.py
 | **unit**                   | `tests/pcbasm/**/test_*.py`                 | 純粋ロジック (geometry の数学、PCB 配置パース等) | なし                           | 常時                           |
 | **integration-with-fakes** | 同上 (`tests/helpers.py` の Impl を import) | モジュール間結合                                 | 自前 HAL ABC のみ              | 常時 (`make test-no-hardware`) |
 | **integration-hardware**   | 同上、`@mark_hardware` 付与                 | adapter / 実機結合点                             | 実機、`skip_if_no_*` で gating | 実機接続時 (`make test`)       |
-| **e2e**                    | `tests/e2e/` (存在すれば)                   | 実機ボード上の通し動作                           | なし                           | 手動                           |
+| **e2e**                    | `tests/e2e/`                                | WebUI の実サーバー通し動作 (backend + frontend)  | なし                           | 手動 (`make test-e2e`)         |
 
 **hardware と非 hardware は同一テストクラス内に併存させる**。マーカー定義と接続確認手順は skill `hardware-test` を参照。
 
@@ -80,6 +95,21 @@ src/pcbasm/geometry/plane.py ↔ tests/pcbasm/geometry/test_plane.py
 - `pytest_mock` を使用 (`unittest.mock` は使わない、`mocker.Mock` / `mocker.patch`)
 - 複数テストで共有するモックは `tests/conftest.py` のフィクスチャに集約
 - **対象は自前 HAL ABC のみ**。3rd-party 表面と内部関数は対象外
+
+### 実 zeroconf（mDNS）は「実オブジェクト検証」
+
+mDNS の広告・探索テストは実 `zeroconf` を起動して実マルチキャストを通す。これは
+**モック禁止則の例外ではなく、優先順位 1〜2 の「実物で検証する」側**である
+（`zeroconf` をモックすると自分の仮定をミラーするだけで、TXT の欠損・解決タイムアウト・
+サービス型の不一致といった実際の障害要因を検出できない）。
+
+- `skip_if_no_mdns`（`tests/helpers.py`）は**実行時の能力プローブ**。5353 の共有 bind と
+    ループバックへのマルチキャスト join を実際に試し、できない環境（一部コンテナ）で
+    失敗ではなく skip にする。`skip_if_no_usb_camera` / `skip_if_no_csi_camera` と同じ構造で、
+    「実物があるときだけ実物で検証する」ための gating
+- 実 LAN を汚さないための隔離（サービス型のランダム化・ループバック限定・総件数で
+    assert しない）は skill `webui-e2e` の「mDNS テストの隔離の鉄則」が正典。
+    mDNS を触らないテストの fixture は `discovery_enabled=False` を既定にしてある
 
 ## pytest 設定
 

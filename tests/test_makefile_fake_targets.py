@@ -13,6 +13,8 @@ env 1 行だけなので、レシピを読んでピンする。
 from __future__ import annotations
 
 import itertools
+import re
+import subprocess
 
 import pytest
 
@@ -55,3 +57,44 @@ class TestFakeTargetsDisableDiscovery:
     )
     def test_recipe_sets_the_kill_switch(self, target: str, kill_switch: str):
         assert kill_switch in recipe(target)
+
+
+class TestWebuiAliasesAreGone:
+    """`webui` 系エイリアスが残っていない.
+
+    `web-service.sh` が生成する unit は `make api` / `make ui` を実行する。エイリアスを
+    復活させると旧 `pcbasm-webui.service`（`ExecStart=make webui`）が動いてしまい、 2
+    プロセス構成へ移行しきれない。
+    """
+
+    def test_makefile_defines_no_webui_target(self):
+        lines = MAKEFILE.read_text(encoding="utf-8").splitlines()
+        webui_targets = [line for line in lines if re.match(r"^webui[a-z-]*\s*:", line)]
+        assert not webui_targets, webui_targets
+
+    @pytest.mark.parametrize(
+        "target", ("api", "api-dev", "api-fake", "ui", "ui-dev", "ui-fake")
+    )
+    def test_final_targets_exist(self, target: str):
+        assert recipe(target)
+
+
+class TestHelpListsEveryDocumentedTarget:
+    """`make help` が `## ` コメント付きの全ターゲットを出す.
+
+    help は grep の文字クラスでターゲット名を拾うため、名前に含まれる文字種を落とすと 黙って一覧から消える（数字を含む
+    `test-e2e` が README で案内されているのに出ない、 という不整合が起きていた）。`make help` は grep
+    + awk だけで副作用が無いので実行して 出力を確認する。
+    """
+
+    @pytest.mark.parametrize("target", ("test-e2e", "test-no-hardware", "api", "ui"))
+    def test_help_lists(self, target: str):
+        completed = subprocess.run(
+            ["make", "-f", str(MAKEFILE), "help"],
+            cwd=MAKEFILE.parent,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        listed = re.findall(r"\x1b\[36m(\S+)", completed.stdout)
+        assert target in listed, completed.stdout

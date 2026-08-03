@@ -628,3 +628,88 @@ A ∥ B（high）→ 統合（high）→ レビュー 2 体（xhigh、並列）�
 独立検証は安全境界を **3 段**（in-process ライブ / 全ルート掃引 / 実ブラウザ）で叩き直し、
 `require_control` の付いた 15 エンドポイントすべてが非保持者に 423（500/502 は 0 件）、
 ゲート無し write は 423 が 0 件であることを実測した。
+
+______________________________________________________________________
+
+# MR7（運用: systemd 2 unit / Makefile 確定 / ドキュメント） — `chore/20260730/web-service-units`
+
+## 進め方
+
+トラック A（`web-service.sh` / `Makefile` / テスト）∥ トラック B（README / CLAUDE.md /
+AGENTS.md / skills）→ レビュー 2 視点（運用の破壊経路 / ドキュメント整合）→ 裁定 →
+修正 2 トラック並列 → 独立検証 → 最終仕上げ 1 体 → orchestrator が最終検証。
+
+**`systemctl` の実行を全 agent に禁止**した（実機の `pcbasm-webui.service` が稼働中）。
+検証は `SUDO=echo` / `SUDO=<exec "$@" するだけのラッパ>` + `SYSTEMD_UNIT_DIR=<tmp>` +
+PATH 先頭の systemctl スタブという seam で行った。**実機に一切触れずに
+「install が実際にファイルを置く」「purge が実際に消す」まで検証できる。**
+
+## 運用の破壊経路 4 件（レビューが実機に触れずに再現した）
+
+1. **`install ui` が稼働中の backend を消す（最も危険）** — `purge_legacy_unit` が対象に
+   関係なく走るため、旧 `pcbasm-webui.service`（= backend 本体）を削除する。稼働中の同居機で
+   `install ui` を打つと backend が止まって消え frontend だけが入る。
+   → 掃除は**対象が `api` / `all` のときだけ**にし、`install ui` では警告のみにした
+2. **`remove` が旧 unit を残す** — 未移行機で `remove all` を打つと「どちらも登録されて
+   いません」で `exit 0`。**`make webui` を失って restart ループに入る旧 unit が enabled のまま
+   残る**（撤去したつもりで動き続ける）。→ `remove api` / `remove all` も掃除する
+3. **`status all` が 1 本目で止まる** — `set -euo pipefail` 下で `systemctl status` の
+   非 0（inactive=3）でループが中断し 2 本目が表示されない。**片方が落ちている同居機を
+   診断する経路そのもの**
+4. **`start|stop|restart all` が 1 本目の未登録で全体終了** — 同じ `all` ループ内の
+   `remove_service` は読み飛ばして継続するので**挙動が非対称**だった
+
+## 私（orchestrator）の段取りミス 1 件
+
+**並列トラックの一方が挙動を変えたのに、他方の文書に伝える経路を作っていなかった。**
+トラック A が「`install ui` は旧 unit を削除しない」に変えた一方、README を書いていた
+トラック B には伝わらず、**スクリプトの usage は正しいのに運用者が読む README だけが
+旧仕様**という最悪の組み合わせになった（独立検証が must-fix で検出）。
+
+**教訓: 並列トラックで挙動が変わったら、その挙動を記述している文書の所有トラックへ
+明示的に伝える。ワイヤ契約（MR6）と同じ問題の、ドキュメント版。**
+
+## テストが実は検証していなかった 1 件（seam の弱さ）
+
+`SUDO=echo` の seam は `rm` も `install` も**実行しない**ため、
+`test_install_ui_keeps_the_legacy_unit_and_warns` の `legacy.exists()` は
+**「何も削除されないから当然通る」空振り assert**だった。
+`exec "$@"` するだけのラッパを `SUDO` に渡す seam に強化して、
+ファイルシステム上の実結果を観測する assert に直した。
+**これで `purge_legacy_unit` の `rm` 削除 mutation が初めて検出されるようになった。**
+
+## 移行の安全性の機械的確認
+
+生成される unit テキストを旧 `webui-service.sh` の出力と diff した結果、
+**差分は厳密に 2 行のみ**（`Description` と `ExecStart`）。
+`WorkingDirectory` / `User` / `Group` / `Restart` / `RestartSec` / `WantedBy` / `Type` /
+`Environment` の欠落ゼロ。順序系ディレクティブは `After=network-online.target` のみで
+`pcbasm-api.service` と `avahi` の文字列はテキストに一切現れない（起動順依存を付けない要件）。
+
+## MR7 由来ではないが同じ範囲で直した既存バグ 2 件
+
+- **`install_service` の EXIT trap がテンポラリを掃除できていなかった。**
+  `${unit_file:-}` が関数フレーム巻き戻し後に評価され `rm -f ""` になる。
+  旧 `webui-service.sh` と同一パターンだが、**この関数を大きく作り替えた以上
+  読み手は検証済みだと解釈する**ので直した
+- `tests/web/api/routers/test_preview.py:10` の実在しないテストファイル参照
+  （同じ巡回で `.agents/skills/` の同種の宙ぶらりん参照 3 本を直したため同範囲とした）
+
+## 範囲外だが採用した 1 件
+
+`make help` の grep が文字クラスに数字を含まず `test-e2e` が出なかった（既存の不具合）。
+MR7 の README が `make test-e2e` を案内するので**ドキュメント整合の範囲**として直した（1 文字）。
+
+## 却下（2 回同じ裁定）
+
+- **実装ノートのファイル名を契約の指定名に統一する案** — トラック別の方が読みやすい
+  （MR6 でも同じ裁定）
+- `make help` の parametrize を fixture に畳む案 — 副作用なし・短時間・好みの範囲
+
+## 受容した残課題
+
+- **`require_non_root`（EUID=0 チェック）自体は未検証。** root で pytest を走らせないと
+  再現できず、そのために特権テストを持ち込む価値はない。`main` からの
+  `require_privileged_tools` 呼び出しの消失は「systemctl 不在で明確に失敗する」テストで検出できる
+- `Makefile` の `/tmp/pcbasm-webui-fake`（`api-fake` の `PCBASM_API_DATA_DIR` 既定）は
+  改名しなかった（MR3 で明示的に先送りしたディレクトリ名。skills の記述と同時更新が必要）

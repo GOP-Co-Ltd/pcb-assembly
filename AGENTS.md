@@ -59,8 +59,12 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `src/pcbasm/geometry/`: 3D 座標と幾何計算
 - `src/pcbasm/pcb/`: KiCAD 読込と PCB 設計情報
 - `src/pcbasm/visualization/`: 塗布パス・高さ面・PCB の可視化
-- `src/web/api/`: FastAPI backend WebAPI
-- `src/scripts/`: 開発・運用スクリプト
+- `src/web/api/`: 機体ごとの backend WebAPI（FastAPI、port 8081）
+- `src/web/ui/`: LAN に 1 つ立てる UI frontend（FastAPI、port 8080。ページ描画と
+    `/m/{machine_id}/api/**` の backend 中継）
+
+ブラウザ操作 UI は上記 2 プロセスに分かれる。開発・運用の操作は WebUI のジョブとして
+提供する。リポジトリ直下の `scripts/` には `migrate_codex.py` のみを置く。
 
 ## 開発コマンド
 
@@ -71,9 +75,10 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `make test-no-hardware`: ハードウェア・E2E を除外
 - `make test-e2e`: WebUI E2E
 - `make run`: format、test、type
-- `make api` / `make api-dev`: WebUI backend サーバー起動
-- `make api-fake`: fake カメラで backend 起動
-- `make webui` / `make webui-dev` / `make webui-fake`: 上記へのエイリアス（systemd unit 用に残置）
+- `make api` / `make api-dev`: backend WebAPI 起動（port 8081、dev は auto-reload）
+- `make api-fake`: fake カメラで backend 起動（隔離 data_dir/port、手動・ブラウザ E2E 用）
+- `make ui` / `make ui-dev`: UI frontend 起動（port 8080、dev は auto-reload）
+- `make ui-fake`: `api-fake`（8099）を上流にした frontend 起動（隔離ポート 8098）
 - `make migrate-codex`: Claude Bash 権限から Codex rules を再生成
 - `make migrate-codex-check`: Codex rules の同期確認
 
@@ -96,10 +101,13 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 
 ### WebUI 設計
 
-計算・ドメインロジックは `pcbasm`（`src/pcbasm/`）に集約し、
-`src/web/api/` の router/JS は入出力変換・DOM 操作・表示更新に徹する。
+計算・ドメインロジックは `pcbasm`（`src/pcbasm/`）に集約し、`src/web/api/` の router、
+`src/web/ui/` の page ハンドラ、JS はいずれも入出力変換・DOM 操作・表示更新に徹する。
 
 - 解決済み値・派生値・集計はサーバーが算出して返す
+- frontend の page ハンドラは backend の JSON（pydantic モデル）をテンプレートへ渡すだけ。
+    装置の状態を持たず、backend が返した値を再計算しない
+- 表示文字列（マシンの label など）の組み立てはサーバー側で行う
 - JS は API レスポンスをそのまま表示へ流し、クライアント検証は UX 最小限にする
 - ドメインルール、階層 override 解決、幾何計算を JS や router に複製しない
 - サーバーが返す値を JS で再導出せず、編集後はサーバー応答または再取得で更新する

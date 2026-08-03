@@ -87,7 +87,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `pcb/` — PCB 設計情報の抽象化（KiCAD 読込、配置管理）
 - `visualization/` — 塗布パス・高さ面・PCB のレンダリング/可視化
 
-このほか `src/web/api/` にブラウザ操作 UI の backend WebAPI（FastAPI）がある。開発・運用の操作は WebUI のジョブとして提供する。リポジトリ直下の `scripts/` には `migrate_codex.py` のみを置く。
+このほか `src/web/` にブラウザ操作 UI を 2 プロセスで置く（どちらも FastAPI）。`src/web/api/` が機体ごとの backend WebAPI（port 8081）、`src/web/ui/` が LAN に 1 つ立てる UI frontend（port 8080。ページ描画と `/m/{machine_id}/api/**` の backend 中継）。開発・運用の操作は WebUI のジョブとして提供する。リポジトリ直下の `scripts/` には `migrate_codex.py` のみを置く。
 
 ## 開発コマンド
 
@@ -102,7 +102,6 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `make api-fake` — fake カメラで backend 起動（隔離 data_dir/port、手動/ブラウザ E2E 用）
 - `make ui` / `make ui-dev` — UI frontend サーバー起動（port 8080、dev は auto-reload）
 - `make ui-fake` — `api-fake`（8099）を上流にした frontend 起動（隔離ポート 8098、手動/ブラウザ E2E 用）
-- `make webui` / `make webui-dev` / `make webui-fake` — `api` 系へのエイリアス（systemd unit の `ExecStart=make webui` 用に残置）
 
 ## 不変の原則
 
@@ -122,9 +121,11 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 
 ### WebUI 設計（ロジックは pcbasm、JS は薄いラッパー）
 
-計算・ドメインロジックは pcbasm（`src/pcbasm/`）に集約し、算出結果はエンドポイントで公開する。`src/web/api/` の router/JS は薄いラッパー（入出力変換・DOM 操作・表示更新）に徹する。
+計算・ドメインロジックは pcbasm（`src/pcbasm/`）に集約し、算出結果はエンドポイントで公開する。`src/web/api/` の router、`src/web/ui/` の page ハンドラ、JS はいずれも薄いラッパー（入出力変換・DOM 操作・表示更新）に徹する。
 
 - **Do**: 解決済み値・派生値・集計はサーバが算出して返す。JS は API レスポンスをそのまま表示に流し、編集後はサーバ応答（または再取得）で更新する。クライアント検証は UX 最小限（空欄・数値パース可否）に留める
+- **Do**: frontend（`src/web/ui/`）の page ハンドラは backend の JSON（pydantic モデル）を受けてテンプレートに渡すだけ。装置の状態を持たず、backend が返した値を再計算しない
+- **Do**: 表示文字列（マシンの label など）の組み立てはサーバ側で行う。クライアントで組むと表示規則が JS に散る
 - **Don't**: ドメインルール（正値・整数・enum 許容値・階層 override 解決・幾何計算など）を JS や router に複製しない。ローカル状態を楽観的に再計算してサーバと二重管理しない。サーバが既に返す値を再導出しない
 - **判定基準**: 「この結果はサーバの真実と一致すべきか?」Yes なら Python へ。「描画のための座標/色変換か?」Yes なら JS 可（SVG 座標変換・色補間・極座標は移さない）
 - 詳細：skill `webui-thin-wrapper`、実起動検証は `webui-e2e`
@@ -186,7 +187,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `testing-strategy` — テスト方針の正典（4 区分・検証対象優先順位・書く/書かないリスト・モック方針）
 - `hardware-test` — ハードウェアテストの記述・実行手順
 - `refactor-conventions` — カプセル化・エラーハンドリング・リファクタ技法の詳細規約
-- `webui-e2e` — WebUI を実サーバーで E2E 検証する手順（make test-e2e / webui-fake、常駐サーバー kill の回避策）
+- `webui-e2e` — WebUI を実サーバーで E2E 検証する手順（make test-e2e / api-fake + ui-fake、常駐サーバー kill の回避策）
 - `webui-thin-wrapper` — WebUI を薄いラッパーに保つ手順（ロジックの pcbasm 集約・JS/router からのロジック除去・許容範囲の線引き）
 - `agent-team-startup` — エージェントチームの起動・委譲判断・並列化手順
 - `maximize-parallels` — 並列 tool 呼び出しの判定基準と典型パターン
