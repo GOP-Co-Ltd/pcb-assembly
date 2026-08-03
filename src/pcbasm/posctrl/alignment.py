@@ -4,6 +4,7 @@ import logging
 from collections.abc import Sequence
 
 import attrs
+from shapely import Polygon
 
 from pcbasm.geometry import Point2d, Shift, Transform
 from pcbasm.pcb import Layer
@@ -26,6 +27,7 @@ class BoardAlignment:
     """成功した領域の変位からpad中心の補正を求める."""
 
     results: tuple[RegionAlignment, ...]
+    fallback_results: tuple[RegionAlignment, ...] = ()
 
     def correction_for(
         self, board_point: Point2d, *, designator: str | None = None
@@ -35,7 +37,8 @@ class BoardAlignment:
         Raises:
             ValueError: 成功領域が1件もない場合
         """
-        if not self.results:
+        available = self.results or self.fallback_results
+        if not available:
             target = (
                 designator
                 if designator is not None
@@ -45,9 +48,13 @@ class BoardAlignment:
         covering = [
             result for result in self.results if result.region.covers(board_point)
         ]
+        if not covering and self.fallback_results:
+            return BoardAlignment(self.fallback_results).correction_for(
+                board_point, designator=designator
+            )
         if not covering:
             nearest = min(
-                self.results,
+                available,
                 key=lambda result: (
                     (result.region.board_center - board_point).norm,
                     result.match.rms_distance_px,
@@ -144,6 +151,35 @@ class RegionAlignmentSession:
             return self._aligner.measure(region)
         except RuntimeError as exc:
             logger.warning("領域 %d の照合に失敗: %s", region.index, exc)
+            return None
+
+    def refine(
+        self,
+        board_point: Point2d,
+        initial_correction: Transform,
+        board_area: Polygon,
+    ) -> RegionAlignment | None:
+        """領域補正を初期値に、pad中心で銅箔照合を収束させる."""
+        anchor = self._board_transform.apply(board_point)
+        initial_displacement = initial_correction.apply(anchor) - anchor
+        region = AlignmentRegion(
+            index=-1,
+            board_center=board_point,
+            anchor=anchor,
+            roi=self.region_roi,
+            board_area=board_area,
+        )
+        try:
+            return self._aligner.measure(
+                region, initial_displacement=initial_displacement
+            )
+        except RuntimeError as exc:
+            logger.warning(
+                "pad中心 (%.3f, %.3f) の再照合に失敗: %s",
+                board_point.x,
+                board_point.y,
+                exc,
+            )
             return None
 
     @property

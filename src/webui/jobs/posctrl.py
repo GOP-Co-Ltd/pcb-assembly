@@ -12,7 +12,7 @@ import cv2
 
 from pcbasm import gcode
 from pcbasm.config import Machine
-from pcbasm.geometry import Point2d, Point3d, sort_by_nearest
+from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
@@ -465,6 +465,25 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
         for index, (pad, renderer_projector, target) in enumerate(entries):
             ctx.progress("補正巡回", 100.0 * index / len(entries))
             ctx.checkpoint()
+            initial_correction = alignment.correction_for(
+                pad.center, designator=pad.designator
+            )
+            refined = session.refine(pad.center, initial_correction, pad.polygon)
+            if refined is not None:
+                initial = initial_correction.apply(
+                    result.board_transform.apply(pad.center)
+                )
+                residual = refined.displacement - (
+                    initial - result.board_transform.apply(pad.center)
+                )
+                ctx.log(
+                    f"{pad.designator}.{pad.pad_number}: "
+                    f"residual=({residual.x:+.4f}, {residual.y:+.4f}) mm, "
+                    f"passes={refined.passes}"
+                )
+                correction = Shift.from_point(refined.displacement)
+                renderer_projector = session.projector.with_correction(correction)
+                target = correction.apply(result.board_transform.apply(pad.center))
             _move_to(result, target, speed=Speed.rate(0.5))
             renderer = _pad_renderer(session, renderer_projector, [pad], target)
             lines = [f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}"]

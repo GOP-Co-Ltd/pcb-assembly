@@ -62,13 +62,18 @@ class RegionAligner:
         self._settle_time = settle_time
         self._frame_sink = frame_sink
 
-    def measure(self, region: AlignmentRegion) -> RegionAlignment:
+    def measure(
+        self,
+        region: AlignmentRegion,
+        *,
+        initial_displacement: Point2d | None = None,
+    ) -> RegionAlignment:
         """累積変位を投影へ反映し、収束した結果だけを返す.
 
         Raises:
             RuntimeError: match失敗、最大補正超過、または最大パス数で非収束
         """
-        cumulative = Point2d(0.0, 0.0)
+        cumulative = initial_displacement or Point2d(0.0, 0.0)
         for passes in range(1, self._max_passes + 1):
             target = region.anchor + cumulative
             self._klipper.send_gcode(

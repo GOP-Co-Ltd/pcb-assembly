@@ -176,6 +176,24 @@ class TestBoardAlignmentCorrectionFor:
         assert shift.x == pytest.approx(-0.10, abs=1e-12)
         assert shift.y == pytest.approx(0.30, abs=1e-12)
 
+    def test_uses_fallback_region_when_no_refined_pad_covers_point(self):
+        refined = _alignment(
+            0,
+            shapely.box(-1.0, -1.0, 1.0, 1.0),
+            Point2d(0.25, -0.15),
+        )
+        fallback = _alignment(
+            1,
+            shapely.box(9.0, 9.0, 11.0, 11.0),
+            Point2d(-0.10, 0.30),
+        )
+        alignment = BoardAlignment(results=(refined,), fallback_results=(fallback,))
+
+        shift = _shift_at(alignment, Point2d(10.0, 10.0))
+
+        assert shift.x == pytest.approx(-0.10, abs=1e-12)
+        assert shift.y == pytest.approx(0.30, abs=1e-12)
+
     def test_no_success_region_raises(self):
         alignment = BoardAlignment(results=())
 
