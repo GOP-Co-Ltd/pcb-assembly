@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from pcbasm import gcode
-from pcbasm.hal import XYZStage
+from pcbasm.hal import XYZStage, create_xyz_stage
 from pcbasm.parking import move_to_cap
 from webui.dependencies import StateDep
 from webui.models import KlipperStatus
@@ -39,11 +39,11 @@ def post_machine_control(body: MachineControlRequest, state: StateDep) -> Klippe
         try:
             with klipper_errors_to_502():
                 klipper = create_klipper(state, MOVE_TIMEOUT)
-                stage = XYZStage(klipper.readonly)
+                stage = create_xyz_stage(state.machine(), klipper.readonly)
                 commands = _build_gcode(body, state, stage)
                 klipper.send_gcode(commands)
-                return fetch_status(klipper)
-        except ValueError as exc:
+                return fetch_status(klipper, stage)
+        except (OSError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

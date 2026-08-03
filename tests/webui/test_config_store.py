@@ -64,6 +64,21 @@ class TestMachineSettings:
         assert values["paste_dispenser.boundary_margin"] is None
         assert values["paste_dispenser.auto_area_short_side_factor"] is None
         assert values["probe.lift_height"] is None
+        assert values["xy_calibration.calibration_file"] is None
+
+    def test_xy_calibration_file_can_be_activated_by_apply(self, store: ConfigStore):
+        store.write_machine_settings(
+            {"xy_calibration.calibration_file": "xy_calibration_20260803.json"}
+        )
+
+        values = store.read_machine_settings()
+        assert (
+            values["xy_calibration.calibration_file"] == "xy_calibration_20260803.json"
+        )
+
+    def test_xy_calibration_file_rejects_non_string(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings({"xy_calibration.calibration_file": 1.0})
 
     def test_write_then_reread_reflects_value(self, store: ConfigStore):
         store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})

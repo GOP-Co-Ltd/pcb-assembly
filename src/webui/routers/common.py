@@ -12,7 +12,7 @@ import httpx
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from pcbasm.hal import Klipper
+from pcbasm.hal import Klipper, XYZStage
 from webui.config_store import (
     MACHINE_FIELDS,
     ConfigStore,
@@ -37,16 +37,28 @@ def create_klipper(state: AppState, timeout: float) -> Klipper:
     return Klipper(host=klipper_config.host, port=klipper_config.port, timeout=timeout)
 
 
-def fetch_status(klipper: Klipper) -> KlipperStatus:
-    """Klipper から位置と homed_axes を取得する。失敗時は connected=False."""
+def fetch_status(klipper: Klipper, stage: XYZStage | None = None) -> KlipperStatus:
+    """Klipper から位置と homed_axes を取得する。失敗時は connected=False。
+
+    stage指定時はXYキャリブレーションの逆変換後のlogical座標を返す。
+    """
     try:
-        position = klipper.get_status("gcode_move", "gcode_position")
+        if stage is None:
+            raw_position = klipper.get_status("gcode_move", "gcode_position")
+            position = Position(x=raw_position[0], y=raw_position[1], z=raw_position[2])
+        else:
+            logical_position = stage.get_position()
+            position = Position(
+                x=logical_position.x,
+                y=logical_position.y,
+                z=logical_position.z,
+            )
         homed_axes = klipper.get_status("toolhead", "homed_axes")
-    except (httpx.HTTPError, RuntimeError, KeyError) as exc:
+    except (httpx.HTTPError, RuntimeError, KeyError, ValueError) as exc:
         return KlipperStatus(connected=False, error=str(exc) or type(exc).__name__)
     return KlipperStatus(
         connected=True,
-        position=Position(x=position[0], y=position[1], z=position[2]),
+        position=position,
         homed_axes=homed_axes,
     )
 
@@ -148,6 +160,7 @@ SECTION_LABELS: dict[str, str] = {
     "nozzle_cap": "ノズルキャップ",
     "camera": "カメラ",
     "camera.crop": "カメラ / クロップ",
+    "xy_calibration": "XYキャリブレーション",
     "audio": "通知音",
 }
 

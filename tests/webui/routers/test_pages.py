@@ -346,7 +346,12 @@ class TestPreviewPages:
         assert "sharpen-amount" not in text
 
 
-POSCTRL_JOB_FEATURES = ("camera_calibration", "board_tour", "orthogonality_test")
+POSCTRL_JOB_FEATURES = (
+    "xy_calibration",
+    "camera_calibration",
+    "board_tour",
+    "orthogonality_test",
+)
 
 
 class TestPosctrlJobPages:
@@ -396,6 +401,23 @@ class TestPosctrlJobPages:
         # crop は job param から削除済み（machine.toml 連動の即保存フォームへ移設）
         assert "crop_width" not in text
         assert "crop_height" not in text
+
+    def test_xy_calibration_renders_board_grid_form_and_record_control(
+        self, client: TestClient
+    ):
+        text = client.get("/posctrl/xy_calibration").text
+
+        for name, value in (
+            ("hole_diameter", "3.0"),
+            ("spacing", "10.0"),
+            ("rows", "5"),
+            ("columns", "5"),
+        ):
+            assert f'name="{name}"' in text
+            assert f'value="{value}"' in text
+        assert "record" in text.lower()
+        assert "xy_calibration.js" in text
+        assert 'data-overlay="crosshair"' in text
 
     def test_camera_calibration_has_no_crop_input(self, client: TestClient):
         """クロップ編集 UI は settings ページへ統一済み。このページには置かない.

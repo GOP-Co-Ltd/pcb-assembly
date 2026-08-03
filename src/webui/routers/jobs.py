@@ -66,7 +66,7 @@ def job_summary(record: JobRecord, definition: JobDefinition) -> JobSummary:
             else None
         ),
         result=result_info,
-        accepts_commands=definition.accepts_commands,
+        accepts_commands=record.accepts_commands,
         notify_on_completion=definition.notify_on_completion,
         apply_available=record.apply_available,
     )
@@ -168,10 +168,10 @@ def post_apply(
     except LookupError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     with state.machine_lock("apply-settings"):
-        store.write_machine_settings(dict(payload.values))
-        config_dir = store.machine_toml_path().parent
         for file in payload.files:
-            (config_dir / file.filename).write_bytes(file.content)
+            store.write_file_atomic(file.filename, file.content)
+        # machine.tomlは成果物が保存済みになってから最後に切り替える。
+        store.write_machine_settings(dict(payload.values))
     jobs.mark_applied()
     jobs.publish_state_changed()
     return {"applied": dict(payload.values)}

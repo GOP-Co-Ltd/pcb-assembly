@@ -12,7 +12,7 @@ from .framehub import FrameHub, FrameSource
 from .klipper import GCodeMacro, Klipper, ReadonlyKlipper
 from .manual_stepper import HomingDirection, ManualStepper
 from .paste_dispenser import PasteDispenser
-from .stage import Limits, ScalarLimits, Speed, XYZStage
+from .stage import Limits, ScalarLimits, Speed, XYZStage, create_xyz_stage
 
 __all__ = [
     # air_pump
@@ -45,6 +45,7 @@ __all__ = [
     "Limits",
     "Speed",
     "XYZStage",
+    "create_xyz_stage",
     # dispenser
     "PasteDispenser",
 ]

@@ -31,6 +31,7 @@ from webui.jobs.catalog import JobCatalog, ParamSpec
 from webui.jobs.context import JobContext, JobResult
 from webui.jobs.manager import JobManager, JobStatus
 from webui.preview import PreviewService
+from webui.routers.jobs import job_summary
 from webui.settings import Settings
 from webui.state import AppState
 
@@ -358,3 +359,39 @@ class TestCheckpointAndNextCommand:
 
         assert record.status == JobStatus.SUCCEEDED
         assert captured == [None]
+
+
+class TestDynamicCommandAcceptance:
+    """A job can close its manual-command phase before automatic motion
+    starts."""
+
+    def test_disabling_commands_updates_summary_and_rejects_submission(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        disable = threading.Event()
+        disabled = threading.Event()
+        finish = threading.Event()
+
+        def run(ctx: JobContext) -> None:
+            disable.wait(timeout=5.0)
+            ctx.set_accepts_commands(False)
+            disabled.set()
+            finish.wait(timeout=5.0)
+
+        _register(catalog, run, accepts_commands=True)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status == JobStatus.RUNNING)
+        assert job_summary(record, catalog.get("synthetic")).accepts_commands is True
+
+        try:
+            disable.set()
+            wait_until(disabled.is_set)
+
+            summary = job_summary(record, catalog.get("synthetic"))
+            assert summary.accepts_commands is False
+            with pytest.raises(ValueError, match="コマンド"):
+                manager.submit_command({"type": "jog", "axis": "x", "dist": 0.1})
+        finally:
+            finish.set()
+        wait_until(lambda: record.status.terminal)
+        assert record.status == JobStatus.SUCCEEDED

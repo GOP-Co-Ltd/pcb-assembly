@@ -460,6 +460,13 @@ class NozzleCap:
     z: float
 
 
+@attrs.frozen
+class XYCalibration:
+    """XYステージキャリブレーションの設定."""
+
+    calibration_file: Path
+
+
 def _structure_dispense_mode(value: object, _: object) -> DispenseMode:
     if isinstance(value, str) and value in DISPENSE_MODES:
         return value
@@ -527,6 +534,17 @@ class Machine:
         if "nozzle_cap" not in self._data:
             return None
         return self._get_config("nozzle_cap", NozzleCap)
+
+    @property
+    def xy_calibration(self) -> XYCalibration | None:
+        """XY補正設定を取得する（未設定ならNone）."""
+        if "xy_calibration" not in self._data:
+            return None
+        calibration_data = self._data["xy_calibration"].copy()
+        calibration_data["calibration_file"] = (
+            self._config_dir / calibration_data["calibration_file"]
+        )
+        return self._converter.structure(calibration_data, XYCalibration)
 
     @property
     def audio(self) -> Audio:

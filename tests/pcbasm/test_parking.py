@@ -52,6 +52,18 @@ y = 20.0
 z = 3.5
 """
 
+_PASTE_WITH_INVALID_CALIBRATION = """\
+machine_type = "paste"
+
+[xy_calibration]
+calibration_file = "invalid.json"
+
+[nozzle_cap]
+x = 10.0
+y = 20.0
+z = 3.5
+"""
+
 _PASTE_WITHOUT_CAP = 'machine_type = "paste"\n'
 
 _PNP = 'machine_type = "pnp"\n'
@@ -220,3 +232,16 @@ class TestParkOrPresent:
         klipper.send_present_or_relax.assert_called_once()
         klipper.send_gcode.assert_not_called()
         assert any("printer.cfg" in message for message in warnings)
+
+    def test_invalid_xy_calibration_stops_without_raw_fallback(
+        self, mocker: MockerFixture, tmp_path: Path
+    ):
+        klipper = mocker.Mock()
+        machine = _machine(tmp_path, _PASTE_WITH_INVALID_CALIBRATION)
+        (tmp_path / "invalid.json").write_text("not json", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="XYキャリブレーションJSON"):
+            park_or_present(klipper, machine)
+
+        klipper.send_present_or_relax.assert_not_called()
+        klipper.send_gcode.assert_not_called()

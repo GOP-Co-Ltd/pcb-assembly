@@ -9,20 +9,24 @@ from typing import Any
 
 import attrs
 import cv2
+import numpy as np
 
 from pcbasm import gcode
 from pcbasm.config import Machine
 from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
-from pcbasm.hal import Camera, Klipper, Speed, XYZStage
+from pcbasm.hal import Camera, Klipper, Speed, XYZStage, create_xyz_stage
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
     AlignmentRegion,
     BoardAlignment,
     BoardCalibrationResult,
     CopperProjector,
+    OffsetObserver,
+    OffsetTransformMeasurer,
     OrthogonalityMetrics,
     PadResultRenderer,
     RegionAlignmentSession,
+    XYPositionAdjustor,
     render_label,
 )
 from pcbasm.vision import (
@@ -32,6 +36,13 @@ from pcbasm.vision import (
     Image,
     draw_detected_circle,
     draw_overlay,
+    safe_move_distance,
+)
+from pcbasm.xy_calibration import (
+    XYCalibrationGrid,
+    XYCalibrationResult,
+    XYCalibrationTransform,
+    migrate_machine_xy_settings,
 )
 from webui.jobs.board_ops import align_regions, confirm_next_point, setup_board
 from webui.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
@@ -54,9 +65,17 @@ POSITION_CACHE_SEC = 0.5
 
 _TEXT_COLOR = (0, 255, 255)  # 現在位置テキストの色 (BGR: 黄)
 
+XY_SAMPLE_COUNT = 30
+XY_MINIMUM_SAMPLE_COUNT = 20
+XY_MAX_STANDARD_DEVIATION_MM = 0.03
+XY_CENTER_TOLERANCE_MM = 0.02
+XY_CENTER_MAX_ITERATIONS = 10
+XY_RMS_LIMIT_MM = 0.03
+XY_MAX_ERROR_LIMIT_MM = 0.05
+
 
 def register_posctrl_jobs(catalog: JobCatalog) -> None:
-    """Posctrl タブの 5 ジョブを登録する."""
+    """Posctrl タブのジョブを登録する."""
     catalog.register(
         JobDefinition(
             name="reference_point_setup",
@@ -80,6 +99,37 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
             ),
             persisted_params=("square_size",),
             uses_machine=True,
+        )
+    )
+    catalog.register(
+        JobDefinition(
+            name="xy_calibration",
+            label="XYキャリブレーション",
+            tab="posctrl",
+            run=_run_xy_calibration,
+            params=(
+                ParamSpec(
+                    "hole_diameter",
+                    "ホールサイズ",
+                    "float",
+                    3.0,
+                    unit="mm",
+                    minimum=0.001,
+                ),
+                ParamSpec(
+                    "spacing",
+                    "グリッド間隔",
+                    "float",
+                    10.0,
+                    unit="mm",
+                    minimum=0.001,
+                ),
+                ParamSpec("rows", "縦のホール数", "int", 5, minimum=2),
+                ParamSpec("columns", "横のホール数", "int", 5, minimum=2),
+            ),
+            persisted_params=("hole_diameter", "spacing", "rows", "columns"),
+            uses_machine=True,
+            accepts_commands=True,
         )
     )
     catalog.register(
@@ -126,6 +176,230 @@ def register_posctrl_jobs(catalog: JobCatalog) -> None:
     )
 
 
+def _run_xy_calibration(ctx: JobContext) -> JobResult:
+    """穴グリッドを計測してXYステージ補正を生成する."""
+    grid = XYCalibrationGrid(
+        hole_diameter_mm=float(ctx.params["hole_diameter"]),
+        spacing_mm=float(ctx.params["spacing"]),
+        rows=int(ctx.params["rows"]),
+        columns=int(ctx.params["columns"]),
+    )
+    machine = ctx.machine
+    calibration = CalibrationResult.load(machine.camera.calibration_file)
+    if calibration.z_position is None:
+        raise RuntimeError("カメラキャリブレーションにfocus Zがありません")
+    old_transform = _load_machine_xy_transform(machine)
+
+    detector = CircleDetector(
+        pixel_per_mm=calibration.pixel_per_mm,
+        target_diameter_mm=grid.hole_diameter_mm,
+        crop_size=machine.camera.crop.size,
+        diameter_tolerance_mm=min(0.5, grid.hole_diameter_mm * 0.25),
+    )
+    klipper = create_command_klipper(machine)
+    raw_stage = create_xyz_stage(machine, klipper.readonly, calibrated=False)
+
+    ctx.progress("ホーミング")
+    klipper.send_gcode(gcode.homing(x=True, y=True, z=True) + gcode.wait_for_done())
+    klipper.send_gcode(raw_stage.move(z=calibration.z_position) + gcode.wait_for_done())
+
+    with ctx.open_camera() as camera:
+        position = _CachedPosition(raw_stage)
+        ctx.progress("左上位置合わせ")
+        ctx.log("左上ホールを十字へ合わせ、Recordを押してください")
+        while True:
+            ctx.frame(_reference_point_frame(camera, detector, machine, position))
+            command = ctx.next_command(timeout=0)
+            if command is not None and _dispatch_reference_command(
+                ctx, klipper, raw_stage, calibration, position, command
+            ):
+                break
+            ctx.checkpoint()
+        ctx.set_accepts_commands(False)
+        ctx.log("手動操作を終了し、自動計測を開始します")
+
+        observer = OffsetObserver(
+            detector,
+            camera,
+            machine.camera.crop.size,
+            frame_sink=ctx.frame,
+            sample_count=XY_SAMPLE_COUNT,
+            minimum_sample_count=XY_MINIMUM_SAMPLE_COUNT,
+            max_standard_deviation_mm=XY_MAX_STANDARD_DEVIATION_MM,
+        )
+        offset_transform = OffsetTransformMeasurer(
+            observe=observer.observe,
+            klipper=klipper,
+            stage=raw_stage,
+            move_distance=min(
+                safe_move_distance(machine.camera.crop.size, margin=0.3)
+                / calibration.pixel_per_mm,
+                grid.spacing_mm * 0.3,
+            ),
+        ).measure()
+        adjustor = XYPositionAdjustor(
+            observe=observer.observe,
+            klipper=klipper,
+            stage=raw_stage,
+            offset_transform=offset_transform,
+            tolerance=XY_CENTER_TOLERANCE_MM,
+            max_iterations=XY_CENTER_MAX_ITERATIONS,
+        )
+
+        ctx.progress("四隅計測", 0.0)
+        corners = _measure_xy_corners(ctx, grid, klipper, raw_stage, adjustor)
+        navigation = _fit_navigation_affine(grid, corners)
+
+        measured: list[Point2d] = []
+        local_points = grid.points()
+        for index, local in enumerate(local_points):
+            ctx.progress("全点計測", 100.0 * index / len(local_points))
+            prediction = _apply_affine(navigation, local)
+            measured.append(
+                _measure_xy_point(grid, klipper, raw_stage, adjustor, prediction)
+            )
+            ctx.log(
+                f"計測 {index + 1}/{len(local_points)}: "
+                f"X={measured[-1].x:.4f}, Y={measured[-1].y:.4f}"
+            )
+
+        initial_result = XYCalibrationResult.fit(grid, measured)
+        calibrated_stage = XYZStage(klipper.readonly, initial_result.transform)
+        errors: list[Point2d] = []
+        for reverse_index, logical in enumerate(
+            reversed(initial_result.logical_points)
+        ):
+            ctx.progress(
+                "検証", 100.0 * reverse_index / len(initial_result.logical_points)
+            )
+            klipper.send_gcode(
+                calibrated_stage.move(
+                    x=logical.x, y=logical.y, speed=Speed.absolute(30)
+                )
+                + gcode.wait(0.5)
+                + gcode.wait_for_done()
+            )
+            observed = observer.observe().apply(Point2d(0.0, 0.0))
+            error = offset_transform.apply(observed)
+            errors.append(error)
+            ctx.log(
+                f"検証 {reverse_index + 1}/{len(initial_result.logical_points)}: "
+                f"誤差={error.norm:.4f} mm"
+            )
+        errors.reverse()
+
+    result = XYCalibrationResult.fit(grid, measured, errors)
+    if result.rms_error > XY_RMS_LIMIT_MM or result.max_error > XY_MAX_ERROR_LIMIT_MM:
+        raise RuntimeError(
+            "XYキャリブレーション精度が基準を満たしません: "
+            f"RMS={result.rms_error:.4f} mm / 最大={result.max_error:.4f} mm"
+        )
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"xy_calibration_{timestamp}.json"
+    artifact_path = ctx.artifacts_dir / filename
+    result.save(artifact_path)
+
+    migrated = migrate_machine_xy_settings(machine, old_transform, result.transform)
+    apply_values: dict[str, float | str] = {
+        **migrated,
+        "xy_calibration.calibration_file": filename,
+    }
+    ctx.progress("完了", 100.0)
+    return JobResult(
+        summary=(
+            f"{grid.columns}x{grid.rows}点 / RMS={result.rms_error:.4f} mm / "
+            f"最大誤差={result.max_error:.4f} mm。適用後に基準点・キャップ・"
+            "ツールヘッド位置を再確認してください"
+        ),
+        artifacts=(ctx.artifact("XYキャリブレーション JSON", filename, "file"),),
+        apply=ApplyPayload(
+            label=f"{filename} を保存してXY補正を有効化",
+            values=apply_values,
+            files=(ApplyFile(filename, artifact_path.read_bytes()),),
+        ),
+    )
+
+
+def _measure_xy_corners(
+    ctx: JobContext,
+    grid: XYCalibrationGrid,
+    klipper: Klipper,
+    stage: XYZStage,
+    adjustor: XYPositionAdjustor,
+) -> tuple[Point2d, Point2d, Point2d, Point2d]:
+    width = (grid.columns - 1) * grid.spacing_mm
+    height = (grid.rows - 1) * grid.spacing_mm
+    top_left = adjustor.adjust()
+    top_right_guess = top_left + Point2d(width, 0.0)
+    top_right = _measure_xy_point(grid, klipper, stage, adjustor, top_right_guess)
+    x_direction = (top_right - top_left) / width
+    y_direction = Point2d(-x_direction.y, x_direction.x)
+    bottom_right = _measure_xy_point(
+        grid,
+        klipper,
+        stage,
+        adjustor,
+        top_right + y_direction * height,
+    )
+    bottom_left = _measure_xy_point(
+        grid,
+        klipper,
+        stage,
+        adjustor,
+        top_left + y_direction * height,
+    )
+    ctx.progress("四隅計測", 100.0)
+    return top_left, top_right, bottom_right, bottom_left
+
+
+def _measure_xy_point(
+    grid: XYCalibrationGrid,
+    klipper: Klipper,
+    stage: XYZStage,
+    adjustor: XYPositionAdjustor,
+    prediction: Point2d,
+) -> Point2d:
+    klipper.send_gcode(
+        stage.move(x=prediction.x, y=prediction.y, speed=Speed.absolute(30))
+        + gcode.wait(0.5)
+        + gcode.wait_for_done()
+    )
+    measured = adjustor.adjust()
+    distance = (measured - prediction).norm
+    if distance >= grid.spacing_mm * 0.45:
+        raise RuntimeError(
+            f"予測位置から離れたホールを検出しました: 距離={distance:.3f} mm"
+        )
+    return measured
+
+
+def _fit_navigation_affine(
+    grid: XYCalibrationGrid,
+    corners: tuple[Point2d, Point2d, Point2d, Point2d],
+) -> np.ndarray:
+    width = (grid.columns - 1) * grid.spacing_mm
+    height = (grid.rows - 1) * grid.spacing_mm
+    local = np.array(((0.0, 0.0), (width, 0.0), (width, height), (0.0, height)))
+    raw = np.array([(point.x, point.y) for point in corners])
+    design = np.column_stack((local, np.ones(4)))
+    coefficients, _, rank, _ = np.linalg.lstsq(design, raw, rcond=None)
+    if rank < 3:
+        raise RuntimeError("四隅からnavigation affineを推定できません")
+    return coefficients.T
+
+
+def _apply_affine(affine: np.ndarray, point: Point2d) -> Point2d:
+    result = affine @ np.array((point.x, point.y, 1.0))
+    return Point2d(float(result[0]), float(result[1]))
+
+
+def _load_machine_xy_transform(machine: Machine) -> XYCalibrationTransform:
+    if machine.xy_calibration is None:
+        return XYCalibrationTransform.identity()
+    return XYCalibrationResult.load(machine.xy_calibration.calibration_file).transform
+
+
 class _CachedPosition:
     """stage.get_position() の短期キャッシュ（毎フレームの往復を回避）."""
 
@@ -153,7 +427,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     """
     machine = ctx.machine
     klipper = create_command_klipper(machine)
-    stage = XYZStage(klipper.readonly)
+    stage = create_xyz_stage(machine, klipper.readonly)
     cam_config = machine.camera
     try:
         calibration = CalibrationResult.load(cam_config.calibration_file)
@@ -300,7 +574,7 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
             port=ctx.machine.klipper.port,
             timeout=Z_QUERY_TIMEOUT,
         )
-        z = XYZStage(klipper.readonly).get_position().z
+        z = create_xyz_stage(ctx.machine, klipper.readonly).get_position().z
     except Exception as exc:
         ctx.log(f"Z 位置の取得に失敗しました（z_position なしで続行）: {exc}")
     result = attrs.evolve(result, z_position=z)

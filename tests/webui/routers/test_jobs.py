@@ -37,7 +37,14 @@ from pcbasm.vision import CalibrationResult
 from tests.webui.jobs.conftest import register_gated, register_synthetic
 from webui.config_store import ConfigStore
 from webui.jobs.catalog import ParamSpec
-from webui.jobs.context import Artifact, JobContext, JobResult, PromptSpec
+from webui.jobs.context import (
+    ApplyFile,
+    ApplyPayload,
+    Artifact,
+    JobContext,
+    JobResult,
+    PromptSpec,
+)
 from webui.jobs.manager import JobManager
 from webui.state import AppState
 
@@ -629,6 +636,44 @@ class TestApplyDiscard:
 
         # ロック解放後は反映できる
         assert client.post("/api/jobs/last/apply").status_code == 200
+
+    def test_file_failure_does_not_activate_machine_settings(
+        self,
+        client: TestClient,
+        app: FastAPI,
+        store: ConfigStore,
+        config_dir: Path,
+    ):
+        """Calibration artifact must be durable before machine.toml references
+        it."""
+
+        def run(ctx: JobContext) -> JobResult:
+            return JobResult(
+                apply=ApplyPayload(
+                    label="XY calibration",
+                    values={"paste_dispenser.pad_align.canny_low": 123.0},
+                    files=(ApplyFile(filename="blocked", content=b"calibration"),),
+                )
+            )
+
+        register_synthetic(
+            app.state.catalog,
+            run,
+            name="file_first_apply",
+            hidden=True,
+        )
+        assert client.post("/api/jobs/file_first_apply", json={}).status_code == 201
+        _wait_job_status(client, "succeeded")
+        (config_dir / "blocked").mkdir()
+        before = store.read_machine_settings()["paste_dispenser.pad_align.canny_low"]
+
+        with pytest.raises(OSError):
+            client.post("/api/jobs/last/apply")
+
+        assert (
+            store.read_machine_settings()["paste_dispenser.pad_align.canny_low"]
+            == before
+        )
 
 
 class TestWebSocket:

@@ -97,6 +97,26 @@ class TestHttpRoutes:
         assert response.status_code == 200
         assert "Record を押すと現在位置を記録し、設定へ即時反映します" in response.text
 
+    def test_xy_calibration_page_exposes_only_the_four_board_inputs(
+        self, live_server: LiveServer
+    ):
+        response = httpx.get(
+            f"{live_server.base_url}/posctrl/xy_calibration",
+            timeout=_HTTP_TIMEOUT,
+        )
+
+        assert response.status_code == 200
+        for name, value in (
+            ("hole_diameter", "3.0"),
+            ("spacing", "10.0"),
+            ("rows", "5"),
+            ("columns", "5"),
+        ):
+            assert f'name="{name}"' in response.text
+            assert f'value="{value}"' in response.text
+        assert "preview-pane" in response.text
+        assert "record" in response.text.lower()
+
 
 class TestArtifactsOverRealHttp:
     """/artifacts mount の実 HTTP 配信（ジョブ実生成は jobs/test_pasting.py が担保）."""

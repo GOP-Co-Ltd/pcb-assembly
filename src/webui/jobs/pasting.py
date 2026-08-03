@@ -27,6 +27,7 @@ from pcbasm.hal import (
     Klipper,
     PasteDispenser,
     XYZStage,
+    create_xyz_stage,
 )
 from pcbasm.pasting import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
@@ -1025,7 +1026,7 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
 def _run_loading(ctx: JobContext) -> JobResult:
     """全軸 homing と任意位置への移動後、command 駆動ローディングを実行する."""
     klipper = create_command_klipper(ctx.machine)
-    stage = XYZStage(klipper.readonly)
+    stage = create_xyz_stage(ctx.machine, klipper.readonly)
 
     target = {
         axis: float(value)

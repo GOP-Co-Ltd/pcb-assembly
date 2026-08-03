@@ -6,7 +6,9 @@ from typing import Self
 import attrs
 
 from pcbasm import gcode
+from pcbasm.config import Machine
 from pcbasm.geometry import Path, Point3d
+from pcbasm.xy_calibration import XYCalibrationResult, XYCalibrationTransform
 
 from .klipper import ReadonlyKlipper
 
@@ -126,13 +128,18 @@ class XYZStage:
         limits = stage.limits
     """
 
-    def __init__(self, klipper: ReadonlyKlipper) -> None:
+    def __init__(
+        self,
+        klipper: ReadonlyKlipper,
+        xy_transform: XYCalibrationTransform | None = None,
+    ) -> None:
         """XYZStageを初期化する.
 
         Args:
             klipper: Klipperクライアント
         """
         self._klipper = klipper
+        self._xy_transform = xy_transform or XYCalibrationTransform.identity()
 
     def get_position(self) -> Point3d:
         """現在位置を取得する.
@@ -141,7 +148,8 @@ class XYZStage:
             現在の座標
         """
         pos = self._klipper.get_status("gcode_move", "gcode_position")
-        return Point3d(x=pos[0], y=pos[1], z=pos[2])
+        logical = self._xy_transform.inverse(Point3d(pos[0], pos[1], 0.0).to2d())
+        return Point3d(x=logical.x, y=logical.y, z=pos[2])
 
     @cached_property
     def limits(self) -> Limits:
@@ -230,9 +238,21 @@ class XYZStage:
             ny = current.y + y if y is not None else None
             nz = current.z + z if z is not None else None
 
+        raw_x: float | None = float(nx) if nx is not None else None
+        raw_y: float | None = float(ny) if ny is not None else None
+        if not self._xy_transform.is_identity and (nx is not None or ny is not None):
+            if nx is None or ny is None:
+                current = self.get_position()
+                nx = current.x if nx is None else nx
+                ny = current.y if ny is None else ny
+            transformed = self._xy_transform.apply(
+                Point3d(float(nx), float(ny), 0.0).to2d()
+            )
+            raw_x, raw_y = transformed.x, transformed.y
+
         targets: dict[str, float | None] = {
-            "x": float(nx) if nx is not None else None,
-            "y": float(ny) if ny is not None else None,
+            "x": raw_x,
+            "y": raw_y,
             "z": float(nz) if nz is not None else None,
         }
         axis_limits = {"x": self.limits.x, "y": self.limits.y, "z": self.limits.z}
@@ -255,14 +275,33 @@ class XYZStage:
             ValueError: 制限外の点がある場合
         """
         feed = float(speed.resolve(self.max_velocity))
-        invalid = [p for p in path if not self.limits.contains(p, feed)]
+        raw_path = self._xy_transform.transform_path(path)
+        invalid = [p for p in raw_path if not self.limits.contains(p, feed)]
         if invalid:
             raise ValueError(f"制限外の経由点があります: {invalid}")
         commands = gcode.GCode()
-        for point in path:
+        for point in raw_path:
             commands.append(
                 gcode.move(
                     x=float(point.x), y=float(point.y), z=float(point.z), velocity=feed
                 )
             )
         return commands
+
+
+def create_xyz_stage(
+    machine: Machine,
+    klipper: ReadonlyKlipper,
+    *,
+    calibrated: bool = True,
+) -> XYZStage:
+    """Machine設定に応じたXY補正付きStageを構築する.
+
+    設定が無い場合は従来どおりidentityになる。設定があるのにファイルが 読めない場合は例外を伝播し、未補正のまま装置を動かさない。
+    """
+    transform = XYCalibrationTransform.identity()
+    if calibrated and machine.xy_calibration is not None:
+        transform = XYCalibrationResult.load(
+            machine.xy_calibration.calibration_file
+        ).transform
+    return XYZStage(klipper, transform)

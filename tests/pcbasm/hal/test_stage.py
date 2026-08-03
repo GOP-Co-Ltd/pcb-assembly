@@ -1,11 +1,28 @@
+from pathlib import Path as FilePath
+
 import pytest
 from pytest_mock import MockerFixture
 
+from pcbasm.config import Machine
 from pcbasm.geometry import Path, Point3d
-from pcbasm.hal import Speed
+from pcbasm.geometry.transform import Point2d
+from pcbasm.hal import Speed, create_xyz_stage
 from pcbasm.hal.klipper import Klipper
 from pcbasm.hal.stage import Limits, ScalarLimits, XYZStage
+from pcbasm.xy_calibration import XYCalibrationGrid, XYCalibrationResult
 from tests.helpers import mark_hardware
+
+
+def _xy_transform():
+    grid = XYCalibrationGrid(3.0, 10.0, 3, 3)
+    raw_points = tuple(
+        Point2d(
+            2.0 + 1.01 * point.x + 0.02 * point.y,
+            3.0 - 0.01 * point.x + 0.99 * point.y,
+        )
+        for point in grid.points()
+    )
+    return XYCalibrationResult.fit(grid, raw_points).transform
 
 
 class TestXYZStage:
@@ -206,6 +223,144 @@ class TestXYZStage:
         # x=150 は x∈[0,100] の範囲外。
         with pytest.raises(ValueError, match="制限外"):
             mock_stage.move(x=150, y=50, z=25, speed=Speed.absolute(100))
+
+
+class TestCalibratedXYZStage:
+    @pytest.fixture
+    def stage_and_klipper(self, mocker: MockerFixture) -> tuple[XYZStage, Klipper]:
+        transform = _xy_transform()
+        raw = transform.apply(Point2d(10.0, 10.0))
+        klipper = Klipper()
+        mocker.patch.object(
+            klipper.readonly,
+            "get_config",
+            return_value={
+                "stepper_x": {"position_min": "-100", "position_max": "150"},
+                "stepper_y": {"position_min": "-100", "position_max": "200"},
+                "stepper_z": {"position_min": "0", "position_max": "50"},
+                "printer": {"max_velocity": "300"},
+            },
+        )
+        mocker.patch.object(
+            klipper.readonly,
+            "get_status",
+            return_value=[raw.x, raw.y, 10.0, 0.0],
+        )
+        return XYZStage(klipper.readonly, transform), klipper
+
+    def test_get_position_returns_logical_coordinates(
+        self, stage_and_klipper: tuple[XYZStage, Klipper]
+    ):
+        stage, _ = stage_and_klipper
+
+        position = stage.get_position()
+
+        assert position.x == pytest.approx(10.0)
+        assert position.y == pytest.approx(10.0)
+        assert position.z == 10.0
+
+    def test_absolute_xy_is_transformed_to_raw_gcode(
+        self, stage_and_klipper: tuple[XYZStage, Klipper]
+    ):
+        stage, _ = stage_and_klipper
+        transform = _xy_transform()
+        expected = transform.apply(Point2d(20.0, 20.0))
+
+        result = stage.move(x=20.0, y=20.0, speed=Speed.absolute(100))
+
+        assert result.to_list() == [f"G1 X{expected.x} Y{expected.y} F6000.0"]
+
+    def test_single_xy_axis_fills_the_other_logical_axis_and_emits_both_raw_axes(
+        self, stage_and_klipper: tuple[XYZStage, Klipper]
+    ):
+        stage, _ = stage_and_klipper
+        transform = _xy_transform()
+        expected = transform.apply(Point2d(15.0, 10.0))
+
+        result = stage.move(x=15.0, speed=Speed.absolute(100))
+
+        assert result.to_list() == [f"G1 X{expected.x} Y{expected.y} F6000.0"]
+
+    def test_relative_xy_is_resolved_in_logical_coordinates_before_transform(
+        self, stage_and_klipper: tuple[XYZStage, Klipper]
+    ):
+        stage, _ = stage_and_klipper
+        transform = _xy_transform()
+        expected = transform.apply(Point2d(15.0, 7.0))
+
+        result = stage.move(
+            x=5.0,
+            y=-3.0,
+            speed=Speed.absolute(100),
+            relative=True,
+        )
+
+        fields = {item[0]: float(item[1:]) for item in result.to_list()[0].split()[1:]}
+        assert fields["X"] == pytest.approx(expected.x)
+        assert fields["Y"] == pytest.approx(expected.y)
+        assert fields["F"] == 6000.0
+
+    def test_z_only_move_does_not_emit_or_transform_xy(
+        self, stage_and_klipper: tuple[XYZStage, Klipper]
+    ):
+        stage, _ = stage_and_klipper
+
+        result = stage.move(z=25.0, speed=Speed.absolute(100))
+
+        assert result.to_list() == ["G1 Z25.0 F6000.0"]
+
+    def test_path_is_split_at_mesh_boundaries_before_gcode_generation(
+        self, stage_and_klipper: tuple[XYZStage, Klipper]
+    ):
+        stage, _ = stage_and_klipper
+        path = Path([Point3d(0.0, 10.0, 5.0), Point3d(20.0, 10.0, 5.0)])
+
+        result = stage.to_gcode(path, speed=Speed.absolute(100))
+
+        assert len(result.to_list()) > len(path)
+        assert result.to_list()[0].endswith("Z5.0 F6000.0")
+        assert result.to_list()[-1].endswith("Z5.0 F6000.0")
+
+    def test_limits_are_checked_after_transforming_to_raw_coordinates(
+        self, stage_and_klipper: tuple[XYZStage, Klipper]
+    ):
+        stage, _ = stage_and_klipper
+
+        with pytest.raises(ValueError, match="制限外"):
+            stage.move(x=160.0, y=10.0, speed=Speed.absolute(100))
+
+
+class TestCreateXYZStage:
+    def test_configured_missing_calibration_file_fails_closed(self, tmp_path: FilePath):
+        machine_path = tmp_path / "machine.toml"
+        machine_path.write_text(
+            """
+machine_type = "paste"
+[xy_calibration]
+calibration_file = "missing.json"
+""".strip()
+        )
+        machine = Machine(machine_path)
+        klipper = Klipper()
+
+        with pytest.raises(FileNotFoundError):
+            create_xyz_stage(machine, klipper.readonly)
+
+    def test_calibration_job_can_explicitly_request_raw_stage(self, tmp_path: FilePath):
+        machine_path = tmp_path / "machine.toml"
+        machine_path.write_text(
+            """
+machine_type = "paste"
+[xy_calibration]
+calibration_file = "missing.json"
+""".strip()
+        )
+        machine = Machine(machine_path)
+        klipper = Klipper()
+
+        stage = create_xyz_stage(machine, klipper.readonly, calibrated=False)
+
+        assert isinstance(stage, XYZStage)
 
 
 class TestScalarLimits:

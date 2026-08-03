@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from pcbasm.hal import XYZStage
+from pcbasm.hal import create_xyz_stage
 from webui.dependencies import JobsDep, StateDep, StoreDep
 from webui.routers.common import create_klipper, klipper_errors_to_502
 
@@ -39,7 +39,9 @@ def record_nozzle_cap(
                 raise HTTPException(
                     status_code=400, detail="全軸ホーミング後に記録してください"
                 )
-            position = XYZStage(klipper.readonly).get_position()
+            position = create_xyz_stage(
+                state.machine(), klipper.readonly
+            ).get_position()
         saved = NozzleCapPosition(
             x=round(position.x, 3), y=round(position.y, 3), z=round(position.z, 3)
         )
