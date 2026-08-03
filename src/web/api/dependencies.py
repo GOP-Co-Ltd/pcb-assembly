@@ -8,6 +8,7 @@ from fastapi import Depends, Request
 
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
+from web.api.discovery import ServiceAdvertiser
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.manager import JobManager
 from web.api.preview import PreviewService
@@ -43,6 +44,11 @@ def get_board_store(request: Request) -> BoardSettingsStore:
     return request.app.state.board_store
 
 
+def get_advertiser(request: Request) -> ServiceAdvertiser | None:
+    """広告オブジェクト（`discovery_enabled` が False のアプリでは None）."""
+    return request.app.state.advertiser
+
+
 StateDep = Annotated[AppState, Depends(get_state)]
 StoreDep = Annotated[ConfigStore, Depends(get_store)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -50,3 +56,4 @@ PreviewDep = Annotated[PreviewService, Depends(get_preview)]
 JobsDep = Annotated[JobManager, Depends(get_jobs)]
 CatalogDep = Annotated[JobCatalog, Depends(get_catalog)]
 BoardStoreDep = Annotated[BoardSettingsStore, Depends(get_board_store)]
+AdvertiserDep = Annotated[ServiceAdvertiser | None, Depends(get_advertiser)]

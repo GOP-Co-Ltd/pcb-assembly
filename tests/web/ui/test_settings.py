@@ -17,6 +17,9 @@ import pytest
 from pcbasm.utils import PROJECT_ROOT
 from web.ui.settings import Settings
 
+# PCBASM_UI_DISCOVERY_ENABLED はここに足さない。tests/conftest.py の autouse fixture
+# が全テストで "0" を入れており、delenv すると実 LAN への mDNS 探索が復活する
+# （env を外して既定値を確かめるのは TestDiscoveryKillSwitch の 1 テストだけ）
 ENV_VARS = (
     "PCBASM_UI_HOST",
     "PCBASM_UI_PORT",
@@ -141,3 +144,29 @@ class TestSettingsFromEnv:
 
         with pytest.raises(ValueError):
             Settings.from_env()
+
+
+class TestDiscoveryKillSwitch:
+    """`PCBASM_UI_DISCOVERY_ENABLED` — 実 LAN の mDNS 探索を止めるスイッチ.
+
+    `make ui-fake` とテスト用の autouse fixture がこの env だけで探索を止めるので、 判定（`!=
+    "0"`）が壊れると隔離が丸ごと崩れる（fake backend だけを見るはずの frontend
+    に実機が混ざる）。既定は「探索する」。
+    """
+
+    def test_unset_env_discovers(self, monkeypatch: pytest.MonkeyPatch):
+        """既定は有効。だから ui-fake と fixture 側の明示的な "0" が要件になる."""
+        monkeypatch.delenv("PCBASM_UI_DISCOVERY_ENABLED", raising=False)
+
+        assert Settings.from_env().discovery_enabled is True
+
+    def test_zero_disables_discovery(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("PCBASM_UI_DISCOVERY_ENABLED", "0")
+
+        assert Settings.from_env().discovery_enabled is False
+
+    def test_other_values_keep_discovery(self, monkeypatch: pytest.MonkeyPatch):
+        """明示的な "0" 以外は有効（誤設定で黙って探索が止まらない）."""
+        monkeypatch.setenv("PCBASM_UI_DISCOVERY_ENABLED", "1")
+
+        assert Settings.from_env().discovery_enabled is True

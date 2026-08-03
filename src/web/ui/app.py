@@ -15,7 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from web.ui import pages
+from web.ui import machines_api, pages
+from web.ui.discovery import MachineDiscovery
 from web.ui.machine_client import BackendGateway, BackendUnavailable
 from web.ui.machines import (
     MachineEndpoint,
@@ -55,7 +56,13 @@ def _static_asset_url(path: str) -> str:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # mDNS 探索は running loop を要求するのでここで開始する（create_app は同期）
+    discovery: MachineDiscovery | None = app.state.discovery
+    if discovery is not None:
+        await discovery.start()
     yield
+    if discovery is not None:
+        await discovery.stop()
     # backend への keep-alive 接続を閉じる
     await app.state.gateway.aclose()
 
@@ -103,6 +110,16 @@ def create_app(
     app.state.settings = settings
     app.state.registry = registry
     app.state.gateway = gateway
+    # 探索の開始は lifespan（AsyncZeroconf が running loop を要求する）
+    app.state.discovery = (
+        MachineDiscovery(
+            on_change=registry.set_discovered,
+            service_type=settings.discovery_service_type,
+            interfaces=settings.discovery_interfaces,
+        )
+        if settings.discovery_enabled
+        else None
+    )
     templates = Jinja2Templates(directory=_PACKAGE_DIR / "templates")
     templates.env.globals["static_asset"] = _static_asset_url
     app.state.templates = templates
@@ -155,6 +172,9 @@ def create_app(
     )
     # prefix なし（全マシンでブラウザキャッシュを共有する）
     app.mount("/static", _NoCacheStaticFiles(directory=_STATIC_DIR), name="static")
+    # pages ルータより先に登録する（後だと /{tab} のキャッチオールに食われて
+    # ドロップダウン更新が HTML を受け取る）
+    app.include_router(machines_api.router)
     # /{tab} のキャッチオールを持つため最後に登録する
     app.include_router(pages.router)
     return app

@@ -12,6 +12,11 @@ from fastapi.staticfiles import StaticFiles
 
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore, UnknownFieldError
+from web.api.discovery import (
+    ServiceAdvertiser,
+    local_ipv4_addresses,
+    select_advertise_addresses,
+)
 from web.api.jobs.catalog import default_catalog
 from web.api.jobs.manager import JobManager
 from web.api.preview import PreviewService
@@ -27,7 +32,7 @@ from web.api.routers import (
     settings_api,
     system,
 )
-from web.api.settings import Settings
+from web.api.settings import Settings, resolve_machine_id
 from web.api.state import AppState, BusyError
 
 
@@ -35,11 +40,38 @@ from web.api.state import AppState, BusyError
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # ワーカースレッド → WS のイベント橋渡し先 loop を登録する
     app.state.jobs.bind_loop(asyncio.get_running_loop())
+    # mDNS 広告は running loop を要求するのでここで開始する（create_app は同期）
+    advertiser: ServiceAdvertiser | None = app.state.advertiser
+    if advertiser is not None:
+        await advertiser.start()
     yield
+    if advertiser is not None:
+        await advertiser.stop()
     # シャットダウン後始末（preview 終了通知 → ジョブ abort + join → FrameHub 停止）
     app.state.preview.request_shutdown()
     app.state.jobs.shutdown()
     app.state.appstate.close()
+
+
+def _build_advertiser(settings: Settings, state: AppState) -> ServiceAdvertiser:
+    """設定と machine.toml の現在値から広告を組む（ソケットは開かない）.
+
+    フィルタ（`select_advertise_addresses`）を掛けるのは実 IF から列挙したときだけ。
+    ``advertise_addresses`` の注入はそのまま使う（loopback を落とすと、この注入口の
+    目的である「テストをループバックに閉じる」が成立しない）。
+    """
+    addresses = settings.advertise_addresses
+    if addresses is None:
+        addresses = select_advertise_addresses(local_ipv4_addresses())
+    return ServiceAdvertiser(
+        machine_id=resolve_machine_id(settings),
+        port=settings.port,
+        name=state.machine_name(),
+        machine_type=state.machine_type(),
+        addresses=addresses,
+        service_type=settings.discovery_service_type,
+        interfaces=settings.discovery_interfaces,
+    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -75,6 +107,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.board_store = board_store
     app.state.jobs = JobManager(state, preview, catalog, settings, board_store)
+    # 広告の開始は lifespan（AsyncZeroconf が running loop を要求する）
+    app.state.advertiser = (
+        _build_advertiser(settings, state) if settings.discovery_enabled else None
+    )
 
     # ジョブ成果物の配信（data/webui/<job_id>/...。traversal 防止は StaticFiles）
     artifacts_dir = settings.webui_data_dir

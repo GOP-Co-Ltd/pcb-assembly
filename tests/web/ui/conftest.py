@@ -64,6 +64,8 @@ def backend_settings(tmp_path: Path, backend_pcb_root: Path) -> ApiSettings:
         pcb_upload_dir=backend_pcb_root / "uploads",
         mainsail_url="http://mainsail.invalid",
         hostname=BACKEND_MACHINE_ID,
+        # 実 LAN へ mDNS を撒かない
+        discovery_enabled=False,
     )
 
 
@@ -90,6 +92,8 @@ def ui_settings(tmp_path: Path) -> Settings:
             ),
         ),
         machines_file=tmp_path / "machines.toml",
+        # 実 LAN を探索しない（探索は tests/web/ui/test_discovery.py と e2e が見る）
+        discovery_enabled=False,
     )
 
 

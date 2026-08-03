@@ -42,6 +42,17 @@ async function api(method, url, body) {
   return data;
 }
 
+// frontend 自身のエンドポイント（/api/machines）を GET する。
+// machine prefix は付けない（付けると backend へ中継されて 404 になる）。
+// fetch() をこのファイルに閉じるための入口でもある（tests/web/ui/test_layout.py）。
+async function frontendJson(url) {
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
 function svgEl(tag, attrs) {
   const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -82,6 +93,7 @@ function formatPosition(p) {
 window.webui = {
   toast,
   api,
+  frontendJson,
   svgEl,
   debounce,
   createBackoff,

@@ -45,10 +45,15 @@ api-dev: ## Run backend WebAPI dev server (auto-reload)
 api: ## Run backend WebAPI server
 	uv run python -m web.api
 
+# mDNS を切るのは隔離のため。fake backend は camera と data_dir だけが fake で
+# config_dir は実機のものなので、広告すると実機と同じ machine_id が LAN に出る
+# （frontend は先に発見した方を残すため、ドロップダウンの実機エントリがこの
+# fake backend を指しうる）
 api-fake: ## Run backend WebAPI with fake camera (isolated data_dir/port; for manual/browser E2E)
 	PCBASM_API_FAKE_CAMERA=1 \
 	PCBASM_API_PORT=$${PCBASM_API_PORT:-8099} \
 	PCBASM_API_DATA_DIR=$${PCBASM_API_DATA_DIR:-/tmp/pcbasm-webui-fake} \
+	PCBASM_API_DISCOVERY_ENABLED=0 \
 	uv run python -m web.api
 
 ui-dev: ## Run UI frontend dev server (auto-reload)
@@ -58,13 +63,15 @@ ui: ## Run UI frontend server
 	uv run python -m web.ui
 
 # 隔離ポートの frontend を api-fake（8099）へ向ける。machines は env で渡せない
-# （マシン一覧は machines_file と mDNS 探索が真実）ので静的登録を 1 台だけ生成する
+# （マシン一覧は machines_file と mDNS 探索が真実）ので静的登録を 1 台だけ生成する。
+# mDNS 探索も切る（実 LAN の機体が混ざると「fake backend だけを見る」隔離が壊れる）
 ui-fake: ## Run UI frontend against api-fake (isolated port; for manual/browser E2E)
 	@mkdir -p $${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}
 	@printf '[[machine]]\nmachine_id = "fake"\nhost = "127.0.0.1"\nport = %s\nname = "fake backend"\n' \
 		"$${PCBASM_API_PORT:-8099}" > $${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}/machines.toml
 	PCBASM_UI_PORT=$${PCBASM_UI_PORT:-8098} \
 	PCBASM_UI_MACHINES_FILE=$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}/machines.toml \
+	PCBASM_UI_DISCOVERY_ENABLED=0 \
 	uv run python -m web.ui
 
 # 旧名のエイリアス。実機の pcbasm-webui.service が ExecStart=make webui を参照している

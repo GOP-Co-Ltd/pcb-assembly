@@ -157,6 +157,8 @@ def webui_settings(tmp_path: Path, config_dir: Path, pcb_root: Path) -> Settings
         pcb_browse_start=pcb_root,
         pcb_upload_dir=pcb_root / "uploads",
         mainsail_url="http://mainsail.invalid",
+        # 実 LAN へ mDNS を撒かない（探索・広告はこの層のテスト対象ではない）
+        discovery_enabled=False,
     )
 
 
@@ -247,6 +249,7 @@ def real_settings(tmp_path: Path) -> Settings:
         data_dir=data_dir,
         pcb_browse_root=PROJECT_ROOT,
         pcb_browse_allowed=(PROJECT_ROOT,),
+        discovery_enabled=False,
     )
 
 

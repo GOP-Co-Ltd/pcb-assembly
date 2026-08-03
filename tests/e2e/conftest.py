@@ -341,6 +341,9 @@ def make_api_settings(root: Path, *, hostname: str) -> Settings:
         hostname=hostname,
         fake_camera=True,
         fake_camera_image=FAKE_CAMERA_IMAGE,
+        # 実 LAN へ mDNS を撒かない（広告 + 探索の通しは test_discovery_e2e.py が
+        # ランダムなサービス型 + ループバック限定で見る）
+        discovery_enabled=False,
     )
 
 
@@ -357,7 +360,9 @@ def make_ui_settings(
     Returns:
         構築済みの frontend Settings
     """
-    return UiSettings(machines=endpoints, machines_file=machines_file)
+    return UiSettings(
+        machines=endpoints, machines_file=machines_file, discovery_enabled=False
+    )
 
 
 @pytest.fixture

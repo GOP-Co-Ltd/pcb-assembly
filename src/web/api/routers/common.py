@@ -8,7 +8,6 @@ import を壊さないためここから再 export する。
 
 from __future__ import annotations
 
-import socket
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
@@ -37,7 +36,7 @@ from web.api.models import (
     StateResponse,
 )
 from web.api.preview import PreviewService
-from web.api.settings import Settings
+from web.api.settings import Settings, resolve_machine_id
 from web.api.state import AppState
 
 # --------------------------------------------------------------------------- #
@@ -146,7 +145,7 @@ def build_machine_info(state: AppState, settings: Settings) -> MachineInfo:
     （pcbasm 層は machine.toml に書かれた値だけを返す）。``mainsail_url`` は
     リクエストのホスト名に依存させない（プロキシ配下で必ず誤るため）。
     """
-    machine_id = settings.hostname or socket.gethostname()
+    machine_id = resolve_machine_id(settings)
     return MachineInfo(
         machine_id=machine_id,
         machine_name=state.machine_name() or machine_id,

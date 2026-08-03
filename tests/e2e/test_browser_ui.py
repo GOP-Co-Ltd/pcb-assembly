@@ -7,20 +7,67 @@ tests/e2e/test_api_e2e.py に分担する。
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from pathlib import Path
+
 import httpx
 import pytest
 from playwright.sync_api import expect
 
 from tests.e2e.conftest import (
+    E2E_MACHINE_ID as _E2E_MACHINE_ID,
     TERMINAL as _TERMINAL,
     LiveServer,
     LiveUi,
+    make_ui_settings as _make_ui_settings,
     select_led_blinker as _select_led_blinker,
+    start_app as _start_app,
     wait_machine_field as _wait_machine_field,
 )
 from tests.helpers import wait_until
+from web.ui.app import create_app as create_ui_app
+from web.ui.machines import MachineEndpoint, MachineRegistry
 
 _HTTP_TIMEOUT = 10.0
+
+# 一覧に出るだけで誰も開かない登録（ドロップダウンを 2 件にして選択状態を見る）
+_GHOST_MACHINE_ID = "ghost"
+
+
+@pytest.fixture
+def selector_ui(
+    live_server: LiveServer, tmp_path: Path
+) -> Iterator[tuple[str, MachineRegistry]]:
+    """`live_server` と到達不能な 1 台を登録した実 frontend（origin と registry）.
+
+    registry を返すのは、mDNS 探索の結果が届いたときに相当する変化
+    （`set_discovered`）をテスト側から起こして、ドロップダウンの組み替えを
+    見られるようにするため（実 zeroconf は使わない = 実 LAN に触らない）。
+    `live_server` の登録に ``name`` を与えないのも、その差分を作るため。
+    """
+    endpoints = (
+        MachineEndpoint(machine_id=_GHOST_MACHINE_ID, host="127.0.0.1", port=1),
+        MachineEndpoint(
+            machine_id=_E2E_MACHINE_ID, host="127.0.0.1", port=live_server.port
+        ),
+    )
+    app = create_ui_app(
+        _make_ui_settings(endpoints, machines_file=tmp_path / "absent-machines.toml")
+    )
+    running = _start_app(app)
+    try:
+        yield f"http://127.0.0.1:{running.port}", app.state.registry
+    finally:
+        running.stop()
+
+
+def _machine_labels(origin: str, *, current: str) -> list[str]:
+    """`GET /api/machines` が返す表示名（サーバが組んだ文字列をそのまま期待値にする）."""
+    response = httpx.get(
+        f"{origin}/api/machines", params={"current": current}, timeout=_HTTP_TIMEOUT
+    )
+    assert response.status_code == 200, response.text
+    return [machine["label"] for machine in response.json()["machines"]]
 
 
 def _current_job(base_url: str) -> dict | None:
@@ -470,3 +517,57 @@ class TestDispenseCalibrationOverBrowser:
             )
             is None
         )
+
+
+class TestMachineSelectorRefresh:
+    """マシン選択ドロップダウンをサーバの `/api/machines` で組み替える（MR5 D8）.
+
+    `machine_selector.js` の catch は全例外を飲むので、取得・`data-*` 参照・option の
+    組み替えのどれが壊れても SSR 済みの option がそのまま残り、無音で劣化する
+    （mDNS で見つかったマシンが一覧に出てこない・改名が反映されない）。実ブラウザで
+    「サーバの label で組み替わる」「current のマシンが選択される」を通しで見る。
+    """
+
+    def test_options_are_rebuilt_from_the_server_labels(
+        self,
+        live_server: LiveServer,
+        selector_ui: tuple[str, MachineRegistry],
+        browser_page,
+    ):
+        origin, registry = selector_ui
+
+        with browser_page.expect_request(
+            lambda request: "/api/machines" in request.url, timeout=10_000
+        ) as fetched:
+            browser_page.goto(
+                f"{origin}/m/{_E2E_MACHINE_ID}/posctrl", wait_until="domcontentloaded"
+            )
+
+        # frontend 自身のエンドポイントを叩く（machine prefix を付けると backend へ
+        # 中継されて 404）。current の判定はサーバ側なのでクエリに載る
+        assert fetched.value.url == f"{origin}/api/machines?current={_E2E_MACHINE_ID}"
+
+        options = browser_page.locator("#machine-select option")
+        expect(options).to_have_text(_machine_labels(origin, current=_E2E_MACHINE_ID))
+        # 表示中のマシンが選択されている（登録順では 2 番目なので既定選択とは異なる）
+        expect(browser_page.locator("#machine-select")).to_have_value(
+            f"/m/{_E2E_MACHINE_ID}/posctrl"
+        )
+
+        # mDNS で表示名が届いたときに相当する変化を起こす（静的登録が name を
+        # 持たないので label が変わる）
+        registry.set_discovered(
+            (
+                MachineEndpoint(
+                    machine_id=_E2E_MACHINE_ID,
+                    host="127.0.0.1",
+                    port=live_server.port,
+                    name="発見された名前",
+                    source="mdns",
+                ),
+            )
+        )
+        browser_page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+
+        expect(options).to_have_text(_machine_labels(origin, current=_E2E_MACHINE_ID))
+        expect(options.nth(1)).to_contain_text("発見された名前")
