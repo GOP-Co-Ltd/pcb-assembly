@@ -8,7 +8,9 @@ from fastapi import Depends, Request
 
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
+from web.api.control import ClientIdentity, ControlLease, LeaseInfo
 from web.api.discovery import ServiceAdvertiser
+from web.api.identity import get_identity
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.manager import JobManager
 from web.api.preview import PreviewService
@@ -49,6 +51,25 @@ def get_advertiser(request: Request) -> ServiceAdvertiser | None:
     return request.app.state.advertiser
 
 
+def get_lease(request: Request) -> ControlLease:
+    return request.app.state.control
+
+
+def require_control(request: Request) -> LeaseInfo:
+    """操作権を検証し、保持者の無操作タイマーを更新する（変更系エンドポイント用）.
+
+    **必ず `Depends`（= `ControlDep`）として使う。** ハンドラ本体で `claim` を呼ぶと、
+    Klipper 通信エラーを 502 へ変換する `klipper_errors_to_502()` が
+    `ControlDeniedError`（`RuntimeError` 派生）を巻き込み、操作権の拒否が
+    「Klipper 通信エラー 502」に化ける。
+
+    Raises:
+        ControlDeniedError: 他クライアントが操作権を保持している場合（app.py の
+            例外ハンドラが 423 Locked へ変換する）
+    """
+    return request.app.state.control.claim(get_identity(request))
+
+
 StateDep = Annotated[AppState, Depends(get_state)]
 StoreDep = Annotated[ConfigStore, Depends(get_store)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -57,3 +78,7 @@ JobsDep = Annotated[JobManager, Depends(get_jobs)]
 CatalogDep = Annotated[JobCatalog, Depends(get_catalog)]
 BoardStoreDep = Annotated[BoardSettingsStore, Depends(get_board_store)]
 AdvertiserDep = Annotated[ServiceAdvertiser | None, Depends(get_advertiser)]
+IdentityDep = Annotated[ClientIdentity, Depends(get_identity)]
+LeaseDep = Annotated[ControlLease, Depends(get_lease)]
+# 変更系エンドポイントの認可。ハンドラ本体に入る前に 423 で断る
+ControlDep = Annotated[LeaseInfo, Depends(require_control)]

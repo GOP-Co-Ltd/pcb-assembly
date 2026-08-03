@@ -19,7 +19,14 @@ from pcbasm.pasting import (
     validate_override_values,
 )
 from pcbasm.pcb import Layer
-from web.api.dependencies import BoardStoreDep, JobsDep, SettingsDep, StateDep, StoreDep
+from web.api.dependencies import (
+    BoardStoreDep,
+    ControlDep,
+    JobsDep,
+    SettingsDep,
+    StateDep,
+    StoreDep,
+)
 from web.api.routers.pasting_view import (
     InitialPurgePatch,
     InitialPurgeResponse,
@@ -62,7 +69,7 @@ def calculate_pad_route(
     settings: SettingsDep,
     board_store: BoardStoreDep,
 ) -> PasteRouteResponse:
-    """選択中基板の有効 pad だけを対象に塗布順路を返す."""
+    """選択中基板の有効 pad だけを対象に塗布順路を返す（POST だが読み取り専用計算）."""
     return build_route(load_board(state, settings, board_store), body.layer)
 
 
@@ -73,7 +80,7 @@ def calculate_pad_fill_path(
     settings: SettingsDep,
     board_store: BoardStoreDep,
 ) -> PasteFillPathResponse:
-    """選択中基板の有効 pad だけを対象に塗布パスを返す."""
+    """選択中基板の有効 pad だけを対象に塗布パスを返す（POST だが読み取り専用計算）."""
     return build_fill_path(load_board(state, settings, board_store), body.layer)
 
 
@@ -83,6 +90,7 @@ def patch_pad_config_node(
     state: StateDep,
     settings: SettingsDep,
     board_store: BoardStoreDep,
+    _control: ControlDep,
 ) -> PatchResponse:
     """ノードの enabled/values upsert・clear を適用し、影響 pad を返す."""
     loaded = load_board(state, settings, board_store)
@@ -117,6 +125,7 @@ def patch_pad_config_pads(
     state: StateDep,
     settings: SettingsDep,
     board_store: BoardStoreDep,
+    _control: ControlDep,
 ) -> PatchResponse:
     """Pad id 配列を L4 ノードの enabled 設定として一括適用する."""
     loaded = load_board(state, settings, board_store)
@@ -144,6 +153,7 @@ def patch_initial_purge(
     board_store: BoardStoreDep,
     store: StoreDep,
     jobs: JobsDep,
+    _control: ControlDep,
 ) -> InitialPurgeResponse:
     """初回パージ量と pad 指定を即時保存し、解決済み設定を返す."""
     loaded = load_board(state, settings, board_store)
@@ -240,6 +250,7 @@ def import_pad_config(
     state: StateDep,
     settings: SettingsDep,
     board_store: BoardStoreDep,
+    _control: ControlDep,
 ) -> PadConfigResponse:
     """アップロードされた基板 override 設定を検証して保存し、最新設定を返す."""
     loaded = load_board(state, settings, board_store)

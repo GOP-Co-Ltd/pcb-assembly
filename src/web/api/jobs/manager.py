@@ -450,7 +450,7 @@ class JobManager:
                 self._state.merge_job_param_defaults(name, persisted_params)
             record = JobRecord(uuid.uuid4().hex, name, params, self._log_capacity)
             runtime = _JobRuntime(
-                record, self._preview, self._publish, self._apply_machine_settings
+                record, self._preview, self.publish, self._apply_machine_settings
             )
             artifacts_dir = self._artifacts_root / record.id
             artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -626,9 +626,28 @@ class JobManager:
         with self._subscribers_lock:
             self._subscribers.discard(events)
 
+    def publish(self, event: _Event) -> None:
+        """全 subscriber へイベントを配る（loop 未 bind なら何もしない）.
+
+        購読キューの配布点をここに一本化する。ジョブ以外の発生源（操作権リースの
+        `control_changed` 等）も同じキューへ流すため public。ワーカースレッドから
+        呼ばれるので、キューへの投入は bind 済み loop の `call_soon_threadsafe` 経由。
+        """
+        with self._subscribers_lock:
+            loop = self._loop
+            subscribers = tuple(self._subscribers)
+        if loop is None:
+            return
+        for events in subscribers:
+            try:
+                loop.call_soon_threadsafe(events.put_nowait, event)
+            except RuntimeError:
+                # loop が閉じた後の遅延 publish は捨てる
+                return
+
     def publish_state_changed(self) -> None:
         """マシン / PCB / 設定変更をクライアントに通知する."""
-        self._publish({"type": "state_changed"})
+        self.publish({"type": "state_changed"})
 
     def _apply_machine_settings(self, values: Mapping[str, ParamValue]) -> None:
         """実行中ジョブの確定値を machine.toml へ即時書き込み、変更を通知する.
@@ -697,20 +716,6 @@ class JobManager:
         if selected is None:
             return None
         return (self._settings.pcb_browse_root / selected).resolve()
-
-    def _publish(self, event: _Event) -> None:
-        """全 subscriber へイベントを配る（loop 未 bind なら何もしない）."""
-        with self._subscribers_lock:
-            loop = self._loop
-            subscribers = tuple(self._subscribers)
-        if loop is None:
-            return
-        for events in subscribers:
-            try:
-                loop.call_soon_threadsafe(events.put_nowait, event)
-            except RuntimeError:
-                # loop が閉じた後の遅延 publish は捨てる
-                return
 
 
 def prompt_payload(prompt_id: str, spec: PromptSpec) -> dict[str, Any]:

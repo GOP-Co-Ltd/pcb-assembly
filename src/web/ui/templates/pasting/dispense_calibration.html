@@ -7,7 +7,7 @@
   既存の rotations_per_ul を基準に、実際の銅板への線引きで ①→②→③ を順に補正します。
   初期値をゼロから設定する場合は、ペーストローディング画面の質量キャリブレーションを使ってください。
 </p>
-<form id="job-form" class="job-form dispense-calibration-form"
+<form id="job-form" class="job-form dispense-calibration-form" data-requires-control
       data-job-name="{{ job_name }}" data-testid="job-form">
   {% for legend, specs in param_groups %}
   <fieldset class="job-param-group">

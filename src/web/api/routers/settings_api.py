@@ -6,7 +6,13 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from web.api.config_store import MachineSettingValue
-from web.api.dependencies import AdvertiserDep, JobsDep, StateDep, StoreDep
+from web.api.dependencies import (
+    AdvertiserDep,
+    ControlDep,
+    JobsDep,
+    StateDep,
+    StoreDep,
+)
 from web.api.models import MachineSettingsResponse
 from web.api.routers.common import machine_settings_fields
 
@@ -29,6 +35,7 @@ def put_machine_settings(
     store: StoreDep,
     jobs: JobsDep,
     advertiser: AdvertiserDep,
+    _control: ControlDep,
 ) -> MachineSettingsResponse:
     name_before = state.machine_name()
     with state.machine_lock("settings"):

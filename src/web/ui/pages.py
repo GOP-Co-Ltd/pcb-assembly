@@ -17,6 +17,7 @@ URL 空間:
 from __future__ import annotations
 
 import asyncio
+import secrets
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -46,6 +47,7 @@ from web.ui.layout import (
 )
 from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
 from web.ui.machines import MachineEndpoint, MachineRegistry
+from web.ui.proxy import SESSION_COOKIE
 
 # machine を指定しない URL で開くタブ
 DEFAULT_TAB = "posctrl"
@@ -214,6 +216,37 @@ def _tab_context(tab: str, jobs: Mapping[str, JobSpecInfo]) -> dict[str, Any]:
     }
 
 
+def _html_page(
+    request: Request,
+    name: str,
+    context: dict[str, Any],
+    *,
+    status_code: int = 200,
+    headers: Mapping[str, str] | None = None,
+) -> HTMLResponse:
+    """HTML ページを描き、未発行ならセッション cookie を発行する.
+
+    発行するのは **HTML ページ応答だけ**（プロキシ配下の JSON / MJPEG / 静的アセットでは
+    発行しない）。この cookie が操作権リースのセッション同定で、`ProxyApp` が backend
+    向けヘッダへ翻訳する。**認証ではなく自己申告**で、LAN 上の誰でも他人を騙れる。
+
+    `Path` は既定の ``/`` のまま上書きしない。`/m/{id}/api/**` と WS ハンドシェイクと
+    `img.src`（MJPEG）に cookie が乗ることが、「ブラウザは独自ヘッダを付けられない」
+    制約の唯一の抜け道になっている。
+    """
+    response = _templates(request).TemplateResponse(
+        request=request,
+        name=name,
+        context=context,
+        status_code=status_code,
+        headers=dict(headers) if headers else None,
+    )
+    if SESSION_COOKIE not in request.cookies:
+        # 毎回発行するとページ遷移ごとに別人になり、操作権が自分から離れる
+        response.set_cookie(SESSION_COOKIE, secrets.token_urlsafe(16), httponly=True)
+    return response
+
+
 def render_message(
     request: Request,
     *,
@@ -234,12 +267,12 @@ def render_message(
         current_suffix=_suffix_of(request.url.path),
     )
     context.update(title=title, detail=detail)
-    return _templates(request).TemplateResponse(
-        request=request,
-        name="message.html",
-        context=context,
+    return _html_page(
+        request,
+        "message.html",
+        context,
         status_code=status_code,
-        headers=dict(headers) if headers else None,
+        headers=headers,
     )
 
 
@@ -302,9 +335,7 @@ async def settings_page(machine_id: str, request: Request) -> HTMLResponse:
     )
     context = _base_context(request, machine_id, "settings", info, state)
     context.update(machine_groups=grouped_fields(machine_settings.fields))
-    return _templates(request).TemplateResponse(
-        request=request, name="settings.html", context=context
-    )
+    return _html_page(request, "settings.html", context)
 
 
 def _loading_context(job: JobSpecInfo, settings: _MachineSettings) -> dict[str, Any]:
@@ -400,9 +431,7 @@ async def tab_page(machine_id: str, tab: str, request: Request) -> HTMLResponse:
     )
     context = _base_context(request, machine_id, tab, info, state)
     context.update(_tab_context(tab, _jobs_by_name(catalog)))
-    return _templates(request).TemplateResponse(
-        request=request, name="tab.html", context=context
-    )
+    return _html_page(request, "tab.html", context)
 
 
 @router.get("/m/{machine_id}/{tab}/{feature}", response_class=HTMLResponse)
@@ -448,6 +477,4 @@ async def feature_page(
             context.update(job_provider(job, machine_settings))
     if (provider := _FEATURE_CONTEXT.get(feature)) is not None:
         context.update(provider(state, machine_settings))
-    return _templates(request).TemplateResponse(
-        request=request, name=template, context=context
-    )
+    return _html_page(request, template, context)

@@ -24,10 +24,13 @@ from web.api.config_store import (
     FieldSpec,
     MachineSettingValue,
 )
+from web.api.control import ClientIdentity, LeaseInfo
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.manager import JobManager
 from web.api.models import (
     API_VERSION,
+    ClientInfo,
+    ControlInfo,
     JobBrief,
     KlipperStatus,
     MachineInfo,
@@ -84,8 +87,23 @@ def klipper_errors_to_502() -> Iterator[None]:
 # --------------------------------------------------------------------------- #
 
 
+def control_payload(info: LeaseInfo) -> ControlInfo:
+    """リーススナップショットを API 表現へ変換する（唯一の変換点）."""
+    return ControlInfo(
+        key=info.key,
+        display_name=info.display_name,
+        held=info.held,
+        connections=info.connections,
+    )
+
+
 def build_state_response(
-    state: AppState, settings: Settings, preview: PreviewService, jobs: JobManager
+    state: AppState,
+    settings: Settings,
+    preview: PreviewService,
+    jobs: JobManager,
+    control: LeaseInfo,
+    identity: ClientIdentity,
 ) -> StateResponse:
     """現在のアプリ状態から StateResponse を構築する."""
     owner = state.busy_owner
@@ -93,6 +111,8 @@ def build_state_response(
     record = jobs.current()
     cap = state.nozzle_cap()
     return StateResponse(
+        control=control_payload(control),
+        you=ClientInfo(key=identity.key),
         pcb_file=pcb.as_posix() if pcb else None,
         busy=owner is not None,
         busy_owner=owner,

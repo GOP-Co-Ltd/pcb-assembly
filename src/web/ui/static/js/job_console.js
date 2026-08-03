@@ -192,6 +192,8 @@
     socket = new WebSocket(`${proto}://${location.host}${withBase("/api/ws")}`);
     socket.addEventListener("open", async () => {
       reconnectBackoff.reset();
+      // 切断中の control_changed は届いていないので操作権も取り直す
+      window.webui.control?.refresh();
       try {
         const data = await api("GET", "/api/jobs/current");
         applyJob(data.job);
@@ -231,6 +233,11 @@
         break;
       case "state_changed":
         refreshHeader();
+        break;
+      case "control_changed":
+        // 保持者が変わったことは全 subscriber へ同一 payload で届く。「自分か」の
+        // 判定は control.js が you.key と比べて行う
+        window.webui.control?.applyControl(event.control);
         break;
       case "error":
         toast(event.detail, false);
@@ -482,7 +489,15 @@
     el("jc-prompt-message").textContent = prompt.message;
     configurePromptButtons(prompt);
     renderPromptField(prompt);
-    if (!dialog.open) dialog.showModal();
+    if (!dialog.open) {
+      // showModal() にしない。::backdrop が緊急停止（#estop）と中止（#jc-abort）を
+      // 覆うため、応答権を持たない閲覧者は「応答できない・中止もできない」で詰む。
+      // 保持者も応答待ちの間だけ緊急停止を押せなくなる（安全機能なので塞がない）。
+      // 中央寄せは CSS の .jc-prompt[open] が持つ。
+      dialog.show();
+      // 非モーダルは自動でフォーカスが移らないので、Enter の暗黙送信のために自前で移す
+      (el("jc-prompt-input") ?? el("jc-prompt-ok")).focus();
+    }
   }
 
   function closePrompt() {

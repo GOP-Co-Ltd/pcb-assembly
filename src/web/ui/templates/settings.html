@@ -68,7 +68,7 @@
     </div>
   </header>
 
-  <form id="machine-settings-form" data-machine-settings
+  <form id="machine-settings-form" data-machine-settings data-requires-control
         data-endpoint="/api/settings/machine">
     <div class="settings-grid">
     {{ settings_groups(machine_groups, "ms") }}
@@ -77,5 +77,8 @@
 </section>
 {% endblock %}
 {% block scripts %}
+{# 設定ページも WS を張る（操作権の control_changed と state_changed が要る）。
+   #job-console が無いページなので job_console.js はコンソールを描かない #}
+<script src="{{ static_asset('js/job_console.js') }}"></script>
 <script src="{{ static_asset('js/settings.js') }}"></script>
 {% endblock %}

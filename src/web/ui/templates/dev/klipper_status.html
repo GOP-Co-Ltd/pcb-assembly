@@ -23,7 +23,8 @@
 </section>
 <section class="status-card">
   <h3>G-code 送信</h3>
-  <form id="ks-gcode-form" class="gcode-form">
+  {# 任意 G-code は machine-control（変更系）なので操作権が要る #}
+  <form id="ks-gcode-form" class="gcode-form" data-requires-control>
     <input id="ks-gcode" type="text" placeholder="例: G28 X" autocomplete="off">
     <button type="submit" id="ks-gcode-send">送信</button>
   </form>

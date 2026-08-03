@@ -13,7 +13,14 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from web.api.dependencies import JobsDep, PreviewDep, SettingsDep, StateDep
+from web.api.dependencies import (
+    ControlDep,
+    IdentityDep,
+    JobsDep,
+    PreviewDep,
+    SettingsDep,
+    StateDep,
+)
 from web.api.routers.common import StateResponse, build_state_response
 from web.api.settings import Settings
 
@@ -119,6 +126,8 @@ def put_pcb_file(
     settings: SettingsDep,
     preview: PreviewDep,
     jobs: JobsDep,
+    identity: IdentityDep,
+    control: ControlDep,
 ) -> StateResponse:
     root = settings.pcb_browse_root.resolve()
     resolved = _resolve_browsable(settings, body.path)
@@ -133,7 +142,7 @@ def put_pcb_file(
         )
     state.select_pcb(resolved.relative_to(root))
     jobs.publish_state_changed()
-    return build_state_response(state, settings, preview, jobs)
+    return build_state_response(state, settings, preview, jobs, control, identity)
 
 
 @router.post("/pcb-file/upload", status_code=201)
@@ -143,6 +152,8 @@ async def upload_pcb_file(
     settings: SettingsDep,
     preview: PreviewDep,
     jobs: JobsDep,
+    identity: IdentityDep,
+    control: ControlDep,
 ) -> StateResponse:
     """PCB ファイルを pcb_upload_dir に保存し、そのまま選択する."""
     # Path(...).name でディレクトリ成分を落とす（traversal 防止）
@@ -164,4 +175,4 @@ async def upload_pcb_file(
     destination.write_bytes(await file.read())
     state.select_pcb(destination.relative_to(root))
     jobs.publish_state_changed()
-    return build_state_response(state, settings, preview, jobs)
+    return build_state_response(state, settings, preview, jobs, control, identity)
