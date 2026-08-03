@@ -137,8 +137,7 @@ class TestPreviewOverRealHttp:
     def test_copper_stream_accepts_preprocessing_query(self, live_server: LiveServer):
         data = _read_mjpeg(
             live_server.base_url,
-            "/api/preview/stream?overlay=copper"
-            "&canny_low=50&canny_high=150&sharpen_amount=1.2",
+            "/api/preview/stream?overlay=copper" "&canny_low=50&canny_high=150",
         )
 
         frame = decode_jpeg(jpeg_payload(data.split(b"--frame")[1]))
@@ -376,16 +375,14 @@ class TestPadAlignRegionSettingsOverRealHttp:
 class TestCopperDetectionPageOverRealHttp:
     """銅箔前処理スライダーを実ブラウザで保存し、設定 API まで通す."""
 
-    def test_save_persists_canny_thresholds_and_sharpen_amount(
+    def test_save_persists_canny_thresholds(
         self, live_server: LiveServer, browser_page
     ):
         browser_page.goto(f"{live_server.base_url}/posctrl/copper_detection")
-        expect(browser_page.locator("#sharpen-amount")).to_have_value("0.5")
 
         for selector, value in (
             ("#canny-low", "91"),
             ("#canny-high", "193"),
-            ("#sharpen-amount", "1.2"),
         ):
             browser_page.locator(selector).evaluate(
                 """(element, value) => {
@@ -407,13 +404,6 @@ class TestCopperDetectionPageOverRealHttp:
             "paste_dispenser.pad_align.canny_high",
             193.0,
         )
-        _wait_machine_field(
-            live_server.base_url,
-            "paste_dispenser.pad_align.sharpen_amount",
-            1.2,
-        )
-        machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
-        assert "sharpen_amount = 1.2" in machine_toml
 
 
 class TestCameraCalibrationPageOverRealHttp:

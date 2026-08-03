@@ -1,7 +1,6 @@
 """領域単位の銅箔照合による位置ずれの反復計測."""
 
 import attrs
-from shapely import Polygon
 
 from pcbasm import gcode
 from pcbasm.geometry import Point2d, Shift, Transform
@@ -37,7 +36,6 @@ class RegionAligner:
         matcher: CopperEdgeMatcher,
         edge_detector: CopperEdgeDetector,
         offset_transform: Transform,
-        match_area: Polygon,
         max_correction_mm: float = 1.0,
         max_passes: int = 5,
         converge_tolerance_mm: float = 0.03,
@@ -58,20 +56,24 @@ class RegionAligner:
         self._matcher = matcher
         self._edge_detector = edge_detector
         self._offset_transform = offset_transform
-        self._match_area = match_area
         self._max_correction_mm = max_correction_mm
         self._max_passes = max_passes
         self._converge_tolerance_mm = converge_tolerance_mm
         self._settle_time = settle_time
         self._frame_sink = frame_sink
 
-    def measure(self, region: AlignmentRegion) -> RegionAlignment:
+    def measure(
+        self,
+        region: AlignmentRegion,
+        *,
+        initial_displacement: Point2d | None = None,
+    ) -> RegionAlignment:
         """累積変位を投影へ反映し、収束した結果だけを返す.
 
         Raises:
             RuntimeError: match失敗、最大補正超過、または最大パス数で非収束
         """
-        cumulative = Point2d(0.0, 0.0)
+        cumulative = initial_displacement or Point2d(0.0, 0.0)
         for passes in range(1, self._max_passes + 1):
             target = region.anchor + cumulative
             self._klipper.send_gcode(
@@ -87,12 +89,7 @@ class RegionAligner:
                 self._frame_sink(
                     render_edge_match(image, edges, projection.edge_mask, region.roi)
                 )
-            match = self._matcher.match(
-                edges,
-                projection.edge_mask,
-                region.roi,
-                mask=projector.project_mask(self._match_area, target),
-            )
+            match = self._matcher.match(edges, projection.edge_mask, region.roi)
             if match is None:
                 raise RuntimeError(
                     f"領域 {region.index} の銅箔エッジ照合に失敗しました"

@@ -1,7 +1,5 @@
 """銅箔エッジ検出: 画像から銅箔の境界エッジを抽出."""
 
-from math import isfinite
-
 import attrs
 import cv2
 
@@ -28,7 +26,6 @@ class CopperEdgeDetector:
         canny_low: float = 50.0,
         canny_high: float = 150.0,
         blur_ksize: int = 5,
-        sharpen_amount: float = 0.5,
     ) -> None:
         """CopperEdgeDetectorを初期化.
 
@@ -36,7 +33,6 @@ class CopperEdgeDetector:
             canny_low: Cannyエッジ検出の下側閾値
             canny_high: Cannyエッジ検出の上側閾値
             blur_ksize: GaussianBlurのカーネルサイズ (奇数)
-            sharpen_amount: アンシャープマスク強度（0で無効）
         """
         if (
             isinstance(blur_ksize, bool)
@@ -47,37 +43,15 @@ class CopperEdgeDetector:
             raise ValueError(
                 f"blur_ksizeは正の奇数である必要があります: {blur_ksize!r}"
             )
-        if (
-            isinstance(sharpen_amount, bool)
-            or not isinstance(sharpen_amount, (int, float))
-            or not isfinite(sharpen_amount)
-            or sharpen_amount < 0
-        ):
-            raise ValueError(
-                "sharpen_amountは0以上の有限値である必要があります: "
-                f"{sharpen_amount!r}"
-            )
         self._canny_low = canny_low
         self._canny_high = canny_high
         self._blur_ksize = blur_ksize
-        self._sharpen_amount = float(sharpen_amount)
 
     def detect(self, image: Image) -> CopperEdgeDetection:
         """前処理画像と2値エッジマスク (uint8, 0/255) を返す."""
         gray = cv2.cvtColor(image.numpy(), cv2.COLOR_BGR2GRAY)
         kernel = (self._blur_ksize, self._blur_ksize)
-        denoised = cv2.GaussianBlur(gray, kernel, 0)
-        if self._sharpen_amount == 0:
-            processed = denoised
-        else:
-            lowpass = cv2.GaussianBlur(denoised, kernel, 0)
-            processed = cv2.addWeighted(
-                denoised,
-                1.0 + self._sharpen_amount,
-                lowpass,
-                -self._sharpen_amount,
-                0,
-            )
+        processed = cv2.GaussianBlur(gray, kernel, 0)
         edges = cv2.Canny(processed, self._canny_low, self._canny_high)
         return CopperEdgeDetection(processed=Image(processed), edges=edges)
 

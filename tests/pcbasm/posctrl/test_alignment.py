@@ -14,6 +14,8 @@ def _alignment(
     index: int,
     board_area: shapely.Polygon,
     displacement: Point2d,
+    *,
+    rms_distance_px: float = 0.0,
 ) -> RegionAlignment:
     center = board_area.centroid
     return RegionAlignment(
@@ -26,7 +28,7 @@ def _alignment(
         ),
         match=EdgeMatch(
             offset=Offset(px=Point2d(0.0, 0.0), pixel_per_mm=PPM),
-            rms_distance_px=0.0,
+            rms_distance_px=rms_distance_px,
         ),
         displacement=displacement,
         increment=Point2d(0.0, 0.0),
@@ -40,9 +42,9 @@ def _shift_at(alignment: BoardAlignment, point: Point2d) -> Point2d:
 
 
 class TestBoardAlignmentCorrectionFor:
-    """Pad 中心に最も近い成功領域の machine displacement を採用する."""
+    """重複する成功領域から整合性の高い machine displacement を採用する."""
 
-    def test_uses_covering_region_with_nearest_center(self):
+    def test_uses_nearest_center_when_corrections_and_rms_are_tied(self):
         alignment = BoardAlignment(
             results=(
                 _alignment(
@@ -59,6 +61,55 @@ class TestBoardAlignmentCorrectionFor:
         )
 
         shift = _shift_at(alignment, Point2d(0.5, 0.0))
+
+        assert shift.x == pytest.approx(0.10, abs=1e-12)
+        assert shift.y == pytest.approx(-0.20, abs=1e-12)
+
+    def test_uses_correction_most_consistent_with_overlapping_regions(self):
+        alignment = BoardAlignment(
+            results=(
+                _alignment(
+                    0,
+                    shapely.box(-1.0, -1.0, 1.0, 1.0),
+                    Point2d(0.80, 0.40),
+                ),
+                _alignment(
+                    1,
+                    shapely.box(-2.0, -1.0, 0.5, 1.0),
+                    Point2d(0.10, -0.10),
+                ),
+                _alignment(
+                    2,
+                    shapely.box(-0.5, -1.0, 2.0, 1.0),
+                    Point2d(0.12, -0.08),
+                ),
+            )
+        )
+
+        shift = _shift_at(alignment, Point2d(0.0, 0.0))
+
+        assert shift.x == pytest.approx(0.12, abs=1e-12)
+        assert shift.y == pytest.approx(-0.08, abs=1e-12)
+
+    def test_uses_lower_rms_when_consistency_is_tied(self):
+        alignment = BoardAlignment(
+            results=(
+                _alignment(
+                    0,
+                    shapely.box(-1.0, -1.0, 1.0, 1.0),
+                    Point2d(0.40, 0.20),
+                    rms_distance_px=1.5,
+                ),
+                _alignment(
+                    1,
+                    shapely.box(-0.5, -1.0, 2.0, 1.0),
+                    Point2d(0.10, -0.20),
+                    rms_distance_px=0.5,
+                ),
+            )
+        )
+
+        shift = _shift_at(alignment, Point2d(0.0, 0.0))
 
         assert shift.x == pytest.approx(0.10, abs=1e-12)
         assert shift.y == pytest.approx(-0.20, abs=1e-12)
@@ -104,7 +155,7 @@ class TestBoardAlignmentCorrectionFor:
             assert shift.x == pytest.approx(0.25, abs=1e-12)
             assert shift.y == pytest.approx(-0.15, abs=1e-12)
 
-    def test_no_covering_success_region_raises_without_nearest_fallback(self):
+    def test_uses_nearest_success_region_when_no_region_covers_point(self):
         alignment = BoardAlignment(
             results=(
                 _alignment(
@@ -112,8 +163,39 @@ class TestBoardAlignmentCorrectionFor:
                     shapely.box(-1.0, -1.0, 1.0, 1.0),
                     Point2d(0.25, -0.15),
                 ),
+                _alignment(
+                    1,
+                    shapely.box(9.0, 9.0, 11.0, 11.0),
+                    Point2d(-0.10, 0.30),
+                ),
             )
         )
+
+        shift = _shift_at(alignment, Point2d(20.0, 20.0))
+
+        assert shift.x == pytest.approx(-0.10, abs=1e-12)
+        assert shift.y == pytest.approx(0.30, abs=1e-12)
+
+    def test_uses_fallback_region_when_no_refined_pad_covers_point(self):
+        refined = _alignment(
+            0,
+            shapely.box(-1.0, -1.0, 1.0, 1.0),
+            Point2d(0.25, -0.15),
+        )
+        fallback = _alignment(
+            1,
+            shapely.box(9.0, 9.0, 11.0, 11.0),
+            Point2d(-0.10, 0.30),
+        )
+        alignment = BoardAlignment(results=(refined,), fallback_results=(fallback,))
+
+        shift = _shift_at(alignment, Point2d(10.0, 10.0))
+
+        assert shift.x == pytest.approx(-0.10, abs=1e-12)
+        assert shift.y == pytest.approx(0.30, abs=1e-12)
+
+    def test_no_success_region_raises(self):
+        alignment = BoardAlignment(results=())
 
         with pytest.raises(ValueError) as exc_info:
             alignment.correction_for(Point2d(20.0, 20.0), designator="C17")

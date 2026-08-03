@@ -16,14 +16,6 @@ def _dark_background(size: int = 200) -> np.ndarray:
     return np.full((size, size, 3), 30, dtype=np.uint8)
 
 
-def _neighbor_contrast(image: Image) -> float:
-    """水平・垂直の隣接画素差から局所コントラストを算出する."""
-    gray = image.numpy()[..., 0].astype(float)
-    horizontal = np.abs(np.diff(gray, axis=1)).mean()
-    vertical = np.abs(np.diff(gray, axis=0)).mean()
-    return float(horizontal + vertical)
-
-
 class TestCopperEdgeDetector:
     """CopperEdgeDetectorクラスのテスト."""
 
@@ -112,16 +104,14 @@ class TestCopperEdgeDetector:
             detector.detect_edges(image), detector.detect(image).edges
         )
 
-    def test_default_sharpen_amount_matches_explicit_half(self):
+    def test_blur_kernel_one_preserves_grayscale_pixels(self):
         arr = _dark_background()
         cv2.rectangle(arr, (50, 60), (150, 120), (60, 140, 180), -1)
-        image = Image(arr)
 
-        default = CopperEdgeDetector().detect(image)
-        explicit = CopperEdgeDetector(sharpen_amount=0.5).detect(image)
+        processed = CopperEdgeDetector(blur_ksize=1).detect(Image(arr)).processed
 
-        assert np.array_equal(default.processed.numpy(), explicit.processed.numpy())
-        assert np.array_equal(default.edges, explicit.edges)
+        expected = cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
+        assert np.array_equal(processed.numpy()[..., 0], expected)
 
     @pytest.mark.parametrize(
         ("kwargs", "field"),
@@ -131,27 +121,15 @@ class TestCopperEdgeDetector:
             ({"blur_ksize": 2}, "blur_ksize"),
             ({"blur_ksize": True}, "blur_ksize"),
             ({"blur_ksize": 3.5}, "blur_ksize"),
-            ({"sharpen_amount": -0.1}, "sharpen_amount"),
-            ({"sharpen_amount": float("nan")}, "sharpen_amount"),
-            ({"sharpen_amount": float("inf")}, "sharpen_amount"),
-            ({"sharpen_amount": float("-inf")}, "sharpen_amount"),
-            ({"sharpen_amount": True}, "sharpen_amount"),
         ],
     )
     def test_rejects_invalid_preprocessing_parameters(self, kwargs, field):
         with pytest.raises(ValueError, match=field):
             CopperEdgeDetector(**kwargs)
 
-    @pytest.mark.parametrize(
-        ("blur_ksize", "sharpen_amount"),
-        [(1, 0.0), (3, 0.5), (5, 2.0)],
-    )
-    def test_accepts_positive_odd_blur_and_nonnegative_sharpen(
-        self, blur_ksize: int, sharpen_amount: float
-    ):
-        detector = CopperEdgeDetector(
-            blur_ksize=blur_ksize, sharpen_amount=sharpen_amount
-        )
+    @pytest.mark.parametrize("blur_ksize", [1, 3, 5])
+    def test_accepts_positive_odd_blur(self, blur_ksize: int):
+        detector = CopperEdgeDetector(blur_ksize=blur_ksize)
 
         detection = detector.detect(Image(_dark_background()))
 
@@ -177,21 +155,3 @@ class TestCopperEdgeDetectorReflectiveBoards:
         assert detection.edges.dtype == np.uint8
         assert set(np.unique(detection.edges)) <= {0, 255}
         assert np.any(detection.edges)
-
-    @pytest.mark.parametrize(
-        "image_path",
-        REFLECTIVE_BOARD_IMAGES,
-        ids=lambda path: path.stem,
-    )
-    def test_sharpen_amount_controls_local_contrast(self, image_path):
-        image = Image.load(image_path)
-
-        denoised = CopperEdgeDetector(sharpen_amount=0.0).detect(image)
-        enhanced = CopperEdgeDetector(sharpen_amount=2.0).detect(image)
-
-        assert not np.array_equal(
-            denoised.processed.numpy(), enhanced.processed.numpy()
-        )
-        assert _neighbor_contrast(enhanced.processed) > _neighbor_contrast(
-            denoised.processed
-        )

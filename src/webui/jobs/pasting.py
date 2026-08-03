@@ -831,10 +831,38 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         ctx.log(f"照合対象の領域数: {len(regions)}")
         aligned = align_regions(ctx, align_session, regions)
         alignment = BoardAlignment(results=tuple(aligned))
-        # 最初の補正移動・高さ計測より前に、全対象padが成功領域を持つか確認する。
+        # 最初の補正移動・高さ計測より前に、成功領域が1件以上あるか確認する。
         for pad in alignment_pads:
             alignment.correction_for(pad.center, designator=pad.designator)
         ctx.log(f"位置合わせ成功: {len(aligned)}/{len(regions)} 領域")
+
+        pad_alignments = []
+        for index, pad in enumerate(alignment_pads):
+            ctx.progress("pad照合", 100.0 * index / len(alignment_pads))
+            ctx.checkpoint()
+            initial_correction = alignment.correction_for(
+                pad.center, designator=pad.designator
+            )
+            refined = align_session.refine(pad.center, initial_correction, pad.polygon)
+            if refined is None:
+                ctx.log(
+                    f"警告: {pad.designator}.{pad.pad_number} のpad中心照合が"
+                    "収束しないため領域補正を使用"
+                )
+                continue
+            base = result.board_transform.apply(pad.center)
+            initial_displacement = initial_correction.apply(base) - base
+            residual = refined.displacement - initial_displacement
+            ctx.log(
+                f"{pad.designator}.{pad.pad_number}: "
+                f"residual=({residual.x:+.4f}, {residual.y:+.4f}) mm, "
+                f"passes={refined.passes}"
+            )
+            pad_alignments.append(refined)
+        alignment = BoardAlignment(
+            results=tuple(pad_alignments), fallback_results=tuple(aligned)
+        )
+        ctx.log(f"pad中心照合成功: {len(pad_alignments)}/{len(alignment_pads)} pads")
 
         # 高さ計測
         ctx.progress("高さ計測")

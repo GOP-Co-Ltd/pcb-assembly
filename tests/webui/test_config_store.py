@@ -371,19 +371,7 @@ class TestPadAlignRegionSettings:
 
 
 class TestCopperPreprocessingSettings:
-    """銅箔前処理の blur / sharpen 設定を公開 ConfigStore 経由で読み書きする."""
-
-    def test_read_reports_sharpen_amount(self, store: ConfigStore):
-        values = store.read_machine_settings()
-
-        assert values["paste_dispenser.pad_align.sharpen_amount"] == pytest.approx(0.5)
-
-    def test_write_then_reread_reflects_sharpen_amount(self, store: ConfigStore):
-        store.write_machine_settings({"paste_dispenser.pad_align.sharpen_amount": 1.2})
-
-        values = store.read_machine_settings()
-
-        assert values["paste_dispenser.pad_align.sharpen_amount"] == pytest.approx(1.2)
+    """銅箔前処理の blur 設定を公開 ConfigStore 経由で検証する."""
 
     @pytest.mark.parametrize("blur_ksize", [0, -1, 2, 4])
     def test_rejects_blur_kernel_that_is_not_positive_and_odd(
@@ -392,19 +380,6 @@ class TestCopperPreprocessingSettings:
         with pytest.raises(UnknownFieldError, match="blur_ksize"):
             store.write_machine_settings(
                 {"paste_dispenser.pad_align.blur_ksize": blur_ksize}
-            )
-
-    @pytest.mark.parametrize(
-        "sharpen_amount",
-        [-0.1, float("nan"), float("inf"), float("-inf")],
-        ids=["negative", "nan", "positive-infinity", "negative-infinity"],
-    )
-    def test_rejects_sharpen_amount_that_is_not_finite_and_nonnegative(
-        self, store: ConfigStore, sharpen_amount: float
-    ):
-        with pytest.raises(UnknownFieldError, match="sharpen_amount"):
-            store.write_machine_settings(
-                {"paste_dispenser.pad_align.sharpen_amount": sharpen_amount}
             )
 
 
