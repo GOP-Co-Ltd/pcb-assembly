@@ -8,6 +8,7 @@ from pathlib import Path
 import attrs
 
 from pcbasm.utils import PROJECT_ROOT
+from web.api.discovery import SERVICE_TYPE
 from web.ui.machines import DEFAULT_BACKEND_PORT, MachineEndpoint
 
 
@@ -41,6 +42,11 @@ class Settings:
     proxy_read_timeout: float = 120.0
     # machines.toml で port を省略したマシンに使う backend の port
     default_backend_port: int = DEFAULT_BACKEND_PORT
+    # mDNS で LAN 上の backend を探索するか（静的登録と併設）
+    discovery_enabled: bool = True
+    discovery_service_type: str = SERVICE_TYPE
+    # None なら zeroconf 既定（全 IF）。テストは ("127.0.0.1",) で閉じる
+    discovery_interfaces: tuple[str, ...] | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -49,10 +55,12 @@ class Settings:
         対応する環境変数:
             PCBASM_UI_HOST, PCBASM_UI_PORT, PCBASM_UI_MACHINES_FILE,
             PCBASM_UI_SSR_TIMEOUT, PCBASM_UI_BACKEND_CONNECT_TIMEOUT,
-            PCBASM_UI_PROXY_READ_TIMEOUT, PCBASM_UI_DEFAULT_BACKEND_PORT
+            PCBASM_UI_PROXY_READ_TIMEOUT, PCBASM_UI_DEFAULT_BACKEND_PORT,
+            PCBASM_UI_DISCOVERY_ENABLED（"0" で mDNS 探索を無効）
 
         ``machines`` は env では扱わない（マシン一覧は ``machines_file`` と mDNS 探索が
-        真実）。
+        真実）。``discovery_service_type`` / ``discovery_interfaces`` も env に出さない
+        （テストと E2E はコンストラクタ注入で足りる）。
 
         Raises:
             ValueError: 数値の env が整数 / 実数として解釈できない場合
@@ -79,4 +87,5 @@ class Settings:
             default_backend_port=(
                 int(backend_port) if backend_port else base.default_backend_port
             ),
+            discovery_enabled=os.environ.get("PCBASM_UI_DISCOVERY_ENABLED") != "0",
         )

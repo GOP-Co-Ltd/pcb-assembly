@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+import socket
 from pathlib import Path
 
 import attrs
 
 from pcbasm.config import get_config_dir
 from pcbasm.utils import PROJECT_ROOT
+from web.api.discovery import SERVICE_TYPE
 
 
 def _env_path(name: str, default: Path) -> Path:
@@ -46,6 +48,13 @@ class Settings:
     fake_camera_image: Path = (
         PROJECT_ROOT / "data" / "testing" / "webui" / "fake_camera.png"
     )
+    # mDNS でこの backend を広告するか（frontend の自動発見用）
+    discovery_enabled: bool = True
+    # 広告するアドレス。None なら実 IF から列挙する（discovery.local_ipv4_addresses）
+    advertise_addresses: tuple[str, ...] | None = None
+    discovery_service_type: str = SERVICE_TYPE
+    # None なら zeroconf 既定（全 IF）。テストは ("127.0.0.1",) で閉じる
+    discovery_interfaces: tuple[str, ...] | None = None
 
     @property
     def webui_data_dir(self) -> Path:
@@ -64,7 +73,12 @@ class Settings:
             PCBASM_API_DATA_DIR, PCBASM_API_PCB_ROOT,
             PCBASM_MAINSAIL_URL, PCBASM_API_PORT,
             PCBASM_API_FAKE_CAMERA（"1" で固定画像カメラを使用）,
-            PCBASM_API_FAKE_CAMERA_IMAGE
+            PCBASM_API_FAKE_CAMERA_IMAGE,
+            PCBASM_API_DISCOVERY_ENABLED（"0" で mDNS 広告を無効）
+
+        ``discovery_service_type`` / ``discovery_interfaces`` /
+        ``advertise_addresses`` は env に出さない（テストと E2E はコンストラクタ注入
+        で足りるため、使われない設定項目を増やさない）。
 
         ``PCBASM_API_PCB_ROOT`` を与えたときは、その root を
         ``pcb_browse_allowed`` にも追加する（root をわざわざ差し替える運用は
@@ -95,4 +109,15 @@ class Settings:
             fake_camera_image=_env_path(
                 "PCBASM_API_FAKE_CAMERA_IMAGE", base.fake_camera_image
             ),
+            discovery_enabled=os.environ.get("PCBASM_API_DISCOVERY_ENABLED") != "0",
         )
+
+
+def resolve_machine_id(settings: Settings) -> str:
+    """Backend の自己申告 machine_id（``/api/machine-info`` と mDNS 広告で共有）.
+
+    ここ 1 箇所でだけ導出する。2 箇所で別々に導出すると ``hostname`` を注入した
+    E2E で広告 ID と ``/api/machine-info`` の ID がずれ、frontend の
+    ``/m/{machine_id}`` が解決できなくなる。
+    """
+    return settings.hostname or socket.gethostname()

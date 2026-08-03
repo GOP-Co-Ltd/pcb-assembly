@@ -403,3 +403,112 @@ mutation を当てて初めて出たもの。**通常のレビューでは 1 件
   独立した 3 視点のうち 2 名が同じ穴（prune のロック外書き込み）を指摘したのは
   多視点の効果。ただし反証で「import は全量上書き」と判明し却下に至ったのも、
   指摘をそのまま採らずに裏取りした効果。
+
+______________________________________________________________________
+
+# MR5（mDNS 広告 + 探索） — `feat/20260730/mdns-discovery`
+
+## 事前に確定させた設計裁定（`/tmp/pcbasm-plan/mr5-brief.md` の D1-D8）
+
+計画書に対する意図的な逸脱を、実装に入る前に契約書で固定した。
+
+- **D1: `MachineEndpoint` に `addresses` を足さない。** 計画書は「`machine_type` /
+  `addresses` は mDNS 側で欠損補完」と書いているが、`base_url` は `host` 1 本から組む設計で
+  複数アドレスを読む消費者が居ない。読まれないフィールドは足さない（開発原則 2）。
+  mDNS 側は `parsed_addresses(V4Only)` の先頭を `host` にする
+- **D3: TXT の `api` を load-bearing にする。** バージョン不一致の backend は
+  `endpoint_from_service_info` が `None` を返して一覧から落とす。広告するだけで誰も読まない
+  フィールドを作らないため（このフロントエンドが描けない backend を選ばせない、という実挙動）
+- **D4: `ServiceAdvertiser.update()` は同期メソッド。** `PUT /api/settings/machine` の
+  ハンドラが `def`（threadpool 実行）なので `await` できない。`start()` で loop を捕まえ
+  `call_soon_threadsafe` で再登録タスクを積む
+- **D5: `MachineRegistry.set_discovered()` はロック内でマージ結果の tuple を作り 1 属性へ代入。**
+  `list()` / `resolve()` はロックを取らずその属性を読む（スナップショットセマンティクス）。
+  `pages.py` の同期パスから毎リクエスト呼ばれるため event loop でロックを待たせない
+- **D7: machine_id の導出を `resolve_machine_id(settings)` へ 1 箇所化。** `common.py:149` の
+  直書きと広告側が別々に導出すると、`hostname` を注入した E2E で広告 ID と `/api/machine` の
+  ID がずれる
+
+却下した実装者提案: **`SERVICE_TYPE` をワイヤ定数専用モジュール（`web/api/wire.py`）へ
+切り出す案** — 定数 1 つのためにモジュールを増やす方が悪い。zeroconf は宣言済み依存で
+両プロセスが使う。`web.ui` → `web.api.discovery` の import 方向は計画書どおり許容する。
+
+## レビュー裁定（11 件 → 採用 8 / 却下 3）
+
+2 視点（隔離と回帰 / 契約準拠とテスト検出力）とも `request-changes`。**11 件すべて再現済み**。
+「実際に走らせて再現できた指摘だけ報告」を報告条件にする効果が MR4 に続いて出た。
+
+### 採用 must-fix
+
+- **M1: `make api-fake` / `ui-fake` が実機の machine_id を実 LAN に広告する。**
+  fake backend は camera と data_dir だけが fake で **`config_dir` は実機のもの**。同じ
+  machine_id で広告すると frontend の `_merge` が「先に発見した方」を残すため、ドロップダウンの
+  実機エントリが port 8099 の fake backend を指し、選ぶと実 Klipper に繋がる。
+  skill `webui-e2e` が約束する隔離が mDNS で破れていた
+- **M2: 長い `machine_name` が backend を永久に起動不能にする。** 100 文字の日本語（300 bytes）を
+  保存すると TXT の 255 bytes 制限で `ValueError`。その場は 200 が返るのに**次の起動で
+  `Application startup failed. Exiting.`**、machine.toml に保存済みなので手で TOML を直すまで
+  復旧しない。`_build_info()` が try の外にあったのが原因。**TXT 名の 255 bytes クランプ
+  （UTF-8 文字境界）+ 例外の囲い込み（`ValueError` を except に追加）の 2 段構え**で直した。
+  クランプ上限は zeroconf の符号化（1 エントリ = `key=value` が 255 bytes）から
+  name キーでは 250 bytes
+- **M3: env キルスイッチに回帰テストが 0 件。** `!= "0"` を `True` 固定にしても 1938 件が
+  グリーンのまま通り、tripwire を仕込むと `Settings.from_env()` を実アプリに通す既存 2 テストが
+  **運用サービス型で全 IF に広告・探索を出す**ことが実証された。契約 T3 で要求した
+  「将来 fixture を触った人が気付ける機構」が、構築注入側にはあって env 経路には無かった
+
+### 採用 should-fix / nit
+
+`Removed` 分岐の e2e（`async_unregister_service`）/ JS 経路の browser e2e（`catch {}` が
+全例外を飲むので無音で劣化する）/ `SERVICE_TYPE` リテラルのピン / 「名前が変わったときだけ
+update」のピン / 実 zeroconf を触る 3 テストのサービス型ランダム化。
+
+### 却下
+
+- **タスク参照保持（`set` + `add_done_callback`）のテスト** — GC タイミング依存で決定的な
+  テストが書けない。実装は正しい。**未検証のまま受容**（レビュアー自身も「対応不要と判断して
+  よい」と付記）
+- **`wire.py` 分離**（上記）
+- **壊れた machine.toml で `machine_name()` が None のとき update が飛ばない縮退** — 受容。
+  その状態では既に 4 ページが 500 する既知の問題があり、mDNS の表示名の古さは最も軽い
+
+## テストを書こうとして出てきた本番バグ（MR5 最大の収穫）
+
+**`stop()` が goodbye パケットを 1 つも送っていなかった。** `async_unregister_service` は
+goodbye 送信タスクを返すだけで、await せず `async_close()` すると**キャンセルされる**。
+AsyncZeroconf 2 本のプローブで実測（await なし → 探索側は `Removed` を受け取らない、
+await あり → 即消える）。**正常終了した機体が全 frontend のドロップダウンに最大 75 分残る**
+挙動で、計画書が「生存管理は mDNS の `Removed` に依存しない」と書いて回避しようとしていた
+問題そのもの。レビュー 3 回では出ず、`Removed` 分岐のテストを足す作業で初めて露出した。
+
+## 独立検証で出た 2 件（どちらも採用）
+
+- **見張りテスト自身が漏れ口だった。** M3 で足した見張り 2 本が assert の前に
+  `with TestClient(app):` で lifespan を起動していたため、**検出対象の回帰が実際に起きたとき
+  実機の machine_id を運用サービス型・全 IF で publish してから落ちる**。tripwire で実証。
+  `app.state.advertiser` は `create_app` で設定されるので assert を lifespan の外へ出した。
+  **教訓: 「漏れを検出するテスト」が漏れの実行経路を通っていないかを確認する**
+- **`start()` の announce 送信待ちは裁定の範囲外だったので巻き戻した。** 裁定 S1 が要求したのは
+  `stop()` の goodbye だけ。守るテストが無く、根拠に挙げられた flakiness も再現せず
+  （5 連続 5/5 passed）、lifespan が 0.47s 余分にブロックする（実測 1.685s vs 1.216s）。
+  開発原則 3（diff の全行が要求からトレースできるか）で巻き戻し。
+  規則「**送信完了を待つのは goodbye だけ**」をコメントで固定した。
+  受容した残存リスク: shutdown が announce の飛び残り（3 パケット・約 0.45s）と競合すると
+  停止直後の機体が一時的に残りうる（到達不能マシンを残すのは計画書どおりの挙動）
+
+## 実機の安全確認（読み取りのみ・作業中に実施）
+
+作業中に本番 backend が実 LAN へ `_pcbasm._tcp` を広告している状態を観測したが、
+**avahi のホスト名は無傷**だった。`ServiceInfo(server=f"{machine_id}-pcbasm.local.")` の
+防御が効いていることの実測確認になる（計画書が最も警戒した事故が起きていない）。
+
+- `journalctl -u avahi-daemon` の `conflict|withdraw` — 直近 6 時間で **0 件**
+- `ping kurousagi002.local` — 解決継続（192.168.100.202）
+- `avahi-browse` はこの機体に未インストール（実機確認には `avahi-utils` が必要）
+
+## 委譲の記録
+
+実装 1 体（high）→ レビュー 2 体（xhigh、並列）→ 裁定 → 修正 1 体（high）→
+独立検証 1 体（xhigh）→ 仕上げ 1 体（high）→ orchestrator が最終検証。
+MR4 で確立した型どおり。`nproc` = 4（同時実行上限 2）なので幅は増やせず、
+直列ステージの削減で速度を出す方針を維持した。

@@ -201,3 +201,121 @@ class TestLoadMachinesFile:
 
         with pytest.raises(tomllib.TOMLDecodeError):
             load_machines_file(path)
+
+
+# mDNS で発見した黒兎（広告のアドレスがそのまま host になる）
+DISCOVERED_KUROUSAGI = MachineEndpoint(
+    machine_id="kurousagi",
+    host="192.168.100.201",
+    port=8081,
+    name="黒兎",
+    machine_type="paste",
+    source="mdns",
+)
+
+
+class TestDiscoveredLabel:
+    """MDNS 由来のマシンの表示形（ドロップダウンに出る文字列のピン）."""
+
+    def test_label_shows_name_with_machine_id_and_advertised_address(self):
+        assert DISCOVERED_KUROUSAGI.label == "黒兎 (kurousagi: 192.168.100.201)"
+
+
+class TestSetDiscovered:
+    """静的登録と mDNS 発見分のマージ規則（MR5）.
+
+    静的登録は運用者が書いた設定なので、同じ machine_id を mDNS で見つけても 所在（host /
+    port）と表示名を上書きしない。上書きすると、DHCP で変わった アドレスや別 IF
+    のアドレスに勝手に切り替わって「設定したのに違う機体を 叩く」事故になる。
+    """
+
+    def test_discovered_only_machines_are_appended_after_static_ones(self):
+        static = MachineEndpoint(machine_id="alpha", host="alpha.local", port=8081)
+        registry = MachineRegistry((static,))
+
+        registry.set_discovered((DISCOVERED_KUROUSAGI,))
+
+        assert registry.list() == (static, DISCOVERED_KUROUSAGI)
+
+    def test_discovered_machines_keep_discovery_order(self):
+        first = MachineEndpoint(
+            machine_id="b", host="10.0.0.2", port=8081, source="mdns"
+        )
+        second = MachineEndpoint(
+            machine_id="a", host="10.0.0.1", port=8081, source="mdns"
+        )
+        registry = MachineRegistry()
+
+        registry.set_discovered((first, second))
+
+        assert registry.list() == (first, second)
+
+    def test_static_host_port_and_name_win_for_the_same_machine_id(self):
+        static = MachineEndpoint(
+            machine_id="kurousagi",
+            host="kurousagi.local",
+            port=9000,
+            name="静的な黒兎",
+        )
+        registry = MachineRegistry((static,))
+
+        registry.set_discovered((DISCOVERED_KUROUSAGI,))
+
+        (merged,) = registry.list()
+        assert (merged.host, merged.port, merged.name) == (
+            "kurousagi.local",
+            9000,
+            "静的な黒兎",
+        )
+        # 出自は静的登録のまま（mDNS で見えたかどうかで表示が揺れない）
+        assert merged.source == "static"
+
+    def test_missing_name_and_machine_type_are_filled_from_mdns(self):
+        static = MachineEndpoint(
+            machine_id="kurousagi", host="kurousagi.local", port=8081
+        )
+        registry = MachineRegistry((static,))
+
+        registry.set_discovered((DISCOVERED_KUROUSAGI,))
+
+        (merged,) = registry.list()
+        assert merged.name == "黒兎"
+        assert merged.machine_type == "paste"
+        assert merged.host == "kurousagi.local"
+
+    def test_resolve_finds_a_discovered_only_machine(self):
+        registry = MachineRegistry()
+
+        registry.set_discovered((DISCOVERED_KUROUSAGI,))
+
+        assert registry.resolve("kurousagi") is DISCOVERED_KUROUSAGI
+
+    def test_disappeared_machines_are_dropped_on_the_next_notification(self):
+        registry = MachineRegistry()
+        registry.set_discovered((DISCOVERED_KUROUSAGI,))
+
+        registry.set_discovered(())
+
+        assert registry.list() == ()
+        with pytest.raises(UnknownMachine):
+            registry.resolve("kurousagi")
+
+    def test_duplicate_machine_ids_from_mdns_keep_the_first(self):
+        """同じ機体が複数アドレスで見えても一覧には 1 行だけ出す."""
+        other_address = MachineEndpoint(
+            machine_id="kurousagi", host="10.0.0.9", port=8081, source="mdns"
+        )
+        registry = MachineRegistry()
+
+        registry.set_discovered((DISCOVERED_KUROUSAGI, other_address))
+
+        assert registry.list() == (DISCOVERED_KUROUSAGI,)
+
+    def test_static_registrations_survive_repeated_notifications(self):
+        static = MachineEndpoint(machine_id="alpha", host="alpha.local", port=8081)
+        registry = MachineRegistry((static,))
+
+        registry.set_discovered((DISCOVERED_KUROUSAGI,))
+        registry.set_discovered(())
+
+        assert registry.list() == (static,)

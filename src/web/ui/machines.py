@@ -1,11 +1,12 @@
 """UI frontend が中継する backend マシンの登録と解決.
 
 静的登録は ``config/machines.toml`` を読むだけで、frontend から書き込む API は
-持たない（マシン構成はファイル、または MR5 で足す mDNS 探索が真実）。
+持たない（マシン構成はファイル、または mDNS 探索が真実）。
 """
 
 from __future__ import annotations
 
+import threading
 import tomllib
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -48,25 +49,82 @@ class UnknownMachine(LookupError):
     """未知の machine_id（→ 404）."""
 
 
-class MachineRegistry:
-    """既知の backend マシンの一覧（読み取り専用）.
+@attrs.frozen
+class _Snapshot:
+    """一覧と id 引きを 1 つに束ねた不変スナップショット.
 
-    MR5 が mDNS 探索分のマージ規則をここへ足すが、``list`` / ``resolve`` の契約は
-    変えない。
+    tuple と dict を別々の属性に持つと、差し替えの途中を読んだリクエストが 「一覧には居るのに resolve
+    できない」不整合を見てしまう。
+    """
+
+    endpoints: tuple[MachineEndpoint, ...]
+    by_id: Mapping[str, MachineEndpoint]
+
+
+def _merge(
+    static: tuple[MachineEndpoint, ...], discovered: tuple[MachineEndpoint, ...]
+) -> _Snapshot:
+    """静的登録と mDNS 発見分をマージする.
+
+    同一 ``machine_id`` は静的登録の ``host`` / ``port`` / ``name`` を優先し
+    （``source`` も ``"static"`` のまま）、静的側が持たない ``name`` /
+    ``machine_type`` だけ mDNS 側で埋める。順序は静的登録が先、その後に
+    mDNS だけで見つかったマシン（発見順）。
+    """
+    by_discovered_id: dict[str, MachineEndpoint] = {}
+    for endpoint in discovered:
+        by_discovered_id.setdefault(endpoint.machine_id, endpoint)
+    merged = [
+        _fill_gaps(endpoint, by_discovered_id.get(endpoint.machine_id))
+        for endpoint in static
+    ]
+    static_ids = {endpoint.machine_id for endpoint in static}
+    merged.extend(
+        endpoint
+        for machine_id, endpoint in by_discovered_id.items()
+        if machine_id not in static_ids
+    )
+    return _Snapshot(
+        endpoints=tuple(merged),
+        by_id={endpoint.machine_id: endpoint for endpoint in merged},
+    )
+
+
+def _fill_gaps(
+    static: MachineEndpoint, discovered: MachineEndpoint | None
+) -> MachineEndpoint:
+    """静的登録が持たない表示情報だけを mDNS 側で埋める."""
+    if discovered is None:
+        return static
+    return attrs.evolve(
+        static,
+        name=static.name or discovered.name,
+        machine_type=static.machine_type or discovered.machine_type,
+    )
+
+
+class MachineRegistry:
+    """既知の backend マシンの一覧（静的登録 + mDNS 発見分）.
+
+    ``list`` / ``resolve`` はロックを取らずスナップショットを 1 属性から読む
+    （`web.ui.pages` の同期パスが毎リクエスト呼ぶため、event loop を
+    ロック待ちで止めない）。書き込みは `set_discovered` だけで、こちらは
+    ロックの中で新しいスナップショットを作って 1 回代入する。
     """
 
     def __init__(self, endpoints: Iterable[MachineEndpoint] = ()) -> None:
         """Registry を初期化する.
 
         Args:
-            endpoints: 登録するエンドポイント（この順序が一覧の順序になる）
+            endpoints: 静的登録のエンドポイント（この順序が一覧の先頭になる）
         """
-        self._endpoints = tuple(endpoints)
-        self._by_id = {endpoint.machine_id: endpoint for endpoint in self._endpoints}
+        self._static = tuple(endpoints)
+        self._lock = threading.Lock()
+        self._snapshot = _merge(self._static, ())
 
     def list(self) -> tuple[MachineEndpoint, ...]:
-        """登録順のマシン一覧."""
-        return self._endpoints
+        """静的登録順 → mDNS 発見順のマシン一覧."""
+        return self._snapshot.endpoints
 
     def resolve(self, machine_id: str) -> MachineEndpoint:
         """machine_id からエンドポイントを引く.
@@ -80,10 +138,19 @@ class MachineRegistry:
         Raises:
             UnknownMachine: 未登録の machine_id
         """
-        endpoint = self._by_id.get(machine_id)
+        endpoint = self._snapshot.by_id.get(machine_id)
         if endpoint is None:
             raise UnknownMachine(f"未知の machine_id: {machine_id}")
         return endpoint
+
+    def set_discovered(self, endpoints: Iterable[MachineEndpoint]) -> None:
+        """発見したマシン（mDNS）の集合を差し替える（探索コールバック用）.
+
+        Args:
+            endpoints: 現在発見しているエンドポイント（発見順）
+        """
+        with self._lock:
+            self._snapshot = _merge(self._static, tuple(endpoints))
 
 
 def load_machines_file(

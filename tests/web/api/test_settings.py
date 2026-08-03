@@ -21,6 +21,9 @@ from tests.helpers import PROJECT_ROOT
 from web.api.app import create_app
 from web.api.settings import Settings
 
+# PCBASM_API_DISCOVERY_ENABLED はここに足さない。tests/conftest.py の autouse
+# fixture が全テストで "0" を入れており、delenv すると実 LAN への mDNS 広告が復活する
+# （env を外して既定値を確かめるのは TestDiscoveryKillSwitch の 1 テストだけ）
 ENV_VARS = (
     "PCBASM_CONFIG_DIR",
     "PCBASM_API_DATA_DIR",
@@ -166,3 +169,28 @@ class TestFakeCameraSettings:
 
         assert settings.fake_camera is True
         assert settings.fake_camera_image == tmp_path / "cam.png"
+
+
+class TestDiscoveryKillSwitch:
+    """`PCBASM_API_DISCOVERY_ENABLED` — 実 LAN への mDNS 広告を止めるスイッチ.
+
+    `make api-fake` とテスト用の autouse fixture がこの env だけで広告を止めるので、 判定（`!=
+    "0"`）が壊れると隔離が丸ごと崩れる。既定は「広告する」（実運用は frontend から自動発見されたい）。
+    """
+
+    def test_unset_env_advertises(self, monkeypatch: pytest.MonkeyPatch):
+        """既定は有効。だから api-fake と fixture 側の明示的な "0" が要件になる."""
+        monkeypatch.delenv("PCBASM_API_DISCOVERY_ENABLED", raising=False)
+
+        assert Settings.from_env().discovery_enabled is True
+
+    def test_zero_disables_advertising(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("PCBASM_API_DISCOVERY_ENABLED", "0")
+
+        assert Settings.from_env().discovery_enabled is False
+
+    def test_other_values_keep_advertising(self, monkeypatch: pytest.MonkeyPatch):
+        """明示的な "0" 以外は有効（"1" だけを真とすると誤設定で黙って広告が止まる）."""
+        monkeypatch.setenv("PCBASM_API_DISCOVERY_ENABLED", "1")
+
+        assert Settings.from_env().discovery_enabled is True

@@ -19,12 +19,38 @@ Phase 2 追記（計画書 webui-phase2.md「既存ルーターへの変更」�
 """
 
 from pathlib import Path
+from typing import override
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from web.api.config_store import MACHINE_FIELDS
+from web.api.discovery import ServiceAdvertiser
 from web.api.state import AppState
+
+
+class RecordingAdvertiser(ServiceAdvertiser):
+    """`update` の呼び出しだけを記録する ServiceAdvertiser（ソケットは開かない）.
+
+    実 `ServiceAdvertiser` を継承するのは、広告の再登録を観測する手段が
+    ``update`` の呼び出しそのものしか無く（結果はマルチキャストの先にある）、
+    かつシグネチャを型で縛ったままにしたいため。
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            machine_id="recording",
+            port=8081,
+            name=None,
+            machine_type=None,
+            addresses=(),
+        )
+        self.updates: list[str | None] = []
+
+    @override
+    def update(self, name: str | None) -> None:
+        self.updates.append(name)
 
 
 class TestMachineSettingsApi:
@@ -350,3 +376,48 @@ class TestCameraCropValidation:
         response = client.put("/api/settings/machine", json={"values": {key: value}})
 
         assert response.status_code == 400
+
+
+class TestAdvertisementUpdate:
+    """PUT で表示名が変わったときだけ mDNS 広告を更新する（実装契約 §4）.
+
+    無条件に呼ぶと、設定画面の保存 1 回ごとに再登録のマルチキャストが飛ぶ。逆に 呼ばないと、改名してもドロップダウンに最大 75
+    分（PTR の other-TTL）古い名前が 残る。どちらの誤りも黙って通るのでここで条件をピンする。
+    """
+
+    @pytest.fixture
+    def advertiser(self, app: FastAPI, client: TestClient) -> RecordingAdvertiser:
+        """広告を記録する受け口を app に差す（lifespan 起動後なので start されない）."""
+        recording = RecordingAdvertiser()
+        app.state.advertiser = recording
+        return recording
+
+    @staticmethod
+    def _put(client: TestClient, values: dict[str, object]) -> None:
+        response = client.put("/api/settings/machine", json={"values": values})
+        assert response.status_code == 200, response.text
+
+    def test_changing_the_name_publishes_it(
+        self, client: TestClient, advertiser: RecordingAdvertiser
+    ):
+        self._put(client, {"machine_name": "改名後の機体"})
+
+        assert advertiser.updates == ["改名後の機体"]
+
+    def test_saving_other_fields_does_not_publish(
+        self, client: TestClient, advertiser: RecordingAdvertiser
+    ):
+        self._put(client, {"paste_dispenser.max_fill_speed": 0.9})
+
+        assert advertiser.updates == []
+
+    def test_saving_the_same_name_again_does_not_publish(
+        self, client: TestClient, advertiser: RecordingAdvertiser
+    ):
+        """設定画面は全項目を送るので、同じ名前の再保存が最も多い経路."""
+        self._put(client, {"machine_name": "同じ名前"})
+        assert advertiser.updates == ["同じ名前"]
+
+        self._put(client, {"machine_name": "同じ名前"})
+
+        assert advertiser.updates == ["同じ名前"]

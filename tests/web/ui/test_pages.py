@@ -1268,7 +1268,11 @@ def _frontend_only(machines: tuple[MachineEndpoint, ...], tmp_path: Path) -> Tes
     """
     return TestClient(
         create_frontend_app(
-            UiSettings(machines=machines, machines_file=tmp_path / "absent.toml")
+            UiSettings(
+                machines=machines,
+                machines_file=tmp_path / "absent.toml",
+                discovery_enabled=False,
+            )
         )
     )
 
