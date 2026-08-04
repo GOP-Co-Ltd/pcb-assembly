@@ -1,6 +1,6 @@
 "use strict";
 
-// カメラプレビュー: MJPEG <img> の装着/切断・overlay/Canny の動的反映・自動再接続。
+// カメラプレビュー: MJPEG <img> の装着/切断・overlay/エッジ検出設定の動的反映・自動再接続。
 
 (() => {
   const pane = document.getElementById("preview-pane");
@@ -51,7 +51,7 @@
     retryTimer = setTimeout(connect, retryBackoff.next());
   });
 
-  // overlay/Canny 変更の連打をまとめて再接続する（connect は stopped でガード済み）
+  // overlay/エッジ検出設定の変更連打をまとめて再接続する（connect は stopped でガード済み）
   const reconnect = debounce(connect, DEBOUNCE_MS);
 
   for (const radio of document.querySelectorAll("input[name='overlay']")) {
@@ -79,7 +79,7 @@
             "paste_dispenser.pad_align.canny_high": Number(cannyHigh.value),
           },
         });
-        toast("Canny パラメータを設定に保存しました");
+        toast("エッジ検出パラメータを設定に保存しました");
       } catch (err) {
         toast(`保存失敗: ${err.message}`, false);
       }

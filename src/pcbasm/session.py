@@ -6,6 +6,7 @@ dispenser の構築」をまとめ、コンテキストマネージャ として
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Self
 
@@ -21,8 +22,12 @@ from pcbasm.hal import (
 )
 from pcbasm.parking import park_or_present
 from pcbasm.pasting import HeightPlaneMeasurer, PasteApplicator, ProbeExecutor
-from pcbasm.pcb import PcbFile
-from pcbasm.posctrl import BoardCalibrationResult, setup_board_calibration
+from pcbasm.pcb import Pad, PcbFile
+from pcbasm.posctrl import (
+    BoardAlignment,
+    BoardCalibrationResult,
+    setup_board_calibration,
+)
 from pcbasm.vision import CalibrationResult, FrameSink
 
 
@@ -88,7 +93,6 @@ class PasteSession:
         paste_dispenser = PasteDispenser(
             klipper=result.klipper.readonly,
             rotations_per_ul=machine.paste_dispenser.rotations_per_ul,
-            air_pump_enabled=machine.paste_dispenser.air_pump_enabled,
         )
         return cls(
             machine=machine,
@@ -108,6 +112,41 @@ class PasteSession:
     def board_to_machine(self) -> Transform:
         """Board 座標 → machine 座標の変換（board_transform + toolhead_offset）."""
         return Compose([self.board_transform, self.toolhead_offset])
+
+    def pad_to_machine(
+        self,
+        pad: Pad,
+        *,
+        alignment: BoardAlignment,
+        height_plane: Transform,
+    ) -> Transform:
+        """1 pad用のboard→補正→toolhead→高さ変換を返す."""
+        return Compose(
+            [
+                self.board_transform,
+                alignment.correction_for(pad.center, designator=pad.designator),
+                self.toolhead_offset,
+                height_plane,
+            ]
+        )
+
+    def pad_transforms(
+        self,
+        pads: Sequence[Pad],
+        *,
+        alignment: BoardAlignment,
+        height_plane: Transform,
+    ) -> list[tuple[Pad, Transform]]:
+        """pad別変換を入力順に構築し、成功領域がなければ塗布前に失敗する."""
+        return [
+            (
+                pad,
+                self.pad_to_machine(
+                    pad, alignment=alignment, height_plane=height_plane
+                ),
+            )
+            for pad in pads
+        ]
 
     def make_applicator(
         self,
@@ -131,7 +170,6 @@ class PasteSession:
             paste_dispenser = PasteDispenser(
                 klipper=self.klipper.readonly,
                 rotations_per_ul=rotations_per_ul,
-                air_pump_enabled=self.machine.paste_dispenser.air_pump_enabled,
             )
         return PasteApplicator.from_config(
             klipper=self.klipper,

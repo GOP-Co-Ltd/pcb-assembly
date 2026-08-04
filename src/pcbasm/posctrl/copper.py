@@ -9,12 +9,25 @@ import numpy as np
 from shapely import Polygon
 from shapely.coords import CoordinateSequence
 
-from pcbasm.geometry import Compose, Point2d, Rotation, Shift, Transform
+from pcbasm.geometry import Compose, Point2d, Shift, Transform
 from pcbasm.vision import ImageArray, Offset
 
 type _Bounds = tuple[float, float, float, float]
 # ROI矩形 (x0, y0, x1, y1)。半開区間、全画面pixel座標
 type PixelRect = tuple[int, int, int, int]
+_MIN_MATCH_SHARPNESS = 0.15
+
+
+def centered_roi(image_size: tuple[int, int], size_px: int) -> PixelRect:
+    """画像中心に一辺 ``size_px`` の正方 ROI を返す."""
+    if size_px < 1:
+        raise ValueError(f"size_pxは1以上である必要があります: {size_px}")
+    width, height = image_size
+    if size_px > min(image_size):
+        raise ValueError(f"size_px {size_px} が画像サイズ {image_size} を超えています")
+    x0 = (width - size_px) // 2
+    y0 = (height - size_px) // 2
+    return (x0, y0, x0 + size_px, y0 + size_px)
 
 
 @attrs.frozen
@@ -35,36 +48,17 @@ class EdgeMatch:
     """観測エッジと想定エッジの照合結果.
 
     Attributes:
-        offset: 位置ずれ（観測 − 想定）
-        mean_distance_px: 想定エッジ1点あたりの平均chamfer距離 (px)。品質指標
+        offset: サブpixel並進（観測 − 想定、px。``.mm`` でmm）
+        rms_distance_px: 想定エッジ1点あたりのRMS chamfer距離 [px]
     """
 
     offset: Offset
-    mean_distance_px: float
-
-
-@attrs.frozen
-class RigidEdgeMatch:
-    """観測エッジと想定エッジの剛体（並進+回転）照合結果.
-
-    Attributes:
-        offset: 並進（観測 − 想定、px。.mm でmm）
-        rotation: 回転 θ（カメラ空間、ROI中心回り）
-        center_mm: 回転中心（カメラmm、画像中心原点）
-        mean_distance_px: 想定エッジ1点あたりの平均chamfer距離 (px)。品質指標
-    """
-
-    offset: Offset
-    rotation: Rotation
-    center_mm: Point2d
-    mean_distance_px: float
+    rms_distance_px: float
 
     @property
     def camera_transform(self) -> Transform:
-        """想定→観測のTransform: o ↦ Rot_θ(o−c) + c + d."""
-        c = self.center_mm
-        d = self.offset.mm
-        return Compose([Shift(-c.x, -c.y), self.rotation, Shift(c.x + d.x, c.y + d.y)])
+        """想定→観測のTransform: o ↦ o + d."""
+        return Shift.from_point(self.offset.mm)
 
 
 def _ring_to_pixels(
@@ -81,37 +75,6 @@ def _ring_to_pixels(
 def _bounds_overlap(a: _Bounds, b: _Bounds) -> bool:
     """2つのbbox (minx, miny, maxx, maxy) が重なるかを判定する."""
     return a[0] <= b[2] and b[0] <= a[2] and a[1] <= b[3] and b[1] <= a[3]
-
-
-def _theta_candidates(center: float, half_range: float, step: float) -> list[float]:
-    """Center ± half_range をstep刻みで列挙する."""
-    count = round(half_range / step)
-    return [center + step * i for i in range(-count, count + 1)]
-
-
-def _rotate_about_center(template: ImageArray, theta_degrees: float) -> ImageArray:
-    """テンプレートを中心回りに回転し、>0 で再二値化したfloat32を返す.
-
-    回転行列は自前Rotation規約（new_x = x·cosθ − y·sinθ）と同一の数式で
-    構成し、cv2.getRotationMatrix2Dの角度符号規約には依存しない。
-    """
-    height, width = template.shape[:2]
-    center_x = (width - 1) / 2
-    center_y = (height - 1) / 2
-    c = math.cos(math.radians(theta_degrees))
-    s = math.sin(math.radians(theta_degrees))
-    # p' = R(p − center) + center
-    matrix = np.array(
-        [
-            [c, -s, center_x - c * center_x + s * center_y],
-            [s, c, center_y - s * center_x - c * center_y],
-        ],
-        dtype=np.float64,
-    )
-    rotated: ImageArray = cv2.warpAffine(
-        template, matrix, (width, height), flags=cv2.INTER_LINEAR
-    )
-    return (rotated > 0).astype(np.float32)
 
 
 class CopperProjector:
@@ -145,6 +108,21 @@ class CopperProjector:
         self._pixel_per_mm = pixel_per_mm
         self._image_size = image_size
 
+    @property
+    def polygons(self) -> tuple[Polygon, ...]:
+        """投影対象の銅箔ポリゴン."""
+        return tuple(self._polygons)
+
+    def with_correction(self, machine_transform: Transform) -> "CopperProjector":
+        """機械座標の補正を board 変換の後段へ挿した投影器を返す."""
+        return CopperProjector(
+            polygons=self._polygons,
+            board_transform=Compose([self._board_transform, machine_transform]),
+            offset_transform=self._offset_transform,
+            pixel_per_mm=self._pixel_per_mm,
+            image_size=self._image_size,
+        )
+
     def project(self, stage_xy: Point2d) -> CopperProjection:
         """指定ステージ位置で視野内に想定される銅箔を投影する.
 
@@ -154,7 +132,7 @@ class CopperProjector:
         Returns:
             塗り潰しマスクとエッジマスクの組
         """
-        matrix, shift = self._board_to_pixel_affine(stage_xy)
+        matrix, shift = self.board_to_pixel_affine(stage_xy)
         width, height = self._image_size
         fill_mask = np.zeros((height, width), dtype=np.uint8)
         edge_mask = np.zeros((height, width), dtype=np.uint8)
@@ -204,60 +182,8 @@ class CopperProjector:
             y=height / 2 + self._pixel_per_mm * offset_mm.y,
         )
 
-    def roi_of(
-        self,
-        polygon: Polygon | Sequence[Polygon],
-        stage_xy: Point2d,
-        margin_mm: float = 1.0,
-        min_size_mm: float = 3.0,
-    ) -> PixelRect:
-        """polygonの投影bboxにマージンを加えたROI矩形を返す.
-
-        exterior全頂点を投影してbboxを取り、margin_mmを加える。複数
-        ポリゴンを渡した場合は全体を覆うbboxを取る。min_size_mm未満の
-        辺は中心対称に拡張し、フレームへクランプする。
-
-        Args:
-            polygon: 対象ポリゴン（shapely、mm単位、board座標）。複数可
-            stage_xy: ステージのXY位置（機械座標、mm）
-            margin_mm: bboxへ加えるマージン（mm）
-            min_size_mm: ROIの最小辺長（mm）
-
-        Returns:
-            ROI矩形 (x0, y0, x1, y1)。半開区間、全画面pixel座標
-        """
-        polygons = [polygon] if isinstance(polygon, Polygon) else list(polygon)
-        pixels = [
-            self.pixel_of(Point2d(x=float(coord[0]), y=float(coord[1])), stage_xy)
-            for poly in polygons
-            for coord in poly.exterior.coords
-        ]
-        margin_px = margin_mm * self._pixel_per_mm
-        x0 = min(p.x for p in pixels) - margin_px
-        x1 = max(p.x for p in pixels) + margin_px
-        y0 = min(p.y for p in pixels) - margin_px
-        y1 = max(p.y for p in pixels) + margin_px
-
-        min_px = min_size_mm * self._pixel_per_mm
-        if x1 - x0 < min_px:
-            center_x = (x0 + x1) / 2
-            x0, x1 = center_x - min_px / 2, center_x + min_px / 2
-        if y1 - y0 < min_px:
-            center_y = (y0 + y1) / 2
-            y0, y1 = center_y - min_px / 2, center_y + min_px / 2
-
-        width, height = self._image_size
-        return (
-            max(0, math.floor(x0)),
-            max(0, math.floor(y0)),
-            min(width, math.ceil(x1)),
-            min(height, math.ceil(y1)),
-        )
-
-    def _board_to_pixel_affine(
-        self, stage_xy: Point2d
-    ) -> tuple[ImageArray, ImageArray]:
-        """Board座標→pixel座標のアフィン変換 (2x2行列, 平行移動) を導出する."""
+    def board_to_pixel_affine(self, stage_xy: Point2d) -> tuple[ImageArray, ImageArray]:
+        """Board座標→pixel座標のアフィン変換を返す."""
         origin = self.pixel_of(Point2d(0.0, 0.0), stage_xy)
         unit_x = self.pixel_of(Point2d(1.0, 0.0), stage_xy)
         unit_y = self.pixel_of(Point2d(0.0, 1.0), stage_xy)
@@ -285,148 +211,85 @@ class CopperProjector:
         )
 
 
+def _fit_sharpness(patch: ImageArray, template_count: int) -> float:
+    """3x3コスト近傍の弱軸曲率をRMS距離尺度で返す."""
+    s0 = float(patch.sum())
+    sx2 = float(patch[:, 0].sum() + patch[:, 2].sum())
+    sy2 = float(patch[0, :].sum() + patch[2, :].sum())
+    sxy = float(patch[0, 0] - patch[0, 2] - patch[2, 0] + patch[2, 2])
+    a3 = -s0 / 3 + sx2 / 2
+    a4 = -s0 / 3 + sy2 / 2
+    a5 = sxy / 4
+    lambda_min = a3 + a4 - math.hypot(a3 - a4, a5)
+    return math.sqrt(max(lambda_min, 0.0) / template_count)
+
+
+def _parabolic_subpixel(patch: ImageArray) -> tuple[float, float, float]:
+    """3x3コスト近傍からサブpixel位置と補間最小コストを返す."""
+    cxm, c0, cxp = float(patch[1, 0]), float(patch[1, 1]), float(patch[1, 2])
+    cym, cyp = float(patch[0, 1]), float(patch[2, 1])
+    denx = cxm - 2 * c0 + cxp
+    deny = cym - 2 * c0 + cyp
+    dsx = (cxm - cxp) / (2 * denx) if denx > 0 else 0.0
+    dsy = (cym - cyp) / (2 * deny) if deny > 0 else 0.0
+    cstar = c0 - 0.25 * ((cxm - cxp) * dsx + (cym - cyp) * dsy)
+    return dsx, dsy, cstar
+
+
 class CopperEdgeMatcher:
     """観測エッジと想定エッジをchamfer距離で照合するクラス.
 
-    観測エッジの距離変換（探索窓でキャップ）に想定エッジのテンプレートを matchTemplate (TM_CCORR)
-    で滑らせ、距離和が最小となる位置を求める。
+    推定するのは並進のみで、回転は扱わない。最小コスト近傍を放物線補間して
+    サブpixel変位を求め、弱軸の曲率が無い縮退matchは棄却する。
     """
 
     def __init__(
         self,
         pixel_per_mm: float,
         search_window_mm: float = 2.0,
-        crop_size: tuple[int, int] | None = None,
-        theta_range_degrees: float = 2.0,
-        theta_coarse_step_degrees: float = 0.5,
-        theta_fine_step_degrees: float = 0.1,
     ) -> None:
         """CopperEdgeMatcherを初期化する.
 
         Args:
             pixel_per_mm: pixel/mm比率
             search_window_mm: 探索窓の片側幅 (mm)
-            crop_size: テンプレートとする中心領域サイズ (width, height)。
-                Noneの場合はフレームから探索窓分を除いた最大領域
-            theta_range_degrees: match_rigidのθ探索の片側範囲 (度)
-            theta_coarse_step_degrees: θ粗探索の刻み (度)
-            theta_fine_step_degrees: θ精探索の刻み (度)
         """
         self._pixel_per_mm = pixel_per_mm
         self._window_px = round(search_window_mm * pixel_per_mm)
-        self._crop_size = crop_size
-        self._theta_range = theta_range_degrees
-        self._theta_coarse_step = theta_coarse_step_degrees
-        self._theta_fine_step = theta_fine_step_degrees
+
+    @property
+    def window_px(self) -> int:
+        """探索窓の片側幅 [px]."""
+        return self._window_px
 
     def match(
-        self, observed_edges: ImageArray, expected_edges: ImageArray
+        self,
+        observed_edges: ImageArray,
+        expected_edges: ImageArray,
+        roi: PixelRect,
     ) -> EdgeMatch | None:
-        """観測エッジと想定エッジの位置ずれを照合する.
+        """観測エッジと想定エッジの並進ずれを照合する.
+
+        ROI矩形からテンプレートを切り出し、観測エッジの距離変換（探索窓で
+        キャップ）を滑らせて距離和が最小となる並進を求める。
 
         Args:
             observed_edges: 観測エッジマスク (uint8, 0/255)
             expected_edges: 想定エッジマスク (uint8, 0/255)。同サイズ
+            roi: テンプレート矩形 (x0, y0, x1, y1)
 
         Returns:
-            照合結果（offset = 観測 − 想定）。どちらかのマスクが
-            空の場合はNone
-        """
-        height, width = observed_edges.shape[:2]
-        rect = self._template_rect(width, height)
-        prepared = self._prepare_match(observed_edges, expected_edges, rect)
-        if prepared is None:
-            return None
-        template, search, origin = prepared
-
-        result: ImageArray = cv2.matchTemplate(search, template, cv2.TM_CCORR)
-        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-
-        offset_px = Point2d(x=origin.x + min_loc[0], y=origin.y + min_loc[1])
-        return EdgeMatch(
-            offset=Offset(px=offset_px, pixel_per_mm=self._pixel_per_mm),
-            mean_distance_px=float(min_val) / int(np.count_nonzero(template)),
-        )
-
-    def match_rigid(
-        self,
-        observed_edges: ImageArray,
-        expected_edges: ImageArray,
-        roi: PixelRect | None = None,
-    ) -> RigidEdgeMatch | None:
-        """θスイープ付きで観測エッジと想定エッジを剛体照合する.
-
-        観測エッジの距離変換は1回だけ計算し、ROI中心回りに回転した
-        テンプレートを粗→精の2段階θスイープで滑らせる。スコアは線太りの
-        影響を避けるため候補ごとのテンプレート画素数で正規化する。
-
-        Args:
-            observed_edges: 観測エッジマスク (uint8, 0/255)
-            expected_edges: 想定エッジマスク (uint8, 0/255)。同サイズ
-            roi: テンプレート矩形 (x0, y0, x1, y1)。Noneは中央クロップ
-
-        Returns:
-            照合結果（offset = 観測 − 想定、rotation = ROI中心回りθ）。
-            観測エッジまたはROI内の想定エッジが空の場合はNone
-        """
-        height, width = observed_edges.shape[:2]
-        x0, y0, x1, y1 = roi if roi is not None else self._template_rect(width, height)
-        prepared = self._prepare_match(observed_edges, expected_edges, (x0, y0, x1, y1))
-        if prepared is None:
-            return None
-        template, search, origin = prepared
-
-        coarse = self._sweep_thetas(
-            search,
-            template,
-            _theta_candidates(0.0, self._theta_range, self._theta_coarse_step),
-        )
-        if coarse is None:
-            return None
-        fine = self._sweep_thetas(
-            search,
-            template,
-            _theta_candidates(
-                coarse[1], self._theta_coarse_step, self._theta_fine_step
-            ),
-        )
-        best_score, best_theta, best_loc = fine if fine is not None else coarse
-
-        offset_px = Point2d(x=origin.x + best_loc[0], y=origin.y + best_loc[1])
-        center_px = Point2d(x=x0 + (x1 - x0 - 1) / 2, y=y0 + (y1 - y0 - 1) / 2)
-        center_mm = Point2d(
-            x=(center_px.x - width / 2) / self._pixel_per_mm,
-            y=(center_px.y - height / 2) / self._pixel_per_mm,
-        )
-        return RigidEdgeMatch(
-            offset=Offset(px=offset_px, pixel_per_mm=self._pixel_per_mm),
-            rotation=Rotation(degrees=best_theta),
-            center_mm=center_mm,
-            mean_distance_px=best_score,
-        )
-
-    def _prepare_match(
-        self,
-        observed_edges: ImageArray,
-        expected_edges: ImageArray,
-        rect: PixelRect,
-    ) -> tuple[ImageArray, ImageArray, Point2d] | None:
-        """テンプレートと探索用距離画像を準備する.
-
-        Rect矩形からテンプレートを切り出し、観測エッジの距離変換
-        （探索窓でキャップ）から探索領域を切り出す。
-
-        Returns:
-            (template, search, origin)。origin + matchTemplate位置 =
-            offset (px)。観測エッジまたはrect内の想定エッジが空の場合はNone
+            照合結果（offset = 観測 − 想定）。観測エッジまたはROI内の
+            想定エッジが空の場合はNone
         """
         if np.count_nonzero(observed_edges) == 0:
             return None
 
         height, width = observed_edges.shape[:2]
-        x0, y0, x1, y1 = rect
+        x0, y0, x1, y1 = roi
         template = (expected_edges[y0:y1, x0:x1] > 0).astype(np.float32)
-        if np.count_nonzero(template) == 0:
+        count = int(np.count_nonzero(template))
+        if count == 0:
             return None
 
         window = self._window_px
@@ -436,42 +299,29 @@ class CopperEdgeMatcher:
         sy1 = min(height, y1 + window)
 
         background = np.where(observed_edges > 0, 0, 255).astype(np.uint8)
-        distance: ImageArray = cv2.distanceTransform(background, cv2.DIST_L2, 3)
-        distance = np.minimum(distance, float(window))
-        search = distance[sy0:sy1, sx0:sx1].astype(np.float32)
+        distance: ImageArray = cv2.distanceTransform(
+            background, cv2.DIST_L2, cv2.DIST_MASK_PRECISE
+        )
+        search = (np.minimum(distance, float(window)) ** 2)[sy0:sy1, sx0:sx1].astype(
+            np.float32
+        )
 
-        origin = Point2d(x=float(sx0 - x0), y=float(sy0 - y0))
-        return template, search, origin
+        result: ImageArray = cv2.matchTemplate(search, template, cv2.TM_CCORR)
+        _, _, min_loc, _ = cv2.minMaxLoc(result)
+        cx, cy = min_loc
+        rows, cols = result.shape[:2]
+        if not (0 < cx < cols - 1 and 0 < cy < rows - 1):
+            return None
 
-    def _sweep_thetas(
-        self,
-        search: ImageArray,
-        template: ImageArray,
-        thetas: list[float],
-    ) -> tuple[float, float, tuple[int, int]] | None:
-        """Θ候補列を照合し、最良の (スコア, θ, 位置) を返す."""
-        best: tuple[float, float, tuple[int, int]] | None = None
-        for theta in thetas:
-            rotated = _rotate_about_center(template, theta)
-            edge_count = int(np.count_nonzero(rotated))
-            if edge_count == 0:
-                continue
-            result: ImageArray = cv2.matchTemplate(search, rotated, cv2.TM_CCORR)
-            min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-            score = float(min_val) / edge_count
-            if best is None or score < best[0]:
-                best = (score, theta, (int(min_loc[0]), int(min_loc[1])))
-        return best
+        patch = result[cy - 1 : cy + 2, cx - 1 : cx + 2].astype(np.float64)
+        if _fit_sharpness(patch, count) < _MIN_MATCH_SHARPNESS:
+            return None
+        dsx, dsy, cstar = _parabolic_subpixel(patch)
 
-    def _template_rect(self, width: int, height: int) -> PixelRect:
-        """テンプレート領域 (x0, y0, x1, y1) をフレーム内で決める."""
-        if self._crop_size is None:
-            crop_w = width - 2 * self._window_px
-            crop_h = height - 2 * self._window_px
-        else:
-            crop_w, crop_h = self._crop_size
-        crop_w = min(max(crop_w, 1), width)
-        crop_h = min(max(crop_h, 1), height)
-        x0 = (width - crop_w) // 2
-        y0 = (height - crop_h) // 2
-        return x0, y0, x0 + crop_w, y0 + crop_h
+        # 探索領域はROIから窓分だけ外へ広げてあるので、その差を戻して
+        # ROI基準の並進にする
+        offset_px = Point2d(x=float(sx0 - x0 + cx + dsx), y=float(sy0 - y0 + cy + dsy))
+        return EdgeMatch(
+            offset=Offset(px=offset_px, pixel_per_mm=self._pixel_per_mm),
+            rms_distance_px=math.sqrt(max(cstar, 0.0) / count),
+        )

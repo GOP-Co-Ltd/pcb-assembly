@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
+from pcbasm.hal import AudioPlayer
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
 from web.api.control import ClientIdentity, ControlLease, LeaseInfo
@@ -36,6 +37,10 @@ def get_preview(request: Request) -> PreviewService:
 
 def get_jobs(request: Request) -> JobManager:
     return request.app.state.jobs
+
+
+def get_audio_player(request: Request) -> AudioPlayer:
+    return request.app.state.audio_player
 
 
 def get_catalog(request: Request) -> JobCatalog:
@@ -75,6 +80,7 @@ StoreDep = Annotated[ConfigStore, Depends(get_store)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 PreviewDep = Annotated[PreviewService, Depends(get_preview)]
 JobsDep = Annotated[JobManager, Depends(get_jobs)]
+AudioPlayerDep = Annotated[AudioPlayer, Depends(get_audio_player)]
 CatalogDep = Annotated[JobCatalog, Depends(get_catalog)]
 BoardStoreDep = Annotated[BoardSettingsStore, Depends(get_board_store)]
 AdvertiserDep = Annotated[ServiceAdvertiser | None, Depends(get_advertiser)]

@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 
 from pcbasm.vision import Image, ImageArray
+from tests.helpers import TESTING_DATA_DIR
 from web.api.config_store import ConfigStore
 from web.api.preview import PreviewService
 from web.api.settings import Settings
@@ -31,10 +32,28 @@ from web.api.state import AppState
 
 from .conftest import decode_jpeg, jpeg_payload
 
+REFLECTIVE_BOARD_IMAGE = (
+    TESTING_DATA_DIR / "vision" / "copper" / "reflective_board_0.png"
+)
+
 
 @pytest.fixture
 def service(state: AppState) -> PreviewService:
     return PreviewService(state)
+
+
+@pytest.fixture
+def reflective_board_service(fake_camera_settings: Settings, store: ConfigStore):
+    """実撮像 PNG を FixedImageCamera で配信する PreviewService."""
+    settings = attrs.evolve(
+        fake_camera_settings,
+        fake_camera_image=REFLECTIVE_BOARD_IMAGE,
+    )
+    state = AppState(settings, store)
+    try:
+        yield PreviewService(state)
+    finally:
+        state.close()
 
 
 def _decoded_frame(part: bytes) -> ImageArray:
@@ -184,14 +203,40 @@ class TestOverlays:
 
         assert _count_dominant(frame, channel=1) > 500
 
-    def test_copper_overlay_accepts_canny_override(self, service: PreviewService):
-        stream = service.mjpeg_stream("copper", canny_low=50.0, canny_high=150.0)
+    def test_copper_overlay_accepts_preprocessing_overrides(
+        self, service: PreviewService
+    ):
+        stream = service.mjpeg_stream(
+            "copper",
+            canny_low=50.0,
+            canny_high=150.0,
+        )
         try:
             frame = _decoded_frame(next(stream))
         finally:
             stream.close()
 
         assert _count_dominant(frame, channel=1) > 500
+
+    def test_copper_overlay_uses_gray_processed_background_and_green_edges(
+        self, reflective_board_service: PreviewService
+    ):
+        stream = reflective_board_service.mjpeg_stream("copper")
+        try:
+            frame = _decoded_frame(next(stream))
+        finally:
+            stream.close()
+
+        planes = frame.astype(int)
+        green = (planes[..., 1] - planes[..., 0] > 60) & (
+            planes[..., 1] - planes[..., 2] > 60
+        )
+        assert np.any(green)
+
+        # JPEG の色にじみがあるエッジ近傍を含めても、背景の大部分は
+        # processed のグレースケール（B/G/R がほぼ同値）である。
+        background_chroma = np.ptp(planes[~green], axis=1)
+        assert np.quantile(background_chroma, 0.95) < 15
 
     def test_circle_overlay_draws_red_circle(self, service: PreviewService):
         # 固定画像の直径 120px 円が検出され、赤の円描画が乗る

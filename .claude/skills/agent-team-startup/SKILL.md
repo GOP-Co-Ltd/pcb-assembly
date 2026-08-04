@@ -77,7 +77,7 @@ orchestrator に `effort` を設定していないのは、frontmatter の effor
 
 - **チームを起動する** — 複数ファイル・複数モジュールにまたがる実装や調査。独立して並列に進められる作業がある
 - **単独委譲で足りる** — 対象が明確な 1 モジュールの実装（`plan-implementer` 単独）
-- **委譲しない** — 数回のツール呼び出しで orchestrator 自身が終えられる仕事。自分の作業の検証・ダブルチェック（検証は orchestrator のループ内で行う）
+- **委譲しない** — 数回のツール呼び出しで orchestrator 自身が終えられる仕事。自分の作業の検証・ダブルチェック（検証は orchestrator のループ内で行う）。1〜数モジュールに収まる変更を通しで仕上げる場合は skill [solo-dev-cycle](../solo-dev-cycle/SKILL.md)
 
 1 体で足りる仕事を分割して複数体に投げない。spawn 数は低く保つ。
 
@@ -120,6 +120,7 @@ orchestrator が各段階で確認する。
 
 ## 参照
 
+- 委譲せず単独で回す版：skill [solo-dev-cycle](../solo-dev-cycle/SKILL.md)
 - 並列化パターン・Failure mode・起動例：[reference.md](reference.md)
 - tool 呼び出しレベルの並列化：skill `maximize-parallels`
 - 各 agent の詳細：`.claude/agents/<name>.md`

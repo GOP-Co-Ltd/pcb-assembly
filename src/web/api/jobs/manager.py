@@ -12,11 +12,12 @@ import traceback
 import uuid
 from collections import deque
 from collections.abc import Callable, Mapping
+from concurrent.futures import Future
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, override
 
-from pcbasm.hal import FrameHub, Klipper
+from pcbasm.hal import AudioPlayer, FrameHub, Klipper
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
 from pcbasm.parking import park_or_present
 from pcbasm.vision import Image
@@ -42,6 +43,8 @@ _ABORT_SENTINEL: Any = object()
 
 # ジョブコンソールへ転送する pcbasm ロガー名
 _PCBASM_LOGGER_NAME = "pcbasm"
+
+_logger = logging.getLogger(__name__)
 
 # prompt(while_waiting=...) のポーリング間隔 [sec]
 _PROMPT_POLL_SEC = 0.05
@@ -392,6 +395,7 @@ class JobManager:
         settings: Settings,
         board_store: BoardSettingsStore,
         *,
+        audio_player: AudioPlayer | None = None,
         log_capacity: int = 500,
     ) -> None:
         """JobManager を初期化する.
@@ -403,12 +407,14 @@ class JobManager:
             settings: WebUI 設定（data_dir / pcb_browse_root）
             board_store: 基板設定ストア。**HTTP 経路と同一インスタンス**を
                 渡すこと（別インスタンスだと更新ロックが効かない）
+            audio_player: ジョブ完了通知音のプレイヤー（None なら再生しない）
             log_capacity: ログのリングバッファ行数
         """
         self._state = state
         self._preview = preview
         self._catalog = catalog
         self._settings = settings
+        self._audio_player = audio_player
         self._log_capacity = log_capacity
         self._artifacts_root = settings.webui_data_dir
         self._board_store = board_store
@@ -689,6 +695,7 @@ class JobManager:
             # 装置を動かすジョブは終了時に best-effort で退避する
             if definition.uses_machine:
                 self._park_machine(runtime, context)
+            self._play_completion_sound(definition, record, context)
             # 終端ステータス確定 → job_status 発行 → ロック解放の順を守る
             runtime.publish_status()
         finally:
@@ -710,6 +717,27 @@ class JobManager:
             )
         except Exception as exc:
             runtime.log(f"タスク終了時の退避に失敗: {exc}")
+
+    def _play_completion_sound(
+        self, definition: JobDefinition, record: JobRecord, context: JobContext
+    ) -> None:
+        """成功・失敗通知音を非同期に開始する（失敗は warning のみ）."""
+        if not definition.notify_on_completion or self._audio_player is None:
+            return
+        status = record.status
+        if status not in (JobStatus.SUCCEEDED, JobStatus.FAILED):
+            return
+        try:
+            sound = "success" if status is JobStatus.SUCCEEDED else "failure"
+            future = self._audio_player.play(sound, context.machine.audio)
+            future.add_done_callback(self._warn_completion_sound_failure)
+        except Exception:
+            _logger.warning("ジョブ完了通知音を開始できませんでした", exc_info=True)
+
+    @staticmethod
+    def _warn_completion_sound_failure(future: Future[None]) -> None:
+        if (error := future.exception()) is not None:
+            _logger.warning("ジョブ完了通知音の再生に失敗しました: %s", error)
 
     def _pcb_path(self) -> Path | None:
         selected = self._state.selected_pcb

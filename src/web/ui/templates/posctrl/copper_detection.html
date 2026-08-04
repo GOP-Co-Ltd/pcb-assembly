@@ -5,7 +5,7 @@
 {% set preview_overlay = "copper" %}
 {% include "partials/preview_pane.html" %}
 <fieldset class="preview-controls">
-  <legend>Canny パラメータ（blur_ksize: {{ blur_ksize }}）</legend>
+  <legend>エッジ検出パラメータ（blur_ksize: {{ blur_ksize }}）</legend>
   <div class="canny-row">
     <label for="canny-low">canny low</label>
     <input type="range" id="canny-low" min="0" max="500" step="1"

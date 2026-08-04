@@ -61,6 +61,9 @@ GATED_REQUESTS: list[tuple[str, str, dict[str, Any] | None]] = [
     ("post", "/api/jobs/last/apply", None),
     ("post", "/api/jobs/last/discard", None),
     ("put", "/api/settings/machine", {"values": {}}),
+    # 機体のスピーカーを実際に鳴らす（`client` fixture は FakeAudioPlayer なので
+    # ゲートが外れても実 aplay は起動しない）
+    ("post", "/api/audio/test", {"sound": "success"}),
     ("post", "/api/machine-control", {"action": "relax"}),
     ("post", "/api/firmware-restart", None),
     ("put", "/api/pcb-file", {"path": "boards/sample.kicad_pcb"}),
@@ -83,6 +86,7 @@ UNGATED_REQUESTS: list[tuple[str, str, dict[str, Any] | None]] = [
     ("get", "/api/jobs", None),
     ("get", "/api/jobs/current", None),
     ("get", "/api/settings/machine", None),
+    ("get", "/api/audio/settings", None),
     ("get", "/api/pasting/pad-config", None),
 ]
 

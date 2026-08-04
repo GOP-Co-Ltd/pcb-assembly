@@ -26,11 +26,14 @@ from tests.e2e.conftest import (
     start_app as _start_app,
     wait_machine_field as _wait_machine_field,
 )
-from tests.helpers import wait_until
+from tests.helpers import FAKE_AUDIO_DEVICES, wait_until
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint, MachineRegistry
 
 _HTTP_TIMEOUT = 10.0
+
+# 通知音ページで選択する候補（FakeAudioPlayer の 2 番目 = HifiBerry DAC）
+_HIFIBERRY_DEVICE = FAKE_AUDIO_DEVICES[1]
 
 # 一覧に出るだけで誰も開かない登録（ドロップダウンを 2 件にして選択状態を見る）
 _GHOST_MACHINE_ID = "ghost"
@@ -105,20 +108,10 @@ class TestCompletionNoticeOverBrowser:
         self, live_ui: LiveUi, browser_page
     ):
         original_title = "はんだ塗布 — PCB Assembly WebUI"
-        with (
-            browser_page.expect_response(
-                lambda response: "paste-completion-success.wav" in response.url
-            ) as success_sound,
-            browser_page.expect_response(
-                lambda response: "paste-completion-failure.wav" in response.url
-            ) as failure_sound,
-        ):
-            _start_completion_notice_job(
-                live_ui, browser_page, "completion_notice_success"
-            )
-
-        assert success_sound.value.ok
-        assert failure_sound.value.ok
+        # 通知音は Raspberry Pi 本体で鳴らすので、ブラウザは wav を取得しない
+        requested_urls: list[str] = []
+        browser_page.on("request", lambda request: requested_urls.append(request.url))
+        _start_completion_notice_job(live_ui, browser_page, "completion_notice_success")
 
         notice = browser_page.locator("#job-completion-notice")
         notice.wait_for(state="visible", timeout=10_000)
@@ -127,6 +120,7 @@ class TestCompletionNoticeOverBrowser:
             "通知テスト成功が完了しました"
         )
         assert browser_page.title() == f"【成功】{original_title}"
+        assert not any(".wav" in url for url in requested_urls)
 
         browser_page.locator("#job-completion-dismiss").click()
         expect(notice).to_be_hidden()
@@ -372,6 +366,88 @@ class TestSettingsOverBrowser:
 
         active_tag = browser_page.evaluate("document.activeElement?.tagName")
         assert active_tag != "INPUT"
+
+
+class TestCopperDetectionOverBrowser:
+    """銅箔前処理スライダーを実ブラウザで保存し、backend の設定 API まで通す."""
+
+    def test_save_persists_canny_thresholds(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        browser_page.goto(
+            f"{live_ui.base_url}/posctrl/copper_detection",
+            wait_until="domcontentloaded",
+        )
+        _acquire_control(browser_page)
+
+        for selector, value in (
+            ("#canny-low", "91"),
+            ("#canny-high", "193"),
+        ):
+            browser_page.locator(selector).evaluate(
+                """(element, value) => {
+                    element.value = value;
+                    element.dispatchEvent(new Event("input", { bubbles: true }));
+                }""",
+                value,
+            )
+
+        browser_page.locator("#canny-save").click()
+
+        _wait_machine_field(
+            live_server.base_url, "paste_dispenser.pad_align.canny_low", 91.0
+        )
+        _wait_machine_field(
+            live_server.base_url, "paste_dispenser.pad_align.canny_high", 193.0
+        )
+
+
+class TestAudioPageOverBrowser:
+    """通知音ページ（/dev/audio）の実ブラウザ操作.
+
+    デバイス一覧はサーバ（FakeAudioPlayer + selectable_devices）が返した値だけを
+    描画し、保存は汎用即保存フォーム（settings.js）に委ねる。
+    """
+
+    def test_device_and_volume_are_saved_to_machine_toml(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        device = _HIFIBERRY_DEVICE.name
+        browser_page.goto(
+            f"{live_ui.base_url}/dev/audio", wait_until="domcontentloaded"
+        )
+        _acquire_control(browser_page)
+        select = browser_page.locator("#audio-device")
+        # option はサーバ応答から生成されるので、描画完了を待ってから操作する
+        browser_page.locator(f'#audio-device option[value="{device}"]').wait_for(
+            state="attached", timeout=10_000
+        )
+        assert select.locator("option").count() == len(FAKE_AUDIO_DEVICES)
+
+        select.select_option(device)
+
+        _wait_machine_field(live_server.base_url, "audio.device", device)
+
+        volume = browser_page.locator("#audio-volume")
+        volume.fill("0.4")
+
+        _wait_machine_field(live_server.base_url, "audio.volume", 0.4)
+        expect(browser_page.locator("#audio-volume-value")).to_have_text("40%")
+
+    def test_test_playback_button_calls_api(self, live_ui: LiveUi, browser_page):
+        browser_page.goto(
+            f"{live_ui.base_url}/dev/audio", wait_until="domcontentloaded"
+        )
+        _acquire_control(browser_page)
+        button = browser_page.locator('[data-sound="success"]')
+        button.wait_for(state="visible", timeout=10_000)
+
+        with browser_page.expect_response(
+            lambda response: response.url.endswith("/api/audio/test")
+        ) as played:
+            button.click()
+
+        assert played.value.ok
 
 
 class TestLoadingOverBrowser:

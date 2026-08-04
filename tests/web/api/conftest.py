@@ -8,6 +8,8 @@ tmp_path に `data/testing/config` をコピーした Settings を `create_app` 
 - `data/testing/config/machine.toml` は WebUI / E2E 用（コメント保持・欠落キーの
   テスト素材を含む）。pcbasm コア層の単体テストが使う `data/testing/machine.toml` /
   `machine_minimal.toml` とは別物
+- 通知音は `FakeAudioPlayer` を注入する。既定の `AlsaAudioPlayer` だと完了通知付き
+  ジョブが実 `aplay` を起動して実スピーカーが鳴るため
 - 実機系（`@mark_hardware`）はリポジトリの実 `config/`（port 7125）を使う
 - Settings は env ではなく直接構築して注入する（env はプロセスグローバルで leak するため）
 """
@@ -24,7 +26,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pcbasm.vision import ImageArray
-from tests.helpers import PROJECT_ROOT, TESTING_DATA_DIR, copy_testing_config
+from tests.helpers import (
+    PROJECT_ROOT,
+    TESTING_DATA_DIR,
+    FakeAudioPlayer,
+    copy_testing_config,
+)
 from web.api.app import create_app
 from web.api.config_store import ConfigStore
 from web.api.settings import Settings
@@ -163,8 +170,18 @@ def webui_settings(tmp_path: Path, config_dir: Path, pcb_root: Path) -> Settings
 
 
 @pytest.fixture
-def app(webui_settings: Settings) -> FastAPI:
-    return create_app(webui_settings)
+def audio_player() -> FakeAudioPlayer:
+    """実 ALSA に触らない AudioPlayer（再生要求とデバイス一覧の検証用）.
+
+    テストごとに新しいインスタンスなので、`played` を検証するテストが他テストの
+    再生要求に汚染されることはない。
+    """
+    return FakeAudioPlayer()
+
+
+@pytest.fixture
+def app(webui_settings: Settings, audio_player: FakeAudioPlayer) -> FastAPI:
+    return create_app(webui_settings, audio_player=audio_player)
 
 
 @pytest.fixture
@@ -199,8 +216,10 @@ def fake_camera_settings(webui_settings: Settings) -> Settings:
 
 
 @pytest.fixture
-def fake_camera_app(fake_camera_settings: Settings) -> FastAPI:
-    return create_app(fake_camera_settings)
+def fake_camera_app(
+    fake_camera_settings: Settings, audio_player: FakeAudioPlayer
+) -> FastAPI:
+    return create_app(fake_camera_settings, audio_player=audio_player)
 
 
 @pytest.fixture
@@ -223,8 +242,10 @@ def checkerboard_camera_settings(webui_settings: Settings) -> Settings:
 
 
 @pytest.fixture
-def checkerboard_camera_app(checkerboard_camera_settings: Settings) -> FastAPI:
-    return create_app(checkerboard_camera_settings)
+def checkerboard_camera_app(
+    checkerboard_camera_settings: Settings, audio_player: FakeAudioPlayer
+) -> FastAPI:
+    return create_app(checkerboard_camera_settings, audio_player=audio_player)
 
 
 @pytest.fixture

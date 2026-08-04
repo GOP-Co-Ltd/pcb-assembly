@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterator
 
 import pytest
 
+from pcbasm.hal import AudioPlayer
 from tests import helpers
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
@@ -141,13 +142,19 @@ def make_manager(
     """JobManager のファクトリ。生成した manager はテスト終了時に shutdown する."""
     managers: list[JobManager] = []
 
-    def _make(catalog: JobCatalog, *, log_capacity: int = 500) -> JobManager:
+    def _make(
+        catalog: JobCatalog,
+        *,
+        log_capacity: int = 500,
+        audio_player: AudioPlayer | None = None,
+    ) -> JobManager:
         manager = JobManager(
             state,
             preview,
             catalog,
             fake_camera_settings,
             board_store,
+            audio_player=audio_player,
             log_capacity=log_capacity,
         )
         managers.append(manager)

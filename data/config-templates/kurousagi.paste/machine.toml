@@ -12,7 +12,6 @@ rotations_per_ul = 8.0 # キャリブレーション値 2026/06/08 23G S3X70-E15
 solder_paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
 nozzle_diameter = 0.30 # ノズル内径 [mm] (23G)
 dispense_mode = "auto" # 塗布方式: auto / dot / line / area
-air_pump_enabled = true # エアポンプの有効/無効
 auto_line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比
 auto_area_short_side_factor = 4.0 # Auto時に面塗布へ切り替える短辺のノズル径倍率
 max_dispense_rate = 0.2 # 吐出レート上限 [uL/sec]
@@ -39,13 +38,14 @@ x = -2.9405
 y = 22.9727
 
 [paste_dispenser.pad_align]
-# pad単位の銅箔照合による位置合わせ
-tolerance = 0.025    # 収束許容誤差 [mm]
-max_correction = 0.3         # 1回の照合で許容する最大ずれ [mm]。超過は誤マッチとして照合失敗
-search_window = 1.4 # 照合の探索窓 片側幅 [mm]
-roi_margin = 0.5    # pad ROIのマージン [mm]
-min_roi = 1.0       # pad ROIの最小辺長 [mm]
-theta_range = 2.0   # 回転探索の片側範囲 [deg]
+# 重複領域の銅箔照合による位置合わせ
+region_size_px = 100          # 照合領域の一辺 [px]
+region_overlap = 0.5          # 隣接する照合領域の重なり [0, 1)
+board_edge_margin = 0.5       # 基板外形から照合領域までの余白 [mm]
+max_passes = 5                # 1領域あたりの再計測上限
+converge_tolerance = 0.03     # 収束とみなす増分 [mm]
+max_correction = 0.3          # 1領域で許容する累積ずれ [mm]
+search_window = 1.4           # 照合の探索窓 片側幅 [mm]
 canny_low = 55.0   # Cannyエッジ検出の下側閾値
 canny_high = 104.0  # Cannyエッジ検出の上側閾値
 blur_ksize = 3      # GaussianBlurカーネルサイズ (奇数)
@@ -78,7 +78,7 @@ y = 3.8
 # 基準点の直径 (mm)
 target_diameter = 3.0
 
-# 基盤からみた基準点の相対位置 (mm)
+# ボード4隅から対応する基準点へのオフセット（4項目すべて必須、mm）
 [reference_point.offsets] # [x, y]で記述
 top_left = [2.5, -5.0]
 top_right = [-2.5, -5.0]
@@ -89,3 +89,9 @@ bottom_right = [-2.5, 5.0]
 x = 67.3
 y = 52.0
 z = -24.0
+
+# ジョブ完了通知音の出力先。省略時は ALSA のシステム既定デバイス・音量 0.75。
+# WebUI の /dev/audio で選ぶと config/machine.toml 側に書き込まれる
+# [audio]
+# device = "default" # aplay -L の PCM 名（例 plughw:CARD=sndrpihifiberry,DEV=0）
+# volume = 0.75      # 0.0〜1.0

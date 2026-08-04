@@ -126,15 +126,16 @@ class TestMachinePrefixFunnel:
     frontend 経由の操作が同居 backend や 404 に飛ぶ。
     """
 
-    def test_fetch_is_confined_to_the_funnel_and_the_completion_sound(self):
+    def test_fetch_is_confined_to_the_funnel(self):
         callers = {
             path.name
             for path in _js_files()
             if "fetch(" in path.read_text(encoding="utf-8")
         }
 
-        # app.js = api() の funnel、job_console.js = 完了音（/static は prefix しない）
-        assert callers == {"app.js", "job_console.js"}
+        # app.js = api() / frontendJson() の funnel だけ。通知音は Pi の ALSA で鳴る
+        # ので、ブラウザが wav を fetch する経路はもう無い
+        assert callers == {"app.js"}
 
     def test_the_funnel_prefixes_from_the_body_dataset(self):
         app_js = (_JS_DIR / "app.js").read_text(encoding="utf-8")

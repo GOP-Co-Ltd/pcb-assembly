@@ -5,6 +5,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import Future
 from functools import wraps
 from pathlib import Path
 from secrets import token_hex
@@ -13,7 +14,9 @@ from typing import ParamSpec, TypeVar, override
 import picamera2
 import pytest
 
+from pcbasm.config import Audio
 from pcbasm.hal import Camera, CameraInfo, Resolution
+from pcbasm.hal.audio import AudioDevice, AudioPlayer, Sound
 from pcbasm.vision import Image
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -105,11 +108,25 @@ def _csi_camera_available() -> bool:
     return bool(picamera2.Picamera2.global_camera_info())
 
 
+def _alsa_audio_available() -> bool:
+    """aplayが利用でき、ALSAに1台以上の再生デバイスが見えているか確認する."""
+    try:
+        result = subprocess.run(
+            ["aplay", "-l"],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+        )
+        return result.returncode == 0 and "card " in result.stdout.lower()
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return False
+
+
 def _skip_unless_available(
     is_available: Callable[[], bool],
     reason: str,
 ) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
-    """実行時に能力（カメラ接続・mDNS 可否）を確認してテストをskipするdecoratorを返す."""
+    """実行時に能力（カメラ / ALSA 接続・mDNS 可否）を確認してテストをskipするdecoratorを返す."""
 
     def decorator(test: Callable[_P, _R]) -> Callable[_P, _R]:
         @wraps(test)
@@ -131,6 +148,11 @@ skip_if_no_usb_camera = _skip_unless_available(
 skip_if_no_csi_camera = _skip_unless_available(
     _csi_camera_available,
     "CSIカメラが接続されていません",
+)
+
+skip_if_no_alsa_audio = _skip_unless_available(
+    _alsa_audio_available,
+    "ALSA再生デバイスが接続されていません",
 )
 
 # mDNS の能力プローブ結果（bind し直さないようモジュールレベルでキャッシュする）
@@ -185,6 +207,59 @@ def random_service_type() -> str:
     成功したときに実 LAN へ広告・探索を漏らさないための構造的な予防。
     """
     return f"_pcbasmt{token_hex(4)}._tcp.local."
+
+
+# FakeAudioPlayer が既定で返すデバイス一覧（実 ALSA 構成に依存しないための固定値）
+FAKE_AUDIO_DEVICES = (
+    AudioDevice("default", "システム既定"),
+    AudioDevice(
+        "plughw:CARD=sndrpihifiberry,DEV=0",
+        "snd_rpi_hifiberry_dac, HifiBerry DAC HiFi pcm5102a-hifi-0",
+    ),
+    AudioDevice("plughw:CARD=vc4hdmi0,DEV=0", "vc4-hdmi-0, MAI PCM i2s-hifi-0"),
+)
+
+
+class FakeAudioPlayer(AudioPlayer):
+    """AudioPlayer 利用側を実ALSAなしで結合検証するテスト用実装."""
+
+    def __init__(
+        self,
+        devices: Sequence[AudioDevice] | None = None,
+        playback_error: Exception | None = None,
+    ) -> None:
+        self._devices = FAKE_AUDIO_DEVICES if devices is None else tuple(devices)
+        self._playback_error = playback_error
+        self._played: list[tuple[Sound, Audio]] = []
+        self._close_calls = 0
+
+    @property
+    def played(self) -> tuple[tuple[Sound, Audio], ...]:
+        """再生を要求された (音種, 設定) を呼び出し順に返す."""
+        return tuple(self._played)
+
+    @property
+    def close_calls(self) -> int:
+        """終了処理が呼ばれた回数を返す."""
+        return self._close_calls
+
+    @override
+    def list_devices(self) -> tuple[AudioDevice, ...]:
+        return self._devices
+
+    @override
+    def play(self, sound: Sound, config: Audio) -> Future[None]:
+        self._played.append((sound, config))
+        future: Future[None] = Future()
+        if self._playback_error is None:
+            future.set_result(None)
+        else:
+            future.set_exception(self._playback_error)
+        return future
+
+    @override
+    def close(self) -> None:
+        self._close_calls += 1
 
 
 class FakeCamera(Camera):

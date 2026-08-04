@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore, UnknownFieldError
 from web.api.control import ControlDeniedError, ControlLease, LeaseInfo
@@ -24,6 +25,7 @@ from web.api.jobs.manager import JobManager
 from web.api.preview import PreviewService
 from web.api.routers import (
     app_state,
+    audio,
     control_api,
     files,
     jobs,
@@ -51,9 +53,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
     if advertiser is not None:
         await advertiser.stop()
-    # シャットダウン後始末（preview 終了通知 → ジョブ abort + join → FrameHub 停止）
+    # シャットダウン後始末（preview 通知 → ジョブ join → 通知音終了 → FrameHub 停止）
+    # 通知音の close はジョブ join 後（実行中ジョブの完了音を捨てない）
     app.state.preview.request_shutdown()
     app.state.jobs.shutdown()
+    app.state.audio_player.close()
     app.state.appstate.close()
 
 
@@ -93,12 +97,16 @@ def _control_change_notifier(app: FastAPI) -> Callable[[], None]:
 
 
 def create_app(
-    settings: Settings | None = None, *, clock: Callable[[], float] | None = None
+    settings: Settings | None = None,
+    *,
+    audio_player: AudioPlayer | None = None,
+    clock: Callable[[], float] | None = None,
 ) -> FastAPI:
     """WebUI の FastAPI アプリを構築する.
 
     Args:
         settings: WebUI 設定（None なら環境変数から構築。uvicorn --factory 用）
+        audio_player: 通知音プレイヤー（None なら ALSA 実装を構築）
         clock: 操作権リースの時計（None なら `time.monotonic`）。失効までの秒数は
             分単位なので、実時間で待つと検証できない。「ジョブ実行中は無操作でも
             失効しない」という `busy` の配線を確かめるための注入口
@@ -118,6 +126,8 @@ def create_app(
     state = AppState(settings, store)
     preview = PreviewService(state)
     catalog = default_catalog()
+    if audio_player is None:
+        audio_player = AlsaAudioPlayer()
 
     app = FastAPI(title="pcb-assembly WebUI", lifespan=_lifespan)
     app.state.settings = settings
@@ -125,11 +135,14 @@ def create_app(
     app.state.appstate = state
     app.state.preview = preview
     app.state.catalog = catalog
+    app.state.audio_player = audio_player
     board_store = BoardSettingsStore(
         settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
     )
     app.state.board_store = board_store
-    app.state.jobs = JobManager(state, preview, catalog, settings, board_store)
+    app.state.jobs = JobManager(
+        state, preview, catalog, settings, board_store, audio_player=audio_player
+    )
     # 広告の開始は lifespan（AsyncZeroconf が running loop を要求する）
     app.state.advertiser = (
         _build_advertiser(settings, state) if settings.discovery_enabled else None
@@ -184,6 +197,7 @@ def create_app(
     app.include_router(control_api.router)
     app.include_router(files.router)
     app.include_router(settings_api.router)
+    app.include_router(audio.router)
     app.include_router(machine_control.router)
     app.include_router(system.router)
     app.include_router(preview_router.router)

@@ -1,10 +1,7 @@
 """Board/オフセットの位置合わせ共通制御."""
 
-from .alignment import (
-    ComponentAlignments,
-    PadAlignmentSession,
-    sorted_top_component_pads,
-)
+from .aligner import RegionAligner, RegionAlignment
+from .alignment import BoardAlignment, RegionAlignmentSession
 from .board import BoardTransformMeasurer
 from .copper import (
     CopperEdgeMatcher,
@@ -12,19 +9,13 @@ from .copper import (
     CopperProjector,
     EdgeMatch,
     PixelRect,
-    RigidEdgeMatch,
+    centered_roi,
 )
 from .correction import to_machine_transform
 from .offset import OffsetTransformMeasurer
 from .orthogonality import OrthogonalityMetrics
-from .pad import (
-    ComponentPads,
-    CopperPadObserver,
-    PadAligner,
-    PadAlignmentResult,
-    group_pads_by_component,
-)
 from .position import XYPositionAdjustor
+from .region import AlignmentRegion, plan_alignment_regions
 from .render import PadResultRenderer, render_edge_match, render_label
 from .setup import (
     BoardCalibrationResult,
@@ -41,34 +32,32 @@ from .tour import (
 )
 
 __all__ = [
+    "AlignmentRegion",
+    "BoardAlignment",
     "BoardCalibrationResult",
     "CircleDetectionError",
-    "ComponentAlignments",
-    "ComponentPads",
     "BoardTransformMeasurer",
     "CopperEdgeMatcher",
-    "CopperPadObserver",
     "CopperProjection",
     "CopperProjector",
     "EdgeMatch",
     "OffsetObserver",
     "OffsetTransformMeasurer",
     "OrthogonalityMetrics",
-    "PadAligner",
-    "PadAlignmentResult",
-    "PadAlignmentSession",
     "PadResultRenderer",
     "PixelRect",
-    "RigidEdgeMatch",
+    "RegionAligner",
+    "RegionAlignment",
+    "RegionAlignmentSession",
     "XYPositionAdjustor",
+    "centered_roi",
     "display_at_point",
-    "group_pads_by_component",
     "interactive_display_at_point",
     "machine_session",
+    "plan_alignment_regions",
     "render_edge_match",
     "render_label",
     "setup_board_calibration",
-    "sorted_top_component_pads",
     "to_machine_transform",
     "wait_for_keypress",
     "window_sink",

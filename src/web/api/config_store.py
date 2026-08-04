@@ -14,8 +14,13 @@ from tomlkit.items import Item, Table
 
 from pcbasm.config import (
     DISPENSE_MODES,
+    validate_audio_device,
+    validate_audio_volume,
     validate_paste_lift_height,
+    validate_positive_number,
+    validate_positive_odd_integer,
     validate_probe_board_edge_margin,
+    validate_region_overlap,
 )
 from web.api.atomic import write_text_atomic
 
@@ -50,7 +55,6 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     ),
     FieldSpec("paste_dispenser.nozzle_diameter", "ノズル内径", "float", "mm"),
     FieldSpec("paste_dispenser.dispense_mode", "塗布方式", "dispense_mode"),
-    FieldSpec("paste_dispenser.air_pump_enabled", "エアポンプ", "bool"),
     FieldSpec(
         "paste_dispenser.auto_line_aspect_ratio",
         "Auto線塗布しきい縦横比",
@@ -91,20 +95,27 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.toolhead.x", "ツールヘッド相対位置 X", "float", "mm"),
     FieldSpec("paste_dispenser.toolhead.y", "ツールヘッド相対位置 Y", "float", "mm"),
     # [paste_dispenser.pad_align]
-    FieldSpec("paste_dispenser.pad_align.tolerance", "収束許容誤差", "float", "mm"),
+    FieldSpec(
+        "paste_dispenser.pad_align.region_size_px", "照合領域の一辺", "int", "px"
+    ),
+    FieldSpec("paste_dispenser.pad_align.region_overlap", "照合領域の重なり", "float"),
+    FieldSpec(
+        "paste_dispenser.pad_align.board_edge_margin",
+        "基板外形からの余白",
+        "float",
+        "mm",
+    ),
+    FieldSpec("paste_dispenser.pad_align.max_passes", "再計測の上限回数", "int"),
+    FieldSpec(
+        "paste_dispenser.pad_align.converge_tolerance", "収束判定の増分", "float", "mm"
+    ),
     FieldSpec("paste_dispenser.pad_align.max_correction", "最大補正量", "float", "mm"),
     FieldSpec(
         "paste_dispenser.pad_align.search_window", "探索窓 片側幅", "float", "mm"
     ),
-    FieldSpec("paste_dispenser.pad_align.roi_margin", "ROIマージン", "float", "mm"),
-    FieldSpec("paste_dispenser.pad_align.min_roi", "ROI最小辺長", "float", "mm"),
-    FieldSpec(
-        "paste_dispenser.pad_align.theta_range", "回転探索 片側範囲", "float", "deg"
-    ),
     FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),
-    FieldSpec("paste_dispenser.pad_align.max_failures", "照合失敗の許容部品数", "int"),
     # [probe]
     FieldSpec("probe.lift_height", "プローブ後の上昇高さ", "float", "mm"),
     FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
@@ -136,6 +147,9 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     # [camera.crop]
     FieldSpec("camera.crop.width", "クロップ幅", "int", "px"),
     FieldSpec("camera.crop.height", "クロップ高さ", "int", "px"),
+    # [audio] — ジョブ完了通知音（Raspberry Pi 本体スピーカー）
+    FieldSpec("audio.device", "出力デバイス", "str"),
+    FieldSpec("audio.volume", "音量", "float"),
 )
 
 _MACHINE_FIELDS_BY_KEY = {spec.key: spec for spec in MACHINE_FIELDS}
@@ -151,12 +165,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
     Raises:
         UnknownFieldError: 型が一致しない場合
     """
-    if spec.value_type != "bool" and isinstance(value, bool):
+    if isinstance(value, bool):
         raise UnknownFieldError(f"{spec.key}: bool は受け付けません")
     match spec.value_type:
-        case "bool":
-            if isinstance(value, bool):
-                return value
         case "float":
             if isinstance(value, (int, float)):
                 coerced_float = float(value)
@@ -186,6 +197,21 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 if spec.key == "probe.board_edge_margin":
                     if error := validate_probe_board_edge_margin(coerced_float):
                         raise UnknownFieldError(error)
+                if spec.key == "audio.volume":
+                    if error := validate_audio_volume(coerced_float):
+                        raise UnknownFieldError(error)
+                if spec.key == "paste_dispenser.pad_align.region_overlap":
+                    if error := validate_region_overlap(coerced_float):
+                        raise UnknownFieldError(error)
+                if spec.key in {
+                    "paste_dispenser.pad_align.board_edge_margin",
+                    "paste_dispenser.pad_align.converge_tolerance",
+                    "paste_dispenser.pad_align.max_correction",
+                    "paste_dispenser.pad_align.search_window",
+                }:
+                    name = spec.key.rsplit(".", 1)[-1]
+                    if error := validate_positive_number(name, coerced_float):
+                        raise UnknownFieldError(error)
                 return coerced_float
         case "float_or_auto":
             if value == "auto":
@@ -199,8 +225,18 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
             if isinstance(value, float) and value.is_integer():
                 value = int(value)
             if isinstance(value, int):
-                if spec.key == "paste_dispenser.pad_align.max_failures" and value < 0:
-                    raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
+                if (
+                    spec.key
+                    in {
+                        "paste_dispenser.pad_align.region_size_px",
+                        "paste_dispenser.pad_align.max_passes",
+                    }
+                    and value < 1
+                ):
+                    raise UnknownFieldError(f"{spec.key}: 1以上の値が必要です")
+                if spec.key == "paste_dispenser.pad_align.blur_ksize":
+                    if error := validate_positive_odd_integer("blur_ksize", value):
+                        raise UnknownFieldError(error)
                 if (
                     spec.key in ("camera.crop.width", "camera.crop.height")
                     and value < 1
@@ -209,6 +245,10 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 return value
         case "str":
             if isinstance(value, str):
+                if spec.key == "audio.device":
+                    if error := validate_audio_device(value):
+                        raise UnknownFieldError(error)
+                    return value.strip()
                 return value
         case "dispense_mode":
             if isinstance(value, str) and value in DISPENSE_MODES:

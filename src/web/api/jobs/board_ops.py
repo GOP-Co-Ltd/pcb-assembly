@@ -7,10 +7,10 @@ from pathlib import Path
 
 from pcbasm.hal import Camera
 from pcbasm.posctrl import (
+    AlignmentRegion,
     BoardCalibrationResult,
-    ComponentPads,
-    PadAlignmentResult,
-    PadAlignmentSession,
+    RegionAlignment,
+    RegionAlignmentSession,
     setup_board_calibration,
 )
 from web.api.jobs.context import JobContext, PromptSpec
@@ -74,75 +74,30 @@ def confirm_next_point(
     )
 
 
-def pad_align_abort_message(
-    failed_designators: Sequence[str], max_failures: int | None
-) -> str | None:
-    """照合失敗数が許容数を超えたときの中止メッセージを返す.
-
-    Args:
-        failed_designators: 照合に失敗した部品の designator 一覧
-        max_failures: 許容する失敗部品数。None は無制限
-
-    Returns:
-        許容内（失敗数 <= 許容数）または無制限なら None。
-        超過なら失敗数・許容数・全 designator を含むメッセージ文字列。
-    """
-    if max_failures is None or len(failed_designators) <= max_failures:
-        return None
-    return (
-        f"銅箔照合の失敗部品数が許容数を超えました"
-        f"（失敗 {len(failed_designators)} / 許容 {max_failures}）: "
-        f"{', '.join(failed_designators)}。基板の向き・種類を確認してください"
-    )
-
-
-def align_component_groups(
+def align_regions(
     ctx: JobContext,
-    session: PadAlignmentSession,
-    groups: Sequence[ComponentPads],
+    session: RegionAlignmentSession,
+    regions: Sequence[AlignmentRegion],
     *,
-    on_failure: Callable[[ComponentPads, int], None] | None = None,
-    max_failures: int | None = None,
-) -> list[tuple[ComponentPads, PadAlignmentResult]]:
-    """部品単位の銅箔照合ループの共通骨格.
-
-    部品ごとに progress("銅箔照合") → checkpoint → ``session.align`` →
-    dx/dy/theta/mean_distance の log を行い、成功した (group, alignment) を
-    集めて返す。失敗は警告 log の後 ``on_failure``（あれば）を呼んで続行する
-    （board_tour が失敗 overlay の配信に使う）。
-
-    Args:
-        ctx: 実行中ジョブのコンテキスト
-        session: 銅箔照合セッション
-        groups: 照合対象の部品グループ
-        on_failure: 照合失敗時に呼ぶコールバック（group, index）
-        max_failures: 失敗部品数の許容数。超過した時点で ValueError を送出し
-            即中止。None は無制限（board_tour が使用）
-
-    Raises:
-        ValueError: 失敗部品数が ``max_failures`` を超えた場合
-    """
-    aligned: list[tuple[ComponentPads, PadAlignmentResult]] = []
-    failed: list[str] = []
-    for index, group in enumerate(groups):
-        ctx.progress("銅箔照合", 100.0 * index / len(groups))
+    on_failure: Callable[[AlignmentRegion, int], None] | None = None,
+) -> list[RegionAlignment]:
+    """計画済み領域を巡回し、収束した照合結果だけを返す."""
+    aligned: list[RegionAlignment] = []
+    for index, region in enumerate(regions):
+        ctx.progress("銅箔照合", 100.0 * index / len(regions))
         ctx.checkpoint()
-        designator = group.component.designator
-        alignment = session.align(group)
+        alignment = session.align(region)
         if alignment is None:
-            ctx.log(f"警告: {designator} の照合に失敗")
+            ctx.log(f"警告: 領域 {region.index} の照合に失敗")
             if on_failure is not None:
-                on_failure(group, index)
-            failed.append(designator)
-            message = pad_align_abort_message(failed, max_failures)
-            if message is not None:
-                raise ValueError(message)
+                on_failure(region, index)
             continue
-        translation = alignment.translation
+        displacement = alignment.displacement
         ctx.log(
-            f"{designator}: dx={translation.x:+.4f} dy={translation.y:+.4f} mm, "
-            f"theta={alignment.rotation.degrees:+.3f} deg, "
-            f"mean_distance={alignment.match.mean_distance_px:.2f} px"
+            f"領域 {region.index}: dx={displacement.x:+.4f} "
+            f"dy={displacement.y:+.4f} mm, "
+            f"rms_distance={alignment.match.rms_distance_px:.2f} px, "
+            f"passes={alignment.passes}"
         )
-        aligned.append((group, alignment))
+        aligned.append(alignment)
     return aligned

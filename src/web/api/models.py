@@ -20,9 +20,11 @@ type JobStatusName = Literal[
 ]
 
 type SettingValueType = Literal[
-    "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode", "bool"
+    "float", "int", "str", "float_pair", "float_or_auto", "dispense_mode"
 ]
 
+# bool を受け付けるフィールドは無いが、JSON の true/false が数値へ暗黙変換されず
+# _coerce の「bool は受け付けません」で 400 になるよう bool を union に残す。
 type MachineSettingValue = float | int | str | bool | list[float]
 
 

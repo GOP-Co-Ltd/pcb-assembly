@@ -44,6 +44,8 @@ _GATED_ELEMENTS = {
     "base.html": {"#pcb-chip", "#firmware-restart"},
     "settings.html": {"#machine-settings-form"},
     "dev/klipper_status.html": {"#ks-gcode-form"},
+    # 通知音のテスト再生は機体のスピーカーが実際に鳴る（POST /api/audio/test と対応）
+    "dev/audio.html": {"#audio-settings-form", ".audio-test-actions"},
     "partials/job_form.html": {"#job-form"},
     "partials/machine_control.html": {"#machine-control"},
     "partials/loading_controls.html": {"#loading-controls"},

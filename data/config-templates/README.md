@@ -112,6 +112,10 @@ height = 400
 
 書き込み可能なキーの全量は `src/web/api/config_store.py` の `MACHINE_FIELDS` を参照。
 
+`[audio]`（ジョブ完了通知音の出力デバイスと音量）は任意セクション。未設定なら ALSA の
+システム既定デバイス・音量 0.75 で動く。WebUI の `/dev/audio` で選ぶと `config/machine.toml`
+へ書き戻されるため、テンプレートではコメントアウトしてある。
+
 ## printer.cfg のバージョン管理について
 
 Klipper は `~/printer_data/config/printer.cfg` を直接読み、`SAVE_CONFIG` の較正結果もそこへ

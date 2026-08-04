@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tomllib
 from enum import Enum, auto
+from math import isfinite
 from pathlib import Path
 from typing import Any, Literal
 
@@ -21,6 +22,8 @@ MachineType = Literal["paste", "pnp"]
 PasteHeight = float | Literal["auto"]
 DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
 DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR = 3.0
+DEFAULT_AUDIO_DEVICE = "default"  # ALSAのシステム既定PCM
+DEFAULT_AUDIO_VOLUME = 0.75
 
 
 def resolve_paste_height(paste_height: PasteHeight, ul_per_mm2: float) -> float:
@@ -43,26 +46,122 @@ class Klipper:
     port: int = 7125
 
 
+def validate_audio_device(device: str) -> str | None:
+    """通知音の出力デバイス名を検証する."""
+    if not device.strip():
+        return "audio.deviceは空でない文字列である必要があります"
+    return None
+
+
+def validate_audio_volume(volume: float) -> str | None:
+    """通知音の音量を検証する."""
+    if not isfinite(volume) or not 0.0 <= volume <= 1.0:
+        return f"audio.volumeは0以上1以下の有限値である必要があります: {volume!r}"
+    return None
+
+
+@attrs.frozen
+class Audio:
+    """通知音の出力設定."""
+
+    device: str = DEFAULT_AUDIO_DEVICE
+    volume: float = DEFAULT_AUDIO_VOLUME
+
+    def __attrs_post_init__(self) -> None:
+        if error := validate_audio_device(self.device):
+            raise ValueError(error)
+        if isinstance(self.volume, bool) or not isinstance(self.volume, (int, float)):
+            raise ValueError(
+                f"audio.volumeは0以上1以下の有限値である必要があります: {self.volume!r}"
+            )
+        volume = float(self.volume)
+        if error := validate_audio_volume(volume):
+            raise ValueError(error)
+        object.__setattr__(self, "device", self.device.strip())
+        object.__setattr__(self, "volume", volume)
+
+
 @attrs.frozen
 class PadAlign:
-    """pad単位の銅箔照合による位置合わせの設定."""
+    """重複領域の銅箔照合による位置合わせの設定."""
 
-    tolerance: float = 0.05  # 収束許容誤差 [mm]
-    max_correction: float = 1.0  # 1回の照合で許容する最大ずれ [mm]。超過は照合失敗
+    region_size_px: int = 100  # 照合領域の一辺 [px]
+    region_overlap: float = 0.5  # 隣接する照合領域の重なり [0, 1)
+    board_edge_margin: float = 0.5  # 基板外形から照合領域までの余白 [mm]
+    max_passes: int = 5  # 1領域あたりの再計測上限
+    converge_tolerance: float = 0.03  # 収束とみなす増分 [mm]
+    max_correction: float = 1.0  # 1領域で許容する累積ずれ [mm]
     search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
-    roi_margin: float = 1.0  # pad ROIのマージン [mm]
-    min_roi: float = 3.0  # pad ROIの最小辺長 [mm]
-    theta_range: float = 2.0  # 回転探索の片側範囲 [deg]
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
     canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
     blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
-    max_failures: int = 0  # 照合失敗の許容部品数。超過で塗布ジョブを即中止
 
     def __attrs_post_init__(self) -> None:
-        if isinstance(self.max_failures, bool) or self.max_failures < 0:
+        if (
+            isinstance(self.region_size_px, bool)
+            or not isinstance(self.region_size_px, int)
+            or self.region_size_px < 1
+        ):
             raise ValueError(
-                f"max_failuresは0以上の整数である必要があります: {self.max_failures}"
+                f"region_size_pxは1以上の整数である必要があります: "
+                f"{self.region_size_px}"
             )
+        if error := validate_region_overlap(self.region_overlap):
+            raise ValueError(error)
+        if (
+            isinstance(self.max_passes, bool)
+            or not isinstance(self.max_passes, int)
+            or self.max_passes < 1
+        ):
+            raise ValueError(
+                f"max_passesは1以上の整数である必要があります: {self.max_passes}"
+            )
+        for name in (
+            "board_edge_margin",
+            "converge_tolerance",
+            "max_correction",
+            "search_window",
+        ):
+            if error := validate_positive_number(name, getattr(self, name)):
+                raise ValueError(error)
+        if error := validate_positive_odd_integer("blur_ksize", self.blur_ksize):
+            raise ValueError(error)
+
+
+def validate_region_overlap(value: float) -> str | None:
+    """照合領域の重なり率を検証する."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not isfinite(value)
+        or not 0.0 <= value < 1.0
+    ):
+        return f"region_overlapは0以上1未満の有限値である必要があります: {value!r}"
+    return None
+
+
+def validate_positive_number(name: str, value: float) -> str | None:
+    """正の有限値であるべき設定値を検証する."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not isfinite(value)
+        or value <= 0
+    ):
+        return f"{name}は正の有限値である必要があります: {value!r}"
+    return None
+
+
+def validate_positive_odd_integer(name: str, value: object) -> str | None:
+    """正の奇数であるべき設定値を検証する."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value <= 0
+        or value % 2 == 0
+    ):
+        return f"{name}は正の奇数である必要があります: {value!r}"
+    return None
 
 
 def validate_paste_lift_height(value: float) -> str | None:
@@ -108,7 +207,6 @@ class PasteDispenser:
     )
     overlap: float = 0.0  # ジグザグ行間オーバーラップ [0,1)
     boundary_margin: float = 0.0  # 外周マージン [mm]
-    air_pump_enabled: bool = True  # エアポンプの有効/無効
     pad_align: PadAlign = attrs.field(factory=PadAlign)  # pad位置合わせ設定
 
     def __attrs_post_init__(self) -> None:
@@ -255,8 +353,6 @@ class Corner(Enum):
 class CornerOffsets:
     """各コーナーにおけるボード端から基準点マーカーへのオフセット.
 
-    top_leftは必須。それ以外は少なくとも1つ指定する必要がある。
-
     Attributes:
         top_left: 左上コーナーのオフセット [x, y] (mm)
         top_right: 右上コーナーのオフセット [x, y] (mm)
@@ -265,34 +361,12 @@ class CornerOffsets:
     """
 
     top_left: tuple[float, float]
-    top_right: tuple[float, float] | None = None
-    bottom_left: tuple[float, float] | None = None
-    bottom_right: tuple[float, float] | None = None
-
-    def __attrs_post_init__(self) -> None:
-        if (self.top_right, self.bottom_left, self.bottom_right).count(None) >= 2:
-            raise ValueError(
-                "top_left以外に少なくとも2つのコーナーオフセットを指定してください"
-            )
-
-    def has_corner(self, corner: Corner) -> bool:
-        """指定コーナーのオフセットが定義されているか返す."""
-        match corner:
-            case Corner.TOP_LEFT:
-                return True
-            case Corner.TOP_RIGHT:
-                return self.top_right is not None
-            case Corner.BOTTOM_LEFT:
-                return self.bottom_left is not None
-            case Corner.BOTTOM_RIGHT:
-                return self.bottom_right is not None
+    top_right: tuple[float, float]
+    bottom_left: tuple[float, float]
+    bottom_right: tuple[float, float]
 
     def get(self, corner: Corner) -> Point2d:
-        """指定コーナーのオフセットをPoint2dで返す.
-
-        Raises:
-            ValueError: 指定コーナーのオフセットが未定義の場合
-        """
+        """指定コーナーのオフセットをPoint2dで返す."""
         match corner:
             case Corner.TOP_LEFT:
                 offset = self.top_left
@@ -303,8 +377,6 @@ class CornerOffsets:
             case Corner.BOTTOM_RIGHT:
                 offset = self.bottom_right
 
-        if offset is None:
-            raise ValueError(f"{corner.name}のオフセットは定義されていません")
         return Point2d(x=offset[0], y=offset[1])
 
 
@@ -312,12 +384,12 @@ class CornerOffsets:
 class ReferencePoint:
     """基準点の設定.
 
-    x, yは左上基準点マーカーのマシン座標。
-    offsetsは各コーナーにおけるボード端から基準点マーカーへのオフセット。
+    x, yは左上基準点マーカーへ移動するための概略マシン座標。
+    offsetsは各ボードコーナーから対応する基準点マーカーへのPCB座標系ベクトル。
 
-    座標関係:
-        - ボード左上コーナー = to_point() - offsets.get(TOP_LEFT)
-        - 各コーナーの基準点 = ボードコーナー + offsets.get(corner)
+    概略移動先の座標関係:
+        - ボード左上コーナーの概略位置 = to_point() - offsets.get(TOP_LEFT)
+        - 各コーナーの概略基準点位置 = ボードコーナーの概略位置 + offsets.get(corner)
     """
 
     x: float
@@ -326,7 +398,7 @@ class ReferencePoint:
     offsets: CornerOffsets
 
     def to_point(self) -> Point2d:
-        """左上基準点マーカーのマシン座標をPoint2dとして返す."""
+        """左上基準点マーカーの概略マシン座標をPoint2dとして返す."""
         return Point2d(self.x, self.y)
 
     def get_reference_position(
@@ -344,7 +416,7 @@ class ReferencePoint:
             board_height: ボード高さ（BOTTOM_LEFT/BOTTOM_RIGHTで必須）
 
         Returns:
-            基準点マーカーのマシン座標
+            基準点マーカーへ移動するための概略マシン座標
 
         Raises:
             ValueError: 必要なboard_width/board_heightが指定されていない場合
@@ -465,6 +537,11 @@ class Machine:
         if "nozzle_cap" not in self._data:
             return None
         return self._get_config("nozzle_cap", NozzleCap)
+
+    @property
+    def audio(self) -> Audio:
+        """通知音の出力設定を取得する（[audio] 未設定・キー欠落は既定値）."""
+        return self._converter.structure(self._data.get("audio", {}), Audio)
 
     @property
     def klipper(self) -> Klipper:

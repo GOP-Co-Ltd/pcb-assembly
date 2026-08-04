@@ -6,6 +6,7 @@
 
 - Raspberry Pi 5
 - Pick and PlaceまたはPaste Dispenser Machine
+- スピーカー（通知音を使う場合。I2S DAC / アンプまたは HDMI 音声出力）
 
 ### ソフトウェア
 
@@ -15,6 +16,7 @@
         - Klipper + Moonraker + Mailsail
 - [KiCAD](https://www.kicad.org/download/linux/)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- `alsa-utils`（通知音を再生する `aplay` を含む）
 
 OS以外のソフトウェア類は[`install-softwares.sh`](install-softwares.sh)を実行
 
@@ -113,6 +115,20 @@ mDNS には生存判定が無く、電源を切った機体は最大 75 分ほ�
 その機体の Raspberry Pi に挿す。** 閲覧を許すのはリポジトリ直下・`/media`・`/mnt`
 （`src/web/api/settings.py` の `pcb_browse_allowed`）。
 
+### 通知音
+
+通知対象ジョブ（はんだ塗布など）の成功・失敗時に、**backend 機**の Raspberry Pi に接続した
+スピーカーから通知音を再生する（音を鳴らすのは backend プロセス。ブラウザからは鳴らさず、
+完了通知は画面表示のみ）。
+
+開発タブの `/dev/audio` で出力デバイス・音量を選び、テスト再生で確認できる。設定は
+`config/machine.toml` の `[audio]` に保存される（未設定時は ALSA のシステム既定デバイス・音量 75%）。
+テスト再生は機体のスピーカーが実際に鳴るので操作権を要する。
+
+音声ファイルを差し替える場合は `src/pcbasm/hal/sounds/success.wav` と `failure.wav` を
+**非圧縮 16-bit PCM WAV** で同名のまま上書きする（git-lfs 追跡下）。差し替え後は `/dev/audio` の
+テスト再生で確認する。
+
 ### systemd サービス
 
 backend と frontend は別 unit（`pcbasm-api.service` / `pcbasm-ui.service`）。
@@ -133,6 +149,8 @@ backend と frontend は別 unit（`pcbasm-api.service` / `pcbasm-ui.service`）
 ください」と警告するだけ**（旧 unit は backend 本体なので、`ui` を入れ替えるついでに消すと
 同居機の backend が消えて frontend だけが残る）。`remove ui` も旧 unit には触らない。
 運用の対応は **同居機 = `install all`、機体 = `install api`、frontend 専用機 = `install ui`**。
+
+通知音を使う場合は、backend サービスの実行ユーザーから対象の ALSA PCM を再生できることも確認する。
 
 起動順の依存は付けていないので、frontend が backend より先に上がって構わない（未起動の
 backend を選んだページが 503 になるだけ）。

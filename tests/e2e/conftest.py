@@ -35,7 +35,7 @@ import pytest
 import uvicorn
 from starlette.types import ASGIApp
 
-from tests.helpers import copy_testing_config
+from tests.helpers import FakeAudioPlayer, copy_testing_config
 from tests.web.api.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE
 from web.api.app import create_app
 from web.api.jobs.catalog import JobCatalog, JobDefinition
@@ -425,8 +425,12 @@ def e2e_settings(tmp_path: Path) -> Settings:
 
 @pytest.fixture
 def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
-    """実 uvicorn の backend WebAPI を起動し、停止まで面倒を見る."""
-    app = create_app(e2e_settings)
+    """実 uvicorn の backend WebAPI を起動し、停止まで面倒を見る.
+
+    通知音は `FakeAudioPlayer` を注入する（既定の `AlsaAudioPlayer` だと完了通知付き
+    ジョブが実 `aplay` を起動して実スピーカーが鳴る）。
+    """
+    app = create_app(e2e_settings, audio_player=FakeAudioPlayer())
     _register_completion_notice_jobs(app.state.catalog)
     running = start_app(app)
     try:

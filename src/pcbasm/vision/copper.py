@@ -1,8 +1,17 @@
 """銅箔エッジ検出: 画像から銅箔の境界エッジを抽出."""
 
+import attrs
 import cv2
 
 from .image import Image, ImageArray
+
+
+@attrs.frozen
+class CopperEdgeDetection:
+    """銅箔エッジ検出の前処理済みグレースケール画像と2値エッジマスク."""
+
+    processed: Image
+    edges: ImageArray = attrs.field(eq=False)
 
 
 class CopperEdgeDetector:
@@ -25,14 +34,31 @@ class CopperEdgeDetector:
             canny_high: Cannyエッジ検出の上側閾値
             blur_ksize: GaussianBlurのカーネルサイズ (奇数)
         """
+        if (
+            isinstance(blur_ksize, bool)
+            or not isinstance(blur_ksize, int)
+            or blur_ksize <= 0
+            or blur_ksize % 2 == 0
+        ):
+            raise ValueError(
+                f"blur_ksizeは正の奇数である必要があります: {blur_ksize!r}"
+            )
         self._canny_low = canny_low
         self._canny_high = canny_high
         self._blur_ksize = blur_ksize
 
+    def detect(self, image: Image) -> CopperEdgeDetection:
+        """前処理画像と2値エッジマスク (uint8, 0/255) を返す."""
+        gray = cv2.cvtColor(image.numpy(), cv2.COLOR_BGR2GRAY)
+        kernel = (self._blur_ksize, self._blur_ksize)
+        processed = cv2.GaussianBlur(gray, kernel, 0)
+        edges = cv2.Canny(processed, self._canny_low, self._canny_high)
+        return CopperEdgeDetection(processed=Image(processed), edges=edges)
+
     def detect_edges(self, image: Image) -> ImageArray:
         """2値エッジマスク (uint8, 0/255) を返す.
 
-        グレースケール → GaussianBlur → Canny の結果。
+        detect() と同じ前処理を適用した結果。
 
         Args:
             image: 入力画像
@@ -40,6 +66,4 @@ class CopperEdgeDetector:
         Returns:
             入力と同サイズの2値エッジマスク
         """
-        gray = cv2.cvtColor(image.numpy(), cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (self._blur_ksize, self._blur_ksize), 0)
-        return cv2.Canny(blurred, self._canny_low, self._canny_high)
+        return self.detect(image).edges

@@ -87,19 +87,19 @@ class _CopperRenderer:
         self._text = f"canny: {canny_low:g} / {canny_high:g}"
         self._detect_interval = detect_interval
         self._next_detect = 0.0
-        self._edges: ImageArray | None = None
+        self._frame: Image | None = None
 
     def __call__(self, image: Image) -> Image:
         now = time.monotonic()
-        if now >= self._next_detect:
-            self._edges = self._detector.detect_edges(image)
+        if self._frame is None or now >= self._next_detect:
+            detection = self._detector.detect(image)
+            img = detection.processed.numpy().copy()
+            img[detection.edges > 0] = _GREEN
+            _draw_status_text(img, self._text)
+            self._frame = Image(img)
             self._next_detect = now + self._detect_interval
 
-        img = image.numpy().copy()
-        if self._edges is not None:
-            img[self._edges > 0] = _GREEN
-        _draw_status_text(img, self._text)
-        return Image(img)
+        return self._frame
 
 
 class PreviewService:
@@ -255,7 +255,10 @@ class PreviewService:
         return self._state.machine().camera.crop.size
 
     def _build_renderer(
-        self, overlay: OverlayKind, canny_low: float | None, canny_high: float | None
+        self,
+        overlay: OverlayKind,
+        canny_low: float | None,
+        canny_high: float | None,
     ) -> _Renderer:
         """ストリーム開始時に machine 設定を 1 回読んでレンダラを構築する.
 

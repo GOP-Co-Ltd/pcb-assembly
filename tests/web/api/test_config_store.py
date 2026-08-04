@@ -46,7 +46,6 @@ class TestMachineSettings:
         assert values["paste_dispenser.paste_height"] == "auto"
         assert values["paste_dispenser.lift_height"] == 2.0
         assert values["paste_dispenser.toolhead.x"] == -1.772
-        assert values["paste_dispenser.pad_align.blur_ksize"] == 5
         assert values["probe.min_radius"] == 0.7
         assert values["probe.board_edge_margin"] == 2.5
         assert values["camera.device_id"] == 0
@@ -252,6 +251,11 @@ class TestMachineSettings:
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings({"paste_dispenser.max_fill_speed": "fast"})
 
+    def test_numeric_field_rejects_bool(self, store: ConfigStore):
+        # bool は int のサブクラスなので、数値フィールドへの bool 投入は拒否する
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings({"paste_dispenser.max_fill_speed": True})
+
     def test_unknown_dispense_mode_raises_unknown_field_error(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings({"paste_dispenser.dispense_mode": "spray"})
@@ -312,21 +316,21 @@ class TestMachineSettings:
 class TestReferencePointOffsets:
     """float_pair 型フィールド reference_point.offsets.* の読み書き."""
 
-    def test_read_returns_pairs_and_none_for_missing_corner(self, store: ConfigStore):
+    def test_read_returns_all_four_corner_pairs(self, store: ConfigStore):
         values = store.read_machine_settings()
 
         assert values["reference_point.offsets.top_left"] == [5.0, -5.0]
         assert values["reference_point.offsets.top_right"] == [-5.0, -5.0]
         assert values["reference_point.offsets.bottom_left"] == [5.0, 5.0]
-        assert values["reference_point.offsets.bottom_right"] is None
+        assert values["reference_point.offsets.bottom_right"] == [-5.0, 5.0]
 
-    def test_write_missing_corner_then_reread_reflects_pair(self, store: ConfigStore):
+    def test_write_corner_then_reread_reflects_pair(self, store: ConfigStore):
         store.write_machine_settings(
-            {"reference_point.offsets.bottom_right": [-5.0, 5.0]}
+            {"reference_point.offsets.bottom_right": [-4.0, 4.0]}
         )
 
         values = store.read_machine_settings()
-        assert values["reference_point.offsets.bottom_right"] == [-5.0, 5.0]
+        assert values["reference_point.offsets.bottom_right"] == [-4.0, 4.0]
 
     def test_write_pair_keeps_table_comment(self, store: ConfigStore, config_dir: Path):
         store.write_machine_settings({"reference_point.offsets.top_left": [6.0, -6.0]})
@@ -373,67 +377,59 @@ class TestNozzleCapFields:
         assert values["nozzle_cap.z"] == 3.789
 
 
-class TestAirPumpEnabled:
-    """Bool 型フィールド air_pump_enabled の読み書き."""
+class TestPadAlignRegionSettings:
+    """重複領域の寸法・overlap 設定を読み書きする."""
 
-    def test_missing_air_pump_enabled_reads_as_none(self, store: ConfigStore):
+    def test_missing_region_settings_read_as_none(self, store: ConfigStore):
         values = store.read_machine_settings()
 
-        assert values["paste_dispenser.air_pump_enabled"] is None
+        assert values["paste_dispenser.pad_align.region_size_px"] is None
+        assert values["paste_dispenser.pad_align.region_overlap"] is None
 
-    @pytest.mark.parametrize("enabled", [True, False])
-    def test_write_then_reread_reflects_bool(self, store: ConfigStore, enabled: bool):
-        store.write_machine_settings({"paste_dispenser.air_pump_enabled": enabled})
+    def test_write_then_reread_reflects_values(self, store: ConfigStore):
+        store.write_machine_settings(
+            {
+                "paste_dispenser.pad_align.region_size_px": 160,
+                "paste_dispenser.pad_align.region_overlap": 0.25,
+            }
+        )
 
         values = store.read_machine_settings()
-        assert values["paste_dispenser.air_pump_enabled"] is enabled
+        assert values["paste_dispenser.pad_align.region_size_px"] == 160
+        assert values["paste_dispenser.pad_align.region_overlap"] == pytest.approx(0.25)
 
-    def test_bool_field_rejects_non_bool(self, store: ConfigStore):
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("paste_dispenser.pad_align.region_size_px", 0),
+            ("paste_dispenser.pad_align.region_overlap", -0.01),
+            ("paste_dispenser.pad_align.region_overlap", 1.0),
+        ],
+    )
+    def test_invalid_values_raise(self, store: ConfigStore, key: str, value):
         with pytest.raises(UnknownFieldError):
-            store.write_machine_settings({"paste_dispenser.air_pump_enabled": 1.0})
-
-    def test_numeric_field_still_rejects_bool(self, store: ConfigStore):
-        # bool は int のサブクラスなので、数値フィールドへの bool 投入は拒否され続ける
-        with pytest.raises(UnknownFieldError):
-            store.write_machine_settings({"paste_dispenser.max_fill_speed": True})
+            store.write_machine_settings({key: value})
 
 
-class TestPadAlignMaxFailures:
-    """Int 型フィールド pad_align.max_failures の読み書き（paste-align-max-failures 計画書）.
+class TestCopperPreprocessingSettings:
+    """銅箔前処理の blur 設定を公開 ConfigStore 経由で検証する."""
 
-    Repo fixture には max_failures を書かない（デフォルト 0 で動く）ため、 欠落時は None、write
-    後は round-trip する。負値は UnknownFieldError。
-    """
-
-    def test_missing_max_failures_reads_as_none(self, store: ConfigStore):
-        values = store.read_machine_settings()
-
-        assert values["paste_dispenser.pad_align.max_failures"] is None
-
-    def test_write_then_reread_reflects_value(self, store: ConfigStore):
-        store.write_machine_settings({"paste_dispenser.pad_align.max_failures": 2})
-
-        values = store.read_machine_settings()
-        assert values["paste_dispenser.pad_align.max_failures"] == 2
-
-    def test_write_zero_allows_no_failure(self, store: ConfigStore):
-        # 境界: 0 は「失敗を 1 つも許容しない」という有効値
-        store.write_machine_settings({"paste_dispenser.pad_align.max_failures": 0})
-
-        values = store.read_machine_settings()
-        assert values["paste_dispenser.pad_align.max_failures"] == 0
-
-    def test_negative_max_failures_raises(self, store: ConfigStore):
-        with pytest.raises(UnknownFieldError):
-            store.write_machine_settings({"paste_dispenser.pad_align.max_failures": -1})
+    @pytest.mark.parametrize("blur_ksize", [0, -1, 2, 4])
+    def test_rejects_blur_kernel_that_is_not_positive_and_odd(
+        self, store: ConfigStore, blur_ksize: int
+    ):
+        with pytest.raises(UnknownFieldError, match="blur_ksize"):
+            store.write_machine_settings(
+                {"paste_dispenser.pad_align.blur_ksize": blur_ksize}
+            )
 
 
 class TestCameraCropFields:
     """Int 型フィールド camera.crop.width / camera.crop.height の 1 以上検証 （webui-
     camera-calib 計画書・要確認事項 2）.
 
-    Change 即自動保存 UI では 0 や負値が machine.toml に書かれる事故が 起きやすいため、max_failures
-    と同様の per-key 検証を追加する。
+    Change 即自動保存 UI では 0 や負値が machine.toml に書かれる事故が 起きやすいため、per-key
+    検証を追加する。
     """
 
     @pytest.mark.parametrize("key", ["camera.crop.width", "camera.crop.height"])
@@ -449,3 +445,54 @@ class TestCameraCropFields:
 
         values = store.read_machine_settings()
         assert values[key] == 1
+
+
+class TestAudioFields:
+    """`[audio]` の読み書き（webui-audio-output 計画書「WebUI 配線」節）.
+
+    Repo fixture には `[audio]` を入れない（未設定でも既定値で鳴るのが要件）ため、
+    欠落時は None、write 後は round-trip する。device の空白のみ・volume の
+    0..1 外は UnknownFieldError。
+    """
+
+    def test_missing_audio_reads_as_none(self, store: ConfigStore):
+        values = store.read_machine_settings()
+
+        assert values["audio.device"] is None
+        assert values["audio.volume"] is None
+
+    def test_write_then_reread_reflects_values(self, store: ConfigStore):
+        store.write_machine_settings(
+            {"audio.device": "  plughw:CARD=Audio,DEV=0  ", "audio.volume": 0.25}
+        )
+
+        values = store.read_machine_settings()
+        assert values["audio.device"] == "plughw:CARD=Audio,DEV=0"
+        assert values["audio.volume"] == 0.25
+
+    @pytest.mark.parametrize("volume", [0.0, 1.0])
+    def test_volume_boundaries_are_accepted(self, store: ConfigStore, volume: float):
+        store.write_machine_settings({"audio.volume": volume})
+
+        values = store.read_machine_settings()
+        assert values["audio.volume"] == volume
+
+    @pytest.mark.parametrize("volume", [float("nan"), -0.01, 1.01])
+    def test_write_rejects_invalid_volume(self, store: ConfigStore, volume: float):
+        with pytest.raises(UnknownFieldError, match="audio.volume"):
+            store.write_machine_settings({"audio.volume": volume})
+
+    def test_write_rejects_blank_device(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError, match="audio.device"):
+            store.write_machine_settings({"audio.device": "  "})
+
+    def test_creating_audio_table_keeps_existing_comments(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """`[audio]` テーブルの新規作成でも既存コメントは失われない."""
+        store.write_machine_settings({"audio.volume": 0.5})
+
+        text = (config_dir / "machine.toml").read_text(encoding="utf-8")
+        assert "キャリブレーション値 2026/06/08" in text
+        assert "[reference_point.offsets] # [x, y]で記述" in text
+        assert "volume = 0.5" in text

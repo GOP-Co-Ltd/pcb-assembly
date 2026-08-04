@@ -12,19 +12,18 @@ import cv2
 
 from pcbasm import gcode
 from pcbasm.config import Machine
-from pcbasm.geometry import Compose, Point2d, Point3d, sort_by_nearest
+from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import (
+    AlignmentRegion,
+    BoardAlignment,
     BoardCalibrationResult,
-    ComponentPads,
     CopperProjector,
     OrthogonalityMetrics,
-    PadAlignmentResult,
-    PadAlignmentSession,
     PadResultRenderer,
+    RegionAlignmentSession,
     render_label,
-    sorted_top_component_pads,
 )
 from pcbasm.vision import (
     CalibrationResult,
@@ -34,11 +33,7 @@ from pcbasm.vision import (
     draw_detected_circle,
     draw_overlay,
 )
-from web.api.jobs.board_ops import (
-    align_component_groups,
-    confirm_next_point,
-    setup_board,
-)
+from web.api.jobs.board_ops import align_regions, confirm_next_point, setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
     ApplyFile,
@@ -360,8 +355,7 @@ def _move_to(
 
 
 def _pad_renderer(
-    result: BoardCalibrationResult,
-    session: PadAlignmentSession,
+    session: RegionAlignmentSession,
     projector: CopperProjector,
     pads: Sequence[Pad],
     position: Point2d,
@@ -370,9 +364,8 @@ def _pad_renderer(
     return PadResultRenderer(
         projector=projector,
         edge_detector=session.edge_detector,
-        roi_polygons=[p.copper_polygon for p in pads],
+        roi=session.region_roi,
         paste_polygons=[p.polygon for p in pads],
-        pad_align=result.machine.paste_dispenser.pad_align,
         position=position,
     )
 
@@ -445,67 +438,81 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
             _move_to(result, machine_pt)
             _stream_labeled_frames(ctx, result, f"Corner: {name}")
 
-        # 銅箔照合（部品単位の自動位置合わせ）。失敗時は FAILED overlay を配信する
-        groups = sorted_top_component_pads(result)
-        ctx.log(f"padを持つ部品数: {len(groups)}")
-        session = PadAlignmentSession.from_calibration(result, frame_sink=ctx.frame)
+        top_pads = [pad for pad in result.pcb.pads if pad.layer == Layer.TOP]
+        session = RegionAlignmentSession(result, frame_sink=ctx.frame)
+        regions = session.plan_regions([pad.center for pad in top_pads])
+        ctx.log(f"照合対象の領域数: {len(regions)}")
 
-        def render_failed(group: ComponentPads, index: int) -> None:
+        def render_failed(region: AlignmentRegion, index: int) -> None:
+            pads = [pad for pad in top_pads if region.covers(pad.center)]
             renderer = _pad_renderer(
-                result,
                 session,
                 session.projector,
-                group.pads,
+                pads,
                 result.stage.get_position().to2d(),
             )
             lines = [
-                f"{group.component.designator} {index + 1}/{len(groups)}",
+                f"Region {region.index + 1}/{len(regions)}",
                 "FAILED",
             ]
             _stream_pad_result(ctx, result, renderer, lines)
 
-        alignments = align_component_groups(
-            ctx, session, groups, on_failure=render_failed
-        )
+        aligned = align_regions(ctx, session, regions, on_failure=render_failed)
+        alignment = BoardAlignment(results=tuple(aligned))
 
         # 補正適用済みの全 pad 巡回
-        entries = _corrected_entries(result, session, alignments)
+        entries = _corrected_entries(result, session, alignment, top_pads)
         for index, (pad, renderer_projector, target) in enumerate(entries):
             ctx.progress("補正巡回", 100.0 * index / len(entries))
             ctx.checkpoint()
+            initial_correction = alignment.correction_for(
+                pad.center, designator=pad.designator
+            )
+            refined = session.refine(pad.center, initial_correction, pad.polygon)
+            if refined is not None:
+                initial = initial_correction.apply(
+                    result.board_transform.apply(pad.center)
+                )
+                residual = refined.displacement - (
+                    initial - result.board_transform.apply(pad.center)
+                )
+                ctx.log(
+                    f"{pad.designator}.{pad.pad_number}: "
+                    f"residual=({residual.x:+.4f}, {residual.y:+.4f}) mm, "
+                    f"passes={refined.passes}"
+                )
+                correction = Shift.from_point(refined.displacement)
+                renderer_projector = session.projector.with_correction(correction)
+                target = correction.apply(result.board_transform.apply(pad.center))
             _move_to(result, target, speed=Speed.rate(0.5))
-            renderer = _pad_renderer(result, session, renderer_projector, [pad], target)
+            renderer = _pad_renderer(session, renderer_projector, [pad], target)
             lines = [f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}"]
             _stream_pad_result(ctx, result, renderer, lines)
 
         # board 原点へ戻して終了
         _move_to(result, board_transform.apply(Point2d(0.0, 0.0)))
 
-    aligned_pads = sum(len(group.pads) for group, _ in alignments)
     return JobResult(
         summary=(
-            f"照合成功 {len(alignments)}/{len(groups)} 部品"
-            f"（{aligned_pads} pads）/ 補正巡回 {len(entries)} pads"
+            f"照合成功 {len(aligned)}/{len(regions)} 領域 / "
+            f"補正巡回 {len(entries)} pads"
         )
     )
 
 
 def _corrected_entries(
     result: BoardCalibrationResult,
-    session: PadAlignmentSession,
-    alignments: list[tuple[ComponentPads, PadAlignmentResult]],
+    session: RegionAlignmentSession,
+    alignment: BoardAlignment,
+    pads: Sequence[Pad],
 ) -> list[tuple[Pad, CopperProjector, Point2d]]:
     """補正適用済みの pad 巡回先を nearest neighbor 順で構築する."""
     entries: list[tuple[Pad, CopperProjector, Point2d]] = []
-    for group, alignment in alignments:
-        corrected_transform = Compose(
-            [result.board_transform, alignment.machine_transform]
-        )
-        corrected_projector = session.corrected_projector(alignment.machine_transform)
-        for pad in group.pads:
-            entries.append(
-                (pad, corrected_projector, corrected_transform.apply(pad.center))
-            )
+    for pad in pads:
+        correction = alignment.correction_for(pad.center, designator=pad.designator)
+        corrected_projector = session.projector.with_correction(correction)
+        target = correction.apply(result.board_transform.apply(pad.center))
+        entries.append((pad, corrected_projector, target))
 
     current = result.stage.get_position()
     return sort_by_nearest(

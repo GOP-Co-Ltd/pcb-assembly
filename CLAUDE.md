@@ -154,7 +154,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 
 ## エージェントチーム
 
-ユーザーから「エージェントチームで進めて」と指示があった場合、または中〜大規模変更時は skill `agent-team-startup` を参照。
+ユーザーから「エージェントチームで進めて」と指示があった場合、または中〜大規模変更時は skill `agent-team-startup` を参照。逆に「委譲せず自分で」「シーケンシャルに」と指示された場合、および 1〜数モジュールに収まる変更を通しで仕上げる場合は skill `solo-dev-cycle`（同じ工程を単独でロール切替しながら回す版）を参照。
 
 メインエージェントは `orchestrator`（`.claude/settings.json` の `"agent"` キーで設定。統括・委譲・レビュー裁定・ユーザーとの対話を担い、`src/` `tests/` は自分で編集しない）。標準サイクル：`implementation-planner` →（任意 `spec-test-author`）→ `plan-implementer` → `code-reviewer` ⇄ `code-simplifier`。各 agent の中間メモは `memory/agents/<agent-name>/<task>.md`。
 
@@ -190,6 +190,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `webui-e2e` — WebUI を実サーバーで E2E 検証する手順（make test-e2e / api-fake + ui-fake、常駐サーバー kill の回避策）
 - `webui-thin-wrapper` — WebUI を薄いラッパーに保つ手順（ロジックの pcbasm 集約・JS/router からのロジック除去・許容範囲の線引き）
 - `agent-team-startup` — エージェントチームの起動・委譲判断・並列化手順
+- `solo-dev-cycle` — 委譲せず単独で 計画 → テスト → 実装 → リファクタ → ドキュメント の 5 段階をロール切替で回す手順
 - `maximize-parallels` — 並列 tool 呼び出しの判定基準と典型パターン
 - `edit-dot-claude` — `.claude/` 配下の編集を /tmp 経由で行い permission prompt を抑える手順
 - `do-on-worktree` — 進行中の別タスクを止めず、main 分岐の worktree で裏作業を進める手順

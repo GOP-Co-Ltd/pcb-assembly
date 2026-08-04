@@ -4,14 +4,12 @@ cv2 の描画 API は使うが、ウィンドウ表示（imshow / waitKey）は�
 FrameSink（scripts の cv2 ウィンドウ、webui のプレビュー オーバーライド等）へ渡して表示する。
 """
 
-import math
 from collections.abc import Sequence
 
 import cv2
 import numpy as np
 from shapely import Polygon
 
-from pcbasm.config import PadAlign
 from pcbasm.geometry import Point2d
 from pcbasm.posctrl.copper import CopperProjector, PixelRect
 from pcbasm.vision import (
@@ -72,9 +70,8 @@ class PadResultRenderer:
         *,
         projector: CopperProjector,
         edge_detector: CopperEdgeDetector,
-        roi_polygons: Sequence[Polygon],
+        roi: PixelRect,
         paste_polygons: Sequence[Polygon],
-        pad_align: PadAlign,
         position: Point2d,
     ) -> None:
         """PadResultRenderer を初期化する.
@@ -82,25 +79,13 @@ class PadResultRenderer:
         Args:
             projector: 設計銅箔の投影器
             edge_detector: 銅箔エッジ検出器
-            roi_polygons: ROI を決める実銅箔ポリゴン（board 座標、mm）。
-                空の場合は画像中心に min_roi サイズの ROI を取る
+            roi: overlay の描画範囲（全画面 px）
             paste_polygons: 薄塗りするペースト開口ポリゴン（board 座標、mm）
-            pad_align: ROI マージン・最小辺長の設定
             position: 表示位置（機械座標、mm）。投影と ROI をこの位置で固定する
         """
         self._edge_detector = edge_detector
         projection = projector.project(position)
-        if roi_polygons:
-            x0, y0, x1, y1 = projector.roi_of(
-                list(roi_polygons),
-                position,
-                margin_mm=pad_align.roi_margin,
-                min_size_mm=pad_align.min_roi,
-            )
-        else:
-            x0, y0, x1, y1 = _centered_roi(
-                projector, position, projection.edge_mask.shape, pad_align.min_roi
-            )
+        x0, y0, x1, y1 = roi
         self._roi = np.zeros(projection.edge_mask.shape, dtype=bool)
         self._roi[y0:y1, x0:x1] = True
         self._expected = (projection.edge_mask > 0) & self._roi
@@ -148,26 +133,3 @@ class PadResultRenderer:
                 1,
             )
         return Image(display)
-
-
-def _centered_roi(
-    projector: CopperProjector,
-    position: Point2d,
-    mask_shape: tuple[int, ...],
-    min_roi_mm: float,
-) -> PixelRect:
-    """画像中心に min_roi サイズの ROI 矩形を取る（roi_polygons が空の場合用）.
-
-    pixel/mm は board 単位ベクトルの投影長から導出する（board 変換は ほぼ剛体のため誤差は無視できる）。
-    """
-    origin = projector.pixel_of(Point2d(0.0, 0.0), position)
-    unit_x = projector.pixel_of(Point2d(1.0, 0.0), position)
-    min_px = min_roi_mm * (unit_x - origin).norm
-    height, width = mask_shape[:2]
-    cx, cy = width / 2, height / 2
-    return (
-        max(0, math.floor(cx - min_px / 2)),
-        max(0, math.floor(cy - min_px / 2)),
-        min(width, math.ceil(cx + min_px / 2)),
-        min(height, math.ceil(cy + min_px / 2)),
-    )

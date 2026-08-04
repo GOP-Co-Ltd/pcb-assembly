@@ -13,15 +13,23 @@ MR1 追記（計画書 web-api-ui-split.md「MR1」節）:
 MR4 追記（同「MR4」節）: ``templates`` / ``static`` は frontend (`web.ui`) へ移設した
 ため、backend は静的資産を配信しない（ブラウザキャッシュを 1 本で共有するために
 ``/static`` は frontend が prefix なしで持つ）。
+
+webui-audio-output 計画書「`src/webui/app.py`」節が追記契約（通知音は Pi の ALSA で
+鳴らすので backend が所有する）:
+
+- create_app(audio_player=...) で注入したプレイヤーを lifespan 終了時に
+  1 回だけ close する（ジョブ join の後に閉じる）
 """
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import wait_until
+from tests.helpers import FakeAudioPlayer, wait_until
+from web.api.app import create_app
 from web.api.board_settings import BoardSettingsStore
 from web.api.jobs.catalog import JobDefinition
 from web.api.jobs.context import JobContext
+from web.api.settings import Settings
 from web.api.state import AppState
 
 
@@ -50,6 +58,15 @@ class TestCreateApp:
         response = client.get("/static/app.css")
 
         assert response.status_code == 404
+
+    def test_lifespan_closes_injected_audio_player_once(self, webui_settings: Settings):
+        player = FakeAudioPlayer()
+        app = create_app(webui_settings, audio_player=player)
+
+        with TestClient(app) as client:
+            assert client.get("/api/state").status_code == 200
+
+        assert player.close_calls == 1
 
 
 class TestBoardStoreSharing:
