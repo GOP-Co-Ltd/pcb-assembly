@@ -16,6 +16,7 @@ from pcbasm.config import (
     DISPENSE_MODES,
     validate_audio_device,
     validate_audio_volume,
+    validate_non_negative_number,
     validate_paste_lift_height,
     validate_positive_number,
     validate_positive_odd_integer,
@@ -112,6 +113,12 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.pad_align.max_correction", "最大補正量", "float", "mm"),
     FieldSpec(
         "paste_dispenser.pad_align.search_window", "探索窓 片側幅", "float", "mm"
+    ),
+    FieldSpec(
+        "paste_dispenser.pad_align.refine_max_short_side",
+        "逐次位置合わせ対象の最大短辺",
+        "float",
+        "mm",
     ),
     FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
@@ -211,6 +218,11 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 }:
                     name = spec.key.rsplit(".", 1)[-1]
                     if error := validate_positive_number(name, coerced_float):
+                        raise UnknownFieldError(error)
+                if spec.key == "paste_dispenser.pad_align.refine_max_short_side":
+                    if error := validate_non_negative_number(
+                        "refine_max_short_side", coerced_float
+                    ):
                         raise UnknownFieldError(error)
                 return coerced_float
         case "float_or_auto":

@@ -70,6 +70,7 @@ class TestMachineSettings:
         assert values["paste_dispenser.bead_width_factor"] is None
         assert values["paste_dispenser.boundary_margin"] is None
         assert values["paste_dispenser.auto_area_short_side_factor"] is None
+        assert values["paste_dispenser.pad_align.refine_max_short_side"] is None
         assert values["probe.lift_height"] is None
 
     def test_write_then_reread_reflects_value(self, store: ConfigStore):
@@ -380,11 +381,46 @@ class TestNozzleCapFields:
 class TestPadAlignRegionSettings:
     """重複領域の寸法・overlap 設定を読み書きする."""
 
+    def test_refinement_threshold_has_public_field_metadata(self):
+        field = next(
+            spec
+            for spec in MACHINE_FIELDS
+            if spec.key == "paste_dispenser.pad_align.refine_max_short_side"
+        )
+
+        assert field.label == "逐次位置合わせ対象の最大短辺"
+        assert field.value_type == "float"
+        assert field.unit == "mm"
+
     def test_missing_region_settings_read_as_none(self, store: ConfigStore):
         values = store.read_machine_settings()
 
         assert values["paste_dispenser.pad_align.region_size_px"] is None
         assert values["paste_dispenser.pad_align.region_overlap"] is None
+        assert values["paste_dispenser.pad_align.refine_max_short_side"] is None
+
+    @pytest.mark.parametrize("threshold", [0.0, 0.25])
+    def test_write_refinement_threshold_then_reread_reflects_value(
+        self, store: ConfigStore, threshold: float
+    ):
+        key = "paste_dispenser.pad_align.refine_max_short_side"
+
+        store.write_machine_settings({key: threshold})
+
+        assert store.read_machine_settings()[key] == pytest.approx(threshold)
+
+    @pytest.mark.parametrize(
+        "threshold",
+        [True, -0.01, float("nan"), float("inf"), float("-inf")],
+        ids=["bool", "negative", "nan", "positive-infinity", "negative-infinity"],
+    )
+    def test_invalid_refinement_threshold_raises(
+        self, store: ConfigStore, threshold: MachineSettingValue
+    ):
+        with pytest.raises(UnknownFieldError, match="refine_max_short_side"):
+            store.write_machine_settings(
+                {"paste_dispenser.pad_align.refine_max_short_side": threshold}
+            )
 
     def test_write_then_reread_reflects_values(self, store: ConfigStore):
         store.write_machine_settings(

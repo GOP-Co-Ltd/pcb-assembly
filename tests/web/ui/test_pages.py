@@ -221,7 +221,13 @@ def machine_toml_without_defaulted_keys(config_dir: Path) -> Path:
     が 0 で埋めると、その 0 が画面に出たうえで 「設定に保存」で書き戻される。
     """
     path = config_dir / "machine.toml"
-    dropped = ("canny_low", "canny_high", "blur_ksize", "solder_paste_density")
+    dropped = (
+        "canny_low",
+        "canny_high",
+        "blur_ksize",
+        "refine_max_short_side",
+        "solder_paste_density",
+    )
     path.write_text(
         "".join(
             line
@@ -1133,6 +1139,23 @@ class TestUnsetMachineSettingsShowResolvedValues:
         assert '<dd>0.000 <span class="unit">mg/uL</span></dd>' not in text
         # machine.toml に書かれているキーは書かれている値のまま
         assert ">45.783133</output>" in text
+
+    def test_paste_solder_renders_resolved_refinement_threshold(
+        self, machine_toml_without_defaulted_keys: Path, client: TestClient
+    ):
+        response = client.get("/pasting/paste_solder")
+
+        assert response.status_code == 200
+        assert "逐次位置合わせ対象の最大短辺" in response.text
+        input_tag = re.search(
+            r'<input[^>]*name="paste_dispenser\.pad_align\.'
+            r'refine_max_short_side"[^>]*>',
+            response.text,
+        )
+        assert input_tag is not None
+        assert 'data-type="float"' in input_tag.group()
+        assert 'value="0.4"' in input_tag.group()
+        assert '<span class="unit">mm</span>' in response.text
 
 
 class TestUnresolvableMachineSettingsAreNotFabricated:
