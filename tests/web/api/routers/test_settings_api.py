@@ -333,6 +333,56 @@ class TestPadAlignRegionSettingsApi:
         assert overlap["value"] is None
         assert overlap["value_type"] == "float"
 
+    def test_get_reports_unset_refinement_threshold_with_resolved_default(
+        self, client: TestClient
+    ):
+        fields = {
+            field["key"]: field
+            for field in client.get("/api/settings/machine").json()["fields"]
+        }
+
+        threshold = fields["paste_dispenser.pad_align.refine_max_short_side"]
+        assert threshold["label"] == "逐次位置合わせ対象の最大短辺"
+        assert threshold["value_type"] == "float"
+        assert threshold["unit"] == "mm"
+        assert threshold["value"] is None
+        assert threshold["resolved"] == pytest.approx(0.4)
+
+    def test_put_zero_disables_refinement_and_persists_value(
+        self, client: TestClient, config_dir: Path
+    ):
+        key = "paste_dispenser.pad_align.refine_max_short_side"
+
+        response = client.put("/api/settings/machine", json={"values": {key: 0.0}})
+
+        assert response.status_code == 200, response.text
+        field = next(
+            field for field in response.json()["fields"] if field["key"] == key
+        )
+        assert field["value"] == pytest.approx(0.0)
+        assert field["resolved"] == pytest.approx(0.0)
+        assert "refine_max_short_side = 0.0" in (config_dir / "machine.toml").read_text(
+            encoding="utf-8"
+        )
+
+    @pytest.mark.parametrize(
+        "threshold",
+        [True, -0.01],
+        ids=["bool", "negative"],
+    )
+    def test_put_invalid_refinement_threshold_returns_400(
+        self, client: TestClient, threshold: object
+    ):
+        response = client.put(
+            "/api/settings/machine",
+            json={
+                "values": {"paste_dispenser.pad_align.refine_max_short_side": threshold}
+            },
+        )
+
+        assert response.status_code == 400
+        assert "refine_max_short_side" in response.text
+
     def test_put_writes_values(self, client: TestClient):
         response = client.put(
             "/api/settings/machine",

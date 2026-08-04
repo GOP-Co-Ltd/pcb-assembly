@@ -2,9 +2,17 @@
 
 import pytest
 import shapely
+from shapely.affinity import rotate
 
 from pcbasm.geometry import Point2d
-from pcbasm.posctrl import AlignmentRegion, BoardAlignment, EdgeMatch, RegionAlignment
+from pcbasm.pcb import Layer, Pad
+from pcbasm.posctrl import (
+    AlignmentRegion,
+    BoardAlignment,
+    EdgeMatch,
+    RegionAlignment,
+    is_pad_refinement_target,
+)
 from pcbasm.vision import Offset
 
 PPM = 10.0
@@ -39,6 +47,84 @@ def _alignment(
 def _shift_at(alignment: BoardAlignment, point: Point2d) -> Point2d:
     correction = alignment.correction_for(point, designator="U1")
     return correction.apply(point) - point
+
+
+def _pad(
+    polygon: shapely.Polygon, *, copper_polygon: shapely.Polygon | None = None
+) -> Pad:
+    if copper_polygon is not None:
+        return Pad(
+            designator="U1",
+            pad_number="1",
+            net_name="",
+            layer=Layer.TOP,
+            polygon=polygon,
+            copper_polygon=copper_polygon,
+        )
+    return Pad(
+        designator="U1",
+        pad_number="1",
+        net_name="",
+        layer=Layer.TOP,
+        polygon=polygon,
+    )
+
+
+class TestIsPadRefinementTarget:
+    """Paste開口の最小回転外接矩形短辺による逐次位置合わせ対象判定."""
+
+    @pytest.mark.parametrize(
+        ("short_side", "expected"),
+        [
+            (0.2, True),
+            (0.4, True),
+            (0.4000000005, True),
+            (0.400000002, False),
+            (0.5, False),
+        ],
+        ids=["below", "equal", "within-tolerance", "outside-tolerance", "above"],
+    )
+    def test_compares_short_side_with_inclusive_tolerant_boundary(
+        self, short_side: float, expected: bool
+    ):
+        pad = _pad(shapely.box(-2.0, -short_side / 2, 2.0, short_side / 2))
+
+        assert is_pad_refinement_target(pad, max_short_side_mm=0.4) is expected
+
+    def test_is_invariant_to_arbitrary_pad_rotation(self):
+        polygon = rotate(
+            shapely.box(-1.5, -0.2, 1.5, 0.2),
+            37.0,
+            origin="centroid",
+        )
+
+        assert is_pad_refinement_target(_pad(polygon), max_short_side_mm=0.4)
+
+    def test_uses_paste_polygon_instead_of_larger_copper_polygon(self):
+        pad = _pad(
+            shapely.box(-1.0, -0.15, 1.0, 0.15),
+            copper_polygon=shapely.box(-1.0, -0.5, 1.0, 0.5),
+        )
+
+        assert is_pad_refinement_target(pad, max_short_side_mm=0.4)
+
+    def test_zero_threshold_disables_refinement_for_every_pad_size(self):
+        pad = _pad(shapely.box(-0.05, -0.05, 0.05, 0.05))
+
+        assert not is_pad_refinement_target(pad, max_short_side_mm=0.0)
+
+    @pytest.mark.parametrize(
+        "polygon",
+        [
+            shapely.Polygon(),
+            shapely.Polygon([(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]),
+        ],
+        ids=["empty", "degenerate"],
+    )
+    def test_empty_and_degenerate_polygons_are_not_targets(
+        self, polygon: shapely.Polygon
+    ):
+        assert not is_pad_refinement_target(_pad(polygon), max_short_side_mm=0.4)
 
 
 class TestBoardAlignmentCorrectionFor:

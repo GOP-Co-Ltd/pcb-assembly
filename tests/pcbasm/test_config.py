@@ -114,6 +114,9 @@ class TestMachine:
 
         assert machine.paste_dispenser.pad_align == PadAlign()
         assert machine.paste_dispenser.pad_align.region_size_px == 100
+        assert machine.paste_dispenser.pad_align.refine_max_short_side == pytest.approx(
+            0.4
+        )
 
     def test_solder_paste_density_defaults_when_absent(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
@@ -133,6 +136,7 @@ class TestMachine:
         path.write_text(
             source + "\n[paste_dispenser.pad_align]\nregion_size_px = 160\n"
             "region_overlap = 0.25\n"
+            "refine_max_short_side = 0.25\n"
             "blur_ksize = 3\n"
         )
 
@@ -140,6 +144,7 @@ class TestMachine:
 
         assert pad_align.region_size_px == 160
         assert pad_align.region_overlap == pytest.approx(0.25)
+        assert pad_align.refine_max_short_side == pytest.approx(0.25)
         assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
         assert pad_align.blur_ksize == 3
 
@@ -306,7 +311,23 @@ class TestPadAlignRegionSettings:
         assert pad_align.board_edge_margin == pytest.approx(0.5)
         assert pad_align.max_passes == 5
         assert pad_align.converge_tolerance == pytest.approx(0.03)
+        assert pad_align.refine_max_short_side == pytest.approx(0.4)
         assert pad_align.blur_ksize == 5
+
+    @pytest.mark.parametrize("threshold", [0.0, 0.25])
+    def test_accepts_nonnegative_refinement_threshold(self, threshold: float):
+        pad_align = PadAlign(refine_max_short_side=threshold)
+
+        assert pad_align.refine_max_short_side == pytest.approx(threshold)
+
+    @pytest.mark.parametrize(
+        "threshold",
+        [True, -0.01, float("nan"), float("inf"), float("-inf")],
+        ids=["bool", "negative", "nan", "positive-infinity", "negative-infinity"],
+    )
+    def test_rejects_invalid_refinement_threshold(self, threshold):
+        with pytest.raises(ValueError, match="refine_max_short_side"):
+            PadAlign(refine_max_short_side=threshold)
 
     @pytest.mark.parametrize(
         ("key", "value"),

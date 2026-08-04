@@ -23,6 +23,7 @@ from pcbasm.posctrl import (
     OrthogonalityMetrics,
     PadResultRenderer,
     RegionAlignmentSession,
+    is_pad_refinement_target,
     render_label,
 )
 from pcbasm.vision import (
@@ -462,20 +463,29 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
 
         # 補正適用済みの全 pad 巡回
         entries = _corrected_entries(result, session, alignment, top_pads)
+        max_short_side = result.machine.paste_dispenser.pad_align.refine_max_short_side
+        refinement_target_count = sum(
+            is_pad_refinement_target(pad, max_short_side_mm=max_short_side)
+            for pad in top_pads
+        )
+        refinement_success_count = 0
+        ctx.log(
+            f"pad中心照合対象: {refinement_target_count}/{len(top_pads)} pads "
+            f"(最大短辺 {max_short_side:g} mm)"
+        )
         for index, (pad, renderer_projector, target) in enumerate(entries):
             ctx.progress("補正巡回", 100.0 * index / len(entries))
             ctx.checkpoint()
-            initial_correction = alignment.correction_for(
-                pad.center, designator=pad.designator
-            )
-            refined = session.refine(pad.center, initial_correction, pad.polygon)
+            refined = None
+            if is_pad_refinement_target(pad, max_short_side_mm=max_short_side):
+                initial_correction = alignment.correction_for(
+                    pad.center, designator=pad.designator
+                )
+                refined = session.refine(pad.center, initial_correction, pad.polygon)
             if refined is not None:
-                initial = initial_correction.apply(
-                    result.board_transform.apply(pad.center)
-                )
-                residual = refined.displacement - (
-                    initial - result.board_transform.apply(pad.center)
-                )
+                refinement_success_count += 1
+                board_target = result.board_transform.apply(pad.center)
+                residual = refined.displacement - (target - board_target)
                 ctx.log(
                     f"{pad.designator}.{pad.pad_number}: "
                     f"residual=({residual.x:+.4f}, {residual.y:+.4f}) mm, "
@@ -483,11 +493,15 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
                 )
                 correction = Shift.from_point(refined.displacement)
                 renderer_projector = session.projector.with_correction(correction)
-                target = correction.apply(result.board_transform.apply(pad.center))
+                target = correction.apply(board_target)
             _move_to(result, target, speed=Speed.rate(0.5))
             renderer = _pad_renderer(session, renderer_projector, [pad], target)
             lines = [f"{pad.designator}.{pad.pad_number} {index + 1}/{len(entries)}"]
             _stream_pad_result(ctx, result, renderer, lines)
+        ctx.log(
+            f"pad中心照合成功: {refinement_success_count}/"
+            f"{refinement_target_count} pads"
+        )
 
         # board 原点へ戻して終了
         _move_to(result, board_transform.apply(Point2d(0.0, 0.0)))
@@ -495,6 +509,7 @@ def _run_board_tour(ctx: JobContext) -> JobResult:
     return JobResult(
         summary=(
             f"照合成功 {len(aligned)}/{len(regions)} 領域 / "
+            f"pad中心照合 {refinement_success_count}/{refinement_target_count} pads / "
             f"補正巡回 {len(entries)} pads"
         )
     )

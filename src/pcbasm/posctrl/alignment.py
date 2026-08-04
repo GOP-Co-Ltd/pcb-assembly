@@ -1,13 +1,14 @@
 """領域単位の銅箔照合の配線とpad別の局所補正."""
 
 import logging
+import math
 from collections.abc import Sequence
 
 import attrs
 from shapely import Polygon
 
 from pcbasm.geometry import Point2d, Shift, Transform
-from pcbasm.pcb import Layer
+from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl.aligner import RegionAligner, RegionAlignment
 from pcbasm.posctrl.copper import (
     CopperEdgeMatcher,
@@ -20,6 +21,31 @@ from pcbasm.posctrl.setup import BoardCalibrationResult
 from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 logger = logging.getLogger(__name__)
+
+_SHORT_SIDE_ABS_TOLERANCE_MM = 1e-9
+
+
+def is_pad_refinement_target(
+    pad: Pad,
+    *,
+    max_short_side_mm: float,
+) -> bool:
+    """paste開口の最小回転外接矩形の短辺が逐次位置合わせ対象か判定する."""
+    if max_short_side_mm <= 0.0 or pad.polygon.is_empty or pad.polygon.area <= 0.0:
+        return False
+
+    rectangle = pad.polygon.minimum_rotated_rectangle
+    if not isinstance(rectangle, Polygon) or rectangle.is_empty:
+        return False
+    coordinates = list(rectangle.exterior.coords)
+    if len(coordinates) < 5:
+        return False
+
+    short_side = min(
+        math.dist(coordinates[0], coordinates[1]),
+        math.dist(coordinates[1], coordinates[2]),
+    )
+    return 0.0 < short_side <= max_short_side_mm + _SHORT_SIDE_ABS_TOLERANCE_MM
 
 
 @attrs.frozen

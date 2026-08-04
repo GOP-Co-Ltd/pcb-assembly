@@ -1,7 +1,11 @@
 """Board/オフセットの位置合わせ共通制御."""
 
 from .aligner import RegionAligner, RegionAlignment
-from .alignment import BoardAlignment, RegionAlignmentSession
+from .alignment import (
+    BoardAlignment,
+    RegionAlignmentSession,
+    is_pad_refinement_target,
+)
 from .board import BoardTransformMeasurer
 from .copper import (
     CopperEdgeMatcher,
@@ -53,6 +57,7 @@ __all__ = [
     "centered_roi",
     "display_at_point",
     "interactive_display_at_point",
+    "is_pad_refinement_target",
     "machine_session",
     "plan_alignment_regions",
     "render_edge_match",

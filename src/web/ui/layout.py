@@ -116,6 +116,9 @@ PASTE_AUTO_THRESHOLD_KEYS = (
     "paste_dispenser.auto_area_short_side_factor",
 )
 
+# はんだ塗布ページに即保存フォームで載せるpad逐次位置合わせ設定
+PASTE_PAD_REFINEMENT_KEYS = ("paste_dispenser.pad_align.refine_max_short_side",)
+
 LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel", "retract_rotations")
 
 # dispense_calibration フォームのセクション分け（表示のみ）。
