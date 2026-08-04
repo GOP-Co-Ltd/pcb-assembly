@@ -26,6 +26,10 @@ workflow:
     - changes:
         paths:
           - "**/*.py"
+          # UI frontend の配信資産。テンプレ / JS だけの変更でも E2E とページテストが
+          # 壊れるため（*.py だけでは pytest も pyright も走らない）
+          - "src/web/ui/templates/**"
+          - "src/web/ui/static/**"
           # テストが読む machine.toml / printer.cfg のフィクスチャ
           - "data/testing/config/**"
           - pyproject.toml

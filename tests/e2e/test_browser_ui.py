@@ -2,27 +2,77 @@
 
 `make test-e2e` で実行する。pad editor 専用のブラウザテストは
 tests/e2e/test_paste_solder_browser.py、HTTP / WS / MJPEG の純粋な 実ネットワーク検証は
-tests/e2e/test_webui_e2e.py に分担する。
+tests/e2e/test_api_e2e.py に分担する。
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterator
+from pathlib import Path
 
 import httpx
 import pytest
 from playwright.sync_api import expect
 
 from tests.e2e.conftest import (
+    E2E_MACHINE_ID as _E2E_MACHINE_ID,
     TERMINAL as _TERMINAL,
     LiveServer,
+    LiveUi,
+    acquire_control as _acquire_control,
+    make_ui_settings as _make_ui_settings,
     select_led_blinker as _select_led_blinker,
+    session_headers as _session_headers,
+    start_app as _start_app,
     wait_machine_field as _wait_machine_field,
 )
 from tests.helpers import FAKE_AUDIO_DEVICES, wait_until
+from web.ui.app import create_app as create_ui_app
+from web.ui.machines import MachineEndpoint, MachineRegistry
 
 _HTTP_TIMEOUT = 10.0
 
 # 通知音ページで選択する候補（FakeAudioPlayer の 2 番目 = HifiBerry DAC）
 _HIFIBERRY_DEVICE = FAKE_AUDIO_DEVICES[1]
+
+# 一覧に出るだけで誰も開かない登録（ドロップダウンを 2 件にして選択状態を見る）
+_GHOST_MACHINE_ID = "ghost"
+
+
+@pytest.fixture
+def selector_ui(
+    live_server: LiveServer, tmp_path: Path
+) -> Iterator[tuple[str, MachineRegistry]]:
+    """`live_server` と到達不能な 1 台を登録した実 frontend（origin と registry）.
+
+    registry を返すのは、mDNS 探索の結果が届いたときに相当する変化
+    （`set_discovered`）をテスト側から起こして、ドロップダウンの組み替えを
+    見られるようにするため（実 zeroconf は使わない = 実 LAN に触らない）。
+    `live_server` の登録に ``name`` を与えないのも、その差分を作るため。
+    """
+    endpoints = (
+        MachineEndpoint(machine_id=_GHOST_MACHINE_ID, host="127.0.0.1", port=1),
+        MachineEndpoint(
+            machine_id=_E2E_MACHINE_ID, host="127.0.0.1", port=live_server.port
+        ),
+    )
+    app = create_ui_app(
+        _make_ui_settings(endpoints, machines_file=tmp_path / "absent-machines.toml")
+    )
+    running = _start_app(app)
+    try:
+        yield f"http://127.0.0.1:{running.port}", app.state.registry
+    finally:
+        running.stop()
+
+
+def _machine_labels(origin: str, *, current: str) -> list[str]:
+    """`GET /api/machines` が返す表示名（サーバが組んだ文字列をそのまま期待値にする）."""
+    response = httpx.get(
+        f"{origin}/api/machines", params={"current": current}, timeout=_HTTP_TIMEOUT
+    )
+    assert response.status_code == 200, response.text
+    return [machine["label"] for machine in response.json()["machines"]]
 
 
 def _current_job(base_url: str) -> dict | None:
@@ -32,14 +82,13 @@ def _current_job(base_url: str) -> dict | None:
     return response.json()["job"]
 
 
-def _start_completion_notice_job(
-    live_server: LiveServer, browser_page, job_name: str
-) -> None:
+def _start_completion_notice_job(live_ui: LiveUi, browser_page, job_name: str) -> None:
     """実ページのフォームをテスト用 hiddenジョブへ向けて開始する。"""
     browser_page.goto(
-        f"{live_server.base_url}/pasting/paste_solder",
+        f"{live_ui.base_url}/pasting/paste_solder",
         wait_until="domcontentloaded",
     )
+    _acquire_control(browser_page)
     form = browser_page.locator("#job-form")
     form.wait_for(state="visible", timeout=10_000)
     form.evaluate(
@@ -56,15 +105,13 @@ class TestCompletionNoticeOverBrowser:
     """実HTTP/WSを経由した終了通知バナーとタイトル。"""
 
     def test_success_notice_persists_until_dismissed(
-        self, live_server: LiveServer, browser_page
+        self, live_ui: LiveUi, browser_page
     ):
         original_title = "はんだ塗布 — PCB Assembly WebUI"
         # 通知音は Raspberry Pi 本体で鳴らすので、ブラウザは wav を取得しない
         requested_urls: list[str] = []
         browser_page.on("request", lambda request: requested_urls.append(request.url))
-        _start_completion_notice_job(
-            live_server, browser_page, "completion_notice_success"
-        )
+        _start_completion_notice_job(live_ui, browser_page, "completion_notice_success")
 
         notice = browser_page.locator("#job-completion-notice")
         notice.wait_for(state="visible", timeout=10_000)
@@ -79,12 +126,8 @@ class TestCompletionNoticeOverBrowser:
         expect(notice).to_be_hidden()
         assert browser_page.title() == original_title
 
-    def test_failure_uses_error_notice_and_title(
-        self, live_server: LiveServer, browser_page
-    ):
-        _start_completion_notice_job(
-            live_server, browser_page, "completion_notice_failure"
-        )
+    def test_failure_uses_error_notice_and_title(self, live_ui: LiveUi, browser_page):
+        _start_completion_notice_job(live_ui, browser_page, "completion_notice_failure")
 
         notice = browser_page.locator("#job-completion-notice")
         notice.wait_for(state="visible", timeout=10_000)
@@ -94,11 +137,11 @@ class TestCompletionNoticeOverBrowser:
         )
         assert browser_page.title().startswith("【失敗】")
 
-    def test_manual_abort_does_not_notify(self, live_server: LiveServer, browser_page):
+    def test_manual_abort_does_not_notify(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
         original_title = "はんだ塗布 — PCB Assembly WebUI"
-        _start_completion_notice_job(
-            live_server, browser_page, "completion_notice_abort"
-        )
+        _start_completion_notice_job(live_ui, browser_page, "completion_notice_abort")
         wait_until(
             lambda: (job := _current_job(live_server.base_url)) is not None
             and job["status"] == "running",
@@ -119,7 +162,7 @@ class TestCompletionNoticeOverBrowser:
         assert browser_page.title() == original_title
 
     def test_terminal_job_from_before_page_load_does_not_notify(
-        self, live_server: LiveServer, browser_page
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         response = httpx.post(
             f"{live_server.base_url}/api/jobs/completion_notice_success",
@@ -134,7 +177,7 @@ class TestCompletionNoticeOverBrowser:
         )
 
         browser_page.goto(
-            f"{live_server.base_url}/pasting/paste_solder",
+            f"{live_ui.base_url}/pasting/paste_solder",
             wait_until="domcontentloaded",
         )
         browser_page.wait_for_function(
@@ -150,18 +193,21 @@ class TestPromptDialogOverBrowser:
     """実ブラウザ上の prompt modal 表示。"""
 
     def test_confirm_dialog_uses_custom_button_labels(
-        self, live_server: LiveServer, browser_page
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         _select_led_blinker(live_server)
 
         browser_page.goto(
-            f"{live_server.base_url}/pasting/height_plane",
+            f"{live_ui.base_url}/pasting/height_plane",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
 
         start = httpx.post(
-            f"{live_server.base_url}/api/jobs/height_plane", timeout=_HTTP_TIMEOUT
+            f"{live_server.base_url}/api/jobs/height_plane",
+            headers=_session_headers(browser_page),
+            timeout=_HTTP_TIMEOUT,
         )
         assert start.status_code == 201, start.text
 
@@ -183,8 +229,51 @@ class TestPromptDialogOverBrowser:
             interval=0.05,
         )
 
+    def test_long_prompt_keeps_the_ok_button_reachable(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        """本文が長くても、ダイアログ内スクロールで OK に届く.
+
+        `show()`（非モーダル）で開くので UA の `dialog:modal` の高さクランプが効かない。
+        `.jc-prompt[open]` に `max-height` / `overflow` が無いとダイアログが viewport より
+        高くなり、`position: fixed` のためページスクロールでも OK に届かず、ダイアログ
+        自身もスクロールしないので**応答できないプロンプト**になる。
+        """
+        _select_led_blinker(live_server)
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/height_plane",
+            wait_until="domcontentloaded",
+        )
+        browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
+
+        metrics = browser_page.evaluate(
+            """(message) => {
+                const dialog = document.getElementById("jc-prompt");
+                document.getElementById("jc-prompt-message").textContent = message;
+                // job_console.js と同じ非モーダル表示（::backdrop で緊急停止を覆わない）
+                dialog.show();
+                dialog.scrollTop = dialog.scrollHeight;
+                const button = document
+                    .getElementById("jc-prompt-ok")
+                    .getBoundingClientRect();
+                return {
+                    dialog: dialog.getBoundingClientRect().height,
+                    top: button.top,
+                    bottom: button.bottom,
+                    viewport: window.innerHeight,
+                };
+            }""",
+            "この確認は本文が長いときの表示を見るためのものです。" * 60,
+        )
+
+        # ダイアログ自身が viewport に収まる（max-height）
+        assert metrics["dialog"] <= metrics["viewport"], metrics
+        # スクロールすれば OK が viewport 内に入る（overflow）
+        assert metrics["top"] >= 0, metrics
+        assert metrics["bottom"] <= metrics["viewport"], metrics
+
     def test_enter_key_submits_ok_instead_of_cancel(
-        self, live_server: LiveServer, browser_page
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         """Enter の暗黙送信は OK（続行）に落ちる.
 
@@ -195,13 +284,16 @@ class TestPromptDialogOverBrowser:
         _select_led_blinker(live_server)
 
         browser_page.goto(
-            f"{live_server.base_url}/pasting/height_plane",
+            f"{live_ui.base_url}/pasting/height_plane",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#job-console").wait_for(state="visible", timeout=10_000)
 
         start = httpx.post(
-            f"{live_server.base_url}/api/jobs/height_plane", timeout=_HTTP_TIMEOUT
+            f"{live_server.base_url}/api/jobs/height_plane",
+            headers=_session_headers(browser_page),
+            timeout=_HTTP_TIMEOUT,
         )
         assert start.status_code == 201, start.text
 
@@ -232,13 +324,13 @@ class TestSettingsOverBrowser:
     def test_probe_setting_autosave(
         self,
         live_server: LiveServer,
+        live_ui: LiveUi,
         browser_page,
         field_name: str,
         value: float,
     ):
-        browser_page.goto(
-            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
-        )
+        browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
+        _acquire_control(browser_page)
         field = browser_page.locator(f'input[name="{field_name}"]')
         field.wait_for(state="visible", timeout=10_000)
 
@@ -247,12 +339,11 @@ class TestSettingsOverBrowser:
         _wait_machine_field(live_server.base_url, field_name, value)
 
     def test_reference_point_offset_pair_autosave(
-        self, live_server: LiveServer, browser_page
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         """float_pair 入力（X/Y 2 連）の編集が [x, y] 配列として保存される."""
-        browser_page.goto(
-            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
-        )
+        browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
+        _acquire_control(browser_page)
         pair = 'input[data-pair-key="reference_point.offsets.top_left"]'
         x_input = browser_page.locator(f'{pair}[data-pair-index="0"]')
         y_input = browser_page.locator(f'{pair}[data-pair-index="1"]')
@@ -265,12 +356,9 @@ class TestSettingsOverBrowser:
             live_server.base_url, "reference_point.offsets.top_left", [6.5, -4.5]
         )
 
-    def test_setting_label_does_not_focus_input(
-        self, live_server: LiveServer, browser_page
-    ):
-        browser_page.goto(
-            f"{live_server.base_url}/settings", wait_until="domcontentloaded"
-        )
+    def test_setting_label_does_not_focus_input(self, live_ui: LiveUi, browser_page):
+        browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
+        _acquire_control(browser_page)
         label = browser_page.locator(".settings-label").nth(0)
         label.wait_for(state="visible", timeout=10_000)
 
@@ -278,6 +366,40 @@ class TestSettingsOverBrowser:
 
         active_tag = browser_page.evaluate("document.activeElement?.tagName")
         assert active_tag != "INPUT"
+
+
+class TestCopperDetectionOverBrowser:
+    """銅箔前処理スライダーを実ブラウザで保存し、backend の設定 API まで通す."""
+
+    def test_save_persists_canny_thresholds(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        browser_page.goto(
+            f"{live_ui.base_url}/posctrl/copper_detection",
+            wait_until="domcontentloaded",
+        )
+        _acquire_control(browser_page)
+
+        for selector, value in (
+            ("#canny-low", "91"),
+            ("#canny-high", "193"),
+        ):
+            browser_page.locator(selector).evaluate(
+                """(element, value) => {
+                    element.value = value;
+                    element.dispatchEvent(new Event("input", { bubbles: true }));
+                }""",
+                value,
+            )
+
+        browser_page.locator("#canny-save").click()
+
+        _wait_machine_field(
+            live_server.base_url, "paste_dispenser.pad_align.canny_low", 91.0
+        )
+        _wait_machine_field(
+            live_server.base_url, "paste_dispenser.pad_align.canny_high", 193.0
+        )
 
 
 class TestAudioPageOverBrowser:
@@ -288,12 +410,13 @@ class TestAudioPageOverBrowser:
     """
 
     def test_device_and_volume_are_saved_to_machine_toml(
-        self, live_server: LiveServer, browser_page
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         device = _HIFIBERRY_DEVICE.name
         browser_page.goto(
-            f"{live_server.base_url}/dev/audio", wait_until="domcontentloaded"
+            f"{live_ui.base_url}/dev/audio", wait_until="domcontentloaded"
         )
+        _acquire_control(browser_page)
         select = browser_page.locator("#audio-device")
         # option はサーバ応答から生成されるので、描画完了を待ってから操作する
         browser_page.locator(f'#audio-device option[value="{device}"]').wait_for(
@@ -311,12 +434,11 @@ class TestAudioPageOverBrowser:
         _wait_machine_field(live_server.base_url, "audio.volume", 0.4)
         expect(browser_page.locator("#audio-volume-value")).to_have_text("40%")
 
-    def test_test_playback_button_calls_api(
-        self, live_server: LiveServer, browser_page
-    ):
+    def test_test_playback_button_calls_api(self, live_ui: LiveUi, browser_page):
         browser_page.goto(
-            f"{live_server.base_url}/dev/audio", wait_until="domcontentloaded"
+            f"{live_ui.base_url}/dev/audio", wait_until="domcontentloaded"
         )
+        _acquire_control(browser_page)
         button = browser_page.locator('[data-sound="success"]')
         button.wait_for(state="visible", timeout=10_000)
 
@@ -336,12 +458,13 @@ class TestLoadingOverBrowser:
     """
 
     def test_start_sends_only_specified_position_axes_and_begins_homing(
-        self, live_server: LiveServer, browser_page
+        self, live_ui: LiveUi, browser_page
     ):
         browser_page.goto(
-            f"{live_server.base_url}/pasting/loading",
+            f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#param-position_x").fill("12.5")
         browser_page.locator("#param-position_z").fill("3")
 
@@ -362,12 +485,13 @@ class TestLoadingOverBrowser:
         expect(browser_page.locator("#jc-progress-text")).to_have_text("ホーミング")
 
     def test_loading_controls_sync_inputs_to_hidden_params(
-        self, live_server: LiveServer, browser_page
+        self, live_ui: LiveUi, browser_page
     ):
         browser_page.goto(
-            f"{live_server.base_url}/pasting/loading",
+            f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#loading-controls").wait_for(
             state="visible", timeout=10_000
         )
@@ -383,13 +507,12 @@ class TestLoadingOverBrowser:
         assert browser_page.locator("#param-rate").input_value() == "0.5"
         assert browser_page.locator("#param-accel").input_value() == "0.5"
 
-    def test_loading_inputs_persist_across_reload(
-        self, live_server: LiveServer, browser_page
-    ):
+    def test_loading_inputs_persist_across_reload(self, live_ui: LiveUi, browser_page):
         browser_page.goto(
-            f"{live_server.base_url}/pasting/loading",
+            f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#loading-controls").wait_for(
             state="visible", timeout=10_000
         )
@@ -415,12 +538,13 @@ class TestLoadingOverBrowser:
         expect(browser_page.locator("#lc-accel")).to_have_value("2.5")
 
     def test_mass_calibration_calculates_and_applies_dispense_values(
-        self, live_server: LiveServer, browser_page
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         browser_page.goto(
-            f"{live_server.base_url}/pasting/loading",
+            f"{live_ui.base_url}/pasting/loading",
             wait_until="domcontentloaded",
         )
+        _acquire_control(browser_page)
         browser_page.locator("#loading-mass-calibration").wait_for(
             state="visible", timeout=10_000
         )
@@ -488,11 +612,9 @@ class TestLoadingOverBrowser:
 class TestDispenseCalibrationOverBrowser:
     """吐出量キャリブレーション統合ジョブ画面の実ブラウザ表示."""
 
-    def test_menu_and_loading_controls_render(
-        self, live_server: LiveServer, browser_page
-    ):
+    def test_menu_and_loading_controls_render(self, live_ui: LiveUi, browser_page):
         browser_page.goto(
-            f"{live_server.base_url}/pasting/dispense_calibration",
+            f"{live_ui.base_url}/pasting/dispense_calibration",
             wait_until="domcontentloaded",
         )
         browser_page.locator("#calibration-menu").wait_for(
@@ -530,3 +652,57 @@ class TestDispenseCalibrationOverBrowser:
             )
             is None
         )
+
+
+class TestMachineSelectorRefresh:
+    """マシン選択ドロップダウンをサーバの `/api/machines` で組み替える（MR5 D8）.
+
+    `machine_selector.js` の catch は全例外を飲むので、取得・`data-*` 参照・option の
+    組み替えのどれが壊れても SSR 済みの option がそのまま残り、無音で劣化する
+    （mDNS で見つかったマシンが一覧に出てこない・改名が反映されない）。実ブラウザで
+    「サーバの label で組み替わる」「current のマシンが選択される」を通しで見る。
+    """
+
+    def test_options_are_rebuilt_from_the_server_labels(
+        self,
+        live_server: LiveServer,
+        selector_ui: tuple[str, MachineRegistry],
+        browser_page,
+    ):
+        origin, registry = selector_ui
+
+        with browser_page.expect_request(
+            lambda request: "/api/machines" in request.url, timeout=10_000
+        ) as fetched:
+            browser_page.goto(
+                f"{origin}/m/{_E2E_MACHINE_ID}/posctrl", wait_until="domcontentloaded"
+            )
+
+        # frontend 自身のエンドポイントを叩く（machine prefix を付けると backend へ
+        # 中継されて 404）。current の判定はサーバ側なのでクエリに載る
+        assert fetched.value.url == f"{origin}/api/machines?current={_E2E_MACHINE_ID}"
+
+        options = browser_page.locator("#machine-select option")
+        expect(options).to_have_text(_machine_labels(origin, current=_E2E_MACHINE_ID))
+        # 表示中のマシンが選択されている（登録順では 2 番目なので既定選択とは異なる）
+        expect(browser_page.locator("#machine-select")).to_have_value(
+            f"/m/{_E2E_MACHINE_ID}/posctrl"
+        )
+
+        # mDNS で表示名が届いたときに相当する変化を起こす（静的登録が name を
+        # 持たないので label が変わる）
+        registry.set_discovered(
+            (
+                MachineEndpoint(
+                    machine_id=_E2E_MACHINE_ID,
+                    host="127.0.0.1",
+                    port=live_server.port,
+                    name="発見された名前",
+                    source="mdns",
+                ),
+            )
+        )
+        browser_page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+
+        expect(options).to_have_text(_machine_labels(origin, current=_E2E_MACHINE_ID))
+        expect(options.nth(1)).to_contain_text("発見された名前")

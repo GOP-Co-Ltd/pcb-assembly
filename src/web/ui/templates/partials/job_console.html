@@ -1,0 +1,37 @@
+<section id="job-console" class="job-console" data-job-names="{{ job_name }}">
+  <div class="jc-head">
+    <span id="jc-status" class="jc-status" data-status="idle">待機中</span>
+    {# 中止は安全操作なので操作権に依らず誰でも押せる（data-requires-control 禁止） #}
+    <button id="jc-abort" type="button" disabled>中止</button>
+  </div>
+  <div class="jc-progress">
+    <div class="jc-progress-track"><div id="jc-progress-bar" class="jc-progress-bar"></div></div>
+    <span id="jc-progress-text" class="jc-progress-text"></span>
+  </div>
+  <pre id="jc-log" class="jc-log"></pre>
+  <div id="jc-result" class="jc-result" hidden>
+    <p id="jc-summary" class="jc-summary"></p>
+    <div id="jc-artifacts" class="jc-artifacts"></div>
+    <div id="jc-apply" class="jc-apply" hidden data-requires-control>
+      <span id="jc-apply-label"></span>
+      <button id="jc-apply-btn" type="button">設定に反映</button>
+      <button id="jc-discard-btn" type="button">破棄</button>
+    </div>
+  </div>
+  <dialog id="jc-prompt" class="jc-prompt">
+    <form id="jc-prompt-form" method="dialog">
+      {# 本文は閲覧者にも見せる（何を待っているか分からないほうが悪い）。応答できるのは
+         保持者だけなので、入力とボタンだけを操作権に紐づける。案内文（誰の応答待ちか /
+         操作権が空いている）は control.js が入れる #}
+      <p id="jc-prompt-message"></p>
+      <p id="jc-prompt-hint" class="jc-prompt-hint" data-testid="jc-prompt-hint"></p>
+      <div id="jc-prompt-field" class="jc-prompt-field" data-requires-control></div>
+      <menu class="jc-prompt-actions" data-requires-control>
+        {# OK を先頭 submit にして Enter（暗黙送信）の既定ボタンにする。中止は明示 #}
+        {# クリック時のみ。視覚順（中止=左 / OK=右）は CSS の order で保つ。 #}
+        <button id="jc-prompt-ok" value="ok" type="submit">OK</button>
+        <button id="jc-prompt-no" value="no" type="submit" hidden>いいえ</button>
+      </menu>
+    </form>
+  </dialog>
+</section>

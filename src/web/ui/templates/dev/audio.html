@@ -1,0 +1,35 @@
+{% extends "tab.html" %}
+{% block title %}通知音 — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>通知音</h2>
+<section class="status-card">
+  <h3>出力設定</h3>
+  <p>Raspberry Pi 本体に接続したスピーカーで、ジョブ完了時の通知音を鳴らします。</p>
+  <form id="audio-settings-form" data-machine-settings data-requires-control
+        data-endpoint="/api/settings/machine">
+    <div>
+      <label for="audio-device">出力デバイス</label>
+      <select id="audio-device" name="audio.device" data-type="str"></select>
+    </div>
+    <div>
+      <label for="audio-volume">音量</label>
+      <input id="audio-volume" name="audio.volume" data-type="float"
+             type="range" min="0" max="1" step="0.05">
+      <output id="audio-volume-value" for="audio-volume"></output>
+    </div>
+  </form>
+</section>
+<section class="status-card">
+  <h3>テスト再生</h3>
+  {# 機体のスピーカーを実際に鳴らすので操作権を要する（POST /api/audio/test と同じ扱い） #}
+  <div class="audio-test-actions" data-requires-control>
+    <button type="button" data-sound="success">成功音を再生</button>
+    <button type="button" data-sound="failure">失敗音を再生</button>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/settings.js') }}"></script>
+<script src="{{ static_asset('js/audio.js') }}"></script>
+{% endblock %}

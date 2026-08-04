@@ -1,0 +1,48 @@
+<aside id="mc-sidebar" class="mc-sidebar" data-testid="machine-control-sidebar">
+  <div id="mc-resize" class="mc-resize" title="ドラッグで幅を変更"></div>
+  <button id="mc-toggle" class="mc-toggle" type="button" title="マシン操作パネルの開閉">&gt;</button>
+  {# 開閉（#mc-toggle）と幅変更（#mc-resize）は表示操作なので開放し、
+     ジョグ・ホーミング・移動だけを操作権に紐づける #}
+  <div id="machine-control" class="machine-control" data-testid="machine-control"
+       data-requires-control>
+    <div class="mc-status">
+      <span id="mc-position">位置: ---</span>
+      <span id="mc-homed">homed: ---</span>
+    </div>
+    <div class="mc-group">
+      <button data-mc-home="" class="mc-home-all" title="全軸ホーミング">&#8962; 全軸</button>
+      <button data-mc-home="x" title="X軸ホーミング">&#8962; X</button>
+      <button data-mc-home="y" title="Y軸ホーミング">&#8962; Y</button>
+      <button data-mc-home="z" title="Z軸ホーミング">&#8962; Z</button>
+    </div>
+    <div class="mc-jog-area">
+      <div id="mc-jogpad" class="mc-jogpad"></div>
+      <div class="mc-zbar">
+        <span class="mc-zbar-label" title="上が Z マイナス（マシン設計上、上昇で Z 減少）">Z</span>
+        {# マシン設計上、上昇＝Z マイナス。上端を負（上昇）・下端を正（下降）に並べる #}
+        {% for dist in [-10, -1, -0.1, 0.1, 1, 10] %}
+        <button data-mc-jog="z" data-mc-dist="{{ dist }}">{{ "%+g" | format(dist) }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="mc-abs">
+      {% for axis in ["x", "y", "z"] %}
+      <label class="mc-abs-field">
+        <span>{{ axis | upper }}</span>
+        <input id="mc-{{ axis }}" data-mc-abs="{{ axis }}" type="number" step="0.1"
+               placeholder="---" title="入力確定（Enter / フォーカスアウト）で移動">
+      </label>
+      {% endfor %}
+    </div>
+    <p class="mc-abs-hint">座標欄は現在位置を表示。入力確定で移動します</p>
+    <div class="mc-group">
+      <button id="mc-relax">Relax</button>
+      <button id="mc-focus-z" {% if focus_z is none %}disabled{% endif %}>
+        フォーカスZへ{% if focus_z is not none %} ({{ "%.3f" | format(focus_z) }}){% endif %}
+      </button>
+      {% if machine_type == "paste" %}
+      <button id="mc-move-to-cap" title="ノズルキャップ位置に移動（Z0 → XY → Z）">キャップ位置へ</button>
+      {% endif %}
+    </div>
+  </div>
+</aside>

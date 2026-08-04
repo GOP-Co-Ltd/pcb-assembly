@@ -1,0 +1,36 @@
+{% extends "tab.html" %}
+{% block title %}Klipper Status — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>Klipper Status</h2>
+<section class="status-card" id="klipper-card">
+  <h3>ステータス</h3>
+  <div id="ks-connected">接続: ---</div>
+  <div id="ks-position">位置: ---</div>
+  <div id="ks-homed">homed: ---</div>
+</section>
+<section class="status-card" id="stage-card">
+  <h3>Stage Limits</h3>
+  <table class="limits-table" id="ks-limits">
+    <tr><th></th><th>min</th><th>max</th></tr>
+    {% for axis in ["x", "y", "z"] %}
+    <tr>
+      <th>{{ axis | upper }}</th>
+      <td id="ks-limit-{{ axis }}-min">---</td>
+      <td id="ks-limit-{{ axis }}-max">---</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+<section class="status-card">
+  <h3>G-code 送信</h3>
+  {# 任意 G-code は machine-control（変更系）なので操作権が要る #}
+  <form id="ks-gcode-form" class="gcode-form" data-requires-control>
+    <input id="ks-gcode" type="text" placeholder="例: G28 X" autocomplete="off">
+    <button type="submit" id="ks-gcode-send">送信</button>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/klipper_status.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,78 @@
+<section id="pad-editor" class="pad-editor" data-testid="pad-editor">
+  {# PCB 未選択時のメッセージ（JS が GET 409 を受けたら表示し、編集 UI を隠す） #}
+  <p id="pad-editor-empty" class="pad-editor-empty" data-testid="pad-editor-empty" hidden>
+    PCB を選択してください。
+  </p>
+
+  {# PCB 選択済みの編集 UI。初期は隠し、GET 成功で JS が表示する #}
+  <div id="pad-editor-body" class="pad-editor-body" data-testid="pad-editor-body" hidden>
+    <div class="pad-editor-toolbar" data-testid="pad-editor-toolbar">
+      <fieldset class="pad-layer-switch" data-testid="pad-layer-switch">
+        <legend>レイヤ</legend>
+        <label><input type="radio" name="pad-layer" value="Top" data-testid="pad-layer-top" checked> Top</label>
+        <label><input type="radio" name="pad-layer" value="Bottom" data-testid="pad-layer-bottom"> Bottom</label>
+      </fieldset>
+      {# 有効/無効の一括操作は pad-config の PATCH なので操作権が要る #}
+      <div class="pad-select-tools" data-testid="pad-select-tools" data-requires-control>
+        <button type="button" id="pad-enable-selected" data-testid="pad-enable-selected">選択を有効化</button>
+        <button type="button" id="pad-disable-selected" data-testid="pad-disable-selected">選択を無効化</button>
+        <button type="button" id="pad-enable-all" data-testid="pad-enable-all">全有効</button>
+        <button type="button" id="pad-disable-all" data-testid="pad-disable-all">全無効</button>
+        <span id="pad-selection-count" class="pad-selection-count" data-testid="pad-selection-count">選択: 0</span>
+      </div>
+      <div class="pad-route-tools" data-testid="pad-route-tools">
+        <button type="button" id="pad-calculate-route" data-testid="pad-calculate-route">順路計算</button>
+        <button type="button" id="pad-calculate-fill-path" data-testid="pad-calculate-fill-path">塗布パス計算</button>
+      </div>
+      <div class="pad-initial-purge-tools" data-testid="pad-initial-purge-tools"
+           data-requires-control>
+        <label for="pad-initial-purge-amount">初回パージ量 <span class="unit">[uL]</span></label>
+        <input type="number" id="pad-initial-purge-amount" data-testid="pad-initial-purge-amount"
+               step="any" min="0">
+        <label for="pad-initial-purge-pad">初回パージパッド</label>
+        <output id="pad-initial-purge-pad" class="pad-initial-purge-pad"
+                data-testid="pad-initial-purge-pad" aria-live="polite">自動</output>
+        <div class="pad-initial-purge-actions">
+          <button type="button" id="pad-set-initial-purge-pad"
+                  data-testid="pad-set-initial-purge-pad">選択パッドを設定</button>
+          <button type="button" id="pad-clear-initial-purge-pad"
+                  data-testid="pad-clear-initial-purge-pad">自動に戻す</button>
+        </div>
+      </div>
+      <div class="pad-config-tools" data-testid="pad-config-tools">
+        {# 書き出しは読み取りなので開放。読み込みは pad-config の import #}
+        <button type="button" id="pad-export-config" data-testid="pad-export-config">設定を書き出し</button>
+        <button type="button" id="pad-import-config-button" data-testid="pad-import-config-button"
+                data-requires-control>設定を読み込み</button>
+        <input id="pad-import-config" type="file" accept="application/json,.json" hidden
+               data-requires-control>
+      </div>
+    </div>
+
+    <div class="pad-viewer-wrap" data-testid="pad-viewer-wrap">
+      <svg id="pad-viewer" class="pad-viewer" xmlns="http://www.w3.org/2000/svg"
+           preserveAspectRatio="xMidYMid meet" aria-label="基板ビューア"
+           data-testid="pad-viewer"></svg>
+    </div>
+
+    <div class="pad-table-wrap" data-testid="pad-table-wrap">
+      <table id="pad-table" class="pad-table" data-testid="pad-table">
+        <thead>
+          <tr>
+            <th class="pad-col-node">ノード</th>
+            <th class="pad-col-enabled">有効</th>
+            <th>塗布方式</th>
+            <th>面積あたりのペースト量</th>
+            <th>塗布高さ</th>
+            <th>プライム後追加遅延</th>
+            <th>ビード幅係数</th>
+            <th>重なり率</th>
+            <th>外周余白</th>
+          </tr>
+        </thead>
+        {# 行の編集セルは pad-config の PATCH。ビューア（SVG）とレイヤ切替・順路計算は開放 #}
+        <tbody id="pad-table-body" data-requires-control></tbody>
+      </table>
+    </div>
+  </div>
+</section>

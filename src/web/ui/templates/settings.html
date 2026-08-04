@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}マシン設定 — PCB Assembly WebUI{% endblock %}
+{% block layout_class %}settings-layout{% endblock %}
+{% block content %}
+{% macro settings_groups(groups, prefix) %}
+{% for section_label, fields in groups %}
+<details class="settings-group" open>
+  <summary>{{ section_label }}</summary>
+  <table class="settings-table">
+    <tbody>
+      {% for field in fields %}
+      <tr>
+        <th><span class="settings-label">{{ field.label }}</span></th>
+        <td>
+          {% if field.value_type == 'float_pair' %}
+          <div class="settings-pair" data-pair-key="{{ field.key }}">
+            <input id="{{ prefix }}-{{ field.key }}-x"
+                   data-pair-key="{{ field.key }}"
+                   data-pair-index="0"
+                   type="number"
+                   step="any"
+                   aria-label="{{ field.label }} X"
+                   value="{{ field.value[0] if field.value is not none else '' }}"
+                   placeholder="X">
+            <input id="{{ prefix }}-{{ field.key }}-y"
+                   data-pair-key="{{ field.key }}"
+                   data-pair-index="1"
+                   type="number"
+                   step="any"
+                   aria-label="{{ field.label }} Y"
+                   value="{{ field.value[1] if field.value is not none else '' }}"
+                   placeholder="Y">
+          </div>
+          {% elif field.value_type == 'dispense_mode' %}
+          <select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
+                  data-type="{{ field.value_type }}"
+                  aria-label="{{ field.label }}">
+            {% for option, label in [('auto', 'Auto'), ('dot', '点'), ('line', '線'), ('area', '面')] %}
+            <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          {% else %}
+          <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
+                 data-type="{{ field.value_type }}"
+                 type="{% if field.value_type in ('str', 'float_or_auto') %}text{% else %}number{% endif %}"
+                 aria-label="{{ field.label }}"
+                 {% if field.value_type not in ('str', 'float_or_auto') %}step="any"{% endif %}
+                 value="{{ field.value if field.value is not none else '' }}"
+                 placeholder="未設定">
+          {% endif %}
+          {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+{% endfor %}
+{% endmacro %}
+<section class="settings">
+  <header class="settings-header">
+    <div>
+      <h1>マシン設定</h1>
+    </div>
+  </header>
+
+  <form id="machine-settings-form" data-machine-settings data-requires-control
+        data-endpoint="/api/settings/machine">
+    <div class="settings-grid">
+    {{ settings_groups(machine_groups, "ms") }}
+    </div>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+{# 設定ページも WS を張る（操作権の control_changed と state_changed が要る）。
+   #job-console が無いページなので job_console.js はコンソールを描かない #}
+<script src="{{ static_asset('js/job_console.js') }}"></script>
+<script src="{{ static_asset('js/settings.js') }}"></script>
+{% endblock %}
