@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}PCB Assembly WebUI{% endblock %}</title>
+  <link rel="stylesheet" href="{{ static_asset('app.css') }}">
+</head>
+{# data-control の初期値は viewer（fail-closed）。SSR は backend へのサーバ間通信で
+   ブラウザの cookie を持たないため「自分が保持者か」を判定できない。実際の値は
+   control.js が GET /api/state / WS control_changed / 423 で入れ替える #}
+<body data-machine-base="{{ base }}" data-control="viewer">
+<header class="topbar" data-testid="topbar">
+  <nav class="tabs" data-testid="top-tabs">
+    {% for tab in tabs %}
+    <a href="{{ base }}/{{ tab }}" class="tab{% if tab == active_tab %} active{% endif %}">{{ tab_labels[tab] }}</a>
+    {% endfor %}
+  </nav>
+  <div class="global-controls">
+    {# マシンが決まっていないページ（ピッカー / 503 / 未登録 404）に操作権の概念は無い。
+       base が空だと control.js の GET /api/state と取得 POST がプロキシ外へ飛んで 404 に
+       なるため、押すと必ず失敗する「死んだ取得ボタン」を出さない #}
+    {% if base %}{% include "partials/control_lease.html" %}{% endif %}
+    {% include "partials/machine_selector.html" %}
+    <button id="pcb-chip" class="chip" title="PCB ファイル選択"
+            data-testid="pcb-chip" data-requires-control
+            data-fb-start="{{ fb_start }}">
+      {{ selected_pcb or "PCB未選択" }}
+    </button>
+    <a href="{{ base }}/settings" class="icon-link" title="マシン設定">&#9881;</a>
+    <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper (Mainsail) を開く">Klipper</a>
+    <button id="firmware-restart" class="firmware-restart" title="ファームウェア再起動"
+            data-testid="firmware-restart" data-requires-control>ファームウェア再起動</button>
+    {# 緊急停止は安全操作なので操作権に依らず誰でも押せる（data-requires-control 禁止） #}
+    <button id="estop" class="estop" title="緊急停止" data-testid="estop">緊急停止</button>
+  </div>
+</header>
+<main class="layout {% block layout_class %}{% endblock %}">
+{% block content %}{% endblock %}
+</main>
+{% include "partials/file_browser.html" %}
+<section id="job-completion-notice" class="job-completion-notice" hidden
+         role="status" aria-live="assertive" aria-atomic="true">
+  <span id="job-completion-message"></span>
+  <button id="job-completion-dismiss" type="button" aria-label="終了通知を閉じる">閉じる</button>
+</section>
+<div id="toasts" class="toasts"></div>
+<script src="{{ static_asset('js/app.js') }}"></script>
+{# 全ページで読む（操作権の状態はどのページでも要る）。app.js の後、かつ子テンプレートの
+   scripts ブロックで読む job_console.js より前（window.webui.control を先に生やす） #}
+<script src="{{ static_asset('js/control.js') }}"></script>
+<script src="{{ static_asset('js/machine_selector.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -7,6 +7,16 @@
 
 実機の `config/` を一切汚さないよう、`data/testing/config` を tmp_path に
 複製して使う（[[feedback-webui-claude-self-e2e]] の方針）。
+
+サーバーは 2 種類ある:
+
+- `live_server` — backend WebAPI（`web.api`）。JSON API の直叩きに使う
+- `live_ui` / `live_ui_two` — UI frontend（`web.ui`）。**ページ・MJPEG・WS はここを通す**
+
+ページ取得とブラウザ操作を frontend 経由に寄せることで、リバースプロキシ経路
+（`/m/{machine_id}/api/**`）が既存 E2E 全体で常時検証される。API の直叩きを
+`live_server` のまま残すのは、backend 直と proxy 経由を意図的に分けて
+「どちら側の回帰か」を切り分けられるようにするため。
 """
 
 from __future__ import annotations
@@ -23,19 +33,33 @@ import attrs
 import httpx
 import pytest
 import uvicorn
+from starlette.types import ASGIApp
 
 from tests.helpers import FakeAudioPlayer, copy_testing_config
-from tests.webui.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE
-from webui.app import create_app
-from webui.jobs.catalog import JobCatalog, JobDefinition
-from webui.jobs.context import JobContext, JobResult
-from webui.settings import Settings
+from tests.web.api.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE
+from web.api.app import create_app
+from web.api.jobs.catalog import JobCatalog, JobDefinition
+from web.api.jobs.context import JobContext, JobResult
+from web.api.settings import Settings
+from web.ui.app import create_app as create_ui_app
+from web.ui.machines import MachineEndpoint
+from web.ui.proxy import SESSION_COOKIE
+from web.ui.settings import Settings as UiSettings
 
 _STARTUP_TIMEOUT = 10.0
 _HTTP_TIMEOUT = 10.0
 _WS_TIMEOUT = 30.0
 
+# 操作権の状態がブラウザへ届くまでの上限（GET /api/state 1 往復 + 描画）
+_CONTROL_TIMEOUT_MS = 10_000
+
 TERMINAL = ("succeeded", "failed", "aborted")
+
+# backend の自己申告 machine_id（= frontend の URL prefix /m/{machine_id}）
+E2E_MACHINE_ID = "e2etest"
+
+# 実ブラウザを使う fixture。これを要求するテストへ browser マーカーを付ける
+_BROWSER_FIXTURES = frozenset({"browser_page", "browser_pages"})
 
 
 def _register_completion_notice_jobs(catalog: JobCatalog) -> None:
@@ -74,28 +98,112 @@ def pytest_collection_modifyitems(
     """Tests/e2e 配下の全テストへ自動で e2e / browser マーカーを付与する.
 
     個々のテストに付け忘れても `-m e2e` / `-m "not e2e"` の対象になるようにする。
-    実ブラウザ（browser_page）を使うテストには browser も付け、 `-m "e2e and not browser"`
-    での切り分けを可能にする。
+    実ブラウザ（`browser_page` / `browser_pages`）を使うテストには browser も付け、
+    `-m "e2e and not browser"` での切り分けを可能にする。
     """
     e2e_dir = Path(__file__).parent
     for item in items:
         if item.path.is_relative_to(e2e_dir):
             item.add_marker(pytest.mark.e2e)
-            if "browser_page" in getattr(item, "fixturenames", ()):
+            if _BROWSER_FIXTURES & set(getattr(item, "fixturenames", ())):
                 item.add_marker(pytest.mark.browser)
 
 
 @attrs.frozen
 class LiveServer:
-    """起動済み実サーバーのベース URL と注入 Settings."""
+    """起動済み backend WebAPI のベース URL と注入 Settings."""
 
     base_url: str
     settings: Settings
+    # frontend の静的登録に渡す実ポート（エフェメラル）
+    port: int
 
     @property
     def ws_url(self) -> str:
         """WebSocket 用ベース URL（http -> ws）."""
         return "ws://" + self.base_url.removeprefix("http://")
+
+
+@attrs.frozen
+class LiveUi:
+    """起動済み UI frontend の URL 群と登録済み machine_id.
+
+    `base_url` は ``/m/{machine_id}`` を含む（ページ取得も API も同じ prefix に
+    乗るので、テスト側で prefix を組み立てずに済む）。未 prefix の URL や
+    ``/static`` を触るテストは `origin` を使う。
+    """
+
+    origin: str
+    machine_ids: tuple[str, ...]
+
+    @property
+    def machine_id(self) -> str:
+        """既定で操作するマシン（登録順の先頭）."""
+        return self.machine_ids[0]
+
+    @property
+    def base_url(self) -> str:
+        """既定マシンの prefix 付きベース URL."""
+        return f"{self.origin}/m/{self.machine_id}"
+
+    @property
+    def ws_origin(self) -> str:
+        """WebSocket 用の origin（http -> ws）."""
+        return "ws://" + self.origin.removeprefix("http://")
+
+    @property
+    def ws_url(self) -> str:
+        """既定マシンの prefix 付き WebSocket ベース URL."""
+        return f"{self.ws_origin}/m/{self.machine_id}"
+
+
+@attrs.frozen
+class RunningServer:
+    """Daemon スレッドで動いている uvicorn とその実ポート.
+
+    停止を明示的に呼べるようにしてあるのは、「backend を落とすと frontend 経由の WS が
+    閉じる」ような**サーバーを途中で殺す**検証を書けるようにするため。
+    """
+
+    port: int
+    server: uvicorn.Server
+    thread: threading.Thread
+
+    def stop(self) -> None:
+        """停止を要求してスレッドの終了を待つ（冪等）."""
+        self.server.should_exit = True
+        self.thread.join(timeout=_STARTUP_TIMEOUT)
+
+
+def start_app(app: ASGIApp) -> RunningServer:
+    """ASGI アプリを実 uvicorn（127.0.0.1・エフェメラルポート）で起動する.
+
+    port=0 でポートを OS に割り当てさせ、起動後に実ポートを取得する。呼び出し側は
+    必ず `RunningServer.stop` を呼ぶ（fixture の finally / テストの try-finally）。
+
+    Args:
+        app: 起動する ASGI アプリ
+
+    Returns:
+        実ポートと停止手段を持つハンドル
+
+    Raises:
+        RuntimeError: 起動が `_STARTUP_TIMEOUT` 以内に完了しない場合
+    """
+    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + _STARTUP_TIMEOUT
+    while not server.started:
+        if time.monotonic() > deadline:
+            raise RuntimeError("uvicorn が時間内に起動しなかった")
+        time.sleep(0.05)
+    return RunningServer(
+        port=server.servers[0].sockets[0].getsockname()[1],
+        server=server,
+        thread=thread,
+    )
 
 
 def select_led_blinker(live_server: LiveServer) -> None:
@@ -108,6 +216,54 @@ def select_led_blinker(live_server: LiveServer) -> None:
         timeout=_HTTP_TIMEOUT,
     )
     assert response.status_code == 200, response.text
+
+
+def acquire_control(page: Any, *, timeout_ms: float = _CONTROL_TIMEOUT_MS) -> None:
+    """開いているページで操作権を確保し、`data-control` が held になるまで待つ.
+
+    UI は fail-closed で、ページを開いた直後は `body[data-control] = "viewer"`、
+    `data-requires-control` の要素には `inert` が付いている（クリックが届かない）。
+    ブラウザから変更操作をする検証は先に操作権を取る必要がある。
+
+    空いていれば取得、他クライアントが保持していれば奪取する。テストの下準備は
+    backend を直叩きするので（`select_led_blinker` 等はゲート付きエンドポイントを
+    叩き、セッションヘッダが無いため `anonymous` がリースを握る）、ブラウザ側は
+    閲覧者から始まるのが普通。
+
+    SSR の初期値も `viewer` で「サーバがそう言っている」のと区別できないため、
+    先に `control.refresh()` でサーバの事実を取り込んでから押すボタンを決める。
+    """
+    page.wait_for_function(
+        "() => window.webui?.control !== undefined", timeout=timeout_ms
+    )
+    state = page.evaluate(
+        """async () => {
+            await window.webui.control.refresh();
+            return document.body.dataset.control;
+        }"""
+    )
+    assert state in ("free", "viewer", "held"), f"操作権の状態が読めない: {state}"
+    if state == "free":
+        page.locator("#control-acquire").click(timeout=timeout_ms)
+    elif state == "viewer":
+        page.locator("#control-takeover").click(timeout=timeout_ms)
+    page.wait_for_function(
+        "() => document.body.dataset.control === 'held'", timeout=timeout_ms
+    )
+
+
+def session_headers(page: Any) -> dict[str, str]:
+    """ブラウザのセッションを backend 直叩き用のヘッダにする（同一クライアント扱い）.
+
+    `pcbasm_session` は httpOnly なのでページの JS からは読めない。テストが backend を
+    直に叩くとき（ジョブ開始など）に、ブラウザと同じ操作権で通す必要があるので
+    browser context から取り出してヘッダへ載せる（frontend 経由と違い backend 直叩き
+    では自称ヘッダがそのまま採用される）。
+    """
+    for cookie in page.context.cookies():
+        if cookie["name"] == SESSION_COOKIE:
+            return {"X-Pcbasm-Session": cookie["value"]}
+    raise AssertionError(f"{SESSION_COOKIE} cookie がまだ発行されていない")
 
 
 def get_pad_config(live_server: LiveServer) -> dict[str, Any]:
@@ -204,59 +360,156 @@ def wait_first_prompt(ws: Any) -> dict[str, Any]:
                 return pending
 
 
-@pytest.fixture
-def e2e_settings(tmp_path: Path) -> Settings:
-    """Fake カメラ + テスト用 config + 隔離 data_dir の E2E 用 Settings.
+def make_api_settings(root: Path, *, hostname: str) -> Settings:
+    """Fake カメラ + テスト用 config + 隔離 data_dir の backend Settings を組む.
 
-    `data/testing/config` を tmp_path 内に複製する。Klipper port 7126（非リッスン）なので、
+    `data/testing/config` を `root` 内に複製する。Klipper port 7126（非リッスン）なので、
     誤って実機 Moonraker に接続しない。
+
+    Args:
+        root: config / data / pcb root を置く隔離ディレクトリ（無ければ作る）
+        hostname: backend の自己申告 machine_id。1 ホストに複数 backend を立てる
+            `live_ui_two` で URL prefix を区別するために注入する
+
+    Returns:
+        構築済みの backend Settings
     """
-    config_dir = copy_testing_config(tmp_path)
-    pcb_root = tmp_path / "pcb"
+    root.mkdir(parents=True, exist_ok=True)
+    config_dir = copy_testing_config(root)
+    pcb_root = root / "pcb"
     pcb_root.mkdir()
-    data_dir = tmp_path / "data"
+    data_dir = root / "data"
     data_dir.mkdir()
     return Settings(
         config_dir=config_dir,
         data_dir=data_dir,
         pcb_browse_root=pcb_root,
+        # 公開範囲は既定（リポジトリ + /media + /mnt）から暗黙に広がらないため、
+        # tmp の pcb root を明示的に許可する
+        pcb_browse_allowed=(pcb_root,),
         pcb_browse_start=pcb_root,
         pcb_upload_dir=pcb_root / "uploads",
         mainsail_url="http://mainsail.invalid",
+        hostname=hostname,
         fake_camera=True,
         fake_camera_image=FAKE_CAMERA_IMAGE,
+        # 実 LAN へ mDNS を撒かない（広告 + 探索の通しは test_discovery_e2e.py が
+        # ランダムなサービス型 + ループバック限定で見る）
+        discovery_enabled=False,
+    )
+
+
+def make_ui_settings(
+    endpoints: tuple[MachineEndpoint, ...], *, machines_file: Path
+) -> UiSettings:
+    """静的登録だけを持つ frontend Settings を組む.
+
+    Args:
+        endpoints: 登録する backend（この順序が一覧とドロップダウンの順序になる）
+        machines_file: 不在パスを渡す。リポジトリの `config/machines.toml` を
+            テストが拾って実機の登録を混ぜないようにするため
+
+    Returns:
+        構築済みの frontend Settings
+    """
+    return UiSettings(
+        machines=endpoints, machines_file=machines_file, discovery_enabled=False
     )
 
 
 @pytest.fixture
-def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
-    """実 uvicorn を daemon スレッドで起動し、停止まで面倒を見る.
+def e2e_settings(tmp_path: Path) -> Settings:
+    """Fake カメラ + テスト用 config + 隔離 data_dir の E2E 用 backend Settings."""
+    return make_api_settings(tmp_path / "api", hostname=E2E_MACHINE_ID)
 
-    port=0 でエフェメラルポートを OS に割り当てさせ、起動後に実ポートを取得する。
+
+@pytest.fixture
+def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
+    """実 uvicorn の backend WebAPI を起動し、停止まで面倒を見る.
+
+    通知音は `FakeAudioPlayer` を注入する（既定の `AlsaAudioPlayer` だと完了通知付き
+    ジョブが実 `aplay` を起動して実スピーカーが鳴る）。
     """
     app = create_app(e2e_settings, audio_player=FakeAudioPlayer())
     _register_completion_notice_jobs(app.state.catalog)
-    config = uvicorn.Config(
-        app,
-        host="127.0.0.1",
-        port=0,
-        log_level="warning",
-    )
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + _STARTUP_TIMEOUT
-    while not server.started:
-        if time.monotonic() > deadline:
-            raise RuntimeError("uvicorn が時間内に起動しなかった")
-        time.sleep(0.05)
-    port = server.servers[0].sockets[0].getsockname()[1]
-
+    running = start_app(app)
     try:
-        yield LiveServer(base_url=f"http://127.0.0.1:{port}", settings=e2e_settings)
+        yield LiveServer(
+            base_url=f"http://127.0.0.1:{running.port}",
+            settings=e2e_settings,
+            port=running.port,
+        )
     finally:
-        server.should_exit = True
-        thread.join(timeout=_STARTUP_TIMEOUT)
+        running.stop()
+
+
+@pytest.fixture
+def live_ui(live_server: LiveServer, tmp_path: Path) -> Iterator[LiveUi]:
+    """`live_server` を 1 台だけ静的登録した実 frontend.
+
+    ページ・MJPEG・WS をここへ通すことで、リバースプロキシ経路が既存 E2E 全体で 常時検証される。
+    """
+    endpoint = MachineEndpoint(
+        machine_id=E2E_MACHINE_ID,
+        host="127.0.0.1",
+        port=live_server.port,
+        name="E2E 機",
+    )
+    app = create_ui_app(
+        make_ui_settings((endpoint,), machines_file=tmp_path / "absent-machines.toml")
+    )
+    running = start_app(app)
+    try:
+        yield LiveUi(
+            origin=f"http://127.0.0.1:{running.port}",
+            machine_ids=(E2E_MACHINE_ID,),
+        )
+    finally:
+        running.stop()
+
+
+@pytest.fixture
+def live_ui_two(tmp_path: Path) -> Iterator[LiveUi]:
+    """2 台の backend を静的登録した実 frontend（マシン切替の検証用）.
+
+    backend を 2 つ（同じ pytest プロセス内の daemon スレッドで動く実 uvicorn）
+    立て、`Settings.hostname` で machine_id を分ける
+    （`socket.gethostname()` のままでは 1 ホスト上の 2 台を区別できない）。
+    """
+    machine_ids = ("alpha", "bravo")
+    running: list[RunningServer] = []
+    try:
+        endpoints: list[MachineEndpoint] = []
+        for machine_id in machine_ids:
+            backend = start_app(
+                create_app(
+                    make_api_settings(tmp_path / machine_id, hostname=machine_id)
+                )
+            )
+            running.append(backend)
+            endpoints.append(
+                MachineEndpoint(
+                    machine_id=machine_id,
+                    host="127.0.0.1",
+                    port=backend.port,
+                    name=f"{machine_id} 号機",
+                )
+            )
+        frontend = start_app(
+            create_ui_app(
+                make_ui_settings(
+                    tuple(endpoints), machines_file=tmp_path / "absent-machines.toml"
+                )
+            )
+        )
+        running.append(frontend)
+        yield LiveUi(
+            origin=f"http://127.0.0.1:{frontend.port}", machine_ids=machine_ids
+        )
+    finally:
+        # frontend から先に落とす（backend が消えた frontend への中継を作らない）
+        for handle in reversed(running):
+            handle.stop()
 
 
 @pytest.fixture(scope="session")
@@ -280,14 +533,31 @@ def _browser():
 
 
 @pytest.fixture
-def browser_page(_browser):
-    """Playwright sync API の実 Chromium page.
+def browser_pages(_browser):
+    """独立した browser context の page を必要な数だけ作るファクトリ.
+
+    `browser_page` の実装を集約する（現状の利用は 1 枚のみ。複数ページを開く検証は
+    MR6 以降で使う想定）。作った context は teardown でまとめて閉じる。
+    """
+    contexts = []
+
+    def new_page():
+        context = _browser.new_context()
+        contexts.append(context)
+        return context.new_page()
+
+    try:
+        yield new_page
+    finally:
+        for context in contexts:
+            context.close()
+
+
+@pytest.fixture
+def browser_page(browser_pages):
+    """Playwright sync API の実 Chromium page（1 枚）.
 
     テストごとに新しい browser context（cookie / localStorage / viewport が
     独立）を作り、teardown で context ごと閉じる。
     """
-    context = _browser.new_context()
-    try:
-        yield context.new_page()
-    finally:
-        context.close()
+    return browser_pages()

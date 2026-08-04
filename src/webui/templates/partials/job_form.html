@@ -1,7 +1,0 @@
-{% import "partials/job_params.html" as job_params %}
-<form id="job-form" class="job-form" data-job-name="{{ job_name }}" data-testid="job-form">
-  {% for spec in param_specs %}
-  {{ job_params.param_field(spec) }}
-  {% endfor %}
-  <button type="submit" id="job-run" data-testid="job-run">実行</button>
-</form>

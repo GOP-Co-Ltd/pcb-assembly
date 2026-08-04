@@ -110,7 +110,7 @@ width = 400
 height = 400
 ```
 
-書き込み可能なキーの全量は `src/webui/config_store.py` の `MACHINE_FIELDS` を参照。
+書き込み可能なキーの全量は `src/web/api/config_store.py` の `MACHINE_FIELDS` を参照。
 
 `[audio]`（ジョブ完了通知音の出力デバイスと音量）は任意セクション。未設定なら ALSA の
 システム既定デバイス・音量 0.75 で動く。WebUI の `/dev/audio` で選ぶと `config/machine.toml`

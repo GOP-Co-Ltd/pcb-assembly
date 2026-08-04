@@ -5,6 +5,19 @@ from pytest_mock import MockerFixture
 from pcbasm.hal.camera import CameraInfo, Resolution
 
 
+@pytest.fixture(autouse=True)
+def disable_mdns_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`Settings.from_env()` 経路の mDNS 広告・探索を全テストで無効にする.
+
+    共有 fixture は `discovery_enabled=False` を明示的に渡しているが、env から Settings
+    を組むテスト（`uvicorn --factory` と同じ経路の検証）はそれを通らない。 実 LAN
+    へ広告・探索を漏らさないための最後の砦なので、mDNS を実際に使う テストは env ではなくコンストラクタ注入（ランダムなサービス型
+    + `interfaces=["127.0.0.1"]`）で自分の設定を作る。
+    """
+    monkeypatch.setenv("PCBASM_API_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv("PCBASM_UI_DISCOVERY_ENABLED", "0")
+
+
 @pytest.fixture
 def mock_camera_backend(mocker: MockerFixture):
     """Cameraクラス（USBバックエンド）の内部実装をモックするフィクスチャ."""

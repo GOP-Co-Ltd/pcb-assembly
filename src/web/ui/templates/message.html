@@ -1,0 +1,10 @@
+{# マシンに依存しない案内ページ（ピッカー / 未登録の案内 / 503 / 404 共通）。
+   chrome だけで描けるので backend が落ちていてもマシン切替を出せる。 #}
+{% extends "base.html" %}
+{% block title %}{{ title }} — PCB Assembly WebUI{% endblock %}
+{% block content %}
+<section class="main-pane" data-testid="main-pane">
+  <h1>{{ title }}</h1>
+  <p class="placeholder" data-testid="message-detail">{{ detail }}</p>
+</section>
+{% endblock %}
