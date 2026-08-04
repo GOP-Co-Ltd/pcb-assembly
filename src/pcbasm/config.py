@@ -92,6 +92,7 @@ class PadAlign:
     converge_tolerance: float = 0.03  # 収束とみなす増分 [mm]
     max_correction: float = 1.0  # 1領域で許容する累積ずれ [mm]
     search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
+    refine_max_short_side: float = 0.4  # pad別逐次位置合わせの最大短辺 [mm]
     canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
     canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
     blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
@@ -124,6 +125,10 @@ class PadAlign:
         ):
             if error := validate_positive_number(name, getattr(self, name)):
                 raise ValueError(error)
+        if error := validate_non_negative_number(
+            "refine_max_short_side", self.refine_max_short_side
+        ):
+            raise ValueError(error)
         if error := validate_positive_odd_integer("blur_ksize", self.blur_ksize):
             raise ValueError(error)
 
@@ -149,6 +154,18 @@ def validate_positive_number(name: str, value: float) -> str | None:
         or value <= 0
     ):
         return f"{name}は正の有限値である必要があります: {value!r}"
+    return None
+
+
+def validate_non_negative_number(name: str, value: float) -> str | None:
+    """0以上の有限値であるべき設定値を検証する."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not isfinite(value)
+        or value < 0
+    ):
+        return f"{name}は0以上の有限値である必要があります: {value!r}"
     return None
 
 

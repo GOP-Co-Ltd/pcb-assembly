@@ -67,6 +67,7 @@ from pcbasm.posctrl import (
     OffsetObserver,
     RegionAlignmentSession,
     XYPositionAdjustor,
+    is_pad_refinement_target,
 )
 from pcbasm.session import PasteSession
 from pcbasm.vision import CircleDetector, Image
@@ -846,9 +847,19 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             alignment.correction_for(pad.center, designator=pad.designator)
         ctx.log(f"位置合わせ成功: {len(aligned)}/{len(regions)} 領域")
 
+        max_short_side = result.machine.paste_dispenser.pad_align.refine_max_short_side
+        refinement_targets = [
+            pad
+            for pad in alignment_pads
+            if is_pad_refinement_target(pad, max_short_side_mm=max_short_side)
+        ]
+        ctx.log(
+            f"pad中心照合対象: {len(refinement_targets)}/{len(alignment_pads)} pads "
+            f"(最大短辺 {max_short_side:g} mm)"
+        )
         pad_alignments = []
-        for index, pad in enumerate(alignment_pads):
-            ctx.progress("pad照合", 100.0 * index / len(alignment_pads))
+        for index, pad in enumerate(refinement_targets):
+            ctx.progress("pad照合", 100.0 * index / len(refinement_targets))
             ctx.checkpoint()
             initial_correction = alignment.correction_for(
                 pad.center, designator=pad.designator
@@ -872,7 +883,9 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         alignment = BoardAlignment(
             results=tuple(pad_alignments), fallback_results=tuple(aligned)
         )
-        ctx.log(f"pad中心照合成功: {len(pad_alignments)}/{len(alignment_pads)} pads")
+        ctx.log(
+            f"pad中心照合成功: {len(pad_alignments)}/" f"{len(refinement_targets)} pads"
+        )
 
         # 高さ計測
         ctx.progress("高さ計測")
@@ -943,6 +956,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
     return JobResult(
         summary=(
             f"照合成功 {len(aligned)}/{len(regions)} 領域 / "
+            f"pad中心照合 {len(pad_alignments)}/{len(refinement_targets)} pads / "
             f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ・"
             f"初回パージ {initial_purge.amount_ul if initial_purge else 0.0:.3f} uL・"

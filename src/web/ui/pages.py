@@ -40,6 +40,7 @@ from web.ui.layout import (
     JOB_TEMPLATES,
     LOADING_ROTATION_PARAMS,
     PASTE_AUTO_THRESHOLD_KEYS,
+    PASTE_PAD_REFINEMENT_KEYS,
     TAB_LABELS,
     TAB_PHASES,
     TABS,
@@ -380,7 +381,10 @@ def _paste_solder_context(
     return {
         "auto_threshold_fields": [
             field for field in settings.fields if field.key in PASTE_AUTO_THRESHOLD_KEYS
-        ]
+        ],
+        "pad_refinement_fields": [
+            field for field in settings.fields if field.key in PASTE_PAD_REFINEMENT_KEYS
+        ],
     }
 
 
