@@ -6,17 +6,18 @@ port = 7125
 
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
-rotations_per_ul = 8.0 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
+rotations_per_ul = 16.041064 # キャリブレーション値 2026/06/08 23G S3X70-E150DN
 # rotations_per_ul = 31.491713 # キャリブレーション値 2026/06/05 S3X70-E150DN
 # rotations_per_ul = 69.724771 # キャリブレーション値 2026/05/08 S3X70-E150DN
 solder_paste_density = 3.78 # はんだペースト密度 [mg/uL] (S3X70-E150DN)
-nozzle_diameter = 0.30 # ノズル内径 [mm] (23G)
+nozzle_diameter = 0.25 # ノズル内径 [mm] (23G)
 dispense_mode = "auto" # 塗布方式: auto / dot / line / area
+air_pump_enabled = true # エアポンプの有効/無効
 auto_line_aspect_ratio = 1.618 # Auto時に線塗布へ切り替える縦横比
 auto_area_short_side_factor = 4.0 # Auto時に面塗布へ切り替える短辺のノズル径倍率
 max_dispense_rate = 0.2 # 吐出レート上限 [uL/sec]
 max_fill_speed = 2.0 # 連続塗布できる移動速度上限 [mm/sec]（実機で 1812 が連続になるまで調整）
-dispense_accel = 10.0 # 吐出加速度 [uL/sec^2]
+dispense_accel = 0.2 # 吐出加速度 [uL/sec^2]
 retract_amount = 0.04 # リトラクション量 [uL]
 retract_accel_factor = 2.0 # リトラクション加速度係数
 paste_height = 0.2 # 塗布面のZ高さ [mm]、または auto
@@ -34,26 +35,31 @@ overlap = 0.0
 # y = 26.46
 
 # 実測値
-x = -2.9405
-y = 22.9727
+x = -2.3773
+y = 25.4379
 
 [paste_dispenser.pad_align]
-# 重複領域の銅箔照合による位置合わせ
-region_size_px = 100          # 照合領域の一辺 [px]
-region_overlap = 0.5          # 隣接する照合領域の重なり [0, 1)
-board_edge_margin = 0.5       # 基板外形から照合領域までの余白 [mm]
-max_passes = 5                # 1領域あたりの再計測上限
-converge_tolerance = 0.03     # 収束とみなす増分 [mm]
-max_correction = 0.3          # 1領域で許容する累積ずれ [mm]
-search_window = 1.4           # 照合の探索窓 片側幅 [mm]
-canny_low = 55.0   # Cannyエッジ検出の下側閾値
-canny_high = 104.0  # Cannyエッジ検出の上側閾値
-blur_ksize = 3      # GaussianBlurカーネルサイズ (奇数)
+# pad単位の銅箔照合による位置合わせ
+tolerance = 0.05     # 収束許容誤差 [mm]。並進は整数pxで最小残差は斜め1px = √2/30.225 = 0.0468mm。これを超える値にする
+max_correction = 0.5         # 1回の照合で許容する最大ずれ [mm]。超過は誤マッチとして照合失敗
+search_window = 1.0 # 照合の探索窓 片側幅 [mm]
+roi_margin = 0.5    # pad ROIのマージン [mm]
+min_roi = 1.0       # pad ROIの最小辺長 [mm]
+canny_low = 90.0   # Cannyエッジ検出の下側閾値
+canny_high = 208.0  # Cannyエッジ検出の上側閾値
+blur_ksize = 1      # GaussianBlurカーネルサイズ (奇数)
+region_size_px = 200
+region_count = 8
+min_regions = 5
+max_passes = 5
+board_edge_margin = 1.0
+converge_tolerance = 0.03
+region_overlap = 0.2
 
 [camera]
 device_id = 0
 width = 1280
-height = 720
+height = 800
 fps = 30.0
 format = "YUYV"
 # キャリブレーション結果は機体固有なのでテンプレートには含めない。
@@ -61,8 +67,11 @@ format = "YUYV"
 calibration_file = "calibration.json"
 
 [camera.crop]
-width = 300
-height = 300
+width = 600
+height = 600
+
+[xy_calibration]
+max_standard_deviation = 0.05
 
 [probe]
 min_radius = 0.3            # サンプル点が銅箔境界から確保すべき最小距離 [mm]
@@ -73,12 +82,12 @@ lift_height = 0.5
 
 [reference_point]
 # 基準点（top left）のおおよその絶対位置 (mm)
-x = 12.0
-y = 3.8
+x = 12.4
+y = 1.0
 # 基準点の直径 (mm)
 target_diameter = 3.0
 
-# ボード4隅から対応する基準点へのオフセット（4項目すべて必須、mm）
+# 基盤からみた基準点の相対位置 (mm)
 [reference_point.offsets] # [x, y]で記述
 top_left = [2.5, -5.0]
 top_right = [-2.5, -5.0]
@@ -86,8 +95,8 @@ bottom_left = [2.5, 5.0]
 bottom_right = [-2.5, 5.0]
 
 [nozzle_cap]
-x = 67.3
-y = 52.0
+x = 67.6
+y = 51.7
 z = -24.0
 
 # ジョブ完了通知音の出力先。省略時は ALSA のシステム既定デバイス・音量 0.75。
