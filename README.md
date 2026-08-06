@@ -155,6 +155,70 @@ backend と frontend は別 unit（`pcbasm-api.service` / `pcbasm-ui.service`）
 起動順の依存は付けていないので、frontend が backend より先に上がって構わない（未起動の
 backend を選んだページが 503 になるだけ）。
 
+### ソフトウェア更新
+
+ソフトウェア更新は、ホストへ直接配置して systemd で動かす構成だけを対象とする。Podman
+などのコンテナ構成は対象外。管理 checkout から、ホストの役割に合わせて更新用 unit と
+timer も導入する。
+
+```bash
+./web-service.sh install api  # backend 機
+./web-service.sh install ui   # frontend 機
+./web-service.sh install all  # 同居機
+```
+
+runtime は `/var/lib/pcbasm` 以下へ配置する。
+
+- `releases/<revision>/` — revision ごとの release worktree
+- `current-api` / `current-ui` — role ごとに稼働中 release を指す symlink
+- `state/status-api.json` / `state/status-ui.json` — 確認・適用・rollback の状態
+
+timer は起動後と 15 分ごとに更新の有無を**確認するだけ**で、自動適用しない。適用は
+WebUI で対象 revision を確認し、「適用」を明示操作したときだけ行う。
+
+更新元は、管理 checkout で現在選択している branch と同名の `origin/<branch>` に固定する。
+管理 checkout の dirty な変更や未 push の commit は release に入らない。SSH remote を使う
+ホストでは、サービス実行ユーザー用の read-only deploy key を登録し、そのユーザーの
+`~/.ssh/known_hosts` を事前に用意して、対話なしで fetch と Git LFS の取得が通ることを確認する。
+
+同じ branch の non-fast-forward（force-push）は適用を block する。管理 checkout の branch を
+切り替えた場合は、誤操作防止のため新しい branch 名の完全入力が必要。どちらも通常の確認
+dialog だけでは解除されない。
+
+更新先の `deploy/os-packages.txt` に不足 package がある場合、自動更新は block する。内容を
+確認して、管理 checkout で次を明示実行してから再確認する。
+
+```bash
+./install-os-packages.sh --ref origin/<branch>
+```
+
+更新処理自身は APT を実行せず、ホストを自動 reboot しない。`deploy/schema-version` が導入済み
+version と一致しない場合も自動適用せず、対象変更の手順に従って手動更新した後に
+`./web-service.sh install <target>`（`target` は `api` / `ui` / `all`）を実行する。
+
+適用後の health 確認に失敗すると、失敗した role だけを直前の release へ rollback する。
+`api` と `ui` の release は独立しており、片方の失敗で他方を戻さない。
+`./web-service.sh remove <target>` は unit・timer・sudoers の登録だけを削除し、release と status
+は保持する。`config/`、`uploads/`、`data/webui/` は管理 checkout 側に永続化され、release の
+切り替えやサービス削除では消えない。
+
+更新画面は frontend host 自身が `/software-update`、選択中の機体を含む画面が
+`/m/{machine_id}/software-update`。状態取得・確認・適用 API はそれぞれ
+`GET /api/software-update`、`POST /api/software-update/check`、
+`POST /api/software-update/apply` で、機体 backend への frontend 経由の path は先頭に
+`/m/{machine_id}` が付く。
+
+この更新機能も trusted LAN 前提で認証を持たない。確認 dialog と branch 名入力は誤操作を
+防ぐ確認であり、本人確認や権限分離ではない。信頼できないネットワークへ公開しない。
+
+実機への適用後は、次を確認する。
+
+- 対象 role の systemd service が active で、更新画面の稼働 revision と一致する
+- frontend から機体を選択でき、API、WebSocket、カメラ映像の中継が復旧する
+- backend 機では、安全を確保したうえでカメラ、原点復帰・ステージ移動、ペースト吐出、
+    通知音など、その機体で使用する実機機能が動作する
+- 既存のマシン設定、upload、ジョブ成果物が更新前から保持されている
+
 ### 複数人で同時に開いたとき（操作権）
 
 変更操作は「操作権」を持つ 1 セッションだけに許す。閲覧は誰でも自由。

@@ -16,7 +16,7 @@ from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.manager import JobManager
 from web.api.preview import PreviewService
 from web.api.settings import Settings
-from web.api.state import AppState
+from web.api.state import AppState, BusyError
 
 
 def get_state(request: Request) -> AppState:
@@ -72,6 +72,12 @@ def require_control(request: Request) -> LeaseInfo:
         ControlDeniedError: 他クライアントが操作権を保持している場合（app.py の
             例外ハンドラが 423 Locked へ変換する）
     """
+    state: AppState = request.app.state.appstate
+    if state.busy_owner == "software-update":
+        raise BusyError("software-update")
+    coordinator = request.app.state.update_coordinator
+    if coordinator is not None and coordinator.status().running:
+        raise BusyError("software-update")
     return request.app.state.control.claim(get_identity(request))
 
 

@@ -229,3 +229,37 @@ class JobCatalogResponse(BaseModel):
     """/api/jobs のジョブカタログレスポンス（hidden を含む全件）."""
 
     jobs: list[JobSpecInfo]
+
+
+class SoftwareUpdateStatusResponse(BaseModel):
+    """Backend/UI host 共通の software update status wire 契約."""
+
+    role: Literal["api", "ui"]
+    enabled: bool
+    phase: Literal[
+        "disabled",
+        "idle",
+        "checking",
+        "available",
+        "queued",
+        "preparing",
+        "restarting",
+        "rolling_back",
+        "succeeded",
+        "rolled_back",
+        "blocked",
+        "failed",
+    ]
+    running: bool
+    available: str | None = None
+    previous: str | None = None
+    branch: str | None = None
+    branch_change: bool
+    can_apply: bool
+    blockers: list[str]
+    missing_os_packages: list[str]
+    request_id: str | None = None
+    checked_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    message: str

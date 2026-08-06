@@ -26,11 +26,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
+from pcbasm.software_update import UpdateCoordinatorContract, UpdateStatus
 from web.api.models import (
     JobCatalogResponse,
     JobSpecInfo,
     MachineInfo,
     SettingsField,
+    SoftwareUpdateStatusResponse,
     StateResponse,
 )
 from web.ui.layout import (
@@ -310,6 +312,38 @@ async def settings_entry(request: Request) -> Response:
     return await _open_default(request, "settings")
 
 
+def _local_update_status(request: Request) -> SoftwareUpdateStatusResponse:
+    coordinator: UpdateCoordinatorContract | None = request.app.state.update_coordinator
+    status = (
+        coordinator.status() if coordinator is not None else UpdateStatus(role="ui")
+    )
+    return SoftwareUpdateStatusResponse.model_validate(status.to_dict())
+
+
+def _update_card(
+    *, label: str, endpoint: str, status: SoftwareUpdateStatusResponse
+) -> dict[str, Any]:
+    """テンプレートが比較せず描ける update card context を返す."""
+    return {"label": label, "endpoint": endpoint, "status": status}
+
+
+@router.get("/software-update", response_class=HTMLResponse)
+async def local_software_update_page(request: Request) -> HTMLResponse:
+    context = _chrome_context(
+        request, machine_id=None, current_suffix="software-update"
+    )
+    context.update(
+        update_cards=(
+            _update_card(
+                label="UI host",
+                endpoint="/api/software-update",
+                status=_local_update_status(request),
+            ),
+        )
+    )
+    return _html_page(request, "software_update.html", context)
+
+
 # `/{tab}/{feature}` より先に登録する（後だと tab="m" / feature=machine_id として
 # 食われ、`/m/{id}/m/{id}` へ 307 したうえで 404 になる）
 @router.get("/m/{machine_id}", include_in_schema=False)
@@ -337,6 +371,32 @@ async def settings_page(machine_id: str, request: Request) -> HTMLResponse:
     context = _base_context(request, machine_id, "settings", info, state)
     context.update(machine_groups=grouped_fields(machine_settings.fields))
     return _html_page(request, "settings.html", context)
+
+
+@router.get("/m/{machine_id}/software-update", response_class=HTMLResponse)
+async def machine_software_update_page(
+    machine_id: str, request: Request
+) -> HTMLResponse:
+    endpoint, client = _resolve(request, machine_id)
+    info, state, backend_status = await asyncio.gather(
+        client.machine_info(), client.state(), client.software_update()
+    )
+    context = _base_context(request, machine_id, "software-update", info, state)
+    context.update(
+        update_cards=(
+            _update_card(
+                label="UI host",
+                endpoint="/api/software-update",
+                status=_local_update_status(request),
+            ),
+            _update_card(
+                label=endpoint.label,
+                endpoint=f"/m/{machine_id}/api/software-update",
+                status=backend_status,
+            ),
+        )
+    )
+    return _html_page(request, "software_update.html", context)
 
 
 def _loading_context(job: JobSpecInfo, settings: _MachineSettings) -> dict[str, Any]:

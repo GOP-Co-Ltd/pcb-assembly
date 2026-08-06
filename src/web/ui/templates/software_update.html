@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}ソフトウェア更新 — PCB Assembly WebUI{% endblock %}
+{% block content %}
+<section class="main-pane software-update-page" data-testid="software-update-page">
+  <h1>ソフトウェア更新</h1>
+  <div class="update-cards">
+    {% for card in update_cards %}
+    <article class="update-card" data-update-card data-endpoint="{{ card.endpoint }}">
+      <h2>{{ card.label }}</h2>
+      <p class="update-message" data-update-message>{{ card.status.message }}</p>
+      <dl>
+        <dt>branch</dt><dd data-update-branch>{{ card.status.branch or "—" }}</dd>
+        <dt>稼働 revision</dt><dd data-update-previous>{{ card.status.previous or "—" }}</dd>
+        <dt>更新 revision</dt><dd data-update-revision>{{ card.status.available or "—" }}</dd>
+        <dt>phase</dt><dd data-update-phase>{{ card.status.phase }}</dd>
+      </dl>
+      <ul data-update-blockers>
+        {% for blocker in card.status.blockers %}<li>{{ blocker }}</li>{% endfor %}
+      </ul>
+      <button type="button" data-update-check>更新を確認</button>
+      <button type="button" data-update-apply
+              data-branch="{{ card.status.branch or '' }}"
+              data-revision="{{ card.status.available or '' }}"
+              data-branch-change="{{ 'true' if card.status.branch_change else 'false' }}"
+              {% if not card.status.can_apply and not card.status.branch_change %}disabled{% endif %}>
+        適用
+      </button>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ static_asset('js/software_update.js') }}"></script>
+{% endblock %}

@@ -1,17 +1,10 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # システム依存関係をインストール
-sudo apt-get update
-sudo apt-get install -y \
-    alsa-utils \
-    v4l-utils \
-    curl \
-    kicad \
-    make \
-    git \
-    git-lfs \
-    python3-picamera2
+"${SCRIPT_DIR}/install-os-packages.sh"
 
 # git-lfsを有効化し、git-lfs未導入のままcloneして
 # ポインタのまま残った (破損した) LFSファイルを実体に置き換える

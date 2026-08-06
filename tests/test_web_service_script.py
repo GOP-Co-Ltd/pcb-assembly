@@ -21,7 +21,6 @@ seam の使い分け:
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -207,7 +206,7 @@ class TestRenderUnit:
     """生成される unit テキスト."""
 
     @pytest.mark.parametrize("target", ("api", "ui"))
-    def test_execstart_runs_the_make_target_of_the_same_name(
+    def test_execstart_runs_the_role_release_entrypoint(
         self, target: str, tmp_path: Path
     ):
         unit = render_unit(target, tmp_path)
@@ -215,7 +214,8 @@ class TestRenderUnit:
             line for line in unit.splitlines() if line.startswith("ExecStart=")
         ]
         assert len(execstart) == 1
-        assert re.fullmatch(rf"ExecStart=/\S*/make {target}", execstart[0]), execstart
+        module = "web.api" if target == "api" else "web.ui"
+        assert f"/current-{target}/.venv/bin/python -m {module}" in execstart[0]
 
     @pytest.mark.parametrize("target", ("api", "ui"))
     def test_no_ordering_dependency_between_the_two_services(

@@ -12,6 +12,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
+from pcbasm.software_update import (
+    SystemdUpdateCoordinator,
+    UpdateCoordinatorContract,
+)
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore, UnknownFieldError
 from web.api.control import ControlDeniedError, ControlLease, LeaseInfo
@@ -35,6 +39,7 @@ from web.api.routers import (
     pasting_loading,
     preview as preview_router,
     settings_api,
+    software_update,
     system,
 )
 from web.api.routers.common import control_payload
@@ -101,6 +106,8 @@ def create_app(
     *,
     audio_player: AudioPlayer | None = None,
     clock: Callable[[], float] | None = None,
+    update_coordinator: UpdateCoordinatorContract | None = None,
+    revision: str | None = None,
 ) -> FastAPI:
     """WebUI の FastAPI アプリを構築する.
 
@@ -136,6 +143,12 @@ def create_app(
     app.state.preview = preview
     app.state.catalog = catalog
     app.state.audio_player = audio_player
+    app.state.update_coordinator = (
+        update_coordinator
+        if update_coordinator is not None
+        else SystemdUpdateCoordinator.from_env("api")
+    )
+    app.state.revision = revision or runtime_revision()
     board_store = BoardSettingsStore(
         settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
     )
@@ -205,4 +218,19 @@ def create_app(
     app.include_router(pasting.router)
     app.include_router(pasting_loading.router)
     app.include_router(nozzle_cap.router)
+    app.include_router(software_update.router)
     return app
+
+
+def runtime_revision() -> str:
+    """Release worktree の revision（health の一致確認用）を返す."""
+    import os
+    import subprocess
+
+    configured = os.environ.get("PCBASM_REVISION")
+    if configured:
+        return configured
+    completed = subprocess.run(
+        ("git", "rev-parse", "HEAD"), capture_output=True, text=True, check=False
+    )
+    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
