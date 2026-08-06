@@ -37,7 +37,7 @@ class TestCameraCapture:
 
 ## テストクラス内での分離パターン
 
-同一テストクラス内に「モック版」と「ハードウェア版」を併存させる。
+同一テストクラス内に「fake 版」と「ハードウェア版」を併存させる。
 
 - fake 版：`tests.helpers.FakeCamera` など自前 HAL の実装を利用し、CIで実行
 - ハードウェア版：`@mark_hardware` 付与、実機接続時のみ実行
@@ -54,11 +54,16 @@ uv run python -c "import picamera2; print(picamera2.Picamera2.global_camera_info
 
 ## テスト実行コマンド
 
-```bash
-# CI想定：ハードウェアテストを除外
-make test-no-hardware
+agent が実行してよいのは、ハードウェアテストを除外する次の command までとする。
 
-# 実機手元実行：すべて実行
+```bash
+make test-no-hardware
+```
+
+以下は実機を動かすため、ユーザーが手元で実行する。agent は実行しない。
+
+```bash
+# すべて実行
 make test
 
 # ハードウェアテストのみ
