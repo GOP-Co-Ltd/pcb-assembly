@@ -94,15 +94,22 @@ class Settings:
         base = cls()
         port_env = os.environ.get("PCBASM_API_PORT")
         pcb_root_env = os.environ.get("PCBASM_API_PCB_ROOT")
+        allowed_root_env = os.environ.get("PCBASM_API_PCB_ALLOWED_ROOT")
         pcb_browse_root = Path(pcb_root_env) if pcb_root_env else base.pcb_browse_root
+        extra_allowed = Path(allowed_root_env) if allowed_root_env else None
+        allowed = base.pcb_browse_allowed
+        if pcb_root_env:
+            allowed = (*allowed, pcb_browse_root)
+        if extra_allowed is not None and extra_allowed not in allowed:
+            allowed = (*allowed, extra_allowed)
         return cls(
             data_dir=_env_path("PCBASM_API_DATA_DIR", base.data_dir),
             pcb_browse_root=pcb_browse_root,
-            pcb_browse_allowed=(
-                (*base.pcb_browse_allowed, pcb_browse_root)
-                if pcb_root_env
-                else base.pcb_browse_allowed
+            pcb_browse_allowed=allowed,
+            pcb_browse_start=_env_path(
+                "PCBASM_API_PCB_BROWSE_START", base.pcb_browse_start
             ),
+            pcb_upload_dir=_env_path("PCBASM_API_UPLOAD_DIR", base.pcb_upload_dir),
             mainsail_url=os.environ.get("PCBASM_MAINSAIL_URL", base.mainsail_url),
             port=int(port_env) if port_env else base.port,
             fake_camera=os.environ.get("PCBASM_API_FAKE_CAMERA") == "1",

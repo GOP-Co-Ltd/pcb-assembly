@@ -28,7 +28,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import copy_testing_config
+from tests.helpers import FakeAudioPlayer, copy_testing_config
 from web.api.app import create_app as create_backend_app
 from web.api.settings import Settings as ApiSettings
 from web.ui.machines import MachineEndpoint
@@ -38,6 +38,12 @@ from web.ui.settings import Settings
 # backend から取った machine_id と URL の machine_id を突き合わせられるように）
 BACKEND_MACHINE_ID = "uitest"
 BACKEND_MACHINE_NAME = "UI テスト機"
+
+
+@pytest.fixture
+def audio_player() -> FakeAudioPlayer:
+    """Backendを組み立てるUI統合テスト用の副作用なし音声player。"""
+    return FakeAudioPlayer()
 
 
 @pytest.fixture

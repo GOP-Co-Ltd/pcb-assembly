@@ -13,14 +13,23 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 実結果を観測する。systemctl は PATH 先頭のスタブが受けるので実機の systemd には触らない。
 SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 SUDO="${SUDO:-sudo}"
+PCBASM_STATE_DIR="${PCBASM_STATE_DIR:-/var/lib/pcbasm/state}"
+PCBASM_RELEASES_DIR="${PCBASM_RELEASES_DIR:-/var/lib/pcbasm/releases}"
+PCBASM_RUNTIME_ROOT="$(dirname "${PCBASM_RELEASES_DIR}")"
+if [ "${SYSTEMD_UNIT_DIR}" = "/etc/systemd/system" ]; then
+    SUDOERS_DIR="${SUDOERS_DIR:-/etc/sudoers.d}"
+else
+    # systemd test seam では sudoers も同じ一時 directory に隔離する。
+    SUDOERS_DIR="${SUDOERS_DIR:-${SYSTEMD_UNIT_DIR}}"
+fi
 
 usage() {
     cat <<EOF
 Usage: $(basename "$0") <install|start|stop|restart|status|remove> [api|ui|all]
 
 対象（既定: ${DEFAULT_TARGET}）
-  api  backend WebAPI: pcbasm-api.service (make api)
-  ui   UI frontend:    pcbasm-ui.service (make ui)
+  api  backend WebAPI: pcbasm-api.service (current-api release)
+  ui   UI frontend:    pcbasm-ui.service (current-ui release)
   all  api → ui の順に両方
 
 操作
@@ -96,12 +105,11 @@ service_description() {
 # 各機体への問い合わせが 503 になるだけで復帰できる。
 # `After=avahi-daemon.service` も不要（mDNS は python-zeroconf 実装で avahi に依存しない）。
 render_unit() {
-    local target="$1" service_user service_group make_bin uv_bin executable_path
+    local target="$1" service_user service_group current executable_path
     service_user="$(id -un)"
     service_group="$(id -gn)"
-    make_bin="$(command -v make)"
-    uv_bin="$(command -v uv)"
-    executable_path="$(dirname "${uv_bin}"):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    current="${PCBASM_RUNTIME_ROOT}/current-${target}"
+    executable_path="${current}/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
     cat <<EOF
 [Unit]
@@ -113,16 +121,199 @@ After=network-online.target
 Type=simple
 User=${service_user}
 Group=${service_group}
-WorkingDirectory=${PROJECT_ROOT}
+WorkingDirectory=${current}
 Environment="HOME=${HOME}"
 Environment="PATH=${executable_path}"
-ExecStart=${make_bin} ${target}
+Environment="PCBASM_MANAGEMENT_REPO=${PROJECT_ROOT}"
+Environment="PCBASM_STATE_DIR=${PCBASM_STATE_DIR}"
+Environment="PCBASM_RELEASES_DIR=${PCBASM_RELEASES_DIR}"
+Environment="PCBASM_INSTALLED_SCHEMA_VERSION=$(installed_schema_version "${target}")"
+Environment="PCBASM_CONFIG_DIR=${PROJECT_ROOT}/config"
+Environment="PCBASM_API_DATA_DIR=${PROJECT_ROOT}/data"
+Environment="PCBASM_API_UPLOAD_DIR=${PROJECT_ROOT}/uploads"
+Environment="PCBASM_API_PCB_ALLOWED_ROOT=${PROJECT_ROOT}"
+Environment="PCBASM_API_PCB_BROWSE_START=${PROJECT_ROOT}"
+Environment="PCBASM_UI_MACHINES_FILE=${PROJECT_ROOT}/config/machines.toml"
+ExecStart=${current}/.venv/bin/python -m web.${target}
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 EOF
+}
+
+update_executable_path() {
+    local uv_bin
+    uv_bin="$(command -v uv)"
+    printf '%s:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n' "$(dirname "${uv_bin}")"
+}
+
+installed_schema_version() {
+    local target="$1" current_schema
+    current_schema="${PCBASM_RUNTIME_ROOT}/current-${target}/deploy/schema-version"
+    if [ ! -f "${current_schema}" ]; then
+        current_schema="${PROJECT_ROOT}/deploy/schema-version"
+    fi
+    tr -d '[:space:]' <"${current_schema}"
+}
+
+render_update_apply_unit() {
+    local target="$1" service_user service_group current executable_path
+    service_user="$(id -un)"
+    service_group="$(id -gn)"
+    current="${PCBASM_RUNTIME_ROOT}/current-${target}"
+    executable_path="$(update_executable_path)"
+    cat <<EOF
+[Unit]
+Description=Apply PCB Assembly software update (${target})
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=${service_user}
+Group=${service_group}
+WorkingDirectory=${PROJECT_ROOT}
+Environment="HOME=${HOME}"
+Environment="PATH=${executable_path}"
+Environment="PCBASM_MANAGEMENT_REPO=${PROJECT_ROOT}"
+Environment="PCBASM_STATE_DIR=${PCBASM_STATE_DIR}"
+Environment="PCBASM_RELEASES_DIR=${PCBASM_RELEASES_DIR}"
+Environment="PCBASM_INSTALLED_SCHEMA_VERSION=$(installed_schema_version "${target}")"
+ExecStart=${current}/.venv/bin/python -m pcbasm.software_update apply --role ${target}
+EOF
+}
+
+render_update_check_unit() {
+    local target="$1" service_user service_group current executable_path
+    service_user="$(id -un)"
+    service_group="$(id -gn)"
+    current="${PCBASM_RUNTIME_ROOT}/current-${target}"
+    executable_path="$(update_executable_path)"
+    cat <<EOF
+[Unit]
+Description=Check PCB Assembly software update (${target})
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=${service_user}
+Group=${service_group}
+WorkingDirectory=${PROJECT_ROOT}
+Environment="HOME=${HOME}"
+Environment="PATH=${executable_path}"
+Environment="PCBASM_MANAGEMENT_REPO=${PROJECT_ROOT}"
+Environment="PCBASM_STATE_DIR=${PCBASM_STATE_DIR}"
+Environment="PCBASM_RELEASES_DIR=${PCBASM_RELEASES_DIR}"
+Environment="PCBASM_INSTALLED_SCHEMA_VERSION=$(installed_schema_version "${target}")"
+ExecStart=${current}/.venv/bin/python -m pcbasm.software_update check --role ${target}
+EOF
+}
+
+render_update_timer() {
+    local target="$1"
+    cat <<EOF
+[Unit]
+Description=Periodic PCB Assembly software update check (${target})
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+Unit=pcbasm-update-check@${target}.service
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+render_role_sudoers() {
+    local target="$1" systemctl_bin
+    systemctl_bin="$(command -v systemctl)"
+    cat <<EOF
+$(id -un) ALL=(root) NOPASSWD: ${systemctl_bin} start pcbasm-update@${target}.service --no-block
+$(id -un) ALL=(root) NOPASSWD: ${systemctl_bin} start pcbasm-update-check@${target}.service --no-block
+$(id -un) ALL=(root) NOPASSWD: ${systemctl_bin} restart pcbasm-${target}.service
+EOF
+}
+
+render_update_sudoers() {
+    render_role_sudoers api
+    render_role_sudoers ui
+}
+
+replace_with_persistent_link() {
+    local source="$1" destination="$2"
+    mkdir -p "${source}" "$(dirname "${destination}")"
+    if [ -L "${destination}" ]; then
+        if [ "$(readlink -f "${destination}")" = "$(readlink -f "${source}")" ]; then
+            return 0
+        fi
+        rm -f "${destination}"
+    elif [ -d "${destination}" ]; then
+        # release worktree 内の tracked snapshot だけが対象。
+        rm -r "${destination}"
+    elif [ -e "${destination}" ]; then
+        rm -f "${destination}"
+    fi
+    ln -s "${source}" "${destination}"
+}
+
+prepare_initial_release() {
+    local target="$1" branch revision release current temporary module
+    # unit/sudoers test seam から host の release 領域へ書き込まない。
+    if [ "${SYSTEMD_UNIT_DIR}" != "/etc/systemd/system" ]; then
+        return 0
+    fi
+
+    branch="$(git -C "${PROJECT_ROOT}" branch --show-current)"
+    if [ -z "${branch}" ]; then
+        echo "エラー: 管理 checkout が detached HEAD です。" >&2
+        return 1
+    fi
+    git -C "${PROJECT_ROOT}" fetch origin "${branch}"
+    revision="$(git -C "${PROJECT_ROOT}" rev-parse "origin/${branch}")"
+    release="${PCBASM_RELEASES_DIR}/${revision}"
+    current="${PCBASM_RUNTIME_ROOT}/current-${target}"
+    module="web.api.app"
+    if [ "${target}" = "ui" ]; then
+        module="web.ui.app"
+    fi
+
+    if [ ! -f "${release}/.pcbasm-prepared" ]; then
+        mkdir -p "${PCBASM_RELEASES_DIR}"
+        if [ -e "${release}" ]; then
+            echo "エラー: 未完成 release が残っています: ${release}" >&2
+            return 1
+        fi
+        git -C "${PROJECT_ROOT}" worktree add --detach "${release}" "${revision}"
+        git -C "${release}" lfs pull
+        uv venv --system-site-packages "${release}/.venv"
+        uv sync --directory "${release}" --locked --all-extras
+    fi
+
+    # release 内の従来パスも管理 checkout の永続データへ接続する。
+    replace_with_persistent_link "${PROJECT_ROOT}/config" "${release}/config"
+    replace_with_persistent_link "${PROJECT_ROOT}/uploads" "${release}/uploads"
+    replace_with_persistent_link "${PROJECT_ROOT}/data/webui" "${release}/data/webui"
+    "${release}/.venv/bin/python" -c "import ${module}"
+    printf '%s\n' "${revision}" >"${release}/.pcbasm-prepared"
+
+    temporary="${PCBASM_RUNTIME_ROOT}/.current-${target}.$$"
+    ln -s "${release}" "${temporary}"
+    mv -Tf "${temporary}" "${current}"
+    mkdir -p "${PCBASM_STATE_DIR}"
+}
+
+install_rendered_file() {
+    local mode="$1" destination="$2" renderer="$3" target="$4" temporary
+    temporary="$(mktemp)"
+    trap "rm -f '${temporary}'" EXIT
+    "${renderer}" "${target}" >"${temporary}"
+    ${SUDO} install -m "${mode}" "${temporary}" "${destination}"
+    rm -f "${temporary}"
+    trap - EXIT
 }
 
 # 旧 unit は `ExecStart=make webui` を参照している。Makefile から webui エイリアスを
@@ -158,12 +349,28 @@ require_privileged_tools() {
     require_command systemctl
 }
 
+prepare_runtime_directories() {
+    local service_user service_group
+    # test seamからhostの /var/lib を変更しない。専用のinstallerテストでは
+    # PCBASM_*を一時pathへ向けてproduction相当の準備を個別に検証する。
+    if [ "${SYSTEMD_UNIT_DIR}" != "/etc/systemd/system" ]; then
+        return 0
+    fi
+    service_user="$(id -un)"
+    service_group="$(id -gn)"
+    ${SUDO} install -d -m 0755 -o "${service_user}" -g "${service_group}" \
+        "${PCBASM_RUNTIME_ROOT}" "${PCBASM_STATE_DIR}" "${PCBASM_RELEASES_DIR}"
+}
+
 install_service() {
     local target="$1" name unit_file
     name="$(service_name "${target}")"
 
-    require_command make
     require_command uv
+
+    # candidate release の venv/import が成功してから既存 unit を置き換える。
+    prepare_runtime_directories
+    prepare_initial_release "${target}"
 
     if [ "${target}" = "api" ]; then
         purge_legacy_unit
@@ -182,8 +389,13 @@ install_service() {
     ${SUDO} install -m 0644 "${unit_file}" "$(unit_path "${target}")"
     rm -f "${unit_file}"
     trap - EXIT
+    install_rendered_file 0644 "${SYSTEMD_UNIT_DIR}/pcbasm-update@${target}.service" render_update_apply_unit "${target}"
+    install_rendered_file 0644 "${SYSTEMD_UNIT_DIR}/pcbasm-update-check@${target}.service" render_update_check_unit "${target}"
+    install_rendered_file 0644 "${SYSTEMD_UNIT_DIR}/pcbasm-update-check@${target}.timer" render_update_timer "${target}"
+    install_rendered_file 0440 "${SUDOERS_DIR}/pcbasm-update-${target}" render_role_sudoers "${target}"
     ${SUDO} systemctl daemon-reload
     ${SUDO} systemctl enable "${name}"
+    ${SUDO} systemctl enable --now "pcbasm-update-check@${target}.timer"
     ${SUDO} systemctl restart "${name}"
 
     echo "${name} を登録して起動しました。"
@@ -203,12 +415,25 @@ remove_service() {
     fi
 
     if [ ! -e "${path}" ]; then
+        ${SUDO} systemctl disable --now "pcbasm-update-check@${target}.timer" 2>/dev/null || true
+        ${SUDO} rm -f \
+            "${SYSTEMD_UNIT_DIR}/pcbasm-update@${target}.service" \
+            "${SYSTEMD_UNIT_DIR}/pcbasm-update-check@${target}.service" \
+            "${SYSTEMD_UNIT_DIR}/pcbasm-update-check@${target}.timer" \
+            "${SUDOERS_DIR}/pcbasm-update-${target}"
+        ${SUDO} systemctl daemon-reload
         echo "${name} は登録されていません。"
         return 0
     fi
 
     ${SUDO} systemctl disable --now "${name}"
+    ${SUDO} systemctl disable --now "pcbasm-update-check@${target}.timer" || true
     ${SUDO} rm -f "${path}"
+    ${SUDO} rm -f \
+        "${SYSTEMD_UNIT_DIR}/pcbasm-update@${target}.service" \
+        "${SYSTEMD_UNIT_DIR}/pcbasm-update-check@${target}.service" \
+        "${SYSTEMD_UNIT_DIR}/pcbasm-update-check@${target}.timer" \
+        "${SUDOERS_DIR}/pcbasm-update-${target}"
     ${SUDO} systemctl daemon-reload
     ${SUDO} systemctl reset-failed "${name}" 2>/dev/null || true
 

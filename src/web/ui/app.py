@@ -15,7 +15,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from web.ui import machines_api, pages
+from pcbasm.software_update import (
+    SystemdUpdateCoordinator,
+    UpdateCoordinatorContract,
+)
+from web.api.app import runtime_revision
+from web.ui import machines_api, pages, software_update_api
 from web.ui.discovery import MachineDiscovery
 from web.ui.machine_client import BackendGateway, BackendUnavailable
 from web.ui.machines import (
@@ -73,6 +78,8 @@ def create_app(
     transport_factory: (
         Callable[[MachineEndpoint], httpx.AsyncBaseTransport] | None
     ) = None,
+    update_coordinator: UpdateCoordinatorContract | None = None,
+    revision: str | None = None,
 ) -> FastAPI:
     """UI frontend の FastAPI アプリを構築する.
 
@@ -110,6 +117,12 @@ def create_app(
     app.state.settings = settings
     app.state.registry = registry
     app.state.gateway = gateway
+    app.state.update_coordinator = (
+        update_coordinator
+        if update_coordinator is not None
+        else SystemdUpdateCoordinator.from_env("ui")
+    )
+    app.state.revision = revision or runtime_revision()
     # 探索の開始は lifespan（AsyncZeroconf が running loop を要求する）
     app.state.discovery = (
         MachineDiscovery(
@@ -175,6 +188,7 @@ def create_app(
     # pages ルータより先に登録する（後だと /{tab} のキャッチオールに食われて
     # ドロップダウン更新が HTML を受け取る）
     app.include_router(machines_api.router)
+    app.include_router(software_update_api.router)
     # /{tab} のキャッチオールを持つため最後に登録する
     app.include_router(pages.router)
     return app

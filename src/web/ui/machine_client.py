@@ -20,6 +20,7 @@ from web.api.models import (
     JobCatalogResponse,
     MachineInfo,
     MachineSettingsResponse,
+    SoftwareUpdateStatusResponse,
     StateResponse,
 )
 from web.ui.machines import MachineEndpoint
@@ -138,6 +139,10 @@ class MachineClient:
     async def jobs(self) -> JobCatalogResponse:
         """`GET /api/jobs`（hidden を含む全件）."""
         return await self._fetch(JobCatalogResponse, "/api/jobs")
+
+    async def software_update(self) -> SoftwareUpdateStatusResponse:
+        """`GET /api/software-update`."""
+        return await self._fetch(SoftwareUpdateStatusResponse, "/api/software-update")
 
     async def _fetch[ModelT: BaseModel](self, model: type[ModelT], path: str) -> ModelT:
         """Backend から 1 本取得して検証する.

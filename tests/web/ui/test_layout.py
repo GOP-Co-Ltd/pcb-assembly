@@ -141,7 +141,7 @@ class TestMachinePrefixFunnel:
         app_js = (_JS_DIR / "app.js").read_text(encoding="utf-8")
 
         assert "document.body.dataset.machineBase" in app_js
-        assert "fetch(withBase(url)" in app_js
+        assert "requestJson(method, withBase(url)" in app_js
 
     def test_websocket_url_is_prefixed(self):
         lines = _js_code_lines("new WebSocket(")

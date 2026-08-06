@@ -17,6 +17,8 @@
     {% endfor %}
   </nav>
   <div class="global-controls">
+    <a id="software-update-badge" class="chip update-badge"
+       href="{{ base }}/software-update" hidden>更新</a>
     {# マシンが決まっていないページ（ピッカー / 503 / 未登録 404）に操作権の概念は無い。
        base が空だと control.js の GET /api/state と取得 POST がプロキシ外へ飛んで 404 に
        なるため、押すと必ず失敗する「死んだ取得ボタン」を出さない #}
@@ -50,6 +52,7 @@
    scripts ブロックで読む job_console.js より前（window.webui.control を先に生やす） #}
 <script src="{{ static_asset('js/control.js') }}"></script>
 <script src="{{ static_asset('js/machine_selector.js') }}"></script>
+<script src="{{ static_asset('js/software_update_badge.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

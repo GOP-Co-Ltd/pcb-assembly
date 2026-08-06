@@ -1,0 +1,8 @@
+alsa-utils
+v4l-utils
+curl
+kicad
+make
+git
+git-lfs
+python3-picamera2

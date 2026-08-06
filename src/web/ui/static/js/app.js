@@ -25,7 +25,7 @@ function toast(message, level = true) {
   setTimeout(() => el.remove(), 5000);
 }
 
-async function api(method, url, body) {
+async function requestJson(method, url, body) {
   const options = { method };
   if (body instanceof FormData) {
     // multipart は fetch が boundary 付き Content-Type を自動設定する
@@ -34,7 +34,7 @@ async function api(method, url, body) {
     options.headers = { "Content-Type": "application/json" };
     options.body = JSON.stringify(body);
   }
-  const res = await fetch(withBase(url), options);
+  const res = await fetch(url, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.detail || `${res.status} ${res.statusText}`);
@@ -47,15 +47,22 @@ async function api(method, url, body) {
   return data;
 }
 
+async function api(method, url, body) {
+  return requestJson(method, withBase(url), body);
+}
+
+// frontend 自身、または /m/<id> まで解決済みの URL 用。
+// software update のカードは local UI と backend を同じページに並べるため、
+// body の machine prefix を一律には付けられない。
+async function frontendApi(method, url, body) {
+  return requestJson(method, url, body);
+}
+
 // frontend 自身のエンドポイント（/api/machines）を GET する。
 // machine prefix は付けない（付けると backend へ中継されて 404 になる）。
 // fetch() をこのファイルに閉じるための入口でもある（tests/web/ui/test_layout.py）。
 async function frontendJson(url) {
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) {
-    throw new Error(`${res.status} ${res.statusText}`);
-  }
-  return res.json();
+  return frontendApi("GET", url);
 }
 
 function svgEl(tag, attrs) {
@@ -98,6 +105,7 @@ function formatPosition(p) {
 window.webui = {
   toast,
   api,
+  frontendApi,
   frontendJson,
   svgEl,
   debounce,
