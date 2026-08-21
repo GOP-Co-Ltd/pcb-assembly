@@ -20,6 +20,23 @@
 
 OS以外のソフトウェア類は[`install-softwares.sh`](install-softwares.sh)を実行
 
+Raspberry Pi のカメラ・スピーカーと Klipper MCU firmware は、ソフトウェアの
+インストール後に対話式スクリプトで設定する。
+
+```sh
+./setup-hardware.sh
+```
+
+- カメラは CAMERA port 0 / 1 と driver（`ov9281` または手入力）を選ぶ
+- スピーカーは `max98357a`、overlay 名の手入力、未設定から選ぶ
+- BTT SKR Pico v1.0 は画面の案内に従って BOOT jumper と RESET を操作し、
+    `RPI-RP2` volume へ同梱 UF2 firmware をコピーする
+- 最後に案内される `sudo reboot` で boot 設定を反映する
+
+boot 設定は `/boot/firmware/config.txt`（旧 OS では `/boot/config.txt`）へ反映され、
+変更前の内容は同じ場所の `config.txt.pcbasm.bak` に保存される。スクリプトが管理する
+marker 内だけを再実行時に置換し、それ以外の既存設定は保持する。
+
 ### GitLab CI Runner
 
 専用のRaspberry Pi 5をGitLab Runnerとして構築する場合は、
