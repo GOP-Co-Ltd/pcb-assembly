@@ -9,7 +9,8 @@ CAMERA_BLOCK_BEGIN="# BEGIN pcb-assembly camera"
 CAMERA_BLOCK_END="# END pcb-assembly camera"
 SPEAKER_BLOCK_BEGIN="# BEGIN pcb-assembly speaker"
 SPEAKER_BLOCK_END="# END pcb-assembly speaker"
-VOLUME_SEARCH_ROOTS="${PCBASM_VOLUME_SEARCH_ROOTS:-/media:/run/media}"
+MEDIA_USER="${SUDO_USER:-${USER:-$(id -un)}}"
+RPI_RP2_VOLUME="${PCBASM_RPI_RP2_VOLUME:-/media/${MEDIA_USER}/RPI-RP2}"
 SERIAL_BY_ID_DIR="${PCBASM_SERIAL_BY_ID_DIR:-/dev/serial/by-id}"
 VOLUME_WAIT_SECONDS="${PCBASM_VOLUME_WAIT_SECONDS:-60}"
 SERIAL_WAIT_SECONDS="${PCBASM_SERIAL_WAIT_SECONDS:-30}"
@@ -134,27 +135,15 @@ write_boot_config() {
 }
 
 find_rpi_rp2_volume() {
-    local search_root
-    local volume
-    local roots=()
-
-    IFS=: read -r -a roots <<<"$VOLUME_SEARCH_ROOTS"
-    for search_root in "${roots[@]}"; do
-        [ -d "$search_root" ] || continue
-        volume="$(find "$search_root" -maxdepth 3 -type d -name RPI-RP2 -print -quit 2>/dev/null)"
-        if [ -n "$volume" ]; then
-            printf '%s' "$volume"
-            return 0
-        fi
-    done
-    return 1
+    [ -d "$RPI_RP2_VOLUME" ] || return 1
+    printf '%s' "$RPI_RP2_VOLUME"
 }
 
 wait_for_rpi_rp2_volume() {
     local elapsed=0
     local volume
 
-    echo "RPI-RP2 ボリュームを待っています（最大 ${VOLUME_WAIT_SECONDS} 秒）..." >&2
+    echo "${RPI_RP2_VOLUME} を待っています（最大 ${VOLUME_WAIT_SECONDS} 秒）..." >&2
     while [ "$elapsed" -le "$VOLUME_WAIT_SECONDS" ]; do
         if volume="$(find_rpi_rp2_volume)"; then
             printf '%s' "$volume"
@@ -208,7 +197,7 @@ flash_btt_skr_pico() {
     echo "  1. 電源を切ります"
     echo "  2. BOOT のジャンパ pin を挿します"
     echo "  3. USB を接続した状態で RESET を押して起動します"
-    echo "  4. RPI-RP2 ボリュームが /media 以下に現れることを確認します"
+    echo "  4. RPI-RP2 ボリュームが ${RPI_RP2_VOLUME} に現れることを確認します"
     echo ""
     read -rp "準備できたら Enter を押してください: " || die "中止しました"
 
