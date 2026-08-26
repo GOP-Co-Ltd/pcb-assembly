@@ -83,16 +83,31 @@ class TestMoveToCap:
         mocker.patch.object(klipper.readonly, "get_config", return_value=_LIMITS_CONFIG)
         return XYZStage(klipper.readonly)
 
-    def test_sequence_is_g90_then_z0_then_xy_then_z_at_present_speed(
-        self, stage: XYZStage
+    @pytest.mark.parametrize(
+        ("max_velocity", "expected_feed"),
+        [(10, 600.0), (300, 1200.0)],
+    )
+    def test_sequence_caps_present_speed_at_stage_max_velocity(
+        self,
+        mocker: MockerFixture,
+        max_velocity: int,
+        expected_feed: float,
     ):
+        klipper = Klipper()
+        limits_config = {
+            **_LIMITS_CONFIG,
+            "printer": {"max_velocity": str(max_velocity)},
+        }
+        mocker.patch.object(klipper.readonly, "get_config", return_value=limits_config)
+        stage = XYZStage(klipper.readonly)
+
         result = move_to_cap(stage, NozzleCap(x=10.0, y=20.0, z=3.5))
 
         assert result.to_list() == [
             "G90",
-            "G1 Z0.0 F1200.0",
-            "G1 X10.0 Y20.0 F1200.0",
-            "G1 Z3.5 F1200.0",
+            f"G1 Z0.0 F{expected_feed}",
+            f"G1 X10.0 Y20.0 F{expected_feed}",
+            f"G1 Z3.5 F{expected_feed}",
         ]
 
     def test_sequence_contains_no_m400_or_m84(self, stage: XYZStage):
