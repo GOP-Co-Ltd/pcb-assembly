@@ -346,7 +346,7 @@ def _board_corners(result: BoardCalibrationResult) -> list[tuple[str, Point2d]]:
 def _move_to(
     result: BoardCalibrationResult,
     machine_pt: Point2d,
-    speed: Speed = Speed.absolute(30),
+    speed: Speed | None = None,
 ) -> None:
     """指定の機械座標へ移動し完了を待つ."""
     result.klipper.send_gcode(
