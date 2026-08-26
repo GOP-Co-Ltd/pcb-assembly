@@ -4,7 +4,7 @@ import cv2
 
 from pcbasm import gcode
 from pcbasm.geometry import Point2d
-from pcbasm.hal import Camera, Speed
+from pcbasm.hal import Camera
 from pcbasm.posctrl.render import render_label
 from pcbasm.posctrl.setup import BoardCalibrationResult
 from pcbasm.vision import FrameSink, Image, draw_overlay
@@ -27,8 +27,7 @@ def window_sink(window_name: str) -> FrameSink:
 def _move_to(result: BoardCalibrationResult, machine_pt: Point2d) -> None:
     """指定の機械座標へ移動し完了を待つ."""
     result.klipper.send_gcode(
-        result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=Speed.absolute(30))
-        + gcode.wait_for_done()
+        result.stage.move(x=machine_pt.x, y=machine_pt.y) + gcode.wait_for_done()
     )
 
 

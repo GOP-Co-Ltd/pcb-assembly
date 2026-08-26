@@ -18,7 +18,7 @@ from pcbasm.hal.klipper import PRESENT_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
-# ノズルキャップ移動速度 [mm/s]（PRESENT マクロの F1200 と同速）
+# ノズルキャップ移動速度の上限 [mm/s]（PRESENT マクロの F1200 と同速）
 CAP_PARK_VELOCITY = 20.0
 
 
@@ -39,7 +39,7 @@ def move_to_cap(stage: XYZStage, cap: NozzleCap) -> gcode.GCode:
         ValueError: キャップ位置が可動域外の場合
         KeyError: printer.cfg に limits 用のセクション・キーが無い場合
     """
-    speed = Speed.absolute(CAP_PARK_VELOCITY)
+    speed = Speed.absolute(min(CAP_PARK_VELOCITY, stage.max_velocity))
     return (
         gcode.GCode("G90")
         + stage.move(z=0.0, speed=speed)
