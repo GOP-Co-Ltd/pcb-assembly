@@ -901,13 +901,16 @@ class TestPastingHardware:
     # 対話的（ボード計測 → 線引き → 質量/番号入力）でブラウザ目視を伴うため、
     # WebUI 手動 E2E（make api-fake）でユーザーが検証する分担（large-refactor-workflow）。
 
-    def test_paste_solder_probes_before_xy_alignment(
+    def test_paste_solder_probes_then_aligns_at_camera_focus_z(
         self,
         real_manager: JobManager,
         real_state: AppState,
         wait_until: WaitUntil,
     ):
-        """Probe 完了後に領域照合へ進み、塗布開始前に安全に中止する."""
+        """Probe 後に camera focus Z で領域照合し、塗布前に中止する."""
+        focus_z = real_state.focus_z()
+        assert focus_z is not None
+        stage = XYZStage(create_command_klipper(real_state.machine()).readonly)
         real_state.select_pcb(Path("data/testing/led_blinker/led_blinker.kicad_pcb"))
         record = real_manager.start("paste_solder", {})
         calibration_stages = {"高さ計測", "銅箔照合", "pad照合"}
@@ -918,6 +921,10 @@ class TestPastingHardware:
             )
             assert record.progress_stage == "高さ計測"
             wait_until(lambda: record.progress_stage == "銅箔照合", timeout=900.0)
+            wait_until(
+                lambda: abs(stage.get_position().z - focus_z) <= 0.01,
+                timeout=60.0,
+            )
         finally:
             real_manager.request_abort()
             wait_until(lambda: record.status.terminal, timeout=300.0)
