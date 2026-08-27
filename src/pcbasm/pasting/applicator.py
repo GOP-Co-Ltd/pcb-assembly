@@ -393,7 +393,7 @@ class PasteApplicator:
         """指定点へ ``amount`` [μL] を点塗布する.
 
         通常塗布と同じ ``FillSequence`` を使い、接近→下降→prime+吐出→
-        リトラクション→上昇の protocol で実行する。
+        リトラクション・上昇同時開始の protocol で実行する。
         """
         if amount <= 0:
             raise ValueError(f"amountは正の値である必要があります: {amount}")
