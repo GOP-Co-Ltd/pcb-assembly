@@ -40,6 +40,7 @@ class TestMachineSettings:
         values = store.read_machine_settings()
 
         assert values["paste_dispenser.dispense_mode"] == "auto"
+        assert values["paste_dispenser.line_direction"] is None
         assert values["paste_dispenser.auto_line_aspect_ratio"] == 1.618
         assert values["paste_dispenser.max_fill_speed"] == 0.8
         assert values["paste_dispenser.solder_paste_density"] == 3.78
@@ -84,6 +85,12 @@ class TestMachineSettings:
 
         values = store.read_machine_settings()
         assert values["paste_dispenser.dispense_mode"] == "line"
+
+    def test_write_line_direction_then_reread_reflects_value(self, store: ConfigStore):
+        store.write_machine_settings({"paste_dispenser.line_direction": "outward"})
+
+        values = store.read_machine_settings()
+        assert values["paste_dispenser.line_direction"] == "outward"
 
     def test_write_solder_paste_density_then_reread_reflects_value(
         self, store: ConfigStore
@@ -260,6 +267,12 @@ class TestMachineSettings:
     def test_unknown_dispense_mode_raises_unknown_field_error(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings({"paste_dispenser.dispense_mode": "spray"})
+
+    def test_unknown_line_direction_raises_unknown_field_error(
+        self, store: ConfigStore
+    ):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings({"paste_dispenser.line_direction": "sideways"})
 
     def test_auto_line_aspect_ratio_must_exceed_one(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):

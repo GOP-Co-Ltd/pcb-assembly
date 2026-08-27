@@ -1,6 +1,6 @@
 """ペースト塗布の制御."""
 
-from pcbasm.config import DispenseMode, PasteHeight
+from pcbasm.config import DispenseMode, LineDirection, PasteHeight
 
 from .applicator import PasteApplicator
 from .calibration import (
@@ -76,6 +76,7 @@ __all__ = [
     "LevelSetting",
     "LineLayout",
     "LineLayoutOverflowError",
+    "LineDirection",
     "MassFlowCalibration",
     "MassFlowEstimate",
     "MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT",

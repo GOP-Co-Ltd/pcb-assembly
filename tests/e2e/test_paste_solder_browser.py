@@ -491,7 +491,7 @@ class TestPasteSolderBrowserPadInteraction:
         browser_page.locator(_testid("pad-enable-all")).click()
         _wait_for_layer_enabled(live_server, "Bottom", True)
 
-    def test_dispense_mode_and_height_controls_persist_after_reload(
+    def test_enum_and_height_controls_persist_after_reload(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         _select_led_blinker(live_server)
@@ -523,6 +523,21 @@ class TestPasteSolderBrowserPadInteraction:
             root_row, "dispense_mode", "pad-dispense-mode-select"
         )
         assert mode_select.input_value(timeout=_BROWSER_TIMEOUT_MS) == "area"
+
+        direction_select = _field_select(
+            root_row, "line_direction", "pad-line-direction-select"
+        )
+        assert "指定なし" in direction_select.locator("option:checked").text_content(
+            timeout=_BROWSER_TIMEOUT_MS
+        )
+        direction_select.select_option("outward")
+        _wait_for_override(live_server, "L0", "line_direction", "outward")
+        _open_paste_solder(browser_page, live_ui)
+        root_row = browser_page.locator(_row_selector("L0"))
+        direction_select = _field_select(
+            root_row, "line_direction", "pad-line-direction-select"
+        )
+        assert direction_select.input_value(timeout=_BROWSER_TIMEOUT_MS) == "outward"
 
         height_select = _field_select(
             root_row, "paste_height", "pad-height-mode-select"

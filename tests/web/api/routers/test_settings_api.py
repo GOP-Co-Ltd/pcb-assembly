@@ -70,6 +70,10 @@ class TestMachineSettingsApi:
         assert max_fill_speed["label"]
         assert fields["paste_dispenser.dispense_mode"]["value"] == "auto"
         assert fields["paste_dispenser.dispense_mode"]["value_type"] == "dispense_mode"
+        assert fields["paste_dispenser.line_direction"]["value"] is None
+        assert (
+            fields["paste_dispenser.line_direction"]["value_type"] == "line_direction"
+        )
         assert fields["paste_dispenser.auto_line_aspect_ratio"]["value"] == 1.618
         assert fields["paste_dispenser.paste_height"]["value"] == "auto"
         assert fields["paste_dispenser.paste_height"]["value_type"] == "float_or_auto"
@@ -169,12 +173,13 @@ class TestMachineSettingsApi:
         # 変更対象外のコメントが無傷で残る
         assert "キャリブレーション値 2026/06/08" in after_text
 
-    def test_put_writes_dispense_mode_and_auto_height(self, client: TestClient):
+    def test_put_writes_enum_values_and_auto_height(self, client: TestClient):
         response = client.put(
             "/api/settings/machine",
             json={
                 "values": {
                     "paste_dispenser.dispense_mode": "line",
+                    "paste_dispenser.line_direction": "outward",
                     "paste_dispenser.paste_height": "auto",
                     "paste_dispenser.auto_line_aspect_ratio": 1.7,
                 }
@@ -184,6 +189,7 @@ class TestMachineSettingsApi:
         assert response.status_code == 200, response.text
         fields = {field["key"]: field for field in response.json()["fields"]}
         assert fields["paste_dispenser.dispense_mode"]["value"] == "line"
+        assert fields["paste_dispenser.line_direction"]["value"] == "outward"
         assert fields["paste_dispenser.paste_height"]["value"] == "auto"
         assert fields["paste_dispenser.auto_line_aspect_ratio"]["value"] == 1.7
 
@@ -277,6 +283,14 @@ class TestMachineSettingsApi:
         response = client.put(
             "/api/settings/machine",
             json={"values": {"paste_dispenser.dispense_mode": "spray"}},
+        )
+
+        assert response.status_code == 400
+
+    def test_put_unknown_line_direction_returns_400(self, client: TestClient):
+        response = client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.line_direction": "sideways"}},
         )
 
         assert response.status_code == 400

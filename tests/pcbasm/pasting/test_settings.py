@@ -71,6 +71,7 @@ def _full_base() -> PasteOverride:
     """全 override 項目が非 None の base override（= L0 確定値）."""
     return PasteOverride(
         dispense_mode="auto",
+        line_direction="unconstrained",
         paste_height=0.05,
         ul_per_mm2=0.1,
         prime_extra_delay=0.8,
@@ -117,6 +118,7 @@ class TestBaseOverrideFromConfig:
         override = base_override_from_config(config)
 
         assert override.dispense_mode == config.dispense_mode
+        assert override.line_direction == config.line_direction
         assert override.paste_height == config.paste_height
         assert override.ul_per_mm2 == pytest.approx(config.ul_per_mm2)
         assert override.prime_extra_delay == pytest.approx(config.prime_extra_delay)
@@ -176,6 +178,7 @@ class TestResolvePadSettingsKeys:
         for paste in resolved.values():
             assert paste.enabled is True
             assert paste.dispense_mode == base.dispense_mode
+            assert paste.line_direction == base.line_direction
             assert paste.paste_height == pytest.approx(base.paste_height)
             assert paste.ul_per_mm2 == pytest.approx(base.ul_per_mm2)
             assert paste.prime_extra_delay == pytest.approx(base.prime_extra_delay)
@@ -204,7 +207,7 @@ class TestOverrideMerge:
         # 別部品 R1 は影響を受けない
         assert resolved[("R1", "1")].ul_per_mm2 == pytest.approx(0.1)
 
-    def test_mode_and_auto_height_override_inherit_like_numeric_fields(self):
+    def test_enum_and_auto_height_override_inherit_like_numeric_fields(self):
         _, _, hierarchy = _two_component_hierarchy()
         model = PasteSettingsModel(
             base=_full_base(),
@@ -212,6 +215,7 @@ class TestOverrideMerge:
                 ("L2", "U1"): LevelSetting(
                     override=PasteOverride(
                         dispense_mode="line",
+                        line_direction="outward",
                         paste_height="auto",
                     )
                 ),
@@ -222,10 +226,12 @@ class TestOverrideMerge:
 
         u1 = resolved[("U1", "1")]
         assert u1.dispense_mode == "line"
+        assert u1.line_direction == "outward"
         assert u1.paste_height == "auto"
         assert u1.ul_per_mm2 == pytest.approx(0.1)
         r1 = resolved[("R1", "1")]
         assert r1.dispense_mode == "auto"
+        assert r1.line_direction == "unconstrained"
         assert r1.paste_height == pytest.approx(0.05)
 
     def test_l0_override_applies_to_all_pads_over_machine_default(self):
@@ -685,13 +691,14 @@ class TestSettingsRoundTrip:
         assert restored.base.paste_height == pytest.approx(0.05)
         assert restored.base.ul_per_mm2 == pytest.approx(0.1)
 
-    def test_mode_and_auto_height_round_trip(self):
+    def test_enum_and_auto_height_round_trip(self):
         model = PasteSettingsModel(
             base=_full_base(),
             levels={
                 ("L2", "U1"): LevelSetting(
                     override=PasteOverride(
                         dispense_mode="area",
+                        line_direction="inward",
                         paste_height="auto",
                     )
                 ),
@@ -702,6 +709,7 @@ class TestSettingsRoundTrip:
         override = restored.levels[("L2", "U1")].override
 
         assert override.dispense_mode == "area"
+        assert override.line_direction == "inward"
         assert override.paste_height == "auto"
 
     def test_levels_tuple_keys_are_restored(self):
@@ -838,6 +846,9 @@ class TestValidateOverrideValues:
 
     def test_unknown_dispense_mode_is_rejected(self):
         assert validate_override_values({"dispense_mode": "spray"}) is not None
+
+    def test_unknown_line_direction_is_rejected(self):
+        assert validate_override_values({"line_direction": "sideways"}) is not None
 
     def test_non_positive_paste_height_is_rejected(self):
         assert validate_override_values({"paste_height": 0.0}) is not None

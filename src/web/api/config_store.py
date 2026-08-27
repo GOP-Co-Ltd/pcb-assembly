@@ -14,6 +14,7 @@ from tomlkit.items import Item, Table
 
 from pcbasm.config import (
     DISPENSE_MODES,
+    LINE_DIRECTIONS,
     validate_audio_device,
     validate_audio_volume,
     validate_non_negative_number,
@@ -56,6 +57,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     ),
     FieldSpec("paste_dispenser.nozzle_diameter", "ノズル内径", "float", "mm"),
     FieldSpec("paste_dispenser.dispense_mode", "塗布方式", "dispense_mode"),
+    FieldSpec("paste_dispenser.line_direction", "線の走行方向", "line_direction"),
     FieldSpec(
         "paste_dispenser.auto_line_aspect_ratio",
         "Auto線塗布しきい縦横比",
@@ -264,6 +266,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 return value
         case "dispense_mode":
             if isinstance(value, str) and value in DISPENSE_MODES:
+                return value
+        case "line_direction":
+            if isinstance(value, str) and value in LINE_DIRECTIONS:
                 return value
         case "float_pair":
             pair = _coerce_float_pair(value)
