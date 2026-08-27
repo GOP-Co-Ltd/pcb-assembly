@@ -105,6 +105,9 @@ class TestManualStepper:
         gcode = stepper.move(distance, speed, accel, sync=sync)
         assert gcode.to_list() == [f"{PREFIX} {expected_suffix}"]
 
+    def test_sync(self, stepper: ManualStepper):
+        assert stepper.sync().to_list() == [f"{PREFIX} SYNC=1"]
+
     @pytest.mark.parametrize(
         ("distance", "speed", "direction", "expected_suffix"),
         [
