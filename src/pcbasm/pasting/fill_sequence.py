@@ -30,7 +30,7 @@ def _trapezoidal_time(distance: float, rate: float, accel: float) -> float:
 class FillSequence:
     """1ポリゴンの塗布動作を1本の送信可能なGCodeに組むプログラムオブジェクト.
 
-    接近→下降→prime同期吐出→リトラクト・上昇同時開始→同期の順で実行する。
+    接近→下降→prime同期吐出→速度0→リトラクト・上昇同時開始→同期の順で実行する。
 
     移動速度（``max_fill_speed``）を主設定とし、吐出レートはこれに追従して導出する。
     導出レートが吐出レート上限を超える（吐出が移動に追いつかない）場合は
@@ -138,8 +138,12 @@ class FillSequence:
             gc.append(stage.to_gcode(self.path, speed=speed))
         else:
             gc.append(gcode.wait(prime_time + self._dispense_time()))
-        # 4. 塗布移動と吐出profileの両方が終わる時刻から、リトラクションを
-        # 非同期開始する。直後のZ上昇は同じ時刻からqueueされる。
+        # 4. Klipperのlookaheadを非ブロッキングでflushし、塗布移動の終端を
+        # 速度0に固定する。リトラクションは吐出profileが速度0になる時刻まで
+        # queueされ、直後のZ上昇も同じ時刻から始まる。
+        gc.append(gcode.GCode("G4 P0"))
+
+        # 5. 速度0からリトラクションを非同期開始
         gc.append(
             dispenser.continue_pushpull(
                 amount,
@@ -150,7 +154,7 @@ class FillSequence:
             )
         )
 
-        # 5. リトラクションと同時にZ上昇（明示座標）
+        # 6. リトラクションと同時にZ上昇（明示座標）
         gc.append(
             stage.move(
                 x=last.x, y=last.y, z=last.z + self.lift_height, speed=self.travel_speed
