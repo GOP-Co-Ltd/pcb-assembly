@@ -1,7 +1,8 @@
 """FillSequence のテスト.
 
-FillSequence は1ポリゴンの塗布動作（接近→下降→prime同期吐出→リトラクト→上昇）を
-1本のGCodeに組むオーケストレーター。ここでは stage / dispenser（いずれも pcbasm 自前の HAL ABC）を
+FillSequence は1ポリゴンの塗布動作
+（接近→下降→prime同期吐出→リトラクト・上昇同時開始→同期）を1本のGCodeに組む
+オーケストレーター。ここでは stage / dispenser（いずれも pcbasm 自前の HAL ABC）を
 mock し、発行される動作の順序・量・速度を call assertion で検証する。 個々の GCode 文字列は
 stage/dispenser 側の責務なので（mock は空 GCode を返す）、 本テストは FillSequence が両 HAL
 をどう駆動するかの契約のみを固定する。
@@ -36,6 +37,8 @@ def mock_stage(mocker: MockerFixture):
 def mock_dispenser(mocker: MockerFixture):
     dispenser = mocker.Mock()
     dispenser.pushpull.return_value = GCode()
+    dispenser.continue_pushpull.return_value = GCode()
+    dispenser.sync.return_value = GCode()
     return dispenser
 
 
@@ -128,23 +131,49 @@ class TestFillSequence:
 
         assert _dispense_rate(mock_dispenser) == pytest.approx(10.0)
 
-    def test_to_gcode_pushpull_called_twice_with_dispense_then_retraction(
+    def test_to_gcode_queues_dispense_then_continuous_retraction(
         self, mock_stage, mock_dispenser
     ):
-        # 吐出（prime+dispense）とリトラクションの2回。
+        # 吐出後の座標を維持したまま、リトラクションを非同期 queue する。
         path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
 
         _sequence(path).to_gcode(mock_stage, mock_dispenser)
 
-        calls = mock_dispenser.pushpull.call_args_list
-        assert len(calls) == 2
-        # 1回目: prime+吐出を1つの連続動作として非同期開始（sync=False）。
+        mock_dispenser.pushpull.assert_called_once()
+        dispense = mock_dispenser.pushpull.call_args
+        # prime+吐出を1つの連続動作として非同期開始（sync=False）。
         # 量 = retraction + extra_amount + total_amount。
         # L=10 で実効レート=4.0、extra = 4.0 * 0.5 = 2.0 → 10 + 2 + 20 = 32。
-        assert calls[0].args[0] == pytest.approx(32.0)
-        assert calls[0].kwargs.get("sync") is False
-        # 2回目: リトラクション = -retraction = -10。
-        assert calls[1].args[0] == pytest.approx(-10.0)
+        assert dispense.args[0] == pytest.approx(32.0)
+        assert dispense.kwargs.get("sync") is False
+        mock_dispenser.continue_pushpull.assert_called_once_with(
+            32.0, -10.0, 5.0, 10.0, sync=False
+        )
+        mock_dispenser.sync.assert_called_once_with()
+
+    def test_to_gcode_starts_retraction_and_ascent_without_completion_barrier(
+        self, mock_stage, mock_dispenser
+    ):
+        path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
+        mock_stage.move.side_effect = [
+            GCode("TRAVEL"),
+            GCode("DESCEND"),
+            GCode("ASCEND"),
+        ]
+        mock_stage.to_gcode.return_value = GCode("FILL")
+        mock_dispenser.pushpull.return_value = GCode("DISPENSE")
+        mock_dispenser.continue_pushpull.return_value = GCode("RETRACT")
+        mock_dispenser.sync.return_value = GCode("SYNC_DISPENSER")
+
+        commands = _sequence(path).to_gcode(mock_stage, mock_dispenser).to_list()
+
+        fill = commands.index("FILL")
+        retract = commands.index("RETRACT")
+        ascent = commands.index("ASCEND")
+        sync = commands.index("SYNC_DISPENSER")
+        assert fill < retract < ascent < sync
+        assert "M400" not in commands[fill + 1 : retract]
+        assert commands.count("M400") == 1
 
     def test_to_gcode_descends_then_ascends_with_explicit_coords(
         self, mock_stage, mock_dispenser
@@ -205,8 +234,9 @@ class TestFillSequence:
         _sequence(path).to_gcode(mock_stage, mock_dispenser)
 
         mock_stage.to_gcode.assert_not_called()
-        # それでも吐出・リトラクションは行われる（2回）。
-        assert mock_dispenser.pushpull.call_count == 2
+        # それでも吐出と連続リトラクションは行われる。
+        mock_dispenser.pushpull.assert_called_once()
+        mock_dispenser.continue_pushpull.assert_called_once()
 
     def test_to_gcode_returns_gcode(self, mock_stage, mock_dispenser):
         # 単一の連結 GCode を返す（送信側はこれを1回で送る）。

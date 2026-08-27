@@ -114,6 +114,18 @@ class TestPasteDispenser:
         lines = gcode.to_list()
         assert lines[1].endswith("SYNC=0")
 
+    def test_continue_pushpull_keeps_current_coordinate(self, mock_klipper: Klipper):
+        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
+
+        gcode = dispenser.continue_pushpull(1.0, -0.4, 2.0, 4.0, sync=False)
+
+        assert gcode.to_list() == [f"{PREFIX} MOVE=0.15 SPEED=0.5 ACCEL=1.0 SYNC=0"]
+
+    def test_sync(self, mock_klipper: Klipper):
+        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
+
+        assert dispenser.sync().to_list() == [f"{PREFIX} SYNC=1"]
+
     def test_rotate_revolutions(self, mock_klipper: Klipper):
         # rotation_distance=0.5 (mock fixture)
         # 10rev → 3600deg → 3600/360 * 0.5mm = 5.0mm

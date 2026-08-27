@@ -121,6 +121,10 @@ class ManualStepper:
             cmd += " SYNC=0"
         return GCode(cmd)
 
+    def sync(self) -> GCode:
+        """先行するmanual stepper動作と後続G-codeの時刻を同期する."""
+        return GCode(f"{self._cmd_prefix} SYNC=1")
+
     def home(
         self,
         distance: float,

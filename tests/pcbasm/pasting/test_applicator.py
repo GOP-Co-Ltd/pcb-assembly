@@ -74,6 +74,8 @@ def mock_paste_dispenser(mocker: MockerFixture):
     dispenser.enable.return_value = gcode.GCode()
     dispenser.disable.return_value = gcode.GCode()
     dispenser.pushpull.return_value = gcode.GCode()
+    dispenser.continue_pushpull.return_value = gcode.GCode()
+    dispenser.sync.return_value = gcode.GCode()
     dispenser.rotate_revolutions.return_value = gcode.GCode()
     return dispenser
 
@@ -233,11 +235,14 @@ class TestDispenseProtocol:
 
         # Act
         applicator.apply([polygon], transform=Identity())
-        # Assert: プライム+吐出（sync=False）、リトラクション（sync=True）の 2 回
-        calls = mock_paste_dispenser.pushpull.call_args_list
-        assert len(calls) == 2
-        assert calls[0].kwargs.get("sync") is False
-        assert "sync" not in calls[1].kwargs or calls[1].kwargs["sync"] is True
+        # Assert: prime+吐出と連続リトラクションを非同期 queue し、最後に同期する。
+        mock_paste_dispenser.pushpull.assert_called_once()
+        assert mock_paste_dispenser.pushpull.call_args.kwargs.get("sync") is False
+        mock_paste_dispenser.continue_pushpull.assert_called_once()
+        assert (
+            mock_paste_dispenser.continue_pushpull.call_args.kwargs.get("sync") is False
+        )
+        mock_paste_dispenser.sync.assert_called_once_with()
 
     def test_apply_waits_for_sequence_completion(self, applicator, mock_klipper):
         # Arrange: 単一成分パッド
@@ -490,6 +495,8 @@ class TestFromConfig:
         dispenser.enable.return_value = gcode.GCode()
         dispenser.disable.return_value = gcode.GCode()
         dispenser.pushpull.return_value = gcode.GCode()
+        dispenser.continue_pushpull.return_value = gcode.GCode()
+        dispenser.sync.return_value = gcode.GCode()
         stage = mocker.Mock()
         stage.max_velocity = 100.0
         stage.move.return_value = gcode.GCode()
@@ -523,6 +530,8 @@ class TestFromConfig:
         dispenser.enable.return_value = gcode.GCode()
         dispenser.disable.return_value = gcode.GCode()
         dispenser.pushpull.return_value = gcode.GCode()
+        dispenser.continue_pushpull.return_value = gcode.GCode()
+        dispenser.sync.return_value = gcode.GCode()
         stage = mocker.Mock()
         stage.max_velocity = 100.0
         stage.move.return_value = gcode.GCode()

@@ -73,6 +73,42 @@ class PasteDispenser:
         )
         return gcode
 
+    def continue_pushpull(
+        self,
+        current_amount: float,
+        amount: float,
+        rate: float,
+        accel: float,
+        *,
+        sync: bool = True,
+    ) -> GCode:
+        """直前の非同期pushpullと同じ座標系で吐出・リトラクションを続ける.
+
+        ``SET_POSITION`` を挟まず、直前の目標 ``current_amount`` から
+        ``amount`` だけ移動した絶対位置を次の目標にする。非同期吐出の完了前に
+        リトラクションをqueueするとき、実行中の座標系を壊さず連続動作にできる。
+
+        Args:
+            current_amount: 直前のpushpullが指令した目標量 [μL]
+            amount: 追加移動量 [μL]（正: 吐出、負: リトラクション）
+            rate: 速度 [μL/sec]
+            accel: 加速度 [μL/sec²]
+            sync: Trueの場合、動作完了まで待機する
+
+        Returns:
+            連続吐出・リトラクション用のGCode
+        """
+        return self._stepper.rotate(
+            self._ul_to_deg(current_amount + amount),
+            self._ul_to_deg(rate),
+            self._ul_to_deg(accel),
+            sync=sync,
+        )
+
+    def sync(self) -> GCode:
+        """先行するディスペンサー動作と後続G-codeの時刻を同期する."""
+        return self._stepper.sync()
+
     def rotate_revolutions(
         self,
         rotations: float,
