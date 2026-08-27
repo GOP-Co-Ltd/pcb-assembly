@@ -39,6 +39,14 @@
             <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
+          {% elif field.value_type == 'line_direction' %}
+          <select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
+                  data-type="{{ field.value_type }}"
+                  aria-label="{{ field.label }}">
+            {% for option, label in [('unconstrained', '指定なし'), ('outward', '部品中心 → 外側'), ('inward', '外側 → 部品中心')] %}
+            <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
           {% else %}
           <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
                  data-type="{{ field.value_type }}"

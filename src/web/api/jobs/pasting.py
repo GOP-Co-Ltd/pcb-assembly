@@ -801,6 +801,10 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
         hierarchy = build_pad_hierarchy(session.pcb.components, session.pcb.pads)
+        component_positions = {
+            component.designator: component.position
+            for component in session.pcb.components
+        }
         model = _resolve_paste_model(ctx, hierarchy)
         resolved = resolve_pad_settings(hierarchy, model)
 
@@ -939,14 +943,20 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 ctx.progress("塗布", 100.0 * index / len(pairs))
                 ctx.checkpoint()
                 if r is None:
-                    applicator.apply([pad.polygon], transform=transform)
+                    applicator.apply(
+                        [pad.polygon],
+                        transform=transform,
+                        line_reference=component_positions[pad.designator],
+                    )
                 else:
                     applicator.apply(
                         [pad.polygon],
                         transform=transform,
+                        line_reference=component_positions[pad.designator],
                         paste_height=r.paste_height,
                         ul_per_mm2=r.ul_per_mm2,
                         dispense_mode=r.dispense_mode,
+                        line_direction=r.line_direction,
                         prime_extra_delay=r.prime_extra_delay,
                         bead_width_factor=r.bead_width_factor,
                         overlap=r.overlap,

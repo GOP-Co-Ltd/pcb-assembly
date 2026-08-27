@@ -58,6 +58,7 @@ class ResolvedSettings(BaseModel):
 
     enabled: bool
     dispense_mode: str
+    line_direction: str
     paste_height: float | str
     ul_per_mm2: float
     prime_extra_delay: float
@@ -273,6 +274,7 @@ def resolved_settings(resolved: ResolvedPaste) -> ResolvedSettings:
 # 一致させる契約（PASTE_OVERRIDE_FIELDS とは並びが異なる）。
 UI_FIELD_ORDER: tuple[str, ...] = (
     "dispense_mode",
+    "line_direction",
     "ul_per_mm2",
     "paste_height",
     "prime_extra_delay",
@@ -541,6 +543,9 @@ def build_fill_path(loaded: Loaded, layer: str) -> PasteFillPathResponse:
 
     nozzle_diameter = loaded.base_config.nozzle_diameter
     resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
+    component_positions = {
+        component.designator: component.position for component in loaded.pcb.components
+    }
     pads: list[PasteFillPathPad] = []
     for pad in loaded.hierarchy.iter_pads():
         paste = resolved[loaded.hierarchy.pad_ref_for_pad(pad)]
@@ -555,6 +560,7 @@ def build_fill_path(loaded: Loaded, layer: str) -> PasteFillPathResponse:
                     loaded.base_config.auto_area_short_side_factor
                 ),
                 paste=paste,
+                line_reference=component_positions[pad.designator],
             )
         except ValueError as exc:
             raise HTTPException(

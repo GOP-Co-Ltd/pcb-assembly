@@ -11,6 +11,7 @@ from pcbasm.config import (
     DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR,
     DEFAULT_AUTO_LINE_ASPECT_RATIO,
     DispenseMode,
+    LineDirection,
     PasteDispenser as PasteDispenserConfig,
     PasteHeight,
     resolve_paste_height,
@@ -75,6 +76,7 @@ class PasteApplicator:
         paste_height: PasteHeight = "auto",
         lift_height: float = 2.0,
         dispense_mode: DispenseMode = "auto",
+        line_direction: LineDirection = "unconstrained",
         auto_line_aspect_ratio: float = DEFAULT_AUTO_LINE_ASPECT_RATIO,
         auto_area_short_side_factor: float = DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR,
         prime_extra_delay: float = 0.0,
@@ -100,6 +102,7 @@ class PasteApplicator:
             paste_height: 塗布面のZ高さ [mm]、または auto
             lift_height: 塗布後の上昇高さ [mm]
             dispense_mode: 塗布方式 auto / dot / line / area
+            line_direction: 線塗布の走行方向 unconstrained / outward / inward
             auto_line_aspect_ratio: Auto 時に線塗布へ切り替える縦横比
             auto_area_short_side_factor: Auto 時に面塗布へ切り替える短辺のノズル径倍率
             prime_extra_delay: プライム後の追加遅延 [sec]（デフォルト: 0.0）
@@ -145,6 +148,7 @@ class PasteApplicator:
         self._transform = transform
         self._paste_height: PasteHeight = paste_height
         self._dispense_mode: DispenseMode = dispense_mode
+        self._line_direction: LineDirection = line_direction
         self._auto_line_aspect_ratio = auto_line_aspect_ratio
         self._auto_area_short_side_factor = auto_area_short_side_factor
         self._retraction = retraction
@@ -197,6 +201,7 @@ class PasteApplicator:
             paste_height=config.paste_height,
             lift_height=config.lift_height if lift_height is None else lift_height,
             dispense_mode=config.dispense_mode,
+            line_direction=config.line_direction,
             auto_line_aspect_ratio=config.auto_line_aspect_ratio,
             auto_area_short_side_factor=config.auto_area_short_side_factor,
             prime_extra_delay=config.prime_extra_delay,
@@ -279,9 +284,11 @@ class PasteApplicator:
         polygons: Iterable[Polygon],
         *,
         transform: Transform,
+        line_reference: Point2d | None = None,
         paste_height: PasteHeight | None = None,
         ul_per_mm2: float | None = None,
         dispense_mode: DispenseMode | None = None,
+        line_direction: LineDirection | None = None,
         prime_extra_delay: float | None = None,
         bead_width_factor: float | None = None,
         overlap: float | None = None,
@@ -299,9 +306,11 @@ class PasteApplicator:
         Args:
             polygons: 塗布対象のポリゴン群
             transform: このpadのboard座標→機械座標変換
+            line_reference: 線走行方向の基準にする部品位置（board 座標）
             paste_height: 塗布面のZ高さ [mm]、または auto
             ul_per_mm2: 面積あたりのペースト量 [μL/mm²]
             dispense_mode: 塗布方式 auto / dot / line / area
+            line_direction: 線塗布の走行方向 unconstrained / outward / inward
             prime_extra_delay: プライム後の追加遅延 [sec]
             bead_width_factor: ビード幅係数（w = nozzle_diameter * factor）
             overlap: ジグザグ行間オーバーラップ [0, 1)
@@ -311,6 +320,9 @@ class PasteApplicator:
             enabled=True,
             dispense_mode=(
                 self._dispense_mode if dispense_mode is None else dispense_mode
+            ),
+            line_direction=(
+                self._line_direction if line_direction is None else line_direction
             ),
             paste_height=(self._paste_height if paste_height is None else paste_height),
             ul_per_mm2=self._ul_per_mm2 if ul_per_mm2 is None else ul_per_mm2,
@@ -330,7 +342,12 @@ class PasteApplicator:
             ),
         )
         for polygon in polygons:
-            self._fill(polygon, paste=paste, transform=transform)
+            self._fill(
+                polygon,
+                paste=paste,
+                transform=transform,
+                line_reference=line_reference,
+            )
 
     def draw_line(
         self,
@@ -414,7 +431,12 @@ class PasteApplicator:
         )
 
     def _fill(
-        self, polygon: Polygon, *, paste: ResolvedPaste, transform: Transform
+        self,
+        polygon: Polygon,
+        *,
+        paste: ResolvedPaste,
+        transform: Transform,
+        line_reference: Point2d | None,
     ) -> None:
         """ポリゴンを成分別フィル経路で塗布する.
 
@@ -433,6 +455,7 @@ class PasteApplicator:
             auto_line_aspect_ratio=self._auto_line_aspect_ratio,
             auto_area_short_side_factor=self._auto_area_short_side_factor,
             paste=paste,
+            line_reference=line_reference,
         )
         if not plan.paths:
             self._logger.warning("フィルパスが空です。スキップします。")

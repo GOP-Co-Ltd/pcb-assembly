@@ -854,6 +854,7 @@ class TestBuildPadFillPlanFor:
         values: dict = {
             "enabled": True,
             "dispense_mode": "area",
+            "line_direction": "unconstrained",
             "paste_height": 0.05,
             "ul_per_mm2": 0.1,
             "prime_extra_delay": 0.0,
@@ -898,3 +899,111 @@ class TestBuildPadFillPlanFor:
                 auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
                 paste=self._paste(overlap=1.5),
             )
+
+    @pytest.mark.parametrize("dispense_mode", ["line", "auto", "area"])
+    def test_outward_starts_near_component_for_every_line_resolution(
+        self, dispense_mode: str
+    ):
+        reference = Point2d(0.4, -5.0)
+
+        plan = build_pad_fill_plan_for(
+            _rectangle(0.8, 5.0),
+            nozzle_diameter=1.0,
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            paste=self._paste(
+                dispense_mode=dispense_mode,
+                line_direction="outward",
+                boundary_margin=0.0,
+            ),
+            line_reference=reference,
+        )
+
+        assert plan.dispense_mode == "line"
+        start, end = plan.paths[0]
+        assert (start - reference).norm < (end - reference).norm
+
+    def test_inward_is_the_reverse_of_outward(self):
+        polygon = _rectangle(0.8, 5.0)
+        reference = Point2d(0.4, -5.0)
+        kwargs = {
+            "nozzle_diameter": 1.0,
+            "auto_line_aspect_ratio": _AUTO_LINE_ASPECT_RATIO,
+            "auto_area_short_side_factor": _AUTO_AREA_SHORT_SIDE_FACTOR,
+            "line_reference": reference,
+        }
+
+        outward = build_pad_fill_plan_for(
+            polygon,
+            paste=self._paste(
+                dispense_mode="line",
+                line_direction="outward",
+                boundary_margin=0.0,
+            ),
+            **kwargs,
+        )
+        inward = build_pad_fill_plan_for(
+            polygon,
+            paste=self._paste(
+                dispense_mode="line",
+                line_direction="inward",
+                boundary_margin=0.0,
+            ),
+            **kwargs,
+        )
+
+        assert inward.paths[0] == list(reversed(outward.paths[0]))
+
+    def test_directional_line_requires_reference(self):
+        with pytest.raises(ValueError) as raised:
+            build_pad_fill_plan_for(
+                _rectangle(0.8, 5.0),
+                nozzle_diameter=1.0,
+                auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+                auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+                paste=self._paste(dispense_mode="line", line_direction="outward"),
+            )
+
+        assert "部品位置" in str(raised.value)
+
+    def test_unknown_line_direction_raises_value_error(self):
+        with pytest.raises(ValueError) as raised:
+            build_pad_fill_plan_for(
+                _rectangle(0.8, 5.0),
+                nozzle_diameter=1.0,
+                auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+                auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+                paste=self._paste(line_direction=cast(Any, "sideways")),
+                line_reference=Point2d(0.4, -5.0),
+            )
+
+        assert "線走行方向" in str(raised.value)
+
+    def test_equal_distance_keeps_unconstrained_order(self):
+        polygon = _rectangle(0.8, 5.0)
+        reference = Point2d(0.4, 2.5)
+        unconstrained = build_pad_fill_plan_for(
+            polygon,
+            nozzle_diameter=1.0,
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            paste=self._paste(
+                dispense_mode="line",
+                line_direction="unconstrained",
+                boundary_margin=0.0,
+            ),
+        )
+        outward = build_pad_fill_plan_for(
+            polygon,
+            nozzle_diameter=1.0,
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            paste=self._paste(
+                dispense_mode="line",
+                line_direction="outward",
+                boundary_margin=0.0,
+            ),
+            line_reference=reference,
+        )
+
+        assert outward.paths == unconstrained.paths

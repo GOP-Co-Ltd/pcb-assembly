@@ -16,13 +16,21 @@ from typing import Any, cast
 
 import attrs
 
-from pcbasm.config import DISPENSE_MODES, DispenseMode, PasteDispenser, PasteHeight
+from pcbasm.config import (
+    DISPENSE_MODES,
+    LINE_DIRECTIONS,
+    DispenseMode,
+    LineDirection,
+    PasteDispenser,
+    PasteHeight,
+)
 from pcbasm.pcb.board import Pad
 from pcbasm.pcb.grouping import HierKey, PadHierarchy, PadHierarchyNode, PadRef
 
 # override 可能な項目のフィールド名（解決・JSON 変換の正準順）
 PASTE_OVERRIDE_FIELDS: tuple[str, ...] = (
     "dispense_mode",
+    "line_direction",
     "paste_height",
     "ul_per_mm2",
     "prime_extra_delay",
@@ -51,6 +59,7 @@ class PasteOverride:
     """
 
     dispense_mode: DispenseMode | None = None
+    line_direction: LineDirection | None = None
     paste_height: PasteHeight | None = None
     ul_per_mm2: float | None = None
     prime_extra_delay: float | None = None
@@ -61,6 +70,11 @@ class PasteOverride:
     def __attrs_post_init__(self) -> None:
         if self.dispense_mode is not None and self.dispense_mode not in DISPENSE_MODES:
             raise ValueError(f"未知の塗布方式です: {self.dispense_mode}")
+        if (
+            self.line_direction is not None
+            and self.line_direction not in LINE_DIRECTIONS
+        ):
+            raise ValueError(f"未知の線走行方向です: {self.line_direction}")
         if self.paste_height is not None:
             _check_paste_height(self.paste_height)
         for field in NUMERIC_PASTE_OVERRIDE_FIELDS:
@@ -87,6 +101,7 @@ class ResolvedPaste:
     Attributes:
         enabled: 塗布対象か
         dispense_mode: 塗布方式 auto / dot / line / area
+        line_direction: 線塗布の走行方向 unconstrained / outward / inward
         paste_height: 塗布面の Z 高さ [mm]、または auto
         ul_per_mm2: パッド面積あたりのペースト量 [μL/mm²]
         prime_extra_delay: プライム後の追加遅延 [sec]
@@ -97,6 +112,7 @@ class ResolvedPaste:
 
     enabled: bool
     dispense_mode: DispenseMode
+    line_direction: LineDirection
     paste_height: PasteHeight
     ul_per_mm2: float
     prime_extra_delay: float
@@ -182,6 +198,7 @@ def base_override_from_config(config: PasteDispenser) -> PasteOverride:
     """
     return PasteOverride(
         dispense_mode=config.dispense_mode,
+        line_direction=config.line_direction,
         paste_height=config.paste_height,
         ul_per_mm2=config.ul_per_mm2,
         prime_extra_delay=config.prime_extra_delay,
@@ -231,6 +248,9 @@ def validate_override_values(values: dict[str, PasteSettingValue]) -> str | None
         if field == "dispense_mode":
             if not isinstance(value, str) or value not in DISPENSE_MODES:
                 return f"未知の塗布方式です: {value!r}"
+        elif field == "line_direction":
+            if not isinstance(value, str) or value not in LINE_DIRECTIONS:
+                return f"未知の線走行方向です: {value!r}"
         elif field == "paste_height":
             if value == "auto":
                 continue
@@ -296,6 +316,7 @@ def _resolved_from_values(
     return ResolvedPaste(
         enabled=enabled,
         dispense_mode=_dispense_mode_value(values["dispense_mode"]),
+        line_direction=_line_direction_value(values["line_direction"]),
         paste_height=_paste_height_value(values["paste_height"]),
         ul_per_mm2=_float_value("ul_per_mm2", values["ul_per_mm2"]),
         prime_extra_delay=_float_value(
@@ -386,6 +407,12 @@ def _dispense_mode_value(value: PasteSettingValue) -> DispenseMode:
     if isinstance(value, str) and value in DISPENSE_MODES:
         return value
     raise ValueError(f"未知の塗布方式です: {value!r}")
+
+
+def _line_direction_value(value: PasteSettingValue) -> LineDirection:
+    if isinstance(value, str) and value in LINE_DIRECTIONS:
+        return value
+    raise ValueError(f"未知の線走行方向です: {value!r}")
 
 
 def _paste_height_value(value: PasteSettingValue) -> PasteHeight:

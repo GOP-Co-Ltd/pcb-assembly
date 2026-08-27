@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from math import isclose
 from typing import Literal, assert_never
 
 import attrs
@@ -22,7 +23,12 @@ from shapely import MultiPolygon, Polygon
 from shapely.geometry import GeometryCollection, LineString, MultiLineString
 from shapely.geometry.base import BaseGeometry
 
-from pcbasm.config import DISPENSE_MODES, DispenseMode
+from pcbasm.config import (
+    DISPENSE_MODES,
+    LINE_DIRECTIONS,
+    DispenseMode,
+    LineDirection,
+)
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.settings import ResolvedPaste
 
@@ -184,14 +190,15 @@ def build_pad_fill_plan_for(
     auto_line_aspect_ratio: float,
     auto_area_short_side_factor: float,
     paste: ResolvedPaste,
+    line_reference: Point2d | None = None,
 ) -> PasteFillPlan:
     """解決済み塗布設定から pad 1 枚分の塗布計画を組み立てる.
 
-    :class:`ResolvedPaste` の per-pad 項目（dispense_mode / bead_width_factor /
-    overlap / boundary_margin）とマシン設定由来のヒューリスティクス 3 値を
-    :func:`build_paste_fill_plan` の引数へ束ねる対応の単一ソース。プレビュー
-    （webui router）と実行（``PasteApplicator._fill``）が同一の対応で計画を
-    生成し、両者の乖離を構造的に防ぐ。
+    :class:`ResolvedPaste` の per-pad 項目（dispense_mode / line_direction /
+    bead_width_factor / overlap / boundary_margin）とマシン設定由来の
+    ヒューリスティクス 3 値を :func:`build_paste_fill_plan` の引数へ束ねる対応の
+    単一ソース。プレビュー（webui router）と実行（``PasteApplicator._fill``）が
+    同一の対応で計画を生成し、両者の乖離を構造的に防ぐ。
 
     Args:
         polygon: 塗布対象のポリゴン（mm単位）
@@ -199,6 +206,7 @@ def build_pad_fill_plan_for(
         auto_line_aspect_ratio: Auto 時に線塗布へ切り替える縦横比
         auto_area_short_side_factor: Auto 時に面塗布へ切り替える短辺のノズル径倍率
         paste: この pad の解決済み塗布設定
+        line_reference: outward / inward の基準にする部品位置（board 座標）
 
     Returns:
         実塗布方式と成分別ポリライン（:class:`PasteFillPlan`）
@@ -206,7 +214,12 @@ def build_pad_fill_plan_for(
     Raises:
         ValueError: :func:`build_paste_fill_plan` の検証に通らない場合
     """
-    return build_paste_fill_plan(
+    if paste.line_direction not in LINE_DIRECTIONS:
+        raise ValueError(f"未知の線走行方向です: {paste.line_direction}")
+    if paste.line_direction != "unconstrained" and line_reference is None:
+        raise ValueError("線走行方向の指定には部品位置が必要です")
+
+    plan = build_paste_fill_plan(
         polygon,
         nozzle_diameter,
         dispense_mode=paste.dispense_mode,
@@ -216,6 +229,40 @@ def build_pad_fill_plan_for(
         overlap=paste.overlap,
         boundary_margin=paste.boundary_margin,
     )
+    if plan.dispense_mode != "line" or paste.line_direction == "unconstrained":
+        return plan
+
+    assert line_reference is not None
+    return attrs.evolve(
+        plan,
+        paths=[
+            _orient_line_path(path, paste.line_direction, line_reference)
+            for path in plan.paths
+        ],
+    )
+
+
+def _orient_line_path(
+    path: list[Point2d], direction: LineDirection, reference: Point2d
+) -> list[Point2d]:
+    """線パスを基準点から外向き、または基準点へ内向きになるよう整列する."""
+    if len(path) < 2 or direction == "unconstrained":
+        return path
+
+    start_distance = (path[0] - reference).norm
+    end_distance = (path[-1] - reference).norm
+    if isclose(start_distance, end_distance, rel_tol=0.0, abs_tol=1e-9):
+        return path
+
+    starts_near_reference = start_distance < end_distance
+    match direction:
+        case "outward":
+            reverse = not starts_near_reference
+        case "inward":
+            reverse = starts_near_reference
+        case _:
+            assert_never(direction)
+    return list(reversed(path)) if reverse else path
 
 
 def _resolve_auto_mode(

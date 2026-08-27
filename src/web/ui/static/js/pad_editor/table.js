@@ -5,6 +5,7 @@ import {
   FIELDS,
   FIELD_LABELS,
   FIELD_KINDS,
+  LINE_DIRECTION_LABELS,
   round4,
 } from "./model.js";
 
@@ -128,7 +129,29 @@ function buildRow(state, actions, node, depth) {
   for (const field of FIELDS) {
     const kind = FIELD_KINDS[field] || "number";
     if (kind === "mode") {
-      tr.appendChild(buildModeCell(state, actions, node, field, descendantSummary));
+      tr.appendChild(
+        buildChoiceCell(
+          state,
+          actions,
+          node,
+          field,
+          descendantSummary,
+          DISPENSE_MODE_LABELS,
+          "pad-dispense-mode-select"
+        )
+      );
+    } else if (kind === "direction") {
+      tr.appendChild(
+        buildChoiceCell(
+          state,
+          actions,
+          node,
+          field,
+          descendantSummary,
+          LINE_DIRECTION_LABELS,
+          "pad-line-direction-select"
+        )
+      );
     } else if (kind === "height") {
       tr.appendChild(buildHeightCell(state, actions, node, field, descendantSummary));
     } else {
@@ -138,7 +161,15 @@ function buildRow(state, actions, node, depth) {
   return tr;
 }
 
-function buildModeCell(state, actions, node, field, descendantSummary) {
+function buildChoiceCell(
+  state,
+  actions,
+  node,
+  field,
+  descendantSummary,
+  labels,
+  testId
+) {
   const td = document.createElement("td");
   td.className = "pad-col-value";
   const own = node.own_override;
@@ -151,15 +182,15 @@ function buildModeCell(state, actions, node, field, descendantSummary) {
   select.className = isOverride ? "pad-cell override" : "pad-cell inherited";
   select.dataset.field = field;
   select.dataset.nodeId = node.id;
-  select.dataset.testid = "pad-dispense-mode-select";
+  select.dataset.testid = testId;
   select.title = FIELD_LABELS[field] || field;
   appendSelectOption(
     select,
     "",
-    resolved ? `継承 (${DISPENSE_MODE_LABELS[resolved] || resolved})` : "継承",
+    resolved ? `継承 (${labels[resolved] || resolved})` : "継承",
     !isOverride
   );
-  for (const [value, label] of Object.entries(DISPENSE_MODE_LABELS)) {
+  for (const [value, label] of Object.entries(labels)) {
     appendSelectOption(select, value, label, ownValue === value);
   }
   select.addEventListener("change", () => {

@@ -17,6 +17,8 @@ from pcbasm.utils import PROJECT_ROOT
 
 DISPENSE_MODES = ("auto", "dot", "line", "area")
 DispenseMode = Literal["auto", "dot", "line", "area"]
+LINE_DIRECTIONS = ("unconstrained", "outward", "inward")
+LineDirection = Literal["unconstrained", "outward", "inward"]
 MACHINE_TYPES = ("paste", "pnp")
 MachineType = Literal["paste", "pnp"]
 PasteHeight = float | Literal["auto"]
@@ -208,6 +210,9 @@ class PasteDispenser:
     lift_height: float = 2.0  # 塗布後に持ち上げる高さ [mm]
     solder_paste_density: float = 3.78  # はんだペースト密度 [mg/μL] (S3X70-E150DN)
     dispense_mode: DispenseMode = "auto"  # 塗布方式 auto / dot / line / area
+    line_direction: LineDirection = (
+        "unconstrained"  # 線塗布の走行方向 unconstrained / outward / inward
+    )
     auto_line_aspect_ratio: float = (
         DEFAULT_AUTO_LINE_ASPECT_RATIO  # Auto時に線塗布へ切り替える縦横比
     )
@@ -229,6 +234,8 @@ class PasteDispenser:
     def __attrs_post_init__(self) -> None:
         if self.dispense_mode not in DISPENSE_MODES:
             raise ValueError(f"未知の塗布方式です: {self.dispense_mode}")
+        if self.line_direction not in LINE_DIRECTIONS:
+            raise ValueError(f"未知の線走行方向です: {self.line_direction}")
         if self.auto_line_aspect_ratio <= 1.0:
             raise ValueError(
                 "auto_line_aspect_ratioは1.0より大きい必要があります: "
@@ -483,6 +490,12 @@ def _structure_dispense_mode(value: object, _: object) -> DispenseMode:
     raise ValueError(f"未知の塗布方式です: {value!r}")
 
 
+def _structure_line_direction(value: object, _: object) -> LineDirection:
+    if isinstance(value, str) and value in LINE_DIRECTIONS:
+        return value
+    raise ValueError(f"未知の線走行方向です: {value!r}")
+
+
 def _structure_paste_height(value: object, _: object) -> PasteHeight:
     if value == "auto":
         return "auto"
@@ -512,6 +525,9 @@ class Machine:
         self._converter = cattrs.Converter()
         self._converter.register_structure_hook_func(
             lambda t: t == DispenseMode, _structure_dispense_mode
+        )
+        self._converter.register_structure_hook_func(
+            lambda t: t == LineDirection, _structure_line_direction
         )
         self._converter.register_structure_hook_func(
             lambda t: t == PasteHeight, _structure_paste_height
