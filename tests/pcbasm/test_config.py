@@ -69,6 +69,7 @@ class TestMachine:
             dispense_mode="auto",
             auto_line_aspect_ratio=1.618,
         )
+        assert machine.paste_dispenser.line_direction == "unconstrained"
         assert machine.camera == Camera(
             device_id=0,
             width=640,
@@ -223,6 +224,12 @@ class TestMachine:
     def test_initial_purge_ul_rejects_negative_value(self):
         with pytest.raises(ValueError, match="initial_purge_ul"):
             _paste_dispenser(initial_purge_ul=-0.01)
+
+    def test_unknown_line_direction_is_rejected(self):
+        with pytest.raises(ValueError) as raised:
+            _paste_dispenser(line_direction="sideways")
+
+        assert "線走行方向" in str(raised.value)
 
     @pytest.mark.parametrize("height", [0.0, -1.0])
     def test_lift_height_rejects_non_positive_value(self, height):

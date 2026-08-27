@@ -813,3 +813,25 @@ class TestPerPadOverride:
 
         # Assert: 上書きが build 経路に伝わり、送信される塗布パスが変化する
         assert without_margin != with_margin
+
+    @pytest.mark.parametrize(
+        ("line_direction", "starts_near_component"),
+        [("outward", True), ("inward", False)],
+    )
+    def test_line_direction_changes_observed_stage_path(
+        self, applicator, mock_stage, line_direction, starts_near_component
+    ):
+        reference = Point2d(0.5, -5.0)
+
+        applicator.apply(
+            [box(0.0, 0.0, 1.0, 4.0)],
+            transform=Identity(),
+            line_reference=reference,
+            dispense_mode="line",
+            line_direction=line_direction,
+        )
+
+        path = mock_stage.to_gcode.call_args.args[0]
+        start_distance = (path[0].to2d() - reference).norm
+        end_distance = (path[-1].to2d() - reference).norm
+        assert (start_distance < end_distance) is starts_near_component

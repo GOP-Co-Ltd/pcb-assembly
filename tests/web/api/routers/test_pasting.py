@@ -116,6 +116,7 @@ class TestGetPadConfig:
 
         assert defaults["enabled"] is True
         assert defaults["dispense_mode"] == "auto"
+        assert defaults["line_direction"] == "unconstrained"
         assert (
             defaults["prime_extra_delay"] == 0.0
         )  # テスト用 config の machine.toml 由来
@@ -135,6 +136,7 @@ class TestGetPadConfig:
         assert all(len(point) == 2 for point in pad["polygon"])
         assert pad["enabled"] is True
         assert pad["resolved"]["dispense_mode"] == "auto"
+        assert pad["resolved"]["line_direction"] == "unconstrained"
         assert pad["resolved"]["prime_extra_delay"] == 0.0
         assert pad["resolved"]["paste_height"] == "auto"
 
@@ -432,6 +434,7 @@ class TestTreeNodeResolution:
         """UI_FIELD_ORDER は JS pad_editor/model.js の FIELDS と同順・同集合."""
         assert UI_FIELD_ORDER == (
             "dispense_mode",
+            "line_direction",
             "ul_per_mm2",
             "paste_height",
             "prime_extra_delay",
@@ -658,6 +661,13 @@ class TestPatchNode:
         response = selected_client.patch(
             "/api/pasting/pad-config/node",
             json={"node": "L2:U1", "values": {"dispense_mode": "spray"}},
+        )
+        assert response.status_code == 400
+
+    def test_unknown_line_direction_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"line_direction": "sideways"}},
         )
         assert response.status_code == 400
 
@@ -902,6 +912,41 @@ class TestPadConfigFillPath:
         assert fill_path["pads"]
         assert {pad["dispense_mode"] for pad in fill_path["pads"]} == {"dot"}
         assert all(pad["point_count"] == pad["path_count"] for pad in fill_path["pads"])
+
+    def test_fill_path_reverses_lines_between_outward_and_inward(
+        self, selected_client: TestClient
+    ):
+        outward_patch = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={
+                "node": "L2:U1",
+                "values": {"dispense_mode": "line", "line_direction": "outward"},
+            },
+        )
+        assert outward_patch.status_code == 200, outward_patch.text
+        outward = self._post_fill_path(selected_client, "Top")
+
+        inward_patch = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"line_direction": "inward"}},
+        )
+        assert inward_patch.status_code == 200, inward_patch.text
+        inward = self._post_fill_path(selected_client, "Top")
+
+        outward_lines = {
+            pad["id"]: pad["paths"][0]
+            for pad in outward["pads"]
+            if pad["id"].startswith("U1.") and pad["dispense_mode"] == "line"
+        }
+        inward_lines = {
+            pad["id"]: pad["paths"][0]
+            for pad in inward["pads"]
+            if pad["id"] in outward_lines
+        }
+        assert outward_lines
+        assert inward_lines.keys() == outward_lines.keys()
+        for pad_id, path in outward_lines.items():
+            assert inward_lines[pad_id] == list(reversed(path))
 
     def test_fill_path_without_selected_pcb_returns_409(self, client: TestClient):
         response = client.post(

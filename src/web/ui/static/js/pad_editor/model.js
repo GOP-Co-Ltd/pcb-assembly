@@ -2,6 +2,7 @@
 
 export const FIELDS = [
   "dispense_mode",
+  "line_direction",
   "ul_per_mm2",
   "paste_height",
   "prime_extra_delay",
@@ -12,6 +13,7 @@ export const FIELDS = [
 
 export const FIELD_LABELS = {
   dispense_mode: "塗布方式",
+  line_direction: "線の走行方向",
   ul_per_mm2: "面積あたりのペースト量",
   paste_height: "塗布高さ",
   prime_extra_delay: "プライム後追加遅延",
@@ -22,6 +24,7 @@ export const FIELD_LABELS = {
 
 export const FIELD_KINDS = {
   dispense_mode: "mode",
+  line_direction: "direction",
   paste_height: "height",
 };
 
@@ -30,6 +33,12 @@ export const DISPENSE_MODE_LABELS = {
   dot: "点",
   line: "線",
   area: "面",
+};
+
+export const LINE_DIRECTION_LABELS = {
+  unconstrained: "指定なし",
+  outward: "部品中心 → 外側",
+  inward: "外側 → 部品中心",
 };
 
 export function buildNodeIndexes(tree) {

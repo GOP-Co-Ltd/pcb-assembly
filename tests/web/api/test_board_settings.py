@@ -130,6 +130,7 @@ class TestLoadOrInit:
         assert model.base_enabled is True
         assert model.levels == {}
         assert model.base.dispense_mode == config.dispense_mode
+        assert model.base.line_direction == config.line_direction
         assert model.base.prime_extra_delay == config.prime_extra_delay
         assert model.base.paste_height == config.paste_height
         assert model.base.boundary_margin == config.boundary_margin

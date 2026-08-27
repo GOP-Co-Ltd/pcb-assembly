@@ -24,7 +24,11 @@
   function scalarValue(input) {
     const text = input.value.trim();
     if (text === "") return null;
-    if (input.dataset.type === "str" || input.dataset.type === "dispense_mode") {
+    if (
+      input.dataset.type === "str" ||
+      input.dataset.type === "dispense_mode" ||
+      input.dataset.type === "line_direction"
+    ) {
       return text;
     }
     if (input.dataset.type === "float_or_auto" && text === "auto") {

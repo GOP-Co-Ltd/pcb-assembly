@@ -62,6 +62,7 @@ def _full_base() -> PasteOverride:
     """全 override 項目が非 None の base override（= L0 確定値）."""
     return PasteOverride(
         dispense_mode="auto",
+        line_direction="unconstrained",
         paste_height=0.05,
         ul_per_mm2=0.1,
         prime_extra_delay=0.8,
