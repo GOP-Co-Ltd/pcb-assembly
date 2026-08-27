@@ -1,7 +1,7 @@
 """FillSequence のテスト.
 
 FillSequence は1ポリゴンの塗布動作
-（接近→下降→prime同期吐出→リトラクト・上昇同時開始→同期）を1本のGCodeに組む
+（接近→下降→prime同期吐出→速度0→リトラクト・上昇同時開始→同期）を1本のGCodeに組む
 オーケストレーター。ここでは stage / dispenser（いずれも pcbasm 自前の HAL ABC）を
 mock し、発行される動作の順序・量・速度を call assertion で検証する。 個々の GCode 文字列は
 stage/dispenser 側の責務なので（mock は空 GCode を返す）、 本テストは FillSequence が両 HAL
@@ -151,7 +151,7 @@ class TestFillSequence:
         )
         mock_dispenser.sync.assert_called_once_with()
 
-    def test_to_gcode_starts_retraction_and_ascent_without_completion_barrier(
+    def test_to_gcode_starts_retraction_and_ascent_after_zero_velocity_boundary(
         self, mock_stage, mock_dispenser
     ):
         path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
@@ -168,10 +168,11 @@ class TestFillSequence:
         commands = _sequence(path).to_gcode(mock_stage, mock_dispenser).to_list()
 
         fill = commands.index("FILL")
+        stop = commands.index("G4 P0")
         retract = commands.index("RETRACT")
         ascent = commands.index("ASCEND")
         sync = commands.index("SYNC_DISPENSER")
-        assert fill < retract < ascent < sync
+        assert fill < stop < retract < ascent < sync
         assert "M400" not in commands[fill + 1 : retract]
         assert commands.count("M400") == 1
 
