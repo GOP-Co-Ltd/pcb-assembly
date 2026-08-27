@@ -787,7 +787,7 @@ def _resolve_paste_model(
 
 
 def _run_paste_solder(ctx: JobContext) -> JobResult:
-    """ボード計測 → 銅箔照合 → 高さ計測 → 補正適用 → ペースト塗布を通しで実行する.
+    """ボード計測 → 高さ計測 → 銅箔照合 → 補正適用 → ペースト塗布を通しで実行する.
 
     塗布対象は基板ごとの pad 有効/無効 + 階層 override 設定で絞り込み、各 pad に
     解決済みの塗布設定を適用する。設定ファイル不在時は ``machine.toml`` デフォルトで
@@ -841,12 +841,22 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             for pad in alignment_pads
         ):
             alignment_pads.append(initial_purge.pad)
+
+        # probe の接触で基板がずれる可能性があるため、XY の領域・pad 照合より先に
+        # 高さを計測する。計測点には setup_board で得た初期変換を使用する。
+        ctx.progress("高さ計測")
+        height_plane = session.height_measurer.measure(
+            coppers=top_coppers,
+            board_to_machine=session.board_to_machine,
+            outline=session.pcb.outline.polygon,
+        )
+
         align_session = RegionAlignmentSession(result, frame_sink=ctx.frame)
         regions = align_session.plan_regions([pad.center for pad in alignment_pads])
         ctx.log(f"照合対象の領域数: {len(regions)}")
         aligned = align_regions(ctx, align_session, regions)
         alignment = BoardAlignment(results=tuple(aligned))
-        # 最初の補正移動・高さ計測より前に、成功領域が1件以上あるか確認する。
+        # 最初の補正移動より前に、成功領域が1件以上あるか確認する。
         for pad in alignment_pads:
             alignment.correction_for(pad.center, designator=pad.designator)
         ctx.log(f"位置合わせ成功: {len(aligned)}/{len(regions)} 領域")
@@ -889,14 +899,6 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         )
         ctx.log(
             f"pad中心照合成功: {len(pad_alignments)}/" f"{len(refinement_targets)} pads"
-        )
-
-        # 高さ計測
-        ctx.progress("高さ計測")
-        height_plane = session.height_measurer.measure(
-            coppers=top_coppers,
-            board_to_machine=session.board_to_machine,
-            outline=session.pcb.outline.polygon,
         )
 
         pairs = [

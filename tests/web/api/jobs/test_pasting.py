@@ -755,8 +755,9 @@ class TestPastingHardware:
     - ペーストディスペンサーが装着・ペースト充填可能であること
     - height_plane: data/testing/led_blinker の基板がステージにセットされ、
       実カメラがキャリブレーション済みであること
-    - paste_solder / toolhead_offset の通しはプレビュー目視を伴うため WebUI
-      手動 E2E（計画書 §5 引き継ぎ 3・6）で確認する
+    - paste_solder の probe → XY 照合までは自動検証し、塗布開始前に中止する
+    - paste_solder / toolhead_offset の完全な通しはプレビュー目視を伴うため
+      WebUI 手動 E2E（計画書 §5 引き継ぎ 3・6）で確認する
     """
 
     def test_loading_extrude_then_finish_succeeds(
@@ -899,6 +900,36 @@ class TestPastingHardware:
     # 実 Moonraker + 実カメラ + 実ペースト + 物理銅板の装着・計量を要する。手順が
     # 対話的（ボード計測 → 線引き → 質量/番号入力）でブラウザ目視を伴うため、
     # WebUI 手動 E2E（make api-fake）でユーザーが検証する分担（large-refactor-workflow）。
+
+    def test_paste_solder_probes_then_aligns_at_camera_focus_z(
+        self,
+        real_manager: JobManager,
+        real_state: AppState,
+        wait_until: WaitUntil,
+    ):
+        """Probe 後に camera focus Z で領域照合し、塗布前に中止する."""
+        focus_z = real_state.focus_z()
+        assert focus_z is not None
+        stage = XYZStage(create_command_klipper(real_state.machine()).readonly)
+        real_state.select_pcb(Path("data/testing/led_blinker/led_blinker.kicad_pcb"))
+        record = real_manager.start("paste_solder", {})
+        calibration_stages = {"高さ計測", "銅箔照合", "pad照合"}
+        try:
+            wait_until(
+                lambda: record.progress_stage in calibration_stages,
+                timeout=300.0,
+            )
+            assert record.progress_stage == "高さ計測"
+            wait_until(lambda: record.progress_stage == "銅箔照合", timeout=900.0)
+            wait_until(
+                lambda: abs(stage.get_position().z - focus_z) <= 0.01,
+                timeout=60.0,
+            )
+        finally:
+            real_manager.request_abort()
+            wait_until(lambda: record.status.terminal, timeout=300.0)
+
+        assert record.status == JobStatus.ABORTED
 
     def test_height_plane_full_run_yields_heatmap_artifacts(
         self,

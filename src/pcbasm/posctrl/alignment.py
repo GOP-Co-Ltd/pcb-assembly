@@ -149,6 +149,7 @@ class RegionAlignmentSession:
             matcher=matcher,
             edge_detector=self._edge_detector,
             offset_transform=result.offset_transform,
+            focus_z=result.calibration.z_position,
             max_correction_mm=pad_align.max_correction,
             max_passes=pad_align.max_passes,
             converge_tolerance_mm=pad_align.converge_tolerance,
