@@ -36,6 +36,7 @@ class RegionAligner:
         matcher: CopperEdgeMatcher,
         edge_detector: CopperEdgeDetector,
         offset_transform: Transform,
+        focus_z: float | None = None,
         max_correction_mm: float = 1.0,
         max_passes: int = 5,
         converge_tolerance_mm: float = 0.03,
@@ -56,6 +57,7 @@ class RegionAligner:
         self._matcher = matcher
         self._edge_detector = edge_detector
         self._offset_transform = offset_transform
+        self._focus_z = focus_z
         self._max_correction_mm = max_correction_mm
         self._max_passes = max_passes
         self._converge_tolerance_mm = converge_tolerance_mm
@@ -77,7 +79,12 @@ class RegionAligner:
         for passes in range(1, self._max_passes + 1):
             target = region.anchor + cumulative
             self._klipper.send_gcode(
-                self._stage.move(x=target.x, y=target.y, speed=Speed.rate(0.5))
+                self._stage.move(
+                    x=target.x,
+                    y=target.y,
+                    z=self._focus_z,
+                    speed=Speed.rate(0.5),
+                )
                 + gcode.wait(self._settle_time)
                 + gcode.wait_for_done()
             )

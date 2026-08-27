@@ -9,7 +9,7 @@ import shapely
 
 from pcbasm import gcode as pcb_gcode
 from pcbasm.geometry import Identity, Point2d, Point3d
-from pcbasm.hal import Klipper, Speed, XYZStage
+from pcbasm.hal import Camera, Klipper, Speed, XYZStage
 from pcbasm.posctrl import (
     AlignmentRegion,
     CopperEdgeMatcher,
@@ -78,6 +78,24 @@ class _FakeStage(XYZStage):
         return self._position
 
 
+class _PositionRecordingCamera(FakeCamera):
+    """Capture 時のステージ位置を記録する Camera HAL fake."""
+
+    def __init__(self, images: list[Image], stage: XYZStage) -> None:
+        super().__init__(images)
+        self._stage = stage
+        self._capture_positions: list[Point3d] = []
+
+    @property
+    def capture_positions(self) -> tuple[Point3d, ...]:
+        return tuple(self._capture_positions)
+
+    @override
+    def capture(self) -> Image:
+        self._capture_positions.append(self._stage.get_position())
+        return super().capture()
+
+
 def _region() -> AlignmentRegion:
     return AlignmentRegion(
         index=3,
@@ -93,7 +111,11 @@ def _aligner(
     *,
     max_passes: int,
     converge_tolerance_mm: float,
+    focus_z: float | None = None,
+    stage: _FakeStage | None = None,
+    camera: Camera | None = None,
 ) -> RegionAligner:
+    stage = stage or _FakeStage()
     projector = CopperProjector(
         polygons=[shapely.box(-0.4, -0.4, 0.4, 0.4)],
         board_transform=Identity(),
@@ -102,9 +124,9 @@ def _aligner(
         image_size=IMAGE_SIZE,
     )
     return RegionAligner(
-        camera=FakeCamera([_image(x, y) for x, y in shifts]),
+        camera=camera or FakeCamera([_image(x, y) for x, y in shifts]),
         klipper=_FakeKlipper(),
-        stage=_FakeStage(),
+        stage=stage,
         projector=projector,
         matcher=CopperEdgeMatcher(
             pixel_per_mm=PPM,
@@ -112,6 +134,7 @@ def _aligner(
         ),
         edge_detector=CopperEdgeDetector(),
         offset_transform=Identity(),
+        focus_z=focus_z,
         max_correction_mm=1.0,
         max_passes=max_passes,
         converge_tolerance_mm=converge_tolerance_mm,
@@ -159,6 +182,25 @@ class TestRegionAligner:
 
         assert result.displacement.x == pytest.approx(0.15, abs=0.02)
         assert result.displacement.y == pytest.approx(-0.1, abs=0.02)
+
+    def test_captures_every_pass_at_camera_focus_z(self):
+        stage = _FakeStage()
+        camera = _PositionRecordingCamera([_image(15, 0), _image(5, 0)], stage)
+        aligner = _aligner(
+            [(15, 0), (5, 0)],
+            max_passes=5,
+            converge_tolerance_mm=0.06,
+            focus_z=-25.0,
+            stage=stage,
+            camera=camera,
+        )
+
+        result = aligner.measure(_region())
+
+        assert result.passes == 2
+        assert [position.z for position in camera.capture_positions] == pytest.approx(
+            [-25.0, -25.0]
+        )
 
     def test_rejects_region_that_does_not_converge_within_max_passes(self):
         aligner = _aligner(
