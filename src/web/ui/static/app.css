@@ -1606,6 +1606,233 @@ h2 {
   gap: 0.5rem;
 }
 
+/* ---- paste flow calibration board ---- */
+.pfc-board {
+  min-width: 0;
+}
+
+.pfc-intro {
+  max-width: 72rem;
+}
+
+.pfc-workspace {
+  display: grid;
+  grid-template-columns: minmax(34rem, 1.15fr) minmax(22rem, 0.85fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.pfc-config-card,
+.pfc-preview-card {
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.pfc-config-card h3,
+.pfc-preview-card h3,
+.pfc-pattern-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.pfc-field-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(8rem, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+}
+
+.pfc-field-grid label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--muted);
+}
+
+.pfc-field-grid input {
+  width: 100%;
+}
+
+.pfc-pattern-head,
+.pfc-preview-head,
+.pfc-add-pattern,
+.pfc-actions,
+.pfc-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pfc-pattern-head {
+  justify-content: space-between;
+  margin-top: 1rem;
+}
+
+.pfc-add-pattern label {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.pfc-table-scroll {
+  margin-top: 0.55rem;
+  overflow-x: auto;
+}
+
+.pfc-pattern-table {
+  width: 100%;
+  min-width: 48rem;
+  border-collapse: collapse;
+}
+
+.pfc-pattern-table th,
+.pfc-pattern-table td {
+  padding: 0.35rem 0.4rem;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.pfc-pattern-table thead th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pfc-pattern-table input {
+  width: 4.8rem;
+}
+
+.pfc-pattern-table .pfc-part-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pfc-resolved-angles,
+.pfc-resolved-size {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.pfc-remove-pattern {
+  color: var(--danger);
+}
+
+.pfc-preview-card {
+  position: sticky;
+  top: 4rem;
+}
+
+.pfc-preview-head {
+  justify-content: space-between;
+  margin-bottom: 0.55rem;
+}
+
+.pfc-preview-summary {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.pfc-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: #f8fafc;
+}
+
+.pfc-board-outline {
+  fill: #f8fafc;
+  stroke: #293341;
+  stroke-width: 0.16;
+}
+
+.pfc-copper {
+  fill: #d3a822;
+  fill-opacity: 0.72;
+  stroke: #946e00;
+  stroke-width: 0.04;
+}
+
+.pfc-paste {
+  fill: #d74878;
+  fill-opacity: 0.58;
+  stroke: #9d214b;
+  stroke-width: 0.04;
+}
+
+.pfc-group-boundary {
+  fill: none;
+  stroke: #1b67b1;
+  stroke-width: 0.1;
+  stroke-dasharray: 0.35 0.25;
+}
+
+.pfc-group-label {
+  fill: #164c7e;
+  font-family: var(--mono);
+  font-size: 0.85px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-width: 0.18px;
+}
+
+.pfc-legend {
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.pfc-legend span::before {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.25rem;
+  border: 1px solid var(--line-strong);
+  vertical-align: -0.1rem;
+  content: "";
+}
+
+.pfc-legend-copper::before { background: #d3a822; }
+.pfc-legend-paste::before { background: #d74878; }
+.pfc-legend-group::before {
+  border-color: #1b67b1 !important;
+  background: transparent;
+}
+
+.pfc-preview-status {
+  min-height: 1.2rem;
+  margin: 0.4rem 0 0;
+  color: var(--ok);
+}
+
+.pfc-preview-status.error {
+  color: var(--danger);
+}
+
+.pfc-actions {
+  justify-content: flex-end;
+  margin-top: 0.8rem;
+}
+
+.pfc-primary {
+  border-color: var(--accent);
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.pfc-primary:hover:not(:disabled) {
+  border-color: #15528d;
+  background: #15528d;
+}
+
 @media (max-width: 860px) {
   .loading-control-body {
     grid-template-columns: 1fr;
@@ -1660,6 +1887,14 @@ h2 {
 
   .pasting-run-panel {
     grid-template-columns: 1fr;
+  }
+
+  .pfc-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .pfc-preview-card {
+    position: static;
   }
 }
 
@@ -1724,6 +1959,23 @@ h2 {
 
   .job-param-help {
     font-size: 0.78rem;
+  }
+
+  .pfc-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pfc-pattern-head,
+  .pfc-add-pattern,
+  .pfc-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pfc-actions button,
+  .pfc-add-pattern select,
+  .pfc-add-pattern button {
+    width: 100%;
   }
 
   .pasting-grid {

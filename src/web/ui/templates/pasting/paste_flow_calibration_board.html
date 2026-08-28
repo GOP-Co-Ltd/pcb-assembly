@@ -1,0 +1,91 @@
+{% extends "tab.html" %}
+{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<div id="paste-flow-calibration-board" class="pfc-board" data-testid="paste-flow-calibration-board">
+  <h2>{{ feature_label }}</h2>
+  <p class="job-intro pfc-intro">
+    標準KiCad footprintを規則的な回転グループとして配置し、塗布前後画像の収集に使う
+    40 × 40 mmの基板を生成します。設定と生成物はこのブラウザへ直接ダウンロードされます。
+  </p>
+
+  <div class="pfc-workspace">
+    <section class="pfc-config-card" aria-labelledby="pfc-board-settings-heading">
+      <h3 id="pfc-board-settings-heading">基板設定</h3>
+      <div class="pfc-field-grid">
+        <label>幅 <span class="unit">[mm]</span>
+          <input id="pfc-board-width" data-config-field type="number" step="0.1">
+        </label>
+        <label>高さ <span class="unit">[mm]</span>
+          <input id="pfc-board-height" data-config-field type="number" step="0.1">
+        </label>
+        <label>外周余白 <span class="unit">[mm]</span>
+          <input id="pfc-edge-margin" data-config-field type="number" step="0.1">
+        </label>
+        <label>部品間余白 <span class="unit">[mm]</span>
+          <input id="pfc-component-gap" data-config-field type="number" step="0.1">
+        </label>
+        <label>purge pad幅 <span class="unit">[mm]</span>
+          <input id="pfc-purge-width" data-config-field type="number" step="0.1">
+        </label>
+        <label>purge pad高さ <span class="unit">[mm]</span>
+          <input id="pfc-purge-height" data-config-field type="number" step="0.1">
+        </label>
+      </div>
+
+      <div class="pfc-pattern-head">
+        <h3>部品パターン</h3>
+        <div class="pfc-add-pattern">
+          <label for="pfc-catalog-select">部品を追加</label>
+          <select id="pfc-catalog-select" data-testid="pfc-catalog-select"></select>
+          <button id="pfc-add-pattern" type="button" data-testid="pfc-add-pattern">追加</button>
+        </div>
+      </div>
+      <div class="pfc-table-scroll">
+        <table class="pfc-pattern-table" data-testid="pfc-pattern-table">
+          <thead>
+            <tr>
+              <th>部品</th>
+              <th>family</th>
+              <th>theta <span class="unit">[deg]</span></th>
+              <th>n</th>
+              <th>角度</th>
+              <th>m</th>
+              <th>グループ <span class="unit">[mm]</span></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="pfc-pattern-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="pfc-preview-card" aria-labelledby="pfc-preview-heading">
+      <div class="pfc-preview-head">
+        <h3 id="pfc-preview-heading">配置プレビュー</h3>
+        <span id="pfc-preview-summary" class="pfc-preview-summary"></span>
+      </div>
+      <svg id="pfc-preview" class="pfc-preview" role="img"
+           aria-label="はんだペースト流量キャリブレーション基板の配置"
+           data-testid="pfc-preview"></svg>
+      <div class="pfc-legend" aria-label="レイヤー凡例">
+        <span class="pfc-legend-copper">F.Cu</span>
+        <span class="pfc-legend-paste">F.Paste</span>
+        <span class="pfc-legend-group">グループ境界</span>
+      </div>
+      <p id="pfc-preview-status" class="pfc-preview-status" aria-live="polite"></p>
+    </section>
+  </div>
+
+  <div class="pfc-actions">
+    <input id="pfc-import-file" type="file" accept="application/json,.json" hidden>
+    <button id="pfc-import" type="button" data-testid="pfc-import">設定をImport</button>
+    <button id="pfc-export" type="button" data-testid="pfc-export">設定をExport</button>
+    <button id="pfc-generate" class="pfc-primary" type="button" disabled
+            data-testid="pfc-generate">KiCad基板を生成</button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/paste_flow_calibration_board.js') }}"></script>
+{% endblock %}

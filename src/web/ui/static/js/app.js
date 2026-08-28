@@ -47,6 +47,40 @@ async function api(method, url, body) {
   return data;
 }
 
+async function downloadApi(method, url, body) {
+  const options = { method };
+  if (body !== undefined) {
+    options.headers = { "Content-Type": "application/json" };
+    options.body = JSON.stringify(body);
+  }
+  const res = await fetch(withBase(url), options);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const err = new Error(data.detail || `${res.status} ${res.statusText}`);
+    err.status = res.status;
+    err.data = data;
+    if (res.status === 423) window.webui.control?.onDenied(data);
+    throw err;
+  }
+
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const quoted = disposition.match(/filename="([^"]+)"/i)?.[1];
+  const plain = disposition.match(/filename=([^;\s]+)/i)?.[1];
+  const filename = encoded
+    ? decodeURIComponent(encoded)
+    : quoted ?? plain ?? "download";
+  const objectUrl = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+  return filename;
+}
+
 // frontend 自身のエンドポイント（/api/machines）を GET する。
 // machine prefix は付けない（付けると backend へ中継されて 404 になる）。
 // fetch() をこのファイルに閉じるための入口でもある（tests/web/ui/test_layout.py）。
@@ -98,6 +132,7 @@ function formatPosition(p) {
 window.webui = {
   toast,
   api,
+  downloadApi,
   frontendJson,
   svgEl,
   debounce,

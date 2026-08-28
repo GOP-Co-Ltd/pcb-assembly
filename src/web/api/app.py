@@ -6,12 +6,16 @@ import asyncio
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
+from pcbasm.pasting.paste_flow_calibration_board import (
+    PasteFlowCalibrationBoardGenerator,
+)
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore, UnknownFieldError
 from web.api.control import ControlDeniedError, ControlLease, LeaseInfo
@@ -31,6 +35,7 @@ from web.api.routers import (
     jobs,
     machine_control,
     nozzle_cap,
+    paste_flow_calibration_board,
     pasting,
     pasting_loading,
     preview as preview_router,
@@ -101,6 +106,7 @@ def create_app(
     *,
     audio_player: AudioPlayer | None = None,
     clock: Callable[[], float] | None = None,
+    paste_flow_calibration_footprint_root: Path | None = None,
 ) -> FastAPI:
     """WebUI の FastAPI アプリを構築する.
 
@@ -110,6 +116,8 @@ def create_app(
         clock: 操作権リースの時計（None なら `time.monotonic`）。失効までの秒数は
             分単位なので、実時間で待つと検証できない。「ジョブ実行中は無操作でも
             失効しない」という `busy` の配線を確かめるための注入口
+        paste_flow_calibration_footprint_root: 流量キャリブレーション基板で使う
+            KiCad footprint root。Noneなら環境変数またはKiCad 9標準パス
 
     Returns:
         構成済みの FastAPI アプリ
@@ -136,6 +144,9 @@ def create_app(
     app.state.preview = preview
     app.state.catalog = catalog
     app.state.audio_player = audio_player
+    app.state.paste_flow_calibration_board_generator = (
+        PasteFlowCalibrationBoardGenerator(paste_flow_calibration_footprint_root)
+    )
     board_store = BoardSettingsStore(
         settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
     )
@@ -203,6 +214,7 @@ def create_app(
     app.include_router(preview_router.router)
     app.include_router(jobs.router)
     app.include_router(pasting.router)
+    app.include_router(paste_flow_calibration_board.router)
     app.include_router(pasting_loading.router)
     app.include_router(nozzle_cap.router)
     return app
