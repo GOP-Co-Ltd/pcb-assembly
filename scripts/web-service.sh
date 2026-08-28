@@ -6,7 +6,7 @@ set -euo pipefail
 # unit 名 / make ターゲット / 対象名は同じ語（api, ui）で揃えてある。
 LEGACY_SERVICE_NAME="pcbasm-webui.service"
 DEFAULT_TARGET="api"
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # 以下 2 つはテスト用の seam。既定値は実機の systemd と sudo。
 # テストは SYSTEMD_UNIT_DIR を一時ディレクトリにし、SUDO には `exec "$@"` するだけの
 # no-op ラッパを渡して特権コマンド（install / rm）を実際に走らせ、一時ディレクトリ上の

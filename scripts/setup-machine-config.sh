@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATE_ROOT="${PROJECT_ROOT}/data/config-templates"
 CONFIG_DIR="${PROJECT_ROOT}/config"
 KLIPPER_CONFIG_DIR="${HOME}/printer_data/config"
@@ -172,7 +172,7 @@ echo "完了しました"
 echo "反映には Klipper の再起動が必要です: sudo systemctl restart klipper"
 echo ""
 echo "machine.toml をテンプレートで作り直したい場合は、config/ を退避してから再実行してください:"
-echo "  mv config config.bak.${TIMESTAMP} && ./setup-machine-config.sh"
+echo "  mv config config.bak.${TIMESTAMP} && ./scripts/setup-machine-config.sh"
 echo ""
 echo "printer.cfg をテンプレートで作り直したい場合も同様に退避してから再実行してください:"
-echo "  mv ${KLIPPER_CONFIG_FILE} ${KLIPPER_CONFIG_FILE}.bak.${TIMESTAMP} && ./setup-machine-config.sh"
+echo "  mv ${KLIPPER_CONFIG_FILE} ${KLIPPER_CONFIG_FILE}.bak.${TIMESTAMP} && ./scripts/setup-machine-config.sh"

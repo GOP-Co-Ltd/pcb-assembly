@@ -64,7 +64,8 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
     `/m/{machine_id}/api/**` の backend 中継）
 
 ブラウザ操作 UI は上記 2 プロセスに分かれる。開発・運用の操作は WebUI のジョブとして
-提供する。リポジトリ直下の `scripts/` には `migrate_codex.py` のみを置く。
+提供する。リポジトリ直下の `scripts/` にはセットアップ・運用スクリプトと
+`migrate_codex.py` を置く。
 
 ## 開発コマンド
 

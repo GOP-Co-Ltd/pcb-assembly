@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIRMWARE_FILE="${PROJECT_ROOT}/klipper/firmwares/btt-skr-pico-v1-usb.klipper.uf2"
 CAMERA_BLOCK_BEGIN="# BEGIN pcb-assembly camera"
 CAMERA_BLOCK_END="# END pcb-assembly camera"

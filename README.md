@@ -18,13 +18,13 @@
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - `alsa-utils`（通知音を再生する `aplay` を含む）
 
-OS以外のソフトウェア類は[`install-softwares.sh`](install-softwares.sh)を実行
+OS以外のソフトウェア類は[`scripts/install-softwares.sh`](scripts/install-softwares.sh)を実行
 
 Raspberry Pi のカメラ・スピーカーと Klipper MCU firmware は、ソフトウェアの
 インストール後に対話式スクリプトで設定する。
 
 ```sh
-./setup-hardware.sh
+./scripts/setup-hardware.sh
 ```
 
 - カメラは CAMERA port 0 / 1 と driver（`ov9281` または手入力）を選ぶ
@@ -57,7 +57,7 @@ make setup
 装置を動かす前に、テンプレートから `config/` を作る。
 
 ```sh
-./setup-machine-config.sh       # data/config-templates/ から選んで config/ を作る
+./scripts/setup-machine-config.sh  # data/config-templates/ から選んで config/ を作る
 sudo systemctl restart klipper  # printer.cfg の反映
 ```
 
@@ -118,7 +118,7 @@ machine_type = "paste"    # 省略可
 静的側が持たない `name` / `machine_type` だけ探索側で埋める。
 
 `machines.toml` を読むのは frontend の起動時の 1 回だけなので、**編集したら frontend を
-再起動する**（実行中に更新されるのは mDNS 探索の分だけ）。`setup-machine-config.sh` が案内する
+再起動する**（実行中に更新されるのは mDNS 探索の分だけ）。`scripts/setup-machine-config.sh` が案内する
 `mv config config.bak.<ts>` で `config/` を作り直すと `machines.toml` も一緒に退避され、
 不在はエラーにならず静的登録 0 台になる（退避先から戻す）。
 
@@ -152,11 +152,11 @@ backend と frontend は別 unit（`pcbasm-api.service` / `pcbasm-ui.service`）
 対象を省略すると `api` を操作する。
 
 ```bash
-./web-service.sh install all  # 同居機（backend + frontend の両方を置く 1 台）
-./web-service.sh install      # 機体（backend のみ。= install api）
-./web-service.sh install ui   # frontend 専用機（UI だけを置くホスト）
-./web-service.sh start ui     # 起動（stop / restart / status も同じ形）
-./web-service.sh remove all   # サービス登録を削除
+./scripts/web-service.sh install all  # 同居機（backend + frontend の両方を置く 1 台）
+./scripts/web-service.sh install      # 機体（backend のみ。= install api）
+./scripts/web-service.sh install ui   # frontend 専用機（UI だけを置くホスト）
+./scripts/web-service.sh start ui     # 起動（stop / restart / status も同じ形）
+./scripts/web-service.sh remove all   # サービス登録を削除
 ```
 
 旧 `pcbasm-webui.service`（= 旧 backend）の掃除は**対象が `api` または `all` のときだけ**

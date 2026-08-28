@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 # システム依存関係をインストール
 sudo apt-get update
 sudo apt-get install -y \
@@ -16,7 +18,7 @@ sudo apt-get install -y \
 # git-lfsを有効化し、git-lfs未導入のままcloneして
 # ポインタのまま残った (破損した) LFSファイルを実体に置き換える
 git lfs install
-(cd "$(dirname "$0")" && git lfs pull)
+(cd "$PROJECT_ROOT" && git lfs pull)
 
 # KIAUHでKlipperをインストール
 cd ~ && git clone https://github.com/dw-0/kiauh.git
@@ -31,5 +33,5 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 
 # Pythonの環境をセットアップ
-cd "$(dirname "$0")"
+cd "$PROJECT_ROOT"
 make setup

@@ -1,6 +1,6 @@
 # マシン設定テンプレート
 
-新規セットアップ用のマシン設定の初期値を置く。`./setup-machine-config.sh` がここから
+新規セットアップ用のマシン設定の初期値を置く。`./scripts/setup-machine-config.sh` がここから
 `config/` を作る。
 
 ## 設定ファイルの置き場所と役割
@@ -33,7 +33,7 @@ data/config-templates/
 ```
 
 `machine.toml` と `printer.cfg` の両方を持つディレクトリだけが
-`./setup-machine-config.sh` の選択肢に出る。
+`./scripts/setup-machine-config.sh` の選択肢に出る。
 
 **カメラキャリブレーション結果はテンプレートに含めない。** 機体固有の実測値であり、
 別の機体に配ると誤った `pixel_per_mm` で動くことになる。セットアップ後に WebUI の
@@ -54,7 +54,7 @@ camera_calibration ジョブを実行し、Apply で `config/` に生成させ�
 ## セットアップ
 
 ```sh
-./setup-machine-config.sh
+./scripts/setup-machine-config.sh
 sudo systemctl restart klipper
 ```
 
@@ -75,8 +75,8 @@ sudo systemctl restart klipper
 テンプレートから作り直したい場合は、対象を退避してから再実行する。
 
 ```sh
-mv config config.bak && ./setup-machine-config.sh                    # machine.toml を作り直す
-mv ~/printer_data/config/printer.cfg{,.bak} && ./setup-machine-config.sh  # printer.cfg を作り直す
+mv config config.bak && ./scripts/setup-machine-config.sh                    # machine.toml を作り直す
+mv ~/printer_data/config/printer.cfg{,.bak} && ./scripts/setup-machine-config.sh  # printer.cfg を作り直す
 ```
 
 ## テンプレートの追加
@@ -87,7 +87,7 @@ mkdir data/config-templates/<マシン名>.<用途>
 git add data/config-templates/<マシン名>.<用途>
 ```
 
-`./setup-machine-config.sh` の選択肢に自動で現れる。
+`./scripts/setup-machine-config.sh` の選択肢に自動で現れる。
 
 ## machine.toml の最小例
 
@@ -137,7 +137,7 @@ git diff data/config-templates/kurousagi.paste/printer.cfg  # 意図した差分
 較正値ブロック。テンプレートに含めても含めなくてもよいが、含めるなら「どの実機のいつの値か」を
 コミットメッセージに残す。
 
-この書き戻しが頻繁で煩わしくなったら `setup-machine-config.sh` に snapshot サブコマンドを足す。
+この書き戻しが頻繁で煩わしくなったら `scripts/setup-machine-config.sh` に snapshot サブコマンドを足す。
 現時点では `cp` 1 行で足りるため用意していない。
 
 カメラキャリブレーション結果の JSON も同様に `config/` に置かれ追跡されないが、こちらは
