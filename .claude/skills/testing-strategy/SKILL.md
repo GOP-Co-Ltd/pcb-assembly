@@ -39,7 +39,7 @@ src/pcbasm/geometry/plane.py ↔ tests/pcbasm/geometry/test_plane.py
 - `tests/` 直下に置けるのは共通資産（`__init__.py` / `helpers.py` / `conftest.py`）と `e2e/`
     （実サーバー E2E）、それに **`src/` 側にミラー元が無い対象のテスト**だけ。後者は
     `test_package.py`（パッケージ構成）、`test_claude_hooks.py`（`.claude/` の hook）、
-    `test_makefile_fake_targets.py`（`Makefile`）、`test_web_service_script.py`（`web-service.sh`）
+    `test_makefile_fake_targets.py`（`Makefile`）、`test_web_service_script.py`（`scripts/web-service.sh`）
     のようにリポジトリ資産そのものを検証するもので、ミラー先が無いから直下に置く
 - `tests/helpers.py` が `mark_hardware` / `skip_if_no_*` / test 用 Impl の所在地。締め切り付き
     実行の `before_deadline`（ハングをテスト失敗に変える）、`wait_until`、

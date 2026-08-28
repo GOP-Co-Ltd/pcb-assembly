@@ -87,7 +87,7 @@ PCB アセンブリ装置の制御コード。Raspberry Pi 5 + Klipper + KiCAD �
 - `pcb/` — PCB 設計情報の抽象化（KiCAD 読込、配置管理）
 - `visualization/` — 塗布パス・高さ面・PCB のレンダリング/可視化
 
-このほか `src/web/` にブラウザ操作 UI を 2 プロセスで置く（どちらも FastAPI）。`src/web/api/` が機体ごとの backend WebAPI（port 8081）、`src/web/ui/` が LAN に 1 つ立てる UI frontend（port 8080。ページ描画と `/m/{machine_id}/api/**` の backend 中継）。開発・運用の操作は WebUI のジョブとして提供する。リポジトリ直下の `scripts/` には `migrate_codex.py` のみを置く。
+このほか `src/web/` にブラウザ操作 UI を 2 プロセスで置く（どちらも FastAPI）。`src/web/api/` が機体ごとの backend WebAPI（port 8081）、`src/web/ui/` が LAN に 1 つ立てる UI frontend（port 8080。ページ描画と `/m/{machine_id}/api/**` の backend 中継）。開発・運用の操作は WebUI のジョブとして提供する。リポジトリ直下の `scripts/` にはセットアップ・運用スクリプトと `migrate_codex.py` を置く。
 
 ## 開発コマンド
 
