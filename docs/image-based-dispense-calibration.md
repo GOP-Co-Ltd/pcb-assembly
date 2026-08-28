@@ -205,6 +205,85 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 撮影時は基準位置に加え、カメラを X/Y 方向へ数 mm 移動して同じパッドを複数回撮影する。
 同一 view の塗布前後画像は、同じ撮影位置に対応させる。
 
+#### はんだペースト流量キャリブレーション基板の生成仕様
+
+データ収集基板の生成ロジックは、用途を明確にするため
+`pcbasm.pasting.paste_flow_calibration_board` に置く。PCB一般のキャリブレーション基板を
+意味する曖昧な `pcbasm.pcb.calibration_board` や、公開名としての単独の
+`calibration_board` は使用しない。
+
+初期設定は次のとおりとする。
+
+- 基板外形: 40 × 40 mm
+- 外周余白: 1 mm
+- パッド間および部品グループ間余白: 1 mm
+- 専用purge pad: 2 × 2 mm、基板左上の外周余白内側
+- purge padと通常パターン領域の間隔: 1 mm
+
+各部品は、回転パターン数 `n` 列 × 繰り返し数 `m` 行の不可分な矩形グループとして
+配置する。回転範囲を `theta` 度としたとき、列 `i` の角度は次式とする。
+
+\[
+\phi_i = i \frac{\theta}{n}, \qquad 0 \leq i < n
+\]
+
+`0 < theta <= 360`、`n >= 1`、`m >= 1` とする。パッド間隔の計算には、各回転角における
+全F.Cu/F.PasteパッドのAABBを使う。グループ内のセル寸法は全回転角の最大幅・最大高さとし、
+footprint anchorを調整して各AABBをセル中央へ配置する。
+
+使用できる部品はKiCad 9標準ライブラリの固定カタログとする。
+
+| family         | 部品                   |
+| -------------- | ---------------------- |
+| チップ受動部品 | 0402、0603、0805、1206 |
+| SOT            | SOT-23、SOT-23-5       |
+| Small outline  | SOIC-8、TSSOP-14       |
+| No-lead        | QFN-16 EP              |
+| QFP            | LQFP-32                |
+| Power SMD      | SOT-223                |
+
+初期レシピでは0402～1206を `theta=180, n=4, m=3`、SOT-23とSOT-23-5を
+`theta=360, n=4, m=2` とする。配置は固定カタログ順のshelf packingとし、familyが変わる
+たびに新しい行から開始する。前の行の空き領域への後詰めは行わない。
+
+生成物には実footprintのF.Cu/F.Mask/F.Pasteと標準silkscreenを残し、reference/value文字は
+非表示にする。専用purge padのreferenceは`PURGE1`とする。KiCad footprint rootは
+`KICAD9_FOOTPRINT_DIR`で上書きでき、未指定時は`/usr/share/kicad/footprints`を使う。
+
+WebUIの「はんだ塗布」タブに「はんだペースト流量キャリブレーション基板生成」を置く。
+設定変更時は実footprint形状から解決したF.Cu/F.Paste、グループ境界、角度、グループ寸法を
+SVGで表示する。設定は`pcbasm-paste-flow-calibration-board.json`、KiCad基板は
+`pcbasm-paste-flow-calibration-board.kicad_pcb`としてブラウザへ直接ダウンロードする。
+装置を動かさないため、生成と設定入出力にWebUIの操作権は要求しない。
+
+設定JSONは自己識別情報を必須とする。Import時は`kind`と`schema_version`を検証し、
+サーバーの固定カタログ順へ正規化する。配置不能な設定でも構造的に正しければExportできる。
+
+```json
+{
+  "kind": "paste_flow_calibration_board",
+  "schema_version": 1,
+  "board": {
+    "width_mm": 40.0,
+    "height_mm": 40.0,
+    "edge_margin_mm": 1.0,
+    "component_gap_mm": 1.0
+  },
+  "purge_pad": {
+    "width_mm": 2.0,
+    "height_mm": 2.0
+  },
+  "patterns": [
+    {
+      "catalog_id": "r_0402_1005metric",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 3
+    }
+  ]
+}
+```
+
 ### 収集手順
 
 データ収集では、最初の収集対象パッドをパージに使用しない。収集前に吐出量
@@ -290,7 +369,7 @@ dataset/
   "schema_version": 1,
   "collected_at": "2026-08-28T14:30:52+09:00",
   "machine_id": "machine-1",
-  "board_id": "calibration-board-1",
+  "board_id": "paste-flow-calibration-board-1",
   "paste_id": "paste-1",
   "paste_lot": "lot-1",
   "pixels_per_mm": 120.5,
