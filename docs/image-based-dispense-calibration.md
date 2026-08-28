@@ -216,11 +216,17 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 
 - 基板外形: 40 × 40 mm
 - 外周余白: 1 mm
-- パッド間および部品グループ間余白: 1 mm
+- パッド間およびパッドグループ間余白: 1 mm
 - 専用purge pad: 2 × 2 mm、基板左上の外周余白内側
 - purge padと通常パターン領域の間隔: 1 mm
 
-各部品は、回転パターン数 `n` 列 × 繰り返し数 `m` 行の不可分な矩形グループとして
+配置単位は部品全体ではなく、KiCad footprintから抽出した1種類のパッド形状とする。
+たとえば0402のpad 1とpad 2が同一形状なら1種類へまとめ、その代表パッド1個だけを回転・
+複製する。QFNの外周リード、中央exposed pad、F.Pasteだけの分割開口のように、レイヤーまたは
+形状が異なるものは別々のパッド種として扱う。同一判定にはF.Cu/F.Mask/F.Pasteの実ポリゴン、
+pad属性、drill形状を使用し、0/90/180/270度の回転で一致する形状を同一種へまとめる。
+
+各パッド種は、回転分割数 `n` 列 × 繰り返し行数 `m` 行の不可分な矩形グループとして
 配置する。回転範囲を `theta` 度としたとき、列 `i` の角度は次式とする。
 
 \[
@@ -228,36 +234,45 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 \]
 
 `0 < theta <= 360`、`n >= 1`、`m >= 1` とする。パッド間隔の計算には、各回転角における
-全F.Cu/F.PasteパッドのAABBを使う。グループ内のセル寸法は全回転角の最大幅・最大高さとし、
-footprint anchorを調整して各AABBをセル中央へ配置する。
+抽出パッドのF.Cu/F.Paste AABBを使う。グループ内のセル寸法は全回転角の最大幅・最大高さ
+とし、footprint anchorを調整して各AABBをセル中央へ配置する。WebUIでは `n` と `m` を
+それぞれ「回転分割数」「繰り返し行数」と表示する。
 
-使用できる部品はKiCad 9標準ライブラリの固定カタログとする。
+使用可能な候補は固定カタログに限定せず、インストール済みKiCad 9 footprint rootにある
+すべての `*.pretty/*.kicad_mod` とする。WebUIでlibrary名またはfootprint名を検索し、選択した
+footprintをその場でパッド種へ分類する。全footprintを起動時にpcbnewへ読み込まず、ファイル名
+の検索indexだけを作り、選択されたfootprintだけを読み込む。
 
-| family         | 部品                   |
-| -------------- | ---------------------- |
-| チップ受動部品 | 0402、0603、0805、1206 |
-| SOT            | SOT-23、SOT-23-5       |
-| Small outline  | SOIC-8、TSSOP-14       |
-| No-lead        | QFN-16 EP              |
-| QFP            | LQFP-32                |
-| Power SMD      | SOT-223                |
+初期レシピは次の6 footprintから抽出した代表パッド種を使用する。
 
-初期レシピでは0402～1206を `theta=180, n=4, m=3`、SOT-23とSOT-23-5を
-`theta=360, n=4, m=2` とする。配置は固定カタログ順のshelf packingとし、familyが変わる
-たびに新しい行から開始する。前の行の空き領域への後詰めは行わない。
+| footprint library           | footprint         | 回転範囲 | 回転分割数 | 繰り返し行数 |
+| --------------------------- | ----------------- | -------: | ---------: | -----------: |
+| `Resistor_SMD.pretty`       | R_0402_1005Metric |      180 |          4 |            3 |
+| `Resistor_SMD.pretty`       | R_0603_1608Metric |      180 |          4 |            3 |
+| `Resistor_SMD.pretty`       | R_0805_2012Metric |      180 |          4 |            3 |
+| `Resistor_SMD.pretty`       | R_1206_3216Metric |      180 |          4 |            3 |
+| `Package_TO_SOT_SMD.pretty` | SOT-23            |      360 |          4 |            2 |
+| `Package_TO_SOT_SMD.pretty` | SOT-23-5          |      360 |          4 |            2 |
 
-生成物には実footprintのF.Cu/F.Mask/F.Pasteと標準silkscreenを残し、reference/value文字は
-非表示にする。専用purge padのreferenceは`PURGE1`とする。KiCad footprint rootは
+配置はfootprint library、footprint名、代表パッドindexによる安定順のshelf packingとする。
+初期レシピの6種は上表の順を優先し、library（family）が変わるたびに新しい行から開始する。
+前の行の空き領域への後詰めは行わない。
+
+生成物では、抽出したパッド1個を持つfootprintを各セルに生成し、そのパッドの
+F.Cu/F.Mask/F.Pasteを保持する。元footprint全体のsilkscreenは部品配置を意味してしまうため
+複製しない。reference/value文字は非表示にし、通常パッドへ`PAD1`からの安定したreference、
+専用purge padへ`PURGE1`を割り当てる。KiCad footprint rootは
 `KICAD9_FOOTPRINT_DIR`で上書きでき、未指定時は`/usr/share/kicad/footprints`を使う。
 
 WebUIの「はんだ塗布」タブに「はんだペースト流量キャリブレーション基板生成」を置く。
-設定変更時は実footprint形状から解決したF.Cu/F.Paste、グループ境界、角度、グループ寸法を
-SVGで表示する。設定は`pcbasm-paste-flow-calibration-board.json`、KiCad基板は
+footprint検索とパッド種の一括追加を提供し、設定変更時は抽出した実パッド形状から解決した
+F.Cu/F.Paste、グループ境界、角度、グループ寸法をSVGで表示する。設定は
+`pcbasm-paste-flow-calibration-board.json`、KiCad基板は
 `pcbasm-paste-flow-calibration-board.kicad_pcb`としてブラウザへ直接ダウンロードする。
 装置を動かさないため、生成と設定入出力にWebUIの操作権は要求しない。
 
 設定JSONは自己識別情報を必須とする。Import時は`kind`と`schema_version`を検証し、
-サーバーの固定カタログ順へ正規化する。配置不能な設定でも構造的に正しければExportできる。
+サーバーの安定順へ正規化する。配置不能な設定でも構造的に正しければExportできる。
 
 ```json
 {
@@ -267,7 +282,7 @@ SVGで表示する。設定は`pcbasm-paste-flow-calibration-board.json`、KiCad
     "width_mm": 40.0,
     "height_mm": 40.0,
     "edge_margin_mm": 1.0,
-    "component_gap_mm": 1.0
+    "pad_gap_mm": 1.0
   },
   "purge_pad": {
     "width_mm": 2.0,
@@ -275,7 +290,7 @@ SVGで表示する。設定は`pcbasm-paste-flow-calibration-board.json`、KiCad
   },
   "patterns": [
     {
-      "catalog_id": "r_0402_1005metric",
+      "catalog_id": "Resistor_SMD.pretty/R_0402_1005Metric#pad-0",
       "rotation_span_deg": 180.0,
       "rotation_count": 4,
       "repeat_count": 3
