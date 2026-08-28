@@ -1665,13 +1665,27 @@ h2 {
 }
 
 .pfc-pattern-head {
+  align-items: end;
   justify-content: space-between;
   margin-top: 1rem;
+}
+
+.pfc-add-pattern {
+  display: grid;
+  grid-template-columns: max-content minmax(12rem, 0.8fr) minmax(18rem, 1.4fr) max-content;
+  min-width: min(100%, 50rem);
 }
 
 .pfc-add-pattern label {
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.pfc-catalog-summary {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: right;
 }
 
 .pfc-table-scroll {
@@ -1681,7 +1695,7 @@ h2 {
 
 .pfc-pattern-table {
   width: 100%;
-  min-width: 48rem;
+  min-width: 68rem;
   border-collapse: collapse;
 }
 
@@ -1704,9 +1718,15 @@ h2 {
   width: 4.8rem;
 }
 
-.pfc-pattern-table .pfc-part-label {
+.pfc-pattern-table .pfc-pad-label,
+.pfc-pattern-table .pfc-footprint-label {
   font-weight: 600;
   white-space: nowrap;
+}
+
+.pfc-pattern-table .pfc-footprint-label {
+  font-family: var(--mono);
+  font-size: 0.76rem;
 }
 
 .pfc-resolved-angles,
@@ -1960,7 +1980,13 @@ h2 {
     flex-direction: column;
   }
 
+  .pfc-add-pattern {
+    grid-template-columns: 1fr;
+    min-width: 0;
+  }
+
   .pfc-actions button,
+  .pfc-add-pattern input,
   .pfc-add-pattern select,
   .pfc-add-pattern button {
     width: 100%;

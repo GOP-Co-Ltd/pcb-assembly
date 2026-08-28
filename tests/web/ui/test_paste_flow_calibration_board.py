@@ -18,11 +18,18 @@ class TestPasteFlowCalibrationBoardPage:
         text = response.text
         assert "はんだペースト流量キャリブレーション基板生成" in text
         assert 'id="pfc-board-width"' in text
+        assert 'id="pfc-pad-gap"' in text
+        assert 'id="pfc-footprint-search"' in text
+        assert 'id="pfc-footprint-results"' in text
         assert 'data-testid="pfc-pattern-table"' in text
         assert 'data-testid="pfc-preview"' in text
         assert 'data-testid="pfc-generate"' in text
         assert "回転分割数" in text
         assert "繰り返し行数" in text
+        assert "パッド種" in text
+        assert "パッド間余白" in text
+        assert "n 列" not in text
+        assert "m 行" not in text
         assert "js/paste_flow_calibration_board.js?v=" in text
 
     def test_feature_is_listed_in_pasting_sidebar(self, frontend_client: TestClient):

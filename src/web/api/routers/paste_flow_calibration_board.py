@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Self
 
 import attrs
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from pcbasm.pasting.paste_flow_calibration_board import (
@@ -18,9 +18,9 @@ from pcbasm.pasting.paste_flow_calibration_board import (
     PasteFlowCalibrationBoardLayout,
     PasteFlowCalibrationBoardOverflowError,
     PasteFlowCalibrationBoardSpec,
+    PasteFlowCalibrationPadPattern,
     PasteFlowCalibrationPattern,
     PasteFlowCalibrationPurgePadSpec,
-    normalize_paste_flow_calibration_board_config,
     parse_paste_flow_calibration_board_document,
 )
 from web.api.dependencies import PasteFlowCalibrationBoardGeneratorDep
@@ -42,7 +42,7 @@ class PasteFlowCalibrationBoardSpecModel(_ApiModel):
     width_mm: float = 40.0
     height_mm: float = 40.0
     edge_margin_mm: float = 1.0
-    component_gap_mm: float = 1.0
+    pad_gap_mm: float = 1.0
 
 
 class PasteFlowCalibrationPurgePadSpecModel(_ApiModel):
@@ -87,22 +87,57 @@ class PasteFlowCalibrationBoardConfigModel(_ApiModel):
         )
 
 
-class PasteFlowCalibrationCatalogItemModel(_ApiModel):
+class PasteFlowCalibrationPadPatternModel(_ApiModel):
     catalog_id: str
+    footprint_id: str
+    footprint_label: str
     label: str
     family_id: str
     family_label: str
+    library: str
+    footprint: str
+    source_pad_numbers: list[str]
+    source_pad_count: int
+    pad_width_mm: float
+    pad_height_mm: float
     default_rotation_span_deg: float
     default_rotation_count: int
     default_repeat_count: int
-    initially_selected: bool
+
+    @classmethod
+    def from_core(cls, item: PasteFlowCalibrationPadPattern) -> Self:
+        return cls.model_validate(attrs.asdict(item))
+
+
+class PasteFlowCalibrationFootprintModel(_ApiModel):
+    footprint_id: str
+    label: str
+    library: str
+    footprint: str
+
+
+class PasteFlowCalibrationFootprintSearchResponse(_ApiModel):
+    query: str
+    footprint_count: int
+    results: list[PasteFlowCalibrationFootprintModel]
+
+
+class PasteFlowCalibrationPadPatternsResponse(_ApiModel):
+    footprint_id: str
+    catalog: list[PasteFlowCalibrationPadPatternModel]
 
 
 class PasteFlowCalibrationBoardOptionsResponse(_ApiModel):
     kind: str
     schema_version: int
+    footprint_count: int
     config: PasteFlowCalibrationBoardConfigModel
-    catalog: list[PasteFlowCalibrationCatalogItemModel]
+    catalog: list[PasteFlowCalibrationPadPatternModel]
+
+
+class PasteFlowCalibrationConfigResponse(_ApiModel):
+    config: PasteFlowCalibrationBoardConfigModel
+    catalog: list[PasteFlowCalibrationPadPatternModel]
 
 
 class PasteFlowCalibrationPointModel(_ApiModel):
@@ -122,7 +157,7 @@ class PasteFlowCalibrationBoundsModel(_ApiModel):
     height: float
 
 
-class PasteFlowCalibrationComponentLayoutModel(_ApiModel):
+class PasteFlowCalibrationPadLayoutModel(_ApiModel):
     catalog_id: str
     reference: str
     x: float
@@ -134,6 +169,7 @@ class PasteFlowCalibrationComponentLayoutModel(_ApiModel):
 class PasteFlowCalibrationGroupLayoutModel(_ApiModel):
     catalog_id: str
     label: str
+    footprint_label: str
     family_id: str
     family_label: str
     bounds: PasteFlowCalibrationBoundsModel
@@ -141,16 +177,17 @@ class PasteFlowCalibrationGroupLayoutModel(_ApiModel):
     cell_height_mm: float
     angles_deg: list[float]
     repeat_count: int
-    components: list[PasteFlowCalibrationComponentLayoutModel]
+    pads: list[PasteFlowCalibrationPadLayoutModel]
 
 
 class PasteFlowCalibrationBoardLayoutResponse(_ApiModel):
     config: PasteFlowCalibrationBoardConfigModel
+    catalog: list[PasteFlowCalibrationPadPatternModel]
     board: PasteFlowCalibrationBoardSpecModel
     purge_pad: PasteFlowCalibrationBoundsModel
     purge_polygons: list[PasteFlowCalibrationPolygonModel]
     groups: list[PasteFlowCalibrationGroupLayoutModel]
-    component_count: int
+    pad_count: int
 
 
 class PasteFlowCalibrationBoardImportRequest(_ApiModel):
@@ -161,26 +198,63 @@ class PasteFlowCalibrationBoardImportRequest(_ApiModel):
 def get_paste_flow_calibration_board_options(
     generator: PasteFlowCalibrationBoardGeneratorDep,
 ) -> PasteFlowCalibrationBoardOptionsResponse:
-    """固定カタログと初期設定を返す（footprint読込はまだ行わない）."""
+    """初期レシピと検索可能なfootprint件数を返す."""
 
+    config = _normalize_or_http_error(generator, PasteFlowCalibrationBoardConfig())
+    catalog = _catalog_or_http_error(generator, config)
     return PasteFlowCalibrationBoardOptionsResponse(
         kind=PASTE_FLOW_CALIBRATION_BOARD_KIND,
         schema_version=PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION,
-        config=PasteFlowCalibrationBoardConfigModel.from_core(
-            PasteFlowCalibrationBoardConfig()
-        ),
+        footprint_count=_footprint_count_or_http_error(generator),
+        config=PasteFlowCalibrationBoardConfigModel.from_core(config),
         catalog=[
-            PasteFlowCalibrationCatalogItemModel(
-                catalog_id=item.catalog_id,
-                label=item.label,
-                family_id=item.family_id,
-                family_label=item.family_label,
-                default_rotation_span_deg=item.default_rotation_span_deg,
-                default_rotation_count=item.default_rotation_count,
-                default_repeat_count=item.default_repeat_count,
-                initially_selected=item.initially_selected,
-            )
-            for item in generator.catalog
+            PasteFlowCalibrationPadPatternModel.from_core(item) for item in catalog
+        ],
+    )
+
+
+@router.get("/footprints")
+def search_paste_flow_calibration_footprints(
+    generator: PasteFlowCalibrationBoardGeneratorDep,
+    query: str = Query(default="", max_length=120),
+    limit: int = Query(default=30, ge=1, le=100),
+) -> PasteFlowCalibrationFootprintSearchResponse:
+    """インストール済みKiCad footprintを名前で検索する."""
+
+    try:
+        results = generator.search_footprints(query, limit)
+        footprint_count = generator.footprint_count
+    except PasteFlowCalibrationBoardConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PasteFlowCalibrationBoardEnvironmentError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return PasteFlowCalibrationFootprintSearchResponse(
+        query=query,
+        footprint_count=footprint_count,
+        results=[
+            PasteFlowCalibrationFootprintModel.model_validate(attrs.asdict(item))
+            for item in results
+        ],
+    )
+
+
+@router.get("/pad-patterns")
+def get_paste_flow_calibration_pad_patterns(
+    generator: PasteFlowCalibrationBoardGeneratorDep,
+    footprint_id: str = Query(min_length=1, max_length=300),
+) -> PasteFlowCalibrationPadPatternsResponse:
+    """選択footprintを回転同値なパッド種へ分類する."""
+
+    try:
+        catalog = generator.pad_patterns_for(footprint_id)
+    except PasteFlowCalibrationBoardConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PasteFlowCalibrationBoardEnvironmentError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return PasteFlowCalibrationPadPatternsResponse(
+        footprint_id=footprint_id,
+        catalog=[
+            PasteFlowCalibrationPadPatternModel.from_core(item) for item in catalog
         ],
     )
 
@@ -190,12 +264,16 @@ def preview_paste_flow_calibration_board(
     body: PasteFlowCalibrationBoardConfigModel,
     generator: PasteFlowCalibrationBoardGeneratorDep,
 ) -> PasteFlowCalibrationBoardLayoutResponse:
-    """実footprint形状から配置とpreview polygonを解決する."""
+    """実パッド形状から配置とpreview polygonを解決する."""
 
-    config = _config_or_http_error(body.to_core())
+    config = _normalize_or_http_error(generator, body.to_core())
     layout = _layout_or_http_error(generator, config)
     payload = attrs.asdict(layout)
     payload["config"] = PasteFlowCalibrationBoardConfigModel.from_core(config)
+    payload["catalog"] = [
+        PasteFlowCalibrationPadPatternModel.from_core(item)
+        for item in _catalog_or_http_error(generator, config)
+    ]
     return PasteFlowCalibrationBoardLayoutResponse.model_validate(payload)
 
 
@@ -204,9 +282,9 @@ def export_paste_flow_calibration_board_config(
     body: PasteFlowCalibrationBoardConfigModel,
     generator: PasteFlowCalibrationBoardGeneratorDep,
 ) -> Response:
-    """配置可否に依らず、構造的に正しい設定JSONをダウンロードする."""
+    """配置可否に依らず、解決可能な設定JSONをダウンロードする."""
 
-    config = _config_or_http_error(body.to_core())
+    config = _normalize_or_http_error(generator, body.to_core())
     return Response(
         generator.config_bytes(config),
         media_type="application/json",
@@ -217,11 +295,12 @@ def export_paste_flow_calibration_board_config(
 @router.post("/import")
 def import_paste_flow_calibration_board_config(
     body: PasteFlowCalibrationBoardImportRequest,
-) -> PasteFlowCalibrationBoardConfigModel:
+    generator: PasteFlowCalibrationBoardGeneratorDep,
+) -> PasteFlowCalibrationConfigResponse:
     """自己識別情報を含むJSONを検証・正規化して返す（保存はしない）."""
 
-    config = parse_paste_flow_calibration_board_document(body.document)
-    if config is None:
+    parsed = parse_paste_flow_calibration_board_document(body.document)
+    if parsed is None:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -229,7 +308,14 @@ def import_paste_flow_calibration_board_config(
                 "内容が不正です"
             ),
         )
-    return PasteFlowCalibrationBoardConfigModel.from_core(config)
+    config = _normalize_or_http_error(generator, parsed)
+    return PasteFlowCalibrationConfigResponse(
+        config=PasteFlowCalibrationBoardConfigModel.from_core(config),
+        catalog=[
+            PasteFlowCalibrationPadPatternModel.from_core(item)
+            for item in _catalog_or_http_error(generator, config)
+        ],
+    )
 
 
 @router.post("/generate")
@@ -239,7 +325,7 @@ def generate_paste_flow_calibration_board(
 ) -> Response:
     """配置可能な設定からKiCad基板を直接ダウンロードする."""
 
-    config = body.to_core()
+    config = _normalize_or_http_error(generator, body.to_core())
     _layout_or_http_error(generator, config)
     try:
         payload = generator.board_bytes(config)
@@ -252,13 +338,37 @@ def generate_paste_flow_calibration_board(
     )
 
 
-def _config_or_http_error(
+def _normalize_or_http_error(
+    generator: PasteFlowCalibrationBoardGenerator,
     config: PasteFlowCalibrationBoardConfig,
 ) -> PasteFlowCalibrationBoardConfig:
     try:
-        return normalize_paste_flow_calibration_board_config(config)
+        return generator.normalize_config(config)
     except PasteFlowCalibrationBoardConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PasteFlowCalibrationBoardEnvironmentError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _catalog_or_http_error(
+    generator: PasteFlowCalibrationBoardGenerator,
+    config: PasteFlowCalibrationBoardConfig,
+) -> tuple[PasteFlowCalibrationPadPattern, ...]:
+    try:
+        return generator.catalog_for_config(config)
+    except PasteFlowCalibrationBoardConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PasteFlowCalibrationBoardEnvironmentError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _footprint_count_or_http_error(
+    generator: PasteFlowCalibrationBoardGenerator,
+) -> int:
+    try:
+        return generator.footprint_count
+    except PasteFlowCalibrationBoardEnvironmentError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def _layout_or_http_error(

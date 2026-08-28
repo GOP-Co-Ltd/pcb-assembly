@@ -9,6 +9,7 @@ from pcbasm.pcb import PcbFile
 from tests.e2e.conftest import LiveUi
 
 _BROWSER_TIMEOUT_MS = 15_000
+_QFN = "Package_DFN_QFN.pretty/QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
 
 
 def _open_board_generator(page, live_ui: LiveUi) -> None:
@@ -33,6 +34,9 @@ class TestPasteFlowCalibrationBoardBrowser:
         assert browser_page.locator(".pfc-paste").count() > 0
         assert browser_page.locator(".pfc-copper").count() > 0
         assert browser_page.locator(".pfc-group-boundary").count() == 6
+        expect(browser_page.locator("#pfc-preview-summary")).to_have_text(
+            "64パッド + purge pad"
+        )
         expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text(
             "回転分割数"
         )
@@ -46,16 +50,12 @@ class TestPasteFlowCalibrationBoardBrowser:
         assert preview_box is not None
         assert preview_box["y"] >= config_box["y"] + config_box["height"]
 
-        rotation_count = browser_page.locator(
-            '[data-catalog-id="r_0402_1005metric"] '
-            '[data-pattern-field="rotation_count"]'
-        )
+        first_row = browser_page.locator("#pfc-pattern-rows tr").first
+        rotation_count = first_row.locator('[data-pattern-field="rotation_count"]')
         rotation_count.fill("2")
-        expect(
-            browser_page.locator(
-                '[data-catalog-id="r_0402_1005metric"] .pfc-resolved-angles'
-            )
-        ).to_have_text("0°, 90°", timeout=_BROWSER_TIMEOUT_MS)
+        expect(first_row.locator(".pfc-resolved-angles")).to_have_text(
+            "0°, 90°", timeout=_BROWSER_TIMEOUT_MS
+        )
 
         browser_page.locator("#pfc-board-width").fill("10")
         expect(browser_page.locator("#pfc-preview-status")).to_contain_text(
@@ -70,15 +70,37 @@ class TestPasteFlowCalibrationBoardBrowser:
             "配置可能です", timeout=_BROWSER_TIMEOUT_MS
         )
 
-        browser_page.locator("#pfc-catalog-select").select_option("soic_8")
-        browser_page.locator("#pfc-add-pattern").click()
-        expect(browser_page.locator("#pfc-pattern-rows tr")).to_have_count(7)
-        expect(browser_page.locator("#pfc-preview-status")).to_contain_text(
-            "基板高さ", timeout=_BROWSER_TIMEOUT_MS
+        browser_page.locator("#pfc-footprint-search").fill(
+            "QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
         )
+        expect(
+            browser_page.locator("#pfc-footprint-results option").first
+        ).to_have_attribute("value", _QFN, timeout=_BROWSER_TIMEOUT_MS)
+        browser_page.locator("#pfc-footprint-results").select_option(_QFN)
+        browser_page.locator("#pfc-add-pattern").click()
+        expect(browser_page.locator("#pfc-pattern-rows tr")).to_have_count(
+            9, timeout=_BROWSER_TIMEOUT_MS
+        )
+        qfn_rows = browser_page.locator("#pfc-pattern-rows tr").filter(
+            has_text="QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
+        )
+        expect(qfn_rows).to_have_count(3)
+        expect(qfn_rows.nth(0)).to_contain_text("Paste aperture")
+        expect(qfn_rows.nth(1)).to_contain_text("Pad 1–16")
+        expect(qfn_rows.nth(2)).to_contain_text("Pad 17")
+        expect(browser_page.locator("#pfc-preview-status")).to_have_text(
+            "配置可能です", timeout=_BROWSER_TIMEOUT_MS
+        )
+        expect(browser_page.locator("#pfc-preview-summary")).to_have_text(
+            "82パッド + purge pad"
+        )
+        expect(browser_page.locator(".pfc-group-boundary")).to_have_count(9)
 
-        browser_page.locator('[data-catalog-id="soic_8"] button').click()
-        expect(browser_page.locator("#pfc-pattern-rows tr")).to_have_count(6)
+        for _ in range(3):
+            qfn_rows.first.locator("button").click()
+        expect(browser_page.locator("#pfc-pattern-rows tr")).to_have_count(
+            6, timeout=_BROWSER_TIMEOUT_MS
+        )
         expect(browser_page.locator("#pfc-preview-status")).to_have_text(
             "配置可能です", timeout=_BROWSER_TIMEOUT_MS
         )
@@ -126,3 +148,4 @@ class TestPasteFlowCalibrationBoardBrowser:
         pcb = PcbFile(board_path)
         assert pcb.outline.width == 40.0
         assert len(pcb.components) == 65
+        assert len(pcb.pads) == 65

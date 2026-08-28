@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
@@ -11,6 +12,9 @@ from web.api.app import create_app
 from web.api.settings import Settings
 
 _BASE = "/api/pasting/paste-flow-calibration-board"
+_R0402 = "Resistor_SMD.pretty/R_0402_1005Metric#pad-0"
+_R0603 = "Resistor_SMD.pretty/R_0603_1608Metric#pad-0"
+_QFN = "Package_DFN_QFN.pretty/QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
 
 
 def _default_config(client: TestClient) -> dict[str, Any]:
@@ -18,32 +22,64 @@ def _default_config(client: TestClient) -> dict[str, Any]:
 
 
 class TestPasteFlowCalibrationBoardOptions:
-    def test_returns_fixed_catalog_and_six_pattern_recipe(self, client: TestClient):
+    def test_returns_six_default_pad_patterns_and_library_size(
+        self, client: TestClient
+    ):
         response = client.get(f"{_BASE}/options")
 
         assert response.status_code == 200
         body = response.json()
         assert body["kind"] == "paste_flow_calibration_board"
         assert body["schema_version"] == 1
-        assert len(body["catalog"]) == 11
-        assert [item["label"] for item in body["catalog"][:6]] == [
-            "0402",
-            "0603",
-            "0805",
-            "1206",
+        assert body["footprint_count"] > 10_000
+        assert len(body["catalog"]) == 6
+        assert [item["footprint_label"] for item in body["catalog"]] == [
+            "R_0402_1005Metric",
+            "R_0603_1608Metric",
+            "R_0805_2012Metric",
+            "R_1206_3216Metric",
             "SOT-23",
             "SOT-23-5",
         ]
+        assert body["catalog"][0]["source_pad_count"] == 2
         assert len(body["config"]["patterns"]) == 6
+
+    def test_searches_installed_footprints(self, client: TestClient):
+        response = client.get(
+            f"{_BASE}/footprints?query="
+            "QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm&limit=10"
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["footprint_count"] > 10_000
+        assert any(item["footprint_id"] == _QFN for item in body["results"])
+
+    def test_returns_each_distinct_pad_pattern_for_a_footprint(
+        self, client: TestClient
+    ):
+        response = client.get(
+            f"{_BASE}/pad-patterns?footprint_id={quote(_QFN, safe='')}"
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["footprint_id"] == _QFN
+        assert len(body["catalog"]) == 3
+        assert [item["source_pad_count"] for item in body["catalog"]] == [4, 16, 1]
+        assert body["catalog"][0]["label"].startswith("Paste aperture")
+        assert body["catalog"][1]["label"].startswith("Pad 1–16")
 
 
 class TestPasteFlowCalibrationBoardPreview:
-    def test_resolves_real_pad_polygons_and_group_dimensions(self, client: TestClient):
+    def test_resolves_single_pad_polygons_and_group_dimensions(
+        self, client: TestClient
+    ):
         response = client.post(f"{_BASE}/preview", json=_default_config(client))
 
         assert response.status_code == 200, response.text
         layout = response.json()
-        assert layout["component_count"] == 64
+        assert layout["pad_count"] == 64
         assert layout["purge_pad"] == {
             "x": 1.0,
             "y": 1.0,
@@ -52,9 +88,9 @@ class TestPasteFlowCalibrationBoardPreview:
         }
         assert len(layout["groups"]) == 6
         assert layout["groups"][0]["angles_deg"] == [0.0, 45.0, 90.0, 135.0]
+        assert len(layout["groups"][0]["pads"]) == 12
         layers = {
-            polygon["layer"]
-            for polygon in layout["groups"][0]["components"][0]["polygons"]
+            polygon["layer"] for polygon in layout["groups"][0]["pads"][0]["polygons"]
         }
         assert layers == {"F.Cu", "F.Paste"}
 
@@ -65,7 +101,7 @@ class TestPasteFlowCalibrationBoardPreview:
         response = client.post(f"{_BASE}/preview", json=config)
 
         assert response.status_code == 400
-        assert "theta" in response.text
+        assert "回転範囲" in response.text
 
     def test_layout_overflow_is_422(self, client: TestClient):
         config = _default_config(client)
@@ -87,8 +123,8 @@ class TestPasteFlowCalibrationBoardPreview:
             audio_player=audio_player,
             paste_flow_calibration_footprint_root=tmp_path,
         )
-        with TestClient(app) as client:
-            response = client.post(f"{_BASE}/preview", json=_default_config(client))
+        with TestClient(app) as isolated_client:
+            response = isolated_client.get(f"{_BASE}/options")
 
         assert response.status_code == 503
         assert "KiCad footprint" in response.text
@@ -107,8 +143,11 @@ class TestPasteFlowCalibrationBoardConfigTransfer:
         )
         assert response.json()["kind"] == "paste_flow_calibration_board"
         assert response.json()["board"]["width_mm"] == 10
+        assert response.json()["board"]["pad_gap_mm"] == 1.0
 
-    def test_import_validates_identity_and_normalizes_order(self, client: TestClient):
+    def test_import_validates_identity_and_normalizes_pad_order(
+        self, client: TestClient
+    ):
         config = _default_config(client)
         document = {
             "kind": "paste_flow_calibration_board",
@@ -121,10 +160,12 @@ class TestPasteFlowCalibrationBoardConfigTransfer:
         response = client.post(f"{_BASE}/import", json={"document": document})
 
         assert response.status_code == 200
-        assert [item["catalog_id"] for item in response.json()["patterns"]] == [
-            "r_0402_1005metric",
-            "r_0603_1608metric",
+        body = response.json()
+        assert [item["catalog_id"] for item in body["config"]["patterns"]] == [
+            _R0402,
+            _R0603,
         ]
+        assert [item["catalog_id"] for item in body["catalog"]] == [_R0402, _R0603]
 
     def test_import_rejects_another_document_kind(self, client: TestClient):
         response = client.post(
@@ -145,7 +186,7 @@ class TestPasteFlowCalibrationBoardConfigTransfer:
 
 
 class TestPasteFlowCalibrationBoardGenerate:
-    def test_downloads_a_round_trippable_kicad_board_without_control(
+    def test_downloads_a_one_pad_per_footprint_board_without_control(
         self, client: TestClient, tmp_path: Path
     ):
         response = client.post(f"{_BASE}/generate", json=_default_config(client))
@@ -159,3 +200,4 @@ class TestPasteFlowCalibrationBoardGenerate:
         pcb = PcbFile(output)
         assert pcb.outline.width == 40.0
         assert len(pcb.components) == 65
+        assert len(pcb.pads) == 65

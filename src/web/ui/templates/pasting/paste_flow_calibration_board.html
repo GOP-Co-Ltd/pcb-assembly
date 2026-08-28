@@ -4,8 +4,8 @@
 <div id="paste-flow-calibration-board" class="pfc-board" data-testid="paste-flow-calibration-board">
   <h2>{{ feature_label }}</h2>
   <p class="job-intro pfc-intro">
-    標準KiCad footprintを規則的な回転グループとして配置し、塗布前後画像の収集に使う
-    40 × 40 mmの基板を生成します。設定と生成物はこのブラウザへ直接ダウンロードされます。
+    KiCad footprintから同一形状のパッドを抽出し、規則的な回転グループとして配置します。
+    設定と生成物はこのブラウザへ直接ダウンロードされます。
   </p>
 
   <div class="pfc-workspace">
@@ -21,8 +21,8 @@
         <label>外周余白 <span class="unit">[mm]</span>
           <input id="pfc-edge-margin" data-config-field type="number" step="0.1">
         </label>
-        <label>部品間余白 <span class="unit">[mm]</span>
-          <input id="pfc-component-gap" data-config-field type="number" step="0.1">
+        <label>パッド間余白 <span class="unit">[mm]</span>
+          <input id="pfc-pad-gap" data-config-field type="number" step="0.1">
         </label>
         <label>purge pad幅 <span class="unit">[mm]</span>
           <input id="pfc-purge-width" data-config-field type="number" step="0.1">
@@ -33,20 +33,27 @@
       </div>
 
       <div class="pfc-pattern-head">
-        <h3>部品パターン</h3>
+        <h3>パッドパターン</h3>
         <div class="pfc-add-pattern">
-          <label for="pfc-catalog-select">部品を追加</label>
-          <select id="pfc-catalog-select" data-testid="pfc-catalog-select"></select>
-          <button id="pfc-add-pattern" type="button" data-testid="pfc-add-pattern">追加</button>
+          <label for="pfc-footprint-search">footprintを検索</label>
+          <input id="pfc-footprint-search" type="search" autocomplete="off"
+                 placeholder="例: 0402, QFN-16, SOIC-8"
+                 data-testid="pfc-footprint-search">
+          <select id="pfc-footprint-results" aria-label="footprint検索結果"
+                  data-testid="pfc-footprint-results"></select>
+          <button id="pfc-add-pattern" type="button" data-testid="pfc-add-pattern">
+            パッド種を追加
+          </button>
         </div>
       </div>
+      <p id="pfc-footprint-count" class="pfc-catalog-summary"></p>
       <div class="pfc-table-scroll">
         <table class="pfc-pattern-table" data-testid="pfc-pattern-table">
           <thead>
             <tr>
-              <th>部品</th>
-              <th>family</th>
-              <th>theta <span class="unit">[deg]</span></th>
+              <th>由来footprint</th>
+              <th>パッド種</th>
+              <th>回転範囲 θ <span class="unit">[deg]</span></th>
               <th>回転分割数</th>
               <th>角度</th>
               <th>繰り返し行数</th>
