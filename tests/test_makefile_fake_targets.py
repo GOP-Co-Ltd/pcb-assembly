@@ -62,9 +62,9 @@ class TestFakeTargetsDisableDiscovery:
 class TestWebuiAliasesAreGone:
     """`webui` 系エイリアスが残っていない.
 
-    `web-service.sh` が生成する unit は `make api` / `make ui` を実行する。エイリアスを
-    復活させると旧 `pcbasm-webui.service`（`ExecStart=make webui`）が動いてしまい、 2
-    プロセス構成へ移行しきれない。
+    `scripts/web-service.sh` が生成する unit は `make api` / `make ui`
+    を実行する。エイリアスを 復活させると旧 `pcbasm-webui.service`（`ExecStart=make
+    webui`）が動いてしまい、 2 プロセス構成へ移行しきれない。
     """
 
     def test_makefile_defines_no_webui_target(self):

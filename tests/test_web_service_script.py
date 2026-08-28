@@ -1,4 +1,4 @@
-"""`web-service.sh` が生成する systemd unit と対象解決の契約テスト.
+"""`scripts/web-service.sh` が生成する systemd unit と対象解決の契約テスト.
 
 このスクリプトは実機の systemd を書き換えるため、テストは**実機の systemd に一切触れない**
 形に限る。スクリプト側は「unit テキストを組む」「対象を解決する」を systemctl を呼ばない
@@ -29,7 +29,7 @@ import pytest
 
 from pcbasm.utils import PROJECT_ROOT
 
-SCRIPT = PROJECT_ROOT / "web-service.sh"
+SCRIPT = PROJECT_ROOT / "scripts" / "web-service.sh"
 LEGACY_UNIT = "pcbasm-webui.service"
 
 
@@ -216,6 +216,10 @@ class TestRenderUnit:
         ]
         assert len(execstart) == 1
         assert re.fullmatch(rf"ExecStart=/\S*/make {target}", execstart[0]), execstart
+
+    @pytest.mark.parametrize("target", ("api", "ui"))
+    def test_working_directory_is_project_root(self, target: str, tmp_path: Path):
+        assert f"WorkingDirectory={PROJECT_ROOT}" in render_unit(target, tmp_path)
 
     @pytest.mark.parametrize("target", ("api", "ui"))
     def test_no_ordering_dependency_between_the_two_services(

@@ -121,7 +121,7 @@ def create_app(
     if not store.machine_toml_path().is_file():
         raise RuntimeError(
             f"machine.toml がありません: {store.machine_toml_path()} "
-            f"（./setup-machine-config.sh を実行してください）"
+            f"（./scripts/setup-machine-config.sh を実行してください）"
         )
     state = AppState(settings, store)
     preview = PreviewService(state)

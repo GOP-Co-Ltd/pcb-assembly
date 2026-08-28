@@ -259,9 +259,9 @@ def checkerboard_camera_client(
 def real_settings(tmp_path: Path) -> Settings:
     """実機向け Settings。`@mark_hardware` テスト専用.
 
-    実機の `config/`（`setup-machine-config.sh` 実行済み）を読む。`config/` は git
-    管理外なので実機以外には 存在しないが、`@mark_hardware` は `make test-no-hardware` では
-    collect されるだけで fixture が評価されない。
+    実機の `config/`（`scripts/setup-machine-config.sh` 実行済み）を読む。`config/` は
+    git 管理外なので実機以外には 存在しないが、`@mark_hardware` は `make test-no-hardware`
+    では collect されるだけで fixture が評価されない。
     """
     data_dir = tmp_path / "data"
     data_dir.mkdir()
