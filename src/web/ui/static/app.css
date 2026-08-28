@@ -1617,9 +1617,8 @@ h2 {
 
 .pfc-workspace {
   display: grid;
-  grid-template-columns: minmax(34rem, 1.15fr) minmax(22rem, 0.85fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
-  align-items: start;
 }
 
 .pfc-config-card,
@@ -1722,11 +1721,6 @@ h2 {
   color: var(--danger);
 }
 
-.pfc-preview-card {
-  position: sticky;
-  top: 4rem;
-}
-
 .pfc-preview-head {
   justify-content: space-between;
   margin-bottom: 0.55rem;
@@ -1739,7 +1733,8 @@ h2 {
 
 .pfc-preview {
   display: block;
-  width: 100%;
+  width: min(100%, 52rem);
+  margin-inline: auto;
   aspect-ratio: 1;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
@@ -1889,13 +1884,6 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .pfc-workspace {
-    grid-template-columns: 1fr;
-  }
-
-  .pfc-preview-card {
-    position: static;
-  }
 }
 
 @media (max-width: 760px) {

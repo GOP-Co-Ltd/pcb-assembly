@@ -62,11 +62,11 @@
         ),
         rotation_count: numberFrom(
           row.querySelector('[data-pattern-field="rotation_count"]'),
-          "回転パターン数n"
+          "回転分割数"
         ),
         repeat_count: numberFrom(
           row.querySelector('[data-pattern-field="repeat_count"]'),
-          "繰り返し数m"
+          "繰り返し行数"
         ),
       })),
     };

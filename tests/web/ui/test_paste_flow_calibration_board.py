@@ -21,6 +21,8 @@ class TestPasteFlowCalibrationBoardPage:
         assert 'data-testid="pfc-pattern-table"' in text
         assert 'data-testid="pfc-preview"' in text
         assert 'data-testid="pfc-generate"' in text
+        assert "回転分割数" in text
+        assert "繰り返し行数" in text
         assert "js/paste_flow_calibration_board.js?v=" in text
 
     def test_feature_is_listed_in_pasting_sidebar(self, frontend_client: TestClient):

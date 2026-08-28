@@ -33,6 +33,18 @@ class TestPasteFlowCalibrationBoardBrowser:
         assert browser_page.locator(".pfc-paste").count() > 0
         assert browser_page.locator(".pfc-copper").count() > 0
         assert browser_page.locator(".pfc-group-boundary").count() == 6
+        expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text(
+            "回転分割数"
+        )
+        expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text(
+            "繰り返し行数"
+        )
+
+        config_box = browser_page.locator(".pfc-config-card").bounding_box()
+        preview_box = browser_page.locator(".pfc-preview-card").bounding_box()
+        assert config_box is not None
+        assert preview_box is not None
+        assert preview_box["y"] >= config_box["y"] + config_box["height"]
 
         rotation_count = browser_page.locator(
             '[data-catalog-id="r_0402_1005metric"] '
