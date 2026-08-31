@@ -72,11 +72,11 @@ class PasteFlowCalibrationCustomPadSpecModel(_ApiModel):
 
 
 class PasteFlowCalibrationCustomPadDraftModel(_ApiModel):
-    name: str
     shape: str
     width_mm: float
     height_mm: float
     corner_radius_mm: float = 0.0
+    name: str = ""
 
     def to_core(self) -> PasteFlowCalibrationCustomPadDraft:
         return PasteFlowCalibrationCustomPadDraft(**self.model_dump())

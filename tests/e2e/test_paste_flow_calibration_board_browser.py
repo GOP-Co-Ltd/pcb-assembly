@@ -155,7 +155,6 @@ class TestPasteFlowCalibrationBoardBrowser:
             "配置可能です", timeout=_BROWSER_TIMEOUT_MS
         )
 
-        browser_page.locator("#pfc-custom-pad-name").fill("試験用長円")
         browser_page.locator("#pfc-custom-pad-shape").select_option("oval")
         browser_page.locator("#pfc-custom-pad-width").fill("1.5")
         browser_page.locator("#pfc-custom-pad-height").fill("0.5")
@@ -164,7 +163,7 @@ class TestPasteFlowCalibrationBoardBrowser:
             7, timeout=_BROWSER_TIMEOUT_MS
         )
         custom_row = browser_page.locator("#pfc-pattern-rows tr").filter(
-            has_text="試験用長円"
+            has_text="長円（スロット） 1.5 × 0.5 mm"
         )
         expect(custom_row).to_have_count(1)
         expect(custom_row).to_contain_text("長円（スロット）")

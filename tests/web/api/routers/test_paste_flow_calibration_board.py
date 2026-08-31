@@ -101,13 +101,12 @@ class TestPasteFlowCalibrationBoardOptions:
         assert body["catalog"][0]["label"].startswith("Paste aperture")
         assert body["catalog"][1]["label"].startswith("Pad 1–16")
 
-    def test_adds_a_custom_roundrect_pad(self, client: TestClient):
+    def test_adds_a_custom_roundrect_pad_with_a_default_name(self, client: TestClient):
         response = client.post(
             f"{_BASE}/custom-pads",
             json={
                 "config": _default_config(client),
                 "custom_pad": {
-                    "name": "試験用パッド",
                     "shape": "roundrect",
                     "width_mm": 1.2,
                     "height_mm": 0.8,
@@ -119,8 +118,11 @@ class TestPasteFlowCalibrationBoardOptions:
         assert response.status_code == 200, response.text
         body = response.json()
         assert len(body["config"]["custom_pads"]) == 1
+        assert (
+            body["config"]["custom_pads"][0]["name"] == "角丸矩形 1.2 × 0.8 mm R0.2 mm"
+        )
         assert body["config"]["patterns"][-1]["transpose"] is False
-        assert body["catalog"][-1]["footprint_label"] == "試験用パッド"
+        assert body["catalog"][-1]["footprint_label"] == "角丸矩形 1.2 × 0.8 mm R0.2 mm"
         assert body["catalog"][-1]["label"].startswith("角丸矩形")
 
 

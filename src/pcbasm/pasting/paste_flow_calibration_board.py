@@ -95,11 +95,11 @@ _CUSTOM_PAD_SHAPE_BY_ID = {
 class PasteFlowCalibrationCustomPadDraft:
     """ID採番前の任意寸法パッド定義 [mm]."""
 
-    name: str
     shape: str
     width_mm: float
     height_mm: float
     corner_radius_mm: float = 0.0
+    name: str = ""
 
 
 @attrs.frozen
@@ -810,7 +810,7 @@ class PasteFlowCalibrationBoardGenerator:
         catalog_id = f"custom:{uuid.uuid4().hex}"
         custom_pad = PasteFlowCalibrationCustomPadSpec(
             catalog_id=catalog_id,
-            name=draft.name.strip(),
+            name=draft.name.strip() or _default_custom_pad_name(draft),
             shape=draft.shape,
             width_mm=draft.width_mm,
             height_mm=draft.height_mm,
@@ -1537,7 +1537,7 @@ def _validate_custom_pad(
     custom_pad: PasteFlowCalibrationCustomPadDraft | PasteFlowCalibrationCustomPadSpec,
 ) -> str | None:
     name = custom_pad.name.strip()
-    if not name:
+    if isinstance(custom_pad, PasteFlowCalibrationCustomPadSpec) and not name:
         return "任意パッドの名称を入力してください"
     if len(name) > 120:
         return "任意パッドの名称は120文字以下で指定してください"
@@ -1568,6 +1568,20 @@ def _validate_custom_pad(
     elif custom_pad.corner_radius_mm != 0:
         return f"{shape.label}では角丸半径を指定できません"
     return None
+
+
+def _default_custom_pad_name(custom_pad: PasteFlowCalibrationCustomPadDraft) -> str:
+    shape = _CUSTOM_PAD_SHAPE_BY_ID[custom_pad.shape]
+    if custom_pad.shape == "circle":
+        dimensions = f"φ{custom_pad.width_mm:.3g} mm"
+    else:
+        dimensions = f"{custom_pad.width_mm:.3g} × {custom_pad.height_mm:.3g} mm"
+    radius = (
+        f" R{custom_pad.corner_radius_mm:.3g} mm"
+        if custom_pad.shape == "roundrect"
+        else ""
+    )
+    return f"{shape.label} {dimensions}{radius}"
 
 
 def _pattern_sort_key(

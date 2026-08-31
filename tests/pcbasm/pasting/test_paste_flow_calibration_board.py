@@ -125,7 +125,11 @@ class TestPasteFlowCalibrationPadCatalog:
         config = generator.add_custom_pad(
             PasteFlowCalibrationBoardConfig(),
             PasteFlowCalibrationCustomPadDraft(
-                "試験用パッド", "roundrect", 1.2, 0.8, 0.2
+                shape="roundrect",
+                width_mm=1.2,
+                height_mm=0.8,
+                corner_radius_mm=0.2,
+                name="試験用パッド",
             ),
         )
         item = generator.catalog_for_config(config)[-1]
@@ -135,6 +139,20 @@ class TestPasteFlowCalibrationPadCatalog:
         assert item.footprint_label == "試験用パッド"
         assert item.label == "角丸矩形 · 1.2 × 0.8 mm · R0.2 mm"
         assert item.default_transpose is False
+
+    def test_uses_shape_and_dimensions_as_the_default_custom_pad_name(self):
+        generator = PasteFlowCalibrationBoardGenerator()
+
+        config = generator.add_custom_pad(
+            PasteFlowCalibrationBoardConfig(),
+            PasteFlowCalibrationCustomPadDraft(
+                shape="oval", width_mm=1.5, height_mm=0.5
+            ),
+        )
+        item = generator.catalog_for_config(config)[-1]
+
+        assert config.custom_pads[-1].name == "長円（スロット） 1.5 × 0.5 mm"
+        assert item.footprint_label == "長円（スロット） 1.5 × 0.5 mm"
 
 
 class TestPasteFlowCalibrationBoardLayout:
