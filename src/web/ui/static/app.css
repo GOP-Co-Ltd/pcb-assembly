@@ -1695,7 +1695,7 @@ h2 {
 
 .pfc-pattern-table {
   width: 100%;
-  min-width: 68rem;
+  min-width: 72rem;
   border-collapse: collapse;
 }
 
@@ -1716,6 +1716,14 @@ h2 {
 
 .pfc-pattern-table input {
   width: 4.8rem;
+}
+
+.pfc-pattern-table .pfc-transpose {
+  text-align: center;
+}
+
+.pfc-pattern-table .pfc-transpose input {
+  width: auto;
 }
 
 .pfc-pattern-table .pfc-pad-label,

@@ -80,8 +80,9 @@
         ),
         repeat_count: numberFrom(
           row.querySelector('[data-pattern-field="repeat_count"]'),
-          "繰り返し行数"
+          "繰り返し数"
         ),
+        transpose: row.querySelector('[data-pattern-field="transpose"]').checked,
       })),
     };
   }
@@ -124,6 +125,16 @@
     return input;
   }
 
+  function transposeInput(pattern) {
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = pattern.transpose;
+    input.dataset.patternField = "transpose";
+    input.setAttribute("aria-label", "転置配置");
+    input.title = "ON: 繰り返しを横、回転角を縦に配置";
+    return input;
+  }
+
   function renderPatternRows(patterns) {
     rows.replaceChildren();
     for (const pattern of patterns) {
@@ -147,9 +158,13 @@
       row.appendChild(textCell("—", "pfc-resolved-angles"));
       const repeatCell = document.createElement("td");
       repeatCell.appendChild(
-        numberInput(pattern, "repeat_count", "1", "繰り返し行数")
+        numberInput(pattern, "repeat_count", "1", "繰り返し数")
       );
       row.appendChild(repeatCell);
+      const transposeCell = document.createElement("td");
+      transposeCell.className = "pfc-transpose";
+      transposeCell.appendChild(transposeInput(pattern));
+      row.appendChild(transposeCell);
       row.appendChild(textCell("—", "pfc-resolved-size"));
 
       const actionCell = document.createElement("td");
@@ -374,6 +389,7 @@
           rotation_span_deg: item.default_rotation_span_deg,
           rotation_count: item.default_rotation_count,
           repeat_count: item.default_repeat_count,
+          transpose: item.default_transpose,
         });
       }
       if (!additions.length) {

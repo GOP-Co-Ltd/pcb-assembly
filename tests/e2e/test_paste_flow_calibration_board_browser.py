@@ -43,7 +43,10 @@ class TestPasteFlowCalibrationBoardBrowser:
             "回転分割数"
         )
         expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text(
-            "繰り返し行数"
+            "繰り返し数"
+        )
+        expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text(
+            "転置配置"
         )
         expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text("名称")
         expect(browser_page.locator("#pfc-footprint-results option")).to_have_count(
@@ -57,6 +60,14 @@ class TestPasteFlowCalibrationBoardBrowser:
         assert preview_box["y"] >= config_box["y"] + config_box["height"]
 
         first_row = browser_page.locator("#pfc-pattern-rows tr").first
+        transpose = first_row.locator('[data-pattern-field="transpose"]')
+        expect(transpose).to_be_checked()
+        resolved_size = first_row.locator(".pfc-resolved-size")
+        transposed_size = resolved_size.inner_text()
+        transpose.uncheck()
+        expect(resolved_size).not_to_have_text(
+            transposed_size, timeout=_BROWSER_TIMEOUT_MS
+        )
         rotation_count = first_row.locator('[data-pattern-field="rotation_count"]')
         rotation_count.fill("2")
         expect(first_row.locator(".pfc-resolved-angles")).to_have_text(
@@ -141,6 +152,8 @@ class TestPasteFlowCalibrationBoardBrowser:
         exported.save_as(config_path)
         document = json.loads(config_path.read_text(encoding="utf-8"))
         assert document["kind"] == "paste_flow_calibration_board"
+        assert document["schema_version"] == 2
+        assert all(pattern["transpose"] for pattern in document["patterns"])
 
         browser_page.locator("#pfc-board-width").fill("42")
         expect(browser_page.locator("#pfc-board-width")).to_have_value(
