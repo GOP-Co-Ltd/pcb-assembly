@@ -51,7 +51,12 @@
   let searchRequest = 0;
   let sortField = null;
   let sortDirection = "ascending";
+  let documentKind = null;
+  let documentSchemaVersion = null;
   const optionLabelMaxLength = 48;
+  const draftStorageKey =
+    "pcbasm:paste-flow-calibration-board:draft:" +
+    (document.body.dataset.machineBase || "unscoped");
 
   function numberFrom(input, label) {
     const value = input.valueAsNumber;
@@ -104,6 +109,50 @@
         transpose: row.querySelector('[data-pattern-field="transpose"]').checked,
       })),
     };
+  }
+
+  function discardDraft() {
+    try {
+      localStorage.removeItem(draftStorageKey);
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }
+
+  function loadDraft() {
+    try {
+      const stored = localStorage.getItem(draftStorageKey);
+      if (!stored) return null;
+      return JSON.parse(stored);
+    } catch {
+      discardDraft();
+      return null;
+    }
+  }
+
+  function saveDraft(nextConfig) {
+    if (!documentKind || documentSchemaVersion === null) return;
+    try {
+      localStorage.setItem(
+        draftStorageKey,
+        JSON.stringify({
+          kind: documentKind,
+          schema_version: documentSchemaVersion,
+          ...nextConfig,
+        })
+      );
+    } catch {
+      // Keep editing available even when localStorage is disabled or full.
+    }
+  }
+
+  function saveCurrentDraft() {
+    if (!config) return;
+    try {
+      saveDraft(collectConfig());
+    } catch {
+      // Preserve the last valid draft while a numeric input is incomplete.
+    }
   }
 
   function textCell(value, className = "") {
@@ -272,6 +321,11 @@
     renderPatternRows(config.patterns);
   }
 
+  function applyAndSaveConfig(nextConfig) {
+    applyConfig(nextConfig);
+    saveDraft(nextConfig);
+  }
+
   function updateTransposeControls() {
     for (const input of rows.querySelectorAll(
       '[data-pattern-field="transpose"]'
@@ -413,11 +467,12 @@
       if (request === previewRequest) clearPreview(err.message, true);
       return;
     }
+    saveDraft(nextConfig);
     try {
       const layout = await api("POST", `${endpoint}/preview`, nextConfig);
       if (request !== previewRequest) return;
       mergeCatalog(layout.catalog);
-      applyConfig(layout.config);
+      applyAndSaveConfig(layout.config);
       renderLayout(layout);
     } catch (err) {
       if (request === previewRequest) clearPreview(err.message, true);
@@ -467,6 +522,7 @@
     ) {
       if (event.target === autoPack) updateTransposeControls();
       generateButton.disabled = true;
+      saveCurrentDraft();
       schedulePreview();
     }
   });
@@ -496,6 +552,7 @@
     const button = event.target.closest("[data-remove-catalog-id]");
     if (!button) return;
     button.closest("tr").remove();
+    saveCurrentDraft();
     schedulePreview();
   });
 
@@ -527,7 +584,7 @@
         toast("選択した名称のパッド種は追加済みです", false);
         return;
       }
-      applyConfig(current);
+      applyAndSaveConfig(current);
       await refreshPreview();
       toast(`${additions.length}種類のパッドを追加しました`);
     } catch (err) {
@@ -545,7 +602,7 @@
         custom_pad: collectCustomPadDraft(),
       });
       mergeCatalog(response.catalog);
-      applyConfig(response.config);
+      applyAndSaveConfig(response.config);
       await refreshPreview();
       customPadName.value = "";
       toast("任意サイズパッドを追加しました");
@@ -564,7 +621,7 @@
       const document = JSON.parse(await file.text());
       const response = await api("POST", `${endpoint}/import`, { document });
       mergeCatalog(response.catalog);
-      applyConfig(response.config);
+      applyAndSaveConfig(response.config);
       await refreshPreview();
       toast("設定をImportしました");
     } catch (err) {
@@ -597,9 +654,28 @@
   async function initialize() {
     try {
       const options = await api("GET", `${endpoint}/options`);
+      documentKind = options.kind;
+      documentSchemaVersion = options.schema_version;
       mergeCatalog(options.catalog);
       setCustomPadShapes(options.custom_pad_shapes);
-      applyConfig(options.config);
+      let initialConfig = options.config;
+      const draft = loadDraft();
+      if (draft) {
+        try {
+          const restored = await api("POST", `${endpoint}/import`, {
+            document: draft,
+          });
+          mergeCatalog(restored.catalog);
+          initialConfig = restored.config;
+        } catch {
+          discardDraft();
+          toast(
+            "保存していた設定を復元できなかったため、初期設定を使用します",
+            false
+          );
+        }
+      }
+      applyAndSaveConfig(initialConfig);
       updateSortIndicators();
       footprintCount.textContent =
         `登録済み${options.footprint_count.toLocaleString()}件を検索できます`;

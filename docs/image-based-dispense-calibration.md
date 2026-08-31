@@ -313,6 +313,9 @@ F.Cu/F.Paste、グループ境界、角度、グループ寸法をSVGで表示�
 `pcbasm-paste-flow-calibration-board.json`、KiCad基板は
 `pcbasm-paste-flow-calibration-board.kicad_pcb`としてブラウザへ直接ダウンロードする。
 装置を動かさないため、生成と設定入出力にWebUIの操作権は要求しない。
+編集中の設定は機体ごとにブラウザのlocalStorageへ自動保存し、ページの再読込時に復元する。
+保存内容はサーバーのImport APIでschema検証・正規化してから画面へ反映し、古いschemaまたは
+破損した保存内容は破棄して初期設定へ戻す。サーバー側には編集中の設定を保存しない。
 表ではfootprint名を「名称」として表示する。長い名称とパッド種は末尾を省略表示し、hover時の
 tooltipで完全な文字列を確認できる。各パッド行の「転置配置」で、繰り返しを横へ置く配置と
 回転角を横へ置く配置を切り替える。自動最適配置中は転置指定を無効表示し、サーバーが解決した

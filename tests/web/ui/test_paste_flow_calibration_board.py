@@ -29,6 +29,7 @@ class TestPasteFlowCalibrationBoardPage:
         assert "転置配置" in text
         assert "自動最適配置" in text
         assert "任意サイズパッド" in text
+        assert "編集中の設定は機体ごとにこのブラウザへ自動保存されます" in text
         assert 'data-sort-field="name"' in text
         assert 'data-sort-field="pad"' in text
         assert "名称を検索" in text

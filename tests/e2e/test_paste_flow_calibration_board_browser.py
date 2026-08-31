@@ -171,6 +171,53 @@ class TestPasteFlowCalibrationBoardBrowser:
             "76パッド + purge pad", timeout=_BROWSER_TIMEOUT_MS
         )
 
+    def test_editing_draft_survives_reload(self, live_ui: LiveUi, browser_page):
+        _open_board_generator(browser_page, live_ui)
+
+        board_width = browser_page.locator("#pfc-board-width")
+        preview_status = browser_page.locator("#pfc-preview-status")
+        board_width.fill("10")
+        expect(preview_status).to_contain_text("超え", timeout=_BROWSER_TIMEOUT_MS)
+
+        browser_page.reload(wait_until="domcontentloaded")
+        expect(browser_page.locator("#pfc-board-width")).to_have_value(
+            "10", timeout=_BROWSER_TIMEOUT_MS
+        )
+        expect(browser_page.locator("#pfc-preview-status")).to_contain_text(
+            "超え", timeout=_BROWSER_TIMEOUT_MS
+        )
+
+        browser_page.locator("#pfc-board-width").fill("42")
+        expect(browser_page.locator("#pfc-preview-status")).to_have_text(
+            "配置可能です", timeout=_BROWSER_TIMEOUT_MS
+        )
+        browser_page.locator("#pfc-custom-pad-shape").select_option("oval")
+        browser_page.locator("#pfc-custom-pad-width").fill("1.5")
+        browser_page.locator("#pfc-custom-pad-height").fill("0.5")
+        browser_page.locator("#pfc-add-custom-pad").click()
+        expect(browser_page.locator("#pfc-pattern-rows tr")).to_have_count(
+            7, timeout=_BROWSER_TIMEOUT_MS
+        )
+        expect(browser_page.locator("#pfc-preview-summary")).to_have_text(
+            "76パッド + purge pad", timeout=_BROWSER_TIMEOUT_MS
+        )
+
+        browser_page.reload(wait_until="domcontentloaded")
+        expect(browser_page.locator("#pfc-board-width")).to_have_value(
+            "42", timeout=_BROWSER_TIMEOUT_MS
+        )
+        expect(browser_page.locator("#pfc-pattern-rows tr")).to_have_count(
+            7, timeout=_BROWSER_TIMEOUT_MS
+        )
+        expect(
+            browser_page.locator("#pfc-pattern-rows tr").filter(
+                has_text="長円（スロット） 1.5 × 0.5 mm"
+            )
+        ).to_have_count(1)
+        expect(browser_page.locator("#pfc-preview-status")).to_have_text(
+            "配置可能です", timeout=_BROWSER_TIMEOUT_MS
+        )
+
     def test_export_import_and_kicad_download_need_no_control(
         self, live_ui: LiveUi, browser_page, tmp_path: Path
     ):
