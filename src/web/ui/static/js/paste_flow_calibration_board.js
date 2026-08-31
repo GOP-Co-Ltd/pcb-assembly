@@ -11,6 +11,19 @@
   const footprintResults = document.getElementById("pfc-footprint-results");
   const footprintCount = document.getElementById("pfc-footprint-count");
   const addButton = document.getElementById("pfc-add-pattern");
+  const addCustomPadButton = document.getElementById("pfc-add-custom-pad");
+  const autoPack = document.getElementById("pfc-auto-pack");
+  const customPadName = document.getElementById("pfc-custom-pad-name");
+  const customPadShape = document.getElementById("pfc-custom-pad-shape");
+  const customPadWidth = document.getElementById("pfc-custom-pad-width");
+  const customPadHeight = document.getElementById("pfc-custom-pad-height");
+  const customPadRadius = document.getElementById("pfc-custom-pad-radius");
+  const customPadHeightField = document.getElementById(
+    "pfc-custom-pad-height-field"
+  );
+  const customPadRadiusField = document.getElementById(
+    "pfc-custom-pad-radius-field"
+  );
   const preview = document.getElementById("pfc-preview");
   const previewStatus = document.getElementById("pfc-preview-status");
   const previewSummary = document.getElementById("pfc-preview-summary");
@@ -31,9 +44,13 @@
   };
 
   const catalog = new Map();
+  const customPadShapes = new Map();
   let config = null;
+  let lastLayout = null;
   let previewRequest = 0;
   let searchRequest = 0;
+  let sortField = null;
+  let sortDirection = "ascending";
   const optionLabelMaxLength = 48;
 
   function numberFrom(input, label) {
@@ -58,6 +75,7 @@
 
   function collectConfig() {
     return {
+      auto_pack: autoPack.checked,
       board: {
         width_mm: numberFrom(boardFields.width_mm, "基板幅"),
         height_mm: numberFrom(boardFields.height_mm, "基板高さ"),
@@ -68,6 +86,7 @@
         width_mm: numberFrom(purgeFields.width_mm, "purge pad幅"),
         height_mm: numberFrom(purgeFields.height_mm, "purge pad高さ"),
       },
+      custom_pads: config.custom_pads,
       patterns: [...rows.querySelectorAll("tr")].map((row) => ({
         catalog_id: row.dataset.catalogId,
         rotation_span_deg: numberFrom(
@@ -105,14 +124,52 @@
     return cell;
   }
 
-  function truncateLabel(value) {
-    if (value.length <= optionLabelMaxLength) return value;
-    return `${value.slice(0, optionLabelMaxLength - 1)}…`;
+  function truncateLabel(value, maxLength = optionLabelMaxLength) {
+    if (value.length <= maxLength) return value;
+    return `${value.slice(0, maxLength - 1)}…`;
   }
 
   function updateFootprintResultTitle() {
     const option = footprintResults.selectedOptions[0];
     footprintResults.title = option?.dataset.fullLabel || "";
+  }
+
+  function setCustomPadShapes(items) {
+    customPadShapes.clear();
+    customPadShape.replaceChildren();
+    for (const item of items) {
+      customPadShapes.set(item.shape, item);
+      const option = document.createElement("option");
+      option.value = item.shape;
+      option.textContent = item.label;
+      customPadShape.appendChild(option);
+    }
+    updateCustomPadFields();
+  }
+
+  function updateCustomPadFields() {
+    const shape = customPadShapes.get(customPadShape.value);
+    customPadHeightField.hidden = !shape?.uses_height;
+    customPadHeight.disabled = !shape?.uses_height;
+    customPadRadiusField.hidden = !shape?.uses_corner_radius;
+    customPadRadius.disabled = !shape?.uses_corner_radius;
+  }
+
+  function collectCustomPadDraft() {
+    const shape = customPadShapes.get(customPadShape.value);
+    if (!shape) throw new Error("任意パッド形状を選択してください");
+    const width = numberFrom(customPadWidth, "任意パッドの幅／直径");
+    return {
+      name: customPadName.value,
+      shape: shape.shape,
+      width_mm: width,
+      height_mm: shape.uses_height
+        ? numberFrom(customPadHeight, "任意パッドの高さ")
+        : width,
+      corner_radius_mm: shape.uses_corner_radius
+        ? numberFrom(customPadRadius, "任意パッドの角丸半径")
+        : 0,
+    };
   }
 
   function numberInput(pattern, field, step, label) {
@@ -129,15 +186,35 @@
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = pattern.transpose;
+    input.disabled = config.auto_pack;
     input.dataset.patternField = "transpose";
     input.setAttribute("aria-label", "転置配置");
-    input.title = "ON: 繰り返しを横、回転角を縦に配置";
+    input.title = config.auto_pack
+      ? "自動最適配置では転置方向をサーバーが決定します"
+      : "ON: 繰り返しを横、回転角を縦に配置";
     return input;
+  }
+
+  function patternsForDisplay(patterns) {
+    if (!sortField) return patterns;
+    const sorted = [...patterns].sort((first, second) => {
+      const firstItem = itemFor(first.catalog_id);
+      const secondItem = itemFor(second.catalog_id);
+      const firstValue =
+        sortField === "name" ? firstItem?.footprint_label : firstItem?.label;
+      const secondValue =
+        sortField === "name" ? secondItem?.footprint_label : secondItem?.label;
+      return (firstValue || "").localeCompare(secondValue || "", "ja", {
+        numeric: true,
+        sensitivity: "base",
+      });
+    });
+    return sortDirection === "ascending" ? sorted : sorted.reverse();
   }
 
   function renderPatternRows(patterns) {
     rows.replaceChildren();
-    for (const pattern of patterns) {
+    for (const pattern of patternsForDisplay(patterns)) {
       const item = itemFor(pattern.catalog_id);
       if (!item) continue;
       const row = document.createElement("tr");
@@ -185,6 +262,7 @@
 
   function applyConfig(nextConfig) {
     config = nextConfig;
+    autoPack.checked = config.auto_pack;
     for (const [field, input] of Object.entries(boardFields)) {
       input.value = config.board[field];
     }
@@ -192,6 +270,27 @@
       input.value = config.purge_pad[field];
     }
     renderPatternRows(config.patterns);
+  }
+
+  function updateTransposeControls() {
+    for (const input of rows.querySelectorAll(
+      '[data-pattern-field="transpose"]'
+    )) {
+      input.disabled = autoPack.checked;
+      input.title = autoPack.checked
+        ? "自動最適配置では転置方向をサーバーが決定します"
+        : "ON: 繰り返しを横、回転角を縦に配置";
+    }
+  }
+
+  function updateSortIndicators() {
+    for (const button of root.querySelectorAll("[data-sort-field]")) {
+      const header = button.closest("th");
+      header.setAttribute(
+        "aria-sort",
+        button.dataset.sortField === sortField ? sortDirection : "none"
+      );
+    }
   }
 
   function clearResolvedValues() {
@@ -203,6 +302,7 @@
   }
 
   function clearPreview(message, error = false) {
+    lastLayout = null;
     preview.replaceChildren();
     preview.removeAttribute("viewBox");
     previewSummary.textContent = "";
@@ -219,7 +319,22 @@
     });
   }
 
+  function renderResolvedRows(layout) {
+    for (const group of layout.groups) {
+      const row = rowForCatalogId(group.catalog_id);
+      if (!row) continue;
+      row.querySelector(".pfc-resolved-angles").textContent = group.angles_deg
+        .map((angle) => `${Number(angle.toFixed(3))}°`)
+        .join(", ");
+      const transpose = group.transpose ? " · 転置" : "";
+      row.querySelector(".pfc-resolved-size").textContent =
+        `${group.bounds.width.toFixed(2)} × ${group.bounds.height.toFixed(2)}` +
+        transpose;
+    }
+  }
+
   function renderLayout(layout) {
+    lastLayout = layout;
     preview.replaceChildren();
     preview.setAttribute(
       "viewBox",
@@ -263,18 +378,15 @@
         y: group.bounds.y + 1.05,
         class: "pfc-group-label",
       });
-      label.textContent = `${group.footprint_label} / ${group.label}`;
+      const fullLabel = `${group.footprint_label} / ${group.label}`;
+      label.textContent = truncateLabel(fullLabel, 38);
+      const title = svgEl("title", {});
+      title.textContent = fullLabel;
+      label.appendChild(title);
       preview.appendChild(label);
-
-      const row = rowForCatalogId(group.catalog_id);
-      if (row) {
-        row.querySelector(".pfc-resolved-angles").textContent = group.angles_deg
-          .map((angle) => `${Number(angle.toFixed(3))}°`)
-          .join(", ");
-        row.querySelector(".pfc-resolved-size").textContent =
-          `${group.bounds.width.toFixed(2)} × ${group.bounds.height.toFixed(2)}`;
-      }
     }
+
+    renderResolvedRows(layout);
 
     const purgeLabel = svgEl("text", {
       x: layout.purge_pad.x + layout.purge_pad.width + 0.25,
@@ -353,6 +465,7 @@
       event.target.matches("[data-config-field]") ||
       event.target.matches("[data-pattern-field]")
     ) {
+      if (event.target === autoPack) updateTransposeControls();
       generateButton.disabled = true;
       schedulePreview();
     }
@@ -360,6 +473,24 @@
 
   footprintSearch.addEventListener("input", scheduleSearch);
   footprintResults.addEventListener("change", updateFootprintResultTitle);
+  customPadShape.addEventListener("change", updateCustomPadFields);
+
+  root.addEventListener("click", (event) => {
+    const sortButton = event.target.closest("[data-sort-field]");
+    if (!sortButton) return;
+    const nextField = sortButton.dataset.sortField;
+    if (sortField === nextField) {
+      sortDirection =
+        sortDirection === "ascending" ? "descending" : "ascending";
+    } else {
+      sortField = nextField;
+      sortDirection = "ascending";
+    }
+    config = collectConfig();
+    renderPatternRows(config.patterns);
+    if (lastLayout) renderResolvedRows(lastLayout);
+    updateSortIndicators();
+  });
 
   rows.addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-catalog-id]");
@@ -406,6 +537,25 @@
     }
   });
 
+  addCustomPadButton.addEventListener("click", async () => {
+    addCustomPadButton.disabled = true;
+    try {
+      const response = await api("POST", `${endpoint}/custom-pads`, {
+        config: collectConfig(),
+        custom_pad: collectCustomPadDraft(),
+      });
+      mergeCatalog(response.catalog);
+      applyConfig(response.config);
+      await refreshPreview();
+      customPadName.value = "";
+      toast("任意サイズパッドを追加しました");
+    } catch (err) {
+      toast(`任意パッド追加失敗: ${err.message}`, false);
+    } finally {
+      addCustomPadButton.disabled = false;
+    }
+  });
+
   importButton.addEventListener("click", () => importFile.click());
   importFile.addEventListener("change", async () => {
     const file = importFile.files[0];
@@ -448,7 +598,9 @@
     try {
       const options = await api("GET", `${endpoint}/options`);
       mergeCatalog(options.catalog);
+      setCustomPadShapes(options.custom_pad_shapes);
       applyConfig(options.config);
+      updateSortIndicators();
       footprintCount.textContent =
         `登録済み${options.footprint_count.toLocaleString()}件を検索できます`;
       await Promise.all([refreshPreview(), refreshFootprintSearch()]);

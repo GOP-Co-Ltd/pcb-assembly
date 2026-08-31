@@ -49,6 +49,7 @@ class TestPasteFlowCalibrationBoardBrowser:
             "転置配置"
         )
         expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text("名称")
+        expect(browser_page.locator("#pfc-auto-pack")).to_be_checked()
         expect(browser_page.locator("#pfc-footprint-results option")).to_have_count(
             69, timeout=_BROWSER_TIMEOUT_MS
         )
@@ -61,17 +62,24 @@ class TestPasteFlowCalibrationBoardBrowser:
 
         first_row = browser_page.locator("#pfc-pattern-rows tr").first
         transpose = first_row.locator('[data-pattern-field="transpose"]')
-        expect(transpose).to_be_checked()
+        expect(transpose).not_to_be_checked()
+        expect(transpose).to_be_disabled()
+        browser_page.locator("#pfc-auto-pack").uncheck()
+        expect(transpose).to_be_enabled(timeout=_BROWSER_TIMEOUT_MS)
         resolved_size = first_row.locator(".pfc-resolved-size")
-        transposed_size = resolved_size.inner_text()
-        transpose.uncheck()
+        original_size = resolved_size.inner_text()
+        transpose.check()
         expect(resolved_size).not_to_have_text(
-            transposed_size, timeout=_BROWSER_TIMEOUT_MS
+            original_size, timeout=_BROWSER_TIMEOUT_MS
         )
         rotation_count = first_row.locator('[data-pattern-field="rotation_count"]')
         rotation_count.fill("2")
         expect(first_row.locator(".pfc-resolved-angles")).to_have_text(
             "0°, 90°", timeout=_BROWSER_TIMEOUT_MS
+        )
+        rotation_count.fill("4")
+        expect(first_row.locator(".pfc-resolved-angles")).to_have_text(
+            "0°, 45°, 90°, 135°", timeout=_BROWSER_TIMEOUT_MS
         )
 
         browser_page.locator("#pfc-board-width").fill("10")
@@ -86,6 +94,19 @@ class TestPasteFlowCalibrationBoardBrowser:
         expect(browser_page.locator("#pfc-preview-status")).to_have_text(
             "配置可能です", timeout=_BROWSER_TIMEOUT_MS
         )
+
+        name_sort = browser_page.locator('[data-sort-field="name"]')
+        name_sort.click()
+        name_sort.click()
+        expect(name_sort.locator("xpath=..")).to_have_attribute(
+            "aria-sort", "descending"
+        )
+        expect(
+            browser_page.locator("#pfc-pattern-rows .pfc-name-label").first
+        ).to_contain_text("SOT-23-5")
+        pad_sort = browser_page.locator('[data-sort-field="pad"]')
+        pad_sort.click()
+        expect(pad_sort.locator("xpath=..")).to_have_attribute("aria-sort", "ascending")
 
         browser_page.locator("#pfc-footprint-search").fill(
             "QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
@@ -110,17 +131,18 @@ class TestPasteFlowCalibrationBoardBrowser:
             has_text="QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
         )
         expect(qfn_rows).to_have_count(3)
-        expect(qfn_rows.nth(0)).to_contain_text("Paste aperture")
-        expect(qfn_rows.nth(1)).to_contain_text("Pad 1–16")
-        expect(qfn_rows.nth(2)).to_contain_text("Pad 17")
+        expect(qfn_rows.filter(has_text="Paste aperture")).to_have_count(1)
+        expect(qfn_rows.filter(has_text="Pad 1–16")).to_have_count(1)
+        expect(qfn_rows.filter(has_text="Pad 17")).to_have_count(1)
         qfn_name = qfn_rows.first.locator(".pfc-name-label .pfc-truncated-text")
         expect(qfn_name).to_have_attribute("title", _QFN_NAME)
         assert qfn_name.evaluate("element => element.scrollWidth > element.clientWidth")
         expect(browser_page.locator("#pfc-preview-status")).to_have_text(
             "配置可能です", timeout=_BROWSER_TIMEOUT_MS
         )
+
         expect(browser_page.locator("#pfc-preview-summary")).to_have_text(
-            "82パッド + purge pad"
+            "88パッド + purge pad"
         )
         expect(browser_page.locator(".pfc-group-boundary")).to_have_count(9)
 
@@ -131,6 +153,23 @@ class TestPasteFlowCalibrationBoardBrowser:
         )
         expect(browser_page.locator("#pfc-preview-status")).to_have_text(
             "配置可能です", timeout=_BROWSER_TIMEOUT_MS
+        )
+
+        browser_page.locator("#pfc-custom-pad-name").fill("試験用長円")
+        browser_page.locator("#pfc-custom-pad-shape").select_option("oval")
+        browser_page.locator("#pfc-custom-pad-width").fill("1.5")
+        browser_page.locator("#pfc-custom-pad-height").fill("0.5")
+        browser_page.locator("#pfc-add-custom-pad").click()
+        expect(browser_page.locator("#pfc-pattern-rows tr")).to_have_count(
+            7, timeout=_BROWSER_TIMEOUT_MS
+        )
+        custom_row = browser_page.locator("#pfc-pattern-rows tr").filter(
+            has_text="試験用長円"
+        )
+        expect(custom_row).to_have_count(1)
+        expect(custom_row).to_contain_text("長円（スロット）")
+        expect(browser_page.locator("#pfc-preview-summary")).to_have_text(
+            "76パッド + purge pad", timeout=_BROWSER_TIMEOUT_MS
         )
 
     def test_export_import_and_kicad_download_need_no_control(
@@ -152,8 +191,10 @@ class TestPasteFlowCalibrationBoardBrowser:
         exported.save_as(config_path)
         document = json.loads(config_path.read_text(encoding="utf-8"))
         assert document["kind"] == "paste_flow_calibration_board"
-        assert document["schema_version"] == 2
-        assert all(pattern["transpose"] for pattern in document["patterns"])
+        assert document["schema_version"] == 3
+        assert document["auto_pack"] is True
+        assert document["custom_pads"] == []
+        assert all(not pattern["transpose"] for pattern in document["patterns"])
 
         browser_page.locator("#pfc-board-width").fill("42")
         expect(browser_page.locator("#pfc-board-width")).to_have_value(

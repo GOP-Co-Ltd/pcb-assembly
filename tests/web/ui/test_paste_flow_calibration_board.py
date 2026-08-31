@@ -27,8 +27,12 @@ class TestPasteFlowCalibrationBoardPage:
         assert "回転分割数" in text
         assert "繰り返し数" in text
         assert "転置配置" in text
+        assert "自動最適配置" in text
+        assert "任意サイズパッド" in text
+        assert 'data-sort-field="name"' in text
+        assert 'data-sort-field="pad"' in text
         assert "名称を検索" in text
-        assert "<th>名称</th>" in text
+        assert ">名称</button>" in text
         assert "由来footprint" not in text
         assert "パッド種" in text
         assert "パッド間余白" in text

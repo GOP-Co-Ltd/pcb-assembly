@@ -30,6 +30,11 @@
         <label>purge pad高さ <span class="unit">[mm]</span>
           <input id="pfc-purge-height" data-config-field type="number" step="0.1">
         </label>
+        <label class="pfc-checkbox-field">
+          <input id="pfc-auto-pack" data-config-field type="checkbox">
+          自動最適配置
+          <span class="unit">（順序・転置を自動調整）</span>
+        </label>
       </div>
 
       <div class="pfc-pattern-head">
@@ -47,12 +52,37 @@
         </div>
       </div>
       <p id="pfc-footprint-count" class="pfc-catalog-summary"></p>
+      <div class="pfc-custom-pad-form" aria-label="任意サイズパッドを追加">
+        <strong>任意サイズパッド</strong>
+        <label>名称
+          <input id="pfc-custom-pad-name" type="text" maxlength="120"
+                 placeholder="例: 試験用 1.0 × 0.5">
+        </label>
+        <label>形状
+          <select id="pfc-custom-pad-shape"></select>
+        </label>
+        <label>幅／直径 <span class="unit">[mm]</span>
+          <input id="pfc-custom-pad-width" type="number" step="0.01" value="1">
+        </label>
+        <label id="pfc-custom-pad-height-field">高さ <span class="unit">[mm]</span>
+          <input id="pfc-custom-pad-height" type="number" step="0.01" value="0.5">
+        </label>
+        <label id="pfc-custom-pad-radius-field">角丸半径 <span class="unit">[mm]</span>
+          <input id="pfc-custom-pad-radius" type="number" step="0.01" value="0.1">
+        </label>
+        <button id="pfc-add-custom-pad" type="button"
+                data-testid="pfc-add-custom-pad">追加</button>
+      </div>
       <div class="pfc-table-scroll">
         <table class="pfc-pattern-table" data-testid="pfc-pattern-table">
           <thead>
             <tr>
-              <th>名称</th>
-              <th>パッド種</th>
+              <th aria-sort="none">
+                <button class="pfc-sort-button" type="button" data-sort-field="name">名称</button>
+              </th>
+              <th aria-sort="none">
+                <button class="pfc-sort-button" type="button" data-sort-field="pad">パッド種</button>
+              </th>
               <th>回転範囲 θ <span class="unit">[deg]</span></th>
               <th>回転分割数</th>
               <th>角度</th>

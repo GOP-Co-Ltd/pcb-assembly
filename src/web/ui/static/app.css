@@ -1654,6 +1654,18 @@ h2 {
   width: 100%;
 }
 
+.pfc-field-grid .pfc-checkbox-field {
+  display: flex;
+  grid-column: span 2;
+  align-items: center;
+  align-self: end;
+  min-height: 2.25rem;
+}
+
+.pfc-field-grid .pfc-checkbox-field input {
+  width: auto;
+}
+
 .pfc-pattern-head,
 .pfc-preview-head,
 .pfc-add-pattern,
@@ -1688,6 +1700,52 @@ h2 {
   text-align: right;
 }
 
+.pfc-custom-pad-form {
+  display: grid;
+  grid-template-columns: max-content minmax(12rem, 1fr) minmax(9rem, 0.7fr) repeat(3, minmax(7rem, 0.55fr)) max-content;
+  align-items: end;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.pfc-custom-pad-form strong {
+  align-self: center;
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
+.pfc-custom-pad-form label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.pfc-sort-button {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+}
+
+.pfc-sort-button:hover {
+  color: var(--text);
+  background: transparent;
+}
+
+.pfc-pattern-table th[aria-sort="ascending"] .pfc-sort-button::after {
+  content: " ▲";
+}
+
+.pfc-pattern-table th[aria-sort="descending"] .pfc-sort-button::after {
+  content: " ▼";
+}
+
 .pfc-table-scroll {
   margin-top: 0.55rem;
   overflow-x: auto;
@@ -1695,7 +1753,7 @@ h2 {
 
 .pfc-pattern-table {
   width: 100%;
-  min-width: 72rem;
+  min-width: 74rem;
   border-collapse: collapse;
 }
 
@@ -2000,10 +2058,21 @@ h2 {
     min-width: 0;
   }
 
+  .pfc-custom-pad-form {
+    grid-template-columns: 1fr;
+  }
+
+  .pfc-field-grid .pfc-checkbox-field {
+    grid-column: 1 / -1;
+  }
+
   .pfc-actions button,
   .pfc-add-pattern input,
   .pfc-add-pattern select,
-  .pfc-add-pattern button {
+  .pfc-add-pattern button,
+  .pfc-custom-pad-form input,
+  .pfc-custom-pad-form select,
+  .pfc-custom-pad-form button {
     width: 100%;
   }
 
