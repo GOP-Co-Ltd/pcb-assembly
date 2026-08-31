@@ -243,6 +243,24 @@ pad属性、drill形状を使用し、0/90/180/270度の回転で一致する形
 footprintをその場でパッド種へ分類する。全footprintを起動時にpcbnewへ読み込まず、ファイル名
 の検索indexだけを作り、選択されたfootprintだけを読み込む。
 
+検索語が空のときは、はんだペースト印刷で一般的な次の69 footprintを名称一覧へ表示する。
+これらは候補を探しやすくするための代表寸法であり、一覧外のfootprintも名称検索で選択できる。
+BGAなど通常のペースト印刷対象ではないpackageは一般候補へ含めない。
+
+| 分類                | 一般候補                                                                                                                                                                                                                                                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| チップ抵抗          | `R_0201_0603Metric`, `R_0402_1005Metric`, `R_0603_1608Metric`, `R_0805_2012Metric`, `R_1206_3216Metric`, `R_1210_3225Metric`, `R_2010_5025Metric`, `R_2512_6332Metric`                                                                                                                                                                                  |
+| チップコンデンサ    | `C_0201_0603Metric`, `C_0402_1005Metric`, `C_0603_1608Metric`, `C_0805_2012Metric`, `C_1206_3216Metric`, `C_1210_3225Metric`, `C_1812_4532Metric`                                                                                                                                                                                                       |
+| チップインダクタ    | `L_0201_0603Metric`, `L_0402_1005Metric`, `L_0603_1608Metric`, `L_0805_2012Metric`, `L_1206_3216Metric`, `L_1210_3225Metric`                                                                                                                                                                                                                            |
+| チップヒューズ      | `Fuse_0402_1005Metric`, `Fuse_0603_1608Metric`, `Fuse_0805_2012Metric`, `Fuse_1206_3216Metric`                                                                                                                                                                                                                                                          |
+| LED                 | `LED_0603_1608Metric`, `LED_0805_2012Metric`, `LED_1206_3216Metric`                                                                                                                                                                                                                                                                                     |
+| ダイオード          | `D_SOD-523`, `D_SOD-323`, `D_SOD-123`, `D_SMA`, `D_SMB`, `D_SMC`, `D_MicroMELF`, `D_MiniMELF`                                                                                                                                                                                                                                                           |
+| SOT / power package | `SOT-23`, `SOT-23-5`, `SOT-23-6`, `SOT-23-8`, `SOT-89-3`, `SOT-223-3_TabPin2`, `TO-252-3_TabPin2`, `TO-263-3_TabPin2`                                                                                                                                                                                                                                   |
+| SOIC / TSSOP / SSOP | `SOIC-8_3.9x4.9mm_P1.27mm`, `SOIC-14_3.9x8.7mm_P1.27mm`, `SOIC-16_3.9x9.9mm_P1.27mm`, `TSSOP-8_3x3mm_P0.65mm`, `TSSOP-14_4.4x5mm_P0.65mm`, `TSSOP-16_4.4x5mm_P0.65mm`, `TSSOP-20_4.4x6.5mm_P0.65mm`, `TSSOP-24_4.4x7.8mm_P0.65mm`, `TSSOP-28_4.4x9.7mm_P0.65mm`, `SSOP-16_4.4x5.2mm_P0.65mm`, `SSOP-20_4.4x6.5mm_P0.65mm`, `SSOP-28_5.3x10.2mm_P0.65mm` |
+| DFN / QFN           | `DFN-8-1EP_2x2mm_P0.5mm_EP0.6x1.2mm`, `QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm`, `QFN-24-1EP_4x4mm_P0.5mm_EP2.5x2.5mm`, `QFN-32-1EP_5x5mm_P0.5mm_EP3.1x3.1mm`, `QFN-48-1EP_7x7mm_P0.5mm_EP5.15x5.15mm`                                                                                                                                                    |
+| LQFP                | `LQFP-32_7x7mm_P0.8mm`, `LQFP-48_7x7mm_P0.5mm`, `LQFP-64_10x10mm_P0.5mm`, `LQFP-100_14x14mm_P0.5mm`                                                                                                                                                                                                                                                     |
+| 水晶                | `Crystal_SMD_2012-2Pin_2.0x1.2mm`, `Crystal_SMD_2520-4Pin_2.5x2.0mm`, `Crystal_SMD_3225-4Pin_3.2x2.5mm`, `Crystal_SMD_5032-4Pin_5.0x3.2mm`                                                                                                                                                                                                              |
+
 初期レシピは次の6 footprintから抽出した代表パッド種を使用する。
 
 | footprint library           | footprint         | 回転範囲 | 回転分割数 | 繰り返し行数 |
@@ -265,11 +283,13 @@ F.Cu/F.Mask/F.Pasteを保持する。元footprint全体のsilkscreenは部品配
 `KICAD9_FOOTPRINT_DIR`で上書きでき、未指定時は`/usr/share/kicad/footprints`を使う。
 
 WebUIの「はんだ塗布」タブに「はんだペースト流量キャリブレーション基板生成」を置く。
-footprint検索とパッド種の一括追加を提供し、設定変更時は抽出した実パッド形状から解決した
+名称検索とパッド種の一括追加を提供し、設定変更時は抽出した実パッド形状から解決した
 F.Cu/F.Paste、グループ境界、角度、グループ寸法をSVGで表示する。設定は
 `pcbasm-paste-flow-calibration-board.json`、KiCad基板は
 `pcbasm-paste-flow-calibration-board.kicad_pcb`としてブラウザへ直接ダウンロードする。
 装置を動かさないため、生成と設定入出力にWebUIの操作権は要求しない。
+表ではfootprint名を「名称」として表示する。長い名称とパッド種は末尾を省略表示し、hover時の
+tooltipで完全な文字列を確認できる。
 
 設定JSONは自己識別情報を必須とする。Import時は`kind`と`schema_version`を検証し、
 サーバーの安定順へ正規化する。配置不能な設定でも構造的に正しければExportできる。
