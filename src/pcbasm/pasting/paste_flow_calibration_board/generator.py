@@ -142,7 +142,6 @@ class PasteFlowCalibrationBoardGenerator:
                     rotation_span_deg=item.default_rotation_span_deg,
                     rotation_count=item.default_rotation_count,
                     repeat_count=item.default_repeat_count,
-                    transpose=item.default_transpose,
                 )
                 for item in candidates
                 if item.catalog_id not in existing_ids
@@ -250,19 +249,16 @@ class PasteFlowCalibrationBoardGenerator:
     ) -> pcbnew.BOARD:
         board = generate_rect_pcb(layout.board.width_mm, layout.board.height_mm)
         _add_purge_pad(board, layout.purge_pad)
-        for group in layout.groups:
-            resolved = plan.resolved[group.catalog_id]
-            for pad_layout in group.pads:
-                footprint = duplicate_footprint(resolved.template)
-                footprint.SetReference(pad_layout.reference)
-                footprint.SetValue(
-                    f"{resolved.item.footprint_label} / {resolved.item.label}"
-                )
-                footprint.SetPosition(vector(pad_layout.x, pad_layout.y))
-                footprint.SetOrientationDegrees(pad_layout.rotation_deg)
-                footprint.Reference().SetVisible(False)
-                footprint.Value().SetVisible(False)
-                board.Add(footprint)
+        for pad_layout in layout.pads:
+            resolved = plan.resolved[pad_layout.catalog_id]
+            footprint = duplicate_footprint(resolved.template)
+            footprint.SetReference(pad_layout.reference)
+            footprint.SetValue(pad_layout.display_name)
+            footprint.SetPosition(vector(pad_layout.x, pad_layout.y))
+            footprint.SetOrientationDegrees(pad_layout.rotation_deg)
+            footprint.Reference().SetVisible(False)
+            footprint.Value().SetVisible(False)
+            board.Add(footprint)
         return board
 
 

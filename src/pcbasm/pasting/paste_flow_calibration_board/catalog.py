@@ -61,7 +61,6 @@ class PasteFlowCalibrationPadPattern:
     default_rotation_span_deg: float
     default_rotation_count: int
     default_repeat_count: int
-    default_transpose: bool
 
 
 @attrs.frozen
@@ -299,7 +298,6 @@ class PasteFlowCalibrationPadCatalog:
                 default_repeat_count=(
                     default.repeat_count if default is not None else 2
                 ),
-                default_transpose=False,
             )
             patterns.append(item)
             self._pad_templates[catalog_id] = template
@@ -355,7 +353,6 @@ class PasteFlowCalibrationPadCatalog:
             default_rotation_span_deg=180.0,
             default_rotation_count=4,
             default_repeat_count=3,
-            default_transpose=False,
         )
         return PasteFlowCalibrationResolvedPadPattern(item, template)
 

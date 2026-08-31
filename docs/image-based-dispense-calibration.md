@@ -216,7 +216,7 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 
 - 基板外形: 40 × 40 mm
 - 外周余白: 1 mm
-- パッド間およびパッドグループ間余白: 1 mm
+- パッド間余白: 1 mm
 - 専用purge pad: 2 × 2 mm、基板左上の外周余白内側
 - purge padと通常パターン領域の間隔: 1 mm
 
@@ -226,22 +226,19 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 形状が異なるものは別々のパッド種として扱う。同一判定にはF.Cu/F.Mask/F.Pasteの実ポリゴン、
 pad属性、drill形状を使用し、0/90/180/270度の回転で一致する形状を同一種へまとめる。
 
-各パッド種は、回転分割数 `n` と繰り返し数 `m` からなる不可分な矩形グループとして
-配置する。回転範囲を `theta` 度としたとき、回転index `i` の角度は次式とする。
+各パッド種から回転分割数 `n` と繰り返し数 `m` に従って個別のパッドを生成する。
+同じパッド種もグループ化せず、各パッドを独立した矩形として配置する。回転範囲を
+`theta` 度としたとき、回転index `i` の角度は次式とする。
 
 \[
 \phi_i = i \frac{\theta}{n}, \qquad 0 \leq i < n
 \]
 
 `0 < theta <= 360`、`n >= 1`、`m >= 1` とし、回転範囲のデフォルトは180度とする。
-過大入力によるリソース枯渇を防ぐため、全グループの `n * m` 合計は10,000以下とする。
-各パッド行の転置配置はデフォルトOFFとし、回転角を横方向の `n` 列、繰り返しを縦方向の
-`m` 行に配置する。転置配置をONにすると、繰り返しを横方向の `m` 列、回転角を縦方向の
-`n` 行に入れ替える。
-パッド間隔の計算には、各回転角における
-抽出パッドのF.Cu/F.Paste AABBを使う。グループ内のセル寸法は全回転角の最大幅・最大高さ
-とし、footprint anchorを調整して各AABBをセル中央へ配置する。WebUIでは `n` と `m` を
-それぞれ「回転分割数」「繰り返し数」と表示する。
+過大入力によるリソース枯渇を防ぐため、全パッド種の `n * m` 合計は10,000以下とする。
+パッド間隔の計算には、各回転角における抽出パッドのF.Cu/F.Paste AABBを使う。
+footprint anchorを調整して各AABBを配置結果の矩形へ一致させる。WebUIでは `n` と `m` を
+それぞれ「回転分割数」「繰り返し数」と表示する。配置方向を指定するオプションは設けない。
 
 使用可能な候補は固定カタログに限定せず、インストール済みKiCad 9 footprint rootにある
 すべての `*.pretty/*.kicad_mod` とする。WebUIでlibrary名またはfootprint名を検索し、選択した
@@ -281,29 +278,22 @@ BGAなど通常のペースト印刷対象ではないpackageは一般候補へ�
 
 初期レシピは次の6 footprintから抽出した代表パッド種を使用する。
 
-| footprint library           | footprint         | 回転範囲 | 回転分割数 | 繰り返し数 | 転置配置 |
-| --------------------------- | ----------------- | -------: | ---------: | ---------: | -------- |
-| `Resistor_SMD.pretty`       | R_0402_1005Metric |      180 |          4 |          3 | OFF      |
-| `Resistor_SMD.pretty`       | R_0603_1608Metric |      180 |          4 |          3 | OFF      |
-| `Resistor_SMD.pretty`       | R_0805_2012Metric |      180 |          4 |          3 | OFF      |
-| `Resistor_SMD.pretty`       | R_1206_3216Metric |      180 |          4 |          3 | OFF      |
-| `Package_TO_SOT_SMD.pretty` | SOT-23            |      180 |          4 |          2 | OFF      |
-| `Package_TO_SOT_SMD.pretty` | SOT-23-5          |      180 |          4 |          2 | OFF      |
+| footprint library           | footprint         | 回転範囲 | 回転分割数 | 繰り返し数 |
+| --------------------------- | ----------------- | -------: | ---------: | ---------: |
+| `Resistor_SMD.pretty`       | R_0402_1005Metric |      180 |          4 |          3 |
+| `Resistor_SMD.pretty`       | R_0603_1608Metric |      180 |          4 |          3 |
+| `Resistor_SMD.pretty`       | R_0805_2012Metric |      180 |          4 |          3 |
+| `Resistor_SMD.pretty`       | R_1206_3216Metric |      180 |          4 |          3 |
+| `Package_TO_SOT_SMD.pretty` | SOT-23            |      180 |          4 |          2 |
+| `Package_TO_SOT_SMD.pretty` | SOT-23-5          |      180 |          4 |          2 |
 
-デフォルトでは自動最適配置を有効にする。パッドグループごとに転置前後の矩形を候補とし、
-複数の安定したサイズ順とMaxRectsの評価方法を試して、使用領域の面積、高さ、幅の順で最小に
-なる配置を採用する。グループ間には設定した余白を必ず確保し、配置結果には自動選択された
-転置状態を含める。自動最適配置中は各行の転置指定を使用しない。purge padは左上へ固定するが、
+配置は常に自動最適配置とする。個々のパッドAABBについて複数の安定したサイズ順とMaxRectsの
+評価方法を試して、使用領域の面積、高さ、幅の順で最小になる配置を採用する。パッド間には
+設定した余白を必ず確保する。purge padは左上へ固定するが、
 上端全幅の専用帯は確保しない。purge padと設定余白を矩形keepoutとして扱い、その右側と下側を
 同じ配置領域としてMaxRectsへ渡す。
 
-自動最適配置を無効にした場合は、各行の転置指定をそのまま使用し、footprint library、
-footprint名、代表パッドindexによる安定順のshelf packingへ切り替える。初期レシピの6種は
-上表の順を優先し、library（family）が変わるたびに新しい行から開始し、空き領域への
-後詰めは行わない。最上段はpurge padの右側から開始し、purge padの下端と余白を越えた段では
-基板の左端まで再利用する。
-
-生成物では、抽出したパッド1個を持つfootprintを各セルに生成し、そのパッドの
+生成物では、抽出したパッド1個を持つfootprintを各配置位置に生成し、そのパッドの
 F.Cu/F.Mask/F.Pasteを保持する。元footprint全体のsilkscreenは部品配置を意味してしまうため
 複製しない。reference/value文字は非表示にし、通常パッドへ`PAD1`からの安定したreference、
 専用purge padへ`PURGE1`を割り当てる。KiCad footprint rootは
@@ -311,11 +301,12 @@ F.Cu/F.Mask/F.Pasteを保持する。元footprint全体のsilkscreenは部品配
 
 WebUIの「はんだ塗布」タブに「はんだペースト流量キャリブレーション基板生成」を置く。
 名称検索とパッド種の一括追加を提供し、設定変更時は抽出した実パッド形状から解決した
-F.Cu/F.Paste、グループ境界、角度、グループ寸法をSVGで表示する。設定は
+F.Cu/F.Pasteと角度をSVGで表示する。部品名は画像へ常時描画せず、各パッドへのhover時に
+tooltipで表示する。設定は
 `pcbasm-paste-flow-calibration-board.json`、KiCad基板は
 `pcbasm-paste-flow-calibration-board.kicad_pcb`としてブラウザへ直接ダウンロードする。
 配置領域を超えた場合もpreview自体は消さず、全パッドの診断配置を表示する。有効な配置領域の
-外へ出たパッド形状とグループ境界の部分だけを赤で重ね、基板生成は配置可能になるまで無効にする。
+外へ出たパッド形状の部分だけを赤で重ね、基板生成は配置可能になるまで無効にする。
 装置を動かさないため、生成と設定入出力にWebUIの操作権は要求しない。
 編集中の設定は機体ごとにブラウザのlocalStorageへ自動保存し、ページの再読込時に復元する。
 保存内容はサーバーのImport APIでschema検証・正規化してから画面へ反映し、古いschemaまたは
@@ -323,9 +314,7 @@ F.Cu/F.Paste、グループ境界、角度、グループ寸法をSVGで表示�
 初期化、パッド追加、Import、previewでは、サーバーが返す正規化済み設定と参照用catalogを
 正とし、WebUI側でパッド種や設定の正規順を再導出しない。
 表ではfootprint名を「名称」として表示する。長い名称とパッド種は末尾を省略表示し、hover時の
-tooltipで完全な文字列を確認できる。各パッド行の「転置配置」で、繰り返しを横へ置く配置と
-回転角を横へ置く配置を切り替える。自動最適配置中は転置指定を無効表示し、サーバーが解決した
-転置状態をグループ寸法へ表示する。名称とパッド種の見出しでは表示行を昇順・降順に
+tooltipで完全な文字列を確認できる。名称とパッド種の見出しでは表示行を昇順・降順に
 並べ替えられる。この表示順は設定の正規順や基板上の配置順を変更しない。名称検索の下では、
 形状と寸法を入力して任意サイズパッドを追加できる。
 
@@ -337,7 +326,6 @@ tooltipで完全な文字列を確認できる。各パッド行の「転置配�
 {
   "kind": "paste_flow_calibration_board",
   "schema_version": 1,
-  "auto_pack": true,
   "board": {
     "width_mm": 40.0,
     "height_mm": 40.0,
@@ -363,15 +351,13 @@ tooltipで完全な文字列を確認できる。各パッド行の「転置配�
       "catalog_id": "Resistor_SMD.pretty/R_0402_1005Metric#pad-0",
       "rotation_span_deg": 180.0,
       "rotation_count": 4,
-      "repeat_count": 3,
-      "transpose": false
+      "repeat_count": 3
     },
     {
       "catalog_id": "custom:0123456789abcdef0123456789abcdef",
       "rotation_span_deg": 180.0,
       "rotation_count": 4,
-      "repeat_count": 3,
-      "transpose": false
+      "repeat_count": 3
     }
   ]
 }

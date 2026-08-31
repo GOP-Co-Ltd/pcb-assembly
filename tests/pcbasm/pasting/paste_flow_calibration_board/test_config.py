@@ -248,9 +248,6 @@ class TestPasteFlowCalibrationBoardConfig:
         "config",
         [
             PasteFlowCalibrationBoardConfig(
-                auto_pack="yes",  # type: ignore[arg-type]
-            ),
-            PasteFlowCalibrationBoardConfig(
                 board=PasteFlowCalibrationBoardSpec(
                     width_mm=True  # type: ignore[arg-type]
                 )
@@ -301,14 +298,6 @@ class TestPasteFlowCalibrationBoardConfig:
                     ),
                 )
             ),
-            PasteFlowCalibrationBoardConfig(
-                patterns=(
-                    PasteFlowCalibrationPattern(
-                        R0402,
-                        transpose="yes",  # type: ignore[arg-type]
-                    ),
-                )
-            ),
         ],
     )
     def test_invalid_runtime_values_do_not_leak_exceptions(self, config):
@@ -323,11 +312,10 @@ class TestPasteFlowCalibrationBoardDocument:
 
     def test_round_trip_preserves_the_normalized_config(self):
         config = PasteFlowCalibrationBoardConfig(
-            auto_pack=False,
             board=PasteFlowCalibrationBoardSpec(pad_gap_mm=1.5),
             custom_pads=(custom_pad(CUSTOM_A, "Custom oval", "oval", 1.5, 0.5),),
             patterns=(
-                PasteFlowCalibrationPattern(R0603, 360.0, 8, 2, transpose=True),
+                PasteFlowCalibrationPattern(R0603, 360.0, 8, 2),
                 PasteFlowCalibrationPattern(R0402, 180.0, 4, 3),
                 PasteFlowCalibrationPattern(CUSTOM_A, 180.0, 2, 2),
             ),
@@ -338,7 +326,6 @@ class TestPasteFlowCalibrationBoardDocument:
 
         assert document["kind"] == "paste_flow_calibration_board"
         assert document["schema_version"] == 1
-        assert document["auto_pack"] is False
         assert document["board"]["pad_gap_mm"] == 1.5
         assert document["custom_pads"][0]["shape"] == "oval"
         assert [item["catalog_id"] for item in document["patterns"]] == [
@@ -403,7 +390,6 @@ class TestPasteFlowCalibrationBoardDocument:
         [
             ("patterns", "not-a-list"),
             ("custom_pads", {}),
-            ("auto_pack", 1),
         ],
     )
     def test_rejects_malformed_config_fields(self, key: str, value: object):

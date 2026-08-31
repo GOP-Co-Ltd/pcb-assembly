@@ -117,7 +117,6 @@ class PasteFlowCalibrationPattern:
     rotation_span_deg: float = 180.0
     rotation_count: int = 4
     repeat_count: int = 3
-    transpose: bool = False
 
 
 @attrs.frozen
@@ -170,7 +169,6 @@ def default_patterns() -> tuple[PasteFlowCalibrationPattern, ...]:
 class PasteFlowCalibrationBoardConfig:
     """生成・preview・exportで共有する基板設定."""
 
-    auto_pack: bool = True
     board: PasteFlowCalibrationBoardSpec = attrs.Factory(PasteFlowCalibrationBoardSpec)
     purge_pad: PasteFlowCalibrationPurgePadSpec = attrs.Factory(
         PasteFlowCalibrationPurgePadSpec
@@ -186,8 +184,6 @@ def validate_paste_flow_calibration_board_config(
 
     if not isinstance(config, PasteFlowCalibrationBoardConfig):
         return "基板設定の形式が不正です"
-    if not isinstance(config.auto_pack, bool):
-        return "自動最適配置は真偽値で指定してください"
     if not isinstance(config.board, PasteFlowCalibrationBoardSpec):
         return "基板外形の形式が不正です"
     if not isinstance(config.purge_pad, PasteFlowCalibrationPurgePadSpec):
@@ -282,8 +278,6 @@ def validate_paste_flow_calibration_board_config(
             or pattern.repeat_count < 1
         ):
             return "繰り返し数は1以上の整数が必要です"
-        if not isinstance(pattern.transpose, bool):
-            return "転置配置は真偽値で指定してください"
         remaining_pad_count = _MAX_CALIBRATION_PAD_COUNT - total_pad_count
         if pattern.rotation_count > remaining_pad_count // pattern.repeat_count:
             return "生成パッド総数は10,000以下で指定してください"
@@ -413,7 +407,6 @@ def normalized_paste_flow_calibration_board_document(
     return {
         "kind": PASTE_FLOW_CALIBRATION_BOARD_KIND,
         "schema_version": PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION,
-        "auto_pack": config.auto_pack,
         "board": attrs.asdict(config.board),
         "purge_pad": attrs.asdict(config.purge_pad),
         "custom_pads": [attrs.asdict(item) for item in config.custom_pads],
@@ -431,7 +424,6 @@ def parse_paste_flow_calibration_board_document(
         (
             "kind",
             "schema_version",
-            "auto_pack",
             "board",
             "purge_pad",
             "custom_pads",
@@ -448,13 +440,10 @@ def parse_paste_flow_calibration_board_document(
         or schema_version != PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION
     ):
         return None
-    auto_pack = _document_bool(document.get("auto_pack"))
     board_data = document.get("board")
     purge_data = document.get("purge_pad")
     custom_pad_data = document.get("custom_pads")
     pattern_data = document.get("patterns")
-    if auto_pack is None:
-        return None
     if not isinstance(board_data, Mapping) or not _has_exact_keys(
         board_data, ("width_mm", "height_mm", "edge_margin_mm", "pad_gap_mm")
     ):
@@ -528,7 +517,6 @@ def parse_paste_flow_calibration_board_document(
                 "rotation_span_deg",
                 "rotation_count",
                 "repeat_count",
-                "transpose",
             ),
         ):
             return None
@@ -536,15 +524,9 @@ def parse_paste_flow_calibration_board_document(
         span = _document_float(value.get("rotation_span_deg"))
         rotation_count = _document_int(value.get("rotation_count"))
         repeat_count = _document_int(value.get("repeat_count"))
-        transpose = _document_bool(value.get("transpose"))
         if not isinstance(catalog_id, str):
             return None
-        if (
-            span is None
-            or rotation_count is None
-            or repeat_count is None
-            or transpose is None
-        ):
+        if span is None or rotation_count is None or repeat_count is None:
             return None
         patterns.append(
             PasteFlowCalibrationPattern(
@@ -552,12 +534,10 @@ def parse_paste_flow_calibration_board_document(
                 rotation_span_deg=span,
                 rotation_count=rotation_count,
                 repeat_count=repeat_count,
-                transpose=transpose,
             )
         )
 
     config = PasteFlowCalibrationBoardConfig(
-        auto_pack=auto_pack,
         board=PasteFlowCalibrationBoardSpec(
             width_mm=width,
             height_mm=height,

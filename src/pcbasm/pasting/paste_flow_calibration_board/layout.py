@@ -1,8 +1,7 @@
-"""解決済みpreview DTOとパッドグループの配置."""
+"""解決済みpreview DTOとパッド単位の自動最適配置."""
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from typing import Literal, TypeAlias
 
@@ -22,7 +21,6 @@ from .config import (
     PasteFlowCalibrationBoardConfig,
     PasteFlowCalibrationBoardOverflowError,
     PasteFlowCalibrationBoardSpec,
-    PasteFlowCalibrationPattern,
     PasteFlowCalibrationPreviewLayer,
 )
 
@@ -58,7 +56,9 @@ class PasteFlowCalibrationPadLayout:
     """生成する単一パッドfootprintの解決済み配置."""
 
     catalog_id: str
+    display_name: str
     reference: str
+    bounds: PasteFlowCalibrationBounds
     x: float
     y: float
     rotation_deg: float
@@ -66,21 +66,11 @@ class PasteFlowCalibrationPadLayout:
 
 
 @attrs.frozen
-class PasteFlowCalibrationGroupLayout:
-    """回転・繰り返しの解決済み矩形グループ."""
+class PasteFlowCalibrationPatternLayout:
+    """パッド設定ごとの解決済み回転角."""
 
     catalog_id: str
-    label: str
-    footprint_label: str
-    family_id: str
-    family_label: str
-    bounds: PasteFlowCalibrationBounds
-    cell_width_mm: float
-    cell_height_mm: float
     angles_deg: tuple[float, ...]
-    repeat_count: int
-    transpose: bool
-    pads: tuple[PasteFlowCalibrationPadLayout, ...]
 
 
 @attrs.frozen
@@ -92,8 +82,12 @@ class PasteFlowCalibrationBoardLayout:
     preview_bounds: PasteFlowCalibrationBounds
     purge_pad: PasteFlowCalibrationBounds
     purge_polygons: tuple[PasteFlowCalibrationPolygon, ...]
-    groups: tuple[PasteFlowCalibrationGroupLayout, ...]
-    pad_count: int
+    patterns: tuple[PasteFlowCalibrationPatternLayout, ...]
+    pads: tuple[PasteFlowCalibrationPadLayout, ...]
+
+    @property
+    def pad_count(self) -> int:
+        return len(self.pads)
 
 
 @attrs.frozen
@@ -113,18 +107,22 @@ class _PackingRect:
 
 
 @attrs.frozen
-class _PackedGroup:
-    bounds: PasteFlowCalibrationBounds
-    transpose: bool
+class _PadToPack:
+    index: int
+    catalog_id: str
+    display_name: str
+    rotation_deg: float
+    envelope: PasteFlowCalibrationFootprintEnvelope
+
+    @property
+    def width(self) -> float:
+        return self.envelope.width
+
+    @property
+    def height(self) -> float:
+        return self.envelope.height
 
 
-_GroupMetrics: TypeAlias = tuple[
-    float,
-    float,
-    tuple[float, ...],
-    tuple[PasteFlowCalibrationFootprintEnvelope, ...],
-]
-_PackingVariant: TypeAlias = tuple[bool, float, float]
 _PackingHeuristic: TypeAlias = Literal["short_side", "area", "bottom_left"]
 
 
@@ -134,105 +132,89 @@ def build_paste_flow_calibration_board_layout(
 ) -> PasteFlowCalibrationBoardLayout:
     """解決済みconfigとtemplateから配置可能なlayoutを構築する."""
 
-    metrics = _group_metrics_by_catalog_id(config, resolved)
-    placements = _pack_groups(config, metrics, resolved)
-    return _build_layout(config, resolved, metrics, placements)
+    patterns, pads = _pads_to_pack(config, resolved)
+    placements = _pack_pads(config, pads)
+    return _build_layout(config, resolved, patterns, pads, placements)
 
 
 def preview_paste_flow_calibration_board_layout(
     config: PasteFlowCalibrationBoardConfig,
     resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
 ) -> tuple[PasteFlowCalibrationBoardLayout, str | None]:
-    """超過時も全パターンを含む診断用layoutと理由を返す."""
+    """超過時も全パッドを含む診断用layoutと理由を返す."""
 
-    metrics = _group_metrics_by_catalog_id(config, resolved)
+    patterns, pads = _pads_to_pack(config, resolved)
     try:
-        placements = _pack_groups(config, metrics, resolved)
+        placements = _pack_pads(config, pads)
     except PasteFlowCalibrationBoardOverflowError as exc:
-        placements = _pack_groups_for_overflow_preview(config, metrics, resolved)
+        placements = _pack_pads_for_overflow_preview(config, pads)
         overflow_message: str | None = str(exc)
     else:
         overflow_message = None
     return (
-        _build_layout(config, resolved, metrics, placements),
+        _build_layout(config, resolved, patterns, pads, placements),
         overflow_message,
     )
 
 
-def _group_metrics_by_catalog_id(
+def _pads_to_pack(
     config: PasteFlowCalibrationBoardConfig,
     resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
-) -> dict[str, _GroupMetrics]:
-    return {
-        pattern.catalog_id: _group_metrics(
-            pattern, resolved[pattern.catalog_id].template
+) -> tuple[tuple[PasteFlowCalibrationPatternLayout, ...], tuple[_PadToPack, ...]]:
+    layouts: list[PasteFlowCalibrationPatternLayout] = []
+    pads: list[_PadToPack] = []
+    for pattern in config.patterns:
+        resolved_pattern = resolved[pattern.catalog_id]
+        angles = tuple(
+            index * pattern.rotation_span_deg / pattern.rotation_count
+            for index in range(pattern.rotation_count)
         )
-        for pattern in config.patterns
-    }
+        envelopes = tuple(
+            footprint_envelope(resolved_pattern.template, angle) for angle in angles
+        )
+        layouts.append(PasteFlowCalibrationPatternLayout(pattern.catalog_id, angles))
+        display_name = (
+            f"{resolved_pattern.item.footprint_label} / {resolved_pattern.item.label}"
+        )
+        for _repeat_index in range(pattern.repeat_count):
+            for angle, envelope in zip(angles, envelopes, strict=True):
+                pads.append(
+                    _PadToPack(
+                        index=len(pads),
+                        catalog_id=pattern.catalog_id,
+                        display_name=display_name,
+                        rotation_deg=angle,
+                        envelope=envelope,
+                    )
+                )
+    return tuple(layouts), tuple(pads)
 
 
 def _build_layout(
     config: PasteFlowCalibrationBoardConfig,
     resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
-    metrics: Mapping[str, _GroupMetrics],
-    placements: Mapping[str, _PackedGroup],
+    patterns: tuple[PasteFlowCalibrationPatternLayout, ...],
+    pads: tuple[_PadToPack, ...],
+    placements: Mapping[int, PasteFlowCalibrationBounds],
 ) -> PasteFlowCalibrationBoardLayout:
-    groups: list[PasteFlowCalibrationGroupLayout] = []
-    pad_counter = 0
-    for pattern in config.patterns:
-        resolved_pattern = resolved[pattern.catalog_id]
-        item = resolved_pattern.item
-        packed = placements[pattern.catalog_id]
-        bounds = packed.bounds
-        transpose = packed.transpose
-        cell_width, cell_height, angles, envelopes = metrics[pattern.catalog_id]
-        pads: list[PasteFlowCalibrationPadLayout] = []
-        for repeat_index in range(pattern.repeat_count):
-            for rotation_index, angle in enumerate(angles):
-                envelope = envelopes[rotation_index]
-                column = repeat_index if transpose else rotation_index
-                row = rotation_index if transpose else repeat_index
-                cell_center_x = (
-                    bounds.x
-                    + column * (cell_width + config.board.pad_gap_mm)
-                    + cell_width / 2.0
-                )
-                cell_center_y = (
-                    bounds.y
-                    + row * (cell_height + config.board.pad_gap_mm)
-                    + cell_height / 2.0
-                )
-                anchor_x = cell_center_x - envelope.center_x
-                anchor_y = cell_center_y - envelope.center_y
-                pad_counter += 1
-                reference = f"PAD{pad_counter}"
-                placed = duplicate_footprint(resolved_pattern.template)
-                placed.SetPosition(vector(anchor_x, anchor_y))
-                placed.SetOrientationDegrees(angle)
-                pads.append(
-                    PasteFlowCalibrationPadLayout(
-                        catalog_id=pattern.catalog_id,
-                        reference=reference,
-                        x=anchor_x,
-                        y=anchor_y,
-                        rotation_deg=angle,
-                        polygons=_footprint_polygons(placed),
-                    )
-                )
-        groups.append(
-            PasteFlowCalibrationGroupLayout(
-                catalog_id=pattern.catalog_id,
-                label=item.label,
-                footprint_label=item.footprint_label,
-                family_id=item.family_id,
-                family_label=item.family_label,
+    pad_layouts: list[PasteFlowCalibrationPadLayout] = []
+    for pad in pads:
+        bounds = placements[pad.index]
+        anchor_x = bounds.x - pad.envelope.min_x
+        anchor_y = bounds.y - pad.envelope.min_y
+        placed = duplicate_footprint(resolved[pad.catalog_id].template)
+        placed.SetPosition(vector(anchor_x, anchor_y))
+        placed.SetOrientationDegrees(pad.rotation_deg)
+        pad_layouts.append(
+            PasteFlowCalibrationPadLayout(
+                catalog_id=pad.catalog_id,
+                display_name=pad.display_name,
+                reference=f"PAD{pad.index + 1}",
                 bounds=bounds,
-                cell_width_mm=cell_width,
-                cell_height_mm=cell_height,
-                angles_deg=angles,
-                repeat_count=pattern.repeat_count,
-                transpose=transpose,
-                pads=tuple(pads),
+                x=anchor_x,
+                y=anchor_y,
+                rotation_deg=pad.rotation_deg,
+                polygons=_footprint_polygons(placed),
             )
         )
     purge = PasteFlowCalibrationBounds(
@@ -243,7 +225,7 @@ def _build_layout(
     )
     purge_points = _rectangle_points(purge)
     placement_area = _placement_area(config)
-    preview_bounds = _preview_bounds(config.board, purge, groups)
+    preview_bounds = _preview_bounds(config.board, purge, pad_layouts)
     return PasteFlowCalibrationBoardLayout(
         board=config.board,
         placement_area=placement_area,
@@ -253,20 +235,20 @@ def _build_layout(
             PasteFlowCalibrationPolygon("F.Cu", purge_points),
             PasteFlowCalibrationPolygon("F.Paste", purge_points),
         ),
-        groups=tuple(groups),
-        pad_count=pad_counter,
+        patterns=patterns,
+        pads=tuple(pad_layouts),
     )
 
 
 def _preview_bounds(
     board: PasteFlowCalibrationBoardSpec,
     purge: PasteFlowCalibrationBounds,
-    groups: list[PasteFlowCalibrationGroupLayout],
+    pads: list[PasteFlowCalibrationPadLayout],
 ) -> PasteFlowCalibrationBounds:
     bounds = (
         PasteFlowCalibrationBounds(0.0, 0.0, board.width_mm, board.height_mm),
         purge,
-        *(group.bounds for group in groups),
+        *(pad.bounds for pad in pads),
     )
     left = min(item.x for item in bounds)
     top = min(item.y for item in bounds)
@@ -275,68 +257,45 @@ def _preview_bounds(
     return PasteFlowCalibrationBounds(left, top, right - left, bottom - top)
 
 
-def _group_metrics(
-    pattern: PasteFlowCalibrationPattern,
-    footprint: pcbnew.FOOTPRINT,
-) -> _GroupMetrics:
-    angles = tuple(
-        index * pattern.rotation_span_deg / pattern.rotation_count
-        for index in range(pattern.rotation_count)
-    )
-    envelopes = tuple(footprint_envelope(footprint, angle) for angle in angles)
-    cell_width = max(envelope.width for envelope in envelopes)
-    cell_height = max(envelope.height for envelope in envelopes)
-    return cell_width, cell_height, angles, envelopes
-
-
-def _pack_groups(
+def _pack_pads(
     config: PasteFlowCalibrationBoardConfig,
-    metrics: Mapping[str, _GroupMetrics],
-    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
-) -> dict[str, _PackedGroup]:
+    pads: tuple[_PadToPack, ...],
+) -> dict[int, PasteFlowCalibrationBounds]:
     _validate_purge_region(config)
-    if config.auto_pack:
-        return _pack_groups_optimized(config, metrics, resolved)
-    return _pack_groups_ordered(config, metrics, resolved)
-
-
-def _pack_groups_for_overflow_preview(
-    config: PasteFlowCalibrationBoardConfig,
-    metrics: Mapping[str, _GroupMetrics],
-    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
-) -> dict[str, _PackedGroup]:
-    if not config.auto_pack:
-        return _pack_groups_ordered(
-            config,
-            metrics,
-            resolved,
-            allow_overflow=True,
-        )
-
-    variants = {
-        pattern.catalog_id: _packing_variants(
-            pattern,
-            metrics,
-            config.board.pad_gap_mm,
-        )
-        for pattern in config.patterns
-    }
-    area = _overflow_preview_area(config, variants)
+    area = _packing_area(config)
+    for pad in pads:
+        if pad.width > area.width + 1e-9 or pad.height > area.height + 1e-9:
+            raise PasteFlowCalibrationBoardOverflowError(
+                f"{pad.display_name}のパッド（{pad.width:.2f} × {pad.height:.2f} mm）が"
+                f"配置領域{area.width:.2f} × {area.height:.2f} mmに収まりません"
+            )
     packed = _find_optimized_packing(
-        config.patterns,
-        variants,
+        pads,
+        area,
+        _purge_keepout(config),
+        config.board.pad_gap_mm,
+    )
+    if packed is None:
+        raise PasteFlowCalibrationBoardOverflowError(
+            "自動最適配置でもすべてのパッドが基板の配置可能領域に収まりません"
+        )
+    return packed
+
+
+def _pack_pads_for_overflow_preview(
+    config: PasteFlowCalibrationBoardConfig,
+    pads: tuple[_PadToPack, ...],
+) -> dict[int, PasteFlowCalibrationBounds]:
+    area = _overflow_preview_area(config, pads)
+    packed = _find_optimized_packing(
+        pads,
         area,
         _purge_keepout(config),
         config.board.pad_gap_mm,
     )
     if packed is not None:
         return packed
-    return _pack_groups_ordered(
-        config,
-        metrics,
-        resolved,
-        allow_overflow=True,
-    )
+    return _stack_pads_for_overflow_preview(config, pads)
 
 
 def _validate_purge_region(config: PasteFlowCalibrationBoardConfig) -> None:
@@ -353,21 +312,6 @@ def _validate_purge_region(config: PasteFlowCalibrationBoardConfig) -> None:
             f"purge pad高さ{config.purge_pad.height_mm:.2f} mmが"
             f"配置可能高さ{available_height:.2f} mmを超えます"
         )
-
-
-def _group_dimensions(
-    pattern: PasteFlowCalibrationPattern,
-    metrics: _GroupMetrics,
-    gap: float,
-    transpose: bool,
-) -> tuple[float, float]:
-    cell_width, cell_height, _angles, _envelopes = metrics
-    column_count = pattern.repeat_count if transpose else pattern.rotation_count
-    row_count = pattern.rotation_count if transpose else pattern.repeat_count
-    return (
-        column_count * cell_width + (column_count - 1) * gap,
-        row_count * cell_height + (row_count - 1) * gap,
-    )
 
 
 def _packing_area(config: PasteFlowCalibrationBoardConfig) -> _PackingRect:
@@ -397,130 +341,15 @@ def _purge_keepout(config: PasteFlowCalibrationBoardConfig) -> _PackingRect:
     )
 
 
-def _shelf_start_x(area: _PackingRect, purge_keepout: _PackingRect, y: float) -> float:
-    if y < purge_keepout.bottom - 1e-9:
-        return purge_keepout.right
-    return area.x
-
-
-def _pack_groups_ordered(
-    config: PasteFlowCalibrationBoardConfig,
-    metrics: Mapping[str, _GroupMetrics],
-    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
-    *,
-    allow_overflow: bool = False,
-) -> dict[str, _PackedGroup]:
-    board = config.board
-    area = _packing_area(config)
-    purge_keepout = _purge_keepout(config)
-    right = area.right
-    bottom = area.bottom
-    x = purge_keepout.right
-    y = area.y
-    row_height = 0.0
-    family_id: str | None = None
-    placements: dict[str, _PackedGroup] = {}
-    for pattern in config.patterns:
-        item = resolved[pattern.catalog_id].item
-        width, height = _group_dimensions(
-            pattern,
-            metrics[pattern.catalog_id],
-            board.pad_gap_mm,
-            pattern.transpose,
-        )
-        if not allow_overflow and width > area.width + 1e-9:
-            raise PasteFlowCalibrationBoardOverflowError(
-                f"{item.footprint_label} / {item.label}のグループ幅{width:.2f} mmが"
-                f"配置可能幅{area.width:.2f} mmを超えます"
-            )
-        if family_id is not None and item.family_id != family_id:
-            y += row_height + board.pad_gap_mm
-            x = _shelf_start_x(area, purge_keepout, y)
-            row_height = 0.0
-        if x + width > right + 1e-9:
-            if row_height > 0.0:
-                y += row_height + board.pad_gap_mm
-            elif y < purge_keepout.bottom - 1e-9:
-                y = purge_keepout.bottom
-            x = _shelf_start_x(area, purge_keepout, y)
-            row_height = 0.0
-        if x + width > right + 1e-9 and y < purge_keepout.bottom - 1e-9:
-            y = purge_keepout.bottom
-            x = area.x
-        if not allow_overflow and y + height > bottom + 1e-9:
-            raise PasteFlowCalibrationBoardOverflowError(
-                f"{item.footprint_label} / {item.label}を配置すると基板高さを超えます"
-                f"（必要下端{y + height:.2f} mm、配置可能下端{bottom:.2f} mm）"
-            )
-        placements[pattern.catalog_id] = _PackedGroup(
-            bounds=PasteFlowCalibrationBounds(x=x, y=y, width=width, height=height),
-            transpose=pattern.transpose,
-        )
-        x += width + board.pad_gap_mm
-        row_height = max(row_height, height)
-        family_id = item.family_id
-    return placements
-
-
-def _pack_groups_optimized(
-    config: PasteFlowCalibrationBoardConfig,
-    metrics: Mapping[str, _GroupMetrics],
-    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
-) -> dict[str, _PackedGroup]:
-    area = _packing_area(config)
-    purge_keepout = _purge_keepout(config)
-    variants = {
-        pattern.catalog_id: _packing_variants(pattern, metrics, config.board.pad_gap_mm)
-        for pattern in config.patterns
-    }
-    for pattern in config.patterns:
-        if not any(
-            width <= area.width + 1e-9 and height <= area.height + 1e-9
-            for _transpose, width, height in variants[pattern.catalog_id]
-        ):
-            item = resolved[pattern.catalog_id].item
-            raise PasteFlowCalibrationBoardOverflowError(
-                f"{item.footprint_label} / {item.label}は転置しても"
-                f"配置領域{area.width:.2f} × {area.height:.2f} mmに収まりません"
-            )
-
-    packed = _find_optimized_packing(
-        config.patterns,
-        variants,
-        area,
-        purge_keepout,
-        config.board.pad_gap_mm,
-    )
-    if packed is None:
-        raise PasteFlowCalibrationBoardOverflowError(
-            "自動最適配置でもすべてのパッドグループを配置できず、"
-            "基板の配置可能領域を超えます"
-        )
-    return packed
-
-
 def _overflow_preview_area(
     config: PasteFlowCalibrationBoardConfig,
-    variants: Mapping[str, tuple[_PackingVariant, ...]],
+    pads: tuple[_PadToPack, ...],
 ) -> _PackingRect:
     area = _packing_area(config)
     purge_keepout = _purge_keepout(config)
-    width = max(
-        area.width,
-        purge_keepout.width,
-        *(
-            min(variant[1] for variant in variants[pattern.catalog_id])
-            for pattern in config.patterns
-        ),
-    )
+    width = max(area.width, purge_keepout.width, *(pad.width for pad in pads))
     stacked_height = purge_keepout.height + sum(
-        min(
-            variant[2]
-            for variant in variants[pattern.catalog_id]
-            if variant[1] <= width + 1e-9
-        )
-        + config.board.pad_gap_mm
-        for pattern in config.patterns
+        pad.height + config.board.pad_gap_mm for pad in pads
     )
     return _PackingRect(
         x=area.x,
@@ -530,24 +359,40 @@ def _overflow_preview_area(
     )
 
 
+def _stack_pads_for_overflow_preview(
+    config: PasteFlowCalibrationBoardConfig,
+    pads: tuple[_PadToPack, ...],
+) -> dict[int, PasteFlowCalibrationBounds]:
+    area = _packing_area(config)
+    y = max(area.y, _purge_keepout(config).bottom)
+    placements: dict[int, PasteFlowCalibrationBounds] = {}
+    for pad in pads:
+        placements[pad.index] = PasteFlowCalibrationBounds(
+            x=area.x,
+            y=y,
+            width=pad.width,
+            height=pad.height,
+        )
+        y += pad.height + config.board.pad_gap_mm
+    return placements
+
+
 def _find_optimized_packing(
-    patterns: tuple[PasteFlowCalibrationPattern, ...],
-    variants: Mapping[str, tuple[_PackingVariant, ...]],
+    pads: tuple[_PadToPack, ...],
     area: _PackingRect,
     purge_keepout: _PackingRect,
     gap: float,
-) -> dict[str, _PackedGroup] | None:
-    attempts: list[dict[str, _PackedGroup]] = []
+) -> dict[int, PasteFlowCalibrationBounds] | None:
+    attempts: list[dict[int, PasteFlowCalibrationBounds]] = []
     heuristics: tuple[_PackingHeuristic, ...] = (
         "short_side",
         "area",
         "bottom_left",
     )
-    for order in _packing_orders(patterns, variants):
+    for order in _packing_orders(pads):
         for heuristic in heuristics:
             packed = _pack_max_rects(
                 order,
-                variants,
                 area,
                 purge_keepout,
                 gap,
@@ -560,50 +405,21 @@ def _find_optimized_packing(
     return min(attempts, key=lambda packed: _packing_score(packed, area))
 
 
-def _packing_variants(
-    pattern: PasteFlowCalibrationPattern,
-    metrics: Mapping[str, _GroupMetrics],
-    gap: float,
-) -> tuple[_PackingVariant, ...]:
-    variants = tuple(
-        (
-            transpose,
-            *_group_dimensions(pattern, metrics[pattern.catalog_id], gap, transpose),
-        )
-        for transpose in (False, True)
-    )
-    if math.isclose(variants[0][1], variants[1][1], abs_tol=1e-9) and math.isclose(
-        variants[0][2], variants[1][2], abs_tol=1e-9
-    ):
-        return (variants[0],)
-    return variants
-
-
 def _packing_orders(
-    patterns: tuple[PasteFlowCalibrationPattern, ...],
-    variants: Mapping[str, tuple[_PackingVariant, ...]],
-) -> tuple[tuple[PasteFlowCalibrationPattern, ...], ...]:
-    def maximum(catalog_id: str, value: int) -> float:
-        return max(item[value] for item in variants[catalog_id])
-
+    pads: tuple[_PadToPack, ...],
+) -> tuple[tuple[_PadToPack, ...], ...]:
     sort_keys = (
-        lambda pattern: (
-            -maximum(pattern.catalog_id, 1) * maximum(pattern.catalog_id, 2),
-        ),
-        lambda pattern: (
-            -max(maximum(pattern.catalog_id, 1), maximum(pattern.catalog_id, 2)),
-        ),
-        lambda pattern: (-maximum(pattern.catalog_id, 1),),
-        lambda pattern: (-maximum(pattern.catalog_id, 2),),
-        lambda pattern: (
-            -(maximum(pattern.catalog_id, 1) + maximum(pattern.catalog_id, 2)),
-        ),
+        lambda pad: (-pad.width * pad.height,),
+        lambda pad: (-max(pad.width, pad.height),),
+        lambda pad: (-pad.width,),
+        lambda pad: (-pad.height,),
+        lambda pad: (-(pad.width + pad.height),),
     )
-    orders = [patterns]
-    seen = {tuple(pattern.catalog_id for pattern in patterns)}
+    orders = [pads]
+    seen = {tuple(pad.index for pad in pads)}
     for key in sort_keys:
-        order = tuple(sorted(patterns, key=key))
-        identity = tuple(pattern.catalog_id for pattern in order)
+        order = tuple(sorted(pads, key=key))
+        identity = tuple(pad.index for pad in order)
         if identity not in seen:
             orders.append(order)
             seen.add(identity)
@@ -611,54 +427,48 @@ def _packing_orders(
 
 
 def _pack_max_rects(
-    patterns: tuple[PasteFlowCalibrationPattern, ...],
-    variants: Mapping[str, tuple[_PackingVariant, ...]],
+    pads: tuple[_PadToPack, ...],
     area: _PackingRect,
     purge_keepout: _PackingRect,
     gap: float,
     heuristic: _PackingHeuristic,
-) -> dict[str, _PackedGroup] | None:
+) -> dict[int, PasteFlowCalibrationBounds] | None:
     free_rectangles = _split_free_rectangles(
         (_PackingRect(area.x, area.y, area.width + gap, area.height + gap),),
         purge_keepout,
     )
-    placements: dict[str, _PackedGroup] = {}
-    for pattern in patterns:
-        choices: list[tuple[tuple[float, ...], _PackingRect, bool, float, float]] = []
-        for transpose, width, height in variants[pattern.catalog_id]:
-            packed_width = width + gap
-            packed_height = height + gap
-            for free in free_rectangles:
-                if (
-                    packed_width > free.width + 1e-9
-                    or packed_height > free.height + 1e-9
-                ):
-                    continue
-                remaining_width = free.width - packed_width
-                remaining_height = free.height - packed_height
-                choices.append(
-                    (
-                        _max_rects_choice_score(
-                            heuristic,
-                            free,
-                            packed_width,
-                            packed_height,
-                            remaining_width,
-                            remaining_height,
-                            transpose,
-                        ),
+    placements: dict[int, PasteFlowCalibrationBounds] = {}
+    for pad in pads:
+        packed_width = pad.width + gap
+        packed_height = pad.height + gap
+        choices: list[tuple[tuple[float, ...], _PackingRect]] = []
+        for free in free_rectangles:
+            if packed_width > free.width + 1e-9 or packed_height > free.height + 1e-9:
+                continue
+            remaining_width = free.width - packed_width
+            remaining_height = free.height - packed_height
+            choices.append(
+                (
+                    _max_rects_choice_score(
+                        heuristic,
                         free,
-                        transpose,
-                        width,
-                        height,
-                    )
+                        packed_width,
+                        packed_height,
+                        remaining_width,
+                        remaining_height,
+                    ),
+                    free,
                 )
+            )
         if not choices:
             return None
-        _score, free, transpose, width, height = min(choices, key=lambda item: item[0])
-        used = _PackingRect(free.x, free.y, width + gap, height + gap)
-        placements[pattern.catalog_id] = _PackedGroup(
-            PasteFlowCalibrationBounds(free.x, free.y, width, height), transpose
+        _score, free = min(choices, key=lambda item: item[0])
+        used = _PackingRect(free.x, free.y, packed_width, packed_height)
+        placements[pad.index] = PasteFlowCalibrationBounds(
+            free.x,
+            free.y,
+            pad.width,
+            pad.height,
         )
         free_rectangles = _split_free_rectangles(free_rectangles, used)
     return placements
@@ -671,16 +481,15 @@ def _max_rects_choice_score(
     height: float,
     remaining_width: float,
     remaining_height: float,
-    transpose: bool,
 ) -> tuple[float, ...]:
     short_side = min(remaining_width, remaining_height)
     long_side = max(remaining_width, remaining_height)
     area_waste = free.width * free.height - width * height
-    suffix = (free.y, free.x, float(transpose))
+    suffix = (free.y, free.x)
     if heuristic == "area":
         return (area_waste, short_side, long_side, *suffix)
     if heuristic == "bottom_left":
-        return (free.y + height, free.x, short_side, long_side, float(transpose))
+        return (free.y + height, free.x, short_side, long_side)
     return (short_side, long_side, area_waste, *suffix)
 
 
@@ -749,27 +558,19 @@ def _contains(outer: _PackingRect, inner: _PackingRect) -> bool:
 
 
 def _packing_score(
-    placements: Mapping[str, _PackedGroup], area: _PackingRect
+    placements: Mapping[int, PasteFlowCalibrationBounds], area: _PackingRect
 ) -> tuple[object, ...]:
-    used_width = (
-        max(item.bounds.x + item.bounds.width for item in placements.values()) - area.x
-    )
-    used_height = (
-        max(item.bounds.y + item.bounds.height for item in placements.values()) - area.y
-    )
-    transpose_count = sum(item.transpose for item in placements.values())
+    used_width = max(item.x + item.width for item in placements.values()) - area.x
+    used_height = max(item.y + item.height for item in placements.values()) - area.y
     positions = tuple(
-        sorted(
-            (
-                catalog_id,
-                round(item.bounds.y, 9),
-                round(item.bounds.x, 9),
-                item.transpose,
-            )
-            for catalog_id, item in placements.items()
+        (
+            index,
+            round(item.y, 9),
+            round(item.x, 9),
         )
+        for index, item in sorted(placements.items())
     )
-    return used_width * used_height, used_height, used_width, transpose_count, positions
+    return used_width * used_height, used_height, used_width, positions
 
 
 _LAYERS: tuple[tuple[PasteFlowCalibrationPreviewLayer, int], ...] = (

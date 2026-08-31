@@ -36,8 +36,8 @@ from .generator import (
 from .layout import (
     PasteFlowCalibrationBoardLayout,
     PasteFlowCalibrationBounds,
-    PasteFlowCalibrationGroupLayout,
     PasteFlowCalibrationPadLayout,
+    PasteFlowCalibrationPatternLayout,
     PasteFlowCalibrationPoint,
     PasteFlowCalibrationPolygon,
 )
@@ -62,11 +62,11 @@ __all__ = [
     "PasteFlowCalibrationCustomPadShapeId",
     "PasteFlowCalibrationCustomPadSpec",
     "PasteFlowCalibrationFootprintInfo",
-    "PasteFlowCalibrationGroupLayout",
     "PasteFlowCalibrationPadLayout",
     "PasteFlowCalibrationPadPattern",
     "PasteFlowCalibrationPattern",
     "PasteFlowCalibrationPatternAddition",
+    "PasteFlowCalibrationPatternLayout",
     "PasteFlowCalibrationPoint",
     "PasteFlowCalibrationPolygon",
     "PasteFlowCalibrationPreviewLayer",

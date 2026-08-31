@@ -60,7 +60,6 @@ class PasteFlowCalibrationPatternModel(_ApiModel):
     rotation_span_deg: float
     rotation_count: int
     repeat_count: int
-    transpose: bool
 
 
 class PasteFlowCalibrationCustomPadSpecModel(_ApiModel):
@@ -84,7 +83,6 @@ class PasteFlowCalibrationCustomPadDraftModel(_ApiModel):
 
 
 class PasteFlowCalibrationBoardConfigModel(_ApiModel):
-    auto_pack: bool
     board: PasteFlowCalibrationBoardSpecModel
     purge_pad: PasteFlowCalibrationPurgePadSpecModel
     custom_pads: list[PasteFlowCalibrationCustomPadSpecModel]
@@ -92,7 +90,6 @@ class PasteFlowCalibrationBoardConfigModel(_ApiModel):
 
     def to_core(self) -> PasteFlowCalibrationBoardConfig:
         return PasteFlowCalibrationBoardConfig(
-            auto_pack=self.auto_pack,
             board=PasteFlowCalibrationBoardSpec(**self.board.model_dump()),
             purge_pad=PasteFlowCalibrationPurgePadSpec(**self.purge_pad.model_dump()),
             custom_pads=tuple(
@@ -122,7 +119,6 @@ class PasteFlowCalibrationPadPatternModel(_ApiModel):
     default_rotation_span_deg: float
     default_rotation_count: int
     default_repeat_count: int
-    default_transpose: bool
 
 
 class PasteFlowCalibrationFootprintModel(_ApiModel):
@@ -184,26 +180,18 @@ class PasteFlowCalibrationBoundsModel(_ApiModel):
 
 class PasteFlowCalibrationPadLayoutModel(_ApiModel):
     catalog_id: str
+    display_name: str
     reference: str
+    bounds: PasteFlowCalibrationBoundsModel
     x: float
     y: float
     rotation_deg: float
     polygons: list[PasteFlowCalibrationPolygonModel]
 
 
-class PasteFlowCalibrationGroupLayoutModel(_ApiModel):
+class PasteFlowCalibrationPatternLayoutModel(_ApiModel):
     catalog_id: str
-    label: str
-    footprint_label: str
-    family_id: str
-    family_label: str
-    bounds: PasteFlowCalibrationBoundsModel
-    cell_width_mm: float
-    cell_height_mm: float
     angles_deg: list[float]
-    repeat_count: int
-    transpose: bool
-    pads: list[PasteFlowCalibrationPadLayoutModel]
 
 
 class PasteFlowCalibrationBoardPreviewResponse(_ApiModel):
@@ -214,7 +202,8 @@ class PasteFlowCalibrationBoardPreviewResponse(_ApiModel):
     preview_bounds: PasteFlowCalibrationBoundsModel
     purge_pad: PasteFlowCalibrationBoundsModel
     purge_polygons: list[PasteFlowCalibrationPolygonModel]
-    groups: list[PasteFlowCalibrationGroupLayoutModel]
+    patterns: list[PasteFlowCalibrationPatternLayoutModel]
+    pads: list[PasteFlowCalibrationPadLayoutModel]
     pad_count: int
     overflow_message: str | None
 
@@ -230,7 +219,8 @@ class PasteFlowCalibrationBoardPreviewResponse(_ApiModel):
                 "preview_bounds": layout.preview_bounds,
                 "purge_pad": layout.purge_pad,
                 "purge_polygons": layout.purge_polygons,
-                "groups": layout.groups,
+                "patterns": layout.patterns,
+                "pads": layout.pads,
                 "pad_count": layout.pad_count,
                 "overflow_message": preview.overflow_message,
             },

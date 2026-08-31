@@ -26,8 +26,10 @@ class TestPasteFlowCalibrationBoardPage:
         assert 'data-testid="pfc-generate"' in text
         assert "回転分割数" in text
         assert "繰り返し数" in text
-        assert "転置配置" in text
         assert "自動最適配置" in text
+        assert "転置配置" not in text
+        assert 'id="pfc-auto-pack"' not in text
+        assert "グループ境界" not in text
         assert "任意サイズパッド" in text
         assert "編集中の設定は機体ごとにこのブラウザへ自動保存されます" in text
         assert 'data-sort-field="name"' in text

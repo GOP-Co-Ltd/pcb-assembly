@@ -50,7 +50,6 @@ class TestPasteFlowCalibrationBoardOptions:
         assert body["kind"] == "paste_flow_calibration_board"
         assert body["schema_version"] == 1
         assert body["footprint_count"] == 8
-        assert body["config"]["auto_pack"] is True
         assert body["config"]["custom_pads"] == []
         assert [item["shape"] for item in body["custom_pad_shapes"]] == [
             "circle",
@@ -86,7 +85,7 @@ class TestPasteFlowCalibrationBoardOptions:
 
 
 class TestPasteFlowCalibrationBoardPatternAddition:
-    def test_adds_all_pad_groups_from_one_footprint(self, client: TestClient):
+    def test_adds_all_pad_patterns_from_one_footprint(self, client: TestClient):
         response = client.post(
             f"{_BASE}/patterns/from-footprint",
             json={"config": _default_config(client), "footprint_id": _QFN},
@@ -296,7 +295,8 @@ class TestPasteFlowCalibrationBoardPreview:
         assert response.status_code == 200, response.text
         preview = response.json()
         assert preview["pad_count"] == 64
-        assert len(preview["groups"]) == 6
+        assert len(preview["patterns"]) == 6
+        assert len(preview["pads"]) == 64
         assert preview["overflow_message"] is None
         assert preview["placement_area"] == {
             "x": 1.0,
@@ -313,19 +313,19 @@ class TestPasteFlowCalibrationBoardPreview:
         assert [item["catalog_id"] for item in preview["catalog"]] == [
             item["catalog_id"] for item in preview["config"]["patterns"]
         ]
-        assert {
-            polygon["layer"] for polygon in preview["groups"][0]["pads"][0]["polygons"]
-        } == {"F.Cu", "F.Paste"}
+        assert {polygon["layer"] for polygon in preview["pads"][0]["polygons"]} == {
+            "F.Cu",
+            "F.Paste",
+        }
+        assert preview["pads"][0]["display_name"].startswith("R_0402_1005Metric / ")
 
     @pytest.mark.parametrize(
         ("target", "field", "value"),
         [
-            ("config", "auto_pack", 1),
             ("board", "width_mm", True),
             ("board", "height_mm", "40"),
             ("board", "width_mm", 10**400),
             ("pattern", "rotation_count", True),
-            ("pattern", "transpose", "false"),
         ],
     )
     def test_non_strict_input_is_422(
@@ -407,19 +407,14 @@ class TestPasteFlowCalibrationBoardPreview:
         assert response.status_code == 200, response.text
         preview = response.json()
         assert "収まりません" in preview["overflow_message"]
-        assert len(preview["groups"]) == 6
         assert preview["pad_count"] == 64
         area = preview["placement_area"]
         right = area["x"] + area["width"]
         bottom = area["y"] + area["height"]
         assert any(
-            group["bounds"]["x"] + group["bounds"]["width"] > right + 1e-9
-            or group["bounds"]["y"] + group["bounds"]["height"] > bottom + 1e-9
-            for group in preview["groups"]
-        )
-        assert (
-            preview["preview_bounds"]["width"] > config["board"]["width_mm"]
-            or preview["preview_bounds"]["height"] > config["board"]["height_mm"]
+            pad["bounds"]["x"] + pad["bounds"]["width"] > right + 1e-9
+            or pad["bounds"]["y"] + pad["bounds"]["height"] > bottom + 1e-9
+            for pad in preview["pads"]
         )
 
     def test_missing_footprint_library_is_503(

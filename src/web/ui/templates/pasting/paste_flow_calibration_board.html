@@ -5,7 +5,7 @@
      data-testid="paste-flow-calibration-board">
   <h2>{{ feature_label }}</h2>
   <p class="job-intro pfc-intro">
-    KiCad footprintから同一形状のパッドを抽出し、規則的な回転グループとして配置します。
+    KiCad footprintから同一形状のパッドを抽出し、各パッドを自動最適配置します。
     設定と生成物はこのブラウザへ直接ダウンロードされます。
     編集中の設定は機体ごとにこのブラウザへ自動保存されます。
   </p>
@@ -32,11 +32,6 @@
           </label>
           <label>purge pad高さ <span class="unit">[mm]</span>
             <input id="pfc-purge-height" data-config-field type="number" step="0.1">
-          </label>
-          <label class="pfc-checkbox-field">
-            <input id="pfc-auto-pack" data-config-field type="checkbox">
-            自動最適配置
-            <span class="unit">（順序・転置を自動調整）</span>
           </label>
         </div>
 
@@ -90,8 +85,6 @@
                 <th>回転分割数</th>
                 <th>角度</th>
                 <th>繰り返し数</th>
-                <th>転置配置</th>
-                <th>グループ <span class="unit">[mm]</span></th>
                 <th></th>
               </tr>
             </thead>
@@ -113,7 +106,6 @@
         <span class="pfc-legend-copper">F.Cu</span>
         <span class="pfc-legend-paste">F.Paste</span>
         <span class="pfc-legend-overflow">配置範囲外</span>
-        <span class="pfc-legend-group">グループ境界</span>
       </div>
       <p id="pfc-preview-status" class="pfc-preview-status" aria-live="polite"></p>
     </section>

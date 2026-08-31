@@ -22,7 +22,6 @@ from pcbasm.pcb.generate import save_board
 from tests.helpers import make_paste_flow_calibration_offset_pad_root
 from tests.pcbasm.pasting.paste_flow_calibration_board.support import (
     CUSTOM_A,
-    CUSTOM_B,
     QFN,
     R0402,
     R1206,
@@ -46,10 +45,8 @@ class TestPasteFlowCalibrationBoardGenerator:
         )
 
         assert len(resolved.config.custom_pads) == 1
-        assert resolved.config.patterns[-1].transpose is False
         assert resolved.catalog[-1].footprint_label == "試験用パッド"
         assert resolved.catalog[-1].label == "角丸矩形 · 1.2 × 0.8 mm · R0.2 mm"
-        assert resolved.catalog[-1].default_transpose is False
 
     def test_uses_shape_and_dimensions_as_default_custom_pad_name(self, generator):
         resolved = generator.add_custom_pad(
@@ -109,7 +106,6 @@ class TestPasteFlowCalibrationBoardGenerator:
                 pattern.rotation_span_deg,
                 pattern.rotation_count,
                 pattern.repeat_count,
-                pattern.transpose,
             )
             for pattern in added_patterns
         ] == [
@@ -117,7 +113,6 @@ class TestPasteFlowCalibrationBoardGenerator:
                 item.default_rotation_span_deg,
                 item.default_rotation_count,
                 item.default_repeat_count,
-                item.default_transpose,
             )
             for item in added_catalog
         ]
@@ -142,13 +137,10 @@ class TestPasteFlowCalibrationBoardGenerator:
         assert preview.overflow_message is None
         assert preview.layout.placement_area.width == 38.0
         assert preview.layout.preview_bounds.width == 40.0
+        assert preview.layout.pads[0].display_name.startswith("R_0402_1005Metric / ")
 
-    @pytest.mark.parametrize("auto_pack", [False, True])
-    def test_preview_keeps_all_geometry_when_layout_overflows(
-        self, generator, auto_pack: bool
-    ):
+    def test_preview_keeps_all_geometry_when_layout_overflows(self, generator):
         config = PasteFlowCalibrationBoardConfig(
-            auto_pack=auto_pack,
             board=PasteFlowCalibrationBoardSpec(width_mm=10.0, height_mm=10.0),
             patterns=(PasteFlowCalibrationPattern(R1206),),
         )
@@ -156,14 +148,13 @@ class TestPasteFlowCalibrationBoardGenerator:
         preview = generator.preview(config)
 
         assert preview.overflow_message is not None
-        assert "1206" in preview.overflow_message
-        assert len(preview.layout.groups) == 1
+        assert "自動最適配置" in preview.overflow_message
         assert preview.layout.pad_count == 12
         area = preview.layout.placement_area
-        group = preview.layout.groups[0]
-        assert (
-            group.bounds.x + group.bounds.width > area.x + area.width + 1e-9
-            or group.bounds.y + group.bounds.height > area.y + area.height + 1e-9
+        assert any(
+            pad.bounds.x + pad.bounds.width > area.x + area.width + 1e-9
+            or pad.bounds.y + pad.bounds.height > area.y + area.height + 1e-9
+            for pad in preview.layout.pads
         )
         assert (
             preview.layout.preview_bounds.width > config.board.width_mm
@@ -190,7 +181,6 @@ class TestPasteFlowCalibrationBoardGenerator:
         area = preview.layout.placement_area
         purge = preview.layout.purge_pad
         assert purge.x + purge.width > area.x + area.width
-        assert len(preview.layout.groups) == 1
         assert preview.layout.pad_count == 4
         assert len(preview.layout.purge_polygons) == 2
         assert preview.layout.preview_bounds.width == config.board.width_mm
@@ -198,44 +188,29 @@ class TestPasteFlowCalibrationBoardGenerator:
         with pytest.raises(PasteFlowCalibrationBoardOverflowError, match="purge pad幅"):
             generator.board_bytes(config)
 
-    @pytest.mark.parametrize(
-        ("auto_pack", "message"),
-        [(False, "基板高さ"), (True, "自動最適配置")],
-    )
-    def test_preview_keeps_every_group_when_total_layout_overflows(
-        self, generator, auto_pack: bool, message: str
-    ):
+    def test_preview_keeps_every_pad_when_total_layout_overflows(self, generator):
         config = PasteFlowCalibrationBoardConfig(
-            auto_pack=auto_pack,
             board=PasteFlowCalibrationBoardSpec(width_mm=8.0, height_mm=8.0),
-            custom_pads=(
-                custom_pad(CUSTOM_A, "A", width_mm=3.0, height_mm=3.0),
-                custom_pad(CUSTOM_B, "B", width_mm=3.0, height_mm=3.0),
-            ),
-            patterns=(
-                PasteFlowCalibrationPattern(CUSTOM_A, 180.0, 1, 1),
-                PasteFlowCalibrationPattern(CUSTOM_B, 180.0, 1, 1),
-            ),
+            custom_pads=(custom_pad(CUSTOM_A, "A", width_mm=3.0, height_mm=3.0),),
+            patterns=(PasteFlowCalibrationPattern(CUSTOM_A, 180.0, 1, 3),),
         )
 
         preview = generator.preview(config)
 
         assert preview.overflow_message is not None
-        assert message in preview.overflow_message
-        assert [group.catalog_id for group in preview.layout.groups] == [
-            CUSTOM_A,
-            CUSTOM_B,
-        ]
-        assert preview.layout.pad_count == 2
-        assert all(len(group.pads) == 1 for group in preview.layout.groups)
+        assert "自動最適配置" in preview.overflow_message
+        assert preview.layout.pad_count == 3
+        assert {pad.catalog_id for pad in preview.layout.pads} == {CUSTOM_A}
         area = preview.layout.placement_area
         assert any(
-            group.bounds.x + group.bounds.width > area.x + area.width + 1e-9
-            or group.bounds.y + group.bounds.height > area.y + area.height + 1e-9
-            for group in preview.layout.groups
+            pad.bounds.x + pad.bounds.width > area.x + area.width + 1e-9
+            or pad.bounds.y + pad.bounds.height > area.y + area.height + 1e-9
+            for pad in preview.layout.pads
         )
 
-        with pytest.raises(PasteFlowCalibrationBoardOverflowError, match=message):
+        with pytest.raises(
+            PasteFlowCalibrationBoardOverflowError, match="自動最適配置"
+        ):
             generator.board_bytes(config)
 
     def test_shared_generator_is_safe_for_concurrent_real_pcbnew_calls(self, generator):
@@ -382,7 +357,6 @@ class TestPasteFlowCalibrationBoardGeneration:
         self, generator, shape, width, height, radius, expected_shape
     ):
         config = PasteFlowCalibrationBoardConfig(
-            auto_pack=False,
             custom_pads=(custom_pad(CUSTOM_A, shape, shape, width, height, radius),),
             patterns=(
                 PasteFlowCalibrationPattern(

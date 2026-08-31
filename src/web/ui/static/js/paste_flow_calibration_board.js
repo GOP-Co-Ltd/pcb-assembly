@@ -12,7 +12,6 @@
   const footprintCount = document.getElementById("pfc-footprint-count");
   const addButton = document.getElementById("pfc-add-pattern");
   const addCustomPadButton = document.getElementById("pfc-add-custom-pad");
-  const autoPack = document.getElementById("pfc-auto-pack");
   const customPadName = document.getElementById("pfc-custom-pad-name");
   const customPadShape = document.getElementById("pfc-custom-pad-shape");
   const customPadWidth = document.getElementById("pfc-custom-pad-width");
@@ -97,13 +96,11 @@
         row.querySelector('[data-pattern-field="repeat_count"]'),
         "繰り返し数"
       ),
-      transpose: row.querySelector('[data-pattern-field="transpose"]').checked,
     };
   }
 
   function collectConfig() {
     return {
-      auto_pack: autoPack.checked,
       board: {
         width_mm: numberFrom(boardFields.width_mm, "基板幅"),
         height_mm: numberFrom(boardFields.height_mm, "基板高さ"),
@@ -242,19 +239,6 @@
     return input;
   }
 
-  function transposeInput(pattern) {
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = pattern.transpose;
-    input.disabled = config.auto_pack;
-    input.dataset.patternField = "transpose";
-    input.setAttribute("aria-label", "転置配置");
-    input.title = config.auto_pack
-      ? "自動最適配置では転置方向をサーバーが決定します"
-      : "ON: 繰り返しを横、回転角を縦に配置";
-    return input;
-  }
-
   function patternsForDisplay(patterns) {
     if (!sortField) return patterns;
     const sorted = [...patterns].sort((first, second) => {
@@ -299,12 +283,6 @@
         numberInput(pattern, "repeat_count", "1", "繰り返し数")
       );
       row.appendChild(repeatCell);
-      const transposeCell = document.createElement("td");
-      transposeCell.className = "pfc-transpose";
-      transposeCell.appendChild(transposeInput(pattern));
-      row.appendChild(transposeCell);
-      row.appendChild(textCell("—", "pfc-resolved-size"));
-
       const actionCell = document.createElement("td");
       const remove = document.createElement("button");
       remove.type = "button";
@@ -324,7 +302,6 @@
 
   function applyConfig(nextConfig) {
     config = nextConfig;
-    autoPack.checked = config.auto_pack;
     for (const [field, input] of Object.entries(boardFields)) {
       input.value = config.board[field];
     }
@@ -344,17 +321,6 @@
     saveDraft(nextConfig);
   }
 
-  function updateTransposeControls() {
-    for (const input of rows.querySelectorAll(
-      '[data-pattern-field="transpose"]'
-    )) {
-      input.disabled = autoPack.checked;
-      input.title = autoPack.checked
-        ? "自動最適配置では転置方向をサーバーが決定します"
-        : "ON: 繰り返しを横、回転角を縦に配置";
-    }
-  }
-
   function updateSortIndicators() {
     for (const button of root.querySelectorAll("[data-sort-field]")) {
       const header = button.closest("th");
@@ -366,9 +332,7 @@
   }
 
   function clearResolvedValues() {
-    for (const cell of rows.querySelectorAll(
-      ".pfc-resolved-angles, .pfc-resolved-size"
-    )) {
+    for (const cell of rows.querySelectorAll(".pfc-resolved-angles")) {
       cell.textContent = "—";
     }
   }
@@ -393,32 +357,28 @@
   }
 
   function appendPolygons(target, layout, className = null) {
-    for (const layer of ["F.Cu", "F.Paste"]) {
-      for (const polygon of layout.purge_polygons) {
-        if (polygon.layer === layer) {
-          target.appendChild(polygonElement(polygon, className));
-        }
-      }
-      for (const group of layout.groups) {
-        for (const pad of group.pads) {
-          for (const polygon of pad.polygons) {
-            if (polygon.layer === layer) {
-              target.appendChild(polygonElement(polygon, className));
-            }
-          }
-        }
-      }
+    const purge = svgEl("g", { class: "pfc-preview-pad" });
+    const purgeTitle = svgEl("title", {});
+    purgeTitle.textContent = "PURGE";
+    purge.appendChild(purgeTitle);
+    for (const polygon of layout.purge_polygons) {
+      purge.appendChild(polygonElement(polygon, className));
     }
-  }
+    target.appendChild(purge);
 
-  function groupBoundaryElement(group, className = "pfc-group-boundary") {
-    return svgEl("rect", {
-      x: group.bounds.x,
-      y: group.bounds.y,
-      width: group.bounds.width,
-      height: group.bounds.height,
-      class: className,
-    });
+    for (const pad of layout.pads) {
+      const element = svgEl("g", {
+        class: "pfc-preview-pad",
+        "aria-label": pad.display_name,
+      });
+      const title = svgEl("title", {});
+      title.textContent = pad.display_name;
+      element.appendChild(title);
+      for (const polygon of pad.polygons) {
+        element.appendChild(polygonElement(polygon, className));
+      }
+      target.appendChild(element);
+    }
   }
 
   function rectanglePath(bounds) {
@@ -453,25 +413,16 @@
       "clip-path": `url(#${clipId})`,
     });
     appendPolygons(overflow, layout, "pfc-overflow-shape");
-    for (const group of layout.groups) {
-      overflow.appendChild(
-        groupBoundaryElement(group, "pfc-overflow-boundary")
-      );
-    }
     preview.appendChild(overflow);
   }
 
   function renderResolvedRows(layout) {
-    for (const group of layout.groups) {
-      const row = rowForCatalogId(group.catalog_id);
+    for (const pattern of layout.patterns) {
+      const row = rowForCatalogId(pattern.catalog_id);
       if (!row) continue;
-      row.querySelector(".pfc-resolved-angles").textContent = group.angles_deg
+      row.querySelector(".pfc-resolved-angles").textContent = pattern.angles_deg
         .map((angle) => `${Number(angle.toFixed(3))}°`)
         .join(", ");
-      const transpose = group.transpose ? " · 転置" : "";
-      row.querySelector(".pfc-resolved-size").textContent =
-        `${group.bounds.width.toFixed(2)} × ${group.bounds.height.toFixed(2)}` +
-        transpose;
     }
   }
 
@@ -495,37 +446,11 @@
 
     appendPolygons(preview, layout);
 
-    for (const group of layout.groups) {
-      preview.appendChild(groupBoundaryElement(group));
-    }
-
     if (layout.overflow_message !== null) {
       appendOverflowLayer(layout);
     }
 
-    for (const group of layout.groups) {
-      const label = svgEl("text", {
-        x: group.bounds.x + 0.25,
-        y: group.bounds.y + 1.05,
-        class: "pfc-group-label",
-      });
-      const fullLabel = `${group.footprint_label} / ${group.label}`;
-      label.textContent = truncateLabel(fullLabel, 38);
-      const title = svgEl("title", {});
-      title.textContent = fullLabel;
-      label.appendChild(title);
-      preview.appendChild(label);
-    }
-
     renderResolvedRows(layout);
-
-    const purgeLabel = svgEl("text", {
-      x: layout.purge_pad.x + layout.purge_pad.width + 0.25,
-      y: layout.purge_pad.y + layout.purge_pad.height * 0.72,
-      class: "pfc-group-label",
-    });
-    purgeLabel.textContent = "PURGE";
-    preview.appendChild(purgeLabel);
     previewSummary.textContent = `${layout.pad_count}パッド + purge pad`;
     const hasOverflow = layout.overflow_message !== null;
     previewStatus.textContent = hasOverflow
@@ -634,7 +559,6 @@
       event.target.matches("[data-config-field]") ||
       event.target.matches("[data-pattern-field]")
     ) {
-      if (event.target === autoPack) updateTransposeControls();
       generateButton.disabled = true;
       saveCurrentDraft();
       queuePreview();

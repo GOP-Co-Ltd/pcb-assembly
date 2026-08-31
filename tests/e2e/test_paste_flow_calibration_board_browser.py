@@ -38,7 +38,13 @@ class TestPasteFlowCalibrationBoardBrowser:
 
         assert browser_page.locator(".pfc-paste").count() > 0
         assert browser_page.locator(".pfc-copper").count() > 0
-        assert browser_page.locator(".pfc-group-boundary").count() == 6
+        expect(browser_page.locator(".pfc-preview-pad[aria-label]")).to_have_count(64)
+        named_pad = browser_page.locator(".pfc-preview-pad[aria-label]").first
+        display_name = named_pad.get_attribute("aria-label")
+        assert display_name is not None
+        named_pad.hover()
+        expect(named_pad.locator("title")).to_have_text(display_name)
+        expect(browser_page.locator("#pfc-preview text")).to_have_count(0)
         expect(browser_page.locator("#pfc-preview-summary")).to_have_text(
             "64パッド + purge pad"
         )
@@ -48,11 +54,11 @@ class TestPasteFlowCalibrationBoardBrowser:
         expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text(
             "繰り返し数"
         )
-        expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text(
+        expect(browser_page.locator(".pfc-pattern-table thead")).not_to_contain_text(
             "転置配置"
         )
         expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text("名称")
-        expect(browser_page.locator("#pfc-auto-pack")).to_be_checked()
+        expect(browser_page.locator("#pfc-auto-pack")).to_have_count(0)
         expect(browser_page.locator("#pfc-footprint-results option")).to_have_count(
             8, timeout=_BROWSER_TIMEOUT_MS
         )
@@ -64,17 +70,6 @@ class TestPasteFlowCalibrationBoardBrowser:
         assert preview_box["y"] >= config_box["y"] + config_box["height"]
 
         first_row = browser_page.locator("#pfc-pattern-rows tr").first
-        transpose = first_row.locator('[data-pattern-field="transpose"]')
-        expect(transpose).not_to_be_checked()
-        expect(transpose).to_be_disabled()
-        browser_page.locator("#pfc-auto-pack").uncheck()
-        expect(transpose).to_be_enabled(timeout=_BROWSER_TIMEOUT_MS)
-        resolved_size = first_row.locator(".pfc-resolved-size")
-        original_size = resolved_size.inner_text()
-        transpose.check()
-        expect(resolved_size).not_to_have_text(
-            original_size, timeout=_BROWSER_TIMEOUT_MS
-        )
         rotation_count = first_row.locator('[data-pattern-field="rotation_count"]')
         rotation_count.fill("2")
         expect(first_row.locator(".pfc-resolved-angles")).to_have_text(
@@ -115,12 +110,6 @@ class TestPasteFlowCalibrationBoardBrowser:
             "placementCenter": False,
             "edgeMargin": True,
         }
-        view_box_attribute = browser_page.locator("#pfc-preview").get_attribute(
-            "viewBox"
-        )
-        assert view_box_attribute is not None
-        view_box = [float(value) for value in view_box_attribute.split()]
-        assert view_box[2] > 10.0 or view_box[3] > 40.0
         expect(browser_page.locator("#pfc-generate")).to_be_disabled()
         expect(browser_page.locator("#pfc-export")).to_be_enabled()
 
@@ -180,7 +169,6 @@ class TestPasteFlowCalibrationBoardBrowser:
         expect(browser_page.locator("#pfc-preview-summary")).to_have_text(
             "88パッド + purge pad"
         )
-        expect(browser_page.locator(".pfc-group-boundary")).to_have_count(9)
 
         for _ in range(3):
             qfn_rows.first.locator("button").click()
@@ -249,7 +237,6 @@ class TestPasteFlowCalibrationBoardBrowser:
         expect(browser_page.locator("#pfc-preview-summary")).to_have_text(
             "64パッド + purge pad"
         )
-        expect(browser_page.locator(".pfc-group-boundary")).to_have_count(6)
         assert browser_page.locator(".pfc-paste").count() > 0
         expect(browser_page.locator("#pfc-generate")).to_be_disabled()
         expect(browser_page.locator("#pfc-export")).to_be_enabled()
@@ -422,9 +409,9 @@ class TestPasteFlowCalibrationBoardBrowser:
         document = json.loads(config_path.read_text(encoding="utf-8"))
         assert document["kind"] == "paste_flow_calibration_board"
         assert document["schema_version"] == 1
-        assert document["auto_pack"] is True
+        assert "auto_pack" not in document
         assert document["custom_pads"] == []
-        assert all(not pattern["transpose"] for pattern in document["patterns"])
+        assert all("transpose" not in pattern for pattern in document["patterns"])
 
         browser_page.locator("#pfc-board-width").fill("42")
         expect(browser_page.locator("#pfc-board-width")).to_have_value(
