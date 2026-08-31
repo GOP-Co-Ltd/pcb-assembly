@@ -30,7 +30,7 @@ class TestPasteFlowCalibrationBoardOptions:
         assert response.status_code == 200
         body = response.json()
         assert body["kind"] == "paste_flow_calibration_board"
-        assert body["schema_version"] == 1
+        assert body["schema_version"] == 2
         assert body["footprint_count"] > 10_000
         assert len(body["catalog"]) == 6
         assert [item["footprint_label"] for item in body["catalog"]] == [
@@ -42,7 +42,16 @@ class TestPasteFlowCalibrationBoardOptions:
             "SOT-23-5",
         ]
         assert body["catalog"][0]["source_pad_count"] == 2
+        assert body["catalog"][0]["default_transpose"] is True
+        assert all(
+            item["default_rotation_span_deg"] == 180.0 for item in body["catalog"]
+        )
         assert len(body["config"]["patterns"]) == 6
+        assert all(
+            pattern["rotation_span_deg"] == 180.0
+            for pattern in body["config"]["patterns"]
+        )
+        assert all(pattern["transpose"] for pattern in body["config"]["patterns"])
 
     def test_searches_installed_footprints(self, client: TestClient):
         response = client.get(
@@ -78,6 +87,9 @@ class TestPasteFlowCalibrationBoardOptions:
         assert body["footprint_id"] == _QFN
         assert len(body["catalog"]) == 3
         assert [item["source_pad_count"] for item in body["catalog"]] == [4, 16, 1]
+        assert all(
+            item["default_rotation_span_deg"] == 180.0 for item in body["catalog"]
+        )
         assert body["catalog"][0]["label"].startswith("Paste aperture")
         assert body["catalog"][1]["label"].startswith("Pad 1–16")
 
@@ -99,6 +111,7 @@ class TestPasteFlowCalibrationBoardPreview:
         }
         assert len(layout["groups"]) == 6
         assert layout["groups"][0]["angles_deg"] == [0.0, 45.0, 90.0, 135.0]
+        assert layout["groups"][0]["transpose"] is True
         assert len(layout["groups"][0]["pads"]) == 12
         layers = {
             polygon["layer"] for polygon in layout["groups"][0]["pads"][0]["polygons"]
@@ -155,6 +168,7 @@ class TestPasteFlowCalibrationBoardConfigTransfer:
         assert response.json()["kind"] == "paste_flow_calibration_board"
         assert response.json()["board"]["width_mm"] == 10
         assert response.json()["board"]["pad_gap_mm"] == 1.0
+        assert response.json()["patterns"][0]["transpose"] is True
 
     def test_import_validates_identity_and_normalizes_pad_order(
         self, client: TestClient
@@ -162,7 +176,7 @@ class TestPasteFlowCalibrationBoardConfigTransfer:
         config = _default_config(client)
         document = {
             "kind": "paste_flow_calibration_board",
-            "schema_version": 1,
+            "schema_version": 2,
             "board": config["board"],
             "purge_pad": config["purge_pad"],
             "patterns": list(reversed(config["patterns"][:2])),
@@ -184,7 +198,7 @@ class TestPasteFlowCalibrationBoardConfigTransfer:
             json={
                 "document": {
                     "kind": "calibration_board",
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "board": {},
                     "purge_pad": {},
                     "patterns": [],

@@ -97,7 +97,7 @@ class TestPasteFlowCalibrationPadCatalog:
 
 
 class TestPasteFlowCalibrationBoardLayout:
-    """単一パッドの回転列・繰り返し行とshelf packing."""
+    """単一パッドの回転・繰り返し配置とshelf packing."""
 
     @pytest.fixture
     def generator(self) -> PasteFlowCalibrationBoardGenerator:
@@ -119,7 +119,7 @@ class TestPasteFlowCalibrationBoardLayout:
             len(pad.polygons) >= 2 for group in layout.groups for pad in group.pads
         )
 
-    def test_rotation_range_360_is_divided_into_columns(self, generator):
+    def test_transpose_places_repeats_in_columns_and_rotations_in_rows(self, generator):
         config = PasteFlowCalibrationBoardConfig(
             patterns=(PasteFlowCalibrationPattern(_R0402, 360.0, 4, 2),)
         )
@@ -128,6 +128,7 @@ class TestPasteFlowCalibrationBoardLayout:
 
         assert group.angles_deg == (0.0, 90.0, 180.0, 270.0)
         assert group.repeat_count == 2
+        assert group.transpose is True
         assert len(group.pads) == 8
         assert [pad.rotation_deg for pad in group.pads] == [
             0.0,
@@ -139,6 +140,25 @@ class TestPasteFlowCalibrationBoardLayout:
             180.0,
             270.0,
         ]
+        assert group.pads[0].x == pytest.approx(group.pads[1].x)
+        assert group.pads[0].y != pytest.approx(group.pads[1].y)
+        assert group.pads[0].x != pytest.approx(group.pads[4].x)
+        assert group.pads[0].y == pytest.approx(group.pads[4].y)
+
+    def test_non_transposed_placement_puts_rotations_in_columns(self, generator):
+        config = PasteFlowCalibrationBoardConfig(
+            patterns=(
+                PasteFlowCalibrationPattern(_R0402, 360.0, 4, 2, transpose=False),
+            )
+        )
+
+        group = generator.layout(config).groups[0]
+
+        assert group.transpose is False
+        assert group.pads[0].x != pytest.approx(group.pads[1].x)
+        assert group.pads[0].y == pytest.approx(group.pads[1].y)
+        assert group.pads[0].x == pytest.approx(group.pads[4].x)
+        assert group.pads[0].y != pytest.approx(group.pads[4].y)
 
     def test_each_family_starts_on_a_new_shelf(self, generator):
         layout = generator.layout(PasteFlowCalibrationBoardConfig())
@@ -154,8 +174,8 @@ class TestPasteFlowCalibrationBoardLayout:
         config = PasteFlowCalibrationBoardConfig(
             board=PasteFlowCalibrationBoardSpec(pad_gap_mm=1.5),
             patterns=(
-                PasteFlowCalibrationPattern(_R0402, 180.0, 2, 2),
-                PasteFlowCalibrationPattern(_R0603, 180.0, 2, 2),
+                PasteFlowCalibrationPattern(_R0402, 180.0, 3, 2),
+                PasteFlowCalibrationPattern(_R0603, 180.0, 3, 2),
             ),
         )
         layout = generator.layout(config)
@@ -165,7 +185,7 @@ class TestPasteFlowCalibrationBoardLayout:
             1.5
         )
         assert first.bounds.width == pytest.approx(2 * first.cell_width_mm + 1.5)
-        assert first.bounds.height == pytest.approx(2 * first.cell_height_mm + 1.5)
+        assert first.bounds.height == pytest.approx(3 * first.cell_height_mm + 3.0)
 
     def test_overflow_reports_the_pad_pattern(self, generator):
         config = PasteFlowCalibrationBoardConfig(
@@ -232,6 +252,14 @@ class TestPasteFlowCalibrationBoardConfig:
                 patterns=(PasteFlowCalibrationPattern(_R0402, repeat_count=0),)
             ),
             PasteFlowCalibrationBoardConfig(
+                patterns=(
+                    PasteFlowCalibrationPattern(
+                        _R0402,
+                        transpose="yes",  # type: ignore[arg-type]
+                    ),
+                )
+            ),
+            PasteFlowCalibrationBoardConfig(
                 patterns=(PasteFlowCalibrationPattern("unknown"),)
             ),
             PasteFlowCalibrationBoardConfig(
@@ -252,7 +280,7 @@ class TestPasteFlowCalibrationBoardConfig:
         config = PasteFlowCalibrationBoardConfig(
             board=PasteFlowCalibrationBoardSpec(pad_gap_mm=1.5),
             patterns=(
-                PasteFlowCalibrationPattern(_R0603, 360.0, 8, 2),
+                PasteFlowCalibrationPattern(_R0603, 360.0, 8, 2, transpose=False),
                 PasteFlowCalibrationPattern(_R0402, 180.0, 4, 3),
             ),
         )
@@ -261,14 +289,17 @@ class TestPasteFlowCalibrationBoardConfig:
         restored = parse_paste_flow_calibration_board_document(document)
 
         assert document["kind"] == PASTE_FLOW_CALIBRATION_BOARD_KIND
-        assert document["schema_version"] == PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION
+        assert document["schema_version"] == 2
         assert document["board"]["pad_gap_mm"] == 1.5  # type: ignore[index]
+        assert document["patterns"][0]["transpose"] is True  # type: ignore[index]
+        assert document["patterns"][1]["transpose"] is False  # type: ignore[index]
         assert restored == normalize_paste_flow_calibration_board_config(config)
 
     @pytest.mark.parametrize(
         ("key", "value"),
         [
             ("kind", "calibration_board"),
+            ("schema_version", 1),
             ("schema_version", 999),
             ("patterns", "not-a-list"),
         ],
@@ -353,7 +384,7 @@ class TestPasteFlowCalibrationBoardGeneration:
             if component.designator.startswith("PAD")
         }
 
-        assert rotations >= {0.0, 45.0, 90.0, 135.0, 180.0, -90.0}
+        assert rotations == {0.0, 45.0, 90.0, 135.0}
 
     def test_board_bytes_are_a_kicad_document(self):
         payload = PasteFlowCalibrationBoardGenerator().board_bytes(

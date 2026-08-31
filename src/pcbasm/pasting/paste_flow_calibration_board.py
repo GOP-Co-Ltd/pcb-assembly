@@ -1,7 +1,7 @@
 """はんだペースト流量キャリブレーション基板の配置・生成.
 
-KiCad footprint内の同一形状パッドを1つのパッドパターンとして抽出し、回転列と
-繰り返し行からなる規則的なグループへ配置する。WebUIはこのモジュールが返す 解決済みlayoutを描画し、配置規則やパッド分類を持たない。
+KiCad footprint内の同一形状パッドを1つのパッドパターンとして抽出し、回転と
+繰り返しからなる規則的なグループへ配置する。WebUIはこのモジュールが返す 解決済みlayoutを描画し、配置規則やパッド分類を持たない。
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import pcbnew
 from pcbasm.pcb.generate import generate_rect_pcb, save_board
 
 PASTE_FLOW_CALIBRATION_BOARD_KIND = "paste_flow_calibration_board"
-PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION = 1
+PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION = 2
 DEFAULT_KICAD9_FOOTPRINT_DIR = Path("/usr/share/kicad/footprints")
 
 
@@ -66,6 +66,7 @@ class PasteFlowCalibrationPadPattern:
     default_rotation_span_deg: float
     default_rotation_count: int
     default_repeat_count: int
+    default_transpose: bool
 
 
 @attrs.frozen
@@ -88,12 +89,13 @@ class PasteFlowCalibrationPurgePadSpec:
 
 @attrs.frozen
 class PasteFlowCalibrationPattern:
-    """1パッド種の回転列 × 繰り返し行."""
+    """1パッド種の回転・繰り返し配置."""
 
     catalog_id: str
     rotation_span_deg: float = 180.0
     rotation_count: int = 4
     repeat_count: int = 3
+    transpose: bool = True
 
 
 @attrs.frozen
@@ -110,8 +112,8 @@ _DEFAULT_FOOTPRINTS = (
     _DefaultFootprint("Resistor_SMD.pretty", "R_0603_1608Metric", 180.0, 4, 3),
     _DefaultFootprint("Resistor_SMD.pretty", "R_0805_2012Metric", 180.0, 4, 3),
     _DefaultFootprint("Resistor_SMD.pretty", "R_1206_3216Metric", 180.0, 4, 3),
-    _DefaultFootprint("Package_TO_SOT_SMD.pretty", "SOT-23", 360.0, 4, 2),
-    _DefaultFootprint("Package_TO_SOT_SMD.pretty", "SOT-23-5", 360.0, 4, 2),
+    _DefaultFootprint("Package_TO_SOT_SMD.pretty", "SOT-23", 180.0, 4, 2),
+    _DefaultFootprint("Package_TO_SOT_SMD.pretty", "SOT-23-5", 180.0, 4, 2),
 )
 
 # 空検索時に列挙する、はんだペースト印刷で一般的なSMD footprint。
@@ -267,7 +269,7 @@ class PasteFlowCalibrationPadLayout:
 
 @attrs.frozen
 class PasteFlowCalibrationGroupLayout:
-    """回転列 × 繰り返し行の解決済み矩形グループ."""
+    """回転・繰り返しの解決済み矩形グループ."""
 
     catalog_id: str
     label: str
@@ -279,6 +281,7 @@ class PasteFlowCalibrationGroupLayout:
     cell_height_mm: float
     angles_deg: tuple[float, ...]
     repeat_count: int
+    transpose: bool
     pads: tuple[PasteFlowCalibrationPadLayout, ...]
 
 
@@ -370,7 +373,9 @@ def validate_paste_flow_calibration_board_config(
             or not isinstance(pattern.repeat_count, int)
             or pattern.repeat_count < 1
         ):
-            return "繰り返し行数は1以上の整数が必要です"
+            return "繰り返し数は1以上の整数が必要です"
+        if not isinstance(pattern.transpose, bool):
+            return "転置配置は真偽値で指定してください"
     return None
 
 
@@ -444,12 +449,14 @@ def parse_paste_flow_calibration_board_document(
         for value in pattern_data:
             if not isinstance(value, Mapping):
                 return None
-            if set(value) != {
+            expected_fields = {
                 "catalog_id",
                 "rotation_span_deg",
                 "rotation_count",
                 "repeat_count",
-            }:
+                "transpose",
+            }
+            if set(value) != expected_fields:
                 return None
             catalog_id = value["catalog_id"]
             if not isinstance(catalog_id, str):
@@ -460,6 +467,7 @@ def parse_paste_flow_calibration_board_document(
                     rotation_span_deg=_document_float(value["rotation_span_deg"]),
                     rotation_count=_document_int(value["rotation_count"]),
                     repeat_count=_document_int(value["repeat_count"]),
+                    transpose=_document_bool(value["transpose"]),
                 )
             )
     except (KeyError, TypeError, ValueError):
@@ -480,6 +488,12 @@ def _document_float(value: object) -> float:
 
 def _document_int(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError
+    return value
+
+
+def _document_bool(value: object) -> bool:
+    if not isinstance(value, bool):
         raise TypeError
     return value
 
@@ -608,7 +622,7 @@ class PasteFlowCalibrationBoardGenerator:
                 pad_width_mm=envelope.width,
                 pad_height_mm=envelope.height,
                 default_rotation_span_deg=(
-                    default.rotation_span_deg if default is not None else 360.0
+                    default.rotation_span_deg if default is not None else 180.0
                 ),
                 default_rotation_count=(
                     default.rotation_count if default is not None else 4
@@ -616,6 +630,7 @@ class PasteFlowCalibrationBoardGenerator:
                 default_repeat_count=(
                     default.repeat_count if default is not None else 2
                 ),
+                default_transpose=True,
             )
             patterns.append(item)
             self._pad_templates[catalog_id] = template
@@ -668,9 +683,11 @@ class PasteFlowCalibrationBoardGenerator:
             bounds = placements[pattern.catalog_id]
             cell_width, cell_height, angles, envelopes = metrics[pattern.catalog_id]
             pads: list[PasteFlowCalibrationPadLayout] = []
-            for row in range(pattern.repeat_count):
-                for column, angle in enumerate(angles):
-                    envelope = envelopes[column]
+            for repeat_index in range(pattern.repeat_count):
+                for rotation_index, angle in enumerate(angles):
+                    envelope = envelopes[rotation_index]
+                    column = repeat_index if pattern.transpose else rotation_index
+                    row = rotation_index if pattern.transpose else repeat_index
                     cell_center_x = (
                         bounds.x
                         + column * (cell_width + normalized.board.pad_gap_mm)
@@ -710,6 +727,7 @@ class PasteFlowCalibrationBoardGenerator:
                     cell_height_mm=cell_height,
                     angles_deg=angles,
                     repeat_count=pattern.repeat_count,
+                    transpose=pattern.transpose,
                     pads=tuple(pads),
                 )
             )
@@ -862,14 +880,14 @@ class PasteFlowCalibrationBoardGenerator:
         for pattern in config.patterns:
             item = resolved[pattern.catalog_id][0]
             cell_width, cell_height, _angles, _envelopes = metrics[pattern.catalog_id]
-            width = (
-                pattern.rotation_count * cell_width
-                + (pattern.rotation_count - 1) * board.pad_gap_mm
+            column_count = (
+                pattern.repeat_count if pattern.transpose else pattern.rotation_count
             )
-            height = (
-                pattern.repeat_count * cell_height
-                + (pattern.repeat_count - 1) * board.pad_gap_mm
+            row_count = (
+                pattern.rotation_count if pattern.transpose else pattern.repeat_count
             )
+            width = column_count * cell_width + (column_count - 1) * board.pad_gap_mm
+            height = row_count * cell_height + (row_count - 1) * board.pad_gap_mm
             if width > right - left + 1e-9:
                 raise PasteFlowCalibrationBoardOverflowError(
                     f"{item.footprint_label} / {item.label}のグループ幅{width:.2f} mmが"

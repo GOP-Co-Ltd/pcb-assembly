@@ -55,6 +55,7 @@ class PasteFlowCalibrationPatternModel(_ApiModel):
     rotation_span_deg: float = 180.0
     rotation_count: int = 4
     repeat_count: int = 3
+    transpose: bool = True
 
 
 class PasteFlowCalibrationBoardConfigModel(_ApiModel):
@@ -103,6 +104,7 @@ class PasteFlowCalibrationPadPatternModel(_ApiModel):
     default_rotation_span_deg: float
     default_rotation_count: int
     default_repeat_count: int
+    default_transpose: bool
 
     @classmethod
     def from_core(cls, item: PasteFlowCalibrationPadPattern) -> Self:
@@ -177,6 +179,7 @@ class PasteFlowCalibrationGroupLayoutModel(_ApiModel):
     cell_height_mm: float
     angles_deg: list[float]
     repeat_count: int
+    transpose: bool
     pads: list[PasteFlowCalibrationPadLayoutModel]
 
 
