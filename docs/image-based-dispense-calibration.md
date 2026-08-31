@@ -226,17 +226,21 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 形状が異なるものは別々のパッド種として扱う。同一判定にはF.Cu/F.Mask/F.Pasteの実ポリゴン、
 pad属性、drill形状を使用し、0/90/180/270度の回転で一致する形状を同一種へまとめる。
 
-各パッド種は、回転分割数 `n` 列 × 繰り返し行数 `m` 行の不可分な矩形グループとして
-配置する。回転範囲を `theta` 度としたとき、列 `i` の角度は次式とする。
+各パッド種は、回転分割数 `n` と繰り返し数 `m` からなる不可分な矩形グループとして
+配置する。回転範囲を `theta` 度としたとき、回転index `i` の角度は次式とする。
 
 \[
 \phi_i = i \frac{\theta}{n}, \qquad 0 \leq i < n
 \]
 
-`0 < theta <= 360`、`n >= 1`、`m >= 1` とする。パッド間隔の計算には、各回転角における
+`0 < theta <= 360`、`n >= 1`、`m >= 1` とし、回転範囲のデフォルトは180度とする。
+デフォルトでは転置配置を有効にし、
+繰り返しを横方向の `m` 列、回転角を縦方向の `n` 行に配置する。パッド行ごとに転置配置を
+無効化でき、その場合は従来どおり回転角を `n` 列、繰り返しを `m` 行に配置する。
+パッド間隔の計算には、各回転角における
 抽出パッドのF.Cu/F.Paste AABBを使う。グループ内のセル寸法は全回転角の最大幅・最大高さ
 とし、footprint anchorを調整して各AABBをセル中央へ配置する。WebUIでは `n` と `m` を
-それぞれ「回転分割数」「繰り返し行数」と表示する。
+それぞれ「回転分割数」「繰り返し数」と表示する。
 
 使用可能な候補は固定カタログに限定せず、インストール済みKiCad 9 footprint rootにある
 すべての `*.pretty/*.kicad_mod` とする。WebUIでlibrary名またはfootprint名を検索し、選択した
@@ -263,14 +267,14 @@ BGAなど通常のペースト印刷対象ではないpackageは一般候補へ�
 
 初期レシピは次の6 footprintから抽出した代表パッド種を使用する。
 
-| footprint library           | footprint         | 回転範囲 | 回転分割数 | 繰り返し行数 |
-| --------------------------- | ----------------- | -------: | ---------: | -----------: |
-| `Resistor_SMD.pretty`       | R_0402_1005Metric |      180 |          4 |            3 |
-| `Resistor_SMD.pretty`       | R_0603_1608Metric |      180 |          4 |            3 |
-| `Resistor_SMD.pretty`       | R_0805_2012Metric |      180 |          4 |            3 |
-| `Resistor_SMD.pretty`       | R_1206_3216Metric |      180 |          4 |            3 |
-| `Package_TO_SOT_SMD.pretty` | SOT-23            |      360 |          4 |            2 |
-| `Package_TO_SOT_SMD.pretty` | SOT-23-5          |      360 |          4 |            2 |
+| footprint library           | footprint         | 回転範囲 | 回転分割数 | 繰り返し数 | 転置配置 |
+| --------------------------- | ----------------- | -------: | ---------: | ---------: | -------- |
+| `Resistor_SMD.pretty`       | R_0402_1005Metric |      180 |          4 |          3 | ON       |
+| `Resistor_SMD.pretty`       | R_0603_1608Metric |      180 |          4 |          3 | ON       |
+| `Resistor_SMD.pretty`       | R_0805_2012Metric |      180 |          4 |          3 | ON       |
+| `Resistor_SMD.pretty`       | R_1206_3216Metric |      180 |          4 |          3 | ON       |
+| `Package_TO_SOT_SMD.pretty` | SOT-23            |      180 |          4 |          2 | ON       |
+| `Package_TO_SOT_SMD.pretty` | SOT-23-5          |      180 |          4 |          2 | ON       |
 
 配置はfootprint library、footprint名、代表パッドindexによる安定順のshelf packingとする。
 初期レシピの6種は上表の順を優先し、library（family）が変わるたびに新しい行から開始する。
@@ -289,7 +293,8 @@ F.Cu/F.Paste、グループ境界、角度、グループ寸法をSVGで表示�
 `pcbasm-paste-flow-calibration-board.kicad_pcb`としてブラウザへ直接ダウンロードする。
 装置を動かさないため、生成と設定入出力にWebUIの操作権は要求しない。
 表ではfootprint名を「名称」として表示する。長い名称とパッド種は末尾を省略表示し、hover時の
-tooltipで完全な文字列を確認できる。
+tooltipで完全な文字列を確認できる。各パッド行の「転置配置」で、繰り返しを横へ置く配置と
+回転角を横へ置く配置を切り替える。
 
 設定JSONは自己識別情報を必須とする。Import時は`kind`と`schema_version`を検証し、
 サーバーの安定順へ正規化する。配置不能な設定でも構造的に正しければExportできる。
@@ -297,7 +302,7 @@ tooltipで完全な文字列を確認できる。
 ```json
 {
   "kind": "paste_flow_calibration_board",
-  "schema_version": 1,
+  "schema_version": 2,
   "board": {
     "width_mm": 40.0,
     "height_mm": 40.0,
@@ -313,7 +318,8 @@ tooltipで完全な文字列を確認できる。
       "catalog_id": "Resistor_SMD.pretty/R_0402_1005Metric#pad-0",
       "rotation_span_deg": 180.0,
       "rotation_count": 4,
-      "repeat_count": 3
+      "repeat_count": 3,
+      "transpose": true
     }
   ]
 }
