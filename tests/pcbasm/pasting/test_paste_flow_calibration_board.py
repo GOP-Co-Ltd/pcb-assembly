@@ -34,6 +34,22 @@ _SOT223 = "Package_TO_SOT_SMD.pretty/SOT-223-3_TabPin2"
 class TestPasteFlowCalibrationPadCatalog:
     """実KiCadライブラリの検索とパッド形状分類."""
 
+    def test_lists_all_common_smd_footprints_for_an_empty_search(self):
+        results = PasteFlowCalibrationBoardGenerator().search_footprints("", limit=100)
+
+        assert len(results) == 69
+        footprint_ids = {item.footprint_id for item in results}
+        assert {
+            "Resistor_SMD.pretty/R_0201_0603Metric",
+            "Capacitor_SMD.pretty/C_1812_4532Metric",
+            "Diode_SMD.pretty/D_SMC",
+            "Package_TO_SOT_SMD.pretty/TO-263-3_TabPin2",
+            "Package_SO.pretty/TSSOP-28_4.4x9.7mm_P0.65mm",
+            _QFN,
+            "Package_QFP.pretty/LQFP-100_14x14mm_P0.5mm",
+            "Crystal.pretty/Crystal_SMD_5032-4Pin_5.0x3.2mm",
+        } <= footprint_ids
+
     def test_searches_the_installed_kicad_footprint_library(self):
         generator = PasteFlowCalibrationBoardGenerator()
 

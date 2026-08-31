@@ -113,6 +113,80 @@ _DEFAULT_FOOTPRINTS = (
     _DefaultFootprint("Package_TO_SOT_SMD.pretty", "SOT-23", 360.0, 4, 2),
     _DefaultFootprint("Package_TO_SOT_SMD.pretty", "SOT-23-5", 360.0, 4, 2),
 )
+
+# 空検索時に列挙する、はんだペースト印刷で一般的なSMD footprint。
+# 個別footprintは検索で全ライブラリから選択できるため、ここでは代表寸法に絞る。
+_COMMON_FOOTPRINTS = (
+    ("Resistor_SMD.pretty", "R_0201_0603Metric"),
+    ("Resistor_SMD.pretty", "R_0402_1005Metric"),
+    ("Resistor_SMD.pretty", "R_0603_1608Metric"),
+    ("Resistor_SMD.pretty", "R_0805_2012Metric"),
+    ("Resistor_SMD.pretty", "R_1206_3216Metric"),
+    ("Resistor_SMD.pretty", "R_1210_3225Metric"),
+    ("Resistor_SMD.pretty", "R_2010_5025Metric"),
+    ("Resistor_SMD.pretty", "R_2512_6332Metric"),
+    ("Capacitor_SMD.pretty", "C_0201_0603Metric"),
+    ("Capacitor_SMD.pretty", "C_0402_1005Metric"),
+    ("Capacitor_SMD.pretty", "C_0603_1608Metric"),
+    ("Capacitor_SMD.pretty", "C_0805_2012Metric"),
+    ("Capacitor_SMD.pretty", "C_1206_3216Metric"),
+    ("Capacitor_SMD.pretty", "C_1210_3225Metric"),
+    ("Capacitor_SMD.pretty", "C_1812_4532Metric"),
+    ("Inductor_SMD.pretty", "L_0201_0603Metric"),
+    ("Inductor_SMD.pretty", "L_0402_1005Metric"),
+    ("Inductor_SMD.pretty", "L_0603_1608Metric"),
+    ("Inductor_SMD.pretty", "L_0805_2012Metric"),
+    ("Inductor_SMD.pretty", "L_1206_3216Metric"),
+    ("Inductor_SMD.pretty", "L_1210_3225Metric"),
+    ("Fuse.pretty", "Fuse_0402_1005Metric"),
+    ("Fuse.pretty", "Fuse_0603_1608Metric"),
+    ("Fuse.pretty", "Fuse_0805_2012Metric"),
+    ("Fuse.pretty", "Fuse_1206_3216Metric"),
+    ("LED_SMD.pretty", "LED_0603_1608Metric"),
+    ("LED_SMD.pretty", "LED_0805_2012Metric"),
+    ("LED_SMD.pretty", "LED_1206_3216Metric"),
+    ("Diode_SMD.pretty", "D_SOD-523"),
+    ("Diode_SMD.pretty", "D_SOD-323"),
+    ("Diode_SMD.pretty", "D_SOD-123"),
+    ("Diode_SMD.pretty", "D_SMA"),
+    ("Diode_SMD.pretty", "D_SMB"),
+    ("Diode_SMD.pretty", "D_SMC"),
+    ("Diode_SMD.pretty", "D_MicroMELF"),
+    ("Diode_SMD.pretty", "D_MiniMELF"),
+    ("Package_TO_SOT_SMD.pretty", "SOT-23"),
+    ("Package_TO_SOT_SMD.pretty", "SOT-23-5"),
+    ("Package_TO_SOT_SMD.pretty", "SOT-23-6"),
+    ("Package_TO_SOT_SMD.pretty", "SOT-23-8"),
+    ("Package_TO_SOT_SMD.pretty", "SOT-89-3"),
+    ("Package_TO_SOT_SMD.pretty", "SOT-223-3_TabPin2"),
+    ("Package_TO_SOT_SMD.pretty", "TO-252-3_TabPin2"),
+    ("Package_TO_SOT_SMD.pretty", "TO-263-3_TabPin2"),
+    ("Package_SO.pretty", "SOIC-8_3.9x4.9mm_P1.27mm"),
+    ("Package_SO.pretty", "SOIC-14_3.9x8.7mm_P1.27mm"),
+    ("Package_SO.pretty", "SOIC-16_3.9x9.9mm_P1.27mm"),
+    ("Package_SO.pretty", "TSSOP-8_3x3mm_P0.65mm"),
+    ("Package_SO.pretty", "TSSOP-14_4.4x5mm_P0.65mm"),
+    ("Package_SO.pretty", "TSSOP-16_4.4x5mm_P0.65mm"),
+    ("Package_SO.pretty", "TSSOP-20_4.4x6.5mm_P0.65mm"),
+    ("Package_SO.pretty", "TSSOP-24_4.4x7.8mm_P0.65mm"),
+    ("Package_SO.pretty", "TSSOP-28_4.4x9.7mm_P0.65mm"),
+    ("Package_SO.pretty", "SSOP-16_4.4x5.2mm_P0.65mm"),
+    ("Package_SO.pretty", "SSOP-20_4.4x6.5mm_P0.65mm"),
+    ("Package_SO.pretty", "SSOP-28_5.3x10.2mm_P0.65mm"),
+    ("Package_DFN_QFN.pretty", "DFN-8-1EP_2x2mm_P0.5mm_EP0.6x1.2mm"),
+    ("Package_DFN_QFN.pretty", "QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"),
+    ("Package_DFN_QFN.pretty", "QFN-24-1EP_4x4mm_P0.5mm_EP2.5x2.5mm"),
+    ("Package_DFN_QFN.pretty", "QFN-32-1EP_5x5mm_P0.5mm_EP3.1x3.1mm"),
+    ("Package_DFN_QFN.pretty", "QFN-48-1EP_7x7mm_P0.5mm_EP5.15x5.15mm"),
+    ("Package_QFP.pretty", "LQFP-32_7x7mm_P0.8mm"),
+    ("Package_QFP.pretty", "LQFP-48_7x7mm_P0.5mm"),
+    ("Package_QFP.pretty", "LQFP-64_10x10mm_P0.5mm"),
+    ("Package_QFP.pretty", "LQFP-100_14x14mm_P0.5mm"),
+    ("Crystal.pretty", "Crystal_SMD_2012-2Pin_2.0x1.2mm"),
+    ("Crystal.pretty", "Crystal_SMD_2520-4Pin_2.5x2.0mm"),
+    ("Crystal.pretty", "Crystal_SMD_3225-4Pin_3.2x2.5mm"),
+    ("Crystal.pretty", "Crystal_SMD_5032-4Pin_5.0x3.2mm"),
+)
 _DEFAULT_BY_SOURCE = {
     (item.library, item.footprint): item for item in _DEFAULT_FOOTPRINTS
 }
@@ -457,9 +531,9 @@ class PasteFlowCalibrationBoardGenerator:
         if not tokens:
             by_id = {item.footprint_id: item for item in footprints}
             return tuple(
-                by_id[_footprint_id(item.library, item.footprint)]
-                for item in _DEFAULT_FOOTPRINTS
-                if _footprint_id(item.library, item.footprint) in by_id
+                by_id[_footprint_id(library, footprint)]
+                for library, footprint in _COMMON_FOOTPRINTS
+                if _footprint_id(library, footprint) in by_id
             )[:limit]
         matches = [
             item

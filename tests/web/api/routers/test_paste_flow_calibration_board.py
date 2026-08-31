@@ -55,6 +55,17 @@ class TestPasteFlowCalibrationBoardOptions:
         assert body["footprint_count"] > 10_000
         assert any(item["footprint_id"] == _QFN for item in body["results"])
 
+    def test_lists_common_footprints_without_a_query(self, client: TestClient):
+        response = client.get(f"{_BASE}/footprints?query=&limit=100")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["results"]) == 69
+        assert body["results"][0]["footprint_id"] == (
+            "Resistor_SMD.pretty/R_0201_0603Metric"
+        )
+        assert any(item["footprint_id"] == _QFN for item in body["results"])
+
     def test_returns_each_distinct_pad_pattern_for_a_footprint(
         self, client: TestClient
     ):
