@@ -156,15 +156,20 @@ class TestPasteFlowCalibrationBoardLayout:
         assert layout.purge_pad.height == 2.0
         assert len(layout.groups) == 6
         assert layout.pad_count == 64
-        assert all(not group.transpose for group in layout.groups)
         assert all(
             len(pad.polygons) >= 2 for group in layout.groups for pad in group.pads
         )
+        purge_right = layout.purge_pad.x + layout.purge_pad.width
+        purge_bottom = layout.purge_pad.y + layout.purge_pad.height
         for index, first in enumerate(layout.groups):
             assert first.bounds.x >= 1.0
-            assert first.bounds.y >= 4.0
+            assert first.bounds.y >= 1.0
             assert first.bounds.x + first.bounds.width <= 39.0 + 1e-9
             assert first.bounds.y + first.bounds.height <= 39.0 + 1e-9
+            assert (
+                purge_right + 1.0 <= first.bounds.x + 1e-9
+                or purge_bottom + 1.0 <= first.bounds.y + 1e-9
+            )
             for second in layout.groups[index + 1 :]:
                 assert (
                     first.bounds.x + first.bounds.width + 1.0 <= second.bounds.x + 1e-9
@@ -175,6 +180,28 @@ class TestPasteFlowCalibrationBoardLayout:
                     or second.bounds.y + second.bounds.height + 1.0
                     <= first.bounds.y + 1e-9
                 )
+
+    @pytest.mark.parametrize("auto_pack", [False, True])
+    def test_purge_pad_only_blocks_its_upper_left_corner(self, generator, auto_pack):
+        config = PasteFlowCalibrationBoardConfig(
+            auto_pack=auto_pack,
+            board=PasteFlowCalibrationBoardSpec(width_mm=12.0, height_mm=8.0),
+            custom_pads=(
+                _custom_pad(_CUSTOM_A, "A Right", width_mm=7.0, height_mm=2.0),
+                _custom_pad(_CUSTOM_B, "B Below", width_mm=10.0, height_mm=2.0),
+            ),
+            patterns=(
+                PasteFlowCalibrationPattern(_CUSTOM_A, 180.0, 1, 1),
+                PasteFlowCalibrationPattern(_CUSTOM_B, 180.0, 1, 1),
+            ),
+        )
+
+        groups = {group.catalog_id: group for group in generator.layout(config).groups}
+
+        assert groups[_CUSTOM_A].bounds.x == pytest.approx(4.0)
+        assert groups[_CUSTOM_A].bounds.y == pytest.approx(1.0)
+        assert groups[_CUSTOM_B].bounds.x == pytest.approx(1.0)
+        assert groups[_CUSTOM_B].bounds.y == pytest.approx(4.0)
 
     def test_transpose_places_repeats_in_columns_and_rotations_in_rows(self, generator):
         config = PasteFlowCalibrationBoardConfig(
@@ -271,7 +298,7 @@ class TestPasteFlowCalibrationBoardLayout:
             auto_pack=False,
             board=PasteFlowCalibrationBoardSpec(
                 width_mm=12.0,
-                height_mm=14.0,
+                height_mm=13.0,
                 pad_gap_mm=0.0,
             ),
             custom_pads=(
@@ -294,7 +321,7 @@ class TestPasteFlowCalibrationBoardLayout:
         assert len(layout.groups) == 3
         assert (
             max(group.bounds.y + group.bounds.height for group in layout.groups)
-            <= 13.0 + 1e-9
+            <= 12.0 + 1e-9
         )
 
     def test_overflow_reports_the_pad_pattern(self, generator):

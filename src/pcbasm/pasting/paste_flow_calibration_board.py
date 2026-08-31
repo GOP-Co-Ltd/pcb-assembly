@@ -1136,16 +1136,16 @@ class PasteFlowCalibrationBoardGenerator:
 def _validate_purge_region(config: PasteFlowCalibrationBoardConfig) -> None:
     board = config.board
     available_width = board.width_mm - 2 * board.edge_margin_mm
+    available_height = board.height_mm - 2 * board.edge_margin_mm
     if config.purge_pad.width_mm > available_width + 1e-9:
         raise PasteFlowCalibrationBoardOverflowError(
             f"purge pad幅{config.purge_pad.width_mm:.2f} mmが"
             f"配置可能幅{available_width:.2f} mmを超えます"
         )
-    pattern_top = board.edge_margin_mm + config.purge_pad.height_mm + board.pad_gap_mm
-    pattern_bottom = board.height_mm - board.edge_margin_mm
-    if pattern_top >= pattern_bottom - 1e-9:
+    if config.purge_pad.height_mm > available_height + 1e-9:
         raise PasteFlowCalibrationBoardOverflowError(
-            "purge padと余白を確保するとパッドパターンの配置領域が残りません"
+            f"purge pad高さ{config.purge_pad.height_mm:.2f} mmが"
+            f"配置可能高さ{available_height:.2f} mmを超えます"
         )
 
 
@@ -1166,13 +1166,28 @@ def _group_dimensions(
 
 def _packing_area(config: PasteFlowCalibrationBoardConfig) -> _PackingRect:
     board = config.board
-    top = board.edge_margin_mm + config.purge_pad.height_mm + board.pad_gap_mm
     return _PackingRect(
         x=board.edge_margin_mm,
-        y=top,
+        y=board.edge_margin_mm,
         width=board.width_mm - 2 * board.edge_margin_mm,
-        height=board.height_mm - board.edge_margin_mm - top,
+        height=board.height_mm - 2 * board.edge_margin_mm,
     )
+
+
+def _purge_keepout(config: PasteFlowCalibrationBoardConfig) -> _PackingRect:
+    area = _packing_area(config)
+    return _PackingRect(
+        x=area.x,
+        y=area.y,
+        width=config.purge_pad.width_mm + config.board.pad_gap_mm,
+        height=config.purge_pad.height_mm + config.board.pad_gap_mm,
+    )
+
+
+def _shelf_start_x(area: _PackingRect, purge_keepout: _PackingRect, y: float) -> float:
+    if y < purge_keepout.bottom - 1e-9:
+        return purge_keepout.right
+    return area.x
 
 
 def _pack_groups_ordered(
@@ -1184,9 +1199,10 @@ def _pack_groups_ordered(
 ) -> dict[str, _PackedGroup]:
     board = config.board
     area = _packing_area(config)
+    purge_keepout = _purge_keepout(config)
     right = area.right
     bottom = area.bottom
-    x = area.x
+    x = purge_keepout.right
     y = area.y
     row_height = 0.0
     family_id: str | None = None
@@ -1206,12 +1222,18 @@ def _pack_groups_ordered(
             )
         if family_id is not None and item.family_id != family_id:
             y += row_height + board.pad_gap_mm
-            x = area.x
+            x = _shelf_start_x(area, purge_keepout, y)
             row_height = 0.0
-        elif x > area.x and x + width > right + 1e-9:
-            y += row_height + board.pad_gap_mm
-            x = area.x
+        if x + width > right + 1e-9:
+            if row_height > 0.0:
+                y += row_height + board.pad_gap_mm
+            elif y < purge_keepout.bottom - 1e-9:
+                y = purge_keepout.bottom
+            x = _shelf_start_x(area, purge_keepout, y)
             row_height = 0.0
+        if x + width > right + 1e-9 and y < purge_keepout.bottom - 1e-9:
+            y = purge_keepout.bottom
+            x = area.x
         if y + height > bottom + 1e-9:
             raise PasteFlowCalibrationBoardOverflowError(
                 f"{item.footprint_label} / {item.label}を配置すると基板高さを超えます"
@@ -1235,6 +1257,7 @@ def _pack_groups_optimized(
     resolved: Mapping[str, tuple[PasteFlowCalibrationPadPattern, pcbnew.FOOTPRINT]],
 ) -> dict[str, _PackedGroup]:
     area = _packing_area(config)
+    purge_keepout = _purge_keepout(config)
     variants = {
         pattern.catalog_id: _packing_variants(pattern, metrics, config.board.pad_gap_mm)
         for pattern in config.patterns
@@ -1257,6 +1280,7 @@ def _pack_groups_optimized(
                 order,
                 variants,
                 area,
+                purge_keepout,
                 config.board.pad_gap_mm,
                 heuristic,
             )
@@ -1327,11 +1351,13 @@ def _pack_max_rects(
     patterns: tuple[PasteFlowCalibrationPattern, ...],
     variants: Mapping[str, tuple[tuple[bool, float, float], ...]],
     area: _PackingRect,
+    purge_keepout: _PackingRect,
     gap: float,
     heuristic: str,
 ) -> dict[str, _PackedGroup] | None:
-    free_rectangles = (
-        _PackingRect(area.x, area.y, area.width + gap, area.height + gap),
+    free_rectangles = _split_free_rectangles(
+        (_PackingRect(area.x, area.y, area.width + gap, area.height + gap),),
+        purge_keepout,
     )
     placements: dict[str, _PackedGroup] = {}
     for pattern in patterns:
