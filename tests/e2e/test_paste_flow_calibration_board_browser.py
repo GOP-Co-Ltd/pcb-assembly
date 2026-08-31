@@ -10,6 +10,8 @@ from tests.e2e.conftest import LiveUi
 
 _BROWSER_TIMEOUT_MS = 15_000
 _QFN = "Package_DFN_QFN.pretty/QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
+_QFN_NAME = "QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
+_QFN_LABEL = f"Package_DFN_QFN / {_QFN_NAME}"
 
 
 def _open_board_generator(page, live_ui: LiveUi) -> None:
@@ -42,6 +44,10 @@ class TestPasteFlowCalibrationBoardBrowser:
         )
         expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text(
             "繰り返し行数"
+        )
+        expect(browser_page.locator(".pfc-pattern-table thead")).to_contain_text("名称")
+        expect(browser_page.locator("#pfc-footprint-results option")).to_have_count(
+            69, timeout=_BROWSER_TIMEOUT_MS
         )
 
         config_box = browser_page.locator(".pfc-config-card").bounding_box()
@@ -76,7 +82,15 @@ class TestPasteFlowCalibrationBoardBrowser:
         expect(
             browser_page.locator("#pfc-footprint-results option").first
         ).to_have_attribute("value", _QFN, timeout=_BROWSER_TIMEOUT_MS)
+        selected_option = browser_page.locator(
+            f'#pfc-footprint-results option[value="{_QFN}"]'
+        )
+        expect(selected_option).to_have_attribute("title", _QFN_LABEL)
+        assert selected_option.evaluate("element => element.textContent.endsWith('…')")
         browser_page.locator("#pfc-footprint-results").select_option(_QFN)
+        expect(browser_page.locator("#pfc-footprint-results")).to_have_attribute(
+            "title", _QFN_LABEL
+        )
         browser_page.locator("#pfc-add-pattern").click()
         expect(browser_page.locator("#pfc-pattern-rows tr")).to_have_count(
             9, timeout=_BROWSER_TIMEOUT_MS
@@ -88,6 +102,9 @@ class TestPasteFlowCalibrationBoardBrowser:
         expect(qfn_rows.nth(0)).to_contain_text("Paste aperture")
         expect(qfn_rows.nth(1)).to_contain_text("Pad 1–16")
         expect(qfn_rows.nth(2)).to_contain_text("Pad 17")
+        qfn_name = qfn_rows.first.locator(".pfc-name-label .pfc-truncated-text")
+        expect(qfn_name).to_have_attribute("title", _QFN_NAME)
+        assert qfn_name.evaluate("element => element.scrollWidth > element.clientWidth")
         expect(browser_page.locator("#pfc-preview-status")).to_have_text(
             "配置可能です", timeout=_BROWSER_TIMEOUT_MS
         )

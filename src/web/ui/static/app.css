@@ -1719,14 +1719,21 @@ h2 {
 }
 
 .pfc-pattern-table .pfc-pad-label,
-.pfc-pattern-table .pfc-footprint-label {
+.pfc-pattern-table .pfc-name-label {
   font-weight: 600;
-  white-space: nowrap;
 }
 
-.pfc-pattern-table .pfc-footprint-label {
+.pfc-pattern-table .pfc-name-label {
   font-family: var(--mono);
   font-size: 0.76rem;
+}
+
+.pfc-pattern-table .pfc-truncated-text {
+  display: block;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pfc-resolved-angles,

@@ -34,6 +34,7 @@
   let config = null;
   let previewRequest = 0;
   let searchRequest = 0;
+  const optionLabelMaxLength = 48;
 
   function numberFrom(input, label) {
     const value = input.valueAsNumber;
@@ -92,6 +93,27 @@
     return cell;
   }
 
+  function truncatedTextCell(value, className) {
+    const cell = document.createElement("td");
+    cell.className = className;
+    const text = document.createElement("span");
+    text.className = "pfc-truncated-text";
+    text.textContent = value;
+    text.title = value;
+    cell.appendChild(text);
+    return cell;
+  }
+
+  function truncateLabel(value) {
+    if (value.length <= optionLabelMaxLength) return value;
+    return `${value.slice(0, optionLabelMaxLength - 1)}…`;
+  }
+
+  function updateFootprintResultTitle() {
+    const option = footprintResults.selectedOptions[0];
+    footprintResults.title = option?.dataset.fullLabel || "";
+  }
+
   function numberInput(pattern, field, step, label) {
     const input = document.createElement("input");
     input.type = "number";
@@ -109,8 +131,8 @@
       if (!item) continue;
       const row = document.createElement("tr");
       row.dataset.catalogId = pattern.catalog_id;
-      row.appendChild(textCell(item.footprint_label, "pfc-footprint-label"));
-      row.appendChild(textCell(item.label, "pfc-pad-label"));
+      row.appendChild(truncatedTextCell(item.footprint_label, "pfc-name-label"));
+      row.appendChild(truncatedTextCell(item.label, "pfc-pad-label"));
 
       const spanCell = document.createElement("td");
       spanCell.appendChild(
@@ -282,19 +304,23 @@
       const query = encodeURIComponent(footprintSearch.value.trim());
       const response = await api(
         "GET",
-        `${endpoint}/footprints?query=${query}&limit=30`
+        `${endpoint}/footprints?query=${query}&limit=100`
       );
       if (request !== searchRequest) return;
       footprintResults.replaceChildren();
       for (const item of response.results) {
         const option = document.createElement("option");
         option.value = item.footprint_id;
-        option.textContent = item.label;
+        option.textContent = truncateLabel(item.label);
+        option.title = item.label;
+        option.dataset.fullLabel = item.label;
         footprintResults.appendChild(option);
       }
+      updateFootprintResultTitle();
+      const qualifier = footprintSearch.value.trim() ? "検索結果" : "一般的な候補";
       footprintCount.textContent =
-        `${response.footprint_count.toLocaleString()} footprintsから` +
-        `${response.results.length}件を表示`;
+        `登録済み${response.footprint_count.toLocaleString()}件から` +
+        `${qualifier}${response.results.length}件を表示`;
       addButton.disabled = footprintResults.options.length === 0;
     } catch (err) {
       if (request !== searchRequest) return;
@@ -318,6 +344,7 @@
   });
 
   footprintSearch.addEventListener("input", scheduleSearch);
+  footprintResults.addEventListener("change", updateFootprintResultTitle);
 
   rows.addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-catalog-id]");
@@ -350,7 +377,7 @@
         });
       }
       if (!additions.length) {
-        toast("このfootprintのパッド種は追加済みです", false);
+        toast("選択した名称のパッド種は追加済みです", false);
         return;
       }
       applyConfig(current);
@@ -407,7 +434,7 @@
       mergeCatalog(options.catalog);
       applyConfig(options.config);
       footprintCount.textContent =
-        `${options.footprint_count.toLocaleString()} footprintsを検索できます`;
+        `登録済み${options.footprint_count.toLocaleString()}件を検索できます`;
       await Promise.all([refreshPreview(), refreshFootprintSearch()]);
     } catch (err) {
       clearPreview(err.message, true);

@@ -26,6 +26,9 @@ class TestPasteFlowCalibrationBoardPage:
         assert 'data-testid="pfc-generate"' in text
         assert "回転分割数" in text
         assert "繰り返し行数" in text
+        assert "名称を検索" in text
+        assert "<th>名称</th>" in text
+        assert "由来footprint" not in text
         assert "パッド種" in text
         assert "パッド間余白" in text
         assert "n 列" not in text
