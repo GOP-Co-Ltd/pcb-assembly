@@ -384,11 +384,81 @@
     generateButton.disabled = true;
   }
 
-  function polygonElement(polygon) {
+  function polygonElement(polygon, className = null) {
     return svgEl("polygon", {
       points: polygon.points.map((point) => `${point.x},${point.y}`).join(" "),
-      class: polygon.layer === "F.Cu" ? "pfc-copper" : "pfc-paste",
+      class:
+        className || (polygon.layer === "F.Cu" ? "pfc-copper" : "pfc-paste"),
     });
+  }
+
+  function appendPolygons(target, layout, className = null) {
+    for (const layer of ["F.Cu", "F.Paste"]) {
+      for (const polygon of layout.purge_polygons) {
+        if (polygon.layer === layer) {
+          target.appendChild(polygonElement(polygon, className));
+        }
+      }
+      for (const group of layout.groups) {
+        for (const pad of group.pads) {
+          for (const polygon of pad.polygons) {
+            if (polygon.layer === layer) {
+              target.appendChild(polygonElement(polygon, className));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  function groupBoundaryElement(group, className = "pfc-group-boundary") {
+    return svgEl("rect", {
+      x: group.bounds.x,
+      y: group.bounds.y,
+      width: group.bounds.width,
+      height: group.bounds.height,
+      class: className,
+    });
+  }
+
+  function rectanglePath(bounds) {
+    return (
+      `M ${bounds.x} ${bounds.y} ` +
+      `h ${bounds.width} v ${bounds.height} ` +
+      `h ${-bounds.width} Z`
+    );
+  }
+
+  function appendOverflowLayer(layout) {
+    const clipId = "pfc-placement-overflow-clip";
+    const definitions = svgEl("defs", {});
+    const clip = svgEl("clipPath", {
+      id: clipId,
+      clipPathUnits: "userSpaceOnUse",
+    });
+    clip.appendChild(
+      svgEl("path", {
+        d:
+          `${rectanglePath(layout.preview_bounds)} ` +
+          rectanglePath(layout.placement_area),
+        "clip-rule": "evenodd",
+        "fill-rule": "evenodd",
+      })
+    );
+    definitions.appendChild(clip);
+    preview.appendChild(definitions);
+
+    const overflow = svgEl("g", {
+      class: "pfc-overflow-layer",
+      "clip-path": `url(#${clipId})`,
+    });
+    appendPolygons(overflow, layout, "pfc-overflow-shape");
+    for (const group of layout.groups) {
+      overflow.appendChild(
+        groupBoundaryElement(group, "pfc-overflow-boundary")
+      );
+    }
+    preview.appendChild(overflow);
   }
 
   function renderResolvedRows(layout) {
@@ -408,9 +478,10 @@
   function renderLayout(layout) {
     lastLayout = layout;
     preview.replaceChildren();
+    const bounds = layout.preview_bounds;
     preview.setAttribute(
       "viewBox",
-      `0 0 ${layout.board.width_mm} ${layout.board.height_mm}`
+      `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`
     );
     preview.appendChild(
       svgEl("rect", {
@@ -422,29 +493,17 @@
       })
     );
 
-    for (const layer of ["F.Cu", "F.Paste"]) {
-      for (const polygon of layout.purge_polygons) {
-        if (polygon.layer === layer) preview.appendChild(polygonElement(polygon));
-      }
-      for (const group of layout.groups) {
-        for (const pad of group.pads) {
-          for (const polygon of pad.polygons) {
-            if (polygon.layer === layer) preview.appendChild(polygonElement(polygon));
-          }
-        }
-      }
+    appendPolygons(preview, layout);
+
+    for (const group of layout.groups) {
+      preview.appendChild(groupBoundaryElement(group));
+    }
+
+    if (layout.overflow_message !== null) {
+      appendOverflowLayer(layout);
     }
 
     for (const group of layout.groups) {
-      preview.appendChild(
-        svgEl("rect", {
-          x: group.bounds.x,
-          y: group.bounds.y,
-          width: group.bounds.width,
-          height: group.bounds.height,
-          class: "pfc-group-boundary",
-        })
-      );
       const label = svgEl("text", {
         x: group.bounds.x + 0.25,
         y: group.bounds.y + 1.05,
@@ -468,9 +527,12 @@
     purgeLabel.textContent = "PURGE";
     preview.appendChild(purgeLabel);
     previewSummary.textContent = `${layout.pad_count}パッド + purge pad`;
-    previewStatus.textContent = "配置可能です";
-    previewStatus.classList.remove("error");
-    generateButton.disabled = false;
+    const hasOverflow = layout.overflow_message !== null;
+    previewStatus.textContent = hasOverflow
+      ? layout.overflow_message
+      : "配置可能です";
+    previewStatus.classList.toggle("error", hasOverflow);
+    generateButton.disabled = hasOverflow;
   }
 
   async function refreshPreview(generation, throwOnUnavailable = false) {

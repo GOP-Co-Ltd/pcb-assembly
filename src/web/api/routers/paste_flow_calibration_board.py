@@ -210,10 +210,13 @@ class PasteFlowCalibrationBoardPreviewResponse(_ApiModel):
     config: PasteFlowCalibrationBoardConfigModel
     catalog: list[PasteFlowCalibrationPadPatternModel]
     board: PasteFlowCalibrationBoardSpecModel
+    placement_area: PasteFlowCalibrationBoundsModel
+    preview_bounds: PasteFlowCalibrationBoundsModel
     purge_pad: PasteFlowCalibrationBoundsModel
     purge_polygons: list[PasteFlowCalibrationPolygonModel]
     groups: list[PasteFlowCalibrationGroupLayoutModel]
     pad_count: int
+    overflow_message: str | None
 
     @classmethod
     def from_core(cls, preview: PasteFlowCalibrationBoardPreview) -> Self:
@@ -223,10 +226,13 @@ class PasteFlowCalibrationBoardPreviewResponse(_ApiModel):
                 "config": preview.config,
                 "catalog": preview.catalog,
                 "board": layout.board,
+                "placement_area": layout.placement_area,
+                "preview_bounds": layout.preview_bounds,
                 "purge_pad": layout.purge_pad,
                 "purge_polygons": layout.purge_polygons,
                 "groups": layout.groups,
                 "pad_count": layout.pad_count,
+                "overflow_message": preview.overflow_message,
             },
             strict=False,
         )

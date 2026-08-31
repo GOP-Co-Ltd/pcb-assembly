@@ -37,6 +37,7 @@ class TestPasteFlowCalibrationBoardPage:
         assert "由来footprint" not in text
         assert "パッド種" in text
         assert "パッド間余白" in text
+        assert "配置範囲外" in text
         assert "n 列" not in text
         assert "m 行" not in text
         assert "js/paste_flow_calibration_board.js?v=" in text

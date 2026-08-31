@@ -89,7 +89,38 @@ class TestPasteFlowCalibrationBoardBrowser:
         expect(browser_page.locator("#pfc-preview-status")).to_contain_text(
             _OVERFLOW_MESSAGE, timeout=_BROWSER_TIMEOUT_MS
         )
-        expect(browser_page.locator("#pfc-preview > *")).to_have_count(0)
+        expect(browser_page.locator("#pfc-preview-summary")).to_have_text(
+            "64パッド + purge pad"
+        )
+        expect(browser_page.locator(".pfc-overflow-layer")).to_have_count(1)
+        assert browser_page.locator(".pfc-overflow-shape").count() > 0
+        overflow_color = browser_page.locator(".pfc-overflow-shape").first.evaluate(
+            "element => getComputedStyle(element).fill"
+        )
+        red, green, blue = (int(value) for value in re.findall(r"\d+", overflow_color))
+        assert red > green and red > blue
+        overflow_layer = browser_page.locator(".pfc-overflow-layer")
+        expect(overflow_layer).to_have_attribute(
+            "clip-path", "url(#pfc-placement-overflow-clip)"
+        )
+        clip_membership = browser_page.locator(
+            "#pfc-placement-overflow-clip path"
+        ).evaluate(
+            """path => ({
+                placementCenter: path.isPointInFill(new DOMPoint(5, 20)),
+                edgeMargin: path.isPointInFill(new DOMPoint(0.5, 20)),
+            })"""
+        )
+        assert clip_membership == {
+            "placementCenter": False,
+            "edgeMargin": True,
+        }
+        view_box_attribute = browser_page.locator("#pfc-preview").get_attribute(
+            "viewBox"
+        )
+        assert view_box_attribute is not None
+        view_box = [float(value) for value in view_box_attribute.split()]
+        assert view_box[2] > 10.0 or view_box[3] > 40.0
         expect(browser_page.locator("#pfc-generate")).to_be_disabled()
         expect(browser_page.locator("#pfc-export")).to_be_enabled()
 
@@ -97,6 +128,8 @@ class TestPasteFlowCalibrationBoardBrowser:
         expect(browser_page.locator("#pfc-preview-status")).to_have_text(
             "配置可能です", timeout=_BROWSER_TIMEOUT_MS
         )
+        expect(browser_page.locator(".pfc-overflow-layer")).to_have_count(0)
+        expect(browser_page.locator("#pfc-generate")).to_be_enabled()
 
         name_sort = browser_page.locator('[data-sort-field="name"]')
         name_sort.click()
@@ -212,6 +245,14 @@ class TestPasteFlowCalibrationBoardBrowser:
         expect(browser_page.locator("#pfc-preview-status")).to_contain_text(
             _OVERFLOW_MESSAGE, timeout=_BROWSER_TIMEOUT_MS
         )
+        expect(browser_page.locator(".pfc-overflow-layer")).to_have_count(1)
+        expect(browser_page.locator("#pfc-preview-summary")).to_have_text(
+            "64パッド + purge pad"
+        )
+        expect(browser_page.locator(".pfc-group-boundary")).to_have_count(6)
+        assert browser_page.locator(".pfc-paste").count() > 0
+        expect(browser_page.locator("#pfc-generate")).to_be_disabled()
+        expect(browser_page.locator("#pfc-export")).to_be_enabled()
 
         browser_page.locator("#pfc-board-width").fill("42")
         expect(browser_page.locator("#pfc-preview-status")).to_have_text(

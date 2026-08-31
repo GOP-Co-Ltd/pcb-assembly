@@ -88,6 +88,8 @@ class PasteFlowCalibrationBoardLayout:
     """WebUIとKiCad生成が共有する完全に解決済みの配置."""
 
     board: PasteFlowCalibrationBoardSpec
+    placement_area: PasteFlowCalibrationBounds
+    preview_bounds: PasteFlowCalibrationBounds
     purge_pad: PasteFlowCalibrationBounds
     purge_polygons: tuple[PasteFlowCalibrationPolygon, ...]
     groups: tuple[PasteFlowCalibrationGroupLayout, ...]
@@ -130,15 +132,51 @@ def build_paste_flow_calibration_board_layout(
     config: PasteFlowCalibrationBoardConfig,
     resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
 ) -> PasteFlowCalibrationBoardLayout:
-    """解決済みconfigとtemplateからpreview配置を1回で構築する."""
+    """解決済みconfigとtemplateから配置可能なlayoutを構築する."""
 
-    metrics = {
+    metrics = _group_metrics_by_catalog_id(config, resolved)
+    placements = _pack_groups(config, metrics, resolved)
+    return _build_layout(config, resolved, metrics, placements)
+
+
+def preview_paste_flow_calibration_board_layout(
+    config: PasteFlowCalibrationBoardConfig,
+    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
+) -> tuple[PasteFlowCalibrationBoardLayout, str | None]:
+    """超過時も全パターンを含む診断用layoutと理由を返す."""
+
+    metrics = _group_metrics_by_catalog_id(config, resolved)
+    try:
+        placements = _pack_groups(config, metrics, resolved)
+    except PasteFlowCalibrationBoardOverflowError as exc:
+        placements = _pack_groups_for_overflow_preview(config, metrics, resolved)
+        overflow_message: str | None = str(exc)
+    else:
+        overflow_message = None
+    return (
+        _build_layout(config, resolved, metrics, placements),
+        overflow_message,
+    )
+
+
+def _group_metrics_by_catalog_id(
+    config: PasteFlowCalibrationBoardConfig,
+    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
+) -> dict[str, _GroupMetrics]:
+    return {
         pattern.catalog_id: _group_metrics(
             pattern, resolved[pattern.catalog_id].template
         )
         for pattern in config.patterns
     }
-    placements = _pack_groups(config, metrics, resolved)
+
+
+def _build_layout(
+    config: PasteFlowCalibrationBoardConfig,
+    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
+    metrics: Mapping[str, _GroupMetrics],
+    placements: Mapping[str, _PackedGroup],
+) -> PasteFlowCalibrationBoardLayout:
     groups: list[PasteFlowCalibrationGroupLayout] = []
     pad_counter = 0
     for pattern in config.patterns:
@@ -204,8 +242,12 @@ def build_paste_flow_calibration_board_layout(
         height=config.purge_pad.height_mm,
     )
     purge_points = _rectangle_points(purge)
+    placement_area = _placement_area(config)
+    preview_bounds = _preview_bounds(config.board, purge, groups)
     return PasteFlowCalibrationBoardLayout(
         board=config.board,
+        placement_area=placement_area,
+        preview_bounds=preview_bounds,
         purge_pad=purge,
         purge_polygons=(
             PasteFlowCalibrationPolygon("F.Cu", purge_points),
@@ -214,6 +256,23 @@ def build_paste_flow_calibration_board_layout(
         groups=tuple(groups),
         pad_count=pad_counter,
     )
+
+
+def _preview_bounds(
+    board: PasteFlowCalibrationBoardSpec,
+    purge: PasteFlowCalibrationBounds,
+    groups: list[PasteFlowCalibrationGroupLayout],
+) -> PasteFlowCalibrationBounds:
+    bounds = (
+        PasteFlowCalibrationBounds(0.0, 0.0, board.width_mm, board.height_mm),
+        purge,
+        *(group.bounds for group in groups),
+    )
+    left = min(item.x for item in bounds)
+    top = min(item.y for item in bounds)
+    right = max(item.x + item.width for item in bounds)
+    bottom = max(item.y + item.height for item in bounds)
+    return PasteFlowCalibrationBounds(left, top, right - left, bottom - top)
 
 
 def _group_metrics(
@@ -239,6 +298,45 @@ def _pack_groups(
     if config.auto_pack:
         return _pack_groups_optimized(config, metrics, resolved)
     return _pack_groups_ordered(config, metrics, resolved)
+
+
+def _pack_groups_for_overflow_preview(
+    config: PasteFlowCalibrationBoardConfig,
+    metrics: Mapping[str, _GroupMetrics],
+    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
+) -> dict[str, _PackedGroup]:
+    if not config.auto_pack:
+        return _pack_groups_ordered(
+            config,
+            metrics,
+            resolved,
+            allow_overflow=True,
+        )
+
+    variants = {
+        pattern.catalog_id: _packing_variants(
+            pattern,
+            metrics,
+            config.board.pad_gap_mm,
+        )
+        for pattern in config.patterns
+    }
+    area = _overflow_preview_area(config, variants)
+    packed = _find_optimized_packing(
+        config.patterns,
+        variants,
+        area,
+        _purge_keepout(config),
+        config.board.pad_gap_mm,
+    )
+    if packed is not None:
+        return packed
+    return _pack_groups_ordered(
+        config,
+        metrics,
+        resolved,
+        allow_overflow=True,
+    )
 
 
 def _validate_purge_region(config: PasteFlowCalibrationBoardConfig) -> None:
@@ -282,6 +380,13 @@ def _packing_area(config: PasteFlowCalibrationBoardConfig) -> _PackingRect:
     )
 
 
+def _placement_area(
+    config: PasteFlowCalibrationBoardConfig,
+) -> PasteFlowCalibrationBounds:
+    area = _packing_area(config)
+    return PasteFlowCalibrationBounds(area.x, area.y, area.width, area.height)
+
+
 def _purge_keepout(config: PasteFlowCalibrationBoardConfig) -> _PackingRect:
     area = _packing_area(config)
     return _PackingRect(
@@ -302,6 +407,8 @@ def _pack_groups_ordered(
     config: PasteFlowCalibrationBoardConfig,
     metrics: Mapping[str, _GroupMetrics],
     resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
+    *,
+    allow_overflow: bool = False,
 ) -> dict[str, _PackedGroup]:
     board = config.board
     area = _packing_area(config)
@@ -321,7 +428,7 @@ def _pack_groups_ordered(
             board.pad_gap_mm,
             pattern.transpose,
         )
-        if width > area.width + 1e-9:
+        if not allow_overflow and width > area.width + 1e-9:
             raise PasteFlowCalibrationBoardOverflowError(
                 f"{item.footprint_label} / {item.label}のグループ幅{width:.2f} mmが"
                 f"配置可能幅{area.width:.2f} mmを超えます"
@@ -340,7 +447,7 @@ def _pack_groups_ordered(
         if x + width > right + 1e-9 and y < purge_keepout.bottom - 1e-9:
             y = purge_keepout.bottom
             x = area.x
-        if y + height > bottom + 1e-9:
+        if not allow_overflow and y + height > bottom + 1e-9:
             raise PasteFlowCalibrationBoardOverflowError(
                 f"{item.footprint_label} / {item.label}を配置すると基板高さを超えます"
                 f"（必要下端{y + height:.2f} mm、配置可能下端{bottom:.2f} mm）"
@@ -377,29 +484,79 @@ def _pack_groups_optimized(
                 f"配置領域{area.width:.2f} × {area.height:.2f} mmに収まりません"
             )
 
+    packed = _find_optimized_packing(
+        config.patterns,
+        variants,
+        area,
+        purge_keepout,
+        config.board.pad_gap_mm,
+    )
+    if packed is None:
+        raise PasteFlowCalibrationBoardOverflowError(
+            "自動最適配置でもすべてのパッドグループを配置できず、"
+            "基板の配置可能領域を超えます"
+        )
+    return packed
+
+
+def _overflow_preview_area(
+    config: PasteFlowCalibrationBoardConfig,
+    variants: Mapping[str, tuple[_PackingVariant, ...]],
+) -> _PackingRect:
+    area = _packing_area(config)
+    purge_keepout = _purge_keepout(config)
+    width = max(
+        area.width,
+        purge_keepout.width,
+        *(
+            min(variant[1] for variant in variants[pattern.catalog_id])
+            for pattern in config.patterns
+        ),
+    )
+    stacked_height = purge_keepout.height + sum(
+        min(
+            variant[2]
+            for variant in variants[pattern.catalog_id]
+            if variant[1] <= width + 1e-9
+        )
+        + config.board.pad_gap_mm
+        for pattern in config.patterns
+    )
+    return _PackingRect(
+        x=area.x,
+        y=area.y,
+        width=width,
+        height=max(area.height, stacked_height),
+    )
+
+
+def _find_optimized_packing(
+    patterns: tuple[PasteFlowCalibrationPattern, ...],
+    variants: Mapping[str, tuple[_PackingVariant, ...]],
+    area: _PackingRect,
+    purge_keepout: _PackingRect,
+    gap: float,
+) -> dict[str, _PackedGroup] | None:
     attempts: list[dict[str, _PackedGroup]] = []
     heuristics: tuple[_PackingHeuristic, ...] = (
         "short_side",
         "area",
         "bottom_left",
     )
-    for order in _packing_orders(config.patterns, variants):
+    for order in _packing_orders(patterns, variants):
         for heuristic in heuristics:
             packed = _pack_max_rects(
                 order,
                 variants,
                 area,
                 purge_keepout,
-                config.board.pad_gap_mm,
+                gap,
                 heuristic,
             )
             if packed is not None:
                 attempts.append(packed)
     if not attempts:
-        raise PasteFlowCalibrationBoardOverflowError(
-            "自動最適配置でもすべてのパッドグループを配置できず、"
-            "基板の配置可能領域を超えます"
-        )
+        return None
     return min(attempts, key=lambda packed: _packing_score(packed, area))
 
 

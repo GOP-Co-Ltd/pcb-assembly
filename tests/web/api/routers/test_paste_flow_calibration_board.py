@@ -297,6 +297,19 @@ class TestPasteFlowCalibrationBoardPreview:
         preview = response.json()
         assert preview["pad_count"] == 64
         assert len(preview["groups"]) == 6
+        assert preview["overflow_message"] is None
+        assert preview["placement_area"] == {
+            "x": 1.0,
+            "y": 1.0,
+            "width": 38.0,
+            "height": 38.0,
+        }
+        assert preview["preview_bounds"] == {
+            "x": 0.0,
+            "y": 0.0,
+            "width": 40.0,
+            "height": 40.0,
+        }
         assert [item["catalog_id"] for item in preview["catalog"]] == [
             item["catalog_id"] for item in preview["config"]["patterns"]
         ]
@@ -385,14 +398,29 @@ class TestPasteFlowCalibrationBoardPreview:
         assert response.status_code == 400
         assert "10,000" in response.text
 
-    def test_layout_overflow_is_422(self, client: TestClient):
+    def test_layout_overflow_returns_diagnostic_geometry(self, client: TestClient):
         config = _default_config(client)
         config["board"]["width_mm"] = 10.0
 
         response = client.post(f"{_BASE}/preview", json=config)
 
-        assert response.status_code == 422
-        assert "収まりません" in response.text
+        assert response.status_code == 200, response.text
+        preview = response.json()
+        assert "収まりません" in preview["overflow_message"]
+        assert len(preview["groups"]) == 6
+        assert preview["pad_count"] == 64
+        area = preview["placement_area"]
+        right = area["x"] + area["width"]
+        bottom = area["y"] + area["height"]
+        assert any(
+            group["bounds"]["x"] + group["bounds"]["width"] > right + 1e-9
+            or group["bounds"]["y"] + group["bounds"]["height"] > bottom + 1e-9
+            for group in preview["groups"]
+        )
+        assert (
+            preview["preview_bounds"]["width"] > config["board"]["width_mm"]
+            or preview["preview_bounds"]["height"] > config["board"]["height_mm"]
+        )
 
     def test_missing_footprint_library_is_503(
         self,
@@ -490,3 +518,12 @@ class TestPasteFlowCalibrationBoardGenerate:
         assert pcb.outline.width == 40.0
         assert len(pcb.components) == 65
         assert len(pcb.pads) == 65
+
+    def test_layout_overflow_is_rejected(self, client: TestClient):
+        config = _default_config(client)
+        config["board"]["width_mm"] = 10.0
+
+        response = client.post(f"{_BASE}/generate", json=config)
+
+        assert response.status_code == 422
+        assert "収まりません" in response.text

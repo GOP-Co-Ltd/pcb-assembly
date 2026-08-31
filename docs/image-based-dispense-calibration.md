@@ -314,6 +314,8 @@ WebUIの「はんだ塗布」タブに「はんだペースト流量キャリブ
 F.Cu/F.Paste、グループ境界、角度、グループ寸法をSVGで表示する。設定は
 `pcbasm-paste-flow-calibration-board.json`、KiCad基板は
 `pcbasm-paste-flow-calibration-board.kicad_pcb`としてブラウザへ直接ダウンロードする。
+配置領域を超えた場合もpreview自体は消さず、全パッドの診断配置を表示する。有効な配置領域の
+外へ出たパッド形状とグループ境界の部分だけを赤で重ね、基板生成は配置可能になるまで無効にする。
 装置を動かさないため、生成と設定入出力にWebUIの操作権は要求しない。
 編集中の設定は機体ごとにブラウザのlocalStorageへ自動保存し、ページの再読込時に復元する。
 保存内容はサーバーのImport APIでschema検証・正規化してから画面へ反映し、古いschemaまたは

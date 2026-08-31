@@ -1861,10 +1861,24 @@ h2 {
   stroke-width: 0.04;
 }
 
+.pfc-overflow-shape {
+  fill: #ef4444;
+  fill-opacity: 0.88;
+  stroke: #991b1b;
+  stroke-width: 0.06;
+}
+
 .pfc-group-boundary {
   fill: none;
   stroke: #1b67b1;
   stroke-width: 0.1;
+  stroke-dasharray: 0.35 0.25;
+}
+
+.pfc-overflow-boundary {
+  fill: none;
+  stroke: #dc2626;
+  stroke-width: 0.14;
   stroke-dasharray: 0.35 0.25;
 }
 
@@ -1897,6 +1911,7 @@ h2 {
 
 .pfc-legend-copper::before { background: #d3a822; }
 .pfc-legend-paste::before { background: #d74878; }
+.pfc-legend-overflow::before { background: #ef4444; }
 .pfc-legend-group::before {
   border-color: #1b67b1 !important;
   background: transparent;

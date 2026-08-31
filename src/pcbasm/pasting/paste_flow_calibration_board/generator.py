@@ -32,6 +32,7 @@ from .layout import (
     PasteFlowCalibrationBoardLayout,
     PasteFlowCalibrationBounds,
     build_paste_flow_calibration_board_layout,
+    preview_paste_flow_calibration_board_layout,
 )
 
 
@@ -50,6 +51,7 @@ class PasteFlowCalibrationBoardPreview:
     config: PasteFlowCalibrationBoardConfig
     catalog: tuple[PasteFlowCalibrationPadPattern, ...]
     layout: PasteFlowCalibrationBoardLayout
+    overflow_message: str | None
 
 
 @attrs.frozen
@@ -114,13 +116,14 @@ class PasteFlowCalibrationBoardGenerator:
 
         with self._lock:
             plan = self._resolve_plan(config)
-            layout = build_paste_flow_calibration_board_layout(
+            layout, overflow_message = preview_paste_flow_calibration_board_layout(
                 plan.config, plan.resolved
             )
             return PasteFlowCalibrationBoardPreview(
                 config=plan.config,
                 catalog=plan.catalog,
                 layout=layout,
+                overflow_message=overflow_message,
             )
 
     def add_footprint_patterns(
@@ -180,9 +183,14 @@ class PasteFlowCalibrationBoardGenerator:
     def layout(
         self, config: PasteFlowCalibrationBoardConfig
     ) -> PasteFlowCalibrationBoardLayout:
-        """解決済みpreview layoutだけを返す."""
+        """配置可能な設定の解決済みlayoutだけを返す."""
 
-        return self.preview(config).layout
+        with self._lock:
+            plan = self._resolve_plan(config)
+            return build_paste_flow_calibration_board_layout(
+                plan.config,
+                plan.resolved,
+            )
 
     def build_board(self, config: PasteFlowCalibrationBoardConfig) -> pcbnew.BOARD:
         """解決済みlayoutと同じ位置へ単一パッドfootprintを置く."""
