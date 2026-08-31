@@ -11,6 +11,7 @@ import math
 import os
 import re
 import tempfile
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -21,7 +22,7 @@ import pcbnew
 from pcbasm.pcb.generate import generate_rect_pcb, save_board
 
 PASTE_FLOW_CALIBRATION_BOARD_KIND = "paste_flow_calibration_board"
-PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION = 2
+PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION = 3
 DEFAULT_KICAD9_FOOTPRINT_DIR = Path("/usr/share/kicad/footprints")
 
 
@@ -70,6 +71,50 @@ class PasteFlowCalibrationPadPattern:
 
 
 @attrs.frozen
+class PasteFlowCalibrationCustomPadShape:
+    """WebUIで選択できる任意寸法パッド形状."""
+
+    shape: str
+    label: str
+    uses_height: bool
+    uses_corner_radius: bool
+
+
+PASTE_FLOW_CALIBRATION_CUSTOM_PAD_SHAPES = (
+    PasteFlowCalibrationCustomPadShape("circle", "円", False, False),
+    PasteFlowCalibrationCustomPadShape("rectangle", "矩形", True, False),
+    PasteFlowCalibrationCustomPadShape("roundrect", "角丸矩形", True, True),
+    PasteFlowCalibrationCustomPadShape("oval", "長円（スロット）", True, False),
+)
+_CUSTOM_PAD_SHAPE_BY_ID = {
+    item.shape: item for item in PASTE_FLOW_CALIBRATION_CUSTOM_PAD_SHAPES
+}
+
+
+@attrs.frozen
+class PasteFlowCalibrationCustomPadDraft:
+    """ID採番前の任意寸法パッド定義 [mm]."""
+
+    name: str
+    shape: str
+    width_mm: float
+    height_mm: float
+    corner_radius_mm: float = 0.0
+
+
+@attrs.frozen
+class PasteFlowCalibrationCustomPadSpec:
+    """設定JSONへ保存する任意寸法パッド定義 [mm]."""
+
+    catalog_id: str
+    name: str
+    shape: str
+    width_mm: float
+    height_mm: float
+    corner_radius_mm: float = 0.0
+
+
+@attrs.frozen
 class PasteFlowCalibrationBoardSpec:
     """基板外形と配置余白 [mm]."""
 
@@ -95,7 +140,7 @@ class PasteFlowCalibrationPattern:
     rotation_span_deg: float = 180.0
     rotation_count: int = 4
     repeat_count: int = 3
-    transpose: bool = True
+    transpose: bool = False
 
 
 @attrs.frozen
@@ -222,10 +267,12 @@ def _default_patterns() -> tuple[PasteFlowCalibrationPattern, ...]:
 class PasteFlowCalibrationBoardConfig:
     """生成・preview・exportで共有する基板設定."""
 
+    auto_pack: bool = True
     board: PasteFlowCalibrationBoardSpec = attrs.Factory(PasteFlowCalibrationBoardSpec)
     purge_pad: PasteFlowCalibrationPurgePadSpec = attrs.Factory(
         PasteFlowCalibrationPurgePadSpec
     )
+    custom_pads: tuple[PasteFlowCalibrationCustomPadSpec, ...] = ()
     patterns: tuple[PasteFlowCalibrationPattern, ...] = attrs.Factory(_default_patterns)
 
 
@@ -320,11 +367,35 @@ class _Envelope:
         return (self.min_y + self.max_y) / 2.0
 
 
+@attrs.frozen
+class _PackingRect:
+    x: float
+    y: float
+    width: float
+    height: float
+
+    @property
+    def right(self) -> float:
+        return self.x + self.width
+
+    @property
+    def bottom(self) -> float:
+        return self.y + self.height
+
+
+@attrs.frozen
+class _PackedGroup:
+    bounds: PasteFlowCalibrationBounds
+    transpose: bool
+
+
 def validate_paste_flow_calibration_board_config(
     config: PasteFlowCalibrationBoardConfig,
 ) -> str | None:
     """構造的なドメイン制約を検証し、問題があれば説明を返す."""
 
+    if not isinstance(config.auto_pack, bool):
+        return "自動最適配置は真偽値で指定してください"
     board = config.board
     positive = {
         "基板幅": board.width_mm,
@@ -349,10 +420,27 @@ def validate_paste_flow_calibration_board_config(
     if not config.patterns:
         return "1つ以上のパッドパターンが必要です"
 
+    custom_ids: set[str] = set()
+    for custom_pad in config.custom_pads:
+        if not _is_custom_pad_catalog_id(custom_pad.catalog_id):
+            return f"任意パッドIDが不正です: {custom_pad.catalog_id}"
+        if custom_pad.catalog_id in custom_ids:
+            return f"任意パッドが重複しています: {custom_pad.catalog_id}"
+        custom_ids.add(custom_pad.catalog_id)
+        if (message := _validate_custom_pad(custom_pad)) is not None:
+            return message
+
     seen: set[str] = set()
     for pattern in config.patterns:
-        if _parse_pad_catalog_id(pattern.catalog_id) is None:
+        if _parse_pad_catalog_id(
+            pattern.catalog_id
+        ) is None and not _is_custom_pad_catalog_id(pattern.catalog_id):
             return f"パッドパターンIDが不正です: {pattern.catalog_id}"
+        if (
+            _is_custom_pad_catalog_id(pattern.catalog_id)
+            and pattern.catalog_id not in custom_ids
+        ):
+            return f"任意パッド定義がありません: {pattern.catalog_id}"
         if pattern.catalog_id in seen:
             return f"パッドパターンが重複しています: {pattern.catalog_id}"
         seen.add(pattern.catalog_id)
@@ -386,9 +474,31 @@ def normalize_paste_flow_calibration_board_config(
 
     if (message := validate_paste_flow_calibration_board_config(config)) is not None:
         raise PasteFlowCalibrationBoardConfigError(message)
+    custom_by_id = {item.catalog_id: item for item in config.custom_pads}
+    patterns = tuple(
+        sorted(
+            config.patterns,
+            key=lambda pattern: _pattern_sort_key(pattern, custom_by_id),
+        )
+    )
+    used_custom_ids = {
+        pattern.catalog_id
+        for pattern in patterns
+        if _is_custom_pad_catalog_id(pattern.catalog_id)
+    }
     return attrs.evolve(
         config,
-        patterns=tuple(sorted(config.patterns, key=_pattern_sort_key)),
+        custom_pads=tuple(
+            sorted(
+                (
+                    item
+                    for item in config.custom_pads
+                    if item.catalog_id in used_custom_ids
+                ),
+                key=lambda item: (item.name.casefold(), item.catalog_id),
+            )
+        ),
+        patterns=patterns,
     )
 
 
@@ -401,8 +511,10 @@ def paste_flow_calibration_board_document(
     return {
         "kind": PASTE_FLOW_CALIBRATION_BOARD_KIND,
         "schema_version": PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION,
+        "auto_pack": normalized.auto_pack,
         "board": attrs.asdict(normalized.board),
         "purge_pad": attrs.asdict(normalized.purge_pad),
+        "custom_pads": [attrs.asdict(item) for item in normalized.custom_pads],
         "patterns": [attrs.asdict(pattern) for pattern in normalized.patterns],
     }
 
@@ -416,12 +528,28 @@ def parse_paste_flow_calibration_board_document(
         return None
     if document.get("schema_version") != PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION:
         return None
+    if set(document) != {
+        "kind",
+        "schema_version",
+        "auto_pack",
+        "board",
+        "purge_pad",
+        "custom_pads",
+        "patterns",
+    }:
+        return None
+    auto_pack = document.get("auto_pack")
     board_data = document.get("board")
     purge_data = document.get("purge_pad")
+    custom_pad_data = document.get("custom_pads")
     pattern_data = document.get("patterns")
+    if not isinstance(auto_pack, bool):
+        return None
     if not isinstance(board_data, Mapping):
         return None
     if not isinstance(purge_data, Mapping):
+        return None
+    if not isinstance(custom_pad_data, list):
         return None
     if not isinstance(pattern_data, list):
         return None
@@ -435,6 +563,7 @@ def parse_paste_flow_calibration_board_document(
     if set(purge_data) != {"width_mm", "height_mm"}:
         return None
     patterns: list[PasteFlowCalibrationPattern] = []
+    custom_pads: list[PasteFlowCalibrationCustomPadSpec] = []
     try:
         board = PasteFlowCalibrationBoardSpec(
             width_mm=_document_float(board_data["width_mm"]),
@@ -446,6 +575,33 @@ def parse_paste_flow_calibration_board_document(
             width_mm=_document_float(purge_data["width_mm"]),
             height_mm=_document_float(purge_data["height_mm"]),
         )
+        for value in custom_pad_data:
+            if not isinstance(value, Mapping):
+                return None
+            if set(value) != {
+                "catalog_id",
+                "name",
+                "shape",
+                "width_mm",
+                "height_mm",
+                "corner_radius_mm",
+            }:
+                return None
+            catalog_id = value["catalog_id"]
+            name = value["name"]
+            shape = value["shape"]
+            if not all(isinstance(item, str) for item in (catalog_id, name, shape)):
+                return None
+            custom_pads.append(
+                PasteFlowCalibrationCustomPadSpec(
+                    catalog_id=catalog_id,
+                    name=name,
+                    shape=shape,
+                    width_mm=_document_float(value["width_mm"]),
+                    height_mm=_document_float(value["height_mm"]),
+                    corner_radius_mm=_document_float(value["corner_radius_mm"]),
+                )
+            )
         for value in pattern_data:
             if not isinstance(value, Mapping):
                 return None
@@ -473,7 +629,11 @@ def parse_paste_flow_calibration_board_document(
     except (KeyError, TypeError, ValueError):
         return None
     config = PasteFlowCalibrationBoardConfig(
-        board=board, purge_pad=purge, patterns=tuple(patterns)
+        auto_pack=auto_pack,
+        board=board,
+        purge_pad=purge,
+        custom_pads=tuple(custom_pads),
+        patterns=tuple(patterns),
     )
     if validate_paste_flow_calibration_board_config(config) is not None:
         return None
@@ -630,7 +790,7 @@ class PasteFlowCalibrationBoardGenerator:
                 default_repeat_count=(
                     default.repeat_count if default is not None else 2
                 ),
-                default_transpose=True,
+                default_transpose=False,
             )
             patterns.append(item)
             self._pad_templates[catalog_id] = template
@@ -638,14 +798,44 @@ class PasteFlowCalibrationBoardGenerator:
         self._pad_patterns[footprint_id] = resolved
         return resolved
 
+    def add_custom_pad(
+        self,
+        config: PasteFlowCalibrationBoardConfig,
+        draft: PasteFlowCalibrationCustomPadDraft,
+    ) -> PasteFlowCalibrationBoardConfig:
+        """任意寸法パッドを設定へ追加し、採番済み設定を返す."""
+
+        if (message := _validate_custom_pad(draft)) is not None:
+            raise PasteFlowCalibrationBoardConfigError(message)
+        catalog_id = f"custom:{uuid.uuid4().hex}"
+        custom_pad = PasteFlowCalibrationCustomPadSpec(
+            catalog_id=catalog_id,
+            name=draft.name.strip(),
+            shape=draft.shape,
+            width_mm=draft.width_mm,
+            height_mm=draft.height_mm,
+            corner_radius_mm=draft.corner_radius_mm,
+        )
+        return self.normalize_config(
+            attrs.evolve(
+                config,
+                custom_pads=(*config.custom_pads, custom_pad),
+                patterns=(
+                    *config.patterns,
+                    PasteFlowCalibrationPattern(catalog_id=catalog_id),
+                ),
+            )
+        )
+
     def normalize_config(
         self, config: PasteFlowCalibrationBoardConfig
     ) -> PasteFlowCalibrationBoardConfig:
         """構造を正規化し、全パッドパターンが実footprintから解決可能か検証する."""
 
         normalized = normalize_paste_flow_calibration_board_config(config)
+        custom_by_id = {item.catalog_id: item for item in normalized.custom_pads}
         for pattern in normalized.patterns:
-            self._resolve_pad_pattern(pattern.catalog_id)
+            self._resolve_pattern(pattern.catalog_id, custom_by_id)
         return normalized
 
     def catalog_for_config(
@@ -654,8 +844,9 @@ class PasteFlowCalibrationBoardGenerator:
         """設定に含まれるパッドパターンの表示情報を正規順で返す."""
 
         normalized = self.normalize_config(config)
+        custom_by_id = {item.catalog_id: item for item in normalized.custom_pads}
         return tuple(
-            self._resolve_pad_pattern(pattern.catalog_id)[0]
+            self._resolve_pattern(pattern.catalog_id, custom_by_id)[0]
             for pattern in normalized.patterns
         )
 
@@ -665,8 +856,9 @@ class PasteFlowCalibrationBoardGenerator:
         """設定を検証し、単一パッド形状を持つ配置へ解決する."""
 
         normalized = self.normalize_config(config)
+        custom_by_id = {item.catalog_id: item for item in normalized.custom_pads}
         resolved = {
-            pattern.catalog_id: self._resolve_pad_pattern(pattern.catalog_id)
+            pattern.catalog_id: self._resolve_pattern(pattern.catalog_id, custom_by_id)
             for pattern in normalized.patterns
         }
         metrics = {
@@ -680,14 +872,16 @@ class PasteFlowCalibrationBoardGenerator:
         pad_counter = 0
         for pattern in normalized.patterns:
             item, template = resolved[pattern.catalog_id]
-            bounds = placements[pattern.catalog_id]
+            packed = placements[pattern.catalog_id]
+            bounds = packed.bounds
+            transpose = packed.transpose
             cell_width, cell_height, angles, envelopes = metrics[pattern.catalog_id]
             pads: list[PasteFlowCalibrationPadLayout] = []
             for repeat_index in range(pattern.repeat_count):
                 for rotation_index, angle in enumerate(angles):
                     envelope = envelopes[rotation_index]
-                    column = repeat_index if pattern.transpose else rotation_index
-                    row = rotation_index if pattern.transpose else repeat_index
+                    column = repeat_index if transpose else rotation_index
+                    row = rotation_index if transpose else repeat_index
                     cell_center_x = (
                         bounds.x
                         + column * (cell_width + normalized.board.pad_gap_mm)
@@ -727,7 +921,7 @@ class PasteFlowCalibrationBoardGenerator:
                     cell_height_mm=cell_height,
                     angles_deg=angles,
                     repeat_count=pattern.repeat_count,
-                    transpose=pattern.transpose,
+                    transpose=transpose,
                     pads=tuple(pads),
                 )
             )
@@ -752,11 +946,17 @@ class PasteFlowCalibrationBoardGenerator:
     def build_board(self, config: PasteFlowCalibrationBoardConfig) -> pcbnew.BOARD:
         """解決済みlayoutと同じ位置へ単一パッドfootprintを置く."""
 
-        layout = self.layout(config)
+        normalized = self.normalize_config(config)
+        custom_by_id = {item.catalog_id: item for item in normalized.custom_pads}
+        resolved = {
+            pattern.catalog_id: self._resolve_pattern(pattern.catalog_id, custom_by_id)
+            for pattern in normalized.patterns
+        }
+        layout = self.layout(normalized)
         board = generate_rect_pcb(layout.board.width_mm, layout.board.height_mm)
         self._add_purge_pad(board, layout.purge_pad)
         for group in layout.groups:
-            item, template = self._resolve_pad_pattern(group.catalog_id)
+            item, template = resolved[group.catalog_id]
             for pad_layout in group.pads:
                 footprint = _duplicate_footprint(template)
                 footprint.SetReference(pad_layout.reference)
@@ -846,6 +1046,45 @@ class PasteFlowCalibrationBoardGenerator:
             f"footprintに指定のパッドパターンがありません: {catalog_id}"
         )
 
+    def _resolve_pattern(
+        self,
+        catalog_id: str,
+        custom_by_id: Mapping[str, PasteFlowCalibrationCustomPadSpec],
+    ) -> tuple[PasteFlowCalibrationPadPattern, pcbnew.FOOTPRINT]:
+        custom_pad = custom_by_id.get(catalog_id)
+        if custom_pad is None:
+            return self._resolve_pad_pattern(catalog_id)
+        template = _custom_pad_footprint(custom_pad)
+        envelope = _footprint_envelope(template, 0.0)
+        shape = _CUSTOM_PAD_SHAPE_BY_ID[custom_pad.shape]
+        radius = (
+            f" · R{custom_pad.corner_radius_mm:.3g} mm"
+            if custom_pad.shape == "roundrect"
+            else ""
+        )
+        item = PasteFlowCalibrationPadPattern(
+            catalog_id=catalog_id,
+            footprint_id=catalog_id,
+            footprint_label=custom_pad.name,
+            label=(
+                f"{shape.label} · {envelope.width:.3g} × {envelope.height:.3g} mm"
+                f"{radius}"
+            ),
+            family_id="custom",
+            family_label="任意サイズ",
+            library="",
+            footprint=custom_pad.name,
+            source_pad_numbers=("1",),
+            source_pad_count=1,
+            pad_width_mm=envelope.width,
+            pad_height_mm=envelope.height,
+            default_rotation_span_deg=180.0,
+            default_rotation_count=4,
+            default_repeat_count=3,
+            default_transpose=False,
+        )
+        return item, template
+
     @staticmethod
     def _group_metrics(
         pattern: PasteFlowCalibrationPattern,
@@ -867,52 +1106,11 @@ class PasteFlowCalibrationBoardGenerator:
             str, tuple[float, float, tuple[float, ...], tuple[_Envelope, ...]]
         ],
         resolved: Mapping[str, tuple[PasteFlowCalibrationPadPattern, pcbnew.FOOTPRINT]],
-    ) -> dict[str, PasteFlowCalibrationBounds]:
-        board = config.board
-        left = board.edge_margin_mm
-        right = board.width_mm - board.edge_margin_mm
-        bottom = board.height_mm - board.edge_margin_mm
-        y = board.edge_margin_mm + config.purge_pad.height_mm + board.pad_gap_mm
-        x = left
-        row_height = 0.0
-        family_id: str | None = None
-        placements: dict[str, PasteFlowCalibrationBounds] = {}
-        for pattern in config.patterns:
-            item = resolved[pattern.catalog_id][0]
-            cell_width, cell_height, _angles, _envelopes = metrics[pattern.catalog_id]
-            column_count = (
-                pattern.repeat_count if pattern.transpose else pattern.rotation_count
-            )
-            row_count = (
-                pattern.rotation_count if pattern.transpose else pattern.repeat_count
-            )
-            width = column_count * cell_width + (column_count - 1) * board.pad_gap_mm
-            height = row_count * cell_height + (row_count - 1) * board.pad_gap_mm
-            if width > right - left + 1e-9:
-                raise PasteFlowCalibrationBoardOverflowError(
-                    f"{item.footprint_label} / {item.label}のグループ幅{width:.2f} mmが"
-                    f"配置可能幅{right - left:.2f} mmを超えます"
-                )
-            if family_id is not None and item.family_id != family_id:
-                y += row_height + board.pad_gap_mm
-                x = left
-                row_height = 0.0
-            elif x > left and x + width > right + 1e-9:
-                y += row_height + board.pad_gap_mm
-                x = left
-                row_height = 0.0
-            if y + height > bottom + 1e-9:
-                raise PasteFlowCalibrationBoardOverflowError(
-                    f"{item.footprint_label} / {item.label}を配置すると基板高さを超えます"
-                    f"（必要下端{y + height:.2f} mm、配置可能下端{bottom:.2f} mm）"
-                )
-            placements[pattern.catalog_id] = PasteFlowCalibrationBounds(
-                x=x, y=y, width=width, height=height
-            )
-            x += width + board.pad_gap_mm
-            row_height = max(row_height, height)
-            family_id = item.family_id
-        return placements
+    ) -> dict[str, _PackedGroup]:
+        _validate_purge_region(config)
+        if config.auto_pack:
+            return _pack_groups_optimized(config, metrics, resolved)
+        return _pack_groups_ordered(config, metrics, resolved)
 
     @staticmethod
     def _add_purge_pad(board: pcbnew.BOARD, bounds: PasteFlowCalibrationBounds) -> None:
@@ -933,6 +1131,349 @@ class PasteFlowCalibrationBoardGenerator:
         pad.SetLayerSet(pad.SMDMask())
         footprint.Add(pad)
         board.Add(footprint)
+
+
+def _validate_purge_region(config: PasteFlowCalibrationBoardConfig) -> None:
+    board = config.board
+    available_width = board.width_mm - 2 * board.edge_margin_mm
+    if config.purge_pad.width_mm > available_width + 1e-9:
+        raise PasteFlowCalibrationBoardOverflowError(
+            f"purge pad幅{config.purge_pad.width_mm:.2f} mmが"
+            f"配置可能幅{available_width:.2f} mmを超えます"
+        )
+    pattern_top = board.edge_margin_mm + config.purge_pad.height_mm + board.pad_gap_mm
+    pattern_bottom = board.height_mm - board.edge_margin_mm
+    if pattern_top >= pattern_bottom - 1e-9:
+        raise PasteFlowCalibrationBoardOverflowError(
+            "purge padと余白を確保するとパッドパターンの配置領域が残りません"
+        )
+
+
+def _group_dimensions(
+    pattern: PasteFlowCalibrationPattern,
+    metrics: tuple[float, float, tuple[float, ...], tuple[_Envelope, ...]],
+    gap: float,
+    transpose: bool,
+) -> tuple[float, float]:
+    cell_width, cell_height, _angles, _envelopes = metrics
+    column_count = pattern.repeat_count if transpose else pattern.rotation_count
+    row_count = pattern.rotation_count if transpose else pattern.repeat_count
+    return (
+        column_count * cell_width + (column_count - 1) * gap,
+        row_count * cell_height + (row_count - 1) * gap,
+    )
+
+
+def _packing_area(config: PasteFlowCalibrationBoardConfig) -> _PackingRect:
+    board = config.board
+    top = board.edge_margin_mm + config.purge_pad.height_mm + board.pad_gap_mm
+    return _PackingRect(
+        x=board.edge_margin_mm,
+        y=top,
+        width=board.width_mm - 2 * board.edge_margin_mm,
+        height=board.height_mm - board.edge_margin_mm - top,
+    )
+
+
+def _pack_groups_ordered(
+    config: PasteFlowCalibrationBoardConfig,
+    metrics: Mapping[
+        str, tuple[float, float, tuple[float, ...], tuple[_Envelope, ...]]
+    ],
+    resolved: Mapping[str, tuple[PasteFlowCalibrationPadPattern, pcbnew.FOOTPRINT]],
+) -> dict[str, _PackedGroup]:
+    board = config.board
+    area = _packing_area(config)
+    right = area.right
+    bottom = area.bottom
+    x = area.x
+    y = area.y
+    row_height = 0.0
+    family_id: str | None = None
+    placements: dict[str, _PackedGroup] = {}
+    for pattern in config.patterns:
+        item = resolved[pattern.catalog_id][0]
+        width, height = _group_dimensions(
+            pattern,
+            metrics[pattern.catalog_id],
+            board.pad_gap_mm,
+            pattern.transpose,
+        )
+        if width > area.width + 1e-9:
+            raise PasteFlowCalibrationBoardOverflowError(
+                f"{item.footprint_label} / {item.label}のグループ幅{width:.2f} mmが"
+                f"配置可能幅{area.width:.2f} mmを超えます"
+            )
+        if family_id is not None and item.family_id != family_id:
+            y += row_height + board.pad_gap_mm
+            x = area.x
+            row_height = 0.0
+        elif x > area.x and x + width > right + 1e-9:
+            y += row_height + board.pad_gap_mm
+            x = area.x
+            row_height = 0.0
+        if y + height > bottom + 1e-9:
+            raise PasteFlowCalibrationBoardOverflowError(
+                f"{item.footprint_label} / {item.label}を配置すると基板高さを超えます"
+                f"（必要下端{y + height:.2f} mm、配置可能下端{bottom:.2f} mm）"
+            )
+        placements[pattern.catalog_id] = _PackedGroup(
+            bounds=PasteFlowCalibrationBounds(x=x, y=y, width=width, height=height),
+            transpose=pattern.transpose,
+        )
+        x += width + board.pad_gap_mm
+        row_height = max(row_height, height)
+        family_id = item.family_id
+    return placements
+
+
+def _pack_groups_optimized(
+    config: PasteFlowCalibrationBoardConfig,
+    metrics: Mapping[
+        str, tuple[float, float, tuple[float, ...], tuple[_Envelope, ...]]
+    ],
+    resolved: Mapping[str, tuple[PasteFlowCalibrationPadPattern, pcbnew.FOOTPRINT]],
+) -> dict[str, _PackedGroup]:
+    area = _packing_area(config)
+    variants = {
+        pattern.catalog_id: _packing_variants(pattern, metrics, config.board.pad_gap_mm)
+        for pattern in config.patterns
+    }
+    for pattern in config.patterns:
+        if not any(
+            width <= area.width + 1e-9 and height <= area.height + 1e-9
+            for _transpose, width, height in variants[pattern.catalog_id]
+        ):
+            item = resolved[pattern.catalog_id][0]
+            raise PasteFlowCalibrationBoardOverflowError(
+                f"{item.footprint_label} / {item.label}は転置しても"
+                f"配置領域{area.width:.2f} × {area.height:.2f} mmに収まりません"
+            )
+
+    attempts: list[dict[str, _PackedGroup]] = []
+    for order in _packing_orders(config.patterns, variants):
+        for heuristic in ("short_side", "area", "bottom_left"):
+            packed = _pack_max_rects(
+                order,
+                variants,
+                area,
+                config.board.pad_gap_mm,
+                heuristic,
+            )
+            if packed is not None:
+                attempts.append(packed)
+    if not attempts:
+        raise PasteFlowCalibrationBoardOverflowError(
+            "自動最適配置でもすべてのパッドグループを配置できず、"
+            "基板の配置可能領域を超えます"
+        )
+    return min(attempts, key=lambda packed: _packing_score(packed, area))
+
+
+def _packing_variants(
+    pattern: PasteFlowCalibrationPattern,
+    metrics: Mapping[
+        str, tuple[float, float, tuple[float, ...], tuple[_Envelope, ...]]
+    ],
+    gap: float,
+) -> tuple[tuple[bool, float, float], ...]:
+    variants = tuple(
+        (
+            transpose,
+            *_group_dimensions(pattern, metrics[pattern.catalog_id], gap, transpose),
+        )
+        for transpose in (False, True)
+    )
+    if math.isclose(variants[0][1], variants[1][1], abs_tol=1e-9) and math.isclose(
+        variants[0][2], variants[1][2], abs_tol=1e-9
+    ):
+        return (variants[0],)
+    return variants
+
+
+def _packing_orders(
+    patterns: tuple[PasteFlowCalibrationPattern, ...],
+    variants: Mapping[str, tuple[tuple[bool, float, float], ...]],
+) -> tuple[tuple[PasteFlowCalibrationPattern, ...], ...]:
+    def maximum(catalog_id: str, value: int) -> float:
+        return max(item[value] for item in variants[catalog_id])
+
+    keys = (
+        lambda pattern: (0,),
+        lambda pattern: (
+            -maximum(pattern.catalog_id, 1) * maximum(pattern.catalog_id, 2),
+        ),
+        lambda pattern: (
+            -max(maximum(pattern.catalog_id, 1), maximum(pattern.catalog_id, 2)),
+        ),
+        lambda pattern: (-maximum(pattern.catalog_id, 1),),
+        lambda pattern: (-maximum(pattern.catalog_id, 2),),
+        lambda pattern: (
+            -(maximum(pattern.catalog_id, 1) + maximum(pattern.catalog_id, 2)),
+        ),
+    )
+    orders: list[tuple[PasteFlowCalibrationPattern, ...]] = []
+    seen: set[tuple[str, ...]] = set()
+    for index, key in enumerate(keys):
+        order = patterns if index == 0 else tuple(sorted(patterns, key=key))
+        identity = tuple(pattern.catalog_id for pattern in order)
+        if identity not in seen:
+            orders.append(order)
+            seen.add(identity)
+    return tuple(orders)
+
+
+def _pack_max_rects(
+    patterns: tuple[PasteFlowCalibrationPattern, ...],
+    variants: Mapping[str, tuple[tuple[bool, float, float], ...]],
+    area: _PackingRect,
+    gap: float,
+    heuristic: str,
+) -> dict[str, _PackedGroup] | None:
+    free_rectangles = (
+        _PackingRect(area.x, area.y, area.width + gap, area.height + gap),
+    )
+    placements: dict[str, _PackedGroup] = {}
+    for pattern in patterns:
+        choices: list[tuple[tuple[float, ...], _PackingRect, bool, float, float]] = []
+        for transpose, width, height in variants[pattern.catalog_id]:
+            packed_width = width + gap
+            packed_height = height + gap
+            for free in free_rectangles:
+                if (
+                    packed_width > free.width + 1e-9
+                    or packed_height > free.height + 1e-9
+                ):
+                    continue
+                remaining_width = free.width - packed_width
+                remaining_height = free.height - packed_height
+                choices.append(
+                    (
+                        _max_rects_choice_score(
+                            heuristic,
+                            free,
+                            packed_width,
+                            packed_height,
+                            remaining_width,
+                            remaining_height,
+                            transpose,
+                        ),
+                        free,
+                        transpose,
+                        width,
+                        height,
+                    )
+                )
+        if not choices:
+            return None
+        _score, free, transpose, width, height = min(choices, key=lambda item: item[0])
+        used = _PackingRect(free.x, free.y, width + gap, height + gap)
+        placements[pattern.catalog_id] = _PackedGroup(
+            PasteFlowCalibrationBounds(free.x, free.y, width, height), transpose
+        )
+        free_rectangles = _split_free_rectangles(free_rectangles, used)
+    return placements
+
+
+def _max_rects_choice_score(
+    heuristic: str,
+    free: _PackingRect,
+    width: float,
+    height: float,
+    remaining_width: float,
+    remaining_height: float,
+    transpose: bool,
+) -> tuple[float, ...]:
+    short_side = min(remaining_width, remaining_height)
+    long_side = max(remaining_width, remaining_height)
+    area_waste = free.width * free.height - width * height
+    suffix = (free.y, free.x, float(transpose))
+    if heuristic == "area":
+        return (area_waste, short_side, long_side, *suffix)
+    if heuristic == "bottom_left":
+        return (free.y + height, free.x, short_side, long_side, float(transpose))
+    return (short_side, long_side, area_waste, *suffix)
+
+
+def _split_free_rectangles(
+    free_rectangles: tuple[_PackingRect, ...], used: _PackingRect
+) -> tuple[_PackingRect, ...]:
+    split: list[_PackingRect] = []
+    for free in free_rectangles:
+        if not _rectangles_intersect(free, used):
+            split.append(free)
+            continue
+        if used.x > free.x + 1e-9:
+            split.append(_PackingRect(free.x, free.y, used.x - free.x, free.height))
+        if used.right < free.right - 1e-9:
+            split.append(
+                _PackingRect(used.right, free.y, free.right - used.right, free.height)
+            )
+        if used.y > free.y + 1e-9:
+            split.append(_PackingRect(free.x, free.y, free.width, used.y - free.y))
+        if used.bottom < free.bottom - 1e-9:
+            split.append(
+                _PackingRect(free.x, used.bottom, free.width, free.bottom - used.bottom)
+            )
+    return _prune_free_rectangles(split)
+
+
+def _rectangles_intersect(first: _PackingRect, second: _PackingRect) -> bool:
+    return not (
+        first.right <= second.x + 1e-9
+        or second.right <= first.x + 1e-9
+        or first.bottom <= second.y + 1e-9
+        or second.bottom <= first.y + 1e-9
+    )
+
+
+def _prune_free_rectangles(rectangles: list[_PackingRect]) -> tuple[_PackingRect, ...]:
+    useful = [
+        rectangle
+        for rectangle in rectangles
+        if rectangle.width > 1e-9 and rectangle.height > 1e-9
+    ]
+    return tuple(
+        rectangle
+        for index, rectangle in enumerate(useful)
+        if not any(
+            index != other_index and _contains(other, rectangle)
+            for other_index, other in enumerate(useful)
+        )
+    )
+
+
+def _contains(outer: _PackingRect, inner: _PackingRect) -> bool:
+    return (
+        inner.x >= outer.x - 1e-9
+        and inner.y >= outer.y - 1e-9
+        and inner.right <= outer.right + 1e-9
+        and inner.bottom <= outer.bottom + 1e-9
+    )
+
+
+def _packing_score(
+    placements: Mapping[str, _PackedGroup], area: _PackingRect
+) -> tuple[object, ...]:
+    used_width = (
+        max(item.bounds.x + item.bounds.width for item in placements.values()) - area.x
+    )
+    used_height = (
+        max(item.bounds.y + item.bounds.height for item in placements.values()) - area.y
+    )
+    transpose_count = sum(item.transpose for item in placements.values())
+    positions = tuple(
+        sorted(
+            (
+                catalog_id,
+                round(item.bounds.y, 9),
+                round(item.bounds.x, 9),
+                item.transpose,
+            )
+            for catalog_id, item in placements.items()
+        )
+    )
+    return used_width * used_height, used_height, used_width, transpose_count, positions
 
 
 def _parse_footprint_id(footprint_id: str) -> tuple[str, str] | None:
@@ -959,10 +1500,67 @@ def _parse_pad_catalog_id(catalog_id: str) -> tuple[str, str, int] | None:
     return parsed[0], parsed[1], pad_index
 
 
-def _pattern_sort_key(pattern: PasteFlowCalibrationPattern) -> tuple[object, ...]:
+_CUSTOM_PAD_ID_PATTERN = re.compile(r"custom:[0-9a-f]{32}")
+
+
+def _is_custom_pad_catalog_id(catalog_id: str) -> bool:
+    return _CUSTOM_PAD_ID_PATTERN.fullmatch(catalog_id) is not None
+
+
+def _validate_custom_pad(
+    custom_pad: PasteFlowCalibrationCustomPadDraft | PasteFlowCalibrationCustomPadSpec,
+) -> str | None:
+    name = custom_pad.name.strip()
+    if not name:
+        return "任意パッドの名称を入力してください"
+    if len(name) > 120:
+        return "任意パッドの名称は120文字以下で指定してください"
+    shape = _CUSTOM_PAD_SHAPE_BY_ID.get(custom_pad.shape)
+    if shape is None:
+        return f"任意パッド形状が不正です: {custom_pad.shape}"
+    dimensions = {
+        "幅／直径": custom_pad.width_mm,
+        "高さ": custom_pad.height_mm,
+    }
+    for label, value in dimensions.items():
+        if not math.isfinite(value) or value <= 0:
+            return f"任意パッドの{label}は正の有限値が必要です"
+    if not math.isfinite(custom_pad.corner_radius_mm):
+        return "任意パッドの角丸半径は有限値が必要です"
+    if custom_pad.shape == "circle" and not math.isclose(
+        custom_pad.width_mm, custom_pad.height_mm, abs_tol=1e-9
+    ):
+        return "円パッドの幅と高さには同じ直径を指定してください"
+    if shape.uses_corner_radius:
+        if custom_pad.corner_radius_mm <= 0:
+            return "角丸矩形の角丸半径は0より大きい値が必要です"
+        if (
+            custom_pad.corner_radius_mm
+            > min(custom_pad.width_mm, custom_pad.height_mm) / 2.0
+        ):
+            return "角丸矩形の角丸半径は短辺の半分以下で指定してください"
+    elif custom_pad.corner_radius_mm != 0:
+        return f"{shape.label}では角丸半径を指定できません"
+    return None
+
+
+def _pattern_sort_key(
+    pattern: PasteFlowCalibrationPattern,
+    custom_by_id: Mapping[str, PasteFlowCalibrationCustomPadSpec],
+) -> tuple[object, ...]:
     parsed = _parse_pad_catalog_id(pattern.catalog_id)
     if parsed is None:
-        return (2, pattern.catalog_id.casefold())
+        custom_pad = custom_by_id.get(pattern.catalog_id)
+        if custom_pad is None:
+            return (3, pattern.catalog_id.casefold())
+        return (
+            2,
+            custom_pad.name.casefold(),
+            custom_pad.shape,
+            custom_pad.width_mm,
+            custom_pad.height_mm,
+            pattern.catalog_id,
+        )
     library, footprint, pad_index = parsed
     source = (library, footprint)
     if source in _DEFAULT_SOURCE_ORDER:
@@ -1011,6 +1609,33 @@ def _single_pad_footprint(pad: pcbnew.PAD) -> pcbnew.FOOTPRINT:
     duplicated.SetPosition(_vector(0.0, 0.0))
     duplicated.SetNumber("1")
     footprint.Add(duplicated)
+    footprint.Reference().SetVisible(False)
+    footprint.Value().SetVisible(False)
+    return footprint
+
+
+def _custom_pad_footprint(
+    custom_pad: PasteFlowCalibrationCustomPadSpec,
+) -> pcbnew.FOOTPRINT:
+    footprint = pcbnew.FOOTPRINT(None)
+    pad = pcbnew.PAD(footprint)
+    pad.SetNumber("1")
+    pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
+    shape = {
+        "circle": pcbnew.PAD_SHAPE_CIRCLE,
+        "rectangle": pcbnew.PAD_SHAPE_RECTANGLE,
+        "roundrect": pcbnew.PAD_SHAPE_ROUNDRECT,
+        "oval": pcbnew.PAD_SHAPE_OVAL,
+    }[custom_pad.shape]
+    pad.SetShape(shape)
+    pad.SetSize(_vector(custom_pad.width_mm, custom_pad.height_mm))
+    pad.SetPosition(_vector(0.0, 0.0))
+    pad.SetLayerSet(pad.SMDMask())
+    if custom_pad.shape == "roundrect":
+        pad.SetRoundRectRadiusRatio(
+            custom_pad.corner_radius_mm / min(custom_pad.width_mm, custom_pad.height_mm)
+        )
+    footprint.Add(pad)
     footprint.Reference().SetVisible(False)
     footprint.Value().SetVisible(False)
     return footprint
@@ -1222,6 +1847,7 @@ def _to_mm(value: int | float) -> float:
 __all__ = [
     "PASTE_FLOW_CALIBRATION_BOARD_KIND",
     "PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION",
+    "PASTE_FLOW_CALIBRATION_CUSTOM_PAD_SHAPES",
     "PasteFlowCalibrationBoardConfig",
     "PasteFlowCalibrationBoardConfigError",
     "PasteFlowCalibrationBoardEnvironmentError",
@@ -1230,6 +1856,9 @@ __all__ = [
     "PasteFlowCalibrationBoardOverflowError",
     "PasteFlowCalibrationBoardSpec",
     "PasteFlowCalibrationBounds",
+    "PasteFlowCalibrationCustomPadDraft",
+    "PasteFlowCalibrationCustomPadShape",
+    "PasteFlowCalibrationCustomPadSpec",
     "PasteFlowCalibrationFootprintInfo",
     "PasteFlowCalibrationGroupLayout",
     "PasteFlowCalibrationPadLayout",

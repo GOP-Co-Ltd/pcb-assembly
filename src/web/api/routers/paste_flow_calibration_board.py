@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pcbasm.pasting.paste_flow_calibration_board import (
     PASTE_FLOW_CALIBRATION_BOARD_KIND,
     PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION,
+    PASTE_FLOW_CALIBRATION_CUSTOM_PAD_SHAPES,
     PasteFlowCalibrationBoardConfig,
     PasteFlowCalibrationBoardConfigError,
     PasteFlowCalibrationBoardEnvironmentError,
@@ -18,6 +19,9 @@ from pcbasm.pasting.paste_flow_calibration_board import (
     PasteFlowCalibrationBoardLayout,
     PasteFlowCalibrationBoardOverflowError,
     PasteFlowCalibrationBoardSpec,
+    PasteFlowCalibrationCustomPadDraft,
+    PasteFlowCalibrationCustomPadShape,
+    PasteFlowCalibrationCustomPadSpec,
     PasteFlowCalibrationPadPattern,
     PasteFlowCalibrationPattern,
     PasteFlowCalibrationPurgePadSpec,
@@ -55,22 +59,51 @@ class PasteFlowCalibrationPatternModel(_ApiModel):
     rotation_span_deg: float = 180.0
     rotation_count: int = 4
     repeat_count: int = 3
-    transpose: bool = True
+    transpose: bool = False
+
+
+class PasteFlowCalibrationCustomPadSpecModel(_ApiModel):
+    catalog_id: str
+    name: str
+    shape: str
+    width_mm: float
+    height_mm: float
+    corner_radius_mm: float = 0.0
+
+
+class PasteFlowCalibrationCustomPadDraftModel(_ApiModel):
+    name: str
+    shape: str
+    width_mm: float
+    height_mm: float
+    corner_radius_mm: float = 0.0
+
+    def to_core(self) -> PasteFlowCalibrationCustomPadDraft:
+        return PasteFlowCalibrationCustomPadDraft(**self.model_dump())
 
 
 class PasteFlowCalibrationBoardConfigModel(_ApiModel):
+    auto_pack: bool = True
     board: PasteFlowCalibrationBoardSpecModel = Field(
         default_factory=PasteFlowCalibrationBoardSpecModel
     )
     purge_pad: PasteFlowCalibrationPurgePadSpecModel = Field(
         default_factory=PasteFlowCalibrationPurgePadSpecModel
     )
+    custom_pads: list[PasteFlowCalibrationCustomPadSpecModel] = Field(
+        default_factory=list
+    )
     patterns: list[PasteFlowCalibrationPatternModel]
 
     def to_core(self) -> PasteFlowCalibrationBoardConfig:
         return PasteFlowCalibrationBoardConfig(
+            auto_pack=self.auto_pack,
             board=PasteFlowCalibrationBoardSpec(**self.board.model_dump()),
             purge_pad=PasteFlowCalibrationPurgePadSpec(**self.purge_pad.model_dump()),
+            custom_pads=tuple(
+                PasteFlowCalibrationCustomPadSpec(**item.model_dump())
+                for item in self.custom_pads
+            ),
             patterns=tuple(
                 PasteFlowCalibrationPattern(**pattern.model_dump())
                 for pattern in self.patterns
@@ -81,8 +114,12 @@ class PasteFlowCalibrationBoardConfigModel(_ApiModel):
     def from_core(cls, config: PasteFlowCalibrationBoardConfig) -> Self:
         return cls.model_validate(
             {
+                "auto_pack": config.auto_pack,
                 "board": attrs.asdict(config.board),
                 "purge_pad": attrs.asdict(config.purge_pad),
+                "custom_pads": [
+                    attrs.asdict(custom_pad) for custom_pad in config.custom_pads
+                ],
                 "patterns": [attrs.asdict(pattern) for pattern in config.patterns],
             }
         )
@@ -118,6 +155,17 @@ class PasteFlowCalibrationFootprintModel(_ApiModel):
     footprint: str
 
 
+class PasteFlowCalibrationCustomPadShapeModel(_ApiModel):
+    shape: str
+    label: str
+    uses_height: bool
+    uses_corner_radius: bool
+
+    @classmethod
+    def from_core(cls, item: PasteFlowCalibrationCustomPadShape) -> Self:
+        return cls.model_validate(attrs.asdict(item))
+
+
 class PasteFlowCalibrationFootprintSearchResponse(_ApiModel):
     query: str
     footprint_count: int
@@ -133,6 +181,7 @@ class PasteFlowCalibrationBoardOptionsResponse(_ApiModel):
     kind: str
     schema_version: int
     footprint_count: int
+    custom_pad_shapes: list[PasteFlowCalibrationCustomPadShapeModel]
     config: PasteFlowCalibrationBoardConfigModel
     catalog: list[PasteFlowCalibrationPadPatternModel]
 
@@ -197,6 +246,11 @@ class PasteFlowCalibrationBoardImportRequest(_ApiModel):
     document: dict[str, Any]
 
 
+class PasteFlowCalibrationAddCustomPadRequest(_ApiModel):
+    config: PasteFlowCalibrationBoardConfigModel
+    custom_pad: PasteFlowCalibrationCustomPadDraftModel
+
+
 @router.get("/options")
 def get_paste_flow_calibration_board_options(
     generator: PasteFlowCalibrationBoardGeneratorDep,
@@ -209,9 +263,37 @@ def get_paste_flow_calibration_board_options(
         kind=PASTE_FLOW_CALIBRATION_BOARD_KIND,
         schema_version=PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION,
         footprint_count=_footprint_count_or_http_error(generator),
+        custom_pad_shapes=[
+            PasteFlowCalibrationCustomPadShapeModel.from_core(item)
+            for item in PASTE_FLOW_CALIBRATION_CUSTOM_PAD_SHAPES
+        ],
         config=PasteFlowCalibrationBoardConfigModel.from_core(config),
         catalog=[
             PasteFlowCalibrationPadPatternModel.from_core(item) for item in catalog
+        ],
+    )
+
+
+@router.post("/custom-pads")
+def add_paste_flow_calibration_custom_pad(
+    body: PasteFlowCalibrationAddCustomPadRequest,
+    generator: PasteFlowCalibrationBoardGeneratorDep,
+) -> PasteFlowCalibrationConfigResponse:
+    """任意寸法の基本SMDパッドを設定へ追加する."""
+
+    try:
+        config = generator.add_custom_pad(
+            body.config.to_core(), body.custom_pad.to_core()
+        )
+    except PasteFlowCalibrationBoardConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PasteFlowCalibrationBoardEnvironmentError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return PasteFlowCalibrationConfigResponse(
+        config=PasteFlowCalibrationBoardConfigModel.from_core(config),
+        catalog=[
+            PasteFlowCalibrationPadPatternModel.from_core(item)
+            for item in _catalog_or_http_error(generator, config)
         ],
     )
 
