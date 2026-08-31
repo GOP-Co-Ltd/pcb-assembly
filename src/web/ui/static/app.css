@@ -1644,6 +1644,13 @@ h2 {
   margin-top: 0.65rem;
 }
 
+.pfc-interactive {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 .pfc-field-grid label {
   display: grid;
   gap: 0.2rem;
@@ -1906,8 +1913,11 @@ h2 {
 }
 
 .pfc-actions {
+  min-inline-size: 0;
   justify-content: flex-end;
   margin-top: 0.8rem;
+  padding: 0;
+  border: 0;
 }
 
 .pfc-primary {

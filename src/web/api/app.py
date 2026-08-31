@@ -14,7 +14,10 @@ from fastapi.staticfiles import StaticFiles
 
 from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
 from pcbasm.pasting.paste_flow_calibration_board import (
+    PasteFlowCalibrationBoardConfigError,
+    PasteFlowCalibrationBoardEnvironmentError,
     PasteFlowCalibrationBoardGenerator,
+    PasteFlowCalibrationBoardOverflowError,
 )
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore, UnknownFieldError
@@ -203,6 +206,24 @@ def create_app(
         request: Request, exc: UnknownFieldError
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(PasteFlowCalibrationBoardConfigError)
+    async def paste_flow_calibration_config_error_handler(
+        request: Request, exc: PasteFlowCalibrationBoardConfigError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(PasteFlowCalibrationBoardOverflowError)
+    async def paste_flow_calibration_overflow_error_handler(
+        request: Request, exc: PasteFlowCalibrationBoardOverflowError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(PasteFlowCalibrationBoardEnvironmentError)
+    async def paste_flow_calibration_environment_error_handler(
+        request: Request, exc: PasteFlowCalibrationBoardEnvironmentError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
 
     app.include_router(app_state.router)
     app.include_router(control_api.router)

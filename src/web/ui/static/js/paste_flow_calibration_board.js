@@ -31,6 +31,7 @@
   const importFile = document.getElementById("pfc-import-file");
   const exportButton = document.getElementById("pfc-export");
   const generateButton = document.getElementById("pfc-generate");
+  const interactiveRegions = root.querySelectorAll("[data-pfc-interactive]");
 
   const boardFields = {
     width_mm: document.getElementById("pfc-board-width"),
@@ -44,11 +45,12 @@
   };
 
   const catalog = new Map();
+  const rowsByCatalogId = new Map();
   const customPadShapes = new Map();
   let config = null;
   let lastLayout = null;
-  let previewRequest = 0;
-  let searchRequest = 0;
+  let previewGeneration = 0;
+  let searchGeneration = 0;
   let sortField = null;
   let sortDirection = "ascending";
   let documentKind = null;
@@ -64,18 +66,39 @@
     return value;
   }
 
+  function setEditingLocked(locked) {
+    for (const region of interactiveRegions) {
+      region.disabled = locked;
+    }
+  }
+
   function mergeCatalog(items) {
     for (const item of items) catalog.set(item.catalog_id, item);
   }
 
-  function itemFor(catalogId) {
-    return catalog.get(catalogId);
+  function rowForCatalogId(catalogId) {
+    return rowsByCatalogId.get(catalogId);
   }
 
-  function rowForCatalogId(catalogId) {
-    return [...rows.querySelectorAll("tr")].find(
-      (row) => row.dataset.catalogId === catalogId
-    );
+  function collectPattern(pattern) {
+    const row = rowForCatalogId(pattern.catalog_id);
+    if (!row) throw new Error("パッドパターンの表示を復元してください");
+    return {
+      catalog_id: pattern.catalog_id,
+      rotation_span_deg: numberFrom(
+        row.querySelector('[data-pattern-field="rotation_span_deg"]'),
+        "回転範囲"
+      ),
+      rotation_count: numberFrom(
+        row.querySelector('[data-pattern-field="rotation_count"]'),
+        "回転分割数"
+      ),
+      repeat_count: numberFrom(
+        row.querySelector('[data-pattern-field="repeat_count"]'),
+        "繰り返し数"
+      ),
+      transpose: row.querySelector('[data-pattern-field="transpose"]').checked,
+    };
   }
 
   function collectConfig() {
@@ -92,22 +115,7 @@
         height_mm: numberFrom(purgeFields.height_mm, "purge pad高さ"),
       },
       custom_pads: config.custom_pads,
-      patterns: [...rows.querySelectorAll("tr")].map((row) => ({
-        catalog_id: row.dataset.catalogId,
-        rotation_span_deg: numberFrom(
-          row.querySelector('[data-pattern-field="rotation_span_deg"]'),
-          "回転範囲"
-        ),
-        rotation_count: numberFrom(
-          row.querySelector('[data-pattern-field="rotation_count"]'),
-          "回転分割数"
-        ),
-        repeat_count: numberFrom(
-          row.querySelector('[data-pattern-field="repeat_count"]'),
-          "繰り返し数"
-        ),
-        transpose: row.querySelector('[data-pattern-field="transpose"]').checked,
-      })),
+      patterns: config.patterns.map(collectPattern),
     };
   }
 
@@ -207,18 +215,21 @@
   function collectCustomPadDraft() {
     const shape = customPadShapes.get(customPadShape.value);
     if (!shape) throw new Error("任意パッド形状を選択してください");
-    const width = numberFrom(customPadWidth, "任意パッドの幅／直径");
-    return {
+    const draft = {
       name: customPadName.value,
       shape: shape.shape,
-      width_mm: width,
-      height_mm: shape.uses_height
-        ? numberFrom(customPadHeight, "任意パッドの高さ")
-        : width,
-      corner_radius_mm: shape.uses_corner_radius
-        ? numberFrom(customPadRadius, "任意パッドの角丸半径")
-        : 0,
+      width_mm: numberFrom(customPadWidth, "任意パッドの幅／直径"),
     };
+    if (shape.uses_height) {
+      draft.height_mm = numberFrom(customPadHeight, "任意パッドの高さ");
+    }
+    if (shape.uses_corner_radius) {
+      draft.corner_radius_mm = numberFrom(
+        customPadRadius,
+        "任意パッドの角丸半径"
+      );
+    }
+    return draft;
   }
 
   function numberInput(pattern, field, step, label) {
@@ -247,8 +258,8 @@
   function patternsForDisplay(patterns) {
     if (!sortField) return patterns;
     const sorted = [...patterns].sort((first, second) => {
-      const firstItem = itemFor(first.catalog_id);
-      const secondItem = itemFor(second.catalog_id);
+      const firstItem = catalog.get(first.catalog_id);
+      const secondItem = catalog.get(second.catalog_id);
       const firstValue =
         sortField === "name" ? firstItem?.footprint_label : firstItem?.label;
       const secondValue =
@@ -263,8 +274,9 @@
 
   function renderPatternRows(patterns) {
     rows.replaceChildren();
+    rowsByCatalogId.clear();
     for (const pattern of patternsForDisplay(patterns)) {
-      const item = itemFor(pattern.catalog_id);
+      const item = catalog.get(pattern.catalog_id);
       if (!item) continue;
       const row = document.createElement("tr");
       row.dataset.catalogId = pattern.catalog_id;
@@ -306,6 +318,7 @@
       actionCell.appendChild(remove);
       row.appendChild(actionCell);
       rows.appendChild(row);
+      rowsByCatalogId.set(pattern.catalog_id, row);
     }
   }
 
@@ -323,6 +336,11 @@
 
   function applyAndSaveConfig(nextConfig) {
     applyConfig(nextConfig);
+    saveDraft(nextConfig);
+  }
+
+  function acceptResolvedConfig(nextConfig) {
+    config = nextConfig;
     saveDraft(nextConfig);
   }
 
@@ -455,8 +473,8 @@
     generateButton.disabled = false;
   }
 
-  async function refreshPreview() {
-    const request = ++previewRequest;
+  async function refreshPreview(generation, throwOnUnavailable = false) {
+    if (generation !== previewGeneration) return;
     generateButton.disabled = true;
     previewStatus.textContent = "配置を計算中…";
     previewStatus.classList.remove("error");
@@ -464,23 +482,27 @@
     try {
       nextConfig = collectConfig();
     } catch (err) {
-      if (request === previewRequest) clearPreview(err.message, true);
+      if (generation !== previewGeneration) return;
+      clearPreview(err.message, true);
+      if (throwOnUnavailable) throw err;
       return;
     }
     saveDraft(nextConfig);
     try {
       const layout = await api("POST", `${endpoint}/preview`, nextConfig);
-      if (request !== previewRequest) return;
+      if (generation !== previewGeneration) return;
       mergeCatalog(layout.catalog);
-      applyAndSaveConfig(layout.config);
+      acceptResolvedConfig(layout.config);
       renderLayout(layout);
     } catch (err) {
-      if (request === previewRequest) clearPreview(err.message, true);
+      if (generation !== previewGeneration) return;
+      clearPreview(err.message, true);
+      if (throwOnUnavailable && err.status !== 400 && err.status !== 422) throw err;
     }
   }
 
-  async function refreshFootprintSearch() {
-    const request = ++searchRequest;
+  async function refreshFootprintSearch(generation, throwOnUnavailable = false) {
+    if (generation !== searchGeneration) return;
     addButton.disabled = true;
     try {
       const query = encodeURIComponent(footprintSearch.value.trim());
@@ -488,7 +510,7 @@
         "GET",
         `${endpoint}/footprints?query=${query}&limit=100`
       );
-      if (request !== searchRequest) return;
+      if (generation !== searchGeneration) return;
       footprintResults.replaceChildren();
       for (const item of response.results) {
         const option = document.createElement("option");
@@ -505,15 +527,45 @@
         `${qualifier}${response.results.length}件を表示`;
       addButton.disabled = footprintResults.options.length === 0;
     } catch (err) {
-      if (request !== searchRequest) return;
+      if (generation !== searchGeneration) return;
       footprintResults.replaceChildren();
       footprintCount.textContent = err.message;
       addButton.disabled = true;
+      if (throwOnUnavailable) throw err;
     }
   }
 
-  const schedulePreview = debounce(refreshPreview, 300);
-  const scheduleSearch = debounce(refreshFootprintSearch, 250);
+  function requestPreview(throwOnUnavailable = false) {
+    const generation = ++previewGeneration;
+    return refreshPreview(generation, throwOnUnavailable);
+  }
+
+  function requestFootprintSearch(throwOnUnavailable = false) {
+    const generation = ++searchGeneration;
+    return refreshFootprintSearch(generation, throwOnUnavailable);
+  }
+
+  const schedulePreview = debounce((generation) => {
+    void refreshPreview(generation);
+  }, 300);
+  const scheduleSearch = debounce((generation) => {
+    void refreshFootprintSearch(generation);
+  }, 250);
+
+  function queuePreview() {
+    const generation = ++previewGeneration;
+    schedulePreview(generation);
+  }
+
+  function invalidatePreview() {
+    ++previewGeneration;
+  }
+
+  function queueFootprintSearch() {
+    const generation = ++searchGeneration;
+    addButton.disabled = true;
+    scheduleSearch(generation);
+  }
 
   root.addEventListener("input", (event) => {
     if (
@@ -523,11 +575,11 @@
       if (event.target === autoPack) updateTransposeControls();
       generateButton.disabled = true;
       saveCurrentDraft();
-      schedulePreview();
+      queuePreview();
     }
   });
 
-  footprintSearch.addEventListener("input", scheduleSearch);
+  footprintSearch.addEventListener("input", queueFootprintSearch);
   footprintResults.addEventListener("change", updateFootprintResultTitle);
   customPadShape.addEventListener("change", updateCustomPadFields);
 
@@ -551,50 +603,48 @@
   rows.addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-catalog-id]");
     if (!button) return;
+    config = {
+      ...config,
+      patterns: config.patterns.filter(
+        (pattern) => pattern.catalog_id !== button.dataset.removeCatalogId
+      ),
+    };
+    rowsByCatalogId.delete(button.dataset.removeCatalogId);
     button.closest("tr").remove();
     saveCurrentDraft();
-    schedulePreview();
+    queuePreview();
   });
 
   addButton.addEventListener("click", async () => {
     const footprintId = footprintResults.value;
     if (!footprintId) return;
+    setEditingLocked(true);
+    invalidatePreview();
     addButton.disabled = true;
     try {
-      const response = await api(
-        "GET",
-        `${endpoint}/pad-patterns?footprint_id=${encodeURIComponent(footprintId)}`
-      );
+      const response = await api("POST", `${endpoint}/patterns/from-footprint`, {
+        config: collectConfig(),
+        footprint_id: footprintId,
+      });
       mergeCatalog(response.catalog);
-      const current = collectConfig();
-      const selected = new Set(current.patterns.map((item) => item.catalog_id));
-      const additions = response.catalog.filter(
-        (item) => !selected.has(item.catalog_id)
-      );
-      for (const item of additions) {
-        current.patterns.push({
-          catalog_id: item.catalog_id,
-          rotation_span_deg: item.default_rotation_span_deg,
-          rotation_count: item.default_rotation_count,
-          repeat_count: item.default_repeat_count,
-          transpose: item.default_transpose,
-        });
-      }
-      if (!additions.length) {
+      applyAndSaveConfig(response.config);
+      await requestPreview();
+      if (!response.added_count) {
         toast("選択した名称のパッド種は追加済みです", false);
         return;
       }
-      applyAndSaveConfig(current);
-      await refreshPreview();
-      toast(`${additions.length}種類のパッドを追加しました`);
+      toast(`${response.added_count}種類のパッドを追加しました`);
     } catch (err) {
       toast(`パッド追加失敗: ${err.message}`, false);
     } finally {
       addButton.disabled = footprintResults.options.length === 0;
+      setEditingLocked(false);
     }
   });
 
   addCustomPadButton.addEventListener("click", async () => {
+    setEditingLocked(true);
+    invalidatePreview();
     addCustomPadButton.disabled = true;
     try {
       const response = await api("POST", `${endpoint}/custom-pads`, {
@@ -603,13 +653,14 @@
       });
       mergeCatalog(response.catalog);
       applyAndSaveConfig(response.config);
-      await refreshPreview();
+      await requestPreview();
       customPadName.value = "";
       toast("任意サイズパッドを追加しました");
     } catch (err) {
       toast(`任意パッド追加失敗: ${err.message}`, false);
     } finally {
       addCustomPadButton.disabled = false;
+      setEditingLocked(false);
     }
   });
 
@@ -617,17 +668,20 @@
   importFile.addEventListener("change", async () => {
     const file = importFile.files[0];
     if (!file) return;
+    setEditingLocked(true);
+    invalidatePreview();
     try {
       const document = JSON.parse(await file.text());
       const response = await api("POST", `${endpoint}/import`, { document });
       mergeCatalog(response.catalog);
       applyAndSaveConfig(response.config);
-      await refreshPreview();
+      await requestPreview();
       toast("設定をImportしました");
     } catch (err) {
       toast(`Import失敗: ${err.message}`, false);
     } finally {
       importFile.value = "";
+      setEditingLocked(false);
     }
   });
 
@@ -647,7 +701,7 @@
     } catch (err) {
       toast(`基板生成失敗: ${err.message}`, false);
     } finally {
-      await refreshPreview();
+      await requestPreview();
     }
   });
 
@@ -667,19 +721,33 @@
           });
           mergeCatalog(restored.catalog);
           initialConfig = restored.config;
-        } catch {
-          discardDraft();
-          toast(
-            "保存していた設定を復元できなかったため、初期設定を使用します",
-            false
-          );
+        } catch (err) {
+          if (err.status === 400 || err.status === 422) {
+            discardDraft();
+            toast(
+              "保存していた設定を復元できなかったため、初期設定を使用します",
+              false
+            );
+          } else {
+            throw new Error(
+              `保存していた設定の復元に失敗しました: ${err.message}`
+            );
+          }
         }
       }
       applyAndSaveConfig(initialConfig);
       updateSortIndicators();
       footprintCount.textContent =
         `登録済み${options.footprint_count.toLocaleString()}件を検索できます`;
-      await Promise.all([refreshPreview(), refreshFootprintSearch()]);
+      const initialization = await Promise.allSettled([
+        requestPreview(true),
+        requestFootprintSearch(true),
+      ]);
+      const failure = initialization.find(
+        (result) => result.status === "rejected"
+      );
+      if (failure) throw failure.reason;
+      setEditingLocked(false);
     } catch (err) {
       clearPreview(err.message, true);
     }
