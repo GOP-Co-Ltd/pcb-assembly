@@ -234,9 +234,9 @@ pad属性、drill形状を使用し、0/90/180/270度の回転で一致する形
 \]
 
 `0 < theta <= 360`、`n >= 1`、`m >= 1` とし、回転範囲のデフォルトは180度とする。
-デフォルトでは転置配置を有効にし、
-繰り返しを横方向の `m` 列、回転角を縦方向の `n` 行に配置する。パッド行ごとに転置配置を
-無効化でき、その場合は従来どおり回転角を `n` 列、繰り返しを `m` 行に配置する。
+各パッド行の転置配置はデフォルトOFFとし、回転角を横方向の `n` 列、繰り返しを縦方向の
+`m` 行に配置する。転置配置をONにすると、繰り返しを横方向の `m` 列、回転角を縦方向の
+`n` 行に入れ替える。
 パッド間隔の計算には、各回転角における
 抽出パッドのF.Cu/F.Paste AABBを使う。グループ内のセル寸法は全回転角の最大幅・最大高さ
 とし、footprint anchorを調整して各AABBをセル中央へ配置する。WebUIでは `n` と `m` を
@@ -246,6 +246,17 @@ pad属性、drill形状を使用し、0/90/180/270度の回転で一致する形
 すべての `*.pretty/*.kicad_mod` とする。WebUIでlibrary名またはfootprint名を検索し、選択した
 footprintをその場でパッド種へ分類する。全footprintを起動時にpcbnewへ読み込まず、ファイル名
 の検索indexだけを作り、選択されたfootprintだけを読み込む。
+
+名称と寸法を直接指定する任意サイズパッドも追加できる。任意パッドはF.Cu/F.Mask/F.Pasteを
+持つSMDパッドとして生成し、次の形状を扱う。「長円（スロット）」はペースト開口の形状を
+表し、穴あきのthrough-hole slotは生成しない。
+
+| 形状             | 寸法指定           |
+| ---------------- | ------------------ |
+| 円               | 直径               |
+| 矩形             | 幅、高さ           |
+| 角丸矩形         | 幅、高さ、角丸半径 |
+| 長円（スロット） | 幅、高さ           |
 
 検索語が空のときは、はんだペースト印刷で一般的な次の69 footprintを名称一覧へ表示する。
 これらは候補を探しやすくするための代表寸法であり、一覧外のfootprintも名称検索で選択できる。
@@ -269,16 +280,22 @@ BGAなど通常のペースト印刷対象ではないpackageは一般候補へ�
 
 | footprint library           | footprint         | 回転範囲 | 回転分割数 | 繰り返し数 | 転置配置 |
 | --------------------------- | ----------------- | -------: | ---------: | ---------: | -------- |
-| `Resistor_SMD.pretty`       | R_0402_1005Metric |      180 |          4 |          3 | ON       |
-| `Resistor_SMD.pretty`       | R_0603_1608Metric |      180 |          4 |          3 | ON       |
-| `Resistor_SMD.pretty`       | R_0805_2012Metric |      180 |          4 |          3 | ON       |
-| `Resistor_SMD.pretty`       | R_1206_3216Metric |      180 |          4 |          3 | ON       |
-| `Package_TO_SOT_SMD.pretty` | SOT-23            |      180 |          4 |          2 | ON       |
-| `Package_TO_SOT_SMD.pretty` | SOT-23-5          |      180 |          4 |          2 | ON       |
+| `Resistor_SMD.pretty`       | R_0402_1005Metric |      180 |          4 |          3 | OFF      |
+| `Resistor_SMD.pretty`       | R_0603_1608Metric |      180 |          4 |          3 | OFF      |
+| `Resistor_SMD.pretty`       | R_0805_2012Metric |      180 |          4 |          3 | OFF      |
+| `Resistor_SMD.pretty`       | R_1206_3216Metric |      180 |          4 |          3 | OFF      |
+| `Package_TO_SOT_SMD.pretty` | SOT-23            |      180 |          4 |          2 | OFF      |
+| `Package_TO_SOT_SMD.pretty` | SOT-23-5          |      180 |          4 |          2 | OFF      |
 
-配置はfootprint library、footprint名、代表パッドindexによる安定順のshelf packingとする。
-初期レシピの6種は上表の順を優先し、library（family）が変わるたびに新しい行から開始する。
-前の行の空き領域への後詰めは行わない。
+デフォルトでは自動最適配置を有効にする。パッドグループごとに転置前後の矩形を候補とし、
+複数の安定したサイズ順とMaxRectsの評価方法を試して、使用領域の面積、高さ、幅の順で最小に
+なる配置を採用する。グループ間には設定した余白を必ず確保し、配置結果には自動選択された
+転置状態を含める。自動最適配置中は各行の転置指定を使用しない。
+
+自動最適配置を無効にした場合は、各行の転置指定をそのまま使用し、footprint library、
+footprint名、代表パッドindexによる安定順のshelf packingへ切り替える。初期レシピの6種は
+上表の順を優先し、library（family）が変わるたびに新しい行から開始し、空き領域への
+後詰めは行わない。
 
 生成物では、抽出したパッド1個を持つfootprintを各セルに生成し、そのパッドの
 F.Cu/F.Mask/F.Pasteを保持する。元footprint全体のsilkscreenは部品配置を意味してしまうため
@@ -294,7 +311,10 @@ F.Cu/F.Paste、グループ境界、角度、グループ寸法をSVGで表示�
 装置を動かさないため、生成と設定入出力にWebUIの操作権は要求しない。
 表ではfootprint名を「名称」として表示する。長い名称とパッド種は末尾を省略表示し、hover時の
 tooltipで完全な文字列を確認できる。各パッド行の「転置配置」で、繰り返しを横へ置く配置と
-回転角を横へ置く配置を切り替える。
+回転角を横へ置く配置を切り替える。自動最適配置中は転置指定を無効表示し、サーバーが解決した
+転置状態をグループ寸法へ表示する。名称とパッド種の見出しでは表示行を昇順・降順に
+並べ替えられる。この表示順は設定の正規順や基板上の配置順を変更しない。名称検索の下では、
+形状と寸法を入力して任意サイズパッドを追加できる。
 
 設定JSONは自己識別情報を必須とする。Import時は`kind`と`schema_version`を検証し、
 サーバーの安定順へ正規化する。配置不能な設定でも構造的に正しければExportできる。
@@ -302,7 +322,8 @@ tooltipで完全な文字列を確認できる。各パッド行の「転置配�
 ```json
 {
   "kind": "paste_flow_calibration_board",
-  "schema_version": 2,
+  "schema_version": 3,
+  "auto_pack": true,
   "board": {
     "width_mm": 40.0,
     "height_mm": 40.0,
@@ -313,13 +334,30 @@ tooltipで完全な文字列を確認できる。各パッド行の「転置配�
     "width_mm": 2.0,
     "height_mm": 2.0
   },
+  "custom_pads": [
+    {
+      "catalog_id": "custom:0123456789abcdef0123456789abcdef",
+      "name": "試験用長円",
+      "shape": "oval",
+      "width_mm": 1.5,
+      "height_mm": 0.5,
+      "corner_radius_mm": 0.0
+    }
+  ],
   "patterns": [
     {
       "catalog_id": "Resistor_SMD.pretty/R_0402_1005Metric#pad-0",
       "rotation_span_deg": 180.0,
       "rotation_count": 4,
       "repeat_count": 3,
-      "transpose": true
+      "transpose": false
+    },
+    {
+      "catalog_id": "custom:0123456789abcdef0123456789abcdef",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 3,
+      "transpose": false
     }
   ]
 }
