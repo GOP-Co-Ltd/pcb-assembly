@@ -212,10 +212,18 @@ class TestCatalog:
         assert params["paste_id"].default is None
         assert params["paste_id"].optional is False
         assert params["paste_lot"].value_type == "str"
-        assert params["paste_lot"].label == "製造ロット"
+        assert params["paste_lot"].label == "製造ロット（任意）"
         assert params["paste_lot"].help is not None
         assert params["paste_lot"].default is None
-        assert params["paste_lot"].optional is False
+        assert params["paste_lot"].optional is True
+
+        assert default.validate_params(definition, {"paste_id": "paste-1"}) == {
+            "tolerance": 0.1,
+            "crop_margin_mm": 1.0,
+            "paste_id": "paste-1",
+        }
+        with pytest.raises(ValueError, match="paste_id"):
+            default.validate_params(definition, {})
 
     def test_paste_dataset_collection_provides_preview(self, default: JobCatalog):
         assert default.get("paste_dataset_collection").provides_preview is True
@@ -757,7 +765,7 @@ class TestPasteDatasetCollectionPreflight:
 
         record = manager.start(
             "paste_dataset_collection",
-            {"paste_id": "paste-1", "paste_lot": "lot-1"},
+            {"paste_id": "paste-1"},
         )
         wait_until(lambda: record.status.terminal, timeout=60.0)
 

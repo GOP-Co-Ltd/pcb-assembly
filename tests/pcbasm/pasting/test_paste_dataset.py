@@ -248,10 +248,23 @@ class TestPasteDatasetMetadata:
 
         assert metadata.to_dict() == payload
 
+    def test_accepts_missing_manufacturing_lot_as_null(
+        self, payload: dict[str, object]
+    ):
+        paste = payload["paste"]
+        assert isinstance(paste, dict)
+        paste["lot"] = None
+
+        metadata = PasteDatasetMetadata.from_dict(payload)
+
+        assert metadata.paste.lot is None
+        assert metadata.to_dict()["paste"]["lot"] is None
+
     @pytest.mark.parametrize(
         ("path", "value"),
         [
             (("schema_version",), "1"),
+            (("paste", "lot"), 123),
             (("paste", "density_mg_per_ul"), 3),
             (("camera", "pixel_per_mm"), True),
         ],

@@ -1314,10 +1314,14 @@ class TestPastingPadEditor:
         assert 'data-pad-config-purpose="paste_dataset_collection"' in text
         assert 'id="param-paste_id"' in text
         assert 'id="param-paste_lot"' in text
+        assert (
+            'id="param-paste_lot" name="paste_lot"\n'
+            '           data-param-type="str" data-param-optional="true"' in text
+        )
         assert "ペースト製品ID" in text
         assert "メーカー名・製品名または管理用の品番" in text
-        assert "製造ロット" in text
-        assert "ペースト容器に記載された製造ロット番号" in text
+        assert "製造ロット（任意）" in text
+        assert "任意。ペースト容器に記載された製造ロット番号" in text
         assert "loading-controls" not in text
 
 

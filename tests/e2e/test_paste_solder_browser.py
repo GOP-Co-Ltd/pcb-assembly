@@ -386,6 +386,16 @@ class TestPasteSolderBrowserRendering:
         _open_pasting_pad_editor(browser_page, live_ui, "paste_dataset_collection")
 
         assert browser_page.locator("#param-purge_pad_id").count() == 0
+        assert (
+            browser_page.locator("#param-paste_lot").get_attribute(
+                "data-param-optional"
+            )
+            == "true"
+        )
+        assert (
+            browser_page.locator("#param-paste_id").get_attribute("data-param-optional")
+            is None
+        )
         for param_name in ("paste_id", "paste_lot"):
             param = browser_page.locator(f"#param-{param_name}").locator("..")
             widths = param.evaluate(

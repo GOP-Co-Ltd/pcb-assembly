@@ -266,7 +266,7 @@ class PasteDatasetBoard:
 @attrs.frozen
 class PasteDatasetPaste:
     paste_id: str
-    lot: str
+    lot: str | None
     density_mg_per_ul: float
 
 

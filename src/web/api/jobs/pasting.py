@@ -556,9 +556,10 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                 ),
                 ParamSpec(
                     "paste_lot",
-                    "製造ロット",
+                    "製造ロット（任意）",
                     "str",
-                    help="ペースト容器に記載された製造ロット番号を入力します。",
+                    help="任意。ペースト容器に記載された製造ロット番号を入力します。",
+                    optional=True,
                 ),
             ),
             requires_pcb=True,
@@ -1268,9 +1269,9 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
     if dispenser_config.initial_purge_ul <= 0:
         raise ValueError("dataset収集にはinitial_purge_ulを正の値で設定してください")
     paste_id = str(ctx.params["paste_id"]).strip()
-    paste_lot = str(ctx.params["paste_lot"]).strip()
-    if not paste_id or not paste_lot:
-        raise ValueError("paste_idとpaste_lotは空にできません")
+    paste_lot = str(ctx.params.get("paste_lot", "")).strip() or None
+    if not paste_id:
+        raise ValueError("paste_idは空にできません")
     crop_margin_mm = float(ctx.params["crop_margin_mm"])
 
     # purge・収集対象の不正はpromptや装置動作より前に検出する。
