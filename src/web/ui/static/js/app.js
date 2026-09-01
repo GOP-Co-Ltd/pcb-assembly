@@ -25,7 +25,7 @@ function toast(message, level = true) {
   setTimeout(() => el.remove(), 5000);
 }
 
-async function api(method, url, body) {
+async function fetchApi(method, url, body) {
   const options = { method };
   if (body instanceof FormData) {
     // multipart は fetch が boundary 付き Content-Type を自動設定する
@@ -35,8 +35,8 @@ async function api(method, url, body) {
     options.body = JSON.stringify(body);
   }
   const res = await fetch(withBase(url), options);
-  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
     const err = new Error(data.detail || `${res.status} ${res.statusText}`);
     err.status = res.status;
     err.data = data;
@@ -44,7 +44,32 @@ async function api(method, url, body) {
     if (res.status === 423) window.webui.control?.onDenied(data);
     throw err;
   }
-  return data;
+  return res;
+}
+
+async function api(method, url, body) {
+  const res = await fetchApi(method, url, body);
+  return res.json().catch(() => ({}));
+}
+
+async function downloadApi(method, url, body) {
+  const res = await fetchApi(method, url, body);
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const quoted = disposition.match(/filename="([^"]+)"/i)?.[1];
+  const plain = disposition.match(/filename=([^;\s]+)/i)?.[1];
+  const filename = encoded
+    ? decodeURIComponent(encoded)
+    : quoted ?? plain ?? "download";
+  const objectUrl = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+  return filename;
 }
 
 // frontend 自身のエンドポイント（/api/machines）を GET する。
@@ -98,6 +123,7 @@ function formatPosition(p) {
 window.webui = {
   toast,
   api,
+  downloadApi,
   frontendJson,
   svgEl,
   debounce,

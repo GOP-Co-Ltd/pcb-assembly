@@ -70,9 +70,15 @@ def backend_settings(tmp_path: Path, backend_pcb_root: Path) -> ApiSettings:
 
 
 @pytest.fixture
-def backend_app(backend_settings: ApiSettings) -> Iterator[FastAPI]:
+def backend_app(
+    backend_settings: ApiSettings,
+    paste_flow_calibration_footprint_root: Path,
+) -> Iterator[FastAPI]:
     """実物の backend app。lifespan は走らないので後始末だけ明示的に行う."""
-    app = create_backend_app(backend_settings)
+    app = create_backend_app(
+        backend_settings,
+        paste_flow_calibration_footprint_root=paste_flow_calibration_footprint_root,
+    )
     yield app
     app.state.preview.request_shutdown()
     app.state.jobs.shutdown()
