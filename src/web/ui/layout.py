@@ -28,6 +28,7 @@ TABS: dict[str, tuple[str, ...]] = {
         "height_plane",
         "loading",
         "dispense_calibration",
+        "paste_flow_calibration_board",
         "generate_rect_pcb",
         "toolhead_offset",
         "probe_guide",
@@ -60,6 +61,7 @@ FEATURE_LABELS: dict[str, str] = {
     "audio": "通知音",
     "probe_guide": "ロードセルプローブ ガイド",
     "nozzle_cap": "ノズルキャップ位置の設定",
+    "paste_flow_calibration_board": "はんだペースト流量キャリブレーション基板生成",
     "camera_preview": "カメラプレビュー",
     "copper_detection": "銅箔検出調整",
 }
@@ -83,6 +85,10 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("pasting", "height_plane"): "pasting/job.html",
     ("pasting", "loading"): "pasting/loading.html",
     ("pasting", "dispense_calibration"): "pasting/dispense_calibration.html",
+    (
+        "pasting",
+        "paste_flow_calibration_board",
+    ): "pasting/paste_flow_calibration_board.html",
     ("pasting", "generate_rect_pcb"): "pasting/job.html",
     ("pasting", "toolhead_offset"): "pasting/job.html",
     ("pasting", "probe_guide"): "pasting/probe_guide.html",

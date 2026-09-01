@@ -1,8 +1,11 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 from pytest_mock import MockerFixture
 
 from pcbasm.hal.camera import CameraInfo, Resolution
+from tests.helpers import make_paste_flow_calibration_footprint_root
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +19,16 @@ def disable_mdns_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setenv("PCBASM_API_DISCOVERY_ENABLED", "0")
     monkeypatch.setenv("PCBASM_UI_DISCOVERY_ENABLED", "0")
+
+
+@pytest.fixture(scope="session")
+def paste_flow_calibration_footprint_root(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Path:
+    """System KiCad inventoryに依存しない実 ``*.pretty`` library."""
+    return make_paste_flow_calibration_footprint_root(
+        tmp_path_factory.mktemp("paste-flow-calibration") / "footprints"
+    )
 
 
 @pytest.fixture

@@ -205,6 +205,164 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 撮影時は基準位置に加え、カメラを X/Y 方向へ数 mm 移動して同じパッドを複数回撮影する。
 同一 view の塗布前後画像は、同じ撮影位置に対応させる。
 
+#### はんだペースト流量キャリブレーション基板の生成仕様
+
+データ収集基板の生成ロジックは、用途を明確にするため
+`pcbasm.pasting.paste_flow_calibration_board` に置く。PCB一般のキャリブレーション基板を
+意味する曖昧な `pcbasm.pcb.calibration_board` や、公開名としての単独の
+`calibration_board` は使用しない。
+
+初期設定は次のとおりとする。
+
+- 基板外形: 40 × 40 mm
+- 外周余白: 1 mm
+- パッド間余白: 1 mm
+- 専用purge pad: 2 × 2 mm、基板左上の外周余白内側
+- purge padと通常パターン領域の間隔: 1 mm
+
+配置単位は部品全体ではなく、KiCad footprintから抽出した1種類のパッド形状とする。
+たとえば0402のpad 1とpad 2が同一形状なら1種類へまとめ、その代表パッド1個だけを回転・
+複製する。QFNの外周リード、中央exposed pad、F.Pasteだけの分割開口のように、レイヤーまたは
+形状が異なるものは別々のパッド種として扱う。同一判定にはF.Cu/F.Mask/F.Pasteの実ポリゴン、
+pad属性、drill形状を使用し、0/90/180/270度の回転で一致する形状を同一種へまとめる。
+
+各パッド種から回転分割数 `n` と繰り返し数 `m` に従って個別のパッドを生成する。
+同じパッド種もグループ化せず、各パッドを独立した矩形として配置する。回転範囲を
+`theta` 度としたとき、回転index `i` の角度は次式とする。
+
+\[
+\phi_i = i \frac{\theta}{n}, \qquad 0 \leq i < n
+\]
+
+`0 < theta <= 360`、`n >= 1`、`m >= 1` とし、回転範囲のデフォルトは180度とする。
+過大入力によるリソース枯渇を防ぐため、全パッド種の `n * m` 合計は10,000以下とする。
+パッド間隔の計算には、各回転角における抽出パッドのF.Cu/F.Paste AABBを使う。
+footprint anchorを調整して各AABBを配置結果の矩形へ一致させる。WebUIでは `n` と `m` を
+それぞれ「回転分割数」「繰り返し数」と表示する。配置方向を指定するオプションは設けない。
+
+使用可能な候補は固定カタログに限定せず、インストール済みKiCad 9 footprint rootにある
+すべての `*.pretty/*.kicad_mod` とする。WebUIでlibrary名またはfootprint名を検索し、選択した
+footprintをその場でパッド種へ分類し、未追加のパッド種を1回の操作ですべて追加する。すでに
+設定にあるパッド種は重複させない。全footprintを起動時にpcbnewへ読み込まず、ファイル名の
+検索indexだけを作り、選択されたfootprintだけを読み込む。
+
+任意サイズパッドも追加できる。名称は省略可能で、省略時は形状、寸法、必要に応じて角丸半径
+から、`長円（スロット） 1.5 × 0.5 mm`のような名称を自動設定する。任意パッドは
+F.Cu/F.Mask/F.Pasteを持つSMDパッドとして生成し、次の形状を扱う。「長円（スロット）」は
+ペースト開口の形状を表し、穴あきのthrough-hole slotは生成しない。
+
+| 形状             | 寸法指定           |
+| ---------------- | ------------------ |
+| 円               | 直径               |
+| 矩形             | 幅、高さ           |
+| 角丸矩形         | 幅、高さ、角丸半径 |
+| 長円（スロット） | 幅、高さ           |
+
+検索語が空のときは、はんだペースト印刷で一般的な次の69 footprintを名称一覧へ表示する。
+これらは候補を探しやすくするための代表寸法であり、一覧外のfootprintも名称検索で選択できる。
+BGAなど通常のペースト印刷対象ではないpackageは一般候補へ含めない。
+
+| 分類                | 一般候補                                                                                                                                                                                                                                                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| チップ抵抗          | `R_0201_0603Metric`, `R_0402_1005Metric`, `R_0603_1608Metric`, `R_0805_2012Metric`, `R_1206_3216Metric`, `R_1210_3225Metric`, `R_2010_5025Metric`, `R_2512_6332Metric`                                                                                                                                                                                  |
+| チップコンデンサ    | `C_0201_0603Metric`, `C_0402_1005Metric`, `C_0603_1608Metric`, `C_0805_2012Metric`, `C_1206_3216Metric`, `C_1210_3225Metric`, `C_1812_4532Metric`                                                                                                                                                                                                       |
+| チップインダクタ    | `L_0201_0603Metric`, `L_0402_1005Metric`, `L_0603_1608Metric`, `L_0805_2012Metric`, `L_1206_3216Metric`, `L_1210_3225Metric`                                                                                                                                                                                                                            |
+| チップヒューズ      | `Fuse_0402_1005Metric`, `Fuse_0603_1608Metric`, `Fuse_0805_2012Metric`, `Fuse_1206_3216Metric`                                                                                                                                                                                                                                                          |
+| LED                 | `LED_0603_1608Metric`, `LED_0805_2012Metric`, `LED_1206_3216Metric`                                                                                                                                                                                                                                                                                     |
+| ダイオード          | `D_SOD-523`, `D_SOD-323`, `D_SOD-123`, `D_SMA`, `D_SMB`, `D_SMC`, `D_MicroMELF`, `D_MiniMELF`                                                                                                                                                                                                                                                           |
+| SOT / power package | `SOT-23`, `SOT-23-5`, `SOT-23-6`, `SOT-23-8`, `SOT-89-3`, `SOT-223-3_TabPin2`, `TO-252-3_TabPin2`, `TO-263-3_TabPin2`                                                                                                                                                                                                                                   |
+| SOIC / TSSOP / SSOP | `SOIC-8_3.9x4.9mm_P1.27mm`, `SOIC-14_3.9x8.7mm_P1.27mm`, `SOIC-16_3.9x9.9mm_P1.27mm`, `TSSOP-8_3x3mm_P0.65mm`, `TSSOP-14_4.4x5mm_P0.65mm`, `TSSOP-16_4.4x5mm_P0.65mm`, `TSSOP-20_4.4x6.5mm_P0.65mm`, `TSSOP-24_4.4x7.8mm_P0.65mm`, `TSSOP-28_4.4x9.7mm_P0.65mm`, `SSOP-16_4.4x5.2mm_P0.65mm`, `SSOP-20_4.4x6.5mm_P0.65mm`, `SSOP-28_5.3x10.2mm_P0.65mm` |
+| DFN / QFN           | `DFN-8-1EP_2x2mm_P0.5mm_EP0.6x1.2mm`, `QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm`, `QFN-24-1EP_4x4mm_P0.5mm_EP2.5x2.5mm`, `QFN-32-1EP_5x5mm_P0.5mm_EP3.1x3.1mm`, `QFN-48-1EP_7x7mm_P0.5mm_EP5.15x5.15mm`                                                                                                                                                    |
+| LQFP                | `LQFP-32_7x7mm_P0.8mm`, `LQFP-48_7x7mm_P0.5mm`, `LQFP-64_10x10mm_P0.5mm`, `LQFP-100_14x14mm_P0.5mm`                                                                                                                                                                                                                                                     |
+| 水晶                | `Crystal_SMD_2012-2Pin_2.0x1.2mm`, `Crystal_SMD_2520-4Pin_2.5x2.0mm`, `Crystal_SMD_3225-4Pin_3.2x2.5mm`, `Crystal_SMD_5032-4Pin_5.0x3.2mm`                                                                                                                                                                                                              |
+
+初期レシピは次の6 footprintから抽出した代表パッド種を使用する。
+
+| footprint library           | footprint         | 回転範囲 | 回転分割数 | 繰り返し数 |
+| --------------------------- | ----------------- | -------: | ---------: | ---------: |
+| `Resistor_SMD.pretty`       | R_0402_1005Metric |      180 |          4 |          3 |
+| `Resistor_SMD.pretty`       | R_0603_1608Metric |      180 |          4 |          3 |
+| `Resistor_SMD.pretty`       | R_0805_2012Metric |      180 |          4 |          3 |
+| `Resistor_SMD.pretty`       | R_1206_3216Metric |      180 |          4 |          3 |
+| `Package_TO_SOT_SMD.pretty` | SOT-23            |      180 |          4 |          2 |
+| `Package_TO_SOT_SMD.pretty` | SOT-23-5          |      180 |          4 |          2 |
+
+配置は常に自動最適配置とする。個々のパッドAABBについて複数の安定したサイズ順とMaxRectsの
+評価方法を試して、使用領域の面積、高さ、幅の順で最小になる配置を採用する。パッド間には
+設定した余白を必ず確保する。purge padは左上へ固定するが、
+上端全幅の専用帯は確保しない。purge padと設定余白を矩形keepoutとして扱い、その右側と下側を
+同じ配置領域としてMaxRectsへ渡す。
+
+生成物では、抽出したパッド1個を持つfootprintを各配置位置に生成し、そのパッドの
+F.Cu/F.Mask/F.Pasteを保持する。元footprint全体のsilkscreenは部品配置を意味してしまうため
+複製しない。reference/value文字は非表示にし、通常パッドへ`PAD1`からの安定したreference、
+専用purge padへ`PURGE1`を割り当てる。KiCad footprint rootは
+`KICAD9_FOOTPRINT_DIR`で上書きでき、未指定時は`/usr/share/kicad/footprints`を使う。
+
+WebUIの「はんだ塗布」タブに「はんだペースト流量キャリブレーション基板生成」を置く。
+名称検索とパッド種の一括追加を提供し、設定変更時は抽出した実パッド形状から解決した
+F.Cu/F.Pasteと角度をSVGで表示する。部品名は画像へ常時描画せず、各パッドへのhover時に
+tooltipで表示する。設定は
+`pcbasm-paste-flow-calibration-board.json`、KiCad基板は
+`pcbasm-paste-flow-calibration-board.kicad_pcb`としてブラウザへ直接ダウンロードする。
+配置領域を超えた場合もpreview自体は消さず、全パッドの診断配置を表示する。有効な配置領域の
+外へ出たパッド形状の部分だけを赤で重ね、基板生成は配置可能になるまで無効にする。
+装置を動かさないため、生成と設定入出力にWebUIの操作権は要求しない。
+編集中の設定は機体ごとにブラウザのlocalStorageへ自動保存し、ページの再読込時に復元する。
+保存内容はサーバーのImport APIでschema検証・正規化してから画面へ反映し、古いschemaまたは
+破損した保存内容は破棄して初期設定へ戻す。サーバー側には編集中の設定を保存しない。
+初期化、パッド追加、Import、previewでは、サーバーが返す正規化済み設定と参照用catalogを
+正とし、WebUI側でパッド種や設定の正規順を再導出しない。
+表ではfootprint名を「名称」として表示する。長い名称とパッド種は末尾を省略表示し、hover時の
+tooltipで完全な文字列を確認できる。名称とパッド種の見出しでは表示行を昇順・降順に
+並べ替えられる。この表示順は設定の正規順や基板上の配置順を変更しない。名称検索の下では、
+形状と寸法を入力して任意サイズパッドを追加できる。
+
+設定JSONは自己識別情報を必須とする。Import時は`kind`と`schema_version`に加え、必須キー、
+未知キー、値の型、ドメイン制約を厳密に検証し、文字列から数値などの暗黙変換は行わない。
+妥当な設定はサーバーの安定順へ正規化する。配置不能な設定でも構造的に正しければExportできる。
+
+```json
+{
+  "kind": "paste_flow_calibration_board",
+  "schema_version": 1,
+  "board": {
+    "width_mm": 40.0,
+    "height_mm": 40.0,
+    "edge_margin_mm": 1.0,
+    "pad_gap_mm": 1.0
+  },
+  "purge_pad": {
+    "width_mm": 2.0,
+    "height_mm": 2.0
+  },
+  "custom_pads": [
+    {
+      "catalog_id": "custom:0123456789abcdef0123456789abcdef",
+      "name": "試験用長円",
+      "shape": "oval",
+      "width_mm": 1.5,
+      "height_mm": 0.5,
+      "corner_radius_mm": 0.0
+    }
+  ],
+  "patterns": [
+    {
+      "catalog_id": "Resistor_SMD.pretty/R_0402_1005Metric#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 3
+    },
+    {
+      "catalog_id": "custom:0123456789abcdef0123456789abcdef",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 3
+    }
+  ]
+}
+```
+
 ### 収集手順
 
 データ収集では、最初の収集対象パッドをパージに使用しない。収集前に吐出量
@@ -290,7 +448,7 @@ dataset/
   "schema_version": 1,
   "collected_at": "2026-08-28T14:30:52+09:00",
   "machine_id": "machine-1",
-  "board_id": "calibration-board-1",
+  "board_id": "paste-flow-calibration-board-1",
   "paste_id": "paste-1",
   "paste_lot": "lot-1",
   "pixels_per_mm": 120.5,

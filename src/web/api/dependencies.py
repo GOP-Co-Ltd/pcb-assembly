@@ -7,6 +7,9 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from pcbasm.hal import AudioPlayer
+from pcbasm.pasting.paste_flow_calibration_board import (
+    PasteFlowCalibrationBoardGenerator,
+)
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
 from web.api.control import ClientIdentity, ControlLease, LeaseInfo
@@ -51,6 +54,12 @@ def get_board_store(request: Request) -> BoardSettingsStore:
     return request.app.state.board_store
 
 
+def get_paste_flow_calibration_board_generator(
+    request: Request,
+) -> PasteFlowCalibrationBoardGenerator:
+    return request.app.state.paste_flow_calibration_board_generator
+
+
 def get_advertiser(request: Request) -> ServiceAdvertiser | None:
     """広告オブジェクト（`discovery_enabled` が False のアプリでは None）."""
     return request.app.state.advertiser
@@ -83,6 +92,10 @@ JobsDep = Annotated[JobManager, Depends(get_jobs)]
 AudioPlayerDep = Annotated[AudioPlayer, Depends(get_audio_player)]
 CatalogDep = Annotated[JobCatalog, Depends(get_catalog)]
 BoardStoreDep = Annotated[BoardSettingsStore, Depends(get_board_store)]
+PasteFlowCalibrationBoardGeneratorDep = Annotated[
+    PasteFlowCalibrationBoardGenerator,
+    Depends(get_paste_flow_calibration_board_generator),
+]
 AdvertiserDep = Annotated[ServiceAdvertiser | None, Depends(get_advertiser)]
 IdentityDep = Annotated[ClientIdentity, Depends(get_identity)]
 LeaseDep = Annotated[ControlLease, Depends(get_lease)]

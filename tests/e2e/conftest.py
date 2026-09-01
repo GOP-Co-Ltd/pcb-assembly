@@ -424,13 +424,20 @@ def e2e_settings(tmp_path: Path) -> Settings:
 
 
 @pytest.fixture
-def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
+def live_server(
+    e2e_settings: Settings,
+    paste_flow_calibration_footprint_root: Path,
+) -> Iterator[LiveServer]:
     """実 uvicorn の backend WebAPI を起動し、停止まで面倒を見る.
 
     通知音は `FakeAudioPlayer` を注入する（既定の `AlsaAudioPlayer` だと完了通知付き
     ジョブが実 `aplay` を起動して実スピーカーが鳴る）。
     """
-    app = create_app(e2e_settings, audio_player=FakeAudioPlayer())
+    app = create_app(
+        e2e_settings,
+        audio_player=FakeAudioPlayer(),
+        paste_flow_calibration_footprint_root=paste_flow_calibration_footprint_root,
+    )
     _register_completion_notice_jobs(app.state.catalog)
     running = start_app(app)
     try:
@@ -469,7 +476,10 @@ def live_ui(live_server: LiveServer, tmp_path: Path) -> Iterator[LiveUi]:
 
 
 @pytest.fixture
-def live_ui_two(tmp_path: Path) -> Iterator[LiveUi]:
+def live_ui_two(
+    tmp_path: Path,
+    paste_flow_calibration_footprint_root: Path,
+) -> Iterator[LiveUi]:
     """2 台の backend を静的登録した実 frontend（マシン切替の検証用）.
 
     backend を 2 つ（同じ pytest プロセス内の daemon スレッドで動く実 uvicorn）
@@ -483,7 +493,8 @@ def live_ui_two(tmp_path: Path) -> Iterator[LiveUi]:
         for machine_id in machine_ids:
             backend = start_app(
                 create_app(
-                    make_api_settings(tmp_path / machine_id, hostname=machine_id)
+                    make_api_settings(tmp_path / machine_id, hostname=machine_id),
+                    paste_flow_calibration_footprint_root=paste_flow_calibration_footprint_root,
                 )
             )
             running.append(backend)
