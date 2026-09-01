@@ -52,6 +52,18 @@ make setup
 
 - VSCodeでリモートアクセスし、開発することを推奨する。
 
+#### Codex の完了通知
+
+このリポジトリで Codex CLI を起動すると、処理完了時に Windows 側へ通知する。
+`.codex/config.toml` は、terminal が非フォーカスのときだけ
+`agent-turn-complete` 通知を送る設定である。通知方法は自動選択され、VSCode の
+integrated terminal では OSC 9 のポップアップ通知を優先し、未対応の場合は
+terminal bell にフォールバックする。
+
+設定は Codex の起動時に読み込まれるため、追加・変更後は Codex を再起動する。
+通知が表示されない場合は、Windows の「設定 > システム > 通知」で VSCode の通知を
+許可し、集中モードが通知を抑止していないことを確認する。
+
 ### マシン設定の配置
 
 装置を動かす前に、テンプレートから `config/` を作る。
