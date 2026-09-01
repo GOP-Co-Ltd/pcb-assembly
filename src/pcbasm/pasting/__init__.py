@@ -2,7 +2,7 @@
 
 from pcbasm.config import DispenseMode, LineDirection, PasteHeight
 
-from .applicator import PasteApplicator
+from .applicator import DispenseExecution, PasteApplicationResult, PasteApplicator
 from .calibration import (
     FlowCalibration,
     FlowCalibrationSet,
@@ -31,9 +31,33 @@ from .fill_path import (
 from .fill_sequence import FillSequence
 from .height import HeightPlaneMeasurer
 from .initial_purge import (
+    DATASET_PURGE_PAD_ID,
     ResolvedInitialPurge,
+    resolve_dataset_initial_purge,
     resolve_initial_purge,
     validate_initial_purge,
+)
+from .paste_dataset import (
+    DatasetCapturedView,
+    DatasetExecution,
+    DatasetPolygon,
+    DatasetResolvedPaste,
+    DatasetView,
+    PadImageCrop,
+    PasteDatasetBoard,
+    PasteDatasetCamera,
+    PasteDatasetConfig,
+    PasteDatasetMachine,
+    PasteDatasetMetadata,
+    PasteDatasetNozzle,
+    PasteDatasetPad,
+    PasteDatasetPaste,
+    PasteDatasetPurge,
+    PasteDatasetTotal,
+    PasteDatasetWriter,
+    allocate_volume_by_rotations,
+    crop_pad_image,
+    validate_dataset_image_margins,
 )
 from .probe import ProbeExecutor
 from .route import PasteRouteStop, plan_paste_route, routed_enabled_pads
@@ -66,6 +90,7 @@ from .toolhead_offset import (
 
 __all__ = [
     "DispenseRateCalibration",
+    "DispenseExecution",
     "EnableState",
     "FillSequence",
     "FillSpeedSweep",
@@ -82,6 +107,25 @@ __all__ = [
     "MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT",
     "NUMERIC_PASTE_OVERRIDE_FIELDS",
     "PasteApplicator",
+    "PasteApplicationResult",
+    "DatasetCapturedView",
+    "DATASET_PURGE_PAD_ID",
+    "DatasetExecution",
+    "DatasetPolygon",
+    "DatasetResolvedPaste",
+    "DatasetView",
+    "PadImageCrop",
+    "PasteDatasetBoard",
+    "PasteDatasetCamera",
+    "PasteDatasetConfig",
+    "PasteDatasetMachine",
+    "PasteDatasetMetadata",
+    "PasteDatasetNozzle",
+    "PasteDatasetPad",
+    "PasteDatasetPaste",
+    "PasteDatasetPurge",
+    "PasteDatasetTotal",
+    "PasteDatasetWriter",
     "RateMeasurement",
     "ResolvedInitialPurge",
     "RotationsPerUlRound",
@@ -104,12 +148,15 @@ __all__ = [
     "build_pad_fill_plan_for",
     "build_paste_fill_path",
     "build_paste_fill_plan",
+    "allocate_volume_by_rotations",
+    "crop_pad_image",
     "estimate_mass_flow",
     "find_orphans",
     "is_pad_enabled",
     "plan_paste_route",
     "plan_toolhead_offset_points",
     "resolve_node_settings",
+    "resolve_dataset_initial_purge",
     "resolve_initial_purge",
     "resolve_pad_settings",
     "routed_enabled_pads",
@@ -117,6 +164,7 @@ __all__ = [
     "settings_from_dict",
     "settings_to_dict",
     "validate_field_names",
+    "validate_dataset_image_margins",
     "validate_initial_purge",
     "validate_override_values",
 ]

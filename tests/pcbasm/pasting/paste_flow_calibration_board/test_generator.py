@@ -315,7 +315,7 @@ class TestPasteFlowCalibrationBoardGeneration:
         assert len(footprints) == 65
         assert all(footprint.GetPadCount() == 1 for footprint in footprints)
         assert {footprint.GetReference() for footprint in footprints} >= {
-            "PURGE1",
+            "PURGE",
             "PAD1",
             "PAD64",
         }
@@ -388,8 +388,9 @@ class TestPasteFlowCalibrationBoardGeneration:
         assert len(pcb.pads) == 65
         assert all(pad.polygon.area > 0 for pad in pcb.pads)
         assert all(pad.copper_polygon.area > 0 for pad in pcb.pads)
-        purge = [pad for pad in pcb.pads if pad.designator == "PURGE1"]
+        purge = [pad for pad in pcb.pads if pad.designator == "PURGE"]
         assert len(purge) == 1
+        assert purge[0].pad_number == "1"
         assert purge[0].polygon.area == pytest.approx(4.0, abs=0.01)
 
     def test_rotation_is_written_to_pad_footprints(self, pcb: PcbFile):

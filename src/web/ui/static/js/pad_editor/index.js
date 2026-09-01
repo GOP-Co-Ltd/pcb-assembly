@@ -31,6 +31,10 @@ import {
 
   const { api, toast } = window.webui;
   const DEBOUNCE_MS = 300;
+  const configPurpose = root.dataset.padConfigPurpose || "paste_solder";
+  const configUrl = `/api/pasting/pad-config?purpose=${encodeURIComponent(
+    configPurpose
+  )}`;
 
   const state = {
     config: null,
@@ -95,7 +99,7 @@ import {
   // tree の resolved/own_override/descendant_summary はサーバ算出なので、
   // ローカル楽観更新ではなく再取得で同期する。
   async function reloadConfig(options = {}) {
-    const config = await api("GET", "/api/pasting/pad-config");
+    const config = await api("GET", configUrl);
     state.config = config;
     if (options.invalidateRoute) clearRoute();
     if (options.invalidateFillPath) clearFillPath();
@@ -141,12 +145,8 @@ import {
           : "";
     }
     if (initialPurgePadStatus) {
-      const currentLabel = purge?.pad_id
-        ? purge.pad_id
-        : purge?.default_pad_id
-          ? `自動 (${purge.default_pad_id})`
-          : "自動";
-      initialPurgePadStatus.textContent = currentLabel;
+      initialPurgePadStatus.textContent = purge?.selection_label || "自動";
+      initialPurgePadStatus.title = purge?.error || "";
       initialPurgePadStatus.dataset.padId = purge?.pad_id || "";
       initialPurgePadStatus.dataset.mode = purge?.pad_id ? "explicit" : "auto";
     }
@@ -625,15 +625,13 @@ import {
       if (!file) return;
       try {
         const document = JSON.parse(await file.text());
-        const config = await api("POST", "/api/pasting/pad-config/import", {
+        await api("POST", "/api/pasting/pad-config/import", {
           document,
         });
-        state.config = config;
         clearRoute();
         clearFillPath();
         state.selected.clear();
-        buildIndexes(config);
-        render();
+        await reloadConfig({});
         toast("基板 override 設定を読み込みました");
       } catch (err) {
         toast(`読み込み失敗: ${err.message}`, false);

@@ -241,6 +241,14 @@ class TestJobCatalogApi:
         assert jobs["generate_rect_pcb"]["provides_preview"] is False
         assert jobs["generate_rect_pcb"]["loading_param"] is None
 
+    def test_reports_paste_dataset_collection_contract(self, client: TestClient):
+        job = _jobs_by_name(client)["paste_dataset_collection"]
+
+        assert job["requires_pcb"] is True
+        assert job["uses_machine"] is True
+        assert job["provides_preview"] is True
+        assert job["hidden"] is False
+
     def test_reports_start_policy_flags(self, client: TestClient, app: FastAPI):
         definition = app.state.catalog.get("paste_solder")
 

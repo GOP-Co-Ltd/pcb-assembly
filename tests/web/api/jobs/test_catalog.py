@@ -412,11 +412,11 @@ class TestDefaultCatalog:
         # Phase 3 の dev ジョブは装置を動かさない（uses_machine=False、情報のみ）
         assert all(not d.uses_machine for d in catalog.list(tab="dev"))
 
-    def test_only_paste_solder_notifies_on_completion(self, catalog: JobCatalog):
+    def test_long_running_paste_jobs_notify_on_completion(self, catalog: JobCatalog):
         notifying = {
             definition.name
             for definition in catalog.list()
             if definition.notify_on_completion
         }
 
-        assert notifying == {"paste_solder"}
+        assert notifying == {"paste_solder", "paste_dataset_collection"}

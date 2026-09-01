@@ -747,6 +747,7 @@ h2 {
 }
 
 .job-param-help {
+  grid-column: 1 / -1;
   min-width: 0;
   color: var(--quiet);
 }

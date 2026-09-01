@@ -84,6 +84,16 @@ class FillSequence:
         """prime_extra_delay の間に実効レートで余分に押し出す量 [μL]."""
         return self._effective_rate() * self.prime_extra_delay
 
+    @property
+    def effective_rate(self) -> float:
+        """実効吐出レート [μL/sec]."""
+        return self._effective_rate()
+
+    @property
+    def prime_extra_volume(self) -> float:
+        """Prime追加遅延中に基板上へ押し出す体積 [μL]."""
+        return self._extra_amount()
+
     def _prime_time(self) -> float:
         """Prime（リトラクション押し戻し）の所要時間 [sec]（prime_extra_delay 込み）.
 
