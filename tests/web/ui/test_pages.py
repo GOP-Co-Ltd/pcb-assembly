@@ -127,6 +127,7 @@ _MACHINE_TOML_DEPENDENT_URLS = frozenset(
     {
         "/settings",
         "/pasting/paste_solder",
+        "/pasting/paste_dataset_collection",
         "/pasting/loading",
         "/posctrl/copper_detection",
     }
@@ -696,12 +697,18 @@ PASTING_JOB_FEATURES = (
     "height_plane",
     "loading",
     "dispense_calibration",
+    "paste_dataset_collection",
     "generate_rect_pcb",
     "toolhead_offset",
 )
 
 # カメラを使うジョブのみ preview ペインを持つ（JobDefinition.provides_preview）
-PASTING_PREVIEW_FEATURES = ("paste_solder", "height_plane", "toolhead_offset")
+PASTING_PREVIEW_FEATURES = (
+    "paste_solder",
+    "height_plane",
+    "paste_dataset_collection",
+    "toolhead_offset",
+)
 
 # ローディングボタン UI を持つ feature（JobDefinition.loading_param）
 # dispense_calibration はメニュー段階で押出/吸引（プライム）に使う
@@ -1232,18 +1239,19 @@ class TestMachineControlCapButton:
         assert "mc-move-to-cap" not in response.text
 
 
-class TestPasteSolderPadEditor:
-    """Phase 4: paste_solder の pad 編集フロント UI（計画書 Phase 4
-    「templates / static」節）.
+class TestPastingPadEditor:
+    """paste_solder と dataset 収集で共用する pad 編集フロント UI.
 
-    paste_solder は専用テンプレ（pasting/paste_solder.html）に切り替わり、
-    pad editor の DOM フックを持ちつつ、従来どおり job-console / job-form /
-    preview ペイン / loading_controls も備える。他 pasting feature は
-    pasting/job.html のまま回帰しない（pad editor を持たない）。
+    両 feature は同じ workspace テンプレートで pad editor を表示する。
+
+    ジョブフォーム、console、preview も備え、他の pasting feature とは分離する。
     """
 
-    def test_paste_solder_renders_pad_editor_hooks(self, client: TestClient):
-        text = client.get("/pasting/paste_solder").text
+    @pytest.mark.parametrize("feature", ("paste_solder", "paste_dataset_collection"))
+    def test_paste_workspace_renders_pad_editor_hooks(
+        self, client: TestClient, feature: str
+    ):
+        text = client.get(f"/pasting/{feature}").text
 
         # SVG ビューア / 選択ツールバー / 階層表コンテナ / スクリプト
         assert 'id="pad-viewer"' in text
@@ -1277,16 +1285,44 @@ class TestPasteSolderPadEditor:
 
     @pytest.mark.parametrize(
         "feature",
-        ("height_plane", "loading", "toolhead_offset"),
+        (
+            "height_plane",
+            "loading",
+            "toolhead_offset",
+        ),
     )
     def test_other_pasting_features_have_no_pad_editor(
         self, client: TestClient, feature: str
     ):
-        """Pad editor は paste_solder 専用。他 feature は pasting/job.html のまま."""
+        """Pad editor を使わない feature は pasting/job.html のまま."""
         text = client.get(f"/pasting/{feature}").text
 
         assert "pad-viewer" not in text
         assert "pad_editor/index.js" not in text
+
+    def test_paste_dataset_collection_keeps_dataset_job_chrome(
+        self, client: TestClient
+    ):
+        text = client.get("/pasting/paste_dataset_collection").text
+
+        assert "job-console" in text
+        assert "job-form" in text
+        assert "preview-pane" in text
+        assert "ペースト塗布データセット収集" in text
+        assert 'data-job-name="paste_dataset_collection"' in text
+        assert 'id="param-purge_pad_id"' not in text
+        assert 'data-pad-config-purpose="paste_dataset_collection"' in text
+        assert 'id="param-paste_id"' in text
+        assert 'id="param-paste_lot"' in text
+        assert (
+            'id="param-paste_lot" name="paste_lot"\n'
+            '           data-param-type="str" data-param-optional="true"' in text
+        )
+        assert "ペースト製品ID" in text
+        assert "メーカー名・製品名または管理用の品番" in text
+        assert "製造ロット（任意）" in text
+        assert "任意。ペースト容器に記載された製造ロット番号" in text
+        assert "loading-controls" not in text
 
 
 class TestTabsCatalogConsistency:

@@ -31,7 +31,7 @@ from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.preview import PreviewService
-from web.api.settings import Settings
+from web.api.settings import Settings, resolve_machine_id
 from web.api.state import AppState
 
 from .conftest import WaitUntil, register_synthetic as _register
@@ -135,6 +135,30 @@ class TestContextProperties:
 
         assert record.status == JobStatus.SUCCEEDED
         assert captured[0] == fake_camera_settings.webui_data_dir / record.id
+
+    def test_machine_and_dataset_identity_are_explicitly_injected(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        captured: list[tuple[str, Path]] = []
+
+        def run(ctx: JobContext) -> None:
+            captured.append((ctx.machine_id, ctx.paste_dataset_dir))
+
+        _register(catalog, run)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert captured == [
+            (
+                resolve_machine_id(fake_camera_settings),
+                fake_camera_settings.paste_dataset_dir,
+            )
+        ]
 
 
 class TestBoardSettingsWiring:

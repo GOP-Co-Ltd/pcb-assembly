@@ -22,12 +22,14 @@ pad id = {designator}.{pad_ref}。
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.pasting import PASTE_OVERRIDE_FIELDS
+from tests.helpers import PROJECT_ROOT
 from web.api.routers.pasting_view import UI_FIELD_ORDER
 from web.api.settings import Settings
 from web.api.state import AppState
@@ -210,6 +212,73 @@ class TestInitialPurgePadConfig:
         assert initial["resolved"]["pad_id"] == "D1.2"
         assert initial["resolved"]["amount"] == pytest.approx(0.1)
         assert initial["resolved"]["point"] == pytest.approx([15.0, 4.212500000000003])
+
+    def test_dataset_get_reports_missing_purge_without_hiding_board(
+        self, selected_client: TestClient
+    ):
+        response = selected_client.get(
+            "/api/pasting/pad-config",
+            params={"purpose": "paste_dataset_collection"},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["pad_id"] is None
+        assert initial["resolved"] is None
+        assert initial["selection_label"] == "自動 (設定が必要)"
+        assert "PURGE" in initial["error"]
+
+    def test_dataset_get_auto_selects_purge_on_calibration_board(
+        self,
+        client: TestClient,
+        appstate: AppState,
+        pcb_root: Path,
+    ):
+        source = (
+            PROJECT_ROOT
+            / "data"
+            / "paste-flow-calibration-board"
+            / "paste-flow-calibration-board.basic.kicad_pcb"
+        )
+        relative = Path("real/paste-flow-calibration-board.basic.kicad_pcb")
+        destination = pcb_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(source, destination)
+        appstate.select_pcb(relative)
+
+        response = client.get(
+            "/api/pasting/pad-config",
+            params={"purpose": "paste_dataset_collection"},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["pad_id"] is None
+        assert initial["default_pad_id"] == "PURGE"
+        assert initial["resolved"]["pad_id"] == "PURGE"
+        assert initial["selection_label"] == "自動 (PURGE)"
+        assert initial["error"] is None
+
+    def test_dataset_get_reuses_explicit_initial_purge_selection(
+        self, selected_client: TestClient
+    ):
+        patch = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"pad_id": "U1.1"},
+        )
+        assert patch.status_code == 200, patch.text
+
+        response = selected_client.get(
+            "/api/pasting/pad-config",
+            params={"purpose": "paste_dataset_collection"},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["pad_id"] == "U1.1"
+        assert initial["resolved"]["pad_id"] == "U1.1"
+        assert initial["selection_label"] == "U1.1"
+        assert initial["error"] is None
 
     def test_patch_saves_machine_amount_and_board_pad(
         self,

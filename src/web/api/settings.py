@@ -65,6 +65,11 @@ class Settings:
         """
         return self.data_dir / "webui"
 
+    @property
+    def paste_dataset_dir(self) -> Path:
+        """ペースト塗布画像datasetの永続保存先."""
+        return self.data_dir / "paste-volume-datasets"
+
     @classmethod
     def from_env(cls) -> Settings:
         """環境変数を反映した Settings を生成する.

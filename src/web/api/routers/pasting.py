@@ -29,6 +29,7 @@ from web.api.dependencies import (
 )
 from web.api.routers.pasting_view import (
     InitialPurgePatch,
+    InitialPurgePurpose,
     InitialPurgeResponse,
     Loaded,
     NodePatch,
@@ -56,10 +57,13 @@ router = APIRouter(prefix="/api")
 
 @router.get("/pasting/pad-config")
 def get_pad_config(
-    state: StateDep, settings: SettingsDep, board_store: BoardStoreDep
+    state: StateDep,
+    settings: SettingsDep,
+    board_store: BoardStoreDep,
+    purpose: InitialPurgePurpose = "paste_solder",
 ) -> PadConfigResponse:
     """選択中基板の pad ジオメトリ・階層・解決済み設定・疎 override を返す."""
-    return build_pad_config(load_board(state, settings, board_store))
+    return build_pad_config(load_board(state, settings, board_store), purpose)
 
 
 @router.post("/pasting/pad-config/route")

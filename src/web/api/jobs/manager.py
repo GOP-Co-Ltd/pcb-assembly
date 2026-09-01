@@ -33,7 +33,7 @@ from web.api.jobs.context import (
     PromptSpec,
 )
 from web.api.preview import PreviewService
-from web.api.settings import Settings
+from web.api.settings import Settings, resolve_machine_id
 from web.api.state import AppState
 
 type _Event = dict[str, Any]
@@ -466,6 +466,8 @@ class JobManager:
                 pcb_path=pcb_path,
                 machine=machine,
                 artifacts_dir=artifacts_dir,
+                machine_id=resolve_machine_id(self._settings),
+                paste_dataset_dir=self._settings.paste_dataset_dir,
                 source_pcb=selected_pcb.as_posix() if selected_pcb else None,
                 board_store=self._board_store,
             )

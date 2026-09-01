@@ -31,6 +31,11 @@ class PasteDispenser:
         self._air_pump = AirPump(klipper)
         self._rotations_per_ul = rotations_per_ul
 
+    @property
+    def rotations_per_ul(self) -> float:
+        """体積指令を回転数へ変換する係数 [rev/μL]."""
+        return self._rotations_per_ul
+
     def _ul_to_deg(self, microl: float) -> float:
         """マイクロリットル単位を角度に変換."""
         return microl * self._rotations_per_ul * 360
