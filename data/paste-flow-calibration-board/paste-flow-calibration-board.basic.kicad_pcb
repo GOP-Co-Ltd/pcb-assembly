@@ -8184,7 +8184,7 @@
 		(layer "F.Cu")
 		(uuid "c4b7070f-46bd-4326-9e20-3ce846822cc5")
 		(at 1.25 1.25)
-		(property "Reference" "PURGE1"
+		(property "Reference" "PURGE"
 			(at 0 0 0)
 			(layer "F.SilkS")
 			(hide yes)

@@ -197,13 +197,15 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 
 ### データ収集用基板
 
-データ収集専用の基板データを生成して使用する。基板には、すべての塗布方式、複数の形状、
-塗布量、rate を収集できるパッドを配置する。ノズル径、塗布量、rate に固定の対象範囲は
-設けず、収集条件を metadata に記録する。収集対象とは別に、収集開始時だけ使用する専用の
-パージパッドを配置する。パージパッドは学習 sample に使用しない。
+多様な条件を効率よく収集するため、専用の基板データを生成して使用できる。専用基板には、
+すべての塗布方式、複数の形状、塗布量、rate を収集できるパッドを配置する。収集ジョブ自体は
+専用基板に限定せず、選択中の任意のKiCad PCBを使用できる。ノズル径、塗布量、rate に固定の
+対象範囲は設けず、収集条件を metadata に記録する。収集対象とは別に、収集開始時だけ使用する
+パージパッドを指定する。パージパッドは学習 sample に使用しない。
 
-撮影時は基準位置に加え、カメラを X/Y 方向へ数 mm 移動して同じパッドを複数回撮影する。
-同一 view の塗布前後画像は、同じ撮影位置に対応させる。
+初期実装では基準位置のcentral viewだけを撮影する。schemaは、将来カメラをX/Y方向へ移動して
+同じパッドを複数回撮影できるよう、複数viewを保持できる。同一viewの塗布前後画像は、同じ
+撮影位置に対応させる。
 
 #### はんだペースト流量キャリブレーション基板の生成仕様
 
@@ -296,7 +298,7 @@ BGAなど通常のペースト印刷対象ではないpackageは一般候補へ�
 生成物では、抽出したパッド1個を持つfootprintを各配置位置に生成し、そのパッドの
 F.Cu/F.Mask/F.Pasteを保持する。元footprint全体のsilkscreenは部品配置を意味してしまうため
 複製しない。reference/value文字は非表示にし、通常パッドへ`PAD1`からの安定したreference、
-専用purge padへ`PURGE1`を割り当てる。KiCad footprint rootは
+専用purge padへ`PURGE`を割り当てる（内部のpad numberは`1`）。KiCad footprint rootは
 `KICAD9_FOOTPRINT_DIR`で上書きでき、未指定時は`/usr/share/kicad/footprints`を使う。
 
 WebUIの「はんだ塗布」タブに「はんだペースト流量キャリブレーション基板生成」を置く。
@@ -366,20 +368,36 @@ tooltipで完全な文字列を確認できる。名称とパッド種の見出�
 ### 収集手順
 
 データ収集では、最初の収集対象パッドをパージに使用しない。収集前に吐出量
-キャリブレーションを実施したうえで、TARE 後にデータ収集用基板の専用パージパッドへ
-パージする。その後、収集対象パッドの本塗布を開始する。追加の手動ローディングは行わない。
+キャリブレーションを実施し、未塗布基板をTAREしてから装置へ設置する。位置・高さ・padの
+位置合わせ後に全padの塗布前画像を撮影し、専用パージパッドへパージしてから本塗布を行う。
+追加の手動ローディングは行わない。
 
 1. 現行の吐出量キャリブレーションを実施する。
-2. データ収集用基板を配置する。
-3. 各収集対象パッドの塗布前画像を撮影する。
-4. 未塗布の基板を電子天秤で TARE する。
-5. 基板を装置へ戻し、専用パージパッドへパージする。
-6. 最初の収集対象パッドから本塗布を開始する。
+2. 未塗布の基板を電子天秤でTAREする。
+3. 同じ基板を装置へ設置し、位置、高さ、領域、pad中心を位置合わせする。
+4. 各収集対象パッドの塗布前画像を撮影する。
+5. 専用パージパッドへパージする。
+6. 収集対象パッドへ通常塗布と同じroute・解決済みpad設定で本塗布する。
 7. 各収集対象パッドの塗布後画像を撮影する。
-8. パージ分を含む塗布後の総質量を計測する。
+8. TAREした電子天秤で、パージ分を含む増加質量を計測する。
 9. 総質量をペースト密度で総体積へ変換する。
 10. パージと各パッドで実行したスクリュー回転数に比例して総体積を配分する。
 11. パージを除く画像、撮影条件、塗布条件、体積 label をデータセットとして出力する。
+
+収集対象には選択中の任意のKiCad PCBを使用できる。パージ先は既存の「初回パージパッド」
+設定を共用し、明示選択がある場合はそのTop padを使う。未選択時に限り、データセット収集では
+designatorが`PURGE`である一意なTop padを自動選択する。通常のはんだ塗布で使う未選択時の
+先頭pad自動選択は変更しない。任意PCBに`PURGE`がない場合は、基板ビューから`U1.1`のような
+通常の一意pad IDを初回パージパッドとして選択できる。purge padは有効padの収集sampleとroute
+から除外する。purgeが未知または一意でない、purge以外の収集対象がない、
+`initial_purge_ul <= 0`のいずれかでは、装置を動かす前に失敗する。
+
+撮影時はF.Paste polygonのAABBへ`crop_margin_mm`を加えた矩形で、無加工のRGB画像を切り出す。
+同寸法の単チャネルmaskを別PNGへ保存し、F.Paste polygonを`mask_margin_mm`だけ外側へbufferした
+領域を255、その外側を0とする。`mask_margin_mm`の既定値は0.1 mmとし、maskがcropから欠けない
+よう`crop_margin_mm`以下に制限する。cropがcamera frameを越える場合はpaddingせず失敗する。
+塗布前後は同じ撮影位置とcrop矩形を使用する。初期WebUIはoffset `(0, 0)` のview 0だけを撮影
+するが、schemaは複数viewを保存できる。
 
 パッド \(i\) の教師体積は次式で求める。
 
@@ -390,7 +408,7 @@ V_i
 \frac{r_i}{r_{\mathrm{purge}} + \sum_j r_j}
 \]
 
-- \(m_{\mathrm{total}}\): パージ分を含む塗布後の総質量 [mg]
+- \(m_{\mathrm{total}}\): パージ分を含むTARE後の増加質量 [mg]
 - \(\rho\): ペースト密度 [mg/µL]
 - \(r_{\mathrm{purge}}\): 専用パージパッドで実行したスクリュー回転数 [rev]
 - \(r_i\): パッド \(i\) で実行したスクリュー回転数 [rev]
@@ -412,19 +430,30 @@ V_i
 
 ### ディレクトリ構造
 
-1 回の収集を 1 session とし、同日の複数収集が衝突しないよう収集時刻まで含むディレクトリ
-名を使用する。
+1 回の収集を 1 session とし、`<基板名>-<収集時刻>`のディレクトリ名を使用する。基板名は
+KiCad基板ファイルの拡張子を除いた名前、収集時刻はtimezoneと3桁のmillisecondを含む値とする。
+
+永続保存先はリポジトリ直下の`data/paste-volume-datasets/`とする。生成sessionは同directoryの
+`.gitignore`でGit管理から除外する。書き込み中は同root内の一時directoryを使用し、完成時に
+atomic renameする。abortまたは失敗時は取得済みファイルを`*.incomplete`として保持する。
+完成sessionは永続保存したまま、直近ジョブのartifactとしてZIPも生成する。
 
 ```text
-dataset/
-└── 2026-08-28T143052+0900/
+data/paste-volume-datasets/
+├── .gitignore
+└── board-20260828T143052.123+0900/
     ├── metadata.json
     ├── pre/
     │   ├── 000001.00.png
     │   ├── 000001.01.png
     │   ├── 000002.00.png
     │   └── ...
-    └── post/
+    ├── post/
+    │   ├── 000001.00.png
+    │   ├── 000001.01.png
+    │   ├── 000002.00.png
+    │   └── ...
+    └── mask/
         ├── 000001.00.png
         ├── 000001.01.png
         ├── 000002.00.png
@@ -436,53 +465,100 @@ dataset/
 - pad 番号は収集 session 内で一意なゼロ埋め番号とする。
 - view 番号は同じ pad に対する撮影位置を表す。
 - `pre/` と `post/` の同名ファイルを 1 組とする。
+- `mask/`の同名ファイルを塗布前後で共有する。
 - KiCAD 上の pad ID などの元識別子は `metadata.json` に保存する。
 - 画像は lossless PNG で保存する。
 
 ### metadata.json
 
-最低限、次の情報を保持する。
+schema v1は次の階層を持つ。すべての階層で未知keyと暗黙の型変換を拒否する。
+`paste.lot`は任意で、製造ロットを入力しなかった場合は`null`とする。
 
 ```json
 {
+  "kind": "pcbasm-paste-volume-dataset",
   "schema_version": 1,
-  "collected_at": "2026-08-28T14:30:52+09:00",
-  "machine_id": "machine-1",
-  "board_id": "paste-flow-calibration-board-1",
-  "paste_id": "paste-1",
-  "paste_lot": "lot-1",
-  "pixels_per_mm": 120.5,
-  "rotations_per_ul": 42.1,
-  "paste_density_mg_per_ul": 3.78,
-  "nozzle_diameter_mm": 0.34,
-  "total_mass_mg": 0.756,
-  "total_volume_ul": 0.2,
+  "created_at": "2026-08-28T14:30:52.123456+09:00",
+  "machine": {"machine_id": "machine-1", "name": "Machine 1"},
+  "board": {
+    "filename": "board.kicad_pcb",
+    "source_pcb": "/boards/board.kicad_pcb",
+    "signature": "..."
+  },
+  "paste": {"paste_id": "paste-1", "lot": "lot-1", "density_mg_per_ul": 3.78},
+  "camera": {
+    "pixel_per_mm": 120.5,
+    "resolution": [1280, 720],
+    "calibrated_at": "2026-08-20T12:00:00+09:00",
+    "z_position_mm": 12.0
+  },
+  "nozzle": {"diameter_mm": 0.34},
+  "config": {
+    "rotations_per_ul": 42.1,
+    "max_fill_speed_mm_s": 2.0,
+    "max_dispense_rate_ul_s": 5.0,
+    "dispense_accel_ul_s2": 10.0,
+    "retract_amount_ul": 10.0,
+    "retract_rate_ul_s": 10.0,
+    "initial_purge_ul": 0.1,
+    "crop_margin_mm": 1.0,
+    "mask_margin_mm": 0.1
+  },
+  "total": {
+    "measured_mass_mg": 0.756,
+    "measured_volume_ul": 0.2,
+    "rotations": 8.42
+  },
   "purge": {
     "pad_id": "PURGE",
-    "rotations": 4.21,
-    "commanded_volume_ul": 0.1
+    "source_pad_id": "PURGE.1",
+    "execution": {
+      "applied_mode": "dot",
+      "path_length_mm": 0.0,
+      "commanded_volume_ul": 0.1,
+      "prime_extra_volume_ul": 0.0,
+      "effective_rate_ul_s": 1.0,
+      "rotations": 4.21
+    },
+    "measured_volume_ul": 0.1
   },
   "pads": [
     {
-      "number": 1,
+      "index": 1,
       "pad_id": "U1.1",
-      "dispense_mode": "dot",
-      "rotations": 4.21,
-      "rate_ul_per_sec": 1.0,
-      "accel_ul_per_sec2": 1.0,
-      "path_length_mm": 0.0,
-      "commanded_volume_ul": 0.1,
-      "label_volume_ul": 0.1,
+      "source_pad_id": "U1.1",
+      "polygon": {
+        "exterior": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.0, 0.0]],
+        "holes": []
+      },
+      "resolved": {
+        "dispense_mode": "dot",
+        "line_direction": "unconstrained",
+        "paste_height": "auto",
+        "ul_per_mm2": 0.05,
+        "prime_extra_delay": 0.0,
+        "bead_width_factor": 1.0,
+        "overlap": 0.0,
+        "boundary_margin": 0.0
+      },
+      "execution": {
+        "applied_mode": "dot",
+        "path_length_mm": 0.0,
+        "commanded_volume_ul": 0.1,
+        "prime_extra_volume_ul": 0.0,
+        "effective_rate_ul_s": 1.0,
+        "rotations": 4.21
+      },
+      "measured_volume_ul": 0.1,
       "views": [
         {
           "number": 0,
           "offset_x_mm": 0.0,
-          "offset_y_mm": 0.0
-        },
-        {
-          "number": 1,
-          "offset_x_mm": 2.0,
-          "offset_y_mm": 0.0
+          "offset_y_mm": 0.0,
+          "pixel_rect": [400, 200, 880, 520],
+          "pre": "pre/000001.00.png",
+          "post": "post/000001.00.png",
+          "mask": "mask/000001.00.png"
         }
       ]
     }
@@ -490,10 +566,16 @@ dataset/
 }
 ```
 
-正確な JSON Schema は実装前に別途固定する。`rotations_per_ul` は現行実装と同じ
-rev/µL 単位とし、`rotations_per_mm` は使用しない。
+`rotations_per_ul` は現行実装と同じrev/µL単位とし、`rotations_per_mm`は使用しない。
+各executionの`rotations`は`commanded_volume_ul + prime_extra_volume_ul`へ
+`rotations_per_ul`を掛けた正方向の指令回転数で、prime押し戻しと後続retractionの往復分は
+含めない。
 
 ## インターフェイス設計
+
+今回の実装範囲は、WebUIのデータ収集ジョブと、crop・mask・metadata・教師体積配分・永続化を
+担うコアAPIまでとする。以下のCLI、モデル学習・評価・推論、運転時キャリブレーションは
+将来の実装範囲であり、今回のデータ収集機能には含めない。
 
 実機操作と機械学習開発では必要なインターフェイスが異なるため、WebUI と CLI を次のように
 使い分ける。
@@ -541,15 +623,27 @@ process 内で直接学習せず、独立 process を起動・監視する薄い
 ### データ収集ジョブ
 
 WebUI のはんだ塗布タブへ、`paste_dataset_collection` データ収集ジョブを独立した feature
-として追加する。既存の汎用 job form、job console、prompt、preview、abort、artifact、操作権を
-再利用し、初期実装では専用テンプレート、専用 JavaScript、専用 CSS を追加しない。
+として追加する。`paste_solder` と同じ pad editor 付き workspace を再利用し、選択中基板の
+SVG 表示、Top/Bottom 切替、有効 pad の順路・塗布パス計算、階層別・部品別・pad 別の塗布量
+override 表を表示する。編集値と順路・塗布パスは既存の pad-config API を正とし、データ収集
+ジョブも同じ解決済み設定を使用する。データセット画面の初回パージパッド欄では、基板設定が
+未選択の場合だけ `自動 (PURGE)` と表示する。ここでの選択は通常のはんだ塗布画面と同じ基板設定
+へ保存されるため、ジョブフォームに重複するパージパッド入力は設けない。
+
+必須の`ペースト製品ID`にはメーカー名・製品名または社内管理用の品番を入力する。
+`製造ロット`は任意とし、入力する場合は容器に記載されたロット番号を使う。同じ製品でもロット、
+保管期間、開封後時間などで粘度や吐出量が変わり得るため、学習データを後から分類・追跡するための
+metadataとして保存する。
+
+job form、job console、prompt、preview、abort、artifact、操作権も既存実装を再利用する。
+データ収集専用の JavaScript や CSS は追加せず、共通 pad editor を読み込む。
 
 WebUI ジョブは次を担当する。
 
 1. 吐出量キャリブレーション実施済みの確認
-2. データ収集用基板の位置合わせ
-3. 塗布前画像の撮影
-4. TARE の操作案内と続行確認
+2. 未塗布基板のTAREと設置案内
+3. 選択中基板の位置・高さ・pad位置合わせ
+4. 塗布前画像の撮影
 5. 専用パージパッドへのパージ
 6. 各収集対象パッドへの塗布
 7. 塗布後画像の撮影
@@ -632,7 +726,6 @@ e_i
 
 ## 未確定事項
 
-- `metadata.json` の正式な JSON Schema
 - 自動補正に採用する `std / mean` の閾値
 - Raspberry Pi 5 上で更新する CNN layer の範囲
 - Raspberry Pi 5 向け推論 artifact の形式と最適化手法

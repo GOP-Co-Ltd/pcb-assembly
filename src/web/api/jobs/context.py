@@ -133,6 +133,8 @@ class JobContext:
         pcb_path: Path | None,
         machine: Machine,
         artifacts_dir: Path,
+        machine_id: str,
+        paste_dataset_dir: Path,
         source_pcb: str | None = None,
         board_store: BoardSettingsStore | None = None,
     ) -> None:
@@ -141,6 +143,8 @@ class JobContext:
         self._pcb_path = pcb_path
         self._machine = machine
         self._artifacts_dir = artifacts_dir
+        self._machine_id = machine_id
+        self._paste_dataset_dir = paste_dataset_dir
         self._source_pcb = source_pcb
         self._board_store = board_store
 
@@ -167,6 +171,16 @@ class JobContext:
     def artifacts_dir(self) -> Path:
         """成果物ディレクトリ data/webui/<job_id>/（作成済み）."""
         return self._artifacts_dir
+
+    @property
+    def machine_id(self) -> str:
+        """Backendが自己申告する一意なmachine ID."""
+        return self._machine_id
+
+    @property
+    def paste_dataset_dir(self) -> Path:
+        """永続ペーストdataset root（テストではSettingsから注入可能）."""
+        return self._paste_dataset_dir
 
     @property
     def source_pcb(self) -> str | None:

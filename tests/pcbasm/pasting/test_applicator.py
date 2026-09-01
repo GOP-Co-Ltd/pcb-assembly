@@ -71,6 +71,7 @@ def mock_klipper(mocker: MockerFixture):
 @pytest.fixture
 def mock_paste_dispenser(mocker: MockerFixture):
     dispenser = mocker.Mock()
+    dispenser.rotations_per_ul = 45.0
     dispenser.enable.return_value = gcode.GCode()
     dispenser.disable.return_value = gcode.GCode()
     dispenser.pushpull.return_value = gcode.GCode()
@@ -492,6 +493,7 @@ class TestFromConfig:
     def _manual_applicator(self, config, mocker: MockerFixture):
         klipper = mocker.Mock()
         dispenser = mocker.Mock()
+        dispenser.rotations_per_ul = config.rotations_per_ul
         dispenser.enable.return_value = gcode.GCode()
         dispenser.disable.return_value = gcode.GCode()
         dispenser.pushpull.return_value = gcode.GCode()
@@ -527,6 +529,7 @@ class TestFromConfig:
     def _config_applicator(self, config, mocker: MockerFixture):
         klipper = mocker.Mock()
         dispenser = mocker.Mock()
+        dispenser.rotations_per_ul = config.rotations_per_ul
         dispenser.enable.return_value = gcode.GCode()
         dispenser.disable.return_value = gcode.GCode()
         dispenser.pushpull.return_value = gcode.GCode()
@@ -754,6 +757,65 @@ class TestDepositAt:
         amounts = _dispense_amounts(mock_paste_dispenser)
         assert len(amounts) == 1
         assert amounts[0] == pytest.approx(retraction + 0.2)
+
+    def test_returns_dispense_execution_without_retraction_rotations(self, applicator):
+        result = applicator.deposit_at(
+            Point2d(4.0, 5.0), amount=0.2, paste_height=0.6, transform=Identity()
+        )
+
+        assert len(result.sequences) == 1
+        execution = result.sequences[0]
+        assert execution.applied_mode == "dot"
+        assert execution.path_length_mm == 0.0
+        assert execution.commanded_volume_ul == pytest.approx(0.2)
+        assert execution.prime_extra_volume_ul == 0.0
+        assert execution.effective_rate_ul_s == pytest.approx(5.0)
+        assert execution.rotations == pytest.approx(0.2 * 45.0)
+
+    def test_rotations_include_prime_extra_but_exclude_retraction(
+        self, mock_klipper, mock_paste_dispenser, mock_stage
+    ):
+        applicator = PasteApplicator(
+            klipper=mock_klipper,
+            paste_dispenser=mock_paste_dispenser,
+            stage=mock_stage,
+            nozzle_diameter=0.34,
+            max_fill_speed=2.0,
+            max_dispense_rate=5.0,
+            dispense_accel=10.0,
+            ul_per_mm2=0.05,
+            retraction=10.0,
+            retraction_rate=10.0,
+            retraction_accel_factor=2.0,
+            paste_height=0.5,
+            lift_height=5.0,
+            prime_extra_delay=0.5,
+        )
+
+        result = applicator.deposit_at(
+            Point2d(4.0, 5.0), amount=0.2, transform=Identity()
+        )
+
+        execution = result.sequences[0]
+        assert execution.prime_extra_volume_ul == pytest.approx(5.0 * 0.5)
+        assert execution.rotations == pytest.approx((0.2 + 5.0 * 0.5) * 45.0)
+        # 実G-codeのprime押し戻し10uLは回転数metadataには含まれない。
+        amounts = _dispense_amounts(mock_paste_dispenser)
+        assert len(amounts) == 1
+        assert amounts[0] == pytest.approx(12.7)
+
+
+class TestApplyResult:
+    """applyのpad単位集計結果."""
+
+    def test_aggregates_every_sequence_for_one_pad(self, applicator):
+        result = applicator.apply([box(0.0, 0.0, 5.0, 4.0)], transform=Identity())
+
+        assert result.commanded_volume_ul == pytest.approx(20.0 * 0.05)
+        assert result.prime_extra_volume_ul == 0.0
+        assert result.rotations == pytest.approx(20.0 * 0.05 * 45.0)
+        assert result.path_length_mm > 0.0
+        assert all(item.applied_mode == "area" for item in result.sequences)
 
 
 class TestPerPadOverride:

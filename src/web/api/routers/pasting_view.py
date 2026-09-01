@@ -17,6 +17,7 @@ node_id 規約（フロントと共有する契約）:
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
+from typing import Literal
 
 import attrs
 from fastapi import HTTPException
@@ -31,6 +32,7 @@ from pcbasm.pasting import (
     ResolvedPaste,
     build_pad_fill_plan_for,
     plan_paste_route,
+    resolve_dataset_initial_purge,
     resolve_initial_purge,
     resolve_node_settings,
     resolve_pad_settings,
@@ -129,6 +131,9 @@ class ResolvedInitialPurgeInfo(BaseModel):
     source: str
 
 
+type InitialPurgePurpose = Literal["paste_solder", "paste_dataset_collection"]
+
+
 class InitialPurgeInfo(BaseModel):
     """初回パージ設定とサーバ側解決結果."""
 
@@ -136,6 +141,8 @@ class InitialPurgeInfo(BaseModel):
     pad_id: str | None
     default_pad_id: str | None
     resolved: ResolvedInitialPurgeInfo | None
+    selection_label: str
+    error: str | None
 
 
 class InitialPurgeResponse(BaseModel):
@@ -387,21 +394,49 @@ def layer_pads(loaded: Loaded, layer: str) -> Iterator[Pad]:
     return (pad for pad in loaded.hierarchy.iter_pads() if pad.layer.value == layer)
 
 
-def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
+def build_initial_purge(
+    loaded: Loaded, purpose: InitialPurgePurpose = "paste_solder"
+) -> InitialPurgeInfo:
     """ロード済みコンテキストから初回パージ設定の解決結果を返す."""
     routed = routed_enabled_pads(
         layer_pads(loaded, Layer.TOP.value), loaded.hierarchy, loaded.model
     )
-    default_pad_id = loaded.hierarchy.pad_id_for_pad(routed[0]) if routed else None
-    resolved, error = resolve_initial_purge(
-        amount_ul=loaded.base_config.initial_purge_ul,
-        pad_id=loaded.model.initial_purge_pad_id,
-        hierarchy=loaded.hierarchy,
-        routed_pads=routed,
-        layer=Layer.TOP,
-    )
-    if error is not None:
+    if purpose == "paste_dataset_collection":
+        resolved, error = resolve_dataset_initial_purge(
+            amount_ul=loaded.base_config.initial_purge_ul,
+            pad_id=loaded.model.initial_purge_pad_id,
+            hierarchy=loaded.hierarchy,
+        )
+        if loaded.model.initial_purge_pad_id is None:
+            default, default_error = resolve_dataset_initial_purge(
+                amount_ul=1.0,
+                pad_id=None,
+                hierarchy=loaded.hierarchy,
+            )
+            default_pad_id = default.pad_id if default is not None else None
+            error = error or default_error
+        else:
+            default_pad_id = None
+    else:
+        default_pad_id = loaded.hierarchy.pad_id_for_pad(routed[0]) if routed else None
+        resolved, error = resolve_initial_purge(
+            amount_ul=loaded.base_config.initial_purge_ul,
+            pad_id=loaded.model.initial_purge_pad_id,
+            hierarchy=loaded.hierarchy,
+            routed_pads=routed,
+            layer=Layer.TOP,
+        )
+    if error is not None and purpose == "paste_solder":
         raise HTTPException(status_code=400, detail=error)
+    selection_label = (
+        loaded.model.initial_purge_pad_id
+        if loaded.model.initial_purge_pad_id is not None
+        else (
+            f"自動 ({default_pad_id})"
+            if default_pad_id is not None
+            else "自動 (設定が必要)"
+        )
+    )
     return InitialPurgeInfo(
         initial_purge_ul=loaded.base_config.initial_purge_ul,
         pad_id=loaded.model.initial_purge_pad_id,
@@ -416,6 +451,8 @@ def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
             if resolved is not None
             else None
         ),
+        selection_label=selection_label,
+        error=error,
     )
 
 
@@ -481,7 +518,9 @@ def load_board(
     )
 
 
-def build_pad_config(loaded: Loaded) -> PadConfigResponse:
+def build_pad_config(
+    loaded: Loaded, purpose: InitialPurgePurpose = "paste_solder"
+) -> PadConfigResponse:
     """ロード済みコンテキストから GET 形式のレスポンスを構築する."""
     pcb = loaded.pcb
     hierarchy = loaded.hierarchy
@@ -509,7 +548,7 @@ def build_pad_config(loaded: Loaded) -> PadConfigResponse:
         width=outline.width,
         height=outline.height,
         defaults=resolved_default(model),
-        initial_purge=build_initial_purge(loaded),
+        initial_purge=build_initial_purge(loaded, purpose),
         tree=tree(hierarchy.root, model, node_resolved),
         pads=pads,
         overrides=overrides(model),
