@@ -50,6 +50,10 @@ class TestSettingsFromEnv:
         assert settings.config_dir == PROJECT_ROOT / "config"
         assert settings.data_dir == PROJECT_ROOT / "data"
         assert settings.webui_data_dir == PROJECT_ROOT / "data" / "webui"
+        assert (
+            settings.paste_dataset_dir
+            == PROJECT_ROOT / "data" / "paste-volume-datasets"
+        )
         # root は board_id の算出基準なので "/" 固定。公開範囲は allowed で絞る
         assert settings.pcb_browse_root == Path("/")
         assert settings.pcb_browse_allowed == (
@@ -79,6 +83,7 @@ class TestSettingsFromEnv:
         assert settings.config_dir == tmp_path / "config"
         assert settings.data_dir == tmp_path / "data"
         assert settings.webui_data_dir == tmp_path / "data" / "webui"
+        assert settings.paste_dataset_dir == tmp_path / "data" / "paste-volume-datasets"
         assert settings.pcb_browse_root == tmp_path / "pcb"
         assert settings.mainsail_url == "http://mainsail.example:8000"
         assert settings.port == 9001

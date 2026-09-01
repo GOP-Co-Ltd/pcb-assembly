@@ -2,8 +2,9 @@
 
 import logging
 from collections.abc import Iterable
-from typing import Self
+from typing import Literal, Self
 
+import attrs
 from shapely import Polygon
 
 from pcbasm import gcode
@@ -23,10 +24,71 @@ from pcbasm.geometry import (
     Transform,
 )
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
-from pcbasm.pasting.fill_path import build_pad_fill_plan_for
+from pcbasm.pasting.fill_path import AppliedDispenseMode, build_pad_fill_plan_for
 from pcbasm.pasting.fill_sequence import FillSequence
 from pcbasm.pasting.settings import ResolvedPaste
 from pcbasm.utils import get_class_module_path
+
+
+@attrs.frozen
+class DispenseExecution:
+    """送信した1本の塗布sequenceの観測可能な指令結果."""
+
+    applied_mode: AppliedDispenseMode
+    path_length_mm: float
+    commanded_volume_ul: float
+    prime_extra_volume_ul: float
+    effective_rate_ul_s: float
+    rotations: float
+    fill_speed: Speed | None
+
+
+@attrs.frozen
+class PasteApplicationResult:
+    """1 padへの塗布結果。複数成分はsequence別結果も保持する."""
+
+    sequences: tuple[DispenseExecution, ...]
+
+    @property
+    def applied_modes(self) -> tuple[AppliedDispenseMode, ...]:
+        """sequence順の実塗布方式."""
+        return tuple(sequence.applied_mode for sequence in self.sequences)
+
+    @property
+    def applied_mode(self) -> AppliedDispenseMode | Literal["mixed"] | None:
+        """全sequence共通の方式。方式が混在するとmixed、空ならNone."""
+        modes = set(self.applied_modes)
+        if not modes:
+            return None
+        if len(modes) == 1:
+            return next(iter(modes))
+        return "mixed"
+
+    @property
+    def path_length_mm(self) -> float:
+        return sum(sequence.path_length_mm for sequence in self.sequences)
+
+    @property
+    def commanded_volume_ul(self) -> float:
+        return sum(sequence.commanded_volume_ul for sequence in self.sequences)
+
+    @property
+    def prime_extra_volume_ul(self) -> float:
+        return sum(sequence.prime_extra_volume_ul for sequence in self.sequences)
+
+    @property
+    def rotations(self) -> float:
+        return sum(sequence.rotations for sequence in self.sequences)
+
+    @property
+    def effective_rate_ul_s(self) -> float:
+        """sequence全体を吐出量/吐出時間でまとめた実効rate."""
+        duration = sum(
+            sequence.commanded_volume_ul / sequence.effective_rate_ul_s
+            for sequence in self.sequences
+            if sequence.effective_rate_ul_s > 0
+        )
+        return self.commanded_volume_ul / duration if duration > 0 else 0.0
 
 
 class PasteApplicator:
@@ -293,7 +355,7 @@ class PasteApplicator:
         bead_width_factor: float | None = None,
         overlap: float | None = None,
         boundary_margin: float | None = None,
-    ) -> None:
+    ) -> PasteApplicationResult:
         """複数ポリゴンへペースト塗布を実行する.
 
         各ポリゴンに対して成分別フィル経路を生成し、成分ごとに
@@ -341,13 +403,17 @@ class PasteApplicator:
                 self._boundary_margin if boundary_margin is None else boundary_margin
             ),
         )
+        sequences: list[DispenseExecution] = []
         for polygon in polygons:
-            self._fill(
-                polygon,
-                paste=paste,
-                transform=transform,
-                line_reference=line_reference,
+            sequences.extend(
+                self._fill(
+                    polygon,
+                    paste=paste,
+                    transform=transform,
+                    line_reference=line_reference,
+                )
             )
+        return PasteApplicationResult(tuple(sequences))
 
     def draw_line(
         self,
@@ -386,8 +452,9 @@ class PasteApplicator:
         resolved_prime_extra_delay = (
             self._prime_extra_delay if prime_extra_delay is None else prime_extra_delay
         )
-        return self._draw_polyline(
+        execution = self._draw_polyline(
             [start, end],
+            applied_mode="line",
             total_amount=amount,
             paste_height=resolved_paste_height,
             ul_per_mm2=self._ul_per_mm2,
@@ -396,6 +463,7 @@ class PasteApplicator:
             rate_cap=rate_cap,
             transform=self._transform,
         )
+        return execution.fill_speed
 
     def deposit_at(
         self,
@@ -406,7 +474,7 @@ class PasteApplicator:
         paste_height: PasteHeight | None = None,
         prime_extra_delay: float | None = None,
         rate_cap: float | None = None,
-    ) -> Speed | None:
+    ) -> PasteApplicationResult:
         """指定点へ ``amount`` [μL] を点塗布する.
 
         通常塗布と同じ ``FillSequence`` を使い、接近→下降→prime+吐出→
@@ -420,14 +488,19 @@ class PasteApplicator:
         resolved_prime_extra_delay = (
             self._prime_extra_delay if prime_extra_delay is None else prime_extra_delay
         )
-        return self._draw_polyline(
-            [point],
-            total_amount=amount,
-            paste_height=resolved_paste_height,
-            ul_per_mm2=self._ul_per_mm2,
-            prime_extra_delay=resolved_prime_extra_delay,
-            rate_cap=rate_cap,
-            transform=transform,
+        return PasteApplicationResult(
+            (
+                self._draw_polyline(
+                    [point],
+                    applied_mode="dot",
+                    total_amount=amount,
+                    paste_height=resolved_paste_height,
+                    ul_per_mm2=self._ul_per_mm2,
+                    prime_extra_delay=resolved_prime_extra_delay,
+                    rate_cap=rate_cap,
+                    transform=transform,
+                ),
+            )
         )
 
     def _fill(
@@ -437,7 +510,7 @@ class PasteApplicator:
         paste: ResolvedPaste,
         transform: Transform,
         line_reference: Point2d | None,
-    ) -> None:
+    ) -> tuple[DispenseExecution, ...]:
         """ポリゴンを成分別フィル経路で塗布する.
 
         各成分は独立した ``FillSequence`` として送信する。
@@ -459,25 +532,29 @@ class PasteApplicator:
         )
         if not plan.paths:
             self._logger.warning("フィルパスが空です。スキップします。")
-            return
+            return ()
 
         total_amount = polygon.area * paste.ul_per_mm2
         per_component_amount = total_amount / len(plan.paths)
 
-        for raw in plan.paths:
+        return tuple(
             self._draw_polyline(
                 raw,
+                applied_mode=plan.dispense_mode,
                 total_amount=per_component_amount,
                 paste_height=paste.paste_height,
                 ul_per_mm2=paste.ul_per_mm2,
                 prime_extra_delay=paste.prime_extra_delay,
                 transform=transform,
             )
+            for raw in plan.paths
+        )
 
     def _draw_polyline(
         self,
         raw: list[Point2d],
         *,
+        applied_mode: AppliedDispenseMode,
         total_amount: float,
         paste_height: PasteHeight,
         ul_per_mm2: float,
@@ -485,7 +562,7 @@ class PasteApplicator:
         transform: Transform,
         max_fill_speed: float | None = None,
         rate_cap: float | None = None,
-    ) -> Speed | None:
+    ) -> DispenseExecution:
         """1 本のポリラインを ``total_amount`` [μL] で塗布する（共通プリミティブ）.
 
         ``paste_height`` 解決 → 各点に Z 付与 → 渡された ``transform`` 適用 →
@@ -520,4 +597,14 @@ class PasteApplicator:
             sequence.to_gcode(self._stage, self._paste_dispenser)
             + gcode.wait_for_done()
         )
-        return sequence.fill_speed_actual()
+        prime_extra_volume = sequence.prime_extra_volume
+        return DispenseExecution(
+            applied_mode=applied_mode,
+            path_length_mm=path.length(),
+            commanded_volume_ul=total_amount,
+            prime_extra_volume_ul=prime_extra_volume,
+            effective_rate_ul_s=sequence.effective_rate,
+            rotations=(total_amount + prime_extra_volume)
+            * self._paste_dispenser.rotations_per_ul,
+            fill_speed=sequence.fill_speed_actual(),
+        )

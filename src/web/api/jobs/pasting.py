@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
@@ -30,12 +31,30 @@ from pcbasm.hal import (
 )
 from pcbasm.pasting import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
+    DatasetCapturedView,
+    DatasetExecution,
+    DatasetPolygon,
+    DatasetResolvedPaste,
+    DatasetView,
     DispenseRateCalibration,
     FillSpeedSweep,
     FlowCalibrationSet,
     LineLayout,
     LineLayoutOverflowError,
+    PadImageCrop,
+    PasteApplicationResult,
     PasteApplicator,
+    PasteDatasetBoard,
+    PasteDatasetCamera,
+    PasteDatasetConfig,
+    PasteDatasetMachine,
+    PasteDatasetMetadata,
+    PasteDatasetNozzle,
+    PasteDatasetPad,
+    PasteDatasetPaste,
+    PasteDatasetPurge,
+    PasteDatasetTotal,
+    PasteDatasetWriter,
     PasteSettingsModel,
     ProbeExecutor,
     RateMeasurement,
@@ -43,7 +62,9 @@ from pcbasm.pasting import (
     RotationsPerUlRound,
     ToolheadOffsetResult,
     ToolheadOffsetSample,
+    allocate_volume_by_rotations,
     base_override_from_config,
+    crop_pad_image,
     dispense_rate_schedule,
     fill_speed_schedule,
     plan_paste_route,
@@ -57,12 +78,15 @@ from pcbasm.pasting import (
 from pcbasm.pcb import (
     Copper,
     Layer,
+    Pad,
     PadHierarchy,
+    PadRef,
     PcbFile,
     build_pad_hierarchy,
 )
 from pcbasm.posctrl import (
     BoardAlignment,
+    BoardCalibrationResult,
     CircleDetectionError,
     OffsetObserver,
     RegionAlignmentSession,
@@ -128,6 +152,7 @@ DISPENSE_CALIBRATION_CONVERGENCE_REL_TOL = 0.02
 # 段ずらしレイアウトの描画領域マージン（銅板端から全周）。折り返し位置と
 # 収容可能本数（LineLayout.capacity）の算出に使う。
 DISPENSE_CALIBRATION_LAYOUT_MARGIN = 5.0
+_DATASET_CAPTURE_SETTLE_TIME = 0.5
 
 
 @attrs.frozen
@@ -508,6 +533,33 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
     )
     catalog.register(
         JobDefinition(
+            name="paste_dataset_collection",
+            label="ペースト塗布データセット収集",
+            tab="pasting",
+            run=_run_paste_dataset_collection,
+            params=(
+                ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
+                ParamSpec("purge_pad_id", "パージパッド", "str", "PURGE"),
+                ParamSpec(
+                    "crop_margin_mm",
+                    "画像余白",
+                    "float",
+                    1.0,
+                    unit="mm",
+                    minimum=0.0,
+                ),
+                ParamSpec("paste_id", "ペーストID", "str"),
+                ParamSpec("paste_lot", "ペーストlot", "str"),
+            ),
+            requires_pcb=True,
+            uses_machine=True,
+            notify_on_completion=True,
+            accepts_commands=True,
+            provides_preview=True,
+        )
+    )
+    catalog.register(
+        JobDefinition(
             name="generate_rect_pcb",
             label="キャリブレーション矩形 PCB 生成",
             tab="pasting",
@@ -786,6 +838,133 @@ def _resolve_paste_model(
     )
 
 
+@attrs.frozen
+class _PreparedPasteWorkflow:
+    """通常塗布とdataset収集が共有する計測・位置合わせ結果."""
+
+    session: PasteSession
+    hierarchy: PadHierarchy
+    resolved: Mapping[PadRef, ResolvedPaste]
+    routed_pads: tuple[Pad, ...]
+    component_positions: Mapping[str, Point2d]
+    alignment_session: RegionAlignmentSession
+    alignment: BoardAlignment
+    height_plane: Transform
+    aligned_count: int
+    region_count: int
+    refinement_success_count: int
+    refinement_target_count: int
+
+    def pad_transform(self, pad: Pad) -> Transform:
+        """計測済み補正からpad用の塗布座標変換を返す."""
+        return self.session.pad_to_machine(
+            pad,
+            alignment=self.alignment,
+            height_plane=self.height_plane,
+        )
+
+
+def _resolved_paste_for_pad(
+    hierarchy: PadHierarchy,
+    resolved: Mapping[PadRef, ResolvedPaste],
+    pad: Pad,
+) -> ResolvedPaste | None:
+    """Component無しの後方互換padではNone、それ以外は解決済み設定を返す."""
+    try:
+        pad_ref = hierarchy.pad_ref_for_pad(pad)
+    except KeyError:
+        return None
+    return resolved.get(pad_ref)
+
+
+def _prepare_paste_workflow(
+    ctx: JobContext,
+    result: BoardCalibrationResult,
+    *,
+    routed_pads: Sequence[Pad],
+    alignment_pads: Sequence[Pad],
+    hierarchy: PadHierarchy,
+    resolved: Mapping[PadRef, ResolvedPaste],
+) -> _PreparedPasteWorkflow:
+    """高さ計測、領域/pad照合、pad別変換の共通前処理を実行する."""
+    session = PasteSession.from_calibration(result)
+    top_coppers = [copper for copper in session.pcb.copper if copper.layer == Layer.TOP]
+    component_positions = {
+        component.designator: component.position for component in session.pcb.components
+    }
+
+    ctx.progress("高さ計測")
+    height_plane = session.height_measurer.measure(
+        coppers=top_coppers,
+        board_to_machine=session.board_to_machine,
+        outline=session.pcb.outline.polygon,
+    )
+
+    alignment_session = RegionAlignmentSession(result, frame_sink=ctx.frame)
+    regions = alignment_session.plan_regions([pad.center for pad in alignment_pads])
+    ctx.log(f"照合対象の領域数: {len(regions)}")
+    aligned = align_regions(ctx, alignment_session, regions)
+    alignment = BoardAlignment(results=tuple(aligned))
+    for pad in alignment_pads:
+        alignment.correction_for(pad.center, designator=pad.designator)
+    ctx.log(f"位置合わせ成功: {len(aligned)}/{len(regions)} 領域")
+
+    max_short_side = result.machine.paste_dispenser.pad_align.refine_max_short_side
+    refinement_targets = [
+        pad
+        for pad in alignment_pads
+        if is_pad_refinement_target(pad, max_short_side_mm=max_short_side)
+    ]
+    ctx.log(
+        f"pad中心照合対象: {len(refinement_targets)}/{len(alignment_pads)} pads "
+        f"(最大短辺 {max_short_side:g} mm)"
+    )
+    pad_alignments = []
+    for index, pad in enumerate(refinement_targets):
+        ctx.progress("pad照合", 100.0 * index / len(refinement_targets))
+        ctx.checkpoint()
+        initial_correction = alignment.correction_for(
+            pad.center, designator=pad.designator
+        )
+        refined = alignment_session.refine(pad.center, initial_correction, pad.polygon)
+        if refined is None:
+            ctx.log(
+                f"警告: {pad.designator}.{pad.pad_number} のpad中心照合が"
+                "収束しないため領域補正を使用"
+            )
+            continue
+        base = result.board_transform.apply(pad.center)
+        initial_displacement = initial_correction.apply(base) - base
+        residual = refined.displacement - initial_displacement
+        ctx.log(
+            f"{pad.designator}.{pad.pad_number}: "
+            f"residual=({residual.x:+.4f}, {residual.y:+.4f}) mm, "
+            f"passes={refined.passes}"
+        )
+        pad_alignments.append(refined)
+    alignment = BoardAlignment(
+        results=tuple(pad_alignments), fallback_results=tuple(aligned)
+    )
+    ctx.log(f"pad中心照合成功: {len(pad_alignments)}/{len(refinement_targets)} pads")
+    for pad in alignment_pads:
+        alignment.correction_for(pad.center, designator=pad.designator)
+
+    return _PreparedPasteWorkflow(
+        session=session,
+        hierarchy=hierarchy,
+        resolved=resolved,
+        routed_pads=tuple(routed_pads),
+        component_positions=component_positions,
+        alignment_session=alignment_session,
+        alignment=alignment,
+        height_plane=height_plane,
+        aligned_count=len(aligned),
+        region_count=len(regions),
+        refinement_success_count=len(pad_alignments),
+        refinement_target_count=len(refinement_targets),
+    )
+
+
 def _run_paste_solder(ctx: JobContext) -> JobResult:
     """ボード計測 → 高さ計測 → 銅箔照合 → 補正適用 → ペースト塗布を通しで実行する.
 
@@ -795,16 +974,10 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
     """
     with ctx.open_camera() as camera:
         result = setup_board(ctx, camera)
-        session = PasteSession.from_calibration(result)
-        top_coppers = [c for c in session.pcb.copper if c.layer == Layer.TOP]
-        top_pads = [p for p in session.pcb.pads if p.layer == Layer.TOP]
+        top_pads = [pad for pad in result.pcb.pads if pad.layer == Layer.TOP]
 
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
-        hierarchy = build_pad_hierarchy(session.pcb.components, session.pcb.pads)
-        component_positions = {
-            component.designator: component.position
-            for component in session.pcb.components
-        }
+        hierarchy = build_pad_hierarchy(result.pcb.components, result.pcb.pads)
         model = _resolve_paste_model(ctx, hierarchy)
         resolved = resolve_pad_settings(hierarchy, model)
 
@@ -820,7 +993,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         # 初回パージ pad 未指定時は、この route の先頭 pad を使う。
         routed_pads = [stop.pad for stop in plan_paste_route(enabled_pads)]
         initial_purge, initial_purge_error = resolve_initial_purge(
-            amount_ul=session.machine.paste_dispenser.initial_purge_ul,
+            amount_ul=result.machine.paste_dispenser.initial_purge_ul,
             pad_id=model.initial_purge_pad_id,
             hierarchy=hierarchy,
             routed_pads=routed_pads,
@@ -841,82 +1014,29 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             for pad in alignment_pads
         ):
             alignment_pads.append(initial_purge.pad)
-
-        # probe の接触で基板がずれる可能性があるため、XY の領域・pad 照合より先に
-        # 高さを計測する。計測点には setup_board で得た初期変換を使用する。
-        ctx.progress("高さ計測")
-        height_plane = session.height_measurer.measure(
-            coppers=top_coppers,
-            board_to_machine=session.board_to_machine,
-            outline=session.pcb.outline.polygon,
+        prepared = _prepare_paste_workflow(
+            ctx,
+            result,
+            routed_pads=routed_pads,
+            alignment_pads=alignment_pads,
+            hierarchy=hierarchy,
+            resolved=resolved,
         )
-
-        align_session = RegionAlignmentSession(result, frame_sink=ctx.frame)
-        regions = align_session.plan_regions([pad.center for pad in alignment_pads])
-        ctx.log(f"照合対象の領域数: {len(regions)}")
-        aligned = align_regions(ctx, align_session, regions)
-        alignment = BoardAlignment(results=tuple(aligned))
-        # 最初の補正移動より前に、成功領域が1件以上あるか確認する。
-        for pad in alignment_pads:
-            alignment.correction_for(pad.center, designator=pad.designator)
-        ctx.log(f"位置合わせ成功: {len(aligned)}/{len(regions)} 領域")
-
-        max_short_side = result.machine.paste_dispenser.pad_align.refine_max_short_side
-        refinement_targets = [
-            pad
-            for pad in alignment_pads
-            if is_pad_refinement_target(pad, max_short_side_mm=max_short_side)
-        ]
-        ctx.log(
-            f"pad中心照合対象: {len(refinement_targets)}/{len(alignment_pads)} pads "
-            f"(最大短辺 {max_short_side:g} mm)"
-        )
-        pad_alignments = []
-        for index, pad in enumerate(refinement_targets):
-            ctx.progress("pad照合", 100.0 * index / len(refinement_targets))
-            ctx.checkpoint()
-            initial_correction = alignment.correction_for(
-                pad.center, designator=pad.designator
-            )
-            refined = align_session.refine(pad.center, initial_correction, pad.polygon)
-            if refined is None:
-                ctx.log(
-                    f"警告: {pad.designator}.{pad.pad_number} のpad中心照合が"
-                    "収束しないため領域補正を使用"
-                )
-                continue
-            base = result.board_transform.apply(pad.center)
-            initial_displacement = initial_correction.apply(base) - base
-            residual = refined.displacement - initial_displacement
-            ctx.log(
-                f"{pad.designator}.{pad.pad_number}: "
-                f"residual=({residual.x:+.4f}, {residual.y:+.4f}) mm, "
-                f"passes={refined.passes}"
-            )
-            pad_alignments.append(refined)
-        alignment = BoardAlignment(
-            results=tuple(pad_alignments), fallback_results=tuple(aligned)
-        )
-        ctx.log(
-            f"pad中心照合成功: {len(pad_alignments)}/" f"{len(refinement_targets)} pads"
-        )
-
         pairs = [
-            (pad, transform, resolved.get(hierarchy.pad_ref_for_pad(pad)))
-            for pad, transform in session.pad_transforms(
-                routed_pads, alignment=alignment, height_plane=height_plane
+            (
+                pad,
+                prepared.pad_transform(pad),
+                _resolved_paste_for_pad(hierarchy, resolved, pad),
             )
+            for pad in routed_pads
         ]
         purge_transform = (
-            session.pad_to_machine(
-                initial_purge.pad,
-                alignment=alignment,
-                height_plane=height_plane,
-            )
+            prepared.pad_transform(initial_purge.pad)
             if initial_purge is not None
             else None
         )
-        stage = session.stage
+        session = prepared.session
+        stage = prepared.session.stage
 
         total = LoadingTotals()
         with session.make_applicator() as applicator:
@@ -948,13 +1068,13 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                     applicator.apply(
                         [pad.polygon],
                         transform=transform,
-                        line_reference=component_positions[pad.designator],
+                        line_reference=prepared.component_positions.get(pad.designator),
                     )
                 else:
                     applicator.apply(
                         [pad.polygon],
                         transform=transform,
-                        line_reference=component_positions[pad.designator],
+                        line_reference=prepared.component_positions.get(pad.designator),
                         paste_height=r.paste_height,
                         ul_per_mm2=r.ul_per_mm2,
                         dispense_mode=r.dispense_mode,
@@ -967,13 +1087,387 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
     return JobResult(
         summary=(
-            f"照合成功 {len(aligned)}/{len(regions)} 領域 / "
-            f"pad中心照合 {len(pad_alignments)}/{len(refinement_targets)} pads / "
+            f"照合成功 {prepared.aligned_count}/{prepared.region_count} 領域 / "
+            f"pad中心照合 {prepared.refinement_success_count}/"
+            f"{prepared.refinement_target_count} pads / "
             f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ・"
             f"初回パージ {initial_purge.amount_ul if initial_purge else 0.0:.3f} uL・"
             f"押出合計 {total.amount_ul:+.3f} uL）"
         )
+    )
+
+
+@attrs.frozen
+class _DatasetPadPlan:
+    """装置を動かす前に検証したpurgeと収集padの計画."""
+
+    hierarchy: PadHierarchy
+    resolved: Mapping[PadRef, ResolvedPaste]
+    purge_pad: Pad
+    purge_pad_id: str
+    sample_pads: tuple[Pad, ...]
+
+
+def _resolve_dataset_purge_pad(
+    hierarchy: PadHierarchy, top_pads: Sequence[Pad], purge_pad_id: str
+) -> Pad:
+    """PURGE designator特例または通常の一意pad IDをtop padへ解決する."""
+    if purge_pad_id == "PURGE":
+        matches = [pad for pad in top_pads if pad.designator == "PURGE"]
+        if not matches:
+            raise ValueError("未知のdataset purge padです: PURGE")
+        if len(matches) != 1:
+            raise ValueError(
+                f"dataset purge pad PURGE が一意ではありません: {len(matches)} pads"
+            )
+        return matches[0]
+
+    matches = [
+        pad for pad in top_pads if _pad_id_or_none(hierarchy, pad) == purge_pad_id
+    ]
+    if not matches:
+        raise ValueError(f"未知のdataset purge padです: {purge_pad_id}")
+    if len(matches) != 1:
+        raise ValueError(f"dataset purge padが一意ではありません: {purge_pad_id}")
+    return matches[0]
+
+
+def _pad_id_or_none(hierarchy: PadHierarchy, pad: Pad) -> str | None:
+    """Component無しpadではNone、それ以外は一意pad IDを返す."""
+    try:
+        return hierarchy.pad_id_for_pad(pad)
+    except KeyError:
+        return None
+
+
+def _dataset_pad_plan(ctx: JobContext, pcb: PcbFile) -> _DatasetPadPlan:
+    """任意PCBからpurgeを除く有効top pad routeを装置非依存で解決する."""
+    top_pads = [pad for pad in pcb.pads if pad.layer == Layer.TOP]
+    hierarchy = build_pad_hierarchy(pcb.components, pcb.pads)
+    model = _resolve_paste_model(ctx, hierarchy)
+    resolved = resolve_pad_settings(hierarchy, model)
+    purge_pad_id = str(ctx.params["purge_pad_id"])
+    purge_pad = _resolve_dataset_purge_pad(hierarchy, top_pads, purge_pad_id)
+    enabled = select_enabled_pads(top_pads, hierarchy, model)
+    sample_pads = tuple(
+        stop.pad
+        for stop in plan_paste_route(pad for pad in enabled if pad is not purge_pad)
+    )
+    if not sample_pads:
+        raise ValueError("purge以外の収集対象padがありません")
+    orphan_ids = [
+        f"{pad.designator}.{pad.pad_number}"
+        for pad in sample_pads
+        if _pad_id_or_none(hierarchy, pad) is None
+    ]
+    if orphan_ids:
+        raise ValueError(
+            "dataset収集対象padに対応するComponentがありません: "
+            + ", ".join(orphan_ids)
+        )
+    return _DatasetPadPlan(
+        hierarchy=hierarchy,
+        resolved=resolved,
+        purge_pad=purge_pad,
+        purge_pad_id=purge_pad_id,
+        sample_pads=sample_pads,
+    )
+
+
+def _confirm_dataset_collection(ctx: JobContext) -> None:
+    calibrated = ctx.prompt(
+        PromptSpec(
+            kind="confirm",
+            message="吐出量キャリブレーションが完了していることを確認してください。",
+            default=True,
+            true_label="確認済み",
+            false_label="中止",
+        )
+    )
+    if not calibrated:
+        raise JobAborted()
+    tared = ctx.prompt(
+        PromptSpec(
+            kind="confirm",
+            message=(
+                "未塗布の基板を電子天秤に載せてTAREし、その基板を装置へ設置してください。"
+            ),
+            default=True,
+            true_label="TARE・設置完了",
+            false_label="中止",
+        )
+    )
+    if not tared:
+        raise JobAborted()
+
+
+def _capture_dataset_pad(
+    ctx: JobContext,
+    result: BoardCalibrationResult,
+    prepared: _PreparedPasteWorkflow,
+    pad: Pad,
+    view: DatasetView,
+    *,
+    margin_mm: float,
+) -> PadImageCrop:
+    """補正済みpad位置へcameraを動かしてcrop/maskを1組取得する."""
+    correction = prepared.alignment.correction_for(
+        pad.center, designator=pad.designator
+    )
+    base_target = correction.apply(result.board_transform.apply(pad.center))
+    target = Point2d(
+        base_target.x + view.offset_x_mm,
+        base_target.y + view.offset_y_mm,
+    )
+    result.klipper.send_gcode(
+        result.stage.move(
+            x=target.x,
+            y=target.y,
+            z=result.calibration.z_position,
+        )
+        + gcode.wait(_DATASET_CAPTURE_SETTLE_TIME)
+        + gcode.wait_for_done()
+    )
+    image = result.camera.capture()
+    ctx.frame(image)
+    projector = prepared.alignment_session.projector.with_correction(correction)
+    matrix, shift = projector.board_to_pixel_affine(target)
+    return crop_pad_image(
+        image,
+        pad.polygon,
+        matrix,
+        shift,
+        margin_mm=margin_mm,
+    )
+
+
+def _dataset_execution(result: PasteApplicationResult) -> DatasetExecution:
+    return DatasetExecution(
+        applied_mode=result.applied_mode,
+        path_length_mm=result.path_length_mm,
+        commanded_volume_ul=result.commanded_volume_ul,
+        prime_extra_volume_ul=result.prime_extra_volume_ul,
+        effective_rate_ul_s=result.effective_rate_ul_s,
+        rotations=result.rotations,
+    )
+
+
+def _dataset_resolved(paste: ResolvedPaste) -> DatasetResolvedPaste:
+    return DatasetResolvedPaste(
+        dispense_mode=paste.dispense_mode,
+        line_direction=paste.line_direction,
+        paste_height=paste.paste_height,
+        ul_per_mm2=paste.ul_per_mm2,
+        prime_extra_delay=paste.prime_extra_delay,
+        bead_width_factor=paste.bead_width_factor,
+        overlap=paste.overlap,
+        boundary_margin=paste.boundary_margin,
+    )
+
+
+def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
+    """任意PCBで塗布前後画像と計量教師値を収集・永続化する."""
+    assert ctx.pcb_path is not None
+    dispenser_config = ctx.machine.paste_dispenser
+    if dispenser_config.initial_purge_ul <= 0:
+        raise ValueError("dataset収集にはinitial_purge_ulを正の値で設定してください")
+    paste_id = str(ctx.params["paste_id"]).strip()
+    paste_lot = str(ctx.params["paste_lot"]).strip()
+    if not paste_id or not paste_lot:
+        raise ValueError("paste_idとpaste_lotは空にできません")
+    crop_margin_mm = float(ctx.params["crop_margin_mm"])
+
+    # purge・収集対象の不正はpromptや装置動作より前に検出する。
+    _dataset_pad_plan(ctx, PcbFile(ctx.pcb_path))
+    _confirm_dataset_collection(ctx)
+
+    started_at = datetime.now().astimezone()
+    writer: PasteDatasetWriter | None = None
+    with ctx.open_camera() as camera:
+        result = setup_board(ctx, camera)
+        plan = _dataset_pad_plan(ctx, result.pcb)
+        prepared = _prepare_paste_workflow(
+            ctx,
+            result,
+            routed_pads=plan.sample_pads,
+            alignment_pads=(*plan.sample_pads, plan.purge_pad),
+            hierarchy=plan.hierarchy,
+            resolved=plan.resolved,
+        )
+        writer = PasteDatasetWriter(ctx.paste_dataset_dir, started_at=started_at)
+        central_view = DatasetView(number=0)
+        views = (central_view,)
+        captured_views: dict[tuple[str, int], DatasetCapturedView] = {}
+        executions: dict[str, PasteApplicationResult] = {}
+
+        try:
+            for index, pad in enumerate(plan.sample_pads, start=1):
+                pad_id = plan.hierarchy.pad_id_for_pad(pad)
+                ctx.progress("塗布前撮影", 100.0 * (index - 1) / len(plan.sample_pads))
+                ctx.checkpoint()
+                for view in views:
+                    crop = _capture_dataset_pad(
+                        ctx,
+                        result,
+                        prepared,
+                        pad,
+                        view,
+                        margin_mm=crop_margin_mm,
+                    )
+                    captured_views[(pad_id, view.number)] = writer.write_capture(
+                        index, view, "pre", crop
+                    )
+
+            with prepared.session.make_applicator() as applicator:
+                ctx.progress("リトラクション")
+                applicator.retract()
+                ctx.progress("パージ")
+                ctx.checkpoint()
+                purge_result = applicator.deposit_at(
+                    plan.purge_pad.center,
+                    amount=dispenser_config.initial_purge_ul,
+                    transform=prepared.pad_transform(plan.purge_pad),
+                )
+                executions[plan.purge_pad_id] = purge_result
+
+                for index, pad in enumerate(plan.sample_pads):
+                    ctx.progress("塗布", 100.0 * index / len(plan.sample_pads))
+                    ctx.checkpoint()
+                    pad_ref = plan.hierarchy.pad_ref_for_pad(pad)
+                    pad_id = plan.hierarchy.pad_id_for_pad(pad)
+                    resolved = plan.resolved[pad_ref]
+                    executions[pad_id] = applicator.apply(
+                        [pad.polygon],
+                        transform=prepared.pad_transform(pad),
+                        line_reference=prepared.component_positions.get(pad.designator),
+                        paste_height=resolved.paste_height,
+                        ul_per_mm2=resolved.ul_per_mm2,
+                        dispense_mode=resolved.dispense_mode,
+                        line_direction=resolved.line_direction,
+                        prime_extra_delay=resolved.prime_extra_delay,
+                        bead_width_factor=resolved.bead_width_factor,
+                        overlap=resolved.overlap,
+                        boundary_margin=resolved.boundary_margin,
+                    )
+
+            for index, pad in enumerate(plan.sample_pads, start=1):
+                pad_id = plan.hierarchy.pad_id_for_pad(pad)
+                ctx.progress("塗布後撮影", 100.0 * (index - 1) / len(plan.sample_pads))
+                ctx.checkpoint()
+                for view in views:
+                    crop = _capture_dataset_pad(
+                        ctx,
+                        result,
+                        prepared,
+                        pad,
+                        view,
+                        margin_mm=crop_margin_mm,
+                    )
+                    post_view = writer.write_capture(index, view, "post", crop)
+                    if (
+                        post_view.pixel_rect
+                        != captured_views[(pad_id, view.number)].pixel_rect
+                    ):
+                        raise ValueError(f"{pad_id} のpre/post crop位置が一致しません")
+
+            measured_mass_mg = _prompt_positive_number(
+                ctx,
+                "TAREした電子天秤で塗布済み基板を計量し、増加質量 [mg] を入力してください。",
+            )
+            assert measured_mass_mg is not None
+            measured_volume_ul = (
+                measured_mass_mg / dispenser_config.solder_paste_density
+            )
+            rotations = {
+                key: execution.rotations for key, execution in executions.items()
+            }
+            allocated = allocate_volume_by_rotations(measured_volume_ul, rotations)
+            purge_execution = executions[plan.purge_pad_id]
+            pads_metadata = tuple(
+                PasteDatasetPad(
+                    index=index,
+                    pad_id=(pad_id := plan.hierarchy.pad_id_for_pad(pad)),
+                    source_pad_id=f"{pad.designator}.{pad.pad_number}",
+                    polygon=DatasetPolygon.from_polygon(pad.polygon),
+                    resolved=_dataset_resolved(
+                        plan.resolved[plan.hierarchy.pad_ref_for_pad(pad)]
+                    ),
+                    execution=_dataset_execution(executions[pad_id]),
+                    measured_volume_ul=allocated[pad_id],
+                    views=tuple(
+                        captured_views[(pad_id, view.number)] for view in views
+                    ),
+                )
+                for index, pad in enumerate(plan.sample_pads, start=1)
+            )
+            calibration = result.calibration
+            metadata = PasteDatasetMetadata(
+                kind="pcbasm-paste-volume-dataset",
+                schema_version=1,
+                created_at=started_at.isoformat(),
+                machine=PasteDatasetMachine(
+                    machine_id=ctx.machine_id,
+                    name=ctx.machine.machine_name,
+                ),
+                board=PasteDatasetBoard(
+                    filename=ctx.pcb_path.name,
+                    source_pcb=ctx.source_pcb or ctx.pcb_path.as_posix(),
+                    signature=plan.hierarchy.signature(),
+                ),
+                paste=PasteDatasetPaste(
+                    paste_id=paste_id,
+                    lot=paste_lot,
+                    density_mg_per_ul=dispenser_config.solder_paste_density,
+                ),
+                camera=PasteDatasetCamera(
+                    pixel_per_mm=calibration.pixel_per_mm,
+                    resolution=calibration.resolution,
+                    calibrated_at=calibration.calibrated_at.isoformat(),
+                    z_position_mm=calibration.z_position,
+                ),
+                nozzle=PasteDatasetNozzle(diameter_mm=dispenser_config.nozzle_diameter),
+                config=PasteDatasetConfig(
+                    rotations_per_ul=dispenser_config.rotations_per_ul,
+                    max_fill_speed_mm_s=dispenser_config.max_fill_speed,
+                    max_dispense_rate_ul_s=dispenser_config.max_dispense_rate,
+                    dispense_accel_ul_s2=dispenser_config.dispense_accel,
+                    retract_amount_ul=dispenser_config.retract_amount,
+                    retract_rate_ul_s=dispenser_config.effective_retract_rate,
+                    initial_purge_ul=dispenser_config.initial_purge_ul,
+                    crop_margin_mm=crop_margin_mm,
+                ),
+                total=PasteDatasetTotal(
+                    measured_mass_mg=measured_mass_mg,
+                    measured_volume_ul=measured_volume_ul,
+                    rotations=sum(rotations.values()),
+                ),
+                purge=PasteDatasetPurge(
+                    pad_id=plan.purge_pad_id,
+                    source_pad_id=(
+                        f"{plan.purge_pad.designator}.{plan.purge_pad.pad_number}"
+                    ),
+                    execution=_dataset_execution(purge_execution),
+                    measured_volume_ul=allocated[plan.purge_pad_id],
+                ),
+                pads=pads_metadata,
+            )
+            session_path = writer.finalize(metadata)
+        except Exception:
+            incomplete = writer.mark_incomplete()
+            ctx.log(f"未完了datasetを保持しました: {incomplete}")
+            raise
+
+    archive_name = f"paste-dataset-{session_path.name}.zip"
+    archive_path = ctx.artifacts_dir / archive_name
+    shutil.make_archive(str(archive_path.with_suffix("")), "zip", root_dir=session_path)
+    ctx.log(f"datasetを保存しました: {session_path}")
+    return JobResult(
+        summary=(
+            f"dataset収集完了: {len(plan.sample_pads)} pads / "
+            f"{measured_mass_mg:.3f} mg / {measured_volume_ul:.6f} uL"
+        ),
+        artifacts=(ctx.artifact("ペースト塗布dataset", archive_name, "file"),),
     )
 
 

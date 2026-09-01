@@ -1277,7 +1277,12 @@ class TestPasteSolderPadEditor:
 
     @pytest.mark.parametrize(
         "feature",
-        ("height_plane", "loading", "toolhead_offset"),
+        (
+            "height_plane",
+            "loading",
+            "paste_dataset_collection",
+            "toolhead_offset",
+        ),
     )
     def test_other_pasting_features_have_no_pad_editor(
         self, client: TestClient, feature: str
@@ -1285,6 +1290,18 @@ class TestPasteSolderPadEditor:
         """Pad editor は paste_solder 専用。他 feature は pasting/job.html のまま."""
         text = client.get(f"/pasting/{feature}").text
 
+        assert "pad-viewer" not in text
+        assert "pad_editor/index.js" not in text
+
+    def test_paste_dataset_collection_uses_generic_pasting_job_page(
+        self, client: TestClient
+    ):
+        text = client.get("/pasting/paste_dataset_collection").text
+
+        assert "job-console" in text
+        assert "job-form" in text
+        assert "preview-pane" in text
+        assert "ペースト塗布データセット収集" in text
         assert "pad-viewer" not in text
         assert "pad_editor/index.js" not in text
 

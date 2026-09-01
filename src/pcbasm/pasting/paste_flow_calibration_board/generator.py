@@ -266,7 +266,7 @@ def _add_purge_pad(board: pcbnew.BOARD, bounds: PasteFlowCalibrationBounds) -> N
     center_x = bounds.x + bounds.width / 2.0
     center_y = bounds.y + bounds.height / 2.0
     footprint = pcbnew.FOOTPRINT(board)
-    footprint.SetReference("PURGE1")
+    footprint.SetReference("PURGE")
     footprint.SetValue("Paste purge")
     footprint.SetPosition(vector(center_x, center_y))
     footprint.Reference().SetVisible(False)

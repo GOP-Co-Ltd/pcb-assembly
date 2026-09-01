@@ -2,7 +2,7 @@
 
 from pcbasm.config import DispenseMode, LineDirection, PasteHeight
 
-from .applicator import PasteApplicator
+from .applicator import DispenseExecution, PasteApplicationResult, PasteApplicator
 from .calibration import (
     FlowCalibration,
     FlowCalibrationSet,
@@ -35,6 +35,27 @@ from .initial_purge import (
     resolve_initial_purge,
     validate_initial_purge,
 )
+from .paste_dataset import (
+    DatasetCapturedView,
+    DatasetExecution,
+    DatasetPolygon,
+    DatasetResolvedPaste,
+    DatasetView,
+    PadImageCrop,
+    PasteDatasetBoard,
+    PasteDatasetCamera,
+    PasteDatasetConfig,
+    PasteDatasetMachine,
+    PasteDatasetMetadata,
+    PasteDatasetNozzle,
+    PasteDatasetPad,
+    PasteDatasetPaste,
+    PasteDatasetPurge,
+    PasteDatasetTotal,
+    PasteDatasetWriter,
+    allocate_volume_by_rotations,
+    crop_pad_image,
+)
 from .probe import ProbeExecutor
 from .route import PasteRouteStop, plan_paste_route, routed_enabled_pads
 from .settings import (
@@ -66,6 +87,7 @@ from .toolhead_offset import (
 
 __all__ = [
     "DispenseRateCalibration",
+    "DispenseExecution",
     "EnableState",
     "FillSequence",
     "FillSpeedSweep",
@@ -82,6 +104,24 @@ __all__ = [
     "MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT",
     "NUMERIC_PASTE_OVERRIDE_FIELDS",
     "PasteApplicator",
+    "PasteApplicationResult",
+    "DatasetCapturedView",
+    "DatasetExecution",
+    "DatasetPolygon",
+    "DatasetResolvedPaste",
+    "DatasetView",
+    "PadImageCrop",
+    "PasteDatasetBoard",
+    "PasteDatasetCamera",
+    "PasteDatasetConfig",
+    "PasteDatasetMachine",
+    "PasteDatasetMetadata",
+    "PasteDatasetNozzle",
+    "PasteDatasetPad",
+    "PasteDatasetPaste",
+    "PasteDatasetPurge",
+    "PasteDatasetTotal",
+    "PasteDatasetWriter",
     "RateMeasurement",
     "ResolvedInitialPurge",
     "RotationsPerUlRound",
@@ -104,6 +144,8 @@ __all__ = [
     "build_pad_fill_plan_for",
     "build_paste_fill_path",
     "build_paste_fill_plan",
+    "allocate_volume_by_rotations",
+    "crop_pad_image",
     "estimate_mass_flow",
     "find_orphans",
     "is_pad_enabled",
