@@ -393,9 +393,11 @@ designatorが`PURGE`である一意なTop padを自動選択する。通常の�
 `initial_purge_ul <= 0`のいずれかでは、装置を動かす前に失敗する。
 
 撮影時はF.Paste polygonのAABBへ`crop_margin_mm`を加えた矩形で、無加工のRGB画像を切り出す。
-同寸法の単チャネルmaskを別PNGへ保存し、pad内を255、穴とpad外を0とする。cropがcamera frameを
-越える場合はpaddingせず失敗する。塗布前後は同じ撮影位置とcrop矩形を使用する。初期WebUIは
-offset `(0, 0)` のview 0だけを撮影するが、schemaは複数viewを保存できる。
+同寸法の単チャネルmaskを別PNGへ保存し、F.Paste polygonを`mask_margin_mm`だけ外側へbufferした
+領域を255、その外側を0とする。`mask_margin_mm`の既定値は0.1 mmとし、maskがcropから欠けない
+よう`crop_margin_mm`以下に制限する。cropがcamera frameを越える場合はpaddingせず失敗する。
+塗布前後は同じ撮影位置とcrop矩形を使用する。初期WebUIはoffset `(0, 0)` のview 0だけを撮影
+するが、schemaは複数viewを保存できる。
 
 パッド \(i\) の教師体積は次式で求める。
 
@@ -499,7 +501,8 @@ schema v1は次の階層を持つ。すべての階層で未知keyと暗黙の�
     "retract_amount_ul": 10.0,
     "retract_rate_ul_s": 10.0,
     "initial_purge_ul": 0.1,
-    "crop_margin_mm": 1.0
+    "crop_margin_mm": 1.0,
+    "mask_margin_mm": 0.1
   },
   "total": {
     "measured_mass_mg": 0.756,

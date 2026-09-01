@@ -57,6 +57,7 @@ from .paste_dataset import (
     PasteDatasetWriter,
     allocate_volume_by_rotations,
     crop_pad_image,
+    validate_dataset_image_margins,
 )
 from .probe import ProbeExecutor
 from .route import PasteRouteStop, plan_paste_route, routed_enabled_pads
@@ -163,6 +164,7 @@ __all__ = [
     "settings_from_dict",
     "settings_to_dict",
     "validate_field_names",
+    "validate_dataset_image_margins",
     "validate_initial_purge",
     "validate_override_values",
 ]

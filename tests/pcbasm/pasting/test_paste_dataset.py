@@ -86,6 +86,7 @@ def _metadata(view: DatasetCapturedView) -> PasteDatasetMetadata:
             retract_rate_ul_s=10.0,
             initial_purge_ul=0.1,
             crop_margin_mm=1.0,
+            mask_margin_mm=0.1,
         ),
         total=PasteDatasetTotal(
             measured_mass_mg=0.945,
@@ -149,7 +150,14 @@ class TestCropPadImage:
         matrix = np.array([[10.0, 0.0], [0.0, 10.0]])
         shift = np.array([50.0, 40.0])
 
-        crop = crop_pad_image(Image(source), polygon, matrix, shift, margin_mm=1.0)
+        crop = crop_pad_image(
+            Image(source),
+            polygon,
+            matrix,
+            shift,
+            margin_mm=1.0,
+            mask_margin_mm=0.1,
+        )
 
         assert crop.pixel_rect == (30, 10, 70, 70)
         assert crop.image.shape == (60, 40, 3)
@@ -158,6 +166,19 @@ class TestCropPadImage:
         assert crop.mask.shape == crop.image.shape[:2]
         assert crop.mask.dtype == np.uint8
         assert set(np.unique(crop.mask)) <= {0, 255}
+
+    def test_mask_extends_outside_pad_by_configured_margin(self):
+        crop = crop_pad_image(
+            _source_image(),
+            box(-1.0, -1.0, 1.0, 1.0),
+            np.array([[10.0, 0.0], [0.0, 10.0]]),
+            np.array([50.0, 50.0]),
+            margin_mm=2.0,
+            mask_margin_mm=0.1,
+        )
+
+        assert crop.mask[30, 19] == 255
+        assert crop.mask[30, 18] == 0
 
     def test_mask_preserves_polygon_holes(self):
         source = _source_image()
@@ -172,13 +193,17 @@ class TestCropPadImage:
             np.array([[10.0, 0.0], [0.0, 10.0]]),
             np.array([50.0, 40.0]),
             margin_mm=0.0,
+            mask_margin_mm=0.0,
         )
 
         assert crop.mask[20, 20] == 0
         assert crop.mask[5, 5] == 255
 
-    @pytest.mark.parametrize("margin_mm", [-0.01, -1.0])
-    def test_rejects_negative_margin(self, margin_mm: float):
+    @pytest.mark.parametrize(
+        ("margin_mm", "mask_margin_mm"),
+        [(-0.01, 0.0), (1.0, -0.01), (0.1, 0.2)],
+    )
+    def test_rejects_invalid_margins(self, margin_mm: float, mask_margin_mm: float):
         with pytest.raises(ValueError):
             crop_pad_image(
                 _source_image(),
@@ -186,6 +211,7 @@ class TestCropPadImage:
                 np.eye(2),
                 np.array([50.0, 40.0]),
                 margin_mm=margin_mm,
+                mask_margin_mm=mask_margin_mm,
             )
 
     def test_rejects_crop_outside_camera_frame(self):
@@ -196,6 +222,7 @@ class TestCropPadImage:
                 np.array([[10.0, 0.0], [0.0, 10.0]]),
                 np.array([5.0, 5.0]),
                 margin_mm=0.0,
+                mask_margin_mm=0.0,
             )
 
 

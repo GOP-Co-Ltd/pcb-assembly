@@ -165,7 +165,11 @@ class TestCatalog:
             ("generate_rect_pcb", {"width": (40.0, "mm"), "height": (40.0, "mm")}),
             (
                 "paste_dataset_collection",
-                {"tolerance": (0.1, "mm"), "crop_margin_mm": (1.0, "mm")},
+                {
+                    "tolerance": (0.1, "mm"),
+                    "crop_margin_mm": (1.0, "mm"),
+                    "mask_margin_mm": (0.1, "mm"),
+                },
             ),
             (
                 "toolhead_offset",
@@ -206,6 +210,8 @@ class TestCatalog:
 
         assert "purge_pad_id" not in params
         assert params["crop_margin_mm"].minimum == 0.0
+        assert params["mask_margin_mm"].minimum == 0.0
+        assert params["mask_margin_mm"].help is not None
         assert params["paste_id"].value_type == "str"
         assert params["paste_id"].label == "ペースト製品ID"
         assert params["paste_id"].help is not None
@@ -220,6 +226,7 @@ class TestCatalog:
         assert default.validate_params(definition, {"paste_id": "paste-1"}) == {
             "tolerance": 0.1,
             "crop_margin_mm": 1.0,
+            "mask_margin_mm": 0.1,
             "paste_id": "paste-1",
         }
         with pytest.raises(ValueError, match="paste_id"):
@@ -844,6 +851,30 @@ class TestPasteDatasetCollectionPreflight:
         assert record.status == JobStatus.FAILED
         assert record.error is not None
         assert "initial_purge_ul" in record.error
+        assert record.pending_prompt is None
+
+    def test_mask_margin_larger_than_crop_fails_before_prompt_or_machine(
+        self,
+        manager: JobManager,
+        state: AppState,
+        calibration_board: Path,
+        wait_until: WaitUntil,
+    ):
+        state.select_pcb(calibration_board)
+
+        record = manager.start(
+            "paste_dataset_collection",
+            {
+                "paste_id": "paste-1",
+                "crop_margin_mm": 0.05,
+                "mask_margin_mm": 0.1,
+            },
+        )
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "mask_margin_mm" in record.error
         assert record.pending_prompt is None
 
 

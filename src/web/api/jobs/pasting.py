@@ -75,6 +75,7 @@ from pcbasm.pasting import (
     resolve_pad_settings,
     select_enabled_pads,
     slot_area,
+    validate_dataset_image_margins,
 )
 from pcbasm.pcb import (
     Copper,
@@ -547,6 +548,15 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     1.0,
                     unit="mm",
                     minimum=0.0,
+                ),
+                ParamSpec(
+                    "mask_margin_mm",
+                    "マスク余白",
+                    "float",
+                    0.1,
+                    unit="mm",
+                    minimum=0.0,
+                    help="パッド外周からマスクを外側へ広げる距離です。",
                 ),
                 ParamSpec(
                     "paste_id",
@@ -1206,6 +1216,7 @@ def _capture_dataset_pad(
     view: DatasetView,
     *,
     margin_mm: float,
+    mask_margin_mm: float,
 ) -> PadImageCrop:
     """補正済みpad位置へcameraを動かしてcrop/maskを1組取得する."""
     correction = prepared.alignment.correction_for(
@@ -1235,6 +1246,7 @@ def _capture_dataset_pad(
         matrix,
         shift,
         margin_mm=margin_mm,
+        mask_margin_mm=mask_margin_mm,
     )
 
 
@@ -1273,6 +1285,10 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
     if not paste_id:
         raise ValueError("paste_idは空にできません")
     crop_margin_mm = float(ctx.params["crop_margin_mm"])
+    mask_margin_mm = float(ctx.params["mask_margin_mm"])
+    margin_error = validate_dataset_image_margins(crop_margin_mm, mask_margin_mm)
+    if margin_error is not None:
+        raise ValueError(margin_error)
 
     # purge・収集対象の不正はpromptや装置動作より前に検出する。
     _dataset_pad_plan(ctx, PcbFile(ctx.pcb_path))
@@ -1314,6 +1330,7 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
                         pad,
                         view,
                         margin_mm=crop_margin_mm,
+                        mask_margin_mm=mask_margin_mm,
                     )
                     captured_views[(pad_id, view.number)] = writer.write_capture(
                         index, view, "pre", crop
@@ -1363,6 +1380,7 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
                         pad,
                         view,
                         margin_mm=crop_margin_mm,
+                        mask_margin_mm=mask_margin_mm,
                     )
                     post_view = writer.write_capture(index, view, "post", crop)
                     if (
@@ -1436,6 +1454,7 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
                     retract_rate_ul_s=dispenser_config.effective_retract_rate,
                     initial_purge_ul=dispenser_config.initial_purge_ul,
                     crop_margin_mm=crop_margin_mm,
+                    mask_margin_mm=mask_margin_mm,
                 ),
                 total=PasteDatasetTotal(
                     measured_mass_mg=measured_mass_mg,

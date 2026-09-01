@@ -66,6 +66,26 @@ def _ring_pixels(
     return np.round(pixels).astype(np.int32).reshape(-1, 1, 2)
 
 
+def validate_dataset_image_margins(
+    crop_margin_mm: float, mask_margin_mm: float
+) -> str | None:
+    """画像cropとpad maskの余白設定を検証する."""
+    for name, value in (
+        ("crop_margin_mm", crop_margin_mm),
+        ("mask_margin_mm", mask_margin_mm),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+        ):
+            return f"{name}は0以上の有限値が必要です: {value!r}"
+    if mask_margin_mm > crop_margin_mm:
+        return "mask_margin_mmはcrop_margin_mm以下にしてください"
+    return None
+
+
 def crop_pad_image(
     image: Image | ImageArray,
     polygon: Polygon,
@@ -73,20 +93,17 @@ def crop_pad_image(
     shift: ImageArray,
     *,
     margin_mm: float,
+    mask_margin_mm: float,
 ) -> PadImageCrop:
-    """F.Paste polygonのAABBにmarginを足し、RGB cropと穴付きmaskを返す.
+    """F.Paste polygonのAABBにmarginを足し、buffer付きmaskとRGB cropを返す.
 
     ``matrix`` / ``shift`` は
     :meth:`pcbasm.posctrl.CopperProjector.board_to_pixel_affine` の戻り値を
     そのまま受け取る。cropがframe外へ出る場合はpaddingせず失敗させる。
     """
-    if (
-        isinstance(margin_mm, bool)
-        or not isinstance(margin_mm, (int, float))
-        or not math.isfinite(margin_mm)
-        or margin_mm < 0
-    ):
-        raise ValueError(f"margin_mmは0以上の有限値が必要です: {margin_mm!r}")
+    margin_error = validate_dataset_image_margins(margin_mm, mask_margin_mm)
+    if margin_error is not None:
+        raise ValueError(margin_error)
     if polygon.is_empty or not polygon.is_valid:
         raise ValueError("crop対象polygonが空または不正です")
 
@@ -126,11 +143,14 @@ def crop_pad_image(
 
     crop = source[y0:y1, x0:x1].copy()
     mask = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
-    exterior = _ring_pixels(polygon.exterior.coords, affine, translation, (x0, y0))
+    mask_polygon = polygon if mask_margin_mm == 0 else polygon.buffer(mask_margin_mm)
+    if not isinstance(mask_polygon, Polygon):
+        raise ValueError("buffer後のmask polygonが不正です")
+    exterior = _ring_pixels(mask_polygon.exterior.coords, affine, translation, (x0, y0))
     cv2.fillPoly(mask, [exterior], 255)
     holes = [
         _ring_pixels(ring.coords, affine, translation, (x0, y0))
-        for ring in polygon.interiors
+        for ring in mask_polygon.interiors
     ]
     if holes:
         cv2.fillPoly(mask, holes, 0)
@@ -293,6 +313,7 @@ class PasteDatasetConfig:
     retract_rate_ul_s: float
     initial_purge_ul: float
     crop_margin_mm: float
+    mask_margin_mm: float
 
 
 @attrs.frozen
