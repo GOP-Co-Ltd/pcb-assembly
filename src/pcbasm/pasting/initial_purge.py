@@ -7,6 +7,8 @@ import attrs
 
 from pcbasm.pcb import Layer, Pad, PadHierarchy
 
+DATASET_PURGE_PAD_ID = "PURGE"
+
 
 @attrs.frozen
 class ResolvedInitialPurge:
@@ -71,6 +73,60 @@ def resolve_initial_purge(
             pad=pad,
             pad_id=pad_id,
             source="explicit",
+        ),
+        None,
+    )
+
+
+def resolve_dataset_initial_purge(
+    *,
+    amount_ul: float,
+    pad_id: str | None,
+    hierarchy: PadHierarchy,
+) -> tuple[ResolvedInitialPurge | None, str | None]:
+    """Dataset収集用の初回パージpadを解決する.
+
+    基板設定で ``pad_id`` が明示されていれば通常塗布と同じ選択を使う。
+    未指定時だけ、Top面でdesignatorが ``PURGE`` の一意なpadを自動選択する。
+    """
+    if pad_id is not None:
+        return resolve_initial_purge(
+            amount_ul=amount_ul,
+            pad_id=pad_id,
+            hierarchy=hierarchy,
+            routed_pads=(),
+            layer=Layer.TOP,
+        )
+
+    _, error = resolve_initial_purge(
+        amount_ul=amount_ul,
+        pad_id=None,
+        hierarchy=hierarchy,
+        routed_pads=(),
+        layer=Layer.TOP,
+    )
+    if error is not None or amount_ul == 0:
+        return None, error
+
+    matches = [
+        pad
+        for pad in hierarchy.iter_pads()
+        if pad.layer is Layer.TOP and pad.designator == DATASET_PURGE_PAD_ID
+    ]
+    if not matches:
+        return None, f"未知のdataset purge padです: {DATASET_PURGE_PAD_ID}"
+    if len(matches) != 1:
+        return (
+            None,
+            f"dataset purge pad {DATASET_PURGE_PAD_ID} が一意ではありません: "
+            f"{len(matches)} pads",
+        )
+    return (
+        ResolvedInitialPurge(
+            amount_ul=float(amount_ul),
+            pad=matches[0],
+            pad_id=DATASET_PURGE_PAD_ID,
+            source="default",
         ),
         None,
     )

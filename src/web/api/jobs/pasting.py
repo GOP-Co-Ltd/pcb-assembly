@@ -70,6 +70,7 @@ from pcbasm.pasting import (
     plan_paste_route,
     plan_toolhead_offset_points,
     rate_sweep_amount,
+    resolve_dataset_initial_purge,
     resolve_initial_purge,
     resolve_pad_settings,
     select_enabled_pads,
@@ -539,7 +540,6 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
             run=_run_paste_dataset_collection,
             params=(
                 ParamSpec("tolerance", "位置合わせ許容誤差", "float", 0.1, unit="mm"),
-                ParamSpec("purge_pad_id", "パージパッド", "str", "PURGE"),
                 ParamSpec(
                     "crop_margin_mm",
                     "画像余白",
@@ -548,8 +548,18 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                     unit="mm",
                     minimum=0.0,
                 ),
-                ParamSpec("paste_id", "ペーストID", "str"),
-                ParamSpec("paste_lot", "ペーストlot", "str"),
+                ParamSpec(
+                    "paste_id",
+                    "ペースト製品ID",
+                    "str",
+                    help="メーカー名・製品名または管理用の品番を入力します。",
+                ),
+                ParamSpec(
+                    "paste_lot",
+                    "製造ロット",
+                    "str",
+                    help="ペースト容器に記載された製造ロット番号を入力します。",
+                ),
             ),
             requires_pcb=True,
             uses_machine=True,
@@ -1109,30 +1119,6 @@ class _DatasetPadPlan:
     sample_pads: tuple[Pad, ...]
 
 
-def _resolve_dataset_purge_pad(
-    hierarchy: PadHierarchy, top_pads: Sequence[Pad], purge_pad_id: str
-) -> Pad:
-    """PURGE designator特例または通常の一意pad IDをtop padへ解決する."""
-    if purge_pad_id == "PURGE":
-        matches = [pad for pad in top_pads if pad.designator == "PURGE"]
-        if not matches:
-            raise ValueError("未知のdataset purge padです: PURGE")
-        if len(matches) != 1:
-            raise ValueError(
-                f"dataset purge pad PURGE が一意ではありません: {len(matches)} pads"
-            )
-        return matches[0]
-
-    matches = [
-        pad for pad in top_pads if _pad_id_or_none(hierarchy, pad) == purge_pad_id
-    ]
-    if not matches:
-        raise ValueError(f"未知のdataset purge padです: {purge_pad_id}")
-    if len(matches) != 1:
-        raise ValueError(f"dataset purge padが一意ではありません: {purge_pad_id}")
-    return matches[0]
-
-
 def _pad_id_or_none(hierarchy: PadHierarchy, pad: Pad) -> str | None:
     """Component無しpadではNone、それ以外は一意pad IDを返す."""
     try:
@@ -1147,8 +1133,17 @@ def _dataset_pad_plan(ctx: JobContext, pcb: PcbFile) -> _DatasetPadPlan:
     hierarchy = build_pad_hierarchy(pcb.components, pcb.pads)
     model = _resolve_paste_model(ctx, hierarchy)
     resolved = resolve_pad_settings(hierarchy, model)
-    purge_pad_id = str(ctx.params["purge_pad_id"])
-    purge_pad = _resolve_dataset_purge_pad(hierarchy, top_pads, purge_pad_id)
+    purge, purge_error = resolve_dataset_initial_purge(
+        amount_ul=ctx.machine.paste_dispenser.initial_purge_ul,
+        pad_id=model.initial_purge_pad_id,
+        hierarchy=hierarchy,
+    )
+    if purge_error is not None:
+        raise ValueError(purge_error)
+    if purge is None:
+        raise ValueError("dataset収集には初回パージパッドが必要です")
+    purge_pad_id = purge.pad_id
+    purge_pad = purge.pad
     enabled = select_enabled_pads(top_pads, hierarchy, model)
     sample_pads = tuple(
         stop.pad

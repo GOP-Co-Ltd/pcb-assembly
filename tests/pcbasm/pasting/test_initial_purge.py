@@ -5,7 +5,9 @@ from shapely import Polygon
 
 from pcbasm.geometry import Point2d
 from pcbasm.pasting import (
+    DATASET_PURGE_PAD_ID,
     ResolvedInitialPurge,
+    resolve_dataset_initial_purge,
     resolve_initial_purge,
     validate_initial_purge,
 )
@@ -141,6 +143,55 @@ class TestResolveInitialPurge:
         assert error is not None
         assert "R3.1" in error
         assert "Top" in error
+
+
+class TestResolveDatasetInitialPurge:
+    """Dataset収集だけ、未指定時にPURGE designatorを自動選択する."""
+
+    def test_default_uses_unique_top_purge_pad(self):
+        purge = _pad("PURGE", "1", center=Point2d(1.0, 2.0))
+        sample = _pad("U1", "1", center=Point2d(3.0, 4.0))
+
+        resolved, error = resolve_dataset_initial_purge(
+            amount_ul=0.1,
+            pad_id=None,
+            hierarchy=_hierarchy([purge, sample]),
+        )
+
+        assert error is None
+        assert isinstance(resolved, ResolvedInitialPurge)
+        assert resolved.pad is purge
+        assert resolved.pad_id == DATASET_PURGE_PAD_ID
+        assert resolved.source == "default"
+
+    def test_explicit_board_selection_takes_precedence_over_purge(self):
+        purge = _pad("PURGE", "1", center=Point2d(1.0, 2.0))
+        selected = _pad("U1", "1", center=Point2d(3.0, 4.0))
+
+        resolved, error = resolve_dataset_initial_purge(
+            amount_ul=0.1,
+            pad_id="U1.1",
+            hierarchy=_hierarchy([purge, selected]),
+        )
+
+        assert error is None
+        assert isinstance(resolved, ResolvedInitialPurge)
+        assert resolved.pad is selected
+        assert resolved.pad_id == "U1.1"
+        assert resolved.source == "explicit"
+
+    def test_missing_default_returns_error_for_preflight(self):
+        sample = _pad("U1", "1", center=Point2d(3.0, 4.0))
+
+        resolved, error = resolve_dataset_initial_purge(
+            amount_ul=0.1,
+            pad_id=None,
+            hierarchy=_hierarchy([sample]),
+        )
+
+        assert resolved is None
+        assert error is not None
+        assert DATASET_PURGE_PAD_ID in error
 
 
 class TestValidateInitialPurge:

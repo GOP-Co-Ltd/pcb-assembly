@@ -1310,10 +1310,14 @@ class TestPastingPadEditor:
         assert "preview-pane" in text
         assert "ペースト塗布データセット収集" in text
         assert 'data-job-name="paste_dataset_collection"' in text
-        assert 'id="param-purge_pad_id"' in text
-        assert 'value="PURGE"' in text
+        assert 'id="param-purge_pad_id"' not in text
+        assert 'data-pad-config-purpose="paste_dataset_collection"' in text
         assert 'id="param-paste_id"' in text
         assert 'id="param-paste_lot"' in text
+        assert "ペースト製品ID" in text
+        assert "メーカー名・製品名または管理用の品番" in text
+        assert "製造ロット" in text
+        assert "ペースト容器に記載された製造ロット番号" in text
         assert "loading-controls" not in text
 
 

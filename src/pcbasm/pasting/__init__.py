@@ -31,7 +31,9 @@ from .fill_path import (
 from .fill_sequence import FillSequence
 from .height import HeightPlaneMeasurer
 from .initial_purge import (
+    DATASET_PURGE_PAD_ID,
     ResolvedInitialPurge,
+    resolve_dataset_initial_purge,
     resolve_initial_purge,
     validate_initial_purge,
 )
@@ -106,6 +108,7 @@ __all__ = [
     "PasteApplicator",
     "PasteApplicationResult",
     "DatasetCapturedView",
+    "DATASET_PURGE_PAD_ID",
     "DatasetExecution",
     "DatasetPolygon",
     "DatasetResolvedPaste",
@@ -152,6 +155,7 @@ __all__ = [
     "plan_paste_route",
     "plan_toolhead_offset_points",
     "resolve_node_settings",
+    "resolve_dataset_initial_purge",
     "resolve_initial_purge",
     "resolve_pad_settings",
     "routed_enabled_pads",

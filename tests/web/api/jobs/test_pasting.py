@@ -36,7 +36,7 @@ import cv2
 import pytest
 
 from pcbasm.hal import XYZStage
-from pcbasm.pcb import PcbFile
+from pcbasm.pcb import PcbFile, build_pad_hierarchy
 from tests.helpers import PROJECT_ROOT, mark_hardware
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from web.api.board_settings import BoardSettingsStore
@@ -204,13 +204,16 @@ class TestCatalog:
         definition = default.get("paste_dataset_collection")
         params = {spec.name: spec for spec in definition.params}
 
-        assert params["purge_pad_id"].value_type == "str"
-        assert params["purge_pad_id"].default == "PURGE"
+        assert "purge_pad_id" not in params
         assert params["crop_margin_mm"].minimum == 0.0
         assert params["paste_id"].value_type == "str"
+        assert params["paste_id"].label == "ペースト製品ID"
+        assert params["paste_id"].help is not None
         assert params["paste_id"].default is None
         assert params["paste_id"].optional is False
         assert params["paste_lot"].value_type == "str"
+        assert params["paste_lot"].label == "製造ロット"
+        assert params["paste_lot"].help is not None
         assert params["paste_lot"].default is None
         assert params["paste_lot"].optional is False
 
@@ -763,22 +766,34 @@ class TestPasteDatasetCollectionPreflight:
         assert "PURGE" in record.error
         assert record.pending_prompt is None
 
-    @pytest.mark.parametrize("purge_pad_id", ["PURGE", "PAD1.1"])
-    def test_purge_pad_ids_are_accepted_and_tare_precedes_machine_setup(
+    @pytest.mark.parametrize("initial_purge_pad_id", [None, "PAD1.1"])
+    def test_auto_or_saved_purge_selection_precedes_machine_setup(
         self,
         manager: JobManager,
         state: AppState,
+        board_store: BoardSettingsStore,
+        pcb_root: Path,
         calibration_board: Path,
         wait_until: WaitUntil,
-        purge_pad_id: str,
+        initial_purge_pad_id: str | None,
     ):
         state.select_pcb(calibration_board)
+        if initial_purge_pad_id is not None:
+            pcb = PcbFile(pcb_root / calibration_board)
+            hierarchy = build_pad_hierarchy(pcb.components, pcb.pads)
+            board_store.update(
+                calibration_board.as_posix(),
+                state.machine().paste_dispenser,
+                board_signature=hierarchy.signature(),
+                mutate=lambda model: model.with_initial_purge_pad_id(
+                    initial_purge_pad_id
+                ),
+            )
         record = manager.start(
             "paste_dataset_collection",
             {
                 "paste_id": "paste-1",
                 "paste_lot": "lot-1",
-                "purge_pad_id": purge_pad_id,
             },
         )
 

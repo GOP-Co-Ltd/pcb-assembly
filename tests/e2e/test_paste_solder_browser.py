@@ -385,9 +385,13 @@ class TestPasteSolderBrowserRendering:
 
         _open_pasting_pad_editor(browser_page, live_ui, "paste_dataset_collection")
 
-        assert browser_page.locator("#param-purge_pad_id").input_value() == "PURGE"
+        assert browser_page.locator("#param-purge_pad_id").count() == 0
         browser_page.locator(_testid("pad-viewer")).wait_for(
             state="visible", timeout=_BROWSER_TIMEOUT_MS
+        )
+        assert (
+            browser_page.locator(_testid("pad-initial-purge-pad")).text_content()
+            == "自動 (設定が必要)"
         )
         browser_page.locator(_row_selector("L0")).wait_for(
             state="visible", timeout=_BROWSER_TIMEOUT_MS
