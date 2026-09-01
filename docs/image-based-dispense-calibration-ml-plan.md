@@ -17,7 +17,7 @@ WebUI、分散学習、モデルregistryによる自動配布は対象外とす�
 | 画像pipeline  | torchvisionでRGBのCHW tensorとしてdecode・変換する                               |
 | 設定・探索    | Hydraで設定を合成し、Optuna Sweeperでhyperparameterを探索する                    |
 | 実験管理      | MLflow Trackingへ明示的に記録する                                                |
-| 入力標準化    | 各sampleのpre/postをまとめ、全channel・有効画素から1組のmean/stdを求める         |
+| 入力標準化    | 各sampleの`[6, H, W]`全体へaffineなしの`SampleLayerNorm`を適用する               |
 | encoder正規化 | batch統計を持たないGroupNormを使い、BatchNormは使わない                          |
 | モデル        | 3段のdownsampling stem、small ResNet encoder、Global Average Pooling、2 head回帰 |
 | 学習単位      | 1 session・1 pad・1 viewを一意に識別し、同じpadのviewは同じsplitへ置く           |
@@ -245,35 +245,48 @@ dataset形式自体には画像上限を設けない。v1モデルへ入れる�
 これらはノズル径、体積、塗布方式の制限ではなく、v1 encoderの入力品質・計算量の制約である。
 値は学習configとmodel manifestへ保存し、変更したモデルは別versionとして扱う。
 
-### tensor化とsample単位の標準化
+### tensor化とSampleLayerNorm
 
-train split全体の統計やchannelごとの統計は使用しない。1個のdata pointを「同じpad・viewの
-pre/post pair」と定義し、次の順序をtrain、validation、test、実運転推論で共通化する。
+train split全体、batch、channelごとの統計は使用しない。1個のsampleを「同じpad・viewの
+pre/post pairを連結した`[6, H, W]` tensor」と定義し、sampleごとに`C`、`H`、`W`の全軸を
+LayerNorm相当に標準化する。これを本計画では`SampleLayerNorm`と呼ぶ。次の順序をtrain、
+validation、test、実運転推論で共通化する。
 
 1. pre/postをtorchvisionでRGBの`uint8 [3, H, W]`としてdecodeする。
-2. torchvision transforms v2のfunctional APIで、同じ明示parameterの幾何変換をpre、post、
-    pad geometry maskへ適用する。画像はbilinear、maskはnearest-exactを使う。
+2. 全要素が真の`sample_valid_mask [1, H, W]`を作る。torchvision transforms v2のfunctional APIで、
+    同じ明示parameterの幾何変換をpre、post、pad geometry mask、`sample_valid_mask`へ適用する。
+    画像はbilinear、maskはnearest-exactを使う。
 3. `to_dtype(torch.float32, scale=True)`で`[0, 1]`へ変換する。
 4. pre RGB、post RGBの順で連結し、`x [6, H, W]`とする。
 5. augmentationや回転で生じたinvalid領域を除く全channel・全有効画素から、そのsample固有の
-    scalar `mean_sample`と`std_sample`を1組だけ算出する。
-6. 全6 channelへ同じ値を使い、`x_standardized = (x - mean_sample) / std_sample`とする。
+    scalar `mean_sample`と`variance_sample`を1組だけ算出する。
+6. 全6 channelへ同じ値を使い、
+    `x_normalized = (x - mean_sample) / sqrt(variance_sample + eps)`とする。
 7. invalid領域を0へ戻し、batch collate後にモデルのlearnable padding pixelで置換する。
 
+`SampleLayerNorm`は`affine=False`とし、入力標準化用の学習可能なweight/biasを持たせない。
+全画素が有効なsampleでは、`torch.nn.functional.layer_norm(x, normalized_shape=x.shape, weight=None, bias=None, eps=1e-5)`と同じ契約にする。invalid領域がある場合だけ、同じ計算を
+`sample_valid_mask`でmasked化する。分散はmaskを6 channelへbroadcastし、`correction=0`で有効要素を
+母集団として計算する。`eps=1e-5`はpreprocess schemaへ保存する。
+
 preとpostを別々に標準化したり、RGB channelごとに標準化したりしない。これによりpre/post間の
-明るさ差とchannel間の相対関係を保持しつつ、dataset全体の分布へ前処理を依存させない。
-分散は有効画素maskを6 channelへbroadcastし、`correction=0`で全要素を母集団として計算する。
-`std_sample < 1e-6`、有効画素0、mean/stdが非有限のsampleは情報不足として拒否し、epsilonで
-見かけ上通さない。mean/stdはsampleから推論時にも計算できるため、checkpointにはdataset統計を
-保存しない。ただし再現性と診断用に各sampleのmean/std分布をreportする。
+明るさ差とchannel間の相対関係を保持しつつ、dataset全体の分布へ前処理を依存させない。また
+sample単位の処理はcollateより前に行い、batch内の他sampleやbatch paddingが結果へ影響しないように
+する。画像shapeは動的なので、固定`normalized_shape`を持つ`nn.LayerNorm` moduleではなく、上記の
+計算を行うpure functionとして実装する。
+
+有効要素0、`variance_sample < 1e-12`、mean/varianceが非有限のsampleは情報不足として拒否する。
+epsilonは有効なsampleの数値安定化だけに使い、定数画像を見かけ上通さない。mean/varianceは推論時も
+sampleから計算できるため、checkpointにはdataset統計を保存しない。ただし再現性と診断用に各sampleの
+mean/variance分布をreportする。
 
 `pixel_per_mm`はdata point単位では標準化できないscalarなので、train統計でcenter/scaleせず、
 `log(pixel_per_mm)`をそのままモデルへ渡す。教師体積もtrain中央値でscaleせず、µLの物理単位の
 ままlossへ渡す。したがってmodelの入出力変換にtrain dataset由来の統計は存在しない。
 
 収集済みのpad geometry maskは入力channelへ加えない。v1のモデル入力は要件どおり6 channelを
-維持し、geometry maskはcrop検証と幾何augmentationの整合確認に使う。batch paddingを示す
-`valid_pixel_mask`とは別物である。
+維持し、geometry maskはcrop検証と幾何augmentationの整合確認に使う。augmentation後の有効領域を示す
+`sample_valid_mask`、およびこれとbatch paddingを合成した`valid_pixel_mask`とは別物である。
 
 ### Data Augmentation
 
@@ -304,9 +317,9 @@ aspect ratioと面積でbucket化し、pixel budget制のbatch samplerを使う�
 6. 最後の小batchも捨てない。encoderはGroupNormのためbatch size 1でも同じ正規化規則になる。
 
 collate時はbatch内の最大高さ・幅を32の倍数へ切り上げ、trainingでは画像の配置位置をランダム、
-evaluationでは中央にしてpaddingする。collateは画像tensorと`valid_pixel_mask [B, 1, H, W]`を
-返す。モデル側でinvalid位置を学習可能な6 channel pixel vectorへ置換するため、padding値自体に
-意味を持たせない。
+evaluationでは中央にしてpaddingする。collateは各`sample_valid_mask`とbatch padding領域を合成し、
+画像tensorと`valid_pixel_mask [B, 1, H, W]`を返す。モデル側でinvalid位置を学習可能な6 channel
+pixel vectorへ置換するため、padding値自体に意味を持たせない。
 
 ## 2. モデル
 
@@ -375,8 +388,9 @@ residual blockに`GroupNorm(num_groups=8, num_channels=C, eps=1e-5, affine=True)
 manifestへ固定して別model versionとして扱う。
 
 GroupNormは各sample内でchannelをgroupへ分け、各groupのchannel・空間軸からmean/varianceを
-計算する。batch軸を集計せず、trainとevalで同じ計算になる。入力のsample単位標準化とは別の
-encoder内部処理であり、learnableなchannelごとのaffine parameterは有効にする。
+計算する。batch軸を集計せず、trainとevalで同じ計算になる。入力`[6, H, W]`全体へaffineなしで
+1回適用する`SampleLayerNorm`とは別のencoder内部処理であり、learnableなchannelごとのaffine
+parameterは有効にする。
 
 比較した候補と判断は次のとおりとする。
 
@@ -595,7 +609,7 @@ MLflowのautologは使わない。pure PyTorchへのautolog対象が限定され
 **parameter**
 
 - model channel/block構成、parameter数、GMAC
-- 画像制約、sample標準化方式、augmentation範囲
+- 画像制約、`SampleLayerNorm`の軸・epsilon・affine設定、augmentation範囲
 - optimizer、scheduler、batch pixel budget、seed、precision、compile設定、time budget
 - Python、PyTorch、torchvision、Hydra、Optuna、CUDA/cuDNN、MLflow、ONNX/ORTのversion
 
@@ -650,7 +664,7 @@ run-directory/
 - early stoppingのbest valueとpatience counter
 - Python、NumPy、PyTorch CPU、全CUDA deviceの乱数状態
 - samplerのepoch seedと、そのepochの確定batch plan
-- sample標準化schema、不確かさcalibration前後の状態
+- `SampleLayerNorm` schema、不確かさcalibration前後の状態
 - dataset fingerprint、split fingerprint、解決済みconfig
 
 [PyTorchのcheckpoint指針](https://docs.pytorch.org/tutorials/beginner/saving_loading_models.html)
@@ -684,7 +698,7 @@ best.ckpt
 ```
 
 ONNX exportは`torch.onnx.export(..., dynamo=True)`を使い、batch、高さ、幅をdynamic dimensionに
-する。export対象はbatch 1用wrapperであり、入力は標準化済み6 channel画像と標準化前の
+する。export対象はbatch 1用wrapperであり、入力は`SampleLayerNorm`適用済みの6 channel画像と変換前の
 `pixel_per_mm`、出力は物理単位のmeanとlog-varianceとする。前処理そのものはmanifestに従う
 Python runtime moduleへ残す。
 
@@ -775,8 +789,8 @@ paste-volume-resnet-small-v1/
 └── SHA256SUMS
 ```
 
-manifestにはartifact schema version、model名、input/output契約、dynamic dimension、sample標準化
-schema、画像制約、不確かさoffsetとthreshold、学習dataset/split fingerprint、MLflow run ID、
+manifestにはartifact schema version、model名、input/output契約、dynamic dimension、
+`SampleLayerNorm` schema、画像制約、不確かさoffsetとthreshold、学習dataset/split fingerprint、MLflow run ID、
 exporter/opset/ORT version、quantization方式、各fileのSHA-256を含める。
 
 load時に全checksum、schema version、必要runtime versionを検証する。未知schemaや壊れたartifactを
@@ -885,7 +899,7 @@ def load_paste_volume_estimator(model_package: Path) -> PasteVolumeEstimator: ..
 loaderはmanifestとchecksumを検証してONNX Runtime sessionを1回だけ作る。`predict`はdatasetと同じ
 torchvision前処理を共有する。camera由来のRGB HWC `ImageArray`は
 `torchvision.transforms.v2.functional.to_image`でCHW tensorへ変換し、手書きの`permute`を公開APIへ
-散在させない。入力shape、RGB、有限で正のscale、画像上限、sample mean/std、model coverageを
+散在させない。入力shape、RGB、有限で正のscale、画像上限、`SampleLayerNorm`のmean/variance、model coverageを
 検証する。
 modelが返した非有限値、非正mean、manifest threshold超過はexceptionでjob全体を落とさず、
 `accepted=False`と具体的なreasonへ変換する。壊れたmodel packageやruntime初期化失敗はload時の
@@ -929,12 +943,13 @@ versionを残す。
     実装する。
 - 異なる入力順・mount pathでcomposite fingerprintが一致し、完全重複は1 sessionになり、IDまたは
     label競合は失敗することを確認する。
-- torchvision decode、sample単位の全channel標準化、size制約、paired augmentation、bucket batch
+- torchvision decode、`SampleLayerNorm`、size制約、paired augmentation、bucket batch
     sampler、learnable padding用maskまでを通す。
-- controlled RGB PNGと実session fixtureでRGB順、CHW shape、pair/mask整合、標準化のmean 0・std 1、
-    重複、leakage拒否を確認する。
-- train/validation/testで同じsampleの前処理結果が一致し、dataset全体の統計を読んでいないことを
-    公開preprocessor APIで確認する。
+- controlled RGB PNGと実session fixtureでRGB順、CHW shape、pair/mask整合、重複、leakage拒否を
+    確認する。
+- all-valid入力は`F.layer_norm`と一致し、masked入力はinvalid要素を除いた参照計算と一致することを
+    確認する。複数sampleを同じbatchまたは別batchで処理しても各sampleの結果が変わらず、
+    channel別・dataset全体の統計を読んでいないことを公開preprocessor APIで確認する。
 
 ### Phase 2: modelとpure PyTorch training
 
@@ -972,8 +987,8 @@ versionを残す。
     fingerprint、leakのないsplit、batchを作れる。
 - 最小32 px、最大辺1024 px、最大262,144 pxの前処理契約と`pixel_per_mm`更新がtrain/inferenceで
     共通化されている。
-- torchvisionでRGB CHWへ統一し、各pre/post pairを全channel・全有効画素の1組のmean/stdで
-    標準化し、train dataset由来の前処理統計を持たない。
+- torchvisionでRGB CHWへ統一し、各pre/post pairの`[6, H, W]`全体へaffineなしの
+    `SampleLayerNorm`を適用し、batch、channel別、train dataset由来の前処理統計を持たない。
 - encoderがGroupNormだけを使い、batch size 1でもtrain/eval間でrunning statisticsへ依存しない。
 - Hydraの解決済みconfigからpure Python training APIを実行でき、Optuna studyと全trialをMLflowから
     追跡できる。
@@ -991,6 +1006,7 @@ versionを残す。
 - [PyTorch: Start Locally](https://pytorch.org/get-started/locally/)
 - [torchvision: decode_image](https://docs.pytorch.org/vision/stable/generated/torchvision.io.decode_image.html)
 - [torchvision: Transforms v2](https://docs.pytorch.org/vision/stable/transforms.html)
+- [PyTorch: LayerNorm](https://docs.pytorch.org/docs/stable/generated/torch.nn.LayerNorm.html)
 - [PyTorch: GroupNorm](https://docs.pytorch.org/docs/stable/generated/torch.nn.GroupNorm.html)
 - [Group Normalization paper](https://arxiv.org/abs/1803.08494)
 - [PyTorch: torch.compile](https://docs.pytorch.org/docs/stable/generated/torch.compile.html)
