@@ -386,6 +386,16 @@ class TestPasteSolderBrowserRendering:
         _open_pasting_pad_editor(browser_page, live_ui, "paste_dataset_collection")
 
         assert browser_page.locator("#param-purge_pad_id").count() == 0
+        for param_name in ("paste_id", "paste_lot"):
+            param = browser_page.locator(f"#param-{param_name}").locator("..")
+            widths = param.evaluate(
+                """(el) => ({
+                    param: el.getBoundingClientRect().width,
+                    help: el.querySelector(".job-param-help")
+                        .getBoundingClientRect().width,
+                })"""
+            )
+            assert widths["help"] >= widths["param"] * 0.95
         browser_page.locator(_testid("pad-viewer")).wait_for(
             state="visible", timeout=_BROWSER_TIMEOUT_MS
         )
