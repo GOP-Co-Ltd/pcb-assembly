@@ -403,13 +403,25 @@ _METADATA_CONVERTER = _make_metadata_converter()
 class PasteDatasetWriter:
     """一時sessionへ画像を書き、完成またはincompleteへatomic確定する."""
 
-    def __init__(self, root: Path, *, started_at: datetime | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        board_name: str,
+        started_at: datetime | None = None,
+    ) -> None:
         timestamp = started_at or datetime.now().astimezone()
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("started_atにはtimezoneが必要です")
+        if not board_name:
+            raise ValueError("board_nameは空にできません")
         self._root = root
         self._root.mkdir(parents=True, exist_ok=True)
-        stem = timestamp.strftime("%Y%m%dT%H%M%S.%f%z")
+        milliseconds = timestamp.microsecond // 1000
+        stem = (
+            f"{board_name}-{timestamp.strftime('%Y%m%dT%H%M%S')}"
+            f".{milliseconds:03d}{timestamp.strftime('%z')}"
+        )
         self._stem = self._available_stem(stem)
         self._working_path = self._root / f".{self._stem}.tmp"
         self._working_path.mkdir()

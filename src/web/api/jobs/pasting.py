@@ -1291,7 +1291,11 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
             hierarchy=plan.hierarchy,
             resolved=plan.resolved,
         )
-        writer = PasteDatasetWriter(ctx.paste_dataset_dir, started_at=started_at)
+        writer = PasteDatasetWriter(
+            ctx.paste_dataset_dir,
+            board_name=ctx.pcb_path.stem,
+            started_at=started_at,
+        )
         central_view = DatasetView(number=0)
         views = (central_view,)
         captured_views: dict[tuple[str, int], DatasetCapturedView] = {}

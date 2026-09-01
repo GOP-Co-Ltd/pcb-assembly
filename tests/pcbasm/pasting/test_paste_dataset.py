@@ -320,7 +320,9 @@ class TestPasteDatasetWriter:
         self, tmp_path: Path, crop: PadImageCrop
     ):
         writer = PasteDatasetWriter(
-            tmp_path, started_at=datetime(2026, 8, 28, 14, 30, 52, tzinfo=UTC)
+            tmp_path,
+            board_name="arbitrary",
+            started_at=datetime(2026, 8, 28, 14, 30, 52, tzinfo=UTC),
         )
         view = DatasetView(number=0)
         writer.write_capture(1, view, "pre", crop)
@@ -329,7 +331,7 @@ class TestPasteDatasetWriter:
         session = writer.mark_incomplete()
 
         assert session.parent == tmp_path
-        assert session.name.endswith(".incomplete")
+        assert session.name == "arbitrary-20260828T143052.000+0000.incomplete"
         expected = Path("000001.00.png")
         pre = cv2.imread(str(session / "pre" / expected), cv2.IMREAD_UNCHANGED)
         post = cv2.imread(str(session / "post" / expected), cv2.IMREAD_UNCHANGED)
@@ -342,18 +344,32 @@ class TestPasteDatasetWriter:
         assert np.array_equal(mask, crop.mask)
 
     def test_rejects_duplicate_capture(self, tmp_path: Path, crop: PadImageCrop):
-        writer = PasteDatasetWriter(tmp_path)
+        writer = PasteDatasetWriter(tmp_path, board_name="arbitrary")
         view = DatasetView(number=0)
         writer.write_capture(1, view, "pre", crop)
 
         with pytest.raises(ValueError):
             writer.write_capture(1, view, "pre", crop)
 
+    def test_same_board_and_millisecond_gets_numeric_suffix(self, tmp_path: Path):
+        started_at = datetime(2026, 8, 28, 14, 30, 52, 123456, tzinfo=UTC)
+
+        first = PasteDatasetWriter(
+            tmp_path, board_name="arbitrary", started_at=started_at
+        )
+        second = PasteDatasetWriter(
+            tmp_path, board_name="arbitrary", started_at=started_at
+        )
+
+        assert first.working_path.name == ".arbitrary-20260828T143052.123+0000.tmp"
+        assert second.working_path.name == ".arbitrary-20260828T143052.123+0000-1.tmp"
+
     def test_finalize_writes_schema_and_atomically_publishes_session(
         self, tmp_path: Path, crop: PadImageCrop
     ):
         writer = PasteDatasetWriter(
             tmp_path,
+            board_name="arbitrary",
             started_at=datetime(2026, 8, 28, 14, 30, 52, 123456, tzinfo=UTC),
         )
         view = DatasetView(number=0)
@@ -362,7 +378,7 @@ class TestPasteDatasetWriter:
 
         session = writer.finalize(_metadata(captured))
 
-        assert session.name == "20260828T143052.123456+0000"
+        assert session.name == "arbitrary-20260828T143052.123+0000"
         assert {path.name for path in tmp_path.iterdir()} == {session.name}
         payload = json.loads((session / "metadata.json").read_text(encoding="utf-8"))
         assert payload["kind"] == "pcbasm-paste-volume-dataset"
@@ -385,7 +401,7 @@ class TestPasteDatasetWriter:
     def test_finalize_rejects_missing_post_capture(
         self, tmp_path: Path, crop: PadImageCrop
     ):
-        writer = PasteDatasetWriter(tmp_path)
+        writer = PasteDatasetWriter(tmp_path, board_name="arbitrary")
         captured = writer.write_capture(1, DatasetView(number=0), "pre", crop)
 
         with pytest.raises(ValueError):

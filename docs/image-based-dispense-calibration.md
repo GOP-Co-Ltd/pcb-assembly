@@ -428,8 +428,8 @@ V_i
 
 ### ディレクトリ構造
 
-1 回の収集を 1 session とし、同日の複数収集が衝突しないよう収集時刻まで含むディレクトリ
-名を使用する。
+1 回の収集を 1 session とし、`<基板名>-<収集時刻>`のディレクトリ名を使用する。基板名は
+KiCad基板ファイルの拡張子を除いた名前、収集時刻はtimezoneと3桁のmillisecondを含む値とする。
 
 永続保存先はリポジトリ直下の`data/paste-volume-datasets/`とする。生成sessionは同directoryの
 `.gitignore`でGit管理から除外する。書き込み中は同root内の一時directoryを使用し、完成時に
@@ -439,7 +439,7 @@ atomic renameする。abortまたは失敗時は取得済みファイルを`*.in
 ```text
 data/paste-volume-datasets/
 ├── .gitignore
-└── 20260828T143052.123456+0900/
+└── board-20260828T143052.123+0900/
     ├── metadata.json
     ├── pre/
     │   ├── 000001.00.png
