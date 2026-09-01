@@ -616,8 +616,14 @@ process 内で直接学習せず、独立 process を起動・監視する薄い
 ### データ収集ジョブ
 
 WebUI のはんだ塗布タブへ、`paste_dataset_collection` データ収集ジョブを独立した feature
-として追加する。既存の汎用 job form、job console、prompt、preview、abort、artifact、操作権を
-再利用し、初期実装では専用テンプレート、専用 JavaScript、専用 CSS を追加しない。
+として追加する。`paste_solder` と同じ pad editor 付き workspace を再利用し、選択中基板の
+SVG 表示、Top/Bottom 切替、有効 pad の順路・塗布パス計算、階層別・部品別・pad 別の塗布量
+override 表を表示する。編集値と順路・塗布パスは既存の pad-config API を正とし、データ収集
+ジョブも同じ解決済み設定を使用する。ジョブフォームでは専用パージパッドを `PURGE` 既定で
+表示する。
+
+job form、job console、prompt、preview、abort、artifact、操作権も既存実装を再利用する。
+データ収集専用の JavaScript や CSS は追加せず、共通 pad editor を読み込む。
 
 WebUI ジョブは次を担当する。
 

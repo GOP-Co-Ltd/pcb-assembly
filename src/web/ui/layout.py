@@ -86,7 +86,7 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("pasting", "height_plane"): "pasting/job.html",
     ("pasting", "loading"): "pasting/loading.html",
     ("pasting", "dispense_calibration"): "pasting/dispense_calibration.html",
-    ("pasting", "paste_dataset_collection"): "pasting/job.html",
+    ("pasting", "paste_dataset_collection"): "pasting/paste_solder.html",
     (
         "pasting",
         "paste_flow_calibration_board",

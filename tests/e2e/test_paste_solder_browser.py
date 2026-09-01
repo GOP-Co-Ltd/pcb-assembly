@@ -104,9 +104,9 @@ def _patch_pad_config_node(
     return response.json()
 
 
-def _open_paste_solder(page: Any, live_ui: LiveUi):
+def _open_pasting_pad_editor(page: Any, live_ui: LiveUi, feature: str):
     page.goto(
-        f"{live_ui.base_url}/pasting/paste_solder",
+        f"{live_ui.base_url}/pasting/{feature}",
         wait_until="domcontentloaded",
     )
     # 変更系（pad 編集・ジョブ開始）は操作権が無いと inert でクリックが届かない
@@ -118,6 +118,10 @@ def _open_paste_solder(page: Any, live_ui: LiveUi):
         """() => document.querySelectorAll('[data-testid="pad-polygon"]').length > 0""",
         timeout=_BROWSER_TIMEOUT_MS,
     )
+
+
+def _open_paste_solder(page: Any, live_ui: LiveUi):
+    _open_pasting_pad_editor(page, live_ui, "paste_solder")
 
 
 def _find_pad(config: dict[str, Any], pad_id: str) -> dict[str, Any]:
@@ -371,6 +375,45 @@ class TestPasteSolderBrowserRendering:
             config["defaults"]["ul_per_mm2"]
         )
         assert root_row.locator(".pad-override-marker").count() == 0
+
+    def test_dataset_collection_renders_board_route_and_paste_settings(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        _select_led_blinker(live_server)
+        route = _calculate_route(live_server)
+        assert len(route["pads"]) > 1
+
+        _open_pasting_pad_editor(browser_page, live_ui, "paste_dataset_collection")
+
+        assert browser_page.locator("#param-purge_pad_id").input_value() == "PURGE"
+        browser_page.locator(_testid("pad-viewer")).wait_for(
+            state="visible", timeout=_BROWSER_TIMEOUT_MS
+        )
+        browser_page.locator(_row_selector("L0")).wait_for(
+            state="visible", timeout=_BROWSER_TIMEOUT_MS
+        )
+        assert "面積あたりのペースト量" in browser_page.locator(
+            _testid("pad-table")
+        ).text_content(timeout=_BROWSER_TIMEOUT_MS)
+
+        config = _get_pad_config(live_server)
+        top_pad = next(pad for pad in config["pads"] if pad["layer"] == "Top")
+        component_node_id = next(
+            node_id for node_id in top_pad["node_ids"] if node_id.startswith("L2:")
+        )
+        component_row = _ensure_row_visible(
+            browser_page, _tree_path_ids(config["tree"], component_node_id)
+        )
+        amount = _field_input(component_row, "ul_per_mm2")
+        amount.fill("0.031")
+        amount.press("Enter")
+        _wait_for_override(live_server, component_node_id, "ul_per_mm2", 0.031)
+
+        browser_page.locator(_testid("pad-calculate-route")).click()
+        browser_page.locator(_testid("pad-route-overlay")).wait_for(
+            state="attached", timeout=_BROWSER_TIMEOUT_MS
+        )
+        assert browser_page.locator(_testid("pad-route-segment")).count() > 0
 
     def test_fake_camera_preview_image_loads(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
