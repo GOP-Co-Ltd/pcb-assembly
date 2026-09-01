@@ -21,6 +21,7 @@ WebUI、分散学習、モデルregistryによる自動配布は対象外とす�
 | encoder正規化 | batch統計を持たないGroupNormを使い、BatchNormは使わない                          |
 | モデル        | 3段のdownsampling stem、small ResNet encoder、Global Average Pooling、2 head回帰 |
 | 学習単位      | 1 session・1 pad・1 viewを一意に識別し、同じpadのviewは同じsplitへ置く           |
+| dataset統合   | 複数datasetを原本コピーなしのcomposite manifestで再現可能に統合する              |
 | 推論artifact  | ONNXを基準形式とし、ONNX RuntimeのFP32とINT8を実測比較する                       |
 | Pi上の推論    | 精度gateを通った候補のうち、Raspberry Pi 5で最速のartifactを採用する             |
 | 中断再開      | modelだけでなくoptimizer、sampler位置、乱数状態を含むcheckpointから再開する      |
@@ -106,18 +107,74 @@ storeへ移す。MLflowはlocal構成とtracking server構成の両方を提供�
 - `pixel_rect`の寸法が保存画像と一致すること
 - purgeと全padの配分体積合計が`total.measured_volume_ul`と数値誤差内で一致すること
 - purgeと全padの正方向回転数合計が`total.rotations`と数値誤差内で一致すること
-- 同一画像内容または同一session IDを複数rootから重複登録していないこと
+- 同一画像内容または同一session IDの衝突がないこと
 
 ML pipelineのPNG decodeには`torchvision.io.decode_image(path, mode="RGB")`を使う。戻り値は
 RGB順の`uint8 [C, H, W]`であるため、OpenCV由来のBGR変換やHWCからCHWへの`permute`を挟まない。
 maskはgrayscaleとしてdecodeする。収集・幾何処理で既存OpenCVを使う箇所とは境界を分け、
 controlled PNG fixtureでRGB channel順を固定する。
 
+### 複合データセット
+
+複数のdataset root、session directory、既存composite manifestを1つの学習datasetとして扱えるように
+する。画像や`metadata.json`を別directoryへコピーする物理mergeは行わず、解決済みsession一覧を
+持つ`composite.json`を生成する。これにより原本を不変に保ち、同じsessionを複数の組み合わせで
+再利用できる。
+
+```json
+{
+  "kind": "pcbasm-paste-volume-composite-dataset",
+  "schema_version": 1,
+  "name": "base-2026-09",
+  "sources": [
+    {"source_id": "machine-a", "path": "/data/machine-a"},
+    {"source_id": "machine-b", "path": "/data/machine-b"}
+  ],
+  "sessions": [
+    {
+      "session_id": "session-a",
+      "session_fingerprint": "sha256:...",
+      "source_ids": ["machine-a"],
+      "locations": [
+        {
+          "source_id": "machine-a",
+          "relative_path": "20260901T010203Z-session-a"
+        }
+      ]
+    }
+  ],
+  "content_fingerprint": "sha256:...",
+  "composite_fingerprint": "sha256:..."
+}
+```
+
+`dataset merge`は入力を再帰的にflattenし、session検証後にmanifestをatomic saveする。dataset loaderは
+nested manifestを辿らず、常にflatten済み`composite.json`だけを読む。物理pathは探索用であり、
+fingerprintには含めない。同じ内容とsource割当なら、別mount pathや入力順でも同じfingerprintになる。
+
+sessionごとにmetadataと全画像から`session_fingerprint`、画像集合だけから
+`image_set_fingerprint`を計算し、merge時に次を適用する。
+
+- 同じ`session_fingerprint`が複数sourceにある場合は1 sessionへdeduplicateし、全`source_id`とpathを
+    aliasとしてmanifestへ残す。
+- 同じ`session_id`でfingerprintが異なる場合はID衝突として失敗する。
+- 同じ画像集合に異なるmetadataまたは教師値が付いている場合は、競合labelを自動選択せず失敗する。
+- sessionの追加・削除・内容変更は新しいcomposite fingerprintになる。既存manifestをin-place更新せず、
+    新しいfileとして生成する。
+
+formalなtrain / fine-tune / evaluate runではversion管理した`data.manifest`の指定を推奨する。
+`data.roots`を直接複数指定することも許容するが、run開始時に同じ処理でflatten済みmanifestを生成し、
+MLflowへ必ず保存する。この場合の`source_id`は各rootのcontent fingerprintから機械的に作り、pathや
+入力順へ依存させない。人が読めるsource名や複数mount間の対応が必要なら、事前に`dataset merge`で
+明示する。`data.manifest`と`data.roots`の同時指定は禁止する。
+
 ### sample index
 
 1個のviewを1個の`PasteVolumeSample`とし、原本を変更せず、次の情報を持つindexを生成する。
 
-- `sample_id`: dataset fingerprint、session ID、pad index、view numberから作る安定ID
+- `sample_id`: session fingerprint、pad index、view numberから作る安定ID。compositeへ他sessionを
+    追加しても既存sample IDを変えない
+- `source_ids`: merge元datasetを示す1個以上のID。deduplicate時は全aliasを保持する
 - `session_id`、`machine_id`、`paste_id`、`paste_lot`、`nozzle_diameter_mm`
 - `board.signature`、pad ID、view number
 - pre/post/maskのpath、元画像の幅・高さ
@@ -135,13 +192,16 @@ w_{s,p,v}
 \]
 
 各batchではweight合計でlossを正規化する。これにより、pad数の多い基板やview数の多いpadでは
-なく、各収集sessionが同程度の寄与を持つ。
+なく、各収集sessionが同程度の寄与を持つ。source directoryの分割方法は任意なので、sourceごとの
+自動weight補正は行わない。source別のsample数とmetricは診断reportとして出す。
 
 ### dataset fingerprintとsplit
 
-dataset fingerprintは、対象sessionごとの`metadata.json`内容、相対画像path、各画像の
-SHA-256を安定順に連結してSHA-256化する。生成したsample indexとsplit manifestをJSONLで
-保存し、MLflowへartifactとして記録する。
+単一rootも内部では1 sourceのcompositeとして扱う。`content_fingerprint`はcomposite schemaと重複除去
+済みsession fingerprintをsortしてSHA-256化する。dataset fingerprintとして使う
+`composite_fingerprint`は、content fingerprintにsort済み`source_id`とsession-source対応を加えて
+SHA-256化する。絶対pathとmanifest上の順序は含めない。生成したcomposite manifest、sample index、
+split manifestを保存し、MLflowへartifactとして記録する。
 
 無作為な画像単位splitは禁止する。初期実装は次の評価を分ける。
 
@@ -150,6 +210,9 @@ SHA-256を安定順に連結してSHA-256化する。生成したsample indexと
 2. **cross-machine report**: machine単位のleave-one-group-out評価を行う。
 3. **cross-lot report**: `(paste_id, paste_lot)`単位のleave-one-group-out評価を行う。
 4. **cross-nozzle report**: nozzle径単位のleave-one-group-out評価を行う。
+5. **cross-source report**: compositeの`source_id`単位でmetricを集計し、merge元dataset間のdomain
+    shiftを可視化する。deduplicateされたsessionは各aliasへ重複加算せず、辞書順で先頭のprimary
+    sourceへだけ計上する。
 
 対象groupが2種類未満のcross-group評価は、画像単位splitへfallbackせず「評価不能」と記録する。
 test splitはモデル選択、early stopping、不確かさ補正、export方式選択、INT8 calibrationに
@@ -157,6 +220,11 @@ test splitはモデル選択、early stopping、不確かさ補正、export方�
 split manifestが既に与えられた場合は再分割せず、そのfingerprint一致を要求する。base trainingは
 train / validation / testへ最低1 sessionずつ存在すること、fine-tuningはtrain / validationへ最低
 1 sessionずつ存在することを要求し、不足時は学習開始前に失敗する。
+
+sourceごとに作られたsplit manifestを後から単純連結しない。splitは重複除去後のcomposite
+fingerprintに対して1回生成する。一度test評価に使ったcompositeへsourceを追加する場合は新しいdataset
+versionとsplitを作り、旧test sessionをtrainへ移さない。旧splitを引き継ぐ機能を実装する場合も、
+既存sessionのassignmentを固定し、新規sessionだけをgroup単位で割り当てる。
 
 ### 画像サイズ
 
@@ -382,9 +450,9 @@ pcbasm/pasting/paste_volume/conf/
 ```
 
 `train.yaml`と`evaluate.yaml`のdefaults listがconfig groupを合成し、`experiment/*`は追跡対象となる
-具体的な組み合わせだけをoverrideする。未知keyは禁止し、必須値は`MISSING`にしてrun開始前に
-落とす。全runでHydraの解決済みYAML、CLI override、frozen configのJSON、config fingerprintを
-MLflowへ保存する。
+具体的な組み合わせだけをoverrideする。`data/paste_volume.yaml`は相互排他的な`manifest`と`roots`を
+持つ。未知keyは禁止し、必須値は`MISSING`にしてrun開始前に落とす。全runでHydraの解決済みYAML、
+CLI override、frozen configのJSON、config fingerprintをMLflowへ保存する。
 
 ### Optunaによる探索
 
@@ -540,7 +608,7 @@ MLflowのautologは使わない。pure PyTorchへのautolog対象が限定され
 
 **artifact**
 
-- 解決済みconfig、sample index、split manifest、dataset検証report
+- 解決済みconfig、composite manifest、sample index、split manifest、dataset検証report
 - git diff、model summary、学習曲線、予測対真値、残差、coverage plot
 - best/final checkpoint、推論artifact manifest、export/evaluation/benchmark report
 - 失敗時の最後のcheckpointとfailure reason
@@ -747,18 +815,19 @@ adapterは作らない。学習・fine-tuning・評価はHydraがargv全体を�
 
 ```text
 python -m pcbasm.pasting.paste_volume.train \
-    experiment=base data.roots='[/abs/dataset-a,/abs/dataset-b]'
+    experiment=base data.manifest=/abs/base-2026-09.composite.json
 
 python -m pcbasm.pasting.paste_volume.train \
     experiment=fine_tune model.initial_weights=/abs/weights.pt \
-    data.roots='[/abs/machine-dataset]'
+    data.manifest=/abs/machine-a-fine-tune.composite.json
 
 python -m pcbasm.pasting.paste_volume.train -m \
     experiment=base hparams_search=base_optuna \
-    data.roots='[/abs/dataset-a,/abs/dataset-b]'
+    data.manifest=/abs/base-2026-09.composite.json
 
 python -m pcbasm.pasting.paste_volume.evaluate \
-    checkpoint=/abs/best.ckpt data.roots='[/abs/dataset-a]' split=validation
+    checkpoint=/abs/best.ckpt data.manifest=/abs/base-2026-09.composite.json \
+    split=validation
 ```
 
 train/fine-tuneの別は`experiment` config groupで表し、独立したCLI parserやflag集合を持たせない。
@@ -770,6 +839,9 @@ dataset検証、export、最適化、benchmark、単発推論はexperiment confi
 使わない薄い運用CLIへ残す。
 
 ```text
+python -m pcbasm.cli.paste_volume dataset merge \
+    --source machine-a=/abs/dataset-a --source machine-b=/abs/dataset-b \
+    --output /abs/base-2026-09.composite.json
 python -m pcbasm.cli.paste_volume dataset validate <dataset...>
 python -m pcbasm.cli.paste_volume dataset summarize <dataset...>
 python -m pcbasm.cli.paste_volume export <checkpoint> --output <directory>
@@ -779,7 +851,9 @@ python -m pcbasm.cli.paste_volume infer <model-package> <pre-image> <post-image>
     --pixel-per-mm <value>
 ```
 
-両entrypointは同じ公開Python APIを呼び、dataset fingerprintとsplit manifestの生成、前処理、評価を
+`dataset validate`と`summarize`は単一root、複数root、composite manifestを同じAPIで扱う。
+`dataset merge`の`source_id`はmanifest内で一意とし、同じIDの上書きを拒否する。両entrypointは
+同じ公開Python APIを呼び、composite解決、dataset fingerprint、split manifestの生成、前処理、評価を
 重複実装しない。`optimize`は候補packageを作るだけでactive modelを切り替えず、promotionは評価
 reportを検証する別の公開APIで行う。
 
@@ -851,7 +925,10 @@ versionを残す。
 
 ### Phase 1: datasetと前処理
 
-- `dataset validate`、`dataset summarize`、sample index、fingerprint、group splitを実装する。
+- `dataset merge/validate/summarize`、composite manifest、sample index、fingerprint、group splitを
+    実装する。
+- 異なる入力順・mount pathでcomposite fingerprintが一致し、完全重複は1 sessionになり、IDまたは
+    label競合は失敗することを確認する。
 - torchvision decode、sample単位の全channel標準化、size制約、paired augmentation、bucket batch
     sampler、learnable padding用maskまでを通す。
 - controlled RGB PNGと実session fixtureでRGB順、CHW shape、pair/mask整合、標準化のmean 0・std 1、
@@ -874,7 +951,7 @@ versionを残す。
     確認する。
 - explicit logger、解決済みconfig、metric、artifact、failure記録を実装する。
 - 実local MLflow serverを使うintegration testでrunとartifactを読み戻す。MLflow APIはmockしない。
-- Hydra entrypointと、`dataset validate/summarize`を含むHydra非依存の運用CLIを接続する。
+- Hydra entrypointと、`dataset merge/validate/summarize`を含むHydra非依存の運用CLIを接続する。
 
 ### Phase 4: exportとedge評価
 
@@ -891,7 +968,8 @@ versionを残す。
 
 ## 完了条件
 
-- schema v1の複数sessionから、再現可能でleakのないsplitとbatchを作れる。
+- schema v1の複数datasetを原本コピーなしでmergeし、provenanceを保った再現可能なcomposite
+    fingerprint、leakのないsplit、batchを作れる。
 - 最小32 px、最大辺1024 px、最大262,144 pxの前処理契約と`pixel_per_mm`更新がtrain/inferenceで
     共通化されている。
 - torchvisionでRGB CHWへ統一し、各pre/post pairを全channel・全有効画素の1組のmean/stdで
