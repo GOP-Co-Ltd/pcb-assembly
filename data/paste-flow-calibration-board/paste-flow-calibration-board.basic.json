@@ -1,0 +1,143 @@
+{
+  "kind": "paste_flow_calibration_board",
+  "schema_version": 1,
+  "board": {
+    "width_mm": 47.5,
+    "height_mm": 20.0,
+    "edge_margin_mm": 0.5,
+    "pad_gap_mm": 0.5
+  },
+  "purge_pad": {
+    "width_mm": 1.5,
+    "height_mm": 1.5
+  },
+  "custom_pads": [],
+  "patterns": [
+    {
+      "catalog_id": "Resistor_SMD.pretty/R_0603_1608Metric#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 3
+    },
+    {
+      "catalog_id": "Resistor_SMD.pretty/R_0805_2012Metric#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 3
+    },
+    {
+      "catalog_id": "Resistor_SMD.pretty/R_1206_3216Metric#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 3
+    },
+    {
+      "catalog_id": "Package_TO_SOT_SMD.pretty/SOT-23#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Package_TO_SOT_SMD.pretty/SOT-23-5#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Crystal.pretty/Crystal_SMD_2012-2Pin_2.0x1.2mm#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Diode_SMD.pretty/D_SMA#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Diode_SMD.pretty/D_SMB#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Diode_SMD.pretty/D_SMC#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Diode_SMD.pretty/D_SOD-123#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Diode_SMD.pretty/D_SOD-323#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Diode_SMD.pretty/D_SOD-523#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Package_QFP.pretty/LQFP-32_7x7mm_P0.8mm#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Package_SO.pretty/SOIC-8_3.9x4.9mm_P1.27mm#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Package_SO.pretty/SSOP-16_4.4x5.2mm_P0.65mm#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Package_SO.pretty/SSOP-28_5.3x10.2mm_P0.65mm#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Package_TO_SOT_SMD.pretty/SOT-23-6#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Package_TO_SOT_SMD.pretty/SOT-23-8#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Resistor_SMD.pretty/R_1210_3225Metric#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Resistor_SMD.pretty/R_2010_5025Metric#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    },
+    {
+      "catalog_id": "Resistor_SMD.pretty/R_2512_6332Metric#pad-0",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 4,
+      "repeat_count": 2
+    }
+  ]
+}

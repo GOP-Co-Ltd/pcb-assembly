@@ -1,0 +1,214 @@
+{
+  "kind": "paste_flow_calibration_board",
+  "schema_version": 1,
+  "board": {
+    "width_mm": 47.5,
+    "height_mm": 20.0,
+    "edge_margin_mm": 0.5,
+    "pad_gap_mm": 0.5
+  },
+  "purge_pad": {
+    "width_mm": 1.5,
+    "height_mm": 1.5
+  },
+  "custom_pads": [
+    {
+      "catalog_id": "custom:ccf98210732d4d7089873a12ca20ccd1",
+      "name": "円 φ1 mm",
+      "shape": "circle",
+      "width_mm": 1.0,
+      "height_mm": 1.0,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:26a906592c6d403390fa41bd91bc23fa",
+      "name": "円 φ1.5 mm",
+      "shape": "circle",
+      "width_mm": 1.5,
+      "height_mm": 1.5,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:47894739448e4f60aec05834164e287f",
+      "name": "円 φ2 mm",
+      "shape": "circle",
+      "width_mm": 2.0,
+      "height_mm": 2.0,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:67927f3178c14e56847d07df6d5585f7",
+      "name": "円 φ2.5 mm",
+      "shape": "circle",
+      "width_mm": 2.5,
+      "height_mm": 2.5,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:9ba08379dd0c464ab64256e934c21021",
+      "name": "円 φ3 mm",
+      "shape": "circle",
+      "width_mm": 3.0,
+      "height_mm": 3.0,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:8275505721a94b47ab79478dd994a622",
+      "name": "矩形 1 × 1 mm",
+      "shape": "rectangle",
+      "width_mm": 1.0,
+      "height_mm": 1.0,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:17aaade687fa412196b3e8038b45bca2",
+      "name": "矩形 1 × 2 mm",
+      "shape": "rectangle",
+      "width_mm": 1.0,
+      "height_mm": 2.0,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:2ccd6ba3f7a045138e6da72f7128995b",
+      "name": "矩形 1 × 3 mm",
+      "shape": "rectangle",
+      "width_mm": 1.0,
+      "height_mm": 3.0,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:2ae6cdd6942643f696aecb6d5af18c60",
+      "name": "矩形 2 × 1 mm",
+      "shape": "rectangle",
+      "width_mm": 2.0,
+      "height_mm": 1.0,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:5dc3f892bb5d4d2da8f1fb46bb360f39",
+      "name": "矩形 2 × 2 mm",
+      "shape": "rectangle",
+      "width_mm": 2.0,
+      "height_mm": 2.0,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:3ea2cc23c3644e6fba247febd9db878b",
+      "name": "矩形 2 × 3 mm",
+      "shape": "rectangle",
+      "width_mm": 2.0,
+      "height_mm": 3.0,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:8fcd9440e10c471fa87f3c0078df9ad9",
+      "name": "矩形 3 × 1 mm",
+      "shape": "rectangle",
+      "width_mm": 3.0,
+      "height_mm": 1.0,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:1a7e66a594fa48d7b273ab544406b7c9",
+      "name": "矩形 3 × 2 mm",
+      "shape": "rectangle",
+      "width_mm": 3.0,
+      "height_mm": 2.0,
+      "corner_radius_mm": 0.0
+    },
+    {
+      "catalog_id": "custom:bddc7730b1ba49a2a71a03d4540cb761",
+      "name": "矩形 3 × 3 mm",
+      "shape": "rectangle",
+      "width_mm": 3.0,
+      "height_mm": 3.0,
+      "corner_radius_mm": 0.0
+    }
+  ],
+  "patterns": [
+    {
+      "catalog_id": "custom:ccf98210732d4d7089873a12ca20ccd1",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 1,
+      "repeat_count": 3
+    },
+    {
+      "catalog_id": "custom:26a906592c6d403390fa41bd91bc23fa",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 1,
+      "repeat_count": 3
+    },
+    {
+      "catalog_id": "custom:47894739448e4f60aec05834164e287f",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 1,
+      "repeat_count": 3
+    },
+    {
+      "catalog_id": "custom:67927f3178c14e56847d07df6d5585f7",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 1,
+      "repeat_count": 3
+    },
+    {
+      "catalog_id": "custom:9ba08379dd0c464ab64256e934c21021",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 1,
+      "repeat_count": 3
+    },
+    {
+      "catalog_id": "custom:8275505721a94b47ab79478dd994a622",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 5,
+      "repeat_count": 3
+    },
+    {
+      "catalog_id": "custom:17aaade687fa412196b3e8038b45bca2",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 5,
+      "repeat_count": 1
+    },
+    {
+      "catalog_id": "custom:2ccd6ba3f7a045138e6da72f7128995b",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 5,
+      "repeat_count": 1
+    },
+    {
+      "catalog_id": "custom:2ae6cdd6942643f696aecb6d5af18c60",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 5,
+      "repeat_count": 1
+    },
+    {
+      "catalog_id": "custom:5dc3f892bb5d4d2da8f1fb46bb360f39",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 5,
+      "repeat_count": 3
+    },
+    {
+      "catalog_id": "custom:3ea2cc23c3644e6fba247febd9db878b",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 5,
+      "repeat_count": 1
+    },
+    {
+      "catalog_id": "custom:8fcd9440e10c471fa87f3c0078df9ad9",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 5,
+      "repeat_count": 1
+    },
+    {
+      "catalog_id": "custom:1a7e66a594fa48d7b273ab544406b7c9",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 5,
+      "repeat_count": 1
+    },
+    {
+      "catalog_id": "custom:bddc7730b1ba49a2a71a03d4540cb761",
+      "rotation_span_deg": 180.0,
+      "rotation_count": 5,
+      "repeat_count": 3
+    }
+  ]
+}
