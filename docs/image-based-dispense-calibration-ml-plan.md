@@ -11,16 +11,19 @@ WebUI、分散学習、モデルregistryによる自動配布は対象外とす�
 
 主要な判断は次のとおりとする。
 
-| 項目            | 採用方針                                                                         |
-| --------------- | -------------------------------------------------------------------------------- |
-| 学習framework   | PyTorchのみ。PyTorch Lightningは使わない                                         |
-| 画像補助library | 既存のNumPy/OpenCVを使い、torchvisionは追加しない                                |
-| 実験管理        | MLflow Trackingへ明示的に記録する                                                |
-| モデル          | 3段のdownsampling stem、small ResNet encoder、Global Average Pooling、2 head回帰 |
-| 学習単位        | 1 session・1 pad・1 viewを一意に識別し、同じpadのviewは同じsplitへ置く           |
-| 推論artifact    | ONNXを基準形式とし、ONNX RuntimeのFP32とINT8を実測比較する                       |
-| Pi上の推論      | 精度gateを通った候補のうち、Raspberry Pi 5で最速のartifactを採用する             |
-| 中断再開        | modelだけでなくoptimizer、sampler位置、乱数状態を含むcheckpointから再開する      |
+| 項目          | 採用方針                                                                         |
+| ------------- | -------------------------------------------------------------------------------- |
+| 学習framework | pure PyTorch。PyTorch Lightningは使わない                                        |
+| 画像pipeline  | torchvisionでRGBのCHW tensorとしてdecode・変換する                               |
+| 設定・探索    | Hydraで設定を合成し、Optuna Sweeperでhyperparameterを探索する                    |
+| 実験管理      | MLflow Trackingへ明示的に記録する                                                |
+| 入力標準化    | 各sampleのpre/postをまとめ、全channel・有効画素から1組のmean/stdを求める         |
+| encoder正規化 | batch統計を持たないGroupNormを使い、BatchNormは使わない                          |
+| モデル        | 3段のdownsampling stem、small ResNet encoder、Global Average Pooling、2 head回帰 |
+| 学習単位      | 1 session・1 pad・1 viewを一意に識別し、同じpadのviewは同じsplitへ置く           |
+| 推論artifact  | ONNXを基準形式とし、ONNX RuntimeのFP32とINT8を実測比較する                       |
+| Pi上の推論    | 精度gateを通った候補のうち、Raspberry Pi 5で最速のartifactを採用する             |
+| 中断再開      | modelだけでなくoptimizer、sampler位置、乱数状態を含むcheckpointから再開する      |
 
 ## 0. 下準備
 
@@ -29,32 +32,40 @@ WebUI、分散学習、モデルregistryによる自動配布は対象外とす�
 ML依存は通常のWebAPI/UI実行環境へ無条件に入れず、`pyproject.toml` のdependency groupを
 分ける。
 
-- `ml-train`: `torch` とMLflow client。学習、評価、ファインチューニングに使用する。
+- `ml-runtime`: `torch`、versionを揃えた`torchvision`、`onnxruntime`。同じtensor前処理とONNX推論に
+    使用する。
+- `ml-train`: `ml-runtime`に加えて`hydra-core`とMLflow client。学習、評価、
+    ファインチューニングに使用する。
+- `ml-hpo`: `hydra-optuna-sweeper`と`optuna`。GPU workstationでのhyperparameter探索に使用する。
 - `ml-export`: `onnx`、`onnxscript`、`onnxruntime`。export、量子化、parity評価に使用する。
-- 通常のruntime: Raspberry Pi 5でONNX artifactだけを使う構成では`onnxruntime`だけを
-    追加する。Pi上でファインチューニングするときだけ`torch`も追加する。
-- `pytorch-lightning`、`torchvision`、`clearml`は初期依存へ追加しない。
+- 通常のruntime: Raspberry Pi 5でも前処理をtorchvisionへ統一するため`ml-runtime`を使う。
+    CNN本体はONNX Runtimeで実行し、PyTorch eager modelはloadしない。
+- `pytorch-lightning`と`clearml`は初期依存へ追加しない。
 
 CUDA wheelとARM64 CPU wheelは配布元が異なり得るため、実装開始時に
 [PyTorch公式install selector](https://pytorch.org/get-started/locally/)で、GPU workstationと
-Raspberry Pi 5の双方に存在する同一minor versionを確認してからlockする。versionを文書中の
-固定値にはせず、実際に検証したversionを`uv.lock`とMLflow runへ残す。
+Raspberry Pi 5の双方に存在する同一minor versionを確認し、PyTorchとtorchvisionの対応する
+versionを一緒にlockする。versionを文書中の固定値にはせず、実際に検証したversionを`uv.lock`と
+MLflow runへ残す。
 
 MLflowは学習loopの依存に直接埋め込まない。`ExperimentLogger` protocolとMLflow adapterの
 境界を設け、モデル、loss、optimizer、checkpointはMLflowをimportしなくても動くようにする。
-ただし正式な`train` / `finetune` CLIではMLflow loggerを必須とし、接続不能なら学習開始前に
+ただし正式なtrain / fine-tune Hydra entrypointではMLflow loggerを必須とし、接続不能なら学習開始前に
 失敗させる。consoleだけへ黙ってfallbackしない。
 
 ### 開発環境の確認
 
 依存追加後に、次を自動確認するsmoke commandを用意する。
 
-1. Python、PyTorch、CUDA、cuDNN、ONNX Runtimeのversionを表示する。
+1. Python、PyTorch、torchvision、Hydra、Optuna、CUDA、cuDNN、ONNX Runtimeのversionを表示する。
 2. GPU workstationでは`torch.cuda.is_available()`が真で、CUDA tensorの畳み込みと
     backwardが成功することを確認する。
 3. Raspberry Pi 5ではCPUで同じforward/backwardを実行する。
 4. 64 × 64と1024 × 256のdummy inputでeager modelがforwardできることを確認する。
-5. MLflow tracking serverへtest run、metric、artifactを記録して読み戻す。
+5. `torchvision.io.decode_image(..., mode="RGB")`がlossless PNGをRGBのCHW tensorとして読み、
+    controlled fixtureのchannel値が期待値と一致することを確認する。
+6. Hydraで既定configをcomposeし、override後の解決済みconfigを表示する。
+7. MLflow tracking serverへtest run、metric、artifactを記録して読み戻す。
 
 GPU driverやCUDA toolkit自体のinstallはrepositoryのsetup scriptへ含めない。OSとdriverの
 組み合わせを壊しやすいためである。repositoryはPython packageのlockと上記smoke checkまでを
@@ -97,8 +108,10 @@ storeへ移す。MLflowはlocal構成とtracking server構成の両方を提供�
 - purgeと全padの正方向回転数合計が`total.rotations`と数値誤差内で一致すること
 - 同一画像内容または同一session IDを複数rootから重複登録していないこと
 
-OpenCVでPNGをdecodeした直後にBGRからRGBへ明示変換する。保存契約上のRGBと学習tensorの
-channel順を曖昧にしない。
+ML pipelineのPNG decodeには`torchvision.io.decode_image(path, mode="RGB")`を使う。戻り値は
+RGB順の`uint8 [C, H, W]`であるため、OpenCV由来のBGR変換やHWCからCHWへの`permute`を挟まない。
+maskはgrayscaleとしてdecodeする。収集・幾何処理で既存OpenCVを使う箇所とは境界を分け、
+controlled PNG fixtureでRGB channel順を固定する。
 
 ### sample index
 
@@ -164,18 +177,31 @@ dataset形式自体には画像上限を設けない。v1モデルへ入れる�
 これらはノズル径、体積、塗布方式の制限ではなく、v1 encoderの入力品質・計算量の制約である。
 値は学習configとmodel manifestへ保存し、変更したモデルは別versionとして扱う。
 
-### tensor化と正規化
+### tensor化とsample単位の標準化
 
-1. pre/postを`float32`の`[0, 1]`へ変換する。
-2. 同じ幾何変換をpre、post、pad geometry maskへ適用する。
-3. pre RGB、post RGBの順で連結し、`[6, H, W]`とする。
-4. train splitだけから6 channelそれぞれのmean/stdを算出し、標準化する。
-5. `log(pixel_per_mm)`をtrain splitのmean/stdで標準化する。
-6. 教師体積をtrain splitの正の中央値`volume_scale_ul`で割る。
+train split全体の統計やchannelごとの統計は使用しない。1個のdata pointを「同じpad・viewの
+pre/post pair」と定義し、次の順序をtrain、validation、test、実運転推論で共通化する。
 
-画像統計、scale統計、`volume_scale_ul`はcheckpointと推論artifactへ保存する。検証・test・推論で
-統計を再計算しない。`pixel_per_mm`の分散がほぼ0なら除算用stdを1へ固定して警告し、scaleの
-汎化を評価不能としてreportへ残す。
+1. pre/postをtorchvisionでRGBの`uint8 [3, H, W]`としてdecodeする。
+2. torchvision transforms v2のfunctional APIで、同じ明示parameterの幾何変換をpre、post、
+    pad geometry maskへ適用する。画像はbilinear、maskはnearest-exactを使う。
+3. `to_dtype(torch.float32, scale=True)`で`[0, 1]`へ変換する。
+4. pre RGB、post RGBの順で連結し、`x [6, H, W]`とする。
+5. augmentationや回転で生じたinvalid領域を除く全channel・全有効画素から、そのsample固有の
+    scalar `mean_sample`と`std_sample`を1組だけ算出する。
+6. 全6 channelへ同じ値を使い、`x_standardized = (x - mean_sample) / std_sample`とする。
+7. invalid領域を0へ戻し、batch collate後にモデルのlearnable padding pixelで置換する。
+
+preとpostを別々に標準化したり、RGB channelごとに標準化したりしない。これによりpre/post間の
+明るさ差とchannel間の相対関係を保持しつつ、dataset全体の分布へ前処理を依存させない。
+分散は有効画素maskを6 channelへbroadcastし、`correction=0`で全要素を母集団として計算する。
+`std_sample < 1e-6`、有効画素0、mean/stdが非有限のsampleは情報不足として拒否し、epsilonで
+見かけ上通さない。mean/stdはsampleから推論時にも計算できるため、checkpointにはdataset統計を
+保存しない。ただし再現性と診断用に各sampleのmean/std分布をreportする。
+
+`pixel_per_mm`はdata point単位では標準化できないscalarなので、train統計でcenter/scaleせず、
+`log(pixel_per_mm)`をそのままモデルへ渡す。教師体積もtrain中央値でscaleせず、µLの物理単位の
+ままlossへ渡す。したがってmodelの入出力変換にtrain dataset由来の統計は存在しない。
 
 収集済みのpad geometry maskは入力channelへ加えない。v1のモデル入力は要件どおり6 channelを
 維持し、geometry maskはcrop検証と幾何augmentationの整合確認に使う。batch paddingを示す
@@ -185,8 +211,8 @@ dataset形式自体には画像上限を設けない。v1モデルへ入れる�
 
 要件どおり回転と等方scaleだけを行う。輝度、contrast、色、blur、noiseは初期実装で変更しない。
 
-- 回転角は`[0, 360)`から一様に選び、pre/postへ同じbilinear変換、geometry maskへ同じnearest
-    変換を適用する。
+- 回転角は`[0, 360)`から一様に選び、pre/postへ同じbilinear変換、geometry maskへ同じ
+    nearest-exact変換を適用する。
 - 回転によって元canvas外から入る画素はinvalidとし、後述のlearnable padding pixelで置換する。
 - scaleは`[0.8, 1.2]`をlog-uniformで選ぶ。適用後も画像上限制約を満たすようclipし、
     `pixel_per_mm`へ実際のscaleを掛ける。
@@ -207,7 +233,7 @@ aspect ratioと面積でbucket化し、pixel budget制のbatch samplerを使う�
 4. GPU base trainingの既定値は`max_batch_pixels=8,388,608`、`max_batch_size=32`とする。
 5. Raspberry Pi 5 fine-tuningの既定値は`max_batch_pixels=524,288`、
     `max_batch_size=4`とする。
-6. 最後の小batchも捨てない。BatchNormは後述のfine-tuningでは常にevalに固定する。
+6. 最後の小batchも捨てない。encoderはGroupNormのためbatch size 1でも同じ正規化規則になる。
 
 collate時はbatch内の最大高さ・幅を32の倍数へ切り上げ、trainingでは画像の配置位置をランダム、
 evaluationでは中央にしてpaddingする。collateは画像tensorと`valid_pixel_mask [B, 1, H, W]`を
@@ -239,8 +265,9 @@ pixel_per_mm:    float32 [B, 1]
 ### v1 encoder
 
 初期モデル`paste-volume-resnet-small-v1`を次で固定する。すべての畳み込みはbiasなし、
-BatchNorm2d、ReLUの順を基本とする。residual blockは標準的な2個の3 × 3 convolutionとskip
-connectionを持ち、shape変更時だけ1 × 1 projectionを使う。
+`Conv2d -> GroupNorm -> ReLU`の順を基本とする。residual blockは標準的な2個の3 × 3
+convolutionとskip connectionを持ち、shape変更時だけ`1 × 1 Conv2d -> GroupNorm` projectionを
+使う。2個目のGroupNorm後にskipを加算し、最後にReLUを適用する。
 
 | 段               | 構成                             | 出力channel | 空間stride |
 | ---------------- | -------------------------------- | ----------: | ---------: |
@@ -253,24 +280,51 @@ connectionを持ち、shape変更時だけ1 × 1 projectionを使う。
 | pooling          | Adaptive Global Average Pooling  |         160 |          - |
 
 入力前に`valid_pixel_mask`が偽の位置を`nn.Parameter([1, 6, 1, 1])`のlearnable padding pixelへ
-置換する。このparameterは標準化後の0、すなわちtrain画像の平均色から初期化する。Masked
-Global Poolingにはせず、通常のGlobal Average Poolingを使う。
+置換する。このparameterは標準化後の0から初期化し、dataset統計は使わない。Masked Global
+Poolingにはせず、通常のGlobal Average Poolingを使う。
 
-pooling後の160次元特徴へ、標準化済み`log(pixel_per_mm)` 1値を連結する。その後
+pooling後の160次元特徴へ、dataset統計で標準化していない`log(pixel_per_mm)` 1値を連結する。その後
 `Linear(161, 128) -> ReLU`を通し、独立したmean headとlog-variance headへ分ける。画像から
 見かけの大きさを学びつつ、物理scaleを明示的に利用できる構成になる。
 
-教師体積を`volume_scale_ul`で正規化した空間で次を計算する。
+modelはtrain dataset由来のscaleを介さず、µLの物理単位で直接出力する。
 
 ```text
-normalized_mean = Softplus(raw_mean)
-normalized_logvar = clamp(raw_logvar, -10, 5)
-mean_volume_ul = normalized_mean * volume_scale_ul
-log_variance_volume_ul2 = normalized_logvar + 2 * log(volume_scale_ul)
+mean_volume_ul = Softplus(raw_mean)
+log_variance_volume_ul2 = clamp(raw_logvar, -14, 5)
 ```
 
 meanの上限は設けない。log-varianceの範囲は数値安定性だけを目的とし、体積の対応範囲は
 dataset coverageと評価結果で表す。
+
+### encoderのNormalization
+
+pixel-budget batchではbatch sizeが画像形状に応じて1から32まで変わり、Pi fine-tuningは最大4で
+ある。このためbatch内統計とrunning statisticsに依存するBatchNormは使わない。v1では全stemと
+residual blockに`GroupNorm(num_groups=8, num_channels=C, eps=1e-5, affine=True)`を使う。採用する
+全channel数24、32、48、96、160は8で割り切れる。
+8 groupはbaselineの既定値であり、Optunaで1 / 4 / 8 groupを比較した場合は、選択値をmodel configと
+manifestへ固定して別model versionとして扱う。
+
+GroupNormは各sample内でchannelをgroupへ分け、各groupのchannel・空間軸からmean/varianceを
+計算する。batch軸を集計せず、trainとevalで同じ計算になる。入力のsample単位標準化とは別の
+encoder内部処理であり、learnableなchannelごとのaffine parameterは有効にする。
+
+比較した候補と判断は次のとおりとする。
+
+| 候補                      | 判断                                                                       |
+| ------------------------- | -------------------------------------------------------------------------- |
+| BatchNorm / SyncBatchNorm | 小さく可変なbatchとrunning statisticsへ依存するため不採用                  |
+| InstanceNorm              | channelごとに独立して統計を求め、channel間関係を弱めるため不採用           |
+| GroupNorm                 | ResNetへ小さな変更で導入でき、batch非依存かつ動的H/Wを扱えるため採用       |
+| LayerNorm / ConvNeXt型    | batch非依存で有力だが、NHWC変換やblock全体の再設計を伴うためv1では比較候補 |
+| RMSNorm                   | centerを行わずCNNでの根拠とexport実績がGroupNormより弱いため初期候補外     |
+| EvoNorm等の独自層         | PyTorch標準module、ONNX、量子化の検証面を増やすため初期候補外              |
+
+GroupNormを無条件にexport可能とは仮定しない。実装直後に最小・最大・縦長・横長入力をONNXへ
+exportし、ONNX checkerとONNX Runtime parityを通す。失敗時はBatchNormへ戻さず、まずexporterの
+対応versionと標準operatorへのdecompositionを確認し、それでも解決しない場合だけConvNeXt型
+LayerNormを同じvalidation splitで比較する。
 
 ### モデル規模とfine-tuning範囲
 
@@ -283,9 +337,9 @@ base modelは全層を学習する。Raspberry Pi 5での既定fine-tuningは次
 - pooling後のLinearと2個のhead
 - learnable padding pixel
 
-stem、residual stage 1・2はfreezeし、全BatchNormをeval modeに固定してrunning statisticsと
-affine parameterを更新しない。これで小batchによるBatchNorm崩れを避け、計算時間を抑える。
-全層fine-tuningはGPU用の明示optionとし、Piの既定値にはしない。
+stem、residual stage 1・2はfreezeする。GroupNormはrunning statisticsを持たないため、更新対象の
+stage 3では通常どおり学習し、freezeしたstageのaffine parameterは他のparameterと一緒に
+`requires_grad=False`にする。全層fine-tuningはGPU用の明示optionとし、Piの既定値にはしない。
 
 ## 3. 学習パイプライン
 
@@ -296,13 +350,66 @@ accumulation、validation、early stopping、checkpoint、loggingに限定され
 十分に見通せる。MLflowのvanilla PyTorch autologgingへも依存せず、metricとartifactを明示的に
 記録する。
 
-学習処理はCLIから呼べる通常のPython APIとして実装し、CLI parser、学習loop、モデル、data、
-logging、checkpointを分離する。configはfrozenな型で表し、CLI引数を一度configへ変換した後は
-global stateや環境変数を直接参照しない。
+設定管理にはHydraを採用する。ただし
+[lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template)から取り入れるのは、
+config group、version管理されたexperiment config、解決済みconfigの保存、multirun、Optuna
+Sweeperという構成上の考え方である。LightningのTrainer、callback、DataModule、logger wrapper、
+任意の`_target_`を設定からinstantiateする仕組みは持ち込まない。
+
+Hydraはentrypointと設定合成だけを担当する。解決済み`DictConfig`を境界で検証し、frozenな
+`TrainConfig` / `EvaluateConfig`へ変換してから、通常のPython APIである`train(config)` /
+`evaluate(config)`を呼ぶ。学習loop、モデル、data、logging、checkpointはHydraをimportしない。
+`hydra.job.chdir=false`とし、dataset、checkpoint、output pathは合成後に絶対pathへ解決する。
+環境変数や現在directoryを学習coreから暗黙参照しない。
+
+### Hydra config構成
+
+configはPython packageと一緒にinstallできる場所へ置く。
+
+```text
+pcbasm/pasting/paste_volume/conf/
+├── train.yaml
+├── evaluate.yaml
+├── data/paste_volume.yaml
+├── model/resnet_small.yaml
+├── trainer/gpu.yaml
+├── trainer/pi.yaml
+├── logger/mlflow.yaml
+├── experiment/base.yaml
+├── experiment/fine_tune.yaml
+├── hparams_search/base_optuna.yaml
+└── hydra/default.yaml
+```
+
+`train.yaml`と`evaluate.yaml`のdefaults listがconfig groupを合成し、`experiment/*`は追跡対象となる
+具体的な組み合わせだけをoverrideする。未知keyは禁止し、必須値は`MISSING`にしてrun開始前に
+落とす。全runでHydraの解決済みYAML、CLI override、frozen configのJSON、config fingerprintを
+MLflowへ保存する。
+
+### Optunaによる探索
+
+OptunaはHydra Optuna Sweeperから利用し、学習coreへ直接埋め込まない。初期search spaceは
+learning rate、weight decay、gradient accumulation、GroupNorm group数`{1, 4, 8}`に限定し、
+encoderの深さやchannel数はbaseline確立前に探索しない。
+
+- objectiveはtestを含まない最小validation NLLの単一目的とする。
+- dataset fingerprintとsplit manifestを全trialで固定する。
+- TPE sampler、固定seed、`n_trials=30`、`n_jobs=1`を既定とし、1枚のGPUへtrialを重ねない。
+- HPO用trialは最大60 epoch、early stopping patience 10とし、各trialを個別のMLflow runにする。
+- Optuna storageはlocal fileではなく、tracking serverと同じPostgreSQL server内の専用databaseを
+    推奨する。初期の単一端末では絶対pathのSQLiteも許容する。
+- `study_name`はmodel family、dataset fingerprint、search config fingerprintから作り、同じstorageと
+    study nameで再実行して完了trialを再利用できるようにする。
+- 最良configはそのtrial weightをそのまま採用せず、通常の200 epoch上限で3 seedを再学習し、
+    validation metricの平均とばらつきを確認してから候補化する。
+
+Hydra multirun自体をcheckpointとして扱わない。中断済みtrialはそのtrialの`latest.ckpt`から単独で
+再開でき、study全体はpersistent Optuna storageから追加trialを継続する。HPO結果には
+`optimization_results.yaml`、study名、storage URIからcredentialを除いた値を残す。
 
 ### lossとmetric
 
-学習lossは正規化体積に対するGaussian negative log-likelihoodとする。
+学習lossはµL単位の体積に対するGaussian negative log-likelihoodとする。
 
 \[
 L_i
@@ -344,6 +451,7 @@ session/view補正済みweightを掛け、batchのweight合計で割る。PyTorc
 | max epochs            |                                         200 |                               200 |
 | gradient accumulation |                                           1 |                                 4 |
 | precision             |                          CUDA AMP、CPU FP32 |                          CPU FP32 |
+| `torch.compile`       |                  ON、Inductor、default mode |        ON、Inductor、default mode |
 | trainable layer       |                                        全層 | stage 3、MLP、head、padding pixel |
 
 model選択はcalibration前のvalidation NLL最小を第一条件とし、同値ならvalidation MAEが小さい方を
@@ -351,7 +459,7 @@ model選択はcalibration前のvalidation NLL最小を第一条件とし、同�
 
 ### 1 epochの処理
 
-1. modelをtrain modeにし、fine-tuning時はfreeze対象と全BatchNormを再度evalへ固定する。
+1. modelをtrain modeにし、fine-tuning時はfreeze対象の`requires_grad=False`を確認する。
 2. deterministic batch planを生成する。
 3. forward、weighted NLL、backward、gradient accumulation、clip、optimizer stepを行う。
 4. 非有限lossまたはgradientを検出したら、そのstepを無視せず緊急checkpointを保存して失敗する。
@@ -359,9 +467,22 @@ model選択はcalibration前のvalidation NLL最小を第一条件とし、同�
 6. scheduler、early stopping、best checkpointを更新する。
 7. metricsと診断artifactをMLflowへ記録する。
 
-CUDAでは`torch.amp.autocast`とGradScalerを使う。CPUではAMPを使わない。`torch.compile`は
-baselineへ入れず、学習時間の比較実験としてのみ有効化する。compileの有無はMLflow parameterへ
-記録する。
+CUDAでは`torch.amp.autocast`とGradScalerを使う。CPUではAMPを使わない。
+
+`torch.compile`はbase training、fine-tuning、PyTorch評価で既定ONとする。eager modelをdeviceへ
+移した後、`torch.compile(eager_model, backend="inductor", mode="default", fullgraph=False, dynamic=None)`で別のforward callableを作る。可変shapeはPyTorchのautomatic dynamic shapesへ
+任せ、aspect/area bucketによってshape種類と再compileを抑える。全dimensionを最初からdynamicに
+する`dynamic=True`は既定にしない。
+
+- compile前にeagerで1 batchのforward/backward smoke testを行う。
+- compile失敗やgraph breakを黙ってeagerへfallbackしない。失敗runとして記録し、必要な場合だけ
+    `trainer.compile.enabled=false`を明示して再実行する。
+- first-step時間、steady-state sample/秒、遭遇したbatch shape数をMLflowへ記録し、Piの1時間制限は
+    compile時間も含める。
+- optimizerはeager modelのparameterから作り、checkpointはeager modelの`state_dict`を保存する。
+    compiled wrapperや`_orig_mod.` prefixを永続化しない。
+- ONNX exportもcompile済みwrapperではなくeager modelを使う。
+- torchvisionのdecodeやresize/rotateはcompile対象に含めない。
 
 ### 再現性
 
@@ -375,7 +496,7 @@ baselineへ入れず、学習時間の比較実験としてのみ有効化する
 
 ### Raspberry Pi 5の時間制限
 
-fine-tuning CLIはwall-clock deadlineを持つ。既定は55分でoptimizer stepを停止し、残り5分で
+fine-tuning Hydra entrypointはwall-clock deadlineを持つ。既定は55分でoptimizer stepを停止し、残り5分で
 validation、checkpoint確定、MLflow flushを行い、全体を1時間以内に収める。
 
 - `max_steps=2000`と`max_epochs=200`の早い方でも終了する。
@@ -406,9 +527,9 @@ MLflowのautologは使わない。pure PyTorchへのautolog対象が限定され
 **parameter**
 
 - model channel/block構成、parameter数、GMAC
-- 画像制約、normalization統計のfingerprint、augmentation範囲
-- optimizer、scheduler、batch pixel budget、seed、precision、time budget
-- Python、PyTorch、CUDA/cuDNN、OpenCV、MLflow、ONNX/ORTのversion
+- 画像制約、sample標準化方式、augmentation範囲
+- optimizer、scheduler、batch pixel budget、seed、precision、compile設定、time budget
+- Python、PyTorch、torchvision、Hydra、Optuna、CUDA/cuDNN、MLflow、ONNX/ORTのversion
 
 **metric**
 
@@ -442,7 +563,7 @@ run-directory/
 ├── latest.ckpt       # 一定stepごとの再開点
 ├── best.ckpt         # validation NLLが最良の再開可能checkpoint
 ├── final.ckpt        # 正常終了時の再開可能checkpoint
-└── weights.pt        # best modelのstate_dictと推論に必要な統計だけ
+└── weights.pt        # best modelのstate_dictとmodel/preprocess schema
 ```
 
 `latest.ckpt`は5分または500 optimizer stepの早い方、および各epoch末に保存する。
@@ -461,7 +582,7 @@ run-directory/
 - early stoppingのbest valueとpatience counter
 - Python、NumPy、PyTorch CPU、全CUDA deviceの乱数状態
 - samplerのepoch seedと、そのepochの確定batch plan
-- normalization統計、volume scale、不確かさcalibration前後の状態
+- sample標準化schema、不確かさcalibration前後の状態
 - dataset fingerprint、split fingerprint、解決済みconfig
 
 [PyTorchのcheckpoint指針](https://docs.pytorch.org/tutorials/beginner/saving_loading_models.html)
@@ -470,13 +591,13 @@ repository側のmodel classとschema versionから復元する。
 
 ### resumeとfine-tuneの区別
 
-`--resume latest.ckpt`は同一runの継続である。dataset fingerprint、split、model構成、optimizer
-configが完全一致しない場合は拒否する。batch planとbatch indexから次の未処理batchを再開し、
+Hydra overrideの`resume.checkpoint=/abs/path/latest.ckpt`は同一runの継続である。dataset
+fingerprint、split、model構成、optimizer configが完全一致しない場合は拒否する。batch planと
+batch indexから次の未処理batchを再開し、
 augmentationもsample派生seedで同一にする。
 
-`finetune base/weights.pt target-dataset`は新しいrunであり、model weightとnormalization初期値だけを
-読み、optimizer、scheduler、early stopping、samplerは新規作成する。この2操作を同じoptionで
-兼用しない。
+fine-tuningは新しいrunであり、base model weightと前処理schemaだけを読み、optimizer、scheduler、
+early stopping、samplerは新規作成する。この2操作を同じconfig fieldで兼用しない。
 
 ## 6. export、最適化、評価
 
@@ -499,8 +620,9 @@ ONNX exportは`torch.onnx.export(..., dynamo=True)`を使い、batch、高さ、
 `pixel_per_mm`、出力は物理単位のmeanとlog-varianceとする。前処理そのものはmanifestに従う
 Python runtime moduleへ残す。
 
-GroupNormや独自operatorは使わず、Conv、BatchNorm、ReLU、Add、GlobalAveragePool、Linear、
-Softplus相当の標準operatorへ限定する。これによりexportとARM CPU実行の不確実性を抑える。
+GroupNormを含むeager modelをそのままexportし、Conv、GroupNormのdecomposition、ReLU、Add、
+GlobalAveragePool、Linear、Softplus相当の標準operatorだけでgraphが構成されることをONNX modelの
+検査で確認する。独自operatorやcustom runtime extensionは許可しない。
 
 ### 最適化候補
 
@@ -525,25 +647,31 @@ validationを意味し、artifactを1個に固定した後だけ凍結testへ同
 - calibration後の`mean ± 1 std` coverageを68.3%と比較し、bin別reliabilityも記録する。
 - 体積、画像面積、aspect ratio、`pixel_per_mm`、塗布方式ごとの誤差をreportする。
 
-**2. padding invariance評価**
+**2. `torch.compile` parity評価**
+
+最小・最大・縦長・横長の各shapeと学習用batchでeagerとcompiled modelのforward、loss、gradientを
+比較する。forwardはONNX parityと同じ許容誤差、lossとgradientはdtype別に定めた相対・絶対誤差を
+満たすことを要求する。compileの初回時間とsteady-state throughputも記録する。
+
+**3. padding invariance評価**
 
 同じ画像へ0%、10%、25%、50%の追加paddingを異なる辺へ加える。各条件の予測差を測り、paddingに
 よる悪化後もprimary accuracy gateを満たすことを要求する。悪化が1 percentage pointを超える
 場合はpromotionせず、bucket幅またはpadding augmentationを見直す。
 
-**3. export parity評価**
+**4. export parity評価**
 
 全評価sampleでPyTorch eagerとONNX FP32を比較する。meanとlog-varianceが有限で、meanが正、
 FP32出力差が`max(1e-6 µL, eager meanの0.1%)`以内であることを要求する。dynamic shapeの最小、
 最大、縦長、横長も個別に通す。
 
-**4. INT8精度評価**
+**5. INT8精度評価**
 
 INT8もprimary accuracy gateを満たし、FP32に対する
 `abs(mean(e)) + std(e)`の悪化が0.01以下、68.3% coverageの差が3 percentage point以下である
 ことを要求する。quantization calibrationにはtrain sampleだけを使う。
 
-**5. Raspberry Pi 5 benchmark**
+**6. Raspberry Pi 5 benchmark**
 
 - productionと同じOS、Python、電源・冷却条件で実行する。
 - batch 1、CPU、同じ前処理moduleを使う。
@@ -579,9 +707,9 @@ paste-volume-resnet-small-v1/
 └── SHA256SUMS
 ```
 
-manifestにはartifact schema version、model名、input/output契約、dynamic dimension、normalization
-統計、画像制約、volume scale、不確かさoffsetとthreshold、学習dataset/split fingerprint、
-MLflow run ID、exporter/opset/ORT version、quantization方式、各fileのSHA-256を含める。
+manifestにはartifact schema version、model名、input/output契約、dynamic dimension、sample標準化
+schema、画像制約、不確かさoffsetとthreshold、学習dataset/split fingerprint、MLflow run ID、
+exporter/opset/ORT version、quantization方式、各fileのSHA-256を含める。
 
 load時に全checksum、schema version、必要runtime versionを検証する。未知schemaや壊れたartifactを
 推測で読み込まない。
@@ -599,26 +727,51 @@ pcbasm.pasting.paste_volume.data         # validate、index、split、preprocess
 pcbasm.pasting.paste_volume.model        # torch modelとloss
 pcbasm.pasting.paste_volume.training     # train/fine-tune loop、checkpoint
 pcbasm.pasting.paste_volume.experiment   # ExperimentLoggerとMLflow adapter
+pcbasm.pasting.paste_volume.train        # Hydra所有のtraining entrypoint
+pcbasm.pasting.paste_volume.evaluate     # Hydra所有のevaluation entrypoint
+pcbasm.pasting.paste_volume.conf         # packaged Hydra config
 pcbasm.pasting.paste_volume.export       # ONNX、quantization、parity、package
 pcbasm.pasting.paste_volume.inference    # manifest検証、runtime、公開prediction API
-pcbasm.cli.paste_volume                   # 薄いCLI
+pcbasm.cli.paste_volume                   # Hydraを使わない運用CLI
 ```
 
-通常の`import pcbasm.pasting`でtorch、MLflow、ONNX Runtimeをeager importしない。学習CLIまたは
-model loaderを呼んだ時点で必要依存を読み、未installなら必要なdependency groupを示す明確な
-errorを返す。
+通常の`import pcbasm.pasting`でtorch、torchvision、Hydra、Optuna、MLflow、ONNX Runtimeをeager
+importしない。Hydra entrypoint、運用CLI、model loaderを呼んだ時点で必要依存を読み、未installなら
+必要なdependency groupを示す明確なerrorを返す。
 
-### CLI
+### Hydra entrypointと運用CLI
 
-装置を動かさないML処理は、repository直下の使い捨てscriptではなく同じ公開APIを呼ぶmodule CLIに
-統一する。
+Hydraとsubcommand parserに同じargvを処理させない。Hydraは`key=value` override、`-m`、`--cfg`、
+working directoryを独自に扱うため、`pcbasm.cli.paste_volume train ...`の残り引数をHydraへ中継する
+adapterは作らない。学習・fine-tuning・評価はHydraがargv全体を所有する独立moduleとする。
+
+```text
+python -m pcbasm.pasting.paste_volume.train \
+    experiment=base data.roots='[/abs/dataset-a,/abs/dataset-b]'
+
+python -m pcbasm.pasting.paste_volume.train \
+    experiment=fine_tune model.initial_weights=/abs/weights.pt \
+    data.roots='[/abs/machine-dataset]'
+
+python -m pcbasm.pasting.paste_volume.train -m \
+    experiment=base hparams_search=base_optuna \
+    data.roots='[/abs/dataset-a,/abs/dataset-b]'
+
+python -m pcbasm.pasting.paste_volume.evaluate \
+    checkpoint=/abs/best.ckpt data.roots='[/abs/dataset-a]' split=validation
+```
+
+train/fine-tuneの別は`experiment` config groupで表し、独立したCLI parserやflag集合を持たせない。
+resumeだけは`resume.checkpoint=/abs/latest.ckpt`、fine-tuning初期weightは
+`model.initial_weights=/abs/weights.pt`とし、意味を分ける。`split=test`はさらに
+`allow_frozen_test=true`を要求し、通常の学習完了処理やOptuna trialから自動実行しない。
+
+dataset検証、export、最適化、benchmark、単発推論はexperiment configを必要としないため、Hydraを
+使わない薄い運用CLIへ残す。
 
 ```text
 python -m pcbasm.cli.paste_volume dataset validate <dataset...>
 python -m pcbasm.cli.paste_volume dataset summarize <dataset...>
-python -m pcbasm.cli.paste_volume train <dataset...> --config <config>
-python -m pcbasm.cli.paste_volume finetune <weights> <dataset...> --config <config>
-python -m pcbasm.cli.paste_volume evaluate <weights-or-package> <dataset...> --split <split>
 python -m pcbasm.cli.paste_volume export <checkpoint> --output <directory>
 python -m pcbasm.cli.paste_volume optimize <onnx-model> --calibration-data <dataset...>
 python -m pcbasm.cli.paste_volume benchmark <model-package>
@@ -626,10 +779,9 @@ python -m pcbasm.cli.paste_volume infer <model-package> <pre-image> <post-image>
     --pixel-per-mm <value>
 ```
 
-`train`、`finetune`、`evaluate`はdataset fingerprintとsplit manifestを常に出力する。
-`evaluate --split test`は明示指定を要求し、通常の学習完了処理から自動では呼ばない。`optimize`は
-候補packageを作るだけでactive modelを切り替えず、promotionは評価reportを検証する別の公開APIで
-行う。
+両entrypointは同じ公開Python APIを呼び、dataset fingerprintとsplit manifestの生成、前処理、評価を
+重複実装しない。`optimize`は候補packageを作るだけでactive modelを切り替えず、promotionは評価
+reportを検証する別の公開APIで行う。
 
 ### 公開API
 
@@ -657,7 +809,10 @@ def load_paste_volume_estimator(model_package: Path) -> PasteVolumeEstimator: ..
 ```
 
 loaderはmanifestとchecksumを検証してONNX Runtime sessionを1回だけ作る。`predict`はdatasetと同じ
-前処理を共有し、入力shape、RGB、有限で正のscale、画像上限、model coverageを検証する。
+torchvision前処理を共有する。camera由来のRGB HWC `ImageArray`は
+`torchvision.transforms.v2.functional.to_image`でCHW tensorへ変換し、手書きの`permute`を公開APIへ
+散在させない。入力shape、RGB、有限で正のscale、画像上限、sample mean/std、model coverageを
+検証する。
 modelが返した非有限値、非正mean、manifest threshold超過はexceptionでjob全体を落とさず、
 `accepted=False`と具体的なreasonへ変換する。壊れたmodel packageやruntime初期化失敗はload時の
 errorとし、予測不能とは区別する。
@@ -697,20 +852,29 @@ versionを残す。
 ### Phase 1: datasetと前処理
 
 - `dataset validate`、`dataset summarize`、sample index、fingerprint、group splitを実装する。
-- size制約、paired augmentation、bucket batch sampler、learnable padding用maskまでを通す。
-- 実session fixtureでRGB順、pair/mask整合、重複、leakage拒否を確認する。
+- torchvision decode、sample単位の全channel標準化、size制約、paired augmentation、bucket batch
+    sampler、learnable padding用maskまでを通す。
+- controlled RGB PNGと実session fixtureでRGB順、CHW shape、pair/mask整合、標準化のmean 0・std 1、
+    重複、leakage拒否を確認する。
+- train/validation/testで同じsampleの前処理結果が一致し、dataset全体の統計を読んでいないことを
+    公開preprocessor APIで確認する。
 
 ### Phase 2: modelとpure PyTorch training
 
-- small ResNet、Gaussian NLL、metric、base/fine-tune loopを実装する。
+- GroupNorm small ResNet、Gaussian NLL、metric、base/fine-tune loopを実装する。
 - 数sampleを過学習できること、可変shape batch、padding parameterへgradientが流れることを確認する。
+- eagerと`torch.compile`のforward/loss/gradientが許容誤差内で一致し、compiled wrapperを含まない
+    checkpointから再開できることを確認する。
 - 中断あり/なしで同じseedの最終weightとmetricが一致するcheckpoint resume testを行う。
 
-### Phase 3: MLflowとCLI
+### Phase 3: Hydra、Optuna、MLflow
 
-- explicit logger、run config、metric、artifact、failure記録を実装する。
+- packaged config、Hydra train/evaluate entrypoint、Optuna search configを実装する。
+- config compose、未知key拒否、path解決、single run、multirun、persistent study再開をintegration testで
+    確認する。
+- explicit logger、解決済みconfig、metric、artifact、failure記録を実装する。
 - 実local MLflow serverを使うintegration testでrunとartifactを読み戻す。MLflow APIはmockしない。
-- 既定CLIを`dataset validate/summarize`、`train`、`finetune`、`evaluate`まで接続する。
+- Hydra entrypointと、`dataset validate/summarize`を含むHydra非依存の運用CLIを接続する。
 
 ### Phase 4: exportとedge評価
 
@@ -730,7 +894,14 @@ versionを残す。
 - schema v1の複数sessionから、再現可能でleakのないsplitとbatchを作れる。
 - 最小32 px、最大辺1024 px、最大262,144 pxの前処理契約と`pixel_per_mm`更新がtrain/inferenceで
     共通化されている。
-- pure PyTorchだけでbase trainingとPi fine-tuningが動き、Pi fine-tuningが1時間以内に終わる。
+- torchvisionでRGB CHWへ統一し、各pre/post pairを全channel・全有効画素の1組のmean/stdで
+    標準化し、train dataset由来の前処理統計を持たない。
+- encoderがGroupNormだけを使い、batch size 1でもtrain/eval間でrunning statisticsへ依存しない。
+- Hydraの解決済みconfigからpure Python training APIを実行でき、Optuna studyと全trialをMLflowから
+    追跡できる。
+- `torch.compile`が既定ONで、eager parity、compile時間、checkpoint、ONNX exportの境界が検証される。
+- Lightningなしのpure PyTorch training coreでbase trainingとPi fine-tuningが動き、Pi fine-tuningが
+    1時間以内に終わる。
 - MLflowからdataset、config、code、metric、checkpoint、export、benchmarkのlineageを辿れる。
 - 強制終了後に`latest.ckpt`から未処理batchを再開でき、不一致dataset/configを拒否する。
 - promoted artifactが精度、coverage、export parity、Pi p95 1秒の全gateを通る。
@@ -740,8 +911,17 @@ versionを残す。
 ## 参考資料
 
 - [PyTorch: Start Locally](https://pytorch.org/get-started/locally/)
+- [torchvision: decode_image](https://docs.pytorch.org/vision/stable/generated/torchvision.io.decode_image.html)
+- [torchvision: Transforms v2](https://docs.pytorch.org/vision/stable/transforms.html)
+- [PyTorch: GroupNorm](https://docs.pytorch.org/docs/stable/generated/torch.nn.GroupNorm.html)
+- [Group Normalization paper](https://arxiv.org/abs/1803.08494)
+- [PyTorch: torch.compile](https://docs.pytorch.org/docs/stable/generated/torch.compile.html)
+- [PyTorch: Dynamic Shapes](https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/torch.compiler_dynamic_shapes.html)
 - [PyTorch: Saving and Loading Models](https://docs.pytorch.org/tutorials/beginner/saving_loading_models.html)
 - [PyTorch: torch.export-based ONNX Exporter](https://docs.pytorch.org/docs/stable/onnx)
+- [Hydra](https://hydra.cc/docs/intro/)
+- [Hydra Optuna Sweeper](https://hydra.cc/docs/plugins/optuna_sweeper/)
+- [Lightning-Hydra-Template](https://github.com/ashleve/lightning-hydra-template)
 - [MLflow Tracking](https://mlflow.org/docs/latest/ml/tracking/)
 - [MLflow Tracking Server](https://mlflow.org/docs/latest/self-hosting/architecture/tracking-server/)
 - [ONNX Runtime Python](https://onnxruntime.ai/docs/get-started/with-python.html)
