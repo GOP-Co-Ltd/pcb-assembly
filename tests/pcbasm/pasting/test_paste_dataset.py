@@ -29,6 +29,7 @@ from pcbasm.pasting.paste_dataset import (
     PasteDatasetWriter,
     allocate_volume_by_rotations,
     crop_pad_image,
+    pad_image_crop_to_rgb,
 )
 from pcbasm.vision import Image
 
@@ -224,6 +225,17 @@ class TestCropPadImage:
                 margin_mm=0.0,
                 mask_margin_mm=0.0,
             )
+
+    def test_converts_camera_bgr_crop_to_runtime_rgb(self):
+        crop = PadImageCrop(
+            image=np.array([[[1, 2, 3], [4, 5, 6]]], dtype=np.uint8),
+            mask=np.full((1, 2), 255, dtype=np.uint8),
+            pixel_rect=(0, 0, 2, 1),
+        )
+
+        rgb = pad_image_crop_to_rgb(crop)
+
+        assert np.array_equal(rgb, np.array([[[3, 2, 1], [6, 5, 4]]], dtype=np.uint8))
 
 
 class TestAllocateVolumeByRotations:

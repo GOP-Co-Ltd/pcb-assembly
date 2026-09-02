@@ -280,6 +280,13 @@ class PasteDispenser:
         )
 
 
+@attrs.frozen
+class PasteVolume:
+    """運転時の画像ベース吐出量補正設定."""
+
+    model_package: Path
+
+
 def validate_probe_board_edge_margin(value: float) -> str | None:
     """基板外形からのprobe点マージンを検証する."""
     if value <= 0:
@@ -585,6 +592,22 @@ class Machine:
     def paste_dispenser(self) -> PasteDispenser:
         """ペーストディスペンサー設定を取得する."""
         return self._get_config("paste_dispenser", PasteDispenser)
+
+    @property
+    def paste_volume(self) -> PasteVolume | None:
+        """画像ベース吐出量補正設定を取得する（未設定なら無効）."""
+        raw = self._data.get("paste_volume")
+        if raw is None:
+            return None
+        if not isinstance(raw, dict):
+            raise ValueError("paste_volumeはtableで定義してください")
+        model_package = raw.get("model_package")
+        if not isinstance(model_package, str) or not model_package.strip():
+            raise ValueError("paste_volume.model_packageは空でないpathが必要です")
+        path = Path(model_package.strip()).expanduser()
+        if not path.is_absolute():
+            path = self._config_dir / path
+        return PasteVolume(model_package=path.resolve())
 
     @property
     def camera(self) -> Camera:

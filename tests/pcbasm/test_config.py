@@ -13,6 +13,7 @@ from pcbasm.config import (
     NozzleCap,
     PadAlign,
     PasteDispenser,
+    PasteVolume,
     Probe,
     ReferencePoint,
     Toolhead,
@@ -97,6 +98,37 @@ class TestMachine:
         assert machine.klipper == Klipper(host="localhost", port=7125)
         assert machine.camera.device_id == 0
         assert machine.camera.format == "YUYV"
+
+    def test_paste_volume_is_disabled_when_section_is_absent(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.paste_volume is None
+
+    def test_paste_volume_model_package_is_resolved_from_config_directory(
+        self, tmp_path: Path
+    ):
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            (TESTING_DATA_DIR / "machine.toml").read_text()
+            + '\n[paste_volume]\nmodel_package = "models/active.json"\n',
+            encoding="utf-8",
+        )
+
+        assert Machine(path).paste_volume == PasteVolume(
+            model_package=(tmp_path / "models/active.json").resolve()
+        )
+
+    @pytest.mark.parametrize("value", ["", "   "])
+    def test_paste_volume_rejects_empty_model_package(self, tmp_path: Path, value: str):
+        path = tmp_path / "machine.toml"
+        path.write_text(
+            (TESTING_DATA_DIR / "machine.toml").read_text()
+            + f'\n[paste_volume]\nmodel_package = "{value}"\n',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="model_package"):
+            Machine(path).paste_volume
 
     def test_rejects_legacy_three_corner_offsets(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()

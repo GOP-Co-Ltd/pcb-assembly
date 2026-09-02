@@ -51,6 +51,8 @@ class FieldSpec:
 MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     # トップレベル（bare key）
     FieldSpec("machine_name", "マシン名", "str"),
+    # [paste_volume]
+    FieldSpec("paste_volume.model_package", "吐出量推定モデル", "str"),
     # [paste_dispenser]
     FieldSpec(
         "paste_dispenser.rotations_per_ul", "1uLあたりの回転数", "float", "rev/uL"
@@ -262,6 +264,12 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 if spec.key == "audio.device":
                     if error := validate_audio_device(value):
                         raise UnknownFieldError(error)
+                    return value.strip()
+                if spec.key == "paste_volume.model_package":
+                    if not value.strip():
+                        raise UnknownFieldError(
+                            "paste_volume.model_packageは空にできません"
+                        )
                     return value.strip()
                 return value
         case "dispense_mode":

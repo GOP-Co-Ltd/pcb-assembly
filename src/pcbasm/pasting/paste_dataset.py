@@ -48,11 +48,16 @@ class DatasetView:
 
 @attrs.frozen
 class PadImageCrop:
-    """pad周辺のRGB画像、同寸法mask、全frame上のcrop矩形."""
+    """Pad周辺のcamera BGR画像、同寸法mask、全frame上のcrop矩形."""
 
     image: ImageArray = attrs.field(eq=False)
     mask: ImageArray = attrs.field(eq=False)
     pixel_rect: PixelRect
+
+
+def pad_image_crop_to_rgb(crop: PadImageCrop) -> ImageArray:
+    """Camera由来のBGR cropを推論公開契約のRGB配列へ変換する."""
+    return cv2.cvtColor(crop.image, cv2.COLOR_BGR2RGB)
 
 
 def _ring_pixels(

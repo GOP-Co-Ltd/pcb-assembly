@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import attrs
 import cv2
@@ -67,6 +67,7 @@ from pcbasm.pasting import (
     crop_pad_image,
     dispense_rate_schedule,
     fill_speed_schedule,
+    pad_image_crop_to_rgb,
     plan_paste_route,
     plan_toolhead_offset_points,
     rate_sweep_amount,
@@ -112,6 +113,13 @@ from web.api.jobs.context import (
 )
 from web.api.jobs.machine_commands import create_command_klipper, handle_machine_command
 
+if TYPE_CHECKING:
+    from pcbasm.pasting.paste_volume.calibration import (
+        PasteVolumeCalibrationResult,
+        PasteVolumeCalibrationSample,
+    )
+    from pcbasm.pasting.paste_volume.inference import PasteVolumeEstimator
+
 # ローディングフェーズの progress stage 名
 # （loading_controls.html の data 属性・テストでピンする契約値）
 LOADING_STAGE = "ローディング"
@@ -155,6 +163,9 @@ DISPENSE_CALIBRATION_CONVERGENCE_REL_TOL = 0.02
 # 収容可能本数（LineLayout.capacity）の算出に使う。
 DISPENSE_CALIBRATION_LAYOUT_MARGIN = 5.0
 _DATASET_CAPTURE_SETTLE_TIME = 0.5
+_PASTE_VOLUME_CALIBRATION_DEFAULT_PAD_COUNT = 3
+_PASTE_VOLUME_CROP_MARGIN_MM = 1.0
+_PASTE_VOLUME_MASK_MARGIN_MM = 0.1
 
 
 @attrs.frozen
@@ -286,6 +297,13 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
                 ),
                 ParamSpec(
                     "interactive_loading", "対話的ローディング", "bool", default=False
+                ),
+                ParamSpec(
+                    "calibration_pad_count",
+                    "画像ベース吐出量補正pad数",
+                    "int",
+                    _PASTE_VOLUME_CALIBRATION_DEFAULT_PAD_COUNT,
+                    minimum=1,
                 ),
             ),
             requires_pcb=True,
@@ -986,6 +1004,190 @@ def _prepare_paste_workflow(
     )
 
 
+type _PastePair = tuple[Pad, Transform, ResolvedPaste | None]
+
+
+def _same_pad(left: Pad, right: Pad) -> bool:
+    """同じ設計子・pad番号を持つpadかを返す."""
+    return left.designator == right.designator and left.pad_number == right.pad_number
+
+
+def _paste_volume_execution_split(
+    pairs: Sequence[_PastePair],
+    purge_pad: Pad | None,
+    sample_count: int,
+) -> tuple[tuple[_PastePair, ...], tuple[_PastePair, ...], tuple[_PastePair, ...]]:
+    """route順を保ちつつ、補正確定前後と撮影対象へ分ける."""
+    selected_indices = [
+        index
+        for index, (pad, _transform, _resolved) in enumerate(pairs)
+        if purge_pad is None or not _same_pad(pad, purge_pad)
+    ][:sample_count]
+    if not selected_indices:
+        return (), tuple(pairs), ()
+    cutoff = selected_indices[-1] + 1
+    selected = tuple(pairs[index] for index in selected_indices)
+    return tuple(pairs[:cutoff]), tuple(pairs[cutoff:]), selected
+
+
+def _apply_paste_pair(
+    applicator: PasteApplicator,
+    prepared: _PreparedPasteWorkflow,
+    pair: _PastePair,
+) -> PasteApplicationResult:
+    """1 padへ解決済み設定を適用し、指令結果を返す."""
+    pad, transform, resolved = pair
+    line_reference = prepared.component_positions.get(pad.designator)
+    if resolved is None:
+        return applicator.apply(
+            [pad.polygon],
+            transform=transform,
+            line_reference=line_reference,
+        )
+    return applicator.apply(
+        [pad.polygon],
+        transform=transform,
+        line_reference=line_reference,
+        paste_height=resolved.paste_height,
+        ul_per_mm2=resolved.ul_per_mm2,
+        dispense_mode=resolved.dispense_mode,
+        line_direction=resolved.line_direction,
+        prime_extra_delay=resolved.prime_extra_delay,
+        bead_width_factor=resolved.bead_width_factor,
+        overlap=resolved.overlap,
+        boundary_margin=resolved.boundary_margin,
+    )
+
+
+def _load_paste_volume_estimator(ctx: JobContext) -> PasteVolumeEstimator | None:
+    """Machine設定のpackageまたはactive pointerをjob開始時にloadする."""
+    try:
+        setting = ctx.machine.paste_volume
+        if setting is None:
+            ctx.log("画像ベース吐出量補正: model未設定のため無効")
+            return None
+        from pcbasm.pasting.paste_volume.inference import (
+            load_configured_paste_volume_estimator,
+        )
+
+        estimator = load_configured_paste_volume_estimator(setting.model_package)
+    except Exception as exc:
+        ctx.log(f"画像ベース吐出量補正modelのloadに失敗しました: {exc}")
+        proceed = ctx.prompt(
+            PromptSpec(
+                kind="confirm",
+                message=(
+                    "画像ベース吐出量補正を無効にし、machine.tomlの"
+                    "rotations_per_ulで塗布を続行しますか？"
+                ),
+                default=False,
+                true_label="補正なしで続行",
+                false_label="中止",
+            )
+        )
+        if not proceed:
+            raise JobAborted() from exc
+        return None
+
+    info = estimator.model_info
+    ctx.log(
+        "画像ベース吐出量補正modelをloadしました: "
+        f"id={info.model_id} / name={info.model_name} / "
+        f"version={info.model_version} / checksum={info.model_checksum}"
+    )
+    return estimator
+
+
+def _capture_paste_volume_pre_images(
+    ctx: JobContext,
+    result: BoardCalibrationResult,
+    prepared: _PreparedPasteWorkflow,
+    selected: Sequence[_PastePair],
+) -> dict[tuple[str, str], PadImageCrop]:
+    """補正対象全padを塗布前に撮影する."""
+    captures: dict[tuple[str, str], PadImageCrop] = {}
+    view = DatasetView(number=0)
+    for index, (pad, _transform, _resolved) in enumerate(selected):
+        ctx.progress("吐出量補正・塗布前撮影", 100.0 * index / max(len(selected), 1))
+        ctx.checkpoint()
+        captures[(pad.designator, pad.pad_number)] = _capture_dataset_pad(
+            ctx,
+            result,
+            prepared,
+            pad,
+            view,
+            margin_mm=_PASTE_VOLUME_CROP_MARGIN_MM,
+            mask_margin_mm=_PASTE_VOLUME_MASK_MARGIN_MM,
+        )
+    return captures
+
+
+def _log_paste_volume_calibration(
+    ctx: JobContext,
+    result: PasteVolumeCalibrationResult,
+) -> None:
+    """Coreの一括補正結果をjob logへ記録する."""
+    gain = "-" if result.gain is None else f"{result.gain:.6f}"
+    ctx.log(
+        "画像ベース吐出量補正: "
+        f"old={result.old_rotations_per_ul:.6f} rev/uL / "
+        f"new={result.new_rotations_per_ul:.6f} rev/uL / "
+        f"gain={gain} / used={result.used_count} / "
+        f"rejected={result.rejected_count} / clamp={result.clamped} / "
+        f"model={result.model_id or '-'} / reason={result.rejection_reason or '-'}"
+    )
+
+
+def _rejected_paste_volume_sample(
+    *,
+    commanded_volume_ul: float,
+    model_id: str,
+    reason: str,
+) -> PasteVolumeCalibrationSample:
+    """Pad単位の撮影・推論例外を棄却sampleへ変換する."""
+    from pcbasm.pasting.paste_volume.calibration import PasteVolumeCalibrationSample
+    from pcbasm.pasting.paste_volume.inference import PasteVolumePrediction
+
+    return PasteVolumeCalibrationSample(
+        commanded_volume_ul=commanded_volume_ul,
+        prediction=PasteVolumePrediction(
+            mean_volume_ul=0.0,
+            std_volume_ul=0.0,
+            relative_std=0.0,
+            accepted=False,
+            rejection_reason=reason,
+            model_id=model_id,
+        ),
+    )
+
+
+def _paste_volume_summary(
+    estimator: PasteVolumeEstimator | None,
+    result: PasteVolumeCalibrationResult | None,
+    *,
+    old_rotations_per_ul: float,
+) -> str:
+    """Job結果へ載せるmodel lineageと補正結果を組み立てる."""
+    if estimator is None:
+        model_id = model_name = model_version = model_checksum = "-"
+    else:
+        info = estimator.model_info
+        model_id = info.model_id
+        model_name = info.model_name
+        model_version = info.model_version
+        model_checksum = info.model_checksum
+    new_value = old_rotations_per_ul if result is None else result.new_rotations_per_ul
+    return (
+        "画像補正 "
+        f"old={old_rotations_per_ul:.6f} / new={new_value:.6f} rev/uL・"
+        f"model={model_id} ({model_name})・version={model_version}・"
+        f"checksum={model_checksum}・"
+        f"used={0 if result is None else result.used_count}・"
+        f"rejected={0 if result is None else result.rejected_count}・"
+        f"clamp={False if result is None else result.clamped}"
+    )
+
+
 def _run_paste_solder(ctx: JobContext) -> JobResult:
     """ボード計測 → 高さ計測 → 銅箔照合 → 補正適用 → ペースト塗布を通しで実行する.
 
@@ -993,6 +1195,9 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
     解決済みの塗布設定を適用する。設定ファイル不在時は ``machine.toml`` デフォルトで
     全 pad 有効 = 現行等価で動く。
     """
+    estimator = _load_paste_volume_estimator(ctx)
+    calibration_result: PasteVolumeCalibrationResult | None = None
+    old_rotations_per_ul = ctx.machine.paste_dispenser.rotations_per_ul
     with ctx.open_camera() as camera:
         result = setup_board(ctx, camera)
         top_pads = [pad for pad in result.pcb.pads if pad.layer == Layer.TOP]
@@ -1059,6 +1264,44 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         session = prepared.session
         stage = prepared.session.stage
 
+        calibration_prefix: tuple[_PastePair, ...] = ()
+        calibration_suffix: tuple[_PastePair, ...] = tuple(pairs)
+        selected_calibration_pairs: tuple[_PastePair, ...] = ()
+        pre_images: dict[tuple[str, str], PadImageCrop] = {}
+        if estimator is not None:
+            (
+                calibration_prefix,
+                calibration_suffix,
+                selected_calibration_pairs,
+            ) = _paste_volume_execution_split(
+                pairs,
+                None if initial_purge is None else initial_purge.pad,
+                int(ctx.params["calibration_pad_count"]),
+            )
+            try:
+                pre_images = _capture_paste_volume_pre_images(
+                    ctx,
+                    result,
+                    prepared,
+                    selected_calibration_pairs,
+                )
+            except ValueError as exc:
+                from pcbasm.pasting.paste_volume.calibration import (
+                    failed_paste_volume_calibration,
+                )
+
+                ctx.log(f"画像ベース吐出量補正を無効にしました: {exc}")
+                calibration_result = failed_paste_volume_calibration(
+                    old_rotations_per_ul,
+                    len(selected_calibration_pairs),
+                    str(exc),
+                    model_id=estimator.model_info.model_id,
+                )
+                _log_paste_volume_calibration(ctx, calibration_result)
+                calibration_prefix = ()
+                calibration_suffix = tuple(pairs)
+                selected_calibration_pairs = ()
+
         total = LoadingTotals()
         with session.make_applicator() as applicator:
             if ctx.params["interactive_loading"]:
@@ -1081,30 +1324,116 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                     transform=purge_transform,
                 )
 
-            # pad を 1 件ずつ apply して per-pad の進捗・設定・abort 境界を確保
-            for index, (pad, transform, r) in enumerate(pairs):
+            calibration_samples: list[PasteVolumeCalibrationSample] = []
+            selected_keys = {
+                (pad.designator, pad.pad_number)
+                for pad, _transform, _resolved in selected_calibration_pairs
+            }
+            for index, pair in enumerate(calibration_prefix):
                 ctx.progress("塗布", 100.0 * index / len(pairs))
                 ctx.checkpoint()
-                if r is None:
-                    applicator.apply(
-                        [pad.polygon],
-                        transform=transform,
-                        line_reference=prepared.component_positions.get(pad.designator),
+                execution = _apply_paste_pair(applicator, prepared, pair)
+                pad = pair[0]
+                key = (pad.designator, pad.pad_number)
+                if key not in selected_keys:
+                    continue
+                try:
+                    post = _capture_dataset_pad(
+                        ctx,
+                        result,
+                        prepared,
+                        pad,
+                        DatasetView(number=0),
+                        margin_mm=_PASTE_VOLUME_CROP_MARGIN_MM,
+                        mask_margin_mm=_PASTE_VOLUME_MASK_MARGIN_MM,
                     )
-                else:
-                    applicator.apply(
-                        [pad.polygon],
-                        transform=transform,
-                        line_reference=prepared.component_positions.get(pad.designator),
-                        paste_height=r.paste_height,
-                        ul_per_mm2=r.ul_per_mm2,
-                        dispense_mode=r.dispense_mode,
-                        line_direction=r.line_direction,
-                        prime_extra_delay=r.prime_extra_delay,
-                        bead_width_factor=r.bead_width_factor,
-                        overlap=r.overlap,
-                        boundary_margin=r.boundary_margin,
+                    pre = pre_images[key]
+                    if post.pixel_rect != pre.pixel_rect:
+                        raise ValueError(
+                            f"{pad.designator}.{pad.pad_number} のpre/post crop位置が"
+                            "一致しません"
+                        )
+                except ValueError as exc:
+                    ctx.log(
+                        f"{pad.designator}.{pad.pad_number}: "
+                        f"吐出量推定を棄却しました: {exc}"
                     )
+                    assert estimator is not None
+                    calibration_samples.append(
+                        _rejected_paste_volume_sample(
+                            commanded_volume_ul=execution.commanded_volume_ul,
+                            model_id=estimator.model_info.model_id,
+                            reason=str(exc),
+                        )
+                    )
+                    continue
+                assert estimator is not None
+                try:
+                    prediction = estimator.predict(
+                        pad_image_crop_to_rgb(pre),
+                        pad_image_crop_to_rgb(post),
+                        pixel_per_mm=result.calibration.pixel_per_mm,
+                    )
+                except Exception as exc:
+                    ctx.log(
+                        f"{pad.designator}.{pad.pad_number}: "
+                        f"吐出量推定に失敗しました: {exc}"
+                    )
+                    calibration_samples.append(
+                        _rejected_paste_volume_sample(
+                            commanded_volume_ul=execution.commanded_volume_ul,
+                            model_id=estimator.model_info.model_id,
+                            reason=str(exc),
+                        )
+                    )
+                    continue
+                ctx.log(
+                    f"{pad.designator}.{pad.pad_number}: "
+                    f"mean={prediction.mean_volume_ul:.6f} uL / "
+                    f"std={prediction.std_volume_ul:.6f} uL / "
+                    f"accepted={prediction.accepted} / "
+                    f"reason={prediction.rejection_reason or '-'}"
+                )
+                from pcbasm.pasting.paste_volume.calibration import (
+                    PasteVolumeCalibrationSample,
+                )
+
+                calibration_samples.append(
+                    PasteVolumeCalibrationSample(
+                        commanded_volume_ul=execution.commanded_volume_ul,
+                        prediction=prediction,
+                    )
+                )
+
+            if selected_calibration_pairs and estimator is not None:
+                from pcbasm.pasting.paste_volume.calibration import (
+                    calibrate_rotations_per_ul,
+                )
+
+                calibration_result = calibrate_rotations_per_ul(
+                    old_rotations_per_ul,
+                    calibration_samples,
+                )
+                _log_paste_volume_calibration(ctx, calibration_result)
+
+            if calibration_result is None or not calibration_result.applied:
+                for index, pair in enumerate(
+                    calibration_suffix, start=len(calibration_prefix)
+                ):
+                    ctx.progress("塗布", 100.0 * index / len(pairs))
+                    ctx.checkpoint()
+                    _apply_paste_pair(applicator, prepared, pair)
+
+        if calibration_result is not None and calibration_result.applied:
+            with session.make_applicator(
+                rotations_per_ul=calibration_result.new_rotations_per_ul
+            ) as calibrated_applicator:
+                for index, pair in enumerate(
+                    calibration_suffix, start=len(calibration_prefix)
+                ):
+                    ctx.progress("塗布", 100.0 * index / len(pairs))
+                    ctx.checkpoint()
+                    _apply_paste_pair(calibrated_applicator, prepared, pair)
 
     return JobResult(
         summary=(
@@ -1114,7 +1443,12 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             f"塗布 有効 {len(pairs)} / 全 {len(top_pads)} pads"
             f"（無効 {disabled_count} 件スキップ・"
             f"初回パージ {initial_purge.amount_ul if initial_purge else 0.0:.3f} uL・"
-            f"押出合計 {total.amount_ul:+.3f} uL）"
+            f"押出合計 {total.amount_ul:+.3f} uL） / "
+            + _paste_volume_summary(
+                estimator,
+                calibration_result,
+                old_rotations_per_ul=old_rotations_per_ul,
+            )
         )
     )
 

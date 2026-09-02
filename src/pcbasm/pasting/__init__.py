@@ -57,6 +57,7 @@ from .paste_dataset import (
     PasteDatasetWriter,
     allocate_volume_by_rotations,
     crop_pad_image,
+    pad_image_crop_to_rgb,
     validate_dataset_image_margins,
 )
 from .probe import ProbeExecutor
@@ -150,6 +151,7 @@ __all__ = [
     "build_paste_fill_plan",
     "allocate_volume_by_rotations",
     "crop_pad_image",
+    "pad_image_crop_to_rgb",
     "estimate_mass_flow",
     "find_orphans",
     "is_pad_enabled",
