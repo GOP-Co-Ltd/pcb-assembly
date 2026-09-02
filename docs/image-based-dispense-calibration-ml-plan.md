@@ -9,6 +9,12 @@
 初期実装は単一 view の塗布前後画像から体積と不確かさを推定する。複数 view モデル、学習用
 WebUI、分散学習、モデルregistryによる自動配布は対象外とする。
 
+> 実装状況: 本計画の初期実装は `pcbasm.pasting.paste_volume` と塗布フローへ
+> 追加済み。ただし、実装済みであることと、収集データ・Raspberry Pi 5・実機による
+> release evidenceが揃っていることは区別する。現状は後述のevidence matrixを参照する。
+> 依存導入、学習、評価、promotion、機体設定の手順は
+> [ML 運用ガイド](image-based-dispense-calibration-ml-operations.md) を参照する。
+
 主要な判断は次のとおりとする。
 
 | 項目          | 採用方針                                                                         |
@@ -38,7 +44,8 @@ ML依存は通常のWebAPI/UI実行環境へ無条件に入れず、`pyproject.t
 - `ml-train`: `ml-runtime`に加えて`hydra-core`とMLflow client。学習、評価、
     ファインチューニングに使用する。
 - `ml-hpo`: `hydra-optuna-sweeper`と`optuna`。GPU workstationでのhyperparameter探索に使用する。
-- `ml-export`: `onnx`、`onnxscript`、`onnxruntime`。export、量子化、parity評価に使用する。
+- `ml-export`: `onnx`、`onnxscript`、`onnxruntime`、MLflow client。export、量子化、
+    parity評価をformal MLflow runとして実行する。
 - 通常のruntime: Raspberry Pi 5でも前処理をtorchvisionへ統一するため`ml-runtime`を使う。
     CNN本体はONNX Runtimeで実行し、PyTorch eager modelはloadしない。
 - `pytorch-lightning`と`clearml`は初期依存へ追加しない。
@@ -244,6 +251,9 @@ dataset形式自体には画像上限を設けない。v1モデルへ入れる�
 
 これらはノズル径、体積、塗布方式の制限ではなく、v1 encoderの入力品質・計算量の制約である。
 値は学習configとmodel manifestへ保存し、変更したモデルは別versionとして扱う。
+dataset検査では、0/255以外または空のmask、2 × 2未満・4 pixel未満の有効領域、crop境界へ
+接するmask、pre/post全体の分散が`1e-12`未満のsampleも拒否する。学習configで最小画像サイズを
+引き上げた場合は、dataset object構築時に全sampleがその値を満たすことを再検査する。
 
 ### tensor化とSampleLayerNorm
 
@@ -255,7 +265,8 @@ validation、test、実運転推論で共通化する。
 1. pre/postをtorchvisionでRGBの`uint8 [3, H, W]`としてdecodeする。
 2. 全要素が真の`sample_valid_mask [1, H, W]`を作る。torchvision transforms v2のfunctional APIで、
     同じ明示parameterの幾何変換をpre、post、pad geometry mask、`sample_valid_mask`へ適用する。
-    画像はbilinear、maskはnearest-exactを使う。
+    画像はbilinearを使う。locked版torchvisionのaffineは`nearest-exact`を扱わないため、maskの
+    affine回転はv2の`Mask` kernel（nearest固定）、resizeはnearest-exactを使う。
 3. `to_dtype(torch.float32, scale=True)`で`[0, 1]`へ変換する。
 4. pre RGB、post RGBの順で連結し、`x [6, H, W]`とする。
 5. augmentationや回転で生じたinvalid領域を除く全channel・全有効画素から、そのsample固有の
@@ -293,7 +304,7 @@ mean/variance分布をreportする。
 要件どおり回転と等方scaleだけを行う。輝度、contrast、色、blur、noiseは初期実装で変更しない。
 
 - 回転角は`[0, 360)`から一様に選び、pre/postへ同じbilinear変換、geometry maskへ同じ
-    nearest-exact変換を適用する。
+    torchvision v2 `Mask` kernelのnearest変換を適用する。回転後のresizeだけnearest-exactを使う。
 - 回転によって元canvas外から入る画素はinvalidとし、後述のlearnable padding pixelで置換する。
 - scaleは`[0.8, 1.2]`をlog-uniformで選ぶ。適用後も画像上限制約を満たすようclipし、
     `pixel_per_mm`へ実際のscaleを掛ける。
@@ -452,6 +463,7 @@ configはPython packageと一緒にinstallできる場所へ置く。
 pcbasm/pasting/paste_volume/conf/
 ├── train.yaml
 ├── evaluate.yaml
+├── cross_validate.yaml
 ├── data/paste_volume.yaml
 ├── model/resnet_small.yaml
 ├── trainer/gpu.yaml
@@ -460,6 +472,7 @@ pcbasm/pasting/paste_volume/conf/
 ├── experiment/base.yaml
 ├── experiment/fine_tune.yaml
 ├── hparams_search/base_optuna.yaml
+├── hydra/sweeper/paste_volume_optuna.yaml
 └── hydra/default.yaml
 ```
 
@@ -482,12 +495,15 @@ encoderの深さやchannel数はbaseline確立前に探索しない。
     推奨する。初期の単一端末では絶対pathのSQLiteも許容する。
 - `study_name`はmodel family、dataset fingerprint、search config fingerprintから作り、同じstorageと
     study nameで再実行して完了trialを再利用できるようにする。
-- 最良configはそのtrial weightをそのまま採用せず、通常の200 epoch上限で3 seedを再学習し、
-    validation metricの平均とばらつきを確認してから候補化する。
+- 最良configはそのtrial weightをそのまま採用せず、通常の200 epoch上限で3 seedを個別の
+    `base-train` runとして再学習し、validation metricの平均と標準偏差をMLflowで確認してから
+    候補化する。この比較は明示的な運用判断であり、自動package gateにはしない。
 
 Hydra multirun自体をcheckpointとして扱わない。中断済みtrialはそのtrialの`latest.ckpt`から単独で
 再開でき、study全体はpersistent Optuna storageから追加trialを継続する。HPO結果には
 `optimization_results.yaml`、study名、storage URIからcredentialを除いた値を残す。
+`hpo.*` tagを持つtrialの`weights.pt`は、success attestationが存在してもformal export sourceとして
+拒否する。再学習runへ渡すのは選択したhyperparameterだけとする。
 
 ### lossとmetric
 
@@ -574,7 +590,8 @@ CUDAでは`torch.amp.autocast`とGradScalerを使う。CPUではAMPを使わな�
     性能優先runだけ明示optionで解除する。
 - git commit、dirty flag、dependency version、dataset fingerprint、split manifest、全configを
     run開始時に保存する。
-- dirty worktreeでの学習は許容するが、diffをartifactとして必ず保存する。
+- dirty worktreeでの学習は許容する。任意のdiff本文からsecret除去を証明できないため、artifactには
+    diff本文を保存せず、UTF-8 bytesのSHA-256とbyte数を保存する。再現が必要な変更自体はcommitする。
 
 ### Raspberry Pi 5の時間制限
 
@@ -602,7 +619,8 @@ MLflowのautologは使わない。pure PyTorchへのautolog対象が限定され
 
 **tag**
 
-- `run_kind`: `base-train`、`finetune`、`evaluate`、`export`、`benchmark`
+- `run_kind`: `base-train`、`finetune`、`evaluate`、`export`、`optimize`、
+    `export-parity`、`compile-parity`、`benchmark`、`cross-validation-summary`、`promote`
 - git branch、commit、dirty flag、machine ID、parent base run ID
 - dataset fingerprint、split manifest fingerprint、model schema version
 
@@ -623,7 +641,8 @@ MLflowのautologは使わない。pure PyTorchへのautolog対象が限定され
 **artifact**
 
 - 解決済みconfig、composite manifest、sample index、split manifest、dataset検証report
-- git diff、model summary、学習曲線、予測対真値、残差、coverage plot
+- git commit、dirty flag、git diffのSHA-256/byte数、model summary、学習曲線、予測対真値、残差、
+    coverage plot
 - best/final checkpoint、推論artifact manifest、export/evaluation/benchmark report
 - 失敗時の最後のcheckpointとfailure reason
 
@@ -633,6 +652,14 @@ raw dataset全体はMLflowへ複製しない。診断画像は固定seedで選�
 MLflowへの一時的なmetric送信失敗はlocal queueへ保持して数回retryできるが、run終了時にflush
 できなければ成功扱いにしない。checkpointのlocal atomic saveはMLflow uploadより先に行い、
 tracking server障害でresume可能性を失わないようにする。
+
+formal operationはMLflow runを`FINISHED`へ確定した後だけ、出力の隣へ
+`<output>.mlflow-success.json`をcreate-onlyで発行する。attestationは絶対path、出力hash、run ID、
+`run_kind`、tracking URI hashを結び、consumerはlocal/remoteの写しとlive run tagを照合する。
+学習では`weights.pt.mlflow-success.json`がこの境界となる。失敗runにはsuccess attestationを残さない。
+URIのuserinfo、query、fragmentは永続化境界で除去する。tracked diff本文とuntracked file本文は
+任意のsecretを含み得るため保存せず、tracked diffはSHA-256とbyte数、untracked fileはpathだけを残す。
+credentialはそもそもversion管理対象configやcommand例へ埋め込まない。
 
 ## 5. checkpointと中断再開
 
@@ -645,7 +672,8 @@ run-directory/
 ├── latest.ckpt       # 一定stepごとの再開点
 ├── best.ckpt         # validation NLLが最良の再開可能checkpoint
 ├── final.ckpt        # 正常終了時の再開可能checkpoint
-└── weights.pt        # best modelのstate_dictとmodel/preprocess schema
+├── weights.pt        # best modelのstate_dictとmodel/preprocess schema
+└── weights.pt.mlflow-success.json # formal成功後だけ発行する隣接receipt
 ```
 
 `latest.ckpt`は5分または500 optimizer stepの早い方、および各epoch末に保存する。
@@ -654,6 +682,10 @@ run-directory/
 
 すべて一時fileへ書いて`fsync`後に`os.replace`する。途中書き込みのfileを有効checkpointとして
 見せない。`best.ckpt`を上書きする前に新fileの読み戻し検証を行う。
+formal base training / fine-tuningでは、checkpointとdiagnosticをMLflowへflushしてrunを
+`FINISHED`へ確定した後だけ、`weights.pt`の隣へsuccess receiptをcreate-onlyで発行する。exportは
+receiptのlocal/remote一致、live run、weights hash/source run、dataset/split/training protocol tagを
+再検証し、任意の`hpo.*` tagを持つtrial weightsを拒否する。
 
 ### 保存内容
 
@@ -673,13 +705,14 @@ repository側のmodel classとschema versionから復元する。
 
 ### resumeとfine-tuneの区別
 
-Hydra overrideの`resume.checkpoint=/abs/path/latest.ckpt`は同一runの継続である。dataset
+Hydra overrideの`checkpoint.resume_checkpoint=/abs/path/latest.ckpt`は同一runの継続である。dataset
 fingerprint、split、model構成、optimizer configが完全一致しない場合は拒否する。batch planと
 batch indexから次の未処理batchを再開し、
 augmentationもsample派生seedで同一にする。
 
-fine-tuningは新しいrunであり、base model weightと前処理schemaだけを読み、optimizer、scheduler、
-early stopping、samplerは新規作成する。この2操作を同じconfig fieldで兼用しない。
+fine-tuningは新しいrunであり、同じtracking server上でformal検証できる`base-train` weightと
+前処理schemaだけを読み、optimizer、scheduler、early stopping、samplerは新規作成する。この2操作を
+同じconfig fieldで兼用しない。
 
 ## 6. export、最適化、評価
 
@@ -689,16 +722,20 @@ early stopping、samplerは新規作成する。この2操作を同じconfig fie
 
 ```text
 best.ckpt
-    -> weights.pt
+    -> weights.pt + formal training receipt
     -> ONNX FP32
+    -> formal export parity（validation全sample + 固定4 dynamic shape）
+    -> formal torch.compile parity（固定4 shape + training batch）
     -> ONNX Runtime optimized FP32
     -> ONNX Runtime static INT8 candidate
-    -> 精度・parity・Pi benchmark
+    -> validation精度・Pi benchmark
+    -> candidate bind / select / one-shot frozen test
+    -> machine / paste_lot / nozzle formal cross-validation evidence
     -> promoted model package
 ```
 
-ONNX exportは`torch.onnx.export(..., dynamo=True)`を使い、batch、高さ、幅をdynamic dimensionに
-する。export対象はbatch 1用wrapperであり、入力は`SampleLayerNorm`適用済みの6 channel画像と変換前の
+ONNX exportは`torch.onnx.export(..., dynamo=True)`を使い、batchは1へ固定し、高さと幅だけを
+dynamic dimensionにする。export対象はbatch 1用wrapperであり、入力は`SampleLayerNorm`適用済みの6 channel画像と変換前の
 `pixel_per_mm`、出力は物理単位のmeanとlog-varianceとする。前処理そのものはmanifestに従う
 Python runtime moduleへ残す。
 
@@ -729,23 +766,26 @@ validationを意味し、artifactを1個に固定した後だけ凍結testへ同
 - calibration後の`mean ± 1 std` coverageを68.3%と比較し、bin別reliabilityも記録する。
 - 体積、画像面積、aspect ratio、`pixel_per_mm`、塗布方式ごとの誤差をreportする。
 
-**2. `torch.compile` parity評価**
+**2. export parity評価**
 
-最小・最大・縦長・横長の各shapeと学習用batchでeagerとcompiled modelのforward、loss、gradientを
-比較する。forwardはONNX parityと同じ許容誤差、lossとgradientはdtype別に定めた相対・絶対誤差を
-満たすことを要求する。compileの初回時間とsteady-state throughputも記録する。
+persisted validation assignmentの全sampleでPyTorch eagerとONNX FP32を比較する。meanと
+log-varianceが有限で、meanが正、FP32出力差が`max(1e-6 µL, eager meanの0.1%)`以内であることを
+要求する。加えてminimum 32 × 32、maximum-area 512 × 512、portrait 1024 × 256、landscape
+256 × 1024の4 dynamic shapeを個別に通す。正式reportはformal training weights、FP32 model、
+dataset/split/training protocol、validation/train sample集合へ結合する。
 
-**3. padding invariance評価**
+**3. `torch.compile` parity評価**
+
+minimum、maximum-area、portrait、landscapeの固定4 shapeと実際の学習用batchでeagerとcompiled
+modelのforward、loss、全trainable gradientを比較する。release用backend/modeは`inductor` /
+`default`固定で、graph break 0件を要求する。forwardはONNX parityと同じ許容誤差、lossとgradientは
+FP32の相対・絶対誤差を満たすことを要求し、compile初回時間とsteady-state throughputも記録する。
+
+**4. padding invariance評価**
 
 同じ画像へ0%、10%、25%、50%の追加paddingを異なる辺へ加える。各条件の予測差を測り、paddingに
 よる悪化後もprimary accuracy gateを満たすことを要求する。悪化が1 percentage pointを超える
 場合はpromotionせず、bucket幅またはpadding augmentationを見直す。
-
-**4. export parity評価**
-
-全評価sampleでPyTorch eagerとONNX FP32を比較する。meanとlog-varianceが有限で、meanが正、
-FP32出力差が`max(1e-6 µL, eager meanの0.1%)`以内であることを要求する。dynamic shapeの最小、
-最大、縦長、横長も個別に通す。
 
 **5. INT8精度評価**
 
@@ -760,7 +800,7 @@ INT8もprimary accuracy gateを満たし、FP32に対する
 - 代表的な小・中・大・縦長・横長sampleを含める。
 - process起動から初回予測までのcold latency、10回warm-up後100回のp50/p95/p99、peak RSS、
     artifact sizeを記録する。
-- 全sampleのp95が1秒以内であることを要求する。
+- 小・中・大・縦長・横長の全5 categoryでp95が1秒以内であることを要求する。
 
 精度gateを通過した候補のうちPi上のp95が最小のものをpromoteする。差が5%未満なら、artifactが
 小さく依存が単純な方を選ぶ。INT8が遅い、または精度gateを落とす場合はFP32を正式artifactに
@@ -789,12 +829,16 @@ paste-volume-resnet-small-v1/
 └── SHA256SUMS
 ```
 
-manifestにはartifact schema version、model名、input/output契約、dynamic dimension、
-`SampleLayerNorm` schema、画像制約、不確かさoffsetとthreshold、学習dataset/split fingerprint、MLflow run ID、
-exporter/opset/ORT version、quantization方式、各fileのSHA-256を含める。
+package schemaはv2とし、上記5 file以外の追加entryやsymlinkを許可しない。`SHA256SUMS`は自身を
+除く4 fileを列挙する。manifestにはmodel名、input/output契約、dynamic dimension、
+`SampleLayerNorm` schema、画像制約、不確かさoffsetとthreshold、学習dataset/split fingerprint、
+MLflow run ID、formal training weights attestation、export/compile parity、machine / paste_lot /
+nozzleの3 cross-validation evidence、exporter/opset/ORT version、quantization方式、各fileのSHA-256を
+含める。
 
-load時に全checksum、schema version、必要runtime versionを検証する。未知schemaや壊れたartifactを
-推測で読み込まない。
+production load時はnetworkやMLflowへ接続せず、package内だけで全checksum、schema v2、必要runtime
+version、lineage、全release evidenceを検証する。formal CLIによるremote attestation検証はpackage
+作成前に完了させ、unknown schemaや壊れたartifactを推測で読み込まない。
 
 ## 7. 塗布フローで利用するmodule
 
@@ -811,7 +855,10 @@ pcbasm.pasting.paste_volume.training     # train/fine-tune loop、checkpoint
 pcbasm.pasting.paste_volume.experiment   # ExperimentLoggerとMLflow adapter
 pcbasm.pasting.paste_volume.train        # Hydra所有のtraining entrypoint
 pcbasm.pasting.paste_volume.evaluate     # Hydra所有のevaluation entrypoint
+pcbasm.pasting.paste_volume.cross_validate # Hydra所有のcross-group validation entrypoint
 pcbasm.pasting.paste_volume.conf         # packaged Hydra config
+pcbasm.pasting.paste_volume.formal_artifact # MLflow success attestation境界
+pcbasm.pasting.paste_volume.compile_parity # eager/torch.compile release evidence
 pcbasm.pasting.paste_volume.export       # ONNX、quantization、parity、package
 pcbasm.pasting.paste_volume.inference    # manifest検証、runtime、公開prediction API
 pcbasm.cli.paste_volume                   # Hydraを使わない運用CLI
@@ -825,43 +872,81 @@ importしない。Hydra entrypoint、運用CLI、model loaderを呼んだ時点�
 
 Hydraとsubcommand parserに同じargvを処理させない。Hydraは`key=value` override、`-m`、`--cfg`、
 working directoryを独自に扱うため、`pcbasm.cli.paste_volume train ...`の残り引数をHydraへ中継する
-adapterは作らない。学習・fine-tuning・評価はHydraがargv全体を所有する独立moduleとする。
+adapterは作らない。学習・fine-tuning・評価・cross-group validationはHydraがargv全体を所有する
+独立moduleとする。
 
 ```text
-python -m pcbasm.pasting.paste_volume.train \
+uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train \
     experiment=base data.manifest=/abs/base-2026-09.composite.json
 
-python -m pcbasm.pasting.paste_volume.train \
-    experiment=fine_tune model.initial_weights=/abs/weights.pt \
+uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train \
+    experiment=fine_tune checkpoint.initial_weights=/abs/weights.pt \
     data.manifest=/abs/machine-a-fine-tune.composite.json
 
-python -m pcbasm.pasting.paste_volume.train -m \
+uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train -m \
     experiment=base hparams_search=base_optuna \
     data.manifest=/abs/base-2026-09.composite.json
 
-python -m pcbasm.pasting.paste_volume.evaluate \
-    checkpoint=/abs/best.ckpt data.manifest=/abs/base-2026-09.composite.json \
-    split=validation
+uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.evaluate \
+    weights=/abs/weights.pt data.manifest=/abs/base-2026-09.composite.json \
+    data.split_manifest=/abs/split.json split=validation
+
+uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.cross_validate -m \
+    cross_validation.dimension=machine,paste_lot,nozzle \
+    'cross_validation.output_directory=/abs/cross/${cross_validation.dimension}' \
+    data.manifest=/abs/base-2026-09.composite.json
 ```
 
 train/fine-tuneの別は`experiment` config groupで表し、独立したCLI parserやflag集合を持たせない。
-resumeだけは`resume.checkpoint=/abs/latest.ckpt`、fine-tuning初期weightは
-`model.initial_weights=/abs/weights.pt`とし、意味を分ける。`split=test`はさらに
-`allow_frozen_test=true`を要求し、通常の学習完了処理やOptuna trialから自動実行しない。
+resumeだけは`checkpoint.resume_checkpoint=/abs/latest.ckpt`、fine-tuning初期weightは
+`checkpoint.initial_weights=/abs/weights.pt`とし、意味を分ける。generic Hydra evaluateの
+`split=test`は`allow_frozen_test=true`を要求するが、診断用でありrelease evidenceにはしない。
+正式なrelease評価は、候補固定後に一度だけ消費できる`candidate frozen-test`のreportだけとする。
+通常のvalidationはweightsのtraining dataset/splitと一致させる。異なる永続splitを意図する場合だけ
+`allow_external_split=true`を指定し、同一lineageでの余分な指定は拒否する。formal evaluateは
+解決済みconfig/override、dependency、Git commit/dirty/diff identity、composite、sample index、split、
+dataset検査、model/compile情報、diagnostic reportをlocalとMLflowへ保存し、`FINISHED`後だけ
+evaluation reportの隣へsuccess attestationを作る。
 
 dataset検証、export、最適化、benchmark、単発推論はexperiment configを必要としないため、Hydraを
 使わない薄い運用CLIへ残す。
 
 ```text
-python -m pcbasm.cli.paste_volume dataset merge \
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset merge \
     --source machine-a=/abs/dataset-a --source machine-b=/abs/dataset-b \
     --output /abs/base-2026-09.composite.json
-python -m pcbasm.cli.paste_volume dataset validate <dataset...>
-python -m pcbasm.cli.paste_volume dataset summarize <dataset...>
-python -m pcbasm.cli.paste_volume export <checkpoint> --output <directory>
-python -m pcbasm.cli.paste_volume optimize <onnx-model> --calibration-data <dataset...>
-python -m pcbasm.cli.paste_volume benchmark <model-package>
-python -m pcbasm.cli.paste_volume infer <model-package> <pre-image> <post-image> \
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset validate <dataset...>
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset summarize <dataset...>
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume export \
+    <strict-weights.pt> --output <directory>
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume export-parity \
+    <strict-weights.pt> --fp32-model <exported-fp32.onnx> \
+    --data <dataset...> --split-manifest <split.json> --output <report.json>
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume compile-parity \
+    <strict-weights.pt> --data <dataset...> --split-manifest <split.json> \
+    --output <report.json>
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume optimize \
+    <onnx-model> --calibration-data <dataset...> --split-manifest <split.json> \
+    --output <directory>
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate evaluate \
+    <onnx-candidate> --fp32-reference <exported-fp32.onnx> \
+    --model-format <format> --data <dataset...> --split-manifest <split.json> \
+    --output <validation.json>
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume benchmark <onnx-candidate> \
+    --model-format <format> --data <dataset...> --split-manifest <split.json> \
+    --power-condition <condition> --cooling-condition <condition> --output <report.json>
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate bind \
+    <onnx-candidate> --evaluation <validation.json> --benchmark <benchmark.json> \
+    --compile-parity <compile-parity.json> --export-parity <export-parity.json> \
+    --output <candidate.json>
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume promote <finalized.json> \
+    --data <dataset...> --split-manifest <split.json> \
+    --cross-validation <machine-report.json> \
+    --cross-validation <paste-lot-report.json> \
+    --cross-validation <nozzle-report.json> \
+    --model-name <name> --model-version <version> --output <package-directory>
+uv run --locked --all-groups python -m pcbasm.cli.paste_volume infer \
+    <model-package> <pre-image> <post-image> \
     --pixel-per-mm <value>
 ```
 
@@ -978,10 +1063,31 @@ versionを残す。
 
 - estimator公開API、manifest/checksum検証、棄却理由、集約・clampを実装する。
 - 実ONNX Runtimeとlossless PNG fixtureを使って公開APIからend-to-end推論する。
-- fake cameraのWebUI E2Eでpre/post撮影、推論結果表示、0件採用時fallbackを確認する。
-- 実機では最後に撮影位置、1秒以内の推論、補正値が残りpadだけへ適用されることを確認する。
+- non-hardware testではpackage破損時のfail-close、予測棄却、集約・clamp、残りpadだけへの適用という
+    公開境界を確認する。camera、Moonraker、stageなどthird-party/hardware表面をmockしたE2Eは行わない。
+- 実camera/stage/dispenserを使う撮影順序、crop対応、1秒以内の推論、実際の塗布への適用は
+    hardware pendingとして分離し、実機上で確認する。
 
-## 完了条件
+## 実装と実証のevidence matrix
+
+2026-09-02時点の状態を示す。「実装済み」は検査境界やCLIが存在することを意味し、実データや
+実機でrelease条件を満たしたことを意味しない。
+
+| evidence                                    | code / automated contract                                      | 現在のempirical validation                             | release判定        |
+| ------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------ | ------------------ |
+| dataset検査・複数dataset統合                | 実装済み。提供データ60 sampleを読める                          | 1 sessionのみ                                          | base splitには不足 |
+| base train / validation / frozen test split | session分離、formal weights receipt、不足時拒否を実装済み      | train/validation/testへ各1 sessionを割り当てられない   | blocking           |
+| cross-machine / paste-lot / nozzle          | Hydra fold/summaryと隣接attestation、promotion結合を実装済み   | machine、lot、nozzleはいずれも1 groupのみ              | 3次元ともblocking  |
+| eager / `torch.compile` parity              | Inductor/default、固定4 shape+実batch、graph break 0を検査     | release用weightsとformal dataset/splitでの証跡は未作成 | blocking           |
+| ONNX FP32 / INT8評価                        | validation全件+4 shape parity、schema v2 offline検証を実装済み | release候補を確定する学習・評価は未実施                | blocking           |
+| Raspberry Pi 5 latency                      | 5 category、各10 warm-up + 100計測、各p95 gateを実装済み       | production相当Piで未実施                               | blocking           |
+| 塗布フロー統合                              | load失敗、棄却、集約、clamp、残りpadへの適用を実装済み         | camera、stage、dispenser実機で未実施                   | blocking           |
+
+したがって、現在のrepositoryにはML pipelineの実装はあるが、promoted modelがrelease可能という
+実証はまだない。session/group追加収集、formal training、cross-group validation、Pi benchmark、
+実機確認を順に完了して初めてrelease条件を評価する。
+
+## release完了条件
 
 - schema v1の複数datasetを原本コピーなしでmergeし、provenanceを保った再現可能なcomposite
     fingerprint、leakのないsplit、batchを作れる。
@@ -992,12 +1098,17 @@ versionを残す。
 - encoderがGroupNormだけを使い、batch size 1でもtrain/eval間でrunning statisticsへ依存しない。
 - Hydraの解決済みconfigからpure Python training APIを実行でき、Optuna studyと全trialをMLflowから
     追跡できる。
-- `torch.compile`が既定ONで、eager parity、compile時間、checkpoint、ONNX exportの境界が検証される。
+- formal training weightsと隣接/remote MLflow attestationが一致し、HPO trial weightをrelease入力から
+    拒否できる。
+- `torch.compile`が既定ONのInductor/defaultで、固定4 shapeと実batchのforward/loss/gradient parity、
+    graph break 0件、compile時間が検証される。
 - Lightningなしのpure PyTorch training coreでbase trainingとPi fine-tuningが動き、Pi fine-tuningが
     1時間以内に終わる。
 - MLflowからdataset、config、code、metric、checkpoint、export、benchmarkのlineageを辿れる。
 - 強制終了後に`latest.ckpt`から未処理batchを再開でき、不一致dataset/configを拒否する。
-- promoted artifactが精度、coverage、export parity、Pi p95 1秒の全gateを通る。
+- promoted schema v2 artifactがvalidation全sampleと4 dynamic shapeのexport parity、3 dimensionの
+    formal cross-validation evidence、精度、coverage、Pi p95 1秒の全gateを通り、exact 5 fileを
+    offline検証できる。
 - model不在、破損、範囲外、低信頼度、推論失敗時に`rotations_per_ul`を変更しない。
 - 有効な推定が1個以上ある場合だけ、既存要件の式と1/3〜3倍clampで補正する。
 
