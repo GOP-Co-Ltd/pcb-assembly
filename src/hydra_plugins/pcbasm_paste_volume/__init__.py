@@ -29,7 +29,7 @@ class PersistentOptunaSweeper(Sweeper):
         custom_search_space: str | None,
         params: DictConfig | None,
     ) -> None:
-        from pcbasm.pasting.paste_volume.hpo_sweeper import (
+        from ml.paste_volume.hpo_sweeper import (
             PersistentOptunaSweeper as Implementation,
         )
 

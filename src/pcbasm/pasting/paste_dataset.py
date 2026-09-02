@@ -351,7 +351,7 @@ class PasteDatasetMetadata:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, object]) -> PasteDatasetMetadata:
-        """Schema v1を暗黙変換せず復元する（未知keyも拒否）."""
+        """Schema v1のJSON数値を正規化して復元する（未知keyも拒否）."""
         try:
             return _METADATA_CONVERTER.structure(data, cls)
         except Exception as error:
@@ -366,9 +366,13 @@ def _make_metadata_converter() -> cattrs.Converter:
     )
 
     def strict_float(value: object, _: object) -> float:
-        if type(value) is not float or not math.isfinite(value):
-            raise ValueError(f"有限なfloatが必要です: {value!r}")
-        return value
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+        ):
+            raise ValueError(f"有限な数値が必要です: {value!r}")
+        return float(value)
 
     def strict_int(value: object, _: object) -> int:
         if type(value) is not int:
@@ -402,8 +406,12 @@ def _make_metadata_converter() -> cattrs.Converter:
         )
 
     def strict_paste_height(value: object, _: object) -> float | str:
-        if type(value) is float and math.isfinite(value):
-            return value
+        if (
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(value)
+        ):
+            return float(value)
         if type(value) is str and value == "auto":
             return value
         raise ValueError(f"paste_heightは有限なfloatまたはautoが必要です: {value!r}")

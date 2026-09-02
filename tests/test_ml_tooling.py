@@ -55,7 +55,7 @@ plugins = [
     if plugin.__module__ == "hydra_plugins.pcbasm_paste_volume"
 ]
 forbidden = (
-    "pcbasm.pasting.paste_volume.hpo_sweeper",
+    "ml.paste_volume.hpo_sweeper",
     "optuna",
     "torch",
 )
@@ -91,8 +91,12 @@ class TestMlBuildTargets:
         assert config["build-system"]["requires"] == ["uv_build>=0.12.0,<0.13.0"]
         assert config["tool"]["uv"]["build-backend"]["module-name"] == [
             "pcbasm",
+            "ml",
             "hydra_plugins.pcbasm_paste_volume",
         ]
+        assert config["project"]["scripts"]["pcbasm-paste-volume-ml"] == (
+            "ml.paste_volume.cli:main"
+        )
 
     def test_built_wheel_contains_ml_cli_plugin_and_hydra_resources(self, tmp_path):
         subprocess.run(
@@ -109,9 +113,10 @@ class TestMlBuildTargets:
 
         assert {
             "hydra_plugins/pcbasm_paste_volume/__init__.py",
-            "pcbasm/cli/paste_volume.py",
-            "pcbasm/pasting/paste_volume/conf/train.yaml",
-            "pcbasm/pasting/paste_volume/conf/hydra/sweeper/paste_volume_optuna.yaml",
+            "ml/__init__.py",
+            "ml/paste_volume/cli.py",
+            "ml/paste_volume/conf/train.yaml",
+            "ml/paste_volume/conf/hydra/sweeper/paste_volume_optuna.yaml",
         } <= packaged
 
     def test_normal_setup_does_not_install_all_ml_groups(self):
@@ -129,7 +134,7 @@ class TestMlBuildTargets:
         assert "uv sync --locked --all-extras --all-groups" in makefile
         assert "ml-smoke:" in makefile
         assert (
-            "uv run --locked --all-groups python -m pcbasm.cli.paste_volume smoke"
+            "uv run --locked --all-groups python -m ml.paste_volume.cli smoke"
             in makefile
         )
 

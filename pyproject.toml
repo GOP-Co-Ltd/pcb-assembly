@@ -31,7 +31,10 @@ requires = ["uv_build>=0.12.0,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = ["pcbasm", "hydra_plugins.pcbasm_paste_volume"]
+module-name = ["pcbasm", "ml", "hydra_plugins.pcbasm_paste_volume"]
+
+[project.scripts]
+pcbasm-paste-volume-ml = "ml.paste_volume.cli:main"
 
 [tool.uv]
 python-preference = "only-system"

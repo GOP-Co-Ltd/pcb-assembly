@@ -114,11 +114,11 @@ from web.api.jobs.context import (
 from web.api.jobs.machine_commands import create_command_klipper, handle_machine_command
 
 if TYPE_CHECKING:
-    from pcbasm.pasting.paste_volume.calibration import (
+    from ml.paste_volume.infer import PasteVolumeEstimator
+    from pcbasm.pasting.image_volume_calibration import (
         PasteVolumeCalibrationResult,
         PasteVolumeCalibrationSample,
     )
-    from pcbasm.pasting.paste_volume.inference import PasteVolumeEstimator
 
 # ローディングフェーズの progress stage 名
 # （loading_controls.html の data 属性・テストでピンする契約値）
@@ -1066,7 +1066,7 @@ def _load_paste_volume_estimator(ctx: JobContext) -> PasteVolumeEstimator | None
         if setting is None:
             ctx.log("画像ベース吐出量補正: model未設定のため無効")
             return None
-        from pcbasm.pasting.paste_volume.inference import (
+        from ml.paste_volume.infer import (
             load_configured_paste_volume_estimator,
         )
 
@@ -1145,8 +1145,8 @@ def _rejected_paste_volume_sample(
     reason: str,
 ) -> PasteVolumeCalibrationSample:
     """Pad単位の撮影・推論例外を棄却sampleへ変換する."""
-    from pcbasm.pasting.paste_volume.calibration import PasteVolumeCalibrationSample
-    from pcbasm.pasting.paste_volume.inference import PasteVolumePrediction
+    from ml.paste_volume.infer import PasteVolumePrediction
+    from pcbasm.pasting.image_volume_calibration import PasteVolumeCalibrationSample
 
     return PasteVolumeCalibrationSample(
         commanded_volume_ul=commanded_volume_ul,
@@ -1295,7 +1295,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                     selected_calibration_pairs,
                 )
             except ValueError as exc:
-                from pcbasm.pasting.paste_volume.calibration import (
+                from pcbasm.pasting.image_volume_calibration import (
                     failed_paste_volume_calibration,
                 )
 
@@ -1403,7 +1403,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                     f"accepted={prediction.accepted} / "
                     f"reason={prediction.rejection_reason or '-'}"
                 )
-                from pcbasm.pasting.paste_volume.calibration import (
+                from pcbasm.pasting.image_volume_calibration import (
                     PasteVolumeCalibrationSample,
                 )
 
@@ -1415,7 +1415,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 )
 
             if selected_calibration_pairs and estimator is not None:
-                from pcbasm.pasting.paste_volume.calibration import (
+                from pcbasm.pasting.image_volume_calibration import (
                     calibrate_rotations_per_ul,
                 )
 

@@ -13,7 +13,7 @@ class TestPastingLazyImport:
         code = """
 import json
 import sys
-import pcbasm.pasting.paste_volume
+import ml.paste_volume
 
 forbidden = ("pcbasm.hal", "picamera2", "cv2", "torch", "torchvision")
 print(json.dumps([

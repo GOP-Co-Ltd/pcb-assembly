@@ -573,9 +573,9 @@ schema v1は次の階層を持つ。すべての階層で未知keyと暗黙の�
 
 ## インターフェイス設計
 
-今回の実装範囲は、WebUIのデータ収集ジョブと、crop・mask・metadata・教師体積配分・永続化を
-担うコアAPIまでとする。以下のCLI、モデル学習・評価・推論、運転時キャリブレーションは
-将来の実装範囲であり、今回のデータ収集機能には含めない。
+WebUIのデータ収集ジョブと、crop・mask・metadata・教師体積配分・永続化は
+`pcbasm.pasting`が担当する。モデル学習・評価・export・推論は`src/ml/`へ分離し、
+運転時キャリブレーションから同じ推論APIを利用する。
 
 実機操作と機械学習開発では必要なインターフェイスが異なるため、WebUI と CLI を次のように
 使い分ける。
@@ -589,26 +589,34 @@ schema v1は次の階層を持つ。すべての階層で未知keyと暗黙の�
 | Raspberry Pi 5 上のファインチューニング | CLI                          |
 | モデルの評価・最適化・benchmark         | CLI                          |
 
-データセット、画像前処理、モデル、学習、評価、推論、教師体積の配分、
-`rotations_per_ul` の補正計算は `src/pcbasm/` に集約する。WebUI と CLI は同じ公開 API を
+収集、教師体積の配分、`rotations_per_ul`の補正計算は`src/pcbasm/`、ML用データ読み込み、
+画像前処理、モデル、学習、評価、export、推論は`src/ml/`へ集約する。WebUIとCLIは同じ公開APIを
 呼び出し、計算やドメインルールを複製しない。
 
 ### CLI
 
 装置を動かさない処理は CLI を正規インターフェイスとする。リポジトリ直下の `scripts/` へ
-スクリプトを追加せず、`src/pcbasm/` 内の Python module として実装する。
+スクリプトを追加せず、`src/ml/`内のPython moduleとして実装する。Hydraがargvを所有する
+学習・評価entrypointと、argparseによる運用CLIは混在させない。
 
 CLI は最低限、次の操作を提供する。
 
 ```text
-python -m pcbasm.cli.paste_volume dataset validate <dataset>
-python -m pcbasm.cli.paste_volume dataset summarize <dataset>
-python -m pcbasm.cli.paste_volume train <dataset...>
-python -m pcbasm.cli.paste_volume finetune <checkpoint> <dataset>
-python -m pcbasm.cli.paste_volume evaluate <model> <dataset>
-python -m pcbasm.cli.paste_volume optimize <model>
-python -m pcbasm.cli.paste_volume benchmark <model>
-python -m pcbasm.cli.paste_volume infer <model> <pre-image> <post-image>
+python -m ml.paste_volume.cli dataset validate <dataset>
+python -m ml.paste_volume.cli dataset summarize <dataset>
+python -m ml.paste_volume.train experiment=base data.manifest=<dataset-manifest>
+python -m ml.paste_volume.train experiment=fine_tune \
+    parent_base_run_id=<base-mlflow-run-id> checkpoint.initial_weights=<weights> \
+    data.manifest=<dataset-manifest>
+python -m ml.paste_volume.evaluate weights=<weights> \
+    data.manifest=<dataset-manifest> data.split_manifest=<split-manifest>
+python -m ml.paste_volume.cli optimize <onnx-model> \
+    --calibration-data <dataset> --split-manifest <split-manifest> --output <directory>
+python -m ml.paste_volume.cli benchmark <onnx-candidate> --model-format onnx-fp32 \
+    --data <dataset> --split-manifest <split-manifest> --output <report> \
+    --power-condition <condition> --cooling-condition <condition>
+python -m ml.paste_volume.cli infer <model-package> <pre-image> <post-image> \
+    --pixel-per-mm <value>
 ```
 
 ベースモデル学習、Raspberry Pi 5 上のファインチューニング、評価、最適化は WebUI の通常

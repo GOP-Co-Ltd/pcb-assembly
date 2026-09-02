@@ -20,7 +20,7 @@ setup-ml: clean  ## Setup development environment with all ML dependency groups
 	uv run --no-sync pre-commit install
 
 ml-smoke: ## Verify ML dependencies, model, image decoding, Hydra, and MLflow
-	uv run --locked --all-groups python -m pcbasm.cli.paste_volume smoke
+	uv run --locked --all-groups python -m ml.paste_volume.cli smoke
 
 
 format: ## Run pre-commit hooks

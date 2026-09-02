@@ -52,7 +52,7 @@ MLflow server 起動後、環境、RGB decode、モデルの forward/backward、
 compose、MLflow の metric/artifact 読み戻しを smoke test する。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume smoke \
+uv run --locked --all-groups python -m ml.paste_volume.cli smoke \
     --tracking-uri http://127.0.0.1:5000
 ```
 
@@ -60,7 +60,7 @@ GPU を必須とする workstation では `--require-cuda` を付ける。Raspbe
 付けず、CPU の forward/backward と ONNX Runtime を確認する。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume smoke \
+uv run --locked --all-groups python -m ml.paste_volume.cli smoke \
     --tracking-uri http://127.0.0.1:5000 --require-cuda
 ```
 
@@ -105,9 +105,9 @@ repository にある `data/paste-volume-datasets` は次のコマンドで全件
 できる。ZIP は自動探索対象に含まれず、完成済み session directory が読まれる。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset validate \
+uv run --locked --all-groups python -m ml.paste_volume.cli dataset validate \
     data/paste-volume-datasets
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset summarize \
+uv run --locked --all-groups python -m ml.paste_volume.cli dataset summarize \
     data/paste-volume-datasets
 ```
 
@@ -128,7 +128,7 @@ session が必要である。また、machine、paste lot、nozzle がそれぞ�
 新規 file にし、既存 manifest を更新しない。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset merge \
+uv run --locked --all-groups python -m ml.paste_volume.cli dataset merge \
     --source machine-a=/abs/dataset-a \
     --source machine-b=/abs/dataset-b \
     --output /abs/manifests/base-2026-09.composite.json \
@@ -143,9 +143,9 @@ fingerprint で重複除去されるが、同じ session ID の異なる内容�
 run では再現性のため composite manifest の指定を推奨する。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset validate \
+uv run --locked --all-groups python -m ml.paste_volume.cli dataset validate \
     /abs/dataset-a /abs/dataset-b
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset summarize \
+uv run --locked --all-groups python -m ml.paste_volume.cli dataset summarize \
     /abs/manifests/base-2026-09.composite.json
 ```
 
@@ -153,8 +153,8 @@ uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset summarize
 
 ### 共通の制約
 
-Hydra は `python -m pcbasm.pasting.paste_volume.train` または `evaluate` の argv 全体を
-所有する。`pcbasm.cli.paste_volume` を介して Hydra override を中継しない。path は
+Hydra は `python -m ml.paste_volume.train`、`evaluate`、`cross_validate` の argv 全体を
+所有する。`ml.paste_volume.cli` を介して Hydra override を中継しない。path は
 絶対 path を使い、`data.manifest` と `data.roots` は同時に指定しない。
 
 formal run は解決済み config、dependency version、Git commit、dirty flag、dirty diffの
@@ -172,7 +172,7 @@ base training は少なくとも 3 session を session 単位で train / validat
 へ分ける。run directory は明示し、後の resume、export、split 再利用の基準にする。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train \
+uv run --locked --all-groups python -m ml.paste_volume.train \
     experiment=base \
     data.manifest=/abs/manifests/base-2026-09.composite.json \
     checkpoint.directory=/abs/runs/base-2026-09-seed42 \
@@ -188,7 +188,7 @@ dataset/split/training protocol tagを照合する。weightsとreceiptは移動�
 manifest を事前作成しない場合も、複数 root を同じ composite 解決に通せる。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train \
+uv run --locked --all-groups python -m ml.paste_volume.train \
     experiment=base data.manifest=null \
     'data.roots=[/abs/dataset-a,/abs/dataset-b]' \
     checkpoint.directory=/abs/runs/base-from-roots \
@@ -203,7 +203,7 @@ run IDと一致させる。未attestのweights、`finetune`由来のweights、�
 run開始前に拒否する。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train \
+uv run --locked --all-groups python -m ml.paste_volume.train \
     experiment=fine_tune \
     data.manifest=/abs/manifests/machine-a-finetune.composite.json \
     checkpoint.initial_weights=/abs/runs/base-2026-09-seed42/weights.pt \
@@ -227,7 +227,7 @@ split、model、optimizer、trainer override と run directory を再現し、
 復元される。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train \
+uv run --locked --all-groups python -m ml.paste_volume.train \
     experiment=base \
     data.manifest=/abs/manifests/base-2026-09.composite.json \
     checkpoint.directory=/abs/runs/base-2026-09-seed42 \
@@ -262,7 +262,7 @@ Python/NumPy/PyTorch の RNG 状態を保持する。export に checkpoint を�
 `allow_external_split=true`を余分に指定することも拒否する。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.evaluate \
+uv run --locked --all-groups python -m ml.paste_volume.evaluate \
     weights=/abs/runs/base-2026-09-seed42/weights.pt \
     data.manifest=/abs/manifests/base-2026-09.composite.json \
     data.split_manifest=/abs/runs/base-2026-09-seed42/split.json \
@@ -289,7 +289,7 @@ test は候補選択や threshold 調整に使わない。generic Hydra evaluate
 結果をrelease evidenceとして扱わない。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.evaluate \
+uv run --locked --all-groups python -m ml.paste_volume.evaluate \
     weights=/abs/runs/base-2026-09-seed42/weights.pt \
     data.manifest=/abs/manifests/base-2026-09.composite.json \
     data.split_manifest=/abs/runs/base-2026-09-seed42/split.json \
@@ -309,7 +309,7 @@ multirunで実行する。各dimensionは学習用splitを自動生成するた�
 指定しない。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.cross_validate -m \
+uv run --locked --all-groups python -m ml.paste_volume.cross_validate -m \
     cross_validation.dimension=machine,paste_lot,nozzle \
     'cross_validation.output_directory=/abs/cross/${cross_validation.dimension}' \
     data.manifest=/abs/manifests/base-2026-09.composite.json \
@@ -333,7 +333,7 @@ NLL だけで、test を実行しない。dataset version、split manifest、sea
 storage URI を固定する。SQLite を使う場合は絶対 path が必要である。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train -m \
+uv run --locked --all-groups python -m ml.paste_volume.train -m \
     experiment=base hparams_search=base_optuna \
     data.manifest=/abs/manifests/base-2026-09.composite.json \
     data.split_manifest=/abs/splits/base-2026-09.json \
@@ -359,7 +359,7 @@ HPO trialには`hpo.*` tagが付くため、その`weights.pt`はformal receipt�
 dataset/splitに対して通常の200 epoch上限で3 seedを個別のbase trainingとして再学習する。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train \
+uv run --locked --all-groups python -m ml.paste_volume.train \
     experiment=base \
     data.manifest=/abs/manifests/base-2026-09.composite.json \
     data.split_manifest=/abs/splits/base-2026-09.json \
@@ -407,7 +407,7 @@ run ID、tracking serverを結合し、後続処理はlocal fileとMLflow上の�
 ### 1. best weights を ONNX FP32 へ export
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume export \
+uv run --locked --all-groups python -m ml.paste_volume.cli export \
     /abs/runs/base-2026-09-seed42/weights.pt \
     --output /abs/releases/base-v1/export
 ```
@@ -425,7 +425,7 @@ assignmentの全sampleに加え、minimum 32 × 32、maximum-area 512 × 512、p
 抽出確認やexport時のdummy shape確認で代用しない。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume export-parity \
+uv run --locked --all-groups python -m ml.paste_volume.cli export-parity \
     /abs/runs/base-2026-09-seed42/weights.pt \
     --fp32-model /abs/releases/base-v1/export/model.fp32.onnx \
     --data /abs/manifests/base-2026-09.composite.json \
@@ -446,7 +446,7 @@ reportを保存してMLflow runを`FAILED`にし、success attestationを作ら�
 このrelease evidenceへ差し替えない。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume compile-parity \
+uv run --locked --all-groups python -m ml.paste_volume.cli compile-parity \
     /abs/runs/base-2026-09-seed42/weights.pt \
     --data /abs/manifests/base-2026-09.composite.json \
     --split-manifest /abs/runs/base-2026-09-seed42/split.json \
@@ -463,7 +463,7 @@ INT8 calibration には同じ永続 split の train assignment だけを使う�
 session の寄与が偏らないように選択され、既定で最大 256 sample を使う。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume optimize \
+uv run --locked --all-groups python -m ml.paste_volume.cli optimize \
     /abs/releases/base-v1/export/model.fp32.onnx \
     --calibration-data /abs/manifests/base-2026-09.composite.json \
     --split-manifest /abs/runs/base-2026-09-seed42/split.json \
@@ -479,7 +479,7 @@ uv run --locked --all-groups python -m pcbasm.cli.paste_volume optimize \
 parity、不確かさ threshold の gate を計算する。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate evaluate \
+uv run --locked --all-groups python -m ml.paste_volume.cli candidate evaluate \
     /abs/releases/base-v1/optimized/model.optimized.fp32.onnx \
     --fp32-reference /abs/releases/base-v1/export/model.fp32.onnx \
     --model-format onnx-fp32 \
@@ -487,7 +487,7 @@ uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate evaluat
     --split-manifest /abs/runs/base-2026-09-seed42/split.json \
     --output /abs/releases/base-v1/fp32-validation.json
 
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate evaluate \
+uv run --locked --all-groups python -m ml.paste_volume.cli candidate evaluate \
     /abs/releases/base-v1/optimized/model.int8.qdq.onnx \
     --fp32-reference /abs/releases/base-v1/export/model.fp32.onnx \
     --model-format onnx-int8-qdq \
@@ -507,7 +507,7 @@ Raspberry Pi 5上で作成され、5 categoryには異なる5 sampleが必要で
 候補ごとに実行する。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume benchmark \
+uv run --locked --all-groups python -m ml.paste_volume.cli benchmark \
     /abs/releases/base-v1/optimized/model.optimized.fp32.onnx \
     --model-format onnx-fp32 \
     --data /abs/manifests/base-2026-09.composite.json \
@@ -516,7 +516,7 @@ uv run --locked --all-groups python -m pcbasm.cli.paste_volume benchmark \
     --cooling-condition 'active cooler; ambient 25C' \
     --output /abs/releases/base-v1/fp32-benchmark.json
 
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume benchmark \
+uv run --locked --all-groups python -m ml.paste_volume.cli benchmark \
     /abs/releases/base-v1/optimized/model.int8.qdq.onnx \
     --model-format onnx-int8-qdq \
     --data /abs/manifests/base-2026-09.composite.json \
@@ -539,7 +539,7 @@ hash/lineageを結合する。
 `select`はすべてのgateを通過した候補のうちPi p95が最小のものを固定する。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate bind \
+uv run --locked --all-groups python -m ml.paste_volume.cli candidate bind \
     /abs/releases/base-v1/optimized/model.optimized.fp32.onnx \
     --evaluation /abs/releases/base-v1/fp32-validation.json \
     --benchmark /abs/releases/base-v1/fp32-benchmark.json \
@@ -547,7 +547,7 @@ uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate bind \
     --export-parity /abs/releases/base-v1/export-parity.json \
     --output /abs/releases/base-v1/fp32-candidate.json
 
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate bind \
+uv run --locked --all-groups python -m ml.paste_volume.cli candidate bind \
     /abs/releases/base-v1/optimized/model.int8.qdq.onnx \
     --evaluation /abs/releases/base-v1/int8-validation.json \
     --benchmark /abs/releases/base-v1/int8-benchmark.json \
@@ -555,7 +555,7 @@ uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate bind \
     --export-parity /abs/releases/base-v1/export-parity.json \
     --output /abs/releases/base-v1/int8-candidate.json
 
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate select \
+uv run --locked --all-groups python -m ml.paste_volume.cli candidate select \
     /abs/releases/base-v1/fp32-candidate.json \
     /abs/releases/base-v1/int8-candidate.json \
     --output /abs/releases/base-v1/selection.json
@@ -568,14 +568,14 @@ dependency 構成がこれと異なる場合だけ明示し、根拠を release 
 ### 8. 選択済み候補を frozen test で 1 回だけ評価
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate frozen-test \
+uv run --locked --all-groups python -m ml.paste_volume.cli candidate frozen-test \
     /abs/releases/base-v1/selection.json \
     --fp32-reference /abs/releases/base-v1/export/model.fp32.onnx \
     --data /abs/manifests/base-2026-09.composite.json \
     --split-manifest /abs/runs/base-2026-09-seed42/split.json \
     --output /abs/releases/base-v1/frozen-test.json
 
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate finalize \
+uv run --locked --all-groups python -m ml.paste_volume.cli candidate finalize \
     /abs/releases/base-v1/selection.json \
     --frozen-test /abs/releases/base-v1/frozen-test.json \
     --output /abs/releases/base-v1/finalized.json
@@ -591,7 +591,7 @@ fine-tuned model は学習 split に test がないため、選択後に独立 h
 と `split.json` を使う。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate frozen-test \
+uv run --locked --all-groups python -m ml.paste_volume.cli candidate frozen-test \
     /abs/releases/machine-a-v1/selection.json \
     --fp32-reference /abs/releases/machine-a-v1/export/model.fp32.onnx \
     --data /abs/manifests/machine-a-release-holdout.composite.json \
@@ -611,7 +611,7 @@ evaluation fingerprint を再検証する。`--allow-external-split` なしで�
 assignment から coverage を導出する。coverage を手入力して回避できない。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume promote \
+uv run --locked --all-groups python -m ml.paste_volume.cli promote \
     /abs/releases/base-v1/finalized.json \
     --data /abs/manifests/base-2026-09.composite.json \
     --split-manifest /abs/runs/base-2026-09-seed42/split.json \
@@ -644,7 +644,7 @@ production loader からは拒否される。入力にはmodelとevaluationを�
 validation、benchmarkを結合済みのcandidate reportを渡す。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate package \
+uv run --locked --all-groups python -m ml.paste_volume.cli candidate package \
     /abs/releases/base-v1/fp32-candidate.json \
     --data /abs/manifests/base-2026-09.composite.json \
     --split-manifest /abs/runs/base-2026-09-seed42/split.json \
@@ -662,7 +662,7 @@ promotion 後の package はそのまま不変の directory として保持し�
 `previous_model_path` として残す。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume activate \
+uv run --locked --all-groups python -m ml.paste_volume.cli activate \
     /abs/models/paste-volume-resnet-small-v1-base-2026-09 \
     --pointer /abs/models/paste-volume-active.json
 ```
@@ -670,7 +670,7 @@ uv run --locked --all-groups python -m pcbasm.cli.paste_volume activate \
 問題がある場合は、直前 package を再検証して active/previous を入れ替える。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume rollback \
+uv run --locked --all-groups python -m ml.paste_volume.cli rollback \
     /abs/models/paste-volume-active.json
 ```
 
@@ -682,7 +682,7 @@ rollback は pointer に previous model がない場合、または previous pac
 promotion 済み package と lossless RGB PNG の pre/post pair を使う。
 
 ```bash
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume infer \
+uv run --locked --all-groups python -m ml.paste_volume.cli infer \
     /abs/models/paste-volume-resnet-small-v1-base-2026-09 \
     /abs/sample/pre.png /abs/sample/post.png \
     --pixel-per-mm 30.0

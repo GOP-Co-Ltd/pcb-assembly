@@ -59,6 +59,7 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `src/pcbasm/geometry/`: 3D 座標と幾何計算
 - `src/pcbasm/pcb/`: KiCAD 読込と PCB 設計情報
 - `src/pcbasm/visualization/`: 塗布パス・高さ面・PCB の可視化
+- `src/ml/`: 再利用可能なML基盤と`ml.paste_volume`固有の学習・評価・export・推論
 - `src/web/api/`: 機体ごとの backend WebAPI（FastAPI、port 8081）
 - `src/web/ui/`: LAN に 1 つ立てる UI frontend（FastAPI、port 8080。ページ描画と
     `/m/{machine_id}/api/**` の backend 中継）

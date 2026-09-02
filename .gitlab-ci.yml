@@ -32,7 +32,7 @@ workflow:
           - "src/web/ui/static/**"
           # テストが読む machine.toml / printer.cfg のフィクスチャ
           - "data/testing/config/**"
-          - "src/pcbasm/pasting/paste_volume/conf/**"
+          - "src/ml/paste_volume/conf/**"
           - pyproject.toml
           - uv.lock
           - Makefile

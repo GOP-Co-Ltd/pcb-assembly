@@ -267,7 +267,7 @@ class TestAllocateVolumeByRotations:
 
 
 class TestPasteDatasetMetadata:
-    """Schema v1は未知keyや暗黙の型変換を受理しない."""
+    """Schema v1はJSON数値を正規化し、未知keyや異種型を拒否する."""
 
     @pytest.fixture
     def payload(self) -> dict[str, object]:
@@ -299,12 +299,27 @@ class TestPasteDatasetMetadata:
         assert metadata.paste.lot is None
         assert metadata.to_dict()["paste"]["lot"] is None
 
+    def test_accepts_json_integers_for_float_fields(self, payload: dict[str, object]):
+        paste = payload["paste"]
+        purge = payload["purge"]
+        assert isinstance(paste, dict)
+        assert isinstance(purge, dict)
+        execution = purge["execution"]
+        assert isinstance(execution, dict)
+        paste["density_mg_per_ul"] = 3
+        execution["path_length_mm"] = 0
+
+        metadata = PasteDatasetMetadata.from_dict(payload)
+
+        assert metadata.paste.density_mg_per_ul == 3.0
+        assert metadata.purge.execution.path_length_mm == 0.0
+
     @pytest.mark.parametrize(
         ("path", "value"),
         [
             (("schema_version",), "1"),
             (("paste", "lot"), 123),
-            (("paste", "density_mg_per_ul"), 3),
+            (("paste", "density_mg_per_ul"), "3"),
             (("camera", "pixel_per_mm"), True),
         ],
     )

@@ -9,7 +9,7 @@
 初期実装は単一 view の塗布前後画像から体積と不確かさを推定する。複数 view モデル、学習用
 WebUI、分散学習、モデルregistryによる自動配布は対象外とする。
 
-> 実装状況: 本計画の初期実装は `pcbasm.pasting.paste_volume` と塗布フローへ
+> 実装状況: 本計画の初期実装は `ml.paste_volume` と塗布フローへ
 > 追加済み。ただし、実装済みであることと、収集データ・Raspberry Pi 5・実機による
 > release evidenceが揃っていることは区別する。現状は後述のevidence matrixを参照する。
 > 依存導入、学習、評価、promotion、機体設定の手順は
@@ -460,7 +460,7 @@ Hydraはentrypointと設定合成だけを担当する。解決済み`DictConfig
 configはPython packageと一緒にinstallできる場所へ置く。
 
 ```text
-pcbasm/pasting/paste_volume/conf/
+src/ml/paste_volume/conf/
 ├── train.yaml
 ├── evaluate.yaml
 ├── cross_validate.yaml
@@ -844,25 +844,62 @@ version、lineage、全release evidenceを検証する。formal CLIによるremo
 
 ### 配置と責務
 
-ML実装は`pcbasm.pasting`の下に置き、WebAPIやUIへ計算を持たせない。実装時の責務境界は次の
-とおりとする。
+ML実装はrepository内部のtop-level package `src/ml/`へ置く。このpackageをPyPIへ単独配布する
+ことは想定せず、短い`ml.*` importを正規interfaceとする。学習対象に依存しない仕組みを汎用package
+へまとめ、paste-volume固有の物理量、schema、release policyだけを`ml.paste_volume`へ置く。
+WebAPIやUIへ計算を持たせない。実装時の責務境界は次のとおりとする。
 
 ```text
-pcbasm.pasting.paste_dataset             # 収集schemaと原本の読み書き（既存）
-pcbasm.pasting.paste_volume.data         # validate、index、split、preprocess、batch
-pcbasm.pasting.paste_volume.model        # torch modelとloss
-pcbasm.pasting.paste_volume.training     # train/fine-tune loop、checkpoint
-pcbasm.pasting.paste_volume.experiment   # ExperimentLoggerとMLflow adapter
-pcbasm.pasting.paste_volume.train        # Hydra所有のtraining entrypoint
-pcbasm.pasting.paste_volume.evaluate     # Hydra所有のevaluation entrypoint
-pcbasm.pasting.paste_volume.cross_validate # Hydra所有のcross-group validation entrypoint
-pcbasm.pasting.paste_volume.conf         # packaged Hydra config
-pcbasm.pasting.paste_volume.formal_artifact # MLflow success attestation境界
-pcbasm.pasting.paste_volume.compile_parity # eager/torch.compile release evidence
-pcbasm.pasting.paste_volume.export       # ONNX、quantization、parity、package
-pcbasm.pasting.paste_volume.inference    # manifest検証、runtime、公開prediction API
-pcbasm.cli.paste_volume                   # Hydraを使わない運用CLI
+src/ml/
+├── model/                 # GroupNorm residual block、Gaussian回帰、model inspection
+├── data/                  # 画像変換、sample標準化、pixel-budget batch、group split
+├── training/              # pure PyTorch loop、checkpoint、experiment logging契約
+├── evaluation/            # 回帰metric、diagnostic、compile parity mechanics
+├── artifacts/             # atomic永続化とformal artifact mechanics
+├── export/                # ONNX、parity、量子化、benchmark mechanics
+├── infer/                 # ORT sessionとpackage/pointer検証 mechanics
+├── cli/                   # argparse dispatch、tracked operation、provenance
+├── tuning/                # Optuna/Hydra sweeper mechanics
+└── paste_volume/
+    ├── data.py            # paste datasetのindex、split manifest、target、batch adapter
+    ├── model.py           # 6 channel + mask + pixel_per_mm回帰model
+    ├── training_types.py  # paste固有batchとtraining data protocol
+    ├── metrics.py         # uL単位のmetricとprediction集約
+    ├── training.py        # paste loss/modelをgeneric loopへ接続
+    ├── training_artifacts.py # checkpointとformal weights schema
+    ├── formal_artifact.py # paste runのformal attestation policy
+    ├── train.py           # Hydra所有のtraining entrypoint
+    ├── evaluate.py        # Hydra所有のevaluation entrypoint
+    ├── cross_validate.py  # Hydra所有のcross-group validation entrypoint
+    ├── cross_validation.py # paste groupごとのfold実行
+    ├── reporting.py       # paste diagnostic/cross-group report
+    ├── compile_parity.py  # paste modelのeager/compile parity adapter
+    ├── artifact.py        # paste artifact lineageと共通wire validation
+    ├── onnx.py            # paste modelのONNX export、parity、最適化adapter
+    ├── benchmark.py       # paste datasetを用いたruntime benchmark
+    ├── release.py         # uL精度gateとrelease evidence
+    ├── package.py         # package検証、embedded metadata、active pointer schema
+    ├── promotion.py       # package作成、promotion、activate/rollback policy
+    ├── infer.py           # PasteVolumeEstimator / Prediction
+    ├── hpo_sweeper.py     # paste study identityをgeneric Hydra sweeperへ接続
+    ├── cli.py             # Hydraを使わないpaste運用CLI
+    ├── cli_commands/      # paste運用subcommand handler
+    └── conf/              # packaged Hydra config
+
+src/pcbasm/pasting/
+├── paste_dataset.py              # 実機収集schema、crop/mask、原本の読み書き
+└── image_volume_calibration.py   # predictionを集約したrotations_per_ul補正
 ```
+
+継承は`torch.nn.Module`、`Dataset`、`Sampler`、Hydra `Sweeper`などframework契約に必要な箇所へ
+限定する。task差し替えはProtocolとcompositionで表し、`BaseTrainer`、`BaseDataset`、registry、
+DI containerは設けない。各packageの`__init__.py`は重いsymbolをre-exportしない。
+
+package単位では依存が双方向になってよい。`ml.paste_volume.data`は収集時と同じschemaを使うため
+`pcbasm.pasting.paste_dataset`をimportする。一方、塗布時のdomain codeは必要な関数内で
+`ml.paste_volume.infer`をimportする。循環は「`ml`から`pcbasm`を一律禁止」して避けるのではなく、
+汎用`ml.*` coreが`pcbasm`と`ml.paste_volume`をimportしないこと、`paste_dataset.py`が`ml`を
+importしないこと、entrypointとorchestratorから下位moduleへの一方向importを守ることで避ける。
 
 通常の`import pcbasm.pasting`でtorch、torchvision、Hydra、Optuna、MLflow、ONNX Runtimeをeager
 importしない。Hydra entrypoint、運用CLI、model loaderを呼んだ時点で必要依存を読み、未installなら
@@ -871,27 +908,29 @@ importしない。Hydra entrypoint、運用CLI、model loaderを呼んだ時点�
 ### Hydra entrypointと運用CLI
 
 Hydraとsubcommand parserに同じargvを処理させない。Hydraは`key=value` override、`-m`、`--cfg`、
-working directoryを独自に扱うため、`pcbasm.cli.paste_volume train ...`の残り引数をHydraへ中継する
+working directoryを独自に扱うため、`ml.paste_volume.cli train ...`の残り引数をHydraへ中継する
 adapterは作らない。学習・fine-tuning・評価・cross-group validationはHydraがargv全体を所有する
 独立moduleとする。
 
 ```text
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train \
+uv run --locked --all-groups python -m ml.paste_volume.train \
     experiment=base data.manifest=/abs/base-2026-09.composite.json
 
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train \
+uv run --locked --all-groups python -m ml.paste_volume.train \
     experiment=fine_tune checkpoint.initial_weights=/abs/weights.pt \
+    parent_base_run_id=<base-mlflow-run-id> \
     data.manifest=/abs/machine-a-fine-tune.composite.json
 
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.train -m \
+uv run --locked --all-groups python -m ml.paste_volume.train -m \
     experiment=base hparams_search=base_optuna \
+    hydra.sweeper.storage=sqlite:////abs/optuna/paste-volume.db \
     data.manifest=/abs/base-2026-09.composite.json
 
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.evaluate \
+uv run --locked --all-groups python -m ml.paste_volume.evaluate \
     weights=/abs/weights.pt data.manifest=/abs/base-2026-09.composite.json \
     data.split_manifest=/abs/split.json split=validation
 
-uv run --locked --all-groups python -m pcbasm.pasting.paste_volume.cross_validate -m \
+uv run --locked --all-groups python -m ml.paste_volume.cross_validate -m \
     cross_validation.dimension=machine,paste_lot,nozzle \
     'cross_validation.output_directory=/abs/cross/${cross_validation.dimension}' \
     data.manifest=/abs/base-2026-09.composite.json
@@ -912,40 +951,40 @@ dataset検証、export、最適化、benchmark、単発推論はexperiment confi
 使わない薄い運用CLIへ残す。
 
 ```text
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset merge \
+uv run --locked --all-groups python -m ml.paste_volume.cli dataset merge \
     --source machine-a=/abs/dataset-a --source machine-b=/abs/dataset-b \
     --output /abs/base-2026-09.composite.json
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset validate <dataset...>
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume dataset summarize <dataset...>
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume export \
+uv run --locked --all-groups python -m ml.paste_volume.cli dataset validate <dataset...>
+uv run --locked --all-groups python -m ml.paste_volume.cli dataset summarize <dataset...>
+uv run --locked --all-groups python -m ml.paste_volume.cli export \
     <strict-weights.pt> --output <directory>
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume export-parity \
+uv run --locked --all-groups python -m ml.paste_volume.cli export-parity \
     <strict-weights.pt> --fp32-model <exported-fp32.onnx> \
     --data <dataset...> --split-manifest <split.json> --output <report.json>
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume compile-parity \
+uv run --locked --all-groups python -m ml.paste_volume.cli compile-parity \
     <strict-weights.pt> --data <dataset...> --split-manifest <split.json> \
     --output <report.json>
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume optimize \
+uv run --locked --all-groups python -m ml.paste_volume.cli optimize \
     <onnx-model> --calibration-data <dataset...> --split-manifest <split.json> \
     --output <directory>
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate evaluate \
+uv run --locked --all-groups python -m ml.paste_volume.cli candidate evaluate \
     <onnx-candidate> --fp32-reference <exported-fp32.onnx> \
     --model-format <format> --data <dataset...> --split-manifest <split.json> \
     --output <validation.json>
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume benchmark <onnx-candidate> \
+uv run --locked --all-groups python -m ml.paste_volume.cli benchmark <onnx-candidate> \
     --model-format <format> --data <dataset...> --split-manifest <split.json> \
     --power-condition <condition> --cooling-condition <condition> --output <report.json>
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume candidate bind \
+uv run --locked --all-groups python -m ml.paste_volume.cli candidate bind \
     <onnx-candidate> --evaluation <validation.json> --benchmark <benchmark.json> \
     --compile-parity <compile-parity.json> --export-parity <export-parity.json> \
     --output <candidate.json>
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume promote <finalized.json> \
+uv run --locked --all-groups python -m ml.paste_volume.cli promote <finalized.json> \
     --data <dataset...> --split-manifest <split.json> \
     --cross-validation <machine-report.json> \
     --cross-validation <paste-lot-report.json> \
     --cross-validation <nozzle-report.json> \
     --model-name <name> --model-version <version> --output <package-directory>
-uv run --locked --all-groups python -m pcbasm.cli.paste_volume infer \
+uv run --locked --all-groups python -m ml.paste_volume.cli infer \
     <model-package> <pre-image> <post-image> \
     --pixel-per-mm <value>
 ```
