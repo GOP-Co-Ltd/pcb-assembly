@@ -20,7 +20,7 @@ workflow:
   before_script:
     - export UV_CACHE_DIR="$HOME/.cache/uv"
     - uv venv --clear --system-site-packages --python /usr/bin/python3
-    - uv sync --locked --all-extras
+    - uv sync --locked --all-extras --all-groups
   rules:
     - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH"
     - changes:
@@ -32,8 +32,10 @@ workflow:
           - "src/web/ui/static/**"
           # テストが読む machine.toml / printer.cfg のフィクスチャ
           - "data/testing/config/**"
+          - "src/pcbasm/pasting/paste_volume/conf/**"
           - pyproject.toml
           - uv.lock
+          - Makefile
           - .gitlab-ci.yml
     - when: never
 
@@ -53,6 +55,17 @@ pyright:
   timeout: 15 minutes
   script:
     - uv run --no-sync pyright
+
+wheel:
+  extends: .python-validation
+  timeout: 15 minutes
+  script:
+    - uv lock --check
+    - uv build --wheel --out-dir dist
+  artifacts:
+    paths:
+      - dist/*.whl
+    expire_in: 7 days
 
 pytest:
   extends: .python-validation

@@ -155,6 +155,7 @@ DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 SECTION_LABELS: dict[str, str] = {
     # トップレベル（bare key）は section_of が生キーを返すため、明示的にラベルを持たせる
     "machine_name": "マシン",
+    "paste_volume": "画像ベース吐出量補正",
     "paste_dispenser": "ペーストディスペンサー",
     "paste_dispenser.toolhead": "ペーストディスペンサー / ツールヘッド",
     "paste_dispenser.pad_align": "ペーストディスペンサー / パッド位置合わせ",

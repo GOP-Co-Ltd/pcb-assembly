@@ -67,12 +67,28 @@ class TestMachineSettings:
     def test_missing_keys_read_as_none(self, store: ConfigStore):
         values = store.read_machine_settings()
 
+        assert values["paste_volume.model_package"] is None
         assert values["paste_dispenser.initial_purge_ul"] is None
         assert values["paste_dispenser.bead_width_factor"] is None
         assert values["paste_dispenser.boundary_margin"] is None
         assert values["paste_dispenser.auto_area_short_side_factor"] is None
         assert values["paste_dispenser.pad_align.refine_max_short_side"] is None
         assert values["probe.lift_height"] is None
+
+    def test_write_model_package_then_reread_reflects_trimmed_path(
+        self, store: ConfigStore
+    ):
+        store.write_machine_settings(
+            {"paste_volume.model_package": "  models/active.json  "}
+        )
+
+        values = store.read_machine_settings()
+        assert values["paste_volume.model_package"] == "models/active.json"
+
+    @pytest.mark.parametrize("value", ["", "   "])
+    def test_write_rejects_empty_model_package(self, store: ConfigStore, value: str):
+        with pytest.raises(UnknownFieldError, match="model_package"):
+            store.write_machine_settings({"paste_volume.model_package": value})
 
     def test_write_then_reread_reflects_value(self, store: ConfigStore):
         store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})

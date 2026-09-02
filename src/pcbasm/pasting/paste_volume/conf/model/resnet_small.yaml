@@ -1,0 +1,9 @@
+family: paste-volume-resnet-small-v1
+input_channels: 6
+stem_channels: [24, 32, 48]
+stage_channels: [48, 96, 160]
+blocks_per_stage: [2, 2, 2]
+group_norm_groups: 8
+hidden_features: 128
+log_variance_min: -14.0
+log_variance_max: 5.0

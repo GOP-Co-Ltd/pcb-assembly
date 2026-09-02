@@ -1,0 +1,29 @@
+defaults:
+  - data: paste_volume
+  - model: resnet_small
+  - trainer: gpu
+  - logger: mlflow
+  - hydra: default
+  - _self_
+  - experiment: base
+
+run_kind: base-train
+repository_root: .
+parent_base_run_id: null
+hpo:
+  study_name: null
+  trial_number: null
+  search_config_fingerprint: null
+  storage_uri_redacted: null
+checkpoint:
+  directory: data/paste-volume-ml/cross-validation/${now:%Y%m%dT%H%M%S}/unused
+  resume_checkpoint: null
+  initial_weights: null
+  save_interval_steps: 500
+  save_interval_seconds: 300.0
+cross_validation:
+  output_directory: data/paste-volume-ml/cross-validation/${now:%Y%m%dT%H%M%S}/${cross_validation.dimension}
+  dimension: machine
+  seed: 42
+  evaluation_device: auto
+  evaluation_compile_enabled: true

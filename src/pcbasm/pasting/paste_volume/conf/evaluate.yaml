@@ -1,0 +1,20 @@
+defaults:
+  - data: paste_volume
+  - logger: mlflow
+  - hydra: default
+  - _self_
+
+weights: ???
+output_directory: data/paste-volume-ml/evaluations/${now:%Y%m%dT%H%M%S}
+split: validation
+# Generic split=test is diagnostic-only and requires allow_frozen_test=true.
+# It never substitutes for the one-shot candidate frozen-test operation.
+allow_frozen_test: false
+# Set only when data.manifest/data.split_manifest intentionally differ from the
+# formal training weights lineage.
+allow_external_split: false
+device: auto
+compile_enabled: true
+compile_backend: inductor
+compile_mode: default
+repository_root: .

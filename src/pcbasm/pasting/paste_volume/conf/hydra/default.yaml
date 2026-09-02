@@ -1,0 +1,9 @@
+# @package hydra
+job:
+  chdir: false
+run:
+  dir: .
+sweep:
+  dir: data/paste-volume-ml/multirun
+  subdir: ${hydra.job.num}
+output_subdir: null
