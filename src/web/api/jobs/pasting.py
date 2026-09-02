@@ -1177,14 +1177,23 @@ def _paste_volume_summary(
         model_version = info.model_version
         model_checksum = info.model_checksum
     new_value = old_rotations_per_ul if result is None else result.new_rotations_per_ul
+    applied = result is not None and result.applied
+    if result is not None:
+        rejection_reason = result.rejection_reason or "-"
+    elif estimator is None:
+        rejection_reason = "modelが未設定またはloadされていません"
+    else:
+        rejection_reason = "補正対象padがありません"
     return (
         "画像補正 "
         f"old={old_rotations_per_ul:.6f} / new={new_value:.6f} rev/uL・"
+        f"status={'applied' if applied else 'skip'}・"
         f"model={model_id} ({model_name})・version={model_version}・"
         f"checksum={model_checksum}・"
         f"used={0 if result is None else result.used_count}・"
         f"rejected={0 if result is None else result.rejected_count}・"
-        f"clamp={False if result is None else result.clamped}"
+        f"clamp={False if result is None else result.clamped}・"
+        f"rejection_reason={rejection_reason}"
     )
 
 

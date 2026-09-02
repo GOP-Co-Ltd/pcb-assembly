@@ -381,9 +381,17 @@ class TestCatalog:
     ):
         params = {spec.name: spec for spec in default.get("paste_solder").params}
 
-        assert set(params) == {"tolerance", "amount", "interactive_loading"}
+        assert set(params) == {
+            "tolerance",
+            "amount",
+            "interactive_loading",
+            "calibration_pad_count",
+        }
         assert params["interactive_loading"].value_type == "bool"
         assert params["interactive_loading"].default is False
+        assert params["calibration_pad_count"].value_type == "int"
+        assert params["calibration_pad_count"].default == 3
+        assert params["calibration_pad_count"].minimum == 1
 
 
 class TestGenerateRectPcb:
@@ -876,6 +884,68 @@ class TestPasteDatasetCollectionPreflight:
         assert record.error is not None
         assert "mask_margin_mm" in record.error
         assert record.pending_prompt is None
+
+
+class TestPasteVolumeCalibrationPreflight:
+    """運転時modelは装置を開く前に検証し、破損時は明示確認する."""
+
+    def test_missing_model_prompts_before_machine_setup(
+        self,
+        manager: JobManager,
+        state: AppState,
+        store: ConfigStore,
+        real_pcb_path: Path,
+        wait_until: WaitUntil,
+    ):
+        store.write_machine_settings(
+            {"paste_volume.model_package": "models/missing-active.json"}
+        )
+        state.select_pcb(real_pcb_path)
+
+        record = manager.start("paste_solder", {})
+        wait_until(lambda: record.pending_prompt is not None, timeout=60.0)
+
+        pending = record.pending_prompt
+        assert pending is not None
+        assert "画像ベース吐出量補正" in pending[1].message
+        assert "補正なしで続行" == pending[1].true_label
+        assert any("modelのloadに失敗" in line for line in record.log_lines)
+
+        manager.respond_prompt(pending[0], False)
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+        assert record.status == JobStatus.ABORTED
+
+    def test_missing_model_can_continue_into_legacy_machine_flow(
+        self,
+        manager: JobManager,
+        state: AppState,
+        store: ConfigStore,
+        real_pcb_path: Path,
+        wait_until: WaitUntil,
+    ):
+        """Load失敗を承認すると補正なしの既存装置経路へ進む."""
+        store.write_machine_settings(
+            {"paste_volume.model_package": "models/missing-active.json"}
+        )
+        state.select_pcb(real_pcb_path)
+
+        record = manager.start("paste_solder", {})
+        wait_until(lambda: record.pending_prompt is not None, timeout=60.0)
+
+        pending = record.pending_prompt
+        assert pending is not None
+        manager.respond_prompt(pending[0], True)
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+        wait_until(lambda: state.busy_owner is None)
+
+        logs = "\n".join(record.log_lines)
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "modelのloadに失敗" in logs
+        assert "M84" in logs
+        assert record.pending_prompt is None
+        with state.machine_lock("after-paste-volume-fallback"):
+            pass
 
 
 class TestApplyTargetsWhitelisted:
