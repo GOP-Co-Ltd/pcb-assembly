@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import copy
+import json
+import math
 from pathlib import Path
 
 import attrs
@@ -7,11 +10,14 @@ import pytest
 
 from pcbasm.pasting.paste_volume.data import build_sample_index, resolve_dataset_inputs
 from pcbasm.pasting.paste_volume.reporting import (
+    REQUIRED_DIAGNOSTIC_DIMENSIONS,
+    DiagnosticReport,
     Prediction,
     build_cross_group_plan,
     build_cross_group_plans,
     build_diagnostic_report,
     calculate_slice_metrics,
+    load_diagnostic_report,
 )
 from tests.pcbasm.pasting.paste_volume.support_data import write_synthetic_session
 
@@ -100,6 +106,37 @@ class TestCrossGroupPlanning:
         with pytest.raises(ValueError, match="混在"):
             build_cross_group_plan(samples, composite.composite_fingerprint, "machine")
 
+    def test_fold_ids_are_stable_and_unique_when_group_slugs_collide(
+        self, tmp_path: Path
+    ):
+        for index, machine_id in enumerate(("a:b", "a-b", "other")):
+            write_synthetic_session(
+                tmp_path,
+                f"session-{index}",
+                machine_id=machine_id,
+                pad_count=1,
+                content_seed=index,
+            )
+        composite = resolve_dataset_inputs(roots=(tmp_path,))
+        samples = build_sample_index(composite)
+
+        first = build_cross_group_plan(
+            samples, composite.composite_fingerprint, "machine", seed=9
+        )
+        second = build_cross_group_plan(
+            samples, composite.composite_fingerprint, "machine", seed=9
+        )
+
+        assert first.available
+        assert [fold.fold_id for fold in first.folds] == [
+            fold.fold_id for fold in second.folds
+        ]
+        identifiers = {fold.held_out_group: fold.fold_id for fold in first.folds}
+        assert identifiers["a:b"] != identifiers["a-b"]
+        assert identifiers["a:b"].startswith("machine-a-b-")
+        assert identifiers["a-b"].startswith("machine-a-b-")
+        assert len(identifiers["a:b"].rsplit("-", maxsplit=1)[1]) == 12
+
 
 class TestDiagnosticReporting:
     def test_calculates_physical_metrics_and_invalid_count(self, tmp_path: Path):
@@ -124,6 +161,20 @@ class TestDiagnosticReporting:
         assert metrics.rmse_ul is not None and metrics.rmse_ul > 0
         assert metrics.gaussian_nll is not None
         assert metrics.one_std_coverage == pytest.approx(1.0)
+        signed_relative = (
+            0.01 / samples[0].measured_volume_ul,
+            -0.02 / samples[1].measured_volume_ul,
+        )
+        expected_mean = sum(signed_relative) / len(signed_relative)
+        expected_std = math.sqrt(
+            sum((value - expected_mean) ** 2 for value in signed_relative)
+            / len(signed_relative)
+        )
+        assert metrics.signed_relative_error_mean == pytest.approx(expected_mean)
+        assert metrics.signed_relative_error_std == pytest.approx(expected_std)
+        assert metrics.signed_relative_error_score == pytest.approx(
+            abs(expected_mean) + expected_std
+        )
 
     def test_reports_required_diagnostic_slices_and_reliability(self, tmp_path: Path):
         for index in range(4):
@@ -152,17 +203,7 @@ class TestDiagnosticReporting:
         report = build_diagnostic_report(samples, predictions)
 
         dimensions = {item.dimension for item in report.slices}
-        assert {
-            "target_volume_ul",
-            "image_area_pixels",
-            "aspect_ratio",
-            "pixel_per_mm",
-            "dispense_mode",
-            "machine",
-            "paste_lot",
-            "nozzle",
-            "source",
-        } <= dimensions
+        assert dimensions == set(REQUIRED_DIAGNOSTIC_DIMENSIONS)
         assert report.overall.sample_count == len(samples)
         assert report.reliability_bins
         assert sum(item.sample_count for item in report.reliability_bins) == len(
@@ -195,3 +236,94 @@ class TestDiagnosticReporting:
             build_diagnostic_report(samples, (duplicate, duplicate))
         with pytest.raises(ValueError, match="未知sample_id"):
             build_diagnostic_report(samples, (Prediction("unknown", 0.1, 0.01),))
+
+    def test_strict_round_trip_and_load(self, tmp_path: Path):
+        write_synthetic_session(tmp_path / "dataset", "session", pad_count=3)
+        samples = build_sample_index(
+            resolve_dataset_inputs(roots=(tmp_path / "dataset",))
+        )
+        predictions = tuple(
+            Prediction(sample.sample_id, sample.measured_volume_ul, 0.01)
+            for sample in samples
+        )
+        report = build_diagnostic_report(samples, predictions)
+        path = tmp_path / "diagnostics.json"
+        path.write_text(
+            json.dumps(report.to_dict(), ensure_ascii=False, allow_nan=False),
+            encoding="utf-8",
+        )
+
+        assert DiagnosticReport.from_dict(report.to_dict()) == report
+        assert load_diagnostic_report(path) == report
+
+    @pytest.mark.parametrize(
+        ("case", "expected"),
+        (
+            ("duplicate-sample", "重複"),
+            ("sample-order", "sort済み"),
+            ("count", "count"),
+            ("non-finite", "有限"),
+            ("duplicate-slice", "重複"),
+            ("slice-order", "順序"),
+            ("missing-dimension", "required dimension"),
+            ("bin-coverage", "coverage"),
+            ("duplicate-bin", "重複"),
+            ("bin-order", "順序"),
+            ("unknown-key", "unknown"),
+        ),
+    )
+    def test_strict_parser_rejects_inconsistent_evidence(
+        self, tmp_path: Path, case: str, expected: str
+    ):
+        write_synthetic_session(tmp_path, "session", pad_count=3)
+        samples = build_sample_index(resolve_dataset_inputs(roots=(tmp_path,)))
+        report = build_diagnostic_report(
+            samples,
+            tuple(
+                Prediction(
+                    sample.sample_id,
+                    sample.measured_volume_ul,
+                    0.01 + index * 0.001,
+                )
+                for index, sample in enumerate(samples)
+            ),
+        )
+        payload = copy.deepcopy(report.to_dict())
+        sample_ids = payload["sample_ids"]
+        slices = payload["slices"]
+        bins = payload["reliability_bins"]
+        assert isinstance(sample_ids, list)
+        assert isinstance(slices, list)
+        assert isinstance(bins, list)
+        if case == "duplicate-sample":
+            sample_ids.insert(0, sample_ids[0])
+        elif case == "sample-order":
+            sample_ids.reverse()
+        elif case == "count":
+            assert isinstance(payload["overall"], dict)
+            payload["overall"]["sample_count"] = 999
+        elif case == "non-finite":
+            assert isinstance(payload["overall"], dict)
+            payload["overall"]["signed_relative_error_mean"] = float("nan")
+        elif case == "duplicate-slice":
+            slices.insert(0, copy.deepcopy(slices[0]))
+        elif case == "slice-order":
+            slices[0], slices[1] = slices[1], slices[0]
+        elif case == "missing-dimension":
+            payload["slices"] = [
+                item
+                for item in slices
+                if isinstance(item, dict) and item.get("dimension") != "machine"
+            ]
+        elif case == "bin-coverage":
+            assert isinstance(bins[0], dict)
+            bins[0]["sample_count"] = 999
+        elif case == "duplicate-bin":
+            bins.append(copy.deepcopy(bins[0]))
+        elif case == "bin-order":
+            bins[0], bins[1] = bins[1], bins[0]
+        else:
+            payload["unexpected"] = True
+
+        with pytest.raises(ValueError, match=expected):
+            DiagnosticReport.from_dict(payload)

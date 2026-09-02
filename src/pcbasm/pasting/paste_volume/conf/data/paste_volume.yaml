@@ -1,0 +1,19 @@
+manifest: ???
+roots: []
+split_manifest: null
+split_seed: 42
+train_ratio: 0.70
+validation_ratio: 0.15
+test_ratio: 0.15
+constraints:
+  min_size: 32
+  max_size: 1024
+  max_pixels: 262144
+  stride: 32
+  normalization_epsilon: 1.0e-5
+augmentation:
+  enabled: true
+  min_scale: 0.8
+  max_scale: 1.2
+max_batch_pixels: 8388608
+max_batch_size: 32

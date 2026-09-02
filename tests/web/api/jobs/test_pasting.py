@@ -889,6 +889,38 @@ class TestPasteDatasetCollectionPreflight:
 class TestPasteVolumeCalibrationPreflight:
     """運転時modelは装置を開く前に検証し、破損時は明示確認する."""
 
+    def test_corrupt_model_prompts_before_machine_setup(
+        self,
+        manager: JobManager,
+        state: AppState,
+        store: ConfigStore,
+        config_dir: Path,
+        real_pcb_path: Path,
+        wait_until: WaitUntil,
+    ):
+        """存在するが不完全なpackageもfail-closedで補正を開始しない."""
+        package = config_dir / "models" / "corrupt-package"
+        package.mkdir(parents=True)
+        (package / "manifest.json").write_text("{}\n", encoding="utf-8")
+        store.write_machine_settings(
+            {"paste_volume.model_package": "models/corrupt-package"}
+        )
+        state.select_pcb(real_pcb_path)
+
+        record = manager.start("paste_solder", {})
+        wait_until(lambda: record.pending_prompt is not None, timeout=60.0)
+
+        pending = record.pending_prompt
+        assert pending is not None
+        logs = "\n".join(record.log_lines)
+        assert "modelのloadに失敗" in logs
+        assert "規定の5 file" in logs
+        assert record.progress_stage is None
+
+        manager.respond_prompt(pending[0], False)
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+        assert record.status == JobStatus.ABORTED
+
     def test_missing_model_prompts_before_machine_setup(
         self,
         manager: JobManager,

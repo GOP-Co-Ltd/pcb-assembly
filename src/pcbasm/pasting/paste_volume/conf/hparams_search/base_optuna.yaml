@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - override /hydra/sweeper: paste_volume_optuna
+
+trainer:
+  max_epochs: 60
+  early_stopping_patience: 10

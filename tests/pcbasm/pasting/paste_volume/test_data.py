@@ -137,6 +137,39 @@ class TestSessionValidation:
         with pytest.raises(ValueError, match="0/255"):
             validate_session(session)
 
+        session = write_synthetic_session(tmp_path, "empty-mask")
+        write_png(
+            torch.zeros((1, 48, 64), dtype=torch.uint8),
+            str(session / "mask" / "000001.00.png"),
+        )
+        with pytest.raises(ValueError, match="有効領域が空"):
+            validate_session(session)
+
+        session = write_synthetic_session(tmp_path, "tiny-mask")
+        mask = torch.zeros((1, 48, 64), dtype=torch.uint8)
+        mask[:, 10, 10] = 255
+        write_png(mask, str(session / "mask" / "000001.00.png"))
+        with pytest.raises(ValueError, match="小さすぎ"):
+            validate_session(session)
+
+        session = write_synthetic_session(tmp_path, "clipped-mask")
+        mask = torch.zeros((1, 48, 64), dtype=torch.uint8)
+        mask[:, :4, :4] = 255
+        write_png(mask, str(session / "mask" / "000001.00.png"))
+        with pytest.raises(ValueError, match="crop境界"):
+            validate_session(session)
+
+        session = write_synthetic_session(tmp_path, "too-small", width=31)
+        with pytest.raises(ValueError, match="32px"):
+            validate_session(session)
+
+        session = write_synthetic_session(tmp_path, "constant-pair")
+        constant = torch.full((3, 48, 64), 20, dtype=torch.uint8)
+        write_png(constant, str(session / "pre" / "000001.00.png"))
+        write_png(constant, str(session / "post" / "000001.00.png"))
+        with pytest.raises(ValueError, match="分散が小さすぎ"):
+            validate_session(session)
+
         session = write_synthetic_session(tmp_path, "bad-size")
         write_png(
             torch.zeros((3, 40, 64), dtype=torch.uint8),
@@ -226,6 +259,27 @@ class TestCompositeDataset:
         assert loaded.composite_fingerprint == composite.composite_fingerprint
         assert not (tmp_path / "pre").exists()
 
+    def test_round_trips_manifest_created_from_a_single_session_root(
+        self, tmp_path: Path
+    ):
+        session = write_synthetic_session(
+            tmp_path / "captures", "single-session", pad_count=1
+        )
+        output = tmp_path / "single-session.composite.json"
+
+        composite = merge_datasets(
+            (DatasetInput(session, "single-source"),),
+            output,
+            name="single-session",
+        )
+        loaded = load_composite_manifest(output)
+        samples = build_sample_index(loaded)
+
+        assert composite.sessions[0].locations[0].relative_path == "."
+        assert loaded.composite_fingerprint == composite.composite_fingerprint
+        assert len(samples) == 1
+        assert samples[0].session_id == "single-session"
+
     def test_fingerprints_ignore_mount_path_and_input_order(self, tmp_path: Path):
         left = tmp_path / "left"
         right = tmp_path / "right"
@@ -291,6 +345,50 @@ class TestCompositeDataset:
         payload["content_fingerprint"] = "sha256:bad"
         output.write_text(json.dumps(payload))
         with pytest.raises(ValueError, match="content_fingerprint"):
+            load_composite_manifest(output)
+
+    @pytest.mark.parametrize(
+        ("mutation", "message"),
+        (
+            ("duplicate-source", "source_idが重複"),
+            ("duplicate-source-id", "sort済みかつ一意"),
+            ("unsorted-source-ids", "sort済みかつ一意"),
+            ("duplicate-location", "location pairが重複"),
+            ("mismatched-source-set", "source集合が一致"),
+        ),
+    )
+    def test_rejects_noncanonical_manifest_aliases(
+        self, tmp_path: Path, mutation: str, message: str
+    ):
+        root_a = tmp_path / "a"
+        root_b = tmp_path / "b"
+        session = write_synthetic_session(root_a, "same", content_seed=31)
+        shutil.copytree(session, root_b / "same")
+        output = tmp_path / "composite.json"
+        merge_datasets(
+            (
+                DatasetInput(root_a, "source-a"),
+                DatasetInput(root_b, "source-b"),
+            ),
+            output,
+            name="aliases",
+        )
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        manifest_session = payload["sessions"][0]
+
+        if mutation == "duplicate-source":
+            payload["sources"].append(dict(payload["sources"][0]))
+        elif mutation == "duplicate-source-id":
+            manifest_session["source_ids"] = ["source-a", "source-a"]
+        elif mutation == "unsorted-source-ids":
+            manifest_session["source_ids"] = ["source-b", "source-a"]
+        elif mutation == "duplicate-location":
+            manifest_session["locations"].append(dict(manifest_session["locations"][0]))
+        else:
+            manifest_session["source_ids"] = ["source-a"]
+        output.write_text(json.dumps(payload), encoding="utf-8")
+
+        with pytest.raises(ValueError, match=message):
             load_composite_manifest(output)
 
     def test_resolve_rejects_manifest_and_roots_together(self, tmp_path: Path):
@@ -401,6 +499,68 @@ class TestPreprocessing:
         assert result.image_6ch[0].mean() < result.image_6ch[1].mean()
         assert result.image_6ch[1].mean() < result.image_6ch[2].mean()
 
+    def test_hwc_numpy_and_chw_tensor_use_the_same_torchvision_conversion(self):
+        image = (
+            torch.arange(3 * 40 * 48, dtype=torch.int32).remainder(256).to(torch.uint8)
+        )
+        image = image.reshape(3, 40, 48)
+        post = image.roll(3, 2)
+
+        from_tensor = preprocess_rgb_pair(image, post, 10.0)
+        from_numpy = preprocess_rgb_pair(
+            image.permute(1, 2, 0).numpy(),
+            post.permute(1, 2, 0).numpy(),
+            10.0,
+        )
+
+        assert torch.equal(from_tensor.image_6ch, from_numpy.image_6ch)
+        assert torch.equal(from_tensor.valid_pixel_mask, from_numpy.valid_pixel_mask)
+        assert from_tensor.mean_sample == from_numpy.mean_sample
+        assert from_tensor.variance_sample == from_numpy.variance_sample
+
+    def test_geometry_mask_remains_inside_the_transformed_sample(self):
+        generator = torch.Generator().manual_seed(4)
+        image = torch.randint(
+            0, 256, (3, 40, 40), dtype=torch.uint8, generator=generator
+        )
+        centered_mask = torch.zeros((1, 40, 40), dtype=torch.uint8)
+        centered_mask[:, 15:25, 15:25] = 255
+
+        result = preprocess_rgb_pair(
+            image,
+            image.roll(1, 2),
+            10.0,
+            angle_degrees=45.0,
+            geometry_mask=centered_mask,
+        )
+
+        assert torch.any(result.valid_pixel_mask)
+
+        edge_mask = torch.zeros((1, 40, 40), dtype=torch.uint8)
+        edge_mask[:, 0, 0] = 255
+        with pytest.raises(ValueError, match="geometry maskが空"):
+            preprocess_rgb_pair(
+                image,
+                image.roll(1, 2),
+                10.0,
+                angle_degrees=45.0,
+                geometry_mask=edge_mask,
+            )
+
+    def test_rejects_empty_geometry_mask(self):
+        generator = torch.Generator().manual_seed(5)
+        image = torch.randint(
+            0, 256, (3, 40, 40), dtype=torch.uint8, generator=generator
+        )
+
+        with pytest.raises(ValueError, match="geometry maskが空"):
+            preprocess_rgb_pair(
+                image,
+                image.roll(1, 2),
+                10.0,
+                geometry_mask=torch.zeros((1, 40, 40), dtype=torch.uint8),
+            )
+
     def test_downscales_isotropically_without_upscaling(self):
         generator = torch.Generator().manual_seed(1)
         image = torch.randint(
@@ -461,6 +621,13 @@ class TestPreprocessing:
 
 
 class TestBatching:
+    def test_dataset_rejects_samples_below_configured_minimum(self, tmp_path: Path):
+        write_synthetic_session(tmp_path, "session")
+        samples = build_sample_index(resolve_dataset_inputs(roots=(tmp_path,)))
+
+        with pytest.raises(ValueError, match="最小画像サイズ64px"):
+            PasteVolumeDataset(samples, constraints=ImageConstraints(min_size=64))
+
     def test_pixel_budget_plan_is_deterministic_and_keeps_last_batch(
         self, tmp_path: Path
     ):

@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+  - override /trainer: pi
+
+run_kind: finetune
+parent_base_run_id: ???
+checkpoint:
+  initial_weights: ???
+data:
+  max_batch_pixels: 524288
+  max_batch_size: 4

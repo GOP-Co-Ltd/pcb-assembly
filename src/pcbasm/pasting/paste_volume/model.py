@@ -307,9 +307,95 @@ def model_parameter_count(model: nn.Module) -> int:
     return sum(parameter.numel() for parameter in model.parameters())
 
 
+def model_multiply_accumulate_count(
+    config: PasteVolumeModelConfig,
+    *,
+    height: int,
+    width: int,
+) -> int:
+    """1 sampleの畳み込みと線形層のmultiply-accumulate数を返す."""
+
+    if height < 1 or width < 1:
+        raise ValueError("height and width must be positive")
+
+    macs = 0
+    in_channels = config.input_channels
+    current_height = height
+    current_width = width
+
+    def add_convolution(
+        input_channels: int,
+        output_channels: int,
+        *,
+        kernel_size: int,
+        stride: int,
+    ) -> tuple[int, int]:
+        nonlocal macs, current_height, current_width
+        output_height = (current_height + stride - 1) // stride
+        output_width = (current_width + stride - 1) // stride
+        macs += (
+            output_height
+            * output_width
+            * output_channels
+            * input_channels
+            * kernel_size
+            * kernel_size
+        )
+        return output_height, output_width
+
+    for output_channels in config.stem_channels:
+        current_height, current_width = add_convolution(
+            in_channels, output_channels, kernel_size=3, stride=2
+        )
+        in_channels = output_channels
+
+    for stage_index, (output_channels, block_count) in enumerate(
+        zip(config.stage_channels, config.blocks_per_stage, strict=True)
+    ):
+        first_stride = 1 if stage_index == 0 else 2
+        input_channels = in_channels
+        input_height = current_height
+        input_width = current_width
+        current_height, current_width = add_convolution(
+            input_channels,
+            output_channels,
+            kernel_size=3,
+            stride=first_stride,
+        )
+        add_convolution(output_channels, output_channels, kernel_size=3, stride=1)
+        if first_stride != 1 or input_channels != output_channels:
+            macs += current_height * current_width * output_channels * input_channels
+        for _ in range(block_count - 1):
+            add_convolution(output_channels, output_channels, kernel_size=3, stride=1)
+            add_convolution(output_channels, output_channels, kernel_size=3, stride=1)
+        in_channels = output_channels
+        if input_height < current_height or input_width < current_width:
+            raise AssertionError("encoder unexpectedly increased spatial dimensions")
+
+    macs += (in_channels + 1) * config.hidden_features
+    macs += config.hidden_features * 2
+    return macs
+
+
+def model_gmac(
+    config: PasteVolumeModelConfig,
+    *,
+    height: int = 512,
+    width: int = 512,
+) -> float:
+    """指定shapeのmodel規模を10億multiply-accumulate単位で返す."""
+
+    return (
+        model_multiply_accumulate_count(config, height=height, width=width)
+        / 1_000_000_000.0
+    )
+
+
 __all__ = [
     "PasteVolumeModelConfig",
     "PasteVolumeResNet",
+    "model_gmac",
+    "model_multiply_accumulate_count",
     "model_parameter_count",
     "validate_loss_inputs",
     "validate_model_inputs",

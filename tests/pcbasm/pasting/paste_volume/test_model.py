@@ -12,6 +12,8 @@ from torch import nn
 from pcbasm.pasting.paste_volume.model import (
     PasteVolumeModelConfig,
     PasteVolumeResNet,
+    model_gmac,
+    model_multiply_accumulate_count,
     model_parameter_count,
     validate_loss_inputs,
     validate_model_inputs,
@@ -166,6 +168,20 @@ class TestPasteVolumeResNetArchitecture:
 
     def test_parameter_count_stays_below_the_v1_budget(self):
         assert 0 < model_parameter_count(PasteVolumeResNet()) < 1_500_000
+
+    def test_512_square_compute_stays_below_the_v1_budget(self):
+        config = PasteVolumeModelConfig()
+
+        assert 0 < model_gmac(config) < 1.5
+        assert model_gmac(config) == pytest.approx(
+            model_multiply_accumulate_count(config, height=512, width=512) / 1e9
+        )
+
+    def test_compute_measurement_rejects_invalid_shapes(self):
+        with pytest.raises(ValueError, match="height and width"):
+            model_multiply_accumulate_count(
+                PasteVolumeModelConfig(), height=0, width=512
+            )
 
 
 class TestPasteVolumeResNetForward:

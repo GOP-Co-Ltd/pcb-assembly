@@ -26,6 +26,7 @@ import numpy as np
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset, Sampler
+from torchvision import tv_tensors
 from torchvision.io import ImageReadMode, decode_image
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.v2 import functional as tvf
@@ -348,6 +349,15 @@ def _resolve_capture_path(session_path: Path, relative: str, label: str) -> Path
     return resolved
 
 
+def _resolve_session_location(source_path: Path, relative: str) -> Path:
+    if relative != ".":
+        return _resolve_capture_path(source_path, relative, "session location")
+    try:
+        return source_path.resolve(strict=True)
+    except (FileNotFoundError, RuntimeError, ValueError) as error:
+        raise ValueError("session locationが存在しません: '.'") from error
+
+
 def _decode_png(path: Path, *, channels: int, label: str) -> Tensor:
     if path.suffix.lower() != ".png" or path.read_bytes()[:8] != PNG_SIGNATURE:
         raise ValueError(f"{label}はlossless PNGが必要です: {path}")
@@ -445,6 +455,41 @@ def validate_session(session_path: Path) -> _ValidatedSession:
                     f"maskは0/255だけで構成する必要があります: {paths['mask']}"
                 )
             height, width = int(pre.shape[1]), int(pre.shape[2])
+            mask_region = mask.to(torch.bool)
+            if not torch.any(mask_region):
+                raise ValueError(f"maskの有効領域が空です: {paths['mask']}")
+            mask_coordinates = torch.nonzero(mask_region[0], as_tuple=False)
+            mask_height = int(
+                mask_coordinates[:, 0].max() - mask_coordinates[:, 0].min() + 1
+            )
+            mask_width = int(
+                mask_coordinates[:, 1].max() - mask_coordinates[:, 1].min() + 1
+            )
+            if int(mask_region.sum()) < 4 or mask_height < 2 or mask_width < 2:
+                raise ValueError(f"maskの有効領域が小さすぎます: {paths['mask']}")
+            if (
+                torch.any(mask_region[:, 0, :])
+                or torch.any(mask_region[:, -1, :])
+                or torch.any(mask_region[:, :, 0])
+                or torch.any(mask_region[:, :, -1])
+            ):
+                raise ValueError(
+                    f"maskがcrop境界へ接しており欠損を検証できません: {paths['mask']}"
+                )
+            minimum_size = ImageConstraints().min_size
+            if height < minimum_size or width < minimum_size:
+                raise ValueError(
+                    f"source imageは各辺{minimum_size}px以上が必要です: "
+                    f"{width}x{height}"
+                )
+            sample_variance = (
+                torch.cat((pre, post), dim=0).to(torch.float32).var(correction=0)
+            )
+            if not torch.isfinite(sample_variance) or float(sample_variance) < 1e-12:
+                raise ValueError(
+                    f"pre/post sampleの分散が小さすぎます: pad={pad.index}, "
+                    f"view={view.number}"
+                )
             x0, y0, x1, y1 = view.pixel_rect
             if x1 <= x0 or y1 <= y0 or x1 - x0 != width or y1 - y0 != height:
                 raise ValueError(
@@ -750,11 +795,11 @@ def load_composite_manifest(path: Path) -> CompositeDataset:
             raise ValueError("source_idが不正です")
         if type(source["path"]) is not str:
             raise ValueError("source pathが不正です")
+        source_id = source["source_id"]
+        if source_id in sources:
+            raise ValueError(f"source_idが重複しています: {source_id}")
         source_path = Path(source["path"]).expanduser().resolve(strict=True)
-        existing = sources.get(source["source_id"])
-        if existing is not None and existing != source_path:
-            raise ValueError(f"source_idが衝突しています: {source['source_id']}")
-        sources[source["source_id"]] = source_path
+        sources[source_id] = source_path
     candidates: list[CompositeSession] = []
     for index, item in enumerate(root["sessions"]):
         session = _expect_keys(
@@ -782,13 +827,19 @@ def load_composite_manifest(path: Path) -> CompositeDataset:
             raise ValueError(f"sessions[{index}].source_idsが不正です")
         if not isinstance(session["locations"], list) or not session["locations"]:
             raise ValueError(f"sessions[{index}].locationsが不正です")
-        source_ids = tuple(sorted(session["source_ids"]))
+        source_ids = tuple(session["source_ids"])
         if any(
-            type(source_id) is not str or source_id not in sources
+            type(source_id) is not str or not source_id or source_id not in sources
             for source_id in source_ids
         ):
             raise ValueError(f"sessions[{index}].source_idsに未知sourceがあります")
+        if source_ids != tuple(sorted(set(source_ids))):
+            raise ValueError(
+                f"sessions[{index}].source_idsはsort済みかつ一意である必要があります"
+            )
         locations: list[SessionLocation] = []
+        location_pairs: set[tuple[str, str]] = set()
+        location_source_ids: set[str] = set()
         validated_reference: _ValidatedSession | None = None
         for location_index, item_location in enumerate(session["locations"]):
             location = _expect_keys(
@@ -803,10 +854,13 @@ def load_composite_manifest(path: Path) -> CompositeDataset:
                 raise ValueError("session location source_idが不正です")
             if type(location["relative_path"]) is not str:
                 raise ValueError("session relative_pathが不正です")
-            session_path = _resolve_capture_path(
-                sources[location["source_id"]],
-                location["relative_path"],
-                "session location",
+            location_pair = (location["source_id"], location["relative_path"])
+            if location_pair in location_pairs:
+                raise ValueError("session location pairが重複しています")
+            location_pairs.add(location_pair)
+            location_source_ids.add(location["source_id"])
+            session_path = _resolve_session_location(
+                sources[location["source_id"]], location["relative_path"]
             )
             validated = validate_session(session_path)
             if (
@@ -830,6 +884,8 @@ def load_composite_manifest(path: Path) -> CompositeDataset:
             locations.append(
                 SessionLocation(location["source_id"], location["relative_path"])
             )
+        if set(source_ids) != location_source_ids:
+            raise ValueError("session source_idsとlocation source集合が一致しません")
         assert validated_reference is not None
         candidates.append(
             CompositeSession(
@@ -932,8 +988,8 @@ def _session_path(composite: CompositeDataset, session: CompositeSession) -> Pat
     location = min(
         session.locations, key=lambda item: (item.source_id, item.relative_path)
     )
-    return _resolve_capture_path(
-        sources[location.source_id], location.relative_path, "session location"
+    return _resolve_session_location(
+        sources[location.source_id], location.relative_path
     )
 
 
@@ -1308,7 +1364,7 @@ def _as_rgb_chw(image: Tensor | np.ndarray, label: str) -> Tensor:
     if isinstance(image, np.ndarray):
         if image.dtype != np.uint8 or image.ndim != 3 or image.shape[2] != 3:
             raise ValueError(f"{label}はRGB uint8 HWC arrayが必要です")
-        tensor = torch.from_numpy(np.ascontiguousarray(image)).permute(2, 0, 1)
+        tensor = tvf.to_image(np.ascontiguousarray(image))
     elif isinstance(image, Tensor):
         tensor = image
     else:
@@ -1372,8 +1428,9 @@ def _augmentation_parameters(
 def _rotate(image: Tensor, angle_degrees: float, *, image_data: bool) -> Tensor:
     if angle_degrees == 0:
         return image
-    return tvf.affine(
-        image,
+    transform_input = image if image_data else tv_tensors.Mask(image)
+    transformed = tvf.affine(
+        transform_input,
         angle=angle_degrees,
         translate=[0, 0],
         scale=1.0,
@@ -1383,6 +1440,7 @@ def _rotate(image: Tensor, angle_degrees: float, *, image_data: bool) -> Tensor:
         else InterpolationMode.NEAREST,
         fill=[0.0],
     )
+    return transformed.as_subclass(Tensor)
 
 
 def preprocess_rgb_pair(
@@ -1436,6 +1494,14 @@ def preprocess_rgb_pair(
             geometry_mask = tvf.resize(
                 geometry_mask, size, interpolation=InterpolationMode.NEAREST_EXACT
             )
+    if geometry_mask is not None:
+        if not all(int(value) in (0, 255) for value in torch.unique(geometry_mask)):
+            raise ValueError("変換後のgeometry maskは0/255である必要があります")
+        geometry_region = geometry_mask.to(torch.bool)
+        if not torch.any(geometry_region):
+            raise ValueError("変換後のgeometry maskが空です")
+        if torch.any(geometry_region & ~valid.to(torch.bool)):
+            raise ValueError("geometry maskがsample有効領域からはみ出しています")
     pre_float = tvf.to_dtype(pre, torch.float32, scale=True)
     post_float = tvf.to_dtype(post, torch.float32, scale=True)
     image_6ch = torch.cat((pre_float, post_float), dim=0)
@@ -1503,6 +1569,21 @@ class PasteVolumeDataset(Dataset[PasteVolumeItem]):
         global_seed: int = 0,
         augmentation: AugmentationConfig = AugmentationConfig(),
     ) -> None:
+        incompatible = next(
+            (
+                sample
+                for sample in samples
+                if sample.height < constraints.min_size
+                or sample.width < constraints.min_size
+            ),
+            None,
+        )
+        if incompatible is not None:
+            raise ValueError(
+                f"sample {incompatible.sample_id}は設定された最小画像サイズ"
+                f"{constraints.min_size}pxを満たしません: "
+                f"{incompatible.width}x{incompatible.height}"
+            )
         self._samples = tuple(samples)
         self._constraints = constraints
         self._training = training
