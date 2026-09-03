@@ -2,7 +2,7 @@
 #
 # This generator only performs formal Bash permission migration.
 # Migrate Claude skills, agents, docs, and prose with migrate-claude.
-# Source summary: 167 shell allow rule(s), 9 shell deny rule(s).
+# Source summary: 173 shell allow rule(s), 9 shell deny rule(s).
 # Non-shell Claude permissions are handled by Codex tools/sandbox:
 # Edit(~/.ssh/**), Read(//usr/**), Read(//usr/include/**), Read(~/.ssh/**), WebFetch, WebSearch
 
@@ -78,7 +78,7 @@ prefix_rule(
     match = ["rm -fr"],
 )
 
-# Source: Bash([:*), Bash(ag:*), Bash(awk:*), Bash(base64:*), Bash(basename:*), Bash(bc:*), Bash(cal:*), Bash(cat:*), Bash(cksum:*), Bash(cmp:*), Bash(column:*), Bash(comm:*), Bash(cp:*), Bash(cut:*), Bash(date:*), Bash(df:*), Bash(diff:*), Bash(dirname:*), Bash(du:*), Bash(echo:*), Bash(env), Bash(expr:*), Bash(false), Bash(fd:*), Bash(file:*), Bash(find:*), Bash(fzf:*), Bash(grep:*), Bash(groups:*), Bash(hash:*), Bash(head:*), Bash(help:*), Bash(hexdump:*), Bash(hostname:*), Bash(id:*), Bash(info:*), Bash(jobs:*), Bash(join:*), Bash(jq:*), Bash(ls:*), Bash(make:*), Bash(man:*), Bash(md5sum:*), Bash(mkdir:*), Bash(nl:*), Bash(od:*), Bash(paste:*), Bash(pgrep:*), Bash(pre-commit:*), Bash(printenv:*), Bash(printf:*), Bash(ps:*), Bash(pwd), Bash(pwd:*), Bash(python3:*), Bash(python:*), Bash(readlink:*), Bash(realpath:*), Bash(rev:*), Bash(rg:*), Bash(sha1sum:*), Bash(sha256sum:*), Bash(sort:*), Bash(stat:*), Bash(tac:*), Bash(tail:*), Bash(tasklist), Bash(tee:*), Bash(test:*), Bash(touch:*), Bash(tr:*), Bash(tree:*), Bash(true), Bash(type:*), Bash(uname:*), Bash(uniq:*), Bash(uptime), Bash(v4l2-ctl:*), Bash(wait:*), Bash(wc:*), Bash(whereis:*), Bash(which:*), Bash(whoami), Bash(xargs:*), Bash(xxd:*), Bash(yq:*), Bash(zipinfo:*)
+# Source: Bash([:*), Bash(ag:*), Bash(awk:*), Bash(base64:*), Bash(basename:*), Bash(bc:*), Bash(cal:*), Bash(cat:*), Bash(cd:*), Bash(cksum:*), Bash(cmp:*), Bash(column:*), Bash(comm:*), Bash(cp:*), Bash(cut:*), Bash(date:*), Bash(df:*), Bash(diff:*), Bash(dirname:*), Bash(du:*), Bash(echo:*), Bash(env), Bash(expr:*), Bash(false), Bash(fd:*), Bash(file:*), Bash(find:*), Bash(fzf:*), Bash(grep:*), Bash(groups:*), Bash(hash:*), Bash(head:*), Bash(help:*), Bash(hexdump:*), Bash(hostname:*), Bash(id:*), Bash(info:*), Bash(jobs:*), Bash(join:*), Bash(jq:*), Bash(ls:*), Bash(make:*), Bash(man:*), Bash(md5sum:*), Bash(mkdir:*), Bash(nl:*), Bash(od:*), Bash(paste:*), Bash(pgrep:*), Bash(pre-commit:*), Bash(printenv:*), Bash(printf:*), Bash(ps:*), Bash(pwd), Bash(pwd:*), Bash(python3:*), Bash(python:*), Bash(readlink:*), Bash(realpath:*), Bash(rev:*), Bash(rg:*), Bash(sha1sum:*), Bash(sha256sum:*), Bash(sort:*), Bash(stat:*), Bash(tac:*), Bash(tail:*), Bash(tasklist), Bash(tee:*), Bash(test:*), Bash(touch:*), Bash(tr:*), Bash(tree:*), Bash(true), Bash(type:*), Bash(uname:*), Bash(uniq:*), Bash(uptime), Bash(v4l2-ctl:*), Bash(wait:*), Bash(wc:*), Bash(whereis:*), Bash(which:*), Bash(whoami), Bash(xargs:*), Bash(xxd:*), Bash(yq:*), Bash(zipinfo:*)
 prefix_rule(
     pattern = [
         [
@@ -90,6 +90,7 @@ prefix_rule(
             "bc",
             "cal",
             "cat",
+            "cd",
             "cksum",
             "cmp",
             "column",
@@ -650,6 +651,38 @@ prefix_rule(
     match = ["git worktree"],
 )
 
+# Source: Bash(glab auth status:*)
+prefix_rule(
+    pattern = ["glab", "auth", "status"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["glab auth status"],
+)
+
+# Source: Bash(glab mr diff:*)
+prefix_rule(
+    pattern = ["glab", "mr", "diff"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["glab mr diff"],
+)
+
+# Source: Bash(glab mr list:*)
+prefix_rule(
+    pattern = ["glab", "mr", "list"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["glab mr list"],
+)
+
+# Source: Bash(glab mr view:*)
+prefix_rule(
+    pattern = ["glab", "mr", "view"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["glab mr view"],
+)
+
 # Source: Bash(sed -n:*)
 prefix_rule(
     pattern = [
@@ -793,6 +826,14 @@ prefix_rule(
     decision = "allow",
     justification = "Migrated from Claude allow permission.",
     match = ["uv tree"],
+)
+
+# Source: Bash(uv venv:*)
+prefix_rule(
+    pattern = ["uv", "venv"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["uv venv"],
 )
 
 # Source: Bash(uv version:*)
