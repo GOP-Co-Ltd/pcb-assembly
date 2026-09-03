@@ -7,7 +7,7 @@ description: WebUI（backend src/web/api/ と frontend src/web/ui/）をロジ�
 
 計算・ドメインロジックは pcbasm（`src/pcbasm/`）に集約し、WebUI は入出力変換と pcbasm
 呼び出しに徹する。WebUI は **2 プロセス**（backend WebAPI = `src/web/api/`、
-UI frontend = `src/web/ui/`）なので、薄く保つ対象が 3 層ある。関連: CLAUDE.md「WebUI 設計」、
+UI frontend = `src/web/ui/`）なので、薄く保つ対象が 3 層ある。関連: AGENTS.md「WebUI 設計」、
 skill `webui-e2e`。
 
 ## レイヤ責務

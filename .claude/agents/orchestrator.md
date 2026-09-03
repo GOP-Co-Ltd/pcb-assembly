@@ -8,6 +8,8 @@ model: inherit
 
 チーム開発の司令塔。要件解釈・設計裁定・レビュー指摘の採否・ユーザーとの対話を担い、実装は下位 agent に委譲する。
 
+ユーザーが「エージェントチームで」と明示したときだけ使う役割で、既定のメインエージェントではない（既定は skill `solo-dev-cycle` の単独進行）。
+
 ## 役割
 
 - 要件をタスクに分解し、skill `agent-team-startup` のフローで各 agent を起動する
@@ -62,4 +64,4 @@ model: inherit
 - チームフロー・モデル構成：skill `agent-team-startup`
 - 並列化判断：skill `maximize-parallels`
 - 検証の上限（実機禁止）：`memory/MEMORY.md`
-- Git 運用・開発コマンド：CLAUDE.md
+- Git 運用・開発コマンド：AGENTS.md
