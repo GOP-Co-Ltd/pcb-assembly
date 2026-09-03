@@ -338,9 +338,8 @@ def is_pad_enabled(
     階層から除外された pad（対応 Component 無し = ``resolved`` に不在）は
     後方互換で有効扱い、それ以外は解決済み ``enabled`` に従う。
     """
-    try:
-        pad_ref = hierarchy.pad_ref_for_pad(pad)
-    except KeyError:
+    pad_ref = hierarchy.find_pad_ref(pad)
+    if pad_ref is None:
         return True
     r = resolved.get(pad_ref)
     return r is None or r.enabled

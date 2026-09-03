@@ -7,15 +7,17 @@ from time import monotonic
 import pcbnew
 import pytest
 
-from pcbasm.pasting.paste_flow_calibration_board import (
+from pcbasm.pasting.paste_flow_calibration_board.config import (
     PasteFlowCalibrationBoardConfig,
     PasteFlowCalibrationBoardEnvironmentError,
-    PasteFlowCalibrationBoardGenerator,
     PasteFlowCalibrationBoardOverflowError,
     PasteFlowCalibrationBoardSpec,
     PasteFlowCalibrationCustomPadDraft,
     PasteFlowCalibrationPattern,
     PasteFlowCalibrationPurgePadSpec,
+)
+from pcbasm.pasting.paste_flow_calibration_board.generator import (
+    PasteFlowCalibrationBoardGenerator,
 )
 from pcbasm.pcb import PcbFile
 from pcbasm.pcb.generate import save_board

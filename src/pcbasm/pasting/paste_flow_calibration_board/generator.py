@@ -11,15 +11,15 @@ from threading import Lock
 import attrs
 import pcbnew
 
+from pcbasm.pcb.footprint import duplicate_footprint
 from pcbasm.pcb.generate import generate_rect_pcb, save_board
+from pcbasm.pcb.units import vector
 
 from .catalog import (
     PasteFlowCalibrationFootprintInfo,
     PasteFlowCalibrationPadCatalog,
     PasteFlowCalibrationPadPattern,
     PasteFlowCalibrationResolvedPadPattern,
-    duplicate_footprint,
-    vector,
 )
 from .config import (
     PasteFlowCalibrationBoardConfig,

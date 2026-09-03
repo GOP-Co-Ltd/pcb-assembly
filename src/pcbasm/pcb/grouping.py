@@ -23,8 +23,8 @@ import json
 from collections.abc import Iterator, Sequence
 
 import attrs
-from shapely import Polygon
 
+from pcbasm.geometry import oriented_bbox
 from pcbasm.pcb.board import Component, Pad
 
 # 階層ノードのキー（例 ("L3", "U1", "0.50x0.90mm")）
@@ -36,27 +36,6 @@ PadRef = tuple[str, str]
 
 # 形状量子化の既定単位（mm／mm²）
 DEFAULT_SHAPE_QUANTUM = 0.01
-
-
-def _mrr_edge_lengths(polygon: Polygon) -> tuple[float, float]:
-    """最小回転外接矩形の (短辺, 長辺) を返す.
-
-    回転配置された同型 pad が同じ値になるよう、辺長を短辺/長辺に 正規化する。矩形が縮退している場合は (0.0, 0.0) を返す。
-    """
-    mrr = polygon.minimum_rotated_rectangle
-    if not isinstance(mrr, Polygon) or mrr.is_empty:
-        return (0.0, 0.0)
-    coords = list(mrr.exterior.coords)
-    if len(coords) < 5:
-        return (0.0, 0.0)
-    # 連続する2頂点間の距離が辺長。矩形なので隣接2辺で短辺/長辺が決まる。
-    side1 = (
-        (coords[1][0] - coords[0][0]) ** 2 + (coords[1][1] - coords[0][1]) ** 2
-    ) ** 0.5
-    side2 = (
-        (coords[2][0] - coords[1][0]) ** 2 + (coords[2][1] - coords[1][1]) ** 2
-    ) ** 0.5
-    return (min(side1, side2), max(side1, side2))
 
 
 @attrs.frozen
@@ -89,7 +68,8 @@ class PadShapeKey:
         Returns:
             形状キー
         """
-        short, long = _mrr_edge_lengths(pad.polygon)
+        box = oriented_bbox(pad.polygon)
+        short, long = (0.0, 0.0) if box is None else (box.short_length, box.long_length)
         return cls(
             area_q=round(pad.area / quantum),
             short_q=round(short / quantum),
@@ -173,8 +153,8 @@ class PadHierarchy:
         """
         return list(self._keys_by_pad_ref[self.pad_ref_for_pad(pad)])
 
-    def pad_ref_for_pad(self, pad: Pad) -> PadRef:
-        """Pad が階層内で持つ一意な参照キーを返す.
+    def find_pad_ref(self, pad: Pad) -> PadRef | None:
+        """Pad が階層内で持つ一意な参照キーを返す。階層に無い pad は ``None``.
 
         通常は ``(designator, pad_number)``。同じ ``pad_number`` の分割 pad は
         ``(designator, "<pad_number>#n")`` で区別する。
@@ -187,12 +167,22 @@ class PadHierarchy:
             for candidate, existing in self._pads_by_ref.items()
             if existing == pad
         ]
-        if len(matches) == 1:
-            return matches[0]
-        raise KeyError((pad.designator, pad.pad_number))
+        return matches[0] if len(matches) == 1 else None
+
+    def pad_ref_for_pad(self, pad: Pad) -> PadRef:
+        """:meth:`find_pad_ref` の raise 版（階層に無い pad は ``KeyError``）."""
+        ref = self.find_pad_ref(pad)
+        if ref is None:
+            raise KeyError((pad.designator, pad.pad_number))
+        return ref
+
+    def find_pad_id(self, pad: Pad) -> str | None:
+        """WebUI / API で使う一意な pad id を返す。階層に無い pad は ``None``."""
+        ref = self.find_pad_ref(pad)
+        return None if ref is None else pad_id_from_ref(ref)
 
     def pad_id_for_pad(self, pad: Pad) -> str:
-        """WebUI / API で使う一意な pad id を返す."""
+        """:meth:`find_pad_id` の raise 版（階層に無い pad は ``KeyError``）."""
         return pad_id_from_ref(self.pad_ref_for_pad(pad))
 
     def l4_key_for_pad_id(self, pad_id: str) -> HierKey:

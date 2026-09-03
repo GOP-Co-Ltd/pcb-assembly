@@ -1,5 +1,14 @@
 from .path import Path
-from .polygon import merge_islands, transform_polygon
+from .polygon import (
+    OrientedBox,
+    clip_segment,
+    exterior_points,
+    merge_islands,
+    offset_components,
+    oriented_bbox,
+    transform_polygon,
+)
+from .polyline import polyline_length, ring_segment
 from .routing import sort_by_nearest
 from .sampling import (
     SamplingDiagnostics,
@@ -24,6 +33,7 @@ __all__ = [
     "HeightPlane",
     "Identity",
     "Matrix2d",
+    "OrientedBox",
     "Path",
     "Point2d",
     "Point3d",
@@ -32,7 +42,13 @@ __all__ = [
     "Scale",
     "Transform",
     "Shift",
+    "clip_segment",
+    "exterior_points",
     "merge_islands",
+    "offset_components",
+    "oriented_bbox",
+    "polyline_length",
+    "ring_segment",
     "sample_points_in_polygons",
     "sampling_diagnostics",
     "sort_by_nearest",

@@ -17,6 +17,7 @@ import numpy as np
 from shapely import Polygon
 from shapely.coords import CoordinateSequence
 
+from pcbasm.utils import is_finite_number
 from pcbasm.vision import Image, ImageArray
 
 type CapturePhase = Literal["pre", "post"]
@@ -38,11 +39,7 @@ class DatasetView:
             ("offset_x_mm", self.offset_x_mm),
             ("offset_y_mm", self.offset_y_mm),
         ):
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, (int, float))
-                or not math.isfinite(value)
-            ):
+            if not is_finite_number(value):
                 raise ValueError(f"{name}は有限値が必要です: {value!r}")
 
 
@@ -74,12 +71,7 @@ def validate_dataset_image_margins(
         ("crop_margin_mm", crop_margin_mm),
         ("mask_margin_mm", mask_margin_mm),
     ):
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(value)
-            or value < 0
-        ):
+        if not is_finite_number(value) or value < 0:
             return f"{name}は0以上の有限値が必要です: {value!r}"
     if mask_margin_mm > crop_margin_mm:
         return "mask_margin_mmはcrop_margin_mm以下にしてください"
@@ -161,12 +153,7 @@ def allocate_volume_by_rotations(
     total_volume_ul: float, rotations: Mapping[str, float]
 ) -> dict[str, float]:
     """計量した総体積をpurgeを含む正の吐出回転数比で配分する."""
-    if (
-        isinstance(total_volume_ul, bool)
-        or not isinstance(total_volume_ul, (int, float))
-        or not math.isfinite(total_volume_ul)
-        or total_volume_ul <= 0
-    ):
+    if not is_finite_number(total_volume_ul) or total_volume_ul <= 0:
         raise ValueError(f"total_volume_ulは正の有限値が必要です: {total_volume_ul!r}")
     if not rotations:
         raise ValueError("rotationsが空です")
@@ -174,12 +161,7 @@ def allocate_volume_by_rotations(
     for key, value in rotations.items():
         if not key:
             raise ValueError("rotationの識別子を空にできません")
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(value)
-            or value <= 0
-        ):
+        if not is_finite_number(value) or value <= 0:
             raise ValueError(f"rotationは正の有限値が必要です: {key}={value!r}")
         checked[key] = float(value)
     total_rotations = sum(checked.values())

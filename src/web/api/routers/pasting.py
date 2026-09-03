@@ -12,12 +12,9 @@ import attrs
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
-from pcbasm.pasting import (
-    routed_enabled_pads,
-    validate_field_names,
-    validate_initial_purge,
-    validate_override_values,
-)
+from pcbasm.pasting.initial_purge import validate_initial_purge
+from pcbasm.pasting.route import routed_enabled_pads
+from pcbasm.pasting.settings import validate_field_names, validate_override_values
 from pcbasm.pcb import Layer
 from web.api.dependencies import (
     BoardStoreDep,

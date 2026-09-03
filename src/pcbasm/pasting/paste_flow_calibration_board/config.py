@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import math
 import re
-import sys
 from collections.abc import Mapping
 from typing import Any, Literal, TypeAlias, TypeGuard
 
 import attrs
+
+from pcbasm.pcb.footprint import format_footprint_id, parse_footprint_id
+from pcbasm.pcb.units import (
+    KICAD_COORD_MAX_NM,
+    KICAD_MAX_COORD_MM,
+    KicadError,
+    is_kicad_length,
+)
+from pcbasm.utils import is_finite_number
 
 PasteFlowCalibrationBoardKind: TypeAlias = Literal["paste_flow_calibration_board"]
 PasteFlowCalibrationBoardSchemaVersion: TypeAlias = Literal[1]
@@ -21,20 +29,14 @@ PASTE_FLOW_CALIBRATION_BOARD_KIND: PasteFlowCalibrationBoardKind = (
     "paste_flow_calibration_board"
 )
 PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION: PasteFlowCalibrationBoardSchemaVersion = 1
-KICAD_VECTOR_COORDINATE_MIN_NM = -(2**31)
-KICAD_VECTOR_COORDINATE_MAX_NM = 2**31 - 1
 _MAX_CALIBRATION_PAD_COUNT = 10_000
-_KICAD_MIN_NONZERO_MM = 1 / 1_000_000
-_KICAD_MAX_VECTOR_MM = KICAD_VECTOR_COORDINATE_MAX_NM / 1_000_000
-_KICAD_MAX_PAD_SIZE_MM = (KICAD_VECTOR_COORDINATE_MAX_NM - 1) / 1_000_000
-_KICAD_LENGTH_RANGE_TEXT = f"1 nm以上{_KICAD_MAX_VECTOR_MM:.6f} mm以下"
+_KICAD_MAX_PAD_SIZE_MM = (KICAD_COORD_MAX_NM - 1) / 1_000_000
+_KICAD_LENGTH_RANGE_TEXT = f"1 nm以上{KICAD_MAX_COORD_MM:.6f} mm以下"
 _KICAD_PAD_SIZE_RANGE_TEXT = f"1 nm以上{_KICAD_MAX_PAD_SIZE_MM:.6f} mm以下"
-_MAX_FILESYSTEM_COMPONENT_BYTES = 255
-_KICAD_FOOTPRINT_SUFFIX = ".kicad_mod"
 
 
-class PasteFlowCalibrationBoardEnvironmentError(RuntimeError):
-    """KiCad footprint環境が基板生成に使えない."""
+# KiCad 環境・座標エラーは pcbasm.pcb 側の例外をそのまま使う
+PasteFlowCalibrationBoardEnvironmentError = KicadError
 
 
 class PasteFlowCalibrationBoardConfigError(ValueError):
@@ -145,10 +147,6 @@ _DEFAULT_SOURCE_ORDER = {
 }
 
 
-def format_footprint_id(library: str, footprint: str) -> str:
-    return f"{library}/{footprint}"
-
-
 def format_pad_catalog_id(library: str, footprint: str, pad_index: int) -> str:
     return f"{format_footprint_id(library, footprint)}#pad-{pad_index}"
 
@@ -195,11 +193,11 @@ def validate_paste_flow_calibration_board_config(
 
     board = config.board
     positive = (
-        ("基板幅", board.width_mm, _KICAD_MAX_VECTOR_MM, _KICAD_LENGTH_RANGE_TEXT),
+        ("基板幅", board.width_mm, KICAD_MAX_COORD_MM, _KICAD_LENGTH_RANGE_TEXT),
         (
             "基板高さ",
             board.height_mm,
-            _KICAD_MAX_VECTOR_MM,
+            KICAD_MAX_COORD_MM,
             _KICAD_LENGTH_RANGE_TEXT,
         ),
         (
@@ -216,18 +214,18 @@ def validate_paste_flow_calibration_board_config(
         ),
     )
     for label, value, maximum_mm, range_text in positive:
-        if not _is_finite_number(value) or value <= 0:
+        if not is_finite_number(value) or value <= 0:
             return f"{label}は正の有限値が必要です"
-        if not _is_kicad_length(value, maximum_mm=maximum_mm):
+        if not is_kicad_length(value, maximum_mm=maximum_mm):
             return f"{label}は{range_text}で指定してください"
     nonnegative = (
         ("外周余白", board.edge_margin_mm),
         ("パッド間余白", board.pad_gap_mm),
     )
     for label, value in nonnegative:
-        if not _is_finite_number(value) or value < 0:
+        if not is_finite_number(value) or value < 0:
             return f"{label}は0以上の有限値が必要です"
-        if value != 0 and not _is_kicad_length(value):
+        if value != 0 and not is_kicad_length(value):
             return f"{label}は0または{_KICAD_LENGTH_RANGE_TEXT}で指定してください"
     if board.width_mm <= 2 * board.edge_margin_mm:
         return "基板幅には左右の外周余白より大きい値が必要です"
@@ -264,7 +262,7 @@ def validate_paste_flow_calibration_board_config(
             return f"パッドパターンが重複しています: {pattern.catalog_id}"
         seen.add(pattern.catalog_id)
         span = pattern.rotation_span_deg
-        if not _is_finite_number(span) or span <= 0 or span > 360:
+        if not is_finite_number(span) or span <= 0 or span > 360:
             return "回転範囲は0より大きく360以下で指定してください"
         if (
             isinstance(pattern.rotation_count, bool)
@@ -305,17 +303,15 @@ def validate_paste_flow_calibration_custom_pad(
     if not is_paste_flow_calibration_custom_pad_shape_id(custom_pad.shape):
         return f"任意パッド形状が不正です: {custom_pad.shape}"
     shape = _CUSTOM_PAD_SHAPE_BY_ID[custom_pad.shape]
-    if not _is_finite_number(custom_pad.width_mm) or custom_pad.width_mm <= 0:
+    if not is_finite_number(custom_pad.width_mm) or custom_pad.width_mm <= 0:
         return "任意パッドの幅／直径は正の有限値が必要です"
-    if not _is_kicad_length(custom_pad.width_mm, maximum_mm=_KICAD_MAX_PAD_SIZE_MM):
+    if not is_kicad_length(custom_pad.width_mm, maximum_mm=_KICAD_MAX_PAD_SIZE_MM):
         return f"任意パッドの幅／直径は{_KICAD_PAD_SIZE_RANGE_TEXT}で指定してください"
     is_draft = isinstance(custom_pad, PasteFlowCalibrationCustomPadDraft)
     if shape.uses_height or not is_draft:
-        if not _is_finite_number(custom_pad.height_mm) or custom_pad.height_mm <= 0:
+        if not is_finite_number(custom_pad.height_mm) or custom_pad.height_mm <= 0:
             return "任意パッドの高さは正の有限値が必要です"
-        if not _is_kicad_length(
-            custom_pad.height_mm, maximum_mm=_KICAD_MAX_PAD_SIZE_MM
-        ):
+        if not is_kicad_length(custom_pad.height_mm, maximum_mm=_KICAD_MAX_PAD_SIZE_MM):
             return f"任意パッドの高さは{_KICAD_PAD_SIZE_RANGE_TEXT}で指定してください"
     if (
         not is_draft
@@ -325,16 +321,16 @@ def validate_paste_flow_calibration_custom_pad(
         return "円パッドの幅と高さには同じ直径を指定してください"
     radius = custom_pad.corner_radius_mm
     if shape.uses_corner_radius:
-        if not _is_finite_number(radius):
+        if not is_finite_number(radius):
             return "任意パッドの角丸半径は有限値が必要です"
         if radius <= 0:
             return "角丸矩形の角丸半径は0より大きい値が必要です"
-        if not _is_kicad_length(radius):
+        if not is_kicad_length(radius):
             return f"任意パッドの角丸半径は{_KICAD_LENGTH_RANGE_TEXT}で指定してください"
         if radius > min(custom_pad.width_mm, custom_pad.height_mm) / 2.0:
             return "角丸矩形の角丸半径は短辺の半分以下で指定してください"
     elif not is_draft:
-        if not _is_finite_number(radius):
+        if not is_finite_number(radius):
             return "任意パッドの角丸半径は有限値が必要です"
         if radius != 0:
             return f"{shape.label}では角丸半径を指定できません"
@@ -584,22 +580,6 @@ def custom_pad_shape_option(
     return _CUSTOM_PAD_SHAPE_BY_ID[shape]
 
 
-def _is_finite_number(value: object) -> TypeGuard[int | float]:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return False
-    if isinstance(value, int) and abs(value) > sys.float_info.max:
-        return False
-    return math.isfinite(value)
-
-
-def _is_kicad_length(
-    value: int | float, *, maximum_mm: float = _KICAD_MAX_VECTOR_MM
-) -> bool:
-    """KiCadで非ゼロになりsigned 32-bit VECTOR2Iに収まるか返す."""
-
-    return _KICAD_MIN_NONZERO_MM <= value <= maximum_mm
-
-
 def _has_exact_keys(value: Mapping[Any, Any], expected: tuple[str, ...]) -> bool:
     keys = tuple(value.keys())
     return len(keys) == len(expected) and all(
@@ -608,7 +588,7 @@ def _has_exact_keys(value: Mapping[Any, Any], expected: tuple[str, ...]) -> bool
 
 
 def _document_float(value: object) -> float | None:
-    if not _is_finite_number(value):
+    if not is_finite_number(value):
         return None
     return float(value)
 
@@ -617,37 +597,6 @@ def _document_int(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value
-
-
-def _document_bool(value: object) -> bool | None:
-    return value if isinstance(value, bool) else None
-
-
-def parse_footprint_id(footprint_id: object) -> tuple[str, str] | None:
-    if not isinstance(footprint_id, str) or footprint_id.count("/") != 1:
-        return None
-    library, footprint = footprint_id.split("/", 1)
-    if not library.endswith(".pretty"):
-        return None
-    if not _is_safe_path_component(library) or not _is_safe_path_component(
-        footprint, suffix=_KICAD_FOOTPRINT_SUFFIX
-    ):
-        return None
-    return library, footprint
-
-
-def _is_safe_path_component(value: str, *, suffix: str = "") -> bool:
-    if (
-        not value
-        or value in {".", ".."}
-        or any(separator in value for separator in ("/", "\\", "\0"))
-    ):
-        return False
-    try:
-        byte_length = len(f"{value}{suffix}".encode())
-    except UnicodeEncodeError:
-        return False
-    return byte_length <= _MAX_FILESYSTEM_COMPONENT_BYTES
 
 
 def parse_pad_catalog_id(catalog_id: object) -> tuple[str, str, int] | None:

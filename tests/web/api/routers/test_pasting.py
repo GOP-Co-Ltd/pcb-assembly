@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from pcbasm.pasting import PASTE_OVERRIDE_FIELDS
+from pcbasm.pasting.settings import PASTE_OVERRIDE_FIELDS
 from tests.helpers import PROJECT_ROOT
 from web.api.routers.pasting_view import UI_FIELD_ORDER
 from web.api.settings import Settings

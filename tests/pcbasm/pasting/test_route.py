@@ -4,13 +4,8 @@ import pytest
 from shapely import Polygon
 
 from pcbasm.geometry import Point2d
-from pcbasm.pasting import (
-    LevelSetting,
-    PasteOverride,
-    PasteSettingsModel,
-    plan_paste_route,
-    routed_enabled_pads,
-)
+from pcbasm.pasting.route import plan_paste_route, routed_enabled_pads
+from pcbasm.pasting.settings import LevelSetting, PasteOverride, PasteSettingsModel
 from pcbasm.pcb import Component, Layer, Pad, PadHierarchy, build_pad_hierarchy
 
 

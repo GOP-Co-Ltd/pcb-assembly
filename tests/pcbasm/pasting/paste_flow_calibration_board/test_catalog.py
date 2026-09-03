@@ -1,15 +1,17 @@
-"""実KiCad footprint catalogの公開振る舞いテスト."""
+"""殟KiCad footprint catalogの公開振る舞いテスト."""
 
 from pathlib import Path
 
 import pytest
 
-from pcbasm.pasting.paste_flow_calibration_board import (
+from pcbasm.pasting.paste_flow_calibration_board.config import (
     PasteFlowCalibrationBoardConfig,
     PasteFlowCalibrationBoardConfigError,
     PasteFlowCalibrationBoardEnvironmentError,
-    PasteFlowCalibrationBoardGenerator,
     PasteFlowCalibrationPattern,
+)
+from pcbasm.pasting.paste_flow_calibration_board.generator import (
+    PasteFlowCalibrationBoardGenerator,
 )
 from tests.helpers import make_paste_flow_calibration_offset_pad_root
 from tests.pcbasm.pasting.paste_flow_calibration_board.support import (

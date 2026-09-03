@@ -4,7 +4,7 @@ from typing import cast
 
 import pytest
 
-from pcbasm.pasting.paste_flow_calibration_board import (
+from pcbasm.pasting.paste_flow_calibration_board.config import (
     PasteFlowCalibrationBoardConfig,
     PasteFlowCalibrationBoardConfigError,
     PasteFlowCalibrationBoardSpec,

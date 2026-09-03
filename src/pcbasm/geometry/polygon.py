@@ -1,12 +1,20 @@
-"""ポリゴンの結合・分解・変換ユーティリティ."""
+"""ポリゴンの結合・分解・変換・外接矩形ユーティリティ."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
+import attrs
 import shapely.ops
-from shapely import MultiPolygon, Polygon
+from shapely import (
+    GeometryCollection,
+    LineString,
+    MultiLineString,
+    MultiPolygon,
+    Polygon,
+)
 from shapely.coords import CoordinateSequence
+from shapely.geometry.base import BaseGeometry
 
 from .transform import Point2d, Transform
 
@@ -62,3 +70,133 @@ def transform_polygon(polygon: Polygon, transform: Transform) -> Polygon:
         ring(polygon.exterior.coords),
         holes=[ring(interior.coords) for interior in polygon.interiors],
     )
+
+
+def exterior_points(polygon: Polygon) -> list[Point2d]:
+    """``polygon.exterior.coords`` を ``Point2d`` リストとして返す（閉環、末尾は始点の重複）.
+
+    内側ホール（``polygon.interiors``）は含めない。
+    """
+    return [Point2d(x=x, y=y) for x, y in polygon.exterior.coords]
+
+
+def offset_components(polygon: Polygon, depth: float) -> list[Polygon]:
+    """``polygon.buffer(-depth)`` の結果から ``Polygon`` のみを抽出する.
+
+    MultiPolygon は連結成分に分解する。Point/LineString/GeometryCollection
+    内の非Polygon要素は除外する。``depth <= 0`` なら ``polygon`` 自身を返す。
+    空・不正な結果は空リストとなる。
+    """
+    offset = polygon.buffer(-depth) if depth > 0 else polygon
+
+    if offset.is_empty:
+        return []
+
+    if isinstance(offset, Polygon):
+        return [offset] if offset.is_valid else []
+
+    if isinstance(offset, (MultiPolygon, GeometryCollection)):
+        geoms: list[BaseGeometry] = list(offset.geoms)
+        return [g for g in geoms if isinstance(g, Polygon) and not g.is_empty]
+
+    return []
+
+
+@attrs.frozen
+class OrientedBox:
+    """最小回転外接矩形.
+
+    Attributes:
+        corner: 基準頂点（``minimum_rotated_rectangle`` の先頭頂点）
+        edge_a: ``corner`` から次の頂点へのベクトル
+        edge_b: ``corner`` から前の頂点へのベクトル
+    """
+
+    corner: Point2d
+    edge_a: Point2d
+    edge_b: Point2d
+
+    @property
+    def long_edge(self) -> Point2d:
+        """長辺ベクトル（同長なら ``edge_a``）."""
+        return self.edge_a if self.edge_a.norm >= self.edge_b.norm else self.edge_b
+
+    @property
+    def short_edge(self) -> Point2d:
+        """短辺ベクトル（同長なら ``edge_b``）."""
+        return self.edge_b if self.edge_a.norm >= self.edge_b.norm else self.edge_a
+
+    @property
+    def long_length(self) -> float:
+        return self.long_edge.norm
+
+    @property
+    def short_length(self) -> float:
+        return self.short_edge.norm
+
+    def center_line(self) -> tuple[Point2d, Point2d]:
+        """長辺方向に矩形を貫く中央線の (始点, 終点) を返す.
+
+        始点・終点は短辺の中点。``edge_b`` が ``edge_a`` 以上の長さなら
+        ``edge_a`` 側の中点から ``edge_b`` 方向へ、そうでなければ逆向きに辿る。
+        """
+        half_a = self.edge_a * 0.5
+        half_b = self.edge_b * 0.5
+        if self.edge_b.norm >= self.edge_a.norm:
+            return (self.corner + half_a, self.corner + self.edge_b + half_a)
+        return (self.corner + self.edge_a + half_b, self.corner + half_b)
+
+
+def oriented_bbox(polygon: Polygon) -> OrientedBox | None:
+    """最小回転外接矩形を返す。退化していれば ``None``."""
+    mrr = polygon.minimum_rotated_rectangle
+    if not isinstance(mrr, Polygon) or mrr.is_empty:
+        return None
+    coords = list(mrr.exterior.coords)
+    if len(coords) < 5:
+        return None
+    corner = Point2d(coords[0][0], coords[0][1])
+    return OrientedBox(
+        corner=corner,
+        edge_a=Point2d(coords[1][0], coords[1][1]) - corner,
+        edge_b=Point2d(coords[3][0], coords[3][1]) - corner,
+    )
+
+
+def clip_segment(
+    polygon: Polygon, start: Point2d, end: Point2d
+) -> list[tuple[Point2d, Point2d]]:
+    """線分 ``start``→``end`` とポリゴンの交線区間を進行方向順に返す.
+
+    各区間は進行方向に沿って ``(手前, 奥)`` の順。交差が無ければ空。
+    """
+    direction = end - start
+    length = direction.norm
+    if length <= 0:
+        return []
+    u = direction * (1.0 / length)
+
+    inter = LineString([(start.x, start.y), (end.x, end.y)]).intersection(polygon)
+    if inter.is_empty:
+        return []
+
+    if isinstance(inter, LineString):
+        lines: list[LineString] = [inter]
+    elif isinstance(inter, MultiLineString):
+        lines = [g for g in inter.geoms if isinstance(g, LineString)]
+    else:
+        return []
+
+    def along(p: Point2d) -> float:
+        return (p - start).x * u.x + (p - start).y * u.y
+
+    intervals: list[tuple[Point2d, Point2d]] = []
+    for line in lines:
+        pts = [Point2d(x, y) for x, y in line.coords]
+        if len(pts) < 2:
+            continue
+        pts.sort(key=along)
+        intervals.append((pts[0], pts[-1]))
+
+    intervals.sort(key=lambda seg: along(seg[0]))
+    return intervals

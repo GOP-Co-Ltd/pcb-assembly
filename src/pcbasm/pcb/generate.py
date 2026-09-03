@@ -8,9 +8,10 @@ re-export しない（利用側が明示的に ``pcbasm.pcb.generate`` を impor
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
 
 import pcbnew
+
+from pcbasm.pcb.units import from_mm, vector
 
 
 def save_board(board: pcbnew.BOARD, output: Path) -> None:
@@ -53,14 +54,14 @@ def generate_grid_pcb(
             fp = pcbnew.FOOTPRINT(board)
             fp.SetReference(designator)
             fp.SetValue("GridPad")
-            fp.SetPosition(_v(x_mm, y_mm))
+            fp.SetPosition(vector(x_mm, y_mm))
             fp.SetLayer(pcbnew.F_Cu)
 
             pad = pcbnew.PAD(fp)
             pad.SetNumber("1")
             pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
             pad.SetShape(pcbnew.PAD_SHAPE_RECT)
-            pad.SetSize(pcbnew.VECTOR2I(_mm(pad_size), _mm(pad_size)))
+            pad.SetSize(pcbnew.VECTOR2I(from_mm(pad_size), from_mm(pad_size)))
             pad.SetLayerSet(pad.SMDMask())  # F.Cu + F.Paste + F.Mask
             fp.Add(pad)
 
@@ -152,23 +153,13 @@ def build_fill_coverage_board() -> pcbnew.BOARD:
     return board
 
 
-def _mm(value: float) -> int:
-    """Mm を内部単位（nm）に変換する."""
-    return cast(int, pcbnew.FromMM(value))
-
-
-def _v(x: float, y: float) -> pcbnew.VECTOR2I:
-    """Mm 座標を ``VECTOR2I`` に変換する."""
-    return pcbnew.VECTOR2I(_mm(x), _mm(y))
-
-
 def _add_footprint(
     board: pcbnew.BOARD, ref: str, x: float, y: float
 ) -> pcbnew.FOOTPRINT:
     """指定位置に空のフットプリントを追加する."""
     fp = pcbnew.FOOTPRINT(board)
     fp.SetReference(ref)
-    fp.SetPosition(_v(x, y))
+    fp.SetPosition(vector(x, y))
     board.Add(fp)
     return fp
 
@@ -196,8 +187,8 @@ def _add_rect_pad(
     fp = _add_footprint(board, ref, x, y)
     pad = _paste_pad(fp, "1")
     pad.SetShape(pcbnew.PAD_SHAPE_RECTANGLE)
-    pad.SetSize(pcbnew.VECTOR2I(_mm(w), _mm(h)))
-    pad.SetPosition(_v(x, y))
+    pad.SetSize(pcbnew.VECTOR2I(from_mm(w), from_mm(h)))
+    pad.SetPosition(vector(x, y))
     fp.Add(pad)
 
 
@@ -214,9 +205,9 @@ def _add_roundrect_pad(
     fp = _add_footprint(board, ref, x, y)
     pad = _paste_pad(fp, "1")
     pad.SetShape(pcbnew.PAD_SHAPE_ROUNDRECT)
-    pad.SetSize(pcbnew.VECTOR2I(_mm(w), _mm(h)))
-    pad.SetRoundRectCornerRadius(_mm(radius))
-    pad.SetPosition(_v(x, y))
+    pad.SetSize(pcbnew.VECTOR2I(from_mm(w), from_mm(h)))
+    pad.SetRoundRectCornerRadius(from_mm(radius))
+    pad.SetPosition(vector(x, y))
     fp.Add(pad)
 
 
@@ -236,13 +227,13 @@ def _add_custom_pad(
     pad = _paste_pad(fp, "1")
     pad.SetShape(pcbnew.PAD_SHAPE_CUSTOM)
     pad.SetAnchorPadShape(pcbnew.F_Paste, pcbnew.PAD_SHAPE_CIRCLE)
-    pad.SetSize(pcbnew.VECTOR2I(_mm(0.1), _mm(0.1)))
-    pad.SetPosition(_v(x, y))
+    pad.SetSize(pcbnew.VECTOR2I(from_mm(0.1), from_mm(0.1)))
+    pad.SetPosition(vector(x, y))
     for ring in rings:
         poly = pcbnew.SHAPE_POLY_SET()
         chain = pcbnew.SHAPE_LINE_CHAIN()
         for px, py in ring:
-            chain.Append(_mm(px), _mm(py))
+            chain.Append(from_mm(px), from_mm(py))
         chain.SetClosed(True)
         poly.AddOutline(chain)
         pad.AddPrimitivePoly(pcbnew.F_Paste, poly, 0, True)
@@ -256,7 +247,7 @@ def _add_outline(board: pcbnew.BOARD, width: float, height: float) -> None:
         seg = pcbnew.PCB_SHAPE(board)
         seg.SetShape(pcbnew.SHAPE_T_SEGMENT)
         seg.SetLayer(pcbnew.Edge_Cuts)
-        seg.SetStart(_v(*corners[i]))
-        seg.SetEnd(_v(*corners[(i + 1) % 4]))
-        seg.SetWidth(_mm(0.1))
+        seg.SetStart(vector(*corners[i]))
+        seg.SetEnd(vector(*corners[(i + 1) % 4]))
+        seg.SetWidth(from_mm(0.1))
         board.Add(seg)

@@ -23,7 +23,7 @@ from shapely import Polygon, box
 from pcbasm import gcode
 from pcbasm.config import DispenseMode
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Point3d, Shift
-from pcbasm.pasting import PasteApplicator
+from pcbasm.pasting.applicator import PasteApplicator
 
 # 既定ノズル径 0.34（inset=0.17）で 2 成分に分裂する細首ダンベル（凹形）。
 # くびれ幅 0.3 < 2*0.17 のため buffer(-0.17) が左右 2 ローブに割れる。

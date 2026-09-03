@@ -4,7 +4,7 @@ import pytest
 from shapely import Polygon
 
 from pcbasm.geometry import Point2d
-from pcbasm.pasting import (
+from pcbasm.pasting.initial_purge import (
     DATASET_PURGE_PAD_ID,
     ResolvedInitialPurge,
     resolve_dataset_initial_purge,

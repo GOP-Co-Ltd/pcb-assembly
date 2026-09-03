@@ -4,8 +4,8 @@
 と、解決済み塗布設定から引数を束ねる :func:`build_pad_fill_plan_for`。ノズル径と
 塗布パラメータからマシン固有のヒューリスティクス（線間隔・インセット・
 フォールバック判定）を決定し、同モジュール内の private ヘルパー（``_area_fill`` /
-``_outline_and_zigzag`` / ``_line_fill`` / ``_dot_fill`` および幾何
-ユーティリティ群）に委譲する。
+``_outline_and_zigzag`` / ``_line_fill`` / ``_dot_fill``）に委譲する。汎用の
+計算幾何（外接矩形・オフセット成分・線分クリップ等）は :mod:`pcbasm.geometry` にある。
 
 アルゴリズムは「面塗布（外周トレース＋牛耕式ジグザグ）→ 線塗布（最長軸中心線）
 → 点塗布（代表点1点）」のフォールバック階層からなる。面塗布は
@@ -19,9 +19,8 @@ from math import isclose
 from typing import Literal, assert_never
 
 import attrs
-from shapely import MultiPolygon, Polygon
-from shapely.geometry import GeometryCollection, LineString, MultiLineString
-from shapely.geometry.base import BaseGeometry
+from shapely import Polygon
+from shapely.geometry import LineString
 
 from pcbasm.config import (
     DISPENSE_MODES,
@@ -29,7 +28,15 @@ from pcbasm.config import (
     DispenseMode,
     LineDirection,
 )
-from pcbasm.geometry import Point2d
+from pcbasm.geometry import (
+    Point2d,
+    clip_segment,
+    exterior_points,
+    offset_components,
+    oriented_bbox,
+    polyline_length,
+    ring_segment,
+)
 from pcbasm.pasting.settings import ResolvedPaste
 
 AppliedDispenseMode = Literal["dot", "line", "area"]
@@ -275,9 +282,10 @@ def _resolve_auto_mode(
 ) -> AppliedDispenseMode:
     match dispense_mode:
         case "auto":
-            long, short = _minimum_rotated_dimensions(polygon)
-            if short <= 0:
+            box = oriented_bbox(polygon)
+            if box is None or box.short_length <= 0:
                 return "dot"
+            long, short = box.long_length, box.short_length
             if short > nozzle_diameter * auto_area_short_side_factor:
                 return "area"
             return "line" if long / short > auto_line_aspect_ratio else "dot"
@@ -287,21 +295,6 @@ def _resolve_auto_mode(
             assert_never(dispense_mode)
 
 
-def _minimum_rotated_dimensions(polygon: Polygon) -> tuple[float, float]:
-    """最小回転外接矩形の (長辺, 短辺) [mm] を返す。退化時は ``(0.0, 0.0)``."""
-    mrr = polygon.minimum_rotated_rectangle
-    if not isinstance(mrr, Polygon):
-        return (0.0, 0.0)
-    coords = list(mrr.exterior.coords)
-    if len(coords) < 5:
-        return (0.0, 0.0)
-    edge_a = Point2d(coords[1][0], coords[1][1]) - Point2d(coords[0][0], coords[0][1])
-    edge_b = Point2d(coords[2][0], coords[2][1]) - Point2d(coords[1][0], coords[1][1])
-    long = max(edge_a.norm, edge_b.norm)
-    short = min(edge_a.norm, edge_b.norm)
-    return (long, short)
-
-
 def _area_fill(
     polygon: Polygon,
     line_spacing: float,
@@ -309,11 +302,11 @@ def _area_fill(
 ) -> list[list[Point2d]]:
     """面塗布パスを成分別ポリラインのリストとして生成する.
 
-    ``polygon.buffer(-inset)`` の各連結成分（``_offset_components``）に
+    ``polygon.buffer(-inset)`` の各連結成分（``offset_components``）に
     ``_outline_and_zigzag`` を適用し、空でないポリラインを集めて返す。
     成分が無い（buffer 後が空）場合は ``[]``。
     """
-    components = _offset_components(polygon, inset)
+    components = offset_components(polygon, inset)
     paths: list[list[Point2d]] = []
     for component in components:
         path = _outline_and_zigzag(component, line_spacing)
@@ -330,7 +323,7 @@ def _outline_and_zigzag(
 
     最小実装の方針（牛耕式）:
 
-    1. 外周: ``_ring_coords(component)`` で外環をトレースする。
+    1. 外周: ``exterior_points(component)`` で外環をトレースする。
     2. ジグザグ: ``component.minimum_rotated_rectangle`` から最長軸方向を取り、
        最長軸に垂直なスキャンラインを ``line_spacing`` 間隔で生成する。各
        スキャンライン∩``component`` の区間を最長軸座標でソートし、行ごとに
@@ -339,7 +332,7 @@ def _outline_and_zigzag(
 
     点が作れなければ ``[]`` を返す。
     """
-    outline = _ring_coords(component)
+    outline = exterior_points(component)
     zigzag = _zigzag_rows(component, line_spacing)
 
     path: list[Point2d] = []
@@ -372,41 +365,18 @@ def _connect_via_outline(
     if component.buffer(1e-9).covers(jump):
         return []
 
-    # _ring_coords は閉環（末尾が始点の重複）なので末尾を除いて巡回頂点とする
-    vertices = _ring_coords(component)[:-1]
+    # exterior_points は閉環（末尾が始点の重複）なので末尾を除いて巡回頂点とする
+    vertices = exterior_points(component)[:-1]
     n = len(vertices)
     i_start = min(range(n), key=lambda i: (vertices[i] - start).norm)
     i_end = min(range(n), key=lambda i: (vertices[i] - end).norm)
 
     # 外周を時計回り・反時計回りの両方向で辿り、短い方を採用
-    forward = _ring_segment(vertices, i_start, i_end, step=1)
-    backward = _ring_segment(vertices, i_start, i_end, step=-1)
+    forward = ring_segment(vertices, i_start, i_end, step=1)
+    backward = ring_segment(vertices, i_start, i_end, step=-1)
     return (
-        forward if _polyline_length(forward) <= _polyline_length(backward) else backward
+        forward if polyline_length(forward) <= polyline_length(backward) else backward
     )
-
-
-def _ring_segment(
-    vertices: list[Point2d],
-    i_start: int,
-    i_end: int,
-    *,
-    step: int,
-) -> list[Point2d]:
-    """``vertices`` を ``i_start`` から ``i_end`` まで ``step`` 方向に巡回した点列."""
-    n = len(vertices)
-    path: list[Point2d] = []
-    i = i_start
-    while i != i_end:
-        path.append(vertices[i])
-        i = (i + step) % n
-    path.append(vertices[i_end])
-    return path
-
-
-def _polyline_length(points: list[Point2d]) -> float:
-    """ポリラインの総延長を返す."""
-    return sum((points[i + 1] - points[i]).norm for i in range(len(points) - 1))
 
 
 def _zigzag_rows(component: Polygon, line_spacing: float) -> list[list[Point2d]]:
@@ -420,23 +390,13 @@ def _zigzag_rows(component: Polygon, line_spacing: float) -> list[list[Point2d]]
     if line_spacing <= 0:
         return []
 
-    mrr = component.minimum_rotated_rectangle
-    if not isinstance(mrr, Polygon):
+    box = oriented_bbox(component)
+    if box is None:
         return []
-    coords = list(mrr.exterior.coords)
-    if len(coords) < 5:
-        return []
-
-    corner = Point2d(coords[0][0], coords[0][1])
-    edge_a = Point2d(coords[1][0], coords[1][1]) - corner
-    edge_b = Point2d(coords[3][0], coords[3][1]) - corner
 
     # 最長辺方向 = 走査方向（最長軸 u）、もう一方 = 行送り方向 v
-    if edge_a.norm >= edge_b.norm:
-        long_edge, short_edge = edge_a, edge_b
-    else:
-        long_edge, short_edge = edge_b, edge_a
-
+    corner = box.corner
+    long_edge, short_edge = box.long_edge, box.short_edge
     long_len = long_edge.norm
     short_len = short_edge.norm
     if long_len <= 0 or short_len <= 0:
@@ -452,13 +412,7 @@ def _zigzag_rows(component: Polygon, line_spacing: float) -> list[list[Point2d]]
         offset = (i + 0.5) * short_len / n_rows
         base = corner + v * offset
         # 最長軸方向に矩形を貫くスキャンライン
-        scan = LineString(
-            [
-                (base.x, base.y),
-                ((base + u * long_len).x, (base + u * long_len).y),
-            ]
-        )
-        intervals = _scanline_intervals(scan, component, base, u)
+        intervals = clip_segment(component, base, base + u * long_len)
         if not intervals:
             continue
         # 行ごとに走査向きを交互反転（牛耕式）
@@ -467,41 +421,6 @@ def _zigzag_rows(component: Polygon, line_spacing: float) -> list[list[Point2d]]
         for start, end in intervals:
             rows.append([start, end])
     return rows
-
-
-def _scanline_intervals(
-    scan: LineString,
-    component: Polygon,
-    base: Point2d,
-    u: Point2d,
-) -> list[tuple[Point2d, Point2d]]:
-    """スキャンラインと成分の交線区間を最長軸座標でソートして返す.
-
-    ``scan ∩ component`` の各 ``LineString`` 区間の端点を、最長軸方向 ``u`` への
-    射影座標で昇順に並べた ``(start, end)`` のリストを返す。交差が無ければ空。
-    """
-    inter = scan.intersection(component)
-    if inter.is_empty:
-        return []
-
-    if isinstance(inter, LineString):
-        lines: list[LineString] = [inter]
-    elif isinstance(inter, MultiLineString):
-        lines = [g for g in inter.geoms if isinstance(g, LineString)]
-    else:
-        return []
-
-    intervals: list[tuple[Point2d, Point2d]] = []
-    for line in lines:
-        pts = [Point2d(x, y) for x, y in line.coords]
-        if len(pts) < 2:
-            continue
-        # 端点を最長軸座標でソートして区間化
-        pts.sort(key=lambda p: (p - base).x * u.x + (p - base).y * u.y)
-        intervals.append((pts[0], pts[-1]))
-
-    intervals.sort(key=lambda seg: (seg[0] - base).x * u.x + (seg[0] - base).y * u.y)
-    return intervals
 
 
 def _line_fill(polygon: Polygon, end_inset: float) -> list[Point2d]:
@@ -542,24 +461,10 @@ def _generate_linear_path(
     if polygon.is_empty or not polygon.is_valid:
         return []
 
-    mrr = polygon.minimum_rotated_rectangle
-    if not isinstance(mrr, Polygon):
+    box = oriented_bbox(polygon)
+    if box is None:
         return []
-    coords = list(mrr.exterior.coords)
-    if len(coords) < 5:
-        return []
-
-    mids = [
-        Point2d(
-            (coords[i][0] + coords[i + 1][0]) / 2,
-            (coords[i][1] + coords[i + 1][1]) / 2,
-        )
-        for i in range(4)
-    ]
-    if (mids[2] - mids[0]).norm >= (mids[3] - mids[1]).norm:
-        start, end = mids[0], mids[2]
-    else:
-        start, end = mids[1], mids[3]
+    start, end = box.center_line()
 
     direction = end - start
     length = direction.norm
@@ -568,38 +473,3 @@ def _generate_linear_path(
 
     unit = direction * (1.0 / length)
     return [start + unit * end_inset, end - unit * end_inset]
-
-
-def _offset_components(polygon: Polygon, depth: float) -> list[Polygon]:
-    """``polygon.buffer(-depth)`` の結果から ``Polygon`` のみを抽出する.
-
-    MultiPolygon は連結成分に分解する。Point/LineString/GeometryCollection
-    内の非Polygon要素は除外する。空・不正な結果は空リストとなる。
-    """
-    if depth > 0:
-        offset = polygon.buffer(-depth)
-    else:
-        offset = polygon
-
-    if offset.is_empty:
-        return []
-
-    if isinstance(offset, Polygon):
-        if offset.is_valid and not offset.is_empty:
-            return [offset]
-        return []
-
-    if isinstance(offset, (MultiPolygon, GeometryCollection)):
-        geoms: list[BaseGeometry] = list(offset.geoms)
-        return [g for g in geoms if isinstance(g, Polygon) and not g.is_empty]
-
-    return []
-
-
-def _ring_coords(polygon: Polygon) -> list[Point2d]:
-    """``polygon.exterior.coords`` を ``Point2d`` リストとして返す.
-
-    TODO: 内側ホール（``polygon.interiors``）には未対応。PCBパッドにホールは
-    ほぼ存在しないため当面は外環のみを扱う。
-    """
-    return [Point2d(x=x, y=y) for x, y in polygon.exterior.coords]

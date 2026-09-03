@@ -1,7 +1,9 @@
 import logging
 import sys
 
-from pcbasm.utils import get_class_module_path, setup_logging
+import pytest
+
+from pcbasm.utils import get_class_module_path, is_finite_number, setup_logging
 
 
 class _SampleClass:
@@ -63,3 +65,16 @@ class TestSetupLogging:
 
         captured = capsys.readouterr()
         assert "should not appear" not in captured.out
+
+
+class TestIsFiniteNumber:
+    @pytest.mark.parametrize("value", [0, 1, -3, 0.5, -2.25, 10**300])
+    def test_accepts_finite_numbers(self, value: object):
+        assert is_finite_number(value) is True
+
+    @pytest.mark.parametrize(
+        "value",
+        [True, False, None, "1", float("inf"), float("-inf"), float("nan"), 10**400],
+    )
+    def test_rejects_bool_non_numbers_and_non_finite(self, value: object):
+        assert is_finite_number(value) is False

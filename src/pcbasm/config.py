@@ -13,7 +13,7 @@ import attrs
 import cattrs
 
 from pcbasm.geometry import Point2d, Shift, Transform
-from pcbasm.utils import PROJECT_ROOT
+from pcbasm.utils import PROJECT_ROOT, is_finite_number
 
 DISPENSE_MODES = ("auto", "dot", "line", "area")
 DispenseMode = Literal["auto", "dot", "line", "area"]
@@ -137,36 +137,21 @@ class PadAlign:
 
 def validate_region_overlap(value: float) -> str | None:
     """照合領域の重なり率を検証する."""
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not isfinite(value)
-        or not 0.0 <= value < 1.0
-    ):
+    if not is_finite_number(value) or not 0.0 <= value < 1.0:
         return f"region_overlapは0以上1未満の有限値である必要があります: {value!r}"
     return None
 
 
 def validate_positive_number(name: str, value: float) -> str | None:
     """正の有限値であるべき設定値を検証する."""
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not isfinite(value)
-        or value <= 0
-    ):
+    if not is_finite_number(value) or value <= 0:
         return f"{name}は正の有限値である必要があります: {value!r}"
     return None
 
 
 def validate_non_negative_number(name: str, value: float) -> str | None:
     """0以上の有限値であるべき設定値を検証する."""
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not isfinite(value)
-        or value < 0
-    ):
+    if not is_finite_number(value) or value < 0:
         return f"{name}は0以上の有限値である必要があります: {value!r}"
     return None
 
