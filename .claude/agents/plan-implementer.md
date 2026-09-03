@@ -67,4 +67,4 @@ effort: high
 - ハードウェアテスト：skill `hardware-test`
 - spec-test-author との分担：skill `agent-team-startup`
 - フィードバック規約：`memory/MEMORY.md`
-- プロジェクトコマンド：CLAUDE.md
+- プロジェクトコマンド：AGENTS.md

@@ -79,6 +79,14 @@ UI は fail-closed。ページを開いた直後は `body[data-control] = "viewe
 `el.hasAttribute('inert')` を `evaluate` で読む（`tests/e2e/test_multi_user_browser.py` の
 `_is_inert`）。
 
+### WS イベントの形
+
+`src/web/api/routers/jobs.py` / `jobs/manager.py` が契約:
+
+- server → client: `job_status` / `log` / `progress` / `prompt` / `prompt_resolved` / `state_changed` / `error`
+- client → server: `respond_prompt` {prompt_id, answer} / `command` {command} / `abort`
+- `job_status` の `job` は全量サマリ。`pending_prompt` 経由でも prompt に応答できる
+
 ### mDNS テストの隔離の鉄則
 
 実 zeroconf を触るテストは**実 LAN を汚さない**ために 3 つを守る（`tests/e2e/test_discovery_e2e.py`）。

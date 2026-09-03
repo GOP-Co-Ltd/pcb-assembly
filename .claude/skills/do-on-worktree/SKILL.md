@@ -34,11 +34,11 @@ git status --short          # 進行中の未コミット変更
 
 - `worktree.baseRef` のデフォルト `fresh` により **origin の既定ブランチ（`main`）から分岐**する。進行中ブランチの変更は持ち込まれない
 - セッションの作業ディレクトリが worktree（`.claude/worktrees/<name>/`）に切り替わる。進行中タスクのファイルには触れない
-- 作成されるブランチ名は `name` から自動生成され（`/` が `+` に変換される等）規約と食い違うことがある。必要なら `git branch -m <旧> <新>` で CLAUDE.md の `<種別>/<日付>/<内容>` 形式に直す
+- 作成されるブランチ名は `name` から自動生成され（`/` が `+` に変換される等）規約と食い違うことがある。必要なら `git branch -m <旧> <新>` で AGENTS.md の `<種別>/<日付>/<内容>` 形式に直す
 
 ### 3. 作業する
 
-依頼された変更を worktree 内で実装する。CLAUDE.md の開発原則・Git 運用に従う。
+依頼された変更を worktree 内で実装する。AGENTS.md の開発原則・Git 運用に従う。
 `.claude/` 配下を触る場合は skill [edit-dot-claude](../edit-dot-claude/SKILL.md) の手順（/tmp 経由）を使う。
 
 ### 4. 検証
@@ -47,7 +47,7 @@ git status --short          # 進行中の未コミット変更
 
 ### 5. コミット
 
-CLAUDE.md のコミット規約（`<種別>(<スコープ>): <内容>`、1 コミット 1 関心事）に従う。
+AGENTS.md のコミット規約（`<種別>(<スコープ>): <内容>`、1 コミット 1 関心事）に従う。
 
 ### 6. MR を出す
 
@@ -63,5 +63,5 @@ skill [gitlab-mr](../gitlab-mr/SKILL.md) の手順で push し、`main` への M
 ## 注意点
 
 - 進行中タスクのブランチには絶対に commit しない
-- `main` へ直接 commit / merge しない（CLAUDE.md の Git 運用）。MR 止まりにする
+- `main` へ直接 commit / merge しない（AGENTS.md の Git 運用）。MR 止まりにする
 - worktree は `.claude/worktrees/<name>/` に作られ、元タスクのファイルとは別物

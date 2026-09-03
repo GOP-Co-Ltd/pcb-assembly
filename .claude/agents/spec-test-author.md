@@ -69,4 +69,4 @@ skills:
 - ハードウェアテスト：skill `hardware-test`
 - テストコード規約：skill `refactor-conventions`
 - フィードバック規約：`memory/MEMORY.md`
-- プロジェクトコマンド：CLAUDE.md
+- プロジェクトコマンド：AGENTS.md
