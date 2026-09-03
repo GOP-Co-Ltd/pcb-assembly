@@ -7,7 +7,7 @@ import pytest
 from shapely import Point as ShapelyPoint, Polygon
 
 from pcbasm.geometry import Point2d
-from pcbasm.pasting import (
+from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ToolheadOffsetResult,
     ToolheadOffsetSample,

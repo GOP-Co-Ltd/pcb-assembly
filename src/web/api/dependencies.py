@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from pcbasm.hal import AudioPlayer
-from pcbasm.pasting.paste_flow_calibration_board import (
+from pcbasm.pasting.paste_flow_calibration_board.generator import (
     PasteFlowCalibrationBoardGenerator,
 )
 from web.api.board_settings import BoardSettingsStore

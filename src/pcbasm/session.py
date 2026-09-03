@@ -21,7 +21,9 @@ from pcbasm.hal import (
     XYZStage,
 )
 from pcbasm.parking import park_or_present
-from pcbasm.pasting import HeightPlaneMeasurer, PasteApplicator, ProbeExecutor
+from pcbasm.pasting.applicator import PasteApplicator
+from pcbasm.pasting.height import HeightPlaneMeasurer
+from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.pcb import Pad, PcbFile
 from pcbasm.posctrl import (
     BoardAlignment,

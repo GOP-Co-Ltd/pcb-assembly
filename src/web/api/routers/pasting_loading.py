@@ -6,7 +6,7 @@ import attrs
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from pcbasm.pasting import estimate_mass_flow
+from pcbasm.pasting.calibration import estimate_mass_flow
 from web.api.dependencies import StateDep
 
 router = APIRouter(prefix="/api")
