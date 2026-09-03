@@ -31,7 +31,8 @@ from shapely import Polygon
 
 from pcbasm.config import PasteDispenser, Toolhead
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.settings import LevelSetting, PasteOverride, PasteSettingsModel
+from pcbasm.pasting.params import PasteParamsPatch
+from pcbasm.pasting.settings import LevelSetting, PasteSettingsModel
 from pcbasm.pcb import Component, Layer, Pad, build_pad_hierarchy
 from web.api.board_settings import BoardSettingsStore
 
@@ -82,6 +83,12 @@ def _hierarchy():
     return build_pad_hierarchy(components, pads)
 
 
+def _level(model: PasteSettingsModel, key: tuple[str, ...]) -> LevelSetting:
+    setting = model.level(key)
+    assert setting is not None, key
+    return setting
+
+
 def _saved_doc(
     root: Path,
     store: BoardSettingsStore,
@@ -123,8 +130,7 @@ class TestLoadOrInit:
 
         model = store.load_or_init("boards/a.kicad_pcb", config)
 
-        assert model.base_enabled is True
-        assert model.levels == {}
+        assert model.levels == ()
         assert model.base.dispense_mode == config.dispense_mode
         assert model.base.line_direction == config.line_direction
         assert model.base.prime_extra_delay == config.prime_extra_delay
@@ -142,18 +148,17 @@ class TestLoadOrInit:
         model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
-            levels={
-                ("L0",): LevelSetting(enabled=False),
-                ("L2", "U1"): LevelSetting(enabled=True),
-            },
+            levels=(
+                LevelSetting(("L0",), enabled=False),
+                LevelSetting(("L2", "U1"), enabled=True),
+            ),
         )
         store.save("boards/a.kicad_pcb", edited)
 
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
-        assert loaded.base_enabled is True
-        assert loaded.levels[("L0",)].enabled is False
-        assert loaded.levels[("L2", "U1")].enabled is True
+        assert _level(loaded, ("L0",)).enabled is False
+        assert _level(loaded, ("L2", "U1")).enabled is True
         assert loaded.base.prime_extra_delay == config.prime_extra_delay
 
 
@@ -166,24 +171,24 @@ class TestRoundTrip:
         model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
-            base_enabled=True,
-            levels={
-                ("L2", "U1"): LevelSetting(
+            levels=(
+                LevelSetting(
+                    ("L2", "U1"),
                     enabled=False,
-                    override=PasteOverride(prime_extra_delay=0.5, overlap=0.1),
-                )
-            },
+                    patch=PasteParamsPatch(prime_extra_delay=0.5, overlap=0.1),
+                ),
+            ),
         )
         store.save("boards/a.kicad_pcb", edited)
 
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
-        setting = loaded.levels[("L2", "U1")]
+        setting = _level(loaded, ("L2", "U1"))
         assert setting.enabled is False
-        assert setting.override.prime_extra_delay == 0.5
-        assert setting.override.overlap == 0.1
+        assert setting.patch.prime_extra_delay == 0.5
+        assert setting.patch.overlap == 0.1
         # 未設定項目は継承（None）のまま
-        assert setting.override.paste_height is None
+        assert setting.patch.paste_height is None
 
 
 class TestInitialPurgePadId:
@@ -207,7 +212,6 @@ class TestInitialPurgePadId:
         model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
-            base_enabled=model.base_enabled,
             levels=model.levels,
             initial_purge_pad_id="U1.2",
         )
@@ -225,7 +229,6 @@ class TestInitialPurgePadId:
         model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
-            base_enabled=model.base_enabled,
             levels=model.levels,
             initial_purge_pad_id="U1.1",
         )
@@ -247,7 +250,6 @@ class TestInitialPurgePadId:
         model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
-            base_enabled=model.base_enabled,
             levels=model.levels,
             initial_purge_pad_id="U1.2",
         )
@@ -265,7 +267,6 @@ class TestInitialPurgePadId:
         model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
-            base_enabled=model.base_enabled,
             levels=model.levels,
             initial_purge_pad_id="U99.1",
         )
@@ -340,17 +341,17 @@ class TestJsonShape:
         model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
-            levels={
-                ("L0",): LevelSetting(enabled=False),
-                ("L2", "U1"): LevelSetting(enabled=True),
-            },
+            levels=(
+                LevelSetting(("L0",), enabled=False),
+                LevelSetting(("L2", "U1"), enabled=True),
+            ),
         )
         legacy_store = BoardSettingsStore(tmp_path / "legacy")
         legacy_store.save("boards/a.kicad_pcb", edited)
 
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
-        assert loaded.levels[("L0",)].enabled is False
+        assert _level(loaded, ("L0",)).enabled is False
         assert list(current.rglob("*.json")) == []
 
     def test_legacy_base_equal_to_machine_config_is_not_l0_override(
@@ -385,22 +386,19 @@ class TestJsonShape:
 
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
-        assert ("L0",) not in loaded.levels
+        assert loaded.level(("L0",)) is None
 
     def test_legacy_base_difference_becomes_l0_override(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
-        old_model = PasteSettingsModel(
-            base=PasteOverride(
-                prime_extra_delay=0.4,
-                paste_height=config.paste_height,
-                ul_per_mm2=config.ul_per_mm2,
-                bead_width_factor=config.bead_width_factor,
-                overlap=config.overlap,
-                boundary_margin=config.boundary_margin,
-            ),
-            base_enabled=True,
-        )
+        old_base = {
+            "prime_extra_delay": 0.4,
+            "paste_height": config.paste_height,
+            "ul_per_mm2": config.ul_per_mm2,
+            "bead_width_factor": config.bead_width_factor,
+            "overlap": config.overlap,
+            "boundary_margin": config.boundary_margin,
+        }
         board_id = store.board_id("boards/a.kicad_pcb")
         path = tmp_path / "board_settings" / f"{board_id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -410,14 +408,7 @@ class TestJsonShape:
                     "version": 1,
                     "source_pcb": "boards/a.kicad_pcb",
                     "settings": {
-                        "base": {
-                            "paste_height": old_model.base.paste_height,
-                            "ul_per_mm2": old_model.base.ul_per_mm2,
-                            "prime_extra_delay": old_model.base.prime_extra_delay,
-                            "bead_width_factor": old_model.base.bead_width_factor,
-                            "overlap": old_model.base.overlap,
-                            "boundary_margin": old_model.base.boundary_margin,
-                        },
+                        "base": old_base,
                         "base_enabled": True,
                         "levels": [],
                     },
@@ -429,7 +420,7 @@ class TestJsonShape:
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert loaded.base.prime_extra_delay == config.prime_extra_delay
-        assert loaded.levels[("L0",)].override.prime_extra_delay == 0.4
+        assert _level(loaded, ("L0",)).patch.prime_extra_delay == 0.4
 
     def test_signature_mismatch_initializes_fresh_model(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
@@ -437,7 +428,7 @@ class TestJsonShape:
         model = store.load_or_init("boards/a.kicad_pcb", config)
         edited = PasteSettingsModel(
             base=model.base,
-            levels={("L2", "U1"): LevelSetting(enabled=True)},
+            levels=(LevelSetting(("L2", "U1"), enabled=True),),
         )
         store.save(
             "boards/a.kicad_pcb",
@@ -451,7 +442,7 @@ class TestJsonShape:
             board_signature="new-signature",
         )
 
-        assert loaded.levels == {}
+        assert loaded.levels == ()
 
     def test_model_from_doc_rejects_mismatched_signature(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
@@ -481,17 +472,16 @@ class TestPrune:
         hierarchy = _hierarchy()
         model = PasteSettingsModel(
             base=store.load_or_init("boards/a.kicad_pcb", config).base,
-            base_enabled=True,
-            levels={
-                ("L2", "U1"): LevelSetting(enabled=False),  # 現階層に存在
-                ("L2", "U99"): LevelSetting(enabled=False),  # orphan
-            },
+            levels=(
+                LevelSetting(("L2", "U1"), enabled=False),  # 現階層に存在
+                LevelSetting(("L2", "U99"), enabled=False),  # orphan
+            ),
         )
 
         pruned = store.prune("boards/a.kicad_pcb", model, hierarchy)
 
-        assert ("L2", "U1") in pruned.levels
-        assert ("L2", "U99") not in pruned.levels
+        assert pruned.level(("L2", "U1")) is not None
+        assert pruned.level(("L2", "U99")) is None
 
     def test_prune_persists_result(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
@@ -499,14 +489,13 @@ class TestPrune:
         hierarchy = _hierarchy()
         model = PasteSettingsModel(
             base=store.load_or_init("boards/a.kicad_pcb", config).base,
-            base_enabled=True,
-            levels={("L2", "U99"): LevelSetting(enabled=False)},
+            levels=(LevelSetting(("L2", "U99"), enabled=False),),
         )
 
         store.prune("boards/a.kicad_pcb", model, hierarchy)
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
-        assert ("L2", "U99") not in loaded.levels
+        assert loaded.level(("L2", "U99")) is None
 
 
 class TestUpdate:
@@ -525,8 +514,8 @@ class TestUpdate:
         )
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
-        assert result.levels[("L2", "U1")].enabled is False
-        assert loaded.levels[("L2", "U1")].enabled is False
+        assert _level(result, ("L2", "U1")).enabled is False
+        assert _level(loaded, ("L2", "U1")).enabled is False
 
     def test_reloads_before_mutate_so_external_write_is_not_lost(self, tmp_path: Path):
         """Mutate 前に再 load する証明。A の後にファイルを直接書き換えても B が拾う.
@@ -560,8 +549,8 @@ class TestUpdate:
             ),
         )
 
-        assert ("L2", "U2") in result.levels
-        assert ("L2", "U3") in result.levels
+        assert result.level(("L2", "U2")) is not None
+        assert result.level(("L2", "U3")) is not None
 
     def test_second_update_blocks_until_first_mutate_returns(self, tmp_path: Path):
         """``update`` が排他であることの決定的な証明.
@@ -616,8 +605,8 @@ class TestUpdate:
         assert not thread_a.is_alive()
         assert not thread_b.is_alive()
         assert b_entered.is_set()
-        assert ("L2", "U1") in results["b"].levels
-        assert ("L2", "U2") in results["b"].levels
+        assert results["b"].level(("L2", "U1")) is not None
+        assert results["b"].level(("L2", "U2")) is not None
 
     def test_concurrent_updates_of_distinct_nodes_both_survive(self, tmp_path: Path):
         """2 スレッドが別ノードを同時編集しても、片方の変更が消えない.
@@ -663,8 +652,8 @@ class TestUpdate:
             assert not thread.is_alive()
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
-        assert ("L2", "U1") in loaded.levels
-        assert ("L2", "U2") in loaded.levels
+        assert loaded.level(("L2", "U1")) is not None
+        assert loaded.level(("L2", "U2")) is not None
 
     def test_signature_mismatch_discards_stale_file_content(self, tmp_path: Path):
         """再 load は load_or_init と同じ signature 判定に従う."""
@@ -686,5 +675,5 @@ class TestUpdate:
             mutate=lambda model: model.with_initial_purge_pad_id("U1.1"),
         )
 
-        assert result.levels == {}
+        assert result.levels == ()
         assert result.initial_purge_pad_id == "U1.1"

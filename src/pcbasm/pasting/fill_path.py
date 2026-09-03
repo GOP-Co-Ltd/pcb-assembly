@@ -37,7 +37,7 @@ from pcbasm.geometry import (
     polyline_length,
     ring_segment,
 )
-from pcbasm.pasting.settings import ResolvedPaste
+from pcbasm.pasting.params import PasteParams
 
 AppliedDispenseMode = Literal["dot", "line", "area"]
 
@@ -196,12 +196,12 @@ def build_pad_fill_plan_for(
     nozzle_diameter: float,
     auto_line_aspect_ratio: float,
     auto_area_short_side_factor: float,
-    paste: ResolvedPaste,
+    paste: PasteParams,
     line_reference: Point2d | None = None,
 ) -> PasteFillPlan:
     """解決済み塗布設定から pad 1 枚分の塗布計画を組み立てる.
 
-    :class:`ResolvedPaste` の per-pad 項目（dispense_mode / line_direction /
+    :class:`PasteParams` の per-pad 項目（dispense_mode / line_direction /
     bead_width_factor / overlap / boundary_margin）とマシン設定由来の
     ヒューリスティクス 3 値を :func:`build_paste_fill_plan` の引数へ束ねる対応の
     単一ソース。プレビュー（webui router）と実行（``PasteApplicator._fill``）が

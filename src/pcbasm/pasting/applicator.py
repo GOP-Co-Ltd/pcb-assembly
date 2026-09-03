@@ -26,7 +26,7 @@ from pcbasm.geometry import (
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
 from pcbasm.pasting.fill_path import AppliedDispenseMode, build_pad_fill_plan_for
 from pcbasm.pasting.fill_sequence import FillSequence
-from pcbasm.pasting.settings import ResolvedPaste
+from pcbasm.pasting.params import PasteParams
 from pcbasm.utils import get_class_module_path
 
 
@@ -378,8 +378,7 @@ class PasteApplicator:
             overlap: ジグザグ行間オーバーラップ [0, 1)
             boundary_margin: 外周マージン [mm]
         """
-        paste = ResolvedPaste(
-            enabled=True,
+        paste = PasteParams(
             dispense_mode=(
                 self._dispense_mode if dispense_mode is None else dispense_mode
             ),
@@ -507,7 +506,7 @@ class PasteApplicator:
         self,
         polygon: Polygon,
         *,
-        paste: ResolvedPaste,
+        paste: PasteParams,
         transform: Transform,
         line_reference: Point2d | None,
     ) -> tuple[DispenseExecution, ...]:
@@ -519,7 +518,7 @@ class PasteApplicator:
         ``FillSequence`` の連続送信だけで自然に実現される。``total_amount``
         は元ポリゴン面積ベース（``polygon.area * ul_per_mm2``）を成分数で
         均等配分する。塗布設定は呼び出し元（``apply``）が解決した実効値
-        （:class:`ResolvedPaste`）を受け取り、経路生成はプレビューと共通の
+        （:class:`PasteParams`）を受け取り、経路生成はプレビューと共通の
         :func:`build_pad_fill_plan_for` に委譲する。
         """
         plan = build_pad_fill_plan_for(
