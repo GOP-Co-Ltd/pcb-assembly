@@ -190,6 +190,9 @@ _CHOICES: dict[str, tuple[str, ...]] = {
     "dispense_mode": DISPENSE_MODES,
     "line_direction": LINE_DIRECTIONS,
 }
+# 数値項目の範囲（fill_path / applicator はこの範囲を前提に再検証しない）
+_POSITIVE = ("ul_per_mm2", "bead_width_factor")
+_NON_NEGATIVE = ("prime_extra_delay", "boundary_margin")
 
 
 def validate_field_names(fields: Iterable[str]) -> str | None:
@@ -218,6 +221,12 @@ def validate_param_values(values: Mapping[str, object]) -> str | None:
                 return f"paste_heightは正の値で指定してください: {value}"
         elif not is_finite_number(value):
             return f"{field}は数値で指定してください: {value!r}"
+        elif field in _POSITIVE and value <= 0:
+            return f"{field}は正の値で指定してください: {value}"
+        elif field in _NON_NEGATIVE and value < 0:
+            return f"{field}は0以上で指定してください: {value}"
+        elif field == "overlap" and not 0.0 <= value < 1.0:
+            return f"overlapは0以上1未満で指定してください: {value}"
     return None
 
 

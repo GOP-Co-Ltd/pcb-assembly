@@ -138,6 +138,12 @@ class TestValidateParamValues:
             {"ul_per_mm2": True},
             {"prime_extra_delay": "fast"},
             {"overlap": float("inf")},
+            {"overlap": 1.0},
+            {"overlap": -0.1},
+            {"ul_per_mm2": 0.0},
+            {"bead_width_factor": 0.0},
+            {"prime_extra_delay": -1.0},
+            {"boundary_margin": -0.01},
         ],
     )
     def test_invalid_values_are_rejected(self, values: dict):

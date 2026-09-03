@@ -3,7 +3,7 @@
 FillSequence は1ポリゴンの塗布動作
 （接近→下降→prime同期吐出→速度0→リトラクト・上昇同時開始→同期）を1本のGCodeに組む
 オーケストレーター。ここでは stage / dispenser（いずれも pcbasm 自前の HAL ABC）を
-mock し、発行される動作の順序・量・速度を call assertion で検証する。 個々の GCode 文字列は
+mock し、発行される動作の順序・量・速度を call assertion で検証する。個々の GCode 文字列は
 stage/dispenser 側の責務なので（mock は空 GCode を返す）、 本テストは FillSequence が両 HAL
 をどう駆動するかの契約のみを固定する。
 
@@ -23,6 +23,19 @@ from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import Speed
 from pcbasm.pasting.dispense_calibration import rate_sweep_amount
 from pcbasm.pasting.fill_sequence import FillSequence
+from pcbasm.pasting.params import DispenseSettings
+
+# retract_accel = factor * rate^2 / amount = 4.0 * 25 / 10 = 10.0
+_SETTINGS = DispenseSettings(
+    max_fill_speed=2.0,
+    max_dispense_rate=10.0,
+    dispense_accel=8.0,
+    retract_amount=10.0,
+    retract_rate=5.0,
+    retract_accel_factor=4.0,
+    lift_height=3.0,
+)
+_TRAVEL = Speed.rate(1.0)
 
 
 @pytest.fixture
@@ -56,16 +69,9 @@ def _sequence(path: Path, *, rate_cap: float | None = None) -> FillSequence:
     """
     return FillSequence(
         path=path,
-        total_amount=20.0,
-        retraction=10.0,
-        max_fill_speed=2.0,
-        max_dispense_rate=10.0,
-        dispense_accel=8.0,
-        retraction_rate=5.0,
-        retraction_accel=10.0,
+        total_amount_ul=20.0,
+        settings=_SETTINGS,
         prime_extra_delay=0.5,
-        lift_height=3.0,
-        travel_speed=Speed.absolute(30.0),
         rate_cap=rate_cap,
     )
 
@@ -85,7 +91,7 @@ class TestFillSequence:
         # L=10: r_desired=4 ≤ max=10 → 減速なし。速度 = max_fill_speed = 2.0。
         path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
 
-        speed = _sequence(path).fill_speed_actual()
+        speed = _sequence(path).actual_fill_speed()
 
         assert speed is not None
         # 絶対速度なので max_velocity に依らず 2.0 に解決される。
@@ -95,7 +101,7 @@ class TestFillSequence:
         # L=2: r_desired=20 > max=10 → rate を 10 で頭打ち、速度 = max*L/total = 1.0。
         path = Path([Point3d(0.0, 0.0, 5.0), Point3d(2.0, 0.0, 5.0)])
 
-        speed = _sequence(path).fill_speed_actual()
+        speed = _sequence(path).actual_fill_speed()
 
         assert speed is not None
         assert speed.resolve(100.0) == pytest.approx(1.0)
@@ -104,7 +110,7 @@ class TestFillSequence:
         # 単点 path は length=0 のため吐出移動が成立せず None。
         path = Path([Point3d(0.0, 0.0, 5.0)])
 
-        assert _sequence(path).fill_speed_actual() is None
+        assert _sequence(path).actual_fill_speed() is None
 
     def test_dispense_rate_follows_speed_when_not_capped(
         self, mock_stage, mock_dispenser
@@ -193,21 +199,21 @@ class TestFillSequence:
             "x": 0.0,
             "y": 0.0,
             "z": 8.0,
-            "speed": Speed.absolute(30.0),
+            "speed": _TRAVEL,
         }
         # 2. 塗布高さへ下降。
         assert moves[1].kwargs == {
             "x": 0.0,
             "y": 0.0,
             "z": 5.0,
-            "speed": Speed.absolute(30.0),
+            "speed": _TRAVEL,
         }
         # 3. 最後の点で上昇。
         assert moves[2].kwargs == {
             "x": 10.0,
             "y": 0.0,
             "z": 8.0,
-            "speed": Speed.absolute(30.0),
+            "speed": _TRAVEL,
         }
 
     def test_to_gcode_fills_along_path_with_fill_speed(
@@ -261,7 +267,7 @@ class TestRateCap:
         seq.to_gcode(mock_stage, mock_dispenser)
 
         assert _dispense_rate(mock_dispenser) == pytest.approx(10.0)
-        speed = seq.fill_speed_actual()
+        speed = seq.actual_fill_speed()
         assert speed is not None
         assert speed.resolve(100.0) == pytest.approx(1.0)
 
@@ -274,7 +280,7 @@ class TestRateCap:
         seq.to_gcode(mock_stage, mock_dispenser)
 
         assert _dispense_rate(mock_dispenser) == pytest.approx(5.0)
-        speed = seq.fill_speed_actual()
+        speed = seq.actual_fill_speed()
         assert speed is not None
         assert speed.resolve(100.0) == pytest.approx(0.5)
 
@@ -287,7 +293,7 @@ class TestRateCap:
         seq.to_gcode(mock_stage, mock_dispenser)
 
         assert _dispense_rate(mock_dispenser) == pytest.approx(20.0)
-        speed = seq.fill_speed_actual()
+        speed = seq.actual_fill_speed()
         assert speed is not None
         assert speed.resolve(100.0) == pytest.approx(2.0)
 
@@ -313,21 +319,14 @@ class TestRateCap:
         length, speed = 10.0, 2.0
         sequence = FillSequence(
             path=Path([Point3d(0.0, 0.0, 5.0), Point3d(length, 0.0, 5.0)]),
-            total_amount=rate_sweep_amount(rate, length, speed),
-            retraction=10.0,
-            max_fill_speed=speed,
-            max_dispense_rate=10.0,
-            dispense_accel=8.0,
-            retraction_rate=5.0,
-            retraction_accel=10.0,
-            prime_extra_delay=0.0,
-            lift_height=3.0,
-            travel_speed=Speed.absolute(30.0),
+            total_amount_ul=rate_sweep_amount(rate, length, speed),
+            settings=_SETTINGS,
+            fill_speed=speed,
             rate_cap=rate,
         )
         sequence.to_gcode(mock_stage, mock_dispenser)
 
         assert _dispense_rate(mock_dispenser) == pytest.approx(rate)
-        actual = sequence.fill_speed_actual()
+        actual = sequence.actual_fill_speed()
         assert actual is not None
         assert actual.resolve(100.0) == pytest.approx(speed)

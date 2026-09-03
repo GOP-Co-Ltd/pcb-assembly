@@ -118,7 +118,7 @@ class TestRenderFillPaths:
     """render_fill_paths（fill path 可視化処理から昇格）."""
 
     def test_renders_fill_paths_to_readable_png(self, tmp_path):
-        from pcbasm.pasting.fill_path import build_paste_fill_path
+        from pcbasm.pasting.fill_path import build_fill_plan
         from pcbasm.pcb import Layer, PadList, PcbFile
         from pcbasm.visualization import render_fill_paths
 
@@ -126,13 +126,16 @@ class TestRenderFillPaths:
         pads = PadList(pad for pad in pcb.pads if pad.layer == Layer.TOP)
         assert len(pads) > 0
         paths = [
-            build_paste_fill_path(
-                pad.polygon,
-                0.4,
-                dispense_mode="area",
-                auto_line_aspect_ratio=1.618,
-                auto_area_short_side_factor=3.0,
-            )
+            [
+                list(path)
+                for path in build_fill_plan(
+                    pad.polygon,
+                    0.4,
+                    dispense_mode="area",
+                    auto_line_aspect_ratio=1.618,
+                    auto_area_short_side_factor=3.0,
+                ).paths
+            ]
             for pad in pads
         ]
         output = tmp_path / "fill_path.png"

@@ -49,7 +49,7 @@ def _base_config() -> PasteDispenser:
         dispense_accel=1.0,
         retract_amount=0.1,
         retract_rate=1.0,
-        retract_accel_factor=1.0,
+        retract_accel_factor=2.0,
         toolhead=Toolhead(x=0.0, y=0.0),
         paste_height="auto",
         ul_per_mm2=0.05,

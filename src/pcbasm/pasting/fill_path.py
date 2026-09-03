@@ -1,7 +1,7 @@
 """ペースト塗布用フィルパス生成.
 
-公開 API は :func:`build_paste_fill_plan`（互換の :func:`build_paste_fill_path`）
-と、解決済み塗布設定から引数を束ねる :func:`build_pad_fill_plan_for`。ノズル径と
+公開 API は :func:`build_fill_plan` と、解決済み塗布設定から引数を束ねる
+:func:`build_pad_fill_plan`。ノズル径と
 塗布パラメータからマシン固有のヒューリスティクス（線間隔・インセット・
 フォールバック判定）を決定し、同モジュール内の private ヘルパー（``_area_fill`` /
 ``_outline_and_zigzag`` / ``_line_fill`` / ``_dot_fill``）に委譲する。汎用の
@@ -10,7 +10,7 @@
 アルゴリズムは「面塗布（外周トレース＋牛耕式ジグザグ）→ 線塗布（最長軸中心線）
 → 点塗布（代表点1点）」のフォールバック階層からなる。面塗布は
 ``polygon.buffer(-inset)`` の各連結成分ごとに独立したポリラインを生成し、
-戻り値は成分別ポリラインのリスト ``list[list[Point2d]]`` となる。
+戻り値は成分別ポリラインの tuple となる。
 """
 
 from __future__ import annotations
@@ -23,10 +23,9 @@ from shapely import Polygon
 from shapely.geometry import LineString
 
 from pcbasm.config import (
-    DISPENSE_MODES,
-    LINE_DIRECTIONS,
     DispenseMode,
     LineDirection,
+    PasteDispenser as PasteDispenserConfig,
 )
 from pcbasm.geometry import (
     Point2d,
@@ -43,14 +42,19 @@ AppliedDispenseMode = Literal["dot", "line", "area"]
 
 
 @attrs.frozen
-class PasteFillPlan:
-    """塗布パスと、fallback / auto 解決後に実際に使う方式."""
+class FillPlan:
+    """塗布パスと、fallback / auto 解決後に実際に使う方式.
+
+    Attributes:
+        dispense_mode: 実際に使う方式
+        paths: 成分別ポリライン。各ポリラインは 1 点以上。入力が空／不正なポリゴンのときだけ空
+    """
 
     dispense_mode: AppliedDispenseMode
-    paths: list[list[Point2d]]
+    paths: tuple[tuple[Point2d, ...], ...]
 
 
-def build_paste_fill_path(
+def build_fill_plan(
     polygon: Polygon,
     nozzle_diameter: float,
     *,
@@ -60,46 +64,21 @@ def build_paste_fill_path(
     bead_width_factor: float = 1.0,
     overlap: float = 0.0,
     boundary_margin: float = 0.0,
-) -> list[list[Point2d]]:
-    """ペーストフィルパスを成分別ポリラインのリストとして生成する.
-
-    :func:`build_paste_fill_plan` の ``paths`` だけを返す薄い互換 API。
-    実際に使われた方式も必要な場合は ``build_paste_fill_plan`` を使う。
-    """
-    return build_paste_fill_plan(
-        polygon,
-        nozzle_diameter,
-        dispense_mode=dispense_mode,
-        auto_line_aspect_ratio=auto_line_aspect_ratio,
-        auto_area_short_side_factor=auto_area_short_side_factor,
-        bead_width_factor=bead_width_factor,
-        overlap=overlap,
-        boundary_margin=boundary_margin,
-    ).paths
-
-
-def build_paste_fill_plan(
-    polygon: Polygon,
-    nozzle_diameter: float,
-    *,
-    dispense_mode: DispenseMode,
-    auto_line_aspect_ratio: float,
-    auto_area_short_side_factor: float,
-    bead_width_factor: float = 1.0,
-    overlap: float = 0.0,
-    boundary_margin: float = 0.0,
-) -> PasteFillPlan:
+) -> FillPlan:
     """ペーストフィルパスを生成し、実際の塗布方式も返す.
 
     ノズル径と塗布パラメータからビード幅・線間隔・インセットを決定し、
-    指定された方式に従って塗布経路を構築する。
+    指定された方式に従って塗布経路を構築する。引数は検証済みの値を受け取る
+    （``nozzle_diameter > 0``、``0 <= overlap < 1``、``boundary_margin >= 0``、
+    ``bead_width_factor > 0``、``auto_line_aspect_ratio > 1``、
+    ``auto_area_short_side_factor > 0``。検証は ``PasteDispenser`` 読込と
+    :func:`pcbasm.pasting.params.validate_param_values` が担う）。
 
     数式::
 
         w (bead_width) = nozzle_diameter * bead_width_factor
         line_spacing   = w * (1 - overlap)
-        inset          = boundary_margin + w / 2     # 面塗布領域 = buffer(-inset)
-        end_inset      = boundary_margin + w / 2     # 線塗布の両端内側補正
+        inset          = boundary_margin + w / 2     # 面塗布領域 = buffer(-inset)、線塗布の両端内側補正
 
     方式::
 
@@ -110,61 +89,13 @@ def build_paste_fill_plan(
         dot : 点塗布（代表点1点）
         line: 線塗布。成立しなければ dot
         area: 面塗布。成立しなければ line、さらに無理なら dot
-
-    Args:
-        polygon: 塗布対象のポリゴン（mm単位）
-        nozzle_diameter: ノズル内径 [mm]
-        dispense_mode: 塗布方式
-        auto_line_aspect_ratio: Auto 時に線塗布へ切り替える縦横比（>1.0）
-        auto_area_short_side_factor: Auto 時に面塗布へ切り替える短辺のノズル径倍率（>0）
-        bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
-        overlap: ジグザグ行間オーバーラップ [0, 1)
-        boundary_margin: 外周マージン [mm]
-
-    Returns:
-        実塗布方式と成分別ポリライン。各内側ポリラインは1点以上の ``Point2d``。
-        入力が空／不正なポリゴンの場合のみ ``paths=[]``。
-
-    Raises:
-        ValueError: ``nozzle_diameter`` が0以下、``overlap`` が [0,1) 外、
-            ``boundary_margin`` が負、``bead_width_factor`` が0以下、
-            ``auto_line_aspect_ratio`` が1.0以下、``auto_area_short_side_factor``
-            が0以下、未知の ``dispense_mode`` の場合
     """
-    if nozzle_diameter <= 0:
-        raise ValueError(
-            f"nozzle_diameterは正の値である必要があります: {nozzle_diameter}"
-        )
-    if not (0.0 <= overlap < 1.0):
-        raise ValueError(f"overlapは[0,1)である必要があります: {overlap}")
-    if boundary_margin < 0:
-        raise ValueError(
-            f"boundary_marginは0以上である必要があります: {boundary_margin}"
-        )
-    if bead_width_factor <= 0:
-        raise ValueError(
-            f"bead_width_factorは正の値である必要があります: {bead_width_factor}"
-        )
-    if auto_line_aspect_ratio <= 1.0:
-        raise ValueError(
-            "auto_line_aspect_ratioは1.0より大きい必要があります: "
-            f"{auto_line_aspect_ratio}"
-        )
-    if auto_area_short_side_factor <= 0:
-        raise ValueError(
-            "auto_area_short_side_factorは正の値である必要があります: "
-            f"{auto_area_short_side_factor}"
-        )
-    if dispense_mode not in DISPENSE_MODES:
-        raise ValueError(f"未知の塗布方式です: {dispense_mode}")
-
     if polygon.is_empty or not polygon.is_valid:
-        return PasteFillPlan(dispense_mode="dot", paths=[])
+        return FillPlan(dispense_mode="dot", paths=())
 
     w = nozzle_diameter * bead_width_factor
     line_spacing = w * (1.0 - overlap)
     inset = boundary_margin + w / 2.0
-    end_inset = boundary_margin + w / 2.0
     mode = _resolve_auto_mode(
         polygon,
         dispense_mode,
@@ -173,79 +104,66 @@ def build_paste_fill_plan(
         auto_area_short_side_factor=auto_area_short_side_factor,
     )
 
+    dot = FillPlan(dispense_mode="dot", paths=(tuple(_dot_fill(polygon)),))
     match mode:
         case "dot":
-            return PasteFillPlan(dispense_mode="dot", paths=[_dot_fill(polygon)])
+            return dot
         case "line":
-            if line := _line_fill(polygon, end_inset):
-                return PasteFillPlan(dispense_mode="line", paths=[line])
-            return PasteFillPlan(dispense_mode="dot", paths=[_dot_fill(polygon)])
+            if line := _line_fill(polygon, inset):
+                return FillPlan(dispense_mode="line", paths=(tuple(line),))
+            return dot
         case "area":
             if paths := _area_fill(polygon, line_spacing, inset):
-                return PasteFillPlan(dispense_mode="area", paths=paths)
-            if line := _line_fill(polygon, end_inset):
-                return PasteFillPlan(dispense_mode="line", paths=[line])
-            return PasteFillPlan(dispense_mode="dot", paths=[_dot_fill(polygon)])
+                return FillPlan(
+                    dispense_mode="area", paths=tuple(tuple(path) for path in paths)
+                )
+            if line := _line_fill(polygon, inset):
+                return FillPlan(dispense_mode="line", paths=(tuple(line),))
+            return dot
         case _:
             assert_never(mode)
 
 
-def build_pad_fill_plan_for(
+def build_pad_fill_plan(
     polygon: Polygon,
     *,
-    nozzle_diameter: float,
-    auto_line_aspect_ratio: float,
-    auto_area_short_side_factor: float,
-    paste: PasteParams,
+    config: PasteDispenserConfig,
+    params: PasteParams,
     line_reference: Point2d | None = None,
-) -> PasteFillPlan:
+) -> FillPlan:
     """解決済み塗布設定から pad 1 枚分の塗布計画を組み立てる.
 
     :class:`PasteParams` の per-pad 項目（dispense_mode / line_direction /
-    bead_width_factor / overlap / boundary_margin）とマシン設定由来の
-    ヒューリスティクス 3 値を :func:`build_paste_fill_plan` の引数へ束ねる対応の
-    単一ソース。プレビュー（webui router）と実行（``PasteApplicator._fill``）が
-    同一の対応で計画を生成し、両者の乖離を構造的に防ぐ。
+    bead_width_factor / overlap / boundary_margin）とマシン設定由来のヒューリスティクス
+    （nozzle_diameter / auto_*）を :func:`build_fill_plan` の引数へ束ねる対応の単一ソース。
+    プレビュー（webui router）と実行（``PasteApplicator``）が同一の対応で計画を生成し、
+    両者の乖離を構造的に防ぐ。
 
-    Args:
-        polygon: 塗布対象のポリゴン（mm単位）
-        nozzle_diameter: ノズル内径 [mm]（``PasteDispenser.nozzle_diameter``）
-        auto_line_aspect_ratio: Auto 時に線塗布へ切り替える縦横比
-        auto_area_short_side_factor: Auto 時に面塗布へ切り替える短辺のノズル径倍率
-        paste: この pad の解決済み塗布設定
-        line_reference: outward / inward の基準にする部品位置（board 座標）
-
-    Returns:
-        実塗布方式と成分別ポリライン（:class:`PasteFillPlan`）
-
-    Raises:
-        ValueError: :func:`build_paste_fill_plan` の検証に通らない場合
+    ``line_direction`` が outward / inward でも ``line_reference``（部品位置）が無い pad
+    は向きを揃えられないので unconstrained として扱う。
     """
-    if paste.line_direction not in LINE_DIRECTIONS:
-        raise ValueError(f"未知の線走行方向です: {paste.line_direction}")
-    if paste.line_direction != "unconstrained" and line_reference is None:
-        raise ValueError("線走行方向の指定には部品位置が必要です")
-
-    plan = build_paste_fill_plan(
+    plan = build_fill_plan(
         polygon,
-        nozzle_diameter,
-        dispense_mode=paste.dispense_mode,
-        auto_line_aspect_ratio=auto_line_aspect_ratio,
-        auto_area_short_side_factor=auto_area_short_side_factor,
-        bead_width_factor=paste.bead_width_factor,
-        overlap=paste.overlap,
-        boundary_margin=paste.boundary_margin,
+        config.nozzle_diameter,
+        dispense_mode=params.dispense_mode,
+        auto_line_aspect_ratio=config.auto_line_aspect_ratio,
+        auto_area_short_side_factor=config.auto_area_short_side_factor,
+        bead_width_factor=params.bead_width_factor,
+        overlap=params.overlap,
+        boundary_margin=params.boundary_margin,
     )
-    if plan.dispense_mode != "line" or paste.line_direction == "unconstrained":
+    if (
+        plan.dispense_mode != "line"
+        or params.line_direction == "unconstrained"
+        or line_reference is None
+    ):
         return plan
-
-    assert line_reference is not None
     return attrs.evolve(
         plan,
-        paths=[
-            _orient_line_path(path, paste.line_direction, line_reference)
+        paths=tuple(
+            tuple(_orient_line_path(list(path), params.line_direction, line_reference))
             for path in plan.paths
-        ],
+        ),
     )
 
 
@@ -446,18 +364,12 @@ def _generate_linear_path(
 
     Args:
         polygon: 対象ポリゴン（mm単位）
-        end_inset: 両端の内側補正量（mm、0以上）
+        end_inset: 両端の内側補正量（mm、検証済みで 0 以上）
 
     Returns:
         ``[start, end]`` の2点パス。長軸が短すぎる、または入力が空／不正な
         場合は ``[]``。
-
-    Raises:
-        ValueError: ``end_inset`` が負の場合
     """
-    if end_inset < 0:
-        raise ValueError(f"end_insetは0以上である必要があります: {end_inset}")
-
     if polygon.is_empty or not polygon.is_valid:
         return []
 

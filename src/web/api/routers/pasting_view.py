@@ -23,7 +23,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 from pcbasm.config import PasteDispenser
-from pcbasm.pasting.fill_path import build_pad_fill_plan_for
+from pcbasm.pasting.fill_path import build_pad_fill_plan
 from pcbasm.pasting.initial_purge import (
     InitialPurgePurpose,
     resolve_initial_purge_for,
@@ -503,21 +503,12 @@ def build_fill_path(loaded: Loaded, layer: str) -> PasteFillPathResponse:
         setting = resolved[loaded.hierarchy.pad_ref_for_pad(pad)]
         if pad.layer.value != layer or not setting.enabled:
             continue
-        try:
-            plan = build_pad_fill_plan_for(
-                pad.polygon,
-                nozzle_diameter=nozzle_diameter,
-                auto_line_aspect_ratio=loaded.base_config.auto_line_aspect_ratio,
-                auto_area_short_side_factor=(
-                    loaded.base_config.auto_area_short_side_factor
-                ),
-                paste=setting.params,
-                line_reference=component_positions[pad.designator],
-            )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400, detail=f"塗布パス設定が不正です: {exc}"
-            ) from exc
+        plan = build_pad_fill_plan(
+            pad.polygon,
+            config=loaded.base_config,
+            params=setting.params,
+            line_reference=component_positions.get(pad.designator),
+        )
         points = [[[point.x, point.y] for point in path] for path in plan.paths]
         pads.append(
             PasteFillPathPad(
