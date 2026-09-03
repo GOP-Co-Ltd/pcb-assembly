@@ -46,4 +46,4 @@ when_to_use: 複数タスクに着手する／複数 file を読む／複数エ�
 
 ## マルチエージェント運用との関係
 
-エージェント運用レベルの並列化ルール (フェーズごとに `plan-implementer` を独立モジュール毎に並列、`code-simplifier` を独立モジュール毎に並列、など) は [CLAUDE.md](../../../CLAUDE.md) 「エージェントチーム」セクションおよび skill [agent-team-startup](../agent-team-startup/SKILL.md) に集約済み。この skill はその下層、**tool 呼び出しレベル** の話。両者は同じ「論理的に独立なら並列」の原則の異なる適用層であり、矛盾しない。
+エージェント運用レベルの並列化ルール (フェーズごとに `plan-implementer` を独立モジュール毎に並列、`code-simplifier` を独立モジュール毎に並列、など) は [AGENTS.md](../../../AGENTS.md) 「Custom Agents」セクションおよび skill [agent-team-startup](../agent-team-startup/SKILL.md) に集約済み。この skill はその下層、**tool 呼び出しレベル** の話。両者は同じ「論理的に独立なら並列」の原則の異なる適用層であり、矛盾しない。

@@ -7,7 +7,7 @@ description: 作業の最後に MR を出す直前で、最新の main を作業
 
 作業の最後に MR を出す **直前** で実行する手順。`main` をリモート最新に更新し、自分の作業ブランチに取り込んで（merge）、conflict を解消してから MR を立てる。これにより MR が最新の base に対して clean に diff する。
 
-CLAUDE.md「Git 運用」「自走開発フロー」と整合。**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。MR 作成自体は skill [gitlab-mr](../gitlab-mr/SKILL.md) を参照。
+AGENTS.md「Git 運用」「自走開発フロー」と整合。**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。MR 作成自体は skill [gitlab-mr](../gitlab-mr/SKILL.md) を参照。
 
 このスキルは **rebase ではなく merge** で main を取り込むことを既定とする（merge commit が履歴に残ることを許容し、push 済み・レビュー中の自ブランチの commit hash を書き換えない）。
 
@@ -63,14 +63,14 @@ git diff --name-only --diff-filter=U    # conflict した file 一覧
 各 conflict file を開き `<<<<<<<` / `=======` / `>>>>>>>` マーカーを解消する。
 
 - **両者の意図を保持する**。main 側の変更を握り潰さない / 自分の変更も捨てない。どちらか一方を機械的に採用（`--ours` / `--theirs`）する前に、本当にもう一方が不要か確認する
-- 判断が割れる conflict（両方が同じ関数を別意図で書き換えた等）は **勝手に決めず、何が衝突しているか名指しでユーザーに確認**（CLAUDE.md 開発原則 1）
+- 判断が割れる conflict（両方が同じ関数を別意図で書き換えた等）は **勝手に決めず、何が衝突しているか名指しでユーザーに確認**（AGENTS.md 開発原則 1）
 - 解消したら stage: `git add <file>`
 - 全 file 解消後: `git merge --continue`（または `git commit`）
 - 中断したくなったら `git merge --abort` で merge 前に戻せる
 
 ### 5. 取り込み後の検証
 
-main を取り込んだ結果コードが壊れていないか確認する。**全 green** であることが MR の前提（CLAUDE.md 自走開発フロー）。
+main を取り込んだ結果コードが壊れていないか確認する。**全 green** であることが MR の前提（AGENTS.md 自走開発フロー）。
 
 ```bash
 make format && make type && make test-no-hardware
@@ -97,10 +97,10 @@ git push                       # 既に upstream があれば引数不要
 
 ## rebase を使いたくなったら
 
-このスキルは **merge を既定** とする。`git pull --rebase` は自ブランチの commit hash を書き換え、push 済みブランチでは `--force-with-lease` が必要になる（CLAUDE.md / skill gitlab-mr の「`--force` 系は使わない」と衝突する）。共有・レビュー中のブランチでは履歴の安定性を優先して **merge** を使う。rebase が必要な特殊事情があるなら、その理由をユーザーに確認してから行う。
+このスキルは **merge を既定** とする。`git pull --rebase` は自ブランチの commit hash を書き換え、push 済みブランチでは `--force-with-lease` が必要になる（AGENTS.md / skill gitlab-mr の「`--force` 系は使わない」と衝突する）。共有・レビュー中のブランチでは履歴の安定性を優先して **merge** を使う。rebase が必要な特殊事情があるなら、その理由をユーザーに確認してから行う。
 
 ## 関連参照
 
 - skill [gitlab-mr](../gitlab-mr/SKILL.md) — push / `glab mr create` / push reject 系トラブルシュート
 - skill [do-on-worktree](../do-on-worktree/SKILL.md) — worktree で裏作業を進める手順
-- [CLAUDE.md](../../../CLAUDE.md) — 「Git 運用」「自走開発フロー」節
+- [AGENTS.md](../../../AGENTS.md) — 「Git 運用」「自走開発フロー」節

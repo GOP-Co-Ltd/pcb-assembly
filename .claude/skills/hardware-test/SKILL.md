@@ -24,8 +24,8 @@ from tests.helpers import mark_hardware, skip_if_no_usb_camera
 
 
 class TestCameraCapture:
-    def test_with_mock(self, mock_camera_backend):
-        # モックカメラでの振る舞いテスト
+    def test_with_fake(self, fake_camera):
+        # 自前 HAL の fake で振る舞いをテスト
         ...
 
     @mark_hardware
@@ -37,9 +37,9 @@ class TestCameraCapture:
 
 ## テストクラス内での分離パターン
 
-同一テストクラス内に「モック版」と「ハードウェア版」を併存させる。
+同一テストクラス内に「fake 版」と「ハードウェア版」を併存させる。
 
-- モック版：`mock_camera_backend` などのフィクスチャ利用、CIで実行
+- fake 版：`tests.helpers.FakeCamera` など自前 HAL の実装を利用し、CIで実行
 - ハードウェア版：`@mark_hardware` 付与、実機接続時のみ実行
 
 ## 接続確認コマンド

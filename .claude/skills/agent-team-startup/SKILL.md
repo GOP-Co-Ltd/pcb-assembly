@@ -1,18 +1,18 @@
 ---
 name: agent-team-startup
-description: orchestrator（メインエージェント）が implementation-planner →（任意 spec-test-author）→ plan-implementer → code-reviewer ⇄ code-simplifier を統括する標準フロー、モデル構成（全 agent inherit + effort で差別化）、委譲と並列化の判断基準。ユーザーが「エージェントチームで進めて」と言ったり、複数モジュールにまたがる中〜大規模変更を要求したときに参照する。
+description: orchestrator（メインエージェント）が implementation-planner →（任意 spec-test-author）→ plan-implementer → code-reviewer ⇄ code-simplifier を統括する標準フロー、モデル構成（全 agent inherit + effort で差別化）、委譲と並列化の判断基準。ユーザーが「エージェントチームで進めて」「並列で」と明示したときだけ参照する。指定がない場合の既定は skill solo-dev-cycle。
 ---
 
 # エージェントチーム起動手順
 
-ユーザーから「エージェントチームで」と指示があった場合、または中〜大規模な変更（複数モジュールにまたがる実装・リファクタリング）を行う場合の進行手順。
+ユーザーから「エージェントチームで」「並列で」と明示された場合の進行手順。指定がなければチームは起動せず、規模にかかわらず skill [solo-dev-cycle](../solo-dev-cycle/SKILL.md) で単独に進める。
 
 詳細な並列化パターン・Failure mode・起動例は [reference.md](reference.md) に分離してある。判断に必要になった時点で読む。
 
 ## 前提
 
 - `settings.json` に `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` が設定済み（必須）
-- メインエージェントは `orchestrator`（`settings.json` の `"agent": "orchestrator"`。`claude --agent orchestrator` でも起動可）
+- メインエージェントが `orchestrator` の役割（`.claude/agents/orchestrator.md`）を担う。チーム運用を常用するセッションは `claude --agent orchestrator` で起動してもよい
 - 各 agent は `.claude/agents/` 配下に定義済み（orchestrator, implementation-planner, spec-test-author, plan-implementer, code-reviewer, code-simplifier）
 - 中間メモは `memory/agents/<agent-name>/<task-slug>.md` に書く（詳細は `memory/agents/README.md`）
 
