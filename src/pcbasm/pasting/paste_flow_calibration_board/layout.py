@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal, TypeAlias
 
 import attrs
 import pcbnew
 
-from .catalog import (
-    PasteFlowCalibrationFootprintEnvelope,
-    PasteFlowCalibrationResolvedPadPattern,
+from pcbasm.geometry.packing import Rect, pack_rects
+from pcbasm.pcb.footprint import (
+    FootprintEnvelope,
     duplicate_footprint,
-    effective_pad_polygon,
     footprint_envelope,
-    to_mm,
-    vector,
+    footprint_polygons,
 )
+from pcbasm.pcb.units import vector
+
+from .catalog import PasteFlowCalibrationResolvedPadPattern
 from .config import (
     PasteFlowCalibrationBoardConfig,
     PasteFlowCalibrationBoardOverflowError,
@@ -91,28 +91,12 @@ class PasteFlowCalibrationBoardLayout:
 
 
 @attrs.frozen
-class _PackingRect:
-    x: float
-    y: float
-    width: float
-    height: float
-
-    @property
-    def right(self) -> float:
-        return self.x + self.width
-
-    @property
-    def bottom(self) -> float:
-        return self.y + self.height
-
-
-@attrs.frozen
 class _PadToPack:
     index: int
     catalog_id: str
     display_name: str
     rotation_deg: float
-    envelope: PasteFlowCalibrationFootprintEnvelope
+    envelope: FootprintEnvelope
 
     @property
     def width(self) -> float:
@@ -121,9 +105,6 @@ class _PadToPack:
     @property
     def height(self) -> float:
         return self.envelope.height
-
-
-_PackingHeuristic: TypeAlias = Literal["short_side", "area", "bottom_left"]
 
 
 def build_paste_flow_calibration_board_layout(
@@ -269,12 +250,7 @@ def _pack_pads(
                 f"{pad.display_name}のパッド（{pad.width:.2f} × {pad.height:.2f} mm）が"
                 f"配置領域{area.width:.2f} × {area.height:.2f} mmに収まりません"
             )
-    packed = _find_optimized_packing(
-        pads,
-        area,
-        _purge_keepout(config),
-        config.board.pad_gap_mm,
-    )
+    packed = _pack(config, pads, area)
     if packed is None:
         raise PasteFlowCalibrationBoardOverflowError(
             "自動最適配置でもすべてのパッドが基板の配置可能領域に収まりません"
@@ -287,15 +263,29 @@ def _pack_pads_for_overflow_preview(
     pads: tuple[_PadToPack, ...],
 ) -> dict[int, PasteFlowCalibrationBounds]:
     area = _overflow_preview_area(config, pads)
-    packed = _find_optimized_packing(
-        pads,
-        area,
-        _purge_keepout(config),
-        config.board.pad_gap_mm,
-    )
+    packed = _pack(config, pads, area)
     if packed is not None:
         return packed
     return _stack_pads_for_overflow_preview(config, pads)
+
+
+def _pack(
+    config: PasteFlowCalibrationBoardConfig,
+    pads: tuple[_PadToPack, ...],
+    area: Rect,
+) -> dict[int, PasteFlowCalibrationBounds] | None:
+    placed = pack_rects(
+        [(pad.width, pad.height) for pad in pads],
+        area,
+        keepouts=(_purge_keepout(config),),
+        gap=config.board.pad_gap_mm,
+    )
+    if placed is None:
+        return None
+    return {
+        pad.index: PasteFlowCalibrationBounds(rect.x, rect.y, rect.width, rect.height)
+        for pad, rect in zip(pads, placed, strict=True)
+    }
 
 
 def _validate_purge_region(config: PasteFlowCalibrationBoardConfig) -> None:
@@ -314,9 +304,9 @@ def _validate_purge_region(config: PasteFlowCalibrationBoardConfig) -> None:
         )
 
 
-def _packing_area(config: PasteFlowCalibrationBoardConfig) -> _PackingRect:
+def _packing_area(config: PasteFlowCalibrationBoardConfig) -> Rect:
     board = config.board
-    return _PackingRect(
+    return Rect(
         x=board.edge_margin_mm,
         y=board.edge_margin_mm,
         width=board.width_mm - 2 * board.edge_margin_mm,
@@ -331,9 +321,9 @@ def _placement_area(
     return PasteFlowCalibrationBounds(area.x, area.y, area.width, area.height)
 
 
-def _purge_keepout(config: PasteFlowCalibrationBoardConfig) -> _PackingRect:
+def _purge_keepout(config: PasteFlowCalibrationBoardConfig) -> Rect:
     area = _packing_area(config)
-    return _PackingRect(
+    return Rect(
         x=area.x,
         y=area.y,
         width=config.purge_pad.width_mm + config.board.pad_gap_mm,
@@ -344,14 +334,14 @@ def _purge_keepout(config: PasteFlowCalibrationBoardConfig) -> _PackingRect:
 def _overflow_preview_area(
     config: PasteFlowCalibrationBoardConfig,
     pads: tuple[_PadToPack, ...],
-) -> _PackingRect:
+) -> Rect:
     area = _packing_area(config)
     purge_keepout = _purge_keepout(config)
     width = max(area.width, purge_keepout.width, *(pad.width for pad in pads))
     stacked_height = purge_keepout.height + sum(
         pad.height + config.board.pad_gap_mm for pad in pads
     )
-    return _PackingRect(
+    return Rect(
         x=area.x,
         y=area.y,
         width=width,
@@ -377,202 +367,6 @@ def _stack_pads_for_overflow_preview(
     return placements
 
 
-def _find_optimized_packing(
-    pads: tuple[_PadToPack, ...],
-    area: _PackingRect,
-    purge_keepout: _PackingRect,
-    gap: float,
-) -> dict[int, PasteFlowCalibrationBounds] | None:
-    attempts: list[dict[int, PasteFlowCalibrationBounds]] = []
-    heuristics: tuple[_PackingHeuristic, ...] = (
-        "short_side",
-        "area",
-        "bottom_left",
-    )
-    for order in _packing_orders(pads):
-        for heuristic in heuristics:
-            packed = _pack_max_rects(
-                order,
-                area,
-                purge_keepout,
-                gap,
-                heuristic,
-            )
-            if packed is not None:
-                attempts.append(packed)
-    if not attempts:
-        return None
-    return min(attempts, key=lambda packed: _packing_score(packed, area))
-
-
-def _packing_orders(
-    pads: tuple[_PadToPack, ...],
-) -> tuple[tuple[_PadToPack, ...], ...]:
-    sort_keys = (
-        lambda pad: (-pad.width * pad.height,),
-        lambda pad: (-max(pad.width, pad.height),),
-        lambda pad: (-pad.width,),
-        lambda pad: (-pad.height,),
-        lambda pad: (-(pad.width + pad.height),),
-    )
-    orders = [pads]
-    seen = {tuple(pad.index for pad in pads)}
-    for key in sort_keys:
-        order = tuple(sorted(pads, key=key))
-        identity = tuple(pad.index for pad in order)
-        if identity not in seen:
-            orders.append(order)
-            seen.add(identity)
-    return tuple(orders)
-
-
-def _pack_max_rects(
-    pads: tuple[_PadToPack, ...],
-    area: _PackingRect,
-    purge_keepout: _PackingRect,
-    gap: float,
-    heuristic: _PackingHeuristic,
-) -> dict[int, PasteFlowCalibrationBounds] | None:
-    free_rectangles = _split_free_rectangles(
-        (_PackingRect(area.x, area.y, area.width + gap, area.height + gap),),
-        purge_keepout,
-    )
-    placements: dict[int, PasteFlowCalibrationBounds] = {}
-    for pad in pads:
-        packed_width = pad.width + gap
-        packed_height = pad.height + gap
-        choices: list[tuple[tuple[float, ...], _PackingRect]] = []
-        for free in free_rectangles:
-            if packed_width > free.width + 1e-9 or packed_height > free.height + 1e-9:
-                continue
-            remaining_width = free.width - packed_width
-            remaining_height = free.height - packed_height
-            choices.append(
-                (
-                    _max_rects_choice_score(
-                        heuristic,
-                        free,
-                        packed_width,
-                        packed_height,
-                        remaining_width,
-                        remaining_height,
-                    ),
-                    free,
-                )
-            )
-        if not choices:
-            return None
-        _score, free = min(choices, key=lambda item: item[0])
-        used = _PackingRect(free.x, free.y, packed_width, packed_height)
-        placements[pad.index] = PasteFlowCalibrationBounds(
-            free.x,
-            free.y,
-            pad.width,
-            pad.height,
-        )
-        free_rectangles = _split_free_rectangles(free_rectangles, used)
-    return placements
-
-
-def _max_rects_choice_score(
-    heuristic: _PackingHeuristic,
-    free: _PackingRect,
-    width: float,
-    height: float,
-    remaining_width: float,
-    remaining_height: float,
-) -> tuple[float, ...]:
-    short_side = min(remaining_width, remaining_height)
-    long_side = max(remaining_width, remaining_height)
-    area_waste = free.width * free.height - width * height
-    suffix = (free.y, free.x)
-    if heuristic == "area":
-        return (area_waste, short_side, long_side, *suffix)
-    if heuristic == "bottom_left":
-        return (free.y + height, free.x, short_side, long_side)
-    return (short_side, long_side, area_waste, *suffix)
-
-
-def _split_free_rectangles(
-    free_rectangles: tuple[_PackingRect, ...], used: _PackingRect
-) -> tuple[_PackingRect, ...]:
-    split: list[_PackingRect] = []
-    for free in free_rectangles:
-        if not _rectangles_intersect(free, used):
-            split.append(free)
-            continue
-        if used.x > free.x + 1e-9:
-            split.append(_PackingRect(free.x, free.y, used.x - free.x, free.height))
-        if used.right < free.right - 1e-9:
-            split.append(
-                _PackingRect(used.right, free.y, free.right - used.right, free.height)
-            )
-        if used.y > free.y + 1e-9:
-            split.append(_PackingRect(free.x, free.y, free.width, used.y - free.y))
-        if used.bottom < free.bottom - 1e-9:
-            split.append(
-                _PackingRect(free.x, used.bottom, free.width, free.bottom - used.bottom)
-            )
-    return _prune_free_rectangles(split)
-
-
-def _rectangles_intersect(first: _PackingRect, second: _PackingRect) -> bool:
-    return not (
-        first.right <= second.x + 1e-9
-        or second.right <= first.x + 1e-9
-        or first.bottom <= second.y + 1e-9
-        or second.bottom <= first.y + 1e-9
-    )
-
-
-def _prune_free_rectangles(
-    rectangles: list[_PackingRect],
-) -> tuple[_PackingRect, ...]:
-    # 同一または許容誤差内で相互包含する矩形は、先に出た一方だけを残す。
-    useful = tuple(
-        dict.fromkeys(
-            rectangle
-            for rectangle in rectangles
-            if rectangle.width > 1e-9 and rectangle.height > 1e-9
-        )
-    )
-    return tuple(
-        rectangle
-        for index, rectangle in enumerate(useful)
-        if not any(
-            index != other_index
-            and _contains(other, rectangle)
-            and (not _contains(rectangle, other) or other_index < index)
-            for other_index, other in enumerate(useful)
-        )
-    )
-
-
-def _contains(outer: _PackingRect, inner: _PackingRect) -> bool:
-    return (
-        inner.x >= outer.x - 1e-9
-        and inner.y >= outer.y - 1e-9
-        and inner.right <= outer.right + 1e-9
-        and inner.bottom <= outer.bottom + 1e-9
-    )
-
-
-def _packing_score(
-    placements: Mapping[int, PasteFlowCalibrationBounds], area: _PackingRect
-) -> tuple[object, ...]:
-    used_width = max(item.x + item.width for item in placements.values()) - area.x
-    used_height = max(item.y + item.height for item in placements.values()) - area.y
-    positions = tuple(
-        (
-            index,
-            round(item.y, 9),
-            round(item.x, 9),
-        )
-        for index, item in sorted(placements.items())
-    )
-    return used_width * used_height, used_height, used_width, positions
-
-
 _LAYERS: tuple[tuple[PasteFlowCalibrationPreviewLayer, int], ...] = (
     ("F.Cu", pcbnew.F_Cu),
     ("F.Paste", pcbnew.F_Paste),
@@ -582,20 +376,13 @@ _LAYERS: tuple[tuple[PasteFlowCalibrationPreviewLayer, int], ...] = (
 def _footprint_polygons(
     footprint: pcbnew.FOOTPRINT,
 ) -> tuple[PasteFlowCalibrationPolygon, ...]:
-    polygons: list[PasteFlowCalibrationPolygon] = []
-    for pad in footprint.Pads():
-        for layer_name, layer in _LAYERS:
-            if not pad.GetLayerSet().Contains(layer):
-                continue
-            shape = effective_pad_polygon(pad, layer)
-            for index in range(shape.OutlineCount()):
-                points = tuple(
-                    PasteFlowCalibrationPoint(to_mm(point.x), to_mm(point.y))
-                    for point in shape.Outline(index).CPoints()
-                )
-                if len(points) >= 3:
-                    polygons.append(PasteFlowCalibrationPolygon(layer_name, points))
-    return tuple(polygons)
+    return tuple(
+        PasteFlowCalibrationPolygon(
+            layer_name,
+            tuple(PasteFlowCalibrationPoint(p.x, p.y) for p in points),
+        )
+        for layer_name, points in footprint_polygons(footprint, _LAYERS)
+    )
 
 
 def _rectangle_points(
