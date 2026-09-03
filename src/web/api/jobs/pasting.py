@@ -898,11 +898,8 @@ def _resolved_paste_for_pad(
     pad: Pad,
 ) -> ResolvedPaste | None:
     """Component無しの後方互換padではNone、それ以外は解決済み設定を返す."""
-    try:
-        pad_ref = hierarchy.pad_ref_for_pad(pad)
-    except KeyError:
-        return None
-    return resolved.get(pad_ref)
+    pad_ref = hierarchy.find_pad_ref(pad)
+    return None if pad_ref is None else resolved.get(pad_ref)
 
 
 def _prepare_paste_workflow(
@@ -1137,14 +1134,6 @@ class _DatasetPadPlan:
     sample_pads: tuple[Pad, ...]
 
 
-def _pad_id_or_none(hierarchy: PadHierarchy, pad: Pad) -> str | None:
-    """Component無しpadではNone、それ以外は一意pad IDを返す."""
-    try:
-        return hierarchy.pad_id_for_pad(pad)
-    except KeyError:
-        return None
-
-
 def _dataset_pad_plan(ctx: JobContext, pcb: PcbFile) -> _DatasetPadPlan:
     """任意PCBからpurgeを除く有効top pad routeを装置非依存で解決する."""
     top_pads = [pad for pad in pcb.pads if pad.layer == Layer.TOP]
@@ -1172,7 +1161,7 @@ def _dataset_pad_plan(ctx: JobContext, pcb: PcbFile) -> _DatasetPadPlan:
     orphan_ids = [
         f"{pad.designator}.{pad.pad_number}"
         for pad in sample_pads
-        if _pad_id_or_none(hierarchy, pad) is None
+        if hierarchy.find_pad_id(pad) is None
     ]
     if orphan_ids:
         raise ValueError(

@@ -303,6 +303,34 @@ class TestBuildPadHierarchyExclusion:
         assert ("L2", "X9") not in _all_keys(hierarchy)
 
 
+class TestPadHierarchyFindPad:
+    """find_pad_ref / find_pad_id は階層外の pad で None を返す。"""
+
+    @pytest.fixture
+    def hierarchy_and_pads(self) -> tuple[PadHierarchy, Pad, Pad]:
+        components = [_component("R1", "0402")]
+        known = _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9))
+        unknown = _pad("X9", "1", _rect(2.0, 0.0, 0.5, 0.9))  # 対応部品なし
+        return build_pad_hierarchy(components, [known, unknown]), known, unknown
+
+    def test_known_pad_resolves_to_ref_and_id(self, hierarchy_and_pads):
+        hierarchy, known, _ = hierarchy_and_pads
+        assert hierarchy.find_pad_ref(known) == ("R1", "1")
+        assert hierarchy.find_pad_id(known) == "R1.1"
+
+    def test_unknown_pad_returns_none(self, hierarchy_and_pads):
+        hierarchy, _, unknown = hierarchy_and_pads
+        assert hierarchy.find_pad_ref(unknown) is None
+        assert hierarchy.find_pad_id(unknown) is None
+
+    def test_raise_variants_reject_unknown_pad(self, hierarchy_and_pads):
+        hierarchy, _, unknown = hierarchy_and_pads
+        with pytest.raises(KeyError):
+            hierarchy.pad_ref_for_pad(unknown)
+        with pytest.raises(KeyError):
+            hierarchy.pad_id_for_pad(unknown)
+
+
 class TestPadHierarchyNodePads:
     """各ノードの pads が配下の葉 pad をすべて含む。"""
 

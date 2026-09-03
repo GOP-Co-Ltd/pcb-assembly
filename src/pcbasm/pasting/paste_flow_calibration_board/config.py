@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import math
 import re
-import sys
 from collections.abc import Mapping
 from typing import Any, Literal, TypeAlias, TypeGuard
 
 import attrs
+
+from pcbasm.utils import is_finite_number
 
 PasteFlowCalibrationBoardKind: TypeAlias = Literal["paste_flow_calibration_board"]
 PasteFlowCalibrationBoardSchemaVersion: TypeAlias = Literal[1]
@@ -216,7 +217,7 @@ def validate_paste_flow_calibration_board_config(
         ),
     )
     for label, value, maximum_mm, range_text in positive:
-        if not _is_finite_number(value) or value <= 0:
+        if not is_finite_number(value) or value <= 0:
             return f"{label}は正の有限値が必要です"
         if not _is_kicad_length(value, maximum_mm=maximum_mm):
             return f"{label}は{range_text}で指定してください"
@@ -225,7 +226,7 @@ def validate_paste_flow_calibration_board_config(
         ("パッド間余白", board.pad_gap_mm),
     )
     for label, value in nonnegative:
-        if not _is_finite_number(value) or value < 0:
+        if not is_finite_number(value) or value < 0:
             return f"{label}は0以上の有限値が必要です"
         if value != 0 and not _is_kicad_length(value):
             return f"{label}は0または{_KICAD_LENGTH_RANGE_TEXT}で指定してください"
@@ -264,7 +265,7 @@ def validate_paste_flow_calibration_board_config(
             return f"パッドパターンが重複しています: {pattern.catalog_id}"
         seen.add(pattern.catalog_id)
         span = pattern.rotation_span_deg
-        if not _is_finite_number(span) or span <= 0 or span > 360:
+        if not is_finite_number(span) or span <= 0 or span > 360:
             return "回転範囲は0より大きく360以下で指定してください"
         if (
             isinstance(pattern.rotation_count, bool)
@@ -305,13 +306,13 @@ def validate_paste_flow_calibration_custom_pad(
     if not is_paste_flow_calibration_custom_pad_shape_id(custom_pad.shape):
         return f"任意パッド形状が不正です: {custom_pad.shape}"
     shape = _CUSTOM_PAD_SHAPE_BY_ID[custom_pad.shape]
-    if not _is_finite_number(custom_pad.width_mm) or custom_pad.width_mm <= 0:
+    if not is_finite_number(custom_pad.width_mm) or custom_pad.width_mm <= 0:
         return "任意パッドの幅／直径は正の有限値が必要です"
     if not _is_kicad_length(custom_pad.width_mm, maximum_mm=_KICAD_MAX_PAD_SIZE_MM):
         return f"任意パッドの幅／直径は{_KICAD_PAD_SIZE_RANGE_TEXT}で指定してください"
     is_draft = isinstance(custom_pad, PasteFlowCalibrationCustomPadDraft)
     if shape.uses_height or not is_draft:
-        if not _is_finite_number(custom_pad.height_mm) or custom_pad.height_mm <= 0:
+        if not is_finite_number(custom_pad.height_mm) or custom_pad.height_mm <= 0:
             return "任意パッドの高さは正の有限値が必要です"
         if not _is_kicad_length(
             custom_pad.height_mm, maximum_mm=_KICAD_MAX_PAD_SIZE_MM
@@ -325,7 +326,7 @@ def validate_paste_flow_calibration_custom_pad(
         return "円パッドの幅と高さには同じ直径を指定してください"
     radius = custom_pad.corner_radius_mm
     if shape.uses_corner_radius:
-        if not _is_finite_number(radius):
+        if not is_finite_number(radius):
             return "任意パッドの角丸半径は有限値が必要です"
         if radius <= 0:
             return "角丸矩形の角丸半径は0より大きい値が必要です"
@@ -334,7 +335,7 @@ def validate_paste_flow_calibration_custom_pad(
         if radius > min(custom_pad.width_mm, custom_pad.height_mm) / 2.0:
             return "角丸矩形の角丸半径は短辺の半分以下で指定してください"
     elif not is_draft:
-        if not _is_finite_number(radius):
+        if not is_finite_number(radius):
             return "任意パッドの角丸半径は有限値が必要です"
         if radius != 0:
             return f"{shape.label}では角丸半径を指定できません"
@@ -584,14 +585,6 @@ def custom_pad_shape_option(
     return _CUSTOM_PAD_SHAPE_BY_ID[shape]
 
 
-def _is_finite_number(value: object) -> TypeGuard[int | float]:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return False
-    if isinstance(value, int) and abs(value) > sys.float_info.max:
-        return False
-    return math.isfinite(value)
-
-
 def _is_kicad_length(
     value: int | float, *, maximum_mm: float = _KICAD_MAX_VECTOR_MM
 ) -> bool:
@@ -608,7 +601,7 @@ def _has_exact_keys(value: Mapping[Any, Any], expected: tuple[str, ...]) -> bool
 
 
 def _document_float(value: object) -> float | None:
-    if not _is_finite_number(value):
+    if not is_finite_number(value):
         return None
     return float(value)
 
