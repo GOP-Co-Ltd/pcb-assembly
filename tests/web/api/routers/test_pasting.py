@@ -494,22 +494,32 @@ class TestTreeNodeResolution:
         own_summary = _node_by_id(config["tree"], "L2:U1")["own_summary"]
 
         assert own_summary["enabled"] is True
-        # JS（pad_editor/model.js の FIELDS）の列順: ul_per_mm2 が paste_height に先行
+        # PASTE_PARAM_FIELDS の列順: ul_per_mm2 が paste_height に先行
         assert own_summary["fields"] == ["ul_per_mm2", "paste_height"]
         assert own_summary["count"] == 3
 
-    def test_own_summary_field_order_pins_js_fields_contract(self):
-        """PASTE_PARAM_NAMES は JS pad_editor/model.js の FIELDS と同順・同集合."""
-        assert PASTE_PARAM_NAMES == (
-            "dispense_mode",
-            "line_direction",
-            "ul_per_mm2",
-            "paste_height",
-            "prime_extra_delay",
-            "bead_width_factor",
-            "overlap",
-            "boundary_margin",
-        )
+    def test_fields_metadata_drives_ui_columns(self, selected_client: TestClient):
+        """Pad-config の fields は PASTE_PARAM_FIELDS と同順・同集合で、JS の唯一の出典."""
+        fields = _get_config(selected_client)["fields"]
+
+        assert [field["name"] for field in fields] == list(PASTE_PARAM_NAMES)
+        assert {field["kind"] for field in fields} == {"choice", "number", "height"}
+        by_name = {field["name"]: field for field in fields}
+        assert by_name["dispense_mode"]["kind"] == "choice"
+        assert [c["value"] for c in by_name["dispense_mode"]["choices"]] == [
+            "auto",
+            "dot",
+            "line",
+            "area",
+        ]
+        assert by_name["paste_height"] == {
+            "name": "paste_height",
+            "label": "塗布高さ",
+            "kind": "height",
+            "unit": "mm",
+            "choices": [],
+        }
+        assert by_name["ul_per_mm2"]["unit"] == "μL/mm²"
 
     def test_descendant_summary_empty_without_descendant_overrides(
         self, selected_client: TestClient

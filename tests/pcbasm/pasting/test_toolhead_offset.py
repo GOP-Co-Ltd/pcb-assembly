@@ -6,7 +6,6 @@
 
 import json
 import math
-import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -38,8 +37,6 @@ LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 PPM = 10.0
 FOCUS_Z = 12.0
 BOARD_SHIFT = Point2d(100.0, 50.0)
-
-_G1_RE = re.compile(r"G1 (.*)")
 
 
 def _sample(index: int, offset: Point2d) -> ToolheadOffsetSample:
@@ -421,17 +418,6 @@ def _board_result(klipper: FakeKlipper, camera: FakeCamera) -> BoardCalibrationR
     )
 
 
-def _g1_moves(klipper: FakeKlipper) -> list[dict[str, float]]:
-    moves: list[dict[str, float]] = []
-    for line in klipper.sent_lines:
-        match = _G1_RE.match(line)
-        if match:
-            moves.append(
-                {part[0].lower(): float(part[1:]) for part in match.group(1).split()}
-            )
-    return moves
-
-
 class TestToolheadOffsetProcedure:
     """Probe → deposit → measure の 1 点分の機械手順."""
 
@@ -480,7 +466,7 @@ class TestToolheadOffsetProcedure:
         )
         assert probed.surface_z == 1.5
         lines = klipper.sent_lines
-        first_move = _g1_moves(klipper)[0]
+        first_move = klipper.g1_moves()[0]
         assert first_move["x"] == pytest.approx(probed.point.dispense.x)
         assert first_move["y"] == pytest.approx(probed.point.dispense.y)
         assert "z" not in first_move
@@ -500,7 +486,7 @@ class TestToolheadOffsetProcedure:
         with procedure.applicator() as applicator:
             klipper.clear_sent()
             procedure.deposit(applicator, probed, amount_ul=0.1)
-            moves = _g1_moves(klipper)
+            moves = klipper.g1_moves()
             paste_height = applicator.default_params.paste_height_mm
 
         assert result.machine.paste_dispenser.paste_height == "auto"
@@ -532,7 +518,7 @@ class TestToolheadOffsetProcedure:
         assert outcome.image is not None
         assert outcome.image.size == procedure.roi_size
         assert outcome.image_filename == "toolhead_offset_failure_03.png"
-        move = _g1_moves(klipper)[0]
+        move = klipper.g1_moves()[0]
         assert move["x"] == pytest.approx(probed.point.camera.x)
         assert move["y"] == pytest.approx(probed.point.camera.y)
         assert move["z"] == pytest.approx(FOCUS_Z)

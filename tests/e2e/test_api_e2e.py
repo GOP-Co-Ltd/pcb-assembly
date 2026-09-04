@@ -512,24 +512,35 @@ def _count_pad_table_header_columns(html: str) -> int:
 
 
 class TestPadTableHeaderOverRealHttp:
-    """はんだ塗布ページの pad-table ヘッダ列数がバックエンドモデルと構造整合する."""
+    """はんだ塗布ページの pad-table 列構成がバックエンドモデルと構造整合する.
 
-    def test_pad_table_header_column_count_matches_resolved_settings(
-        self, live_ui: LiveUi
-    ):
-        # はんだ塗布ページの静的 HTML を実サーバーから取得する（PCB 未選択でも
-        # thead は常にレンダリングされる）
+    設定フィールドの列見出しは静的 HTML には無く、pad-config の ``fields`` から JS が描く。
+    ヘッダ/ボディの列ずれは「静的列（ノード・有効）+ fields」と ``ResolvedSettings``
+    のフィールド数が一致することで検出する。
+    """
+
+    def test_static_header_has_only_node_and_enabled_columns(self, live_ui: LiveUi):
         page = httpx.get(
             f"{live_ui.base_url}/pasting/paste_solder", timeout=_HTTP_TIMEOUT
         )
         assert page.status_code == 200
 
-        header_columns = _count_pad_table_header_columns(page.text)
+        # 設定フィールドの見出しはサーバ定義（fields）から描くため静的 HTML には 2 列だけ
+        assert _count_pad_table_header_columns(page.text) == 2
 
-        # テーブルは「ノード列 + 有効(enabled)列 + 各設定フィールド列」で構成される。
-        # ResolvedSettings は enabled を含む解決済み設定の全フィールドを持つので、
-        # 期待 <th> 数は ノード列(1) + len(ResolvedSettings.model_fields)。数値を
-        # ハードコードせずモデルから導出することで、将来フィールドが増減したときの
-        # ヘッダ更新漏れ（本バグと同種のヘッダ/ボディ列ずれ）を検出できる。
-        expected_columns = 1 + len(ResolvedSettings.model_fields)
-        assert header_columns == expected_columns
+    def test_fields_plus_enabled_match_resolved_settings(
+        self, live_server: LiveServer, live_ui: LiveUi
+    ):
+        _select_led_blinker(live_server)
+        config = httpx.get(
+            f"{live_ui.base_url}/api/pasting/pad-config", timeout=_HTTP_TIMEOUT
+        )
+        assert config.status_code == 200, config.text
+
+        fields = config.json()["fields"]
+        # ResolvedSettings = enabled + 各設定フィールド。数値をハードコードせずモデルから
+        # 導出することで、フィールド増減時のヘッダ/ボディ列ずれを検出する
+        assert len(fields) + 1 == len(ResolvedSettings.model_fields)
+        assert {field["name"] for field in fields} == set(
+            ResolvedSettings.model_fields
+        ) - {"enabled"}
