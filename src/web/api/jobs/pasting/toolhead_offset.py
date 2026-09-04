@@ -2,36 +2,21 @@
 
 from __future__ import annotations
 
-import json
-import time
 from datetime import datetime
-from typing import Any
 
 from pcbasm import gcode
-from pcbasm.geometry import (
-    Identity,
-    Point2d,
-)
-from pcbasm.pasting.applicator import (
-    build_applicator,
-)
-from pcbasm.pasting.params import PasteParamsPatch
-from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
+    ProbedPoint,
+    ToolheadOffsetDiagnostics,
+    ToolheadOffsetFailure,
+    ToolheadOffsetProcedure,
     ToolheadOffsetResult,
     ToolheadOffsetSample,
     plan_toolhead_offset_points,
+    validate_paste_diameters,
 )
-from pcbasm.pcb import (
-    PcbFile,
-)
-from pcbasm.posctrl import (
-    CircleDetectionError,
-    OffsetObserver,
-    XYPositionAdjustor,
-)
-from pcbasm.vision import CircleDetector
+from pcbasm.pcb import PcbFile
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
@@ -44,9 +29,7 @@ from web.api.jobs.pasting.common import (
     run_loading_loop,
 )
 
-_TOOLHEAD_OFFSET_MIN_FRAME_DETECTIONS = 5
-_TOOLHEAD_OFFSET_DETECTION_MAX_ATTEMPTS = 3
-_TOOLHEAD_OFFSET_DETECTION_RETRY_DELAY = 0.5
+_DIAGNOSTICS_FILENAME = "toolhead_offset_diagnostics.json"
 
 
 def register(catalog: JobCatalog) -> None:
@@ -134,18 +117,21 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
     point_count = int(ctx.params["point_count"])
     point_spacing = float(ctx.params["point_spacing"])
     edge_margin = float(ctx.params["edge_margin"])
-    if not 0 <= diameter_min < diameter_max:
-        raise ValueError("検出円の直径は 0 <= 最小直径 < 最大直径 である必要があります")
+    diameter_error = validate_paste_diameters(diameter_min, diameter_max)
+    if diameter_error is not None:
+        raise ValueError(diameter_error)
 
     # 配置不能ならカメラやKlipperを開始する前に中止する。
     assert ctx.pcb_path is not None  # requires_pcb=True
-    planned_points = plan_toolhead_offset_points(
+    planned_points, plan_error = plan_toolhead_offset_points(
         PcbFile(ctx.pcb_path).outline.polygon,
         point_count=point_count,
         point_spacing=point_spacing,
         edge_margin=edge_margin,
         paste_diameter_max=diameter_max,
     )
+    if planned_points is None:
+        raise ValueError(plan_error)
     total_points = len(planned_points)
     ctx.log(
         f"計測点を {total_points} 点配置"
@@ -154,53 +140,38 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
 
     with ctx.open_camera() as camera:
         result = setup_board(ctx, camera, tolerance=tolerance)
-        machine = result.machine
         klipper = result.klipper
         stage = result.stage
         calibration = result.calibration
-        probe_config = machine.probe
-        probe_executor = ProbeExecutor(
-            klipper=klipper,
-            stage=stage,
-            lift_height=probe_config.lift_height,
+        procedure = ToolheadOffsetProcedure(
+            result,
+            tolerance=tolerance,
+            lift_height=lift_height,
+            diameter_min=diameter_min,
+            diameter_max=diameter_max,
+            point_spacing=point_spacing,
+            frame_sink=ctx.frame,
         )
-        dispenser_config = machine.paste_dispenser
-        toolhead_transform = dispenser_config.toolhead.to_transform()
 
         # 高さ計測フェーズ: 全計測点を先にプローブし、後続フェーズで使う絶対Zを保存する。
-        measured_points: list[tuple[Point2d, Point2d, Point2d, float]] = []
+        probed_points: list[ProbedPoint] = []
         for index, board_position in enumerate(planned_points, start=1):
             ctx.checkpoint()
-            camera_position = result.board_transform.apply(board_position)
-            dispense_position = toolhead_transform.apply(camera_position)
             ctx.progress(
                 f"高さ計測 {index}/{total_points}",
                 100.0 * (index - 1) / (3 * total_points),
             )
-            klipper.send_gcode(
-                stage.move(x=dispense_position.x, y=dispense_position.y)
-                + gcode.wait_for_done()
-            )
-            board_surface_z = probe_executor.probe()
-            measured_points.append(
-                (
-                    board_position,
-                    camera_position,
-                    dispense_position,
-                    board_surface_z,
-                )
-            )
+            probed = procedure.probe(board_position)
+            probed_points.append(probed)
             ctx.log(
                 f"高さ {index}/{total_points}: "
                 f"board=({board_position.x:.3f}, {board_position.y:.3f}) / "
-                f"dispense=({dispense_position.x:.3f}, "
-                f"{dispense_position.y:.3f}) / "
-                f"surface Z={board_surface_z:.4f}"
+                f"dispense=({probed.point.dispense.x:.3f}, "
+                f"{probed.point.dispense.y:.3f}) / "
+                f"surface Z={probed.surface_z:.4f}"
             )
 
-        with build_applicator(
-            klipper, stage, dispenser_config, lift_height=lift_height
-        ) as applicator:
+        with procedure.applicator() as applicator:
             # ペーストフェーズの直前に一度だけロードする。
             klipper.send_gcode(stage.move(z=0.0) + gcode.wait_for_done())
             run_loading_loop(
@@ -209,154 +180,72 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             applicator.retract()
 
             dispense_amount = float(ctx.params["dispense_amount"])
-            paste_height = applicator.default_params.paste_height_mm
-            for index, (
-                _board_position,
-                _camera_position,
-                dispense_position,
-                board_surface_z,
-            ) in enumerate(measured_points, start=1):
+            for index, probed in enumerate(probed_points, start=1):
                 ctx.checkpoint()
                 ctx.progress(
                     f"ペースト塗布 {index}/{total_points}",
                     100.0 * (total_points + index - 1) / (3 * total_points),
                 )
-                # transform は Identity なので machine XY と絶対 Z（表面 + 塗布高さ）を渡す。
-                applicator.deposit_at(
-                    dispense_position,
-                    amount_ul=dispense_amount,
-                    transform=Identity(),
-                    params=applicator.default_params.patched(
-                        PasteParamsPatch(paste_height=board_surface_z + paste_height)
-                    ),
-                )
+                procedure.deposit(applicator, probed, amount_ul=dispense_amount)
                 ctx.log(
                     f"塗布 {index}/{total_points}: "
-                    f"dispense=({dispense_position.x:.3f}, "
-                    f"{dispense_position.y:.3f}) / "
-                    f"surface Z={board_surface_z:.4f}"
+                    f"dispense=({probed.point.dispense.x:.3f}, "
+                    f"{probed.point.dispense.y:.3f}) / "
+                    f"surface Z={probed.surface_z:.4f}"
                 )
 
         # オフセット計測フェーズ: 全点の塗布完了後に画像で位置を計測する。
-        paste_roi_side = max(1, round(point_spacing * calibration.pixel_per_mm))
-        paste_roi_size = (paste_roi_side, paste_roi_side)
+        roi_width, roi_height = procedure.roi_size
         ctx.log(
             f"円検出ROI: {point_spacing:g} x {point_spacing:g} mm"
-            f"（{paste_roi_side} x {paste_roi_side} px）"
-        )
-        paste_detector = CircleDetector(
-            pixel_per_mm=calibration.pixel_per_mm,
-            target_diameter_mm=(diameter_min + diameter_max) / 2,
-            crop_size=paste_roi_size,
-            diameter_tolerance_mm=(diameter_max - diameter_min) / 2,
-        )
-        paste_observer = OffsetObserver(
-            detector=paste_detector,
-            camera=result.camera,
-            crop_size=paste_roi_size,
-            frame_sink=ctx.frame,
-            minimum_sample_count=_TOOLHEAD_OFFSET_MIN_FRAME_DETECTIONS,
-            max_attempts=_TOOLHEAD_OFFSET_DETECTION_MAX_ATTEMPTS,
-            retry_delay=_TOOLHEAD_OFFSET_DETECTION_RETRY_DELAY,
-            max_standard_deviation_mm=tolerance,
-        )
-        paste_adjustor = XYPositionAdjustor(
-            observe=paste_observer.observe,
-            klipper=klipper,
-            stage=stage,
-            offset_transform=result.offset_transform,
-            tolerance=tolerance,
+            f"（{roi_width} x {roi_height} px）"
         )
         samples: list[ToolheadOffsetSample] = []
-        diagnostic_path = ctx.artifacts_dir / "toolhead_offset_diagnostics.json"
-        detection_failures: list[dict[str, Any]] = []
-        diagnostics: dict[str, Any] = {
-            "requested_point_count": total_points,
-            "minimum_valid_point_count": MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
-            "successful_point_count": 0,
-            "failures": detection_failures,
-        }
-        failure_images: list[tuple[int, str]] = []
-        for index, (
-            board_position,
-            camera_position,
-            dispense_position,
-            _board_surface_z,
-        ) in enumerate(measured_points, start=1):
+        failures: list[ToolheadOffsetFailure] = []
+        diagnostics_path = ctx.artifacts_dir / _DIAGNOSTICS_FILENAME
+        for index, probed in enumerate(probed_points, start=1):
             ctx.checkpoint()
             ctx.progress(
                 f"オフセット計測 {index}/{total_points}",
                 100.0 * (2 * total_points + index - 1) / (3 * total_points),
             )
-            klipper.send_gcode(
-                stage.move(
-                    x=camera_position.x,
-                    y=camera_position.y,
-                    z=calibration.z_position,
-                )
-                + gcode.wait_for_done()
-            )
-            time.sleep(1.0)
-            try:
-                camera_final_position = paste_adjustor.adjust()
-            except CircleDetectionError as exc:
-                failure_image = result.camera.capture().crop_center(paste_roi_size)
-                filename = f"toolhead_offset_failure_{index:02d}.png"
-                failure_image.save(ctx.artifacts_dir / filename)
-                ctx.frame(failure_image, persist=True)
-                failure_images.append((index, filename))
-                detection_failures.append(
-                    {
-                        "index": index,
-                        "board_position": {
-                            "x": board_position.x,
-                            "y": board_position.y,
-                        },
-                        "reason": str(exc),
-                        "image": filename,
-                    }
-                )
-                diagnostics["successful_point_count"] = len(samples)
-                diagnostic_path.write_text(
-                    json.dumps(diagnostics, indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
+            outcome = procedure.measure(index, probed)
+            if isinstance(outcome, ToolheadOffsetFailure):
+                failures.append(outcome)
+                if outcome.image is not None:
+                    outcome.image.save(ctx.artifacts_dir / outcome.image_filename)
+                    ctx.frame(outcome.image, persist=True)
+                ToolheadOffsetDiagnostics.from_outcomes(
+                    total_points, failures, samples
+                ).save(diagnostics_path)
                 ctx.log(
                     f"オフセット計測 {index}/{total_points}: 円検出失敗のためスキップ"
-                    f"（{exc}）"
+                    f"（{outcome.reason}）"
                 )
-                ctx.log(f"失敗画像: /artifacts/{ctx.artifacts_dir.name}/{filename}")
+                ctx.log(
+                    f"失敗画像: /artifacts/{ctx.artifacts_dir.name}/"
+                    f"{outcome.image_filename}"
+                )
                 continue
-            sample = ToolheadOffsetSample.from_positions(
-                board_position=board_position,
-                dispense_position=dispense_position,
-                camera_position=camera_final_position,
-            )
-            samples.append(sample)
+            samples.append(outcome)
+            board_position = probed.point.board
             ctx.log(
                 f"オフセット {index}/{total_points}: "
                 f"board=({board_position.x:.3f}, {board_position.y:.3f}) / "
-                f"dispense=({dispense_position.x:.3f}, "
-                f"{dispense_position.y:.3f}) / "
-                f"camera=({camera_final_position.x:.3f}, "
-                f"{camera_final_position.y:.3f}) / "
-                f"offset=({sample.offset.x:+.4f}, {sample.offset.y:+.4f})"
+                f"dispense=({outcome.dispense_position.x:.3f}, "
+                f"{outcome.dispense_position.y:.3f}) / "
+                f"camera=({outcome.camera_position.x:.3f}, "
+                f"{outcome.camera_position.y:.3f}) / "
+                f"offset=({outcome.offset.x:+.4f}, {outcome.offset.y:+.4f})"
             )
 
-    if failure_images:
-        diagnostics["successful_point_count"] = len(samples)
-        diagnostic_path.write_text(
-            json.dumps(diagnostics, indent=2, ensure_ascii=False),
-            encoding="utf-8",
+    if failures:
+        ToolheadOffsetDiagnostics.from_outcomes(total_points, failures, samples).save(
+            diagnostics_path
         )
         ctx.log(
-            "円検出診断: " f"/artifacts/{ctx.artifacts_dir.name}/{diagnostic_path.name}"
-        )
-    if len(samples) < MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT:
-        raise RuntimeError(
-            "ツールヘッドオフセットの有効な計測点が不足しています"
-            f"（有効 {len(samples)} 点 / "
-            f"最低 {MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT} 点）"
+            "円検出診断: "
+            f"/artifacts/{ctx.artifacts_dir.name}/{diagnostics_path.name}"
         )
 
     # オフセット算出 & 保存
@@ -367,6 +256,12 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
         edge_margin=edge_margin,
         calibrated_at=datetime.now(),
     )
+    if offset_result is None:
+        raise RuntimeError(
+            "ツールヘッドオフセットの有効な計測点が不足しています"
+            f"（有効 {len(samples)} 点 / "
+            f"最低 {MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT} 点）"
+        )
     measured_offset = offset_result.offset
     standard_deviation = offset_result.standard_deviation
     offset_result.save(ctx.artifacts_dir / "toolhead_offset.json")
@@ -381,20 +276,19 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             f"上限={tolerance:.4f} mm）"
         )
 
-    current_toolhead = dispenser_config.toolhead
+    current_toolhead = result.machine.paste_dispenser.toolhead
     diff_x = measured_offset.x - current_toolhead.x
     diff_y = measured_offset.y - current_toolhead.y
     ctx.progress("完了", 100.0)
     artifacts = [
         ctx.artifact("計測結果 JSON", "toolhead_offset.json", "file"),
     ]
-    if failure_images:
-        artifacts.append(
-            ctx.artifact("円検出診断 JSON", "toolhead_offset_diagnostics.json", "file")
-        )
+    if failures:
+        artifacts.append(ctx.artifact("円検出診断 JSON", _DIAGNOSTICS_FILENAME, "file"))
         artifacts.extend(
-            ctx.artifact(f"円検出失敗 {index}", filename, "image")
-            for index, filename in failure_images
+            ctx.artifact(f"円検出失敗 {failure.index}", failure.image_filename, "image")
+            for failure in failures
+            if failure.image is not None
         )
     return JobResult(
         summary=(
