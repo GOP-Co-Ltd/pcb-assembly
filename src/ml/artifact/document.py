@@ -28,81 +28,71 @@ class DocumentKind:
     kind: str
     schema_version: int
 
+    def unstructure(self, value: object, *, converter: Converter) -> dict[str, object]:
+        """エンベロープを被せた素の dict を返す."""
 
-def unstructure_document(
-    value: object, *, kind: DocumentKind, converter: Converter
-) -> dict[str, object]:
-    """エンベロープを被せた素の dict を返す."""
+        payload = converter.unstructure(value)
+        if not isinstance(payload, dict):
+            raise ValueError(f"document 本体が JSON object になりません: {type(value)}")
+        if conflicting := sorted(set(_ENVELOPE_KEYS) & set(payload)):
+            raise ValueError(
+                f"document 本体が envelope key を持っています: {conflicting}"
+            )
+        return {
+            _KIND_KEY: self.kind,
+            _SCHEMA_VERSION_KEY: self.schema_version,
+            **payload,
+        }
 
-    payload = converter.unstructure(value)
-    if not isinstance(payload, dict):
-        raise ValueError(f"document 本体が JSON object になりません: {type(value)}")
-    if conflicting := sorted(set(_ENVELOPE_KEYS) & set(payload)):
-        raise ValueError(f"document 本体が envelope key を持っています: {conflicting}")
-    return {
-        _KIND_KEY: kind.kind,
-        _SCHEMA_VERSION_KEY: kind.schema_version,
-        **payload,
-    }
+    def structure[T](
+        self,
+        data: Mapping[str, object],
+        target: type[T],
+        *,
+        converter: Converter,
+    ) -> tuple[T | None, str | None]:
+        """エンベロープを検証してから本体を構造化する."""
 
+        actual_kind = data.get(_KIND_KEY)
+        if actual_kind != self.kind:
+            return None, (
+                f"未対応の document kind です: {actual_kind!r}（期待値 {self.kind!r}）"
+            )
+        actual_version = data.get(_SCHEMA_VERSION_KEY)
+        if actual_version != self.schema_version:
+            return None, (
+                f"未対応の schema_version です: {actual_version!r}"
+                f"（期待値 {self.schema_version}）"
+            )
+        body = {key: value for key, value in data.items() if key not in _ENVELOPE_KEYS}
+        return structure_strictly(body, target, converter=converter)
 
-def structure_document[T](
-    data: Mapping[str, object],
-    target: type[T],
-    *,
-    kind: DocumentKind,
-    converter: Converter,
-) -> tuple[T | None, str | None]:
-    """エンベロープを検証してから本体を構造化する."""
+    def save(self, path: Path, value: object, *, converter: Converter) -> None:
+        """エンベロープ付き JSON を atomic に書き出す."""
 
-    actual_kind = data.get(_KIND_KEY)
-    if actual_kind != kind.kind:
-        return None, (
-            f"未対応の document kind です: {actual_kind!r}（期待値 {kind.kind!r}）"
-        )
-    actual_version = data.get(_SCHEMA_VERSION_KEY)
-    if actual_version != kind.schema_version:
-        return None, (
-            f"未対応の schema_version です: {actual_version!r}"
-            f"（期待値 {kind.schema_version}）"
-        )
-    body = {key: value for key, value in data.items() if key not in _ENVELOPE_KEYS}
-    return structure_strictly(body, target, converter=converter)
+        atomic_write_json(path, self.unstructure(value, converter=converter))
 
+    def load[T](
+        self,
+        path: Path,
+        target: type[T],
+        *,
+        converter: Converter,
+    ) -> tuple[T | None, str | None]:
+        """エンベロープ付き JSON を読み、失敗したら理由を返す."""
 
-def save_document(
-    path: Path, value: object, *, kind: DocumentKind, converter: Converter
-) -> None:
-    """エンベロープ付き JSON を atomic に書き出す."""
-
-    atomic_write_json(path, unstructure_document(value, kind=kind, converter=converter))
-
-
-def load_document[T](
-    path: Path,
-    target: type[T],
-    *,
-    kind: DocumentKind,
-    converter: Converter,
-) -> tuple[T | None, str | None]:
-    """エンベロープ付き JSON を読み、失敗したら理由を返す."""
-
-    source = Path(path)
-    if not source.is_file():
-        return None, f"document が見つかりません: {source}"
-    try:
-        data = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        return None, f"document を読めません: {source}（{error}）"
-    if not isinstance(data, dict):
-        return None, f"document が JSON object ではありません: {source}"
-    return structure_document(data, target, kind=kind, converter=converter)
+        source = Path(path)
+        if not source.is_file():
+            return None, f"document が見つかりません: {source}"
+        try:
+            data = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            return None, f"document を読めません: {source}（{error}）"
+        if not isinstance(data, dict):
+            return None, f"document が JSON object ではありません: {source}"
+        return self.structure(data, target, converter=converter)
 
 
 __all__ = [
     "DocumentKind",
-    "load_document",
-    "save_document",
-    "structure_document",
-    "unstructure_document",
 ]

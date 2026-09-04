@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from ml.data.batch import BatchShape, pad_image_samples, plan_pixel_budget_batches
+from ml.data.batch import BatchShape, PaddedBatch, plan_pixel_budget_batches
 
 BUDGET = {
     "max_batch_pixels": 8_388_608,
@@ -94,7 +94,7 @@ class TestPlanPixelBudgetBatches:
             _plan(shapes)
 
 
-class TestPadImageSamples:
+class TestPaddedBatchPad:
     """Batch 内の最大サイズへ stride 揃えで padding する."""
 
     def test_pads_to_a_stride_aligned_common_size(self):
@@ -103,7 +103,7 @@ class TestPadImageSamples:
             torch.ones((1, 33, 50), dtype=torch.bool)
         ]
 
-        batch = pad_image_samples(images, masks, placement_seeds=[1, 2])
+        batch = PaddedBatch.pad(images, masks, placement_seeds=[1, 2])
 
         assert batch.images.shape == (2, 6, 64, 64)
         assert batch.valid_pixel_masks.shape == (2, 1, 64, 64)
@@ -112,7 +112,7 @@ class TestPadImageSamples:
         image = torch.full((3, 32, 32), 0.5)
         mask = torch.ones((1, 32, 32), dtype=torch.bool)
 
-        batch = pad_image_samples(
+        batch = PaddedBatch.pad(
             [image, torch.rand((3, 64, 64))],
             [mask, torch.ones((1, 64, 64), dtype=torch.bool)],
             placement_seeds=[1, 2],
@@ -128,8 +128,8 @@ class TestPadImageSamples:
             torch.ones((1, 64, 64), dtype=torch.bool),
         ]
 
-        first = pad_image_samples(images, masks, placement_seeds=[5, 6], training=True)
-        second = pad_image_samples(images, masks, placement_seeds=[5, 6], training=True)
+        first = PaddedBatch.pad(images, masks, placement_seeds=[5, 6], training=True)
+        second = PaddedBatch.pad(images, masks, placement_seeds=[5, 6], training=True)
 
         assert torch.equal(first.valid_pixel_masks, second.valid_pixel_masks)
 
@@ -137,7 +137,7 @@ class TestPadImageSamples:
         image = torch.rand((3, 32, 48))
         mask = torch.ones((1, 32, 48), dtype=torch.bool)
 
-        batch = pad_image_samples([image], [mask], placement_seeds=[0])
+        batch = PaddedBatch.pad([image], [mask], placement_seeds=[0])
 
         assert int(batch.valid_pixel_masks.sum()) == 32 * 48
 
@@ -145,9 +145,7 @@ class TestPadImageSamples:
         mask = torch.ones((1, 32, 32), dtype=torch.bool)
         mask[0, :8, :] = False
 
-        batch = pad_image_samples(
-            [torch.rand((3, 32, 32))], [mask], placement_seeds=[0]
-        )
+        batch = PaddedBatch.pad([torch.rand((3, 32, 32))], [mask], placement_seeds=[0])
 
         assert int(batch.valid_pixel_masks.sum()) == 24 * 32
 
@@ -184,11 +182,11 @@ class TestPadImageSamples:
         expected: str,
     ):
         with pytest.raises(ValueError, match=expected):
-            pad_image_samples(images, masks, placement_seeds=list(range(len(images))))
+            PaddedBatch.pad(images, masks, placement_seeds=list(range(len(images))))
 
     def test_rejects_a_placement_seed_count_mismatch(self):
         with pytest.raises(ValueError, match="件数"):
-            pad_image_samples(
+            PaddedBatch.pad(
                 [torch.rand((3, 32, 32))],
                 [torch.ones((1, 32, 32), dtype=torch.bool)],
                 placement_seeds=[1, 2],
@@ -198,8 +196,8 @@ class TestPadImageSamples:
         images = [torch.rand((3, 32, 32))]
         masks = [torch.ones((1, 32, 32), dtype=torch.bool)]
 
-        batch = pad_image_samples(images, masks, placement_seeds=[0])
-        same_input = pad_image_samples(images, masks, placement_seeds=[0])
+        batch = PaddedBatch.pad(images, masks, placement_seeds=[0])
+        same_input = PaddedBatch.pad(images, masks, placement_seeds=[0])
 
         assert batch == batch
         assert batch != same_input

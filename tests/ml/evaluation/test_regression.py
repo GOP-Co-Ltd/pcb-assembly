@@ -7,12 +7,7 @@ import pytest
 import torch
 from torch import Tensor
 
-from ml.evaluation.regression import (
-    GaussianPredictions,
-    GaussianRegressionMetrics,
-    fit_gaussian_log_variance_offset,
-    gaussian_regression_metrics,
-)
+from ml.evaluation.regression import GaussianPredictions, GaussianRegressionMetrics
 
 TOLERANCE = 1e-12
 
@@ -39,7 +34,7 @@ def _predictions(
 
 
 def _metrics(predictions: GaussianPredictions) -> GaussianRegressionMetrics:
-    metrics, reason = gaussian_regression_metrics(predictions)
+    metrics, reason = GaussianRegressionMetrics.measure(predictions)
 
     assert reason is None
     assert metrics is not None
@@ -118,7 +113,7 @@ class TestGaussianPredictions:
         assert torch.equal(shifted.target, predictions.target)
 
 
-class TestGaussianRegressionMetrics:
+class TestGaussianRegressionMetricsMeasure:
     """重み付き集計と、無効 sample の除外."""
 
     def test_matches_hand_computed_values(self):
@@ -262,7 +257,7 @@ class TestGaussianRegressionMetrics:
         )
 
     def test_rejects_a_fully_invalid_set(self):
-        metrics, reason = gaussian_regression_metrics(
+        metrics, reason = GaussianRegressionMetrics.measure(
             _predictions([float("nan"), -1.0], [2.0, 2.0])
         )
 
@@ -271,7 +266,7 @@ class TestGaussianRegressionMetrics:
         assert "有効な sample がありません" in reason
 
     def test_rejects_a_zero_total_weight(self):
-        metrics, reason = gaussian_regression_metrics(
+        metrics, reason = GaussianRegressionMetrics.measure(
             _predictions([1.0, 2.0], [2.0, 2.0], sample_weight=[0.0, 0.0])
         )
 
@@ -280,7 +275,7 @@ class TestGaussianRegressionMetrics:
         assert "weight 合計が 0" in reason
 
     def test_rejects_an_empty_set(self):
-        metrics, reason = gaussian_regression_metrics(_predictions([], []))
+        metrics, reason = GaussianRegressionMetrics.measure(_predictions([], []))
 
         assert metrics is None
         assert reason == "予測が 1 件もありません"
@@ -295,13 +290,13 @@ class TestGaussianRegressionMetrics:
         assert metrics.one_standard_deviation_coverage == pytest.approx(0.5)
 
 
-class TestFitGaussianLogVarianceOffset:
+class TestGaussianPredictionsFitLogVarianceOffset:
     """負の対数尤度を最小にする scalar offset."""
 
     def test_recovers_a_known_offset(self):
         predictions = _predictions([3.0, 1.0], [2.0, 2.0], log_variance=[-2.0, -2.0])
 
-        offset, reason = fit_gaussian_log_variance_offset(predictions)
+        offset, reason = predictions.fit_log_variance_offset()
 
         assert reason is None
         assert offset == pytest.approx(2.0)
@@ -310,7 +305,7 @@ class TestFitGaussianLogVarianceOffset:
         predictions = _predictions(
             [3.0, 1.5, 2.4, 1.0], [2.0, 2.0, 2.0, 2.0], log_variance=[-3.0] * 4
         )
-        offset, reason = fit_gaussian_log_variance_offset(predictions)
+        offset, reason = predictions.fit_log_variance_offset()
 
         assert reason is None
         assert offset is not None
@@ -321,18 +316,14 @@ class TestFitGaussianLogVarianceOffset:
             assert fitted.negative_log_likelihood < neighbour.negative_log_likelihood
 
     def test_rejects_a_perfect_fit(self):
-        offset, reason = fit_gaussian_log_variance_offset(
-            _predictions([2.0, 3.0], [2.0, 3.0])
-        )
+        offset, reason = _predictions([2.0, 3.0], [2.0, 3.0]).fit_log_variance_offset()
 
         assert offset is None
         assert reason is not None
         assert "log 分散 offset" in reason
 
     def test_rejects_a_fully_invalid_set(self):
-        offset, reason = fit_gaussian_log_variance_offset(
-            _predictions([float("nan")], [2.0])
-        )
+        offset, reason = _predictions([float("nan")], [2.0]).fit_log_variance_offset()
 
         assert offset is None
         assert reason is not None

@@ -129,6 +129,85 @@ class CompileParityResult:
     compiled_seconds: float
     compile_setup_seconds: float
 
+    @classmethod
+    def measure(
+        cls,
+        model: nn.Module,
+        inputs: Sequence[Tensor],
+        *,
+        loss: Callable[[tuple[Tensor, ...]], Tensor],
+        tolerances: CompileParityTolerances,
+        options: CompileOptions,
+    ) -> tuple[CompileParityResult | None, str | None]:
+        """同じ重みの model を eager と compile 済みで走らせ、差分を返す.
+
+        model は 2 つ複製するので、呼び出し側の model と勾配は変わらない。
+
+        device 解決はせず、model と入力が置かれている device のまま走らせる。
+
+        ``torch.compile`` が失敗したときだけ ``(None, 理由)`` を返す。
+        """
+
+        if error := tolerances.validate():
+            raise ValueError(error)
+        if error := options.validate():
+            raise ValueError(error)
+        if len(inputs) == 0:
+            raise ValueError("inputs は 1 個以上の Tensor が必要です")
+
+        device = inputs[0].device
+        eager_model = copy.deepcopy(model)
+        compiled_source = copy.deepcopy(model)
+
+        eager_outputs, eager_loss, eager_seconds = _run_pass(
+            eager_model, eager_model, inputs, loss, device
+        )
+
+        setup_started = time.perf_counter()
+        try:
+            compiled_model = torch.compile(
+                compiled_source,
+                backend=options.backend,
+                mode=options.mode,
+                fullgraph=options.fullgraph,
+                dynamic=options.dynamic,
+            )
+            _run_pass(compiled_model, compiled_source, inputs, loss, device)
+        except Exception as exc:  # noqa: BLE001 - backend の可用性は呼び出し側の条件
+            return None, (
+                "compile 済み model の実行に失敗しました"
+                f"（backend={options.backend}）: {exc}"
+            )
+        compile_setup_seconds = time.perf_counter() - setup_started
+
+        compiled_outputs, compiled_loss, compiled_seconds = _run_pass(
+            compiled_model, compiled_source, inputs, loss, device
+        )
+
+        gradients = _compare_gradients(
+            eager_model, compiled_source, tolerances.gradient
+        )
+        return (
+            cls(
+                outputs=tuple(
+                    _tensor_difference(eager, compiled, tolerances.output)
+                    for eager, compiled in zip(
+                        eager_outputs, compiled_outputs, strict=True
+                    )
+                ),
+                loss=_tensor_difference(eager_loss, compiled_loss, tolerances.loss),
+                gradient=gradients.difference,
+                checked_gradient_count=gradients.checked_count,
+                mismatched_gradient_parameters=gradients.mismatched,
+                missing_gradient_parameters=gradients.missing,
+                non_finite_gradient_parameters=gradients.non_finite,
+                eager_seconds=eager_seconds,
+                compiled_seconds=compiled_seconds,
+                compile_setup_seconds=compile_setup_seconds,
+            ),
+            None,
+        )
+
     @property
     def passed(self) -> bool:
         """すべての出力・loss・勾配が許容誤差に収まったかを返す."""
@@ -141,80 +220,6 @@ class CompileParityResult:
             and self.missing_gradient_parameters == ()
             and self.non_finite_gradient_parameters == ()
         )
-
-
-def compare_eager_and_compiled(
-    model: nn.Module,
-    inputs: Sequence[Tensor],
-    *,
-    loss: Callable[[tuple[Tensor, ...]], Tensor],
-    tolerances: CompileParityTolerances,
-    options: CompileOptions,
-) -> tuple[CompileParityResult | None, str | None]:
-    """同じ重みの model を eager と compile 済みで走らせ、差分を返す.
-
-    model は 2 つ複製するので、呼び出し側の model と勾配は変わらない。
-
-    device 解決はせず、model と入力が置かれている device のまま走らせる。
-
-    ``torch.compile`` が失敗したときだけ ``(None, 理由)`` を返す。
-    """
-
-    if error := tolerances.validate():
-        raise ValueError(error)
-    if error := options.validate():
-        raise ValueError(error)
-    if len(inputs) == 0:
-        raise ValueError("inputs は 1 個以上の Tensor が必要です")
-
-    device = inputs[0].device
-    eager_model = copy.deepcopy(model)
-    compiled_source = copy.deepcopy(model)
-
-    eager_outputs, eager_loss, eager_seconds = _run_pass(
-        eager_model, eager_model, inputs, loss, device
-    )
-
-    setup_started = time.perf_counter()
-    try:
-        compiled_model = torch.compile(
-            compiled_source,
-            backend=options.backend,
-            mode=options.mode,
-            fullgraph=options.fullgraph,
-            dynamic=options.dynamic,
-        )
-        _run_pass(compiled_model, compiled_source, inputs, loss, device)
-    except Exception as exc:  # noqa: BLE001 - backend の可用性は呼び出し側の条件
-        return None, (
-            "compile 済み model の実行に失敗しました"
-            f"（backend={options.backend}）: {exc}"
-        )
-    compile_setup_seconds = time.perf_counter() - setup_started
-
-    compiled_outputs, compiled_loss, compiled_seconds = _run_pass(
-        compiled_model, compiled_source, inputs, loss, device
-    )
-
-    gradients = _compare_gradients(eager_model, compiled_source, tolerances.gradient)
-    return (
-        CompileParityResult(
-            outputs=tuple(
-                _tensor_difference(eager, compiled, tolerances.output)
-                for eager, compiled in zip(eager_outputs, compiled_outputs, strict=True)
-            ),
-            loss=_tensor_difference(eager_loss, compiled_loss, tolerances.loss),
-            gradient=gradients.difference,
-            checked_gradient_count=gradients.checked_count,
-            mismatched_gradient_parameters=gradients.mismatched,
-            missing_gradient_parameters=gradients.missing,
-            non_finite_gradient_parameters=gradients.non_finite,
-            eager_seconds=eager_seconds,
-            compiled_seconds=compiled_seconds,
-            compile_setup_seconds=compile_setup_seconds,
-        ),
-        None,
-    )
 
 
 @attrs.frozen
@@ -341,5 +346,4 @@ __all__ = [
     "CompileParityTolerances",
     "ParityTolerance",
     "TensorDifference",
-    "compare_eager_and_compiled",
 ]
