@@ -25,7 +25,7 @@ from pcbasm.pasting.persist import (
     decode_board_settings,
     encode_board_settings,
 )
-from pcbasm.pasting.settings import PasteSettingsModel, find_orphans
+from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pcb import PadHierarchy
 from web.api.atomic import write_text_atomic
 
@@ -173,7 +173,7 @@ class BoardSettingsStore:
         board_signature: str | None = None,
     ) -> PasteSettingsModel:
         """現階層に存在しない設定キー（孤児）と不在の初回パージ pad を除去して保存する."""
-        orphans = find_orphans(model, hierarchy)
+        orphans = model.find_orphans(hierarchy)
         known_pad_ids = {hierarchy.pad_id_for_pad(pad) for pad in hierarchy.iter_pads()}
         pruned = model.without_levels(orphans)
         if (
