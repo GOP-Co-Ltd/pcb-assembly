@@ -1,8 +1,8 @@
 """流量キャリブレーション基板テストの共有実データ識別子."""
 
-from pcbasm.pasting.paste_flow_calibration_board.config import (
-    PasteFlowCalibrationCustomPadShapeId,
-    PasteFlowCalibrationCustomPadSpec,
+from pcbasm.pasting.flowcalib.board.config import (
+    CustomPadShapeId,
+    CustomPadSpec,
 )
 
 R0402 = "Resistor_SMD.pretty/R_0402_1005Metric#pad-0"
@@ -18,12 +18,12 @@ CUSTOM_C = "custom:00000000000000000000000000000003"
 def custom_pad(
     catalog_id: str,
     name: str,
-    shape: PasteFlowCalibrationCustomPadShapeId = "rectangle",
+    shape: CustomPadShapeId = "rectangle",
     width_mm: float = 1.0,
     height_mm: float = 1.0,
     corner_radius_mm: float = 0.0,
-) -> PasteFlowCalibrationCustomPadSpec:
-    return PasteFlowCalibrationCustomPadSpec(
+) -> CustomPadSpec:
+    return CustomPadSpec(
         catalog_id,
         name,
         shape,

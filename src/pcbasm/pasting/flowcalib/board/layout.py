@@ -7,6 +7,7 @@ from collections.abc import Mapping
 import attrs
 import pcbnew
 
+from pcbasm.geometry import Point2d
 from pcbasm.geometry.packing import Rect, pack_rects
 from pcbasm.pcb.footprint import (
     FootprintEnvelope,
@@ -16,57 +17,34 @@ from pcbasm.pcb.footprint import (
 )
 from pcbasm.pcb.units import vector
 
-from .catalog import PasteFlowCalibrationResolvedPadPattern
-from .config import (
-    PasteFlowCalibrationBoardConfig,
-    PasteFlowCalibrationBoardOverflowError,
-    PasteFlowCalibrationBoardSpec,
-    PasteFlowCalibrationPreviewLayer,
-)
+from .catalog import ResolvedPadPattern
+from .config import BoardConfig, BoardSpec, PreviewLayer
 
 
 @attrs.frozen
-class PasteFlowCalibrationPoint:
-    """基板左上原点の2D座標 [mm]."""
+class LayerPolygon:
+    """Preview用の解決済みパッドポリゴン（基板左上原点 [mm]）."""
 
-    x: float
-    y: float
-
-
-@attrs.frozen
-class PasteFlowCalibrationPolygon:
-    """preview用の解決済みパッドポリゴン."""
-
-    layer: PasteFlowCalibrationPreviewLayer
-    points: tuple[PasteFlowCalibrationPoint, ...]
+    layer: PreviewLayer
+    points: tuple[Point2d, ...]
 
 
 @attrs.frozen
-class PasteFlowCalibrationBounds:
-    """基板左上原点の矩形 [mm]."""
-
-    x: float
-    y: float
-    width: float
-    height: float
-
-
-@attrs.frozen
-class PasteFlowCalibrationPadLayout:
+class PadLayout:
     """生成する単一パッドfootprintの解決済み配置."""
 
     catalog_id: str
     display_name: str
     reference: str
-    bounds: PasteFlowCalibrationBounds
+    bounds: Rect
     x: float
     y: float
     rotation_deg: float
-    polygons: tuple[PasteFlowCalibrationPolygon, ...]
+    polygons: tuple[LayerPolygon, ...]
 
 
 @attrs.frozen
-class PasteFlowCalibrationPatternLayout:
+class PatternLayout:
     """パッド設定ごとの解決済み回転角."""
 
     catalog_id: str
@@ -74,16 +52,16 @@ class PasteFlowCalibrationPatternLayout:
 
 
 @attrs.frozen
-class PasteFlowCalibrationBoardLayout:
+class BoardLayout:
     """WebUIとKiCad生成が共有する完全に解決済みの配置."""
 
-    board: PasteFlowCalibrationBoardSpec
-    placement_area: PasteFlowCalibrationBounds
-    preview_bounds: PasteFlowCalibrationBounds
-    purge_pad: PasteFlowCalibrationBounds
-    purge_polygons: tuple[PasteFlowCalibrationPolygon, ...]
-    patterns: tuple[PasteFlowCalibrationPatternLayout, ...]
-    pads: tuple[PasteFlowCalibrationPadLayout, ...]
+    board: BoardSpec
+    placement_area: Rect
+    preview_bounds: Rect
+    purge_pad: Rect
+    purge_polygons: tuple[LayerPolygon, ...]
+    patterns: tuple[PatternLayout, ...]
+    pads: tuple[PadLayout, ...]
 
     @property
     def pad_count(self) -> int:
@@ -107,31 +85,33 @@ class _PadToPack:
         return self.envelope.height
 
 
-def build_paste_flow_calibration_board_layout(
-    config: PasteFlowCalibrationBoardConfig,
-    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
-) -> PasteFlowCalibrationBoardLayout:
-    """解決済みconfigとtemplateから配置可能なlayoutを構築する."""
+def build_board_layout(
+    config: BoardConfig,
+    resolved: Mapping[str, ResolvedPadPattern],
+) -> tuple[BoardLayout | None, str | None]:
+    """解決済みconfigとtemplateから配置可能なlayoutを構築する.
+
+    Returns:
+        ``(layout, None)`` または、基板に収まらないときは ``(None, 理由)``
+    """
 
     patterns, pads = _pads_to_pack(config, resolved)
-    placements = _pack_pads(config, pads)
-    return _build_layout(config, resolved, patterns, pads, placements)
+    placements, overflow_message = _pack_pads(config, pads)
+    if placements is None:
+        return None, overflow_message
+    return _build_layout(config, resolved, patterns, pads, placements), None
 
 
-def preview_paste_flow_calibration_board_layout(
-    config: PasteFlowCalibrationBoardConfig,
-    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
-) -> tuple[PasteFlowCalibrationBoardLayout, str | None]:
+def preview_board_layout(
+    config: BoardConfig,
+    resolved: Mapping[str, ResolvedPadPattern],
+) -> tuple[BoardLayout, str | None]:
     """超過時も全パッドを含む診断用layoutと理由を返す."""
 
     patterns, pads = _pads_to_pack(config, resolved)
-    try:
-        placements = _pack_pads(config, pads)
-    except PasteFlowCalibrationBoardOverflowError as exc:
+    placements, overflow_message = _pack_pads(config, pads)
+    if placements is None:
         placements = _pack_pads_for_overflow_preview(config, pads)
-        overflow_message: str | None = str(exc)
-    else:
-        overflow_message = None
     return (
         _build_layout(config, resolved, patterns, pads, placements),
         overflow_message,
@@ -139,10 +119,10 @@ def preview_paste_flow_calibration_board_layout(
 
 
 def _pads_to_pack(
-    config: PasteFlowCalibrationBoardConfig,
-    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
-) -> tuple[tuple[PasteFlowCalibrationPatternLayout, ...], tuple[_PadToPack, ...]]:
-    layouts: list[PasteFlowCalibrationPatternLayout] = []
+    config: BoardConfig,
+    resolved: Mapping[str, ResolvedPadPattern],
+) -> tuple[tuple[PatternLayout, ...], tuple[_PadToPack, ...]]:
+    layouts: list[PatternLayout] = []
     pads: list[_PadToPack] = []
     for pattern in config.patterns:
         resolved_pattern = resolved[pattern.catalog_id]
@@ -153,7 +133,7 @@ def _pads_to_pack(
         envelopes = tuple(
             footprint_envelope(resolved_pattern.template, angle) for angle in angles
         )
-        layouts.append(PasteFlowCalibrationPatternLayout(pattern.catalog_id, angles))
+        layouts.append(PatternLayout(pattern.catalog_id, angles))
         display_name = (
             f"{resolved_pattern.item.footprint_label} / {resolved_pattern.item.label}"
         )
@@ -172,13 +152,13 @@ def _pads_to_pack(
 
 
 def _build_layout(
-    config: PasteFlowCalibrationBoardConfig,
-    resolved: Mapping[str, PasteFlowCalibrationResolvedPadPattern],
-    patterns: tuple[PasteFlowCalibrationPatternLayout, ...],
+    config: BoardConfig,
+    resolved: Mapping[str, ResolvedPadPattern],
+    patterns: tuple[PatternLayout, ...],
     pads: tuple[_PadToPack, ...],
-    placements: Mapping[int, PasteFlowCalibrationBounds],
-) -> PasteFlowCalibrationBoardLayout:
-    pad_layouts: list[PasteFlowCalibrationPadLayout] = []
+    placements: Mapping[int, Rect],
+) -> BoardLayout:
+    pad_layouts: list[PadLayout] = []
     for pad in pads:
         bounds = placements[pad.index]
         anchor_x = bounds.x - pad.envelope.min_x
@@ -187,7 +167,7 @@ def _build_layout(
         placed.SetPosition(vector(anchor_x, anchor_y))
         placed.SetOrientationDegrees(pad.rotation_deg)
         pad_layouts.append(
-            PasteFlowCalibrationPadLayout(
+            PadLayout(
                 catalog_id=pad.catalog_id,
                 display_name=pad.display_name,
                 reference=f"PAD{pad.index + 1}",
@@ -198,70 +178,64 @@ def _build_layout(
                 polygons=_footprint_polygons(placed),
             )
         )
-    purge = PasteFlowCalibrationBounds(
+    purge = Rect(
         x=config.board.edge_margin_mm,
         y=config.board.edge_margin_mm,
         width=config.purge_pad.width_mm,
         height=config.purge_pad.height_mm,
     )
     purge_points = _rectangle_points(purge)
-    placement_area = _placement_area(config)
-    preview_bounds = _preview_bounds(config.board, purge, pad_layouts)
-    return PasteFlowCalibrationBoardLayout(
+    return BoardLayout(
         board=config.board,
-        placement_area=placement_area,
-        preview_bounds=preview_bounds,
+        placement_area=_packing_area(config),
+        preview_bounds=_preview_bounds(config.board, purge, pad_layouts),
         purge_pad=purge,
         purge_polygons=(
-            PasteFlowCalibrationPolygon("F.Cu", purge_points),
-            PasteFlowCalibrationPolygon("F.Paste", purge_points),
+            LayerPolygon("F.Cu", purge_points),
+            LayerPolygon("F.Paste", purge_points),
         ),
         patterns=patterns,
         pads=tuple(pad_layouts),
     )
 
 
-def _preview_bounds(
-    board: PasteFlowCalibrationBoardSpec,
-    purge: PasteFlowCalibrationBounds,
-    pads: list[PasteFlowCalibrationPadLayout],
-) -> PasteFlowCalibrationBounds:
+def _preview_bounds(board: BoardSpec, purge: Rect, pads: list[PadLayout]) -> Rect:
     bounds = (
-        PasteFlowCalibrationBounds(0.0, 0.0, board.width_mm, board.height_mm),
+        Rect(0.0, 0.0, board.width_mm, board.height_mm),
         purge,
         *(pad.bounds for pad in pads),
     )
     left = min(item.x for item in bounds)
     top = min(item.y for item in bounds)
-    right = max(item.x + item.width for item in bounds)
-    bottom = max(item.y + item.height for item in bounds)
-    return PasteFlowCalibrationBounds(left, top, right - left, bottom - top)
+    right = max(item.right for item in bounds)
+    bottom = max(item.bottom for item in bounds)
+    return Rect(left, top, right - left, bottom - top)
 
 
 def _pack_pads(
-    config: PasteFlowCalibrationBoardConfig,
+    config: BoardConfig,
     pads: tuple[_PadToPack, ...],
-) -> dict[int, PasteFlowCalibrationBounds]:
-    _validate_purge_region(config)
+) -> tuple[dict[int, Rect] | None, str | None]:
+    """配置領域へ全パッドを詰める。収まらなければ ``(None, 理由)``."""
+    if (message := _validate_purge_region(config)) is not None:
+        return None, message
     area = _packing_area(config)
     for pad in pads:
         if pad.width > area.width + 1e-9 or pad.height > area.height + 1e-9:
-            raise PasteFlowCalibrationBoardOverflowError(
+            return None, (
                 f"{pad.display_name}のパッド（{pad.width:.2f} × {pad.height:.2f} mm）が"
                 f"配置領域{area.width:.2f} × {area.height:.2f} mmに収まりません"
             )
     packed = _pack(config, pads, area)
     if packed is None:
-        raise PasteFlowCalibrationBoardOverflowError(
-            "自動最適配置でもすべてのパッドが基板の配置可能領域に収まりません"
-        )
-    return packed
+        return None, "自動最適配置でもすべてのパッドが基板の配置可能領域に収まりません"
+    return packed, None
 
 
 def _pack_pads_for_overflow_preview(
-    config: PasteFlowCalibrationBoardConfig,
+    config: BoardConfig,
     pads: tuple[_PadToPack, ...],
-) -> dict[int, PasteFlowCalibrationBounds]:
+) -> dict[int, Rect]:
     area = _overflow_preview_area(config, pads)
     packed = _pack(config, pads, area)
     if packed is not None:
@@ -270,10 +244,10 @@ def _pack_pads_for_overflow_preview(
 
 
 def _pack(
-    config: PasteFlowCalibrationBoardConfig,
+    config: BoardConfig,
     pads: tuple[_PadToPack, ...],
     area: Rect,
-) -> dict[int, PasteFlowCalibrationBounds] | None:
+) -> dict[int, Rect] | None:
     placed = pack_rects(
         [(pad.width, pad.height) for pad in pads],
         area,
@@ -282,29 +256,27 @@ def _pack(
     )
     if placed is None:
         return None
-    return {
-        pad.index: PasteFlowCalibrationBounds(rect.x, rect.y, rect.width, rect.height)
-        for pad, rect in zip(pads, placed, strict=True)
-    }
+    return {pad.index: rect for pad, rect in zip(pads, placed, strict=True)}
 
 
-def _validate_purge_region(config: PasteFlowCalibrationBoardConfig) -> None:
+def _validate_purge_region(config: BoardConfig) -> str | None:
     board = config.board
     available_width = board.width_mm - 2 * board.edge_margin_mm
     available_height = board.height_mm - 2 * board.edge_margin_mm
     if config.purge_pad.width_mm > available_width + 1e-9:
-        raise PasteFlowCalibrationBoardOverflowError(
+        return (
             f"purge pad幅{config.purge_pad.width_mm:.2f} mmが"
             f"配置可能幅{available_width:.2f} mmを超えます"
         )
     if config.purge_pad.height_mm > available_height + 1e-9:
-        raise PasteFlowCalibrationBoardOverflowError(
+        return (
             f"purge pad高さ{config.purge_pad.height_mm:.2f} mmが"
             f"配置可能高さ{available_height:.2f} mmを超えます"
         )
+    return None
 
 
-def _packing_area(config: PasteFlowCalibrationBoardConfig) -> Rect:
+def _packing_area(config: BoardConfig) -> Rect:
     board = config.board
     return Rect(
         x=board.edge_margin_mm,
@@ -314,14 +286,7 @@ def _packing_area(config: PasteFlowCalibrationBoardConfig) -> Rect:
     )
 
 
-def _placement_area(
-    config: PasteFlowCalibrationBoardConfig,
-) -> PasteFlowCalibrationBounds:
-    area = _packing_area(config)
-    return PasteFlowCalibrationBounds(area.x, area.y, area.width, area.height)
-
-
-def _purge_keepout(config: PasteFlowCalibrationBoardConfig) -> Rect:
+def _purge_keepout(config: BoardConfig) -> Rect:
     area = _packing_area(config)
     return Rect(
         x=area.x,
@@ -332,7 +297,7 @@ def _purge_keepout(config: PasteFlowCalibrationBoardConfig) -> Rect:
 
 
 def _overflow_preview_area(
-    config: PasteFlowCalibrationBoardConfig,
+    config: BoardConfig,
     pads: tuple[_PadToPack, ...],
 ) -> Rect:
     area = _packing_area(config)
@@ -350,47 +315,35 @@ def _overflow_preview_area(
 
 
 def _stack_pads_for_overflow_preview(
-    config: PasteFlowCalibrationBoardConfig,
+    config: BoardConfig,
     pads: tuple[_PadToPack, ...],
-) -> dict[int, PasteFlowCalibrationBounds]:
+) -> dict[int, Rect]:
     area = _packing_area(config)
     y = max(area.y, _purge_keepout(config).bottom)
-    placements: dict[int, PasteFlowCalibrationBounds] = {}
+    placements: dict[int, Rect] = {}
     for pad in pads:
-        placements[pad.index] = PasteFlowCalibrationBounds(
-            x=area.x,
-            y=y,
-            width=pad.width,
-            height=pad.height,
-        )
+        placements[pad.index] = Rect(x=area.x, y=y, width=pad.width, height=pad.height)
         y += pad.height + config.board.pad_gap_mm
     return placements
 
 
-_LAYERS: tuple[tuple[PasteFlowCalibrationPreviewLayer, int], ...] = (
+_LAYERS: tuple[tuple[PreviewLayer, int], ...] = (
     ("F.Cu", pcbnew.F_Cu),
     ("F.Paste", pcbnew.F_Paste),
 )
 
 
-def _footprint_polygons(
-    footprint: pcbnew.FOOTPRINT,
-) -> tuple[PasteFlowCalibrationPolygon, ...]:
+def _footprint_polygons(footprint: pcbnew.FOOTPRINT) -> tuple[LayerPolygon, ...]:
     return tuple(
-        PasteFlowCalibrationPolygon(
-            layer_name,
-            tuple(PasteFlowCalibrationPoint(p.x, p.y) for p in points),
-        )
+        LayerPolygon(layer_name, tuple(Point2d(p.x, p.y) for p in points))
         for layer_name, points in footprint_polygons(footprint, _LAYERS)
     )
 
 
-def _rectangle_points(
-    bounds: PasteFlowCalibrationBounds,
-) -> tuple[PasteFlowCalibrationPoint, ...]:
+def _rectangle_points(bounds: Rect) -> tuple[Point2d, ...]:
     return (
-        PasteFlowCalibrationPoint(bounds.x, bounds.y),
-        PasteFlowCalibrationPoint(bounds.x + bounds.width, bounds.y),
-        PasteFlowCalibrationPoint(bounds.x + bounds.width, bounds.y + bounds.height),
-        PasteFlowCalibrationPoint(bounds.x, bounds.y + bounds.height),
+        Point2d(bounds.x, bounds.y),
+        Point2d(bounds.right, bounds.y),
+        Point2d(bounds.right, bounds.bottom),
+        Point2d(bounds.x, bounds.bottom),
     )

@@ -7,8 +7,8 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from pcbasm.hal import AudioPlayer
-from pcbasm.pasting.paste_flow_calibration_board.generator import (
-    PasteFlowCalibrationBoardGenerator,
+from pcbasm.pasting.flowcalib.board.generator import (
+    BoardGenerator,
 )
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
@@ -56,7 +56,7 @@ def get_board_store(request: Request) -> BoardSettingsStore:
 
 def get_paste_flow_calibration_board_generator(
     request: Request,
-) -> PasteFlowCalibrationBoardGenerator:
+) -> BoardGenerator:
     return request.app.state.paste_flow_calibration_board_generator
 
 
@@ -93,7 +93,7 @@ AudioPlayerDep = Annotated[AudioPlayer, Depends(get_audio_player)]
 CatalogDep = Annotated[JobCatalog, Depends(get_catalog)]
 BoardStoreDep = Annotated[BoardSettingsStore, Depends(get_board_store)]
 PasteFlowCalibrationBoardGeneratorDep = Annotated[
-    PasteFlowCalibrationBoardGenerator,
+    BoardGenerator,
     Depends(get_paste_flow_calibration_board_generator),
 ]
 AdvertiserDep = Annotated[ServiceAdvertiser | None, Depends(get_advertiser)]

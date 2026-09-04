@@ -210,7 +210,7 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 #### はんだペースト流量キャリブレーション基板の生成仕様
 
 データ収集基板の生成ロジックは、用途を明確にするため
-`pcbasm.pasting.paste_flow_calibration_board` に置く。PCB一般のキャリブレーション基板を
+`pcbasm.pasting.flowcalib.board` に置く。PCB一般のキャリブレーション基板を
 意味する曖昧な `pcbasm.pcb.calibration_board` や、公開名としての単独の
 `calibration_board` は使用しない。
 
