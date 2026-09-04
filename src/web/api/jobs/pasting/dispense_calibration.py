@@ -17,8 +17,8 @@ from pcbasm.pasting.flowcalib.flow import (
     CONVERGENCE_REL_TOL,
     DispenseRateCalibration,
     RateMeasurement,
+    RotationsPerUlRound,
     commanded_rotations,
-    rotations_per_ul_round,
 )
 from pcbasm.pasting.flowcalib.lines import (
     LineLayout,
@@ -419,7 +419,7 @@ def _calibrate_rotations_per_ul(
     各ラウンドの先頭でヘッドを Z=0 に上げてプライム/ふき取り（専用ローディング段階）を
     行い、電子天秤にセットしてタール（ゼロ）してから ``line_count`` 本の線を段ずらしで
     引く。線引き後はヘッドを退避 Z（z_max − removal_z_offset、既定は全退避）へ上げ、
-    基板を取り出して計量しやすくする。合計質量から :func:`rotations_per_ul_round` で
+    基板を取り出して計量しやすくする。合計質量から :meth:`RotationsPerUlRound.evaluate` で
     新 ``rotations_per_ul`` を算出する。採用すると新値で applicator を作り直し、
     ``dispense_accel`` も回転加速度を保って連動更新する。採用時点で両値を machine.toml へ
     即時反映するため、以降の中止・失敗でも計測結果は失われない。収束（前後の相対差が
@@ -480,7 +480,7 @@ def _calibrate_rotations_per_ul(
             draw=draw,
         )
 
-        round_ = rotations_per_ul_round(
+        round_ = RotationsPerUlRound.evaluate(
             mass_mg=mass,
             line_count=layout.line_count,
             amount_ul=amount,

@@ -14,9 +14,7 @@ from pcbasm.pasting.flowcalib.flow import (
     RateMeasurement,
     RotationsPerUlRound,
     commanded_rotations,
-    estimate_mass_flow,
     rate_sweep_amount_ul,
-    rotations_per_ul_round,
     slot_area,
     speed_sweep_amount_ul,
     sweep_schedule,
@@ -123,11 +121,11 @@ class TestFlowCalibration:
 
 
 class TestEstimateMassFlow:
-    """estimate_mass_flow は部分入力から導出可能な値だけを丸めて返す."""
+    """MassFlowEstimate.estimate は部分入力から導出可能な値だけを丸めて返す."""
 
     def test_all_positive_inputs_return_full_rounded_estimate(self):
         # mass=10, rotations=5, density=3.78 → rotations_per_ul = 1.89
-        estimate = estimate_mass_flow(
+        estimate = MassFlowEstimate.estimate(
             mass_mg=10.0, rotations=5.0, rate=0.5, accel=0.7, density_mg_per_ul=3.78
         )
 
@@ -141,7 +139,7 @@ class TestEstimateMassFlow:
             rotations=5.0, masses_mg=(10.0,), density_mg_per_ul=3.78
         )
 
-        estimate = estimate_mass_flow(
+        estimate = MassFlowEstimate.estimate(
             mass_mg=10.0, rotations=5.0, rate=0.5, accel=0.7, density_mg_per_ul=3.78
         )
 
@@ -150,7 +148,7 @@ class TestEstimateMassFlow:
         assert estimate.dispense_accel == round(calib.dispense_accel_for(0.7), 6)
 
     def test_zero_rotations_nulls_rotation_derived_values(self):
-        estimate = estimate_mass_flow(
+        estimate = MassFlowEstimate.estimate(
             mass_mg=10.0, rotations=0.0, rate=0.5, accel=0.5, density_mg_per_ul=3.78
         )
 
@@ -166,7 +164,7 @@ class TestEstimateMassFlow:
     def test_non_positive_mass_or_density_nulls_everything(
         self, mass_mg, density_mg_per_ul
     ):
-        estimate = estimate_mass_flow(
+        estimate = MassFlowEstimate.estimate(
             mass_mg=mass_mg,
             rotations=5.0,
             rate=0.5,
@@ -177,7 +175,7 @@ class TestEstimateMassFlow:
         assert estimate == MassFlowEstimate(None, None, None, None)
 
     def test_zero_rate_nulls_only_dispense_rate(self):
-        estimate = estimate_mass_flow(
+        estimate = MassFlowEstimate.estimate(
             mass_mg=10.0, rotations=5.0, rate=0.0, accel=0.5, density_mg_per_ul=3.78
         )
 
@@ -186,7 +184,7 @@ class TestEstimateMassFlow:
         assert estimate.dispense_accel == round(0.5 / 1.89, 6)
 
     def test_zero_accel_nulls_only_dispense_accel(self):
-        estimate = estimate_mass_flow(
+        estimate = MassFlowEstimate.estimate(
             mass_mg=10.0, rotations=5.0, rate=0.5, accel=0.0, density_mg_per_ul=3.78
         )
 
@@ -311,7 +309,7 @@ class TestRotationsPerUlRound:
     def test_round_from_mass_computes_new_rpu_and_rescaled_accel(self):
         # 10 本 × 0.5 uL × rpu 1.0 = 5 rev。10 mg / 3.78 → 2.6455 uL → rpu 1.89。
         # 回転加速度 10 × 1.0 = 10 rev/s² を新 rpu で割ると 5.291 uL/s²。
-        round_ = rotations_per_ul_round(
+        round_ = RotationsPerUlRound.evaluate(
             mass_mg=10.0,
             line_count=10,
             amount_ul=0.5,
