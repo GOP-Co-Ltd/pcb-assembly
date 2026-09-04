@@ -1,45 +1,16 @@
 "use strict";
 
-export const FIELDS = [
-  "dispense_mode",
-  "line_direction",
-  "ul_per_mm2",
-  "paste_height",
-  "prime_extra_delay",
-  "bead_width_factor",
-  "overlap",
-  "boundary_margin",
-];
+// 塗布パラメータの列順・ラベル・入力種別・選択肢は API（pad-config の
+// `fields`、サーバ側 PASTE_PARAM_FIELDS）が唯一の出典。ここには複製しない。
 
-export const FIELD_LABELS = {
-  dispense_mode: "塗布方式",
-  line_direction: "線の走行方向",
-  ul_per_mm2: "面積あたりのペースト量",
-  paste_height: "塗布高さ",
-  prime_extra_delay: "プライム後追加遅延",
-  bead_width_factor: "ビード幅係数",
-  overlap: "重なり率",
-  boundary_margin: "外周余白",
-};
+export function fieldLabel(config, field) {
+  const info = config?.fields?.find((item) => item.name === field);
+  return info ? info.label : field;
+}
 
-export const FIELD_KINDS = {
-  dispense_mode: "mode",
-  line_direction: "direction",
-  paste_height: "height",
-};
-
-export const DISPENSE_MODE_LABELS = {
-  auto: "Auto",
-  dot: "点",
-  line: "線",
-  area: "面",
-};
-
-export const LINE_DIRECTION_LABELS = {
-  unconstrained: "指定なし",
-  outward: "部品中心 → 外側",
-  inward: "外側 → 部品中心",
-};
+export function choiceLabels(fieldInfo) {
+  return Object.fromEntries(fieldInfo.choices.map((c) => [c.value, c.label]));
+}
 
 export function buildNodeIndexes(tree) {
   const parentOf = new Map();

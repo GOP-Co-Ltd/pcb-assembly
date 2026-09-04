@@ -804,7 +804,7 @@ ML実装は`pcbasm.pasting`の下に置き、WebAPIやUIへ計算を持たせな
 とおりとする。
 
 ```text
-pcbasm.pasting.paste_dataset             # 収集schemaと原本の読み書き（既存）
+pcbasm.pasting.dataset                   # 収集schemaと原本の読み書き（metadata / writer / recorder / capture）
 pcbasm.pasting.paste_volume.data         # validate、index、split、preprocess、batch
 pcbasm.pasting.paste_volume.model        # torch modelとloss
 pcbasm.pasting.paste_volume.training     # train/fine-tune loop、checkpoint

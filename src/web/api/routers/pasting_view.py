@@ -28,7 +28,7 @@ from pcbasm.pasting.initial_purge import (
     InitialPurgePurpose,
     resolve_initial_purge_for,
 )
-from pcbasm.pasting.params import PasteParamValue
+from pcbasm.pasting.params import PASTE_PARAM_FIELDS, PasteParamValue
 from pcbasm.pasting.route import plan_paste_route, routed_enabled_pads
 from pcbasm.pasting.settings import (
     PasteSettingsModel,
@@ -148,6 +148,26 @@ class InitialPurgeResponse(BaseModel):
     initial_purge: InitialPurgeInfo
 
 
+class ChoiceInfo(BaseModel):
+    """選択式パラメータの 1 選択肢."""
+
+    value: str
+    label: str
+
+
+class ParamFieldInfo(BaseModel):
+    """塗布パラメータ 1 項目の UI メタデータ（列順 = :data:`PASTE_PARAM_FIELDS`）.
+
+    JS はこれを唯一の出典として列見出し・入力種別・選択肢を描く（クライアント側に フィールド定義を複製しない）。
+    """
+
+    name: str
+    label: str
+    kind: str  # number / choice / height
+    unit: str | None
+    choices: list[ChoiceInfo]
+
+
 class PadConfigResponse(BaseModel):
     """GET /api/pasting/pad-config のレスポンス."""
 
@@ -160,12 +180,13 @@ class PadConfigResponse(BaseModel):
     tree: HierNodeInfo  # L0 ルートの階層ツリー（構造のみ）
     pads: list[PadInfo]
     overrides: dict[str, NodeOverrideInfo]  # node_id -> 明示 override（疎、L0 含む）
+    fields: list[ParamFieldInfo]  # 塗布パラメータの UI メタデータ（列順）
 
 
 class PasteRouteRequest(BaseModel):
     """POST /api/pasting/pad-config/route のリクエスト."""
 
-    layer: str = "Top"
+    layer: Layer = Layer.TOP
 
 
 class PasteRoutePad(BaseModel):
@@ -188,7 +209,7 @@ class PasteRouteResponse(BaseModel):
 class PasteFillPathRequest(BaseModel):
     """POST /api/pasting/pad-config/fill-path のリクエスト."""
 
-    layer: str = "Top"
+    layer: Layer = Layer.TOP
 
 
 class PasteFillPathPad(BaseModel):
@@ -315,9 +336,26 @@ def resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
     return ResolvedSettings(enabled=True, **model.base.to_dict())
 
 
-def layer_pads(loaded: Loaded, layer: str) -> Iterator[Pad]:
+def layer_pads(loaded: Loaded, layer: Layer) -> Iterator[Pad]:
     """指定 layer の全 pad（有効/無効問わず）を返す."""
-    return (pad for pad in loaded.hierarchy.iter_pads() if pad.layer.value == layer)
+    return (pad for pad in loaded.hierarchy.iter_pads() if pad.layer is layer)
+
+
+def param_fields() -> list[ParamFieldInfo]:
+    """:data:`PASTE_PARAM_FIELDS` をレスポンス形式へ写す（列順を保つ）."""
+    return [
+        ParamFieldInfo(
+            name=field.name,
+            label=field.label,
+            kind=field.kind,
+            unit=field.unit,
+            choices=[
+                ChoiceInfo(value=choice.value, label=choice.label)
+                for choice in field.choices
+            ],
+        )
+        for field in PASTE_PARAM_FIELDS
+    ]
 
 
 def build_initial_purge(
@@ -325,7 +363,7 @@ def build_initial_purge(
 ) -> InitialPurgeInfo:
     """ロード済みコンテキストから初回パージ設定の解決結果を返す."""
     routed = routed_enabled_pads(
-        layer_pads(loaded, Layer.TOP.value), loaded.hierarchy, loaded.model
+        layer_pads(loaded, Layer.TOP), loaded.hierarchy, loaded.model
     )
     resolution = resolve_initial_purge_for(
         purpose,
@@ -465,13 +503,12 @@ def build_pad_config(
         tree=tree(hierarchy.root, model, node_resolved),
         pads=pads,
         overrides=overrides(model),
+        fields=param_fields(),
     )
 
 
-def build_route(loaded: Loaded, layer: str) -> PasteRouteResponse:
+def build_route(loaded: Loaded, layer: Layer) -> PasteRouteResponse:
     """ロード済みコンテキストから有効 pad の順路レスポンスを構築する."""
-    check_layer(layer)
-
     route = [
         PasteRoutePad(
             id=loaded.hierarchy.pad_id_for_pad(stop.pad),
@@ -486,13 +523,11 @@ def build_route(loaded: Loaded, layer: str) -> PasteRouteResponse:
             )
         )
     ]
-    return PasteRouteResponse(layer=layer, pads=route)
+    return PasteRouteResponse(layer=layer.value, pads=route)
 
 
-def build_fill_path(loaded: Loaded, layer: str) -> PasteFillPathResponse:
+def build_fill_path(loaded: Loaded, layer: Layer) -> PasteFillPathResponse:
     """ロード済みコンテキストから有効 pad の塗布パスを構築する."""
-    check_layer(layer)
-
     nozzle_diameter = loaded.base_config.nozzle_diameter
     resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
     component_positions = {
@@ -501,7 +536,7 @@ def build_fill_path(loaded: Loaded, layer: str) -> PasteFillPathResponse:
     pads: list[PasteFillPathPad] = []
     for pad in loaded.hierarchy.iter_pads():
         setting = resolved[loaded.hierarchy.pad_ref_for_pad(pad)]
-        if pad.layer.value != layer or not setting.enabled:
+        if pad.layer is not layer or not setting.enabled:
             continue
         plan = build_pad_fill_plan(
             pad.polygon,
@@ -520,16 +555,10 @@ def build_fill_path(loaded: Loaded, layer: str) -> PasteFillPathResponse:
             )
         )
     return PasteFillPathResponse(
-        layer=layer,
+        layer=layer.value,
         nozzle_diameter=nozzle_diameter,
         pads=pads,
     )
-
-
-def check_layer(layer: str) -> None:
-    valid_layers = {member.value for member in Layer}
-    if layer not in valid_layers:
-        raise HTTPException(status_code=400, detail=f"未知のレイヤです: {layer}")
 
 
 def affected_pads(node: str, loaded: Loaded) -> list[AffectedPad]:

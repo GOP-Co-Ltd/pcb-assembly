@@ -1,12 +1,20 @@
-"""はんだペースト流量キャリブレーション基板の生成API."""
+"""はんだペースト流量キャリブレーション基板の生成API.
+
+リクエスト/レスポンスの形は ``pcbasm.pasting.flowcalib.board`` の attrs 値オブジェクトを
+:func:`web.api.attrs_models.mirror_model` で写す（JSON のキー名・型は attrs 側が唯一の出典）。
+ここに残す明示モデルは、複数のドメイン値を束ねるレスポンスとリクエストの封筒だけ。
+"""
 
 from __future__ import annotations
 
 from typing import Annotated, Self
 
+import cattrs
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from pcbasm.geometry.packing import Rect
+from pcbasm.pasting.flowcalib.board.catalog import PadPattern
 from pcbasm.pasting.flowcalib.board.config import (
     BOARD_KIND,
     BOARD_SCHEMA_VERSION,
@@ -16,194 +24,71 @@ from pcbasm.pasting.flowcalib.board.config import (
     BoardSchemaVersion,
     BoardSpec,
     CustomPadDraft,
-    CustomPadShapeId,
-    CustomPadSpec,
-    PatternSpec,
-    PreviewLayer,
-    PurgePadSpec,
+    CustomPadShape,
     parse_board_document,
 )
 from pcbasm.pasting.flowcalib.board.generator import (
     BoardPreview,
+    PatternAddition,
+    ResolvedConfig,
 )
-from web.api.dependencies import PasteFlowCalibrationBoardGeneratorDep
+from pcbasm.pasting.flowcalib.board.layout import (
+    LayerPolygon,
+    PadLayout,
+    PatternLayout,
+)
+from pcbasm.pcb.footprint import FootprintInfo
+from web.api.attrs_models import mirror_model
+from web.api.dependencies import BoardGeneratorDep
 
 router = APIRouter(
     prefix="/api/pasting/paste-flow-calibration-board",
-    tags=["paste-flow-calibration-board"],
+    tags=["pasting"],
 )
 
 CONFIG_FILENAME = "pcbasm-paste-flow-calibration-board.json"
 BOARD_FILENAME = "pcbasm-paste-flow-calibration-board.kicad_pcb"
 
+_converter = cattrs.Converter()
+
+# attrs → pydantic の機械写し（同じ attrs クラスは同じモデルに解決される）
+BoardConfigModel = mirror_model(BoardConfig)
+CustomPadDraftModel = mirror_model(CustomPadDraft)
+ResolvedConfigResponse = mirror_model(ResolvedConfig, name="ResolvedConfigResponse")
+PatternAdditionResponse = mirror_model(PatternAddition, name="PatternAdditionResponse")
+
 
 class _ApiModel(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True,
-        from_attributes=True,
-    )
+    model_config = ConfigDict(extra="forbid", strict=True, from_attributes=True)
 
 
-class PasteFlowCalibrationBoardSpecModel(_ApiModel):
-    width_mm: float
-    height_mm: float
-    edge_margin_mm: float
-    pad_gap_mm: float
-
-
-class PasteFlowCalibrationPurgePadSpecModel(_ApiModel):
-    width_mm: float
-    height_mm: float
-
-
-class PasteFlowCalibrationPatternModel(_ApiModel):
-    catalog_id: str
-    rotation_span_deg: float
-    rotation_count: int
-    repeat_count: int
-
-
-class PasteFlowCalibrationCustomPadSpecModel(_ApiModel):
-    catalog_id: str
-    name: str
-    shape: CustomPadShapeId
-    width_mm: float
-    height_mm: float
-    corner_radius_mm: float
-
-
-class PasteFlowCalibrationCustomPadDraftModel(_ApiModel):
-    shape: CustomPadShapeId
-    width_mm: float
-    height_mm: float = 0.0
-    corner_radius_mm: float = 0.0
-    name: str = ""
-
-    def to_core(self) -> CustomPadDraft:
-        return CustomPadDraft(**self.model_dump())
-
-
-class PasteFlowCalibrationBoardConfigModel(_ApiModel):
-    board: PasteFlowCalibrationBoardSpecModel
-    purge_pad: PasteFlowCalibrationPurgePadSpecModel
-    custom_pads: list[PasteFlowCalibrationCustomPadSpecModel]
-    patterns: list[PasteFlowCalibrationPatternModel]
-
-    def to_core(self) -> BoardConfig:
-        return BoardConfig(
-            board=BoardSpec(**self.board.model_dump()),
-            purge_pad=PurgePadSpec(**self.purge_pad.model_dump()),
-            custom_pads=tuple(
-                CustomPadSpec(**item.model_dump()) for item in self.custom_pads
-            ),
-            patterns=tuple(
-                PatternSpec(**pattern.model_dump()) for pattern in self.patterns
-            ),
-        )
-
-
-class PasteFlowCalibrationPadPatternModel(_ApiModel):
-    catalog_id: str
-    footprint_id: str
-    footprint_label: str
-    label: str
-    family_id: str
-    family_label: str
-    library: str
-    footprint: str
-    source_pad_numbers: list[str]
-    source_pad_count: int
-    pad_width_mm: float
-    pad_height_mm: float
-    default_rotation_span_deg: float
-    default_rotation_count: int
-    default_repeat_count: int
-
-
-class PasteFlowCalibrationFootprintModel(_ApiModel):
-    footprint_id: str
-    label: str
-    library: str
-    footprint: str
-
-
-class PasteFlowCalibrationCustomPadShapeModel(_ApiModel):
-    shape: CustomPadShapeId
-    label: str
-    uses_height: bool
-    uses_corner_radius: bool
-
-
-class PasteFlowCalibrationFootprintSearchResponse(_ApiModel):
+class FootprintSearchResponse(_ApiModel):
     query: str
     footprint_count: int
-    results: list[PasteFlowCalibrationFootprintModel]
+    results: list[mirror_model(FootprintInfo)]  # type: ignore[valid-type]
 
 
-class PasteFlowCalibrationBoardOptionsResponse(_ApiModel):
+class BoardOptionsResponse(_ApiModel):
     kind: BoardKind
     schema_version: BoardSchemaVersion
     footprint_count: int
-    custom_pad_shapes: list[PasteFlowCalibrationCustomPadShapeModel]
-    config: PasteFlowCalibrationBoardConfigModel
-    catalog: list[PasteFlowCalibrationPadPatternModel]
+    custom_pad_shapes: list[mirror_model(CustomPadShape)]  # type: ignore[valid-type]
+    config: BoardConfigModel  # type: ignore[valid-type]
+    catalog: list[mirror_model(PadPattern)]  # type: ignore[valid-type]
 
 
-class PasteFlowCalibrationResolvedConfigResponse(_ApiModel):
-    config: PasteFlowCalibrationBoardConfigModel
-    catalog: list[PasteFlowCalibrationPadPatternModel]
+class BoardPreviewResponse(_ApiModel):
+    """Preview の解決結果（設定・カタログ・layout を 1 階層に平坦化して返す）."""
 
-
-class PasteFlowCalibrationPatternAdditionResponse(
-    PasteFlowCalibrationResolvedConfigResponse
-):
-    added_count: int
-
-
-class PasteFlowCalibrationPointModel(_ApiModel):
-    x: float
-    y: float
-
-
-class PasteFlowCalibrationPolygonModel(_ApiModel):
-    layer: PreviewLayer
-    points: list[PasteFlowCalibrationPointModel]
-
-
-class PasteFlowCalibrationBoundsModel(_ApiModel):
-    x: float
-    y: float
-    width: float
-    height: float
-
-
-class PasteFlowCalibrationPadLayoutModel(_ApiModel):
-    catalog_id: str
-    display_name: str
-    reference: str
-    bounds: PasteFlowCalibrationBoundsModel
-    x: float
-    y: float
-    rotation_deg: float
-    polygons: list[PasteFlowCalibrationPolygonModel]
-
-
-class PasteFlowCalibrationPatternLayoutModel(_ApiModel):
-    catalog_id: str
-    angles_deg: list[float]
-
-
-class PasteFlowCalibrationBoardPreviewResponse(_ApiModel):
-    config: PasteFlowCalibrationBoardConfigModel
-    catalog: list[PasteFlowCalibrationPadPatternModel]
-    board: PasteFlowCalibrationBoardSpecModel
-    placement_area: PasteFlowCalibrationBoundsModel
-    preview_bounds: PasteFlowCalibrationBoundsModel
-    purge_pad: PasteFlowCalibrationBoundsModel
-    purge_polygons: list[PasteFlowCalibrationPolygonModel]
-    patterns: list[PasteFlowCalibrationPatternLayoutModel]
-    pads: list[PasteFlowCalibrationPadLayoutModel]
+    config: BoardConfigModel  # type: ignore[valid-type]
+    catalog: list[mirror_model(PadPattern)]  # type: ignore[valid-type]
+    board: mirror_model(BoardSpec)  # type: ignore[valid-type]
+    placement_area: mirror_model(Rect)  # type: ignore[valid-type]
+    preview_bounds: mirror_model(Rect)  # type: ignore[valid-type]
+    purge_pad: mirror_model(Rect)  # type: ignore[valid-type]
+    purge_polygons: list[mirror_model(LayerPolygon)]  # type: ignore[valid-type]
+    patterns: list[mirror_model(PatternLayout)]  # type: ignore[valid-type]
+    pads: list[mirror_model(PadLayout)]  # type: ignore[valid-type]
     pad_count: int
     overflow_message: str | None
 
@@ -228,28 +113,36 @@ class PasteFlowCalibrationBoardPreviewResponse(_ApiModel):
         )
 
 
-class PasteFlowCalibrationBoardImportRequest(_ApiModel):
+class BoardImportRequest(_ApiModel):
     document: dict[str, object]
 
 
-class PasteFlowCalibrationPatternAdditionRequest(_ApiModel):
-    config: PasteFlowCalibrationBoardConfigModel
+class PatternAdditionRequest(_ApiModel):
+    config: BoardConfigModel  # type: ignore[valid-type]
     footprint_id: Annotated[str, Field(min_length=1, max_length=300)]
 
 
-class PasteFlowCalibrationAddCustomPadRequest(_ApiModel):
-    config: PasteFlowCalibrationBoardConfigModel
-    custom_pad: PasteFlowCalibrationCustomPadDraftModel
+class AddCustomPadRequest(_ApiModel):
+    config: BoardConfigModel  # type: ignore[valid-type]
+    custom_pad: CustomPadDraftModel  # type: ignore[valid-type]
+
+
+def _to_config(model: BaseModel) -> BoardConfig:
+    return _converter.structure(model.model_dump(), BoardConfig)
+
+
+def _to_draft(model: BaseModel) -> CustomPadDraft:
+    return _converter.structure(model.model_dump(), CustomPadDraft)
 
 
 @router.get("/options")
 def get_paste_flow_calibration_board_options(
-    generator: PasteFlowCalibrationBoardGeneratorDep,
-) -> PasteFlowCalibrationBoardOptionsResponse:
+    generator: BoardGeneratorDep,
+) -> BoardOptionsResponse:
     """初期レシピと検索可能なfootprint件数を返す."""
 
     resolved = generator.resolve_config(BoardConfig())
-    return PasteFlowCalibrationBoardOptionsResponse.model_validate(
+    return BoardOptionsResponse.model_validate(
         {
             "kind": BOARD_KIND,
             "schema_version": BOARD_SCHEMA_VERSION,
@@ -264,29 +157,26 @@ def get_paste_flow_calibration_board_options(
 
 @router.post("/custom-pads")
 def add_paste_flow_calibration_custom_pad(
-    body: PasteFlowCalibrationAddCustomPadRequest,
-    generator: PasteFlowCalibrationBoardGeneratorDep,
-) -> PasteFlowCalibrationResolvedConfigResponse:
+    body: AddCustomPadRequest,
+    generator: BoardGeneratorDep,
+) -> ResolvedConfigResponse:  # type: ignore[valid-type]
     """任意寸法の基本SMDパッドを設定へ追加する."""
 
     resolved = generator.add_custom_pad(
-        body.config.to_core(), body.custom_pad.to_core()
+        _to_config(body.config), _to_draft(body.custom_pad)
     )
-    return PasteFlowCalibrationResolvedConfigResponse.model_validate(
-        resolved,
-        strict=False,
-    )
+    return ResolvedConfigResponse.model_validate(resolved, strict=False)
 
 
 @router.get("/footprints")
 def search_paste_flow_calibration_footprints(
-    generator: PasteFlowCalibrationBoardGeneratorDep,
+    generator: BoardGeneratorDep,
     query: str = Query(default="", max_length=120),
     limit: int = Query(default=30, ge=1, le=100),
-) -> PasteFlowCalibrationFootprintSearchResponse:
+) -> FootprintSearchResponse:
     """インストール済みKiCad footprintを名前で検索する."""
 
-    return PasteFlowCalibrationFootprintSearchResponse.model_validate(
+    return FootprintSearchResponse.model_validate(
         {
             "query": query,
             "footprint_count": generator.footprint_count,
@@ -298,41 +188,36 @@ def search_paste_flow_calibration_footprints(
 
 @router.post("/patterns/from-footprint")
 def add_paste_flow_calibration_footprint_patterns(
-    body: PasteFlowCalibrationPatternAdditionRequest,
-    generator: PasteFlowCalibrationBoardGeneratorDep,
-) -> PasteFlowCalibrationPatternAdditionResponse:
+    body: PatternAdditionRequest,
+    generator: BoardGeneratorDep,
+) -> PatternAdditionResponse:  # type: ignore[valid-type]
     """選択footprintの未追加パッド種を設定へ追加する."""
 
     addition = generator.add_footprint_patterns(
-        body.config.to_core(), body.footprint_id
+        _to_config(body.config), body.footprint_id
     )
-    return PasteFlowCalibrationPatternAdditionResponse.model_validate(
-        addition,
-        strict=False,
-    )
+    return PatternAdditionResponse.model_validate(addition, strict=False)
 
 
 @router.post("/preview")
 def preview_paste_flow_calibration_board(
-    body: PasteFlowCalibrationBoardConfigModel,
-    generator: PasteFlowCalibrationBoardGeneratorDep,
-) -> PasteFlowCalibrationBoardPreviewResponse:
+    body: BoardConfigModel,  # type: ignore[valid-type]
+    generator: BoardGeneratorDep,
+) -> BoardPreviewResponse:
     """実パッド形状から配置とpreview polygonを解決する."""
 
-    return PasteFlowCalibrationBoardPreviewResponse.from_core(
-        generator.preview(body.to_core())
-    )
+    return BoardPreviewResponse.from_core(generator.preview(_to_config(body)))
 
 
 @router.post("/export")
 def export_paste_flow_calibration_board_config(
-    body: PasteFlowCalibrationBoardConfigModel,
-    generator: PasteFlowCalibrationBoardGeneratorDep,
+    body: BoardConfigModel,  # type: ignore[valid-type]
+    generator: BoardGeneratorDep,
 ) -> Response:
     """配置可否に依らず、解決可能な設定JSONをダウンロードする."""
 
     return Response(
-        generator.config_bytes(body.to_core()),
+        generator.config_bytes(_to_config(body)),
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{CONFIG_FILENAME}"'},
     )
@@ -340,9 +225,9 @@ def export_paste_flow_calibration_board_config(
 
 @router.post("/import")
 def import_paste_flow_calibration_board_config(
-    body: PasteFlowCalibrationBoardImportRequest,
-    generator: PasteFlowCalibrationBoardGeneratorDep,
-) -> PasteFlowCalibrationResolvedConfigResponse:
+    body: BoardImportRequest,
+    generator: BoardGeneratorDep,
+) -> ResolvedConfigResponse:  # type: ignore[valid-type]
     """自己識別情報を含むJSONを検証・正規化して返す（保存はしない）."""
 
     parsed = parse_board_document(body.document)
@@ -354,20 +239,19 @@ def import_paste_flow_calibration_board_config(
                 "内容が不正です"
             ),
         )
-    return PasteFlowCalibrationResolvedConfigResponse.model_validate(
-        generator.resolve_config(parsed),
-        strict=False,
+    return ResolvedConfigResponse.model_validate(
+        generator.resolve_config(parsed), strict=False
     )
 
 
 @router.post("/generate")
 def generate_paste_flow_calibration_board(
-    body: PasteFlowCalibrationBoardConfigModel,
-    generator: PasteFlowCalibrationBoardGeneratorDep,
+    body: BoardConfigModel,  # type: ignore[valid-type]
+    generator: BoardGeneratorDep,
 ) -> Response:
     """配置可能な設定からKiCad基板を直接ダウンロードする（収まらなければ 422）."""
 
-    payload, overflow_message = generator.board_bytes(body.to_core())
+    payload, overflow_message = generator.board_bytes(_to_config(body))
     if payload is None:
         raise HTTPException(status_code=422, detail=overflow_message)
     return Response(

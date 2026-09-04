@@ -1267,7 +1267,11 @@ class TestPastingPadEditor:
         assert 'id="pad-calculate-route"' in text
         assert 'id="pad-calculate-fill-path"' in text
         assert 'id="pad-route-status"' not in text
-        assert "面積あたりのペースト量" in text
+        # 塗布パラメータの列見出しは API（pad-config の fields）から JS が描く。
+        # テンプレートにラベルを複製しない契約
+        assert 'class="pad-col-node"' in text
+        assert 'class="pad-col-enabled"' in text
+        assert "面積あたりのペースト量" not in text
         assert "pad_editor/index.js" in text
         # レイヤ切替（Top/Bottom）
         assert 'name="pad-layer"' in text

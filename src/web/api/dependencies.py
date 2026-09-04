@@ -92,7 +92,7 @@ JobsDep = Annotated[JobManager, Depends(get_jobs)]
 AudioPlayerDep = Annotated[AudioPlayer, Depends(get_audio_player)]
 CatalogDep = Annotated[JobCatalog, Depends(get_catalog)]
 BoardStoreDep = Annotated[BoardSettingsStore, Depends(get_board_store)]
-PasteFlowCalibrationBoardGeneratorDep = Annotated[
+BoardGeneratorDep = Annotated[
     BoardGenerator,
     Depends(get_paste_flow_calibration_board_generator),
 ]

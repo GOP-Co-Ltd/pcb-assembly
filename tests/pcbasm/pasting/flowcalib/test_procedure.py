@@ -29,7 +29,6 @@ ROTATION_DISTANCE = float(
 RETRACT_AMOUNT = MACHINE.paste_dispenser.retract_amount
 
 _MOVE_RE = re.compile(r"MANUAL_STEPPER STEPPER=paste_dispenser MOVE=(\S+)(.*)")
-_G1_RE = re.compile(r"G1 (.*)")
 
 LINES = (
     (Point2d(0.0, 0.0), Point2d(10.0, 0.0)),
@@ -76,17 +75,6 @@ def _dispense_amounts_ul(klipper: FakeKlipper, rotations_per_ul: float) -> list[
         distance / ROTATION_DISTANCE / rotations_per_ul
         for distance in _dispense_distances_mm(klipper)
     ]
-
-
-def _g1_moves(klipper: FakeKlipper) -> list[dict[str, float]]:
-    moves: list[dict[str, float]] = []
-    for line in klipper.sent_lines:
-        match = _G1_RE.match(line)
-        if match:
-            moves.append(
-                {part[0].lower(): float(part[1:]) for part in match.group(1).split()}
-            )
-    return moves
 
 
 @pytest.fixture
@@ -151,7 +139,7 @@ class TestDrawLines:
             procedure.draw_lines(LINES, amount_ul=0.5)
 
         visited = {
-            (round(m["x"], 6), round(m["y"], 6)) for m in _g1_moves(klipper) if "x" in m
+            (round(m["x"], 6), round(m["y"], 6)) for m in klipper.g1_moves() if "x" in m
         }
         for start, end in LINES:
             assert (start.x + 100.0, start.y + 50.0) in visited
@@ -220,13 +208,13 @@ class TestRemovalZ:
         z = procedure.move_to_removal_z(10.0)
 
         assert z == 40.0
-        assert _g1_moves(klipper)[-1]["z"] == pytest.approx(40.0)
+        assert klipper.g1_moves()[-1]["z"] == pytest.approx(40.0)
         assert klipper.sent_lines[-1] == "M400"
 
     def test_move_to_loading_z_sends_z_zero(self, procedure, klipper):
         procedure.move_to_loading_z()
 
-        assert _g1_moves(klipper)[-1]["z"] == pytest.approx(0.0)
+        assert klipper.g1_moves()[-1]["z"] == pytest.approx(0.0)
         assert klipper.sent_lines[-1] == "M400"
 
 

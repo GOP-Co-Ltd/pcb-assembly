@@ -4,7 +4,6 @@
 ``RegionAlignmentSession`` を組み合わせ、送信 G-code と返る crop で検証する。
 """
 
-import re
 from datetime import UTC, datetime
 
 import numpy as np
@@ -37,8 +36,6 @@ RESOLUTION = (640, 480)
 FOCUS_Z = 12.0
 BOARD_SHIFT = Point2d(100.0, 50.0)
 DISPLACEMENT = Point2d(0.3, 0.1)
-
-_G1_RE = re.compile(r"G1 (.*)")
 
 
 def _frame(width: int, height: int) -> Image:
@@ -92,17 +89,6 @@ def _correction() -> PasteCorrection:
     return PasteCorrection(BoardAlignment(results=(region,)), height_plane)
 
 
-def _g1_moves(klipper: FakeKlipper) -> list[dict[str, float]]:
-    moves: list[dict[str, float]] = []
-    for line in klipper.sent_lines:
-        match = _G1_RE.match(line)
-        if match:
-            moves.append(
-                {part[0].lower(): float(part[1:]) for part in match.group(1).split()}
-            )
-    return moves
-
-
 def _rect_center(rect: tuple[int, int, int, int]) -> tuple[float, float]:
     x0, y0, x1, y1 = rect
     return ((x0 + x1) / 2, (y0 + y1) / 2)
@@ -139,7 +125,7 @@ class TestDatasetCapturer:
 
         assert error is None
         assert crop is not None
-        move = _g1_moves(klipper)[-1]
+        move = klipper.g1_moves()[-1]
         assert move["x"] == pytest.approx(pad.center.x + BOARD_SHIFT.x + DISPLACEMENT.x)
         assert move["y"] == pytest.approx(pad.center.y + BOARD_SHIFT.y + DISPLACEMENT.y)
         assert move["z"] == pytest.approx(FOCUS_Z)
@@ -175,7 +161,7 @@ class TestDatasetCapturer:
         )
 
         assert centered is not None and shifted is not None
-        move = _g1_moves(klipper)[-1]
+        move = klipper.g1_moves()[-1]
         assert move["x"] == pytest.approx(
             pad.center.x + BOARD_SHIFT.x + DISPLACEMENT.x + offset.x
         )
