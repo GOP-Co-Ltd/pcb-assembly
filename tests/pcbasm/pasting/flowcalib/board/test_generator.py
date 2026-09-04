@@ -49,7 +49,7 @@ class TestBoardGenerator:
         assert resolved.catalog[-1].footprint_label == "試験用パッド"
         assert resolved.catalog[-1].label == "角丸矩形 · 1.2 × 0.8 mm · R0.2 mm"
 
-    def test_uses_shape_and_dimensions_as_default_custom_pad_name(self, generator):
+    def test_uses_shape_and_dimensions_as_default_name(self, generator):
         resolved = generator.add_custom_pad(
             BoardConfig(),
             CustomPadDraft(shape="oval", width_mm=1.5, height_mm=0.5),

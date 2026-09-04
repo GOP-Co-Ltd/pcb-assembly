@@ -13,6 +13,7 @@ HAL には触れない純粋な算出のみ。実際に線を引いて計量す�
 
 import math
 import statistics
+from typing import Self
 
 import attrs
 
@@ -106,41 +107,48 @@ class MassFlowEstimate:
     max_dispense_rate: float | None
     dispense_accel: float | None
 
+    @classmethod
+    def estimate(
+        cls,
+        *,
+        mass_mg: float,
+        rotations: float,
+        rate: float,
+        accel: float,
+        density_mg_per_ul: float,
+    ) -> Self:
+        """質量計測の部分入力からキャリブレーション値を見積もる.
 
-def estimate_mass_flow(
-    *,
-    mass_mg: float,
-    rotations: float,
-    rate: float,
-    accel: float,
-    density_mg_per_ul: float,
-) -> MassFlowEstimate:
-    """質量計測の部分入力からキャリブレーション値を見積もる.
+        非正の入力から導出できない値は ``None`` を返す（エラーにしない）。算術は
+        :class:`FlowCalibration` へ委譲し、確定値は小数第 6 位へ丸めて返す。
 
-    非正の入力から導出できない値は ``None`` を返す（エラーにしない）。算術は
-    :class:`FlowCalibration` へ委譲し、確定値は小数第 6 位へ丸めて返す。
-
-    Args:
-        mass_mg: 計測されたペースト質量 [mg]
-        rotations: キャリブレーションに使った実効回転数 [rev]
-        rate: 回転速度 [rev/sec]
-        accel: 回転加速度 [rev/sec²]
-        density_mg_per_ul: はんだペースト密度 [mg/μL]
-    """
-    if mass_mg <= 0 or density_mg_per_ul <= 0:
-        return MassFlowEstimate(None, None, None, None)
-    volume_ul = mass_mg / density_mg_per_ul
-    if rotations <= 0:
-        return MassFlowEstimate(_rounded(volume_ul), None, None, None)
-    calib = FlowCalibration(
-        rotations=rotations, masses_mg=(mass_mg,), density_mg_per_ul=density_mg_per_ul
-    )
-    return MassFlowEstimate(
-        volume_ul=_rounded(volume_ul),
-        rotations_per_ul=_rounded(calib.rotations_per_ul),
-        max_dispense_rate=_rounded(calib.dispense_rate_for(rate)) if rate > 0 else None,
-        dispense_accel=_rounded(calib.dispense_accel_for(accel)) if accel > 0 else None,
-    )
+        Args:
+            mass_mg: 計測されたペースト質量 [mg]
+            rotations: キャリブレーションに使った実効回転数 [rev]
+            rate: 回転速度 [rev/sec]
+            accel: 回転加速度 [rev/sec²]
+            density_mg_per_ul: はんだペースト密度 [mg/μL]
+        """
+        if mass_mg <= 0 or density_mg_per_ul <= 0:
+            return cls(None, None, None, None)
+        volume_ul = mass_mg / density_mg_per_ul
+        if rotations <= 0:
+            return cls(_rounded(volume_ul), None, None, None)
+        calib = FlowCalibration(
+            rotations=rotations,
+            masses_mg=(mass_mg,),
+            density_mg_per_ul=density_mg_per_ul,
+        )
+        return cls(
+            volume_ul=_rounded(volume_ul),
+            rotations_per_ul=_rounded(calib.rotations_per_ul),
+            max_dispense_rate=(
+                _rounded(calib.dispense_rate_for(rate)) if rate > 0 else None
+            ),
+            dispense_accel=(
+                _rounded(calib.dispense_accel_for(accel)) if accel > 0 else None
+            ),
+        )
 
 
 def _rounded(value: float, digits: int = 6) -> float:
@@ -304,6 +312,49 @@ class RotationsPerUlRound:
     dispense_accel: float
     rotations_used: float
 
+    @classmethod
+    def evaluate(
+        cls,
+        *,
+        mass_mg: float,
+        line_count: int,
+        amount_ul: float,
+        previous_rotations_per_ul: float,
+        previous_dispense_accel: float,
+        density_mg_per_ul: float,
+    ) -> Self:
+        """① の 1 ラウンド（``line_count`` 本 × ``amount_ul`` を引いて計量）を評価する.
+
+        指令回転数 ``line_count × amount_ul × previous_rotations_per_ul`` と計量質量から
+        新 ``rotations_per_ul`` を算出し、``dispense_accel`` を回転加速度保存で連動させる。
+
+        Args:
+            mass_mg: 全線の合計質量 [mg]
+            line_count: 引いた線の本数
+            amount_ul: 1 線あたりの指令量 [μL]
+            previous_rotations_per_ul: 線引きに使った rotations_per_ul [rev/μL]
+            previous_dispense_accel: 線引きに使った吐出加速度 [μL/sec²]
+            density_mg_per_ul: はんだペースト密度 [mg/μL]
+        """
+        rotations_used = commanded_rotations(
+            line_count=line_count,
+            amount_ul=amount_ul,
+            rotations_per_ul=previous_rotations_per_ul,
+        )
+        flow = FlowCalibration(
+            rotations=rotations_used,
+            masses_mg=(mass_mg,),
+            density_mg_per_ul=density_mg_per_ul,
+        )
+        return cls(
+            previous=previous_rotations_per_ul,
+            computed=flow.rotations_per_ul,
+            dispense_accel=flow.rescaled_dispense_accel(
+                previous_dispense_accel, previous_rotations_per_ul
+            ),
+            rotations_used=rotations_used,
+        )
+
     @property
     def relative_change(self) -> float:
         """``|computed - previous| / previous``（無次元）."""
@@ -312,45 +363,3 @@ class RotationsPerUlRound:
     def converged(self, rel_tol: float = CONVERGENCE_REL_TOL) -> bool:
         """前後の rotations_per_ul が相対許容 ``rel_tol`` 内かを判定する."""
         return self.relative_change <= rel_tol
-
-
-def rotations_per_ul_round(
-    *,
-    mass_mg: float,
-    line_count: int,
-    amount_ul: float,
-    previous_rotations_per_ul: float,
-    previous_dispense_accel: float,
-    density_mg_per_ul: float,
-) -> RotationsPerUlRound:
-    """① の 1 ラウンド（``line_count`` 本 × ``amount_ul`` を引いて計量）を評価する.
-
-    指令回転数 ``line_count × amount_ul × previous_rotations_per_ul`` と計量質量から
-    新 ``rotations_per_ul`` を算出し、``dispense_accel`` を回転加速度保存で連動させる。
-
-    Args:
-        mass_mg: 全線の合計質量 [mg]
-        line_count: 引いた線の本数
-        amount_ul: 1 線あたりの指令量 [μL]
-        previous_rotations_per_ul: 線引きに使った rotations_per_ul [rev/μL]
-        previous_dispense_accel: 線引きに使った吐出加速度 [μL/sec²]
-        density_mg_per_ul: はんだペースト密度 [mg/μL]
-    """
-    rotations_used = commanded_rotations(
-        line_count=line_count,
-        amount_ul=amount_ul,
-        rotations_per_ul=previous_rotations_per_ul,
-    )
-    flow = FlowCalibration(
-        rotations=rotations_used,
-        masses_mg=(mass_mg,),
-        density_mg_per_ul=density_mg_per_ul,
-    )
-    return RotationsPerUlRound(
-        previous=previous_rotations_per_ul,
-        computed=flow.rotations_per_ul,
-        dispense_accel=flow.rescaled_dispense_accel(
-            previous_dispense_accel, previous_rotations_per_ul
-        ),
-        rotations_used=rotations_used,
-    )

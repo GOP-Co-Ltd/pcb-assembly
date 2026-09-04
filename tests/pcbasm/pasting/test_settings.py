@@ -11,7 +11,6 @@ from pcbasm.pasting.settings import (
     LevelSetting,
     PasteSettingsModel,
     descendant_override_summary,
-    find_orphans,
     is_pad_enabled,
     own_override_summary,
     resolve_node_settings,
@@ -671,7 +670,7 @@ class TestResolveNodeSettings:
 
 
 class TestFindOrphans:
-    """find_orphans は現存階層に無い levels キーを返す。"""
+    """PasteSettingsModel.find_orphans は現存階層に無い levels キーを返す。"""
 
     def test_returns_keys_absent_from_hierarchy(self):
         _, _, hierarchy = _two_component_hierarchy()
@@ -684,7 +683,7 @@ class TestFindOrphans:
             ),
         )
 
-        orphans = find_orphans(model, hierarchy)
+        orphans = model.find_orphans(hierarchy)
 
         assert set(orphans) == {("L2", "Q9"), ("L4", "U1", "404")}
 
@@ -698,7 +697,7 @@ class TestFindOrphans:
             ),
         )
 
-        assert find_orphans(model, hierarchy) == []
+        assert model.find_orphans(hierarchy) == []
 
 
 class TestWithLevelPatch:

@@ -1,7 +1,7 @@
 """`web.api.routers.pasting_loading`（質量キャリブレーション算出 API）の仕様テスト.
 
 router は「machine.toml の ``solder_paste_density`` を引いて
-:func:`pcbasm.pasting.estimate_mass_flow` へ委譲する」配線のみを持つ。
+:meth:`pcbasm.pasting.MassFlowEstimate.estimate` へ委譲する」配線のみを持つ。
 算術・丸め・null ゲーティングの網羅は
 tests/pcbasm/pasting/test_calibration.py::TestEstimateMassFlow が担保する。
 

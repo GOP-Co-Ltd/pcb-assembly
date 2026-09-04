@@ -11,9 +11,9 @@ import pcbnew
 
 from pcbasm.pcb.footprint import (
     FRONT_PAD_LAYERS,
+    FootprintEnvelope,
     FootprintInfo,
     FootprintLibrary,
-    footprint_envelope,
     format_footprint_id,
     pad_geometry_signature,
     pad_on_any_layer,
@@ -27,11 +27,9 @@ from .config import (
     DEFAULT_FOOTPRINT_BY_SOURCE,
     BoardConfigError,
     CustomPadDraft,
+    CustomPadShape,
     CustomPadSpec,
-    custom_pad_shape_option,
-    default_custom_pad_name,
     format_pad_catalog_id,
-    normalize_custom_pad_draft,
     parse_pad_catalog_id,
 )
 
@@ -215,7 +213,7 @@ class PadCatalog:
         for pad_index, template, numbers in sorted(
             grouped.values(), key=lambda item: item[0]
         ):
-            envelope = footprint_envelope(template, 0.0)
+            envelope = FootprintEnvelope.measure(template, 0.0)
             catalog_id = format_pad_catalog_id(library, footprint_name, pad_index)
             source_numbers = _sorted_pad_numbers(numbers)
             item = PadPattern(
@@ -250,10 +248,10 @@ class PadCatalog:
         return resolved
 
     def create_custom_pad(self, draft: CustomPadDraft) -> CustomPadSpec:
-        draft = normalize_custom_pad_draft(draft)
+        draft = draft.normalized()
         return CustomPadSpec(
             catalog_id=f"custom:{uuid.uuid4().hex}",
-            name=draft.name or default_custom_pad_name(draft),
+            name=draft.name or draft.default_name(),
             shape=draft.shape,
             width_mm=draft.width_mm,
             height_mm=draft.height_mm,
@@ -274,8 +272,8 @@ class PadCatalog:
             custom_pad.height_mm,
             corner_radius_mm=custom_pad.corner_radius_mm,
         )
-        envelope = footprint_envelope(template, 0.0)
-        shape = custom_pad_shape_option(custom_pad.shape)
+        envelope = FootprintEnvelope.measure(template, 0.0)
+        shape = CustomPadShape.for_id(custom_pad.shape)
         radius = (
             f" · R{custom_pad.corner_radius_mm:.3g} mm"
             if custom_pad.shape == "roundrect"
