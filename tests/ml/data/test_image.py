@@ -13,10 +13,8 @@ from ml.data.image import (
     AugmentationRange,
     ImageConstraints,
     ImageShape,
-    augmentation_parameters,
+    PreprocessedSample,
     decode_rgb_image,
-    preprocess_image_stack,
-    preprocessed_shape,
     sample_layer_norm,
 )
 
@@ -56,34 +54,34 @@ class TestImageConstraints:
         assert expected in error
 
 
-class TestPreprocessedShape:
+class TestImageShapePreprocessed:
     """縮小後の高さ・幅."""
 
     def test_does_not_upscale_a_small_image(self):
-        shape = preprocessed_shape(
-            ImageShape(64, 64), constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
+        shape = ImageShape(64, 64).preprocessed(
+            constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
         )
 
         assert shape == ImageShape(64, 64)
 
     def test_is_limited_by_the_longest_side(self):
-        shape = preprocessed_shape(
-            ImageShape(64, 4096), constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
+        shape = ImageShape(64, 4096).preprocessed(
+            constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
         )
 
         assert shape == ImageShape(16, 1024)
 
     def test_is_limited_by_the_pixel_budget(self):
-        shape = preprocessed_shape(
-            ImageShape(1024, 1024), constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
+        shape = ImageShape(1024, 1024).preprocessed(
+            constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
         )
 
         assert shape == ImageShape(512, 512)
         assert shape.pixels == pytest.approx(CONSTRAINTS.maximum_pixels)
 
     def test_keeps_an_extreme_aspect_ratio(self):
-        shape = preprocessed_shape(
-            ImageShape(64, 2048), constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
+        shape = ImageShape(64, 2048).preprocessed(
+            constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
         )
 
         assert shape.width == 1024
@@ -93,8 +91,8 @@ class TestPreprocessedShape:
         "original", [ImageShape(512, 512), ImageShape(1024, 256), ImageShape(64, 2048)]
     )
     def test_result_satisfies_every_size_constraint(self, original: ImageShape):
-        shape = preprocessed_shape(
-            original, constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
+        shape = original.preprocessed(
+            constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
         )
 
         assert max(shape.height, shape.width) <= CONSTRAINTS.maximum_size
@@ -103,8 +101,8 @@ class TestPreprocessedShape:
     def test_augmentation_scale_is_clipped_by_the_constraints(self):
         enlarged = AugmentationParameters(rotation_degrees=0.0, scale=1.2)
 
-        shape = preprocessed_shape(
-            ImageShape(512, 512), constraints=CONSTRAINTS, parameters=enlarged
+        shape = ImageShape(512, 512).preprocessed(
+            constraints=CONSTRAINTS, parameters=enlarged
         )
 
         assert shape.pixels <= CONSTRAINTS.maximum_pixels
@@ -112,28 +110,26 @@ class TestPreprocessedShape:
     def test_augmentation_scale_shrinks_the_result(self):
         shrunk = AugmentationParameters(rotation_degrees=0.0, scale=0.5)
 
-        shape = preprocessed_shape(
-            ImageShape(256, 256), constraints=CONSTRAINTS, parameters=shrunk
+        shape = ImageShape(256, 256).preprocessed(
+            constraints=CONSTRAINTS, parameters=shrunk
         )
 
         assert shape == ImageShape(128, 128)
 
 
-class TestAugmentationParameters:
+class TestAugmentationRangeParametersFor:
     """Worker 数や中断再開に依存しない決定論的な変換."""
 
     def test_is_reproducible_for_the_same_sample_and_epoch(self):
-        first = augmentation_parameters(
+        first = AugmentationRange().parameters_for(
             sample_id="sample-a",
             global_seed=7,
             epoch=3,
-            augmentation=AugmentationRange(),
         )
-        second = augmentation_parameters(
+        second = AugmentationRange().parameters_for(
             sample_id="sample-a",
             global_seed=7,
             epoch=3,
-            augmentation=AugmentationRange(),
         )
 
         assert first == second
@@ -145,18 +141,16 @@ class TestAugmentationParameters:
     def test_differs_when_the_derivation_inputs_differ(
         self, sample_id: str, epoch: int, global_seed: int
     ):
-        baseline = augmentation_parameters(
+        baseline = AugmentationRange().parameters_for(
             sample_id="sample-a",
             global_seed=7,
             epoch=3,
-            augmentation=AugmentationRange(),
         )
 
-        other = augmentation_parameters(
+        other = AugmentationRange().parameters_for(
             sample_id=sample_id,
             global_seed=global_seed,
             epoch=epoch,
-            augmentation=AugmentationRange(),
         )
 
         assert other != baseline
@@ -165,11 +159,10 @@ class TestAugmentationParameters:
         augmentation = AugmentationRange(minimum_scale=0.8, maximum_scale=1.2)
 
         for index in range(64):
-            parameters = augmentation_parameters(
+            parameters = augmentation.parameters_for(
                 sample_id=f"sample-{index}",
                 global_seed=1,
                 epoch=0,
-                augmentation=augmentation,
             )
 
             assert 0.0 <= parameters.rotation_degrees < 360.0
@@ -180,8 +173,8 @@ class TestAugmentationParameters:
             rotation_enabled=False, minimum_scale=1.0, maximum_scale=1.0
         )
 
-        parameters = augmentation_parameters(
-            sample_id="sample-a", global_seed=7, epoch=3, augmentation=disabled
+        parameters = disabled.parameters_for(
+            sample_id="sample-a", global_seed=7, epoch=3
         )
 
         assert parameters == NO_AUGMENTATION
@@ -314,11 +307,11 @@ class TestSampleLayerNorm:
         assert error is not None
 
 
-class TestPreprocessImageStack:
+class TestPreprocessedSamplePreprocess:
     """Decode 済み画像列を model 入力へそろえる一連の処理."""
 
     def test_concatenates_images_along_the_channel_axis(self):
-        sample, error = preprocess_image_stack(
+        sample, error = PreprocessedSample.preprocess(
             [_image(64, 48, seed=1), _image(64, 48, seed=2)],
             constraints=CONSTRAINTS,
             parameters=NO_AUGMENTATION,
@@ -333,7 +326,7 @@ class TestPreprocessImageStack:
         assert sample.scale == pytest.approx(1.0)
 
     def test_accepts_a_single_image(self):
-        sample, error = preprocess_image_stack(
+        sample, error = PreprocessedSample.preprocess(
             [_image(64, 48)], constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
         )
 
@@ -342,7 +335,7 @@ class TestPreprocessImageStack:
         assert sample.image.shape == (3, 64, 48)
 
     def test_downscales_and_reports_the_applied_scale(self):
-        sample, error = preprocess_image_stack(
+        sample, error = PreprocessedSample.preprocess(
             [_image(128, 4096)], constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
         )
 
@@ -354,7 +347,7 @@ class TestPreprocessImageStack:
     def test_rotation_marks_the_corners_invalid(self):
         rotated = AugmentationParameters(rotation_degrees=45.0, scale=1.0)
 
-        sample, error = preprocess_image_stack(
+        sample, error = PreprocessedSample.preprocess(
             [_image(64, 64)], constraints=CONSTRAINTS, parameters=rotated
         )
 
@@ -366,7 +359,7 @@ class TestPreprocessImageStack:
         assert torch.all(sample.image[:, ~sample.valid_mask[0]] == 0.0)
 
     def test_is_normalized_over_the_valid_region(self):
-        sample, _ = preprocess_image_stack(
+        sample, _ = PreprocessedSample.preprocess(
             [_image(64, 48, seed=1), _image(64, 48, seed=2)],
             constraints=CONSTRAINTS,
             parameters=NO_AUGMENTATION,
@@ -387,7 +380,7 @@ class TestPreprocessImageStack:
         ],
     )
     def test_rejects_unusable_input(self, images: list[torch.Tensor], expected: str):
-        sample, error = preprocess_image_stack(
+        sample, error = PreprocessedSample.preprocess(
             images, constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
         )
 
@@ -396,7 +389,7 @@ class TestPreprocessImageStack:
         assert expected in error
 
     def test_rejects_an_image_that_downscales_below_the_minimum(self):
-        sample, error = preprocess_image_stack(
+        sample, error = PreprocessedSample.preprocess(
             [_image(40, 4096)], constraints=CONSTRAINTS, parameters=NO_AUGMENTATION
         )
 
@@ -405,12 +398,12 @@ class TestPreprocessImageStack:
         assert "minimum_size" in error
 
     def test_compares_by_identity(self):
-        sample, _ = preprocess_image_stack(
+        sample, _ = PreprocessedSample.preprocess(
             [_image(64, 48, seed=1)],
             constraints=CONSTRAINTS,
             parameters=NO_AUGMENTATION,
         )
-        different_image, _ = preprocess_image_stack(
+        different_image, _ = PreprocessedSample.preprocess(
             [_image(64, 48, seed=2)],
             constraints=CONSTRAINTS,
             parameters=NO_AUGMENTATION,
