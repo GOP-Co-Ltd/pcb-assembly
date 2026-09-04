@@ -40,7 +40,7 @@ class TestProbeExecutor:
 
     @pytest.fixture
     def stage(self, mocker: MockerFixture):
-        # stage.move の戻り値は `+ gcode.wait_for_done()` で連結されるため実体を返す
+        # stage.move の戻り値は `+ GCode.wait_for_done()` で連結されるため実体を返す
         stage = mocker.Mock()
         stage.move.return_value = GCode("G1 Z1.25")
         return stage

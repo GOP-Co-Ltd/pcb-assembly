@@ -25,7 +25,7 @@ from pcbasm.pasting.fill_path import AppliedDispenseMode
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pasting.workflow import DatasetTargets, plan_dataset_targets
-from pcbasm.pcb import PcbFile, build_pad_hierarchy
+from pcbasm.pcb import PadHierarchy, PcbFile
 from pcbasm.vision.calibration import CalibrationResult
 from pcbasm.vision.crop import PolygonCrop
 from tests.helpers import TESTING_DATA_DIR
@@ -120,7 +120,7 @@ def _key_paths(value: object, prefix: str = "") -> set[str]:
 @pytest.fixture(scope="module")
 def targets() -> DatasetTargets:
     pcb = PcbFile(LED_BLINKER)
-    hierarchy = build_pad_hierarchy(pcb.components, pcb.pads)
+    hierarchy = PadHierarchy.build(pcb.components, pcb.pads)
     base = PasteParams(
         dispense_mode="auto",
         line_direction="unconstrained",

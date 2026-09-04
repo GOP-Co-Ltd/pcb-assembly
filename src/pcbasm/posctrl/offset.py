@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Callable
 
-from pcbasm import gcode
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Rotation, Transform
 from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.utils import get_class_module_path
@@ -113,8 +113,8 @@ class OffsetTransformMeasurer:
 
         return rotation
 
-    def _move_to(self, move_gcode: gcode.GCode) -> None:
+    def _move_to(self, move_gcode: GCode) -> None:
         """指定座標に移動し、安定を待つ."""
         self._klipper.send_gcode(
-            move_gcode + gcode.wait(self._settle_time) + gcode.wait_for_done()
+            move_gcode + GCode.wait(self._settle_time) + GCode.wait_for_done()
         )

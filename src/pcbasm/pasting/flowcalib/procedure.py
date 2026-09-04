@@ -14,7 +14,7 @@ import logging
 from collections.abc import Callable, Sequence
 from typing import Self, cast
 
-from pcbasm import gcode
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Compose, Point2d, Transform
 from pcbasm.pasting.applicator import DispenseExecution, PasteApplicator
 from pcbasm.pasting.flowcalib.flow import RotationsPerUlRound
@@ -177,7 +177,7 @@ class FlowCalibrationProcedure:
 
     def _send_move(self, *, z: float) -> None:
         self._session.klipper.send_gcode(
-            self._session.stage.move(z=z) + gcode.wait_for_done()
+            self._session.stage.move(z=z) + GCode.wait_for_done()
         )
 
 

@@ -1,4 +1,4 @@
-"""build_fill_plan / build_pad_fill_plan のテスト.
+"""FillPlan.build / FillPlan.for_pad のテスト.
 
 面塗布（外周＋牛耕式ジグザグ）・線塗布・点塗布のフォールバック階層は
 「ポリゴン形状 × ノズル径」の組み合わせで誘発し、公開 API 経由で振る舞い
@@ -22,7 +22,7 @@ from shapely.geometry import Point as ShapelyPoint
 
 from pcbasm.config import PasteDispenser as PasteDispenserConfig, Toolhead
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.fill_path import build_fill_plan, build_pad_fill_plan
+from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.params import PasteParams
 
 # セグメント内包・外周マージン判定の浮動小数誤差を吸収する微小バッファ（定数）。
@@ -43,7 +43,7 @@ def build_paste_fill_path(
     kwargs.setdefault("dispense_mode", "area")
     kwargs.setdefault("auto_line_aspect_ratio", _AUTO_LINE_ASPECT_RATIO)
     kwargs.setdefault("auto_area_short_side_factor", _AUTO_AREA_SHORT_SIDE_FACTOR)
-    plan = build_fill_plan(polygon, nozzle_diameter, **kwargs)
+    plan = FillPlan.build(polygon, nozzle_diameter, **kwargs)
     return [list(path) for path in plan.paths]
 
 
@@ -219,7 +219,7 @@ class TestDispenseModes:
     """塗布方式の明示指定と Auto 解決を公開 API 経由で検証する。"""
 
     def test_dot_mode_uses_representative_point(self):
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             _rectangle(10.0, 6.0),
             nozzle_diameter=1.0,
             dispense_mode="dot",
@@ -232,7 +232,7 @@ class TestDispenseModes:
         assert len(plan.paths[0]) == 1
 
     def test_line_mode_uses_long_axis_centerline(self):
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             _rectangle(1.0, 4.0),
             nozzle_diameter=0.5,
             dispense_mode="line",
@@ -245,14 +245,14 @@ class TestDispenseModes:
         assert len(plan.paths[0]) == 2
 
     def test_area_mode_falls_back_to_line_then_dot(self):
-        line_plan = build_fill_plan(
+        line_plan = FillPlan.build(
             _rectangle(0.8, 5.0),
             nozzle_diameter=1.0,
             dispense_mode="area",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
         )
-        dot_plan = build_fill_plan(
+        dot_plan = FillPlan.build(
             _rectangle(0.2, 0.2),
             nozzle_diameter=1.0,
             dispense_mode="area",
@@ -268,7 +268,7 @@ class TestDispenseModes:
     def test_auto_uses_minimum_rotated_bbox_aspect_ratio(self):
         rotated = rotate(_rectangle(1.0, 3.0), 35.0, origin=(0.0, 0.0))
 
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             rotated,
             nozzle_diameter=0.34,
             dispense_mode="auto",
@@ -287,7 +287,7 @@ class TestDispenseModes:
         ],
     )
     def test_auto_uses_golden_ratio_threshold(self, width, height, expected_mode):
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             _rectangle(width, height),
             nozzle_diameter=0.34,
             dispense_mode="auto",
@@ -298,7 +298,7 @@ class TestDispenseModes:
         assert plan.dispense_mode == expected_mode
 
     def test_auto_threshold_boundary_is_dot(self):
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             _rectangle(1.0, 2.0),
             nozzle_diameter=0.34,
             dispense_mode="auto",
@@ -314,7 +314,7 @@ class TestDispenseModes:
         factor = 3.0
         side = nozzle_diameter * factor * 3.0  # 閾値の 3 倍 → 確実に area
 
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             _rectangle(side, side),
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -332,7 +332,7 @@ class TestDispenseModes:
         short = threshold * 1.5  # 短辺 > 閾値 → area 条件成立
         long = short * 5.0  # aspect 5 > 1.618 → line 条件も成立するが area が勝つ
 
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             _rectangle(short, long),
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -359,7 +359,7 @@ class TestDispenseModes:
             threshold * 10.0
         )  # aspect を十分大きく保ち line/area の切り分けを短辺に限定
 
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             _rectangle(short, long),
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -377,7 +377,7 @@ class TestDispenseModes:
         short = threshold * 0.5  # 閾値未満 → area にはならない
         long = short * 8.0  # aspect 8 > 1.618 → line
 
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             _rectangle(short, long),
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -395,7 +395,7 @@ class TestDispenseModes:
         short = threshold * 0.5
         long = short * 1.2  # aspect 1.2 < 1.618 → dot
 
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             _rectangle(short, long),
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -412,14 +412,14 @@ class TestDispenseModes:
         long = short * 6.0  # aspect 6 > 1.618（factor 大時は area でなく line へ）
         polygon = _rectangle(short, long)
 
-        area_plan = build_fill_plan(
+        area_plan = FillPlan.build(
             polygon,
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=3.0,  # 閾値 1.02 < 1.4 → area
         )
-        line_plan = build_fill_plan(
+        line_plan = FillPlan.build(
             polygon,
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -434,7 +434,7 @@ class TestDispenseModes:
         # ほぼ退化した極薄スライバでも auto がゼロ除算せず解決する（防御的契約）。
         sliver = Polygon([(0, 0), (5, 0), (5, 1e-9), (0, 1e-9)])
 
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             sliver,
             nozzle_diameter=0.34,
             dispense_mode="auto",
@@ -765,7 +765,7 @@ class TestReturnType:
         ids=["area", "line", "dot"],
     )
     def test_paths_are_tuples_of_polylines_of_point2d(self, polygon, nozzle_diameter):
-        plan = build_fill_plan(
+        plan = FillPlan.build(
             polygon,
             nozzle_diameter,
             dispense_mode="area",
@@ -791,11 +791,11 @@ class TestReturnType:
                 assert math.isfinite(p.y)
 
 
-class TestBuildPadFillPlan:
-    """build_pad_fill_plan は config + PasteParams から引数対応を単一ソース化する。
+class TestFillPlanForPad:
+    """FillPlan.for_pad は config + PasteParams から引数対応を単一ソース化する。
 
-    プレビュー（webui router）と実行（PasteApplicator）が同一の対応で build_fill_plan
-    を呼ぶための束ね関数。同じ入力に対して build_fill_plan の直接呼び出しと同一の 計画を返すことを契約とする。
+    プレビュー（webui router）と実行（PasteApplicator）が同一の対応で FillPlan.build
+    を呼ぶための束ねメソッド。同じ入力に対して FillPlan.build の直接呼び出しと同一の計画を返すことを契約とする。
     """
 
     @staticmethod
@@ -814,17 +814,17 @@ class TestBuildPadFillPlan:
         return PasteParams(**values)
 
     @pytest.mark.parametrize("dispense_mode", ["auto", "dot", "line", "area"])
-    def test_matches_direct_build_fill_plan(self, dispense_mode: str):
+    def test_matches_direct_build(self, dispense_mode: str):
         polygon = _rectangle(2.0, 6.0)
         paste = self._paste(dispense_mode=dispense_mode)
 
-        plan = build_pad_fill_plan(
+        plan = FillPlan.for_pad(
             polygon,
             config=_config(0.4),
             params=paste,
         )
 
-        expected = build_fill_plan(
+        expected = FillPlan.build(
             polygon,
             0.4,
             dispense_mode=paste.dispense_mode,
@@ -842,7 +842,7 @@ class TestBuildPadFillPlan:
     ):
         reference = Point2d(0.4, -5.0)
 
-        plan = build_pad_fill_plan(
+        plan = FillPlan.for_pad(
             _rectangle(0.8, 5.0),
             config=_config(1.0),
             params=self._paste(
@@ -862,7 +862,7 @@ class TestBuildPadFillPlan:
         reference = Point2d(0.4, -5.0)
         kwargs = {"config": _config(1.0), "line_reference": reference}
 
-        outward = build_pad_fill_plan(
+        outward = FillPlan.for_pad(
             polygon,
             params=self._paste(
                 dispense_mode="line",
@@ -871,7 +871,7 @@ class TestBuildPadFillPlan:
             ),
             **kwargs,
         )
-        inward = build_pad_fill_plan(
+        inward = FillPlan.for_pad(
             polygon,
             params=self._paste(
                 dispense_mode="line",
@@ -889,18 +889,18 @@ class TestBuildPadFillPlan:
             dispense_mode="line", line_direction="unconstrained"
         )
 
-        plan = build_pad_fill_plan(
+        plan = FillPlan.for_pad(
             _rectangle(0.8, 5.0), config=_config(1.0), params=params
         )
 
-        assert plan == build_pad_fill_plan(
+        assert plan == FillPlan.for_pad(
             _rectangle(0.8, 5.0), config=_config(1.0), params=unconstrained
         )
 
     def test_equal_distance_keeps_unconstrained_order(self):
         polygon = _rectangle(0.8, 5.0)
         reference = Point2d(0.4, 2.5)
-        unconstrained = build_pad_fill_plan(
+        unconstrained = FillPlan.for_pad(
             polygon,
             config=_config(1.0),
             params=self._paste(
@@ -909,7 +909,7 @@ class TestBuildPadFillPlan:
                 boundary_margin=0.0,
             ),
         )
-        outward = build_pad_fill_plan(
+        outward = FillPlan.for_pad(
             polygon,
             config=_config(1.0),
             params=self._paste(

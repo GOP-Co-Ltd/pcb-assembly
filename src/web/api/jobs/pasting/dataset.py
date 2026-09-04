@@ -14,7 +14,7 @@ from pcbasm.pasting.dataset.recorder import (
 )
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
 from pcbasm.pasting.workflow import DatasetTargets, plan_dataset_targets
-from pcbasm.pcb import Pad, PcbFile, build_pad_hierarchy
+from pcbasm.pcb import Pad, PadHierarchy, PcbFile
 from pcbasm.vision.crop import PolygonCrop
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
@@ -82,7 +82,7 @@ def register(catalog: JobCatalog) -> None:
 
 def _dataset_targets(ctx: JobContext, pcb: PcbFile) -> DatasetTargets:
     """任意PCBからpurgeを除く有効top pad routeを装置非依存で解決する（不正は ValueError）."""
-    hierarchy = build_pad_hierarchy(pcb.components, pcb.pads)
+    hierarchy = PadHierarchy.build(pcb.components, pcb.pads)
     model = resolve_paste_model(ctx, hierarchy)
     targets, error = plan_dataset_targets(
         pcb,

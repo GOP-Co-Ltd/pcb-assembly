@@ -21,6 +21,7 @@ L3 の形状分類は :class:`PadShapeKey` による。回転配置された同�
 import hashlib
 import json
 from collections.abc import Iterator, Sequence
+from typing import Self
 
 import attrs
 
@@ -134,6 +135,60 @@ class PadHierarchy:
     _refs_by_pad_id: dict[str, PadRef] = attrs.field(
         factory=dict, eq=False, alias="refs_by_pad_id"
     )
+
+    @classmethod
+    def build(
+        cls,
+        components: Sequence[Component],
+        pads: Sequence[Pad],
+        *,
+        shape_quantum: float = 0.01,
+    ) -> Self:
+        """部品と pad から L0–L4 階層ツリーを構築する.
+
+        pad の package は designator で ``components`` から引く。対応する
+        Component が無い pad は階層から除外する。
+
+        Args:
+            components: 対象部品列
+            pads: 対象 pad 列
+            shape_quantum: 形状量子化単位（mm／mm²、既定 0.01）
+
+        Returns:
+            構築した階層
+        """
+        package_by_designator = {c.designator: c.package for c in components}
+
+        keyed_pads: list[tuple[PadRef, Pad]] = []
+        ordered_pads: list[Pad] = []
+        for pad in pads:
+            package = package_by_designator.get(pad.designator)
+            if package is None:
+                # 対応する Component が無い pad は除外
+                continue
+            ordered_pads.append(pad)
+
+        refs_by_pad_object = _pad_refs_by_object(ordered_pads)
+        keys_by_pad_ref: dict[PadRef, tuple[HierKey, ...]] = {}
+        pads_by_ref: dict[PadRef, Pad] = {}
+        refs_by_pad_id: dict[str, PadRef] = {}
+        for pad in ordered_pads:
+            package = package_by_designator[pad.designator]
+            ref = refs_by_pad_object[id(pad)]
+            shape_label = PadShapeKey.of(pad, quantum=shape_quantum).label
+            keys_by_pad_ref[ref] = _hier_keys_for(pad, package, shape_label, ref[1])
+            pads_by_ref[ref] = pad
+            refs_by_pad_id[pad_id_from_ref(ref)] = ref
+            keyed_pads.append((ref, pad))
+
+        root = _build_node(0, ("L0",), keyed_pads, keys_by_pad_ref)
+        return cls(
+            root=root,
+            keys_by_pad_ref=keys_by_pad_ref,
+            refs_by_pad_object=refs_by_pad_object,
+            pads_by_ref=pads_by_ref,
+            refs_by_pad_id=refs_by_pad_id,
+        )
 
     def iter_pads(self) -> Iterator[Pad]:
         """階層に含まれる全 pad を反復する（ルート配下の順）."""
@@ -271,59 +326,6 @@ def _node_label(level: int, key: HierKey, pad: Pad) -> str:
     if level == 4:
         return f"{pad.designator}.{key[-1]}"
     return key[-1]
-
-
-def build_pad_hierarchy(
-    components: Sequence[Component],
-    pads: Sequence[Pad],
-    *,
-    shape_quantum: float = 0.01,
-) -> PadHierarchy:
-    """部品と pad から L0–L4 階層ツリーを構築する.
-
-    pad の package は designator で ``components`` から引く。対応する
-    Component が無い pad は階層から除外する。
-
-    Args:
-        components: 対象部品列
-        pads: 対象 pad 列
-        shape_quantum: 形状量子化単位（mm／mm²、既定 0.01）
-
-    Returns:
-        構築した階層
-    """
-    package_by_designator = {c.designator: c.package for c in components}
-
-    keyed_pads: list[tuple[PadRef, Pad]] = []
-    ordered_pads: list[Pad] = []
-    for pad in pads:
-        package = package_by_designator.get(pad.designator)
-        if package is None:
-            # 対応する Component が無い pad は除外
-            continue
-        ordered_pads.append(pad)
-
-    refs_by_pad_object = _pad_refs_by_object(ordered_pads)
-    keys_by_pad_ref: dict[PadRef, tuple[HierKey, ...]] = {}
-    pads_by_ref: dict[PadRef, Pad] = {}
-    refs_by_pad_id: dict[str, PadRef] = {}
-    for pad in ordered_pads:
-        package = package_by_designator[pad.designator]
-        ref = refs_by_pad_object[id(pad)]
-        shape_label = PadShapeKey.of(pad, quantum=shape_quantum).label
-        keys_by_pad_ref[ref] = _hier_keys_for(pad, package, shape_label, ref[1])
-        pads_by_ref[ref] = pad
-        refs_by_pad_id[pad_id_from_ref(ref)] = ref
-        keyed_pads.append((ref, pad))
-
-    root = _build_node(0, ("L0",), keyed_pads, keys_by_pad_ref)
-    return PadHierarchy(
-        root=root,
-        keys_by_pad_ref=keys_by_pad_ref,
-        refs_by_pad_object=refs_by_pad_object,
-        pads_by_ref=pads_by_ref,
-        refs_by_pad_id=refs_by_pad_id,
-    )
 
 
 def _pad_refs_by_object(pads: Sequence[Pad]) -> dict[int, PadRef]:
