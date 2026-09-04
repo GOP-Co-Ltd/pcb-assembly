@@ -1,5 +1,4 @@
 {
-  "effortLevel": "high",
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
@@ -175,7 +174,13 @@
       "WebFetch",
       "Bash(git cherry-pick *)",
       "Bash(git worktree *)",
-      "Bash(tasklist)"
+      "Bash(tasklist)",
+      "Bash(cd:*)",
+      "Bash(uv venv:*)",
+      "Bash(glab mr list:*)",
+      "Bash(glab mr view:*)",
+      "Bash(glab mr diff:*)",
+      "Bash(glab auth status:*)"
     ],
     "deny": [
       "Read(~/.ssh/**)",
@@ -194,10 +199,6 @@
       "/tmp",
       ".claude/worktrees/**"
     ]
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/scripts/statusline.sh\""
   },
   "hooks": {
     "PostCompact": [
@@ -240,5 +241,10 @@
         ]
       }
     ]
-  }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/scripts/statusline.sh\""
+  },
+  "effortLevel": "high"
 }
