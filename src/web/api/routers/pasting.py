@@ -176,7 +176,7 @@ def patch_initial_purge(
         else loaded.model.initial_purge_pad_id
     )
     routed = routed_enabled_pads(
-        layer_pads(loaded, Layer.TOP.value), loaded.hierarchy, loaded.model
+        layer_pads(loaded, Layer.TOP), loaded.hierarchy, loaded.model
     )
     error = validate_initial_purge(
         amount_ul=next_amount,

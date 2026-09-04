@@ -1,10 +1,10 @@
 "use strict";
 
 import {
-  FIELD_LABELS,
   ancestorChain,
   buildNodeIndexes,
   cleanupSelection,
+  fieldLabel,
   l4NodeIdForPad,
   padsUnderNode,
 } from "./model.js";
@@ -379,7 +379,7 @@ import {
         invalidateFillPath: true,
       });
       if (options.descendantCount > 0) {
-        const label = FIELD_LABELS[options.descendantField] || options.descendantField;
+        const label = fieldLabel(state.config, options.descendantField);
         toast(
           `保存しました。子孫ノードの ${label} override ${options.descendantCount} 件は引き続き優先されます。`,
           "warning"

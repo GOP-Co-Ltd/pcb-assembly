@@ -22,7 +22,7 @@ from shapely import Polygon, box
 
 from pcbasm.config import PasteDispenser as PasteDispenserConfig, Toolhead
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Point3d, Shift
-from pcbasm.hal import PasteDispenser, XYZStage
+from pcbasm.hal import XYZStage
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.params import PasteParamsPatch
 from tests.helpers import FAKE_PRINTER_CONFIG, FakeKlipper
@@ -53,7 +53,6 @@ _DUMBBELL_NECK_03 = Polygon(
 )
 
 _MOVE_RE = re.compile(r"MANUAL_STEPPER STEPPER=paste_dispenser MOVE=(\S+)(.*)")
-_G1_RE = re.compile(r"G1 (.*)")
 
 
 def _machine_surface_z(x: float, y: float):
@@ -139,21 +138,9 @@ def _dispense_amounts_ul(klipper: FakeKlipper) -> list[float]:
     return amounts
 
 
-def _g1_moves(klipper: FakeKlipper) -> list[dict[str, float]]:
-    """``G1`` の座標を {軸: 値} の列で返す（F は feed）."""
-    moves: list[dict[str, float]] = []
-    for line in klipper.sent_lines:
-        match = _G1_RE.match(line)
-        if match:
-            moves.append(
-                {part[0].lower(): float(part[1:]) for part in match.group(1).split()}
-            )
-    return moves
-
-
 def _down_z(klipper: FakeKlipper) -> float:
     """先頭点上空 → 下降 の 2 番目の G1 の Z."""
-    return _g1_moves(klipper)[1]["z"]
+    return klipper.g1_moves()[1]["z"]
 
 
 class TestSingleComponentPad:
@@ -302,7 +289,7 @@ class TestTransformApplication:
             transform=transform,
         )
 
-        down = _g1_moves(klipper)[1]
+        down = klipper.g1_moves()[1]
         assert down["z"] == pytest.approx(
             paste_height + _machine_surface_z(down["x"], down["y"])
         )
@@ -366,7 +353,7 @@ class TestBuildApplicator:
 
         applicator.deposit_at(Point2d(1.0, 2.0), amount_ul=0.1, transform=Identity())
 
-        assert [move["z"] for move in _g1_moves(klipper)] == pytest.approx(
+        assert [move["z"] for move in klipper.g1_moves()] == pytest.approx(
             [4.5, 0.5, 4.5]
         )
 
@@ -415,7 +402,7 @@ class TestDrawLine:
             transform=Shift(x=100.0, y=50.0, z=0.0),
         )
 
-        first = _g1_moves(klipper)[0]
+        first = klipper.g1_moves()[0]
         assert (first["x"], first["y"]) == (pytest.approx(100.0), pytest.approx(50.0))
 
     def test_rate_cap_inf_disables_capping(self, klipper):
@@ -467,7 +454,7 @@ class TestDepositAt:
 
         applicator.deposit_at(point, amount_ul=0.2, transform=Identity())
 
-        moves = _g1_moves(klipper)
+        moves = klipper.g1_moves()
         assert len(moves) == 3  # 上空 → 下降 → 上昇（塗布移動なし）
         assert all(
             (m["x"], m["y"]) == (pytest.approx(point.x), pytest.approx(point.y))
@@ -610,7 +597,7 @@ class TestPerPadParams:
         )
 
         # 上空 → 下降 → 塗布移動（2 点）→ 上昇 の順。塗布経路は 3 番目と 4 番目の G1。
-        moves = _g1_moves(klipper)
+        moves = klipper.g1_moves()
         start = Point2d(moves[2]["x"], moves[2]["y"])
         end = Point2d(moves[3]["x"], moves[3]["y"])
         assert (

@@ -1,3 +1,4 @@
+import re
 import shutil
 import socket
 import struct
@@ -479,6 +480,9 @@ FAKE_KLIPPER_STATUS: dict[tuple[str, str], Any] = {
 }
 
 
+_G1_RE = re.compile(r"G1 (.*)")
+
+
 class FakeKlipper(Klipper):
     """送信 G-code を記録し、缶詰 config / status を返す自前 HAL の fake.
 
@@ -510,6 +514,20 @@ class FakeKlipper(Klipper):
 
     def clear_sent(self) -> None:
         self._sent.clear()
+
+    def g1_moves(self) -> list[dict[str, float]]:
+        """送信した ``G1`` の座標を {軸: 値} の列で返す（``f`` は feed）."""
+        moves: list[dict[str, float]] = []
+        for line in self.sent_lines:
+            match = _G1_RE.match(line)
+            if match:
+                moves.append(
+                    {
+                        part[0].lower(): float(part[1:])
+                        for part in match.group(1).split()
+                    }
+                )
+        return moves
 
     def set_status(self, object: str, attribute: str, value: Any) -> None:
         self._status[(object, attribute)] = value

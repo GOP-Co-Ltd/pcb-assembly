@@ -1,13 +1,6 @@
 "use strict";
 
-import {
-  DISPENSE_MODE_LABELS,
-  FIELDS,
-  FIELD_LABELS,
-  FIELD_KINDS,
-  LINE_DIRECTION_LABELS,
-  round4,
-} from "./model.js";
+import { choiceLabels, fieldLabel, round4 } from "./model.js";
 
 // 階層 override 表の描画。DOM 生成とセル内の数値パース検証（Number.isFinite）
 // のみを持ち、状態遷移と API 呼び出しは actions 経由で index.js に委ねる。
@@ -22,6 +15,7 @@ import {
 const { toast } = window.webui;
 
 export function renderTable(tableBody, state, actions) {
+  renderHeader(tableBody, state.config.fields);
   tableBody.replaceChildren();
   state.rowEls.clear();
   appendRows(tableBody, state, actions, state.config.tree, 0);
@@ -29,6 +23,21 @@ export function renderTable(tableBody, state, actions) {
     for (const el of tableBody.querySelectorAll("input, select, button")) {
       el.disabled = true;
     }
+  }
+}
+
+// 列見出しは API の fields（列順・ラベル）から描く。先頭 2 列（ノード・有効）は
+// テンプレートに置いたまま、それ以降を差し替える。
+function renderHeader(tableBody, fields) {
+  const headerRow = tableBody.closest("table")?.querySelector("thead tr");
+  if (!headerRow) return;
+  for (const th of headerRow.querySelectorAll("th.pad-col-field")) th.remove();
+  for (const field of fields) {
+    const th = document.createElement("th");
+    th.className = "pad-col-field";
+    th.dataset.field = field.name;
+    th.textContent = field.unit ? `${field.label} [${field.unit}]` : field.label;
+    headerRow.appendChild(th);
   }
 }
 
@@ -85,7 +94,7 @@ function buildRow(state, actions, node, depth) {
   label.className = "pad-node-label";
   label.textContent = node.label;
   nameTd.appendChild(label);
-  appendNodeOverrideBadges(nameTd, ownSummary, descendantSummary);
+  appendNodeOverrideBadges(nameTd, state, ownSummary, descendantSummary);
   tr.addEventListener("mouseenter", () => actions.hoverNode(node.id));
   tr.addEventListener("mouseleave", () => {
     if (state.hoveredNode === node.id) actions.hoverNode(null);
@@ -126,9 +135,9 @@ function buildRow(state, actions, node, depth) {
   }
   tr.appendChild(enTd);
 
-  for (const field of FIELDS) {
-    const kind = FIELD_KINDS[field] || "number";
-    if (kind === "mode") {
+  for (const fieldInfo of state.config.fields) {
+    const field = fieldInfo.name;
+    if (fieldInfo.kind === "choice") {
       tr.appendChild(
         buildChoiceCell(
           state,
@@ -136,23 +145,11 @@ function buildRow(state, actions, node, depth) {
           node,
           field,
           descendantSummary,
-          DISPENSE_MODE_LABELS,
-          "pad-dispense-mode-select"
+          choiceLabels(fieldInfo),
+          `pad-${field.replaceAll("_", "-")}-select`
         )
       );
-    } else if (kind === "direction") {
-      tr.appendChild(
-        buildChoiceCell(
-          state,
-          actions,
-          node,
-          field,
-          descendantSummary,
-          LINE_DIRECTION_LABELS,
-          "pad-line-direction-select"
-        )
-      );
-    } else if (kind === "height") {
+    } else if (fieldInfo.kind === "height") {
       tr.appendChild(buildHeightCell(state, actions, node, field, descendantSummary));
     } else {
       tr.appendChild(buildValueCell(state, actions, node, field, descendantSummary));
@@ -183,7 +180,7 @@ function buildChoiceCell(
   select.dataset.field = field;
   select.dataset.nodeId = node.id;
   select.dataset.testid = testId;
-  select.title = FIELD_LABELS[field] || field;
+  select.title = fieldLabel(state.config, field);
   appendSelectOption(
     select,
     "",
@@ -205,7 +202,7 @@ function buildChoiceCell(
   });
   appendOverrideControls(td, actions, node.id, field, isOverride);
   td.appendChild(select);
-  appendDescendantFieldMarker(td, field, descendantCount);
+  appendDescendantFieldMarker(td, state, field, descendantCount);
   return td;
 }
 
@@ -223,7 +220,7 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
   select.dataset.field = field;
   select.dataset.nodeId = node.id;
   select.dataset.testid = "pad-height-mode-select";
-  select.title = FIELD_LABELS[field] || field;
+  select.title = fieldLabel(state.config, field);
   const resolvedLabel =
     resolved === "auto"
       ? "Auto"
@@ -246,7 +243,7 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
   input.dataset.field = field;
   input.dataset.nodeId = node.id;
   input.dataset.testid = "pad-setting-input";
-  input.title = FIELD_LABELS[field] || field;
+  input.title = fieldLabel(state.config, field);
   if (isOverride && ownValue !== "auto") {
     input.value = ownValue;
   } else {
@@ -280,7 +277,7 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
   appendOverrideControls(td, actions, node.id, field, isOverride);
   td.appendChild(select);
   td.appendChild(input);
-  appendDescendantFieldMarker(td, field, descendantCount);
+  appendDescendantFieldMarker(td, state, field, descendantCount);
   return td;
 }
 
@@ -300,7 +297,7 @@ function buildValueCell(state, actions, node, field, descendantSummary) {
   input.dataset.field = field;
   input.dataset.nodeId = node.id;
   input.dataset.testid = "pad-setting-input";
-  input.title = FIELD_LABELS[field] || field;
+  input.title = fieldLabel(state.config, field);
   if (isOverride) {
     input.value = ownValue;
   } else {
@@ -318,7 +315,7 @@ function buildValueCell(state, actions, node, field, descendantSummary) {
   td.appendChild(input);
 
   appendOverrideControls(td, actions, node.id, field, isOverride);
-  appendDescendantFieldMarker(td, field, descendantCount);
+  appendDescendantFieldMarker(td, state, field, descendantCount);
   return td;
 }
 
@@ -349,11 +346,11 @@ function appendOverrideControls(td, actions, nodeId, field, isOverride) {
   td.appendChild(clearBtn);
 }
 
-function appendDescendantFieldMarker(td, field, descendantCount) {
+function appendDescendantFieldMarker(td, state, field, descendantCount) {
   if (descendantCount <= 0) return;
   appendDescendantMarker(
     td,
-    `子孫ノードの ${FIELD_LABELS[field] || field} override が ${descendantCount} 件あります。`,
+    `子孫ノードの ${fieldLabel(state.config, field)} override が ${descendantCount} 件あります。`,
     "pad-descendant-field-marker",
     descendantCount,
     field
@@ -407,24 +404,24 @@ function commitCell(state, actions, nodeId, field, input, descendantCount) {
 
 // ---- バッジ・マーカー ----
 
-function overrideFieldsTitle(fields) {
-  return fields.map((field) => FIELD_LABELS[field] || field).join("、");
+function overrideFieldsTitle(state, fields) {
+  return fields.map((field) => fieldLabel(state.config, field)).join("、");
 }
 
-function ownOverrideTitle(summary) {
+function ownOverrideTitle(state, summary) {
   const parts = [];
   if (summary.enabled) parts.push("有効/無効");
-  if (summary.fields.length > 0) parts.push(overrideFieldsTitle(summary.fields));
+  if (summary.fields.length > 0) parts.push(overrideFieldsTitle(state, summary.fields));
   return `このノードの override: ${parts.join("、")}`;
 }
 
-function descendantOverrideTitle(summary) {
+function descendantOverrideTitle(state, summary) {
   const parts = [];
   if (summary.enabled_count > 0) {
     parts.push(`有効/無効 ${summary.enabled_count}件`);
   }
   if (summary.fields.length > 0) {
-    parts.push(overrideFieldsTitle(summary.fields));
+    parts.push(overrideFieldsTitle(state, summary.fields));
   }
   return `子孫 ${summary.node_count} ノードに override: ${parts.join("、")}`;
 }
@@ -446,7 +443,7 @@ function appendOverrideBadge(parent, label, count, title, testid, scope) {
   parent.appendChild(badge);
 }
 
-function appendNodeOverrideBadges(parent, ownSummary, descendantSummary) {
+function appendNodeOverrideBadges(parent, state, ownSummary, descendantSummary) {
   if (ownSummary.count === 0 && descendantSummary.count === 0) return;
   const badges = document.createElement("span");
   badges.className = "pad-node-badges";
@@ -454,7 +451,7 @@ function appendNodeOverrideBadges(parent, ownSummary, descendantSummary) {
     badges,
     "*",
     ownSummary.count,
-    ownOverrideTitle(ownSummary),
+    ownOverrideTitle(state, ownSummary),
     "pad-own-override-badge",
     "own"
   );
@@ -462,7 +459,7 @@ function appendNodeOverrideBadges(parent, ownSummary, descendantSummary) {
     badges,
     "v",
     descendantSummary.count,
-    descendantOverrideTitle(descendantSummary),
+    descendantOverrideTitle(state, descendantSummary),
     "pad-descendant-override-badge",
     "descendant"
   );
