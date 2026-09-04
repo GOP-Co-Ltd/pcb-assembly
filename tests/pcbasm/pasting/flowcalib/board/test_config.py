@@ -4,19 +4,19 @@ from typing import cast
 
 import pytest
 
-from pcbasm.pasting.paste_flow_calibration_board.config import (
-    PasteFlowCalibrationBoardConfig,
-    PasteFlowCalibrationBoardConfigError,
-    PasteFlowCalibrationBoardSpec,
-    PasteFlowCalibrationCustomPadShapeId,
-    PasteFlowCalibrationPattern,
-    PasteFlowCalibrationPurgePadSpec,
-    normalize_paste_flow_calibration_board_config,
-    parse_paste_flow_calibration_board_document,
-    paste_flow_calibration_board_document,
-    validate_paste_flow_calibration_board_config,
+from pcbasm.pasting.flowcalib.board.config import (
+    BoardConfig,
+    BoardConfigError,
+    BoardSpec,
+    CustomPadShapeId,
+    PatternSpec,
+    PurgePadSpec,
+    board_document,
+    normalize_board_config,
+    parse_board_document,
+    validate_board_config,
 )
-from tests.pcbasm.pasting.paste_flow_calibration_board.support import (
+from tests.pcbasm.pasting.flowcalib.board.support import (
     CUSTOM_A,
     R0402,
     R0603,
@@ -24,15 +24,15 @@ from tests.pcbasm.pasting.paste_flow_calibration_board.support import (
 )
 
 
-class TestPasteFlowCalibrationBoardConfig:
+class TestBoardConfig:
     """Configの有限値・enum・count validation."""
 
     @pytest.mark.parametrize(
         "config",
         [
             pytest.param(
-                PasteFlowCalibrationBoardConfig(
-                    board=PasteFlowCalibrationBoardSpec(
+                BoardConfig(
+                    board=BoardSpec(
                         width_mm=3_000.0,
                         edge_margin_mm=0.0,
                     )
@@ -40,8 +40,8 @@ class TestPasteFlowCalibrationBoardConfig:
                 id="board-outside-signed-32-bit-nm",
             ),
             pytest.param(
-                PasteFlowCalibrationBoardConfig(
-                    board=PasteFlowCalibrationBoardSpec(
+                BoardConfig(
+                    board=BoardSpec(
                         width_mm=0.000_000_6,
                         edge_margin_mm=0.0,
                     )
@@ -49,7 +49,7 @@ class TestPasteFlowCalibrationBoardConfig:
                 id="board-below-one-nm",
             ),
             pytest.param(
-                PasteFlowCalibrationBoardConfig(
+                BoardConfig(
                     custom_pads=(
                         custom_pad(
                             CUSTOM_A,
@@ -57,12 +57,12 @@ class TestPasteFlowCalibrationBoardConfig:
                             width_mm=3_000.0,
                         ),
                     ),
-                    patterns=(PasteFlowCalibrationPattern(CUSTOM_A),),
+                    patterns=(PatternSpec(CUSTOM_A),),
                 ),
                 id="custom-pad-outside-signed-32-bit-nm",
             ),
             pytest.param(
-                PasteFlowCalibrationBoardConfig(
+                BoardConfig(
                     custom_pads=(
                         custom_pad(
                             CUSTOM_A,
@@ -70,12 +70,12 @@ class TestPasteFlowCalibrationBoardConfig:
                             width_mm=0.000_000_6,
                         ),
                     ),
-                    patterns=(PasteFlowCalibrationPattern(CUSTOM_A),),
+                    patterns=(PatternSpec(CUSTOM_A),),
                 ),
                 id="custom-pad-below-one-nm",
             ),
             pytest.param(
-                PasteFlowCalibrationBoardConfig(
+                BoardConfig(
                     custom_pads=(
                         custom_pad(
                             CUSTOM_A,
@@ -83,30 +83,28 @@ class TestPasteFlowCalibrationBoardConfig:
                             width_mm=2_147.483_647,
                         ),
                     ),
-                    patterns=(PasteFlowCalibrationPattern(CUSTOM_A),),
+                    patterns=(PatternSpec(CUSTOM_A),),
                 ),
                 id="custom-pad-at-signed-32-bit-nm-max",
             ),
             pytest.param(
-                PasteFlowCalibrationBoardConfig(
-                    purge_pad=PasteFlowCalibrationPurgePadSpec(width_mm=2_147.483_647)
-                ),
+                BoardConfig(purge_pad=PurgePadSpec(width_mm=2_147.483_647)),
                 id="purge-pad-at-signed-32-bit-nm-max",
             ),
         ],
     )
     def test_kicad_unrepresentable_dimensions_are_config_errors(self, config):
-        assert validate_paste_flow_calibration_board_config(config) is not None
+        assert validate_board_config(config) is not None
 
-        with pytest.raises(PasteFlowCalibrationBoardConfigError):
-            normalize_paste_flow_calibration_board_config(config)
+        with pytest.raises(BoardConfigError):
+            normalize_board_config(config)
 
     @pytest.mark.parametrize(
         "config",
         [
             pytest.param(
-                PasteFlowCalibrationBoardConfig(
-                    board=PasteFlowCalibrationBoardSpec(
+                BoardConfig(
+                    board=BoardSpec(
                         width_mm=2_147.483_647,
                         edge_margin_mm=0.0,
                     )
@@ -114,7 +112,7 @@ class TestPasteFlowCalibrationBoardConfig:
                 id="board-at-signed-32-bit-nm-max",
             ),
             pytest.param(
-                PasteFlowCalibrationBoardConfig(
+                BoardConfig(
                     custom_pads=(
                         custom_pad(
                             CUSTOM_A,
@@ -122,83 +120,67 @@ class TestPasteFlowCalibrationBoardConfig:
                             width_mm=2_147.483_646,
                         ),
                     ),
-                    patterns=(PasteFlowCalibrationPattern(CUSTOM_A),),
+                    patterns=(PatternSpec(CUSTOM_A),),
                 ),
                 id="custom-pad-one-nm-below-vector-max",
             ),
             pytest.param(
-                PasteFlowCalibrationBoardConfig(
-                    purge_pad=PasteFlowCalibrationPurgePadSpec(width_mm=2_147.483_646)
-                ),
+                BoardConfig(purge_pad=PurgePadSpec(width_mm=2_147.483_646)),
                 id="purge-pad-one-nm-below-vector-max",
             ),
         ],
     )
     def test_kicad_boundary_dimensions_are_valid(self, config):
-        assert validate_paste_flow_calibration_board_config(config) is None
-        assert normalize_paste_flow_calibration_board_config(config) == config
+        assert validate_board_config(config) is None
+        assert normalize_board_config(config) == config
 
     @pytest.mark.parametrize(
         "config",
         [
-            PasteFlowCalibrationBoardConfig(
-                board=PasteFlowCalibrationBoardSpec(width_mm=0.0)
-            ),
-            PasteFlowCalibrationBoardConfig(
-                board=PasteFlowCalibrationBoardSpec(edge_margin_mm=-1.0)
-            ),
-            PasteFlowCalibrationBoardConfig(
-                purge_pad=PasteFlowCalibrationPurgePadSpec(width_mm=0.0)
-            ),
-            PasteFlowCalibrationBoardConfig(patterns=()),
-            PasteFlowCalibrationBoardConfig(
-                patterns=(PasteFlowCalibrationPattern(R0402, rotation_span_deg=0.0),)
-            ),
-            PasteFlowCalibrationBoardConfig(
-                patterns=(PasteFlowCalibrationPattern(R0402, rotation_span_deg=361.0),)
-            ),
-            PasteFlowCalibrationBoardConfig(
-                patterns=(PasteFlowCalibrationPattern(R0402, rotation_count=0),)
-            ),
-            PasteFlowCalibrationBoardConfig(
-                patterns=(PasteFlowCalibrationPattern(R0402, repeat_count=0),)
-            ),
-            PasteFlowCalibrationBoardConfig(
+            BoardConfig(board=BoardSpec(width_mm=0.0)),
+            BoardConfig(board=BoardSpec(edge_margin_mm=-1.0)),
+            BoardConfig(purge_pad=PurgePadSpec(width_mm=0.0)),
+            BoardConfig(patterns=()),
+            BoardConfig(patterns=(PatternSpec(R0402, rotation_span_deg=0.0),)),
+            BoardConfig(patterns=(PatternSpec(R0402, rotation_span_deg=361.0),)),
+            BoardConfig(patterns=(PatternSpec(R0402, rotation_count=0),)),
+            BoardConfig(patterns=(PatternSpec(R0402, repeat_count=0),)),
+            BoardConfig(
                 patterns=(
-                    PasteFlowCalibrationPattern(
+                    PatternSpec(
                         R0402,
                         rotation_count=10**400,
                     ),
                 )
             ),
-            PasteFlowCalibrationBoardConfig(
+            BoardConfig(
                 patterns=(
-                    PasteFlowCalibrationPattern(
+                    PatternSpec(
                         R0402,
                         rotation_count=1,
                         repeat_count=5_001,
                     ),
-                    PasteFlowCalibrationPattern(
+                    PatternSpec(
                         R0603,
                         rotation_count=1,
                         repeat_count=5_001,
                     ),
                 )
             ),
-            PasteFlowCalibrationBoardConfig(
+            BoardConfig(
                 custom_pads=(
                     custom_pad(
                         CUSTOM_A,
                         "triangle",
                         shape=cast(
-                            PasteFlowCalibrationCustomPadShapeId,
+                            CustomPadShapeId,
                             "triangle",
                         ),
                     ),
                 ),
-                patterns=(PasteFlowCalibrationPattern(CUSTOM_A),),
+                patterns=(PatternSpec(CUSTOM_A),),
             ),
-            PasteFlowCalibrationBoardConfig(
+            BoardConfig(
                 custom_pads=(
                     custom_pad(
                         CUSTOM_A,
@@ -209,32 +191,28 @@ class TestPasteFlowCalibrationBoardConfig:
                         corner_radius_mm=0.3,
                     ),
                 ),
-                patterns=(PasteFlowCalibrationPattern(CUSTOM_A),),
+                patterns=(PatternSpec(CUSTOM_A),),
             ),
-            PasteFlowCalibrationBoardConfig(
-                patterns=(PasteFlowCalibrationPattern(CUSTOM_A),)
-            ),
-            PasteFlowCalibrationBoardConfig(
-                patterns=(PasteFlowCalibrationPattern("unknown"),)
-            ),
-            PasteFlowCalibrationBoardConfig(
+            BoardConfig(patterns=(PatternSpec(CUSTOM_A),)),
+            BoardConfig(patterns=(PatternSpec("unknown"),)),
+            BoardConfig(
                 patterns=(
-                    PasteFlowCalibrationPattern(R0402),
-                    PasteFlowCalibrationPattern(R0402),
+                    PatternSpec(R0402),
+                    PatternSpec(R0402),
                 )
             ),
         ],
     )
     def test_invalid_config_is_rejected_by_public_validation(self, config):
-        assert validate_paste_flow_calibration_board_config(config) is not None
+        assert validate_board_config(config) is not None
 
-        with pytest.raises(PasteFlowCalibrationBoardConfigError):
-            normalize_paste_flow_calibration_board_config(config)
+        with pytest.raises(BoardConfigError):
+            normalize_board_config(config)
 
     def test_exactly_ten_thousand_generated_pads_is_valid(self):
-        config = PasteFlowCalibrationBoardConfig(
+        config = BoardConfig(
             patterns=(
-                PasteFlowCalibrationPattern(
+                PatternSpec(
                     R0402,
                     rotation_count=100,
                     repeat_count=100,
@@ -242,57 +220,57 @@ class TestPasteFlowCalibrationBoardConfig:
             )
         )
 
-        assert validate_paste_flow_calibration_board_config(config) is None
+        assert validate_board_config(config) is None
 
     @pytest.mark.parametrize(
         "config",
         [
-            PasteFlowCalibrationBoardConfig(
-                board=PasteFlowCalibrationBoardSpec(
+            BoardConfig(
+                board=BoardSpec(
                     width_mm=True  # type: ignore[arg-type]
                 )
             ),
-            PasteFlowCalibrationBoardConfig(
-                board=PasteFlowCalibrationBoardSpec(
+            BoardConfig(
+                board=BoardSpec(
                     width_mm="40"  # type: ignore[arg-type]
                 )
             ),
-            PasteFlowCalibrationBoardConfig(
-                board=PasteFlowCalibrationBoardSpec(
+            BoardConfig(
+                board=BoardSpec(
                     width_mm=10**400  # type: ignore[arg-type]
                 )
             ),
-            PasteFlowCalibrationBoardConfig(
+            BoardConfig(
                 custom_pads=(custom_pad(CUSTOM_A, "bool", width_mm=True),),
-                patterns=(PasteFlowCalibrationPattern(CUSTOM_A),),
+                patterns=(PatternSpec(CUSTOM_A),),
             ),
-            PasteFlowCalibrationBoardConfig(
+            BoardConfig(
                 patterns=(
-                    PasteFlowCalibrationPattern(
+                    PatternSpec(
                         R0402,
                         rotation_span_deg=10**400,  # type: ignore[arg-type]
                     ),
                 )
             ),
-            PasteFlowCalibrationBoardConfig(
+            BoardConfig(
                 patterns=(
-                    PasteFlowCalibrationPattern(
+                    PatternSpec(
                         R0402,
                         rotation_count=1.5,  # type: ignore[arg-type]
                     ),
                 )
             ),
-            PasteFlowCalibrationBoardConfig(
+            BoardConfig(
                 patterns=(
-                    PasteFlowCalibrationPattern(
+                    PatternSpec(
                         R0402,
                         rotation_count=True,  # type: ignore[arg-type]
                     ),
                 )
             ),
-            PasteFlowCalibrationBoardConfig(
+            BoardConfig(
                 patterns=(
-                    PasteFlowCalibrationPattern(
+                    PatternSpec(
                         R0402,
                         repeat_count=False,  # type: ignore[arg-type]
                     ),
@@ -301,28 +279,28 @@ class TestPasteFlowCalibrationBoardConfig:
         ],
     )
     def test_invalid_runtime_values_do_not_leak_exceptions(self, config):
-        assert validate_paste_flow_calibration_board_config(config) is not None
+        assert validate_board_config(config) is not None
 
-        with pytest.raises(PasteFlowCalibrationBoardConfigError):
-            normalize_paste_flow_calibration_board_config(config)
+        with pytest.raises(BoardConfigError):
+            normalize_board_config(config)
 
 
-class TestPasteFlowCalibrationBoardDocument:
+class TestBoardDocument:
     """自己識別付きschema 1 JSON文書の公開parse契約."""
 
     def test_round_trip_preserves_the_normalized_config(self):
-        config = PasteFlowCalibrationBoardConfig(
-            board=PasteFlowCalibrationBoardSpec(pad_gap_mm=1.5),
+        config = BoardConfig(
+            board=BoardSpec(pad_gap_mm=1.5),
             custom_pads=(custom_pad(CUSTOM_A, "Custom oval", "oval", 1.5, 0.5),),
             patterns=(
-                PasteFlowCalibrationPattern(R0603, 360.0, 8, 2),
-                PasteFlowCalibrationPattern(R0402, 180.0, 4, 3),
-                PasteFlowCalibrationPattern(CUSTOM_A, 180.0, 2, 2),
+                PatternSpec(R0603, 360.0, 8, 2),
+                PatternSpec(R0402, 180.0, 4, 3),
+                PatternSpec(CUSTOM_A, 180.0, 2, 2),
             ),
         )
 
-        document = paste_flow_calibration_board_document(config)
-        restored = parse_paste_flow_calibration_board_document(document)
+        document = board_document(config)
+        restored = parse_board_document(document)
 
         assert document["kind"] == "paste_flow_calibration_board"
         assert document["schema_version"] == 1
@@ -333,7 +311,7 @@ class TestPasteFlowCalibrationBoardDocument:
             R0603,
             CUSTOM_A,
         ]
-        assert restored == normalize_paste_flow_calibration_board_config(config)
+        assert restored == normalize_board_config(config)
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -347,25 +325,19 @@ class TestPasteFlowCalibrationBoardDocument:
         ],
     )
     def test_rejects_wrong_document_identity(self, key: str, value: object):
-        document = paste_flow_calibration_board_document(
-            PasteFlowCalibrationBoardConfig()
-        )
+        document = board_document(BoardConfig())
         document[key] = value
 
-        assert parse_paste_flow_calibration_board_document(document) is None
+        assert parse_board_document(document) is None
 
     def test_rejects_extra_top_level_or_nested_fields(self):
-        top_level = paste_flow_calibration_board_document(
-            PasteFlowCalibrationBoardConfig()
-        )
+        top_level = board_document(BoardConfig())
         top_level["unexpected"] = True
-        nested = paste_flow_calibration_board_document(
-            PasteFlowCalibrationBoardConfig()
-        )
+        nested = board_document(BoardConfig())
         nested["board"]["unexpected"] = True
 
-        assert parse_paste_flow_calibration_board_document(top_level) is None
-        assert parse_paste_flow_calibration_board_document(nested) is None
+        assert parse_board_document(top_level) is None
+        assert parse_board_document(nested) is None
 
     @pytest.mark.parametrize(
         "document",
@@ -379,7 +351,7 @@ class TestPasteFlowCalibrationBoardDocument:
     )
     def test_malformed_documents_return_none_without_an_exception(self, document):
         assert (
-            parse_paste_flow_calibration_board_document(  # type: ignore[arg-type]
+            parse_board_document(  # type: ignore[arg-type]
                 document
             )
             is None
@@ -393,9 +365,7 @@ class TestPasteFlowCalibrationBoardDocument:
         ],
     )
     def test_rejects_malformed_config_fields(self, key: str, value: object):
-        document = paste_flow_calibration_board_document(
-            PasteFlowCalibrationBoardConfig()
-        )
+        document = board_document(BoardConfig())
         document[key] = value
 
-        assert parse_paste_flow_calibration_board_document(document) is None
+        assert parse_board_document(document) is None

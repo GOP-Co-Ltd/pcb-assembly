@@ -25,22 +25,19 @@ from pcbasm.pcb.footprint import (
 
 from .config import (
     DEFAULT_FOOTPRINT_BY_SOURCE,
-    PasteFlowCalibrationBoardConfigError,
-    PasteFlowCalibrationCustomPadDraft,
-    PasteFlowCalibrationCustomPadSpec,
+    BoardConfigError,
+    CustomPadDraft,
+    CustomPadSpec,
     custom_pad_shape_option,
-    default_paste_flow_calibration_custom_pad_name,
+    default_custom_pad_name,
     format_pad_catalog_id,
-    normalize_paste_flow_calibration_custom_pad_draft,
+    normalize_custom_pad_draft,
     parse_pad_catalog_id,
 )
 
-# 旧名の互換（web router / tests が参照）。MR4 で改名予定。
-PasteFlowCalibrationFootprintInfo = FootprintInfo
-
 
 @attrs.frozen
-class PasteFlowCalibrationPadPattern:
+class PadPattern:
     """1 footprint内で回転同値なパッドをまとめたカタログ項目."""
 
     catalog_id: str
@@ -61,10 +58,10 @@ class PasteFlowCalibrationPadPattern:
 
 
 @attrs.frozen
-class PasteFlowCalibrationResolvedPadPattern:
+class ResolvedPadPattern:
     """カタログ表示情報と生成用KiCad templateの組."""
 
-    item: PasteFlowCalibrationPadPattern
+    item: PadPattern
     template: pcbnew.FOOTPRINT
 
 
@@ -154,12 +151,12 @@ _COMMON_FOOTPRINTS = (
 )
 
 
-class PasteFlowCalibrationPadCatalog:
+class PadCatalog:
     """Footprint indexと遅延ロードしたパッドtemplateを保持する."""
 
     def __init__(self, footprint_root: Path | None = None) -> None:
         self._library = FootprintLibrary(footprint_root)
-        self._pad_patterns: dict[str, tuple[PasteFlowCalibrationPadPattern, ...]] = {}
+        self._pad_patterns: dict[str, tuple[PadPattern, ...]] = {}
         self._pad_templates: dict[str, pcbnew.FOOTPRINT] = {}
 
     @property
@@ -168,20 +165,16 @@ class PasteFlowCalibrationPadCatalog:
 
     def search_footprints(
         self, query: str, limit: int = 30
-    ) -> tuple[PasteFlowCalibrationFootprintInfo, ...]:
+    ) -> tuple[FootprintInfo, ...]:
         if not isinstance(query, str):
-            raise PasteFlowCalibrationBoardConfigError(
-                "footprint検索語は文字列で指定してください"
-            )
+            raise BoardConfigError("footprint検索語は文字列で指定してください")
         if (
             isinstance(limit, bool)
             or not isinstance(limit, int)
             or limit < 1
             or limit > 100
         ):
-            raise PasteFlowCalibrationBoardConfigError(
-                "footprint検索件数は1以上100以下で指定してください"
-            )
+            raise BoardConfigError("footprint検索件数は1以上100以下で指定してください")
         if not search_tokens(query):
             by_id = {item.footprint_id: item for item in self._library.footprints}
             return tuple(
@@ -191,15 +184,13 @@ class PasteFlowCalibrationPadCatalog:
             )[:limit]
         return self._library.search(query, limit)
 
-    def pad_patterns_for(
-        self, footprint_id: str
-    ) -> tuple[PasteFlowCalibrationPadPattern, ...]:
+    def pad_patterns_for(self, footprint_id: str) -> tuple[PadPattern, ...]:
         cached = self._pad_patterns.get(footprint_id)
         if cached is not None:
             return cached
         parsed = parse_footprint_id(footprint_id)
         if parsed is None:
-            raise PasteFlowCalibrationBoardConfigError("footprint IDが不正です")
+            raise BoardConfigError("footprint IDが不正です")
         library, footprint_name = parsed
         footprint = self._library.load(library, footprint_name)
         grouped: dict[tuple[object, ...], tuple[int, pcbnew.FOOTPRINT, list[str]]] = {}
@@ -214,20 +205,20 @@ class PasteFlowCalibrationPadCatalog:
                 continue
             existing[2].append(pad.GetNumber())
         if not grouped:
-            raise PasteFlowCalibrationBoardConfigError(
+            raise BoardConfigError(
                 f"F.Cu/F.Pasteパッドを持たないfootprintです: {footprint_id}"
             )
 
         family = library.removesuffix(".pretty")
         default = DEFAULT_FOOTPRINT_BY_SOURCE.get((library, footprint_name))
-        patterns: list[PasteFlowCalibrationPadPattern] = []
+        patterns: list[PadPattern] = []
         for pad_index, template, numbers in sorted(
             grouped.values(), key=lambda item: item[0]
         ):
             envelope = footprint_envelope(template, 0.0)
             catalog_id = format_pad_catalog_id(library, footprint_name, pad_index)
             source_numbers = _sorted_pad_numbers(numbers)
-            item = PasteFlowCalibrationPadPattern(
+            item = PadPattern(
                 catalog_id=catalog_id,
                 footprint_id=footprint_id,
                 footprint_label=footprint_name,
@@ -258,13 +249,11 @@ class PasteFlowCalibrationPadCatalog:
         self._pad_patterns[footprint_id] = resolved
         return resolved
 
-    def create_custom_pad(
-        self, draft: PasteFlowCalibrationCustomPadDraft
-    ) -> PasteFlowCalibrationCustomPadSpec:
-        draft = normalize_paste_flow_calibration_custom_pad_draft(draft)
-        return PasteFlowCalibrationCustomPadSpec(
+    def create_custom_pad(self, draft: CustomPadDraft) -> CustomPadSpec:
+        draft = normalize_custom_pad_draft(draft)
+        return CustomPadSpec(
             catalog_id=f"custom:{uuid.uuid4().hex}",
-            name=draft.name or default_paste_flow_calibration_custom_pad_name(draft),
+            name=draft.name or default_custom_pad_name(draft),
             shape=draft.shape,
             width_mm=draft.width_mm,
             height_mm=draft.height_mm,
@@ -274,8 +263,8 @@ class PasteFlowCalibrationPadCatalog:
     def resolve_pattern(
         self,
         catalog_id: str,
-        custom_by_id: Mapping[str, PasteFlowCalibrationCustomPadSpec],
-    ) -> PasteFlowCalibrationResolvedPadPattern:
+        custom_by_id: Mapping[str, CustomPadSpec],
+    ) -> ResolvedPadPattern:
         custom_pad = custom_by_id.get(catalog_id)
         if custom_pad is None:
             return self._resolve_pad_pattern(catalog_id)
@@ -292,7 +281,7 @@ class PasteFlowCalibrationPadCatalog:
             if custom_pad.shape == "roundrect"
             else ""
         )
-        item = PasteFlowCalibrationPadPattern(
+        item = PadPattern(
             catalog_id=catalog_id,
             footprint_id=catalog_id,
             footprint_label=custom_pad.name,
@@ -312,21 +301,17 @@ class PasteFlowCalibrationPadCatalog:
             default_rotation_count=4,
             default_repeat_count=3,
         )
-        return PasteFlowCalibrationResolvedPadPattern(item, template)
+        return ResolvedPadPattern(item, template)
 
-    def _resolve_pad_pattern(
-        self, catalog_id: str
-    ) -> PasteFlowCalibrationResolvedPadPattern:
+    def _resolve_pad_pattern(self, catalog_id: str) -> ResolvedPadPattern:
         parsed = parse_pad_catalog_id(catalog_id)
         if parsed is None:
-            raise PasteFlowCalibrationBoardConfigError("パッドパターンIDが不正です")
+            raise BoardConfigError("パッドパターンIDが不正です")
         library, footprint, _pad_index = parsed
         for item in self.pad_patterns_for(format_footprint_id(library, footprint)):
             if item.catalog_id == catalog_id:
-                return PasteFlowCalibrationResolvedPadPattern(
-                    item, self._pad_templates[catalog_id]
-                )
-        raise PasteFlowCalibrationBoardConfigError(
+                return ResolvedPadPattern(item, self._pad_templates[catalog_id])
+        raise BoardConfigError(
             f"footprintに指定のパッドパターンがありません: {catalog_id}"
         )
 
