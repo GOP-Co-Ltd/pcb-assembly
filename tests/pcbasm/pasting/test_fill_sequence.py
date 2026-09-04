@@ -21,8 +21,8 @@ from pytest_mock import MockerFixture
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import Speed
-from pcbasm.pasting.dispense_calibration import rate_sweep_amount
 from pcbasm.pasting.fill_sequence import FillSequence
+from pcbasm.pasting.flowcalib.flow import rate_sweep_amount_ul
 from pcbasm.pasting.params import DispenseSettings
 
 # retract_accel = factor * rate^2 / amount = 4.0 * 25 / 10 = 10.0
@@ -312,14 +312,14 @@ class TestRateCap:
         """吐出量キャリブ ② のレート掃引契約.
 
         rate_cap は頭打ちにしか働かないため、固定量では r_desired = 量×速度/長
-        を超えるレートを指令しても届かない。amount = rate_sweep_amount(rate, L, v) と
+        を超えるレートを指令しても届かない。amount = rate_sweep_amount_ul(rate, L, v) と
         rate_cap=rate の組で、実効レート = 指令レート・実効移動速度 = v （max_dispense_rate
         超えも掃引時は rate_cap 側が優先）を同時に満たす。
         """
         length, speed = 10.0, 2.0
         sequence = FillSequence(
             path=Path([Point3d(0.0, 0.0, 5.0), Point3d(length, 0.0, 5.0)]),
-            total_amount_ul=rate_sweep_amount(rate, length, speed),
+            total_amount_ul=rate_sweep_amount_ul(rate, length, speed),
             settings=_SETTINGS,
             fill_speed=speed,
             rate_cap=rate,

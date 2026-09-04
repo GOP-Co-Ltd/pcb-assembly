@@ -13,14 +13,9 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
-from pcbasm.pasting.paste_flow_calibration_board.config import (
-    PasteFlowCalibrationBoardConfigError,
-    PasteFlowCalibrationBoardEnvironmentError,
-    PasteFlowCalibrationBoardOverflowError,
-)
-from pcbasm.pasting.paste_flow_calibration_board.generator import (
-    PasteFlowCalibrationBoardGenerator,
-)
+from pcbasm.pasting.flowcalib.board.config import BoardConfigError
+from pcbasm.pasting.flowcalib.board.generator import BoardGenerator
+from pcbasm.pcb.units import KicadError
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore, UnknownFieldError
 from web.api.control import ControlDeniedError, ControlLease, LeaseInfo
@@ -149,8 +144,8 @@ def create_app(
     app.state.preview = preview
     app.state.catalog = catalog
     app.state.audio_player = audio_player
-    app.state.paste_flow_calibration_board_generator = (
-        PasteFlowCalibrationBoardGenerator(paste_flow_calibration_footprint_root)
+    app.state.paste_flow_calibration_board_generator = BoardGenerator(
+        paste_flow_calibration_footprint_root
     )
     board_store = BoardSettingsStore(
         settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
@@ -209,22 +204,15 @@ def create_app(
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
-    @app.exception_handler(PasteFlowCalibrationBoardConfigError)
+    @app.exception_handler(BoardConfigError)
     async def paste_flow_calibration_config_error_handler(
-        request: Request, exc: PasteFlowCalibrationBoardConfigError
+        request: Request, exc: BoardConfigError
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
-    @app.exception_handler(PasteFlowCalibrationBoardOverflowError)
-    async def paste_flow_calibration_overflow_error_handler(
-        request: Request, exc: PasteFlowCalibrationBoardOverflowError
-    ) -> JSONResponse:
-        return JSONResponse(status_code=422, content={"detail": str(exc)})
-
-    @app.exception_handler(PasteFlowCalibrationBoardEnvironmentError)
-    async def paste_flow_calibration_environment_error_handler(
-        request: Request, exc: PasteFlowCalibrationBoardEnvironmentError
-    ) -> JSONResponse:
+    @app.exception_handler(KicadError)
+    async def kicad_error_handler(request: Request, exc: KicadError) -> JSONResponse:
+        # KiCad footprint library / 座標範囲のエラー（流量キャリブレーション基板生成）
         return JSONResponse(status_code=503, content={"detail": str(exc)})
 
     app.include_router(app_state.router)

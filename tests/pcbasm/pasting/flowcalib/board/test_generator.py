@@ -7,22 +7,21 @@ from time import monotonic
 import pcbnew
 import pytest
 
-from pcbasm.pasting.paste_flow_calibration_board.config import (
-    PasteFlowCalibrationBoardConfig,
-    PasteFlowCalibrationBoardEnvironmentError,
-    PasteFlowCalibrationBoardOverflowError,
-    PasteFlowCalibrationBoardSpec,
-    PasteFlowCalibrationCustomPadDraft,
-    PasteFlowCalibrationPattern,
-    PasteFlowCalibrationPurgePadSpec,
+from pcbasm.pasting.flowcalib.board.config import (
+    BoardConfig,
+    BoardSpec,
+    CustomPadDraft,
+    PatternSpec,
+    PurgePadSpec,
 )
-from pcbasm.pasting.paste_flow_calibration_board.generator import (
-    PasteFlowCalibrationBoardGenerator,
+from pcbasm.pasting.flowcalib.board.generator import (
+    BoardGenerator,
 )
 from pcbasm.pcb import PcbFile
 from pcbasm.pcb.generate import save_board
+from pcbasm.pcb.units import KicadError
 from tests.helpers import make_paste_flow_calibration_offset_pad_root
-from tests.pcbasm.pasting.paste_flow_calibration_board.support import (
+from tests.pcbasm.pasting.flowcalib.board.support import (
     CUSTOM_A,
     QFN,
     R0402,
@@ -31,13 +30,13 @@ from tests.pcbasm.pasting.paste_flow_calibration_board.support import (
 )
 
 
-class TestPasteFlowCalibrationBoardGenerator:
+class TestBoardGenerator:
     """設定とcatalogをまとめて返すorchestration契約."""
 
     def test_adds_a_named_custom_pad_to_resolved_config(self, generator):
         resolved = generator.add_custom_pad(
-            PasteFlowCalibrationBoardConfig(),
-            PasteFlowCalibrationCustomPadDraft(
+            BoardConfig(),
+            CustomPadDraft(
                 shape="roundrect",
                 width_mm=1.2,
                 height_mm=0.8,
@@ -52,10 +51,8 @@ class TestPasteFlowCalibrationBoardGenerator:
 
     def test_uses_shape_and_dimensions_as_default_custom_pad_name(self, generator):
         resolved = generator.add_custom_pad(
-            PasteFlowCalibrationBoardConfig(),
-            PasteFlowCalibrationCustomPadDraft(
-                shape="oval", width_mm=1.5, height_mm=0.5
-            ),
+            BoardConfig(),
+            CustomPadDraft(shape="oval", width_mm=1.5, height_mm=0.5),
         )
 
         assert resolved.config.custom_pads[-1].name == ("長円（スロット） 1.5 × 0.5 mm")
@@ -63,8 +60,8 @@ class TestPasteFlowCalibrationBoardGenerator:
 
     def test_circle_draft_needs_only_its_diameter(self, generator):
         resolved = generator.add_custom_pad(
-            PasteFlowCalibrationBoardConfig(),
-            PasteFlowCalibrationCustomPadDraft(shape="circle", width_mm=0.75),
+            BoardConfig(),
+            CustomPadDraft(shape="circle", width_mm=0.75),
         )
 
         custom_pad = resolved.config.custom_pads[-1]
@@ -74,17 +71,15 @@ class TestPasteFlowCalibrationBoardGenerator:
 
     def test_custom_pad_addition_recovers_an_empty_pattern_config(self, generator):
         resolved = generator.add_custom_pad(
-            PasteFlowCalibrationBoardConfig(patterns=()),
-            PasteFlowCalibrationCustomPadDraft(shape="circle", width_mm=0.75),
+            BoardConfig(patterns=()),
+            CustomPadDraft(shape="circle", width_mm=0.75),
         )
 
         assert len(resolved.config.patterns) == 1
         assert resolved.config.patterns[0].catalog_id.startswith("custom:")
 
     def test_footprint_addition_recovers_an_empty_pattern_config(self, generator):
-        addition = generator.add_footprint_patterns(
-            PasteFlowCalibrationBoardConfig(patterns=()), QFN
-        )
+        addition = generator.add_footprint_patterns(BoardConfig(patterns=()), QFN)
 
         assert addition.added_count == 3
         assert len(addition.config.patterns) == 3
@@ -92,9 +87,7 @@ class TestPasteFlowCalibrationBoardGenerator:
     def test_adds_all_distinct_footprint_patterns_with_catalog_defaults(
         self, generator
     ):
-        addition = generator.add_footprint_patterns(
-            PasteFlowCalibrationBoardConfig(), QFN
-        )
+        addition = generator.add_footprint_patterns(BoardConfig(), QFN)
         added_patterns = addition.config.patterns[-addition.added_count :]
         added_catalog = addition.catalog[-addition.added_count :]
 
@@ -120,7 +113,7 @@ class TestPasteFlowCalibrationBoardGenerator:
         ]
 
     def test_adding_an_existing_footprint_is_a_no_op(self, generator):
-        first = generator.add_footprint_patterns(PasteFlowCalibrationBoardConfig(), QFN)
+        first = generator.add_footprint_patterns(BoardConfig(), QFN)
 
         duplicate = generator.add_footprint_patterns(first.config, QFN)
 
@@ -129,7 +122,7 @@ class TestPasteFlowCalibrationBoardGenerator:
         assert duplicate.catalog == first.catalog
 
     def test_preview_returns_resolved_config_catalog_and_layout(self, generator):
-        preview = generator.preview(PasteFlowCalibrationBoardConfig())
+        preview = generator.preview(BoardConfig())
 
         assert preview.config.patterns
         assert [item.catalog_id for item in preview.catalog] == [
@@ -142,9 +135,9 @@ class TestPasteFlowCalibrationBoardGenerator:
         assert preview.layout.pads[0].display_name.startswith("R_0402_1005Metric / ")
 
     def test_preview_keeps_all_geometry_when_layout_overflows(self, generator):
-        config = PasteFlowCalibrationBoardConfig(
-            board=PasteFlowCalibrationBoardSpec(width_mm=10.0, height_mm=10.0),
-            patterns=(PasteFlowCalibrationPattern(R1206),),
+        config = BoardConfig(
+            board=BoardSpec(width_mm=10.0, height_mm=10.0),
+            patterns=(PatternSpec(R1206),),
         )
 
         preview = generator.preview(config)
@@ -163,17 +156,16 @@ class TestPasteFlowCalibrationBoardGenerator:
             or preview.layout.preview_bounds.height > config.board.height_mm
         )
 
-        with pytest.raises(PasteFlowCalibrationBoardOverflowError):
-            generator.layout(config)
+        assert generator.layout(config) == (None, preview.overflow_message)
 
     def test_preview_marks_purge_pad_outside_the_placement_area(self, generator):
-        config = PasteFlowCalibrationBoardConfig(
-            board=PasteFlowCalibrationBoardSpec(width_mm=10.0, height_mm=10.0),
-            purge_pad=PasteFlowCalibrationPurgePadSpec(
+        config = BoardConfig(
+            board=BoardSpec(width_mm=10.0, height_mm=10.0),
+            purge_pad=PurgePadSpec(
                 width_mm=9.0,
                 height_mm=2.0,
             ),
-            patterns=(PasteFlowCalibrationPattern(R0402, repeat_count=1),),
+            patterns=(PatternSpec(R0402, repeat_count=1),),
         )
 
         preview = generator.preview(config)
@@ -187,14 +179,13 @@ class TestPasteFlowCalibrationBoardGenerator:
         assert len(preview.layout.purge_polygons) == 2
         assert preview.layout.preview_bounds.width == config.board.width_mm
 
-        with pytest.raises(PasteFlowCalibrationBoardOverflowError, match="purge pad幅"):
-            generator.board_bytes(config)
+        assert generator.board_bytes(config) == (None, preview.overflow_message)
 
     def test_preview_keeps_every_pad_when_total_layout_overflows(self, generator):
-        config = PasteFlowCalibrationBoardConfig(
-            board=PasteFlowCalibrationBoardSpec(width_mm=8.0, height_mm=8.0),
+        config = BoardConfig(
+            board=BoardSpec(width_mm=8.0, height_mm=8.0),
             custom_pads=(custom_pad(CUSTOM_A, "A", width_mm=3.0, height_mm=3.0),),
-            patterns=(PasteFlowCalibrationPattern(CUSTOM_A, 180.0, 1, 3),),
+            patterns=(PatternSpec(CUSTOM_A, 180.0, 1, 3),),
         )
 
         preview = generator.preview(config)
@@ -210,10 +201,7 @@ class TestPasteFlowCalibrationBoardGenerator:
             for pad in preview.layout.pads
         )
 
-        with pytest.raises(
-            PasteFlowCalibrationBoardOverflowError, match="自動最適配置"
-        ):
-            generator.board_bytes(config)
+        assert generator.board_bytes(config) == (None, preview.overflow_message)
 
     def test_shared_generator_is_safe_for_concurrent_real_pcbnew_calls(self, generator):
         workers = 4
@@ -224,7 +212,7 @@ class TestPasteFlowCalibrationBoardGenerator:
         def observe_preview(index: int) -> None:
             try:
                 ready.wait()
-                preview = generator.preview(PasteFlowCalibrationBoardConfig())
+                preview = generator.preview(BoardConfig())
                 observations[index] = (
                     preview.layout.pad_count,
                     tuple(item.catalog_id for item in preview.catalog),
@@ -253,20 +241,20 @@ class TestPasteFlowCalibrationBoardGenerator:
         assert completed[0][0] == 64
 
 
-class TestPasteFlowCalibrationBoardCoordinateLimits:
+class TestBoardCoordinateLimits:
     """実footprint由来の座標範囲エラー契約."""
 
     @pytest.fixture
     def offset_anchor_overflow(
         self, tmp_path: Path
-    ) -> tuple[PasteFlowCalibrationBoardGenerator, PasteFlowCalibrationBoardConfig]:
+    ) -> tuple[BoardGenerator, BoardConfig]:
         root = make_paste_flow_calibration_offset_pad_root(
             tmp_path / "footprints", shape_offset_x_mm=-2_146.0
         )
-        generator = PasteFlowCalibrationBoardGenerator(root)
-        config = PasteFlowCalibrationBoardConfig(
+        generator = BoardGenerator(root)
+        config = BoardConfig(
             patterns=(
-                PasteFlowCalibrationPattern(
+                PatternSpec(
                     "Test.pretty/OffsetPad#pad-0",
                     rotation_count=1,
                     repeat_count=1,
@@ -277,33 +265,32 @@ class TestPasteFlowCalibrationBoardCoordinateLimits:
 
     def test_preview_rejects_offset_anchor_overflow(
         self,
-        offset_anchor_overflow: tuple[
-            PasteFlowCalibrationBoardGenerator, PasteFlowCalibrationBoardConfig
-        ],
+        offset_anchor_overflow: tuple[BoardGenerator, BoardConfig],
     ):
         generator, config = offset_anchor_overflow
 
-        with pytest.raises(PasteFlowCalibrationBoardEnvironmentError, match="座標範囲"):
+        with pytest.raises(KicadError, match="座標範囲"):
             generator.preview(config)
 
     def test_build_board_rejects_offset_anchor_overflow(
         self,
-        offset_anchor_overflow: tuple[
-            PasteFlowCalibrationBoardGenerator, PasteFlowCalibrationBoardConfig
-        ],
+        offset_anchor_overflow: tuple[BoardGenerator, BoardConfig],
     ):
         generator, config = offset_anchor_overflow
 
-        with pytest.raises(PasteFlowCalibrationBoardEnvironmentError, match="座標範囲"):
+        with pytest.raises(KicadError, match="座標範囲"):
             generator.build_board(config)
 
 
-class TestPasteFlowCalibrationBoardGeneration:
+class TestBoardGeneration:
     """生成した実KiCad基板のround-trip."""
 
     @pytest.fixture
     def board(self, generator) -> pcbnew.BOARD:
-        return generator.build_board(PasteFlowCalibrationBoardConfig())
+        board, overflow_message = generator.build_board(BoardConfig())
+        assert overflow_message is None
+        assert board is not None
+        return board
 
     @pytest.fixture
     def pcb(self, board: pcbnew.BOARD, tmp_path: Path) -> PcbFile:
@@ -324,16 +311,15 @@ class TestPasteFlowCalibrationBoardGeneration:
 
     def test_qfn_variants_keep_their_real_source_layers(self, generator):
         variants = generator.pad_patterns_for(QFN)
-        config = PasteFlowCalibrationBoardConfig(
+        config = BoardConfig(
             patterns=tuple(
-                PasteFlowCalibrationPattern(
-                    item.catalog_id, rotation_count=1, repeat_count=1
-                )
+                PatternSpec(item.catalog_id, rotation_count=1, repeat_count=1)
                 for item in variants
             )
         )
 
-        board = generator.build_board(config)
+        board, _overflow_message = generator.build_board(config)
+        assert board is not None
         layer_pairs = {
             (
                 pad.GetLayerSet().Contains(pcbnew.F_Cu),
@@ -358,10 +344,10 @@ class TestPasteFlowCalibrationBoardGeneration:
     def test_custom_pad_shapes_are_written_as_real_kicad_pads(
         self, generator, shape, width, height, radius, expected_shape
     ):
-        config = PasteFlowCalibrationBoardConfig(
+        config = BoardConfig(
             custom_pads=(custom_pad(CUSTOM_A, shape, shape, width, height, radius),),
             patterns=(
-                PasteFlowCalibrationPattern(
+                PatternSpec(
                     CUSTOM_A,
                     rotation_count=1,
                     repeat_count=1,
@@ -369,7 +355,8 @@ class TestPasteFlowCalibrationBoardGeneration:
             ),
         )
 
-        board = generator.build_board(config)
+        board, _overflow_message = generator.build_board(config)
+        assert board is not None
         footprint = next(
             item for item in board.GetFootprints() if item.GetReference() == "PAD1"
         )
@@ -405,8 +392,9 @@ class TestPasteFlowCalibrationBoardGeneration:
         assert rotations == {0.0, 45.0, 90.0, 135.0}
 
     def test_exported_documents_use_schema_one(self, generator):
-        config_payload = generator.config_bytes(PasteFlowCalibrationBoardConfig())
-        board_payload = generator.board_bytes(PasteFlowCalibrationBoardConfig())
+        config_payload = generator.config_bytes(BoardConfig())
+        board_payload, _overflow_message = generator.board_bytes(BoardConfig())
+        assert board_payload is not None
 
         assert b'"schema_version": 1' in config_payload
         assert board_payload.startswith(b"(kicad_pcb")

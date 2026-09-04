@@ -1,20 +1,21 @@
-"""殟KiCad footprint catalogの公開振る舞いテスト."""
+"""実KiCad footprint catalogの公開振る舞いテスト."""
 
 from pathlib import Path
 
 import pytest
 
-from pcbasm.pasting.paste_flow_calibration_board.config import (
-    PasteFlowCalibrationBoardConfig,
-    PasteFlowCalibrationBoardConfigError,
-    PasteFlowCalibrationBoardEnvironmentError,
-    PasteFlowCalibrationPattern,
+from pcbasm.pasting.flowcalib.board.config import (
+    BoardConfig,
+    BoardConfigError,
+    PatternSpec,
 )
-from pcbasm.pasting.paste_flow_calibration_board.generator import (
-    PasteFlowCalibrationBoardGenerator,
+from pcbasm.pasting.flowcalib.board.generator import (
+    BoardGenerator,
 )
+from pcbasm.pcb.footprint import FootprintLibraryError
+from pcbasm.pcb.units import KicadError
 from tests.helpers import make_paste_flow_calibration_offset_pad_root
-from tests.pcbasm.pasting.paste_flow_calibration_board.support import (
+from tests.pcbasm.pasting.flowcalib.board.support import (
     QFN,
     R0402,
     SOT223,
@@ -31,7 +32,7 @@ _FILESYSTEM_UNSAFE_FOOTPRINT_IDS = [
 ]
 
 
-class TestPasteFlowCalibrationPadCatalog:
+class TestPadCatalog:
     """実ファイル検索と回転同値なパッド形状分類."""
 
     def test_empty_search_lists_the_fixture_common_footprints(self, generator):
@@ -80,33 +81,33 @@ class TestPasteFlowCalibrationPadCatalog:
         assert patterns[0].label.startswith("Pad 1–3 ×3")
         assert patterns[1].label.startswith("Pad 2")
 
-    def test_missing_footprint_root_is_an_environment_error(self, tmp_path: Path):
-        generator = PasteFlowCalibrationBoardGenerator(tmp_path / "missing")
+    def test_missing_footprint_root_is_a_library_error(self, tmp_path: Path):
+        generator = BoardGenerator(tmp_path / "missing")
 
-        with pytest.raises(PasteFlowCalibrationBoardEnvironmentError):
+        with pytest.raises(FootprintLibraryError):
             generator.search_footprints("0402")
 
-    def test_unreadable_footprint_root_is_an_environment_error(self, tmp_path: Path):
-        generator = PasteFlowCalibrationBoardGenerator(tmp_path / ("x" * 5_000))
+    def test_unreadable_footprint_root_is_a_library_error(self, tmp_path: Path):
+        generator = BoardGenerator(tmp_path / ("x" * 5_000))
 
-        with pytest.raises(PasteFlowCalibrationBoardEnvironmentError):
+        with pytest.raises(FootprintLibraryError):
             generator.search_footprints("0402")
 
-    def test_wrapped_pad_bounds_are_an_environment_error(self, tmp_path: Path):
+    def test_wrapped_pad_bounds_are_a_kicad_error(self, tmp_path: Path):
         root = make_paste_flow_calibration_offset_pad_root(
             tmp_path / "footprints",
             pad_size_mm=2_000.0,
             shape_offset_x_mm=1_200.0,
         )
-        generator = PasteFlowCalibrationBoardGenerator(root)
+        generator = BoardGenerator(root)
 
-        with pytest.raises(PasteFlowCalibrationBoardEnvironmentError, match="座標範囲"):
+        with pytest.raises(KicadError, match="座標範囲"):
             generator.pad_patterns_for("Test.pretty/OffsetPad")
 
     def test_library_component_at_name_max_is_not_a_config_error(self, generator):
         assert len(_NAME_MAX_LIBRARY.encode("utf-8")) == 255
 
-        with pytest.raises(PasteFlowCalibrationBoardEnvironmentError):
+        with pytest.raises(FootprintLibraryError):
             generator.pad_patterns_for(f"{_NAME_MAX_LIBRARY}/Part")
 
     @pytest.mark.parametrize("footprint_id", _FILESYSTEM_UNSAFE_FOOTPRINT_IDS)
@@ -115,7 +116,7 @@ class TestPasteFlowCalibrationPadCatalog:
         generator,
         footprint_id: str,
     ):
-        with pytest.raises(PasteFlowCalibrationBoardConfigError):
+        with pytest.raises(BoardConfigError):
             generator.pad_patterns_for(footprint_id)
 
     @pytest.mark.parametrize("footprint_id", _FILESYSTEM_UNSAFE_FOOTPRINT_IDS)
@@ -124,9 +125,7 @@ class TestPasteFlowCalibrationPadCatalog:
         generator,
         footprint_id: str,
     ):
-        config = PasteFlowCalibrationBoardConfig(
-            patterns=(PasteFlowCalibrationPattern(f"{footprint_id}#pad-0"),)
-        )
+        config = BoardConfig(patterns=(PatternSpec(f"{footprint_id}#pad-0"),))
 
-        with pytest.raises(PasteFlowCalibrationBoardConfigError):
+        with pytest.raises(BoardConfigError):
             generator.resolve_config(config)
