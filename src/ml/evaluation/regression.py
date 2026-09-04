@@ -87,6 +87,28 @@ class GaussianPredictions:
 
         return attrs.evolve(self, log_variance=self.log_variance + offset)
 
+    def fit_log_variance_offset(self) -> tuple[float | None, str | None]:
+        """負の対数尤度を最小にする scalar log 分散 offset を返す.
+
+        閉形式の最適解は ``log(sum(w * exp(-l) * (y - mu)**2) / sum(w))``。
+
+        誤差が全て 0 だと offset が負の無限大へ発散するため、理由文字列を返す。
+        """
+
+        usable, reason = _usable_samples(self)
+        if usable is None:
+            return None, reason
+
+        error_value = usable.target - usable.mean
+        scaled = torch.exp(-usable.log_variance) * error_value.square()
+        optimum = weighted_mean(scaled, usable.weight)
+        if not math.isfinite(optimum) or optimum <= 0:
+            return None, (
+                "重み付き二乗誤差が正でないため log 分散 offset を決められません: "
+                f"{optimum}"
+            )
+        return math.log(optimum), None
+
 
 @attrs.frozen
 class GaussianRegressionMetrics:
@@ -111,6 +133,70 @@ class GaussianRegressionMetrics:
     p95_absolute_relative_error: float
     one_standard_deviation_coverage: float
     mean_predicted_standard_deviation: float
+
+    @classmethod
+    def measure(
+        cls, predictions: GaussianPredictions
+    ) -> tuple[GaussianRegressionMetrics | None, str | None]:
+        """有効な sample だけを重み付きで集計する.
+
+        無効な sample は除外して ``invalid_sample_count`` に数える。
+
+        集計できるものが 1 件も残らないときだけ理由文字列を返す。
+        """
+
+        usable, reason = _usable_samples(predictions)
+        if usable is None:
+            return None, reason
+
+        weight = usable.weight
+        mean = usable.mean
+        log_variance = usable.log_variance
+        target = usable.target
+        error_value = mean - target
+        absolute_error = error_value.abs()
+        predicted_standard_deviation = torch.exp(0.5 * log_variance)
+        relative_error = error_value / target
+        relative_error_mean = weighted_mean(relative_error, weight)
+        relative_error_standard_deviation = math.sqrt(
+            weighted_mean((relative_error - relative_error_mean).square(), weight)
+        )
+        absolute_relative_error = relative_error.abs()
+        return (
+            cls(
+                sample_count=usable.sample_count,
+                valid_sample_count=usable.valid_sample_count,
+                invalid_sample_count=usable.sample_count - usable.valid_sample_count,
+                weight_sum=usable.weight_sum,
+                negative_log_likelihood=weighted_mean(
+                    0.5
+                    * (torch.exp(-log_variance) * error_value.square() + log_variance),
+                    weight,
+                ),
+                mean_absolute_error=weighted_mean(absolute_error, weight),
+                root_mean_squared_error=math.sqrt(
+                    weighted_mean(error_value.square(), weight)
+                ),
+                relative_error_mean=relative_error_mean,
+                relative_error_standard_deviation=relative_error_standard_deviation,
+                relative_error_score=(
+                    abs(relative_error_mean) + relative_error_standard_deviation
+                ),
+                median_absolute_relative_error=_weighted_percentile(
+                    absolute_relative_error, weight, _MEDIAN_FRACTION
+                ),
+                p95_absolute_relative_error=_weighted_percentile(
+                    absolute_relative_error, weight, _P95_FRACTION
+                ),
+                one_standard_deviation_coverage=weighted_mean(
+                    (absolute_error <= predicted_standard_deviation).double(), weight
+                ),
+                mean_predicted_standard_deviation=weighted_mean(
+                    predicted_standard_deviation, weight
+                ),
+            ),
+            None,
+        )
 
 
 @attrs.frozen(eq=False)
@@ -165,93 +251,6 @@ def _usable_samples(
     )
 
 
-def gaussian_regression_metrics(
-    predictions: GaussianPredictions,
-) -> tuple[GaussianRegressionMetrics | None, str | None]:
-    """有効な sample だけを重み付きで集計する.
-
-    無効な sample は除外して ``invalid_sample_count`` に数える。
-
-    集計できるものが 1 件も残らないときだけ理由文字列を返す。
-    """
-
-    usable, reason = _usable_samples(predictions)
-    if usable is None:
-        return None, reason
-
-    weight = usable.weight
-    mean = usable.mean
-    log_variance = usable.log_variance
-    target = usable.target
-    error_value = mean - target
-    absolute_error = error_value.abs()
-    predicted_standard_deviation = torch.exp(0.5 * log_variance)
-    relative_error = error_value / target
-    relative_error_mean = weighted_mean(relative_error, weight)
-    relative_error_standard_deviation = math.sqrt(
-        weighted_mean((relative_error - relative_error_mean).square(), weight)
-    )
-    absolute_relative_error = relative_error.abs()
-    return (
-        GaussianRegressionMetrics(
-            sample_count=usable.sample_count,
-            valid_sample_count=usable.valid_sample_count,
-            invalid_sample_count=usable.sample_count - usable.valid_sample_count,
-            weight_sum=usable.weight_sum,
-            negative_log_likelihood=weighted_mean(
-                0.5 * (torch.exp(-log_variance) * error_value.square() + log_variance),
-                weight,
-            ),
-            mean_absolute_error=weighted_mean(absolute_error, weight),
-            root_mean_squared_error=math.sqrt(
-                weighted_mean(error_value.square(), weight)
-            ),
-            relative_error_mean=relative_error_mean,
-            relative_error_standard_deviation=relative_error_standard_deviation,
-            relative_error_score=(
-                abs(relative_error_mean) + relative_error_standard_deviation
-            ),
-            median_absolute_relative_error=_weighted_percentile(
-                absolute_relative_error, weight, _MEDIAN_FRACTION
-            ),
-            p95_absolute_relative_error=_weighted_percentile(
-                absolute_relative_error, weight, _P95_FRACTION
-            ),
-            one_standard_deviation_coverage=weighted_mean(
-                (absolute_error <= predicted_standard_deviation).double(), weight
-            ),
-            mean_predicted_standard_deviation=weighted_mean(
-                predicted_standard_deviation, weight
-            ),
-        ),
-        None,
-    )
-
-
-def fit_gaussian_log_variance_offset(
-    predictions: GaussianPredictions,
-) -> tuple[float | None, str | None]:
-    """負の対数尤度を最小にする scalar log 分散 offset を返す.
-
-    閉形式の最適解は ``log(sum(w * exp(-l) * (y - mu)**2) / sum(w))``。
-
-    誤差が全て 0 だと offset が負の無限大へ発散するため、理由文字列を返す。
-    """
-
-    usable, reason = _usable_samples(predictions)
-    if usable is None:
-        return None, reason
-
-    error_value = usable.target - usable.mean
-    scaled = torch.exp(-usable.log_variance) * error_value.square()
-    optimum = weighted_mean(scaled, usable.weight)
-    if not math.isfinite(optimum) or optimum <= 0:
-        return None, (
-            f"重み付き二乗誤差が正でないため log 分散 offset を決められません: {optimum}"
-        )
-    return math.log(optimum), None
-
-
 def _weighted_percentile(values: Tensor, weight: Tensor, fraction: float) -> float:
     """重み付き percentile を線形補間で求める.
 
@@ -303,6 +302,4 @@ def _weighted_percentile(values: Tensor, weight: Tensor, fraction: float) -> flo
 __all__ = [
     "GaussianPredictions",
     "GaussianRegressionMetrics",
-    "fit_gaussian_log_variance_offset",
-    "gaussian_regression_metrics",
 ]

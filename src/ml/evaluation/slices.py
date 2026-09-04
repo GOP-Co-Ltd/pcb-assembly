@@ -19,11 +19,7 @@ import torch
 from torch import Tensor
 
 from ml.evaluation._aggregation import weighted_mean
-from ml.evaluation.regression import (
-    GaussianPredictions,
-    GaussianRegressionMetrics,
-    gaussian_regression_metrics,
-)
+from ml.evaluation.regression import GaussianPredictions, GaussianRegressionMetrics
 
 _MINIMUM_BOUNDARY_DIGITS = 4
 
@@ -128,7 +124,7 @@ def build_diagnostic_report(
         if error := dimension.validate(sample_count):
             raise ValueError(error)
 
-    overall, reason = gaussian_regression_metrics(predictions)
+    overall, reason = GaussianRegressionMetrics.measure(predictions)
     if overall is None:
         return None, reason
     slices = tuple(
@@ -163,7 +159,7 @@ def _slice_of(
     value: str,
     indices: Sequence[int],
 ) -> DiagnosticSlice:
-    metrics, reason = gaussian_regression_metrics(_subset(predictions, indices))
+    metrics, reason = GaussianRegressionMetrics.measure(_subset(predictions, indices))
     return DiagnosticSlice(
         dimension=dimension,
         value=value,
