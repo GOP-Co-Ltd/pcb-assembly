@@ -103,43 +103,44 @@ class DiagnosticReport:
     slices: tuple[DiagnosticSlice, ...]
     reliability_bins: tuple[ReliabilityBin, ...]
 
+    @classmethod
+    def build(
+        cls,
+        predictions: GaussianPredictions,
+        *,
+        dimensions: Sequence[SliceDimension],
+        reliability_bin_count: int = 5,
+    ) -> tuple[DiagnosticReport | None, str | None]:
+        """全体・次元別・reliability bin の診断をまとめて組む.
 
-def build_diagnostic_report(
-    predictions: GaussianPredictions,
-    *,
-    dimensions: Sequence[SliceDimension],
-    reliability_bin_count: int = 5,
-) -> tuple[DiagnosticReport | None, str | None]:
-    """全体・次元別・reliability bin の診断をまとめて組む.
+        slice は次元の指定順に並べ、次元の中では値の昇順にする。
 
-    slice は次元の指定順に並べ、次元の中では値の昇順にする。
+        値列の長さが予測と食い違うのは呼び出し側の不変条件違反なので ``ValueError``。
+        """
 
-    値列の長さが予測と食い違うのは呼び出し側の不変条件違反なので ``ValueError``。
-    """
+        if error := predictions.validate():
+            return None, error
+        sample_count = int(predictions.mean.numel())
+        for dimension in dimensions:
+            if error := dimension.validate(sample_count):
+                raise ValueError(error)
 
-    if error := predictions.validate():
-        return None, error
-    sample_count = int(predictions.mean.numel())
-    for dimension in dimensions:
-        if error := dimension.validate(sample_count):
-            raise ValueError(error)
-
-    overall, reason = GaussianRegressionMetrics.measure(predictions)
-    if overall is None:
-        return None, reason
-    slices = tuple(
-        _slice_of(predictions, dimension.name, value, indices)
-        for dimension in dimensions
-        for value, indices in _buckets_of(dimension)
-    )
-    return (
-        DiagnosticReport(
-            overall=overall,
-            slices=slices,
-            reliability_bins=_reliability_bins(predictions, reliability_bin_count),
-        ),
-        None,
-    )
+        overall, reason = GaussianRegressionMetrics.measure(predictions)
+        if overall is None:
+            return None, reason
+        slices = tuple(
+            _slice_of(predictions, dimension.name, value, indices)
+            for dimension in dimensions
+            for value, indices in _buckets_of(dimension)
+        )
+        return (
+            cls(
+                overall=overall,
+                slices=slices,
+                reliability_bins=_reliability_bins(predictions, reliability_bin_count),
+            ),
+            None,
+        )
 
 
 def _validate_dimension(name: str, value_count: int, sample_count: int) -> str | None:
@@ -333,5 +334,4 @@ __all__ = [
     "NumericDimension",
     "ReliabilityBin",
     "SliceDimension",
-    "build_diagnostic_report",
 ]
