@@ -120,7 +120,7 @@ class TestFlowCalibration:
             calib.density_mg_per_ul = 3.0  # type: ignore[misc]
 
 
-class TestEstimateMassFlow:
+class TestMassFlowEstimate:
     """MassFlowEstimate.estimate は部分入力から導出可能な値だけを丸めて返す."""
 
     def test_all_positive_inputs_return_full_rounded_estimate(self):
