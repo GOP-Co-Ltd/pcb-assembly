@@ -30,6 +30,7 @@ Claude Code / Codex とユーザーの対話で確立された規約・好み、
 ## フィードバック（規約・好み）
 
 - [try-catchより戻り値バリデーション](feedback_no_try_catch.md) — 入力バリデーションは None 返却パターンを好む、try-catch 不要
+- [バリデーションは値オブジェクトのメソッド](feedback_validation_method.md) — `validate_xxx(value)` ではなくクラスの `validate()` にする（戻り値は `str | None` のまま）
 - [git -C の使いどころ](feedback_no_git_c.md) — 通常は `git -C` を使わずカレントディレクトリで実行する。worktree 作業では必要なので使ってよい
 - [privateの直接テスト禁止](feedback_no_private_test.md) — `_` prefix の関数/メソッド/属性は直接テストせず公開 API 経由で検証する
 - [テストはクラスにまとめる](feedback_test_class.md) — pytest テストは関数ではなく `class TestXxx` 形式に集約する

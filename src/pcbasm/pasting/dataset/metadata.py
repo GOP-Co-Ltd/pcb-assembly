@@ -40,18 +40,17 @@ class DatasetView:
     offset_x_mm: float = 0.0
     offset_y_mm: float = 0.0
 
-
-def validate_view(view: DatasetView) -> str | None:
-    """View 番号が 0 以上の整数で offset が有限値かを検証する."""
-    if type(view.number) is not int or view.number < 0:
-        return f"view numberは0以上の整数が必要です: {view.number!r}"
-    for name, value in (
-        ("offset_x_mm", view.offset_x_mm),
-        ("offset_y_mm", view.offset_y_mm),
-    ):
-        if not is_finite_number(value):
-            return f"{name}は有限値が必要です: {value!r}"
-    return None
+    def validate(self) -> str | None:
+        """View 番号が 0 以上の整数で offset が有限値かを検証する."""
+        if type(self.number) is not int or self.number < 0:
+            return f"view numberは0以上の整数が必要です: {self.number!r}"
+        for name, value in (
+            ("offset_x_mm", self.offset_x_mm),
+            ("offset_y_mm", self.offset_y_mm),
+        ):
+            if not is_finite_number(value):
+                return f"{name}は有限値が必要です: {value!r}"
+        return None
 
 
 def allocate_volume_by_rotations(

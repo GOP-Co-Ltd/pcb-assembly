@@ -14,7 +14,6 @@ from pcbasm.pasting.flowcalib.board.config import (
     board_document,
     normalize_board_config,
     parse_board_document,
-    validate_board_config,
 )
 from tests.pcbasm.pasting.flowcalib.board.support import (
     CUSTOM_A,
@@ -94,7 +93,7 @@ class TestBoardConfig:
         ],
     )
     def test_kicad_unrepresentable_dimensions_are_config_errors(self, config):
-        assert validate_board_config(config) is not None
+        assert config.validate() is not None
 
         with pytest.raises(BoardConfigError):
             normalize_board_config(config)
@@ -131,7 +130,7 @@ class TestBoardConfig:
         ],
     )
     def test_kicad_boundary_dimensions_are_valid(self, config):
-        assert validate_board_config(config) is None
+        assert config.validate() is None
         assert normalize_board_config(config) == config
 
     @pytest.mark.parametrize(
@@ -204,7 +203,7 @@ class TestBoardConfig:
         ],
     )
     def test_invalid_config_is_rejected_by_public_validation(self, config):
-        assert validate_board_config(config) is not None
+        assert config.validate() is not None
 
         with pytest.raises(BoardConfigError):
             normalize_board_config(config)
@@ -220,7 +219,7 @@ class TestBoardConfig:
             )
         )
 
-        assert validate_board_config(config) is None
+        assert config.validate() is None
 
     @pytest.mark.parametrize(
         "config",
@@ -279,7 +278,7 @@ class TestBoardConfig:
         ],
     )
     def test_invalid_runtime_values_do_not_leak_exceptions(self, config):
-        assert validate_board_config(config) is not None
+        assert config.validate() is not None
 
         with pytest.raises(BoardConfigError):
             normalize_board_config(config)

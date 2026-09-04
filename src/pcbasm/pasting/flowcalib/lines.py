@@ -30,7 +30,7 @@ class LineLayout:
     各線は X 方向に ``line_length`` 伸び、Y 方向へ ``row_pitch`` 間隔で並ぶ。
     描画領域（``margin`` を除いた基板内側）の下端に達したら右隣の列
     （X を ``line_length + row_pitch`` ずらす）へ折り返す。全 ``line_count`` 本が
-    描画領域に収まるかは :attr:`fits` / :func:`validate_line_layout` で確認する
+    描画領域に収まるかは :attr:`fits` / :meth:`validate` で確認する
     （収まらない配置でも構築はできる。呼び出し側が先に検証する）。
 
     Attributes:
@@ -100,16 +100,15 @@ class LineLayout:
         """全線の (始点, 終点) を段ずらし順に並べたもの."""
         return tuple(self.line(i) for i in range(self.line_count))
 
-
-def validate_line_layout(layout: LineLayout) -> str | None:
-    """線が描画領域に収まらなければ、ユーザーに調整を促す文言を返す."""
-    if layout.fits:
-        return None
-    return (
-        f"線 {layout.line_count} 本は折り返しても銅板の描画領域に収まりません"
-        f"（最大 {layout.capacity} 本）。線の本数/分割数・線の長さ・段ずらし間隔を"
-        "調整してください"
-    )
+    def validate(self) -> str | None:
+        """線が描画領域に収まらなければ、ユーザーに調整を促す文言を返す."""
+        if self.fits:
+            return None
+        return (
+            f"線 {self.line_count} 本は折り返しても銅板の描画領域に収まりません"
+            f"（最大 {self.capacity} 本）。線の本数/分割数・線の長さ・段ずらし間隔を"
+            "調整してください"
+        )
 
 
 @attrs.frozen
@@ -150,7 +149,7 @@ def plan_rate_sweep(
             "吐出レート列が生成できません（rate_min / rate_max / divisions を確認）",
         )
     layout = params.line_layout(len(rates))
-    if (message := validate_line_layout(layout)) is not None:
+    if (message := layout.validate()) is not None:
         return None, message
     return (
         tuple(
@@ -221,7 +220,7 @@ def plan_speed_sweep(
             "塗布速度列が生成できません（speed_min / speed_max / divisions を確認）",
         )
     layout = params.line_layout(len(speeds))
-    if (message := validate_line_layout(layout)) is not None:
+    if (message := layout.validate()) is not None:
         return None, message
     amount_ul = speed_sweep_amount_ul(params.line_length, bead_width, ul_per_mm2)
     return (
