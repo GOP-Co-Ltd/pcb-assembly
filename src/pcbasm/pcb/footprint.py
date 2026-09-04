@@ -72,6 +72,44 @@ class FootprintEnvelope:
     max_x: float
     max_y: float
 
+    @classmethod
+    def measure(cls, footprint: pcbnew.FOOTPRINT, angle: float) -> FootprintEnvelope:
+        """原点に置き ``angle`` 度回転させたときの F.Cu / F.Paste pad の外接矩形 [mm].
+
+        Raises:
+            FootprintLibraryError: F.Cu / F.Paste の pad が無い
+        """
+        placed = duplicate_footprint(footprint)
+        placed.SetPosition(vector(0.0, 0.0))
+        placed.SetOrientationDegrees(angle)
+        bounds: list[tuple[float, float, float, float]] = []
+        for pad in placed.Pads():
+            for layer in FRONT_PAD_LAYERS:
+                if not pad.GetLayerSet().Contains(layer):
+                    continue
+                shape = effective_pad_polygon(pad, layer)
+                if shape.OutlineCount() < 1:
+                    continue
+                box = shape.BBox()
+                min_x = to_mm(box.GetX())
+                min_y = to_mm(box.GetY())
+                bounds.append(
+                    (
+                        min_x,
+                        min_y,
+                        min_x + to_mm(box.GetWidth()),
+                        min_y + to_mm(box.GetHeight()),
+                    )
+                )
+        if not bounds:
+            raise FootprintLibraryError("footprintにF.Cu/F.Pasteパッドがありません")
+        return cls(
+            min(item[0] for item in bounds),
+            min(item[1] for item in bounds),
+            max(item[2] for item in bounds),
+            max(item[3] for item in bounds),
+        )
+
     @property
     def width(self) -> float:
         return self.max_x - self.min_x
@@ -331,44 +369,6 @@ def effective_pad_polygon(pad: pcbnew.PAD, layer: int) -> pcbnew.SHAPE_POLY_SET:
             "footprintのパッド形状がKiCadの座標範囲を超えています"
         )
     return shape
-
-
-def footprint_envelope(footprint: pcbnew.FOOTPRINT, angle: float) -> FootprintEnvelope:
-    """原点に置き ``angle`` 度回転させたときの F.Cu / F.Paste pad の外接矩形 [mm].
-
-    Raises:
-        FootprintLibraryError: F.Cu / F.Paste の pad が無い
-    """
-    placed = duplicate_footprint(footprint)
-    placed.SetPosition(vector(0.0, 0.0))
-    placed.SetOrientationDegrees(angle)
-    bounds: list[tuple[float, float, float, float]] = []
-    for pad in placed.Pads():
-        for layer in FRONT_PAD_LAYERS:
-            if not pad.GetLayerSet().Contains(layer):
-                continue
-            shape = effective_pad_polygon(pad, layer)
-            if shape.OutlineCount() < 1:
-                continue
-            box = shape.BBox()
-            min_x = to_mm(box.GetX())
-            min_y = to_mm(box.GetY())
-            bounds.append(
-                (
-                    min_x,
-                    min_y,
-                    min_x + to_mm(box.GetWidth()),
-                    min_y + to_mm(box.GetHeight()),
-                )
-            )
-    if not bounds:
-        raise FootprintLibraryError("footprintにF.Cu/F.Pasteパッドがありません")
-    return FootprintEnvelope(
-        min(item[0] for item in bounds),
-        min(item[1] for item in bounds),
-        max(item[2] for item in bounds),
-        max(item[3] for item in bounds),
-    )
 
 
 def footprint_polygons(

@@ -11,9 +11,9 @@ import pcbnew
 
 from pcbasm.pcb.footprint import (
     FRONT_PAD_LAYERS,
+    FootprintEnvelope,
     FootprintInfo,
     FootprintLibrary,
-    footprint_envelope,
     format_footprint_id,
     pad_geometry_signature,
     pad_on_any_layer,
@@ -213,7 +213,7 @@ class PadCatalog:
         for pad_index, template, numbers in sorted(
             grouped.values(), key=lambda item: item[0]
         ):
-            envelope = footprint_envelope(template, 0.0)
+            envelope = FootprintEnvelope.measure(template, 0.0)
             catalog_id = format_pad_catalog_id(library, footprint_name, pad_index)
             source_numbers = _sorted_pad_numbers(numbers)
             item = PadPattern(
@@ -272,7 +272,7 @@ class PadCatalog:
             custom_pad.height_mm,
             corner_radius_mm=custom_pad.corner_radius_mm,
         )
-        envelope = footprint_envelope(template, 0.0)
+        envelope = FootprintEnvelope.measure(template, 0.0)
         shape = CustomPadShape.for_id(custom_pad.shape)
         radius = (
             f" · R{custom_pad.corner_radius_mm:.3g} mm"

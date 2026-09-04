@@ -7,11 +7,11 @@ import pytest
 
 from pcbasm.pcb.footprint import (
     FRONT_PAD_LAYERS,
+    FootprintEnvelope,
     FootprintLibrary,
     FootprintLibraryError,
     KicadCoordinateError,
     duplicate_footprint,
-    footprint_envelope,
     footprint_polygons,
     format_footprint_id,
     pad_geometry_signature,
@@ -122,13 +122,13 @@ class TestPadGeometry:
 
     def test_smd_pad_footprint_envelope_matches_size(self):
         footprint = smd_pad_footprint("rectangle", 1.2, 0.8)
-        envelope = footprint_envelope(footprint, 0.0)
+        envelope = FootprintEnvelope.measure(footprint, 0.0)
         assert envelope.width == pytest.approx(1.2, abs=1e-6)
         assert envelope.height == pytest.approx(0.8, abs=1e-6)
 
     def test_envelope_rotates_with_angle(self):
         footprint = smd_pad_footprint("rectangle", 1.2, 0.8)
-        envelope = footprint_envelope(footprint, 90.0)
+        envelope = FootprintEnvelope.measure(footprint, 90.0)
         assert envelope.width == pytest.approx(0.8, abs=1e-6)
         assert envelope.height == pytest.approx(1.2, abs=1e-6)
 
@@ -165,4 +165,4 @@ class TestPadGeometry:
         )
         footprint = FootprintLibrary(root).load("Test.pretty", "OffsetPad")
         with pytest.raises(KicadCoordinateError, match="座標範囲"):
-            footprint_envelope(footprint, 0.0)
+            FootprintEnvelope.measure(footprint, 0.0)
