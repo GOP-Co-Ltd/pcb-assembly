@@ -63,6 +63,77 @@ class SplitManifest:
     validation_sample_ids: tuple[str, ...]
     test_sample_ids: tuple[str, ...]
 
+    @classmethod
+    def build(
+        cls,
+        sample_groups: Mapping[str, str],
+        *,
+        dataset_fingerprint: str,
+        seed: int,
+        ratios: SplitRatios,
+        require_test: bool,
+    ) -> tuple[SplitManifest | None, str | None]:
+        """Group を不可分の単位として split を 1 度だけ生成する.
+
+        ``sample_groups`` は sample ID から group ID への対応。並び順に依存せず、
+        同じ ``seed`` なら同じ結果になる。
+        """
+
+        if error := ratios.validate():
+            return None, error
+        groups = sorted(set(sample_groups.values()))
+        required = 3 if require_test else 2
+        if len(groups) < required:
+            return None, (
+                f"split には最低 {required} 個の group が必要です: {len(groups)} 個"
+            )
+
+        shuffled = list(groups)
+        random.Random(seed).shuffle(shuffled)
+        validation_count = max(1, round(len(groups) * ratios.validation))
+        test_count = max(1, round(len(groups) * ratios.test)) if require_test else 0
+        if validation_count + test_count >= len(groups):
+            validation_count = 1
+            test_count = 1 if require_test else 0
+        train_count = len(groups) - validation_count - test_count
+
+        boundaries = (train_count, train_count + validation_count)
+        assigned = {
+            "train": frozenset(shuffled[: boundaries[0]]),
+            "validation": frozenset(shuffled[boundaries[0] : boundaries[1]]),
+            "test": frozenset(shuffled[boundaries[1] :]),
+        }
+        return (
+            cls(
+                dataset_fingerprint=dataset_fingerprint,
+                seed=seed,
+                train_sample_ids=_sample_ids_in(sample_groups, assigned["train"]),
+                validation_sample_ids=_sample_ids_in(
+                    sample_groups, assigned["validation"]
+                ),
+                test_sample_ids=_sample_ids_in(sample_groups, assigned["test"]),
+            ),
+            None,
+        )
+
+    @classmethod
+    def load(
+        cls, path: Path, *, dataset_fingerprint: str
+    ) -> tuple[SplitManifest | None, str | None]:
+        """Split manifest を読み、dataset fingerprint の一致を要求する."""
+
+        manifest, error = SPLIT_MANIFEST_DOCUMENT.load(path, cls, converter=_CONVERTER)
+        if manifest is None:
+            return None, error
+        if manifest.dataset_fingerprint != dataset_fingerprint:
+            return None, _fingerprint_mismatch(manifest, dataset_fingerprint)
+        return manifest, None
+
+    def save(self, path: Path) -> None:
+        """Split manifest を atomic に書き出す."""
+
+        SPLIT_MANIFEST_DOCUMENT.save(path, self, converter=_CONVERTER)
+
     def sample_ids_for(self, split: SplitName) -> tuple[str, ...]:
         """指定した split に属する sample ID を返す."""
 
@@ -132,134 +203,63 @@ class LeaveOneGroupOutPlan:
     reason: str | None
     folds: tuple[LeaveOneGroupOutFold, ...]
 
+    @classmethod
+    def build(
+        cls,
+        group_values: Mapping[str, str],
+        *,
+        dimension: str,
+        seed: int,
+        validation_ratio: float = 0.15,
+    ) -> LeaveOneGroupOutPlan:
+        """次元の値ごとに 1 fold を作る交差検証計画を返す.
 
-def build_split_manifest(
-    sample_groups: Mapping[str, str],
-    *,
-    dataset_fingerprint: str,
-    seed: int,
-    ratios: SplitRatios,
-    require_test: bool,
-) -> tuple[SplitManifest | None, str | None]:
-    """Group を不可分の単位として split を 1 度だけ生成する.
+        ``group_values`` は group ID からその次元の値（machine ID など）への対応。
+        held-out した残りを train と validation へ分けるが、group は分割しない。
+        """
 
-    ``sample_groups`` は sample ID から group ID への対応。並び順に依存せず、
-    同じ ``seed`` なら同じ結果になる。
-    """
-
-    if error := ratios.validate():
-        return None, error
-    groups = sorted(set(sample_groups.values()))
-    required = 3 if require_test else 2
-    if len(groups) < required:
-        return None, (
-            f"split には最低 {required} 個の group が必要です: {len(groups)} 個"
-        )
-
-    shuffled = list(groups)
-    random.Random(seed).shuffle(shuffled)
-    validation_count = max(1, round(len(groups) * ratios.validation))
-    test_count = max(1, round(len(groups) * ratios.test)) if require_test else 0
-    if validation_count + test_count >= len(groups):
-        validation_count = 1
-        test_count = 1 if require_test else 0
-    train_count = len(groups) - validation_count - test_count
-
-    boundaries = (train_count, train_count + validation_count)
-    assigned = {
-        "train": frozenset(shuffled[: boundaries[0]]),
-        "validation": frozenset(shuffled[boundaries[0] : boundaries[1]]),
-        "test": frozenset(shuffled[boundaries[1] :]),
-    }
-    return (
-        SplitManifest(
-            dataset_fingerprint=dataset_fingerprint,
-            seed=seed,
-            train_sample_ids=_sample_ids_in(sample_groups, assigned["train"]),
-            validation_sample_ids=_sample_ids_in(sample_groups, assigned["validation"]),
-            test_sample_ids=_sample_ids_in(sample_groups, assigned["test"]),
-        ),
-        None,
-    )
-
-
-def save_split_manifest(path: Path, manifest: SplitManifest) -> None:
-    """Split manifest を atomic に書き出す."""
-
-    SPLIT_MANIFEST_DOCUMENT.save(path, manifest, converter=_CONVERTER)
-
-
-def load_split_manifest(
-    path: Path, *, dataset_fingerprint: str
-) -> tuple[SplitManifest | None, str | None]:
-    """Split manifest を読み、dataset fingerprint の一致を要求する."""
-
-    manifest, error = SPLIT_MANIFEST_DOCUMENT.load(
-        path, SplitManifest, converter=_CONVERTER
-    )
-    if manifest is None:
-        return None, error
-    if manifest.dataset_fingerprint != dataset_fingerprint:
-        return None, _fingerprint_mismatch(manifest, dataset_fingerprint)
-    return manifest, None
-
-
-def build_leave_one_group_out_plan(
-    group_values: Mapping[str, str],
-    *,
-    dimension: str,
-    seed: int,
-    validation_ratio: float = 0.15,
-) -> LeaveOneGroupOutPlan:
-    """次元の値ごとに 1 fold を作る交差検証計画を返す.
-
-    ``group_values`` は group ID からその次元の値（machine ID など）への対応。
-    held-out した残りを train と validation へ分けるが、group は分割しない。
-    """
-
-    values = sorted(set(group_values.values()))
-    if len(values) < 2:
-        return LeaveOneGroupOutPlan(
-            available=False,
-            reason=(
-                f"{dimension} の値が 2 種類未満のため "
-                "leave-one-group-out 評価はできません"
-            ),
-            folds=(),
-        )
-
-    folds: list[LeaveOneGroupOutFold] = []
-    unavailable: list[str] = []
-    for value in values:
-        held_out = sorted(
-            group for group, actual in group_values.items() if actual == value
-        )
-        remaining = sorted(set(group_values) - set(held_out))
-        if len(remaining) < 2:
-            unavailable.append(
-                f"{value!r} を held-out にすると train/validation 用の group が 2 個未満です"
+        values = sorted(set(group_values.values()))
+        if len(values) < 2:
+            return cls(
+                available=False,
+                reason=(
+                    f"{dimension} の値が 2 種類未満のため "
+                    "leave-one-group-out 評価はできません"
+                ),
+                folds=(),
             )
-            continue
-        fold_seed = _derived_seed(f"{seed}:{dimension}:{value}")
-        shuffled = list(remaining)
-        random.Random(fold_seed).shuffle(shuffled)
-        validation_count = min(
-            max(1, round(len(shuffled) * validation_ratio)), len(shuffled) - 1
-        )
-        folds.append(
-            LeaveOneGroupOutFold(
-                held_out_value=value,
-                held_out_group_ids=tuple(held_out),
-                train_group_ids=tuple(sorted(shuffled[validation_count:])),
-                validation_group_ids=tuple(sorted(shuffled[:validation_count])),
-                seed=fold_seed,
+
+        folds: list[LeaveOneGroupOutFold] = []
+        unavailable: list[str] = []
+        for value in values:
+            held_out = sorted(
+                group for group, actual in group_values.items() if actual == value
             )
-        )
-    if unavailable:
-        return LeaveOneGroupOutPlan(
-            available=False, reason="; ".join(unavailable), folds=()
-        )
-    return LeaveOneGroupOutPlan(available=True, reason=None, folds=tuple(folds))
+            remaining = sorted(set(group_values) - set(held_out))
+            if len(remaining) < 2:
+                unavailable.append(
+                    f"{value!r} を held-out にすると train/validation 用の "
+                    "group が 2 個未満です"
+                )
+                continue
+            fold_seed = _derived_seed(f"{seed}:{dimension}:{value}")
+            shuffled = list(remaining)
+            random.Random(fold_seed).shuffle(shuffled)
+            validation_count = min(
+                max(1, round(len(shuffled) * validation_ratio)), len(shuffled) - 1
+            )
+            folds.append(
+                LeaveOneGroupOutFold(
+                    held_out_value=value,
+                    held_out_group_ids=tuple(held_out),
+                    train_group_ids=tuple(sorted(shuffled[validation_count:])),
+                    validation_group_ids=tuple(sorted(shuffled[:validation_count])),
+                    seed=fold_seed,
+                )
+            )
+        if unavailable:
+            return cls(available=False, reason="; ".join(unavailable), folds=())
+        return cls(available=True, reason=None, folds=tuple(folds))
 
 
 def _fingerprint_mismatch(manifest: SplitManifest, expected: str) -> str:
@@ -291,8 +291,4 @@ __all__ = [
     "SplitManifest",
     "SplitName",
     "SplitRatios",
-    "build_leave_one_group_out_plan",
-    "build_split_manifest",
-    "load_split_manifest",
-    "save_split_manifest",
 ]
