@@ -11,8 +11,6 @@ from pcbasm.pasting.flowcalib.board.config import (
     CustomPadShapeId,
     PatternSpec,
     PurgePadSpec,
-    board_document,
-    normalize_board_config,
     parse_board_document,
 )
 from tests.pcbasm.pasting.flowcalib.board.support import (
@@ -96,7 +94,7 @@ class TestBoardConfig:
         assert config.validate() is not None
 
         with pytest.raises(BoardConfigError):
-            normalize_board_config(config)
+            config.normalized()
 
     @pytest.mark.parametrize(
         "config",
@@ -131,7 +129,7 @@ class TestBoardConfig:
     )
     def test_kicad_boundary_dimensions_are_valid(self, config):
         assert config.validate() is None
-        assert normalize_board_config(config) == config
+        assert config.normalized() == config
 
     @pytest.mark.parametrize(
         "config",
@@ -206,7 +204,7 @@ class TestBoardConfig:
         assert config.validate() is not None
 
         with pytest.raises(BoardConfigError):
-            normalize_board_config(config)
+            config.normalized()
 
     def test_exactly_ten_thousand_generated_pads_is_valid(self):
         config = BoardConfig(
@@ -281,7 +279,7 @@ class TestBoardConfig:
         assert config.validate() is not None
 
         with pytest.raises(BoardConfigError):
-            normalize_board_config(config)
+            config.normalized()
 
 
 class TestBoardDocument:
@@ -298,7 +296,7 @@ class TestBoardDocument:
             ),
         )
 
-        document = board_document(config)
+        document = config.to_normalized_document()
         restored = parse_board_document(document)
 
         assert document["kind"] == "paste_flow_calibration_board"
@@ -310,7 +308,7 @@ class TestBoardDocument:
             R0603,
             CUSTOM_A,
         ]
-        assert restored == normalize_board_config(config)
+        assert restored == config.normalized()
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -324,15 +322,15 @@ class TestBoardDocument:
         ],
     )
     def test_rejects_wrong_document_identity(self, key: str, value: object):
-        document = board_document(BoardConfig())
+        document = BoardConfig().to_normalized_document()
         document[key] = value
 
         assert parse_board_document(document) is None
 
     def test_rejects_extra_top_level_or_nested_fields(self):
-        top_level = board_document(BoardConfig())
+        top_level = BoardConfig().to_normalized_document()
         top_level["unexpected"] = True
-        nested = board_document(BoardConfig())
+        nested = BoardConfig().to_normalized_document()
         nested["board"]["unexpected"] = True
 
         assert parse_board_document(top_level) is None
@@ -364,7 +362,7 @@ class TestBoardDocument:
         ],
     )
     def test_rejects_malformed_config_fields(self, key: str, value: object):
-        document = board_document(BoardConfig())
+        document = BoardConfig().to_normalized_document()
         document[key] = value
 
         assert parse_board_document(document) is None

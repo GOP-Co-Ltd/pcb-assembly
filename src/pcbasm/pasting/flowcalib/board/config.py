@@ -31,7 +31,7 @@ _KICAD_PAD_SIZE_RANGE_TEXT = f"1 nm以上{_KICAD_MAX_PAD_SIZE_MM:.6f} mm以下"
 
 
 class BoardConfigError(ValueError):
-    """基板設定がドメイン制約を満たさない（``normalize_*`` の invariant）.
+    """基板設定がドメイン制約を満たさない（``normalized()`` の invariant）.
 
     KiCad 環境・座標のエラーは :mod:`pcbasm.pcb` 側の例外
     （``FootprintLibraryError`` / ``KicadError``）をそのまま使う。
@@ -46,6 +46,10 @@ class CustomPadShape:
     label: str
     uses_height: bool
     uses_corner_radius: bool
+
+    @classmethod
+    def for_id(cls, shape: CustomPadShapeId) -> CustomPadShape:
+        return _CUSTOM_PAD_SHAPE_BY_ID[shape]
 
 
 CUSTOM_PAD_SHAPES: tuple[CustomPadShape, ...] = (
@@ -66,6 +70,34 @@ class CustomPadDraft:
     height_mm: float = 0.0
     corner_radius_mm: float = 0.0
     name: str = ""
+
+    def normalized(self) -> CustomPadDraft:
+        """形状に不要な寸法をコア側でcanonicalな値へ解決する."""
+
+        if (message := validate_custom_pad(self)) is not None:
+            raise BoardConfigError(message)
+        shape = _CUSTOM_PAD_SHAPE_BY_ID[self.shape]
+        return attrs.evolve(
+            self,
+            name=self.name.strip(),
+            height_mm=self.height_mm if shape.uses_height else self.width_mm,
+            corner_radius_mm=(
+                self.corner_radius_mm if shape.uses_corner_radius else 0.0
+            ),
+        )
+
+    def default_name(self) -> str:
+        """形状と寸法から既定の表示名を組み立てる."""
+
+        shape = _CUSTOM_PAD_SHAPE_BY_ID[self.shape]
+        if self.shape == "circle":
+            dimensions = f"φ{self.width_mm:.3g} mm"
+        else:
+            dimensions = f"{self.width_mm:.3g} × {self.height_mm:.3g} mm"
+        radius = (
+            f" R{self.corner_radius_mm:.3g} mm" if self.shape == "roundrect" else ""
+        )
+        return f"{shape.label} {dimensions}{radius}"
 
 
 @attrs.frozen
@@ -262,6 +294,55 @@ class BoardConfig:
             total_pad_count += pattern.rotation_count * pattern.repeat_count
         return None
 
+    def normalized(self) -> BoardConfig:
+        """パターンをfamily・footprint・パッド種の安定順へ正規化する."""
+
+        if (message := self.validate()) is not None:
+            raise BoardConfigError(message)
+        custom_by_id = {item.catalog_id: item for item in self.custom_pads}
+        patterns = tuple(
+            sorted(
+                self.patterns,
+                key=lambda pattern: _pattern_sort_key(pattern, custom_by_id),
+            )
+        )
+        used_custom_ids = {
+            pattern.catalog_id
+            for pattern in patterns
+            if is_custom_pad_catalog_id(pattern.catalog_id)
+        }
+        return attrs.evolve(
+            self,
+            custom_pads=tuple(
+                sorted(
+                    (
+                        item
+                        for item in self.custom_pads
+                        if item.catalog_id in used_custom_ids
+                    ),
+                    key=lambda item: (item.name.casefold(), item.catalog_id),
+                )
+            ),
+            patterns=patterns,
+        )
+
+    def to_document(self) -> dict[str, Any]:
+        """この設定をそのまま自己識別可能なJSON documentへ変換する."""
+
+        return {
+            "kind": BOARD_KIND,
+            "schema_version": BOARD_SCHEMA_VERSION,
+            "board": attrs.asdict(self.board),
+            "purge_pad": attrs.asdict(self.purge_pad),
+            "custom_pads": [attrs.asdict(item) for item in self.custom_pads],
+            "patterns": [attrs.asdict(pattern) for pattern in self.patterns],
+        }
+
+    def to_normalized_document(self) -> dict[str, Any]:
+        """正規化してから自己識別可能なJSON documentへ変換する."""
+
+        return self.normalized().to_document()
+
 
 def validate_custom_pad(
     custom_pad: CustomPadDraft | CustomPadSpec,
@@ -315,79 +396,6 @@ def validate_custom_pad(
         if radius != 0:
             return f"{shape.label}では角丸半径を指定できません"
     return None
-
-
-def normalize_custom_pad_draft(
-    draft: CustomPadDraft,
-) -> CustomPadDraft:
-    """形状に不要な寸法をコア側でcanonicalな値へ解決する."""
-
-    if (message := validate_custom_pad(draft)) is not None:
-        raise BoardConfigError(message)
-    shape = _CUSTOM_PAD_SHAPE_BY_ID[draft.shape]
-    return attrs.evolve(
-        draft,
-        name=draft.name.strip(),
-        height_mm=draft.height_mm if shape.uses_height else draft.width_mm,
-        corner_radius_mm=(draft.corner_radius_mm if shape.uses_corner_radius else 0.0),
-    )
-
-
-def normalize_board_config(
-    config: BoardConfig,
-) -> BoardConfig:
-    """パターンをfamily・footprint・パッド種の安定順へ正規化する."""
-
-    if (message := config.validate()) is not None:
-        raise BoardConfigError(message)
-    custom_by_id = {item.catalog_id: item for item in config.custom_pads}
-    patterns = tuple(
-        sorted(
-            config.patterns,
-            key=lambda pattern: _pattern_sort_key(pattern, custom_by_id),
-        )
-    )
-    used_custom_ids = {
-        pattern.catalog_id
-        for pattern in patterns
-        if is_custom_pad_catalog_id(pattern.catalog_id)
-    }
-    return attrs.evolve(
-        config,
-        custom_pads=tuple(
-            sorted(
-                (
-                    item
-                    for item in config.custom_pads
-                    if item.catalog_id in used_custom_ids
-                ),
-                key=lambda item: (item.name.casefold(), item.catalog_id),
-            )
-        ),
-        patterns=patterns,
-    )
-
-
-def board_document(
-    config: BoardConfig,
-) -> dict[str, Any]:
-    """正規化済み設定を自己識別可能なJSON documentへ変換する."""
-
-    normalized = normalize_board_config(config)
-    return normalized_board_document(normalized)
-
-
-def normalized_board_document(
-    config: BoardConfig,
-) -> dict[str, Any]:
-    return {
-        "kind": BOARD_KIND,
-        "schema_version": BOARD_SCHEMA_VERSION,
-        "board": attrs.asdict(config.board),
-        "purge_pad": attrs.asdict(config.purge_pad),
-        "custom_pads": [attrs.asdict(item) for item in config.custom_pads],
-        "patterns": [attrs.asdict(pattern) for pattern in config.patterns],
-    }
 
 
 def parse_board_document(
@@ -529,35 +537,13 @@ def parse_board_document(
     )
     if config.validate() is not None:
         return None
-    return normalize_board_config(config)
+    return config.normalized()
 
 
 def is_custom_pad_shape_id(
     value: object,
 ) -> TypeGuard[CustomPadShapeId]:
     return isinstance(value, str) and value in _CUSTOM_PAD_SHAPE_BY_ID
-
-
-def default_custom_pad_name(
-    custom_pad: CustomPadDraft,
-) -> str:
-    shape = _CUSTOM_PAD_SHAPE_BY_ID[custom_pad.shape]
-    if custom_pad.shape == "circle":
-        dimensions = f"φ{custom_pad.width_mm:.3g} mm"
-    else:
-        dimensions = f"{custom_pad.width_mm:.3g} × {custom_pad.height_mm:.3g} mm"
-    radius = (
-        f" R{custom_pad.corner_radius_mm:.3g} mm"
-        if custom_pad.shape == "roundrect"
-        else ""
-    )
-    return f"{shape.label} {dimensions}{radius}"
-
-
-def custom_pad_shape_option(
-    shape: CustomPadShapeId,
-) -> CustomPadShape:
-    return _CUSTOM_PAD_SHAPE_BY_ID[shape]
 
 
 def _has_exact_keys(value: Mapping[Any, Any], expected: tuple[str, ...]) -> bool:
