@@ -21,6 +21,7 @@ from pcbasm.pasting.dataset.recorder import (
     validate_dataset_run,
 )
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
+from pcbasm.pasting.fill_path import AppliedDispenseMode
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pasting.workflow import DatasetTargets, plan_dataset_targets
@@ -42,11 +43,13 @@ def _crop(pixel_rect: tuple[int, int, int, int] = (10, 20, 18, 26)) -> PolygonCr
     return PolygonCrop(image=image, mask=mask, pixel_rect=pixel_rect)
 
 
-def _execution(applied_mode: str, rotations: float) -> PasteApplicationResult:
+def _execution(
+    applied_mode: AppliedDispenseMode, rotations: float
+) -> PasteApplicationResult:
     return PasteApplicationResult(
         (
             DispenseExecution(
-                applied_mode=applied_mode,  # type: ignore[arg-type]
+                applied_mode=applied_mode,
                 path_length_mm=1.0,
                 commanded_volume_ul=rotations / 20.0,
                 prime_extra_volume_ul=0.0,
@@ -199,6 +202,16 @@ class TestValidateDatasetRun:
 
 class TestPasteDatasetRecorder:
     """record_pre / record_execution / record_post → finalize の metadata 組立."""
+
+    def test_rejects_invalid_view_before_recording(
+        self, tmp_path: Path, targets: DatasetTargets
+    ):
+        writer = PasteDatasetWriter.open(
+            tmp_path, board_name="led_blinker", started_at=STARTED_AT
+        )
+
+        with pytest.raises(ValueError, match="view number"):
+            PasteDatasetRecorder(writer, targets, (DatasetView(number=-1),))
 
     def test_finalize_writes_metadata_with_current_key_set(
         self, tmp_path: Path, targets: DatasetTargets

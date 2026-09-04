@@ -338,6 +338,21 @@ def _failure(index: int, image: Image | None) -> ToolheadOffsetFailure:
 
 
 class TestToolheadOffsetDiagnostics:
+    def test_from_outcomes_counts_samples_and_pins_minimum(self):
+        image = Image(np.zeros((50, 50, 3), dtype=np.uint8))
+        failures = [_failure(3, image), _failure(7, None)]
+
+        diagnostics = ToolheadOffsetDiagnostics.from_outcomes(
+            10, failures, [_sample(i, Point2d(0.0, 0.0)) for i in range(8)]
+        )
+
+        assert diagnostics == ToolheadOffsetDiagnostics(
+            requested_point_count=10,
+            minimum_valid_point_count=MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
+            failures=tuple(failures),
+            successful_point_count=8,
+        )
+
     def test_to_dict_matches_diagnostics_json_shape(self):
         image = Image(np.zeros((50, 50, 3), dtype=np.uint8))
         diagnostics = ToolheadOffsetDiagnostics(
@@ -438,6 +453,7 @@ class TestToolheadOffsetProcedure:
             diameter_min=0.0,
             diameter_max=2.0,
             point_spacing=5.0,
+            settle_time=0.0,
         )
 
     def test_probe_moves_nozzle_to_dispense_position_and_reads_surface_z(

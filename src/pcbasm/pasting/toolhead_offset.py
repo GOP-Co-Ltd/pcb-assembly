@@ -1,6 +1,6 @@
 """ツールヘッドオフセット計測（計測点配置・probe → deposit → measure 手順・結果集計）.
 
-ループ・進捗・成果物保存はユーザー対話を持つ呼び出し側（web ジョブ）が担い、 ここは 1 点分の機械手順と結果の算出・永続化だけを提供する。
+ループ・進捗・成果物保存はユーザー対話を持つ呼び出し側（web ジョブ）が担い、ここは 1 点分の機械手順と結果の算出・永続化だけを提供する。
 """
 
 from __future__ import annotations
@@ -40,8 +40,6 @@ MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT = 5
 _DETECTION_MIN_FRAME_DETECTIONS = 5
 _DETECTION_MAX_ATTEMPTS = 3
 _DETECTION_RETRY_DELAY = 0.5
-# カメラ位置へ移動後、検出を始める前の静定待ち [sec]
-_MEASURE_SETTLE_TIME = 1.0
 
 
 @attrs.frozen
@@ -312,6 +310,21 @@ class ToolheadOffsetDiagnostics:
     failures: tuple[ToolheadOffsetFailure, ...]
     successful_point_count: int
 
+    @classmethod
+    def from_outcomes(
+        cls,
+        requested_point_count: int,
+        failures: Sequence[ToolheadOffsetFailure],
+        samples: Sequence[ToolheadOffsetSample],
+    ) -> Self:
+        """計測ループの失敗一覧と成功 sample から診断を組む."""
+        return cls(
+            requested_point_count=requested_point_count,
+            minimum_valid_point_count=MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
+            failures=tuple(failures),
+            successful_point_count=len(samples),
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """診断 JSON の dict（失敗画像はファイル名で参照する）."""
         return {
@@ -346,7 +359,7 @@ class ToolheadOffsetDiagnostics:
 class ToolheadOffsetProcedure:
     """ツールヘッドオフセット計測の 1 点分の機械手順（probe → deposit → measure）.
 
-    全点の高さ計測 → 全点の塗布 → 全点の円検出、というフェーズ順のループと 進捗・ログ・成果物保存は呼び出し側が持つ。
+    全点の高さ計測 → 全点の塗布 → 全点の円検出、というフェーズ順のループと進捗・ログ・成果物保存は呼び出し側が持つ。
     """
 
     def __init__(
@@ -358,6 +371,7 @@ class ToolheadOffsetProcedure:
         diameter_min: float,
         diameter_max: float,
         point_spacing: float,
+        settle_time: float = 1.0,
         frame_sink: FrameSink | None = None,
     ) -> None:
         """Board 計測結果と計測パラメータから HAL と検出器を配線する.
@@ -369,6 +383,7 @@ class ToolheadOffsetProcedure:
             diameter_min: 検出円の最小直径 [mm]
             diameter_max: 検出円の最大直径 [mm]
             point_spacing: 計測点の最小間隔 [mm]（円検出 ROI の一辺に使う）
+            settle_time: カメラ位置へ移動後、円検出を始める前の静定待ち [sec]
             frame_sink: 検出注釈画像を送る sink
         """
         machine = result.machine
@@ -380,6 +395,7 @@ class ToolheadOffsetProcedure:
         self._dispenser_config = machine.paste_dispenser
         self._toolhead_transform = machine.paste_dispenser.toolhead.to_transform()
         self._lift_height = lift_height
+        self._settle_time = settle_time
         self._probe_executor = ProbeExecutor(
             klipper=result.klipper,
             stage=result.stage,
@@ -472,7 +488,7 @@ class ToolheadOffsetProcedure:
             )
             + gcode.wait_for_done()
         )
-        time.sleep(_MEASURE_SETTLE_TIME)
+        time.sleep(self._settle_time)
         try:
             camera_final_position = self._adjustor.adjust()
         except CircleDetectionError as exc:

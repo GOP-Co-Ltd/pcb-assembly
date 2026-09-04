@@ -11,9 +11,7 @@ from shapely import Polygon
 from shapely.coords import CoordinateSequence
 
 from pcbasm.utils import is_finite_number
-from pcbasm.vision.image import Image, ImageArray
-
-type PixelRect = tuple[int, int, int, int]
+from pcbasm.vision.image import Image, ImageArray, PixelRect
 
 
 @attrs.frozen

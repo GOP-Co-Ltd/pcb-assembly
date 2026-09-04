@@ -26,6 +26,7 @@ from pcbasm.pasting.dataset.metadata import (
     PasteDatasetTotal,
 )
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
+from pcbasm.pasting.fill_path import AppliedDispenseMode
 from pcbasm.pasting.params import PasteParams
 from pcbasm.vision.crop import PolygonCrop
 
@@ -37,9 +38,9 @@ def _source_image(width: int = 8, height: int = 6) -> np.ndarray:
     return np.dstack((xx, yy, xx ^ yy))
 
 
-def _summary(applied_mode: str, rotations: float) -> DispenseSummary:
+def _summary(applied_mode: AppliedDispenseMode, rotations: float) -> DispenseSummary:
     return DispenseSummary(
-        applied_mode=applied_mode,  # type: ignore[arg-type]
+        applied_mode=applied_mode,
         path_length_mm=4.0,
         commanded_volume_ul=0.15,
         prime_extra_volume_ul=0.0,

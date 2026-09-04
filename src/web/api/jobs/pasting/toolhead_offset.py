@@ -215,7 +215,9 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
                 if outcome.image is not None:
                     outcome.image.save(ctx.artifacts_dir / outcome.image_filename)
                     ctx.frame(outcome.image, persist=True)
-                _diagnostics(total_points, failures, samples).save(diagnostics_path)
+                ToolheadOffsetDiagnostics.from_outcomes(
+                    total_points, failures, samples
+                ).save(diagnostics_path)
                 ctx.log(
                     f"オフセット計測 {index}/{total_points}: 円検出失敗のためスキップ"
                     f"（{outcome.reason}）"
@@ -238,7 +240,9 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             )
 
     if failures:
-        _diagnostics(total_points, failures, samples).save(diagnostics_path)
+        ToolheadOffsetDiagnostics.from_outcomes(total_points, failures, samples).save(
+            diagnostics_path
+        )
         ctx.log(
             "円検出診断: "
             f"/artifacts/{ctx.artifacts_dir.name}/{diagnostics_path.name}"
@@ -305,17 +309,4 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
                 "paste_dispenser.toolhead.y": round(measured_offset.y, 4),
             },
         ),
-    )
-
-
-def _diagnostics(
-    total_points: int,
-    failures: list[ToolheadOffsetFailure],
-    samples: list[ToolheadOffsetSample],
-) -> ToolheadOffsetDiagnostics:
-    return ToolheadOffsetDiagnostics(
-        requested_point_count=total_points,
-        minimum_valid_point_count=MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
-        failures=tuple(failures),
-        successful_point_count=len(samples),
     )

@@ -21,11 +21,12 @@ from shapely import Polygon
 
 from pcbasm.config import PasteHeight
 from pcbasm.pasting.applicator import DispenseSummary
+from pcbasm.pasting.fill_path import AppliedDispenseMode
 from pcbasm.pasting.params import PasteParams
 from pcbasm.utils import is_finite_number
+from pcbasm.vision.image import PixelRect
 
 type CapturePhase = Literal["pre", "post"]
-type PixelRect = tuple[int, int, int, int]
 
 METADATA_KIND = "pcbasm-paste-volume-dataset"
 METADATA_SCHEMA_VERSION = 1
@@ -282,7 +283,7 @@ def _make_metadata_converter() -> cattrs.Converter:
 
     def strict_applied_mode(value: object, _: object) -> object:
         # DispenseSummary.applied_mode: 塗布方式 literal / "mixed" / None
-        if value is None or value in ("dot", "line", "area", "mixed"):
+        if value is None or value in (*get_args(AppliedDispenseMode), "mixed"):
             return value
         raise ValueError(f"applied_modeが不正です: {value!r}")
 

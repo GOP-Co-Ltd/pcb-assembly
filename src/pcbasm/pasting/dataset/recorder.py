@@ -27,6 +27,7 @@ from pcbasm.pasting.dataset.metadata import (
     PasteDatasetPurge,
     PasteDatasetTotal,
     allocate_volume_by_rotations,
+    validate_view,
 )
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
 from pcbasm.pasting.workflow import DatasetTargets
@@ -81,6 +82,15 @@ class PasteDatasetRecorder:
         targets: DatasetTargets,
         views: Sequence[DatasetView],
     ) -> None:
+        """撮影 view を検証して蓄積を始める.
+
+        Raises:
+            ValueError: view 番号が負か offset が有限値でない（呼び出し側の invariant）
+        """
+        for view in views:
+            error = validate_view(view)
+            if error is not None:
+                raise ValueError(error)
         self._writer = writer
         self._targets = targets
         self._views = tuple(views)
