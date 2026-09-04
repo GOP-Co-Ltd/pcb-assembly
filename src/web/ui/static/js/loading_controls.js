@@ -182,7 +182,7 @@
     updateApplyButtons();
   }
 
-  // サーバ（estimate_mass_flow）が算出不能な値を null で返す契約に依存する。
+  // サーバ（MassFlowEstimate.estimate）が算出不能な値を null で返す契約に依存する。
   function updateApplyButtons() {
     setDisabled("lc-apply-rotations-per-ul", computed.rpu == null);
     setDisabled("lc-apply-dispense-rate", computed.rate == null);

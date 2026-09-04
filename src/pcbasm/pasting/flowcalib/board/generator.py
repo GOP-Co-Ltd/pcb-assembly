@@ -20,8 +20,6 @@ from .config import (
     BoardConfig,
     CustomPadDraft,
     PatternSpec,
-    normalize_board_config,
-    normalized_board_document,
 )
 from .layout import BoardLayout, Rect, build_board_layout, preview_board_layout
 
@@ -193,14 +191,14 @@ class BoardGenerator:
 
         with self._lock:
             plan = self._resolve_plan(config)
-            document = normalized_board_document(plan.config)
+            document = plan.config.to_document()
             return (
                 json.dumps(document, ensure_ascii=False, indent=2).encode("utf-8")
                 + b"\n"
             )
 
     def _resolve_plan(self, config: BoardConfig) -> _Plan:
-        normalized = normalize_board_config(config)
+        normalized = config.normalized()
         custom_by_id = {item.catalog_id: item for item in normalized.custom_pads}
         resolved = {
             pattern.catalog_id: self._pad_catalog.resolve_pattern(

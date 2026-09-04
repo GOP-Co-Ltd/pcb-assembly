@@ -12,7 +12,6 @@ from pcbasm.geometry.packing import Rect, pack_rects
 from pcbasm.pcb.footprint import (
     FootprintEnvelope,
     duplicate_footprint,
-    footprint_envelope,
     footprint_polygons,
 )
 from pcbasm.pcb.units import vector
@@ -131,7 +130,8 @@ def _pads_to_pack(
             for index in range(pattern.rotation_count)
         )
         envelopes = tuple(
-            footprint_envelope(resolved_pattern.template, angle) for angle in angles
+            FootprintEnvelope.measure(resolved_pattern.template, angle)
+            for angle in angles
         )
         layouts.append(PatternLayout(pattern.catalog_id, angles))
         display_name = (

@@ -128,6 +128,11 @@ class PasteSettingsModel:
             self, levels=tuple(s for s in self.levels if s.key not in drop)
         )
 
+    def find_orphans(self, hierarchy: PadHierarchy) -> list[HierKey]:
+        """現階層に存在しない設定キー（孤児）を返す."""
+        existing = hierarchy.all_keys()
+        return [setting.key for setting in self.levels if setting.key not in existing]
+
 
 def _resolve_chain(
     keys: Iterable[HierKey], model: PasteSettingsModel
@@ -203,12 +208,6 @@ def select_enabled_pads(
     """
     resolved = resolve_pad_settings(hierarchy, model)
     return [pad for pad in pads if is_pad_enabled(pad, hierarchy, resolved)]
-
-
-def find_orphans(model: PasteSettingsModel, hierarchy: PadHierarchy) -> list[HierKey]:
-    """現階層に存在しない設定キー（孤児）を返す."""
-    existing = hierarchy.all_keys()
-    return [setting.key for setting in model.levels if setting.key not in existing]
 
 
 @attrs.frozen
