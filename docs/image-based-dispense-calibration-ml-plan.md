@@ -509,7 +509,9 @@ session/view補正済みweightを掛け、batchのweight合計で割る。PyTorc
 
 - weighted Gaussian NLL
 - MAE [µL]、RMSE [µL]
-- 正規化誤差`e`のmean、std、`abs(mean(e)) + std(e)`
+- 相対誤差`e = (mean - target) / target`のmean、std、`abs(mean(e)) + std(e)`
+    （実装名は`relative_error_mean`、`relative_error_standard_deviation`、
+    `relative_error_score`）
 - median absolute relative error、95 percentile absolute relative error
 - `mean ± 1 std`のcoverage
 - 予測stdの平均と、無効値・棄却候補数

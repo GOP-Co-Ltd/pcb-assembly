@@ -33,12 +33,15 @@ class BatchShape:
     width: int
 
 
-@attrs.frozen
+@attrs.frozen(eq=False)
 class PaddedBatch:
-    """共通サイズへそろえた画像と、実画像の位置を示す mask."""
+    """共通サイズへそろえた画像と、実画像の位置を示す mask.
 
-    images: Tensor = attrs.field(eq=False)
-    valid_pixel_masks: Tensor = attrs.field(eq=False)
+    Tensor は要素ごとの比較になり真偽値へ落ちないので、等価性は identity で決める。
+    """
+
+    images: Tensor
+    valid_pixel_masks: Tensor
 
 
 def plan_pixel_budget_batches(
