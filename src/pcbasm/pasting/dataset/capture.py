@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pcbasm import gcode
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.dataset.metadata import DatasetView
@@ -54,8 +54,8 @@ class DatasetCapturer:
         )
         session.klipper.send_gcode(
             session.stage.move(x=target.x, y=target.y, z=session.calibration.z_position)
-            + gcode.wait(self._settle_time)
-            + gcode.wait_for_done()
+            + GCode.wait(self._settle_time)
+            + GCode.wait_for_done()
         )
         image = session.camera.capture()
         if self._frame_sink is not None:

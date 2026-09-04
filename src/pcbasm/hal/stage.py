@@ -5,7 +5,7 @@ from typing import Self
 
 import attrs
 
-from pcbasm import gcode
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
 
 from .klipper import ReadonlyKlipper
@@ -195,7 +195,7 @@ class XYZStage:
         *,
         speed: Speed | None = None,
         relative: bool = False,
-    ) -> gcode.GCode:
+    ) -> GCode:
         """単点移動のG-codeを生成する.
 
         指定した軸のみをG1に含め、None軸は出力しない（未指定軸は機械側が
@@ -246,9 +246,9 @@ class XYZStage:
         if violations:
             raise ValueError(f"制限外の移動先です: {', '.join(violations)}")
 
-        return gcode.move(x=targets["x"], y=targets["y"], z=targets["z"], velocity=feed)
+        return GCode.move(x=targets["x"], y=targets["y"], z=targets["z"], velocity=feed)
 
-    def to_gcode(self, path: Path, *, speed: Speed) -> gcode.GCode:
+    def to_gcode(self, path: Path, *, speed: Speed) -> GCode:
         """Path の各点を G1 移動に変換する。各点と feed を limits 検証する.
 
         Raises:
@@ -258,10 +258,10 @@ class XYZStage:
         invalid = [p for p in path if not self.limits.contains(p, feed)]
         if invalid:
             raise ValueError(f"制限外の経由点があります: {invalid}")
-        commands = gcode.GCode()
+        commands = GCode()
         for point in path:
             commands.append(
-                gcode.move(
+                GCode.move(
                     x=float(point.x), y=float(point.y), z=float(point.z), velocity=feed
                 )
             )

@@ -17,7 +17,7 @@ import attrs
 from cattrs.preconf.json import make_converter
 from shapely import Point as ShapelyPoint, Polygon
 
-from pcbasm import gcode
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Identity, Point2d
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.params import PasteParamsPatch
@@ -438,7 +438,7 @@ class ToolheadOffsetProcedure:
         dispense_position = self._toolhead_transform.apply(camera_position)
         self._klipper.send_gcode(
             self._stage.move(x=dispense_position.x, y=dispense_position.y)
-            + gcode.wait_for_done()
+            + GCode.wait_for_done()
         )
         surface_z = self._probe_executor.probe()
         return ProbedPoint(
@@ -486,7 +486,7 @@ class ToolheadOffsetProcedure:
             self._stage.move(
                 x=point.camera.x, y=point.camera.y, z=self._calibration.z_position
             )
-            + gcode.wait_for_done()
+            + GCode.wait_for_done()
         )
         time.sleep(self._settle_time)
         try:

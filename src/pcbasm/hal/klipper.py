@@ -8,8 +8,7 @@ from typing import Any
 import attrs
 import httpx
 
-from pcbasm import gcode
-from pcbasm.gcode import GCode, GCodeLike
+from pcbasm.gcode import PRESENT_MACRO, GCode, GCodeLike
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +151,7 @@ class Klipper:
 
     def firmware_restart(self) -> None:
         """ファームウェア再起動を実行する."""
-        self.send_gcode(gcode.firmware_restart())
+        self.send_gcode(GCode.firmware_restart())
 
     def has_macro(self, name: str) -> bool:
         """指定した名前のマクロが存在するか確認する.
@@ -174,22 +173,22 @@ class Klipper:
         """PRESENTマクロがあれば実行し、無ければ警告してM84にフォールバックする."""
         warning = warn if warn is not None else logger.warning
         try:
-            has_present = self.has_macro(gcode.PRESENT_MACRO)
+            has_present = self.has_macro(PRESENT_MACRO)
         except Exception as exc:
             warning(
-                f"{gcode.PRESENT_MACRO} マクロ確認に失敗しました: {exc}。"
+                f"{PRESENT_MACRO} マクロ確認に失敗しました: {exc}。"
                 "relax (M84) にフォールバックします"
             )
         else:
             if has_present:
-                self.send_gcode(gcode.present(), timeout=timeout)
+                self.send_gcode(GCode.present(), timeout=timeout)
                 return
             warning(
-                f"{gcode.PRESENT_MACRO} マクロが見つかりません。"
+                f"{PRESENT_MACRO} マクロが見つかりません。"
                 "relax (M84) にフォールバックします"
             )
 
-        self.send_gcode(gcode.relax(), timeout=timeout)
+        self.send_gcode(GCode.relax(), timeout=timeout)
 
 
 class ReadonlyKlipper:

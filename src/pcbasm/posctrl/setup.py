@@ -11,8 +11,8 @@ from pathlib import Path
 
 import attrs
 
-from pcbasm import gcode
 from pcbasm.config import Machine
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
 from pcbasm.parking import park_or_present
@@ -234,7 +234,7 @@ def setup_board_calibration(
 
     # ホーミング
     logger.info("=== ホーミング (G28) ===")
-    klipper.send_gcode(gcode.homing(x=True, y=True, z=True) + gcode.wait_for_done())
+    klipper.send_gcode(GCode.homing(x=True, y=True, z=True) + GCode.wait_for_done())
     logger.info("ホーミング完了")
 
     # Reference Pointへ移動
@@ -244,7 +244,7 @@ def setup_board_calibration(
         logger.info("キャリブレーションZ位置: %.3f mm", calibration.z_position)
     klipper.send_gcode(
         stage.move(x=ref_config.x, y=ref_config.y, z=calibration.z_position)
-        + gcode.wait_for_done()
+        + GCode.wait_for_done()
     )
     logger.info("移動完了")
     time.sleep(1.0)

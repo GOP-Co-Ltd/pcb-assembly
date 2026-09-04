@@ -18,8 +18,8 @@ from typing import Literal, Self
 import attrs
 from shapely import Polygon
 
-from pcbasm import gcode
 from pcbasm.config import PasteDispenser as PasteDispenserConfig
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point2d, Transform
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
 from pcbasm.pasting.fill_path import AppliedDispenseMode, FillPlan
@@ -191,7 +191,7 @@ class PasteApplicator:
         push = self._dispenser.pushpull(
             amount_ul, self._settings.retract_rate, self._settings.retract_accel
         )
-        self._klipper.send_gcode(push + gcode.wait_for_done())
+        self._klipper.send_gcode(push + GCode.wait_for_done())
         self._logger.info("ローディング完了")
 
     def load_rotations(
@@ -226,7 +226,7 @@ class PasteApplicator:
             accel,
         )
         gc = self._dispenser.rotate_revolutions(rotations, rate, accel)
-        self._klipper.send_gcode(gc + gcode.wait_for_done())
+        self._klipper.send_gcode(gc + GCode.wait_for_done())
         self._logger.info("ローディング完了")
 
     def retract(self) -> None:
@@ -372,7 +372,7 @@ class PasteApplicator:
             rate_cap=rate_cap,
         )
         self._klipper.send_gcode(
-            sequence.to_gcode(self._stage, self._dispenser) + gcode.wait_for_done()
+            sequence.to_gcode(self._stage, self._dispenser) + GCode.wait_for_done()
         )
         prime_extra = sequence.prime_extra_volume_ul
         return DispenseExecution(
