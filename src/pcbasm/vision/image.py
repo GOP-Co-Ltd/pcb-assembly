@@ -12,6 +12,7 @@ import numpy.typing as npt
 
 type ImageArray = npt.NDArray[Any]
 type ImageSize = tuple[int, int]
+type PixelRect = tuple[int, int, int, int]
 type FrameSink = Callable[["Image"], None]
 
 
