@@ -15,7 +15,6 @@ from ml.evaluation.compile_parity import (
     CompileParityTolerances,
     ParityTolerance,
     TensorDifference,
-    compare_eager_and_compiled,
 )
 from ml.model.blocks import ImageEncoder, ImageEncoderConfig
 from ml.model.heads import (
@@ -82,7 +81,7 @@ def _compare(
     inputs: tuple[Tensor, ...],
     options: CompileOptions = EAGER_OPTIONS,
 ) -> CompileParityResult:
-    result, reason = compare_eager_and_compiled(
+    result, reason = CompileParityResult.measure(
         model,
         inputs,
         loss=_gaussian_loss,
@@ -303,7 +302,7 @@ class TestCompileParityResultVerdict:
         assert self._result(**{field: ("_used.weight",)}).passed is False
 
 
-class TestCompareEagerAndCompiled:
+class TestCompileParityResultMeasure:
     """同一重みの eager 実行と compile 済み実行の突き合わせ."""
 
     def test_eager_backend_reproduces_outputs_loss_and_gradients_exactly(self):
@@ -340,7 +339,7 @@ class TestCompareEagerAndCompiled:
 
     def test_reports_timings_separately_from_the_first_compilation(self):
         started = time.perf_counter()
-        result, reason = compare_eager_and_compiled(
+        result, reason = CompileParityResult.measure(
             _TimingModel(),
             _four_features(17),
             loss=_sum_of_squares,
@@ -377,7 +376,7 @@ class TestCompareEagerAndCompiled:
         model = _UnusedParameterModel()
         generator = torch.Generator().manual_seed(5)
 
-        result, reason = compare_eager_and_compiled(
+        result, reason = CompileParityResult.measure(
             model,
             (torch.randn((2, 4), generator=generator),),
             loss=_sum_of_squares,
@@ -392,7 +391,7 @@ class TestCompareEagerAndCompiled:
         assert result.missing_gradient_parameters == ()
 
     def test_reports_the_relative_difference_of_each_output(self):
-        result, reason = compare_eager_and_compiled(
+        result, reason = CompileParityResult.measure(
             _DriftingModel(),
             _four_features(),
             loss=_first_output_sum_of_squares,
@@ -413,7 +412,7 @@ class TestCompareEagerAndCompiled:
         assert result.outputs[1].maximum_relative_difference == 0.0
 
     def test_lists_the_parameters_whose_gradients_disagree(self):
-        result, reason = compare_eager_and_compiled(
+        result, reason = CompileParityResult.measure(
             _DriftingModel(),
             _four_features(),
             loss=_first_output_sum_of_squares,
@@ -428,7 +427,7 @@ class TestCompareEagerAndCompiled:
         assert result.passed is False
 
     def test_lists_a_parameter_whose_gradient_is_missing_on_one_side(self):
-        result, reason = compare_eager_and_compiled(
+        result, reason = CompileParityResult.measure(
             _FirstCallParameterModel(),
             _four_features(),
             loss=_sum_of_squares,
@@ -445,7 +444,7 @@ class TestCompareEagerAndCompiled:
 
     def test_rejects_options_that_do_not_validate(self):
         with pytest.raises(ValueError, match="backend は空"):
-            compare_eager_and_compiled(
+            CompileParityResult.measure(
                 _regressor(),
                 _inputs(),
                 loss=_gaussian_loss,
@@ -454,7 +453,7 @@ class TestCompareEagerAndCompiled:
             )
 
     def test_returns_a_reason_when_the_backend_does_not_exist(self):
-        result, reason = compare_eager_and_compiled(
+        result, reason = CompileParityResult.measure(
             _regressor(),
             _inputs(),
             loss=_gaussian_loss,
@@ -468,7 +467,7 @@ class TestCompareEagerAndCompiled:
 
     def test_rejects_an_empty_input_sequence(self):
         with pytest.raises(ValueError, match="inputs"):
-            compare_eager_and_compiled(
+            CompileParityResult.measure(
                 _regressor(),
                 (),
                 loss=_gaussian_loss,
@@ -483,7 +482,7 @@ class TestCompareEagerAndCompiled:
         )
 
         with pytest.raises(ValueError, match="output: relative"):
-            compare_eager_and_compiled(
+            CompileParityResult.measure(
                 _regressor(),
                 _inputs(),
                 loss=_gaussian_loss,
@@ -495,7 +494,7 @@ class TestCompareEagerAndCompiled:
         generator = torch.Generator().manual_seed(7)
 
         with pytest.raises(ValueError, match="Tensor のタプル"):
-            compare_eager_and_compiled(
+            CompileParityResult.measure(
                 _SingleTensorModel(),
                 (torch.randn((2, 4), generator=generator),),
                 loss=_sum_of_squares,
