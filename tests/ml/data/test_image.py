@@ -403,3 +403,22 @@ class TestPreprocessImageStack:
         assert sample is None
         assert error is not None
         assert "minimum_size" in error
+
+    def test_compares_by_identity(self):
+        sample, _ = preprocess_image_stack(
+            [_image(64, 48, seed=1)],
+            constraints=CONSTRAINTS,
+            parameters=NO_AUGMENTATION,
+        )
+        different_image, _ = preprocess_image_stack(
+            [_image(64, 48, seed=2)],
+            constraints=CONSTRAINTS,
+            parameters=NO_AUGMENTATION,
+        )
+
+        assert sample is not None
+        assert different_image is not None
+        assert sample.scale == different_image.scale
+        assert sample == sample
+        assert sample != different_image
+        assert len({sample, different_image}) == 2

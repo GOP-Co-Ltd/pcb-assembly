@@ -102,12 +102,15 @@ class AugmentationParameters:
 NO_AUGMENTATION = AugmentationParameters(rotation_degrees=0.0, scale=1.0)
 
 
-@attrs.frozen
+@attrs.frozen(eq=False)
 class PreprocessedSample:
-    """Model へ渡せる状態までそろえた 1 sample."""
+    """Model へ渡せる状態までそろえた 1 sample.
 
-    image: Tensor = attrs.field(eq=False)
-    valid_mask: Tensor = attrs.field(eq=False)
+    Tensor は要素ごとの比較になり真偽値へ落ちないので、等価性は identity で決める。
+    """
+
+    image: Tensor
+    valid_mask: Tensor
     scale: float
 
 
