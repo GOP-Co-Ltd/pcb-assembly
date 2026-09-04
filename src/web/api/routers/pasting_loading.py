@@ -6,7 +6,7 @@ import attrs
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from pcbasm.pasting.calibration import estimate_mass_flow
+from pcbasm.pasting.flowcalib.flow import estimate_mass_flow
 from web.api.dependencies import StateDep
 
 router = APIRouter(prefix="/api")
@@ -33,7 +33,7 @@ def get_loading_calibration(
 
     密度はサーバ側のマシン設定 ``solder_paste_density`` を真実とする。
     非正入力は該当値を ``None`` で返す（エラーにしない）。算出は
-    :func:`pcbasm.pasting.estimate_mass_flow` へ委譲する（丸め済み）。
+    :func:`pcbasm.pasting.flowcalib.flow.estimate_mass_flow` へ委譲する（丸め済み）。
     """
     density = state.machine().paste_dispenser.solder_paste_density
     estimate = estimate_mass_flow(

@@ -7,24 +7,24 @@ from typing import Annotated, Self
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from pcbasm.pasting.paste_flow_calibration_board.config import (
-    PASTE_FLOW_CALIBRATION_BOARD_KIND,
-    PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION,
-    PASTE_FLOW_CALIBRATION_CUSTOM_PAD_SHAPES,
-    PasteFlowCalibrationBoardConfig,
-    PasteFlowCalibrationBoardKind,
-    PasteFlowCalibrationBoardSchemaVersion,
-    PasteFlowCalibrationBoardSpec,
-    PasteFlowCalibrationCustomPadDraft,
-    PasteFlowCalibrationCustomPadShapeId,
-    PasteFlowCalibrationCustomPadSpec,
-    PasteFlowCalibrationPattern,
-    PasteFlowCalibrationPreviewLayer,
-    PasteFlowCalibrationPurgePadSpec,
-    parse_paste_flow_calibration_board_document,
+from pcbasm.pasting.flowcalib.board.config import (
+    BOARD_KIND,
+    BOARD_SCHEMA_VERSION,
+    CUSTOM_PAD_SHAPES,
+    BoardConfig,
+    BoardKind,
+    BoardSchemaVersion,
+    BoardSpec,
+    CustomPadDraft,
+    CustomPadShapeId,
+    CustomPadSpec,
+    PatternSpec,
+    PreviewLayer,
+    PurgePadSpec,
+    parse_board_document,
 )
-from pcbasm.pasting.paste_flow_calibration_board.generator import (
-    PasteFlowCalibrationBoardPreview,
+from pcbasm.pasting.flowcalib.board.generator import (
+    BoardPreview,
 )
 from web.api.dependencies import PasteFlowCalibrationBoardGeneratorDep
 
@@ -67,21 +67,21 @@ class PasteFlowCalibrationPatternModel(_ApiModel):
 class PasteFlowCalibrationCustomPadSpecModel(_ApiModel):
     catalog_id: str
     name: str
-    shape: PasteFlowCalibrationCustomPadShapeId
+    shape: CustomPadShapeId
     width_mm: float
     height_mm: float
     corner_radius_mm: float
 
 
 class PasteFlowCalibrationCustomPadDraftModel(_ApiModel):
-    shape: PasteFlowCalibrationCustomPadShapeId
+    shape: CustomPadShapeId
     width_mm: float
     height_mm: float = 0.0
     corner_radius_mm: float = 0.0
     name: str = ""
 
-    def to_core(self) -> PasteFlowCalibrationCustomPadDraft:
-        return PasteFlowCalibrationCustomPadDraft(**self.model_dump())
+    def to_core(self) -> CustomPadDraft:
+        return CustomPadDraft(**self.model_dump())
 
 
 class PasteFlowCalibrationBoardConfigModel(_ApiModel):
@@ -90,17 +90,15 @@ class PasteFlowCalibrationBoardConfigModel(_ApiModel):
     custom_pads: list[PasteFlowCalibrationCustomPadSpecModel]
     patterns: list[PasteFlowCalibrationPatternModel]
 
-    def to_core(self) -> PasteFlowCalibrationBoardConfig:
-        return PasteFlowCalibrationBoardConfig(
-            board=PasteFlowCalibrationBoardSpec(**self.board.model_dump()),
-            purge_pad=PasteFlowCalibrationPurgePadSpec(**self.purge_pad.model_dump()),
+    def to_core(self) -> BoardConfig:
+        return BoardConfig(
+            board=BoardSpec(**self.board.model_dump()),
+            purge_pad=PurgePadSpec(**self.purge_pad.model_dump()),
             custom_pads=tuple(
-                PasteFlowCalibrationCustomPadSpec(**item.model_dump())
-                for item in self.custom_pads
+                CustomPadSpec(**item.model_dump()) for item in self.custom_pads
             ),
             patterns=tuple(
-                PasteFlowCalibrationPattern(**pattern.model_dump())
-                for pattern in self.patterns
+                PatternSpec(**pattern.model_dump()) for pattern in self.patterns
             ),
         )
 
@@ -131,7 +129,7 @@ class PasteFlowCalibrationFootprintModel(_ApiModel):
 
 
 class PasteFlowCalibrationCustomPadShapeModel(_ApiModel):
-    shape: PasteFlowCalibrationCustomPadShapeId
+    shape: CustomPadShapeId
     label: str
     uses_height: bool
     uses_corner_radius: bool
@@ -144,8 +142,8 @@ class PasteFlowCalibrationFootprintSearchResponse(_ApiModel):
 
 
 class PasteFlowCalibrationBoardOptionsResponse(_ApiModel):
-    kind: PasteFlowCalibrationBoardKind
-    schema_version: PasteFlowCalibrationBoardSchemaVersion
+    kind: BoardKind
+    schema_version: BoardSchemaVersion
     footprint_count: int
     custom_pad_shapes: list[PasteFlowCalibrationCustomPadShapeModel]
     config: PasteFlowCalibrationBoardConfigModel
@@ -169,7 +167,7 @@ class PasteFlowCalibrationPointModel(_ApiModel):
 
 
 class PasteFlowCalibrationPolygonModel(_ApiModel):
-    layer: PasteFlowCalibrationPreviewLayer
+    layer: PreviewLayer
     points: list[PasteFlowCalibrationPointModel]
 
 
@@ -210,7 +208,7 @@ class PasteFlowCalibrationBoardPreviewResponse(_ApiModel):
     overflow_message: str | None
 
     @classmethod
-    def from_core(cls, preview: PasteFlowCalibrationBoardPreview) -> Self:
+    def from_core(cls, preview: BoardPreview) -> Self:
         layout = preview.layout
         return cls.model_validate(
             {
@@ -250,13 +248,13 @@ def get_paste_flow_calibration_board_options(
 ) -> PasteFlowCalibrationBoardOptionsResponse:
     """初期レシピと検索可能なfootprint件数を返す."""
 
-    resolved = generator.resolve_config(PasteFlowCalibrationBoardConfig())
+    resolved = generator.resolve_config(BoardConfig())
     return PasteFlowCalibrationBoardOptionsResponse.model_validate(
         {
-            "kind": PASTE_FLOW_CALIBRATION_BOARD_KIND,
-            "schema_version": PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION,
+            "kind": BOARD_KIND,
+            "schema_version": BOARD_SCHEMA_VERSION,
             "footprint_count": generator.footprint_count,
-            "custom_pad_shapes": PASTE_FLOW_CALIBRATION_CUSTOM_PAD_SHAPES,
+            "custom_pad_shapes": CUSTOM_PAD_SHAPES,
             "config": resolved.config,
             "catalog": resolved.catalog,
         },
@@ -347,7 +345,7 @@ def import_paste_flow_calibration_board_config(
 ) -> PasteFlowCalibrationResolvedConfigResponse:
     """自己識別情報を含むJSONを検証・正規化して返す（保存はしない）."""
 
-    parsed = parse_paste_flow_calibration_board_document(body.document)
+    parsed = parse_board_document(body.document)
     if parsed is None:
         raise HTTPException(
             status_code=400,
@@ -367,10 +365,13 @@ def generate_paste_flow_calibration_board(
     body: PasteFlowCalibrationBoardConfigModel,
     generator: PasteFlowCalibrationBoardGeneratorDep,
 ) -> Response:
-    """配置可能な設定からKiCad基板を直接ダウンロードする."""
+    """配置可能な設定からKiCad基板を直接ダウンロードする（収まらなければ 422）."""
 
+    payload, overflow_message = generator.board_bytes(body.to_core())
+    if payload is None:
+        raise HTTPException(status_code=422, detail=overflow_message)
     return Response(
-        generator.board_bytes(body.to_core()),
+        payload,
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{BOARD_FILENAME}"'},
     )

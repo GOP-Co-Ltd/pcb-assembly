@@ -13,68 +13,55 @@ from pcbasm.pcb.footprint import format_footprint_id, parse_footprint_id
 from pcbasm.pcb.units import (
     KICAD_COORD_MAX_NM,
     KICAD_MAX_COORD_MM,
-    KicadError,
     is_kicad_length,
 )
 from pcbasm.utils import is_finite_number
 
-PasteFlowCalibrationBoardKind: TypeAlias = Literal["paste_flow_calibration_board"]
-PasteFlowCalibrationBoardSchemaVersion: TypeAlias = Literal[1]
-PasteFlowCalibrationCustomPadShapeId: TypeAlias = Literal[
-    "circle", "rectangle", "roundrect", "oval"
-]
-PasteFlowCalibrationPreviewLayer: TypeAlias = Literal["F.Cu", "F.Paste"]
+BoardKind: TypeAlias = Literal["paste_flow_calibration_board"]
+BoardSchemaVersion: TypeAlias = Literal[1]
+CustomPadShapeId: TypeAlias = Literal["circle", "rectangle", "roundrect", "oval"]
+PreviewLayer: TypeAlias = Literal["F.Cu", "F.Paste"]
 
-PASTE_FLOW_CALIBRATION_BOARD_KIND: PasteFlowCalibrationBoardKind = (
-    "paste_flow_calibration_board"
-)
-PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION: PasteFlowCalibrationBoardSchemaVersion = 1
+BOARD_KIND: BoardKind = "paste_flow_calibration_board"
+BOARD_SCHEMA_VERSION: BoardSchemaVersion = 1
 _MAX_CALIBRATION_PAD_COUNT = 10_000
 _KICAD_MAX_PAD_SIZE_MM = (KICAD_COORD_MAX_NM - 1) / 1_000_000
 _KICAD_LENGTH_RANGE_TEXT = f"1 nm以上{KICAD_MAX_COORD_MM:.6f} mm以下"
 _KICAD_PAD_SIZE_RANGE_TEXT = f"1 nm以上{_KICAD_MAX_PAD_SIZE_MM:.6f} mm以下"
 
 
-# KiCad 環境・座標エラーは pcbasm.pcb 側の例外をそのまま使う
-PasteFlowCalibrationBoardEnvironmentError = KicadError
+class BoardConfigError(ValueError):
+    """基板設定がドメイン制約を満たさない（``normalize_*`` の invariant）.
 
-
-class PasteFlowCalibrationBoardConfigError(ValueError):
-    """基板設定がドメイン制約を満たさない."""
-
-
-class PasteFlowCalibrationBoardOverflowError(ValueError):
-    """パターン群が指定された基板内に収まらない."""
+    KiCad 環境・座標のエラーは :mod:`pcbasm.pcb` 側の例外
+    （``FootprintLibraryError`` / ``KicadError``）をそのまま使う。
+    """
 
 
 @attrs.frozen
-class PasteFlowCalibrationCustomPadShape:
+class CustomPadShape:
     """WebUIで選択できる任意寸法パッド形状."""
 
-    shape: PasteFlowCalibrationCustomPadShapeId
+    shape: CustomPadShapeId
     label: str
     uses_height: bool
     uses_corner_radius: bool
 
 
-PASTE_FLOW_CALIBRATION_CUSTOM_PAD_SHAPES: tuple[
-    PasteFlowCalibrationCustomPadShape, ...
-] = (
-    PasteFlowCalibrationCustomPadShape("circle", "円", False, False),
-    PasteFlowCalibrationCustomPadShape("rectangle", "矩形", True, False),
-    PasteFlowCalibrationCustomPadShape("roundrect", "角丸矩形", True, True),
-    PasteFlowCalibrationCustomPadShape("oval", "長円（スロット）", True, False),
+CUSTOM_PAD_SHAPES: tuple[CustomPadShape, ...] = (
+    CustomPadShape("circle", "円", False, False),
+    CustomPadShape("rectangle", "矩形", True, False),
+    CustomPadShape("roundrect", "角丸矩形", True, True),
+    CustomPadShape("oval", "長円（スロット）", True, False),
 )
-_CUSTOM_PAD_SHAPE_BY_ID = {
-    item.shape: item for item in PASTE_FLOW_CALIBRATION_CUSTOM_PAD_SHAPES
-}
+_CUSTOM_PAD_SHAPE_BY_ID = {item.shape: item for item in CUSTOM_PAD_SHAPES}
 
 
 @attrs.frozen
-class PasteFlowCalibrationCustomPadDraft:
+class CustomPadDraft:
     """ID採番前の任意寸法パッド定義 [mm]."""
 
-    shape: PasteFlowCalibrationCustomPadShapeId
+    shape: CustomPadShapeId
     width_mm: float
     height_mm: float = 0.0
     corner_radius_mm: float = 0.0
@@ -82,19 +69,19 @@ class PasteFlowCalibrationCustomPadDraft:
 
 
 @attrs.frozen
-class PasteFlowCalibrationCustomPadSpec:
+class CustomPadSpec:
     """設定JSONへ保存する任意寸法パッド定義 [mm]."""
 
     catalog_id: str
     name: str
-    shape: PasteFlowCalibrationCustomPadShapeId
+    shape: CustomPadShapeId
     width_mm: float
     height_mm: float
     corner_radius_mm: float = 0.0
 
 
 @attrs.frozen
-class PasteFlowCalibrationBoardSpec:
+class BoardSpec:
     """基板外形と配置余白 [mm]."""
 
     width_mm: float = 40.0
@@ -104,7 +91,7 @@ class PasteFlowCalibrationBoardSpec:
 
 
 @attrs.frozen
-class PasteFlowCalibrationPurgePadSpec:
+class PurgePadSpec:
     """左上に置く専用purge padの寸法 [mm]."""
 
     width_mm: float = 2.0
@@ -112,7 +99,7 @@ class PasteFlowCalibrationPurgePadSpec:
 
 
 @attrs.frozen
-class PasteFlowCalibrationPattern:
+class PatternSpec:
     """1パッド種の回転・繰り返し配置."""
 
     catalog_id: str
@@ -151,9 +138,9 @@ def format_pad_catalog_id(library: str, footprint: str, pad_index: int) -> str:
     return f"{format_footprint_id(library, footprint)}#pad-{pad_index}"
 
 
-def default_patterns() -> tuple[PasteFlowCalibrationPattern, ...]:
+def default_patterns() -> tuple[PatternSpec, ...]:
     return tuple(
-        PasteFlowCalibrationPattern(
+        PatternSpec(
             catalog_id=format_pad_catalog_id(item.library, item.footprint, 0),
             rotation_span_deg=item.rotation_span_deg,
             rotation_count=item.rotation_count,
@@ -164,27 +151,25 @@ def default_patterns() -> tuple[PasteFlowCalibrationPattern, ...]:
 
 
 @attrs.frozen
-class PasteFlowCalibrationBoardConfig:
+class BoardConfig:
     """生成・preview・exportで共有する基板設定."""
 
-    board: PasteFlowCalibrationBoardSpec = attrs.Factory(PasteFlowCalibrationBoardSpec)
-    purge_pad: PasteFlowCalibrationPurgePadSpec = attrs.Factory(
-        PasteFlowCalibrationPurgePadSpec
-    )
-    custom_pads: tuple[PasteFlowCalibrationCustomPadSpec, ...] = ()
-    patterns: tuple[PasteFlowCalibrationPattern, ...] = attrs.Factory(default_patterns)
+    board: BoardSpec = attrs.Factory(BoardSpec)
+    purge_pad: PurgePadSpec = attrs.Factory(PurgePadSpec)
+    custom_pads: tuple[CustomPadSpec, ...] = ()
+    patterns: tuple[PatternSpec, ...] = attrs.Factory(default_patterns)
 
 
-def validate_paste_flow_calibration_board_config(
-    config: PasteFlowCalibrationBoardConfig,
+def validate_board_config(
+    config: BoardConfig,
 ) -> str | None:
     """構造的なドメイン制約を検証し、問題があれば説明を返す."""
 
-    if not isinstance(config, PasteFlowCalibrationBoardConfig):
+    if not isinstance(config, BoardConfig):
         return "基板設定の形式が不正です"
-    if not isinstance(config.board, PasteFlowCalibrationBoardSpec):
+    if not isinstance(config.board, BoardSpec):
         return "基板外形の形式が不正です"
-    if not isinstance(config.purge_pad, PasteFlowCalibrationPurgePadSpec):
+    if not isinstance(config.purge_pad, PurgePadSpec):
         return "purge padの形式が不正です"
     if not isinstance(config.custom_pads, tuple):
         return "任意パッド一覧の形式が不正です"
@@ -236,20 +221,20 @@ def validate_paste_flow_calibration_board_config(
 
     custom_ids: set[str] = set()
     for custom_pad in config.custom_pads:
-        if not isinstance(custom_pad, PasteFlowCalibrationCustomPadSpec):
+        if not isinstance(custom_pad, CustomPadSpec):
             return "任意パッドの形式が不正です"
         if not is_custom_pad_catalog_id(custom_pad.catalog_id):
             return f"任意パッドIDが不正です: {custom_pad.catalog_id}"
         if custom_pad.catalog_id in custom_ids:
             return f"任意パッドが重複しています: {custom_pad.catalog_id}"
         custom_ids.add(custom_pad.catalog_id)
-        if message := validate_paste_flow_calibration_custom_pad(custom_pad):
+        if message := validate_custom_pad(custom_pad):
             return message
 
     seen: set[str] = set()
     total_pad_count = 0
     for pattern in config.patterns:
-        if not isinstance(pattern, PasteFlowCalibrationPattern):
+        if not isinstance(pattern, PatternSpec):
             return "パッドパターンの形式が不正です"
         if not isinstance(pattern.catalog_id, str):
             return "パッドパターンIDは文字列で指定してください"
@@ -283,31 +268,31 @@ def validate_paste_flow_calibration_board_config(
     return None
 
 
-def validate_paste_flow_calibration_custom_pad(
-    custom_pad: PasteFlowCalibrationCustomPadDraft | PasteFlowCalibrationCustomPadSpec,
+def validate_custom_pad(
+    custom_pad: CustomPadDraft | CustomPadSpec,
 ) -> str | None:
     """任意寸法パッドを検証し、問題があれば説明を返す."""
 
     if not isinstance(
         custom_pad,
-        PasteFlowCalibrationCustomPadDraft | PasteFlowCalibrationCustomPadSpec,
+        CustomPadDraft | CustomPadSpec,
     ):
         return "任意パッドの形式が不正です"
     if not isinstance(custom_pad.name, str):
         return "任意パッドの名称は文字列で指定してください"
     name = custom_pad.name.strip()
-    if isinstance(custom_pad, PasteFlowCalibrationCustomPadSpec) and not name:
+    if isinstance(custom_pad, CustomPadSpec) and not name:
         return "任意パッドの名称を入力してください"
     if len(name) > 120:
         return "任意パッドの名称は120文字以下で指定してください"
-    if not is_paste_flow_calibration_custom_pad_shape_id(custom_pad.shape):
+    if not is_custom_pad_shape_id(custom_pad.shape):
         return f"任意パッド形状が不正です: {custom_pad.shape}"
     shape = _CUSTOM_PAD_SHAPE_BY_ID[custom_pad.shape]
     if not is_finite_number(custom_pad.width_mm) or custom_pad.width_mm <= 0:
         return "任意パッドの幅／直径は正の有限値が必要です"
     if not is_kicad_length(custom_pad.width_mm, maximum_mm=_KICAD_MAX_PAD_SIZE_MM):
         return f"任意パッドの幅／直径は{_KICAD_PAD_SIZE_RANGE_TEXT}で指定してください"
-    is_draft = isinstance(custom_pad, PasteFlowCalibrationCustomPadDraft)
+    is_draft = isinstance(custom_pad, CustomPadDraft)
     if shape.uses_height or not is_draft:
         if not is_finite_number(custom_pad.height_mm) or custom_pad.height_mm <= 0:
             return "任意パッドの高さは正の有限値が必要です"
@@ -337,13 +322,13 @@ def validate_paste_flow_calibration_custom_pad(
     return None
 
 
-def normalize_paste_flow_calibration_custom_pad_draft(
-    draft: PasteFlowCalibrationCustomPadDraft,
-) -> PasteFlowCalibrationCustomPadDraft:
+def normalize_custom_pad_draft(
+    draft: CustomPadDraft,
+) -> CustomPadDraft:
     """形状に不要な寸法をコア側でcanonicalな値へ解決する."""
 
-    if (message := validate_paste_flow_calibration_custom_pad(draft)) is not None:
-        raise PasteFlowCalibrationBoardConfigError(message)
+    if (message := validate_custom_pad(draft)) is not None:
+        raise BoardConfigError(message)
     shape = _CUSTOM_PAD_SHAPE_BY_ID[draft.shape]
     return attrs.evolve(
         draft,
@@ -353,13 +338,13 @@ def normalize_paste_flow_calibration_custom_pad_draft(
     )
 
 
-def normalize_paste_flow_calibration_board_config(
-    config: PasteFlowCalibrationBoardConfig,
-) -> PasteFlowCalibrationBoardConfig:
+def normalize_board_config(
+    config: BoardConfig,
+) -> BoardConfig:
     """パターンをfamily・footprint・パッド種の安定順へ正規化する."""
 
-    if (message := validate_paste_flow_calibration_board_config(config)) is not None:
-        raise PasteFlowCalibrationBoardConfigError(message)
+    if (message := validate_board_config(config)) is not None:
+        raise BoardConfigError(message)
     custom_by_id = {item.catalog_id: item for item in config.custom_pads}
     patterns = tuple(
         sorted(
@@ -388,21 +373,21 @@ def normalize_paste_flow_calibration_board_config(
     )
 
 
-def paste_flow_calibration_board_document(
-    config: PasteFlowCalibrationBoardConfig,
+def board_document(
+    config: BoardConfig,
 ) -> dict[str, Any]:
     """正規化済み設定を自己識別可能なJSON documentへ変換する."""
 
-    normalized = normalize_paste_flow_calibration_board_config(config)
-    return normalized_paste_flow_calibration_board_document(normalized)
+    normalized = normalize_board_config(config)
+    return normalized_board_document(normalized)
 
 
-def normalized_paste_flow_calibration_board_document(
-    config: PasteFlowCalibrationBoardConfig,
+def normalized_board_document(
+    config: BoardConfig,
 ) -> dict[str, Any]:
     return {
-        "kind": PASTE_FLOW_CALIBRATION_BOARD_KIND,
-        "schema_version": PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION,
+        "kind": BOARD_KIND,
+        "schema_version": BOARD_SCHEMA_VERSION,
         "board": attrs.asdict(config.board),
         "purge_pad": attrs.asdict(config.purge_pad),
         "custom_pads": [attrs.asdict(item) for item in config.custom_pads],
@@ -410,9 +395,9 @@ def normalized_paste_flow_calibration_board_document(
     }
 
 
-def parse_paste_flow_calibration_board_document(
+def parse_board_document(
     document: Mapping[str, object],
-) -> PasteFlowCalibrationBoardConfig | None:
+) -> BoardConfig | None:
     """JSON documentを設定へ変換する。不正な形式・値ではNoneを返す."""
 
     if not isinstance(document, Mapping) or not _has_exact_keys(
@@ -427,13 +412,13 @@ def parse_paste_flow_calibration_board_document(
         ),
     ):
         return None
-    if document.get("kind") != PASTE_FLOW_CALIBRATION_BOARD_KIND:
+    if document.get("kind") != BOARD_KIND:
         return None
     schema_version = document.get("schema_version")
     if (
         isinstance(schema_version, bool)
         or not isinstance(schema_version, int)
-        or schema_version != PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION
+        or schema_version != BOARD_SCHEMA_VERSION
     ):
         return None
     board_data = document.get("board")
@@ -467,7 +452,7 @@ def parse_paste_flow_calibration_board_document(
     ):
         return None
 
-    custom_pads: list[PasteFlowCalibrationCustomPadSpec] = []
+    custom_pads: list[CustomPadSpec] = []
     for value in custom_pad_data:
         if not isinstance(value, Mapping) or not _has_exact_keys(
             value,
@@ -489,12 +474,12 @@ def parse_paste_flow_calibration_board_document(
         radius = _document_float(value.get("corner_radius_mm"))
         if not isinstance(catalog_id, str) or not isinstance(name, str):
             return None
-        if not is_paste_flow_calibration_custom_pad_shape_id(shape):
+        if not is_custom_pad_shape_id(shape):
             return None
         if custom_width is None or custom_height is None or radius is None:
             return None
         custom_pads.append(
-            PasteFlowCalibrationCustomPadSpec(
+            CustomPadSpec(
                 catalog_id=catalog_id,
                 name=name,
                 shape=shape,
@@ -504,7 +489,7 @@ def parse_paste_flow_calibration_board_document(
             )
         )
 
-    patterns: list[PasteFlowCalibrationPattern] = []
+    patterns: list[PatternSpec] = []
     for value in pattern_data:
         if not isinstance(value, Mapping) or not _has_exact_keys(
             value,
@@ -525,7 +510,7 @@ def parse_paste_flow_calibration_board_document(
         if span is None or rotation_count is None or repeat_count is None:
             return None
         patterns.append(
-            PasteFlowCalibrationPattern(
+            PatternSpec(
                 catalog_id=catalog_id,
                 rotation_span_deg=span,
                 rotation_count=rotation_count,
@@ -533,33 +518,33 @@ def parse_paste_flow_calibration_board_document(
             )
         )
 
-    config = PasteFlowCalibrationBoardConfig(
-        board=PasteFlowCalibrationBoardSpec(
+    config = BoardConfig(
+        board=BoardSpec(
             width_mm=width,
             height_mm=height,
             edge_margin_mm=edge_margin,
             pad_gap_mm=pad_gap,
         ),
-        purge_pad=PasteFlowCalibrationPurgePadSpec(
+        purge_pad=PurgePadSpec(
             width_mm=purge_width,
             height_mm=purge_height,
         ),
         custom_pads=tuple(custom_pads),
         patterns=tuple(patterns),
     )
-    if validate_paste_flow_calibration_board_config(config) is not None:
+    if validate_board_config(config) is not None:
         return None
-    return normalize_paste_flow_calibration_board_config(config)
+    return normalize_board_config(config)
 
 
-def is_paste_flow_calibration_custom_pad_shape_id(
+def is_custom_pad_shape_id(
     value: object,
-) -> TypeGuard[PasteFlowCalibrationCustomPadShapeId]:
+) -> TypeGuard[CustomPadShapeId]:
     return isinstance(value, str) and value in _CUSTOM_PAD_SHAPE_BY_ID
 
 
-def default_paste_flow_calibration_custom_pad_name(
-    custom_pad: PasteFlowCalibrationCustomPadDraft,
+def default_custom_pad_name(
+    custom_pad: CustomPadDraft,
 ) -> str:
     shape = _CUSTOM_PAD_SHAPE_BY_ID[custom_pad.shape]
     if custom_pad.shape == "circle":
@@ -575,8 +560,8 @@ def default_paste_flow_calibration_custom_pad_name(
 
 
 def custom_pad_shape_option(
-    shape: PasteFlowCalibrationCustomPadShapeId,
-) -> PasteFlowCalibrationCustomPadShape:
+    shape: CustomPadShapeId,
+) -> CustomPadShape:
     return _CUSTOM_PAD_SHAPE_BY_ID[shape]
 
 
@@ -626,8 +611,8 @@ def is_custom_pad_catalog_id(catalog_id: object) -> bool:
 
 
 def _pattern_sort_key(
-    pattern: PasteFlowCalibrationPattern,
-    custom_by_id: Mapping[str, PasteFlowCalibrationCustomPadSpec],
+    pattern: PatternSpec,
+    custom_by_id: Mapping[str, CustomPadSpec],
 ) -> tuple[object, ...]:
     parsed = parse_pad_catalog_id(pattern.catalog_id)
     if parsed is None:
