@@ -28,6 +28,13 @@ RUNTIME_MODULES = (
     "ml.data.batch",
     "ml.data.image",
     "ml.data.split",
+    "ml.evaluation.compile_parity",
+    "ml.evaluation.regression",
+    "ml.evaluation.slices",
+    "ml.model.blocks",
+    "ml.model.heads",
+    "ml.model.inspection",
+    "ml.model.loss",
 )
 
 HEAVY_DEPENDENCIES = (

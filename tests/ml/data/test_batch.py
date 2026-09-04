@@ -193,3 +193,14 @@ class TestPadImageSamples:
                 [torch.ones((1, 32, 32), dtype=torch.bool)],
                 placement_seeds=[1, 2],
             )
+
+    def test_compares_by_identity(self):
+        images = [torch.rand((3, 32, 32))]
+        masks = [torch.ones((1, 32, 32), dtype=torch.bool)]
+
+        batch = pad_image_samples(images, masks, placement_seeds=[0])
+        same_input = pad_image_samples(images, masks, placement_seeds=[0])
+
+        assert batch == batch
+        assert batch != same_input
+        assert len({batch, same_input}) == 2

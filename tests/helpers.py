@@ -292,11 +292,35 @@ def _alsa_audio_available() -> bool:
         return False
 
 
+@cache
+def _inductor_compile_available() -> bool:
+    """``torch.compile`` の inductor backend が使えるか小さな関数で確認する.
+
+    Inductor は C++ compiler と生成コードのビルドに依存するため、環境によっては
+    初回 compile で失敗する。
+
+    ``ml-runtime`` を install していない環境でも collection が通るよう、torch は
+    この関数の中で import する。
+
+    初回 compile に数秒かかるので結果はキャッシュする。
+    """
+    try:
+        import torch
+
+        def add_one(values: torch.Tensor) -> torch.Tensor:
+            return values + 1
+
+        compiled = torch.compile(add_one, backend="inductor")
+        return bool(torch.equal(compiled(torch.zeros(2)), torch.ones(2)))
+    except Exception:
+        return False
+
+
 def _skip_unless_available(
     is_available: Callable[[], bool],
     reason: str,
 ) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
-    """実行時に能力（カメラ / ALSA 接続・mDNS 可否）を確認してテストをskipするdecoratorを返す."""
+    """実行時に能力（カメラ / ALSA 接続・mDNS / Inductor 可否）を確認してテストをskipするdecoratorを返す."""
 
     def decorator(test: Callable[_P, _R]) -> Callable[_P, _R]:
         @wraps(test)
@@ -323,6 +347,11 @@ skip_if_no_csi_camera = _skip_unless_available(
 skip_if_no_alsa_audio = _skip_unless_available(
     _alsa_audio_available,
     "ALSA再生デバイスが接続されていません",
+)
+
+skip_if_no_inductor = _skip_unless_available(
+    _inductor_compile_available,
+    "torch.compile の inductor backend が使えません",
 )
 
 # mDNS の能力プローブ結果（bind し直さないようモジュールレベルでキャッシュする）
