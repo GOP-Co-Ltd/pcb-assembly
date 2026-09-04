@@ -21,7 +21,7 @@ from typing import Literal
 
 import attrs
 
-from ml.artifact.document import DocumentKind, load_document, save_document
+from ml.artifact.document import DocumentKind
 from ml.serialization import make_strict_converter
 
 type SplitName = Literal["train", "validation", "test"]
@@ -186,7 +186,7 @@ def build_split_manifest(
 def save_split_manifest(path: Path, manifest: SplitManifest) -> None:
     """Split manifest を atomic に書き出す."""
 
-    save_document(path, manifest, kind=SPLIT_MANIFEST_DOCUMENT, converter=_CONVERTER)
+    SPLIT_MANIFEST_DOCUMENT.save(path, manifest, converter=_CONVERTER)
 
 
 def load_split_manifest(
@@ -194,8 +194,8 @@ def load_split_manifest(
 ) -> tuple[SplitManifest | None, str | None]:
     """Split manifest を読み、dataset fingerprint の一致を要求する."""
 
-    manifest, error = load_document(
-        path, SplitManifest, kind=SPLIT_MANIFEST_DOCUMENT, converter=_CONVERTER
+    manifest, error = SPLIT_MANIFEST_DOCUMENT.load(
+        path, SplitManifest, converter=_CONVERTER
     )
     if manifest is None:
         return None, error

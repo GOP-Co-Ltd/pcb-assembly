@@ -17,7 +17,7 @@ from types import MappingProxyType
 import attrs
 
 from ml.artifact.atomic import fsync_directory
-from ml.artifact.document import DocumentKind, load_document, save_document
+from ml.artifact.document import DocumentKind
 from ml.artifact.fingerprint import sha256_file
 from ml.serialization import make_strict_converter
 
@@ -172,11 +172,8 @@ def load_active_pointer(
     """Pointer file を読み、失敗したら理由を返す."""
 
     pointer_path = Path(pointer_file).expanduser().resolve()
-    record, error = load_document(
-        pointer_path,
-        _PointerRecord,
-        kind=ACTIVE_POINTER_DOCUMENT,
-        converter=_CONVERTER,
+    record, error = ACTIVE_POINTER_DOCUMENT.load(
+        pointer_path, _PointerRecord, converter=_CONVERTER
     )
     if record is None:
         return None, error
@@ -216,9 +213,7 @@ def _write_pointer(
         active_package_id=f"{package_path.name}:{digest[:_PACKAGE_ID_DIGEST_LENGTH]}",
         active_package_sha256=digest,
     )
-    save_document(
-        pointer_path, record, kind=ACTIVE_POINTER_DOCUMENT, converter=_CONVERTER
-    )
+    ACTIVE_POINTER_DOCUMENT.save(pointer_path, record, converter=_CONVERTER)
     return _active_pointer(pointer_path, record)
 
 
