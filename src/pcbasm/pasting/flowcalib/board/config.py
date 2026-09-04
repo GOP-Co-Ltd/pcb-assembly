@@ -159,113 +159,108 @@ class BoardConfig:
     custom_pads: tuple[CustomPadSpec, ...] = ()
     patterns: tuple[PatternSpec, ...] = attrs.Factory(default_patterns)
 
+    def validate(self) -> str | None:
+        """構造的なドメイン制約を検証し、問題があれば説明を返す."""
 
-def validate_board_config(
-    config: BoardConfig,
-) -> str | None:
-    """構造的なドメイン制約を検証し、問題があれば説明を返す."""
+        if not isinstance(self.board, BoardSpec):
+            return "基板外形の形式が不正です"
+        if not isinstance(self.purge_pad, PurgePadSpec):
+            return "purge padの形式が不正です"
+        if not isinstance(self.custom_pads, tuple):
+            return "任意パッド一覧の形式が不正です"
+        if not isinstance(self.patterns, tuple):
+            return "パッドパターン一覧の形式が不正です"
 
-    if not isinstance(config, BoardConfig):
-        return "基板設定の形式が不正です"
-    if not isinstance(config.board, BoardSpec):
-        return "基板外形の形式が不正です"
-    if not isinstance(config.purge_pad, PurgePadSpec):
-        return "purge padの形式が不正です"
-    if not isinstance(config.custom_pads, tuple):
-        return "任意パッド一覧の形式が不正です"
-    if not isinstance(config.patterns, tuple):
-        return "パッドパターン一覧の形式が不正です"
+        board = self.board
+        positive = (
+            ("基板幅", board.width_mm, KICAD_MAX_COORD_MM, _KICAD_LENGTH_RANGE_TEXT),
+            (
+                "基板高さ",
+                board.height_mm,
+                KICAD_MAX_COORD_MM,
+                _KICAD_LENGTH_RANGE_TEXT,
+            ),
+            (
+                "purge pad幅",
+                self.purge_pad.width_mm,
+                _KICAD_MAX_PAD_SIZE_MM,
+                _KICAD_PAD_SIZE_RANGE_TEXT,
+            ),
+            (
+                "purge pad高さ",
+                self.purge_pad.height_mm,
+                _KICAD_MAX_PAD_SIZE_MM,
+                _KICAD_PAD_SIZE_RANGE_TEXT,
+            ),
+        )
+        for label, value, maximum_mm, range_text in positive:
+            if not is_finite_number(value) or value <= 0:
+                return f"{label}は正の有限値が必要です"
+            if not is_kicad_length(value, maximum_mm=maximum_mm):
+                return f"{label}は{range_text}で指定してください"
+        nonnegative = (
+            ("外周余白", board.edge_margin_mm),
+            ("パッド間余白", board.pad_gap_mm),
+        )
+        for label, value in nonnegative:
+            if not is_finite_number(value) or value < 0:
+                return f"{label}は0以上の有限値が必要です"
+            if value != 0 and not is_kicad_length(value):
+                return f"{label}は0または{_KICAD_LENGTH_RANGE_TEXT}で指定してください"
+        if board.width_mm <= 2 * board.edge_margin_mm:
+            return "基板幅には左右の外周余白より大きい値が必要です"
+        if board.height_mm <= 2 * board.edge_margin_mm:
+            return "基板高さには上下の外周余白より大きい値が必要です"
+        if not self.patterns:
+            return "1つ以上のパッドパターンが必要です"
 
-    board = config.board
-    positive = (
-        ("基板幅", board.width_mm, KICAD_MAX_COORD_MM, _KICAD_LENGTH_RANGE_TEXT),
-        (
-            "基板高さ",
-            board.height_mm,
-            KICAD_MAX_COORD_MM,
-            _KICAD_LENGTH_RANGE_TEXT,
-        ),
-        (
-            "purge pad幅",
-            config.purge_pad.width_mm,
-            _KICAD_MAX_PAD_SIZE_MM,
-            _KICAD_PAD_SIZE_RANGE_TEXT,
-        ),
-        (
-            "purge pad高さ",
-            config.purge_pad.height_mm,
-            _KICAD_MAX_PAD_SIZE_MM,
-            _KICAD_PAD_SIZE_RANGE_TEXT,
-        ),
-    )
-    for label, value, maximum_mm, range_text in positive:
-        if not is_finite_number(value) or value <= 0:
-            return f"{label}は正の有限値が必要です"
-        if not is_kicad_length(value, maximum_mm=maximum_mm):
-            return f"{label}は{range_text}で指定してください"
-    nonnegative = (
-        ("外周余白", board.edge_margin_mm),
-        ("パッド間余白", board.pad_gap_mm),
-    )
-    for label, value in nonnegative:
-        if not is_finite_number(value) or value < 0:
-            return f"{label}は0以上の有限値が必要です"
-        if value != 0 and not is_kicad_length(value):
-            return f"{label}は0または{_KICAD_LENGTH_RANGE_TEXT}で指定してください"
-    if board.width_mm <= 2 * board.edge_margin_mm:
-        return "基板幅には左右の外周余白より大きい値が必要です"
-    if board.height_mm <= 2 * board.edge_margin_mm:
-        return "基板高さには上下の外周余白より大きい値が必要です"
-    if not config.patterns:
-        return "1つ以上のパッドパターンが必要です"
+        custom_ids: set[str] = set()
+        for custom_pad in self.custom_pads:
+            if not isinstance(custom_pad, CustomPadSpec):
+                return "任意パッドの形式が不正です"
+            if not is_custom_pad_catalog_id(custom_pad.catalog_id):
+                return f"任意パッドIDが不正です: {custom_pad.catalog_id}"
+            if custom_pad.catalog_id in custom_ids:
+                return f"任意パッドが重複しています: {custom_pad.catalog_id}"
+            custom_ids.add(custom_pad.catalog_id)
+            if message := validate_custom_pad(custom_pad):
+                return message
 
-    custom_ids: set[str] = set()
-    for custom_pad in config.custom_pads:
-        if not isinstance(custom_pad, CustomPadSpec):
-            return "任意パッドの形式が不正です"
-        if not is_custom_pad_catalog_id(custom_pad.catalog_id):
-            return f"任意パッドIDが不正です: {custom_pad.catalog_id}"
-        if custom_pad.catalog_id in custom_ids:
-            return f"任意パッドが重複しています: {custom_pad.catalog_id}"
-        custom_ids.add(custom_pad.catalog_id)
-        if message := validate_custom_pad(custom_pad):
-            return message
-
-    seen: set[str] = set()
-    total_pad_count = 0
-    for pattern in config.patterns:
-        if not isinstance(pattern, PatternSpec):
-            return "パッドパターンの形式が不正です"
-        if not isinstance(pattern.catalog_id, str):
-            return "パッドパターンIDは文字列で指定してください"
-        is_custom_pad = is_custom_pad_catalog_id(pattern.catalog_id)
-        if parse_pad_catalog_id(pattern.catalog_id) is None and not is_custom_pad:
-            return "パッドパターンIDが不正です"
-        if is_custom_pad and pattern.catalog_id not in custom_ids:
-            return f"任意パッド定義がありません: {pattern.catalog_id}"
-        if pattern.catalog_id in seen:
-            return f"パッドパターンが重複しています: {pattern.catalog_id}"
-        seen.add(pattern.catalog_id)
-        span = pattern.rotation_span_deg
-        if not is_finite_number(span) or span <= 0 or span > 360:
-            return "回転範囲は0より大きく360以下で指定してください"
-        if (
-            isinstance(pattern.rotation_count, bool)
-            or not isinstance(pattern.rotation_count, int)
-            or pattern.rotation_count < 1
-        ):
-            return "回転分割数は1以上の整数が必要です"
-        if (
-            isinstance(pattern.repeat_count, bool)
-            or not isinstance(pattern.repeat_count, int)
-            or pattern.repeat_count < 1
-        ):
-            return "繰り返し数は1以上の整数が必要です"
-        remaining_pad_count = _MAX_CALIBRATION_PAD_COUNT - total_pad_count
-        if pattern.rotation_count > remaining_pad_count // pattern.repeat_count:
-            return "生成パッド総数は10,000以下で指定してください"
-        total_pad_count += pattern.rotation_count * pattern.repeat_count
-    return None
+        seen: set[str] = set()
+        total_pad_count = 0
+        for pattern in self.patterns:
+            if not isinstance(pattern, PatternSpec):
+                return "パッドパターンの形式が不正です"
+            if not isinstance(pattern.catalog_id, str):
+                return "パッドパターンIDは文字列で指定してください"
+            is_custom_pad = is_custom_pad_catalog_id(pattern.catalog_id)
+            if parse_pad_catalog_id(pattern.catalog_id) is None and not is_custom_pad:
+                return "パッドパターンIDが不正です"
+            if is_custom_pad and pattern.catalog_id not in custom_ids:
+                return f"任意パッド定義がありません: {pattern.catalog_id}"
+            if pattern.catalog_id in seen:
+                return f"パッドパターンが重複しています: {pattern.catalog_id}"
+            seen.add(pattern.catalog_id)
+            span = pattern.rotation_span_deg
+            if not is_finite_number(span) or span <= 0 or span > 360:
+                return "回転範囲は0より大きく360以下で指定してください"
+            if (
+                isinstance(pattern.rotation_count, bool)
+                or not isinstance(pattern.rotation_count, int)
+                or pattern.rotation_count < 1
+            ):
+                return "回転分割数は1以上の整数が必要です"
+            if (
+                isinstance(pattern.repeat_count, bool)
+                or not isinstance(pattern.repeat_count, int)
+                or pattern.repeat_count < 1
+            ):
+                return "繰り返し数は1以上の整数が必要です"
+            remaining_pad_count = _MAX_CALIBRATION_PAD_COUNT - total_pad_count
+            if pattern.rotation_count > remaining_pad_count // pattern.repeat_count:
+                return "生成パッド総数は10,000以下で指定してください"
+            total_pad_count += pattern.rotation_count * pattern.repeat_count
+        return None
 
 
 def validate_custom_pad(
@@ -343,7 +338,7 @@ def normalize_board_config(
 ) -> BoardConfig:
     """パターンをfamily・footprint・パッド種の安定順へ正規化する."""
 
-    if (message := validate_board_config(config)) is not None:
+    if (message := config.validate()) is not None:
         raise BoardConfigError(message)
     custom_by_id = {item.catalog_id: item for item in config.custom_pads}
     patterns = tuple(
@@ -532,7 +527,7 @@ def parse_board_document(
         custom_pads=tuple(custom_pads),
         patterns=tuple(patterns),
     )
-    if validate_board_config(config) is not None:
+    if config.validate() is not None:
         return None
     return normalize_board_config(config)
 
