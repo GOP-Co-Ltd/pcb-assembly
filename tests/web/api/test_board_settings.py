@@ -33,7 +33,7 @@ from pcbasm.config import PasteDispenser, Toolhead
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParamsPatch
 from pcbasm.pasting.settings import LevelSetting, PasteSettingsModel
-from pcbasm.pcb import Component, Layer, Pad, build_pad_hierarchy
+from pcbasm.pcb import Component, Layer, Pad, PadHierarchy
 from web.api.board_settings import BoardSettingsStore
 
 type Mutate = Callable[[PasteSettingsModel], PasteSettingsModel]
@@ -80,7 +80,7 @@ def _hierarchy():
         Pad("U1", "1", "n1", Layer.TOP, _square(0, 0)),
         Pad("U1", "2", "n2", Layer.TOP, _square(2, 0)),
     ]
-    return build_pad_hierarchy(components, pads)
+    return PadHierarchy.build(components, pads)
 
 
 def _level(model: PasteSettingsModel, key: tuple[str, ...]) -> LevelSetting:

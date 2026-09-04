@@ -1,6 +1,5 @@
 """PROBEコマンドを実行するクラス."""
 
-from pcbasm import gcode
 from pcbasm.gcode import GCode
 from pcbasm.hal import Klipper, XYZStage
 
@@ -50,10 +49,10 @@ class ProbeExecutor:
             接触したZ座標 (mm)
         """
         self._klipper.send_gcode(
-            GCode("PROBE") + gcode.wait(self._settle_time) + gcode.wait_for_done()
+            GCode("PROBE") + GCode.wait(self._settle_time) + GCode.wait_for_done()
         )
         z = float(self._klipper.readonly.get_status("probe", "last_z_result"))
         self._klipper.send_gcode(
-            self._stage.move(z=z + self._lift_height) + gcode.wait_for_done()
+            self._stage.move(z=z + self._lift_height) + GCode.wait_for_done()
         )
         return z

@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Self, override
 
+PRESENT_MACRO = "PRESENT"
+
 
 class GCode:
     """G-codeコマンドを管理するクラス."""
@@ -64,95 +66,94 @@ class GCode:
         """
         self._buffer.extend(GCode(gcode).to_list())
 
+    @classmethod
+    def homing(cls, x: bool = False, y: bool = False, z: bool = False) -> Self:
+        """ホーミングコマンドを生成する.
+
+        Args:
+            x: X軸をホーミングするか
+            y: Y軸をホーミングするか
+            z: Z軸をホーミングするか
+
+        Returns:
+            ホーミングのGCode。引数がすべてFalseの場合は全軸ホーミング
+        """
+        if not (x or y or z):
+            return cls("G28")
+        axes = []
+        if x:
+            axes.append("X")
+        if y:
+            axes.append("Y")
+        if z:
+            axes.append("Z")
+        return cls(f"G28 {' '.join(axes)}")
+
+    @classmethod
+    def move(
+        cls,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        velocity: float | None = None,
+    ) -> Self:
+        """移動コマンドを生成する.
+
+        Args:
+            x: X座標 [mm]
+            y: Y座標 [mm]
+            z: Z座標 [mm]
+            velocity: 移動速度 [mm/s]
+
+        Returns:
+            移動のGCode。すべてNoneの場合は空のGCode
+        """
+        parts = []
+        if x is not None:
+            parts.append(f"X{x}")
+        if y is not None:
+            parts.append(f"Y{y}")
+        if z is not None:
+            parts.append(f"Z{z}")
+        if velocity is not None:
+            parts.append(f"F{velocity * 60}")
+        if not parts:
+            return cls()
+        return cls(f"G1 {' '.join(parts)}")
+
+    @classmethod
+    def wait(cls, seconds: float) -> Self:
+        """指定秒数待機するコマンドを生成する.
+
+        Args:
+            seconds: 待機時間 [秒]
+
+        Returns:
+            待機のGCode。0秒の場合は空のGCode
+        """
+        if seconds <= 0:
+            return cls()
+        return cls(f"G4 P{int(seconds * 1000)}")
+
+    @classmethod
+    def wait_for_done(cls) -> Self:
+        """すべての動作完了を待つコマンドを生成する."""
+        return cls("M400")
+
+    @classmethod
+    def present(cls) -> Self:
+        """基板を差し出すPRESENTマクロを実行するコマンドを生成する."""
+        return cls(PRESENT_MACRO)
+
+    @classmethod
+    def firmware_restart(cls) -> Self:
+        """Klipper のファームウェア再起動コマンドを生成する."""
+        return cls("FIRMWARE_RESTART")
+
+    @classmethod
+    def relax(cls) -> Self:
+        """モーターを脱力するコマンドを生成する."""
+        return cls("M84")
+
 
 type GCodeLike = str | Iterable[str] | GCode
-
-PRESENT_MACRO = "PRESENT"
-
-
-def homing(x: bool = False, y: bool = False, z: bool = False) -> GCode:
-    """ホーミングコマンドを生成する.
-
-    Args:
-        x: X軸をホーミングするか
-        y: Y軸をホーミングするか
-        z: Z軸をホーミングするか
-
-    Returns:
-        ホーミングのGCode。引数がすべてFalseの場合は全軸ホーミング
-    """
-    if not (x or y or z):
-        return GCode("G28")
-    axes = []
-    if x:
-        axes.append("X")
-    if y:
-        axes.append("Y")
-    if z:
-        axes.append("Z")
-    return GCode(f"G28 {' '.join(axes)}")
-
-
-def move(
-    x: float | None = None,
-    y: float | None = None,
-    z: float | None = None,
-    velocity: float | None = None,
-) -> GCode:
-    """移動コマンドを生成する.
-
-    Args:
-        x: X座標 [mm]
-        y: Y座標 [mm]
-        z: Z座標 [mm]
-        velocity: 移動速度 [mm/s]
-
-    Returns:
-        移動のGCode。すべてNoneの場合は空のGCode
-    """
-    parts = []
-    if x is not None:
-        parts.append(f"X{x}")
-    if y is not None:
-        parts.append(f"Y{y}")
-    if z is not None:
-        parts.append(f"Z{z}")
-    if velocity is not None:
-        parts.append(f"F{velocity * 60}")
-    if not parts:
-        return GCode()
-    return GCode(f"G1 {' '.join(parts)}")
-
-
-def wait(seconds: float) -> GCode:
-    """指定秒数待機するコマンドを生成する.
-
-    Args:
-        seconds: 待機時間 [秒]
-
-    Returns:
-        待機のGCode。0秒の場合は空のGCode
-    """
-    if seconds <= 0:
-        return GCode()
-    return GCode(f"G4 P{int(seconds * 1000)}")
-
-
-def wait_for_done() -> GCode:
-    """すべての動作完了を待つコマンドを生成する."""
-    return GCode("M400")
-
-
-def present() -> GCode:
-    """基板を差し出すPRESENTマクロを実行するコマンドを生成する."""
-    return GCode(PRESENT_MACRO)
-
-
-def firmware_restart() -> GCode:
-    """Klipper のファームウェア再起動コマンドを生成する."""
-    return GCode("FIRMWARE_RESTART")
-
-
-def relax() -> GCode:
-    """モーターを脱力するコマンドを生成する."""
-    return GCode("M84")

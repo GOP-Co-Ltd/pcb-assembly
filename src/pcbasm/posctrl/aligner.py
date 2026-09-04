@@ -2,7 +2,7 @@
 
 import attrs
 
-from pcbasm import gcode
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Shift, Transform
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
 from pcbasm.posctrl.copper import CopperEdgeMatcher, CopperProjector, EdgeMatch
@@ -85,8 +85,8 @@ class RegionAligner:
                     z=self._focus_z,
                     speed=Speed.rate(0.5),
                 )
-                + gcode.wait(self._settle_time)
-                + gcode.wait_for_done()
+                + GCode.wait(self._settle_time)
+                + GCode.wait_for_done()
             )
             projector = self._projector.with_correction(Shift.from_point(cumulative))
             projection = projector.project(target)

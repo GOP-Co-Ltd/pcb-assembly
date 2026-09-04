@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pcbasm import gcode
+from pcbasm.gcode import GCode
 from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ProbedPoint,
@@ -173,7 +173,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
 
         with procedure.applicator() as applicator:
             # ペーストフェーズの直前に一度だけロードする。
-            klipper.send_gcode(stage.move(z=0.0) + gcode.wait_for_done())
+            klipper.send_gcode(stage.move(z=0.0) + GCode.wait_for_done())
             run_loading_loop(
                 ctx, klipper, stage, applicator, focus_z=calibration.z_position
             )

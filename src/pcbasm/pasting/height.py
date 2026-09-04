@@ -5,8 +5,8 @@ from collections.abc import Iterable
 
 from shapely.geometry import Polygon
 
-from pcbasm import gcode
 from pcbasm.config import Probe
+from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     HeightPlane,
     Point2d,
@@ -90,8 +90,8 @@ class _BoardPointProber:
                 y=probe_pt.y,
                 speed=Speed.absolute(self._move_velocity),
             )
-            + gcode.wait(self._move_settle_time)
-            + gcode.wait_for_done()
+            + GCode.wait(self._move_settle_time)
+            + GCode.wait_for_done()
         )
 
         z = self._probe_executor.probe()

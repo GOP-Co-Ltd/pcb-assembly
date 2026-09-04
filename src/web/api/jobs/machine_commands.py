@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from pcbasm import gcode
 from pcbasm.config import Machine
+from pcbasm.gcode import GCode
 from pcbasm.hal import Klipper, XYZStage
 from pcbasm.parking import move_to_cap
 from web.api.jobs.context import JobContext
@@ -60,33 +60,33 @@ def handle_machine_command(
                         z=distance if axis == "z" else None,
                         relative=True,
                     )
-                    + gcode.wait_for_done()
+                    + GCode.wait_for_done()
                 )
             case {"type": "home", "axes": list(axes)}:
                 klipper.send_gcode(
-                    gcode.homing(x="x" in axes, y="y" in axes, z="z" in axes)
-                    + gcode.wait_for_done()
+                    GCode.homing(x="x" in axes, y="y" in axes, z="z" in axes)
+                    + GCode.wait_for_done()
                 )
             case {"type": "move"}:
                 klipper.send_gcode(
                     stage.move(
                         x=command.get("x"), y=command.get("y"), z=command.get("z")
                     )
-                    + gcode.wait_for_done()
+                    + GCode.wait_for_done()
                 )
             case {"type": "relax"}:
-                klipper.send_gcode(gcode.relax())
+                klipper.send_gcode(GCode.relax())
             case {"type": "focus_z"}:
                 if focus_z is None:
                     ctx.log("フォーカスZが未設定のため移動しません")
                 else:
-                    klipper.send_gcode(stage.move(z=focus_z) + gcode.wait_for_done())
+                    klipper.send_gcode(stage.move(z=focus_z) + GCode.wait_for_done())
             case {"type": "move_to_cap"}:
                 cap = ctx.machine.nozzle_cap
                 if cap is None:
                     ctx.log("ノズルキャップ位置が未記録のため移動しません")
                 else:
-                    klipper.send_gcode(move_to_cap(stage, cap) + gcode.wait_for_done())
+                    klipper.send_gcode(move_to_cap(stage, cap) + GCode.wait_for_done())
             case _:
                 return False
     except ValueError as exc:

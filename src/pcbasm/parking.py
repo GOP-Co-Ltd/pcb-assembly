@@ -11,8 +11,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from pcbasm import gcode
 from pcbasm.config import Machine, NozzleCap
+from pcbasm.gcode import GCode
 from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 CAP_PARK_VELOCITY = 20.0
 
 
-def move_to_cap(stage: XYZStage, cap: NozzleCap) -> gcode.GCode:
+def move_to_cap(stage: XYZStage, cap: NozzleCap) -> GCode:
     """ノズルキャップ位置への移動コマンドを生成する.
 
     Z を 0 へ退避してからキャップ XY へ移動し、最後にキャップ Z へ下ろす。
@@ -41,7 +41,7 @@ def move_to_cap(stage: XYZStage, cap: NozzleCap) -> gcode.GCode:
     """
     speed = Speed.absolute(min(CAP_PARK_VELOCITY, stage.max_velocity))
     return (
-        gcode.GCode("G90")
+        GCode("G90")
         + stage.move(z=0.0, speed=speed)
         + stage.move(x=cap.x, y=cap.y, speed=speed)
         + stage.move(z=cap.z, speed=speed)
@@ -88,7 +88,7 @@ def park_or_present(
                     "PRESENT / relax (M84) にフォールバックします"
                 )
 
-    commands: gcode.GCode | None = None
+    commands: GCode | None = None
     if cap is not None:
         # クリーンアップ経路のため、可動域外（ValueError）や printer.cfg の
         # limits 設定不備（KeyError）は例外にせずフォールバックする。
@@ -106,6 +106,6 @@ def park_or_present(
         return
 
     klipper.send_gcode(
-        commands + gcode.wait_for_done() + gcode.relax(),
+        commands + GCode.wait_for_done() + GCode.relax(),
         timeout=timeout,
     )

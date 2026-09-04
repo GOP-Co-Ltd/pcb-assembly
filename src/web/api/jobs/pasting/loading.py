@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pcbasm import gcode
+from pcbasm.gcode import GCode
 from pcbasm.hal import XYZStage
 from pcbasm.pasting.applicator import build_applicator
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
@@ -98,7 +98,7 @@ def _run_loading(ctx: JobContext) -> JobResult:
 
     ctx.progress("ホーミング")
     ctx.log("全軸ホーミングを実行します")
-    klipper.send_gcode(gcode.homing(x=True, y=True, z=True) + gcode.wait_for_done())
+    klipper.send_gcode(GCode.homing(x=True, y=True, z=True) + GCode.wait_for_done())
 
     if target:
         position_label = ", ".join(
@@ -108,7 +108,7 @@ def _run_loading(ctx: JobContext) -> JobResult:
         ctx.log(f"ローディング位置へ移動します: {position_label}")
         klipper.send_gcode(
             stage.move(x=target.get("x"), y=target.get("y"), z=target.get("z"))
-            + gcode.wait_for_done()
+            + GCode.wait_for_done()
         )
 
     with build_applicator(klipper, stage, ctx.machine.paste_dispenser) as applicator:

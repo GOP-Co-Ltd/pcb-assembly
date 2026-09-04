@@ -10,8 +10,8 @@ from typing import Any
 import attrs
 import cv2
 
-from pcbasm import gcode
 from pcbasm.config import Machine
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
 from pcbasm.hal import Camera, Klipper, Speed, XYZStage
 from pcbasm.pcb import Layer, Pad
@@ -168,10 +168,10 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     )
 
     ctx.progress("ホーミング")
-    klipper.send_gcode(gcode.homing(x=True, y=True, z=True) + gcode.wait_for_done())
+    klipper.send_gcode(GCode.homing(x=True, y=True, z=True) + GCode.wait_for_done())
     if calibration.z_position is not None:
         ctx.log(f"カメラ Z 高さへ移動: {calibration.z_position:.3f} mm")
-        klipper.send_gcode(stage.move(z=calibration.z_position) + gcode.wait_for_done())
+        klipper.send_gcode(stage.move(z=calibration.z_position) + GCode.wait_for_done())
     else:
         ctx.log("キャリブレーションに Z 位置がありません。Z は移動しません")
 
@@ -351,7 +351,7 @@ def _move_to(
     """指定の機械座標へ移動し完了を待つ."""
     result.klipper.send_gcode(
         result.stage.move(x=machine_pt.x, y=machine_pt.y, speed=speed)
-        + gcode.wait_for_done()
+        + GCode.wait_for_done()
     )
 
 
