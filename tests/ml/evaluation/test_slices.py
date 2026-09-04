@@ -12,7 +12,6 @@ from ml.evaluation.slices import (
     DiagnosticReport,
     NumericDimension,
     SliceDimension,
-    build_diagnostic_report,
 )
 
 
@@ -42,7 +41,7 @@ def _report(
     dimensions: Sequence[SliceDimension] = (),
     reliability_bin_count: int = 5,
 ) -> DiagnosticReport:
-    report, reason = build_diagnostic_report(
+    report, reason = DiagnosticReport.build(
         predictions,
         dimensions=dimensions,
         reliability_bin_count=reliability_bin_count,
@@ -110,7 +109,7 @@ class TestNumericDimension:
         assert expected in error
 
 
-class TestBuildDiagnosticReport:
+class TestDiagnosticReportBuild:
     """全体 metric、次元別 slice、reliability bin をまとめる."""
 
     def test_reports_the_overall_metrics(self):
@@ -233,12 +232,12 @@ class TestBuildDiagnosticReport:
         dimension = CategoricalDimension(name="machine", values=("a",))
 
         with pytest.raises(ValueError, match="machine"):
-            build_diagnostic_report(
+            DiagnosticReport.build(
                 predictions, dimensions=[dimension], reliability_bin_count=2
             )
 
     def test_reports_a_reason_instead_of_a_report_when_nothing_is_valid(self):
-        report, reason = build_diagnostic_report(
+        report, reason = DiagnosticReport.build(
             _predictions([float("nan"), -1.0], [2.0, 2.0]), dimensions=()
         )
 

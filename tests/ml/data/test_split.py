@@ -4,14 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ml.data.split import (
-    SplitManifest,
-    SplitRatios,
-    build_leave_one_group_out_plan,
-    build_split_manifest,
-    load_split_manifest,
-    save_split_manifest,
-)
+from ml.data.split import LeaveOneGroupOutPlan, SplitManifest, SplitRatios
 
 FINGERPRINT = "sha256:0123456789abcdef"
 RATIOS = SplitRatios(train=0.7, validation=0.15, test=0.15)
@@ -26,7 +19,7 @@ def _sample_groups(group_count: int, samples_per_group: int = 3) -> dict[str, st
 
 
 def _manifest(sample_groups: dict[str, str], **overrides) -> SplitManifest:
-    manifest, error = build_split_manifest(
+    manifest, error = SplitManifest.build(
         sample_groups,
         **{
             "dataset_fingerprint": FINGERPRINT,
@@ -63,7 +56,7 @@ class TestSplitRatios:
         assert expected in error
 
 
-class TestBuildSplitManifest:
+class TestSplitManifestBuild:
     """Group を最小単位に分け、leakage を作らない."""
 
     def test_covers_every_sample_exactly_once(self):
@@ -130,7 +123,7 @@ class TestBuildSplitManifest:
     def test_reports_when_there_are_too_few_groups(
         self, group_count: int, require_test: bool, expected: str
     ):
-        manifest, error = build_split_manifest(
+        manifest, error = SplitManifest.build(
             _sample_groups(group_count),
             dataset_fingerprint=FINGERPRINT,
             seed=42,
@@ -143,7 +136,7 @@ class TestBuildSplitManifest:
         assert expected in error
 
 
-class TestValidateSplitManifest:
+class TestSplitManifestValidate:
     """既存 manifest を再利用する前の照合."""
 
     def test_accepts_a_manifest_built_from_the_same_dataset(self):
@@ -204,31 +197,31 @@ class TestValidateSplitManifest:
         assert "b.1" in error
 
 
-class TestSplitManifestFile:
+class TestSplitManifestSaveAndLoad:
     """Split manifest の保存と読み戻し."""
 
     def test_round_trips_through_a_file(self, tmp_path: Path):
         manifest = _manifest(_sample_groups(10))
         path = tmp_path / "split.json"
 
-        save_split_manifest(path, manifest)
-        loaded, error = load_split_manifest(path, dataset_fingerprint=FINGERPRINT)
+        manifest.save(path)
+        loaded, error = SplitManifest.load(path, dataset_fingerprint=FINGERPRINT)
 
         assert error is None
         assert loaded == manifest
 
     def test_rejects_a_manifest_of_another_dataset(self, tmp_path: Path):
         path = tmp_path / "split.json"
-        save_split_manifest(path, _manifest(_sample_groups(10)))
+        _manifest(_sample_groups(10)).save(path)
 
-        loaded, error = load_split_manifest(path, dataset_fingerprint="sha256:other")
+        loaded, error = SplitManifest.load(path, dataset_fingerprint="sha256:other")
 
         assert loaded is None
         assert error is not None
         assert "fingerprint" in error
 
     def test_reports_a_missing_file(self, tmp_path: Path):
-        loaded, error = load_split_manifest(
+        loaded, error = SplitManifest.load(
             tmp_path / "absent.json", dataset_fingerprint=FINGERPRINT
         )
 
@@ -237,7 +230,7 @@ class TestSplitManifestFile:
         assert "absent.json" in error
 
 
-class TestLeaveOneGroupOutPlan:
+class TestLeaveOneGroupOutPlanBuild:
     """次元ごとに 1 値を held-out にする交差検証計画."""
 
     def test_builds_one_fold_per_distinct_value(self):
@@ -248,7 +241,7 @@ class TestLeaveOneGroupOutPlan:
             "session-4": "machine-c",
         }
 
-        plan = build_leave_one_group_out_plan(group_values, dimension="machine", seed=1)
+        plan = LeaveOneGroupOutPlan.build(group_values, dimension="machine", seed=1)
 
         assert plan.available
         assert plan.reason is None
@@ -266,7 +259,7 @@ class TestLeaveOneGroupOutPlan:
             "session-4": "machine-c",
         }
 
-        plan = build_leave_one_group_out_plan(group_values, dimension="machine", seed=1)
+        plan = LeaveOneGroupOutPlan.build(group_values, dimension="machine", seed=1)
 
         held_out = next(
             fold for fold in plan.folds if fold.held_out_value == "machine-a"
@@ -280,13 +273,13 @@ class TestLeaveOneGroupOutPlan:
     def test_is_reproducible_for_the_same_seed(self):
         group_values = {f"session-{index}": f"lot-{index % 4}" for index in range(12)}
 
-        first = build_leave_one_group_out_plan(group_values, dimension="lot", seed=3)
-        second = build_leave_one_group_out_plan(group_values, dimension="lot", seed=3)
+        first = LeaveOneGroupOutPlan.build(group_values, dimension="lot", seed=3)
+        second = LeaveOneGroupOutPlan.build(group_values, dimension="lot", seed=3)
 
         assert first == second
 
     def test_reports_evaluation_is_impossible_with_a_single_value(self):
-        plan = build_leave_one_group_out_plan(
+        plan = LeaveOneGroupOutPlan.build(
             {"session-1": "machine-a", "session-2": "machine-a"},
             dimension="machine",
             seed=1,
@@ -298,7 +291,7 @@ class TestLeaveOneGroupOutPlan:
         assert plan.folds == ()
 
     def test_reports_when_a_fold_cannot_keep_train_and_validation(self):
-        plan = build_leave_one_group_out_plan(
+        plan = LeaveOneGroupOutPlan.build(
             {"session-1": "machine-a", "session-2": "machine-b"},
             dimension="machine",
             seed=1,

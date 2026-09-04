@@ -41,6 +41,23 @@ class ImageShape:
     def pixels(self) -> int:
         return self.height * self.width
 
+    def preprocessed(
+        self,
+        *,
+        constraints: ImageConstraints,
+        parameters: AugmentationParameters,
+    ) -> ImageShape:
+        """前処理後の高さ・幅を返す.
+
+        極端に細長い画像を正方形へ歪めず、等方 scale だけで縮める。
+        """
+
+        scale = _applied_scale(self, constraints=constraints, parameters=parameters)
+        return ImageShape(
+            height=max(1, math.floor(self.height * scale)),
+            width=max(1, math.floor(self.width * scale)),
+        )
+
 
 @attrs.frozen
 class ImageConstraints:
@@ -90,6 +107,28 @@ class AugmentationRange:
             )
         return None
 
+    def parameters_for(
+        self, *, sample_id: str, global_seed: int, epoch: int
+    ) -> AugmentationParameters:
+        """``(global_seed, epoch, sample_id)`` から決定論的に変換を決める.
+
+        大域的な乱数状態には依存させない。
+
+        worker 数や中断再開で同じ sample の変換が変わらないようにするため。
+        """
+
+        unit_scale = self.minimum_scale == 1.0 and self.maximum_scale == 1.0
+        if not self.rotation_enabled and unit_scale:
+            return NO_AUGMENTATION
+        generator = random.Random(_derived_seed(f"{global_seed}:{epoch}:{sample_id}"))
+        rotation = (
+            generator.random() * _FULL_TURN_DEGREES if self.rotation_enabled else 0.0
+        )
+        minimum = math.log(self.minimum_scale)
+        maximum = math.log(self.maximum_scale)
+        scale = math.exp(minimum + generator.random() * (maximum - minimum))
+        return AugmentationParameters(rotation_degrees=rotation, scale=scale)
+
 
 @attrs.frozen
 class AugmentationParameters:
@@ -113,34 +152,75 @@ class PreprocessedSample:
     valid_mask: Tensor
     scale: float
 
+    @classmethod
+    def preprocess(
+        cls,
+        images: Sequence[Tensor],
+        *,
+        constraints: ImageConstraints,
+        parameters: AugmentationParameters,
+        eps: float = 1e-5,
+    ) -> tuple[PreprocessedSample | None, str | None]:
+        """同じ大きさの RGB 画像列を 1 個の標準化済み tensor へまとめる."""
 
-def augmentation_parameters(
-    *,
-    sample_id: str,
-    global_seed: int,
-    epoch: int,
-    augmentation: AugmentationRange,
-) -> AugmentationParameters:
-    """``(global_seed, epoch, sample_id)`` から決定論的に変換を決める.
+        if error := _validate_image_stack(images):
+            return None, error
+        original = ImageShape(int(images[0].shape[1]), int(images[0].shape[2]))
+        target = original.preprocessed(constraints=constraints, parameters=parameters)
+        if min(target.height, target.width) < constraints.minimum_size:
+            return None, (
+                "前処理後の画像が minimum_size を下回ります: "
+                f"{target.height}x{target.width} < {constraints.minimum_size}"
+            )
 
-    大域的な乱数状態には依存させない。
+        resized = [
+            transforms.resize(
+                image,
+                [target.height, target.width],
+                interpolation=InterpolationMode.BILINEAR,
+                antialias=True,
+            )
+            for image in images
+        ]
+        valid = torch.ones((1, target.height, target.width), dtype=torch.uint8)
+        if parameters.rotation_degrees:
+            resized = [
+                transforms.rotate(
+                    image,
+                    parameters.rotation_degrees,
+                    interpolation=InterpolationMode.BILINEAR,
+                )
+                for image in resized
+            ]
+            # rotate は tensor 入力で nearest-exact を受け付けない。mask は resize 後の
+            # 全 true から作るので、補間が問題になるのは回転だけであり nearest で足りる。
+            valid = transforms.rotate(
+                valid,
+                parameters.rotation_degrees,
+                interpolation=InterpolationMode.NEAREST,
+            )
+        valid_mask = valid > 0
 
-    worker 数や中断再開で同じ sample の変換が変わらないようにするため。
-    """
-
-    unit_scale = augmentation.minimum_scale == 1.0 and augmentation.maximum_scale == 1.0
-    if not augmentation.rotation_enabled and unit_scale:
-        return NO_AUGMENTATION
-    generator = random.Random(_derived_seed(f"{global_seed}:{epoch}:{sample_id}"))
-    rotation = (
-        generator.random() * _FULL_TURN_DEGREES
-        if augmentation.rotation_enabled
-        else 0.0
-    )
-    minimum = math.log(augmentation.minimum_scale)
-    maximum = math.log(augmentation.maximum_scale)
-    scale = math.exp(minimum + generator.random() * (maximum - minimum))
-    return AugmentationParameters(rotation_degrees=rotation, scale=scale)
+        stacked = torch.cat(
+            [
+                transforms.to_dtype(image, torch.float32, scale=True)
+                for image in resized
+            ],
+            dim=0,
+        )
+        normalized, error = sample_layer_norm(stacked, valid_mask=valid_mask, eps=eps)
+        if normalized is None:
+            return None, error
+        return (
+            cls(
+                image=normalized,
+                valid_mask=valid_mask,
+                scale=_applied_scale(
+                    original, constraints=constraints, parameters=parameters
+                ),
+            ),
+            None,
+        )
 
 
 def _constraint_scale(shape: ImageShape, *, constraints: ImageConstraints) -> float:
@@ -164,24 +244,6 @@ def _applied_scale(
 
     limit = _constraint_scale(shape, constraints=constraints)
     return min(limit, min(1.0, limit) * parameters.scale)
-
-
-def preprocessed_shape(
-    shape: ImageShape,
-    *,
-    constraints: ImageConstraints,
-    parameters: AugmentationParameters,
-) -> ImageShape:
-    """前処理後の高さ・幅を返す.
-
-    極端に細長い画像を正方形へ歪めず、等方 scale だけで縮める。
-    """
-
-    scale = _applied_scale(shape, constraints=constraints, parameters=parameters)
-    return ImageShape(
-        height=max(1, math.floor(shape.height * scale)),
-        width=max(1, math.floor(shape.width * scale)),
-    )
 
 
 def decode_rgb_image(path: Path) -> Tensor:
@@ -222,74 +284,6 @@ def sample_layer_norm(
         return None, f"分散が小さすぎます: {float(variance.item()):.3e}"
     normalized = (values - mean) / torch.sqrt(variance + eps)
     return torch.where(expanded, normalized, zero), None
-
-
-def preprocess_image_stack(
-    images: Sequence[Tensor],
-    *,
-    constraints: ImageConstraints,
-    parameters: AugmentationParameters,
-    eps: float = 1e-5,
-) -> tuple[PreprocessedSample | None, str | None]:
-    """同じ大きさの RGB 画像列を 1 個の標準化済み tensor へまとめる."""
-
-    if error := _validate_image_stack(images):
-        return None, error
-    original = ImageShape(int(images[0].shape[1]), int(images[0].shape[2]))
-    target = preprocessed_shape(
-        original, constraints=constraints, parameters=parameters
-    )
-    if min(target.height, target.width) < constraints.minimum_size:
-        return None, (
-            "前処理後の画像が minimum_size を下回ります: "
-            f"{target.height}x{target.width} < {constraints.minimum_size}"
-        )
-
-    resized = [
-        transforms.resize(
-            image,
-            [target.height, target.width],
-            interpolation=InterpolationMode.BILINEAR,
-            antialias=True,
-        )
-        for image in images
-    ]
-    valid = torch.ones((1, target.height, target.width), dtype=torch.uint8)
-    if parameters.rotation_degrees:
-        resized = [
-            transforms.rotate(
-                image,
-                parameters.rotation_degrees,
-                interpolation=InterpolationMode.BILINEAR,
-            )
-            for image in resized
-        ]
-        # rotate は tensor 入力で nearest-exact を受け付けない。mask は resize 後の
-        # 全 true から作るので、補間が問題になるのは回転だけであり nearest で足りる。
-        valid = transforms.rotate(
-            valid,
-            parameters.rotation_degrees,
-            interpolation=InterpolationMode.NEAREST,
-        )
-    valid_mask = valid > 0
-
-    stacked = torch.cat(
-        [transforms.to_dtype(image, torch.float32, scale=True) for image in resized],
-        dim=0,
-    )
-    normalized, error = sample_layer_norm(stacked, valid_mask=valid_mask, eps=eps)
-    if normalized is None:
-        return None, error
-    return (
-        PreprocessedSample(
-            image=normalized,
-            valid_mask=valid_mask,
-            scale=_applied_scale(
-                original, constraints=constraints, parameters=parameters
-            ),
-        ),
-        None,
-    )
 
 
 def _validate_image_stack(images: Sequence[Tensor]) -> str | None:
@@ -335,9 +329,6 @@ __all__ = [
     "ImageConstraints",
     "ImageShape",
     "PreprocessedSample",
-    "augmentation_parameters",
     "decode_rgb_image",
-    "preprocess_image_stack",
-    "preprocessed_shape",
     "sample_layer_norm",
 ]

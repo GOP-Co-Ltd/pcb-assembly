@@ -7,12 +7,8 @@ import pytest
 from ml.artifact.fingerprint import sha256_bytes
 from ml.artifact.package import (
     CHECKSUM_FILENAME,
+    ActivePointer,
     ImmutablePackage,
-    load_active_pointer,
-    publish_immutable_package,
-    rollback_active_pointer,
-    switch_active_pointer,
-    verify_immutable_package,
 )
 
 PAYLOAD = {"model.onnx": b"onnx-bytes", "manifest.json": b'{"kind":"ml-test"}\n'}
@@ -24,7 +20,7 @@ def _write_payload(directory: Path) -> None:
 
 
 def _publish(destination: Path) -> ImmutablePackage:
-    return publish_immutable_package(
+    return ImmutablePackage.publish(
         destination,
         payload_filenames=PAYLOAD,
         write_payloads=_write_payload,
@@ -35,7 +31,7 @@ def _visible_names(directory: Path) -> list[str]:
     return sorted(entry.name for entry in directory.iterdir())
 
 
-class TestPublishImmutablePackage:
+class TestImmutablePackagePublish:
     """完成後に 1 度だけ rename する公開手順."""
 
     def test_publishes_payload_and_checksum_file(self, tmp_path: Path):
@@ -74,7 +70,7 @@ class TestPublishImmutablePackage:
             raise RuntimeError("payload 生成に失敗")
 
         with pytest.raises(RuntimeError, match="payload 生成に失敗"):
-            publish_immutable_package(
+            ImmutablePackage.publish(
                 tmp_path / "model-v1",
                 payload_filenames=PAYLOAD,
                 write_payloads=fail,
@@ -84,7 +80,7 @@ class TestPublishImmutablePackage:
 
     def test_rejects_a_writer_that_omits_a_declared_file(self, tmp_path: Path):
         with pytest.raises(ValueError, match="manifest.json"):
-            publish_immutable_package(
+            ImmutablePackage.publish(
                 tmp_path / "model-v1",
                 payload_filenames=PAYLOAD,
                 write_payloads=lambda directory: (directory / "model.onnx").write_bytes(
@@ -100,7 +96,7 @@ class TestPublishImmutablePackage:
             (directory / "notes.txt").write_bytes(b"extra")
 
         with pytest.raises(ValueError, match="notes.txt"):
-            publish_immutable_package(
+            ImmutablePackage.publish(
                 tmp_path / "model-v1",
                 payload_filenames=PAYLOAD,
                 write_payloads=write_extra,
@@ -117,7 +113,7 @@ class TestPublishImmutablePackage:
             (directory / "model.onnx").symlink_to(outside)
 
         with pytest.raises(ValueError, match="model.onnx"):
-            publish_immutable_package(
+            ImmutablePackage.publish(
                 tmp_path / "model-v1",
                 payload_filenames=PAYLOAD,
                 write_payloads=write_symlink,
@@ -128,20 +124,20 @@ class TestPublishImmutablePackage:
     )
     def test_rejects_unusable_payload_names(self, tmp_path: Path, filename: str):
         with pytest.raises(ValueError):
-            publish_immutable_package(
+            ImmutablePackage.publish(
                 tmp_path / "model-v1",
                 payload_filenames=[filename],
                 write_payloads=_write_payload,
             )
 
 
-class TestVerifyImmutablePackage:
+class TestImmutablePackageVerify:
     """公開済みパッケージの改竄検出."""
 
     def test_accepts_an_untouched_package(self, tmp_path: Path):
         published = _publish(tmp_path / "model-v1")
 
-        verified, error = verify_immutable_package(published.path)
+        verified, error = ImmutablePackage.verify(published.path)
 
         assert error is None
         assert verified is not None
@@ -151,7 +147,7 @@ class TestVerifyImmutablePackage:
         published = _publish(tmp_path / "model-v1")
         (published.path / "model.onnx").write_bytes(b"tampered")
 
-        verified, error = verify_immutable_package(published.path)
+        verified, error = ImmutablePackage.verify(published.path)
 
         assert verified is None
         assert error is not None
@@ -161,7 +157,7 @@ class TestVerifyImmutablePackage:
         published = _publish(tmp_path / "model-v1")
         (published.path / "manifest.json").unlink()
 
-        verified, error = verify_immutable_package(published.path)
+        verified, error = ImmutablePackage.verify(published.path)
 
         assert verified is None
         assert error is not None
@@ -171,7 +167,7 @@ class TestVerifyImmutablePackage:
         published = _publish(tmp_path / "model-v1")
         (published.path / "notes.txt").write_bytes(b"extra")
 
-        verified, error = verify_immutable_package(published.path)
+        verified, error = ImmutablePackage.verify(published.path)
 
         assert verified is None
         assert error is not None
@@ -181,7 +177,7 @@ class TestVerifyImmutablePackage:
         published = _publish(tmp_path / "model-v1")
         (published.path / CHECKSUM_FILENAME).unlink()
 
-        verified, error = verify_immutable_package(published.path)
+        verified, error = ImmutablePackage.verify(published.path)
 
         assert verified is None
         assert error is not None
@@ -192,7 +188,7 @@ class TestVerifyImmutablePackage:
         (published.path / "model.onnx").unlink()
         (published.path / "model.onnx").mkdir()
 
-        verified, error = verify_immutable_package(published.path)
+        verified, error = ImmutablePackage.verify(published.path)
 
         assert verified is None
         assert error is not None
@@ -204,14 +200,14 @@ class TestVerifyImmutablePackage:
             "not-a-digest  model.onnx\n", encoding="utf-8"
         )
 
-        verified, error = verify_immutable_package(published.path)
+        verified, error = ImmutablePackage.verify(published.path)
 
         assert verified is None
         assert error is not None
         assert CHECKSUM_FILENAME in error
 
     def test_reports_a_missing_package_directory(self, tmp_path: Path):
-        verified, error = verify_immutable_package(tmp_path / "absent")
+        verified, error = ImmutablePackage.verify(tmp_path / "absent")
 
         assert verified is None
         assert error is not None
@@ -220,7 +216,7 @@ class TestVerifyImmutablePackage:
     def test_reports_an_unexpected_file_set(self, tmp_path: Path):
         published = _publish(tmp_path / "model-v1")
 
-        verified, error = verify_immutable_package(
+        verified, error = ImmutablePackage.verify(
             published.path, expected_filenames=["model.onnx", "preprocess.json"]
         )
 
@@ -236,7 +232,7 @@ class TestActivePointer:
         package = _publish(tmp_path / "model-v1")
         pointer_file = tmp_path / "active-model.json"
 
-        active, error = switch_active_pointer(pointer_file, package.path)
+        active, error = ActivePointer.switch(pointer_file, package.path)
 
         assert error is None
         assert active is not None
@@ -247,9 +243,9 @@ class TestActivePointer:
         first = _publish(tmp_path / "model-v1")
         second = _publish(tmp_path / "model-v2")
         pointer_file = tmp_path / "active-model.json"
-        switch_active_pointer(pointer_file, first.path)
+        ActivePointer.switch(pointer_file, first.path)
 
-        active, error = switch_active_pointer(pointer_file, second.path)
+        active, error = ActivePointer.switch(pointer_file, second.path)
 
         assert error is None
         assert active is not None
@@ -260,10 +256,10 @@ class TestActivePointer:
         first = _publish(tmp_path / "model-v1")
         second = _publish(tmp_path / "model-v2")
         pointer_file = tmp_path / "active-model.json"
-        switch_active_pointer(pointer_file, first.path)
-        switch_active_pointer(pointer_file, second.path)
+        ActivePointer.switch(pointer_file, first.path)
+        ActivePointer.switch(pointer_file, second.path)
 
-        active, error = switch_active_pointer(pointer_file, second.path)
+        active, error = ActivePointer.switch(pointer_file, second.path)
 
         assert error is None
         assert active is not None
@@ -274,7 +270,7 @@ class TestActivePointer:
         (package.path / "model.onnx").write_bytes(b"tampered")
         pointer_file = tmp_path / "active-model.json"
 
-        active, error = switch_active_pointer(pointer_file, package.path)
+        active, error = ActivePointer.switch(pointer_file, package.path)
 
         assert active is None
         assert error is not None
@@ -284,20 +280,20 @@ class TestActivePointer:
         package = _publish(tmp_path / "model-v1")
 
         with pytest.raises(ValueError):
-            switch_active_pointer(package.path / "active.json", package.path)
+            ActivePointer.switch(package.path / "active.json", package.path)
 
     def test_loads_back_the_recorded_pointer(self, tmp_path: Path):
         package = _publish(tmp_path / "model-v1")
         pointer_file = tmp_path / "active-model.json"
-        written, _ = switch_active_pointer(pointer_file, package.path)
+        written, _ = ActivePointer.switch(pointer_file, package.path)
 
-        loaded, error = load_active_pointer(pointer_file)
+        loaded, error = ActivePointer.load(pointer_file)
 
         assert error is None
         assert loaded == written
 
     def test_reports_a_missing_pointer(self, tmp_path: Path):
-        loaded, error = load_active_pointer(tmp_path / "active-model.json")
+        loaded, error = ActivePointer.load(tmp_path / "active-model.json")
 
         assert loaded is None
         assert error is not None
@@ -307,10 +303,10 @@ class TestActivePointer:
         first = _publish(tmp_path / "model-v1")
         second = _publish(tmp_path / "model-v2")
         pointer_file = tmp_path / "active-model.json"
-        switch_active_pointer(pointer_file, first.path)
-        switch_active_pointer(pointer_file, second.path)
+        ActivePointer.switch(pointer_file, first.path)
+        ActivePointer.switch(pointer_file, second.path)
 
-        rolled_back, error = rollback_active_pointer(pointer_file)
+        rolled_back, error = ActivePointer.rollback(pointer_file)
 
         assert error is None
         assert rolled_back is not None
@@ -320,9 +316,9 @@ class TestActivePointer:
     def test_rollback_reports_when_there_is_no_predecessor(self, tmp_path: Path):
         package = _publish(tmp_path / "model-v1")
         pointer_file = tmp_path / "active-model.json"
-        switch_active_pointer(pointer_file, package.path)
+        ActivePointer.switch(pointer_file, package.path)
 
-        rolled_back, error = rollback_active_pointer(pointer_file)
+        rolled_back, error = ActivePointer.rollback(pointer_file)
 
         assert rolled_back is None
         assert error is not None
