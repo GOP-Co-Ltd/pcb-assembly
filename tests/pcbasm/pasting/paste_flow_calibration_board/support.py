@@ -1,6 +1,6 @@
 """流量キャリブレーション基板テストの共有実データ識別子."""
 
-from pcbasm.pasting.paste_flow_calibration_board import (
+from pcbasm.pasting.paste_flow_calibration_board.config import (
     PasteFlowCalibrationCustomPadShapeId,
     PasteFlowCalibrationCustomPadSpec,
 )

@@ -7,13 +7,12 @@ from typing import Annotated, Self
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from pcbasm.pasting.paste_flow_calibration_board import (
+from pcbasm.pasting.paste_flow_calibration_board.config import (
     PASTE_FLOW_CALIBRATION_BOARD_KIND,
     PASTE_FLOW_CALIBRATION_BOARD_SCHEMA_VERSION,
     PASTE_FLOW_CALIBRATION_CUSTOM_PAD_SHAPES,
     PasteFlowCalibrationBoardConfig,
     PasteFlowCalibrationBoardKind,
-    PasteFlowCalibrationBoardPreview,
     PasteFlowCalibrationBoardSchemaVersion,
     PasteFlowCalibrationBoardSpec,
     PasteFlowCalibrationCustomPadDraft,
@@ -23,6 +22,9 @@ from pcbasm.pasting.paste_flow_calibration_board import (
     PasteFlowCalibrationPreviewLayer,
     PasteFlowCalibrationPurgePadSpec,
     parse_paste_flow_calibration_board_document,
+)
+from pcbasm.pasting.paste_flow_calibration_board.generator import (
+    PasteFlowCalibrationBoardPreview,
 )
 from web.api.dependencies import PasteFlowCalibrationBoardGeneratorDep
 

@@ -1,4 +1,4 @@
-"""merge_islands / transform_polygon のテスト."""
+"""pcbasm.geometry.polygon のテスト."""
 
 import pytest
 from shapely import Polygon
@@ -11,7 +11,11 @@ from pcbasm.geometry import (
     Rotation,
     Shift,
     Transform,
+    clip_segment,
+    exterior_points,
     merge_islands,
+    offset_components,
+    oriented_bbox,
     transform_polygon,
 )
 
@@ -148,3 +152,93 @@ class TestTransformPolygon:
         result = transform_polygon(donut, Identity())
 
         assert result.equals(donut)
+
+
+class TestExteriorPoints:
+    def test_returns_closed_ring_of_point2d(self):
+        points = exterior_points(_rectangle(0.0, 0.0, 2.0, 1.0))
+        assert points[0] == points[-1]
+        assert len(points) == 5
+        assert {(p.x, p.y) for p in points} == {(0, 0), (2, 0), (2, 1), (0, 1)}
+
+    def test_ignores_interior_holes(self):
+        points = exterior_points(_donut())
+        assert all(p.x in (0.0, 10.0) or p.y in (0.0, 10.0) for p in points)
+
+
+class TestOffsetComponents:
+    def test_zero_depth_returns_input_polygon(self):
+        rect = _rectangle(0.0, 0.0, 2.0, 1.0)
+        assert offset_components(rect, 0.0) == [rect]
+
+    def test_splits_dumbbell_into_two_components(self):
+        dumbbell = (
+            _rectangle(0.0, 0.0, 2.0, 2.0)
+            .union(_rectangle(1.9, 0.9, 4.0, 1.1))
+            .union(_rectangle(3.9, 0.0, 6.0, 2.0))
+        )
+        assert isinstance(dumbbell, Polygon)
+        components = offset_components(dumbbell, 0.3)
+        assert len(components) == 2
+        assert all(c.area > 0 for c in components)
+
+    def test_returns_empty_when_offset_eliminates_polygon(self):
+        assert offset_components(_rectangle(0.0, 0.0, 1.0, 1.0), 1.0) == []
+
+
+class TestOrientedBbox:
+    def test_axis_aligned_rectangle(self):
+        box = oriented_bbox(_rectangle(0.0, 0.0, 4.0, 1.0))
+        assert box is not None
+        assert box.long_length == pytest.approx(4.0)
+        assert box.short_length == pytest.approx(1.0)
+
+    def test_rotated_rectangle_is_rotation_invariant(self):
+        from shapely.affinity import rotate
+
+        box = oriented_bbox(rotate(_rectangle(0.0, 0.0, 4.0, 1.0), 37.0))
+        assert box is not None
+        assert box.long_length == pytest.approx(4.0)
+        assert box.short_length == pytest.approx(1.0)
+
+    def test_center_line_runs_along_long_axis(self):
+        box = oriented_bbox(_rectangle(0.0, 0.0, 4.0, 1.0))
+        assert box is not None
+        start, end = box.center_line()
+        assert (end - start).norm == pytest.approx(4.0)
+        assert start.y == pytest.approx(0.5)
+        assert end.y == pytest.approx(0.5)
+        assert sorted([start.x, end.x]) == pytest.approx([0.0, 4.0])
+
+    @pytest.mark.parametrize("polygon", [Polygon(), Polygon([(0, 0), (1, 1), (2, 2)])])
+    def test_degenerate_polygon_returns_none(self, polygon: Polygon):
+        assert oriented_bbox(polygon) is None
+
+
+class TestClipSegment:
+    def test_single_interval_ordered_along_direction(self):
+        rect = _rectangle(1.0, 0.0, 3.0, 1.0)
+        intervals = clip_segment(rect, Point2d(0.0, 0.5), Point2d(4.0, 0.5))
+        assert len(intervals) == 1
+        start, end = intervals[0]
+        assert (start.x, end.x) == (pytest.approx(1.0), pytest.approx(3.0))
+
+    def test_reversed_direction_reverses_interval_ends(self):
+        rect = _rectangle(1.0, 0.0, 3.0, 1.0)
+        ((start, end),) = clip_segment(rect, Point2d(4.0, 0.5), Point2d(0.0, 0.5))
+        assert (start.x, end.x) == (pytest.approx(3.0), pytest.approx(1.0))
+
+    def test_concave_polygon_yields_sorted_intervals(self):
+        u_shape = Polygon(
+            [(0, 0), (5, 0), (5, 3), (4, 3), (4, 1), (1, 1), (1, 3), (0, 3)]
+        )
+        intervals = clip_segment(u_shape, Point2d(-1.0, 2.0), Point2d(6.0, 2.0))
+        assert [(round(a.x, 6), round(b.x, 6)) for a, b in intervals] == [
+            (0.0, 1.0),
+            (4.0, 5.0),
+        ]
+
+    def test_no_intersection_or_zero_length_returns_empty(self):
+        rect = _rectangle(0.0, 0.0, 1.0, 1.0)
+        assert clip_segment(rect, Point2d(0.0, 5.0), Point2d(1.0, 5.0)) == []
+        assert clip_segment(rect, Point2d(0.5, 0.5), Point2d(0.5, 0.5)) == []

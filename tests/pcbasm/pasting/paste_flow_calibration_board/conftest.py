@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pcbasm.pasting.paste_flow_calibration_board import (
+from pcbasm.pasting.paste_flow_calibration_board.generator import (
     PasteFlowCalibrationBoardGenerator,
 )
 

@@ -13,11 +13,13 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
-from pcbasm.pasting.paste_flow_calibration_board import (
+from pcbasm.pasting.paste_flow_calibration_board.config import (
     PasteFlowCalibrationBoardConfigError,
     PasteFlowCalibrationBoardEnvironmentError,
-    PasteFlowCalibrationBoardGenerator,
     PasteFlowCalibrationBoardOverflowError,
+)
+from pcbasm.pasting.paste_flow_calibration_board.generator import (
+    PasteFlowCalibrationBoardGenerator,
 )
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore, UnknownFieldError

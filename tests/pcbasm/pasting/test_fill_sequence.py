@@ -21,7 +21,8 @@ from pytest_mock import MockerFixture
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import Speed
-from pcbasm.pasting import FillSequence, rate_sweep_amount
+from pcbasm.pasting.dispense_calibration import rate_sweep_amount
+from pcbasm.pasting.fill_sequence import FillSequence
 
 
 @pytest.fixture

@@ -30,7 +30,7 @@ from pathlib import Path
 import attrs
 
 from pcbasm.config import PasteDispenser
-from pcbasm.pasting import (
+from pcbasm.pasting.settings import (
     PASTE_OVERRIDE_FIELDS,
     LevelSetting,
     PasteOverride,

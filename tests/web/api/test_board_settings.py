@@ -31,11 +31,7 @@ from shapely import Polygon
 
 from pcbasm.config import PasteDispenser, Toolhead
 from pcbasm.geometry import Point2d
-from pcbasm.pasting import (
-    LevelSetting,
-    PasteOverride,
-    PasteSettingsModel,
-)
+from pcbasm.pasting.settings import LevelSetting, PasteOverride, PasteSettingsModel
 from pcbasm.pcb import Component, Layer, Pad, build_pad_hierarchy
 from web.api.board_settings import BoardSettingsStore
 
