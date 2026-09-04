@@ -43,6 +43,51 @@ class PaddedBatch:
     images: Tensor
     valid_pixel_masks: Tensor
 
+    @classmethod
+    def pad(
+        cls,
+        images: Sequence[Tensor],
+        valid_masks: Sequence[Tensor],
+        *,
+        placement_seeds: Sequence[int],
+        training: bool = False,
+        stride: int = 32,
+    ) -> PaddedBatch:
+        """CHW 画像を batch 内の最大サイズへ stride 揃えで padding する.
+
+        学習時は配置位置を ``placement_seeds`` から決定論的にずらし、評価時は中央へ
+        置く。padding 値そのものには意味を持たせず、model 側が
+        ``valid_pixel_masks`` を見て学習可能な padding pixel へ置き換える。
+        """
+
+        _validate_batch_inputs(images, valid_masks, placement_seeds, stride)
+        channels = int(images[0].shape[0])
+        height = _ceil_to(max(int(image.shape[1]) for image in images), stride)
+        width = _ceil_to(max(int(image.shape[2]) for image in images), stride)
+        padded_images = torch.zeros(
+            (len(images), channels, height, width),
+            dtype=images[0].dtype,
+            device=images[0].device,
+        )
+        padded_masks = torch.zeros(
+            (len(images), 1, height, width), dtype=torch.bool, device=images[0].device
+        )
+        for index, (image, mask, placement_seed) in enumerate(
+            zip(images, valid_masks, placement_seeds, strict=True)
+        ):
+            top, left = _placement(
+                image,
+                height=height,
+                width=width,
+                seed=placement_seed,
+                training=training,
+            )
+            rows = slice(top, top + int(image.shape[1]))
+            columns = slice(left, left + int(image.shape[2]))
+            padded_images[index, :, rows, columns] = image
+            padded_masks[index, :, rows, columns] = mask
+        return cls(images=padded_images, valid_pixel_masks=padded_masks)
+
 
 def plan_pixel_budget_batches(
     shapes: Sequence[BatchShape],
@@ -86,46 +131,6 @@ def plan_pixel_budget_batches(
             )
         )
     return tuple(plan)
-
-
-def pad_image_samples(
-    images: Sequence[Tensor],
-    valid_masks: Sequence[Tensor],
-    *,
-    placement_seeds: Sequence[int],
-    training: bool = False,
-    stride: int = 32,
-) -> PaddedBatch:
-    """CHW 画像を batch 内の最大サイズへ stride 揃えで padding する.
-
-    学習時は配置位置を ``placement_seeds`` から決定論的にずらし、評価時は中央へ
-    置く。padding 値そのものには意味を持たせず、model 側が
-    ``valid_pixel_masks`` を見て学習可能な padding pixel へ置き換える。
-    """
-
-    _validate_batch_inputs(images, valid_masks, placement_seeds, stride)
-    channels = int(images[0].shape[0])
-    height = _ceil_to(max(int(image.shape[1]) for image in images), stride)
-    width = _ceil_to(max(int(image.shape[2]) for image in images), stride)
-    padded_images = torch.zeros(
-        (len(images), channels, height, width),
-        dtype=images[0].dtype,
-        device=images[0].device,
-    )
-    padded_masks = torch.zeros(
-        (len(images), 1, height, width), dtype=torch.bool, device=images[0].device
-    )
-    for index, (image, mask, placement_seed) in enumerate(
-        zip(images, valid_masks, placement_seeds, strict=True)
-    ):
-        top, left = _placement(
-            image, height=height, width=width, seed=placement_seed, training=training
-        )
-        rows = slice(top, top + int(image.shape[1]))
-        columns = slice(left, left + int(image.shape[2]))
-        padded_images[index, :, rows, columns] = image
-        padded_masks[index, :, rows, columns] = mask
-    return PaddedBatch(images=padded_images, valid_pixel_masks=padded_masks)
 
 
 def _bucket_key(shape: BatchShape) -> tuple[int, int]:
@@ -221,6 +226,5 @@ def _ceil_to(value: int, multiple: int) -> int:
 __all__ = [
     "BatchShape",
     "PaddedBatch",
-    "pad_image_samples",
     "plan_pixel_budget_batches",
 ]
