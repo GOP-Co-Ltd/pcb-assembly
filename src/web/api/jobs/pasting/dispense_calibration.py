@@ -24,7 +24,6 @@ from pcbasm.pasting.flowcalib.lines import (
     LineLayout,
     plan_rate_sweep,
     plan_speed_sweep,
-    validate_line_layout,
 )
 from pcbasm.pasting.flowcalib.params import CalibrationParams
 from pcbasm.pasting.flowcalib.procedure import FlowCalibrationProcedure
@@ -225,7 +224,7 @@ def _run_dispense_calibration(ctx: JobContext) -> JobResult:
     # 開始時点の設定で ①（line_count 本）②（レート掃引点数）③（速度掃引点数）の
     # いずれかが銅板に収まらない場合はセットアップ前に失敗させる
     # （線パラメータは実行中変更可のため、各キャリブ開始時にも再検証する）。
-    message = validate_line_layout(params.line_layout(params.required_line_count))
+    message = params.line_layout(params.required_line_count).validate()
     if message is not None:
         raise ValueError(message)
 
@@ -376,7 +375,7 @@ def _line_layout(ctx: JobContext, params: CalibrationParams) -> LineLayout:
         CalibrationCancelled: 線が銅板の描画領域に収まらない場合
     """
     layout = params.line_layout()
-    if (message := validate_line_layout(layout)) is not None:
+    if (message := layout.validate()) is not None:
         ctx.log(message)
         raise CalibrationCancelled()
     return layout
