@@ -1,32 +1,29 @@
-"""build_paste_fill_path のテスト.
+"""build_fill_plan / build_pad_fill_plan のテスト.
 
-公開 API は :func:`build_paste_fill_path` のみ。面塗布（外周＋牛耕式ジグザグ）・
-線塗布・点塗布のフォールバック階層は「ポリゴン形状 × ノズル径」の組み合わせで
-誘発し、公開 API 経由で振る舞い（戻り値の契約）を検証する。内部ヘルパーは
-直接呼ばない。
+面塗布（外周＋牛耕式ジグザグ）・線塗布・点塗布のフォールバック階層は
+「ポリゴン形状 × ノズル径」の組み合わせで誘発し、公開 API 経由で振る舞い
+（戻り値の契約）を検証する。内部ヘルパーは直接呼ばない。
 
-戻り値は成分別ポリラインのリスト ``list[list[Point2d]]``。各内側 ``list[Point2d]``
-が 1 連結成分のポリラインを表す。
+``FillPlan.paths`` は成分別ポリラインの tuple。テスト内の ``build_paste_fill_path``
+は既存の面塗布契約テストのために paths を list で返す薄いラッパ。
 
 しきい値はハードコードせず、形状・ノズル径・overlap・margin を parametrize して
 そこから導出する（契約メモ §5）。
 """
 
 import math
-from typing import Any, cast
+from typing import Any
 
+import attrs
 import pytest
 from shapely import LineString, Polygon
 from shapely.affinity import rotate
 from shapely.geometry import Point as ShapelyPoint
 
+from pcbasm.config import PasteDispenser as PasteDispenserConfig, Toolhead
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.fill_path import (
-    build_pad_fill_plan_for,
-    build_paste_fill_path as _build_paste_fill_path,
-    build_paste_fill_plan,
-)
-from pcbasm.pasting.settings import ResolvedPaste
+from pcbasm.pasting.fill_path import build_fill_plan, build_pad_fill_plan
+from pcbasm.pasting.params import PasteParams
 
 # セグメント内包・外周マージン判定の浮動小数誤差を吸収する微小バッファ（定数）。
 # ジグザグ端点が外周に乗るため、境界一致を covers が拾えるよう微小に膨らませる。
@@ -42,11 +39,30 @@ def build_paste_fill_path(
     nozzle_diameter: float,
     **kwargs: Any,
 ) -> list[list[Point2d]]:
-    """既存の面塗布契約テスト用に新 API の必須引数を明示する。"""
+    """既存の面塗布契約テスト用に必須引数を補い、paths を list で返す。"""
     kwargs.setdefault("dispense_mode", "area")
     kwargs.setdefault("auto_line_aspect_ratio", _AUTO_LINE_ASPECT_RATIO)
     kwargs.setdefault("auto_area_short_side_factor", _AUTO_AREA_SHORT_SIDE_FACTOR)
-    return _build_paste_fill_path(polygon, nozzle_diameter, **kwargs)
+    plan = build_fill_plan(polygon, nozzle_diameter, **kwargs)
+    return [list(path) for path in plan.paths]
+
+
+def _config(nozzle_diameter: float) -> PasteDispenserConfig:
+    return PasteDispenserConfig(
+        rotations_per_ul=45.0,
+        nozzle_diameter=nozzle_diameter,
+        max_fill_speed=2.0,
+        max_dispense_rate=5.0,
+        dispense_accel=10.0,
+        retract_amount=10.0,
+        retract_rate=10.0,
+        retract_accel_factor=2.0,
+        toolhead=Toolhead(x=0.0, y=0.0),
+        paste_height=0.5,
+        ul_per_mm2=0.05,
+        auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+        auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+    )
 
 
 def _rectangle(width: float, length: float) -> Polygon:
@@ -203,7 +219,7 @@ class TestDispenseModes:
     """塗布方式の明示指定と Auto 解決を公開 API 経由で検証する。"""
 
     def test_dot_mode_uses_representative_point(self):
-        plan = build_paste_fill_plan(
+        plan = build_fill_plan(
             _rectangle(10.0, 6.0),
             nozzle_diameter=1.0,
             dispense_mode="dot",
@@ -216,7 +232,7 @@ class TestDispenseModes:
         assert len(plan.paths[0]) == 1
 
     def test_line_mode_uses_long_axis_centerline(self):
-        plan = build_paste_fill_plan(
+        plan = build_fill_plan(
             _rectangle(1.0, 4.0),
             nozzle_diameter=0.5,
             dispense_mode="line",
@@ -229,14 +245,14 @@ class TestDispenseModes:
         assert len(plan.paths[0]) == 2
 
     def test_area_mode_falls_back_to_line_then_dot(self):
-        line_plan = build_paste_fill_plan(
+        line_plan = build_fill_plan(
             _rectangle(0.8, 5.0),
             nozzle_diameter=1.0,
             dispense_mode="area",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
         )
-        dot_plan = build_paste_fill_plan(
+        dot_plan = build_fill_plan(
             _rectangle(0.2, 0.2),
             nozzle_diameter=1.0,
             dispense_mode="area",
@@ -252,7 +268,7 @@ class TestDispenseModes:
     def test_auto_uses_minimum_rotated_bbox_aspect_ratio(self):
         rotated = rotate(_rectangle(1.0, 3.0), 35.0, origin=(0.0, 0.0))
 
-        plan = build_paste_fill_plan(
+        plan = build_fill_plan(
             rotated,
             nozzle_diameter=0.34,
             dispense_mode="auto",
@@ -271,7 +287,7 @@ class TestDispenseModes:
         ],
     )
     def test_auto_uses_golden_ratio_threshold(self, width, height, expected_mode):
-        plan = build_paste_fill_plan(
+        plan = build_fill_plan(
             _rectangle(width, height),
             nozzle_diameter=0.34,
             dispense_mode="auto",
@@ -282,7 +298,7 @@ class TestDispenseModes:
         assert plan.dispense_mode == expected_mode
 
     def test_auto_threshold_boundary_is_dot(self):
-        plan = build_paste_fill_plan(
+        plan = build_fill_plan(
             _rectangle(1.0, 2.0),
             nozzle_diameter=0.34,
             dispense_mode="auto",
@@ -298,7 +314,7 @@ class TestDispenseModes:
         factor = 3.0
         side = nozzle_diameter * factor * 3.0  # 閾値の 3 倍 → 確実に area
 
-        plan = build_paste_fill_plan(
+        plan = build_fill_plan(
             _rectangle(side, side),
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -316,7 +332,7 @@ class TestDispenseModes:
         short = threshold * 1.5  # 短辺 > 閾値 → area 条件成立
         long = short * 5.0  # aspect 5 > 1.618 → line 条件も成立するが area が勝つ
 
-        plan = build_paste_fill_plan(
+        plan = build_fill_plan(
             _rectangle(short, long),
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -343,7 +359,7 @@ class TestDispenseModes:
             threshold * 10.0
         )  # aspect を十分大きく保ち line/area の切り分けを短辺に限定
 
-        plan = build_paste_fill_plan(
+        plan = build_fill_plan(
             _rectangle(short, long),
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -361,7 +377,7 @@ class TestDispenseModes:
         short = threshold * 0.5  # 閾値未満 → area にはならない
         long = short * 8.0  # aspect 8 > 1.618 → line
 
-        plan = build_paste_fill_plan(
+        plan = build_fill_plan(
             _rectangle(short, long),
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -379,7 +395,7 @@ class TestDispenseModes:
         short = threshold * 0.5
         long = short * 1.2  # aspect 1.2 < 1.618 → dot
 
-        plan = build_paste_fill_plan(
+        plan = build_fill_plan(
             _rectangle(short, long),
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -396,14 +412,14 @@ class TestDispenseModes:
         long = short * 6.0  # aspect 6 > 1.618（factor 大時は area でなく line へ）
         polygon = _rectangle(short, long)
 
-        area_plan = build_paste_fill_plan(
+        area_plan = build_fill_plan(
             polygon,
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=3.0,  # 閾値 1.02 < 1.4 → area
         )
-        line_plan = build_paste_fill_plan(
+        line_plan = build_fill_plan(
             polygon,
             nozzle_diameter=nozzle_diameter,
             dispense_mode="auto",
@@ -418,7 +434,7 @@ class TestDispenseModes:
         # ほぼ退化した極薄スライバでも auto がゼロ除算せず解決する（防御的契約）。
         sliver = Polygon([(0, 0), (5, 0), (5, 1e-9), (0, 1e-9)])
 
-        plan = build_paste_fill_plan(
+        plan = build_fill_plan(
             sliver,
             nozzle_diameter=0.34,
             dispense_mode="auto",
@@ -715,76 +731,7 @@ class TestExteriorMargin:
 
 
 class TestInvalidInput:
-    """入力バリデーションの振る舞い（契約メモ §1）."""
-
-    @pytest.mark.parametrize("nozzle_diameter", [0.0, -1.0, -0.001])
-    def test_non_positive_nozzle_diameter_raises(self, nozzle_diameter):
-        polygon = _rectangle(10.0, 6.0)
-
-        with pytest.raises(ValueError, match="nozzle_diameter"):
-            build_paste_fill_path(polygon, nozzle_diameter=nozzle_diameter)
-
-    @pytest.mark.parametrize("overlap", [-0.1, 1.0, 1.5, 2.0])
-    def test_overlap_out_of_range_raises(self, overlap):
-        polygon = _rectangle(10.0, 6.0)
-
-        with pytest.raises(ValueError, match="overlap"):
-            build_paste_fill_path(polygon, nozzle_diameter=1.0, overlap=overlap)
-
-    @pytest.mark.parametrize("boundary_margin", [-0.1, -1.0])
-    def test_negative_boundary_margin_raises(self, boundary_margin):
-        polygon = _rectangle(10.0, 6.0)
-
-        with pytest.raises(ValueError, match="boundary_margin"):
-            build_paste_fill_path(
-                polygon, nozzle_diameter=1.0, boundary_margin=boundary_margin
-            )
-
-    @pytest.mark.parametrize("bead_width_factor", [0.0, -0.5, -1.0])
-    def test_non_positive_bead_width_factor_raises(self, bead_width_factor):
-        polygon = _rectangle(10.0, 6.0)
-
-        with pytest.raises(ValueError, match="bead_width_factor"):
-            build_paste_fill_path(
-                polygon, nozzle_diameter=1.0, bead_width_factor=bead_width_factor
-            )
-
-    def test_auto_line_aspect_ratio_must_exceed_one(self):
-        polygon = _rectangle(10.0, 6.0)
-
-        with pytest.raises(ValueError, match="auto_line_aspect_ratio"):
-            build_paste_fill_plan(
-                polygon,
-                nozzle_diameter=1.0,
-                dispense_mode="auto",
-                auto_line_aspect_ratio=1.0,
-                auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-            )
-
-    @pytest.mark.parametrize("factor", [0.0, -0.5, -1.0])
-    def test_auto_area_short_side_factor_must_be_positive(self, factor):
-        polygon = _rectangle(10.0, 6.0)
-
-        with pytest.raises(ValueError, match="auto_area_short_side_factor"):
-            build_paste_fill_plan(
-                polygon,
-                nozzle_diameter=1.0,
-                dispense_mode="auto",
-                auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-                auto_area_short_side_factor=factor,
-            )
-
-    def test_unknown_dispense_mode_raises(self):
-        polygon = _rectangle(10.0, 6.0)
-
-        with pytest.raises(ValueError, match="未知の塗布方式"):
-            build_paste_fill_plan(
-                polygon,
-                nozzle_diameter=1.0,
-                dispense_mode=cast(Any, "spray"),
-                auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-                auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-            )
+    """空 / 不正ポリゴンは空の計画になる（値の検証は params / config 側の責務）."""
 
     def test_empty_polygon_returns_empty_list(self):
         result = build_paste_fill_path(Polygon(), nozzle_diameter=1.0)
@@ -804,9 +751,8 @@ class TestInvalidInput:
 class TestReturnType:
     """戻り値の型契約（公開 API 契約ピン）.
 
-    常に ``list[list[Point2d]]``。正常時は外側 ≥ 1・各内側 ≥ 1 点・全要素が
-    ``Point2d``。``@pytest.mark.api_contract`` は ``--strict-markers`` 下で未登録
-    のため付与せず、通常テストとして契約を固定する（契約メモ §5・spec 裁量）。
+    ``FillPlan.paths`` は常に ``tuple[tuple[Point2d, ...], ...]``。正常時は外側 ≥ 1・
+    各内側 ≥ 1 点・全要素が ``Point2d``。
     """
 
     @pytest.mark.parametrize(
@@ -818,15 +764,19 @@ class TestReturnType:
         ],
         ids=["area", "line", "dot"],
     )
-    def test_return_is_list_of_polylines_of_point2d(self, polygon, nozzle_diameter):
-        # Act
-        result = build_paste_fill_path(polygon, nozzle_diameter=nozzle_diameter)
+    def test_paths_are_tuples_of_polylines_of_point2d(self, polygon, nozzle_diameter):
+        plan = build_fill_plan(
+            polygon,
+            nozzle_diameter,
+            dispense_mode="area",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+        )
 
-        # Assert: 外側 list、各内側 1 点以上、全要素 Point2d
-        assert isinstance(result, list)
-        assert len(result) >= 1
-        for polyline in result:
-            assert isinstance(polyline, list)
+        assert isinstance(plan.paths, tuple)
+        assert len(plan.paths) >= 1
+        for polyline in plan.paths:
+            assert isinstance(polyline, tuple)
             assert len(polyline) >= 1
             assert all(isinstance(p, Point2d) for p in polyline)
 
@@ -841,18 +791,16 @@ class TestReturnType:
                 assert math.isfinite(p.y)
 
 
-class TestBuildPadFillPlanFor:
-    """build_pad_fill_plan_for は ResolvedPaste から引数対応を単一ソース化する。
+class TestBuildPadFillPlan:
+    """build_pad_fill_plan は config + PasteParams から引数対応を単一ソース化する。
 
-    プレビュー（webui router）と実行（PasteApplicator._fill）が同一の対応で
-    build_paste_fill_plan を呼ぶための束ね関数。同じ入力に対して build_paste_fill_plan
-    の直接呼び出しと同一の計画を返すことを契約とする。
+    プレビュー（webui router）と実行（PasteApplicator）が同一の対応で build_fill_plan
+    を呼ぶための束ね関数。同じ入力に対して build_fill_plan の直接呼び出しと同一の 計画を返すことを契約とする。
     """
 
     @staticmethod
-    def _paste(**overrides: object) -> ResolvedPaste:
+    def _paste(**overrides: object) -> PasteParams:
         values: dict = {
-            "enabled": True,
             "dispense_mode": "area",
             "line_direction": "unconstrained",
             "paste_height": 0.05,
@@ -863,22 +811,20 @@ class TestBuildPadFillPlanFor:
             "boundary_margin": 0.05,
         }
         values.update(overrides)
-        return ResolvedPaste(**values)
+        return PasteParams(**values)
 
     @pytest.mark.parametrize("dispense_mode", ["auto", "dot", "line", "area"])
-    def test_matches_direct_build_paste_fill_plan(self, dispense_mode: str):
+    def test_matches_direct_build_fill_plan(self, dispense_mode: str):
         polygon = _rectangle(2.0, 6.0)
         paste = self._paste(dispense_mode=dispense_mode)
 
-        plan = build_pad_fill_plan_for(
+        plan = build_pad_fill_plan(
             polygon,
-            nozzle_diameter=0.4,
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-            paste=paste,
+            config=_config(0.4),
+            params=paste,
         )
 
-        expected = build_paste_fill_plan(
+        expected = build_fill_plan(
             polygon,
             0.4,
             dispense_mode=paste.dispense_mode,
@@ -890,28 +836,16 @@ class TestBuildPadFillPlanFor:
         )
         assert plan == expected
 
-    def test_invalid_paste_settings_raise_value_error(self):
-        with pytest.raises(ValueError):
-            build_pad_fill_plan_for(
-                _rectangle(2.0, 6.0),
-                nozzle_diameter=0.4,
-                auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-                auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-                paste=self._paste(overlap=1.5),
-            )
-
     @pytest.mark.parametrize("dispense_mode", ["line", "auto", "area"])
     def test_outward_starts_near_component_for_every_line_resolution(
         self, dispense_mode: str
     ):
         reference = Point2d(0.4, -5.0)
 
-        plan = build_pad_fill_plan_for(
+        plan = build_pad_fill_plan(
             _rectangle(0.8, 5.0),
-            nozzle_diameter=1.0,
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-            paste=self._paste(
+            config=_config(1.0),
+            params=self._paste(
                 dispense_mode=dispense_mode,
                 line_direction="outward",
                 boundary_margin=0.0,
@@ -926,25 +860,20 @@ class TestBuildPadFillPlanFor:
     def test_inward_is_the_reverse_of_outward(self):
         polygon = _rectangle(0.8, 5.0)
         reference = Point2d(0.4, -5.0)
-        kwargs = {
-            "nozzle_diameter": 1.0,
-            "auto_line_aspect_ratio": _AUTO_LINE_ASPECT_RATIO,
-            "auto_area_short_side_factor": _AUTO_AREA_SHORT_SIDE_FACTOR,
-            "line_reference": reference,
-        }
+        kwargs = {"config": _config(1.0), "line_reference": reference}
 
-        outward = build_pad_fill_plan_for(
+        outward = build_pad_fill_plan(
             polygon,
-            paste=self._paste(
+            params=self._paste(
                 dispense_mode="line",
                 line_direction="outward",
                 boundary_margin=0.0,
             ),
             **kwargs,
         )
-        inward = build_pad_fill_plan_for(
+        inward = build_pad_fill_plan(
             polygon,
-            paste=self._paste(
+            params=self._paste(
                 dispense_mode="line",
                 line_direction="inward",
                 boundary_margin=0.0,
@@ -952,53 +881,38 @@ class TestBuildPadFillPlanFor:
             **kwargs,
         )
 
-        assert inward.paths[0] == list(reversed(outward.paths[0]))
+        assert inward.paths[0] == tuple(reversed(outward.paths[0]))
 
-    def test_directional_line_requires_reference(self):
-        with pytest.raises(ValueError) as raised:
-            build_pad_fill_plan_for(
-                _rectangle(0.8, 5.0),
-                nozzle_diameter=1.0,
-                auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-                auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-                paste=self._paste(dispense_mode="line", line_direction="outward"),
-            )
+    def test_directional_line_without_reference_is_unconstrained(self):
+        params = self._paste(dispense_mode="line", line_direction="outward")
+        unconstrained = self._paste(
+            dispense_mode="line", line_direction="unconstrained"
+        )
 
-        assert "部品位置" in str(raised.value)
+        plan = build_pad_fill_plan(
+            _rectangle(0.8, 5.0), config=_config(1.0), params=params
+        )
 
-    def test_unknown_line_direction_raises_value_error(self):
-        with pytest.raises(ValueError) as raised:
-            build_pad_fill_plan_for(
-                _rectangle(0.8, 5.0),
-                nozzle_diameter=1.0,
-                auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-                auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-                paste=self._paste(line_direction=cast(Any, "sideways")),
-                line_reference=Point2d(0.4, -5.0),
-            )
-
-        assert "線走行方向" in str(raised.value)
+        assert plan == build_pad_fill_plan(
+            _rectangle(0.8, 5.0), config=_config(1.0), params=unconstrained
+        )
 
     def test_equal_distance_keeps_unconstrained_order(self):
         polygon = _rectangle(0.8, 5.0)
         reference = Point2d(0.4, 2.5)
-        unconstrained = build_pad_fill_plan_for(
+        unconstrained = build_pad_fill_plan(
             polygon,
-            nozzle_diameter=1.0,
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-            paste=self._paste(
+            config=_config(1.0),
+            params=self._paste(
                 dispense_mode="line",
                 line_direction="unconstrained",
                 boundary_margin=0.0,
             ),
         )
-        outward = build_pad_fill_plan_for(
+        outward = build_pad_fill_plan(
             polygon,
-            nozzle_diameter=1.0,
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-            paste=self._paste(
+            config=_config(1.0),
+            params=self._paste(
                 dispense_mode="line",
                 line_direction="outward",
                 boundary_margin=0.0,

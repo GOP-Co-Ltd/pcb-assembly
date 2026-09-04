@@ -17,25 +17,24 @@ node_id 規約（フロントと共有する契約）:
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
-from typing import Literal
 
 import attrs
 from fastapi import HTTPException
 from pydantic import BaseModel
 
 from pcbasm.config import PasteDispenser
-from pcbasm.pasting.fill_path import build_pad_fill_plan_for
+from pcbasm.pasting.fill_path import build_pad_fill_plan
 from pcbasm.pasting.initial_purge import (
-    resolve_dataset_initial_purge,
-    resolve_initial_purge,
+    InitialPurgePurpose,
+    resolve_initial_purge_for,
 )
+from pcbasm.pasting.params import PasteParamValue
 from pcbasm.pasting.route import plan_paste_route, routed_enabled_pads
 from pcbasm.pasting.settings import (
-    PASTE_OVERRIDE_FIELDS,
-    PasteOverride,
     PasteSettingsModel,
-    PasteSettingValue,
-    ResolvedPaste,
+    ResolvedSetting,
+    descendant_override_summary,
+    own_override_summary,
     resolve_node_settings,
     resolve_pad_settings,
     select_enabled_pads,
@@ -89,7 +88,7 @@ class NodeOverrideInfo(BaseModel):
     """1 ノードに明示された override（疎）."""
 
     enabled: bool | None = None  # 明示 enabled（無指定 = null）
-    values: dict[str, PasteSettingValue] = {}  # override された項目のみ（疎）
+    values: dict[str, PasteParamValue] = {}  # override された項目のみ（疎）
 
 
 class DescendantSummary(BaseModel):
@@ -130,9 +129,6 @@ class ResolvedInitialPurgeInfo(BaseModel):
     amount: float
     point: list[float]
     source: str
-
-
-type InitialPurgePurpose = Literal["paste_solder", "paste_dataset_collection"]
 
 
 class InitialPurgeInfo(BaseModel):
@@ -218,7 +214,7 @@ class NodePatch(BaseModel):
 
     node: str
     enabled: bool | None = None  # "enabled" in model_fields_set で送信有無を判定
-    values: dict[str, PasteSettingValue] = {}  # upsert する override
+    values: dict[str, PasteParamValue] = {}  # upsert する override
     clear: list[str] = []  # 継承に戻す override 項目
     expected_pcb: str | None = None  # 編集開始時の PCB（不一致なら 409）
 
@@ -273,43 +269,19 @@ def key_from_node_id(node: str) -> tuple[str, ...]:
 # --------------------------------------------------------------------------- #
 # 変換ヘルパ
 # --------------------------------------------------------------------------- #
-def resolved_settings(resolved: ResolvedPaste) -> ResolvedSettings:
-    # ResolvedPaste と ResolvedSettings は同名フィールド（enabled + override 項目）。
-    return ResolvedSettings(**attrs.asdict(resolved))
-
-
-# own_summary.fields の表示順。JS（pad_editor/model.js の FIELDS）の列順と
-# 一致させる契約（PASTE_OVERRIDE_FIELDS とは並びが異なる）。
-UI_FIELD_ORDER: tuple[str, ...] = (
-    "dispense_mode",
-    "line_direction",
-    "ul_per_mm2",
-    "paste_height",
-    "prime_extra_delay",
-    "bead_width_factor",
-    "overlap",
-    "boundary_margin",
-)
-
-
-def own_override_summary(own: NodeOverrideInfo) -> OwnSummary:
-    """own_override から行バッジ表示用の集計を算出する（継承は数えない）."""
-    enabled = own.enabled is not None
-    fields = [field for field in UI_FIELD_ORDER if field in own.values]
-    return OwnSummary(
-        enabled=enabled, fields=fields, count=len(fields) + (1 if enabled else 0)
-    )
+def resolved_settings(resolved: ResolvedSetting) -> ResolvedSettings:
+    return ResolvedSettings(enabled=resolved.enabled, **resolved.params.to_dict())
 
 
 def tree(
     node: PadHierarchyNode,
     model: PasteSettingsModel,
-    resolved: dict[tuple[str, ...], ResolvedPaste],
+    resolved: dict[tuple[str, ...], ResolvedSetting],
 ) -> HierNodeInfo:
-    setting = model.levels.get(node.key)
+    setting = model.level(node.key)
     own = NodeOverrideInfo(
         enabled=setting.enabled if setting is not None else None,
-        values=override_values(setting.override) if setting is not None else {},
+        values=setting.patch.to_dict() if setting is not None else {},
     )
     return HierNodeInfo(
         id=node_id(node.key),
@@ -317,66 +289,22 @@ def tree(
         label=node.label,
         resolved=resolved_settings(resolved[node.key]),
         own_override=own,
-        own_summary=own_override_summary(own),
-        descendant_summary=descendant_summary(node, model),
+        own_summary=OwnSummary(**attrs.asdict(own_override_summary(setting))),
+        descendant_summary=DescendantSummary(
+            **attrs.asdict(descendant_override_summary(node, model))
+        ),
         children=[tree(child, model, resolved) for child in node.children],
     )
 
 
-def descendant_summary(
-    node: PadHierarchyNode, model: PasteSettingsModel
-) -> DescendantSummary:
-    """``node`` の子孫（自身は含めない）の override を集計する."""
-    field_counts = {field: 0 for field in PASTE_OVERRIDE_FIELDS}
-    enabled_count = 0
-    node_count = 0
-    total = 0
-    for descendant in iter_descendants(node):
-        setting = model.levels.get(descendant.key)
-        if setting is None:
-            continue
-        own_count = 0
-        if setting.enabled is not None:
-            enabled_count += 1
-            own_count += 1
-        for field in PASTE_OVERRIDE_FIELDS:
-            if getattr(setting.override, field) is not None:
-                field_counts[field] += 1
-                own_count += 1
-        if own_count > 0:
-            total += own_count
-            node_count += 1
-    return DescendantSummary(
-        enabled_count=enabled_count,
-        field_counts=field_counts,
-        fields=[field for field in PASTE_OVERRIDE_FIELDS if field_counts[field] > 0],
-        node_count=node_count,
-        count=total,
-    )
-
-
-def iter_descendants(node: PadHierarchyNode) -> Iterator[PadHierarchyNode]:
-    for child in node.children:
-        yield child
-        yield from iter_descendants(child)
-
-
-def override_values(override: PasteOverride) -> dict[str, PasteSettingValue]:
-    return {
-        field: value
-        for field in PASTE_OVERRIDE_FIELDS
-        if (value := getattr(override, field)) is not None
-    }
-
-
 def overrides(model: PasteSettingsModel) -> dict[str, NodeOverrideInfo]:
     """model.levels の明示 override を node_id キーへ変換する."""
-    result: dict[str, NodeOverrideInfo] = {}
-    for key, setting in model.levels.items():
-        result[node_id(key)] = NodeOverrideInfo(
-            enabled=setting.enabled, values=override_values(setting.override)
+    return {
+        node_id(setting.key): NodeOverrideInfo(
+            enabled=setting.enabled, values=setting.patch.to_dict()
         )
-    return result
+        for setting in model.levels
+    }
 
 
 def resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
@@ -384,10 +312,7 @@ def resolved_default(model: PasteSettingsModel) -> ResolvedSettings:
 
     ``model.base`` は machine.toml 由来で全 override 項目が確定（非 None）。
     """
-    return ResolvedSettings(
-        enabled=model.base_enabled,
-        **{field: getattr(model.base, field) for field in PASTE_OVERRIDE_FIELDS},
-    )
+    return ResolvedSettings(enabled=True, **model.base.to_dict())
 
 
 def layer_pads(loaded: Loaded, layer: str) -> Iterator[Pad]:
@@ -402,31 +327,18 @@ def build_initial_purge(
     routed = routed_enabled_pads(
         layer_pads(loaded, Layer.TOP.value), loaded.hierarchy, loaded.model
     )
-    if purpose == "paste_dataset_collection":
-        resolved, error = resolve_dataset_initial_purge(
-            amount_ul=loaded.base_config.initial_purge_ul,
-            pad_id=loaded.model.initial_purge_pad_id,
-            hierarchy=loaded.hierarchy,
-        )
-        if loaded.model.initial_purge_pad_id is None:
-            default, default_error = resolve_dataset_initial_purge(
-                amount_ul=1.0,
-                pad_id=None,
-                hierarchy=loaded.hierarchy,
-            )
-            default_pad_id = default.pad_id if default is not None else None
-            error = error or default_error
-        else:
-            default_pad_id = None
-    else:
-        default_pad_id = loaded.hierarchy.pad_id_for_pad(routed[0]) if routed else None
-        resolved, error = resolve_initial_purge(
-            amount_ul=loaded.base_config.initial_purge_ul,
-            pad_id=loaded.model.initial_purge_pad_id,
-            hierarchy=loaded.hierarchy,
-            routed_pads=routed,
-            layer=Layer.TOP,
-        )
+    resolution = resolve_initial_purge_for(
+        purpose,
+        amount_ul=loaded.base_config.initial_purge_ul,
+        pad_id=loaded.model.initial_purge_pad_id,
+        hierarchy=loaded.hierarchy,
+        routed_pads=routed,
+    )
+    resolved, default_pad_id, error = (
+        resolution.resolved,
+        resolution.default_pad_id,
+        resolution.error,
+    )
     if error is not None and purpose == "paste_solder":
         raise HTTPException(status_code=400, detail=error)
     selection_label = (
@@ -462,7 +374,7 @@ def pad_info(
     pad_id: str,
     package: str,
     node_ids: list[str],
-    resolved: ResolvedPaste,
+    resolved: ResolvedSetting,
 ) -> PadInfo:
     return PadInfo(
         id=pad_id,
@@ -588,24 +500,15 @@ def build_fill_path(loaded: Loaded, layer: str) -> PasteFillPathResponse:
     }
     pads: list[PasteFillPathPad] = []
     for pad in loaded.hierarchy.iter_pads():
-        paste = resolved[loaded.hierarchy.pad_ref_for_pad(pad)]
-        if pad.layer.value != layer or not paste.enabled:
+        setting = resolved[loaded.hierarchy.pad_ref_for_pad(pad)]
+        if pad.layer.value != layer or not setting.enabled:
             continue
-        try:
-            plan = build_pad_fill_plan_for(
-                pad.polygon,
-                nozzle_diameter=nozzle_diameter,
-                auto_line_aspect_ratio=loaded.base_config.auto_line_aspect_ratio,
-                auto_area_short_side_factor=(
-                    loaded.base_config.auto_area_short_side_factor
-                ),
-                paste=paste,
-                line_reference=component_positions[pad.designator],
-            )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400, detail=f"塗布パス設定が不正です: {exc}"
-            ) from exc
+        plan = build_pad_fill_plan(
+            pad.polygon,
+            config=loaded.base_config,
+            params=setting.params,
+            line_reference=component_positions.get(pad.designator),
+        )
         points = [[[point.x, point.y] for point in path] for path in plan.paths]
         pads.append(
             PasteFillPathPad(

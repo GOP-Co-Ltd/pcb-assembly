@@ -3,6 +3,7 @@
 import pytest
 from shapely.geometry import Point as ShapelyPoint, Polygon
 
+from pcbasm.config import Probe
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
@@ -14,7 +15,7 @@ from pcbasm.geometry import (
     sample_points_in_polygons,
     sort_by_nearest,
 )
-from pcbasm.pasting.height import HeightPlaneMeasurer
+from pcbasm.pasting.height import HeightPlaneMeasurer, plan_probe_points
 from pcbasm.pcb import Copper, Layer
 
 _SAMPLING_KWARGS = {"min_radius": 1.5, "min_samples": 3, "max_samples": 9}
@@ -283,3 +284,58 @@ class TestHeightPlaneMeasurer:
             for call in mock_stage.move.call_args_list
         ]
         assert move_targets == pytest.approx(expected_move_targets)
+
+
+class TestPlanProbePoints:
+    """装置を動かさない計測点計画（Machine の Probe 設定 / measurer 設定）."""
+
+    def _copper(self) -> Copper:
+        return Copper(
+            layer=Layer.TOP,
+            polygon=Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)]),
+        )
+
+    def test_points_stay_inside_copper_and_board_margin(self):
+        copper = self._copper()
+        config = Probe(
+            min_radius=1.5, board_edge_margin=2.5, min_samples=6, max_samples=9
+        )
+
+        points = plan_probe_points([copper], copper.polygon, config=config)
+
+        assert 6 <= len(points) <= 9
+        safe = copper.polygon.buffer(-2.5)
+        for point in points:
+            assert safe.covers(ShapelyPoint(point.x, point.y))
+
+    def test_points_match_measurer_plan_with_same_settings(self, mocker):
+        copper = self._copper()
+        stage = mocker.Mock()
+        stage.max_velocity = 100.0
+        measurer = HeightPlaneMeasurer(
+            probe_executor=mocker.Mock(),
+            klipper=mocker.Mock(),
+            stage=stage,
+            min_radius=1.5,
+            board_edge_margin=2.5,
+            min_samples=6,
+            max_samples=9,
+        )
+        config = Probe(
+            min_radius=1.5, board_edge_margin=2.5, min_samples=6, max_samples=9
+        )
+
+        assert measurer.plan_points([copper], copper.polygon) == plan_probe_points(
+            [copper], copper.polygon, config=config
+        )
+
+    def test_insufficient_candidates_raise_before_any_motion(self):
+        tiny = Copper(
+            layer=Layer.TOP,
+            polygon=Polygon([(0.0, 0.0), (0.5, 0.0), (0.5, 0.5), (0.0, 0.5)]),
+        )
+
+        outline = Polygon([(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)])
+
+        with pytest.raises(ValueError, match="min_samples"):
+            plan_probe_points([tiny], outline, config=Probe(min_radius=1.5))

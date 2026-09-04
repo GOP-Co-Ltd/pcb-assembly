@@ -6,9 +6,10 @@ import pytest
 import shapely
 
 from pcbasm.geometry import HeightPlane, Point2d, Point3d, Rotation, Shift
+from pcbasm.pasting.alignment import PasteCorrection
+from pcbasm.pasting.session import PasteSession
 from pcbasm.pcb import Layer, Pad
 from pcbasm.posctrl import AlignmentRegion, BoardAlignment, EdgeMatch, RegionAlignment
-from pcbasm.session import PasteSession
 from pcbasm.vision import Offset
 
 PPM = 10.0
@@ -58,12 +59,13 @@ def _session() -> PasteSession:
         stage=unused,
         camera=unused,
         calibration=unused,
+        calibration_result=unused,
         board_transform=Rotation(90.0),
+        offset_transform=unused,
         toolhead_offset=Shift(10.0, 20.0),
         pcb=unused,
         probe_executor=unused,
         height_measurer=unused,
-        paste_dispenser=unused,
     )
 
 
@@ -82,7 +84,7 @@ def _pad(designator: str, center: Point2d) -> Pad:
     )
 
 
-class TestPasteSessionPadToMachine:
+class TestPasteSessionPadTransform:
     """Board→局所補正→toolhead→height の合成順を検証する."""
 
     def test_applies_transforms_in_agreed_order(self):
@@ -94,11 +96,7 @@ class TestPasteSessionPadToMachine:
 
         moved = (
             _session()
-            .pad_to_machine(
-                pad,
-                alignment=alignment,
-                height_plane=_height_plane(),
-            )
+            .pad_transform(pad, PasteCorrection(alignment, _height_plane()))
             .apply(pad.center.to3d(0.4))
         )
 
@@ -111,7 +109,7 @@ class TestPasteSessionPadToMachine:
 
 
 class TestPasteSessionPadTransforms:
-    """Paste と purge が同じ pad 別変換列を利用できる契約."""
+    """Paste と purge が同じ pad 別変換を利用できる契約."""
 
     def test_preserves_input_order_and_uses_each_pads_correction(self):
         left_area = shapely.box(-2.0, -2.0, 0.0, 2.0)
@@ -131,13 +129,9 @@ class TestPasteSessionPadTransforms:
         ]
         session = _session()
 
-        entries = session.pad_transforms(
-            pads,
-            alignment=alignment,
-            height_plane=_height_plane(),
-        )
+        correction = PasteCorrection(alignment, _height_plane())
+        entries = [(pad, session.pad_transform(pad, correction)) for pad in pads]
 
-        assert [pad.designator for pad, _ in entries] == ["PURGE", "R1", "R2"]
         expected_shifts = [right_shift, left_shift, right_shift]
         for (pad, transform), expected in zip(entries, expected_shifts, strict=True):
             moved = transform.apply(pad.center.to3d(0.0))
@@ -164,13 +158,9 @@ class TestPasteSessionPadTransforms:
         ]
         session = _session()
 
-        entries = session.pad_transforms(
-            pads,
-            alignment=alignment,
-            height_plane=_height_plane(),
-        )
+        correction = PasteCorrection(alignment, _height_plane())
+        entries = [(pad, session.pad_transform(pad, correction)) for pad in pads]
 
-        assert [pad.designator for pad, _ in entries] == ["R1", "C17"]
         for pad, transform in entries:
             moved = transform.apply(pad.center.to3d(0.0))
             base = session.toolhead_offset.apply(
@@ -183,10 +173,46 @@ class TestPasteSessionPadTransforms:
         pad = _pad("C17", Point2d(5.0, 0.0))
 
         with pytest.raises(ValueError) as exc_info:
-            _session().pad_transforms(
-                [pad],
-                alignment=BoardAlignment(results=()),
-                height_plane=_height_plane(),
+            _session().pad_transform(
+                pad, PasteCorrection(BoardAlignment(results=()), _height_plane())
             )
 
         assert "C17" in str(exc_info.value)
+
+
+class TestPasteSessionCameraTarget:
+    """補正済み pad 中心をカメラ中心へ置くステージ XY（toolhead / height を含まない）."""
+
+    def test_applies_board_transform_and_region_correction_only(self):
+        pad = _pad("U1", Point2d(1.0, 2.0))
+        alignment = BoardAlignment(
+            results=(
+                _region_result(0, shapely.box(-5.0, -5.0, 5.0, 5.0), Point2d(0.3, 0.1)),
+            )
+        )
+        correction = PasteCorrection(alignment, _height_plane())
+
+        target = _session().camera_target(pad, correction)
+
+        # Rotation90(1,2)=(-2,1) + 局所補正 (0.3,0.1)。toolhead offset は加えない。
+        assert target.x == pytest.approx(-1.7, abs=1e-9)
+        assert target.y == pytest.approx(1.1, abs=1e-9)
+
+    def test_offset_is_added_in_machine_xy(self):
+        pad = _pad("U1", Point2d(1.0, 2.0))
+        correction = PasteCorrection(
+            BoardAlignment(
+                results=(
+                    _region_result(
+                        0, shapely.box(-5.0, -5.0, 5.0, 5.0), Point2d(0.0, 0.0)
+                    ),
+                )
+            ),
+            _height_plane(),
+        )
+
+        plain = _session().camera_target(pad, correction)
+        shifted = _session().camera_target(pad, correction, offset=Point2d(0.5, -1.0))
+
+        assert shifted.x - plain.x == pytest.approx(0.5, abs=1e-9)
+        assert shifted.y - plain.y == pytest.approx(-1.0, abs=1e-9)

@@ -4,8 +4,9 @@ import pytest
 from shapely import Polygon
 
 from pcbasm.geometry import Point2d
+from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.route import plan_paste_route, routed_enabled_pads
-from pcbasm.pasting.settings import LevelSetting, PasteOverride, PasteSettingsModel
+from pcbasm.pasting.settings import LevelSetting, PasteSettingsModel
 from pcbasm.pcb import Component, Layer, Pad, PadHierarchy, build_pad_hierarchy
 
 
@@ -53,9 +54,9 @@ def _component(designator: str, package: str) -> Component:
     )
 
 
-def _full_base() -> PasteOverride:
-    """全 override 項目が非 None の base override（= L0 確定値）."""
-    return PasteOverride(
+def _full_base() -> PasteParams:
+    """L0 確定値."""
+    return PasteParams(
         dispense_mode="auto",
         line_direction="unconstrained",
         paste_height=0.05,
@@ -135,7 +136,7 @@ class TestRoutedEnabledPads:
         pads, model, hierarchy = self._fixture()
         model = PasteSettingsModel(
             base=_full_base(),
-            levels={("L4", "U1", "2"): LevelSetting(enabled=False)},
+            levels=(LevelSetting(("L4", "U1", "2"), enabled=False),),
         )
 
         routed = routed_enabled_pads(pads, hierarchy, model)
