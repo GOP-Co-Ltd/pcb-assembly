@@ -20,7 +20,7 @@ workflow:
   before_script:
     - export UV_CACHE_DIR="$HOME/.cache/uv"
     - uv venv --clear --system-site-packages --python /usr/bin/python3
-    - uv sync --locked --all-extras
+    - uv sync --locked --all-groups
   rules:
     - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH"
     - changes:
