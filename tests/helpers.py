@@ -4,20 +4,22 @@ import struct
 import subprocess
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future
-from functools import wraps
+from functools import cache, wraps
 from pathlib import Path
 from secrets import token_hex
-from typing import ParamSpec, TypeVar, override
+from typing import Any, ParamSpec, TypeVar, override
 
 import pcbnew
 import picamera2
 import pytest
 
 from pcbasm.config import Audio
-from pcbasm.hal import Camera, CameraInfo, Resolution
+from pcbasm.gcode import GCode, GCodeLike
+from pcbasm.hal import Camera, CameraInfo, Klipper, Resolution
 from pcbasm.hal.audio import AudioDevice, AudioPlayer, Sound
+from pcbasm.hal.klipper import GCodeMacro, ReadonlyKlipper
 from pcbasm.vision import Image
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -458,3 +460,81 @@ class FakeCamera(Camera):
         image = self._images[min(self._index, len(self._images) - 1)]
         self._index += 1
         return image
+
+
+# FakeKlipper が返す缶詰 printer config。実 XYZStage / PasteDispenser（ManualStepper +
+# AirPump）/ ProbeExecutor が要求するセクションだけを持つ。
+FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
+    "printer": {"max_velocity": "100"},
+    "stepper_x": {"position_min": "0", "position_max": "300"},
+    "stepper_y": {"position_min": "0", "position_max": "300"},
+    "stepper_z": {"position_min": "-5", "position_max": "50"},
+    "manual_stepper paste_dispenser": {"rotation_distance": "1.0"},
+    "output_pin air_pump": {},
+    "load_cell_probe": {},
+}
+FAKE_KLIPPER_STATUS: dict[tuple[str, str], Any] = {
+    ("gcode_move", "gcode_position"): [0.0, 0.0, 5.0, 0.0],
+    ("probe", "last_z_result"): 0.0,
+}
+
+
+class FakeKlipper(Klipper):
+    """送信 G-code を記録し、缶詰 config / status を返す自前 HAL の fake.
+
+    Moonraker には接続しない（``__init__`` を上書きしてソケットを開かない）。
+    ``ReadonlyKlipper`` は束縛メソッドを保持するだけなので、実 ``XYZStage`` /
+    ``PasteDispenser`` / ``ProbeExecutor`` をそのまま組み合わせて結合検証できる。
+    """
+
+    def __init__(
+        self,
+        *,
+        config: Mapping[str, Mapping[str, Any]] = FAKE_PRINTER_CONFIG,
+        status: Mapping[tuple[str, str], Any] = FAKE_KLIPPER_STATUS,
+    ) -> None:
+        self._config = {section: dict(values) for section, values in config.items()}
+        self._status = dict(status)
+        self._sent: list[GCode] = []
+        self._readonly = ReadonlyKlipper(self)
+
+    @property
+    def sent(self) -> tuple[GCode, ...]:
+        """``send_gcode`` に渡された G-code を呼び出し順に返す."""
+        return tuple(self._sent)
+
+    @property
+    def sent_lines(self) -> list[str]:
+        """送信した全 G-code を行に展開して返す."""
+        return [line for gc in self._sent for line in str(gc).splitlines()]
+
+    def clear_sent(self) -> None:
+        self._sent.clear()
+
+    def set_status(self, object: str, attribute: str, value: Any) -> None:
+        self._status[(object, attribute)] = value
+
+    @override
+    def send_gcode(
+        self, gcode: GCodeLike, *, timeout: float | None = None
+    ) -> dict[str, Any]:
+        self._sent.append(GCode(gcode))
+        return {"result": "ok"}
+
+    @override
+    def get_status(self, object: str, attribute: str) -> Any:
+        return self._status[(object, attribute)]
+
+    @override
+    @cache
+    def get_config(self) -> dict[str, dict[str, Any]]:
+        return self._config
+
+    @override
+    @cache
+    def get_macros(self) -> dict[str, GCodeMacro]:
+        return {}
+
+    @override
+    def __del__(self) -> None:
+        pass

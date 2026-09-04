@@ -256,6 +256,43 @@ class PasteDispenser:
                 "initial_purge_ulは0以上の値である必要があります: "
                 f"{self.initial_purge_ul}"
             )
+        # 塗布ダイナミクス（FillSequence / PasteApplicator は検証済みとして使う）
+        if self.nozzle_diameter <= 0:
+            raise ValueError(
+                f"nozzle_diameterは正の値である必要があります: {self.nozzle_diameter}"
+            )
+        if self.max_fill_speed <= 0:
+            raise ValueError(
+                f"max_fill_speedは正の値である必要があります: {self.max_fill_speed}"
+            )
+        if self.max_dispense_rate <= 0:
+            raise ValueError(
+                f"max_dispense_rateは正の値である必要があります: {self.max_dispense_rate}"
+            )
+        if self.retract_amount <= 0:
+            raise ValueError(
+                f"retract_amountは正の値である必要があります: {self.retract_amount}"
+            )
+        if self.retract_accel_factor <= 1.0:
+            raise ValueError(
+                "retract_accel_factorは1.0より大きい必要があります: "
+                f"{self.retract_accel_factor}"
+            )
+        if self.bead_width_factor <= 0:
+            raise ValueError(
+                f"bead_width_factorは正の値である必要があります: {self.bead_width_factor}"
+            )
+        if not 0.0 <= self.overlap < 1.0:
+            raise ValueError(f"overlapは[0,1)である必要があります: {self.overlap}")
+        if self.boundary_margin < 0:
+            raise ValueError(
+                f"boundary_marginは0以上である必要があります: {self.boundary_margin}"
+            )
+
+    @property
+    def density_mg_per_ul(self) -> float:
+        """はんだペースト密度 [mg/μL]（TOML キー ``solder_paste_density`` のコード内名）."""
+        return self.solder_paste_density
 
     @property
     def effective_retract_rate(self) -> float:

@@ -241,6 +241,34 @@ class TestMachine:
         with pytest.raises(ValueError, match="auto_area_short_side_factor"):
             _paste_dispenser(auto_area_short_side_factor=factor)
 
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("nozzle_diameter", 0.0),
+            ("max_fill_speed", 0.0),
+            ("max_dispense_rate", -1.0),
+            ("retract_amount", 0.0),
+            ("retract_accel_factor", 1.0),
+            ("bead_width_factor", 0.0),
+            ("overlap", -0.1),
+            ("overlap", 1.0),
+            ("boundary_margin", -0.01),
+        ],
+    )
+    def test_dispense_dynamics_out_of_range_is_rejected(self, key, value):
+        # FillSequence / PasteApplicator は検証済み値を前提にするため入口で弾く。
+        with pytest.raises(ValueError, match=key):
+            _paste_dispenser(**{key: value})
+
+    def test_dispense_dynamics_boundary_values_are_accepted(self):
+        dispenser = _paste_dispenser(overlap=0.0, boundary_margin=0.0)
+
+        assert dispenser.overlap == 0.0
+        assert dispenser.boundary_margin == 0.0
+
+    def test_density_mg_per_ul_mirrors_solder_paste_density(self):
+        assert _paste_dispenser(solder_paste_density=4.2).density_mg_per_ul == 4.2
+
     def test_effective_retract_rate_returns_explicit_value(self):
         dispenser = _paste_dispenser()
 

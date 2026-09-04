@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from shapely.geometry import Polygon
 
 from pcbasm import gcode
+from pcbasm.config import Probe
 from pcbasm.geometry import (
     HeightPlane,
     Point2d,
@@ -18,6 +19,39 @@ from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.pcb import Copper
 from pcbasm.utils import get_class_module_path
+
+
+def plan_probe_points(
+    coppers: Iterable[Copper], outline: Polygon | None, *, config: Probe
+) -> list[Point2d]:
+    """Machine の probe 設定で計測点（銅箔島内・外形マージン内）を計画する（装置不要）."""
+    return _sample_points(
+        coppers,
+        outline,
+        min_radius=config.min_radius,
+        board_edge_margin=config.board_edge_margin,
+        min_samples=config.min_samples,
+        max_samples=config.max_samples,
+    )
+
+
+def _sample_points(
+    coppers: Iterable[Copper],
+    outline: Polygon | None,
+    *,
+    min_radius: float,
+    board_edge_margin: float,
+    min_samples: int,
+    max_samples: int,
+) -> list[Point2d]:
+    return sample_points_in_polygons(
+        (c.polygon for c in coppers),
+        min_radius=min_radius,
+        min_samples=min_samples,
+        max_samples=max_samples,
+        outline=outline,
+        outline_margin=board_edge_margin,
+    )
 
 
 class _BoardPointProber:
@@ -110,6 +144,19 @@ class HeightPlaneMeasurer:
             logger=self._logger,
         )
 
+    def plan_points(
+        self, coppers: Iterable[Copper], outline: Polygon | None = None
+    ) -> list[Point2d]:
+        """計測する Board 点（銅箔島内、外形マージン内）を計画する（装置を動かさない）."""
+        return _sample_points(
+            coppers,
+            outline,
+            min_radius=self._min_radius,
+            board_edge_margin=self._board_edge_margin,
+            min_samples=self._min_samples,
+            max_samples=self._max_samples,
+        )
+
     def measure(
         self,
         coppers: Iterable[Copper],
@@ -117,15 +164,9 @@ class HeightPlaneMeasurer:
         outline: Polygon | None = None,
     ) -> HeightPlane:
         """銅箔島内のBoard点で高さ計測し、機械XYのHeightPlaneを返す."""
-        board_points = sample_points_in_polygons(
-            (c.polygon for c in coppers),
-            min_radius=self._min_radius,
-            min_samples=self._min_samples,
-            max_samples=self._max_samples,
-            outline=outline,
-            outline_margin=self._board_edge_margin,
+        board_points = self._point_prober.route_points(
+            self.plan_points(coppers, outline), board_to_machine
         )
-        board_points = self._point_prober.route_points(board_points, board_to_machine)
         coord_str = ", ".join(f"({p.x:.1f}, {p.y:.1f})" for p in board_points)
         self._logger.info(f"Probe点 {len(board_points)}個: {coord_str}")
 

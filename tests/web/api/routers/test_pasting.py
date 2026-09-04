@@ -28,9 +28,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from pcbasm.pasting.settings import PASTE_OVERRIDE_FIELDS
+from pcbasm.pasting.params import PASTE_PARAM_NAMES
 from tests.helpers import PROJECT_ROOT
-from web.api.routers.pasting_view import UI_FIELD_ORDER
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -500,8 +499,8 @@ class TestTreeNodeResolution:
         assert own_summary["count"] == 3
 
     def test_own_summary_field_order_pins_js_fields_contract(self):
-        """UI_FIELD_ORDER は JS pad_editor/model.js の FIELDS と同順・同集合."""
-        assert UI_FIELD_ORDER == (
+        """PASTE_PARAM_NAMES は JS pad_editor/model.js の FIELDS と同順・同集合."""
+        assert PASTE_PARAM_NAMES == (
             "dispense_mode",
             "line_direction",
             "ul_per_mm2",
@@ -511,7 +510,6 @@ class TestTreeNodeResolution:
             "overlap",
             "boundary_margin",
         )
-        assert set(UI_FIELD_ORDER) == set(PASTE_OVERRIDE_FIELDS)
 
     def test_descendant_summary_empty_without_descendant_overrides(
         self, selected_client: TestClient
@@ -712,7 +710,7 @@ class TestPatchNode:
 
     def test_removed_fill_speed_value_returns_400(self, selected_client: TestClient):
         # fill_speed は pad override から廃止された（max_fill_speed は装置一律設定）。
-        # PASTE_OVERRIDE_FIELDS から消えたため未知項目として 400 になる。
+        # PASTE_PARAM_NAMES から消えたため未知項目として 400 になる。
         response = selected_client.patch(
             "/api/pasting/pad-config/node",
             json={"node": "L2:U1", "values": {"fill_speed": 0.3}},
