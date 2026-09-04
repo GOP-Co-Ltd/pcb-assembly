@@ -23,7 +23,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 from pcbasm.config import PasteDispenser
-from pcbasm.pasting.fill_path import build_pad_fill_plan
+from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.initial_purge import (
     InitialPurgePurpose,
     resolve_initial_purge_for,
@@ -537,7 +537,7 @@ def build_fill_path(loaded: Loaded, layer: Layer) -> PasteFillPathResponse:
         setting = resolved[loaded.hierarchy.pad_ref_for_pad(pad)]
         if pad.layer is not layer or not setting.enabled:
             continue
-        plan = build_pad_fill_plan(
+        plan = FillPlan.for_pad(
             pad.polygon,
             config=loaded.base_config,
             params=setting.params,

@@ -22,7 +22,7 @@ from pcbasm import gcode
 from pcbasm.config import PasteDispenser as PasteDispenserConfig
 from pcbasm.geometry import Path, Point2d, Transform
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
-from pcbasm.pasting.fill_path import AppliedDispenseMode, build_pad_fill_plan
+from pcbasm.pasting.fill_path import AppliedDispenseMode, FillPlan
 from pcbasm.pasting.fill_sequence import FillSequence
 from pcbasm.pasting.params import DispenseSettings, PasteParams
 from pcbasm.utils import get_class_module_path
@@ -254,7 +254,7 @@ class PasteApplicator:
             transform: この pad の board 座標 → 機械座標変換
             line_reference: 線走行方向の基準にする部品位置（board 座標）
         """
-        plan = build_pad_fill_plan(
+        plan = FillPlan.for_pad(
             polygon, config=self._config, params=params, line_reference=line_reference
         )
         if not plan.paths:
