@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pcbasm import gcode
 from pcbasm.pasting.workflow import plan_paste_targets
-from pcbasm.pcb import build_pad_hierarchy
+from pcbasm.pcb import PadHierarchy
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
@@ -58,7 +58,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         result = setup_board(ctx, camera)
 
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
-        hierarchy = build_pad_hierarchy(result.pcb.components, result.pcb.pads)
+        hierarchy = PadHierarchy.build(result.pcb.components, result.pcb.pads)
         model = resolve_paste_model(ctx, hierarchy)
         targets, error = plan_paste_targets(
             result.pcb,

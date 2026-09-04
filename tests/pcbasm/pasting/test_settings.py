@@ -18,7 +18,7 @@ from pcbasm.pasting.settings import (
     select_enabled_pads,
 )
 from pcbasm.pcb import Component, Layer, Pad
-from pcbasm.pcb.grouping import PadHierarchy, build_pad_hierarchy
+from pcbasm.pcb.grouping import PadHierarchy
 
 
 def _rect(cx: float, cy: float, w: float, h: float) -> Polygon:
@@ -78,7 +78,7 @@ def _two_component_hierarchy() -> (
         _pad("U1", "1", _rect(10.0, 0.0, 0.3, 0.5)),
         _pad("U1", "9", _rect(11.0, 0.0, 4.2, 4.2)),
     ]
-    return components, pads, build_pad_hierarchy(components, pads)
+    return components, pads, PadHierarchy.build(components, pads)
 
 
 def _duplicate_pad_number_hierarchy() -> (
@@ -91,7 +91,7 @@ def _duplicate_pad_number_hierarchy() -> (
         _pad("U1", "", _rect(0.0, 1.0, 0.93, 0.93)),
         _pad("U1", "", _rect(1.0, 1.0, 0.93, 0.93)),
     ]
-    return components, pads, build_pad_hierarchy(components, pads)
+    return components, pads, PadHierarchy.build(components, pads)
 
 
 class TestResolvePadSettingsKeys:
@@ -262,7 +262,7 @@ class TestOverrideMerge:
             _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)),
             _pad("R2", "1", _rect(5.0, 0.0, 0.5, 0.9)),
         ]
-        hierarchy = build_pad_hierarchy(components, pads)
+        hierarchy = PadHierarchy.build(components, pads)
         model = PasteSettingsModel(
             base=_full_base(),
             levels=(
@@ -542,7 +542,7 @@ class TestResolveNodeSettings:
             _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)),
             _pad("R2", "1", _rect(5.0, 0.0, 0.5, 0.9)),
         ]
-        hierarchy = build_pad_hierarchy(components, pads)
+        hierarchy = PadHierarchy.build(components, pads)
         model = PasteSettingsModel(
             base=_full_base(),
             levels=(

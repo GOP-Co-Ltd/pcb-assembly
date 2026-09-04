@@ -11,7 +11,7 @@ from pcbasm.pasting.initial_purge import (
     resolve_initial_purge,
     validate_initial_purge,
 )
-from pcbasm.pcb import Component, Layer, Pad, build_pad_hierarchy
+from pcbasm.pcb import Component, Layer, Pad, PadHierarchy
 
 
 def _rect(cx: float, cy: float, w: float = 1.0, h: float = 1.0) -> Polygon:
@@ -55,7 +55,7 @@ def _hierarchy(pads: list[Pad]):
         )
         for designator in sorted({pad.designator for pad in pads})
     ]
-    return build_pad_hierarchy(components, pads)
+    return PadHierarchy.build(components, pads)
 
 
 class TestResolveInitialPurge:

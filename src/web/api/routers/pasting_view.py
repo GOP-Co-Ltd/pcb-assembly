@@ -45,7 +45,6 @@ from pcbasm.pcb import (
     PadHierarchy,
     PadHierarchyNode,
     PcbFile,
-    build_pad_hierarchy,
 )
 from web.api.board_settings import BoardSettingsStore
 from web.api.settings import Settings
@@ -456,7 +455,7 @@ def load_board(
     abs_path = settings.pcb_browse_root / pcb_rel
     pcb = PcbFile(abs_path)
     base_config = state.machine().paste_dispenser
-    hierarchy = build_pad_hierarchy(pcb.components, pcb.pads)
+    hierarchy = PadHierarchy.build(pcb.components, pcb.pads)
     signature = hierarchy.signature()
     model = board_store.load_or_init(source_pcb, base_config, board_signature=signature)
     return Loaded(
