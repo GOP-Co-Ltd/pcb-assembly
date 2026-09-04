@@ -6,8 +6,11 @@ from typing import Literal
 import attrs
 
 from pcbasm.pcb import Layer, Pad, PadHierarchy
+from pcbasm.utils import is_finite_number
 
 DATASET_PURGE_PAD_ID = "PURGE"
+
+InitialPurgePurpose = Literal["paste_solder", "paste_dataset_collection"]
 
 
 @attrs.frozen
@@ -42,11 +45,9 @@ def resolve_initial_purge(
     明示指定時は disabled pad でもよいので、``routed_pads`` ではなく
     ``hierarchy`` 内の全 pad から探す。
     """
-    if isinstance(amount_ul, bool) or not isinstance(amount_ul, (int, float)):
-        return None, f"initial_purge_ulは数値で指定してください: {amount_ul!r}"
-    amount = float(amount_ul)
-    if amount < 0:
-        return None, f"initial_purge_ulは0以上で指定してください: {amount}"
+    amount, error = _validate_amount(amount_ul)
+    if amount is None:
+        return None, error
     if amount == 0:
         return None, None
 
@@ -98,14 +99,8 @@ def resolve_dataset_initial_purge(
             layer=Layer.TOP,
         )
 
-    _, error = resolve_initial_purge(
-        amount_ul=amount_ul,
-        pad_id=None,
-        hierarchy=hierarchy,
-        routed_pads=(),
-        layer=Layer.TOP,
-    )
-    if error is not None or amount_ul == 0:
+    amount, error = _validate_amount(amount_ul)
+    if amount is None or amount == 0:
         return None, error
 
     matches = [
@@ -123,7 +118,7 @@ def resolve_dataset_initial_purge(
         )
     return (
         ResolvedInitialPurge(
-            amount_ul=float(amount_ul),
+            amount_ul=amount,
             pad=matches[0],
             pad_id=DATASET_PURGE_PAD_ID,
             source="default",
@@ -159,6 +154,67 @@ def validate_initial_purge(
         _, pad_error = _resolve_pad_by_id(hierarchy, pad_id, layer)
         return pad_error
     return None
+
+
+@attrs.frozen
+class InitialPurgeResolution:
+    """UI 表示用にまとめた初回パージの解決結果.
+
+    Attributes:
+        resolved: 実行対象（無効・未解決なら ``None``）
+        default_pad_id: ``pad_id`` 未指定時に自動選択される pad id（無ければ ``None``）
+        error: 解決できなかった理由（無ければ ``None``）
+    """
+
+    resolved: ResolvedInitialPurge | None
+    default_pad_id: str | None
+    error: str | None
+
+
+def resolve_initial_purge_for(
+    purpose: InitialPurgePurpose,
+    *,
+    amount_ul: float,
+    pad_id: str | None,
+    hierarchy: PadHierarchy,
+    routed_pads: Sequence[Pad],
+) -> InitialPurgeResolution:
+    """用途（通常塗布 / dataset 収集）に応じた初回パージ解決と既定 pad をまとめて返す.
+
+    通常塗布の既定 pad は順路先頭。dataset 収集の既定 pad は ``PURGE`` designator の
+    一意な pad で、``amount_ul == 0`` でも既定 pad の候補は表示のために求める。
+    """
+    if purpose == "paste_dataset_collection":
+        resolved, error = resolve_dataset_initial_purge(
+            amount_ul=amount_ul, pad_id=pad_id, hierarchy=hierarchy
+        )
+        default_pad_id = None
+        if pad_id is None:
+            default, default_error = resolve_dataset_initial_purge(
+                amount_ul=1.0, pad_id=None, hierarchy=hierarchy
+            )
+            default_pad_id = default.pad_id if default is not None else None
+            error = error or default_error
+        return InitialPurgeResolution(resolved, default_pad_id, error)
+
+    resolved, error = resolve_initial_purge(
+        amount_ul=amount_ul,
+        pad_id=pad_id,
+        hierarchy=hierarchy,
+        routed_pads=routed_pads,
+        layer=Layer.TOP,
+    )
+    default_pad_id = hierarchy.pad_id_for_pad(routed_pads[0]) if routed_pads else None
+    return InitialPurgeResolution(resolved, default_pad_id, error)
+
+
+def _validate_amount(amount_ul: float) -> tuple[float | None, str | None]:
+    if not is_finite_number(amount_ul):
+        return None, f"initial_purge_ulは数値で指定してください: {amount_ul!r}"
+    amount = float(amount_ul)
+    if amount < 0:
+        return None, f"initial_purge_ulは0以上で指定してください: {amount}"
+    return amount, None
 
 
 def _resolve_pad_by_id(

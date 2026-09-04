@@ -26,7 +26,7 @@ from pcbasm.pasting.fill_path import (
     build_paste_fill_path as _build_paste_fill_path,
     build_paste_fill_plan,
 )
-from pcbasm.pasting.settings import ResolvedPaste
+from pcbasm.pasting.params import PasteParams
 
 # セグメント内包・外周マージン判定の浮動小数誤差を吸収する微小バッファ（定数）。
 # ジグザグ端点が外周に乗るため、境界一致を covers が拾えるよう微小に膨らませる。
@@ -842,7 +842,7 @@ class TestReturnType:
 
 
 class TestBuildPadFillPlanFor:
-    """build_pad_fill_plan_for は ResolvedPaste から引数対応を単一ソース化する。
+    """build_pad_fill_plan_for は PasteParams から引数対応を単一ソース化する。
 
     プレビュー（webui router）と実行（PasteApplicator._fill）が同一の対応で
     build_paste_fill_plan を呼ぶための束ね関数。同じ入力に対して build_paste_fill_plan
@@ -850,9 +850,8 @@ class TestBuildPadFillPlanFor:
     """
 
     @staticmethod
-    def _paste(**overrides: object) -> ResolvedPaste:
+    def _paste(**overrides: object) -> PasteParams:
         values: dict = {
-            "enabled": True,
             "dispense_mode": "area",
             "line_direction": "unconstrained",
             "paste_height": 0.05,
@@ -863,7 +862,7 @@ class TestBuildPadFillPlanFor:
             "boundary_margin": 0.05,
         }
         values.update(overrides)
-        return ResolvedPaste(**values)
+        return PasteParams(**values)
 
     @pytest.mark.parametrize("dispense_mode", ["auto", "dot", "line", "area"])
     def test_matches_direct_build_paste_fill_plan(self, dispense_mode: str):

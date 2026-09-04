@@ -13,8 +13,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from pcbasm.pasting.initial_purge import validate_initial_purge
+from pcbasm.pasting.params import validate_field_names, validate_param_values
 from pcbasm.pasting.route import routed_enabled_pads
-from pcbasm.pasting.settings import validate_field_names, validate_override_values
 from pcbasm.pcb import Layer
 from web.api.dependencies import (
     BoardStoreDep,
@@ -96,7 +96,7 @@ def patch_pad_config_node(
     """ノードの enabled/values upsert・clear を適用し、影響 pad を返す."""
     loaded = load_board(state, settings, board_store)
     _check_expected_pcb(body.expected_pcb, loaded)
-    if (message := validate_override_values(body.values)) is not None:
+    if (message := validate_param_values(body.values)) is not None:
         raise HTTPException(status_code=400, detail=message)
     if (message := validate_field_names(body.clear)) is not None:
         raise HTTPException(status_code=400, detail=message)

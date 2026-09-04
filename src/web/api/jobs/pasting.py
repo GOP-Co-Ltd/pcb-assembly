@@ -73,8 +73,7 @@ from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.pasting.route import plan_paste_route
 from pcbasm.pasting.settings import (
     PasteSettingsModel,
-    ResolvedPaste,
-    base_override_from_config,
+    ResolvedSetting,
     resolve_pad_settings,
     select_enabled_pads,
 )
@@ -860,10 +859,7 @@ def _resolve_paste_model(
             ctx.machine.paste_dispenser,
             board_signature=hierarchy.signature(),
         )
-    return PasteSettingsModel(
-        base=base_override_from_config(ctx.machine.paste_dispenser),
-        base_enabled=True,
-    )
+    return PasteSettingsModel.from_config(ctx.machine.paste_dispenser)
 
 
 @attrs.frozen
@@ -872,7 +868,7 @@ class _PreparedPasteWorkflow:
 
     session: PasteSession
     hierarchy: PadHierarchy
-    resolved: Mapping[PadRef, ResolvedPaste]
+    resolved: Mapping[PadRef, ResolvedSetting]
     routed_pads: tuple[Pad, ...]
     component_positions: Mapping[str, Point2d]
     alignment_session: RegionAlignmentSession
@@ -894,9 +890,9 @@ class _PreparedPasteWorkflow:
 
 def _resolved_paste_for_pad(
     hierarchy: PadHierarchy,
-    resolved: Mapping[PadRef, ResolvedPaste],
+    resolved: Mapping[PadRef, ResolvedSetting],
     pad: Pad,
-) -> ResolvedPaste | None:
+) -> ResolvedSetting | None:
     """Component無しの後方互換padではNone、それ以外は解決済み設定を返す."""
     pad_ref = hierarchy.find_pad_ref(pad)
     return None if pad_ref is None else resolved.get(pad_ref)
@@ -909,7 +905,7 @@ def _prepare_paste_workflow(
     routed_pads: Sequence[Pad],
     alignment_pads: Sequence[Pad],
     hierarchy: PadHierarchy,
-    resolved: Mapping[PadRef, ResolvedPaste],
+    resolved: Mapping[PadRef, ResolvedSetting],
 ) -> _PreparedPasteWorkflow:
     """高さ計測、領域/pad照合、pad別変換の共通前処理を実行する."""
     session = PasteSession.from_calibration(result)
@@ -1100,14 +1096,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                         [pad.polygon],
                         transform=transform,
                         line_reference=prepared.component_positions.get(pad.designator),
-                        paste_height=r.paste_height,
-                        ul_per_mm2=r.ul_per_mm2,
-                        dispense_mode=r.dispense_mode,
-                        line_direction=r.line_direction,
-                        prime_extra_delay=r.prime_extra_delay,
-                        bead_width_factor=r.bead_width_factor,
-                        overlap=r.overlap,
-                        boundary_margin=r.boundary_margin,
+                        **r.params.to_dict(),
                     )
 
     return JobResult(
@@ -1128,7 +1117,7 @@ class _DatasetPadPlan:
     """装置を動かす前に検証したpurgeと収集padの計画."""
 
     hierarchy: PadHierarchy
-    resolved: Mapping[PadRef, ResolvedPaste]
+    resolved: Mapping[PadRef, ResolvedSetting]
     purge_pad: Pad
     purge_pad_id: str
     sample_pads: tuple[Pad, ...]
@@ -1257,17 +1246,8 @@ def _dataset_execution(result: PasteApplicationResult) -> DatasetExecution:
     )
 
 
-def _dataset_resolved(paste: ResolvedPaste) -> DatasetResolvedPaste:
-    return DatasetResolvedPaste(
-        dispense_mode=paste.dispense_mode,
-        line_direction=paste.line_direction,
-        paste_height=paste.paste_height,
-        ul_per_mm2=paste.ul_per_mm2,
-        prime_extra_delay=paste.prime_extra_delay,
-        bead_width_factor=paste.bead_width_factor,
-        overlap=paste.overlap,
-        boundary_margin=paste.boundary_margin,
-    )
+def _dataset_resolved(setting: ResolvedSetting) -> DatasetResolvedPaste:
+    return DatasetResolvedPaste(**setting.params.to_dict())
 
 
 def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
@@ -1354,14 +1334,7 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
                         [pad.polygon],
                         transform=prepared.pad_transform(pad),
                         line_reference=prepared.component_positions.get(pad.designator),
-                        paste_height=resolved.paste_height,
-                        ul_per_mm2=resolved.ul_per_mm2,
-                        dispense_mode=resolved.dispense_mode,
-                        line_direction=resolved.line_direction,
-                        prime_extra_delay=resolved.prime_extra_delay,
-                        bead_width_factor=resolved.bead_width_factor,
-                        overlap=resolved.overlap,
-                        boundary_margin=resolved.boundary_margin,
+                        **resolved.params.to_dict(),
                     )
 
             for index, pad in enumerate(plan.sample_pads, start=1):
