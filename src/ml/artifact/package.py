@@ -2,7 +2,7 @@
 
 パッケージは「完成してから 1 度だけ rename する」。公開後は中身を書き換えず、
 差し替えは新しいディレクトリを作って pointer を切り替える。pointer は直前の
-1 世代を保持し、`rollback_active_pointer` で手動で戻せる。
+1 世代を保持し、:meth:`ActivePointer.rollback` で手動で戻せる。
 """
 
 from __future__ import annotations
@@ -45,6 +45,78 @@ class ImmutablePackage:
     path: Path
     checksums: Mapping[str, str] = attrs.field(converter=_read_only_checksums)
 
+    @classmethod
+    def publish(
+        cls,
+        output_directory: Path,
+        *,
+        payload_filenames: Iterable[str],
+        write_payloads: Callable[[Path], object],
+    ) -> ImmutablePackage:
+        """Payload を非公開の場所に揃えてから、1 度の rename で公開する."""
+
+        filenames = frozenset(_validated_filenames(payload_filenames))
+        destination = Path(output_directory).expanduser().resolve()
+        if destination.exists():
+            raise FileExistsError(f"model package が既に存在します: {destination}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = Path(
+            tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination.parent)
+        )
+        try:
+            write_payloads(temporary)
+            checksums = _payload_checksums(temporary, filenames)
+            (temporary / CHECKSUM_FILENAME).write_text(
+                _format_checksums(checksums), encoding="utf-8"
+            )
+            os.replace(temporary, destination)
+        finally:
+            shutil.rmtree(temporary, ignore_errors=True)
+        fsync_directory(destination.parent)
+        return cls(path=destination, checksums=checksums)
+
+    @classmethod
+    def verify(
+        cls, package: Path, *, expected_filenames: Iterable[str] | None = None
+    ) -> tuple[ImmutablePackage | None, str | None]:
+        """記録済みダイジェストと突き合わせ、改竄や欠落を検出する."""
+
+        path = Path(package).expanduser().resolve()
+        if not path.is_dir():
+            return None, f"model package が見つかりません: {path}"
+        checksum_path = path / CHECKSUM_FILENAME
+        if not checksum_path.is_file():
+            return None, f"{CHECKSUM_FILENAME} がありません: {path}"
+        recorded, error = _read_checksums(checksum_path)
+        if recorded is None:
+            return None, error
+
+        present = {entry.name for entry in path.iterdir()} - {CHECKSUM_FILENAME}
+        if difference := _describe_difference(frozenset(recorded), present):
+            return (
+                None,
+                f"package のファイル構成が {CHECKSUM_FILENAME} と一致しません{difference}",
+            )
+        if expected_filenames is not None:
+            expected = frozenset(expected_filenames)
+            if difference := _describe_difference(expected, frozenset(recorded)):
+                return None, f"package のファイル構成が期待値と一致しません{difference}"
+
+        for filename in sorted(recorded):
+            payload = path / filename
+            if payload.is_symlink() or not payload.is_file():
+                return None, f"package payload が通常ファイルではありません: {filename}"
+        if tampered := sorted(
+            filename
+            for filename, digest in recorded.items()
+            if sha256_file(path / filename) != digest
+        ):
+            return (
+                None,
+                f"package の内容が {CHECKSUM_FILENAME} と一致しません: {tampered}",
+            )
+        return cls(path=path, checksums=recorded), None
+
 
 @attrs.frozen
 class ActivePointer:
@@ -56,6 +128,70 @@ class ActivePointer:
     active_package_id: str
     active_package_sha256: str
 
+    @classmethod
+    def switch(
+        cls, pointer_file: Path, package: Path
+    ) -> tuple[ActivePointer | None, str | None]:
+        """検証済みパッケージを active にし、直前の 1 世代を保持する.
+
+        pointer の置き場所が誤っている場合は呼び出し側の不変条件違反として
+        ``ValueError`` を送出する。パッケージの検証失敗は運用時に起こりうる状態なので、
+        例外ではなく理由文字列で返す。
+        """
+
+        pointer_path = Path(pointer_file).expanduser().resolve()
+        package_path = Path(package).expanduser().resolve()
+        if pointer_path.is_relative_to(package_path):
+            raise ValueError(
+                f"active pointer は model package の外に置いてください: {pointer_path}"
+            )
+        verified, error = ImmutablePackage.verify(package_path)
+        if verified is None:
+            return None, error
+
+        previous: Path | None = None
+        if pointer_path.exists():
+            current, error = cls.load(pointer_path)
+            if current is None:
+                return None, error
+            previous = current.active_package_path
+            if previous == package_path:
+                previous = current.previous_package_path
+        return _write_pointer(pointer_path, package_path, previous), None
+
+    @classmethod
+    def load(cls, pointer_file: Path) -> tuple[ActivePointer | None, str | None]:
+        """Pointer file を読み、失敗したら理由を返す."""
+
+        pointer_path = Path(pointer_file).expanduser().resolve()
+        record, error = ACTIVE_POINTER_DOCUMENT.load(
+            pointer_path, _PointerRecord, converter=_CONVERTER
+        )
+        if record is None:
+            return None, error
+        return _active_pointer(pointer_path, record), None
+
+    @classmethod
+    def rollback(cls, pointer_file: Path) -> tuple[ActivePointer | None, str | None]:
+        """直前の 1 世代へ戻し、戻す前の active を次の戻し先にする."""
+
+        current, error = cls.load(pointer_file)
+        if current is None:
+            return None, error
+        if current.previous_package_path is None:
+            return None, f"戻せる直前の package がありません: {current.pointer_path}"
+        verified, error = ImmutablePackage.verify(current.previous_package_path)
+        if verified is None:
+            return None, error
+        return (
+            _write_pointer(
+                current.pointer_path,
+                current.previous_package_path,
+                current.active_package_path,
+            ),
+            None,
+        )
+
 
 @attrs.frozen
 class _PointerRecord:
@@ -65,142 +201,6 @@ class _PointerRecord:
     previous_package_path: Path | None
     active_package_id: str
     active_package_sha256: str
-
-
-def publish_immutable_package(
-    output_directory: Path,
-    *,
-    payload_filenames: Iterable[str],
-    write_payloads: Callable[[Path], object],
-) -> ImmutablePackage:
-    """Payload を非公開の場所に揃えてから、1 度の rename で公開する."""
-
-    filenames = frozenset(_validated_filenames(payload_filenames))
-    destination = Path(output_directory).expanduser().resolve()
-    if destination.exists():
-        raise FileExistsError(f"model package が既に存在します: {destination}")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(
-        tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination.parent)
-    )
-    try:
-        write_payloads(temporary)
-        checksums = _payload_checksums(temporary, filenames)
-        (temporary / CHECKSUM_FILENAME).write_text(
-            _format_checksums(checksums), encoding="utf-8"
-        )
-        os.replace(temporary, destination)
-    finally:
-        shutil.rmtree(temporary, ignore_errors=True)
-    fsync_directory(destination.parent)
-    return ImmutablePackage(path=destination, checksums=checksums)
-
-
-def verify_immutable_package(
-    package: Path, *, expected_filenames: Iterable[str] | None = None
-) -> tuple[ImmutablePackage | None, str | None]:
-    """記録済みダイジェストと突き合わせ、改竄や欠落を検出する."""
-
-    path = Path(package).expanduser().resolve()
-    if not path.is_dir():
-        return None, f"model package が見つかりません: {path}"
-    checksum_path = path / CHECKSUM_FILENAME
-    if not checksum_path.is_file():
-        return None, f"{CHECKSUM_FILENAME} がありません: {path}"
-    recorded, error = _read_checksums(checksum_path)
-    if recorded is None:
-        return None, error
-
-    present = {entry.name for entry in path.iterdir()} - {CHECKSUM_FILENAME}
-    if difference := _describe_difference(frozenset(recorded), present):
-        return (
-            None,
-            f"package のファイル構成が {CHECKSUM_FILENAME} と一致しません{difference}",
-        )
-    if expected_filenames is not None:
-        expected = frozenset(expected_filenames)
-        if difference := _describe_difference(expected, frozenset(recorded)):
-            return None, f"package のファイル構成が期待値と一致しません{difference}"
-
-    for filename in sorted(recorded):
-        payload = path / filename
-        if payload.is_symlink() or not payload.is_file():
-            return None, f"package payload が通常ファイルではありません: {filename}"
-    if tampered := sorted(
-        filename
-        for filename, digest in recorded.items()
-        if sha256_file(path / filename) != digest
-    ):
-        return None, f"package の内容が {CHECKSUM_FILENAME} と一致しません: {tampered}"
-    return ImmutablePackage(path=path, checksums=recorded), None
-
-
-def switch_active_pointer(
-    pointer_file: Path, package: Path
-) -> tuple[ActivePointer | None, str | None]:
-    """検証済みパッケージを active にし、直前の 1 世代を保持する.
-
-    pointer の置き場所が誤っている場合は呼び出し側の不変条件違反として
-    ``ValueError`` を送出する。パッケージの検証失敗は運用時に起こりうる状態なので、
-    例外ではなく理由文字列で返す。
-    """
-
-    pointer_path = Path(pointer_file).expanduser().resolve()
-    package_path = Path(package).expanduser().resolve()
-    if pointer_path.is_relative_to(package_path):
-        raise ValueError(
-            f"active pointer は model package の外に置いてください: {pointer_path}"
-        )
-    verified, error = verify_immutable_package(package_path)
-    if verified is None:
-        return None, error
-
-    previous: Path | None = None
-    if pointer_path.exists():
-        current, error = load_active_pointer(pointer_path)
-        if current is None:
-            return None, error
-        previous = current.active_package_path
-        if previous == package_path:
-            previous = current.previous_package_path
-    return _write_pointer(pointer_path, package_path, previous), None
-
-
-def load_active_pointer(
-    pointer_file: Path,
-) -> tuple[ActivePointer | None, str | None]:
-    """Pointer file を読み、失敗したら理由を返す."""
-
-    pointer_path = Path(pointer_file).expanduser().resolve()
-    record, error = ACTIVE_POINTER_DOCUMENT.load(
-        pointer_path, _PointerRecord, converter=_CONVERTER
-    )
-    if record is None:
-        return None, error
-    return _active_pointer(pointer_path, record), None
-
-
-def rollback_active_pointer(
-    pointer_file: Path,
-) -> tuple[ActivePointer | None, str | None]:
-    """直前の 1 世代へ戻し、戻す前の active を次の戻し先にする."""
-
-    current, error = load_active_pointer(pointer_file)
-    if current is None:
-        return None, error
-    if current.previous_package_path is None:
-        return None, f"戻せる直前の package がありません: {current.pointer_path}"
-    verified, error = verify_immutable_package(current.previous_package_path)
-    if verified is None:
-        return None, error
-    return (
-        _write_pointer(
-            current.pointer_path,
-            current.previous_package_path,
-            current.active_package_path,
-        ),
-        None,
-    )
 
 
 def _write_pointer(
@@ -298,9 +298,4 @@ __all__ = [
     "CHECKSUM_FILENAME",
     "ActivePointer",
     "ImmutablePackage",
-    "load_active_pointer",
-    "publish_immutable_package",
-    "rollback_active_pointer",
-    "switch_active_pointer",
-    "verify_immutable_package",
 ]

@@ -5,5 +5,5 @@ PyTorch による実験・評価・最適化・export の共通部分を提供�
 ``ml`` への一方向とする。
 
 このパッケージは re-export を持たない。利用側は必要なサブモジュールを直接 import
-する（例: ``from ml.artifact.package import publish_immutable_package``）。
+する（例: ``from ml.artifact.package import ImmutablePackage``）。
 """
