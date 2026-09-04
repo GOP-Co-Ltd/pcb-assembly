@@ -62,10 +62,16 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `src/web/api/`: 機体ごとの backend WebAPI（FastAPI、port 8081）
 - `src/web/ui/`: LAN に 1 つ立てる UI frontend（FastAPI、port 8080。ページ描画と
     `/m/{machine_id}/api/**` の backend 中継）
+- `src/ml/`: ドメイン非依存の機械学習基盤（PyTorch。学習・評価・最適化・export）
 
 ブラウザ操作 UI は上記 2 プロセスに分かれる。開発・運用の操作は WebUI のジョブとして
 提供する。リポジトリ直下の `scripts/` にはセットアップ・運用スクリプトと
 `migrate_codex.py` を置く。
+
+`src/ml/` は装置ドメインを知らない。依存の向きは常に `pcbasm` → `ml` の一方向とし、
+`ml` から `pcbasm` / `web` を import しない（`tests/ml/test_architecture.py` が機械検証）。
+ML 依存は `pyproject.toml` の `ml-runtime` / `ml-train` / `ml-hpo` / `ml-export`
+グループに分け、通常の WebAPI / UI 実行環境へ無条件に入れない。
 
 ## 開発コマンド
 

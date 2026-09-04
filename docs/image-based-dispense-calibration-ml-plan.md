@@ -459,7 +459,7 @@ pcbasm/pasting/paste_volume/conf/
 ├── logger/mlflow.yaml
 ├── experiment/base.yaml
 ├── experiment/fine_tune.yaml
-├── hparams_search/base_optuna.yaml
+├── hyperparameter_search/base_optuna.yaml
 └── hydra/default.yaml
 ```
 
@@ -485,7 +485,7 @@ encoderの深さやchannel数はbaseline確立前に探索しない。
 - 最良configはそのtrial weightをそのまま採用せず、通常の200 epoch上限で3 seedを再学習し、
     validation metricの平均とばらつきを確認してから候補化する。
 
-Hydra multirun自体をcheckpointとして扱わない。中断済みtrialはそのtrialの`latest.ckpt`から単独で
+Hydra multirun自体をcheckpointとして扱わない。中断済みtrialはそのtrialの`latest.pt`から単独で
 再開でき、study全体はpersistent Optuna storageから追加trialを継続する。HPO結果には
 `optimization_results.yaml`、study名、storage URIからcredentialを除いた値を残す。
 
@@ -642,18 +642,18 @@ tracking server障害でresume可能性を失わないようにする。
 run-directory/
 ├── config.json
 ├── split.json
-├── latest.ckpt       # 一定stepごとの再開点
-├── best.ckpt         # validation NLLが最良の再開可能checkpoint
-├── final.ckpt        # 正常終了時の再開可能checkpoint
-└── weights.pt        # best modelのstate_dictとmodel/preprocess schema
+├── latest.pt     # 一定stepごとの再開点
+├── best.pt       # validation NLLが最良の再開可能checkpoint
+├── final.pt      # 正常終了時の再開可能checkpoint
+└── weights.pt    # best modelのstate_dictとmodel/preprocess schema（再開用ではない）
 ```
 
-`latest.ckpt`は5分または500 optimizer stepの早い方、および各epoch末に保存する。
+`latest.pt`は5分または500 optimizer stepの早い方、および各epoch末に保存する。
 `SIGINT` / `SIGTERM`を受けた場合は新しいbatchを開始せず、現在のoptimizer step境界で
-`latest.ckpt`を保存して終了する。
+`latest.pt`を保存して終了する。
 
 すべて一時fileへ書いて`fsync`後に`os.replace`する。途中書き込みのfileを有効checkpointとして
-見せない。`best.ckpt`を上書きする前に新fileの読み戻し検証を行う。
+見せない。`best.pt`を上書きする前に新fileの読み戻し検証を行う。
 
 ### 保存内容
 
@@ -673,7 +673,7 @@ repository側のmodel classとschema versionから復元する。
 
 ### resumeとfine-tuneの区別
 
-Hydra overrideの`resume.checkpoint=/abs/path/latest.ckpt`は同一runの継続である。dataset
+Hydra overrideの`resume.checkpoint=/abs/path/latest.pt`は同一runの継続である。dataset
 fingerprint、split、model構成、optimizer configが完全一致しない場合は拒否する。batch planと
 batch indexから次の未処理batchを再開し、
 augmentationもsample派生seedで同一にする。
@@ -688,7 +688,7 @@ early stopping、samplerは新規作成する。この2操作を同じconfig fie
 学習用checkpointを塗布フローから直接読まない。次の一方向pipelineで推論artifactを作る。
 
 ```text
-best.ckpt
+best.pt
     -> weights.pt
     -> ONNX FP32
     -> ONNX Runtime optimized FP32
@@ -800,19 +800,30 @@ load時に全checksum、schema version、必要runtime versionを検証する。
 
 ### 配置と責務
 
-ML実装は`pcbasm.pasting`の下に置き、WebAPIやUIへ計算を持たせない。実装時の責務境界は次の
-とおりとする。
+実装はドメイン非依存のML基盤 `ml`（`src/ml/`）と、塗布ドメイン層
+`pcbasm.pasting.paste_volume` に分ける。依存の向きは `pcbasm` → `ml` の一方向とし、`ml` から
+`pcbasm` / `web` をimportしない。WebAPIやUIへ計算を持たせない点は変わらない。
 
 ```text
+ml.serialization                         # 暗黙変換を許さないcattrs converter
+ml.artifact                              # atomic書き込み、fingerprint、document、不変package
+ml.data                                  # 画像前処理、pixel budget batch、group split
+ml.model                                 # GroupNorm residual block、Gaussian head、loss
+ml.evaluation                            # 回帰metric、不確かさcalibration、slice診断、compile parity
+ml.experiment                            # ExperimentLogger（ABC）とMLflow adapter
+ml.training                              # TrainingTask / TrainingData（ABC）、checkpoint、Trainer
+ml.config                                # Hydra境界とpackaged config group
+ml.tuning                                # Optuna study identity、storage検証、lineage検証
+ml.export                                # ONNX、quantization、parity、benchmark、runtime
+
 pcbasm.pasting.dataset                   # 収集schemaと原本の読み書き（metadata / writer / recorder / capture）
-pcbasm.pasting.paste_volume.data         # validate、index、split、preprocess、batch
-pcbasm.pasting.paste_volume.model        # torch modelとloss
-pcbasm.pasting.paste_volume.training     # train/fine-tune loop、checkpoint
-pcbasm.pasting.paste_volume.experiment   # ExperimentLoggerとMLflow adapter
+pcbasm.pasting.paste_volume.data         # session validate、composite manifest、sample index
+pcbasm.pasting.paste_volume.model        # 塗布量推定modelとfine-tune範囲
+pcbasm.pasting.paste_volume.task         # ml.training.TrainingTask / TrainingData の実装
 pcbasm.pasting.paste_volume.train        # Hydra所有のtraining entrypoint
 pcbasm.pasting.paste_volume.evaluate     # Hydra所有のevaluation entrypoint
 pcbasm.pasting.paste_volume.conf         # packaged Hydra config
-pcbasm.pasting.paste_volume.export       # ONNX、quantization、parity、package
+pcbasm.pasting.paste_volume.release      # 精度gateとpromotion
 pcbasm.pasting.paste_volume.inference    # manifest検証、runtime、公開prediction API
 pcbasm.cli.paste_volume                   # Hydraを使わない運用CLI
 ```
@@ -820,6 +831,10 @@ pcbasm.cli.paste_volume                   # Hydraを使わない運用CLI
 通常の`import pcbasm.pasting`でtorch、torchvision、Hydra、Optuna、MLflow、ONNX Runtimeをeager
 importしない。Hydra entrypoint、運用CLI、model loaderを呼んだ時点で必要依存を読み、未installなら
 必要なdependency groupを示す明確なerrorを返す。
+
+`ml`側は逆に、torchを隠すための関数内importをしない。`ml-runtime`だけをinstallした
+Raspberry Pi 5で推論経路が動くよう、MLflow / Hydra / Optuna / ONNXを要求するのは
+それぞれのadapter moduleに限る。
 
 ### Hydra entrypointと運用CLI
 
@@ -836,16 +851,16 @@ python -m pcbasm.pasting.paste_volume.train \
     data.manifest=/abs/machine-a-fine-tune.composite.json
 
 python -m pcbasm.pasting.paste_volume.train -m \
-    experiment=base hparams_search=base_optuna \
+    experiment=base hyperparameter_search=base_optuna \
     data.manifest=/abs/base-2026-09.composite.json
 
 python -m pcbasm.pasting.paste_volume.evaluate \
-    checkpoint=/abs/best.ckpt data.manifest=/abs/base-2026-09.composite.json \
+    checkpoint=/abs/best.pt data.manifest=/abs/base-2026-09.composite.json \
     split=validation
 ```
 
 train/fine-tuneの別は`experiment` config groupで表し、独立したCLI parserやflag集合を持たせない。
-resumeだけは`resume.checkpoint=/abs/latest.ckpt`、fine-tuning初期weightは
+resumeだけは`resume.checkpoint=/abs/latest.pt`、fine-tuning初期weightは
 `model.initial_weights=/abs/weights.pt`とし、意味を分ける。`split=test`はさらに
 `allow_frozen_test=true`を要求し、通常の学習完了処理やOptuna trialから自動実行しない。
 
@@ -996,7 +1011,7 @@ versionを残す。
 - Lightningなしのpure PyTorch training coreでbase trainingとPi fine-tuningが動き、Pi fine-tuningが
     1時間以内に終わる。
 - MLflowからdataset、config、code、metric、checkpoint、export、benchmarkのlineageを辿れる。
-- 強制終了後に`latest.ckpt`から未処理batchを再開でき、不一致dataset/configを拒否する。
+- 強制終了後に`latest.pt`から未処理batchを再開でき、不一致dataset/configを拒否する。
 - promoted artifactが精度、coverage、export parity、Pi p95 1秒の全gateを通る。
 - model不在、破損、範囲外、低信頼度、推論失敗時に`rotations_per_ul`を変更しない。
 - 有効な推定が1個以上ある場合だけ、既存要件の式と1/3〜3倍clampで補正する。
