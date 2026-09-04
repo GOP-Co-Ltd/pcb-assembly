@@ -23,6 +23,13 @@ DEPENDENCY_FREE_MODULES = (
     "ml.serialization",
 )
 
+# ``ml-runtime`` だけを install した Raspberry Pi 5 で import できる層。MR ごとに追加する。
+RUNTIME_MODULES = (
+    "ml.data.batch",
+    "ml.data.image",
+    "ml.data.split",
+)
+
 HEAVY_DEPENDENCIES = (
     "hydra",
     "mlflow",
@@ -34,6 +41,33 @@ HEAVY_DEPENDENCIES = (
     "torch",
     "torchvision",
 )
+
+# 学習と探索でしか要らない依存。``ml-runtime`` 層はこれらを読んではならない。
+TRAINING_ONLY_DEPENDENCIES = (
+    "hydra",
+    "mlflow",
+    "omegaconf",
+    "onnx",
+    "onnxscript",
+    "optuna",
+)
+
+
+def _loaded_dependencies(modules: tuple[str, ...], forbidden: tuple[str, ...]) -> str:
+    # 他テストが torch 等を既に読み込んでいるため、素の interpreter で確認する
+    code = (
+        "import sys;"
+        f"[__import__(name) for name in {modules!r}];"
+        f"print(sorted(set({forbidden!r}) & set(sys.modules)))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=PROJECT_ROOT,
+    )
+    return result.stdout.strip()
 
 
 def _module_name(path) -> str:
@@ -85,18 +119,19 @@ class TestDependencyFreeLayer:
     """成果物 I/O と設定変換は ML の重い依存なしに import できる."""
 
     def test_importing_them_does_not_load_heavy_dependencies(self):
-        # 他テストが torch 等を既に読み込んでいるため、素の interpreter で確認する
-        code = (
-            "import sys;"
-            f"[__import__(name) for name in {DEPENDENCY_FREE_MODULES!r}];"
-            f"print(sorted(set({HEAVY_DEPENDENCIES!r}) & set(sys.modules)))"
-        )
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=PROJECT_ROOT,
-        )
+        loaded = _loaded_dependencies(DEPENDENCY_FREE_MODULES, HEAVY_DEPENDENCIES)
 
-        assert result.stdout.strip() == "[]"
+        assert loaded == "[]"
+
+
+class TestRuntimeLayer:
+    """推論経路は ``ml-runtime`` だけで import できる.
+
+    Raspberry Pi 5 へ MLflow / Hydra / Optuna / ONNX を入れずに済ませるための契約。
+    torch と torchvision は隠さない（隠すと関数内 import が散り、型が失われる）。
+    """
+
+    def test_importing_them_does_not_load_training_only_dependencies(self):
+        loaded = _loaded_dependencies(RUNTIME_MODULES, TRAINING_ONLY_DEPENDENCIES)
+
+        assert loaded == "[]"
