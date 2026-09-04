@@ -14,7 +14,6 @@ from pcbasm.pasting.dataset.metadata import (
     PasteDatasetMetadata,
     allocate_volume_by_rotations,
     parse_metadata,
-    validate_view,
 )
 from pcbasm.pasting.params import PasteParams
 from tests.helpers import TESTING_DATA_DIR
@@ -38,12 +37,12 @@ class TestDatasetView:
 
         assert view.offset_x_mm == 0.0
         assert view.offset_y_mm == 0.0
-        assert validate_view(view) is None
+        assert view.validate() is None
 
     def test_additional_view_keeps_number_and_offsets(self):
         view = DatasetView(number=1, offset_x_mm=2.0, offset_y_mm=-1.5)
 
-        assert validate_view(view) is None
+        assert view.validate() is None
         assert view.number == 1
         assert view.offset_x_mm == 2.0
         assert view.offset_y_mm == -1.5
@@ -59,7 +58,7 @@ class TestDatasetView:
     def test_rejects_negative_number_and_non_finite_offsets(
         self, view: DatasetView, expected: str
     ):
-        error = validate_view(view)
+        error = view.validate()
 
         assert error is not None
         assert expected in error

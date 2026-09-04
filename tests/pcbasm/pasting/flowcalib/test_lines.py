@@ -10,7 +10,6 @@ from pcbasm.pasting.flowcalib.lines import (
     LineLayout,
     plan_rate_sweep,
     plan_speed_sweep,
-    validate_line_layout,
 )
 from pcbasm.pasting.flowcalib.params import CalibrationParams
 
@@ -116,12 +115,12 @@ class TestLineLayout:
             _layout(**{field: value})
 
 
-class TestValidateLineLayout:
+class TestLineLayoutValidate:
     def test_fitting_layout_is_valid(self):
-        assert validate_line_layout(_layout(line_count=22, row_pitch=3.0)) is None
+        assert _layout(line_count=22, row_pitch=3.0).validate() is None
 
     def test_overflow_message_names_requested_and_capacity(self):
-        message = validate_line_layout(_layout(line_count=23, row_pitch=3.0))
+        message = _layout(line_count=23, row_pitch=3.0).validate()
 
         assert message is not None
         assert "線 23 本" in message
