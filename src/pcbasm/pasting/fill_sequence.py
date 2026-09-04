@@ -4,7 +4,7 @@ import math
 
 import attrs
 
-from pcbasm import gcode
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Path
 from pcbasm.hal import PasteDispenser, Speed, XYZStage
 from pcbasm.pasting.params import DispenseSettings
@@ -129,13 +129,13 @@ class FillSequence:
             return Speed.absolute(length / dispense_time)
         return None
 
-    def to_gcode(self, stage: XYZStage, dispenser: PasteDispenser) -> gcode.GCode:
+    def to_gcode(self, stage: XYZStage, dispenser: PasteDispenser) -> GCode:
         """塗布プログラムを 1 本の GCode として組み立てる（明示座標のみ使用）."""
         first = self.path[0]
         last = self.path[-1]
         rate = self._effective_rate()
         prime_time = self._prime_time()
-        gc = gcode.GCode()
+        gc = GCode()
 
         # 1. 最初の点の上空へ移動 → Z 下降（両方とも明示座標）
         lift = self.settings.lift_height
@@ -143,7 +143,7 @@ class FillSequence:
             stage.move(x=first.x, y=first.y, z=first.z + lift, speed=_TRAVEL_SPEED)
         )
         gc.append(stage.move(x=first.x, y=first.y, z=first.z, speed=_TRAVEL_SPEED))
-        gc.append(gcode.wait_for_done())
+        gc.append(GCode.wait_for_done())
 
         # 2. prime+吐出を 1 連続動作として非同期開始
         amount = (
@@ -156,14 +156,14 @@ class FillSequence:
         # 3. prime 後にステージ移動（経路長 0 の場合は吐出時間ぶん待機）
         speed = self.actual_fill_speed()
         if speed is not None:
-            gc.append(gcode.wait(prime_time))
+            gc.append(GCode.wait(prime_time))
             gc.append(stage.to_gcode(self.path, speed=speed))
         else:
-            gc.append(gcode.wait(prime_time + self._dispense_time()))
+            gc.append(GCode.wait(prime_time + self._dispense_time()))
         # 4. Klipperのlookaheadを非ブロッキングでflushし、塗布移動の終端を
         # 速度0に固定する。リトラクションは吐出profileが速度0になる時刻まで
         # queueされ、直後のZ上昇も同じ時刻から始まる。
-        gc.append(gcode.GCode("G4 P0"))
+        gc.append(GCode("G4 P0"))
 
         # 5. 速度0からリトラクションを非同期開始
         gc.append(

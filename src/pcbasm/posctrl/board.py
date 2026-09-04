@@ -5,8 +5,8 @@ from collections.abc import Callable
 
 import numpy as np
 
-from pcbasm import gcode
 from pcbasm.config import Corner, ReferencePoint
+from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
     Matrix2d,
@@ -158,8 +158,8 @@ class BoardTransformMeasurer:
         self._logger.info(f"{corner.name}位置: ({pos.x:.4f}, {pos.y:.4f})")
         return pos
 
-    def _move_to(self, move_gcode: gcode.GCode) -> None:
+    def _move_to(self, move_gcode: GCode) -> None:
         """指定座標に移動し、安定を待つ."""
         self._klipper.send_gcode(
-            move_gcode + gcode.wait(self._settle_time) + gcode.wait_for_done()
+            move_gcode + GCode.wait(self._settle_time) + GCode.wait_for_done()
         )

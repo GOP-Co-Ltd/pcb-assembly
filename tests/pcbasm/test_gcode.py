@@ -1,15 +1,6 @@
 import pytest
 
-from pcbasm.gcode import (
-    GCode,
-    firmware_restart,
-    homing,
-    move,
-    present,
-    relax,
-    wait,
-    wait_for_done,
-)
+from pcbasm.gcode import GCode
 
 
 class TestGCode:
@@ -115,8 +106,8 @@ class TestGCode:
         assert a.to_list() == ["G28"]
 
 
-class TestHoming:
-    """homing関数のテスト."""
+class TestGCodeHoming:
+    """GCode.homing のテスト."""
 
     @pytest.mark.parametrize(
         ("kwargs", "expected"),
@@ -130,11 +121,11 @@ class TestHoming:
         ],
     )
     def test_homing(self, kwargs, expected):
-        assert str(homing(**kwargs)) == expected
+        assert str(GCode.homing(**kwargs)) == expected
 
 
-class TestMove:
-    """move関数のテスト."""
+class TestGCodeMove:
+    """GCode.move のテスト."""
 
     @pytest.mark.parametrize(
         ("kwargs", "expected"),
@@ -150,11 +141,11 @@ class TestMove:
         ],
     )
     def test_move(self, kwargs, expected):
-        assert str(move(**kwargs)) == expected
+        assert str(GCode.move(**kwargs)) == expected
 
 
-class TestWait:
-    """wait関数のテスト."""
+class TestGCodeWait:
+    """GCode.wait のテスト."""
 
     @pytest.mark.parametrize(
         ("seconds", "expected"),
@@ -166,32 +157,32 @@ class TestWait:
         ],
     )
     def test_wait(self, seconds, expected):
-        assert str(wait(seconds)) == expected
+        assert str(GCode.wait(seconds)) == expected
 
 
-class TestWaitForDone:
-    """wait_for_done関数のテスト."""
+class TestGCodeWaitForDone:
+    """GCode.wait_for_done のテスト."""
 
     def test_wait_for_done(self):
-        assert str(wait_for_done()) == "M400"
+        assert str(GCode.wait_for_done()) == "M400"
 
 
-class TestPresent:
-    """present関数のテスト."""
+class TestGCodePresent:
+    """GCode.present のテスト."""
 
     def test_present(self):
-        assert str(present()) == "PRESENT"
+        assert str(GCode.present()) == "PRESENT"
 
 
-class TestFirmwareRestart:
-    """firmware_restart関数のテスト."""
+class TestGCodeFirmwareRestart:
+    """GCode.firmware_restart のテスト."""
 
     def test_firmware_restart(self):
-        assert firmware_restart() == GCode("FIRMWARE_RESTART")
+        assert GCode.firmware_restart() == GCode("FIRMWARE_RESTART")
 
 
-class TestRelax:
-    """relax関数のテスト."""
+class TestGCodeRelax:
+    """GCode.relax のテスト."""
 
     def test_relax(self):
-        assert str(relax()) == "M84"
+        assert str(GCode.relax()) == "M84"

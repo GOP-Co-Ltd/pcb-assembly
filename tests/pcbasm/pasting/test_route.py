@@ -7,7 +7,7 @@ from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.route import plan_paste_route, routed_enabled_pads
 from pcbasm.pasting.settings import LevelSetting, PasteSettingsModel
-from pcbasm.pcb import Component, Layer, Pad, PadHierarchy, build_pad_hierarchy
+from pcbasm.pcb import Component, Layer, Pad, PadHierarchy
 
 
 def _rect(cx: float, cy: float, w: float, h: float) -> Polygon:
@@ -122,7 +122,7 @@ class TestRoutedEnabledPads:
             _pad("U1", "1", center=Point2d(10.0, 0.0), width=2.0, height=2.0),
             _pad("U1", "2", center=Point2d(11.0, 0.0), width=2.0, height=2.0),
         ]
-        hierarchy = build_pad_hierarchy(components, pads)
+        hierarchy = PadHierarchy.build(components, pads)
         return pads, PasteSettingsModel(base=_full_base()), hierarchy
 
     def test_matches_plan_paste_route_when_all_enabled(self):

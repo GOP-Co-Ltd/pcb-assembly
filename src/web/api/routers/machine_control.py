@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from pcbasm import gcode
+from pcbasm.gcode import GCode
 from pcbasm.hal import XYZStage
 from pcbasm.parking import move_to_cap
 from web.api.dependencies import ControlDep, StateDep
@@ -52,7 +52,7 @@ def post_machine_control(
 
 def _build_gcode(
     body: MachineControlRequest, state: AppState, stage: XYZStage
-) -> gcode.GCode:
+) -> GCode:
     """操作リクエストから送信する G-code を構築する.
 
     Raises:
@@ -62,7 +62,7 @@ def _build_gcode(
     match body.action:
         case "home":
             axes = body.axes or []
-            commands = gcode.homing(x="x" in axes, y="y" in axes, z="z" in axes)
+            commands = GCode.homing(x="x" in axes, y="y" in axes, z="z" in axes)
         case "jog":
             if body.axis is None or body.distance is None:
                 raise ValueError("jog には axis と distance が必要です")
@@ -75,11 +75,11 @@ def _build_gcode(
         case "move":
             commands = stage.move(x=body.x, y=body.y, z=body.z)
         case "relax":
-            return gcode.relax()
+            return GCode.relax()
         case "gcode":
             if body.gcode is None or not body.gcode.strip():
                 raise ValueError("gcode が空です")
-            commands = gcode.GCode(body.gcode)
+            commands = GCode(body.gcode)
         case "focus_z":
             focus_z = state.focus_z()
             if focus_z is None:
@@ -92,4 +92,4 @@ def _build_gcode(
             if cap is None:
                 raise ValueError("ノズルキャップ位置が未記録です")
             commands = move_to_cap(stage, cap)
-    return commands + gcode.wait_for_done()
+    return commands + GCode.wait_for_done()

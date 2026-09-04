@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pcbasm import gcode
+from pcbasm.gcode import GCode
 from pcbasm.pasting.workflow import plan_paste_targets
-from pcbasm.pcb import build_pad_hierarchy
+from pcbasm.pcb import PadHierarchy
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
@@ -58,7 +58,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         result = setup_board(ctx, camera)
 
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
-        hierarchy = build_pad_hierarchy(result.pcb.components, result.pcb.pads)
+        hierarchy = PadHierarchy.build(result.pcb.components, result.pcb.pads)
         model = resolve_paste_model(ctx, hierarchy)
         targets, error = plan_paste_targets(
             result.pcb,
@@ -90,7 +90,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 session.klipper.send_gcode(stage.move(x=0, y=0, z=0))
                 total = run_loading_loop(ctx, session.klipper, stage, applicator)
                 session.klipper.send_gcode(
-                    stage.move(x=pos.x, y=pos.y, z=pos.z) + gcode.wait_for_done()
+                    stage.move(x=pos.x, y=pos.y, z=pos.z) + GCode.wait_for_done()
                 )
 
             ctx.progress("リトラクション")

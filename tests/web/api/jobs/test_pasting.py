@@ -36,7 +36,7 @@ import cv2
 import pytest
 
 from pcbasm.hal import XYZStage
-from pcbasm.pcb import PcbFile, build_pad_hierarchy
+from pcbasm.pcb import PadHierarchy, PcbFile
 from tests.helpers import PROJECT_ROOT, mark_hardware
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from web.api.board_settings import BoardSettingsStore
@@ -795,7 +795,7 @@ class TestPasteDatasetCollectionPreflight:
         state.select_pcb(calibration_board)
         if initial_purge_pad_id is not None:
             pcb = PcbFile(pcb_root / calibration_board)
-            hierarchy = build_pad_hierarchy(pcb.components, pcb.pads)
+            hierarchy = PadHierarchy.build(pcb.components, pcb.pads)
             board_store.update(
                 calibration_board.as_posix(),
                 state.machine().paste_dispenser,
