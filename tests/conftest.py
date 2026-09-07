@@ -1,11 +1,17 @@
+"""全テスト共通の fixture.
+
+``pcbasm.hal`` と ``tests.helpers`` は picamera2 / pcbnew を import するため、
+Raspberry Pi と KiCAD が無い環境（GPU 学習ワークステーション等）では読み込めない。
+root conftest が module 冒頭でそれらを import すると、ドメイン非依存な
+``tests/ml`` の collect まで巻き込んで失敗する。実機依存の import は
+それを必要とする fixture の中だけで行う。
+"""
+
 from pathlib import Path
 
 import numpy as np
 import pytest
 from pytest_mock import MockerFixture
-
-from pcbasm.hal.camera import CameraInfo, Resolution
-from tests.helpers import make_paste_flow_calibration_footprint_root
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +32,8 @@ def paste_flow_calibration_footprint_root(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Path:
     """System KiCad inventoryに依存しない実 ``*.pretty`` library."""
+    from tests.helpers import make_paste_flow_calibration_footprint_root
+
     return make_paste_flow_calibration_footprint_root(
         tmp_path_factory.mktemp("paste-flow-calibration") / "footprints"
     )
@@ -34,6 +42,8 @@ def paste_flow_calibration_footprint_root(
 @pytest.fixture
 def mock_camera_backend(mocker: MockerFixture):
     """Cameraクラス（USBバックエンド）の内部実装をモックするフィクスチャ."""
+    from pcbasm.hal.camera import CameraInfo, Resolution
+
     mock_cam = mocker.MagicMock()
     mock_cam.isOpened.return_value = True
     mock_cam.set.return_value = True

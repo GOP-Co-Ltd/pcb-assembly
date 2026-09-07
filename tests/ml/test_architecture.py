@@ -8,11 +8,16 @@ import ast
 import subprocess
 import sys
 
-from tests.helpers import PROJECT_ROOT
+from tests.ml.helpers import PROJECT_ROOT
 
 ML_SOURCE_ROOT = PROJECT_ROOT / "src" / "ml"
+ML_TEST_ROOT = PROJECT_ROOT / "tests" / "ml"
 
 DOMAIN_PACKAGES = ("pcbasm", "web")
+
+# ``tests/ml`` から参照してはならない module。``tests.helpers`` は pcbnew /
+# picamera2 を、装置ドメインの package は picamera2 を module 冒頭で import する。
+FORBIDDEN_TEST_IMPORTS = ("tests.helpers", *DOMAIN_PACKAGES)
 
 # ``ml-runtime`` すら要求せず import できる層。MR ごとに追加する。
 DEPENDENCY_FREE_MODULES = (
@@ -85,18 +90,32 @@ def _loaded_dependencies(modules: tuple[str, ...], forbidden: tuple[str, ...]) -
     return result.stdout.strip()
 
 
-def _module_name(path) -> str:
-    relative = path.relative_to(ML_SOURCE_ROOT.parent).with_suffix("")
+def _reaches_device_domain(imported: str) -> bool:
+    """``imported`` が装置ドメイン側の module を指すか."""
+
+    return any(
+        imported == forbidden or imported.startswith(f"{forbidden}.")
+        for forbidden in FORBIDDEN_TEST_IMPORTS
+    )
+
+
+def _module_name(path, anchor) -> str:
+    """``anchor`` を package root の親として ``path`` の絶対 module 名を組む."""
+
+    relative = path.relative_to(anchor).with_suffix("")
     parts = list(relative.parts)
     if parts[-1] == "__init__":
         parts.pop()
     return ".".join(parts)
 
 
-def _absolute_imports(path) -> set[str]:
-    """相対 import を解決したうえで、import 先の絶対 module 名を返す."""
+def _absolute_imports(path, anchor) -> set[str]:
+    """相対 import を解決したうえで、import 先の絶対 module 名を返す.
 
-    module = _module_name(path)
+    相対 import を解決するので ``from ..helpers import X`` のような迂回も拾う。
+    """
+
+    module = _module_name(path, anchor)
     package = module if path.name == "__init__.py" else module.rpartition(".")[0]
     imported: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -122,10 +141,30 @@ class TestDomainIndependence:
 
         offenders: list[str] = []
         for path in sources:
-            for imported in _absolute_imports(path):
+            for imported in _absolute_imports(path, ML_SOURCE_ROOT.parent):
                 root = imported.partition(".")[0]
                 if root in DOMAIN_PACKAGES:
-                    offenders.append(f"{_module_name(path)} -> {imported}")
+                    name = _module_name(path, ML_SOURCE_ROOT.parent)
+                    offenders.append(f"{name} -> {imported}")
+
+        assert offenders == []
+
+    def test_no_test_module_reaches_the_device_domain(self):
+        """``tests/ml`` は装置ドメインとそのテストヘルパーを参照しない.
+
+        ``tests.helpers`` は pcbnew / picamera2 を、``pcbasm`` は picamera2 を要求する。
+        参照すると Raspberry Pi と KiCAD の無い学習機で ``tests/ml`` が collect
+        できなくなる。相対 import での迂回も同じ扱いにする。
+        """
+        sources = sorted(ML_TEST_ROOT.rglob("*.py"))
+        # 走査対象が空でも下の assert は通ってしまうため、探索範囲を先に固定する
+        assert sources != []
+
+        offenders: list[str] = []
+        for path in sources:
+            for imported in _absolute_imports(path, PROJECT_ROOT):
+                if _reaches_device_domain(imported):
+                    offenders.append(f"{path.relative_to(PROJECT_ROOT)} -> {imported}")
 
         assert offenders == []
 
