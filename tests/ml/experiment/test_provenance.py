@@ -19,6 +19,14 @@ from ml.experiment.provenance import (
 # diff に混ぜても tag へ漏れてはならない目印
 SECRET_MARKER = "do-not-persist-marker-9f2c"
 
+# untracked 本文を読み込む 1 ファイルあたりの上限。
+#
+# ``src/ml/experiment/provenance.py`` の ``_UNTRACKED_FILE_BYTE_LIMIT`` と揃える。
+UNTRACKED_FILE_BYTE_LIMIT = 1024 * 1024
+
+# 上限超過ファイルの本文を落としたことを示す見出し.
+OMITTED_BODY_MARKER = "[本文は大きすぎるため省略]"
+
 
 def _run_git(repository: Path, *arguments: str) -> None:
     subprocess.run(
@@ -134,6 +142,55 @@ class TestGitProvenanceTags:
         assert tags["git.diff_fingerprint"].startswith("sha256:")
 
 
+class TestUntrackedContentSizeLimit:
+    """大きな untracked ファイルは本文を落とし、digest だけ残す."""
+
+    def _write_oversized(self, repository: Path, *, filler: bytes) -> int:
+        """上限を 1 byte だけ超える untracked ファイルを置き、その大きさを返す."""
+
+        size = UNTRACKED_FILE_BYTE_LIMIT + 1
+        head = SECRET_MARKER.encode("utf-8")
+        body = head + filler * (size - len(head))
+        path = repository / "oversized.bin"
+        path.write_bytes(body[:size])
+        return size
+
+    def test_oversized_file_body_is_omitted(self, repository: Path):
+        size = self._write_oversized(repository, filler=b"a")
+
+        provenance = _capture(repository)
+
+        assert "oversized.bin" in provenance.untracked_files
+        assert OMITTED_BODY_MARKER in provenance.untracked_content
+        assert SECRET_MARKER not in provenance.untracked_content
+        assert f"size {size}; sha256:" in provenance.untracked_content
+
+    def test_small_file_body_is_kept(self, repository: Path):
+        (repository / "small.txt").write_text(
+            f"small {SECRET_MARKER}\n", encoding="utf-8"
+        )
+
+        provenance = _capture(repository)
+
+        assert OMITTED_BODY_MARKER not in provenance.untracked_content
+        assert SECRET_MARKER in provenance.untracked_content
+
+    def test_fingerprint_follows_the_content_of_an_omitted_file(self, repository: Path):
+        """本文を落としても、内容が変われば fingerprint が変わる.
+
+        省略側も digest を見出しへ載せるので、この性質は保たれる。
+        """
+
+        self._write_oversized(repository, filler=b"a")
+        first = _capture(repository).diff_fingerprint
+
+        self._write_oversized(repository, filler=b"b")
+        second = _capture(repository).diff_fingerprint
+
+        assert first.startswith("sha256:")
+        assert first != second
+
+
 class TestDependencyVersions:
     """収集した依存の版が実際の install 状態と一致する."""
 
@@ -164,22 +221,31 @@ class TestDependencyVersions:
 class TestSanitizePersistedUri:
     """永続化する URI から credential と query / fragment を落とす."""
 
-    def test_credentials_query_and_fragment_are_removed(self):
-        sanitized = sanitize_persisted_uri(
-            "postgresql://user:secret@host:5432/db?sslmode=require"
-        )
-
-        assert sanitized == "postgresql://host:5432/db"
-
-    def test_fragment_is_removed(self):
-        sanitized = sanitize_persisted_uri("https://tracking.invalid/path#section")
-
-        assert sanitized == "https://tracking.invalid/path"
-
-    def test_uri_without_credentials_is_preserved(self):
-        sanitized = sanitize_persisted_uri("http://127.0.0.1:5000")
-
-        assert sanitized == "http://127.0.0.1:5000"
+    @pytest.mark.parametrize(
+        ("uri", "expected"),
+        [
+            # authority を持たない URI は組み立て直さず、そのまま通す
+            ("file:./mlruns", "file:./mlruns"),
+            ("mailto:user@example.com", "mailto:user@example.com"),
+            ("urn:uuid:1234", "urn:uuid:1234"),
+            ("sqlite:///mlruns.db", "sqlite:///mlruns.db"),
+            ("file:///var/mlruns", "file:///var/mlruns"),
+            ("http://localhost:5000", "http://localhost:5000"),
+            # host が無くても userinfo は落とす
+            ("http://user:secret@", "http://"),
+            ("http://user:secret@/path", "http:///path"),
+            ("databricks://a:b@", "databricks://"),
+            # host がある形は credential と query / fragment ごと落とす
+            (
+                "postgresql://user:secret@host:5432/db?sslmode=require",
+                "postgresql://host:5432/db",
+            ),
+            ("https://user:tok@[::1]:8080/x?q=1#f", "https://[::1]:8080/x"),
+            ("http://host/p?token=abc#frag", "http://host/p"),
+        ],
+    )
+    def test_uri_is_sanitized_as_pinned(self, uri: str, expected: str):
+        assert sanitize_persisted_uri(uri) == expected
 
     def test_plain_string_without_scheme_is_unchanged(self):
         assert sanitize_persisted_uri("not-a-uri") == "not-a-uri"
@@ -202,6 +268,16 @@ class TestSanitizePersistedText:
         assert "sig=abc" not in sanitized
         assert "postgresql://host:5432/db" in sanitized
         assert "https://artifacts.invalid/run" in sanitized
+
+    def test_credentials_without_a_host_are_removed_in_text(self):
+        """Host を持たない URI の userinfo も自由文から消える."""
+
+        text = "tracking は http://user:secret@/path です"
+
+        sanitized = sanitize_persisted_text(text)
+
+        assert "secret" not in sanitized
+        assert "http:///path" in sanitized
 
     def test_text_without_uri_is_unchanged(self):
         text = "学習が 2 epoch で終了しました"

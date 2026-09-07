@@ -304,8 +304,21 @@ class RecordingExperimentLogger(ExperimentLogger):
 
     @override
     def log_params(self, params: Mapping[str, Scalar]) -> None:
-        """記録した param を蓄積する."""
+        """記録した param を蓄積する.
 
+        既存 key を異なる値で再送したら :class:`RuntimeError` にする。
+
+        MLflow は param の値変更を拒否するので、その契約を fake でも模す。
+
+        同値の再送は MLflow でも通るため、ここでも無害に扱う。
+        """
+
+        for name, value in params.items():
+            if name in self.params and self.params[name] != value:
+                raise RuntimeError(
+                    "param の値は変更できません: "
+                    f"{name}={self.params[name]!r} を {value!r} へ再送しました"
+                )
         self.params.update(params)
 
     @override

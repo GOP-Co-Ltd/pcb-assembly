@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import signal
 import threading
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import override
 
@@ -14,6 +15,7 @@ import torch
 
 from ml.data.split import SplitName
 from ml.evaluation.compile_parity import CompileOptions
+from ml.experiment.logger import Scalar
 from ml.model.blocks import ImageEncoder, ImageEncoderConfig
 from ml.model.heads import (
     GaussianHeadConfig,
@@ -134,6 +136,96 @@ class _SignallingTask(SyntheticRegressionTask):
         return result
 
 
+class _NonFiniteGradientTask(SyntheticRegressionTask):
+    """先頭の指定回数だけ、有限 loss のまま非有限勾配を作る task.
+
+    AMP の GradScaler が step を skip する経路（``gradient_overflow``）を
+    Trainer レベルで決定論的に再現するために使う。
+    """
+
+    def __init__(
+        self,
+        model: GaussianImageRegressor,
+        options: SyntheticTaskOptions,
+        *,
+        overflow_step_count: int,
+    ) -> None:
+        super().__init__(model, options)
+        self._overflow_step_count = overflow_step_count
+
+    @override
+    def training_step(self, batch: GaussianBatch) -> StepResult[GaussianObservation]:
+        result = super().training_step(batch)
+        if self.training_step_count > self._overflow_step_count:
+            return result
+        parameter = next(self.model.parameters())
+        # 値は 0 なので loss は有限のまま。sqrt の 0 における微分だけが非有限になる
+        zero = parameter.sum() - parameter.sum().detach()
+        return attrs.evolve(result, loss=result.loss + torch.sqrt(zero * zero))
+
+
+class _FailingExperimentLogger(RecordingExperimentLogger):
+    """指定したメソッドだけ例外を投げる logger.
+
+    ``ExperimentLogger`` は自前の ABC なので、これは 3rd-party のモックではない。
+    """
+
+    def __init__(self, *, failing_method: str) -> None:
+        super().__init__()
+        self._failing_method = failing_method
+
+    @override
+    def log_params(self, params: Mapping[str, Scalar]) -> None:
+        """記録したうえで、指定されていれば投げる."""
+
+        super().log_params(params)
+        self._raise_if_failing("log_params")
+
+    @override
+    def set_tags(self, tags: Mapping[str, str]) -> None:
+        """記録したうえで、指定されていれば投げる."""
+
+        super().set_tags(tags)
+        self._raise_if_failing("set_tags")
+
+    def _raise_if_failing(self, method: str) -> None:
+        if method == self._failing_method:
+            raise _LoggerUnavailableError(f"{method} を送れませんでした")
+
+
+class _LoggerUnavailableError(RuntimeError):
+    """記録先が落ちていることを表す、テスト専用の例外."""
+
+
+class _RecordingDeviceData(SyntheticRegressionData):
+    """``materialize`` が受け取った device を記録する dataset."""
+
+    def __init__(self, options: SyntheticDatasetOptions) -> None:
+        super().__init__(options)
+        self.materialize_calls: list[tuple[SplitName, torch.device]] = []
+
+    @override
+    def materialize(
+        self,
+        sample_ids: Sequence[str],
+        *,
+        split: SplitName,
+        epoch: int,
+        training: bool,
+        device: torch.device,
+    ) -> GaussianBatch:
+        """受け取った split と device を控えてから batch を組み立てる."""
+
+        self.materialize_calls.append((split, device))
+        return super().materialize(
+            sample_ids,
+            split=split,
+            epoch=epoch,
+            training=training,
+            device=device,
+        )
+
+
 class _ReversedPlanData(SyntheticRegressionData):
     """Batch 計画だけを反転させ、resume の計画不一致を作る dataset."""
 
@@ -169,6 +261,14 @@ def _config(**overrides: object) -> TrainerConfig:
     return TrainerConfig(**values)  # pyright: ignore[reportArgumentType]
 
 
+def _as_param(value: object) -> Scalar:
+    """Param として記録されるはずの値へ、設定値を写す."""
+
+    if isinstance(value, bool | int | float | str):
+        return value
+    return str(value)
+
+
 def _wide_model() -> GaussianImageRegressor:
     """Stem を 1 段増やして state_dict のキー集合を変えた model."""
 
@@ -196,6 +296,7 @@ def _trainer(
     task: SyntheticRegressionTask | None = None,
     data: SyntheticRegressionData | None = None,
     logger: RecordingExperimentLogger | None = None,
+    device: torch.device = DEVICE,
 ) -> tuple[Trainer[GaussianBatch, GaussianObservation], RecordingExperimentLogger]:
     recorder = logger or RecordingExperimentLogger()
     trainer = Trainer(
@@ -207,7 +308,7 @@ def _trainer(
         config=config or _config(),
         store=CheckpointStore(directory),
         logger=recorder,
-        device=DEVICE,
+        device=device,
     )
     return trainer, recorder
 
@@ -386,15 +487,22 @@ class TestTrainerFullRun:
 
         for name in sorted(FINGERPRINT_EXCLUDED_FIELDS):
             assert name not in logger.params
-            assert logger.tags[name] == str(getattr(_config(), name))
+            assert logger.tags[f"training.{name}"] == str(getattr(_config(), name))
 
     def test_every_semantic_field_is_logged_as_a_param(self, tmp_path: Path):
+        """意味論フィールドは平坦化した ``compile_options`` まで param に載る."""
+
         trainer, logger = _trainer(tmp_path)
 
         trainer.run()
 
         for name in sorted(FINGERPRINT_FIELDS - {"compile_options"}):
             assert name in logger.params
+        for option in attrs.fields(CompileOptions):
+            key = f"compile_options.{option.name}"
+            assert logger.params[key] == _as_param(
+                getattr(_config().compile_options, option.name)
+            )
 
     def test_final_checkpoint_is_logged_as_an_artifact(self, tmp_path: Path):
         trainer, logger = _trainer(tmp_path)
@@ -662,6 +770,37 @@ class TestTrainerResumeRejections:
         assert logger.end_call_count == 1
         assert logger.status == "FAILED"
 
+    def test_rejected_resume_leaves_the_caller_model_untouched(self, tmp_path: Path):
+        """拒否した resume は呼び出し側の model を書き換えない.
+
+        run_id が合わないのに重みだけ checkpoint のものへ入れ替わると、 呼び出し側は捨てたはずの run
+        を掴んだまま次の処理へ進んでしまう。
+        """
+
+        latest = self._interrupted_latest(tmp_path)
+        task = SyntheticRegressionTask(
+            build_synthetic_model(seed=1), SyntheticTaskOptions()
+        )
+        before = {
+            name: tensor.detach().clone()
+            for name, tensor in task.model.state_dict().items()
+        }
+        checkpoint, _ = CheckpointStore(tmp_path).load("latest")
+        resumed, _ = _trainer(
+            tmp_path, task=task, logger=RecordingExperimentLogger(run_id="another-run")
+        )
+
+        with pytest.raises(ValueError):
+            resumed.run(resume_from=latest)
+
+        # checkpoint 側と初期重みが同じなら、この検証は何も守らない
+        assert checkpoint is not None
+        assert any(
+            not torch.equal(before[name], tensor)
+            for name, tensor in checkpoint.model_state.items()
+        )
+        _assert_same_weights(before, dict(task.model.state_dict()))
+
     def test_model_state_key_mismatch_is_rejected(self, tmp_path: Path):
         latest = self._interrupted_latest(tmp_path)
         resumed, _ = _trainer(
@@ -809,3 +948,157 @@ class TestCheckpointReadableAfterRun:
             assert reason is None, role
             assert checkpoint is not None
             assert checkpoint.validate() is None
+
+
+class TestTrainerDeviceSeam:
+    """Trainer に渡した device が、そのまま batch の生成側へ届く."""
+
+    def test_materialize_receives_the_trainer_device(self, tmp_path: Path):
+        """``Trainer(device=...)`` の device が ``materialize`` へ渡る.
+
+        Trainer は batch の型を知らないので移送し直せない。
+
+        ここで device が落ちると、CUDA のホストで model だけ GPU、batch は CPU になる。
+
+        判別子として index 付きの CPU device を使う。
+
+        ``torch.device("cpu")`` と等しくならないので、固定値へ潰した実装と区別できる。
+        """
+
+        device = torch.device("cpu", 0)
+        data = _RecordingDeviceData(SyntheticDatasetOptions())
+        trainer, _ = _trainer(
+            tmp_path, config=_config(max_epochs=1), data=data, device=device
+        )
+
+        trainer.run()
+
+        assert trainer.device == device
+        assert data.materialize_calls != []
+        assert {split for split, _ in data.materialize_calls} == {
+            "train",
+            "validation",
+        }
+        assert all(passed == device for _, passed in data.materialize_calls)
+
+
+class TestTrainerForeignBestCheckpoint:
+    """別 run が残した ``best.pt`` を、今回の成果として採用しない."""
+
+    def _run_leaving_a_best(self, directory: Path) -> dict[str, torch.Tensor]:
+        """``best.pt`` を残す run を 1 本走らせ、その best 重みを返す."""
+
+        trainer, _ = _trainer(
+            directory, config=_config(max_epochs=1), logger=RecordingExperimentLogger()
+        )
+        outcome = trainer.run()
+
+        assert outcome.best_checkpoint_path is not None
+        return _state_dict(CheckpointStore(directory), "best")
+
+    def test_final_checkpoint_ignores_another_runs_best(self, tmp_path: Path):
+        foreign_best = self._run_leaving_a_best(tmp_path)
+        # 1 step で止めれば、この run 自身は best.pt を書かない
+        trainer, logger = _trainer(
+            tmp_path,
+            config=_config(max_steps=1),
+            logger=RecordingExperimentLogger(run_id="second-run"),
+        )
+
+        outcome = trainer.run()
+
+        final = _state_dict(CheckpointStore(tmp_path), "final")
+        assert outcome.best_checkpoint_path is None
+        assert outcome.best_epoch is None
+        assert "finalization.best_checkpoint_ignored" in logger.tags
+        assert sorted(final) == sorted(foreign_best)
+        assert any(not torch.equal(final[key], foreign_best[key]) for key in final)
+
+
+class TestTrainerLoggerFailures:
+    """記録先が投げても、run は終了状態を持ったまま元の例外を表に出す."""
+
+    @pytest.mark.parametrize("failing_method", ["log_params", "set_tags"])
+    def test_logger_failure_ends_the_run_as_failed(
+        self, tmp_path: Path, failing_method: str
+    ):
+        logger = _FailingExperimentLogger(failing_method=failing_method)
+        trainer, _ = _trainer(tmp_path, logger=logger)
+
+        with pytest.raises(_LoggerUnavailableError) as exception:
+            trainer.run()
+
+        assert failing_method in str(exception.value)
+        assert logger.end_call_count == 1
+        assert logger.status == "FAILED"
+
+
+class TestTrainerGradientOverflow:
+    """AMP の overflow は連続回数で失敗へ切り替える."""
+
+    def _trainer_with_overflows(
+        self, directory: Path, *, overflow_step_count: int
+    ) -> Trainer[GaussianBatch, GaussianObservation]:
+        task = _NonFiniteGradientTask(
+            build_synthetic_model(seed=1),
+            SyntheticTaskOptions(),
+            overflow_step_count=overflow_step_count,
+        )
+        trainer, _ = _trainer(
+            directory,
+            task=task,
+            config=_config(max_epochs=1, automatic_mixed_precision_enabled=True),
+        )
+        return trainer
+
+    def test_eight_consecutive_overflows_fail_the_run(self, tmp_path: Path):
+        """上限ちょうどの連続 overflow で発散として止める."""
+
+        trainer = self._trainer_with_overflows(tmp_path, overflow_step_count=8)
+
+        with pytest.raises(NonFiniteLossError) as exception:
+            trainer.run()
+
+        assert "gradient overflow" in str(exception.value)
+        assert "8 回" in str(exception.value)
+
+    def test_seven_consecutive_overflows_recover(self, tmp_path: Path):
+        """上限に 1 回足りない連続 overflow なら学習を続ける."""
+
+        trainer = self._trainer_with_overflows(tmp_path, overflow_step_count=7)
+
+        outcome = trainer.run()
+
+        assert outcome.stop_reason == "max_epochs"
+        assert outcome.epochs_completed == 1
+
+
+class TestTrainerResumeWithANewTimeBudget:
+    """時間予算を変えて resume しても、記録の契約を破らない."""
+
+    def test_resume_with_a_different_deadline_is_recorded(self, tmp_path: Path):
+        """同じ run へ別の時間予算を記録し直しても失敗しない.
+
+        param は run 内で不変なので、時間予算を param に載せると再開が必ず落ちる。
+
+        ``RecordingExperimentLogger`` はその契約を模しており、値の変わる再送を拒む。
+        """
+
+        logger = RecordingExperimentLogger()
+        interrupted, _ = _trainer(
+            tmp_path,
+            task=_SignallingTask(
+                build_synthetic_model(seed=1), SyntheticTaskOptions(), signal_at_step=2
+            ),
+            logger=logger,
+        )
+        interrupted.run()
+        resumed, _ = _trainer(
+            tmp_path, config=_config(deadline_seconds=3600.0), logger=logger
+        )
+
+        outcome = resumed.run(resume_from=CheckpointStore(tmp_path).path_for("latest"))
+
+        assert outcome.stop_reason == "max_epochs"
+        assert logger.tags["training.deadline_seconds"] == "3600.0"
+        assert "deadline_seconds" not in logger.params
