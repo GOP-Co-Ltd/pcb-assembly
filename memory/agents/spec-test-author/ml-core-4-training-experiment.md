@@ -219,3 +219,88 @@ server が `/health` に応答しない・起動直後に落ちた場合だけ�
 - `make type`: 0 errors, 0 warnings
 - `uv run pytest tests/ml -m "not hardware"`: **563 passed**（49.55s）。
     MLflow の実 local server テストも skip されず実行された
+
+## 3 巡目（2 巡目レビューの「修正はされたがテストが無い」分の回帰テスト）
+
+編集範囲は `tests/ml/` のみ。`src/` は変異実験で一時的に書き換えたが、
+すべて復元済みで `git diff -- src/` は空。
+
+### 追加・変更したテスト
+
+`tests/ml/support.py`
+
+- `RecordingExperimentLogger.log_params` に MLflow の「param は不変」契約を持たせた。
+    既存 key を異なる値で再送したら `RuntimeError`、同値の再送は無害。
+    must-fix 1 の根本原因（fake が契約を模していない）をここで塞ぐ
+
+`tests/ml/training/test_loop.py`
+
+- `TestTrainerDeviceSeam::test_materialize_receives_the_trainer_device`：
+    `Trainer(device=torch.device("cpu", 0))` の device が train / validation 両方の
+    `materialize` へ届くことを、device を記録する `_RecordingDeviceData` で検証。
+    判別子に index 付き CPU device を使うので、`torch.device("cpu")` 固定と区別できる
+- `TestTrainerForeignBestCheckpoint::test_final_checkpoint_ignores_another_runs_best`：
+    同じ checkpoint directory で run A（best.pt を残す）→ run B（`max_steps=1` なので
+    自分の best を書かない）を回し、B の `final.pt` が A の重みでないこと・
+    `outcome.best_checkpoint_path is None`・`finalization.best_checkpoint_ignored` tag を検証
+- `TestTrainerLoggerFailures::test_logger_failure_ends_the_run_as_failed`：
+    指定メソッドだけ投げる `_FailingExperimentLogger`（自前 ABC の double。モックではない）を
+    `log_params` / `set_tags` で parametrize し、`status == "FAILED"` /
+    `end_call_count == 1` / 元例外の型が表に出ることを検証
+- `TestTrainerGradientOverflow`：連続 overflow がちょうど 8 回で `NonFiniteLossError`、
+    7 回なら回復して `max_epochs` まで走ることを検証。
+    有限 loss のまま非有限勾配を作る `_NonFiniteGradientTask`（sqrt の 0 における微分）を
+    AMP 有効で回す
+- `TestTrainerResumeRejections::test_rejected_resume_leaves_the_caller_model_untouched`：
+    run_id 不一致で `ValueError` になったあと、呼び出し側 model の重みが resume 前のままである
+    ことを検証。checkpoint 側の重みが初期重みと異なることも assert して、検証が空回りしないようにした
+- `TestTrainerResumeWithANewTimeBudget::test_resume_with_a_different_deadline_is_recorded`：
+    同じ logger へ別の `deadline_seconds` で resume しても記録が破綻しないことを検証。
+    fake の param 不変契約と組み合わさり、時間予算が param 側へ戻ると実際に落ちる
+- `TestTrainerFullRun::test_every_semantic_field_is_logged_as_a_param`：
+    平坦化後の `compile_options.*` キーも param に載ることを追加で検証
+
+`tests/ml/experiment/test_provenance.py`
+
+- `TestSanitizePersistedUri::test_uri_is_sanitized_as_pinned`：指定の 12 ケースを parametrize で pin。
+    credential 除去（`@` を含む形）と、authority を持たない URI が壊れないこと
+    （`sqlite:///` の潰れが 2 巡目の回帰）の両方を守る
+- `TestSanitizePersistedText::test_credentials_without_a_host_are_removed_in_text`：
+    自由文経由でも host 無し URI の userinfo が消えること
+- `TestUntrackedContentSizeLimit`：上限超過ファイルは本文が省略され見出しに `size` と `sha256` が載ること、
+    小さいファイルの本文は残ること、本文を落としても `diff_fingerprint` が内容変化に追従すること
+
+### 変異実験（テストごとに、機構を潰すと落ちることを実測）
+
+いずれも `-p no:randomly --tb=no` で対象ファイルを実行。変異は毎回バックアップから復元した。
+
+| 変異 | 結果 | 落ちたテスト |
+| --- | --- | --- |
+| `device=self._device` → `torch.device("cpu")` 固定 | 1 failed / 73 passed | `TestTrainerDeviceSeam::test_materialize_receives_the_trainer_device` |
+| `sanitize_persisted_uri` を 2 巡目前の `urlunsplit` 版へ | 5 failed / 23 passed | `test_uri_is_sanitized_as_pinned` の 4 ケース（`sqlite:///mlruns.db` / `http://user:secret@` / `http://user:secret@/path` / `databricks://a:b@`）と `test_credentials_without_a_host_are_removed_in_text` |
+| `_best_of_this_run` の run_id 照合を削除 | 1 failed / 73 passed | `TestTrainerForeignBestCheckpoint::test_final_checkpoint_ignores_another_runs_best` |
+| untracked のサイズ上限を無効化（1024**5） | 1 failed / 27 passed | `TestUntrackedContentSizeLimit::test_oversized_file_body_is_omitted` |
+| `_capture_failure` の `set_tags` 握りを外す | 1 failed / 73 passed | `TestTrainerLoggerFailures::...[set_tags]`（`end_call_count` が 0 になる） |
+| overflow 閾値 `>=` → `>` | 1 failed / 73 passed | `TestTrainerGradientOverflow::test_eight_consecutive_overflows_fail_the_run` |
+| `as_params` の除外を外す（時間予算を param へ戻す） | 2 failed / 73 passed | `test_time_budget_fields_are_tags_not_params` と `TestTrainerResumeWithANewTimeBudget::test_resume_with_a_different_deadline_is_recorded` |
+| `as_params` の `CompileOptions` 平坦化を無効化 | 1 failed / 73 passed | `TestTrainerFullRun::test_every_semantic_field_is_logged_as_a_param` |
+| `_restore` の `model.load_state_dict` を run_id 照合の前へ戻す | 1 failed / 73 passed | `TestTrainerResumeRejections::test_rejected_resume_leaves_the_caller_model_untouched` |
+
+### 検証結果
+
+- `make type`: 0 errors, 0 warnings（3 種目とも 0）
+- `uv run pytest tests/ml -m "not hardware"`: **592 passed**（50 秒。3 巡目前は 571）
+- `git diff -- src/`: 空（変異はすべて復元済み）
+- `make format`: **codespell だけ Failed**。原因は
+    `memory/agents/code-reviewer/ml-core-4-training-experiment.md:457`（pyright の出力を
+    そのまま引用した行の綴り）で、commit `953ed13` に既にあるもの。
+    3 巡目の変更とは無関係なので触っていない。ruff / ruff-format / docformatter を含む
+    他の hook はすべて Passed で、追加したテストファイル単体では codespell も Passed
+
+### 実装側への申し送り
+
+- 3 巡目で `src/` は 1 行も変更していない。上表の変異はすべて orchestrator の src 修正が
+    正しく効いていることの裏付けであり、修正要求ではない
+- 2 巡目 should-fix 1（`_RunState` 構築を try の内側へ）と should-fix 2（digest の I/O が
+    青天井）は、今回テストを足していない。前者は「`store.load` が投げる」状況を作る必要があり、
+    後者は docstring での明示に留める裁定だったため

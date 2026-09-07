@@ -76,3 +76,45 @@ context manager 化は現状の suite で顕在化していない問題に機構
 見送り: `train_samples_per_second` の分母、`logger.flush()` の未使用、
 `_capture_failure` が設定ミスでも emergency を残す点。いずれも振る舞いは正しく、
 変更を要求されていない。
+
+## レビュー 2 巡目の裁定（orchestrator、2026-09-04）
+
+verdict は再び request-changes。受理した 13 件は実装されていたが、2 点で差し戻し。
+
+### must-fix 1: `sanitize_persisted_uri` の回帰 — orchestrator が修正
+
+1 巡目の修正が `f"{scheme}://{authority}{path}"` を無条件に組んでいたため、
+authority を持たない URI が壊れていた（`file:./mlruns` → `file://./mlruns` など）。
+
+**成分から復元する方式そのものが誤り**だった。`urlsplit` は `sqlite:///mlruns.db` と
+`sqlite:/mlruns.db` を同じ成分へ潰すので、復元すると別の URI になる。
+`sqlite:///` は MLflow の標準 tracking URI 形式で、レビュアーの提案（netloc が
+非空のときだけ組み立てる）でも潰れたままだった。
+
+netloc に `@` が無ければ組み立て直さず、query と fragment だけを文字列として
+落とす形に変更した。credential 除去と authority 表記の保存が両立する。
+
+### must-fix 2: 受理指摘が回帰テストなしで着地 — 受理
+
+レビュアーの変異実験で、device 引き回し / sanitize / `_finalize` の run_id 照合 /
+untracked のサイズ上限 / `set_tags` の握り / overflow の off-by-one が
+**潰しても緑**だった。1 巡目と同型の穴なので全件テストを足す。
+
+### should-fix の裁定
+
+| # | 裁定 |
+| --- | --- |
+| 1 `_existing_best_path` が try の外・二重ロード | 受理。`_RunState` 構築後、try の内側で resume のときだけ呼ぶ形へ。あわせて `_restore` も run_id 照合の後・try の内側へ移した（拒否した resume で呼び出し側の model を壊さない） |
+| 2 untracked の I/O が青天井 | **docstring への明記のみ**。digest にも上限を置くと `diff_fingerprint` が同一サイズの内容変更を取りこぼす。fingerprint の正確さを優先する |
+| 3 logger 例外時のテストが無い | 受理 |
+| 4 `RecordingExperimentLogger` が param 不変契約を模していない | 受理。fake が契約を模さないと must-fix 1 の根本は将来も素通りする |
+| 5 `finalization.best_checkpoint_ignored` の truncate 漏れ | 受理 |
+
+### nit の裁定
+
+受理: `as_tags` の key へ `training.` 前置き、overflow 境界のテスト、
+`compile_options.*` を param テストの対象に、拒否 resume が model を壊さないテスト。
+
+見送り: `_end_run` 自体が投げた場合（`__context__` に残る。握りを足すのは機構過多）、
+`except Exception` が `BaseException` を通す点（logger が `BaseException` を投げる
+前提は採らない）。

@@ -271,3 +271,191 @@ production で破綻する副作用がある（must-fix 1）。
 - `make test-no-hardware`: pass（3321 passed / 140 deselected / skip 0、142 秒）
     - `tests/ml/experiment/test_mlflow.py` は 15 件とも実 local server で PASSED（skip されていない）
 - 実機テスト（`make test` / `pytest -m hardware`）は未実行（方針どおり）
+
+---
+
+# 2 巡目レビュー（修正 3 commit）
+
+対象: `git diff a057b1a..HEAD`（`faa0198` src / `68caaa1` test / `953ed13` memo）。
+1 巡目の対象と main 取り込み分は再レビューしていない。
+
+## verdict: request-changes
+
+裁定で受理された 13 件は**すべて実装されている**。見送りにした 3 nit と
+should-fix 11 の context manager 化が黙って入り込んでいないことも確認した。
+
+差し戻す理由は 2 つ。
+
+1. must-fix 5 の修正が、authority を持たない URI を壊す新しい欠陥を持ち込んだ
+2. 1 巡目の中心的指摘（「機構を潰しても緑のまま」）が、今回の修正 4 件でそのまま再発している。
+    must-fix 2 / 5 / 9 と should-fix 10 / 12 は**潰しても 571 passed のまま**
+
+## 受理指摘の修正確認
+
+変異はすべて実施後に `git checkout` で戻し、`git diff` が空であることを確認済み。
+変異時の実行対象は `tests/ml`（571 tests）または `tests/ml/training`（162 tests）。
+
+| # | 実装 | テストが守っているか（変異実験） |
+| --- | --- | --- |
+| 1 時間予算 param → tag | 済（`as_tags` 新設、`log_params` / `set_tags` を try 内へ） | **守っている**: `as_tags` → `{}` で 1 failed |
+| 2 device seam | 済（`materialize` に `device`、両呼び出しが渡す） | **守っていない**: `device=self._device` → `torch.device("cpu")` 固定で 571 passed |
+| 3 readback validator 未到達 | 済（`_UnreadableCheckpoint` で `validate()` は通る payload） | **守っている**: 新規 3 件が readback / 一時ファイル / 事前 reject を分離 |
+| 4 RNG 非感応 | 済（`training_step` に `torch.randn_like` ノイズ） | **守っている**: `RandomState.restore` no-op → 6 failed（Trainer 2 件）、`_rewind` no-op → 2 failed、`seed_everything` no-op → 4 failed（`TestTrainerSeeding` 2 件込み） |
+| 5 credential 残留 | 済だが**新欠陥**（下記 must-fix 1） | **守っていない**: 旧実装へ戻して 571 passed |
+| 6 group 境界 assertion | 済（`gradient_accumulation` を 1 / 2 で parametrize） | 守っている |
+| 7 zero_grad | 済（clean / dirty の重み比較） | **守っている**: `transaction.py:92` の `zero_grad` 削除で 3 failed |
+| 8 `best.pt` の epoch | 済（`test_best_checkpoint_records_the_best_epoch`） | 守っている |
+| 9 別 run の `best.pt` | 済（`_best_of_this_run` / `_existing_best_path`） | **守っていない**: run_id 照合の削除で 571 passed、`_existing_best_path` を `exists()` 版へ戻しても 162 passed |
+| 10 untracked サイズ上限 | 済（1 MiB / 8 MiB） | **守っていない**: 上限を無効化して 571 passed |
+| 11 deterministic のプロセス汚染 | docstring のみ（裁定どおり。context manager 化されていない） | — |
+| 12 `set_tags` 失敗で `_end_run` 未到達 | 済（`try/except Exception: return`） | **守っていない**: 握りを外して 162 passed |
+| 13 中断 epoch の metrics | 済（`assert logger.metrics == []`） | 守っている |
+| 14 parametrize 導出 | 済（`FIELD_CHANGES` + `test_every_field_has_a_change_case` で全フィールド網羅を強制） | 守っている |
+| nit off-by-one | 済（`>=`） | 境界のテストなし（`>` へ戻して 162 passed） |
+| nit `attrs.fields(type(self))` | 済 | — |
+| nit `resume_rejection(run_id=)` 削除 | 済（loop 側の直接比較に一本化） | 守っている（`test_run_id_mismatch_is_rejected` が `end("FAILED")` 1 回まで pin） |
+
+見送り分（`train_samples_per_second` の分母、`logger.flush()`、設定ミスでの emergency）は
+いずれも変更されていない。
+
+## 指定された確認事項への回答
+
+- **`as_tags` / try 内への移動**: 順序（`log_params` → `set_tags` → `compile_forward` →
+    初回 `latest` 保存）は壊れていない。例外経路も `except BaseException` の内側に入った
+- **`materialize` の device**: ABC 実装は `SyntheticRegressionData` と `_IncompleteData` の 2 本のみで
+    追随済み。`_validation_batches` も渡している。ただしテストが無い（下記 should-fix 1）
+- **`best_checkpoint_path` の意味**: run 中（`_save(state,"best")`）／開始時（同 run_id の既存 best）／
+    finalization（同 run_id のみ採用）で食い違いはない。finalization 猶予切れで `_finalize` を
+    飛ばす経路でも、開始時に別 run の best を掴んでいないので矛盾しない
+- **`resume_rejection` の `run_id` 削除**: loop 側の照合は効いており、`end("FAILED")` は 1 回
+- **`_capture_failure` の握り**: 元例外の再送出と `_end_run("FAILED")` に到達する（コード読みで確認、テストは無い）
+- **untracked のサイズ上限と `diff_fingerprint`**: 省略側も
+    `size {size}; sha256:{sha256_file(...)}` を見出しに載せるので、本文の有無に関わらず
+    内容が変われば fingerprint が変わる性質は保たれている
+
+## must-fix
+
+### 1. `sanitize_persisted_uri` の新分岐が、authority を持たない URI に `//` を挿入して壊す
+
+- 対象: `src/ml/experiment/provenance.py:174-178`
+- 問題: `hostname is None` の分岐が無条件に `f"{scheme}://{authority}{path}"` を組む。
+    authority を持たない URI（`scheme:path` 形）は元々 `//` を持たないので、出力が別物になる。
+- 根拠（実測）:
+    - `file:./mlruns` → `file://./mlruns`（`./mlruns` が host 扱いになる形）
+    - `mailto:user@example.com` → `mailto://user@example.com`（credential も落ちていない）
+    - `urn:uuid:1234` → `urn://uuid:1234`
+    - 修正前はいずれも `urlunsplit` 経由で原文どおりだった
+    `file:./mlruns` は MLflow の正規の tracking URI 形式で、
+    `MLflowRunTarget.sanitized_tracking_uri`（`src/ml/experiment/mlflow.py:55`）が
+    この関数を通して params / tags へ載せる。provenance に誤った URI が残る。
+- 直す方向: `netloc` が空のときは元の `urlunsplit` 経路に戻し、`//` を組み立てるのは
+    `netloc` が非空のときだけにする。credential 除去（`http://user:secret@/path` → `http:///path`）は
+    そのまま維持できる。
+- 確信度: 高（実測）
+
+### 2. 受理した must-fix 3 件（2 / 5 / 9）が回帰テストなしで着地している
+
+- 対象: `src/ml/training/loop.py:641`・`652`（device 引き回し）、
+    `src/ml/experiment/provenance.py:174-178`、
+    `src/ml/training/loop.py:709-742`（`_best_of_this_run` / `_existing_best_path`）
+- 問題: 1 巡目の verdict の中心は「機構が空回りしていても緑のまま」だった。
+    今回入った src 修正のうち上の 3 件は、機構を潰しても 1 件も落ちない。
+    次のリファクタで静かに戻せる状態のままマージすることになる。
+- 根拠（変異実験、いずれも `tests/ml` 571 tests）:
+    - `_training_batches` / `_validation_batches` の `device=self._device` を
+        `torch.device("cpu")` 固定へ → **571 passed**
+    - `sanitize_persisted_uri` を修正前の `urlunsplit((scheme, netloc, path, "", ""))` へ → **571 passed**
+    - `_best_of_this_run` の `best.run_id != run_id` 分岐を削除 → **571 passed**
+    - `_existing_best_path` を `exists("best")` 版（修正前）へ → 162 passed（`tests/ml/training`）
+- 直す方向:
+    - device: 自前 ABC の `TrainingData` を実装する recording double を置き、
+        `Trainer(device=...)` が `materialize` へその device を渡すことを assert する
+        （CPU only host でも device object の同一性は確かめられる）
+    - sanitize: `http://user:secret@/path` と `databricks://a:b@` を含む parametrize を
+        `TestSanitizePersistedUri` へ足す。`file:./mlruns` のような authority 無し URI が
+        素通りすることも同時に pin する（must-fix 1 の回帰防止を兼ねる）
+    - best: 別 run_id の `best.pt` を置いた directory で run し、`final.pt` の重みが
+        live model 由来であること・`outcome.best_checkpoint_path is None`・
+        `finalization.best_checkpoint_ignored` tag が付くことを assert する
+- 確信度: 高（変異実験で実測）
+
+## should-fix
+
+### 1. `_existing_best_path` が `logger.start()` の後・`try:` の外に置かれている
+
+- 対象: `src/ml/training/loop.py:417`（`_RunState(...)` の引数）、同 `741-743`
+- 問題: 同じ commit が `log_params` / `set_tags` を try 内へ移した理由
+    （`loop.py:422-423` のコメント「start() のあとの記録は必ず例外経路の内側へ置く」）が、
+    新設の `_existing_best_path` には適用されていない。ここは `store.load("best")` を通るので、
+    `TrainingCheckpoint.from_payload` の `float(...)` / `str(...)` 変換が投げうる
+    （`_load_payload` は torch の失敗しか握らない）。落ちると `_end_run` が呼ばれず run が RUNNING で残る。
+- 併せて: 開始時と `_finalize` で `best.pt` を 2 回フルロードする。run_id 1 個を見るためだけに
+    model 重み全体を読むので、大きな model では無視できない。`resume_from is None` の
+    新規 run では結果を必ず捨てるため、その場合は読む必要がない。
+- 直す方向: `_RunState` の構築を try の内側へ入れる。加えて best の照会を
+    `resume_from is not None` のときだけにする。
+- 確信度: 中（例外経路の到達性）／高（二重ロードは機構として確実）
+
+### 2. untracked の上限は「メモリ」だけを有界化し、I/O は青天井のまま
+
+- 対象: `src/ml/experiment/provenance.py:252-262`
+- 問題: 上限超過ファイルも `sha256_file` で全 byte を読む。untracked に巨大な dataset が
+    1 つあると、run 開始のたびにそれを最後まで読む。裁定の「超過分は digest だけにする」を
+    満たしてはいるが、1 巡目の懸念（run 開始時の停止時間）は半分しか解けていない。
+- 直す方向: MR4 の範囲で許容するなら「メモリのみ有界」であることを docstring に書く。
+    解くなら digest 対象にも byte 上限を置き、超過は `size` と mtime だけにする
+    （`diff_fingerprint` は同一サイズの内容変更を取りこぼす、というトレードオフを明記する）。
+- 確信度: 高（機構）／低（このリポジトリで実際に踏むか）
+
+### 3. `_capture_failure` の握りと `log_params` の try 内移動を守るテストがない
+
+- 対象: `src/ml/training/loop.py:763-766`、`tests/ml/support.py:257-`
+- 問題: `RecordingExperimentLogger` は例外を投げないので、
+    「`set_tags` が投げても `_end_run("FAILED")` に到達する」も
+    「`log_params` が投げたら FAILED で終わる」も 1 度も実行されない。
+    握りを外しても 162 passed。
+- 直す方向: 指定したメソッドだけ投げる logger double（自前 ABC なのでモックではない）を 1 本置き、
+    `set_tags` 版と `log_params` 版で `status == "FAILED"` / `end_call_count == 1` / 元例外の型を assert する。
+- 確信度: 高（変異実験で実測）
+
+### 4. `RecordingExperimentLogger` が MLflow の「param は不変」契約を模していない
+
+- 対象: `tests/ml/support.py:306-309`
+- 問題: must-fix 1 の根本原因は「値の変わる param を再送すると MLflow が拒否する」ことだった。
+    fake は `self.params.update(params)` なので、将来どのフィールドが param 側へ戻っても
+    fake 経由では素通りする。今回追加された 2 件のテストは
+    「除外 4 フィールドが param に無い」ことを pin しているが、契約そのものは pin していない。
+- 直す方向: `log_params` で「既存 key を異なる値で再送したら `RuntimeError`」にする。
+    ABC の docstring（`src/ml/experiment/logger.py:54`「Run 中に変わらない設定値」）と揃う。
+- 確信度: 高
+
+### 5. `finalization.best_checkpoint_ignored` の tag 値が truncate されない
+
+- 対象: `src/ml/training/loop.py:716`
+- 問題: `reason` には `store.load` の失敗理由（パスと torch のエラー文）が入りうるのに、
+    隣の `_capture_failure` が使っている `_FAILURE_MESSAGE_LIMIT` の切り詰めが掛かっていない。
+    同じ性質の tag で扱いが非対称。
+- 確信度: 高（非対称は確実）／低（長さで実害が出るか）
+
+## nit
+
+- `src/ml/training/loop.py:236`: `as_tags` の key が namespace 無し（`deadline_seconds`）。
+    他の tag はすべて `git.` / `failure.` / `finalization.` 前置き。`training.` 等へ寄せると衝突しない
+- `src/ml/training/loop.py:608`: off-by-one は `>=` で直ったが、境界を pin するテストが無い
+    （`>` へ戻して 162 passed）。`_MAXIMUM_CONSECUTIVE_GRADIENT_OVERFLOWS` の意味は未固定のまま
+- `src/ml/training/loop.py:436-438`: `_end_run("FAILED")` 自体が投げると `raise` に到達せず元例外が
+    表に出ない（`__context__` には残る）
+- `src/ml/training/loop.py:388-394`: run_id 不一致で raise する前に `_restore` が呼び出し側の model を
+    書き換え済み。拒否した resume の重みが model に残る
+- `tests/ml/training/test_loop.py:391-397`: `test_every_semantic_field_is_logged_as_a_param` が
+    `compile_options` を除外しており、平坦化後の `compile_options.*` キーは誰も見ていない
+- `src/ml/training/loop.py:766`: `except Exception` なので `BaseException` を投げる logger は素通り
+
+## 検証結果
+
+- `make format`: pass（全 hook Passed、working tree 変化なし）
+- `make type`: pass（pyright は error も warning も 0 件）
+- `make test-no-hardware`: pass（3329 passed / 140 deselected、149 秒）
+- 成果物汚染（`</content>` 等）: 変更 13 ファイルとも無し
+- 実機テスト（`make test` / `pytest -m hardware`）: 未実行（方針どおり）
+- 変異実験で書き換えた 8 ファイル分はすべて復元済み（`git diff` 空を確認）
