@@ -23,7 +23,7 @@ from ml.model.heads import (
     GaussianRegressionHead,
 )
 from ml.model.loss import weighted_gaussian_negative_log_likelihood
-from tests.helpers import skip_if_no_inductor
+from tests.ml.helpers import skip_if_no_inductor
 
 # Raspberry Pi 5 の CPU で数秒に収まる規模に保つ
 ENCODER_CONFIG = ImageEncoderConfig(

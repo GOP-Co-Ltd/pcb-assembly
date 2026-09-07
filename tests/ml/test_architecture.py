@@ -8,9 +8,9 @@ import ast
 import subprocess
 import sys
 
-from tests.helpers import PROJECT_ROOT
+from tests.ml.helpers import ML_SOURCE_ROOT, PROJECT_ROOT
 
-ML_SOURCE_ROOT = PROJECT_ROOT / "src" / "ml"
+ML_TEST_ROOT = PROJECT_ROOT / "tests" / "ml"
 
 DOMAIN_PACKAGES = ("pcbasm", "web")
 
@@ -77,6 +77,18 @@ def _loaded_dependencies(modules: tuple[str, ...], forbidden: tuple[str, ...]) -
     return result.stdout.strip()
 
 
+def _imported_modules(path) -> set[str]:
+    """``path`` が import する絶対 module 名を返す（相対 import は解決しない）."""
+
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            imported.add(node.module or "")
+    return imported
+
+
 def _module_name(path) -> str:
     relative = path.relative_to(ML_SOURCE_ROOT.parent).with_suffix("")
     parts = list(relative.parts)
@@ -118,6 +130,26 @@ class TestDomainIndependence:
                 root = imported.partition(".")[0]
                 if root in DOMAIN_PACKAGES:
                     offenders.append(f"{_module_name(path)} -> {imported}")
+
+        assert offenders == []
+
+    def test_no_test_module_imports_the_domain_test_helpers(self):
+        """``tests/ml`` は装置ドメインのテストヘルパーを参照しない.
+
+        ``tests.helpers`` は pcbnew / picamera2 を要求するので、参照すると
+        Raspberry Pi と KiCAD の無い学習機で ``tests/ml`` が collect できなくなる。
+        """
+        sources = sorted(ML_TEST_ROOT.rglob("*.py"))
+        assert sources != []
+
+        offenders = [
+            str(path.relative_to(PROJECT_ROOT))
+            for path in sources
+            if any(
+                imported == "tests.helpers" or imported.startswith("tests.helpers.")
+                for imported in _imported_modules(path)
+            )
+        ]
 
         assert offenders == []
 
