@@ -20,8 +20,6 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
-ML_SOURCE_ROOT = PROJECT_ROOT / "src" / "ml"
-
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
