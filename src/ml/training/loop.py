@@ -231,9 +231,14 @@ class TrainerConfig:
         """Resume のたびに変わりうる時間予算を tag として返す.
 
         tag は上書きできるので、run を再開して予算を変えても記録が矛盾しない。
+
+        他の tag と同じく ``training.`` を前置きして名前空間を分ける。
         """
 
-        return {name: str(getattr(self, name)) for name in _FINGERPRINT_EXCLUDED_FIELDS}
+        return {
+            f"training.{name}": str(getattr(self, name))
+            for name in _FINGERPRINT_EXCLUDED_FIELDS
+        }
 
 
 @attrs.frozen
@@ -364,6 +369,7 @@ class Trainer[BatchT, ObservationT]:
         )
         validation_metrics: dict[str, float] = {}
         resumed_run_id: str | None = None
+        checkpoint: TrainingCheckpoint | None = None
 
         if resume_from is not None:
             checkpoint = self._load_resume_point(
@@ -371,13 +377,6 @@ class Trainer[BatchT, ObservationT]:
                 model=model,
                 dataset_fingerprint=dataset_fingerprint,
                 config_fingerprint=config_fingerprint,
-            )
-            self._restore(
-                checkpoint,
-                model=model,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                gradient_scaler=gradient_scaler,
             )
             progress = checkpoint.progress
             selection = checkpoint.selection
@@ -414,12 +413,25 @@ class Trainer[BatchT, ObservationT]:
                 progress=progress,
                 selection=selection,
                 validation_metrics=validation_metrics,
-                best_checkpoint_path=self._existing_best_path(run_id),
+                best_checkpoint_path=None,
                 last_checkpoint_monotonic=time.monotonic(),
             )
             try:
-                # start() のあとの記録は必ず例外経路の内側へ置く。ここで落ちると
-                # run が RUNNING のまま残るため。
+                # start() のあとの復元と記録は必ず例外経路の内側へ置く。ここで
+                # 落ちると run が RUNNING のまま残るため。
+                #
+                # 重みの書き換えを run_id 照合より後に回すのも兼ねる。拒否した
+                # resume で呼び出し側の model を壊さない。
+                if checkpoint is not None:
+                    self._restore(
+                        checkpoint,
+                        model=model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        gradient_scaler=gradient_scaler,
+                    )
+                    # 新規 run では前の run の best.pt を必ず捨てるので読まない。
+                    state.best_checkpoint_path = self._existing_best_path(run_id)
                 self._logger.log_params(
                     {
                         **config.as_params(),
@@ -713,7 +725,13 @@ class Trainer[BatchT, ObservationT]:
         elif reason is not None:
             # 別 run の best.pt を今回の final.pt として書き出さない。
             state.best_checkpoint_path = None
-            self._logger.set_tags({"finalization.best_checkpoint_ignored": reason})
+            self._logger.set_tags(
+                {
+                    "finalization.best_checkpoint_ignored": reason[
+                        :_FAILURE_MESSAGE_LIMIT
+                    ]
+                }
+            )
         state.final_checkpoint_path = self._save(state, "final")
         self._logger.log_artifact(state.final_checkpoint_path)
 

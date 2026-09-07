@@ -171,6 +171,12 @@ def sanitize_persisted_uri(uri: str) -> str:
         return _sanitize_malformed_uri(uri)
     if not parsed.scheme:
         return uri
+    if "@" not in parsed.netloc:
+        # 落とす credential が無いので組み立て直さない。
+        #
+        # urlsplit は ``sqlite:///mlruns.db`` と ``sqlite:/mlruns.db`` を同じ成分へ
+        # 潰すため、成分から復元すると別の URI になってしまう。
+        return uri.split("?", maxsplit=1)[0].split("#", maxsplit=1)[0]
     if parsed.hostname is None:
         # host を持たない URI でも userinfo は落とす。credential 除去がこの関数の
         # 唯一の役目なので、解析できた形でも取りこぼさない。
@@ -242,6 +248,10 @@ def _untracked_content(repository: Path, untracked_files: tuple[str, ...]) -> st
     残す。
 
     untracked の dataset や checkpoint を run 開始時に丸ごとメモリへ読まないため。
+
+    有界なのはメモリだけで、digest を取る I/O は上限を超えたファイルも最後まで読む。
+
+    ``diff_fingerprint`` を内容の変化に追従させるには全 byte を読む必要があるため。
     """
 
     parts: list[str] = []
