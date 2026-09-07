@@ -40,3 +40,39 @@ ABC は上位計画どおり 3 つ（`ExperimentLogger` / `TrainingTask` / `Trai
 MR4 で扱う（計画書の方針を承認）。checkpoint が初めて存在するのが MR4 であり、
 MR5 送りにすると既存 checkpoint への retrofit になるため。
 キー正規化 map と `_padding_pixel` の public 化はいずれも却下（計画書に理由記載）。
+
+## レビュー 1 巡目の裁定（orchestrator、2026-09-04）
+
+`memory/agents/code-reviewer/ml-core-4-training-experiment.md` の verdict は request-changes。
+
+### must-fix は 4 件とも受理、should-fix から 2 件を昇格
+
+| # | 裁定 | 補足 |
+| --- | --- | --- |
+| 1 fingerprint 除外と `log_params` の不整合 | 受理 | 除外 4 フィールドは param ではなく **tag** へ回す（MLflow の tag は可変）。`start()` 後の記録はすべて例外経路の内側へ入れる |
+| 2 device seam 不在 | 受理。**MR4 で直す** | `TrainingData.materialize` に `device` を足す。tensor が生まれる場所で device を決めれば余分な host→device コピーが要らず、Trainer は BatchT を知らないままでいられる。`TrainingTask.move_batch` 案は全 task に移送責務を負わせるので採らない |
+| 3 readback validator 未到達テスト | 受理 | `validate()` は通るが readback で落ちる状況を作る |
+| 4 RNG 復元が非感応 | 受理 | 合成 task に global RNG を消費する項を入れ、`RandomState.restore` を潰すと落ちることを確認してから確定 |
+| 5 `sanitize_persisted_uri` の credential 残留 | **must-fix へ昇格** | credential 除去がこの関数の唯一の役目で、それが実測で機能していない。polish ではなく欠陥 |
+| 9 `_finalize` が別 run の `best.pt` を読む | **must-fix へ昇格** | 別 run の weights が `final.pt` として出るのは静かな誤りで、被害が大きいわりに修正は run_id 比較 1 つ |
+
+### should-fix はすべて受理
+
+6（`gradient_accumulation=2` を parametrize に追加）、7（zero_grad を守る比較へ）、
+8（`best.pt` の中身を読む assertion）、10（untracked 読み込みにサイズ上限）、
+12（`set_tags` 失敗でも `_end_run` へ到達させる）、13（中断 epoch で metrics が空）、
+14（parametrize を `FINGERPRINT_FIELDS` から導出）。
+
+**11（`use_deterministic_algorithms` のプロセス全体汚染）は docstring への明記のみ。**
+context manager 化は現状の suite で顕在化していない問題に機構を足すことになる
+（AGENTS.md 原則 2）。`deterministic=True` は学習 run で意図して立てる設定でもある。
+
+### nit の扱い
+
+受理: `> _MAXIMUM_CONSECUTIVE_GRADIENT_OVERFLOWS` の off-by-one（実際は 9 回許している。
+定数名と docstring は 8 回のつもり）、`as_params` の `attrs.fields(type(self))`、
+`resume_rejection` の恒真 `run_id` 引数を落として loop 側の比較に一本化。
+
+見送り: `train_samples_per_second` の分母、`logger.flush()` の未使用、
+`_capture_failure` が設定ミスでも emergency を残す点。いずれも振る舞いは正しく、
+変更を要求されていない。
