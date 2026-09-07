@@ -31,7 +31,8 @@ from tests.ml.support import (
     build_synthetic_model,
 )
 
-DEVICE_TYPE = "cpu"
+DEVICE = torch.device("cpu")
+DEVICE_TYPE = DEVICE.type
 GRADIENT_CLIP_NORM = 1.0
 
 
@@ -83,7 +84,9 @@ def _batches(count: int = 2) -> tuple[GaussianBatch, ...]:
     data = SyntheticRegressionData(SyntheticDatasetOptions())
     plan = data.plan_epoch(split="train", epoch=0)[:count]
     return tuple(
-        data.materialize(sample_ids, split="train", epoch=0, training=False)
+        data.materialize(
+            sample_ids, split="train", epoch=0, training=False, device=DEVICE
+        )
         for sample_ids in plan
     )
 
@@ -157,14 +160,22 @@ class TestOptimizerGroupCommit:
         assert result.elapsed_seconds >= 0.0
         assert _parameters_changed(task, before)
 
-    def test_gradients_are_cleared_before_the_group(self):
-        task = _synthetic_task()
-        # 前の group の勾配が残っていても結果が変わらないことを確かめる
-        task.training_step(_batches(1)[0]).loss.backward()
+    def test_leftover_gradients_do_not_change_the_update(self):
+        batches = _batches(2)
+        clean = _synthetic_task()
+        dirty = _synthetic_task()
+        # 前の group の勾配を残す。zero_grad が無ければこれが更新へ混ざる
+        dirty.training_step(batches[0]).loss.backward()
 
-        result, _ = _run_group(task, _batches(2), expected_batch_count=2)
+        torch.manual_seed(17)
+        _run_group(clean, batches, expected_batch_count=2)
+        torch.manual_seed(17)
+        _run_group(dirty, batches, expected_batch_count=2)
 
-        assert result.outcome == "committed"
+        for expected, actual in zip(
+            clean.model.parameters(), dirty.model.parameters(), strict=True
+        ):
+            assert torch.equal(expected.detach(), actual.detach())
 
 
 class TestOptimizerGroupAbort:

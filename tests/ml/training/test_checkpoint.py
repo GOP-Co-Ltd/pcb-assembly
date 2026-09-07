@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import override
 
+import attrs
 import pytest
 import torch
 
@@ -45,6 +47,21 @@ CONFIG_FINGERPRINT = "sha256:config"
 RUN_ID = "run-1"
 
 
+class _UnreadableCheckpoint(TrainingCheckpoint):
+    """``validate()`` は通るが、読み戻し検証で落ちる payload を書く checkpoint.
+
+    ``CheckpointStore.save`` の readback validator まで到達させるために使う。
+    """
+
+    @override
+    def to_payload(self) -> dict[str, object]:
+        """未知キーを 1 個混ぜた payload を返す."""
+
+        payload = super().to_payload()
+        payload["unexpected"] = 1
+        return payload
+
+
 def _checkpoint(
     role: CheckpointRole = "latest", **overrides: object
 ) -> TrainingCheckpoint:
@@ -73,6 +90,17 @@ def _checkpoint(
     }
     values.update(overrides)
     return TrainingCheckpoint(**values)  # pyright: ignore[reportArgumentType]
+
+
+def _unreadable_checkpoint(source: TrainingCheckpoint) -> _UnreadableCheckpoint:
+    """同じ内容で、読み戻し検証だけが落ちる checkpoint を作る."""
+
+    return _UnreadableCheckpoint(
+        **{
+            field.name: getattr(source, field.name)
+            for field in attrs.fields(TrainingCheckpoint)
+        }
+    )
 
 
 class TestModelStateDictContract:
@@ -314,7 +342,6 @@ class TestResumeRejection:
         reason = checkpoint.resume_rejection(
             dataset_fingerprint=DATASET_FINGERPRINT,
             config_fingerprint=CONFIG_FINGERPRINT,
-            run_id=RUN_ID,
             model_state_keys=set(checkpoint.model_state),
         )
 
@@ -326,7 +353,6 @@ class TestResumeRejection:
         reason = checkpoint.resume_rejection(
             dataset_fingerprint=DATASET_FINGERPRINT,
             config_fingerprint=CONFIG_FINGERPRINT,
-            run_id=RUN_ID,
             model_state_keys=set(checkpoint.model_state),
         )
 
@@ -339,7 +365,6 @@ class TestResumeRejection:
         reason = checkpoint.resume_rejection(
             dataset_fingerprint="sha256:other",
             config_fingerprint=CONFIG_FINGERPRINT,
-            run_id=RUN_ID,
             model_state_keys=set(checkpoint.model_state),
         )
 
@@ -352,25 +377,11 @@ class TestResumeRejection:
         reason = checkpoint.resume_rejection(
             dataset_fingerprint=DATASET_FINGERPRINT,
             config_fingerprint="sha256:other",
-            run_id=RUN_ID,
             model_state_keys=set(checkpoint.model_state),
         )
 
         assert reason is not None
         assert "config" in reason
-
-    def test_run_id_mismatch_is_rejected(self):
-        checkpoint = _checkpoint()
-
-        reason = checkpoint.resume_rejection(
-            dataset_fingerprint=DATASET_FINGERPRINT,
-            config_fingerprint=CONFIG_FINGERPRINT,
-            run_id="another-run",
-            model_state_keys=set(checkpoint.model_state),
-        )
-
-        assert reason is not None
-        assert "run_id" in reason
 
     def test_model_state_key_mismatch_is_rejected(self):
         checkpoint = _checkpoint()
@@ -378,7 +389,6 @@ class TestResumeRejection:
         reason = checkpoint.resume_rejection(
             dataset_fingerprint=DATASET_FINGERPRINT,
             config_fingerprint=CONFIG_FINGERPRINT,
-            run_id=RUN_ID,
             model_state_keys={*checkpoint.model_state, "_head._extra.weight"},
         )
 
@@ -456,18 +466,41 @@ class TestCheckpointStore:
 
     def test_failed_readback_leaves_the_previous_file_intact(self, tmp_path: Path):
         store = CheckpointStore(tmp_path)
-        good = _checkpoint()
+        good = _checkpoint(progress=TrainingProgress(epoch=1, global_step=4))
         store.save(good)
-        broken = _checkpoint(
-            model_state={
-                f"_orig_mod.{key}": value for key, value in good.model_state.items()
-            }
+        # validate() は通るので、書き込みは実際に始まり readback validator で落ちる
+        broken = _unreadable_checkpoint(
+            _checkpoint(progress=TrainingProgress(epoch=9, global_step=99))
         )
+        assert broken.validate() is None
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError) as exception:
             store.save(broken)
 
+        assert "unexpected" in str(exception.value)
         loaded, reason = store.load("latest")
         assert reason is None
         assert loaded is not None
-        assert sorted(loaded.model_state) == sorted(good.model_state)
+        assert loaded.progress == good.progress
+
+    def test_no_temporary_file_survives_a_failed_readback(self, tmp_path: Path):
+        store = CheckpointStore(tmp_path)
+        store.save(_checkpoint())
+
+        with pytest.raises(ValueError):
+            store.save(_unreadable_checkpoint(_checkpoint()))
+
+        assert sorted(path.name for path in tmp_path.iterdir()) == ["latest.pt"]
+
+    def test_invalid_checkpoint_is_rejected_before_any_write(self, tmp_path: Path):
+        store = CheckpointStore(tmp_path)
+        model_state = {
+            f"_orig_mod.{key}": value
+            for key, value in build_synthetic_model(seed=1).state_dict().items()
+        }
+
+        with pytest.raises(ValueError) as exception:
+            store.save(_checkpoint(model_state=model_state))
+
+        assert "_orig_mod." in str(exception.value)
+        assert list(tmp_path.iterdir()) == []

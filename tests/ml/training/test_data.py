@@ -27,6 +27,9 @@ class _IncompleteData(TrainingData[GaussianBatch]):
         return "sha256:0"
 
 
+DEVICE = torch.device("cpu")
+
+
 def _data(**overrides: int) -> SyntheticRegressionData:
     return SyntheticRegressionData(SyntheticDatasetOptions(**overrides))
 
@@ -121,7 +124,9 @@ class TestMaterialize:
         data = _data()
         sample_ids: Sequence[str] = data.plan_epoch(split="train", epoch=0)[0]
 
-        batch = data.materialize(sample_ids, split="train", epoch=0, training=True)
+        batch = data.materialize(
+            sample_ids, split="train", epoch=0, training=True, device=DEVICE
+        )
 
         assert batch.validate() is None
         assert tuple(batch.target.shape) == (len(sample_ids), 1)
@@ -132,7 +137,9 @@ class TestMaterialize:
         data = _data()
         sample_ids = data.plan_epoch(split="train", epoch=0)[0]
 
-        batch = data.materialize(sample_ids, split="train", epoch=0, training=False)
+        batch = data.materialize(
+            sample_ids, split="train", epoch=0, training=False, device=DEVICE
+        )
 
         assert bool((batch.target > 0).all())
 
@@ -140,8 +147,12 @@ class TestMaterialize:
         data = _data()
         sample_ids = data.plan_epoch(split="train", epoch=0)[0]
 
-        first = data.materialize(sample_ids, split="train", epoch=0, training=True)
-        second = data.materialize(sample_ids, split="train", epoch=0, training=True)
+        first = data.materialize(
+            sample_ids, split="train", epoch=0, training=True, device=DEVICE
+        )
+        second = data.materialize(
+            sample_ids, split="train", epoch=0, training=True, device=DEVICE
+        )
 
         assert torch.equal(first.images, second.images)
         assert torch.equal(first.target, second.target)
@@ -150,7 +161,9 @@ class TestMaterialize:
         data = _data()
         sample_ids = data.plan_epoch(split="train", epoch=0)[0]
 
-        batch = data.materialize(sample_ids, split="train", epoch=0, training=False)
+        batch = data.materialize(
+            sample_ids, split="train", epoch=0, training=False, device=DEVICE
+        )
 
         expected = [data.target_for(sample_id) for sample_id in sample_ids]
         assert batch.target.reshape(-1).tolist() == pytest.approx(expected)
@@ -160,6 +173,8 @@ class TestMaterialize:
         split: SplitName = "validation"
         plan = data.plan_epoch(split=split, epoch=0)
 
-        batch = data.materialize(plan[0], split=split, epoch=0, training=False)
+        batch = data.materialize(
+            plan[0], split=split, epoch=0, training=False, device=DEVICE
+        )
 
         assert batch.validate() is None

@@ -45,6 +45,12 @@ MAX_BATCH_SIZE = 3
 
 IMAGE_CHANNELS = 3
 
+# 学習 step で global RNG を消費する augmentation ノイズの大きさ。
+#
+# これが無いと合成 task は global RNG を一切消費せず、RNG snapshot と
+# ``RandomState.restore`` が壊れていても中断 / resume の一致テストが緑のままになる。
+TRAINING_NOISE_SCALE = 0.05
+
 ENCODER_CONFIG = ImageEncoderConfig(
     input_channels=IMAGE_CHANNELS,
     stem_channels=(8,),
@@ -109,11 +115,23 @@ class SyntheticRegressionTask(GaussianRegressionTask):
 
     @override
     def training_step(self, batch: GaussianBatch) -> StepResult[GaussianObservation]:
-        """通常は基底の学習 step を行い、指定 step でだけ NaN loss を返す."""
+        """Global RNG を消費するノイズを載せて学習 step を行う.
+
+        指定 step でだけ NaN loss を返す。
+
+        ノイズは ``torch.randn_like`` なので global RNG の状態が結果へ効く。
+
+        RNG snapshot / rewind / ``RandomState.restore`` が壊れると、
+        中断 / resume の一致テストが実際に落ちるようにするための仕掛け。
+        """
 
         index = self._training_step_count
         self._training_step_count += 1
-        result = super().training_step(batch)
+        noisy = attrs.evolve(
+            batch,
+            images=batch.images + TRAINING_NOISE_SCALE * torch.randn_like(batch.images),
+        )
+        result = super().training_step(noisy)
         if self._options.non_finite_at_step != index:
             return result
         # 微分可能なまま非有限にする。定数を掛けるので grad_fn は保たれる
@@ -197,10 +215,11 @@ class SyntheticRegressionData(TrainingData[GaussianBatch]):
         split: SplitName,
         epoch: int,
         training: bool,
+        device: torch.device,
     ) -> GaussianBatch:
-        """Sample ID の並びから 1 batch を組み立てる."""
+        """Sample ID の並びから、指定 device 上の 1 batch を組み立てる."""
 
-        images = [self._image_for(sample_id) for sample_id in sample_ids]
+        images = [self._image_for(sample_id).to(device) for sample_id in sample_ids]
         masks = [torch.ones_like(image[:1], dtype=torch.bool) for image in images]
         padded = PaddedBatch.pad(
             images,
@@ -215,6 +234,7 @@ class SyntheticRegressionData(TrainingData[GaussianBatch]):
         target = torch.tensor(
             [[self.target_for(sample_id)] for sample_id in sample_ids],
             dtype=torch.float32,
+            device=device,
         )
         return GaussianBatch(
             images=padded.images,

@@ -83,6 +83,31 @@ FINGERPRINT_EXCLUDED_FIELDS = frozenset(
     }
 )
 
+# 各フィールドの「既定と異なる値」。上の 2 集合から parametrize を導出するために使う。
+FIELD_CHANGES: dict[str, object] = {
+    "max_epochs": 5,
+    "monitor": "negative_log_likelihood",
+    "mode": "max",
+    "max_steps": 3,
+    "learning_rate": 0.5,
+    "weight_decay": 0.5,
+    "gradient_accumulation": 2,
+    "gradient_clip_norm": 2.0,
+    "early_stopping_patience": 1,
+    "early_stopping_minimum_delta": 0.5,
+    "scheduler_factor": 0.25,
+    "scheduler_patience": 1,
+    "automatic_mixed_precision_enabled": True,
+    "compile_enabled": True,
+    "compile_options": CompileOptions(backend="eager"),
+    "deterministic": False,
+    "seed": 99,
+    "deadline_seconds": 123.0,
+    "finalization_grace_seconds": 1.0,
+    "checkpoint_interval_steps": 7,
+    "checkpoint_interval_seconds": 1.0,
+}
+
 
 class _SignallingTask(SyntheticRegressionTask):
     """指定した学習 step の途中で自分自身へ SIGTERM を送る task.
@@ -245,48 +270,24 @@ class TestTrainerConfig:
         assert FINGERPRINT_FIELDS & FINGERPRINT_EXCLUDED_FIELDS == frozenset()
         assert FINGERPRINT_FIELDS | FINGERPRINT_EXCLUDED_FIELDS == names
 
-    @pytest.mark.parametrize(
-        ("field_name", "value"),
-        [
-            ("deadline_seconds", 123.0),
-            ("finalization_grace_seconds", 1.0),
-            ("checkpoint_interval_steps", 7),
-            ("checkpoint_interval_seconds", 1.0),
-        ],
-    )
-    def test_time_budget_fields_do_not_change_the_fingerprint(
-        self, field_name: str, value: object
-    ):
-        assert field_name in FINGERPRINT_EXCLUDED_FIELDS
-        assert _config(**{field_name: value}).fingerprint == _config().fingerprint
+    def test_every_field_has_a_change_case(self):
+        """分類したフィールドすべてに、既定と異なる値の検証がある."""
 
-    @pytest.mark.parametrize(
-        ("field_name", "value"),
-        [
-            ("max_epochs", 5),
-            ("monitor", "negative_log_likelihood"),
-            ("mode", "max"),
-            ("max_steps", 3),
-            ("learning_rate", 0.5),
-            ("weight_decay", 0.5),
-            ("gradient_accumulation", 2),
-            ("gradient_clip_norm", 2.0),
-            ("early_stopping_patience", 1),
-            ("early_stopping_minimum_delta", 0.5),
-            ("scheduler_factor", 0.25),
-            ("scheduler_patience", 1),
-            ("automatic_mixed_precision_enabled", True),
-            ("compile_enabled", True),
-            ("compile_options", CompileOptions(backend="eager")),
-            ("deterministic", False),
-            ("seed", 99),
-        ],
-    )
-    def test_semantic_fields_change_the_fingerprint(
-        self, field_name: str, value: object
-    ):
-        assert field_name in FINGERPRINT_FIELDS
-        assert _config(**{field_name: value}).fingerprint != _config().fingerprint
+        assert set(FIELD_CHANGES) == FINGERPRINT_FIELDS | FINGERPRINT_EXCLUDED_FIELDS
+
+    @pytest.mark.parametrize("field_name", sorted(FINGERPRINT_EXCLUDED_FIELDS))
+    def test_time_budget_fields_do_not_change_the_fingerprint(self, field_name: str):
+        changed = _config(**{field_name: FIELD_CHANGES[field_name]})
+
+        assert getattr(changed, field_name) != getattr(_config(), field_name)
+        assert changed.fingerprint == _config().fingerprint
+
+    @pytest.mark.parametrize("field_name", sorted(FINGERPRINT_FIELDS))
+    def test_semantic_fields_change_the_fingerprint(self, field_name: str):
+        changed = _config(**{field_name: FIELD_CHANGES[field_name]})
+
+        assert getattr(changed, field_name) != getattr(_config(), field_name)
+        assert changed.fingerprint != _config().fingerprint
 
     def test_trainer_rejects_an_invalid_config(self, tmp_path: Path):
         with pytest.raises(ValueError) as exception:
@@ -322,6 +323,20 @@ class TestTrainerFullRun:
         trainer.run()
 
         _assert_same_weights(_state_dict(store, "final"), _state_dict(store, "best"))
+
+    def test_best_checkpoint_records_the_best_epoch(self, tmp_path: Path):
+        trainer, _ = _trainer(tmp_path)
+        store = CheckpointStore(tmp_path)
+
+        outcome = trainer.run()
+
+        best, reason = store.load("best")
+        assert reason is None
+        assert best is not None
+        assert best.role == "best"
+        assert best.progress.epoch == outcome.best_epoch
+        assert best.selection.best_epoch == outcome.best_epoch
+        assert best.selection.best_value == outcome.best_monitor_value
 
     def test_run_is_ended_once_as_finished(self, tmp_path: Path):
         trainer, logger = _trainer(tmp_path)
@@ -359,6 +374,28 @@ class TestTrainerFullRun:
             SyntheticRegressionData(SyntheticDatasetOptions()).dataset_fingerprint
         )
 
+    def test_time_budget_fields_are_tags_not_params(self, tmp_path: Path):
+        """時間予算は MLflow の param ではなく tag へ載せる.
+
+        param は run 内で不変なので、別の時間予算で resume すると記録が必ず失敗する。
+        """
+
+        trainer, logger = _trainer(tmp_path)
+
+        trainer.run()
+
+        for name in sorted(FINGERPRINT_EXCLUDED_FIELDS):
+            assert name not in logger.params
+            assert logger.tags[name] == str(getattr(_config(), name))
+
+    def test_every_semantic_field_is_logged_as_a_param(self, tmp_path: Path):
+        trainer, logger = _trainer(tmp_path)
+
+        trainer.run()
+
+        for name in sorted(FINGERPRINT_FIELDS - {"compile_options"}):
+            assert name in logger.params
+
     def test_final_checkpoint_is_logged_as_an_artifact(self, tmp_path: Path):
         trainer, logger = _trainer(tmp_path)
         store = CheckpointStore(tmp_path)
@@ -380,12 +417,19 @@ class TestTrainerInterruptionParity:
             outcome.global_step
         )
 
-    def test_signal_stops_at_a_group_boundary(self, tmp_path: Path):
+    @pytest.mark.parametrize("gradient_accumulation", [1, 2])
+    def test_signal_stops_at_a_group_boundary(
+        self, tmp_path: Path, gradient_accumulation: int
+    ):
         directory = tmp_path / "interrupted"
         task = _SignallingTask(
             build_synthetic_model(seed=1), SyntheticTaskOptions(), signal_at_step=2
         )
-        trainer, logger = _trainer(directory, task=task)
+        trainer, logger = _trainer(
+            directory,
+            task=task,
+            config=_config(gradient_accumulation=gradient_accumulation),
+        )
 
         outcome = trainer.run()
 
@@ -394,10 +438,12 @@ class TestTrainerInterruptionParity:
         assert outcome.stop_reason == "signal"
         assert logger.end_call_count == 1
         assert logger.status == "KILLED"
+        # 中断した epoch は validation を走らせないので metric が 1 件も出ない
+        assert logger.metrics == []
         assert reason is None
         assert checkpoint is not None
         next_index = checkpoint.progress.next_batch_index
-        assert next_index % _config().gradient_accumulation == 0
+        assert next_index % gradient_accumulation == 0
         assert 0 < next_index < TRAIN_BATCHES_PER_EPOCH
 
     def test_resume_reaches_the_uninterrupted_weights(self, tmp_path: Path):
@@ -488,6 +534,41 @@ class TestTrainerCompileSeam:
         assert sorted(
             _state_dict(CheckpointStore(tmp_path / "compiled"), "latest")
         ) == (sorted(_state_dict(CheckpointStore(tmp_path / "plain"), "latest")))
+
+
+class TestTrainerSeeding:
+    """Run の再現性は ``TrainerConfig.seed`` だけで決まる.
+
+    run に入る前の global RNG がどうなっていても結果が変わってはいけない。
+
+    task を組み立てる側が自前で seed を張っていると、Trainer が seed を設定
+    しなくても結果が揃ってしまい、seeding が壊れても気付けなくなる。
+    """
+
+    def _final_weights(
+        self, directory: Path, *, seed: int, ambient_seed: int
+    ) -> dict[str, torch.Tensor]:
+        trainer, _ = _trainer(directory, config=_config(seed=seed))
+        # run() が seed_everything を呼ぶまでの global RNG を意図的にずらす
+        torch.manual_seed(ambient_seed)
+        trainer.run()
+        return _state_dict(CheckpointStore(directory), "final")
+
+    def test_same_seed_ignores_the_ambient_random_state(self, tmp_path: Path):
+        first = self._final_weights(tmp_path / "first", seed=3, ambient_seed=11)
+        second = self._final_weights(tmp_path / "second", seed=3, ambient_seed=97)
+
+        _assert_same_weights(first, second)
+
+    def test_different_seeds_reach_different_weights(self, tmp_path: Path):
+        first = self._final_weights(tmp_path / "first", seed=3, ambient_seed=11)
+        second = self._final_weights(tmp_path / "second", seed=4, ambient_seed=11)
+
+        assert sorted(first) == sorted(second)
+        assert any(
+            not torch.allclose(first[key], second[key], rtol=0.0, atol=0.0)
+            for key in first
+        )
 
 
 class TestTrainerNonFiniteLoss:

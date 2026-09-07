@@ -26,6 +26,7 @@ from tests.ml.support import (
 )
 
 EAGER_OPTIONS = CompileOptions(backend="eager")
+DEVICE = torch.device("cpu")
 
 METRIC_FIELD_NAMES = frozenset(
     field.name for field in attrs.fields(GaussianRegressionMetrics)
@@ -80,7 +81,9 @@ class _MinimalTask(TrainingTask[Tensor, Tensor]):
 def _batch(sample_count: int = 3) -> GaussianBatch:
     data = SyntheticRegressionData(SyntheticDatasetOptions())
     sample_ids = data.sample_ids_for("train")[:sample_count]
-    return data.materialize(sample_ids, split="train", epoch=0, training=False)
+    return data.materialize(
+        sample_ids, split="train", epoch=0, training=False, device=DEVICE
+    )
 
 
 def _task() -> GaussianRegressionTask:
