@@ -6,6 +6,9 @@ pcbnew / picamera2 を module 冒頭で import するため、Raspberry Pi と K
 無い GPU 学習ワークステーションでは読み込めない。``tests/ml`` がそれを参照すると
 ML の開発サイクルが装置依存に引きずられる。この分離は
 ``tests/ml/test_architecture.py`` が機械検証する。
+
+合成 task / data / logger は ``tests.ml.support`` が持つ。こちらは torch と
+``ml.training`` を読まずに済む環境・path まわりだけを置く。
 """
 
 from collections.abc import Callable
@@ -27,8 +30,8 @@ _R = TypeVar("_R")
 def _inductor_compile_available() -> bool:
     """``torch.compile`` の inductor backend が使えるか小さな関数で確認する.
 
-    Inductor は C++ compiler と生成コードのビルドに依存するため、環境によっては
-    初回 compile で失敗する。初回 compile に数秒かかるので結果はキャッシュする。
+    Inductor は C++ compiler と生成コードのビルドに依存する。環境によっては初回の compile
+    で失敗する。数秒かかるので結果はキャッシュする。
     """
     try:
         import torch
@@ -43,7 +46,7 @@ def _inductor_compile_available() -> bool:
 
 
 def skip_if_no_inductor(test: Callable[_P, _R]) -> Callable[_P, _R]:
-    """inductor backend が使えない環境ではテストを skip する."""
+    """Inductor backend が使えない環境ではテストを skip する."""
 
     @wraps(test)
     def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:

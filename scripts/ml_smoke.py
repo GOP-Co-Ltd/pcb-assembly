@@ -49,7 +49,7 @@ _REPORTED_PACKAGES = (
 
 
 class Report:
-    """check 結果を順に出しつつ、失敗があったかを覚える."""
+    """Check 結果を順に出しつつ、失敗があったかを覚える."""
 
     def __init__(self) -> None:
         self._failed = False
@@ -61,7 +61,7 @@ class Report:
         return self._failed
 
     def ok(self, name: str, detail: str = "") -> None:
-        """check が通ったことを報告する."""
+        """Check が通ったことを報告する."""
 
         self._line("ok", name, detail)
 
@@ -71,7 +71,7 @@ class Report:
         self._line("skip", name, detail)
 
     def fail(self, name: str, detail: str) -> None:
-        """check が落ちたことを報告する."""
+        """Check が落ちたことを報告する."""
 
         self._failed = True
         self._line("fail", name, detail)
@@ -83,7 +83,7 @@ class Report:
 
 @contextmanager
 def _checked(report: Report, name: str) -> Iterator[None]:
-    """check 本体が投げた例外を fail 1 行へ落とす."""
+    """Check 本体が投げた例外を fail 1 行へ落とす."""
 
     try:
         yield
@@ -159,7 +159,7 @@ def check_cuda_convolution(report: Report) -> None:
 
 
 def check_model_forward(report: Report) -> None:
-    """v1 と同じ形の model が dummy input を forward できる."""
+    """V1 と同じ形の model が dummy input を forward できる."""
 
     name = "model forward"
     with _checked(report, name):
@@ -208,7 +208,7 @@ def check_model_forward(report: Report) -> None:
 
 
 def check_png_decode(report: Report) -> None:
-    """torchvision が lossless PNG を RGB の CHW tensor として読む."""
+    """Torchvision が lossless PNG を RGB の CHW tensor として読む."""
 
     name = "png decode"
     with _checked(report, name):
@@ -235,7 +235,7 @@ def check_png_decode(report: Report) -> None:
 
 
 def check_hydra_compose(report: Report) -> None:
-    """packaged Hydra config を compose して解決済み設定を表示する."""
+    """Packaged Hydra config を compose して解決済み設定を表示する."""
 
     report.skip(
         "hydra compose",
@@ -278,7 +278,7 @@ def check_mlflow(report: Report, tracking_uri: str | None) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """smoke check を順に実行し、fail があれば 1 を返す."""
+    """Smoke check を順に実行し、fail があれば 1 を返す."""
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
