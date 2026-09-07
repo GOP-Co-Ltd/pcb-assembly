@@ -80,6 +80,7 @@ ML 依存は `pyproject.toml` の `ml-runtime` / `ml-train` / `ml-hpo` / `ml-exp
 - `make type`: pyright 型チェック
 - `make test`: E2E 以外の全テスト
 - `make test-no-hardware`: ハードウェア・E2E を除外
+- `make test-ml`: `tests/ml` だけを実行（pcbnew / picamera2 不要）
 - `make test-e2e`: WebUI E2E
 - `make run`: format、test、type
 - `make api` / `make api-dev`: backend WebAPI 起動（port 8081、dev は auto-reload）
@@ -88,6 +89,23 @@ ML 依存は `pyproject.toml` の `ml-runtime` / `ml-train` / `ml-hpo` / `ml-exp
 - `make ui-fake`: `api-fake`（8099）を上流にした frontend 起動（隔離ポート 8098）
 - `make migrate-codex`: Claude Bash 権限から Codex rules を再生成
 - `make migrate-codex-check`: Codex rules の同期確認
+- `make setup-ml`: GPU 学習ワークステーションへ ML 依存（`ml-hpo` + `ml-export`）を入れる
+- `make setup-ml-runtime`: Raspberry Pi 5 へ推論だけの `ml-runtime` を入れる
+- `make ml-smoke`: ML 環境の確認（version、CUDA、forward/backward、PNG decode）
+
+### ML 開発環境
+
+`src/ml/` と `src/pcbasm/pasting/paste_volume/` の開発は GPU 学習ワークステーションで
+行う。装置ドメインは pcbnew（KiCAD）と picamera2 を要求するため、そこでは
+`make test-no-hardware` が collect できない。`make test-ml` を使う。
+
+- `tests/ml` は `tests/helpers`（pcbnew / picamera2 依存）を参照しない。ML 専用の
+    テストヘルパーは `tests/ml/helpers.py` に置く。この分離は
+    `tests/ml/test_architecture.py` が機械検証する
+- `torch.compile` の inductor backend は triton の C 拡張ビルドに `Python.h` を要求する。
+    OS package の `python3.12-dev` が無い環境では inductor 依存のテストが skip される
+- 詳細な方針は
+    [画像ベース吐出量推定 ML 実装計画](docs/image-based-dispense-calibration-ml-plan.md)
 
 ## 不変の原則
 

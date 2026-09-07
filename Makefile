@@ -14,6 +14,21 @@ setup: clean  ## Setup development environment
 	uv sync --all-extras
 	uv run pre-commit install
 
+# ML 依存は WebAPI / UI の実行環境へ無条件に入れない（AGENTS.md「プロジェクト概要」）。
+# GPU 学習ワークステーション向けに学習・探索・export を明示的に足す。ml-hpo は
+# ml-train を、ml-train は ml-runtime を include するので、この 2 group で足りる。
+# uv sync は指定しなかった group を取り除くため、必要な group は 1 コマンドへ並べる。
+setup-ml: ## Install ML dependency groups for the GPU training workstation
+	uv sync --group ml-hpo --group ml-export
+	uv run python scripts/ml_smoke.py
+
+# 推論だけを行う Raspberry Pi 5 用。学習・探索・export の依存は入れない。
+setup-ml-runtime: ## Install inference-only ML dependencies (Raspberry Pi 5)
+	uv sync --group ml-runtime
+
+ml-smoke: ## Verify the ML development environment (versions, CUDA, forward/backward, decode)
+	uv run python scripts/ml_smoke.py
+
 
 format: ## Run pre-commit hooks
 	uv run pre-commit run -a
@@ -23,6 +38,11 @@ test: ## Run all tests (excludes e2e; see test-e2e)
 
 test-no-hardware: ## Run tests without hardware
 	uv run pytest -v -m "not hardware and not e2e"
+
+# tests/ml はドメイン非依存なので、picamera2 / pcbnew が無い学習機でも通る。
+# 装置側のテストを collect しないよう対象を tests/ml へ絞る。
+test-ml: ## Run the domain-independent ML tests (works without picamera2/pcbnew)
+	uv run pytest -v tests/ml -m "not hardware and not e2e"
 
 test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
 	uv run pytest -v -m e2e --timeout=180
