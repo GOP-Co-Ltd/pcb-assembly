@@ -91,11 +91,11 @@ def _checked(report: Report, name: str) -> Iterator[None]:
         report.fail(name, f"{type(error).__name__}: {error}")
 
 
-def _package_version(name: str) -> str:
+def _package_version(name: str) -> str | None:
     try:
         return importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
-        return "未 install"
+        return None
 
 
 def check_versions(report: Report) -> None:
@@ -103,7 +103,11 @@ def check_versions(report: Report) -> None:
 
     report.ok("python", f"{platform.python_version()} ({sys.executable})")
     for name in _REPORTED_PACKAGES:
-        report.ok(f"version {name}", _package_version(name))
+        version = _package_version(name)
+        if version is None:
+            report.skip(f"version {name}", "未 install")
+            continue
+        report.ok(f"version {name}", version)
 
     with _checked(report, "version cuda"):
         import torch
@@ -158,6 +162,29 @@ def check_cuda_convolution(report: Report) -> None:
         report.ok(name, _convolution_forward_backward("cuda"))
 
 
+def check_inductor_compile(report: Report) -> None:
+    """``torch.compile`` の inductor backend が eager と一致する.
+
+    inductor は triton の C 拡張を build するので ``Python.h`` を要求する。OS の
+    system Python は開発ヘッダを別 package へ分けているため、それを入れていない
+    環境では落ちる。学習コンテナは Debian Trixie の ``python3.13-dev`` で満たす。
+    計画では ``torch.compile`` を既定 ON にするので、環境確認へ含める。
+    """
+
+    name = "inductor compile"
+    with _checked(report, name):
+        import torch
+
+        def add_one(values: torch.Tensor) -> torch.Tensor:
+            return values + 1
+
+        compiled = torch.compile(add_one, backend="inductor")
+        images = torch.zeros(2)
+        if not bool(torch.equal(compiled(images), add_one(images))):
+            raise AssertionError("compile 済み実行が eager と一致しません")
+        report.ok(name, f"backend inductor、python {sys.base_prefix}")
+
+
 def check_model_forward(report: Report) -> None:
     """V1 と同じ形の model が dummy input を forward できる."""
 
@@ -203,6 +230,11 @@ def check_model_forward(report: Report) -> None:
                     f"{height}x{width} の出力 shape が [1, 1] ではありません: "
                     f"{tuple(mean.shape)}、{tuple(log_variance.shape)}"
                 )
+            for label, values in (("mean", mean), ("log variance", log_variance)):
+                if not bool(torch.isfinite(values).all()):
+                    raise AssertionError(
+                        f"{height}x{width} の {label} が非有限です: {values.tolist()}"
+                    )
         shapes = ", ".join(f"{height}x{width}" for height, width in _DUMMY_SHAPES)
         report.ok(name, f"{parameter_count} parameter、{shapes} を forward")
 
@@ -232,15 +264,6 @@ def check_png_decode(report: Report) -> None:
                 f"channel 平均 {decoded.float().mean(dim=(1, 2)).tolist()}"
             )
         report.ok(name, f"shape {tuple(decoded.shape)}、dtype {decoded.dtype}")
-
-
-def check_hydra_compose(report: Report) -> None:
-    """Packaged Hydra config を compose して解決済み設定を表示する."""
-
-    report.skip(
-        "hydra compose",
-        "packaged config (pcbasm.pasting.paste_volume.conf) は未実装",
-    )
 
 
 def check_mlflow(report: Report, tracking_uri: str | None) -> None:
@@ -293,12 +316,17 @@ def main(argv: list[str] | None = None) -> int:
         check_versions,
         check_cpu_convolution,
         check_cuda_convolution,
+        check_inductor_compile,
         check_model_forward,
         check_png_decode,
-        check_hydra_compose,
     )
     for check in checks:
         check(report)
+    # 計画「開発環境の確認」項目 6。packaged config が入るまでは未実装として残す
+    report.skip(
+        "hydra compose",
+        "packaged config (pcbasm.pasting.paste_volume.conf) は未実装",
+    )
     check_mlflow(report, arguments.mlflow_tracking_uri)
 
     print()
