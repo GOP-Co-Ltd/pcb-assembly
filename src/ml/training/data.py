@@ -8,12 +8,19 @@ Trainer は dataset の中身を知らない。
 計画は epoch と split だけで決まる純関数とする。
 
 中断した epoch の途中から、同じ batch 並びで再開できるようにするため。
+
+Batch を置く device は Trainer が :meth:`TrainingData.materialize` へ渡す。
+
+tensor が生まれる場所で device を決めれば余分な host から device への複製が要らず、
+Trainer は batch の型を知らないままでいられる。
 """
 
 from __future__ import annotations
 
 import abc
 from collections.abc import Sequence
+
+import torch
 
 from ml.data.split import SplitName
 
@@ -48,8 +55,14 @@ class TrainingData[BatchT](abc.ABC):
         split: SplitName,
         epoch: int,
         training: bool,
+        device: torch.device,
     ) -> BatchT:
-        """Sample ID の並びを 1 個の batch へ実体化する."""
+        """Sample ID の並びを 1 個の batch へ実体化する.
+
+        返す batch の tensor は ``device`` の上に作ること。
+
+        Trainer は batch の型を知らないので、移送し直すことができない。
+        """
 
 
 __all__ = [

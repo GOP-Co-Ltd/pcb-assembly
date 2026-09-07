@@ -24,7 +24,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import attrs
 
-from ml.artifact.fingerprint import sha256_bytes
+from ml.artifact.fingerprint import sha256_bytes, sha256_file
 
 TRACKED_PACKAGE_NAMES: tuple[str, ...] = (
     "torch",
@@ -37,6 +37,10 @@ TRACKED_PACKAGE_NAMES: tuple[str, ...] = (
     "onnxruntime",
     "onnxscript",
 )
+
+# untracked 本文を読み込む上限。超えた分は digest だけ残す。
+_UNTRACKED_FILE_BYTE_LIMIT = 1024 * 1024
+_UNTRACKED_TOTAL_BYTE_LIMIT = 8 * 1024 * 1024
 
 _NOT_INSTALLED = "not-installed"
 _NOT_AVAILABLE = "not-available"
@@ -168,7 +172,10 @@ def sanitize_persisted_uri(uri: str) -> str:
     if not parsed.scheme:
         return uri
     if parsed.hostname is None:
-        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        # host を持たない URI でも userinfo は落とす。credential 除去がこの関数の
+        # 唯一の役目なので、解析できた形でも取りこぼさない。
+        authority = parsed.netloc.rsplit("@", maxsplit=1)[-1]
+        return f"{parsed.scheme}://{authority}{parsed.path}"
     host = parsed.hostname
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
@@ -230,14 +237,31 @@ def _untracked_content(repository: Path, untracked_files: tuple[str, ...]) -> st
 
     バイナリは復号できない byte を置換して読むが、見出し行に生 byte の digest を
     載せるので :attr:`GitProvenance.diff_fingerprint` は正確なままになる。
+
+    大きなファイルと合計サイズには上限を置き、超えた分は本文を落として digest だけ
+    残す。
+
+    untracked の dataset や checkpoint を run 開始時に丸ごとメモリへ読まないため。
     """
 
     parts: list[str] = []
+    remaining = _UNTRACKED_TOTAL_BYTE_LIMIT
     for relative_path in sorted(untracked_files):
         file_path = repository / relative_path
         if not file_path.is_file():
             continue
+        size = file_path.stat().st_size
+        if size > _UNTRACKED_FILE_BYTE_LIMIT or size > remaining:
+            parts.extend(
+                (
+                    f"untracked a/{relative_path} b/{relative_path}",
+                    f"size {size}; sha256:{sha256_file(file_path)}",
+                    "[本文は大きすぎるため省略]",
+                )
+            )
+            continue
         content = file_path.read_bytes()
+        remaining -= len(content)
         parts.extend(
             (
                 f"untracked a/{relative_path} b/{relative_path}",

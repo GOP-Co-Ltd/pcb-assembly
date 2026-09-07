@@ -38,7 +38,11 @@ _RANDOM_STATE_KEYS = frozenset(
 def seed_everything(seed: int, *, deterministic: bool) -> None:
     """Python・NumPy・PyTorch へ同じ run seed を設定する.
 
-    ``deterministic`` は PyTorch の決定的アルゴリズム選択に渡す。
+    ``deterministic`` は ``torch.use_deterministic_algorithms`` に渡す。
+
+    この設定は **プロセス全体** に効き、元の値へは戻さない。
+
+    同じプロセスで別の処理を続ける呼び出し側は、必要なら自分で戻すこと。
     """
 
     random.seed(seed)

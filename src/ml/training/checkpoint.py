@@ -297,10 +297,15 @@ class TrainingCheckpoint:
         *,
         dataset_fingerprint: str,
         config_fingerprint: str,
-        run_id: str,
         model_state_keys: Set[str],
     ) -> str | None:
-        """この checkpoint から再開してよいかを判定し、駄目なら理由を返す."""
+        """この checkpoint から再開してよいかを判定し、駄目なら理由を返す.
+
+        ``run_id`` の照合はここでは行わない。
+
+        実 run_id は logger の run を開始するまで決まらず、この判定は
+        その前（model を書き換える前）に済ませる必要があるため。
+        """
 
         if self.role == "emergency":
             return "emergency checkpoint は事後解析専用で、resume 対象にできません"
@@ -314,8 +319,6 @@ class TrainingCheckpoint:
                 "config fingerprint が一致しません: "
                 f"{self.config_fingerprint!r}（期待値 {config_fingerprint!r}）"
             )
-        if self.run_id != run_id:
-            return f"run_id が一致しません: {self.run_id!r}（期待値 {run_id!r}）"
         saved_keys = set(self.model_state)
         current_keys = set(model_state_keys)
         missing = sorted(current_keys - saved_keys)

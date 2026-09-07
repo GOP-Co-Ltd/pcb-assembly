@@ -205,10 +205,18 @@ class TrainerConfig:
         return fingerprint_json(fields)
 
     def as_params(self) -> dict[str, Scalar]:
-        """実験記録へ載せる平坦な params を返す."""
+        """実験記録へ載せる、run を通して不変な params を返す.
+
+        その run 限りの時間予算は含めない（:meth:`as_tags` へ回す）。
+
+        param は一度記録すると値を変えられないので、resume のたびに変わりうる値を
+        載せると再開そのものが失敗する。
+        """
 
         params: dict[str, Scalar] = {}
-        for field in attrs.fields(TrainerConfig):
+        for field in attrs.fields(type(self)):
+            if field.name in _FINGERPRINT_EXCLUDED_FIELDS:
+                continue
             value = getattr(self, field.name)
             if isinstance(value, CompileOptions):
                 for option in attrs.fields(CompileOptions):
@@ -218,6 +226,14 @@ class TrainerConfig:
                 continue
             params[field.name] = _as_scalar(value)
         return params
+
+    def as_tags(self) -> dict[str, str]:
+        """Resume のたびに変わりうる時間予算を tag として返す.
+
+        tag は上書きできるので、run を再開して予算を変えても記録が矛盾しない。
+        """
+
+        return {name: str(getattr(self, name)) for name in _FINGERPRINT_EXCLUDED_FIELDS}
 
 
 @attrs.frozen
@@ -375,14 +391,6 @@ class Trainer[BatchT, ObservationT]:
                 "resume 元の checkpoint と logger の run_id が一致しません: "
                 f"{resumed_run_id!r} と {run_id!r}"
             )
-        self._logger.log_params(
-            {
-                **config.as_params(),
-                "config_fingerprint": config_fingerprint,
-                "dataset_fingerprint": dataset_fingerprint,
-            }
-        )
-
         deadline_monotonic = (
             None
             if config.deadline_seconds is None
@@ -406,12 +414,20 @@ class Trainer[BatchT, ObservationT]:
                 progress=progress,
                 selection=selection,
                 validation_metrics=validation_metrics,
-                best_checkpoint_path=(
-                    self._store.path_for("best") if self._store.exists("best") else None
-                ),
+                best_checkpoint_path=self._existing_best_path(run_id),
                 last_checkpoint_monotonic=time.monotonic(),
             )
             try:
+                # start() のあとの記録は必ず例外経路の内側へ置く。ここで落ちると
+                # run が RUNNING のまま残るため。
+                self._logger.log_params(
+                    {
+                        **config.as_params(),
+                        "config_fingerprint": config_fingerprint,
+                        "dataset_fingerprint": dataset_fingerprint,
+                    }
+                )
+                self._logger.set_tags(config.as_tags())
                 if config.compile_enabled and not _deadline_passed(deadline_monotonic):
                     self._task.compile_forward(config.compile_options)
                 if resume_from is None:
@@ -447,12 +463,11 @@ class Trainer[BatchT, ObservationT]:
         checkpoint, reason = self._store.load_path(resume_from)
         if checkpoint is None:
             raise ValueError(reason)
-        # logger をまだ start していないので run_id は照合できない。実際の run_id
-        # との一致は start 直後に確かめる。
+        # run_id はここでは照合しない。logger をまだ start していないため、
+        # 実際の run_id との一致は start 直後に確かめる。
         rejection = checkpoint.resume_rejection(
             dataset_fingerprint=dataset_fingerprint,
             config_fingerprint=config_fingerprint,
-            run_id=checkpoint.run_id,
             model_state_keys=set(model.state_dict()),
         )
         if rejection is not None:
@@ -590,7 +605,7 @@ class Trainer[BatchT, ObservationT]:
                 case "gradient_overflow":
                     self._rewind(snapshot)
                     consecutive_overflows += 1
-                    if consecutive_overflows > _MAXIMUM_CONSECUTIVE_GRADIENT_OVERFLOWS:
+                    if consecutive_overflows >= _MAXIMUM_CONSECUTIVE_GRADIENT_OVERFLOWS:
                         raise NonFiniteLossError(
                             "gradient overflow が "
                             f"{consecutive_overflows} 回続きました: "
@@ -623,13 +638,18 @@ class Trainer[BatchT, ObservationT]:
                 split="train",
                 epoch=state.progress.epoch,
                 training=True,
+                device=self._device,
             )
 
     def _validation_batches(self, state: _RunState) -> Iterator[BatchT]:
         epoch = state.progress.epoch
         for sample_ids in self._data.plan_epoch(split="validation", epoch=epoch):
             yield self._data.materialize(
-                sample_ids, split="validation", epoch=epoch, training=False
+                sample_ids,
+                split="validation",
+                epoch=epoch,
+                training=False,
+                device=self._device,
             )
 
     def _stop_reason_now(self, state: _RunState) -> StopReason | None:
@@ -686,14 +706,41 @@ class Trainer[BatchT, ObservationT]:
             # 猶予を使い切ったら latest.pt のまま終える。best の読み戻しと
             # final の書き出しを中途半端に始めない。
             return
-        if self._store.exists("best"):
-            best, reason = self._store.load("best")
-            if best is None:
-                raise ValueError(reason)
+        best, reason = self._best_of_this_run(state.run_id)
+        if best is not None:
             self._task.model.load_state_dict(dict(best.model_state))
             state.best_checkpoint_path = self._store.path_for("best")
+        elif reason is not None:
+            # 別 run の best.pt を今回の final.pt として書き出さない。
+            state.best_checkpoint_path = None
+            self._logger.set_tags({"finalization.best_checkpoint_ignored": reason})
         state.final_checkpoint_path = self._save(state, "final")
         self._logger.log_artifact(state.final_checkpoint_path)
+
+    def _best_of_this_run(
+        self, run_id: str
+    ) -> tuple[TrainingCheckpoint | None, str | None]:
+        """この run が書いた ``best.pt`` だけを返す.
+
+        checkpoint directory を使い回すと前の run の ``best.pt`` が残っている。
+
+        別 run の重みを今回の成果として扱わないよう、``run_id`` で持ち主を確かめる。
+        """
+
+        if not self._store.exists("best"):
+            return None, None
+        best, reason = self._store.load("best")
+        if best is None:
+            return None, f"best.pt を読めませんでした: {reason}"
+        if best.run_id != run_id:
+            return None, (
+                f"best.pt は別の run のものです: {best.run_id!r}（今回 {run_id!r}）"
+            )
+        return best, None
+
+    def _existing_best_path(self, run_id: str) -> Path | None:
+        best, _ = self._best_of_this_run(run_id)
+        return None if best is None else self._store.path_for("best")
 
     def _capture_failure(self, state: _RunState, error: BaseException) -> None:
         """失敗時の live 状態を ``emergency.pt`` へ落とし、タグに理由を残す.
@@ -714,7 +761,10 @@ class Trainer[BatchT, ObservationT]:
             ]
         else:
             tags["failure.emergency_checkpoint"] = path.name
-        self._logger.set_tags(tags)
+        try:
+            self._logger.set_tags(tags)
+        except Exception:  # noqa: BLE001 - logger の失敗で元の例外を隠さない
+            return
 
     def _end_run(self, status: RunStatus) -> None:
         if self._run_ended:
