@@ -29,6 +29,59 @@ setup-ml-runtime: ## Install inference-only ML dependencies (Raspberry Pi 5)
 ml-smoke: ## Verify the ML development environment (versions, CUDA, forward/backward, decode)
 	uv run python scripts/ml_smoke.py
 
+# --- ML 学習・開発コンテナ（詳細は docker/README.md） -------------------------
+# 資格情報 mount は host に実在するものだけを compose.credentials.yaml へ生成する。
+# 存在しない bind mount source を書くと Docker が root 所有の空 directory を作る。
+DOCKER_COMPOSE = docker compose \
+	-f docker/compose.yaml \
+	-f docker/compose.credentials.yaml
+
+# 常駐コンテナへ exec する。run --rm は毎回 container を作って捨てるため、
+# 基本作業（sync / test / smoke / shell）はすべて exec を通す。
+DOCKER_EXEC = $(DOCKER_COMPOSE) exec ml
+
+# pyright の対象を ML ツリーへ絞る。装置ドメインは pcbnew / picamera2 を要求し、
+# それが無いコンテナでは未解決 import として必ず赤くなる。装置側の型検査は
+# 実機の環境で `make type` が担当する。
+ML_TYPE_PATHS = src/ml tests/ml scripts/ml_smoke.py
+
+ml-docker-env: ## Generate docker/.env and the credential mounts from the host
+	@./docker/write-env.sh
+
+ml-docker-build: ml-docker-env ## Build the ML training/development container image
+	$(DOCKER_COMPOSE) build
+
+# --build を付けるのは、素の `up -d` が image の存在しか見ないため。Dockerfile を
+# 直しても古い image のまま起動し、検証が古い環境で通ってしまう。層 cache が効くので
+# 変更が無ければほぼ待たない。
+ml-docker-up: ml-docker-env ## Start the long-running ML container, rebuilding if stale
+	$(DOCKER_COMPOSE) up -d --build
+
+ml-docker-down: ml-docker-env ## Stop the ML container (named volumes are kept)
+	$(DOCKER_COMPOSE) down
+
+ml-docker-shell: ml-docker-up ## Open an interactive shell in the running ML container
+	$(DOCKER_EXEC) bash
+
+# 以降の target が sync に依存するのは、named volume を作り直した直後でも
+# 動くようにするため。uv sync は最新なら 1 秒程度で終わる。
+ml-docker-sync: ml-docker-up ## Install the ML dependency groups inside the container
+	$(DOCKER_EXEC) uv sync --group ml-hpo --group ml-export
+
+ml-docker-smoke: ml-docker-sync ## Run the ML environment smoke check inside the container
+	$(DOCKER_EXEC) uv run python scripts/ml_smoke.py
+
+ml-docker-test: ml-docker-sync ## Run the ML tests inside the container
+	$(DOCKER_EXEC) uv run pytest -v tests/ml -m "not hardware and not e2e"
+
+# ML 作業の検証はコンテナ内で回す。host には ML 依存を入れないため、host の
+# pyright は torch を解決できない。
+ml-docker-check: ml-docker-sync ## Run format, ML type check, and ML tests inside the container
+	$(DOCKER_EXEC) bash -c '\
+		uv run pre-commit run -a \
+		&& uv run pyright $(ML_TYPE_PATHS) \
+		&& uv run pytest -v tests/ml -m "not hardware and not e2e"'
+
 
 format: ## Run pre-commit hooks
 	uv run pre-commit run -a

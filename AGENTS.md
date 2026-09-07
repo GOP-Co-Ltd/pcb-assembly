@@ -89,22 +89,42 @@ ML 依存は `pyproject.toml` の `ml-runtime` / `ml-train` / `ml-hpo` / `ml-exp
 - `make ui-fake`: `api-fake`（8099）を上流にした frontend 起動（隔離ポート 8098）
 - `make migrate-codex`: Claude Bash 権限から Codex rules を再生成
 - `make migrate-codex-check`: Codex rules の同期確認
-- `make setup-ml`: GPU 学習ワークステーションへ ML 依存（`ml-hpo` + `ml-export`）を入れる
+- `make setup-ml`: host へ ML 依存（`ml-hpo` + `ml-export`）を入れる
 - `make setup-ml-runtime`: Raspberry Pi 5 へ推論だけの `ml-runtime` を入れる
-- `make ml-smoke`: ML 環境の確認（version、CUDA、forward/backward、PNG decode）
+- `make ml-smoke`: ML 環境の確認（version、CUDA、inductor、forward/backward、PNG decode）
+- `make ml-docker-build` / `-up` / `-down`: ML 学習・開発コンテナの build と起動・停止
+- `make ml-docker-sync` / `-shell` / `-test` / `-smoke` / `-check`: 常駐コンテナへ exec
 
 ### ML 開発環境
 
-`src/ml/` と `src/pcbasm/pasting/paste_volume/` の開発は GPU 学習ワークステーションで
-行う。装置ドメインは pcbnew（KiCAD）と picamera2 を要求するため、そこでは
-`make test-no-hardware` が collect できない。`make test-ml` を使う。
+`src/ml/` と `src/pcbasm/pasting/paste_volume/` の開発と学習は、GPU workstation 上の
+専用コンテナで行う（`docker/`）。装置ドメインは pcbnew（KiCAD）と picamera2 を
+要求するため、その環境では `make test-no-hardware` が collect できない。
 
+```bash
+make ml-docker-up      # image を build して常駐起動する（idempotent）
+make ml-docker-check   # format → ML の型検査 → tests/ml。学習機での標準検証
+```
+
+コンテナは常駐させ `docker compose exec` で使う。`make ml-docker-shell` /
+`-test` / `-smoke` / `-check` はいずれも起動済みコンテナへ exec し、必要なら
+起動と依存 install まで遡って行う。`docker compose run --rm` を毎回叩かない。
+
+- base image は Debian Trixie。Python 3.13 と `python3.13-dev` を標準 package で持つため、
+    `pyproject.toml` の `python-preference = "only-system"` を変えずに済む。開発ヘッダは
+    `torch.compile` の inductor backend が triton の C 拡張を build するのに必要
+- Raspberry Pi 5 の `picamera2` / `pcbnew` は OS の `dist-packages` 由来なので、
+    `only-system` は変更しない。uv の managed Python へ切り替えると Pi でこれらが見えなくなる
+- host 側で `tests/ml` だけを回すこともできる（`make test-ml`）。ML 依存を host へ
+    入れる場合は `make setup-ml`。ただし host の system Python には開発ヘッダが無く
+    inductor が動かないため、既定はコンテナとする
+- コンテナ内から git / glab を使うため、host の資格情報を mount する。`~/.ssh` を
+    read-only で渡す場合、read-only は改変を防ぐが読み出しは防がない。詳細と代替
+    （SSH agent / HTTPS）は [docker/README.md](docker/README.md)
 - `tests/ml` は `tests/helpers`（pcbnew / picamera2 依存）を参照しない。ML 専用の
     テストヘルパーは `tests/ml/helpers.py` に置く。この分離は
     `tests/ml/test_architecture.py` が機械検証する
-- `torch.compile` の inductor backend は triton の C 拡張ビルドに `Python.h` を要求する。
-    OS package の `python3.12-dev` が無い環境では inductor 依存のテストが skip される
-- 詳細な方針は
+- 詳細は [docker/README.md](docker/README.md) と
     [画像ベース吐出量推定 ML 実装計画](docs/image-based-dispense-calibration-ml-plan.md)
 
 ## 不変の原則
