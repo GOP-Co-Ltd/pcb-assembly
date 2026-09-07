@@ -2,7 +2,7 @@
 #
 # This generator only performs formal Bash permission migration.
 # Migrate Claude skills, agents, docs, and prose with migrate-claude.
-# Source summary: 173 shell allow rule(s), 9 shell deny rule(s).
+# Source summary: 214 shell allow rule(s), 23 shell deny rule(s).
 # Non-shell Claude permissions are handled by Codex tools/sandbox:
 # Edit(~/.ssh/**), Read(//usr/**), Read(//usr/include/**), Read(~/.ssh/**), WebFetch, WebSearch
 
@@ -14,6 +14,118 @@ prefix_rule(
     decision = "forbidden",
     justification = "Migrated from Claude forbidden permission.",
     match = ["sudo"],
+)
+
+# Source: Bash(docker builder prune:*)
+prefix_rule(
+    pattern = ["docker", "builder", "prune"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker builder prune"],
+)
+
+# Source: Bash(docker compose down:*)
+prefix_rule(
+    pattern = ["docker", "compose", "down"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker compose down"],
+)
+
+# Source: Bash(docker container prune:*)
+prefix_rule(
+    pattern = ["docker", "container", "prune"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker container prune"],
+)
+
+# Source: Bash(docker container rm:*)
+prefix_rule(
+    pattern = ["docker", "container", "rm"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker container rm"],
+)
+
+# Source: Bash(docker image prune:*)
+prefix_rule(
+    pattern = ["docker", "image", "prune"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker image prune"],
+)
+
+# Source: Bash(docker image rm:*)
+prefix_rule(
+    pattern = ["docker", "image", "rm"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker image rm"],
+)
+
+# Source: Bash(docker kill:*)
+prefix_rule(
+    pattern = ["docker", "kill"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker kill"],
+)
+
+# Source: Bash(docker network prune:*)
+prefix_rule(
+    pattern = ["docker", "network", "prune"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker network prune"],
+)
+
+# Source: Bash(docker network rm:*)
+prefix_rule(
+    pattern = ["docker", "network", "rm"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker network rm"],
+)
+
+# Source: Bash(docker rm:*)
+prefix_rule(
+    pattern = ["docker", "rm"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker rm"],
+)
+
+# Source: Bash(docker rmi:*)
+prefix_rule(
+    pattern = ["docker", "rmi"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker rmi"],
+)
+
+# Source: Bash(docker system prune:*)
+prefix_rule(
+    pattern = ["docker", "system", "prune"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker system prune"],
+)
+
+# Source: Bash(docker volume prune:*)
+prefix_rule(
+    pattern = ["docker", "volume", "prune"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker volume prune"],
+)
+
+# Source: Bash(docker volume rm:*)
+prefix_rule(
+    pattern = ["docker", "volume", "rm"],
+    decision = "forbidden",
+    justification = "Migrated from Claude forbidden permission.",
+    match = ["docker volume rm"],
 )
 
 # Source: Bash(git checkout .)
@@ -78,7 +190,7 @@ prefix_rule(
     match = ["rm -fr"],
 )
 
-# Source: Bash([:*), Bash(ag:*), Bash(awk:*), Bash(base64:*), Bash(basename:*), Bash(bc:*), Bash(cal:*), Bash(cat:*), Bash(cd:*), Bash(cksum:*), Bash(cmp:*), Bash(column:*), Bash(comm:*), Bash(cp:*), Bash(cut:*), Bash(date:*), Bash(df:*), Bash(diff:*), Bash(dirname:*), Bash(du:*), Bash(echo:*), Bash(env), Bash(expr:*), Bash(false), Bash(fd:*), Bash(file:*), Bash(find:*), Bash(fzf:*), Bash(grep:*), Bash(groups:*), Bash(hash:*), Bash(head:*), Bash(help:*), Bash(hexdump:*), Bash(hostname:*), Bash(id:*), Bash(info:*), Bash(jobs:*), Bash(join:*), Bash(jq:*), Bash(ls:*), Bash(make:*), Bash(man:*), Bash(md5sum:*), Bash(mkdir:*), Bash(nl:*), Bash(od:*), Bash(paste:*), Bash(pgrep:*), Bash(pre-commit:*), Bash(printenv:*), Bash(printf:*), Bash(ps:*), Bash(pwd), Bash(pwd:*), Bash(python3:*), Bash(python:*), Bash(readlink:*), Bash(realpath:*), Bash(rev:*), Bash(rg:*), Bash(sha1sum:*), Bash(sha256sum:*), Bash(sort:*), Bash(stat:*), Bash(tac:*), Bash(tail:*), Bash(tasklist), Bash(tee:*), Bash(test:*), Bash(touch:*), Bash(tr:*), Bash(tree:*), Bash(true), Bash(type:*), Bash(uname:*), Bash(uniq:*), Bash(uptime), Bash(v4l2-ctl:*), Bash(wait:*), Bash(wc:*), Bash(whereis:*), Bash(which:*), Bash(whoami), Bash(xargs:*), Bash(xxd:*), Bash(yq:*), Bash(zipinfo:*)
+# Source: Bash([:*), Bash(ag:*), Bash(awk:*), Bash(base64:*), Bash(basename:*), Bash(bc:*), Bash(cal:*), Bash(cat:*), Bash(cd:*), Bash(cksum:*), Bash(cmp:*), Bash(column:*), Bash(comm:*), Bash(cp:*), Bash(cut:*), Bash(date:*), Bash(df:*), Bash(diff:*), Bash(dirname:*), Bash(du:*), Bash(echo:*), Bash(env), Bash(expr:*), Bash(false), Bash(fd:*), Bash(file:*), Bash(find:*), Bash(fzf:*), Bash(grep:*), Bash(groups:*), Bash(hash:*), Bash(head:*), Bash(help:*), Bash(hexdump:*), Bash(hostname:*), Bash(id:*), Bash(info:*), Bash(jobs:*), Bash(join:*), Bash(jq:*), Bash(ls:*), Bash(make:*), Bash(man:*), Bash(md5sum:*), Bash(mkdir:*), Bash(nl:*), Bash(nvidia-smi:*), Bash(od:*), Bash(paste:*), Bash(pgrep:*), Bash(pre-commit:*), Bash(printenv:*), Bash(printf:*), Bash(ps:*), Bash(pwd), Bash(pwd:*), Bash(python3:*), Bash(python:*), Bash(readlink:*), Bash(realpath:*), Bash(rev:*), Bash(rg:*), Bash(sha1sum:*), Bash(sha256sum:*), Bash(sort:*), Bash(stat:*), Bash(tac:*), Bash(tail:*), Bash(tasklist), Bash(tee:*), Bash(test:*), Bash(touch:*), Bash(tr:*), Bash(tree:*), Bash(true), Bash(type:*), Bash(uname:*), Bash(uniq:*), Bash(uptime), Bash(v4l2-ctl:*), Bash(wait:*), Bash(wc:*), Bash(whereis:*), Bash(which:*), Bash(whoami), Bash(xargs:*), Bash(xxd:*), Bash(yq:*), Bash(zipinfo:*)
 prefix_rule(
     pattern = [
         [
@@ -128,6 +240,7 @@ prefix_rule(
             "md5sum",
             "mkdir",
             "nl",
+            "nvidia-smi",
             "od",
             "paste",
             "pgrep",
@@ -185,6 +298,318 @@ prefix_rule(
     decision = "allow",
     justification = "Migrated from Claude allow permission.",
     match = ["command -v"],
+)
+
+# Source: Bash(docker build:*)
+prefix_rule(
+    pattern = ["docker", "build"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker build"],
+)
+
+# Source: Bash(docker buildx version:*)
+prefix_rule(
+    pattern = ["docker", "buildx", "version"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker buildx version"],
+)
+
+# Source: Bash(docker compose build:*)
+prefix_rule(
+    pattern = ["docker", "compose", "build"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose build"],
+)
+
+# Source: Bash(docker compose config:*)
+prefix_rule(
+    pattern = ["docker", "compose", "config"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose config"],
+)
+
+# Source: Bash(docker compose exec:*)
+prefix_rule(
+    pattern = ["docker", "compose", "exec"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose exec"],
+)
+
+# Source: Bash(docker compose images:*)
+prefix_rule(
+    pattern = ["docker", "compose", "images"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose images"],
+)
+
+# Source: Bash(docker compose logs:*)
+prefix_rule(
+    pattern = ["docker", "compose", "logs"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose logs"],
+)
+
+# Source: Bash(docker compose port:*)
+prefix_rule(
+    pattern = ["docker", "compose", "port"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose port"],
+)
+
+# Source: Bash(docker compose ps:*)
+prefix_rule(
+    pattern = ["docker", "compose", "ps"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose ps"],
+)
+
+# Source: Bash(docker compose restart:*)
+prefix_rule(
+    pattern = ["docker", "compose", "restart"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose restart"],
+)
+
+# Source: Bash(docker compose run:*)
+prefix_rule(
+    pattern = ["docker", "compose", "run"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose run"],
+)
+
+# Source: Bash(docker compose start:*)
+prefix_rule(
+    pattern = ["docker", "compose", "start"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose start"],
+)
+
+# Source: Bash(docker compose stop:*)
+prefix_rule(
+    pattern = ["docker", "compose", "stop"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose stop"],
+)
+
+# Source: Bash(docker compose top:*)
+prefix_rule(
+    pattern = ["docker", "compose", "top"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose top"],
+)
+
+# Source: Bash(docker compose up:*)
+prefix_rule(
+    pattern = ["docker", "compose", "up"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose up"],
+)
+
+# Source: Bash(docker compose version:*)
+prefix_rule(
+    pattern = ["docker", "compose", "version"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose version"],
+)
+
+# Source: Bash(docker compose wait:*)
+prefix_rule(
+    pattern = ["docker", "compose", "wait"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker compose wait"],
+)
+
+# Source: Bash(docker context ls:*)
+prefix_rule(
+    pattern = ["docker", "context", "ls"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker context ls"],
+)
+
+# Source: Bash(docker exec:*)
+prefix_rule(
+    pattern = ["docker", "exec"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker exec"],
+)
+
+# Source: Bash(docker image inspect:*)
+prefix_rule(
+    pattern = ["docker", "image", "inspect"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker image inspect"],
+)
+
+# Source: Bash(docker image ls:*)
+prefix_rule(
+    pattern = ["docker", "image", "ls"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker image ls"],
+)
+
+# Source: Bash(docker images:*)
+prefix_rule(
+    pattern = ["docker", "images"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker images"],
+)
+
+# Source: Bash(docker info:*)
+prefix_rule(
+    pattern = ["docker", "info"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker info"],
+)
+
+# Source: Bash(docker inspect:*)
+prefix_rule(
+    pattern = ["docker", "inspect"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker inspect"],
+)
+
+# Source: Bash(docker logs:*)
+prefix_rule(
+    pattern = ["docker", "logs"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker logs"],
+)
+
+# Source: Bash(docker network inspect:*)
+prefix_rule(
+    pattern = ["docker", "network", "inspect"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker network inspect"],
+)
+
+# Source: Bash(docker network ls:*)
+prefix_rule(
+    pattern = ["docker", "network", "ls"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker network ls"],
+)
+
+# Source: Bash(docker port:*)
+prefix_rule(
+    pattern = ["docker", "port"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker port"],
+)
+
+# Source: Bash(docker ps:*)
+prefix_rule(
+    pattern = ["docker", "ps"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker ps"],
+)
+
+# Source: Bash(docker restart:*)
+prefix_rule(
+    pattern = ["docker", "restart"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker restart"],
+)
+
+# Source: Bash(docker start:*)
+prefix_rule(
+    pattern = ["docker", "start"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker start"],
+)
+
+# Source: Bash(docker stats --no-stream:*)
+prefix_rule(
+    pattern = ["docker", "stats", "--no-stream"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker stats --no-stream"],
+)
+
+# Source: Bash(docker stop:*)
+prefix_rule(
+    pattern = ["docker", "stop"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker stop"],
+)
+
+# Source: Bash(docker system df:*)
+prefix_rule(
+    pattern = ["docker", "system", "df"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker system df"],
+)
+
+# Source: Bash(docker top:*)
+prefix_rule(
+    pattern = ["docker", "top"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker top"],
+)
+
+# Source: Bash(docker version:*)
+prefix_rule(
+    pattern = ["docker", "version"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker version"],
+)
+
+# Source: Bash(docker volume inspect:*)
+prefix_rule(
+    pattern = ["docker", "volume", "inspect"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker volume inspect"],
+)
+
+# Source: Bash(docker volume ls:*)
+prefix_rule(
+    pattern = ["docker", "volume", "ls"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker volume ls"],
+)
+
+# Source: Bash(docker wait:*)
+prefix_rule(
+    pattern = ["docker", "wait"],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["docker wait"],
 )
 
 # Source: Bash(gh auth status:*)
@@ -681,6 +1106,17 @@ prefix_rule(
     decision = "allow",
     justification = "Migrated from Claude allow permission.",
     match = ["glab mr view"],
+)
+
+# Source: Bash(nvidia-ctk --version:*)
+prefix_rule(
+    pattern = [
+        "nvidia-ctk",
+        ["--version"],
+    ],
+    decision = "allow",
+    justification = "Migrated from Claude allow permission.",
+    match = ["nvidia-ctk --version"],
 )
 
 # Source: Bash(sed -n:*)
