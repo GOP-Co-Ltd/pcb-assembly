@@ -20,6 +20,8 @@ DEPENDENCY_FREE_MODULES = (
     "ml.artifact.document",
     "ml.artifact.fingerprint",
     "ml.artifact.package",
+    "ml.experiment.logger",
+    "ml.experiment.provenance",
     "ml.serialization",
 )
 
@@ -35,6 +37,12 @@ RUNTIME_MODULES = (
     "ml.model.heads",
     "ml.model.inspection",
     "ml.model.loss",
+    "ml.training.checkpoint",
+    "ml.training.data",
+    "ml.training.loop",
+    "ml.training.random_state",
+    "ml.training.task",
+    "ml.training.transaction",
 )
 
 HEAVY_DEPENDENCIES = (
