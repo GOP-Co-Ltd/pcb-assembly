@@ -1,12 +1,24 @@
 {% extends "tab.html" %}
 {% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
 {% block main %}
+{% import "partials/job_params.html" as job_params %}
 <h2>{{ feature_label }}</h2>
 <p class="job-intro">
   未塗布の銅板にセル格子を敷き、各セルへ 1 点ずつ塗布して塗布前後の画像と計量教師値を収集します。
   PCB の選択は不要で、銅板はジョブ開始時に生成します。
 </p>
-{% include "partials/job_form.html" %}
+<form id="job-form" class="job-form paste-dataset-form" data-job-name="{{ job_name }}"
+      data-testid="job-form" data-requires-control>
+  {% for legend, specs in param_groups %}
+  <fieldset class="job-param-group">
+    <legend>{{ legend }}</legend>
+    {% for spec in specs %}
+    {{ job_params.param_field(spec) }}
+    {% endfor %}
+  </fieldset>
+  {% endfor %}
+  <button type="submit" id="job-run" data-testid="job-run">実行</button>
+</form>
 <section id="pdl-panel" class="pdl-panel">
   <h3>配置プレビュー</h3>
   <p id="pdl-summary" class="pdl-summary"></p>

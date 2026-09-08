@@ -18,10 +18,14 @@ from pathlib import Path
 import pytest
 
 from web.api.config_store import MACHINE_FIELDS
+from web.api.jobs.catalog import JobCatalog
+from web.api.jobs.pasting import register_pasting_jobs
 from web.api.models import SettingsField
 from web.ui import layout
 from web.ui.layout import (
+    DISPENSE_CALIBRATION_PARAM_GROUPS,
     FEATURE_TEMPLATES,
+    PASTE_DATASET_PARAM_GROUPS,
     SECTION_LABELS,
     TAB_LABELS,
     TAB_PHASES,
@@ -212,3 +216,31 @@ class TestGroupedFields:
         groups = layout.grouped_fields([self._field("unknown.thing")])
 
         assert groups == [("unknown", [self._field("unknown.thing")])]
+
+
+class TestParamGroupCoverage:
+    """フォームのセクション分けがジョブのパラメータを漏れなく含むことのピン.
+
+    書き忘れた項目はフォームから消える（既定値で走るので気付きにくい）。
+
+    存在しない項目名を書くとページ描画が KeyError で 500 になる。
+    """
+
+    @pytest.mark.parametrize(
+        ("job_name", "groups"),
+        [
+            ("paste_dataset_collection", PASTE_DATASET_PARAM_GROUPS),
+            ("dispense_calibration", DISPENSE_CALIBRATION_PARAM_GROUPS),
+        ],
+    )
+    def test_groups_cover_every_job_param_exactly_once(
+        self, job_name: str, groups: tuple[tuple[str, tuple[str, ...]], ...]
+    ):
+        catalog = JobCatalog()
+        register_pasting_jobs(catalog)
+        definition = catalog.get(job_name)
+        assert definition is not None
+        grouped = [name for _, names in groups for name in names]
+
+        assert sorted(grouped) == sorted(spec.name for spec in definition.params)
+        assert len(grouped) == len(set(grouped))

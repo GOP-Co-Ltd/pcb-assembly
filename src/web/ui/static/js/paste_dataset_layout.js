@@ -56,6 +56,11 @@
     return body;
   }
 
+  // 吐出量の表示（小数点 3 桁。サーバ値の書式化だけで再導出はしない）
+  function volumeText(value) {
+    return `${value.toFixed(3)} uL`;
+  }
+
   // 量の index を色へ写す（表示のための変換なのでクライアント側で持つ）
   function volumeColor(index, total) {
     if (total <= 1) return "hsl(210 70% 55%)";
@@ -87,14 +92,14 @@
       const swatch = document.createElement("span");
       swatch.className = "pdl-swatch";
       swatch.style.background = volumeColor(index, data.volumes_ul.length);
-      item.append(swatch, document.createTextNode(`${volume} uL`));
+      item.append(swatch, document.createTextNode(volumeText(volume)));
       legendBox.appendChild(item);
     });
     if (data.blanks.length > 0) {
       const item = document.createElement("li");
       const swatch = document.createElement("span");
       swatch.className = "pdl-swatch pdl-swatch-blank";
-      item.append(swatch, document.createTextNode("blank（真値 0 uL）"));
+      item.append(swatch, document.createTextNode("blank（真値 0.000 uL）"));
       legendBox.appendChild(item);
     }
   }
@@ -148,7 +153,9 @@
       view.appendChild(
         titled(
           element,
-          `sample ${cell.index}（順 ${cell.order}）: ${cell.commanded_volume_ul} uL`
+          `sample ${cell.index}（順 ${cell.order}）: ${volumeText(
+            cell.commanded_volume_ul
+          )}`
         )
       );
     }
@@ -156,7 +163,7 @@
       view.appendChild(
         titled(
           rectEl(blank.rect, { class: "pdl-cell pdl-blank" }),
-          `blank ${blank.index}: 真値 0 uL`
+          `blank ${blank.index}: 真値 0.000 uL`
         )
       );
     }

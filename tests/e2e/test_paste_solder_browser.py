@@ -400,6 +400,12 @@ class TestPasteSolderBrowserRendering:
         assert "19" in summary
         assert browser_page.locator("#pdl-error").inner_text().strip() == ""
 
+        # 吐出量は小数点 3 桁で表示する（既定 0.05〜0.2 uL の 5 分割）。
+        legend = browser_page.locator("#pdl-legend").inner_text()
+        assert "0.050 uL" in legend
+        assert "0.088 uL" in legend  # 0.0875 の丸め
+        assert "0.200 uL" in legend
+
     def test_dataset_collection_layout_preview_follows_the_form(
         self, live_ui: LiveUi, browser_page
     ):
