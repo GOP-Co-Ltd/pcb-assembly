@@ -387,7 +387,10 @@ class TestDeviceBenchmark:
 
         assert benchmark is None
         assert error is not None
-        assert "推論に失敗しました" in error
+        # 入力名の食い違いは ORT ではなく ml 側の manifest 照合が弾く。
+        # ORT の例外を包む "推論に失敗しました" が出ないことで層を区別する
+        assert "推論に失敗しました" not in error
+        assert "unexpected_input" in error
 
     def test_reports_a_measurement_count_below_one(self, tmp_path: Path):
         # 0 回でも LatencyStatistics.of が空列を弾くので、理由文まで見ないと
