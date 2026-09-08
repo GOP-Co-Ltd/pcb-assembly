@@ -1,0 +1,16 @@
+# CPU 主体の非力な機体で 1 run を時間予算に収める trainer profile。
+#
+# 既定値と同じ値は書かない。既定値は TrainerConfig にのみ置き、この層は差分だけを
+# 持つ（同じ値を 2 箇所で管理すると、どちらが効いているか読み手が追えなくなる）。
+#
+# float のフィールドは小数点か指数を必ず書く。strict converter は int を float として
+# 受け取らないため、3300 と書くと「float が必要です」で拒否される。
+
+# 既定値を持たないフィールド。
+max_epochs = 60
+monitor = "loss"
+
+# 非力な機体向けの差分。小さい batch を積んで実効 batch size を保つ。
+learning_rate = 1e-4
+gradient_accumulation = 4
+deadline_seconds = 3300.0
