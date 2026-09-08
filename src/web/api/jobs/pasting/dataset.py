@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import random
 import shutil
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 
@@ -49,6 +50,7 @@ from web.api.jobs.context import (
     JobAborted,
     JobContext,
     JobResult,
+    ParamValue,
     PromptSpec,
 )
 from web.api.jobs.pasting.common import prompt_positive_number
@@ -235,10 +237,21 @@ def register(catalog: JobCatalog) -> None:
     )
 
 
-def _grid_spec(ctx: JobContext) -> DotGridSpec:
-    """ジョブパラメータからセル格子設定を組む（seed 0 は毎回生成）."""
-    params = ctx.params
-    seed = int(params["shuffle_seed"])
+def resolve_shuffle_seed(value: int) -> int:
+    """配置シードを解決する（``0`` は実行ごとに生成、それ以外はそのまま）.
+
+    ``0`` を固定シードとして扱うと全セッションで同じ配置になり、板の特定位置の欠陥と
+    特定の吐出量の相関が固定化する。
+    """
+    return value if value != 0 else random.randrange(1, _SEED_MAX)
+
+
+def grid_spec_from_params(params: Mapping[str, ParamValue]) -> DotGridSpec:
+    """ジョブパラメータからセル格子設定を組む.
+
+    ``shuffle_seed`` はそのまま写す（``0`` の解決は :func:`resolve_shuffle_seed`）。
+    レイアウト preview API は同じ写しを使い、``0`` を決定論的な配置として描く。
+    """
     return DotGridSpec(
         plate_width_mm=float(params["plate_width"]),
         plate_height_mm=float(params["plate_height"]),
@@ -252,7 +265,7 @@ def _grid_spec(ctx: JobContext) -> DotGridSpec:
         volume_divisions=int(params["volume_divisions"]),
         samples_per_volume=int(params["samples_per_volume"]),
         blank_count=int(params["blank_count"]),
-        shuffle_seed=seed if seed != 0 else random.randrange(1, _SEED_MAX),
+        shuffle_seed=int(params["shuffle_seed"]),
     )
 
 
@@ -272,7 +285,10 @@ def _plan_collection(
     )
     if run_error is not None:
         raise ValueError(run_error)
-    plan, plan_error = plan_dot_grid(_grid_spec(ctx))
+    spec = grid_spec_from_params(ctx.params)
+    plan, plan_error = plan_dot_grid(
+        attrs.evolve(spec, shuffle_seed=resolve_shuffle_seed(spec.shuffle_seed))
+    )
     if plan is None:
         raise ValueError(plan_error)
     views, view_error = plan_views(

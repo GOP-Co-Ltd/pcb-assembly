@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from playwright.sync_api import expect
 
 from tests.e2e.conftest import (
     LiveServer,
@@ -375,6 +376,66 @@ class TestPasteSolderBrowserRendering:
             config["defaults"]["ul_per_mm2"]
         )
         assert root_row.locator(".pad-override-marker").count() == 0
+
+    def test_dataset_collection_layout_preview_draws_server_cells_without_control(
+        self, live_ui: LiveUi, browser_page
+    ):
+        """レイアウト preview は操作権を持たない閲覧者にも描ける.
+
+        装置を動かさない読み取り専用計算なので、閲覧だけで配置と撮影枚数が読める。
+
+        ジョブフォームの入力自体は ``data-requires-control`` で inert になるため、
+        設定変更の追従は別テスト（操作権あり）で見る。
+        """
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="domcontentloaded",
+        )
+        cells = browser_page.locator("#pdl-view .pdl-cell")
+        cells.first.wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
+
+        # 既定は 分割数 5 × サンプル数 3 + blank 4 = 19 点。
+        assert cells.count() == 19
+        summary = browser_page.locator("#pdl-summary").inner_text()
+        assert "19" in summary
+        assert browser_page.locator("#pdl-error").inner_text().strip() == ""
+
+    def test_dataset_collection_layout_preview_follows_the_form(
+        self, live_ui: LiveUi, browser_page
+    ):
+        """設定変更でサーバが返した配置へ入れ替わる."""
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="domcontentloaded",
+        )
+        _acquire_control(browser_page)
+        cells = browser_page.locator("#pdl-view .pdl-cell")
+        cells.first.wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
+
+        browser_page.fill("#param-volume_divisions", "2")
+
+        # 2 × 3 + blank 4 = 10 点へ入れ替わる。
+        expect(cells).to_have_count(10, timeout=_BROWSER_TIMEOUT_MS)
+
+    def test_dataset_collection_layout_preview_shows_the_reason_when_it_does_not_fit(
+        self, live_ui: LiveUi, browser_page
+    ):
+        """収まらない設定でも preview を消さず理由を出す."""
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="domcontentloaded",
+        )
+        _acquire_control(browser_page)
+        browser_page.locator("#pdl-view .pdl-cell").first.wait_for(
+            state="attached", timeout=_BROWSER_TIMEOUT_MS
+        )
+
+        browser_page.fill("#param-samples_per_volume", "500")
+
+        error = browser_page.locator("#pdl-error")
+        expect(error).not_to_have_text("", timeout=_BROWSER_TIMEOUT_MS)
+        # 格子は残す（配置図ごと消さない）。
+        assert browser_page.locator("#pdl-view .pdl-grid-cell").count() > 0
 
     def test_dataset_collection_renders_job_form_without_pad_editor(
         self, live_ui: LiveUi, browser_page

@@ -196,16 +196,18 @@ class DotGridPlan:
         return tuple(sorted(merged, key=lambda target: target.index))
 
 
-def plan_dot_grid(spec: DotGridSpec) -> tuple[DotGridPlan | None, str | None]:
-    """セル格子を敷き、シード付きシャッフルで吐出量と blank を割り当てる.
+@attrs.frozen
+class _GridGeometry:
+    """セル格子の幾何（量割り当ての前段）."""
 
-    パージ領域は有効領域の左上に置き、それを ``cell_gap_mm`` 分広げた矩形と交差する
-    格子セルは除外する。
+    usable: Rect
+    purge_cell: Rect
+    grid: tuple[Rect, ...]
+    available: tuple[Rect, ...]
 
-    使用セルは残った格子から ``shuffle_seed`` で無作為抽出して板全体へ散らし、行優先の
-    昇順へ並べ直してから量と blank を割り当てる（先頭から詰めるとサンプルが板の上端
-    数行に固まり、照明ムラや板の反りが帯単位で乗る）。同じ seed なら同じ配置になる。
-    """
+
+def _grid_geometry(spec: DotGridSpec) -> tuple[_GridGeometry | None, str | None]:
+    """有効領域・パージ領域・格子セルを求める（配置可能性は判定しない）."""
     error = spec.validate()
     if error is not None:
         return None, error
@@ -240,9 +242,35 @@ def plan_dot_grid(spec: DotGridSpec) -> tuple[DotGridPlan | None, str | None]:
         width=purge_cell.width + 2.0 * spec.cell_gap_mm,
         height=purge_cell.height + 2.0 * spec.cell_gap_mm,
     )
-    available = [
-        rect for rect in _grid_rects(spec, usable) if not rect.intersects(keepout)
-    ]
+    grid = _grid_rects(spec, usable)
+    return (
+        _GridGeometry(
+            usable=usable,
+            purge_cell=purge_cell,
+            grid=grid,
+            available=tuple(rect for rect in grid if not rect.intersects(keepout)),
+        ),
+        None,
+    )
+
+
+def plan_dot_grid(spec: DotGridSpec) -> tuple[DotGridPlan | None, str | None]:
+    """セル格子を敷き、シード付きシャッフルで吐出量と blank を割り当てる.
+
+    パージ領域は有効領域の左上に置き、それを ``cell_gap_mm`` 分広げた矩形と交差する
+    格子セルは除外する。
+
+    使用セルは残った格子から ``shuffle_seed`` で無作為抽出して板全体へ散らし、行優先の
+    昇順へ並べ直してから量と blank を割り当てる（先頭から詰めるとサンプルが板の上端
+    数行に固まり、照明ムラや板の反りが帯単位で乗る）。同じ seed なら同じ配置になる。
+    """
+    geometry, error = _grid_geometry(spec)
+    if geometry is None:
+        return None, error
+
+    usable = geometry.usable
+    purge_cell = geometry.purge_cell
+    available = geometry.available
     capacity = len(available)
     if capacity < spec.target_count:
         return None, (
@@ -299,6 +327,86 @@ def plan_dot_grid(spec: DotGridSpec) -> tuple[DotGridPlan | None, str | None]:
         ),
         None,
     )
+
+
+@attrs.frozen
+class DotGridPreview:
+    """WebUI へ返す診断用レイアウトと派生カウント.
+
+    配置不能な設定でも、判明している範囲の幾何と理由を返して図を消さない。
+
+    Attributes:
+        spec: 元の設定
+        plate: 銅板外形（左上原点）
+        usable_area: 外周余白を除いた有効領域（設定が不正なら ``None``）
+        purge_cell: パージ領域（求まらなければ ``None``）
+        grid: 格子セル全部（パージ除外前。未使用セルを含む）
+        cells: 塗布するサンプルセル（配置できなければ空）
+        blanks: blank セル（配置できなければ空）
+        capacity: パージ除外後に格子へ入るセル総数
+        sample_count: 塗布するサンプル数
+        target_count: 撮影対象セル数（塗布 + blank）
+        volumes_ul: 吐出量の昇順列 [μL]
+        views_per_cell: 中心を含む 1 セルあたりの view 数
+        image_count: 保存される画像枚数（対象 × view × 塗布前後）
+        error: 配置不能・設定不正の理由（無ければ ``None``）
+    """
+
+    spec: DotGridSpec
+    plate: Rect
+    usable_area: Rect | None
+    purge_cell: Rect | None
+    grid: tuple[Rect, ...]
+    cells: tuple[DotCell, ...]
+    blanks: tuple[DotBlank, ...]
+    capacity: int
+    sample_count: int
+    target_count: int
+    volumes_ul: tuple[float, ...]
+    views_per_cell: int
+    image_count: int
+    error: str | None
+
+
+def preview_dot_grid(
+    spec: DotGridSpec, *, view_count: int, view_offset_mm: float
+) -> DotGridPreview:
+    """WebUI 表示用に、配置結果と派生カウントをまとめて返す.
+
+    撮影枚数や総点数を WebUI 側で再導出させないため、派生値はここで確定させる。
+    設定が不正・配置不能でも例外を投げず、判明した幾何と理由を返す。
+    """
+    valid_spec = spec.validate() is None
+    geometry, geometry_error = _grid_geometry(spec)
+    plan, plan_error = plan_dot_grid(spec)
+    views, view_error = plan_views(view_count, view_offset_mm)
+    resolved_views = 0 if views is None else len(views)
+    target_count = spec.target_count if valid_spec else 0
+    return DotGridPreview(
+        spec=spec,
+        plate=_plate_rect(spec),
+        usable_area=None if geometry is None else geometry.usable,
+        purge_cell=None if geometry is None else geometry.purge_cell,
+        grid=() if geometry is None else geometry.grid,
+        cells=() if plan is None else plan.cells,
+        blanks=() if plan is None else plan.blanks,
+        capacity=0 if geometry is None else len(geometry.available),
+        sample_count=spec.sample_count if valid_spec else 0,
+        target_count=target_count,
+        volumes_ul=spec.volumes_ul if valid_spec else (),
+        views_per_cell=resolved_views,
+        image_count=target_count * resolved_views * 2,
+        error=geometry_error or plan_error or view_error,
+    )
+
+
+def _plate_rect(spec: DotGridSpec) -> Rect:
+    """銅板外形（寸法が有限な正値でなければ原点の点）."""
+    if not is_finite_number(spec.plate_width_mm) or spec.plate_width_mm <= 0:
+        return Rect(0.0, 0.0, 0.0, 0.0)
+    if not is_finite_number(spec.plate_height_mm) or spec.plate_height_mm <= 0:
+        return Rect(0.0, 0.0, 0.0, 0.0)
+    return Rect(0.0, 0.0, float(spec.plate_width_mm), float(spec.plate_height_mm))
 
 
 def plan_views(
