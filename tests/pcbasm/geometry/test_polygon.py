@@ -1,7 +1,7 @@
 """pcbasm.geometry.polygon のテスト."""
 
 import pytest
-from shapely import Polygon
+from shapely import Point, Polygon
 from shapely.geometry.polygon import LinearRing
 
 from pcbasm.geometry import (
@@ -12,6 +12,7 @@ from pcbasm.geometry import (
     Shift,
     Transform,
     clip_segment,
+    display_rings,
     exterior_points,
     merge_islands,
     offset_components,
@@ -164,6 +165,48 @@ class TestExteriorPoints:
     def test_ignores_interior_holes(self):
         points = exterior_points(_donut())
         assert all(p.x in (0.0, 10.0) or p.y in (0.0, 10.0) for p in points)
+
+
+class TestDisplayRings:
+    """表示用の環列（exterior + 穴）への変換."""
+
+    def test_returns_the_exterior_ring_first(self):
+        rings = display_rings(_rectangle(0.0, 0.0, 2.0, 1.0))
+
+        assert len(rings) == 1
+        assert rings[0][0] == rings[0][-1]
+        assert set(rings[0]) == {(0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.0, 1.0)}
+
+    def test_keeps_interior_holes_as_extra_rings(self):
+        rings = display_rings(_donut())
+
+        assert len(rings) == 2
+        assert all(ring[0] == ring[-1] for ring in rings)
+        # 穴の環は外周より内側にある
+        assert max(x for x, _ in rings[1]) < max(x for x, _ in rings[0])
+
+    def test_tolerance_reduces_the_point_count(self):
+        circle = Point(0.0, 0.0).buffer(5.0, quad_segs=64)
+
+        exact = display_rings(circle)
+        coarse = display_rings(circle, tolerance=0.05)
+
+        assert len(coarse[0]) < len(exact[0])
+        assert coarse[0][0] == coarse[0][-1]
+
+    def test_coordinates_are_rounded_to_the_given_precision(self):
+        rings = display_rings(_rectangle(0.0, 0.0, 1.23456, 1.0), precision=2)
+
+        assert max(x for x, _ in rings[0]) == pytest.approx(1.23)
+
+    def test_empty_polygon_returns_no_ring(self):
+        assert display_rings(Polygon()) == ()
+
+    def test_tiny_island_survives_simplification(self):
+        # simplify は位相を保つので極小の島も消えない（表示上は点にしか見えない）
+        rings = display_rings(_rectangle(0.0, 0.0, 0.01, 0.01), tolerance=5.0)
+
+        assert len(rings) == 1
 
 
 class TestOffsetComponents:

@@ -789,41 +789,22 @@ class TestWithPadsEnabled:
 
 
 class TestInitialPurgeSelection:
-    """パージ位置の pad 指定と任意点指定は生成メソッドで相互排他にする."""
+    """パージ位置は座標だけで持つ（pad は選ばない）."""
 
-    def _model(self) -> PasteSettingsModel:
-        return PasteSettingsModel(base=_full_base())
-
-    def test_setting_a_point_clears_the_pad_id(self):
-        model = self._model().with_initial_purge_pad_id("U1.1")
+    def test_setting_a_point_keeps_it(self):
+        model = PasteSettingsModel(base=_full_base())
 
         updated = model.with_initial_purge_point(Point2d(1.0, 2.0))
 
         assert updated.initial_purge_point == Point2d(1.0, 2.0)
-        assert updated.initial_purge_pad_id is None
-
-    def test_setting_a_pad_id_clears_the_point(self):
-        model = self._model().with_initial_purge_point(Point2d(1.0, 2.0))
-
-        updated = model.with_initial_purge_pad_id("U1.1")
-
-        assert updated.initial_purge_pad_id == "U1.1"
-        assert updated.initial_purge_point is None
-
-    def test_clearing_the_pad_id_returns_to_automatic(self):
-        model = self._model().with_initial_purge_point(Point2d(1.0, 2.0))
-
-        updated = model.with_initial_purge_pad_id(None)
-
-        assert updated.initial_purge_pad_id is None
-        assert updated.initial_purge_point is None
 
     def test_clearing_the_point_returns_to_automatic(self):
-        model = self._model().with_initial_purge_pad_id("U1.1")
+        model = PasteSettingsModel(base=_full_base()).with_initial_purge_point(
+            Point2d(1.0, 2.0)
+        )
 
         updated = model.with_initial_purge_point(None)
 
-        assert updated.initial_purge_pad_id is None
         assert updated.initial_purge_point is None
 
 

@@ -175,15 +175,8 @@ class BoardSettingsStore:
         outline: Polygon,
         board_signature: str | None = None,
     ) -> PasteSettingsModel:
-        """現基板に無い設定（孤児キー・不在 pad・外形外のパージ点）を除いて保存する."""
-        orphans = model.find_orphans(hierarchy)
-        known_pad_ids = {hierarchy.pad_id_for_pad(pad) for pad in hierarchy.iter_pads()}
-        pruned = model.without_levels(orphans)
-        if (
-            pruned.initial_purge_pad_id is not None
-            and pruned.initial_purge_pad_id not in known_pad_ids
-        ):
-            pruned = pruned.with_initial_purge_pad_id(None)
+        """現基板に無い設定（孤児キーと外形外のパージ座標）を除いて保存する."""
+        pruned = model.without_levels(model.find_orphans(hierarchy))
         point = pruned.initial_purge_point
         if point is not None and not outline.covers(Point(point.x, point.y)):
             pruned = pruned.with_initial_purge_point(None)

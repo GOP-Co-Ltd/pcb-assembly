@@ -49,19 +49,6 @@ class PasteTargets:
     def disabled_count(self) -> int:
         return len(self.top_pads) - len(self.routed_pads)
 
-    @property
-    def alignment_pads(self) -> tuple[Pad, ...]:
-        """位置合わせに使う pad（順路 + 初回パージ pad が順路外ならそれも）.
-
-        任意点指定のパージは pad を持たないので、順路だけを返す。
-        """
-        purge_pad = None if self.initial_purge is None else self.initial_purge.pad
-        if purge_pad is None or any(
-            _same_pad(pad, purge_pad) for pad in self.routed_pads
-        ):
-            return self.routed_pads
-        return (*self.routed_pads, purge_pad)
-
     def params_for(self, pad: Pad) -> PasteParams | None:
         """Pad の解決済みパラメータ。階層外（対応 Component 無し）の pad は ``None``."""
         pad_ref = self.hierarchy.find_pad_ref(pad)
@@ -89,11 +76,8 @@ def plan_paste_targets(
     initial_purge, error = resolve_initial_purge(
         amount_ul=initial_purge_ul,
         point=model.initial_purge_point,
-        pad_id=model.initial_purge_pad_id,
-        hierarchy=hierarchy,
         routed_pads=routed,
         outline=pcb.outline.polygon,
-        layer=layer,
     )
     if error is not None:
         return None, error
@@ -108,7 +92,3 @@ def plan_paste_targets(
         ),
         None,
     )
-
-
-def _same_pad(a: Pad, b: Pad) -> bool:
-    return a.designator == b.designator and a.pad_number == b.pad_number

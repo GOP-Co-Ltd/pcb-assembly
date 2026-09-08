@@ -31,6 +31,7 @@ from web.api.routers.pasting_view import (
     InitialPurgeResponse,
     Loaded,
     NodePatch,
+    PadConfigCopperResponse,
     PadConfigImport,
     PadConfigResponse,
     PadEnablePatch,
@@ -41,6 +42,7 @@ from web.api.routers.pasting_view import (
     PatchResponse,
     affected_pads,
     affected_pads_for_ids,
+    build_copper,
     build_fill_path,
     build_initial_purge,
     build_pad_config,
@@ -61,6 +63,16 @@ def get_pad_config(
 ) -> PadConfigResponse:
     """選択中基板の pad ジオメトリ・階層・解決済み設定・疎 override を返す."""
     return build_pad_config(load_board(state, settings, board_store))
+
+
+@router.get("/pasting/pad-config/copper")
+def get_pad_config_copper(
+    state: StateDep,
+    settings: SettingsDep,
+    board_store: BoardStoreDep,
+) -> PadConfigCopperResponse:
+    """選択中基板の銅箔島を表示用に返す（基板ごとに 1 回取る読み取り専用）."""
+    return build_copper(load_board(state, settings, board_store))
 
 
 @router.post("/pasting/pad-config/route")
@@ -156,43 +168,29 @@ def patch_initial_purge(
     jobs: JobsDep,
     _control: ControlDep,
 ) -> InitialPurgeResponse:
-    """初回パージ量と塗布位置（pad または任意点）を即時保存し、解決済み設定を返す."""
+    """初回パージ量と塗布座標を即時保存し、解決済み設定を返す."""
     loaded = load_board(state, settings, board_store)
     _check_expected_pcb(body.expected_pcb, loaded)
     amount_sent = "initial_purge_ul" in body.model_fields_set
-    pad_sent = "pad_id" in body.model_fields_set
     point_sent = "point" in body.model_fields_set
     if amount_sent and body.initial_purge_ul is None:
         raise HTTPException(
             status_code=400, detail="initial_purge_ulは数値で指定してください"
-        )
-    if pad_sent and point_sent:
-        raise HTTPException(
-            status_code=400,
-            detail="初回パージは pad と座標のどちらか一方で指定してください",
         )
 
     next_amount = (
         body.initial_purge_ul if amount_sent else loaded.base_config.initial_purge_ul
     )
     assert next_amount is not None
-    next_pad_id, next_point = _next_initial_purge_target(
-        loaded.model,
-        body,
-        pad_sent=pad_sent,
-        point_sent=point_sent,
-    )
-    routed = routed_enabled_pads(
-        layer_pads(loaded, Layer.TOP), loaded.hierarchy, loaded.model
+    next_point = (
+        _initial_purge_point(body.point)
+        if point_sent
+        else loaded.model.initial_purge_point
     )
     error = validate_initial_purge(
         amount_ul=next_amount,
         point=next_point,
-        pad_id=next_pad_id,
-        hierarchy=loaded.hierarchy,
-        routed_pads=routed,
         outline=loaded.pcb.outline.polygon,
-        layer=Layer.TOP,
     )
     if error is not None:
         raise HTTPException(status_code=400, detail=error)
@@ -204,18 +202,12 @@ def patch_initial_purge(
             )
         jobs.publish_state_changed()
     model = loaded.model
-    if pad_sent or point_sent:
-        # pad 指定と座標指定は生成メソッドが相互排他にする
-        mutate = (
-            (lambda current: current.with_initial_purge_point(next_point))
-            if point_sent
-            else (lambda current: current.with_initial_purge_pad_id(next_pad_id))
-        )
+    if point_sent:
         model = board_store.update(
             loaded.source_pcb,
             loaded.base_config,
             board_signature=loaded.board_signature,
-            mutate=mutate,
+            mutate=lambda current: current.with_initial_purge_point(next_point),
         )
     # PCB は再パースせず、machine.toml へ書いた分だけ base_config を読み直す
     updated = attrs.evolve(
@@ -235,29 +227,6 @@ def _check_expected_pcb(expected_pcb: str | None, loaded: Loaded) -> None:
             status_code=409,
             detail="PCB が切り替わりました。ページを再読み込みしてください",
         )
-
-
-def _normalize_initial_purge_pad_id(pad_id: str | None) -> str | None:
-    """API 入力の空文字を未指定へ正規化する."""
-    return None if pad_id in (None, "") else pad_id
-
-
-def _next_initial_purge_target(
-    model: PasteSettingsModel,
-    body: InitialPurgePatch,
-    *,
-    pad_sent: bool,
-    point_sent: bool,
-) -> tuple[str | None, Point2d | None]:
-    """PATCH 後のパージ対象（pad id と任意点）を決める.
-
-    どちらかを送ると他方は解除される（相互排他）。未送信なら保存済みを引き継ぐ。
-    """
-    if point_sent:
-        return None, _initial_purge_point(body.point)
-    if pad_sent:
-        return _normalize_initial_purge_pad_id(body.pad_id), None
-    return model.initial_purge_pad_id, model.initial_purge_point
 
 
 def _initial_purge_point(value: list[float] | None) -> Point2d | None:

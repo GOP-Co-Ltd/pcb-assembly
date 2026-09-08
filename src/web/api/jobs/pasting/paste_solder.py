@@ -77,7 +77,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             ctx.log(f"初回パージ: {purge.label} に {purge.amount_ul:.3f} uL")
 
         prepared = prepare_paste_workflow(
-            ctx, result, alignment_pads=targets.alignment_pads
+            ctx, result, alignment_pads=targets.routed_pads
         )
         session = prepared.session
         stage = session.stage
@@ -99,16 +99,12 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             if purge is not None:
                 ctx.progress("初回パージ")
                 ctx.checkpoint()
-                # pad 由来なら designator 付きの精密照合を使い、任意点指定は
-                # その点を覆う成功領域から内挿した補正を使う。
+                # パージは pad ではなく座標なので、その点を覆う成功領域から
+                # 内挿した補正を使う。
                 applicator.deposit_at(
                     purge.point,
                     amount_ul=purge.amount_ul,
-                    transform=(
-                        session.pad_transform(purge.pad, correction)
-                        if purge.pad is not None
-                        else session.point_transform(purge.point, correction)
-                    ),
+                    transform=session.point_transform(purge.point, correction),
                 )
 
             # pad を 1 件ずつ apply して per-pad の進捗・設定・abort 境界を確保

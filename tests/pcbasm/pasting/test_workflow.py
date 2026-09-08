@@ -3,6 +3,7 @@
 import pytest
 import shapely
 
+from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pasting.workflow import plan_paste_targets
@@ -56,16 +57,14 @@ class TestPlanPasteTargets:
         assert targets.disabled_count == 0
         assert all(p.layer is Layer.TOP for p in targets.routed_pads)
 
-    def test_default_initial_purge_is_route_head_and_not_duplicated(
-        self, pcb, hierarchy
-    ):
+    def test_default_initial_purge_is_the_route_head_center(self, pcb, hierarchy):
         targets, _ = plan_paste_targets(pcb, hierarchy, _model(), initial_purge_ul=0.5)
 
         assert targets is not None
         assert targets.initial_purge is not None
-        assert targets.initial_purge.pad is targets.routed_pads[0]
+        assert targets.initial_purge.point == targets.routed_pads[0].center
+        assert targets.initial_purge.source == "default"
         assert targets.initial_purge.amount_ul == 0.5
-        assert targets.alignment_pads == targets.routed_pads
 
     def test_zero_purge_amount_disables_initial_purge(self, pcb, hierarchy):
         targets, error = plan_paste_targets(
@@ -75,7 +74,6 @@ class TestPlanPasteTargets:
         assert error is None
         assert targets is not None
         assert targets.initial_purge is None
-        assert targets.alignment_pads == targets.routed_pads
 
     def test_disabled_pads_leave_route_but_count_as_disabled(self, pcb, hierarchy):
         model = _model().with_pads_enabled(
@@ -91,32 +89,26 @@ class TestPlanPasteTargets:
         assert "U1.2" not in routed_ids
         assert targets.disabled_count == 2
 
-    def test_explicit_disabled_purge_pad_is_appended_to_alignment_pads(
-        self, pcb, hierarchy
-    ):
-        model = (
-            _model()
-            .with_pads_enabled([hierarchy.l4_key_for_pad_id("U1.1")], enabled=False)
-            .with_initial_purge_pad_id("U1.1")
-        )
+    def test_explicit_purge_point_overrides_the_route_head(self, pcb, hierarchy):
+        point = Point2d(pcb.outline.width / 2.0, pcb.outline.height / 2.0)
+        model = _model().with_initial_purge_point(point)
 
         targets, error = plan_paste_targets(pcb, hierarchy, model, initial_purge_ul=0.5)
 
         assert error is None
         assert targets is not None
         assert targets.initial_purge is not None
-        assert hierarchy.find_pad_id(targets.initial_purge.pad) == "U1.1"
-        assert targets.alignment_pads[:-1] == targets.routed_pads
-        assert targets.alignment_pads[-1] is targets.initial_purge.pad
+        assert targets.initial_purge.point == point
+        assert targets.initial_purge.source == "explicit"
 
-    def test_unknown_purge_pad_returns_error(self, pcb, hierarchy):
-        model = _model().with_initial_purge_pad_id("ZZ9.1")
+    def test_purge_point_outside_the_outline_returns_error(self, pcb, hierarchy):
+        model = _model().with_initial_purge_point(Point2d(-50.0, -50.0))
 
         targets, error = plan_paste_targets(pcb, hierarchy, model, initial_purge_ul=0.5)
 
         assert targets is None
         assert error is not None
-        assert "ZZ9.1" in error
+        assert "基板外形" in error
 
     def test_params_for_reflects_level_override(self, pcb, hierarchy):
         model = _model().with_level_patch(

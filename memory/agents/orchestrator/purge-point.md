@@ -87,3 +87,33 @@ def resolve_initial_purge(
     （`alignment_pads`）と精密照合付き transform は pad があるときだけ使う
 - `renderPurgeMarker` は `appendEndpoint` と円＋文字の作りが似ているが、共通化は
     しない（MR4 の範囲外の既存コードへ波及する）
+
+## 座標一本化（ユーザー指示による作り直し）
+
+「初期パージ位置（自動）にパッドを選択するようになっていますが、開始パッドの中心の座標を
+扱い、そもそもパージはパッドではなく、座標で扱うようにしてください」という指示で、pad
+ベースの経路を全廃した。
+
+- `PasteSettingsModel.initial_purge_pad_id` を削除。保存するのは `initial_purge_point` だけ
+- `ResolvedInitialPurge` は `amount_ul` / `point` / `label` / `source`（`explicit` |
+    `default`）のみ。`pad` を持たないので `PasteTargets.alignment_pads` と `_same_pad` も削除し、
+    位置合わせは順路 pad だけになった
+- 塗布 transform は常に `point_transform`（pad の designator 付き精密照合は使わない）
+- API は `point` のみ。pad 指定・相互排他・pad 存在検証・レイヤ検証が全部消えた
+- UI から「選択パッドを設定」を撤去。パッドはビュー上に見えているので、そこをクリックすれば
+    同じことができる。ボタンが 2 個に戻ったので `.pad-initial-purge-actions` も 2 列へ戻した
+- 既存の保存済み `initial_purge_pad_id` は decode で黙って捨てられ、自動（順路先頭の中心）へ
+    戻る。schema version は据え置き（バージョンを上げると旧ファイルを読めなくなるだけで、
+    pad → 座標の移行は persist 層から PCB を読めないので実行できない）
+
+## 銅箔表示
+
+パージ位置を選ぶための背景として銅箔島を基板ビューへ描く。
+
+- `GET /api/pasting/pad-config/copper` を新設。pad-config は編集ごとに取り直すので、
+    点数の多い銅箔はそこへ載せず別エンドポイントにして基板ごとに 1 回だけ取る
+- `pcbasm.geometry.display_rings(polygon, tolerance, precision)` で簡略化。既定 0.02mm で
+    led_blinker が 64 KiB → 7.4 KiB（実測）。穴は環として保ち、SVG は
+    `fill-rule="evenodd"` の `<path>` で描く
+- `.pad-copper` と `.pad-viewer-picking .pad` に `pointer-events: none`。マーカー打ち中に
+    パッドが hover やカーソルで反応すると座標を狙えない

@@ -45,6 +45,7 @@ export function renderViewer(svg, config, state) {
   outlineEl.dataset.testid = "pad-outline";
   svg.appendChild(outlineEl);
   renderOutlineAxes(svg, minX, minY, width, height);
+  renderCopper(svg, state);
 
   for (const pad of config.pads) {
     const routePad = routeById.get(pad.id);
@@ -95,6 +96,25 @@ function renderPurgeMarker(svg, purge) {
   text.textContent = "P";
   marker.appendChild(text);
   svg.appendChild(marker);
+}
+
+function renderCopper(svg, state) {
+  // 銅箔はパージ位置を選ぶための背景。パッド選択の当たり判定は CSS で外す
+  for (const island of state.copper?.islands || []) {
+    if (island.layer !== state.layer) continue;
+    const path = svgEl("path", {
+      class: "pad-copper",
+      "fill-rule": "evenodd",
+      d: island.rings.map(ringPath).join(" "),
+      "vector-effect": "non-scaling-stroke",
+    });
+    path.dataset.testid = "pad-copper";
+    svg.appendChild(path);
+  }
+}
+
+function ringPath(ring) {
+  return `M ${ring.map((point) => `${point[0]},${point[1]}`).join(" L ")} Z`;
 }
 
 export function applyPadVisual(el, state, enabled) {

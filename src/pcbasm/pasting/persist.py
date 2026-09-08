@@ -1,7 +1,7 @@
 """基板ごとの塗布設定 JSON の encode / decode.
 
 真実の源は ``machine.toml`` の ``[paste_dispenser]`` 値で、基板 JSON には
-明示 override（L0 を含む ``levels``）と初回パージ pad id だけを保持する。
+明示 override（L0 を含む ``levels``）と初回パージ座標だけを保持する。
 ファイル I/O・ロック・保存先の決定は web 層（``BoardSettingsStore``）の責務。
 
 保存形式（schema v1）::
@@ -12,8 +12,7 @@
         "board_signature": "<基板構成ハッシュ>",   # 任意
         "settings": {
             "levels": [{"key": ["L2", "U1"], "enabled": null, "override": {...}}, ...],
-            "initial_purge_pad_id": "U1.1",          # 任意
-            "initial_purge_point": [12.5, 8.0]       # 任意（pad id と相互排他）
+            "initial_purge_point": [12.5, 8.0]       # 任意（未設定 = 順路先頭）
         }
     }
 
@@ -67,8 +66,6 @@ def encode_board_settings(
             for setting in model.levels
         ]
     }
-    if model.initial_purge_pad_id is not None:
-        settings["initial_purge_pad_id"] = model.initial_purge_pad_id
     if model.initial_purge_point is not None:
         point = model.initial_purge_point
         settings["initial_purge_point"] = [point.x, point.y]
@@ -113,7 +110,6 @@ def decode_board_settings(
     board_signature = doc.get("board_signature")
     model = PasteSettingsModel(
         base=base,
-        initial_purge_pad_id=settings.get("initial_purge_pad_id"),
         initial_purge_point=_purge_point(settings.get("initial_purge_point")),
         levels=tuple(levels),
     )
