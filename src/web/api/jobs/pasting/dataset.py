@@ -22,7 +22,6 @@ from pcbasm.pasting.dataset.plan import (
     DEFAULT_PASTE_HEIGHT_MM,
     DEFAULT_VIEW_COUNT,
     DEFAULT_VIEW_OFFSET_MM,
-    DotCell,
     DotGridPlan,
     DotGridSpec,
     DotTarget,
@@ -424,6 +423,11 @@ def _check_reach(
             raise ValueError(error)
 
 
+def _pass_percent(position: int, total: int, start: float, end: float) -> float:
+    """1 パス内の進捗を、全体の進捗 ``[start, end]`` へ写す."""
+    return start + (end - start) * position / total
+
+
 def _capture(
     capturer: DatasetCapturer, target: DotTarget, view: DatasetView
 ) -> RectCrop:
@@ -438,9 +442,12 @@ def _capture(
 def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
     """銅板のセル格子へ点塗布し、塗布前後画像と計量教師値を収集・永続化する.
 
-    撮影はパージ後、点ごとに pre 撮影 → 塗布 → post 撮影を回す（interleave 固定）。
-    全点 pre → 全点塗布 → 全点 post の 3 パスにすると、先頭の点は塗布から post
-    撮影まで数十分あき、照明・AGC・熱ドリフトとペーストのスランプが差分に乗る。
+    撮影は 3 パスにまとめる。全点 pre 撮影 → パージ → 全点塗布 → 全点 post 撮影の順で、
+    撮影と塗布の切り替えをまとめて時間を詰める。パージは塗布パスの先頭に置く
+    （pre 撮影の前に打つと、撮影のあいだにプライム状態が抜ける）。
+
+    applicator を開くのは塗布パスだけとする。AirPump を入れたまま撮影パスを回すと、
+    加圧されたノズルからペーストが垂れて pre 画像と blank セルが汚れる。
 
     ジョブ先頭で ``applicator.retract()`` はしない。各 ``FillSequence`` が
     ``retract_amount`` を prime してから同量 retract する自己完結型で、dataset 収集は
@@ -493,8 +500,18 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
         targets = plan.targets
 
         try:
+            # 撮影パスは applicator を開かない。AirPump を入れたまま数十分ヘッドを
+            # 動かすと、ノズルからペーストが垂れて pre 画像と blank セルが汚れる。
+            for position, target in enumerate(targets):
+                ctx.progress(
+                    "塗布前撮影", _pass_percent(position, len(targets), 0.0, 45.0)
+                )
+                ctx.checkpoint()
+                for view in views:
+                    recorder.record_pre(target, view, _capture(capturer, target, view))
+
             with session.make_applicator() as applicator:
-                ctx.progress("パージ")
+                ctx.progress("パージ", 45.0)
                 ctx.checkpoint()
                 recorder.record_purge_execution(
                     applicator.deposit_at(
@@ -505,29 +522,32 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
                     )
                 )
 
-                for position, target in enumerate(targets):
-                    ctx.progress("収集", 100.0 * position / len(targets))
+                for position, cell in enumerate(plan.cells):
+                    ctx.progress(
+                        "塗布", _pass_percent(position, len(plan.cells), 47.0, 55.0)
+                    )
                     ctx.checkpoint()
-                    for view in views:
-                        recorder.record_pre(
-                            target, view, _capture(capturer, target, view)
-                        )
-                    if isinstance(target, DotCell):
-                        recorder.record_execution(
-                            target,
-                            applicator.deposit_at(
-                                target.center,
-                                amount_ul=target.commanded_volume_ul,
-                                transform=transform,
-                                params=params,
-                            ),
-                        )
-                    for view in views:
-                        post_error = recorder.record_post(
-                            target, view, _capture(capturer, target, view)
-                        )
-                        if post_error is not None:
-                            raise ValueError(post_error)
+                    recorder.record_execution(
+                        cell,
+                        applicator.deposit_at(
+                            cell.center,
+                            amount_ul=cell.commanded_volume_ul,
+                            transform=transform,
+                            params=params,
+                        ),
+                    )
+
+            for position, target in enumerate(targets):
+                ctx.progress(
+                    "塗布後撮影", _pass_percent(position, len(targets), 55.0, 100.0)
+                )
+                ctx.checkpoint()
+                for view in views:
+                    post_error = recorder.record_post(
+                        target, view, _capture(capturer, target, view)
+                    )
+                    if post_error is not None:
+                        raise ValueError(post_error)
 
             measured_mass_mg = prompt_positive_number(
                 ctx,
