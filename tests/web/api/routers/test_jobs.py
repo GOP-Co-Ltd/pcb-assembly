@@ -244,7 +244,7 @@ class TestJobCatalogApi:
     def test_reports_paste_dataset_collection_contract(self, client: TestClient):
         job = _jobs_by_name(client)["paste_dataset_collection"]
 
-        assert job["requires_pcb"] is True
+        assert job["requires_pcb"] is False
         assert job["uses_machine"] is True
         assert job["provides_preview"] is True
         assert job["hidden"] is False

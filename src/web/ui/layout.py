@@ -86,7 +86,10 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("pasting", "height_plane"): "pasting/job.html",
     ("pasting", "loading"): "pasting/loading.html",
     ("pasting", "dispense_calibration"): "pasting/dispense_calibration.html",
-    ("pasting", "paste_dataset_collection"): "pasting/paste_solder.html",
+    (
+        "pasting",
+        "paste_dataset_collection",
+    ): "pasting/paste_dataset_collection.html",
     (
         "pasting",
         "paste_flow_calibration_board",
@@ -111,6 +114,7 @@ JOB_TEMPLATES = frozenset(
         "pasting/job.html",
         "pasting/loading.html",
         "pasting/dispense_calibration.html",
+        "pasting/paste_dataset_collection.html",
         "pasting/paste_solder.html",
         "posctrl/job.html",
         "posctrl/camera_calibration.html",

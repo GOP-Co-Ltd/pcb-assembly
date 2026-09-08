@@ -1,7 +1,10 @@
 """設計銅箔のpixel空間への投影と、観測エッジとの照合."""
 
+from __future__ import annotations
+
 import math
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import attrs
 import cv2
@@ -10,7 +13,11 @@ from shapely import Polygon
 from shapely.coords import CoordinateSequence
 
 from pcbasm.geometry import Compose, Point2d, Shift, Transform
+from pcbasm.pcb import Layer
 from pcbasm.vision import ImageArray, Offset
+
+if TYPE_CHECKING:
+    from pcbasm.posctrl.setup import BoardCalibrationResult
 
 type _Bounds = tuple[float, float, float, float]
 # ROI矩形 (x0, y0, x1, y1)。半開区間、全画面pixel座標
@@ -108,12 +115,31 @@ class CopperProjector:
         self._pixel_per_mm = pixel_per_mm
         self._image_size = image_size
 
+    @classmethod
+    def from_calibration(
+        cls, result: BoardCalibrationResult, *, layer: Layer = Layer.TOP
+    ) -> CopperProjector:
+        """Board 計測結果の変換・calibration から、対象レイヤの銅箔投影器を組む.
+
+        外形だけの銅板のように ``layer`` の銅箔島が無い PCB では、投影対象が空でも
+        ``board_to_pixel_affine``（変換と calibration だけに依存）は使える。
+        """
+        return cls(
+            polygons=[
+                copper.polygon for copper in result.pcb.copper if copper.layer == layer
+            ],
+            board_transform=result.board_transform,
+            offset_transform=result.offset_transform,
+            pixel_per_mm=result.calibration.pixel_per_mm,
+            image_size=result.calibration.resolution,
+        )
+
     @property
     def polygons(self) -> tuple[Polygon, ...]:
         """投影対象の銅箔ポリゴン."""
         return tuple(self._polygons)
 
-    def with_correction(self, machine_transform: Transform) -> "CopperProjector":
+    def with_correction(self, machine_transform: Transform) -> CopperProjector:
         """機械座標の補正を board 変換の後段へ挿した投影器を返す."""
         return CopperProjector(
             polygons=self._polygons,

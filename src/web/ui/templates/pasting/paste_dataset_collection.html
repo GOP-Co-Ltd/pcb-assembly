@@ -1,0 +1,21 @@
+{% extends "tab.html" %}
+{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+<p class="job-intro">
+  未塗布の銅板にセル格子を敷き、各セルへ 1 点ずつ塗布して塗布前後の画像と計量教師値を収集します。
+  PCB の選択は不要で、銅板はジョブ開始時に生成します。
+</p>
+{% include "partials/job_form.html" %}
+{% if show_preview %}
+{# ジョブ提供フレームのみ表示（オーバーレイ切替なし・既定の none） #}
+{% include "partials/preview_pane.html" %}
+{% endif %}
+{% include "partials/job_console.html" %}
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+{% if show_preview %}
+<script src="{{ static_asset('js/preview.js') }}"></script>
+{% endif %}
+{% endblock %}

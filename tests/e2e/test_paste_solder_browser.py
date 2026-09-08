@@ -376,16 +376,35 @@ class TestPasteSolderBrowserRendering:
         )
         assert root_row.locator(".pad-override-marker").count() == 0
 
-    def test_dataset_collection_renders_board_route_and_paste_settings(
-        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    def test_dataset_collection_renders_job_form_without_pad_editor(
+        self, live_ui: LiveUi, browser_page
     ):
-        _select_led_blinker(live_server)
-        route = _calculate_route(live_server)
-        assert len(route["pads"]) > 1
+        """Dataset 収集は PCB 非依存の最小ジョブページ（pad editor を持たない）."""
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="domcontentloaded",
+        )
+        _acquire_control(browser_page)
+        browser_page.locator(_testid("job-form")).wait_for(
+            state="visible", timeout=_BROWSER_TIMEOUT_MS
+        )
 
-        _open_pasting_pad_editor(browser_page, live_ui, "paste_dataset_collection")
-
+        assert browser_page.locator(_testid("pad-viewer")).count() == 0
         assert browser_page.locator("#param-purge_pad_id").count() == 0
+        for param_name in (
+            "plate_width",
+            "cell_size",
+            "crop_size",
+            "volume_min",
+            "volume_divisions",
+            "blank_count",
+            "view_count",
+            "shuffle_seed",
+            "paste_id",
+        ):
+            browser_page.locator(f"#param-{param_name}").wait_for(
+                state="visible", timeout=_BROWSER_TIMEOUT_MS
+            )
         assert (
             browser_page.locator("#param-paste_lot").get_attribute(
                 "data-param-optional"
@@ -406,38 +425,6 @@ class TestPasteSolderBrowserRendering:
                 })"""
             )
             assert widths["help"] >= widths["param"] * 0.95
-        browser_page.locator(_testid("pad-viewer")).wait_for(
-            state="visible", timeout=_BROWSER_TIMEOUT_MS
-        )
-        assert (
-            browser_page.locator(_testid("pad-initial-purge-pad")).text_content()
-            == "自動 (設定が必要)"
-        )
-        browser_page.locator(_row_selector("L0")).wait_for(
-            state="visible", timeout=_BROWSER_TIMEOUT_MS
-        )
-        assert "面積あたりのペースト量" in browser_page.locator(
-            _testid("pad-table")
-        ).text_content(timeout=_BROWSER_TIMEOUT_MS)
-
-        config = _get_pad_config(live_server)
-        top_pad = next(pad for pad in config["pads"] if pad["layer"] == "Top")
-        component_node_id = next(
-            node_id for node_id in top_pad["node_ids"] if node_id.startswith("L2:")
-        )
-        component_row = _ensure_row_visible(
-            browser_page, _tree_path_ids(config["tree"], component_node_id)
-        )
-        amount = _field_input(component_row, "ul_per_mm2")
-        amount.fill("0.031")
-        amount.press("Enter")
-        _wait_for_override(live_server, component_node_id, "ul_per_mm2", 0.031)
-
-        browser_page.locator(_testid("pad-calculate-route")).click()
-        browser_page.locator(_testid("pad-route-overlay")).wait_for(
-            state="attached", timeout=_BROWSER_TIMEOUT_MS
-        )
-        assert browser_page.locator(_testid("pad-route-segment")).count() > 0
 
     def test_fake_camera_preview_image_loads(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page

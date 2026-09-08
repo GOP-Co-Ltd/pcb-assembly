@@ -109,7 +109,7 @@ class TestCatalog:
             ("height_plane", True, True, False),
             ("loading", False, True, True),
             ("dispense_calibration", False, True, True),
-            ("paste_dataset_collection", True, True, True),
+            ("paste_dataset_collection", False, True, True),
             ("generate_rect_pcb", False, False, False),
             ("toolhead_offset", True, True, True),
         ],
@@ -166,9 +166,18 @@ class TestCatalog:
             (
                 "paste_dataset_collection",
                 {
+                    "plate_width": (40.0, "mm"),
+                    "plate_height": (40.0, "mm"),
                     "tolerance": (0.1, "mm"),
-                    "crop_margin_mm": (1.0, "mm"),
-                    "mask_margin_mm": (0.1, "mm"),
+                    "edge_margin": (2.0, "mm"),
+                    "cell_size": (2.0, "mm"),
+                    "cell_gap": (1.0, "mm"),
+                    "crop_size": (2.0, "mm"),
+                    "purge_cell_size": (2.0, "mm"),
+                    "paste_height": (0.2, "mm"),
+                    "volume_min": (0.05, "uL"),
+                    "volume_max": (0.2, "uL"),
+                    "view_offset": (1.0, "mm"),
                 },
             ),
             (
@@ -209,9 +218,17 @@ class TestCatalog:
         params = {spec.name: spec for spec in definition.params}
 
         assert "purge_pad_id" not in params
-        assert params["crop_margin_mm"].minimum == 0.0
-        assert params["mask_margin_mm"].minimum == 0.0
-        assert params["mask_margin_mm"].help is not None
+        assert "crop_margin_mm" not in params
+        assert "mask_margin_mm" not in params
+        assert params["edge_margin"].minimum == 0.0
+        assert params["cell_gap"].minimum == 0.0
+        assert params["crop_size"].help is not None
+        assert params["paste_height"].minimum == 0.0
+        assert params["volume_divisions"].value_type == "int"
+        assert params["samples_per_volume"].value_type == "int"
+        assert params["blank_count"].default == 4
+        assert params["view_count"].default == 4
+        assert params["shuffle_seed"].default == 0
         assert params["paste_id"].value_type == "str"
         assert params["paste_id"].label == "ペースト製品ID"
         assert params["paste_id"].help is not None
@@ -224,9 +241,23 @@ class TestCatalog:
         assert params["paste_lot"].optional is True
 
         assert default.validate_params(definition, {"paste_id": "paste-1"}) == {
+            "plate_width": 40.0,
+            "plate_height": 40.0,
             "tolerance": 0.1,
-            "crop_margin_mm": 1.0,
-            "mask_margin_mm": 0.1,
+            "edge_margin": 2.0,
+            "cell_size": 2.0,
+            "cell_gap": 1.0,
+            "crop_size": 2.0,
+            "purge_cell_size": 2.0,
+            "paste_height": 0.2,
+            "volume_min": 0.05,
+            "volume_max": 0.2,
+            "volume_divisions": 5,
+            "samples_per_volume": 3,
+            "blank_count": 4,
+            "view_count": 4,
+            "view_offset": 1.0,
+            "shuffle_seed": 0,
             "paste_id": "paste-1",
         }
         with pytest.raises(ValueError, match="paste_id"):
@@ -745,70 +776,107 @@ class TestMachineJobsWithoutKlipper:
 
 
 class TestPasteDatasetCollectionPreflight:
-    """Dataset収集は装置を開く前にpurge・prompt条件を確定する."""
+    """Dataset収集は装置を開く前に設定・配置・撮影窓を確定する（PCB非依存）."""
 
-    @pytest.fixture
-    def calibration_board(self, pcb_root: Path) -> Path:
-        source = (
-            PROJECT_ROOT
-            / "data"
-            / "paste-flow-calibration-board"
-            / "paste-flow-calibration-board.basic.kicad_pcb"
-        )
-        relative = Path("real/paste-flow-calibration-board.basic.kicad_pcb")
-        destination = pcb_root / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(source, destination)
-        return relative
-
-    def test_unknown_purge_pad_fails_before_prompt_or_machine(
-        self,
-        manager: JobManager,
-        state: AppState,
-        real_pcb_path: Path,
-        wait_until: WaitUntil,
+    def test_capacity_shortage_fails_before_prompt_or_machine(
+        self, manager: JobManager, wait_until: WaitUntil
     ):
-        state.select_pcb(real_pcb_path)
-
         record = manager.start(
             "paste_dataset_collection",
-            {"paste_id": "paste-1"},
+            {
+                "paste_id": "paste-1",
+                "plate_width": 12.0,
+                "plate_height": 12.0,
+                "volume_divisions": 5,
+                "samples_per_volume": 5,
+                "blank_count": 4,
+            },
         )
         wait_until(lambda: record.status.terminal, timeout=60.0)
 
         assert record.status == JobStatus.FAILED
         assert record.error is not None
-        assert "PURGE" in record.error
+        assert "サンプル" in record.error
         assert record.pending_prompt is None
 
-    @pytest.mark.parametrize("initial_purge_pad_id", [None, "PAD1.1"])
-    def test_auto_or_saved_purge_selection_precedes_machine_setup(
+    def test_zero_paste_height_fails_before_prompt_or_machine(
+        self, manager: JobManager, wait_until: WaitUntil
+    ):
+        record = manager.start(
+            "paste_dataset_collection",
+            {"paste_id": "paste-1", "paste_height": 0.0},
+        )
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "塗布高さ" in record.error
+        assert record.pending_prompt is None
+
+    def test_zero_view_offset_with_views_fails_before_prompt_or_machine(
+        self, manager: JobManager, wait_until: WaitUntil
+    ):
+        record = manager.start(
+            "paste_dataset_collection",
+            {"paste_id": "paste-1", "view_count": 4, "view_offset": 0.0},
+        )
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "移動距離" in record.error
+        assert record.pending_prompt is None
+
+    def test_crop_larger_than_cell_pitch_fails_before_prompt_or_machine(
+        self, manager: JobManager, wait_until: WaitUntil
+    ):
+        record = manager.start(
+            "paste_dataset_collection",
+            {
+                "paste_id": "paste-1",
+                "cell_size": 2.0,
+                "cell_gap": 1.0,
+                "crop_size": 4.0,
+            },
+        )
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "crop" in record.error
+        assert record.pending_prompt is None
+
+    def test_zero_initial_purge_fails_before_prompt_or_machine(
         self,
         manager: JobManager,
-        state: AppState,
-        board_store: BoardSettingsStore,
-        pcb_root: Path,
-        calibration_board: Path,
+        store: ConfigStore,
         wait_until: WaitUntil,
-        initial_purge_pad_id: str | None,
     ):
-        state.select_pcb(calibration_board)
-        if initial_purge_pad_id is not None:
-            pcb = PcbFile(pcb_root / calibration_board)
-            hierarchy = PadHierarchy.build(pcb.components, pcb.pads)
-            board_store.update(
-                calibration_board.as_posix(),
-                state.machine().paste_dispenser,
-                board_signature=hierarchy.signature(),
-                mutate=lambda model: model.with_initial_purge_pad_id(
-                    initial_purge_pad_id
-                ),
-            )
+        store.write_machine_settings({"paste_dispenser.initial_purge_ul": 0.0})
+
+        record = manager.start(
+            "paste_dataset_collection",
+            {"paste_id": "paste-1", "paste_lot": "lot-1"},
+        )
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "initial_purge_ul" in record.error
+        assert record.pending_prompt is None
+
+    def test_valid_settings_reach_confirmations_without_pcb(
+        self, manager: JobManager, wait_until: WaitUntil
+    ):
         record = manager.start(
             "paste_dataset_collection",
             {
                 "paste_id": "paste-1",
                 "paste_lot": "lot-1",
+                "volume_divisions": 2,
+                "samples_per_volume": 1,
+                "blank_count": 1,
+                "view_count": 1,
             },
         )
 
@@ -830,52 +898,7 @@ class TestPasteDatasetCollectionPreflight:
         wait_until(lambda: record.status.terminal, timeout=60.0)
 
         assert record.status == JobStatus.ABORTED
-
-    def test_zero_initial_purge_fails_before_prompt_or_machine(
-        self,
-        manager: JobManager,
-        state: AppState,
-        store: ConfigStore,
-        calibration_board: Path,
-        wait_until: WaitUntil,
-    ):
-        store.write_machine_settings({"paste_dispenser.initial_purge_ul": 0.0})
-        state.select_pcb(calibration_board)
-
-        record = manager.start(
-            "paste_dataset_collection",
-            {"paste_id": "paste-1", "paste_lot": "lot-1"},
-        )
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-
-        assert record.status == JobStatus.FAILED
-        assert record.error is not None
-        assert "initial_purge_ul" in record.error
-        assert record.pending_prompt is None
-
-    def test_mask_margin_larger_than_crop_fails_before_prompt_or_machine(
-        self,
-        manager: JobManager,
-        state: AppState,
-        calibration_board: Path,
-        wait_until: WaitUntil,
-    ):
-        state.select_pcb(calibration_board)
-
-        record = manager.start(
-            "paste_dataset_collection",
-            {
-                "paste_id": "paste-1",
-                "crop_margin_mm": 0.05,
-                "mask_margin_mm": 0.1,
-            },
-        )
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-
-        assert record.status == JobStatus.FAILED
-        assert record.error is not None
-        assert "mask_margin_mm" in record.error
-        assert record.pending_prompt is None
+        assert any("収集計画" in line for line in record.log_lines)
 
 
 class TestApplyTargetsWhitelisted:

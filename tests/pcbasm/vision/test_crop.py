@@ -1,145 +1,210 @@
-"""Polygon 周辺 crop / mask 生成（vision.crop）の公開契約."""
+"""固定ピクセル寸法の矩形 crop（vision.crop）の公開契約.
+
+学習データは「全 crop が同一ピクセル寸法」であることが前提なので、ピクセル寸法は
+:func:`crop_pixel_size` で 1 回だけ決め、:func:`crop_centered` は中心 rounding で
+その寸法の窓を置くだけにする（セルごとの floor / ceil をしない）。
+"""
 
 import numpy as np
 import pytest
-from shapely import Polygon, box
 
+from pcbasm.geometry import Point2d
 from pcbasm.vision import Image
-from pcbasm.vision.crop import crop_polygon, validate_crop_margins
+from pcbasm.vision.crop import crop_centered, crop_pixel_size
+
+PPM = 10.0
+MATRIX = np.array([[PPM, 0.0], [0.0, PPM]])
+SHIFT = np.array([50.0, 40.0])
+PIXEL_SIZE = 21
 
 
 def _source_image(width: int = 120, height: int = 100) -> np.ndarray:
-    """切り抜き位置とRGB保持を同時に確認できる合成画像."""
+    """切り抜き位置と RGB 保持を同時に確認できる合成画像."""
     yy, xx = np.indices((height, width), dtype=np.uint8)
     return np.dstack((xx, yy, xx ^ yy))
 
 
-class TestValidateCropMargins:
-    def test_accepts_mask_margin_up_to_crop_margin(self):
-        assert validate_crop_margins(1.0, 1.0) is None
-        assert validate_crop_margins(1.0, 0.0) is None
+def _projected(center: Point2d) -> tuple[float, float]:
+    """テスト側で独立に計算した board→pixel 射影（affine と同じ式）."""
+    return (center.x * PPM + SHIFT[0], center.y * PPM + SHIFT[1])
+
+
+def _cropped(center: Point2d, *, pixel_size: int = PIXEL_SIZE):
+    crop, error = crop_centered(
+        _source_image(), center, MATRIX, SHIFT, pixel_size=pixel_size
+    )
+
+    assert error is None
+    assert crop is not None
+    return crop
+
+
+class TestCropPixelSize:
+    """セル寸法と物理スケールから 1 回だけ整数ピクセル寸法を決める."""
+
+    def test_exact_odd_product_becomes_that_integer(self):
+        size, error = crop_pixel_size(2.0, 120.5)
+
+        assert error is None
+        assert size == 241
 
     @pytest.mark.parametrize(
-        ("crop_margin_mm", "mask_margin_mm", "expected"),
+        ("size_mm", "pixel_per_mm"),
+        [(2.0, 120.5), (2.0, 120.0), (2.0, 120.3), (1.0, 33.4), (3.0, 80.0)],
+    )
+    def test_size_is_odd_so_a_single_center_pixel_exists(
+        self, size_mm: float, pixel_per_mm: float
+    ):
+        size, error = crop_pixel_size(size_mm, pixel_per_mm)
+
+        assert error is None
+        assert size is not None
+        assert size % 2 == 1
+
+    @pytest.mark.parametrize(
+        ("size_mm", "pixel_per_mm"),
+        [(2.0, 120.3), (2.0, 100.7), (1.5, 33.33), (0.05, 120.5)],
+    )
+    def test_fractional_product_resolves_to_a_nearby_positive_integer(
+        self, size_mm: float, pixel_per_mm: float
+    ):
+        size, error = crop_pixel_size(size_mm, pixel_per_mm)
+
+        assert error is None
+        assert size is not None
+        assert size >= 1
+        # 奇数へ寄せるため、積からのずれは最大 1 pixel 強
+        assert abs(size - size_mm * pixel_per_mm) < 2.0
+
+    @pytest.mark.parametrize(
+        ("size_mm", "pixel_per_mm", "expected"),
         [
-            (-0.01, 0.0, "crop_margin_mm"),
-            (1.0, -0.01, "mask_margin_mm"),
-            (float("nan"), 0.0, "crop_margin_mm"),
-            (0.1, 0.2, "mask_margin_mm"),
+            (0.0, 120.5, "size_mm"),
+            (-1.0, 120.5, "size_mm"),
+            (float("nan"), 120.5, "size_mm"),
+            (2.0, 0.0, "pixel_per_mm"),
+            (2.0, -10.0, "pixel_per_mm"),
+            (2.0, float("inf"), "pixel_per_mm"),
         ],
     )
-    def test_rejects_invalid_margins(
-        self, crop_margin_mm: float, mask_margin_mm: float, expected: str
+    def test_rejects_non_positive_or_non_finite_inputs(
+        self, size_mm: float, pixel_per_mm: float, expected: str
     ):
-        error = validate_crop_margins(crop_margin_mm, mask_margin_mm)
+        size, error = crop_pixel_size(size_mm, pixel_per_mm)
 
+        assert size is None
         assert error is not None
         assert expected in error
 
 
-class TestCropPolygon:
-    """Polygon の AABB crop と専用 mask 生成."""
+class TestCropCentered:
+    """Board 座標の中心を射影し、固定寸法の窓を切り出す."""
 
-    def test_crops_rgb_by_polygon_bounds_plus_margin(self):
+    def test_returns_exactly_the_requested_pixel_size(self):
+        crop = _cropped(Point2d(2.0, 3.0))
+
+        x0, y0, x1, y1 = crop.pixel_rect
+        assert (x1 - x0, y1 - y0) == (PIXEL_SIZE, PIXEL_SIZE)
+        assert crop.image.shape == (PIXEL_SIZE, PIXEL_SIZE, 3)
+        assert crop.image.dtype == np.uint8
+
+    def test_crop_image_is_the_frame_slice_at_the_crop_rect(self):
         source = _source_image()
-        polygon = box(-1.0, -2.0, 1.0, 2.0)
-        matrix = np.array([[10.0, 0.0], [0.0, 10.0]])
-        shift = np.array([50.0, 40.0])
 
-        crop, error = crop_polygon(
-            Image(source),
-            polygon,
-            matrix,
-            shift,
-            margin_mm=1.0,
-            mask_margin_mm=0.1,
+        crop, error = crop_centered(
+            Image(source), Point2d(2.0, 3.0), MATRIX, SHIFT, pixel_size=PIXEL_SIZE
         )
 
         assert error is None
         assert crop is not None
-        assert crop.pixel_rect == (30, 10, 70, 70)
-        assert crop.image.shape == (60, 40, 3)
-        assert crop.image.dtype == np.uint8
-        assert np.array_equal(crop.image, source[10:70, 30:70])
-        assert crop.mask.shape == crop.image.shape[:2]
-        assert crop.mask.dtype == np.uint8
-        assert set(np.unique(crop.mask)) <= {0, 255}
+        x0, y0, x1, y1 = crop.pixel_rect
+        assert np.array_equal(crop.image, source[y0:y1, x0:x1])
 
-    def test_mask_extends_outside_polygon_by_configured_margin(self):
-        crop, _ = crop_polygon(
-            _source_image(),
-            box(-1.0, -1.0, 1.0, 1.0),
-            np.array([[10.0, 0.0], [0.0, 10.0]]),
-            np.array([50.0, 50.0]),
-            margin_mm=2.0,
-            mask_margin_mm=0.1,
-        )
+    def test_window_is_centered_on_the_projected_point(self):
+        center = Point2d(2.0, 3.0)
 
-        assert crop is not None
-        assert crop.mask[30, 19] == 255
-        assert crop.mask[30, 18] == 0
+        crop = _cropped(center)
 
-    def test_mask_preserves_polygon_holes(self):
-        polygon = Polygon(
-            [(-2.0, -2.0), (2.0, -2.0), (2.0, 2.0), (-2.0, 2.0)],
-            holes=[[(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]],
-        )
-
-        crop, _ = crop_polygon(
-            _source_image(),
-            polygon,
-            np.array([[10.0, 0.0], [0.0, 10.0]]),
-            np.array([50.0, 40.0]),
-            margin_mm=0.0,
-            mask_margin_mm=0.0,
-        )
-
-        assert crop is not None
-        assert crop.mask[20, 20] == 0
-        assert crop.mask[5, 5] == 255
+        pixel_x, pixel_y = _projected(center)
+        x0, y0, x1, y1 = crop.pixel_rect
+        assert (x0 + x1) / 2 == pytest.approx(pixel_x, abs=1.0)
+        assert (y0 + y1) / 2 == pytest.approx(pixel_y, abs=1.0)
 
     @pytest.mark.parametrize(
-        ("margin_mm", "mask_margin_mm"),
-        [(-0.01, 0.0), (1.0, -0.01), (0.1, 0.2)],
+        "center",
+        [
+            Point2d(2.0, 3.0),
+            Point2d(2.05, 3.03),
+            Point2d(2.049, 2.951),
+            Point2d(1.9501, 3.1499),
+            Point2d(2.5, 3.5),
+        ],
     )
-    def test_rejects_invalid_margins(self, margin_mm: float, mask_margin_mm: float):
-        crop, error = crop_polygon(
-            _source_image(),
-            box(-1.0, -1.0, 1.0, 1.0),
-            np.eye(2),
-            np.array([50.0, 40.0]),
-            margin_mm=margin_mm,
-            mask_margin_mm=mask_margin_mm,
-        )
+    def test_fractional_pixel_centers_keep_the_same_window_size(self, center: Point2d):
+        crop = _cropped(center)
 
-        assert crop is None
-        assert error is not None
-        assert "margin" in error
+        x0, y0, x1, y1 = crop.pixel_rect
+        assert (x1 - x0, y1 - y0) == (PIXEL_SIZE, PIXEL_SIZE)
+        pixel_x, pixel_y = _projected(center)
+        assert x0 <= pixel_x <= x1
+        assert y0 <= pixel_y <= y1
 
-    def test_rejects_crop_outside_camera_frame(self):
-        crop, error = crop_polygon(
-            _source_image(),
-            box(-2.0, -2.0, 2.0, 2.0),
-            np.array([[10.0, 0.0], [0.0, 10.0]]),
-            np.array([5.0, 5.0]),
-            margin_mm=0.0,
-            mask_margin_mm=0.0,
+    def test_even_pixel_size_is_honoured_exactly(self):
+        crop = _cropped(Point2d(2.0, 3.0), pixel_size=20)
+
+        x0, y0, x1, y1 = crop.pixel_rect
+        assert (x1 - x0, y1 - y0) == (20, 20)
+
+    @pytest.mark.parametrize(
+        "center", [Point2d(-4.5, 3.0), Point2d(2.0, -3.5), Point2d(20.0, 3.0)]
+    )
+    def test_window_outside_the_frame_is_reported_without_padding(
+        self, center: Point2d
+    ):
+        crop, error = crop_centered(
+            _source_image(), center, MATRIX, SHIFT, pixel_size=PIXEL_SIZE
         )
 
         assert crop is None
         assert error is not None
         assert "収まりません" in error
 
-    def test_rejects_empty_polygon(self):
-        crop, error = crop_polygon(
-            _source_image(),
-            Polygon(),
-            np.eye(2),
-            np.array([50.0, 40.0]),
-            margin_mm=1.0,
-            mask_margin_mm=0.0,
+    @pytest.mark.parametrize("pixel_size", [0, -1])
+    def test_rejects_non_positive_pixel_size(self, pixel_size: int):
+        crop, error = crop_centered(
+            _source_image(), Point2d(2.0, 3.0), MATRIX, SHIFT, pixel_size=pixel_size
         )
 
         assert crop is None
         assert error is not None
-        assert "polygon" in error
+        assert "pixel_size" in error
+
+    def test_rejects_non_rgb_frame(self):
+        gray = np.zeros((100, 120), dtype=np.uint8)
+
+        crop, error = crop_centered(
+            gray, Point2d(2.0, 3.0), MATRIX, SHIFT, pixel_size=PIXEL_SIZE
+        )
+
+        assert crop is None
+        assert error is not None
+        assert "3 channel" in error
+
+    @pytest.mark.parametrize(
+        ("matrix", "shift"),
+        [
+            (np.eye(3), np.array([50.0, 40.0])),
+            (MATRIX, np.array([50.0, 40.0, 0.0])),
+            (np.array([[float("nan"), 0.0], [0.0, PPM]]), np.array([50.0, 40.0])),
+        ],
+    )
+    def test_rejects_malformed_board_to_pixel_affine(
+        self, matrix: np.ndarray, shift: np.ndarray
+    ):
+        crop, error = crop_centered(
+            _source_image(), Point2d(2.0, 3.0), matrix, shift, pixel_size=PIXEL_SIZE
+        )
+
+        assert crop is None
+        assert error is not None
+        assert "affine" in error

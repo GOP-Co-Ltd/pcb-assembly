@@ -1,12 +1,13 @@
-"""ペースト塗布画像 dataset の metadata.json（schema v1）.
+"""ペースト塗布画像 dataset の metadata.json（schema v2）.
 
 DTO と strict な cattrs converter、:func:`parse_metadata` を置く。
 
 永続化の判断:
-    現版は schema v1 で、on-disk のキー・値は初版から変えていないため version bump は
-    行わない。:func:`parse_metadata` は ``schema_version`` で分岐し、将来キー/型を変える
-    版が出たら旧版 dict を純関数 ``_migrate_vN(doc) -> dict`` で新版 dict へ写してから
-    structure する。未知版は ``(None, 理由)`` を返す。
+    v2 は点塗布・銅板・セル格子前提の破壊的変更版で、v1（KiCad PCB の pad polygon +
+    mask 前提）からの移行関数は用意しない。:func:`parse_metadata` は
+    ``schema_version`` が現版と異なる doc を ``(None, 理由)`` で拒否する。将来キー/型を
+    変える版が出たら旧版 dict を純関数 ``_migrate_vN(doc) -> dict`` で新版 dict へ
+    写してから structure する。
 """
 
 from __future__ import annotations
@@ -17,24 +18,27 @@ from typing import Any, Literal, get_args, get_origin, get_type_hints
 
 import attrs
 import cattrs
-from shapely import Polygon
 
-from pcbasm.config import PasteHeight
+from pcbasm.geometry import Point2d
+from pcbasm.geometry.packing import Rect
 from pcbasm.pasting.applicator import DispenseSummary
 from pcbasm.pasting.fill_path import AppliedDispenseMode
-from pcbasm.pasting.params import PasteParams
 from pcbasm.utils import is_finite_number
 from pcbasm.vision.image import PixelRect
 
 type CapturePhase = Literal["pre", "post"]
 
+# 撮影順序。点ごとに pre 撮影 → 塗布 → post 撮影を回す（3 パスは採らない）。
+# 分岐を持たないので metadata へは固定値として記録する
+CAPTURE_ORDER: Literal["interleaved"] = "interleaved"
+
 METADATA_KIND = "pcbasm-paste-volume-dataset"
-METADATA_SCHEMA_VERSION = 1
+METADATA_SCHEMA_VERSION = 2
 
 
 @attrs.frozen
 class DatasetView:
-    """同一 pad を撮影する view 番号と基準位置からの offset."""
+    """同一セルを撮影する view 番号と基準位置からの offset."""
 
     number: int
     offset_x_mm: float = 0.0
@@ -80,24 +84,6 @@ def allocate_volume_by_rotations(
 
 
 @attrs.frozen
-class DatasetPolygon:
-    """JSON 保存可能な pad polygon."""
-
-    exterior: tuple[tuple[float, float], ...]
-    holes: tuple[tuple[tuple[float, float], ...], ...] = ()
-
-    @classmethod
-    def from_polygon(cls, polygon: Polygon) -> DatasetPolygon:
-        return cls(
-            exterior=tuple((float(x), float(y)) for x, y in polygon.exterior.coords),
-            holes=tuple(
-                tuple((float(x), float(y)) for x, y in ring.coords)
-                for ring in polygon.interiors
-            ),
-        )
-
-
-@attrs.frozen
 class DatasetCapturedView:
     """1 view の撮影位置、crop 矩形、保存相対 path."""
 
@@ -107,23 +93,38 @@ class DatasetCapturedView:
     pixel_rect: PixelRect
     pre: str
     post: str
-    mask: str
 
 
 @attrs.frozen
-class PasteDatasetPad:
-    """学習 sample となる 1 pad の metadata.
+class PasteDatasetSample:
+    """学習 sample となる 1 セルの metadata.
 
-    ``resolved`` は pad へ適用した解決済み塗布パラメータ（:class:`PasteParams` の 8 項目）、
-    ``execution`` は塗布指令の実績集計（:class:`DispenseSummary`）。
+    ``execution`` は塗布指令の実績集計（:class:`DispenseSummary`）、``order`` は
+    セッション中の塗布実行順（流量ドリフトの post hoc 検出用）。
     """
 
     index: int
-    pad_id: str
-    source_pad_id: str
-    polygon: DatasetPolygon
-    resolved: PasteParams
+    order: int
+    cell: Rect
+    center: Point2d
+    commanded_volume_ul: float
+    volume_index: int
     execution: DispenseSummary
+    measured_volume_ul: float
+    views: tuple[DatasetCapturedView, ...]
+
+
+@attrs.frozen
+class PasteDatasetBlank:
+    """塗布しない blank セルの metadata（真値 0 の sample）.
+
+    塗布指令が無いので ``execution`` を持たず、``measured_volume_ul`` は常に 0.0。
+    回転数比の体積配分にも含めない。
+    """
+
+    index: int
+    cell: Rect
+    center: Point2d
     measured_volume_ul: float
     views: tuple[DatasetCapturedView, ...]
 
@@ -132,8 +133,8 @@ class PasteDatasetPad:
 class PasteDatasetPurge:
     """画像 sample に含めない purge の metadata."""
 
-    pad_id: str
-    source_pad_id: str
+    cell: Rect
+    center: Point2d
     execution: DispenseSummary
     measured_volume_ul: float
 
@@ -145,10 +146,17 @@ class PasteDatasetMachine:
 
 
 @attrs.frozen
-class PasteDatasetBoard:
-    filename: str
-    source_pcb: str
-    signature: str
+class PasteDatasetPlate:
+    """収集に使った銅板の寸法・外周余白と計測した板面 Z.
+
+    ``camera.pixel_per_mm`` は camera calibration 時の Z のものなので、板面 Z との差
+    （銅板厚み）から実効スケールを学習側で補正できるようにする。
+    """
+
+    width_mm: float
+    height_mm: float
+    edge_margin_mm: float
+    height_plane_z_mm: float
 
 
 @attrs.frozen
@@ -173,15 +181,42 @@ class PasteDatasetNozzle:
 
 @attrs.frozen
 class PasteDatasetConfig:
+    """装置の吐出設定と、点塗布収集固有の設定（セル格子・量スイープ・view・crop）."""
+
     rotations_per_ul: float
-    max_fill_speed_mm_s: float
     max_dispense_rate_ul_s: float
     dispense_accel_ul_s2: float
     retract_amount_ul: float
     retract_rate_ul_s: float
     initial_purge_ul: float
-    crop_margin_mm: float
-    mask_margin_mm: float
+    paste_height_mm: float
+    prime_extra_delay_s: float
+    cell_size_mm: float
+    cell_gap_mm: float
+    crop_size_mm: float
+    crop_size_px: int
+    purge_cell_size_mm: float
+    volume_min_ul: float
+    volume_max_ul: float
+    volume_divisions: int
+    samples_per_volume: int
+    blank_count: int
+    shuffle_seed: int
+    view_count: int
+    view_offset_mm: float
+    capture_order: Literal["interleaved"]
+
+
+@attrs.frozen
+class PasteDatasetLabel:
+    """教師体積ラベルの作り方.
+
+    ``rotation_allocated`` は「総質量を purge を含む指令回転数比で配分した」ラベルで、
+    点ごとの実際のばらつきは含まない。将来点ごとの直接計量を入れる場合に区別できる
+    ようにここへ記録する。
+    """
+
+    kind: Literal["rotation_allocated"]
 
 
 @attrs.frozen
@@ -193,20 +228,22 @@ class PasteDatasetTotal:
 
 @attrs.frozen
 class PasteDatasetMetadata:
-    """Paste-volume-dataset metadata schema v1."""
+    """Paste-volume-dataset metadata schema v2."""
 
     kind: Literal["pcbasm-paste-volume-dataset"]
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     created_at: str
     machine: PasteDatasetMachine
-    board: PasteDatasetBoard
+    plate: PasteDatasetPlate
     paste: PasteDatasetPaste
     camera: PasteDatasetCamera
     nozzle: PasteDatasetNozzle
     config: PasteDatasetConfig
+    label: PasteDatasetLabel
     total: PasteDatasetTotal
     purge: PasteDatasetPurge
-    pads: tuple[PasteDatasetPad, ...]
+    samples: tuple[PasteDatasetSample, ...]
+    blanks: tuple[PasteDatasetBlank, ...]
 
     def to_dict(self) -> dict[str, Any]:
         """JSON 互換 dict へ変換する."""
@@ -218,7 +255,7 @@ def parse_metadata(
 ) -> tuple[PasteDatasetMetadata | None, str | None]:
     """metadata.json の dict を schema_version で分岐して復元する.
 
-    暗黙の型変換と未知 key は受理しない。現版（v1）以外の版は移行関数が無いため
+    暗黙の型変換と未知 key は受理しない。現版（v2）以外の版は移行関数が無いため
     ``(None, 理由)`` を返す（将来版は ``_migrate_vN`` を追加して現版 dict に写す）。
     """
     version = data.get("schema_version")
@@ -227,7 +264,7 @@ def parse_metadata(
     try:
         return _METADATA_CONVERTER.structure(data, PasteDatasetMetadata), None
     except Exception as error:
-        return None, f"metadata schema v1が不正です: {error}"
+        return None, f"metadata schema v2が不正です: {error}"
 
 
 def _make_metadata_converter() -> cattrs.Converter:
@@ -273,13 +310,6 @@ def _make_metadata_converter() -> cattrs.Converter:
             for item, item_type in zip(value, item_types, strict=True)
         )
 
-    def strict_paste_height(value: object, _: object) -> PasteHeight:
-        if type(value) is float and math.isfinite(value):
-            return value
-        if value == "auto":
-            return "auto"
-        raise ValueError(f"paste_heightは有限なfloatまたはautoが必要です: {value!r}")
-
     def strict_applied_mode(value: object, _: object) -> object:
         # DispenseSummary.applied_mode: 塗布方式 literal / "mixed" / None
         if value is None or value in (*get_args(AppliedDispenseMode), "mixed"):
@@ -289,7 +319,6 @@ def _make_metadata_converter() -> cattrs.Converter:
     converter.register_structure_hook(float, strict_float)
     converter.register_structure_hook(int, strict_int)
     converter.register_structure_hook(str, strict_string)
-    converter.register_structure_hook(PasteHeight, strict_paste_height)
     converter.register_structure_hook(
         get_type_hints(DispenseSummary)["applied_mode"], strict_applied_mode
     )

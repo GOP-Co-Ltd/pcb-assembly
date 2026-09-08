@@ -16,7 +16,7 @@ from typing import Self
 import attrs
 
 from pcbasm.config import Machine, get_machine_config
-from pcbasm.geometry import Compose, HeightPlane, Point2d, Transform
+from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage
 from pcbasm.parking import park_or_present
 from pcbasm.pasting.alignment import PasteCorrection
@@ -138,18 +138,27 @@ class PasteSession:
         """銅箔照合セッション（領域計画・照合・pad 精密照合）を作る."""
         return RegionAlignmentSession(self.calibration_result, frame_sink=frame_sink)
 
+    def plate_transform(self, *, height_plane: HeightPlane) -> Transform:
+        """補正を挟まない board → toolhead → 高さ変換を返す.
+
+        銅板の点塗布のように照合対象の銅箔パターンが無い場合の入口。pad ベースの
+        :meth:`pad_transform` と違い領域照合の補正を挟まないので、対象点に依らず
+        1 回組めば板上のどの点にも使える。
+        """
+        return self._point_chain(Identity(), height_plane)
+
     def pad_transform(self, pad: Pad, correction: PasteCorrection) -> Transform:
         """1 pad 用の board → 補正 → toolhead → 高さ変換を返す."""
-        return Compose(
-            [
-                self.board_transform,
-                correction.alignment.correction_for(
-                    pad.center, designator=pad.designator
-                ),
-                self.toolhead_offset,
-                correction.height_plane,
-            ]
+        return self._point_chain(
+            correction.alignment.correction_for(pad.center, designator=pad.designator),
+            correction.height_plane,
         )
+
+    def camera_point_target(
+        self, point: Point2d, *, offset: Point2d = Point2d(0.0, 0.0)
+    ) -> Point2d:
+        """Board 座標の点をカメラ中心へ置くステージ XY（+ 任意オフセット）."""
+        return self._camera_target(self.board_transform.apply(point), offset)
 
     def camera_target(
         self,
@@ -162,8 +171,19 @@ class PasteSession:
         shift = correction.alignment.correction_for(
             pad.center, designator=pad.designator
         )
-        target = shift.apply(self.board_transform.apply(pad.center))
-        return Point2d(target.x + offset.x, target.y + offset.y)
+        return self._camera_target(
+            shift.apply(self.board_transform.apply(pad.center)), offset
+        )
+
+    def _point_chain(self, correction: Transform, height_plane: Transform) -> Transform:
+        """Board → 補正 → toolhead → 高さ の変換列を組む."""
+        return Compose(
+            [self.board_transform, correction, self.toolhead_offset, height_plane]
+        )
+
+    @staticmethod
+    def _camera_target(machine_point: Point2d, offset: Point2d) -> Point2d:
+        return Point2d(machine_point.x + offset.x, machine_point.y + offset.y)
 
     def make_applicator(
         self,
