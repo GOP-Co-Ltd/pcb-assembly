@@ -15,7 +15,7 @@ WebUI、分散学習、モデルregistryによる自動配布は対象外とす�
 | ------------- | -------------------------------------------------------------------------------- |
 | 学習framework | pure PyTorch。PyTorch Lightningは使わない                                        |
 | 画像pipeline  | torchvisionでRGBのCHW tensorとしてdecode・変換する                               |
-| 設定・探索    | Hydraで設定を合成し、Optuna Sweeperでhyperparameterを探索する                    |
+| 設定・探索    | TOML層をHydraなしで合成し、Optunaを直接駆動してhyperparameterを探索する          |
 | 実験管理      | MLflow Trackingへ明示的に記録する                                                |
 | 入力標準化    | 各sampleの`[6, H, W]`全体へaffineなしの`SampleLayerNorm`を適用する               |
 | encoder正規化 | batch統計を持たないGroupNormを使い、BatchNormは使わない                          |
@@ -35,9 +35,9 @@ ML依存は通常のWebAPI/UI実行環境へ無条件に入れず、`pyproject.t
 
 - `ml-runtime`: `torch`、versionを揃えた`torchvision`、`onnxruntime`。同じtensor前処理とONNX推論に
     使用する。
-- `ml-train`: `ml-runtime`に加えて`hydra-core`とMLflow client。学習、評価、
-    ファインチューニングに使用する。
-- `ml-hpo`: `hydra-optuna-sweeper`と`optuna`。GPU workstationでのhyperparameter探索に使用する。
+- `ml-train`: `ml-runtime`に加えてMLflow client。学習、評価、ファインチューニングに使用する。
+- `ml-hpo`: `ml-train`に加えて`optuna`。GPU workstationでのhyperparameter探索に使用する。
+    Hydraは採用しないため`hydra-core`と`hydra-optuna-sweeper`は依存へ入れない。
 - `ml-export`: `onnx`、`onnxscript`、`onnxruntime`。export、量子化、parity評価に使用する。
 - 通常のruntime: Raspberry Pi 5でも前処理をtorchvisionへ統一するため`ml-runtime`を使う。
     CNN本体はONNX Runtimeで実行し、PyTorch eager modelはloadしない。
@@ -51,21 +51,21 @@ MLflow runへ残す。
 
 MLflowは学習loopの依存に直接埋め込まない。`ExperimentLogger` protocolとMLflow adapterの
 境界を設け、モデル、loss、optimizer、checkpointはMLflowをimportしなくても動くようにする。
-ただし正式なtrain / fine-tune Hydra entrypointではMLflow loggerを必須とし、接続不能なら学習開始前に
+ただし正式なtrain / fine-tune entrypointではMLflow loggerを必須とし、接続不能なら学習開始前に
 失敗させる。consoleだけへ黙ってfallbackしない。
 
 ### 開発環境の確認
 
 依存追加後に、次を自動確認するsmoke commandを用意する。
 
-1. Python、PyTorch、torchvision、Hydra、Optuna、CUDA、cuDNN、ONNX Runtimeのversionを表示する。
+1. Python、PyTorch、torchvision、Optuna、CUDA、cuDNN、ONNX Runtimeのversionを表示する。
 2. GPU workstationでは`torch.cuda.is_available()`が真で、CUDA tensorの畳み込みと
     backwardが成功することを確認する。
 3. Raspberry Pi 5ではCPUで同じforward/backwardを実行する。
 4. 64 × 64と1024 × 256のdummy inputでeager modelがforwardできることを確認する。
 5. `torchvision.io.decode_image(..., mode="RGB")`がlossless PNGをRGBのCHW tensorとして読み、
     controlled fixtureのchannel値が期待値と一致することを確認する。
-6. Hydraで既定configをcomposeし、override後の解決済みconfigを表示する。
+6. wheel同梱のTOML層をcomposeし、strict converterでfrozen configへ落として同梱groupを表示する。
 7. MLflow tracking serverへtest run、metric、artifactを記録して読み戻す。
 
 GPU driverやCUDA toolkit自体のinstallはrepositoryのsetup scriptへ含めない。OSとdriverの
@@ -432,62 +432,83 @@ accumulation、validation、early stopping、checkpoint、loggingに限定され
 十分に見通せる。MLflowのvanilla PyTorch autologgingへも依存せず、metricとartifactを明示的に
 記録する。
 
-設定管理にはHydraを採用する。ただし
-[lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template)から取り入れるのは、
-config group、version管理されたexperiment config、解決済みconfigの保存、multirun、Optuna
-Sweeperという構成上の考え方である。LightningのTrainer、callback、DataModule、logger wrapper、
-任意の`_target_`を設定からinstantiateする仕組みは持ち込まない。
+設定管理はHydraを採用しない。config group、version管理されたexperiment config、解決済み
+configの保存という構成上の考え方は
+[lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template)から取り入れるが、
+実体は標準ライブラリの`tomllib`とcattrsで組む。LightningのTrainer、callback、DataModule、
+logger wrapper、任意の`_target_`を設定からinstantiateする仕組みも持ち込まない。
 
-Hydraはentrypointと設定合成だけを担当する。解決済み`DictConfig`を境界で検証し、frozenな
-`TrainConfig` / `EvaluateConfig`へ変換してから、通常のPython APIである`train(config)` /
-`evaluate(config)`を呼ぶ。学習loop、モデル、data、logging、checkpointはHydraをimportしない。
-`hydra.job.chdir=false`とし、dataset、checkpoint、output pathは合成後に絶対pathへ解決する。
-環境変数や現在directoryを学習coreから暗黙参照しない。
+Hydraを外した理由は次の4点である。第1に、**それまでlockしていた`hydra-core` 1.3.6 +
+`hydra-optuna-sweeper` 1.4.0.dev9の組み合わせが実測で壊れていた**。最小sweepが
+`InstantiationException('Cannot instantiate config of type TPESampler')`で即落ちする。
+sweeper dev9が`instantiate(sampler, _execution_whitelist_=...)`を呼ぶのに対し、この引数は
+hydra-core 1.3.6に存在しない。第2に、動く組み合わせはhydra-core / omegaconfのdev releaseを
+3〜4点同時に固定することになり、安定版sweeperは`optuna<3`を要求する。第3に、Hydraのmultirunは
+`BasicLauncher`の逐次`for`ループなので並列化に寄与しない（真の並列には別途launcher pluginが
+要り、それも安定版は2022年で止まっている）。第4に、「既定値はattrsにのみ置き、TOMLは差分だけ
+書く」方針が`@package`、custom resolver、`job.num`注入をほぼ不要にしていた。
 
-### Hydra config構成
+設定合成は`ml.config.composition.ConfigComposition`が担当する。層を順にmergeし（mappingは再帰、
+listは置換）、`key=value` tokenの値を`tomllib`のscalar規則で解釈してから、
+`ml.serialization.make_strict_converter`でfrozen attrsへ構造化する。未知keyと暗黙の型変換は
+converterが拒否し、失敗は例外ではなく理由文字列で返す。学習loop、モデル、data、logging、
+checkpointは設定合成層をimportしない。dataset、checkpoint、output pathは合成後に絶対pathへ
+解決し、環境変数や現在directoryを学習coreから暗黙参照しない。
 
-configはPython packageと一緒にinstallできる場所へ置く。
+### packaged config構成
+
+configはPython packageと一緒にinstallできる場所へ置き、`ml.config.packaged.PackagedConfiguration`
+が所在を解決する。直下のdirectoryがgroup、その中の`*.toml`がoptionになる。
 
 ```text
+src/ml/config/conf/
+└── trainer/edge.toml
+
 pcbasm/pasting/paste_volume/conf/
-├── train.yaml
-├── evaluate.yaml
-├── data/paste_volume.yaml
-├── model/resnet_small.yaml
-├── trainer/gpu.yaml
-├── trainer/pi.yaml
-├── logger/mlflow.yaml
-├── experiment/base.yaml
-├── experiment/fine_tune.yaml
-├── hyperparameter_search/base_optuna.yaml
-└── hydra/default.yaml
+├── base.toml
+├── data/paste_volume.toml
+├── model/resnet_small.toml
+├── trainer/gpu.toml
+├── trainer/pi.toml
+├── logger/mlflow.toml
+├── experiment/base.toml
+├── experiment/fine_tune.toml
+└── hyperparameter_search/base_optuna.toml
 ```
 
-`train.yaml`と`evaluate.yaml`のdefaults listがconfig groupを合成し、`experiment/*`は追跡対象となる
-具体的な組み合わせだけをoverrideする。`data/paste_volume.yaml`は相互排他的な`manifest`と`roots`を
-持つ。未知keyは禁止し、必須値は`MISSING`にしてrun開始前に落とす。全runでHydraの解決済みYAML、
-CLI override、frozen configのJSON、config fingerprintをMLflowへ保存する。
+base層をgroup層より先に積み、group層は差分だけを書く（既定値はattrs側にのみ置く）。
+`data/paste_volume.toml`は相互排他的な`manifest`と`roots`を持つ。未知keyはstrict converterが
+禁止し、既定値を持たない必須fieldはrun開始前に落ちる。全runで合成後のfrozen configのJSON、
+CLI override、config fingerprintをMLflowへ保存する。
 
 ### Optunaによる探索
 
-OptunaはHydra Optuna Sweeperから利用し、学習coreへ直接埋め込まない。初期search spaceは
-learning rate、weight decay、gradient accumulation、GroupNorm group数`{1, 4, 8}`に限定し、
-encoderの深さやchannel数はbaseline確立前に探索しない。
+Optunaは`ml.tuning`から直接駆動し、学習coreへ直接埋め込まない。Hydra Optuna Sweeperは使わず、
+`ml.tuning.runner.HyperparameterSearch`が1プロセス分のtrialを共有studyへ積む。並列化の実体は
+「複数のOS processが1個のRDB studyを共有する」ことであり、processを起こすのは運用者の仕事とする。
+探索した値は`ConfigComposition`の`key=value`上書きへ素通しし、探索runと単発runが同じ設定経路を
+通るようにする。初期search spaceはlearning rate、weight decay、gradient accumulation、
+GroupNorm group数`{1, 4, 8}`に限定し、encoderの深さやchannel数はbaseline確立前に探索しない。
 
 - objectiveはtestを含まない最小validation NLLの単一目的とする。
 - dataset fingerprintとsplit manifestを全trialで固定する。
-- TPE sampler、固定seed、`n_trials=30`、`n_jobs=1`を既定とし、1枚のGPUへtrialを重ねない。
+- samplerはOptunaの既定（TPE）に任せ、`ml.tuning`側にsamplerやseedを渡す口は設けない。
+    trialごとの再現性はdataset fingerprintとsplit manifestの固定で担保する。
+- 1プロセスあたりの`trial_count`は既定20とし、1枚のGPUへtrialを重ねない。
+    `trial_count`は残trial数へ減算せず常に積み増す（何processが合流するかrunnerは知らない）。
 - HPO用trialは最大60 epoch、early stopping patience 10とし、各trialを個別のMLflow runにする。
 - Optuna storageはlocal fileではなく、tracking serverと同じPostgreSQL server内の専用databaseを
     推奨する。初期の単一端末では絶対pathのSQLiteも許容する。
-- `study_name`はmodel family、dataset fingerprint、search config fingerprintから作り、同じstorageと
-    study nameで再実行して完了trialを再利用できるようにする。
+- `study_name`はmodel family、dataset fingerprint、search space fingerprintから作り、同じstorageと
+    study nameで再実行して完了trialを再利用できるようにする。identityとsearch spaceの
+    fingerprintが食い違うrun、および既存studyとdirectionが食い違うrunは拒否する。
 - 最良configはそのtrial weightをそのまま採用せず、通常の200 epoch上限で3 seedを再学習し、
     validation metricの平均とばらつきを確認してから候補化する。
 
-Hydra multirun自体をcheckpointとして扱わない。中断済みtrialはそのtrialの`latest.pt`から単独で
-再開でき、study全体はpersistent Optuna storageから追加trialを継続する。HPO結果には
-`optimization_results.yaml`、study名、storage URIからcredentialを除いた値を残す。
+探索の起動そのものをcheckpointとして扱わない。中断済みtrialはそのtrialの`latest.pt`から単独で
+再開でき、study全体はpersistent Optuna storageから追加trialを継続する。HPO結果は
+`ml.tuning.study.StudyResults`のdocumentとして残し、study名、search space fingerprint、
+credentialを除いたstorage URIを載せる。生のstorage URIは成果物にも理由文字列にも書かない。
 
 ### lossとmetric
 
@@ -580,7 +601,7 @@ CUDAでは`torch.amp.autocast`とGradScalerを使う。CPUではAMPを使わな�
 
 ### Raspberry Pi 5の時間制限
 
-fine-tuning Hydra entrypointはwall-clock deadlineを持つ。既定は55分でoptimizer stepを停止し、残り5分で
+fine-tuning entrypointはwall-clock deadlineを持つ。既定は55分でoptimizer stepを停止し、残り5分で
 validation、checkpoint確定、MLflow flushを行い、全体を1時間以内に収める。
 
 - `max_steps=2000`と`max_epochs=200`の早い方でも終了する。
@@ -613,7 +634,7 @@ MLflowのautologは使わない。pure PyTorchへのautolog対象が限定され
 - model channel/block構成、parameter数、GMAC
 - 画像制約、`SampleLayerNorm`の軸・epsilon・affine設定、augmentation範囲
 - optimizer、scheduler、batch pixel budget、seed、precision、compile設定、time budget
-- Python、PyTorch、torchvision、Hydra、Optuna、CUDA/cuDNN、MLflow、ONNX/ORTのversion
+- Python、PyTorch、torchvision、Optuna、CUDA/cuDNN、MLflow、ONNX/ORTのversion
 
 **metric**
 
@@ -675,7 +696,7 @@ repository側のmodel classとschema versionから復元する。
 
 ### resumeとfine-tuneの区別
 
-Hydra overrideの`resume.checkpoint=/abs/path/latest.pt`は同一runの継続である。dataset
+上書きtokenの`resume.checkpoint=/abs/path/latest.pt`は同一runの継続である。dataset
 fingerprint、split、model構成、optimizer configが完全一致しない場合は拒否する。batch planと
 batch indexから次の未処理batchを再開し、
 augmentationもsample派生seedで同一にする。
@@ -843,7 +864,7 @@ ml.model                                 # GroupNorm residual block、Gaussian h
 ml.evaluation                            # 回帰metric、不確かさcalibration、slice診断、compile parity
 ml.experiment                            # ExperimentLogger（ABC）とMLflow adapter
 ml.training                              # TrainingTask / TrainingData（ABC）、checkpoint、Trainer
-ml.config                                # Hydra境界とpackaged config group
+ml.config                                # TOML層の合成境界とpackaged config group
 ml.tuning                                # Optuna study identity、storage検証、lineage検証
 ml.export                                # ONNX、quantization、parity、benchmark、runtime
 
@@ -851,27 +872,28 @@ pcbasm.pasting.dataset                   # 収集schemaと原本の読み書き�
 pcbasm.pasting.paste_volume.data         # session validate、composite manifest、sample index
 pcbasm.pasting.paste_volume.model        # 塗布量推定modelとfine-tune範囲
 pcbasm.pasting.paste_volume.task         # ml.training.TrainingTask / TrainingData の実装
-pcbasm.pasting.paste_volume.train        # Hydra所有のtraining entrypoint
-pcbasm.pasting.paste_volume.evaluate     # Hydra所有のevaluation entrypoint
-pcbasm.pasting.paste_volume.conf         # packaged Hydra config
+pcbasm.pasting.paste_volume.train        # argvを所有するtraining entrypoint
+pcbasm.pasting.paste_volume.evaluate     # argvを所有するevaluation entrypoint
+pcbasm.pasting.paste_volume.conf         # packaged config group（TOML）
 pcbasm.pasting.paste_volume.release      # 精度gateとpromotion
 pcbasm.pasting.paste_volume.inference    # manifest検証、runtime、公開prediction API
-pcbasm.cli.paste_volume                   # Hydraを使わない運用CLI
+pcbasm.cli.paste_volume                   # experiment configを要らない運用CLI
 ```
 
-通常の`import pcbasm.pasting`でtorch、torchvision、Hydra、Optuna、MLflow、ONNX Runtimeをeager
-importしない。Hydra entrypoint、運用CLI、model loaderを呼んだ時点で必要依存を読み、未installなら
+通常の`import pcbasm.pasting`でtorch、torchvision、Optuna、MLflow、ONNX Runtimeをeager
+importしない。学習entrypoint、運用CLI、model loaderを呼んだ時点で必要依存を読み、未installなら
 必要なdependency groupを示す明確なerrorを返す。
 
 `ml`側は逆に、torchを隠すための関数内importをしない。`ml-runtime`だけをinstallした
-Raspberry Pi 5で推論経路が動くよう、MLflow / Hydra / Optuna / ONNXを要求するのは
-それぞれのadapter moduleに限る。
+Raspberry Pi 5で推論経路が動くよう、MLflow / Optuna / ONNXを要求するのは
+それぞれのadapter moduleに限る。`ml.config` / `ml.tuning.study`はどれも要求しない。
 
-### Hydra entrypointと運用CLI
+### 学習entrypointと運用CLI
 
-Hydraとsubcommand parserに同じargvを処理させない。Hydraは`key=value` override、`-m`、`--cfg`、
-working directoryを独自に扱うため、`pcbasm.cli.paste_volume train ...`の残り引数をHydraへ中継する
-adapterは作らない。学習・fine-tuning・評価はHydraがargv全体を所有する独立moduleとする。
+学習entrypointとsubcommand parserに同じargvを処理させない。学習entrypointは
+`group=option`と`key=value`だけを受け取るので、`pcbasm.cli.paste_volume train ...`の残り引数を
+中継するadapterは作らない。学習・fine-tuning・評価はargv全体を所有する独立moduleとする。
+`group=option`か`key=value`かは、`name`がconfig root直下のdirectoryとして実在するかで振り分ける。
 
 ```text
 python -m pcbasm.pasting.paste_volume.train \
@@ -881,7 +903,7 @@ python -m pcbasm.pasting.paste_volume.train \
     experiment=fine_tune model.initial_weights=/abs/weights.pt \
     data.manifest=/abs/machine-a-fine-tune.composite.json
 
-python -m pcbasm.pasting.paste_volume.train -m \
+python -m pcbasm.pasting.paste_volume.search \
     experiment=base hyperparameter_search=base_optuna \
     data.manifest=/abs/base-2026-09.composite.json
 
@@ -895,8 +917,8 @@ resumeだけは`resume.checkpoint=/abs/latest.pt`、fine-tuning初期weightは
 `model.initial_weights=/abs/weights.pt`とし、意味を分ける。`split=test`はさらに
 `allow_frozen_test=true`を要求し、通常の学習完了処理やOptuna trialから自動実行しない。
 
-dataset検証、export、最適化、benchmark、単発推論はexperiment configを必要としないため、Hydraを
-使わない薄い運用CLIへ残す。
+dataset検証、export、最適化、benchmark、単発推論はexperiment configを必要としないため、
+薄い運用CLIへ残す。
 
 ```text
 python -m pcbasm.cli.paste_volume dataset merge \
@@ -1005,14 +1027,14 @@ versionを残す。
     checkpointから再開できることを確認する。
 - 中断あり/なしで同じseedの最終weightとmetricが一致するcheckpoint resume testを行う。
 
-### Phase 3: Hydra、Optuna、MLflow
+### Phase 3: 設定合成、Optuna、MLflow
 
-- packaged config、Hydra train/evaluate entrypoint、Optuna search configを実装する。
-- config compose、未知key拒否、path解決、single run、multirun、persistent study再開をintegration testで
-    確認する。
-- explicit logger、解決済みconfig、metric、artifact、failure記録を実装する。
+- packaged config group、train/evaluate entrypoint、TOMLのsearch space宣言を実装する。
+- config compose、未知key拒否、path解決、single run、複数processの合流、persistent study再開を
+    integration testで確認する。
+- explicit logger、合成後のfrozen config、metric、artifact、failure記録を実装する。
 - 実local MLflow serverを使うintegration testでrunとartifactを読み戻す。MLflow APIはmockしない。
-- Hydra entrypointと、`dataset merge/validate/summarize`を含むHydra非依存の運用CLIを接続する。
+- 学習entrypointと、`dataset merge/validate/summarize`を含む運用CLIを接続する。
 
 ### Phase 4: exportとedge評価
 
@@ -1036,7 +1058,7 @@ versionを残す。
 - torchvisionでRGB CHWへ統一し、各pre/post pairの`[6, H, W]`全体へaffineなしの
     `SampleLayerNorm`を適用し、batch、channel別、train dataset由来の前処理統計を持たない。
 - encoderがGroupNormだけを使い、batch size 1でもtrain/eval間でrunning statisticsへ依存しない。
-- Hydraの解決済みconfigからpure Python training APIを実行でき、Optuna studyと全trialをMLflowから
+- 合成後のfrozen configからpure Python training APIを実行でき、Optuna studyと全trialをMLflowから
     追跡できる。
 - `torch.compile`が既定ONで、eager parity、compile時間、checkpoint、ONNX exportの境界が検証される。
 - Lightningなしのpure PyTorch training coreでbase trainingとPi fine-tuningが動き、Pi fine-tuningが
@@ -1059,9 +1081,9 @@ versionを残す。
 - [PyTorch: Dynamic Shapes](https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/torch.compiler_dynamic_shapes.html)
 - [PyTorch: Saving and Loading Models](https://docs.pytorch.org/tutorials/beginner/saving_loading_models.html)
 - [PyTorch: torch.export-based ONNX Exporter](https://docs.pytorch.org/docs/stable/onnx)
-- [Hydra](https://hydra.cc/docs/intro/)
-- [Hydra Optuna Sweeper](https://hydra.cc/docs/plugins/optuna_sweeper/)
 - [Lightning-Hydra-Template](https://github.com/ashleve/lightning-hydra-template)
+- [Optuna: Distributed Optimization](https://optuna.readthedocs.io/en/stable/tutorial/10_key_features/004_distributed.html)
+- [Python: tomllib](https://docs.python.org/3/library/tomllib.html)
 - [MLflow Tracking](https://mlflow.org/docs/latest/ml/tracking/)
 - [MLflow Tracking Server](https://mlflow.org/docs/latest/self-hosting/architecture/tracking-server/)
 - [ONNX Runtime Python](https://onnxruntime.ai/docs/get-started/with-python.html)

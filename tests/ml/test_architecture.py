@@ -25,11 +25,14 @@ DEPENDENCY_FREE_MODULES = (
     "ml.artifact.document",
     "ml.artifact.fingerprint",
     "ml.artifact.package",
+    "ml.config.composition",
+    "ml.config.packaged",
     "ml.experiment.logger",
     "ml.experiment.provenance",
     "ml.export.manifest",
     "ml.export.promotion",
     "ml.serialization",
+    "ml.tuning.study",
 )
 
 # ``ml-runtime`` だけを install した Raspberry Pi 5 で import できる層。MR ごとに追加する。
@@ -53,10 +56,11 @@ RUNTIME_MODULES = (
     "ml.training.transaction",
 )
 
+# ``hydra`` / ``omegaconf`` は挙げない。案 C（Hydra なし）で install されないため、
+# 挙げても「読み込まれていないこと」が常に成り立ち、assertion が空虚になる。
+# 機構を守らないテストになるので、実際に install される依存だけを列挙する。
 HEAVY_DEPENDENCIES = (
-    "hydra",
     "mlflow",
-    "omegaconf",
     "onnx",
     "onnxruntime",
     "onnxscript",
@@ -66,10 +70,9 @@ HEAVY_DEPENDENCIES = (
 )
 
 # 学習と探索でしか要らない依存。``ml-runtime`` 層はこれらを読んではならない。
+# ``hydra`` / ``omegaconf`` を挙げない理由は :data:`HEAVY_DEPENDENCIES` と同じ。
 TRAINING_ONLY_DEPENDENCIES = (
-    "hydra",
     "mlflow",
-    "omegaconf",
     "onnx",
     "onnxscript",
     "optuna",
@@ -184,7 +187,11 @@ class TestDependencyFreeLayer:
 class TestRuntimeLayer:
     """推論経路は ``ml-runtime`` だけで import できる.
 
-    Raspberry Pi 5 へ MLflow / Hydra / Optuna / ONNX を入れずに済ませるための契約。
+    Raspberry Pi 5 へ MLflow / Optuna / ONNX を入れずに済ませるための契約。
+
+    ``ml.tuning.search_space`` と ``ml.tuning.runner`` は optuna を import する
+    ``ml-hpo`` 層なので、ここには入れない。
+
     torch と torchvision は隠さない（隠すと関数内 import が散り、型が失われる）。
     """
 
