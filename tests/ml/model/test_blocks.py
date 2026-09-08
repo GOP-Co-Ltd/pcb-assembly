@@ -392,3 +392,49 @@ class TestImageEncoder:
 
         with pytest.raises(ValueError, match="valid pixel mask"):
             encoder(images, torch.ones(1, 3, 32, 32, dtype=torch.bool))
+
+
+class TestExportedDynamicShapes:
+    """``torch.export`` 後も高さ・幅が固定されない.
+
+    mask 経路の shape 検査に ``int()`` が入ると、非 strict export が SymInt を
+    example の解像度へ落とし、``dynamic_shapes`` の宣言が黙って無視される。
+
+    ``strict=False`` を明示するのは、torch 側の既定が変わってもこの検出力を
+    保つため。strict 経路（dynamo）では ``int()`` があっても特殊化されない。
+    """
+
+    def test_accepts_another_resolution_on_the_mask_path(self):
+        encoder = _encoder()
+        images = _images(2)
+        dynamic = {
+            0: torch.export.Dim.AUTO,
+            2: torch.export.Dim.AUTO,
+            3: torch.export.Dim.AUTO,
+        }
+
+        exported = torch.export.export(
+            encoder,
+            (images, _mask(images)),
+            dynamic_shapes={"images": dynamic, "valid_pixel_mask": dynamic},
+            strict=False,
+        )
+        other = _images(3, height=48, width=64)
+        features = exported.module()(other, _mask(other))
+
+        assert tuple(features.shape) == (3, CONFIG.output_features)
+
+    def test_accepts_another_resolution_without_a_mask(self):
+        encoder = _encoder()
+        dynamic = {
+            0: torch.export.Dim.AUTO,
+            2: torch.export.Dim.AUTO,
+            3: torch.export.Dim.AUTO,
+        }
+
+        exported = torch.export.export(
+            encoder, (_images(2),), dynamic_shapes={"images": dynamic}, strict=False
+        )
+        features = exported.module()(_images(3, height=48, width=64))
+
+        assert tuple(features.shape) == (3, CONFIG.output_features)

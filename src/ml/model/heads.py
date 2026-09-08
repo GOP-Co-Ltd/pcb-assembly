@@ -138,7 +138,9 @@ class GaussianRegressionHead(nn.Module):
                 f"{int(conditioning.shape[1])}"
                 f"（期待値 {self._config.conditioning_features}）"
             )
-        if int(conditioning.shape[0]) != int(features.shape[0]):
+        # int() を掛けると、非 strict export（torch.export の既定）が batch を
+        # example の値へ落とし、dynamic_shapes の宣言が黙って無視される。
+        if conditioning.shape[0] != features.shape[0]:
             raise ValueError(
                 "features と conditioning の batch size が一致しません: "
                 f"{int(features.shape[0])} と {int(conditioning.shape[0])}"
