@@ -27,6 +27,8 @@ DEPENDENCY_FREE_MODULES = (
     "ml.artifact.package",
     "ml.experiment.logger",
     "ml.experiment.provenance",
+    "ml.export.manifest",
+    "ml.export.promotion",
     "ml.serialization",
 )
 
@@ -38,6 +40,7 @@ RUNTIME_MODULES = (
     "ml.evaluation.compile_parity",
     "ml.evaluation.regression",
     "ml.evaluation.slices",
+    "ml.export.parity",
     "ml.model.blocks",
     "ml.model.heads",
     "ml.model.inspection",
@@ -187,5 +190,38 @@ class TestRuntimeLayer:
 
     def test_importing_them_does_not_load_training_only_dependencies(self):
         loaded = _loaded_dependencies(RUNTIME_MODULES, TRAINING_ONLY_DEPENDENCIES)
+
+        assert loaded == "[]"
+
+
+# Raspberry Pi 5 の実運転推論だけで使う層。onnxruntime と numpy しか読んではならない。
+#
+# process 起動から初回予測までの cold latency に ``import torch`` が数秒を直接足すため、
+# 推論経路に torch を持ち込まないことを機械検証する。
+INFERENCE_ONLY_MODULES = (
+    "ml.export.benchmark",
+    "ml.export.runtime",
+)
+
+INFERENCE_FORBIDDEN_DEPENDENCIES = (
+    "onnx",
+    "onnxscript",
+    "torch",
+    "torchvision",
+)
+
+
+class TestInferenceOnlyLayer:
+    """推論経路は onnxruntime と numpy だけで import できる.
+
+    ``onnxruntime`` は単体では ``onnx`` を読み込まない。量子化 API
+    (``onnxruntime.quantization``) を触った瞬間に読み込むので、両者を同じ module へ
+    置かないことをここで固定する。
+    """
+
+    def test_importing_them_does_not_load_onnx_or_torch(self):
+        loaded = _loaded_dependencies(
+            INFERENCE_ONLY_MODULES, INFERENCE_FORBIDDEN_DEPENDENCIES
+        )
 
         assert loaded == "[]"
