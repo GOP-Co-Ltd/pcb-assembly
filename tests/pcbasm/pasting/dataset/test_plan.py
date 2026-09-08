@@ -22,6 +22,7 @@ import pytest
 from pcbasm.geometry import Shift
 from pcbasm.geometry.packing import Rect
 from pcbasm.pasting.dataset.plan import (
+    MIN_COMMANDED_ROTATIONS,
     DotGridPlan,
     DotGridSpec,
     plan_dot_grid,
@@ -717,10 +718,17 @@ class TestValidateMinRotations:
         )
 
     def test_rejects_a_minimum_volume_that_barely_turns_the_stepper(self):
-        error = validate_min_rotations(_spec(volume_min_ul=0.05), rotations_per_ul=1.0)
+        # 0.05 uL x 0.001 rev/uL = 5e-5 rev で 1 マイクロステップに届かない
+        error = validate_min_rotations(
+            _spec(volume_min_ul=0.05), rotations_per_ul=0.001
+        )
 
         assert error is not None
         assert "0.05" in error
+
+    def test_the_default_floor_is_one_microstep_of_the_paste_screw(self):
+        # 200 step/rev を 64 分割した 1 マイクロステップが指令の分解能
+        assert MIN_COMMANDED_ROTATIONS == pytest.approx(1.0 / 12800)
 
     def test_boundary_at_the_rotation_floor_is_accepted(self):
         # 0.05 uL x 2.0 rev/uL = 0.1 rev = 既定の下限そのもの

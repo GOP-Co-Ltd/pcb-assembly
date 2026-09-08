@@ -28,9 +28,10 @@ DEFAULT_VIEW_COUNT = 4
 DEFAULT_VIEW_OFFSET_MM = 1.0
 DEFAULT_PASTE_HEIGHT_MM = 0.2
 
-# 指令として意味を持つ最小の吐出回転数 [rev]。これを下回る指令はステッパーの
-# 加減速だけで終わり、指令量に比例した体積が出ないため収集前に弾く。
-MIN_COMMANDED_ROTATIONS = 0.1
+# 指令として意味を持つ最小の吐出回転数 [rev]。ペーストスクリューのステッパーは
+# 200 step/rev を 64 分割で駆動するので、1 マイクロステップぶんが指令の分解能。
+# これを下回る指令は 1 マイクロステップも回らないため収集前に弾く。
+MIN_COMMANDED_ROTATIONS = 1.0 / (200 * 64)
 
 
 @attrs.frozen
