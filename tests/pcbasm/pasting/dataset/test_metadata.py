@@ -259,13 +259,11 @@ class TestMetadataOnDiskShape:
     ):
         assert payload["label"] == {"kind": "rotation_allocated"}
 
-    def test_config_records_the_interleaved_capture_order(
-        self, payload: dict[str, object]
-    ):
+    def test_config_records_the_phased_capture_order(self, payload: dict[str, object]):
         config = payload["config"]
         assert isinstance(config, dict)
 
-        assert config["capture_order"] == "interleaved"
+        assert config["capture_order"] == "phased"
 
     def test_execution_keys_match_dispense_summary(self, payload: dict[str, object]):
         assert set(_first_sample(payload)["execution"]) == {  # type: ignore[arg-type]
@@ -325,7 +323,7 @@ class TestParseMetadataV2:
         assert metadata is not None
         assert metadata.config.paste_height_mm == 0.2
         assert metadata.config.prime_extra_delay_s == 0.0
-        assert metadata.config.capture_order == "interleaved"
+        assert metadata.config.capture_order == "phased"
         assert metadata.config.crop_size_mm == 2.0
         assert metadata.config.crop_size_px == 241
         assert metadata.config.blank_count == 4
@@ -359,6 +357,20 @@ class TestParseMetadataV2:
 
         assert metadata is not None
         assert metadata.samples[0].order == 1
+
+    def test_accepts_the_interleaved_capture_order_of_earlier_sessions(
+        self, payload: dict[str, object]
+    ):
+        # 点ごとの interleave で収集済みの dataset を読めなくしない
+        config = payload["config"]
+        assert isinstance(config, dict)
+        config["capture_order"] = "interleaved"
+
+        metadata, error = parse_metadata(payload)
+
+        assert error is None
+        assert metadata is not None
+        assert metadata.config.capture_order == "interleaved"
 
     @pytest.mark.parametrize("value", ["batched", "three_pass", "Interleaved", 1])
     def test_rejects_unknown_capture_order(

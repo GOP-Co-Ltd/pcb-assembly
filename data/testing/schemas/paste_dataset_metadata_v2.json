@@ -41,7 +41,7 @@
     "initial_purge_ul": 0.2,
     "paste_height_mm": 0.2,
     "prime_extra_delay_s": 0.0,
-    "capture_order": "interleaved",
+    "capture_order": "phased",
     "cell_size_mm": 2.0,
     "cell_gap_mm": 1.0,
     "purge_cell_size_mm": 2.0,
