@@ -35,6 +35,10 @@ Claude Code / Codex とユーザーの対話で確立された規約・好み、
 - [privateの直接テスト禁止](feedback_no_private_test.md) — `_` prefix の関数/メソッド/属性は直接テストせず公開 API 経由で検証する
 - [テストはクラスにまとめる](feedback_test_class.md) — pytest テストは関数ではなく `class TestXxx` 形式に集約する
 
+## 技術選定の記録
+
+- [rustuna を採らない判断](decision_rustuna.md) — 実測で 16 倍速いが我々のボトルネックではない。再検討する条件つき
+
 ## エージェント間共有メモリ
 
 `agents/` 配下に各エージェント専用のフォルダを持つ。各 agent は自身のフォルダにのみ書き込む。
@@ -46,6 +50,8 @@ Claude Code / Codex とユーザーの対話で確立された規約・好み、
 ## 追加・運用ルール
 
 - 新しいフィードバックは `feedback_<topic>.md` として追加し、このファイルにリンクを追加する
+- 技術選定の判断は `decision_<topic>.md` として追加する（`type: decision`）。採らなかった
+    理由と、再検討する条件を必ず書く
 - frontmatter には `name`, `description`, `type: feedback` を必ず付ける
 - 重複・陳腐化したメモリは速やかに更新または削除する
 - ここに書いた規約と `.claude/settings.json` の設定が食い違ったら、どちらかを直す（記述と実態を乖離させたままにしない）
