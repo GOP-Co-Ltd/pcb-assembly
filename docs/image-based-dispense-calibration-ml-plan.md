@@ -714,30 +714,54 @@ early stopping、samplerは新規作成する。この2操作を同じconfig fie
 best.pt
     -> weights.pt
     -> ONNX FP32
-    -> ONNX Runtime optimized FP32
     -> ONNX Runtime static INT8 candidate
     -> 精度・parity・Pi benchmark
     -> promoted model package
 ```
 
-ONNX exportは`torch.onnx.export(..., dynamo=True)`を使い、batch、高さ、幅をdynamic dimensionに
-する。export対象はbatch 1用wrapperであり、入力は`SampleLayerNorm`適用済みの6 channel画像と変換前の
-`pixel_per_mm`、出力は物理単位のmeanとlog-varianceとする。前処理そのものはmanifestに従う
-Python runtime moduleへ残す。
+ONNX exportは`torch.onnx.export(..., dynamo=True)`を使い、高さと幅をdynamic dimensionにする。
+batchもdynamicにするかはPhase 5のドメイン側で決める。`ml.export`はどの軸を宣言するかを判断せず、
+宣言した軸がexport後も`dim_param`として残っているかを検査するだけとする。export対象はbatch 1用
+wrapperであり、入力は`SampleLayerNorm`適用済みの6 channel画像と変換前の`pixel_per_mm`、出力は
+物理単位のmeanとlog-varianceとする。前処理そのものはmanifestに従うPython runtime moduleへ残す。
 
-GroupNormを含むeager modelをそのままexportし、Conv、GroupNormのdecomposition、ReLU、Add、
-GlobalAveragePool、Linear、Softplus相当の標準operatorだけでgraphが構成されることをONNX modelの
-検査で確認する。独自operatorやcustom runtime extensionは許可しない。
+forwardの中でshapeへ`int()`を掛けない。`torch.export`の非strict経路（`strict=False`。torch 2.12の
+既定）はSymIntをexample入力の値へ落とすため、`Dim.AUTO`では宣言が黙って無視され、名前付き`Dim`では
+`Constraints violated`になる。`torch.onnx.export(..., dynamo=True)`は非strictの失敗を黙ってstrictへ
+落とし、strict経路のdynamoは`int()`があっても特殊化しない。したがってONNXの`dim_param`だけを見ても
+この違反には気付けない。`ml.model`のshape検査はSymIntのまま比較する。
+
+出力名はgraph内部の値名と衝突させない。`mean`をそのまま出力名にすると
+`onnx.checker.check_model(..., full_check=True)`がSSA違反で落ちるため、`predicted_mean`のように
+前置きを付ける。重みは外部データのsidecarへ出さず、`model.onnx` 1 fileへ収める。
+
+GroupNormを含むeager modelをそのままexportし、既定domainの標準operatorだけでgraphが構成される
+ことをONNX modelの検査で確認する。独自operatorやcustom runtime extensionは許可しない。opset 20で
+実測したoperator集合は`Add`、`Clip`、`Concat`、`Conv`、`Gemm`、`Greater`、
+`InstanceNormalization`、`Mul`、`ReduceMean`、`Relu`、`Reshape`、`Shape`、`Softplus`、`Where`
+である。`AdaptiveAvgPool2d((1, 1))`は`GlobalAveragePool`ではなく`ReduceMean`へ、GroupNormは
+`InstanceNormalization`と`Reshape`、`Mul`、`Add`へ分解される。実際のoperator集合はmodel構成で
+変わるため許可listは`ml`側に持たせず、呼び出し側が
+`OnnxGraphSummary.verify_standard_operators`へ渡す。
 
 ### 最適化候補
 
-1. ONNX Runtime graph optimizationを有効にしたFP32。
+1. 素のFP32。graph optimizationはartifactとして保存せず、Pi上でsessionを作るときに
+    `ORT_ENABLE_ALL`で行う。`SessionOptions.optimized_model_filepath`で保存すると
+    `com.microsoft`と`com.microsoft.nchwc`の独自operatorが混入し、ORT自身が「最適化した機体でしか
+    使うな」と警告する。「独自operatorを許可しない」と両立しないため、artifactの段階に置かない。
 2. train splitからsession均等に選んだcalibration subsetによるstatic INT8 QDQ。
 3. 必要な場合だけ固定shape bucket別artifactまたはchannel数削減を追加実験する。
 
 CNNにはdynamic quantizationではなくstatic quantizationを第一候補とする。INT8は必ずしも速く
 ならないため、生成しただけで採用しない。FP16はCPU版ONNX Runtimeの第一候補にせず、Pi上で
 明確な対応と高速化が確認された場合だけ比較対象へ加える。
+
+static INT8は既定設定では失敗する。dynamo exporterがGroupNormのones/zerosのような同じ値の
+initializerを重複排除するため、`op_types_to_quantize`を指定せずに`quantize_static`を呼ぶと
+`Quantization parameter shared mode is not supported for weight yet`で止まる。既定は`Conv`と
+`Gemm`だけを対象にし、`per_channel=False`とする。QDQ nodeが増えるぶんINT8のfileがFP32より
+大きくなることがあるので、「INT8は小さい」を前提にした選択をしない。
 
 ### 評価順序
 
@@ -789,6 +813,11 @@ INT8もprimary accuracy gateを満たし、FP32に対する
 小さく依存が単純な方を選ぶ。INT8が遅い、または精度gateを落とす場合はFP32を正式artifactに
 する。候補決定後に凍結testで全gateを再評価し、失敗した場合はpromoteしない。失敗結果を見て
 同じtestへ合わせ込まず、原因修正後は新しいdataset versionまたは新しい外部holdoutを用意する。
+
+この判定は`ml.export.promotion.PromotionDecision.decide`が事後の純関数として行う。実機benchmark
+の実測を持たない候補は構造的にpromoteできない。「生成しただけのINT8を採用しない」を運用の
+心掛けではなくコードの形にするためで、`LatencyEvidence`を作れるのはPiで
+`DeviceBenchmark.measure`を回した利用者だけとする。
 
 ### 不確かさthreshold
 
