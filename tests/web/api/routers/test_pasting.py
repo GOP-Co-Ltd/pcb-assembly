@@ -302,6 +302,140 @@ class TestInitialPurgePadConfig:
         assert response.status_code == 409
 
 
+class TestInitialPurgePoint:
+    """PATCH initial-purge の任意点指定（pad 指定と相互排他）."""
+
+    def test_patch_saves_the_point_and_resolves_it(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": [15.0, 4.0]},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["point"] == pytest.approx([15.0, 4.0])
+        assert initial["pad_id"] is None
+        assert initial["resolved"]["source"] == "point"
+        assert initial["resolved"]["pad_id"] is None
+        assert initial["resolved"]["point"] == pytest.approx([15.0, 4.0])
+        assert "15.00" in initial["selection_label"]
+
+        doc = _saved_board_settings_doc(webui_settings)
+        assert doc["settings"]["initial_purge_point"] == pytest.approx([15.0, 4.0])
+
+    def test_patching_a_point_clears_a_saved_pad_id(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
+        pad = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"pad_id": "U1.1"},
+        )
+        assert pad.status_code == 200, pad.text
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": [15.0, 4.0]},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["pad_id"] is None
+        assert initial["point"] == pytest.approx([15.0, 4.0])
+        doc = _saved_board_settings_doc(webui_settings)
+        assert "initial_purge_pad_id" not in doc["settings"]
+
+    def test_patching_a_pad_id_clears_a_saved_point(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
+        point = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": [15.0, 4.0]},
+        )
+        assert point.status_code == 200, point.text
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"pad_id": "U1.1"},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["point"] is None
+        assert initial["pad_id"] == "U1.1"
+        doc = _saved_board_settings_doc(webui_settings)
+        assert "initial_purge_point" not in doc["settings"]
+
+    def test_null_point_returns_to_the_automatic_selection(
+        self, selected_client: TestClient
+    ):
+        saved = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": [15.0, 4.0]},
+        )
+        assert saved.status_code == 200, saved.text
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": None},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["point"] is None
+        assert initial["pad_id"] is None
+        assert initial["resolved"]["source"] == "default"
+
+    def test_point_outside_the_outline_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": [999.0, 999.0]},
+        )
+
+        assert response.status_code == 400
+        assert "基板外形" in response.json()["detail"]
+
+    def test_point_and_pad_id_together_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": [15.0, 4.0], "pad_id": "U1.1"},
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.parametrize("value", [[15.0], [15.0, 4.0, 1.0]])
+    def test_malformed_point_returns_400(
+        self, selected_client: TestClient, value: list[float]
+    ):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": value},
+        )
+
+        assert response.status_code == 400
+
+    def test_amount_survives_a_point_patch(
+        self, selected_client: TestClient, config_dir: Path
+    ):
+        amount = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"initial_purge_ul": 0.22},
+        )
+        assert amount.status_code == 200, amount.text
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": [15.0, 4.0]},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["initial_purge_ul"] == pytest.approx(0.22)
+        machine_toml = config_dir / "machine.toml"
+        assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
+
+
 class TestTreeNodeResolution:
     """GET tree の各ノードの resolved / own_override / descendant_summary 契約.
 

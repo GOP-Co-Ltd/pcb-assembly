@@ -12,9 +12,11 @@ import attrs
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
+from pcbasm.geometry import Point2d
 from pcbasm.pasting.initial_purge import validate_initial_purge
 from pcbasm.pasting.params import validate_field_names, validate_param_values
 from pcbasm.pasting.route import routed_enabled_pads
+from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pcb import Layer
 from web.api.dependencies import (
     BoardStoreDep,
@@ -154,33 +156,42 @@ def patch_initial_purge(
     jobs: JobsDep,
     _control: ControlDep,
 ) -> InitialPurgeResponse:
-    """初回パージ量と pad 指定を即時保存し、解決済み設定を返す."""
+    """初回パージ量と塗布位置（pad または任意点）を即時保存し、解決済み設定を返す."""
     loaded = load_board(state, settings, board_store)
     _check_expected_pcb(body.expected_pcb, loaded)
     amount_sent = "initial_purge_ul" in body.model_fields_set
     pad_sent = "pad_id" in body.model_fields_set
+    point_sent = "point" in body.model_fields_set
     if amount_sent and body.initial_purge_ul is None:
         raise HTTPException(
             status_code=400, detail="initial_purge_ulは数値で指定してください"
+        )
+    if pad_sent and point_sent:
+        raise HTTPException(
+            status_code=400,
+            detail="初回パージは pad と座標のどちらか一方で指定してください",
         )
 
     next_amount = (
         body.initial_purge_ul if amount_sent else loaded.base_config.initial_purge_ul
     )
     assert next_amount is not None
-    next_pad_id = (
-        _normalize_initial_purge_pad_id(body.pad_id)
-        if pad_sent
-        else loaded.model.initial_purge_pad_id
+    next_pad_id, next_point = _next_initial_purge_target(
+        loaded.model,
+        body,
+        pad_sent=pad_sent,
+        point_sent=point_sent,
     )
     routed = routed_enabled_pads(
         layer_pads(loaded, Layer.TOP), loaded.hierarchy, loaded.model
     )
     error = validate_initial_purge(
         amount_ul=next_amount,
+        point=next_point,
         pad_id=next_pad_id,
         hierarchy=loaded.hierarchy,
         routed_pads=routed,
+        outline=loaded.pcb.outline.polygon,
         layer=Layer.TOP,
     )
     if error is not None:
@@ -193,12 +204,18 @@ def patch_initial_purge(
             )
         jobs.publish_state_changed()
     model = loaded.model
-    if pad_sent:
+    if pad_sent or point_sent:
+        # pad 指定と座標指定は生成メソッドが相互排他にする
+        mutate = (
+            (lambda current: current.with_initial_purge_point(next_point))
+            if point_sent
+            else (lambda current: current.with_initial_purge_pad_id(next_pad_id))
+        )
         model = board_store.update(
             loaded.source_pcb,
             loaded.base_config,
             board_signature=loaded.board_signature,
-            mutate=lambda current: current.with_initial_purge_pad_id(next_pad_id),
+            mutate=mutate,
         )
     # PCB は再パースせず、machine.toml へ書いた分だけ base_config を読み直す
     updated = attrs.evolve(
@@ -223,6 +240,35 @@ def _check_expected_pcb(expected_pcb: str | None, loaded: Loaded) -> None:
 def _normalize_initial_purge_pad_id(pad_id: str | None) -> str | None:
     """API 入力の空文字を未指定へ正規化する."""
     return None if pad_id in (None, "") else pad_id
+
+
+def _next_initial_purge_target(
+    model: PasteSettingsModel,
+    body: InitialPurgePatch,
+    *,
+    pad_sent: bool,
+    point_sent: bool,
+) -> tuple[str | None, Point2d | None]:
+    """PATCH 後のパージ対象（pad id と任意点）を決める.
+
+    どちらかを送ると他方は解除される（相互排他）。未送信なら保存済みを引き継ぐ。
+    """
+    if point_sent:
+        return None, _initial_purge_point(body.point)
+    if pad_sent:
+        return _normalize_initial_purge_pad_id(body.pad_id), None
+    return model.initial_purge_pad_id, model.initial_purge_point
+
+
+def _initial_purge_point(value: list[float] | None) -> Point2d | None:
+    """API 入力の ``[x, y]`` を Point2d へ正規化する（``None`` は指定解除）."""
+    if value is None:
+        return None
+    if len(value) != 2:
+        raise HTTPException(
+            status_code=400, detail="パージ位置は [x, y] の 2 要素で指定してください"
+        )
+    return Point2d(value[0], value[1])
 
 
 @router.get("/pasting/pad-config/export")
@@ -266,6 +312,7 @@ def import_pad_config(
         loaded.source_pcb,
         model,
         loaded.hierarchy,
+        outline=loaded.pcb.outline.polygon,
         board_signature=loaded.board_signature,
     )
     return build_pad_config(attrs.evolve(loaded, model=pruned))

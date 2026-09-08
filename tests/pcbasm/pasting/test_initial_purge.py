@@ -1,4 +1,4 @@
-"""Initial purge pad resolution public-contract tests."""
+"""Initial purge の対象解決（任意点 / pad / 順路先頭）の公開契約テスト."""
 
 import pytest
 from shapely import Polygon
@@ -23,6 +23,12 @@ def _rect(cx: float, cy: float, w: float = 1.0, h: float = 1.0) -> Polygon:
             (cx - hw, cy + hh),
         ]
     )
+
+
+def _outline(size: float = 20.0) -> Polygon:
+    """基板外形（原点中心の正方形）。point 検証に使う."""
+    half = size / 2.0
+    return Polygon([(-half, -half), (half, -half), (half, half), (-half, half)])
 
 
 def _pad(
@@ -66,15 +72,17 @@ class TestResolveInitialPurge:
 
         resolved, error = resolve_initial_purge(
             amount_ul=0.1,
+            point=None,
             pad_id=None,
             hierarchy=hierarchy,
             routed_pads=[first_routed, later],
+            outline=_outline(),
         )
 
         assert error is None
         assert isinstance(resolved, ResolvedInitialPurge)
         assert resolved.pad_id == "U1.2"
-        assert resolved.pad.center == first_routed.center
+        assert resolved.point == first_routed.center
         assert resolved.amount_ul == pytest.approx(0.1)
 
     def test_explicit_disabled_top_pad_is_allowed(self):
@@ -84,15 +92,17 @@ class TestResolveInitialPurge:
 
         resolved, error = resolve_initial_purge(
             amount_ul=0.25,
+            point=None,
             pad_id="U1.1",
             hierarchy=hierarchy,
             routed_pads=[enabled],
+            outline=_outline(),
         )
 
         assert error is None
         assert isinstance(resolved, ResolvedInitialPurge)
         assert resolved.pad_id == "U1.1"
-        assert resolved.pad.center == disabled.center
+        assert resolved.point == disabled.center
         assert resolved.amount_ul == pytest.approx(0.25)
 
     def test_amount_zero_disables_initial_purge(self):
@@ -101,9 +111,11 @@ class TestResolveInitialPurge:
 
         resolved, error = resolve_initial_purge(
             amount_ul=0.0,
+            point=None,
             pad_id=None,
             hierarchy=hierarchy,
             routed_pads=[pad],
+            outline=_outline(),
         )
 
         assert error is None
@@ -115,9 +127,11 @@ class TestResolveInitialPurge:
 
         resolved, error = resolve_initial_purge(
             amount_ul=0.1,
+            point=None,
             pad_id="R9.9",
             hierarchy=hierarchy,
             routed_pads=[pad],
+            outline=_outline(),
         )
 
         assert resolved is None
@@ -132,9 +146,11 @@ class TestResolveInitialPurge:
 
         resolved, error = resolve_initial_purge(
             amount_ul=0.1,
+            point=None,
             pad_id="R3.1",
             hierarchy=hierarchy,
             routed_pads=[top],
+            outline=_outline(),
         )
 
         assert resolved is None
@@ -156,9 +172,11 @@ class TestValidateInitialPurge:
 
         error = validate_initial_purge(
             amount_ul=0.1,
+            point=None,
             pad_id="R1.1",
             hierarchy=hierarchy,
             routed_pads=[pad],
+            outline=_outline(),
         )
 
         assert error is None
@@ -169,9 +187,11 @@ class TestValidateInitialPurge:
 
         error = validate_initial_purge(
             amount_ul=0.0,
+            point=None,
             pad_id=None,
             hierarchy=hierarchy,
             routed_pads=[pad],
+            outline=_outline(),
         )
 
         assert error is None
@@ -182,9 +202,11 @@ class TestValidateInitialPurge:
 
         error = validate_initial_purge(
             amount_ul=0.0,
+            point=None,
             pad_id="R1.1",
             hierarchy=hierarchy,
             routed_pads=[pad],
+            outline=_outline(),
         )
 
         assert error is None
@@ -197,9 +219,11 @@ class TestValidateInitialPurge:
 
         error = validate_initial_purge(
             amount_ul=0.0,
+            point=None,
             pad_id="R9.9",
             hierarchy=hierarchy,
             routed_pads=[pad],
+            outline=_outline(),
         )
 
         assert error is not None
@@ -213,9 +237,11 @@ class TestValidateInitialPurge:
 
         error = validate_initial_purge(
             amount_ul=0.0,
+            point=None,
             pad_id="R3.1",
             hierarchy=hierarchy,
             routed_pads=[top],
+            outline=_outline(),
         )
 
         assert error is not None
@@ -228,9 +254,11 @@ class TestValidateInitialPurge:
 
         error = validate_initial_purge(
             amount_ul=-0.1,
+            point=None,
             pad_id=None,
             hierarchy=hierarchy,
             routed_pads=[pad],
+            outline=_outline(),
         )
 
         assert error is not None
@@ -243,15 +271,166 @@ class TestValidateInitialPurge:
 
         _, resolve_error = resolve_initial_purge(
             amount_ul=0.1,
+            point=None,
             pad_id="R9.9",
             hierarchy=hierarchy,
             routed_pads=[pad],
+            outline=_outline(),
         )
         validate_error = validate_initial_purge(
             amount_ul=0.1,
+            point=None,
             pad_id="R9.9",
             hierarchy=hierarchy,
             routed_pads=[pad],
+            outline=_outline(),
         )
 
         assert validate_error == resolve_error
+
+
+class TestResolveInitialPurgePoint:
+    """任意点の指定は pad 指定と順路先頭より優先する."""
+
+    def test_point_takes_priority_over_pad_id_and_route_head(self):
+        routed = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        explicit = _pad("U1", "1", center=Point2d(3.0, 4.0))
+        hierarchy = _hierarchy([routed, explicit])
+
+        resolved, error = resolve_initial_purge(
+            amount_ul=0.1,
+            point=Point2d(-6.0, 7.5),
+            pad_id="U1.1",
+            hierarchy=hierarchy,
+            routed_pads=[routed],
+            outline=_outline(),
+        )
+
+        assert error is None
+        assert isinstance(resolved, ResolvedInitialPurge)
+        assert resolved.source == "point"
+        assert resolved.point == Point2d(-6.0, 7.5)
+        assert resolved.pad is None
+        assert resolved.pad_id is None
+
+    def test_point_label_shows_the_coordinates(self):
+        pad = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        hierarchy = _hierarchy([pad])
+
+        resolved, error = resolve_initial_purge(
+            amount_ul=0.1,
+            point=Point2d(1.5, -2.25),
+            pad_id=None,
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+            outline=_outline(),
+        )
+
+        assert error is None
+        assert resolved is not None
+        assert "1.50" in resolved.label
+        assert "-2.25" in resolved.label
+
+    def test_pad_resolution_reports_the_pad_source_and_center(self):
+        pad = _pad("R1", "1", center=Point2d(2.0, 3.0))
+        hierarchy = _hierarchy([pad])
+
+        resolved, error = resolve_initial_purge(
+            amount_ul=0.1,
+            point=None,
+            pad_id="R1.1",
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+            outline=_outline(),
+        )
+
+        assert error is None
+        assert resolved is not None
+        assert resolved.source == "pad"
+        assert resolved.pad is not None
+        assert resolved.point == pad.center
+        assert resolved.label == "R1.1"
+
+    def test_point_outside_the_board_outline_returns_error_text(self):
+        pad = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        hierarchy = _hierarchy([pad])
+
+        resolved, error = resolve_initial_purge(
+            amount_ul=0.1,
+            point=Point2d(50.0, 0.0),
+            pad_id=None,
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+            outline=_outline(),
+        )
+
+        assert resolved is None
+        assert error is not None
+        assert "基板外形" in error
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf")])
+    def test_non_finite_point_returns_error_text(self, value: float):
+        pad = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        hierarchy = _hierarchy([pad])
+
+        resolved, error = resolve_initial_purge(
+            amount_ul=0.1,
+            point=Point2d(value, 0.0),
+            pad_id=None,
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+            outline=_outline(),
+        )
+
+        assert resolved is None
+        assert error is not None
+
+    def test_amount_zero_disables_the_point_purge(self):
+        pad = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        hierarchy = _hierarchy([pad])
+
+        resolved, error = resolve_initial_purge(
+            amount_ul=0.0,
+            point=Point2d(1.0, 1.0),
+            pad_id=None,
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+            outline=_outline(),
+        )
+
+        assert error is None
+        assert resolved is None
+
+    def test_amount_zero_still_validates_an_off_board_point(self):
+        # 無効化中でも不正な点を保存させない（pad 指定と同じ規則）
+        pad = _pad("R1", "1", center=Point2d(0.0, 0.0))
+        hierarchy = _hierarchy([pad])
+
+        error = validate_initial_purge(
+            amount_ul=0.0,
+            point=Point2d(50.0, 0.0),
+            pad_id=None,
+            hierarchy=hierarchy,
+            routed_pads=[pad],
+            outline=_outline(),
+        )
+
+        assert error is not None
+        assert "基板外形" in error
+
+    def test_point_resolution_ignores_a_missing_route(self):
+        # 順路が空でも点指定なら解決できる（pad を必要としない）
+        hierarchy = _hierarchy([_pad("R1", "1", center=Point2d(0.0, 0.0))])
+
+        resolved, error = resolve_initial_purge(
+            amount_ul=0.1,
+            point=Point2d(1.0, 1.0),
+            pad_id=None,
+            hierarchy=hierarchy,
+            routed_pads=[],
+            outline=_outline(),
+        )
+
+        assert error is None
+        assert resolved is not None
+        assert resolved.source == "point"

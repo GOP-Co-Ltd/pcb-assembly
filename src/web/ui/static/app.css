@@ -1127,7 +1127,8 @@ h2 {
 .pad-initial-purge-actions {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* 3 ボタンを 1 行に収める。行が増えると基板ビューが画面外へ押し出される */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.35rem;
   min-width: 0;
 }
@@ -1296,6 +1297,25 @@ h2 {
   font-weight: 700;
   text-anchor: middle;
   dominant-baseline: central;
+}
+
+.pad-purge-marker circle {
+  fill: var(--accent);
+  stroke: #ffffff;
+  stroke-width: 0.12;
+}
+
+.pad-purge-marker text {
+  fill: #ffffff;
+  font-size: 0.55px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+/* マーカー打ちモード中はクリック先が「基板上の点」であることを示す */
+.pad-viewer-picking {
+  cursor: crosshair;
 }
 
 .pad-select-rect {

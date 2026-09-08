@@ -46,6 +46,7 @@ import {
     fillPath: null,
     fillPathLoading: false,
     initialPurgeSaving: false,
+    purgePointMode: false,
     padEls: new Map(),
     rowEls: new Map(),
     parentOf: new Map(),
@@ -71,6 +72,9 @@ import {
   );
   const initialPurgeSetPadButton = document.getElementById(
     "pad-set-initial-purge-pad"
+  );
+  const initialPurgeSetPointButton = document.getElementById(
+    "pad-set-initial-purge-point"
   );
   const initialPurgeClearPadButton = document.getElementById(
     "pad-clear-initial-purge-pad"
@@ -156,9 +160,26 @@ import {
         ? `${pad.id} を初回パージパッドに設定`
         : "パッドマップで Top 面のパッドを1つ選択";
     }
+    if (initialPurgeSetPointButton) {
+      initialPurgeSetPointButton.textContent = state.purgePointMode
+        ? "位置をクリック（取消）"
+        : "パージ位置を設定";
+      initialPurgeSetPointButton.title = state.purgePointMode
+        ? "基板ビューの任意位置をクリックするとそこがパージ位置になります"
+        : "基板上の任意位置をパージ位置に設定";
+      initialPurgeSetPointButton.dataset.mode = state.purgePointMode
+        ? "picking"
+        : "idle";
+    }
     if (initialPurgeClearPadButton) {
       initialPurgeClearPadButton.title = "塗布順路先頭の自動選択に戻す";
     }
+  }
+
+  function setPurgePointMode(active) {
+    state.purgePointMode = active;
+    svg.classList.toggle("pad-viewer-picking", active);
+    renderInitialPurgeControls({ syncAmount: false });
   }
 
   function padById(id) {
@@ -194,6 +215,12 @@ import {
 
   svg.addEventListener("pointerdown", (evt) => {
     if (state.locked || evt.button !== 0) return;
+    if (state.purgePointMode) {
+      const point = svgPoint(svg, evt);
+      setPurgePointMode(false);
+      patchInitialPurge({ point: [point.x, point.y] });
+      return;
+    }
     dragModifier = evt.shiftKey ? "add" : evt.altKey ? "remove" : "replace";
     dragStart = svgPoint(svg, evt);
     dragPadId =
@@ -500,9 +527,13 @@ import {
       initialPurgeSetPadButton.disabled =
         editingLocked || selectedInitialPurgePad() === null;
     }
+    if (initialPurgeSetPointButton) {
+      initialPurgeSetPointButton.disabled = editingLocked;
+    }
     if (initialPurgeClearPadButton) {
+      const purge = state.config?.initial_purge;
       initialPurgeClearPadButton.disabled =
-        editingLocked || !state.config?.initial_purge?.pad_id;
+        editingLocked || !(purge?.pad_id || purge?.point);
     }
   }
 
@@ -578,9 +609,17 @@ import {
     });
   }
 
+  if (initialPurgeSetPointButton) {
+    initialPurgeSetPointButton.addEventListener("click", () => {
+      if (state.locked) return;
+      setPurgePointMode(!state.purgePointMode);
+    });
+  }
+
   if (initialPurgeClearPadButton) {
     initialPurgeClearPadButton.addEventListener("click", () => {
       if (state.locked) return;
+      setPurgePointMode(false);
       patchInitialPurge({ pad_id: null });
     });
   }
@@ -590,6 +629,7 @@ import {
       const active = window.webui.jobs.isActive(job);
       if (active === state.locked) return;
       state.locked = active;
+      if (active) setPurgePointMode(false);
       if (!state.config) return;
       renderTable();
       applyToolbarLock();

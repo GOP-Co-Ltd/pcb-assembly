@@ -281,8 +281,9 @@ def _wait_for_initial_purge(
     amount: float | None = None,
     pad_id: str | None = None,
     resolved_pad_id: str | None = None,
+    resolved_source: str | None = None,
 ) -> dict[str, Any]:
-    """initial_purge の amount / pad_id / resolved.pad_id が期待値になるまで待つ."""
+    """initial_purge の amount / pad_id / resolved が期待値になるまで待つ."""
 
     def matches(config: dict[str, Any]) -> bool:
         initial = config["initial_purge"]
@@ -293,6 +294,10 @@ def _wait_for_initial_purge(
             and (
                 resolved_pad_id is None
                 or (resolved is not None and resolved["pad_id"] == resolved_pad_id)
+            )
+            and (
+                resolved_source is None
+                or (resolved is not None and resolved["source"] == resolved_source)
             )
         )
 
@@ -565,6 +570,51 @@ class TestPasteSolderBrowserRendering:
 
         machine_toml = live_server.settings.config_dir / "machine.toml"
         assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
+
+    def test_purge_point_is_placed_by_clicking_the_board_and_persists(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        _select_led_blinker(live_server)
+
+        _open_paste_solder(browser_page, live_ui)
+        set_point_button = browser_page.locator(_testid("pad-set-initial-purge-point"))
+        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
+        marker = browser_page.locator(_testid("pad-purge-marker"))
+        set_point_button.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert marker.count() == 0
+
+        set_point_button.click()
+        # 基板ビューの中央をクリックした点がパージ位置になる（外形線は
+        # fill:none でヒットしないので SVG 自体を叩く）
+        browser_page.locator(_testid("pad-viewer")).click(force=True)
+        purge = _wait_for_initial_purge(live_server, resolved_source="point")
+        assert purge["initial_purge"]["point"] is not None
+
+        browser_page.wait_for_function(
+            """(selector) => document.querySelector(selector) !== null""",
+            arg=_testid("pad-purge-marker"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+        assert "座標" in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
+
+        browser_page.reload(wait_until="domcontentloaded")
+        browser_page.wait_for_function(
+            """(selector) => document.querySelector(selector) !== null""",
+            arg=_testid("pad-purge-marker"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
+        assert "座標" in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
+
+        clear_pad_button = browser_page.locator(_testid("pad-clear-initial-purge-pad"))
+        assert not clear_pad_button.is_disabled()
+        clear_pad_button.click()
+        _wait_for_initial_purge(live_server, resolved_source="default")
+        browser_page.wait_for_function(
+            """(selector) => document.querySelector(selector) === null""",
+            arg=_testid("pad-purge-marker"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
 
 
 class TestPasteSolderBrowserPadInteraction:

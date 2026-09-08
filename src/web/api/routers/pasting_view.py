@@ -121,9 +121,10 @@ class HierNodeInfo(BaseModel):
 
 
 class ResolvedInitialPurgeInfo(BaseModel):
-    """初回パージの実行対象として解決された pad 情報."""
+    """初回パージの実行対象として解決された塗布点情報."""
 
-    pad_id: str
+    pad_id: str | None
+    label: str
     amount: float
     point: list[float]
     source: str
@@ -134,6 +135,7 @@ class InitialPurgeInfo(BaseModel):
 
     initial_purge_ul: float
     pad_id: str | None
+    point: list[float] | None
     default_pad_id: str | None
     resolved: ResolvedInitialPurgeInfo | None
     selection_label: str
@@ -251,6 +253,7 @@ class InitialPurgePatch(BaseModel):
 
     initial_purge_ul: float | None = None
     pad_id: str | None = None
+    point: list[float] | None = None  # board 座標 [x, y]（pad_id と相互排他）
     expected_pcb: str | None = None  # 編集開始時の PCB（不一致なら 409）
 
 
@@ -361,11 +364,14 @@ def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
     routed = routed_enabled_pads(
         layer_pads(loaded, Layer.TOP), loaded.hierarchy, loaded.model
     )
+    point = loaded.model.initial_purge_point
     resolution = resolve_initial_purge_for(
         amount_ul=loaded.base_config.initial_purge_ul,
+        point=point,
         pad_id=loaded.model.initial_purge_pad_id,
         hierarchy=loaded.hierarchy,
         routed_pads=routed,
+        outline=loaded.pcb.outline.polygon,
     )
     resolved, default_pad_id, error = (
         resolution.resolved,
@@ -374,32 +380,39 @@ def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
     )
     if error is not None:
         raise HTTPException(status_code=400, detail=error)
-    selection_label = (
-        loaded.model.initial_purge_pad_id
-        if loaded.model.initial_purge_pad_id is not None
-        else (
-            f"自動 ({default_pad_id})"
-            if default_pad_id is not None
-            else "自動 (設定が必要)"
-        )
-    )
     return InitialPurgeInfo(
         initial_purge_ul=loaded.base_config.initial_purge_ul,
         pad_id=loaded.model.initial_purge_pad_id,
+        point=None if point is None else [point.x, point.y],
         default_pad_id=default_pad_id,
         resolved=(
             ResolvedInitialPurgeInfo(
                 pad_id=resolved.pad_id,
+                label=resolved.label,
                 amount=resolved.amount_ul,
-                point=[resolved.pad.center.x, resolved.pad.center.y],
+                point=[resolved.point.x, resolved.point.y],
                 source=resolved.source,
             )
             if resolved is not None
             else None
         ),
-        selection_label=selection_label,
+        selection_label=_purge_selection_label(loaded.model, default_pad_id),
         error=error,
     )
+
+
+def _purge_selection_label(
+    model: PasteSettingsModel, default_pad_id: str | None
+) -> str:
+    """パージ位置の指定内容を表示用文字列に組む（サーバー側で確定させる）."""
+    if model.initial_purge_point is not None:
+        point = model.initial_purge_point
+        return f"座標 ({point.x:.2f}, {point.y:.2f}) mm"
+    if model.initial_purge_pad_id is not None:
+        return model.initial_purge_pad_id
+    if default_pad_id is not None:
+        return f"自動 ({default_pad_id})"
+    return "自動 (設定が必要)"
 
 
 def pad_info(

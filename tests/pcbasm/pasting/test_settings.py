@@ -788,6 +788,45 @@ class TestWithPadsEnabled:
         assert resolved[("R1", "1")].enabled is True
 
 
+class TestInitialPurgeSelection:
+    """パージ位置の pad 指定と任意点指定は生成メソッドで相互排他にする."""
+
+    def _model(self) -> PasteSettingsModel:
+        return PasteSettingsModel(base=_full_base())
+
+    def test_setting_a_point_clears_the_pad_id(self):
+        model = self._model().with_initial_purge_pad_id("U1.1")
+
+        updated = model.with_initial_purge_point(Point2d(1.0, 2.0))
+
+        assert updated.initial_purge_point == Point2d(1.0, 2.0)
+        assert updated.initial_purge_pad_id is None
+
+    def test_setting_a_pad_id_clears_the_point(self):
+        model = self._model().with_initial_purge_point(Point2d(1.0, 2.0))
+
+        updated = model.with_initial_purge_pad_id("U1.1")
+
+        assert updated.initial_purge_pad_id == "U1.1"
+        assert updated.initial_purge_point is None
+
+    def test_clearing_the_pad_id_returns_to_automatic(self):
+        model = self._model().with_initial_purge_point(Point2d(1.0, 2.0))
+
+        updated = model.with_initial_purge_pad_id(None)
+
+        assert updated.initial_purge_pad_id is None
+        assert updated.initial_purge_point is None
+
+    def test_clearing_the_point_returns_to_automatic(self):
+        model = self._model().with_initial_purge_pad_id("U1.1")
+
+        updated = model.with_initial_purge_point(None)
+
+        assert updated.initial_purge_pad_id is None
+        assert updated.initial_purge_point is None
+
+
 class TestOverrideSummaries:
     """own_override_summary / descendant_override_summary の集計."""
 

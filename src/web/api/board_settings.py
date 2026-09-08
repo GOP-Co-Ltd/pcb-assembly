@@ -18,6 +18,8 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
+from shapely import Point, Polygon
+
 from pcbasm.config import PasteDispenser
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.persist import (
@@ -170,9 +172,10 @@ class BoardSettingsStore:
         model: PasteSettingsModel,
         hierarchy: PadHierarchy,
         *,
+        outline: Polygon,
         board_signature: str | None = None,
     ) -> PasteSettingsModel:
-        """現階層に存在しない設定キー（孤児）と不在の初回パージ pad を除去して保存する."""
+        """現基板に無い設定（孤児キー・不在 pad・外形外のパージ点）を除いて保存する."""
         orphans = model.find_orphans(hierarchy)
         known_pad_ids = {hierarchy.pad_id_for_pad(pad) for pad in hierarchy.iter_pads()}
         pruned = model.without_levels(orphans)
@@ -181,6 +184,9 @@ class BoardSettingsStore:
             and pruned.initial_purge_pad_id not in known_pad_ids
         ):
             pruned = pruned.with_initial_purge_pad_id(None)
+        point = pruned.initial_purge_point
+        if point is not None and not outline.covers(Point(point.x, point.y)):
+            pruned = pruned.with_initial_purge_point(None)
         self.save(source_pcb, pruned, board_signature=board_signature)
         return pruned
 

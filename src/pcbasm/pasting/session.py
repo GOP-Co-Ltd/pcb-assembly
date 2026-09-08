@@ -154,6 +154,16 @@ class PasteSession:
             correction.height_plane,
         )
 
+    def point_transform(self, point: Point2d, correction: PasteCorrection) -> Transform:
+        """任意の board 点用の board → 補正 → toolhead → 高さ変換を返す.
+
+        pad を持たない対象（任意位置のパージなど）の入口。補正はその点を覆う
+        位置合わせ成功領域から内挿するので、点ごとに組み直す必要がある。
+        """
+        return self._point_chain(
+            correction.alignment.correction_for(point), correction.height_plane
+        )
+
     def camera_point_target(
         self, point: Point2d, *, offset: Point2d = Point2d(0.0, 0.0)
     ) -> Point2d:

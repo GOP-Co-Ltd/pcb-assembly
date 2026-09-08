@@ -1,0 +1,89 @@
+# MR4: はんだ塗布ページの任意位置パージ
+
+計画書 `docs-image-based-dispense-calibration-m-generic-frog.md` の MR4 節に対応。
+ブランチ `feature/2026-09-08/purge-point`（MR2 ブランチから分岐、target も MR2）。
+
+## 要件
+
+初回パージの対象を「基板上の pad」から「基板上の任意位置」へ拡張する。はんだ塗布
+ページで「パージ位置を設定」ボタンを押し、基板ビューの任意位置をクリックすると
+そこがパージ位置になる（マーカー表示）。
+
+## 公開インターフェース
+
+### `pcbasm.pasting.initial_purge`
+
+```python
+@attrs.frozen
+class ResolvedInitialPurge:
+    amount_ul: float
+    point: Point2d            # board 座標の塗布点（pad 由来なら pad 中心）
+    label: str                # 表示用（pad id か座標文字列）
+    pad: Pad | None           # pad 由来なら pad。位置合わせに使う
+    pad_id: str | None
+    source: Literal["point", "pad", "default"]
+
+def resolve_initial_purge(
+    *, amount_ul: float, point: Point2d | None, pad_id: str | None,
+    hierarchy: PadHierarchy, routed_pads: Sequence[Pad], outline: Polygon,
+    layer: Layer = Layer.TOP,
+) -> tuple[ResolvedInitialPurge | None, str | None]
+```
+
+優先順位は **point > pad_id > 順路先頭**。point が基板外形の外ならエラー文を返す。
+`source` の `"explicit"` は `"pad"` へ改名（point と並べて意味が通るように）。
+
+### `pcbasm.pasting.settings` / `persist`
+
+- `PasteSettingsModel.initial_purge_point: Point2d | None`
+- `with_initial_purge_point(point)` / `with_initial_purge_pad_id(pad_id)` は互いを
+    `None` にする（相互排他を生成メソッドで担保）。`with_initial_purge_pad_id(None)` は
+    「自動に戻す」＝両方クリア
+- 保存 JSON は `settings.initial_purge_point: [x, y]`。キー追加のみなので
+    `BOARD_SETTINGS_SCHEMA_VERSION` は 1 のまま（欠落は `None`）
+
+### `pcbasm.pasting.session`
+
+- `point_transform(point, correction)` を追加（`pad_transform` の点版。補正は
+    `correction_for(point)` で内挿する）
+
+### API
+
+- `InitialPurgePatch.point: list[float] | None`。`point` と `pad_id` の同時指定は 400
+- `InitialPurgeInfo.point` / `ResolvedInitialPurgeInfo.label` を追加、
+    `ResolvedInitialPurgeInfo.pad_id` を `str | None` へ
+- `selection_label` は従来どおりサーバーが組む（座標指定時は `座標 (x, y)`）
+
+## 実装ステップ
+
+1. core: `initial_purge` の点対応 → `settings` / `persist` → `session.point_transform`
+2. `workflow.PasteTargets.alignment_pads` を `pad is None` に耐えさせる
+3. `paste_solder` ジョブ: pad 由来なら `pad_transform`、点由来なら `point_transform`
+4. API: patch / info / build_initial_purge
+5. `BoardSettingsStore.prune` が外形外の点も落とす（自分の変更で生まれた
+    「保存済みの点が外形外 → GET が 400 でページが開けない」経路を塞ぐ）
+6. UI: 「パージ位置を設定」ボタン + マーカー打ちモード + `renderPurgeMarker`
+
+## テスト観点
+
+- point 解決の優先順位（point > pad_id > 順路先頭）、外形外エラー、pad と point の相互排他
+- persist の round-trip と欠落時 `None`、不正な point の拒否
+- PATCH の point 保存・同時指定 400・クリア
+- prune が外形外の点を落とす
+- ページに「パージ位置を設定」があること、e2e でマーカー打ち → 再読込で永続
+
+## 実装時の判断（計画外）
+
+- **`BoardSettingsStore.prune` へ `outline` を足した。** 保存済みの点が外形外へ出ると
+    `build_initial_purge` が 400 を投げてページ自体が開けなくなる。自分の変更で生まれた
+    経路なので prune で落とす（pad id の孤児処理と同じ扱い）
+- **`.pad-initial-purge-actions` を 2 列から 3 列へ変えた。** ボタンを 1 個足すと行が増え、
+    基板ビューが 1280x720 のビューポート外へ 0.4px はみ出して
+    `test_pad_svg_contains_visible_polygons` が落ちた（overflow は幅ではなく高さ）。
+    3 ボタンを 1 行に収めて行数を元に戻した
+- **e2e のクリック対象は `pad-outline` ではなく SVG 本体。** 外形線は `fill: none` なので
+    Playwright のヒットテストを通らない
+- **`ResolvedInitialPurge.pad` を `Pad | None` にした。** 位置合わせ pad の追加
+    （`alignment_pads`）と精密照合付き transform は pad があるときだけ使う
+- `renderPurgeMarker` は `appendEndpoint` と円＋文字の作りが似ているが、共通化は
+    しない（MR4 の範囲外の既存コードへ波及する）
