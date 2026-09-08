@@ -165,14 +165,13 @@ def _recorder(tmp_path: Path, plan: DotGridPlan) -> PasteDatasetRecorder:
 
 
 def _record_all(recorder: PasteDatasetRecorder, plan: DotGridPlan) -> None:
-    """点ごとの interleave（pre → 塗布 → post）で 1 セッションぶんを記録する."""
-    dispensed = {cell.index: cell for cell in plan.cells}
-    recorder.record_purge_execution(_execution(PURGE_ROTATIONS))
+    """3 パス（全点 pre → パージ → 全点塗布 → 全点 post）で 1 セッションぶんを記録する."""
     for target in plan.targets:
         recorder.record_pre(target, VIEW, _crop())
-        cell = dispensed.get(target.index)
-        if cell is not None:
-            recorder.record_execution(cell, _execution(SAMPLE_ROTATIONS))
+    recorder.record_purge_execution(_execution(PURGE_ROTATIONS))
+    for cell in plan.cells:
+        recorder.record_execution(cell, _execution(SAMPLE_ROTATIONS))
+    for target in plan.targets:
         assert recorder.record_post(target, VIEW, _crop()) is None
 
 
@@ -347,7 +346,7 @@ class TestPasteDatasetRecorder:
         assert config.crop_size_mm == spec.crop_size_mm
         assert config.paste_height_mm == PASTE_HEIGHT_MM
         assert config.crop_size_px == CROP_SIZE_PX
-        assert config.capture_order == "interleaved"
+        assert config.capture_order == "phased"
         assert config.view_count == 0
         assert config.view_offset_mm == 1.0
         assert config.initial_purge_ul == 0.5

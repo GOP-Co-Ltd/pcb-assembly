@@ -28,9 +28,12 @@ from pcbasm.vision.image import PixelRect
 
 type CapturePhase = Literal["pre", "post"]
 
-# 撮影順序。点ごとに pre 撮影 → 塗布 → post 撮影を回す（3 パスは採らない）。
-# 分岐を持たないので metadata へは固定値として記録する
-CAPTURE_ORDER: Literal["interleaved"] = "interleaved"
+type CaptureOrder = Literal["interleaved", "phased"]
+
+# 現版の撮影順序。全点 pre 撮影 → パージ → 全点塗布 → 全点 post 撮影の 3 パスで回す。
+# 分岐は持たないので固定値として記録するが、点ごとの interleave で収集した既存
+# dataset も読めるよう、型としては両方を受ける
+CAPTURE_ORDER: CaptureOrder = "phased"
 
 METADATA_KIND = "pcbasm-paste-volume-dataset"
 METADATA_SCHEMA_VERSION = 2
@@ -204,7 +207,7 @@ class PasteDatasetConfig:
     shuffle_seed: int
     view_count: int
     view_offset_mm: float
-    capture_order: Literal["interleaved"]
+    capture_order: CaptureOrder
 
 
 @attrs.frozen
