@@ -22,7 +22,11 @@ import torch
 from torch import Tensor, nn
 
 from ml.evaluation.compile_parity import CompileOptions
-from ml.evaluation.regression import GaussianPredictions, GaussianRegressionMetrics
+from ml.evaluation.regression import (
+    GaussianPredictions,
+    GaussianRegressionMetrics,
+    MeanSaturationDiagnostic,
+)
 from ml.model.heads import GaussianImageRegressor
 from ml.model.loss import weighted_gaussian_negative_log_likelihood
 
@@ -217,9 +221,19 @@ class GaussianRegressionTask(TrainingTask[GaussianBatch, GaussianObservation]):
     def reduce(
         self, observations: Sequence[GaussianObservation]
     ) -> Mapping[str, float]:
-        """観測値を連結し、:class:`GaussianRegressionMetrics` の各項を返す.
+        """観測値を連結し、回帰 metric と平均飽和の診断を返す.
 
-        集計できるものが残らないときは空の写像を返す。
+        平均 head の ReLU が全 sample で 0 に張り付くと、``valid_sample_mask`` が
+        ``mean > 0`` を要求するため回帰 metric を 1 つも出せない。
+
+        そこで :class:`MeanSaturationDiagnostic` の各項は metric の可否に関わらず
+        必ず返す。
+
+        空の写像を返すと運用者が受け取るのは Trainer の「monitor がありません」
+        だけになり、真の原因である飽和が読み取れなくなるため。
+
+        主要 monitor を欠かせること自体は変えない。評価できない run は
+        Trainer が従来どおり止める。
         """
 
         if not observations:
@@ -230,13 +244,13 @@ class GaussianRegressionTask(TrainingTask[GaussianBatch, GaussianObservation]):
             target=torch.cat([item.target for item in observations]),
             sample_weight=torch.cat([item.sample_weight for item in observations]),
         )
-        metrics, _ = GaussianRegressionMetrics.measure(predictions)
-        if metrics is None:
+        if predictions.validate():
             return {}
-        return {
-            name: float(cast(float, value))
-            for name, value in attrs.asdict(metrics).items()
-        }
+        values = _as_float_mapping(MeanSaturationDiagnostic.measure(predictions))
+        metrics, _ = GaussianRegressionMetrics.measure(predictions)
+        if metrics is not None:
+            values.update(_as_float_mapping(metrics))
+        return values
 
     @override
     def compile_forward(self, options: CompileOptions) -> None:
@@ -254,6 +268,14 @@ class GaussianRegressionTask(TrainingTask[GaussianBatch, GaussianObservation]):
                 dynamic=options.dynamic,
             ),
         )
+
+
+def _as_float_mapping(record: attrs.AttrsInstance) -> dict[str, float]:
+    """Frozen な集計結果を、logger へ渡せる float の写像へ落とす."""
+
+    return {
+        name: float(cast(float, value)) for name, value in attrs.asdict(record).items()
+    }
 
 
 __all__ = [

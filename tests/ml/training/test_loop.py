@@ -164,6 +164,22 @@ class _NonFiniteGradientTask(SyntheticRegressionTask):
         return attrs.evolve(result, loss=result.loss + torch.sqrt(zero * zero))
 
 
+class _ConstantMonitorTask(SyntheticRegressionTask):
+    """Monitor が一度も改善しない task.
+
+    ``ReduceLROnPlateau`` を決定論的に動かして、learning rate の記録が epoch の
+    どちら側の値かを観測できるようにする。
+    """
+
+    @override
+    def reduce(
+        self, observations: Sequence[GaussianObservation]
+    ) -> Mapping[str, float]:
+        """回帰 metric のうち monitor だけを固定値へ差し替える."""
+
+        return {**super().reduce(observations), MONITOR: 1.0}
+
+
 class _FailingExperimentLogger(RecordingExperimentLogger):
     """指定したメソッドだけ例外を投げる logger.
 
@@ -311,6 +327,23 @@ def _trainer(
         device=device,
     )
     return trainer, recorder
+
+
+def _saturated_task() -> SyntheticRegressionTask:
+    """平均が全 sample で厳密 0 のまま動かない task を作る.
+
+    全 parameter を 0 にすると trunk も mean head も 0 を出す。
+
+    ReLU'(0) が 0 なので勾配が遮断され、学習しても平均は 0 のまま。
+
+    実装ノート R-A の「平均 head が死んだ run」をそのまま再現する。
+    """
+
+    model = build_synthetic_model(seed=1)
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.zero_()
+    return SyntheticRegressionTask(model, SyntheticTaskOptions())
 
 
 def _state_dict(store: CheckpointStore, role: str) -> dict[str, torch.Tensor]:
@@ -462,6 +495,60 @@ class TestTrainerFullRun:
         assert len(logger.metrics_for("learning_rate")) == 2
         assert len(logger.metrics_for("epoch_seconds")) == 2
         assert len(logger.metrics_for("train_samples_per_second")) == 2
+
+    def test_the_logged_learning_rate_is_the_one_the_epoch_used(self, tmp_path: Path):
+        """記録する learning rate は scheduler を進める前の値.
+
+        step のあとで読むと、次 epoch の LR を当該 epoch の行へ載せてしまう。
+
+        monitor が改善しない run で ``scheduler_patience=0`` にすると、epoch 1 と 2
+        の頭で LR が下がる。記録が 1 epoch 遅れて動くことで取り違えを捕まえる。
+        """
+
+        trainer, logger = _trainer(
+            tmp_path,
+            task=_ConstantMonitorTask(
+                build_synthetic_model(seed=1), SyntheticTaskOptions()
+            ),
+            config=_config(
+                max_epochs=3,
+                learning_rate=0.02,
+                scheduler_factor=0.5,
+                scheduler_patience=0,
+            ),
+        )
+
+        trainer.run()
+
+        assert [value for _, value in logger.metrics_for("learning_rate")] == [
+            pytest.approx(0.02),
+            pytest.approx(0.02),
+            pytest.approx(0.01),
+        ]
+
+    def test_a_fully_saturated_run_logs_why_before_it_fails(self, tmp_path: Path):
+        """Monitor を欠く run でも、飽和診断の「値」が logger へ届く.
+
+        全 sample の平均が 0 だと ``valid_sample_mask`` が 1 件も残らず、回帰
+        metric を 1 つも出せない。
+
+        値が例外文だけに載ると run をまたいだ推移を追えないので、monitor 検査
+        より前に log する。
+
+        Trainer は従来どおり止める。止まること自体は変えない。
+        """
+
+        trainer, logger = _trainer(tmp_path, task=_saturated_task())
+
+        with pytest.raises(ValueError, match="monitor") as failure:
+            trainer.run()
+
+        assert logger.metrics_for("validation/saturated_positive_fraction") == [
+            (TRAIN_BATCHES_PER_EPOCH, 1.0)
+        ]
+        assert logger.metrics_for(f"validation/{MONITOR}") == []
+        # 即座の失敗も自己説明的にする。key 名だけでは原因が読み取れない
+        assert "saturated_positive_fraction=1" in str(failure.value)
 
     def test_configuration_is_logged_as_params(self, tmp_path: Path):
         trainer, logger = _trainer(tmp_path)
