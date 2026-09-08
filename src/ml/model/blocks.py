@@ -13,11 +13,16 @@ padding 値ではなく「画像ではない」ことを学習させるため。
 
 from __future__ import annotations
 
-from typing import override
+from typing import TYPE_CHECKING, override
 
 import attrs
 import torch
 from torch import Tensor, nn
+
+if TYPE_CHECKING:  # pragma: no cover - 型注釈だけで実行時には読まない
+    # 実行時に import すると ml.model.* が torchvision を道連れにする。
+    # 参照するのは constraints.minimum_size だけなので型注釈で足りる。
+    from ml.data.image import ImageConstraints
 
 _GROUP_NORM_EPS = 1e-5
 
@@ -209,6 +214,28 @@ class ImageEncoderConfig:
         for stride in (*self.stem_strides, *self.stage_strides):
             total *= stride
         return total
+
+    def validate_for_constraints(self, constraints: ImageConstraints) -> str | None:
+        """前処理が出す最小入力に対して、縮小率が過剰でないかを検証する.
+
+        最小入力が ``total_stride`` を下回ると最終 feature map が 1x1 未満になり、
+        global average pooling の平均対象が消える。
+
+        先に ``self.validate()`` へ委譲する。
+
+        ``stem_strides=(0,)`` のような壊れた設定は ``total_stride`` が 0 になり、
+        比較をすり抜けて合格を返してしまうため。
+        """
+
+        if error := self.validate():
+            return error
+        total_stride = self.total_stride
+        if constraints.minimum_size < total_stride:
+            return (
+                "minimum_size が encoder の total_stride を下回ります: "
+                f"{constraints.minimum_size} < {total_stride}"
+            )
+        return None
 
 
 class ImageEncoder(nn.Module):

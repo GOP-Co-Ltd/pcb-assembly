@@ -26,8 +26,8 @@
 - すべての物理的な塗布方式について塗布体積を推定する。
 - はんだ塗布ジョブの最初の有効な複数パッドを使ってキャリブレーションする。
 - パージ対象パッドをキャリブレーションから除外する。
-- 1 組の塗布前後画像だけでも体積を推定できる。
-- 複数視点の画像を将来利用できるデータ形式にする。
+- 1 パッドを複数視点で撮影し、複数視点のまま体積を推定する。
+- 1 view しか撮れない状況でも同じモデルで体積を推定できる。
 - 別機体で収集したデータを使い、Raspberry Pi 5 上でモデルをファインチューニングできる。
 - 従来の質量キャリブレーションを教師データの基準およびフォールバックとして残す。
 
@@ -106,20 +106,26 @@ padding 位置は、入力チャネル数と同じ長さを持つ学習可能な
 置き換える。
 
 ```text
-pre RGB + post RGB
+view ごとの pre RGB + post RGB
         ↓
-6-channel image
+6-channel image × V
         ↓
 padding を learnable mask pixel で置換
         ↓
-CNN encoder
+共有 CNN encoder（全 view で同じ重み）
         ↓
 Global Average Pooling
+        ↓
+view 方向の平均（V → 1）
         ↓
 Linear → ReLU
         ├─ mean head
         └─ logvar head
 ```
+
+view が 1 枚のときは平均が恒等になるので、同じ経路が単視点でもそのまま通る。幾何
+augmentation と有効画素 mask は 1 sample の全 view で共有し、標準化も view をまたいだ
+1 組の統計で行う（view 間の明るさ差を残すため）。
 
 padding mask は Masked Global Pooling には使用しない。通常の Global Average Pooling を
 使用し、CNN が学習可能な mask pixel を識別する構成とする。
@@ -152,8 +158,12 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 \sqrt{\exp(\mathrm{logvar})}
 \]
 
-体積を非負にするため、mean head の最終出力には Softplus を適用する。`logvar` には数値
-安定性のため上下限を設ける。学習には Gaussian negative log-likelihood を使用する。
+体積を非負にするため、mean head の最終出力には ReLU を適用する。真値 0 の blank を
+厳密な 0 として表現できる必要があるためで、Softplus は厳密な 0 を出せない。代償として
+前活性が負へ落ちた sample は平均側の勾配が 0 になるので、平均線形層の bias は
+`mean_bias_initial` で正の値から初期化し、飽和した sample の割合を診断として監視する。
+`logvar` には数値安定性のため上下限を設ける。学習には Gaussian negative log-likelihood
+を使用する。
 
 `std / mean` を相対的な信頼度指標として使用する。ただし、予測された `std` は主として
 学習分布内の不確かさを表すため、別機体や未学習条件に対する信頼度は対象機体のデータで
@@ -179,9 +189,8 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 
 ## 複数視点
 
-初期モデルは、1 組の塗布前後画像から推定できることを必須とする。データセットは、将来
-複数視点を同時入力するモデルを検討できるよう、1 パッドに複数の view を保存できる形式に
-する。
+**1 パッドを複数視点で撮影し、複数視点のまま推定する。** データセットは 1 パッドに複数の
+view を保存し、モデルは共有 CNN で各 view を符号化してから集約する。
 
 各 view は次の情報を持つ。
 
@@ -190,8 +199,21 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 - view 番号
 - 基準撮影位置からの X/Y offset [mm]
 
-複数視点モデルを実装する場合は、共有 CNN で各 view を処理し、Global Average Pooling 後の
-特徴を集約する方式を候補とする。複数視点入力は初期達成条件には含めない。
+集約は Global Average Pooling 後の特徴の**平均**とする。学習可能な parameter を持たない
+ので view 数が変わっても退化せず、5 view で学習した graph をそのまま 1 view で実行できる。
+既定の 5 view は中心 1 点と対称な 4 方向（[データ収集](#%E3%83%87%E3%83%BC%E3%82%BF%E5%8F%8E%E9%9B%86)で定義）で、view 間に
+先験的な優劣が無いことも平均を選ぶ理由になる。
+
+**view 数は学習時と推論時で一致しなくてよい。**
+
+- 学習時は batch ごとに残す view 数をランダムに選んで間引く（view dropout）。view 数への
+    過適合を避け、少ない view でも動くことを訓練時に経験させる
+- 推論時は 1 view から 5 view までを選べる。撮影時間と精度のトレードオフを運用側が選ぶ
+- `[B, V, C, H, W]` は batch 内で view 数が揃っている必要があるため、間引きは batch 単位で
+    行い、view 数の違う sample は別 batch へ分ける
+
+**達成条件は 1 view でも成立させる。** 5 view を前提にした精度だけを条件にすると、
+1 view しか撮れない状況で運用できなくなるため。
 
 ## データ収集
 
@@ -203,9 +225,16 @@ augmentation を適用した場合は、画像と同じ倍率で `pixels_per_mm`
 対象範囲は設けず、収集条件を metadata に記録する。収集対象とは別に、収集開始時だけ使用する
 パージパッドを指定する。パージパッドは学習 sample に使用しない。
 
-初期実装では基準位置のcentral viewだけを撮影する。schemaは、将来カメラをX/Y方向へ移動して
-同じパッドを複数回撮影できるよう、複数viewを保持できる。同一viewの塗布前後画像は、同じ
-撮影位置に対応させる。
+カメラをX/Y方向へ移動して同じパッドを複数回撮影する。
+
+**view の配置は「基準位置の中心 view 1 点 + 中心から 360/n 度ずつ回した n 方向」とし、
+既定は n = 4、中心からの距離は 1 mm とする。** したがって既定の view 数は
+**1 + 4 = 5** で、view 0 が offset `(0, 0)` の中心 view になる。n と距離は収集設定で
+変更できる。
+
+view 数はsession単位の設定とし、1 sessionの中では全パッドで揃える。同一viewの塗布前後
+画像は、同じ撮影位置に対応させる。複数のsessionをまたぐcomposite datasetではview数が
+混ざりうるので、学習側はview数の違うsampleを別batchへ分ける。
 
 #### はんだペースト流量キャリブレーション基板の生成仕様
 
@@ -396,8 +425,8 @@ designatorが`PURGE`である一意なTop padを自動選択する。通常の�
 同寸法の単チャネルmaskを別PNGへ保存し、F.Paste polygonを`mask_margin_mm`だけ外側へbufferした
 領域を255、その外側を0とする。`mask_margin_mm`の既定値は0.1 mmとし、maskがcropから欠けない
 よう`crop_margin_mm`以下に制限する。cropがcamera frameを越える場合はpaddingせず失敗する。
-塗布前後は同じ撮影位置とcrop矩形を使用する。初期WebUIはoffset `(0, 0)` のview 0だけを撮影
-するが、schemaは複数viewを保存できる。
+塗布前後は同じ撮影位置とcrop矩形を使用する。view ごとに撮影位置をずらし、offsetを
+metadataへ記録する。offset `(0, 0)` のview 0を基準viewとする。
 
 パッド \(i\) の教師体積は次式で求める。
 
@@ -559,6 +588,42 @@ schema v1は次の階層を持つ。すべての階層で未知keyと暗黙の�
           "pre": "pre/000001.00.png",
           "post": "post/000001.00.png",
           "mask": "mask/000001.00.png"
+        },
+        {
+          "number": 1,
+          "offset_x_mm": 1.0,
+          "offset_y_mm": 0.0,
+          "pixel_rect": [412, 200, 892, 520],
+          "pre": "pre/000001.01.png",
+          "post": "post/000001.01.png",
+          "mask": "mask/000001.01.png"
+        },
+        {
+          "number": 2,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 1.0,
+          "pixel_rect": [400, 212, 880, 532],
+          "pre": "pre/000001.02.png",
+          "post": "post/000001.02.png",
+          "mask": "mask/000001.02.png"
+        },
+        {
+          "number": 3,
+          "offset_x_mm": -1.0,
+          "offset_y_mm": 0.0,
+          "pixel_rect": [388, 200, 868, 520],
+          "pre": "pre/000001.03.png",
+          "post": "post/000001.03.png",
+          "mask": "mask/000001.03.png"
+        },
+        {
+          "number": 4,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": -1.0,
+          "pixel_rect": [400, 188, 880, 508],
+          "pre": "pre/000001.04.png",
+          "post": "post/000001.04.png",
+          "mask": "mask/000001.04.png"
         }
       ]
     }
@@ -704,6 +769,12 @@ e_i
 
 予測された不確かさについて、`mean ± 1 std` の区間が実測体積をおおむね 68.3% 包含する
 ことを評価する。
+
+**この精度条件は既定の 5 view で満たすことを必須とし、同じモデルが 1 view でも動作する
+ことを併せて確認する。** 1 view の精度は 5 view を下回ってよいが、推論が成立しない
+（実行できない、または誤差が発散する）状態は許容しない。view 数と精度の関係は評価
+report へ残し、運用側が撮影時間とのトレードオフを選べるようにする。詳細は
+[複数視点](#%E8%A4%87%E6%95%B0%E8%A6%96%E7%82%B9)。
 
 ### 性能・運用
 

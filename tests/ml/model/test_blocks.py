@@ -4,6 +4,7 @@ import attrs
 import pytest
 import torch
 
+from ml.data.image import ImageConstraints
 from ml.model.blocks import (
     GroupNormResidualBlock,
     ImageEncoder,
@@ -38,6 +39,81 @@ def _mask(images: torch.Tensor, *, valid: bool = True) -> torch.Tensor:
 
 def _with_stem_strides(stem_strides: tuple[int, ...]) -> ImageEncoderConfig:
     return attrs.evolve(CONFIG, stem_strides=stem_strides)
+
+
+def _encoder_config(*, stem_strides: tuple[int, ...]) -> ImageEncoderConfig:
+    """``total_stride`` だけを変えた encoder 設定を作る."""
+
+    return ImageEncoderConfig(
+        input_channels=6,
+        stem_channels=(8,) * len(stem_strides),
+        stem_strides=stem_strides,
+        stage_channels=(8,),
+        stage_strides=(1,),
+        blocks_per_stage=(1,),
+        group_norm_groups=8,
+    )
+
+
+class TestImageEncoderConfigValidateForConstraints:
+    """前処理の最小入力でも feature map が 1x1 未満にならないことを検証する.
+
+    検査を encoder 側へ置くのは、入力契約を知るべきなのが消費側だから。
+
+    ``ml.data`` が ``ml.model`` を import する向きも避けられる。
+    """
+
+    def test_rejects_an_encoder_that_downsamples_below_the_minimum_size(self):
+        """``total_stride`` 32 は ``minimum_size`` 16 を 1 px 未満へ潰す."""
+
+        error = _encoder_config(stem_strides=(2, 2, 2, 2, 2)).validate_for_constraints(
+            ImageConstraints()
+        )
+
+        assert error is not None
+        assert "32" in error
+        assert "16" in error
+
+    @pytest.mark.parametrize("stem_strides", [(2, 2, 2), (2, 2, 2, 2)])
+    def test_accepts_an_encoder_whose_total_stride_fits_the_minimum_size(
+        self, stem_strides: tuple[int, ...]
+    ):
+        """``total_stride`` 8 と、境界の 16 は通す."""
+
+        assert (
+            _encoder_config(stem_strides=stem_strides).validate_for_constraints(
+                ImageConstraints()
+            )
+            is None
+        )
+
+    @pytest.mark.parametrize(("minimum_size", "accepted"), [(32, True), (31, False)])
+    def test_the_boundary_is_the_total_stride_itself(
+        self, minimum_size: int, accepted: bool
+    ):
+        """境界は ``minimum_size < total_stride``.
+
+        ``total_stride`` 32 に対して 32 px はちょうど 1x1 になって通り、31 px は
+        1x1 未満へ潰れて落ちる。
+        """
+
+        error = _encoder_config(stem_strides=(2, 2, 2, 2, 2)).validate_for_constraints(
+            ImageConstraints(minimum_size=minimum_size)
+        )
+
+        assert (error is None) is accepted
+
+    def test_reports_a_broken_encoder_instead_of_passing_it(self):
+        """``stem_strides=(0,)`` は ``total_stride`` 0 で比較をすり抜ける.
+
+        先に ``validate()`` へ委譲しないと、壊れた設定が合格として返る。
+        """
+
+        error = _encoder_config(stem_strides=(0,)).validate_for_constraints(
+            ImageConstraints()
+        )
+
+        assert error == "stride は正の整数が必要です: 0"
 
 
 def _encoder() -> ImageEncoder:

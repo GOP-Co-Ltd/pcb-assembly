@@ -233,13 +233,13 @@ dataset形式自体には画像上限を設けない。v1モデルへ入れる�
 
 | 制約            |     既定値 | 動作                                           |
 | --------------- | ---------: | ---------------------------------------------- |
-| 最小の高さ・幅  |      32 px | 片方でも未満なら情報不足としてsampleを拒否する |
-| 最大の高さ・幅  |    1024 px | 超える場合は等方downscaleする                  |
+| 最小の高さ・幅  |      16 px | 片方でも未満なら情報不足としてsampleを拒否する |
+| 最大の高さ・幅  |     512 px | 超える場合は等方downscaleする                  |
 | 最大画素数      | 262,144 px | 超える場合は等方downscaleする                  |
-| CNNのstride単位 |      32 px | batch padding時だけ32の倍数へ揃える            |
+| CNNのstride単位 |       8 px | batch padding時だけ8の倍数へ揃える             |
 
 元画像はupscaleしない。最大辺と最大画素数の両方を満たす最大scaleで等方downscaleし、変換後の
-`pixel_per_mm`へ同じscaleを掛ける。したがって1024 × 256や512 × 512を扱える。極端に細長い
+`pixel_per_mm`へ同じscaleを掛ける。したがって512 × 128や512 × 512を扱える。極端に細長い
 画像を正方形へ歪めない。
 
 これらはノズル径、体積、塗布方式の制限ではなく、v1 encoderの入力品質・計算量の制約である。
@@ -295,7 +295,7 @@ mean/variance分布をreportする。
 - 回転角は`[0, 360)`から一様に選び、pre/postへ同じbilinear変換、geometry maskへ同じ
     nearest-exact変換を適用する。
 - 回転によって元canvas外から入る画素はinvalidとし、後述のlearnable padding pixelで置換する。
-- scaleは`[0.8, 1.2]`をlog-uniformで選ぶ。適用後も画像上限制約を満たすようclipし、
+- scaleは`[0.5, 2.0]`をlog-uniformで選ぶ。適用後も画像上限制約を満たすようclipし、
     `pixel_per_mm`へ実際のscaleを掛ける。
 - validation/testではaugmentationを無効化し、downscaleと正規化だけを適用する。
 - augmentationの乱数は`global_seed`、epoch、`sample_id`から導出する。worker数や中断再開で
@@ -306,42 +306,85 @@ mean/variance分布をreportする。
 固定枚数だけでbatchを作ると、最大画像に引きずられてpaddingとGPU memoryが増える。このため
 aspect ratioと面積でbucket化し、pixel budget制のbatch samplerを使う。
 
-1. 前処理後の`log2(width / height)`を0.25刻み、`log2(width * height)`を1.0刻みに丸めて
-    bucket keyとする。
+1. **view数**と、前処理後の`log2(width / height)`を0.25刻み、`log2(width * height)`を
+    1.0刻みに丸めた値をbucket keyとする。view数を鍵に含めるのは、`[B, V, C, H, W]`が
+    batch内でVの一致を要求するため。
 2. epochごとに各bucket内をseed付きでshuffleする。
 3. sampleを追加した場合の
-    `batch_size * ceil32(max_height) * ceil32(max_width)`がbudget以内の間だけ追加する。
+    `sum(view_count) * ceil8(max_height) * ceil8(max_width)`がbudget以内の間だけ追加する。
+    **view数を掛けないとpixel budgetがview数ぶん過小評価になる。**
 4. GPU base trainingの既定値は`max_batch_pixels=8,388,608`、`max_batch_size=32`とする。
 5. Raspberry Pi 5 fine-tuningの既定値は`max_batch_pixels=524,288`、
     `max_batch_size=4`とする。
 6. 最後の小batchも捨てない。encoderはGroupNormのためbatch size 1でも同じ正規化規則になる。
 
-collate時はbatch内の最大高さ・幅を32の倍数へ切り上げ、trainingでは画像の配置位置をランダム、
+collate時はbatch内の最大高さ・幅を8の倍数へ切り上げ、trainingでは画像の配置位置をランダム、
 evaluationでは中央にしてpaddingする。collateは各`sample_valid_mask`とbatch padding領域を合成し、
-画像tensorと`valid_pixel_mask [B, 1, H, W]`を返す。モデル側でinvalid位置を学習可能な6 channel
-pixel vectorへ置換するため、padding値自体に意味を持たせない。
+画像tensor`[B, V, 6, H, W]`と`valid_pixel_mask [B, V, 1, H, W]`を返す。モデル側でinvalid位置を
+学習可能な6 channel pixel vectorへ置換するため、padding値自体に意味を持たせない。
+
+**配置位置は1 sampleの全viewで共有する。** viewごとにずらすとview間の位置合わせが壊れる。
+maskはview間で共通なので`[1, H, W]`を受け取り、内部でview軸へbroadcastする。
 
 ## 2. モデル
 
 ### 入出力
 
-学習時のforward入力は次の3 tensorとする。
+学習時のforward入力は次の3 tensorとする。view軸`V`を持つ。
 
 ```text
-image_6ch:       float32 [B, 6, H, W]
-valid_pixel_mask: bool  [B, 1, H, W]
+image_6ch:       float32 [B, V, 6, H, W]
+valid_pixel_mask: bool  [B, V, 1, H, W]
 pixel_per_mm:    float32 [B, 1]
 ```
 
-外部の推論APIはpre RGB、post RGB、`pixel_per_mm`を受け取り、単一sample用のall-valid maskを
-内部で作る。batch paddingという学習上の都合を塗布ドメインAPIへ漏らさない。
+`pixel_per_mm`はsampleあたり1本で、view軸を持たない。view数を条件変数へ混ぜると平均pooling
+のview数不変性が壊れるため。
+
+**batch内でVは揃っている必要がある。** view軸のpaddingとview妥当性maskを持ち込まずに済ませる
+ので、view数の違うsampleは`_bucket_key`で別batchへ分ける。
+
+学習時は`ViewDropout`がbatchごとに残すview数を1つ選び、各sampleからその数だけviewを選ぶ。
+選び方は`(global_seed, epoch, sample_ids)`から決定論的に導き、大域乱数状態に依存させない。
+batch内で長さが揃い、昇順・重複なしになる。評価と推論では呼ばない。
+
+外部の推論APIはview ごとのpre RGB / post RGB、`pixel_per_mm`を受け取り、all-valid maskを
+内部で作る。batch paddingという学習上の都合を塗布ドメインAPIへ漏らさない。**1 viewから
+5 viewまで受け付ける。** 5 viewで学習したONNX graphはview軸をdynamicに宣言してexportする
+ので、1 viewでもそのまま実行できる。
 
 出力は次の2値とする。
 
-- `mean_volume_ul`: Softplusにより正とした平均体積
+- `mean_volume_ul`: ReLUにより非負とした平均体積（blankは厳密に0を取りうる）
 - `log_variance_volume_ul2`: 数値安定範囲へ制限した対数分散
 
 `std_volume_ul = sqrt(exp(log_variance_volume_ul2))`はモデル利用moduleで計算して公開する。
+
+### ドメイン実装者への申し送り
+
+`ml`はドメインを知らないので、次の3点は**encoderの形と学習設定を決めるドメインMR側で
+判断・実測する**。`ml`側にこれらを固定するテストは置けない。
+
+**1. `mean_bias_initial`を真値のスケールへ上書きする。** mean headをReLUにした代償として、
+前活性が負へ落ちたsampleは平均側の勾配が0になる。`GaussianHeadConfig.mean_bias_initial`は
+平均線形層のbiasを正の値から初期化してこれを防ぐが、`ml`の既定`1.0`は**中立な値でしかない**。
+この用途の真値スケール0.05〜0.2 µLに対して5〜20倍あるので、ドメイン側で上書きする。
+
+**2. trunk ReLUの死をencoderの形を決めるときに1度実測する。** `mean_bias_initial`が守るのは
+平均headのbiasだけで、head内のhidden層（`hidden_features`のLinear + ReLU）はPyTorch既定の
+初期化のまま。hidden層がbatch全体で死ぬと、head出力がbias固定になって**encoderのfeature差を
+一切映さない**model（学習はするが初期の数stepが無駄になる状態）が出来る。小さな合成encoder
+（`output_features=16`、`hidden_features=8`）では40 seed中1 seedで発生した。上記v1 encoder
+（`output_features=96`、`hidden_features=128`）の100 seed実測では0/100だが、encoderの形を
+変えたら測り直すこと。観測は「全0でないfeatureを与えたときheadの出力がsample間で動くか」で
+足りる。
+
+**3. blankとlog分散下限の相互作用（論点。結論は未確定）。** ReLU化で真値0を厳密に当てられる
+ようになった結果、blank sampleのNLLは`0.5 * log_variance`だけになり、log分散を
+`log_variance_minimum`（既定 -14）まで押し下げるのが最適になる。log分散headはtrunkを正の真値
+sampleと共有するので、**blank比率が高いと正の真値側の分散推定まで歪みうる**。`ml`は
+`sample_weight`を持っているのでblankのloss weightを下げる調整余地はあるが、どの扱いが正しいかは
+データを見て決める。blank比率とcoverageの関係を最初の学習runで確認すること。
 
 ### v1 encoder
 
@@ -354,24 +397,34 @@ convolutionとskip connectionを持ち、shape変更時だけ`1 × 1 Conv2d -> G
 | ---------------- | -------------------------------- | ----------: | ---------: |
 | stem 1           | 3 × 3 Conv, stride 2             |          24 |          2 |
 | stem 2           | 3 × 3 Conv, stride 2             |          32 |          4 |
-| stem 3           | 3 × 3 Conv, stride 2             |          48 |          8 |
-| residual stage 1 | BasicBlock × 2                   |          48 |          8 |
-| residual stage 2 | BasicBlock × 2、先頭だけstride 2 |          96 |         16 |
-| residual stage 3 | BasicBlock × 2、先頭だけstride 2 |         160 |         32 |
-| pooling          | Adaptive Global Average Pooling  |         160 |          - |
+| residual stage 1 | BasicBlock × 2                   |          48 |          4 |
+| residual stage 2 | BasicBlock × 2、先頭だけstride 2 |          96 |          8 |
+| pooling          | Adaptive Global Average Pooling  |          96 |          - |
+
+総stride 8、出力96次元、395,048 parameter。点塗布crop（27〜159 px）に対して
+feature mapは4 × 4 / 7 × 7 / 20 × 20になり、全域でGlobal Average Poolingが意味を持つ。
+**総strideは`minimum_size`（16 px）以下でなければならない**。超えると最小入力の
+feature mapが1 × 1未満になり、`ImageEncoderConfig.validate_for_constraints`が拒否する。
+
+以前の3 stem / 3 stage（総stride 32、出力160次元）は53 pxを2 × 2、27 pxを1 × 1へ潰すため
+採らない。GMACは1 viewあたり0.032（53 px）/ 0.261（159 px）で、5 viewなら
+0.16 / 1.31 GMAC。**159 px × 5 viewが計算量上限に最も近い構成**になる。
 
 入力前に`valid_pixel_mask`が偽の位置を`nn.Parameter([1, 6, 1, 1])`のlearnable padding pixelへ
 置換する。このparameterは標準化後の0から初期化し、dataset統計は使わない。Masked Global
 Poolingにはせず、通常のGlobal Average Poolingを使う。
 
-pooling後の160次元特徴へ、dataset統計で標準化していない`log(pixel_per_mm)` 1値を連結する。その後
-`Linear(161, 128) -> ReLU`を通し、独立したmean headとlog-variance headへ分ける。画像から
+pooling後の96次元特徴へ、dataset統計で標準化していない`log(pixel_per_mm)` 1値を連結する。その後
+`Linear(97, 128) -> ReLU`を通し、独立したmean headとlog-variance headへ分ける。画像から
 見かけの大きさを学びつつ、物理scaleを明示的に利用できる構成になる。
+
+多視点sampleでは、この encoder を全 view で共有し、view 軸を平坦化して通したあと平均で
+集約してからheadへ渡す（`MultiViewImageEncoder`）。
 
 modelはtrain dataset由来のscaleを介さず、µLの物理単位で直接出力する。
 
 ```text
-mean_volume_ul = Softplus(raw_mean)
+mean_volume_ul = ReLU(raw_mean)
 log_variance_volume_ul2 = clamp(raw_logvar, -14, 5)
 ```
 
@@ -383,7 +436,7 @@ dataset coverageと評価結果で表す。
 pixel-budget batchではbatch sizeが画像形状に応じて1から32まで変わり、Pi fine-tuningは最大4で
 ある。このためbatch内統計とrunning statisticsに依存するBatchNormは使わない。v1では全stemと
 residual blockに`GroupNorm(num_groups=8, num_channels=C, eps=1e-5, affine=True)`を使う。採用する
-全channel数24、32、48、96、160は8で割り切れる。
+全channel数24、32、48、96は8で割り切れる。
 8 groupはbaselineの既定値であり、Optunaで1 / 4 / 8 groupを比較した場合は、選択値をmodel configと
 manifestへ固定して別model versionとして扱う。
 
@@ -569,8 +622,14 @@ model選択はcalibration前のvalidation NLL最小を第一条件とし、同�
 3. forward、weighted NLL、backward、gradient accumulation、clip、optimizer stepを行う。
 4. 非有限lossまたはgradientを検出したら、そのstepを無視せず緊急checkpointを保存して失敗する。
 5. epoch末にvalidationを`inference_mode`で実行する。
-6. scheduler、early stopping、best checkpointを更新する。
-7. metricsと診断artifactをMLflowへ記録する。
+6. metricsと診断artifactをMLflowへ記録する。
+7. scheduler、early stopping、best checkpointを更新する。
+
+記録はmonitorの有無を検査する**前**に行う。monitorを欠いてrunを止めるときこそ原因
+（mean headの飽和など）の診断が要るのに、先に例外を投げると値が捨てられてrunをまたいだ
+推移を追えなくなるため。停止そのものは従来どおり行う。この順序により`learning_rate`は
+schedulerを進める前の値、つまり**そのepochで実際に使った値**を記録し、`epoch時間`は
+checkpoint保存を含まないepochの計算時間になる。
 
 CUDAでは`torch.amp.autocast`とGradScalerを使う。CPUではAMPを使わない。
 
@@ -639,7 +698,8 @@ MLflowのautologは使わない。pure PyTorchへのautolog対象が限定され
 **metric**
 
 - epochごとのtrain/validation lossと全評価metric
-- learning rate、epoch時間、sample/秒、peak GPU memoryまたはprocess RSS
+- learning rate（そのepochで実際に使った値）、epoch時間（checkpoint保存を含まない
+    epochの計算時間）、sample/秒、peak GPU memoryまたはprocess RSS
 - testとcross-groupごとの最終metric
 - export parity、artifact size、cold/warm latency、p50/p95/p99
 
@@ -738,8 +798,9 @@ forwardの中でshapeへ`int()`を掛けない。`torch.export`の非strict経�
 GroupNormを含むeager modelをそのままexportし、既定domainの標準operatorだけでgraphが構成される
 ことをONNX modelの検査で確認する。独自operatorやcustom runtime extensionは許可しない。opset 20で
 実測したoperator集合は`Add`、`Clip`、`Concat`、`Conv`、`Gemm`、`Greater`、
-`InstanceNormalization`、`Mul`、`ReduceMean`、`Relu`、`Reshape`、`Shape`、`Softplus`、`Where`
-である。`AdaptiveAvgPool2d((1, 1))`は`GlobalAveragePool`ではなく`ReduceMean`へ、GroupNormは
+`InstanceNormalization`、`Mul`、`ReduceMean`、`Relu`、`Reshape`、`Shape`、`Where`
+である。mean headをReLUへ変えたので`Softplus`は出ない。
+`AdaptiveAvgPool2d((1, 1))`は`GlobalAveragePool`ではなく`ReduceMean`へ、GroupNormは
 `InstanceNormalization`と`Reshape`、`Mul`、`Add`へ分解される。実際のoperator集合はmodel構成で
 変わるため許可listは`ml`側に持たせず、呼び出し側が
 `OnnxGraphSummary.verify_standard_operators`へ渡す。
@@ -1053,7 +1114,7 @@ versionを残す。
 
 - schema v1の複数datasetを原本コピーなしでmergeし、provenanceを保った再現可能なcomposite
     fingerprint、leakのないsplit、batchを作れる。
-- 最小32 px、最大辺1024 px、最大262,144 pxの前処理契約と`pixel_per_mm`更新がtrain/inferenceで
+- 最小16 px、最大辺512 px、最大262,144 pxの前処理契約と`pixel_per_mm`更新がtrain/inferenceで
     共通化されている。
 - torchvisionでRGB CHWへ統一し、各pre/post pairの`[6, H, W]`全体へaffineなしの
     `SampleLayerNorm`を適用し、batch、channel別、train dataset由来の前処理統計を持たない。
