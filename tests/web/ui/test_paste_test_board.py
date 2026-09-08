@@ -82,3 +82,15 @@ class TestPasteTestBoardProxy:
         assert response.headers["content-disposition"] == (
             'attachment; filename="pcbasm-paste-test-board.kicad_pcb"'
         )
+
+
+class TestFlowPadFields:
+    """流量計測パッドの設定欄（大きさと個数）が描かれる."""
+
+    def test_page_renders_flow_pad_inputs(self, frontend_client: TestClient):
+        text = frontend_client.get(_PAGE).text
+
+        assert 'id="ptb-flow-size"' in text
+        assert 'id="ptb-flow-count"' in text
+        assert "流量計測パッド寸法" in text
+        assert "流量計測パッド個数" in text

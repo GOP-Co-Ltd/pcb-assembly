@@ -318,6 +318,12 @@ class TestPasteTestBoardPreview:
             "F.Paste",
         }
         assert preview["pads"][0]["display_name"].startswith("R_0402_1005Metric / ")
+        assert len(preview["flow_pads"]) == 5
+        # 1 パッドが F.Cu / F.Paste の 2 polygon で 1 グループになる
+        assert [
+            [polygon["layer"] for polygon in group]
+            for group in preview["flow_polygons"]
+        ] == [["F.Cu", "F.Paste"]] * 5
 
     @pytest.mark.parametrize(
         ("target", "field", "value"),
@@ -511,8 +517,12 @@ class TestPasteTestBoardGenerate:
         output.write_bytes(response.content)
         pcb = PcbFile(output)
         assert pcb.outline.width == 40.0
-        assert len(pcb.components) == 65
-        assert len(pcb.pads) == 65
+        # パッド種 64 + PURGE 1 + FLOW1..5
+        assert len(pcb.components) == 70
+        assert len(pcb.pads) == 70
+        designators = {pad.designator for pad in pcb.pads}
+        assert "PURGE" in designators
+        assert {f"FLOW{index}" for index in range(1, 6)} <= designators
 
     def test_layout_overflow_is_rejected(self, client: TestClient):
         config = _default_config(client)

@@ -38,6 +38,10 @@
     edge_margin_mm: document.getElementById("ptb-edge-margin"),
     pad_gap_mm: document.getElementById("ptb-pad-gap"),
   };
+  const flowFields = {
+    size_mm: document.getElementById("ptb-flow-size"),
+    count: document.getElementById("ptb-flow-count"),
+  };
   const purgeFields = {
     width_mm: document.getElementById("ptb-purge-width"),
     height_mm: document.getElementById("ptb-purge-height"),
@@ -110,6 +114,10 @@
       purge_pad: {
         width_mm: numberFrom(purgeFields.width_mm, "purge pad幅"),
         height_mm: numberFrom(purgeFields.height_mm, "purge pad高さ"),
+      },
+      flow_pads: {
+        size_mm: numberFrom(flowFields.size_mm, "流量計測パッド寸法"),
+        count: numberFrom(flowFields.count, "流量計測パッド個数"),
       },
       custom_pads: config.custom_pads,
       patterns: config.patterns.map(collectPattern),
@@ -305,6 +313,9 @@
     for (const [field, input] of Object.entries(boardFields)) {
       input.value = config.board[field];
     }
+    for (const [field, input] of Object.entries(flowFields)) {
+      input.value = config.flow_pads[field];
+    }
     for (const [field, input] of Object.entries(purgeFields)) {
       input.value = config.purge_pad[field];
     }
@@ -365,6 +376,17 @@
       purge.appendChild(polygonElement(polygon, className));
     }
     target.appendChild(purge);
+
+    layout.flow_polygons.forEach((polygons, index) => {
+      const flow = svgEl("g", { class: "ptb-preview-pad" });
+      const flowTitle = svgEl("title", {});
+      flowTitle.textContent = `FLOW${index + 1}`;
+      flow.appendChild(flowTitle);
+      for (const polygon of polygons) {
+        flow.appendChild(polygonElement(polygon, className));
+      }
+      target.appendChild(flow);
+    });
 
     for (const pad of layout.pads) {
       const element = svgEl("g", {
@@ -451,7 +473,11 @@
     }
 
     renderResolvedRows(layout);
-    previewSummary.textContent = `${layout.pad_count}パッド + purge pad`;
+    previewSummary.textContent =
+      `${layout.pad_count}パッド + purge pad` +
+      (layout.flow_pads.length > 0
+        ? ` + 流量計測 ${layout.flow_pads.length}パッド`
+        : "");
     const hasOverflow = layout.overflow_message !== null;
     previewStatus.textContent = hasOverflow
       ? layout.overflow_message

@@ -19,6 +19,9 @@ from pcbasm.pcb.units import vector
 from .catalog import ResolvedPadPattern
 from .config import BoardConfig, BoardSpec, PreviewLayer
 
+# 「ちょうど収まる」寸法が浮動小数点誤差で落ちないための微小許容
+_EPSILON = 1e-9
+
 
 @attrs.frozen
 class LayerPolygon:
@@ -59,6 +62,8 @@ class BoardLayout:
     preview_bounds: Rect
     purge_pad: Rect
     purge_polygons: tuple[LayerPolygon, ...]
+    flow_pads: tuple[Rect, ...]
+    flow_polygons: tuple[tuple[LayerPolygon, ...], ...]
     patterns: tuple[PatternLayout, ...]
     pads: tuple[PadLayout, ...]
 
@@ -178,31 +183,39 @@ def _build_layout(
                 polygons=_footprint_polygons(placed),
             )
         )
-    purge = Rect(
-        x=config.board.edge_margin_mm,
-        y=config.board.edge_margin_mm,
-        width=config.purge_pad.width_mm,
-        height=config.purge_pad.height_mm,
-    )
+    purge = _purge_rect(config)
     purge_points = _rectangle_points(purge)
+    flow_pads = _flow_pad_rects(config) or ()
+    flow_polygons = tuple(
+        (LayerPolygon("F.Cu", points), LayerPolygon("F.Paste", points))
+        for points in (_rectangle_points(rect) for rect in flow_pads)
+    )
     return BoardLayout(
         board=config.board,
         placement_area=_packing_area(config),
-        preview_bounds=_preview_bounds(config.board, purge, pad_layouts),
+        preview_bounds=_preview_bounds(config.board, purge, flow_pads, pad_layouts),
         purge_pad=purge,
         purge_polygons=(
             LayerPolygon("F.Cu", purge_points),
             LayerPolygon("F.Paste", purge_points),
         ),
+        flow_pads=flow_pads,
+        flow_polygons=flow_polygons,
         patterns=patterns,
         pads=tuple(pad_layouts),
     )
 
 
-def _preview_bounds(board: BoardSpec, purge: Rect, pads: list[PadLayout]) -> Rect:
+def _preview_bounds(
+    board: BoardSpec,
+    purge: Rect,
+    flow_pads: tuple[Rect, ...],
+    pads: list[PadLayout],
+) -> Rect:
     bounds = (
         Rect(0.0, 0.0, board.width_mm, board.height_mm),
         purge,
+        *flow_pads,
         *(pad.bounds for pad in pads),
     )
     left = min(item.x for item in bounds)
@@ -219,6 +232,12 @@ def _pack_pads(
     """配置領域へ全パッドを詰める。収まらなければ ``(None, 理由)``."""
     if (message := _validate_purge_region(config)) is not None:
         return None, message
+    if _flow_pad_rects(config) is None:
+        flow = config.flow_pads
+        return None, (
+            f"流量計測パッド{flow.count}個（{flow.size_mm:.2f} mm角）が"
+            "パージ領域の右と下の帯に収まりません"
+        )
     area = _packing_area(config)
     for pad in pads:
         if pad.width > area.width + 1e-9 or pad.height > area.height + 1e-9:
@@ -251,7 +270,7 @@ def _pack(
     placed = pack_rects(
         [(pad.width, pad.height) for pad in pads],
         area,
-        keepouts=(_purge_keepout(config),),
+        keepouts=_keepouts(config),
         gap=config.board.pad_gap_mm,
     )
     if placed is None:
@@ -283,6 +302,63 @@ def _packing_area(config: BoardConfig) -> Rect:
         y=board.edge_margin_mm,
         width=board.width_mm - 2 * board.edge_margin_mm,
         height=board.height_mm - 2 * board.edge_margin_mm,
+    )
+
+
+def _purge_rect(config: BoardConfig) -> Rect:
+    """パージ領域（有効領域の左上）."""
+    area = _packing_area(config)
+    return Rect(
+        x=area.x,
+        y=area.y,
+        width=config.purge_pad.width_mm,
+        height=config.purge_pad.height_mm,
+    )
+
+
+def _flow_pad_rects(config: BoardConfig) -> tuple[Rect, ...] | None:
+    """流量計測パッドをパージ領域の右から並べる（収まらなければ ``None``）.
+
+    1 行目はパージ領域の右、以降は行を下へ折り返す。折り返し後も収まらない場合は
+    ``None`` を返し、呼び出し側が理由を組み立てる。
+    """
+    flow = config.flow_pads
+    if flow.count == 0:
+        return ()
+    area = _packing_area(config)
+    gap = config.board.pad_gap_mm
+    size = flow.size_mm
+    purge = _purge_rect(config)
+    rects: list[Rect] = []
+    x = purge.right + gap
+    y = area.y
+    row_bottom = max(purge.bottom, y + size)
+    for _ in range(flow.count):
+        if x + size > area.right + _EPSILON:
+            y = row_bottom + gap
+            x = area.x
+            row_bottom = y + size
+        if x + size > area.right + _EPSILON or y + size > area.bottom + _EPSILON:
+            return None
+        rects.append(Rect(x=x, y=y, width=size, height=size))
+        x += size + gap
+    return tuple(rects)
+
+
+def _keepouts(config: BoardConfig) -> tuple[Rect, ...]:
+    """通常パッドの配置禁止領域（パージ領域と流量計測パッド）."""
+    gap = config.board.pad_gap_mm
+    return (
+        _purge_keepout(config),
+        *(
+            Rect(
+                x=rect.x - gap,
+                y=rect.y - gap,
+                width=rect.width + 2.0 * gap,
+                height=rect.height + 2.0 * gap,
+            )
+            for rect in _flow_pad_rects(config) or ()
+        ),
     )
 
 

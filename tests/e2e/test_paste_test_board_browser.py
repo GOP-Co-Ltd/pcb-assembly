@@ -46,7 +46,7 @@ class TestPasteTestBoardBrowser:
         expect(named_pad.locator("title")).to_have_text(display_name)
         expect(browser_page.locator("#ptb-preview text")).to_have_count(0)
         expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "64パッド + purge pad"
+            "64パッド + purge pad + 流量計測 5パッド"
         )
         expect(browser_page.locator(".ptb-pattern-table thead")).to_contain_text(
             "回転分割数"
@@ -85,7 +85,7 @@ class TestPasteTestBoardBrowser:
             _OVERFLOW_MESSAGE, timeout=_BROWSER_TIMEOUT_MS
         )
         expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "64パッド + purge pad"
+            "64パッド + purge pad + 流量計測 5パッド"
         )
         expect(browser_page.locator(".ptb-overflow-layer")).to_have_count(1)
         assert browser_page.locator(".ptb-overflow-shape").count() > 0
@@ -167,7 +167,7 @@ class TestPasteTestBoardBrowser:
         )
 
         expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "88パッド + purge pad"
+            "88パッド + purge pad + 流量計測 5パッド"
         )
 
         for _ in range(3):
@@ -192,7 +192,7 @@ class TestPasteTestBoardBrowser:
         expect(custom_row).to_have_count(1)
         expect(custom_row).to_contain_text("長円（スロット）")
         expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "76パッド + purge pad", timeout=_BROWSER_TIMEOUT_MS
+            "76パッド + purge pad + 流量計測 5パッド", timeout=_BROWSER_TIMEOUT_MS
         )
 
     def test_empty_pattern_config_can_be_recovered(self, live_ui: LiveUi, browser_page):
@@ -235,7 +235,7 @@ class TestPasteTestBoardBrowser:
         )
         expect(browser_page.locator(".ptb-overflow-layer")).to_have_count(1)
         expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "64パッド + purge pad"
+            "64パッド + purge pad + 流量計測 5パッド"
         )
         assert browser_page.locator(".ptb-paste").count() > 0
         expect(browser_page.locator("#ptb-generate")).to_be_disabled()
@@ -253,7 +253,7 @@ class TestPasteTestBoardBrowser:
             7, timeout=_BROWSER_TIMEOUT_MS
         )
         expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "76パッド + purge pad", timeout=_BROWSER_TIMEOUT_MS
+            "76パッド + purge pad + 流量計測 5パッド", timeout=_BROWSER_TIMEOUT_MS
         )
 
         browser_page.reload(wait_until="domcontentloaded")
@@ -431,5 +431,5 @@ class TestPasteTestBoardBrowser:
         downloaded.save_as(board_path)
         pcb = PcbFile(board_path)
         assert pcb.outline.width == 40.0
-        assert len(pcb.components) == 65
-        assert len(pcb.pads) == 65
+        assert len(pcb.components) == 70
+        assert len(pcb.pads) == 70

@@ -341,6 +341,7 @@ V_i
 - パッド間余白: 1 mm
 - 専用purge pad: 2 × 2 mm、基板左上の外周余白内側
 - purge padと通常パターン領域の間隔: 1 mm
+- 流量計測パッド: 2 mm角 × 5個、purge padと同じ帯の右側
 
 配置単位は部品全体ではなく、KiCad footprintから抽出した1種類のパッド形状とする。
 たとえば0402のpad 1とpad 2が同一形状なら1種類へまとめ、その代表パッド1個だけを回転・
@@ -409,16 +410,23 @@ BGAなど通常のペースト印刷対象ではないpackageは一般候補へ�
 | `Package_TO_SOT_SMD.pretty` | SOT-23            |      180 |          4 |          2 |
 | `Package_TO_SOT_SMD.pretty` | SOT-23-5          |      180 |          4 |          2 |
 
+流量計測パッドは、データセット収集と同じ点塗布で吐出量を確かめるためのパッドである。
+点塗布しか行わないので幅と高さを別に持たず、大きさだけを設定する正方形とする。
+個数は0以上1,000以下の整数で、0なら配置しない。purge padの右へパッド間余白を挟んで
+並べ、有効領域の右端に達したら行を下へ折り返す。折り返しても収まらない設定は
+配置不能として理由を返す。
+
 配置は常に自動最適配置とする。個々のパッドAABBについて複数の安定したサイズ順とMaxRectsの
 評価方法を試して、使用領域の面積、高さ、幅の順で最小になる配置を採用する。パッド間には
 設定した余白を必ず確保する。purge padは左上へ固定するが、
-上端全幅の専用帯は確保しない。purge padと設定余白を矩形keepoutとして扱い、その右側と下側を
-同じ配置領域としてMaxRectsへ渡す。
+上端全幅の専用帯は確保しない。purge padと各流量計測パッドを設定余白ぶん広げた矩形を
+keepoutとして扱い、その外側を配置領域としてMaxRectsへ渡す。
 
 生成物では、抽出したパッド1個を持つfootprintを各配置位置に生成し、そのパッドの
 F.Cu/F.Mask/F.Pasteを保持する。元footprint全体のsilkscreenは部品配置を意味してしまうため
 複製しない。reference/value文字は非表示にし、通常パッドへ`PAD1`からの安定したreference、
-専用purge padへ`PURGE`を割り当てる（内部のpad numberは`1`）。KiCad footprint rootは
+専用purge padへ`PURGE`、流量計測パッドへ`FLOW1`からの連番を割り当てる
+（内部のpad numberはいずれも`1`）。KiCad footprint rootは
 `KICAD9_FOOTPRINT_DIR`で上書きでき、未指定時は`/usr/share/kicad/footprints`を使う。
 
 WebUIの「はんだ塗布」タブに「テスト塗布基板生成」を置く。
@@ -457,6 +465,10 @@ tooltipで完全な文字列を確認できる。名称とパッド種の見出�
   "purge_pad": {
     "width_mm": 2.0,
     "height_mm": 2.0
+  },
+  "flow_pads": {
+    "size_mm": 2.0,
+    "count": 5
   },
   "custom_pads": [
     {

@@ -11,6 +11,10 @@
     "width_mm": 1.5,
     "height_mm": 1.5
   },
+  "flow_pads": {
+    "size_mm": 2.0,
+    "count": 0
+  },
   "custom_pads": [
     {
       "catalog_id": "custom:ccf98210732d4d7089873a12ca20ccd1",

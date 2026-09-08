@@ -87,6 +87,8 @@ class BoardPreviewResponse(_ApiModel):
     preview_bounds: mirror_model(Rect)  # type: ignore[valid-type]
     purge_pad: mirror_model(Rect)  # type: ignore[valid-type]
     purge_polygons: list[mirror_model(LayerPolygon)]  # type: ignore[valid-type]
+    flow_pads: list[mirror_model(Rect)]  # type: ignore[valid-type]
+    flow_polygons: list[list[mirror_model(LayerPolygon)]]  # type: ignore[valid-type]
     patterns: list[mirror_model(PatternLayout)]  # type: ignore[valid-type]
     pads: list[mirror_model(PadLayout)]  # type: ignore[valid-type]
     pad_count: int
@@ -104,6 +106,8 @@ class BoardPreviewResponse(_ApiModel):
                 "preview_bounds": layout.preview_bounds,
                 "purge_pad": layout.purge_pad,
                 "purge_polygons": layout.purge_polygons,
+                "flow_pads": layout.flow_pads,
+                "flow_polygons": layout.flow_polygons,
                 "patterns": layout.patterns,
                 "pads": layout.pads,
                 "pad_count": layout.pad_count,
