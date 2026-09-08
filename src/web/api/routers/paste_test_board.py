@@ -1,6 +1,6 @@
-"""はんだペースト流量キャリブレーション基板の生成API.
+"""テスト塗布基板の生成API.
 
-リクエスト/レスポンスの形は ``pcbasm.pasting.flowcalib.board`` の attrs 値オブジェクトを
+リクエスト/レスポンスの形は ``pcbasm.pasting.testboard`` の attrs 値オブジェクトを
 :func:`web.api.attrs_models.mirror_model` で写す（JSON のキー名・型は attrs 側が唯一の出典）。
 ここに残す明示モデルは、複数のドメイン値を束ねるレスポンスとリクエストの封筒だけ。
 """
@@ -14,8 +14,8 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from pcbasm.geometry.packing import Rect
-from pcbasm.pasting.flowcalib.board.catalog import PadPattern
-from pcbasm.pasting.flowcalib.board.config import (
+from pcbasm.pasting.testboard.catalog import PadPattern
+from pcbasm.pasting.testboard.config import (
     BOARD_KIND,
     BOARD_SCHEMA_VERSION,
     CUSTOM_PAD_SHAPES,
@@ -27,12 +27,12 @@ from pcbasm.pasting.flowcalib.board.config import (
     CustomPadShape,
     parse_board_document,
 )
-from pcbasm.pasting.flowcalib.board.generator import (
+from pcbasm.pasting.testboard.generator import (
     BoardPreview,
     PatternAddition,
     ResolvedConfig,
 )
-from pcbasm.pasting.flowcalib.board.layout import (
+from pcbasm.pasting.testboard.layout import (
     LayerPolygon,
     PadLayout,
     PatternLayout,
@@ -42,12 +42,12 @@ from web.api.attrs_models import mirror_model
 from web.api.dependencies import BoardGeneratorDep
 
 router = APIRouter(
-    prefix="/api/pasting/paste-flow-calibration-board",
+    prefix="/api/pasting/paste-test-board",
     tags=["pasting"],
 )
 
-CONFIG_FILENAME = "pcbasm-paste-flow-calibration-board.json"
-BOARD_FILENAME = "pcbasm-paste-flow-calibration-board.kicad_pcb"
+CONFIG_FILENAME = "pcbasm-paste-test-board.json"
+BOARD_FILENAME = "pcbasm-paste-test-board.kicad_pcb"
 
 _converter = cattrs.Converter()
 
@@ -136,7 +136,7 @@ def _to_draft(model: BaseModel) -> CustomPadDraft:
 
 
 @router.get("/options")
-def get_paste_flow_calibration_board_options(
+def get_paste_test_board_options(
     generator: BoardGeneratorDep,
 ) -> BoardOptionsResponse:
     """初期レシピと検索可能なfootprint件数を返す."""
@@ -156,7 +156,7 @@ def get_paste_flow_calibration_board_options(
 
 
 @router.post("/custom-pads")
-def add_paste_flow_calibration_custom_pad(
+def add_paste_test_board_custom_pad(
     body: AddCustomPadRequest,
     generator: BoardGeneratorDep,
 ) -> ResolvedConfigResponse:  # type: ignore[valid-type]
@@ -169,7 +169,7 @@ def add_paste_flow_calibration_custom_pad(
 
 
 @router.get("/footprints")
-def search_paste_flow_calibration_footprints(
+def search_paste_test_board_footprints(
     generator: BoardGeneratorDep,
     query: str = Query(default="", max_length=120),
     limit: int = Query(default=30, ge=1, le=100),
@@ -187,7 +187,7 @@ def search_paste_flow_calibration_footprints(
 
 
 @router.post("/patterns/from-footprint")
-def add_paste_flow_calibration_footprint_patterns(
+def add_paste_test_board_footprint_patterns(
     body: PatternAdditionRequest,
     generator: BoardGeneratorDep,
 ) -> PatternAdditionResponse:  # type: ignore[valid-type]
@@ -200,7 +200,7 @@ def add_paste_flow_calibration_footprint_patterns(
 
 
 @router.post("/preview")
-def preview_paste_flow_calibration_board(
+def preview_paste_test_board(
     body: BoardConfigModel,  # type: ignore[valid-type]
     generator: BoardGeneratorDep,
 ) -> BoardPreviewResponse:
@@ -210,7 +210,7 @@ def preview_paste_flow_calibration_board(
 
 
 @router.post("/export")
-def export_paste_flow_calibration_board_config(
+def export_paste_test_board_config(
     body: BoardConfigModel,  # type: ignore[valid-type]
     generator: BoardGeneratorDep,
 ) -> Response:
@@ -224,7 +224,7 @@ def export_paste_flow_calibration_board_config(
 
 
 @router.post("/import")
-def import_paste_flow_calibration_board_config(
+def import_paste_test_board_config(
     body: BoardImportRequest,
     generator: BoardGeneratorDep,
 ) -> ResolvedConfigResponse:  # type: ignore[valid-type]
@@ -234,10 +234,7 @@ def import_paste_flow_calibration_board_config(
     if parsed is None:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "はんだペースト流量キャリブレーション基板の設定JSONではないか、"
-                "内容が不正です"
-            ),
+            detail=("テスト塗布基板の設定JSONではないか、" "内容が不正です"),
         )
     return ResolvedConfigResponse.model_validate(
         generator.resolve_config(parsed), strict=False
@@ -245,7 +242,7 @@ def import_paste_flow_calibration_board_config(
 
 
 @router.post("/generate")
-def generate_paste_flow_calibration_board(
+def generate_paste_test_board(
     body: BoardConfigModel,  # type: ignore[valid-type]
     generator: BoardGeneratorDep,
 ) -> Response:

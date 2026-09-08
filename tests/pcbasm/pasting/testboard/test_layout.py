@@ -1,16 +1,16 @@
-"""流量キャリブレーション基板layoutのテスト."""
+"""テスト塗布基板layoutのテスト."""
 
 import pytest
 
-from pcbasm.pasting.flowcalib.board.config import (
+from pcbasm.pasting.testboard.config import (
     BoardConfig,
     BoardConfigError,
     BoardSpec,
     PatternSpec,
 )
-from pcbasm.pasting.flowcalib.board.generator import BoardGenerator
-from pcbasm.pasting.flowcalib.board.layout import BoardLayout
-from tests.pcbasm.pasting.flowcalib.board.support import (
+from pcbasm.pasting.testboard.generator import BoardGenerator
+from pcbasm.pasting.testboard.layout import BoardLayout
+from tests.pcbasm.pasting.testboard.support import (
     CUSTOM_A,
     CUSTOM_B,
     R0402,

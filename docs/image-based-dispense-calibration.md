@@ -327,7 +327,7 @@ V_i
 
 `dot` / `line` / `area` を実基板形状で試す用途のために、専用の基板データを生成できる。これは
 **データ収集には使わない**（収集は素の銅板とセル格子で行う）。塗布パラメータの目視確認や
-テスト塗布のための基板であり、生成ロジックは現状 `pcbasm.pasting.flowcalib.board` に置いている。
+テスト塗布のための基板であり、生成ロジックは現状 `pcbasm.pasting.testboard` に置いている。
 
 ### テスト塗布基板の生成仕様
 
@@ -421,12 +421,12 @@ F.Cu/F.Mask/F.Pasteを保持する。元footprint全体のsilkscreenは部品配
 専用purge padへ`PURGE`を割り当てる（内部のpad numberは`1`）。KiCad footprint rootは
 `KICAD9_FOOTPRINT_DIR`で上書きでき、未指定時は`/usr/share/kicad/footprints`を使う。
 
-WebUIの「はんだ塗布」タブに「はんだペースト流量キャリブレーション基板生成」を置く。
+WebUIの「はんだ塗布」タブに「テスト塗布基板生成」を置く。
 名称検索とパッド種の一括追加を提供し、設定変更時は抽出した実パッド形状から解決した
 F.Cu/F.Pasteと角度をSVGで表示する。部品名は画像へ常時描画せず、各パッドへのhover時に
 tooltipで表示する。設定は
-`pcbasm-paste-flow-calibration-board.json`、KiCad基板は
-`pcbasm-paste-flow-calibration-board.kicad_pcb`としてブラウザへ直接ダウンロードする。
+`pcbasm-paste-test-board.json`、KiCad基板は
+`pcbasm-paste-test-board.kicad_pcb`としてブラウザへ直接ダウンロードする。
 配置領域を超えた場合もpreview自体は消さず、全パッドの診断配置を表示する。有効な配置領域の
 外へ出たパッド形状の部分だけを赤で重ね、基板生成は配置可能になるまで無効にする。
 装置を動かさないため、生成と設定入出力にWebUIの操作権は要求しない。
@@ -446,7 +446,7 @@ tooltipで完全な文字列を確認できる。名称とパッド種の見出�
 
 ```json
 {
-  "kind": "paste_flow_calibration_board",
+  "kind": "paste_test_board",
   "schema_version": 1,
   "board": {
     "width_mm": 40.0,

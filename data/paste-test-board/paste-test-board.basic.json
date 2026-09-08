@@ -1,5 +1,5 @@
 {
-  "kind": "paste_flow_calibration_board",
+  "kind": "paste_test_board",
   "schema_version": 1,
   "board": {
     "width_mm": 47.5,

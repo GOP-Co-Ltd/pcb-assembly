@@ -1,14 +1,14 @@
-"""流量キャリブレーション基板ページとbackend中継のfrontend結合テスト."""
+"""テスト塗布基板ページとbackend中継のfrontend結合テスト."""
 
 import re
 
 from fastapi.testclient import TestClient
 
-_PAGE = "/m/uitest/pasting/paste_flow_calibration_board"
-_API = "/m/uitest/api/pasting/paste-flow-calibration-board"
+_PAGE = "/m/uitest/pasting/paste_test_board"
+_API = "/m/uitest/api/pasting/paste-test-board"
 
 
-class TestPasteFlowCalibrationBoardPage:
+class TestPasteTestBoardPage:
     def test_renders_dedicated_configuration_and_preview_page(
         self, frontend_client: TestClient
     ):
@@ -16,19 +16,19 @@ class TestPasteFlowCalibrationBoardPage:
 
         assert response.status_code == 200
         text = response.text
-        assert "はんだペースト流量キャリブレーション基板生成" in text
-        assert 'id="pfc-board-width"' in text
-        assert 'id="pfc-pad-gap"' in text
-        assert 'id="pfc-footprint-search"' in text
-        assert 'id="pfc-footprint-results"' in text
-        assert 'data-testid="pfc-pattern-table"' in text
-        assert 'data-testid="pfc-preview"' in text
-        assert 'data-testid="pfc-generate"' in text
+        assert "テスト塗布基板生成" in text
+        assert 'id="ptb-board-width"' in text
+        assert 'id="ptb-pad-gap"' in text
+        assert 'id="ptb-footprint-search"' in text
+        assert 'id="ptb-footprint-results"' in text
+        assert 'data-testid="ptb-pattern-table"' in text
+        assert 'data-testid="ptb-preview"' in text
+        assert 'data-testid="ptb-generate"' in text
         assert "回転分割数" in text
         assert "繰り返し数" in text
         assert "自動最適配置" in text
         assert "転置配置" not in text
-        assert 'id="pfc-auto-pack"' not in text
+        assert 'id="ptb-auto-pack"' not in text
         assert "グループ境界" not in text
         assert "任意サイズパッド" in text
         assert "編集中の設定は機体ごとにこのブラウザへ自動保存されます" in text
@@ -42,33 +42,33 @@ class TestPasteFlowCalibrationBoardPage:
         assert "配置範囲外" in text
         assert "n 列" not in text
         assert "m 行" not in text
-        assert "js/paste_flow_calibration_board.js?v=" in text
+        assert "js/paste_test_board.js?v=" in text
 
     def test_feature_is_listed_in_pasting_sidebar(self, frontend_client: TestClient):
         response = frontend_client.get("/m/uitest/pasting")
 
         assert response.status_code == 200
         assert f'href="{_PAGE}"' in response.text
-        assert "はんだペースト流量キャリブレーション基板生成" in response.text
+        assert "テスト塗布基板生成" in response.text
 
     def test_page_actions_do_not_require_machine_control(
         self, frontend_client: TestClient
     ):
         text = frontend_client.get(_PAGE).text
-        for element_id in ("pfc-import", "pfc-export", "pfc-generate"):
+        for element_id in ("ptb-import", "ptb-export", "ptb-generate"):
             tag = re.search(rf'<button[^>]*id="{element_id}"[^>]*>', text)
             assert tag is not None
             assert "data-requires-control" not in tag.group(0)
 
 
-class TestPasteFlowCalibrationBoardProxy:
+class TestPasteTestBoardProxy:
     def test_options_are_available_through_machine_prefix(
         self, frontend_client: TestClient
     ):
         response = frontend_client.get(f"{_API}/options")
 
         assert response.status_code == 200
-        assert response.json()["kind"] == "paste_flow_calibration_board"
+        assert response.json()["kind"] == "paste_test_board"
 
     def test_binary_download_headers_pass_through_unchanged(
         self, frontend_client: TestClient
@@ -80,5 +80,5 @@ class TestPasteFlowCalibrationBoardProxy:
         assert response.status_code == 200
         assert response.content.startswith(b"(kicad_pcb")
         assert response.headers["content-disposition"] == (
-            'attachment; filename="pcbasm-paste-flow-calibration-board.kicad_pcb"'
+            'attachment; filename="pcbasm-paste-test-board.kicad_pcb"'
         )

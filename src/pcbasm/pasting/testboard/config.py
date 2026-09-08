@@ -1,4 +1,4 @@
-"""はんだペースト流量キャリブレーション基板の設定とJSON形式."""
+"""テスト塗布基板の設定とJSON形式."""
 
 from __future__ import annotations
 
@@ -17,12 +17,12 @@ from pcbasm.pcb.units import (
 )
 from pcbasm.utils import is_finite_number
 
-BoardKind: TypeAlias = Literal["paste_flow_calibration_board"]
+BoardKind: TypeAlias = Literal["paste_test_board"]
 BoardSchemaVersion: TypeAlias = Literal[1]
 CustomPadShapeId: TypeAlias = Literal["circle", "rectangle", "roundrect", "oval"]
 PreviewLayer: TypeAlias = Literal["F.Cu", "F.Paste"]
 
-BOARD_KIND: BoardKind = "paste_flow_calibration_board"
+BOARD_KIND: BoardKind = "paste_test_board"
 BOARD_SCHEMA_VERSION: BoardSchemaVersion = 1
 _MAX_CALIBRATION_PAD_COUNT = 10_000
 _KICAD_MAX_PAD_SIZE_MM = (KICAD_COORD_MAX_NM - 1) / 1_000_000

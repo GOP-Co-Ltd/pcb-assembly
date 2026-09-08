@@ -8,20 +8,20 @@ from pcbasm.pcb import PcbFile
 from tests.helpers import PROJECT_ROOT
 
 
-class TestPasteFlowCalibrationBoardAssets:
+class TestPasteTestBoardAssets:
     """生成済み calibration board を任意PCBとして読み込めることを検証する."""
 
     @pytest.mark.parametrize(
         ("filename", "expected_pad_count"),
         [
-            ("paste-flow-calibration-board.basic.kicad_pcb", 181),
-            ("paste-flow-calibration-board.cricles_and_rectangles.kicad_pcb", 91),
+            ("paste-test-board.basic.kicad_pcb", 181),
+            ("paste-test-board.cricles_and_rectangles.kicad_pcb", 91),
         ],
     )
     def test_keeps_pad_count_and_canonical_purge_pad(
         self, filename: str, expected_pad_count: int
     ):
-        path = PROJECT_ROOT / "data" / "paste-flow-calibration-board" / filename
+        path = PROJECT_ROOT / "data" / "paste-test-board" / filename
 
         pcb = PcbFile(path)
 

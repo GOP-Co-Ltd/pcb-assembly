@@ -426,7 +426,7 @@ def e2e_settings(tmp_path: Path) -> Settings:
 @pytest.fixture
 def live_server(
     e2e_settings: Settings,
-    paste_flow_calibration_footprint_root: Path,
+    paste_test_board_footprint_root: Path,
 ) -> Iterator[LiveServer]:
     """実 uvicorn の backend WebAPI を起動し、停止まで面倒を見る.
 
@@ -436,7 +436,7 @@ def live_server(
     app = create_app(
         e2e_settings,
         audio_player=FakeAudioPlayer(),
-        paste_flow_calibration_footprint_root=paste_flow_calibration_footprint_root,
+        paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
     _register_completion_notice_jobs(app.state.catalog)
     running = start_app(app)
@@ -478,7 +478,7 @@ def live_ui(live_server: LiveServer, tmp_path: Path) -> Iterator[LiveUi]:
 @pytest.fixture
 def live_ui_two(
     tmp_path: Path,
-    paste_flow_calibration_footprint_root: Path,
+    paste_test_board_footprint_root: Path,
 ) -> Iterator[LiveUi]:
     """2 台の backend を静的登録した実 frontend（マシン切替の検証用）.
 
@@ -494,7 +494,7 @@ def live_ui_two(
             backend = start_app(
                 create_app(
                     make_api_settings(tmp_path / machine_id, hostname=machine_id),
-                    paste_flow_calibration_footprint_root=paste_flow_calibration_footprint_root,
+                    paste_test_board_footprint_root=paste_test_board_footprint_root,
                 )
             )
             running.append(backend)

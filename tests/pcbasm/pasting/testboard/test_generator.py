@@ -1,4 +1,4 @@
-"""流量キャリブレーション基板Generator facadeのテスト."""
+"""テスト塗布基板Generator facadeのテスト."""
 
 import threading
 from pathlib import Path
@@ -7,21 +7,21 @@ from time import monotonic
 import pcbnew
 import pytest
 
-from pcbasm.pasting.flowcalib.board.config import (
+from pcbasm.pasting.testboard.config import (
     BoardConfig,
     BoardSpec,
     CustomPadDraft,
     PatternSpec,
     PurgePadSpec,
 )
-from pcbasm.pasting.flowcalib.board.generator import (
+from pcbasm.pasting.testboard.generator import (
     BoardGenerator,
 )
 from pcbasm.pcb import PcbFile
 from pcbasm.pcb.generate import save_board
 from pcbasm.pcb.units import KicadError
-from tests.helpers import make_paste_flow_calibration_offset_pad_root
-from tests.pcbasm.pasting.flowcalib.board.support import (
+from tests.helpers import make_paste_test_board_offset_pad_root
+from tests.pcbasm.pasting.testboard.support import (
     CUSTOM_A,
     QFN,
     R0402,
@@ -248,7 +248,7 @@ class TestBoardCoordinateLimits:
     def offset_anchor_overflow(
         self, tmp_path: Path
     ) -> tuple[BoardGenerator, BoardConfig]:
-        root = make_paste_flow_calibration_offset_pad_root(
+        root = make_paste_test_board_offset_pad_root(
             tmp_path / "footprints", shape_offset_x_mm=-2_146.0
         )
         generator = BoardGenerator(root)
@@ -294,7 +294,7 @@ class TestBoardGeneration:
 
     @pytest.fixture
     def pcb(self, board: pcbnew.BOARD, tmp_path: Path) -> PcbFile:
-        output = tmp_path / "paste-flow-calibration.kicad_pcb"
+        output = tmp_path / "paste-test-board.kicad_pcb"
         save_board(board, output)
         return PcbFile(output)
 

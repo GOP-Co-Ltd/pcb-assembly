@@ -1,4 +1,4 @@
-"""はんだペースト流量キャリブレーション基板APIの結合テスト."""
+"""テスト塗布基板APIの結合テスト."""
 
 from pathlib import Path
 from typing import Any
@@ -11,7 +11,7 @@ from tests.helpers import FakeAudioPlayer
 from web.api.app import create_app
 from web.api.settings import Settings
 
-_BASE = "/api/pasting/paste-flow-calibration-board"
+_BASE = "/api/pasting/paste-test-board"
 _R0402 = "Resistor_SMD.pretty/R_0402_1005Metric#pad-0"
 _R0603 = "Resistor_SMD.pretty/R_0603_1608Metric#pad-0"
 _QFN = "Package_DFN_QFN.pretty/QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
@@ -33,13 +33,13 @@ def _default_config(client: TestClient) -> dict[str, Any]:
 
 def _document(config: dict[str, Any]) -> dict[str, Any]:
     return {
-        "kind": "paste_flow_calibration_board",
+        "kind": "paste_test_board",
         "schema_version": 1,
         **config,
     }
 
 
-class TestPasteFlowCalibrationBoardOptions:
+class TestPasteTestBoardOptions:
     def test_returns_schema_one_defaults_from_the_injected_library(
         self, client: TestClient
     ):
@@ -47,7 +47,7 @@ class TestPasteFlowCalibrationBoardOptions:
 
         assert response.status_code == 200
         body = response.json()
-        assert body["kind"] == "paste_flow_calibration_board"
+        assert body["kind"] == "paste_test_board"
         assert body["schema_version"] == 1
         assert body["footprint_count"] == 8
         assert body["config"]["custom_pads"] == []
@@ -84,7 +84,7 @@ class TestPasteFlowCalibrationBoardOptions:
         assert response.status_code == 422
 
 
-class TestPasteFlowCalibrationBoardPatternAddition:
+class TestPasteTestBoardPatternAddition:
     def test_adds_all_pad_patterns_from_one_footprint(self, client: TestClient):
         response = client.post(
             f"{_BASE}/patterns/from-footprint",
@@ -173,7 +173,7 @@ class TestPasteFlowCalibrationBoardPatternAddition:
         assert response.status_code == 400
 
 
-class TestPasteFlowCalibrationBoardCustomPad:
+class TestPasteTestBoardCustomPad:
     def test_adds_a_custom_roundrect_pad_with_a_default_name(self, client: TestClient):
         response = client.post(
             f"{_BASE}/custom-pads",
@@ -288,7 +288,7 @@ class TestPasteFlowCalibrationBoardCustomPad:
         assert response.status_code == 400
 
 
-class TestPasteFlowCalibrationBoardPreview:
+class TestPasteTestBoardPreview:
     def test_returns_resolved_config_catalog_and_layout(self, client: TestClient):
         response = client.post(f"{_BASE}/preview", json=_default_config(client))
 
@@ -426,7 +426,7 @@ class TestPasteFlowCalibrationBoardPreview:
         app = create_app(
             webui_settings,
             audio_player=audio_player,
-            paste_flow_calibration_footprint_root=tmp_path / "missing",
+            paste_test_board_footprint_root=tmp_path / "missing",
         )
         with TestClient(app) as isolated_client:
             response = isolated_client.get(f"{_BASE}/options")
@@ -435,7 +435,7 @@ class TestPasteFlowCalibrationBoardPreview:
         assert "KiCad footprint" in response.text
 
 
-class TestPasteFlowCalibrationBoardConfigTransfer:
+class TestPasteTestBoardConfigTransfer:
     def test_export_allows_structurally_valid_overflow(self, client: TestClient):
         config = _default_config(client)
         config["board"]["width_mm"] = 10.0
@@ -444,7 +444,7 @@ class TestPasteFlowCalibrationBoardConfigTransfer:
 
         assert response.status_code == 200
         assert response.headers["content-disposition"] == (
-            'attachment; filename="pcbasm-paste-flow-calibration-board.json"'
+            'attachment; filename="pcbasm-paste-test-board.json"'
         )
         assert response.json()["schema_version"] == 1
         assert response.json()["board"]["width_mm"] == 10.0
@@ -474,9 +474,9 @@ class TestPasteFlowCalibrationBoardConfigTransfer:
         "document",
         [
             {"kind": "calibration_board", "schema_version": 1},
-            {"kind": "paste_flow_calibration_board", "schema_version": 2},
+            {"kind": "paste_test_board", "schema_version": 2},
             {
-                "kind": "paste_flow_calibration_board",
+                "kind": "paste_test_board",
                 "schema_version": 1,
                 "unexpected": True,
             },
@@ -497,7 +497,7 @@ class TestPasteFlowCalibrationBoardConfigTransfer:
         assert response.status_code == 422
 
 
-class TestPasteFlowCalibrationBoardGenerate:
+class TestPasteTestBoardGenerate:
     def test_downloads_a_real_kicad_board_without_control(
         self, client: TestClient, tmp_path: Path
     ):
@@ -505,7 +505,7 @@ class TestPasteFlowCalibrationBoardGenerate:
 
         assert response.status_code == 200, response.text
         assert response.headers["content-disposition"] == (
-            'attachment; filename="pcbasm-paste-flow-calibration-board.kicad_pcb"'
+            'attachment; filename="pcbasm-paste-test-board.kicad_pcb"'
         )
         output = tmp_path / "download.kicad_pcb"
         output.write_bytes(response.content)

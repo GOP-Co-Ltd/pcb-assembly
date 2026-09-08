@@ -1,10 +1,10 @@
-"""流量キャリブレーション基板configとschema 1文書のテスト."""
+"""テスト塗布基板configとschema 1文書のテスト."""
 
 from typing import cast
 
 import pytest
 
-from pcbasm.pasting.flowcalib.board.config import (
+from pcbasm.pasting.testboard.config import (
     BoardConfig,
     BoardConfigError,
     BoardSpec,
@@ -13,7 +13,7 @@ from pcbasm.pasting.flowcalib.board.config import (
     PurgePadSpec,
     parse_board_document,
 )
-from tests.pcbasm.pasting.flowcalib.board.support import (
+from tests.pcbasm.pasting.testboard.support import (
     CUSTOM_A,
     R0402,
     R0603,
@@ -299,7 +299,7 @@ class TestBoardDocument:
         document = config.to_normalized_document()
         restored = parse_board_document(document)
 
-        assert document["kind"] == "paste_flow_calibration_board"
+        assert document["kind"] == "paste_test_board"
         assert document["schema_version"] == 1
         assert document["board"]["pad_gap_mm"] == 1.5
         assert document["custom_pads"][0]["shape"] == "oval"
@@ -343,7 +343,7 @@ class TestBoardDocument:
             [],
             "not-an-object",
             {},
-            {"kind": "paste_flow_calibration_board", "schema_version": 1},
+            {"kind": "paste_test_board", "schema_version": 1},
         ],
     )
     def test_malformed_documents_return_none_without_an_exception(self, document):

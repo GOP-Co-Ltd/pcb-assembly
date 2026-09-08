@@ -44,8 +44,8 @@ def copy_testing_config(tmp_path: Path) -> Path:
     return config_dir
 
 
-def make_paste_flow_calibration_footprint_root(root: Path) -> Path:
-    """流量キャリブレーション基板テスト用の実KiCad footprint rootを作る.
+def make_paste_test_board_footprint_root(root: Path) -> Path:
+    """テスト塗布基板テスト用の実KiCad footprint rootを作る.
 
     system KiCad libraryの有無や収録数に依存させず、productionと同じ
     ``pcbnew.FootprintLoad`` 経路を通すため、実 ``FOOTPRINT`` / ``PAD`` を
@@ -71,7 +71,7 @@ def make_paste_flow_calibration_footprint_root(root: Path) -> Path:
     return root
 
 
-def make_paste_flow_calibration_offset_pad_root(
+def make_paste_test_board_offset_pad_root(
     root: Path, *, shape_offset_x_mm: float, pad_size_mm: float = 1.0
 ) -> Path:
     """形状offset付き正方形SMD padを持つ独立KiCad footprint rootを作る."""
