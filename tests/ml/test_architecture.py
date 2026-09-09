@@ -101,6 +101,7 @@ RUNTIME_MODULES = (
     "ml.model.inspection",
     "ml.model.loss",
     "ml.model.multiview",
+    "ml.paste_volume.cli",
     "ml.paste_volume.model",
     "ml.paste_volume.task",
     "ml.training.checkpoint",
@@ -641,7 +642,10 @@ class TestRuntimeLayer:
     Raspberry Pi 5 へ MLflow / Optuna / ONNX を入れずに済ませるための契約。
 
     ``ml.tuning.search_space`` と ``ml.tuning.runner`` は optuna を import する
-    ``ml-hpo`` 層なので、ここには入れない。
+    ``ml-hpo`` 層なので、ここには入れない。``ml.paste_volume`` の学習・評価・探索
+    entrypoint も同じ理由で入れない（``ml.paste_volume.experiment`` が mlflow と
+    optuna を読む）。運用 CLI だけは dataset の検証と要約しかしないので、Pi の
+    上でも動かせる側に置く。
 
     torch と torchvision は隠さない（隠すと関数内 import が散り、型が失われる）。
     """
