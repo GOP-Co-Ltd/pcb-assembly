@@ -82,8 +82,9 @@ def _index(
 def _cell_config(**overrides: object) -> PasteVolumeTrainingConfig:
     """Cell 次元の設定。既定は session 次元なので明示する.
 
-    既定を cell にすると呼び出し側が黙って session の漏れる split を選ぶので、 cell 単位 split
-    を見るテストは毎回そう書く。
+    既定を cell にすると呼び出し側が黙って session の漏れる split を選ぶ。
+
+    cell 単位 split を見るテストは毎回そう書く。
     """
 
     return PasteVolumeTrainingConfig(split_dimension="cell", **overrides)  # type: ignore[arg-type]
@@ -379,8 +380,11 @@ class TestBuild:
 class TestSessionSplit:
     """Session 単位の leave-one-session-out.
 
-    塗布量の係数 k は session ごとの 1 定数なので、cell 単位で分けると model が session を 言い当てて
-    k を憶えるだけで見かけの精度が出る。session をまたいだ汎化はこの次元でしか 測れない。
+    塗布量の係数 k は session ごとの 1 定数。
+
+    cell 単位で分けると model が session を言い当てて k を憶え、見かけの精度が出る。
+
+    session をまたいだ汎化はこの次元でしか測れない。
     """
 
     def test_puts_the_held_out_session_in_test_and_nowhere_else(self, tmp_path: Path):
@@ -488,7 +492,7 @@ class TestSessionSplit:
     def test_reports_a_session_split_without_a_held_out_session(self, tmp_path: Path):
         """Held-out を省くと拒否する.
 
-        既定で 5 fold のどれかを選んでしまうと、run の記録から「どの session を外した のか」が読めなくなる。
+        既定で 5 fold のどれかを選んでしまうと、run の記録から「どの session を外したのか」が読めなくなる。
         """
 
         data, reason = PasteVolumeTrainingData.build(
@@ -779,7 +783,7 @@ class TestRealSessions:
     ):
         """収集済み 5 session が held-out 1 / validation 1 / train 3 の 5 fold になる.
 
-        合成 session では session 数を自由に決められるので、実データの本数でしか 「5 fold」は確かめられない。
+        合成 session では session 数を自由に決められる。実データの本数でしか「5 fold」は確かめられない。
         """
 
         values = real_index.session_values()

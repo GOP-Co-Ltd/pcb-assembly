@@ -480,12 +480,22 @@ def _resolved_valid_mask(values: Tensor, valid_mask: Tensor | None) -> Tensor:
 def _derived_seed(material: str) -> int:
     """材料から 64 bit の乱数種を作る.
 
-    **``(global_seed, epoch, sample_id)`` から種を作る用途は、例外なく役割ラベルを
-    材料へ挟むこと。** 挟まないと別用途どうしが同じ材料になり、同じ乱数列から出た値が
-    相関する。``AugmentationRange.parameters_for`` の ``augmentation``、
-    ``PasteVolumeCollator`` の ``placement``、``ViewDropout`` の ``view-dropout``、
-    ``plan_pixel_budget_batches`` の ``batch-plan`` が 4 用途の全てで、
-    ``tests/ml/test_seed_roles.py`` が互いに一致しないことを固定している。
+    **``(global_seed, epoch, ...)`` から種を作る用途は、例外なく役割ラベルを材料へ
+    挟むこと。** 挟まないと別用途どうしが同じ材料になり、同じ乱数列から出た値が相関する。
+
+    規則が掛かるのは材料の作り方であって、この関数ではない。用途は 4 つある。
+
+    - ``AugmentationRange.parameters_for`` の ``augmentation``。sample の id も材料へ
+      入れ、この関数を通す
+    - ``PasteVolumeCollator`` の ``placement``。sample の id も材料へ入れるが、
+      ``sha256_bytes`` を通す
+    - ``ViewDropout`` の ``view-dropout``。batch 単位なので材料には batch の id 列が
+      入り、``random.Random(材料)`` を直接使う
+    - ``plan_pixel_budget_batches`` の ``batch-plan``。batch を跨ぐ並べ替えなので
+      sample の id は入らず、``random.Random(材料)`` を直接使う
+
+    ``tests/ml/test_seed_roles.py`` が、4 用途の材料が互いに一致しないことと、
+    ``src/ml`` の呼び出し元がどれも役割ラベルを挟んでいることを固定している。
 
     利用側で実際に踏んだ例は
     ``memory/agents/orchestrator/paste-volume-data-task.md`` の M1。

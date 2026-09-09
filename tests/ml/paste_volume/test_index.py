@@ -397,7 +397,9 @@ class TestResolveSession:
     def test_reports_a_selector_that_matches_more_than_one(self, tmp_path: Path):
         """0 件と複数件を別の理由にする.
 
-        打ち間違いと指定不足では次の手が違う。全 fingerprint が共有する前頭辞を 渡して複数件の側だけを踏む。
+        打ち間違いと指定不足では次の手が違う。
+
+        全 fingerprint が共有する前頭辞を渡して、複数件の側だけを踏む。
         """
 
         index = _two_sessions(tmp_path)
