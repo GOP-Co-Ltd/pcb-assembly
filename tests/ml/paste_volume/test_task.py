@@ -14,13 +14,13 @@ import torch
 
 from ml.data.image import AugmentationRange, ImageConstraints, ImageShape
 from ml.data.split import SplitManifest, SplitRatios
-from pcbasm.pasting.paste_volume.batch import PasteVolumeCollator
-from pcbasm.pasting.paste_volume.index import PasteVolumeSampleIndex
-from pcbasm.pasting.paste_volume.task import (
+from ml.paste_volume.batch import PasteVolumeCollator
+from ml.paste_volume.index import PasteVolumeSampleIndex
+from ml.paste_volume.task import (
     PasteVolumeTrainingConfig,
     PasteVolumeTrainingData,
 )
-from tests.pcbasm.pasting.paste_volume.helpers import (
+from tests.ml.paste_volume.helpers import (
     CROP_SIZE_PX,
     VIEW_COUNT,
     SyntheticCell,
@@ -493,7 +493,7 @@ class TestRealSessions:
 
     @skip_if_no_real_sessions
     def test_builds_and_materializes_from_the_collected_sessions(self):
-        from tests.pcbasm.pasting.paste_volume.helpers import PASTE_VOLUME_DATASET_DIR
+        from tests.ml.paste_volume.helpers import PASTE_VOLUME_DATASET_DIR
 
         index, reason = PasteVolumeSampleIndex.from_roots(
             [PASTE_VOLUME_DATASET_DIR], constraints=CONSTRAINTS

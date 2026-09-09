@@ -1,7 +1,7 @@
 """1 sample を素のまま読み出す層.
 
 ``decode`` しかしない。resize も rotate も float 化も標準化も行わず、
-:mod:`pcbasm.pasting.paste_volume.batch` の collator へ ``uint8`` のまま渡す。
+:mod:`ml.paste_volume.batch` の collator へ ``uint8`` のまま渡す。
 
 幾何変換を collate 側へ寄せるのは、augmentation の parameter と間引く view が
 batch と epoch から決まるため。1 sample を読む時点ではまだどちらも決まっていない。
@@ -13,7 +13,7 @@ import attrs
 from torch import Tensor
 
 from ml.data.image import decode_rgb_image
-from pcbasm.pasting.paste_volume.index import (
+from ml.paste_volume.index import (
     PasteVolumeSampleEntry,
     PasteVolumeSampleIndex,
 )

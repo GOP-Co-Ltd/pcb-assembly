@@ -29,8 +29,8 @@ from ml.data.image import (
     ImageShape,
     PreprocessedMultiViewSample,
 )
-from pcbasm.pasting.paste_volume.dataset import PasteVolumeRawSample
-from pcbasm.pasting.paste_volume.index import PasteVolumeSampleEntry
+from ml.paste_volume.dataset import PasteVolumeRawSample
+from ml.paste_volume.index import PasteVolumeSampleEntry
 
 # placement seed を 64 bit へ丸める桁数（sha256 の先頭 16 桁）
 _PLACEMENT_SEED_DIGITS = 16

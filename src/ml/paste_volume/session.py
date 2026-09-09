@@ -1,7 +1,7 @@
 """1 収集 session の読み込みと構造の検証.
 
 ``metadata.json`` の解析、画像 path の解決、session fingerprint の算出までを担う。
-画像そのものの検証（寸法の一致、前処理を通せるか）は :mod:`pcbasm.pasting.paste_volume.index`
+画像そのものの検証（寸法の一致、前処理を通せるか）は :mod:`ml.paste_volume.index`
 が行う。ここで decode すると index の判定で同じ PNG を二度読むことになる。
 
 収集 schema は :mod:`pcbasm.pasting.dataset.metadata` が唯一の出典で、ここでは再定義しない。

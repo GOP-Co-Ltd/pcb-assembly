@@ -15,10 +15,10 @@ import torch
 
 from ml.data.batch import ViewDropout
 from ml.data.image import AugmentationRange, ImageConstraints
-from pcbasm.pasting.paste_volume.batch import PasteVolumeCollator
-from pcbasm.pasting.paste_volume.dataset import PasteVolumeDataset, PasteVolumeRawSample
-from pcbasm.pasting.paste_volume.index import PasteVolumeSampleIndex
-from tests.pcbasm.pasting.paste_volume.helpers import (
+from ml.paste_volume.batch import PasteVolumeCollator
+from ml.paste_volume.dataset import PasteVolumeDataset, PasteVolumeRawSample
+from ml.paste_volume.index import PasteVolumeSampleIndex
+from tests.ml.paste_volume.helpers import (
     CROP_SIZE_PX,
     MEASURED_RATIO,
     PIXEL_PER_MM,

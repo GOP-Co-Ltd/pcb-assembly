@@ -1,6 +1,6 @@
 """学習に使う sample の index.
 
-:mod:`pcbasm.pasting.paste_volume.session` が構造を保証した後に、画像を 1 度だけ
+:mod:`ml.paste_volume.session` が構造を保証した後に、画像を 1 度だけ
 decode して寸法を突き合わせ、前処理を通せない cell を隔離する。
 
 失敗の切り分けは 2 段階。**session が壊れている**（view ごとに寸法が違う、``pixel_rect``
@@ -33,12 +33,12 @@ from ml.data.image import (
     PreprocessedMultiViewSample,
     decode_rgb_image,
 )
-from pcbasm.pasting.dataset.metadata import DatasetCapturedView
-from pcbasm.pasting.paste_volume.session import (
+from ml.paste_volume.session import (
     METADATA_FILE_NAME,
     PasteVolumeCell,
     PasteVolumeSession,
 )
+from pcbasm.pasting.dataset.metadata import DatasetCapturedView
 
 INDEX_SCHEMA_VERSION = 1
 

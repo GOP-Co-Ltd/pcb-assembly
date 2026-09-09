@@ -13,9 +13,9 @@ import attrs
 import pytest
 
 from ml.data.image import ImageConstraints
-from pcbasm.pasting.paste_volume.index import PasteVolumeSampleIndex
-from pcbasm.pasting.paste_volume.session import PasteVolumeSession
-from tests.pcbasm.pasting.paste_volume.helpers import (
+from ml.paste_volume.index import PasteVolumeSampleIndex
+from ml.paste_volume.session import PasteVolumeSession
+from tests.ml.paste_volume.helpers import (
     CROP_SIZE_PX,
     MEASURED_RATIO,
     VIEW_COUNT,

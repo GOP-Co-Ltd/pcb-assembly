@@ -42,8 +42,8 @@ from pcbasm.pasting.dataset.metadata import (
     PasteDatasetTotal,
 )
 from pcbasm.pasting.dispense import DispenseSummary
+from tests.ml.helpers import PROJECT_ROOT
 
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
 PASTE_VOLUME_DATASET_DIR = PROJECT_ROOT / "data" / "paste-volume-datasets"
 
 # 実データと同じ crop 寸法を使う。小さくすると ImageConstraints の下限に掛かって

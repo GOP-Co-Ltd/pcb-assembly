@@ -2,8 +2,8 @@
 
 Trainer は dataset の中身を知らない。知っているのは「epoch ごとに sample ID の並びが
 決まり、それを batch へ実体化できる」ことだけ。ここはその 2 つを繋ぐだけの薄い層で、
-読み出しは :mod:`pcbasm.pasting.paste_volume.dataset`、前処理と詰め込みは
-:mod:`pcbasm.pasting.paste_volume.batch` が担う。
+読み出しは :mod:`ml.paste_volume.dataset`、前処理と詰め込みは
+:mod:`ml.paste_volume.batch` が担う。
 
 ``plan_epoch`` は純関数でなければならない。Trainer は checkpoint に載せた batch plan と
 の厳密一致を要求するので、ここが epoch 途中の resume を支えている。
@@ -20,10 +20,10 @@ import torch
 
 from ml.data.batch import BatchShape, plan_pixel_budget_batches
 from ml.data.split import SplitManifest, SplitName, SplitRatios
+from ml.paste_volume.batch import PasteVolumeBatch, PasteVolumeCollator
+from ml.paste_volume.dataset import PasteVolumeDataset
+from ml.paste_volume.index import PasteVolumeSampleIndex
 from ml.training.data import TrainingData
-from pcbasm.pasting.paste_volume.batch import PasteVolumeBatch, PasteVolumeCollator
-from pcbasm.pasting.paste_volume.dataset import PasteVolumeDataset
-from pcbasm.pasting.paste_volume.index import PasteVolumeSampleIndex
 
 
 @attrs.frozen

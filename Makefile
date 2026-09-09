@@ -44,11 +44,11 @@ DOCKER_EXEC = $(DOCKER_COMPOSE) exec ml
 # pcbnew / picamera2 を要求し、それが無いコンテナでは未解決 import として必ず赤くなる。
 # 装置側の型検査は実機の環境で `make type` が担当する。
 #
-# paste_volume は例外で、収集 schema と ml 基盤しか参照しないためコンテナで通る。
-# ここへ入れておかないと、学習機で書いたドメイン層が 1 行も検査されない。
-ML_TREES = src/ml tests/ml src/pcbasm/pasting/paste_volume tests/pcbasm/pasting/paste_volume
+# ドメイン層 ml.paste_volume は収集 schema を読むが、装置 HAL へは届かないので
+# コンテナで通る。到達範囲は tests/ml/test_architecture.py が機械検証する。
+ML_TREES = src/ml tests/ml
 ML_TYPE_PATHS = $(ML_TREES) scripts/ml_smoke.py
-ML_TEST_PATHS = tests/ml tests/pcbasm/pasting/paste_volume
+ML_TEST_PATHS = tests/ml
 
 ml-docker-env: ## Generate docker/ml/.env and the credential mounts from the host
 	@./docker/ml/write-env.sh
@@ -97,8 +97,8 @@ test: ## Run all tests (excludes e2e; see test-e2e)
 test-no-hardware: ## Run tests without hardware
 	uv run pytest -v -m "not hardware and not e2e"
 
-# tests/ml と tests/pcbasm/pasting/paste_volume は picamera2 / pcbnew を要求しないので
-# 学習機でも通る。装置側のテストを collect しないよう対象を絞る。
+# tests/ml は picamera2 / pcbnew を要求しないので学習機でも通る。
+# 装置側のテストを collect しないよう対象を絞る。
 test-ml: ## Run the ML tests that work without picamera2/pcbnew
 	uv run pytest -v $(ML_TEST_PATHS) -m "not hardware and not e2e"
 

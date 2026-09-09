@@ -12,9 +12,9 @@ import pytest
 import torch
 
 from ml.data.image import ImageConstraints
-from pcbasm.pasting.paste_volume.dataset import PasteVolumeDataset
-from pcbasm.pasting.paste_volume.index import PasteVolumeSampleIndex
-from tests.pcbasm.pasting.paste_volume.helpers import (
+from ml.paste_volume.dataset import PasteVolumeDataset
+from ml.paste_volume.index import PasteVolumeSampleIndex
+from tests.ml.paste_volume.helpers import (
     CROP_SIZE_PX,
     POST_GREEN,
     POST_RED_BASE,

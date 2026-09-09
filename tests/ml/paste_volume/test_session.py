@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from pcbasm.pasting.paste_volume.session import PasteVolumeSession
-from tests.pcbasm.pasting.paste_volume.helpers import (
+from ml.paste_volume.session import PasteVolumeSession
+from tests.ml.paste_volume.helpers import (
     CROP_SIZE_PX,
     VIEW_COUNT,
     SyntheticCell,
