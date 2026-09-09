@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Self
@@ -17,8 +18,12 @@ from pcbasm.pasting.dataset.metadata import (
     DatasetView,
     PasteDatasetMetadata,
 )
+from pcbasm.pasting.dataset.pending import PENDING_FILENAME, PasteDatasetPending
 from pcbasm.vision.crop import RectCrop
 from pcbasm.vision.image import ImageArray
+
+# 完成 session が持つ metadata のファイル名
+METADATA_FILENAME = "metadata.json"
 
 
 class PasteDatasetWriter:
@@ -129,6 +134,20 @@ class PasteDatasetWriter:
             post=(Path("post") / filename).as_posix(),
         )
 
+    def write_pending(self, pending: PasteDatasetPending) -> Path:
+        """作業中 session へ ``pending.json`` を書き、その path を返す.
+
+        計量質量のプロンプトへ応答できないまま落ちても、撮影済み画像から
+        metadata を組み直せるようにするための保険。
+
+        Raises:
+            RuntimeError: session が確定済み
+        """
+        self._ensure_open()
+        path = self._working_path / PENDING_FILENAME
+        _write_json(path, pending.to_dict())
+        return path
+
     def finalize(self, metadata: PasteDatasetMetadata) -> Path:
         """Metadata を書き、完成 session 名へ atomic rename する.
 
@@ -167,11 +186,9 @@ class PasteDatasetWriter:
             raise ValueError(
                 f"metadataが参照するcaptureが不足しています: {sorted(missing)}"
             )
-        metadata_path = self._working_path / "metadata.json"
-        metadata_path.write_text(
-            json.dumps(metadata.to_dict(), ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        _write_json(self._working_path / METADATA_FILENAME, metadata.to_dict())
+        # 確定済み session に救出用の doc を残すと、どちらが正かが曖昧になる
+        (self._working_path / PENDING_FILENAME).unlink(missing_ok=True)
         destination = self._root / self._stem
         os.replace(self._working_path, destination)
         self._finished_path = destination
@@ -191,17 +208,98 @@ class PasteDatasetWriter:
             raise RuntimeError(f"dataset sessionは確定済みです: {self._finished_path}")
 
 
+def rescuable_sessions(root: Path) -> tuple[Path, ...]:
+    """``pending.json`` を持つ未確定 session を名前順に返す（救出の選択肢）.
+
+    対象は ``<stem>.incomplete``（ジョブが例外・中止で畳んだもの）と
+    ``.<stem>.tmp``（プロセスごと落ちて畳めなかったもの）の両方。
+
+    どちらも収集ジョブが装置ロックを手放したあとにしか残らないので、実行中の
+    session を掴むことはない。
+    """
+    if not root.is_dir():
+        return ()
+    return tuple(
+        sorted(
+            path
+            for path in root.iterdir()
+            if path.is_dir()
+            and _completed_stem(path.name) is not None
+            and (path / PENDING_FILENAME).is_file()
+        )
+    )
+
+
+def finalize_incomplete(
+    session: Path, metadata: PasteDatasetMetadata
+) -> tuple[Path | None, str | None]:
+    """未確定 session へ後から ``metadata.json`` を書き、完成名へ rename する.
+
+    撮影済み画像はそのまま使う（コピーも再エンコードもしない）。
+
+    metadata が参照する capture が欠けていれば書かずに理由を返す（session は未確定のまま）。
+    """
+    if not session.is_dir():
+        return None, f"未確定sessionが見つかりません: {session}"
+    base = _completed_stem(session.name)
+    if base is None:
+        return None, (
+            f"未確定session（*.incomplete / .*.tmp）ではありません: {session.name}"
+        )
+    missing = [
+        path
+        for target in (*metadata.samples, *metadata.blanks)
+        for view in target.views
+        for path in (view.pre, view.post)
+        if not (session / path).is_file()
+    ]
+    if missing:
+        return None, f"metadataが参照するcaptureがありません: {', '.join(missing)}"
+    _write_json(session / METADATA_FILENAME, metadata.to_dict())
+    (session / PENDING_FILENAME).unlink(missing_ok=True)
+    destination = session.parent / _first_free_name(
+        base, lambda name: (session.parent / name).exists()
+    )
+    os.replace(session, destination)
+    return destination, None
+
+
+def _completed_stem(name: str) -> str | None:
+    """未確定 session の directory 名から完成 session の stem を求める.
+
+    ``<stem>.incomplete`` と ``.<stem>.tmp`` のどちらでもなければ ``None``。
+    """
+    if name.endswith(".incomplete"):
+        return name.removesuffix(".incomplete") or None
+    if name.startswith(".") and name.endswith(".tmp"):
+        return name[1:].removesuffix(".tmp") or None
+    return None
+
+
+def _write_json(path: Path, document: dict[str, object]) -> None:
+    path.write_text(
+        json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
 def _available_stem(root: Path, base: str) -> str:
+    """作業中・未確定・完成のどれとも衝突しない session stem."""
+    return _first_free_name(
+        base,
+        lambda stem: any(
+            (root / candidate).exists()
+            for candidate in (stem, f"{stem}.incomplete", f".{stem}.tmp")
+        ),
+    )
+
+
+def _first_free_name(base: str, taken: Callable[[str], bool]) -> str:
+    """``base`` から始めて連番を足し、最初に未使用となる名前を返す."""
     suffix = 0
     while True:
-        stem = base if suffix == 0 else f"{base}-{suffix}"
-        candidates = (
-            root / stem,
-            root / f"{stem}.incomplete",
-            root / f".{stem}.tmp",
-        )
-        if not any(path.exists() for path in candidates):
-            return stem
+        name = base if suffix == 0 else f"{base}-{suffix}"
+        if not taken(name):
+            return name
         suffix += 1
 
 

@@ -12,8 +12,6 @@ from pcbasm.config import PasteDispenser
 from pcbasm.pasting.applicator import PasteApplicationResult
 from pcbasm.pasting.dataset.metadata import (
     CAPTURE_ORDER,
-    METADATA_KIND,
-    METADATA_SCHEMA_VERSION,
     DatasetCapturedView,
     DatasetView,
     PasteDatasetBlank,
@@ -25,19 +23,22 @@ from pcbasm.pasting.dataset.metadata import (
     PasteDatasetNozzle,
     PasteDatasetPaste,
     PasteDatasetPlate,
-    PasteDatasetPurge,
-    PasteDatasetSample,
-    PasteDatasetTotal,
-    allocate_volume_by_rotations,
+)
+from pcbasm.pasting.dataset.pending import (
+    PENDING_KIND,
+    PENDING_SCHEMA_VERSION,
+    PURGE_KEY,
+    PasteDatasetPending,
+    PasteDatasetPendingPurge,
+    PasteDatasetPendingSample,
+    finalize_pending,
+    sample_key,
 )
 from pcbasm.pasting.dataset.plan import DotCell, DotGridPlan, DotTarget
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
 from pcbasm.utils import is_finite_number
 from pcbasm.vision.calibration import CalibrationResult
 from pcbasm.vision.crop import RectCrop
-
-# 体積配分の識別子。sample は 1 起点の index から作り、purge は固定キー。
-PURGE_KEY = "purge"
 
 
 @attrs.frozen
@@ -130,7 +131,7 @@ class PasteDatasetRecorder:
 
     def record_execution(self, cell: DotCell, result: PasteApplicationResult) -> None:
         """セルへの点塗布実績を記録する."""
-        self._executions[_sample_key(cell.index)] = result
+        self._executions[sample_key(cell.index)] = result
 
     def record_purge_execution(self, result: PasteApplicationResult) -> None:
         """パージの実績を記録する（体積配分に含めるが学習 sample にしない）."""
@@ -148,45 +149,15 @@ class PasteDatasetRecorder:
             return f"sample {target.index} のpre/post crop位置が一致しません"
         return None
 
-    def finalize(self, *, measured_mass_mg: float, run: DatasetRunInfo) -> Path:
-        """計量質量を回転数比でセルへ配分し、metadata を書いて session を確定する."""
+    def build_pending(self, run: DatasetRunInfo) -> PasteDatasetPending:
+        """蓄積した撮影・塗布実績から、計量質量だけが未確定の doc を組む."""
         plan = self._plan
         spec = plan.spec
         dispenser = run.dispenser
-        measured_volume_ul = measured_mass_mg / dispenser.solder_paste_density
-        rotations = {
-            key: execution.summary.rotations
-            for key, execution in self._executions.items()
-        }
-        allocated = allocate_volume_by_rotations(measured_volume_ul, rotations)
-        samples = tuple(
-            PasteDatasetSample(
-                index=cell.index,
-                order=cell.order,
-                cell=cell.rect,
-                center=cell.center,
-                commanded_volume_ul=cell.commanded_volume_ul,
-                volume_index=cell.volume_index,
-                execution=self._executions[_sample_key(cell.index)].summary,
-                measured_volume_ul=allocated[_sample_key(cell.index)],
-                views=self._views_of(cell),
-            )
-            for cell in plan.cells
-        )
-        blanks = tuple(
-            PasteDatasetBlank(
-                index=blank.index,
-                cell=blank.rect,
-                center=blank.center,
-                measured_volume_ul=0.0,
-                views=self._views_of(blank),
-            )
-            for blank in plan.blanks
-        )
         calibration = run.calibration
-        metadata = PasteDatasetMetadata(
-            kind=METADATA_KIND,
-            schema_version=METADATA_SCHEMA_VERSION,
+        return PasteDatasetPending(
+            kind=PENDING_KIND,
+            schema_version=PENDING_SCHEMA_VERSION,
             created_at=run.started_at.isoformat(),
             machine=PasteDatasetMachine(
                 machine_id=run.machine_id, name=run.machine_name
@@ -234,20 +205,56 @@ class PasteDatasetRecorder:
                 capture_order=CAPTURE_ORDER,
             ),
             label=PasteDatasetLabel(kind="rotation_allocated"),
-            total=PasteDatasetTotal(
-                measured_mass_mg=measured_mass_mg,
-                measured_volume_ul=measured_volume_ul,
-                rotations=sum(rotations.values()),
-            ),
-            purge=PasteDatasetPurge(
+            purge=PasteDatasetPendingPurge(
                 cell=plan.purge_cell,
                 center=plan.purge_center,
                 execution=self._executions[PURGE_KEY].summary,
-                measured_volume_ul=allocated[PURGE_KEY],
             ),
-            samples=samples,
-            blanks=blanks,
+            samples=tuple(
+                PasteDatasetPendingSample(
+                    index=cell.index,
+                    order=cell.order,
+                    cell=cell.rect,
+                    center=cell.center,
+                    commanded_volume_ul=cell.commanded_volume_ul,
+                    volume_index=cell.volume_index,
+                    execution=self._executions[sample_key(cell.index)].summary,
+                    views=self._views_of(cell),
+                )
+                for cell in plan.cells
+            ),
+            blanks=tuple(
+                PasteDatasetBlank(
+                    index=blank.index,
+                    cell=blank.rect,
+                    center=blank.center,
+                    measured_volume_ul=0.0,
+                    views=self._views_of(blank),
+                )
+                for blank in plan.blanks
+            ),
         )
+
+    def write_pending(self, run: DatasetRunInfo) -> Path:
+        """計量質量を待つ前に、質量以外を確定させた doc を session へ残す.
+
+        WebUI が落ちて質量を入力できなくても、この doc と計量値があれば
+        :func:`~pcbasm.pasting.dataset.writer.finalize_incomplete` で
+        本経路と同じ metadata に到達できる。
+        """
+        return self._writer.write_pending(self.build_pending(run))
+
+    def finalize(self, *, measured_mass_mg: float, run: DatasetRunInfo) -> Path:
+        """計量質量を回転数比でセルへ配分し、metadata を書いて session を確定する.
+
+        Raises:
+            ValueError: 計量質量が正でない、または回転数の配分ができない
+        """
+        metadata, error = finalize_pending(
+            self.build_pending(run), measured_mass_mg=measured_mass_mg
+        )
+        if metadata is None:
+            raise ValueError(error)
         path = self._writer.finalize(metadata)
         self._metadata = metadata
         return path
@@ -260,7 +267,3 @@ class PasteDatasetRecorder:
         return tuple(
             self._captured[(target.index, view.number)] for view in self._views
         )
-
-
-def _sample_key(index: int) -> str:
-    return f"sample-{index}"

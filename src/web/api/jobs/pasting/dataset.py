@@ -456,6 +456,10 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
 
     この前提（手動プライムをしていないこと）は装置の外から観測できないので、開始時の
     confirm プロンプトで運転者に確認させる。
+
+    計量質量のプロンプトの前に ``pending.json`` を書く。収集は 1 時間規模で、最後の
+    入力だけが装置の外から来るため、そこで WebUI が落ちると撮影済み画像が教師値を失う。
+    残した doc は ``paste_dataset_finalize`` ジョブが計量値と突き合わせて確定する。
     """
     dispenser_config = ctx.machine.paste_dispenser
     paste_id = str(ctx.params["paste_id"]).strip()
@@ -549,28 +553,34 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
                     if post_error is not None:
                         raise ValueError(post_error)
 
+            run = DatasetRunInfo(
+                machine_id=ctx.machine_id,
+                machine_name=ctx.machine.machine_name,
+                paste_id=paste_id,
+                paste_lot=paste_lot,
+                paste_height_mm=paste_height_mm,
+                height_plane_z_mm=_plate_center_z(session, spec, height_plane),
+                view_count=view_count,
+                view_offset_mm=view_offset_mm,
+                crop_size_px=crop_size_px,
+                started_at=started_at,
+                dispenser=dispenser_config,
+                calibration=result.calibration,
+            )
+            # 計量質量は装置の外から来る唯一の値なので、それ以外を先に永続化する。
+            # プロンプトへ応答できないまま落ちても、撮影済み画像が教師値を失わない。
+            recorder.write_pending(run)
+            ctx.log(
+                "計量待ちの状態を保存しました。ここで応答できなくても"
+                "「未完了ペーストdatasetの確定」ジョブで復元できます"
+            )
             measured_mass_mg = prompt_positive_number(
                 ctx,
                 "TAREした電子天秤で塗布済み銅板を計量し、増加質量 [mg] を入力してください。",
+                notify=True,
             )
             assert measured_mass_mg is not None
-            session_path = recorder.finalize(
-                measured_mass_mg=measured_mass_mg,
-                run=DatasetRunInfo(
-                    machine_id=ctx.machine_id,
-                    machine_name=ctx.machine.machine_name,
-                    paste_id=paste_id,
-                    paste_lot=paste_lot,
-                    paste_height_mm=paste_height_mm,
-                    height_plane_z_mm=_plate_center_z(session, spec, height_plane),
-                    view_count=view_count,
-                    view_offset_mm=view_offset_mm,
-                    crop_size_px=crop_size_px,
-                    started_at=started_at,
-                    dispenser=dispenser_config,
-                    calibration=result.calibration,
-                ),
-            )
+            session_path = recorder.finalize(measured_mass_mg=measured_mass_mg, run=run)
         except Exception:
             incomplete = recorder.mark_incomplete()
             ctx.log(f"未完了datasetを保持しました: {incomplete}")

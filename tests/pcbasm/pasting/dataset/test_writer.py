@@ -21,11 +21,21 @@ from pcbasm.pasting.dataset.metadata import (
     PasteDatasetMetadata,
     parse_metadata,
 )
-from pcbasm.pasting.dataset.writer import PasteDatasetWriter
+from pcbasm.pasting.dataset.pending import (
+    PENDING_FILENAME,
+    PasteDatasetPending,
+    parse_pending,
+)
+from pcbasm.pasting.dataset.writer import (
+    PasteDatasetWriter,
+    finalize_incomplete,
+    rescuable_sessions,
+)
 from pcbasm.vision.crop import RectCrop
 from tests.helpers import TESTING_DATA_DIR
 
 METADATA_V2 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v2.json"
+PENDING_V1 = TESTING_DATA_DIR / "schemas" / "paste_dataset_pending_v1.json"
 STARTED_AT = datetime(2026, 9, 8, 14, 30, 52, 123456, tzinfo=UTC)
 STEM = "plate-40x40-20260908T143052.123+0000"
 CROP_SIZE_PX = 9
@@ -47,6 +57,19 @@ def _parsed(payload: dict[str, object]) -> PasteDatasetMetadata:
 def _metadata() -> PasteDatasetMetadata:
     """Fixture の v2 doc（sample index 1、view 0 / 1）をそのまま使う."""
     return _parsed(_payload())
+
+
+def _pending_payload() -> dict[str, object]:
+    return json.loads(PENDING_V1.read_text(encoding="utf-8"))
+
+
+def _pending() -> PasteDatasetPending:
+    """Fixture の v1 doc（``_metadata()`` と同じ収集の、質量未確定版）."""
+    pending, error = parse_pending(_pending_payload())
+
+    assert error is None, error
+    assert pending is not None
+    return pending
 
 
 def _crop(offset: int = 0, size: int = CROP_SIZE_PX) -> RectCrop:
@@ -358,3 +381,147 @@ class TestPasteDatasetWriterContextManager:
             session = writer.finalize(_metadata())
 
         assert {path.name for path in tmp_path.iterdir()} == {session.name}
+
+
+class TestPasteDatasetWriterPending:
+    """計量質量の入力前に pending.json を残し、確定時に取り除く."""
+
+    def test_write_pending_puts_the_document_in_the_working_session(
+        self, tmp_path: Path
+    ):
+        writer = _open(tmp_path)
+
+        path = writer.write_pending(_pending())
+
+        assert path == writer.working_path / PENDING_FILENAME
+        assert json.loads(path.read_text(encoding="utf-8")) == _pending_payload()
+
+    def test_incomplete_session_keeps_the_pending_document(self, tmp_path: Path):
+        with _open(tmp_path) as writer:
+            _write_all(writer)
+            writer.write_pending(_pending())
+
+        incomplete = tmp_path / f"{STEM}.incomplete"
+        assert (incomplete / PENDING_FILENAME).is_file()
+
+    def test_finalize_removes_the_pending_document(self, tmp_path: Path):
+        writer = _open(tmp_path)
+        _write_all(writer)
+        writer.write_pending(_pending())
+
+        session = writer.finalize(_metadata())
+
+        assert (session / "metadata.json").is_file()
+        assert not (session / PENDING_FILENAME).exists()
+
+    def test_rejects_pending_after_the_session_is_finalized(self, tmp_path: Path):
+        writer = _open(tmp_path)
+        _write_all(writer)
+        writer.finalize(_metadata())
+
+        with pytest.raises(RuntimeError, match="確定済み"):
+            writer.write_pending(_pending())
+
+
+class TestRescuableSessions:
+    """pending.json を持つ未確定 session の列挙（救出ジョブの選択肢）."""
+
+    def test_lists_only_sessions_that_carry_a_pending_document(self, tmp_path: Path):
+        with _open(tmp_path) as writer:
+            _write_all(writer)
+            writer.write_pending(_pending())
+        (tmp_path / "plate-40x40-20260101T000000.000+0000.incomplete").mkdir()
+        (tmp_path / "plate-40x40-20260102T000000.000+0000").mkdir()
+
+        assert rescuable_sessions(tmp_path) == (tmp_path / f"{STEM}.incomplete",)
+
+    def test_lists_a_working_session_left_by_a_killed_process(self, tmp_path: Path):
+        """プロセスごと落ちると ``.tmp`` のまま残るので、それも救出対象にする."""
+        writer = _open(tmp_path)
+        _write_all(writer)
+        writer.write_pending(_pending())
+
+        assert rescuable_sessions(tmp_path) == (tmp_path / f".{STEM}.tmp",)
+
+    def test_returns_nothing_for_a_missing_root(self, tmp_path: Path):
+        assert rescuable_sessions(tmp_path / "absent") == ()
+
+
+class TestFinalizeIncomplete:
+    """未完了 session へ後から metadata を書いて完成名へ確定する."""
+
+    def _incomplete(self, tmp_path: Path) -> Path:
+        with _open(tmp_path) as writer:
+            _write_all(writer)
+            writer.write_pending(_pending())
+        return tmp_path / f"{STEM}.incomplete"
+
+    def test_writes_metadata_and_renames_to_the_completed_stem(self, tmp_path: Path):
+        incomplete = self._incomplete(tmp_path)
+
+        session, error = finalize_incomplete(incomplete, _metadata())
+
+        assert error is None, error
+        assert session is not None
+        assert session == tmp_path / STEM
+        assert (
+            json.loads((session / "metadata.json").read_text(encoding="utf-8"))
+            == _payload()
+        )
+        assert not (session / PENDING_FILENAME).exists()
+        assert (session / "pre" / "000001.00.png").is_file()
+
+    def test_suffixes_the_stem_when_a_completed_session_already_exists(
+        self, tmp_path: Path
+    ):
+        incomplete = self._incomplete(tmp_path)
+        (tmp_path / STEM).mkdir()
+
+        session, error = finalize_incomplete(incomplete, _metadata())
+
+        assert error is None, error
+        assert session is not None
+        assert session == tmp_path / f"{STEM}-1"
+
+    def test_finalizes_a_working_session_left_by_a_killed_process(self, tmp_path: Path):
+        writer = _open(tmp_path)
+        _write_all(writer)
+        writer.write_pending(_pending())
+
+        session, error = finalize_incomplete(tmp_path / f".{STEM}.tmp", _metadata())
+
+        assert error is None, error
+        assert session is not None
+        assert session == tmp_path / STEM
+        assert (session / "metadata.json").is_file()
+
+    def test_rejects_a_directory_that_is_not_an_unfinished_session(
+        self, tmp_path: Path
+    ):
+        session = tmp_path / STEM
+        session.mkdir()
+
+        result, error = finalize_incomplete(session, _metadata())
+
+        assert result is None
+        assert error is not None
+        assert "incomplete" in error
+
+    def test_rejects_a_missing_directory(self, tmp_path: Path):
+        result, error = finalize_incomplete(
+            tmp_path / f"{STEM}.incomplete", _metadata()
+        )
+
+        assert result is None
+        assert error is not None
+
+    def test_rejects_metadata_whose_capture_files_are_missing(self, tmp_path: Path):
+        incomplete = self._incomplete(tmp_path)
+        (incomplete / "post" / "000001.01.png").unlink()
+
+        result, error = finalize_incomplete(incomplete, _metadata())
+
+        assert result is None
+        assert error is not None
+        assert "post/000001.01.png" in error
+        assert incomplete.is_dir()  # 失敗しても未完了のまま残す
