@@ -1,4 +1,4 @@
-"""はんだペースト流量キャリブレーション基板の設定とJSON形式."""
+"""テスト塗布基板の設定とJSON形式."""
 
 from __future__ import annotations
 
@@ -17,13 +17,16 @@ from pcbasm.pcb.units import (
 )
 from pcbasm.utils import is_finite_number
 
-BoardKind: TypeAlias = Literal["paste_flow_calibration_board"]
+BoardKind: TypeAlias = Literal["paste_test_board"]
 BoardSchemaVersion: TypeAlias = Literal[1]
 CustomPadShapeId: TypeAlias = Literal["circle", "rectangle", "roundrect", "oval"]
 PreviewLayer: TypeAlias = Literal["F.Cu", "F.Paste"]
 
-BOARD_KIND: BoardKind = "paste_flow_calibration_board"
+BOARD_KIND: BoardKind = "paste_test_board"
 BOARD_SCHEMA_VERSION: BoardSchemaVersion = 1
+
+# 流量計測パッドの個数上限（過大入力での配置計算の暴走を防ぐ）
+MAX_FLOW_PAD_COUNT = 1000
 _MAX_CALIBRATION_PAD_COUNT = 10_000
 _KICAD_MAX_PAD_SIZE_MM = (KICAD_COORD_MAX_NM - 1) / 1_000_000
 _KICAD_LENGTH_RANGE_TEXT = f"1 nm以上{KICAD_MAX_COORD_MM:.6f} mm以下"
@@ -131,6 +134,18 @@ class PurgePadSpec:
 
 
 @attrs.frozen
+class FlowPadSpec:
+    """点塗布で流量計測するための正方形パッド.
+
+    データセット収集と同じ点塗布で吐出量を確かめるため、大きさだけを設定する
+    （幅と高さを別に持たない）。``count`` が 0 なら配置しない。
+    """
+
+    size_mm: float = 2.0
+    count: int = 5
+
+
+@attrs.frozen
 class PatternSpec:
     """1パッド種の回転・繰り返し配置."""
 
@@ -188,6 +203,7 @@ class BoardConfig:
 
     board: BoardSpec = attrs.Factory(BoardSpec)
     purge_pad: PurgePadSpec = attrs.Factory(PurgePadSpec)
+    flow_pads: FlowPadSpec = attrs.Factory(FlowPadSpec)
     custom_pads: tuple[CustomPadSpec, ...] = ()
     patterns: tuple[PatternSpec, ...] = attrs.Factory(default_patterns)
 
@@ -198,6 +214,8 @@ class BoardConfig:
             return "基板外形の形式が不正です"
         if not isinstance(self.purge_pad, PurgePadSpec):
             return "purge padの形式が不正です"
+        if not isinstance(self.flow_pads, FlowPadSpec):
+            return "流量計測パッドの形式が不正です"
         if not isinstance(self.custom_pads, tuple):
             return "任意パッド一覧の形式が不正です"
         if not isinstance(self.patterns, tuple):
@@ -224,6 +242,12 @@ class BoardConfig:
                 _KICAD_MAX_PAD_SIZE_MM,
                 _KICAD_PAD_SIZE_RANGE_TEXT,
             ),
+            (
+                "流量計測パッド寸法",
+                self.flow_pads.size_mm,
+                _KICAD_MAX_PAD_SIZE_MM,
+                _KICAD_PAD_SIZE_RANGE_TEXT,
+            ),
         )
         for label, value, maximum_mm, range_text in positive:
             if not is_finite_number(value) or value <= 0:
@@ -243,6 +267,11 @@ class BoardConfig:
             return "基板幅には左右の外周余白より大きい値が必要です"
         if board.height_mm <= 2 * board.edge_margin_mm:
             return "基板高さには上下の外周余白より大きい値が必要です"
+        count = self.flow_pads.count
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            return "流量計測パッドの個数は0以上の整数が必要です"
+        if count > MAX_FLOW_PAD_COUNT:
+            return f"流量計測パッドの個数は{MAX_FLOW_PAD_COUNT}以下で指定してください"
         if not self.patterns:
             return "1つ以上のパッドパターンが必要です"
 
@@ -334,6 +363,7 @@ class BoardConfig:
             "schema_version": BOARD_SCHEMA_VERSION,
             "board": attrs.asdict(self.board),
             "purge_pad": attrs.asdict(self.purge_pad),
+            "flow_pads": attrs.asdict(self.flow_pads),
             "custom_pads": [attrs.asdict(item) for item in self.custom_pads],
             "patterns": [attrs.asdict(pattern) for pattern in self.patterns],
         }
@@ -410,6 +440,7 @@ def parse_board_document(
             "schema_version",
             "board",
             "purge_pad",
+            "flow_pads",
             "custom_pads",
             "patterns",
         ),
@@ -426,6 +457,7 @@ def parse_board_document(
         return None
     board_data = document.get("board")
     purge_data = document.get("purge_pad")
+    flow_data = document.get("flow_pads")
     custom_pad_data = document.get("custom_pads")
     pattern_data = document.get("patterns")
     if not isinstance(board_data, Mapping) or not _has_exact_keys(
@@ -434,6 +466,10 @@ def parse_board_document(
         return None
     if not isinstance(purge_data, Mapping) or not _has_exact_keys(
         purge_data, ("width_mm", "height_mm")
+    ):
+        return None
+    if not isinstance(flow_data, Mapping) or not _has_exact_keys(
+        flow_data, ("size_mm", "count")
     ):
         return None
     if not isinstance(custom_pad_data, list) or not isinstance(pattern_data, list):
@@ -445,6 +481,12 @@ def parse_board_document(
     pad_gap = _document_float(board_data.get("pad_gap_mm"))
     purge_width = _document_float(purge_data.get("width_mm"))
     purge_height = _document_float(purge_data.get("height_mm"))
+    flow_size = _document_float(flow_data.get("size_mm"))
+    flow_count = flow_data.get("count")
+    if isinstance(flow_count, bool) or not isinstance(flow_count, int):
+        return None
+    if flow_size is None:
+        return None
     if (
         width is None
         or height is None
@@ -532,6 +574,7 @@ def parse_board_document(
             width_mm=purge_width,
             height_mm=purge_height,
         ),
+        flow_pads=FlowPadSpec(size_mm=flow_size, count=flow_count),
         custom_pads=tuple(custom_pads),
         patterns=tuple(patterns),
     )

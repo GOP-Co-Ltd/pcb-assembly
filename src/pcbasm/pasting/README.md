@@ -5,25 +5,26 @@
 
 ## 構成
 
-| モジュール               | 役割                                                                                                                                                                                                                                         |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `params.py`              | 塗布パラメータ 8 項目の単一ソース。`PasteParams` / `PasteParamsPatch` / `PASTE_PARAM_FIELDS`（UI 列順・ラベル・入力種別）/ `validate_param_values` / `DispenseSettings`                                                                      |
-| `settings.py`            | 基板別の階層 override（L0–L4）。`PasteSettingsModel` / `resolve_pad_settings` / `select_enabled_pads` / override 集計                                                                                                                        |
-| `persist.py`             | 基板別 override JSON の codec（schema v1、legacy 変換込み）                                                                                                                                                                                  |
-| `fill_path.py`           | pad 1 枚の塗布経路生成。`FillPlan` / `FillPlan.build` / `FillPlan.for_pad`                                                                                                                                                                   |
-| `fill_sequence.py`       | 1 経路の G-code ビルダー `FillSequence`（prime → 吐出 → retract）                                                                                                                                                                            |
-| `applicator.py`          | ディスペンサー HAL の駆動 `PasteApplicator` / `build_applicator`。`apply` / `deposit_at` / `draw_line` / `load_rotations`                                                                                                                    |
-| `route.py`               | 有効 pad の塗布順路 `plan_paste_route`                                                                                                                                                                                                       |
-| `sweep.py`               | 掃引点列の等間隔分割 `sweep_schedule`（flowcalib と dataset が共用）                                                                                                                                                                         |
-| `initial_purge.py`       | 初回パージ pad の解決                                                                                                                                                                                                                        |
-| `height.py` / `probe.py` | 銅箔上のプローブ計測と高さ面 `HeightPlaneMeasurer` / `plan_probe_points` / `ProbeExecutor`                                                                                                                                                   |
-| `session.py`             | 塗布ワークフローの HAL 配線 `PasteSession`（Board 計測結果 → 高さ計測・位置合わせ・pad 別変換・銅板の一括変換・applicator 構築）                                                                                                             |
-| `workflow.py`            | 装置非依存の前計画 `plan_paste_targets`                                                                                                                                                                                                      |
-| `alignment.py`           | 塗布向けの位置合わせ合成 `PasteCorrection` / `refine_pad`                                                                                                                                                                                    |
-| `toolhead_offset.py`     | カメラ–ノズル間オフセット計測 `ToolheadOffsetProcedure` / `ToolheadOffsetResult` / `ToolheadOffsetDiagnostics`                                                                                                                               |
-| `flowcalib/`             | 流量キャリブレーション。`params`（ジョブ既定値）/ `flow`（質量 → rotations_per_ul、レート・速度掃引の数理）/ `lines`（線配置と掃引計画）/ `procedure`（銅板・transform・applicator を束ねる機械手順）/ `board/`（キャリブ基板の KiCad 生成） |
-| `dataset/`               | ペースト塗布画像 dataset の収集（銅板のセル格子へ点塗布）。`plan`（セル格子・量スイープ・view・事前検証）/ `metadata`（metadata.json DTO・codec、schema v2）/ `writer` / `recorder` / `capture`。切り出しは `pcbasm.vision.crop`             |
-| `paste_volume/`          | 塗布量推定モデル用の予約 namespace（torch 等の import 禁止）                                                                                                                                                                                 |
+| モジュール               | 役割                                                                                                                                                                                                                             |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `params.py`              | 塗布パラメータ 8 項目の単一ソース。`PasteParams` / `PasteParamsPatch` / `PASTE_PARAM_FIELDS`（UI 列順・ラベル・入力種別）/ `validate_param_values` / `DispenseSettings`                                                          |
+| `settings.py`            | 基板別の階層 override（L0–L4）。`PasteSettingsModel` / `resolve_pad_settings` / `select_enabled_pads` / override 集計                                                                                                            |
+| `persist.py`             | 基板別 override JSON の codec（schema v1、legacy 変換込み）                                                                                                                                                                      |
+| `fill_path.py`           | pad 1 枚の塗布経路生成。`FillPlan` / `FillPlan.build` / `FillPlan.for_pad`                                                                                                                                                       |
+| `fill_sequence.py`       | 1 経路の G-code ビルダー `FillSequence`（prime → 吐出 → retract）                                                                                                                                                                |
+| `applicator.py`          | ディスペンサー HAL の駆動 `PasteApplicator` / `build_applicator`。`apply` / `deposit_at` / `draw_line` / `load_rotations`                                                                                                        |
+| `route.py`               | 有効 pad の塗布順路 `plan_paste_route`                                                                                                                                                                                           |
+| `sweep.py`               | 掃引点列の等間隔分割 `sweep_schedule`（flowcalib と dataset が共用）                                                                                                                                                             |
+| `initial_purge.py`       | 初回パージ pad の解決                                                                                                                                                                                                            |
+| `height.py` / `probe.py` | 銅箔上のプローブ計測と高さ面 `HeightPlaneMeasurer` / `plan_probe_points` / `ProbeExecutor`                                                                                                                                       |
+| `session.py`             | 塗布ワークフローの HAL 配線 `PasteSession`（Board 計測結果 → 高さ計測・位置合わせ・pad 別変換・銅板の一括変換・applicator 構築）                                                                                                 |
+| `workflow.py`            | 装置非依存の前計画 `plan_paste_targets`                                                                                                                                                                                          |
+| `alignment.py`           | 塗布向けの位置合わせ合成 `PasteCorrection` / `refine_pad`                                                                                                                                                                        |
+| `toolhead_offset.py`     | カメラ–ノズル間オフセット計測 `ToolheadOffsetProcedure` / `ToolheadOffsetResult` / `ToolheadOffsetDiagnostics`                                                                                                                   |
+| `flowcalib/`             | 流量キャリブレーション。`params`（ジョブ既定値）/ `flow`（質量 → rotations_per_ul、レート・速度掃引の数理）/ `lines`（線配置と掃引計画）/ `procedure`（銅板・transform・applicator を束ねる機械手順）                            |
+| `testboard/`             | テスト塗布基板の KiCad 生成。`config`（設定 DTO と検証）/ `catalog`（footprint 検索とパッド種解決）/ `layout`（パッド packing）/ `generator`（preview・`.kicad_pcb` 生成のファサード）                                           |
+| `dataset/`               | ペースト塗布画像 dataset の収集（銅板のセル格子へ点塗布）。`plan`（セル格子・量スイープ・view・事前検証）/ `metadata`（metadata.json DTO・codec、schema v2）/ `writer` / `recorder` / `capture`。切り出しは `pcbasm.vision.crop` |
+| `paste_volume/`          | 塗布量推定モデル用の予約 namespace（torch 等の import 禁止）                                                                                                                                                                     |
 
 `__init__.py` は docstring のみで re-export しない。消費側はサブモジュールを直接 import する
 （`import pcbasm.pasting` が cv2 / pcbnew / torch を引き込まない契約を `tests/test_package.py` で固定）。
@@ -39,7 +40,7 @@ web/api/jobs/pasting/*  →  pasting.{session,workflow,alignment,flowcalib.proce
 ```
 
 - 汎用の計算幾何は `pcbasm.geometry`、KiCad 汎用処理は `pcbasm.pcb`（`units` / `footprint`）に置く
-- 永続 JSON（基板別 override / dataset metadata / flowcalib board document）は `schema_version` で分岐し、
+- 永続 JSON（基板別 override / dataset metadata / テスト塗布基板 document）は `schema_version` で分岐し、
     旧版は純関数 `_migrate_vN` で新版 dict へ写してから structure する。形状を変えない限り版は上げない
 
 ## 規約

@@ -1,46 +1,50 @@
 "use strict";
 
 (() => {
-  const root = document.getElementById("paste-flow-calibration-board");
+  const root = document.getElementById("paste-test-board");
   if (!root) return;
 
   const { api, debounce, downloadApi, svgEl, toast } = window.webui;
-  const endpoint = "/api/pasting/paste-flow-calibration-board";
-  const rows = document.getElementById("pfc-pattern-rows");
-  const footprintSearch = document.getElementById("pfc-footprint-search");
-  const footprintResults = document.getElementById("pfc-footprint-results");
-  const footprintCount = document.getElementById("pfc-footprint-count");
-  const addButton = document.getElementById("pfc-add-pattern");
-  const addCustomPadButton = document.getElementById("pfc-add-custom-pad");
-  const customPadName = document.getElementById("pfc-custom-pad-name");
-  const customPadShape = document.getElementById("pfc-custom-pad-shape");
-  const customPadWidth = document.getElementById("pfc-custom-pad-width");
-  const customPadHeight = document.getElementById("pfc-custom-pad-height");
-  const customPadRadius = document.getElementById("pfc-custom-pad-radius");
+  const endpoint = "/api/pasting/paste-test-board";
+  const rows = document.getElementById("ptb-pattern-rows");
+  const footprintSearch = document.getElementById("ptb-footprint-search");
+  const footprintResults = document.getElementById("ptb-footprint-results");
+  const footprintCount = document.getElementById("ptb-footprint-count");
+  const addButton = document.getElementById("ptb-add-pattern");
+  const addCustomPadButton = document.getElementById("ptb-add-custom-pad");
+  const customPadName = document.getElementById("ptb-custom-pad-name");
+  const customPadShape = document.getElementById("ptb-custom-pad-shape");
+  const customPadWidth = document.getElementById("ptb-custom-pad-width");
+  const customPadHeight = document.getElementById("ptb-custom-pad-height");
+  const customPadRadius = document.getElementById("ptb-custom-pad-radius");
   const customPadHeightField = document.getElementById(
-    "pfc-custom-pad-height-field"
+    "ptb-custom-pad-height-field"
   );
   const customPadRadiusField = document.getElementById(
-    "pfc-custom-pad-radius-field"
+    "ptb-custom-pad-radius-field"
   );
-  const preview = document.getElementById("pfc-preview");
-  const previewStatus = document.getElementById("pfc-preview-status");
-  const previewSummary = document.getElementById("pfc-preview-summary");
-  const importButton = document.getElementById("pfc-import");
-  const importFile = document.getElementById("pfc-import-file");
-  const exportButton = document.getElementById("pfc-export");
-  const generateButton = document.getElementById("pfc-generate");
-  const interactiveRegions = root.querySelectorAll("[data-pfc-interactive]");
+  const preview = document.getElementById("ptb-preview");
+  const previewStatus = document.getElementById("ptb-preview-status");
+  const previewSummary = document.getElementById("ptb-preview-summary");
+  const importButton = document.getElementById("ptb-import");
+  const importFile = document.getElementById("ptb-import-file");
+  const exportButton = document.getElementById("ptb-export");
+  const generateButton = document.getElementById("ptb-generate");
+  const interactiveRegions = root.querySelectorAll("[data-ptb-interactive]");
 
   const boardFields = {
-    width_mm: document.getElementById("pfc-board-width"),
-    height_mm: document.getElementById("pfc-board-height"),
-    edge_margin_mm: document.getElementById("pfc-edge-margin"),
-    pad_gap_mm: document.getElementById("pfc-pad-gap"),
+    width_mm: document.getElementById("ptb-board-width"),
+    height_mm: document.getElementById("ptb-board-height"),
+    edge_margin_mm: document.getElementById("ptb-edge-margin"),
+    pad_gap_mm: document.getElementById("ptb-pad-gap"),
+  };
+  const flowFields = {
+    size_mm: document.getElementById("ptb-flow-size"),
+    count: document.getElementById("ptb-flow-count"),
   };
   const purgeFields = {
-    width_mm: document.getElementById("pfc-purge-width"),
-    height_mm: document.getElementById("pfc-purge-height"),
+    width_mm: document.getElementById("ptb-purge-width"),
+    height_mm: document.getElementById("ptb-purge-height"),
   };
 
   const catalog = new Map();
@@ -56,7 +60,7 @@
   let documentSchemaVersion = null;
   const optionLabelMaxLength = 48;
   const draftStorageKey =
-    "pcbasm:paste-flow-calibration-board:draft:" +
+    "pcbasm:paste-test-board:draft:" +
     (document.body.dataset.machineBase || "unscoped");
 
   function numberFrom(input, label) {
@@ -110,6 +114,10 @@
       purge_pad: {
         width_mm: numberFrom(purgeFields.width_mm, "purge pad幅"),
         height_mm: numberFrom(purgeFields.height_mm, "purge pad高さ"),
+      },
+      flow_pads: {
+        size_mm: numberFrom(flowFields.size_mm, "流量計測パッド寸法"),
+        count: numberFrom(flowFields.count, "流量計測パッド個数"),
       },
       custom_pads: config.custom_pads,
       patterns: config.patterns.map(collectPattern),
@@ -171,7 +179,7 @@
     const cell = document.createElement("td");
     cell.className = className;
     const text = document.createElement("span");
-    text.className = "pfc-truncated-text";
+    text.className = "ptb-truncated-text";
     text.textContent = value;
     text.title = value;
     cell.appendChild(text);
@@ -264,8 +272,8 @@
       if (!item) continue;
       const row = document.createElement("tr");
       row.dataset.catalogId = pattern.catalog_id;
-      row.appendChild(truncatedTextCell(item.footprint_label, "pfc-name-label"));
-      row.appendChild(truncatedTextCell(item.label, "pfc-pad-label"));
+      row.appendChild(truncatedTextCell(item.footprint_label, "ptb-name-label"));
+      row.appendChild(truncatedTextCell(item.label, "ptb-pad-label"));
 
       const spanCell = document.createElement("td");
       spanCell.appendChild(
@@ -277,7 +285,7 @@
         numberInput(pattern, "rotation_count", "1", "回転分割数")
       );
       row.appendChild(countCell);
-      row.appendChild(textCell("—", "pfc-resolved-angles"));
+      row.appendChild(textCell("—", "ptb-resolved-angles"));
       const repeatCell = document.createElement("td");
       repeatCell.appendChild(
         numberInput(pattern, "repeat_count", "1", "繰り返し数")
@@ -286,7 +294,7 @@
       const actionCell = document.createElement("td");
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.className = "pfc-remove-pattern";
+      remove.className = "ptb-remove-pattern";
       remove.textContent = "削除";
       remove.dataset.removeCatalogId = pattern.catalog_id;
       remove.setAttribute(
@@ -304,6 +312,9 @@
     config = nextConfig;
     for (const [field, input] of Object.entries(boardFields)) {
       input.value = config.board[field];
+    }
+    for (const [field, input] of Object.entries(flowFields)) {
+      input.value = config.flow_pads[field];
     }
     for (const [field, input] of Object.entries(purgeFields)) {
       input.value = config.purge_pad[field];
@@ -332,7 +343,7 @@
   }
 
   function clearResolvedValues() {
-    for (const cell of rows.querySelectorAll(".pfc-resolved-angles")) {
+    for (const cell of rows.querySelectorAll(".ptb-resolved-angles")) {
       cell.textContent = "—";
     }
   }
@@ -352,12 +363,12 @@
     return svgEl("polygon", {
       points: polygon.points.map((point) => `${point.x},${point.y}`).join(" "),
       class:
-        className || (polygon.layer === "F.Cu" ? "pfc-copper" : "pfc-paste"),
+        className || (polygon.layer === "F.Cu" ? "ptb-copper" : "ptb-paste"),
     });
   }
 
   function appendPolygons(target, layout, className = null) {
-    const purge = svgEl("g", { class: "pfc-preview-pad" });
+    const purge = svgEl("g", { class: "ptb-preview-pad" });
     const purgeTitle = svgEl("title", {});
     purgeTitle.textContent = "PURGE";
     purge.appendChild(purgeTitle);
@@ -366,9 +377,20 @@
     }
     target.appendChild(purge);
 
+    layout.flow_polygons.forEach((polygons, index) => {
+      const flow = svgEl("g", { class: "ptb-preview-pad" });
+      const flowTitle = svgEl("title", {});
+      flowTitle.textContent = `FLOW${index + 1}`;
+      flow.appendChild(flowTitle);
+      for (const polygon of polygons) {
+        flow.appendChild(polygonElement(polygon, className));
+      }
+      target.appendChild(flow);
+    });
+
     for (const pad of layout.pads) {
       const element = svgEl("g", {
-        class: "pfc-preview-pad",
+        class: "ptb-preview-pad",
         "aria-label": pad.display_name,
       });
       const title = svgEl("title", {});
@@ -390,7 +412,7 @@
   }
 
   function appendOverflowLayer(layout) {
-    const clipId = "pfc-placement-overflow-clip";
+    const clipId = "ptb-placement-overflow-clip";
     const definitions = svgEl("defs", {});
     const clip = svgEl("clipPath", {
       id: clipId,
@@ -409,10 +431,10 @@
     preview.appendChild(definitions);
 
     const overflow = svgEl("g", {
-      class: "pfc-overflow-layer",
+      class: "ptb-overflow-layer",
       "clip-path": `url(#${clipId})`,
     });
-    appendPolygons(overflow, layout, "pfc-overflow-shape");
+    appendPolygons(overflow, layout, "ptb-overflow-shape");
     preview.appendChild(overflow);
   }
 
@@ -420,7 +442,7 @@
     for (const pattern of layout.patterns) {
       const row = rowForCatalogId(pattern.catalog_id);
       if (!row) continue;
-      row.querySelector(".pfc-resolved-angles").textContent = pattern.angles_deg
+      row.querySelector(".ptb-resolved-angles").textContent = pattern.angles_deg
         .map((angle) => `${Number(angle.toFixed(3))}°`)
         .join(", ");
     }
@@ -440,7 +462,7 @@
         y: 0,
         width: layout.board.width_mm,
         height: layout.board.height_mm,
-        class: "pfc-board-outline",
+        class: "ptb-board-outline",
       })
     );
 
@@ -451,7 +473,11 @@
     }
 
     renderResolvedRows(layout);
-    previewSummary.textContent = `${layout.pad_count}パッド + purge pad`;
+    previewSummary.textContent =
+      `${layout.pad_count}パッド + purge pad` +
+      (layout.flow_pads.length > 0
+        ? ` + 流量計測 ${layout.flow_pads.length}パッド`
+        : "");
     const hasOverflow = layout.overflow_message !== null;
     previewStatus.textContent = hasOverflow
       ? layout.overflow_message

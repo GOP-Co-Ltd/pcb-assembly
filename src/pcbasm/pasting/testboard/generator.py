@@ -220,6 +220,7 @@ class BoardGenerator:
             return None, overflow_message
         board = generate_rect_pcb(layout.board.width_mm, layout.board.height_mm)
         _add_purge_pad(board, layout.purge_pad)
+        _add_flow_pads(board, layout.flow_pads)
         for pad_layout in layout.pads:
             resolved = plan.resolved[pad_layout.catalog_id]
             footprint = duplicate_footprint(resolved.template)
@@ -233,12 +234,26 @@ class BoardGenerator:
         return board, None
 
 
+def _add_flow_pads(board: pcbnew.BOARD, rects: tuple[Rect, ...]) -> None:
+    """流量計測用の正方形パッドを ``FLOW1`` から採番して置く."""
+    for index, bounds in enumerate(rects, start=1):
+        _add_square_pad(
+            board, bounds, reference=f"FLOW{index}", value="Paste flow gauge"
+        )
+
+
 def _add_purge_pad(board: pcbnew.BOARD, bounds: Rect) -> None:
+    _add_square_pad(board, bounds, reference="PURGE", value="Paste purge")
+
+
+def _add_square_pad(
+    board: pcbnew.BOARD, bounds: Rect, *, reference: str, value: str
+) -> None:
     center_x = bounds.x + bounds.width / 2.0
     center_y = bounds.y + bounds.height / 2.0
     footprint = pcbnew.FOOTPRINT(board)
-    footprint.SetReference("PURGE")
-    footprint.SetValue("Paste purge")
+    footprint.SetReference(reference)
+    footprint.SetValue(value)
     footprint.SetPosition(vector(center_x, center_y))
     footprint.Reference().SetVisible(False)
     footprint.Value().SetVisible(False)
