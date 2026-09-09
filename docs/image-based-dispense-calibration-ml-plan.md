@@ -172,10 +172,13 @@ MLflowへ必ず保存する。この場合の`source_id`は各rootのcontent fin
 
 ### sample index
 
-1個のviewを1個の`PasteVolumeSample`とし、原本を変更せず、次の情報を持つindexを生成する。
+**1個のcellを1個の`PasteVolumeSample`とし、そのcellの全viewを持たせる。** 多視点は
+modelの平均poolingで畳むので、viewを別sampleにしない。原本は変更せず、次の情報を持つindexを
+生成する。
 
-- `sample_id`: session fingerprint、pad index、view numberから作る安定ID。compositeへ他sessionを
-    追加しても既存sample IDを変えない
+- `sample_id`: session fingerprintの先頭12桁とcell indexから作る安定ID。**view numberは
+    入れない**。compositeへ他sessionを追加しても既存sample IDを変えず、収集directoryを
+    renameしても展開先を変えても変わらない
 - `source_ids`: merge元datasetを示す1個以上のID。deduplicate時は全aliasを保持する
 - `session_id`、`machine_id`、`paste_id`、`paste_lot`、`nozzle_diameter_mm`
 - plate寸法、sample index、`order`、view number、blankかどうか
@@ -183,19 +186,22 @@ MLflowへ必ず保存する。この場合の`source_id`は各rootのcontent fin
 - 収集時の`pixel_per_mm`と教師`measured_volume_ul`、`label.kind`
 - session内sample数とsample内view数
 
-複数viewはv1では別sampleとして学習できるが、同じsampleの全viewを必ず同じsplitへ入れる。
-同じ教師値を持つview数が多いsampleを過大評価しないよう、loss weightは次とする。
+loss weightは収集session内のsample数の逆数だけとする。
 
 \[
-w_{s,p,v}
+w_{s,p}
 =
 \frac{1}{N_{\mathrm{samples\ in\ session}\ s}}
-\frac{1}{N_{\mathrm{views\ of\ sample}\ p}}
 \]
 
-各batchではweight合計でlossを正規化する。これにより、sample数の多いsessionやview数の多い
-sampleではなく、各収集sessionが同程度の寄与を持つ。source directoryの分割方法は任意なので、sourceごとの
-自動weight補正は行わない。source別のsample数とmetricは診断reportとして出す。
+**view数で割る項は無い。** 1 cellが1 sampleになったので、view数の多いsampleを過大評価する
+という問題自体が平均poolingで解消されている。
+
+各batchではweight合計でlossを正規化する。これにより、sample数の多いsessionではなく、
+各収集sessionが同程度の寄与を持つ。split後の件数ではなくsession全体のsample数を使うのは、
+split依存にすると同じsampleのweightがtrain / validation / testで変わるため。
+source directoryの分割方法は任意なので、sourceごとの自動weight補正は行わない。
+source別のsample数とmetricは診断reportとして出す。
 
 ### dataset fingerprintとsplit
 
@@ -207,8 +213,14 @@ split manifestを保存し、MLflowへartifactとして記録する。
 
 無作為な画像単位splitは禁止する。初期実装は次の評価を分ける。
 
-1. **primary split**: sessionを最小groupとしてtrain / validation / testへ分ける。同一sessionと
-    同一padは複数splitへ跨がせない。既定比率は70 / 15 / 15とし、seed固定で再生成可能にする。
+1. **primary split**: 既定比率は70 / 15 / 15とし、seed固定で再生成可能にする。
+    **現状の実装は物理cell（銅板上の座標）を最小groupとする。** 収集sessionが2本しか無く、
+    sessionを最小groupにすると3つのsplitを埋められないため。cell単位なら同じ物理cellの
+    全session分が必ず同じsplitへ入るので、銅板の背景テクスチャがsplitをまたいで漏れることは
+    防げる。**一方でtest splitにも全sessionが入るため、session間汎化は測れない。**
+    教師値が`commanded x k`でkがsessionごとの1定数なので、modelがsessionを識別してkを
+    憶えると見かけの精度が上がる。session単位のleave-one-group-outレポートを別途出し、
+    sessionが3本以上そろったらsessionを最小groupへ戻す。
 2. **cross-machine report**: machine単位のleave-one-group-out評価を行う。
 3. **cross-lot report**: `(paste_id, paste_lot)`単位のleave-one-group-out評価を行う。
 4. **cross-nozzle report**: nozzle径単位のleave-one-group-out評価を行う。

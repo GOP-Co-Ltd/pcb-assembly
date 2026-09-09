@@ -107,7 +107,6 @@ class TestCollatedShapes:
         dataset = _dataset(tmp_path)
         batch = _collator().collate(
             _samples(dataset),
-            split="validation",
             epoch=0,
             training=False,
             device=DEVICE,
@@ -125,7 +124,6 @@ class TestCollatedShapes:
         dataset = _dataset(tmp_path)
         batch = _collator().collate(
             _samples(dataset),
-            split="validation",
             epoch=0,
             training=False,
             device=DEVICE,
@@ -140,7 +138,6 @@ class TestCollatedShapes:
         dataset = _dataset(tmp_path)
         batch = _collator().collate(
             _samples(dataset),
-            split="validation",
             epoch=0,
             training=False,
             device=DEVICE,
@@ -152,9 +149,7 @@ class TestCollatedShapes:
         dataset = _dataset(tmp_path)
         samples = _samples(dataset)
 
-        batch = _collator().collate(
-            samples, split="validation", epoch=0, training=False, device=DEVICE
-        )
+        batch = _collator().collate(samples, epoch=0, training=False, device=DEVICE)
 
         assert batch.sample_ids == tuple(sample.entry.sample_id for sample in samples)
 
@@ -172,7 +167,6 @@ class TestChannelLayout:
         dataset = _dataset(tmp_path)
         batch = _collator().collate(
             _samples(dataset),
-            split="validation",
             epoch=0,
             training=False,
             device=DEVICE,
@@ -198,7 +192,6 @@ class TestConditioning:
         dataset = _dataset(tmp_path)
         batch = _collator().collate(
             _samples(dataset),
-            split="validation",
             epoch=0,
             training=False,
             device=DEVICE,
@@ -219,9 +212,7 @@ class TestConditioning:
         samples = _samples(dataset)
         collator = _collator()
 
-        batch = collator.collate(
-            samples, split="train", epoch=0, training=True, device=DEVICE
-        )
+        batch = collator.collate(samples, epoch=0, training=True, device=DEVICE)
 
         for row, sample in enumerate(samples):
             parameters = collator.parameters_for(
@@ -239,7 +230,6 @@ class TestConditioning:
         dataset = _dataset(tmp_path)
         batch = _collator().collate(
             _samples(dataset),
-            split="validation",
             epoch=0,
             training=False,
             device=DEVICE,
@@ -255,9 +245,7 @@ class TestLabelAndWeight:
         dataset = _dataset(tmp_path)
         samples = _samples(dataset)
 
-        batch = _collator().collate(
-            samples, split="validation", epoch=0, training=False, device=DEVICE
-        )
+        batch = _collator().collate(samples, epoch=0, training=False, device=DEVICE)
 
         # blank の 0 だけは厳密。他は float32 の丸めを許す
         assert float(batch.target[2, 0]) == 0.0
@@ -271,7 +259,6 @@ class TestLabelAndWeight:
         dataset = _dataset(tmp_path)
         batch = _collator().collate(
             _samples(dataset),
-            split="validation",
             epoch=0,
             training=False,
             device=DEVICE,
@@ -294,7 +281,6 @@ class TestLabelAndWeight:
 
         batch = _collator().collate(
             _samples(dataset),
-            split="validation",
             epoch=0,
             training=False,
             device=DEVICE,
@@ -358,7 +344,6 @@ class TestAugmentation:
             shape = collator.preprocessed_shape(entry, training=True, epoch=5)
             batch = collator.collate(
                 (dataset.sample(entry.sample_id),),
-                split="train",
                 epoch=5,
                 training=True,
                 device=DEVICE,
@@ -378,7 +363,6 @@ class TestViewDropout:
 
         batch = _collator().collate(
             _samples(dataset),
-            split="validation",
             epoch=0,
             training=False,
             device=DEVICE,
@@ -398,7 +382,7 @@ class TestViewDropout:
 
         counts = {
             collator.collate(
-                samples, split="train", epoch=epoch, training=True, device=DEVICE
+                samples, epoch=epoch, training=True, device=DEVICE
             ).images.shape[1]
             for epoch in range(12)
         }
@@ -417,9 +401,7 @@ class TestViewDropout:
         collator = _collator()
 
         for epoch in range(12):
-            batch = collator.collate(
-                samples, split="train", epoch=epoch, training=True, device=DEVICE
-            )
+            batch = collator.collate(samples, epoch=epoch, training=True, device=DEVICE)
 
             assert batch.images.shape[0] == len(samples)
             assert batch.valid_pixel_mask.shape[1] == batch.images.shape[1]
@@ -429,12 +411,8 @@ class TestViewDropout:
         samples = _samples(dataset)
         collator = _collator()
 
-        first = collator.collate(
-            samples, split="train", epoch=4, training=True, device=DEVICE
-        )
-        second = collator.collate(
-            samples, split="train", epoch=4, training=True, device=DEVICE
-        )
+        first = collator.collate(samples, epoch=4, training=True, device=DEVICE)
+        second = collator.collate(samples, epoch=4, training=True, device=DEVICE)
 
         assert bool(torch.equal(first.images, second.images))
 
@@ -447,7 +425,6 @@ class TestPadding:
 
         batch = _collator(augmentation=STILL).collate(
             _samples(dataset),
-            split="validation",
             epoch=0,
             training=False,
             device=DEVICE,
@@ -474,7 +451,7 @@ class TestPadding:
         offsets = {
             _mask_offset(
                 collator.collate(
-                    samples, split="train", epoch=epoch, training=True, device=DEVICE
+                    samples, epoch=epoch, training=True, device=DEVICE
                 ).valid_pixel_mask[0, 0, 0]
             )
             for epoch in range(12)
@@ -497,7 +474,6 @@ class TestPadding:
                 _mask_offset(
                     collator.collate(
                         samples,
-                        split="train",
                         epoch=epoch,
                         training=True,
                         device=DEVICE,
@@ -518,7 +494,7 @@ class TestPadding:
 
         dataset = _dataset(tmp_path)
         batch = _collator(augmentation=STILL).collate(
-            _samples(dataset), split="train", epoch=3, training=True, device=DEVICE
+            _samples(dataset), epoch=3, training=True, device=DEVICE
         )
 
         offsets = {
@@ -535,9 +511,7 @@ class TestCollateRejection:
     def test_rejects_an_empty_batch(self, tmp_path: Path):
         # 検査を外すと view 数の不一致という誤った理由で落ちるので、理由まで見る
         with pytest.raises(ValueError, match="空の batch"):
-            _collator().collate(
-                (), split="train", epoch=0, training=True, device=DEVICE
-            )
+            _collator().collate((), epoch=0, training=True, device=DEVICE)
 
     def test_rejects_samples_whose_view_counts_differ(self, tmp_path: Path):
         """異なる view 数の sample が同じ batch へ来たら落とす.
@@ -554,7 +528,6 @@ class TestCollateRejection:
                     few.sample(few.index.entries[0].sample_id),
                     many.sample(many.index.entries[0].sample_id),
                 ),
-                split="validation",
                 epoch=0,
                 training=False,
                 device=DEVICE,

@@ -29,7 +29,6 @@ from ml.data.image import (
     ImageShape,
     PreprocessedMultiViewSample,
 )
-from ml.data.split import SplitName
 from pcbasm.pasting.paste_volume.dataset import PasteVolumeRawSample
 from pcbasm.pasting.paste_volume.index import PasteVolumeSampleEntry
 
@@ -105,7 +104,6 @@ class PasteVolumeCollator:
         self,
         samples: Sequence[PasteVolumeRawSample],
         *,
-        split: SplitName,
         epoch: int,
         training: bool,
         device: torch.device,
@@ -137,7 +135,7 @@ class PasteVolumeCollator:
             images,
             masks,
             placement_seeds=[
-                _placement_seed(self.global_seed, split, epoch, sample_id)
+                _placement_seed(self.global_seed, epoch, sample_id)
                 for sample_id in sample_ids
             ],
             training=training,
@@ -211,16 +209,14 @@ def _column(values: Sequence[float], device: torch.device) -> Tensor:
     return torch.tensor(values, dtype=torch.float32, device=device).unsqueeze(1)
 
 
-def _placement_seed(
-    global_seed: int, split: SplitName, epoch: int, sample_id: str
-) -> int:
+def _placement_seed(global_seed: int, epoch: int, sample_id: str) -> int:
     """余白へ置く位置を決める乱数種.
 
-    split と epoch を混ぜるのは、同じ sample が train と validation で同じ位置へ
-    置かれないようにするため。
+    split を混ぜない。位置をずらすのは学習時だけで、学習に使う split は常に 1 つなので、
+    区別しても観測できる違いが生まれない。
     """
 
-    digest = sha256_bytes(f"{global_seed}:{split}:{epoch}:{sample_id}".encode())
+    digest = sha256_bytes(f"{global_seed}:{epoch}:{sample_id}".encode())
     return int(digest[:_PLACEMENT_SEED_DIGITS], 16)
 
 

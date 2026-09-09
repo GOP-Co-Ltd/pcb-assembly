@@ -144,7 +144,47 @@ scale 0.5〜2.0 でも前処理後 26〜106 px で下限 16 px を割らない�
 cell group が 331 に対して 167 なのは、session A の cell 座標が session B の部分集合で、
 同じ物理 cell の両 session 分が必ず同じ split に入るため。
 
+## step 3〜5（dataset / batch / task）
+
+いずれも段階 2 で red を確認してから実装した。段階 4 の変異実験で **合計 12 件の観測点の
+穴と 4 件のデッドコード**を見つけた。
+
+### デッドコードとして削ったもの
+
+| 対象 | 理由 |
+| --- | --- |
+| `PasteVolumeBatch.validate()` とその呼び出し | 自分で作った正しい値を自分で検算する到達不能コード。検査していた性質は collate 出力のテストが固定済み |
+| `collate` の `split` 引数と placement seed の `split` | 位置をずらすのは学習時だけで、学習 split は常に 1 つ。区別しても観測できる違いが生まれない |
+| `plan_epoch` の `if not shapes: return ()` | `SplitManifest.build(require_test=True)` が各 split へ最低 1 group を割り当てるので空にならない |
+| `build` の空 split 検査 | 同上 |
+
+### 観測点の穴（変異が生き残って見つかったもの）
+
+| 変異 | 穴の性質 |
+| --- | --- |
+| view の並びを反転 | 合成画像が view 番号に依存せず、全 view が同一だった。定数 channel へ view 番号を足して判別可能にした |
+| 教師値を指令量に置換 | 合成 session で `measured == commanded` にしていた。実データは `measured = commanded x k` なので、k を入れて実態に合わせた |
+| 学習時も中央 padding / seed から sample_id を落とす | 配置のランダム化を誰も観測していなかった。幾何変換を止めた collator で mask の左上位置を見る観測点を足した |
+| 空 batch の検査を外す | 後段の `MultiViewPaddedBatch.pad` が結局 `ValueError` を出すので生き残る。理由の文字列まで見る形にした |
+| `plan_epoch` が augmentation・epoch を無視 | 計画された shape を `plan_epoch` 経由で観測していなかった。batch 内の面積 bucket が揃うことを見る |
+| seed に epoch を混ぜない | 評価 split は寸法が毎 epoch 同じなので、そこだけで並べ替えの種を観測できる |
+| `view_count` を 1 固定 | pixel budget が効かない設定でしか見ていなかった。budget を絞った観測点を足した |
+| `collator` / `config` の検証を呼ばない | build 越しの拒否を見ていなかった。下流で再検査されない条件（`minimum_view_count=0`、`max_batch_size=0`）を選んだ |
+| split を sample 単位に | 1 session だと cell と sample が 1 対 1 で区別できない。2 session の観測点を足した |
+
+**最終: session 13/13、index 18/18、dataset 6/6、batch 19/19、task 16/16。**
+
+### 実データ
+
+`TestRealSessions` が実 session 2 本を通して build → plan_epoch → materialize まで確認
+（`data/paste-volume-datasets` が無ければ skip）。331 entry / 拒否 0 で 5 次元 batch が出る。
+
+### 計画から変えた点
+
+- **`_placement_seed` から `split` を落とした**（上記）
+- **`PasteVolumeBatch.validate()` を作らなかった**（計画にはあった）
+- 計画の「空 split を build で弾く」は不要だった（`SplitManifest.build` が保証する）
+
 ## 残タスク
 
-step 2 `index.py` → 3 `dataset.py` → 4 `batch.py` → 5 `task.py` → 6 計画書の更新。
-step 2 以降は **red を先に見る**。
+step 6（計画書の更新）のみ。model / train / evaluate は次 MR。
