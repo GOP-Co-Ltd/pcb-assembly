@@ -2,6 +2,7 @@ from .path import Path
 from .polygon import (
     OrientedBox,
     clip_segment,
+    display_rings,
     exterior_points,
     merge_islands,
     offset_components,
@@ -43,6 +44,7 @@ __all__ = [
     "Transform",
     "Shift",
     "clip_segment",
+    "display_rings",
     "exterior_points",
     "merge_islands",
     "offset_components",

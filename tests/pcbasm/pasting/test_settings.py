@@ -788,6 +788,26 @@ class TestWithPadsEnabled:
         assert resolved[("R1", "1")].enabled is True
 
 
+class TestInitialPurgeSelection:
+    """パージ位置は座標だけで持つ（pad は選ばない）."""
+
+    def test_setting_a_point_keeps_it(self):
+        model = PasteSettingsModel(base=_full_base())
+
+        updated = model.with_initial_purge_point(Point2d(1.0, 2.0))
+
+        assert updated.initial_purge_point == Point2d(1.0, 2.0)
+
+    def test_clearing_the_point_returns_to_automatic(self):
+        model = PasteSettingsModel(base=_full_base()).with_initial_purge_point(
+            Point2d(1.0, 2.0)
+        )
+
+        updated = model.with_initial_purge_point(None)
+
+        assert updated.initial_purge_point is None
+
+
 class TestOverrideSummaries:
     """own_override_summary / descendant_override_summary の集計."""
 

@@ -74,6 +74,11 @@ def _square(cx: float, cy: float, size: float = 1.0) -> Polygon:
     )
 
 
+def _outline(size: float = 40.0) -> Polygon:
+    """基板外形（原点始まりの正方形）。prune の点検証に使う."""
+    return Polygon([(0.0, 0.0), (size, 0.0), (size, size), (0.0, size)])
+
+
 def _hierarchy():
     components = [Component("U1", "x", "0402", Point2d(0.0, 0.0), 0.0, Layer.TOP)]
     pads = [
@@ -191,47 +196,39 @@ class TestRoundTrip:
         assert setting.patch.paste_height is None
 
 
-class TestInitialPurgePadId:
-    """initial_purge_pad_id の基板単位保存."""
+class TestInitialPurgePoint:
+    """initial_purge_point の基板単位保存."""
 
     def test_default_is_none_and_not_saved_when_unset(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
         model = store.load_or_init("boards/a.kicad_pcb", config)
 
-        assert model.initial_purge_pad_id is None
+        assert model.initial_purge_point is None
 
         store.save("boards/a.kicad_pcb", model)
         doc = _saved_doc(tmp_path, store)
 
-        assert "initial_purge_pad_id" not in doc["settings"]
+        assert "initial_purge_point" not in doc["settings"]
 
     def test_save_load_round_trip_when_explicit(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
         model = store.load_or_init("boards/a.kicad_pcb", config)
-        edited = PasteSettingsModel(
-            base=model.base,
-            levels=model.levels,
-            initial_purge_pad_id="U1.2",
-        )
+        edited = model.with_initial_purge_point(Point2d(10.0, 12.0))
 
         store.save("boards/a.kicad_pcb", edited)
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
         doc = _saved_doc(tmp_path, store)
 
-        assert loaded.initial_purge_pad_id == "U1.2"
-        assert doc["settings"]["initial_purge_pad_id"] == "U1.2"
+        assert loaded.initial_purge_point == Point2d(10.0, 12.0)
+        assert doc["settings"]["initial_purge_point"] == [10.0, 12.0]
 
     def test_export_import_round_trip_when_explicit(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
         model = store.load_or_init("boards/a.kicad_pcb", config)
-        edited = PasteSettingsModel(
-            base=model.base,
-            levels=model.levels,
-            initial_purge_pad_id="U1.1",
-        )
+        edited = model.with_initial_purge_point(Point2d(3.0, 4.0))
 
         doc = store.export_doc("boards/a.kicad_pcb", edited)
         restored = store.model_from_doc(
@@ -240,44 +237,41 @@ class TestInitialPurgePadId:
             expected_source_pcb="boards/a.kicad_pcb",
         )
 
-        assert doc["settings"]["initial_purge_pad_id"] == "U1.1"
-        assert restored.initial_purge_pad_id == "U1.1"
+        assert doc["settings"]["initial_purge_point"] == [3.0, 4.0]
+        assert restored.initial_purge_point == Point2d(3.0, 4.0)
 
-    def test_prune_keeps_existing_initial_purge_pad_id(self, tmp_path: Path):
+    def test_prune_keeps_an_initial_purge_point_inside_the_outline(
+        self, tmp_path: Path
+    ):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
-        hierarchy = _hierarchy()
         model = store.load_or_init("boards/a.kicad_pcb", config)
-        edited = PasteSettingsModel(
-            base=model.base,
-            levels=model.levels,
-            initial_purge_pad_id="U1.2",
+        edited = model.with_initial_purge_point(Point2d(10.0, 12.0))
+
+        pruned = store.prune(
+            "boards/a.kicad_pcb", edited, _hierarchy(), outline=_outline()
         )
 
-        pruned = store.prune("boards/a.kicad_pcb", edited, hierarchy)
-        loaded = store.load_or_init("boards/a.kicad_pcb", config)
+        assert pruned.initial_purge_point == Point2d(10.0, 12.0)
 
-        assert pruned.initial_purge_pad_id == "U1.2"
-        assert loaded.initial_purge_pad_id == "U1.2"
-
-    def test_prune_clears_orphan_initial_purge_pad_id(self, tmp_path: Path):
+    def test_prune_clears_an_initial_purge_point_outside_the_outline(
+        self, tmp_path: Path
+    ):
+        # 基板が差し替わって点が外形外へ出ても、解決エラーでページを塞がない
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
-        hierarchy = _hierarchy()
         model = store.load_or_init("boards/a.kicad_pcb", config)
-        edited = PasteSettingsModel(
-            base=model.base,
-            levels=model.levels,
-            initial_purge_pad_id="U99.1",
-        )
+        edited = model.with_initial_purge_point(Point2d(100.0, 12.0))
 
-        pruned = store.prune("boards/a.kicad_pcb", edited, hierarchy)
+        pruned = store.prune(
+            "boards/a.kicad_pcb", edited, _hierarchy(), outline=_outline()
+        )
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
         doc = _saved_doc(tmp_path, store)
 
-        assert pruned.initial_purge_pad_id is None
-        assert loaded.initial_purge_pad_id is None
-        assert "initial_purge_pad_id" not in doc["settings"]
+        assert pruned.initial_purge_point is None
+        assert loaded.initial_purge_point is None
+        assert "initial_purge_point" not in doc["settings"]
 
 
 class TestJsonShape:
@@ -478,7 +472,7 @@ class TestPrune:
             ),
         )
 
-        pruned = store.prune("boards/a.kicad_pcb", model, hierarchy)
+        pruned = store.prune("boards/a.kicad_pcb", model, hierarchy, outline=_outline())
 
         assert pruned.level(("L2", "U1")) is not None
         assert pruned.level(("L2", "U99")) is None
@@ -492,7 +486,7 @@ class TestPrune:
             levels=(LevelSetting(("L2", "U99"), enabled=False),),
         )
 
-        store.prune("boards/a.kicad_pcb", model, hierarchy)
+        store.prune("boards/a.kicad_pcb", model, hierarchy, outline=_outline())
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
 
         assert loaded.level(("L2", "U99")) is None
@@ -672,8 +666,8 @@ class TestUpdate:
             "boards/a.kicad_pcb",
             config,
             board_signature="sig-new",
-            mutate=lambda model: model.with_initial_purge_pad_id("U1.1"),
+            mutate=lambda model: model.with_initial_purge_point(Point2d(6.0, 7.0)),
         )
 
         assert result.levels == ()
-        assert result.initial_purge_pad_id == "U1.1"
+        assert result.initial_purge_point == Point2d(6.0, 7.0)

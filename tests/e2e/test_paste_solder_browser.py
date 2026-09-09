@@ -279,28 +279,22 @@ def _wait_for_initial_purge(
     live_server: LiveServer,
     *,
     amount: float | None = None,
-    pad_id: str | None = None,
-    resolved_pad_id: str | None = None,
+    resolved_source: str | None = None,
 ) -> dict[str, Any]:
-    """initial_purge の amount / pad_id / resolved.pad_id が期待値になるまで待つ."""
+    """initial_purge の amount / resolved.source が期待値になるまで待つ."""
 
     def matches(config: dict[str, Any]) -> bool:
         initial = config["initial_purge"]
         resolved = initial["resolved"]
-        return (
-            (amount is None or _approx(initial["initial_purge_ul"], amount))
-            and (pad_id is None or initial["pad_id"] == pad_id)
-            and (
-                resolved_pad_id is None
-                or (resolved is not None and resolved["pad_id"] == resolved_pad_id)
-            )
+        return (amount is None or _approx(initial["initial_purge_ul"], amount)) and (
+            resolved_source is None
+            or (resolved is not None and resolved["source"] == resolved_source)
         )
 
     return wait_for_config(
         live_server,
         matches,
-        f"initial_purge -> amount={amount!r}, pad_id={pad_id!r}, "
-        f"resolved={resolved_pad_id!r}",
+        f"initial_purge -> amount={amount!r}, source={resolved_source!r}",
     )
 
 
@@ -507,64 +501,109 @@ class TestPasteSolderBrowserRendering:
             timeout=_BROWSER_TIMEOUT_MS,
         )
 
-    def test_initial_purge_controls_persist_amount_and_pad(
+    def test_initial_purge_amount_persists_and_position_defaults_to_auto(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         _select_led_blinker(live_server)
-        config = _get_pad_config(live_server)
-        current = config["initial_purge"]["resolved"]["pad_id"]
-        target = next(
-            pad
-            for pad in config["pads"]
-            if pad["layer"] == "Top" and pad["id"] != current
-        )
 
         _open_paste_solder(browser_page, live_ui)
         amount = browser_page.locator(_testid("pad-initial-purge-amount"))
-        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
-        set_pad_button = browser_page.locator(_testid("pad-set-initial-purge-pad"))
-        clear_pad_button = browser_page.locator(_testid("pad-clear-initial-purge-pad"))
+        position = browser_page.locator(_testid("pad-initial-purge-pad"))
+        clear_button = browser_page.locator(_testid("pad-clear-initial-purge-point"))
         amount.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         assert amount.input_value(timeout=_BROWSER_TIMEOUT_MS) == "0.1"
-        assert "自動" in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
-        assert set_pad_button.is_disabled()
-        assert clear_pad_button.is_disabled()
+        # 自動は塗布順路先頭 pad の中心座標
+        assert "自動" in position.text_content(timeout=_BROWSER_TIMEOUT_MS)
+        assert clear_button.is_disabled()
 
         amount.fill("0.22")
         _wait_for_initial_purge(live_server, amount=0.22)
 
-        browser_page.locator(_pad_selector(target["id"])).click()
-        browser_page.wait_for_function(
-            """(selector) => document.querySelector(selector)?.disabled === false""",
-            arg=_testid("pad-set-initial-purge-pad"),
-            timeout=_BROWSER_TIMEOUT_MS,
-        )
-        assert target["id"] in set_pad_button.text_content(timeout=_BROWSER_TIMEOUT_MS)
-        set_pad_button.click()
-        _wait_for_initial_purge(
-            live_server,
-            amount=0.22,
-            pad_id=target["id"],
-            resolved_pad_id=target["id"],
-        )
-        browser_page.wait_for_function(
-            """({selector, padId}) =>
-                document.querySelector(selector)?.textContent.includes(padId)""",
-            arg={"selector": _testid("pad-initial-purge-pad"), "padId": target["id"]},
-            timeout=_BROWSER_TIMEOUT_MS,
-        )
-
         browser_page.reload(wait_until="domcontentloaded")
         amount = browser_page.locator(_testid("pad-initial-purge-amount"))
-        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
-        clear_pad_button = browser_page.locator(_testid("pad-clear-initial-purge-pad"))
         amount.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         assert amount.input_value(timeout=_BROWSER_TIMEOUT_MS) == "0.22"
-        assert target["id"] in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
-        assert not clear_pad_button.is_disabled()
 
         machine_toml = live_server.settings.config_dir / "machine.toml"
         assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
+
+    def test_copper_islands_are_drawn_under_the_pads(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        """銅箔はパージ位置を選ぶための背景として描き、当たり判定を持たない."""
+        _select_led_blinker(live_server)
+
+        _open_paste_solder(browser_page, live_ui)
+        copper = browser_page.locator(_testid("pad-copper"))
+        copper.first.wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
+
+        assert copper.count() > 0
+        assert (
+            copper.first.evaluate("(el) => getComputedStyle(el).pointerEvents")
+            == "none"
+        )
+        # パッドより先に描かれている（背面になる）
+        assert browser_page.evaluate(
+            """({copperSel, padSel}) => {
+                const copperEl = document.querySelector(copperSel);
+                const padEl = document.querySelector(padSel);
+                return copperEl.compareDocumentPosition(padEl)
+                    & Node.DOCUMENT_POSITION_FOLLOWING;
+            }""",
+            {"copperSel": _testid("pad-copper"), "padSel": _testid("pad-polygon")},
+        )
+
+    def test_purge_point_is_placed_by_clicking_the_board_and_persists(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        _select_led_blinker(live_server)
+
+        _open_paste_solder(browser_page, live_ui)
+        set_point_button = browser_page.locator(_testid("pad-set-initial-purge-point"))
+        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
+        marker = browser_page.locator(_testid("pad-purge-marker"))
+        set_point_button.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert marker.count() == 0
+
+        set_point_button.click()
+        # マーカー打ち中はパッドが hover やカーソルで反応しない
+        assert (
+            browser_page.locator(f"{_testid('pad-polygon')}:visible").first.evaluate(
+                "(el) => getComputedStyle(el).pointerEvents"
+            )
+            == "none"
+        )
+        # 基板ビューの中央をクリックした点がパージ位置になる（外形線は
+        # fill:none でヒットしないので SVG 自体を叩く）
+        browser_page.locator(_testid("pad-viewer")).click(force=True)
+        purge = _wait_for_initial_purge(live_server, resolved_source="explicit")
+        assert purge["initial_purge"]["point"] is not None
+
+        browser_page.wait_for_function(
+            """(selector) => document.querySelector(selector) !== null""",
+            arg=_testid("pad-purge-marker"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+        assert "mm" in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
+
+        browser_page.reload(wait_until="domcontentloaded")
+        browser_page.wait_for_function(
+            """(selector) => document.querySelector(selector) !== null""",
+            arg=_testid("pad-purge-marker"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
+        assert "mm" in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
+
+        clear_button = browser_page.locator(_testid("pad-clear-initial-purge-point"))
+        assert not clear_button.is_disabled()
+        clear_button.click()
+        _wait_for_initial_purge(live_server, resolved_source="default")
+        browser_page.wait_for_function(
+            """(selector) => document.querySelector(selector) === null""",
+            arg=_testid("pad-purge-marker"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
 
 
 class TestPasteSolderBrowserPadInteraction:

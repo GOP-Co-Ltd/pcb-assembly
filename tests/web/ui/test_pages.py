@@ -753,6 +753,19 @@ class TestPastingJobPages:
         assert "Auto線塗布しきい縦横比" in text
         assert "Auto面塗布しきい短辺倍率" in text
 
+    def test_paste_solder_renders_initial_purge_position_controls(
+        self, client: TestClient
+    ):
+        """初回パージ位置は座標指定なので pad 選択の UI を持たない."""
+        text = client.get("/pasting/paste_solder").text
+
+        assert 'id="pad-set-initial-purge-point"' in text
+        assert 'id="pad-clear-initial-purge-point"' in text
+        assert "パージ位置を設定" in text
+        assert "初回パージ位置" in text
+        assert 'id="pad-set-initial-purge-pad"' not in text
+        assert "選択パッドを設定" not in text
+
     @pytest.mark.parametrize("feature", PASTING_PREVIEW_FEATURES)
     def test_camera_jobs_render_preview_pane_without_overlay_switch(
         self, client: TestClient, feature: str
