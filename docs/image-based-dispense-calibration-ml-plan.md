@@ -82,10 +82,21 @@ data/paste-volume-ml/           # local checkpoint、split、exportの作業領�
 MLflow artifact store           # runに紐づくconfig、report、best/final artifact
 ```
 
-MLflowの初期運用は、GPU workstation上のtracking server、SQLite backend、local artifact
-directoryで開始する。複数人・複数workstationから同時利用する段階でPostgreSQLと共有artifact
-storeへ移す。MLflowはlocal構成とtracking server構成の両方を提供しているが、run IDを共有できる
-よう初期実装からserver経由に統一する。
+MLflowの初期運用は、GPU workstation上のSQLite backendとlocal artifact directoryで開始する。
+複数人・複数workstationから同時利用する段階でPostgreSQLと共有artifact store、およびtracking
+serverへ移す。
+
+**実装時の確定（step 5/6）**: 初期実装はserver経由に統一せず、client が
+`sqlite:////abs/mlflow.db` を直接開く形にした。§4「local SQLiteからshared serverへ同じclient
+APIで移行できる」がそのままこの形で、移行時に変わるのは`logger.tracking_uri`だけになる。
+`file://`のlocal file storeはMLflow 3.15.2ではmaintenance modeで、`MLFLOW_ALLOW_FILE_STORE=true`
+を立てない限りstoreを作る時点で例外になる（実測）。1端末で1人が回す段階でserverを常駐させる
+運用コストは、run ID共有の利得を上回らないと判断した。
+
+その副作用として、`MLflowRunTarget.artifact_location`（成果物の置き場所をclientが渡す）を
+足している。database backendは experiment を作るときに置き場所を決めないと起動directoryの
+`./mlruns`を焼き付けるため。server経由へ移せばartifact rootはserver側の設定になるので、
+この field は渡さなくなる。
 
 ## 1. データパイプライン
 
