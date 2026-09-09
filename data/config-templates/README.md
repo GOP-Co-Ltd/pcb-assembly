@@ -58,32 +58,52 @@ camera_calibration ジョブを実行し、Apply で `config/` に生成させ�
 sudo systemctl restart klipper
 ```
 
-スクリプトは実行内容を表示してから 1 度だけ確認を取り、以下を行う。
+スクリプトは実行内容を表示してから確認を取り、以下を行う。
 
 1. `config/` に `machine.toml` を配置する
 2. `printer.cfg` を `~/printer_data/config/printer.cfg` へ実ファイルとして配置する
-3. `config/printer.cfg` に 2 へのシンボリックリンクを張る（リポジトリから閲覧するため）
-4. `klipper.env` の `KLIPPER_ARGS` を 2 のパスに向ける
+3. 2 で配置した `printer.cfg` の `[mcu] serial` を実機の `/dev/serial/by-id/*` に書き換える
+4. `config/printer.cfg` に 2 へのシンボリックリンクを張る（リポジトリから閲覧するため）
+5. `klipper.env` の `KLIPPER_ARGS` を 2 のパスに向ける
 
-1 と 2 は既存ファイルがあればスキップする。3 と 4 は毎回張り直す（何度実行しても同じ結果）。
+4 と 5 は毎回張り直す（何度実行しても同じ結果）。
 
-**既存の `config/machine.toml` と `~/printer_data/config/printer.cfg` は常に保持される（上書きしない）。**
-どちらも実測値が蓄積する正であり（machine.toml は WebUI が書き、printer.cfg は Klipper の
-`SAVE_CONFIG` が較正値を追記する）、上書きすると操作者の設定が黙って巻き戻る。
-このためスクリプトは何度実行しても既存の設定を壊さない。
-
-テンプレートから作り直したい場合は、対象を退避してから再実行する。
+**既存の `config/machine.toml` は常に保持される（上書きしない）。** WebUI が実測値を書き込む
+正であり、上書きすると操作者の設定が黙って巻き戻る。テンプレートから作り直したい場合は
+退避してから再実行する。
 
 ```sh
-mv config config.bak && ./scripts/setup-machine-config.sh                    # machine.toml を作り直す
-mv ~/printer_data/config/printer.cfg{,.bak} && ./scripts/setup-machine-config.sh  # printer.cfg を作り直す
+mv config config.bak && ./scripts/setup-machine-config.sh
 ```
+
+**既存の `~/printer_data/config/printer.cfg` は退避のうえ上書きするかを確認する（既定は上書き）。**
+本スクリプトは Klipper インストール直後に走らせるのが通常の使い方で、そこには
+`kinematics: none` の stub が既に置かれている。既定を保持にすると、テンプレートが永久に
+反映されない。既存は `printer.cfg.bak.<日時>` へ退避されるため、取り違えても復旧できる。
+
+稼働中の機体で `SAVE_CONFIG` の較正値（`load_cell_probe` の `counts_per_gram` や
+`position_endstop`）が蓄積している場合は、確認プロンプトに `n` と答えて保持する。
+
+### `[mcu] serial` の自動設定
+
+`[mcu] serial` は機体固有なので、テンプレートには placeholder
+（`/dev/serial/by-id/<your-mcu-id>`）を書いておく。スクリプトが `/dev/serial/by-id/` を見て
+実デバイスのパスへ書き換える。
+
+- デバイスが 1 つだけならそれを使う
+- 複数あれば番号で選ばせる
+- 1 つも無ければ placeholder のまま残し、警告を出す（MCU に Klipper firmware が
+    書き込まれていないか、USB が未接続）
+
+書き換え対象は無名の `[mcu]` セクションの `serial:` 行だけで、`[mcu <名前>]` は触らない。
+既存の `printer.cfg` を保持した場合も触らない。
 
 ## テンプレートの追加
 
 ```sh
 mkdir data/config-templates/<マシン名>.<用途>
 # machine.toml と printer.cfg を置く（キャリブレーション結果は含めない）
+# printer.cfg の [mcu] serial は placeholder のままにする
 git add data/config-templates/<マシン名>.<用途>
 ```
 
@@ -132,6 +152,9 @@ Klipper は `~/printer_data/config/printer.cfg` を直接読み、`SAVE_CONFIG` 
 cp ~/printer_data/config/printer.cfg data/config-templates/kurousagi.paste/printer.cfg
 git diff data/config-templates/kurousagi.paste/printer.cfg  # 意図した差分か確認
 ```
+
+書き戻すと `[mcu] serial` に実機の ID が入るため、placeholder
+（`/dev/serial/by-id/<your-mcu-id>`）へ戻してからコミットする。
 
 `#*# <---------------------- SAVE_CONFIG ---------------------->` 以降は Klipper が自動生成する
 較正値ブロック。テンプレートに含めても含めなくてもよいが、含めるなら「どの実機のいつの値か」を

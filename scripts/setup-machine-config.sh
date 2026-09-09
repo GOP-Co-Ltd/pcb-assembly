@@ -4,9 +4,10 @@
 #
 #   1. machine.toml を config/ へ配置する（既存なら常に保持）
 #   2. printer.cfg を Klipper 本来の場所（~/printer_data/config/printer.cfg）へ実ファイルとして
-#      配置する（既に実ファイルなら SAVE_CONFIG の較正値を守るため保持）
-#   3. config/printer.cfg に 2 のシンボリックリンクを張る（リポジトリから閲覧するため）
-#   4. klipper.env の KLIPPER_ARGS を 2 のパスに向ける
+#      配置する（既に実ファイルなら保持するか退避して上書きするかを確認する）
+#   3. 2 で配置した printer.cfg の [mcu] serial を実機の /dev/serial/by-id/* に書き換える
+#   4. config/printer.cfg に 2 のシンボリックリンクを張る（リポジトリから閲覧するため）
+#   5. klipper.env の KLIPPER_ARGS を 2 のパスに向ける
 #
 # カメラキャリブレーション結果は機体固有なのでテンプレートには含めない。セットアップ後に
 # WebUI の camera_calibration ジョブを実行し、Apply で config/ に生成させる。
@@ -22,11 +23,36 @@ CONFIG_DIR="${PROJECT_ROOT}/config"
 KLIPPER_CONFIG_DIR="${HOME}/printer_data/config"
 KLIPPER_CONFIG_FILE="${KLIPPER_CONFIG_DIR}/printer.cfg"
 KLIPPER_ENV="${HOME}/printer_data/systemd/klipper.env"
+SERIAL_BY_ID_DIR="/dev/serial/by-id"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+KLIPPER_BACKUP_FILE="${KLIPPER_CONFIG_FILE}.bak.${TIMESTAMP}"
 
 die() {
     echo "エラー: $1" >&2
     exit 1
+}
+
+# printer.cfg の [mcu] セクションの serial 行だけを書き換える。名前付き MCU
+# （[mcu extra] など）は対象にしない。serial 行が無ければ 1 を返す。
+write_mcu_serial() {
+    local file="$1" serial="$2" tmp
+    tmp="$(mktemp)"
+    if awk -v serial="$serial" '
+        /^\[/ { in_mcu = ($0 ~ /^\[mcu\]/) }
+        in_mcu && /^[[:space:]]*serial[[:space:]]*:/ {
+            print "serial: " serial
+            replaced = 1
+            next
+        }
+        { print }
+        END { exit(replaced ? 0 : 1) }
+    ' "$file" > "$tmp"; then
+        cat "$tmp" > "$file"
+        rm -f "$tmp"
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
 }
 
 # --- 前提チェック ---
@@ -87,18 +113,76 @@ else
     copy_machine_toml=true
 fi
 
-# printer.cfg も machine.toml と同じく実測値が蓄積する（SAVE_CONFIG が load_cell_probe の
-# 較正値や position_endstop を追記する）。実ファイルが既にあるなら Klipper 側の稼働設定が
-# 正なので、テンプレートで上書きせず保持する。差し替えたい場合は手動で退避させる。
+# 本スクリプトは Klipper インストール直後に走らせるのが通常の使い方で、そこには
+# kinematics: none の stub が既に置かれている。よって実ファイルがあっても既定は
+# 「退避して上書き」とする。稼働中の機体では SAVE_CONFIG が load_cell_probe の較正値や
+# position_endstop を追記しているため、そのケースだけ n で保持を選ばせる。
 if [ -L "$KLIPPER_CONFIG_FILE" ]; then
     plan+=("${KLIPPER_CONFIG_FILE} : シンボリックリンクを削除し printer.cfg を実ファイルとして配置")
     printer_action=replace_symlink
 elif [ -f "$KLIPPER_CONFIG_FILE" ]; then
-    plan+=("${KLIPPER_CONFIG_FILE} : 既存を保持（スキップ）— SAVE_CONFIG の較正値を上書きしない")
-    printer_action=keep
+    echo "${KLIPPER_CONFIG_FILE} は既に実ファイルとして存在します。"
+    echo "Klipper インストール直後なら kinematics: none の stub なので上書きしてください（既定）。"
+    echo "稼働中の機体で SAVE_CONFIG の較正値が蓄積している場合は n で保持します。"
+    echo ""
+    read -rp "テンプレートの printer.cfg で上書きしますか? 既存は ${KLIPPER_BACKUP_FILE} へ退避します [Y/n]: " \
+        overwrite_printer || overwrite_printer=""
+    echo ""
+    case "$overwrite_printer" in
+        [nN])
+            plan+=("${KLIPPER_CONFIG_FILE} : 既存を保持（スキップ）— SAVE_CONFIG の較正値を上書きしない")
+            printer_action=keep
+            ;;
+        *)
+            plan+=("${KLIPPER_CONFIG_FILE} : ${KLIPPER_BACKUP_FILE} へ退避してテンプレートで上書き")
+            printer_action=backup_and_copy
+            ;;
+    esac
 else
     plan+=("${KLIPPER_CONFIG_FILE} : printer.cfg を配置")
     printer_action=copy
+fi
+
+# [mcu] serial は機体固有。テンプレートには他機の ID か placeholder が入っているため、
+# 配置する printer.cfg には実機の /dev/serial/by-id/* を書き込む。既存を保持する場合は
+# 稼働中の設定が正なので触らない。
+mcu_serial=""
+if [ "$printer_action" = keep ]; then
+    plan+=("[mcu] serial : 既存の printer.cfg を保持するため変更しない")
+else
+    serial_candidates=()
+    while IFS= read -r -d '' path; do
+        serial_candidates+=("$path")
+    done < <(find "$SERIAL_BY_ID_DIR" -mindepth 1 -maxdepth 1 -print0 2> /dev/null | sort -z)
+
+    case ${#serial_candidates[@]} in
+        0)
+            plan+=("[mcu] serial : ${SERIAL_BY_ID_DIR} にデバイスが無いためテンプレートの値のまま（警告）")
+            ;;
+        1)
+            mcu_serial="${serial_candidates[0]}"
+            plan+=("[mcu] serial : ${mcu_serial} を書き込む")
+            ;;
+        *)
+            echo "${SERIAL_BY_ID_DIR} に複数のデバイスが見つかりました:"
+            for i in "${!serial_candidates[@]}"; do
+                echo "  $((i + 1)). ${serial_candidates[$i]}"
+            done
+            echo ""
+            while true; do
+                read -rp "MCU のデバイス番号を選択してください (1-${#serial_candidates[@]}): " serial_choice \
+                    || die "中止しました"
+                if [[ "$serial_choice" =~ ^[0-9]+$ ]] \
+                    && [ "$serial_choice" -ge 1 ] && [ "$serial_choice" -le ${#serial_candidates[@]} ]; then
+                    break
+                fi
+                echo "無効な選択です。1から${#serial_candidates[@]}の間で入力してください。"
+            done
+            mcu_serial="${serial_candidates[$((serial_choice - 1))]}"
+            echo ""
+            plan+=("[mcu] serial : ${mcu_serial} を書き込む")
+            ;;
+    esac
 fi
 
 if [ -L "${CONFIG_DIR}/printer.cfg" ]; then
@@ -144,10 +228,22 @@ fi
 
 if [ "$printer_action" = replace_symlink ]; then
     rm "$KLIPPER_CONFIG_FILE"
+elif [ "$printer_action" = backup_and_copy ]; then
+    cp -p "$KLIPPER_CONFIG_FILE" "$KLIPPER_BACKUP_FILE"
+    echo "退避: ${KLIPPER_BACKUP_FILE}"
 fi
 if [ "$printer_action" != keep ]; then
     cp "${template_path}/printer.cfg" "$KLIPPER_CONFIG_FILE"
     echo "配置: ${KLIPPER_CONFIG_FILE}"
+    if [ -n "$mcu_serial" ]; then
+        if write_mcu_serial "$KLIPPER_CONFIG_FILE" "$mcu_serial"; then
+            echo "設定: [mcu] serial = ${mcu_serial}"
+        else
+            echo "警告: ${KLIPPER_CONFIG_FILE} の [mcu] セクションに serial 行がありません。手動で設定してください" >&2
+        fi
+    else
+        echo "警告: ${SERIAL_BY_ID_DIR} に MCU が見つかりません。${KLIPPER_CONFIG_FILE} の [mcu] serial を手動で設定してください" >&2
+    fi
 fi
 
 ln -sfn "$KLIPPER_CONFIG_FILE" "${CONFIG_DIR}/printer.cfg"
@@ -174,5 +270,5 @@ echo ""
 echo "machine.toml をテンプレートで作り直したい場合は、config/ を退避してから再実行してください:"
 echo "  mv config config.bak.${TIMESTAMP} && ./scripts/setup-machine-config.sh"
 echo ""
-echo "printer.cfg をテンプレートで作り直したい場合も同様に退避してから再実行してください:"
-echo "  mv ${KLIPPER_CONFIG_FILE} ${KLIPPER_CONFIG_FILE}.bak.${TIMESTAMP} && ./scripts/setup-machine-config.sh"
+echo "printer.cfg は再実行すれば退避のうえテンプレートで作り直せます"
+echo "（既存は printer.cfg.bak.<日時> へ退避されます）"
