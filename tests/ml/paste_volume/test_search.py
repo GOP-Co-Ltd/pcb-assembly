@@ -15,11 +15,14 @@ trial の学習は本物の ``run_training`` を通す。
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import TypedDict
 
 import pytest
+import torch
 
 from ml.data.image import ImageConstraints
 from ml.paste_volume.experiment import compose_experiment
@@ -31,6 +34,8 @@ from ml.tuning.runner import HyperparameterSearch
 from ml.tuning.study import StudyIdentity, StudyResults, StudyStorage
 from tests.ml.helpers import PROJECT_ROOT
 from tests.ml.paste_volume.helpers import write_synthetic_sessions
+
+DEVICE = torch.device("cpu")
 
 SESSION_COUNT = 3
 TRIAL_COUNT = 2
@@ -79,14 +84,22 @@ def searched(
     """実 sqlite storage へ 2 trial 積む。module 内で使い回す."""
 
     workspace = tmp_path_factory.mktemp("paste-volume-search")
-    results, error = run_search(_arguments(dataset_root, workspace))
+    results, error = run_search(_arguments(dataset_root, workspace), device=DEVICE)
 
     assert error is None, error
     assert results is not None
     return results, workspace
 
 
-def _reader(storage_uri: str, study_name: str) -> dict[str, object]:
+class StudySnapshot(TypedDict):
+    """別プロセスから読んだ study の状態."""
+
+    trials: int
+    complete: int
+    parameters: list[str]
+
+
+def _reader(storage_uri: str, study_name: str) -> StudySnapshot:
     """別プロセスから同じ storage を読む.
 
     「1 個の RDB study を複数の OS プロセスが共有する」ことが並列化の実体なので、
@@ -110,7 +123,32 @@ def _reader(storage_uri: str, study_name: str) -> dict[str, object]:
         check=True,
         cwd=PROJECT_ROOT,
     )
-    return json.loads(completed.stdout)
+    snapshot: StudySnapshot = json.loads(completed.stdout)
+    return snapshot
+
+
+def _search_process(
+    dataset_root: Path, workspace: Path, *overrides: str
+) -> subprocess.CompletedProcess[str]:
+    """別プロセスから同じ storage へ合流する探索を 1 本起こす.
+
+    ``CUDA_VISIBLE_DEVICES`` を空にするのは、``main()`` が device を argv で
+    受けない（学習 core が既定 device を選ぶ）ため。実走と GPU を取り合わない。
+    """
+
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ml.paste_volume.search",
+            *_arguments(dataset_root, workspace),
+            *overrides,
+        ],
+        cwd=PROJECT_ROOT,
+        env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+        capture_output=True,
+        text=True,
+    )
 
 
 class TestHyperparameterSearch:
@@ -216,8 +254,10 @@ class TestSharedStorage:
 
         observed = _reader(f"sqlite:///{workspace}/optuna.db", results.study_name)
 
-        assert observed["trials"] == TRIAL_COUNT
-        assert observed["complete"] == TRIAL_COUNT
+        # 別プロセスから合流する test が同じ storage へ 3 件目を積むので、件数は
+        # 下限で見る（0 件では通らない）。file 内の実行順に依存させない。
+        assert observed["trials"] >= TRIAL_COUNT
+        assert observed["complete"] == observed["trials"]
         assert observed["parameters"] == sorted(
             {name for trial in results.trials for name in trial.parameters}
         )
@@ -239,22 +279,36 @@ class TestSharedStorage:
 
         ``trial_count`` は残 trial 数へ減算せず常に積み増す。何プロセスが
         合流するかを runner は知らない。
+
+        本当に別プロセスから起こす。同一プロセスで ``run_search`` を 2 度呼んでも、
+        この機構の唯一の目的（1 個の RDB study を複数の OS プロセスが共有する）は
+        検査に現れない。
+
+        観測点は storage の trial 数に置く。合成 dataset を 1 epoch だけ回す
+        trial は、引いた値によっては平均 head が飽和して monitor を出せずに
+        失敗する。失敗も study に記録される正規の結果なので、合流したかどうかとは
+        別の軸として扱い、終了コードは「完走したか、完走 0 件を理由に落ちたか」
+        までを見る。
         """
 
         results, workspace = searched
+        storage_uri = f"sqlite:///{workspace}/optuna.db"
+        before = _reader(storage_uri, results.study_name)
 
-        joined, error = run_search(
-            [
-                *_arguments(dataset_root, workspace),
-                "hyperparameter_search.trial_count=1",
-                f"run_directory={workspace}/joined",
-            ]
+        completed = _search_process(
+            dataset_root,
+            workspace,
+            "hyperparameter_search.trial_count=1",
+            f"hyperparameter_search.results_path={workspace}/joined.json",
+            f"run_directory={workspace}/joined",
         )
 
-        assert error is None, error
-        assert joined is not None
-        assert joined.study_name == results.study_name
-        assert joined.completed_trial_count == TRIAL_COUNT + 1
+        assert (
+            completed.returncode == 0 or "完走した trial" in completed.stderr
+        ), completed.stderr
+        after = _reader(storage_uri, results.study_name)
+        assert after["trials"] == before["trials"] + 1
+        assert after["parameters"] == before["parameters"]
 
     def test_collect_reads_the_study_without_running_a_trial(
         self, dataset_root: Path, searched: tuple[StudyResults, Path]

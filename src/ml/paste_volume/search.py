@@ -13,7 +13,8 @@
         data.roots='["/abs/data/paste-volume-datasets"]' \
         data.held_out_session="$S" \
         hyperparameter_search.storage_uri="sqlite:////abs/optuna.db" \
-        logger.tracking_uri="file:///abs/mlruns" \
+        logger.tracking_uri="sqlite:////abs/mlflow.db" \
+        logger.artifact_location="/abs/mlartifacts" \
         run_directory="/abs/runs/hpo/$S"
 
 並列化の実体は「複数の OS プロセスが 1 個の storage を共有する」こと。
@@ -145,6 +146,10 @@ def run_search(
     results, error = search.collect(experiment_run_ids=run_ids)
     if results is None:
         return None, error
+    # 紐付けの検査は成果物を書くより前に置く。あとに置くと、trial と実験 run が
+    # 繋がっていない study.json が残ったまま失敗する。
+    if reason := results.verify_lineage():
+        return None, reason
     if search_config.results_path is not None:
         search_config.results_path.parent.mkdir(parents=True, exist_ok=True)
         results.save(search_config.results_path, converter=make_strict_converter())
@@ -166,15 +171,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"best_trial={None if best is None else best.number} "
         f"best_value={None if best is None else best.value}"
     )
-    if reason := results.verify_lineage():
-        print(reason, file=sys.stderr)
-        return 1
     return 0
 
 
 _NO_LOGGER_REASON = (
     "logger を選んでいません（logger=mlflow と "
-    "logger.tracking_uri=file:///abs/mlruns を渡してください）"
+    "logger.tracking_uri=sqlite:////abs/mlflow.db と "
+    "logger.artifact_location=/abs/mlartifacts を渡してください）"
 )
 
 
@@ -216,6 +219,11 @@ def _trial_value(
         run_ids[assignment.trial_number] = logger.started_run_id
     if outcome is None:
         raise ValueError(error)
+    if error is not None:
+        # 学習は終わったが成果物を 1 つ作れなかった（いまは calibration だけ）。
+        # trial 自体は monitor の値を出しているので失敗にはしないが、黙って
+        # 捨てない。
+        print(f"trial {assignment.trial_number}: {error}", file=sys.stderr)
     if outcome.best_monitor_value is None:
         raise ValueError(
             f"trial {assignment.trial_number} は monitor "
