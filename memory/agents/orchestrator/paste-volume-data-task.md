@@ -276,6 +276,42 @@ killed を確認。
 
 **最終変異: session 13/13、index 18/18、dataset 6/6、batch 20/20、task 16/16。**
 
+## 3 巡目（verdict: approve）と追加対応
+
+approve が出たが、should-fix の S22 は 3 行で直り、しかも `docker/README.md` へ書いた
+「推移的に検証する」と実態が食い違っていたので本 MR に含めた。
+
+**S22: 走査が相対 import を捨てていた。** `src/` に 61 本あり、とくに
+`pcbasm/vision/__init__.py` は re-export をすべて相対 import で書いている。paste_volume は
+`metadata.py` 経由で `pcbasm.vision` に到達するので、`vision/detection.py` などが hal を
+引いた瞬間に**検査は緑のままコンテナだけが壊れる**状態だった。到達 module 数 67 → 85。
+
+**S23**: ancestor 展開（`a.b.c` を見たら `a.b` も到達と数える）に観測点が無かった。
+`metadata.py` を起点に `pcbasm.vision` へ到達することを見る。
+
+**S24**: 仮値を埋め直す generator を list 内包表記へ。遅延 generator が可変 local を読む
+形は `usable` の寿命を変えたときに壊れる。
+
+### この MR で 3 回踏んだ同じ型
+
+**「検査を足したが、その検査が働くかを測っていない」** を 3 回踏んだ。
+
+1. M1 の観測点 `len(pairs) > len(sectors)` — bug 下でも 20 > 8 で通る
+2. M3 の自己検査 — 起点が hal を直接 import しており 1 段。再帰を落としても通る
+3. S22 — 走査が相対 import を捨てており、`vision` 配下が丸ごと漏れる
+
+いずれも **「到達しないこと」を assert する検査**で、検出力が下がるほど通りやすくなる。
+このかたちの検査には**必ず「検査器が働くこと」の自己検査を対にする**。そして自己検査
+自体も変異で殺せることを確かめる。
+
 ## 残タスク
 
-step 6（計画書の更新）のみ。model / train / evaluate は次 MR。
+全 step 完了。model / train / evaluate は次 MR。
+
+**次 MR への順序制約**: `ml.data.image._derived_seed` の材料に役割ラベルを足す（S19）のは
+**Trainer を初めて回す前**にやること。checkpoint を 1 つでも作ると augmentation 系列の
+変更が過去 run との比較を壊す。
+
+merge 後で可の積み残し: `entry_for` の線形探索、テストの `type: ignore` 6 件、
+関数内 import 3 件、`test_batch` 側の shape テストが緩い版のまま（task 側で厳密に見るので
+害は無いが docstring と assert の強度が不一致）、docformatter の空白 20 箇所。

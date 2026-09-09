@@ -32,14 +32,59 @@ FORBIDDEN_IMPORTS = ("pcbasm.hal", "pcbnew", "picamera2")
 FORBIDDEN_TEST_IMPORTS = (*FORBIDDEN_IMPORTS, "tests.helpers")
 
 
+def _module_name(path: Path) -> str | None:
+    """``src/`` 配下の file を dotted module 名へ直す."""
+
+    source = PROJECT_ROOT / "src"
+    if not path.is_relative_to(source):
+        return None
+    parts = list(path.relative_to(source).parts)
+    if parts[-1] == "__init__.py":
+        parts.pop()
+    else:
+        parts[-1] = parts[-1].removesuffix(".py")
+    return ".".join(parts)
+
+
+def _relative_base(path: Path, level: int) -> str | None:
+    """相対 import の起点となる package 名を返す."""
+
+    name = _module_name(path)
+    if name is None:
+        return None
+    parts = name.split(".")
+    if path.name != "__init__.py":
+        parts.pop()
+    if level > len(parts) + 1:
+        return None
+    return ".".join(parts[: len(parts) - (level - 1)])
+
+
 def _imported_modules(path: Path) -> set[str]:
+    """その file が import する module 名を集める.
+
+    **相対 import も解決する。** ``src/`` には 61 本あり、とくに
+    ``pcbasm/vision/__init__.py`` は re-export をすべて相対 import で書いている。
+    捨てると ``pcbasm.vision`` の中身が丸ごと走査から漏れる。
+    """
+
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     modules: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             modules.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            modules.add(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                if node.module:
+                    modules.add(node.module)
+                continue
+            base = _relative_base(path, node.level)
+            if base is None:
+                continue
+            absolute = f"{base}.{node.module}" if node.module else base
+            modules.add(absolute)
+            if not node.module:
+                modules.update(f"{base}.{alias.name}" for alias in node.names)
     return modules
 
 
@@ -167,6 +212,36 @@ class TestPasteVolumeImports:
         assert any(
             _reaches(module, "pcbasm.hal") for module in _reachable_modules([recorder])
         )
+
+    def test_the_scan_resolves_relative_imports(self):
+        """相対 import も解決すること.
+
+        ``pcbasm/vision/__init__.py`` は re-export を相対 import で書いている。
+        捨てると ``pcbasm.vision`` の中身が丸ごと走査から漏れ、そこが HAL を引いても
+        検査は緑のままになる。
+        """
+
+        reachable = _reachable_modules(
+            [PROJECT_ROOT / "src" / "pcbasm" / "vision" / "__init__.py"]
+        )
+
+        assert "pcbasm.vision.detection" in reachable
+        assert "pcbasm.vision.overlay" in reachable
+
+    def test_the_scan_counts_a_package_as_reached(self):
+        """``a.b.c`` を見たら ``a.b`` にも到達したものとして数えること.
+
+        package を import すると ``__init__`` が走る。本 MR のブロッカーは
+        ``metadata`` が ``pcbasm.vision.image`` を読んだ結果 ``pcbasm.vision`` の
+        ``__init__`` が走る形だった。
+        """
+
+        reachable = _reachable_modules(
+            [PROJECT_ROOT / "src" / "pcbasm" / "pasting" / "dataset" / "metadata.py"]
+        )
+
+        assert "pcbasm.vision.image" in reachable
+        assert "pcbasm.vision" in reachable
 
     def test_the_scanner_sees_an_import_it_should_reject(self):
         """検査器そのものが機能していることを確かめる.

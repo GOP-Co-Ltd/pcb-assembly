@@ -401,3 +401,143 @@ checkpoint を作った後に直すと過去の run と比較できなくなる�
 1 巡目と同じく、step 0a の共有ドメイン変更（`applicator.py` /
 `dataset/metadata.py` / `dataset/pending.py`）について実機側 `make test-no-hardware` の
 結果確認が残っている。
+
+---
+
+# 3 巡目レビュー（`e8ecfb3` 追加後）
+
+## verdict: approve
+
+M3 / S18 / S9 / S17 / S19 / S21 いずれも適切に対応されている。残る指摘は
+should-fix と nit だけで、merge を止めるものは無い。
+
+## 確認したこと
+
+### M3（自己検査の 1 段問題）— 解消
+
+起点を `dataset/recorder.py` へ替え、「直接は届かない」「推移的には届く」の 2 本立てに
+なった。`recorder.py` の直接 import に `pcbasm.hal` が無いことを確認済み
+（`config` / `pasting.applicator` / `dataset.*` / `utils` / `vision.*` のみ）。
+
+再帰（`pending.append`）を落とす変異を再現して実測:
+
+```
+recurse=True : selfcheck2hop=True
+recurse=False: selfcheck2hop=False   → killed
+```
+
+### S18（shape の厳密一致）— 解消
+
+`mask.any(dim=1).sum()` を `preprocessed_shape.height` と厳密比較する形になった。
+回転が入っても成立することを確認: `_valid_pixel_mask` は target 矩形を回した mask で、
+正方形を任意角度で回すと縦方向の広がりが `26.5·(|sinθ|+|cosθ|) ≥ 26.5` になるため、
+canvas の上端行・下端行・左右端列に必ず有効画素が残る。よって「有効画素を持つ行数」
+＝前処理後の高さが常に成立する。padding 由来の丸めが挟まらないので 1 px のずれも殺せる。
+
+### S9 / S17 / S21 — 解消
+
+`config.global_seed` は完全に消え、`collator.global_seed` が唯一の出典
+（`plan_pixel_budget_batches` の `seed` もそこから取る）。`batch-plan` は文字列種なので
+整数種の augmentation / placement とは衝突しない。docs 2 行も更新済み。
+
+## should-fix（今回の変更から新たに見つかったもの）
+
+### S22. 推移的 import 検査が相対 import を追わない
+
+確信度：**高**（実測）。深刻度：中。
+
+`_imported_modules` は `isinstance(node, ast.ImportFrom) and node.level == 0` で
+**相対 import を捨てている**。`src/` には相対 import が 61 本あり、とくに
+`src/pcbasm/vision/__init__.py` は 5 module すべてを相対 import で re-export している。
+
+paste_volume の起点集合から実測した到達 module 数:
+
+```
+相対 import を無視（現状）: 67
+相対 import を解決        : 85
+見落とし: pcbasm.vision.calibration / copper / detection / overlay、
+          pcbasm.geometry.path / polygon / polyline / routing / sampling / transform ほか
+```
+
+`paste_volume` は `metadata.py` 経由で `pcbasm.vision` に到達する（ancestor 規則で
+`vision/__init__.py` が走る扱いになる）。**そこから先の 4 module が完全に不可視**なので、
+`pcbasm/vision/detection.py` などが `pcbasm.hal` を引いた瞬間に、検査は緑のまま
+コンテナだけが壊れる。M3 と同じ「guard が黙って過小になる」形。
+
+`docker/README.md` が「その到達範囲は `test_architecture.py` が推移的に検証する」と
+書いてしまったので、記述と実態が食い違っている。
+
+直し方は `_imported_modules` に `node.level > 0` の解決を足すだけ（file の package path
+から `level-1` 段さかのぼって `node.module` を連結する）。
+
+### S23. ancestor 展開に観測点が無い
+
+確信度：高（実測）。深刻度：低。
+
+`for depth in range(1, len(parts) + 1)` を「完全修飾名だけ」に縮める変異を当てても、
+3 本の architecture test は全部緑のまま（`ancestors=False` で `selfcheck2hop=True`、
+本体検査の offender も空）。docstring はこの規則を「ブロッカーは `vision/__init__` が
+走る形だった」と根拠づけているので、その根拠が観測されていない。
+
+S22 を直すと `vision/__init__.py` の中身を追えるようになるので、
+「`pcbasm.vision.image` を import した起点から `pcbasm.vision.detection` へ到達する」
+を見る観測点が自然に置ける。
+
+### S24. `session_sample_count` は entries から導出できる（S17 の書き方）
+
+確信度：中（設計の好み）。深刻度：低。
+
+現状の仮値方式そのものは安全に閉じている。`_entry_for_cell` は private で `build` しか
+呼ばず、`entries.extend(generator)` は `usable` を再代入する前に同じイテレーション内で
+消費し切る。0 が漏れれば `1.0 / 0` で loud に落ちる。
+
+ただし `session_sample_count` は `Counter(entry.session_fingerprint for entry in entries)`
+から導出できる**非正規化フィールド**で、仮値の往復はそれを entry に持たせたことの帰結。
+より素直なのは次のどちらか。
+
+- entry から落とし、`PasteVolumeSampleIndex` に
+  `session_sample_counts: Mapping[str, int]`（または `sample_weight_for(sample_id)`）を
+  置く。`collate` はそこを引く
+- entry に残すなら、`attrs.evolve` の generator を list 内包表記にする
+  （遅延 generator が可変 local を読む形は、将来 `usable` の寿命を変えたとき壊れる）
+
+## 質問への回答
+
+1. **M3 の直し方は妥当。** ただし自己検査の穴は 2 つ残る（S22 の相対 import、
+   S23 の ancestor 展開）。S22 は「弱い自己検査」ではなく走査本体の穴で、
+   こちらのほうが実害が大きい
+2. **S17 の仮値方式は安全だが、より素直な形はある**（S24）
+3. **S19 は次 MR 送りで良い。** 判断の根拠:
+   - `ml` の種を変えると `tests/ml` の期待値（乱数列に依存するもの）が動きうる。
+     本 MR のスコープ（data + task）を越える
+   - docstring で罠が明示され、`_derived_seed` の呼び出し側は現状 1 つだけ
+   - ただし**期限は「次 MR で Trainer を初めて回す前」**。checkpoint を 1 つでも
+     作ると augmentation 系列の変更が過去 run との比較を壊す。次 MR の計画へ
+     この順序制約を書いておくこと
+4. **approve できる。** 未対応（`entry_for` の線形探索、テストの `type: ignore` 6 件、
+   docformatter の折り返し空白）が merge を止めないという 2 巡目の判断は変わらない。
+   S22 だけは 3 行程度で直り、かつ `docker/README.md` の記述と食い違うので、
+   本 MR に入れるか直後の follow-up にするかを選べる状態にしておくのが良い
+
+## 積み残し（merge 後で良い）
+
+- S22 / S23（architecture test の走査）— S22 は早めが望ましい
+- S24（`session_sample_count` の持ち方）
+- S14 `entry_for` の線形探索
+- S15 テストの `type: ignore` 6 件（`tests/ml` は 0 件）
+- 関数内 import 3 件（`test_task.py:180` / `:236` / `:497`）
+- `test_batch.py::test_the_planned_shape_matches_what_collate_produces` が
+  1 巡目のままの緩い版（`< stride`）。task 側で厳密に見るようになったので害は無いが、
+  docstring の「一致する」と assert の強度が合っていない
+- docformatter の折り返しで日本語文中に残る空白 20 箇所
+
+## 検証結果（3 巡目）
+
+- make format: pass
+- make type: pass
+- make test-no-hardware: 未実行（実機側。ユーザー担当）
+- `make ml-docker-check`: **pass**（1458 passed / 1 skipped / exit 0）
+
+step 0a の共有ドメイン変更（`applicator.py` / `dataset/metadata.py` /
+`dataset/pending.py` / `tests/pcbasm/pasting/dataset/test_metadata.py`）について、
+実機側 `make test-no-hardware` の結果確認だけが残る。

@@ -158,8 +158,10 @@ class PasteVolumeSampleIndex:
             # loss weight は「使える sample」で割る。隔離した cell は学習へ寄与しないので、
             # 数に入れると拒否の多い session が過小評価される。
             entries.extend(
-                attrs.evolve(entry, session_sample_count=len(usable))
-                for entry in usable
+                [
+                    attrs.evolve(entry, session_sample_count=len(usable))
+                    for entry in usable
+                ]
             )
         if not entries:
             return None, "使える sample がありません"
