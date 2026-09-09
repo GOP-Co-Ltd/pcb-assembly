@@ -19,7 +19,12 @@ import torch
 from torch import Tensor
 
 from ml.evaluation._aggregation import weighted_mean
-from ml.evaluation.regression import GaussianPredictions, GaussianRegressionMetrics
+from ml.evaluation.regression import (
+    GaussianPredictions,
+    GaussianRegressionMetrics,
+    MeanSaturationDiagnostic,
+    ZeroTargetMetrics,
+)
 
 _MINIMUM_BOUNDARY_DIGITS = 4
 
@@ -97,11 +102,17 @@ class ReliabilityBin:
 
 @attrs.frozen
 class DiagnosticReport:
-    """全体 metric、次元別 slice、reliability bin をまとめた診断結果."""
+    """全体 metric、次元別 slice、reliability bin をまとめた診断結果.
+
+    真値 0 の sample は全体 metric と slice から外れるので、``zero_target`` と
+    ``mean_saturation`` で別に見る。
+    """
 
     overall: GaussianRegressionMetrics
     slices: tuple[DiagnosticSlice, ...]
     reliability_bins: tuple[ReliabilityBin, ...]
+    zero_target: ZeroTargetMetrics | None
+    mean_saturation: MeanSaturationDiagnostic
 
     @classmethod
     def build(
@@ -133,11 +144,15 @@ class DiagnosticReport:
             for dimension in dimensions
             for value, indices in _buckets_of(dimension)
         )
+        # 真値 0 が 1 件も無いのは診断の失敗ではないので、理由は報告へ載せない
+        zero_target, _ = ZeroTargetMetrics.measure(predictions)
         return (
             cls(
                 overall=overall,
                 slices=slices,
                 reliability_bins=_reliability_bins(predictions, reliability_bin_count),
+                zero_target=zero_target,
+                mean_saturation=MeanSaturationDiagnostic.measure(predictions),
             ),
             None,
         )

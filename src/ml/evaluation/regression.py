@@ -5,6 +5,10 @@
 無効な sample は例外にせず集計から除外し、件数として残す。
 
 一部が壊れた評価 run でも、残りの sample から診断できるようにするため。
+
+真値 0 の sample は相対誤差を定義できず、有効判定からも外れる。
+
+そのため絶対誤差で測る専用の metric と、平均が 0 へ張り付いた割合の診断を別に置く。
 """
 
 from __future__ import annotations
@@ -199,6 +203,136 @@ class GaussianRegressionMetrics:
         )
 
 
+@attrs.frozen
+class ZeroTargetMetrics:
+    """真値 0 の部分集団を絶対誤差で測った結果.
+
+    相対誤差は真値 0 で定義できないので使わない。
+
+    :meth:`GaussianPredictions.valid_sample_mask` が真値 0 を無効として落とすため、
+    この集団は :class:`GaussianRegressionMetrics` に一切現れない。
+
+    ``exact_zero_fraction`` は blank をちょうど 0 と当てられた重み比で、高いほど
+    良い。
+    """
+
+    sample_count: int
+    weight_sum: float
+    mean_absolute_error: float
+    p95_absolute_error: float
+    exact_zero_fraction: float
+    one_standard_deviation_coverage: float
+
+    @classmethod
+    def measure(
+        cls, predictions: GaussianPredictions
+    ) -> tuple[ZeroTargetMetrics | None, str | None]:
+        """真値がちょうど 0 の sample だけを重み付きで集計する.
+
+        該当する sample が無いときと、その重み合計が 0 のときだけ理由文字列を返す。
+        """
+
+        if error := predictions.validate():
+            return None, error
+        selected = (
+            (predictions.target == 0)
+            & torch.isfinite(predictions.mean)
+            & torch.isfinite(predictions.log_variance)
+            & torch.isfinite(predictions.sample_weight)
+            & (predictions.sample_weight >= 0)
+        )
+        sample_count = int(selected.sum().item())
+        if sample_count == 0:
+            return None, "真値 0 の sample がありません"
+        weight = predictions.sample_weight[selected]
+        weight_sum = float(weight.sum().item())
+        if weight_sum <= 0:
+            return None, (
+                f"真値 0 の sample の weight 合計が 0 です: {sample_count} 件"
+            )
+
+        mean = predictions.mean[selected]
+        absolute_error = mean.abs()
+        predicted_standard_deviation = torch.exp(
+            0.5 * predictions.log_variance[selected]
+        )
+        return (
+            cls(
+                sample_count=sample_count,
+                weight_sum=weight_sum,
+                mean_absolute_error=weighted_mean(absolute_error, weight),
+                p95_absolute_error=_weighted_percentile(
+                    absolute_error, weight, _P95_FRACTION
+                ),
+                exact_zero_fraction=weighted_mean((mean == 0).double(), weight),
+                one_standard_deviation_coverage=weighted_mean(
+                    (absolute_error <= predicted_standard_deviation).double(), weight
+                ),
+            ),
+            None,
+        )
+
+
+@attrs.frozen
+class MeanSaturationDiagnostic:
+    """平均 head の ReLU が 0 に張り付いた sample の割合.
+
+    ReLU は出力が厳密に 0 であることと前活性への勾配が 0 であることが同値なので、
+    ``mean == 0`` の比較だけで死んだ領域の sample を過不足なく数えられる。
+
+    真値が正の側と真値 0 の側は別々に数える。
+
+    blank が 0 へ張り付くのは正常な収束で、真値が正の sample が張り付くのが問題。
+    """
+
+    positive_target_count: int
+    saturated_positive_count: int
+    saturated_positive_fraction: float
+    zero_target_count: int
+    saturated_zero_count: int
+    saturated_zero_fraction: float
+
+    @classmethod
+    def measure(cls, predictions: GaussianPredictions) -> MeanSaturationDiagnostic:
+        """真値が正の側と真値 0 の側で、平均が 0 の sample を数える.
+
+        数え上げだけなので失敗せず、該当が 0 件の側の割合は 0.0 とする。
+
+        4 本の長さがそろっていることは呼び出し側の不変条件なので、破れていたら
+        ``ValueError`` にする。
+
+        ``(n,)`` と ``(1,)`` の組は broadcast して例外にならず、飽和件数が母集団を
+        上回った割合を黙って返してしまうため。
+
+        理由文字列ではなく例外にするのは、実データでは起こらず呼び出し側の
+        取り違えでしか起きないから（``MultiViewPaddedBatch.pad`` と同じ作法）。
+        """
+
+        if error := predictions.validate():
+            raise ValueError(error)
+        saturated = predictions.mean == 0
+        positive = predictions.target > 0
+        zero = predictions.target == 0
+        positive_target_count = int(positive.sum().item())
+        saturated_positive_count = int((positive & saturated).sum().item())
+        zero_target_count = int(zero.sum().item())
+        saturated_zero_count = int((zero & saturated).sum().item())
+        return cls(
+            positive_target_count=positive_target_count,
+            saturated_positive_count=saturated_positive_count,
+            saturated_positive_fraction=_fraction(
+                saturated_positive_count, positive_target_count
+            ),
+            zero_target_count=zero_target_count,
+            saturated_zero_count=saturated_zero_count,
+            saturated_zero_fraction=_fraction(saturated_zero_count, zero_target_count),
+        )
+
+
+def _fraction(count: int, total: int) -> float:
+    return count / total if total else 0.0
+
+
 @attrs.frozen(eq=False)
 class _UsableSamples:
     """集計に使える sample だけを取り出した状態.
@@ -302,4 +436,6 @@ def _weighted_percentile(values: Tensor, weight: Tensor, fraction: float) -> flo
 __all__ = [
     "GaussianPredictions",
     "GaussianRegressionMetrics",
+    "MeanSaturationDiagnostic",
+    "ZeroTargetMetrics",
 ]

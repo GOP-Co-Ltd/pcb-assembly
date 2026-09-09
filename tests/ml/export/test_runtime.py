@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
+import attrs
 import numpy as np
 import pytest
 import torch
@@ -155,6 +156,12 @@ class TestPredict:
         assert outputs[support.MEAN_OUTPUT].shape == (1, 1)
 
     def test_reports_a_missing_input(self, tmp_path: Path):
+        """欠けた入力名は ORT へ渡す前に manifest と突き合わせて弾く.
+
+        ``推論に失敗しました`` は ORT の例外を包む文面なので、それが出ないことで
+        ``ml`` 側の検査が働いたことを区別する。
+        """
+
         model = _load(_published(tmp_path))
         values = support.input_values()
         del values[support.CONDITIONING_INPUT]
@@ -163,8 +170,12 @@ class TestPredict:
 
         assert outputs is None
         assert error is not None
+        assert "推論に失敗しました" not in error
+        assert support.CONDITIONING_INPUT in error
 
     def test_reports_an_input_of_the_wrong_element_type(self, tmp_path: Path):
+        """要素型の食い違いは ``ml`` が manifest と突き合わせて弾く."""
+
         model = _load(_published(tmp_path))
         values = support.input_values()
         values[support.IMAGES_INPUT] = cast(
@@ -175,6 +186,32 @@ class TestPredict:
 
         assert outputs is None
         assert error is not None
+        assert "推論に失敗しました" not in error
+        assert support.IMAGES_INPUT in error
+        assert "float64" in error
+        assert "float32" in error
+
+    def test_reports_an_input_with_the_wrong_number_of_axes(self, tmp_path: Path):
+        """4D 契約の model へ 5D を渡したら軸数の食い違いとして弾く.
+
+        多視点化で ``[B, C, H, W]`` と ``[B, V, C, H, W]`` の取り違えが現実的な
+        事故になる。ORT の文面に丸投げすると、どちらの契約に違反したのか読めない。
+        """
+
+        model = _load(_published(tmp_path))
+        values = support.input_values()
+        values[support.IMAGES_INPUT] = cast(
+            "NDArray[np.float32]", values[support.IMAGES_INPUT][:, np.newaxis]
+        )
+
+        outputs, error = model.predict(values)
+
+        assert outputs is None
+        assert error is not None
+        assert "推論に失敗しました" not in error
+        assert support.IMAGES_INPUT in error
+        assert "5" in error
+        assert "4" in error
 
     def test_reports_an_input_whose_fixed_axis_does_not_match(self, tmp_path: Path):
         model = _load(_published(tmp_path))
@@ -183,3 +220,33 @@ class TestPredict:
 
         assert outputs is None
         assert error is not None
+        assert "推論に失敗しました" not in error
+        assert support.IMAGES_INPUT in error
+
+    def test_reports_an_element_type_the_inference_path_cannot_carry(
+        self, tmp_path: Path
+    ):
+        """推論経路が運べない要素型は、dtype 比較より先に理由を返す.
+
+        ``_ELEMENT_TYPE_DTYPES`` に無い要素型を「dtype 不一致」として報せると、
+        直すべきは manifest なのに入力側を疑わせてしまう。
+        """
+
+        manifest = support.build_manifest()
+        inputs = tuple(
+            attrs.evolve(contract, element_type="BOOL")
+            if contract.name == support.IMAGES_INPUT
+            else contract
+            for contract in manifest.inputs
+        )
+        package = support.publish_model_package(
+            tmp_path / "package", manifest=attrs.evolve(manifest, inputs=inputs)
+        ).path
+
+        outputs, error = _load(package).predict(support.input_values())
+
+        assert outputs is None
+        assert error is not None
+        assert "推論に失敗しました" not in error
+        assert "BOOL" in error
+        assert "扱えません" in error

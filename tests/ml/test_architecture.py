@@ -48,6 +48,7 @@ RUNTIME_MODULES = (
     "ml.model.heads",
     "ml.model.inspection",
     "ml.model.loss",
+    "ml.model.multiview",
     "ml.training.checkpoint",
     "ml.training.data",
     "ml.training.loop",

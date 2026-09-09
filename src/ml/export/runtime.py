@@ -29,11 +29,14 @@ import onnxruntime
 from numpy.typing import NDArray
 
 from ml.artifact.package import ImmutablePackage
-from ml.export.manifest import MANIFEST_FILENAME, InferenceManifest
+from ml.export.manifest import MANIFEST_FILENAME, InferenceManifest, TensorContract
 
 type InputValues = Mapping[str, NDArray[np.float32]]
 
 _CPU_PROVIDERS = ["CPUExecutionProvider"]
+
+# ONNX の要素型名から numpy の dtype 名への対応。推論経路は float32 だけを運ぶ
+_ELEMENT_TYPE_DTYPES: Mapping[str, str] = {"FLOAT": "float32"}
 
 
 class OnnxInferenceModel:
@@ -137,9 +140,13 @@ class OnnxInferenceModel:
     ) -> tuple[dict[str, NDArray[np.float32]] | None, str | None]:
         """1 回ぶんの推論を実行し、出力名ごとの配列を返す.
 
-        入力名や dtype の食い違いは例外にせず理由文字列で返す。
+        入力名・要素型・軸数・固定軸は、ORT へ渡す前に manifest と突き合わせる。
+
+        多視点 model の 4D と 5D を取り違えても、ORT のエラー文からは違反した契約が読み取れないため。
         """
 
+        if error := _mismatched_inputs(self._manifest.inputs, inputs):
+            return None, error
         names = [value.name for value in self._session.get_outputs()]
         try:
             produced = cast(
@@ -148,6 +155,55 @@ class OnnxInferenceModel:
         except Exception as error:  # noqa: BLE001 - ORT の失敗は理由文字列にする
             return None, f"推論に失敗しました: {error}"
         return dict(zip(names, produced, strict=True)), None
+
+
+def _mismatched_inputs(
+    contracts: tuple[TensorContract, ...], inputs: InputValues
+) -> str | None:
+    """渡された配列が manifest の入力契約に合っているかを検証する."""
+
+    declared = {contract.name for contract in contracts}
+    supplied = set(inputs)
+    if declared != supplied:
+        return (
+            "manifest が宣言する入力と渡された配列が一致しません"
+            f"（不足: {sorted(declared - supplied)}、"
+            f"余分: {sorted(supplied - declared)}）"
+        )
+    for contract in contracts:
+        if error := _mismatched_input(contract, inputs[contract.name]):
+            return error
+    return None
+
+
+def _mismatched_input(
+    contract: TensorContract, value: NDArray[np.float32]
+) -> str | None:
+    expected_dtype = _ELEMENT_TYPE_DTYPES.get(contract.element_type)
+    if expected_dtype is None:
+        return (
+            f"{contract.name} の要素型を推論経路が扱えません: {contract.element_type}"
+        )
+    if value.dtype.name != expected_dtype:
+        return (
+            f"{contract.name} の要素型が manifest と一致しません: "
+            f"{value.dtype.name}（期待値 {expected_dtype}）"
+        )
+    if value.ndim != len(contract.dimensions):
+        return (
+            f"{contract.name} の軸数が manifest と一致しません: "
+            f"{value.ndim}（期待値 {len(contract.dimensions)}、"
+            f"{list(contract.dimensions)}）"
+        )
+    for axis, (declared_size, actual) in enumerate(
+        zip(contract.dimensions, value.shape, strict=True)
+    ):
+        if declared_size.isdigit() and int(declared_size) != actual:
+            return (
+                f"{contract.name} の軸 {axis} が manifest と一致しません: "
+                f"{actual}（期待値 {declared_size}）"
+            )
+    return None
 
 
 __all__ = [

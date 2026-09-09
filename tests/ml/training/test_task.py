@@ -11,7 +11,7 @@ import torch
 from torch import Tensor, nn
 
 from ml.evaluation.compile_parity import CompileOptions
-from ml.evaluation.regression import GaussianRegressionMetrics
+from ml.evaluation.regression import GaussianRegressionMetrics, MeanSaturationDiagnostic
 from ml.training.task import (
     GaussianBatch,
     GaussianObservation,
@@ -30,6 +30,12 @@ DEVICE = torch.device("cpu")
 
 METRIC_FIELD_NAMES = frozenset(
     field.name for field in attrs.fields(GaussianRegressionMetrics)
+)
+
+# 平均 head が死んだ run の原因を運用者へ見せる診断。metric が 1 つも出せないときでも
+# 残る必要があるので、回帰 metric とは別枠で数える
+SATURATION_FIELD_NAMES = frozenset(
+    field.name for field in attrs.fields(MeanSaturationDiagnostic)
 )
 
 
@@ -224,8 +230,47 @@ class TestGaussianRegressionTaskEvaluation:
 
         metrics = task.reduce(observations)
 
-        assert set(metrics) == METRIC_FIELD_NAMES
+        assert set(metrics) == METRIC_FIELD_NAMES | SATURATION_FIELD_NAMES
         assert all(isinstance(value, float) for value in metrics.values())
+
+    def test_a_healthy_run_reports_no_saturated_positive_target(self):
+        """平均が生きている run では飽和割合が 0.0 として残る.
+
+        失敗したときにだけ現れる指標は、run をまたいで推移を追えない。
+
+        正常時も同じ key で出しておくことで、値が 0.0 から動いた瞬間に気付ける。
+        """
+
+        task = _task()
+
+        metrics = task.reduce([task.evaluation_step(_batch())])
+
+        assert metrics["saturated_positive_fraction"] == 0.0
+
+    def test_a_fully_saturated_evaluation_still_reports_why(self):
+        """全 sample の平均が 0 でも、原因が読み取れる情報を残す.
+
+        ``valid_sample_mask`` は ``mean > 0`` を要求するので、平均 head が死ぬと
+        回帰 metric が 1 つも出せない。
+
+        そのまま空の写像を返すと、運用者が受け取るのは「monitor がありません」
+        だけになり、真の原因である飽和が見えない。
+
+        主要 monitor を欠かせたまま（Trainer は従来どおり大きな音で失敗する）、
+        原因だけを残すのがこの契約。
+        """
+
+        task = _task()
+        observation = task.evaluation_step(_batch())
+        saturated = attrs.evolve(observation, mean=torch.zeros_like(observation.mean))
+
+        metrics = task.reduce([saturated])
+
+        assert metrics != {}
+        assert "relative_error_score" not in metrics
+        assert set(metrics) == SATURATION_FIELD_NAMES
+        assert metrics["saturated_positive_fraction"] == 1.0
+        assert metrics["positive_target_count"] == float(observation.mean.numel())
 
     def test_reduce_without_observations_returns_an_empty_mapping(self):
         task = _task()
@@ -233,6 +278,22 @@ class TestGaussianRegressionTaskEvaluation:
         metrics = task.reduce([])
 
         assert metrics == {}
+
+    def test_reduce_reports_nothing_for_misaligned_observations(self):
+        """長さのそろわない観測は集計せず空の写像を返す.
+
+        飽和診断は長さ検証を呼び出し側の責務にしている。
+
+        この guard を飛ばすと tensor の broadcast 例外になる。
+        """
+
+        task = _task()
+        observation = task.evaluation_step(_batch())
+        misaligned = attrs.evolve(
+            observation, target=torch.cat([observation.target, torch.ones(1, 1)])
+        )
+
+        assert task.reduce([misaligned]) == {}
 
 
 class TestCompileSeam:
@@ -279,4 +340,4 @@ class TestObservationTyping:
 
         assert isinstance(result.observation, GaussianObservation)
         assert isinstance(result.observation.target, Tensor)
-        assert set(metrics) == METRIC_FIELD_NAMES
+        assert set(metrics) == METRIC_FIELD_NAMES | SATURATION_FIELD_NAMES

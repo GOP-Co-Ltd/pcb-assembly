@@ -545,25 +545,12 @@ class Trainer[BatchT, ObservationT]:
             return False
 
         metrics = self._task.reduce(observations)
-        if config.monitor not in metrics:
-            raise ValueError(
-                f"validation の集計に monitor {config.monitor!r} がありません: "
-                f"{sorted(metrics)}"
-            )
-        monitor_value = float(metrics[config.monitor])
-        state.validation_metrics = {
-            name: float(value) for name, value in metrics.items()
-        }
-        state.scheduler.step(monitor_value)
-        state.selection, improved = state.selection.consider(
-            monitor_value, epoch=state.progress.epoch
-        )
-        if improved:
-            state.best_checkpoint_path = self._save(state, "best")
-        state.progress = state.progress.with_completed_epoch()
-
         epoch_seconds = time.monotonic() - epoch_started
         train_metrics = self._task.reduce(training.observations)
+        # 集計は monitor 検査より前に log する。monitor を欠く run こそ原因
+        # （平均飽和など）の診断が要るのに、raise を先に置くと値が捨てられ、
+        # run をまたいだ推移を追えなくなる。learning_rate は scheduler を進める
+        # 前の値、つまりこの epoch で実際に使った値になる。
         self._logger.log_metrics(
             {
                 **{f"train/{name}": value for name, value in train_metrics.items()},
@@ -576,6 +563,22 @@ class Trainer[BatchT, ObservationT]:
             },
             step=state.progress.global_step,
         )
+        if config.monitor not in metrics:
+            raise ValueError(
+                f"validation の集計に monitor {config.monitor!r} がありません: "
+                f"{_formatted_metrics(metrics)}"
+            )
+        monitor_value = float(metrics[config.monitor])
+        state.validation_metrics = {
+            name: float(value) for name, value in metrics.items()
+        }
+        state.scheduler.step(monitor_value)
+        state.selection, improved = state.selection.consider(
+            monitor_value, epoch=state.progress.epoch
+        )
+        if improved:
+            state.best_checkpoint_path = self._save(state, "best")
+        state.progress = state.progress.with_completed_epoch()
         self._save(state, "latest")
         if state.selection.patience_counter >= config.early_stopping_patience:
             state.stop_reason = "early_stopping"
@@ -797,6 +800,15 @@ def _default_device() -> torch.device:
 
 def _deadline_passed(deadline_monotonic: float | None) -> bool:
     return deadline_monotonic is not None and time.monotonic() >= deadline_monotonic
+
+
+def _formatted_metrics(metrics: Mapping[str, float]) -> str:
+    """集計結果を ``名前=値`` の並びへ落とす.
+
+    monitor を欠いた失敗を自己説明的にするため、key 名だけでなく値も例外文へ出す。
+    """
+
+    return ", ".join(f"{name}={value:g}" for name, value in sorted(metrics.items()))
 
 
 def _as_scalar(value: object) -> Scalar:

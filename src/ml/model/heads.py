@@ -4,11 +4,24 @@
 
 ``ml.model.loss`` の negative log likelihood と対になる形。
 
-平均は Softplus で常に非負にする。
+平均は ReLU で非負にする。
 
-対象を正の物理量の回帰に限っているため。
+真値 0 の blank sample を厳密な 0 として表現できるようにするため。
 
-評価側も相対誤差と coverage で正の target を前提にしている。
+Softplus は厳密な 0 を出せず、blank へ必ず正の下駄を履かせてしまう。
+
+代償として、前活性が負へ落ちた sample は平均側の勾配が 0 になる。
+
+平均線形層は weight を 0、bias を ``mean_bias_initial`` の正値から始める。
+
+初期の前活性が bias そのものになるので、どんな正の値でも活性領域に入る。
+
+学習開始時に全 sample が死んだ領域へ入るのを防ぐための組み合わせで、片方だけでは効かない。
+
+望ましい初期平均は真値のスケール次第なので、値そのものはドメイン側が設定する。
+
+学習途中で死んだ領域へ落ちる sample は
+:class:`~ml.evaluation.regression.MeanSaturationDiagnostic` で監視する。
 
 log 分散は設定した範囲へ clamp する。
 
@@ -38,6 +51,7 @@ class GaussianHeadConfig:
     hidden_features: int = 128
     log_variance_minimum: float = -14.0
     log_variance_maximum: float = 5.0
+    mean_bias_initial: float = 1.0
 
     def validate(self) -> str | None:
         """Head 設定の整合を検証する."""
@@ -51,6 +65,8 @@ class GaussianHeadConfig:
             )
         if self.hidden_features < 1:
             return f"hidden_features は正の整数が必要です: {self.hidden_features}"
+        if not math.isfinite(self.mean_bias_initial) or self.mean_bias_initial <= 0:
+            return f"mean_bias_initial は正の有限値が必要です: {self.mean_bias_initial}"
         for name in ("log_variance_minimum", "log_variance_maximum"):
             value: float = getattr(self, name)
             if not math.isfinite(value):
@@ -82,9 +98,21 @@ class GaussianRegressionHead(nn.Module):
             ),
             nn.ReLU(),
         )
-        self._mean = nn.Linear(config.hidden_features, 1)
+        mean_layer = nn.Linear(config.hidden_features, 1)
+        # bias の既定初期値は ±1/sqrt(hidden_features) の一様分布で、およそ半数の
+        # 初期化が負になる。全 sample が同じ負の前活性へ落ちると ReLU が勾配を
+        # 遮断し、平均 head が学習開始時から恒久的に死ぬ。正の値から始める。
+        #
+        # weight も 0 から始める。初期の前活性が bias そのものになるので、
+        # mean_bias_initial がどんな正の値でも活性領域に入ることを保証できる。
+        # bias だけを正にしても weight @ hidden の広がりが bias を上回れば死ぬ。
+        # 前活性が正なら ReLU の微分は 1 なので weight へ勾配が流れ、0 に固定
+        # されない。log_variance 側は ReLU を通らないので触らない。
+        nn.init.constant_(mean_layer.bias, config.mean_bias_initial)
+        nn.init.zeros_(mean_layer.weight)
+        self._mean = mean_layer
         self._log_variance = nn.Linear(config.hidden_features, 1)
-        self._mean_activation = nn.Softplus()
+        self._mean_activation = nn.ReLU()
 
     @property
     def input_features(self) -> int:
