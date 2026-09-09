@@ -46,6 +46,7 @@ from ml.evaluation.regression import (
     ZeroTargetMetrics,
 )
 from ml.evaluation.slices import CategoricalDimension, DiagnosticReport, DiagnosticSlice
+from ml.model.multiview import MultiViewGaussianRegressor
 from ml.paste_volume.experiment import (
     CALIBRATION_FILE_NAME,
     CONFIG_FILE_NAME,
@@ -68,12 +69,14 @@ EVALUATION_REPORT_DOCUMENT = DocumentKind(
     kind="paste-volume-cross-validation-report", schema_version=1
 )
 
-# Fold ごとの run directory から読む checkpoint。
+# ``folds=`` から run directory を辿るときに読む checkpoint。
 #
 # ``best.pt`` は calibration 前の validation NLL が最良の時点で、仕様書 §3 の
 # model 選択規則そのもの。``final.pt`` は同じ重みを持つが、deadline を使い切った
 # run では書かれないことがある。
-_EVALUATED_ROLE: CheckpointRole = "best"
+#
+# ``checkpoint=`` で file を名指ししたときは、その file をそのまま測る。
+_DEFAULT_ROLE: CheckpointRole = "best"
 
 # Slice を切る次元。LOSO の test split は 1 session なので slice は 1 本になるが、
 # cell 単位 split では test に全 session が入るので session ごとの差が読める。
@@ -141,11 +144,11 @@ class EvaluationRequest:
         directories = tuple(
             child
             for child in sorted(folds.iterdir())
-            if child.is_dir() and CheckpointStore(child).exists(_EVALUATED_ROLE)
+            if child.is_dir() and CheckpointStore(child).exists(_DEFAULT_ROLE)
         )
         if not directories:
             return None, (
-                f"{_EVALUATED_ROLE} checkpoint を持つ run directory が "
+                f"{_DEFAULT_ROLE} checkpoint を持つ run directory が "
                 f"ありません: {folds}"
             )
         return directories, None
@@ -217,14 +220,18 @@ def evaluate_fold(
     run_directory: Path,
     *,
     split: SplitName,
+    checkpoint: Path | None = None,
     roots: Sequence[Path] | None = None,
     device: torch.device | None = None,
 ) -> tuple[FoldEvaluation | None, str | None]:
     """1 つの run directory を、その run が使った設定のまま測り直す.
 
-    model は config.json から組み直してから ``best.pt`` の重みを読む。
+    model は config.json から組み直してから checkpoint の重みを読む。
 
     checkpoint は model 構成を持たないので、config を経由しないと形が決まらない。
+
+    ``checkpoint`` を渡さなければ ``best.pt`` を測る。渡した file は、role に
+    関わらずそれ自身を測る（``latest.pt`` を指したのに best が測られない）。
 
     split は run directory の split.json を再利用する。
 
@@ -239,7 +246,9 @@ def evaluate_fold(
         config = attrs.evolve(
             config, data=attrs.evolve(config.data, roots=tuple(roots))
         )
-    task, data, error = _restored_run(run_directory, config=config)
+    task, data, error = _restored_run(
+        run_directory, config=config, checkpoint=checkpoint
+    )
     if task is None or data is None:
         return None, error
     resolved = device if device is not None else torch.device("cpu")
@@ -248,8 +257,9 @@ def evaluate_fold(
     if collected is None:
         return None, error
 
-    calibration, _ = UncertaintyCalibration.load(run_directory / CALIBRATION_FILE_NAME)
-    offset = None if calibration is None else calibration.log_variance_offset
+    offset, error = _log_variance_offset(run_directory)
+    if error is not None:
+        return None, error
     predictions = (
         collected.predictions
         if offset is None
@@ -302,7 +312,11 @@ def evaluate_request(
     folds: list[FoldEvaluation] = []
     for directory in directories:
         fold, error = evaluate_fold(
-            directory, split=request.split, roots=roots, device=device
+            directory,
+            split=request.split,
+            checkpoint=request.checkpoint,
+            roots=roots,
+            device=device,
         )
         if fold is None:
             return None, f"{directory.name}: {error}"
@@ -343,8 +357,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+def _log_variance_offset(run_directory: Path) -> tuple[float | None, str | None]:
+    """Run が fit した log 分散 offset を読む.
+
+    ``calibration.json`` が無い run は offset なしで測る（学習が calibration まで
+    行かなかった run も report には載せる）。
+
+    file があるのに読めないときは理由を返す。黙って ``None`` にすると、
+    calibration が効いた fold と壊れた fold が report 上で同じ形になる。
+    """
+
+    path = run_directory / CALIBRATION_FILE_NAME
+    if not path.is_file():
+        return None, None
+    calibration, error = UncertaintyCalibration.load(path)
+    if calibration is None:
+        return None, error
+    return calibration.log_variance_offset, None
+
+
 def _restored_run(
-    run_directory: Path, *, config: PasteVolumeExperimentConfig
+    run_directory: Path,
+    *,
+    config: PasteVolumeExperimentConfig,
+    checkpoint: Path | None,
 ) -> tuple[PasteVolumeTask | None, PasteVolumeTrainingData | None, str | None]:
     """Run directory の config と split から task と data を組み直す."""
 
@@ -367,11 +403,40 @@ def _restored_run(
     model, error = build_paste_volume_model(config.model)
     if model is None:
         return None, None, error
-    checkpoint, error = CheckpointStore(run_directory).load(_EVALUATED_ROLE)
-    if checkpoint is None:
+    store = CheckpointStore(run_directory)
+    loaded, error = (
+        store.load(_DEFAULT_ROLE) if checkpoint is None else store.load_path(checkpoint)
+    )
+    if loaded is None:
         return None, None, error
-    model.load_state_dict(dict(checkpoint.model_state))
+    if error := _key_set_mismatch(model, loaded.model_state):
+        return None, None, error
+    model.load_state_dict(dict(loaded.model_state))
     return PasteVolumeTask(model), data, None
+
+
+def _key_set_mismatch(
+    model: MultiViewGaussianRegressor, state: Mapping[str, object]
+) -> str | None:
+    """Checkpoint の state_dict が現在の model と食い違えば理由を返す.
+
+    ``load_state_dict`` の既定は例外だが、evaluate も entrypoint なので理由文字列で
+    返す（学習側の ``model.initial_weights`` と同じ契約）。
+
+    config.json と checkpoint の組が壊れているのは、run directory を混ぜたときに
+    起きる。
+    """
+
+    expected = set(model.state_dict())
+    actual = set(state)
+    missing = sorted(expected - actual)
+    unknown = sorted(actual - expected)
+    if not missing and not unknown:
+        return None
+    return (
+        "checkpoint のキー集合が config.json の model と一致しません"
+        f"（不足: {missing}、余分: {unknown}）"
+    )
 
 
 def _session_values(

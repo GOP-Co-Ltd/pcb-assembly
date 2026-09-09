@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 
+import attrs
 import pytest
 import torch
 
@@ -26,10 +28,17 @@ from ml.paste_volume.evaluate import (
     evaluate_request,
     main,
 )
-from ml.paste_volume.experiment import CALIBRATION_FILE_NAME, compose_experiment
+from ml.paste_volume.experiment import (
+    CALIBRATION_FILE_NAME,
+    CONFIG_FILE_NAME,
+    compose_experiment,
+    load_experiment_config,
+    save_experiment_config,
+)
 from ml.paste_volume.model import MODEL_FAMILY
 from ml.paste_volume.train import run_training
 from ml.serialization import make_strict_converter
+from tests.ml.helpers import skip_if_no_inductor
 from tests.ml.paste_volume.helpers import write_synthetic_sessions
 from tests.ml.support import RecordingExperimentLogger
 
@@ -231,6 +240,23 @@ class TestCalibrationIsApplied:
         assert fold is not None
         assert fold.log_variance_offset is not None
 
+    def test_it_reports_a_calibration_it_cannot_read(self, folds: Path, tmp_path: Path):
+        """壊れた calibration.json を黙って無視しないこと.
+
+        ``log_variance_offset`` は report に載る値なので、file が壊れた fold と
+        calibration を作らなかった fold が report 上で同じ形になってはならない。
+        """
+
+        staging = tmp_path / "run"
+        shutil.copytree(folds / "session-0", staging)
+        (staging / CALIBRATION_FILE_NAME).write_text("{}", encoding="utf-8")
+
+        fold, error = evaluate_fold(staging, split="validation", device=DEVICE)
+
+        assert fold is None
+        assert error is not None
+        assert CALIBRATION_FILE_NAME in error or "document" in error
+
     def test_dropping_the_calibration_changes_the_coverage(
         self, folds: Path, tmp_path: Path
     ):
@@ -257,6 +283,218 @@ class TestCalibrationIsApplied:
             with_offset.metrics.mean_absolute_error
             == without_offset.metrics.mean_absolute_error
         )
+
+
+class TestNamedCheckpoint:
+    """``checkpoint=`` は名指しした file そのものを測る."""
+
+    def test_it_measures_the_named_file_instead_of_the_best(
+        self, folds: Path, tmp_path: Path
+    ):
+        """別 fold の重みを持ち込むと結果が変わること.
+
+        ``final.pt`` と ``best.pt`` は同じ重みなので（``Trainer`` は best を読み
+        戻してから final を書く）、その 2 つの比較では「role best を決め打ちで
+        読む」実装と区別できない。読む file を変えたら結果が変わることを、
+        中身の違う checkpoint で見る。
+        """
+
+        staging = tmp_path / "run"
+        shutil.copytree(folds / "session-0", staging)
+        shutil.copy(folds / "session-1" / "best.pt", staging / "other.pt")
+
+        own, error = evaluate_fold(staging, split="validation", device=DEVICE)
+        assert error is None, error
+        other, error = evaluate_fold(
+            staging,
+            split="validation",
+            checkpoint=staging / "other.pt",
+            device=DEVICE,
+        )
+
+        assert error is None, error
+        assert own is not None and other is not None
+        assert own.metrics.mean_absolute_error != other.metrics.mean_absolute_error
+
+    def test_the_default_is_the_best_checkpoint(self, folds: Path, tmp_path: Path):
+        """名指ししなければ best.pt を測ること.
+
+        上の「file を変えたら変わる」が、``checkpoint=`` を渡すと必ず別の値に
+        なる形へ退化していないか。
+        """
+
+        staging = tmp_path / "run"
+        shutil.copytree(folds / "session-0", staging)
+
+        default, error = evaluate_fold(staging, split="validation", device=DEVICE)
+        assert error is None, error
+        named, error = evaluate_fold(
+            staging,
+            split="validation",
+            checkpoint=staging / "best.pt",
+            device=DEVICE,
+        )
+
+        assert error is None, error
+        assert default is not None and named is not None
+        assert default.metrics == named.metrics
+
+    def test_it_reports_a_checkpoint_of_another_model(
+        self, folds: Path, tmp_path: Path
+    ):
+        """Config と食い違う checkpoint を理由文字列で返すこと.
+
+        ``load_state_dict`` の既定は例外だが、evaluate も entrypoint なので
+        学習側の ``model.initial_weights`` と同じ契約にする。
+        """
+
+        staging = tmp_path / "run"
+        shutil.copytree(folds / "session-0", staging)
+        config, error = load_experiment_config(staging / CONFIG_FILE_NAME)
+        assert error is None, error
+        assert config is not None
+        save_experiment_config(
+            attrs.evolve(
+                config,
+                model=attrs.evolve(config.model, blocks_per_stage=(2, 3)),
+            ),
+            staging / CONFIG_FILE_NAME,
+        )
+
+        fold, error = evaluate_fold(staging, split="validation", device=DEVICE)
+
+        assert fold is None
+        assert error is not None
+        assert "キー集合" in error
+
+
+class TestTrainingAndEvaluationAgree:
+    """学習 loop と評価 entrypoint が同じ数字を出すこと.
+
+    report は step 8 の判定に直結するので、2 つの評価経路を結び付けておく。
+
+    calibration の offset は評価側でだけ足すので、平均側の metric は一致し、不確かさ側（NLL /
+    coverage）は動く。
+    """
+
+    @pytest.fixture(scope="class")
+    def single_epoch_fold(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ) -> tuple[Path, Mapping[str, float]]:
+        """1 epoch だけ回した fold と、その run が出した validation metric.
+
+        best epoch と最終 epoch を同じにしておかないと、``best.pt`` を測る評価と
+        「最後の epoch の validation metric」は原理的に一致しない。
+        """
+
+        base = tmp_path_factory.mktemp("paste-volume-agreement")
+        dataset_root = base / "data"
+        write_synthetic_sessions(dataset_root, session_count=len(SESSION_LABELS))
+        run_directory = base / "run"
+        config, error = compose_experiment(
+            [
+                "experiment=base",
+                f'data.roots=["{dataset_root}"]',
+                f"data.held_out_session={SESSION_LABELS[0]}",
+                "data.max_batch_size=4",
+                "trainer.max_epochs=1",
+                "trainer.compile_enabled=false",
+                f"run_directory={run_directory}",
+            ]
+        )
+        assert error is None, error
+        assert config is not None
+        outcome, error = run_training(
+            config, logger=RecordingExperimentLogger(), device=DEVICE
+        )
+        assert error is None, error
+        assert outcome is not None
+        return run_directory, dict(outcome.last_validation_metrics)
+
+    def test_the_report_repeats_the_validation_metrics_of_the_loop(
+        self, single_epoch_fold: tuple[Path, Mapping[str, float]]
+    ):
+        run_directory, expected = single_epoch_fold
+
+        fold, error = evaluate_fold(run_directory, split="validation", device=DEVICE)
+
+        assert error is None, error
+        assert fold is not None
+        assert fold.metrics.mean_absolute_error == pytest.approx(
+            expected["mean_absolute_error"]
+        )
+        assert fold.metrics.root_mean_squared_error == pytest.approx(
+            expected["root_mean_squared_error"]
+        )
+        assert fold.metrics.sample_count == expected["sample_count"]
+        assert fold.metrics.valid_sample_count == expected["valid_sample_count"]
+
+    def test_the_uncertainty_metrics_differ_by_the_calibration(
+        self, single_epoch_fold: tuple[Path, Mapping[str, float]]
+    ):
+        """一致するのは calibration が触らない側だけであること.
+
+        上の一致が「評価が学習 loop の値をそのまま写している」形ではないことを示す。offset は validation で
+        fit した値なので、同じ split でも NLL と coverage は動く。
+        """
+
+        run_directory, expected = single_epoch_fold
+
+        fold, error = evaluate_fold(run_directory, split="validation", device=DEVICE)
+
+        assert error is None, error
+        assert fold is not None
+        assert fold.log_variance_offset is not None
+        assert fold.metrics.negative_log_likelihood != pytest.approx(
+            expected["negative_log_likelihood"]
+        )
+
+
+class TestCompiledRun:
+    """``compile_enabled=true`` で学習した run を評価まで通せること.
+
+    step 8 が実際に使う設定（``trainer=gpu`` は compile 既定 ON）の end-to-end。
+
+    compile 済み model の ``state_dict`` は ``_orig_mod.`` 接頭辞を持つので、
+    checkpoint の書き出しと config.json からの組み直しのどちらかが接頭辞を
+    取りこぼすと、評価側で初めて落ちる。
+
+    可変 shape の batch は recompile 上限に当たって以降 eager で走るが、
+    compile 経路を 1 度は通る。
+    """
+
+    @skip_if_no_inductor
+    def test_a_compiled_run_evaluates_from_its_configuration(self, tmp_path: Path):
+        dataset_root = tmp_path / "data"
+        write_synthetic_sessions(dataset_root, session_count=len(SESSION_LABELS))
+        run_directory = tmp_path / "run"
+        config, error = compose_experiment(
+            [
+                "experiment=base",
+                "trainer=gpu",
+                f'data.roots=["{dataset_root}"]',
+                f"data.held_out_session={SESSION_LABELS[0]}",
+                "data.max_batch_size=4",
+                "trainer.max_epochs=1",
+                "trainer.automatic_mixed_precision_enabled=false",
+                f"run_directory={run_directory}",
+            ]
+        )
+        assert error is None, error
+        assert config is not None
+        assert config.trainer.compile_enabled is True
+        outcome, error = run_training(
+            config, logger=RecordingExperimentLogger(), device=DEVICE
+        )
+        assert error is None, error
+        assert outcome is not None
+
+        fold, error = evaluate_fold(run_directory, split="test", device=DEVICE)
+
+        assert error is None, error
+        assert fold is not None
+        assert fold.sample_count > 0
+        assert fold.log_variance_offset is not None
 
 
 class TestDataRootOverride:
