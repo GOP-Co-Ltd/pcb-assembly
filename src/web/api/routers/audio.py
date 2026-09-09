@@ -35,7 +35,7 @@ class AudioSettingsResponse(BaseModel):
 class AudioTestRequest(BaseModel):
     """通知音テストのリクエスト."""
 
-    sound: Literal["success", "failure"]
+    sound: Literal["success", "failure", "prompt"]
 
 
 class AudioTestResponse(BaseModel):

@@ -1294,6 +1294,102 @@ class TestAudioCompletionNotification:
         assert len(player.played) == 1
 
 
+class TestAudioPromptNotification:
+    """`PromptSpec.notify` を立てた応答待ちで、機体スピーカーが入力を促す.
+
+    長時間の無人ジョブ（dataset 収集の計量入力など）で作業者を呼び戻すための契約:
+
+    - 応答待ちに入った時点で `prompt` を 1 回鳴らす（応答を待たない）
+    - `notify` を立てないプロンプトでは鳴らさない
+    - プレイヤー未注入・再生失敗はジョブに影響しない
+    """
+
+    def test_notifying_prompt_plays_the_input_sound_once(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        config_dir: Path,
+        wait_until: WaitUntil,
+    ):
+        config = _configure_audio(config_dir)
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+        spec = PromptSpec(kind="number", message="質量 [mg]", notify=True)
+        answers = _register_prompting(catalog, spec)
+
+        record = manager.start("prompting", {})
+        wait_until(lambda: record.pending_prompt is not None)
+        wait_until(lambda: len(player.played) == 1)
+
+        assert player.played == (("prompt", config),)
+        answer_next_prompt(record, manager, 110.5, set())
+        wait_until(lambda: record.status.terminal)
+        assert answers == [110.5]
+
+    def test_plain_prompt_does_not_play(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        config_dir: Path,
+        wait_until: WaitUntil,
+    ):
+        _configure_audio(config_dir)
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+        _register_prompting(catalog, PromptSpec(kind="confirm", message="続行"))
+
+        record = manager.start("prompting", {})
+        wait_until(lambda: record.pending_prompt is not None)
+        answer_next_prompt(record, manager, True, set())
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert player.played == ()
+
+    def test_playback_failure_does_not_block_the_prompt(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        config_dir: Path,
+        wait_until: WaitUntil,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        _configure_audio(config_dir)
+        player = FakeAudioPlayer(
+            playback_error=AudioPlaybackError("speaker disconnected")
+        )
+        manager = make_manager(catalog, audio_player=player)
+        spec = PromptSpec(kind="number", message="質量 [mg]", notify=True)
+        answers = _register_prompting(catalog, spec)
+
+        with caplog.at_level(logging.WARNING):
+            record = manager.start("prompting", {})
+            wait_until(lambda: record.pending_prompt is not None)
+            answer_next_prompt(record, manager, 110.5, set())
+            wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert answers == [110.5]
+
+    def test_prompt_without_audio_player_still_resolves(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        manager = make_manager(catalog)
+        spec = PromptSpec(kind="number", message="質量 [mg]", notify=True)
+        answers = _register_prompting(catalog, spec)
+
+        record = manager.start("prompting", {})
+        wait_until(lambda: record.pending_prompt is not None)
+        answer_next_prompt(record, manager, 110.5, set())
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED
+        assert answers == [110.5]
+
+
 class TestShutdown:
     """Lifespan shutdown 用の後始末."""
 

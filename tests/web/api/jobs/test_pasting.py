@@ -28,6 +28,7 @@ cv2 / Moonraker / matplotlib / time.sleep のモックは使わない
 
 from __future__ import annotations
 
+import json
 import shutil
 import time
 from pathlib import Path
@@ -37,11 +38,12 @@ import pytest
 
 from pcbasm.hal import XYZStage
 from pcbasm.pcb import PadHierarchy, PcbFile
-from tests.helpers import PROJECT_ROOT, mark_hardware
+from tests.helpers import PROJECT_ROOT, FakeAudioPlayer, mark_hardware
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import JobCatalog, default_catalog
+from web.api.jobs.context import JobContext
 from web.api.jobs.machine_commands import create_command_klipper
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.jobs.pasting import (
@@ -54,11 +56,17 @@ from web.api.jobs.pasting import (
     parse_run_calib_command,
     register_pasting_jobs,
 )
+from web.api.jobs.pasting.common import prompt_positive_number
 from web.api.preview import PreviewService
 from web.api.settings import Settings
 from web.api.state import AppState
 
-from .conftest import WaitUntil, answer_next_prompt
+from .conftest import (
+    ManagerFactory,
+    WaitUntil,
+    answer_next_prompt,
+    register_synthetic,
+)
 
 PASTING_JOBS = (
     "paste_solder",
@@ -66,6 +74,7 @@ PASTING_JOBS = (
     "loading",
     "dispense_calibration",
     "paste_dataset_collection",
+    "paste_dataset_finalize",
     "generate_rect_pcb",
     "toolhead_offset",
 )
@@ -110,6 +119,7 @@ class TestCatalog:
             ("loading", False, True, True),
             ("dispense_calibration", False, True, True),
             ("paste_dataset_collection", False, True, True),
+            ("paste_dataset_finalize", False, False, False),
             ("generate_rect_pcb", False, False, False),
             ("toolhead_offset", True, True, True),
         ],
@@ -1160,3 +1170,139 @@ class TestPastingHardware:
             assert image is not None
             assert image.size > 0
         assert result.apply is None  # height_plane に Apply はない
+
+
+class TestPasteDatasetFinalize:
+    """未完了 dataset の救出（pending.json + 計量質量 → metadata.json）.
+
+    収集の最後に WebUI が落ちて計量質量を入力できなかったセッションを、装置を
+    使わずに確定させる。撮影済み画像を作り直さない（rename だけ）のが契約。
+    """
+
+    STEM = "plate-20x20-20260908T143052.123+0000"
+    MEASURED_MASS_MG = 0.945
+
+    def _incomplete_session(self, settings: Settings) -> Path:
+        """pending.json と、それが参照する capture を持つ未完了 session を作る."""
+        document = json.loads(
+            (
+                PROJECT_ROOT / "data/testing/schemas/paste_dataset_pending_v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        session = settings.paste_dataset_dir / f"{self.STEM}.incomplete"
+        for phase in ("pre", "post"):
+            (session / phase).mkdir(parents=True)
+        for target in (*document["samples"], *document["blanks"]):
+            for view in target["views"]:
+                for phase in ("pre", "post"):
+                    (session / view[phase]).write_bytes(b"")
+        (session / "pending.json").write_text(
+            json.dumps(document, ensure_ascii=False), encoding="utf-8"
+        )
+        return session
+
+    def test_finalizes_the_selected_session_without_touching_the_machine(
+        self,
+        manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        incomplete = self._incomplete_session(fake_camera_settings)
+
+        record = manager.start(
+            "paste_dataset_finalize", {"measured_mass": self.MEASURED_MASS_MG}
+        )
+        answer_next_prompt(record, manager, incomplete.name, set())
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        session = fake_camera_settings.paste_dataset_dir / self.STEM
+        assert not incomplete.exists()
+        metadata = json.loads((session / "metadata.json").read_text(encoding="utf-8"))
+        assert metadata["schema_version"] == 2
+        assert metadata["total"]["measured_mass_mg"] == self.MEASURED_MASS_MG
+        assert metadata["samples"][0]["measured_volume_ul"] == pytest.approx(0.15)
+        assert (session / "pre" / "000001.00.png").is_file()
+        assert not (session / "pending.json").exists()
+
+    def test_fails_when_no_session_can_be_rescued(
+        self, manager: JobManager, wait_until: WaitUntil
+    ):
+        record = manager.start(
+            "paste_dataset_finalize", {"measured_mass": self.MEASURED_MASS_MG}
+        )
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "未完了dataset" in record.error
+        assert record.pending_prompt is None
+
+    @pytest.mark.parametrize("mass", [0.0, -1.0])
+    def test_rejects_non_positive_mass_before_prompting(
+        self,
+        manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+        mass: float,
+    ):
+        self._incomplete_session(fake_camera_settings)
+
+        record = manager.start("paste_dataset_finalize", {"measured_mass": mass})
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.pending_prompt is None
+
+
+class TestPromptPositiveNumberNotification:
+    """`prompt_positive_number(notify=True)` が応答待ちで通知音を鳴らす.
+
+    dataset 収集の計量入力のように、装置の前を離れた作業者を呼び戻す用途。
+    """
+
+    def test_notifies_once_and_keeps_reprompting_until_positive(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+        answers: list[float | None] = []
+
+        def run(ctx: JobContext) -> None:
+            answers.append(prompt_positive_number(ctx, "質量 [mg]", notify=True))
+
+        register_synthetic(catalog, run, name="mass_prompt")
+
+        record = manager.start("mass_prompt", {})
+        answered: set[str] = set()
+        answer_next_prompt(record, manager, -1.0, answered)
+        answer_next_prompt(record, manager, 110.5, answered)
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert answers == [110.5]
+        assert [sound for sound, _ in player.played] == ["prompt", "prompt"]
+
+    def test_stays_silent_without_notify(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+
+        def run(ctx: JobContext) -> None:
+            prompt_positive_number(ctx, "質量 [mg]")
+
+        register_synthetic(catalog, run, name="mass_prompt")
+
+        record = manager.start("mass_prompt", {})
+        answer_next_prompt(record, manager, 110.5, set())
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert player.played == ()
