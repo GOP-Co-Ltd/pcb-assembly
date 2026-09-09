@@ -563,7 +563,7 @@ configはPython packageと一緒にinstallできる場所へ置き、`ml.config.
 src/ml/config/conf/
 └── trainer/edge.toml
 
-ml/paste_volume/conf/
+src/ml/paste_volume/conf/
 ├── base.toml
 ├── data/paste_volume.toml
 ├── model/resnet_small.toml
@@ -992,7 +992,7 @@ ml.paste_volume.train                    # argvを所有するtraining entrypoin
 ml.paste_volume.evaluate                 # argvを所有するevaluation entrypoint
 ml.paste_volume.conf                     # packaged config group（TOML）
 ml.paste_volume.release                  # 精度gateとpromotion
-ml.cli.paste_volume                      # experiment configを要らない運用CLI
+ml.paste_volume.cli                      # experiment configを要らない運用CLI
 
 pcbasm.pasting.dataset                   # 収集schemaと原本の読み書き（metadata / writer / recorder / capture）
 pcbasm.pasting.paste_volume              # export済み成果物のmanifest検証、runtime、公開prediction API
@@ -1009,7 +1009,7 @@ Raspberry Pi 5で推論経路が動くよう、MLflow / Optuna / ONNXを要求�
 ### 学習entrypointと運用CLI
 
 学習entrypointとsubcommand parserに同じargvを処理させない。学習entrypointは
-`group=option`と`key=value`だけを受け取るので、`ml.cli.paste_volume train ...`の残り引数を
+`group=option`と`key=value`だけを受け取るので、`ml.paste_volume.cli train ...`の残り引数を
 中継するadapterは作らない。学習・fine-tuning・評価はargv全体を所有する独立moduleとする。
 `group=option`か`key=value`かは、`name`がconfig root直下のdirectoryとして実在するかで振り分ける。
 
@@ -1039,15 +1039,15 @@ dataset検証、export、最適化、benchmark、単発推論はexperiment confi
 薄い運用CLIへ残す。
 
 ```text
-python -m ml.cli.paste_volume dataset merge \
+python -m ml.paste_volume.cli dataset merge \
     --source machine-a=/abs/dataset-a --source machine-b=/abs/dataset-b \
     --output /abs/base-2026-09.composite.json
-python -m ml.cli.paste_volume dataset validate <dataset...>
-python -m ml.cli.paste_volume dataset summarize <dataset...>
-python -m ml.cli.paste_volume export <checkpoint> --output <directory>
-python -m ml.cli.paste_volume optimize <onnx-model> --calibration-data <dataset...>
-python -m ml.cli.paste_volume benchmark <model-package>
-python -m ml.cli.paste_volume infer <model-package> <pre-image> <post-image> \
+python -m ml.paste_volume.cli dataset validate <dataset...>
+python -m ml.paste_volume.cli dataset summarize <dataset...>
+python -m ml.paste_volume.cli export <checkpoint> --output <directory>
+python -m ml.paste_volume.cli optimize <onnx-model> --calibration-data <dataset...>
+python -m ml.paste_volume.cli benchmark <model-package>
+python -m ml.paste_volume.cli infer <model-package> <pre-image> <post-image> \
     --pixel-per-mm <value>
 ```
 

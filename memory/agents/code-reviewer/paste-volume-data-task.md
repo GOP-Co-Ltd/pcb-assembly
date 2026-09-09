@@ -541,3 +541,343 @@ S22 を直すと `vision/__init__.py` の中身を追えるようになるので
 step 0a の共有ドメイン変更（`applicator.py` / `dataset/metadata.py` /
 `dataset/pending.py` / `tests/pcbasm/pasting/dataset/test_metadata.py`）について、
 実機側 `make test-no-hardware` の結果確認だけが残る。
+
+______________________________________________________________________
+
+# 4 巡目レビュー（`918b760..HEAD`。ドメイン層を `ml` へ移した作り替え）
+
+対象 4 commit: `25bfb04` / `f0896b6` / `a8c5b73` / `f8e2491`。
+
+## verdict: request-changes
+
+must-fix 2 件。うち M4 は依頼の重点 A（構造契約の検出力）への答えで、**ごく普通の
+import 文 1 行で契約 3 を無効化できる**。実測で確認し、修正方向の妥当性も実測した。
+
+移動そのもの（観点 B）と `docker/ml/`（観点 C）は問題を見つけていない。
+
+## must-fix
+
+### M4. `from <package> import <submodule>` 形が走査から丸ごと抜ける
+
+`tests/ml/test_architecture.py:167-187`（`_absolute_imports`）。
+確信度：**高**（コンテナで実測）。深刻度：**高**。
+
+`ast.ImportFrom` から `node.module` しか記録せず、`node.names` の alias を submodule
+候補として足していない。結果、`from pkg import submodule` 形の import が
+「pkg を読んだ」としか記録されず、submodule 自身が走査されない。
+
+実測（`src/ml/paste_volume/_probe_tmp.py` に 1 行入れて `tests/ml/test_architecture.py` を実行）:
+
+```
+from pcbasm.pasting.dataset import capture    -> 22 passed （見逃し）
+from pcbasm.pasting.dataset import recorder   -> 22 passed （見逃し）
+import pcbasm.pasting.dataset.recorder        -> 2 failed  （検出）
+from pcbasm.pasting.dataset.recorder import X -> 2 failed  （検出）
+```
+
+`capture` は `pcbasm.hal` / pcbnew / picamera2 へ、`recorder` は `applicator` 経由で
+`pcbasm.hal` / picamera2 へ届く。どちらもコンテナでは import した瞬間に collect が落ちる。
+
+同じ穴は `tests/ml` 側にもある。`tests/ml/_probe_tmp.py` に
+`from tests import helpers` を入れても **22 passed**
+（`test_no_test_module_imports_the_device_test_helper` が素通り）。
+
+これが効く理由:
+
+- `pcbasm/pasting/dataset/__init__.py` は「このパッケージは re-export を持たない。
+    利用側は必要なサブモジュールを直接 import する」と書いており、`from pkg import
+    submodule` 形は自然に選ばれる書き方
+- 許可リストは package 単位なので、`pcbasm.pasting.dataset` は契約 2 も通る。
+    つまり**契約 2 と契約 3 の両方を同時にすり抜ける**
+- module docstring は「CI は picamera2 のある Raspberry Pi で走るので、実行時に落ちる
+    ことにも頼れない」と書いている。その主張がこの形では成立しない
+
+修正方向（実測済み・こちらでは適用していない）: `ImportFrom` で `origin` に加えて
+`f"{origin}.{alias.name}"` も `imported` へ入れる。
+
+```
+修正案のみ          -> 22 passed（baseline 緑のまま）
+修正案 + capture    -> 3 failed（pcbasm.hal / pcbnew / picamera2）
+修正案 + tests import helpers -> 4 failed
+```
+
+過剰に記録される `pkg.ClassName` は `_module_file` が解決できないので走査は伸びず、
+`_is_domain_data` も許可 package の prefix 一致なので誤検出しない。
+
+### M5. `src/ml/__init__.py` の docstring が、本 MR が撤回した不変条件を宣言したまま
+
+`src/ml/__init__.py:3-5`。確信度：高。深刻度：中（ドキュメントのみ）。
+
+```
+PyTorch による実験・評価・最適化・export の共通部分を提供する。装置制御ドメイン
+(:mod:`pcbasm` / :mod:`web`) を一切参照せず、依存の向きは常にドメイン側から
+``ml`` への一方向とする。
+```
+
+AGENTS.md・CLAUDE.md・仕様書 §7・`src/pcbasm/pasting/README.md`・`docker/ml/README.md`
+はすべて書き替わったのに、方針の一次出典であるはずの package docstring だけが
+旧方針（一方向・pcbasm 不参照）を主張している。`ml.paste_volume` が
+`pcbasm.pasting.dataset` / `pcbasm.geometry` を参照する現状と正面から食い違う。
+
+## should-fix
+
+以下 S25〜S30 は依頼の重点 A への答え。**変異 14 通りを追加で当て、11 通りが生存した。**
+生存のうち意味のあるものを挙げる（driver は
+`scratchpad/rev4/mut2.py` / `violate.py` / `violate2.py`）。
+
+### S25. 許可リストの package 単位化が収集側の module を通す
+
+確信度：**高**（実測）。深刻度：中。
+
+`DOMAIN_DATA_PACKAGES` に `pcbasm.pasting.dataset` を package ごと入れたので、
+その配下の**収集側ロジック**まで許可される。`ml.paste_volume` へ 1 行入れて実測:
+
+```
+from pcbasm.pasting.dataset.writer import PasteDatasetWriter -> 22 passed（見逃し）
+from pcbasm.pasting.dataset import plan                      -> 22 passed（見逃し）
+```
+
+- `writer.py` は「Dataset session directory への lossless PNG 書き込みと atomic 確定」。
+    データ構造ではなく収集側の I/O
+- `plan.py` は「銅板上のセル格子・吐出量スイープ・撮影 view の計画」。HAL 非依存の純ロジック
+    だが、収集手順の計画であってデータ構造ではない
+- `capture.py` / `recorder.py` は装置 HAL へ届くので契約 3 が拾う（ただし M4 の形なら
+    そちらもすり抜ける）
+
+module docstring は「収集 schema と純粋な値オブジェクトは可、制御ロジックは不可」と
+書いているので、記述と検査の粒度が合っていない。package 単位を維持するなら
+docstring を「`pcbasm.pasting.dataset` は package ごと許可する（収集側 I/O も通る）」へ
+落とすか、`metadata` / `pending` だけを module 単位で挙げるかのどちらか。
+
+### S26. `ml` コアが `ml.paste_volume` を import できてしまう（層の向きが固定されていない）
+
+確信度：**高**（実測）。深刻度：中。
+
+`src/ml/_probe_tmp.py` に `from ml.paste_volume.session import PasteVolumeSession` を
+入れても **22 passed**。`_is_domain_package` は先頭 segment しか見ないので `ml.*` は
+素通りし、`ml.paste_volume` 自体は装置 HAL へ届かないので契約 3 も無反応。
+
+契約 1 の狙いは「再利用価値があるのはこの層なので、強度を落とさない」。コアが
+ドメイン層を 1 本引いた時点で、コアは推移的に `pcbasm` へ依存する。**contract 1 の
+実効的な意味が消える**ので、「コアは `ml.paste_volume` を import しない」を
+`TestCoreDomainIndependence` へ 1 本足すのが筋。
+
+### S27. `_module_file` の package 解決（`__init__.py`）に観測点が無い
+
+確信度：**高**（実測）。深刻度：中。
+
+`_module_file` から `anchor / relative / "__init__.py"` の候補を落とす変異を当てても
+**22 passed**。この変異で到達 module は 155 → 138 へ減り、
+`pcbasm.vision.{calibration,copper,detection,overlay}` と
+`pcbasm.geometry.{path,polygon,polyline,routing,sampling,transform}` が丸ごと見えなくなる。
+3 巡目の S22（相対 import）で塞いだのと**同じ穴が、別の 1 行で開き直せる**。
+
+理由は自己検査の起点の選び方（M3 と同型）:
+
+- `test_the_scan_resolves_relative_imports` は `pcbasm/vision/__init__.py` を **file として
+    直接** 起点に渡すので、`_module_file` を通らない
+- `test_the_scan_counts_a_package_as_reached` は `"pcbasm.vision" in reachable` しか見ない。
+    祖先展開は file が見つからなくても**名前だけ** `seen` へ入れるので、常に真
+
+修正は 1 行で足りることを実測した。`test_the_scan_counts_a_package_as_reached` へ
+`assert "pcbasm.vision.detection" in reachable` を足すと:
+
+```
+補強のみ    -> 22 passed
+補強 + 変異 -> 1 failed（test_the_scan_counts_a_package_as_reached）
+```
+
+### S28. 到達検査の起点集合に観測点が無い
+
+確信度：高（実測）。深刻度：中。
+
+`test_nothing_reaches_a_device_only_module` の `entries` を削る変異が全部生きる。
+
+```
+tests/ml を落とす        -> 22 passed
+src/ml を落とす          -> 22 passed
+DATASET_SCHEMA_FILE だけ -> 22 passed
+```
+
+`_python_files` が空でないことは `TestLayerPartition` が押さえているが、**その結果を
+検査本体が使っていること**は誰も見ていない。起点集合を module 定数（例 `SCAN_ENTRIES`）へ
+出し、`ML_SOURCE_ROOT/"paste_volume"/"session.py"` と
+`ML_TEST_ROOT/"paste_volume"/"helpers.py"` が含まれることを別テストで見るのが安い。
+
+### S29. `DEVICE_ONLY_MODULES` を空にすると赤くならない
+
+確信度：高（実測）。深刻度：中。
+
+`DEVICE_ONLY_MODULES = ()` にすると parametrize が空になり、pytest は既定
+（`empty_parameter_set_mark = skip`）で **skip** にする。結果は
+`19 passed, 1 skipped` で exit 0。契約 3 が丸ごと消えても CI は緑。
+
+`DOMAIN_LAYER` / `DOMAIN_PACKAGES` / `DOMAIN_DATA_PACKAGES` は空にすると死ぬよう
+押さえてあるので、`DEVICE_ONLY_MODULES` だけが取り残されている。
+`assert DEVICE_ONLY_MODULES != ()` を足すか、`empty_parameter_set_mark = fail_at_collect`
+を pytest 設定へ入れる。
+
+### S30. `ast.walk` と `ast.Import` の扱いに観測点が無い
+
+確信度：高（実測）。深刻度：低〜中。
+
+- `ast.walk(...)` を `ast.parse(...).body`（module 直下のみ）へ縮める変異 -> **22 passed**
+- `ast.Import`（`import X` 形）を無視する変異 -> **22 passed**
+
+いま実際の違反を入れれば両方とも検出できる（関数内 `import pcbnew` も
+`import pcbnew` も検出を確認済み）。つまり機能はあるが、それを固定する観測点が無い。
+`_absolute_imports` を tmp file に対する小さな単体テストで押さえると、M4 の修正と
+まとめて 1 か所に収まる。
+
+### S31. `tests/conftest.py` が collect 契約の対象外
+
+確信度：高（実測）。深刻度：中。
+
+契約 3 は「学習コンテナで collect できること」を主張するが、pytest が `tests/ml` を
+collect するとき必ず読む `tests/conftest.py` が起点集合に入っていない。実測すると
+`tests/conftest.py` からは `pcbasm.hal` / pcbnew / picamera2 へ届く。
+
+いま安全なのは、それらの import が**fixture 本体の中に置いてある**からで、これは
+`tests/conftest.py` の docstring に書かれた手運用の約束にすぎない。module 冒頭へ
+1 本上げた瞬間に `make ml-docker-check` が collect できなくなり、Pi の CI は緑のまま。
+
+注意：`tests/conftest.py` をそのまま起点へ足すと（`ast.walk` が関数内 import も拾うので）
+検査は落ちる。**module 直下の import だけ**を見る別検査が要る。
+
+### S32. `test_the_scan_crosses_from_the_tests_into_the_sources` の 2 番目の assert が弁別しない
+
+確信度：高（実測）。深刻度：低。
+
+`assert "pcbasm.pasting.dataset.metadata" in _reachable_modules([entry])` は、
+`test_session.py` が同時に import している `ml.paste_volume.session` 経由でも成立する。
+実測で「テスト側からしか届かない `pcbasm` module」は **0 件**だった
+（`helpers.py` の `pcbasm` import は `src/ml/paste_volume` 側の到達集合に含まれる）。
+
+つまりこのテストの主張を実際に支えているのは 3 番目の
+`_module_file("tests.ml.paste_volume.helpers") is not None` だけ。docstring が言う
+「テスト側の起点から `src/` 側の module へたどれること」を見たいなら、tests 側からしか
+届かない module を作るか、assert を 3 番目へ寄せて docstring を合わせる。
+
+### S33. `src/ml/paste_volume/__init__.py` の 2 段落目が移動後に意味を失っている
+
+確信度：高。深刻度：低。
+
+```
+torch を import してよいが、``pcbasm.pasting.__init__`` からは re-export しない
+（``import pcbasm.pasting`` が torch を引き込まない契約を ``tests/test_package.py`` が固定）。
+```
+
+`paste_volume` はもう `pcbasm.pasting` の下に無いので、この文は自明に真で、かつ
+読み手を旧配置へ誘導する。あわせて `tests/test_package.py` は `tests.helpers`
+（pcbnew / picamera2）を import するため学習コンテナでは走らない、という点も
+いまは書かれていない。
+
+### S34. 要件書 `docs/image-based-dispense-calibration.md` が旧方針のまま
+
+確信度：高。深刻度：中。
+
+ML 実装計画は「[画像ベース吐出量キャリブレーション要件](image-based-dispense-calibration.md)
+に定義された…次段階」と自ら親文書として参照しているのに、その親が新方針と正面から矛盾する。
+
+- `:743-744` 「データセット、画像前処理、モデル、学習、評価、推論、教師体積の配分、
+    `rotations_per_ul` の補正計算は `src/pcbasm/` に集約する」
+- `:749-750` 「`src/pcbasm/` 内の Python module として実装する」
+- `:755-762` `python -m pcbasm.cli.paste_volume ...` × 8 行（計画側は
+    `ml.cli.paste_volume` へ書き替え済み）
+
+観点 D の「方針と実装が食い違っている記述」はここに残っている。
+
+### S35. 仕様書 §7 の `ml.cli.paste_volume` は構造契約では「コア」に分類される
+
+確信度：中（将来分の設計。深刻度：低）。
+
+`docs/image-based-dispense-calibration-ml-plan.md:995` が `ml.cli.paste_volume` を
+置くと決めているが、`_core_files` は `DOMAIN_LAYER not in path.parts` で判定するので:
+
+- `src/ml/cli/paste_volume.py`（file 形）: parts は `paste_volume.py` なので**コア扱い**。
+    塗布ドメイン専用の CLI が「再利用価値のあるコア」に入り、契約 1 で `pcbasm` 参照を
+    禁じられる
+- `src/ml/cli/paste_volume/`（directory 形）: コアからも `_domain_layer_files` からも
+    外れ、`test_the_two_sides_partition_the_tree` が落ちる（こちらは loud なので健全）
+
+同じ意図の配置が形によって扱いが変わる。`ml.paste_volume.cli` に寄せるか、
+`DOMAIN_LAYER` の判定を「`ml.paste_volume` 配下」に限定して仕様書側を直すか。
+
+## nit
+
+- `tests/ml/__init__.py` の docstring が「コア ML 基盤 (`src/ml/`) のテスト.」のまま。
+    いまは `tests/ml/paste_volume/` にドメイン層のテストが同居する
+- `tests/ml/helpers.py:3` 「`ml` は装置ドメインを知らない ML 基盤なので」。結論
+    （`tests.helpers` に依存させない）は有効だが、前提はもう成り立たない
+- `DATASET_SCHEMA_FILE` を起点へ足すのは冗長。`ml.paste_volume` が
+    `pcbasm.pasting.dataset.metadata` を import しているので、`_module_file` 経由で
+    必ず走査される。落としても検査結果は変わらない（実測）
+- `_core_files` が**絶対 path**の `parts` を見るので、`/…/paste_volume/pcb-assembly/`
+    のような場所へ checkout するとコア側が空になる。`root` からの相対で見れば済む
+- 変異「`_python_files` が `__init__.py` を除く」「tests 側のコア検査の対象を空にする」
+    「ドメイン層検査の parametrize から `ML_TEST_ROOT` を外す」もいずれも生存。
+    どれも「assert を消せる」類なので優先度は低い
+- `docs/image-based-dispense-calibration-ml-plan.md:998` の `pcbasm.pasting.paste_volume`
+    は Phase 5 の予定なので残して正しいが、本 MR で `src/pcbasm/pasting/paste_volume/`
+    は消えた。予約 namespace が無くなったことは §7 のどこにも書かれていない
+- `tests/ml/paste_volume/__init__.py` だけ docstring が無い（`tests/ml/__init__.py` は持つ）
+
+## 観点 B（移動の完全性）への回答
+
+**旧 path の参照残りは無い。** `src/` `tests/` `Makefile` `AGENTS.md` `CLAUDE.md`
+`docker/` `.gitlab-ci.yml` `.claude/settings.json` `.codex/rules/` を全走査して、
+`pcbasm.pasting.paste_volume` / `tests/pcbasm/pasting/paste_volume` の残りは
+`memory/agents/**` と仕様書 `:998`（Phase 5 の予定、意図的）だけ。
+空 directory も残っていない。
+
+**docstring の相互参照は 5 module すべて追随している**（`batch` / `dataset` / `index`
+/ `session` / `task` の `:mod:` 参照を確認）。取り残しは `__init__.py` 側だけで、
+M5（`src/ml/__init__.py`）と S33（`src/ml/paste_volume/__init__.py`）。
+
+**`memory/agents/**` を更新しない判断は妥当。** 当時の事実の記録であり、
+`code-reviewer` / `implementation-planner` / `plan-implementer` の過去ノートを
+書き替えると「その時点で何を見て何を決めたか」が失われる。進行中の
+`orchestrator/paste-volume-data-task.md` にだけ追記しているのも正しい切り分け。
+
+## 観点 C（`docker/ml/` 移動）への回答
+
+**見落としは見つからなかった。**
+
+- `compose.yaml` の bind mount `../../:/workspace` は `docker/ml/` からの相対で正しい。
+    `build.context: .` は compose file の directory 基準なので `Dockerfile` と同じ場所を指す
+- `write-env.sh` は `SCRIPT_DIR` 基準で `.env` / `compose.credentials.yaml` を書くので、
+    移動しても生成先が追随する。実際に `docker/ml/.env` と
+    `docker/ml/compose.credentials.yaml` が存在し、コンテナが 4 時間稼働している
+- `docker/ml/.gitignore` も一緒に移っており、生成物 2 つは引き続き無視される
+- project 名 `pcb-assembly-ml` は固定なので named volume（`ml-venv` 等）は保持。
+    README の「既定の project 名が `ml` になってしまう」への書き替えも正しい
+- `.dockerignore` は元から無い。build context が `docker/ml/`（4 file）へ狭まったので
+    むしろ改善
+- `Makefile` の `DOCKER_COMPOSE` / `ml-docker-env` は両方追随済み
+- `.claude/settings.json` と `.codex/rules/default.rules` の docker 許可は
+    subcommand 単位で path を含まないので影響なし。`.gitlab-ci.yml` は `docker/` を
+    参照しない
+- README の相対リンク `../../docs/…` は正しい（`docker/ml/README.md` から）
+
+## 観点 D（ドキュメント整合）への回答
+
+`AGENTS.md` / `CLAUDE.md` / `src/pcbasm/pasting/README.md` / `docker/ml/README.md` /
+仕様書 §7 は方針どおりに揃っている（`make test-ml` / `ml-docker-test` /
+`ml-docker-check` の対象記述、型検査の範囲、リンク先まで確認）。
+
+食い違いが残るのは 3 か所。**M5**（`src/ml/__init__.py`）、**S34**（要件書）、
+**S33**（`ml/paste_volume/__init__.py`）。
+
+## 検証結果（4 巡目）
+
+- make format: **pass**（`pre-commit run -a`、24 hook Passed）
+- make type: **pass**（`pyright src/ml tests/ml scripts/ml_smoke.py` -> 0 errors）
+- make test-no-hardware: 未実行（実機側。ユーザー担当）
+- `make ml-docker-check`: **pass**（1462 passed / 1 skipped / exit 0）
+
+検証中に `src/ml/**` と `tests/ml/**` へ一時 probe file を置いたが、すべて削除済み。
+`tests/ml/test_architecture.py` は sha256 照合で復元を確認した。作業ツリーは clean。
+
+CI #323 の結果は未確認。装置ドメインの共有コード（`applicator.py` /
+`dataset/metadata.py` / `dataset/pending.py`）は本ラウンドでは触れていないので、
+実機側 `make test-no-hardware` の確認は 3 巡目までの残件のまま。
