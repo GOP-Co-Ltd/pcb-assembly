@@ -13,7 +13,6 @@ import pytest
 
 from pcbasm.geometry import Point2d
 from pcbasm.geometry.packing import Rect
-from pcbasm.pasting.applicator import DispenseSummary
 from pcbasm.pasting.dataset.metadata import (
     METADATA_SCHEMA_VERSION,
     DatasetView,
@@ -21,6 +20,7 @@ from pcbasm.pasting.dataset.metadata import (
     allocate_volume_by_rotations,
     parse_metadata,
 )
+from pcbasm.pasting.dispense import DispenseSummary
 from tests.helpers import TESTING_DATA_DIR
 
 METADATA_V1 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v1.json"

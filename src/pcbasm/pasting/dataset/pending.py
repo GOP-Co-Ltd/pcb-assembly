@@ -25,7 +25,6 @@ import attrs
 
 from pcbasm.geometry import Point2d
 from pcbasm.geometry.packing import Rect
-from pcbasm.pasting.applicator import DispenseSummary
 from pcbasm.pasting.dataset.metadata import (
     METADATA_KIND,
     METADATA_SCHEMA_VERSION,
@@ -45,6 +44,7 @@ from pcbasm.pasting.dataset.metadata import (
     allocate_volume_by_rotations,
     structure_document,
 )
+from pcbasm.pasting.dispense import DispenseSummary
 from pcbasm.utils import is_finite_number
 
 # 未完了 session に残す pending doc のファイル名

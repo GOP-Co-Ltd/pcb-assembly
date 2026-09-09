@@ -26,6 +26,9 @@ ARG GLAB_VERSION=1.116.0
 # - python3.13-dev: Python.h（同じ理由）
 # - git / openssh-client: リポジトリ操作と SSH remote への push
 # - sudo: NOPASSWD で package を足せるようにする
+# - libgl1 / libglib2.0-0: opencv-python の native 拡張が要求する共有 library。
+#   pcbasm.pasting.dataset.metadata が pcbasm.vision 経由で cv2 を引くので、
+#   学習側から収集 schema を読むのに要る
 #
 # git-lfs は入れない。Debian の package が /etc/gitconfig へ filter を登録するのに
 # host 側は未設定なので、同じ working tree を bind mount で共有すると LFS pointer の
@@ -37,6 +40,8 @@ RUN apt-get update \
         curl \
         git \
         less \
+        libgl1 \
+        libglib2.0-0 \
         openssh-client \
         pkg-config \
         python3.13 \
