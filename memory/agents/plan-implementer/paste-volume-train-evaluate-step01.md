@@ -137,7 +137,7 @@ class PasteVolumeTrainingData:
 `make ml-docker-check`（format → 型検査 → `tests/ml`）:
 
 - format（pre-commit 全 hook）: **pass**（再整形なし）
-- 型検査（pyright）: **pass**（0 errors, 0 warnings, 0 informations）
+- 型検査（pyright）: **pass**（error / warning / information いずれも 0 件）
 - `tests/ml`: **pass**（1500 passed, 1 skipped）
 
 step 0 単体（step 1 を stash した状態）でも同じ 3 つが pass することを確認済み
