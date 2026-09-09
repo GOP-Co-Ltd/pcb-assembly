@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +12,7 @@ from tests.pcbasm.pasting.paste_volume.helpers import (
     CROP_SIZE_PX,
     VIEW_COUNT,
     SyntheticCell,
+    corrupt_metadata,
     write_session,
 )
 
@@ -30,16 +29,6 @@ def _session(root: Path, **overrides: Any) -> PasteVolumeSession:
     )
     assert session is not None, reason
     return session
-
-
-def _corrupt(root: Path, mutate: Callable[[dict[str, Any]], None]) -> Path:
-    """書き出し済み session の metadata.json を書き換える."""
-
-    path = root / "metadata.json"
-    document = json.loads(path.read_text(encoding="utf-8"))
-    mutate(document)
-    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
-    return root
 
 
 def _rejected(root: Path) -> str:
@@ -138,7 +127,7 @@ class TestSessionFingerprint:
 
     def test_changes_when_a_label_changes(self, tmp_path: Path):
         baseline = _session(tmp_path / "one")
-        root = _corrupt(
+        root = corrupt_metadata(
             write_session(tmp_path / "another", cells=CELLS),
             lambda document: document["samples"][0].update(measured_volume_ul=0.999),
         )
@@ -177,7 +166,7 @@ class TestSessionRejection:
         素通しで返ることを見る。
         """
 
-        root = _corrupt(
+        root = corrupt_metadata(
             write_session(tmp_path / "session", cells=CELLS),
             lambda document: document.update(schema_version=1),
         )
@@ -187,7 +176,7 @@ class TestSessionRejection:
     def test_reports_an_image_path_that_escapes_the_session(self, tmp_path: Path):
         """``..`` で session の外を指す path を拒否する."""
 
-        root = _corrupt(
+        root = corrupt_metadata(
             write_session(tmp_path / "session", cells=CELLS),
             lambda document: document["samples"][0]["views"][0].update(
                 pre="../../etc/passwd"
@@ -197,7 +186,7 @@ class TestSessionRejection:
         assert "session の外を指しています" in _rejected(root)
 
     def test_reports_an_absolute_image_path(self, tmp_path: Path):
-        root = _corrupt(
+        root = corrupt_metadata(
             write_session(tmp_path / "session", cells=CELLS),
             lambda document: document["samples"][0]["views"][0].update(
                 pre="/etc/passwd"
@@ -218,7 +207,7 @@ class TestSessionRejection:
         sample_id が index から作られるので、重複すると別の cell が同じ ID を持つ。
         """
 
-        root = _corrupt(
+        root = corrupt_metadata(
             write_session(tmp_path / "session", cells=CELLS),
             lambda document: document["blanks"][0].update(
                 index=document["samples"][0]["index"]
@@ -228,7 +217,7 @@ class TestSessionRejection:
         assert "index が重複しています" in _rejected(root)
 
     def test_reports_a_blank_whose_label_is_not_zero(self, tmp_path: Path):
-        root = _corrupt(
+        root = corrupt_metadata(
             write_session(tmp_path / "session", cells=CELLS),
             lambda document: document["blanks"][0].update(measured_volume_ul=0.05),
         )
@@ -236,7 +225,7 @@ class TestSessionRejection:
         assert "measured_volume_ul は 0.0 が必要です" in _rejected(root)
 
     def test_reports_a_duplicated_view_number(self, tmp_path: Path):
-        root = _corrupt(
+        root = corrupt_metadata(
             write_session(tmp_path / "session", cells=CELLS),
             lambda document: document["samples"][0]["views"][1].update(number=0),
         )
@@ -244,7 +233,7 @@ class TestSessionRejection:
         assert "view number が重複しています" in _rejected(root)
 
     def test_reports_a_cell_without_any_view(self, tmp_path: Path):
-        root = _corrupt(
+        root = corrupt_metadata(
             write_session(tmp_path / "session", cells=CELLS),
             lambda document: document["samples"][0].update(views=[]),
         )
@@ -252,7 +241,7 @@ class TestSessionRejection:
         assert "view がありません" in _rejected(root)
 
     def test_reports_a_session_without_any_cell(self, tmp_path: Path):
-        root = _corrupt(
+        root = corrupt_metadata(
             write_session(tmp_path / "session", cells=CELLS),
             lambda document: document.update(samples=[], blanks=[]),
         )
@@ -268,7 +257,7 @@ class TestSessionRejection:
         conditioning が ``log(pixel_per_mm)`` なので、0 以下だと定義域を外れる。
         """
 
-        root = _corrupt(
+        root = corrupt_metadata(
             write_session(tmp_path / "session", cells=CELLS),
             lambda document: document["camera"].update(pixel_per_mm=pixel_per_mm),
         )

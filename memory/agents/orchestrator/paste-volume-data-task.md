@@ -96,6 +96,54 @@ driver はバックグラウンドに残さない。
 - **`sorted()` を残して観測点を足す**（出力が同一なので観測点を作れない）
 - **session で decode して寸法検査まで行う**（index と二度読みになる）
 
+## step 2（index.py）
+
+`solo-dev-cycle` の段階を守った。段階 2 でテストを先に書き、collection error（module
+無し）の red を確認してから実装した。
+
+### 計画外の判断
+
+**失敗を 2 段階に分けた。** session が壊れている（cell 内で view の寸法が違う、
+`pixel_rect` と実画像が食い違う、`crop_size_px` と違う）場合は build 全体を失敗させ、
+その cell だけが使えない（前処理が分散 0 を理由に拒否）場合は `rejections` へ隔離する。
+
+前者は収集器が不整合な crop を書いたということで、session が壊れている。crop 寸法は
+session ごとに固定という設計なので、1 cell だけの問題ではありえない。
+
+### 自己レビューで見つけた指摘
+
+段階 2 で書いたテストの 1 件が**観測点として無意味**だった。
+`assert str(view.number) not in sample_id.split(":")[-1][:-1]` は、view 番号 0 の "0" が
+ゼロ埋め index "000001" に当然含まれるので落ちる。期待値を緩めず、ID の構成そのものを
+固定する形へ書き直した（`sample_id == f"{digits}:{index:06d}"`）。
+
+**変異 18 件で最初 12 killed / 6 生存。全て実在の穴だった。**
+
+| 生存 | 診断 | 対応 |
+| --- | --- | --- |
+| `cell_key` を cell index にする | テスト不足。2 session が同じ index かつ同じ座標 | 座標が同じで index が違う fixture を足した |
+| fingerprint の `sorted` | デッドコード。`_deduplicated` が既に並べている | コードを消し、entry 順が root 順に依存しないテストで `_deduplicated` の並べ替えを観測可能にした |
+| fingerprint へ session 名を混ぜる | テスト不足。rename 不変性のテストが index 側に無い | 足した |
+| cell の並べ替えを外す | テスト不足。blank が最大 index なので no-op | blank が小さい index を持つ fixture を足した |
+| `smallest_source_size` を max に | テスト不足。全画像 53×53 で min == max | crop 寸法の違う 2 session の fixture を足した |
+| 拒否した cell も entries へ | 変異文字列のインデント誤り（適用できず） | driver を直して再実行 |
+
+**修正後 18/18 killed。**
+
+「生存＝テスト不足」と決めつけず、まず「観測不能」「効果が無い」を切り分ける手順が
+2 度目も効いた（fingerprint の `sorted` は session.py の `sorted` と同じ型の発見）。
+
+### 実データ
+
+`from_roots(['data/paste-volume-datasets'])` で **331 entries / 拒否 0 / blank 7 /
+cell group 167 / 2 session / 0.6 秒**（PNG 3340 枚の decode と 331 回の preprocess 込み）。
+
+`validate_augmentation(AugmentationRange(), smallest_source_size=53)` が通る。
+scale 0.5〜2.0 でも前処理後 26〜106 px で下限 16 px を割らないことを構造的に保証できる。
+
+cell group が 331 に対して 167 なのは、session A の cell 座標が session B の部分集合で、
+同じ物理 cell の両 session 分が必ず同じ split に入るため。
+
 ## 残タスク
 
 step 2 `index.py` → 3 `dataset.py` → 4 `batch.py` → 5 `task.py` → 6 計画書の更新。

@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import attrs
 import pytest
@@ -146,6 +148,20 @@ def write_session(
         json.dumps(metadata.to_dict(), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    return root
+
+
+def corrupt_metadata(root: Path, mutate: Callable[[dict[str, Any]], None]) -> Path:
+    """書き出し済み session の metadata.json を書き換える.
+
+    壊れた session を作るのに使う。DTO を経由せず生の dict を触るのは、DTO では 表現できない不整合（存在しない
+    path、重複した index）を作るため。
+    """
+
+    path = root / "metadata.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    mutate(document)
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
     return root
 
 
@@ -315,6 +331,7 @@ __all__ = [
     "PROJECT_ROOT",
     "VIEW_COUNT",
     "SyntheticCell",
+    "corrupt_metadata",
     "skip_if_no_real_sessions",
     "write_session",
 ]
