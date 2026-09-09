@@ -45,7 +45,11 @@ from ml.model.loss import weighted_gaussian_negative_log_likelihood
 from ml.model.multiview import MultiViewGaussianRegressor
 from ml.paste_volume.batch import PasteVolumeBatch, PasteVolumeCollator
 from ml.paste_volume.dataset import PasteVolumeDataset
-from ml.paste_volume.index import PasteVolumeSampleIndex, SplitDimension
+from ml.paste_volume.index import (
+    SPLIT_DIMENSIONS,
+    PasteVolumeSampleIndex,
+    SplitDimension,
+)
 from ml.training.data import TrainingData
 from ml.training.task import GaussianObservation, StepResult, TrainingTask
 
@@ -96,8 +100,17 @@ class PasteVolumeTrainingConfig:
         次元とその次元でしか意味を持たない設定の食い違いを拒む。session 次元で held-out を省くと「どの session
         を外したのか」が記録に残らないまま 5 fold の 1 つが選ばれてしまい、cell 次元で held-out
         を渡すと指定が黙って無視される。
+
+        契約外の次元もここで弾く。型では ``SplitDimension`` に絞ってあるが、TOML や
+        argv から組む経路は文字列で入ってくるので、通すと ``sample_groups`` が
+        ``None`` を返して ``TypeError`` になり、理由の文字列にならない。
         """
 
+        if self.split_dimension not in SPLIT_DIMENSIONS:
+            return (
+                f"split_dimension は {list(SPLIT_DIMENSIONS)} のいずれかが必要です: "
+                f"{self.split_dimension!r}"
+            )
         if self.split_dimension == "session" and self.held_out_session is None:
             return "session 次元の split には held_out_session の指定が必要です"
         if self.split_dimension == "cell" and self.held_out_session is not None:
@@ -153,10 +166,12 @@ class PasteVolumeTrainingData(TrainingData[PasteVolumeBatch]):
         作る時点で済ませる」という前提が崩れる。緩いと materialize で落ち、厳しいと母集団が
         黙って減る。
 
-        split が空でないことは確かめ直さない。新規に作る場合は ``SplitManifest.build`` が
-        ``require_test=True`` のとき各 split へ最低 1 group を割り当て、group が 3 個に
-        満たなければ理由を返す。既存 manifest を読む場合は ``validate`` が group の
-        取りこぼしを検出する。
+        split が空でないことは確かめ直さない。新規に作る場合、cell 次元は
+        ``SplitManifest.build`` が ``require_test=True`` のとき各 split へ最低 1 group を
+        割り当て、group が 3 個に満たなければ理由を返す。session 次元は
+        ``SplitManifest.build`` を通らず、``LeaveOneGroupOutPlan`` が held-out 1 group と
+        train / validation 各 1 group 以上を保証し、満たせなければ理由を返す。
+        既存 manifest を読む場合は ``validate`` が group の取りこぼしを検出する。
         """
 
         if error := config.validate():
@@ -436,6 +451,9 @@ def _resolve_split(
     複数 split にまたがることを拒むので、cell group で作った manifest を session 次元で
     読み直すと必ず落ちる。2 つの次元は入れ子ではなく直交していて、cell group はどれも
     全 session の sample を含むため。
+
+    session 次元では、それに加えて held-out の一致も見る。``SplitManifest`` は次元も
+    held-out も持たないので、別の fold の manifest でも ``validate`` は何も言わない。
     """
 
     groups = index.sample_groups(dimension=config.split_dimension)
@@ -447,6 +465,10 @@ def _resolve_split(
             return None, error
         if error := manifest.validate(
             groups, dataset_fingerprint=index.dataset_fingerprint
+        ):
+            return None, error
+        if error := _held_out_mismatch(
+            index, config=config, groups=groups, manifest=manifest
         ):
             return None, error
         return manifest, None
@@ -472,6 +494,7 @@ def _built_split(
             # None を弾いているので、ここで同じ理由を二重に書かない
             return _leave_one_session_out_manifest(
                 index,
+                groups=groups,
                 held_out=config.held_out_session or "",
                 seed=config.split_seed,
                 validation_ratio=config.validation_ratio,
@@ -489,11 +512,15 @@ def _built_split(
 def _leave_one_session_out_manifest(
     index: PasteVolumeSampleIndex,
     *,
+    groups: Mapping[str, str],
     held_out: str,
     seed: int,
     validation_ratio: float,
 ) -> tuple[SplitManifest | None, str | None]:
     """1 session を test に固定した split を作る.
+
+    ``groups`` は呼び出し側が作った session 次元の ``{sample_id: group}``。ここで
+    作り直すと、次元をずらす変異が 1 箇所では効かなくなる。
 
     ``LeaveOneGroupOutPlan`` が使えない（session が 2 本以下）ときは sample 単位へ
     fallback せず理由を返す。fallback すると、session をまたいだ汎化を測っている
@@ -513,7 +540,6 @@ def _leave_one_session_out_manifest(
     if not plan.available:
         return None, plan.reason
     fold = {item.held_out_value: item for item in plan.folds}[fingerprint]
-    groups = index.sample_groups(dimension="session")
     return (
         SplitManifest(
             dataset_fingerprint=index.dataset_fingerprint,
@@ -524,6 +550,36 @@ def _leave_one_session_out_manifest(
         ),
         None,
     )
+
+
+def _held_out_mismatch(
+    index: PasteVolumeSampleIndex,
+    *,
+    config: PasteVolumeTrainingConfig,
+    groups: Mapping[str, str],
+    manifest: SplitManifest,
+) -> str | None:
+    """読み直した manifest の test split が、要求した held-out session と一致するか.
+
+    session 次元でだけ見る。``SplitManifest`` は次元も held-out も持たないので、
+    session-0 の fold で作った split.json は session-2 を要求した build も素通りし、
+    要求した session が train へ入ったまま run が進む。``run_directory`` の既定は
+    fold 間で共有され得るので、report まで誰も気づけない。
+    """
+
+    if config.split_dimension != "session":
+        return None
+    fingerprint, reason = index.resolve_session(config.held_out_session or "")
+    if fingerprint is None:
+        return reason
+    requested = frozenset(_sample_ids_of(groups, (fingerprint,)))
+    if frozenset(manifest.test_sample_ids) != requested:
+        return (
+            "既存の split manifest の test split が held_out_session と一致しません: "
+            f"{config.held_out_session!r}（test {len(manifest.test_sample_ids)} sample、"
+            f"要求した session {len(requested)} sample）"
+        )
+    return None
 
 
 def _sample_ids_of(

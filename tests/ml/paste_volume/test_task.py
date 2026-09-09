@@ -213,6 +213,24 @@ class TestBuild:
         assert reason is not None
         assert "group" in reason
 
+    def test_reports_a_split_dimension_outside_the_contract(self, tmp_path: Path):
+        """契約外の次元は例外ではなく理由で返す.
+
+        通すと ``sample_groups`` の ``match`` を素通りして ``None`` が返り、
+        ``TypeError: cannot unpack non-iterable NoneType`` になる。TOML や argv から
+        組む経路は型に守られないので、ここが唯一の入口検査になる。
+        """
+
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path),
+            collator=PasteVolumeCollator(),
+            config=PasteVolumeTrainingConfig(split_dimension="machine"),  # type: ignore[arg-type]
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "split_dimension" in reason
+
     def test_reports_a_ratio_that_is_not_usable(self, tmp_path: Path):
         data, reason = PasteVolumeTrainingData.build(
             _index(tmp_path),
@@ -544,6 +562,66 @@ class TestSessionSplit:
 
         assert data is None
         assert reason is not None
+
+    def test_rejects_a_manifest_saved_for_another_held_out_session(
+        self, tmp_path: Path
+    ):
+        """別の fold の split.json を黙って再利用しない.
+
+        ``SplitManifest`` は次元も held-out も持たず、session group は 1 group が
+        1 split に収まっているので ``validate`` は何も言わない。通すと、要求した
+        session が train に入ったまま run が進み、report まで誰も気づけない。
+        ``run_directory`` の既定は fold 間で共有され得る。
+        """
+
+        path = tmp_path / "split.json"
+        index = _index(tmp_path, sessions=3)
+        first, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+            split_manifest_path=path,
+        )
+        assert first is not None, reason
+
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-2"),
+            split_manifest_path=path,
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "held_out_session" in reason
+
+    def test_reuses_a_manifest_saved_for_the_same_held_out_session(
+        self, tmp_path: Path
+    ):
+        """検査が広すぎないことの対.
+
+        同じ fold を要求した読み直しは通り、作り直さずに同じ割り当てを返す。
+        """
+
+        path = tmp_path / "split.json"
+        index = _index(tmp_path, sessions=3)
+        first, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+            split_manifest_path=path,
+        )
+        assert first is not None, reason
+
+        second, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+            split_manifest_path=path,
+        )
+
+        assert second is not None, reason
+        assert second.sample_ids_for("test") == first.sample_ids_for("test")
 
     def test_rejects_a_cell_manifest_read_back_in_the_session_dimension(
         self, tmp_path: Path
