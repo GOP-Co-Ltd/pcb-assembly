@@ -1,7 +1,7 @@
 """塗布ジョブの装置非依存な前計画（対象 pad・順路・初回パージの解決）.
 
-通常塗布と dataset 収集が、装置を動かす前に基板設定から「何をどの順に塗るか」を
-決めるための純関数。エラーは ``(None, 理由)`` で返し、web ジョブが例外や 400 に変換する。
+通常塗布が、装置を動かす前に基板設定から「何をどの順に塗るか」を決めるための純関数。
+エラーは ``(None, 理由)`` で返し、web ジョブが例外や 400 に変換する。
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import attrs
 
 from pcbasm.pasting.initial_purge import (
     ResolvedInitialPurge,
-    resolve_dataset_initial_purge,
     resolve_initial_purge,
 )
 from pcbasm.pasting.params import PasteParams
@@ -100,75 +99,6 @@ def plan_paste_targets(
             top_pads=top_pads,
             routed_pads=routed,
             initial_purge=initial_purge,
-        ),
-        None,
-    )
-
-
-@attrs.frozen
-class DatasetTargets:
-    """Dataset 収集の対象（purge pad と収集 pad の順路）."""
-
-    hierarchy: PadHierarchy
-    model: PasteSettingsModel
-    resolved: Mapping[PadRef, ResolvedSetting]
-    purge_pad: Pad
-    purge_pad_id: str
-    sample_pads: tuple[Pad, ...]
-
-    @property
-    def alignment_pads(self) -> tuple[Pad, ...]:
-        return (*self.sample_pads, self.purge_pad)
-
-    def params_for(self, pad: Pad) -> PasteParams:
-        """収集 pad の解決済みパラメータ（収集 pad は全て階層内にあることを計画時に保証）."""
-        return self.resolved[self.hierarchy.pad_ref_for_pad(pad)].params
-
-
-def plan_dataset_targets(
-    pcb: PcbFile,
-    hierarchy: PadHierarchy,
-    model: PasteSettingsModel,
-    *,
-    initial_purge_ul: float,
-) -> tuple[DatasetTargets | None, str | None]:
-    """任意 PCB から purge を除く有効 TOP pad の収集順路を装置非依存で解決する."""
-    top_pads = [pad for pad in pcb.pads if pad.layer == Layer.TOP]
-    resolved = resolve_pad_settings(hierarchy, model)
-    purge, error = resolve_dataset_initial_purge(
-        amount_ul=initial_purge_ul,
-        pad_id=model.initial_purge_pad_id,
-        hierarchy=hierarchy,
-    )
-    if error is not None:
-        return None, error
-    if purge is None:
-        return None, "dataset収集には初回パージパッドが必要です"
-    enabled = select_enabled_pads(top_pads, hierarchy, model)
-    sample_pads = tuple(
-        stop.pad
-        for stop in plan_paste_route(pad for pad in enabled if pad is not purge.pad)
-    )
-    if not sample_pads:
-        return None, "purge以外の収集対象padがありません"
-    orphan_ids = [
-        f"{pad.designator}.{pad.pad_number}"
-        for pad in sample_pads
-        if hierarchy.find_pad_id(pad) is None
-    ]
-    if orphan_ids:
-        return None, (
-            "dataset収集対象padに対応するComponentがありません: "
-            + ", ".join(orphan_ids)
-        )
-    return (
-        DatasetTargets(
-            hierarchy=hierarchy,
-            model=model,
-            resolved=resolved,
-            purge_pad=purge.pad,
-            purge_pad_id=purge.pad_id,
-            sample_pads=sample_pads,
         ),
         None,
     )

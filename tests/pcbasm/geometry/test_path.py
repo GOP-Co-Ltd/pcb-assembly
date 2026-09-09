@@ -34,6 +34,12 @@ class TestPath:
 
         assert path.length() == expected_length
 
+    @pytest.mark.parametrize("points", [[], [Point3d(1.0, 2.0, 3.0)]])
+    def test_length_of_a_degenerate_path_is_a_float(self, points):
+        # 点塗布は 1 点経路になる。暗黙変換を拒否する metadata schema が
+        # int の 0 を受け付けないので、区間が無くても float を返す。
+        assert isinstance(Path(points).length(), float)
+
     def test_transformed_shift(self):
         path = Path([Point3d(0.0, 0.0, 0.0), Point3d(1.0, 1.0, 1.0)])
 

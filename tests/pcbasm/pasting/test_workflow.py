@@ -1,11 +1,11 @@
-"""塗布ジョブ前計画（plan_paste_targets / plan_dataset_targets）の公開契約."""
+"""塗布ジョブ前計画（plan_paste_targets）の公開契約."""
 
 import pytest
 import shapely
 
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.settings import PasteSettingsModel
-from pcbasm.pasting.workflow import plan_dataset_targets, plan_paste_targets
+from pcbasm.pasting.workflow import plan_paste_targets
 from pcbasm.pcb import Layer, Pad, PadHierarchy, PcbFile
 from tests.helpers import TESTING_DATA_DIR
 
@@ -144,55 +144,3 @@ class TestPlanPasteTargets:
 
         assert targets is not None
         assert targets.params_for(stray) is None
-
-
-class TestPlanDatasetTargets:
-    """Dataset 収集の purge pad と収集順路解決."""
-
-    def test_explicit_purge_pad_is_excluded_from_samples(self, pcb, hierarchy):
-        model = _model().with_initial_purge_pad_id("U1.1")
-
-        targets, error = plan_dataset_targets(
-            pcb, hierarchy, model, initial_purge_ul=0.5
-        )
-
-        assert error is None
-        assert targets is not None
-        assert targets.purge_pad_id == "U1.1"
-        sample_ids = _pad_ids(hierarchy, targets.sample_pads)
-        assert "U1.1" not in sample_ids
-        top_ids = {hierarchy.find_pad_id(p) for p in pcb.pads if p.layer is Layer.TOP}
-        assert set(sample_ids) == top_ids - {"U1.1"}
-        assert targets.alignment_pads == (*targets.sample_pads, targets.purge_pad)
-        assert targets.params_for(targets.sample_pads[0]) == _BASE
-
-    def test_board_without_purge_pad_and_no_selection_returns_error(
-        self, pcb, hierarchy
-    ):
-        targets, error = plan_dataset_targets(
-            pcb, hierarchy, _model(), initial_purge_ul=0.5
-        )
-
-        assert targets is None
-        assert error is not None
-        assert "PURGE" in error
-
-    def test_all_other_pads_disabled_returns_error(self, pcb, hierarchy):
-        top_keys = [
-            hierarchy.l4_key_for_pad_id(pad_id)
-            for pad_id in (hierarchy.find_pad_id(p) for p in pcb.pads)
-            if pad_id is not None and pad_id != "U1.1"
-        ]
-        model = (
-            _model()
-            .with_pads_enabled(top_keys, enabled=False)
-            .with_initial_purge_pad_id("U1.1")
-        )
-
-        targets, error = plan_dataset_targets(
-            pcb, hierarchy, model, initial_purge_ul=0.5
-        )
-
-        assert targets is None
-        assert error is not None
-        assert "purge以外" in error

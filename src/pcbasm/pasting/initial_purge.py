@@ -8,10 +8,6 @@ import attrs
 from pcbasm.pcb import Layer, Pad, PadHierarchy
 from pcbasm.utils import is_finite_number
 
-DATASET_PURGE_PAD_ID = "PURGE"
-
-InitialPurgePurpose = Literal["paste_solder", "paste_dataset_collection"]
-
 
 @attrs.frozen
 class ResolvedInitialPurge:
@@ -79,54 +75,6 @@ def resolve_initial_purge(
     )
 
 
-def resolve_dataset_initial_purge(
-    *,
-    amount_ul: float,
-    pad_id: str | None,
-    hierarchy: PadHierarchy,
-) -> tuple[ResolvedInitialPurge | None, str | None]:
-    """Dataset収集用の初回パージpadを解決する.
-
-    基板設定で ``pad_id`` が明示されていれば通常塗布と同じ選択を使う。
-    未指定時だけ、Top面でdesignatorが ``PURGE`` の一意なpadを自動選択する。
-    """
-    if pad_id is not None:
-        return resolve_initial_purge(
-            amount_ul=amount_ul,
-            pad_id=pad_id,
-            hierarchy=hierarchy,
-            routed_pads=(),
-            layer=Layer.TOP,
-        )
-
-    amount, error = _validate_amount(amount_ul)
-    if amount is None or amount == 0:
-        return None, error
-
-    matches = [
-        pad
-        for pad in hierarchy.iter_pads()
-        if pad.layer is Layer.TOP and pad.designator == DATASET_PURGE_PAD_ID
-    ]
-    if not matches:
-        return None, f"未知のdataset purge padです: {DATASET_PURGE_PAD_ID}"
-    if len(matches) != 1:
-        return (
-            None,
-            f"dataset purge pad {DATASET_PURGE_PAD_ID} が一意ではありません: "
-            f"{len(matches)} pads",
-        )
-    return (
-        ResolvedInitialPurge(
-            amount_ul=amount,
-            pad=matches[0],
-            pad_id=DATASET_PURGE_PAD_ID,
-            source="default",
-        ),
-        None,
-    )
-
-
 def validate_initial_purge(
     *,
     amount_ul: float,
@@ -172,31 +120,13 @@ class InitialPurgeResolution:
 
 
 def resolve_initial_purge_for(
-    purpose: InitialPurgePurpose,
     *,
     amount_ul: float,
     pad_id: str | None,
     hierarchy: PadHierarchy,
     routed_pads: Sequence[Pad],
 ) -> InitialPurgeResolution:
-    """用途（通常塗布 / dataset 収集）に応じた初回パージ解決と既定 pad をまとめて返す.
-
-    通常塗布の既定 pad は順路先頭。dataset 収集の既定 pad は ``PURGE`` designator の
-    一意な pad で、``amount_ul == 0`` でも既定 pad の候補は表示のために求める。
-    """
-    if purpose == "paste_dataset_collection":
-        resolved, error = resolve_dataset_initial_purge(
-            amount_ul=amount_ul, pad_id=pad_id, hierarchy=hierarchy
-        )
-        default_pad_id = None
-        if pad_id is None:
-            default, default_error = resolve_dataset_initial_purge(
-                amount_ul=1.0, pad_id=None, hierarchy=hierarchy
-            )
-            default_pad_id = default.pad_id if default is not None else None
-            error = error or default_error
-        return InitialPurgeResolution(resolved, default_pad_id, error)
-
+    """初回パージの解決と既定 pad（順路先頭）をまとめて返す."""
     resolved, error = resolve_initial_purge(
         amount_ul=amount_ul,
         pad_id=pad_id,

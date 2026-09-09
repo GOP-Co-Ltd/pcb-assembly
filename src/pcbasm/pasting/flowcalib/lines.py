@@ -13,8 +13,8 @@ from pcbasm.geometry import Point2d
 from pcbasm.pasting.flowcalib.flow import (
     rate_sweep_amount_ul,
     speed_sweep_amount_ul,
-    sweep_schedule,
 )
+from pcbasm.pasting.sweep import sweep_schedule
 
 if TYPE_CHECKING:
     from pcbasm.pasting.flowcalib.params import CalibrationParams

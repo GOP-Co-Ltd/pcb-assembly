@@ -25,7 +25,6 @@ from pydantic import BaseModel
 from pcbasm.config import PasteDispenser
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.initial_purge import (
-    InitialPurgePurpose,
     resolve_initial_purge_for,
 )
 from pcbasm.pasting.params import PASTE_PARAM_FIELDS, PasteParamValue
@@ -357,15 +356,12 @@ def param_fields() -> list[ParamFieldInfo]:
     ]
 
 
-def build_initial_purge(
-    loaded: Loaded, purpose: InitialPurgePurpose = "paste_solder"
-) -> InitialPurgeInfo:
+def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
     """ロード済みコンテキストから初回パージ設定の解決結果を返す."""
     routed = routed_enabled_pads(
         layer_pads(loaded, Layer.TOP), loaded.hierarchy, loaded.model
     )
     resolution = resolve_initial_purge_for(
-        purpose,
         amount_ul=loaded.base_config.initial_purge_ul,
         pad_id=loaded.model.initial_purge_pad_id,
         hierarchy=loaded.hierarchy,
@@ -376,7 +372,7 @@ def build_initial_purge(
         resolution.default_pad_id,
         resolution.error,
     )
-    if error is not None and purpose == "paste_solder":
+    if error is not None:
         raise HTTPException(status_code=400, detail=error)
     selection_label = (
         loaded.model.initial_purge_pad_id
@@ -468,9 +464,7 @@ def load_board(
     )
 
 
-def build_pad_config(
-    loaded: Loaded, purpose: InitialPurgePurpose = "paste_solder"
-) -> PadConfigResponse:
+def build_pad_config(loaded: Loaded) -> PadConfigResponse:
     """ロード済みコンテキストから GET 形式のレスポンスを構築する."""
     pcb = loaded.pcb
     hierarchy = loaded.hierarchy
@@ -498,7 +492,7 @@ def build_pad_config(
         width=outline.width,
         height=outline.height,
         defaults=resolved_default(model),
-        initial_purge=build_initial_purge(loaded, purpose),
+        initial_purge=build_initial_purge(loaded),
         tree=tree(hierarchy.root, model, node_resolved),
         pads=pads,
         overrides=overrides(model),
