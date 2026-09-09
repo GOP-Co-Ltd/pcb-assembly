@@ -11,16 +11,21 @@
 
 .. code-block:: shell
 
+    set -e
     for S in "${SESSIONS[@]}"; do
       uv run python -m ml.paste_volume.train \
           experiment=base trainer=gpu logger=mlflow \
           data.roots='["/abs/data/paste-volume-datasets"]' \
           data.held_out_session="$S" \
-          logger.tracking_uri="file:///abs/mlruns" \
+          logger.tracking_uri="sqlite:////abs/mlflow.db" \
+          logger.artifact_location="/abs/mlartifacts" \
           run_directory="/abs/runs/loso/$S"
     done
 
 ``run_directory`` は fold ごとに別の値を渡す。
+
+打ち切られた fold で ``set -e`` のループが止まるよう、signal / deadline で
+止まった run は :data:`INTERRUPTED_EXIT_CODE` を返す。
 
 split.json は run directory に残り、次の run が同じ directory を指すと再利用
 される。fold をまたいで共有すると、要求した held-out と実際の test split が
@@ -80,7 +85,7 @@ from ml.paste_volume.task import (
 )
 from ml.serialization import make_strict_converter, structure_strictly
 from ml.training.checkpoint import CheckpointStore
-from ml.training.loop import Trainer, TrainingOutcome
+from ml.training.loop import StopReason, Trainer, TrainingOutcome
 from ml.training.random_state import seed_everything
 
 # 仕様書 §2 の計算量 gate。
@@ -111,6 +116,20 @@ WEIGHTS_SCHEMA_VERSION = 1
 MEAN_BIAS_DEVIATION_FACTOR = 3.0
 
 _MISSING_PARAM_VALUE = ""
+
+# 最後まで回りきった run の停止理由。
+#
+# 5 fold の shell ループは、打ち切られた fold を成功として次へ進んではならない。
+# 打ち切られた run の metric を report へ混ぜると、比べているものが fold ごとに
+# 変わる。
+COMPLETED_STOP_REASONS: frozenset[StopReason] = frozenset(
+    {"max_epochs", "max_steps", "early_stopping"}
+)
+
+# 学習は動いたが最後まで行かなかった run の終了コード。
+#
+# argv の不備（1）と区別できるよう別の値にする。
+INTERRUPTED_EXIT_CODE = 2
 
 
 @attrs.frozen
@@ -269,7 +288,12 @@ def run_training(
     誰も辿れない。無指定でも動く no-op を置くと、記録が黙って無効になった run と
     そうでない run を見分けられなくなる。
 
-    戻り値の理由文字列は「学習を始める前に分かる不備」だけを表す。
+    戻り値は ``(outcome, 理由)`` で、2 つの意味を持つ。
+
+    ``outcome`` が ``None`` なら「学習を始める前に分かる不備」で、run は 1 度も
+    始まっていない。``outcome`` があるのに理由が付くときは「学習は終わったが
+    成果物を 1 つ作れなかった」で、いま起きうるのは calibration の失敗だけ。
+    ``calibration.json`` の offset は report に載る値なので、黙って落とさない。
 
     学習中の失敗（非有限 loss、resume の fingerprint 不一致）は
     :class:`~ml.training.loop.Trainer` が送出する。同じ不整合へ検出器を 2 つ
@@ -344,7 +368,7 @@ def run_training(
 
     # Trainer は best の重みを model へ読み戻してから final.pt を書く。
     # calibration も weights.pt もその重みに対して作る。
-    calibration, _ = _calibrated(task, data, device=trainer.device)
+    calibration, calibration_reason = _calibrated(task, data, device=trainer.device)
     if calibration is not None:
         calibration.save(run_directory / CALIBRATION_FILE_NAME)
     save_model_weights(
@@ -357,11 +381,18 @@ def run_training(
             model_state=task.model.state_dict(),
         ),
     )
-    return outcome, None
+    return outcome, calibration_reason
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Argv から 1 fold を学習する。0 は成功、1 は理由を stderr へ出して失敗."""
+    """Argv から 1 fold を学習する.
+
+    0 は最後まで回りきった run、1 は理由を stderr へ出した失敗、
+    :data:`INTERRUPTED_EXIT_CODE` は signal / deadline で打ち切られた run。
+
+    打ち切りを 0 で返すと、5 fold の shell ループ（``set -e``）が次の fold へ
+    進み、途中で止まった fold の成果物が report に混ざる。
+    """
 
     arguments = list(sys.argv[1:] if argv is None else argv)
     config, error = compose_experiment(arguments)
@@ -382,7 +413,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"best_{config.trainer.monitor}={outcome.best_monitor_value} "
         f"run_directory={config.run_directory}"
     )
-    return 0
+    if error is not None:
+        print(error, file=sys.stderr)
+    if outcome.stop_reason not in COMPLETED_STOP_REASONS:
+        print(
+            f"run が最後まで回りきっていません: stop_reason={outcome.stop_reason}",
+            file=sys.stderr,
+        )
+        return INTERRUPTED_EXIT_CODE
+    return 1 if error is not None else 0
 
 
 def _experiment_logger(
@@ -397,10 +436,7 @@ def _experiment_logger(
     """
 
     if config.logger is None:
-        return None, (
-            "logger を選んでいません（logger=mlflow と "
-            "logger.tracking_uri=file:///abs/mlruns を渡してください）"
-        )
+        return None, _NO_LOGGER_REASON
     resume_run_id: str | None = None
     if config.resume.checkpoint is not None:
         checkpoint, error = CheckpointStore(config.run_directory).load_path(
@@ -410,6 +446,13 @@ def _experiment_logger(
             return None, error
         resume_run_id = checkpoint.run_id
     return config.logger.build(resume_run_id=resume_run_id), None
+
+
+_NO_LOGGER_REASON = (
+    "logger を選んでいません（logger=mlflow と "
+    "logger.tracking_uri=sqlite:////abs/mlflow.db と "
+    "logger.artifact_location=/abs/mlartifacts を渡してください）"
+)
 
 
 def _budget_rejection(size: ModelSize) -> str | None:
@@ -476,12 +519,14 @@ def _calibrated(
     offset, error = predictions.fit_log_variance_offset()
     if offset is None:
         return None, error
-    before, reason = GaussianRegressionMetrics.measure(predictions)
-    after, reason = GaussianRegressionMetrics.measure(
+    before, before_reason = GaussianRegressionMetrics.measure(predictions)
+    if before is None:
+        return None, before_reason
+    after, after_reason = GaussianRegressionMetrics.measure(
         predictions.with_log_variance_offset(offset)
     )
-    if before is None or after is None:
-        return None, reason
+    if after is None:
+        return None, after_reason
     return (
         UncertaintyCalibration(
             split=split,
@@ -530,12 +575,18 @@ def _run_tags(
     manifest = data.split_manifest
     tags = {
         "model.family": MODEL_FAMILY,
+        "model.schema_version": str(WEIGHTS_SCHEMA_VERSION),
         "dataset.fingerprint": data.dataset_fingerprint,
+        "dataset.machine_ids": ",".join(
+            sorted({entry.machine_id for entry in data.index.entries})
+        ),
         "split.fingerprint": _split_fingerprint(manifest),
         "split.dimension": data.split_dimension,
         "split.held_out_session": config.data.held_out_session or _MISSING_PARAM_VALUE,
         "training.run_directory": str(run_directory),
     }
+    if parent := _parent_run_id(config.model.initial_weights):
+        tags["model.parent_run_id"] = parent
     if provenance is None:
         tags["git.unavailable"] = provenance_reason or "理由不明"
     else:
@@ -559,6 +610,9 @@ def _run_params(
 
     ``experiment=fine_tune`` を選んでも凍結を忘れた run は全層 fine-tune として
     完走し、metric も成果物も何ひとつ変わらない。
+
+    batch の pixel 予算も載せる（仕様書 §4）。可変 shape の batch sampler では、
+    1 batch の sample 数ではなく予算のほうが run を再現する値になる。
     """
 
     index = data.index
@@ -580,6 +634,8 @@ def _run_params(
         "data.validation_sample_count": len(manifest.validation_sample_ids),
         "data.test_sample_count": len(manifest.test_sample_ids),
         "data.train_measured_mean_ul": _train_measured_mean(data),
+        "data.max_batch_pixels": config.data.max_batch_pixels,
+        "data.max_batch_size": config.data.max_batch_size,
         "split.seed": manifest.seed,
     }
     for field in attrs.fields(type(config.model)):
@@ -598,6 +654,22 @@ def _run_params(
             config.logger.run_target().sanitized_tracking_uri
         )
     return params
+
+
+def _parent_run_id(initial_weights: Path | None) -> str | None:
+    """Fine-tune の起点になった run の識別子.
+
+    ``weights.pt`` は run 識別子を持たないので、同じ run directory に残る
+    ``best.pt`` から引く。
+
+    weight の所在（``model.initial_weights`` param）だけでは、その weight を
+    作った run の記録へ 1 手で辿れない（仕様書 §4 の parent base run ID）。
+    """
+
+    if initial_weights is None:
+        return None
+    checkpoint, _ = CheckpointStore(initial_weights.parent).load("best")
+    return None if checkpoint is None else checkpoint.run_id
 
 
 def _mean_bias_deviation(
@@ -678,6 +750,8 @@ __all__ = [
     "BUDGET_CROP_SIZE_PX",
     "BUDGET_VIEW_COUNT",
     "CALIBRATION_DOCUMENT",
+    "COMPLETED_STOP_REASONS",
+    "INTERRUPTED_EXIT_CODE",
     "GIGA_MULTIPLY_ACCUMULATE_BUDGET",
     "PARAMETER_BUDGET",
     "ModelWeights",
