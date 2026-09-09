@@ -369,3 +369,46 @@ compose の bind mount source を `../` → `../../`、project 名は固定済�
 merge 後で可の積み残し: `entry_for` の線形探索、テストの `type: ignore` 6 件、
 関数内 import 3 件、`test_batch` 側の shape テストが緩い版のまま（task 側で厳密に見るので
 害は無いが docstring と assert の強度が不一致）、docformatter の空白 20 箇所。
+
+## 4 巡目レビューの裁定
+
+`code-reviewer` verdict は **request-changes**（must-fix 2 / should-fix 11）。**全件を受け入れて
+対応した。却下ゼロ。**
+
+### must-fix
+
+- **M4 `from <package> import <submodule>` が走査から抜ける。** 私の変異 12 通りが素通り
+  させた実在の穴。`<package>` だけを記録していたので、package を 1 つ許した瞬間にその下の
+  全 module が検査から消えていた。**許可を package 単位にした判断そのものが、この穴と
+  組み合わさって危険だった**（契約 2 と契約 3 を同時にすり抜ける）
+- **M5 `src/ml/__init__.py` が撤回した不変条件を宣言したまま。** AGENTS.md も仕様書も
+  書き替えたのに、方針の一次出典である package docstring だけが残っていた
+
+### should-fix（11 件すべて対応）
+
+とくに効いたもの。
+
+- **S25** 許可を `pcbasm.pasting.dataset` から `.metadata` へ絞った。私は「DTO が増える
+  たびに列挙を触りたくない」を理由に package 単位にしたが、**DTO が増えても module 名は
+  変わらないので、その理由は成立していなかった**
+- **S27** `_module_file` の `__init__.py` 解決に観測点が無く、**3 巡目 S22 で塞いだ穴が
+  別の 1 行で開き直せた**。到達 module が 155→138 に減るのに緑のまま
+- **S29** `DEVICE_ONLY_MODULES = ()` にすると parametrize が 0 件になり **skip 扱いで
+  exit 0**。他 3 定数は空にすると死ぬのに、ここだけ未防御だった
+- **S31** `tests/conftest.py` が collect 契約の対象外。関数内 import で偶然安全なだけ
+  だった。module 直下だけを見る走査を足して固定
+- **S35** `ml.cli.paste_volume` は `_core_files` の判定でコア扱いになる。`ml.paste_volume.cli`
+  へ寄せ、分割判定も名前一致から**位置判定**（`root / DOMAIN_LAYER` の配下か）へ変えた
+
+変異は 12 → **20 通り**へ拡張。すべて狙った検査で死ぬ。1 つは src 側の変異
+（コアがドメイン層を import する）。
+
+### 学び
+
+**「観測点を足したか」と「観測点が十分か」は別の問い。** 私は 12 変異を当てて「全部死んだ」
+で満足したが、**変異の集合そのものが私の想像力に閉じていた**。M4 は「走査器を壊す」変異
+ばかり作り、「走査される側に別の書き方をする」変異を作らなかったから見つからなかった。
+
+→ **検査器の変異だけでなく、検査対象側に「自然に書かれうる別の形」を注入する変異も要る。**
+今回でいえば `import x` / `from x import y` / `from x.y import z` / `from x import y as z` の
+全形を、実際に対象ツリーへ 1 行入れて測る。
