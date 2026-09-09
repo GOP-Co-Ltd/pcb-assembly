@@ -744,3 +744,199 @@ call-site 変異 **CS-SLN1**（単視点の `preprocess` が `sample_layer_norm`
    表にして突き合わせる
 3. **同じ機構が 2 経路で作られていて、片方しか観測していない**
    （N-1 と CS-TI の image / mask）。層をまたいで同型が 2 回出た
+
+---
+
+# 5 巡目レビュー（`nn.init.zeros_(mean_layer.weight)` 追加後）
+
+## verdict: approve
+
+src の修正は正しく、実測で裏づけが取れた。残りは should-fix 1 件と nit 2 件で、
+いずれもマージを止めない。
+
+## src 変更（`heads.py` のみ）の評価 → 正しい
+
+`nn.init.zeros_(mean_layer.weight)` を bias の正初期化と対で入れる形。
+
+### 独立実測（`hidden_features=128` / `input_features=96`、300 seed、実 head 経路）
+
+| feature の regime | bias | weight = torch 既定（旧） | weight = 0（現） |
+| --- | ---: | ---: | ---: |
+| 1 本を複製 + 微小ノイズ | 1.0 | 0/300 | 0/300 |
+| 同上 | 0.2 | **63/300 = 21%** | — |
+| 同上 | 0.05 | **133/300 = 44%** | **0/300** |
+| 標準正規 | 0.05 | 12/300 = 4% | **0/300** |
+| 全 0 | 0.05 | 9/300 = 3% | **0/300** |
+| 全 regime | 1e-6 | — | **0/300** |
+
+- **bias だけでは足りないという診断は正しい。** 0.05 で 44% が初期化時点で全滅する
+- **weight 0 は構造的な保証になっている。** bias を 1e-6 まで下げても 0/300。
+  初期の前活性が bias そのものになるので、正でありさえすれば活性領域に入る。
+  マジックナンバーではないという主張はそのとおり
+- **勾配も流れる。** 前活性が正なので ReLU の微分が 1 になり
+  `grad_z · hidden` が weight へ伝わる。`test_the_mean_head_still_learns_from_a_zero_weight`
+  が「3 step 後に sample 間で出力が割れる」ことで固定している
+- `log_variance` 側を触っていないのも正しい。ReLU を通らないので死なない
+
+### 副作用の確認
+
+- **1 step 目だけ、平均経路から trunk への勾配が 0 になる**（`grad_hidden = grad_mean * weight = 0`）。
+  trunk は log 分散経路からは勾配を受けるので停止はしない。2 step 目には weight が
+  非零になって解消する。最終出力層の 0 初期化は一般的な手法（ResNet の zero-init-γ 等）で、
+  ここで問題になる規模ではない
+- **`zeros_` が守るのは初期化時点だけ。** 学習中に全 sample が死ぬ経路は残る。
+  それは `MeanSaturationDiagnostic` と M1 の log 経路が受け持つ設計で、変更なし
+
+### 変異の再実測
+
+| 変異 | 結果 |
+| --- | --- |
+| HD-W1（`zeros_` を削除＝torch 既定へ戻す） | **killed（3 failed）**。`test_the_mean_head_is_never_born_dead[False-0.05]` が **seed 0** で落ちる |
+| HD-W2（weight は 0 のまま bias を 0 にする） | **killed（40 failed）** |
+
+HD-W1 が seed 0 で落ちるので、検出器は先頭で発火する。
+なお `[True-0.05]`（全 0 feature）側は HD-W1 で落ちない（実測 3% なので
+seed 0〜31 に該当が無い）。**検出を担っているのは `[False-*]`（randn feature）側**で、
+これは docstring の「死亡率が高いのは後者」という記述と整合する。
+
+## テスト 6 本の移し替え → 観測力はほぼ保たれている。1 点だけ失われた
+
+依頼された「conditioning が平均へ効くことを誰も見なくなっていないか」を変異で検証した。
+
+| 変異 | 結果 |
+| --- | --- |
+| MUT-C1（`_joined_inputs` が conditioning の中身を 0 で潰す） | **killed（2 failed）**: `test_conditioning_changes_the_prediction`（heads、log 分散側）と `test_the_conditioning_stays_one_value_per_sample`（multiview） |
+| MUT-C2（平均だけ conditioning 抜きの trunk 出力から作る。log 分散は本物） | **survived（1324 passed）** |
+
+- **現実的な変異（MUT-C1）は log 分散側の観測点で捕まる。** conditioning は
+  `_joined_inputs` で 1 回だけ連結され、mean と log 分散は同じ trunk を共有するので、
+  「conditioning が trunk へ届く」ことを log 分散側で見れば配線は守れる。
+  移し替えは機構としては等価
+- **ただし「conditioning が平均へ効く」を観測するテストは 0 になった**（MUT-C2）。
+  移し替え前は `test_conditioning_changes_the_prediction` がそれを見ていた
+
+### S5-1（should-fix）「conditioning が体積推定（平均）へ効く」を誰も観測していない
+
+- 実測: MUT-C2 が `tests/ml` 全体 1324 passed で生存
+- 契約側の根拠: ml-plan の v1 encoder 節が
+  「`log(pixel_per_mm)` 1 値を連結する…画像から見かけの大きさを学びつつ、物理 scale を
+  明示的に利用できる構成になる」と書いており、効かせたい先は**体積推定＝平均**
+- 現状は「mean と log 分散が 1 個の trunk を共有する」というアーキテクチャ不変条件に
+  依存して間接的に守っている。その不変条件自体を固定するテストも無い
+- **must-fix にしなかった理由**: MUT-C2 は trunk を 2 回通す構造書き換えが要り、
+  偶発的な編集では起こらない。これまでの must-fix（M2 / N-1 / N3-1）はいずれも
+  1 文・1 トークンの編集で起こりうるものだった。この区別は保つ
+- 補強案（3 行）: `test_conditioning_changes_the_prediction` に数 step の学習を足し、
+  weight が非零になった後で**平均**も conditioning に応じて動くことを見る。
+  既に `_head_trained_*` のヘルパーがあるので流用できる
+- 確信度: 高（実行確認）／ 深刻度: 低
+
+### その他の移し替え
+
+- `test_parity` の「出力を特定せず any」への変更は妥当。出力 1 本だけを比較する退行は
+  `assert result.passed is False` の側で捕まるので、検出力は落ちていない
+- T24 / T24' を学習後の head で観測する形にした点も妥当。`_head_trained_to_partially_saturate`
+  は真値 0 の blank を 1 件混ぜて回帰させており、**ReLU 化が狙った状態そのもの**を
+  再現している。初期化直後の合成入力より仕様に近い
+
+## docs の数値追記 → 概ね正確。1 箇所だけ実測とずれる
+
+| docs の記述 | 私の実測 | 判定 |
+| --- | --- | --- |
+| weight 既定 + bias 0.05 で 300 seed 中 134 回 = 45% | 133/300 = 44% | ほぼ一致 |
+| 標準正規の feature では 5% | 12/300 = 4% | 一致 |
+| **全 0 では 1%** | **9/300 = 3%** | **約 3 倍の過小** |
+| weight を 0 にすると 0/300 | 全 regime 0/300（bias 1e-6 まで） | 一致 |
+| bias=1.0 なら全滅 0% | 全 regime 0/300 | 一致 |
+
+- 「実装者の 55% / 80% は trunk を通さない測定」という orchestrator の診断も裏づけられた。
+  実 head 経路の randn は bias 0.2 で 0%、0.05 で 4% で、報告の「0% と 5%」と一致する
+- 「条件で 1 桁以上変わる／低い測定値を見て安全と判断しないこと」という結論は、
+  44% 対 3〜4% という実測が支持する。**追記の趣旨は正確**
+
+### S5-2（nit）docs の「全 0 では 1%」は実測 3%
+
+実害は無い（結論は変わらない）が、過小側へずれているので「安全と判断しないこと」という
+文の説得力を自分で弱めている。3% へ直すか「数 %」に丸めるのが素直。
+
+### S5-3（nit）テストの docstring が discredited な数値を持っている
+
+- 対象: `tests/ml/model/test_heads.py::test_the_mean_head_is_never_born_dead` の docstring
+- 「実測で ``mean_bias_initial=0.05`` の **9 割近く**が初期化時点で死ぬ」と書いてある
+- docs は同じ現象を 45%、私の実測は最悪の regime で 44%。
+  **このテストが実際に使う 2 つの regime（全 0 / randn）では 3〜4%**
+- 「9 割」は orchestrator が既に否定した実装者の旧測定（trunk を通さない経路）の値と思われる。
+  docs 側は直っているがテスト側に残っている
+- 実害: 将来の保守者が「9 割死ぬなら 32 seed は十分すぎる」と読んで
+  `BIRTH_CHECK_SEEDS` を削ると、実際は 3〜4% なので検出器が空になりうる
+- 確信度: 高 ／ 深刻度: 低
+
+## 手順 6（契約そのものの妥当性を測る）の評価 → 妥当。3 点の補強を勧める
+
+**この整理は正しく、しかも既存のどの手法でも原理的に取れない型を正しく名指している。**
+`validate()` の述語は `mean_bias_initial > 0` で、実装はそのとおりで、
+その述語への変異（0 / 負 / nan / 境界）はすべて killed だった。それでも
+**述語が「守りたい性質」を含意していなかった。** ソース由来・契約由来・call-site の
+いずれも契約を正しいものとして扱うので、この型は出ない。
+
+### 補強 1: 「測る対象」を絞る判定条件を書く
+
+「防ぎたい失敗を数値で測る」を全 guard へ適用すると重い。次の 1 行で絞れる。
+
+> **guard の docstring が述べる目的が、述語の言い換えになっていないなら測る。**
+
+- `mean_bias_initial は正の有限値が必要です` ＋ 目的「全 sample が死んだ領域へ入るのを防ぐ」
+  → 述語 ≠ 目的。**測る**
+- `stride は正の整数が必要です` ＋ 目的「`ZeroDivisionError` を避ける」
+  → 述語 ⇒ 目的。測らなくてよい
+
+### 補強 2: 測ってギャップが出たら、まず「構造で保証する」を試す
+
+今回採った `zeros_` は、閾値を測って `validate()` へ書くのではなく
+**述語が目的を含意する形へ機構を変えた**もので、これが最良の解き方。
+手順にこの優先順位を明記しないと、次は `validate()` に測定由来のマジックナンバーが
+入りかねない。**それは regime 依存なので今回のデータ（44% / 4% / 3%）が示すとおり脆い。**
+測定閾値は構造化できないときの次善に置く。
+
+### 補強 3: guard 単体ではなく「guard + 文書化された推奨値」を対にして見る
+
+今回いちばん危なかったのは guard の緩さそのものではなく、
+**docs が「0.05〜0.2 へ上書きせよ」と、guard が通してしまう危険域を名指しで推奨していた**
+こと。緩い guard と「境界付近の値を勧める文書」の組み合わせは、どちらか単独より悪い。
+手順に「guard を測るときは、その値について文書が何を勧めているかも一緒に見る」を足す。
+
+### レビュー側の反省（記録）
+
+**1 巡目の N5 でこの点に触れておきながら、数値で詰めなかった。**
+「既定 1.0 は真値スケール 0.05〜0.2 µL に対して 5〜20 倍。ドメイン側が必ず上書きする
+前提でよいか」と質問し、「docs に明記した」という回答を受け入れて閉じた。
+**問いは数値の問いだったのに、文書の回答で満足した。**
+レビュー側の教訓として、`memory/MEMORY.md` 級の一般則にするなら
+「レビューで出した問いが数値の問いなら、文書の更新は回答にならない。測るか、測らせる」。
+
+## ReLU 維持の判断 → 妥当
+
+線形化の代案を退けた 2 つの理由に同意する。
+
+1. 線形出力が厳密 0 になるのは 0/4096 で、blank の真値 0 を表現できない。
+   ReLU 化の唯一の目的が失われる
+2. `valid_sample_mask` が `mean > 0` を要求するので、負の予測は**黙って**集計から落ちる。
+   ReLU なら `MeanSaturationDiagnostic` が数えるが、線形には対応する機構が無い。
+   「壊れ方が見えなくなる」方向の変更なので採らないのが正しい
+
+## 検証結果（5 巡目）
+
+コンテナ（`pcb-assembly-ml-ml-1`）で実行。実機テストは実行していない。
+
+- `pytest tests/ml -m "not hardware and not e2e"`: **pass**（1324 passed / 1 skipped / exit 0）
+- `src/` の変更は `heads.py` のみ（`git diff --cached main --stat -- src/` で確認）
+- 変異 4 件: HD-W1 killed（3 failed、seed 0 で発火）／ HD-W2 killed（40 failed）／
+  MUT-C1 killed（2 failed）／ **MUT-C2 survived（S5-1）**
+- 初期化時全滅率を 300 seed × 3 regime × 複数 bias で独立実測（上表）
+- 一時 plugin / script は削除済み。working tree に残骸なし
+
+## 残課題（別 MR でよい）
+
+1. S5-1: 学習後の平均が conditioning に応じて動くことを 1 本足す
+2. S5-2 / S5-3: 数値の食い違い 2 箇所
+3. 4 巡目の N4-1（`allclose` の既定 `rtol`）と N4-2（テスト名と観測点のずれ）
