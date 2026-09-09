@@ -1,23 +1,31 @@
-"""``ml.training.TrainingData`` の塗布量推定むけ実装.
+"""``ml.training`` の契約の塗布量推定むけ実装.
 
-Trainer は dataset の中身を知らない。知っているのは「epoch ごとに sample ID の並びが
-決まり、それを batch へ実体化できる」ことだけ。ここはその 2 つを繋ぐだけの薄い層で、
-読み出しは :mod:`ml.paste_volume.dataset`、前処理と詰め込みは
-:mod:`ml.paste_volume.batch` が担う。
+Trainer は dataset の中身も loss の形も知らない。知っているのは「epoch ごとに sample ID の
+並びが決まり、それを batch へ実体化できる」ことと「batch を渡すと微分可能な 0 次元 loss と
+観測値が返る」ことだけ。ここはその境界を繋ぐだけの薄い層で、読み出しは
+:mod:`ml.paste_volume.dataset`、前処理と詰め込みは :mod:`ml.paste_volume.batch`、model は
+:mod:`ml.paste_volume.model` が担う。
 
 ``plan_epoch`` は純関数でなければならない。Trainer は checkpoint に載せた batch plan と
 の厳密一致を要求するので、ここが epoch 途中の resume を支えている。
+
+:class:`PasteVolumeTask` は :class:`~ml.training.task.GaussianRegressionTask` を継承も委譲も
+しない。あちらは 4 次元 ``images`` の :class:`~ml.training.task.GaussianBatch` を前提にして
+いて、view 軸を持つ :class:`~ml.paste_volume.batch.PasteVolumeBatch` を渡せない。loss の式は
+:func:`~ml.model.loss.weighted_gaussian_negative_log_likelihood` の 1 本を共有するので、
+複製されるのは ``reduce`` の集計だけとする。
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Self, override
+from typing import Self, cast, override
 
 import attrs
 import torch
+from torch import Tensor, nn
 
 from ml.data.batch import BatchShape, plan_pixel_budget_batches
 from ml.data.split import (
@@ -26,13 +34,30 @@ from ml.data.split import (
     SplitName,
     SplitRatios,
 )
+from ml.evaluation.compile_parity import CompileOptions
+from ml.evaluation.regression import (
+    GaussianPredictions,
+    GaussianRegressionMetrics,
+    MeanSaturationDiagnostic,
+    ZeroTargetMetrics,
+)
+from ml.model.loss import weighted_gaussian_negative_log_likelihood
+from ml.model.multiview import MultiViewGaussianRegressor
 from ml.paste_volume.batch import PasteVolumeBatch, PasteVolumeCollator
 from ml.paste_volume.dataset import PasteVolumeDataset
 from ml.paste_volume.index import PasteVolumeSampleIndex, SplitDimension
 from ml.training.data import TrainingData
+from ml.training.task import GaussianObservation, StepResult, TrainingTask
 
 # LeaveOneGroupOutPlan へ渡す次元名。fold ごとの乱数種の材料に入る。
 _SESSION_DIMENSION = "session"
+
+# 真値 0 の部分集団の metric へ付ける接頭辞。
+#
+# ZeroTargetMetrics は sample_count / weight_sum / mean_absolute_error /
+# one_standard_deviation_coverage を GaussianRegressionMetrics と同じ名前で持つ。
+# 接頭辞なしで同じ写像へ入れると、blank 16 件の値が全体の値を黙って上書きする。
+_ZERO_TARGET_PREFIX = "zero_target_"
 
 
 @attrs.frozen
@@ -245,6 +270,148 @@ class PasteVolumeTrainingData(TrainingData[PasteVolumeBatch]):
         )
 
 
+class PasteVolumeTask(TrainingTask[PasteVolumeBatch, GaussianObservation]):
+    """多視点 batch を重み付き Gaussian negative log likelihood で学習する.
+
+    compile 済み callable は別の属性に持ち、:attr:`model` は常に元の module を返す。
+
+    こうしないと ``state_dict()`` のキーへ ``_orig_mod.`` が混ざり、checkpoint と export の
+    公開契約が壊れる。
+    """
+
+    def __init__(self, model: MultiViewGaussianRegressor) -> None:
+        self._model = model
+        self._forward: Callable[..., tuple[Tensor, Tensor]] = model
+
+    @property
+    @override
+    def model(self) -> nn.Module:
+        """Compile 前の本体 module."""
+
+        return self._model
+
+    @override
+    def training_step(self, batch: PasteVolumeBatch) -> StepResult[GaussianObservation]:
+        """微分可能な negative log likelihood と、detach 済み観測値を返す.
+
+        batch の形は検算しない。
+
+        :meth:`~ml.paste_volume.batch.PasteVolumeCollator.collate` が構築の仕方で形を
+        決めていて、食い違いは model の入力検査が捕まえる。同じ不整合に検出器を 2 つ置くと
+        前段が後段を隠して回帰に気付けなくなる。
+        """
+
+        mean, log_variance = self._forward(
+            batch.images, batch.valid_pixel_mask, batch.conditioning
+        )
+        loss = weighted_gaussian_negative_log_likelihood(
+            mean, log_variance, batch.target, batch.sample_weight
+        )
+        return StepResult(
+            loss=loss,
+            observation=_observation_of(batch, mean, log_variance),
+            sample_count=int(batch.images.shape[0]),
+        )
+
+    @override
+    def evaluation_step(self, batch: PasteVolumeBatch) -> GaussianObservation:
+        """勾配を作らずに予測と実測を返す."""
+
+        with torch.no_grad():
+            mean, log_variance = self._forward(
+                batch.images, batch.valid_pixel_mask, batch.conditioning
+            )
+        return _observation_of(batch, mean, log_variance)
+
+    @override
+    def reduce(
+        self, observations: Sequence[GaussianObservation]
+    ) -> Mapping[str, float]:
+        """観測値を連結し、回帰 metric と 2 つの診断を返す.
+
+        :class:`~ml.evaluation.regression.MeanSaturationDiagnostic` と
+        :class:`~ml.evaluation.regression.ZeroTargetMetrics` は主要 metric が測れなくても
+        返す。
+
+        平均 head の ReLU が全 sample で 0 に張り付くと
+        :meth:`~ml.evaluation.regression.GaussianPredictions.valid_sample_mask` が
+        ``mean > 0`` を要求するため回帰 metric を 1 つも出せず、空の写像だけを返すと
+        運用者が受け取るのは Trainer の「monitor がありません」になって真の原因が読めない。
+
+        真値 0 の集団は :class:`~ml.evaluation.regression.GaussianRegressionMetrics` に
+        一切現れないので、blank 16 件はここが唯一の観測点になる。
+
+        主要 monitor を欠かせること自体は変えない。評価できない run は Trainer が
+        従来どおり止める。
+        """
+
+        if not observations:
+            return {}
+        predictions = GaussianPredictions(
+            mean=torch.cat([item.mean for item in observations]),
+            log_variance=torch.cat([item.log_variance for item in observations]),
+            target=torch.cat([item.target for item in observations]),
+            sample_weight=torch.cat([item.sample_weight for item in observations]),
+        )
+        if predictions.validate():
+            return {}
+        values = _as_float_mapping(MeanSaturationDiagnostic.measure(predictions))
+        metrics, _ = GaussianRegressionMetrics.measure(predictions)
+        if metrics is not None:
+            values.update(_as_float_mapping(metrics))
+        zero_target, _ = ZeroTargetMetrics.measure(predictions)
+        if zero_target is not None:
+            values.update(_as_float_mapping(zero_target, prefix=_ZERO_TARGET_PREFIX))
+        return values
+
+    @override
+    def compile_forward(self, options: CompileOptions) -> None:
+        """Forward だけを ``torch.compile`` 済み callable へ差し替える."""
+
+        if error := options.validate():
+            raise ValueError(error)
+        self._forward = cast(
+            Callable[..., tuple[Tensor, Tensor]],
+            torch.compile(
+                self._model,
+                backend=options.backend,
+                mode=options.mode,
+                fullgraph=options.fullgraph,
+                dynamic=options.dynamic,
+            ),
+        )
+
+
+def _observation_of(
+    batch: PasteVolumeBatch, mean: Tensor, log_variance: Tensor
+) -> GaussianObservation:
+    """計算グラフを切り離した観測値へ束ねる.
+
+    ``sample_ids`` は載せない。
+
+    :class:`~ml.training.task.GaussianObservation` は ``ml`` 側の型で、session ごとの
+    slice は evaluate 側が split manifest から引き直す。
+    """
+
+    return GaussianObservation(
+        mean=mean.detach(),
+        log_variance=log_variance.detach(),
+        target=batch.target.detach(),
+        sample_weight=batch.sample_weight.detach(),
+    )
+
+
+def _as_float_mapping(
+    record: attrs.AttrsInstance, *, prefix: str = ""
+) -> dict[str, float]:
+    """Frozen な集計結果を、logger へ渡せる float の写像へ落とす."""
+
+    return {
+        f"{prefix}{name}": float(cast(float, value))
+        for name, value in attrs.asdict(record).items()
+    }
+
+
 def _is_training(split: SplitName) -> bool:
     """その split を学習として扱うか.
 
@@ -369,6 +536,7 @@ def _sample_ids_of(
 
 
 __all__ = [
+    "PasteVolumeTask",
     "PasteVolumeTrainingConfig",
     "PasteVolumeTrainingData",
 ]
