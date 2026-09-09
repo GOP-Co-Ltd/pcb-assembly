@@ -22,6 +22,8 @@ import pytest
 import torch
 from torchvision.io import write_png
 
+from ml.model.multiview import MultiViewGaussianRegressor
+from ml.paste_volume.model import PasteVolumeModelConfig, build_paste_volume_model
 from pcbasm.geometry import Point2d
 from pcbasm.geometry.packing import Rect
 from pcbasm.pasting.dataset.metadata import (
@@ -68,6 +70,27 @@ PIXEL_PER_MM = 28.677782176153425
 CELL_SIZE_MM = 1.8
 CELL_GAP_MM = 0.4
 VIEW_OFFSET_MM = 1.0
+
+# ``MultiViewGaussianRegressor`` の state_dict キー。checkpoint と export の公開契約
+# なので、テストから名前で引いてよい。
+PADDING_PIXEL_NAME = "_encoder._encoder._padding_pixel"
+STEM_CONVOLUTION_NAME = "_encoder._encoder._stem.0.0.weight"
+
+
+def paste_volume_model(seed: int = 0) -> MultiViewGaussianRegressor:
+    """既定 config の v1 model を、初期化 seed を固定して組む.
+
+    model の検査と task の検査が同じ初期化を使う。
+
+    2 つの test module へ逐語で置くと、片方だけ config を変えても気づけない。
+    """
+
+    torch.manual_seed(seed)
+    model, error = build_paste_volume_model(PasteVolumeModelConfig())
+    assert error is None, error
+    assert model is not None
+    return model
+
 
 skip_if_no_real_sessions = pytest.mark.skipif(
     not PASTE_VOLUME_DATASET_DIR.is_dir()
@@ -340,6 +363,7 @@ def _metadata(
 
 __all__ = [
     "CROP_SIZE_PX",
+    "PADDING_PIXEL_NAME",
     "PASTE_VOLUME_DATASET_DIR",
     "PERIPHERAL_VIEW_COUNT",
     "MEASURED_RATIO",
@@ -349,9 +373,11 @@ __all__ = [
     "PRE_BLUE",
     "PRE_GREEN_BASE",
     "PROJECT_ROOT",
+    "STEM_CONVOLUTION_NAME",
     "VIEW_COUNT",
     "SyntheticCell",
     "corrupt_metadata",
+    "paste_volume_model",
     "skip_if_no_real_sessions",
     "write_session",
 ]
