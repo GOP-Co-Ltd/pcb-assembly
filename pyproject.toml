@@ -73,14 +73,10 @@ ml-runtime = [
 ]
 ml-train = [
     { include-group = "ml-runtime" },
-    "hydra-core>=1.3,<2",
     "mlflow>=3.15,<4",
 ]
 ml-hpo = [
     { include-group = "ml-train" },
-    # optuna 4.x に対応する hydra-optuna-sweeper は dev release しか存在しない
-    # （最新安定版 1.2.0 は optuna<3.0.0 を要求する）。
-    "hydra-optuna-sweeper==1.4.0.dev9",
     "optuna>=4.9,<5",
 ]
 ml-export = [

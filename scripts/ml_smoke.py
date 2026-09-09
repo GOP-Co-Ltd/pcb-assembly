@@ -39,7 +39,6 @@ _DUMMY_SHAPES = ((64, 64), (1024, 256))
 _REPORTED_PACKAGES = (
     "torch",
     "torchvision",
-    "hydra-core",
     "optuna",
     "mlflow",
     "onnx",
@@ -266,6 +265,44 @@ def check_png_decode(report: Report) -> None:
         report.ok(name, f"shape {tuple(decoded.shape)}、dtype {decoded.dtype}")
 
 
+def check_packaged_configuration(report: Report) -> None:
+    """同梱設定を合成して frozen attrs へ落とせる.
+
+    計画「開発環境の確認」項目 6。設定は wheel 同梱の TOML 層を合成し、strict converter
+    で構造化する経路しか持たないので、その 1 本を通しで確認する。
+    """
+
+    name = "packaged configuration"
+    with _checked(report, name):
+        from ml.config.composition import ConfigComposition
+        from ml.config.packaged import PackagedConfiguration
+        from ml.serialization import make_strict_converter
+        from ml.training.loop import TrainerConfig
+
+        packaged = PackagedConfiguration.locate()
+        if error := packaged.validate():
+            raise AssertionError(error)
+        composition, error = ConfigComposition.from_arguments(
+            ("trainer=edge",),
+            configuration_root=packaged.root,
+            base_names=(),
+        )
+        if composition is None:
+            raise AssertionError(error)
+        config, error = composition.structure(
+            TrainerConfig, converter=make_strict_converter()
+        )
+        if config is None:
+            raise AssertionError(error)
+        if error := config.validate():
+            raise AssertionError(error)
+        groups = packaged.group_names()
+        options = ", ".join(
+            f"{group}={'/'.join(packaged.option_names(group))}" for group in groups
+        )
+        report.ok(name, f"{len(groups)} group（{options}）")
+
+
 def check_mlflow(report: Report, tracking_uri: str | None) -> None:
     """MLflow tracking server へ run、metric、artifact を書いて読み戻す."""
 
@@ -319,14 +356,10 @@ def main(argv: list[str] | None = None) -> int:
         check_inductor_compile,
         check_model_forward,
         check_png_decode,
+        check_packaged_configuration,
     )
     for check in checks:
         check(report)
-    # 計画「開発環境の確認」項目 6。packaged config が入るまでは未実装として残す
-    report.skip(
-        "hydra compose",
-        "packaged config (pcbasm.pasting.paste_volume.conf) は未実装",
-    )
     check_mlflow(report, arguments.mlflow_tracking_uri)
 
     print()
