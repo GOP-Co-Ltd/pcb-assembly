@@ -157,8 +157,10 @@ def _assert_same_weights(
 
 
 @contextmanager
-def _terminating_at(training_forward: int) -> Iterator[list[int]]:
-    """指定回目の学習 forward で自分自身へ SIGTERM を送る.
+def _counting_training_forwards(
+    *, terminate_at: int | None = None
+) -> Iterator[list[int]]:
+    """学習 forward を数え、指定回目で自分自身へ SIGTERM を送る.
 
     学習 loop の外側から、時間に依らず決定論的に中断を起こす。
 
@@ -166,8 +168,11 @@ def _terminating_at(training_forward: int) -> Iterator[list[int]]:
     model も内側で組み立てるため。task を差し替える口を production 側へ
     開けると、その口は本番では誰も使わない。
 
-    ``yield`` する list は学習 forward の回数で、中断が起きたかどうかを
-    呼び出し側が観測する材料になる。
+    ``yield`` する list は学習 forward の回数。中断が起きたかどうかと、
+    再開した run が checkpoint のぶんを踏み直していないかを、重みの一致とは
+    別に観測する材料になる。
+
+    ``terminate_at`` が ``None`` なら数えるだけで中断しない。
     """
 
     counted: list[int] = [0]
@@ -176,7 +181,7 @@ def _terminating_at(training_forward: int) -> Iterator[list[int]]:
         if not isinstance(module, MultiViewGaussianRegressor) or not module.training:
             return
         counted[0] += 1
-        if counted[0] == training_forward:
+        if counted[0] == terminate_at:
             os.kill(os.getpid(), signal.SIGTERM)
 
     handle: RemovableHandle = register_module_forward_hook(observe)
@@ -410,6 +415,78 @@ class TestRecordedParameters:
         assert logger.tags["split.fingerprint"].startswith("sha256:")
         assert "git.commit" in logger.tags or "git.unavailable" in logger.tags
 
+    def test_it_records_the_batch_pixel_budget(
+        self, dataset_root: Path, tmp_path: Path
+    ):
+        """仕様書 §4 の batch pixel budget が param に載ること.
+
+        可変 shape の batch sampler では、1 batch の sample 数ではなく予算のほうが run
+        を再現する値になる。
+        """
+
+        run_directory = tmp_path / "run"
+        config = _composed(dataset_root, run_directory)
+
+        _, logger = _trained(dataset_root, run_directory)
+
+        assert logger.params["data.max_batch_pixels"] == config.data.max_batch_pixels
+        assert logger.params["data.max_batch_size"] == 4
+
+    def test_it_tags_the_machines_and_the_model_schema(
+        self, dataset_root: Path, tmp_path: Path
+    ):
+        """仕様書 §4 の machine ID と model schema version が tag に載ること."""
+
+        _, logger = _trained(dataset_root, tmp_path / "run")
+
+        machines = {entry.machine_id for entry in _index(dataset_root).entries}
+        assert logger.tags["dataset.machine_ids"] == ",".join(sorted(machines))
+        assert logger.tags["model.schema_version"] == "1"
+
+    def test_a_run_started_from_other_weights_names_its_parent_run(
+        self, dataset_root: Path, tmp_path: Path
+    ):
+        """仕様書 §4 の parent base run ID が tag に載ること.
+
+        weights.pt は run 識別子を持たないので、同じ run directory の best.pt から
+        引く。weight の所在だけでは、それを作った run の記録へ 1 手で辿れない。
+        """
+
+        source = tmp_path / "source"
+        parent, error = run_training(
+            _composed(dataset_root, source),
+            logger=RecordingExperimentLogger(run_id="parent-run"),
+            device=DEVICE,
+        )
+        assert error is None, error
+        assert parent is not None
+        logger = RecordingExperimentLogger()
+
+        run_training(
+            _composed(
+                dataset_root,
+                tmp_path / "target",
+                f"model.initial_weights={source / WEIGHTS_FILE_NAME}",
+                "trainer.max_epochs=1",
+            ),
+            logger=logger,
+            device=DEVICE,
+        )
+
+        assert logger.tags["model.parent_run_id"] == "parent-run"
+
+    def test_a_run_without_a_parent_has_no_parent_tag(
+        self, dataset_root: Path, tmp_path: Path
+    ):
+        """起点を渡さない run に親を書かないこと.
+
+        上の tag が「常に何かを書く」形へ退化していないか。
+        """
+
+        _, logger = _trained(dataset_root, tmp_path / "run")
+
+        assert "model.parent_run_id" not in logger.tags
+
 
 class TestComputationBudget:
     """仕様書 §2 の parameter 数・計算量の上限."""
@@ -562,7 +639,7 @@ class TestInterruptionParity:
         """
 
         run_directory = tmp_path / "interrupted"
-        with _terminating_at(2) as counted:
+        with _counting_training_forwards(terminate_at=2) as counted:
             outcome, logger = _trained(dataset_root, run_directory)
         checkpoint, reason = CheckpointStore(run_directory).load("latest")
 
@@ -586,7 +663,7 @@ class TestInterruptionParity:
         上の検査が「常に signal で止まる」ようになっていないことを示す。
         """
 
-        with _terminating_at(10_000) as counted:
+        with _counting_training_forwards() as counted:
             outcome, logger = _trained(dataset_root, tmp_path / "reference")
 
         assert outcome.stop_reason == "max_epochs"
@@ -596,19 +673,28 @@ class TestInterruptionParity:
     def test_resume_reaches_the_uninterrupted_weights_and_metrics(
         self, dataset_root: Path, tmp_path: Path
     ):
-        """``resume.checkpoint`` から続けた run が通し実行に一致すること."""
+        """``resume.checkpoint`` から続けた run が通し実行に一致すること.
+
+        一致だけでは「checkpoint を無視して最初から回した」run と区別できない。同じ argv・同じ seed
+        なので、resume を捨てても同じ最終重みへ着く。
+
+        再開した run が学習した batch の数を数え、通し実行より少ないことを対で見る（実測 8 < 9。未 commit の
+        1 batch を踏み直すので 1 + 8 = 9）。
+        """
 
         reference = tmp_path / "reference"
-        expected, _ = _trained(dataset_root, reference)
+        with _counting_training_forwards() as reference_forwards:
+            expected, _ = _trained(dataset_root, reference)
         interrupted = tmp_path / "interrupted"
-        with _terminating_at(2):
+        with _counting_training_forwards(terminate_at=2) as interrupted_forwards:
             first, _ = _trained(dataset_root, interrupted)
 
-        second, _ = _trained(
-            dataset_root,
-            interrupted,
-            f"resume.checkpoint={interrupted / 'latest.pt'}",
-        )
+        with _counting_training_forwards() as resumed_forwards:
+            second, _ = _trained(
+                dataset_root,
+                interrupted,
+                f"resume.checkpoint={interrupted / 'latest.pt'}",
+            )
 
         assert first.stop_reason == "signal"
         assert second.stop_reason == "max_epochs"
@@ -620,6 +706,32 @@ class TestInterruptionParity:
             _state_dict(CheckpointStore(interrupted), "final"),
             _state_dict(CheckpointStore(reference), "final"),
         )
+        assert 0 < resumed_forwards[0] < reference_forwards[0]
+        assert (
+            interrupted_forwards[0] + resumed_forwards[0] == reference_forwards[0] + 1
+        )
+
+    def test_starting_over_repeats_every_training_forward(
+        self, dataset_root: Path, tmp_path: Path
+    ):
+        """観測器の自己検査。resume を渡さなければ回数が減らないこと.
+
+        上の「再開のほうが少ない」が、中断した run directory を使い回すこと自体の
+        効果や「2 回目は常に短い」形へ退化していないかを見る。``resume.checkpoint``
+        を落とすと、同じ directory でも通し実行と同じ回数を学習する。
+        """
+
+        with _counting_training_forwards() as reference_forwards:
+            _trained(dataset_root, tmp_path / "reference")
+        interrupted = tmp_path / "interrupted"
+        with _counting_training_forwards(terminate_at=2):
+            _trained(dataset_root, interrupted)
+
+        with _counting_training_forwards() as restarted_forwards:
+            outcome, _ = _trained(dataset_root, interrupted)
+
+        assert outcome.stop_reason == "max_epochs"
+        assert restarted_forwards[0] == reference_forwards[0]
 
     def test_the_interrupted_run_had_not_reached_those_weights(
         self, dataset_root: Path, tmp_path: Path
@@ -632,7 +744,7 @@ class TestInterruptionParity:
         reference = tmp_path / "reference"
         _trained(dataset_root, reference)
         interrupted = tmp_path / "interrupted"
-        with _terminating_at(2):
+        with _counting_training_forwards(terminate_at=2):
             _trained(dataset_root, interrupted)
 
         with pytest.raises(AssertionError):
@@ -640,6 +752,89 @@ class TestInterruptionParity:
                 _state_dict(CheckpointStore(interrupted), "final"),
                 _state_dict(CheckpointStore(reference), "final"),
             )
+
+
+class TestResumeRejections:
+    """再開できない組み合わせを、続きとして記録しないこと.
+
+    ``resume.checkpoint`` は「同じ run の続き」なので、dataset と設定の
+    fingerprint 一致を要求する。合わない checkpoint から続けると、別条件で
+    学んだ重みが同じ run の metric 系列に混ざる。
+    """
+
+    def _interrupted(self, dataset_root: Path, run_directory: Path) -> Path:
+        with _counting_training_forwards(terminate_at=2):
+            outcome, _ = _trained(dataset_root, run_directory)
+
+        assert outcome.stop_reason == "signal"
+        return run_directory / "latest.pt"
+
+    def test_it_refuses_a_checkpoint_of_another_configuration(
+        self, dataset_root: Path, tmp_path: Path
+    ):
+        """設定を変えた再開を拒否すること.
+
+        ``Trainer`` が config fingerprint で拒む（entrypoint 側に検出器を
+        重ねない）ので、理由は例外で届く。
+        """
+
+        interrupted = tmp_path / "interrupted"
+        checkpoint = self._interrupted(dataset_root, interrupted)
+
+        with pytest.raises(ValueError) as exception:
+            _trained(
+                dataset_root,
+                interrupted,
+                f"resume.checkpoint={checkpoint}",
+                "trainer.learning_rate=0.5",
+            )
+
+        assert "fingerprint" in str(exception.value)
+
+    def test_the_same_configuration_resumes(self, dataset_root: Path, tmp_path: Path):
+        """設定を変えなければ通ること.
+
+        上の拒否が「再開は常に失敗する」形へ退化していないことを、同じ argv から 1 つの上書きを外しただけで確かめる。
+        """
+
+        interrupted = tmp_path / "interrupted"
+        checkpoint = self._interrupted(dataset_root, interrupted)
+
+        outcome, _ = _trained(
+            dataset_root, interrupted, f"resume.checkpoint={checkpoint}"
+        )
+
+        assert outcome.stop_reason == "max_epochs"
+
+    def test_it_refuses_a_checkpoint_of_another_dataset(
+        self, dataset_root: Path, tmp_path: Path
+    ):
+        """別の dataset での再開を拒否すること.
+
+        run directory の split.json が dataset fingerprint を持つので、
+        checkpoint へ届く前にそこで落ちる。
+        """
+
+        interrupted = tmp_path / "interrupted"
+        checkpoint = self._interrupted(dataset_root, interrupted)
+        other = tmp_path / "other-dataset"
+        write_synthetic_sessions(
+            other, session_count=SESSION_COUNT, cell_count=CELL_COUNT + 1
+        )
+
+        outcome, error = run_training(
+            _composed(
+                other,
+                interrupted,
+                f"resume.checkpoint={checkpoint}",
+            ),
+            logger=RecordingExperimentLogger(),
+            device=DEVICE,
+        )
+
+        assert outcome is None
+        assert error is not None
+        assert "fingerprint" in error
 
 
 class TestSeeding:
