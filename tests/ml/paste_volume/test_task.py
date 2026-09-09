@@ -1,16 +1,25 @@
 """``ml.training`` 実装の公開契約.
 
-Trainer は dataset の中身も loss の形も知らない。知っているのは「epoch ごとに sample ID の 並びが
-決まり、それを batch へ実体化できる」ことと「batch を渡すと微分可能な 0 次元 loss と
-観測値が返る」ことだけ。その契約をここで固定する。
+Trainer は dataset の中身も loss の形も知らない。
+
+知っているのは 2 つだけ。
+
+epoch ごとに sample ID の並びが決まり、それを batch へ実体化できること。
+
+batch を渡すと微分可能な 0 次元 loss と観測値が返ること。
+
+その契約をここで固定する。
 """
 
 from __future__ import annotations
 
+import contextlib
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
+from typing import Any, cast
 
+import attrs
 import pytest
 import torch
 from torch import Tensor, nn
@@ -23,14 +32,9 @@ from ml.evaluation.compile_parity import (
     CompileParityResult,
 )
 from ml.model.loss import weighted_gaussian_negative_log_likelihood
-from ml.model.multiview import MultiViewGaussianRegressor
 from ml.paste_volume.batch import PasteVolumeBatch, PasteVolumeCollator
 from ml.paste_volume.index import PasteVolumeSampleIndex
-from ml.paste_volume.model import (
-    INPUT_CHANNELS,
-    PasteVolumeModelConfig,
-    build_paste_volume_model,
-)
+from ml.paste_volume.model import INPUT_CHANNELS
 from ml.paste_volume.task import (
     PasteVolumeTask,
     PasteVolumeTrainingConfig,
@@ -39,10 +43,13 @@ from ml.paste_volume.task import (
 from tests.ml.helpers import skip_if_no_inductor
 from tests.ml.paste_volume.helpers import (
     CROP_SIZE_PX,
+    PADDING_PIXEL_NAME,
     PASTE_VOLUME_DATASET_DIR,
     PIXEL_PER_MM,
+    STEM_CONVOLUTION_NAME,
     VIEW_COUNT,
     SyntheticCell,
+    paste_volume_model,
     skip_if_no_real_sessions,
     write_session,
 )
@@ -1014,16 +1021,6 @@ TARGET_MAXIMUM_UL = 0.30
 # + ZeroTargetMetrics 6。接頭辞を外すと 4 本が衝突して 22 本になる
 REDUCED_METRIC_COUNT = 26
 
-PADDING_PIXEL_NAME = "_encoder._encoder._padding_pixel"
-
-
-def _model(seed: int = 0) -> MultiViewGaussianRegressor:
-    torch.manual_seed(seed)
-    model, error = build_paste_volume_model(PasteVolumeModelConfig())
-    assert error is None
-    assert model is not None
-    return model
-
 
 def _task_batch(
     *,
@@ -1038,8 +1035,17 @@ def _task_batch(
 
     post 側 3 channel に、真値の大きい sample ほど広い明領域を置く。
 
-    振幅だけを変えても encoder 冒頭の GroupNorm が sample ごとに正規化して消すので、 空間構造で差を付けないと
-    8 sample を見分けられない（実測: 振幅だけの差では 200 step 後も平均絶対誤差が初期値から動かない）。
+    6 channel 共通の振幅だけを真値へ比例させた入力では 8 sample を学習できない。
+
+    実測（200 step + cosine、5 seed）で最終 / 初期の平均絶対誤差が 0.8421 のまま。
+
+    これは定数予測の床で、``group_norm_groups=1`` にしても 0.8421 で変わらない。
+
+    一方で pre 対 post の contrast は GroupNorm を生き残る。
+
+    post 3 channel だけを明るくした batch は同じ条件で 0.0210 まで下がる。
+
+    ここで空間構造を使うのは、面積の差（0.0314）が同じく学習できる形だから。
     """
 
     generator = torch.Generator().manual_seed(seed)
@@ -1073,6 +1079,53 @@ def _task_batch(
     )
 
 
+@contextlib.contextmanager
+def _recorded_forwards(
+    task: PasteVolumeTask, observe: Callable[[Any], bool]
+) -> Iterator[list[bool]]:
+    """Model の forward ごとに ``observe`` の値を記録する.
+
+    hook は出力が detach される前に呼ばれる。
+
+    ``_observation_of`` を通ったあとでは、グラフの有無も compile の痕跡も残らない。
+    """
+
+    seen: list[bool] = []
+
+    def record(_module: nn.Module, _args: tuple[Any, ...], output: Any) -> None:
+        seen.append(observe(output))
+
+    handle = task.model.register_forward_hook(record)
+    try:
+        yield seen
+    finally:
+        handle.remove()
+
+
+def _requires_grad(output: Any) -> bool:
+    """Forward 出力が計算グラフに繋がっているか."""
+
+    mean, log_variance = cast(tuple[Tensor, Tensor], output)
+    return bool(mean.requires_grad or log_variance.requires_grad)
+
+
+def _is_compiling(_output: Any) -> bool:
+    """Forward が ``torch.compile`` の trace 下で走ったか."""
+
+    return bool(torch.compiler.is_compiling())
+
+
+def _collated_batch(tmp_path: Path) -> tuple[tuple[str, ...], PasteVolumeBatch]:
+    """``PasteVolumeCollator`` が実際に組んだ train batch を 1 本返す."""
+
+    data = _data(tmp_path)
+    planned = data.plan_epoch(split="train", epoch=0)[0]
+    batch = data.materialize(
+        planned, split="train", epoch=0, training=True, device=DEVICE
+    )
+    return planned, batch
+
+
 def _padding_pixel_gradient(model: nn.Module) -> float:
     gradient = dict(model.named_parameters())[PADDING_PIXEL_NAME].grad
     assert gradient is not None
@@ -1086,9 +1139,13 @@ def _overfit(
 
     optimizer は ``ml.training.loop`` と同じ AdamW・weight decay・勾配 clip にそろえる。
 
-    学習率だけは cosine で減衰させる。負の対数尤度は残差が縮むほど ``exp(-log 分散)`` が
-    大きくなって条件が悪くなるので、固定学習率では最後まで振動が残る（実測: 5 seed のうち
-    2 seed で最終の平均絶対誤差が初期値の 1/10 に収まらない）。
+    学習率だけは cosine で減衰させる。
+
+    負の対数尤度は残差が縮むほど ``exp(-log 分散)`` が大きくなって条件が悪くなる。
+
+    固定学習率では 5 seed 中 4 seed が最終の平均絶対誤差を初期の 1/10 に収められない。
+
+    実測は seed 0-4 で 0.1482 / 0.0223 / 0.6238 / 0.4071 / 0.1719。
     """
 
     model = task.model
@@ -1128,7 +1185,7 @@ class TestPasteVolumeTaskSteps:
     """1 batch を loss と観測値へ変換する契約."""
 
     def test_returns_a_differentiable_loss_and_a_detached_observation(self):
-        task = PasteVolumeTask(_model())
+        task = PasteVolumeTask(paste_volume_model())
         batch = _task_batch()
 
         result = task.training_step(batch)
@@ -1144,7 +1201,7 @@ class TestPasteVolumeTaskSteps:
     def test_shares_the_loss_of_the_ml_core(self):
         """Loss の値が ``ml.model.loss`` の 1 本と一致すること."""
 
-        task = PasteVolumeTask(_model())
+        task = PasteVolumeTask(paste_volume_model())
         batch = _task_batch()
 
         result = task.training_step(batch)
@@ -1159,32 +1216,56 @@ class TestPasteVolumeTaskSteps:
             float(expected.item())
         )
 
-    def test_evaluates_without_building_a_graph(self):
-        """評価経路が勾配を作らないこと.
-
-        学習経路の ``loss.requires_grad`` を見る検査と対になっていて、両方が緑のときだけ
-        「学習では作り、評価では作らない」が言える。
-        """
-
-        task = PasteVolumeTask(_model())
-
-        observation = task.evaluation_step(_task_batch())
-
-        assert not observation.mean.requires_grad
-        assert not observation.log_variance.requires_grad
-
     def test_exposes_the_module_that_owns_the_state(self):
-        model = _model()
+        model = paste_volume_model()
 
         assert PasteVolumeTask(model).model is model
 
 
+class TestPasteVolumeTaskGradientGraph:
+    """学習経路はグラフを作り、評価経路は作らないこと.
+
+    観測値は ``_observation_of`` が detach するので、返り値の
+    ``requires_grad`` は ``torch.no_grad()`` の有無に依らず必ず False になる。
+
+    detach より前を forward hook で見る。
+    """
+
+    def test_evaluates_without_building_a_graph(self):
+        task = PasteVolumeTask(paste_volume_model())
+
+        with _recorded_forwards(task, _requires_grad) as built:
+            observation = task.evaluation_step(_task_batch(sample_count=2))
+
+        assert built == [False]
+        assert not observation.mean.requires_grad
+
+    def test_the_same_observation_sees_the_graph_while_training(self):
+        """自己検査。学習経路では同じ観測点が True になること."""
+
+        task = PasteVolumeTask(paste_volume_model())
+
+        with _recorded_forwards(task, _requires_grad) as built:
+            result = task.training_step(_task_batch(sample_count=2))
+
+        assert built == [True]
+        assert result.loss.requires_grad
+
+
 class TestPasteVolumeTaskOverfitting:
-    """8 sample を覚えきれること."""
+    """Head まで含めた経路が勾配を通して収束すること.
+
+    「8 sample を覚えきれる」ことは encoder が学習している証拠にはならない。
+
+    実測: encoder を全凍結し head 2 本 258 要素だけを学習させると比 0.0009 で、
+    全条件の中で最良になる。凍結したランダム特徴の線形結合で足りてしまう。
+
+    encoder へ勾配が届くことは :class:`TestPasteVolumeTaskEncoderGradient` が測る。
+    """
 
     def test_drives_the_negative_log_likelihood_and_the_error_down(self):
         batch = _task_batch()
-        task = PasteVolumeTask(_model())
+        task = PasteVolumeTask(paste_volume_model())
 
         losses, errors = _overfit(task, batch)
 
@@ -1199,11 +1280,31 @@ class TestPasteVolumeTaskOverfitting:
         assert errors[-1] < errors[0] * OVERFIT_ERROR_RATIO
 
 
+class TestPasteVolumeTaskEncoderGradient:
+    """学習経路が encoder まで勾配を届けること."""
+
+    def test_flows_gradient_into_the_first_stem_convolution(self):
+        """1 段目の stem 畳み込みに 0 でない勾配が来ること.
+
+        head だけが学習しても過学習テストは通るので、経路はここで別に見る。
+
+        凍結側の対は ``test_model.py`` の freeze / 非 freeze が持つ。
+        """
+
+        task = PasteVolumeTask(paste_volume_model())
+
+        task.training_step(_task_batch(sample_count=2)).loss.backward()
+
+        gradient = dict(task.model.named_parameters())[STEM_CONVOLUTION_NAME].grad
+        assert gradient is not None
+        assert float(gradient.abs().max().item()) > 0.0
+
+
 class TestPasteVolumeTaskVariableShapes:
     """Bucket の違う batch を続けて通せること."""
 
     def test_runs_two_buckets_in_a_row(self):
-        task = PasteVolumeTask(_model())
+        task = PasteVolumeTask(paste_volume_model())
 
         first = task.training_step(_task_batch(sample_count=4))
         second = task.training_step(
@@ -1226,7 +1327,7 @@ class TestPasteVolumeTaskPaddingGradient:
     """Padding 領域の学習可能な画素へ勾配が流れること."""
 
     def test_flows_gradient_into_the_learnable_padding_pixel(self):
-        task = PasteVolumeTask(_model())
+        task = PasteVolumeTask(paste_volume_model())
 
         task.training_step(
             _task_batch(sample_count=2, invalid_columns=4)
@@ -1237,11 +1338,14 @@ class TestPasteVolumeTaskPaddingGradient:
     def test_the_same_observation_sees_no_gradient_without_padding(self):
         """自己検査。padding が生じない batch では同じ観測点が 0 になること.
 
-        全 有効 mask では ``torch.where`` が padding 画素を 1 つも選ばないので、勾配は
-        存在しても全要素 0 になる。観測が padding の有無を映していることの裏取り。
+        mask が全て有効だと ``torch.where`` は padding 画素を 1 つも選ばない。
+
+        勾配は存在しても全要素 0 になる。
+
+        観測が padding の有無を映していることの裏取り。
         """
 
-        task = PasteVolumeTask(_model())
+        task = PasteVolumeTask(paste_volume_model())
 
         task.training_step(_task_batch(sample_count=2)).loss.backward()
 
@@ -1252,10 +1356,24 @@ class TestPasteVolumeTaskReduce:
     """観測値の集計."""
 
     def test_returns_an_empty_mapping_without_observations(self):
-        assert PasteVolumeTask(_model()).reduce([]) == {}
+        assert PasteVolumeTask(paste_volume_model()).reduce([]) == {}
+
+    def test_returns_an_empty_mapping_for_misaligned_observations(self):
+        """件数のそろわない観測値を集計しないこと.
+
+        集計の失敗ではなく観測値の組み立ての誤りで、どの metric も意味を持たない。
+        """
+
+        task = PasteVolumeTask(paste_volume_model())
+        observation = task.evaluation_step(_task_batch(sample_count=2))
+        misaligned = attrs.evolve(
+            observation, target=torch.cat([observation.target, torch.ones(1, 1)])
+        )
+
+        assert task.reduce([misaligned]) == {}
 
     def test_reports_the_overall_metrics_and_both_diagnostics(self):
-        task = PasteVolumeTask(_model())
+        task = PasteVolumeTask(paste_volume_model())
         observation = task.evaluation_step(
             _task_batch(sample_count=4, targets=[0.0, 0.1, 0.2, 0.3])
         )
@@ -1273,7 +1391,7 @@ class TestPasteVolumeTaskReduce:
         共有する。接頭辞が外れると本数が 22 本へ減る。
         """
 
-        task = PasteVolumeTask(_model())
+        task = PasteVolumeTask(paste_volume_model())
         observation = task.evaluation_step(
             _task_batch(sample_count=4, targets=[0.0, 0.1, 0.2, 0.3])
         )
@@ -1292,7 +1410,7 @@ class TestPasteVolumeTaskReduce:
         返すと運用者は Trainer の「monitor がありません」しか受け取れない。
         """
 
-        task = PasteVolumeTask(_model())
+        task = PasteVolumeTask(paste_volume_model())
         observation = task.evaluation_step(
             _task_batch(sample_count=4, targets=[0.0, 0.0, 0.0, 0.0])
         )
@@ -1305,7 +1423,7 @@ class TestPasteVolumeTaskReduce:
         assert "zero_target_mean_absolute_error" in values
 
     def test_concatenates_every_observation(self):
-        task = PasteVolumeTask(_model())
+        task = PasteVolumeTask(paste_volume_model())
         observations = [
             task.evaluation_step(_task_batch(sample_count=2, targets=[0.1, 0.2])),
             task.evaluation_step(_task_batch(sample_count=3)),
@@ -1316,11 +1434,54 @@ class TestPasteVolumeTaskReduce:
         assert values["sample_count"] == 5
 
 
+class TestPasteVolumeTaskWithCollatedBatch:
+    """Collator が組んだ batch をそのまま学習経路へ通せること.
+
+    手で組んだ batch では ``conditioning`` の作り方も mask の極性も再宣言になる。
+
+    collator 側が別の量へ変わっても、手書きの batch では気づけない。
+    """
+
+    def test_takes_a_training_step_on_a_collated_batch(self, tmp_path: Path):
+        task = PasteVolumeTask(paste_volume_model())
+        planned, batch = _collated_batch(tmp_path)
+
+        result = task.training_step(batch)
+
+        assert result.validate() is None
+        assert result.sample_count == len(planned)
+        assert result.loss.requires_grad
+        assert bool(torch.isfinite(result.loss).item())
+
+    def test_feeds_the_conditioning_into_the_model(self, tmp_path: Path):
+        """``conditioning`` が model へ届いていること.
+
+        ``log(有効 pixel_per_mm)`` は仕様書 §2 が挙げた唯一の物理 scale 入力。
+
+        条件だけを変えた 2 batch で出力が動かなければ、経路が切れている。
+
+        観測は log 分散側。平均側は学習前 bias 一定で条件を映さない。
+        """
+
+        task = PasteVolumeTask(paste_volume_model())
+        _planned, batch = _collated_batch(tmp_path)
+        shifted = attrs.evolve(batch, conditioning=batch.conditioning + 1.0)
+
+        assert not torch.equal(
+            task.training_step(batch).observation.log_variance,
+            task.training_step(shifted).observation.log_variance,
+        )
+        assert not torch.equal(
+            task.evaluation_step(batch).log_variance,
+            task.evaluation_step(shifted).log_variance,
+        )
+
+
 class TestPasteVolumeTaskCompile:
     """``torch.compile`` を差し込む経路."""
 
     def test_keeps_the_state_dict_keys_after_compiling_the_forward(self):
-        model = _model()
+        model = paste_volume_model()
         task = PasteVolumeTask(model)
 
         task.compile_forward(CompileOptions())
@@ -1328,8 +1489,40 @@ class TestPasteVolumeTaskCompile:
         assert task.model is model
         assert [key for key in model.state_dict() if "_orig_mod" in key] == []
 
+    def test_routes_both_steps_through_the_compiled_forward(self):
+        """差し替えたあとの 2 経路が compile 済み callable を通ること.
+
+        ``compile_forward`` を no-op にする変異は、ここだけが落とせる。
+
+        backend は eager にする。dynamo を通したかどうかだけを見たいため。
+        """
+
+        task = PasteVolumeTask(paste_volume_model())
+        batch = _task_batch(sample_count=2)
+
+        task.compile_forward(CompileOptions(backend="eager"))
+        with _recorded_forwards(task, _is_compiling) as compiling:
+            task.training_step(batch)
+            task.evaluation_step(batch)
+
+        assert compiling == [True, True]
+
+    def test_keeps_the_eager_loss_after_compiling_the_forward(self):
+        """Compile しても loss が eager と一致すること."""
+
+        batch = _task_batch(sample_count=2)
+        eager = PasteVolumeTask(paste_volume_model()).training_step(batch).loss
+        task = PasteVolumeTask(paste_volume_model())
+
+        task.compile_forward(CompileOptions(backend="eager"))
+        compiled = task.training_step(batch).loss
+
+        assert float(compiled.detach().item()) == pytest.approx(
+            float(eager.detach().item())
+        )
+
     def test_rejects_compile_options_that_do_not_validate(self):
-        task = PasteVolumeTask(_model())
+        task = PasteVolumeTask(paste_volume_model())
 
         with pytest.raises(ValueError, match="backend"):
             task.compile_forward(CompileOptions(backend=""))
@@ -1345,7 +1538,7 @@ class TestPasteVolumeTaskCompile:
             )
 
         result, reason = CompileParityResult.measure(
-            _model(),
+            paste_volume_model(),
             (batch.images, batch.valid_pixel_mask, batch.conditioning),
             loss=loss,
             tolerances=FLOAT32_PARITY_TOLERANCES,
@@ -1356,4 +1549,6 @@ class TestPasteVolumeTaskCompile:
         assert result is not None
         assert result.passed is True
         # 突き合わせた勾配が 1 本も無いと within_tolerance が空全称で真になる
-        assert result.checked_gradient_count == sum(1 for _ in _model().parameters())
+        assert result.checked_gradient_count == sum(
+            1 for _ in paste_volume_model().parameters()
+        )
