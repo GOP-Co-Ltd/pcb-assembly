@@ -411,12 +411,19 @@ class TestResolveSession:
         assert "複数の session に一致します" in reason
 
     def test_reports_an_empty_selector(self, tmp_path: Path):
+        """空指定は「一致しない」でも「複数一致」でもない理由で落とす.
+
+        ガードを外すと空文字が全 fingerprint に前頭一致して「複数の session に
+        一致します」になる。理由まで見ないとその退化が素通りする。
+        """
+
         index = _two_sessions(tmp_path)
 
         fingerprint, reason = index.resolve_session("")
 
         assert fingerprint is None
         assert reason is not None
+        assert "指定が空です" in reason
 
 
 class TestOrderingAndSizes:

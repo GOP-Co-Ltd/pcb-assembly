@@ -128,6 +128,18 @@ def _sessions_of(index: PasteVolumeSampleIndex, sample_ids: Sequence[str]) -> se
     return {index.entry_for(sample_id).session_fingerprint for sample_id in sample_ids}
 
 
+def _fold_sizes(
+    index: PasteVolumeSampleIndex, data: PasteVolumeTrainingData
+) -> tuple[int, int, int]:
+    """(test, validation, train) それぞれに入った session の本数."""
+
+    return (
+        len(_sessions_of(index, data.sample_ids_for("test"))),
+        len(_sessions_of(index, data.sample_ids_for("validation"))),
+        len(_sessions_of(index, data.sample_ids_for("train"))),
+    )
+
+
 @pytest.fixture(scope="module")
 def real_index() -> PasteVolumeSampleIndex:
     """実収集 session の index。全画像を decode するので module で 1 度だけ作る."""
@@ -230,6 +242,28 @@ class TestBuild:
         assert data is None
         assert reason is not None
         assert "split_dimension" in reason
+
+    @pytest.mark.parametrize("ratio", (0.0, 1.0, -0.1, 1.5, math.nan, math.inf))
+    def test_reports_a_validation_ratio_outside_the_open_unit_interval(
+        self, tmp_path: Path, ratio: float
+    ):
+        """Session 次元の validation 比は 0 と 1 の間.
+
+        0 だと validation が空、1 だと train が空になる。TOML から来るユーザー入力の
+        境界なので、ここで理由を返す。
+        """
+
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=3),
+            collator=PasteVolumeCollator(),
+            config=_session_config(
+                held_out_session="session-0", validation_ratio=ratio
+            ),
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "validation_ratio" in reason
 
     def test_reports_a_ratio_that_is_not_usable(self, tmp_path: Path):
         data, reason = PasteVolumeTrainingData.build(
@@ -562,6 +596,69 @@ class TestSessionSplit:
 
         assert data is None
         assert reason is not None
+        assert "group が 2 個未満" in reason
+
+    def test_forms_one_held_out_one_validation_and_three_train_from_five(
+        self, tmp_path: Path
+    ):
+        """合成 5 session で (test, validation, train) = (1, 1, 3) になること.
+
+        実データで同じ構成を見ているテストは ``skip_if_no_real_sessions`` の opt-in で、
+        収集 session の無い環境では丸ごと skip する。CI で残る観測点をここに置く。
+        """
+
+        index = _index(tmp_path, sessions=5, cells=CELLS[:3])
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+
+        assert _fold_sizes(index, data) == (1, 1, 3)
+
+    def test_the_validation_count_grows_only_once_the_ratio_clears_one_session(
+        self, tmp_path: Path
+    ):
+        """Validation の本数が比率ではなく床で決まっている範囲を示す.
+
+        ``max(1, round(n * validation_ratio))`` なので、既定の 0.15 では n が 12 まで
+        1 に張り付き、13 で初めて 2 になる。上の (1, 1, 3) が比率の結果ではないことを、
+        比率が効く側と対で見る。
+        """
+
+        index = _index(tmp_path, sessions=13, cells=CELLS[:1])
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+
+        assert _fold_sizes(index, data) == (1, 2, 10)
+
+    def test_records_a_fold_specific_seed_in_the_manifest(self, tmp_path: Path):
+        """Manifest の seed 欄が fold ごとに違うこと.
+
+        設定の ``split_seed`` をそのまま入れると 5 fold の manifest が seed 欄で
+        区別できず、別 fold のものを取り違えても値からは分からない。
+        """
+
+        index = _index(tmp_path, sessions=3)
+        seeds = set()
+        for number in range(3):
+            data, reason = PasteVolumeTrainingData.build(
+                index,
+                collator=PasteVolumeCollator(),
+                config=_session_config(
+                    held_out_session=f"session-{number}", split_seed=0
+                ),
+            )
+            assert data is not None, reason
+            seeds.add(data.split_manifest.seed)
+
+        assert len(seeds) == 3
+        assert 0 not in seeds
 
     def test_rejects_a_manifest_saved_for_another_held_out_session(
         self, tmp_path: Path
