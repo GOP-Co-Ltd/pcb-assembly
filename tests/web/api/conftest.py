@@ -183,12 +183,12 @@ def audio_player() -> FakeAudioPlayer:
 def app(
     webui_settings: Settings,
     audio_player: FakeAudioPlayer,
-    paste_flow_calibration_footprint_root: Path,
+    paste_test_board_footprint_root: Path,
 ) -> FastAPI:
     return create_app(
         webui_settings,
         audio_player=audio_player,
-        paste_flow_calibration_footprint_root=paste_flow_calibration_footprint_root,
+        paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
 
 
@@ -227,12 +227,12 @@ def fake_camera_settings(webui_settings: Settings) -> Settings:
 def fake_camera_app(
     fake_camera_settings: Settings,
     audio_player: FakeAudioPlayer,
-    paste_flow_calibration_footprint_root: Path,
+    paste_test_board_footprint_root: Path,
 ) -> FastAPI:
     return create_app(
         fake_camera_settings,
         audio_player=audio_player,
-        paste_flow_calibration_footprint_root=paste_flow_calibration_footprint_root,
+        paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
 
 
@@ -259,12 +259,12 @@ def checkerboard_camera_settings(webui_settings: Settings) -> Settings:
 def checkerboard_camera_app(
     checkerboard_camera_settings: Settings,
     audio_player: FakeAudioPlayer,
-    paste_flow_calibration_footprint_root: Path,
+    paste_test_board_footprint_root: Path,
 ) -> FastAPI:
     return create_app(
         checkerboard_camera_settings,
         audio_player=audio_player,
-        paste_flow_calibration_footprint_root=paste_flow_calibration_footprint_root,
+        paste_test_board_footprint_root=paste_test_board_footprint_root,
     )
 
 
@@ -296,12 +296,12 @@ def real_settings(tmp_path: Path) -> Settings:
 
 @pytest.fixture
 def real_client(
-    real_settings: Settings, paste_flow_calibration_footprint_root: Path
+    real_settings: Settings, paste_test_board_footprint_root: Path
 ) -> Iterator[TestClient]:
     with TestClient(
         create_app(
             real_settings,
-            paste_flow_calibration_footprint_root=paste_flow_calibration_footprint_root,
+            paste_test_board_footprint_root=paste_test_board_footprint_root,
         )
     ) as test_client:
         yield test_client

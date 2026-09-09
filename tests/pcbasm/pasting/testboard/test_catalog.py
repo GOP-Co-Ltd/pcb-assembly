@@ -4,18 +4,18 @@ from pathlib import Path
 
 import pytest
 
-from pcbasm.pasting.flowcalib.board.config import (
+from pcbasm.pasting.testboard.config import (
     BoardConfig,
     BoardConfigError,
     PatternSpec,
 )
-from pcbasm.pasting.flowcalib.board.generator import (
+from pcbasm.pasting.testboard.generator import (
     BoardGenerator,
 )
 from pcbasm.pcb.footprint import FootprintLibraryError
 from pcbasm.pcb.units import KicadError
-from tests.helpers import make_paste_flow_calibration_offset_pad_root
-from tests.pcbasm.pasting.flowcalib.board.support import (
+from tests.helpers import make_paste_test_board_offset_pad_root
+from tests.pcbasm.pasting.testboard.support import (
     QFN,
     R0402,
     SOT223,
@@ -94,7 +94,7 @@ class TestPadCatalog:
             generator.search_footprints("0402")
 
     def test_wrapped_pad_bounds_are_a_kicad_error(self, tmp_path: Path):
-        root = make_paste_flow_calibration_offset_pad_root(
+        root = make_paste_test_board_offset_pad_root(
             tmp_path / "footprints",
             pad_size_mm=2_000.0,
             shape_offset_x_mm=1_200.0,
