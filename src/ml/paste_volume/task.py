@@ -358,6 +358,10 @@ class PasteVolumeTask(TrainingTask[PasteVolumeBatch, GaussianObservation]):
 
         主要 monitor を欠かせること自体は変えない。評価できない run は Trainer が
         従来どおり止める。
+
+        件数のそろわない観測値だけは診断も返さない。
+
+        集計の失敗ではなく観測値の組み立ての誤りで、どの metric も意味を持たない。
         """
 
         if not observations:

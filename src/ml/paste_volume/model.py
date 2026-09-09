@@ -70,7 +70,7 @@ class PasteVolumeModelConfig:
     """Fine-tune の起点にする weight。読み込みは entrypoint 側の責務."""
 
     fine_tune: bool = False
-    """True なら最終 stage / MLP / head / padding だけを更新する."""
+    """更新範囲を最終 stage 以降へ絞るか。凍結は entrypoint 側の責務."""
 
     def validate(self) -> str | None:
         """Encoder と head の設定をまとめて検証する.
