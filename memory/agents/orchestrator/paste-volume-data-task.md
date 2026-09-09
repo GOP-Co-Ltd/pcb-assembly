@@ -412,3 +412,30 @@ merge 後で可の積み残し: `entry_for` の線形探索、テストの `type
 → **検査器の変異だけでなく、検査対象側に「自然に書かれうる別の形」を注入する変異も要る。**
 今回でいえば `import x` / `from x import y` / `from x.y import z` / `from x import y as z` の
 全形を、実際に対象ツリーへ 1 行入れて測る。
+
+### (b) 系統の変異をその場で作って測った
+
+学びを言うだけにせず、**検査対象側へ import の全形を 1 行ずつ注入する** driver を書いて
+測った（`inject_imports.py`）。注入先は `src/ml/paste_volume/session.py`（ドメイン層）、
+`src/ml/data/image.py`（コア）、`tests/ml/paste_volume/test_session.py`（テスト）。
+
+| # | 注入した形 | 捕まえた契約 |
+| --- | --- | --- |
+| I1 | `from pcbasm.pasting.dataset import capture` | 2 / 3 |
+| I2 | `from pcbasm.pasting.dataset import capture as c` | 2 / 3 |
+| I3 | `import pcbasm.pasting.dataset.capture` | 2 / 3 |
+| I4 | `import pcbasm.pasting.dataset.capture as cap` | 2 / 3 |
+| I5 | `from pcbasm.pasting.dataset.recorder import PasteDatasetRecorder` | 2 / 3 |
+| I6 | `from pcbasm.pasting.dataset import plan` | 2 |
+| I7 | `from pcbasm.pasting import applicator` | 2 / 3 |
+| I8 | `import pcbasm.hal` | 2 / 3 |
+| I9 | コアが `from pcbasm.pasting.dataset import metadata` | 1 |
+| I10 | コアが `from ml.paste_volume import session`（迂回） | 1 |
+| I11 | テストが `from tests import helpers` | テスト契約 |
+| I12 | テストが `from pcbasm.pasting.dataset import recorder` | 2 / 3 |
+
+**12 形すべて検出。** I6 だけが契約 2 単独で落ちる（`plan` は HAL へ届かないので契約 3 では
+捕まらない）。これは許可を `.metadata` へ絞った S25 の対応が効いている証拠で、絞る前なら
+素通りしていた。
+
+変異は合計 **(a) 20 通り + (b) 12 形 = 32**。
