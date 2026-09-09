@@ -66,7 +66,7 @@ container作成と破棄を繰り返して無駄になる。
 
 ```bash
 make ml-docker-shell   # 対話 shell に入る
-make ml-docker-test    # tests/ml を実行する
+make ml-docker-test    # tests/ml と paste_volume を実行する
 make ml-docker-check   # format → 型検査 → tests/ml と paste_volume
 make ml-docker-down    # 停止する（named volume は残る）
 ```

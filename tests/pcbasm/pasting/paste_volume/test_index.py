@@ -412,6 +412,27 @@ class TestRejection:
 
         assert index.rejections[0].sample_id not in index.sample_groups()
 
+    def test_does_not_count_a_rejected_cell_in_the_loss_weight(self, tmp_path: Path):
+        """隔離した cell を weight の分母に入れない.
+
+        weight は session 間の寄与を揃えるためのもの。
+
+        学習へ寄与しない cell を数に入れると拒否の多い session が過小評価される。
+        """
+
+        root = write_session(
+            tmp_path / "session",
+            cells=(
+                *CELLS,
+                SyntheticCell(index=8, commanded_volume_ul=0.2, x_mm=7.1, uniform=True),
+                SyntheticCell(index=9, commanded_volume_ul=0.2, x_mm=9.3, uniform=True),
+            ),
+        )
+        index = _index(root)
+
+        assert len(index.rejections) == 2
+        assert {entry.session_sample_count for entry in index.entries} == {len(CELLS)}
+
     def test_reports_a_dataset_where_every_cell_is_rejected(self, tmp_path: Path):
         root = write_session(
             tmp_path / "session",

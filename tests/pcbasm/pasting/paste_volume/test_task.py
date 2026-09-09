@@ -76,12 +76,6 @@ def _data(
     return data
 
 
-def _ceil_to(value: int, stride: int) -> int:
-    """``MultiViewPaddedBatch.pad`` が使う切り上げ."""
-
-    return -(-value // stride) * stride
-
-
 def _area_bucket(shape: ImageShape) -> int:
     """``plan_pixel_budget_batches`` が bucket を切る単位（log2 面積の 1.0 刻み）."""
 
@@ -477,16 +471,21 @@ class TestMaterialize:
             planned, split="train", epoch=2, training=True, device=DEVICE
         )
 
-        shapes = [
-            data.collator.preprocessed_shape(
+        for row, sample_id in enumerate(planned):
+            planned_shape = data.collator.preprocessed_shape(
                 data.index.entry_for(sample_id), training=True, epoch=2
             )
-            for sample_id in planned
-        ]
+            mask = batch.valid_pixel_mask[row, 0, 0]
+
+            # 有効画素の外接矩形が、その sample の前処理後の寸法そのもの。padding 後の
+            # canvas と比べると、planned と actual が同じ stride 窓に入る限り一致して
+            # しまい、最大 stride-1 px のずれを見逃す
+            assert int(mask.any(dim=1).sum()) == planned_shape.height
+            assert int(mask.any(dim=0).sum()) == planned_shape.width
 
         stride = CONSTRAINTS.stride
-        assert batch.images.shape[3] == _ceil_to(max(s.height for s in shapes), stride)
-        assert batch.images.shape[4] == _ceil_to(max(s.width for s in shapes), stride)
+        assert batch.images.shape[3] % stride == 0
+        assert batch.images.shape[4] % stride == 0
 
 
 class TestRealSessions:

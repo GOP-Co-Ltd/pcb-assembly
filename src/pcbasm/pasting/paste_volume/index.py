@@ -46,6 +46,9 @@ INDEX_SCHEMA_VERSION = 1
 _FINGERPRINT_DIGITS = 12
 _FINGERPRINT_PREFIX_LENGTH = len("sha256:")
 
+# build が埋め直すまでの仮値。そのまま出ると loss weight が 0 除算で落ちる。
+_UNSET_SAMPLE_COUNT = 0
+
 
 @attrs.frozen
 class PasteVolumeViewPaths:
@@ -78,6 +81,8 @@ class PasteVolumeSampleEntry:
     source_height: int
     source_width: int
     session_sample_count: int
+    """同じ session で学習に使える sample の数。loss weight の分母。"""
+
     views: tuple[PasteVolumeViewPaths, ...]
 
     @property
@@ -141,19 +146,21 @@ class PasteVolumeSampleIndex:
         entries: list[PasteVolumeSampleEntry] = []
         rejections: list[PasteVolumeRejection] = []
         for session in unique:
+            usable: list[PasteVolumeSampleEntry] = []
             for cell in sorted(session.cells, key=lambda cell: cell.index):
-                entry, reason = _entry_for_cell(
-                    session,
-                    cell,
-                    constraints=constraints,
-                    sample_count=len(session.cells),
-                )
+                entry, reason = _entry_for_cell(session, cell, constraints=constraints)
                 if entry is None:
                     return None, f"{session.label} cell {cell.index}: {reason}"
                 if isinstance(entry, PasteVolumeRejection):
                     rejections.append(entry)
                     continue
-                entries.append(entry)
+                usable.append(entry)
+            # loss weight は「使える sample」で割る。隔離した cell は学習へ寄与しないので、
+            # 数に入れると拒否の多い session が過小評価される。
+            entries.extend(
+                attrs.evolve(entry, session_sample_count=len(usable))
+                for entry in usable
+            )
         if not entries:
             return None, "使える sample がありません"
         return (
@@ -234,7 +241,6 @@ def _entry_for_cell(
     cell: PasteVolumeCell,
     *,
     constraints: ImageConstraints,
-    sample_count: int,
 ) -> tuple[PasteVolumeSampleEntry | PasteVolumeRejection | None, str | None]:
     """1 cell を entry か rejection へ落とす。session が壊れていれば理由を返す."""
 
@@ -277,7 +283,9 @@ def _entry_for_cell(
             pixel_per_mm=session.pixel_per_mm,
             source_height=height,
             source_width=width,
-            session_sample_count=sample_count,
+            # 使える sample の数は session を読み終えるまで分からない。build が
+            # attrs.evolve で埋め直す。埋め忘れると weight が 0 除算で落ちる。
+            session_sample_count=_UNSET_SAMPLE_COUNT,
             views=tuple(
                 PasteVolumeViewPaths(
                     number=view.number,

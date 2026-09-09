@@ -473,6 +473,18 @@ def _resolved_valid_mask(values: Tensor, valid_mask: Tensor | None) -> Tensor:
 
 
 def _derived_seed(material: str) -> int:
+    """材料から 64 bit の乱数種を作る.
+
+    ``AugmentationRange.parameters_for`` が ``{global_seed}:{epoch}:{sample_id}`` という
+    ラベル無しの材料でこれを占有している。**同じ 3 つ組から別用途の種を作るときは、
+    必ず役割ラベルを挟むこと。** 挟まないと同じ整数になり、幾何変換と相関した乱数列が
+    出る（``ViewDropout`` の ``view-dropout``、``plan_pixel_budget_batches`` の
+    ``batch-plan`` が挟んでいるのはこのため）。
+
+    利用側で実際に踏んだ例は
+    ``memory/agents/orchestrator/paste-volume-data-task.md`` の M1。
+    """
+
     return int.from_bytes(hashlib.sha256(material.encode("utf-8")).digest()[:8], "big")
 
 

@@ -149,16 +149,24 @@ class TestPasteVolumeImports:
     def test_the_transitive_scan_follows_more_than_one_hop(self):
         """連鎖をたどる検査そのものが働いていることを確かめる.
 
-        1 段しか見ていないと、上の検査は本 MR のブロッカーを見逃す。``applicator`` を
-        起点にすれば 2 段先の ``pcbasm.hal`` へ到達するはずで、到達しないなら走査が
-        壊れている。
+        上の検査は「到達しないこと」を見るので、走査を弱めるほど通りやすくなる。
+        再帰を落としても緑のままなら、検査は直接 import しか見ない版へ黙って退化する。
+
+        起点は ``dataset/recorder.py``。``applicator`` を経て ``pcbasm.hal`` へ届く
+        **本 MR のブロッカーと同じ 2 段の形**で、直接は HAL を import していない。
+        ``applicator`` 自身を起点にすると 1 段で届くので、再帰の検証にならない。
         """
 
-        reachable = _reachable_modules(
-            [PROJECT_ROOT / "src" / "pcbasm" / "pasting" / "applicator.py"]
+        recorder = (
+            PROJECT_ROOT / "src" / "pcbasm" / "pasting" / "dataset" / "recorder.py"
         )
 
-        assert any(_reaches(module, "pcbasm.hal") for module in reachable)
+        assert not any(
+            _reaches(module, "pcbasm.hal") for module in _imported_modules(recorder)
+        )
+        assert any(
+            _reaches(module, "pcbasm.hal") for module in _reachable_modules([recorder])
+        )
 
     def test_the_scanner_sees_an_import_it_should_reject(self):
         """検査器そのものが機能していることを確かめる.

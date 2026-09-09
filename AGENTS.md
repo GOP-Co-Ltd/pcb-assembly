@@ -80,7 +80,7 @@ ML 依存は `pyproject.toml` の `ml-runtime` / `ml-train` / `ml-hpo` / `ml-exp
 - `make type`: pyright 型チェック
 - `make test`: E2E 以外の全テスト
 - `make test-no-hardware`: ハードウェア・E2E を除外
-- `make test-ml`: `tests/ml` だけを実行（pcbnew / picamera2 不要）
+- `make test-ml`: `tests/ml` と `tests/pcbasm/pasting/paste_volume` を実行（pcbnew / picamera2 不要）
 - `make test-e2e`: WebUI E2E
 - `make run`: format、test、type
 - `make api` / `make api-dev`: backend WebAPI 起動（port 8081、dev は auto-reload）

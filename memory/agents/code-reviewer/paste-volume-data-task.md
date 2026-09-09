@@ -251,3 +251,153 @@ rejection を差し引く前の値。拒否が出た session では weight の�
 `make test-no-hardware` を通すまで先へ進めない」としている。`applicator.py` /
 `dataset/metadata.py` / `dataset/pending.py` / `tests/pcbasm/pasting/dataset/test_metadata.py`
 を触っているので、実機側の実行結果を確認したい。
+
+---
+
+# 2 巡目レビュー（`f004a79` 追加後）
+
+## verdict: request-changes（軽微。must-fix は観測点 1 件のみ）
+
+M1 / M2 の実装は正しく直っている。S10 は**私の誤検出**で、退けた判断が正しい。
+残る must-fix は、今回足した観測点のうち 1 件が狙った変異を殺せていないこと。
+
+## must-fix
+
+### M3. `test_the_transitive_scan_follows_more_than_one_hop` が 1 段しか検証していない
+
+`tests/pcbasm/pasting/paste_volume/test_architecture.py`。確信度：**高**（実行で確認）。
+
+起点にしている `src/pcbasm/pasting/applicator.py` は **27 行目で
+`from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage` と直接 import している**。
+docstring の「2 段先の `pcbasm.hal` へ到達するはず」は事実に反し、実際は 1 段。
+
+`_reachable_modules` から `pending.append(target)`（再帰）を落とす変異を当てて実測:
+
+```
+recurse=True : reaches pcbasm.hal -> True
+recurse=False: reaches pcbasm.hal -> True
+```
+
+`test_nothing_reaches_the_device_hal_through_a_chain` は「到達しないこと」の assert
+なので、走査を弱めるほど通りやすくなる。つまり**再帰を丸ごと落としても全テストが緑**で、
+検査は元の直接 import 版へ黙って退化する。M1 の観測点でやったのと同じ失敗
+（bug 下でも通る閾値）が、こちらでは残っている。
+
+直し方: 起点を「hal へ 2 段以上でしか届かない module」にする。実測した候補:
+
+- `src/pcbasm/pasting/dataset/recorder.py`（`applicator` 経由。**本 MR のブロッカーと
+  同じ形**なので自己検査として最も筋が良い）
+- `dataset/capture.py`、`flowcalib/procedure.py`、`toolhead_offset.py`
+
+## should-fix
+
+### S18. shape の厳密一致は依然として stride 幅に丸められている（S7 の積み残し）
+
+確信度：高。深刻度：中。
+
+- `test_task.py::test_the_planned_shape_bounds_the_materialized_batch` は
+  `padded == _ceil_to(max(planned), stride)` になった。しかし `padded` は
+  `_ceil_to(max(actual), stride)` なので、**planned と actual が同じ 8 px 窓に入る限り
+  一致する**（例: planned 50 / actual 52 → どちらも 56）
+- `test_batch.py::test_the_planned_shape_matches_what_collate_produces` は
+  1 巡目のまま（`padded - planned < stride`）で、こちらは最大 7 px のずれを見逃す
+
+厳密に見るなら次のどちらか。
+
+- `ImageConstraints(stride=1)` の collator で `padded == planned` を見る
+- 回転を切った augmentation（`rotation_enabled=False`、scale は振る）で
+  `_valid_region` / `_mask_offset` から有効画素の bounding box を取り、
+  `preprocessed_shape` と厳密比較する（回転が無ければ bbox == 前処理後 shape）
+
+### S19. 乱数種の材料に役割ラベルを強制する仕組みが無い
+
+確信度：中（設計提案）。深刻度：低。
+
+今回の直しは呼び出し側の literal 1 つに依存している。`ml` 側の
+`AugmentationRange.parameters_for` は**ラベル無しの `{global_seed}:{epoch}:{sample_id}`
+を占有したまま**なので、次にドメイン層が種を足すとき同じ罠を踏める。
+
+- `ml/data/image.py` に「この材料は augmentation が予約している」と明記する
+- あるいは `ml` 側へ `derive_seed(role, ...)`（role 必須）を出し、
+  `_placement_seed` と `parameters_for` を両方そこへ寄せる
+
+`parameters_for` 側にラベルを足すと既存の augmentation 系列が変わる。**checkpoint を
+1 つも作っていない今なら無料**で、学習を回した後は高くつく。
+
+### S20. 未対応 should-fix のうち「最初の学習を回す前」に片付けたいもの
+
+merge を止めるものは無い（確信度：高）。ただし次の 2 つは**値が変わる変更**なので、
+checkpoint を作った後に直すと過去の run と比較できなくなる。
+
+- **S9 `global_seed` の二重化**（collator と config）。統合すると batch plan と
+  augmentation の両方の系列が動く
+- **S17 `session_sample_count` が拒否済み cell を含む**。直すと loss weight が動く
+
+残り（S14 `entry_for` の線形探索、S15 `type: ignore`、docformatter の折り返し空白）は
+純粋な整理で、いつ直しても影響が無い。
+
+### S21. docs 同期の取りこぼし 2 行
+
+確信度：高。深刻度：低。
+
+- `docker/README.md:69` — `make ml-docker-test    # tests/ml を実行する`。この target も
+  `ML_TEST_PATHS`（tests/ml + paste_volume）を回す
+- `AGENTS.md:83` — `make test-ml`: `tests/ml` だけを実行`。同上
+
+## nit（2 巡目で増えたもの）
+
+- 関数内 import が 2 件から 3 件へ（`test_task.py:236` の `import attrs`。
+  `test_index.py` は同じ commit で top-level へ入れているので不揃い）
+- `test_the_planned_shape_bounds_the_materialized_batch` の docstring が
+  「stride の中で一致する」のまま。assert は `==` になった
+- `test_reports_a_number_that_is_not_finite` が他 module のメッセージ文字列
+  「有限なfloatが必要です」を直接 pin している。`metadata.py` の文言変更で
+  paste_volume のテストが落ちる
+
+## 誤検出だったもの（取り下げ）
+
+### S10（非有限の数値）— **私の誤り。対応方針が正しい。**
+
+`_make_metadata_converter`（`src/pcbasm/pasting/dataset/metadata.py:286-295`）が
+`converter.register_structure_hook(float, strict_float)` で **すべての `float` 注釈**へ
+`math.isfinite` 検査を掛けている。`parse_metadata` は必ずこの converter を通るので、
+`pixel_per_mm` も `measured_volume_ul` も NaN / inf の時点で
+「有限なfloatが必要です」で落ちる。`_validate_cells` に検査を足しても到達不能だった。
+
+追加検査を取り消して schema 層の性質をテストで固定した判断は正しい。
+
+## 確認できたこと（質問への回答）
+
+1. **M1 の直し方は十分。** 整数種を作る経路を全部数えた:
+   `ml/data/image.py:165`（augmentation）、`batch.py:227`（placement）、
+   `ml/data/split.py:247`（leave-one-group-out）、`ml/data/split.py:92`（split_seed の生値）。
+   文字列種は `ml/data/batch.py:101`（`view-dropout`）と `:263`（`batch-plan`）で、
+   `random.Random` の文字列 seed は sha512 経由なので整数種と衝突しない。
+   材料の重複は無くなっている。残る懸念は S19（仕組みで防いでいない）だけ
+2. **S10 は誤検出。** 上記
+3. **`constraints` を fingerprint へ入れた互換性の問題は無い。**
+   `dataset_fingerprint` は本 MR で初めて生まれる値で、既存の checkpoint も
+   split manifest も存在しない。`attrs.asdict` の dict は `canonical_json` が
+   キー順を正規化するので安定。`INDEX_SCHEMA_VERSION` も同じ dict に入っている
+4. **新しい観測点 6 件のうち 5 件は狙った変異を殺す。** 1 件（M3）が殺さない
+   - 配置と回転の独立性: **殺す**。bug 下では 32 組中 20 組しか到達不能なので、
+     閾値 28 は原理的に届かない。3 sample × 60 epoch = 180 draw で
+     期待到達 31.9 組、余裕もある
+   - constraints の不一致 / fingerprint への反映 / index への保持: 殺す
+   - view の並べ替え: 殺す（metadata を逆順にした fixture）
+   - sample 単位 manifest の拒否: 殺す。`SplitManifest.load` の fingerprint 検査を
+     通ってから `validate` だけが弾く経路になっている（S5 の穴は塞がった）
+   - 推移的 import: **殺さない**（M3）
+5. **未対応の should-fix に merge を止めるものは無い。** ただし S20 の 2 件は
+   最初の学習を回す前に決着させたい
+
+## 検証結果（2 巡目）
+
+- make format: pass
+- make type: pass
+- make test-no-hardware: 未実行（実機側。ユーザー担当）
+- `make ml-docker-check`: **pass**（1457 passed / 1 skipped / exit 0）
+
+1 巡目と同じく、step 0a の共有ドメイン変更（`applicator.py` /
+`dataset/metadata.py` / `dataset/pending.py`）について実機側 `make test-no-hardware` の
+結果確認が残っている。

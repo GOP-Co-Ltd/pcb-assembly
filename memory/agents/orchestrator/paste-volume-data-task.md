@@ -243,6 +243,39 @@ split manifest を同一視する。
 
 **最終変異: session 13/13、index 18/18、dataset 6/6、batch 20/20、task 16/16。**
 
+## code-reviewer のレビュー対応（2 巡目、must-fix 1 件）
+
+### M3（対応済み）検査器の自己検査が 1 段しか見ていなかった
+
+推移的 import 検査の「走査が働いていること」を確かめるテストで、起点に
+`applicator.py` を使っていた。しかし `applicator.py:27` は `pcbasm.hal` を**直接**
+import しているので 1 段。再帰を丸ごと落としても通る。
+
+本体の検査は「到達しないこと」の assert なので、**走査を弱めるほど通りやすくなる**。
+自己検査が効かないと、検査は直接 import 版へ黙って退化する。
+
+起点を `dataset/recorder.py`（`applicator` 経由で hal へ届く、ブロッカーと同じ 2 段の形）
+へ替え、「直接は届かないが推移的には届く」の 2 本立てにした。再帰を落とす変異で
+killed を確認。
+
+**M1 の観測点で踏んだのと同じ穴。** 観測点を足したら、それが狙った変異を殺すかを測る、
+という手順を M1 では実行したのに M3 では実行しなかった。
+
+### その他の対応
+
+| 指摘 | 対応 |
+| --- | --- |
+| S18 shape 一致が最大 stride-1 px を見逃す | 有効画素の外接矩形と `preprocessed_shape` の厳密一致へ。1 px ずらす変異で killed を確認 |
+| S9 `global_seed` の二重化 | `PasteVolumeTrainingConfig` から落とし、`collator.global_seed` を唯一の出典にした |
+| S17 `session_sample_count` が拒否済み cell を含む | 使える sample の数へ。build が `attrs.evolve` で埋め直す |
+| S19 `ml` 側が材料を無ラベルで占有 | `_derived_seed` の docstring へ占有と役割ラベルの規則を明記（振る舞いは変えない） |
+| S21 docs 取りこぼし 2 行 | `docker/README.md` と `AGENTS.md` を更新 |
+
+レビュアーの確認: **S10 は誤検出**（`_make_metadata_converter` が全 `float` 注釈へ
+`math.isfinite` を掛けている）。整数種の生成経路は全数確認され、材料の重複は解消済み。
+
+**最終変異: session 13/13、index 18/18、dataset 6/6、batch 20/20、task 16/16。**
+
 ## 残タスク
 
 step 6（計画書の更新）のみ。model / train / evaluate は次 MR。

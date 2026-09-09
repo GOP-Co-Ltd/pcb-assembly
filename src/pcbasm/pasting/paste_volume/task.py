@@ -33,9 +33,12 @@ class PasteVolumeTrainingConfig:
     ``ratios`` の既定が cell 単位の 70/15/15 なのは、収集 session が 2 本しかなく
     session を最小 group にすると test split を作れないため。session をまたいだ汎化は
     別途 leave-one-group-out で見る。
+
+    学習の乱数種は持たない。``PasteVolumeCollator.global_seed`` が唯一の出典で、
+    幾何変換・view の間引き・配置・batch の並べ替えがすべてそこから決まる。
+    二重に持つと片方だけ変えたときに何が変わるのか説明できなくなる。
     """
 
-    global_seed: int = 0
     split_seed: int = 0
     ratios: SplitRatios = SplitRatios(0.70, 0.15, 0.15)
     max_batch_pixels: int = 8_388_608
@@ -172,7 +175,7 @@ class PasteVolumeTrainingData(TrainingData[PasteVolumeBatch]):
             max_batch_pixels=self._config.max_batch_pixels,
             max_batch_size=self._config.max_batch_size,
             stride=self._collator.constraints.stride,
-            seed=self._config.global_seed,
+            seed=self._collator.global_seed,
             epoch=epoch,
         )
 
