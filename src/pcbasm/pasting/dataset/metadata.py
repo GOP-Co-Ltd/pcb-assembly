@@ -270,6 +270,18 @@ def parse_metadata(
         return None, f"metadata schema v2が不正です: {error}"
 
 
+def structure_document[T](data: Mapping[str, object], target: type[T]) -> T:
+    """Schema DTO を暗黙変換・未知 key なしで復元する（不正は例外）.
+
+    metadata v2 と、その質量未確定版（:mod:`pcbasm.pasting.dataset.pending`）が
+    同じ strict converter を共有するための入口。
+
+    Raises:
+        Exception: cattrs の structure が失敗した場合（呼び出し側が理由文へ変換する）
+    """
+    return _METADATA_CONVERTER.structure(data, target)
+
+
 def _make_metadata_converter() -> cattrs.Converter:
     """Schema 型定義を使い、暗黙変換なしで復元する converter を構成する."""
     converter = cattrs.Converter(

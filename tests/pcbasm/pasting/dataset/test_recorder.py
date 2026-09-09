@@ -15,6 +15,11 @@ import pytest
 from pcbasm.config import PasteDispenser as PasteDispenserConfig, Toolhead
 from pcbasm.pasting.applicator import DispenseExecution, PasteApplicationResult
 from pcbasm.pasting.dataset.metadata import DatasetView, parse_metadata
+from pcbasm.pasting.dataset.pending import (
+    PENDING_FILENAME,
+    finalize_pending,
+    parse_pending,
+)
 from pcbasm.pasting.dataset.plan import DotGridPlan, DotGridSpec, plan_dot_grid
 from pcbasm.pasting.dataset.recorder import (
     DatasetRunInfo,
@@ -519,3 +524,53 @@ class TestDotCellIsTheRecordingKey:
         assert {path.name for path in (session / "pre").iterdir()} == {
             f"{target.index:06d}.00.png" for target in plan.targets
         }
+
+
+class TestRecorderPending:
+    """質量プロンプトの前に、質量だけが欠けた pending.json を残す."""
+
+    def test_pending_document_survives_an_incomplete_session(
+        self, tmp_path: Path, plan: DotGridPlan
+    ):
+        recorder = _recorder(tmp_path, plan)
+        _record_all(recorder, plan)
+
+        recorder.write_pending(_run_info())
+        session = recorder.mark_incomplete()
+
+        assert session.name.endswith(".incomplete")
+        assert (session / PENDING_FILENAME).is_file()
+        assert not (session / "metadata.json").exists()
+
+    def test_rescued_metadata_equals_what_finalize_would_have_written(
+        self, tmp_path: Path, plan: DotGridPlan
+    ):
+        """収集中に落ちても、pending.json + 計量質量で同じ metadata に到達する."""
+        crashed = _recorder(tmp_path / "crashed", plan)
+        _record_all(crashed, plan)
+        crashed.write_pending(_run_info())
+        incomplete = crashed.mark_incomplete()
+        completed = _recorder(tmp_path / "completed", plan)
+        _record_all(completed, plan)
+        completed.finalize(measured_mass_mg=MEASURED_MASS_MG, run=_run_info())
+
+        pending, error = parse_pending(
+            json.loads((incomplete / PENDING_FILENAME).read_text(encoding="utf-8"))
+        )
+        assert error is None, error
+        assert pending is not None
+        rescued, error = finalize_pending(pending, measured_mass_mg=MEASURED_MASS_MG)
+
+        assert error is None, error
+        assert rescued == completed.metadata
+
+    def test_pending_records_the_resolved_shuffle_seed(
+        self, tmp_path: Path, plan: DotGridPlan
+    ):
+        """収集時に生成したシードは pending.json にも載る（配置の唯一の出典）."""
+        recorder = _recorder(tmp_path, plan)
+        _record_all(recorder, plan)
+
+        pending = recorder.build_pending(_run_info())
+
+        assert pending.config.shuffle_seed == plan.spec.shuffle_seed

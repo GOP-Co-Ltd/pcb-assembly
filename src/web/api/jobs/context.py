@@ -35,6 +35,9 @@ class PromptSpec:
         choices: kind="choice" の選択肢（choice のみ必須）
         true_label: kind="confirm" の true 側ボタンラベル
         false_label: kind="confirm" の false 側ボタンラベル
+        notify: 応答待ちに入ったとき機体のスピーカーで入力待ち音を鳴らすか。
+            長時間の無人ジョブが装置の前を離れた作業者を呼び戻すために使う
+            （作業者が装置の前に居る前提のプロンプトでは鳴らさない）
     """
 
     kind: PromptKind
@@ -43,6 +46,7 @@ class PromptSpec:
     choices: tuple[str, ...] = ()
     true_label: str | None = None
     false_label: str | None = None
+    notify: bool = False
 
 
 @attrs.frozen

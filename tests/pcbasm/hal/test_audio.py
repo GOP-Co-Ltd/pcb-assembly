@@ -3,6 +3,7 @@
 import re
 import wave
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
@@ -12,6 +13,7 @@ from pcbasm.hal.audio import (
     AlsaAudioPlayer,
     AudioDevice,
     AudioPlaybackError,
+    Sound,
     parse_aplay_devices,
     selectable_devices,
 )
@@ -139,6 +141,20 @@ class TestSelectableDevices:
             AudioDevice("default", "システム既定"),
             AudioDevice("plughw:CARD=Gone,DEV=0", "plughw:CARD=Gone,DEV=0（未検出）"),
         )
+
+
+class TestSoundAssets:
+    """`Sound` の全種が同梱の 16-bit PCM WAV に対応する（差し替え前提の契約）."""
+
+    def test_every_sound_has_a_16bit_pcm_wav(self):
+        paths = audio_module._SOUND_PATHS  # pyright: ignore[reportPrivateUsage]
+
+        assert set(paths) == set(get_args(Sound))
+        for sound, path in paths.items():
+            assert path.is_file(), sound
+            with wave.open(str(path), "rb") as source:
+                assert source.getsampwidth() == 2, sound
+                assert source.getcomptype() == "NONE", sound
 
 
 class TestAlsaAudioPlayer:
