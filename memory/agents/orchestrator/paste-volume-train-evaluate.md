@@ -280,3 +280,121 @@ annotation から辿る版に強化済み。**tuning 側の既存 helper は弱�
     step 0/1 レビュー M3（split.json の食い違いを黙って通す）を踏む。M3 の検査は入ったが、
     検査に頼らず run を分けること
 - `manifest.seed` をそのまま run seed に流さない（64 bit、`np.random.seed` は 2^32 未満）
+
+## step 8: LOSO 5-fold の実走結果（2026-09-09、RTX 4090）
+
+commit `4af725b`。5 fold とも `stop_reason=early_stopping`（epochs 109 / 93 / 50 / 53 / 78）。
+2 fold の `git-diff.patch` はサイズ 0（untracked file で dirty 判定されただけ）で、
+**追跡下のソースは 5 fold とも同一**（全 run `git.commit = 4af725b`）。
+
+| held-out | n | MAE [uL] | RMSE | R^2 | 1sd coverage | mean 飽和 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 08T144137 | 164 | 0.02098 | 0.02716 | 0.8900 | 0.4188 | 0.000 |
+| 08T153829 | 167 | 0.02329 | 0.02887 | 0.9096 | 0.5183 | 0.000 |
+| 09T120737 | 167 | 0.01932 | 0.02668 | 0.8887 | 0.8171 | 0.000 |
+| 09T130756 | 167 | 0.01151 | 0.01556 | 0.9330 | 0.8780 | 0.000 |
+| 09T145923 | 167 | 0.01031 | 0.01345 | 0.9586 | 0.7073 | 0.000 |
+| **平均** | **832** | **0.01708** (sd 0.00521) | | **0.9160** (sd 0.0267) | 0.6679 (sd 0.175) | 0.000 |
+
+### ベースラインとの比較（step 7 で測り直した値）
+
+| | MAE [uL] | R^2 |
+| --- | ---: | ---: |
+| 定数予測 | 0.06976 | -0.2055 |
+| 輝度差 1 変数（lin1） | 0.04328 | +0.5224 |
+| 面積系込み（lin3） | 0.03397 | +0.6967 |
+| oracle（k を完璧に読めた天井） | 0.02186 | +0.8666 |
+| **CNN** | **0.01708** | **+0.9160** |
+
+**oracle を下回った。** oracle は「lin3 + held-out session の affine を後付けで完璧に補正」。
+CNN はそれを超えたので、**大域特徴 + 完全な session 較正では届かない per-sample の空間情報を
+使っている**（しかも session を教えられずに）。
+
+### 成功条件の判定
+
+1. **必須（機能）: 達成。** 5 fold とも early_stopping、`best.pt` / `weights.pt` / `final.pt` /
+    `latest.pt` / `config.json` / `split.json` / `calibration.json` が揃う。MLflow の 5 run が
+    FINISHED で、dataset fingerprint / split fingerprint / split.dimension=session /
+    held_out_session / model.family / git.commit を辿れる
+2. **必須（健全性）: 達成。** `saturated_positive_fraction` が 5 fold とも **0.000**（閾値 0.05）。
+    held-out が train/validation に現れないことは step 1 で実測済み
+3. **必須（定数予測超え）: 達成。** 0.01708 << 0.06976
+4. **目標（lin1 超え）: 達成。** 0.01708 < 0.04328、R^2 0.9160 > 0.5224。**さらに oracle も超えた**
+
+### 記録（成功条件 5）: blank と log 分散下限の相互作用
+
+仕様書 §2 申し送り 3 への回答。blank は 16/832 = 1.9%。
+
+| fold | blank exact_zero | blank 1sd cover | 正の真値の 1sd cover | pred_sd | RMSE | pred_sd/RMSE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 08T144137 | 1.000 | 1.000 | 0.4188 | 0.01444 | 0.02716 | 0.53 |
+| 08T153829 | 0.667 | 1.000 | 0.5183 | 0.02260 | 0.02887 | 0.78 |
+| 09T120737 | 1.000 | 1.000 | 0.8171 | 0.03183 | 0.02668 | 1.19 |
+| 09T130756 | 0.333 | 1.000 | 0.8780 | 0.02439 | 0.01556 | 1.57 |
+| 09T145923 | 0.333 | 1.000 | 0.7073 | 0.01282 | 0.01345 | 0.95 |
+
+- **blank 側は全 fold で完全に当たる**（1sd coverage 1.000）。危惧された「blank が log 分散を
+    下限へ押し下げる」は、blank 比率 1.9% では**全体を壊すほどには起きていない**
+- **正の真値側の coverage は 5 fold 平均 0.668 で理想（0.683）にほぼ一致**するが、
+    **fold 間の振れが大きい**（0.419〜0.878、sd 0.175）。`pred_sd/RMSE` が 0.53〜1.57 と
+    fold ごとに過小・過大の両方へ振れており、**平均が合っているのは相殺の結果**
+- **弱い負の関係が見える**（blank を厳密に 0 と当てた fold ほど正の真値側の coverage が低い）が、
+    **n=5 では確立しない。** 断定せず記録に留める。**blank の `sample_weight` 調整は行っていない**
+- 精度（MAE / R^2）に blank 起因の劣化は見られない
+
+### 記録の訂正
+
+orchestrator が「`trainable_parameter_count` が MLflow param に None」と記録したのは**誤り**。
+param 名は `model.trainable_parameter_count` で、prefix を落として問い合わせていた。
+5 run とも `model.parameter_count = 395048` / `model.trainable_parameter_count = 395048` /
+`model.frozen_parameter_tensor_count = 0` が正しく入っている（base training なので凍結 0 は正しい）。
+
+## step 4/5/6 レビュー（3 巡目）の裁定
+
+verdict は request-changes。**src の振る舞いに誤りは 1 件も無く、指摘はすべて「検査・記録が
+主張を支えていない」型。** 詳細は `memory/agents/code-reviewer/paste-volume-train-evaluate-step456.md`。
+
+### must-fix（6 件。うち 3 件は should-fix からの昇格）
+
+- **M1 resume の検査に検出力が無い（8 回目の同じ型）。** `resume_from=None` に変える変異で
+    `test_train.py` が **30 passed 全緑**。参照 run も再開 run も同じ argv・同じ seed なので、
+    checkpoint を無視して最初から回しても同じ最終重みに着く。**「一致する」型の assert が、
+    再開したかどうかではなく決定論であることしか測っていない。** 実装自体は正しい
+    （forward hook で 通し 9 / 中断 2 / 再開 8、resume 無視の変異では再開 9）
+- **M2 案内している `logger.tracking_uri=file:///abs/mlruns` は必ず例外になる。**
+    `validate()` が `file://` を合格させ、`Trainer.run()` の内側で raw な `MlflowException`。
+    **`logger=` を忘れた運用者が受け取る理由文が、まさにその argv を案内している**
+- **M3 `config.json` が tracking URI / storage URI を平文で持ち MLflow artifact として上がる。**
+    `postgresql://user:pw@...` の password がそのまま入る。同じ repo は param に
+    `sanitized_tracking_uri`、study 成果物に `storage_uri_redacted` を使っており、
+    **新しい成果物だけ規約から外れている**
+- **S2 を昇格: 既存 experiment では `artifact_location` が黙って無効になる。**
+    5 fold 全部の artifact が黙って `<cwd>/mlruns` へ落ちうる。**silent-wrong は本 MR で
+    一貫して潰してきた型**。（今回の実走は experiment が新規だったため影響なし。実測で確認済み）
+- **S13 を昇格: `train.main()` が signal / deadline 停止でも 0 を返す。**
+    5 fold の shell ループが次へ進み、**打ち切られた fold が report に混ざる**。
+    運用手順書そのものに影響する
+- **S5 を昇格: calibration の失敗が 2 箇所で黙って捨てられる。** `calibration.json` の
+    `log_variance_offset` は report に載る値なので、黙って落ちてはいけない
+
+### should-fix（残り 16 件）と nit（11 件）
+
+S1 / S3 / S4 / S6 / S7 / S8 / S9 / S10 / S11 / S12 / S14 / S15 / S16 / S17 / S18 / S19 を対応。
+nit は code-simplifier へ。
+
+- **S7**（`trainer=gpu` = compile ON の end-to-end が無検査）は、私が step 8 で 5 回実走して
+    経験的には通っているが、テストは要る
+- **S17（申し送りの実測値が再現しない）は 3 例目。** 実装者が報告する数値を鵜呑みにせず
+    レビュー側が測り直す運用が効いている
+
+### 追加（orchestrator の指摘は誤りだった）
+
+「`trainable_parameter_count` が None」は prefix を落として問い合わせた私の誤り。
+正しくは `model.trainable_parameter_count = 395048` が 5 run とも入っている。
+
+### 重要な制約
+
+**修正で学習の振る舞いを変えないこと。** step 8 の結果（MAE 0.01708 / R^2 0.9160）は
+commit `4af725b` に対するもので、学習経路が変わると再実走が必要になる。
+上記はすべて観測性・堅牢性・記録の問題で、学習の数式には触れないはず。
+**触れる必要が出たら実装せずに報告すること。**
