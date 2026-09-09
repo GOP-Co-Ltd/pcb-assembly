@@ -54,6 +54,12 @@ CROP_SIZE_PX = 53
 PERIPHERAL_VIEW_COUNT = 4
 VIEW_COUNT = PERIPHERAL_VIEW_COUNT + 1
 
+# 合成画像の定数 channel。view 番号を足して view を判別できるようにする。
+PRE_GREEN_BASE = 64
+PRE_BLUE = 96
+POST_RED_BASE = 32
+POST_GREEN = 160
+
 PIXEL_PER_MM = 28.677782176153425
 CELL_SIZE_MM = 1.8
 CELL_GAP_MM = 0.4
@@ -197,8 +203,8 @@ def _write_cell_images(
     for number, offset_x, offset_y, pixel_rect in views:
         pre_name = f"pre/{cell.index:06d}.{number:02d}.png"
         post_name = f"post/{cell.index:06d}.{number:02d}.png"
-        write_png(_pre_image(cell, crop_size_px), str(root / pre_name))
-        write_png(_post_image(cell, crop_size_px), str(root / post_name))
+        write_png(_pre_image(cell, crop_size_px, number), str(root / pre_name))
+        write_png(_post_image(cell, crop_size_px, number), str(root / post_name))
         captured.append(
             DatasetCapturedView(
                 number=number,
@@ -212,11 +218,13 @@ def _write_cell_images(
     return tuple(captured)
 
 
-def _pre_image(cell: SyntheticCell, size: int) -> torch.Tensor:
+def _pre_image(cell: SyntheticCell, size: int, number: int) -> torch.Tensor:
     """R だけが水平方向に変化し、G と B は定数の画像を返す.
 
     post と合わせて、channel 連結の順序（pre RGB が 0-2、post RGB が 3-5）を
     テストから観測できるようにする。
+
+    G へ view 番号を足して、view ごとに違う画像にする。view の並び順や間引きを 観測できるようにするため。
     """
 
     if cell.uniform:
@@ -224,20 +232,23 @@ def _pre_image(cell: SyntheticCell, size: int) -> torch.Tensor:
     image = torch.empty((3, size, size), dtype=torch.uint8)
     columns = torch.arange(size, dtype=torch.uint8).expand(size, size)
     image[0] = columns
-    image[1] = 64
-    image[2] = 96
+    image[1] = PRE_GREEN_BASE + number
+    image[2] = PRE_BLUE
     return image
 
 
-def _post_image(cell: SyntheticCell, size: int) -> torch.Tensor:
-    """B だけが垂直方向に変化し、R と G は定数の画像を返す."""
+def _post_image(cell: SyntheticCell, size: int, number: int) -> torch.Tensor:
+    """B だけが垂直方向に変化し、R と G は定数の画像を返す.
+
+    R へ view 番号を足して、view ごとに違う画像にする。
+    """
 
     if cell.uniform:
         return torch.full((3, size, size), 128, dtype=torch.uint8)
     image = torch.empty((3, size, size), dtype=torch.uint8)
     rows = torch.arange(size, dtype=torch.uint8).unsqueeze(1).expand(size, size)
-    image[0] = 32
-    image[1] = 160
+    image[0] = POST_RED_BASE + number
+    image[1] = POST_GREEN
     image[2] = rows
     return image
 
@@ -328,6 +339,10 @@ __all__ = [
     "PASTE_VOLUME_DATASET_DIR",
     "PERIPHERAL_VIEW_COUNT",
     "PIXEL_PER_MM",
+    "POST_GREEN",
+    "POST_RED_BASE",
+    "PRE_BLUE",
+    "PRE_GREEN_BASE",
     "PROJECT_ROOT",
     "VIEW_COUNT",
     "SyntheticCell",
