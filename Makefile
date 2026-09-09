@@ -40,10 +40,15 @@ DOCKER_COMPOSE = docker compose \
 # 基本作業（sync / test / smoke / shell）はすべて exec を通す。
 DOCKER_EXEC = $(DOCKER_COMPOSE) exec ml
 
-# pyright の対象を ML ツリーへ絞る。装置ドメインは pcbnew / picamera2 を要求し、
-# それが無いコンテナでは未解決 import として必ず赤くなる。装置側の型検査は
-# 実機の環境で `make type` が担当する。
-ML_TYPE_PATHS = src/ml tests/ml scripts/ml_smoke.py
+# pyright と pytest の対象を、コンテナで解決できるツリーへ絞る。装置ドメインの大半は
+# pcbnew / picamera2 を要求し、それが無いコンテナでは未解決 import として必ず赤くなる。
+# 装置側の型検査は実機の環境で `make type` が担当する。
+#
+# paste_volume は例外で、収集 schema と ml 基盤しか参照しないためコンテナで通る。
+# ここへ入れておかないと、学習機で書いたドメイン層が 1 行も検査されない。
+ML_TREES = src/ml tests/ml src/pcbasm/pasting/paste_volume tests/pcbasm/pasting/paste_volume
+ML_TYPE_PATHS = $(ML_TREES) scripts/ml_smoke.py
+ML_TEST_PATHS = tests/ml tests/pcbasm/pasting/paste_volume
 
 ml-docker-env: ## Generate docker/.env and the credential mounts from the host
 	@./docker/write-env.sh
@@ -72,7 +77,7 @@ ml-docker-smoke: ml-docker-sync ## Run the ML environment smoke check inside the
 	$(DOCKER_EXEC) uv run python scripts/ml_smoke.py
 
 ml-docker-test: ml-docker-sync ## Run the ML tests inside the container
-	$(DOCKER_EXEC) uv run pytest -v tests/ml -m "not hardware and not e2e"
+	$(DOCKER_EXEC) uv run pytest -v $(ML_TEST_PATHS) -m "not hardware and not e2e"
 
 # ML 作業の検証はコンテナ内で回す。host には ML 依存を入れないため、host の
 # pyright は torch を解決できない。
@@ -80,7 +85,7 @@ ml-docker-check: ml-docker-sync ## Run format, ML type check, and ML tests insid
 	$(DOCKER_EXEC) bash -c '\
 		uv run pre-commit run -a \
 		&& uv run pyright $(ML_TYPE_PATHS) \
-		&& uv run pytest -v tests/ml -m "not hardware and not e2e"'
+		&& uv run pytest -v $(ML_TEST_PATHS) -m "not hardware and not e2e"'
 
 
 format: ## Run pre-commit hooks
@@ -92,10 +97,10 @@ test: ## Run all tests (excludes e2e; see test-e2e)
 test-no-hardware: ## Run tests without hardware
 	uv run pytest -v -m "not hardware and not e2e"
 
-# tests/ml はドメイン非依存なので、picamera2 / pcbnew が無い学習機でも通る。
-# 装置側のテストを collect しないよう対象を tests/ml へ絞る。
-test-ml: ## Run the domain-independent ML tests (works without picamera2/pcbnew)
-	uv run pytest -v tests/ml -m "not hardware and not e2e"
+# tests/ml と tests/pcbasm/pasting/paste_volume は picamera2 / pcbnew を要求しないので
+# 学習機でも通る。装置側のテストを collect しないよう対象を絞る。
+test-ml: ## Run the ML tests that work without picamera2/pcbnew
+	uv run pytest -v $(ML_TEST_PATHS) -m "not hardware and not e2e"
 
 test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
 	uv run pytest -v -m e2e --timeout=180
