@@ -1,11 +1,10 @@
 # ML 学習・開発コンテナ
 
-GPU workstation上で`src/ml/`と`src/pcbasm/pasting/paste_volume/`を開発・学習する
-ためのコンテナ。装置ドメインの依存（KiCADの`pcbnew`、`picamera2`）を持たない
-環境で、ML側のコードとテストを完結させる。
+GPU workstation上で`src/ml/`を開発・学習するためのコンテナ。装置ドメインの依存
+（KiCADの`pcbnew`、`picamera2`）を持たない環境で、ML側のコードとテストを完結させる。
 
 方針は
-[画像ベース吐出量推定 ML 実装計画](../docs/image-based-dispense-calibration-ml-plan.md)
+[画像ベース吐出量推定 ML 実装計画](../../docs/image-based-dispense-calibration-ml-plan.md)
 に従う。
 
 ## なぜコンテナに分けるか
@@ -43,13 +42,13 @@ make ml-docker-sync    # ML 依存 (ml-hpo + ml-export) を install する
 make ml-docker-smoke   # 環境を確認する
 ```
 
-各targetは先に`docker/write-env.sh`（`make ml-docker-env`）を実行し、hostの実状から
+各targetは先に`docker/ml/write-env.sh`（`make ml-docker-env`）を実行し、hostの実状から
 2つのfileを生成する。どちらもGit管理外。
 
-- `docker/.env`: `id -un` / `id -u` / `id -g`。コンテナ内のユーザーをhostと同じ
+- `docker/ml/.env`: `id -un` / `id -u` / `id -g`。コンテナ内のユーザーをhostと同じ
     uid/gidで作るため。bind mountしたリポジトリへ書いたfileの所有者がhost側で
     rootにならない
-- `docker/compose.credentials.yaml`: 後述の資格情報mount
+- `docker/ml/compose.credentials.yaml`: 後述の資格情報mount
 
 `compose.yaml`は既定のuid/gidを持たず`.env`を必須にする。uidがずれたままbuildして
 mount先の所有者が食い違う事故を防ぐ。
@@ -66,8 +65,8 @@ container作成と破棄を繰り返して無駄になる。
 
 ```bash
 make ml-docker-shell   # 対話 shell に入る
-make ml-docker-test    # tests/ml と paste_volume を実行する
-make ml-docker-check   # format → 型検査 → tests/ml と paste_volume
+make ml-docker-test    # tests/ml を実行する
+make ml-docker-check   # format → 型検査 → tests/ml
 make ml-docker-down    # 停止する（named volume は残る）
 ```
 
@@ -84,14 +83,13 @@ Dockerfileを直しても古いimageで起動し、検証が古い環境で通�
 
 ## 型検査の範囲
 
-`make ml-docker-check`の`pyright`と`pytest`は`src/ml`、`tests/ml`、
-`src/pcbasm/pasting/paste_volume`、`tests/pcbasm/pasting/paste_volume`、
-`scripts/ml_smoke.py`を対象にする（`Makefile`の`ML_TREES`と`ML_TEST_PATHS`）。
+`make ml-docker-check`の`pyright`と`pytest`は`src/ml`、`tests/ml`、`scripts/ml_smoke.py`を
+対象にする（`Makefile`の`ML_TREES`と`ML_TEST_PATHS`）。
 
 装置ドメインの大半は`pcbnew`と`picamera2`を要求し、それが無いコンテナでは未解決import
-として必ず赤くなるので外す。`paste_volume`は例外で、収集schemaとml基盤しか参照しない
-ため通る。その到達範囲は`tests/pcbasm/pasting/paste_volume/test_architecture.py`が
-推移的に検証する。装置側の型検査は実機環境の`make type`が担当する。
+として必ず赤くなるので外す。ドメイン層`ml.paste_volume`は収集schemaを読むが装置HALへは
+届かないので通る。その到達範囲は`tests/ml/test_architecture.py`が推移的に検証する。
+装置側の型検査は実機環境の`make type`が担当する。
 
 ## コンテナに入っているもの
 
@@ -110,7 +108,7 @@ host側は未設定なので、同じworking treeをbind mountで共有すると
 
 ## 資格情報とその露出範囲
 
-`docker/write-env.sh`が、hostに実在するものだけをmountする。
+`docker/ml/write-env.sh`が、hostに実在するものだけをmountする。
 
 | source               | mount  | 用途                       |
 | -------------------- | ------ | -------------------------- |
@@ -150,9 +148,9 @@ agentが無い場合は`~/.ssh`をread-onlyでmountする。
 interpreterを指しているため。`UV_PROJECT_ENVIRONMENT`で切り替えており、hostと
 コンテナが同じ`.venv`を壊し合わない。
 
-compose projectは`pcb-assembly-ml`に固定してある。`-f docker/compose.yaml`指定では
-project directoryが`docker/`になり、既定のproject名が`docker`になってしまう。他
-プロジェクトの`docker/compose.yaml`とnamed volume（学習環境そのもの）を共有して
+compose projectは`pcb-assembly-ml`に固定してある。`-f docker/ml/compose.yaml`指定では
+project directoryが`docker/ml/`になり、既定のproject名が`ml`になってしまう。他
+プロジェクトの同名directoryとnamed volume（学習環境そのもの）を共有して
 しまうのを防ぐ。
 
 named volumeは`make ml-docker-down`では消えない。作り直すときは明示する。消したあとは
@@ -164,7 +162,7 @@ docker compose -p pcb-assembly-ml down -v
 
 ## version の更新
 
-`docker/Dockerfile`の`ARG`を更新してreviewしたうえで、`make ml-docker-build`を
+`docker/ml/Dockerfile`の`ARG`を更新してreviewしたうえで、`make ml-docker-build`を
 再実行する。
 
 - `UV_VERSION`

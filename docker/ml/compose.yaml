@@ -7,9 +7,9 @@
 # path を bind mount source に書くと Docker が root 所有の空 directory を作るため、
 # host に実在する source だけを生成時に選ぶ。
 
-# project 名を固定する。`-f docker/compose.yaml` 指定では project directory が
-# docker/ になり、既定の project 名が "docker" になってしまう。他プロジェクトの
-# docker/compose.yaml と volume（学習環境そのもの）を共有してしまうのを防ぐ。
+# project 名を固定する。`-f docker/ml/compose.yaml` 指定では project directory が
+# docker/ml/ になり、既定の project 名が "ml" になってしまう。他プロジェクトの
+# 同名 directory と volume（学習環境そのもの）を共有してしまうのを防ぐ。
 name: pcb-assembly-ml
 
 services:
@@ -17,9 +17,9 @@ services:
     build:
       context: .
       args:
-        USER_NAME: ${USER_NAME:?make ml-docker-env で docker/.env を作ってください}
-        USER_UID: ${USER_UID:?make ml-docker-env で docker/.env を作ってください}
-        USER_GID: ${USER_GID:?make ml-docker-env で docker/.env を作ってください}
+        USER_NAME: ${USER_NAME:?make ml-docker-env で docker/ml/.env を作ってください}
+        USER_UID: ${USER_UID:?make ml-docker-env で docker/ml/.env を作ってください}
+        USER_GID: ${USER_GID:?make ml-docker-env で docker/ml/.env を作ってください}
     image: pcb-assembly-ml:latest
 
     # NVIDIA Container Toolkit 経由で全 GPU を渡す（Compose v2.30 以降）
@@ -41,7 +41,7 @@ services:
 
     volumes:
       # リポジトリ本体。.venv は UV_PROJECT_ENVIRONMENT で /opt/venv へ逃がしてある
-      - ../:/workspace
+      - ../../:/workspace
 
       # 仮想環境と cache は named volume に置いて再 build 間で保つ
       - ml-venv:/opt/venv

@@ -29,12 +29,12 @@ setup-ml-runtime: ## Install inference-only ML dependencies (Raspberry Pi 5)
 ml-smoke: ## Verify the ML development environment (versions, CUDA, forward/backward, decode)
 	uv run python scripts/ml_smoke.py
 
-# --- ML 学習・開発コンテナ（詳細は docker/README.md） -------------------------
+# --- ML 学習・開発コンテナ（詳細は docker/ml/README.md） -------------------------
 # 資格情報 mount は host に実在するものだけを compose.credentials.yaml へ生成する。
 # 存在しない bind mount source を書くと Docker が root 所有の空 directory を作る。
 DOCKER_COMPOSE = docker compose \
-	-f docker/compose.yaml \
-	-f docker/compose.credentials.yaml
+	-f docker/ml/compose.yaml \
+	-f docker/ml/compose.credentials.yaml
 
 # 常駐コンテナへ exec する。run --rm は毎回 container を作って捨てるため、
 # 基本作業（sync / test / smoke / shell）はすべて exec を通す。
@@ -50,8 +50,8 @@ ML_TREES = src/ml tests/ml src/pcbasm/pasting/paste_volume tests/pcbasm/pasting/
 ML_TYPE_PATHS = $(ML_TREES) scripts/ml_smoke.py
 ML_TEST_PATHS = tests/ml tests/pcbasm/pasting/paste_volume
 
-ml-docker-env: ## Generate docker/.env and the credential mounts from the host
-	@./docker/write-env.sh
+ml-docker-env: ## Generate docker/ml/.env and the credential mounts from the host
+	@./docker/ml/write-env.sh
 
 ml-docker-build: ml-docker-env ## Build the ML training/development container image
 	$(DOCKER_COMPOSE) build

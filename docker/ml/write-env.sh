@@ -2,8 +2,8 @@
 #
 # compose へ渡す設定を host の実状から生成する。
 #
-# 1. docker/.env         コンテナ内ユーザーを host と同じ uid/gid で作るための値
-# 2. docker/compose.credentials.yaml
+# 1. docker/ml/.env         コンテナ内ユーザーを host と同じ uid/gid で作るための値
+# 2. docker/ml/compose.credentials.yaml
 #                        git / glab の資格情報 mount。存在する source だけを書く
 #
 # 資格情報 mount を別 file へ分けるのは、存在しない path を bind mount source に
@@ -89,7 +89,7 @@ fi
     fi
 } > "${CREDENTIALS_FILE}"
 
-echo "docker/.env:"
+echo "docker/ml/.env:"
 sed 's/^/  /' "${ENV_FILE}"
 
 if [ "${#notes[@]}" -gt 0 ]; then
