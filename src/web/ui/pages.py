@@ -40,6 +40,7 @@ from web.ui.layout import (
     JOB_TEMPLATES,
     LOADING_ROTATION_PARAMS,
     PASTE_AUTO_THRESHOLD_KEYS,
+    PASTE_DATASET_PARAM_GROUPS,
     PASTE_PAD_REFINEMENT_KEYS,
     TAB_LABELS,
     TAB_PHASES,
@@ -374,6 +375,19 @@ def _dispense_calibration_context(
     }
 
 
+def _paste_dataset_context(
+    job: JobSpecInfo, settings: _MachineSettings
+) -> dict[str, Any]:
+    """Paste_dataset_collection ページ専用コンテキスト（フォームのセクション分け）."""
+    specs_by_name = {spec.name: spec for spec in job.params}
+    return {
+        "param_groups": [
+            (legend, [specs_by_name[name] for name in names])
+            for legend, names in PASTE_DATASET_PARAM_GROUPS
+        ]
+    }
+
+
 def _paste_workspace_context(
     state: StateResponse, settings: _MachineSettings
 ) -> dict[str, Any]:
@@ -413,6 +427,7 @@ _JOB_FEATURE_CONTEXT: dict[
 ] = {
     "loading": _loading_context,
     "dispense_calibration": _dispense_calibration_context,
+    "paste_dataset_collection": _paste_dataset_context,
 }
 
 # feature slug → ページ専用コンテキスト（ジョブ有無に依らない）

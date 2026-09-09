@@ -35,6 +35,7 @@ from web.api.routers import (
     jobs,
     machine_control,
     nozzle_cap,
+    paste_dataset,
     paste_flow_calibration_board,
     pasting,
     pasting_loading,
@@ -225,6 +226,7 @@ def create_app(
     app.include_router(preview_router.router)
     app.include_router(jobs.router)
     app.include_router(pasting.router)
+    app.include_router(paste_dataset.router)
     app.include_router(paste_flow_calibration_board.router)
     app.include_router(pasting_loading.router)
     app.include_router(nozzle_cap.router)

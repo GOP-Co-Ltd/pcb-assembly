@@ -1328,6 +1328,29 @@ class TestPastingPadEditor:
         assert 'id="param-shuffle_seed"' in text
         assert 'id="param-paste_id"' in text
         assert 'id="param-paste_lot"' in text
+
+    def test_paste_dataset_collection_renders_the_layout_preview_panel(
+        self, client: TestClient
+    ):
+        """撮影枚数と配置図をサーバ値で描くパネルの DOM フック."""
+        text = client.get("/pasting/paste_dataset_collection").text
+
+        assert 'id="pdl-panel"' in text
+        assert 'id="pdl-view"' in text
+        assert 'id="pdl-summary"' in text
+        assert 'id="pdl-error"' in text
+        assert 'id="pdl-legend"' in text
+        assert "js/paste_dataset_layout.js" in text
+
+    def test_paste_dataset_collection_groups_the_form_into_sections(
+        self, client: TestClient
+    ):
+        """項目が多いので縦一列にせず、段組みの fieldset へ分ける."""
+        text = client.get("/pasting/paste_dataset_collection").text
+
+        assert "paste-dataset-form" in text
+        for legend in ("銅板", "セル格子", "吐出量スイープ", "塗布と撮影", "ペースト"):
+            assert f"<legend>{legend}</legend>" in text
         assert (
             'id="param-paste_lot" name="paste_lot"\n'
             '           data-param-type="str" data-param-optional="true"' in text
