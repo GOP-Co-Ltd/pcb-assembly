@@ -510,10 +510,10 @@ class TestPadding:
     def test_does_not_derive_the_position_from_the_rotation(self, tmp_path: Path):
         """配置が回転角の従属変数になっていないこと.
 
-        ``AugmentationRange.parameters_for`` は ``{global_seed}:{epoch}:{sample_id}`` を
-        sha256 に掛けた先頭 8 byte を種にする。同じ材料で配置の種を作ると、両者が
-        同じ乱数列から出て相関する。回転を有効にしたまま、同じ回転帯の中で複数の位置が
-        現れることを見る。
+        ``AugmentationRange.parameters_for`` は ``{global_seed}:{epoch}:augmentation:
+        {sample_id}`` を sha256 に掛けた先頭 8 byte を種にする。役割ラベルを外して同じ
+        材料で配置の種を作ると、両者が同じ乱数列から出て相関する。回転を有効にしたまま、
+        同じ回転帯の中で複数の位置が現れることを見る。
         """
 
         dataset = _dataset(tmp_path)
@@ -536,7 +536,8 @@ class TestPadding:
                     )
                 )
 
-        # 8 帯 x 4 位置 = 32 通り。材料を共有すると 20 通りしか出ない（実測）
+        # 8 帯 x 4 位置 = 32 通り。60 epoch で 32 通り出る（実測）。材料を共有させると
+        # 同じ条件で 20 通りへ落ちる（実測）ので、28 は両者を分ける閾値になる
         assert len(pairs) >= 28
 
 

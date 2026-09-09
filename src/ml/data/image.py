@@ -32,6 +32,9 @@ from torchvision.transforms.v2 import functional as transforms
 _MINIMUM_VARIANCE = 1e-12
 _FULL_TURN_DEGREES = 360.0
 
+# 乱数種の材料へ入れる役割ラベル。他用途の種と材料が一致するのを防ぐ。
+_AUGMENTATION_ROLE = "augmentation"
+
 
 @attrs.frozen
 class ImageShape:
@@ -162,7 +165,9 @@ class AugmentationRange:
         unit_scale = self.minimum_scale == 1.0 and self.maximum_scale == 1.0
         if not self.rotation_enabled and unit_scale:
             return NO_AUGMENTATION
-        generator = random.Random(_derived_seed(f"{global_seed}:{epoch}:{sample_id}"))
+        generator = random.Random(
+            _derived_seed(f"{global_seed}:{epoch}:{_AUGMENTATION_ROLE}:{sample_id}")
+        )
         rotation = (
             generator.random() * _FULL_TURN_DEGREES if self.rotation_enabled else 0.0
         )
@@ -475,11 +480,12 @@ def _resolved_valid_mask(values: Tensor, valid_mask: Tensor | None) -> Tensor:
 def _derived_seed(material: str) -> int:
     """材料から 64 bit の乱数種を作る.
 
-    ``AugmentationRange.parameters_for`` が ``{global_seed}:{epoch}:{sample_id}`` という
-    ラベル無しの材料でこれを占有している。**同じ 3 つ組から別用途の種を作るときは、
-    必ず役割ラベルを挟むこと。** 挟まないと同じ整数になり、幾何変換と相関した乱数列が
-    出る（``ViewDropout`` の ``view-dropout``、``plan_pixel_budget_batches`` の
-    ``batch-plan`` が挟んでいるのはこのため）。
+    **``(global_seed, epoch, sample_id)`` から種を作る用途は、例外なく役割ラベルを
+    材料へ挟むこと。** 挟まないと別用途どうしが同じ材料になり、同じ乱数列から出た値が
+    相関する。``AugmentationRange.parameters_for`` の ``augmentation``、
+    ``PasteVolumeCollator`` の ``placement``、``ViewDropout`` の ``view-dropout``、
+    ``plan_pixel_budget_batches`` の ``batch-plan`` が 4 用途の全てで、
+    ``tests/ml/test_seed_roles.py`` が互いに一致しないことを固定している。
 
     利用側で実際に踏んだ例は
     ``memory/agents/orchestrator/paste-volume-data-task.md`` の M1。
