@@ -141,8 +141,13 @@ def apply_fine_tune_freeze(model: MultiViewGaussianRegressor) -> tuple[str, ...]
     更新対象に残すのは最終 residual stage、pooling 後の Linear、2 個の head、
     learnable padding pixel。
 
-    padding pixel を凍結しないのは、fine-tune 先の Raspberry Pi では撮像条件が変わり
-    padding 領域の扱いを学び直す必要があるため（仕様書 §2 の fine-tuning 範囲）。
+    仕様書 §2 は更新対象を「residual stage 3」と書くが、v1 の encoder は stage を
+    2 つしか持たない。計画書はこれを「最終 stage」と読み替えており、ここもその
+    読み替えに従う。
+
+    仕様書 §2 は learnable padding pixel を更新対象に挙げるだけで理由を書いていない。
+    fine-tune 先の Raspberry Pi では撮像条件が変わり padding 領域の扱いを学び直す
+    必要がある、というのがここでの解釈。
 
     期待する接頭辞が 1 つでも見つからなければ例外にする。
 

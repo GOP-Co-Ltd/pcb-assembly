@@ -178,7 +178,8 @@ def _validation_lines(roots: Sequence[Path], summary: DatasetSummary) -> str:
 
     隔離した cell は失敗にしない。
 
-    使えない cell を除いて index を組むのは設計どおりで、件数と理由を見せる。
+    使えない cell を除いて index を組むのは設計どおりなので、件数だけを見せる。
+    理由ごとの内訳は要約側の関心事ではないので出さない。
     """
 
     lines = [

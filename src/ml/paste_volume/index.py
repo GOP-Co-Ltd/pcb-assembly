@@ -227,6 +227,10 @@ class PasteVolumeSampleIndex:
         ``session_label`` の完全一致を先に見て、無ければ fingerprint の前頭一致を見る。
         1 件へ絞れなければ理由を返す。0 件と複数件を別の理由にするのは、打ち間違いと
         指定不足で次の手が違うため。
+
+        前頭一致は ``"sha256:"`` を含む fingerprint 全体に対して行う。
+        ``sample_id`` の先頭 12 桁は ``sha256:`` を落とした部分なので、そのまま
+        渡しても当たらない。
         """
 
         if not selector:

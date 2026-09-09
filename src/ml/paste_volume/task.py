@@ -18,7 +18,6 @@ Trainer は dataset の中身も loss の形も知らない。知っているの
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Self, cast, override
@@ -118,9 +117,7 @@ class PasteVolumeTrainingConfig:
                 "cell 次元の split では held_out_session を使いません: "
                 f"{self.held_out_session!r}"
             )
-        if not math.isfinite(self.validation_ratio) or not (
-            0 < self.validation_ratio < 1
-        ):
+        if not 0 < self.validation_ratio < 1:
             return f"validation_ratio は 0 と 1 の間が必要です: {self.validation_ratio}"
         if error := self.ratios.validate():
             return error
@@ -433,6 +430,10 @@ def collect_predictions(
     ``epoch`` は batch の並べ替えにしか効かない。学習以外の split では
     :func:`_is_training` が偽になり幾何変換が恒等になるので、どの epoch を
     渡しても予測値は変わらない。
+
+    ``task.model`` は eval mode のまま返す。呼ぶのは学習が終わったあとの
+    calibration と、checkpoint を読み直す評価だけで、どちらもそのあと学習を
+    続けない。
     """
 
     task.model.eval()

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Self
 from urllib.parse import urlsplit
 
 import attrs
@@ -33,7 +34,7 @@ from ml.config.composition import ConfigComposition
 from ml.config.packaged import PackagedConfiguration
 from ml.data.batch import ViewDropout
 from ml.data.image import AugmentationRange, ImageConstraints
-from ml.data.split import SplitRatios
+from ml.data.split import SplitName, SplitRatios
 from ml.experiment.logger import ExperimentLogger
 from ml.experiment.mlflow import (
     MLflowExperimentLogger,
@@ -73,6 +74,11 @@ _LOCAL_ARTIFACT_SCHEMES = ("", "file")
 # 解決済み config を run directory と MLflow の両方へ残すための封筒。
 EXPERIMENT_CONFIG_DOCUMENT = DocumentKind(
     kind="paste-volume-experiment-config", schema_version=1
+)
+
+# 学習後に validation split だけで fit した log 分散 offset の封筒。
+CALIBRATION_DOCUMENT = DocumentKind(
+    kind="paste-volume-uncertainty-calibration", schema_version=1
 )
 
 # 学習データの取り回しの既定値の出典。
@@ -161,6 +167,37 @@ class PasteVolumeDataConfig:
             max_batch_pixels=self.max_batch_pixels,
             max_batch_size=self.max_batch_size,
         )
+
+
+@attrs.frozen
+class UncertaintyCalibration:
+    """Validation split だけで fit した log 分散への scalar offset.
+
+    平均は変えない。
+
+    offset を足す前後の 1 標準偏差 coverage を両方持つのは、calibration が効いたかどうかを run
+    記録だけで読めるようにするため。
+
+    書くのは学習 entrypoint、読むのは評価 entrypoint。封筒（``calibration.json``）を
+    置いているこの module が両者の共通の下流になる。
+    """
+
+    split: SplitName
+    sample_count: int
+    log_variance_offset: float
+    coverage_before: float
+    coverage_after: float
+
+    def save(self, path: Path) -> None:
+        """封筒付き JSON として書き出す."""
+
+        CALIBRATION_DOCUMENT.save(path, self, converter=make_strict_converter())
+
+    @classmethod
+    def load(cls, path: Path) -> tuple[Self | None, str | None]:
+        """書き出した calibration を読み戻す."""
+
+        return CALIBRATION_DOCUMENT.load(path, cls, converter=make_strict_converter())
 
 
 @attrs.frozen
@@ -434,6 +471,7 @@ def load_experiment_config(
 
 __all__ = [
     "BASE_LAYER_NAMES",
+    "CALIBRATION_DOCUMENT",
     "CALIBRATION_FILE_NAME",
     "CONFIG_FILE_NAME",
     "EXPERIMENT_CONFIG_DOCUMENT",
@@ -445,6 +483,7 @@ __all__ = [
     "PasteVolumeExperimentConfig",
     "ResumeConfig",
     "SearchConfig",
+    "UncertaintyCalibration",
     "compose_experiment",
     "load_experiment_config",
     "packaged_configuration",

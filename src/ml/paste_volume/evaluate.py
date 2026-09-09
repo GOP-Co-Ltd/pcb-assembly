@@ -52,6 +52,7 @@ from ml.paste_volume.experiment import (
     CONFIG_FILE_NAME,
     SPLIT_FILE_NAME,
     PasteVolumeExperimentConfig,
+    UncertaintyCalibration,
     load_experiment_config,
 )
 from ml.paste_volume.index import PasteVolumeSampleIndex
@@ -61,7 +62,6 @@ from ml.paste_volume.task import (
     PasteVolumeTrainingData,
     collect_predictions,
 )
-from ml.paste_volume.train import UncertaintyCalibration
 from ml.serialization import make_strict_converter
 from ml.training.checkpoint import CheckpointRole, CheckpointStore
 
@@ -93,6 +93,7 @@ class EvaluationDataOverride:
     """
 
     roots: tuple[Path, ...]
+    """空にはできない（:meth:`EvaluationRequest.validate` が拒む）."""
 
 
 @attrs.frozen
@@ -124,6 +125,8 @@ class EvaluationRequest:
                 "（test は fold ごとに 1 度だけ測る集合で、学習の完了処理や "
                 "Optuna trial から自動実行しません）"
             )
+        if self.data is not None and not self.data.roots:
+            return 'data.roots が空です（data.roots=["/abs/..."] を指定してください）'
         return None
 
     def run_directories(self) -> tuple[tuple[Path, ...] | None, str | None]:
@@ -242,7 +245,7 @@ def evaluate_fold(
     config, error = load_experiment_config(run_directory / CONFIG_FILE_NAME)
     if config is None:
         return None, error
-    if roots:
+    if roots is not None:
         config = attrs.evolve(
             config, data=attrs.evolve(config.data, roots=tuple(roots))
         )

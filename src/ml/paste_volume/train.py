@@ -24,8 +24,14 @@
 
 ``run_directory`` は fold ごとに別の値を渡す。
 
-打ち切られた fold で ``set -e`` のループが止まるよう、signal / deadline で
-止まった run は :data:`INTERRUPTED_EXIT_CODE` を返す。
+終了コードは shell ループの分岐材料なので 3 値にしてある。
+
+- ``0`` — 最後まで回りきった（``max_epochs`` / ``max_steps`` / ``early_stopping``）
+- ``1`` — argv の不備か、成果物を 1 つ作れなかった。理由は stderr
+- :data:`INTERRUPTED_EXIT_CODE`（``2``）— signal か deadline で打ち切られた
+
+``set -e`` のループは 0 以外で止まる。打ち切られた fold を 0 で返すと、途中で
+止まった run の metric が report へ混ざる。
 
 split.json は run directory に残り、次の run が同じ directory を指すと再利用
 される。fold をまたいで共有すると、要求した held-out と実際の test split が
@@ -41,13 +47,12 @@ import statistics
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Self, override
+from typing import override
 
 import attrs
 import torch
 
 from ml.artifact.atomic import atomic_write_stream, atomic_write_text
-from ml.artifact.document import DocumentKind
 from ml.artifact.fingerprint import fingerprint_json
 from ml.data.image import ImageConstraints
 from ml.data.split import SplitManifest, SplitName
@@ -60,13 +65,19 @@ from ml.experiment.logger import (
 from ml.experiment.provenance import DependencyVersions, GitProvenance
 from ml.model.inspection import ModelSize
 from ml.model.multiview import MultiViewGaussianRegressor
+
+# ``CALIBRATION_DOCUMENT`` と ``UncertaintyCalibration`` は ``calibration.json`` を
+# 書くこの module から辿れる名前として再 export する（定義は封筒を持つ
+# ``experiment`` 側）。
 from ml.paste_volume.experiment import (
+    CALIBRATION_DOCUMENT,
     CALIBRATION_FILE_NAME,
     CONFIG_FILE_NAME,
     GIT_DIFF_FILE_NAME,
     SPLIT_FILE_NAME,
     WEIGHTS_FILE_NAME,
     PasteVolumeExperimentConfig,
+    UncertaintyCalibration,
     compose_experiment,
     save_experiment_config,
 )
@@ -100,11 +111,6 @@ GIGA_MULTIPLY_ACCUMULATE_BUDGET = 1.5
 BUDGET_CROP_SIZE_PX = 159
 BUDGET_VIEW_COUNT = 5
 
-# 学習後に validation split だけで fit した log 分散 offset の封筒。
-CALIBRATION_DOCUMENT = DocumentKind(
-    kind="paste-volume-uncertainty-calibration", schema_version=1
-)
-
 # ``weights.pt`` の payload。再開用ではなく、評価と export の入力。
 WEIGHTS_KIND = "paste-volume-model-weights"
 WEIGHTS_SCHEMA_VERSION = 1
@@ -130,34 +136,6 @@ COMPLETED_STOP_REASONS: frozenset[StopReason] = frozenset(
 #
 # argv の不備（1）と区別できるよう別の値にする。
 INTERRUPTED_EXIT_CODE = 2
-
-
-@attrs.frozen
-class UncertaintyCalibration:
-    """Validation split だけで fit した log 分散への scalar offset.
-
-    平均は変えない。
-
-    offset を足す前後の 1 標準偏差 coverage を両方持つのは、calibration が効いたかどうかを run
-    記録だけで読めるようにするため。
-    """
-
-    split: SplitName
-    sample_count: int
-    log_variance_offset: float
-    coverage_before: float
-    coverage_after: float
-
-    def save(self, path: Path) -> None:
-        """封筒付き JSON として書き出す."""
-
-        CALIBRATION_DOCUMENT.save(path, self, converter=make_strict_converter())
-
-    @classmethod
-    def load(cls, path: Path) -> tuple[Self | None, str | None]:
-        """書き出した calibration を読み戻す."""
-
-        return CALIBRATION_DOCUMENT.load(path, cls, converter=make_strict_converter())
 
 
 @attrs.frozen(eq=False)
@@ -288,16 +266,26 @@ def run_training(
     誰も辿れない。無指定でも動く no-op を置くと、記録が黙って無効になった run と
     そうでない run を見分けられなくなる。
 
-    戻り値は ``(outcome, 理由)`` で、2 つの意味を持つ。
+    戻り値 ``(outcome, 理由)`` の組み合わせは 3 通りで、意味がそれぞれ違う。
 
-    ``outcome`` が ``None`` なら「学習を始める前に分かる不備」で、run は 1 度も
-    始まっていない。``outcome`` があるのに理由が付くときは「学習は終わったが
-    成果物を 1 つ作れなかった」で、いま起きうるのは calibration の失敗だけ。
-    ``calibration.json`` の offset は report に載る値なので、黙って落とさない。
+    - ``(None, 理由)`` — 学習を始める前に分かる不備。run は 1 度も始まっていない
+    - ``(outcome, 理由)`` — 学習は最後まで進んだが、成果物を 1 つ作れなかった。
+      いま起きうるのは calibration の失敗だけ。``calibration.json`` の offset は
+      report に載る値なので、黙って落とさない
+    - ``(outcome, None)`` — 成果物まで揃った
+
+    2 つ目を ``(None, 理由)`` に畳めない。``Trainer`` が run の開始と終了を持つ
+    ので、run が終わってから MLflow へ書き足せず、calibration の失敗を理由に
+    完走した run そのものを無かったことにもできない。
 
     学習中の失敗（非有限 loss、resume の fingerprint 不一致）は
     :class:`~ml.training.loop.Trainer` が送出する。同じ不整合へ検出器を 2 つ
     置かない。
+
+    :meth:`~ml.paste_volume.experiment.PasteVolumeExperimentConfig.validate` は
+    ``main()`` も呼ぶが、これは記録先を開く前に argv の不備を報告するためで、
+    ここは entrypoint を経由しない呼び出し元のために持つ。副作用の無い検査なので
+    2 度通してよい。
     """
 
     if error := config.validate():
@@ -342,6 +330,9 @@ def run_training(
     save_experiment_config(config, run_directory / CONFIG_FILE_NAME)
     # 作業ツリーの由来は 1 度だけ取る。git diff は毎回 subprocess を起こす。
     provenance, provenance_reason = GitProvenance.capture(_repository_root())
+    # train split を 1 度だけ走査する。tag（bias の逸脱）と param（記録値）が
+    # 同じ平均を使う。
+    train_measured_mean = _train_measured_mean(data)
     task = PasteVolumeTask(model)
     trainer = Trainer(
         task,
@@ -356,8 +347,15 @@ def run_training(
                 run_directory=run_directory,
                 provenance=provenance,
                 provenance_reason=provenance_reason,
+                train_measured_mean=train_measured_mean,
             ),
-            params=_run_params(config, data=data, size=size, frozen=frozen),
+            params=_run_params(
+                config,
+                data=data,
+                size=size,
+                frozen=frozen,
+                train_measured_mean=train_measured_mean,
+            ),
             artifacts=_startup_artifacts(run_directory, provenance=provenance),
         ),
         device=device,
@@ -564,6 +562,7 @@ def _run_tags(
     run_directory: Path,
     provenance: GitProvenance | None,
     provenance_reason: str | None,
+    train_measured_mean: float,
 ) -> dict[str, str]:
     """Run の由来と同一性を表すタグ.
 
@@ -591,7 +590,9 @@ def _run_tags(
         tags["git.unavailable"] = provenance_reason or "理由不明"
     else:
         tags.update(provenance.as_tags())
-    if deviation := _mean_bias_deviation(config.model, data=data):
+    if deviation := _mean_bias_deviation(
+        config.model, train_measured_mean=train_measured_mean
+    ):
         tags["model.mean_bias_deviation"] = deviation
     return tags
 
@@ -602,6 +603,7 @@ def _run_params(
     data: PasteVolumeTrainingData,
     size: ModelSize,
     frozen: Sequence[str],
+    train_measured_mean: float,
 ) -> dict[str, Scalar]:
     """Run を通して変わらない設定と実測値.
 
@@ -633,7 +635,7 @@ def _run_params(
         "data.train_sample_count": len(manifest.train_sample_ids),
         "data.validation_sample_count": len(manifest.validation_sample_ids),
         "data.test_sample_count": len(manifest.test_sample_ids),
-        "data.train_measured_mean_ul": _train_measured_mean(data),
+        "data.train_measured_mean_ul": train_measured_mean,
         "data.max_batch_pixels": config.data.max_batch_pixels,
         "data.max_batch_size": config.data.max_batch_size,
         "split.seed": manifest.seed,
@@ -673,7 +675,7 @@ def _parent_run_id(initial_weights: Path | None) -> str | None:
 
 
 def _mean_bias_deviation(
-    model: PasteVolumeModelConfig, *, data: PasteVolumeTrainingData
+    model: PasteVolumeModelConfig, *, train_measured_mean: float
 ) -> str | None:
     """平均 bias の初期値が train split の真値スケールから外れていれば理由を返す.
 
@@ -681,14 +683,13 @@ def _mean_bias_deviation(
     （計画書 R5）。fold ごとに model config が変わると run 間の比較が読めない。
     """
 
-    measured = _train_measured_mean(data)
-    if measured <= 0 or model.mean_bias_initial <= 0:
+    if train_measured_mean <= 0 or model.mean_bias_initial <= 0:
         return None
-    ratio = measured / model.mean_bias_initial
+    ratio = train_measured_mean / model.mean_bias_initial
     if 1 / MEAN_BIAS_DEVIATION_FACTOR <= ratio <= MEAN_BIAS_DEVIATION_FACTOR:
         return None
     return (
-        f"train split の measured 平均 {measured:.6f} uL は "
+        f"train split の measured 平均 {train_measured_mean:.6f} uL は "
         f"mean_bias_initial {model.mean_bias_initial} の {ratio:.2f} 倍です"
     )
 
