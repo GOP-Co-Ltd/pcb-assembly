@@ -60,6 +60,10 @@ PRE_BLUE = 96
 POST_RED_BASE = 32
 POST_GREEN = 160
 
+# 実データと同じく measured = commanded x k（k は session ごとの 1 定数）にする。
+# 両者を等しくすると、教師値を指令量へ置き換える変異が検出できない。
+MEASURED_RATIO = 0.87
+
 PIXEL_PER_MM = 28.677782176153425
 CELL_SIZE_MM = 1.8
 CELL_GAP_MM = 0.4
@@ -137,7 +141,7 @@ def write_session(
                 commanded_volume_ul=commanded,
                 volume_index=len(samples),
                 execution=_execution(commanded),
-                measured_volume_ul=commanded,
+                measured_volume_ul=commanded * MEASURED_RATIO,
                 views=captured,
             )
         )
@@ -338,6 +342,7 @@ __all__ = [
     "CROP_SIZE_PX",
     "PASTE_VOLUME_DATASET_DIR",
     "PERIPHERAL_VIEW_COUNT",
+    "MEASURED_RATIO",
     "PIXEL_PER_MM",
     "POST_GREEN",
     "POST_RED_BASE",

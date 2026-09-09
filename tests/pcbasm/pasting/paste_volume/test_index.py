@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ml.data.image import ImageConstraints
 from pcbasm.pasting.paste_volume.index import PasteVolumeSampleIndex
 from pcbasm.pasting.paste_volume.session import PasteVolumeSession
 from tests.pcbasm.pasting.paste_volume.helpers import (
     CROP_SIZE_PX,
+    MEASURED_RATIO,
     VIEW_COUNT,
     SyntheticCell,
     corrupt_metadata,
@@ -105,9 +108,16 @@ class TestSampleEntries:
         assert len(set(sample_ids)) == len(sample_ids)
 
     def test_carries_the_label_and_the_collection_resolution(self, tmp_path: Path):
+        """教師値は指令量ではなく計量由来の measured_volume_ul.
+
+        実データでは ``measured = commanded x k``（k は session ごとの 1 定数）なので、
+        両者は一致しない。指令量を教師値に使う取り違えを見分けられるようにする。
+        """
+
         entries = _built(tmp_path / "session").entries
 
-        assert entries[0].measured_volume_ul == 0.10
+        assert entries[0].commanded_volume_ul == 0.10
+        assert entries[0].measured_volume_ul == pytest.approx(0.10 * MEASURED_RATIO)
         assert entries[2].measured_volume_ul == 0.0
         assert entries[2].commanded_volume_ul is None
         assert all(entry.pixel_per_mm > 0 for entry in entries)
