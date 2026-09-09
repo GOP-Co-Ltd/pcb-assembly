@@ -36,6 +36,18 @@ class MLflowRunTarget:
     run_name: str | None = None
     resume_run_id: str | None = None
 
+    artifact_location: str | None = None
+    """Experiment を新規に作るときの成果物の置き場所.
+
+    database backend の tracking store は、experiment を作るときに成果物の
+    置き場所を決めないと現在 directory の下（``./mlruns``）を使う。
+
+    起動した directory で成果物の所在が変わると、あとから run を開いても
+    artifact を辿れない。
+
+    既存の experiment には効かない（作成時にしか決められない）。
+    """
+
     def validate(self) -> str | None:
         """記録先の指定が揃っているかを検証する."""
 
@@ -92,7 +104,7 @@ class MLflowExperimentLogger(ExperimentLogger):
         if self._run_id is not None:
             raise RuntimeError("MLflow run はすでに start しています")
         mlflow.set_tracking_uri(self._target.tracking_uri)
-        mlflow.set_experiment(self._target.experiment_name)
+        self._select_experiment()
         merged_tags = {"run_kind": run_kind, **dict(tags or {})}
         if self._target.resume_run_id is None:
             run = mlflow.start_run(
@@ -154,6 +166,19 @@ class MLflowExperimentLogger(ExperimentLogger):
         mlflow.flush_async_logging()
         mlflow.end_run(status=status)
         self._ended = True
+
+    def _select_experiment(self) -> None:
+        """成果物の置き場所を決めたうえで experiment を選ぶ.
+
+        置き場所を指定しないと ``mlflow.set_experiment`` が現在 directory の
+        相対 path を焼き付ける。
+        """
+
+        name = self._target.experiment_name
+        location = self._target.artifact_location
+        if location is not None and mlflow.get_experiment_by_name(name) is None:
+            mlflow.create_experiment(name, artifact_location=location)
+        mlflow.set_experiment(name)
 
     def _require_active(self) -> str:
         if self._run_id is None:
