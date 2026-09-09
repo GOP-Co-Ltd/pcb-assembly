@@ -19,16 +19,21 @@ from typing import get_args, get_type_hints
 
 import attrs
 import pytest
+from mlflow.store.db.db_types import DATABASE_ENGINES
 
 from ml.config.packaged import PackagedConfiguration
 from ml.data.image import ImageConstraints
 from ml.paste_volume.batch import PasteVolumeCollator
 from ml.paste_volume.experiment import (
     BASE_LAYER_NAMES,
+    CONFIG_FILE_NAME,
     PasteVolumeDataConfig,
     PasteVolumeExperimentConfig,
     compose_experiment,
+    load_experiment_config,
     packaged_configuration,
+    redacted_experiment_config,
+    save_experiment_config,
 )
 from ml.paste_volume.task import PasteVolumeTrainingConfig
 from ml.tuning.search_space import ParameterDistribution
@@ -607,6 +612,89 @@ class TestGroupResolution:
         assert config.logger.artifact_location is None
         assert config.validate() is None
 
+    @pytest.mark.parametrize("engine", DATABASE_ENGINES)
+    def test_every_database_backend_needs_an_artifact_location(self, engine: str):
+        """Sqlite に限らず、client が直接 database を開く記録先すべてに掛かること.
+
+        MLflow の database backend はどれも、置き場所を決めずに作った experiment
+        へ ``./mlruns`` を焼き付ける。engine の一覧は MLflow 自身のものを引く
+        ので、MLflow が engine を足したらこの検査の対象も増える。
+        """
+
+        config = _composed(
+            (
+                *_valid_arguments("logger", "mlflow"),
+                f"logger.tracking_uri={engine}://mlflow:secret@db.example/mlflow",
+            )
+        )
+
+        error = config.validate()
+        assert error is not None
+        assert "artifact_location" in error
+
+    @pytest.mark.parametrize(
+        "tracking_uri",
+        ["file:///abs/mlruns", "./mlruns", "/abs/mlruns"],
+        ids=["file-uri", "relative-path", "absolute-path"],
+    )
+    def test_a_filesystem_tracking_uri_is_refused(self, tracking_uri: str):
+        """MLflow が store を作れない記録先を、学習を始める前に落とすこと.
+
+        3.15 の filesystem backend は maintenance mode で、``start`` の内側で
+        ``MlflowException`` になる。合格させると index も split も model も
+        作ったあとで raw な例外が出る。
+        """
+
+        config = _composed(
+            (
+                *_valid_arguments("logger", "mlflow"),
+                f"logger.tracking_uri={tracking_uri}",
+                "logger.artifact_location=/abs/mlartifacts",
+            )
+        )
+
+        error = config.validate()
+        assert error is not None
+        assert "MLFLOW_ALLOW_FILE_STORE" in error
+
+    @pytest.mark.parametrize(
+        "artifact_location", ["mlartifacts", "", "./mlartifacts"], ids=repr
+    )
+    def test_a_relative_artifact_location_is_refused(self, artifact_location: str):
+        """置き場所が相対だと、起動した directory ごとに成果物が散ること.
+
+        絶対 path を要求する理由文だけあって検査が無いと、``is None`` を通り
+        抜けた相対 path がそのまま experiment へ焼き付く。
+        """
+
+        config = _composed(
+            (
+                *_valid_arguments("logger", "mlflow"),
+                "logger.tracking_uri=sqlite:////abs/mlflow.db",
+                f"logger.artifact_location={artifact_location}",
+            )
+        )
+
+        error = config.validate()
+        assert error is not None
+        assert "artifact_location" in error
+
+    def test_a_remote_artifact_store_is_accepted(self):
+        """URI の置き場所は絶対 path を求めないこと.
+
+        上の拒否が「``/`` で始まらない置き場所は常に駄目」へ退化していないか。
+        """
+
+        config = _composed(
+            (
+                *_valid_arguments("logger", "mlflow"),
+                "logger.tracking_uri=sqlite:////abs/mlflow.db",
+                "logger.artifact_location=s3://bucket/paste-volume",
+            )
+        )
+
+        assert config.validate() is None
+
     def test_the_search_group_declares_the_initial_search_space(self):
         assert _composed(MINIMUM_ARGUMENTS).hyperparameter_search is None
 
@@ -811,3 +899,73 @@ class TestExperimentValidation:
         )
 
         assert config.validate() is not None
+
+
+class TestSavedConfiguration:
+    """解決済み config を run directory と MLflow へ残すときの形."""
+
+    def _with_secrets(self) -> PasteVolumeExperimentConfig:
+        return _composed(
+            (
+                *_valid_arguments("logger", "mlflow"),
+                *_arguments_for("hyperparameter_search", "base_optuna"),
+                "logger.tracking_uri=postgresql://mlflow:trackpw@db.example/mlflow",
+                "logger.artifact_location=/abs/mlartifacts",
+                "hyperparameter_search.storage_uri="
+                "postgresql://optuna:studypw@db.example/optuna",
+            )
+        )
+
+    def test_it_keeps_the_uris_without_their_credentials(self, tmp_path: Path):
+        """config.json に password を残さないこと.
+
+        この file は run directory に残るうえ MLflow の artifact としても上がる。同じ規約を
+        param（sanitized_tracking_uri）と study 成果物
+        （storage_uri_redacted）が既に使っている。
+        """
+
+        path = tmp_path / CONFIG_FILE_NAME
+
+        save_experiment_config(self._with_secrets(), path)
+
+        written = path.read_text(encoding="utf-8")
+        assert "trackpw" not in written
+        assert "studypw" not in written
+        assert "postgresql://db.example/mlflow" in written
+        assert "postgresql://db.example/optuna" in written
+
+    def test_the_saved_configuration_still_round_trips(self, tmp_path: Path):
+        """秘匿しても読み戻せること.
+
+        上の検査が「config.json が壊れていても通る」形へ退化していないか。
+        """
+
+        path = tmp_path / CONFIG_FILE_NAME
+        save_experiment_config(self._with_secrets(), path)
+
+        loaded, error = load_experiment_config(path)
+
+        assert error is None, error
+        assert loaded == redacted_experiment_config(self._with_secrets())
+
+    def test_a_configuration_without_credentials_is_written_as_is(self, tmp_path: Path):
+        """秘匿が「URI を書き換える」形になっていないこと.
+
+        credential を持たない URI はそのまま残る。落とすのは credential と query / fragment
+        だけで、記録先の所在は成果物から読める。
+        """
+
+        config = _composed(
+            (
+                *_valid_arguments("logger", "mlflow"),
+                "logger.tracking_uri=sqlite:////abs/mlflow.db",
+                "logger.artifact_location=/abs/mlartifacts",
+            )
+        )
+        path = tmp_path / CONFIG_FILE_NAME
+
+        save_experiment_config(config, path)
+
+        loaded, error = load_experiment_config(path)
+        assert error is None, error
+        assert loaded == config

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import attrs
 
@@ -34,7 +35,12 @@ from ml.data.batch import ViewDropout
 from ml.data.image import AugmentationRange, ImageConstraints
 from ml.data.split import SplitRatios
 from ml.experiment.logger import ExperimentLogger
-from ml.experiment.mlflow import MLflowExperimentLogger, MLflowRunTarget
+from ml.experiment.mlflow import (
+    MLflowExperimentLogger,
+    MLflowRunTarget,
+    database_backend_scheme,
+)
+from ml.experiment.provenance import sanitize_persisted_uri
 from ml.paste_volume.batch import PasteVolumeCollator
 from ml.paste_volume.index import SplitDimension
 from ml.paste_volume.model import PasteVolumeModelConfig
@@ -59,12 +65,10 @@ WEIGHTS_FILE_NAME = "weights.pt"
 CALIBRATION_FILE_NAME = "calibration.json"
 GIT_DIFF_FILE_NAME = "git-diff.patch"
 
-# 成果物の置き場所を client 側で決める必要がある tracking URI の scheme。
+# 成果物の置き場所として受け付ける scheme のうち、local path として扱うもの。
 #
-# MLflow の file store は maintenance mode（3.15 は環境変数で opt-out しないと
-# 例外にする）なので、単一端末の記録先は local sqlite を使う。仕様書 §4 の
-# 「local SQLite から shared server へ同じ client API で移行できる」もこの形。
-_LOCAL_DATABASE_SCHEMES = ("sqlite:", "duckdb:")
+# それ以外（``s3:`` など）の remote store は path の絶対性を問わない。
+_LOCAL_ARTIFACT_SCHEMES = ("", "file")
 
 # 解決済み config を run directory と MLflow の両方へ残すための封筒。
 EXPERIMENT_CONFIG_DOCUMENT = DocumentKind(
@@ -173,30 +177,40 @@ class ExperimentLoggerConfig:
     experiment_name: str
 
     artifact_location: str | None = None
-    """成果物の置き場所。local database backend では必須."""
+    """成果物の置き場所。database backend では必須."""
 
     def validate(self) -> str | None:
         """記録先の指定が揃っているかを返す.
 
-        Local database の tracking store では成果物の置き場所を要求する。
+        Client が直接 database を開く tracking store では、成果物の置き場所を
+        要求する。
 
         指定しないと MLflow は experiment を作るときに現在 directory の相対
         path（``./mlruns``）を焼き付ける。起こした directory ごとに成果物が
-        散り、あとから run を開いても artifact を辿れない。
+        散り、あとから run を開いても artifact を辿れない。これは sqlite に
+        限らず MLflow の database backend すべてに掛かる。
 
         Server の tracking URI では要求しない。置き場所は server 側の設定で、
         client が渡す値ではない。
+
+        使えない tracking URI（filesystem backend）は
+        :meth:`~ml.experiment.mlflow.MLflowRunTarget.validate` が落とす。
         """
 
         if error := self.run_target().validate():
             return error
-        if (
-            self.tracking_uri.startswith(_LOCAL_DATABASE_SCHEMES)
-            and self.artifact_location is None
+        scheme = database_backend_scheme(self.tracking_uri)
+        if scheme is not None and self.artifact_location is None:
+            return (
+                f"{scheme} の tracking URI には logger.artifact_location "
+                f"（絶対 path）が必要です: {self.tracking_uri}"
+            )
+        if self.artifact_location is not None and not _absolute_location(
+            self.artifact_location
         ):
             return (
-                "local database の tracking URI には logger.artifact_location "
-                f"（絶対 path）が必要です: {self.tracking_uri}"
+                "logger.artifact_location は絶対 path が必要です: "
+                f"{self.artifact_location!r}"
             )
         return None
 
@@ -354,9 +368,58 @@ def save_experiment_config(config: PasteVolumeExperimentConfig, path: Path) -> N
 
     残すのは「その run が実際に使った値」で、run を読み直す側が argv を再現しなくても同じ model と split
     を組み立てられるようにする。
+
+    外部システムの URI は credential を落としてから書く。
+
+    この file は run directory に残るうえ MLflow の artifact としても上がるので、
+    ``postgresql://user:pw@host/db`` のような URI をそのまま持たせると password が
+    成果物として配られる。同じ規約を param（``sanitized_tracking_uri``）と
+    study 成果物（``storage_uri_redacted``）が既に使っている。
     """
 
-    EXPERIMENT_CONFIG_DOCUMENT.save(path, config, converter=make_strict_converter())
+    EXPERIMENT_CONFIG_DOCUMENT.save(
+        path, redacted_experiment_config(config), converter=make_strict_converter()
+    )
+
+
+def redacted_experiment_config(
+    config: PasteVolumeExperimentConfig,
+) -> PasteVolumeExperimentConfig:
+    """外部システムの URI から credential を落とした config を返す.
+
+    落とすのは credential と query / fragment だけなので、成果物からでも記録先と storage
+    の所在は読める。
+    """
+
+    logger = config.logger
+    search = config.hyperparameter_search
+    return attrs.evolve(
+        config,
+        logger=(
+            None
+            if logger is None
+            else attrs.evolve(
+                logger, tracking_uri=sanitize_persisted_uri(logger.tracking_uri)
+            )
+        ),
+        hyperparameter_search=(
+            None
+            if search is None
+            else attrs.evolve(
+                search, storage_uri=sanitize_persisted_uri(search.storage_uri)
+            )
+        ),
+    )
+
+
+def _absolute_location(location: str) -> bool:
+    """成果物の置き場所が絶対 path（か remote store の URI）かを返す."""
+
+    parsed = urlsplit(location)
+    if parsed.scheme not in _LOCAL_ARTIFACT_SCHEMES:
+        return True
+    path = parsed.path if parsed.scheme else location
+    return path.startswith("/")
 
 
 def load_experiment_config(
@@ -385,5 +448,6 @@ __all__ = [
     "compose_experiment",
     "load_experiment_config",
     "packaged_configuration",
+    "redacted_experiment_config",
     "save_experiment_config",
 ]
