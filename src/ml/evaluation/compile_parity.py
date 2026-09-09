@@ -107,6 +107,30 @@ class TensorDifference:
     maximum_relative_difference: float
     within_tolerance: bool
 
+    @classmethod
+    def between(
+        cls, left: Tensor, right: Tensor, *, tolerance: ParityTolerance
+    ) -> TensorDifference:
+        """同じ形の 2 tensor を突き合わせ、最大の食い違いを返す.
+
+        許容判定は ``left`` を基準側として ``|a - b| <= absolute + relative *
+        |left|`` で行う。
+
+        device と dtype はそのままにし、比較だけ float64 へ上げる。
+        """
+
+        base = left.detach().double()
+        other = right.detach().double()
+        absolute = (base - other).abs()
+        scale = torch.maximum(base.abs(), other.abs())
+        relative = torch.where(scale > 0, absolute / scale, torch.zeros_like(absolute))
+        allowed = tolerance.absolute + tolerance.relative * base.abs()
+        return cls(
+            maximum_absolute_difference=_maximum(absolute),
+            maximum_relative_difference=_maximum(relative),
+            within_tolerance=bool((absolute <= allowed).all().item()),
+        )
+
 
 @attrs.frozen
 class CompileParityResult:
@@ -190,12 +214,16 @@ class CompileParityResult:
         return (
             cls(
                 outputs=tuple(
-                    _tensor_difference(eager, compiled, tolerances.output)
+                    TensorDifference.between(
+                        eager, compiled, tolerance=tolerances.output
+                    )
                     for eager, compiled in zip(
                         eager_outputs, compiled_outputs, strict=True
                     )
                 ),
-                loss=_tensor_difference(eager_loss, compiled_loss, tolerances.loss),
+                loss=TensorDifference.between(
+                    eager_loss, compiled_loss, tolerance=tolerances.loss
+                ),
                 gradient=gradients.difference,
                 checked_gradient_count=gradients.checked_count,
                 mismatched_gradient_parameters=gradients.mismatched,
@@ -266,22 +294,6 @@ def _synchronize(device: torch.device) -> None:
         torch.cuda.synchronize(device)
 
 
-def _tensor_difference(
-    eager: Tensor, compiled: Tensor, tolerance: ParityTolerance
-) -> TensorDifference:
-    left = eager.detach().double()
-    right = compiled.detach().double()
-    absolute = (left - right).abs()
-    scale = torch.maximum(left.abs(), right.abs())
-    relative = torch.where(scale > 0, absolute / scale, torch.zeros_like(absolute))
-    allowed = tolerance.absolute + tolerance.relative * left.abs()
-    return TensorDifference(
-        maximum_absolute_difference=_maximum(absolute),
-        maximum_relative_difference=_maximum(relative),
-        within_tolerance=bool((absolute <= allowed).all().item()),
-    )
-
-
 def _maximum(values: Tensor) -> float:
     if values.numel() == 0:
         return 0.0
@@ -318,7 +330,9 @@ def _compare_gradients(
             torch.isfinite(compiled_gradient).all().item()
         ):
             non_finite.append(name)
-        difference = _tensor_difference(eager_gradient, compiled_gradient, tolerance)
+        difference = TensorDifference.between(
+            eager_gradient, compiled_gradient, tolerance=tolerance
+        )
         differences.append(difference)
         if not difference.within_tolerance:
             mismatched.append(name)

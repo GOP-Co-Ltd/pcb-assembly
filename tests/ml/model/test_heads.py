@@ -225,3 +225,50 @@ class TestGaussianImageRegressorTraining:
         # Adam の軌跡は終盤で跳ねるので、最終値ではなく到達した最良値を見る
         # 種を 6 通り変えた実測の最悪比は 0.029。3 倍以上の余裕を残して 0.1 を閾値にする
         assert min(error_history) < error_history[0] * 0.1
+
+
+class TestExportedDynamicShapes:
+    """``torch.export`` 後も batch 次元が固定されない.
+
+    条件変数と feature の batch 一致検査に ``int()`` が入ると、非 strict export が
+    SymInt を example の batch へ落とし、``dynamic_shapes`` の宣言が黙って
+    無視される。
+
+    ``strict=False`` を明示するのは、torch 側の既定が変わってもこの検出力を
+    保つため。strict 経路（dynamo）では ``int()`` があっても特殊化されない。
+    """
+
+    def test_accepts_another_batch_size_with_conditioning(self):
+        head = _head(conditioning_features=2)
+        batch = {0: torch.export.Dim.AUTO}
+
+        exported = torch.export.export(
+            head,
+            (torch.randn(2, HEAD_CONFIG.input_features), torch.zeros(2, 2)),
+            dynamic_shapes={"features": batch, "conditioning": batch},
+            strict=False,
+        )
+        mean, log_variance = exported.module()(
+            torch.randn(5, HEAD_CONFIG.input_features), torch.zeros(5, 2)
+        )
+
+        assert tuple(mean.shape) == (5, 1)
+        assert tuple(log_variance.shape) == (5, 1)
+
+    def test_accepts_another_batch_size_through_the_regressor(self):
+        regressor = _regressor(conditioning_features=2)
+        batch = {0: torch.export.Dim.AUTO}
+
+        exported = torch.export.export(
+            regressor,
+            (torch.randn(2, 3, 32, 32), None, torch.zeros(2, 2)),
+            dynamic_shapes={
+                "images": batch,
+                "valid_pixel_mask": None,
+                "conditioning": batch,
+            },
+            strict=False,
+        )
+        mean, _ = exported.module()(torch.randn(5, 3, 32, 32), None, torch.zeros(5, 2))
+
+        assert tuple(mean.shape) == (5, 1)

@@ -307,8 +307,12 @@ class ImageEncoder(nn.Module):
             raise ValueError(
                 f"valid pixel mask は bool が必要です: {valid_pixel_mask.dtype}"
             )
-        expected = (int(images.shape[0]), 1, int(images.shape[2]), int(images.shape[3]))
-        if tuple(valid_pixel_mask.shape) != expected:
+        # 各軸へ int() を掛けると、非 strict export（torch.export の既定）が
+        # SymInt を example 入力の値へ落とし、dynamic_shapes の宣言が黙って
+        # 無視される。torch.onnx.export は非 strict の失敗を黙って strict へ
+        # 落とすので、ONNX の次元だけを見ても気付けない。SymInt のまま比較する。
+        expected = (images.shape[0], 1, images.shape[2], images.shape[3])
+        if valid_pixel_mask.shape != expected:
             raise ValueError(
                 f"valid pixel mask は {expected} が必要です: "
                 f"{tuple(valid_pixel_mask.shape)}"
