@@ -738,7 +738,7 @@ class JobManager:
         player = self._audio_player
         if player is None:
             return lambda: None
-        return lambda: self._play_sound(player, "input", machine.audio, "入力待ち音")
+        return lambda: self._play_sound(player, "prompt", machine.audio, "入力待ち音")
 
     def _play_sound(
         self, player: AudioPlayer, sound: Sound, audio: Audio, label: str

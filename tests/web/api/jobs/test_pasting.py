@@ -1284,7 +1284,7 @@ class TestPromptPositiveNumberNotification:
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert answers == [110.5]
-        assert [sound for sound, _ in player.played] == ["input", "input"]
+        assert [sound for sound, _ in player.played] == ["prompt", "prompt"]
 
     def test_stays_silent_without_notify(
         self,

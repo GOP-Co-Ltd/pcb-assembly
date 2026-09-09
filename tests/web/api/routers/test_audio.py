@@ -79,7 +79,7 @@ class TestAudioSettingsApi:
 class TestAudioTestApi:
     """POST /api/audio/test."""
 
-    @pytest.mark.parametrize("sound", ["success", "failure", "input"])
+    @pytest.mark.parametrize("sound", ["success", "failure", "prompt"])
     def test_plays_selected_sound_with_current_settings(
         self, client: TestClient, audio_player: FakeAudioPlayer, sound: str
     ):

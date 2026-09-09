@@ -1,11 +1,11 @@
 """ALSA を使った通知音再生.
 
 音声ファイルの差し替えは ``src/pcbasm/hal/sounds/`` の ``success.wav`` /
-``failure.wav`` / ``input.wav`` を非圧縮 16-bit PCM WAV で同名のまま上書きする
+``failure.wav`` / ``prompt.wav`` を非圧縮 16-bit PCM WAV で同名のまま上書きする
 だけでよい。それ以外の設定変更は不要（フォーマットが不正なら再生時に
 :class:`AudioPlaybackError` になるので WebUI のテスト再生で分かる）。
 
-``input`` はジョブが応答待ちに入ったことを知らせる音で、長時間の無人ジョブ
+``prompt`` はジョブが応答待ちに入ったことを知らせる音で、長時間の無人ジョブ
 （dataset 収集の計量入力など）で装置の前を離れた作業者を呼び戻すのに使う。
 """
 
@@ -25,7 +25,7 @@ import numpy as np
 
 from pcbasm.config import DEFAULT_AUDIO_DEVICE, Audio
 
-Sound = Literal["success", "failure", "input"]
+Sound = Literal["success", "failure", "prompt"]
 
 _APLAY_TIMEOUT = 30.0
 _APLAY_LIST_TIMEOUT = 5.0
@@ -34,7 +34,7 @@ _SOUNDS_DIR = Path(__file__).with_name("sounds")
 _SOUND_PATHS: dict[Sound, Path] = {
     "success": _SOUNDS_DIR / "success.wav",
     "failure": _SOUNDS_DIR / "failure.wav",
-    "input": _SOUNDS_DIR / "input.wav",
+    "prompt": _SOUNDS_DIR / "prompt.wav",
 }
 
 

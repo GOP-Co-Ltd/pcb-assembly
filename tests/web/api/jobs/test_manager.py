@@ -1299,7 +1299,7 @@ class TestAudioPromptNotification:
 
     長時間の無人ジョブ（dataset 収集の計量入力など）で作業者を呼び戻すための契約:
 
-    - 応答待ちに入った時点で `input` を 1 回鳴らす（応答を待たない）
+    - 応答待ちに入った時点で `prompt` を 1 回鳴らす（応答を待たない）
     - `notify` を立てないプロンプトでは鳴らさない
     - プレイヤー未注入・再生失敗はジョブに影響しない
     """
@@ -1321,7 +1321,7 @@ class TestAudioPromptNotification:
         wait_until(lambda: record.pending_prompt is not None)
         wait_until(lambda: len(player.played) == 1)
 
-        assert player.played == (("input", config),)
+        assert player.played == (("prompt", config),)
         answer_next_prompt(record, manager, 110.5, set())
         wait_until(lambda: record.status.terminal)
         assert answers == [110.5]

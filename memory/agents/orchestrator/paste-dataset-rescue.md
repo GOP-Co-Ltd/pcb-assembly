@@ -34,9 +34,9 @@ API プロセス再起動（10:39）で失われた。
 ### B. 質量入力の通知音
 
 - `PromptSpec.notify: bool`（既定 False）を追加。`_JobRuntime.prompt` が
-  応答待ちに入ったとき機体スピーカーで `input` 音を鳴らす
-- `hal/audio.py` の `Sound` に `"input"` を追加、`sounds/input.wav`
-  （success/failure と同じ 16-bit PCM WAV、ユーザーが差し替える）
+  応答待ちに入ったとき機体スピーカーで `prompt` 音を鳴らす
+- `hal/audio.py` の `Sound` に `"prompt"` を追加、`sounds/prompt.wav`
+  （success/failure と同じ 16-bit PCM WAV。ユーザー提供）
 - 収集ジョブの質量プロンプトだけ `notify=True`。開始直後の confirm 2 件は
   作業者が装置前に居るので鳴らさない
 - `/api/audio/test` と dev/audio.html にテスト再生を追加
@@ -75,9 +75,8 @@ blob 面積と割り当て量の相関で一意化する。
 
 ## 申し送り（実機確認）
 
-- 収集ジョブの計量プロンプトで実際にスピーカーが鳴ること。`input.wav` は暫定の
-  2 音チャイム（`src/pcbasm/hal/sounds/input.wav`）で、ユーザーが同名・同形式
-  （非圧縮 16-bit PCM WAV）で差し替える。WebUI の「通知音」ページに
+- 収集ジョブの計量プロンプトで実際にスピーカーが鳴ること。音源は
+  `src/pcbasm/hal/sounds/prompt.wav`（ユーザー提供）。WebUI の「通知音」ページに
   「入力待ち音を再生」ボタンがある
 - 収集ジョブを 1 本通し、`pending.json` が計量プロンプトの前に落ちること
 - `paste_dataset_finalize` で実データを確定できること
