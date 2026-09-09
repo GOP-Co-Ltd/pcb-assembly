@@ -340,8 +340,9 @@ class TestBuild:
     def test_reports_constraints_that_differ_from_the_index(self, tmp_path: Path):
         """読み出し側と詰め込み側で制約が違えば弾く.
 
-        index はその制約で使えない cell を隔離している。collator が違う制約を使うと、 緩ければ
-        materialize で落ち、厳しければ母集団が黙って減る。
+        index はその制約で使えない cell を隔離している。
+
+        collator が違う制約を使うと、緩ければ materialize で落ち、厳しければ母集団が黙って減る。
         """
 
         import attrs
@@ -809,8 +810,10 @@ class TestPlanEpoch:
     def test_groups_a_batch_by_the_augmented_size(self, tmp_path: Path):
         """同じ batch の中身が変換後の大きさで揃う.
 
-        計画を augmentation 前の寸法で立てると、実際には 26 px と 106 px の sample が 同じ
-        batch へ入る。padding が batch 内 max へ合わせるので落ちず、pixel budget が 意味を失う。
+        計画を augmentation 前の寸法で立てると、実際には 26 px と 106 px の sample が同じ
+        batch へ入る。
+
+        padding が batch 内 max へ合わせるので落ちず、pixel budget が意味を失う。
         """
 
         data = _data(tmp_path)
@@ -831,8 +834,9 @@ class TestPlanEpoch:
     def test_shuffles_the_evaluation_plan_between_epochs(self, tmp_path: Path):
         """評価 split の計画も epoch で変わる.
 
-        評価は augmentation を掛けないので寸法は毎 epoch 同じ。計画が変わるのは 並べ替えの種に epoch
-        を混ぜているからで、そこだけを見る観測点。
+        評価は augmentation を掛けないので寸法は毎 epoch 同じ。
+
+        計画が変わるのは並べ替えの種に epoch を混ぜているからで、そこだけを見る観測点。
         """
 
         data = _data(tmp_path, index=_index(tmp_path, sessions=3), max_batch_size=2)
@@ -844,8 +848,9 @@ class TestPlanEpoch:
     def test_counts_every_view_against_the_pixel_budget(self, tmp_path: Path):
         """画素の上限は view 数ぶん掛かる.
 
-        view 数を数えないと 5 倍の画素を 1 sample 分として見積もり、batch が膨らむ。 幾何
-        augmentation を止めて、効いているのが view 数だけになるようにする。
+        view 数を数えないと 5 倍の画素を 1 sample 分として見積もり、 batch が膨らむ。
+
+        幾何 augmentation を止めて、効いているのが view 数だけになるようにする。
         """
 
         still = PasteVolumeCollator(

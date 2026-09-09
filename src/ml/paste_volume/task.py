@@ -401,6 +401,62 @@ class PasteVolumeTask(TrainingTask[PasteVolumeBatch, GaussianObservation]):
         )
 
 
+@attrs.frozen(eq=False)
+class SplitPredictions:
+    """1 つの split をひと通り評価して集めた予測と、その並び.
+
+    ``sample_ids`` は ``predictions`` の要素と同じ順に並ぶ。
+
+    :class:`~ml.training.task.GaussianObservation` は ``ml`` 側の型で
+    sample ID を持たないので、session ごとの slice を引き直す材料をここで
+    保つ。
+
+    Tensor を持つので等価性は identity で決める。
+    """
+
+    sample_ids: tuple[str, ...]
+    predictions: GaussianPredictions
+
+
+def collect_predictions(
+    task: PasteVolumeTask,
+    data: PasteVolumeTrainingData,
+    *,
+    split: SplitName,
+    device: torch.device,
+    epoch: int = 0,
+) -> tuple[SplitPredictions | None, str | None]:
+    """Split をひと通り推論し、sample ID 付きの予測を返す.
+
+    学習後の calibration と、checkpoint を読み直す評価が同じ経路を通る。
+
+    ``epoch`` は batch の並べ替えにしか効かない。学習以外の split では
+    :func:`_is_training` が偽になり幾何変換が恒等になるので、どの epoch を
+    渡しても予測値は変わらない。
+    """
+
+    task.model.eval()
+    sample_ids: list[str] = []
+    observations: list[GaussianObservation] = []
+    for planned in data.plan_epoch(split=split, epoch=epoch):
+        batch = data.materialize(
+            planned, split=split, epoch=epoch, training=False, device=device
+        )
+        sample_ids.extend(batch.sample_ids)
+        observations.append(task.evaluation_step(batch))
+    if not observations:
+        return None, f"{split} split に sample がありません"
+    predictions = GaussianPredictions(
+        mean=torch.cat([item.mean for item in observations]),
+        log_variance=torch.cat([item.log_variance for item in observations]),
+        target=torch.cat([item.target for item in observations]),
+        sample_weight=torch.cat([item.sample_weight for item in observations]),
+    )
+    if error := predictions.validate():
+        return None, error
+    return SplitPredictions(tuple(sample_ids), predictions), None
+
+
 def _observation_of(
     batch: PasteVolumeBatch, mean: Tensor, log_variance: Tensor
 ) -> GaussianObservation:
@@ -599,4 +655,6 @@ __all__ = [
     "PasteVolumeTask",
     "PasteVolumeTrainingConfig",
     "PasteVolumeTrainingData",
+    "SplitPredictions",
+    "collect_predictions",
 ]

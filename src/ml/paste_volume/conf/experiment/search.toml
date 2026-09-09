@@ -1,0 +1,24 @@
+# ハイパーパラメータ探索の 1 trial。
+#
+# 仕様書 §3「Optuna による探索」: HPO 用 trial は最大 60 epoch、early stopping
+# patience 10 とし、各 trial を個別の MLflow run にする。base.toml の 200 epoch /
+# patience 15 のままだと 1 trial が本番 run と同じ長さになり、20 trial を積めない。
+#
+# 置き場所が experiment group なのは、hyperparameter_search group の option file が
+# 「top-level key はその group 名 1 つだけ」という規約を持つため（[trainer] を書けない）。
+# experiment は複数 group をまたぐ preset で、fine_tune.toml が既に同じ形をしている。
+#
+# 探索そのものの設定（search space・storage・trial 数）は
+# hyperparameter_search=base_optuna が持つ。両方を選ぶ。
+#
+# 最良 config はこの trial の weight をそのまま採用せず、experiment=base の
+# 200 epoch で 3 seed 再学習してから候補にする（仕様書 §3）。
+
+run_kind = "hpo-trial"
+
+[data]
+split_dimension = "session"
+
+[trainer]
+max_epochs = 60
+early_stopping_patience = 10

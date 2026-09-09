@@ -27,6 +27,7 @@ from pathlib import Path
 
 import attrs
 
+from ml.artifact.document import DocumentKind
 from ml.config.composition import ConfigComposition
 from ml.config.packaged import PackagedConfiguration
 from ml.data.batch import ViewDropout
@@ -47,6 +48,28 @@ _CONFIGURATION_DIRECTORY_NAME = "conf"
 
 # ``ConfigComposition`` が group 層より先に積む層。
 BASE_LAYER_NAMES: tuple[str, ...] = ("base",)
+
+# 1 run の成果物を置く directory の中身（仕様書 §5）。
+#
+# ``latest.pt`` / ``best.pt`` / ``final.pt`` / ``emergency.pt`` は
+# :class:`~ml.training.checkpoint.CheckpointStore` が同じ directory へ書く。
+CONFIG_FILE_NAME = "config.json"
+SPLIT_FILE_NAME = "split.json"
+WEIGHTS_FILE_NAME = "weights.pt"
+CALIBRATION_FILE_NAME = "calibration.json"
+GIT_DIFF_FILE_NAME = "git-diff.patch"
+
+# 成果物の置き場所を client 側で決める必要がある tracking URI の scheme。
+#
+# MLflow の file store は maintenance mode（3.15 は環境変数で opt-out しないと
+# 例外にする）なので、単一端末の記録先は local sqlite を使う。仕様書 §4 の
+# 「local SQLite から shared server へ同じ client API で移行できる」もこの形。
+_LOCAL_DATABASE_SCHEMES = ("sqlite:", "duckdb:")
+
+# 解決済み config を run directory と MLflow の両方へ残すための封筒。
+EXPERIMENT_CONFIG_DOCUMENT = DocumentKind(
+    kind="paste-volume-experiment-config", schema_version=1
+)
 
 # 学習データの取り回しの既定値の出典。
 #
@@ -149,25 +172,66 @@ class ExperimentLoggerConfig:
     tracking_uri: str
     experiment_name: str
 
+    artifact_location: str | None = None
+    """成果物の置き場所。local database backend では必須."""
+
     def validate(self) -> str | None:
-        """記録先の指定が揃っているかを返す."""
+        """記録先の指定が揃っているかを返す.
 
-        return self.run_target().validate()
+        Local database の tracking store では成果物の置き場所を要求する。
 
-    def run_target(self) -> MLflowRunTarget:
+        指定しないと MLflow は experiment を作るときに現在 directory の相対
+        path（``./mlruns``）を焼き付ける。起こした directory ごとに成果物が
+        散り、あとから run を開いても artifact を辿れない。
+
+        Server の tracking URI では要求しない。置き場所は server 側の設定で、
+        client が渡す値ではない。
+        """
+
+        if error := self.run_target().validate():
+            return error
+        if (
+            self.tracking_uri.startswith(_LOCAL_DATABASE_SCHEMES)
+            and self.artifact_location is None
+        ):
+            return (
+                "local database の tracking URI には logger.artifact_location "
+                f"（絶対 path）が必要です: {self.tracking_uri}"
+            )
+        return None
+
+    def run_target(
+        self, *, run_name: str | None = None, resume_run_id: str | None = None
+    ) -> MLflowRunTarget:
         """MLflow adapter へ渡す宛先へ写す.
 
         秘匿済み URI を param へ載せるのも run 側の仕事なので公開する。
+
+        ``resume_run_id`` は checkpoint から続ける run の識別子。
+
+        :class:`~ml.training.loop.Trainer` は resume 元の checkpoint と
+        logger の run_id が食い違うと拒否するので、新しい run を開くと
+        再開そのものが失敗する。
+
+        ``run_name`` は 1 プロセスが複数 run を起こす探索でだけ使う。
         """
 
         return MLflowRunTarget(
-            tracking_uri=self.tracking_uri, experiment_name=self.experiment_name
+            tracking_uri=self.tracking_uri,
+            experiment_name=self.experiment_name,
+            run_name=run_name,
+            resume_run_id=resume_run_id,
+            artifact_location=self.artifact_location,
         )
 
-    def build(self) -> ExperimentLogger:
+    def build(
+        self, *, run_name: str | None = None, resume_run_id: str | None = None
+    ) -> ExperimentLogger:
         """記録先へ書く logger を作る."""
 
-        return MLflowExperimentLogger(self.run_target())
+        return MLflowExperimentLogger(
+            self.run_target(run_name=run_name, resume_run_id=resume_run_id)
+        )
 
 
 @attrs.frozen
@@ -283,13 +347,43 @@ def compose_experiment(
     )
 
 
+def save_experiment_config(config: PasteVolumeExperimentConfig, path: Path) -> None:
+    """解決済み config を封筒付き JSON として書き出す.
+
+    合成の経路（argv・group 層・既定値）はここには残らない。
+
+    残すのは「その run が実際に使った値」で、run を読み直す側が argv を再現しなくても同じ model と split
+    を組み立てられるようにする。
+    """
+
+    EXPERIMENT_CONFIG_DOCUMENT.save(path, config, converter=make_strict_converter())
+
+
+def load_experiment_config(
+    path: Path,
+) -> tuple[PasteVolumeExperimentConfig | None, str | None]:
+    """書き出した解決済み config を読み戻す."""
+
+    return EXPERIMENT_CONFIG_DOCUMENT.load(
+        path, PasteVolumeExperimentConfig, converter=make_strict_converter()
+    )
+
+
 __all__ = [
     "BASE_LAYER_NAMES",
+    "CALIBRATION_FILE_NAME",
+    "CONFIG_FILE_NAME",
+    "EXPERIMENT_CONFIG_DOCUMENT",
+    "GIT_DIFF_FILE_NAME",
+    "SPLIT_FILE_NAME",
+    "WEIGHTS_FILE_NAME",
     "ExperimentLoggerConfig",
     "PasteVolumeDataConfig",
     "PasteVolumeExperimentConfig",
     "ResumeConfig",
     "SearchConfig",
     "compose_experiment",
+    "load_experiment_config",
     "packaged_configuration",
+    "save_experiment_config",
 ]

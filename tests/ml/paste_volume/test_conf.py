@@ -37,7 +37,7 @@ from ml.tuning.search_space import ParameterDistribution
 #
 # 走査で回す検査は対象が空でも緑になるので、木そのものを 1 箇所へ固定する。
 PACKAGED_TREE: dict[str, tuple[str, ...]] = {
-    "experiment": ("base", "cell_split", "fine_tune"),
+    "experiment": ("base", "cell_split", "fine_tune", "search"),
     "hyperparameter_search": ("base_optuna",),
     "logger": ("mlflow",),
     "trainer": ("gpu", "pi"),
@@ -58,7 +58,7 @@ COMPOSITE_GROUPS = frozenset({"experiment"})
 # 機械固有なので同梱 conf へ書かず、argv から渡す値。
 DATASET_ROOT = "/abs/paste-volume-datasets"
 HELD_OUT_SESSION = "plate-47.5x20-20260908T144137.001+0900"
-TRACKING_URI = "file:///abs/mlruns"
+TRACKING_URI = "https://mlflow.example/"
 STORAGE_URI = "sqlite:////abs/optuna.db"
 
 # どの合成でも要る最小の argv。experiment preset は split_dimension を宣言する
@@ -509,6 +509,20 @@ class TestGroupResolution:
         assert config.data.held_out_session is None
         assert config.run_kind == "cell-split-train"
 
+    def test_the_search_preset_shortens_the_trial(self):
+        """HPO trial の 60 epoch / patience 10（仕様書 §3）が効くこと.
+
+        base.toml の 200 epoch / patience 15 のままだと 1 trial が本番 run と
+        同じ長さになり、20 trial を積めない。
+        """
+
+        config = _composed(_valid_arguments("experiment", "search"))
+
+        assert config.trainer.max_epochs == 60
+        assert config.trainer.early_stopping_patience == 10
+        assert config.data.split_dimension == "session"
+        assert config.run_kind == "hpo-trial"
+
     def test_the_fine_tune_preset_spans_three_groups(self):
         config = _composed(_valid_arguments("experiment", "fine_tune"))
 
@@ -545,6 +559,53 @@ class TestGroupResolution:
         error = _rejected((*MINIMUM_ARGUMENTS, "logger=mlflow"))
 
         assert "tracking_uri" in error
+
+    def test_a_local_database_tracking_uri_needs_an_artifact_location(self):
+        """Local sqlite の記録先では成果物の置き場所を要求すること.
+
+        指定しないと MLflow が現在 directory の相対 path を experiment へ焼き付け、起こした
+        directory ごとに成果物が散る。
+        """
+
+        config = _composed(
+            (
+                *_valid_arguments("logger", "mlflow"),
+                "logger.tracking_uri=sqlite:////abs/mlflow.db",
+            )
+        )
+
+        error = config.validate()
+        assert error is not None
+        assert "artifact_location" in error
+
+    def test_the_same_tracking_uri_passes_with_an_artifact_location(self):
+        """置き場所を足すだけで通ること.
+
+        上の拒否が「sqlite の記録先は常に駄目」へ退化していないことを見る。
+        """
+
+        config = _composed(
+            (
+                *_valid_arguments("logger", "mlflow"),
+                "logger.tracking_uri=sqlite:////abs/mlflow.db",
+                "logger.artifact_location=/abs/mlartifacts",
+            )
+        )
+
+        assert config.logger is not None
+        assert config.validate() is None
+
+    def test_a_server_tracking_uri_does_not_need_one(self):
+        """Server の記録先では置き場所を要求しないこと.
+
+        artifact root は server 側の設定で、client が渡す値ではない。
+        """
+
+        config = _composed(_valid_arguments("logger", "mlflow"))
+
+        assert config.logger is not None
+        assert config.logger.artifact_location is None
+        assert config.validate() is None
 
     def test_the_search_group_declares_the_initial_search_space(self):
         assert _composed(MINIMUM_ARGUMENTS).hyperparameter_search is None

@@ -128,8 +128,16 @@ def write_session(
     pixel_per_mm: float = PIXEL_PER_MM,
     crop_size_px: int = CROP_SIZE_PX,
     view_count: int = PERIPHERAL_VIEW_COUNT,
+    measured_ratio: float = MEASURED_RATIO,
 ) -> Path:
-    """合成 session を ``root`` へ書き出し、その path を返す."""
+    """合成 session を ``root`` へ書き出し、その path を返す.
+
+    ``measured_ratio`` は実データの k（measured / commanded）にあたる session
+    ごとの 1 定数。
+
+    session をまたいで変えると、session を言い当てられる model だけが得をする
+    構造を合成側でも作れる。
+    """
 
     (root / "pre").mkdir(parents=True, exist_ok=True)
     (root / "post").mkdir(parents=True, exist_ok=True)
@@ -164,7 +172,7 @@ def write_session(
                 commanded_volume_ul=commanded,
                 volume_index=len(samples),
                 execution=_execution(commanded),
-                measured_volume_ul=commanded * MEASURED_RATIO,
+                measured_volume_ul=commanded * measured_ratio,
                 views=captured,
             )
         )
@@ -184,11 +192,71 @@ def write_session(
     return root
 
 
+def session_measured_ratio(number: int) -> float:
+    """``write_synthetic_sessions`` が ``number`` 番目の session へ与える k.
+
+    実データの k は session ごとの 1 定数で、5 session の広がりは 1.6 倍。
+
+    合成側でも session ごとに変える。
+    """
+
+    return MEASURED_RATIO - 0.05 * number
+
+
+def write_synthetic_sessions(
+    root: Path,
+    *,
+    session_count: int = 3,
+    cell_count: int = 6,
+    blank_count: int = 1,
+) -> tuple[Path, ...]:
+    """Leave-one-session-out を組める合成 dataset を ``root`` の下へ作る.
+
+    session が 3 本ないと LOSO の fold が 1 つも立たない。
+
+    ``LeaveOneGroupOutPlan`` は held-out を除いた残りが 2 group 未満の値を
+    ``unavailable`` にするので、2 session では計画そのものが available=False
+    になる。
+
+    cell は x 座標をずらして置く。
+
+    ``_cell_key`` は座標由来なので、同じ座標に重ねると cell 次元の group が
+    1 個しかない dataset になり、cell 単位 split が組めない。
+
+    ``k`` は session ごとに変える。実データと同じく session 内では 1 定数。
+    """
+
+    sessions: list[Path] = []
+    for number in range(session_count):
+        cells = tuple(
+            SyntheticCell(
+                index=index,
+                commanded_volume_ul=(
+                    None
+                    if index >= cell_count - blank_count
+                    else round(0.05 + 0.05 * index, 3)
+                ),
+                x_mm=0.5 + index * (CELL_SIZE_MM + CELL_GAP_MM),
+            )
+            for index in range(cell_count)
+        )
+        sessions.append(
+            write_session(
+                root / f"session-{number}",
+                cells=cells,
+                created_at=f"2026-09-0{number + 1}T10:00:00+09:00",
+                measured_ratio=session_measured_ratio(number),
+            )
+        )
+    return tuple(sessions)
+
+
 def corrupt_metadata(root: Path, mutate: Callable[[dict[str, Any]], None]) -> Path:
     """書き出し済み session の metadata.json を書き換える.
 
-    壊れた session を作るのに使う。DTO を経由せず生の dict を触るのは、DTO では 表現できない不整合（存在しない
-    path、重複した index）を作るため。
+    壊れた session を作るのに使う。
+
+    DTO を経由せず生の dict を触るのは、DTO では表現できない不整合（存在しない path、重複した index）を作るため。
     """
 
     path = root / "metadata.json"
@@ -251,7 +319,9 @@ def _pre_image(cell: SyntheticCell, size: int, number: int) -> torch.Tensor:
     post と合わせて、channel 連結の順序（pre RGB が 0-2、post RGB が 3-5）を
     テストから観測できるようにする。
 
-    G へ view 番号を足して、view ごとに違う画像にする。view の並び順や間引きを 観測できるようにするため。
+    G へ view 番号を足して、view ごとに違う画像にする。
+
+    view の並び順や間引きを観測できるようにするため。
     """
 
     if cell.uniform:
@@ -378,6 +448,8 @@ __all__ = [
     "SyntheticCell",
     "corrupt_metadata",
     "paste_volume_model",
+    "session_measured_ratio",
     "skip_if_no_real_sessions",
     "write_session",
+    "write_synthetic_sessions",
 ]
