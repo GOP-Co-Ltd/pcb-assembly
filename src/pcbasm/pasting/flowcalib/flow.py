@@ -155,27 +155,6 @@ def _rounded(value: float, digits: int = 6) -> float:
     return round(value, digits)
 
 
-def sweep_schedule(minimum: float, maximum: float, divisions: int) -> tuple[float, ...]:
-    """``minimum`` から ``maximum`` までを ``divisions`` 点に等間隔分割した昇順列.
-
-    ② の吐出レート列 [μL/sec] と ③ の塗布速度列 [mm/sec] が共用する。
-
-    Args:
-        minimum: 最小値（0 より大きい）
-        maximum: 最大値（``minimum`` 以上）
-        divisions: 点数（1 以上）
-
-    Returns:
-        昇順の列（端点含む）。入力不正なら空。
-    """
-    if divisions < 1 or minimum <= 0.0 or maximum < minimum:
-        return ()
-    if divisions == 1:
-        return (minimum,)
-    step = (maximum - minimum) / (divisions - 1)
-    return tuple(minimum + step * i for i in range(divisions))
-
-
 def slot_area(length: float, bead_width: float) -> float:
     """線の塗布面積をスロット（stadium）近似で算出する [mm²].
 

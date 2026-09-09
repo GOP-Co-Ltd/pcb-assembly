@@ -114,17 +114,7 @@ class RegionAlignmentSession:
         self._pad_align = pad_align
         self._board_transform = result.board_transform
         self._image_size = result.calibration.resolution
-        self._projector = CopperProjector(
-            polygons=[
-                copper.polygon
-                for copper in result.pcb.copper
-                if copper.layer == Layer.TOP
-            ],
-            board_transform=result.board_transform,
-            offset_transform=result.offset_transform,
-            pixel_per_mm=result.calibration.pixel_per_mm,
-            image_size=self._image_size,
-        )
+        self._projector = CopperProjector.from_calibration(result, layer=Layer.TOP)
         matcher = CopperEdgeMatcher(
             pixel_per_mm=result.calibration.pixel_per_mm,
             search_window_mm=pad_align.search_window,

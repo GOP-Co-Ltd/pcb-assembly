@@ -31,10 +31,7 @@ import {
 
   const { api, toast } = window.webui;
   const DEBOUNCE_MS = 300;
-  const configPurpose = root.dataset.padConfigPurpose || "paste_solder";
-  const configUrl = `/api/pasting/pad-config?purpose=${encodeURIComponent(
-    configPurpose
-  )}`;
+  const configUrl = "/api/pasting/pad-config";
 
   const state = {
     config: null,

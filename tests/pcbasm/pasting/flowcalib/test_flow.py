@@ -17,7 +17,6 @@ from pcbasm.pasting.flowcalib.flow import (
     rate_sweep_amount_ul,
     slot_area,
     speed_sweep_amount_ul,
-    sweep_schedule,
 )
 
 
@@ -190,23 +189,6 @@ class TestMassFlowEstimate:
 
         assert estimate.max_dispense_rate == round(0.5 / 1.89, 6)
         assert estimate.dispense_accel is None
-
-
-class TestSweepSchedule:
-    """②③ が共用する等間隔昇順列."""
-
-    def test_evenly_spaced_ascending(self):
-        assert sweep_schedule(1.0, 5.0, 5) == pytest.approx((1.0, 2.0, 3.0, 4.0, 5.0))
-
-    def test_single_division_returns_minimum(self):
-        assert sweep_schedule(2.0, 8.0, 1) == (2.0,)
-
-    @pytest.mark.parametrize(
-        ("minimum", "maximum", "divisions"),
-        [(0.0, 5.0, 3), (-1.0, 5.0, 3), (5.0, 1.0, 3), (1.0, 5.0, 0)],
-    )
-    def test_invalid_input_returns_empty(self, minimum, maximum, divisions):
-        assert sweep_schedule(minimum, maximum, divisions) == ()
 
 
 class TestSweepAmounts:

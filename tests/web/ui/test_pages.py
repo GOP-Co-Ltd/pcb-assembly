@@ -127,7 +127,6 @@ _MACHINE_TOML_DEPENDENT_URLS = frozenset(
     {
         "/settings",
         "/pasting/paste_solder",
-        "/pasting/paste_dataset_collection",
         "/pasting/loading",
         "/posctrl/copper_detection",
     }
@@ -1240,18 +1239,13 @@ class TestMachineControlCapButton:
 
 
 class TestPastingPadEditor:
-    """paste_solder と dataset 収集で共用する pad 編集フロント UI.
-
-    両 feature は同じ workspace テンプレートで pad editor を表示する。
+    """paste_solder 専用の pad 編集フロント UI.
 
     ジョブフォーム、console、preview も備え、他の pasting feature とは分離する。
     """
 
-    @pytest.mark.parametrize("feature", ("paste_solder", "paste_dataset_collection"))
-    def test_paste_workspace_renders_pad_editor_hooks(
-        self, client: TestClient, feature: str
-    ):
-        text = client.get(f"/pasting/{feature}").text
+    def test_paste_workspace_renders_pad_editor_hooks(self, client: TestClient):
+        text = client.get("/pasting/paste_solder").text
 
         # SVG ビューア / 選択ツールバー / 階層表コンテナ / スクリプト
         assert 'id="pad-viewer"' in text
@@ -1293,6 +1287,7 @@ class TestPastingPadEditor:
             "height_plane",
             "loading",
             "toolhead_offset",
+            "paste_dataset_collection",
         ),
     )
     def test_other_pasting_features_have_no_pad_editor(
@@ -1307,6 +1302,7 @@ class TestPastingPadEditor:
     def test_paste_dataset_collection_keeps_dataset_job_chrome(
         self, client: TestClient
     ):
+        """Dataset 収集は PCB 非依存なので pad editor / 初回パージ UI を持たない."""
         text = client.get("/pasting/paste_dataset_collection").text
 
         assert "job-console" in text
@@ -1315,7 +1311,21 @@ class TestPastingPadEditor:
         assert "ペースト塗布データセット収集" in text
         assert 'data-job-name="paste_dataset_collection"' in text
         assert 'id="param-purge_pad_id"' not in text
-        assert 'data-pad-config-purpose="paste_dataset_collection"' in text
+        # pad editor workspace ではない（初回パージ pad の選択欄も出さない）
+        assert "pad-viewer" not in text
+        assert "pad_editor/index.js" not in text
+        assert 'id="pad-initial-purge"' not in text
+        assert "初回パージ" not in text
+        assert "paste-auto-thresholds" not in text
+        # セル格子・量スイープ・view のジョブパラメータを描く
+        assert 'id="param-plate_width"' in text
+        assert 'id="param-cell_size"' in text
+        assert 'id="param-crop_size"' in text
+        assert 'id="param-volume_min"' in text
+        assert 'id="param-volume_divisions"' in text
+        assert 'id="param-blank_count"' in text
+        assert 'id="param-view_count"' in text
+        assert 'id="param-shuffle_seed"' in text
         assert 'id="param-paste_id"' in text
         assert 'id="param-paste_lot"' in text
         assert (
