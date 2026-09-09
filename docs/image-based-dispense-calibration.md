@@ -279,11 +279,15 @@ crop 位置の絶対精度は基準点と board 変換に由来するが、crop 
 6. パージ領域の中心へパージする。
 7. blank を除く全セルへ点塗布する。
 8. 全セル（blank を含む）を全 view で塗布後撮影する。
-9. TAREした電子天秤で、パージ分を含む増加質量を計測する。
-10. 総質量をペースト密度で総体積へ変換する。
-11. パージと各塗布セルで実行したスクリュー回転数に比例して総体積を配分する。blank セルは配分に
+9. 計量質量以外を確定させた`pending.json`をsessionへ書く。
+10. TAREした電子天秤で、パージ分を含む増加質量を計測する。
+11. 総質量をペースト密度で総体積へ変換する。
+12. パージと各塗布セルで実行したスクリュー回転数に比例して総体積を配分する。blank セルは配分に
     含めず、真値 0 とする。
-12. 画像、撮影条件、塗布条件、体積 label をデータセットとして出力する。
+13. 画像、撮影条件、塗布条件、体積 label をデータセットとして出力する。
+
+計量質量は収集で唯一、装置の外から来る値である。手順 9 でそれ以外を先に永続化するのは、
+最後の入力にだけ依存して数十分ぶんの撮影を失わないようにするため。
 
 撮影と塗布は「全点の塗布前撮影 → パージ → 全点の塗布 → 全点の塗布後撮影」の 3 パスへまとめ、
 撮影と塗布の切り替えを減らして収集時間を詰める。分岐は設けない。撮影順序は metadata の
@@ -524,9 +528,13 @@ tooltipで完全な文字列を確認できる。名称とパッド種の見出�
 `plate-<幅>x<高さ>`、収集時刻はtimezoneと3桁のmillisecondを含む値とする。
 
 永続保存先はリポジトリ直下の`data/paste-volume-datasets/`とする。生成sessionは同directoryの
-`.gitignore`でGit管理から除外する。書き込み中は同root内の一時directoryを使用し、完成時に
-atomic renameする。abortまたは失敗時は取得済みファイルを`*.incomplete`として保持する。
-完成sessionは永続保存したまま、直近ジョブのartifactとしてZIPも生成する。
+`.gitignore`でGit管理から除外する。書き込み中は同root内の一時directory（`.<stem>.tmp`）を
+使用し、完成時にatomic renameする。abortまたは失敗時は取得済みファイルを`*.incomplete`として
+保持する。完成sessionは永続保存したまま、直近ジョブのartifactとしてZIPも生成する。
+
+未確定のsessionは計量質量だけが欠けた`pending.json`（schema v1）を持つ。これは`metadata.json`
+から質量に依存する3つの値（`total`と、sampleおよびpurgeの`measured_volume_ul`）を抜いたもので、
+計量値1つを与えれば完成`metadata.json`へ戻せる。確定したsessionは`pending.json`を持たない。
 
 ```text
 data/paste-volume-datasets/
@@ -747,6 +755,13 @@ WebUI のはんだ塗布タブへ、`paste_dataset_collection` データ収集�
 として追加する。収集は素の銅板で行うため PCB を選択せず、pad editor 付き workspace は使わない。
 ページはジョブフォーム、配置プレビュー、カメラ preview、job console で構成する。初回パージ位置の
 選択欄は持たない（パージ位置はセル格子から決まる）。
+
+### 未完了datasetの確定ジョブ
+
+撮影は終わったのに計量質量を入力できなかったsessionを確定させる`paste_dataset_finalize`
+ジョブを同じタブへ置く。装置もPCBも使わない。パラメータは計量した増加質量だけで、対象session
+は実行時のchoiceプロンプトで選ぶ（`pending.json`を持つ`*.incomplete`と`.<stem>.tmp`が候補）。
+撮影済み画像は書き直さず、`metadata.json`を足してdirectoryを完成名へrenameする。
 
 ### 配置プレビュー
 
