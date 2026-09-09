@@ -185,6 +185,64 @@ cell group が 331 に対して 167 なのは、session A の cell 座標が ses
 - **`PasteVolumeBatch.validate()` を作らなかった**（計画にはあった）
 - 計画の「空 split を build で弾く」は不要だった（`SplitManifest.build` が保証する）
 
+## code-reviewer のレビュー対応（1 巡目、verdict: request-changes）
+
+独立 context の `code-reviewer` へ単発委譲した。**自己レビューでは出なかった must-fix が
+2 件出た。**
+
+### M1（対応済み）placement seed が augmentation seed と byte 一致していた
+
+**私が step 5 の自己レビューで `split` を消したことで作った bug。**
+`AugmentationRange.parameters_for` は `_derived_seed(f"{global_seed}:{epoch}:{sample_id}")`
+= `int.from_bytes(sha256(...).digest()[:8], "big")` を種にする。私の `_placement_seed` は
+`int(sha256(...).hexdigest()[:16], 16)` で、**同じ材料・同じ整数**。回転角と配置位置が
+同じ乱数列から出ていた。
+
+実測: (回転 8 帯 × 配置 4 通り) = 32 のうち **20 通りしか出ない**。役割ラベル
+`:placement:` を挟むと 31 通り。`ViewDropout` が `view-dropout` を挟んでいるのと同じ理由。
+
+**「split を区別しても観測できる違いが生まれない」という判断自体は正しかった。**
+消したこと自体ではなく、消した結果 augmentation と材料が衝突したことが問題。
+**削除の妥当性を確かめるとき、残った材料が他の乱数源と衝突しないかまで見ていなかった。**
+変異カタログに「乱数種の材料を他の用途と一致させる」を足すべき類型。
+
+観測点も最初は弱かった。`len(pairs) > len(sectors)`（8）では bug 下でも 20 > 8 で通る。
+実測して閾値を 28 へ上げ、変異が落ちることを確認した。**観測点を足したら、それが本当に
+その変異を殺すかを測る。**
+
+### M2（対応済み）index と collator の constraints が独立だった
+
+`from_roots(constraints=A)` と `PasteVolumeCollator(constraints=B)` に一致の保証が無く、
+「拒否は index build で済ませる」という設計の柱が無条件に崩れていた。A が緩ければ
+materialize で落ち、A が厳しければ母集団が黙って減る。
+
+index が使った `constraints` を保持し、`build` が一致を要求する。併せて
+`dataset_fingerprint` にも含めた（S3）。含めないと別の母集団で作った checkpoint と
+split manifest を同一視する。
+
+### 誤検出として退けたもの
+
+**S10（非有限の数値を誰も弾かない）は誤り。** `parse_metadata` の strict converter が
+既に「有限なfloatが必要です」で拒否する。私が足しかけた検査は到達不能だったので取り消し、
+代わりに「非有限は schema 層で弾かれる」ことをテストで固定した。
+**レビュー指摘も実測で確かめてから入れる。**
+
+### その他の対応
+
+| 指摘 | 対応 |
+| --- | --- |
+| S1 `__init__.py` が「予約 namespace」のまま | 書き直した |
+| S2 `build` docstring が load 経路に当てはまらない | 両経路を書いた |
+| S5 `manifest.validate` の呼び出しを落としても緑 | sample 単位で作った manifest を弾く観測点を足した |
+| S6 view の並べ替えに観測点が無い | metadata の view 配列を逆順にする fixture を足した |
+| S7 shape 一致が最大 7 px のずれを見逃す | `padded == ceil_to_stride(max(planned))` の厳密一致へ |
+| S8 architecture test が推移的 import を見ない | 自前 module の import を推移的にたどる検査を足した。**実際にブロッカーを再現して捕まえることを確認済み** |
+| S16 拒否スクリーニングが 1 通りだけ | 限界を docstring に明記（サイズ由来は構造的に潰してあり、残りは loud に落ちる） |
+| docs の `tests/ml` 記述 | AGENTS.md / CLAUDE.md / docker/README.md を Makefile の変更へ追随 |
+| `del stack` / 到達不能な `# pragma: no cover` | 削除 |
+
+**最終変異: session 13/13、index 18/18、dataset 6/6、batch 20/20、task 16/16。**
+
 ## 残タスク
 
 step 6（計画書の更新）のみ。model / train / evaluate は次 MR。

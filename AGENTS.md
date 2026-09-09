@@ -103,7 +103,7 @@ ML 依存は `pyproject.toml` の `ml-runtime` / `ml-train` / `ml-hpo` / `ml-exp
 
 ```bash
 make ml-docker-up      # image を build して常駐起動する（idempotent）
-make ml-docker-check   # format → ML の型検査 → tests/ml。学習機での標準検証
+make ml-docker-check   # format → 型検査 → tests/ml と paste_volume。学習機での標準検証
 ```
 
 コンテナは常駐させ `docker compose exec` で使う。`make ml-docker-shell` /
@@ -115,7 +115,7 @@ make ml-docker-check   # format → ML の型検査 → tests/ml。学習機で�
     `torch.compile` の inductor backend が triton の C 拡張を build するのに必要
 - Raspberry Pi 5 の `picamera2` / `pcbnew` は OS の `dist-packages` 由来なので、
     `only-system` は変更しない。uv の managed Python へ切り替えると Pi でこれらが見えなくなる
-- host 側で `tests/ml` だけを回すこともできる（`make test-ml`）。ML 依存を host へ
+- host 側で装置非依存のテストだけを回すこともできる（`make test-ml`）。ML 依存を host へ
     入れる場合は `make setup-ml`。ただし host の system Python には開発ヘッダが無く
     inductor が動かないため、既定はコンテナとする
 - コンテナ内から git / glab を使うため、host の資格情報を mount する。`~/.ssh` を

@@ -76,6 +76,12 @@ def _data(
     return data
 
 
+def _ceil_to(value: int, stride: int) -> int:
+    """``MultiViewPaddedBatch.pad`` が使う切り上げ."""
+
+    return -(-value // stride) * stride
+
+
 def _area_bucket(shape: ImageShape) -> int:
     """``plan_pixel_budget_batches`` が bucket を切る単位（log2 面積の 1.0 刻み）."""
 
@@ -219,6 +225,56 @@ class TestBuild:
 
         assert len(index.entries) == 2 * len(CELLS)
         assert all(len(splits) == 1 for splits in by_cell.values())
+
+    def test_reports_constraints_that_differ_from_the_index(self, tmp_path: Path):
+        """読み出し側と詰め込み側で制約が違えば弾く.
+
+        index はその制約で使えない cell を隔離している。collator が違う制約を使うと、 緩ければ
+        materialize で落ち、厳しければ母集団が黙って減る。
+        """
+
+        import attrs
+
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path),
+            collator=PasteVolumeCollator(
+                constraints=attrs.evolve(CONSTRAINTS, maximum_size=256)
+            ),
+            config=PasteVolumeTrainingConfig(),
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "constraints" in reason
+
+    def test_rejects_a_manifest_that_splits_a_physical_cell(self, tmp_path: Path):
+        """内容が一致していても group を割っている manifest を弾く.
+
+        sample 単位で作った manifest は fingerprint 検査を通ってしまう。cell が split
+        をまたいでいないかは別に確かめる必要がある。
+        """
+
+        path = tmp_path / "split.json"
+        index = _index(tmp_path, sessions=2)
+        manifest, _ = SplitManifest.build(
+            {sample_id: sample_id for sample_id in index.sample_groups()},
+            dataset_fingerprint=index.dataset_fingerprint,
+            seed=0,
+            ratios=SplitRatios(0.7, 0.15, 0.15),
+            require_test=True,
+        )
+        assert manifest is not None
+        manifest.save(path)
+
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=PasteVolumeTrainingConfig(),
+            split_manifest_path=path,
+        )
+
+        assert data is None
+        assert reason is not None
 
     def test_reuses_a_saved_split_manifest(self, tmp_path: Path):
         """既にある manifest を読み直し、作り直さない."""
@@ -421,15 +477,16 @@ class TestMaterialize:
             planned, split="train", epoch=2, training=True, device=DEVICE
         )
 
-        heights = [
+        shapes = [
             data.collator.preprocessed_shape(
                 data.index.entry_for(sample_id), training=True, epoch=2
-            ).height
+            )
             for sample_id in planned
         ]
 
-        assert batch.images.shape[3] >= max(heights)
-        assert batch.images.shape[3] - max(heights) < CONSTRAINTS.stride
+        stride = CONSTRAINTS.stride
+        assert batch.images.shape[3] == _ceil_to(max(s.height for s in shapes), stride)
+        assert batch.images.shape[4] == _ceil_to(max(s.width for s in shapes), stride)
 
 
 class TestRealSessions:

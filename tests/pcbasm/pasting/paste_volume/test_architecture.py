@@ -4,6 +4,11 @@
 ``pcbnew`` も ``picamera2`` も無いので、装置 HAL へ届く import が 1 本でも入ると collect
 できなくなる。規約ではなくテストで固定する。
 
+**直接の import だけでなく推移的な到達も見る。** この MR のブロッカーは
+``dataset.metadata`` から ``applicator`` を経て ``pcbasm.hal`` へ届く 2 段の連鎖で、
+直接 import しか見ない検査では捕まらなかった。CI は picamera2 のある Raspberry Pi で
+走るので、実行時に落ちることにも頼れない。
+
 ``tests.helpers`` を禁じるのは、それが module 冒頭で ``pcbnew`` と ``picamera2`` を
 import するため。``tests/ml/test_architecture.py`` と同じ理由・同じ手口。
 """
@@ -48,6 +53,43 @@ def _python_files(root: Path) -> list[Path]:
     )
 
 
+def _module_file(module: str) -> Path | None:
+    """自前 module の実体 file を返す。見つからなければ ``None``."""
+
+    relative = Path(*module.split("."))
+    for candidate in (
+        PROJECT_ROOT / "src" / relative.with_suffix(".py"),
+        PROJECT_ROOT / "src" / relative / "__init__.py",
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _reachable_modules(entries: list[Path]) -> set[str]:
+    """起点から自前 module の import をたどって到達する module 名を集める.
+
+    package を import すると ``__init__`` が走るので、``a.b.c`` を見たら ``a`` と ``a.b``
+    も到達したものとして数える。この MR のブロッカーは ``dataset.metadata`` から
+    ``vision.image`` を読んだ結果 ``pcbasm.vision`` の ``__init__`` が走る形だった。
+    """
+
+    seen: set[str] = set()
+    pending = list(entries)
+    while pending:
+        path = pending.pop()
+        for module in _imported_modules(path):
+            parts = module.split(".")
+            for depth in range(1, len(parts) + 1):
+                ancestor = ".".join(parts[:depth])
+                if ancestor in seen:
+                    continue
+                seen.add(ancestor)
+                if (target := _module_file(ancestor)) is not None:
+                    pending.append(target)
+    return seen
+
+
 class TestPasteVolumeImports:
     """ドメイン層と、そのテストが装置 HAL へ届かないこと."""
 
@@ -81,6 +123,42 @@ class TestPasteVolumeImports:
         }
 
         assert not offenders, f"{forbidden} へ到達する module: {sorted(offenders)}"
+
+    @pytest.mark.parametrize("forbidden", FORBIDDEN_IMPORTS)
+    def test_nothing_reaches_the_device_hal_through_a_chain(self, forbidden: str):
+        """推移的にも装置 HAL へ届かないこと.
+
+        収集 schema も対象へ入れる。ドメイン層はそこを必ず読むので、schema 側が HAL を 引き戻した瞬間に学習機で
+        collect できなくなる。
+        """
+
+        entries = [
+            *_python_files(SOURCE_ROOT),
+            *_python_files(TEST_ROOT),
+            PROJECT_ROOT / "src" / "pcbasm" / "pasting" / "dataset" / "metadata.py",
+        ]
+
+        offenders = {
+            module
+            for module in _reachable_modules(entries)
+            if _reaches(module, forbidden)
+        }
+
+        assert not offenders, f"{forbidden} へ到達します: {sorted(offenders)}"
+
+    def test_the_transitive_scan_follows_more_than_one_hop(self):
+        """連鎖をたどる検査そのものが働いていることを確かめる.
+
+        1 段しか見ていないと、上の検査は本 MR のブロッカーを見逃す。``applicator`` を
+        起点にすれば 2 段先の ``pcbasm.hal`` へ到達するはずで、到達しないなら走査が
+        壊れている。
+        """
+
+        reachable = _reachable_modules(
+            [PROJECT_ROOT / "src" / "pcbasm" / "pasting" / "applicator.py"]
+        )
+
+        assert any(_reaches(module, "pcbasm.hal") for module in reachable)
 
     def test_the_scanner_sees_an_import_it_should_reject(self):
         """検査器そのものが機能していることを確かめる.

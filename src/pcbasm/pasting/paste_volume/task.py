@@ -83,15 +83,26 @@ class PasteVolumeTrainingData(TrainingData[PasteVolumeBatch]):
         ``augmentation`` が元画像を下限より小さくしうる設定はここで弾く。通してしまうと
         ``materialize`` の途中で sample が落ち、``plan_epoch`` の計画と食い違う。
 
-        split が空でないことは確かめ直さない。``SplitManifest.build`` は
+        index と collator の ``constraints`` が一致することも要求する。index はこの制約で
+        使えない cell を隔離しているので、collator 側が違う制約を使うと「拒否は index を
+        作る時点で済ませる」という前提が崩れる。緩いと materialize で落ち、厳しいと母集団が
+        黙って減る。
+
+        split が空でないことは確かめ直さない。新規に作る場合は ``SplitManifest.build`` が
         ``require_test=True`` のとき各 split へ最低 1 group を割り当て、group が 3 個に
-        満たなければ理由を返すので、空の split は作られない。
+        満たなければ理由を返す。既存 manifest を読む場合は ``validate`` が group の
+        取りこぼしを検出する。
         """
 
         if error := config.validate():
             return None, error
         if error := collator.validate():
             return None, error
+        if collator.constraints != index.constraints:
+            return None, (
+                "index と collator の constraints が違います: "
+                f"{index.constraints} と {collator.constraints}"
+            )
         if error := collator.constraints.validate_augmentation(
             collator.augmentation, smallest_source_size=index.smallest_source_size
         ):

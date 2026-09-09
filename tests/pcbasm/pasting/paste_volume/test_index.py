@@ -7,7 +7,9 @@ index は「その cell が学習に使えるか」を決める層。session が
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+import attrs
 import pytest
 
 from ml.data.image import ImageConstraints
@@ -242,6 +244,30 @@ class TestDatasetFingerprint:
 
         assert one.dataset_fingerprint != other.dataset_fingerprint
 
+    def test_changes_when_the_constraints_change(self, tmp_path: Path):
+        """前処理の制約が変わると fingerprint も変わる.
+
+        制約は使える sample の集合を決める。含めないと、別の母集団で作った checkpoint と split
+        manifest を同一と見なしてしまう。
+        """
+
+        root = write_session(tmp_path / "session", cells=CELLS)
+        loose, _ = PasteVolumeSampleIndex.from_roots([root], constraints=CONSTRAINTS)
+        strict, _ = PasteVolumeSampleIndex.from_roots(
+            [root], constraints=attrs.evolve(CONSTRAINTS, maximum_size=256)
+        )
+        assert loose is not None and strict is not None
+
+        assert loose.dataset_fingerprint != strict.dataset_fingerprint
+
+    def test_keeps_the_constraints_it_screened_with(self, tmp_path: Path):
+        """使った制約を持ち歩く.
+
+        collator が違う制約を使うと「拒否は index を作る時点で済ませる」前提が崩れるので、 突き合わせられるようにする。
+        """
+
+        assert _built(tmp_path / "session").constraints == CONSTRAINTS
+
 
 class TestSplitGroups:
     """分割の不可分単位が物理 cell であること."""
@@ -326,6 +352,27 @@ class TestOrderingAndSizes:
         )
 
         assert index.smallest_source_size == CROP_SIZE_PX
+
+    def test_orders_views_by_number_even_when_the_metadata_is_shuffled(
+        self, tmp_path: Path
+    ):
+        """収集 metadata の view 配列が昇順でなくても番号順に並べ直す.
+
+        pre と post の対応は view 番号で決まる。並びが崩れたまま collate すると、 別の view どうしを 1
+        組として扱う。
+        """
+
+        def reverse_views(document: dict[str, Any]) -> None:
+            for sample in document["samples"]:
+                sample["views"] = list(reversed(sample["views"]))
+
+        root = corrupt_metadata(
+            write_session(tmp_path / "session", cells=CELLS), reverse_views
+        )
+
+        entry = _index(root).entries[0]
+
+        assert [view.number for view in entry.views] == list(range(VIEW_COUNT))
 
 
 class TestRejection:

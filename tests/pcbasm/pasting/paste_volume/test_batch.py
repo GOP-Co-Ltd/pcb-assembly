@@ -31,6 +31,9 @@ CONSTRAINTS = ImageConstraints()
 CHANNELS = 6
 DEVICE = torch.device("cpu")
 
+# 回転角を 8 帯へ畳む幅。配置との相関を見る粒度
+ROTATION_SECTOR_DEGREES = 45
+
 CELLS = (
     SyntheticCell(index=1, commanded_volume_ul=0.10, x_mm=0.5),
     SyntheticCell(index=2, commanded_volume_ul=0.30, x_mm=2.7),
@@ -503,6 +506,38 @@ class TestPadding:
         }
 
         assert len(offsets) == 1
+
+    def test_does_not_derive_the_position_from_the_rotation(self, tmp_path: Path):
+        """配置が回転角の従属変数になっていないこと.
+
+        ``AugmentationRange.parameters_for`` は ``{global_seed}:{epoch}:{sample_id}`` を
+        sha256 に掛けた先頭 8 byte を種にする。同じ材料で配置の種を作ると、両者が
+        同じ乱数列から出て相関する。回転を有効にしたまま、同じ回転帯の中で複数の位置が
+        現れることを見る。
+        """
+
+        dataset = _dataset(tmp_path)
+        samples = _samples(dataset)
+        collator = _collator(
+            augmentation=AugmentationRange(minimum_scale=1.0, maximum_scale=1.0)
+        )
+
+        pairs: set[tuple[int, int]] = set()
+        for epoch in range(60):
+            batch = collator.collate(samples, epoch=epoch, training=True, device=DEVICE)
+            for row, sample in enumerate(samples):
+                rotation = collator.parameters_for(
+                    sample.entry.sample_id, training=True, epoch=epoch
+                ).rotation_degrees
+                pairs.add(
+                    (
+                        int(rotation // ROTATION_SECTOR_DEGREES),
+                        _mask_offset(batch.valid_pixel_mask[row, 0, 0])[0],
+                    )
+                )
+
+        # 8 帯 x 4 位置 = 32 通り。材料を共有すると 20 通りしか出ない（実測）
+        assert len(pairs) >= 28
 
 
 class TestCollateRejection:

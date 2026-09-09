@@ -67,7 +67,7 @@ container作成と破棄を繰り返して無駄になる。
 ```bash
 make ml-docker-shell   # 対話 shell に入る
 make ml-docker-test    # tests/ml を実行する
-make ml-docker-check   # format → ML の型検査 → tests/ml
+make ml-docker-check   # format → 型検査 → tests/ml と paste_volume
 make ml-docker-down    # 停止する（named volume は残る）
 ```
 
@@ -84,9 +84,14 @@ Dockerfileを直しても古いimageで起動し、検証が古い環境で通�
 
 ## 型検査の範囲
 
-`make ml-docker-check`の`pyright`は`src/ml`、`tests/ml`、`scripts/ml_smoke.py`だけを
-対象にする。装置ドメインは`pcbnew`と`picamera2`を要求し、それが無いコンテナでは
-未解決importとして必ず赤くなる。装置側の型検査は実機環境の`make type`が担当する。
+`make ml-docker-check`の`pyright`と`pytest`は`src/ml`、`tests/ml`、
+`src/pcbasm/pasting/paste_volume`、`tests/pcbasm/pasting/paste_volume`、
+`scripts/ml_smoke.py`を対象にする（`Makefile`の`ML_TREES`と`ML_TEST_PATHS`）。
+
+装置ドメインの大半は`pcbnew`と`picamera2`を要求し、それが無いコンテナでは未解決import
+として必ず赤くなるので外す。`paste_volume`は例外で、収集schemaとml基盤しか参照しない
+ため通る。その到達範囲は`tests/pcbasm/pasting/paste_volume/test_architecture.py`が
+推移的に検証する。装置側の型検査は実機環境の`make type`が担当する。
 
 ## コンテナに入っているもの
 

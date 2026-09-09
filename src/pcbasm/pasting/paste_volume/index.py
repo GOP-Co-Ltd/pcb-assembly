@@ -9,6 +9,12 @@ decode して寸法を突き合わせ、前処理を通せない cell を隔離�
 
 拒否を index を作る時点で決めるのは、``materialize`` の途中で sample を落とすと
 ``plan_epoch`` の計画と食い違い、checkpoint の batch plan 一致検査が壊れるため。
+
+**この選別は「全 view・変換なし」の 1 通りしか試さない。** view を間引いた部分集合や
+回転後の有効領域では分散がさらに下がるので、ここを通った sample が学習中に前処理を
+通せない可能性は残る。サイズ由来の拒否は ``validate_augmentation`` で構造的に潰して
+あるので、残るのは定数に近い画像だけ。落ちるときは ``ValueError`` なので黙って
+母集団が減ることはない。
 """
 
 from __future__ import annotations
@@ -94,12 +100,16 @@ class PasteVolumeRejection:
 class PasteVolumeSampleIndex:
     """複数 session をまたいだ sample index.
 
-    ``dataset_fingerprint`` は含まれる session の内容だけから決まる。root の並び順にも
+    ``dataset_fingerprint`` は session の内容と ``constraints`` から決まる。root の並び順にも
     mount 位置にも依存しない。
+
+    ``constraints`` を含めるのは、これが変わると使える sample の集合が変わるため。
+    含めないと、別の母集団で作った checkpoint と split manifest を同一と見なしてしまう。
     """
 
     entries: tuple[PasteVolumeSampleEntry, ...]
     rejections: tuple[PasteVolumeRejection, ...]
+    constraints: ImageConstraints
     dataset_fingerprint: str
 
     @classmethod
@@ -139,8 +149,6 @@ class PasteVolumeSampleIndex:
                     sample_count=len(session.cells),
                 )
                 if entry is None:
-                    if reason is None:  # pragma: no cover - 呼び出し規約の保険
-                        return None, f"{session.label}: 理由の無い拒否"
                     return None, f"{session.label} cell {cell.index}: {reason}"
                 if isinstance(entry, PasteVolumeRejection):
                     rejections.append(entry)
@@ -152,7 +160,10 @@ class PasteVolumeSampleIndex:
             cls(
                 entries=tuple(entries),
                 rejections=tuple(rejections),
-                dataset_fingerprint=_dataset_fingerprint(unique),
+                constraints=constraints,
+                dataset_fingerprint=_dataset_fingerprint(
+                    unique, constraints=constraints
+                ),
             ),
             None,
         )
@@ -300,14 +311,13 @@ def _validate_image_sizes(
     if len(sizes) != 1:
         return f"cell 内の画像は同じ高さ・幅が必要です: {sorted(sizes)}"
     height, width = next(iter(sizes))
-    for stack, view in zip(stacks, views, strict=True):
+    for view in views:
         left, top, right, bottom = view.pixel_rect
         if (bottom - top, right - left) != (height, width):
             return (
                 f"view {view.number} の pixel_rect と画像の寸法が違います: "
                 f"{(bottom - top, right - left)} と {(height, width)}"
             )
-        del stack
     if (height, width) != (crop_size_px, crop_size_px):
         return (
             f"画像の寸法が crop_size_px と違います: {(height, width)} と {crop_size_px}"
@@ -332,8 +342,10 @@ def _cell_key(cell: PasteVolumeCell) -> str:
     return f"{rect.x:.3f},{rect.y:.3f},{rect.width:.3f},{rect.height:.3f}"
 
 
-def _dataset_fingerprint(sessions: Sequence[PasteVolumeSession]) -> str:
-    """含まれる session の内容だけから fingerprint を作る.
+def _dataset_fingerprint(
+    sessions: Sequence[PasteVolumeSession], *, constraints: ImageConstraints
+) -> str:
+    """収集内容と前処理の制約から fingerprint を作る.
 
     並べ直さない。``_deduplicated`` が既に fingerprint 順へ揃えているので、渡された
     順序は root の並び順に依存しない。
@@ -343,6 +355,7 @@ def _dataset_fingerprint(sessions: Sequence[PasteVolumeSession]) -> str:
         {
             "schema_version": INDEX_SCHEMA_VERSION,
             "sessions": [session.session_fingerprint for session in sessions],
+            "constraints": attrs.asdict(constraints),
         }
     )
 

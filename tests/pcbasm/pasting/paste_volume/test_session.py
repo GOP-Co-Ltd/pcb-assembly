@@ -263,3 +263,27 @@ class TestSessionRejection:
         )
 
         assert "pixel_per_mm は正の値が必要です" in _rejected(root)
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf")])
+    @pytest.mark.parametrize("field", ["pixel_per_mm", "measured_volume_ul"])
+    def test_reports_a_number_that_is_not_finite(
+        self, tmp_path: Path, field: str, value: float
+    ):
+        """非有限の数値を拒否する.
+
+        ``json`` は ``NaN`` を読み込むうえ ``NaN <= 0`` は偽なので、大小比較では
+        素通りする。実際に弾いているのは収集 schema の strict converter で、この層で
+        追加の検査を持たないことをここで固定する。
+        """
+
+        def mutate(document: dict[str, Any]) -> None:
+            if field == "pixel_per_mm":
+                document["camera"].update(pixel_per_mm=value)
+            else:
+                document["samples"][0].update(measured_volume_ul=value)
+
+        root = corrupt_metadata(
+            write_session(tmp_path / "session", cells=CELLS), mutate
+        )
+
+        assert "有限なfloatが必要です" in _rejected(root)

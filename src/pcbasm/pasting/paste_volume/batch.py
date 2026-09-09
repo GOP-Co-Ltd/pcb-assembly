@@ -35,6 +35,9 @@ from pcbasm.pasting.paste_volume.index import PasteVolumeSampleEntry
 # placement seed を 64 bit へ丸める桁数（sha256 の先頭 16 桁）
 _PLACEMENT_SEED_DIGITS = 16
 
+# 乱数種の材料へ入れる役割ラベル。augmentation の種と材料が一致するのを防ぐ。
+_PLACEMENT_ROLE = "placement"
+
 
 @attrs.frozen(eq=False)
 class PasteVolumeBatch:
@@ -212,11 +215,18 @@ def _column(values: Sequence[float], device: torch.device) -> Tensor:
 def _placement_seed(global_seed: int, epoch: int, sample_id: str) -> int:
     """余白へ置く位置を決める乱数種.
 
-    split を混ぜない。位置をずらすのは学習時だけで、学習に使う split は常に 1 つなので、
+    **役割ラベルを必ず混ぜる。** ``AugmentationRange.parameters_for`` は
+    ``{global_seed}:{epoch}:{sample_id}`` を sha256 に掛けた先頭 8 byte を種にするので、
+    同じ材料を使うと回転角と配置位置が同じ乱数列から出て相関する。
+    ``ViewDropout`` が ``view-dropout`` を挟んでいるのと同じ理由。
+
+    split は混ぜない。位置をずらすのは学習時だけで、学習に使う split は常に 1 つなので、
     区別しても観測できる違いが生まれない。
     """
 
-    digest = sha256_bytes(f"{global_seed}:{epoch}:{sample_id}".encode())
+    digest = sha256_bytes(
+        f"{global_seed}:{epoch}:{_PLACEMENT_ROLE}:{sample_id}".encode()
+    )
     return int(digest[:_PLACEMENT_SEED_DIGITS], 16)
 
 
