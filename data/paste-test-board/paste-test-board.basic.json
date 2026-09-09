@@ -1,5 +1,5 @@
 {
-  "kind": "paste_flow_calibration_board",
+  "kind": "paste_test_board",
   "schema_version": 1,
   "board": {
     "width_mm": 47.5,
@@ -10,6 +10,10 @@
   "purge_pad": {
     "width_mm": 1.5,
     "height_mm": 1.5
+  },
+  "flow_pads": {
+    "size_mm": 2.0,
+    "count": 0
   },
   "custom_pads": [],
   "patterns": [

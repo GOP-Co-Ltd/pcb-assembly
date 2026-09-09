@@ -28,14 +28,14 @@ def disable_mdns_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(scope="session")
-def paste_flow_calibration_footprint_root(
+def paste_test_board_footprint_root(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Path:
     """System KiCad inventoryに依存しない実 ``*.pretty`` library."""
-    from tests.helpers import make_paste_flow_calibration_footprint_root
+    from tests.helpers import make_paste_test_board_footprint_root
 
-    return make_paste_flow_calibration_footprint_root(
-        tmp_path_factory.mktemp("paste-flow-calibration") / "footprints"
+    return make_paste_test_board_footprint_root(
+        tmp_path_factory.mktemp("paste-test-board") / "footprints"
     )
 
 

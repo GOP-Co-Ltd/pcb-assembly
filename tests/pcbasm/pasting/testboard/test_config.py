@@ -1,19 +1,20 @@
-"""流量キャリブレーション基板configとschema 1文書のテスト."""
+"""テスト塗布基板configとschema 1文書のテスト."""
 
 from typing import cast
 
 import pytest
 
-from pcbasm.pasting.flowcalib.board.config import (
+from pcbasm.pasting.testboard.config import (
     BoardConfig,
     BoardConfigError,
     BoardSpec,
     CustomPadShapeId,
+    FlowPadSpec,
     PatternSpec,
     PurgePadSpec,
     parse_board_document,
 )
-from tests.pcbasm.pasting.flowcalib.board.support import (
+from tests.pcbasm.pasting.testboard.support import (
     CUSTOM_A,
     R0402,
     R0603,
@@ -299,7 +300,7 @@ class TestBoardDocument:
         document = config.to_normalized_document()
         restored = parse_board_document(document)
 
-        assert document["kind"] == "paste_flow_calibration_board"
+        assert document["kind"] == "paste_test_board"
         assert document["schema_version"] == 1
         assert document["board"]["pad_gap_mm"] == 1.5
         assert document["custom_pads"][0]["shape"] == "oval"
@@ -343,7 +344,7 @@ class TestBoardDocument:
             [],
             "not-an-object",
             {},
-            {"kind": "paste_flow_calibration_board", "schema_version": 1},
+            {"kind": "paste_test_board", "schema_version": 1},
         ],
     )
     def test_malformed_documents_return_none_without_an_exception(self, document):
@@ -364,5 +365,56 @@ class TestBoardDocument:
     def test_rejects_malformed_config_fields(self, key: str, value: object):
         document = BoardConfig().to_normalized_document()
         document[key] = value
+
+        assert parse_board_document(document) is None
+
+
+class TestFlowPadSpec:
+    """点塗布で流量計測するための正方形パッド（大きさと個数だけを設定する）."""
+
+    def test_defaults_place_five_two_millimetre_pads(self):
+        spec = FlowPadSpec()
+
+        assert spec.size_mm == 2.0
+        assert spec.count == 5
+
+    def test_config_defaults_include_flow_pads(self):
+        assert BoardConfig().flow_pads == FlowPadSpec()
+
+    @pytest.mark.parametrize("size_mm", [0.0, -1.0, float("nan"), float("inf")])
+    def test_rejects_non_positive_size(self, size_mm: float):
+        config = BoardConfig(flow_pads=FlowPadSpec(size_mm=size_mm))
+
+        assert config.validate() is not None
+
+    @pytest.mark.parametrize("count", [-1, 1.5, True])
+    def test_rejects_non_integer_or_negative_count(self, count: object):
+        # 実行時に届く不正な型を検証するので、静的には int として渡す
+        config = BoardConfig(flow_pads=FlowPadSpec(count=cast(int, count)))
+
+        assert config.validate() is not None
+
+    def test_zero_count_disables_flow_pads(self):
+        config = BoardConfig(flow_pads=FlowPadSpec(count=0))
+
+        assert config.validate() is None
+
+    def test_document_round_trip_keeps_flow_pads(self):
+        config = BoardConfig(flow_pads=FlowPadSpec(size_mm=3.0, count=2))
+
+        restored = parse_board_document(config.to_document())
+
+        assert restored is not None
+        assert restored.flow_pads == FlowPadSpec(size_mm=3.0, count=2)
+
+    def test_document_without_flow_pads_is_rejected(self):
+        document = BoardConfig().to_document()
+        del document["flow_pads"]
+
+        assert parse_board_document(document) is None
+
+    def test_document_with_unknown_flow_pad_key_is_rejected(self):
+        document = BoardConfig().to_document()
+        document["flow_pads"]["nope"] = 1.0
 
         assert parse_board_document(document) is None

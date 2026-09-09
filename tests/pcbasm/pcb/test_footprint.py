@@ -21,12 +21,12 @@ from pcbasm.pcb.footprint import (
     single_pad_footprint,
     smd_pad_footprint,
 )
-from tests.helpers import make_paste_flow_calibration_offset_pad_root
+from tests.helpers import make_paste_test_board_offset_pad_root
 
 
 @pytest.fixture
-def library(paste_flow_calibration_footprint_root: Path) -> FootprintLibrary:
-    return FootprintLibrary(paste_flow_calibration_footprint_root)
+def library(paste_test_board_footprint_root: Path) -> FootprintLibrary:
+    return FootprintLibrary(paste_test_board_footprint_root)
 
 
 class TestFootprintId:
@@ -102,12 +102,10 @@ class TestFootprintLibrary:
     def test_env_var_selects_root(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        paste_flow_calibration_footprint_root: Path,
+        paste_test_board_footprint_root: Path,
     ):
-        monkeypatch.setenv(
-            "KICAD9_FOOTPRINT_DIR", str(paste_flow_calibration_footprint_root)
-        )
-        assert FootprintLibrary().root == paste_flow_calibration_footprint_root
+        monkeypatch.setenv("KICAD9_FOOTPRINT_DIR", str(paste_test_board_footprint_root))
+        assert FootprintLibrary().root == paste_test_board_footprint_root
 
 
 class TestPadGeometry:
@@ -160,7 +158,7 @@ class TestPadGeometry:
         assert original.GetOrientationDegrees() == 0.0
 
     def test_wrapped_pad_bounds_are_a_coordinate_error(self, tmp_path: Path):
-        root = make_paste_flow_calibration_offset_pad_root(
+        root = make_paste_test_board_offset_pad_root(
             tmp_path / "footprints", pad_size_mm=2_000.0, shape_offset_x_mm=1_200.0
         )
         footprint = FootprintLibrary(root).load("Test.pretty", "OffsetPad")
