@@ -1,0 +1,28 @@
+# 全 run 共通の骨格。group option と argv の上書きはここへの差分だけを書く。
+#
+# 既定値と同じ値は書かない。既定値は到達先の attrs にのみ置く（同じ値を 2 箇所で
+# 管理すると、どちらが効いているか読み手が追えなくなる）。
+# tests/ml/paste_volume/test_conf.py がこれを機械検証する。
+#
+# 同梱 config は外部システムの所在を持たない。dataset root（data.roots）、MLflow の
+# tracking URI（logger.tracking_uri）、Optuna storage（hyperparameter_search.storage_uri）、
+# resume 元（resume.checkpoint）、初期 weight（model.initial_weights）はいずれも機械
+# 固有なので、既定値を持たない必須 field にして argv から渡させる。
+#
+# 分割の次元（data.split_dimension）もここには書かない。experiment group の option が
+# 宣言する唯一の場所で、preset を選ばずに起こすと必須 field の欠落で落ちる。
+#
+# float の field は小数点か指数を必ず書く。strict converter は int を float として
+# 受け取らないため、learning_rate = 3 と書くと「float が必要です」で拒否される。
+
+[trainer]
+# 既定値を持たない field。
+max_epochs = 200
+monitor = "negative_log_likelihood"
+
+# 仕様書 §3「optimizer と既定 config」の base training 列。
+learning_rate = 3.0e-4
+
+# 仕様書 §3: torch.compile は base training / fine-tuning / PyTorch 評価で既定 ON。
+# 失敗を黙って eager へ落とさないので、外すときは compile_enabled=false を明示する。
+compile_enabled = true

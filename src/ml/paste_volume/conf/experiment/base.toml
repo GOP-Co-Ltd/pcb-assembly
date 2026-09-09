@@ -1,0 +1,12 @@
+# 正式評価。session 単位の leave-one-session-out。
+#
+# 塗布量の係数 k は session ごとの 1 定数なので、cell 単位で分けると model が session
+# を言い当てて k を憶えるだけで見かけの精度が出る。実測では、同じ「session を憶える」
+# 能力が cell split では R^2 +0.081 の利得になり、LOSO では -0.136 の害になる。
+#
+# held-out する session は fold ごとに変わるので argv で渡す
+# （data.held_out_session=<label 完全一致か session fingerprint の前頭一致>）。
+# 5 fold は 1 プロセス 1 fold で shell の for ループから起こす。
+
+[data]
+split_dimension = "session"

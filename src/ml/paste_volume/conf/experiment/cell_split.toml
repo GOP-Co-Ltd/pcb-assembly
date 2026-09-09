@@ -1,0 +1,13 @@
+# 比較用。cell 単位 70/15/15。
+#
+# 素朴ベースラインを両方の次元で測ると、その差そのものが「cell split では k を
+# 憶えられる」ことの実測証拠になる。正式評価には使わない。
+#
+# cell group は座標由来で session をまたいで同一値になるため、どの split にも
+# 5 session 全部が入る。held_out_session はこの次元では意味を持たない（渡すと
+# PasteVolumeTrainingConfig.validate が拒否する）。
+
+run_kind = "cell-split-train"
+
+[data]
+split_dimension = "cell"

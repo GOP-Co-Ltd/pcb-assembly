@@ -1,0 +1,21 @@
+# 別 run の weight を起点にした fine-tuning。
+#
+# 起点の weight は argv で渡す（model.initial_weights=/abs/weights.pt）。中断した run
+# の再開は resume.checkpoint で、意味が違う。前者は fingerprint の一致を要求せず、
+# 後者は要求する。
+#
+# 仕様書 §3 の Pi fine-tuning 列: learning rate 1e-4、early stopping patience 10。
+# 更新対象は最終 stage / pooling 後の Linear / 2 個の head / learnable padding pixel で、
+# その範囲は model.fine_tune が決める。
+
+run_kind = "fine-tune"
+
+[data]
+split_dimension = "session"
+
+[model]
+fine_tune = true
+
+[trainer]
+learning_rate = 1.0e-4
+early_stopping_patience = 10

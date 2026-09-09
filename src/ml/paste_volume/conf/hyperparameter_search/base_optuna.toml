@@ -1,0 +1,34 @@
+# 初期 search space。仕様書 §3「Optuna による探索」。
+#
+# learning rate / weight decay / gradient accumulation / GroupNorm group 数に限定する。
+# encoder の深さと channel 数は baseline 確立前に探索しない。
+#
+# storage は機械固有なので書かない。hyperparameter_search.storage_uri で argv から渡す
+# （sqlite は絶対 path、つまり sqlite:////abs/optuna.db の 4 連 slash が必要）。
+#
+# parameter 名は設定の dotted path そのままにする。探索した値を ConfigComposition の
+# 上書きへ素通しできるので、探索 run と単発 run が同じ設定経路を通る。
+#
+# low / high は integer 分布でも float で書く。2 と 2.0 で search space fingerprint が
+# 変わり、同じ論理空間が別 study へ分かれる。
+
+[hyperparameter_search.search_space.parameters."trainer.learning_rate"]
+kind = "float"
+low = 1.0e-5
+high = 3.0e-3
+log = true
+
+[hyperparameter_search.search_space.parameters."trainer.weight_decay"]
+kind = "float"
+low = 1.0e-6
+high = 1.0e-2
+log = true
+
+[hyperparameter_search.search_space.parameters."trainer.gradient_accumulation"]
+kind = "integer"
+low = 1.0
+high = 4.0
+
+[hyperparameter_search.search_space.parameters."model.group_norm_groups"]
+kind = "categorical"
+choices = [1, 4, 8]

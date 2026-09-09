@@ -1,0 +1,8 @@
+# MLflow へ run を記録する。
+#
+# tracking URI は機械固有なので書かない。logger.tracking_uri=file:///abs/mlruns の
+# ように argv で渡す。相対 URI を既定にすると起動した directory ごとに store が
+# 分かれ、5 fold の run が別々の場所へ散る。
+
+[logger]
+experiment_name = "paste-volume"
