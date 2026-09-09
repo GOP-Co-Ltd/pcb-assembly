@@ -1,6 +1,6 @@
 """学習に使う sample index の公開契約.
 
-index は「その cell が学習に使えるか」を決める層。session が構造を保証した後に、 画像を 1 度だけ decode
+index は「その cell が学習に使えるか」を決める層。session が構造を保証した後に、画像を 1 度だけ decode
 して寸法を突き合わせ、前処理を通せない cell を隔離する。
 """
 
@@ -77,7 +77,7 @@ class TestSampleEntries:
     def test_sample_id_pairs_the_session_with_the_cell_index(self, tmp_path: Path):
         """sample_id は session fingerprint の先頭 12 桁と cell index だけで決まる.
 
-        view 番号は入らない。cell が sample の単位なので、view を増減しても 1 cell から できる ID は
+        view 番号は入らない。cell が sample の単位なので、view を増減しても 1 cell からできる ID は
         1 つ。
         """
 
@@ -136,8 +136,8 @@ class TestSampleEntries:
     def test_records_the_source_size_from_the_decoded_image(self, tmp_path: Path):
         """実 PNG の寸法を持つ.
 
-        plan_epoch はこの値から前処理後の shape を求め、collate 側は実 decode から
-        求める。両者が一致することが resume 契約の前提なので、metadata ではなく 画像から取る。
+        plan_epoch はこの値から前処理後の shape を求め、collate 側は実 decode
+        から求める。両者が一致することが resume 契約の前提なので、metadata ではなく画像から取る。
         """
 
         entries = _built(tmp_path / "session").entries
@@ -221,8 +221,8 @@ class TestDatasetFingerprint:
     def test_does_not_change_with_the_directory_name(self, tmp_path: Path):
         """展開先と directory 名を変えても同じ値になる.
 
-        checkpoint と split manifest がこの値との一致を要求するので、mount を変えた だけで
-        resume が落ちないことを固定する。
+        checkpoint と split manifest がこの値との一致を要求するので、mount を変えただけで resume
+        が落ちないことを固定する。
         """
 
         first = _built(tmp_path / "one" / "plate-a")
@@ -272,7 +272,7 @@ class TestDatasetFingerprint:
     def test_keeps_the_constraints_it_screened_with(self, tmp_path: Path):
         """使った制約を持ち歩く.
 
-        collator が違う制約を使うと「拒否は index を作る時点で済ませる」前提が崩れるので、 突き合わせられるようにする。
+        collator が違う制約を使うと「拒否は index を作る時点で済ませる」前提が崩れるので、突き合わせられるようにする。
         """
 
         assert _built(tmp_path / "session").constraints == CONSTRAINTS
@@ -299,7 +299,7 @@ class TestCellSplitGroups:
     def test_groups_by_position_even_when_the_cell_index_differs(self, tmp_path: Path):
         """同じ座標なら cell index が違っても同じ group になる.
 
-        index は session 内の連番でしかない。銅板の同じ場所を指しているかは座標だけが 決めるので、index を
+        index は session 内の連番でしかない。銅板の同じ場所を指しているかは座標だけが決めるので、index を
         group にすると背景テクスチャが split をまたいで漏れる。
         """
 
@@ -432,7 +432,7 @@ class TestOrderingAndSizes:
     def test_orders_cells_by_index_even_when_a_blank_comes_first(self, tmp_path: Path):
         """塗布しない cell が小さい index を持っていても index 昇順になる.
 
-        収集 schema は samples と blanks を別配列で持つので、畳んだだけでは 「塗布した cell
+        収集 schema は samples と blanks を別配列で持つので、畳んだだけでは「塗布した cell
         が先」の順になる。
         """
 
@@ -453,7 +453,7 @@ class TestOrderingAndSizes:
     def test_reports_the_smallest_side_across_sessions(self, tmp_path: Path):
         """最小辺は session をまたいだ最小値.
 
-        augmentation の下限検証に使うので、いちばん小さい画像が下限を割らないことを 見なければ意味がない。
+        augmentation の下限検証に使うので、いちばん小さい画像が下限を割らないことを見なければ意味がない。
         """
 
         index = _index(
@@ -468,7 +468,7 @@ class TestOrderingAndSizes:
     ):
         """収集 metadata の view 配列が昇順でなくても番号順に並べ直す.
 
-        pre と post の対応は view 番号で決まる。並びが崩れたまま collate すると、 別の view どうしを 1
+        pre と post の対応は view 番号で決まる。並びが崩れたまま collate すると、別の view どうしを 1
         組として扱う。
         """
 
@@ -562,8 +562,8 @@ class TestStructuralRejection:
     ):
         """PNG の実寸が pixel_rect と食い違う session を拒否する.
 
-        plan_epoch は entry の寸法から前処理後 shape を求め、collate は実 decode から
-        求める。ここがずれると bucket と pixel budget が黙って壊れるので、衛生検査では なく resume
+        plan_epoch は entry の寸法から前処理後 shape を求め、collate は実 decode
+        から求める。ここがずれると bucket と pixel budget が黙って壊れるので、衛生検査ではなく resume
         契約を支える検証。
         """
 

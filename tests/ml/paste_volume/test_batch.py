@@ -205,7 +205,7 @@ class TestChannelLayout:
     def test_places_the_pre_image_in_the_first_three_channels(self, tmp_path: Path):
         """0-2 が塗布前、3-5 が塗布後.
 
-        合成画像は pre の R だけが水平に、post の B だけが垂直に変化する。標準化は 全 channel 共通の 1
+        合成画像は pre の R だけが水平に、post の B だけが垂直に変化する。標準化は全 channel 共通の 1
         組の統計で行うので、定数 channel は定数のまま残る。
         """
 
@@ -249,7 +249,7 @@ class TestConditioning:
     def test_follows_the_scale_applied_by_augmentation(self, tmp_path: Path):
         """拡大縮小したぶん ``pixel_per_mm`` も動く.
 
-        見かけの大きさが体積の主要な手がかりなので、scale を掛けたのに解像度を 据え置くと、model
+        見かけの大きさが体積の主要な手がかりなので、scale を掛けたのに解像度を据え置くと、model
         は同じ体積を違う値として学ぶ。
         """
 
@@ -485,8 +485,8 @@ class TestPadding:
     def test_moves_the_image_around_during_training(self, tmp_path: Path):
         """学習時は配置をずらす.
 
-        位置に対する不変性を訓練で経験させるための augmentation。幾何 augmentation を 止めた
-        collator で見るので、動いているのは配置だけ。
+        位置に対する不変性を訓練で経験させるための augmentation。幾何 augmentation を止めた collator
+        で見るので、動いているのは配置だけ。
         """
 
         dataset = _dataset(tmp_path)
@@ -609,7 +609,7 @@ class TestPadding:
     ):
         """上の一致検査がラベルまで見ていることの自己検査.
 
-        役割ラベルを外した材料は augmentation の材料と一致するので、同じ位置が出ては いけない。
+        役割ラベルを外した材料は augmentation の材料と一致するので、同じ位置が出てはいけない。
         """
 
         dataset = _dataset(tmp_path)
