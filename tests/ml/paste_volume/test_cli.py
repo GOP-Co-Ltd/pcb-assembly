@@ -118,6 +118,48 @@ class TestSummarizeDataset:
 
         assert _summary(*sessions, sessions[0]) == _summary(*sessions)
 
+    def test_it_reports_a_dataset_of_blanks_only(self, tmp_path: Path):
+        """真値のある sample が 1 件も無い dataset を要約しないこと.
+
+        体積の min / max / mean は blank を除いた母集団の値なので、blank しか
+        無いと要約そのものが成立しない。
+        """
+
+        root = write_session(
+            tmp_path / "blank-only",
+            cells=(
+                SyntheticCell(index=0, commanded_volume_ul=None),
+                SyntheticCell(index=1, commanded_volume_ul=None),
+            ),
+        )
+
+        summary, error = summarize_dataset([root], constraints=ImageConstraints())
+
+        assert summary is None
+        assert error is not None
+        assert "blank" in error
+
+    def test_one_measured_sample_is_enough(self, tmp_path: Path):
+        """1 件でも真値があれば要約できること.
+
+        上の拒否が「blank を含む dataset は常に駄目」へ退化していないか。
+        """
+
+        root = write_session(
+            tmp_path / "one-measured",
+            cells=(
+                SyntheticCell(index=0, commanded_volume_ul=None),
+                SyntheticCell(index=1),
+            ),
+        )
+
+        summary, error = summarize_dataset([root], constraints=ImageConstraints())
+
+        assert error is None, error
+        assert summary is not None
+        assert summary.sample_count == 1
+        assert summary.blank_count == 1
+
     def test_it_reports_roots_without_a_session(self, tmp_path: Path):
         summary, error = summarize_dataset(
             [tmp_path / "empty"], constraints=ImageConstraints()
