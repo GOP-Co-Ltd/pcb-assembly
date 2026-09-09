@@ -12,8 +12,11 @@ Softplus は厳密な 0 を出せず、blank へ必ず正の下駄を履かせ�
 
 代償として、前活性が負へ落ちた sample は平均側の勾配が 0 になる。
 
-平均線形層の bias は ``mean_bias_initial`` で正の値から始め、学習開始時に全 sample が
-死んだ領域へ入るのを防ぐ。
+平均線形層は weight を 0、bias を ``mean_bias_initial`` の正値から始める。
+
+初期の前活性が bias そのものになるので、どんな正の値でも活性領域に入る。
+
+学習開始時に全 sample が死んだ領域へ入るのを防ぐための組み合わせで、片方だけでは効かない。
 
 望ましい初期平均は真値のスケール次第なので、値そのものはドメイン側が設定する。
 
@@ -99,7 +102,14 @@ class GaussianRegressionHead(nn.Module):
         # bias の既定初期値は ±1/sqrt(hidden_features) の一様分布で、およそ半数の
         # 初期化が負になる。全 sample が同じ負の前活性へ落ちると ReLU が勾配を
         # 遮断し、平均 head が学習開始時から恒久的に死ぬ。正の値から始める。
+        #
+        # weight も 0 から始める。初期の前活性が bias そのものになるので、
+        # mean_bias_initial がどんな正の値でも活性領域に入ることを保証できる。
+        # bias だけを正にしても weight @ hidden の広がりが bias を上回れば死ぬ。
+        # 前活性が正なら ReLU の微分は 1 なので weight へ勾配が流れ、0 に固定
+        # されない。log_variance 側は ReLU を通らないので触らない。
         nn.init.constant_(mean_layer.bias, config.mean_bias_initial)
+        nn.init.zeros_(mean_layer.weight)
         self._mean = mean_layer
         self._log_variance = nn.Linear(config.hidden_features, 1)
         self._mean_activation = nn.ReLU()

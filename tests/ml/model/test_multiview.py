@@ -329,6 +329,10 @@ class TestMultiViewGaussianRegressor:
         seed 3 を使うのは、seed 13 では head の trunk ReLU が全 sample で死ぬため。
 
         出力が bias 固定になり、encoder の違いを映さない。
+
+        観測を log 分散側で行うのは、平均出力層が weight 0 初期化だから。
+
+        初期状態の平均は入力に依らず bias 一定になる。
         """
 
         torch.manual_seed(3)
@@ -345,10 +349,10 @@ class TestMultiViewGaussianRegressor:
             expected_mean, expected_log_variance = head(
                 encoder(images, mask), conditioning
             )
-            unmasked_mean, _ = head(encoder(images, None), conditioning)
+            _, unmasked_log_variance = head(encoder(images, None), conditioning)
 
         # mask を捨てる変異が観測できる配置であることをテスト自身で確かめる
-        assert not torch.equal(expected_mean, unmasked_mean)
+        assert not torch.equal(expected_log_variance, unmasked_log_variance)
         assert torch.equal(mean, expected_mean)
         assert torch.equal(log_variance, expected_log_variance)
 
@@ -356,13 +360,17 @@ class TestMultiViewGaussianRegressor:
         """条件変数は view 数に依らず sample あたり 1 本.
 
         view 数を conditioning へ混ぜると平均 pooling の view 数不変性が壊れる。
+
+        平均出力層は weight 0 初期化なので、初期状態の平均は bias 一定になる。
+
+        条件変数の配線は log 分散側で観測する。
         """
 
         regressor = _regressor()
         images = _images(batch=2, views=3)
 
-        baseline, _ = regressor(images, None, torch.zeros(2, 1))
-        shifted, _ = regressor(images, None, torch.ones(2, 1))
+        _, baseline = regressor(images, None, torch.zeros(2, 1))
+        _, shifted = regressor(images, None, torch.ones(2, 1))
 
         assert not bool(torch.allclose(baseline, shifted))
 

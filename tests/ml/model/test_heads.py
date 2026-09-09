@@ -45,20 +45,71 @@ def _features(count: int = 4, *, seed: int = 29) -> torch.Tensor:
     return torch.randn((count, HEAD_CONFIG.input_features), generator=generator)
 
 
+def _head_trained_towards_zero(*, seed: int = 17) -> GaussianRegressionHead:
+    """平均が全 sample で死んだ head を返す.
+
+    平均を下げ続けると bias が負へ抜け、全 sample が同時に ReLU の死んだ領域へ入る。
+
+    実装ノート R-A の「平均 head が死んだ run」と同じ状態。
+    """
+
+    head = _head(seed=seed, mean_bias_initial=SATURATION_PROBE_BIAS)
+    optimizer = torch.optim.Adam(head.parameters(), lr=SATURATION_LEARNING_RATE)
+    optimizer.zero_grad()
+    head(_features(seed=SATURATION_TRAINING_SEED))[0].sum().backward()
+    optimizer.step()
+    return head
+
+
+def _head_trained_to_partially_saturate(*, seed: int = 17) -> GaussianRegressionHead:
+    """1 sample だけが死んだ head を返す.
+
+    真値 0 の blank を 1 件だけ混ぜて回帰させる。
+
+    その sample の前活性だけが負へ抜ける。ReLU 化が狙った状態そのもの。
+    """
+
+    head = _head(seed=seed, mean_bias_initial=SATURATION_PROBE_BIAS)
+    optimizer = torch.optim.Adam(head.parameters(), lr=SATURATION_LEARNING_RATE)
+    features = _features(seed=SATURATION_TRAINING_SEED)
+    target = torch.full((features.shape[0], 1), 2.0)
+    target[SATURATED_INDEX] = 0.0
+    for _ in range(PARTIAL_SATURATION_STEPS):
+        optimizer.zero_grad()
+        mean, _ = head(features)
+        ((mean - target) ** 2).mean().backward()
+        optimizer.step()
+    return head
+
+
 # 既定の mean_bias_initial=1.0 では head が飽和しないので（それが狙い）、ReLU の
 # 厳密 0 を観測するときだけ下駄をほぼ外した設定を使う。正の有限値なので validate は通る。
 SATURATION_PROBE_BIAS = 1e-3
 
-# SATURATION_PROBE_BIAS の head に対し、4 sample すべての平均が厳密に 0 になる特徴量の種
-SATURATING_FEATURE_SEED = 15
+# 平均出力層の weight は 0 初期化なので、初期状態では前活性が bias 一定で負へ落ちない。
+# ReLU の飽和は学習が始まってから起きるので、観測用の head は少し学習させて作る。
+SATURATION_LEARNING_RATE = 0.05
+SATURATION_TRAINING_SEED = 29
+PARTIAL_SATURATION_STEPS = 200
 
-# 同じ head で 4 sample 中 1 つ（index 2）だけ飽和する種
-PARTIALLY_SATURATING_FEATURE_SEED = 0
+# 平均出力層の weight を 0 から動かし、条件変数が平均へ届くのを観測するための step 数
+CONDITIONING_TRAINING_STEPS = 20
+
+# 飽和の観測に使う特徴量の種と、blank として真値 0 を当てる sample の位置
+SATURATION_FEATURE_SEED = 15
 SATURATED_INDEX = 2
 
 # 平均 head が初期化時点で死んでいないことを確かめる seed 数。
-# bias の符号は初期化のコイントスなので、1 seed だと約 50% ですり抜ける
+#
+# weight 0 初期化を外したとき、この config（32/16）と SMALL_MEAN_BIAS で
+# batch の 1 つ以上が死ぬ確率は、全 0 feature 12% / 標準正規 feature 77%
+# （batch 4、300 seed 実測）。
+# 全 0 側は最初の死亡が seed 13 なので、**32 を 13 未満へ下げると検出器が空になる**。
+# 標準正規側は seed 0 で落ちるが、そちらだけに頼ると片方の regime を見失う。
 BIRTH_CHECK_SEEDS = 32
+
+# ドメイン側が真値スケール（0.05〜0.2 µL）へ合わせて上書きする想定の小さな bias
+SMALL_MEAN_BIAS = 0.05
 
 
 class TestGaussianHeadConfig:
@@ -152,26 +203,69 @@ class TestGaussianRegressionHead:
 
         assert bool((mean >= 0).all())
 
-    def test_the_mean_head_is_never_born_dead(self):
-        """既定設定では、どの初期化 seed でも batch 全 sample が 0 にはならない.
+    @pytest.mark.parametrize("mean_bias_initial", [1.0, SMALL_MEAN_BIAS])
+    @pytest.mark.parametrize("uniform_features", [True, False])
+    def test_the_mean_head_is_never_born_dead(
+        self, mean_bias_initial: float, uniform_features: bool
+    ):
+        """どの初期化 seed でも batch のどの sample も 0 にはならない.
 
-        全 0 の feature を与えると trunk の出力が sample 間で同じになる。
+        平均出力層は weight を 0、bias を正から始めるので、初期の前活性は bias
+        そのものになる。**どんな正の bias でも活性領域に入る。**
 
-        すると平均は初期 bias の符号だけで決まる。
+        bias だけを正にする対処では足りない。weight が torch 既定のままだと
+        ``weight @ hidden`` の広がりが小さい bias を飲み込む。
 
-        以前の初期化では bias が負になる確率が約 50% あった。
+        ドメイン側は真値スケールへ合わせて小さい値へ上書きする想定なので、既定の
+        1.0 と小さい値の両方で守られていることを見る。
 
-        その run は平均 head の勾配が 0 のまま二度と起き上がらなかった。
+        **検出を担っているのは ``mean_bias_initial=SMALL_MEAN_BIAS`` の 2 ケースだけ**
+        で、1.0 の 2 ケースは weight 0 初期化を外しても落ちない。
 
-        1 seed では 2 回に 1 回すり抜けるので、複数 seed で確かめる。
+        全 0 の feature（trunk 出力が sample 間で同一）と標準正規の feature の両方で
+        確かめる。weight 0 初期化を外したとき batch の 1 つ以上が死ぬ確率は前者 12%、
+        後者 77%（この config、batch 4、300 seed 実測）。
+
+        1 sample でも死ねばその sample の平均側の勾配が消えるので、batch 全滅
+        （標準正規では 11%）ではなくこちらを見る。
+
+        seed 数を減らすと検出力が消える。詳細は :data:`BIRTH_CHECK_SEEDS`。
         """
 
-        features = torch.zeros(4, HEAD_CONFIG.input_features)
+        features = (
+            torch.zeros(4, HEAD_CONFIG.input_features)
+            if uniform_features
+            else _features()
+        )
 
         for seed in range(BIRTH_CHECK_SEEDS):
-            mean, _ = _head(seed=seed)(features)
+            head = _head(seed=seed, mean_bias_initial=mean_bias_initial)
+
+            mean, _ = head(features)
 
             assert bool((mean > 0).all()), f"seed {seed} で平均 head が死んでいます"
+
+    def test_the_mean_head_still_learns_from_a_zero_weight(self):
+        """Weight を 0 から始めても勾配が流れ、0 に固定されない.
+
+        初期の前活性が ``bias > 0`` なので ReLU の微分は 1 になり、weight へ
+        ``grad_z * hidden`` が伝わる。
+        """
+
+        head = _head(mean_bias_initial=SMALL_MEAN_BIAS)
+        optimizer = torch.optim.Adam(head.parameters(), lr=SATURATION_LEARNING_RATE)
+        features = _features()
+
+        for _ in range(3):
+            optimizer.zero_grad()
+            mean, _ = head(features)
+            ((mean - 2.0) ** 2).mean().backward()
+            optimizer.step()
+
+        moved, _ = head(features)
+        assert bool((moved > 0).all())
+        # 全 sample で同じ値なら weight が 0 のまま
+        assert float(moved.max().item()) > float(moved.min().item())
 
     def test_mean_is_exactly_zero_when_the_pre_activation_is_negative(self):
         """平均活性化は ReLU なので、負の前活性は厳密な 0 になる.
@@ -181,9 +275,9 @@ class TestGaussianRegressionHead:
         ``== 0.0`` の厳密比較で固定する。
         """
 
-        head = _head(mean_bias_initial=SATURATION_PROBE_BIAS)
+        head = _head_trained_towards_zero()
 
-        mean, _ = head(_features(seed=SATURATING_FEATURE_SEED))
+        mean, _ = head(_features(seed=SATURATION_FEATURE_SEED))
 
         assert torch.equal(mean, torch.zeros_like(mean))
 
@@ -199,10 +293,10 @@ class TestGaussianRegressionHead:
         勾配を一律で潰す変異と区別するため。
         """
 
-        features = _features(seed=PARTIALLY_SATURATING_FEATURE_SEED)
+        features = _features(seed=SATURATION_TRAINING_SEED)
         features.requires_grad_(True)
 
-        head = _head(mean_bias_initial=SATURATION_PROBE_BIAS)
+        head = _head_trained_to_partially_saturate()
 
         mean, _ = head(features)
         mean.sum().backward()
@@ -250,14 +344,35 @@ class TestGaussianRegressionHead:
         assert bool(((log_variance == -3.0) | (log_variance == 2.0)).all())
 
     def test_conditioning_changes_the_prediction(self):
+        """条件変数が共有 trunk を通って**両方の**出力へ届く.
+
+        効かせたい先は平均。``log(pixel_per_mm)`` を連結する狙いが物理 scale を
+        平均へ反映させることなので、log 分散側だけでは契約を固定できない。
+
+        平均出力層は weight を 0 から始めるので、初期化直後の平均は入力に依らず
+        bias 一定になる。平均側は数 step 学習させて weight を動かしてから観測する。
+        """
+
         head = _head(conditioning_features=2)
         features = _features()
         conditioning = torch.zeros(4, 2)
 
-        baseline, _ = head(features, conditioning)
-        shifted, _ = head(features, conditioning + 1.0)
+        _, baseline_log_variance = head(features, conditioning)
+        _, shifted_log_variance = head(features, conditioning + 1.0)
 
-        assert not bool(torch.allclose(baseline, shifted))
+        assert not bool(torch.allclose(baseline_log_variance, shifted_log_variance))
+
+        optimizer = torch.optim.Adam(head.parameters(), lr=SATURATION_LEARNING_RATE)
+        for _ in range(CONDITIONING_TRAINING_STEPS):
+            optimizer.zero_grad()
+            mean, _ = head(features, conditioning)
+            ((mean - 2.0) ** 2).mean().backward()
+            optimizer.step()
+
+        baseline_mean, _ = head(features, conditioning)
+        shifted_mean, _ = head(features, conditioning + 1.0)
+
+        assert not bool(torch.allclose(baseline_mean, shifted_mean))
 
     def test_rejects_features_that_are_not_two_dimensional(self):
         with pytest.raises(ValueError, match=r"\[B, F\]"):
