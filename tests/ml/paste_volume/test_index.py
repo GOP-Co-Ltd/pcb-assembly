@@ -43,6 +43,15 @@ def _built(root: Path, **overrides: object) -> PasteVolumeSampleIndex:
     return _index(write_session(root, cells=CELLS, **overrides))  # type: ignore[arg-type]
 
 
+def _two_sessions(tmp_path: Path) -> PasteVolumeSampleIndex:
+    """同じ cell 配置の session 2 本。cell group が session をまたぐ形になる."""
+
+    return _index(
+        write_session(tmp_path / "a", cells=CELLS, machine_id="m1"),
+        write_session(tmp_path / "b", cells=CELLS, machine_id="m2"),
+    )
+
+
 def _rejected(*roots: Path) -> str:
     index, reason = PasteVolumeSampleIndex.from_roots(roots, constraints=CONSTRAINTS)
     assert index is None
@@ -269,8 +278,8 @@ class TestDatasetFingerprint:
         assert _built(tmp_path / "session").constraints == CONSTRAINTS
 
 
-class TestSplitGroups:
-    """分割の不可分単位が物理 cell であること."""
+class TestCellSplitGroups:
+    """Cell 次元での分割の不可分単位が物理 cell であること."""
 
     def test_groups_the_same_physical_cell_across_sessions(self, tmp_path: Path):
         """同じ座標の cell は session をまたいで同じ group になる.
@@ -282,7 +291,7 @@ class TestSplitGroups:
             write_session(tmp_path / "a", cells=CELLS, machine_id="m1"),
             write_session(tmp_path / "b", cells=CELLS, machine_id="m2"),
         )
-        groups = index.sample_groups()
+        groups = index.sample_groups(dimension="cell")
 
         assert set(groups) == {entry.sample_id for entry in index.entries}
         assert len(set(groups.values())) == len(CELLS)
@@ -308,12 +317,104 @@ class TestSplitGroups:
         )
 
         assert [entry.index for entry in index.entries] in ([1, 7], [7, 1])
-        assert len(set(index.sample_groups().values())) == 1
+        assert len(set(index.sample_groups(dimension="cell").values())) == 1
 
     def test_separates_cells_at_different_positions(self, tmp_path: Path):
         index = _built(tmp_path / "session")
 
         assert len({entry.cell_key for entry in index.entries}) == len(CELLS)
+
+
+class TestSessionSplitGroups:
+    """Session 次元での分割の不可分単位が収集 session であること."""
+
+    def test_groups_every_sample_by_its_session(self, tmp_path: Path):
+        index = _two_sessions(tmp_path)
+
+        groups = index.sample_groups(dimension="session")
+
+        assert set(groups) == {entry.sample_id for entry in index.entries}
+        assert set(groups.values()) == set(index.session_values())
+        assert len(index.session_values()) == 2
+
+    def test_the_two_dimensions_cross_each_other(self, tmp_path: Path):
+        """Cell group は session をまたぎ、session group は cell をまたぐ.
+
+        2 つは入れ子ではなく直交する。同じ銅板の同じ位置なら ``cell_key`` は session を
+        またいで同じ値になるので、cell group を単位にしたままでは 1 session を丸ごと
+        held-out にできない。session 次元が要るのはこのため。
+        """
+
+        index = _two_sessions(tmp_path)
+        cells = index.sample_groups(dimension="cell")
+        sessions = index.sample_groups(dimension="session")
+
+        sessions_per_cell: dict[str, set[str]] = {}
+        cells_per_session: dict[str, set[str]] = {}
+        for sample_id, cell in cells.items():
+            sessions_per_cell.setdefault(cell, set()).add(sessions[sample_id])
+            cells_per_session.setdefault(sessions[sample_id], set()).add(cell)
+
+        assert all(len(values) == 2 for values in sessions_per_cell.values())
+        assert all(len(values) == len(CELLS) for values in cells_per_session.values())
+
+    def test_counts_the_same_session_given_twice_once(self, tmp_path: Path):
+        root = write_session(tmp_path / "a", cells=CELLS)
+
+        assert len(_index(root, root).session_values()) == 1
+
+
+class TestResolveSession:
+    """人が打てる名前から session fingerprint 1 件へ解決すること."""
+
+    def test_resolves_a_label(self, tmp_path: Path):
+        index = _two_sessions(tmp_path)
+        entry = index.entries[0]
+
+        fingerprint, reason = index.resolve_session(entry.session_label)
+
+        assert reason is None
+        assert fingerprint == entry.session_fingerprint
+
+    def test_resolves_a_fingerprint_prefix(self, tmp_path: Path):
+        index = _two_sessions(tmp_path)
+        expected = index.session_values()[0]
+
+        fingerprint, reason = index.resolve_session(expected[:20])
+
+        assert reason is None
+        assert fingerprint == expected
+
+    def test_reports_a_selector_that_matches_nothing(self, tmp_path: Path):
+        index = _two_sessions(tmp_path)
+
+        fingerprint, reason = index.resolve_session("session-zzz")
+
+        assert fingerprint is None
+        assert reason is not None
+        assert "一致する session がありません" in reason
+
+    def test_reports_a_selector_that_matches_more_than_one(self, tmp_path: Path):
+        """0 件と複数件を別の理由にする.
+
+        打ち間違いと指定不足では次の手が違う。全 fingerprint が共有する前頭辞を 渡して複数件の側だけを踏む。
+        """
+
+        index = _two_sessions(tmp_path)
+
+        fingerprint, reason = index.resolve_session("sha256:")
+
+        assert fingerprint is None
+        assert reason is not None
+        assert "複数の session に一致します" in reason
+
+    def test_reports_an_empty_selector(self, tmp_path: Path):
+        index = _two_sessions(tmp_path)
+
+        fingerprint, reason = index.resolve_session("")
+
+        assert fingerprint is None
+        assert reason is not None
 
 
 class TestOrderingAndSizes:
@@ -410,7 +511,9 @@ class TestRejection:
         )
         index = _index(root)
 
-        assert index.rejections[0].sample_id not in index.sample_groups()
+        assert index.rejections[0].sample_id not in index.sample_groups(
+            dimension="cell"
+        )
 
     def test_does_not_count_a_rejected_cell_in_the_loss_weight(self, tmp_path: Path):
         """隔離した cell を weight の分母に入れない.

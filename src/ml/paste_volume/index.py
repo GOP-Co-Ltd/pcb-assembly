@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 
 import attrs
 from torch import Tensor
@@ -41,6 +41,10 @@ from ml.paste_volume.session import (
 from pcbasm.pasting.dataset.metadata import DatasetCapturedView
 
 INDEX_SCHEMA_VERSION = 1
+
+# split の不可分単位をどちらの次元で取るか。2 つは入れ子ではなく直交する。
+type SplitDimension = Literal["session", "cell"]
+SPLIT_DIMENSIONS: tuple[SplitDimension, ...] = ("session", "cell")
 
 # sample_id へ入れる session fingerprint の桁数。"sha256:" を除いた先頭から取る。
 _FINGERPRINT_DIGITS = 12
@@ -189,13 +193,64 @@ class PasteVolumeSampleIndex:
             min(entry.source_height, entry.source_width) for entry in self.entries
         )
 
-    def sample_groups(self) -> dict[str, str]:
-        """``{sample_id: cell_key}``.
+    def sample_groups(self, *, dimension: SplitDimension) -> dict[str, str]:
+        """``{sample_id: group}``。group は split の不可分単位.
 
-        split の不可分単位は物理 cell.
+        ``"session"`` なら収集 session、``"cell"`` なら物理 cell を単位にする。
+        2 つは入れ子ではなく直交する。``cell_key`` は座標由来なので、同じ銅板を使った
+        session どうしでは同じ値になり、cell group はどれも 5 session 全部を含む。
+
+        **既定値を持たせない。** 既定を ``"cell"`` にすると、session をまたいだ汎化を
+        測りたい呼び出し側が、黙って session の漏れる split を選ぶ。
         """
 
-        return {entry.sample_id: entry.cell_key for entry in self.entries}
+        match dimension:
+            case "session":
+                return {
+                    entry.sample_id: entry.session_fingerprint for entry in self.entries
+                }
+            case "cell":
+                return {entry.sample_id: entry.cell_key for entry in self.entries}
+
+    def session_values(self) -> tuple[str, ...]:
+        """整列した session fingerprint の一覧.
+
+        ``LeaveOneGroupOutPlan.build`` へ渡す group 値の出典。session を group と
+        値の両方に使うので ``{fingerprint: fingerprint}`` の形になる。
+        """
+
+        return tuple(sorted({entry.session_fingerprint for entry in self.entries}))
+
+    def resolve_session(self, selector: str) -> tuple[str | None, str | None]:
+        """人が打てる名前を session fingerprint 1 件へ解決する.
+
+        ``session_label`` の完全一致を先に見て、無ければ fingerprint の前頭一致を見る。
+        1 件へ絞れなければ理由を返す。0 件と複数件を別の理由にするのは、打ち間違いと
+        指定不足で次の手が違うため。
+        """
+
+        if not selector:
+            return None, "held-out session の指定が空です"
+        labelled = sorted(
+            {
+                entry.session_fingerprint
+                for entry in self.entries
+                if entry.session_label == selector
+            }
+        )
+        matched = labelled or [
+            value for value in self.session_values() if value.startswith(selector)
+        ]
+        if not matched:
+            return None, (
+                f"指定に一致する session がありません: {selector!r}"
+                f"（label は {sorted({entry.session_label for entry in self.entries})}）"
+            )
+        if len(matched) > 1:
+            return None, (
+                f"指定が複数の session に一致します: {selector!r} -> {matched}"
+            )
+        return matched[0], None
 
     def entry_for(self, sample_id: str) -> PasteVolumeSampleEntry:
         """sample_id から entry を引く.
@@ -372,8 +427,10 @@ def _dataset_fingerprint(
 
 __all__ = [
     "INDEX_SCHEMA_VERSION",
+    "SPLIT_DIMENSIONS",
     "PasteVolumeRejection",
     "PasteVolumeSampleEntry",
     "PasteVolumeSampleIndex",
     "PasteVolumeViewPaths",
+    "SplitDimension",
 ]

@@ -7,6 +7,7 @@ batch へ実体化できる」ことだけ。その 2 つの契約をここで�
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ from ml.paste_volume.task import (
 )
 from tests.ml.paste_volume.helpers import (
     CROP_SIZE_PX,
+    PASTE_VOLUME_DATASET_DIR,
     VIEW_COUNT,
     SyntheticCell,
     skip_if_no_real_sessions,
@@ -60,6 +62,22 @@ def _index(
     return index
 
 
+def _cell_config(**overrides: object) -> PasteVolumeTrainingConfig:
+    """Cell 次元の設定。既定は session 次元なので明示する.
+
+    既定を cell にすると呼び出し側が黙って session の漏れる split を選ぶので、 cell 単位 split
+    を見るテストは毎回そう書く。
+    """
+
+    return PasteVolumeTrainingConfig(split_dimension="cell", **overrides)  # type: ignore[arg-type]
+
+
+def _session_config(**overrides: object) -> PasteVolumeTrainingConfig:
+    """Session 次元（leave-one-session-out）の設定."""
+
+    return PasteVolumeTrainingConfig(split_dimension="session", **overrides)  # type: ignore[arg-type]
+
+
 def _data(
     tmp_path: Path,
     *,
@@ -70,7 +88,7 @@ def _data(
     data, reason = PasteVolumeTrainingData.build(
         index if index is not None else _index(tmp_path),
         collator=collator or PasteVolumeCollator(global_seed=5),
-        config=PasteVolumeTrainingConfig(**overrides),  # type: ignore[arg-type]
+        config=_cell_config(**overrides),
     )
     assert data is not None, reason
     return data
@@ -80,6 +98,27 @@ def _area_bucket(shape: ImageShape) -> int:
     """``plan_pixel_budget_batches`` が bucket を切る単位（log2 面積の 1.0 刻み）."""
 
     return round(math.log2(shape.height * shape.width))
+
+
+def _sessions_of(index: PasteVolumeSampleIndex, sample_ids: Sequence[str]) -> set[str]:
+    """その sample 群が由来する session fingerprint の集合.
+
+    「held-out が train へ現れない」を測る観測点。同じ関数で漏れている manifest も
+    測り、検査が働くことを対で示す。
+    """
+
+    return {index.entry_for(sample_id).session_fingerprint for sample_id in sample_ids}
+
+
+@pytest.fixture(scope="module")
+def real_index() -> PasteVolumeSampleIndex:
+    """実収集 session の index。全画像を decode するので module で 1 度だけ作る."""
+
+    index, reason = PasteVolumeSampleIndex.from_roots(
+        [PASTE_VOLUME_DATASET_DIR], constraints=CONSTRAINTS
+    )
+    assert index is not None, reason
+    return index
 
 
 class TestBuild:
@@ -109,7 +148,8 @@ class TestBuild:
 
         assert (
             data.split_manifest.validate(
-                data.index.sample_groups(), dataset_fingerprint=data.dataset_fingerprint
+                data.index.sample_groups(dimension="cell"),
+                dataset_fingerprint=data.dataset_fingerprint,
             )
             is None
         )
@@ -131,7 +171,7 @@ class TestBuild:
             collator=PasteVolumeCollator(
                 augmentation=AugmentationRange(minimum_scale=0.01, maximum_scale=1.0)
             ),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
         )
 
         assert data is None
@@ -148,7 +188,7 @@ class TestBuild:
         data, reason = PasteVolumeTrainingData.build(
             _index(tmp_path, cells=CELLS[:2]),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
         )
 
         assert data is None
@@ -159,7 +199,7 @@ class TestBuild:
         data, reason = PasteVolumeTrainingData.build(
             _index(tmp_path),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(ratios=SplitRatios(0.9, 0.9, 0.9)),
+            config=_cell_config(ratios=SplitRatios(0.9, 0.9, 0.9)),
         )
 
         assert data is None
@@ -178,7 +218,7 @@ class TestBuild:
             collator=PasteVolumeCollator(
                 view_dropout=ViewDropout(minimum_view_count=0)
             ),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
         )
 
         assert data is None
@@ -194,7 +234,7 @@ class TestBuild:
         data, reason = PasteVolumeTrainingData.build(
             _index(tmp_path),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(max_batch_size=0),
+            config=_cell_config(max_batch_size=0),
         )
 
         assert data is None
@@ -234,7 +274,7 @@ class TestBuild:
             collator=PasteVolumeCollator(
                 constraints=attrs.evolve(CONSTRAINTS, maximum_size=256)
             ),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
         )
 
         assert data is None
@@ -251,7 +291,10 @@ class TestBuild:
         path = tmp_path / "split.json"
         index = _index(tmp_path, sessions=2)
         manifest, _ = SplitManifest.build(
-            {sample_id: sample_id for sample_id in index.sample_groups()},
+            {
+                sample_id: sample_id
+                for sample_id in index.sample_groups(dimension="cell")
+            },
             dataset_fingerprint=index.dataset_fingerprint,
             seed=0,
             ratios=SplitRatios(0.7, 0.15, 0.15),
@@ -263,7 +306,7 @@ class TestBuild:
         data, reason = PasteVolumeTrainingData.build(
             index,
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
             split_manifest_path=path,
         )
 
@@ -277,7 +320,7 @@ class TestBuild:
         first = PasteVolumeTrainingData.build(
             _index(tmp_path),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
             split_manifest_path=path,
         )[0]
         assert first is not None
@@ -285,7 +328,7 @@ class TestBuild:
         second, reason = PasteVolumeTrainingData.build(
             _index(tmp_path),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(split_seed=999),
+            config=_cell_config(split_seed=999),
             split_manifest_path=path,
         )
 
@@ -296,7 +339,7 @@ class TestBuild:
         path = tmp_path / "split.json"
         other = _index(tmp_path / "other", machine="other")
         manifest, _ = SplitManifest.build(
-            other.sample_groups(),
+            other.sample_groups(dimension="cell"),
             dataset_fingerprint=other.dataset_fingerprint,
             seed=0,
             ratios=SplitRatios(0.7, 0.15, 0.15),
@@ -308,12 +351,209 @@ class TestBuild:
         data, reason = PasteVolumeTrainingData.build(
             _index(tmp_path / "mine"),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
             split_manifest_path=path,
         )
 
         assert data is None
         assert reason is not None
+
+
+class TestSessionSplit:
+    """Session 単位の leave-one-session-out.
+
+    塗布量の係数 k は session ごとの 1 定数なので、cell 単位で分けると model が session を 言い当てて
+    k を憶えるだけで見かけの精度が出る。session をまたいだ汎化はこの次元でしか 測れない。
+    """
+
+    def test_puts_the_held_out_session_in_test_and_nowhere_else(self, tmp_path: Path):
+        index = _index(tmp_path, sessions=3)
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+        held_out, _ = index.resolve_session("session-0")
+
+        assert _sessions_of(index, data.sample_ids_for("test")) == {held_out}
+        assert held_out not in _sessions_of(index, data.sample_ids_for("train"))
+        assert held_out not in _sessions_of(index, data.sample_ids_for("validation"))
+
+    def test_the_same_observation_finds_a_session_that_does_leak(self, tmp_path: Path):
+        """検査が働くことの自己検査.
+
+        上は「現れない」型の assert なので、``_sessions_of`` が壊れると held-out が
+        混ざっていても緑になる。held-out の sample を 1 件だけ train へ移した manifest を
+        同じ関数で測り、漏れをちゃんと報告することを見る。
+        """
+
+        index = _index(tmp_path, sessions=3)
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+        held_out, _ = index.resolve_session("session-0")
+        manifest = data.split_manifest
+        leaked = manifest.test_sample_ids[0]
+
+        assert held_out in _sessions_of(index, (*manifest.train_sample_ids, leaked))
+
+    def test_splits_the_remaining_sessions_into_train_and_validation(
+        self, tmp_path: Path
+    ):
+        """Held-out 以外の session が train と validation へ分かれる.
+
+        group は session なので、1 session が両方に現れることはない。
+        """
+
+        index = _index(tmp_path, sessions=3)
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+
+        train = _sessions_of(index, data.sample_ids_for("train"))
+        validation = _sessions_of(index, data.sample_ids_for("validation"))
+
+        assert len(train) == 1
+        assert len(validation) == 1
+        assert not train & validation
+
+    def test_covers_every_sample_exactly_once(self, tmp_path: Path):
+        index = _index(tmp_path, sessions=3)
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-1"),
+        )
+        assert data is not None, reason
+
+        assigned = [
+            sample_id
+            for split in ("train", "validation", "test")
+            for sample_id in data.sample_ids_for(split)  # type: ignore[arg-type]
+        ]
+
+        assert sorted(assigned) == sorted(entry.sample_id for entry in index.entries)
+
+    def test_gives_every_session_its_own_fold(self, tmp_path: Path):
+        """どの session も 1 度ずつ held-out になれる."""
+
+        index = _index(tmp_path, sessions=3)
+        by_fold: dict[str, set[str]] = {}
+        for number in range(3):
+            label = f"session-{number}"
+            data, reason = PasteVolumeTrainingData.build(
+                index,
+                collator=PasteVolumeCollator(),
+                config=_session_config(held_out_session=label),
+            )
+            assert data is not None, reason
+            by_fold[label] = _sessions_of(index, data.sample_ids_for("test"))
+
+        assert len({frozenset(values) for values in by_fold.values()}) == 3
+
+    def test_exposes_the_split_dimension(self, tmp_path: Path):
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=3),
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+
+        assert data.split_dimension == "session"
+
+    def test_reports_a_session_split_without_a_held_out_session(self, tmp_path: Path):
+        """Held-out を省くと拒否する.
+
+        既定で 5 fold のどれかを選んでしまうと、run の記録から「どの session を外した のか」が読めなくなる。
+        """
+
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=3),
+            collator=PasteVolumeCollator(),
+            config=_session_config(),
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "held_out_session" in reason
+
+    def test_reports_a_held_out_session_in_the_cell_dimension(self, tmp_path: Path):
+        """Cell 次元で held-out を渡すと拒否する。黙って無視しない."""
+
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=3),
+            collator=PasteVolumeCollator(),
+            config=_cell_config(held_out_session="session-0"),
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "held_out_session" in reason
+
+    def test_reports_a_held_out_session_that_matches_nothing(self, tmp_path: Path):
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=3),
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-9"),
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "一致する session がありません" in reason
+
+    def test_reports_a_dataset_with_too_few_sessions(self, tmp_path: Path):
+        """Session が 2 本だと leave-one-session-out が成り立たない.
+
+        held-out を除いた残りが 1 本になり、train と validation を別の session で
+        埋められない。sample 単位へ fallback せず理由を返すこと。
+        """
+
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=2),
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+
+        assert data is None
+        assert reason is not None
+
+    def test_rejects_a_cell_manifest_read_back_in_the_session_dimension(
+        self, tmp_path: Path
+    ):
+        """Cell group で作った manifest を session 次元で読み直すと落ちる.
+
+        2 つの次元は直交していて、cell group はどれも全 session の sample を含む。
+        ``SplitManifest.validate`` が「group が複数 split にまたがっています」で拒む
+        ので、次元を切り替えずに session LOSO へ移ることはできない。
+        """
+
+        path = tmp_path / "split.json"
+        index = _index(tmp_path, sessions=3)
+        first, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_cell_config(),
+            split_manifest_path=path,
+        )
+        assert first is not None, reason
+
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+            split_manifest_path=path,
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "複数 split" in reason
 
 
 class TestPlanEpoch:
@@ -489,22 +729,21 @@ class TestMaterialize:
 
 
 class TestRealSessions:
-    """実収集 session を通した確認（無ければ skip）."""
+    """実収集 session を通した確認（無ければ skip）.
+
+    ``data/paste-volume-datasets/`` は git 管理外なので CI には無い。
+    """
 
     @skip_if_no_real_sessions
-    def test_builds_and_materializes_from_the_collected_sessions(self):
-        from tests.ml.paste_volume.helpers import PASTE_VOLUME_DATASET_DIR
-
-        index, reason = PasteVolumeSampleIndex.from_roots(
-            [PASTE_VOLUME_DATASET_DIR], constraints=CONSTRAINTS
-        )
-        assert index is not None, reason
-        assert not index.rejections
+    def test_builds_and_materializes_from_the_collected_sessions(
+        self, real_index: PasteVolumeSampleIndex
+    ):
+        assert not real_index.rejections
 
         data, reason = PasteVolumeTrainingData.build(
-            index,
+            real_index,
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
         )
         assert data is not None, reason
 
@@ -516,3 +755,35 @@ class TestRealSessions:
         assert batch.images.ndim == 5
         assert batch.images.shape[2] == 6
         assert batch.target.shape == (len(planned), 1)
+
+    @skip_if_no_real_sessions
+    def test_forms_five_folds_of_one_held_out_one_validation_three_train(
+        self, real_index: PasteVolumeSampleIndex
+    ):
+        """収集済み 5 session が held-out 1 / validation 1 / train 3 の 5 fold になる.
+
+        合成 session では session 数を自由に決められるので、実データの本数でしか 「5 fold」は確かめられない。
+        """
+
+        values = real_index.session_values()
+        assert len(values) == 5
+
+        composition: list[tuple[int, int, int]] = []
+        for value in values:
+            data, reason = PasteVolumeTrainingData.build(
+                real_index,
+                collator=PasteVolumeCollator(),
+                config=_session_config(held_out_session=value),
+            )
+            assert data is not None, reason
+            test = _sessions_of(real_index, data.sample_ids_for("test"))
+            validation = _sessions_of(real_index, data.sample_ids_for("validation"))
+            train = _sessions_of(real_index, data.sample_ids_for("train"))
+
+            assert test == {value}
+            assert not train & test
+            assert not validation & test
+            assert not train & validation
+            composition.append((len(test), len(validation), len(train)))
+
+        assert composition == [(1, 1, 3)] * 5
