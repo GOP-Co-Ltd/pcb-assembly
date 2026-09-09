@@ -13,6 +13,7 @@
 | `fill_path.py`           | pad 1 枚の塗布経路生成。`FillPlan` / `FillPlan.build` / `FillPlan.for_pad`                                                                                                                                                       |
 | `fill_sequence.py`       | 1 経路の G-code ビルダー `FillSequence`（prime → 吐出 → retract）                                                                                                                                                                |
 | `applicator.py`          | ディスペンサー HAL の駆動 `PasteApplicator` / `build_applicator`。`apply` / `deposit_at` / `draw_line` / `load_rotations`                                                                                                        |
+| `dispense.py`            | HAL 非依存の塗布実績集計 `DispenseSummary`（収集 schema が参照する。`applicator.py` から再公開）                                                                                                                                 |
 | `route.py`               | 有効 pad の塗布順路 `plan_paste_route`                                                                                                                                                                                           |
 | `sweep.py`               | 掃引点列の等間隔分割 `sweep_schedule`（flowcalib と dataset が共用）                                                                                                                                                             |
 | `initial_purge.py`       | 初回パージ位置（座標）の解決                                                                                                                                                                                                     |
@@ -24,10 +25,17 @@
 | `flowcalib/`             | 流量キャリブレーション。`params`（ジョブ既定値）/ `flow`（質量 → rotations_per_ul、レート・速度掃引の数理）/ `lines`（線配置と掃引計画）/ `procedure`（銅板・transform・applicator を束ねる機械手順）                            |
 | `testboard/`             | テスト塗布基板の KiCad 生成。`config`（設定 DTO と検証）/ `catalog`（footprint 検索とパッド種解決）/ `layout`（パッド packing）/ `generator`（preview・`.kicad_pcb` 生成のファサード）                                           |
 | `dataset/`               | ペースト塗布画像 dataset の収集（銅板のセル格子へ点塗布）。`plan`（セル格子・量スイープ・view・事前検証）/ `metadata`（metadata.json DTO・codec、schema v2）/ `writer` / `recorder` / `capture`。切り出しは `pcbasm.vision.crop` |
-| `paste_volume/`          | 塗布量推定モデル用の予約 namespace（torch 等の import 禁止）                                                                                                                                                                     |
 
 `__init__.py` は docstring のみで re-export しない。消費側はサブモジュールを直接 import する
 （`import pcbasm.pasting` が cv2 / pcbnew / torch を引き込まない契約を `tests/test_package.py` で固定）。
+固定しているのは re-export しないことであって、サブモジュール自身が重い依存を持たないことではない。
+
+塗布量推定の学習側は `ml.paste_volume` にある。機械学習の責務は `ml` が持ち、ここは装置の
+制御に徹する。`pcbasm.pasting` が扱うのは `ml` が学習・export した成果物だけとする。
+
+`dispense.py` は HAL 非依存の値だけを置く。収集 schema（`dataset/metadata.py`）を学習側から
+読むとき `pcbasm.hal`（picamera2 を要求する）を引き込まないため、`DispenseSummary` を
+`applicator.py` から分離してある。
 
 ## 依存方向
 

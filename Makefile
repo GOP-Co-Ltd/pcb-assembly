@@ -29,24 +29,29 @@ setup-ml-runtime: ## Install inference-only ML dependencies (Raspberry Pi 5)
 ml-smoke: ## Verify the ML development environment (versions, CUDA, forward/backward, decode)
 	uv run python scripts/ml_smoke.py
 
-# --- ML 学習・開発コンテナ（詳細は docker/README.md） -------------------------
+# --- ML 学習・開発コンテナ（詳細は docker/ml/README.md） -------------------------
 # 資格情報 mount は host に実在するものだけを compose.credentials.yaml へ生成する。
 # 存在しない bind mount source を書くと Docker が root 所有の空 directory を作る。
 DOCKER_COMPOSE = docker compose \
-	-f docker/compose.yaml \
-	-f docker/compose.credentials.yaml
+	-f docker/ml/compose.yaml \
+	-f docker/ml/compose.credentials.yaml
 
 # 常駐コンテナへ exec する。run --rm は毎回 container を作って捨てるため、
 # 基本作業（sync / test / smoke / shell）はすべて exec を通す。
 DOCKER_EXEC = $(DOCKER_COMPOSE) exec ml
 
-# pyright の対象を ML ツリーへ絞る。装置ドメインは pcbnew / picamera2 を要求し、
-# それが無いコンテナでは未解決 import として必ず赤くなる。装置側の型検査は
-# 実機の環境で `make type` が担当する。
-ML_TYPE_PATHS = src/ml tests/ml scripts/ml_smoke.py
+# pyright と pytest の対象を、コンテナで解決できるツリーへ絞る。装置ドメインの大半は
+# pcbnew / picamera2 を要求し、それが無いコンテナでは未解決 import として必ず赤くなる。
+# 装置側の型検査は実機の環境で `make type` が担当する。
+#
+# ドメイン層 ml.paste_volume は収集 schema を読むが、装置 HAL へは届かないので
+# コンテナで通る。到達範囲は tests/ml/test_architecture.py が機械検証する。
+ML_TREES = src/ml tests/ml
+ML_TYPE_PATHS = $(ML_TREES) scripts/ml_smoke.py
+ML_TEST_PATHS = tests/ml
 
-ml-docker-env: ## Generate docker/.env and the credential mounts from the host
-	@./docker/write-env.sh
+ml-docker-env: ## Generate docker/ml/.env and the credential mounts from the host
+	@./docker/ml/write-env.sh
 
 ml-docker-build: ml-docker-env ## Build the ML training/development container image
 	$(DOCKER_COMPOSE) build
@@ -72,7 +77,7 @@ ml-docker-smoke: ml-docker-sync ## Run the ML environment smoke check inside the
 	$(DOCKER_EXEC) uv run python scripts/ml_smoke.py
 
 ml-docker-test: ml-docker-sync ## Run the ML tests inside the container
-	$(DOCKER_EXEC) uv run pytest -v tests/ml -m "not hardware and not e2e"
+	$(DOCKER_EXEC) uv run pytest -v $(ML_TEST_PATHS) -m "not hardware and not e2e"
 
 # ML 作業の検証はコンテナ内で回す。host には ML 依存を入れないため、host の
 # pyright は torch を解決できない。
@@ -80,7 +85,7 @@ ml-docker-check: ml-docker-sync ## Run format, ML type check, and ML tests insid
 	$(DOCKER_EXEC) bash -c '\
 		uv run pre-commit run -a \
 		&& uv run pyright $(ML_TYPE_PATHS) \
-		&& uv run pytest -v tests/ml -m "not hardware and not e2e"'
+		&& uv run pytest -v $(ML_TEST_PATHS) -m "not hardware and not e2e"'
 
 
 format: ## Run pre-commit hooks
@@ -92,10 +97,10 @@ test: ## Run all tests (excludes e2e; see test-e2e)
 test-no-hardware: ## Run tests without hardware
 	uv run pytest -v -m "not hardware and not e2e"
 
-# tests/ml はドメイン非依存なので、picamera2 / pcbnew が無い学習機でも通る。
-# 装置側のテストを collect しないよう対象を tests/ml へ絞る。
-test-ml: ## Run the domain-independent ML tests (works without picamera2/pcbnew)
-	uv run pytest -v tests/ml -m "not hardware and not e2e"
+# tests/ml は picamera2 / pcbnew を要求しないので学習機でも通る。
+# 装置側のテストを collect しないよう対象を絞る。
+test-ml: ## Run the ML tests that work without picamera2/pcbnew
+	uv run pytest -v $(ML_TEST_PATHS) -m "not hardware and not e2e"
 
 test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
 	uv run pytest -v -m e2e --timeout=180

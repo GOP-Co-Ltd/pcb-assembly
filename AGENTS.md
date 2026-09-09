@@ -62,14 +62,21 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `src/web/api/`: 機体ごとの backend WebAPI（FastAPI、port 8081）
 - `src/web/ui/`: LAN に 1 つ立てる UI frontend（FastAPI、port 8080。ページ描画と
     `/m/{machine_id}/api/**` の backend 中継）
-- `src/ml/`: ドメイン非依存の機械学習基盤（PyTorch。学習・評価・最適化・export）
+- `src/ml/`: 機械学習（PyTorch。学習・評価・最適化・export）。コアはドメイン非依存で、
+    `src/ml/paste_volume/` だけが塗布量推定のドメイン層
 
 ブラウザ操作 UI は上記 2 プロセスに分かれる。開発・運用の操作は WebUI のジョブとして
 提供する。リポジトリ直下の `scripts/` にはセットアップ・運用スクリプトと
 `migrate_codex.py` を置く。
 
-`src/ml/` は装置ドメインを知らない。依存の向きは常に `pcbasm` → `ml` の一方向とし、
-`ml` から `pcbasm` / `web` を import しない（`tests/ml/test_architecture.py` が機械検証）。
+機械学習の責務は `ml` に置き、`pcbasm` は装置の制御コアに徹する。`pcbasm` 側が扱うのは
+`ml` が学習・export した成果物だけとする。`ml` コア（`ml.paste_volume` 以外）は
+`pcbasm` / `web` を一切 import しない。ドメイン層 `ml.paste_volume` だけは収集 dataset を
+読むため装置ドメインの**データ構造**（`pcbasm.geometry` / `pcbasm.pasting.dataset` /
+`pcbasm.pasting.dispense`）を参照してよく、制御ロジックは参照しない。`ml.paste_volume` と
+`pcbasm.pasting` は 1 つの関心事の両端なので package 単位では循環するが、これは意図した形。
+以上と「学習コンテナに無い `pcbasm.hal` / pcbnew / picamera2 へ推移的にも届かないこと」を
+`tests/ml/test_architecture.py` が機械検証する。
 ML 依存は `pyproject.toml` の `ml-runtime` / `ml-train` / `ml-hpo` / `ml-export`
 グループに分け、通常の WebAPI / UI 実行環境へ無条件に入れない。
 
@@ -80,7 +87,7 @@ ML 依存は `pyproject.toml` の `ml-runtime` / `ml-train` / `ml-hpo` / `ml-exp
 - `make type`: pyright 型チェック
 - `make test`: E2E 以外の全テスト
 - `make test-no-hardware`: ハードウェア・E2E を除外
-- `make test-ml`: `tests/ml` だけを実行（pcbnew / picamera2 不要）
+- `make test-ml`: `tests/ml` を実行（pcbnew / picamera2 不要）
 - `make test-e2e`: WebUI E2E
 - `make run`: format、test、type
 - `make api` / `make api-dev`: backend WebAPI 起動（port 8081、dev は auto-reload）
@@ -97,13 +104,13 @@ ML 依存は `pyproject.toml` の `ml-runtime` / `ml-train` / `ml-hpo` / `ml-exp
 
 ### ML 開発環境
 
-`src/ml/` と `src/pcbasm/pasting/paste_volume/` の開発と学習は、GPU workstation 上の
-専用コンテナで行う（`docker/`）。装置ドメインは pcbnew（KiCAD）と picamera2 を
-要求するため、その環境では `make test-no-hardware` が collect できない。
+`src/ml/` の開発と学習は、GPU workstation 上の専用コンテナで行う（`docker/ml/`）。
+装置ドメインは pcbnew（KiCAD）と picamera2 を要求するため、その環境では
+`make test-no-hardware` が collect できない。
 
 ```bash
 make ml-docker-up      # image を build して常駐起動する（idempotent）
-make ml-docker-check   # format → ML の型検査 → tests/ml。学習機での標準検証
+make ml-docker-check   # format → 型検査 → tests/ml。学習機での標準検証
 ```
 
 コンテナは常駐させ `docker compose exec` で使う。`make ml-docker-shell` /
@@ -115,16 +122,16 @@ make ml-docker-check   # format → ML の型検査 → tests/ml。学習機で�
     `torch.compile` の inductor backend が triton の C 拡張を build するのに必要
 - Raspberry Pi 5 の `picamera2` / `pcbnew` は OS の `dist-packages` 由来なので、
     `only-system` は変更しない。uv の managed Python へ切り替えると Pi でこれらが見えなくなる
-- host 側で `tests/ml` だけを回すこともできる（`make test-ml`）。ML 依存を host へ
+- host 側で装置非依存のテストだけを回すこともできる（`make test-ml`）。ML 依存を host へ
     入れる場合は `make setup-ml`。ただし host の system Python には開発ヘッダが無く
     inductor が動かないため、既定はコンテナとする
 - コンテナ内から git / glab を使うため、host の資格情報を mount する。`~/.ssh` を
     read-only で渡す場合、read-only は改変を防ぐが読み出しは防がない。詳細と代替
-    （SSH agent / HTTPS）は [docker/README.md](docker/README.md)
+    （SSH agent / HTTPS）は [docker/ml/README.md](docker/ml/README.md)
 - `tests/ml` は `tests/helpers`（pcbnew / picamera2 依存）を参照しない。ML 専用の
     テストヘルパーは `tests/ml/helpers.py` に置く。この分離は
     `tests/ml/test_architecture.py` が機械検証する
-- 詳細は [docker/README.md](docker/README.md) と
+- 詳細は [docker/ml/README.md](docker/ml/README.md) と
     [画像ベース吐出量推定 ML 実装計画](docs/image-based-dispense-calibration-ml-plan.md)
 
 ## 不変の原則

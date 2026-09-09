@@ -740,26 +740,32 @@ polygonとmaskを前提とした版）からの移行関数は用意しない。
 | Raspberry Pi 5 上のファインチューニング | CLI                          |
 | モデルの評価・最適化・benchmark         | CLI                          |
 
-データセット、画像前処理、モデル、学習、評価、推論、教師体積の配分、
-`rotations_per_ul` の補正計算は `src/pcbasm/` に集約する。WebUI と CLI は同じ公開 API を
-呼び出し、計算やドメインルールを複製しない。
+機械学習の責務は `src/ml/` に置く。画像前処理、モデル、学習、評価、export、そして塗布量推定の
+ドメイン層 `ml.paste_volume` がここに入る。`src/pcbasm/` は装置の制御コアに徹し、データセットの
+収集、教師体積の配分、`rotations_per_ul` の補正計算、`ml` が export した成果物を使う推論 API を
+担う。WebUI と CLI は同じ公開 API を呼び出し、計算やドメインルールを複製しない。
+
+配置と依存の向きの詳細は
+[画像ベース吐出量推定 ML 実装計画](image-based-dispense-calibration-ml-plan.md) の
+「7. 塗布フローで利用する module」を正典とする。
 
 ### CLI
 
 装置を動かさない処理は CLI を正規インターフェイスとする。リポジトリ直下の `scripts/` へ
-スクリプトを追加せず、`src/pcbasm/` 内の Python module として実装する。
+スクリプトを追加せず、`src/ml/`（機械学習）または `src/pcbasm/`（装置制御）内の Python
+module として実装する。
 
 CLI は最低限、次の操作を提供する。
 
 ```text
-python -m pcbasm.cli.paste_volume dataset validate <dataset>
-python -m pcbasm.cli.paste_volume dataset summarize <dataset>
-python -m pcbasm.cli.paste_volume train <dataset...>
-python -m pcbasm.cli.paste_volume finetune <checkpoint> <dataset>
-python -m pcbasm.cli.paste_volume evaluate <model> <dataset>
-python -m pcbasm.cli.paste_volume optimize <model>
-python -m pcbasm.cli.paste_volume benchmark <model>
-python -m pcbasm.cli.paste_volume infer <model> <pre-image> <post-image>
+python -m ml.paste_volume.cli dataset validate <dataset>
+python -m ml.paste_volume.cli dataset summarize <dataset>
+python -m ml.paste_volume.cli train <dataset...>
+python -m ml.paste_volume.cli finetune <checkpoint> <dataset>
+python -m ml.paste_volume.cli evaluate <model> <dataset>
+python -m ml.paste_volume.cli optimize <model>
+python -m ml.paste_volume.cli benchmark <model>
+python -m ml.paste_volume.cli infer <model> <pre-image> <post-image>
 ```
 
 ベースモデル学習、Raspberry Pi 5 上のファインチューニング、評価、最適化は WebUI の通常
