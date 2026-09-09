@@ -34,7 +34,6 @@ from mlflow.tracking import MlflowClient
 
 from ml.paste_volume.experiment import CONFIG_FILE_NAME, SPLIT_FILE_NAME
 from ml.paste_volume.train import INTERRUPTED_EXIT_CODE
-from tests.ml.helpers import PROJECT_ROOT
 from tests.ml.paste_volume.helpers import write_synthetic_sessions
 
 SESSION_COUNT = 3
@@ -72,8 +71,15 @@ def _train(
     run_directory: Path,
     overrides: Sequence[str] = (),
 ) -> subprocess.CompletedProcess[str]:
-    """Module docstring の shell ループと同じ形で 1 fold を起こす."""
+    """Module docstring の shell ループと同じ形で 1 fold を起こす.
 
+    起こす directory は workspace の下に隔離する。artifact の置き場所を渡し
+    忘れた MLflow は現在 directory の ``./mlruns`` へ落ちるので、repository で
+    起こすと検査が repository を汚す（実際に汚した）。
+    """
+
+    launch_directory = workspace / "cwd"
+    launch_directory.mkdir(exist_ok=True)
     return subprocess.run(
         [
             sys.executable,
@@ -92,7 +98,7 @@ def _train(
             f"run_directory={run_directory}",
             *overrides,
         ],
-        cwd=PROJECT_ROOT,
+        cwd=launch_directory,
         env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
         capture_output=True,
         text=True,
@@ -239,7 +245,7 @@ class TestRunRecord:
 
         assert artifact_uri is not None
         assert artifact_uri.startswith(f"{workspace}/mlartifacts")
-        assert not (PROJECT_ROOT / "mlruns").exists()
+        assert not (workspace / "cwd" / "mlruns").exists()
 
 
 @pytest.fixture(scope="module")

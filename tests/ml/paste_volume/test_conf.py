@@ -785,15 +785,27 @@ class TestOverrideResolution:
         assert config.resume.checkpoint == expected_resume
         assert config.model.initial_weights == expected_weights
 
-    def test_the_preset_and_the_trainer_profile_do_not_depend_on_the_argv_order(self):
+    @pytest.mark.parametrize("preset", PACKAGED_TREE["experiment"])
+    @pytest.mark.parametrize("profile", PACKAGED_TREE["trainer"])
+    def test_the_preset_and_the_trainer_profile_do_not_depend_on_the_argv_order(
+        self, preset: str, profile: str
+    ):
         """重ならない group の層は積む順に依存しないこと.
 
         ``ConfigComposition`` は argv の順に層を積むので、同じキーを持つ層を混ぜると
-        順序が結果を変える。fine_tune preset と trainer profile は重ならない。
+        順序が結果を変える。experiment preset と trainer profile はキーが重ならない。
+
+        ``experiment/fine_tune.toml`` と ``experiment/search.toml`` は
+        ``[trainer]`` を持つので、この規則は preset を足すたびに壊れうる。
+        1 組だけでなく全 preset x 全 profile を走査する。
         """
 
-        forward = _composed((*MINIMUM_ARGUMENTS, "experiment=fine_tune", "trainer=pi"))
-        backward = _composed((*MINIMUM_ARGUMENTS, "trainer=pi", "experiment=fine_tune"))
+        forward = _composed(
+            (*MINIMUM_ARGUMENTS, f"experiment={preset}", f"trainer={profile}")
+        )
+        backward = _composed(
+            (*MINIMUM_ARGUMENTS, f"trainer={profile}", f"experiment={preset}")
+        )
 
         assert forward == backward
 
