@@ -17,7 +17,9 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, override
 
+from pcbasm.config import Audio, Machine
 from pcbasm.hal import AudioPlayer, FrameHub, Klipper
+from pcbasm.hal.audio import Sound
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
 from pcbasm.parking import park_or_present
 from pcbasm.vision import Image
@@ -233,6 +235,7 @@ class _JobRuntime:
         preview: PreviewService,
         publish: Callable[[_Event], None],
         apply_settings: Callable[[Mapping[str, ParamValue]], None],
+        notify_prompt: Callable[[], None] = lambda: None,
     ) -> None:
         self.record = record
         self.abort_event = threading.Event()
@@ -240,6 +243,7 @@ class _JobRuntime:
         self._preview = preview
         self._publish = publish
         self._apply_settings = apply_settings
+        self._notify_prompt = notify_prompt
         self._pending_lock = threading.Lock()
         self._pending: _PendingPrompt | None = None
 
@@ -299,6 +303,8 @@ class _JobRuntime:
             }
         )
         self.publish_status()
+        if spec.notify:
+            self._notify_prompt()
 
         try:
             if while_waiting is None:
@@ -456,7 +462,11 @@ class JobManager:
                 self._state.merge_job_param_defaults(name, persisted_params)
             record = JobRecord(uuid.uuid4().hex, name, params, self._log_capacity)
             runtime = _JobRuntime(
-                record, self._preview, self.publish, self._apply_machine_settings
+                record,
+                self._preview,
+                self.publish,
+                self._apply_machine_settings,
+                self._prompt_notifier(machine),
             )
             artifacts_dir = self._artifacts_root / record.id
             artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -720,6 +730,27 @@ class JobManager:
         except Exception as exc:
             runtime.log(f"タスク終了時の退避に失敗: {exc}")
 
+    def _prompt_notifier(self, machine: Machine) -> Callable[[], None]:
+        """`PromptSpec.notify` の応答待ちで鳴らす入力待ち音の再生関数を作る.
+
+        応答を待たずに戻り、再生失敗は warning のみ（プロンプトを塞がない）。
+        """
+        player = self._audio_player
+        if player is None:
+            return lambda: None
+        return lambda: self._play_sound(player, "input", machine.audio, "入力待ち音")
+
+    def _play_sound(
+        self, player: AudioPlayer, sound: Sound, audio: Audio, label: str
+    ) -> None:
+        """通知音を非同期に開始する（開始・再生の失敗はいずれも warning のみ）."""
+        try:
+            future = player.play(sound, audio)
+        except Exception:
+            _logger.warning("%sを開始できませんでした", label, exc_info=True)
+            return
+        future.add_done_callback(_warn_sound_failure(label))
+
     def _play_completion_sound(
         self, definition: JobDefinition, record: JobRecord, context: JobContext
     ) -> None:
@@ -729,23 +760,26 @@ class JobManager:
         status = record.status
         if status not in (JobStatus.SUCCEEDED, JobStatus.FAILED):
             return
-        try:
-            sound = "success" if status is JobStatus.SUCCEEDED else "failure"
-            future = self._audio_player.play(sound, context.machine.audio)
-            future.add_done_callback(self._warn_completion_sound_failure)
-        except Exception:
-            _logger.warning("ジョブ完了通知音を開始できませんでした", exc_info=True)
-
-    @staticmethod
-    def _warn_completion_sound_failure(future: Future[None]) -> None:
-        if (error := future.exception()) is not None:
-            _logger.warning("ジョブ完了通知音の再生に失敗しました: %s", error)
+        sound: Sound = "success" if status is JobStatus.SUCCEEDED else "failure"
+        self._play_sound(
+            self._audio_player, sound, context.machine.audio, "ジョブ完了通知音"
+        )
 
     def _pcb_path(self) -> Path | None:
         selected = self._state.selected_pcb
         if selected is None:
             return None
         return (self._settings.pcb_browse_root / selected).resolve()
+
+
+def _warn_sound_failure(label: str) -> Callable[[Future[None]], None]:
+    """通知音の再生失敗を warning に落とす done callback を作る."""
+
+    def callback(future: Future[None]) -> None:
+        if (error := future.exception()) is not None:
+            _logger.warning("%sの再生に失敗しました: %s", label, error)
+
+    return callback
 
 
 def prompt_payload(prompt_id: str, spec: PromptSpec) -> dict[str, Any]:

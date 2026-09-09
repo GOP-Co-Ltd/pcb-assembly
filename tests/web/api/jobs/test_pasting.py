@@ -38,11 +38,12 @@ import pytest
 
 from pcbasm.hal import XYZStage
 from pcbasm.pcb import PadHierarchy, PcbFile
-from tests.helpers import PROJECT_ROOT, mark_hardware
+from tests.helpers import PROJECT_ROOT, FakeAudioPlayer, mark_hardware
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import JobCatalog, default_catalog
+from web.api.jobs.context import JobContext
 from web.api.jobs.machine_commands import create_command_klipper
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.jobs.pasting import (
@@ -55,11 +56,17 @@ from web.api.jobs.pasting import (
     parse_run_calib_command,
     register_pasting_jobs,
 )
+from web.api.jobs.pasting.common import prompt_positive_number
 from web.api.preview import PreviewService
 from web.api.settings import Settings
 from web.api.state import AppState
 
-from .conftest import WaitUntil, answer_next_prompt
+from .conftest import (
+    ManagerFactory,
+    WaitUntil,
+    answer_next_prompt,
+    register_synthetic,
+)
 
 PASTING_JOBS = (
     "paste_solder",
@@ -1246,3 +1253,56 @@ class TestPasteDatasetFinalize:
 
         assert record.status == JobStatus.FAILED
         assert record.pending_prompt is None
+
+
+class TestPromptPositiveNumberNotification:
+    """`prompt_positive_number(notify=True)` が応答待ちで通知音を鳴らす.
+
+    dataset 収集の計量入力のように、装置の前を離れた作業者を呼び戻す用途。
+    """
+
+    def test_notifies_once_and_keeps_reprompting_until_positive(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+        answers: list[float | None] = []
+
+        def run(ctx: JobContext) -> None:
+            answers.append(prompt_positive_number(ctx, "質量 [mg]", notify=True))
+
+        register_synthetic(catalog, run, name="mass_prompt")
+
+        record = manager.start("mass_prompt", {})
+        answered: set[str] = set()
+        answer_next_prompt(record, manager, -1.0, answered)
+        answer_next_prompt(record, manager, 110.5, answered)
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert answers == [110.5]
+        assert [sound for sound, _ in player.played] == ["input", "input"]
+
+    def test_stays_silent_without_notify(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+
+        def run(ctx: JobContext) -> None:
+            prompt_positive_number(ctx, "質量 [mg]")
+
+        register_synthetic(catalog, run, name="mass_prompt")
+
+        record = manager.start("mass_prompt", {})
+        answer_next_prompt(record, manager, 110.5, set())
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert player.played == ()

@@ -238,11 +238,14 @@ def prompt_positive_number(
     message: str,
     default: float | None = None,
     cancel_label: str | None = None,
+    *,
+    notify: bool = False,
 ) -> float | None:
     """正数が入力されるまで number プロンプトを繰り返す.
 
     ``cancel_label`` を渡すと入力欄に中止ボタンを表示し、押されたら ``None`` を返す
     （計測のスキップに使う）。渡さなければ中止ボタンは出ず、常に正数を返す。
+    ``notify`` を立てると、応答待ちのたびに機体のスピーカーで入力待ち音を鳴らす。
     """
     while True:
         answer = ctx.prompt(
@@ -251,6 +254,7 @@ def prompt_positive_number(
                 message=message,
                 default=default,
                 false_label=cancel_label,
+                notify=notify,
             )
         )
         if answer is False:  # 中止ボタン（cancel_label 指定時のみ届く）
