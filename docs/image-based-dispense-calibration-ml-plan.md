@@ -82,10 +82,21 @@ data/paste-volume-ml/           # local checkpoint、split、exportの作業領�
 MLflow artifact store           # runに紐づくconfig、report、best/final artifact
 ```
 
-MLflowの初期運用は、GPU workstation上のtracking server、SQLite backend、local artifact
-directoryで開始する。複数人・複数workstationから同時利用する段階でPostgreSQLと共有artifact
-storeへ移す。MLflowはlocal構成とtracking server構成の両方を提供しているが、run IDを共有できる
-よう初期実装からserver経由に統一する。
+MLflowの初期運用は、GPU workstation上のSQLite backendとlocal artifact directoryで開始する。
+複数人・複数workstationから同時利用する段階でPostgreSQLと共有artifact store、およびtracking
+serverへ移す。
+
+**実装時の確定（step 5/6）**: 初期実装はserver経由に統一せず、client が
+`sqlite:////abs/mlflow.db` を直接開く形にした。§4「local SQLiteからshared serverへ同じclient
+APIで移行できる」がそのままこの形で、移行時に変わるのは`logger.tracking_uri`だけになる。
+`file://`のlocal file storeはMLflow 3.15.2ではmaintenance modeで、`MLFLOW_ALLOW_FILE_STORE=true`
+を立てない限りstoreを作る時点で例外になる（実測）。1端末で1人が回す段階でserverを常駐させる
+運用コストは、run ID共有の利得を上回らないと判断した。
+
+その副作用として、`MLflowRunTarget.artifact_location`（成果物の置き場所をclientが渡す）を
+足している。database backendは experiment を作るときに置き場所を決めないと起動directoryの
+`./mlruns`を焼き付けるため。server経由へ移せばartifact rootはserver側の設定になるので、
+この field は渡さなくなる。
 
 ## 1. データパイプライン
 
@@ -509,8 +520,25 @@ LayerNormを同じvalidation splitで比較する。
 
 ### モデル規模とfine-tuning範囲
 
-v1は約150万parameter以下を目安とし、512 × 512入力で1.5 GMAC以下であることを実装時に
-計測する。parameter数やGMACが上限を超えた場合、精度比較なしにchannelやblockを増やさない。
+v1は約150万parameter以下を目安とし、点塗布cropの上限（**159 px × 5 view**）で1.5 GMAC以下で
+あることを実装時に計測する。parameter数やGMACが上限を超えた場合、精度比較なしにchannelや
+blockを増やさない。減らすときも同じく精度比較を伴う。
+
+計算量gateを測る形をこう定めるのは、`ImageConstraints`の`maximum_size = 512`が前処理契約の
+上限であって点塗布cropの実際の上限ではないため。v1実装時の実測GMACは次のとおり。
+
+| 入力                                   |         GMAC |
+| -------------------------------------- | -----------: |
+| 53 × 53 × 1 view                       |     0.031966 |
+| 53 × 53 × 5 view                       |     0.159780 |
+| **159 × 159 × 5 view（gateを測る形）** | **1.307149** |
+| 512 × 512 × 1 view                     |     2.677027 |
+| 512 × 512 × 5 view                     |    13.385085 |
+
+512 × 512で測ると全runが学習前に拒否され、gateが機能しない。この節はかつて
+「512 × 512入力で1.5 GMAC以下」と書いており、同じ§2の「159 px × 5 viewが計算量上限に
+最も近い構成」（1.31 GMAC）と矛盾していた。前者は多視点化（!212）以前の単一view時代の
+記述なので、実測に合わせて後者へそろえる。
 
 base modelは全層を学習する。Raspberry Pi 5での既定fine-tuningは次だけを更新する。
 
@@ -730,7 +758,8 @@ MLflowのautologは使わない。pure PyTorchへのautolog対象が限定され
 
 **tag**
 
-- `run_kind`: `base-train`、`finetune`、`evaluate`、`export`、`benchmark`
+- `run_kind`: `base-train`、`cell-split-train`、`fine-tune`、`hpo-trial`（v1 の実装値。
+    `evaluate`、`export`、`benchmark` は Phase 4 で足す）
 - git branch、commit、dirty flag、machine ID、parent base run ID
 - dataset fingerprint、split manifest fingerprint、model schema version
 
@@ -988,11 +1017,14 @@ ml.paste_volume.dataset                  # 1 sampleのPNG decodeだけ
 ml.paste_volume.batch                    # view間引き・augmentation・サイズ合わせ・padding・条件変数
 ml.paste_volume.model                    # 塗布量推定modelとfine-tune範囲
 ml.paste_volume.task                     # ml.training.TrainingTask / TrainingData の実装
+ml.paste_volume.experiment               # 同梱confとargvから1 runぶんの設定を組む境界
 ml.paste_volume.train                    # argvを所有するtraining entrypoint
 ml.paste_volume.evaluate                 # argvを所有するevaluation entrypoint
+ml.paste_volume.search                   # argvを所有するOptuna探索entrypoint
 ml.paste_volume.conf                     # packaged config group（TOML）
-ml.paste_volume.release                  # 精度gateとpromotion
 ml.paste_volume.cli                      # experiment configを要らない運用CLI
+
+ml.paste_volume.release                  # 精度gateとpromotion（Phase 4。v1では未実装）
 
 pcbasm.pasting.dataset                   # 収集schemaと原本の読み書き（metadata / writer / recorder / capture）
 pcbasm.pasting.paste_volume              # export済み成果物のmanifest検証、runtime、公開prediction API
@@ -1013,22 +1045,36 @@ Raspberry Pi 5で推論経路が動くよう、MLflow / Optuna / ONNXを要求�
 中継するadapterは作らない。学習・fine-tuning・評価はargv全体を所有する独立moduleとする。
 `group=option`か`key=value`かは、`name`がconfig root直下のdirectoryとして実在するかで振り分ける。
 
+v1実装のargvは次の形。`data.manifest`（§1のcomposite manifest）は未実装なので、dataset rootは
+`data.roots`で渡す。`experiment`presetがsplit次元を宣言する唯一の場所なので省けない。
+記録先（`logger=`）と、database backendでの成果物の置き場所（`logger.artifact_location`）も必須。
+
 ```text
 python -m ml.paste_volume.train \
-    experiment=base data.manifest=/abs/base-2026-09.composite.json
+    experiment=base trainer=gpu logger=mlflow \
+    data.roots='["/abs/data/paste-volume-datasets"]' \
+    data.held_out_session=<label完全一致かsession fingerprintの前頭一致> \
+    logger.tracking_uri=sqlite:////abs/mlflow.db \
+    logger.artifact_location=/abs/mlartifacts \
+    run_directory=/abs/runs/loso/<session>
 
 python -m ml.paste_volume.train \
-    experiment=fine_tune model.initial_weights=/abs/weights.pt \
-    data.manifest=/abs/machine-a-fine-tune.composite.json
+    experiment=fine_tune trainer=pi logger=mlflow \
+    model.initial_weights=/abs/weights.pt \
+    data.roots='["/abs/data/machine-a"]' ...
 
 python -m ml.paste_volume.search \
-    experiment=base hyperparameter_search=base_optuna \
-    data.manifest=/abs/base-2026-09.composite.json
+    experiment=search trainer=gpu logger=mlflow \
+    hyperparameter_search=base_optuna \
+    hyperparameter_search.storage_uri=sqlite:////abs/optuna.db \
+    data.roots='["/abs/data/paste-volume-datasets"]' ...
 
 python -m ml.paste_volume.evaluate \
-    checkpoint=/abs/best.pt data.manifest=/abs/base-2026-09.composite.json \
-    split=validation
+    checkpoint=/abs/runs/loso/<session>/best.pt split=validation
 ```
+
+`evaluate`はgroup層を積まない。測るrunのdirectoryに残った解決済み`config.json`と`split.json`を
+読むので、preset・dataset・split次元を渡し直さない。渡し直すとrunが実際に使った設定と食い違う。
 
 train/fine-tuneの別は`experiment` config groupで表し、独立したCLI parserやflag集合を持たせない。
 resumeだけは`resume.checkpoint=/abs/latest.pt`、fine-tuning初期weightは
@@ -1039,16 +1085,17 @@ dataset検証、export、最適化、benchmark、単発推論はexperiment confi
 薄い運用CLIへ残す。
 
 ```text
+python -m ml.paste_volume.cli dataset validate <dataset...>     # v1で実装済み
+python -m ml.paste_volume.cli dataset summarize <dataset...>    # v1で実装済み（--json あり）
+
 python -m ml.paste_volume.cli dataset merge \
     --source machine-a=/abs/dataset-a --source machine-b=/abs/dataset-b \
-    --output /abs/base-2026-09.composite.json
-python -m ml.paste_volume.cli dataset validate <dataset...>
-python -m ml.paste_volume.cli dataset summarize <dataset...>
-python -m ml.paste_volume.cli export <checkpoint> --output <directory>
-python -m ml.paste_volume.cli optimize <onnx-model> --calibration-data <dataset...>
-python -m ml.paste_volume.cli benchmark <model-package>
+    --output /abs/base-2026-09.composite.json                   # composite manifestと同じく未実装
+python -m ml.paste_volume.cli export <checkpoint> --output <directory>          # Phase 4
+python -m ml.paste_volume.cli optimize <onnx-model> --calibration-data <dataset...>  # Phase 4
+python -m ml.paste_volume.cli benchmark <model-package>                          # Phase 4
 python -m ml.paste_volume.cli infer <model-package> <pre-image> <post-image> \
-    --pixel-per-mm <value>
+    --pixel-per-mm <value>                                                       # Phase 5
 ```
 
 `dataset validate`と`summarize`は単一root、複数root、composite manifestを同じAPIで扱う。
@@ -1056,6 +1103,45 @@ python -m ml.paste_volume.cli infer <model-package> <pre-image> <post-image> \
 同じ公開Python APIを呼び、composite解決、dataset fingerprint、split manifestの生成、前処理、評価を
 重複実装しない。`optimize`は候補packageを作るだけでactive modelを切り替えず、promotionは評価
 reportを検証する別の公開APIで行う。
+
+### LOSO 5-foldの実走手順
+
+5 foldは1プロセス1 foldでshellのforループから起こす。`Trainer`も`CheckpointStore`もMLflow runも
+「1 run」を単位にresumeと成果物を組んでいるので、1プロセスで5 foldを回すとどの単位も壊れる。
+`run_directory`はfoldごとに別の値を渡す（共有すると、要求したheld-outと実際のtest splitが
+食い違ったままrunが進む）。
+
+次はv1で実走した形そのまま（RTX 4090、常駐ML container）。
+
+```bash
+docker compose -f docker/ml/compose.yaml -f docker/ml/compose.credentials.yaml exec -T ml bash -lc '
+set -e
+DATA=/workspace/data/paste-volume-datasets
+OUT=/workspace/data/paste-volume-ml/loso
+for S in $(ls "$DATA" | grep -v "\.zip$"); do
+  uv run python -m ml.paste_volume.train experiment=base trainer=gpu logger=mlflow \
+    data.roots="[\"$DATA\"]" data.held_out_session="$S" \
+    logger.tracking_uri="sqlite:///$OUT/mlflow.db" logger.artifact_location="$OUT/mlartifacts" \
+    logger.experiment_name=paste-volume-loso run_directory="$OUT/runs/$S"
+done
+uv run python -m ml.paste_volume.evaluate folds="$OUT/runs" split=test \
+  allow_frozen_test=true output="$OUT/report.json"
+'
+```
+
+`ml.paste_volume.train`の終了コードは、この`set -e`ループの分岐材料なので3値にしてある。
+
+| code | 意味                                                                             |
+| ---: | -------------------------------------------------------------------------------- |
+|    0 | 最後まで回りきった（`max_epochs` / `max_steps` / `early_stopping`）              |
+|    1 | argvの不備、または成果物を1つ作れなかった（現状はcalibrationのみ）。理由はstderr |
+|    2 | signalかdeadlineで打ち切られた（`INTERRUPTED_EXIT_CODE`）                        |
+
+打ち切られたfoldを0で返すとループが次へ進み、途中で止まったrunのmetricがreportへ混ざる。
+`evaluate`と`search`は0/1だけを返す。
+
+`split=test`は`allow_frozen_test=true`を要求する。testはfoldごとに1度だけ測る集合なので、
+学習の完了処理やOptuna trialから自動実行しない。
 
 ### 公開API
 
@@ -1137,7 +1223,7 @@ versionを残す。
     確認する。複数sampleを同じbatchまたは別batchで処理しても各sampleの結果が変わらず、
     channel別・dataset全体の統計を読んでいないことを公開preprocessor APIで確認する。
 
-### Phase 2: modelとpure PyTorch training
+### Phase 2: modelとpure PyTorch training（完了）
 
 - GroupNorm small ResNet、Gaussian NLL、metric、base/fine-tune loopを実装する。
 - 数sampleを過学習できること、可変shape batch、padding parameterへgradientが流れることを確認する。
@@ -1145,14 +1231,28 @@ versionを残す。
     checkpointから再開できることを確認する。
 - 中断あり/なしで同じseedの最終weightとmetricが一致するcheckpoint resume testを行う。
 
-### Phase 3: 設定合成、Optuna、MLflow
+実測: parameter 395,048、GMAC 1.307149（159 px × 5 view）、過学習テストはMAE 0.067857 → 0.002133、
+compile parityは勾配43本すべてを突き合わせて一致。resumeは「同じ重みに着く」ではなくforward回数で
+測る（同じseed・同じargvなら、checkpointを無視して最初から回しても同じ重みに着くため）。
 
-- packaged config group、train/evaluate entrypoint、TOMLのsearch space宣言を実装する。
+### Phase 3: 設定合成、Optuna、MLflow（完了）
+
+- packaged config group、train/evaluate/search entrypoint、TOMLのsearch space宣言を実装する。
 - config compose、未知key拒否、path解決、single run、複数processの合流、persistent study再開を
     integration testで確認する。
 - explicit logger、合成後のfrozen config、metric、artifact、failure記録を実装する。
-- 実local MLflow serverを使うintegration testでrunとartifactを読み戻す。MLflow APIはmockしない。
-- 学習entrypointと、`dataset merge/validate/summarize`を含む運用CLIを接続する。
+- 実local MLflow（sqlite backend）を使うintegration testでrunとartifactを読み戻す。
+    MLflow APIはmockしない。
+- 学習entrypointと、`dataset validate/summarize`の運用CLIを接続する。
+
+この段階で実装しなかったもの。
+
+- `ml.paste_volume.release`（精度gateとpromotion）。Phase 4のexport成果物を入力にするので、
+    そのMRへ回した。
+- `dataset merge`とcomposite manifest（§1）。`data.roots`の複数指定で足りているため。
+- MLflow tracking serverの常駐。clientが`sqlite:///`を直接開く形にした（§0「保存領域」）。
+- packaged confの`data`/`model`group directory。`manifest`を落とすと中身が既定値の再掲か
+    機械固有の絶対pathしか残らないため、空optionを置かない規約をtestで固定した。
 
 ### Phase 4: exportとedge評価
 

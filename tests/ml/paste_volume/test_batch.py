@@ -7,6 +7,7 @@ collator は view の間引き・augmentation・サイズ合わせ・padding・c
 from __future__ import annotations
 
 import math
+import random
 from pathlib import Path
 
 import attrs
@@ -15,7 +16,7 @@ import torch
 
 from ml.data.batch import ViewDropout
 from ml.data.image import AugmentationRange, ImageConstraints
-from ml.paste_volume.batch import PasteVolumeCollator
+from ml.paste_volume.batch import PasteVolumeBatch, PasteVolumeCollator
 from ml.paste_volume.dataset import PasteVolumeDataset, PasteVolumeRawSample
 from ml.paste_volume.index import PasteVolumeSampleIndex
 from tests.ml.paste_volume.helpers import (
@@ -26,13 +27,25 @@ from tests.ml.paste_volume.helpers import (
     SyntheticCell,
     write_session,
 )
+from tests.ml.test_seed_roles import derived_seed, sample_scoped_material
 
 CONSTRAINTS = ImageConstraints()
 CHANNELS = 6
 DEVICE = torch.device("cpu")
 
+# 全 collator が使う大域種。配置の種の材料に入るので、期待値の組み立てと共有する
+GLOBAL_SEED = 7
+
+# 配置の材料へ挟む役割ラベル。``ml.paste_volume.batch._PLACEMENT_ROLE`` と同じ値を、
+# private を import せずに test 側で持つ
+PLACEMENT_ROLE = "placement"
+
 # 回転角を 8 帯へ畳む幅。配置との相関を見る粒度
 ROTATION_SECTOR_DEGREES = 45
+
+# 回転帯 x 配置位置の理論上限。8 帯 x（56 - 53 + 1）位置
+ROTATION_SECTORS = 8
+PLACEMENT_OFFSETS = 4
 
 CELLS = (
     SyntheticCell(index=1, commanded_volume_ul=0.10, x_mm=0.5),
@@ -65,6 +78,35 @@ def _mask_offset(mask: torch.Tensor) -> tuple[int, int]:
     return int(rows[0]), int(columns[0])
 
 
+def _offsets_of(batch: PasteVolumeBatch) -> tuple[tuple[int, int], ...]:
+    """Batch の各 sample の有効画素左上位置。最初の view で見る."""
+
+    return tuple(
+        _mask_offset(batch.valid_pixel_mask[row, 0, 0])
+        for row in range(batch.images.shape[0])
+    )
+
+
+def _expected_offset(
+    batch: PasteVolumeBatch, role: str | None, sample_id: str, *, epoch: int
+) -> tuple[int, int]:
+    """役割ラベル ``role`` の材料から、余白へ置く位置を組み直す.
+
+    余白は batch の実寸から取る。``PaddedBatch.pad`` は行を先に、列を後に引く。
+    """
+
+    spare_rows = int(batch.images.shape[-2]) - CROP_SIZE_PX
+    spare_columns = int(batch.images.shape[-1]) - CROP_SIZE_PX
+    generator = random.Random(
+        derived_seed(
+            sample_scoped_material(
+                role, global_seed=GLOBAL_SEED, epoch=epoch, sample_id=sample_id
+            )
+        )
+    )
+    return generator.randrange(spare_rows + 1), generator.randrange(spare_columns + 1)
+
+
 def _valid_region(view: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     """余白を落として有効画素だけの ``[C, H, W]`` を返す.
 
@@ -78,7 +120,7 @@ def _valid_region(view: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
 
 
 def _collator(**overrides: object) -> PasteVolumeCollator:
-    return attrs.evolve(PasteVolumeCollator(global_seed=7), **overrides)  # type: ignore[arg-type]
+    return attrs.evolve(PasteVolumeCollator(global_seed=GLOBAL_SEED), **overrides)  # type: ignore[arg-type]
 
 
 class TestCollatorValidation:
@@ -163,7 +205,7 @@ class TestChannelLayout:
     def test_places_the_pre_image_in_the_first_three_channels(self, tmp_path: Path):
         """0-2 が塗布前、3-5 が塗布後.
 
-        合成画像は pre の R だけが水平に、post の B だけが垂直に変化する。標準化は 全 channel 共通の 1
+        合成画像は pre の R だけが水平に、post の B だけが垂直に変化する。標準化は全 channel 共通の 1
         組の統計で行うので、定数 channel は定数のまま残る。
         """
 
@@ -207,7 +249,7 @@ class TestConditioning:
     def test_follows_the_scale_applied_by_augmentation(self, tmp_path: Path):
         """拡大縮小したぶん ``pixel_per_mm`` も動く.
 
-        見かけの大きさが体積の主要な手がかりなので、scale を掛けたのに解像度を 据え置くと、model
+        見かけの大きさが体積の主要な手がかりなので、scale を掛けたのに解像度を据え置くと、model
         は同じ体積を違う値として学ぶ。
         """
 
@@ -443,8 +485,8 @@ class TestPadding:
     def test_moves_the_image_around_during_training(self, tmp_path: Path):
         """学習時は配置をずらす.
 
-        位置に対する不変性を訓練で経験させるための augmentation。幾何 augmentation を 止めた
-        collator で見るので、動いているのは配置だけ。
+        位置に対する不変性を訓練で経験させるための augmentation。幾何 augmentation を止めた collator
+        で見るので、動いているのは配置だけ。
         """
 
         dataset = _dataset(tmp_path)
@@ -510,10 +552,10 @@ class TestPadding:
     def test_does_not_derive_the_position_from_the_rotation(self, tmp_path: Path):
         """配置が回転角の従属変数になっていないこと.
 
-        ``AugmentationRange.parameters_for`` は ``{global_seed}:{epoch}:{sample_id}`` を
-        sha256 に掛けた先頭 8 byte を種にする。同じ材料で配置の種を作ると、両者が
-        同じ乱数列から出て相関する。回転を有効にしたまま、同じ回転帯の中で複数の位置が
-        現れることを見る。
+        ``AugmentationRange.parameters_for`` は ``{global_seed}:{epoch}:augmentation:
+        {sample_id}`` を sha256 に掛けた先頭 8 byte を種にする。役割ラベルを外して同じ
+        材料で配置の種を作ると、両者が同じ乱数列から出て相関する。回転を有効にしたまま、
+        同じ回転帯の中で複数の位置が現れることを見る。
         """
 
         dataset = _dataset(tmp_path)
@@ -523,7 +565,7 @@ class TestPadding:
         )
 
         pairs: set[tuple[int, int]] = set()
-        for epoch in range(60):
+        for epoch in range(120):
             batch = collator.collate(samples, epoch=epoch, training=True, device=DEVICE)
             for row, sample in enumerate(samples):
                 rotation = collator.parameters_for(
@@ -536,8 +578,51 @@ class TestPadding:
                     )
                 )
 
-        # 8 帯 x 4 位置 = 32 通り。材料を共有すると 20 通りしか出ない（実測）
-        assert len(pairs) >= 28
+        # 理論上限に張り付くので完全一致で固定する。120 epoch で 32 通り（実測。60 epoch
+        # では 31 通りで、欠けるのは (帯 5, 位置 3)）。材料を共有させると epoch 数に
+        # よらず 20 通りで、120 epoch でも 20 のまま（実測）
+        assert len(pairs) == ROTATION_SECTORS * PLACEMENT_OFFSETS
+
+    def test_places_the_image_from_its_labelled_seed_material(self, tmp_path: Path):
+        """配置の種の材料が ``{global_seed}:{epoch}:placement:{sample_id}`` であること.
+
+        ``_placement_seed`` を直接呼ばず、公開経路の ``valid_pixel_mask`` で観測する。
+
+        材料から種を作る規則と ``randrange`` を引く順序（行 → 列）を test 内で
+        組み直して突き合わせるので、期待値が実装そのものにならない。
+        """
+
+        dataset = _dataset(tmp_path)
+        samples = _samples(dataset)
+
+        batch = _collator(augmentation=STILL).collate(
+            samples, epoch=3, training=True, device=DEVICE
+        )
+
+        assert _offsets_of(batch) == tuple(
+            _expected_offset(batch, PLACEMENT_ROLE, sample.entry.sample_id, epoch=3)
+            for sample in samples
+        )
+
+    def test_does_not_place_the_image_from_the_unlabelled_material(
+        self, tmp_path: Path
+    ):
+        """上の一致検査がラベルまで見ていることの自己検査.
+
+        役割ラベルを外した材料は augmentation の材料と一致するので、同じ位置が出てはいけない。
+        """
+
+        dataset = _dataset(tmp_path)
+        samples = _samples(dataset)
+
+        batch = _collator(augmentation=STILL).collate(
+            samples, epoch=3, training=True, device=DEVICE
+        )
+
+        assert _offsets_of(batch) != tuple(
+            _expected_offset(batch, None, sample.entry.sample_id, epoch=3)
+            for sample in samples
+        )
 
 
 class TestCollateRejection:

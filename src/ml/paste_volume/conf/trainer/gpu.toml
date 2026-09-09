@@ -1,0 +1,7 @@
+# CUDA GPU 向けの trainer profile。
+#
+# 仕様書 §3 の precision は「CUDA AMP、CPU FP32」。AMP だけがこの profile の差分で、
+# max_epochs 200 と compile ON は base.toml が持つ。
+
+[trainer]
+automatic_mixed_precision_enabled = true

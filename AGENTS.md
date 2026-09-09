@@ -62,8 +62,10 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `src/web/api/`: 機体ごとの backend WebAPI（FastAPI、port 8081）
 - `src/web/ui/`: LAN に 1 つ立てる UI frontend（FastAPI、port 8080。ページ描画と
     `/m/{machine_id}/api/**` の backend 中継）
-- `src/ml/`: 機械学習（PyTorch。学習・評価・最適化・export）。コアはドメイン非依存で、
-    `src/ml/paste_volume/` だけが塗布量推定のドメイン層
+- `src/ml/`: 機械学習（PyTorch。学習・評価・探索・最適化・export）。コアはドメイン非依存で、
+    `src/ml/paste_volume/` だけが塗布量推定のドメイン層。ドメイン層は dataset の読み出しから
+    model・task・同梱 config（`conf/`）・`train` / `evaluate` / `search` の各 entrypoint と
+    運用 CLI までを持つ
 
 ブラウザ操作 UI は上記 2 プロセスに分かれる。開発・運用の操作は WebUI のジョブとして
 提供する。リポジトリ直下の `scripts/` にはセットアップ・運用スクリプトと

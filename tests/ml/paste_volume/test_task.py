@@ -1,29 +1,55 @@
-"""``ml.training.TrainingData`` 実装の公開契約.
+"""``ml.training`` 実装の公開契約.
 
-Trainer は dataset の中身を知らない。知っているのは「epoch ごとに sample ID の並びが 決まり、それを
-batch へ実体化できる」ことだけ。その 2 つの契約をここで固定する。
+Trainer は dataset の中身も loss の形も知らない。
+
+知っているのは 2 つだけ。
+
+epoch ごとに sample ID の並びが決まり、それを batch へ実体化できること。
+
+batch を渡すと微分可能な 0 次元 loss と観測値が返ること。
+
+その契約をここで固定する。
 """
 
 from __future__ import annotations
 
+import contextlib
 import math
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
+from typing import Any, cast
 
+import attrs
 import pytest
 import torch
+from torch import Tensor, nn
 
 from ml.data.image import AugmentationRange, ImageConstraints, ImageShape
 from ml.data.split import SplitManifest, SplitRatios
-from ml.paste_volume.batch import PasteVolumeCollator
+from ml.evaluation.compile_parity import (
+    FLOAT32_PARITY_TOLERANCES,
+    CompileOptions,
+    CompileParityResult,
+)
+from ml.model.loss import weighted_gaussian_negative_log_likelihood
+from ml.paste_volume.batch import PasteVolumeBatch, PasteVolumeCollator
 from ml.paste_volume.index import PasteVolumeSampleIndex
+from ml.paste_volume.model import INPUT_CHANNELS
 from ml.paste_volume.task import (
+    PasteVolumeTask,
     PasteVolumeTrainingConfig,
     PasteVolumeTrainingData,
 )
+from tests.ml.helpers import skip_if_no_inductor
 from tests.ml.paste_volume.helpers import (
     CROP_SIZE_PX,
+    PADDING_PIXEL_NAME,
+    PASTE_VOLUME_DATASET_DIR,
+    PIXEL_PER_MM,
+    STEM_CONVOLUTION_NAME,
     VIEW_COUNT,
     SyntheticCell,
+    paste_volume_model,
     skip_if_no_real_sessions,
     write_session,
 )
@@ -60,6 +86,23 @@ def _index(
     return index
 
 
+def _cell_config(**overrides: object) -> PasteVolumeTrainingConfig:
+    """Cell 次元の設定。既定は session 次元なので明示する.
+
+    既定を cell にすると呼び出し側が黙って session の漏れる split を選ぶ。
+
+    cell 単位 split を見るテストは毎回そう書く。
+    """
+
+    return PasteVolumeTrainingConfig(split_dimension="cell", **overrides)  # type: ignore[arg-type]
+
+
+def _session_config(**overrides: object) -> PasteVolumeTrainingConfig:
+    """Session 次元（leave-one-session-out）の設定."""
+
+    return PasteVolumeTrainingConfig(split_dimension="session", **overrides)  # type: ignore[arg-type]
+
+
 def _data(
     tmp_path: Path,
     *,
@@ -70,7 +113,7 @@ def _data(
     data, reason = PasteVolumeTrainingData.build(
         index if index is not None else _index(tmp_path),
         collator=collator or PasteVolumeCollator(global_seed=5),
-        config=PasteVolumeTrainingConfig(**overrides),  # type: ignore[arg-type]
+        config=_cell_config(**overrides),
     )
     assert data is not None, reason
     return data
@@ -80,6 +123,39 @@ def _area_bucket(shape: ImageShape) -> int:
     """``plan_pixel_budget_batches`` が bucket を切る単位（log2 面積の 1.0 刻み）."""
 
     return round(math.log2(shape.height * shape.width))
+
+
+def _sessions_of(index: PasteVolumeSampleIndex, sample_ids: Sequence[str]) -> set[str]:
+    """その sample 群が由来する session fingerprint の集合.
+
+    「held-out が train へ現れない」を測る観測点。同じ関数で漏れている manifest も
+    測り、検査が働くことを対で示す。
+    """
+
+    return {index.entry_for(sample_id).session_fingerprint for sample_id in sample_ids}
+
+
+def _fold_sizes(
+    index: PasteVolumeSampleIndex, data: PasteVolumeTrainingData
+) -> tuple[int, int, int]:
+    """(test, validation, train) それぞれに入った session の本数."""
+
+    return (
+        len(_sessions_of(index, data.sample_ids_for("test"))),
+        len(_sessions_of(index, data.sample_ids_for("validation"))),
+        len(_sessions_of(index, data.sample_ids_for("train"))),
+    )
+
+
+@pytest.fixture(scope="module")
+def real_index() -> PasteVolumeSampleIndex:
+    """実収集 session の index。全画像を decode するので module で 1 度だけ作る."""
+
+    index, reason = PasteVolumeSampleIndex.from_roots(
+        [PASTE_VOLUME_DATASET_DIR], constraints=CONSTRAINTS
+    )
+    assert index is not None, reason
+    return index
 
 
 class TestBuild:
@@ -109,7 +185,8 @@ class TestBuild:
 
         assert (
             data.split_manifest.validate(
-                data.index.sample_groups(), dataset_fingerprint=data.dataset_fingerprint
+                data.index.sample_groups(dimension="cell"),
+                dataset_fingerprint=data.dataset_fingerprint,
             )
             is None
         )
@@ -131,7 +208,7 @@ class TestBuild:
             collator=PasteVolumeCollator(
                 augmentation=AugmentationRange(minimum_scale=0.01, maximum_scale=1.0)
             ),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
         )
 
         assert data is None
@@ -148,18 +225,58 @@ class TestBuild:
         data, reason = PasteVolumeTrainingData.build(
             _index(tmp_path, cells=CELLS[:2]),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
         )
 
         assert data is None
         assert reason is not None
         assert "group" in reason
 
+    def test_reports_a_split_dimension_outside_the_contract(self, tmp_path: Path):
+        """契約外の次元は例外ではなく理由で返す.
+
+        通すと ``sample_groups`` の ``match`` を素通りして ``None`` が返り、
+        ``TypeError: cannot unpack non-iterable NoneType`` になる。TOML や argv から
+        組む経路は型に守られないので、ここが唯一の入口検査になる。
+        """
+
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path),
+            collator=PasteVolumeCollator(),
+            config=PasteVolumeTrainingConfig(split_dimension="machine"),  # type: ignore[arg-type]
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "split_dimension" in reason
+
+    @pytest.mark.parametrize("ratio", (0.0, 1.0, -0.1, 1.5, math.nan, math.inf))
+    def test_reports_a_validation_ratio_outside_the_open_unit_interval(
+        self, tmp_path: Path, ratio: float
+    ):
+        """Session 次元の validation 比は 0 と 1 の間.
+
+        0 だと validation が空、1 だと train が空になる。TOML から来るユーザー入力の
+        境界なので、ここで理由を返す。
+        """
+
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=3),
+            collator=PasteVolumeCollator(),
+            config=_session_config(
+                held_out_session="session-0", validation_ratio=ratio
+            ),
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "validation_ratio" in reason
+
     def test_reports_a_ratio_that_is_not_usable(self, tmp_path: Path):
         data, reason = PasteVolumeTrainingData.build(
             _index(tmp_path),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(ratios=SplitRatios(0.9, 0.9, 0.9)),
+            config=_cell_config(ratios=SplitRatios(0.9, 0.9, 0.9)),
         )
 
         assert data is None
@@ -178,7 +295,7 @@ class TestBuild:
             collator=PasteVolumeCollator(
                 view_dropout=ViewDropout(minimum_view_count=0)
             ),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
         )
 
         assert data is None
@@ -194,7 +311,7 @@ class TestBuild:
         data, reason = PasteVolumeTrainingData.build(
             _index(tmp_path),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(max_batch_size=0),
+            config=_cell_config(max_batch_size=0),
         )
 
         assert data is None
@@ -223,8 +340,9 @@ class TestBuild:
     def test_reports_constraints_that_differ_from_the_index(self, tmp_path: Path):
         """読み出し側と詰め込み側で制約が違えば弾く.
 
-        index はその制約で使えない cell を隔離している。collator が違う制約を使うと、 緩ければ
-        materialize で落ち、厳しければ母集団が黙って減る。
+        index はその制約で使えない cell を隔離している。
+
+        collator が違う制約を使うと、緩ければ materialize で落ち、厳しければ母集団が黙って減る。
         """
 
         import attrs
@@ -234,7 +352,7 @@ class TestBuild:
             collator=PasteVolumeCollator(
                 constraints=attrs.evolve(CONSTRAINTS, maximum_size=256)
             ),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
         )
 
         assert data is None
@@ -251,7 +369,10 @@ class TestBuild:
         path = tmp_path / "split.json"
         index = _index(tmp_path, sessions=2)
         manifest, _ = SplitManifest.build(
-            {sample_id: sample_id for sample_id in index.sample_groups()},
+            {
+                sample_id: sample_id
+                for sample_id in index.sample_groups(dimension="cell")
+            },
             dataset_fingerprint=index.dataset_fingerprint,
             seed=0,
             ratios=SplitRatios(0.7, 0.15, 0.15),
@@ -263,7 +384,7 @@ class TestBuild:
         data, reason = PasteVolumeTrainingData.build(
             index,
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
             split_manifest_path=path,
         )
 
@@ -277,7 +398,7 @@ class TestBuild:
         first = PasteVolumeTrainingData.build(
             _index(tmp_path),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
             split_manifest_path=path,
         )[0]
         assert first is not None
@@ -285,7 +406,7 @@ class TestBuild:
         second, reason = PasteVolumeTrainingData.build(
             _index(tmp_path),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(split_seed=999),
+            config=_cell_config(split_seed=999),
             split_manifest_path=path,
         )
 
@@ -296,7 +417,7 @@ class TestBuild:
         path = tmp_path / "split.json"
         other = _index(tmp_path / "other", machine="other")
         manifest, _ = SplitManifest.build(
-            other.sample_groups(),
+            other.sample_groups(dimension="cell"),
             dataset_fingerprint=other.dataset_fingerprint,
             seed=0,
             ratios=SplitRatios(0.7, 0.15, 0.15),
@@ -308,12 +429,335 @@ class TestBuild:
         data, reason = PasteVolumeTrainingData.build(
             _index(tmp_path / "mine"),
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
             split_manifest_path=path,
         )
 
         assert data is None
         assert reason is not None
+
+
+class TestSessionSplit:
+    """Session 単位の leave-one-session-out.
+
+    塗布量の係数 k は session ごとの 1 定数。
+
+    cell 単位で分けると model が session を言い当てて k を憶え、見かけの精度が出る。
+
+    session をまたいだ汎化はこの次元でしか測れない。
+    """
+
+    def test_puts_the_held_out_session_in_test_and_nowhere_else(self, tmp_path: Path):
+        index = _index(tmp_path, sessions=3)
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+        held_out, _ = index.resolve_session("session-0")
+
+        assert _sessions_of(index, data.sample_ids_for("test")) == {held_out}
+        assert held_out not in _sessions_of(index, data.sample_ids_for("train"))
+        assert held_out not in _sessions_of(index, data.sample_ids_for("validation"))
+
+    def test_the_same_observation_finds_a_session_that_does_leak(self, tmp_path: Path):
+        """検査が働くことの自己検査.
+
+        上は「現れない」型の assert なので、``_sessions_of`` が壊れると held-out が
+        混ざっていても緑になる。held-out の sample を 1 件だけ train へ移した manifest を
+        同じ関数で測り、漏れをちゃんと報告することを見る。
+        """
+
+        index = _index(tmp_path, sessions=3)
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+        held_out, _ = index.resolve_session("session-0")
+        manifest = data.split_manifest
+        leaked = manifest.test_sample_ids[0]
+
+        assert held_out in _sessions_of(index, (*manifest.train_sample_ids, leaked))
+
+    def test_splits_the_remaining_sessions_into_train_and_validation(
+        self, tmp_path: Path
+    ):
+        """Held-out 以外の session が train と validation へ分かれる.
+
+        group は session なので、1 session が両方に現れることはない。
+        """
+
+        index = _index(tmp_path, sessions=3)
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+
+        train = _sessions_of(index, data.sample_ids_for("train"))
+        validation = _sessions_of(index, data.sample_ids_for("validation"))
+
+        assert len(train) == 1
+        assert len(validation) == 1
+        assert not train & validation
+
+    def test_covers_every_sample_exactly_once(self, tmp_path: Path):
+        index = _index(tmp_path, sessions=3)
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-1"),
+        )
+        assert data is not None, reason
+
+        assigned = [
+            sample_id
+            for split in ("train", "validation", "test")
+            for sample_id in data.sample_ids_for(split)  # type: ignore[arg-type]
+        ]
+
+        assert sorted(assigned) == sorted(entry.sample_id for entry in index.entries)
+
+    def test_gives_every_session_its_own_fold(self, tmp_path: Path):
+        """どの session も 1 度ずつ held-out になれる."""
+
+        index = _index(tmp_path, sessions=3)
+        by_fold: dict[str, set[str]] = {}
+        for number in range(3):
+            label = f"session-{number}"
+            data, reason = PasteVolumeTrainingData.build(
+                index,
+                collator=PasteVolumeCollator(),
+                config=_session_config(held_out_session=label),
+            )
+            assert data is not None, reason
+            by_fold[label] = _sessions_of(index, data.sample_ids_for("test"))
+
+        assert len({frozenset(values) for values in by_fold.values()}) == 3
+
+    def test_exposes_the_split_dimension(self, tmp_path: Path):
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=3),
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+
+        assert data.split_dimension == "session"
+
+    def test_reports_a_session_split_without_a_held_out_session(self, tmp_path: Path):
+        """Held-out を省くと拒否する.
+
+        既定で 5 fold のどれかを選んでしまうと、run の記録から「どの session を外したのか」が読めなくなる。
+        """
+
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=3),
+            collator=PasteVolumeCollator(),
+            config=_session_config(),
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "held_out_session" in reason
+
+    def test_reports_a_held_out_session_in_the_cell_dimension(self, tmp_path: Path):
+        """Cell 次元で held-out を渡すと拒否する。黙って無視しない."""
+
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=3),
+            collator=PasteVolumeCollator(),
+            config=_cell_config(held_out_session="session-0"),
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "held_out_session" in reason
+
+    def test_reports_a_held_out_session_that_matches_nothing(self, tmp_path: Path):
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=3),
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-9"),
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "一致する session がありません" in reason
+
+    def test_reports_a_dataset_with_too_few_sessions(self, tmp_path: Path):
+        """Session が 2 本だと leave-one-session-out が成り立たない.
+
+        held-out を除いた残りが 1 本になり、train と validation を別の session で
+        埋められない。sample 単位へ fallback せず理由を返すこと。
+        """
+
+        data, reason = PasteVolumeTrainingData.build(
+            _index(tmp_path, sessions=2),
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "group が 2 個未満" in reason
+
+    def test_forms_one_held_out_one_validation_and_three_train_from_five(
+        self, tmp_path: Path
+    ):
+        """合成 5 session で (test, validation, train) = (1, 1, 3) になること.
+
+        実データで同じ構成を見ているテストは ``skip_if_no_real_sessions`` の opt-in で、
+        収集 session の無い環境では丸ごと skip する。CI で残る観測点をここに置く。
+        """
+
+        index = _index(tmp_path, sessions=5, cells=CELLS[:3])
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+
+        assert _fold_sizes(index, data) == (1, 1, 3)
+
+    def test_the_validation_count_grows_only_once_the_ratio_clears_one_session(
+        self, tmp_path: Path
+    ):
+        """Validation の本数が比率ではなく床で決まっている範囲を示す.
+
+        ``max(1, round(n * validation_ratio))`` なので、既定の 0.15 では n が 12 まで
+        1 に張り付き、13 で初めて 2 になる。上の (1, 1, 3) が比率の結果ではないことを、
+        比率が効く側と対で見る。
+        """
+
+        index = _index(tmp_path, sessions=13, cells=CELLS[:1])
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+        )
+        assert data is not None, reason
+
+        assert _fold_sizes(index, data) == (1, 2, 10)
+
+    def test_records_a_fold_specific_seed_in_the_manifest(self, tmp_path: Path):
+        """Manifest の seed 欄が fold ごとに違うこと.
+
+        設定の ``split_seed`` をそのまま入れると 5 fold の manifest が seed 欄で
+        区別できず、別 fold のものを取り違えても値からは分からない。
+        """
+
+        index = _index(tmp_path, sessions=3)
+        seeds = set()
+        for number in range(3):
+            data, reason = PasteVolumeTrainingData.build(
+                index,
+                collator=PasteVolumeCollator(),
+                config=_session_config(
+                    held_out_session=f"session-{number}", split_seed=0
+                ),
+            )
+            assert data is not None, reason
+            seeds.add(data.split_manifest.seed)
+
+        assert len(seeds) == 3
+        assert 0 not in seeds
+
+    def test_rejects_a_manifest_saved_for_another_held_out_session(
+        self, tmp_path: Path
+    ):
+        """別の fold の split.json を黙って再利用しない.
+
+        ``SplitManifest`` は次元も held-out も持たず、session group は 1 group が
+        1 split に収まっているので ``validate`` は何も言わない。通すと、要求した
+        session が train に入ったまま run が進み、report まで誰も気づけない。
+        ``run_directory`` の既定は fold 間で共有され得る。
+        """
+
+        path = tmp_path / "split.json"
+        index = _index(tmp_path, sessions=3)
+        first, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+            split_manifest_path=path,
+        )
+        assert first is not None, reason
+
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-2"),
+            split_manifest_path=path,
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "held_out_session" in reason
+
+    def test_reuses_a_manifest_saved_for_the_same_held_out_session(
+        self, tmp_path: Path
+    ):
+        """検査が広すぎないことの対.
+
+        同じ fold を要求した読み直しは通り、作り直さずに同じ割り当てを返す。
+        """
+
+        path = tmp_path / "split.json"
+        index = _index(tmp_path, sessions=3)
+        first, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+            split_manifest_path=path,
+        )
+        assert first is not None, reason
+
+        second, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+            split_manifest_path=path,
+        )
+
+        assert second is not None, reason
+        assert second.sample_ids_for("test") == first.sample_ids_for("test")
+
+    def test_rejects_a_cell_manifest_read_back_in_the_session_dimension(
+        self, tmp_path: Path
+    ):
+        """Cell group で作った manifest を session 次元で読み直すと落ちる.
+
+        2 つの次元は直交していて、cell group はどれも全 session の sample を含む。
+        ``SplitManifest.validate`` が「group が複数 split にまたがっています」で拒む
+        ので、次元を切り替えずに session LOSO へ移ることはできない。
+        """
+
+        path = tmp_path / "split.json"
+        index = _index(tmp_path, sessions=3)
+        first, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_cell_config(),
+            split_manifest_path=path,
+        )
+        assert first is not None, reason
+
+        data, reason = PasteVolumeTrainingData.build(
+            index,
+            collator=PasteVolumeCollator(),
+            config=_session_config(held_out_session="session-0"),
+            split_manifest_path=path,
+        )
+
+        assert data is None
+        assert reason is not None
+        assert "複数 split" in reason
 
 
 class TestPlanEpoch:
@@ -366,8 +810,10 @@ class TestPlanEpoch:
     def test_groups_a_batch_by_the_augmented_size(self, tmp_path: Path):
         """同じ batch の中身が変換後の大きさで揃う.
 
-        計画を augmentation 前の寸法で立てると、実際には 26 px と 106 px の sample が 同じ
-        batch へ入る。padding が batch 内 max へ合わせるので落ちず、pixel budget が 意味を失う。
+        計画を augmentation 前の寸法で立てると、実際には 26 px と 106 px の sample が同じ
+        batch へ入る。
+
+        padding が batch 内 max へ合わせるので落ちず、pixel budget が意味を失う。
         """
 
         data = _data(tmp_path)
@@ -388,8 +834,9 @@ class TestPlanEpoch:
     def test_shuffles_the_evaluation_plan_between_epochs(self, tmp_path: Path):
         """評価 split の計画も epoch で変わる.
 
-        評価は augmentation を掛けないので寸法は毎 epoch 同じ。計画が変わるのは 並べ替えの種に epoch
-        を混ぜているからで、そこだけを見る観測点。
+        評価は augmentation を掛けないので寸法は毎 epoch 同じ。
+
+        計画が変わるのは並べ替えの種に epoch を混ぜているからで、そこだけを見る観測点。
         """
 
         data = _data(tmp_path, index=_index(tmp_path, sessions=3), max_batch_size=2)
@@ -401,8 +848,9 @@ class TestPlanEpoch:
     def test_counts_every_view_against_the_pixel_budget(self, tmp_path: Path):
         """画素の上限は view 数ぶん掛かる.
 
-        view 数を数えないと 5 倍の画素を 1 sample 分として見積もり、batch が膨らむ。 幾何
-        augmentation を止めて、効いているのが view 数だけになるようにする。
+        view 数を数えないと 5 倍の画素を 1 sample 分として見積もり、 batch が膨らむ。
+
+        幾何 augmentation を止めて、効いているのが view 数だけになるようにする。
         """
 
         still = PasteVolumeCollator(
@@ -489,22 +937,21 @@ class TestMaterialize:
 
 
 class TestRealSessions:
-    """実収集 session を通した確認（無ければ skip）."""
+    """実収集 session を通した確認（無ければ skip）.
+
+    ``data/paste-volume-datasets/`` は git 管理外なので CI には無い。
+    """
 
     @skip_if_no_real_sessions
-    def test_builds_and_materializes_from_the_collected_sessions(self):
-        from tests.ml.paste_volume.helpers import PASTE_VOLUME_DATASET_DIR
-
-        index, reason = PasteVolumeSampleIndex.from_roots(
-            [PASTE_VOLUME_DATASET_DIR], constraints=CONSTRAINTS
-        )
-        assert index is not None, reason
-        assert not index.rejections
+    def test_builds_and_materializes_from_the_collected_sessions(
+        self, real_index: PasteVolumeSampleIndex
+    ):
+        assert not real_index.rejections
 
         data, reason = PasteVolumeTrainingData.build(
-            index,
+            real_index,
             collator=PasteVolumeCollator(),
-            config=PasteVolumeTrainingConfig(),
+            config=_cell_config(),
         )
         assert data is not None, reason
 
@@ -516,3 +963,597 @@ class TestRealSessions:
         assert batch.images.ndim == 5
         assert batch.images.shape[2] == 6
         assert batch.target.shape == (len(planned), 1)
+
+    @skip_if_no_real_sessions
+    def test_forms_five_folds_of_one_held_out_one_validation_three_train(
+        self, real_index: PasteVolumeSampleIndex
+    ):
+        """収集済み 5 session が held-out 1 / validation 1 / train 3 の 5 fold になる.
+
+        合成 session では session 数を自由に決められる。実データの本数でしか「5 fold」は確かめられない。
+        """
+
+        values = real_index.session_values()
+        assert len(values) == 5
+
+        composition: list[tuple[int, int, int]] = []
+        for value in values:
+            data, reason = PasteVolumeTrainingData.build(
+                real_index,
+                collator=PasteVolumeCollator(),
+                config=_session_config(held_out_session=value),
+            )
+            assert data is not None, reason
+            test = _sessions_of(real_index, data.sample_ids_for("test"))
+            validation = _sessions_of(real_index, data.sample_ids_for("validation"))
+            train = _sessions_of(real_index, data.sample_ids_for("train"))
+
+            assert test == {value}
+            assert not train & test
+            assert not validation & test
+            assert not train & validation
+            composition.append((len(test), len(validation), len(train)))
+
+        assert composition == [(1, 1, 3)] * 5
+
+
+# --- ここから下は PasteVolumeTask（TrainingTask 実装）の契約 ---
+
+# 合成 batch の規模。1 batch を繰り返し学習して過学習させる
+TASK_SAMPLE_COUNT = 8
+TASK_IMAGE_SIZE = 32
+
+# 別 bucket として続けて流す 2 つ目の形
+OTHER_IMAGE_HEIGHT = 24
+OTHER_IMAGE_WIDTH = 40
+
+OVERFIT_STEPS = 200
+OVERFIT_BLOCK_COUNT = 5
+
+# Trainer と同じ optimizer 設定（`ml.training.loop` の AdamW と `clip_grad_norm_`）
+OVERFIT_LEARNING_RATE = 1e-3
+OVERFIT_WEIGHT_DECAY = 1e-4
+OVERFIT_GRADIENT_CLIP_NORM = 1.0
+
+# 学習後の平均絶対誤差に許す、初期値に対する比
+OVERFIT_ERROR_RATIO = 0.1
+
+# 合成 batch の真値の幅。実データの体積域 0.032〜0.363 uL の内側に置く
+TARGET_MINIMUM_UL = 0.10
+TARGET_MAXIMUM_UL = 0.30
+
+# `reduce` が返す metric の本数。MeanSaturationDiagnostic 6 + GaussianRegressionMetrics 14
+# + ZeroTargetMetrics 6。接頭辞を外すと 4 本が衝突して 22 本になる
+REDUCED_METRIC_COUNT = 26
+
+
+def _task_batch(
+    *,
+    sample_count: int = TASK_SAMPLE_COUNT,
+    height: int = TASK_IMAGE_SIZE,
+    width: int = TASK_IMAGE_SIZE,
+    invalid_columns: int = 0,
+    targets: Sequence[float] | None = None,
+    seed: int = 11,
+) -> PasteVolumeBatch:
+    """真値と結びついた合成 batch を組む.
+
+    post 側 3 channel に、真値の大きい sample ほど広い明領域を置く。
+
+    6 channel 共通の振幅だけを真値へ比例させた入力では 8 sample を学習できない。
+
+    実測（200 step + cosine、5 seed）で最終 / 初期の平均絶対誤差が 0.8421 のまま。
+
+    これは定数予測の床で、``group_norm_groups=1`` にしても 0.8421 で変わらない。
+
+    一方で pre 対 post の contrast は GroupNorm を生き残る。
+
+    post 3 channel だけを明るくした batch は同じ条件で 0.0210 まで下がる。
+
+    ここで空間構造を使うのは、面積の差（0.0314）が同じく学習できる形だから。
+    """
+
+    generator = torch.Generator().manual_seed(seed)
+    images = 0.1 + 0.05 * torch.rand(
+        (sample_count, VIEW_COUNT, INPUT_CHANNELS, height, width), generator=generator
+    )
+    for index in range(sample_count):
+        side = 2 + 3 * index
+        images[index, :, 3:, :side, :side] = 0.9
+    valid_pixel_mask = torch.ones(
+        (sample_count, VIEW_COUNT, 1, height, width), dtype=torch.bool
+    )
+    if invalid_columns:
+        valid_pixel_mask[:, :, :, :, width - invalid_columns :] = False
+    values = (
+        list(targets)
+        if targets is not None
+        else [
+            TARGET_MINIMUM_UL
+            + (TARGET_MAXIMUM_UL - TARGET_MINIMUM_UL) * index / (sample_count - 1)
+            for index in range(sample_count)
+        ]
+    )
+    return PasteVolumeBatch(
+        images=images,
+        valid_pixel_mask=valid_pixel_mask,
+        conditioning=torch.full((sample_count, 1), math.log(PIXEL_PER_MM)),
+        target=torch.tensor(values, dtype=torch.float32).unsqueeze(1),
+        sample_weight=torch.ones((sample_count, 1)),
+        sample_ids=tuple(f"synthetic-{index:03d}" for index in range(sample_count)),
+    )
+
+
+@contextlib.contextmanager
+def _recorded_forwards(
+    task: PasteVolumeTask, observe: Callable[[Any], bool]
+) -> Iterator[list[bool]]:
+    """Model の forward ごとに ``observe`` の値を記録する.
+
+    hook は出力が detach される前に呼ばれる。
+
+    ``_observation_of`` を通ったあとでは、グラフの有無も compile の痕跡も残らない。
+    """
+
+    seen: list[bool] = []
+
+    def record(_module: nn.Module, _args: tuple[Any, ...], output: Any) -> None:
+        seen.append(observe(output))
+
+    handle = task.model.register_forward_hook(record)
+    try:
+        yield seen
+    finally:
+        handle.remove()
+
+
+def _requires_grad(output: Any) -> bool:
+    """Forward 出力が計算グラフに繋がっているか."""
+
+    mean, log_variance = cast(tuple[Tensor, Tensor], output)
+    return bool(mean.requires_grad or log_variance.requires_grad)
+
+
+def _is_compiling(_output: Any) -> bool:
+    """Forward が ``torch.compile`` の trace 下で走ったか."""
+
+    return bool(torch.compiler.is_compiling())
+
+
+def _collated_batch(tmp_path: Path) -> tuple[tuple[str, ...], PasteVolumeBatch]:
+    """``PasteVolumeCollator`` が実際に組んだ train batch を 1 本返す."""
+
+    data = _data(tmp_path)
+    planned = data.plan_epoch(split="train", epoch=0)[0]
+    batch = data.materialize(
+        planned, split="train", epoch=0, training=True, device=DEVICE
+    )
+    return planned, batch
+
+
+def _padding_pixel_gradient(model: nn.Module) -> float:
+    gradient = dict(model.named_parameters())[PADDING_PIXEL_NAME].grad
+    assert gradient is not None
+    return float(gradient.abs().max().item())
+
+
+def _overfit(
+    task: PasteVolumeTask, batch: PasteVolumeBatch
+) -> tuple[list[float], list[float]]:
+    """1 batch を繰り返し学習し、step ごとの loss と平均絶対誤差を返す.
+
+    optimizer は ``ml.training.loop`` と同じ AdamW・weight decay・勾配 clip にそろえる。
+
+    学習率だけは cosine で減衰させる。
+
+    負の対数尤度は残差が縮むほど ``exp(-log 分散)`` が大きくなって条件が悪くなる。
+
+    固定学習率では 5 seed 中 4 seed が最終の平均絶対誤差を初期の 1/10 に収められない。
+
+    実測は seed 0-4 で 0.1482 / 0.0223 / 0.6238 / 0.4071 / 0.1719。
+    """
+
+    model = task.model
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=OVERFIT_LEARNING_RATE,
+        weight_decay=OVERFIT_WEIGHT_DECAY,
+    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=OVERFIT_STEPS
+    )
+    losses: list[float] = []
+    errors: list[float] = []
+    for _step in range(OVERFIT_STEPS):
+        result = task.training_step(batch)
+        optimizer.zero_grad(set_to_none=True)
+        result.loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), OVERFIT_GRADIENT_CLIP_NORM)
+        optimizer.step()
+        scheduler.step()
+        losses.append(float(result.loss.detach().item()))
+        errors.append(
+            float((result.observation.mean - batch.target).abs().mean().item())
+        )
+    return losses, errors
+
+
+def _block_means(values: Sequence[float]) -> list[float]:
+    width = len(values) // OVERFIT_BLOCK_COUNT
+    return [
+        sum(values[index * width : (index + 1) * width]) / width
+        for index in range(OVERFIT_BLOCK_COUNT)
+    ]
+
+
+class TestPasteVolumeTaskSteps:
+    """1 batch を loss と観測値へ変換する契約."""
+
+    def test_returns_a_differentiable_loss_and_a_detached_observation(self):
+        task = PasteVolumeTask(paste_volume_model())
+        batch = _task_batch()
+
+        result = task.training_step(batch)
+
+        assert result.validate() is None
+        assert result.sample_count == TASK_SAMPLE_COUNT
+        assert result.loss.requires_grad
+        assert result.observation.mean.shape == (TASK_SAMPLE_COUNT, 1)
+        assert not result.observation.mean.requires_grad
+        assert torch.equal(result.observation.target, batch.target)
+        assert torch.equal(result.observation.sample_weight, batch.sample_weight)
+
+    def test_shares_the_loss_of_the_ml_core(self):
+        """Loss の値が ``ml.model.loss`` の 1 本と一致すること."""
+
+        task = PasteVolumeTask(paste_volume_model())
+        batch = _task_batch()
+
+        result = task.training_step(batch)
+
+        expected = weighted_gaussian_negative_log_likelihood(
+            result.observation.mean,
+            result.observation.log_variance,
+            batch.target,
+            batch.sample_weight,
+        )
+        assert float(result.loss.detach().item()) == pytest.approx(
+            float(expected.item())
+        )
+
+    def test_exposes_the_module_that_owns_the_state(self):
+        model = paste_volume_model()
+
+        assert PasteVolumeTask(model).model is model
+
+
+class TestPasteVolumeTaskGradientGraph:
+    """学習経路はグラフを作り、評価経路は作らないこと.
+
+    観測値は ``_observation_of`` が detach するので、返り値の
+    ``requires_grad`` は ``torch.no_grad()`` の有無に依らず必ず False になる。
+
+    detach より前を forward hook で見る。
+    """
+
+    def test_evaluates_without_building_a_graph(self):
+        task = PasteVolumeTask(paste_volume_model())
+
+        with _recorded_forwards(task, _requires_grad) as built:
+            observation = task.evaluation_step(_task_batch(sample_count=2))
+
+        assert built == [False]
+        assert not observation.mean.requires_grad
+
+    def test_the_same_observation_sees_the_graph_while_training(self):
+        """自己検査。学習経路では同じ観測点が True になること."""
+
+        task = PasteVolumeTask(paste_volume_model())
+
+        with _recorded_forwards(task, _requires_grad) as built:
+            result = task.training_step(_task_batch(sample_count=2))
+
+        assert built == [True]
+        assert result.loss.requires_grad
+
+
+class TestPasteVolumeTaskOverfitting:
+    """Head まで含めた経路が勾配を通して収束すること.
+
+    「8 sample を覚えきれる」ことは encoder が学習している証拠にはならない。
+
+    実測: encoder を全凍結し head 2 本 258 要素だけを学習させると比 0.0009 で、
+    全条件の中で最良になる。凍結したランダム特徴の線形結合で足りてしまう。
+
+    encoder へ勾配が届くことは :class:`TestPasteVolumeTaskEncoderGradient` が測る。
+    """
+
+    def test_drives_the_negative_log_likelihood_and_the_error_down(self):
+        batch = _task_batch()
+        task = PasteVolumeTask(paste_volume_model())
+
+        losses, errors = _overfit(task, batch)
+
+        # 初期の平均絶対誤差は mean_bias_initial 一定の予測そのもの。観測が真値と
+        # 予測を突き合わせていることを、学習前の 1 点で固定する
+        assert errors[0] == pytest.approx(
+            float((batch.target - 0.15).abs().mean().item())
+        )
+        blocks = _block_means(losses)
+        assert blocks == sorted(blocks, reverse=True)
+        assert blocks[-1] < blocks[0]
+        assert errors[-1] < errors[0] * OVERFIT_ERROR_RATIO
+
+
+class TestPasteVolumeTaskEncoderGradient:
+    """学習経路が encoder まで勾配を届けること."""
+
+    def test_flows_gradient_into_the_first_stem_convolution(self):
+        """1 段目の stem 畳み込みに 0 でない勾配が来ること.
+
+        head だけが学習しても過学習テストは通るので、経路はここで別に見る。
+
+        凍結側の対は ``test_model.py`` の freeze / 非 freeze が持つ。
+        """
+
+        task = PasteVolumeTask(paste_volume_model())
+
+        task.training_step(_task_batch(sample_count=2)).loss.backward()
+
+        gradient = dict(task.model.named_parameters())[STEM_CONVOLUTION_NAME].grad
+        assert gradient is not None
+        assert float(gradient.abs().max().item()) > 0.0
+
+
+class TestPasteVolumeTaskVariableShapes:
+    """Bucket の違う batch を続けて通せること."""
+
+    def test_runs_two_buckets_in_a_row(self):
+        task = PasteVolumeTask(paste_volume_model())
+
+        first = task.training_step(_task_batch(sample_count=4))
+        second = task.training_step(
+            _task_batch(
+                sample_count=3,
+                height=OTHER_IMAGE_HEIGHT,
+                width=OTHER_IMAGE_WIDTH,
+            )
+        )
+
+        assert first.validate() is None
+        assert second.validate() is None
+        assert first.sample_count == 4
+        assert second.sample_count == 3
+        assert bool(torch.isfinite(first.loss).item())
+        assert bool(torch.isfinite(second.loss).item())
+
+
+class TestPasteVolumeTaskPaddingGradient:
+    """Padding 領域の学習可能な画素へ勾配が流れること."""
+
+    def test_flows_gradient_into_the_learnable_padding_pixel(self):
+        task = PasteVolumeTask(paste_volume_model())
+
+        task.training_step(
+            _task_batch(sample_count=2, invalid_columns=4)
+        ).loss.backward()
+
+        assert _padding_pixel_gradient(task.model) > 0.0
+
+    def test_the_same_observation_sees_no_gradient_without_padding(self):
+        """自己検査。padding が生じない batch では同じ観測点が 0 になること.
+
+        mask が全て有効だと ``torch.where`` は padding 画素を 1 つも選ばない。
+
+        勾配は存在しても全要素 0 になる。
+
+        観測が padding の有無を映していることの裏取り。
+        """
+
+        task = PasteVolumeTask(paste_volume_model())
+
+        task.training_step(_task_batch(sample_count=2)).loss.backward()
+
+        assert _padding_pixel_gradient(task.model) == 0.0
+
+
+class TestPasteVolumeTaskReduce:
+    """観測値の集計."""
+
+    def test_returns_an_empty_mapping_without_observations(self):
+        assert PasteVolumeTask(paste_volume_model()).reduce([]) == {}
+
+    def test_returns_an_empty_mapping_for_misaligned_observations(self):
+        """件数のそろわない観測値を集計しないこと.
+
+        集計の失敗ではなく観測値の組み立ての誤りで、どの metric も意味を持たない。
+        """
+
+        task = PasteVolumeTask(paste_volume_model())
+        observation = task.evaluation_step(_task_batch(sample_count=2))
+        misaligned = attrs.evolve(
+            observation, target=torch.cat([observation.target, torch.ones(1, 1)])
+        )
+
+        assert task.reduce([misaligned]) == {}
+
+    def test_reports_the_overall_metrics_and_both_diagnostics(self):
+        task = PasteVolumeTask(paste_volume_model())
+        observation = task.evaluation_step(
+            _task_batch(sample_count=4, targets=[0.0, 0.1, 0.2, 0.3])
+        )
+
+        values = task.reduce([observation])
+
+        assert "relative_error_score" in values
+        assert "saturated_positive_fraction" in values
+        assert "zero_target_mean_absolute_error" in values
+
+    def test_keeps_the_zero_target_metrics_apart_from_the_overall_ones(self):
+        """真値 0 の集団の metric が全体の metric を上書きしないこと.
+
+        ``ZeroTargetMetrics`` は 4 つの field 名を ``GaussianRegressionMetrics`` と
+        共有する。接頭辞が外れると本数が 22 本へ減る。
+        """
+
+        task = PasteVolumeTask(paste_volume_model())
+        observation = task.evaluation_step(
+            _task_batch(sample_count=4, targets=[0.0, 0.1, 0.2, 0.3])
+        )
+
+        values = task.reduce([observation])
+
+        assert len(values) == REDUCED_METRIC_COUNT
+        assert (
+            values["mean_absolute_error"] != values["zero_target_mean_absolute_error"]
+        )
+
+    def test_reports_the_diagnostics_when_no_regression_metric_can_be_measured(self):
+        """Blank だけの split でも診断が残ること.
+
+        真値 0 の sample は ``GaussianRegressionMetrics`` に一切現れないので、空の写像を
+        返すと運用者は Trainer の「monitor がありません」しか受け取れない。
+        """
+
+        task = PasteVolumeTask(paste_volume_model())
+        observation = task.evaluation_step(
+            _task_batch(sample_count=4, targets=[0.0, 0.0, 0.0, 0.0])
+        )
+
+        values = task.reduce([observation])
+
+        assert "relative_error_score" not in values
+        assert values["zero_target_count"] == 4
+        assert values["zero_target_sample_count"] == 4
+        assert "zero_target_mean_absolute_error" in values
+
+    def test_concatenates_every_observation(self):
+        task = PasteVolumeTask(paste_volume_model())
+        observations = [
+            task.evaluation_step(_task_batch(sample_count=2, targets=[0.1, 0.2])),
+            task.evaluation_step(_task_batch(sample_count=3)),
+        ]
+
+        values = task.reduce(observations)
+
+        assert values["sample_count"] == 5
+
+
+class TestPasteVolumeTaskWithCollatedBatch:
+    """Collator が組んだ batch をそのまま学習経路へ通せること.
+
+    手で組んだ batch では ``conditioning`` の作り方も mask の極性も再宣言になる。
+
+    collator 側が別の量へ変わっても、手書きの batch では気づけない。
+    """
+
+    def test_takes_a_training_step_on_a_collated_batch(self, tmp_path: Path):
+        task = PasteVolumeTask(paste_volume_model())
+        planned, batch = _collated_batch(tmp_path)
+
+        result = task.training_step(batch)
+
+        assert result.validate() is None
+        assert result.sample_count == len(planned)
+        assert result.loss.requires_grad
+        assert bool(torch.isfinite(result.loss).item())
+
+    def test_feeds_the_conditioning_into_the_model(self, tmp_path: Path):
+        """``conditioning`` が model へ届いていること.
+
+        ``log(有効 pixel_per_mm)`` は仕様書 §2 が挙げた唯一の物理 scale 入力。
+
+        条件だけを変えた 2 batch で出力が動かなければ、経路が切れている。
+
+        観測は log 分散側。平均側は学習前 bias 一定で条件を映さない。
+        """
+
+        task = PasteVolumeTask(paste_volume_model())
+        _planned, batch = _collated_batch(tmp_path)
+        shifted = attrs.evolve(batch, conditioning=batch.conditioning + 1.0)
+
+        assert not torch.equal(
+            task.training_step(batch).observation.log_variance,
+            task.training_step(shifted).observation.log_variance,
+        )
+        assert not torch.equal(
+            task.evaluation_step(batch).log_variance,
+            task.evaluation_step(shifted).log_variance,
+        )
+
+
+class TestPasteVolumeTaskCompile:
+    """``torch.compile`` を差し込む経路."""
+
+    def test_keeps_the_state_dict_keys_after_compiling_the_forward(self):
+        model = paste_volume_model()
+        task = PasteVolumeTask(model)
+
+        task.compile_forward(CompileOptions())
+
+        assert task.model is model
+        assert [key for key in model.state_dict() if "_orig_mod" in key] == []
+
+    def test_routes_both_steps_through_the_compiled_forward(self):
+        """差し替えたあとの 2 経路が compile 済み callable を通ること.
+
+        ``compile_forward`` を no-op にする変異は、ここだけが落とせる。
+
+        backend は eager にする。dynamo を通したかどうかだけを見たいため。
+        """
+
+        task = PasteVolumeTask(paste_volume_model())
+        batch = _task_batch(sample_count=2)
+
+        task.compile_forward(CompileOptions(backend="eager"))
+        with _recorded_forwards(task, _is_compiling) as compiling:
+            task.training_step(batch)
+            task.evaluation_step(batch)
+
+        assert compiling == [True, True]
+
+    def test_keeps_the_eager_loss_after_compiling_the_forward(self):
+        """Compile しても loss が eager と一致すること."""
+
+        batch = _task_batch(sample_count=2)
+        eager = PasteVolumeTask(paste_volume_model()).training_step(batch).loss
+        task = PasteVolumeTask(paste_volume_model())
+
+        task.compile_forward(CompileOptions(backend="eager"))
+        compiled = task.training_step(batch).loss
+
+        assert float(compiled.detach().item()) == pytest.approx(
+            float(eager.detach().item())
+        )
+
+    def test_rejects_compile_options_that_do_not_validate(self):
+        task = PasteVolumeTask(paste_volume_model())
+
+        with pytest.raises(ValueError, match="backend"):
+            task.compile_forward(CompileOptions(backend=""))
+
+    @skip_if_no_inductor
+    def test_the_inductor_backend_matches_eager_forward_loss_and_gradient(self):
+        batch = _task_batch(sample_count=2, invalid_columns=4)
+
+        def loss(outputs: tuple[Tensor, ...]) -> Tensor:
+            mean, log_variance = outputs
+            return weighted_gaussian_negative_log_likelihood(
+                mean, log_variance, batch.target, batch.sample_weight
+            )
+
+        result, reason = CompileParityResult.measure(
+            paste_volume_model(),
+            (batch.images, batch.valid_pixel_mask, batch.conditioning),
+            loss=loss,
+            tolerances=FLOAT32_PARITY_TOLERANCES,
+            options=CompileOptions(backend="inductor", fullgraph=True),
+        )
+
+        assert reason is None
+        assert result is not None
+        assert result.passed is True
+        # 突き合わせた勾配が 1 本も無いと within_tolerance が空全称で真になる
+        assert result.checked_gradient_count == sum(
+            1 for _ in paste_volume_model().parameters()
+        )

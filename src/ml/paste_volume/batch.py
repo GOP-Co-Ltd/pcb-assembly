@@ -215,10 +215,10 @@ def _column(values: Sequence[float], device: torch.device) -> Tensor:
 def _placement_seed(global_seed: int, epoch: int, sample_id: str) -> int:
     """余白へ置く位置を決める乱数種.
 
-    **役割ラベルを必ず混ぜる。** ``AugmentationRange.parameters_for`` は
-    ``{global_seed}:{epoch}:{sample_id}`` を sha256 に掛けた先頭 8 byte を種にするので、
-    同じ材料を使うと回転角と配置位置が同じ乱数列から出て相関する。
-    ``ViewDropout`` が ``view-dropout`` を挟んでいるのと同じ理由。
+    **役割ラベルを必ず混ぜる。** ``(global_seed, epoch, sample_id)`` を材料にする用途は
+    他に 3 つあり（``augmentation`` / ``view-dropout`` / ``batch-plan``）、ラベルを
+    省くと同じ材料から同じ乱数列が出て、配置位置が回転角と相関する。規則そのものは
+    ``ml.data.image._derived_seed`` の docstring にある。
 
     split は混ぜない。位置をずらすのは学習時だけで、学習に使う split は常に 1 つなので、
     区別しても観測できる違いが生まれない。

@@ -1,0 +1,8 @@
+# Raspberry Pi 5（CPU FP32）向けの trainer profile。
+#
+# 小さい batch を積んで実効 batch size を保ち、1 run を時間予算に収める。AMP は CPU
+# では使わないので既定（false）のままにする。
+
+[trainer]
+gradient_accumulation = 4
+deadline_seconds = 3300.0

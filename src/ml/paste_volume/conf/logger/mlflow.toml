@@ -1,0 +1,18 @@
+# MLflow へ run を記録する。
+#
+# tracking URI は機械固有なので書かない。相対 URI を既定にすると起動した directory
+# ごとに store が分かれ、5 fold の run が別々の場所へ散る。
+#
+# 単一端末では local sqlite を使う（仕様書 §4「local SQLite から shared server へ
+# 同じ client API で移行できる」）。MLflow 3.15 の file store は maintenance mode で、
+# 環境変数 MLFLOW_ALLOW_FILE_STORE=true で opt out しない限り例外になる。
+#
+#   logger.tracking_uri=sqlite:////abs/mlflow.db   ← sqlite は 4 連 slash
+#   logger.artifact_location=/abs/mlartifacts
+#
+# database backend は experiment を作るときに成果物の置き場所を決めないと現在
+# directory の下（./mlruns）を使うので、artifact_location も argv で渡す。
+# server の tracking URI では server 側の設定が使われるので渡さない。
+
+[logger]
+experiment_name = "paste-volume"

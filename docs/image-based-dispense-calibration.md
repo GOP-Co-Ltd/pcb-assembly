@@ -757,16 +757,19 @@ module として実装する。
 
 CLI は最低限、次の操作を提供する。
 
+学習・評価・探索は experiment config 全体を argv で受けるので、独立した module を直接起こす。
+運用 CLI（`ml.paste_volume.cli`）へ中継させない。argv の詳細と実走手順は ML 実装計画の
+「7. 塗布フローで利用する module」を正典とする。
+
 ```text
-python -m ml.paste_volume.cli dataset validate <dataset>
-python -m ml.paste_volume.cli dataset summarize <dataset>
-python -m ml.paste_volume.cli train <dataset...>
-python -m ml.paste_volume.cli finetune <checkpoint> <dataset>
-python -m ml.paste_volume.cli evaluate <model> <dataset>
-python -m ml.paste_volume.cli optimize <model>
-python -m ml.paste_volume.cli benchmark <model>
-python -m ml.paste_volume.cli infer <model> <pre-image> <post-image>
+python -m ml.paste_volume.cli dataset validate <dataset...>
+python -m ml.paste_volume.cli dataset summarize <dataset...>
+python -m ml.paste_volume.train experiment=<preset> trainer=<profile> logger=mlflow ...
+python -m ml.paste_volume.evaluate folds=<run directory の親> split=<split> ...
+python -m ml.paste_volume.search experiment=search hyperparameter_search=base_optuna ...
 ```
+
+export、最適化、benchmark、単発推論は Phase 4 以降で運用 CLI へ足す。
 
 ベースモデル学習、Raspberry Pi 5 上のファインチューニング、評価、最適化は WebUI の通常
 ジョブにしない。最大 1 時間のファインチューニングで装置ジョブを占有したり、WebAPI

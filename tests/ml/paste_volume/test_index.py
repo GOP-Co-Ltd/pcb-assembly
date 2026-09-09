@@ -1,6 +1,6 @@
 """学習に使う sample index の公開契約.
 
-index は「その cell が学習に使えるか」を決める層。session が構造を保証した後に、 画像を 1 度だけ decode
+index は「その cell が学習に使えるか」を決める層。session が構造を保証した後に、画像を 1 度だけ decode
 して寸法を突き合わせ、前処理を通せない cell を隔離する。
 """
 
@@ -43,6 +43,15 @@ def _built(root: Path, **overrides: object) -> PasteVolumeSampleIndex:
     return _index(write_session(root, cells=CELLS, **overrides))  # type: ignore[arg-type]
 
 
+def _two_sessions(tmp_path: Path) -> PasteVolumeSampleIndex:
+    """同じ cell 配置の session 2 本。cell group が session をまたぐ形になる."""
+
+    return _index(
+        write_session(tmp_path / "a", cells=CELLS, machine_id="m1"),
+        write_session(tmp_path / "b", cells=CELLS, machine_id="m2"),
+    )
+
+
 def _rejected(*roots: Path) -> str:
     index, reason = PasteVolumeSampleIndex.from_roots(roots, constraints=CONSTRAINTS)
     assert index is None
@@ -68,7 +77,7 @@ class TestSampleEntries:
     def test_sample_id_pairs_the_session_with_the_cell_index(self, tmp_path: Path):
         """sample_id は session fingerprint の先頭 12 桁と cell index だけで決まる.
 
-        view 番号は入らない。cell が sample の単位なので、view を増減しても 1 cell から できる ID は
+        view 番号は入らない。cell が sample の単位なので、view を増減しても 1 cell からできる ID は
         1 つ。
         """
 
@@ -127,8 +136,8 @@ class TestSampleEntries:
     def test_records_the_source_size_from_the_decoded_image(self, tmp_path: Path):
         """実 PNG の寸法を持つ.
 
-        plan_epoch はこの値から前処理後の shape を求め、collate 側は実 decode から
-        求める。両者が一致することが resume 契約の前提なので、metadata ではなく 画像から取る。
+        plan_epoch はこの値から前処理後の shape を求め、collate 側は実 decode
+        から求める。両者が一致することが resume 契約の前提なので、metadata ではなく画像から取る。
         """
 
         entries = _built(tmp_path / "session").entries
@@ -212,8 +221,8 @@ class TestDatasetFingerprint:
     def test_does_not_change_with_the_directory_name(self, tmp_path: Path):
         """展開先と directory 名を変えても同じ値になる.
 
-        checkpoint と split manifest がこの値との一致を要求するので、mount を変えた だけで
-        resume が落ちないことを固定する。
+        checkpoint と split manifest がこの値との一致を要求するので、mount を変えただけで resume
+        が落ちないことを固定する。
         """
 
         first = _built(tmp_path / "one" / "plate-a")
@@ -263,14 +272,14 @@ class TestDatasetFingerprint:
     def test_keeps_the_constraints_it_screened_with(self, tmp_path: Path):
         """使った制約を持ち歩く.
 
-        collator が違う制約を使うと「拒否は index を作る時点で済ませる」前提が崩れるので、 突き合わせられるようにする。
+        collator が違う制約を使うと「拒否は index を作る時点で済ませる」前提が崩れるので、突き合わせられるようにする。
         """
 
         assert _built(tmp_path / "session").constraints == CONSTRAINTS
 
 
-class TestSplitGroups:
-    """分割の不可分単位が物理 cell であること."""
+class TestCellSplitGroups:
+    """Cell 次元での分割の不可分単位が物理 cell であること."""
 
     def test_groups_the_same_physical_cell_across_sessions(self, tmp_path: Path):
         """同じ座標の cell は session をまたいで同じ group になる.
@@ -282,7 +291,7 @@ class TestSplitGroups:
             write_session(tmp_path / "a", cells=CELLS, machine_id="m1"),
             write_session(tmp_path / "b", cells=CELLS, machine_id="m2"),
         )
-        groups = index.sample_groups()
+        groups = index.sample_groups(dimension="cell")
 
         assert set(groups) == {entry.sample_id for entry in index.entries}
         assert len(set(groups.values())) == len(CELLS)
@@ -290,7 +299,7 @@ class TestSplitGroups:
     def test_groups_by_position_even_when_the_cell_index_differs(self, tmp_path: Path):
         """同じ座標なら cell index が違っても同じ group になる.
 
-        index は session 内の連番でしかない。銅板の同じ場所を指しているかは座標だけが 決めるので、index を
+        index は session 内の連番でしかない。銅板の同じ場所を指しているかは座標だけが決めるので、index を
         group にすると背景テクスチャが split をまたいで漏れる。
         """
 
@@ -308,12 +317,113 @@ class TestSplitGroups:
         )
 
         assert [entry.index for entry in index.entries] in ([1, 7], [7, 1])
-        assert len(set(index.sample_groups().values())) == 1
+        assert len(set(index.sample_groups(dimension="cell").values())) == 1
 
     def test_separates_cells_at_different_positions(self, tmp_path: Path):
         index = _built(tmp_path / "session")
 
         assert len({entry.cell_key for entry in index.entries}) == len(CELLS)
+
+
+class TestSessionSplitGroups:
+    """Session 次元での分割の不可分単位が収集 session であること."""
+
+    def test_groups_every_sample_by_its_session(self, tmp_path: Path):
+        index = _two_sessions(tmp_path)
+
+        groups = index.sample_groups(dimension="session")
+
+        assert set(groups) == {entry.sample_id for entry in index.entries}
+        assert set(groups.values()) == set(index.session_values())
+        assert len(index.session_values()) == 2
+
+    def test_the_two_dimensions_cross_each_other(self, tmp_path: Path):
+        """Cell group は session をまたぎ、session group は cell をまたぐ.
+
+        2 つは入れ子ではなく直交する。同じ銅板の同じ位置なら ``cell_key`` は session を
+        またいで同じ値になるので、cell group を単位にしたままでは 1 session を丸ごと
+        held-out にできない。session 次元が要るのはこのため。
+        """
+
+        index = _two_sessions(tmp_path)
+        cells = index.sample_groups(dimension="cell")
+        sessions = index.sample_groups(dimension="session")
+
+        sessions_per_cell: dict[str, set[str]] = {}
+        cells_per_session: dict[str, set[str]] = {}
+        for sample_id, cell in cells.items():
+            sessions_per_cell.setdefault(cell, set()).add(sessions[sample_id])
+            cells_per_session.setdefault(sessions[sample_id], set()).add(cell)
+
+        assert all(len(values) == 2 for values in sessions_per_cell.values())
+        assert all(len(values) == len(CELLS) for values in cells_per_session.values())
+
+    def test_counts_the_same_session_given_twice_once(self, tmp_path: Path):
+        root = write_session(tmp_path / "a", cells=CELLS)
+
+        assert len(_index(root, root).session_values()) == 1
+
+
+class TestResolveSession:
+    """人が打てる名前から session fingerprint 1 件へ解決すること."""
+
+    def test_resolves_a_label(self, tmp_path: Path):
+        index = _two_sessions(tmp_path)
+        entry = index.entries[0]
+
+        fingerprint, reason = index.resolve_session(entry.session_label)
+
+        assert reason is None
+        assert fingerprint == entry.session_fingerprint
+
+    def test_resolves_a_fingerprint_prefix(self, tmp_path: Path):
+        index = _two_sessions(tmp_path)
+        expected = index.session_values()[0]
+
+        fingerprint, reason = index.resolve_session(expected[:20])
+
+        assert reason is None
+        assert fingerprint == expected
+
+    def test_reports_a_selector_that_matches_nothing(self, tmp_path: Path):
+        index = _two_sessions(tmp_path)
+
+        fingerprint, reason = index.resolve_session("session-zzz")
+
+        assert fingerprint is None
+        assert reason is not None
+        assert "一致する session がありません" in reason
+
+    def test_reports_a_selector_that_matches_more_than_one(self, tmp_path: Path):
+        """0 件と複数件を別の理由にする.
+
+        打ち間違いと指定不足では次の手が違う。
+
+        全 fingerprint が共有する前頭辞を渡して、複数件の側だけを踏む。
+        """
+
+        index = _two_sessions(tmp_path)
+
+        fingerprint, reason = index.resolve_session("sha256:")
+
+        assert fingerprint is None
+        assert reason is not None
+        assert "複数の session に一致します" in reason
+
+    def test_reports_an_empty_selector(self, tmp_path: Path):
+        """空指定は「一致しない」でも「複数一致」でもない理由で落とす.
+
+        ガードを外すと空文字が全 fingerprint に前頭一致して「複数の session に
+        一致します」になる。理由まで見ないとその退化が素通りする。
+        """
+
+        index = _two_sessions(tmp_path)
+
+        fingerprint, reason = index.resolve_session("")
+
+        assert fingerprint is None
+        assert reason is not None
+        assert "指定が空です" in reason
 
 
 class TestOrderingAndSizes:
@@ -322,7 +432,7 @@ class TestOrderingAndSizes:
     def test_orders_cells_by_index_even_when_a_blank_comes_first(self, tmp_path: Path):
         """塗布しない cell が小さい index を持っていても index 昇順になる.
 
-        収集 schema は samples と blanks を別配列で持つので、畳んだだけでは 「塗布した cell
+        収集 schema は samples と blanks を別配列で持つので、畳んだだけでは「塗布した cell
         が先」の順になる。
         """
 
@@ -343,7 +453,7 @@ class TestOrderingAndSizes:
     def test_reports_the_smallest_side_across_sessions(self, tmp_path: Path):
         """最小辺は session をまたいだ最小値.
 
-        augmentation の下限検証に使うので、いちばん小さい画像が下限を割らないことを 見なければ意味がない。
+        augmentation の下限検証に使うので、いちばん小さい画像が下限を割らないことを見なければ意味がない。
         """
 
         index = _index(
@@ -358,7 +468,7 @@ class TestOrderingAndSizes:
     ):
         """収集 metadata の view 配列が昇順でなくても番号順に並べ直す.
 
-        pre と post の対応は view 番号で決まる。並びが崩れたまま collate すると、 別の view どうしを 1
+        pre と post の対応は view 番号で決まる。並びが崩れたまま collate すると、別の view どうしを 1
         組として扱う。
         """
 
@@ -410,7 +520,9 @@ class TestRejection:
         )
         index = _index(root)
 
-        assert index.rejections[0].sample_id not in index.sample_groups()
+        assert index.rejections[0].sample_id not in index.sample_groups(
+            dimension="cell"
+        )
 
     def test_does_not_count_a_rejected_cell_in_the_loss_weight(self, tmp_path: Path):
         """隔離した cell を weight の分母に入れない.
@@ -450,8 +562,8 @@ class TestStructuralRejection:
     ):
         """PNG の実寸が pixel_rect と食い違う session を拒否する.
 
-        plan_epoch は entry の寸法から前処理後 shape を求め、collate は実 decode から
-        求める。ここがずれると bucket と pixel budget が黙って壊れるので、衛生検査では なく resume
+        plan_epoch は entry の寸法から前処理後 shape を求め、collate は実 decode
+        から求める。ここがずれると bucket と pixel budget が黙って壊れるので、衛生検査ではなく resume
         契約を支える検証。
         """
 
