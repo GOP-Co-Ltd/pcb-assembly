@@ -16,26 +16,31 @@ Codex がこのリポジトリで作業する際に常時参照するガイダ�
 
 ## 開発原則
 
-慎重さを速度に優先する。trivial なタスクでは判断で簡略化してよい。
+慎重さは成果物の正しさに向ける。確認の往復や検証の回数を増やすこと自体を目的にしない。
+trivial なタスクでは判断で簡略化してよい。
 
 ### 1. 実装前に考える
 
-- 仮定を明示し、不確かな点は確認する
+- 軽微な選択は既存パターンに従って決め、採用理由を短く示す
+- 解釈の違いで成果物が変わる点だけを確認する
+- 仮定を置く場合は明示する
 - 複数の解釈やトレードオフがあれば表に出す
 - より単純な解決策があれば提示する
-- 不明瞭なまま実装を進めない
+- スコープ変更と破壊的操作は事前に確認する
 
 ### 2. シンプルさを優先
 
 - 要求されていない機能・柔軟性・抽象化を追加しない
-- 起こり得ないシナリオ向けの処理を増やさない
+- 起こり得ないシナリオ向けの処理を増やさず、境界で必要な検証だけを行う
 - 問題を解く最小限のコードにする
 
 ### 3. 必要な範囲だけ変更
 
 - 周辺コードをついでに整形・リファクタしない
+- 壊れていないコードをついでに書き換えない
 - 既存スタイルと公開インターフェースを尊重する
 - 自分の変更で生じた未使用コードだけを片付ける
+- 元からある無関係な dead code は指摘に留める
 - diff の各行をユーザー要求へ直接トレースできる状態にする
 
 ### 4. ゴール駆動
@@ -78,11 +83,11 @@ ML 依存は `pyproject.toml` の `ml-runtime` / `ml-train` / `ml-hpo` / `ml-exp
 - `make setup`: 開発環境セットアップ
 - `make format`: pre-commit 実行
 - `make type`: pyright 型チェック
-- `make test`: E2E 以外の全テスト
+- `make test`: E2E 以外の全テスト（実機を動かすため agent は実行しない）
 - `make test-no-hardware`: ハードウェア・E2E を除外
 - `make test-ml`: `tests/ml` だけを実行（pcbnew / picamera2 不要）
 - `make test-e2e`: WebUI E2E
-- `make run`: format、test、type
+- `make run`: format、test、type（実機テストを含むため agent は実行しない）
 - `make api` / `make api-dev`: backend WebAPI 起動（port 8081、dev は auto-reload）
 - `make api-fake`: fake カメラで backend 起動（隔離 data_dir/port、手動・ブラウザ E2E 用）
 - `make ui` / `make ui-dev`: UI frontend 起動（port 8080、dev は auto-reload）
@@ -169,8 +174,9 @@ make ml-docker-check   # format → ML の型検査 → tests/ml。学習機で�
 
 標準フロー:
 
-要件確認 → ブランチ作成 → 実装 → `make format && make type && make test`
-→ commit。実機がない場合は理由を明示して `make test-no-hardware` を使う。
+要件確認 → ブランチ作成 → 実装 →
+`make format && make type && make test-no-hardware` → commit。
+実機テストはユーザーが行う。
 
 ## Custom Agents
 
@@ -180,7 +186,7 @@ custom agent と `agent-team-startup` Skill を使う。
 標準サイクル:
 
 `implementation-planner` → 任意 `spec-test-author` →
-`plan-implementer` → `code-simplifier` → `docs-keeper`
+`plan-implementer` → `code-reviewer` ⇄ `code-simplifier`
 
 中間メモは `memory/agents/<agent-name>/<task>.md` に置く。並列 agent は書き込み
 範囲を分離し、同じファイルを同時編集しない。
@@ -194,6 +200,7 @@ custom agent と `agent-team-startup` Skill を使う。
 - `.agents/skills/webui-e2e/`: WebUI E2E
 - `.agents/skills/webui-thin-wrapper/`: WebUI 薄ラッパー方針
 - `.agents/skills/agent-team-startup/`: custom agent 運用
+- `.agents/skills/solo-dev-cycle/`: sub-agent を使わない逐次開発
 - `.agents/skills/maximize-parallels/`: tool 並列化
 - `.agents/skills/do-on-worktree/`: 独立タスクの worktree 運用
 - `.agents/skills/gitlab-mr/`: GitLab MR 作成

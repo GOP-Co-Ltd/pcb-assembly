@@ -73,11 +73,11 @@ git diff --name-only --diff-filter=U    # conflict した file 一覧
 main を取り込んだ結果コードが壊れていないか確認する。**全 green** であることが MR の前提（AGENTS.md 自走開発フロー）。
 
 ```bash
-make format && make type && make test
+make format && make type && make test-no-hardware
 ```
 
 - test が落ちたら、main 側の変更と自分の変更の **意味的な衝突**（テキスト conflict は無かったが論理が壊れた）を疑う。修正して再度 green にする
-- ハードウェアテスト（`@mark_hardware`）の扱いは普段どおり（実機が無ければ `make test-no-hardware`。詳細は skill [hardware-test](../hardware-test/SKILL.md)）
+- ハードウェアテスト（`@mark_hardware`）は agent が実行しない。実機確認はユーザーに委ねる（詳細は skill [hardware-test](../hardware-test/SKILL.md)）
 
 ### 6. push して MR 作成
 

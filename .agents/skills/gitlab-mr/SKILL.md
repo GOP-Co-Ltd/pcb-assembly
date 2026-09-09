@@ -60,5 +60,5 @@ glab mr create \
 ## 注意点
 
 - **マージはしない**。`main` への merge はユーザー判断（AGENTS.md の Git 運用に従う）。`glab mr merge` は実行しない
-- 検証（`make format && make type && make test`）が未実施の変更を含む場合は、MR 作成前に実行する
+- 検証（`make format && make type && make test-no-hardware`）が未実施の変更を含む場合は、MR 作成前に実行する
 - push が reject された場合（remote が先行）は `git pull --rebase` の要否をユーザーに確認する。`--force` 系は使わない
