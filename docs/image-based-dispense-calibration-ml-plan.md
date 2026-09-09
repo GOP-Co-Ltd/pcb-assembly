@@ -563,7 +563,7 @@ configはPython packageと一緒にinstallできる場所へ置き、`ml.config.
 src/ml/config/conf/
 └── trainer/edge.toml
 
-pcbasm/pasting/paste_volume/conf/
+ml/paste_volume/conf/
 ├── base.toml
 ├── data/paste_volume.toml
 ├── model/resnet_small.toml
@@ -959,9 +959,16 @@ load時に全checksum、schema version、必要runtime versionを検証する。
 
 ### 配置と責務
 
-実装はドメイン非依存のML基盤 `ml`（`src/ml/`）と、塗布ドメイン層
-`pcbasm.pasting.paste_volume` に分ける。依存の向きは `pcbasm` → `ml` の一方向とし、`ml` から
-`pcbasm` / `web` をimportしない。WebAPIやUIへ計算を持たせない点は変わらない。
+機械学習の責務は `ml`（`src/ml/`）が持ち、`pcbasm` は装置の制御コアに徹する。`ml` は
+ドメイン非依存のコアと、塗布ドメイン層 `ml.paste_volume` に分かれる。`pcbasm.pasting` が扱うのは
+`ml` が学習・exportした成果物だけとする。WebAPIやUIへ計算を持たせない点は変わらない。
+
+`ml` コア（`ml.paste_volume` 以外）は `pcbasm` / `web` を一切importしない。`ml.paste_volume` は
+収集datasetを読むため装置ドメインの**データ構造**だけを参照する（`pcbasm.geometry` /
+`pcbasm.pasting.dataset` / `pcbasm.pasting.dispense`）。制御ロジックは参照しない。
+`ml.paste_volume` と `pcbasm.pasting` は1つの関心事の両端なのでpackage単位では循環するが、
+これは意図した形。以上と「学習コンテナに無い `pcbasm.hal` / pcbnew / picamera2 へ推移的にも
+届かないこと」を `tests/ml/test_architecture.py` が機械検証する。
 
 ```text
 ml.serialization                         # 暗黙変換を許さないcattrs converter
@@ -975,16 +982,20 @@ ml.config                                # TOML層の合成境界とpackaged con
 ml.tuning                                # Optuna study identity、storage検証、lineage検証
 ml.export                                # ONNX、quantization、parity、benchmark、runtime
 
+ml.paste_volume.session                  # 1収集sessionの読み込みと構造検証、session fingerprint
+ml.paste_volume.index                    # sample index、dataset fingerprint、split group
+ml.paste_volume.dataset                  # 1 sampleのPNG decodeだけ
+ml.paste_volume.batch                    # view間引き・augmentation・サイズ合わせ・padding・条件変数
+ml.paste_volume.model                    # 塗布量推定modelとfine-tune範囲
+ml.paste_volume.task                     # ml.training.TrainingTask / TrainingData の実装
+ml.paste_volume.train                    # argvを所有するtraining entrypoint
+ml.paste_volume.evaluate                 # argvを所有するevaluation entrypoint
+ml.paste_volume.conf                     # packaged config group（TOML）
+ml.paste_volume.release                  # 精度gateとpromotion
+ml.cli.paste_volume                      # experiment configを要らない運用CLI
+
 pcbasm.pasting.dataset                   # 収集schemaと原本の読み書き（metadata / writer / recorder / capture）
-pcbasm.pasting.paste_volume.data         # session validate、composite manifest、sample index
-pcbasm.pasting.paste_volume.model        # 塗布量推定modelとfine-tune範囲
-pcbasm.pasting.paste_volume.task         # ml.training.TrainingTask / TrainingData の実装
-pcbasm.pasting.paste_volume.train        # argvを所有するtraining entrypoint
-pcbasm.pasting.paste_volume.evaluate     # argvを所有するevaluation entrypoint
-pcbasm.pasting.paste_volume.conf         # packaged config group（TOML）
-pcbasm.pasting.paste_volume.release      # 精度gateとpromotion
-pcbasm.pasting.paste_volume.inference    # manifest検証、runtime、公開prediction API
-pcbasm.cli.paste_volume                   # experiment configを要らない運用CLI
+pcbasm.pasting.paste_volume              # export済み成果物のmanifest検証、runtime、公開prediction API
 ```
 
 通常の`import pcbasm.pasting`でtorch、torchvision、Optuna、MLflow、ONNX Runtimeをeager
@@ -998,23 +1009,23 @@ Raspberry Pi 5で推論経路が動くよう、MLflow / Optuna / ONNXを要求�
 ### 学習entrypointと運用CLI
 
 学習entrypointとsubcommand parserに同じargvを処理させない。学習entrypointは
-`group=option`と`key=value`だけを受け取るので、`pcbasm.cli.paste_volume train ...`の残り引数を
+`group=option`と`key=value`だけを受け取るので、`ml.cli.paste_volume train ...`の残り引数を
 中継するadapterは作らない。学習・fine-tuning・評価はargv全体を所有する独立moduleとする。
 `group=option`か`key=value`かは、`name`がconfig root直下のdirectoryとして実在するかで振り分ける。
 
 ```text
-python -m pcbasm.pasting.paste_volume.train \
+python -m ml.paste_volume.train \
     experiment=base data.manifest=/abs/base-2026-09.composite.json
 
-python -m pcbasm.pasting.paste_volume.train \
+python -m ml.paste_volume.train \
     experiment=fine_tune model.initial_weights=/abs/weights.pt \
     data.manifest=/abs/machine-a-fine-tune.composite.json
 
-python -m pcbasm.pasting.paste_volume.search \
+python -m ml.paste_volume.search \
     experiment=base hyperparameter_search=base_optuna \
     data.manifest=/abs/base-2026-09.composite.json
 
-python -m pcbasm.pasting.paste_volume.evaluate \
+python -m ml.paste_volume.evaluate \
     checkpoint=/abs/best.pt data.manifest=/abs/base-2026-09.composite.json \
     split=validation
 ```
@@ -1028,15 +1039,15 @@ dataset検証、export、最適化、benchmark、単発推論はexperiment confi
 薄い運用CLIへ残す。
 
 ```text
-python -m pcbasm.cli.paste_volume dataset merge \
+python -m ml.cli.paste_volume dataset merge \
     --source machine-a=/abs/dataset-a --source machine-b=/abs/dataset-b \
     --output /abs/base-2026-09.composite.json
-python -m pcbasm.cli.paste_volume dataset validate <dataset...>
-python -m pcbasm.cli.paste_volume dataset summarize <dataset...>
-python -m pcbasm.cli.paste_volume export <checkpoint> --output <directory>
-python -m pcbasm.cli.paste_volume optimize <onnx-model> --calibration-data <dataset...>
-python -m pcbasm.cli.paste_volume benchmark <model-package>
-python -m pcbasm.cli.paste_volume infer <model-package> <pre-image> <post-image> \
+python -m ml.cli.paste_volume dataset validate <dataset...>
+python -m ml.cli.paste_volume dataset summarize <dataset...>
+python -m ml.cli.paste_volume export <checkpoint> --output <directory>
+python -m ml.cli.paste_volume optimize <onnx-model> --calibration-data <dataset...>
+python -m ml.cli.paste_volume benchmark <model-package>
+python -m ml.cli.paste_volume infer <model-package> <pre-image> <post-image> \
     --pixel-per-mm <value>
 ```
 
