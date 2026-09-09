@@ -25,6 +25,7 @@ from pathlib import Path
 
 import mlflow
 import pytest
+from mlflow.exceptions import MlflowException
 
 from ml.experiment.mlflow import MLflowExperimentLogger, MLflowRunTarget
 
@@ -147,6 +148,36 @@ class TestMLflowRunTarget:
         assert reason is not None
         assert "experiment_name" in reason
 
+    @pytest.mark.parametrize(
+        "tracking_uri",
+        ["file:///abs/mlruns", "./mlruns", "/abs/mlruns"],
+        ids=["file-uri", "relative-path", "absolute-path"],
+    )
+    def test_a_filesystem_tracking_uri_is_rejected(self, tracking_uri: str):
+        """MLflow が store を作れない記録先は、logger を組む前に落とす.
+
+        MLflow 3.15 の filesystem backend は maintenance mode で、``start`` の
+        内側で ``MlflowException`` になる（下の契約ピンが実測する）。
+        """
+
+        target = MLflowRunTarget(
+            tracking_uri=tracking_uri, experiment_name="experiment"
+        )
+
+        reason = target.validate()
+
+        assert reason is not None
+        assert "MLFLOW_ALLOW_FILE_STORE" in reason
+
+    def test_a_database_tracking_uri_is_accepted(self):
+        """上の拒否が「scheme を問わず落とす」形へ退化していないこと."""
+
+        target = MLflowRunTarget(
+            tracking_uri="sqlite:////abs/mlflow.db", experiment_name="experiment"
+        )
+
+        assert target.validate() is None
+
     def test_sanitized_tracking_uri_drops_credentials(self):
         target = MLflowRunTarget(
             tracking_uri="http://user:secret@127.0.0.1:5000?token=abc",
@@ -154,6 +185,117 @@ class TestMLflowRunTarget:
         )
 
         assert target.sanitized_tracking_uri == "http://127.0.0.1:5000"
+
+
+class TestFileStoreContract:
+    """拒否の根拠になっている MLflow 側の振る舞いを実測で固定する.
+
+    ``file://`` を拒む理由は「MLflow が受け付けないから」であって、こちらの
+    好みではない。MLflow が filesystem backend を復帰させたらこの検査が落ちて、
+    拒否そのものを見直せる。
+    """
+
+    def test_the_filesystem_backend_refuses_to_open(self, tmp_path: Path):
+        previous = mlflow.get_tracking_uri()
+        try:
+            mlflow.set_tracking_uri(f"file://{tmp_path / 'mlruns'}")
+
+            with pytest.raises(MlflowException) as exception:
+                mlflow.set_experiment("filesystem-backend")
+
+            assert "maintenance mode" in str(exception.value)
+        finally:
+            mlflow.set_tracking_uri(previous)
+
+
+class TestExistingExperimentArtifactLocation:
+    """成果物の置き場所は experiment を作るときにしか決められない.
+
+    Database backend の store で実測する。置き場所を焼き付けるのが experiment の
+    作成時だという事実そのものが、この検査の対象。
+    """
+
+    @pytest.fixture
+    def database_uri(self, tmp_path: Path) -> Iterator[str]:
+        """この test だけの sqlite tracking store.
+
+        ``mlflow.set_tracking_uri`` はプロセス大域なので、抜けるときに戻す。
+        """
+
+        previous = mlflow.get_tracking_uri()
+        try:
+            yield f"sqlite:///{tmp_path / 'mlflow.db'}"
+        finally:
+            mlflow.set_tracking_uri(previous)
+
+    def _run(self, database_uri: str, name: str, location: Path) -> str:
+        logger = MLflowExperimentLogger(
+            MLflowRunTarget(
+                tracking_uri=database_uri,
+                experiment_name=name,
+                artifact_location=str(location),
+            )
+        )
+        run_id = logger.start(run_kind="training")
+        logger.end()
+        return run_id
+
+    def test_it_refuses_an_experiment_created_for_another_location(
+        self, database_uri: str, tmp_path: Path
+    ):
+        """要求と違う場所へ黙って書かないこと.
+
+        既存 experiment には ``artifact_location`` が効かないので、通すと 5 fold
+        ぜんぶの成果物が起動 directory の ``./mlruns`` へ落ちる。
+        """
+
+        name = _unique_experiment_name()
+        self._run(database_uri, name, tmp_path / "first")
+        logger = MLflowExperimentLogger(
+            MLflowRunTarget(
+                tracking_uri=database_uri,
+                experiment_name=name,
+                artifact_location=str(tmp_path / "second"),
+            )
+        )
+
+        with pytest.raises(ValueError) as exception:
+            logger.start(run_kind="training")
+
+        assert "artifact_location" in str(exception.value)
+        assert str(tmp_path / "second") in str(exception.value)
+
+    def test_the_same_location_keeps_working(self, database_uri: str, tmp_path: Path):
+        """同じ場所を指す 2 本目は通ること.
+
+        上の拒否が「既存 experiment は常に駄目」へ退化していないか。5 fold は 1 つの experiment
+        を共有するので、退化すると 2 fold 目が動かない。
+        """
+
+        name = _unique_experiment_name()
+        location = tmp_path / "shared"
+        self._run(database_uri, name, location)
+
+        second = self._run(database_uri, name, location)
+
+        client = mlflow.MlflowClient(tracking_uri=database_uri)
+        artifact_uri = client.get_run(second).info.artifact_uri
+        assert artifact_uri is not None
+        assert artifact_uri.startswith(str(location))
+
+    def test_the_artifacts_land_under_the_requested_location(
+        self, database_uri: str, tmp_path: Path
+    ):
+        """置き場所の指定そのものが効いていること."""
+
+        location = tmp_path / "requested"
+
+        run_id = self._run(database_uri, _unique_experiment_name(), location)
+
+        client = mlflow.MlflowClient(tracking_uri=database_uri)
+        artifact_uri = client.get_run(run_id).info.artifact_uri
+        assert artifact_uri is not None
+        assert artifact_uri.startswith(str(location))
 
 
 class TestMLflowExperimentLoggerLifecycle:

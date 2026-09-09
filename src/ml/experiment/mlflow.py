@@ -19,12 +19,60 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 from typing import override
+from urllib.parse import urlsplit
 
 import attrs
 import mlflow
+from mlflow.store.db.db_types import DATABASE_ENGINES
 
 from ml.experiment.logger import ExperimentLogger, RunStatus, Scalar
 from ml.experiment.provenance import sanitize_persisted_uri
+
+# MLflow が filesystem backend とみなす tracking URI の scheme。
+#
+# 3.15 の file store は maintenance mode で、``MLFLOW_ALLOW_FILE_STORE=true`` を
+# 立てない限り store を作る時点で例外になる。環境変数で使えたり使えなかったり
+# する記録先は選ばない（仕様書 §3「環境変数を暗黙参照しない」）。
+_FILE_STORE_SCHEMES = ("", "file")
+
+# 置き場所の比較で file URI と素の path を同一視する scheme。
+_LOCAL_PATH_SCHEMES = ("", "file")
+
+
+def database_backend_scheme(tracking_uri: str) -> str | None:
+    """Client が直接 database を開く tracking URI なら、その engine 名を返す.
+
+    engine の一覧は MLflow 自身のもの（``DATABASE_ENGINES``）を引く。
+
+    ここへ写すと、MLflow が engine を足したときに片方だけが古くなる。
+
+    ``postgresql+psycopg2`` のような driver 付きの scheme も engine 名で判定する。
+    """
+
+    scheme = urlsplit(tracking_uri).scheme.split("+", maxsplit=1)[0]
+    return scheme if scheme in DATABASE_ENGINES else None
+
+
+def unusable_tracking_uri_reason(tracking_uri: str) -> str | None:
+    """MLflow が store を作れない tracking URI なら理由を返す.
+
+    filesystem backend（``file://`` と scheme なしの path）は maintenance mode で、
+    ``MLFLOW_ALLOW_FILE_STORE=true`` を立てない限り ``MlflowException`` になる
+    （3.15.2 で実測）。
+
+    logger を組み立てる前に落とさないと、index も split も model も作ったあとで
+    学習 loop の内側から raw な例外が出る。
+    """
+
+    if urlsplit(tracking_uri).scheme not in _FILE_STORE_SCHEMES:
+        return None
+    return (
+        "MLflow の filesystem backend は使えません（maintenance mode。"
+        "MLFLOW_ALLOW_FILE_STORE=true でしか動かない記録先は選びません）: "
+        f"{tracking_uri!r}。"
+        "sqlite:////abs/mlflow.db のような database backend か、"
+        "http:// の tracking server を指定してください"
+    )
 
 
 @attrs.frozen
@@ -45,7 +93,8 @@ class MLflowRunTarget:
     起動した directory で成果物の所在が変わると、あとから run を開いても
     artifact を辿れない。
 
-    既存の experiment には効かない（作成時にしか決められない）。
+    既存の experiment には効かない（作成時にしか決められない）ので、要求と違う
+    場所で作られていたら ``start`` が理由を添えて失敗する。
     """
 
     def validate(self) -> str | None:
@@ -55,7 +104,7 @@ class MLflowRunTarget:
             return "tracking_uri は空にできません"
         if not self.experiment_name:
             return "experiment_name は空にできません"
-        return None
+        return unusable_tracking_uri_reason(self.tracking_uri)
 
     @property
     def sanitized_tracking_uri(self) -> str:
@@ -168,16 +217,32 @@ class MLflowExperimentLogger(ExperimentLogger):
         self._ended = True
 
     def _select_experiment(self) -> None:
-        """成果物の置き場所を決めたうえで experiment を選ぶ.
+        """成果物の置き場所を確かめたうえで experiment を選ぶ.
 
         置き場所を指定しないと ``mlflow.set_experiment`` が現在 directory の
         相対 path を焼き付ける。
+
+        置き場所は experiment を作るときにしか決められないので、要求と違う場所で
+        既に作られていたら理由を添えて失敗する。
+
+        黙って既存の場所を使うと、``artifact_location`` を渡した run の成果物が
+        指定と別の場所（多くは起動した directory の ``./mlruns``）に落ちる。
         """
 
         name = self._target.experiment_name
         location = self._target.artifact_location
-        if location is not None and mlflow.get_experiment_by_name(name) is None:
-            mlflow.create_experiment(name, artifact_location=location)
+        existing = mlflow.get_experiment_by_name(name)
+        if location is not None:
+            if existing is None:
+                mlflow.create_experiment(name, artifact_location=location)
+            elif not _same_artifact_location(existing.artifact_location, location):
+                raise ValueError(
+                    f"experiment {name!r} の成果物の置き場所が要求と違います: "
+                    f"既存 {existing.artifact_location!r}、"
+                    f"要求 {location!r}"
+                    "（artifact_location は experiment を作るときにしか"
+                    "決められません。別の experiment_name を使ってください）"
+                )
         mlflow.set_experiment(name)
 
     def _require_active(self) -> str:
@@ -188,7 +253,27 @@ class MLflowExperimentLogger(ExperimentLogger):
         return self._run_id
 
 
+def _same_artifact_location(existing: str | None, requested: str) -> bool:
+    """既存 experiment の置き場所が、要求した置き場所と同じかを返す."""
+
+    if existing is None:
+        return False
+    return _normalized_artifact_location(existing) == _normalized_artifact_location(
+        requested
+    )
+
+
+def _normalized_artifact_location(location: str) -> str:
+    """``file://`` 付きと素の絶対 path を同じ表記へ寄せる."""
+
+    parsed = urlsplit(location)
+    path = parsed.path if parsed.scheme in _LOCAL_PATH_SCHEMES else location
+    return path.rstrip("/")
+
+
 __all__ = [
     "MLflowExperimentLogger",
     "MLflowRunTarget",
+    "database_backend_scheme",
+    "unusable_tracking_uri_reason",
 ]
