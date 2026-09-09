@@ -355,3 +355,77 @@ class TestReliabilityBins:
 
         assert report.reliability_bins == ()
         assert report.overall.valid_sample_count == 12
+
+
+class TestDiagnosticReportZeroTargetAndSaturation:
+    """Blank（真値 0）を全体 metric とは別枠で報告する.
+
+    ``GaussianPredictions.valid_sample_mask`` は ``target > 0`` と ``mean > 0``
+    を要求するので、blank も、ReLU が正しく 0 を当てた sample も全 metric から
+    黙って除外される。その穴を埋めるのが ``zero_target`` と ``mean_saturation``。
+    """
+
+    def test_reports_no_zero_target_metrics_when_every_target_is_positive(self):
+        report = _report(_twelve_predictions())
+
+        assert report.zero_target is None
+
+    def test_reports_zero_target_metrics_when_blanks_are_present(self):
+        report = _report(
+            _predictions(mean=[1.0, 2.0, 0.0, 0.5], target=[1.0, 2.0, 0.0, 0.0])
+        )
+
+        assert report.zero_target is not None
+        assert report.zero_target.sample_count == 2
+        assert report.zero_target.mean_absolute_error == pytest.approx(0.25)
+
+    def test_the_overall_metrics_still_exclude_every_blank(self):
+        """Blank を混ぜても ``overall`` は真値正の sample だけで作る.
+
+        ``valid_sample_mask`` の契約を緩めると promotion gate の
+        ``relative_error_score`` の意味が変わる。blank の件数が
+        ``invalid_sample_count`` として現れることで、除外されたことを固定する。
+        """
+
+        report = _report(
+            _predictions(
+                mean=[1.0, 2.0, 3.0, 0.0, 0.5], target=[1.0, 2.0, 3.0, 0.0, 0.0]
+            )
+        )
+
+        assert report.overall.sample_count == 5
+        assert report.overall.valid_sample_count == 3
+        assert report.overall.invalid_sample_count == 2
+
+    def test_reports_the_mean_saturation_split_by_the_target(self):
+        report = _report(
+            _predictions(mean=[0.0, 1.0, 0.0, 2.0], target=[3.0, 4.0, 0.0, 0.0])
+        )
+
+        assert report.mean_saturation.positive_target_count == 2
+        assert report.mean_saturation.saturated_positive_count == 1
+        assert report.mean_saturation.zero_target_count == 2
+        assert report.mean_saturation.saturated_zero_count == 1
+
+
+class TestDiagnosticReportCaptureOrder:
+    """撮影順の drift は既存の数値次元でそのまま診断できる.
+
+    3 パス撮影の先頭と末尾の系統差は、``capture_order`` を
+    :class:`NumericDimension` として渡すだけで percentile bucket に現れる。
+    ``ml`` 側の追加機構は要らないことを回帰として固定する。
+    """
+
+    def test_splits_the_capture_order_into_percentile_buckets(self):
+        dimension = NumericDimension(
+            name="capture_order",
+            values=tuple(float(index) for index in range(12)),
+            bucket_count=4,
+        )
+
+        report = _report(_twelve_predictions(), [dimension])
+
+        buckets = [item for item in report.slices if item.dimension == "capture_order"]
+        assert len(buckets) == 4
+        assert [item.sample_count for item in buckets] == [3, 3, 3, 3]
+        assert all(item.metrics is not None for item in buckets)

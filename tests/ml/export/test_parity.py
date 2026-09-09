@@ -136,12 +136,20 @@ class TestMeasure:
         assert result.passed is True
 
     def test_reports_a_mismatch_when_the_weights_differ(self):
-        # 共有 ONNX は seed 0 の重み。別 seed の model と比べれば必ず食い違う
+        # 共有 ONNX は seed 0 の重み。別 seed の model と比べれば必ず食い違う。
+        # 平均出力層の weight は 0 初期化なので、学習前の平均は seed に依らず
+        # bias 一定になる。食い違いは log 分散側へ出るので出力を特定しない
         result = _measure(model=support.build_tiny_model(seed=1))
 
         assert result.passed is False
-        assert result.cases[0].differences[0].maximum_absolute_difference > 0.0
-        assert result.cases[0].differences[0].within_tolerance is False
+        assert any(
+            difference.maximum_absolute_difference > 0.0
+            for difference in result.cases[0].differences
+        )
+        assert any(
+            difference.within_tolerance is False
+            for difference in result.cases[0].differences
+        )
 
     def test_lists_no_violation_when_the_positive_output_is_positive(
         self, tmp_path: Path
