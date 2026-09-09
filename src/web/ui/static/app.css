@@ -1298,6 +1298,39 @@ h2 {
   dominant-baseline: central;
 }
 
+.pad-purge-marker circle {
+  fill: var(--accent);
+  stroke: #ffffff;
+  stroke-width: 0.12;
+}
+
+.pad-purge-marker text {
+  fill: #ffffff;
+  font-size: 0.55px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+/* マーカー打ちモード中はクリック先が「基板上の点」であることを示す。
+   パッドが hover やカーソルで反応すると座標を狙えないので当たり判定を外す */
+.pad-viewer-picking {
+  cursor: crosshair;
+}
+
+.pad-viewer-picking .pad {
+  pointer-events: none;
+}
+
+.pad-copper {
+  fill: #c98a3f;
+  fill-opacity: 0.3;
+  stroke: #a9702c;
+  stroke-width: 0.6;
+  stroke-opacity: 0.55;
+  pointer-events: none;
+}
+
 .pad-select-rect {
   fill: rgb(155 104 23 / 0.16);
   stroke: var(--warn);

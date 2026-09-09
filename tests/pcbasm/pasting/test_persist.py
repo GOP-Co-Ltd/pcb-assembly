@@ -2,6 +2,7 @@
 
 import pytest
 
+from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParams, PasteParamsPatch
 from pcbasm.pasting.persist import (
     BOARD_SETTINGS_SCHEMA_VERSION,
@@ -32,7 +33,7 @@ def _decode(doc: dict, base: PasteParams | None = None) -> PasteSettingsModel:
 
 
 class TestEncode:
-    def test_doc_shape_omits_base_and_unset_purge_pad(self):
+    def test_doc_shape_omits_base_and_unset_purge_point(self):
         model = PasteSettingsModel(
             base=_base(),
             levels=(
@@ -56,22 +57,70 @@ class TestEncode:
             },
         }
 
-    def test_doc_includes_signature_and_purge_pad_when_set(self):
-        model = PasteSettingsModel(base=_base(), initial_purge_pad_id="U1.1")
+    def test_doc_includes_signature_and_purge_point_when_set(self):
+        model = PasteSettingsModel(base=_base(), initial_purge_point=Point2d(4.0, 5.0))
 
         doc = encode_board_settings(
             model, source_pcb="boards/a.kicad_pcb", board_signature="sig"
         )
 
         assert doc["board_signature"] == "sig"
-        assert doc["settings"]["initial_purge_pad_id"] == "U1.1"
+        assert doc["settings"]["initial_purge_point"] == [4.0, 5.0]
+
+
+class TestInitialPurgePoint:
+    """パージ位置は ``settings.initial_purge_point`` に [x, y] で残す."""
+
+    def test_doc_carries_the_point_when_set(self):
+        model = PasteSettingsModel(
+            base=_base(), initial_purge_point=Point2d(3.5, -1.25)
+        )
+
+        doc = encode_board_settings(model, source_pcb="a")
+
+        assert doc["settings"]["initial_purge_point"] == [3.5, -1.25]
+
+    def test_doc_omits_the_point_when_unset(self):
+        doc = encode_board_settings(PasteSettingsModel(base=_base()), source_pcb="a")
+
+        assert "initial_purge_point" not in doc["settings"]
+
+    def test_round_trip_restores_the_point(self):
+        model = PasteSettingsModel(
+            base=_base(), initial_purge_point=Point2d(3.5, -1.25)
+        )
+
+        restored = _decode(encode_board_settings(model, source_pcb="a"))
+
+        assert restored.initial_purge_point == Point2d(3.5, -1.25)
+
+    def test_missing_point_decodes_to_none(self):
+        restored = _decode({"version": 1, "settings": {}})
+
+        assert restored.initial_purge_point is None
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            [1.0],
+            [1.0, 2.0, 3.0],
+            ["1.0", "2.0"],
+            {"x": 1.0, "y": 2.0},
+            [float("nan"), 0.0],
+        ],
+    )
+    def test_malformed_point_decodes_to_none(self, value: object):
+        # 壊れた保存内容でページを開けなくしない（pad id と同じく黙って捨てる）
+        restored = _decode({"version": 1, "settings": {"initial_purge_point": value}})
+
+        assert restored.initial_purge_point is None
 
 
 class TestRoundTrip:
     def test_levels_enum_and_auto_height_survive(self):
         model = PasteSettingsModel(
             base=_base(),
-            initial_purge_pad_id="U1.9",
+            initial_purge_point=Point2d(1.0, 2.0),
             levels=(
                 LevelSetting(
                     ("L2", "U1"),
@@ -134,7 +183,7 @@ class TestDecodeErrors:
         restored = _decode({"version": 1, "settings": {}})
 
         assert restored.levels == ()
-        assert restored.initial_purge_pad_id is None
+        assert restored.initial_purge_point is None
 
 
 class TestLegacyBaseMigration:

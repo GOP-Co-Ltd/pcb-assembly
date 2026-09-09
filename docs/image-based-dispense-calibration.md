@@ -745,7 +745,7 @@ process 内で直接学習せず、独立 process を起動・監視する薄い
 
 WebUI のはんだ塗布タブへ、`paste_dataset_collection` データ収集ジョブを独立した feature
 として追加する。収集は素の銅板で行うため PCB を選択せず、pad editor 付き workspace は使わない。
-ページはジョブフォーム、配置プレビュー、カメラ preview、job console で構成する。初回パージパッドの
+ページはジョブフォーム、配置プレビュー、カメラ preview、job console で構成する。初回パージ位置の
 選択欄は持たない（パージ位置はセル格子から決まる）。
 
 ### 配置プレビュー

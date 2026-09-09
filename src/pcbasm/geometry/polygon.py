@@ -80,6 +80,33 @@ def exterior_points(polygon: Polygon) -> list[Point2d]:
     return [Point2d(x=x, y=y) for x, y in polygon.exterior.coords]
 
 
+def display_rings(
+    polygon: Polygon, *, tolerance: float = 0.0, precision: int = 3
+) -> tuple[tuple[tuple[float, float], ...], ...]:
+    """Polygon を表示用の環列（exterior が先、以降が穴）へ落とす.
+
+    WebUI の SVG など、座標そのものではなく形を見せる用途向け。``tolerance``
+    を与えると Douglas-Peucker で頂点を間引き、``precision`` 桁へ丸めて
+    転送量を抑える。簡略化で潰れた島は空の環列を返すので、呼び出し側は
+    空を扱えるようにする。
+
+    Args:
+        polygon: 対象ポリゴン
+        tolerance: 簡略化の許容誤差 [mm]（0 なら簡略化しない）
+        precision: 座標の小数桁
+
+    Returns:
+        環ごとの座標列。各環は閉環（末尾が始点の重複）。
+    """
+    shape = polygon if tolerance <= 0 else polygon.simplify(tolerance)
+    if not isinstance(shape, Polygon) or shape.is_empty:
+        return ()
+    return tuple(
+        tuple((round(x, precision), round(y, precision)) for x, y in ring.coords)
+        for ring in (shape.exterior, *shape.interiors)
+    )
+
+
 def offset_components(polygon: Polygon, depth: float) -> list[Polygon]:
     """``polygon.buffer(-depth)`` の結果から ``Polygon`` のみを抽出する.
 

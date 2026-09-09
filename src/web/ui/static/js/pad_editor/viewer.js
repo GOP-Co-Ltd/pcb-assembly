@@ -45,6 +45,7 @@ export function renderViewer(svg, config, state) {
   outlineEl.dataset.testid = "pad-outline";
   svg.appendChild(outlineEl);
   renderOutlineAxes(svg, minX, minY, width, height);
+  renderCopper(svg, state);
 
   for (const pad of config.pads) {
     const routePad = routeById.get(pad.id);
@@ -75,6 +76,45 @@ export function renderViewer(svg, config, state) {
 
   renderFillPathOverlay(svg, state.fillPath);
   renderRouteOverlay(svg, state.route);
+  renderPurgeMarker(svg, config.initial_purge);
+}
+
+function renderPurgeMarker(svg, purge) {
+  // 任意点で指定されたパージ位置だけを描く（pad 指定はパッド自体が見える）
+  const point = purge?.point;
+  if (!point) return;
+  const marker = svgEl("g", {
+    class: "pad-purge-marker",
+    transform: `translate(${point[0]} ${point[1]})`,
+  });
+  marker.dataset.testid = "pad-purge-marker";
+  const title = svgEl("title", {});
+  title.textContent = purge.selection_label || "パージ位置";
+  marker.appendChild(title);
+  marker.appendChild(svgEl("circle", { r: "0.45", "vector-effect": "non-scaling-stroke" }));
+  const text = svgEl("text", { y: "0.04" });
+  text.textContent = "P";
+  marker.appendChild(text);
+  svg.appendChild(marker);
+}
+
+function renderCopper(svg, state) {
+  // 銅箔はパージ位置を選ぶための背景。パッド選択の当たり判定は CSS で外す
+  for (const island of state.copper?.islands || []) {
+    if (island.layer !== state.layer) continue;
+    const path = svgEl("path", {
+      class: "pad-copper",
+      "fill-rule": "evenodd",
+      d: island.rings.map(ringPath).join(" "),
+      "vector-effect": "non-scaling-stroke",
+    });
+    path.dataset.testid = "pad-copper";
+    svg.appendChild(path);
+  }
+}
+
+function ringPath(ring) {
+  return `M ${ring.map((point) => `${point[0]},${point[1]}`).join(" L ")} Z`;
 }
 
 export function applyPadVisual(el, state, enabled) {
