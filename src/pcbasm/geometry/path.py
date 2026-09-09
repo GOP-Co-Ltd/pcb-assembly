@@ -27,9 +27,14 @@ class Path:
         Returns:
             経路の総距離
         """
+        # start に 0.0 を与える。点塗布のような 1 点経路で int の 0 を返すと、
+        # 暗黙変換を拒否する metadata schema が自分の出力を読めなくなる。
         return sum(
-            (self.points[i + 1] - self.points[i]).norm()
-            for i in range(len(self.points) - 1)
+            (
+                (self.points[i + 1] - self.points[i]).norm()
+                for i in range(len(self.points) - 1)
+            ),
+            0.0,
         )
 
     def transformed(self, transform: Transform) -> Path:

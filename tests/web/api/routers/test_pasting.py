@@ -22,14 +22,12 @@ pad id = {designator}.{pad_ref}。
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.pasting.params import PASTE_PARAM_NAMES
-from tests.helpers import PROJECT_ROOT
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -207,79 +205,15 @@ class TestInitialPurgePadConfig:
         initial = config["initial_purge"]
 
         assert initial["initial_purge_ul"] == pytest.approx(0.1)
-        assert initial["pad_id"] is None
-        assert initial["resolved"]["pad_id"] == "D1.2"
+        assert initial["point"] is None
+        assert initial["resolved"]["source"] == "default"
         assert initial["resolved"]["amount"] == pytest.approx(0.1)
+        # 自動は塗布順路先頭 pad の中心座標
         assert initial["resolved"]["point"] == pytest.approx([15.0, 4.212500000000003])
+        assert initial["default_point"] == initial["resolved"]["point"]
+        assert "自動" in initial["selection_label"]
 
-    def test_dataset_get_reports_missing_purge_without_hiding_board(
-        self, selected_client: TestClient
-    ):
-        response = selected_client.get(
-            "/api/pasting/pad-config",
-            params={"purpose": "paste_dataset_collection"},
-        )
-
-        assert response.status_code == 200, response.text
-        initial = response.json()["initial_purge"]
-        assert initial["pad_id"] is None
-        assert initial["resolved"] is None
-        assert initial["selection_label"] == "自動 (設定が必要)"
-        assert "PURGE" in initial["error"]
-
-    def test_dataset_get_auto_selects_purge_on_calibration_board(
-        self,
-        client: TestClient,
-        appstate: AppState,
-        pcb_root: Path,
-    ):
-        source = (
-            PROJECT_ROOT
-            / "data"
-            / "paste-flow-calibration-board"
-            / "paste-flow-calibration-board.basic.kicad_pcb"
-        )
-        relative = Path("real/paste-flow-calibration-board.basic.kicad_pcb")
-        destination = pcb_root / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(source, destination)
-        appstate.select_pcb(relative)
-
-        response = client.get(
-            "/api/pasting/pad-config",
-            params={"purpose": "paste_dataset_collection"},
-        )
-
-        assert response.status_code == 200, response.text
-        initial = response.json()["initial_purge"]
-        assert initial["pad_id"] is None
-        assert initial["default_pad_id"] == "PURGE"
-        assert initial["resolved"]["pad_id"] == "PURGE"
-        assert initial["selection_label"] == "自動 (PURGE)"
-        assert initial["error"] is None
-
-    def test_dataset_get_reuses_explicit_initial_purge_selection(
-        self, selected_client: TestClient
-    ):
-        patch = selected_client.patch(
-            "/api/pasting/pad-config/initial-purge",
-            json={"pad_id": "U1.1"},
-        )
-        assert patch.status_code == 200, patch.text
-
-        response = selected_client.get(
-            "/api/pasting/pad-config",
-            params={"purpose": "paste_dataset_collection"},
-        )
-
-        assert response.status_code == 200, response.text
-        initial = response.json()["initial_purge"]
-        assert initial["pad_id"] == "U1.1"
-        assert initial["resolved"]["pad_id"] == "U1.1"
-        assert initial["selection_label"] == "U1.1"
-        assert initial["error"] is None
-
-    def test_patch_saves_machine_amount_and_board_pad(
+    def test_patch_saves_machine_amount_and_board_point(
         self,
         selected_client: TestClient,
         config_dir: Path,
@@ -287,21 +221,21 @@ class TestInitialPurgePadConfig:
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"initial_purge_ul": 0.25, "pad_id": "U1.1"},
+            json={"initial_purge_ul": 0.25, "point": [15.0, 4.0]},
         )
 
         assert response.status_code == 200, response.text
         initial = response.json()["initial_purge"]
         assert initial["initial_purge_ul"] == pytest.approx(0.25)
-        assert initial["pad_id"] == "U1.1"
-        assert initial["resolved"]["pad_id"] == "U1.1"
+        assert initial["point"] == pytest.approx([15.0, 4.0])
+        assert initial["resolved"]["source"] == "explicit"
 
         machine_toml = config_dir / "machine.toml"
         assert "initial_purge_ul = 0.25" in machine_toml.read_text(encoding="utf-8")
         doc = _saved_board_settings_doc(webui_settings)
-        assert doc["settings"]["initial_purge_pad_id"] == "U1.1"
+        assert doc["settings"]["initial_purge_point"] == pytest.approx([15.0, 4.0])
 
-    def test_patch_pad_after_amount_preserves_machine_amount(
+    def test_patch_point_after_amount_preserves_machine_amount(
         self,
         selected_client: TestClient,
         config_dir: Path,
@@ -313,51 +247,38 @@ class TestInitialPurgePadConfig:
         )
         assert amount_response.status_code == 200, amount_response.text
 
-        pad_response = selected_client.patch(
+        point_response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"pad_id": "U1.1"},
+            json={"point": [15.0, 4.0]},
         )
 
-        assert pad_response.status_code == 200, pad_response.text
-        initial = pad_response.json()["initial_purge"]
+        assert point_response.status_code == 200, point_response.text
+        initial = point_response.json()["initial_purge"]
         assert initial["initial_purge_ul"] == pytest.approx(0.22)
-        assert initial["pad_id"] == "U1.1"
-        assert initial["resolved"]["pad_id"] == "U1.1"
+        assert initial["point"] == pytest.approx([15.0, 4.0])
 
         machine_toml = config_dir / "machine.toml"
         assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
         doc = _saved_board_settings_doc(webui_settings)
-        assert doc["settings"]["initial_purge_pad_id"] == "U1.1"
+        assert doc["settings"]["initial_purge_point"] == pytest.approx([15.0, 4.0])
 
-    def test_patch_allows_disabled_top_pad(self, selected_client: TestClient):
-        disable = selected_client.patch(
-            "/api/pasting/pad-config/pads",
-            json={"ids": ["U1.1"], "enabled": False},
-        )
-        assert disable.status_code == 200, disable.text
-
+    def test_patch_amount_without_a_point_keeps_the_automatic_selection(
+        self, selected_client: TestClient
+    ):
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"initial_purge_ul": 0.25, "pad_id": "U1.1"},
+            json={"initial_purge_ul": 0.25},
         )
 
         assert response.status_code == 200, response.text
         initial = response.json()["initial_purge"]
-        assert initial["pad_id"] == "U1.1"
-        assert initial["resolved"]["pad_id"] == "U1.1"
+        assert initial["point"] is None
+        assert initial["resolved"]["source"] == "default"
 
-    def test_patch_unknown_pad_returns_400(self, selected_client: TestClient):
+    def test_patch_non_numeric_amount_returns_400(self, selected_client: TestClient):
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"initial_purge_ul": 0.25, "pad_id": "NOPE.1"},
-        )
-
-        assert response.status_code == 400
-
-    def test_patch_bottom_pad_returns_400(self, selected_client: TestClient):
-        response = selected_client.patch(
-            "/api/pasting/pad-config/initial-purge",
-            json={"initial_purge_ul": 0.25, "pad_id": "R3.1"},
+            json={"initial_purge_ul": None},
         )
 
         assert response.status_code == 400
@@ -365,10 +286,133 @@ class TestInitialPurgePadConfig:
     def test_patch_without_selected_pcb_returns_409(self, client: TestClient):
         response = client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"initial_purge_ul": 0.25, "pad_id": "U1.1"},
+            json={"initial_purge_ul": 0.25},
         )
 
         assert response.status_code == 409
+
+
+class TestInitialPurgePoint:
+    """PATCH initial-purge の座標指定（パージは pad ではなく座標で扱う）."""
+
+    def test_patch_saves_the_point_and_resolves_it(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": [15.0, 4.0]},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["point"] == pytest.approx([15.0, 4.0])
+        assert initial["resolved"]["source"] == "explicit"
+        assert initial["resolved"]["point"] == pytest.approx([15.0, 4.0])
+        assert "15.00" in initial["selection_label"]
+
+        doc = _saved_board_settings_doc(webui_settings)
+        assert doc["settings"]["initial_purge_point"] == pytest.approx([15.0, 4.0])
+
+    def test_saved_point_survives_a_reload(self, selected_client: TestClient):
+        saved = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": [15.0, 4.0]},
+        )
+        assert saved.status_code == 200, saved.text
+
+        initial = _get_config(selected_client)["initial_purge"]
+
+        assert initial["point"] == pytest.approx([15.0, 4.0])
+        assert initial["resolved"]["source"] == "explicit"
+
+    def test_null_point_returns_to_the_automatic_selection(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
+        saved = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": [15.0, 4.0]},
+        )
+        assert saved.status_code == 200, saved.text
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": None},
+        )
+
+        assert response.status_code == 200, response.text
+        initial = response.json()["initial_purge"]
+        assert initial["point"] is None
+        assert initial["resolved"]["source"] == "default"
+        doc = _saved_board_settings_doc(webui_settings)
+        assert "initial_purge_point" not in doc["settings"]
+
+    def test_point_outside_the_outline_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": [999.0, 999.0]},
+        )
+
+        assert response.status_code == 400
+        assert "基板外形" in response.json()["detail"]
+
+    @pytest.mark.parametrize("value", [[15.0], [15.0, 4.0, 1.0]])
+    def test_malformed_point_returns_400(
+        self, selected_client: TestClient, value: list[float]
+    ):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/initial-purge",
+            json={"point": value},
+        )
+
+        assert response.status_code == 400
+
+
+class TestPadConfigCopper:
+    """GET pad-config/copper は表示用に簡略化した銅箔島を返す."""
+
+    def test_returns_islands_for_the_selected_board(self, selected_client: TestClient):
+        response = selected_client.get("/api/pasting/pad-config/copper")
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["pcb_file"] == _get_config(selected_client)["pcb_file"]
+        assert body["tolerance_mm"] == pytest.approx(0.02)
+        assert body["islands"]
+        island = body["islands"][0]
+        assert island["layer"] in {"Top", "Bottom"}
+        # 各環は閉環（末尾が始点の重複）
+        for ring in island["rings"]:
+            assert len(ring) >= 4
+            assert ring[0] == ring[-1]
+
+    def test_islands_stay_inside_the_board_outline(self, selected_client: TestClient):
+        config = _get_config(selected_client)
+        body = selected_client.get("/api/pasting/pad-config/copper").json()
+
+        xs = [
+            point[0]
+            for island in body["islands"]
+            for ring in island["rings"]
+            for point in ring
+        ]
+        ys = [
+            point[1]
+            for island in body["islands"]
+            for ring in island["rings"]
+            for point in ring
+        ]
+
+        assert min(xs) >= -0.5
+        assert min(ys) >= -0.5
+        assert max(xs) <= config["width"] + 0.5
+        assert max(ys) <= config["height"] + 0.5
+
+    def test_requires_no_control_lease(self, selected_client: TestClient):
+        # 装置を動かさない読み取りなので操作権は要らない
+        assert selected_client.get("/api/pasting/pad-config/copper").status_code == 200
+
+    def test_without_selected_pcb_returns_409(self, client: TestClient):
+        assert client.get("/api/pasting/pad-config/copper").status_code == 409
 
 
 class TestTreeNodeResolution:

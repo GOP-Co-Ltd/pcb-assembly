@@ -40,6 +40,7 @@ from web.ui.layout import (
     JOB_TEMPLATES,
     LOADING_ROTATION_PARAMS,
     PASTE_AUTO_THRESHOLD_KEYS,
+    PASTE_DATASET_PARAM_GROUPS,
     PASTE_PAD_REFINEMENT_KEYS,
     TAB_LABELS,
     TAB_PHASES,
@@ -58,9 +59,7 @@ DEFAULT_TAB = "posctrl"
 # machine.toml をパースするので、壊れた machine.toml では 500 になる。全ページで
 # 取ると壊れた設定ファイル 1 つで全画面が 503 になり、設定を直す画面すら開けない
 # （MR2 で backend 側に入れた「壊れていても描けるページは描く」防御を保つ）
-_MACHINE_SETTINGS_FEATURES = frozenset(
-    {"paste_solder", "paste_dataset_collection", "loading", "copper_detection"}
-)
+_MACHINE_SETTINGS_FEATURES = frozenset({"paste_solder", "loading", "copper_detection"})
 
 router = APIRouter()
 
@@ -376,6 +375,19 @@ def _dispense_calibration_context(
     }
 
 
+def _paste_dataset_context(
+    job: JobSpecInfo, settings: _MachineSettings
+) -> dict[str, Any]:
+    """Paste_dataset_collection ページ専用コンテキスト（フォームのセクション分け）."""
+    specs_by_name = {spec.name: spec for spec in job.params}
+    return {
+        "param_groups": [
+            (legend, [specs_by_name[name] for name in names])
+            for legend, names in PASTE_DATASET_PARAM_GROUPS
+        ]
+    }
+
+
 def _paste_workspace_context(
     state: StateResponse, settings: _MachineSettings
 ) -> dict[str, Any]:
@@ -415,6 +427,7 @@ _JOB_FEATURE_CONTEXT: dict[
 ] = {
     "loading": _loading_context,
     "dispense_calibration": _dispense_calibration_context,
+    "paste_dataset_collection": _paste_dataset_context,
 }
 
 # feature slug → ページ専用コンテキスト（ジョブ有無に依らない）
@@ -422,7 +435,6 @@ _FEATURE_CONTEXT: dict[
     str, Callable[[StateResponse, _MachineSettings], dict[str, Any]]
 ] = {
     "paste_solder": _paste_workspace_context,
-    "paste_dataset_collection": _paste_workspace_context,
     "copper_detection": _copper_detection_context,
     "nozzle_cap": _nozzle_cap_context,
 }

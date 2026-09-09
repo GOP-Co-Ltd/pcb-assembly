@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from playwright.sync_api import expect
 
 from tests.e2e.conftest import (
     LiveServer,
@@ -278,28 +279,22 @@ def _wait_for_initial_purge(
     live_server: LiveServer,
     *,
     amount: float | None = None,
-    pad_id: str | None = None,
-    resolved_pad_id: str | None = None,
+    resolved_source: str | None = None,
 ) -> dict[str, Any]:
-    """initial_purge の amount / pad_id / resolved.pad_id が期待値になるまで待つ."""
+    """initial_purge の amount / resolved.source が期待値になるまで待つ."""
 
     def matches(config: dict[str, Any]) -> bool:
         initial = config["initial_purge"]
         resolved = initial["resolved"]
-        return (
-            (amount is None or _approx(initial["initial_purge_ul"], amount))
-            and (pad_id is None or initial["pad_id"] == pad_id)
-            and (
-                resolved_pad_id is None
-                or (resolved is not None and resolved["pad_id"] == resolved_pad_id)
-            )
+        return (amount is None or _approx(initial["initial_purge_ul"], amount)) and (
+            resolved_source is None
+            or (resolved is not None and resolved["source"] == resolved_source)
         )
 
     return wait_for_config(
         live_server,
         matches,
-        f"initial_purge -> amount={amount!r}, pad_id={pad_id!r}, "
-        f"resolved={resolved_pad_id!r}",
+        f"initial_purge -> amount={amount!r}, source={resolved_source!r}",
     )
 
 
@@ -376,16 +371,101 @@ class TestPasteSolderBrowserRendering:
         )
         assert root_row.locator(".pad-override-marker").count() == 0
 
-    def test_dataset_collection_renders_board_route_and_paste_settings(
-        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    def test_dataset_collection_layout_preview_draws_server_cells_without_control(
+        self, live_ui: LiveUi, browser_page
     ):
-        _select_led_blinker(live_server)
-        route = _calculate_route(live_server)
-        assert len(route["pads"]) > 1
+        """レイアウト preview は操作権を持たない閲覧者にも描ける.
 
-        _open_pasting_pad_editor(browser_page, live_ui, "paste_dataset_collection")
+        装置を動かさない読み取り専用計算なので、閲覧だけで配置と撮影枚数が読める。
 
+        ジョブフォームの入力自体は ``data-requires-control`` で inert になるため、
+        設定変更の追従は別テスト（操作権あり）で見る。
+        """
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="domcontentloaded",
+        )
+        cells = browser_page.locator("#pdl-view .pdl-cell")
+        cells.first.wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
+
+        # 既定は 分割数 5 × サンプル数 3 + blank 4 = 19 点。
+        assert cells.count() == 19
+        summary = browser_page.locator("#pdl-summary").inner_text()
+        assert "19" in summary
+        assert browser_page.locator("#pdl-error").inner_text().strip() == ""
+
+        # 吐出量は小数点 3 桁で表示する（既定 0.05〜0.2 uL の 5 分割）。
+        legend = browser_page.locator("#pdl-legend").inner_text()
+        assert "0.050 uL" in legend
+        assert "0.088 uL" in legend  # 0.0875 の丸め
+        assert "0.200 uL" in legend
+
+    def test_dataset_collection_layout_preview_follows_the_form(
+        self, live_ui: LiveUi, browser_page
+    ):
+        """設定変更でサーバが返した配置へ入れ替わる."""
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="domcontentloaded",
+        )
+        _acquire_control(browser_page)
+        cells = browser_page.locator("#pdl-view .pdl-cell")
+        cells.first.wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
+
+        browser_page.fill("#param-volume_divisions", "2")
+
+        # 2 × 3 + blank 4 = 10 点へ入れ替わる。
+        expect(cells).to_have_count(10, timeout=_BROWSER_TIMEOUT_MS)
+
+    def test_dataset_collection_layout_preview_shows_the_reason_when_it_does_not_fit(
+        self, live_ui: LiveUi, browser_page
+    ):
+        """収まらない設定でも preview を消さず理由を出す."""
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="domcontentloaded",
+        )
+        _acquire_control(browser_page)
+        browser_page.locator("#pdl-view .pdl-cell").first.wait_for(
+            state="attached", timeout=_BROWSER_TIMEOUT_MS
+        )
+
+        browser_page.fill("#param-samples_per_volume", "500")
+
+        error = browser_page.locator("#pdl-error")
+        expect(error).not_to_have_text("", timeout=_BROWSER_TIMEOUT_MS)
+        # 格子は残す（配置図ごと消さない）。
+        assert browser_page.locator("#pdl-view .pdl-grid-cell").count() > 0
+
+    def test_dataset_collection_renders_job_form_without_pad_editor(
+        self, live_ui: LiveUi, browser_page
+    ):
+        """Dataset 収集は PCB 非依存の最小ジョブページ（pad editor を持たない）."""
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="domcontentloaded",
+        )
+        _acquire_control(browser_page)
+        browser_page.locator(_testid("job-form")).wait_for(
+            state="visible", timeout=_BROWSER_TIMEOUT_MS
+        )
+
+        assert browser_page.locator(_testid("pad-viewer")).count() == 0
         assert browser_page.locator("#param-purge_pad_id").count() == 0
+        for param_name in (
+            "plate_width",
+            "cell_size",
+            "crop_size",
+            "volume_min",
+            "volume_divisions",
+            "blank_count",
+            "view_count",
+            "shuffle_seed",
+            "paste_id",
+        ):
+            browser_page.locator(f"#param-{param_name}").wait_for(
+                state="visible", timeout=_BROWSER_TIMEOUT_MS
+            )
         assert (
             browser_page.locator("#param-paste_lot").get_attribute(
                 "data-param-optional"
@@ -406,38 +486,6 @@ class TestPasteSolderBrowserRendering:
                 })"""
             )
             assert widths["help"] >= widths["param"] * 0.95
-        browser_page.locator(_testid("pad-viewer")).wait_for(
-            state="visible", timeout=_BROWSER_TIMEOUT_MS
-        )
-        assert (
-            browser_page.locator(_testid("pad-initial-purge-pad")).text_content()
-            == "自動 (設定が必要)"
-        )
-        browser_page.locator(_row_selector("L0")).wait_for(
-            state="visible", timeout=_BROWSER_TIMEOUT_MS
-        )
-        assert "面積あたりのペースト量" in browser_page.locator(
-            _testid("pad-table")
-        ).text_content(timeout=_BROWSER_TIMEOUT_MS)
-
-        config = _get_pad_config(live_server)
-        top_pad = next(pad for pad in config["pads"] if pad["layer"] == "Top")
-        component_node_id = next(
-            node_id for node_id in top_pad["node_ids"] if node_id.startswith("L2:")
-        )
-        component_row = _ensure_row_visible(
-            browser_page, _tree_path_ids(config["tree"], component_node_id)
-        )
-        amount = _field_input(component_row, "ul_per_mm2")
-        amount.fill("0.031")
-        amount.press("Enter")
-        _wait_for_override(live_server, component_node_id, "ul_per_mm2", 0.031)
-
-        browser_page.locator(_testid("pad-calculate-route")).click()
-        browser_page.locator(_testid("pad-route-overlay")).wait_for(
-            state="attached", timeout=_BROWSER_TIMEOUT_MS
-        )
-        assert browser_page.locator(_testid("pad-route-segment")).count() > 0
 
     def test_fake_camera_preview_image_loads(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
@@ -453,64 +501,109 @@ class TestPasteSolderBrowserRendering:
             timeout=_BROWSER_TIMEOUT_MS,
         )
 
-    def test_initial_purge_controls_persist_amount_and_pad(
+    def test_initial_purge_amount_persists_and_position_defaults_to_auto(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         _select_led_blinker(live_server)
-        config = _get_pad_config(live_server)
-        current = config["initial_purge"]["resolved"]["pad_id"]
-        target = next(
-            pad
-            for pad in config["pads"]
-            if pad["layer"] == "Top" and pad["id"] != current
-        )
 
         _open_paste_solder(browser_page, live_ui)
         amount = browser_page.locator(_testid("pad-initial-purge-amount"))
-        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
-        set_pad_button = browser_page.locator(_testid("pad-set-initial-purge-pad"))
-        clear_pad_button = browser_page.locator(_testid("pad-clear-initial-purge-pad"))
+        position = browser_page.locator(_testid("pad-initial-purge-pad"))
+        clear_button = browser_page.locator(_testid("pad-clear-initial-purge-point"))
         amount.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         assert amount.input_value(timeout=_BROWSER_TIMEOUT_MS) == "0.1"
-        assert "自動" in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
-        assert set_pad_button.is_disabled()
-        assert clear_pad_button.is_disabled()
+        # 自動は塗布順路先頭 pad の中心座標
+        assert "自動" in position.text_content(timeout=_BROWSER_TIMEOUT_MS)
+        assert clear_button.is_disabled()
 
         amount.fill("0.22")
         _wait_for_initial_purge(live_server, amount=0.22)
 
-        browser_page.locator(_pad_selector(target["id"])).click()
-        browser_page.wait_for_function(
-            """(selector) => document.querySelector(selector)?.disabled === false""",
-            arg=_testid("pad-set-initial-purge-pad"),
-            timeout=_BROWSER_TIMEOUT_MS,
-        )
-        assert target["id"] in set_pad_button.text_content(timeout=_BROWSER_TIMEOUT_MS)
-        set_pad_button.click()
-        _wait_for_initial_purge(
-            live_server,
-            amount=0.22,
-            pad_id=target["id"],
-            resolved_pad_id=target["id"],
-        )
-        browser_page.wait_for_function(
-            """({selector, padId}) =>
-                document.querySelector(selector)?.textContent.includes(padId)""",
-            arg={"selector": _testid("pad-initial-purge-pad"), "padId": target["id"]},
-            timeout=_BROWSER_TIMEOUT_MS,
-        )
-
         browser_page.reload(wait_until="domcontentloaded")
         amount = browser_page.locator(_testid("pad-initial-purge-amount"))
-        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
-        clear_pad_button = browser_page.locator(_testid("pad-clear-initial-purge-pad"))
         amount.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         assert amount.input_value(timeout=_BROWSER_TIMEOUT_MS) == "0.22"
-        assert target["id"] in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
-        assert not clear_pad_button.is_disabled()
 
         machine_toml = live_server.settings.config_dir / "machine.toml"
         assert "initial_purge_ul = 0.22" in machine_toml.read_text(encoding="utf-8")
+
+    def test_copper_islands_are_drawn_under_the_pads(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        """銅箔はパージ位置を選ぶための背景として描き、当たり判定を持たない."""
+        _select_led_blinker(live_server)
+
+        _open_paste_solder(browser_page, live_ui)
+        copper = browser_page.locator(_testid("pad-copper"))
+        copper.first.wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
+
+        assert copper.count() > 0
+        assert (
+            copper.first.evaluate("(el) => getComputedStyle(el).pointerEvents")
+            == "none"
+        )
+        # パッドより先に描かれている（背面になる）
+        assert browser_page.evaluate(
+            """({copperSel, padSel}) => {
+                const copperEl = document.querySelector(copperSel);
+                const padEl = document.querySelector(padSel);
+                return copperEl.compareDocumentPosition(padEl)
+                    & Node.DOCUMENT_POSITION_FOLLOWING;
+            }""",
+            {"copperSel": _testid("pad-copper"), "padSel": _testid("pad-polygon")},
+        )
+
+    def test_purge_point_is_placed_by_clicking_the_board_and_persists(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        _select_led_blinker(live_server)
+
+        _open_paste_solder(browser_page, live_ui)
+        set_point_button = browser_page.locator(_testid("pad-set-initial-purge-point"))
+        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
+        marker = browser_page.locator(_testid("pad-purge-marker"))
+        set_point_button.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert marker.count() == 0
+
+        set_point_button.click()
+        # マーカー打ち中はパッドが hover やカーソルで反応しない
+        assert (
+            browser_page.locator(f"{_testid('pad-polygon')}:visible").first.evaluate(
+                "(el) => getComputedStyle(el).pointerEvents"
+            )
+            == "none"
+        )
+        # 基板ビューの中央をクリックした点がパージ位置になる（外形線は
+        # fill:none でヒットしないので SVG 自体を叩く）
+        browser_page.locator(_testid("pad-viewer")).click(force=True)
+        purge = _wait_for_initial_purge(live_server, resolved_source="explicit")
+        assert purge["initial_purge"]["point"] is not None
+
+        browser_page.wait_for_function(
+            """(selector) => document.querySelector(selector) !== null""",
+            arg=_testid("pad-purge-marker"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+        assert "mm" in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
+
+        browser_page.reload(wait_until="domcontentloaded")
+        browser_page.wait_for_function(
+            """(selector) => document.querySelector(selector) !== null""",
+            arg=_testid("pad-purge-marker"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
+        pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
+        assert "mm" in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
+
+        clear_button = browser_page.locator(_testid("pad-clear-initial-purge-point"))
+        assert not clear_button.is_disabled()
+        clear_button.click()
+        _wait_for_initial_purge(live_server, resolved_source="default")
+        browser_page.wait_for_function(
+            """(selector) => document.querySelector(selector) === null""",
+            arg=_testid("pad-purge-marker"),
+            timeout=_BROWSER_TIMEOUT_MS,
+        )
 
 
 class TestPasteSolderBrowserPadInteraction:

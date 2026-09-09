@@ -35,7 +35,7 @@ def validate_image_constraints(constraints: ImageConstraints) -> str | None: ...
 - 値オブジェクトを持たない検証（複数の独立した引数を突き合わせるだけのもの）は
     module-level 関数のままでよい
 - 直近に触ったモジュール（`pasting/dataset/metadata.py`、`pasting/flowcalib/lines.py`、
-    `pasting/flowcalib/board/config.py`）はこの規約に沿って移行済み
+    `pasting/testboard/config.py`）はこの規約に沿って移行済み
     （`DatasetView.validate()` / `LineLayout.validate()` / `BoardConfig.validate()`）
 - それ以外の既存 `validate_*` は、その周辺を触る機会に合わせて移す。
     無関係なモジュールをこの規約のためだけに一括改名はしない（AGENTS.md 開発原則 3）

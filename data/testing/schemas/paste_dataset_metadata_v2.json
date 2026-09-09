@@ -1,0 +1,184 @@
+{
+  "kind": "pcbasm-paste-volume-dataset",
+  "schema_version": 2,
+  "created_at": "2026-09-08T14:30:52+00:00",
+  "machine": {
+    "machine_id": "machine-1",
+    "name": "Machine 1"
+  },
+  "plate": {
+    "width_mm": 40.0,
+    "height_mm": 40.0,
+    "edge_margin_mm": 2.0,
+    "height_plane_z_mm": 1.62
+  },
+  "paste": {
+    "paste_id": "paste-1",
+    "lot": "lot-1",
+    "density_mg_per_ul": 3.78
+  },
+  "camera": {
+    "pixel_per_mm": 120.5,
+    "resolution": [
+      1280,
+      720
+    ],
+    "calibrated_at": "2026-08-20T12:00:00+00:00",
+    "z_position_mm": 12.0
+  },
+  "nozzle": {
+    "diameter_mm": 0.34
+  },
+  "label": {
+    "kind": "rotation_allocated"
+  },
+  "config": {
+    "rotations_per_ul": 20.0,
+    "max_dispense_rate_ul_s": 5.0,
+    "dispense_accel_ul_s2": 10.0,
+    "retract_amount_ul": 10.0,
+    "retract_rate_ul_s": 10.0,
+    "initial_purge_ul": 0.2,
+    "paste_height_mm": 0.2,
+    "prime_extra_delay_s": 0.0,
+    "capture_order": "phased",
+    "cell_size_mm": 2.0,
+    "cell_gap_mm": 1.0,
+    "purge_cell_size_mm": 2.0,
+    "crop_size_mm": 2.0,
+    "crop_size_px": 241,
+    "volume_min_ul": 0.05,
+    "volume_max_ul": 0.2,
+    "volume_divisions": 5,
+    "samples_per_volume": 3,
+    "blank_count": 4,
+    "shuffle_seed": 20260908,
+    "view_count": 1,
+    "view_offset_mm": 1.0
+  },
+  "total": {
+    "measured_mass_mg": 0.945,
+    "measured_volume_ul": 0.25,
+    "rotations": 5.0
+  },
+  "purge": {
+    "cell": {
+      "x": 2.0,
+      "y": 2.0,
+      "width": 2.0,
+      "height": 2.0
+    },
+    "center": {
+      "x": 3.0,
+      "y": 3.0
+    },
+    "execution": {
+      "applied_mode": "dot",
+      "path_length_mm": 0.0,
+      "commanded_volume_ul": 0.2,
+      "prime_extra_volume_ul": 0.0,
+      "effective_rate_ul_s": 1.0,
+      "rotations": 2.0
+    },
+    "measured_volume_ul": 0.1
+  },
+  "samples": [
+    {
+      "index": 1,
+      "order": 1,
+      "cell": {
+        "x": 8.0,
+        "y": 2.0,
+        "width": 2.0,
+        "height": 2.0
+      },
+      "center": {
+        "x": 9.0,
+        "y": 3.0
+      },
+      "commanded_volume_ul": 0.125,
+      "volume_index": 2,
+      "execution": {
+        "applied_mode": "dot",
+        "path_length_mm": 0.0,
+        "commanded_volume_ul": 0.125,
+        "prime_extra_volume_ul": 0.0,
+        "effective_rate_ul_s": 1.0,
+        "rotations": 3.0
+      },
+      "measured_volume_ul": 0.15,
+      "views": [
+        {
+          "number": 0,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "pixel_rect": [
+            400,
+            200,
+            641,
+            441
+          ],
+          "pre": "pre/000001.00.png",
+          "post": "post/000001.00.png"
+        },
+        {
+          "number": 1,
+          "offset_x_mm": 1.0,
+          "offset_y_mm": 0.0,
+          "pixel_rect": [
+            521,
+            200,
+            762,
+            441
+          ],
+          "pre": "pre/000001.01.png",
+          "post": "post/000001.01.png"
+        }
+      ]
+    }
+  ],
+  "blanks": [
+    {
+      "index": 2,
+      "cell": {
+        "x": 11.0,
+        "y": 2.0,
+        "width": 2.0,
+        "height": 2.0
+      },
+      "center": {
+        "x": 12.0,
+        "y": 3.0
+      },
+      "measured_volume_ul": 0.0,
+      "views": [
+        {
+          "number": 0,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "pixel_rect": [
+            400,
+            200,
+            641,
+            441
+          ],
+          "pre": "pre/000002.00.png",
+          "post": "post/000002.00.png"
+        },
+        {
+          "number": 1,
+          "offset_x_mm": 1.0,
+          "offset_y_mm": 0.0,
+          "pixel_rect": [
+            521,
+            200,
+            762,
+            441
+          ],
+          "pre": "pre/000002.01.png",
+          "post": "post/000002.01.png"
+        }
+      ]
+    }
+  ]
+}

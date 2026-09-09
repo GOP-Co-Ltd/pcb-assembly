@@ -23,9 +23,10 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 from pcbasm.config import PasteDispenser
+from pcbasm.geometry import Point2d, display_rings
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.initial_purge import (
-    InitialPurgePurpose,
+    purge_point_label,
     resolve_initial_purge_for,
 )
 from pcbasm.pasting.params import PASTE_PARAM_FIELDS, PasteParamValue
@@ -122,9 +123,9 @@ class HierNodeInfo(BaseModel):
 
 
 class ResolvedInitialPurgeInfo(BaseModel):
-    """初回パージの実行対象として解決された pad 情報."""
+    """初回パージの実行対象として解決された塗布点情報."""
 
-    pad_id: str
+    label: str
     amount: float
     point: list[float]
     source: str
@@ -134,8 +135,8 @@ class InitialPurgeInfo(BaseModel):
     """初回パージ設定とサーバ側解決結果."""
 
     initial_purge_ul: float
-    pad_id: str | None
-    default_pad_id: str | None
+    point: list[float] | None  # 明示指定（``None`` = 自動）
+    default_point: list[float] | None  # 自動時に使う順路先頭 pad の中心
     resolved: ResolvedInitialPurgeInfo | None
     selection_label: str
     error: str | None
@@ -180,6 +181,26 @@ class PadConfigResponse(BaseModel):
     pads: list[PadInfo]
     overrides: dict[str, NodeOverrideInfo]  # node_id -> 明示 override（疎、L0 含む）
     fields: list[ParamFieldInfo]  # 塗布パラメータの UI メタデータ（列順）
+
+
+# 銅箔の表示簡略化の許容誤差 [mm]。基板ビューの 1px 未満に収まる範囲で
+# 頂点を間引き、転送量を 1/9 程度へ落とす
+COPPER_DISPLAY_TOLERANCE_MM = 0.02
+
+
+class CopperIslandInfo(BaseModel):
+    """表示用の銅箔島（exterior が先、以降が穴）."""
+
+    layer: str  # "Top" / "Bottom"
+    rings: list[list[list[float]]]
+
+
+class PadConfigCopperResponse(BaseModel):
+    """GET /api/pasting/pad-config/copper のレスポンス."""
+
+    pcb_file: str
+    tolerance_mm: float
+    islands: list[CopperIslandInfo]
 
 
 class PasteRouteRequest(BaseModel):
@@ -251,7 +272,7 @@ class InitialPurgePatch(BaseModel):
     """PATCH /api/pasting/pad-config/initial-purge のリクエスト."""
 
     initial_purge_ul: float | None = None
-    pad_id: str | None = None
+    point: list[float] | None = None  # board 座標 [x, y]（``None`` で自動へ戻す）
     expected_pcb: str | None = None  # 編集開始時の PCB（不一致なら 409）
 
 
@@ -357,53 +378,53 @@ def param_fields() -> list[ParamFieldInfo]:
     ]
 
 
-def build_initial_purge(
-    loaded: Loaded, purpose: InitialPurgePurpose = "paste_solder"
-) -> InitialPurgeInfo:
+def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
     """ロード済みコンテキストから初回パージ設定の解決結果を返す."""
     routed = routed_enabled_pads(
         layer_pads(loaded, Layer.TOP), loaded.hierarchy, loaded.model
     )
+    point = loaded.model.initial_purge_point
     resolution = resolve_initial_purge_for(
-        purpose,
         amount_ul=loaded.base_config.initial_purge_ul,
-        pad_id=loaded.model.initial_purge_pad_id,
-        hierarchy=loaded.hierarchy,
+        point=point,
         routed_pads=routed,
+        outline=loaded.pcb.outline.polygon,
     )
-    resolved, default_pad_id, error = (
+    resolved, default_point, error = (
         resolution.resolved,
-        resolution.default_pad_id,
+        resolution.default_point,
         resolution.error,
     )
-    if error is not None and purpose == "paste_solder":
+    if error is not None:
         raise HTTPException(status_code=400, detail=error)
-    selection_label = (
-        loaded.model.initial_purge_pad_id
-        if loaded.model.initial_purge_pad_id is not None
-        else (
-            f"自動 ({default_pad_id})"
-            if default_pad_id is not None
-            else "自動 (設定が必要)"
-        )
-    )
     return InitialPurgeInfo(
         initial_purge_ul=loaded.base_config.initial_purge_ul,
-        pad_id=loaded.model.initial_purge_pad_id,
-        default_pad_id=default_pad_id,
+        point=None if point is None else [point.x, point.y],
+        default_point=(
+            None if default_point is None else [default_point.x, default_point.y]
+        ),
         resolved=(
             ResolvedInitialPurgeInfo(
-                pad_id=resolved.pad_id,
+                label=resolved.label,
                 amount=resolved.amount_ul,
-                point=[resolved.pad.center.x, resolved.pad.center.y],
+                point=[resolved.point.x, resolved.point.y],
                 source=resolved.source,
             )
             if resolved is not None
             else None
         ),
-        selection_label=selection_label,
+        selection_label=_purge_selection_label(point, default_point),
         error=error,
     )
+
+
+def _purge_selection_label(point: Point2d | None, default_point: Point2d | None) -> str:
+    """パージ位置の指定内容を表示用文字列に組む（サーバー側で確定させる）."""
+    if point is not None:
+        return purge_point_label(point)
+    if default_point is not None:
+        return f"自動 {purge_point_label(default_point)}"
+    return "自動 (順路が空です)"
 
 
 def pad_info(
@@ -468,9 +489,7 @@ def load_board(
     )
 
 
-def build_pad_config(
-    loaded: Loaded, purpose: InitialPurgePurpose = "paste_solder"
-) -> PadConfigResponse:
+def build_pad_config(loaded: Loaded) -> PadConfigResponse:
     """ロード済みコンテキストから GET 形式のレスポンスを構築する."""
     pcb = loaded.pcb
     hierarchy = loaded.hierarchy
@@ -498,11 +517,32 @@ def build_pad_config(
         width=outline.width,
         height=outline.height,
         defaults=resolved_default(model),
-        initial_purge=build_initial_purge(loaded, purpose),
+        initial_purge=build_initial_purge(loaded),
         tree=tree(hierarchy.root, model, node_resolved),
         pads=pads,
         overrides=overrides(model),
         fields=param_fields(),
+    )
+
+
+def build_copper(loaded: Loaded) -> PadConfigCopperResponse:
+    """銅箔島を表示用に簡略化して返す（pad 編集ごとには取り直さない前提）."""
+    islands = [
+        CopperIslandInfo(
+            layer=copper.layer.value,
+            rings=[[[x, y] for x, y in ring] for ring in rings],
+        )
+        for copper in loaded.pcb.copper
+        if (
+            rings := display_rings(
+                copper.polygon, tolerance=COPPER_DISPLAY_TOLERANCE_MM
+            )
+        )
+    ]
+    return PadConfigCopperResponse(
+        pcb_file=loaded.source_pcb,
+        tolerance_mm=COPPER_DISPLAY_TOLERANCE_MM,
+        islands=islands,
     )
 
 

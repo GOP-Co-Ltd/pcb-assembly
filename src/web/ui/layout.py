@@ -29,7 +29,7 @@ TABS: dict[str, tuple[str, ...]] = {
         "loading",
         "dispense_calibration",
         "paste_dataset_collection",
-        "paste_flow_calibration_board",
+        "paste_test_board",
         "generate_rect_pcb",
         "toolhead_offset",
         "probe_guide",
@@ -62,7 +62,7 @@ FEATURE_LABELS: dict[str, str] = {
     "audio": "通知音",
     "probe_guide": "ロードセルプローブ ガイド",
     "nozzle_cap": "ノズルキャップ位置の設定",
-    "paste_flow_calibration_board": "はんだペースト流量キャリブレーション基板生成",
+    "paste_test_board": "テスト塗布基板生成",
     "camera_preview": "カメラプレビュー",
     "copper_detection": "銅箔検出調整",
 }
@@ -86,11 +86,14 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("pasting", "height_plane"): "pasting/job.html",
     ("pasting", "loading"): "pasting/loading.html",
     ("pasting", "dispense_calibration"): "pasting/dispense_calibration.html",
-    ("pasting", "paste_dataset_collection"): "pasting/paste_solder.html",
     (
         "pasting",
-        "paste_flow_calibration_board",
-    ): "pasting/paste_flow_calibration_board.html",
+        "paste_dataset_collection",
+    ): "pasting/paste_dataset_collection.html",
+    (
+        "pasting",
+        "paste_test_board",
+    ): "pasting/paste_test_board.html",
     ("pasting", "generate_rect_pcb"): "pasting/job.html",
     ("pasting", "toolhead_offset"): "pasting/job.html",
     ("pasting", "probe_guide"): "pasting/probe_guide.html",
@@ -111,6 +114,7 @@ JOB_TEMPLATES = frozenset(
         "pasting/job.html",
         "pasting/loading.html",
         "pasting/dispense_calibration.html",
+        "pasting/paste_dataset_collection.html",
         "pasting/paste_solder.html",
         "posctrl/job.html",
         "posctrl/camera_calibration.html",
@@ -147,6 +151,45 @@ DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "③ max_fill_speed（連続塗布の最大速度）",
         ("speed_min", "speed_max", "speed_divisions"),
+    ),
+)
+
+# paste_dataset_collection フォームのセクション分け（表示のみ）。
+# 項目数が多く縦一列だと読めないため、依存関係の近いものをまとめて段組みにする。
+# 全パラメータを漏れなく含める（欠けた項目はフォームから消える）。
+PASTE_DATASET_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "銅板",
+        (
+            "plate_width",
+            "plate_height",
+            "edge_margin",
+            "purge_cell_size",
+            "tolerance",
+        ),
+    ),
+    (
+        "セル格子",
+        ("cell_size", "cell_gap", "crop_size"),
+    ),
+    (
+        "吐出量スイープ",
+        (
+            "volume_min",
+            "volume_max",
+            "volume_divisions",
+            "samples_per_volume",
+            "blank_count",
+            "shuffle_seed",
+        ),
+    ),
+    (
+        "塗布と撮影",
+        ("paste_height", "view_count", "view_offset"),
+    ),
+    (
+        "ペースト",
+        ("paste_id", "paste_lot"),
     ),
 )
 

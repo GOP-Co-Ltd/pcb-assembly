@@ -20,6 +20,7 @@ from typing import Self
 import attrs
 
 from pcbasm.config import PasteDispenser
+from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import (
     PASTE_PARAM_NAMES,
     PasteParams,
@@ -63,12 +64,12 @@ class PasteSettingsModel:
 
     Attributes:
         base: machine.toml 由来のデフォルト（全項目確定）
-        initial_purge_pad_id: 初回パージに使う pad id（``None`` = 順路先頭）
+        initial_purge_point: 初回パージの座標（``None`` = 順路先頭 pad の中心）
         levels: L0–L4 の疎な明示設定（キーは重複しない）
     """
 
     base: PasteParams
-    initial_purge_pad_id: str | None = None
+    initial_purge_point: Point2d | None = None
     levels: tuple[LevelSetting, ...] = ()
 
     @classmethod
@@ -118,8 +119,9 @@ class PasteSettingsModel:
             model = model.with_level_patch(key, enabled=enabled, enabled_sent=True)
         return model
 
-    def with_initial_purge_pad_id(self, pad_id: str | None) -> Self:
-        return attrs.evolve(self, initial_purge_pad_id=pad_id)
+    def with_initial_purge_point(self, point: Point2d | None) -> Self:
+        """初回パージの座標を設定した新モデルを返す（``None`` で自動へ戻す）."""
+        return attrs.evolve(self, initial_purge_point=point)
 
     def without_levels(self, keys: Iterable[HierKey]) -> Self:
         """指定キーの明示設定を除いた新モデルを返す."""

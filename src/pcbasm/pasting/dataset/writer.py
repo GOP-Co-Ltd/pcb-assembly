@@ -17,7 +17,7 @@ from pcbasm.pasting.dataset.metadata import (
     DatasetView,
     PasteDatasetMetadata,
 )
-from pcbasm.vision.crop import PolygonCrop
+from pcbasm.vision.crop import RectCrop
 from pcbasm.vision.image import ImageArray
 
 
@@ -29,10 +29,16 @@ class PasteDatasetWriter:
     :meth:`mark_incomplete` で取得済みファイルを保持する。
     """
 
-    def __init__(self, root: Path, stem: str) -> None:
-        """:meth:`open` が採番した session を包む（directory は作成済みであること）."""
+    def __init__(self, root: Path, stem: str, crop_size_px: int) -> None:
+        """:meth:`open` が採番した session を包む（directory は作成済みであること）.
+
+        ``crop_size_px`` は収集開始時に 1 回だけ決めた crop の一辺で、書き込む全画像が
+        ``(n, n, 3)`` の uint8 であることをここで強制する（「全画像同一寸法」の
+        永続化境界）。
+        """
         self._root = root
         self._stem = stem
+        self._crop_size_px = crop_size_px
         self._working_path = root / f".{stem}.tmp"
         self._finished_path: Path | None = None
         self._captures: set[tuple[int, int, CapturePhase]] = set()
@@ -42,28 +48,32 @@ class PasteDatasetWriter:
         cls,
         root: Path,
         *,
-        board_name: str,
+        plate_name: str,
+        crop_size_px: int,
         started_at: datetime | None = None,
     ) -> Self:
         """``root`` 直下に一時 session directory を作って writer を返す.
 
         Raises:
-            ValueError: ``started_at`` が timezone を持たない、``board_name`` が空
+            ValueError: ``started_at`` が timezone を持たない、``plate_name`` が空、
+                ``crop_size_px`` が 1 未満
         """
         timestamp = started_at or datetime.now().astimezone()
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("started_atにはtimezoneが必要です")
-        if not board_name:
-            raise ValueError("board_nameは空にできません")
+        if not plate_name:
+            raise ValueError("plate_nameは空にできません")
+        if type(crop_size_px) is not int or crop_size_px < 1:
+            raise ValueError(f"crop_size_pxは1以上の整数が必要です: {crop_size_px!r}")
         root.mkdir(parents=True, exist_ok=True)
         milliseconds = timestamp.microsecond // 1000
         base = (
-            f"{board_name}-{timestamp.strftime('%Y%m%dT%H%M%S')}"
+            f"{plate_name}-{timestamp.strftime('%Y%m%dT%H%M%S')}"
             f".{milliseconds:03d}{timestamp.strftime('%z')}"
         )
-        writer = cls(root, _available_stem(root, base))
+        writer = cls(root, _available_stem(root, base), crop_size_px)
         writer._working_path.mkdir()
-        for phase in ("pre", "post", "mask"):
+        for phase in ("pre", "post"):
             (writer._working_path / phase).mkdir()
         return writer
 
@@ -86,38 +96,29 @@ class PasteDatasetWriter:
 
     def write_capture(
         self,
-        pad_index: int,
+        sample_index: int,
         view: DatasetView,
         phase: CapturePhase,
-        crop: PolygonCrop,
+        crop: RectCrop,
     ) -> DatasetCapturedView:
         """Lossless PNG を書き、metadata 用の view 記述を返す.
 
         Raises:
-            ValueError: pad_index / phase / crop が不正、または同一 capture の重複
+            ValueError: sample_index / phase / crop が不正、または同一 capture の重複
             RuntimeError: session が確定済み
         """
         self._ensure_open()
-        if type(pad_index) is not int or pad_index < 1:
-            raise ValueError(f"pad_indexは1以上の整数が必要です: {pad_index!r}")
+        if type(sample_index) is not int or sample_index < 1:
+            raise ValueError(f"sample_indexは1以上の整数が必要です: {sample_index!r}")
         if phase not in ("pre", "post"):
             raise ValueError(f"未知のcapture phaseです: {phase!r}")
-        key = (pad_index, view.number, phase)
+        key = (sample_index, view.number, phase)
         if key in self._captures:
             raise ValueError(f"captureが重複しています: {key}")
-        _validate_crop(crop)
+        _validate_crop(crop, self._crop_size_px)
 
-        filename = f"{pad_index:06d}.{view.number:02d}.png"
-        relative = Path(phase) / filename
-        mask_relative = Path("mask") / filename
-        mask_path = self._working_path / mask_relative
-        if mask_path.exists():
-            existing = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
-            if existing is None or not np.array_equal(existing, crop.mask):
-                raise ValueError(f"同一viewのmaskが一致しません: {filename}")
-        else:
-            _write_png(mask_path, crop.mask)
-        _write_png(self._working_path / relative, crop.image)
+        filename = f"{sample_index:06d}.{view.number:02d}.png"
+        _write_png(self._working_path / phase / filename, crop.image)
         self._captures.add(key)
         return DatasetCapturedView(
             number=view.number,
@@ -126,7 +127,6 @@ class PasteDatasetWriter:
             pixel_rect=crop.pixel_rect,
             pre=(Path("pre") / filename).as_posix(),
             post=(Path("post") / filename).as_posix(),
-            mask=mask_relative.as_posix(),
         )
 
     def finalize(self, metadata: PasteDatasetMetadata) -> Path:
@@ -138,27 +138,27 @@ class PasteDatasetWriter:
         """
         self._ensure_open()
         expected: set[tuple[int, int, CapturePhase]] = set()
-        pad_indices: set[int] = set()
-        for pad in metadata.pads:
-            if pad.index in pad_indices:
-                raise ValueError(f"metadataのpad indexが重複しています: {pad.index}")
-            pad_indices.add(pad.index)
+        sample_indices: set[int] = set()
+        captured: list[tuple[int, tuple[DatasetCapturedView, ...]]] = [
+            *((sample.index, sample.views) for sample in metadata.samples),
+            *((blank.index, blank.views) for blank in metadata.blanks),
+        ]
+        for index, views in captured:
+            if index in sample_indices:
+                raise ValueError(f"metadataのsample indexが重複しています: {index}")
+            sample_indices.add(index)
             view_numbers: set[int] = set()
-            for view in pad.views:
+            for view in views:
                 if view.number in view_numbers:
                     raise ValueError(
                         f"metadataのview numberが重複しています: "
-                        f"pad={pad.index}, view={view.number}"
+                        f"sample={index}, view={view.number}"
                     )
                 view_numbers.add(view.number)
-                expected.add((pad.index, view.number, "pre"))
-                expected.add((pad.index, view.number, "post"))
-                filename = f"{pad.index:06d}.{view.number:02d}.png"
-                if (
-                    view.pre != f"pre/{filename}"
-                    or view.post != f"post/{filename}"
-                    or view.mask != f"mask/{filename}"
-                ):
+                expected.add((index, view.number, "pre"))
+                expected.add((index, view.number, "post"))
+                filename = f"{index:06d}.{view.number:02d}.png"
+                if view.pre != f"pre/{filename}" or view.post != f"post/{filename}":
                     raise ValueError(
                         f"metadataのcapture pathが命名規則と一致しません: {filename}"
                     )
@@ -205,15 +205,12 @@ def _available_stem(root: Path, base: str) -> str:
         suffix += 1
 
 
-def _validate_crop(crop: PolygonCrop) -> None:
-    if crop.image.ndim != 3 or crop.image.shape[2] != 3:
-        raise ValueError(f"capture画像は3 channelが必要です: {crop.image.shape}")
+def _validate_crop(crop: RectCrop, crop_size_px: int) -> None:
+    expected = (crop_size_px, crop_size_px, 3)
+    if crop.image.shape != expected:
+        raise ValueError(f"capture画像は{expected}が必要です: {crop.image.shape}")
     if crop.image.dtype != np.uint8:
         raise ValueError(f"capture画像はuint8が必要です: {crop.image.dtype}")
-    if crop.mask.shape != crop.image.shape[:2] or crop.mask.dtype != np.uint8:
-        raise ValueError("maskはcapture画像と同寸法のuint8が必要です")
-    if not np.isin(crop.mask, (0, 255)).all():
-        raise ValueError("maskは0/255だけで構成する必要があります")
 
 
 def _write_png(path: Path, data: ImageArray) -> None:

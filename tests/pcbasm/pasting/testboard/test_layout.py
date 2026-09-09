@@ -1,16 +1,17 @@
-"""流量キャリブレーション基板layoutのテスト."""
+"""テスト塗布基板layoutのテスト."""
 
 import pytest
 
-from pcbasm.pasting.flowcalib.board.config import (
+from pcbasm.pasting.testboard.config import (
     BoardConfig,
     BoardConfigError,
     BoardSpec,
+    FlowPadSpec,
     PatternSpec,
 )
-from pcbasm.pasting.flowcalib.board.generator import BoardGenerator
-from pcbasm.pasting.flowcalib.board.layout import BoardLayout
-from tests.pcbasm.pasting.flowcalib.board.support import (
+from pcbasm.pasting.testboard.generator import BoardGenerator
+from pcbasm.pasting.testboard.layout import BoardLayout
+from tests.pcbasm.pasting.testboard.support import (
     CUSTOM_A,
     CUSTOM_B,
     R0402,
@@ -66,6 +67,8 @@ class TestBoardLayout:
     def test_purge_pad_only_blocks_its_upper_left_corner(self, generator):
         config = BoardConfig(
             board=BoardSpec(width_mm=12.0, height_mm=8.0),
+            # purge keepout だけを見るので流量計測パッドは置かない
+            flow_pads=FlowPadSpec(count=0),
             custom_pads=(
                 custom_pad(CUSTOM_A, "A Right", width_mm=7.0, height_mm=2.0),
                 custom_pad(CUSTOM_B, "B Below", width_mm=10.0, height_mm=2.0),
@@ -114,6 +117,8 @@ class TestBoardLayout:
                 height_mm=8.0,
                 pad_gap_mm=1.0,
             ),
+            # 個別パッドの packing だけを見るので流量計測パッドは置かない
+            flow_pads=FlowPadSpec(count=0),
             custom_pads=(custom_pad(CUSTOM_A, "Rect", width_mm=4.0, height_mm=1.0),),
             patterns=(PatternSpec(CUSTOM_A, 180.0, 2, 2),),
         )
@@ -144,6 +149,8 @@ class TestBoardLayout:
     def test_overflow_reports_the_pad_pattern(self, generator):
         config = BoardConfig(
             board=BoardSpec(width_mm=4.0, height_mm=4.0),
+            # パッド種が原因の overflow を見たいので流量計測パッドは置かない
+            flow_pads=FlowPadSpec(count=0),
             patterns=(PatternSpec(R1206),),
         )
 
@@ -164,3 +171,80 @@ class TestBoardLayout:
             generator.resolve_config(config)
 
         assert "指定のパッドパターン" in str(exc.value)
+
+
+class TestFlowPadLayout:
+    """流量計測パッドを左上の帯へ並べ、通常パッドと重ねない."""
+
+    def test_places_every_flow_pad_as_a_square(self, generator: BoardGenerator):
+        config = BoardConfig(
+            flow_pads=FlowPadSpec(size_mm=2.0, count=5),
+            patterns=(PatternSpec(R0402, 180.0, 2, 1),),
+        )
+
+        layout = _layout(generator, config)
+
+        assert len(layout.flow_pads) == 5
+        for rect in layout.flow_pads:
+            assert rect.width == pytest.approx(2.0)
+            assert rect.height == pytest.approx(2.0)
+
+    def test_flow_pads_start_beside_the_purge_pad(self, generator: BoardGenerator):
+        config = BoardConfig(patterns=(PatternSpec(R0402, 180.0, 2, 1),))
+
+        layout = _layout(generator, config)
+
+        first = layout.flow_pads[0]
+        assert first.x > layout.purge_pad.x
+        assert first.y == pytest.approx(layout.purge_pad.y)
+
+    def test_flow_pads_do_not_overlap_each_other_or_the_purge_pad(
+        self, generator: BoardGenerator
+    ):
+        config = BoardConfig(
+            flow_pads=FlowPadSpec(size_mm=2.0, count=6),
+            patterns=(PatternSpec(R0402, 180.0, 2, 1),),
+        )
+
+        layout = _layout(generator, config)
+
+        gap = config.board.pad_gap_mm
+        rects = [layout.purge_pad, *layout.flow_pads]
+        for index, first in enumerate(rects):
+            for second in rects[index + 1 :]:
+                assert _separated(first, second, gap)
+
+    def test_pattern_pads_keep_clear_of_the_flow_pads(self, generator: BoardGenerator):
+        config = BoardConfig(
+            flow_pads=FlowPadSpec(size_mm=2.0, count=5),
+            patterns=(PatternSpec(R1206, 180.0, 4, 3),),
+        )
+
+        layout = _layout(generator, config)
+
+        gap = config.board.pad_gap_mm
+        for flow in layout.flow_pads:
+            for pad in layout.pads:
+                assert _separated(flow, pad.bounds, gap)
+
+    def test_zero_count_places_no_flow_pad(self, generator: BoardGenerator):
+        config = BoardConfig(
+            flow_pads=FlowPadSpec(count=0),
+            patterns=(PatternSpec(R0402, 180.0, 2, 1),),
+        )
+
+        layout = _layout(generator, config)
+
+        assert layout.flow_pads == ()
+
+    def test_flow_pads_that_do_not_fit_are_reported(self, generator: BoardGenerator):
+        config = BoardConfig(
+            board=BoardSpec(width_mm=12.0, height_mm=12.0),
+            flow_pads=FlowPadSpec(size_mm=2.0, count=200),
+            patterns=(PatternSpec(R0402, 180.0, 1, 1),),
+        )
+
+        layout, overflow_message = generator.layout(config)
+
+        assert layout is None
+        assert overflow_message is not None

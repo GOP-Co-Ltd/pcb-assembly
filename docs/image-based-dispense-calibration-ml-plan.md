@@ -92,27 +92,29 @@ storeへ移す。MLflowはlocal構成とtracking server構成の両方を提供�
 ### session探索と検証
 
 入力は1個以上のdataset rootまたはsession directoryとする。loaderは
-`kind == "pcbasm-paste-volume-dataset"`かつ`schema_version == 1`の完成sessionだけを読む。
+`kind == "pcbasm-paste-volume-dataset"`かつ`schema_version == 2`の完成sessionだけを読む。
 `.tmp`、`.incomplete`、ZIP artifactは自動探索へ含めない。
 
 学習前に次を全件検証し、1件でも不正なら部分的に無視せず失敗する。
 
 - `metadata.json`の型、未知key、有限値、正の`camera.pixel_per_mm`と
-    `measured_volume_ul`
-- session内で一意なpad index、pad内で一意なview number
-- `pre`、`post`、`mask`がsession directory内の相対pathであり、path traversalやsymlinkで
+    `samples[].measured_volume_ul`
+- session内で一意なsample index（`samples`と`blanks`が同じ採番列を共有する）、sample内で
+    一意なview number
+- `pre`、`post`がsession directory内の相対pathであり、path traversalやsymlinkで
     外へ出ないこと
 - 塗布前後が同じ幅・高さの3 channel lossless PNGであること
-- maskが画像と同じ幅・高さの単channel PNGで、値が0または255だけであること
+- 全画像が`config.crop_size_px`の正方形であること（1 sessionで寸法が揃う契約）
 - `pixel_rect`の寸法が保存画像と一致すること
-- purgeと全padの配分体積合計が`total.measured_volume_ul`と数値誤差内で一致すること
-- purgeと全padの正方向回転数合計が`total.rotations`と数値誤差内で一致すること
+- purgeと全samplesの配分体積合計が`total.measured_volume_ul`と数値誤差内で一致すること
+    （`blanks`は配分に含めず`measured_volume_ul`が常に0.0であること）
+- purgeと全samplesの正方向回転数合計が`total.rotations`と数値誤差内で一致すること
 - 同一画像内容または同一session IDの衝突がないこと
 
 ML pipelineのPNG decodeには`torchvision.io.decode_image(path, mode="RGB")`を使う。戻り値は
 RGB順の`uint8 [C, H, W]`であるため、OpenCV由来のBGR変換やHWCからCHWへの`permute`を挟まない。
-maskはgrayscaleとしてdecodeする。収集・幾何処理で既存OpenCVを使う箇所とは境界を分け、
-controlled PNG fixtureでRGB channel順を固定する。
+schema v2はmask画像を持たないので、decode対象はpre/postの2枚だけである。収集・幾何処理で既存
+OpenCVを使う箇所とは境界を分け、controlled PNG fixtureでRGB channel順を固定する。
 
 ### 複合データセット
 
@@ -176,23 +178,23 @@ MLflowへ必ず保存する。この場合の`source_id`は各rootのcontent fin
     追加しても既存sample IDを変えない
 - `source_ids`: merge元datasetを示す1個以上のID。deduplicate時は全aliasを保持する
 - `session_id`、`machine_id`、`paste_id`、`paste_lot`、`nozzle_diameter_mm`
-- `board.signature`、pad ID、view number
-- pre/post/maskのpath、元画像の幅・高さ
-- 収集時の`pixel_per_mm`と教師`measured_volume_ul`
-- session内pad数とpad内view数
+- plate寸法、sample index、`order`、view number、blankかどうか
+- pre/postのpath、元画像の幅・高さ
+- 収集時の`pixel_per_mm`と教師`measured_volume_ul`、`label.kind`
+- session内sample数とsample内view数
 
-複数viewはv1では別sampleとして学習できるが、同じpadの全viewを必ず同じsplitへ入れる。
-同じ教師値を持つview数が多いpadを過大評価しないよう、loss weightは次とする。
+複数viewはv1では別sampleとして学習できるが、同じsampleの全viewを必ず同じsplitへ入れる。
+同じ教師値を持つview数が多いsampleを過大評価しないよう、loss weightは次とする。
 
 \[
 w_{s,p,v}
 =
-\frac{1}{N_{\mathrm{pads\ in\ session}\ s}}
-\frac{1}{N_{\mathrm{views\ of\ pad}\ p}}
+\frac{1}{N_{\mathrm{samples\ in\ session}\ s}}
+\frac{1}{N_{\mathrm{views\ of\ sample}\ p}}
 \]
 
-各batchではweight合計でlossを正規化する。これにより、pad数の多い基板やview数の多いpadでは
-なく、各収集sessionが同程度の寄与を持つ。source directoryの分割方法は任意なので、sourceごとの
+各batchではweight合計でlossを正規化する。これにより、sample数の多いsessionやview数の多い
+sampleではなく、各収集sessionが同程度の寄与を持つ。source directoryの分割方法は任意なので、sourceごとの
 自動weight補正は行わない。source別のsample数とmetricは診断reportとして出す。
 
 ### dataset fingerprintとsplit
@@ -254,7 +256,7 @@ validation、test、実運転推論で共通化する。
 
 1. pre/postをtorchvisionでRGBの`uint8 [3, H, W]`としてdecodeする。
 2. 全要素が真の`sample_valid_mask [1, H, W]`を作る。torchvision transforms v2のfunctional APIで、
-    同じ明示parameterの幾何変換をpre、post、pad geometry mask、`sample_valid_mask`へ適用する。
+    同じ明示parameterの幾何変換をpre、post、`sample_valid_mask`へ適用する。
     画像はbilinear、maskはnearest-exactを使う。
 3. `to_dtype(torch.float32, scale=True)`で`[0, 1]`へ変換する。
 4. pre RGB、post RGBの順で連結し、`x [6, H, W]`とする。
@@ -284,15 +286,16 @@ mean/variance分布をreportする。
 `log(pixel_per_mm)`をそのままモデルへ渡す。教師体積もtrain中央値でscaleせず、µLの物理単位の
 ままlossへ渡す。したがってmodelの入出力変換にtrain dataset由来の統計は存在しない。
 
-収集済みのpad geometry maskは入力channelへ加えない。v1のモデル入力は要件どおり6 channelを
-維持し、geometry maskはcrop検証と幾何augmentationの整合確認に使う。augmentation後の有効領域を示す
-`sample_valid_mask`、およびこれとbatch paddingを合成した`valid_pixel_mask`とは別物である。
+schema v2はpad geometry maskを保存しないので、モデル入力は要件どおりpre/postの6 channelだけで
+ある。幾何augmentationの整合確認は`sample_valid_mask`（augmentation後の有効領域）で行い、これと
+batch paddingを合成したものが`valid_pixel_mask`になる。crop寸法の検証は`config.crop_size_px`と
+保存画像の突き合わせで行う。
 
 ### Data Augmentation
 
 要件どおり回転と等方scaleだけを行う。輝度、contrast、色、blur、noiseは初期実装で変更しない。
 
-- 回転角は`[0, 360)`から一様に選び、pre/postへ同じbilinear変換、geometry maskへ同じ
+- 回転角は`[0, 360)`から一様に選び、pre/postへ同じbilinear変換、`sample_valid_mask`へ同じ
     nearest-exact変換を適用する。
 - 回転によって元canvas外から入る画素はinvalidとし、後述のlearnable padding pixelで置換する。
 - scaleは`[0.5, 2.0]`をlog-uniformで選ぶ。適用後も画像上限制約を満たすようclipし、
@@ -1105,8 +1108,8 @@ versionを残す。
     label競合は失敗することを確認する。
 - torchvision decode、`SampleLayerNorm`、size制約、paired augmentation、bucket batch
     sampler、learnable padding用maskまでを通す。
-- controlled RGB PNGと実session fixtureでRGB順、CHW shape、pair/mask整合、重複、leakage拒否を
-    確認する。
+- controlled RGB PNGと実session fixtureでRGB順、CHW shape、pre/post整合、crop寸法の一致、
+    重複、leakage拒否を確認する。
 - all-valid入力は`F.layer_norm`と一致し、masked入力はinvalid要素を除いた参照計算と一致することを
     確認する。複数sampleを同じbatchまたは別batchで処理しても各sampleの結果が変わらず、
     channel別・dataset全体の統計を読んでいないことを公開preprocessor APIで確認する。

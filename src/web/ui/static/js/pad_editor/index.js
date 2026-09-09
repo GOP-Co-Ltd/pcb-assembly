@@ -31,10 +31,8 @@ import {
 
   const { api, toast } = window.webui;
   const DEBOUNCE_MS = 300;
-  const configPurpose = root.dataset.padConfigPurpose || "paste_solder";
-  const configUrl = `/api/pasting/pad-config?purpose=${encodeURIComponent(
-    configPurpose
-  )}`;
+  const configUrl = "/api/pasting/pad-config";
+  const copperUrl = "/api/pasting/pad-config/copper";
 
   const state = {
     config: null,
@@ -49,6 +47,8 @@ import {
     fillPath: null,
     fillPathLoading: false,
     initialPurgeSaving: false,
+    purgePointMode: false,
+    copper: null,
     padEls: new Map(),
     rowEls: new Map(),
     parentOf: new Map(),
@@ -72,11 +72,11 @@ import {
   const initialPurgePadStatus = document.getElementById(
     "pad-initial-purge-pad"
   );
-  const initialPurgeSetPadButton = document.getElementById(
-    "pad-set-initial-purge-pad"
+  const initialPurgeSetPointButton = document.getElementById(
+    "pad-set-initial-purge-point"
   );
-  const initialPurgeClearPadButton = document.getElementById(
-    "pad-clear-initial-purge-pad"
+  const initialPurgeClearButton = document.getElementById(
+    "pad-clear-initial-purge-point"
   );
 
   async function load() {
@@ -105,6 +105,21 @@ import {
     if (options.invalidateFillPath) clearFillPath();
     buildIndexes(config);
     render();
+    // 銅箔は基板ごとに 1 回だけ取る（pad 編集では変わらず、点数が多い）
+    if (state.copper?.pcb_file !== config.pcb_file) loadCopper(config.pcb_file);
+  }
+
+  async function loadCopper(pcbFile) {
+    state.copper = null;
+    try {
+      const copper = await api("GET", copperUrl);
+      // 取得中に PCB が切り替わった場合は捨てる
+      if (state.config?.pcb_file !== pcbFile) return;
+      state.copper = copper;
+      render();
+    } catch (err) {
+      toast(`銅箔を取得できません: ${err.message}`, "warning");
+    }
   }
 
   function buildIndexes(config) {
@@ -147,33 +162,28 @@ import {
     if (initialPurgePadStatus) {
       initialPurgePadStatus.textContent = purge?.selection_label || "自動";
       initialPurgePadStatus.title = purge?.error || "";
-      initialPurgePadStatus.dataset.padId = purge?.pad_id || "";
-      initialPurgePadStatus.dataset.mode = purge?.pad_id ? "explicit" : "auto";
+      initialPurgePadStatus.dataset.mode = purge?.point ? "explicit" : "auto";
     }
-    if (initialPurgeSetPadButton) {
-      const pad = selectedInitialPurgePad();
-      initialPurgeSetPadButton.textContent = pad
-        ? `${pad.id} を設定`
-        : "選択パッドを設定";
-      initialPurgeSetPadButton.title = pad
-        ? `${pad.id} を初回パージパッドに設定`
-        : "パッドマップで Top 面のパッドを1つ選択";
+    if (initialPurgeSetPointButton) {
+      initialPurgeSetPointButton.textContent = state.purgePointMode
+        ? "位置をクリック（取消）"
+        : "パージ位置を設定";
+      initialPurgeSetPointButton.title = state.purgePointMode
+        ? "基板ビューの任意位置をクリックするとそこがパージ位置になります"
+        : "基板上の任意位置をパージ位置に設定";
+      initialPurgeSetPointButton.dataset.mode = state.purgePointMode
+        ? "picking"
+        : "idle";
     }
-    if (initialPurgeClearPadButton) {
-      initialPurgeClearPadButton.title = "塗布順路先頭の自動選択に戻す";
+    if (initialPurgeClearButton) {
+      initialPurgeClearButton.title = "塗布順路先頭の中心へ戻す";
     }
   }
 
-  function padById(id) {
-    return state.config?.pads.find((pad) => pad.id === id) || null;
-  }
-
-  function selectedInitialPurgePad() {
-    if (state.selected.size !== 1) return null;
-    const pad = padById([...state.selected][0]);
-    // Top 面制約の真実はサーバ（PATCH initial-purge が Layer.TOP を検証し 400）。
-    // ここはボタン活性の描画ゲートとして同じ規則を写している。
-    return pad?.layer === "Top" ? pad : null;
+  function setPurgePointMode(active) {
+    state.purgePointMode = active;
+    svg.classList.toggle("pad-viewer-picking", active);
+    renderInitialPurgeControls({ syncAmount: false });
   }
 
   for (const radio of root.querySelectorAll("input[name='pad-layer']")) {
@@ -197,6 +207,12 @@ import {
 
   svg.addEventListener("pointerdown", (evt) => {
     if (state.locked || evt.button !== 0) return;
+    if (state.purgePointMode) {
+      const point = svgPoint(svg, evt);
+      setPurgePointMode(false);
+      patchInitialPurge({ point: [point.x, point.y] });
+      return;
+    }
     dragModifier = evt.shiftKey ? "add" : evt.altKey ? "remove" : "replace";
     dragStart = svgPoint(svg, evt);
     dragPadId =
@@ -499,13 +515,12 @@ import {
     }
     const editingLocked = state.locked || state.initialPurgeSaving;
     if (initialPurgeAmount) initialPurgeAmount.disabled = editingLocked;
-    if (initialPurgeSetPadButton) {
-      initialPurgeSetPadButton.disabled =
-        editingLocked || selectedInitialPurgePad() === null;
+    if (initialPurgeSetPointButton) {
+      initialPurgeSetPointButton.disabled = editingLocked;
     }
-    if (initialPurgeClearPadButton) {
-      initialPurgeClearPadButton.disabled =
-        editingLocked || !state.config?.initial_purge?.pad_id;
+    if (initialPurgeClearButton) {
+      initialPurgeClearButton.disabled =
+        editingLocked || !state.config?.initial_purge?.point;
     }
   }
 
@@ -572,19 +587,18 @@ import {
     });
   }
 
-  if (initialPurgeSetPadButton) {
-    initialPurgeSetPadButton.addEventListener("click", () => {
+  if (initialPurgeSetPointButton) {
+    initialPurgeSetPointButton.addEventListener("click", () => {
       if (state.locked) return;
-      const pad = selectedInitialPurgePad();
-      if (!pad) return;
-      patchInitialPurge({ pad_id: pad.id });
+      setPurgePointMode(!state.purgePointMode);
     });
   }
 
-  if (initialPurgeClearPadButton) {
-    initialPurgeClearPadButton.addEventListener("click", () => {
+  if (initialPurgeClearButton) {
+    initialPurgeClearButton.addEventListener("click", () => {
       if (state.locked) return;
-      patchInitialPurge({ pad_id: null });
+      setPurgePointMode(false);
+      patchInitialPurge({ point: null });
     });
   }
 
@@ -593,6 +607,7 @@ import {
       const active = window.webui.jobs.isActive(job);
       if (active === state.locked) return;
       state.locked = active;
+      if (active) setPurgePointMode(false);
       if (!state.config) return;
       renderTable();
       applyToolbarLock();

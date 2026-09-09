@@ -13,8 +13,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pcbasm.hal import AlsaAudioPlayer, AudioPlayer
-from pcbasm.pasting.flowcalib.board.config import BoardConfigError
-from pcbasm.pasting.flowcalib.board.generator import BoardGenerator
+from pcbasm.pasting.testboard.config import BoardConfigError
+from pcbasm.pasting.testboard.generator import BoardGenerator
 from pcbasm.pcb.units import KicadError
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore, UnknownFieldError
@@ -35,7 +35,8 @@ from web.api.routers import (
     jobs,
     machine_control,
     nozzle_cap,
-    paste_flow_calibration_board,
+    paste_dataset,
+    paste_test_board,
     pasting,
     pasting_loading,
     preview as preview_router,
@@ -106,7 +107,7 @@ def create_app(
     *,
     audio_player: AudioPlayer | None = None,
     clock: Callable[[], float] | None = None,
-    paste_flow_calibration_footprint_root: Path | None = None,
+    paste_test_board_footprint_root: Path | None = None,
 ) -> FastAPI:
     """WebUI の FastAPI アプリを構築する.
 
@@ -116,7 +117,7 @@ def create_app(
         clock: 操作権リースの時計（None なら `time.monotonic`）。失効までの秒数は
             分単位なので、実時間で待つと検証できない。「ジョブ実行中は無操作でも
             失効しない」という `busy` の配線を確かめるための注入口
-        paste_flow_calibration_footprint_root: 流量キャリブレーション基板で使う
+        paste_test_board_footprint_root: テスト塗布基板で使う
             KiCad footprint root。Noneなら環境変数またはKiCad 9標準パス
 
     Returns:
@@ -144,8 +145,8 @@ def create_app(
     app.state.preview = preview
     app.state.catalog = catalog
     app.state.audio_player = audio_player
-    app.state.paste_flow_calibration_board_generator = BoardGenerator(
-        paste_flow_calibration_footprint_root
+    app.state.paste_test_board_generator = BoardGenerator(
+        paste_test_board_footprint_root
     )
     board_store = BoardSettingsStore(
         settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
@@ -205,14 +206,14 @@ def create_app(
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     @app.exception_handler(BoardConfigError)
-    async def paste_flow_calibration_config_error_handler(
+    async def paste_test_board_config_error_handler(
         request: Request, exc: BoardConfigError
     ) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     @app.exception_handler(KicadError)
     async def kicad_error_handler(request: Request, exc: KicadError) -> JSONResponse:
-        # KiCad footprint library / 座標範囲のエラー（流量キャリブレーション基板生成）
+        # KiCad footprint library / 座標範囲のエラー（テスト塗布基板生成）
         return JSONResponse(status_code=503, content={"detail": str(exc)})
 
     app.include_router(app_state.router)
@@ -225,7 +226,8 @@ def create_app(
     app.include_router(preview_router.router)
     app.include_router(jobs.router)
     app.include_router(pasting.router)
-    app.include_router(paste_flow_calibration_board.router)
+    app.include_router(paste_dataset.router)
+    app.include_router(paste_test_board.router)
     app.include_router(pasting_loading.router)
     app.include_router(nozzle_cap.router)
     return app

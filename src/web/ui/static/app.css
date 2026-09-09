@@ -1298,6 +1298,39 @@ h2 {
   dominant-baseline: central;
 }
 
+.pad-purge-marker circle {
+  fill: var(--accent);
+  stroke: #ffffff;
+  stroke-width: 0.12;
+}
+
+.pad-purge-marker text {
+  fill: #ffffff;
+  font-size: 0.55px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+/* マーカー打ちモード中はクリック先が「基板上の点」であることを示す。
+   パッドが hover やカーソルで反応すると座標を狙えないので当たり判定を外す */
+.pad-viewer-picking {
+  cursor: crosshair;
+}
+
+.pad-viewer-picking .pad {
+  pointer-events: none;
+}
+
+.pad-copper {
+  fill: #c98a3f;
+  fill-opacity: 0.3;
+  stroke: #a9702c;
+  stroke-width: 0.6;
+  stroke-opacity: 0.55;
+  pointer-events: none;
+}
+
 .pad-select-rect {
   fill: rgb(155 104 23 / 0.16);
   stroke: var(--warn);
@@ -1608,22 +1641,22 @@ h2 {
 }
 
 /* ---- paste flow calibration board ---- */
-.pfc-board {
+.ptb-board {
   min-width: 0;
 }
 
-.pfc-intro {
+.ptb-intro {
   max-width: 72rem;
 }
 
-.pfc-workspace {
+.ptb-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 
-.pfc-config-card,
-.pfc-preview-card {
+.ptb-config-card,
+.ptb-preview-card {
   min-width: 0;
   padding: 0.75rem;
   border: 1px solid var(--line);
@@ -1631,72 +1664,72 @@ h2 {
   background: var(--surface);
 }
 
-.pfc-config-card h3,
-.pfc-preview-card h3,
-.pfc-pattern-head h3 {
+.ptb-config-card h3,
+.ptb-preview-card h3,
+.ptb-pattern-head h3 {
   margin: 0;
   font-size: 0.95rem;
 }
 
-.pfc-field-grid {
+.ptb-field-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(8rem, 1fr));
   gap: 0.55rem;
   margin-top: 0.65rem;
 }
 
-.pfc-interactive {
+.ptb-interactive {
   min-inline-size: 0;
   margin: 0;
   padding: 0;
   border: 0;
 }
 
-.pfc-field-grid label {
+.ptb-field-grid label {
   display: grid;
   gap: 0.2rem;
   color: var(--muted);
 }
 
-.pfc-field-grid input {
+.ptb-field-grid input {
   width: 100%;
 }
 
-.pfc-pattern-head,
-.pfc-preview-head,
-.pfc-add-pattern,
-.pfc-actions,
-.pfc-legend {
+.ptb-pattern-head,
+.ptb-preview-head,
+.ptb-add-pattern,
+.ptb-actions,
+.ptb-legend {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.pfc-pattern-head {
+.ptb-pattern-head {
   align-items: end;
   justify-content: space-between;
   margin-top: 1rem;
 }
 
-.pfc-add-pattern {
+.ptb-add-pattern {
   display: grid;
   grid-template-columns: max-content minmax(12rem, 0.8fr) minmax(18rem, 1.4fr) max-content;
   min-width: min(100%, 50rem);
 }
 
-.pfc-add-pattern label {
+.ptb-add-pattern label {
   color: var(--muted);
   font-size: 0.82rem;
 }
 
-.pfc-catalog-summary {
+.ptb-catalog-summary {
   margin: 0.35rem 0 0;
   color: var(--muted);
   font-size: 0.78rem;
   text-align: right;
 }
 
-.pfc-custom-pad-form {
+.ptb-custom-pad-form {
   display: grid;
   grid-template-columns: max-content minmax(12rem, 1fr) minmax(9rem, 0.7fr) repeat(3, minmax(7rem, 0.55fr)) max-content;
   align-items: end;
@@ -1708,20 +1741,20 @@ h2 {
   background: var(--surface-2);
 }
 
-.pfc-custom-pad-form strong {
+.ptb-custom-pad-form strong {
   align-self: center;
   font-size: 0.84rem;
   white-space: nowrap;
 }
 
-.pfc-custom-pad-form label {
+.ptb-custom-pad-form label {
   display: grid;
   gap: 0.2rem;
   color: var(--muted);
   font-size: 0.78rem;
 }
 
-.pfc-sort-button {
+.ptb-sort-button {
   padding: 0;
   border: 0;
   color: inherit;
@@ -1729,60 +1762,60 @@ h2 {
   font: inherit;
 }
 
-.pfc-sort-button:hover {
+.ptb-sort-button:hover {
   color: var(--text);
   background: transparent;
 }
 
-.pfc-pattern-table th[aria-sort="ascending"] .pfc-sort-button::after {
+.ptb-pattern-table th[aria-sort="ascending"] .ptb-sort-button::after {
   content: " ▲";
 }
 
-.pfc-pattern-table th[aria-sort="descending"] .pfc-sort-button::after {
+.ptb-pattern-table th[aria-sort="descending"] .ptb-sort-button::after {
   content: " ▼";
 }
 
-.pfc-table-scroll {
+.ptb-table-scroll {
   margin-top: 0.55rem;
   overflow-x: auto;
 }
 
-.pfc-pattern-table {
+.ptb-pattern-table {
   width: 100%;
   min-width: 62rem;
   border-collapse: collapse;
 }
 
-.pfc-pattern-table th,
-.pfc-pattern-table td {
+.ptb-pattern-table th,
+.ptb-pattern-table td {
   padding: 0.35rem 0.4rem;
   border-top: 1px solid var(--line);
   text-align: left;
   vertical-align: middle;
 }
 
-.pfc-pattern-table thead th {
+.ptb-pattern-table thead th {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 500;
   white-space: nowrap;
 }
 
-.pfc-pattern-table input {
+.ptb-pattern-table input {
   width: 4.8rem;
 }
 
-.pfc-pattern-table .pfc-pad-label,
-.pfc-pattern-table .pfc-name-label {
+.ptb-pattern-table .ptb-pad-label,
+.ptb-pattern-table .ptb-name-label {
   font-weight: 600;
 }
 
-.pfc-pattern-table .pfc-name-label {
+.ptb-pattern-table .ptb-name-label {
   font-family: var(--mono);
   font-size: 0.76rem;
 }
 
-.pfc-pattern-table .pfc-truncated-text {
+.ptb-pattern-table .ptb-truncated-text {
   display: block;
   max-width: 16rem;
   overflow: hidden;
@@ -1790,28 +1823,28 @@ h2 {
   white-space: nowrap;
 }
 
-.pfc-resolved-angles {
+.ptb-resolved-angles {
   color: var(--muted);
   font-family: var(--mono);
   font-size: 0.76rem;
   white-space: nowrap;
 }
 
-.pfc-remove-pattern {
+.ptb-remove-pattern {
   color: var(--danger);
 }
 
-.pfc-preview-head {
+.ptb-preview-head {
   justify-content: space-between;
   margin-bottom: 0.55rem;
 }
 
-.pfc-preview-summary {
+.ptb-preview-summary {
   color: var(--muted);
   font-size: 0.8rem;
 }
 
-.pfc-preview {
+.ptb-preview {
   display: block;
   width: min(100%, 52rem);
   margin-inline: auto;
@@ -1821,45 +1854,45 @@ h2 {
   background: #f8fafc;
 }
 
-.pfc-board-outline {
+.ptb-board-outline {
   fill: #f8fafc;
   stroke: #293341;
   stroke-width: 0.16;
 }
 
-.pfc-copper {
+.ptb-copper {
   fill: #d3a822;
   fill-opacity: 0.72;
   stroke: #946e00;
   stroke-width: 0.04;
 }
 
-.pfc-paste {
+.ptb-paste {
   fill: #d74878;
   fill-opacity: 0.58;
   stroke: #9d214b;
   stroke-width: 0.04;
 }
 
-.pfc-overflow-shape {
+.ptb-overflow-shape {
   fill: #ef4444;
   fill-opacity: 0.88;
   stroke: #991b1b;
   stroke-width: 0.06;
 }
 
-.pfc-preview-pad {
+.ptb-preview-pad {
   cursor: help;
 }
 
-.pfc-legend {
+.ptb-legend {
   flex-wrap: wrap;
   margin-top: 0.5rem;
   color: var(--muted);
   font-size: 0.76rem;
 }
 
-.pfc-legend span::before {
+.ptb-legend span::before {
   display: inline-block;
   width: 0.7rem;
   height: 0.7rem;
@@ -1869,20 +1902,20 @@ h2 {
   content: "";
 }
 
-.pfc-legend-copper::before { background: #d3a822; }
-.pfc-legend-paste::before { background: #d74878; }
-.pfc-legend-overflow::before { background: #ef4444; }
-.pfc-preview-status {
+.ptb-legend-copper::before { background: #d3a822; }
+.ptb-legend-paste::before { background: #d74878; }
+.ptb-legend-overflow::before { background: #ef4444; }
+.ptb-preview-status {
   min-height: 1.2rem;
   margin: 0.4rem 0 0;
   color: var(--ok);
 }
 
-.pfc-preview-status.error {
+.ptb-preview-status.error {
   color: var(--danger);
 }
 
-.pfc-actions {
+.ptb-actions {
   min-inline-size: 0;
   justify-content: flex-end;
   margin-top: 0.8rem;
@@ -1890,13 +1923,13 @@ h2 {
   border: 0;
 }
 
-.pfc-primary {
+.ptb-primary {
   border-color: var(--accent);
   color: #ffffff;
   background: var(--accent);
 }
 
-.pfc-primary:hover:not(:disabled) {
+.ptb-primary:hover:not(:disabled) {
   border-color: #15528d;
   background: #15528d;
 }
@@ -2022,37 +2055,37 @@ h2 {
     font-size: 0.78rem;
   }
 
-  .pfc-field-grid {
+  .ptb-field-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .pfc-pattern-head,
-  .pfc-add-pattern,
-  .pfc-actions {
+  .ptb-pattern-head,
+  .ptb-add-pattern,
+  .ptb-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .pfc-add-pattern {
+  .ptb-add-pattern {
     grid-template-columns: 1fr;
     min-width: 0;
   }
 
-  .pfc-custom-pad-form {
+  .ptb-custom-pad-form {
     grid-template-columns: 1fr;
   }
 
-  .pfc-field-grid .pfc-checkbox-field {
+  .ptb-field-grid .ptb-checkbox-field {
     grid-column: 1 / -1;
   }
 
-  .pfc-actions button,
-  .pfc-add-pattern input,
-  .pfc-add-pattern select,
-  .pfc-add-pattern button,
-  .pfc-custom-pad-form input,
-  .pfc-custom-pad-form select,
-  .pfc-custom-pad-form button {
+  .ptb-actions button,
+  .ptb-add-pattern input,
+  .ptb-add-pattern select,
+  .ptb-add-pattern button,
+  .ptb-custom-pad-form input,
+  .ptb-custom-pad-form select,
+  .ptb-custom-pad-form button {
     width: 100%;
   }
 
@@ -2098,4 +2131,140 @@ h2 {
   .settings-table select {
     width: 100%;
   }
+}
+
+/* ---- データセット収集のジョブフォーム（項目が多いので段組み） ---- */
+
+.paste-dataset-form {
+  max-width: 66rem;
+}
+
+.paste-dataset-form .job-param-group {
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.55rem 1.1rem;
+  max-width: none;
+}
+
+.paste-dataset-form .job-param-group > legend {
+  grid-column: 1 / -1;
+}
+
+/* 段が狭いのでラベルを入力の上へ積む（既定の 3 列は 1 段組み前提） */
+.paste-dataset-form .job-param {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  align-items: start;
+  gap: 0.15rem;
+}
+
+.paste-dataset-form .job-param label {
+  font-size: 0.85rem;
+}
+
+.paste-dataset-form .job-param-help {
+  font-size: 0.75rem;
+}
+
+/* ---- データセット収集の配置プレビュー ---- */
+
+.pdl-panel {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.pdl-panel h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.pdl-summary {
+  margin: 0 0 0.35rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.pdl-error {
+  margin: 0 0 0.35rem;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.pdl-error:empty {
+  display: none;
+}
+
+.pdl-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.pdl-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.pdl-swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+}
+
+.pdl-swatch-blank {
+  border-style: dashed;
+  background: var(--surface-2);
+}
+
+.pdl-view {
+  display: block;
+  width: 100%;
+  max-width: 32rem;
+  height: auto;
+  background: var(--surface-2);
+}
+
+.pdl-plate {
+  fill: var(--surface-3);
+  stroke: var(--line-strong);
+  stroke-width: 0.3;
+}
+
+.pdl-usable {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-dasharray: 0.6 0.6;
+  stroke-width: 0.15;
+}
+
+.pdl-grid-cell {
+  fill: var(--surface);
+  opacity: 0.45;
+  stroke: var(--line);
+  stroke-width: 0.08;
+}
+
+.pdl-purge {
+  fill: var(--warn-weak);
+  stroke: var(--warn);
+  stroke-width: 0.2;
+}
+
+.pdl-cell {
+  stroke: var(--text);
+  stroke-width: 0.1;
+}
+
+.pdl-blank {
+  fill: var(--surface);
+  stroke-dasharray: 0.4 0.4;
 }

@@ -1,5 +1,4 @@
-<section id="pad-editor" class="pad-editor" data-testid="pad-editor"
-         data-pad-config-purpose="{{ active_feature }}">
+<section id="pad-editor" class="pad-editor" data-testid="pad-editor">
   {# PCB 未選択時のメッセージ（JS が GET 409 を受けたら表示し、編集 UI を隠す） #}
   <p id="pad-editor-empty" class="pad-editor-empty" data-testid="pad-editor-empty" hidden>
     PCB を選択してください。
@@ -30,14 +29,14 @@
         <label for="pad-initial-purge-amount">初回パージ量 <span class="unit">[uL]</span></label>
         <input type="number" id="pad-initial-purge-amount" data-testid="pad-initial-purge-amount"
                step="any" min="0">
-        <label for="pad-initial-purge-pad">初回パージパッド</label>
+        <label for="pad-initial-purge-pad">初回パージ位置</label>
         <output id="pad-initial-purge-pad" class="pad-initial-purge-pad"
                 data-testid="pad-initial-purge-pad" aria-live="polite">自動</output>
         <div class="pad-initial-purge-actions">
-          <button type="button" id="pad-set-initial-purge-pad"
-                  data-testid="pad-set-initial-purge-pad">選択パッドを設定</button>
-          <button type="button" id="pad-clear-initial-purge-pad"
-                  data-testid="pad-clear-initial-purge-pad">自動に戻す</button>
+          <button type="button" id="pad-set-initial-purge-point"
+                  data-testid="pad-set-initial-purge-point">パージ位置を設定</button>
+          <button type="button" id="pad-clear-initial-purge-point"
+                  data-testid="pad-clear-initial-purge-point">自動に戻す</button>
         </div>
       </div>
       <div class="pad-config-tools" data-testid="pad-config-tools">

@@ -1,7 +1,7 @@
 """基板ごとの塗布設定 JSON の encode / decode.
 
 真実の源は ``machine.toml`` の ``[paste_dispenser]`` 値で、基板 JSON には
-明示 override（L0 を含む ``levels``）と初回パージ pad id だけを保持する。
+明示 override（L0 を含む ``levels``）と初回パージ座標だけを保持する。
 ファイル I/O・ロック・保存先の決定は web 層（``BoardSettingsStore``）の責務。
 
 保存形式（schema v1）::
@@ -12,7 +12,7 @@
         "board_signature": "<基板構成ハッシュ>",   # 任意
         "settings": {
             "levels": [{"key": ["L2", "U1"], "enabled": null, "override": {...}}, ...],
-            "initial_purge_pad_id": "U1.1"           # 任意
+            "initial_purge_point": [12.5, 8.0]       # 任意（未設定 = 順路先頭）
         }
     }
 
@@ -29,9 +29,11 @@ from typing import Any
 
 import attrs
 
+from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PASTE_PARAM_NAMES, PasteParams, PasteParamsPatch
 from pcbasm.pasting.settings import LevelSetting, PasteSettingsModel
 from pcbasm.pcb.grouping import HierKey
+from pcbasm.utils import is_finite_number
 
 BOARD_SETTINGS_SCHEMA_VERSION = 1
 
@@ -64,8 +66,9 @@ def encode_board_settings(
             for setting in model.levels
         ]
     }
-    if model.initial_purge_pad_id is not None:
-        settings["initial_purge_pad_id"] = model.initial_purge_pad_id
+    if model.initial_purge_point is not None:
+        point = model.initial_purge_point
+        settings["initial_purge_point"] = [point.x, point.y]
     doc: dict[str, Any] = {
         "version": BOARD_SETTINGS_SCHEMA_VERSION,
         "source_pcb": source_pcb,
@@ -107,7 +110,7 @@ def decode_board_settings(
     board_signature = doc.get("board_signature")
     model = PasteSettingsModel(
         base=base,
-        initial_purge_pad_id=settings.get("initial_purge_pad_id"),
+        initial_purge_point=_purge_point(settings.get("initial_purge_point")),
         levels=tuple(levels),
     )
     return (
@@ -158,3 +161,18 @@ def _legacy_l0_setting(
 
 def _as_sequence(value: object) -> Sequence[Any]:
     return value if isinstance(value, Sequence) and not isinstance(value, str) else []
+
+
+def _purge_point(value: object) -> Point2d | None:
+    """保存値 ``[x, y]`` を Point2d へ戻す（形が違えば ``None``）.
+
+    壊れた保存内容でページを開けなくしないため、pad id と同じく黙って捨てる。
+    """
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return None
+    if len(value) != 2:
+        return None
+    x, y = value
+    if not is_finite_number(x) or not is_finite_number(y):
+        return None
+    return Point2d(float(x), float(y))

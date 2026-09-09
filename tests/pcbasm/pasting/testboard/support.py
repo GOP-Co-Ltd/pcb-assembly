@@ -1,6 +1,6 @@
-"""流量キャリブレーション基板テストの共有実データ識別子."""
+"""テスト塗布基板テストの共有実データ識別子."""
 
-from pcbasm.pasting.flowcalib.board.config import (
+from pcbasm.pasting.testboard.config import (
     CustomPadShapeId,
     CustomPadSpec,
 )
