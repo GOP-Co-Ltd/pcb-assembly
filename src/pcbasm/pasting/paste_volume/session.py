@@ -173,9 +173,12 @@ def _validate_cells(
 def _resolved_image_paths(
     root: Path, cells: tuple[PasteVolumeCell, ...]
 ) -> tuple[tuple[str, ...] | None, str | None]:
-    """全画像の session 相対 path を昇順で返す.
+    """全画像の session 相対 path を返す.
 
     絶対 path、session の外を指す path、実在しない path を拒否する。
+
+    並び順は揃えない。fingerprint は :func:`canonical_json` がキー順を正規化するので、
+    ここで並べても値は変わらない。
     """
 
     base = root.resolve()
@@ -186,7 +189,7 @@ def _resolved_image_paths(
                 if error := _validate_image_path(base, root, relative):
                     return None, f"cell {cell.index} view {view.number}: {error}"
                 relative_paths.append(relative)
-    return tuple(sorted(relative_paths)), None
+    return tuple(relative_paths), None
 
 
 def _validate_image_path(base: Path, root: Path, relative: str) -> str | None:
