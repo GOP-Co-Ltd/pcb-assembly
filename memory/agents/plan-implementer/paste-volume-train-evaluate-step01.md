@@ -150,3 +150,185 @@ step 0 単体（step 1 を stash した状態）でも同じ 3 つが pass す�
 | augmentation の材料からラベルを外す（step 0 以前の状態） | `test_augmentation_uses_its_labelled_material`、`test_augmentation_does_not_use_the_unlabelled_material` |
 | `_PLACEMENT_ROLE` を `"augmentation"` にして材料を衝突させる | `test_placement_uses_its_labelled_material`、`test_does_not_derive_the_position_from_the_rotation`（`20 >= 28` で落ちる） |
 | `_leave_one_session_out_manifest` が held-out group を train へ混ぜる | `TestSessionSplit` の 3 件 + `TestRealSessions` の fold テスト（計 4 件） |
+
+---
+
+# レビュー 1 巡目の差し戻し対応（must-fix 6 件 / should-fix 8 件）
+
+対象レビュー: `memory/agents/code-reviewer/paste-volume-train-evaluate-step01.md`。
+裁定: `memory/agents/orchestrator/paste-volume-train-evaluate.md` の
+「step 0/1 レビュー（1 巡目）の裁定」。step 2/3 の `model.py` / `PasteVolumeTask` /
+`test_model.py` には触れていない。
+
+commit: `a9736e2`（M6 + N2）、`d5b0166`（M1 + M4 + M5 + N3）、`76af20c`（M2 + M4 の
+placement 観測点）、`2010ead`（M3 + S5 + S6 + S7）、`d9d21c5`（S2 + S3 + S9）。
+
+## 実測表の訂正
+
+**上の「step 0: `len(pairs)`」の表に書いた 60 epoch = 32 は誤り。実測は 31。**
+欠けるのは `(帯 5, 位置 3)` の 1 通り。訂正後の実測値:
+
+| 条件 | 60 epoch | 120 epoch | 200 epoch |
+| --- | ---: | ---: | ---: |
+| 役割ラベルあり | **31** | **32** | 32 |
+| 材料を共有させた（`_PLACEMENT_ROLE="augmentation"`） | 20 | **20** | 20 |
+
+閾値は `>= 28` をやめ、**120 epoch で `== 8 * 4` の完全一致**にした。上限に張り付くので
+`>=` より強く、計画書 R1 の「閾値を下げず epoch を増やす」に沿う。
+
+## must-fix の対応
+
+### M1 view-dropout の材料検査
+
+`AVAILABLE_VIEW_COUNT` を 5 → **8**。5 では `randint(1, 5)` が 5 を引き、
+`sorted(sample(range(5), 5))` が乱数列に関係なく `(0,1,2,3,4)` を返していた。
+8 では count 2 / `(1, 2)`、ラベルを衝突させると count 1 / `(7,)`。
+7 は labelled と collided が偶然一致するので採らない。
+
+引いた枚数そのものも観測点にした（`_expected_view_indices` が返す番号列の長さ、および
+`test_view_dropout_keeps_fewer_views_than_are_available` が
+`0 < len(kept) < AVAILABLE_VIEW_COUNT` を固定）。
+
+**変異の実測**: `src/ml/data/batch.py` のラベルを `view-dropout` → `augmentation` へ
+変えると、直す前は `test_seed_roles.py` が **全緑**（落ちるのは
+`tests/ml/data/test_batch.py` の 1 件だけ）だったのに対し、直したあとは
+`test_seed_roles.py` から **2 件**落ちる。
+
+- `TestMaterialsInUse::test_view_dropout_uses_its_labelled_material`
+  （`assert ((7,),) == ((1, 2),)`）
+- `TestEveryUseIsLabelled::test_the_scan_finds_every_known_role`（走査からも消える）
+
+### M2 閾値の根拠
+
+`tests/ml/paste_volume/test_batch.py::TestPadding::
+test_does_not_derive_the_position_from_the_rotation` を 120 epoch / `== 32` へ。
+コメントに 60 epoch = 31 と衝突時 20 の両方を書いた。
+
+**変異の実測**: `_PLACEMENT_ROLE="augmentation"` で 120 epoch でも **20**
+（`assert 20 == (8 * 4)` で落ちる）。同じ変異で
+`test_places_the_image_from_its_labelled_seed_material` も落ちるので、計 2 件。
+
+### M3 session 次元での split manifest 再利用
+
+`src/ml/paste_volume/task.py` に `_held_out_mismatch` を足し、`_resolve_split` の
+読み直し経路で session 次元のときだけ「manifest の test split が
+`resolve_session(held_out)` の sample 集合と一致すること」を確かめる。
+
+**実測**: 合成 3 session で session-0 の split.json を作った後に
+`held_out_session="session-2"` を要求すると、
+
+```
+既存の split manifest の test split が held_out_session と一致しません:
+'session-2'（test 12 sample、要求した session 12 sample）
+```
+
+が返り `data is None`。テストは
+`TestSessionSplit::test_rejects_a_manifest_saved_for_another_held_out_session`。
+検査が広すぎないことの対として
+`test_reuses_a_manifest_saved_for_the_same_held_out_session`（同じ fold の
+読み直しは通り、同じ test split を返す）を置いた。
+**変異（この検査を消す）で前者だけが 1 件落ちる**ことを実測済み。
+
+### M4 private の直接 import
+
+`tests/ml/test_seed_roles.py` から `_derived_seed` / `_placement_seed` の import を
+消した。種を作る規則は同 module の公開関数 `derived_seed(material)` として組み直して
+ある（`int.from_bytes(sha256(material).digest()[:8], "big")`）。
+
+`placement` の観測点は `tests/ml/paste_volume/test_batch.py::TestPadding` の
+`test_places_the_image_from_its_labelled_seed_material` へ移した。`collate` が返す
+`valid_pixel_mask` の左上位置を、材料 → 種 → `randrange`（行 → 列）を test 内で
+組み直した期待値と突き合わせる。自己検査として
+`test_does_not_place_the_image_from_the_unlabelled_material` を対に置いた。
+
+材料の組み立て（`sample_scoped_material`）と `derived_seed` は
+`tests/ml/test_seed_roles.py` から import して 1 箇所に保つ。`tests/ml/paste_volume` は
+ドメイン層なのでコア側の test module を import してよい（逆は
+`test_architecture.py` が禁じる）。
+
+### M5（= S1 の昇格）役割ラベルの規則の機械検証
+
+`tests/ml/test_seed_roles.py::TestEveryUseIsLabelled` を足した。`src/ml/**/*.py` を
+AST で走査し、次の 2 つの形を「種の材料を組み立てている箇所」として集める。
+
+1. `SEED_CALLEES = ("Random", "_derived_seed", "sha256_bytes")` へ文字列
+   （f-string か literal）を渡す呼び出し。`.encode()` は剥がす
+2. `epoch` を差し込む f-string（呼び出し先を問わない）
+
+各箇所の材料から、literal 部分と**差し込んだ module 直下の文字列定数**の両方を見て、
+`ROLE_LABELS` のどれかが入っていることを要求する。定数を解決するのは、実装が
+`_AUGMENTATION_ROLE` / `_PLACEMENT_ROLE` の形でラベルを持つため。
+
+対象外は `EXEMPT_MATERIALS` に 1 件だけ:
+`("ml.data.split", "f'{seed}:{dimension}:{value}'")`。fold seed は
+`(global_seed, epoch, sample_id)` 系列ではなく、材料へ入る `dimension` そのものが
+用途の区別になっている。
+
+**走査の自己検査（4 件）**:
+
+- `test_the_same_scan_reports_a_use_without_a_label`: tmp_path へ
+  `random.Random(f"{global_seed}:{epoch}:{sample_id}")` だけの module を注入し、
+  同じ走査が `labels == frozenset()` で報告することを見る
+- `test_the_scan_resolves_a_label_held_in_a_module_constant`: `_ROLE = "placement"` は
+  解決され、`_OTHER = "whatever"` は通らないことを 1 つの module で対にして見る
+- `test_the_scan_sees_a_material_hidden_behind_encode`: `.encode()` を剥がさないと
+  `placement` が丸ごと落ちる
+- `test_every_exempted_material_is_still_in_the_sources`: 対象外リストが古びていないこと
+
+加えて `test_the_scan_finds_every_known_role`（4 用途すべてを実際に見つける）と
+`test_the_scan_covers_both_the_core_and_the_domain_layer` で、走査が痩せたら赤くなる
+ようにしてある。
+
+**変異の実測**: レビュアーの S20（`AugmentationRange.parameters_for` の scale だけを
+`random.Random(_derived_seed(f"{global_seed}:{epoch}:{sample_id}"))` から引く 5 番目の
+用途）は、直す前は `tests/ml` 全体で**全緑**だった。直したあとは `tests/ml` 1560 件の
+うち **`test_every_seed_material_in_the_sources_carries_a_role_label` の 1 件だけ**が
+落ち、`ml.data.image:… f'{global_seed}:{epoch}:{sample_id}'` を名指しで報告する。
+
+### M6 docformatter が崩した日本語
+
+指摘の 5 箇所 + `_cell_config` を直した。
+
+**原因**: docformatter は description の段落を 1 行へ畳むとき、改行をそのまま空白へ
+置き換える。日本語では語間に空白が無いので「前頭辞を 渡して」の形で残る。
+`--wrap-descriptions=72` を超えない限り再整形しないので、**段落ごとに 1 物理行、
+72 文字以内**へ収めれば安定する。長い段落は空行で分けた（docformatter は段落を
+またいで畳まない）。
+
+整形後に `git diff` を目視し、非 ASCII 文字が化けていないことを確認済み
+（auto-memory `docformatter-corrupts-japanese`）。`pre-commit run --files` で
+docformatter が **Passed**（再整形なし）になることも確認した。
+
+## should-fix の対応
+
+| 指摘 | 対応 | 変異で落ちるテスト |
+| --- | --- | --- |
+| S2 `SplitManifest(seed=fold.seed)` | `test_records_a_fold_specific_seed_in_the_manifest`（3 fold の seed が互いに違い、`split_seed=0` そのものでもない） | 1 件（`assert 1 == 3`） |
+| S2 `resolve_session` の空文字ガード | `test_reports_an_empty_selector` が理由文「指定が空です」まで見る | 1 件 |
+| S2 `validation_ratio` 範囲検査 | `test_reports_a_validation_ratio_outside_the_open_unit_interval`（0 / 1 / -0.1 / 1.5 / nan / inf） | 6 件 |
+| S3 合成 5 session の fold 構成 | `test_forms_one_held_out_one_validation_and_three_train_from_five` が `(1, 1, 3)` を固定。`max(1, ...)` の床であることを `test_the_validation_count_grows_only_once_the_ratio_clears_one_session`（13 session で `(1, 2, 10)`）と対で示す | `max(1, ...)` を外すと 1 件 |
+| S5 `groups` の二重計算 | `_leave_one_session_out_manifest` が呼び出し側の `groups` を受け取る。`index.sample_groups(dimension="session")` の作り直しを削除 | 次元をずらす変異で 8 件 |
+| S6 `build` の docstring | session 経路の根拠（`LeaveOneGroupOutPlan` が held-out 1 / train・validation 各 1 以上を保証）を追記 | — |
+| S7 契約外の `split_dimension` | `validate()` が `SPLIT_DIMENSIONS` を見る。`test_reports_a_split_dimension_outside_the_contract` | 1 件（外すと `TypeError`） |
+| S9 理由文を見ていない異常系 | `test_reports_a_dataset_with_too_few_sessions` は「group が 2 個未満」、`test_reports_an_empty_selector` は「指定が空です」まで見る | 上記 S2 と同じ |
+| N2 `_derived_seed` の docstring | 用途ごとに「材料に sample の id が入るか」「どの関数を通るか」を書き分けた。規則が掛かるのは材料の作り方であって関数ではない、と明示 | — |
+| N3 `test_seed_roles.py` の記述 | view-dropout は batch 単位で、材料には batch の id 列が入る。1 sample の batch のときだけ sample 単位の 2 用途と同じ形になる、と書き直した。定数名も `SAMPLE_SCOPED_ROLES` の意味を注記 | — |
+
+S4（`SplitManifest.seed` に 64 bit を入れた副作用）と nit（N1 / N4 / N5 / N6 / N7）は
+裁定どおり対応していない。S4 は step 5 で `manifest.seed` を run seed へ流すときに
+`np.random.seed` の 2^32 制限へ当たるので、**step 5 のレーンは `manifest.seed` を
+そのまま run seed に使わないこと**。
+
+## 検証結果
+
+`make ml-docker-check`（`pre-commit run -a` → pyright → `pytest tests/ml`）:
+
+- format: **pass**（全 hook。再整形なし）
+- 型検査（pyright、`src/ml` + `tests/ml`）: **pass**（error / warning / information いずれも 0 件）
+- `tests/ml`: **pass**（**1559 passed, 1 skipped**。修正前は 1544 + step 2/3 ぶん）
+
+`make test` / `make run` / `pytest -m hardware` は実行していない。
+
+変異は `.mutants/`（`src` と `tests/ml` の複製）へ当て、`PYTHONPATH` を差し替えて
+計測した。作業ツリーは変異させていない。複製は削除済み。
+`.review-mutants/`（別 agent のもの）には触れていない。
