@@ -154,6 +154,45 @@ DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
 )
 
+# paste_dataset_collection フォームのセクション分け（表示のみ）。
+# 項目数が多く縦一列だと読めないため、依存関係の近いものをまとめて段組みにする。
+# 全パラメータを漏れなく含める（欠けた項目はフォームから消える）。
+PASTE_DATASET_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "銅板",
+        (
+            "plate_width",
+            "plate_height",
+            "edge_margin",
+            "purge_cell_size",
+            "tolerance",
+        ),
+    ),
+    (
+        "セル格子",
+        ("cell_size", "cell_gap", "crop_size"),
+    ),
+    (
+        "吐出量スイープ",
+        (
+            "volume_min",
+            "volume_max",
+            "volume_divisions",
+            "samples_per_volume",
+            "blank_count",
+            "shuffle_seed",
+        ),
+    ),
+    (
+        "塗布と撮影",
+        ("paste_height", "view_count", "view_offset"),
+    ),
+    (
+        "ペースト",
+        ("paste_id", "paste_lot"),
+    ),
+)
+
 # 設定セクション（key のドット区切り親パス）→ UI 表示名。
 # settings ページの階層表示に使う
 SECTION_LABELS: dict[str, str] = {

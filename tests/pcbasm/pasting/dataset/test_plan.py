@@ -12,6 +12,7 @@
 - crop 寸法とセルピッチの関係
 - 装置を動かす前の収まり検証（frame / 撮影・塗布の可動域 / 最小回転数）
 - 多視点の角度
+- 配置不能でも描ける診断用 preview と派生カウント
 """
 
 import math
@@ -27,6 +28,7 @@ from pcbasm.pasting.dataset.plan import (
     DotGridSpec,
     plan_dot_grid,
     plan_views,
+    preview_dot_grid,
     validate_capture_reach,
     validate_crop_in_frame,
     validate_dispense_reach,
@@ -753,3 +755,85 @@ class TestValidateMinRotations:
 
         assert error is not None
         assert "rotations_per_ul" in error
+
+
+class TestPreviewDotGrid:
+    """WebUI へ返す診断用 preview（配置不能でも描ける）と派生カウントの契約.
+
+    router / JS が撮影枚数や総点数を再導出しないよう、派生値はここで確定させる。
+    """
+
+    def test_valid_spec_carries_the_plan_and_the_whole_grid(self):
+        preview = preview_dot_grid(_spec(), view_count=4, view_offset_mm=1.0)
+
+        assert preview.error is None
+        plan = _planned()
+        assert [cell.index for cell in preview.cells] == [
+            cell.index for cell in plan.cells
+        ]
+        assert [blank.index for blank in preview.blanks] == [
+            blank.index for blank in plan.blanks
+        ]
+        assert preview.capacity == plan.capacity
+        assert preview.usable_area == USABLE
+        assert preview.purge_cell == plan.purge_cell
+
+    def test_grid_includes_cells_that_no_sample_uses(self):
+        preview = preview_dot_grid(_spec(), view_count=4, view_offset_mm=1.0)
+
+        used = {(cell.rect.x, cell.rect.y) for cell in preview.cells}
+        used |= {(blank.rect.x, blank.rect.y) for blank in preview.blanks}
+        grid = {(rect.x, rect.y) for rect in preview.grid}
+
+        # 格子はパージ除外前の全セルなので、使用セルを真に含む。
+        assert used < grid
+        assert len(preview.grid) > preview.capacity
+
+    def test_view_count_includes_the_central_view(self):
+        preview = preview_dot_grid(_spec(), view_count=4, view_offset_mm=1.0)
+
+        assert preview.views_per_cell == 5
+
+    def test_single_view_collection_counts_only_the_central_view(self):
+        preview = preview_dot_grid(_spec(), view_count=0, view_offset_mm=1.0)
+
+        assert preview.views_per_cell == 1
+
+    def test_image_count_covers_every_target_view_and_phase(self):
+        preview = preview_dot_grid(_spec(), view_count=4, view_offset_mm=1.0)
+
+        assert preview.target_count == preview.sample_count + _spec().blank_count
+        assert preview.image_count == preview.target_count * preview.views_per_cell * 2
+
+    def test_volumes_are_reported_for_the_legend(self):
+        preview = preview_dot_grid(_spec(), view_count=4, view_offset_mm=1.0)
+
+        assert preview.volumes_ul == _spec().volumes_ul
+
+    def test_over_capacity_keeps_the_geometry_and_reports_the_reason(self):
+        preview = preview_dot_grid(
+            _spec(samples_per_volume=100), view_count=4, view_offset_mm=1.0
+        )
+
+        assert preview.error is not None
+        assert preview.cells == ()
+        assert preview.blanks == ()
+        # 収まらなくても板・有効領域・パージ・格子は描ける。
+        assert preview.usable_area == USABLE
+        assert preview.purge_cell is not None
+        assert preview.grid != ()
+
+    def test_invalid_spec_still_reports_the_plate(self):
+        preview = preview_dot_grid(
+            _spec(edge_margin_mm=-1.0), view_count=4, view_offset_mm=1.0
+        )
+
+        assert preview.error is not None
+        assert preview.plate == Rect(0.0, 0.0, 20.0, 20.0)
+        assert preview.usable_area is None
+        assert preview.grid == ()
+
+    def test_invalid_view_settings_are_reported(self):
+        preview = preview_dot_grid(_spec(), view_count=4, view_offset_mm=0.0)
+
+        assert preview.error is not None
