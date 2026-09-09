@@ -25,9 +25,14 @@ DEPENDENCY_FREE_MODULES = (
     "ml.artifact.document",
     "ml.artifact.fingerprint",
     "ml.artifact.package",
+    "ml.config.composition",
+    "ml.config.packaged",
     "ml.experiment.logger",
     "ml.experiment.provenance",
+    "ml.export.manifest",
+    "ml.export.promotion",
     "ml.serialization",
+    "ml.tuning.study",
 )
 
 # ``ml-runtime`` だけを install した Raspberry Pi 5 で import できる層。MR ごとに追加する。
@@ -38,6 +43,7 @@ RUNTIME_MODULES = (
     "ml.evaluation.compile_parity",
     "ml.evaluation.regression",
     "ml.evaluation.slices",
+    "ml.export.parity",
     "ml.model.blocks",
     "ml.model.heads",
     "ml.model.inspection",
@@ -50,10 +56,11 @@ RUNTIME_MODULES = (
     "ml.training.transaction",
 )
 
+# ``hydra`` / ``omegaconf`` は挙げない。案 C（Hydra なし）で install されないため、
+# 挙げても「読み込まれていないこと」が常に成り立ち、assertion が空虚になる。
+# 機構を守らないテストになるので、実際に install される依存だけを列挙する。
 HEAVY_DEPENDENCIES = (
-    "hydra",
     "mlflow",
-    "omegaconf",
     "onnx",
     "onnxruntime",
     "onnxscript",
@@ -63,10 +70,9 @@ HEAVY_DEPENDENCIES = (
 )
 
 # 学習と探索でしか要らない依存。``ml-runtime`` 層はこれらを読んではならない。
+# ``hydra`` / ``omegaconf`` を挙げない理由は :data:`HEAVY_DEPENDENCIES` と同じ。
 TRAINING_ONLY_DEPENDENCIES = (
-    "hydra",
     "mlflow",
-    "omegaconf",
     "onnx",
     "onnxscript",
     "optuna",
@@ -181,11 +187,48 @@ class TestDependencyFreeLayer:
 class TestRuntimeLayer:
     """推論経路は ``ml-runtime`` だけで import できる.
 
-    Raspberry Pi 5 へ MLflow / Hydra / Optuna / ONNX を入れずに済ませるための契約。
+    Raspberry Pi 5 へ MLflow / Optuna / ONNX を入れずに済ませるための契約。
+
+    ``ml.tuning.search_space`` と ``ml.tuning.runner`` は optuna を import する
+    ``ml-hpo`` 層なので、ここには入れない。
+
     torch と torchvision は隠さない（隠すと関数内 import が散り、型が失われる）。
     """
 
     def test_importing_them_does_not_load_training_only_dependencies(self):
         loaded = _loaded_dependencies(RUNTIME_MODULES, TRAINING_ONLY_DEPENDENCIES)
+
+        assert loaded == "[]"
+
+
+# Raspberry Pi 5 の実運転推論だけで使う層。onnxruntime と numpy しか読んではならない。
+#
+# process 起動から初回予測までの cold latency に ``import torch`` が数秒を直接足すため、
+# 推論経路に torch を持ち込まないことを機械検証する。
+INFERENCE_ONLY_MODULES = (
+    "ml.export.benchmark",
+    "ml.export.runtime",
+)
+
+INFERENCE_FORBIDDEN_DEPENDENCIES = (
+    "onnx",
+    "onnxscript",
+    "torch",
+    "torchvision",
+)
+
+
+class TestInferenceOnlyLayer:
+    """推論経路は onnxruntime と numpy だけで import できる.
+
+    ``onnxruntime`` は単体では ``onnx`` を読み込まない。量子化 API
+    (``onnxruntime.quantization``) を触った瞬間に読み込むので、両者を同じ module へ
+    置かないことをここで固定する。
+    """
+
+    def test_importing_them_does_not_load_onnx_or_torch(self):
+        loaded = _loaded_dependencies(
+            INFERENCE_ONLY_MODULES, INFERENCE_FORBIDDEN_DEPENDENCIES
+        )
 
         assert loaded == "[]"
