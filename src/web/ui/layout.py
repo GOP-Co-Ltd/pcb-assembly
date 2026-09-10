@@ -30,6 +30,7 @@ TABS: dict[str, tuple[str, ...]] = {
         "dispense_calibration",
         "paste_dataset_collection",
         "paste_dataset_finalize",
+        "paste_volume_calibrate",
         "paste_test_board",
         "generate_rect_pcb",
         "toolhead_offset",
@@ -92,6 +93,7 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
         "paste_dataset_collection",
     ): "pasting/paste_dataset_collection.html",
     ("pasting", "paste_dataset_finalize"): "pasting/job.html",
+    ("pasting", "paste_volume_calibrate"): "pasting/job.html",
     (
         "pasting",
         "paste_test_board",

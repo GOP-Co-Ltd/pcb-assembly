@@ -13,6 +13,7 @@ from web.api.jobs.pasting import (
     height_plane,
     loading,
     paste_solder,
+    paste_volume_calibrate,
     toolhead_offset,
 )
 from web.api.jobs.pasting.common import (
@@ -54,6 +55,7 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
         dispense_calibration,
         dataset,
         dataset_finalize,
+        paste_volume_calibrate,
         generate_rect_pcb,
         toolhead_offset,
     ):

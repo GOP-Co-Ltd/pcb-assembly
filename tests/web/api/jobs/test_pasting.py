@@ -37,8 +37,17 @@ import cv2
 import pytest
 
 from pcbasm.hal import XYZStage
+from pcbasm.pasting.paste_volume.calibration import (
+    list_calibrations,
+    load_calibration,
+)
 from pcbasm.pcb import PadHierarchy, PcbFile
-from tests.helpers import PROJECT_ROOT, FakeAudioPlayer, mark_hardware
+from tests.helpers import (
+    PROJECT_ROOT,
+    FakeAudioPlayer,
+    build_paste_volume_session,
+    mark_hardware,
+)
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
@@ -75,6 +84,7 @@ PASTING_JOBS = (
     "dispense_calibration",
     "paste_dataset_collection",
     "paste_dataset_finalize",
+    "paste_volume_calibrate",
     "generate_rect_pcb",
     "toolhead_offset",
 )
@@ -120,6 +130,7 @@ class TestCatalog:
             ("dispense_calibration", False, True, True),
             ("paste_dataset_collection", False, True, True),
             ("paste_dataset_finalize", False, False, False),
+            ("paste_volume_calibrate", False, False, False),
             ("generate_rect_pcb", False, False, False),
             ("toolhead_offset", True, True, True),
         ],
@@ -1262,6 +1273,158 @@ class TestPasteDatasetFinalize:
         self._incomplete_session(fake_camera_settings)
 
         record = manager.start("paste_dataset_finalize", {"measured_mass": mass})
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.pending_prompt is None
+
+
+class TestPasteVolumeCalibrate:
+    """収集済み session から直径ベース校正を作る（装置不要）.
+
+    判定とフィットは `pcbasm.pasting.paste_volume` にあり、ここが確かめるのは
+    session の選択・成果物・保存の可否というジョブ層の契約。
+    """
+
+    STEM = "plate-47.5x20-20260909T145923.452+0900"
+
+    def _session(self, settings: Settings, *, blank_material: str = "blank") -> Path:
+        return build_paste_volume_session(
+            settings.paste_dataset_dir / self.STEM, blank_material=blank_material
+        )
+
+    def _start(self, manager: JobManager, **overrides: object) -> JobRecord:
+        return manager.start("paste_volume_calibrate", {**overrides})
+
+    def test_fits_the_selected_session_and_writes_the_calibration(
+        self,
+        manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        self._session(fake_camera_settings)
+
+        record = self._start(manager, save_name="s3x70-n030-h020")
+        answer_next_prompt(record, manager, self.STEM, set())
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        saved = list_calibrations(fake_camera_settings.paste_volume_calibration_dir)
+        assert len(saved) == 1
+        calibration, error = load_calibration(saved[0])
+        assert error is None, error
+        assert calibration is not None
+        assert calibration.source.session == self.STEM
+        assert calibration.diagnostics.blank_false_positive_count == 0
+        assert calibration.diagnostics.detection_failure_count == 0
+
+    def test_produces_a_scatter_and_a_detection_montage(
+        self,
+        manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        self._session(fake_camera_settings)
+
+        record = self._start(manager)
+        answer_next_prompt(record, manager, self.STEM, set())
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert record.result is not None
+        artifacts_root = fake_camera_settings.webui_data_dir
+        images = [a for a in record.result.artifacts if a.kind == "image"]
+        assert len(images) == 2
+        for artifact in images:
+            image = cv2.imread(str(artifacts_root / artifact.path))
+            assert image is not None
+            assert image.size > 0
+
+    def test_an_empty_save_name_leaves_the_calibration_directory_untouched(
+        self,
+        manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        """ハイパラ探索で Git 管理の保存先を汚さない."""
+        self._session(fake_camera_settings)
+
+        record = self._start(manager)
+        answer_next_prompt(record, manager, self.STEM, set())
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert not fake_camera_settings.paste_volume_calibration_dir.exists()
+
+    def test_reports_the_total_volume_error_in_the_summary(
+        self,
+        manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        """主基準は session 総体積の誤差なので、まとめに必ず出す."""
+        self._session(fake_camera_settings)
+
+        record = self._start(manager)
+        answer_next_prompt(record, manager, self.STEM, set())
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert record.result is not None
+        assert record.result.summary is not None
+        assert "総体積誤差" in record.result.summary
+
+    def test_fails_when_a_blank_cell_is_detected_as_a_deposit(
+        self,
+        manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        self._session(fake_camera_settings, blank_material="large")
+
+        record = self._start(manager, save_name="broken")
+        answer_next_prompt(record, manager, self.STEM, set())
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "blank" in record.error
+        assert not fake_camera_settings.paste_volume_calibration_dir.exists()
+
+    def test_can_continue_past_a_blank_false_positive_on_request(
+        self,
+        manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        self._session(fake_camera_settings, blank_material="large")
+
+        record = self._start(manager, require_blank_zero=False)
+        answer_next_prompt(record, manager, self.STEM, set())
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+
+    def test_fails_when_no_completed_dataset_exists(
+        self, manager: JobManager, wait_until: WaitUntil
+    ):
+        record = self._start(manager)
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "完成dataset" in record.error
+        assert record.pending_prompt is None
+
+    def test_rejects_an_invalid_detection_hyperparameter_before_prompting(
+        self,
+        manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        self._session(fake_camera_settings)
+
+        record = self._start(manager, open_kernel_px=4)
         wait_until(lambda: record.status.terminal, timeout=60.0)
 
         assert record.status == JobStatus.FAILED

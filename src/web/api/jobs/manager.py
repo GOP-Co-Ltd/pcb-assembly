@@ -478,6 +478,9 @@ class JobManager:
                 artifacts_dir=artifacts_dir,
                 machine_id=resolve_machine_id(self._settings),
                 paste_dataset_dir=self._settings.paste_dataset_dir,
+                paste_volume_calibration_dir=(
+                    self._settings.paste_volume_calibration_dir
+                ),
                 source_pcb=selected_pcb.as_posix() if selected_pcb else None,
                 board_store=self._board_store,
             )
