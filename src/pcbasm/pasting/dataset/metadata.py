@@ -301,6 +301,12 @@ def _make_metadata_converter() -> cattrs.Converter:
             raise ValueError(f"intが必要です: {value!r}")
         return value
 
+    def strict_bool(value: object, _: object) -> bool:
+        # bool は int のサブクラスなので、hook を分けないと strict_int へ流れる
+        if type(value) is not bool:
+            raise ValueError(f"boolが必要です: {value!r}")
+        return value
+
     def strict_string(value: object, _: object) -> str:
         if type(value) is not str:
             raise ValueError(f"strが必要です: {value!r}")
@@ -335,6 +341,7 @@ def _make_metadata_converter() -> cattrs.Converter:
 
     converter.register_structure_hook(float, strict_float)
     converter.register_structure_hook(int, strict_int)
+    converter.register_structure_hook(bool, strict_bool)
     converter.register_structure_hook(str, strict_string)
     converter.register_structure_hook(
         get_type_hints(DispenseSummary)["applied_mode"], strict_applied_mode

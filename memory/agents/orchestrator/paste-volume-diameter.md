@@ -120,3 +120,36 @@ N4 のみ却下し他はすべて対応した。裁定の詳細は `memory/agent
   「現版が 1 つでもあるか」では v3 を 1 本収集した瞬間に旧版で `from_roots` が失敗する。
   → **教訓: 「検査を足したが、その検査が働くかを測っていない」型（前 MR で 4 回踏んだもの）の再来。
   今回は tmp に旧版混在を作って実証確認した。**
+
+## MR2: 下ごしらえと校正コア
+
+`atomic.py` 移設 / `dataset/reader.py` / `paste_volume/{detect,aggregate,model,calibration,estimator}.py`
+＋ `data/testing/paste-volume/`（実素材 16 枚）＋ `data/testing/schemas/paste_volume_calibration_v1.json`。
+
+### 実装が実測ベースラインを再現することの確認
+
+実データ 1 session（164 sample）へ detect → aggregate → fit を通した結果:
+
+- 検出失敗 0 / blank 誤検出 0/3 / 被覆域内で単調
+- `|mean(e)|+std(e) = 0.0852`（計画時の手実測 0.087 と一致）
+- 総体積 推定 23.401 vs 実測 23.402 µL
+
+パイプラインの写し間違いが無いことをこれで確かめた。
+
+### 計画外の判断
+
+- **`strict_bool` を metadata の共有 converter へ追加**。`bool` は `int` のサブクラスなので
+  hook を分けないと `strict_int` へ流れ、`monotonic_in_range: bool` が弾かれた。
+  dataset schema には bool フィールドが無いので既存への影響は無い
+- **`detection` / `model` の `kind` を DTO へ持たせない**。DTO の `Literal` にすると方式追加の
+  たびに DTO が増えるので、document のキーとして持ち parse 時に検証して剥がす
+- **`aggregate.py` を独立モジュールに**。計画では detect に含める想定だったが、
+  「1 view の計測」と「view を畳む」は関心が別で、テストも独立に書ける
+- **`is_positive_in_range()` を公開メソッド化**。自己レビューで `fit_cubic_through_origin` が
+  `model._range_samples()` という private を外から呼んでいたのを解消
+- 校正ファイルの `source` は単数（マルチセッション非対応の方針どおり）
+
+### docformatter の日本語 docstring 破壊（再発）
+
+3 箇所で「文の途中の改行が半角スペースになる」破壊が起きた。MR1 に続き 2 回目。
+**日本語 docstring は最初から 1 文 1 段落で書く**（`memory/docformatter-japanese-docstrings.md`）。

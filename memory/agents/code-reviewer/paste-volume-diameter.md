@@ -34,3 +34,85 @@
 要求 1（除外領域の廃止）/ 3（配分式から purge が消える）/ 4（v3 のみ・v2 を明示的に拒否）/
 5（`src/ml/` 不変更）、スコープ外（`paste_solder` の初回パージ・testboard の PURGE pad）の温存、
 seed 期待値の再確定が緩めでないこと、規約準拠。
+
+______________________________________________________________________
+
+## MR2 verdict: request-changes
+
+対象は staged 分のみ（MR1 は `6fb6ba4` で commit 済み）。
+
+### 検証結果
+
+| コマンド | 結果 |
+|---|---|
+| `make format`（`pre-commit run -a`） | pass（書き換え無し） |
+| `make type`（`pyright`） | pass（0 errors） |
+| `pytest -m "not hardware"` 新規/影響分 | pass（paste_volume 135 / dataset 273） |
+
+`tests/test_package.py::TestPastingImportLight` も pass。`import pcbasm.pasting` が
+cv2 を引き込まない契約は壊れていない。全体スイートは orchestrator 側で実行中のため回していない。
+
+### must-fix
+
+| # | 対象 | 問題 | 根拠 | 確信度 |
+|---|---|---|---|---|
+| M1 | `estimator.py:29,122-130` | 計画に無い 4 つ目の不採用理由 `pixel_per_mm_mismatch` を estimator 層で hard reject | 計画書 L188 は 3 分岐と明記。L237（MR4）は「pixel_per_mm の条件不一致は失敗させず `condition_mismatch` に載せて評価は続行」。両立しない。`_SCALE_TOLERANCE = 0.2` は実測の裏付け無し | 高（計画不一致）/ 中（実害） |
+| M2 | `calibration.py:141` | `detection` セクションのキー欠落を attrs 既定値で黙って埋める（`min_contrast` を消しても 20.0 で通る。実証済み）。`model`/`conditions` は既定値が無く弾ける | 計画書 L219「検出ハイパラは校正と不可分」。`DotDetectionSpec` の既定値を変えるとキー欠落ファイルの意味が黙って変わる | 高（実証） |
+| M3 | `detect.py:143` | `min_area_px=0`（`validate()` が許す）で `detected=True, diameter_mm=0.0` が出る。`aggregate_views` の中央値母数に 0 が混じり直径が落ちる | `DotMeasurement` docstring L80-81 の不変条件（detected=False ⟺ 0.0）を破る。MR3 で ParamSpec 露出（計画書 L224） | 高（実証） |
+
+### should-fix
+
+| # | 対象 | 問題 | 確信度 |
+|---|---|---|---|
+| S1 | `aggregate.py:3-6` / `estimator.py:83-84` / `test_estimator.py:181-199` | 「厳密に一致」は view 数が奇数のときだけ。偶数は中央 2 つの平均で崩れる（実素材 2 view の相対差 1.1e-4〜3.6e-6）。5 view 中 1 つ落ちて 4 view になる = フォールバック経路そのものが偶数 | 高 |
+| S2 | `test_estimator.py:71-75` | 期待値が指令量 0.20。実データのラベルは指令量×0.713（index 46: commanded 0.2000 / label 0.1427）。推定 0.1340 はラベルに対して −6%、指令量に対して −33%。`rel=0.5` が食い違いを隠している | 高 |
+| S3 | `test_model.py:179-189` | 「被覆域内で V(d)<=0」の拒否（`model.py:150-154`）がテスト 0 件。`if model is not None` の分岐で常に非拒否側を通る。到達入力あり | 高 |
+| S4 | `test_model.py:195-201` | `is_monotonic_in_range()` が False を返すケースが無い。到達入力あり | 高 |
+| S5 | `estimator.py` 全体 | 中央値集約の前提である `diagnostics.monotonic_in_range` を誰も参照しない | 中 |
+| S6 | `detect.py:99-100,169-172` | 引数名 `pre_rgb`/`post_rgb` と `cv2.COLOR_BGR2GRAY` が食い違う。リポジトリ規約は BGR（`vision/image.py:33`）。計画書のシグネチャがこの名前なので実装は計画どおりだが、RGB を渡されると静かにずれる | 高 |
+| S7 | `estimator.py:98-99` | 1 view が構造不正だとセル全体を捨てる。マルチ view の目的（フォールバック）と整合しない可能性 | 中 |
+| S8 | `estimator.py:106` | view 0 個を `no_deposit_detected` として返す。原因の切り分けが効かない | 中 |
+
+### nit
+
+- `test_detect.py:10,13` の `Path` / `np` が未使用（ruff は F401 ignore）
+- `test_estimator.py:101` / `test_model.py:79,86` の関数内 `import attrs`
+- `tests/pcbasm/test_atomic.py:3` の docstring が「計画書 MR1『新規 src/webui/atomic.py』節」のまま（移設前からの持ち越し）
+- `reader.completed_sessions` の docstring の排除根拠と実装がずれる（`finalize_incomplete` は `.incomplete` へ metadata.json を書いてから rename する）
+- `detect._darkening` の結果を 2 箇所が別々に `.astype(np.uint8)` する
+
+### 問題なしと確認した点
+
+要求 1（Protocol / ABC が 1 つも無い）、2（`measure_dot` の `(None, 理由)` は構造的不正のみ、
+「写っていない」は正常系）、4 のうち未知キー拒否・暗黙変換拒否・版違い拒否と `strict_bool`
+（dataset schema に bool フィールドが無く既存 hook への影響なし。dataset 273 件 pass で確認）、
+5（path traversal 防御：絶対 path・脱出・欠損すべて拒否）、6（正確な小数値のピンなし）、
+7（cv2 非引き込み契約）、成果物汚染なし。
+
+### 注記（レビュー中の作業並行）
+
+行番号はすべて **staged 版**（`git diff --cached`）に対するもの。レビュー中に
+`detect.py` へ unstaged で `detection_mask()` が追加された（MR3 のモンタージュ用と
+思われる。呼び出し元もテストも無い）。`fit.py` / `test_fit.py` も untracked で出現。
+MR2 の commit へ混ぜないこと。
+
+### MR2 の裁定（orchestrator）
+
+**全 16 件を受け入れて対応した（却下ゼロ）。**
+
+| 指摘 | 対応 |
+| --- | --- |
+| M1 | `_SCALE_TOLERANCE` と `pixel_per_mm_mismatch` を削除。条件照合は MR4 の evaluate 層へ。テストは「スケール差は被覆域の判定として現れる」形に書き換え |
+| M2 | `parse_calibration` に `_missing_detection_keys()` を追加。`DotDetectionSpec` の全 field が document にあることを要求。欠落 5 パターンと非 object を parametrize でピン |
+| M3 | `DotDetectionSpec.validate()` の `min_area_px` 下限を 0 → 1 へ。`min_area_px=0` の拒否をピン |
+| S1 | `aggregate.py` と `estimator.py` の docstring を「奇数なら厳密／偶数は 2 次の微小差」へ修正。実素材相当の view ばらつき（相対 0.2%）で相対 1e-4 未満に収まることを `test_model.py` でピン |
+| S2 | 期待値をラベル 0.1427（実データで比 0.7135 を確認）へ、tolerance を `rel=0.5` → `rel=0.15` へ。`data/testing/paste-volume/README.md` に教師ラベル列を追加 |
+| S3 / S4 | レビュアーが示した到達入力をそのまま使い、拒否側・単調性 False 側をピン |
+| S5 | 「条件照合も `monotonic_in_range` も推定器は見ない」と `DiameterVolumeEstimator` の docstring に明記 |
+| S6 | `pre_rgb` / `post_rgb` → `pre_bgr` / `post_bgr` へ全面改名し、docstring に「OpenCV の BGR」を明記。計画書のシグネチャより実装の正しさを優先した |
+| S7 | 「構造的不正は呼び出し側のバグなので早く落とす」を docstring に明記（挙動は据え置き） |
+| S8 | `no_views` を 4 つ目の理由として追加。M1 で 1 つ減っているので分岐数は変わらない |
+| nit ×5 | 未使用 import 削除、関数内 `import attrs` を module 冒頭へ、`test_atomic.py` の docstring 修正、`completed_sessions` を名前でも弾く実装へ変更しテスト追加、`_darkening` を uint8 で返して二重変換を解消 |
+
+**学び**: レビュアーが「実測した」と書いた数値（ラベル比 0.7135、拒否に到達する係数入力）は
+すべて再現できた。指摘に到達入力を添えてもらうと裁定が要らなくなる。

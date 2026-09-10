@@ -24,14 +24,17 @@
 | `toolhead_offset.py`     | カメラ–ノズル間オフセット計測 `ToolheadOffsetProcedure` / `ToolheadOffsetResult` / `ToolheadOffsetDiagnostics`                                                                                                                   |
 | `flowcalib/`             | 流量キャリブレーション。`params`（ジョブ既定値）/ `flow`（質量 → rotations_per_ul、レート・速度掃引の数理）/ `lines`（線配置と掃引計画）/ `procedure`（銅板・transform・applicator を束ねる機械手順）                            |
 | `testboard/`             | テスト塗布基板の KiCad 生成。`config`（設定 DTO と検証）/ `catalog`（footprint 検索とパッド種解決）/ `layout`（パッド packing）/ `generator`（preview・`.kicad_pcb` 生成のファサード）                                           |
+| `paste_volume/`          | 点塗布の円直径から塗布量を推定する校正。`detect`（pre/post 差分 → Otsu → 面積等価直径）/ `aggregate`（view 中央値）/ `model`（切片 0 固定の 3 次）/ `calibration`（校正ファイル schema v1）/ `estimator`（公開 prediction API）  |
 | `dataset/`               | ペースト塗布画像 dataset の収集（銅板のセル格子へ点塗布）。`plan`（セル格子・量スイープ・view・事前検証）/ `metadata`（metadata.json DTO・codec、schema v3）/ `writer` / `recorder` / `capture`。切り出しは `pcbasm.vision.crop` |
 
 `__init__.py` は docstring のみで re-export しない。消費側はサブモジュールを直接 import する
 （`import pcbasm.pasting` が cv2 / pcbnew / torch を引き込まない契約を `tests/test_package.py` で固定）。
 固定しているのは re-export しないことであって、サブモジュール自身が重い依存を持たないことではない。
 
-塗布量推定の学習側は `ml.paste_volume` にある。機械学習の責務は `ml` が持ち、ここは装置の
-制御に徹する。`pcbasm.pasting` が扱うのは `ml` が学習・export した成果物だけとする。
+塗布量推定には 2 系統ある。`paste_volume/` は円直径の 3 次近似で、torch を使わず
+Raspberry Pi の WebAPI プロセスでそのまま動く（cv2 / numpy は base 依存）。CNN 方式の学習側は
+`ml.paste_volume` にあり、そちらの成果物を `pcbasm` が使うときは export 済み artifact だけを
+扱う。
 
 `dispense.py` は HAL 非依存の値だけを置く。収集 schema（`dataset/metadata.py`）を学習側から
 読むとき `pcbasm.hal`（picamera2 を要求する）を引き込まないため、`DispenseSummary` を
