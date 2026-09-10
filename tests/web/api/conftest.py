@@ -166,6 +166,8 @@ def webui_settings(tmp_path: Path, config_dir: Path, pcb_root: Path) -> Settings
         mainsail_url="http://mainsail.invalid",
         # 実 LAN へ mDNS を撒かない（探索・広告はこの層のテスト対象ではない）
         discovery_enabled=False,
+        # 自己更新の report / ロックをリポジトリの data/ に落とさない
+        update_state_dir=tmp_path / "selfupdate",
     )
 
 

@@ -99,6 +99,35 @@ class TestFeatureTemplates:
         assert layout.JOB_TEMPLATES <= set(FEATURE_TEMPLATES.values())
 
 
+class TestSoftwareUpdateFeature:
+    """ソフトウェア更新は dev タブの feature だが**ジョブではない**.
+
+    計画書「3. frontend」: `TABS["dev"]` / `FEATURE_LABELS` / `FEATURE_TEMPLATES` の
+    3 点だけを足して既存 `feature_page` フローに乗せる。`JOB_TEMPLATES` に入れると
+    `feature_page` が backend のジョブ定義を要求し、ジョブではないため 503 になる。
+    """
+
+    def test_update_is_a_dev_feature(self):
+        assert "update" in TABS["dev"]
+
+    def test_update_has_its_own_label(self):
+        """ジョブなら backend の JobSpecInfo が名前を持つが、これは非ジョブ."""
+        assert layout.FEATURE_LABELS["update"] == "ソフトウェア更新"
+
+    def test_update_uses_its_own_template(self):
+        assert FEATURE_TEMPLATES[("dev", "update")] == "dev/update.html"
+
+    def test_update_is_not_a_job_template(self):
+        assert "dev/update.html" not in layout.JOB_TEMPLATES
+
+    def test_both_update_pages_share_one_panel_and_script(self):
+        """Backend 側と frontend 自身のページで DOM と JS を分岐させない."""
+        for name in ("dev/update.html", "update.html"):
+            body = (_TEMPLATES_DIR / name).read_text(encoding="utf-8")
+            assert "partials/update_panel.html" in body, name
+            assert "js/update.js" in body, name
+
+
 class TestStaticAssets:
     """テンプレートが参照する静的資産が移設先に存在する."""
 
@@ -120,6 +149,28 @@ class TestStaticAssets:
 
         assert "js/machine_selector.js" in base_html
         assert "partials/machine_selector.html" in base_html
+
+
+class TestSinglePaneLayout:
+    """サイドバーを持たないページは `single-pane` を宣言する.
+
+    `app.css` の `.layout` は「サイドバー / 本文 / マシン制御」の 3 列グリッドで、
+    `main-pane` だけを置くと本文が 1 列目（14rem）に押し込まれて読めなくなる。
+    `tab.html` 経由のページは 3 枠すべてを埋めるので宣言しない。
+    """
+
+    def test_sidebarless_pages_declare_single_pane(self):
+        offenders = {
+            template.name
+            for template in _template_files()
+            for text in [template.read_text(encoding="utf-8")]
+            if 'extends "base.html"' in text
+            and "main-pane" in text
+            and "sidebar" not in text
+            and "single-pane" not in text
+        }
+
+        assert offenders == set()
 
 
 class TestMachinePrefixFunnel:

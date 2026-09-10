@@ -396,6 +396,8 @@ def make_api_settings(root: Path, *, hostname: str) -> Settings:
         # 実 LAN へ mDNS を撒かない（広告 + 探索の通しは test_discovery_e2e.py が
         # ランダムなサービス型 + ループバック限定で見る）
         discovery_enabled=False,
+        # 自己更新の report / ロックをリポジトリの data/ に落とさない
+        update_state_dir=root / "selfupdate",
     )
 
 
@@ -413,7 +415,11 @@ def make_ui_settings(
         構築済みの frontend Settings
     """
     return UiSettings(
-        machines=endpoints, machines_file=machines_file, discovery_enabled=False
+        machines=endpoints,
+        machines_file=machines_file,
+        discovery_enabled=False,
+        # 自己更新の report / ロックをリポジトリの data/ に落とさない
+        update_state_dir=machines_file.parent / "selfupdate",
     )
 
 

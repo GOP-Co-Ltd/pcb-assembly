@@ -15,7 +15,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from web.ui import machines_api, pages
+from web.selfupdate.runner import UpdateRunner
+from web.selfupdate.settings import UpdateSettings
+from web.ui import machines_api, pages, update_api
 from web.ui.discovery import MachineDiscovery
 from web.ui.machine_client import BackendGateway, BackendUnavailable
 from web.ui.machines import (
@@ -73,6 +75,7 @@ def create_app(
     transport_factory: (
         Callable[[MachineEndpoint], httpx.AsyncBaseTransport] | None
     ) = None,
+    update_runner: UpdateRunner | None = None,
 ) -> FastAPI:
     """UI frontend の FastAPI アプリを構築する.
 
@@ -83,6 +86,8 @@ def create_app(
         settings: frontend 設定（None なら環境変数から構築。uvicorn --factory 用）
         transport_factory: backend への transport の差し替え（テストで in-process の
             backend app を挿す。None なら実 TCP）
+        update_runner: frontend 自身の更新ランナー（None なら settings から構築）。
+            テストはスタブ実行ファイルを差した UpdateSettings 版を注入する
 
     Returns:
         構成済みの FastAPI アプリ
@@ -111,6 +116,17 @@ def create_app(
     app.state.registry = registry
     app.state.gateway = gateway
     # 探索の開始は lifespan（AsyncZeroconf が running loop を要求する）
+    app.state.update = (
+        update_runner
+        if update_runner is not None
+        else UpdateRunner(
+            UpdateSettings(
+                state_dir=settings.update_state_dir,
+                uv_sync_args=settings.update_uv_sync_args,
+                enabled=settings.update_enabled,
+            )
+        )
+    )
     app.state.discovery = (
         MachineDiscovery(
             on_change=registry.set_discovered,
@@ -175,6 +191,8 @@ def create_app(
     # pages ルータより先に登録する（後だと /{tab} のキャッチオールに食われて
     # ドロップダウン更新が HTML を受け取る）
     app.include_router(machines_api.router)
+    # 同上。/update が /{tab} に食われると更新ページがマシンピッカーになる
+    app.include_router(update_api.router)
     # /{tab} のキャッチオールを持つため最後に登録する
     app.include_router(pages.router)
     return app

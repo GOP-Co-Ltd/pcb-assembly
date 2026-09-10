@@ -169,7 +169,12 @@ backend と frontend は別 unit（`pcbasm-api.service` / `pcbasm-ui.service`）
 ./scripts/web-service.sh install ui   # frontend 専用機（UI だけを置くホスト）
 ./scripts/web-service.sh start ui     # 起動（stop / restart / status も同じ形）
 ./scripts/web-service.sh remove all   # サービス登録を削除
+./scripts/web-service.sh render api   # unit テキストを標準出力へ（systemd に触らない）
 ```
+
+`render` は設置済み unit との差分確認用の読み取り専用サブコマンド（sudo も systemctl も
+要らない）。WebUI の自己更新がこれを読んで「unit 定義が古いので再 install が要る」を
+画面に出す。
 
 旧 `pcbasm-webui.service`（= 旧 backend）の掃除は**対象が `api` または `all` のときだけ**
 行う。`install api` / `install all` / `remove api` / `remove all` は旧 unit を disable して
@@ -183,6 +188,75 @@ backend と frontend は別 unit（`pcbasm-api.service` / `pcbasm-ui.service`）
 
 起動順の依存は付けていないので、frontend が backend より先に上がって構わない（未起動の
 backend を選んだページが 503 になるだけ）。
+
+### WebUI からの更新
+
+`main` が進んだときの反映を、ssh せず WebUI のページから実行できる。
+やることは **`git pull`（fast-forward のみ）→ `uv sync` → systemd 再起動**。
+
+- 機体（backend）: `/m/<machine_id>/dev/update`（開発タブ → ソフトウェア更新）。操作権が要る
+- frontend 専用機: `/update`（マシン非依存のページ）
+
+セットアップは 1 台につき 1 回:
+
+```bash
+./scripts/install-update-sudoers.sh install  # 再起動に必要な NOPASSWD を設置
+./scripts/install-update-sudoers.sh show     # 設置せず内容だけ確認
+./scripts/web-service.sh install all         # unit 定義の更新を反映（既存機体も再実行が必要）
+```
+
+**許可する特権は再起動だけ**で、引数まで固定した次の 3 通りしか通さない
+（ワイルドカードを 1 文字も置かない。`sudo` の glob は `/` も食うため、`*` を 1 つ
+入れるだけで「任意のコマンドを root で実行」に悪化する）:
+
+```text
+/usr/bin/systemctl restart --no-block pcbasm-api.service
+/usr/bin/systemctl restart --no-block pcbasm-ui.service
+/usr/bin/systemctl restart --no-block pcbasm-api.service pcbasm-ui.service
+```
+
+方針:
+
+- **fast-forward only。** 未コミットの変更・未 push のローカル commit・分岐・detached の
+    いずれかがあれば**何もせず中断**する（作業ツリーは 1 バイトも動かない）
+- **`uv sync` か起動チェック（import）が失敗したら再起動しない。** 起動できない
+    リビジョンで WebUI ごと到達不能になるのを防ぐ
+- **自動ロールバックはしない。** 失敗時の復旧は ssh（下記）
+- `uv sync` は `--locked --inexact` 固定。`--locked` が無いと `uv.lock` が書き換わって
+    tree が dirty になり以後の更新が全部止まり、`--inexact` が無いと指定しなかった
+    dependency group（Pi の `ml-runtime` = torch）が消える。機体ごとに増やすなら
+    `PCBASM_API_UPDATE_UV_SYNC_ARGS` / `PCBASM_UI_UPDATE_UV_SYNC_ARGS`（**丸ごと置換**
+    なので既定の 2 つを書き直したうえで足す）
+- **同居機（backend + frontend が同じホスト）では画面も一度切れる。** 再起動対象は
+    そのホストで active な pcbasm unit すべてで、api → ui の順に 1 回で投げる
+- **git LFS は引かない**（`git lfs pull` は手動）。checkout の smudge フィルタは走るので、
+    失敗すれば `merge --ff-only` が非 0 で止まる。smudge のネットワーク待ちを見込んで
+    merge のタイムアウトは 600 秒（ここで打ち切ると作業ツリーが中途半端に残る）
+- **更新後に unit 定義が古いままなら画面に警告を出す**（`web-service.sh` の出力と
+    設置済み unit を非特権で比べるだけ。自動で install はしない）
+- `config/` は git 追跡外なので更新で消えない
+
+復旧（新しいリビジョンが起動しない・依存が壊れた）:
+
+```bash
+ssh <機体>
+cd ~/pcb-assembly
+git log --oneline -5              # 更新前の commit は WebUI の記録にも残っている
+git reset --hard <更新前の sha>
+uv sync --locked --inexact
+sudo systemctl restart pcbasm-api  # frontend 専用機は pcbasm-ui
+journalctl -u pcbasm-api -n 200    # 起動失敗の理由
+```
+
+**攻撃面（率直に）**: この WebUI に認証は無い（下記「公開範囲」）。LAN に居る者は既に
+ステージを動かせるので物理的なリスクは増えないが、**信頼境界が「LAN に居る者」から
+「LAN に居る者 ∪ GitLab に push できる者」へ広がる**。GitLab 側の保護ブランチと 2FA を
+必須にすること。無効化するには `PCBASM_API_UPDATE_ENABLED=0` /
+`PCBASM_UI_UPDATE_ENABLED=0`（ページの操作は 403 になる）。
+
+**`API_VERSION` を上げる MR はこの経路で更新できない。** mDNS 発見が完全一致フィルタ
+なので、上げた瞬間に機体が frontend の一覧から消える。静的登録（`config/machines.toml`）の
+機体だけが更新でき、他は ssh で対応する。
 
 ### 複数人で同時に開いたとき（操作権）
 
@@ -215,6 +289,9 @@ backend（正典は `src/web/api/settings.py` の `Settings.from_env`）:
 - `PCBASM_API_FAKE_CAMERA` — `1` でカメラ実機なしの固定画像配信
 - `PCBASM_API_FAKE_CAMERA_IMAGE` — その固定画像のパス
 - `PCBASM_API_DISCOVERY_ENABLED` — `0` で mDNS 広告を無効
+- `PCBASM_API_UPDATE_ENABLED` — `0` で WebUI からの更新を無効（実行系は 403）
+- `PCBASM_API_UPDATE_UV_SYNC_ARGS` — `uv sync` の引数を**丸ごと置き換える**（空白区切り。既定 `--locked --inexact`）。`--locked` を落とすと `uv.lock` が書き換わって以後の更新が全部止まるので、足すときも既定の 2 つは必ず残す
+- `PCBASM_API_UPDATE_STATE_DIR` — 更新の記録と単一実行ロックの置き場所（既定はリポジトリ直下の `data/selfupdate`。**`PCBASM_API_DATA_DIR` では動かない** — ロックが守るのは worktree なので、同居機の backend と frontend が必ず同じファイルを掴む）
 - `PCBASM_MAINSAIL_URL` — Mainsail へのリンク先
 - `PCBASM_CONFIG_DIR` — マシン設定ディレクトリ（既定 `config/`）の差し替え。pcbasm コア層と共通
 
@@ -227,6 +304,9 @@ frontend（正典は `src/web/ui/settings.py` の `Settings.from_env`）:
 - `PCBASM_UI_MACHINES_FILE` — machines.toml のパス（既定 `config/machines.toml`）
 - `PCBASM_UI_DEFAULT_BACKEND_PORT` — machines.toml で `port` を省いたマシンに使う port（既定 8081）
 - `PCBASM_UI_DISCOVERY_ENABLED` — `0` で mDNS 探索を無効
+- `PCBASM_UI_UPDATE_ENABLED` — `0` で frontend 自身の更新を無効
+- `PCBASM_UI_UPDATE_UV_SYNC_ARGS` — `uv sync` の引数を**丸ごと置き換える**（空白区切り。既定の `--locked --inexact` は残すこと）
+- `PCBASM_UI_UPDATE_STATE_DIR` — 更新の記録と単一実行ロック（既定はリポジトリ直下の `data/selfupdate`。backend の既定と同じ場所）
 - `PCBASM_UI_SSR_TIMEOUT` / `PCBASM_UI_BACKEND_CONNECT_TIMEOUT` / `PCBASM_UI_PROXY_READ_TIMEOUT` — 秒
 
 frontend が `config/` から読むのは `machines.toml` **だけ**（機体設定の `machine.toml` は読まない）。

@@ -18,6 +18,12 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(value) if value else default
 
 
+def _env_words(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """空白区切りの env を argv 断片として読む（未設定なら既定）."""
+    value = os.environ.get(name)
+    return tuple(value.split()) if value else default
+
+
 @attrs.frozen
 class Settings:
     """Backend WebAPI サーバーの設定値."""
@@ -55,6 +61,16 @@ class Settings:
     discovery_service_type: str = SERVICE_TYPE
     # None なら zeroconf 既定（全 IF）。テストは ("127.0.0.1",) で閉じる
     discovery_interfaces: tuple[str, ...] | None = None
+    # WebUI からのソフトウェア更新（git pull → uv sync → 再起動）。無効にすると
+    # 実行系が 403 を返し、ページから操作できなくなる
+    update_enabled: bool = True
+    # 素の `uv sync` は dependency group を削除し、lock がずれると uv.lock を書き換える
+    # （web.selfupdate.settings のコメント参照）。機体ごとに増やせるよう env に出す
+    update_uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
+    # None ならリポジトリ直下の data/selfupdate。**data_dir から導出しない**:
+    # ロックが守る対象は worktree なので、同居機の api と ui が
+    # PCBASM_API_DATA_DIR の設定に関係なく同じロックを掴む必要がある
+    update_state_dir: Path | None = None
 
     @property
     def webui_data_dir(self) -> Path:
@@ -70,6 +86,15 @@ class Settings:
         """ペースト塗布画像datasetの永続保存先."""
         return self.data_dir / "paste-volume-datasets"
 
+    @property
+    def update_dir(self) -> Path:
+        """自己更新の report と単一実行ロックの置き場所.
+
+        既定は **リポジトリ直下**（`data_dir` 由来ではない）。ロックは worktree を
+        守るものなので、同居機の backend と UI frontend が必ず同じファイルを掴む。
+        """
+        return self.update_state_dir or PROJECT_ROOT / "data" / "selfupdate"
+
     @classmethod
     def from_env(cls) -> Settings:
         """環境変数を反映した Settings を生成する.
@@ -79,7 +104,10 @@ class Settings:
             PCBASM_MAINSAIL_URL, PCBASM_API_PORT,
             PCBASM_API_FAKE_CAMERA（"1" で固定画像カメラを使用）,
             PCBASM_API_FAKE_CAMERA_IMAGE,
-            PCBASM_API_DISCOVERY_ENABLED（"0" で mDNS 広告を無効）
+            PCBASM_API_DISCOVERY_ENABLED（"0" で mDNS 広告を無効）,
+            PCBASM_API_UPDATE_ENABLED（"0" で WebUI からの更新を無効）,
+            PCBASM_API_UPDATE_UV_SYNC_ARGS（空白区切り。`uv sync` の引数を丸ごと置換）,
+            PCBASM_API_UPDATE_STATE_DIR
 
         ``discovery_service_type`` / ``discovery_interfaces`` /
         ``advertise_addresses`` は env に出さない（テストと E2E はコンストラクタ注入
@@ -115,6 +143,15 @@ class Settings:
                 "PCBASM_API_FAKE_CAMERA_IMAGE", base.fake_camera_image
             ),
             discovery_enabled=os.environ.get("PCBASM_API_DISCOVERY_ENABLED") != "0",
+            update_enabled=os.environ.get("PCBASM_API_UPDATE_ENABLED") != "0",
+            update_uv_sync_args=_env_words(
+                "PCBASM_API_UPDATE_UV_SYNC_ARGS", base.update_uv_sync_args
+            ),
+            update_state_dir=(
+                Path(state_dir)
+                if (state_dir := os.environ.get("PCBASM_API_UPDATE_STATE_DIR"))
+                else base.update_state_dir
+            ),
         )
 
 
