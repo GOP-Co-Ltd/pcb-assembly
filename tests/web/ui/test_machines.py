@@ -3,7 +3,7 @@
 計画書 docs/plans/web-api-ui-split.md「MR4」節の契約:
 
 - `MachineEndpoint.label` は **サーバ側で組む表示文字列**
-  （`f"{name or machine_id} ({machine_id}: {host})"`）。JS は `textContent` に流すだけ
+  （`f"{machine_id}: {host}"` = hostname と所在）。JS は `textContent` に流すだけ
 - `MachineRegistry.list()` は登録順、`resolve()` は未知 id で `UnknownMachine`（→ 404）
 - `load_machines_file` はファイル不在で空 tuple。frontend は登録 0 台でも起動して
   案内ページを出せることが要件なので、不在は異常ではない
@@ -42,17 +42,16 @@ class TestMachineEndpoint:
     def test_base_url_points_at_the_backend_api(self):
         assert KUROUSAGI.base_url == "http://kurousagi002.local:8081"
 
-    def test_label_shows_name_with_machine_id_and_host(self):
-        assert KUROUSAGI.label == "黒兎 2 号機 (kurousagi002: kurousagi002.local)"
+    def test_label_shows_the_hostname_and_host(self):
+        assert KUROUSAGI.label == "kurousagi002: kurousagi002.local"
 
     def test_label_omits_the_port(self):
         """Port は運用者向けの識別に寄与しないので表示しない（host までで一意）."""
         assert "8081" not in KUROUSAGI.label
 
-    def test_label_falls_back_to_machine_id_when_name_is_missing(self):
-        endpoint = MachineEndpoint(machine_id="alpha", host="alpha.local", port=8081)
-
-        assert endpoint.label == "alpha (alpha: alpha.local)"
+    def test_label_ignores_the_configured_machine_name(self):
+        """`machine_name` は自由入力で同名を見分けられないため表示に使わない."""
+        assert "黒兎" not in KUROUSAGI.label
 
     def test_defaults_to_static_source(self):
         """MR5 の mDNS 探索と区別できるように出自を持つ（既定は静的登録）."""
@@ -217,8 +216,8 @@ DISCOVERED_KUROUSAGI = MachineEndpoint(
 class TestDiscoveredLabel:
     """MDNS 由来のマシンの表示形（ドロップダウンに出る文字列のピン）."""
 
-    def test_label_shows_name_with_machine_id_and_advertised_address(self):
-        assert DISCOVERED_KUROUSAGI.label == "黒兎 (kurousagi: 192.168.100.201)"
+    def test_label_shows_the_hostname_and_advertised_address(self):
+        assert DISCOVERED_KUROUSAGI.label == "kurousagi: 192.168.100.201"
 
 
 class TestSetDiscovered:
