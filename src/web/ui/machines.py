@@ -36,13 +36,14 @@ class MachineEndpoint:
 
     @property
     def label(self) -> str:
-        """マシン選択 UI に出す表示文字列.
+        """マシン選択 UI に出す表示文字列（``"<hostname>: <host>"``）.
 
         表示文字列はサーバ側で組む（クライアントで組むと表示規則が JS に散る）。
-        ``machine_id`` と ``host`` を併記するのは、同名の機体や ``.local`` 名の
-        取り違えを画面で見分けられるようにするため。
+        ``machine_id`` は backend の hostname。``host`` を併記するのは、
+        ``.local`` 名や IP の取り違えを画面で見分けられるようにするため。
+        自由入力の ``name`` は表示に使わない（同名の機体を見分けられないため）。
         """
-        return f"{self.name or self.machine_id} ({self.machine_id}: {self.host})"
+        return f"{self.machine_id}: {self.host}"
 
 
 class UnknownMachine(LookupError):

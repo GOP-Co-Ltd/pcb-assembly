@@ -82,7 +82,7 @@ class TestListMachines:
 
         assert machine == {
             "machine_id": "alpha",
-            "label": "アルファ (alpha: alpha.local)",
+            "label": "alpha: alpha.local",
             "name": "アルファ",
             "host": "alpha.local",
             "port": 8081,
@@ -116,7 +116,7 @@ class TestListMachines:
         ]
         assert machines[1] == {
             "machine_id": "kurousagi",
-            "label": "黒兎 (kurousagi: 192.168.100.201)",
+            "label": "kurousagi: 192.168.100.201",
             "name": "黒兎",
             "host": "192.168.100.201",
             "port": 8081,
