@@ -42,10 +42,13 @@ from web.api.routers import (
     preview as preview_router,
     settings_api,
     system,
+    update as update_router,
 )
 from web.api.routers.common import control_payload
 from web.api.settings import Settings, resolve_machine_id
 from web.api.state import AppState, BusyError
+from web.selfupdate.runner import UpdateRunner
+from web.selfupdate.settings import UpdateSettings
 
 
 @asynccontextmanager
@@ -88,6 +91,20 @@ def _build_advertiser(settings: Settings, state: AppState) -> ServiceAdvertiser:
     )
 
 
+def _build_update_runner(settings: Settings) -> UpdateRunner:
+    """設定から自己更新のランナーを組む（リポジトリは常にこのソースツリー）.
+
+    ブランチ・remote・`uv` の引数はサーバ側の固定値。リクエストからは触れない。
+    """
+    return UpdateRunner(
+        UpdateSettings(
+            state_dir=settings.update_dir,
+            uv_sync_args=settings.update_uv_sync_args,
+            enabled=settings.update_enabled,
+        )
+    )
+
+
 def _control_change_notifier(app: FastAPI) -> Callable[[], None]:
     """保持者が変わったことを全 WS 購読者へ配る `on_change` を作る.
 
@@ -108,6 +125,7 @@ def create_app(
     audio_player: AudioPlayer | None = None,
     clock: Callable[[], float] | None = None,
     paste_test_board_footprint_root: Path | None = None,
+    update_runner: UpdateRunner | None = None,
 ) -> FastAPI:
     """WebUI の FastAPI アプリを構築する.
 
@@ -119,6 +137,8 @@ def create_app(
             失効しない」という `busy` の配線を確かめるための注入口
         paste_test_board_footprint_root: テスト塗布基板で使う
             KiCad footprint root。Noneなら環境変数またはKiCad 9標準パス
+        update_runner: 自己更新のランナー（None なら settings から構築）。テストは
+            スタブ実行ファイルを差した UpdateSettings 版を注入する
 
     Returns:
         構成済みの FastAPI アプリ
@@ -158,6 +178,9 @@ def create_app(
     # 広告の開始は lifespan（AsyncZeroconf が running loop を要求する）
     app.state.advertiser = (
         _build_advertiser(settings, state) if settings.discovery_enabled else None
+    )
+    app.state.update = (
+        update_runner if update_runner is not None else _build_update_runner(settings)
     )
     # 操作権リース。無操作失効の判定は装置排他ロック（= ジョブ実行中）で止める
     app.state.control = ControlLease(
@@ -223,6 +246,7 @@ def create_app(
     app.include_router(audio.router)
     app.include_router(machine_control.router)
     app.include_router(system.router)
+    app.include_router(update_router.router)
     app.include_router(preview_router.router)
     app.include_router(jobs.router)
     app.include_router(pasting.router)
