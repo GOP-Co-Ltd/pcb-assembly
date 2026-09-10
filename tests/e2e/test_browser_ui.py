@@ -14,6 +14,7 @@ import httpx
 import pytest
 from playwright.sync_api import expect
 
+from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
 from tests.e2e.conftest import (
     E2E_MACHINE_ID as _E2E_MACHINE_ID,
     TERMINAL as _TERMINAL,
@@ -26,7 +27,7 @@ from tests.e2e.conftest import (
     start_app as _start_app,
     wait_machine_field as _wait_machine_field,
 )
-from tests.helpers import FAKE_AUDIO_DEVICES, wait_until
+from tests.helpers import FAKE_AUDIO_DEVICES, PROJECT_ROOT, wait_until
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint, MachineRegistry
 
@@ -706,3 +707,92 @@ class TestMachineSelectorRefresh:
 
         expect(options).to_have_text(_machine_labels(origin, current=_E2E_MACHINE_ID))
         expect(options.nth(1)).to_contain_text("発見された名前")
+
+
+class TestPasteVolumeCalibrationSelect:
+    """収集フォームの volume_calibration がブラウザ上で <select> になる.
+
+    ここはサーバー側テストでは捕まらない。
+
+    ParamSpec と persisted_params が揃っても、JS が値を落とせば毎回選び直しになる。
+
+    忘れると無言で検証されないまま収集が終わる（実際に一度そうなった）。
+    """
+
+    def _write_calibration(self, live_server: LiveServer, stem: str) -> str:
+        """保存済み校正をピン fixture から 1 件置き、ファイル名を返す."""
+        root = live_server.settings.paste_volume_calibration_dir
+        root.mkdir(parents=True, exist_ok=True)
+        name = f"{stem}{CALIBRATION_SUFFIX}"
+        (root / name).write_text(
+            (
+                PROJECT_ROOT / "data/testing/schemas/paste_volume_calibration_v1.json"
+            ).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        return name
+
+    def test_the_text_input_becomes_a_select_of_saved_calibrations(
+        self, live_ui: LiveUi, live_server: LiveServer, browser_page
+    ):
+        name = self._write_calibration(live_server, "s3x70-n030-h020")
+
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="networkidle",
+        )
+
+        field = browser_page.locator("#param-volume_calibration")
+        expect(field).to_have_count(1)
+        assert field.evaluate("el => el.tagName") == "SELECT"
+        assert name in field.evaluate("el => Array.from(el.options).map(o => o.value)")
+
+    def test_the_selected_calibration_shows_its_conditions(
+        self, live_ui: LiveUi, live_server: LiveServer, browser_page
+    ):
+        name = self._write_calibration(live_server, "s3x70-n030-h020")
+
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="networkidle",
+        )
+        browser_page.locator("#param-volume_calibration").select_option(name)
+
+        details = browser_page.locator('[data-testid="volume-calibration-details"]')
+        expect(details).to_contain_text("ノズル")
+        expect(details).to_contain_text("総体積誤差")
+
+    def test_a_saved_choice_survives_a_reload(
+        self, live_ui: LiveUi, live_server: LiveServer, browser_page
+    ):
+        """persisted_params が UI へ届く（1 時間の収集ごとに選び直させない）."""
+        name = self._write_calibration(live_server, "s3x70-n030-h020")
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="networkidle",
+        )
+        _acquire_control(browser_page)
+        response = httpx.post(
+            f"{live_server.base_url}/api/jobs/paste_dataset_collection"
+            "/param-defaults",
+            json={"values": {"volume_calibration": name}},
+            headers=_session_headers(browser_page),
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert response.status_code == 200, response.text
+
+        browser_page.reload(wait_until="networkidle")
+
+        assert browser_page.locator("#param-volume_calibration").input_value() == name
+
+    def test_nothing_saved_means_no_verification(
+        self, live_ui: LiveUi, live_server: LiveServer, browser_page
+    ):
+        """校正が 1 つも無くても壊れず、既定は「検証しない」."""
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            wait_until="networkidle",
+        )
+
+        field = browser_page.locator("#param-volume_calibration")
+        assert field.input_value() == ""
