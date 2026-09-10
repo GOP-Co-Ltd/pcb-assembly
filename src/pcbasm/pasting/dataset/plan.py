@@ -28,8 +28,8 @@ _GRID_EPSILON = 1e-9
 # 周辺 view の既定は 0（中心のみ）。直径ベースの校正では周辺 view に実測上の利点が
 # ほぼ無い（831 サンプルで検出失敗 0 件、view 間ばらつきは体積換算 1.2% で、5 view
 # から 1 view へ落としても総残差は 8.0% → 8.1% 程度）のに対し、撮影枚数は view 数に
-# 比例して収集時間を支配する。複数視点を前提にする CNN 方式（docs/image-based-
-# dispense-calibration.md）の学習材料を採るときだけ 4 などへ上げる。
+# 比例して収集時間を支配する。複数視点を前提にする CNN 方式の学習材料を採るときだけ
+# 4 などへ上げる（docs/paste-volume-diameter-calibration.md の「周辺 view の既定」節）。
 DEFAULT_VIEW_COUNT = 0
 DEFAULT_VIEW_OFFSET_MM = 1.0
 DEFAULT_PASTE_HEIGHT_MM = 0.2

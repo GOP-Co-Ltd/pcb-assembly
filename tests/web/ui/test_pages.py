@@ -1361,7 +1361,7 @@ class TestPastingPadEditor:
         """項目が多いので縦一列にせず、段組みの fieldset へ分ける."""
         text = client.get("/pasting/paste_volume_calibration").text
 
-        assert "paste-dataset-form" in text
+        assert "paste-volume-calibration-form" in text
         for legend in (
             "銅板",
             "セル格子",
@@ -1369,6 +1369,8 @@ class TestPastingPadEditor:
             "吐出量スイープ",
             "塗布と撮影",
             "ペースト",
+            "円検出のハイパラ",
+            "校正の保存と検証",
         ):
             assert f"<legend>{legend}</legend>" in text
         assert (
@@ -1381,6 +1383,35 @@ class TestPastingPadEditor:
         assert "任意。ペースト容器に記載された製造ロット番号" in text
         # 塗布パス先頭でインタラクティブローディングを回すので操作 UI を載せる。
         assert "loading-controls" in text
+
+    def test_paste_volume_calibration_renders_every_detection_field(
+        self, client: TestClient
+    ):
+        """ParamSpec を足しただけで UI へ届かない事故を防ぐ（MR1 の M2 と同型）."""
+        text = client.get("/pasting/paste_volume_calibration").text
+
+        for name in (
+            "min_contrast",
+            "contrast_percentile",
+            "threshold_floor_ratio",
+            "open_kernel_px",
+            "min_area_px",
+            "require_blank_zero",
+            "save_name",
+        ):
+            assert f'id="param-{name}"' in text, name
+
+    def test_paste_volume_calibration_checks_require_blank_zero_by_default(
+        self, client: TestClient
+    ):
+        """既定 True の bool は checkbox が checked で描かれる."""
+        text = client.get("/pasting/paste_volume_calibration").text
+
+        assert (
+            '<input type="checkbox" id="param-require_blank_zero" '
+            'name="require_blank_zero"' in text
+        )
+        assert "checked" in text
 
     def test_paste_volume_calibration_offers_volume_and_rotation_loading(
         self, client: TestClient

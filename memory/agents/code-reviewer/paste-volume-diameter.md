@@ -141,3 +141,26 @@ must-fix 2 / should-fix 5 / nit 7。**全件受け入れて対応した（却下
 **学び（2 巡目も同じ）**: レビュアーが指摘に添えた実測値（脱出する path、
 `merge_job_param_defaults` を入れた描画結果）はすべて再現できた。到達入力つきの
 指摘は裁定コストがゼロになる。
+
+## ページ統合コミット `fccebbd` のレビュー（verdict: request-changes）
+
+must-fix 2 / should-fix 10 / nit 8。**全件受け入れて対応した（却下ゼロ）。**
+
+| 指摘 | 内容 | 対応 |
+| --- | --- | --- |
+| M1 | `open_kernel_px` に上限が無く `np.ones((k,k))` が MemoryError。`build_calibration` が try の外で「例外を投げない」契約が破れ、1 時間の収集が FAILED になる。実測で 1048577 が preflight を通過し 1 TiB 確保を試みた | `MAX_OPEN_KERNEL_PX = 99` を `validate()` へ（`parse_calibration` 経由の推定経路も同時に守られる）。**zip 生成を校正生成の前へ移し**、契約に依存せず順序で解いた。`fit_calibration` 全体も try で包んだ |
+| M2 | `report_calibration` が図 → 保存の順で、matplotlib が落ちると**フィット成功でも校正が保存されない**。まとめも「図が無い」しか言わない | 保存を図より前へ。図は `_render_artifacts` 内で guard し `(artifacts, error)` を返す。まとめに「保存先」と「診断図なし」を併記 |
+| S1 | `detection_spec_from_params` / `diagnostic_lines` が外部から呼ばれていない | `_` prefix へ |
+| S2 | 収集側のハイパラ preflight にテストが無い | `TestPasteDatasetCollectionPreflight` へ 2 件（偶数カーネル・巨大カーネル）＋ `min_area_px=0` は ParamSpec.minimum が start 前に弾くことをピン |
+| S3 | `persisted_params` が両ジョブで未ピン | 全量 parametrize でピン |
+| S4 | **除外理由が誤りだった**。`calibration_path` は suffix 付きの名前でしか上書きせず、通常名は timestamp が付く。一方で 1 時間の主成果物が既定で保存されないのは筋が通らない | 収集用に `COLLECTED_SAVE_NAME_PARAM` を分け、空なら label から自動命名して**必ず保存**。`save_name` を persisted へ。再フィット側は「空＝保存しない」を維持 |
+| S5 | `save_name` と `volume_calibration` が同一ファイルを指すと自己参照の検証になり、総体積誤差ほぼ 0 が「良い結果」に見える | preflight で拒否（収集前に落とす） |
+| S6 | ページ導入文が収集の説明のまま | 校正まで作ることと、再フィットの案内を追記 |
+| S7 | 新 fieldset 2 つと既定 True の初 bool の描画が未ピン | 全 7 フィールドの描画と checked をピン |
+| S8 / S10 | README とページ docstring に旧ジョブ名 | 修正 |
+| S9 | 図の失敗経路が未ピン | savefig を失敗させて「校正は保存され図だけ無い」をピン |
+| nit ×8 | まとめの語／persisted の表現／`_MONTAGE_DISPENSED` のコメント／plan.py のコメント内 path 分割／`.paste-dataset-form` class と CSS コメント／e2e class 名／配置プレビューが無関係な入力で再取得 | すべて対応。`paste_dataset_finalize` で復旧した session に校正が付かない点は設計として妥当と判断し、docs に再フィットへの導線を書いて据え置き |
+
+**学びの更新**: レビュアーは「例外を投げない」の検証に対し、葉を数え上げるのではなく
+**順序で解け**（zip を先に作る）と指摘した。不変条件はコードの外側の順序で満たす方が
+壊れにくい。3 巡連続で、指摘に到達入力が添えられていたものは裁定コストがゼロだった。

@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -32,7 +33,9 @@ from pcbasm.visualization.paste_volume_render import (
 from web.api.jobs.catalog import ParamSpec
 from web.api.jobs.context import Artifact, JobContext, JobResult, ParamValue
 
-# モンタージュに並べる代表セル（小さい順に 3 つと blank）
+logger = logging.getLogger(__name__)
+
+# モンタージュに並べる塗布セルの数（直径順の端と中間を等間隔に選ぶ）。blank を 1 つ足す
 _MONTAGE_DISPENSED = 3
 
 _DEFAULTS = DotDetectionSpec()
@@ -97,6 +100,7 @@ REQUIRE_BLANK_ZERO_PARAM = ParamSpec(
     ),
 )
 
+# 再フィット用。ハイパラ探索の途中経過を見るために「保存しない」を選べる
 SAVE_NAME_PARAM = ParamSpec(
     "save_name",
     "校正の保存名",
@@ -109,11 +113,25 @@ SAVE_NAME_PARAM = ParamSpec(
     ),
 )
 
+# 収集用。1 時間かけた実行の主成果物なので「保存しない」は選ばせず、名前の上書き
+# だけを任意にする（空ならペースト・ノズル径・塗布高さから自動命名する）
+COLLECTED_SAVE_NAME_PARAM = ParamSpec(
+    "save_name",
+    "校正の保存名（空なら自動）",
+    "str",
+    default="",
+    optional=True,
+    help=(
+        "空ならペースト・ノズル径・塗布高さと時刻から自動で名前を付けて保存します。"
+        "収集した校正は必ず保存されます。"
+    ),
+)
+
 # 検出ハイパラの名前（persisted_params や検証で参照する）
 DETECTION_PARAM_NAMES: tuple[str, ...] = tuple(spec.name for spec in DETECTION_PARAMS)
 
 
-def detection_spec_from_params(params: Mapping[str, ParamValue]) -> DotDetectionSpec:
+def _detection_spec_from_params(params: Mapping[str, ParamValue]) -> DotDetectionSpec:
     """ジョブパラメータを検出ハイパラへ写す."""
     return DotDetectionSpec(
         min_contrast=float(params["min_contrast"]),
@@ -130,14 +148,14 @@ def validate_detection_params(params: Mapping[str, ParamValue]) -> str | None:
     収集の前と session 選択の前に呼ぶ。1 時間の収集や session の選択を終えてから
     「openカーネルが偶数です」と言われても遅い。
     """
-    return detection_spec_from_params(params).validate()
+    return _detection_spec_from_params(params).validate()
 
 
 def build_calibration(
     ctx: JobContext, session: DatasetSession
 ) -> tuple[CalibrationFit | None, str | None]:
     """Session を計測して校正へ組み立てる（検出ハイパラは ctx.params から）."""
-    spec = detection_spec_from_params(ctx.params)
+    spec = _detection_spec_from_params(ctx.params)
     error = spec.validate()
     if error is not None:
         return None, error
@@ -150,28 +168,46 @@ def build_calibration(
 
 
 def report_calibration(
-    ctx: JobContext, session: DatasetSession, fit: CalibrationFit
+    ctx: JobContext,
+    session: DatasetSession,
+    fit: CalibrationFit,
+    *,
+    always_save: bool = False,
 ) -> tuple[str, tuple[Artifact, ...]]:
-    """診断をログへ出し、図を描き、保存名があれば保存する.
+    """診断をログへ出し、校正を保存し、図を描く.
+
+    Args:
+        ctx: 実行中のジョブ
+        session: 材料にした session
+        fit: フィット結果
+        always_save: ``save_name`` が空でも自動命名して保存するか
 
     Returns:
         ``(まとめの断片, artifact)``
     """
-    for line in diagnostic_lines(fit):
+    for line in _diagnostic_lines(fit):
         ctx.log(line)
+
+    # 校正ファイルを図より先に書く。図は診断の補助で、落ちても校正は成果として
+    # 残したい（順序が逆だと matplotlib の失敗で校正が 1 件も残らない）
+    saved = _save(ctx, fit, always=always_save)
+    artifacts = (
+        () if saved is None else (ctx.artifact("校正ファイル", saved.name, "file"),)
+    )
+
     ctx.progress("成果物の生成", None)
-    artifacts = _render_artifacts(ctx, session, fit, fit.calibration.detection)
-    saved = _save(ctx, fit)
-    if saved is not None:
-        artifacts = (*artifacts, ctx.artifact("校正ファイル", saved.name, "file"))
+    figures, figure_error = _render_artifacts(ctx, session, fit)
+    if figure_error is not None:
+        ctx.log(f"診断図を作れませんでした（校正と診断は残っています）: {figure_error}")
 
     diagnostics = fit.calibration.diagnostics
     summary = (
         f"総体積誤差 {diagnostics.total_relative_error * 100:+.2f}% / "
         f"点ごと残差std {diagnostics.residual_relative_std * 100:.1f}% / "
         + ("保存なし（診断のみ）" if saved is None else f"保存先 {saved.name}")
+        + ("" if figure_error is None else " / 診断図なし")
     )
-    return summary, artifacts
+    return summary, (*artifacts, *figures)
 
 
 def calibration_result(
@@ -188,7 +224,7 @@ def calibration_result(
     )
 
 
-def diagnostic_lines(fit: CalibrationFit) -> tuple[str, ...]:
+def _diagnostic_lines(fit: CalibrationFit) -> tuple[str, ...]:
     """診断をログ 1 行ずつへ整える（表示文字列はサーバー側で組む）."""
     diagnostics = fit.calibration.diagnostics
     model = fit.calibration.model
@@ -205,29 +241,36 @@ def diagnostic_lines(fit: CalibrationFit) -> tuple[str, ...]:
 
 
 def _render_artifacts(
-    ctx: JobContext,
-    session: DatasetSession,
-    fit: CalibrationFit,
-    spec: DotDetectionSpec,
-) -> tuple[Artifact, ...]:
-    """散布図と検出モンタージュを artifacts_dir へ描く."""
+    ctx: JobContext, session: DatasetSession, fit: CalibrationFit
+) -> tuple[tuple[Artifact, ...], str | None]:
+    """散布図と検出モンタージュを artifacts_dir へ描く（失敗は理由を返す）.
+
+    図は診断の補助にすぎないので、描けなかったことで校正やジョブを落とさない。
+
+    検出ハイパラは ``fit.calibration.detection`` を使う。フィットに実際に使った
+    spec がそこに埋まっているので、図と係数が食い違わない。
+    """
     scatter = "paste_volume_calibration.png"
-    render_calibration_scatter(
-        fit.cells,
-        fit.calibration.model,
-        f"{session.label} / diameter to volume",
-        ctx.artifacts_dir / scatter,
-    )
     montage = "paste_volume_detection.png"
-    render_detection_montage(
-        _montage_panels(session, fit, spec),
-        f"{session.label} / detection",
-        ctx.artifacts_dir / montage,
-    )
+    try:
+        render_calibration_scatter(
+            fit.cells,
+            fit.calibration.model,
+            f"{session.label} / diameter to volume",
+            ctx.artifacts_dir / scatter,
+        )
+        render_detection_montage(
+            _montage_panels(session, fit, fit.calibration.detection),
+            f"{session.label} / detection",
+            ctx.artifacts_dir / montage,
+        )
+    except Exception as error:
+        logger.warning("診断図を作れませんでした", exc_info=True)
+        return (), f"{type(error).__name__}: {error}"
     return (
         ctx.artifact("直径と体積の散布図", scatter, "image"),
         ctx.artifact("検出モンタージュ", montage, "image"),
-    )
+    ), None
 
 
 def _montage_panels(
@@ -280,9 +323,20 @@ def _read(session: DatasetSession, relative: str) -> ImageArray:
     return image
 
 
-def _save(ctx: JobContext, fit: CalibrationFit) -> Path | None:
-    """``save_name`` があれば校正ファイルを保存する（空なら診断のみ）."""
-    name = str(ctx.params.get("save_name", "")).strip()
+def _save(ctx: JobContext, fit: CalibrationFit, *, always: bool) -> Path | None:
+    """校正ファイルを保存する.
+
+    Args:
+        ctx: 実行中のジョブ
+        fit: 保存する校正
+        always: ``save_name`` が空でも自動命名して保存するか（収集ジョブは True）
+
+    Returns:
+        保存先（保存しなかったときは ``None``）
+    """
+    name = str(ctx.params.get("save_name", "")).strip() or (
+        fit.calibration.label if always else ""
+    )
     if not name:
         ctx.log("保存名が空なので校正ファイルは保存しません（診断のみ）")
         return None

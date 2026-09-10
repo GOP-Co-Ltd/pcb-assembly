@@ -75,9 +75,9 @@ from web.api.jobs.pasting.paste_volume_calibration import (
     verify_with_calibration,
 )
 from web.api.jobs.pasting.paste_volume_common import (
+    COLLECTED_SAVE_NAME_PARAM,
     DETECTION_PARAMS,
     REQUIRE_BLANK_ZERO_PARAM,
-    SAVE_NAME_PARAM,
 )
 from web.api.preview import PreviewService
 from web.api.settings import Settings
@@ -254,6 +254,65 @@ class TestCatalog:
         for key, (value, unit) in expected.items():
             assert float_params[key].default == value, key
             assert float_params[key].unit == unit, key
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            (
+                "paste_volume_calibration",
+                (
+                    "plate_width",
+                    "plate_height",
+                    "tolerance",
+                    "edge_margin",
+                    "cell_size",
+                    "cell_gap",
+                    "crop_size",
+                    "loading_amount",
+                    "loading_rotations",
+                    "loading_rate",
+                    "loading_accel",
+                    "loading_retract_rotations",
+                    "paste_height",
+                    "volume_min",
+                    "volume_max",
+                    "volume_divisions",
+                    "samples_per_volume",
+                    "blank_count",
+                    "view_count",
+                    "view_offset",
+                    "shuffle_seed",
+                    "paste_id",
+                    "paste_lot",
+                    "min_contrast",
+                    "contrast_percentile",
+                    "threshold_floor_ratio",
+                    "open_kernel_px",
+                    "min_area_px",
+                    "require_blank_zero",
+                    # 保存名は残す。自動命名は時刻が付くので上書きにならない
+                    "save_name",
+                    "volume_calibration",
+                ),
+            ),
+            (
+                "paste_volume_refit",
+                (
+                    "min_contrast",
+                    "contrast_percentile",
+                    "threshold_floor_ratio",
+                    "open_kernel_px",
+                    "min_area_px",
+                    "require_blank_zero",
+                    # 再フィットは「保存しない」が既定なので保存名を持ち越さない
+                ),
+            ),
+        ],
+    )
+    def test_persisted_params(
+        self, default: JobCatalog, name: str, expected: tuple[str, ...]
+    ):
+        assert default.get(name).persisted_params == expected
 
     def test_paste_volume_calibration_params(self, default: JobCatalog):
         definition = default.get("paste_volume_calibration")
@@ -882,6 +941,50 @@ class TestPasteDatasetCollectionPreflight:
         assert "サンプル" in record.error
         assert record.pending_prompt is None
 
+    @pytest.mark.parametrize("kernel", [4, 1_048_577])
+    def test_invalid_detection_params_fail_before_prompt_or_machine(
+        self, manager: JobManager, wait_until: WaitUntil, kernel: int
+    ):
+        """1 時間の収集を終えてからハイパラの不正を知らされては遅い.
+
+        ``open_kernel_px`` は k×k バイトを確保するので、上限が無いと打ち間違いが
+        MemoryError や数 GiB の確保になる。
+        """
+        record = manager.start(
+            "paste_volume_calibration",
+            {"paste_id": "paste-1", "open_kernel_px": kernel},
+        )
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "openカーネル" in record.error
+        assert record.pending_prompt is None
+
+    def test_a_zero_min_area_is_refused_at_start(self, manager: JobManager):
+        """ParamSpec.minimum が受理前に弾く（ジョブは始まりもしない）."""
+        with pytest.raises(ValueError, match="min_area_px"):
+            manager.start(
+                "paste_volume_calibration",
+                {"paste_id": "paste-1", "min_area_px": 0},
+            )
+
+    def test_saving_over_the_verification_calibration_fails_before_the_machine(
+        self, manager: JobManager, wait_until: WaitUntil
+    ):
+        """同じsessionで作った校正を同じsessionへ当てると汎化を測れない."""
+        name = f"self-reference{CALIBRATION_SUFFIX}"
+        record = manager.start(
+            "paste_volume_calibration",
+            {"paste_id": "paste-1", "save_name": name, "volume_calibration": name},
+        )
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+
+        assert record.status == JobStatus.FAILED
+        assert record.error is not None
+        assert "汎化" in record.error
+        assert record.pending_prompt is None
+
     def test_zero_paste_height_fails_before_prompt_or_machine(
         self, manager: JobManager, wait_until: WaitUntil
     ):
@@ -1327,6 +1430,11 @@ class TestPasteVolumeCalibrationFitStep:
         """`fit_calibration` だけを呼ぶ合成ジョブを積んだ manager."""
 
         def run(ctx: JobContext) -> JobResult:
+            if bool(ctx.params["block_scatter"]):
+                # savefig を失敗させる（path が directory なら書けない）
+                (ctx.artifacts_dir / "paste_volume_calibration.png").mkdir(
+                    parents=True, exist_ok=True
+                )
             summary, artifacts = fit_calibration(
                 ctx, Path(str(ctx.params["session_path"]))
             )
@@ -1338,9 +1446,10 @@ class TestPasteVolumeCalibrationFitStep:
             name="fit_calibration",
             params=(
                 ParamSpec("session_path", "session", "str"),
+                ParamSpec("block_scatter", "図を壊す", "bool", default=False),
                 *DETECTION_PARAMS,
                 REQUIRE_BLANK_ZERO_PARAM,
-                SAVE_NAME_PARAM,
+                COLLECTED_SAVE_NAME_PARAM,
             ),
         )
         return make_manager(catalog)
@@ -1398,13 +1507,17 @@ class TestPasteVolumeCalibrationFitStep:
             "校正ファイル",
         }
 
-    def test_an_empty_save_name_still_reports_diagnostics(
+    def test_an_empty_save_name_still_saves_under_an_auto_name(
         self,
         fit_manager: JobManager,
         fake_camera_settings: Settings,
         wait_until: WaitUntil,
     ):
-        """ハイパラ探索で Git 管理の保存先を汚さない（診断だけは出す）."""
+        """1 時間かけた実行の主成果物なので「保存しない」は選ばせない.
+
+        名前を空にしたときはペースト・ノズル径・塗布高さと時刻から自動命名する。
+        保存しない選択が要るのは `paste_volume_refit`（ハイパラ探索）の方。
+        """
         session = build_paste_volume_session(
             fake_camera_settings.paste_dataset_dir / self.STEM
         )
@@ -1413,8 +1526,11 @@ class TestPasteVolumeCalibrationFitStep:
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert record.result is not None
-        assert "保存なし" in str(record.result.summary)
-        assert not fake_camera_settings.paste_volume_calibration_dir.exists()
+        assert "保存先" in str(record.result.summary)
+        saved = list_calibrations(fake_camera_settings.paste_volume_calibration_dir)
+        assert len(saved) == 1
+        # metadata のペースト・ノズル径・塗布高さから名前を組む
+        assert saved[0].name.startswith("paste-1-n0.34-h0.20-")
 
     def test_a_blank_false_positive_does_not_lose_the_collection(
         self,
@@ -1438,6 +1554,38 @@ class TestPasteVolumeCalibrationFitStep:
         assert record.result.summary == " / 校正生成失敗"
         assert record.result.artifacts == ()
         assert not fake_camera_settings.paste_volume_calibration_dir.exists()
+
+    def test_a_figure_failure_still_saves_the_calibration(
+        self,
+        fit_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        """図は診断の補助。描けなくても校正は成果として残す.
+
+        散布図の出力先を directory にして savefig を失敗させる。
+        """
+        session = build_paste_volume_session(
+            fake_camera_settings.paste_dataset_dir / self.STEM
+        )
+        (fake_camera_settings.webui_data_dir / "jobs").mkdir(
+            parents=True, exist_ok=True
+        )
+
+        record = self._run(
+            fit_manager,
+            wait_until,
+            session,
+            save_name="figures-broken",
+            block_scatter=True,
+        )
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert record.result is not None
+        assert "診断図なし" in str(record.result.summary)
+        assert "保存先" in str(record.result.summary)
+        saved = list_calibrations(fake_camera_settings.paste_volume_calibration_dir)
+        assert len(saved) == 1
 
     def test_an_unreadable_session_does_not_lose_the_collection(
         self,

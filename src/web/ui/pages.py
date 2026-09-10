@@ -378,7 +378,7 @@ def _dispense_calibration_context(
 def _paste_volume_calibration_context(
     job: JobSpecInfo, settings: _MachineSettings
 ) -> dict[str, Any]:
-    """Paste_dataset_collection ページ専用コンテキスト（セクション分けと回転ローディング）.
+    """塗布量校正の生成ページ専用コンテキスト（セクション分けと回転ローディング）.
 
     塗布パス先頭のローディングでは体積と回転の両方を使うので、``loading_controls``
     partial の回転セクションを出すための既定値を渡す。ジョブ側の ParamSpec 名は

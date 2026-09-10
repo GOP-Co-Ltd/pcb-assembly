@@ -203,7 +203,7 @@ class TestJobLifecycleOverWebSocket:
         assert "canny_low = 77" in machine_toml
 
 
-class TestPasteVolumeCalibrateOverWebSocket:
+class TestPasteVolumeRefitOverWebSocket:
     """校正生成ジョブを実 uvicorn 越しに通す（装置不要なので E2E で走らせられる）.
 
     WS で choice prompt に応答 → SUCCEEDED → artifact が /artifacts/ から取れる →

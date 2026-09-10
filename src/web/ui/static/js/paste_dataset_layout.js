@@ -185,10 +185,12 @@
     renderView(data);
   }
 
+  // 配置に効く入力だけで再取得する（円検出のハイパラや保存名では取り直さない）
+  const WATCHED = new Set(FIELDS);
   const schedule = debounce(refresh, 250);
   for (const event of ["input", "change"]) {
     document.addEventListener(event, (evt) => {
-      if (evt.target?.dataset?.paramType !== undefined) schedule();
+      if (WATCHED.has(evt.target?.name)) schedule();
     });
   }
   refresh();

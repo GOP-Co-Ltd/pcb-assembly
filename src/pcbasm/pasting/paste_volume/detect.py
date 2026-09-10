@@ -25,6 +25,10 @@ from pcbasm.vision.image import ImageArray
 # 校正ファイルへ記録する検出方式の識別子（将来別方式を足したときに区別する）
 DETECTION_KIND = "diameter_otsu_v1"
 
+# open カーネルの上限 [px]。crop（既定 53 px）より大きい値は塗布痕ごと消すため
+# 意味を持たない一方、k×k の確保が MemoryError や数 GiB になる
+MAX_OPEN_KERNEL_PX = 99
+
 
 @attrs.frozen
 class DotDetectionSpec:
@@ -68,6 +72,14 @@ class DotDetectionSpec:
             return f"openカーネルは0以上の整数が必要です: {self.open_kernel_px!r}"
         if self.open_kernel_px > 0 and self.open_kernel_px % 2 == 0:
             return f"openカーネルは0か正の奇数が必要です: {self.open_kernel_px!r}"
+        if self.open_kernel_px > MAX_OPEN_KERNEL_PX:
+            # カーネルは k×k バイトを確保するので、打ち間違いが MemoryError や
+            # 数 GiB の確保になる。crop より大きい open は塗布痕を消すだけなので
+            # 上限を置いても失うものが無い（点の直径は 53 px crop で 17〜26 px）
+            return (
+                f"openカーネルは{MAX_OPEN_KERNEL_PX}以下が必要です: "
+                f"{self.open_kernel_px!r}"
+            )
         if type(self.min_area_px) is not int or self.min_area_px < 1:
             # 0 を許すと面積 0 の成分が「検出できた」になり、detected と直径 0 の
             # 対応（:class:`DotMeasurement` の不変条件）が壊れる

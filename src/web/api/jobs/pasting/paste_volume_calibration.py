@@ -53,6 +53,7 @@ from pcbasm.pasting.dataset.recorder import (
 )
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
 from pcbasm.pasting.params import PasteParams
+from pcbasm.pasting.paste_volume.calibration import calibration_path
 from pcbasm.pasting.paste_volume.evaluate import (
     PasteVolumeEvaluation,
     evaluate_collected_session,
@@ -86,10 +87,10 @@ from web.api.jobs.pasting.common import (
     run_loading_loop,
 )
 from web.api.jobs.pasting.paste_volume_common import (
+    COLLECTED_SAVE_NAME_PARAM,
     DETECTION_PARAM_NAMES,
     DETECTION_PARAMS,
     REQUIRE_BLANK_ZERO_PARAM,
-    SAVE_NAME_PARAM,
     build_calibration,
     report_calibration,
     validate_detection_params,
@@ -292,7 +293,7 @@ def register(catalog: JobCatalog) -> None:
                 ),
                 *DETECTION_PARAMS,
                 REQUIRE_BLANK_ZERO_PARAM,
-                SAVE_NAME_PARAM,
+                COLLECTED_SAVE_NAME_PARAM,
                 ParamSpec(
                     "volume_calibration",
                     "検証に使う塗布量校正（任意）",
@@ -337,6 +338,7 @@ def register(catalog: JobCatalog) -> None:
                 "paste_lot",
                 *DETECTION_PARAM_NAMES,
                 "require_blank_zero",
+                "save_name",
                 "volume_calibration",
             ),
         )
@@ -393,6 +395,9 @@ def _plan_collection(
     detection_error = validate_detection_params(ctx.params)
     if detection_error is not None:
         raise ValueError(detection_error)
+    self_check_error = _self_verification_error(ctx)
+    if self_check_error is not None:
+        raise ValueError(self_check_error)
     spec = grid_spec_from_params(ctx.params)
     plan, plan_error = plan_dot_grid(
         attrs.evolve(spec, shuffle_seed=resolve_shuffle_seed(spec.shuffle_seed))
@@ -727,17 +732,19 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
 
     metadata = recorder.metadata
     assert metadata is not None
-    calibration_summary, calibration_artifacts = fit_calibration(ctx, session_path)
-    evaluation_summary, evaluation_artifacts = verify_with_calibration(
-        ctx, session_path
-    )
+    # 校正生成より前に zip を作る。校正側で何が起きても収集の成果は取り出せる
     archive_name = f"paste-dataset-{session_path.name}.zip"
     archive_path = ctx.artifacts_dir / archive_name
     shutil.make_archive(str(archive_path.with_suffix("")), "zip", root_dir=session_path)
     ctx.log(f"datasetを保存しました: {session_path}")
+
+    calibration_summary, calibration_artifacts = fit_calibration(ctx, session_path)
+    evaluation_summary, evaluation_artifacts = verify_with_calibration(
+        ctx, session_path
+    )
     return JobResult(
         summary=(
-            f"収集完了: 塗布 {len(plan.cells)} 点 + blank {len(plan.blanks)} 点 / "
+            f"校正生成: 塗布 {len(plan.cells)} 点 + blank {len(plan.blanks)} 点 / "
             f"{metadata.total.measured_mass_mg:.3f} mg / "
             f"{metadata.total.measured_volume_ul:.6f} uL"
             + calibration_summary
@@ -748,6 +755,26 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
             *calibration_artifacts,
             *evaluation_artifacts,
         ),
+    )
+
+
+def _self_verification_error(ctx: JobContext) -> str | None:
+    """今から作る校正で同じ session を検証しようとしていないか確かめる.
+
+    保存名と検証先が同じファイルを指すと、自分で作った校正を自分へ当ててしまう。
+
+    フィットの性質上そこは総体積誤差ほぼ 0 になり、汎化を測ったように見えてしまう。
+    """
+    verify = str(ctx.params.get("volume_calibration", "")).strip()
+    save = str(ctx.params.get("save_name", "")).strip()
+    if not verify or not save:
+        return None
+    if calibration_path(ctx.paste_volume_calibration_dir, save).name != verify:
+        return None
+    return (
+        f"検証に使う校正 {verify} を、この収集で上書きしようとしています"
+        "（同じsessionで作った校正を同じsessionへ当てると誤差はほぼ0になり、"
+        "汎化を測ったことになりません）。保存名か検証先を変えてください"
     )
 
 
@@ -765,20 +792,19 @@ def fit_calibration(
 
     ハイパラを変えて作り直すのは `paste_volume_refit` の役目で、装置も収集も要らない。
     """
-    session, error = DatasetSession.load(session_path)
-    if session is None:
-        return _calibration_failed(ctx, error)
-
     ctx.progress("塗布量校正の生成", None)
-    fit, error = build_calibration(ctx, session)
-    if fit is None:
-        return _calibration_failed(ctx, error)
     try:
-        summary, artifacts = report_calibration(ctx, session, fit)
+        session, error = DatasetSession.load(session_path)
+        if session is None:
+            return _calibration_failed(ctx, error)
+        fit, error = build_calibration(ctx, session)
+        if fit is None:
+            return _calibration_failed(ctx, error)
+        summary, artifacts = report_calibration(ctx, session, fit, always_save=True)
     except Exception:
-        logger.warning("校正の成果物を作れませんでした", exc_info=True)
-        ctx.log("校正の成果物を作れませんでした（診断はログに出しています）")
-        return " / 校正の成果物なし", ()
+        # 「投げない」を葉の数え上げで保証するのは無理なので、まとめて受ける
+        logger.warning("塗布量校正の生成が例外で終わりました", exc_info=True)
+        return _calibration_failed(ctx, "想定外のエラー（詳細はサーバーログ）")
     return f" / {summary}", artifacts
 
 
