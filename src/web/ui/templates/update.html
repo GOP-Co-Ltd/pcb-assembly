@@ -1,0 +1,37 @@
+{# UI frontend 自身の更新ページ（マシン非依存）。frontend 専用機はここからしか
+   更新できない。操作権の概念が無い層なので data-requires-control は付けない。 #}
+{% extends "base.html" %}
+{% block title %}{{ title }} — PCB Assembly WebUI{% endblock %}
+{% block content %}
+<section class="main-pane" data-testid="main-pane">
+  <h1>{{ title }}</h1>
+  <p class="placeholder">
+    この画面を配信している UI サーバー自身を <code>main</code> の最新へ
+    fast-forward し、依存を同期して再起動します。再起動の間はこのページが
+    一時的に開けなくなります。
+  </p>
+  {% with update_status_url = "/api/self-update",
+          update_check_url = "/api/self-update/check",
+          update_run_url = "/api/self-update/run",
+          update_transport = "frontend",
+          update_requires_control = False %}
+  {% include "partials/update_panel.html" %}
+  {% endwith %}
+  <section class="status-card">
+    <h3>機体の更新</h3>
+    {% if machines %}
+    <p>各機体の backend はそれぞれのページから更新します。</p>
+    <ul>
+      {% for machine in machines %}
+      <li><a href="/m/{{ machine.machine_id }}/dev/update">{{ machine.label }}</a></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="placeholder">登録されている機体はありません。</p>
+    {% endif %}
+  </section>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ static_asset('js/update.js') }}"></script>
+{% endblock %}

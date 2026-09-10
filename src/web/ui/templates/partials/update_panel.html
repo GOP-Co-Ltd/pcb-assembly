@@ -1,0 +1,36 @@
+{# ソフトウェア更新のパネル（backend 側 dev/update.html と frontend 自身の
+   update.html が共有する）。値はすべて update.js が status API から入れる。
+   呼び出し側が渡す変数:
+     update_status_url / update_check_url / update_run_url … 叩く先
+     update_transport … "frontend"（素の fetch）か "backend"（window.webui.api）
+     update_requires_control … 変更操作に操作権を要するか（backend 側のみ true） #}
+<section class="status-card" id="update-panel"
+         data-testid="update-panel"
+         data-status-url="{{ update_status_url }}"
+         data-check-url="{{ update_check_url }}"
+         data-run-url="{{ update_run_url }}"
+         data-transport="{{ update_transport }}">
+  <h3 id="update-host">---</h3>
+  <p id="update-summary" data-testid="update-summary">読み込み中…</p>
+  <dl class="update-repo">
+    <dt>ブランチ</dt><dd id="update-branch">---</dd>
+    <dt>現在の commit</dt><dd id="update-head">---</dd>
+    <dt>追従先</dt><dd id="update-upstream">---</dd>
+  </dl>
+  <p id="update-notice" class="placeholder"></p>
+  <p id="update-blocker" class="toast error" hidden></p>
+  {# 変更操作。backend 側は操作権が要る（frontend 自身のページには操作権が無い） #}
+  <div class="update-actions"{% if update_requires_control %} data-requires-control{% endif %}>
+    <button type="button" id="update-check" data-testid="update-check">更新を確認</button>
+    <button type="button" id="update-run" data-testid="update-run" disabled>
+      更新して再起動
+    </button>
+  </div>
+  <div id="update-run-state" hidden>
+    <h4 id="update-state-label"></h4>
+    <ol id="update-steps" class="update-steps" data-testid="update-steps"></ol>
+    <p id="update-error" class="toast error" hidden></p>
+    <ul id="update-warnings" class="update-warnings" hidden></ul>
+    <pre id="update-detail" hidden></pre>
+  </div>
+</section>

@@ -72,15 +72,27 @@ async function downloadApi(method, url, body) {
   return filename;
 }
 
-// frontend 自身のエンドポイント（/api/machines）を GET する。
+// frontend 自身のエンドポイント（/api/machines, /api/self-update/**）を叩く。
 // machine prefix は付けない（付けると backend へ中継されて 404 になる）。
 // fetch() をこのファイルに閉じるための入口でもある（tests/web/ui/test_layout.py）。
-async function frontendJson(url) {
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) {
-    throw new Error(`${res.status} ${res.statusText}`);
+async function frontendApi(method, url, body) {
+  const options = { method, headers: { Accept: "application/json" } };
+  if (body !== undefined) {
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(body);
   }
-  return res.json();
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const err = new Error(data.detail || `${res.status} ${res.statusText}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json().catch(() => ({}));
+}
+
+async function frontendJson(url) {
+  return frontendApi("GET", url);
 }
 
 function svgEl(tag, attrs) {
@@ -124,6 +136,7 @@ window.webui = {
   toast,
   api,
   downloadApi,
+  frontendApi,
   frontendJson,
   svgEl,
   debounce,
