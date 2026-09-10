@@ -27,13 +27,14 @@ from tests.e2e.conftest import (
     TERMINAL as _TERMINAL,
     LiveServer,
     LiveUi,
+    drive_choice_job as _drive_choice_job,
     drive_job_demo as _drive_job_demo,
     respond_prompt as _respond_prompt,
     select_led_blinker as _select_led_blinker,
     wait_first_prompt as _wait_first_prompt,
     wait_machine_field as _wait_machine_field,
 )
-from tests.helpers import wait_until
+from tests.helpers import build_paste_volume_session, wait_until
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from web.api.routers.pasting_view import ResolvedSettings
 
@@ -200,6 +201,50 @@ class TestJobLifecycleOverWebSocket:
         # 隔離した tmp の machine.toml に書かれている（実機設定は汚していない）
         machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
         assert "canny_low = 77" in machine_toml
+
+
+class TestPasteVolumeCalibrateOverWebSocket:
+    """校正生成ジョブを実 uvicorn 越しに通す（装置不要なので E2E で走らせられる）.
+
+    WS で choice prompt に応答 → SUCCEEDED → artifact が /artifacts/ から取れる →
+    一覧 API に現れる、までを実ネットワーク経由で確かめる。
+    """
+
+    STEM = "plate-47.5x20-20260909T145923.452+0900"
+
+    def test_calibration_runs_and_appears_in_the_listing(self, live_server: LiveServer):
+        build_paste_volume_session(live_server.settings.paste_dataset_dir / self.STEM)
+
+        with connect(f"{live_server.ws_url}/api/ws") as ws:
+            response = httpx.post(
+                f"{live_server.base_url}/api/jobs/paste_volume_calibrate",
+                json={"params": {"save_name": "e2e"}},
+                timeout=_HTTP_TIMEOUT,
+            )
+            assert response.status_code == 201
+            job = _drive_choice_job(ws, answer=self.STEM)
+
+        assert job["status"] == "succeeded", job.get("error")
+        assert "総体積誤差" in job["result"]["summary"]
+
+        artifacts = {item["label"]: item["url"] for item in job["result"]["artifacts"]}
+        assert "直径と体積の散布図" in artifacts
+        download = httpx.get(
+            f"{live_server.base_url}{artifacts['直径と体積の散布図']}",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert download.status_code == 200
+        assert download.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+        listing = httpx.get(
+            f"{live_server.base_url}/api/pasting/paste-volume/calibrations",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert listing.status_code == 200
+        entries = listing.json()["calibrations"]
+        assert len(entries) == 1
+        assert entries[0]["error"] is None
+        assert entries[0]["label"]
 
 
 class TestRuntimeParamUpdateOverWebSocket:

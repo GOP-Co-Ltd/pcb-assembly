@@ -16,8 +16,7 @@ import cv2
 
 from pcbasm.pasting.dataset.reader import DatasetSession, completed_sessions
 from pcbasm.pasting.paste_volume.calibration import (
-    CALIBRATION_SUFFIX,
-    calibration_filename,
+    calibration_path,
     write_calibration,
 )
 from pcbasm.pasting.paste_volume.detect import DotDetectionSpec, detection_mask
@@ -266,6 +265,8 @@ def _montage_panels(
 
 def _spread(cells: list[CellMeasurement], count: int) -> list[CellMeasurement]:
     """直径順に並んだセルから、端と中間を等間隔に選ぶ."""
+    if count <= 1:
+        return list(cells[:count])
     if len(cells) <= count:
         return list(cells)
     step = (len(cells) - 1) / (count - 1)
@@ -289,8 +290,9 @@ def _save(ctx: JobContext, fit: CalibrationFit) -> Path | None:
     if not name:
         ctx.log("保存名が空なので校正ファイルは保存しません（診断のみ）")
         return None
-    filename = name if name.endswith(CALIBRATION_SUFFIX) else calibration_filename(name)
-    path = ctx.paste_volume_calibration_dir / filename
+    path = calibration_path(ctx.paste_volume_calibration_dir, name)
+    if path.exists():
+        ctx.log(f"同名の校正ファイルを上書きします: {path.name}")
     write_calibration(path, fit.calibration)
     ctx.log(f"校正ファイルを保存しました: {path}")
     return path

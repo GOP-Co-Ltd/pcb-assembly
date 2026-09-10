@@ -158,6 +158,11 @@ def detection_mask(
     blank ガードで打ち切ったときは全 0 のマスクを返す。検出されなかったことと、
     検出した結果が空だったことを図の上で区別しないためで、失敗ではない。
 
+    ``min_area_px`` による棄却は反映しない。
+
+    2 値化がどう効いたかを見るためのマスクなので、最大連結成分が下限未満でも
+    斑点は残る（そのとき :func:`measure_dot` の直径は 0 になる）。
+
     Args:
         pre_bgr: 塗布前画像（OpenCV の BGR 3 channel）
         post_bgr: 塗布後画像（``pre_bgr`` と同じ shape）

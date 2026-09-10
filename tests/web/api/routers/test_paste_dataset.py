@@ -30,6 +30,8 @@ _NON_LAYOUT_PARAMS = frozenset(
         "paste_height",
         "paste_id",
         "paste_lot",
+        # 収集後の検証で使う校正名。配置に影響しない
+        "volume_calibration",
         # 塗布パス先頭のインタラクティブローディング設定。配置に影響しない
         "loading_amount",
         "loading_rotations",

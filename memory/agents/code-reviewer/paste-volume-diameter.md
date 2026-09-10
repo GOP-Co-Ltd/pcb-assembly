@@ -116,3 +116,28 @@ MR2 の commit へ混ぜないこと。
 
 **学び**: レビュアーが「実測した」と書いた数値（ラベル比 0.7135、拒否に到達する係数入力）は
 すべて再現できた。指摘に到達入力を添えてもらうと裁定が要らなくなる。
+
+## MR3・MR4 のレビュー（verdict: request-changes）
+
+must-fix 2 / should-fix 5 / nit 7。**全件受け入れて対応した（却下ゼロ）。**
+
+| 指摘 | 内容 | 対応 |
+| --- | --- | --- |
+| M1 | `save_name` が suffix 付きだと sanitize を通らず、`../../../tmp/x.paste-volume.json` や `/etc/x.paste-volume.json` で保存先の外へ書けた。`sub/x...` は保存に成功するのに `list_calibrations` が top level しか見ないので一覧に出ない | `calibration.calibration_path(root, name)` を新設し、path 片を必ず 1 つへ畳んで root 直下に閉じる。脱出 5 パターンと「書いたら一覧に出る」をピン |
+| M2 | `persisted_params` に `volume_calibration` を足したのに、JS が `input.value` を読まず `select.value` も設定しないので、前回の選択が毎回捨てられる。忘れると無言で検証されない。fetch 失敗時は選択肢ゼロの `<select>` だけが残る | 差し替え前に `input.value` を退避して `select.value` へ復元。消えた校正は「（見つかりません）」の選択肢として残す。fetch は差し替え**前**に行い、失敗時はテキスト入力のまま残す |
+| S1 | 「例外を投げない」と docstring にあるのに、artifact の `write_text` と matplotlib が guard の外。落ちるとジョブ FAILED で zip が作られない | `_evaluation_artifacts()` へ切り出して `try/except` で包む。誤差はログに出ているので summary だけ返す |
+| S2 | 評価レポートで blank と本物の検出失敗が `rejected_reasons` に合算され、達成条件の「検出失敗 0」が見えない | `detection_failure_count` / `blank_count` / `dispensed_count` を追加。採用率の分母も塗布セルに直した |
+| S3 | `pasting/README.md` の表に `evaluate` が無い（`reader` も MR2 の取り残し） | 両方追記 |
+| S4 | 選択肢ラベルと詳細行を JS で連結していた（計画書 L249 違反） | router が `option_label` / `details` を返す形へ。JS は代入のみ |
+| S5 | 「壊れた校正名でも収集は SUCCEEDED」のピンが無い（存在しない名前だけ） | parse 失敗の経路をピン |
+| nit ×7 | `job-param-note` の CSS 未定義／MR3 メッセージが実 diff と食い違う／`_spread(cells,1)` の ZeroDivisionError／`detection_mask` が `min_area_px` を反映しない／`contrast_percentile` の minimum／無警告上書き／`_SCALE_TOLERANCE` の根拠 | CSS は `job-param-help` を使う。MR3 は `git commit --amend --only` でメッセージ修正。`count<=1` を guard。docstring 追記。上書き時にログ。5% の由来を注記。`contrast_percentile` は ParamSpec.minimum が閉区間なので排他下限を表現できず据え置き |
+
+**MR2 のコミットに `detection_mask` と `min_area_px` 修正が紛れ込んでいた。**
+レビュー中に MR3 用の変更を `detect.py` へ入れ、その後 MR2 のレビュー対応で同じ
+ファイルを触ったため、`git add src/pcbasm` が両方を拾った。**レビュー実行中に
+レビュー対象ファイルを触らない**か、触るなら commit 前に `git diff --cached` を
+1 ファイルずつ読む。
+
+**学び（2 巡目も同じ）**: レビュアーが指摘に添えた実測値（脱出する path、
+`merge_job_param_defaults` を入れた描画結果）はすべて再現できた。到達入力つきの
+指摘は裁定コストがゼロになる。

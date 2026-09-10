@@ -37,10 +37,14 @@ import cv2
 import pytest
 
 from pcbasm.hal import XYZStage
+from pcbasm.pasting.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.calibration import (
+    CALIBRATION_SUFFIX,
     list_calibrations,
     load_calibration,
+    write_calibration,
 )
+from pcbasm.pasting.paste_volume.fit import fit_session
 from pcbasm.pcb import PadHierarchy, PcbFile
 from tests.helpers import (
     PROJECT_ROOT,
@@ -51,8 +55,8 @@ from tests.helpers import (
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
-from web.api.jobs.catalog import JobCatalog, default_catalog
-from web.api.jobs.context import JobContext
+from web.api.jobs.catalog import JobCatalog, ParamSpec, default_catalog
+from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.machine_commands import create_command_klipper
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.jobs.pasting import (
@@ -66,6 +70,7 @@ from web.api.jobs.pasting import (
     register_pasting_jobs,
 )
 from web.api.jobs.pasting.common import prompt_positive_number
+from web.api.jobs.pasting.dataset import verify_with_calibration
 from web.api.preview import PreviewService
 from web.api.settings import Settings
 from web.api.state import AppState
@@ -264,6 +269,9 @@ class TestCatalog:
         assert params["paste_lot"].help is not None
         assert params["paste_lot"].default is None
         assert params["paste_lot"].optional is True
+        assert params["volume_calibration"].value_type == "str"
+        assert params["volume_calibration"].default == ""
+        assert params["volume_calibration"].optional is True
 
         assert default.validate_params(definition, {"paste_id": "paste-1"}) == {
             "plate_width": 40.0,
@@ -288,6 +296,8 @@ class TestCatalog:
             "view_offset": 1.0,
             "shuffle_seed": 0,
             "paste_id": "paste-1",
+            # 校正未選択の既定。空なら収集後の検証をしない
+            "volume_calibration": "",
         }
         with pytest.raises(ValueError, match="paste_id"):
             default.validate_params(definition, {})
@@ -1277,6 +1287,185 @@ class TestPasteDatasetFinalize:
 
         assert record.status == JobStatus.FAILED
         assert record.pending_prompt is None
+
+
+class TestPasteDatasetVolumeVerification:
+    """収集ジョブへ組み込んだ検証（`verify_with_calibration`）.
+
+    検証の失敗で収集結果を失わないことが最優先の契約。
+
+    この時点で 1 時間の収集と計量が終わっている。
+
+    誤差の値そのものは test_evaluate.py が担保する。
+
+    収集ジョブ本体は装置を要求するので、合成ジョブへ同じ関数を通して確かめる。
+    """
+
+    STEM = "plate-47.5x20-20260909T145923.452+0900"
+
+    @pytest.fixture
+    def verify_manager(
+        self, make_manager: ManagerFactory, catalog: JobCatalog
+    ) -> JobManager:
+        """`verify_with_calibration` だけを呼ぶ合成ジョブを積んだ manager."""
+
+        def run(ctx: JobContext) -> JobResult:
+            summary, artifacts = verify_with_calibration(
+                ctx, Path(str(ctx.params["session_path"]))
+            )
+            return JobResult(summary=summary, artifacts=artifacts)
+
+        register_synthetic(
+            catalog,
+            run,
+            name="verify_volume",
+            params=(
+                ParamSpec("session_path", "session", "str"),
+                ParamSpec("volume_calibration", "校正", "str", default=""),
+            ),
+        )
+        return make_manager(catalog)
+
+    def _session(self, settings: Settings) -> Path:
+        return build_paste_volume_session(settings.paste_dataset_dir / self.STEM)
+
+    def _calibration(self, settings: Settings) -> str:
+        """収集した session から校正を作って保存し、ファイル名を返す."""
+        session, error = DatasetSession.load(settings.paste_dataset_dir / self.STEM)
+        assert error is None, error
+        assert session is not None
+        fit, error = fit_session(session)
+        assert error is None, error
+        assert fit is not None
+        name = f"verify{CALIBRATION_SUFFIX}"
+        write_calibration(settings.paste_volume_calibration_dir / name, fit.calibration)
+        return name
+
+    def _run(
+        self,
+        manager: JobManager,
+        wait_until: WaitUntil,
+        session: Path,
+        calibration: str,
+    ) -> JobRecord:
+        record = manager.start(
+            "verify_volume",
+            {"session_path": str(session), "volume_calibration": calibration},
+        )
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        return record
+
+    def test_verifies_the_collected_session_and_reports_the_total_error(
+        self,
+        verify_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        session = self._session(fake_camera_settings)
+        name = self._calibration(fake_camera_settings)
+
+        record = self._run(verify_manager, wait_until, session, name)
+
+        assert record.result is not None
+        assert "総体積誤差" in str(record.result.summary)
+        assert {artifact.label for artifact in record.result.artifacts} == {
+            "塗布量の検証",
+            "実測と推定の散布図",
+        }
+
+    def test_writes_a_json_report_and_a_scatter(
+        self,
+        verify_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        session = self._session(fake_camera_settings)
+        name = self._calibration(fake_camera_settings)
+
+        record = self._run(verify_manager, wait_until, session, name)
+
+        assert record.result is not None
+        root = fake_camera_settings.webui_data_dir
+        by_label = {a.label: a for a in record.result.artifacts}
+        report = json.loads(
+            (root / by_label["塗布量の検証"].path).read_text(encoding="utf-8")
+        )
+        assert report["session"] == self.STEM
+        assert report["accepted_count"] > 0
+        assert cv2.imread(str(root / by_label["実測と推定の散布図"].path)) is not None
+
+    def test_does_nothing_when_no_calibration_is_selected(
+        self,
+        verify_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        session = self._session(fake_camera_settings)
+
+        record = self._run(verify_manager, wait_until, session, "")
+
+        assert record.result is not None
+        assert record.result.summary == ""
+        assert record.result.artifacts == ()
+
+    def test_a_missing_calibration_does_not_lose_the_collection(
+        self,
+        verify_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        """収集は終わっている。後付けの検証で例外を投げてはならない."""
+        session = self._session(fake_camera_settings)
+
+        record = self._run(
+            verify_manager, wait_until, session, f"absent{CALIBRATION_SUFFIX}"
+        )
+
+        assert record.result is not None
+        assert record.result.summary == " / 検証失敗"
+        assert record.result.artifacts == ()
+
+    def test_a_broken_calibration_does_not_lose_the_collection(
+        self,
+        verify_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        """読めない校正ファイルでも SUCCEEDED のまま（parse 失敗の経路）."""
+        session = self._session(fake_camera_settings)
+        broken = f"broken{CALIBRATION_SUFFIX}"
+        root = fake_camera_settings.paste_volume_calibration_dir
+        root.mkdir(parents=True, exist_ok=True)
+        (root / broken).write_text("{ not json", encoding="utf-8")
+
+        record = self._run(verify_manager, wait_until, session, broken)
+
+        assert record.result is not None
+        assert record.result.summary == " / 検証失敗"
+        assert record.result.artifacts == ()
+
+    def test_reports_the_detection_failure_count_separately_from_blanks(
+        self,
+        verify_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        """Blank と検出失敗を同じ袋に入れると回帰条件が見えなくなる."""
+        session = self._session(fake_camera_settings)
+        name = self._calibration(fake_camera_settings)
+
+        record = self._run(verify_manager, wait_until, session, name)
+
+        assert record.result is not None
+        root = fake_camera_settings.webui_data_dir
+        by_label = {a.label: a for a in record.result.artifacts}
+        report = json.loads(
+            (root / by_label["塗布量の検証"].path).read_text(encoding="utf-8")
+        )
+        assert report["detection_failure_count"] == 0
+        assert report["blank_count"] == 1
+        assert report["dispensed_count"] == report["cell_count"] - 1
 
 
 class TestPasteVolumeCalibrate:

@@ -109,10 +109,13 @@ class DiameterVolumeEstimator:
                 return _rejected(f"image_invalid: {error}")
             measurements.append(measurement)
 
-        return self._from_diameter(aggregate_views(measurements))
+        return self.predict_diameter(aggregate_views(measurements))
 
-    def _from_diameter(self, diameter: DotDiameter) -> PasteVolumePrediction:
-        """集約した直径を体積へ換算する."""
+    def predict_diameter(self, diameter: DotDiameter) -> PasteVolumePrediction:
+        """集約済みの直径から塗布量を推定する.
+
+        画像を読み直さずに済むので、session 全体を計測してから評価する経路で使う。
+        """
         if diameter.detected_view_count == 0:
             return _rejected("no_deposit_detected")
         model = self._calibration.model

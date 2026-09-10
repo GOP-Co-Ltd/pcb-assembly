@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 
+from pcbasm.pasting.paste_volume.evaluate import PasteVolumeEvaluation
 from pcbasm.pasting.paste_volume.fit import CellMeasurement
 from pcbasm.pasting.paste_volume.model import CubicVolumeModel
 from pcbasm.vision.image import ImageArray
@@ -45,6 +46,51 @@ def render_calibration_scatter(
     ax.legend(loc="upper left", fontsize=9)
     ax.set_xlim(left=0.0)
     ax.set_ylim(bottom=0.0)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=120)
+    plt.close(fig)
+
+
+def render_evaluation_scatter(
+    evaluation: PasteVolumeEvaluation, title: str, output_path: Path
+) -> None:
+    """実測体積 vs 推定体積の散布へ y=x を重ねて PNG 保存する.
+
+    不採用セルは推定 0 として原点寄りに並ぶので、採用できなかったことが図で分かる。
+    """
+    fig, ax = plt.subplots(figsize=(6.0, 6.0))
+    for accepted, marker, color, label in (
+        (True, "o", "tab:blue", "Accepted"),
+        (False, "x", "tab:red", "Rejected"),
+    ):
+        selected = [
+            cell for cell in evaluation.cells if cell.prediction.accepted is accepted
+        ]
+        if not selected:
+            continue
+        ax.scatter(
+            [cell.measured_volume_ul for cell in selected],
+            [cell.prediction.mean_volume_ul for cell in selected],
+            marker=marker,
+            s=18,
+            alpha=0.7,
+            color=color,
+            label=label,
+        )
+
+    limit = max(
+        evaluation.measured_total_ul / max(len(evaluation.cells), 1) * 3.0,
+        *(cell.measured_volume_ul for cell in evaluation.cells),
+        *(cell.prediction.mean_volume_ul for cell in evaluation.cells),
+    )
+    ax.plot([0.0, limit], [0.0, limit], color="tab:gray", linewidth=1.0, label="y = x")
+    ax.set_xlabel("Allocated volume [uL]")
+    ax.set_ylabel("Estimated volume [uL]")
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="upper left", fontsize=9)
+    ax.set_xlim(0.0, limit)
+    ax.set_ylim(0.0, limit)
     fig.tight_layout()
     fig.savefig(output_path, dpi=120)
     plt.close(fig)

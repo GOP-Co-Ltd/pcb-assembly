@@ -1070,22 +1070,32 @@ class PasteVolumePrediction:
     accepted: bool
     rejection_reason: str | None
 
-class PasteVolumeEstimator(Protocol):
+class CnnVolumeEstimator:
     def predict(
         self,
-        pre_rgb: ImageArray,
-        post_rgb: ImageArray,
+        pre_bgr: ImageArray,
+        post_bgr: ImageArray,
         *,
         pixel_per_mm: float,
     ) -> PasteVolumePrediction: ...
 
-def load_paste_volume_estimator(model_package: Path) -> PasteVolumeEstimator: ...
+def load_paste_volume_estimator(model_package: Path) -> CnnVolumeEstimator: ...
 ```
 
+**推定器はProtocolにしない。** `pcbasm.pasting.paste_volume`には既に
+[直径ベース校正](paste-volume-diameter-calibration.md)の具象クラス
+`DiameterVolumeEstimator`があり、CNNが実用になれば並存ではなく置き換わる公算が高い。
+呼び出し側が両方を受けるための抽象は、その必要が実際に生じてから作る
+（AGENTS.md「要求されていない抽象化を追加しない」）。`PasteVolumePrediction`と
+`rejection_reason`の語彙は直径方式が先に定義したものをそのまま使う。
+
+画像は**OpenCVのBGR**で受ける。`cv2.imread`とリポジトリの`Image`がBGRであり、
+RGBを前提に名付けるとgrayscale変換の重みが入れ替わって推定が静かにずれる。
+
 loaderはmanifestとchecksumを検証してONNX Runtime sessionを1回だけ作る。`predict`はdatasetと同じ
-torchvision前処理を共有する。camera由来のRGB HWC `ImageArray`は
+torchvision前処理を共有する。camera由来のBGR HWC `ImageArray`は
 `torchvision.transforms.v2.functional.to_image`でCHW tensorへ変換し、手書きの`permute`を公開APIへ
-散在させない。入力shape、RGB、有限で正のscale、画像上限、`SampleLayerNorm`のmean/variance、model coverageを
+散在させない。入力shape、3 channel、有限で正のscale、画像上限、`SampleLayerNorm`のmean/variance、model coverageを
 検証する。
 modelが返した非有限値、非正mean、manifest threshold超過はexceptionでjob全体を落とさず、
 `accepted=False`と具体的なreasonへ変換する。壊れたmodel packageやruntime初期化失敗はload時の

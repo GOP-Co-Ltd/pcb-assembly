@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import random
 import shutil
 from collections.abc import Mapping
@@ -40,13 +42,23 @@ from pcbasm.pasting.dataset.recorder import (
 )
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
 from pcbasm.pasting.params import PasteParams
+from pcbasm.pasting.paste_volume.evaluate import (
+    PasteVolumeEvaluation,
+    evaluate_collected_session,
+    evaluation_document,
+    evaluation_lines,
+)
 from pcbasm.pasting.session import PasteSession
 from pcbasm.pcb import Copper, Layer
 from pcbasm.vision import CalibrationResult
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
+from pcbasm.visualization.paste_volume_render import (
+    render_evaluation_scatter,
+)
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
+    Artifact,
     JobAborted,
     JobContext,
     JobResult,
@@ -72,6 +84,9 @@ _SEED_MAX = 2**31
 # 押し出したペーストが板へ落ちると計量した増加質量に混ざり、回転数比の体積配分を
 # 通じて全 sample へ系統的なバイアスが乗る。
 LOADING_CLEARANCE_MM = 15.0
+
+
+logger = logging.getLogger(__name__)
 
 
 def register(catalog: JobCatalog) -> None:
@@ -251,6 +266,17 @@ def register(catalog: JobCatalog) -> None:
                     help="任意。ペースト容器に記載された製造ロット番号を入力します。",
                     optional=True,
                 ),
+                ParamSpec(
+                    "volume_calibration",
+                    "検証に使う塗布量校正（任意）",
+                    "str",
+                    default="",
+                    optional=True,
+                    help=(
+                        "指定すると収集完了後に、この校正での推定体積と実測体積の"
+                        "誤差を出します。検証が失敗しても収集結果は失いません。"
+                    ),
+                ),
             ),
             requires_pcb=False,
             uses_machine=True,
@@ -282,6 +308,7 @@ def register(catalog: JobCatalog) -> None:
                 "shuffle_seed",
                 "paste_id",
                 "paste_lot",
+                "volume_calibration",
             ),
         )
     )
@@ -667,6 +694,9 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
 
     metadata = recorder.metadata
     assert metadata is not None
+    evaluation_summary, evaluation_artifacts = verify_with_calibration(
+        ctx, session_path
+    )
     archive_name = f"paste-dataset-{session_path.name}.zip"
     archive_path = ctx.artifacts_dir / archive_name
     shutil.make_archive(str(archive_path.with_suffix("")), "zip", root_dir=session_path)
@@ -675,7 +705,71 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
         summary=(
             f"dataset収集完了: 塗布 {len(plan.cells)} 点 + blank "
             f"{len(plan.blanks)} 点 / {metadata.total.measured_mass_mg:.3f} mg / "
-            f"{metadata.total.measured_volume_ul:.6f} uL"
+            f"{metadata.total.measured_volume_ul:.6f} uL" + evaluation_summary
         ),
-        artifacts=(ctx.artifact("ペースト塗布dataset", archive_name, "file"),),
+        artifacts=(
+            ctx.artifact("ペースト塗布dataset", archive_name, "file"),
+            *evaluation_artifacts,
+        ),
+    )
+
+
+def verify_with_calibration(
+    ctx: JobContext, session_path: Path
+) -> tuple[str, tuple[Artifact, ...]]:
+    """収集した session を指定の校正で検証し、まとめの追記と artifact を返す.
+
+    この時点で 1 時間の収集と計量が終わっている。後付けの検証で FAILED にして収集
+    結果を失うのは割に合わないので、**この関数は例外を投げない**。
+
+    校正が読めない・session が測れない・図や JSON が書けないといった失敗はすべて
+    警告ログに落とし、まとめには誤差か「検証失敗」だけを載せる。
+
+    ``volume_calibration`` が空なら何もせず ``("", ())`` を返す。
+    """
+    name = str(ctx.params.get("volume_calibration", "")).strip()
+    if not name:
+        return "", ()
+
+    ctx.progress("塗布量の検証", None)
+    evaluation, error = evaluate_collected_session(
+        session_path, ctx.paste_volume_calibration_dir / name
+    )
+    if evaluation is None:
+        logger.warning("塗布量の検証に失敗しました: %s", error)
+        ctx.log(f"塗布量の検証に失敗しました（収集結果は保存済みです）: {error}")
+        return " / 検証失敗", ()
+
+    for line in evaluation_lines(evaluation):
+        ctx.log(line)
+    summary = f" / 総体積誤差 {evaluation.total_relative_error * 100:+.2f}%"
+    try:
+        artifacts = _evaluation_artifacts(ctx, evaluation)
+    except Exception:
+        # 誤差はログに出ている。図や JSON が書けないことで収集を落とさない
+        logger.warning("塗布量の検証成果物を作れませんでした", exc_info=True)
+        ctx.log("塗布量の検証成果物を作れませんでした（誤差はログに出しています）")
+        return summary, ()
+    return summary, artifacts
+
+
+def _evaluation_artifacts(
+    ctx: JobContext, evaluation: PasteVolumeEvaluation
+) -> tuple[Artifact, ...]:
+    """検証レポートの JSON と散布図を artifacts_dir へ書く."""
+    report = "paste_volume_evaluation.json"
+    (ctx.artifacts_dir / report).write_text(
+        json.dumps(evaluation_document(evaluation), ensure_ascii=False, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    scatter = "paste_volume_evaluation.png"
+    render_evaluation_scatter(
+        evaluation,
+        f"{evaluation.session} / measured vs estimated",
+        ctx.artifacts_dir / scatter,
+    )
+    return (
+        ctx.artifact("塗布量の検証", report, "file"),
+        ctx.artifact("実測と推定の散布図", scatter, "image"),
     )

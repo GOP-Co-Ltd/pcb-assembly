@@ -204,6 +204,10 @@ PASTE_DATASET_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "ペースト",
         ("paste_id", "paste_lot"),
     ),
+    (
+        "塗布量の検証",
+        ("volume_calibration",),
+    ),
 )
 
 # 設定セクション（key のドット区切り親パス）→ UI 表示名。

@@ -1346,6 +1346,15 @@ class TestPastingPadEditor:
         assert 'id="pdl-legend"' in text
         assert "js/paste_dataset_layout.js" in text
 
+    def test_paste_dataset_collection_loads_the_calibration_select(
+        self, client: TestClient
+    ):
+        """volume_calibration 入力は保存済み校正の <select> へ差し替わる."""
+        text = client.get("/pasting/paste_dataset_collection").text
+
+        assert 'id="param-volume_calibration"' in text
+        assert "js/paste_volume_calibrations.js" in text
+
     def test_paste_dataset_collection_groups_the_form_into_sections(
         self, client: TestClient
     ):

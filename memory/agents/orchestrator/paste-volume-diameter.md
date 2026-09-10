@@ -153,3 +153,45 @@ N4 のみ却下し他はすべて対応した。裁定の詳細は `memory/agent
 
 3 箇所で「文の途中の改行が半角スペースになる」破壊が起きた。MR1 に続き 2 回目。
 **日本語 docstring は最初から 1 文 1 段落で書く**（`memory/docformatter-japanese-docstrings.md`）。
+
+## MR3・MR4 の実装メモ
+
+### MR3（校正生成ジョブ、`0c77e23`）
+
+- **matplotlib のラベルは ASCII に統一**。既存の `visualization/` は日本語フォントを
+  設定しておらず、`rcParams` にも `japanize` にも手を入れていない。日本語ラベルを
+  入れると豆腐文字の PNG が出る。判明したのは `height_render.py` の全ラベルが英語
+  だったこと（`grep -P "[ぁ-んァ-ヶ一-龥]"` で 0 件）
+- **`detection_mask()` を追加**。モンタージュに 2 値マスクを出すには検出内部が要る。
+  `measure_dot` と `_segment()` を共有させ、blank ガードで打ち切ったときは
+  全 0 マスクを返す（失敗にしない）
+- **代表セルの選び方は直径順の等間隔**（`_spread`）。指令量で選ぶと、指令量が同じ
+  セルが並んで検出の効きが見えない
+
+### MR4（検証の統合）
+
+- **`verify_with_calibration` は public にした**。private のまま test から import
+  するのは規約違反（`_` prefix は直接テストしない）。収集ジョブ本体は装置を要求
+  するので、合成ジョブ（`register_synthetic`）へ同じ関数を通して実 `JobContext` と
+  実 `artifacts_dir` の上で確かめる。`grid_spec_from_params` が router から使われて
+  いるのと同じ扱い
+- **`predict_diameter()` を estimator へ追加**。`measure_session` が計測済みの
+  `DotDiameter` を持っているのに、`predict_views` しか無いと画像を読み直すことに
+  なる
+- **条件照合は evaluate 層に置いた**（レビュー M1 の帰結）。`_SCALE_TOLERANCE` は
+  evaluate 側で 0.05。推定器は断らない
+- **E2E は `drive_choice_job` を新設**。既存の `drive_job_demo` は confirm / number
+  専用で、choice prompt には応答できない
+- artifact の JSON キーは `path` ではなく **`url`**（`routers/jobs.py` が
+  `/artifacts/<path>` へ組み立てる）。E2E で一度踏んだ
+
+### 詰まった点（再発防止）
+
+- **`git stash push --keep-index -- <paths>` は index 全体を保存する**。MR3 の作業を
+  退避したつもりが、pop で MR2 のレビュー前バージョンが 11 ファイル分ぶつかった。
+  HEAD 側で解決して事なきを得たが、**部分退避は scratchpad への `cp` を使う**
+- **docformatter は「1 文 1 段落」では足りない。「1 文が 1 行に収まる」まで要る**。
+  段落内は必ず 1 行へ畳まれるので、長い 1 文は畳んだ結果が幅を超えて再折り返しされ、
+  全角文字の間に半角スペースが入る。MR2〜MR4 で計 9 箇所踏んだ
+- `make format` の damage 検査は **`git diff --cached`** で見る。`git add` 済みだと
+  `git diff` は空になり、破壊を見逃す

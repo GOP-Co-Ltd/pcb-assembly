@@ -6,6 +6,7 @@ on-disk の出典は ``data/testing/schemas/paste_volume_calibration_v1.json``�
 """
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_SUFFIX,
     PasteVolumeCalibration,
     calibration_filename,
+    calibration_path,
     list_calibrations,
     load_calibration,
     parse_calibration,
@@ -280,3 +282,52 @@ class TestCalibrationFilename:
 
         assert name.endswith(CALIBRATION_SUFFIX)
         assert len(name) > len(CALIBRATION_SUFFIX)
+
+
+class TestCalibrationPath:
+    """運転者が入力した保存名を、保存先の直下に閉じる."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "../../../tmp/pwn.paste-volume.json",
+            "/etc/pwn.paste-volume.json",
+            "sub/dir/x.paste-volume.json",
+            "..",
+            "/",
+        ],
+    )
+    def test_never_escapes_the_root(self, tmp_path: Path, name: str):
+        """WebUI のテキスト欄から任意 path へ書けてはいけない."""
+        path = calibration_path(tmp_path, name)
+
+        assert path.parent == tmp_path
+        assert path.resolve().is_relative_to(tmp_path.resolve())
+
+    def test_keeps_a_name_that_already_carries_the_suffix(self, tmp_path: Path):
+        """付け直しではなく上書きの意図なので、時刻を足さない."""
+        path = calibration_path(tmp_path, f"s3x70-n030{CALIBRATION_SUFFIX}")
+
+        assert path.name == f"s3x70-n030{CALIBRATION_SUFFIX}"
+
+    def test_adds_a_timestamp_to_a_bare_name(self, tmp_path: Path):
+        path = calibration_path(
+            tmp_path, "S3X70 / n0.30", datetime(2026, 9, 10, 12, 0, 0)
+        )
+
+        assert path.name.startswith("s3x70")
+        assert "20260910T120000" in path.name
+        assert path.name.endswith(CALIBRATION_SUFFIX)
+
+    def test_falls_back_to_a_default_stem_when_nothing_survives(self, tmp_path: Path):
+        path = calibration_path(tmp_path, f"///{CALIBRATION_SUFFIX}")
+
+        assert path.name == f"calibration{CALIBRATION_SUFFIX}"
+
+    def test_the_written_file_is_found_by_the_listing(self, tmp_path: Path):
+        """保存できたのに一覧へ出てこない、が起きない."""
+        path = calibration_path(tmp_path, "sub/dir/x.paste-volume.json")
+
+        write_calibration(path, _parsed())
+
+        assert list_calibrations(tmp_path) == (path,)

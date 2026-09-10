@@ -195,6 +195,32 @@ def list_calibrations(root: Path) -> tuple[Path, ...]:
     )
 
 
+def calibration_path(root: Path, name: str, created_at: datetime | None = None) -> Path:
+    """運転者が入力した保存名から、``root`` 直下に閉じた保存先 path を作る.
+
+    名前は WebUI のテキスト欄から来るので、``/`` や ``..`` を含んでいても保存先の
+    外へ出さない。
+
+    :func:`calibration_filename` が path に使えない文字を畳むので、脱出は
+    そこで潰れる。
+
+    既に ``CALIBRATION_SUFFIX`` で終わる名前は「その名前で保存し直す」意図とみなし、
+    時刻を足さずに stem だけを畳む。
+
+    Args:
+        root: 保存先 directory
+        name: 運転者が入力した保存名
+        created_at: 時刻を足すときに使う（省略時は現在時刻）
+
+    Returns:
+        ``root`` 直下の保存先 path
+    """
+    if name.endswith(CALIBRATION_SUFFIX):
+        stem = _safe_stem(name[: -len(CALIBRATION_SUFFIX)])
+        return root / f"{stem}{CALIBRATION_SUFFIX}"
+    return root / calibration_filename(name, created_at)
+
+
 def calibration_filename(label: str, created_at: datetime | None = None) -> str:
     """表示ラベルから保存名を作る（path に使えない文字は ``-`` へ畳む）."""
     stem = _UNSAFE_NAME.sub("-", label.lower()).strip("-")
@@ -202,6 +228,12 @@ def calibration_filename(label: str, created_at: datetime | None = None) -> str:
         stem = "calibration"
     moment = (created_at or datetime.now().astimezone()).strftime("%Y%m%dT%H%M%S")
     return f"{stem}-{moment}{CALIBRATION_SUFFIX}"
+
+
+def _safe_stem(stem: str) -> str:
+    """保存名の stem を 1 つの path 片へ畳む（空になれば既定名）."""
+    folded = _UNSAFE_NAME.sub("-", stem.lower()).strip("-")
+    return folded or "calibration"
 
 
 # 方式の識別子は DTO の外側（document のキー）に置く。DTO へ持たせると
