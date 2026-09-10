@@ -24,7 +24,7 @@
 | `toolhead_offset.py`     | カメラ–ノズル間オフセット計測 `ToolheadOffsetProcedure` / `ToolheadOffsetResult` / `ToolheadOffsetDiagnostics`                                                                                                                   |
 | `flowcalib/`             | 流量キャリブレーション。`params`（ジョブ既定値）/ `flow`（質量 → rotations_per_ul、レート・速度掃引の数理）/ `lines`（線配置と掃引計画）/ `procedure`（銅板・transform・applicator を束ねる機械手順）                            |
 | `testboard/`             | テスト塗布基板の KiCad 生成。`config`（設定 DTO と検証）/ `catalog`（footprint 検索とパッド種解決）/ `layout`（パッド packing）/ `generator`（preview・`.kicad_pcb` 生成のファサード）                                           |
-| `dataset/`               | ペースト塗布画像 dataset の収集（銅板のセル格子へ点塗布）。`plan`（セル格子・量スイープ・view・事前検証）/ `metadata`（metadata.json DTO・codec、schema v2）/ `writer` / `recorder` / `capture`。切り出しは `pcbasm.vision.crop` |
+| `dataset/`               | ペースト塗布画像 dataset の収集（銅板のセル格子へ点塗布）。`plan`（セル格子・量スイープ・view・事前検証）/ `metadata`（metadata.json DTO・codec、schema v3）/ `writer` / `recorder` / `capture`。切り出しは `pcbasm.vision.crop` |
 
 `__init__.py` は docstring のみで re-export しない。消費側はサブモジュールを直接 import する
 （`import pcbasm.pasting` が cv2 / pcbnew / torch を引き込まない契約を `tests/test_package.py` で固定）。

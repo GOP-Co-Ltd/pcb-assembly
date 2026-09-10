@@ -378,13 +378,22 @@ def _dispense_calibration_context(
 def _paste_dataset_context(
     job: JobSpecInfo, settings: _MachineSettings
 ) -> dict[str, Any]:
-    """Paste_dataset_collection ページ専用コンテキスト（フォームのセクション分け）."""
+    """Paste_dataset_collection ページ専用コンテキスト（セクション分けと回転ローディング）.
+
+    塗布パス先頭のローディングでは体積と回転の両方を使うので、``loading_controls``
+    partial の回転セクションを出すための既定値を渡す。ジョブ側の ParamSpec 名は
+    ``loading_`` prefix 付きなので、partial が読む素の名前へ写す。
+    """
     specs_by_name = {spec.name: spec for spec in job.params}
     return {
         "param_groups": [
             (legend, [specs_by_name[name] for name in names])
             for legend, names in PASTE_DATASET_PARAM_GROUPS
-        ]
+        ],
+        "loading_rotation_defaults": {
+            name: specs_by_name[f"loading_{name}"].default
+            for name in LOADING_ROTATION_PARAMS
+        },
     }
 
 

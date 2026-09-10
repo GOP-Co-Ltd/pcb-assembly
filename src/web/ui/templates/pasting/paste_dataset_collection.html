@@ -30,11 +30,17 @@
 {# ジョブ提供フレームのみ表示（オーバーレイ切替なし・既定の none） #}
 {% include "partials/preview_pane.html" %}
 {% endif %}
+{% if show_loading_controls %}
+{% include "partials/loading_controls.html" %}
+{% endif %}
 {% include "partials/job_console.html" %}
 {% endblock %}
 {% block scripts %}
 {{ super() }}
 <script src="{{ static_asset('js/paste_dataset_layout.js') }}"></script>
+{% if show_loading_controls %}
+<script src="{{ static_asset('js/loading_controls.js') }}"></script>
+{% endif %}
 {% if show_preview %}
 <script src="{{ static_asset('js/preview.js') }}"></script>
 {% endif %}

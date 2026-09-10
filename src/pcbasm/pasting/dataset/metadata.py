@@ -1,9 +1,11 @@
-"""ペースト塗布画像 dataset の metadata.json（schema v2）.
+"""ペースト塗布画像 dataset の metadata.json（schema v3）.
 
 DTO と strict な cattrs converter、:func:`parse_metadata` を置く。
 
 永続化の判断:
-    v2 は点塗布・銅板・セル格子前提の破壊的変更版で、v1（KiCad PCB の pad polygon +
+    v3 はパージ廃止版で、収集の初回パージをインタラクティブローディングへ置き換えた。
+    パージ領域が無くなったので格子セルはすべて計測可能点になり、教師体積の配分も
+    塗布セルだけの回転数比になる。v2（パージあり）および v1（KiCad PCB の pad polygon +
     mask 前提）からの移行関数は用意しない。:func:`parse_metadata` は
     ``schema_version`` が現版と異なる doc を ``(None, 理由)`` で拒否する。将来キー/型を
     変える版が出たら旧版 dict を純関数 ``_migrate_vN(doc) -> dict`` で新版 dict へ
@@ -30,13 +32,13 @@ type CapturePhase = Literal["pre", "post"]
 
 type CaptureOrder = Literal["interleaved", "phased"]
 
-# 現版の撮影順序。全点 pre 撮影 → パージ → 全点塗布 → 全点 post 撮影の 3 パスで回す。
+# 現版の撮影順序。全点 pre 撮影 → ローディング → 全点塗布 → 全点 post 撮影の 3 パスで回す。
 # 分岐は持たないので固定値として記録するが、点ごとの interleave で収集した既存
 # dataset も読めるよう、型としては両方を受ける
 CAPTURE_ORDER: CaptureOrder = "phased"
 
 METADATA_KIND = "pcbasm-paste-volume-dataset"
-METADATA_SCHEMA_VERSION = 2
+METADATA_SCHEMA_VERSION = 3
 
 
 @attrs.frozen
@@ -63,7 +65,7 @@ class DatasetView:
 def allocate_volume_by_rotations(
     total_volume_ul: float, rotations: Mapping[str, float]
 ) -> dict[str, float]:
-    """計量した総体積を purge を含む正の吐出回転数比で配分する.
+    """計量した総体積を正の吐出回転数比で配分する.
 
     Raises:
         ValueError: 総体積が正でない、回転数が空または正でない（呼び出し側の invariant）
@@ -133,13 +135,15 @@ class PasteDatasetBlank:
 
 
 @attrs.frozen
-class PasteDatasetPurge:
-    """画像 sample に含めない purge の metadata."""
+class PasteDatasetLoading:
+    """塗布パス先頭で運転者が行ったインタラクティブローディングの実績.
 
-    cell: Rect
-    center: Point2d
-    execution: DispenseSummary
-    measured_volume_ul: float
+    押し出したペーストは銅板の外へ廃棄するため、計量した増加質量には含まれない。
+    教師体積の配分にも入らず、収集条件を後から追えるようにする記録として持つ。
+    """
+
+    total_ul: float
+    total_rotations: float
 
 
 @attrs.frozen
@@ -191,14 +195,12 @@ class PasteDatasetConfig:
     dispense_accel_ul_s2: float
     retract_amount_ul: float
     retract_rate_ul_s: float
-    initial_purge_ul: float
     paste_height_mm: float
     prime_extra_delay_s: float
     cell_size_mm: float
     cell_gap_mm: float
     crop_size_mm: float
     crop_size_px: int
-    purge_cell_size_mm: float
     volume_min_ul: float
     volume_max_ul: float
     volume_divisions: int
@@ -214,7 +216,7 @@ class PasteDatasetConfig:
 class PasteDatasetLabel:
     """教師体積ラベルの作り方.
 
-    ``rotation_allocated`` は「総質量を purge を含む指令回転数比で配分した」ラベルで、
+    ``rotation_allocated`` は「総質量を塗布セルの指令回転数比で配分した」ラベルで、
     点ごとの実際のばらつきは含まない。将来点ごとの直接計量を入れる場合に区別できる
     ようにここへ記録する。
     """
@@ -231,10 +233,10 @@ class PasteDatasetTotal:
 
 @attrs.frozen
 class PasteDatasetMetadata:
-    """Paste-volume-dataset metadata schema v2."""
+    """Paste-volume-dataset metadata schema v3."""
 
     kind: Literal["pcbasm-paste-volume-dataset"]
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     created_at: str
     machine: PasteDatasetMachine
     plate: PasteDatasetPlate
@@ -244,7 +246,7 @@ class PasteDatasetMetadata:
     config: PasteDatasetConfig
     label: PasteDatasetLabel
     total: PasteDatasetTotal
-    purge: PasteDatasetPurge
+    loading: PasteDatasetLoading
     samples: tuple[PasteDatasetSample, ...]
     blanks: tuple[PasteDatasetBlank, ...]
 
@@ -258,7 +260,7 @@ def parse_metadata(
 ) -> tuple[PasteDatasetMetadata | None, str | None]:
     """metadata.json の dict を schema_version で分岐して復元する.
 
-    暗黙の型変換と未知 key は受理しない。現版（v2）以外の版は移行関数が無いため
+    暗黙の型変換と未知 key は受理しない。現版（v3）以外の版は移行関数が無いため
     ``(None, 理由)`` を返す（将来版は ``_migrate_vN`` を追加して現版 dict に写す）。
     """
     version = data.get("schema_version")
@@ -267,13 +269,13 @@ def parse_metadata(
     try:
         return _METADATA_CONVERTER.structure(data, PasteDatasetMetadata), None
     except Exception as error:
-        return None, f"metadata schema v2が不正です: {error}"
+        return None, f"metadata schema v3が不正です: {error}"
 
 
 def structure_document[T](data: Mapping[str, object], target: type[T]) -> T:
     """Schema DTO を暗黙変換・未知 key なしで復元する（不正は例外）.
 
-    metadata v2 と、その質量未確定版（:mod:`pcbasm.pasting.dataset.pending`）が
+    metadata v3 と、その質量未確定版（:mod:`pcbasm.pasting.dataset.pending`）が
     同じ strict converter を共有するための入口。
 
     Raises:

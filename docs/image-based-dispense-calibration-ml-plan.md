@@ -92,7 +92,7 @@ storeへ移す。MLflowはlocal構成とtracking server構成の両方を提供�
 ### session探索と検証
 
 入力は1個以上のdataset rootまたはsession directoryとする。loaderは
-`kind == "pcbasm-paste-volume-dataset"`かつ`schema_version == 2`の完成sessionだけを読む。
+`kind == "pcbasm-paste-volume-dataset"`かつ`schema_version == 3`の完成sessionだけを読む。
 `.tmp`、`.incomplete`、ZIP artifactは自動探索へ含めない。
 
 学習前に次を全件検証し、1件でも不正なら部分的に無視せず失敗する。
@@ -106,14 +106,14 @@ storeへ移す。MLflowはlocal構成とtracking server構成の両方を提供�
 - 塗布前後が同じ幅・高さの3 channel lossless PNGであること
 - 全画像が`config.crop_size_px`の正方形であること（1 sessionで寸法が揃う契約）
 - `pixel_rect`の寸法が保存画像と一致すること
-- purgeと全samplesの配分体積合計が`total.measured_volume_ul`と数値誤差内で一致すること
+- 全samplesの配分体積合計が`total.measured_volume_ul`と数値誤差内で一致すること
     （`blanks`は配分に含めず`measured_volume_ul`が常に0.0であること）
-- purgeと全samplesの正方向回転数合計が`total.rotations`と数値誤差内で一致すること
+- 全samplesの正方向回転数合計が`total.rotations`と数値誤差内で一致すること
 - 同一画像内容または同一session IDの衝突がないこと
 
 ML pipelineのPNG decodeには`torchvision.io.decode_image(path, mode="RGB")`を使う。戻り値は
 RGB順の`uint8 [C, H, W]`であるため、OpenCV由来のBGR変換やHWCからCHWへの`permute`を挟まない。
-schema v2はmask画像を持たないので、decode対象はpre/postの2枚だけである。収集・幾何処理で既存
+schema v3はmask画像を持たないので、decode対象はpre/postの2枚だけである。収集・幾何処理で既存
 OpenCVを使う箇所とは境界を分け、controlled PNG fixtureでRGB channel順を固定する。
 
 ### 複合データセット
@@ -298,7 +298,7 @@ mean/variance分布をreportする。
 `log(pixel_per_mm)`をそのままモデルへ渡す。教師体積もtrain中央値でscaleせず、µLの物理単位の
 ままlossへ渡す。したがってmodelの入出力変換にtrain dataset由来の統計は存在しない。
 
-schema v2はpad geometry maskを保存しないので、モデル入力は要件どおりpre/postの6 channelだけで
+schema v3はpad geometry maskを保存しないので、モデル入力は要件どおりpre/postの6 channelだけで
 ある。幾何augmentationの整合確認は`sample_valid_mask`（augmentation後の有効領域）で行い、これと
 batch paddingを合成したものが`valid_pixel_mask`になる。crop寸法の検証は`config.crop_size_px`と
 保存画像の突き合わせで行う。

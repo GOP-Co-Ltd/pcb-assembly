@@ -183,7 +183,11 @@ class TestCatalog:
                     "cell_size": (2.0, "mm"),
                     "cell_gap": (1.0, "mm"),
                     "crop_size": (2.0, "mm"),
-                    "purge_cell_size": (2.0, "mm"),
+                    "loading_amount": (0.1, "uL"),
+                    "loading_rotations": (5.0, "rev"),
+                    "loading_rate": (0.5, "rev/s"),
+                    "loading_accel": (0.5, "rev/s^2"),
+                    "loading_retract_rotations": (0.0, "rev"),
                     "paste_height": (0.2, "mm"),
                     "volume_min": (0.05, "uL"),
                     "volume_max": (0.2, "uL"),
@@ -258,7 +262,11 @@ class TestCatalog:
             "cell_size": 2.0,
             "cell_gap": 1.0,
             "crop_size": 2.0,
-            "purge_cell_size": 2.0,
+            "loading_amount": 0.1,
+            "loading_rotations": 5.0,
+            "loading_rate": 0.5,
+            "loading_accel": 0.5,
+            "loading_retract_rotations": 0.0,
             "paste_height": 0.2,
             "volume_min": 0.05,
             "volume_max": 0.2,
@@ -272,6 +280,29 @@ class TestCatalog:
         }
         with pytest.raises(ValueError, match="paste_id"):
             default.validate_params(definition, {})
+
+    def test_paste_dataset_collection_drives_loading_from_the_form(
+        self, default: JobCatalog
+    ):
+        """塗布パス先頭のローディングは体積・回転とも既定値をフォームから受ける.
+
+        `loading_param` が無いとページがローディング操作 UI 自体を出さず、
+        `run_loading_loop` の待ち受けへ運転者が応答できなくなる。
+        """
+        definition = default.get("paste_dataset_collection")
+        params = {spec.name: spec for spec in definition.params}
+
+        assert definition.loading_param == "loading_amount"
+        assert definition.accepts_commands is True
+        for name, unit in (
+            ("loading_amount", "uL"),
+            ("loading_rotations", "rev"),
+            ("loading_rate", "rev/s"),
+            ("loading_accel", "rev/s^2"),
+            ("loading_retract_rotations", "rev"),
+        ):
+            assert params[name].unit == unit, name
+            assert params[name].default is not None, name
 
     def test_paste_dataset_collection_provides_preview(self, default: JobCatalog):
         assert default.get("paste_dataset_collection").provides_preview is True
@@ -856,25 +887,6 @@ class TestPasteDatasetCollectionPreflight:
         assert "crop" in record.error
         assert record.pending_prompt is None
 
-    def test_zero_initial_purge_fails_before_prompt_or_machine(
-        self,
-        manager: JobManager,
-        store: ConfigStore,
-        wait_until: WaitUntil,
-    ):
-        store.write_machine_settings({"paste_dispenser.initial_purge_ul": 0.0})
-
-        record = manager.start(
-            "paste_dataset_collection",
-            {"paste_id": "paste-1", "paste_lot": "lot-1"},
-        )
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-
-        assert record.status == JobStatus.FAILED
-        assert record.error is not None
-        assert "initial_purge_ul" in record.error
-        assert record.pending_prompt is None
-
     def test_valid_settings_reach_confirmations_without_pcb(
         self, manager: JobManager, wait_until: WaitUntil
     ):
@@ -1219,9 +1231,10 @@ class TestPasteDatasetFinalize:
         session = fake_camera_settings.paste_dataset_dir / self.STEM
         assert not incomplete.exists()
         metadata = json.loads((session / "metadata.json").read_text(encoding="utf-8"))
-        assert metadata["schema_version"] == 2
+        assert metadata["schema_version"] == 3
         assert metadata["total"]["measured_mass_mg"] == self.MEASURED_MASS_MG
-        assert metadata["samples"][0]["measured_volume_ul"] == pytest.approx(0.15)
+        # パージが無いので、塗布 sample だけで総体積を分け合う。
+        assert metadata["samples"][0]["measured_volume_ul"] == pytest.approx(0.25)
         assert (session / "pre" / "000001.00.png").is_file()
         assert not (session / "pending.json").exists()
 

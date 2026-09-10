@@ -15,9 +15,10 @@ from pathlib import Path
 
 import attrs
 
+from pcbasm.gcode import GCode
 from pcbasm.geometry import HeightPlane, Point2d
 from pcbasm.pasting.dataset.capture import DatasetCapturer
-from pcbasm.pasting.dataset.metadata import DatasetView
+from pcbasm.pasting.dataset.metadata import DatasetView, PasteDatasetLoading
 from pcbasm.pasting.dataset.plan import (
     DEFAULT_PASTE_HEIGHT_MM,
     DEFAULT_VIEW_COUNT,
@@ -52,12 +53,25 @@ from web.api.jobs.context import (
     ParamValue,
     PromptSpec,
 )
-from web.api.jobs.pasting.common import prompt_positive_number
+from web.api.jobs.pasting.common import (
+    LOADING_DEFAULT_AMOUNT,
+    LOADING_DEFAULT_RETRACT_ROTATIONS,
+    LOADING_DEFAULT_ROTATION_ACCEL,
+    LOADING_DEFAULT_ROTATION_RATE,
+    LOADING_DEFAULT_ROTATIONS,
+    prompt_positive_number,
+    run_loading_loop,
+)
 
 # ParamSpec 既定値の唯一の出典（pcbasm 側）
 _DEFAULTS = DotGridSpec()
 # shuffle_seed 未指定（0）時に生成する乱数シードの上限
 _SEED_MAX = 2**31
+
+# ローディング待ちでノズルを銅板から離す距離 [mm]（板の手前側へ、板端から測る）。
+# 押し出したペーストが板へ落ちると計量した増加質量に混ざり、回転数比の体積配分を
+# 通じて全 sample へ系統的なバイアスが乗る。
+LOADING_CLEARANCE_MM = 15.0
 
 
 def register(catalog: JobCatalog) -> None:
@@ -119,11 +133,43 @@ def register(catalog: JobCatalog) -> None:
                     ),
                 ),
                 ParamSpec(
-                    "purge_cell_size",
-                    "パージ領域寸法",
+                    "loading_amount",
+                    "体積ローディング量",
                     "float",
-                    _DEFAULTS.purge_cell_size_mm,
-                    unit="mm",
+                    LOADING_DEFAULT_AMOUNT,
+                    unit="uL",
+                    help=(
+                        "塗布パスの先頭で回すローディングの 1 回あたり押出量です。"
+                        "押し出したペーストは銅板の外へ廃棄します。"
+                    ),
+                ),
+                ParamSpec(
+                    "loading_rotations",
+                    "回転ローディング回転数",
+                    "float",
+                    LOADING_DEFAULT_ROTATIONS,
+                    unit="rev",
+                ),
+                ParamSpec(
+                    "loading_rate",
+                    "回転ローディング角速度",
+                    "float",
+                    LOADING_DEFAULT_ROTATION_RATE,
+                    unit="rev/s",
+                ),
+                ParamSpec(
+                    "loading_accel",
+                    "回転ローディング角加速度",
+                    "float",
+                    LOADING_DEFAULT_ROTATION_ACCEL,
+                    unit="rev/s^2",
+                ),
+                ParamSpec(
+                    "loading_retract_rotations",
+                    "回転ローディング引き戻し回転数",
+                    "float",
+                    LOADING_DEFAULT_RETRACT_ROTATIONS,
+                    unit="rev",
                 ),
                 ParamSpec(
                     "paste_height",
@@ -211,6 +257,7 @@ def register(catalog: JobCatalog) -> None:
             notify_on_completion=True,
             accepts_commands=True,
             provides_preview=True,
+            loading_param="loading_amount",
             persisted_params=(
                 "plate_width",
                 "plate_height",
@@ -219,7 +266,11 @@ def register(catalog: JobCatalog) -> None:
                 "cell_size",
                 "cell_gap",
                 "crop_size",
-                "purge_cell_size",
+                "loading_amount",
+                "loading_rotations",
+                "loading_rate",
+                "loading_accel",
+                "loading_retract_rotations",
                 "paste_height",
                 "volume_min",
                 "volume_max",
@@ -258,7 +309,6 @@ def grid_spec_from_params(params: Mapping[str, ParamValue]) -> DotGridSpec:
         cell_size_mm=float(params["cell_size"]),
         cell_gap_mm=float(params["cell_gap"]),
         crop_size_mm=float(params["crop_size"]),
-        purge_cell_size_mm=float(params["purge_cell_size"]),
         volume_min_ul=float(params["volume_min"]),
         volume_max_ul=float(params["volume_max"]),
         volume_divisions=int(params["volume_divisions"]),
@@ -278,7 +328,6 @@ def _plan_collection(
     """
     dispenser = ctx.machine.paste_dispenser
     run_error = validate_dataset_run(
-        initial_purge_ul=dispenser.initial_purge_ul,
         paste_id=str(ctx.params["paste_id"]).strip(),
         paste_height_mm=float(ctx.params["paste_height"]),
     )
@@ -338,10 +387,10 @@ def _confirm_dataset_collection(ctx: JobContext) -> None:
         PromptSpec(
             kind="confirm",
             message=(
-                "吐出量キャリブレーションが完了していること、その後に手動プライム・"
-                "手動ローディングを行っていないことを確認してください。"
-                "収集は先頭でリトラクションを行わないため、手動プライムが残っていると"
-                "パージがリトラクション量ぶん過剰に吐出し、回転数比の体積配分を通じて"
+                "吐出量キャリブレーションが完了していることを確認してください。"
+                "塗布パスの先頭でローディングを行うので、事前の手動プライムは不要です。"
+                "ローディングで押し出したペーストは必ず銅板の外へ廃棄してください。"
+                "銅板へ落ちると計量した増加質量に混ざり、回転数比の体積配分を通じて"
                 "全sampleへ系統的なバイアスが乗ります。"
             ),
             default=True,
@@ -423,6 +472,27 @@ def _check_reach(
             raise ValueError(error)
 
 
+def _move_clear_of_plate(ctx: JobContext, session: PasteSession) -> None:
+    """ローディング前にノズルを銅板の手前へ逃がす.
+
+    直前の塗布前撮影パスはヘッドを最後のセルの真上に残すので、そのまま押し出すと
+    ペーストが板へ落ちて計量値を汚す。可動域へ入らない場合は移動を諦め、運転者へ jog での退避を促す（装置を止めるほどのことではない）。
+    """
+    target = session.board_to_machine.apply(Point2d(0.0, -LOADING_CLEARANCE_MM))
+    limits = session.stage.limits
+    inside_x = limits.x.min <= target.x <= limits.x.max
+    inside_y = limits.y.min <= target.y <= limits.y.max
+    if not (inside_x and inside_y):
+        ctx.log(
+            f"退避位置 ({target.x:.3f}, {target.y:.3f}) が可動域外のため移動しません。"
+            "押し出す前に、ノズルを銅板の外へ jog してください"
+        )
+        return
+    session.klipper.send_gcode(
+        session.stage.move(x=target.x, y=target.y) + GCode.wait_for_done()
+    )
+
+
 def _pass_percent(position: int, total: int, start: float, end: float) -> float:
     """1 パス内の進捗を、全体の進捗 ``[start, end]`` へ写す."""
     return start + (end - start) * position / total
@@ -442,20 +512,22 @@ def _capture(
 def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
     """銅板のセル格子へ点塗布し、塗布前後画像と計量教師値を収集・永続化する.
 
-    撮影は 3 パスにまとめる。全点 pre 撮影 → パージ → 全点塗布 → 全点 post 撮影の順で、
-    撮影と塗布の切り替えをまとめて時間を詰める。パージは塗布パスの先頭に置く
-    （pre 撮影の前に打つと、撮影のあいだにプライム状態が抜ける）。
+    撮影は 3 パスにまとめる。全点 pre 撮影 → ローディング → 全点塗布 → 全点 post 撮影の
+    順で、撮影と塗布の切り替えをまとめて時間を詰める。ローディングは塗布パスの先頭に置く
+    （pre 撮影の前に行うと、数十分の撮影のあいだにプライム状態が抜ける）。押し出した
+    ペーストは銅板の外へ廃棄するので、計量した増加質量にも教師体積の配分にも入らない。
 
     applicator を開くのは塗布パスだけとする。AirPump を入れたまま撮影パスを回すと、
     加圧されたノズルからペーストが垂れて pre 画像と blank セルが汚れる。
 
     ジョブ先頭で ``applicator.retract()`` はしない。各 ``FillSequence`` が
-    ``retract_amount`` を prime してから同量 retract する自己完結型で、dataset 収集は
-    手動ローディングを挟まないため、先頭で retract すると plunger が baseline より
-    引き込まれた状態で全点が走る。プライム状態のずれは最初のパージが吸収する。
+    ``retract_amount`` を prime してから同量 retract する自己完結型なので、先頭で
+    retract すると plunger が baseline より引き込まれた状態で全点が走る。プライム状態は
+    塗布直前のローディングで運転者が整える。
 
-    この前提（手動プライムをしていないこと）は装置の外から観測できないので、開始時の
-    confirm プロンプトで運転者に確認させる。
+    ローディング分を銅板の外へ廃棄したかは装置の外から観測できないので、開始時の
+    confirm プロンプトで運転者に確認させる。板へ落ちると計量した増加質量に混ざり、
+    回転数比の体積配分を通じて全 sample へ系統的なバイアスが乗る。
 
     計量質量のプロンプトの前に ``pending.json`` を書く。収集は 1 時間規模で、最後の
     入力だけが装置の外から来るため、そこで WebUI が落ちると撮影済み画像が教師値を失う。
@@ -514,16 +586,19 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
                 for view in views:
                     recorder.record_pre(target, view, _capture(capturer, target, view))
 
+            # 撮影パスはヘッドを板の上に残すので、AirPump を入れる前に逃がす。
+            ctx.checkpoint()
+            _move_clear_of_plate(ctx, session)
+
             with session.make_applicator() as applicator:
-                ctx.progress("パージ", 45.0)
-                ctx.checkpoint()
-                recorder.record_purge_execution(
-                    applicator.deposit_at(
-                        plan.purge_center,
-                        amount_ul=dispenser_config.initial_purge_ul,
-                        transform=transform,
-                        params=params,
-                    )
+                # stage と進捗は run_loading_loop が設定する。押し出す量は運転者が
+                # 決めるので percent は持たせない。
+                ctx.log(
+                    "ノズルを銅板の外へ逃がしました。ローディングしてください。"
+                    "押し出したペーストは銅板へ落とさないでください"
+                )
+                loading_totals = run_loading_loop(
+                    ctx, session.klipper, session.stage, applicator
                 )
 
                 for position, cell in enumerate(plan.cells):
@@ -563,6 +638,10 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
                 view_count=view_count,
                 view_offset_mm=view_offset_mm,
                 crop_size_px=crop_size_px,
+                loading=PasteDatasetLoading(
+                    total_ul=loading_totals.amount_ul,
+                    total_rotations=loading_totals.rotations,
+                ),
                 started_at=started_at,
                 dispenser=dispenser_config,
                 calibration=result.calibration,

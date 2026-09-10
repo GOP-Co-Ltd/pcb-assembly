@@ -2253,12 +2253,6 @@ h2 {
   stroke-width: 0.08;
 }
 
-.pdl-purge {
-  fill: var(--warn-weak);
-  stroke: var(--warn);
-  stroke-width: 0.2;
-}
-
 .pdl-cell {
   stroke: var(--text);
   stroke-width: 0.1;

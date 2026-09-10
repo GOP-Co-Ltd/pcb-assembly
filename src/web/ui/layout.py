@@ -166,7 +166,6 @@ PASTE_DATASET_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "plate_width",
             "plate_height",
             "edge_margin",
-            "purge_cell_size",
             "tolerance",
         ),
     ),
@@ -183,6 +182,16 @@ PASTE_DATASET_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "samples_per_volume",
             "blank_count",
             "shuffle_seed",
+        ),
+    ),
+    (
+        "ローディング",
+        (
+            "loading_amount",
+            "loading_rotations",
+            "loading_rate",
+            "loading_accel",
+            "loading_retract_rotations",
         ),
     ),
     (

@@ -709,15 +709,6 @@ PASTING_PREVIEW_FEATURES = (
     "toolhead_offset",
 )
 
-# ローディングボタン UI を持つ feature（JobDefinition.loading_param）
-# dispense_calibration はメニュー段階で押出/吸引（プライム）に使う
-PASTING_LOADING_FEATURES = (
-    "paste_solder",
-    "loading",
-    "dispense_calibration",
-    "toolhead_offset",
-)
-
 
 class TestPastingJobPages:
     """Phase 5: pasting のジョブページ（計画書 webui-phase5.md「templates /
@@ -1006,7 +997,7 @@ class TestJobDefinitionDrivenContext:
         `loading.html` / `dispense_calibration.html` は loading_controls を
         `show_loading_controls` で gate せず無条件 include するため、この 2 feature では
         `"loading-controls" in text` が定数 True になる（検出力ゼロ）。段階文字列と
-        `#lc-amount` の value を見て、4 feature すべてで定義との一致を確かめる。
+        `#lc-amount` の value を見て、全 feature で定義との一致を確かめる。
         """
         definition = backend_app.state.catalog.get(feature)
 
@@ -1362,7 +1353,14 @@ class TestPastingPadEditor:
         text = client.get("/pasting/paste_dataset_collection").text
 
         assert "paste-dataset-form" in text
-        for legend in ("銅板", "セル格子", "吐出量スイープ", "塗布と撮影", "ペースト"):
+        for legend in (
+            "銅板",
+            "セル格子",
+            "ローディング",
+            "吐出量スイープ",
+            "塗布と撮影",
+            "ペースト",
+        ):
             assert f"<legend>{legend}</legend>" in text
         assert (
             'id="param-paste_lot" name="paste_lot"\n'
@@ -1372,7 +1370,28 @@ class TestPastingPadEditor:
         assert "メーカー名・製品名または管理用の品番" in text
         assert "製造ロット（任意）" in text
         assert "任意。ペースト容器に記載された製造ロット番号" in text
-        assert "loading-controls" not in text
+        # 塗布パス先頭でインタラクティブローディングを回すので操作 UI を載せる。
+        assert "loading-controls" in text
+
+    def test_paste_dataset_collection_offers_volume_and_rotation_loading(
+        self, client: TestClient
+    ):
+        """塗布パス先頭のローディングで体積・回転の両方を操作できる.
+
+        回転セクションは `loading_rotation_defaults` が渡ったときだけ描かれるので、
+        ジョブの ParamSpec を足しただけでは UI へ届かない（フォーム欄だけが増えて
+        操作が効かない状態になる）。
+        """
+        text = client.get("/pasting/paste_dataset_collection").text
+
+        for element in (
+            "lc-amount",
+            "lc-rotations",
+            "lc-rate",
+            "lc-accel",
+            "lc-retract-rotations",
+        ):
+            assert f'id="{element}"' in text, element
 
 
 class TestTabsCatalogConsistency:

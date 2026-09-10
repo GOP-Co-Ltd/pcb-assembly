@@ -24,7 +24,6 @@
     "cell_size",
     "cell_gap",
     "crop_size",
-    "purge_cell_size",
     "volume_min",
     "volume_max",
     "volume_divisions",
@@ -112,7 +111,8 @@
       `対象 ${data.target_count} 点（塗布 ${data.sample_count} / blank ${data.blanks.length}）`,
       `view ${data.views_per_cell}（中心を含む）`,
       `撮影 ${data.image_count} 枚`,
-      `格子 ${data.grid.length} セル / 配置可 ${data.capacity} セル`,
+      // 除外領域が無いので capacity は格子セル総数と一致する。二重に出さない。
+      `格子 ${data.capacity} セル（すべて計測可能点）`,
       seedText,
     ].join(" ・ ");
   }
@@ -139,11 +139,6 @@
     }
     for (const cell of data.grid) {
       view.appendChild(rectEl(cell, { class: "pdl-grid-cell" }));
-    }
-    if (data.purge_cell) {
-      view.appendChild(
-        titled(rectEl(data.purge_cell, { class: "pdl-purge" }), "パージ領域")
-      );
     }
     for (const cell of data.cells) {
       const element = rectEl(cell.rect, {

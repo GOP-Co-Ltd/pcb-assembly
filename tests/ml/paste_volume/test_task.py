@@ -493,10 +493,10 @@ class TestRealSessions:
 
     @skip_if_no_real_sessions
     def test_builds_and_materializes_from_the_collected_sessions(self):
-        from tests.ml.paste_volume.helpers import PASTE_VOLUME_DATASET_DIR
+        from tests.ml.paste_volume.helpers import current_schema_sessions
 
         index, reason = PasteVolumeSampleIndex.from_roots(
-            [PASTE_VOLUME_DATASET_DIR], constraints=CONSTRAINTS
+            current_schema_sessions(), constraints=CONSTRAINTS
         )
         assert index is not None, reason
         assert not index.rejections

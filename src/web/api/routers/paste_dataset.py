@@ -37,7 +37,6 @@ class DatasetLayoutRequest(BaseModel):
     cell_size: float
     cell_gap: float
     crop_size: float
-    purge_cell_size: float
     volume_min: float
     volume_max: float
     volume_divisions: int

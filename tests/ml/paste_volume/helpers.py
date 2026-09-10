@@ -32,12 +32,12 @@ from pcbasm.pasting.dataset.metadata import (
     PasteDatasetCamera,
     PasteDatasetConfig,
     PasteDatasetLabel,
+    PasteDatasetLoading,
     PasteDatasetMachine,
     PasteDatasetMetadata,
     PasteDatasetNozzle,
     PasteDatasetPaste,
     PasteDatasetPlate,
-    PasteDatasetPurge,
     PasteDatasetSample,
     PasteDatasetTotal,
 )
@@ -69,10 +69,33 @@ CELL_SIZE_MM = 1.8
 CELL_GAP_MM = 0.4
 VIEW_OFFSET_MM = 1.0
 
+
+def current_schema_sessions() -> tuple[Path, ...]:
+    """現版 schema の実収集 session directory を名前順で返す.
+
+    dataset root をそのまま渡せない。``PasteVolumeSampleIndex.from_roots`` は最初の
+    読めない session でハード失敗するので、旧版で収集した session が 1 つでも残って
+    いると実データ経路が「読めない」ことで落ちる。現版だけを選んで渡す。
+    """
+    if not PASTE_VOLUME_DATASET_DIR.is_dir():
+        return ()
+    found: list[Path] = []
+    for path in sorted(PASTE_VOLUME_DATASET_DIR.glob("*/metadata.json")):
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if document.get("schema_version") == METADATA_SCHEMA_VERSION:
+            found.append(path.parent)
+    return tuple(found)
+
+
 skip_if_no_real_sessions = pytest.mark.skipif(
-    not PASTE_VOLUME_DATASET_DIR.is_dir()
-    or not any(PASTE_VOLUME_DATASET_DIR.glob("*/metadata.json")),
-    reason="実収集 session が無い（data/paste-volume-datasets は git 管理外）",
+    not current_schema_sessions(),
+    reason=(
+        f"現版（schema v{METADATA_SCHEMA_VERSION}）の実収集 session が無い"
+        "（data/paste-volume-datasets は git 管理外）"
+    ),
 )
 
 
@@ -303,14 +326,12 @@ def _metadata(
             dispense_accel_ul_s2=0.3,
             retract_amount_ul=0.03,
             retract_rate_ul_s=0.1,
-            initial_purge_ul=0.2,
             paste_height_mm=0.2,
             prime_extra_delay_s=0.0,
             cell_size_mm=CELL_SIZE_MM,
             cell_gap_mm=CELL_GAP_MM,
             crop_size_mm=CELL_SIZE_MM,
             crop_size_px=crop_size_px,
-            purge_cell_size_mm=CELL_SIZE_MM,
             volume_min_ul=0.05,
             volume_max_ul=0.35,
             volume_divisions=max(1, len(samples)),
@@ -322,16 +343,11 @@ def _metadata(
             capture_order="phased",
         ),
         label=PasteDatasetLabel(kind="rotation_allocated"),
+        loading=PasteDatasetLoading(total_ul=0.2, total_rotations=3.0),
         total=PasteDatasetTotal(
             measured_mass_mg=commanded_total * 3.78,
             measured_volume_ul=commanded_total,
             rotations=commanded_total * 15.0,
-        ),
-        purge=PasteDatasetPurge(
-            cell=Rect(x=0.5, y=0.5, width=CELL_SIZE_MM, height=CELL_SIZE_MM),
-            center=Point2d(1.4, 1.4),
-            execution=_execution(0.2),
-            measured_volume_ul=0.2,
         ),
         samples=samples,
         blanks=blanks,
@@ -341,6 +357,7 @@ def _metadata(
 __all__ = [
     "CROP_SIZE_PX",
     "PASTE_VOLUME_DATASET_DIR",
+    "current_schema_sessions",
     "PERIPHERAL_VIEW_COUNT",
     "MEASURED_RATIO",
     "PIXEL_PER_MM",
