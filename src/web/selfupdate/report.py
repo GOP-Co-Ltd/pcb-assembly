@@ -258,14 +258,21 @@ def run_payload(report: UpdateReport) -> UpdateRunInfo:
 
 
 def summary_text(plan: UpdatePlan) -> str:
-    """状態を 1 行にまとめる（表示文字列はサーバが組む）."""
+    """リポジトリが**どういう状態か**を 1 行にまとめる（表示文字列はサーバが組む）.
+
+    更新できない理由は `blocker` が別に持つ。ここで blocker をそのまま返すと、
+    画面で同じ文が要約と警告の 2 箇所に出る。
+
+    追従先が無いときだけは件数を語れない（`behind` が 0 のままなので「最新です」が
+    嘘になる）ので、状態としてそれを述べる。
+    """
     if not plan.enabled:
         return "この機体では WebUI からの更新が無効です。"
     state = plan.repository
     if state is None:
         return plan.repository_error or "リポジトリの状態を取得できません。"
-    if plan.blocker is not None:
-        return plan.blocker
+    if state.upstream is None:
+        return f"追従先が設定されていません（{state.head} {state.head_subject}）。"
     if state.up_to_date:
         return f"最新です（{state.head} {state.head_subject}）。"
     return (
