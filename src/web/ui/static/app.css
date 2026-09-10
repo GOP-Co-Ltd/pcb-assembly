@@ -258,7 +258,9 @@ h2 {
   min-height: calc(100vh - 3.25rem);
 }
 
-.layout.settings-layout {
+/* サイドバーもマシン制御も持たないページ（設定 / UI サーバーの更新）。
+   3 列グリッドのまま main-pane だけを置くと 1 列目（14rem）に収まってしまう。 */
+.layout.single-pane {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -961,6 +963,67 @@ h2 {
 
 .status-card h3 {
   margin-top: 0;
+}
+
+/* ---- software update panel ---- */
+
+/* ラベルと値の 2 列。commit の subject もブランチ名も長くなり得るので、
+   値の列を minmax(0, 1fr) にして anywhere で折る（横スクロールを出さない）。 */
+.update-repo {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 0.8rem;
+  margin: 0.6rem 0;
+}
+
+.update-repo dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.update-repo dd {
+  margin: 0;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+.update-steps {
+  margin: 0.4rem 0;
+  padding-left: 1.4rem;
+}
+
+.update-steps li.ok {
+  color: var(--ok);
+}
+
+.update-steps li.ng {
+  color: var(--danger);
+}
+
+.update-warnings {
+  margin: 0.4rem 0;
+  padding-left: 1.4rem;
+  color: var(--warn);
+}
+
+/* 失敗した手順の出力。長い 1 行で親を押し広げないよう折り返す。 */
+#update-detail {
+  max-height: 18rem;
+  margin: 0.4rem 0 0;
+  padding: 0.5rem;
+  overflow: auto;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .limits-table th,

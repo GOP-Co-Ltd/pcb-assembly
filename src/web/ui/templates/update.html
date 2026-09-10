@@ -2,6 +2,9 @@
    更新できない。操作権の概念が無い層なので data-requires-control は付けない。 #}
 {% extends "base.html" %}
 {% block title %}{{ title }} — PCB Assembly WebUI{% endblock %}
+{# サイドバーもマシン制御も無いので 1 列にする（既定の 3 列グリッドのままだと
+   main-pane が 14rem の 1 列目に押し込まれる） #}
+{% block layout_class %}single-pane{% endblock %}
 {% block content %}
 <section class="main-pane" data-testid="main-pane">
   <h1>{{ title }}</h1>

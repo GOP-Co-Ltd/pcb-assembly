@@ -151,6 +151,28 @@ class TestStaticAssets:
         assert "partials/machine_selector.html" in base_html
 
 
+class TestSinglePaneLayout:
+    """サイドバーを持たないページは `single-pane` を宣言する.
+
+    `app.css` の `.layout` は「サイドバー / 本文 / マシン制御」の 3 列グリッドで、
+    `main-pane` だけを置くと本文が 1 列目（14rem）に押し込まれて読めなくなる。
+    `tab.html` 経由のページは 3 枠すべてを埋めるので宣言しない。
+    """
+
+    def test_sidebarless_pages_declare_single_pane(self):
+        offenders = {
+            template.name
+            for template in _template_files()
+            for text in [template.read_text(encoding="utf-8")]
+            if 'extends "base.html"' in text
+            and "main-pane" in text
+            and "sidebar" not in text
+            and "single-pane" not in text
+        }
+
+        assert offenders == set()
+
+
 class TestMachinePrefixFunnel:
     """機体 prefix の付与点は `app.js` の `withBase()` 1 箇所（計画書の設計判断 #4）.
 
