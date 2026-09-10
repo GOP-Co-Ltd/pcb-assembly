@@ -17,6 +17,12 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(value) if value else default
 
 
+def _env_words(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """空白区切りの env を argv 断片として読む（未設定なら既定）."""
+    value = os.environ.get(name)
+    return tuple(value.split()) if value else default
+
+
 @attrs.frozen
 class Settings:
     """UI frontend サーバーの設定値.
@@ -47,6 +53,12 @@ class Settings:
     discovery_service_type: str = SERVICE_TYPE
     # None なら zeroconf 既定（全 IF）。テストは ("127.0.0.1",) で閉じる
     discovery_interfaces: tuple[str, ...] | None = None
+    # frontend 自身のソフトウェア更新（frontend 専用機はここからしか更新できない）
+    update_enabled: bool = True
+    update_uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
+    # リポジトリ直下に固定する。ロックが守る対象は worktree なので、同居機の backend
+    # （`web.api.settings.Settings.update_dir`）と必ず同じファイルを掴ませる
+    update_state_dir: Path = PROJECT_ROOT / "data" / "selfupdate"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -56,7 +68,9 @@ class Settings:
             PCBASM_UI_HOST, PCBASM_UI_PORT, PCBASM_UI_MACHINES_FILE,
             PCBASM_UI_SSR_TIMEOUT, PCBASM_UI_BACKEND_CONNECT_TIMEOUT,
             PCBASM_UI_PROXY_READ_TIMEOUT, PCBASM_UI_DEFAULT_BACKEND_PORT,
-            PCBASM_UI_DISCOVERY_ENABLED（"0" で mDNS 探索を無効）
+            PCBASM_UI_DISCOVERY_ENABLED（"0" で mDNS 探索を無効）,
+            PCBASM_UI_UPDATE_ENABLED（"0" で自己更新を無効）,
+            PCBASM_UI_UPDATE_UV_SYNC_ARGS（空白区切り）, PCBASM_UI_UPDATE_STATE_DIR
 
         ``machines`` は env では扱わない（マシン一覧は ``machines_file`` と mDNS 探索が
         真実）。``discovery_service_type`` / ``discovery_interfaces`` も env に出さない
@@ -88,4 +102,11 @@ class Settings:
                 int(backend_port) if backend_port else base.default_backend_port
             ),
             discovery_enabled=os.environ.get("PCBASM_UI_DISCOVERY_ENABLED") != "0",
+            update_enabled=os.environ.get("PCBASM_UI_UPDATE_ENABLED") != "0",
+            update_uv_sync_args=_env_words(
+                "PCBASM_UI_UPDATE_UV_SYNC_ARGS", base.update_uv_sync_args
+            ),
+            update_state_dir=_env_path(
+                "PCBASM_UI_UPDATE_STATE_DIR", base.update_state_dir
+            ),
         )

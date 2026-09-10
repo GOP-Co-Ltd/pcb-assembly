@@ -22,6 +22,7 @@ TABS: dict[str, tuple[str, ...]] = {
         "make_fill_coverage_pcb",
         "klipper_status",
         "audio",
+        "update",
     ),
     "pasting": (
         "paste_solder",
@@ -61,6 +62,7 @@ TAB_LABELS: dict[str, str] = {
 FEATURE_LABELS: dict[str, str] = {
     "klipper_status": "Klipper ステータス",
     "audio": "通知音",
+    "update": "ソフトウェア更新",
     "probe_guide": "ロードセルプローブ ガイド",
     "nozzle_cap": "ノズルキャップ位置の設定",
     "paste_test_board": "テスト塗布基板生成",
@@ -83,6 +85,8 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("dev", "make_fill_coverage_pcb"): "job.html",
     ("dev", "klipper_status"): "dev/klipper_status.html",
     ("dev", "audio"): "dev/audio.html",
+    # ジョブではないので JOB_TEMPLATES には入れない（装置ロックを取らない独立経路）
+    ("dev", "update"): "dev/update.html",
     ("pasting", "paste_solder"): "pasting/paste_solder.html",
     ("pasting", "height_plane"): "pasting/job.html",
     ("pasting", "loading"): "pasting/loading.html",

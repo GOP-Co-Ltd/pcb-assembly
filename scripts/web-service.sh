@@ -16,7 +16,7 @@ SUDO="${SUDO:-sudo}"
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") <install|start|stop|restart|status|remove> [api|ui|all]
+Usage: $(basename "$0") <install|start|stop|restart|status|remove|render> [api|ui|all]
 
 対象（既定: ${DEFAULT_TARGET}）
   api  backend WebAPI: pcbasm-api.service (make api)
@@ -30,6 +30,8 @@ Usage: $(basename "$0") <install|start|stop|restart|status|remove> [api|ui|all]
   restart  最新のソースでサービスを再起動する
   status   サービスの状態を表示する（all では全対象を表示する）
   remove   サービスを停止・無効化し、登録を削除する
+  render   unit テキストを標準出力に書く（systemd には触らない。設置済み unit との
+           差分確認に使う。WebUI の自己更新がこれを読んで「再 install が要る」を出す）
 
 旧 ${LEGACY_SERVICE_NAME}（= backend）の削除は install / remove の対象が
 api または all のときだけ行う。ui 単体では削除せず、install ui は残っていれば
@@ -108,6 +110,9 @@ render_unit() {
 Description=$(service_description "${target}")
 Wants=network-online.target
 After=network-online.target
+# 起動失敗の再試行を打ち切らせない。WebUI からの自己更新はロールバックしないので、
+# start-limit-hit で停止すると復旧手段が ssh だけになる。
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -119,6 +124,8 @@ Environment="PATH=${executable_path}"
 ExecStart=${make_bin} ${target}
 Restart=on-failure
 RestartSec=5
+# 停止に手間取っても既定の 90 秒は待たない（自己更新の restart が復帰待ちを食い潰す）
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target
@@ -250,7 +257,7 @@ main() {
     local -a target_list
 
     case "${command}" in
-        install | start | stop | restart | status | remove) ;;
+        install | start | stop | restart | status | remove | render) ;;
         -h | --help)
             usage
             return 0
@@ -275,7 +282,8 @@ main() {
         on_missing="skip"
     fi
 
-    if [ "${command}" != "status" ]; then
+    # 読み取りだけの命令に sudo / systemctl を要求しない
+    if [ "${command}" != "status" ] && [ "${command}" != "render" ]; then
         require_privileged_tools
     fi
 
@@ -283,6 +291,9 @@ main() {
         case "${command}" in
             install)
                 install_service "${target}"
+                ;;
+            render)
+                render_unit "${target}"
                 ;;
             remove)
                 remove_service "${target}"

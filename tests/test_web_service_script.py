@@ -256,6 +256,24 @@ class TestRenderUnit:
     def test_unit_is_enabled_for_boot(self, target: str, tmp_path: Path):
         assert "WantedBy=multi-user.target" in render_unit(target, tmp_path)
 
+    @pytest.mark.parametrize("target", ("api", "ui"))
+    def test_stop_timeout_is_bounded(self, target: str, tmp_path: Path):
+        """WebUI からの自己更新で `systemctl restart` が既定 90 秒ハングしないようにする.
+
+        計画書「4. `scripts/web-service.sh` と sudoers」の `TimeoutStopSec=15`。
+        停止に手間取る unit があると、更新の再起動が復帰待ちのタイムアウトを食い潰す。
+        """
+        assert "TimeoutStopSec=15" in render_unit(target, tmp_path)
+
+    @pytest.mark.parametrize("target", ("api", "ui"))
+    def test_restart_is_never_rate_limited(self, target: str, tmp_path: Path):
+        """起動失敗が続いても systemd が再試行を打ち切らないようにする.
+
+        計画書「4.」の `StartLimitIntervalSec=0`。自己更新はロールバックしないので、 `start-
+        limit-hit` で停止すると復旧手段が ssh だけになる（既知のリスク 1 の緩和策）。
+        """
+        assert "StartLimitIntervalSec=0" in render_unit(target, tmp_path)
+
 
 class TestTargetResolution:
     """`[api|ui|all]` 引数の解決."""

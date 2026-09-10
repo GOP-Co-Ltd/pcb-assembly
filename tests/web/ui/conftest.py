@@ -100,6 +100,8 @@ def ui_settings(tmp_path: Path) -> Settings:
         machines_file=tmp_path / "machines.toml",
         # 実 LAN を探索しない（探索は tests/web/ui/test_discovery.py と e2e が見る）
         discovery_enabled=False,
+        # 自己更新の report / ロックをリポジトリの data/ に落とさない
+        update_state_dir=tmp_path / "selfupdate",
     )
 
 

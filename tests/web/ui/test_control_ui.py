@@ -48,6 +48,9 @@ _GATED_ELEMENTS = {
     "dev/audio.html": {"#audio-settings-form", ".audio-test-actions"},
     "partials/job_form.html": {"#job-form"},
     "partials/machine_control.html": {"#machine-control"},
+    # 機体の backend を再起動する変更操作。frontend 自身の /update では操作権の概念が
+    # 無いので、include 側の update_requires_control で印を出し分ける
+    "partials/update_panel.html": {".update-actions"},
     "partials/loading_controls.html": {"#loading-controls"},
     "partials/calibration_menu.html": {"#calibration-menu"},
     "partials/job_console.html": {
