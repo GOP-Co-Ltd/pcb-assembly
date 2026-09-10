@@ -1,8 +1,18 @@
-"""ペースト塗布データセット収集ジョブ（銅板のセル格子へ点塗布して撮影）.
+"""塗布量校正の生成ジョブ（銅板のセル格子へ点塗布して撮影し、校正まで作る）.
+
+運転者の目的は校正を作ることなので、1 回の実行で収集からフィットまで通す。
+
+3 パス（全点の塗布前撮影 → ローディング → 全点塗布 → 全点の塗布後撮影）で
+dataset を作り、計量質量を受け取って確定させ、そのまま直径 → 体積の校正を
+フィットして保存する。
+
+収集した dataset は副産物として残り、`paste_volume_refit` でハイパラを変えて
+作り直せる（装置も収集も要らない）。CNN 方式の学習材料にもなる。
 
 セル配置・吐出量スイープ・view 生成・事前検証・crop・metadata は
-:mod:`pcbasm.pasting.dataset` に置き、ここは prompt / progress / abort / artifact への
-変換だけを担う。
+:mod:`pcbasm.pasting.dataset`、計測とフィットは
+:mod:`pcbasm.pasting.paste_volume` に置き、ここは prompt / progress / abort /
+artifact への変換だけを担う。
 """
 
 from __future__ import annotations
@@ -35,6 +45,7 @@ from pcbasm.pasting.dataset.plan import (
     validate_dispense_reach,
     validate_min_rotations,
 )
+from pcbasm.pasting.dataset.reader import DatasetSession
 from pcbasm.pasting.dataset.recorder import (
     DatasetRunInfo,
     PasteDatasetRecorder,
@@ -74,6 +85,15 @@ from web.api.jobs.pasting.common import (
     prompt_positive_number,
     run_loading_loop,
 )
+from web.api.jobs.pasting.paste_volume_common import (
+    DETECTION_PARAM_NAMES,
+    DETECTION_PARAMS,
+    REQUIRE_BLANK_ZERO_PARAM,
+    SAVE_NAME_PARAM,
+    build_calibration,
+    report_calibration,
+    validate_detection_params,
+)
 
 # ParamSpec 既定値の唯一の出典（pcbasm 側）
 _DEFAULTS = DotGridSpec()
@@ -92,10 +112,10 @@ logger = logging.getLogger(__name__)
 def register(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
-            name="paste_dataset_collection",
-            label="ペースト塗布データセット収集",
+            name="paste_volume_calibration",
+            label="塗布量校正の生成",
             tab="pasting",
-            run=_run_paste_dataset_collection,
+            run=_run_paste_volume_calibration,
             params=(
                 ParamSpec(
                     "plate_width",
@@ -234,7 +254,11 @@ def register(catalog: JobCatalog) -> None:
                     "周辺 view 数",
                     "int",
                     DEFAULT_VIEW_COUNT,
-                    help="中心 view に加えて撮影する周辺 view の数です（0 で中心のみ）。",
+                    help=(
+                        "中心 view に加えて撮影する周辺 view の数です（0 で中心のみ）。"
+                        "直径ベースの校正では 0 で十分で、増やすと撮影時間が比例して"
+                        "伸びます。CNN 方式の学習データを採るときだけ増やします。"
+                    ),
                     minimum=0,
                 ),
                 ParamSpec(
@@ -266,6 +290,9 @@ def register(catalog: JobCatalog) -> None:
                     help="任意。ペースト容器に記載された製造ロット番号を入力します。",
                     optional=True,
                 ),
+                *DETECTION_PARAMS,
+                REQUIRE_BLANK_ZERO_PARAM,
+                SAVE_NAME_PARAM,
                 ParamSpec(
                     "volume_calibration",
                     "検証に使う塗布量校正（任意）",
@@ -308,6 +335,8 @@ def register(catalog: JobCatalog) -> None:
                 "shuffle_seed",
                 "paste_id",
                 "paste_lot",
+                *DETECTION_PARAM_NAMES,
+                "require_blank_zero",
                 "volume_calibration",
             ),
         )
@@ -360,6 +389,10 @@ def _plan_collection(
     )
     if run_error is not None:
         raise ValueError(run_error)
+    # 1 時間の収集を終えてからハイパラの不正を知らされても遅い
+    detection_error = validate_detection_params(ctx.params)
+    if detection_error is not None:
+        raise ValueError(detection_error)
     spec = grid_spec_from_params(ctx.params)
     plan, plan_error = plan_dot_grid(
         attrs.evolve(spec, shuffle_seed=resolve_shuffle_seed(spec.shuffle_seed))
@@ -536,7 +569,7 @@ def _capture(
     return crop
 
 
-def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
+def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
     """銅板のセル格子へ点塗布し、塗布前後画像と計量教師値を収集・永続化する.
 
     撮影は 3 パスにまとめる。全点 pre 撮影 → ローディング → 全点塗布 → 全点 post 撮影の
@@ -694,6 +727,7 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
 
     metadata = recorder.metadata
     assert metadata is not None
+    calibration_summary, calibration_artifacts = fit_calibration(ctx, session_path)
     evaluation_summary, evaluation_artifacts = verify_with_calibration(
         ctx, session_path
     )
@@ -703,15 +737,61 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
     ctx.log(f"datasetを保存しました: {session_path}")
     return JobResult(
         summary=(
-            f"dataset収集完了: 塗布 {len(plan.cells)} 点 + blank "
-            f"{len(plan.blanks)} 点 / {metadata.total.measured_mass_mg:.3f} mg / "
-            f"{metadata.total.measured_volume_ul:.6f} uL" + evaluation_summary
+            f"収集完了: 塗布 {len(plan.cells)} 点 + blank {len(plan.blanks)} 点 / "
+            f"{metadata.total.measured_mass_mg:.3f} mg / "
+            f"{metadata.total.measured_volume_ul:.6f} uL"
+            + calibration_summary
+            + evaluation_summary
         ),
         artifacts=(
             ctx.artifact("ペースト塗布dataset", archive_name, "file"),
+            *calibration_artifacts,
             *evaluation_artifacts,
         ),
     )
+
+
+def fit_calibration(
+    ctx: JobContext, session_path: Path
+) -> tuple[str, tuple[Artifact, ...]]:
+    """収集した session から校正を作り、まとめの追記と artifact を返す.
+
+    **この関数は例外を投げない。**
+
+    校正づくりがこのジョブの目的だが、この時点で 1 時間の収集と計量が終わっており
+    session は永続 dir に残っている。
+
+    ここで FAILED にすると dataset の zip すら作られないので、失敗は警告に留める。
+
+    ハイパラを変えて作り直すのは `paste_volume_refit` の役目で、装置も収集も要らない。
+    """
+    session, error = DatasetSession.load(session_path)
+    if session is None:
+        return _calibration_failed(ctx, error)
+
+    ctx.progress("塗布量校正の生成", None)
+    fit, error = build_calibration(ctx, session)
+    if fit is None:
+        return _calibration_failed(ctx, error)
+    try:
+        summary, artifacts = report_calibration(ctx, session, fit)
+    except Exception:
+        logger.warning("校正の成果物を作れませんでした", exc_info=True)
+        ctx.log("校正の成果物を作れませんでした（診断はログに出しています）")
+        return " / 校正の成果物なし", ()
+    return f" / {summary}", artifacts
+
+
+def _calibration_failed(
+    ctx: JobContext, error: str | None
+) -> tuple[str, tuple[Artifact, ...]]:
+    """校正を作れなかったことを警告として報告する（収集結果は残っている）."""
+    logger.warning("塗布量校正を作れませんでした: %s", error)
+    ctx.log(
+        f"塗布量校正を作れませんでした（収集結果は保存済みです）: {error}"
+        "。ハイパラを変えて「塗布量校正の再フィット」から作り直せます"
+    )
+    return " / 校正生成失敗", ()
 
 
 def verify_with_calibration(

@@ -28,9 +28,9 @@ TABS: dict[str, tuple[str, ...]] = {
         "height_plane",
         "loading",
         "dispense_calibration",
-        "paste_dataset_collection",
+        "paste_volume_calibration",
+        "paste_volume_refit",
         "paste_dataset_finalize",
-        "paste_volume_calibrate",
         "paste_test_board",
         "generate_rect_pcb",
         "toolhead_offset",
@@ -90,10 +90,10 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("pasting", "dispense_calibration"): "pasting/dispense_calibration.html",
     (
         "pasting",
-        "paste_dataset_collection",
-    ): "pasting/paste_dataset_collection.html",
+        "paste_volume_calibration",
+    ): "pasting/paste_volume_calibration.html",
     ("pasting", "paste_dataset_finalize"): "pasting/job.html",
-    ("pasting", "paste_volume_calibrate"): "pasting/job.html",
+    ("pasting", "paste_volume_refit"): "pasting/job.html",
     (
         "pasting",
         "paste_test_board",
@@ -118,7 +118,7 @@ JOB_TEMPLATES = frozenset(
         "pasting/job.html",
         "pasting/loading.html",
         "pasting/dispense_calibration.html",
-        "pasting/paste_dataset_collection.html",
+        "pasting/paste_volume_calibration.html",
         "pasting/paste_solder.html",
         "posctrl/job.html",
         "posctrl/camera_calibration.html",
@@ -158,10 +158,10 @@ DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
 )
 
-# paste_dataset_collection フォームのセクション分け（表示のみ）。
+# paste_volume_calibration フォームのセクション分け（表示のみ）。
 # 項目数が多く縦一列だと読めないため、依存関係の近いものをまとめて段組みにする。
 # 全パラメータを漏れなく含める（欠けた項目はフォームから消える）。
-PASTE_DATASET_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+PASTE_VOLUME_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "銅板",
         (
@@ -205,8 +205,19 @@ PASTE_DATASET_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("paste_id", "paste_lot"),
     ),
     (
-        "塗布量の検証",
-        ("volume_calibration",),
+        "円検出のハイパラ",
+        (
+            "min_contrast",
+            "contrast_percentile",
+            "threshold_floor_ratio",
+            "open_kernel_px",
+            "min_area_px",
+            "require_blank_zero",
+        ),
+    ),
+    (
+        "校正の保存と検証",
+        ("save_name", "volume_calibration"),
     ),
 )
 

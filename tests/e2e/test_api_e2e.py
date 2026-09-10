@@ -217,7 +217,7 @@ class TestPasteVolumeCalibrateOverWebSocket:
 
         with connect(f"{live_server.ws_url}/api/ws") as ws:
             response = httpx.post(
-                f"{live_server.base_url}/api/jobs/paste_volume_calibrate",
+                f"{live_server.base_url}/api/jobs/paste_volume_refit",
                 json={"params": {"save_name": "e2e"}},
                 timeout=_HTTP_TIMEOUT,
             )

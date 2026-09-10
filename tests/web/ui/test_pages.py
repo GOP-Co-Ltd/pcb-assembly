@@ -696,7 +696,7 @@ PASTING_JOB_FEATURES = (
     "height_plane",
     "loading",
     "dispense_calibration",
-    "paste_dataset_collection",
+    "paste_volume_calibration",
     "generate_rect_pcb",
     "toolhead_offset",
 )
@@ -705,7 +705,7 @@ PASTING_JOB_FEATURES = (
 PASTING_PREVIEW_FEATURES = (
     "paste_solder",
     "height_plane",
-    "paste_dataset_collection",
+    "paste_volume_calibration",
     "toolhead_offset",
 )
 
@@ -1291,7 +1291,7 @@ class TestPastingPadEditor:
             "height_plane",
             "loading",
             "toolhead_offset",
-            "paste_dataset_collection",
+            "paste_volume_calibration",
         ),
     )
     def test_other_pasting_features_have_no_pad_editor(
@@ -1303,17 +1303,17 @@ class TestPastingPadEditor:
         assert "pad-viewer" not in text
         assert "pad_editor/index.js" not in text
 
-    def test_paste_dataset_collection_keeps_dataset_job_chrome(
+    def test_paste_volume_calibration_keeps_dataset_job_chrome(
         self, client: TestClient
     ):
-        """Dataset 収集は PCB 非依存なので pad editor / 初回パージ UI を持たない."""
-        text = client.get("/pasting/paste_dataset_collection").text
+        """校正の生成は PCB 非依存なので pad editor / 初回パージ UI を持たない."""
+        text = client.get("/pasting/paste_volume_calibration").text
 
         assert "job-console" in text
         assert "job-form" in text
         assert "preview-pane" in text
-        assert "ペースト塗布データセット収集" in text
-        assert 'data-job-name="paste_dataset_collection"' in text
+        assert "塗布量校正の生成" in text
+        assert 'data-job-name="paste_volume_calibration"' in text
         assert 'id="param-purge_pad_id"' not in text
         # pad editor workspace ではない（初回パージ pad の選択欄も出さない）
         assert "pad-viewer" not in text
@@ -1333,11 +1333,11 @@ class TestPastingPadEditor:
         assert 'id="param-paste_id"' in text
         assert 'id="param-paste_lot"' in text
 
-    def test_paste_dataset_collection_renders_the_layout_preview_panel(
+    def test_paste_volume_calibration_renders_the_layout_preview_panel(
         self, client: TestClient
     ):
         """撮影枚数と配置図をサーバ値で描くパネルの DOM フック."""
-        text = client.get("/pasting/paste_dataset_collection").text
+        text = client.get("/pasting/paste_volume_calibration").text
 
         assert 'id="pdl-panel"' in text
         assert 'id="pdl-view"' in text
@@ -1346,20 +1346,20 @@ class TestPastingPadEditor:
         assert 'id="pdl-legend"' in text
         assert "js/paste_dataset_layout.js" in text
 
-    def test_paste_dataset_collection_loads_the_calibration_select(
+    def test_paste_volume_calibration_loads_the_calibration_select(
         self, client: TestClient
     ):
         """volume_calibration 入力は保存済み校正の <select> へ差し替わる."""
-        text = client.get("/pasting/paste_dataset_collection").text
+        text = client.get("/pasting/paste_volume_calibration").text
 
         assert 'id="param-volume_calibration"' in text
         assert "js/paste_volume_calibrations.js" in text
 
-    def test_paste_dataset_collection_groups_the_form_into_sections(
+    def test_paste_volume_calibration_groups_the_form_into_sections(
         self, client: TestClient
     ):
         """項目が多いので縦一列にせず、段組みの fieldset へ分ける."""
-        text = client.get("/pasting/paste_dataset_collection").text
+        text = client.get("/pasting/paste_volume_calibration").text
 
         assert "paste-dataset-form" in text
         for legend in (
@@ -1382,7 +1382,7 @@ class TestPastingPadEditor:
         # 塗布パス先頭でインタラクティブローディングを回すので操作 UI を載せる。
         assert "loading-controls" in text
 
-    def test_paste_dataset_collection_offers_volume_and_rotation_loading(
+    def test_paste_volume_calibration_offers_volume_and_rotation_loading(
         self, client: TestClient
     ):
         """塗布パス先頭のローディングで体積・回転の両方を操作できる.
@@ -1391,7 +1391,7 @@ class TestPastingPadEditor:
         ジョブの ParamSpec を足しただけでは UI へ届かない（フォーム欄だけが増えて
         操作が効かない状態になる）。
         """
-        text = client.get("/pasting/paste_dataset_collection").text
+        text = client.get("/pasting/paste_volume_calibration").text
 
         for element in (
             "lc-amount",

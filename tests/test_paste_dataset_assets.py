@@ -1,4 +1,4 @@
-"""ペースト塗布データセット収集で使う repository asset の契約テスト."""
+"""塗布量校正の収集で使う repository asset の契約テスト."""
 
 from pathlib import Path
 

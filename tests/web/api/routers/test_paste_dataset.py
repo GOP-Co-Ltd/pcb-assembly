@@ -30,7 +30,14 @@ _NON_LAYOUT_PARAMS = frozenset(
         "paste_height",
         "paste_id",
         "paste_lot",
-        # 収集後の検証で使う校正名。配置に影響しない
+        # 円検出のハイパラと校正の保存名・検証先。いずれも配置に影響しない
+        "min_contrast",
+        "contrast_percentile",
+        "threshold_floor_ratio",
+        "open_kernel_px",
+        "min_area_px",
+        "require_blank_zero",
+        "save_name",
         "volume_calibration",
         # 塗布パス先頭のインタラクティブローディング設定。配置に影響しない
         "loading_amount",
@@ -172,7 +179,7 @@ class TestLayoutFieldNamesStayInSync:
     def _job_layout_params(self) -> set[str]:
         catalog = JobCatalog()
         register_pasting_jobs(catalog)
-        definition = catalog.get("paste_dataset_collection")
+        definition = catalog.get("paste_volume_calibration")
         assert definition is not None
         return {
             spec.name

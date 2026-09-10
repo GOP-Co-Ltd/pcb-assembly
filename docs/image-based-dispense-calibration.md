@@ -223,6 +223,12 @@ view を保存し、モデルは共有 CNN で各 view を符号化してから�
 **達成条件は 1 view でも成立させる。** 5 view を前提にした精度だけを条件にすると、
 1 view しか撮れない状況で運用できなくなるため。
 
+> **直径ベース方式では周辺 view は不要だった。** 831 サンプルで検出失敗 0 件、view 間
+> ばらつきは体積換算 1.2% で、5 view → 1 view にしても総残差は 8.0% → 8.1% 程度しか
+> 動かない。収集ジョブの `view_count` 既定は 0（中心のみ）にしてある。**複数視点を
+> 採る意味があるのは本書の CNN 方式の学習材料としてで、その場合は明示的に上げる。**
+> 実測は[直径ベースの塗布量校正](paste-volume-diameter-calibration.md)を参照。
+
 ## データ収集
 
 ### 収集用銅板とセル格子
@@ -774,8 +780,11 @@ process 内で直接学習せず、独立 process を起動・監視する薄い
 
 ### データ収集ジョブ
 
-WebUI のはんだ塗布タブへ、`paste_dataset_collection` データ収集ジョブを独立した feature
-として追加する。収集は素の銅板で行うため PCB を選択せず、pad editor 付き workspace は使わない。
+WebUI のはんだ塗布タブへ、`paste_volume_calibration`（塗布量校正の生成）ジョブを独立した
+feature として追加する。運転者の目的は校正を作ることなので、**収集の最後に直径ベースの
+校正までを同じ実行で作る**（[直径ベースの塗布量校正](paste-volume-diameter-calibration.md)）。
+CNN の学習に使う dataset は副産物として残る。収集は素の銅板で行うため PCB を選択せず、
+pad editor 付き workspace は使わない。
 ページはジョブフォーム、配置プレビュー、カメラ preview、ローディング操作 UI、job console で
 構成する。パージを行わないので初回パージ位置の選択欄は持たない。ローディング操作 UI は既存の
 `partials/loading_controls.html` を流用し、塗布パス先頭の待ち受け中に押出／吸引／終了を操作する。

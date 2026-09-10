@@ -4,7 +4,7 @@
 + spec §10 pasting 表が契約:
 
 - catalog: pasting 7 ジョブ（paste_solder / height_plane / loading /
-  dispense_calibration / paste_dataset_collection / generate_rect_pcb /
+  dispense_calibration / paste_volume_calibration / generate_rect_pcb /
   toolhead_offset）の name /
   params（default・unit）/ requires_pcb / uses_machine / accepts_commands
 - parse_loading_command: extrude / suck / finish の純粋パーサ。ローディング用
@@ -70,7 +70,15 @@ from web.api.jobs.pasting import (
     register_pasting_jobs,
 )
 from web.api.jobs.pasting.common import prompt_positive_number
-from web.api.jobs.pasting.dataset import verify_with_calibration
+from web.api.jobs.pasting.paste_volume_calibration import (
+    fit_calibration,
+    verify_with_calibration,
+)
+from web.api.jobs.pasting.paste_volume_common import (
+    DETECTION_PARAMS,
+    REQUIRE_BLANK_ZERO_PARAM,
+    SAVE_NAME_PARAM,
+)
 from web.api.preview import PreviewService
 from web.api.settings import Settings
 from web.api.state import AppState
@@ -87,9 +95,9 @@ PASTING_JOBS = (
     "height_plane",
     "loading",
     "dispense_calibration",
-    "paste_dataset_collection",
+    "paste_volume_calibration",
     "paste_dataset_finalize",
-    "paste_volume_calibrate",
+    "paste_volume_refit",
     "generate_rect_pcb",
     "toolhead_offset",
 )
@@ -133,9 +141,9 @@ class TestCatalog:
             ("height_plane", True, True, False),
             ("loading", False, True, True),
             ("dispense_calibration", False, True, True),
-            ("paste_dataset_collection", False, True, True),
+            ("paste_volume_calibration", False, True, True),
             ("paste_dataset_finalize", False, False, False),
-            ("paste_volume_calibrate", False, False, False),
+            ("paste_volume_refit", False, False, False),
             ("generate_rect_pcb", False, False, False),
             ("toolhead_offset", True, True, True),
         ],
@@ -190,7 +198,7 @@ class TestCatalog:
             ),
             ("generate_rect_pcb", {"width": (40.0, "mm"), "height": (40.0, "mm")}),
             (
-                "paste_dataset_collection",
+                "paste_volume_calibration",
                 {
                     "plate_width": (40.0, "mm"),
                     "plate_height": (40.0, "mm"),
@@ -208,6 +216,10 @@ class TestCatalog:
                     "volume_min": (0.05, "uL"),
                     "volume_max": (0.2, "uL"),
                     "view_offset": (1.0, "mm"),
+                    # 円検出のハイパラ（共有 ParamSpec。既定は DotDetectionSpec）
+                    "min_contrast": (20.0, None),
+                    "contrast_percentile": (99.0, "%"),
+                    "threshold_floor_ratio": (0.5, None),
                 },
             ),
             (
@@ -243,8 +255,8 @@ class TestCatalog:
             assert float_params[key].default == value, key
             assert float_params[key].unit == unit, key
 
-    def test_paste_dataset_collection_params(self, default: JobCatalog):
-        definition = default.get("paste_dataset_collection")
+    def test_paste_volume_calibration_params(self, default: JobCatalog):
+        definition = default.get("paste_volume_calibration")
         params = {spec.name: spec for spec in definition.params}
 
         assert "purge_pad_id" not in params
@@ -257,7 +269,8 @@ class TestCatalog:
         assert params["volume_divisions"].value_type == "int"
         assert params["samples_per_volume"].value_type == "int"
         assert params["blank_count"].default == 4
-        assert params["view_count"].default == 4
+        # 周辺 view の既定は 0（中心のみ）。直径方式では実測上の利点がほぼ無い
+        assert params["view_count"].default == 0
         assert params["shuffle_seed"].default == 0
         assert params["paste_id"].value_type == "str"
         assert params["paste_id"].label == "ペースト製品ID"
@@ -292,17 +305,25 @@ class TestCatalog:
             "volume_divisions": 5,
             "samples_per_volume": 3,
             "blank_count": 4,
-            "view_count": 4,
+            "view_count": 0,
             "view_offset": 1.0,
             "shuffle_seed": 0,
             "paste_id": "paste-1",
+            "min_contrast": 20.0,
+            "contrast_percentile": 99.0,
+            "threshold_floor_ratio": 0.5,
+            "open_kernel_px": 3,
+            "min_area_px": 4,
+            "require_blank_zero": True,
+            # 保存名が空なら校正は作るが保存しない（診断のみ）
+            "save_name": "",
             # 校正未選択の既定。空なら収集後の検証をしない
             "volume_calibration": "",
         }
         with pytest.raises(ValueError, match="paste_id"):
             default.validate_params(definition, {})
 
-    def test_paste_dataset_collection_drives_loading_from_the_form(
+    def test_paste_volume_calibration_drives_loading_from_the_form(
         self, default: JobCatalog
     ):
         """塗布パス先頭のローディングは体積・回転とも既定値をフォームから受ける.
@@ -310,7 +331,7 @@ class TestCatalog:
         `loading_param` が無いとページがローディング操作 UI 自体を出さず、
         `run_loading_loop` の待ち受けへ運転者が応答できなくなる。
         """
-        definition = default.get("paste_dataset_collection")
+        definition = default.get("paste_volume_calibration")
         params = {spec.name: spec for spec in definition.params}
 
         assert definition.loading_param == "loading_amount"
@@ -325,8 +346,8 @@ class TestCatalog:
             assert params[name].unit == unit, name
             assert params[name].default is not None, name
 
-    def test_paste_dataset_collection_provides_preview(self, default: JobCatalog):
-        assert default.get("paste_dataset_collection").provides_preview is True
+    def test_paste_volume_calibration_provides_preview(self, default: JobCatalog):
+        assert default.get("paste_volume_calibration").provides_preview is True
 
     @pytest.mark.parametrize(
         ("name", "default_value"),
@@ -844,7 +865,7 @@ class TestPasteDatasetCollectionPreflight:
         self, manager: JobManager, wait_until: WaitUntil
     ):
         record = manager.start(
-            "paste_dataset_collection",
+            "paste_volume_calibration",
             {
                 "paste_id": "paste-1",
                 "plate_width": 12.0,
@@ -865,7 +886,7 @@ class TestPasteDatasetCollectionPreflight:
         self, manager: JobManager, wait_until: WaitUntil
     ):
         record = manager.start(
-            "paste_dataset_collection",
+            "paste_volume_calibration",
             {"paste_id": "paste-1", "paste_height": 0.0},
         )
         wait_until(lambda: record.status.terminal, timeout=60.0)
@@ -879,7 +900,7 @@ class TestPasteDatasetCollectionPreflight:
         self, manager: JobManager, wait_until: WaitUntil
     ):
         record = manager.start(
-            "paste_dataset_collection",
+            "paste_volume_calibration",
             {"paste_id": "paste-1", "view_count": 4, "view_offset": 0.0},
         )
         wait_until(lambda: record.status.terminal, timeout=60.0)
@@ -893,7 +914,7 @@ class TestPasteDatasetCollectionPreflight:
         self, manager: JobManager, wait_until: WaitUntil
     ):
         record = manager.start(
-            "paste_dataset_collection",
+            "paste_volume_calibration",
             {
                 "paste_id": "paste-1",
                 "cell_size": 2.0,
@@ -912,7 +933,7 @@ class TestPasteDatasetCollectionPreflight:
         self, manager: JobManager, wait_until: WaitUntil
     ):
         record = manager.start(
-            "paste_dataset_collection",
+            "paste_volume_calibration",
             {
                 "paste_id": "paste-1",
                 "paste_lot": "lot-1",
@@ -1289,6 +1310,153 @@ class TestPasteDatasetFinalize:
         assert record.pending_prompt is None
 
 
+class TestPasteVolumeCalibrationFitStep:
+    """収集ジョブの最後で校正まで作る（`fit_calibration`）.
+
+    運転者の目的は校正を作ることなので、収集の終わりに別ページへ移らせない。
+
+    収集本体は装置を要求するので、合成ジョブへ同じ関数を通して確かめる。
+    """
+
+    STEM = "plate-47.5x20-20260909T145923.452+0900"
+
+    @pytest.fixture
+    def fit_manager(
+        self, make_manager: ManagerFactory, catalog: JobCatalog
+    ) -> JobManager:
+        """`fit_calibration` だけを呼ぶ合成ジョブを積んだ manager."""
+
+        def run(ctx: JobContext) -> JobResult:
+            summary, artifacts = fit_calibration(
+                ctx, Path(str(ctx.params["session_path"]))
+            )
+            return JobResult(summary=summary, artifacts=artifacts)
+
+        register_synthetic(
+            catalog,
+            run,
+            name="fit_calibration",
+            params=(
+                ParamSpec("session_path", "session", "str"),
+                *DETECTION_PARAMS,
+                REQUIRE_BLANK_ZERO_PARAM,
+                SAVE_NAME_PARAM,
+            ),
+        )
+        return make_manager(catalog)
+
+    def _run(
+        self,
+        manager: JobManager,
+        wait_until: WaitUntil,
+        session: Path,
+        **overrides: object,
+    ) -> JobRecord:
+        record = manager.start(
+            "fit_calibration", {"session_path": str(session), **overrides}
+        )
+        wait_until(lambda: record.status.terminal, timeout=60.0)
+        return record
+
+    def test_saves_a_calibration_without_a_second_page(
+        self,
+        fit_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        session = build_paste_volume_session(
+            fake_camera_settings.paste_dataset_dir / self.STEM
+        )
+
+        record = self._run(fit_manager, wait_until, session, save_name="collected")
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        saved = list_calibrations(fake_camera_settings.paste_volume_calibration_dir)
+        assert len(saved) == 1
+        calibration, error = load_calibration(saved[0])
+        assert error is None, error
+        assert calibration is not None
+        assert calibration.source.session == self.STEM
+
+    def test_reports_the_diagnostics_in_the_summary(
+        self,
+        fit_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        session = build_paste_volume_session(
+            fake_camera_settings.paste_dataset_dir / self.STEM
+        )
+
+        record = self._run(fit_manager, wait_until, session, save_name="collected")
+
+        assert record.result is not None
+        assert "総体積誤差" in str(record.result.summary)
+        assert {a.label for a in record.result.artifacts} >= {
+            "直径と体積の散布図",
+            "検出モンタージュ",
+            "校正ファイル",
+        }
+
+    def test_an_empty_save_name_still_reports_diagnostics(
+        self,
+        fit_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        """ハイパラ探索で Git 管理の保存先を汚さない（診断だけは出す）."""
+        session = build_paste_volume_session(
+            fake_camera_settings.paste_dataset_dir / self.STEM
+        )
+
+        record = self._run(fit_manager, wait_until, session)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert record.result is not None
+        assert "保存なし" in str(record.result.summary)
+        assert not fake_camera_settings.paste_volume_calibration_dir.exists()
+
+    def test_a_blank_false_positive_does_not_lose_the_collection(
+        self,
+        fit_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        """校正づくりが目的でも、1 時間の収集を FAILED で捨てない.
+
+        ハイパラを変えて作り直すのは `paste_volume_refit` の役目。
+        """
+        session = build_paste_volume_session(
+            fake_camera_settings.paste_dataset_dir / self.STEM,
+            blank_material="large",
+        )
+
+        record = self._run(fit_manager, wait_until, session, save_name="broken")
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert record.result is not None
+        assert record.result.summary == " / 校正生成失敗"
+        assert record.result.artifacts == ()
+        assert not fake_camera_settings.paste_volume_calibration_dir.exists()
+
+    def test_an_unreadable_session_does_not_lose_the_collection(
+        self,
+        fit_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+    ):
+        record = self._run(
+            fit_manager,
+            wait_until,
+            fake_camera_settings.paste_dataset_dir / "absent",
+            save_name="broken",
+        )
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert record.result is not None
+        assert record.result.summary == " / 校正生成失敗"
+
+
 class TestPasteDatasetVolumeVerification:
     """収集ジョブへ組み込んだ検証（`verify_with_calibration`）.
 
@@ -1468,7 +1636,7 @@ class TestPasteDatasetVolumeVerification:
         assert report["dispensed_count"] == report["cell_count"] - 1
 
 
-class TestPasteVolumeCalibrate:
+class TestPasteVolumeRefit:
     """収集済み session から直径ベース校正を作る（装置不要）.
 
     判定とフィットは `pcbasm.pasting.paste_volume` にあり、ここが確かめるのは
@@ -1483,7 +1651,7 @@ class TestPasteVolumeCalibrate:
         )
 
     def _start(self, manager: JobManager, **overrides: object) -> JobRecord:
-        return manager.start("paste_volume_calibrate", {**overrides})
+        return manager.start("paste_volume_refit", {**overrides})
 
     def test_fits_the_selected_session_and_writes_the_calibration(
         self,

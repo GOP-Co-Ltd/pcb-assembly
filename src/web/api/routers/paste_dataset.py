@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict
 
 from pcbasm.pasting.dataset.plan import DotGridPreview, preview_dot_grid
 from web.api.attrs_models import mirror_model
-from web.api.jobs.pasting.dataset import grid_spec_from_params
+from web.api.jobs.pasting.paste_volume_calibration import grid_spec_from_params
 
 router = APIRouter(prefix="/api/pasting", tags=["pasting"])
 

@@ -738,7 +738,7 @@ class TestPasteVolumeCalibrationSelect:
         name = self._write_calibration(live_server, "s3x70-n030-h020")
 
         browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            f"{live_ui.base_url}/pasting/paste_volume_calibration",
             wait_until="networkidle",
         )
 
@@ -753,7 +753,7 @@ class TestPasteVolumeCalibrationSelect:
         name = self._write_calibration(live_server, "s3x70-n030-h020")
 
         browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            f"{live_ui.base_url}/pasting/paste_volume_calibration",
             wait_until="networkidle",
         )
         browser_page.locator("#param-volume_calibration").select_option(name)
@@ -768,12 +768,12 @@ class TestPasteVolumeCalibrationSelect:
         """persisted_params が UI へ届く（1 時間の収集ごとに選び直させない）."""
         name = self._write_calibration(live_server, "s3x70-n030-h020")
         browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            f"{live_ui.base_url}/pasting/paste_volume_calibration",
             wait_until="networkidle",
         )
         _acquire_control(browser_page)
         response = httpx.post(
-            f"{live_server.base_url}/api/jobs/paste_dataset_collection"
+            f"{live_server.base_url}/api/jobs/paste_volume_calibration"
             "/param-defaults",
             json={"values": {"volume_calibration": name}},
             headers=_session_headers(browser_page),
@@ -790,7 +790,7 @@ class TestPasteVolumeCalibrationSelect:
     ):
         """校正が 1 つも無くても壊れず、既定は「検証しない」."""
         browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            f"{live_ui.base_url}/pasting/paste_volume_calibration",
             wait_until="networkidle",
         )
 
