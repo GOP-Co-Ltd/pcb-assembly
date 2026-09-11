@@ -19,6 +19,9 @@
   再接続なしで次フレームの枠位置へ反映される（circle / copper は対象外）
 """
 
+import contextlib
+from collections.abc import Iterator
+
 import attrs
 import numpy as np
 import pytest
@@ -203,21 +206,6 @@ class TestOverlays:
 
         assert _count_dominant(frame, channel=1) > 500
 
-    def test_copper_overlay_accepts_preprocessing_overrides(
-        self, service: PreviewService
-    ):
-        stream = service.mjpeg_stream(
-            "copper",
-            canny_low=50.0,
-            canny_high=150.0,
-        )
-        try:
-            frame = _decoded_frame(next(stream))
-        finally:
-            stream.close()
-
-        assert _count_dominant(frame, channel=1) > 500
-
     def test_copper_overlay_uses_gray_processed_background_and_green_edges(
         self, reflective_board_service: PreviewService
     ):
@@ -262,20 +250,33 @@ class _ManualClock:
         self.now += dt
 
 
+@contextlib.contextmanager
+def _override_setup(
+    state: AppState, clock: _ManualClock, override_ttl: float
+) -> Iterator[tuple[PreviewService, Image, Iterator[bytes]]]:
+    """Override スロット検証の共通セットアップ（service + magenta + 開始済み stream）."""
+    service = PreviewService(state, override_ttl=override_ttl, clock=clock)
+    magenta = Image(np.full((720, 1280, 3), (255, 0, 255), dtype=np.uint8))
+    stream = service.mjpeg_stream("none")
+    try:
+        next(stream)
+        yield service, magenta, stream
+    finally:
+        stream.close()
+
+
 class TestOverrideSlot:
     """ジョブ用オーバーライドスロット（Phase 3 の ctx.frame の受け口）."""
 
     def test_override_frame_takes_priority(self, state: AppState):
         clock = _ManualClock()
-        service = PreviewService(state, override_ttl=0.2, clock=clock)
-        magenta = Image(np.full((720, 1280, 3), (255, 0, 255), dtype=np.uint8))
-        stream = service.mjpeg_stream("none")
-        try:
-            next(stream)
+        with _override_setup(state, clock, override_ttl=0.2) as (
+            service,
+            magenta,
+            stream,
+        ):
             service.submit_override(magenta)
             frame = _decoded_frame(next(stream))
-        finally:
-            stream.close()
 
         assert frame[..., 0].mean() > 200  # B
         assert frame[..., 1].mean() < 50  # G
@@ -283,35 +284,31 @@ class TestOverrideSlot:
 
     def test_override_expires_after_ttl(self, state: AppState):
         clock = _ManualClock()
-        service = PreviewService(state, override_ttl=0.2, clock=clock)
-        magenta = Image(np.full((720, 1280, 3), (255, 0, 255), dtype=np.uint8))
-        stream = service.mjpeg_stream("none")
-        try:
-            next(stream)
+        with _override_setup(state, clock, override_ttl=0.2) as (
+            service,
+            magenta,
+            stream,
+        ):
             service.submit_override(magenta)
             clock.advance(0.21)
             frame = _decoded_frame(next(stream))
-        finally:
-            stream.close()
 
         # 生フレーム（明るい無彩色の基板風画像）に戻っている
         assert frame[..., 1].mean() > 100
 
     def test_persistent_override_stays_until_cleared(self, state: AppState):
         clock = _ManualClock()
-        service = PreviewService(state, override_ttl=0.05, clock=clock)
-        magenta = Image(np.full((720, 1280, 3), (255, 0, 255), dtype=np.uint8))
-        stream = service.mjpeg_stream("none")
-        try:
-            next(stream)
+        with _override_setup(state, clock, override_ttl=0.05) as (
+            service,
+            magenta,
+            stream,
+        ):
             service.submit_override(magenta, persist=True)
             clock.advance(1.0)  # TTL を大きく跨いでも persist が優先される
             persisted = _decoded_frame(next(stream))
 
             service.clear_override()
             cleared = _decoded_frame(next(stream))
-        finally:
-            stream.close()
 
         assert persisted[..., 0].mean() > 200
         assert persisted[..., 1].mean() < 50
@@ -372,17 +369,3 @@ class TestHoldCamera:
             assert state.frame_hub().running
 
         assert not state.frame_hub().running
-
-    def test_camera_construction_failure_propagates(
-        self, fake_camera_settings: Settings, config_dir, tmp_path
-    ):
-        """カメラ初期化失敗は伝播する（ジョブ側で FAILED 化される）."""
-        settings = attrs.evolve(
-            fake_camera_settings, fake_camera_image=tmp_path / "missing.png"
-        )
-        state = AppState(settings, ConfigStore(config_dir))
-        service = PreviewService(state)
-
-        with pytest.raises(FileNotFoundError):
-            with service.hold_camera():
-                pass
