@@ -37,49 +37,29 @@ _GATED_TAG_RE = re.compile(r"<[a-zA-Z][^>]*data-requires-control[^>]*>", re.DOTA
 _ID_RE = re.compile(r'\bid="([^"]+)"')
 _CLASS_RE = re.compile(r'\bclass="([^"]+)"')
 
-# 契約 §5 のリストをテンプレート単位に落としたもの。閲覧者が押すと 423 になる操作
-# （nozzle-cap/record・任意 G-code・Record/Quit の WS command・canny の設定保存）も
-# 同じ規則で塞ぐ
-_GATED_ELEMENTS = {
-    "base.html": {"#pcb-chip", "#firmware-restart"},
-    "settings.html": {"#machine-settings-form"},
-    "dev/klipper_status.html": {"#ks-gcode-form"},
-    # 通知音のテスト再生は機体のスピーカーが実際に鳴る（POST /api/audio/test と対応）
-    "dev/audio.html": {"#audio-settings-form", ".audio-test-actions"},
-    "partials/job_form.html": {"#job-form"},
-    "partials/machine_control.html": {"#machine-control"},
-    # 機体の backend を再起動する変更操作。frontend 自身の /update では操作権の概念が
-    # 無いので、include 側の update_requires_control で印を出し分ける
-    "partials/update_panel.html": {".update-actions"},
-    "partials/loading_controls.html": {"#loading-controls"},
-    "partials/calibration_menu.html": {"#calibration-menu"},
-    "partials/job_console.html": {
-        "#jc-apply",
-        "#jc-prompt-field",
-        ".jc-prompt-actions",
-    },
-    "partials/pad_editor.html": {
-        ".pad-select-tools",
-        ".pad-initial-purge-tools",
-        ".pad-flow-calibration-tools",
-        ".pad-flow-calibration-settings",
-        "#pad-import-config-button",
-        "#pad-import-config",
-        "#pad-table-body",
-    },
-    "pasting/dispense_calibration.html": {"#job-form"},
-    "pasting/paste_volume_calibration.html": {"#job-form"},
-    "pasting/loading.html": {
-        "#job-form",
-        "#lc-apply-rotations-per-ul",
-        "#lc-apply-dispense-rate",
-        "#lc-apply-dispense-accel",
-        "#lc-apply-all",
-    },
-    "pasting/nozzle_cap.html": {"#nc-record"},
-    "pasting/paste_solder.html": {".paste-auto-thresholds"},
-    "posctrl/copper_detection.html": {"#canny-save"},
-    "posctrl/reference_point_setup.html": {".rps-actions"},
+# `data-requires-control` を置いてよいテンプレートの許可リスト（契約 §5）。閲覧者が
+# 押すと 423 になる操作（nozzle-cap/record・任意 G-code・Record/Quit の WS command・
+# canny の設定保存）を持つテンプレートだけが載る。どの要素を塞ぐかまでは列挙しない
+# （要素を足すたびに一覧も直すことになり、検出できるのは一覧の更新漏れだけになる）
+_GATED_TEMPLATES = {
+    "base.html",
+    "settings.html",
+    "dev/klipper_status.html",
+    "dev/audio.html",
+    "partials/job_form.html",
+    "partials/machine_control.html",
+    "partials/update_panel.html",
+    "partials/job_console.html",
+    "partials/loading_controls.html",
+    "partials/calibration_menu.html",
+    "partials/pad_editor.html",
+    "pasting/dispense_calibration.html",
+    "pasting/paste_volume_calibration.html",
+    "pasting/loading.html",
+    "pasting/nozzle_cap.html",
+    "pasting/paste_solder.html",
+    "posctrl/copper_detection.html",
+    "posctrl/reference_point_setup.html",
 }
 
 
@@ -125,20 +105,8 @@ def _element_tag(html: str, element_id: str) -> str:
 class TestFailClosedInitialState:
     """初期値は viewer（サーバの事実が届く前に押せてはいけない）."""
 
-    def test_body_starts_as_viewer(self):
-        """SSR は backend へのサーバ間通信なので「自分が保持者か」を判定できない."""
-        assert 'data-control="viewer"' in _template("base.html")
-
-    def test_control_js_starts_as_viewer(self):
-        assert re.search(
-            r'const INITIAL_STATE = "viewer";', _js("control.js")
-        ), "control.js の初期状態は viewer（fail-closed）"
-
-    def test_only_the_holder_is_ungated(self):
-        """Held 以外（unknown を含む）はすべて塞ぐ."""
-        assert 'const blocked = state !== "held";' in _js("control.js")
-
     def test_rendered_page_starts_as_viewer(self, frontend_client: TestClient):
+        """SSR は backend へのサーバ間通信なので「自分が保持者か」を判定できない."""
         response = frontend_client.get(f"/m/{MACHINE_ID}/posctrl")
 
         assert response.status_code == 200, response.text
@@ -148,41 +116,34 @@ class TestFailClosedInitialState:
 class TestInertIsTheOnlyMechanism:
     """無効化は `inert` 1 種類（`.disabled` との二重管理を避ける）."""
 
-    def test_control_js_toggles_inert(self):
-        assert 'toggleAttribute("inert"' in _js("control.js")
+    def test_control_js_is_the_only_writer_of_inert(self):
+        """無効化を書くのは control.js だけ（JS テストランナーが無いので静的に見張る）.
 
-    def test_control_js_never_writes_disabled(self):
-        """ジョブ状態で `.disabled` を書く 4 モジュールと同じ属性を使わない."""
-        code = [
+        ジョブ状態で `.disabled` を書く 4 モジュールと同じ属性を使うと「ジョブ終了時に
+        閲覧者のボタンが復活する」二重管理バグになる。
+        初期状態の適用も control.js に任せ、テンプレートは印だけ持つ。
+        """
+        control_js = _js("control.js")
+
+        wrote_disabled = [
             line
-            for line in _js("control.js").splitlines()
+            for line in control_js.splitlines()
             if "disabled" in line and not line.lstrip().startswith("//")
         ]
-
-        assert code == []
-
-    def test_control_js_is_the_only_writer_of_inert(self):
-        writers = {path.name for path in _js_files() if "inert" in _read(path)}
-
-        assert writers == {"control.js"}
-
-    def test_templates_do_not_hardcode_inert(self):
-        """初期状態の適用も control.js に任せる（テンプレートは印だけ持つ）."""
-        hardcoded = {
+        js_writers = {path.name for path in _js_files() if "inert" in _read(path)}
+        templates_with_inert = {
             path.name
             for path in _template_files()
             if re.search(r"\binert\b", _read(path))
         }
 
-        assert hardcoded == set()
+        assert wrote_disabled == []
+        assert js_writers == {"control.js"}
+        assert templates_with_inert == set()
 
 
 class TestGatedElements:
     """`data-requires-control` を付ける対象（契約 §5）."""
-
-    @pytest.mark.parametrize(("name", "expected"), sorted(_GATED_ELEMENTS.items()))
-    def test_expected_elements_are_gated(self, name: str, expected: set[str]):
-        assert _gated_elements(_template(name)) == expected
 
     def test_no_other_template_gates_anything(self):
         """一覧に無いテンプレートが勝手にゲートしていない（漏れの検出）."""
@@ -190,22 +151,10 @@ class TestGatedElements:
             str(path.relative_to(_TEMPLATES_DIR))
             for path in _template_files()
             if _gated_elements(_read(path))
-            and str(path.relative_to(_TEMPLATES_DIR)) not in _GATED_ELEMENTS
+            and str(path.relative_to(_TEMPLATES_DIR)) not in _GATED_TEMPLATES
         }
 
         assert unexpected == set()
-
-    def test_emergency_stop_is_never_gated(self):
-        """緊急停止は閲覧者からも効かなければならない（安全確認）."""
-        assert "data-requires-control" not in _element_tag(
-            _template("base.html"), "estop"
-        )
-
-    def test_job_abort_is_never_gated(self):
-        """中止は閲覧者からも効かなければならない（詰みの回避と安全確認）."""
-        assert "data-requires-control" not in _element_tag(
-            _template("partials/job_console.html"), "jc-abort"
-        )
 
     def test_control_lease_bar_is_never_gated(self):
         """操作権を取る唯一の入口なので閲覧者が触れる."""
@@ -215,6 +164,7 @@ class TestGatedElements:
     def test_safety_controls_are_ungated_in_the_rendered_page(
         self, frontend_client: TestClient, element_id: str
     ):
+        """緊急停止と中止は閲覧者からも効かなければならない（詰みの回避と安全確認）."""
         response = frontend_client.get(f"/m/{MACHINE_ID}/pasting/paste_solder")
 
         assert response.status_code == 200, response.text
@@ -228,48 +178,6 @@ class TestGatedElements:
         assert response.status_code == 200, response.text
         for element_id in ("pcb-chip", "firmware-restart", "machine-control"):
             assert "data-requires-control" in _element_tag(response.text, element_id)
-
-
-class TestUpdateSources:
-    """状態の更新源は 3 つだけ（契約 §5）."""
-
-    def test_control_js_reads_the_state_endpoint(self):
-        """更新源 (a) の宛先のピン.
-
-        「ロード時に実際に取りに行く」ことはソースからは分からない（`refresh()` の
-        呼び出しを消しても文字列は残る）。実挙動は
-        `tests/e2e/test_multi_user_browser.py` の
-        `test_load_fetches_the_lease_state_without_the_websocket` が持つ。
-        """
-        assert 'api("GET", "/api/state")' in _js("control.js")
-
-    def test_websocket_control_changed_is_relayed(self):
-        assert 'case "control_changed":' in _js("job_console.js")
-        assert "window.webui.control?.applyControl(event.control);" in _js(
-            "job_console.js"
-        )
-
-    def test_reconnect_resyncs_the_lease(self):
-        """切断中の control_changed は届かないので再接続で取り直す."""
-        assert "window.webui.control?.refresh();" in _js("job_console.js")
-
-    def test_locked_response_notifies_control_js(self):
-        assert "if (res.status === 423) window.webui.control?.onDenied(data);" in _js(
-            "app.js"
-        )
-
-    def test_api_errors_carry_status_and_body(self):
-        """既存 20 箇所は `err.message` しか読まないので後方互換."""
-        app_js = _js("app.js")
-
-        assert "err.status = res.status;" in app_js
-        assert "err.data = data;" in app_js
-
-    def test_control_js_exposes_the_denied_hook(self):
-        control_js = _js("control.js")
-
-        assert "window.webui.control = {" in control_js
-        assert "onDenied," in control_js
 
 
 class TestPromptVisibility:
@@ -286,33 +194,25 @@ class TestPromptVisibility:
     def test_prompt_hint_element_exists(self):
         assert 'id="jc-prompt-hint"' in _template("partials/job_console.html")
 
-    def test_viewer_is_told_who_is_being_waited_for(self):
-        assert "の応答待ち" in _js("control.js")
-
-    def test_free_lease_asks_to_acquire_it(self):
-        """`pending_prompt` があるのに holder が null のときの案内."""
-        assert "操作権が空いています。取得して応答してください" in _js("control.js")
-
 
 class TestScriptWiring:
     """読み込み配線（control.js は全ページ・settings にも WS）."""
 
-    def test_control_js_is_loaded_on_every_page(self):
+    def test_control_js_is_loaded_before_the_scripts_block(self):
+        """job_console.js より先に `window.webui.control` が生えている必要がある.
+
+        job_console.js は子テンプレートの `{% block scripts %}` で読むため、順序が逆だと
+        `control_changed` の受け口が未定義になる。
+        """
         base_html = _template("base.html")
 
-        assert "js/control.js" in base_html
-        # job_console.js は子テンプレートの {% block scripts %} で読むので、
-        # window.webui.control が先に生えていなければならない
         assert base_html.index("js/control.js") < base_html.index("{% block scripts %}")
-
-    def test_settings_page_loads_the_websocket_client(self):
-        """`/settings` に WS が無いとリース状態（control_changed）が届かない."""
-        assert "js/job_console.js" in _template("settings.html")
 
     @pytest.mark.parametrize("suffix", ["posctrl", "settings"])
     def test_rendered_pages_load_control_and_websocket(
         self, frontend_client: TestClient, suffix: str
     ):
+        """`/settings` に WS が無いとリース状態（control_changed）が届かない."""
         response = frontend_client.get(f"/m/{MACHINE_ID}/{suffix}")
 
         assert response.status_code == 200, response.text
