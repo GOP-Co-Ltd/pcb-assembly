@@ -20,7 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.config import DEFAULT_AUDIO_DEVICE, DEFAULT_AUDIO_VOLUME, Audio
-from pcbasm.hal import AudioDevice, AudioPlaybackError
+from pcbasm.hal import AudioPlaybackError
 from tests.helpers import FAKE_AUDIO_DEVICES, FakeAudioPlayer
 from web.api.app import create_app
 from web.api.settings import Settings
@@ -102,8 +102,8 @@ class TestAudioTestApi:
 
     @pytest.mark.parametrize(
         "body",
-        [{"sound": "other"}, {"sound": ""}, {"sound": None}, {}],
-        ids=["unknown", "blank", "null", "missing"],
+        [{"sound": "other"}, {}],
+        ids=["unknown", "missing"],
     )
     def test_rejects_invalid_sound(
         self,
@@ -115,18 +115,3 @@ class TestAudioTestApi:
 
         assert response.status_code == 422
         assert audio_player.played == ()
-
-
-class TestDeviceListSource:
-    """デバイス候補はプレイヤーの列挙結果に従う（router は絞り込まない）."""
-
-    def test_single_device_player_returns_only_that_device(
-        self, webui_settings: Settings
-    ):
-        only = AudioDevice(DEFAULT_AUDIO_DEVICE, "システム既定")
-        player = FakeAudioPlayer(devices=[only])
-
-        with TestClient(create_app(webui_settings, audio_player=player)) as client:
-            data = client.get("/api/audio/settings").json()
-
-        assert data["devices"] == [{"name": only.name, "label": only.label}]

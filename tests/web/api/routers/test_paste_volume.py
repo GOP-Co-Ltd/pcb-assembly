@@ -80,7 +80,7 @@ class TestListCalibrations:
     def test_builds_the_display_strings_on_the_server(
         self, client: TestClient, calibration_dir: Path
     ):
-        """JS で連結させない（webui-thin-wrapper）."""
+        """``<select>`` へそのまま入れられる形で返す（JS で連結させない）."""
         _write(calibration_dir, "s3x70")
 
         listed = client.get("/api/pasting/paste-volume/calibrations").json()[
@@ -90,40 +90,14 @@ class TestListCalibrations:
         assert listed[0]["label"]
         assert "ノズル" in listed[0]["conditions"]
         assert "総体積誤差" in listed[0]["diagnostics"]
-
-    def test_returns_ready_to_display_option_label_and_details(
-        self, client: TestClient, calibration_dir: Path
-    ):
-        """``<select>`` へそのまま入れられる形で返す（JS 側で組み立てない）."""
-        _write(calibration_dir, "s3x70")
-
-        listed = client.get("/api/pasting/paste-volume/calibrations").json()[
-            "calibrations"
-        ]
-
         assert listed[0]["option_label"] == listed[0]["label"]
         assert listed[0]["conditions"] in listed[0]["details"]
         assert listed[0]["diagnostics"] in listed[0]["details"]
 
-    def test_a_broken_file_still_carries_a_display_string(
-        self, client: TestClient, calibration_dir: Path
-    ):
-        """壊れていても選択肢のラベルは空にしない（名前で判別できるように）."""
-        calibration_dir.mkdir(parents=True, exist_ok=True)
-        (calibration_dir / f"broken{CALIBRATION_SUFFIX}").write_text(
-            "{ not json", encoding="utf-8"
-        )
-
-        listed = client.get("/api/pasting/paste-volume/calibrations").json()[
-            "calibrations"
-        ]
-
-        assert f"broken{CALIBRATION_SUFFIX}" in listed[0]["option_label"]
-        assert listed[0]["details"]
-
     def test_reports_a_broken_file_without_losing_the_listing(
         self, client: TestClient, calibration_dir: Path
     ):
+        """壊れた 1 件で一覧を落とさず、そのラベルも空にしない（名前で判別できるように）."""
         _write(calibration_dir, "healthy")
         (calibration_dir / f"broken{CALIBRATION_SUFFIX}").write_text(
             "{ not json", encoding="utf-8"
@@ -134,8 +108,11 @@ class TestListCalibrations:
         assert response.status_code == 200
         listed = {item["name"]: item for item in response.json()["calibrations"]}
         assert listed[f"healthy{CALIBRATION_SUFFIX}"]["error"] is None
-        assert listed[f"broken{CALIBRATION_SUFFIX}"]["error"] is not None
-        assert listed[f"broken{CALIBRATION_SUFFIX}"]["label"] is None
+        broken = listed[f"broken{CALIBRATION_SUFFIX}"]
+        assert broken["error"] is not None
+        assert broken["label"] is None
+        assert f"broken{CALIBRATION_SUFFIX}" in broken["option_label"]
+        assert broken["details"]
 
     def test_reports_an_unsupported_schema_version(
         self, client: TestClient, calibration_dir: Path

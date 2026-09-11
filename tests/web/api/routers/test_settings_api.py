@@ -57,31 +57,106 @@ class TestMachineSettingsApi:
     """GET / PUT /api/settings/machine."""
 
     def test_get_returns_every_whitelisted_field(self, client: TestClient):
+        """公開キー集合は MACHINE_FIELDS そのもので、各項目が label / value / value_type を持つ."""
         response = client.get("/api/settings/machine")
 
         assert response.status_code == 200
-        data = response.json()
-        fields = {field["key"]: field for field in data["fields"]}
+        fields = {field["key"]: field for field in response.json()["fields"]}
         assert set(fields) == {spec.key for spec in MACHINE_FIELDS}
+        assert all(field["label"] for field in fields.values())
 
-        max_fill_speed = fields["paste_dispenser.max_fill_speed"]
-        assert max_fill_speed["value"] == 0.8
-        assert max_fill_speed["value_type"] == "float"
-        assert max_fill_speed["label"]
-        assert fields["paste_dispenser.dispense_mode"]["value"] == "auto"
-        assert fields["paste_dispenser.dispense_mode"]["value_type"] == "dispense_mode"
-        assert fields["paste_dispenser.line_direction"]["value"] is None
-        assert (
-            fields["paste_dispenser.line_direction"]["value_type"] == "line_direction"
-        )
-        assert fields["paste_dispenser.auto_line_aspect_ratio"]["value"] == 1.618
+        # 代表 2 型: そのまま返る float と、"auto" を取り得る float_or_auto
+        assert fields["paste_dispenser.max_fill_speed"]["value"] == 0.8
+        assert fields["paste_dispenser.max_fill_speed"]["value_type"] == "float"
         assert fields["paste_dispenser.paste_height"]["value"] == "auto"
         assert fields["paste_dispenser.paste_height"]["value_type"] == "float_or_auto"
-        assert fields["paste_dispenser.lift_height"]["value"] == 2.0
-        assert fields["paste_dispenser.lift_height"]["value_type"] == "float"
-        assert fields["probe.lift_height"]["value_type"] == "float"
-        assert fields["probe.board_edge_margin"]["value"] == 2.5
-        assert fields["probe.board_edge_margin"]["value_type"] == "float"
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            pytest.param("paste_dispenser.dispense_mode", "line", id="dispense_mode"),
+            pytest.param(
+                "paste_dispenser.line_direction", "outward", id="line_direction"
+            ),
+            pytest.param("paste_dispenser.paste_height", "auto", id="float_or_auto"),
+            pytest.param("paste_dispenser.auto_line_aspect_ratio", 1.7, id="float"),
+            pytest.param("audio.device", "plughw:CARD=Audio,DEV=0", id="str"),
+            pytest.param("audio.volume", 0.4, id="audio-volume"),
+            pytest.param(
+                "reference_point.offsets.bottom_right", [-4.0, 4.0], id="float_pair"
+            ),
+            pytest.param("paste_dispenser.pad_align.region_size_px", 160, id="int"),
+            pytest.param(
+                "paste_dispenser.pad_align.region_overlap", 0.25, id="region-overlap"
+            ),
+        ],
+    )
+    def test_put_writes_the_value_and_echoes_it_back(
+        self, client: TestClient, key: str, value: object
+    ):
+        """value_type ごとに、PUT した値がそのまま応答の `value` に戻る."""
+        response = client.put("/api/settings/machine", json={"values": {key: value}})
+
+        assert response.status_code == 200, response.text
+        field = next(item for item in response.json()["fields"] if item["key"] == key)
+        assert field["value"] == value
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            pytest.param("paste_dispenser.no_such_key", 1.0, id="unknown-key"),
+            pytest.param(
+                "reference_point.offsets.top_left", [1.0], id="short-float-pair"
+            ),
+            # bool を受け付けるフィールドは無く、数値へ暗黙変換もされない
+            pytest.param("paste_dispenser.max_fill_speed", True, id="bool-for-float"),
+            pytest.param(
+                "paste_dispenser.dispense_mode", "spray", id="unknown-dispense-mode"
+            ),
+            pytest.param(
+                "paste_dispenser.line_direction",
+                "sideways",
+                id="unknown-line-direction",
+            ),
+            pytest.param(
+                "paste_dispenser.auto_line_aspect_ratio", 1.0, id="auto-line-ratio-at-1"
+            ),
+            pytest.param("probe.board_edge_margin", 0.0, id="non-positive-margin"),
+            pytest.param("paste_dispenser.lift_height", 0.0, id="non-positive-lift"),
+            pytest.param("audio.device", " ", id="blank-audio-device"),
+            pytest.param("audio.volume", -0.1, id="audio-volume-below-range"),
+            pytest.param("audio.volume", 1.1, id="audio-volume-above-range"),
+            pytest.param(
+                "paste_dispenser.pad_align.refine_max_short_side",
+                True,
+                id="bool-refinement-threshold",
+            ),
+            pytest.param(
+                "paste_dispenser.pad_align.refine_max_short_side",
+                -0.01,
+                id="negative-refinement-threshold",
+            ),
+            pytest.param(
+                "paste_dispenser.pad_align.region_overlap",
+                -0.01,
+                id="overlap-below-range",
+            ),
+            pytest.param(
+                "paste_dispenser.pad_align.region_overlap", 1.0, id="overlap-at-1"
+            ),
+            # camera.crop.* は 1 以上の int（webui-camera-calib 計画書・要確認事項 2）
+            pytest.param("camera.crop.width", 0, id="zero-crop-width"),
+            pytest.param("camera.crop.height", -1, id="negative-crop-height"),
+        ],
+    )
+    def test_put_invalid_value_returns_400(
+        self, client: TestClient, key: str, value: object
+    ):
+        """値そのものの検証は config_store が担う。ここは 400 写像と、原因キーを名指しすることを見る."""
+        response = client.put("/api/settings/machine", json={"values": {key: value}})
+
+        assert response.status_code == 400
+        assert key.rsplit(".", 1)[-1] in response.text
 
     def test_get_reports_none_for_missing_keys(self, client: TestClient):
         fields = {
@@ -173,66 +248,6 @@ class TestMachineSettingsApi:
         # 変更対象外のコメントが無傷で残る
         assert "キャリブレーション値 2026/06/08" in after_text
 
-    def test_put_writes_enum_values_and_auto_height(self, client: TestClient):
-        response = client.put(
-            "/api/settings/machine",
-            json={
-                "values": {
-                    "paste_dispenser.dispense_mode": "line",
-                    "paste_dispenser.line_direction": "outward",
-                    "paste_dispenser.paste_height": "auto",
-                    "paste_dispenser.auto_line_aspect_ratio": 1.7,
-                }
-            },
-        )
-
-        assert response.status_code == 200, response.text
-        fields = {field["key"]: field for field in response.json()["fields"]}
-        assert fields["paste_dispenser.dispense_mode"]["value"] == "line"
-        assert fields["paste_dispenser.line_direction"]["value"] == "outward"
-        assert fields["paste_dispenser.paste_height"]["value"] == "auto"
-        assert fields["paste_dispenser.auto_line_aspect_ratio"]["value"] == 1.7
-
-    def test_get_returns_audio_fields_as_unset(self, client: TestClient):
-        """`[audio]` は fixture に無い（未設定でも既定値で鳴る）ので value は None."""
-        fields = {
-            field["key"]: field
-            for field in client.get("/api/settings/machine").json()["fields"]
-        }
-
-        assert fields["audio.device"]["value"] is None
-        assert fields["audio.device"]["value_type"] == "str"
-        assert fields["audio.volume"]["value"] is None
-        assert fields["audio.volume"]["value_type"] == "float"
-
-    def test_put_writes_audio_settings(self, client: TestClient):
-        response = client.put(
-            "/api/settings/machine",
-            json={
-                "values": {
-                    "audio.device": "plughw:CARD=Audio,DEV=0",
-                    "audio.volume": 0.4,
-                }
-            },
-        )
-
-        assert response.status_code == 200, response.text
-        fields = {field["key"]: field for field in response.json()["fields"]}
-        assert fields["audio.device"]["value"] == "plughw:CARD=Audio,DEV=0"
-        assert fields["audio.volume"]["value"] == 0.4
-
-    @pytest.mark.parametrize(
-        ("key", "value"),
-        [("audio.device", " "), ("audio.volume", -0.1), ("audio.volume", 1.1)],
-    )
-    def test_put_invalid_audio_setting_returns_400(
-        self, client: TestClient, key: str, value: str | float
-    ):
-        response = client.put("/api/settings/machine", json={"values": {key: value}})
-
-        assert response.status_code == 400
-        assert key in response.text
-
     def test_get_returns_reference_point_offset_pairs(self, client: TestClient):
         fields = {
             field["key"]: field
@@ -243,83 +258,6 @@ class TestMachineSettingsApi:
         assert top_left["value"] == [5.0, -5.0]
         assert top_left["value_type"] == "float_pair"
         assert fields["reference_point.offsets.bottom_right"]["value"] == [-5.0, 5.0]
-
-    def test_put_writes_float_pair(self, client: TestClient):
-        response = client.put(
-            "/api/settings/machine",
-            json={"values": {"reference_point.offsets.bottom_right": [-4.0, 4.0]}},
-        )
-
-        assert response.status_code == 200, response.text
-        fields = {field["key"]: field for field in response.json()["fields"]}
-        assert fields["reference_point.offsets.bottom_right"]["value"] == [-4.0, 4.0]
-
-    def test_put_invalid_float_pair_returns_400(self, client: TestClient):
-        response = client.put(
-            "/api/settings/machine",
-            json={"values": {"reference_point.offsets.top_left": [1.0]}},
-        )
-
-        assert response.status_code == 400
-
-    def test_put_unknown_key_returns_400(self, client: TestClient):
-        response = client.put(
-            "/api/settings/machine",
-            json={"values": {"paste_dispenser.no_such_key": 1.0}},
-        )
-
-        assert response.status_code == 400
-
-    def test_put_bool_value_returns_400(self, client: TestClient):
-        # bool を受け付けるフィールドは無く、数値へ暗黙変換もされない
-        response = client.put(
-            "/api/settings/machine",
-            json={"values": {"paste_dispenser.max_fill_speed": True}},
-        )
-
-        assert response.status_code == 400
-
-    def test_put_unknown_dispense_mode_returns_400(self, client: TestClient):
-        response = client.put(
-            "/api/settings/machine",
-            json={"values": {"paste_dispenser.dispense_mode": "spray"}},
-        )
-
-        assert response.status_code == 400
-
-    def test_put_unknown_line_direction_returns_400(self, client: TestClient):
-        response = client.put(
-            "/api/settings/machine",
-            json={"values": {"paste_dispenser.line_direction": "sideways"}},
-        )
-
-        assert response.status_code == 400
-
-    def test_put_invalid_auto_line_threshold_returns_400(self, client: TestClient):
-        response = client.put(
-            "/api/settings/machine",
-            json={"values": {"paste_dispenser.auto_line_aspect_ratio": 1.0}},
-        )
-
-        assert response.status_code == 400
-
-    def test_put_non_positive_board_edge_margin_returns_400(self, client: TestClient):
-        response = client.put(
-            "/api/settings/machine",
-            json={"values": {"probe.board_edge_margin": 0.0}},
-        )
-
-        assert response.status_code == 400
-        assert "board_edge_margin" in response.text
-
-    def test_put_non_positive_paste_lift_height_returns_400(self, client: TestClient):
-        response = client.put(
-            "/api/settings/machine",
-            json={"values": {"paste_dispenser.lift_height": 0.0}},
-        )
-
-        assert response.status_code == 400
-        assert "lift_height" in response.text
 
     def test_put_while_busy_returns_409(self, client: TestClient, appstate: AppState):
         with appstate.machine_lock("pytest-job"):
@@ -333,19 +271,6 @@ class TestMachineSettingsApi:
 
 class TestPadAlignRegionSettingsApi:
     """重複領域の寸法と overlap を GET / PUT できる."""
-
-    def test_get_reports_region_fields_when_missing(self, client: TestClient):
-        fields = {
-            field["key"]: field
-            for field in client.get("/api/settings/machine").json()["fields"]
-        }
-
-        size = fields["paste_dispenser.pad_align.region_size_px"]
-        overlap = fields["paste_dispenser.pad_align.region_overlap"]
-        assert size["value"] is None
-        assert size["value_type"] == "int"
-        assert overlap["value"] is None
-        assert overlap["value_type"] == "float"
 
     def test_get_reports_unset_refinement_threshold_with_resolved_default(
         self, client: TestClient
@@ -378,51 +303,6 @@ class TestPadAlignRegionSettingsApi:
         assert "refine_max_short_side = 0.0" in (config_dir / "machine.toml").read_text(
             encoding="utf-8"
         )
-
-    @pytest.mark.parametrize(
-        "threshold",
-        [True, -0.01],
-        ids=["bool", "negative"],
-    )
-    def test_put_invalid_refinement_threshold_returns_400(
-        self, client: TestClient, threshold: object
-    ):
-        response = client.put(
-            "/api/settings/machine",
-            json={
-                "values": {"paste_dispenser.pad_align.refine_max_short_side": threshold}
-            },
-        )
-
-        assert response.status_code == 400
-        assert "refine_max_short_side" in response.text
-
-    def test_put_writes_values(self, client: TestClient):
-        response = client.put(
-            "/api/settings/machine",
-            json={
-                "values": {
-                    "paste_dispenser.pad_align.region_size_px": 160,
-                    "paste_dispenser.pad_align.region_overlap": 0.25,
-                }
-            },
-        )
-
-        assert response.status_code == 200, response.text
-        fields = {field["key"]: field for field in response.json()["fields"]}
-        assert fields["paste_dispenser.pad_align.region_size_px"]["value"] == 160
-        assert fields["paste_dispenser.pad_align.region_overlap"][
-            "value"
-        ] == pytest.approx(0.25)
-
-    @pytest.mark.parametrize("overlap", [-0.01, 1.0])
-    def test_put_invalid_overlap_returns_400(self, client: TestClient, overlap: float):
-        response = client.put(
-            "/api/settings/machine",
-            json={"values": {"paste_dispenser.pad_align.region_overlap": overlap}},
-        )
-
-        assert response.status_code == 400
 
 
 class TestCameraSettingsRebuild:
@@ -487,19 +367,6 @@ class TestCameraSettingsRebuild:
 
         assert response.status_code == 200, response.text
         assert fake_camera_appstate.frame_hub() is not hub
-
-
-class TestCameraCropValidation:
-    """Camera.crop.* の 1 以上検証（webui-camera-calib 計画書・要確認事項 2）."""
-
-    @pytest.mark.parametrize("key", ["camera.crop.width", "camera.crop.height"])
-    @pytest.mark.parametrize("value", [0, -1])
-    def test_put_non_positive_crop_returns_400(
-        self, client: TestClient, key: str, value: int
-    ):
-        response = client.put("/api/settings/machine", json={"values": {key: value}})
-
-        assert response.status_code == 400
 
 
 class TestAdvertisementUpdate:

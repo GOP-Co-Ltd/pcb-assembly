@@ -30,22 +30,18 @@ from web.api.state import AppState
 class TestMachineControlValidation:
     """パラメータ検証（Moonraker 接続前に 400）."""
 
-    def test_jog_without_distance_returns_400(self, client: TestClient):
-        response = client.post(
-            "/api/machine-control", json={"action": "jog", "axis": "x"}
-        )
-
-        assert response.status_code == 400
-
-    def test_jog_without_axis_returns_400(self, client: TestClient):
-        response = client.post(
-            "/api/machine-control", json={"action": "jog", "distance": 1.0}
-        )
-
-        assert response.status_code == 400
-
-    def test_move_without_axes_returns_400(self, client: TestClient):
-        response = client.post("/api/machine-control", json={"action": "move"})
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param({"action": "jog", "axis": "x"}, id="jog-without-distance"),
+            pytest.param({"action": "jog", "distance": 1.0}, id="jog-without-axis"),
+            pytest.param({"action": "move"}, id="move-without-axes"),
+        ],
+    )
+    def test_missing_parameters_return_400(
+        self, client: TestClient, body: dict[str, object]
+    ):
+        response = client.post("/api/machine-control", json=body)
 
         assert response.status_code == 400
 
@@ -65,24 +61,17 @@ class TestMachineControlValidation:
 class TestGcodeAction:
     """Action="gcode"（Phase 3: dev タブの任意 G-code 送信）."""
 
-    def test_missing_gcode_returns_400(self, client: TestClient):
-        response = client.post("/api/machine-control", json={"action": "gcode"})
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param({"action": "gcode"}, id="missing-gcode"),
+            pytest.param({"action": "gcode", "gcode": ""}, id="empty-gcode"),
+        ],
+    )
+    def test_blank_gcode_returns_400(self, client: TestClient, body: dict[str, object]):
+        response = client.post("/api/machine-control", json=body)
 
         assert response.status_code == 400
-
-    def test_empty_gcode_returns_400(self, client: TestClient):
-        response = client.post(
-            "/api/machine-control", json={"action": "gcode", "gcode": ""}
-        )
-
-        assert response.status_code == 400
-
-    def test_unreachable_moonraker_returns_502(self, client: TestClient):
-        response = client.post(
-            "/api/machine-control", json={"action": "gcode", "gcode": "M400"}
-        )
-
-        assert response.status_code == 502
 
     @mark_hardware
     def test_gcode_send_returns_status(self, real_client: TestClient):
@@ -152,9 +141,18 @@ class TestMachineControlExclusion:
 class TestMachineControlMoonrakerDown:
     """Moonraker 不達（port 7126 = 非リッスン、実接続で検証）."""
 
-    @pytest.mark.parametrize("action", ["home", "relax"])
-    def test_unreachable_moonraker_returns_502(self, client: TestClient, action: str):
-        response = client.post("/api/machine-control", json={"action": action})
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param({"action": "home"}, id="home"),
+            pytest.param({"action": "relax"}, id="relax"),
+            pytest.param({"action": "gcode", "gcode": "M400"}, id="gcode"),
+        ],
+    )
+    def test_unreachable_moonraker_returns_502(
+        self, client: TestClient, body: dict[str, object]
+    ):
+        response = client.post("/api/machine-control", json=body)
 
         assert response.status_code == 502
 
