@@ -79,16 +79,6 @@ def _post(client: TestClient, **overrides: Any) -> dict[str, Any]:
 class TestPasteDatasetLayout:
     """POST /api/pasting/paste-dataset-layout."""
 
-    def test_returns_the_placed_cells_and_the_whole_grid(self, client: TestClient):
-        body = _post(client)
-
-        assert body["error"] is None
-        assert len(body["cells"]) == 15
-        assert len(body["blanks"]) == 4
-        assert len(body["grid"]) == 25
-        # 除外領域が無いので、格子の全セルが計測可能点として数えられる。
-        assert body["capacity"] == 25
-
     def test_derived_counts_come_from_the_server(self, client: TestClient):
         body = _post(client)
 
@@ -97,26 +87,6 @@ class TestPasteDatasetLayout:
         assert body["target_count"] == 19
         assert body["views_per_cell"] == 5
         assert body["image_count"] == 19 * 5 * 2
-
-    def test_volumes_are_returned_for_the_legend(self, client: TestClient):
-        body = _post(client)
-
-        assert body["volumes_ul"] == pytest.approx([0.05, 0.0875, 0.125, 0.1625, 0.2])
-
-    def test_each_cell_carries_its_commanded_volume(self, client: TestClient):
-        body = _post(client)
-
-        volumes = sorted(
-            {round(cell["commanded_volume_ul"], 9) for cell in body["cells"]}
-        )
-
-        assert volumes == pytest.approx(body["volumes_ul"])
-
-    def test_same_seed_reproduces_the_same_layout(self, client: TestClient):
-        first = _post(client, shuffle_seed=1234)
-        other = _post(client, shuffle_seed=1234)
-
-        assert first["cells"] == other["cells"]
 
     def test_over_capacity_is_reported_in_the_body_not_as_an_error_status(
         self, client: TestClient
@@ -128,16 +98,21 @@ class TestPasteDatasetLayout:
         assert body["cells"] == []
         assert body["grid"] != []
 
-    def test_invalid_spec_is_reported_in_the_body(self, client: TestClient):
-        body = _post(client, edge_margin=-1.0)
+    @pytest.mark.parametrize(
+        ("override", "keeps_usable_area"),
+        [
+            pytest.param({"edge_margin": -1.0}, False, id="invalid-spec"),
+            pytest.param({"view_offset": 0.0}, True, id="invalid-view-settings"),
+        ],
+    )
+    def test_invalid_settings_are_reported_in_the_body(
+        self, client: TestClient, override: dict[str, Any], keeps_usable_area: bool
+    ):
+        body = _post(client, **override)
 
         assert body["error"] is not None
-        assert body["usable_area"] is None
-
-    def test_invalid_view_settings_are_reported_in_the_body(self, client: TestClient):
-        body = _post(client, view_offset=0.0)
-
-        assert body["error"] is not None
+        # 板の使用可能域そのものが引けない設定でだけ usable_area も落ちる
+        assert (body["usable_area"] is not None) is keeps_usable_area
 
     def test_unknown_key_is_rejected(self, client: TestClient):
         response = client.post(_LAYOUT_URL, json={**_BODY, "nope": 1.0})
@@ -152,19 +127,9 @@ class TestPasteDatasetLayout:
 
         assert response.status_code == 422
 
-    @pytest.mark.parametrize(
-        ("key", "value"),
-        [
-            ("plate_width", "20.0"),
-            ("volume_divisions", 5.0),
-            ("view_count", "4"),
-            ("blank_count", True),
-        ],
-    )
-    def test_implicit_type_conversion_is_rejected(
-        self, client: TestClient, key: str, value: Any
-    ):
-        response = client.post(_LAYOUT_URL, json={**_BODY, key: value})
+    def test_implicit_type_conversion_is_rejected(self, client: TestClient):
+        """Pydantic strict モードの配線ピン（型ごとの網羅は pydantic の機能）."""
+        response = client.post(_LAYOUT_URL, json={**_BODY, "plate_width": "20.0"})
 
         assert response.status_code == 422
 

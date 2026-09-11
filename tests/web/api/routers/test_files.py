@@ -183,18 +183,6 @@ class TestPcbBrowseAllowed:
 
         assert response.status_code == 400
 
-    def test_selecting_file_outside_allowed_subtree_returns_400(
-        self, slash_root_client: TestClient, pcb_root: Path
-    ):
-        """許可サブツリー外の .kicad_pcb は root 配下でも選択できない."""
-        outside = pcb_root.resolve().parent / "outside.kicad_pcb"
-
-        response = slash_root_client.put(
-            "/api/pcb-file", json={"path": _rel_to_slash(outside)}
-        )
-
-        assert response.status_code == 400
-
     def test_listing_prefix_sibling_of_allowed_subtree_returns_400(
         self, slash_root_client: TestClient, pcb_root: Path
     ):
@@ -212,16 +200,25 @@ class TestPcbBrowseAllowed:
 
         assert response.status_code == 400
 
-    def test_selecting_file_in_prefix_sibling_returns_400(
-        self, slash_root_client: TestClient, pcb_root: Path
+    @pytest.mark.parametrize(
+        "relative",
+        [
+            pytest.param("outside.kicad_pcb", id="outside-allowed-subtree"),
+            # `.../pcb` を許可したときに `.../pcb-evil` が読めてしまうのが、許可判定を
+            # 前方一致（`startswith`）で書いた場合の典型的な脱出経路。
+            pytest.param("{sibling}/secret.kicad_pcb", id="prefix-sibling"),
+        ],
+    )
+    def test_selecting_file_outside_allowed_subtree_returns_400(
+        self, slash_root_client: TestClient, pcb_root: Path, relative: str
     ):
-        """Prefix 兄弟の中の .kicad_pcb は選択もできない."""
-        secret = (
-            pcb_root.resolve().parent / f"{pcb_root.name}-evil" / "secret.kicad_pcb"
+        """許可サブツリー外の .kicad_pcb は root 配下でも選択できない."""
+        target = pcb_root.resolve().parent / relative.format(
+            sibling=f"{pcb_root.name}-evil"
         )
 
         response = slash_root_client.put(
-            "/api/pcb-file", json={"path": _rel_to_slash(secret)}
+            "/api/pcb-file", json={"path": _rel_to_slash(target)}
         )
 
         assert response.status_code == 400
