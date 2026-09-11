@@ -44,8 +44,10 @@ class TestSyncCommand:
         assert "--locked" in sync_command(settings)
 
     def test_keeps_extra_dependency_groups_installed(self, settings: UpdateSettings):
-        """`--inexact` が無いと指定しなかった group を削除する。ml-runtime を入れた Pi が torch
-        を失う（計画書「設計上の要 4.(a)」）."""
+        """`--inexact` が無いと指定しなかった group を削除する.
+
+        機体ごとに足した group が更新のたびに消える（計画書「設計上の要 4.(a)」）。
+        """
         assert "--inexact" in sync_command(settings)
 
     @pytest.mark.parametrize("forbidden", ("--all-extras", "--frozen"))
@@ -59,10 +61,10 @@ class TestSyncCommand:
         settings = UpdateSettings(
             repo_root=tmp_path,
             state_dir=tmp_path / "state",
-            uv_sync_args=("--locked", "--inexact", "--group", "ml-runtime"),
+            uv_sync_args=("--locked", "--inexact", "--group", "dev"),
         )
 
-        assert sync_command(settings)[-2:] == ("--group", "ml-runtime")
+        assert sync_command(settings)[-2:] == ("--group", "dev")
 
 
 class TestSmokeCommand:
