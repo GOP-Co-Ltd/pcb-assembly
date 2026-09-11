@@ -5,7 +5,8 @@
 
 - catalog: posctrl 5 ジョブ（reference_point_setup / camera_calibration /
   board_tour / orthogonality_test / generate_grid_pcb）の name / requires_pcb /
-  uses_machine / accepts_commands / params の default
+  uses_machine / accepts_commands（params の宣言内容は
+  `routers/test_jobs.py` が API 越しに汎用で担保する）
 - generate_grid_pcb: 出力 .kicad_pcb が PcbFile で読めて pad 数 = divisions^2
   （装置非使用。dev タブから位置合わせタブへ移設）
 - camera_calibration: チェッカーボード FakeCamera でのフル結合（prompt 往復、
@@ -19,10 +20,9 @@
 計画書 memory/agents/implementation-planner/webui-camera-calib.md「公開インターフェース案」
 「1. src/webui/jobs/posctrl.py」節が追加契約:
 
-- camera_calibration の params は square_size のみ（default 1.5・persisted_params
-  に含む）。crop_width / crop_height は削除され、実行時は machine.toml
-  `[camera.crop]`（`ctx.machine.camera.crop.size`）を読む（真実は machine.toml
-  に一本化。二重管理の回避）
+- camera_calibration の crop_width / crop_height は params から削除され、実行時は
+  machine.toml `[camera.crop]`（`ctx.machine.camera.crop.size`）を読む（真実は
+  machine.toml に一本化。二重管理の回避）
 
 「直行性テストを対話フローへ戻す」変更が `orthogonality_test` の追加契約:
 
@@ -166,39 +166,6 @@ class TestCatalog:
         assert definition.uses_machine is uses_machine
         assert definition.accepts_commands is accepts_commands
 
-    def test_reference_point_setup_has_no_params(self, default: JobCatalog):
-        assert default.get("reference_point_setup").params == ()
-
-    def test_camera_calibration_params(self, default: JobCatalog):
-        """Square_size のみが params。crop は machine.toml 連動で params から削除済み.
-
-        default 1.5（旧: 必須空欄）+ persisted_params に square_size を含む
-        （入力途中の即保存対象。計画書「要確認事項 1」採用）。
-        """
-        definition = default.get("camera_calibration")
-        params = {spec.name: spec for spec in definition.params}
-
-        assert set(params) == {"square_size"}
-        assert params["square_size"].value_type == "float"
-        assert params["square_size"].default == 1.5
-        assert definition.persisted_params == ("square_size",)
-
-    @pytest.mark.parametrize("name", ["board_tour", "orthogonality_test"])
-    def test_tolerance_param_defaults(self, default: JobCatalog, name: str):
-        params = {spec.name: spec for spec in default.get(name).params}
-
-        assert set(params) == {"tolerance"}
-        assert params["tolerance"].value_type == "float"
-        assert params["tolerance"].default == 0.1
-
-    def test_generate_grid_pcb_params(self, default: JobCatalog):
-        params = {spec.name: spec for spec in default.get("generate_grid_pcb").params}
-
-        assert set(params) == {"size", "divisions", "pad_size"}
-        assert params["size"].value_type == "float"
-        assert params["divisions"].value_type == "int"
-        assert params["pad_size"].value_type == "float"
-
 
 class TestGenerateGridPcb:
     """generate_grid_pcb（実 pcbnew・装置非使用。dev タブから移設）."""
@@ -287,33 +254,6 @@ class TestCameraCalibrationJob:
         assert record.status == JobStatus.ABORTED
         assert record.apply_available is False
 
-    def test_missing_square_size_uses_default_and_succeeds(
-        self, checkerboard_manager: JobManager, wait_until: WaitUntil
-    ):
-        """Square_size 省略は required エラーではなく default 1.5 で実行される.
-
-        旧仕様（必須空欄はエラー）からの挙動変更（計画書「要確認事項 1」）。
-        """
-        record = checkerboard_manager.start("camera_calibration", {})
-        answered: set[str] = set()
-        answer_next_prompt(record, checkerboard_manager, True, answered)
-        wait_until(lambda: record.status.terminal, timeout=30.0)
-
-        assert record.status == JobStatus.SUCCEEDED, record.error
-
-    def test_removed_crop_param_is_rejected_as_unknown(
-        self, checkerboard_manager: JobManager
-    ):
-        """削除済み crop_width を渡すと開始前に ValueError（→ router で 400）.
-
-        crop は machine.toml `[camera.crop]` に一本化され job param からは
-        削除済み（計画書「設計判断 a」）。
-        """
-        with pytest.raises(ValueError, match="未知のパラメータ"):
-            checkerboard_manager.start(
-                "camera_calibration", {"square_size": 10.0, "crop_width": 400}
-            )
-
     def test_undetectable_image_logs_warning_and_reprompts(
         self, manager: JobManager, wait_until: WaitUntil
     ):
@@ -342,16 +282,26 @@ class TestMachineJobsWithoutKlipper:
     と実機区分でカバーする分担（計画書 §4）。
     """
 
-    @pytest.mark.parametrize("name", ["board_tour", "orthogonality_test"])
-    def test_pcb_job_fails_gracefully_and_releases_lock(
+    @pytest.mark.parametrize(
+        ("name", "needs_pcb"),
+        [
+            ("board_tour", True),
+            ("orthogonality_test", True),
+            # ホーミング（G28）で先に落ちる。PCB 選択は不要
+            ("reference_point_setup", False),
+        ],
+    )
+    def test_machine_job_fails_gracefully_and_releases_lock(
         self,
         manager: JobManager,
         state: AppState,
         real_pcb_path: Path,
         wait_until: WaitUntil,
         name: str,
+        needs_pcb: bool,
     ):
-        state.select_pcb(real_pcb_path)
+        if needs_pcb:
+            state.select_pcb(real_pcb_path)
         record = manager.start(name, {})
         wait_until(lambda: record.status.terminal, timeout=60.0)
         wait_until(lambda: state.busy_owner is None)
@@ -360,20 +310,6 @@ class TestMachineJobsWithoutKlipper:
         assert record.error  # 接続エラーが error に載る
         assert "M84" in "\n".join(record.log_lines)  # relax 失敗警告（manager 経由）
         with state.machine_lock("after-failed-job"):  # ロックは解放済み
-            pass
-
-    def test_reference_point_setup_fails_gracefully_without_klipper(
-        self, manager: JobManager, state: AppState, wait_until: WaitUntil
-    ):
-        """ホーミング（G28）で Klipper 不通 → FAILED + ロック解放."""
-        record = manager.start("reference_point_setup", {})
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-        wait_until(lambda: state.busy_owner is None)
-
-        assert record.status == JobStatus.FAILED
-        assert record.error
-        assert "M84" in "\n".join(record.log_lines)
-        with state.machine_lock("after-failed-job"):
             pass
 
     @pytest.mark.parametrize("name", ["board_tour", "orthogonality_test"])

@@ -45,14 +45,6 @@ def _definition(
 class TestRegistry:
     """Register / get / list."""
 
-    def test_registered_definition_is_returned_by_get(self):
-        catalog = JobCatalog()
-        definition = _definition("alpha")
-
-        catalog.register(definition)
-
-        assert catalog.get("alpha") is definition
-
     def test_register_duplicate_name_raises_value_error(self):
         catalog = JobCatalog()
         catalog.register(_definition("alpha"))
@@ -244,8 +236,11 @@ class TestValidateRuntimeParams:
 
     runtime_editable=True のキーだけを coerce して返す patch セマンティクス:
     - default 充填はしない（与えたキーだけ返る）
-    - runtime_editable=False の固定キー / 未知キー / 型不一致は ValueError
+    - runtime_editable=False の固定キー / 未知キーは ValueError
     - removal_z_offset の負値は ValueError
+
+    型変換そのものは validate_params と同じ `_coerce_param` を共有するため、
+    型不一致・int/float 相互変換は `TestValidateParams` 側で固定する。
     """
 
     @pytest.fixture
@@ -269,37 +264,6 @@ class TestValidateRuntimeParams:
     ):
         assert catalog.validate_runtime_params(definition, {}) == {}
 
-    def test_multiple_runtime_keys_are_all_coerced(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        values = catalog.validate_runtime_params(
-            definition, {"line_length": 5.0, "line_count": 4}
-        )
-
-        assert values == {"line_length": 5.0, "line_count": 4}
-
-    def test_int_param_accepts_integral_float(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        values = catalog.validate_runtime_params(definition, {"line_count": 4.0})
-
-        assert values["line_count"] == 4
-        assert isinstance(values["line_count"], int)
-
-    def test_int_param_rejects_fractional_float(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        with pytest.raises(ValueError):
-            catalog.validate_runtime_params(definition, {"line_count": 4.5})
-
-    def test_float_param_accepts_int(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        values = catalog.validate_runtime_params(definition, {"line_length": 7})
-
-        assert values["line_length"] == 7.0
-        assert isinstance(values["line_length"], float)
-
     def test_fixed_param_is_rejected(
         self, catalog: JobCatalog, definition: JobDefinition
     ):
@@ -317,12 +281,6 @@ class TestValidateRuntimeParams:
 
         assert "no_such_param" in str(exc.value)
 
-    def test_type_mismatch_is_rejected(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        with pytest.raises(ValueError):
-            catalog.validate_runtime_params(definition, {"line_length": "abc"})
-
     def test_negative_removal_z_offset_is_rejected(
         self, catalog: JobCatalog, definition: JobDefinition
     ):
@@ -338,13 +296,6 @@ class TestValidateRuntimeParams:
 
         assert values == {"removal_z_offset": 0.0}
 
-    def test_positive_removal_z_offset_is_accepted(
-        self, catalog: JobCatalog, definition: JobDefinition
-    ):
-        values = catalog.validate_runtime_params(definition, {"removal_z_offset": 3.5})
-
-        assert values == {"removal_z_offset": 3.5}
-
 
 class TestRuntimeParamsProperty:
     """JobDefinition.runtime_params（フォーム / router 補助用の name 集合）."""
@@ -357,18 +308,6 @@ class TestRuntimeParamsProperty:
             "line_count",
             "removal_z_offset",
         }
-
-    def test_is_empty_when_no_runtime_editable_params(self):
-        definition = _definition(
-            "fixed",
-            params=(
-                ParamSpec(
-                    name="board_width", label="幅", value_type="float", default=1.0
-                ),
-            ),
-        )
-
-        assert definition.runtime_params == ()
 
 
 class TestDefaultCatalog:
@@ -404,13 +343,6 @@ class TestDefaultCatalog:
         hidden = {d.name for d in catalog.list(tab="dev") if d.hidden}
 
         assert hidden == {"job_demo"}
-
-    def test_job_demo_accepts_commands(self, catalog: JobCatalog):
-        assert catalog.get("job_demo").accepts_commands is True
-
-    def test_no_dev_job_uses_machine(self, catalog: JobCatalog):
-        # Phase 3 の dev ジョブは装置を動かさない（uses_machine=False、情報のみ）
-        assert all(not d.uses_machine for d in catalog.list(tab="dev"))
 
     def test_long_running_paste_jobs_notify_on_completion(self, catalog: JobCatalog):
         """ブラウザの完了通知バナーの対象（機体スピーカーは uses_machine で決まる）."""

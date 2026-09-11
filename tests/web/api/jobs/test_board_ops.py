@@ -83,9 +83,12 @@ class TestConfirmNextPoint:
     def test_prompt_spec_pins_confirm_kind_labels_and_default(
         self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
     ):
-        """Prompt spec は confirm / default True / 「次へ」「終了」ラベル固定."""
+        """Prompt spec は confirm / default True / 「次へ」「終了」ラベル固定.
+
+        どの巡回先での確認かをユーザーが判別できるよう label も message に含む。
+        """
         _, _, specs = _run_confirm_job(
-            manager, catalog, wait_until, ["Top-Left"], [True]
+            manager, catalog, wait_until, ["Bottom-Right"], [True]
         )
 
         assert len(specs) == 1
@@ -94,16 +97,7 @@ class TestConfirmNextPoint:
         assert spec.default is True
         assert spec.true_label == "次へ"
         assert spec.false_label == "終了"
-
-    def test_prompt_message_contains_the_point_label(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
-    ):
-        """どの巡回先での確認かをユーザーが判別できるよう label を message に含む."""
-        _, _, specs = _run_confirm_job(
-            manager, catalog, wait_until, ["Bottom-Right"], [True]
-        )
-
-        assert "Bottom-Right" in specs[0].message
+        assert "Bottom-Right" in spec.message
 
     def test_while_waiting_callback_runs_during_the_wait(
         self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil

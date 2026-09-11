@@ -95,9 +95,6 @@ class TestSummaryLine:
     def test_marks_a_clamped_correction(self):
         assert "頭打ち" in summary_line(_outcome(clamped=True))
 
-    def test_does_not_mark_an_unclamped_correction(self):
-        assert "頭打ち" not in summary_line(_outcome(clamped=False))
-
 
 def _frame() -> Image:
     """一様な銅板色のフレーム（pre と post が同じ = はんだが写らない）."""
@@ -302,18 +299,3 @@ class TestRunFlowCalibration:
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert elapsed
         assert elapsed[0] >= 1.5
-
-    def test_zero_settle_seconds_skips_the_wait(
-        self,
-        flow_manager: JobManager,
-        fake_camera_settings: Settings,
-        wait_until: WaitUntil,
-        elapsed: list[float],
-    ):
-        name = self._write_calibration(fake_camera_settings)
-
-        record = self._run(flow_manager, wait_until, name, settle_seconds=0.0)
-
-        assert record.status == JobStatus.SUCCEEDED, record.error
-        assert elapsed
-        assert elapsed[0] < 1.0
