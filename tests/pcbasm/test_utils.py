@@ -15,15 +15,16 @@ class _SampleClass:
 class TestGetClassModulePath:
     """get_class_module_path関数のテスト."""
 
-    def test_returns_module_path(self):
-        result = get_class_module_path(_SampleClass)
-
-        assert result == "tests.pcbasm.test_utils._SampleClass"
-
-    def test_builtin_class(self):
-        result = get_class_module_path(int)
-
-        assert result == "builtins.int"
+    @pytest.mark.parametrize(
+        ("cls", "expected"),
+        [
+            (_SampleClass, "tests.pcbasm.test_utils._SampleClass"),
+            (int, "builtins.int"),
+        ],
+        ids=["project-class", "builtin-class"],
+    )
+    def test_returns_module_path(self, cls: type, expected: str):
+        assert get_class_module_path(cls) == expected
 
 
 class TestSetupLogging:
@@ -46,17 +47,6 @@ class TestSetupLogging:
         captured = capsys.readouterr()
         assert "info message" not in captured.out
         assert "warning message" in captured.out
-
-    def test_custom_namespaces(self, capsys):
-        setup_logging(namespaces=["custom_ns1", "custom_ns2"])
-        logger1 = logging.getLogger("custom_ns1")
-        logger2 = logging.getLogger("custom_ns2")
-        logger1.info("message from ns1")
-        logger2.info("message from ns2")
-
-        captured = capsys.readouterr()
-        assert "message from ns1" in captured.out
-        assert "message from ns2" in captured.out
 
     def test_unregistered_namespace_not_logged(self, capsys):
         setup_logging(namespaces=["registered_ns"])

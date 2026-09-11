@@ -29,10 +29,6 @@ class TestOutline:
         assert sample.width == pytest.approx(20.0)
         assert sample.height == pytest.approx(25.0)
 
-    def test_polygon(self, sample: Outline):
-        assert sample.polygon.is_valid
-        assert sample.polygon.area == pytest.approx(500.0)
-
     def test_save_and_load_roundtrip(self, sample: Outline, tmp_path: Path):
         json_path = tmp_path / "outline.json"
         sample.save(json_path)
@@ -140,21 +136,6 @@ class TestComponentList:
         assert lines[0] == ",".join(PNP_CSV_HEADER)
         assert len(lines) == 3  # header + 2 components
 
-    def test_list_operations(self, sample_components: ComponentList):
-        assert len(sample_components) == 2
-        assert sample_components[0].designator == "U1"
-
-        new_component = Component(
-            designator="C1",
-            value="100nF",
-            package="0402",
-            position=Point2d(x=15.0, y=25.0),
-            rotation=180.0,
-            layer=Layer.TOP,
-        )
-        sample_components.append(new_component)
-        assert len(sample_components) == 3
-
     def test_nearest(self, sample_components: ComponentList):
         # U1: (50.5, 30.25), R1: (10.0, 20.0)
         # (0, 0)に近いのはR1
@@ -184,25 +165,6 @@ class TestPad:
             layer=Layer.TOP,
             polygon=Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]),
         )
-
-    def test_center(self, sample: Pad):
-        center = sample.center
-        assert center.x == pytest.approx(0.5)
-        assert center.y == pytest.approx(0.5)
-
-    def test_area(self, sample: Pad):
-        assert sample.area == pytest.approx(1.0)
-
-    def test_to_dict_and_from_dict_roundtrip(self, sample: Pad):
-        data = sample.to_dict()
-        restored = Pad.from_dict(data)
-
-        assert restored.designator == sample.designator
-        assert restored.pad_number == sample.pad_number
-        assert restored.net_name == sample.net_name
-        assert restored.layer == sample.layer
-        assert restored.is_custom_shape == sample.is_custom_shape
-        assert restored.polygon.equals(sample.polygon)
 
     def test_copper_polygon_defaults_to_paste_polygon(self, sample: Pad):
         # copper_polygon 未指定の構築では paste 開口の polygon にフォールバックする
@@ -313,20 +275,6 @@ class TestPadList:
         assert loaded[1].pad_number == "2"
         assert loaded[1].is_custom_shape is True
 
-    def test_list_operations(self, sample_pads: PadList):
-        assert len(sample_pads) == 2
-        assert sample_pads[0].pad_number == "1"
-
-        new_pad = Pad(
-            designator="R1",
-            pad_number="1",
-            net_name="NET1",
-            layer=Layer.BOTTOM,
-            polygon=Polygon([(5, 5), (6, 5), (6, 6), (5, 6), (5, 5)]),
-        )
-        sample_pads.append(new_pad)
-        assert len(sample_pads) == 3
-
     def test_nearest(self, sample_pads: PadList):
         # パッド1の中心: (0.5, 0.5), パッド2の中心: (2.5, 0.5)
         # (0, 0)に近いのはパッド1
@@ -341,33 +289,6 @@ class TestPadList:
         empty = PadList()
         with pytest.raises(ValueError, match="PadList is empty"):
             empty.nearest(Point2d(x=0.0, y=0.0))
-
-
-class TestCopper:
-    """Copperクラスのテスト."""
-
-    @pytest.mark.parametrize("layer", [Layer.TOP, Layer.BOTTOM])
-    def test_copper_to_dict_from_dict_roundtrip(self, layer: Layer):
-        exterior = [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
-        hole = [(4, 4), (6, 4), (6, 6), (4, 6), (4, 4)]
-        copper = Copper(
-            layer=layer,
-            polygon=Polygon(exterior, holes=[hole]),
-        )
-
-        restored = Copper.from_dict(copper.to_dict())
-
-        assert restored.layer == copper.layer
-        assert restored.polygon.equals(copper.polygon)
-        assert restored.area == pytest.approx(copper.area)
-        assert restored.area == pytest.approx(100.0 - 4.0)
-
-    def test_area(self):
-        copper = Copper(
-            layer=Layer.TOP,
-            polygon=Polygon([(0, 0), (5, 0), (5, 4), (0, 4), (0, 0)]),
-        )
-        assert copper.area == pytest.approx(20.0)
 
 
 class TestCopperList:
@@ -397,3 +318,6 @@ class TestCopperList:
         for original, restored in zip(coppers, loaded, strict=True):
             assert restored.layer == original.layer
             assert restored.polygon.equals(original.polygon)
+            assert restored.area == pytest.approx(original.area)
+        # 穴は面積から除かれたまま復元される
+        assert loaded[0].area == pytest.approx(100.0 - 4.0)

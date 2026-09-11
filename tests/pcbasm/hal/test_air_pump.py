@@ -1,7 +1,6 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.gcode import GCode
 from pcbasm.hal.air_pump import AirPump
 from pcbasm.hal.klipper import Klipper
 from tests.helpers import mark_hardware
@@ -35,12 +34,10 @@ class TestAirPump:
         ):
             AirPump(klipper.readonly)
 
-    def test_on(self, air_pump: AirPump):
-        gcode = air_pump.on()
-        assert isinstance(gcode, GCode)
-        assert gcode.to_list() == ["SET_PIN PIN=air_pump VALUE=1"]
+    @pytest.mark.parametrize(
+        ("method", "value"), [("on", 1), ("off", 0)], ids=["on", "off"]
+    )
+    def test_on_off_sets_the_pin(self, air_pump: AirPump, method: str, value: int):
+        gcode = getattr(air_pump, method)()
 
-    def test_off(self, air_pump: AirPump):
-        gcode = air_pump.off()
-        assert isinstance(gcode, GCode)
-        assert gcode.to_list() == ["SET_PIN PIN=air_pump VALUE=0"]
+        assert gcode.to_list() == [f"SET_PIN PIN=air_pump VALUE={value}"]

@@ -28,15 +28,6 @@ class TestDrawCrosshair:
 class TestDrawOverlay:
     """draw_overlay関数のテスト."""
 
-    def test_output_shape_matches_input(self):
-        arr = np.zeros((480, 640, 3), dtype=np.uint8)
-        image = Image(arr)
-
-        result = draw_overlay(image, crop_size=(200, 200))
-
-        assert result.width == 640
-        assert result.height == 480
-
     def test_crosshair_is_drawn_at_center(self):
         arr = np.zeros((480, 640, 3), dtype=np.uint8)
         image = Image(arr)

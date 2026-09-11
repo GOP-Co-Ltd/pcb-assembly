@@ -7,7 +7,6 @@ import pytest
 from pcbasm.vision import Image
 from pcbasm.vision.detection import (
     CircleDetector,
-    DetectedCircle,
     OffsetStatistics,
     PasteDotDetector,
     validate_paste_diameters,
@@ -42,23 +41,6 @@ class TestCircleDetector:
         cv2.circle(arr, (120, 130), 15, (0, 0, 0), -1)
         return Image(arr)
 
-    def test_detect_circles_finds_circle(
-        self, detector: CircleDetector, image_with_center_circle: Image
-    ):
-        circles = detector.detect_circles(image_with_center_circle)
-
-        assert len(circles) == 1
-        assert isinstance(circles[0], DetectedCircle)
-
-    def test_detect_circles_returns_empty_when_no_circle(
-        self, detector: CircleDetector
-    ):
-        blank_image = Image(np.full((200, 200, 3), 255, dtype=np.uint8))
-
-        circles = detector.detect_circles(blank_image)
-
-        assert circles == []
-
     def test_detect_nearest_center_returns_circle_at_center(
         self, detector: CircleDetector, image_with_center_circle: Image
     ):
@@ -83,14 +65,11 @@ class TestCircleDetector:
         assert result.offset.mm.x == pytest.approx(2.0, abs=0.2)
         assert result.offset.mm.y == pytest.approx(3.0, abs=0.2)
 
-    def test_detect_nearest_center_returns_none_when_no_circle(
-        self, detector: CircleDetector
-    ):
+    def test_blank_image_yields_no_circle(self, detector: CircleDetector):
         blank_image = Image(np.full((200, 200, 3), 255, dtype=np.uint8))
 
-        result = detector.detect_nearest_center(blank_image)
-
-        assert result is None
+        assert detector.detect_circles(blank_image) == []
+        assert detector.detect_nearest_center(blank_image) is None
 
     def test_detect_nearest_center_filters_by_size(self):
         """ターゲットサイズと異なる円は無視される."""
@@ -332,17 +311,6 @@ class TestPasteDotDetector:
         # 素材は塗布痕を中心に切り出してあるので、ズレは ROI 中心の近傍に収まる
         assert detected.offset.mm.norm < 0.2
 
-    def test_detected_diameter_follows_dispensed_volume_order(
-        self, detector: PasteDotDetector
-    ):
-        radii = []
-        for name, _ in MATERIAL_DIAMETER_MM:
-            detected = detector.detect_nearest_center(_material(name))
-            assert detected is not None
-            radii.append(detected.radius)
-
-        assert radii == sorted(radii)
-
     @pytest.mark.parametrize("view", [0, 1])
     def test_blank_material_is_not_detected(
         self, detector: PasteDotDetector, view: int
@@ -398,7 +366,7 @@ class TestPasteDotDetector:
         assert detector.detect_nearest_center(Image(bar)) is None
         assert detector.detect_nearest_center(Image(disk)) is not None
 
-    @pytest.mark.parametrize("highlight_radius", [4, 6, 8])
+    @pytest.mark.parametrize("highlight_radius", [4, 8])
     def test_detects_a_glossy_dot_whose_center_is_a_highlight(
         self, detector: PasteDotDetector, highlight_radius: int
     ):

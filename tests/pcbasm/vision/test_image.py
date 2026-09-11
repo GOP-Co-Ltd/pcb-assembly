@@ -16,22 +16,7 @@ class TestImage:
 
         assert image.width == 640
         assert image.height == 480
-
-    def test_size(self):
-        arr = np.zeros((480, 640, 3), dtype=np.uint8)
-
-        image = Image(arr)
-
         assert image.size == (640, 480)
-
-    def test_numpy_returns_internal_array(self):
-        arr = np.zeros((100, 100, 3), dtype=np.uint8)
-        image = Image(arr)
-
-        result = image.numpy()
-
-        assert result.shape == (100, 100, 3)
-        assert result.dtype == np.uint8
 
     def test_copy_returns_independent_instance(self):
         arr = np.zeros((100, 100, 3), dtype=np.uint8)

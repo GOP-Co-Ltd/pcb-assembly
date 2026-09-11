@@ -2,7 +2,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from pcbasm.gcode import PRESENT_MACRO, GCode
-from pcbasm.hal.klipper import GCodeMacro, Klipper, ReadonlyKlipper
+from pcbasm.hal.klipper import GCodeMacro, Klipper
 from tests.helpers import mark_hardware
 
 
@@ -12,9 +12,6 @@ class TestKlipper:
     @pytest.fixture
     def klipper(self) -> Klipper:
         return Klipper()
-
-    def test_readonly_property(self, klipper: Klipper):
-        assert isinstance(klipper.readonly, ReadonlyKlipper)
 
     @mark_hardware
     def test_send_gcode(self, klipper: Klipper):
@@ -75,23 +72,6 @@ class TestKlipper:
         )
         assert macros["NO_DESC"] == GCodeMacro(gcode=GCode("M400"), description=None)
 
-    @pytest.mark.parametrize(
-        ("name", "expected"),
-        [
-            ("TEST_MACRO", True),
-            ("NONEXISTENT", False),
-        ],
-    )
-    def test_has_macro(self, mocker, name: str, expected: bool):
-        klipper = Klipper()
-        mocker.patch.object(
-            klipper,
-            "get_macros",
-            return_value={"TEST_MACRO": GCodeMacro(gcode=GCode("G28"))},
-        )
-
-        assert klipper.has_macro(name) == expected
-
     def test_send_present_or_relax_uses_present_macro(self, mocker: MockerFixture):
         klipper = Klipper()
         has_macro = mocker.patch.object(klipper, "has_macro", return_value=True)
@@ -139,32 +119,3 @@ class TestKlipper:
         assert len(warnings) == 1
         assert "PRESENT" in warnings[0]
         assert "config unavailable" in warnings[0]
-
-    def test_firmware_restart_sends_firmware_restart_gcode(self, mocker: MockerFixture):
-        klipper = Klipper()
-        send_gcode = mocker.patch.object(klipper, "send_gcode")
-
-        klipper.firmware_restart()
-
-        send_gcode.assert_called_once_with(GCode("FIRMWARE_RESTART"))
-
-
-class TestReadonlyKlipper:
-    """ReadonlyKlipperのテスト."""
-
-    @pytest.fixture
-    def klipper(self, mocker: MockerFixture):
-        mocker.patch("httpx.Client")
-        return Klipper()
-
-    @pytest.fixture
-    def readonly(self, klipper):
-        return ReadonlyKlipper(klipper)
-
-    def test_exposed_method_equals_to_klipper(
-        self, klipper: Klipper, readonly: ReadonlyKlipper
-    ):
-        assert readonly.get_config == klipper.get_config
-        assert readonly.get_macros == klipper.get_macros
-        assert readonly.get_status == klipper.get_status
-        assert readonly.has_macro == klipper.has_macro

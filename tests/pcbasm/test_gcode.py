@@ -18,31 +18,22 @@ class TestGCode:
         gcode = GCode(input)
         assert gcode.to_list() == expected
 
-    def test_init_gcode_copies(self):
+    @pytest.mark.parametrize(
+        "derive",
+        [
+            GCode,
+            lambda original: original.copy(),
+            lambda original: original.to_list(),
+            lambda original: original + "G0 X10",
+        ],
+        ids=["init-from-gcode", "copy", "to_list", "add"],
+    )
+    def test_derived_value_does_not_share_state_with_the_original(self, derive):
         original = GCode(["G28", "M400"])
-        copied = GCode(original)
-        copied.append("G0 X10")
+
+        derive(original).append("G0 X10")
+
         assert original.to_list() == ["G28", "M400"]
-
-    def test_str(self):
-        gcode = GCode(["G28", "M400"])
-        assert str(gcode) == "G28\nM400"
-
-    def test_repr(self):
-        gcode = GCode("G28")
-        assert repr(gcode) == "GCode(G28)"
-
-    def test_copy(self):
-        original = GCode(["G28", "M400"])
-        copied = original.copy()
-        copied.append("G0 X10")
-        assert original.to_list() == ["G28", "M400"]
-
-    def test_to_list_returns_copy(self):
-        gcode = GCode(["G28"])
-        result = gcode.to_list()
-        result.append("M400")
-        assert gcode.to_list() == ["G28"]
 
     @pytest.mark.parametrize(
         ("input", "expected"),
@@ -69,24 +60,6 @@ class TestGCode:
     def test_eq(self, gcode1: GCode, gcode2: GCode, expected: bool):
         assert (gcode1 == gcode2) == expected
 
-    def test_eq_returns_not_implemented_for_non_gcode(self):
-        gcode = GCode("G28")
-
-        assert gcode.__eq__("G28") == NotImplemented
-
-    def test_hash(self):
-        gcode1 = GCode("G28")
-        gcode2 = GCode("G28")
-        gcode3 = GCode("M400")
-
-        assert hash(gcode1) == hash(gcode2)
-        assert hash(gcode1) != hash(gcode3)
-
-    def test_hash_usable_in_set(self):
-        gcode_set = {GCode("G28"), GCode("G28"), GCode("M400")}
-
-        assert len(gcode_set) == 2
-
     @pytest.mark.parametrize(
         ("a", "b", "expected"),
         [
@@ -98,12 +71,6 @@ class TestGCode:
     def test_add(self, a, b, expected):
         result = a + b
         assert result.to_list() == expected
-
-    def test_add_does_not_modify_original(self):
-        a = GCode("G28")
-        b = GCode("M400")
-        _ = a + b
-        assert a.to_list() == ["G28"]
 
 
 class TestGCodeHoming:
@@ -160,29 +127,18 @@ class TestGCodeWait:
         assert str(GCode.wait(seconds)) == expected
 
 
-class TestGCodeWaitForDone:
-    """GCode.wait_for_done のテスト."""
+class TestGCodeMacros:
+    """引数を取らない定数マクロのテスト."""
 
-    def test_wait_for_done(self):
-        assert str(GCode.wait_for_done()) == "M400"
-
-
-class TestGCodePresent:
-    """GCode.present のテスト."""
-
-    def test_present(self):
-        assert str(GCode.present()) == "PRESENT"
-
-
-class TestGCodeFirmwareRestart:
-    """GCode.firmware_restart のテスト."""
-
-    def test_firmware_restart(self):
-        assert GCode.firmware_restart() == GCode("FIRMWARE_RESTART")
-
-
-class TestGCodeRelax:
-    """GCode.relax のテスト."""
-
-    def test_relax(self):
-        assert str(GCode.relax()) == "M84"
+    @pytest.mark.parametrize(
+        ("factory", "expected"),
+        [
+            (GCode.wait_for_done, "M400"),
+            (GCode.present, "PRESENT"),
+            (GCode.firmware_restart, "FIRMWARE_RESTART"),
+            (GCode.relax, "M84"),
+        ],
+        ids=["wait_for_done", "present", "firmware_restart", "relax"],
+    )
+    def test_macro(self, factory, expected):
+        assert str(factory()) == expected

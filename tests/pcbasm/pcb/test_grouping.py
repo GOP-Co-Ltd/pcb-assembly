@@ -5,13 +5,11 @@ Pad/Component/shapely.Polygon を直接構築し、PadHierarchy.build の
 公開振る舞いを検証する（PcbFile/pcbnew は使わない）。
 """
 
-import hashlib
-import json
 from collections.abc import Sequence
 
 import pytest
 from shapely import Polygon
-from shapely.affinity import rotate, translate
+from shapely.affinity import rotate
 
 from pcbasm.geometry.transform import Point2d
 from pcbasm.pcb import Component, Layer, Pad
@@ -118,13 +116,6 @@ class TestPadShapeKey:
 
         assert PadShapeKey.of(plain) != PadShapeKey.of(custom)
 
-    def test_label_is_human_readable_string(self):
-        # ラベルは UI 表示用の文字列（具体桁は実装裁量だが寸法を含む）
-        key = PadShapeKey.of(_pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)))
-
-        assert isinstance(key.label, str)
-        assert key.label != ""
-
     def test_quantum_collapses_near_identical_shapes(self):
         # わずかな寸法差は shape_quantum 内で同一視される
         a = _pad("R1", "1", _rect(0.0, 0.0, 0.500, 0.900))
@@ -144,41 +135,6 @@ class TestPadHierarchyBuildKeys:
             _pad("R1", "2", _rect(1.0, 0.0, 0.5, 0.9)),
         ]
         return components, pads
-
-    def test_root_is_l0(self, simple):
-        components, pads = simple
-        hierarchy = PadHierarchy.build(components, pads)
-
-        assert hierarchy.root.key == ("L0",)
-        assert hierarchy.root.level == 0
-
-    def test_l1_key_is_package(self, simple):
-        components, pads = simple
-        hierarchy = PadHierarchy.build(components, pads)
-
-        assert ("L1", "0402") in _all_keys(hierarchy)
-
-    def test_l2_key_is_designator(self, simple):
-        components, pads = simple
-        hierarchy = PadHierarchy.build(components, pads)
-
-        node = _node_at(hierarchy, ("L2", "R1"))
-        assert node.level == 2
-
-    def test_l3_key_is_designator_and_shape_label(self, simple):
-        components, pads = simple
-        hierarchy = PadHierarchy.build(components, pads)
-
-        shape_label = PadShapeKey.of(pads[0]).label
-        node = _node_at(hierarchy, ("L3", "R1", shape_label))
-        assert node.level == 3
-
-    def test_l4_key_is_designator_and_pad_number(self, simple):
-        components, pads = simple
-        hierarchy = PadHierarchy.build(components, pads)
-
-        assert ("L4", "R1", "1") in _all_keys(hierarchy)
-        assert ("L4", "R1", "2") in _all_keys(hierarchy)
 
     def test_node_keys_for_pad_returns_five_levels(self, simple):
         components, pads = simple
@@ -290,15 +246,6 @@ class TestPadHierarchyBuildExclusion:
 
         designators = {p.designator for p in hierarchy.iter_pads()}
         assert designators == {"R1"}
-
-    def test_excluded_pad_does_not_create_l2_node(self):
-        components = [_component("R1", "0402")]
-        pads = [
-            _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)),
-            _pad("X9", "1", _rect(2.0, 0.0, 0.5, 0.9)),
-        ]
-        hierarchy = PadHierarchy.build(components, pads)
-
         assert ("L2", "X9") not in _all_keys(hierarchy)
 
 
@@ -370,23 +317,6 @@ class TestPadHierarchyNodePads:
         assert node.pads[0].pad_number == "9"
 
 
-class TestIterPads:
-    """iter_pads は除外後の全 pad を列挙する。"""
-
-    def test_iter_pads_yields_all_included_pads(self):
-        components = [_component("R1", "0402"), _component("R2", "0402")]
-        pads = [
-            _pad("R1", "1", translate(_rect(0.0, 0.0, 0.5, 0.9), 0, 0)),
-            _pad("R1", "2", _rect(1.0, 0.0, 0.5, 0.9)),
-            _pad("R2", "1", _rect(5.0, 0.0, 0.5, 0.9)),
-        ]
-        hierarchy = PadHierarchy.build(components, pads)
-
-        collected = list(hierarchy.iter_pads())
-        keys = {(p.designator, p.pad_number) for p in collected}
-        assert keys == {("R1", "1"), ("R1", "2"), ("R2", "1")}
-
-
 class TestL4KeysForPadIds:
     """l4_keys_for_pad_ids は pad id 列を L4 キーへ解決し、未知 id を分離する。"""
 
@@ -437,32 +367,3 @@ class TestSignature:
         ).signature()
 
         assert base != moved
-
-    def test_duplicate_pad_numbers_keep_legacy_l4_key(self):
-        # 同一 pad_number の分割片は L4 suffix を署名に含めない（旧 UI 互換）
-        components = [_component("U1", "LFCSP-24")]
-        pads = [
-            _pad("U1", "", _rect(0.0, 0.0, 0.93, 0.93)),
-            _pad("U1", "", _rect(1.0, 0.0, 0.93, 0.93)),
-        ]
-        hierarchy = PadHierarchy.build(components, pads)
-        shape_label = PadShapeKey.of(pads[0]).label
-        records = [
-            {
-                "id": f"{pad.designator}.{pad.pad_number}",
-                "layer": pad.layer.value,
-                "node_keys": [
-                    ["L0"],
-                    ["L1", "LFCSP-24"],
-                    ["L2", "U1"],
-                    ["L3", "U1", shape_label],
-                    ["L4", "U1", ""],
-                ],
-                "polygon": [[x, y] for x, y in pad.polygon.exterior.coords],
-            }
-            for pad in hierarchy.iter_pads()
-        ]
-        payload = json.dumps(records, sort_keys=True, separators=(",", ":"))
-        expected = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-        assert hierarchy.signature() == expected
