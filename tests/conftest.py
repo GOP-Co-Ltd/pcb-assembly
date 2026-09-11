@@ -1,10 +1,9 @@
 """全テスト共通の fixture.
 
 ``pcbasm.hal`` と ``tests.helpers`` は picamera2 / pcbnew を import するため、
-Raspberry Pi と KiCAD が無い環境（GPU 学習ワークステーション等）では読み込めない。
-root conftest が module 冒頭でそれらを import すると、ドメイン非依存な
-``tests/ml`` の collect まで巻き込んで失敗する。実機依存の import は
-それを必要とする fixture の中だけで行う。
+Raspberry Pi と KiCAD が無い環境では読み込めない。root conftest が module 冒頭で
+それらを import すると、実機に依存しないテストの collect まで巻き込んで失敗する。
+実機依存の import はそれを必要とする fixture の中だけで行う。
 """
 
 from pathlib import Path

@@ -249,6 +249,32 @@ def _html_page(
     return response
 
 
+def render_standalone(
+    request: Request,
+    name: str,
+    context: dict[str, Any],
+    *,
+    current_suffix: str,
+) -> HTMLResponse:
+    """マシン非依存のページを chrome 付きで描く（`/update` など）.
+
+    `_chrome_context` + `_html_page` の公開ラッパ。backend へ 1 度も問い合わせないので
+    機体が 1 台も居ないホストでも描ける（frontend 専用機の更新ページがこれ）。
+
+    Args:
+        request: 現在のリクエスト
+        name: テンプレート名
+        context: ページ固有のコンテキスト（chrome の値へ上書きで重ねる）
+        current_suffix: マシン切替時の遷移先に使う URL 断片
+
+    Returns:
+        描画結果（未発行ならセッション cookie も発行する）
+    """
+    full = _chrome_context(request, machine_id=None, current_suffix=current_suffix)
+    full.update(context)
+    return _html_page(request, name, full)
+
+
 def render_message(
     request: Request,
     *,

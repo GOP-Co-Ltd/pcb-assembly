@@ -2,6 +2,7 @@
    chrome だけで描けるので backend が落ちていてもマシン切替を出せる。 #}
 {% extends "base.html" %}
 {% block title %}{{ title }} — PCB Assembly WebUI{% endblock %}
+{% block layout_class %}single-pane{% endblock %}
 {% block content %}
 <section class="main-pane" data-testid="main-pane">
   <h1>{{ title }}</h1>

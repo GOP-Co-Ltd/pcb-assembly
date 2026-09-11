@@ -28,13 +28,11 @@
 | `dataset/`               | ペースト塗布画像 dataset の収集（銅板のセル格子へ点塗布）。`plan`（セル格子・量スイープ・view・事前検証）/ `metadata`（metadata.json DTO・codec、schema v3）/ `writer` / `reader`（完成 session の列挙と読み出し）/ `recorder` / `capture`。切り出しは `pcbasm.vision.crop`                                               |
 
 `__init__.py` は docstring のみで re-export しない。消費側はサブモジュールを直接 import する
-（`import pcbasm.pasting` が cv2 / pcbnew / torch を引き込まない契約を `tests/test_package.py` で固定）。
+（`import pcbasm.pasting` が cv2 / pcbnew を引き込まない契約を `tests/test_package.py` で固定）。
 固定しているのは re-export しないことであって、サブモジュール自身が重い依存を持たないことではない。
 
-塗布量推定には 2 系統ある。`paste_volume/` は円直径の 3 次近似で、torch を使わず
-Raspberry Pi の WebAPI プロセスでそのまま動く（cv2 / numpy は base 依存）。CNN 方式の学習側は
-`ml.paste_volume` にあり、そちらの成果物を `pcbasm` が使うときは export 済み artifact だけを
-扱う。
+塗布量推定は `paste_volume/` の円直径の 3 次近似ひとつ。Raspberry Pi の WebAPI
+プロセスでそのまま動く（cv2 / numpy は base 依存）。
 
 `dispense.py` は HAL 非依存の値だけを置く。収集 schema（`dataset/metadata.py`）を学習側から
 読むとき `pcbasm.hal`（picamera2 を要求する）を引き込まないため、`DispenseSummary` を

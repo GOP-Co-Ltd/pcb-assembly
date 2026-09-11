@@ -20,6 +20,7 @@ from web.api.jobs.manager import JobManager
 from web.api.preview import PreviewService
 from web.api.settings import Settings
 from web.api.state import AppState
+from web.selfupdate.runner import UpdateRunner
 
 
 def get_state(request: Request) -> AppState:
@@ -65,6 +66,11 @@ def get_advertiser(request: Request) -> ServiceAdvertiser | None:
     return request.app.state.advertiser
 
 
+def get_update(request: Request) -> UpdateRunner:
+    """自己更新のランナー（ホストに 1 つ。装置ドメインではなくデプロイ運用）."""
+    return request.app.state.update
+
+
 def get_lease(request: Request) -> ControlLease:
     return request.app.state.control
 
@@ -99,5 +105,6 @@ BoardGeneratorDep = Annotated[
 AdvertiserDep = Annotated[ServiceAdvertiser | None, Depends(get_advertiser)]
 IdentityDep = Annotated[ClientIdentity, Depends(get_identity)]
 LeaseDep = Annotated[ControlLease, Depends(get_lease)]
+UpdateDep = Annotated[UpdateRunner, Depends(get_update)]
 # 変更系エンドポイントの認可。ハンドラ本体に入る前に 423 で断る
 ControlDep = Annotated[LeaseInfo, Depends(require_control)]

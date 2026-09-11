@@ -1,8 +1,8 @@
 # 直径ベースの塗布量校正
 
-点塗布したペーストを真上から撮り、写った円の直径から塗布体積を推定する。CNN による
-推定（[画像ベース吐出量推定](image-based-dispense-calibration.md)）より先に試す簡易な
-手法で、装置に torch を持ち込まずに動く。
+点塗布したペーストを真上から撮り、写った円の直径から塗布体積を推定する。
+[画像ベース吐出量キャリブレーション要件](image-based-dispense-calibration.md)が定める
+推定の実装がこれで、装置には OpenCV と numpy しか要らない。
 
 ## なぜ直径で足りるのか
 
@@ -49,7 +49,7 @@ pre/post 画像は従来どおり保存する。
 ## パイプライン
 
 `pcbasm.pasting.paste_volume` に置く。OpenCV / numpy は base dependencies なので
-Raspberry Pi の WebAPI プロセスでそのまま動き、`ml-runtime` も torch も要らない。
+Raspberry Pi の WebAPI プロセスでそのまま動く。
 
 ### 1 view の直径計測（`detect.py`）
 
@@ -96,10 +96,8 @@ Raspberry Pi の WebAPI プロセスでそのまま動き、`ml-runtime` も tor
 実機（schema v3）でも 104 セル × 中心 1 view で**検出失敗 0 件**を確認した。フォールバックは
 一度も要らなかった。
 
-**周辺 view を増やす価値があるのは CNN 方式の学習材料を採るときだけ。**
-[要件書](image-based-dispense-calibration.md)は共有 CNN で各 view を符号化して平均集約
-する設計で view dropout も前提にしているが、そこでも「達成条件は 1 view でも成立させる」
-としている。
+**周辺 view に残る役割は検出失敗時のフォールバックだけ。** 実測では一度も発火して
+いないので既定は 0 にしてあり、必要なら収集ジョブで明示的に上げる。
 
 ### モデル（`model.py`）
 
@@ -195,7 +193,7 @@ V = a·d³ + b·d² + c·d
 
 教師ラベル `label.kind = "rotation_allocated"` は、電子天秤で計った総質量を**指令回転数
 比で配分**した値であり、点ごとの真値ではない（ラベル = 指令量 × 定数）。したがって
-点ごとの ±10% は直径方式でも CNN でも原理的に評価できない。
+点ごとの ±10% は手法によらず原理的に評価できない。
 
 - **主基準: session 総体積の相対誤差**（運転時補正が必要とする集約係数に対応）
 - 点ごと誤差は参考値として診断に併記する
@@ -285,7 +283,7 @@ quadratic が +0.241 と -0.028、linear が -0.159 と -0.013 という別物�
 この時点で 1 時間の収集と計量は終わっているので dataset は残し、警告に留める。ハイパラを
 変えて再フィットから作り直せる。
 
-収集した dataset は副産物として残り、CNN 方式の学習材料にもなる。
+収集した dataset は副産物として残る。
 
 判定・集計・誤差計算はすべて `pcbasm.pasting.paste_volume` にあり、ジョブと router は
 入出力変換・prompt・progress・artifact 変換だけを担う（skill `webui-thin-wrapper`）。

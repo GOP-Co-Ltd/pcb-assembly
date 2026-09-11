@@ -1,0 +1,30 @@
+{% extends "tab.html" %}
+{% block title %}ソフトウェア更新 — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+<p class="placeholder">
+  この機体のソースを <code>main</code> の最新へ fast-forward し、依存を同期して
+  サービスを再起動します。ローカルの変更や未 push の commit があるときは何もしません。
+</p>
+{# 機体の backend を再起動する変更操作なので操作権が要る #}
+{% with update_status_url = "/api/update/status",
+        update_check_url = "/api/update/check",
+        update_run_url = "/api/update/run",
+        update_transport = "backend",
+        update_requires_control = True %}
+{% include "partials/update_panel.html" %}
+{% endwith %}
+<section class="status-card">
+  <h3>この画面を配信しているサーバー</h3>
+  <p>
+    ページを描いている UI frontend は機体とは別に更新します
+    （同居機なら上の再起動対象に含まれます）。
+  </p>
+  {# base を付けない: frontend 自身のページで、機体には中継しない #}
+  <p><a href="/update">UI サーバーの更新ページを開く</a></p>
+</section>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/update.js') }}"></script>
+{% endblock %}

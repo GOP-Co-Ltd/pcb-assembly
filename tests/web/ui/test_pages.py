@@ -393,7 +393,7 @@ class TestPages:
         response = client.get("/settings")
 
         assert response.status_code == 200
-        assert "settings-layout" in response.text
+        assert "single-pane" in response.text
         assert 'name="probe.lift_height"' in response.text
         assert "プローブ後の上昇高さ" in response.text
         assert 'name="probe.board_edge_margin"' in response.text
