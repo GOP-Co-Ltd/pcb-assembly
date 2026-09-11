@@ -316,20 +316,17 @@ class TestDiscoveryIsolation:
     を起こすので、外れると実 LAN に広告が出る。
     """
 
-    def test_shared_api_settings_helper_disables_discovery(self, tmp_path: Path):
-        settings = make_api_settings(tmp_path / "api", hostname="probe")
-
-        assert settings.discovery_enabled is False
-
-    def test_shared_ui_settings_helper_disables_discovery(self, tmp_path: Path):
-        settings = make_ui_settings((), machines_file=tmp_path / "absent.toml")
-
-        assert settings.discovery_enabled is False
-
-    def test_e2e_settings_fixture_disables_discovery(self, e2e_settings: Settings):
-        assert e2e_settings.discovery_enabled is False
-
-    def test_defaults_are_enabled_so_fixtures_must_opt_out(self):
-        """既定は有効（実運用は広告する）。だから fixture 側の明示が要件になる."""
+    def test_shared_settings_opt_out_of_discovery(
+        self, tmp_path: Path, e2e_settings: Settings
+    ):
+        # 既定は有効（実運用は広告する）。だから共有 fixture 側の明示が要件になる
         assert Settings().discovery_enabled is True
         assert UiSettings().discovery_enabled is True
+
+        # e2e_settings が同じ tmp_path の "api" を使うのでディレクトリを分ける
+        api = make_api_settings(tmp_path / "probe", hostname="probe")
+        ui = make_ui_settings((), machines_file=tmp_path / "absent.toml")
+
+        assert api.discovery_enabled is False
+        assert ui.discovery_enabled is False
+        assert e2e_settings.discovery_enabled is False

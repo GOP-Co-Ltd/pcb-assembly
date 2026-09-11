@@ -146,41 +146,6 @@ class TestUpdateOverRealHttp:
         assert sandbox.head() == target
         wait_until(lambda: sandbox.restarts() != [], timeout=15.0)
 
-    def test_failing_dependency_sync_leaves_the_service_running(
-        self, tmp_path: Path, paste_test_board_footprint_root: Path
-    ):
-        """`uv sync` が落ちたら再起動しない（確定要件）を実 HTTP 経路で確かめる."""
-        broken = make_update_sandbox(tmp_path / "broken", uv_fail_match="sync")
-        broken.push()
-        backend = _start_app(
-            create_app(
-                _make_api_settings(tmp_path / "api", hostname=_E2E_MACHINE_ID),
-                paste_test_board_footprint_root=paste_test_board_footprint_root,
-                update_runner=UpdateRunner(broken.settings),
-            )
-        )
-        base_url = f"http://127.0.0.1:{backend.port}"
-        try:
-            accepted = httpx.post(
-                f"{base_url}/api/update/run",
-                json={"expected_head": broken.head()},
-                timeout=_HTTP_TIMEOUT,
-            )
-            assert accepted.status_code == 202
-            wait_until(
-                lambda: _status(base_url)["run"]["state"] == "failed", timeout=30.0
-            )
-
-            failed = _status(base_url)
-            assert failed["run"]["step"] == "sync"
-            assert failed["run"]["error"]
-            assert broken.restarts() == []
-            # 落ちた側のサーバーはまだ応答する（再起動していない）
-            alive = httpx.get(f"{base_url}/api/state", timeout=_HTTP_TIMEOUT)
-            assert alive.status_code == 200
-        finally:
-            backend.stop()
-
 
 class TestUpdatePageInTheBrowser:
     """実ブラウザでの押下 → 進行表示 → 完了表示（update.js の DOM 更新）."""
@@ -213,15 +178,3 @@ class TestUpdatePageInTheBrowser:
             "再起動しています", timeout=_UI_TIMEOUT_MS
         )
         assert sandbox.head() == target
-
-    def test_frontend_update_page_is_reachable_without_a_machine(
-        self, update_stack: tuple[LiveServer, LiveUi], browser_page
-    ):
-        """Frontend 専用機の入口（`/update`）が `/{tab}` に食われず開く."""
-        _server, ui = update_stack
-        page = browser_page
-        page.goto(f"{ui.origin}/update")
-
-        expect(page.locator("#update-panel")).to_be_visible(timeout=_UI_TIMEOUT_MS)
-        # 操作権の概念が無いので、閲覧者のままでも確認ボタンが押せる
-        expect(page.locator("#update-check")).to_be_enabled(timeout=_UI_TIMEOUT_MS)

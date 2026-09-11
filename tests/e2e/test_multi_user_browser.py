@@ -201,36 +201,29 @@ class TestTwoBrowsersOnOneMachine:
         assert denied.status_code == 423, denied.text
         assert denied.json()["holder"]["held"] is True
 
-    def test_viewer_can_emergency_stop_a_running_job(
+    def test_viewer_can_stop_a_running_job(
         self, live_server: LiveServer, live_ui: LiveUi, browser_pages
     ):
+        """安全系（緊急停止・中止）は閲覧者のままでも塞がれない.
+
+        WS 越しの abort 中継そのものは
+        tests/e2e/test_proxy_e2e.py::TestJobOverProxiedWebSocket が担当する。
+        """
         _select_led_blinker(live_server)
         operator, viewer = _operator_and_viewer(live_ui, browser_pages)
         _start_prompt_job(live_server, operator)
 
+        # 中止も緊急停止も閲覧者の画面で押せる（inert が付かない）
+        assert not _is_inert(viewer, "#jc-abort")
+        expect(viewer.locator("#jc-abort")).to_be_enabled(timeout=_BROWSER_TIMEOUT_MS)
         assert not _is_inert(viewer, "#estop")
+
         with viewer.expect_response(
             lambda response: response.url.endswith("/api/emergency-stop")
         ) as info:
             viewer.locator("#estop").click(timeout=_BROWSER_TIMEOUT_MS)
         # Klipper 不通なので 502 になるが、操作権では塞がれない（423 にならない）
         assert info.value.status != 423
-        wait_until(
-            lambda: _job_status(live_server) == "aborted", timeout=30.0, interval=0.05
-        )
-
-    def test_viewer_can_abort_over_the_websocket(
-        self, live_server: LiveServer, live_ui: LiveUi, browser_pages
-    ):
-        _select_led_blinker(live_server)
-        operator, viewer = _operator_and_viewer(live_ui, browser_pages)
-        _start_prompt_job(live_server, operator)
-
-        assert not _is_inert(viewer, "#jc-abort")
-        abort_button = viewer.locator("#jc-abort")
-        expect(abort_button).to_be_enabled(timeout=_BROWSER_TIMEOUT_MS)
-        abort_button.click()
-
         wait_until(
             lambda: _job_status(live_server) == "aborted", timeout=30.0, interval=0.05
         )

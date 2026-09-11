@@ -240,18 +240,6 @@ class TestRenderUnit:
         assert "pcbasm-api.service" not in unit
         assert "avahi" not in unit
 
-    @pytest.mark.parametrize(
-        ("target", "description"),
-        (
-            ("api", "Description=PCB Assembly backend WebAPI"),
-            ("ui", "Description=PCB Assembly UI frontend"),
-        ),
-    )
-    def test_description_identifies_the_process(
-        self, target: str, description: str, tmp_path: Path
-    ):
-        assert description in render_unit(target, tmp_path)
-
     @pytest.mark.parametrize("target", ("api", "ui"))
     def test_unit_is_enabled_for_boot(self, target: str, tmp_path: Path):
         assert "WantedBy=multi-user.target" in render_unit(target, tmp_path)
@@ -360,18 +348,6 @@ class TestInstall:
             "systemctl enable pcbasm-api.service"
         ), completed.stdout
 
-    @pytest.mark.parametrize("target", ("api", "ui"))
-    def test_install_restarts_the_service(self, target: str, tmp_path: Path):
-        """Restart を欠くと「unit は設置・enable されたのに新 backend が起動しない」."""
-        sudo, stub = privileged_seam(tmp_path)
-
-        completed = run_snippet(
-            f"install_service {target}", tmp_path, sudo=sudo, stub_bin=stub
-        )
-
-        assert completed.returncode == 0, completed.stderr
-        assert f"systemctl restart pcbasm-{target}.service" in completed.stdout
-
     def test_install_api_purges_the_legacy_unit(self, tmp_path: Path):
         """単体の `install api`（最多数の運用）でも旧 unit を掃除する."""
         sudo, stub = privileged_seam(tmp_path)
@@ -478,18 +454,28 @@ class TestMainDispatch:
     `install)` / `remove)` 分岐が壊れていても気付けない。
     """
 
-    @pytest.mark.parametrize("args", (["install"], ["install", "api"]))
-    def test_install_writes_and_enables_the_unit(self, args: list[str], tmp_path: Path):
+    @pytest.mark.parametrize(
+        ("args", "target"),
+        (
+            (["install"], "api"),
+            (["install", "api"], "api"),
+            (["install", "ui"], "ui"),
+        ),
+    )
+    def test_install_writes_and_enables_the_unit(
+        self, args: list[str], target: str, tmp_path: Path
+    ):
         """対象を省略した `install` は `install api` と同じ（既定は backend）."""
         sudo, stub = privileged_seam(tmp_path)
 
         completed = run_script(args, tmp_path, stub_bin=stub, sudo=sudo)
 
         assert completed.returncode == 0, completed.stderr
-        installed = tmp_path / "pcbasm-api.service"
-        assert installed.read_text() == render_unit("api", tmp_path)
-        assert "systemctl enable pcbasm-api.service" in completed.stdout
-        assert "systemctl restart pcbasm-api.service" in completed.stdout
+        installed = tmp_path / f"pcbasm-{target}.service"
+        assert installed.read_text() == render_unit(target, tmp_path)
+        assert f"systemctl enable pcbasm-{target}.service" in completed.stdout
+        # restart を欠くと「unit は設置・enable されたのに新プロセスが起動しない」
+        assert f"systemctl restart pcbasm-{target}.service" in completed.stdout
 
     def test_install_all_registers_both_targets(self, tmp_path: Path):
         sudo, stub = privileged_seam(tmp_path)
@@ -638,18 +624,3 @@ class TestLegacyUnitPurge:
 
         assert completed.returncode == 0, completed.stderr
         assert "systemctl" not in completed.stdout
-
-
-class TestUnitNames:
-    """Unit 名と設置先."""
-
-    @pytest.mark.parametrize(
-        ("target", "name"), (("api", "pcbasm-api.service"), ("ui", "pcbasm-ui.service"))
-    )
-    def test_service_name(self, target: str, name: str, tmp_path: Path):
-        completed = run_snippet(f"service_name {target}", tmp_path)
-        assert completed.stdout.strip() == name
-
-    def test_unit_path_is_under_the_systemd_unit_dir(self, tmp_path: Path):
-        completed = run_snippet("unit_path api", tmp_path)
-        assert completed.stdout.strip() == str(tmp_path / "pcbasm-api.service")

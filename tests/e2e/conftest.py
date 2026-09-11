@@ -11,7 +11,7 @@
 サーバーは 2 種類ある:
 
 - `live_server` — backend WebAPI（`web.api`）。JSON API の直叩きに使う
-- `live_ui` / `live_ui_two` — UI frontend（`web.ui`）。**ページ・MJPEG・WS はここを通す**
+- `live_ui` — UI frontend（`web.ui`）。**ページ・MJPEG・WS はここを通す**
 
 ページ取得とブラウザ操作を frontend 経由に寄せることで、リバースプロキシ経路
 （`/m/{machine_id}/api/**`）が既存 E2E 全体で常時検証される。API の直叩きを
@@ -399,7 +399,7 @@ def make_api_settings(root: Path, *, hostname: str) -> Settings:
     Args:
         root: config / data / pcb root を置く隔離ディレクトリ（無ければ作る）
         hostname: backend の自己申告 machine_id。1 ホストに複数 backend を立てる
-            `live_ui_two` で URL prefix を区別するために注入する
+            テスト（test_update_e2e.py 等）で URL prefix を区別するために注入する
 
     Returns:
         構築済みの backend Settings
@@ -509,54 +509,6 @@ def live_ui(live_server: LiveServer, tmp_path: Path) -> Iterator[LiveUi]:
         )
     finally:
         running.stop()
-
-
-@pytest.fixture
-def live_ui_two(
-    tmp_path: Path,
-    paste_test_board_footprint_root: Path,
-) -> Iterator[LiveUi]:
-    """2 台の backend を静的登録した実 frontend（マシン切替の検証用）.
-
-    backend を 2 つ（同じ pytest プロセス内の daemon スレッドで動く実 uvicorn）
-    立て、`Settings.hostname` で machine_id を分ける
-    （`socket.gethostname()` のままでは 1 ホスト上の 2 台を区別できない）。
-    """
-    machine_ids = ("alpha", "bravo")
-    running: list[RunningServer] = []
-    try:
-        endpoints: list[MachineEndpoint] = []
-        for machine_id in machine_ids:
-            backend = start_app(
-                create_app(
-                    make_api_settings(tmp_path / machine_id, hostname=machine_id),
-                    paste_test_board_footprint_root=paste_test_board_footprint_root,
-                )
-            )
-            running.append(backend)
-            endpoints.append(
-                MachineEndpoint(
-                    machine_id=machine_id,
-                    host="127.0.0.1",
-                    port=backend.port,
-                    name=f"{machine_id} 号機",
-                )
-            )
-        frontend = start_app(
-            create_ui_app(
-                make_ui_settings(
-                    tuple(endpoints), machines_file=tmp_path / "absent-machines.toml"
-                )
-            )
-        )
-        running.append(frontend)
-        yield LiveUi(
-            origin=f"http://127.0.0.1:{frontend.port}", machine_ids=machine_ids
-        )
-    finally:
-        # frontend から先に落とす（backend が消えた frontend への中継を作らない）
-        for handle in reversed(running):
-            handle.stop()
 
 
 @pytest.fixture(scope="session")

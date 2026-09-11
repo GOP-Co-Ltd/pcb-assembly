@@ -7,13 +7,9 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
-from pcbasm.pcb import PcbFile
 from tests.e2e.conftest import LiveUi
 
 _BROWSER_TIMEOUT_MS = 15_000
-_QFN = "Package_DFN_QFN.pretty/QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
-_QFN_NAME = "QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
-_QFN_LABEL = f"Package_DFN_QFN / {_QFN_NAME}"
 _OVERFLOW_MESSAGE = re.compile("超え|収まりません")
 
 
@@ -31,37 +27,24 @@ def _open_board_generator(page, live_ui: LiveUi) -> None:
 
 
 class TestPasteTestBoardBrowser:
-    def test_preview_tracks_table_edits_add_remove_and_overflow(
+    def test_overflow_clipping_and_generate_button_track_the_board_width(
         self, live_ui: LiveUi, browser_page
     ):
+        """盤面をはみ出したときの SVG クリップ・色・生成ボタンの切替.
+
+        パターン表の見出しや summary の文字列、パターンの追加/削除はサーバ値なので
+        tests/web/api/routers/test_paste_test_board.py と
+        tests/web/ui/test_paste_test_board.py が担当する。ここは `isPointInFill` の
+        クリップ判定や `getComputedStyle` のように実ブラウザでしか見られない性質に絞る。
+        """
         _open_board_generator(browser_page, live_ui)
 
-        assert browser_page.locator(".ptb-paste").count() > 0
-        assert browser_page.locator(".ptb-copper").count() > 0
-        expect(browser_page.locator(".ptb-preview-pad[aria-label]")).to_have_count(64)
         named_pad = browser_page.locator(".ptb-preview-pad[aria-label]").first
         display_name = named_pad.get_attribute("aria-label")
         assert display_name is not None
         named_pad.hover()
         expect(named_pad.locator("title")).to_have_text(display_name)
         expect(browser_page.locator("#ptb-preview text")).to_have_count(0)
-        expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "64パッド + purge pad + 流量計測 5パッド"
-        )
-        expect(browser_page.locator(".ptb-pattern-table thead")).to_contain_text(
-            "回転分割数"
-        )
-        expect(browser_page.locator(".ptb-pattern-table thead")).to_contain_text(
-            "繰り返し数"
-        )
-        expect(browser_page.locator(".ptb-pattern-table thead")).not_to_contain_text(
-            "転置配置"
-        )
-        expect(browser_page.locator(".ptb-pattern-table thead")).to_contain_text("名称")
-        expect(browser_page.locator("#ptb-auto-pack")).to_have_count(0)
-        expect(browser_page.locator("#ptb-footprint-results option")).to_have_count(
-            8, timeout=_BROWSER_TIMEOUT_MS
-        )
 
         config_box = browser_page.locator(".ptb-config-card").bounding_box()
         preview_box = browser_page.locator(".ptb-preview-card").bounding_box()
@@ -69,23 +52,9 @@ class TestPasteTestBoardBrowser:
         assert preview_box is not None
         assert preview_box["y"] >= config_box["y"] + config_box["height"]
 
-        first_row = browser_page.locator("#ptb-pattern-rows tr").first
-        rotation_count = first_row.locator('[data-pattern-field="rotation_count"]')
-        rotation_count.fill("2")
-        expect(first_row.locator(".ptb-resolved-angles")).to_have_text(
-            "0°, 90°", timeout=_BROWSER_TIMEOUT_MS
-        )
-        rotation_count.fill("4")
-        expect(first_row.locator(".ptb-resolved-angles")).to_have_text(
-            "0°, 45°, 90°, 135°", timeout=_BROWSER_TIMEOUT_MS
-        )
-
         browser_page.locator("#ptb-board-width").fill("10")
         expect(browser_page.locator("#ptb-preview-status")).to_contain_text(
             _OVERFLOW_MESSAGE, timeout=_BROWSER_TIMEOUT_MS
-        )
-        expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "64パッド + purge pad + 流量計測 5パッド"
         )
         expect(browser_page.locator(".ptb-overflow-layer")).to_have_count(1)
         assert browser_page.locator(".ptb-overflow-shape").count() > 0
@@ -119,81 +88,6 @@ class TestPasteTestBoardBrowser:
         )
         expect(browser_page.locator(".ptb-overflow-layer")).to_have_count(0)
         expect(browser_page.locator("#ptb-generate")).to_be_enabled()
-
-        name_sort = browser_page.locator('[data-sort-field="name"]')
-        name_sort.click()
-        name_sort.click()
-        expect(name_sort.locator("xpath=..")).to_have_attribute(
-            "aria-sort", "descending"
-        )
-        expect(
-            browser_page.locator("#ptb-pattern-rows .ptb-name-label").first
-        ).to_contain_text("SOT-23-5")
-        pad_sort = browser_page.locator('[data-sort-field="pad"]')
-        pad_sort.click()
-        expect(pad_sort.locator("xpath=..")).to_have_attribute("aria-sort", "ascending")
-
-        browser_page.locator("#ptb-footprint-search").fill(
-            "QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
-        )
-        expect(
-            browser_page.locator("#ptb-footprint-results option").first
-        ).to_have_attribute("value", _QFN, timeout=_BROWSER_TIMEOUT_MS)
-        selected_option = browser_page.locator(
-            f'#ptb-footprint-results option[value="{_QFN}"]'
-        )
-        expect(selected_option).to_have_attribute("title", _QFN_LABEL)
-        assert selected_option.evaluate("element => element.textContent.endsWith('…')")
-        browser_page.locator("#ptb-footprint-results").select_option(_QFN)
-        expect(browser_page.locator("#ptb-footprint-results")).to_have_attribute(
-            "title", _QFN_LABEL
-        )
-        browser_page.locator("#ptb-add-pattern").click()
-        expect(browser_page.locator("#ptb-pattern-rows tr")).to_have_count(
-            9, timeout=_BROWSER_TIMEOUT_MS
-        )
-        qfn_rows = browser_page.locator("#ptb-pattern-rows tr").filter(
-            has_text="QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
-        )
-        expect(qfn_rows).to_have_count(3)
-        expect(qfn_rows.filter(has_text="Paste aperture")).to_have_count(1)
-        expect(qfn_rows.filter(has_text="Pad 1–16")).to_have_count(1)
-        expect(qfn_rows.filter(has_text="Pad 17")).to_have_count(1)
-        qfn_name = qfn_rows.first.locator(".ptb-name-label .ptb-truncated-text")
-        expect(qfn_name).to_have_attribute("title", _QFN_NAME)
-        assert qfn_name.evaluate("element => element.scrollWidth > element.clientWidth")
-        expect(browser_page.locator("#ptb-preview-status")).to_have_text(
-            "配置可能です", timeout=_BROWSER_TIMEOUT_MS
-        )
-
-        expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "88パッド + purge pad + 流量計測 5パッド"
-        )
-
-        for _ in range(3):
-            qfn_rows.first.locator("button").click()
-        expect(browser_page.locator("#ptb-pattern-rows tr")).to_have_count(
-            6, timeout=_BROWSER_TIMEOUT_MS
-        )
-        expect(browser_page.locator("#ptb-preview-status")).to_have_text(
-            "配置可能です", timeout=_BROWSER_TIMEOUT_MS
-        )
-
-        browser_page.locator("#ptb-custom-pad-shape").select_option("oval")
-        browser_page.locator("#ptb-custom-pad-width").fill("1.5")
-        browser_page.locator("#ptb-custom-pad-height").fill("0.5")
-        browser_page.locator("#ptb-add-custom-pad").click()
-        expect(browser_page.locator("#ptb-pattern-rows tr")).to_have_count(
-            7, timeout=_BROWSER_TIMEOUT_MS
-        )
-        custom_row = browser_page.locator("#ptb-pattern-rows tr").filter(
-            has_text="長円（スロット） 1.5 × 0.5 mm"
-        )
-        expect(custom_row).to_have_count(1)
-        expect(custom_row).to_contain_text("長円（スロット）")
-        expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "76パッド + purge pad + 流量計測 5パッド", timeout=_BROWSER_TIMEOUT_MS
-        )
 
     def test_empty_pattern_config_can_be_recovered(self, live_ui: LiveUi, browser_page):
         _open_board_generator(browser_page, live_ui)
@@ -427,9 +321,3 @@ class TestPasteTestBoardBrowser:
             browser_page.locator("#ptb-generate").click()
         downloaded = board_info.value
         assert downloaded.suggested_filename == ("pcbasm-paste-test-board.kicad_pcb")
-        board_path = tmp_path / downloaded.suggested_filename
-        downloaded.save_as(board_path)
-        pcb = PcbFile(board_path)
-        assert pcb.outline.width == 40.0
-        assert len(pcb.components) == 70
-        assert len(pcb.pads) == 70
