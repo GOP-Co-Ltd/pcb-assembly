@@ -76,7 +76,7 @@ class CalibrationDiagnostics:
     Attributes:
         blank_false_positive_count: blank セルで直径が 0 にならなかった数（0 が要件）
         detection_failure_count: 全 view で検出できなかった塗布セル数
-        monotonic_in_range: 被覆域内でモデルが単調増加か（中央値集約の前提）
+        monotonic_in_range: 被覆域内でモデルが単調非減少か（中央値集約の前提）
         residual_relative_std: 点ごと相対残差の標準偏差（推定の std の根拠）
         point_relative_mae: 点ごと相対誤差の平均絶対値（参考値）
         point_relative_max: 同じく最大（参考値）

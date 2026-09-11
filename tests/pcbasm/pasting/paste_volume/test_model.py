@@ -174,9 +174,14 @@ class TestFitRejections:
         assert error is not None
 
     def test_rejects_a_fit_that_goes_non_positive_inside_its_range(self):
-        """被覆域内で体積が 0 以下になる係数は物理的にありえない."""
-        diameters = [1.034, 1.089, 0.507, 0.817, 0.921]
-        volumes = [0.174, 0.436, 0.139, 0.009, 0.02]
+        """被覆域内で体積が 0 以下になる係数は物理的にありえない.
+
+        単調でも正値とは限らないので、この拒否は単調性の保証を入れた後も要る。
+
+        下端で 0 を下へ突き抜ける並びを使う。
+        """
+        diameters = [1.155, 0.784, 1.027, 0.947, 1.176]
+        volumes = [0.413, 0.005, 0.332, 0.131, 0.424]
 
         model, error = fit_cubic_through_origin(diameters, volumes)
 
@@ -186,7 +191,7 @@ class TestFitRejections:
 
 
 class TestMonotonicity:
-    """中央値集約と可換であるための前提（被覆域内で単調増加）."""
+    """中央値集約と可換であるための前提（被覆域内で単調非減少）."""
 
     def test_reports_monotonicity_inside_the_fitted_range(self):
         diameters, volumes = _samples(KNOWN)
@@ -196,8 +201,8 @@ class TestMonotonicity:
         assert model is not None
         assert model.is_monotonic_in_range() is True
 
-    def test_reports_a_fit_that_is_not_monotonic_inside_its_range(self):
-        """単調性は当てはめた結果であって、常に True ではない."""
+    def test_falls_back_to_a_pure_cubic_when_least_squares_is_not_monotonic(self):
+        """最小二乗が非単調な係数を返す並びでも、返るモデルは必ず単調."""
         diameters = [1.076, 1.006, 0.736, 0.607, 0.809]
         volumes = [0.202, 0.392, 0.152, 0.238, 0.292]
 
@@ -205,6 +210,28 @@ class TestMonotonicity:
 
         assert error is None, error
         assert model is not None
+        assert model.is_monotonic_in_range() is True
+        assert model.cubic_ul_per_mm3 > 0.0
+        assert model.quadratic_ul_per_mm2 == 0.0
+        assert model.linear_ul_per_mm == 0.0
+
+    def test_detects_a_dip_that_is_narrower_than_a_sampling_step(self):
+        """判定は標本点ではなく導関数の最小値で行う.
+
+        導関数は ``1000d² - 1800d + 809.999`` で、頂点 0.9 での最小が -0.001。
+
+        体積が減るのは 0.899 から 0.901 までの 0.002 mm しかない。
+
+        等間隔の標本はこの谷をまたぐので、標本判定では単調に見えてしまう。
+        """
+        model = CubicVolumeModel(
+            cubic_ul_per_mm3=1000.0 / 3.0,
+            quadratic_ul_per_mm2=-900.0,
+            linear_ul_per_mm=809.999,
+            diameter_min_mm=0.6,
+            diameter_max_mm=1.2,
+        )
+
         assert model.is_monotonic_in_range() is False
 
     def test_median_of_volumes_equals_volume_of_median_when_monotonic(self):

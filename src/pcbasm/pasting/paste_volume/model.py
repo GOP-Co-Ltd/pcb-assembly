@@ -7,6 +7,11 @@
 3 項すべてが要る。直径と体積は本来 3 次の関係だが、実測では純 3 次（``a·d³`` のみ）
 では誤差が 0.124 に留まり、3 項を使うと 0.087 まで下がる。塗布点は球ではなく板に
 潰れた形なので、高さと直径の比が量によって変わることを 2 次・1 次の項が吸収する。
+
+**被覆域で単調非減少であることを保証する。** 「直径が大きいほど体積が大きい」は物理
+そのものであり、崩れると中央値集約が「view ごとに推定して集約する」ことと一致しなく
+なる（:mod:`pcbasm.pasting.paste_volume.aggregate`）。最小二乗そのものはこれを守らない
+ので、フィットは求めた係数を厳密に検査し、崩れていれば係数が非負の純 3 次へ落とす。
 """
 
 from __future__ import annotations
@@ -20,9 +25,6 @@ from pcbasm.utils import is_finite_number
 
 # 校正ファイルへ記録するモデル形式の識別子
 MODEL_KIND = "cubic_through_origin"
-
-# 被覆域内の単調性・正値性を確かめる分割数
-_RANGE_SAMPLES = 64
 
 
 @attrs.frozen
@@ -60,16 +62,43 @@ class CubicVolumeModel:
         return self.diameter_min_mm <= diameter_mm <= self.diameter_max_mm
 
     def is_monotonic_in_range(self) -> bool:
-        """被覆域内で単調増加か.
+        """被覆域内で単調非減少か（導関数の最小値が 0 以上か）.
 
-        中央値集約が「1 view ごとの推定を集約する」ことと一致するための前提。 崩れていたら診断へ残して運転者に見せる。
+        中央値集約が「1 view ごとの推定を集約する」ことと一致するための前提。
+        :func:`fit_cubic_through_origin` はこれが成り立つ係数だけを返す。
+
+        標本点で確かめると点と点の間の落ち込みを見逃すので、導関数の最小値を
+        閉じた式で求める。
         """
-        volumes = [self.volume_ul(value) for value in _range_samples(self)]
-        return all(later >= earlier for earlier, later in zip(volumes, volumes[1:]))
+        return (
+            _quadratic_min_in_range(
+                3.0 * self.cubic_ul_per_mm3,
+                2.0 * self.quadratic_ul_per_mm2,
+                self.linear_ul_per_mm,
+                self.diameter_min_mm,
+                self.diameter_max_mm,
+            )
+            >= 0.0
+        )
 
     def is_positive_in_range(self) -> bool:
-        """被覆域内で推定体積が常に正か（負の体積は物理的にありえない）."""
-        return all(self.volume_ul(value) > 0.0 for value in _range_samples(self))
+        """被覆域内で推定体積が常に正か（負の体積は物理的にありえない）.
+
+        ``V(d) = d·(a·d² + b·d + c)`` で被覆域の直径は正なので、符号は括弧内の
+        2 次式だけで決まる。単調性と同じく閉じた式で厳密に判定する。
+        """
+        if self.diameter_min_mm <= 0.0:
+            return False  # V(0) = 0 は正ではない
+        return (
+            _quadratic_min_in_range(
+                self.cubic_ul_per_mm3,
+                self.quadratic_ul_per_mm2,
+                self.linear_ul_per_mm,
+                self.diameter_min_mm,
+                self.diameter_max_mm,
+            )
+            > 0.0
+        )
 
     def validate(self) -> str | None:
         """係数と被覆域を検証する（不正なら理由文）."""
@@ -101,6 +130,12 @@ def fit_cubic_through_origin(
 
     直径 0 の組（blank）は設計行列上ゼロ行なので係数へ寄与しない。被覆域も動かさない
     よう、範囲は正の直径だけから決める。
+
+    求めた係数が被覆域で単調でなければ、係数が非負の純 3 次へ落として単調性を保証する
+    （:func:`_monotonic_cubic`）。実測 8 session・LOSO 56 通りでは一度も発生しない。
+
+    退避は連続ではなく崖で、2 次・1 次の項を丸ごと失う。導関数の最小値が 0 のすぐ上に
+    あるフィットは、丸め誤差の符号ひとつで退避側へ落ちる。実データの余裕は大きい。
 
     Args:
         diameters_mm: 各 sample の直径 [mm]
@@ -144,21 +179,60 @@ def fit_cubic_through_origin(
         diameter_min_mm=float(diameters.min()),
         diameter_max_mm=float(diameters.max()),
     )
+    if not model.is_monotonic_in_range():
+        model = _monotonic_cubic(diameters, volumes)
     error = model.validate()
     if error is not None:
         return None, error
     if not model.is_positive_in_range():
         return None, (
-            "被覆域内で推定体積が0以下になる係数が求まりました"
-            "（データが単調でないか、点が偏っています）"
+            "被覆域の下端で推定体積が0以下になる係数が求まりました"
+            "（点が偏っています）"
         )
     return model, None
 
 
-def _range_samples(model: CubicVolumeModel) -> list[float]:
-    """被覆域を等分した直径列（単調性・正値性の確認に使う）."""
-    span = model.diameter_max_mm - model.diameter_min_mm
-    if span <= 0:
-        return [model.diameter_min_mm]
-    step = span / (_RANGE_SAMPLES - 1)
-    return [model.diameter_min_mm + step * index for index in range(_RANGE_SAMPLES)]
+def _monotonic_cubic(diameters: np.ndarray, volumes: np.ndarray) -> CubicVolumeModel:
+    """単調性が崩れたときに落とす先の純 3 次モデル ``V = a·d³``.
+
+    直径が正・体積が非負であることは呼び出し前に検証済みなので ``a >= 0`` が構造的に
+    決まり、``V'(d) = 3a·d² >= 0`` がすべての直径で成り立つ。2 次・1 次の項を持たせた
+    まま単調性を課すには制約付き求解が要るが、非負最小二乗を実測 8 session で試すと
+    どの session でも 2 次・1 次の係数が 0 に潰れて純 3 次と一致した。落とし先を純 3 次
+    に固定すれば、求解器を持ち込まずに同じ結果が得られる。
+    """
+    cube = diameters**3
+    return CubicVolumeModel(
+        cubic_ul_per_mm3=float((cube * volumes).sum() / (cube * cube).sum()),
+        quadratic_ul_per_mm2=0.0,
+        linear_ul_per_mm=0.0,
+        diameter_min_mm=float(diameters.min()),
+        diameter_max_mm=float(diameters.max()),
+    )
+
+
+def _quadratic_min_in_range(
+    quadratic: float, linear: float, constant: float, low: float, high: float
+) -> float:
+    """区間 ``[low, high]`` における 2 次式の最小値（厳密）.
+
+    2 次式の最小は端点か頂点のいずれか。下に凸（``quadratic > 0``）で頂点が区間の
+    内側にあるときだけ頂点を見れば足りる。上に凸と 1 次の最小は必ず端点。
+
+    Args:
+        quadratic: 2 次の係数
+        linear: 1 次の係数
+        constant: 定数項
+        low: 区間の下限
+        high: 区間の上限
+    """
+
+    def value(x: float) -> float:
+        return quadratic * x**2 + linear * x + constant
+
+    candidates = [value(low), value(high)]
+    if quadratic > 0.0:
+        vertex = -linear / (2.0 * quadratic)
+        if low < vertex < high:
+            candidates.append(value(vertex))
+    return min(candidates)
