@@ -6,7 +6,7 @@ on-disk の出典は ``data/testing/schemas/paste_volume_calibration_v1.json``�
 """
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -15,10 +15,12 @@ from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_KIND,
     CALIBRATION_SCHEMA_VERSION,
     CALIBRATION_SUFFIX,
+    CalibrationConditions,
     PasteVolumeCalibration,
     auto_calibration_path,
     calibration_filename,
     calibration_path,
+    default_calibration_label,
     list_calibrations,
     load_calibration,
     parse_calibration,
@@ -324,6 +326,44 @@ class TestCalibrationPath:
         path = calibration_path(tmp_path, f"///{CALIBRATION_SUFFIX}")
 
         assert path.name == f"calibration{CALIBRATION_SUFFIX}"
+
+
+class TestDefaultCalibrationLabel:
+    """条件と生成時刻から組む既定の表示名（保存済み校正の移行でも同じ関数を使う）."""
+
+    @staticmethod
+    def _conditions() -> CalibrationConditions:
+        return CalibrationConditions(
+            paste_id="S3X70-E150DN",
+            paste_lot=None,
+            density_mg_per_ul=3.78,
+            nozzle_diameter_mm=0.3,
+            paste_height_mm=0.2,
+            machine_id="m1",
+            pixel_per_mm=28.678,
+            crop_size_px=53,
+            crop_size_mm=1.8,
+        )
+
+    def test_carries_the_conditions_and_the_local_time(self):
+        moment = datetime(2026, 9, 10, 7, 18, 47, tzinfo=UTC)
+
+        label = default_calibration_label(self._conditions(), moment)
+
+        local = moment.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        assert label == f"S3X70-E150DN / n0.30 / h0.20 / {local}"
+
+    def test_two_runs_of_the_same_conditions_differ(self):
+        conditions = self._conditions()
+
+        first = default_calibration_label(
+            conditions, datetime(2026, 9, 10, 7, 18, 47, tzinfo=UTC)
+        )
+        second = default_calibration_label(
+            conditions, datetime(2026, 9, 10, 7, 45, 9, tzinfo=UTC)
+        )
+
+        assert first != second
 
 
 class TestAutoCalibrationPath:

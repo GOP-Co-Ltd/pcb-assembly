@@ -276,6 +276,22 @@ def calibration_path(root: Path, name: str, created_at: datetime | None = None) 
     return root / calibration_filename(name, created_at)
 
 
+def default_calibration_label(
+    conditions: CalibrationConditions, created_at: datetime
+) -> str:
+    """校正の条件と生成時刻から既定の表示名を組み立てる.
+
+    ペースト・ノズル径・塗布高さだけだと、同条件で採り直した校正が同じ名前になり WebUI の選択肢で見分けられない。
+
+    時刻は運転者の地方時で入れる。
+    """
+    return (
+        f"{conditions.paste_id} / n{conditions.nozzle_diameter_mm:.2f} / "
+        f"h{conditions.paste_height_mm:.2f} / "
+        f"{created_at.astimezone().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+
+
 def auto_calibration_path(root: Path, label: str) -> Path:
     """自動命名した校正の保存先 path を作る.
 
