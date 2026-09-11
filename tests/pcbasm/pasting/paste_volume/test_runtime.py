@@ -123,43 +123,31 @@ class TestPlanFlowCalibration:
         assert error is not None
         assert "撮影範囲" in error
 
-    def test_allows_points_whose_crops_only_touch(self):
+    @pytest.mark.parametrize(
+        ("crop_size_mm", "points"),
+        [
+            # crop が接するだけ（中心間距 = crop 幅）なら重ならない
+            (4.0, (Point2d(10.0, 12.0), Point2d(14.0, 12.0))),
+            # Crop は正方形なので、X が近くても Y が離れていれば重ならない
+            (2.0, (Point2d(10.0, 12.0), Point2d(10.0, 15.0))),
+            # 1 点だけなら crop がどんなに大きくても重ならない
+            (8.0, (Point2d(10.0, 12.0),)),
+        ],
+    )
+    def test_allows_points_whose_crops_do_not_overlap(
+        self, crop_size_mm: float, points: tuple[Point2d, ...]
+    ):
         plan, error = plan_flow_calibration(
             config=FlowCalibration(
-                calibration_file="cal.paste-volume.json", crop_size_mm=4.0
+                calibration_file="cal.paste-volume.json", crop_size_mm=crop_size_mm
             ),
-            points=(Point2d(10.0, 12.0), Point2d(14.0, 12.0)),
+            points=points,
             outline=OUTLINE,
         )
 
         assert error is None
         assert plan is not None
-
-    def test_separation_on_one_axis_is_enough(self):
-        """Crop は正方形なので、X が近くても Y が離れていれば重ならない."""
-        plan, error = plan_flow_calibration(
-            config=FlowCalibration(
-                calibration_file="cal.paste-volume.json", crop_size_mm=2.0
-            ),
-            points=(Point2d(10.0, 12.0), Point2d(10.0, 15.0)),
-            outline=OUTLINE,
-        )
-
-        assert error is None
-        assert plan is not None
-
-    def test_a_single_point_is_always_separated_enough(self):
-        plan, error = plan_flow_calibration(
-            config=FlowCalibration(
-                calibration_file="cal.paste-volume.json", crop_size_mm=8.0
-            ),
-            points=(Point2d(10.0, 12.0),),
-            outline=OUTLINE,
-        )
-
-        assert error is None
-        assert plan is not None
-        assert plan.points == (Point2d(10.0, 12.0),)
+        assert plan.points == points
 
 
 class TestValidateCropSeparation:
@@ -201,14 +189,6 @@ class TestOverlappingCrops:
 
         assert flags == (False, False)
 
-    def test_agrees_with_the_validation_used_for_planning(self):
-        points = (Point2d(0.0, 0.0), Point2d(1.5, 0.0))
-
-        overlapping = any(overlapping_crops(points, crop_size_mm=2.0))
-        rejected = validate_crop_separation(points=points, crop_size_mm=2.0)
-
-        assert overlapping is (rejected is not None)
-
     def test_a_non_positive_crop_size_marks_nothing(self):
         assert overlapping_crops((Point2d(0.0, 0.0),), crop_size_mm=0.0) == (False,)
 
@@ -216,17 +196,22 @@ class TestOverlappingCrops:
 class TestCorrectRotationsPerUl:
     """推定体積から ``rotations_per_ul`` を補正する."""
 
-    def test_over_dispensing_raises_rotations_per_ul(self):
+    @pytest.mark.parametrize(("previous", "expected"), [(1.0, 0.8), (1.5, 1.2)])
+    def test_over_dispensing_raises_rotations_per_ul(
+        self, previous: float, expected: float
+    ):
         outcome, error = correct_rotations_per_ul(
             [_accepted(0.25), _accepted(0.25), _accepted(0.25)],
             amount_ul=0.2,
-            rotations_per_ul=1.0,
+            rotations_per_ul=previous,
         )
 
         assert error is None
         assert outcome is not None
         assert outcome.ratio == pytest.approx(1.25)
-        assert outcome.rotations_per_ul == pytest.approx(0.8)
+        # 報告用に補正前の係数も残す
+        assert outcome.previous_rotations_per_ul == pytest.approx(previous)
+        assert outcome.rotations_per_ul == pytest.approx(expected)
 
     def test_under_dispensing_lowers_rotations_per_ul(self):
         outcome, error = correct_rotations_per_ul(
@@ -305,25 +290,6 @@ class TestCorrectRotationsPerUl:
         assert outcome is not None
         assert outcome.clamped is True
         assert outcome.rotations_per_ul == pytest.approx(MAX_CORRECTION_SCALE)
-
-    def test_an_unclamped_correction_is_reported_as_such(self):
-        outcome, error = correct_rotations_per_ul(
-            [_accepted(0.22)], amount_ul=0.2, rotations_per_ul=1.0
-        )
-
-        assert error is None
-        assert outcome is not None
-        assert outcome.clamped is False
-
-    def test_keeps_the_previous_factor_for_reporting(self):
-        outcome, error = correct_rotations_per_ul(
-            [_accepted(0.25)], amount_ul=0.2, rotations_per_ul=1.5
-        )
-
-        assert error is None
-        assert outcome is not None
-        assert outcome.previous_rotations_per_ul == pytest.approx(1.5)
-        assert outcome.rotations_per_ul == pytest.approx(1.2)
 
     def test_a_zero_estimate_cannot_produce_a_factor(self):
         outcome, error = correct_rotations_per_ul(

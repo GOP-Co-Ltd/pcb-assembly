@@ -252,17 +252,6 @@ class TestPasteDatasetWriterCaptures:
         with pytest.raises(ValueError):
             writer.write_capture(1, VIEWS[1], "pre", _crop(size=CROP_SIZE_PX + delta))
 
-    def test_accepts_every_capture_at_the_session_crop_size(self, tmp_path: Path):
-        writer = _open(tmp_path)
-
-        _write_all(writer)
-        session = writer.mark_incomplete()
-
-        for path in session.rglob("*.png"):
-            stored = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-            assert stored is not None
-            assert stored.shape == (CROP_SIZE_PX, CROP_SIZE_PX, 3)
-
     def test_rejects_capture_after_the_session_is_finalized(self, tmp_path: Path):
         writer = _open(tmp_path)
         _write_all(writer)

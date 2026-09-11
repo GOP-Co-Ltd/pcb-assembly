@@ -108,15 +108,7 @@ class TestDatasetSessionLoad:
         assert session is None
         assert error is not None
         assert "schema_version" in error
-
-    def test_names_the_session_in_the_rejection_reason(self, tmp_path: Path):
-        payload = json.loads(METADATA_V3.read_text(encoding="utf-8"))
-        payload["schema_version"] = 2
-        root = _write_session(tmp_path, STEM, document=payload)
-
-        _, error = DatasetSession.load(root)
-
-        assert error is not None
+        # どの session が拒否されたのか分かるよう名前を入れる
         assert STEM in error
 
 

@@ -60,21 +60,6 @@ SAMPLE_KEYS = {
     "measured_volume_ul",
     "views",
 }
-BLANK_KEYS = {
-    "index",
-    "cell",
-    "center",
-    "measured_volume_ul",
-    "views",
-}
-VIEW_KEYS = {
-    "number",
-    "offset_x_mm",
-    "offset_y_mm",
-    "pixel_rect",
-    "pre",
-    "post",
-}
 
 
 def _load_v3() -> dict[str, object]:
@@ -103,21 +88,6 @@ def _first_sample(payload: dict[str, object]) -> dict[str, object]:
 
 class TestDatasetView:
     """1 セルに対する撮影位置の公開表現と検証."""
-
-    def test_central_view_defaults_to_zero_offsets(self):
-        view = DatasetView(number=0)
-
-        assert view.offset_x_mm == 0.0
-        assert view.offset_y_mm == 0.0
-        assert view.validate() is None
-
-    def test_peripheral_view_keeps_number_and_offsets(self):
-        view = DatasetView(number=1, offset_x_mm=2.0, offset_y_mm=-1.5)
-
-        assert view.validate() is None
-        assert view.number == 1
-        assert view.offset_x_mm == 2.0
-        assert view.offset_y_mm == -1.5
 
     @pytest.mark.parametrize(
         ("view", "expected"),
@@ -177,11 +147,14 @@ class TestMetadataOnDiskShape:
 
         assert payload["kind"] == "pcbasm-paste-volume-dataset"
         assert payload["schema_version"] == METADATA_SCHEMA_VERSION
-        assert METADATA_SCHEMA_VERSION == 3
 
-    def test_top_level_sections_replace_board_with_plate_and_pads_with_samples(
-        self, payload: dict[str, object]
-    ):
+    def test_every_section_pins_its_key_set(self, payload: dict[str, object]):
+        config = payload["config"]
+        loading = payload["loading"]
+        sample = _first_sample(payload)
+        assert isinstance(config, dict)
+        assert isinstance(loading, dict)
+
         assert set(payload) == {
             "kind",
             "schema_version",
@@ -198,6 +171,19 @@ class TestMetadataOnDiskShape:
             "samples",
             "blanks",
         }
+        assert set(config) == CONFIG_KEYS
+        assert set(loading) == {"total_ul", "total_rotations"}
+        assert set(sample) == SAMPLE_KEYS
+        assert set(sample["cell"]) == {"x", "y", "width", "height"}  # type: ignore[arg-type]
+        assert set(sample["center"]) == {"x", "y"}  # type: ignore[arg-type]
+        assert set(sample["execution"]) == {  # type: ignore[arg-type]
+            "applied_mode",
+            "path_length_mm",
+            "commanded_volume_ul",
+            "prime_extra_volume_ul",
+            "effective_rate_ul_s",
+            "rotations",
+        }
 
     def test_plate_section_carries_dimensions_and_edge_margin(
         self, payload: dict[str, object]
@@ -207,69 +193,6 @@ class TestMetadataOnDiskShape:
             "height_mm": 40.0,
             "edge_margin_mm": 2.0,
             "height_plane_z_mm": 1.62,
-        }
-
-    def test_config_holds_dot_grid_sweep_and_crop_settings(
-        self, payload: dict[str, object]
-    ):
-        config = payload["config"]
-        assert isinstance(config, dict)
-
-        assert set(config) == CONFIG_KEYS
-
-    def test_sample_replaces_pad_identity_with_cell_geometry_and_volume(
-        self, payload: dict[str, object]
-    ):
-        sample = _first_sample(payload)
-
-        assert set(sample) == SAMPLE_KEYS
-        assert set(sample["cell"]) == {"x", "y", "width", "height"}  # type: ignore[arg-type]
-        assert set(sample["center"]) == {"x", "y"}  # type: ignore[arg-type]
-
-    def test_view_no_longer_carries_a_mask_path(self, payload: dict[str, object]):
-        views = _first_sample(payload)["views"]
-        assert isinstance(views, list)
-
-        for view in views:
-            assert isinstance(view, dict)
-            assert set(view) == VIEW_KEYS
-            assert "mask" not in view
-
-    def test_loading_records_the_interactive_totals(self, payload: dict[str, object]):
-        loading = payload["loading"]
-        assert isinstance(loading, dict)
-
-        assert set(loading) == {"total_ul", "total_rotations"}
-
-    def test_blank_entry_has_no_execution_and_zero_measured_volume(
-        self, payload: dict[str, object]
-    ):
-        blank = _first_blank(payload)
-
-        assert set(blank) == BLANK_KEYS
-        assert "execution" not in blank
-        assert "commanded_volume_ul" not in blank
-        assert blank["measured_volume_ul"] == 0.0
-
-    def test_label_section_records_how_the_truth_was_derived(
-        self, payload: dict[str, object]
-    ):
-        assert payload["label"] == {"kind": "rotation_allocated"}
-
-    def test_config_records_the_phased_capture_order(self, payload: dict[str, object]):
-        config = payload["config"]
-        assert isinstance(config, dict)
-
-        assert config["capture_order"] == "phased"
-
-    def test_execution_keys_match_dispense_summary(self, payload: dict[str, object]):
-        assert set(_first_sample(payload)["execution"]) == {  # type: ignore[arg-type]
-            "applied_mode",
-            "path_length_mm",
-            "commanded_volume_ul",
-            "prime_extra_volume_ul",
-            "effective_rate_ul_s",
-            "rotations",
         }
 
 

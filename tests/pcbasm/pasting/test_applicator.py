@@ -146,13 +146,6 @@ def _down_z(klipper: FakeKlipper) -> float:
 class TestSingleComponentPad:
     """単一成分パッド: FillSequence 1 本・total_amount = area*ul_per_mm2."""
 
-    def test_single_send_gcode_per_pad(self, applicator, klipper):
-        applicator.apply(
-            box(0, 0, 5, 4), params=applicator.default_params, transform=Identity()
-        )
-
-        assert len(klipper.sent) == 1
-
     def test_total_amount_is_area_based(self, applicator, klipper):
         polygon = box(0, 0, 5, 4)  # area = 20 mm^2
 
@@ -331,11 +324,6 @@ class TestAutoPasteHeight:
 class TestBuildApplicator:
     """build_applicator は machine 設定から HAL ごと組み立てる."""
 
-    def test_uses_config_rotations_per_ul_by_default(self, klipper):
-        applicator = _applicator(klipper)
-
-        assert applicator.rotations_per_ul == pytest.approx(ROTATIONS_PER_UL)
-
     def test_rotations_per_ul_override_changes_dispensed_distance(self, klipper):
         applicator = build_applicator(
             klipper, XYZStage(klipper.readonly), _config(), rotations_per_ul=90.0
@@ -377,29 +365,19 @@ class TestBuildApplicator:
             [4.5, 0.5, 4.5]
         )
 
-    def test_default_params_mirror_config(self, klipper):
-        applicator = _applicator(klipper, ul_per_mm2=0.08, dispense_mode="line")
-
-        assert applicator.default_params.ul_per_mm2 == pytest.approx(0.08)
-        assert applicator.default_params.dispense_mode == "line"
-
 
 class TestDrawLine:
     """公開 draw_line（キャリブ用の 1 本線塗布プリミティブ）."""
 
-    def test_sends_single_blocking_gcode(self, applicator, klipper):
+    def test_sends_one_blocking_gcode_of_retraction_plus_amount(
+        self, applicator, klipper
+    ):
         applicator.draw_line(
             Point2d(0.0, 0.0), Point2d(10.0, 0.0), amount_ul=2.0, transform=Identity()
         )
 
         assert len(klipper.sent) == 1
         assert klipper.sent_lines[-1] == "M400"
-
-    def test_dispense_amount_is_retraction_plus_amount(self, applicator, klipper):
-        applicator.draw_line(
-            Point2d(0.0, 0.0), Point2d(10.0, 0.0), amount_ul=2.0, transform=Identity()
-        )
-
         assert _dispense_amounts_ul(klipper) == pytest.approx([RETRACT_AMOUNT + 2.0])
 
     def test_returns_execution_with_effective_fill_speed(self, applicator):

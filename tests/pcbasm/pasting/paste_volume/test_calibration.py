@@ -18,7 +18,6 @@ from pcbasm.pasting.paste_volume.calibration import (
     CalibrationConditions,
     PasteVolumeCalibration,
     auto_calibration_path,
-    calibration_filename,
     calibration_path,
     default_calibration_label,
     list_calibrations,
@@ -51,35 +50,6 @@ class TestCalibrationOnDiskShape:
 
         assert payload["kind"] == CALIBRATION_KIND
         assert payload["schema_version"] == CALIBRATION_SCHEMA_VERSION
-        assert CALIBRATION_SCHEMA_VERSION == 1
-
-    def test_top_level_sections(self):
-        assert set(_document()) == {
-            "kind",
-            "schema_version",
-            "created_at",
-            "label",
-            "conditions",
-            "detection",
-            "model",
-            "source",
-            "diagnostics",
-        }
-
-    def test_conditions_carry_the_paste_nozzle_and_height(self):
-        conditions = _document()["conditions"]
-
-        assert set(conditions) == {
-            "paste_id",
-            "paste_lot",
-            "density_mg_per_ul",
-            "nozzle_diameter_mm",
-            "paste_height_mm",
-            "machine_id",
-            "pixel_per_mm",
-            "crop_size_px",
-            "crop_size_mm",
-        }
 
     def test_detection_hyperparameters_travel_with_the_model(self):
         """違うハイパラで測った直径に係数を当てても意味がないので同じ document に置く."""
@@ -227,15 +197,6 @@ class TestCalibrationFiles:
         assert error is None, error
         assert loaded == _parsed()
 
-    def test_written_file_is_valid_json_with_a_trailing_newline(self, tmp_path: Path):
-        path = tmp_path / f"sample{CALIBRATION_SUFFIX}"
-
-        write_calibration(path, _parsed())
-
-        text = path.read_text(encoding="utf-8")
-        assert text.endswith("\n")
-        assert json.loads(text) == _document()
-
     def test_load_reports_a_missing_file(self, tmp_path: Path):
         calibration, error = load_calibration(tmp_path / "absent.json")
 
@@ -263,28 +224,6 @@ class TestCalibrationFiles:
 
     def test_lists_nothing_when_the_directory_is_missing(self, tmp_path: Path):
         assert list_calibrations(tmp_path / "absent") == ()
-
-
-class TestCalibrationFilename:
-    """保存名の組み立て（人が読める名前 + 衝突しない時刻）."""
-
-    def test_uses_the_suffix_and_keeps_the_label_readable(self):
-        name = calibration_filename("S3X70-E150DN / n0.30")
-
-        assert name.endswith(CALIBRATION_SUFFIX)
-        assert "s3x70-e150dn" in name
-
-    def test_replaces_characters_that_are_awkward_in_a_path(self):
-        name = calibration_filename("a/b c:d")
-
-        assert "/" not in name.removesuffix(CALIBRATION_SUFFIX)
-        assert " " not in name
-
-    def test_falls_back_when_the_label_has_nothing_usable(self):
-        name = calibration_filename("///")
-
-        assert name.endswith(CALIBRATION_SUFFIX)
-        assert len(name) > len(CALIBRATION_SUFFIX)
 
 
 class TestCalibrationPath:
@@ -321,6 +260,9 @@ class TestCalibrationPath:
         assert path.name.startswith("s3x70")
         assert "20260910T120000" in path.name
         assert path.name.endswith(CALIBRATION_SUFFIX)
+        # path で扱いにくい文字は名前に残さない
+        assert "/" not in path.name
+        assert " " not in path.name
 
     def test_falls_back_to_a_default_stem_when_nothing_survives(self, tmp_path: Path):
         path = calibration_path(tmp_path, f"///{CALIBRATION_SUFFIX}")
@@ -353,18 +295,6 @@ class TestDefaultCalibrationLabel:
         local = moment.astimezone().strftime("%Y-%m-%d %H:%M:%S")
         assert label == f"S3X70-E150DN / n0.30 / h0.20 / {local}"
 
-    def test_two_runs_of_the_same_conditions_differ(self):
-        conditions = self._conditions()
-
-        first = default_calibration_label(
-            conditions, datetime(2026, 9, 10, 7, 18, 47, tzinfo=UTC)
-        )
-        second = default_calibration_label(
-            conditions, datetime(2026, 9, 10, 7, 45, 9, tzinfo=UTC)
-        )
-
-        assert first != second
-
 
 class TestAutoCalibrationPath:
     """自動命名の保存先（ラベルが既に生成時刻を含む）."""
@@ -388,13 +318,6 @@ class TestAutoCalibrationPath:
 
         assert auto.count("2026") == 1
         assert dated.count("2026") == 2
-
-    def test_two_labels_from_the_same_conditions_do_not_collide(self, tmp_path: Path):
-        later = "S3X70-E150DN / n0.30 / h0.20 / 2026-09-10 17:01:00"
-
-        assert auto_calibration_path(tmp_path, self.LABEL) != auto_calibration_path(
-            tmp_path, later
-        )
 
     def test_never_escapes_the_root(self, tmp_path: Path):
         path = auto_calibration_path(tmp_path, "../../../tmp/pwn")

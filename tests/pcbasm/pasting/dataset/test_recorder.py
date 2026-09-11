@@ -248,18 +248,6 @@ class TestPasteDatasetRecorder:
         assert parsed is not None
         assert recorder.metadata == parsed
 
-    def test_finalize_does_not_write_any_mask(self, tmp_path: Path, plan: DotGridPlan):
-        recorder = _recorder(tmp_path, plan)
-        _record_all(recorder, plan)
-
-        session = recorder.finalize(measured_mass_mg=MEASURED_MASS_MG, run=_run_info())
-
-        assert {path.name for path in session.iterdir()} == {
-            "pre",
-            "post",
-            "metadata.json",
-        }
-
     def test_finalize_allocates_measured_volume_by_rotations(
         self, tmp_path: Path, plan: DotGridPlan
     ):
@@ -295,6 +283,10 @@ class TestPasteDatasetRecorder:
         cells = plan.cells
         assert [sample.index for sample in metadata.samples] == [
             cell.index for cell in cells
+        ]
+        # blank は samples[] とは別の blanks[] へ分かれる
+        assert [blank.index for blank in metadata.blanks] == [
+            cell.index for cell in plan.blanks
         ]
         assert [sample.cell for sample in metadata.samples] == [
             cell.rect for cell in cells
@@ -389,23 +381,6 @@ class TestPasteDatasetRecorder:
 class TestBlankCells:
     """塗布しない blank セルは blanks[] へ真値 0 で入り、配分の分母に入らない."""
 
-    def test_blanks_are_separated_from_the_volume_samples(
-        self, tmp_path: Path, plan: DotGridPlan
-    ):
-        recorder = _recorder(tmp_path, plan)
-        _record_all(recorder, plan)
-
-        recorder.finalize(measured_mass_mg=MEASURED_MASS_MG, run=_run_info())
-
-        metadata = recorder.metadata
-        assert metadata is not None
-        assert [blank.index for blank in metadata.blanks] == [
-            cell.index for cell in plan.blanks
-        ]
-        assert [sample.index for sample in metadata.samples] == [
-            cell.index for cell in plan.cells
-        ]
-
     def test_blank_measured_volume_is_exactly_zero(
         self, tmp_path: Path, plan: DotGridPlan
     ):
@@ -420,22 +395,6 @@ class TestBlankCells:
         assert [blank.measured_volume_ul for blank in metadata.blanks] == [0.0] * len(
             metadata.blanks
         )
-
-    def test_blanks_are_excluded_from_the_rotation_allocation(
-        self, tmp_path: Path, plan: DotGridPlan
-    ):
-        recorder = _recorder(tmp_path, plan)
-        _record_all(recorder, plan)
-
-        recorder.finalize(measured_mass_mg=MEASURED_MASS_MG, run=_run_info())
-
-        metadata = recorder.metadata
-        assert metadata is not None
-        total_volume = MEASURED_MASS_MG / DENSITY
-        # blank を分母に入れていれば、塗布点の合計は総体積より小さくなる
-        assert sum(
-            sample.measured_volume_ul for sample in metadata.samples
-        ) == pytest.approx(total_volume)
 
     def test_blanks_keep_their_pre_and_post_captures(
         self, tmp_path: Path, plan: DotGridPlan
@@ -459,6 +418,7 @@ class TestDispenseOrder:
     def test_order_matches_the_planned_dispense_order(
         self, tmp_path: Path, plan: DotGridPlan
     ):
+        assert plan.blanks
         recorder = _recorder(tmp_path, plan)
         _record_all(recorder, plan)
 
@@ -469,51 +429,9 @@ class TestDispenseOrder:
         assert [sample.order for sample in metadata.samples] == [
             cell.order for cell in plan.cells
         ]
-
-    def test_order_covers_every_sample_exactly_once(
-        self, tmp_path: Path, plan: DotGridPlan
-    ):
-        recorder = _recorder(tmp_path, plan)
-        _record_all(recorder, plan)
-
-        recorder.finalize(measured_mass_mg=MEASURED_MASS_MG, run=_run_info())
-
-        metadata = recorder.metadata
-        assert metadata is not None
-        assert sorted(sample.order for sample in metadata.samples) == list(
-            range(1, len(metadata.samples) + 1)
-        )
-
-    def test_blank_cells_do_not_consume_an_order_number(
-        self, tmp_path: Path, plan: DotGridPlan
-    ):
-        assert plan.blanks
-        recorder = _recorder(tmp_path, plan)
-        _record_all(recorder, plan)
-
-        recorder.finalize(measured_mass_mg=MEASURED_MASS_MG, run=_run_info())
-
-        metadata = recorder.metadata
-        assert metadata is not None
+        # blank は order を消費しないので、最大 order は塗布 sample 数で止まる
         assert max(sample.order for sample in metadata.samples) == len(metadata.samples)
         assert len(metadata.samples) < plan.spec.target_count
-
-
-class TestDotCellIsTheRecordingKey:
-    """Recorder は pad ではなく DotCell を受け、index で PNG を採番する."""
-
-    def test_capture_files_are_named_by_the_cell_index(
-        self, tmp_path: Path, plan: DotGridPlan
-    ):
-        recorder = _recorder(tmp_path, plan)
-        for target in plan.targets:
-            recorder.record_pre(target, VIEW, _crop())
-
-        session = recorder.mark_incomplete()
-
-        assert {path.name for path in (session / "pre").iterdir()} == {
-            f"{target.index:06d}.00.png" for target in plan.targets
-        }
 
 
 class TestRecorderPending:

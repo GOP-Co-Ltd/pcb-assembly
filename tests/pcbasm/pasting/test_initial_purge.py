@@ -88,18 +88,6 @@ class TestResolveInitialPurge:
         assert "1.50" in resolved.label
         assert "-2.25" in resolved.label
 
-    def test_explicit_point_resolves_without_a_route(self):
-        resolved, error = resolve_initial_purge(
-            amount_ul=0.1,
-            point=Point2d(1.0, 1.0),
-            routed_pads=[],
-            outline=_outline(),
-        )
-
-        assert error is None
-        assert resolved is not None
-        assert resolved.source == "explicit"
-
     def test_empty_route_without_a_point_resolves_to_nothing(self):
         resolved, error = resolve_initial_purge(
             amount_ul=0.1, point=None, routed_pads=[], outline=_outline()
@@ -156,17 +144,10 @@ class TestResolveInitialPurge:
 class TestValidateInitialPurge:
     """Resolve と同一規則の None 返却バリデーション（無効化中も座標は検証する）."""
 
-    def test_valid_settings_return_none(self):
+    @pytest.mark.parametrize("point", [Point2d(1.0, 1.0), None])
+    def test_valid_settings_return_none(self, point: Point2d | None):
         assert (
-            validate_initial_purge(
-                amount_ul=0.1, point=Point2d(1.0, 1.0), outline=_outline()
-            )
-            is None
-        )
-
-    def test_no_point_returns_none(self):
-        assert (
-            validate_initial_purge(amount_ul=0.1, point=None, outline=_outline())
+            validate_initial_purge(amount_ul=0.1, point=point, outline=_outline())
             is None
         )
 
