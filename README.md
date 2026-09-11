@@ -224,7 +224,7 @@ backend を選んだページが 503 になるだけ）。
 - **自動ロールバックはしない。** 失敗時の復旧は ssh（下記）
 - `uv sync` は `--locked --inexact` 固定。`--locked` が無いと `uv.lock` が書き換わって
     tree が dirty になり以後の更新が全部止まり、`--inexact` が無いと指定しなかった
-    dependency group（Pi の `ml-runtime` = torch）が消える。機体ごとに増やすなら
+    dependency group が消える。機体ごとに増やすなら
     `PCBASM_API_UPDATE_UV_SYNC_ARGS` / `PCBASM_UI_UPDATE_UV_SYNC_ARGS`（**丸ごと置換**
     なので既定の 2 つを書き直したうえで足す）
 - **同居機（backend + frontend が同じホスト）では画面も一度切れる。** 再起動対象は

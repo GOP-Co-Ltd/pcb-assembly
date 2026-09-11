@@ -4,7 +4,7 @@
 `pcbasm` に `pcbasm-api.service` や `uv` を知らせたくない。backend（`web.api`）と
 UI frontend（`web.ui`）の双方から同じ実装を使う。
 
-このパッケージは **cv2 / pcbnew / picamera2 / torch を一切引かない**
+このパッケージは **cv2 / pcbnew / picamera2 を一切引かない**
 （`tests/test_package.py::TestSelfUpdateImportLight` が回帰をピンする）。frontend
 専用機には装置ドメインの依存が入っていないため。
 """
