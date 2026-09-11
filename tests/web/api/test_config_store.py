@@ -559,6 +559,7 @@ class TestFlowCalibrationFields:
             f"{self._PREFIX}.calibration_file",
             f"{self._PREFIX}.amount_ul",
             f"{self._PREFIX}.crop_size_mm",
+            f"{self._PREFIX}.settle_seconds",
         } <= keys
 
     def test_missing_settings_read_as_none(self, store: ConfigStore):
@@ -593,3 +594,14 @@ class TestFlowCalibrationFields:
     def test_rejects_non_positive_dimensions(self, store: ConfigStore, key: str):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings({f"{self._PREFIX}.{key}": 0.0})
+
+    def test_zero_settle_seconds_is_accepted_as_the_way_to_skip_the_wait(
+        self, store: ConfigStore
+    ):
+        store.write_machine_settings({f"{self._PREFIX}.settle_seconds": 0.0})
+
+        assert store.read_machine_settings()[f"{self._PREFIX}.settle_seconds"] == 0.0
+
+    def test_rejects_a_negative_settle_time(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings({f"{self._PREFIX}.settle_seconds": -1.0})

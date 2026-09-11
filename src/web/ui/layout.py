@@ -145,6 +145,7 @@ PASTE_FLOW_CALIBRATION_KEYS = (
     "paste_dispenser.flow_calibration.calibration_file",
     "paste_dispenser.flow_calibration.amount_ul",
     "paste_dispenser.flow_calibration.crop_size_mm",
+    "paste_dispenser.flow_calibration.settle_seconds",
 )
 
 # 上のうち、保存済み校正の <select> へ差し替えるキー

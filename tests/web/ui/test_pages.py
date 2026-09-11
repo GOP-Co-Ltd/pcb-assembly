@@ -758,6 +758,7 @@ class TestPastingJobPages:
             "paste_dispenser.flow_calibration.calibration_file",
             "paste_dispenser.flow_calibration.amount_ul",
             "paste_dispenser.flow_calibration.crop_size_mm",
+            "paste_dispenser.flow_calibration.settle_seconds",
         ):
             assert key in text
         assert "data-calibration-picker" in text

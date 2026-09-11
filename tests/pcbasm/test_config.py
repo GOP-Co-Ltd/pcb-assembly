@@ -437,6 +437,7 @@ class TestFlowCalibration:
         assert flow.calibration_file == ""
         assert flow.amount_ul == pytest.approx(0.2)
         assert flow.crop_size_mm == pytest.approx(2.0)
+        assert flow.settle_seconds == pytest.approx(10.0)
         assert flow.enabled is False
 
     def test_is_enabled_by_the_calibration_file_alone(self):
@@ -452,11 +453,16 @@ class TestFlowCalibration:
             ("amount_ul", float("nan")),
             ("crop_size_mm", 0.0),
             ("crop_size_mm", -1.0),
+            ("settle_seconds", -1.0),
+            ("settle_seconds", float("nan")),
         ],
     )
     def test_rejects_invalid_values(self, key, value):
         with pytest.raises(ValueError, match=key):
             FlowCalibration(**{key: value})
+
+    def test_accepts_zero_settle_seconds_to_skip_the_wait(self):
+        assert FlowCalibration(settle_seconds=0.0).settle_seconds == 0.0
 
 
 class TestMachinePasteDispenserFlowCalibration:
@@ -473,13 +479,15 @@ class TestMachinePasteDispenserFlowCalibration:
             "[paste_dispenser.flow_calibration]\n"
             'calibration_file = "cal.paste-volume.json"\n'
             "amount_ul = 0.15\n"
-            "crop_size_mm = 2.4\n",
+            "crop_size_mm = 2.4\n"
+            "settle_seconds = 4.0\n",
         )
         flow = machine.paste_dispenser.flow_calibration
 
         assert flow.calibration_file == "cal.paste-volume.json"
         assert flow.amount_ul == pytest.approx(0.15)
         assert flow.crop_size_mm == pytest.approx(2.4)
+        assert flow.settle_seconds == pytest.approx(4.0)
         assert flow.enabled is True
 
 

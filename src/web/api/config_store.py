@@ -109,6 +109,12 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
         "float",
         "mm",
     ),
+    FieldSpec(
+        "paste_dispenser.flow_calibration.settle_seconds",
+        "静定待ち",
+        "float",
+        "s",
+    ),
     FieldSpec("paste_dispenser.bead_width_factor", "ビード幅係数", "float"),
     FieldSpec("paste_dispenser.overlap", "ジグザグ行間オーバーラップ", "float"),
     FieldSpec("paste_dispenser.boundary_margin", "外周マージン", "float", "mm"),
@@ -241,10 +247,12 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     name = spec.key.rsplit(".", 1)[-1]
                     if error := validate_positive_number(name, coerced_float):
                         raise UnknownFieldError(error)
-                if spec.key == "paste_dispenser.pad_align.refine_max_short_side":
-                    if error := validate_non_negative_number(
-                        "refine_max_short_side", coerced_float
-                    ):
+                if spec.key in {
+                    "paste_dispenser.flow_calibration.settle_seconds",
+                    "paste_dispenser.pad_align.refine_max_short_side",
+                }:
+                    name = spec.key.rsplit(".", 1)[-1]
+                    if error := validate_non_negative_number(name, coerced_float):
                         raise UnknownFieldError(error)
                 return coerced_float
         case "float_or_auto":

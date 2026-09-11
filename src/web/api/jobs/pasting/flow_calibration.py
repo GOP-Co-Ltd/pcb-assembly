@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import time
+
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.capture import PointCapturer
@@ -33,6 +35,9 @@ from pcbasm.pasting.session import PasteSession
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
 from web.api.jobs.context import JobContext
 
+# 静定待ちを刻む間隔 [秒]。この粒度で中断を拾い、残り時間をログへ出す
+_SETTLE_TICK_SEC = 1.0
+
 
 def run_flow_calibration(
     ctx: JobContext,
@@ -47,6 +52,9 @@ def run_flow_calibration(
     塗ってすぐ撮ると点ごとにペーストの落ち着き時間が変わる。
 
     校正を作ったときと同じ並びに揃える。
+
+    塗布パスと塗布後パスの間に ``settle_seconds`` の静定待ちを置く。
+    点数が少ないと塗布パスがすぐ終わるので、待たないと広がりきる前の円を測る。
     """
     path = ctx.paste_volume_calibration_dir / plan.calibration_file
     estimator, error = load_diameter_estimator(path, reliable_range_only=True)
@@ -72,7 +80,8 @@ def run_flow_calibration(
     ctx.progress("流量キャリブレーション")
     ctx.log(
         f"流量キャリブレーション: {len(plan.points)} 点 x {plan.amount_ul:.3f} uL / "
-        f"crop {crop_size_px} px / 校正 {plan.calibration_file}"
+        f"crop {crop_size_px} px / 静定待ち {plan.settle_seconds:.1f} s / "
+        f"校正 {plan.calibration_file}"
     )
     capturer = PointCapturer(session, crop_size_px=crop_size_px, frame_sink=ctx.frame)
 
@@ -88,6 +97,8 @@ def run_flow_calibration(
             transform=session.point_transform(point, correction),
         )
         ctx.log(f"流量キャリブレーション: 点{index} を塗布しました")
+
+    _wait_to_settle(ctx, plan.settle_seconds)
 
     post = _capture_all(ctx, capturer, correction, plan, phase="塗布後")
     if post is None:
@@ -125,6 +136,24 @@ def summary_line(outcome: FlowCalibrationOutcome) -> str:
         f"{outcome.previous_rotations_per_ul:.4f} → {outcome.rotations_per_ul:.4f}"
         + ("（上限で頭打ち）" if outcome.clamped else "")
     )
+
+
+def _wait_to_settle(ctx: JobContext, seconds: float) -> None:
+    """ペーストが広がりきるまで待つ.
+
+    塗り終えてすぐ撮ると、広がる前の小さい円を測ることになる。
+
+    待ちは中断できるよう刻んで進める。
+    """
+    if seconds <= 0:
+        return
+    ctx.progress(f"流量キャリブレーション: 静定待ち {seconds:.0f} 秒")
+    ctx.log(f"流量キャリブレーション: ペーストの静定を {seconds:.1f} 秒待ちます")
+    deadline = time.monotonic() + seconds
+    while (remaining := deadline - time.monotonic()) > 0:
+        ctx.checkpoint()
+        time.sleep(min(_SETTLE_TICK_SEC, remaining))
+    ctx.checkpoint()
 
 
 def _capture_all(

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -164,11 +165,17 @@ class TestRunFlowCalibration:
         return []
 
     @pytest.fixture
+    def elapsed(self) -> list[float]:
+        """合成ジョブ内で `run_flow_calibration` にかかった秒数."""
+        return []
+
+    @pytest.fixture
     def flow_manager(
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         moves: list[float | None],
+        elapsed: list[float],
     ) -> JobManager:
         """`run_flow_calibration` だけを呼ぶ合成ジョブを積んだ manager."""
 
@@ -176,7 +183,8 @@ class TestRunFlowCalibration:
             klipper = FakeKlipper()
             session = _session(FakeCamera([_frame()]), klipper)
             config = FlowCalibration(
-                calibration_file=str(ctx.params["calibration_file"])
+                calibration_file=str(ctx.params["calibration_file"]),
+                settle_seconds=float(ctx.params["settle_seconds"]),
             )
             plan, error = plan_flow_calibration(
                 config=config, points=POINTS, outline=session.pcb.outline.polygon
@@ -185,9 +193,11 @@ class TestRunFlowCalibration:
             assert plan is not None
             with session.make_applicator() as applicator:
                 klipper.clear_sent()
+                started = time.monotonic()
                 outcome = run_flow_calibration(
                     ctx, session, _correction(), applicator, plan
                 )
+                elapsed.append(time.monotonic() - started)
                 moves.extend(move.get("z") for move in klipper.g1_moves())
             return JobResult(
                 summary="補正なし" if outcome is None else summary_line(outcome)
@@ -197,7 +207,10 @@ class TestRunFlowCalibration:
             catalog,
             run,
             name="flow_calibration",
-            params=(ParamSpec("calibration_file", "校正", "str", default=""),),
+            params=(
+                ParamSpec("calibration_file", "校正", "str", default=""),
+                ParamSpec("settle_seconds", "静定待ち", "float", default=0.0),
+            ),
         )
         return make_manager(catalog)
 
@@ -214,8 +227,17 @@ class TestRunFlowCalibration:
         return name
 
     @staticmethod
-    def _run(manager: JobManager, wait_until: WaitUntil, name: str) -> JobRecord:
-        record = manager.start("flow_calibration", {"calibration_file": name})
+    def _run(
+        manager: JobManager,
+        wait_until: WaitUntil,
+        name: str,
+        *,
+        settle_seconds: float = 0.0,
+    ) -> JobRecord:
+        record = manager.start(
+            "flow_calibration",
+            {"calibration_file": name, "settle_seconds": settle_seconds},
+        )
         wait_until(lambda: record.status.terminal, timeout=60.0)
         return record
 
@@ -264,3 +286,34 @@ class TestRunFlowCalibration:
         # 先頭 3 つが pre パス、末尾 3 つが post パス。間に塗布の移動が挟まる
         assert focus[:3] == [0, 1, 2]
         assert focus[3:] == [len(moves) - 3, len(moves) - 2, len(moves) - 1]
+
+    def test_waits_for_the_paste_to_settle_before_the_post_pass(
+        self,
+        flow_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+        elapsed: list[float],
+    ):
+        """塗り終えてすぐ撮ると、広がりきる前の小さい円を測ることになる."""
+        name = self._write_calibration(fake_camera_settings)
+
+        record = self._run(flow_manager, wait_until, name, settle_seconds=1.5)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert elapsed
+        assert elapsed[0] >= 1.5
+
+    def test_zero_settle_seconds_skips_the_wait(
+        self,
+        flow_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+        elapsed: list[float],
+    ):
+        name = self._write_calibration(fake_camera_settings)
+
+        record = self._run(flow_manager, wait_until, name, settle_seconds=0.0)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert elapsed
+        assert elapsed[0] < 1.0

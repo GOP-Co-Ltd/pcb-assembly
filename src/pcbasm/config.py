@@ -197,20 +197,27 @@ class FlowCalibration:
     ここで撥ねると machine.toml 全体が読めなくなるため、判定は
     :func:`~pcbasm.pasting.paste_volume.runtime.plan_flow_calibration` で行う。
 
+    塗り終えてすぐ撮ると、ペーストが広がりきる前の小さい円を測ることになる。
+    塗布後の撮影に入る前に ``settle_seconds`` だけ置く。
+
     Attributes:
         calibration_file: 使う校正ファイル名（空なら無効）
         amount_ul: 1 点あたりの指令塗布量 [μL]
         crop_size_mm: 塗布前後画像の一辺 [mm]
+        settle_seconds: 全点を塗ってから塗布後の撮影に入るまでの待ち [秒]（0 で待たない）
     """
 
     calibration_file: str = ""
     amount_ul: float = 0.2
     crop_size_mm: float = 2.0
+    settle_seconds: float = 10.0
 
     def __attrs_post_init__(self) -> None:
         for name in ("amount_ul", "crop_size_mm"):
             if error := validate_positive_number(name, getattr(self, name)):
                 raise ValueError(error)
+        if error := validate_non_negative_number("settle_seconds", self.settle_seconds):
+            raise ValueError(error)
 
     @property
     def enabled(self) -> bool:

@@ -40,12 +40,14 @@ class FlowCalibrationPlan:
         amount_ul: 1 点あたりの指令塗布量 [μL]
         crop_size_mm: 塗布前後画像の一辺 [mm]
         calibration_file: 推定に使う校正ファイル名
+        settle_seconds: 全点を塗ってから塗布後の撮影に入るまでの待ち [秒]
     """
 
     points: tuple[Point2d, ...]
     amount_ul: float
     crop_size_mm: float
     calibration_file: str
+    settle_seconds: float
 
     @property
     def total_commanded_ul(self) -> float:
@@ -113,6 +115,7 @@ def plan_flow_calibration(
             amount_ul=config.amount_ul,
             crop_size_mm=config.crop_size_mm,
             calibration_file=config.calibration_file,
+            settle_seconds=config.settle_seconds,
         ),
         None,
     )

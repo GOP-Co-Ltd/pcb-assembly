@@ -71,6 +71,7 @@ class TestPlanFlowCalibration:
         assert plan is not None
         assert plan.amount_ul == pytest.approx(0.2)
         assert plan.crop_size_mm == pytest.approx(2.0)
+        assert plan.settle_seconds == pytest.approx(10.0)
         assert plan.total_commanded_ul == pytest.approx(0.6)
 
     def test_is_disabled_when_no_point_is_configured(self):
