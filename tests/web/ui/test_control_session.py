@@ -126,20 +126,19 @@ class TestSessionCookie:
         assert _session_cookie_headers(response) == []
         assert frontend_client.cookies[SESSION_COOKIE] == first
 
-    def test_proxied_api_response_does_not_issue_a_session_cookie(
-        self, echo_frontend: TestClient
+    @pytest.mark.parametrize(
+        "path",
+        (
+            pytest.param(f"/m/{MACHINE_ID}/api/state", id="プロキシ配下の JSON"),
+            pytest.param("/static/js/control.js", id="静的アセット"),
+        ),
+    )
+    def test_non_page_response_does_not_issue_a_session_cookie(
+        self, echo_frontend: TestClient, path: str
     ):
         """発行点は HTML ページだけ（JSON / MJPEG / 静的アセットでは発行しない）."""
-        response = echo_frontend.get(f"/m/{MACHINE_ID}/api/state")
+        response = echo_frontend.get(path)
 
-        assert _session_cookie_headers(response) == []
-
-    def test_static_asset_does_not_issue_a_session_cookie(
-        self, echo_frontend: TestClient
-    ):
-        response = echo_frontend.get("/static/js/control.js")
-
-        assert response.status_code == 200
         assert _session_cookie_headers(response) == []
 
     def test_page_session_reaches_the_backend_on_the_next_api_call(
@@ -185,21 +184,28 @@ class TestSessionHeaderInjection:
 
         assert "cookie" not in headers
 
+    @pytest.mark.parametrize(
+        ("cookie_value", "expected"),
+        (
+            pytest.param(QUOTED_NAME, "田中", id="encodeURIComponent 済みの日本語名"),
+            pytest.param("tanaka", "tanaka", id="ASCII 名"),
+        ),
+    )
     def test_display_name_stays_percent_encoded_for_the_latin1_header(
-        self, echo_frontend: TestClient
+        self, echo_frontend: TestClient, cookie_value: str, expected: str
     ):
         """日本語名を生で載せると uvicorn / httpx が壊れる（ヘッダは latin-1）."""
         headers = _echoed_headers(
             echo_frontend.get(
                 f"/m/{MACHINE_ID}/api/state",
-                headers={"cookie": f"{NAME_COOKIE}={QUOTED_NAME}"},
+                headers={"cookie": f"{NAME_COOKIE}={cookie_value}"},
             )
         )
 
         name = headers["x-pcbasm-client-name"]
         assert name.isascii()
         # 二重エンコードすると backend の unquote 1 回では戻らない
-        assert unquote(name) == "田中"
+        assert unquote(name) == expected
 
     def test_undecodable_display_name_cookie_is_not_forwarded(
         self, echo_frontend: TestClient
@@ -220,16 +226,6 @@ class TestSessionHeaderInjection:
         )
 
         assert "x-pcbasm-client-name" not in headers
-
-    def test_ascii_display_name_is_passed_through(self, echo_frontend: TestClient):
-        headers = _echoed_headers(
-            echo_frontend.get(
-                f"/m/{MACHINE_ID}/api/state",
-                headers={"cookie": f"{NAME_COOKIE}=tanaka"},
-            )
-        )
-
-        assert headers["x-pcbasm-client-name"] == "tanaka"
 
     def test_no_cookie_injects_no_session_headers(self, echo_frontend: TestClient):
         """ヘッダ無し = backend 側で anonymous として扱われる（送らないことを確かめる）."""

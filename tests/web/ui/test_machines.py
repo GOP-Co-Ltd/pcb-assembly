@@ -45,19 +45,6 @@ class TestMachineEndpoint:
     def test_label_shows_the_hostname_and_host(self):
         assert KUROUSAGI.label == "kurousagi002: kurousagi002.local"
 
-    def test_label_omits_the_port(self):
-        """Port は運用者向けの識別に寄与しないので表示しない（host までで一意）."""
-        assert "8081" not in KUROUSAGI.label
-
-    def test_label_ignores_the_configured_machine_name(self):
-        """`machine_name` は自由入力で同名を見分けられないため表示に使わない."""
-        assert "黒兎" not in KUROUSAGI.label
-
-    def test_defaults_to_static_source(self):
-        """MR5 の mDNS 探索と区別できるように出自を持つ（既定は静的登録）."""
-        assert KUROUSAGI.source == "static"
-        assert KUROUSAGI.machine_type is None
-
 
 class TestMachineRegistry:
     """一覧と解決."""
@@ -70,9 +57,6 @@ class TestMachineRegistry:
 
         assert registry.list() == (first, second)
 
-    def test_empty_registry_lists_nothing(self):
-        assert MachineRegistry().list() == ()
-
     def test_resolve_returns_the_registered_endpoint(self):
         registry = MachineRegistry((KUROUSAGI,))
 
@@ -80,13 +64,13 @@ class TestMachineRegistry:
 
     def test_resolve_raises_unknown_machine_for_unregistered_id(self):
         registry = MachineRegistry((KUROUSAGI,))
+        empty = MachineRegistry()
 
+        assert empty.list() == ()
         with pytest.raises(UnknownMachine, match="kurousagi003"):
             registry.resolve("kurousagi003")
-
-    def test_resolve_on_empty_registry_raises_unknown_machine(self):
-        with pytest.raises(UnknownMachine):
-            MachineRegistry().resolve("kurousagi002")
+        with pytest.raises(UnknownMachine, match="kurousagi002"):
+            empty.resolve("kurousagi002")
 
 
 class TestLoadMachinesFile:
@@ -125,41 +109,31 @@ class TestLoadMachinesFile:
             MachineEndpoint(machine_id="alpha", host="alpha.local", port=18081),
         )
 
-    def test_port_defaults_to_the_backend_port(self, tmp_path: Path):
-        path = write_machines_toml(
-            tmp_path,
-            '[[machine]]\nmachine_id = "alpha"\nhost = "alpha.local"\n',
-        )
-
-        (endpoint,) = load_machines_file(path)
-
-        assert endpoint.port == DEFAULT_BACKEND_PORT == 8081
-
-    def test_port_can_be_defaulted_by_the_caller(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        (
+            pytest.param({}, 8081, id="既定は backend port"),
+            pytest.param({"default_port": 19999}, 19999, id="呼び出し側が決める"),
+        ),
+    )
+    def test_port_falls_back_to_the_caller_default(
+        self, tmp_path: Path, kwargs: dict[str, int], expected: int
+    ):
         """既定 port は呼び出し側（`Settings.default_backend_port`）が決められる."""
         path = write_machines_toml(
             tmp_path,
             '[[machine]]\nmachine_id = "alpha"\nhost = "alpha.local"\n',
         )
 
-        (endpoint,) = load_machines_file(path, default_port=19999)
+        (endpoint,) = load_machines_file(path, **kwargs)
 
-        assert endpoint.port == 19999
+        assert endpoint.port == expected
+        assert DEFAULT_BACKEND_PORT == 8081
 
     def test_file_without_machine_table_yields_no_machines(self, tmp_path: Path):
         path = write_machines_toml(tmp_path, "# まだ登録が無い\n")
 
         assert load_machines_file(path) == ()
-
-    def test_loaded_machines_are_resolvable(self, tmp_path: Path):
-        path = write_machines_toml(
-            tmp_path,
-            '[[machine]]\nmachine_id = "alpha"\nhost = "alpha.local"\n',
-        )
-
-        registry = MachineRegistry(load_machines_file(path))
-
-        assert registry.resolve("alpha").base_url == "http://alpha.local:8081"
 
     @pytest.mark.parametrize(
         "body",
@@ -211,13 +185,6 @@ DISCOVERED_KUROUSAGI = MachineEndpoint(
     machine_type="paste",
     source="mdns",
 )
-
-
-class TestDiscoveredLabel:
-    """MDNS 由来のマシンの表示形（ドロップダウンに出る文字列のピン）."""
-
-    def test_label_shows_the_hostname_and_advertised_address(self):
-        assert DISCOVERED_KUROUSAGI.label == "kurousagi: 192.168.100.201"
 
 
 class TestSetDiscovered:

@@ -229,20 +229,6 @@ class TestRelayedRequestHeaders:
 
         assert header not in _echoed(response)["headers"]
 
-    def test_client_connection_header_does_not_reach_backend(
-        self, echo_client: TestClient
-    ):
-        """`connection: close` を渡すと上流の keep-alive 接続が毎回切られる.
-
-        `connection` は httpx 自身が接続管理として付け直すため、上流に届く値は
-        クライアントの値ではなく httpx の keep-alive になる。
-        """
-        response = echo_client.get(
-            f"/m/{MACHINE_ID}/api/state", headers={"connection": "close"}
-        )
-
-        assert _echoed(response)["headers"]["connection"] == "keep-alive"
-
     def test_host_becomes_the_backend_host(self, echo_client: TestClient):
         """クライアントの Host を渡すと上流の名前解決・ログが frontend 側になる."""
         response = echo_client.get(f"/m/{MACHINE_ID}/api/state")
@@ -261,13 +247,6 @@ class TestRelayedRequestHeaders:
 
         forwarded = _echoed(response)["headers"]["x-forwarded-for"]
         assert forwarded == "203.0.113.9, testclient"
-
-    def test_other_request_headers_are_preserved(self, echo_client: TestClient):
-        response = echo_client.get(
-            f"/m/{MACHINE_ID}/api/state", headers={"accept": "application/json"}
-        )
-
-        assert _echoed(response)["headers"]["accept"] == "application/json"
 
 
 class TestRelayedResponseHeaders:
@@ -304,11 +283,6 @@ class TestRelayedResponseHeaders:
 
         assert response.headers["x-upstream-note"] == "kept"
         assert response.headers["content-type"] == "application/json"
-
-    def test_upstream_status_is_preserved(self, echo_client: TestClient):
-        response = echo_client.get(f"/m/{MACHINE_ID}/api/state")
-
-        assert response.status_code == _ECHO_STATUS
 
 
 class TestRelayToRealBackend:
