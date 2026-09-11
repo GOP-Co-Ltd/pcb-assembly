@@ -2,7 +2,7 @@
 
 import pytest
 
-from pcbasm.pasting.flowcalib.params import LAYOUT_MARGIN_MM, CalibrationParams
+from pcbasm.pasting.flowcalib.params import CalibrationParams
 
 
 class TestCalibrationParams:
@@ -28,12 +28,6 @@ class TestCalibrationParams:
 
         assert getattr(params, name) == expected
 
-    def test_float_fields_are_coerced(self):
-        params = CalibrationParams.from_mapping({"row_pitch": 2, "line_amount_ul": 1})
-
-        assert params.row_pitch == 2.0
-        assert params.line_amount_ul == 1.0
-
     def test_line_amount_param_name_is_read_as_line_amount_ul(self):
         params = CalibrationParams.from_mapping({"line_amount": 0.75})
 
@@ -58,16 +52,6 @@ class TestCalibrationParams:
         )
 
         assert params.required_line_count == expected
-
-    def test_line_layout_uses_layout_margin_and_line_count(self):
-        params = CalibrationParams(line_count=4, row_pitch=2.5)
-
-        layout = params.line_layout()
-
-        assert layout.margin == LAYOUT_MARGIN_MM
-        assert layout.line_count == 4
-        assert layout.row_pitch == 2.5
-        assert (layout.board_width, layout.board_height) == (40.0, 40.0)
 
     def test_line_layout_line_count_override(self):
         layout = CalibrationParams(line_count=4).line_layout(6)

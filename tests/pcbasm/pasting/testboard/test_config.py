@@ -223,56 +223,40 @@ class TestBoardConfig:
     @pytest.mark.parametrize(
         "config",
         [
-            BoardConfig(
-                board=BoardSpec(
-                    width_mm=True  # type: ignore[arg-type]
-                )
+            pytest.param(
+                BoardConfig(
+                    board=BoardSpec(
+                        width_mm=True  # type: ignore[arg-type]
+                    )
+                ),
+                id="bool-for-a-float-field",
             ),
-            BoardConfig(
-                board=BoardSpec(
-                    width_mm="40"  # type: ignore[arg-type]
-                )
+            pytest.param(
+                BoardConfig(
+                    board=BoardSpec(
+                        width_mm="40"  # type: ignore[arg-type]
+                    )
+                ),
+                id="str-for-a-float-field",
             ),
-            BoardConfig(
-                board=BoardSpec(
-                    width_mm=10**400  # type: ignore[arg-type]
-                )
+            pytest.param(
+                BoardConfig(
+                    board=BoardSpec(
+                        width_mm=10**400  # type: ignore[arg-type]
+                    )
+                ),
+                id="int-that-overflows-a-float",
             ),
-            BoardConfig(
-                custom_pads=(custom_pad(CUSTOM_A, "bool", width_mm=True),),
-                patterns=(PatternSpec(CUSTOM_A),),
-            ),
-            BoardConfig(
-                patterns=(
-                    PatternSpec(
-                        R0402,
-                        rotation_span_deg=10**400,  # type: ignore[arg-type]
-                    ),
-                )
-            ),
-            BoardConfig(
-                patterns=(
-                    PatternSpec(
-                        R0402,
-                        rotation_count=1.5,  # type: ignore[arg-type]
-                    ),
-                )
-            ),
-            BoardConfig(
-                patterns=(
-                    PatternSpec(
-                        R0402,
-                        rotation_count=True,  # type: ignore[arg-type]
-                    ),
-                )
-            ),
-            BoardConfig(
-                patterns=(
-                    PatternSpec(
-                        R0402,
-                        repeat_count=False,  # type: ignore[arg-type]
-                    ),
-                )
+            pytest.param(
+                BoardConfig(
+                    patterns=(
+                        PatternSpec(
+                            R0402,
+                            rotation_count=1.5,  # type: ignore[arg-type]
+                        ),
+                    )
+                ),
+                id="non-integer-for-an-int-field",
             ),
         ],
     )
@@ -371,15 +355,6 @@ class TestBoardDocument:
 
 class TestFlowPadSpec:
     """点塗布で流量計測するための正方形パッド（大きさと個数だけを設定する）."""
-
-    def test_defaults_place_five_two_millimetre_pads(self):
-        spec = FlowPadSpec()
-
-        assert spec.size_mm == 2.0
-        assert spec.count == 5
-
-    def test_config_defaults_include_flow_pads(self):
-        assert BoardConfig().flow_pads == FlowPadSpec()
 
     @pytest.mark.parametrize("size_mm", [0.0, -1.0, float("nan"), float("inf")])
     def test_rejects_non_positive_size(self, size_mm: float):

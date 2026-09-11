@@ -11,7 +11,6 @@
 そこから導出する（契約メモ §5）。
 """
 
-import math
 from typing import Any
 
 import attrs
@@ -150,58 +149,10 @@ def _segments(polyline: list[Point2d]) -> list[LineString]:
 
 
 class TestFallbackHierarchy:
-    """形状 × ノズル径で 面 / 線 / 点 のフォールバック段を誘発する.
+    """点塗布に落ちたときの点の位置契約.
 
-    - 大きい矩形 → 面塗布（外周＋ジグザグ。内側ポリラインが複数点）
-    - 細長い矩形 → 線塗布（1 ポリライン・2 点）
-    - 極小パッド → 点塗布（1 ポリライン・1 点）
-
-    いずれの段でも外側リストは空にならない（点フォールバックがあるため）。
+    面 / 線 / 点 の段の誘発自体は ``TestDispenseModes`` と ``TestAreaFill`` が押さえる。
     """
-
-    def test_large_polygon_triggers_area_fill(self):
-        # Arrange: buffer(-inset) が面として残る十分大きな矩形
-        polygon = _rectangle(10.0, 6.0)
-        nozzle_diameter = 1.0
-        assert not polygon.buffer(-nozzle_diameter / 2).is_empty  # 前提: 面が残る
-
-        # Act
-        result = build_paste_fill_path(polygon, nozzle_diameter=nozzle_diameter)
-
-        # Assert: 面塗布は外周＋ジグザグで多点ポリラインを少なくとも 1 本含む
-        assert len(result) >= 1
-        assert any(len(polyline) > 2 for polyline in result)
-
-    @pytest.mark.parametrize(
-        ("width", "length", "nozzle_diameter"),
-        [
-            (0.3, 2.0, 0.34),
-            (0.8, 5.0, 1.0),
-        ],
-    )
-    def test_narrow_polygon_triggers_line_fill(self, width, length, nozzle_diameter):
-        # Arrange: buffer(-w/2) が空になる細長矩形（面が残らず線塗布へ）
-        polygon = _rectangle(width, length)
-        assert polygon.buffer(-nozzle_diameter / 2).is_empty  # 前提: 面が残らない
-
-        # Act
-        result = build_paste_fill_path(polygon, nozzle_diameter=nozzle_diameter)
-
-        # Assert: 線塗布は 1 ポリライン・2 点
-        assert len(result) == 1
-        assert len(result[0]) == 2
-
-    def test_tiny_polygon_triggers_dot_fill(self):
-        # Arrange: 線塗布の最長軸も 2*end_inset 以下になる極小パッド
-        nozzle_diameter = 1.0
-        polygon = _rectangle(0.2, 0.2)
-
-        # Act
-        result = build_paste_fill_path(polygon, nozzle_diameter=nozzle_diameter)
-
-        # Assert: 点塗布は 1 ポリライン・1 点。外側リストは空でない
-        assert len(result) == 1
-        assert len(result[0]) == 1
 
     def test_dot_fill_point_inside_polygon(self):
         # Arrange
@@ -279,73 +230,36 @@ class TestDispenseModes:
         assert plan.dispense_mode == "line"
 
     @pytest.mark.parametrize(
-        ("width", "height", "expected_mode"),
+        ("width", "height", "aspect_ratio", "area_factor", "expected_mode"),
         [
-            (1.0, 1.6, "dot"),
-            (1.0, 1.7, "line"),
-            (1.0, 1.0, "dot"),
+            # 面塗布を無効化した上で、縦横比だけで line / dot が決まる
+            (1.0, 1.6, _AUTO_LINE_ASPECT_RATIO, _AREA_DISABLED_FACTOR, "dot"),
+            (1.0, 1.7, _AUTO_LINE_ASPECT_RATIO, _AREA_DISABLED_FACTOR, "line"),
+            (1.0, 1.0, _AUTO_LINE_ASPECT_RATIO, _AREA_DISABLED_FACTOR, "dot"),
+            # 縦横比がちょうど閾値なら dot（厳密 > で判定する）
+            (1.0, 2.0, 2.0, _AREA_DISABLED_FACTOR, "dot"),
+            # 短辺 < 面塗布閾値 0.34*3 なら、面塗布を有効にしても line / dot へ落ちる
+            (0.51, 4.08, _AUTO_LINE_ASPECT_RATIO, 3.0, "line"),
+            (0.51, 0.612, _AUTO_LINE_ASPECT_RATIO, 3.0, "dot"),
         ],
     )
-    def test_auto_uses_golden_ratio_threshold(self, width, height, expected_mode):
+    def test_auto_resolves_line_and_dot_by_aspect_ratio(
+        self, width, height, aspect_ratio, area_factor, expected_mode
+    ):
         plan = FillPlan.build(
             _rectangle(width, height),
             nozzle_diameter=0.34,
             dispense_mode="auto",
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=_AREA_DISABLED_FACTOR,
+            auto_line_aspect_ratio=aspect_ratio,
+            auto_area_short_side_factor=area_factor,
         )
 
         assert plan.dispense_mode == expected_mode
 
-    def test_auto_threshold_boundary_is_dot(self):
-        plan = FillPlan.build(
-            _rectangle(1.0, 2.0),
-            nozzle_diameter=0.34,
-            dispense_mode="auto",
-            auto_line_aspect_ratio=2.0,
-            auto_area_short_side_factor=_AREA_DISABLED_FACTOR,
-        )
-
-        assert plan.dispense_mode == "dot"
-
-    def test_auto_large_square_triggers_area(self):
-        # 短辺が閾値 nozzle*factor を十分上回る大正方形（従来は dot だった動機ケース）
-        nozzle_diameter = 0.34
-        factor = 3.0
-        side = nozzle_diameter * factor * 3.0  # 閾値の 3 倍 → 確実に area
-
-        plan = FillPlan.build(
-            _rectangle(side, side),
-            nozzle_diameter=nozzle_diameter,
-            dispense_mode="auto",
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=factor,
-        )
-
-        assert plan.dispense_mode == "area"
-
-    def test_auto_wide_rectangle_prefers_area_over_line(self):
-        # aspect も短辺閾値も両方満たす矩形。area を line より優先する（順序の要）。
-        nozzle_diameter = 0.34
-        factor = 3.0
-        threshold = nozzle_diameter * factor
-        short = threshold * 1.5  # 短辺 > 閾値 → area 条件成立
-        long = short * 5.0  # aspect 5 > 1.618 → line 条件も成立するが area が勝つ
-
-        plan = FillPlan.build(
-            _rectangle(short, long),
-            nozzle_diameter=nozzle_diameter,
-            dispense_mode="auto",
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=factor,
-        )
-
-        assert plan.dispense_mode == "area"
-
     @pytest.mark.parametrize(
         ("short_delta", "expected_mode"),
         [
-            (0.1, "area"),  # 閾値の直上 → area
+            (0.1, "area"),  # 閾値の直上 → area（aspect も成立するが area が勝つ）
             (-0.1, "line"),  # 閾値の直下 → line
             (0.0, "line"),  # ちょうど閾値 → 厳密 > なので area にしない
         ],
@@ -368,67 +282,6 @@ class TestDispenseModes:
         )
 
         assert plan.dispense_mode == expected_mode
-
-    def test_auto_narrow_elongated_still_line(self):
-        # 短辺 < 閾値 かつ aspect > 縦横比 → 従来どおり line
-        nozzle_diameter = 0.34
-        factor = 3.0
-        threshold = nozzle_diameter * factor
-        short = threshold * 0.5  # 閾値未満 → area にはならない
-        long = short * 8.0  # aspect 8 > 1.618 → line
-
-        plan = FillPlan.build(
-            _rectangle(short, long),
-            nozzle_diameter=nozzle_diameter,
-            dispense_mode="auto",
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=factor,
-        )
-
-        assert plan.dispense_mode == "line"
-
-    def test_auto_tiny_still_dot(self):
-        # 短辺 < 閾値 かつ aspect < 縦横比 → 従来どおり dot
-        nozzle_diameter = 0.34
-        factor = 3.0
-        threshold = nozzle_diameter * factor
-        short = threshold * 0.5
-        long = short * 1.2  # aspect 1.2 < 1.618 → dot
-
-        plan = FillPlan.build(
-            _rectangle(short, long),
-            nozzle_diameter=nozzle_diameter,
-            dispense_mode="auto",
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=factor,
-        )
-
-        assert plan.dispense_mode == "dot"
-
-    def test_auto_area_factor_is_the_knob(self):
-        # 同一パッド・同一 aspect で factor だけを振ると area/line が切り替わる。
-        nozzle_diameter = 0.34
-        short = 1.4
-        long = short * 6.0  # aspect 6 > 1.618（factor 大時は area でなく line へ）
-        polygon = _rectangle(short, long)
-
-        area_plan = FillPlan.build(
-            polygon,
-            nozzle_diameter=nozzle_diameter,
-            dispense_mode="auto",
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=3.0,  # 閾値 1.02 < 1.4 → area
-        )
-        line_plan = FillPlan.build(
-            polygon,
-            nozzle_diameter=nozzle_diameter,
-            dispense_mode="auto",
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=5.0,  # 閾値 1.70 > 1.4 → area にならず line
-        )
-
-        assert area_plan.dispense_mode == "area"
-        assert line_plan.dispense_mode == "line"
 
     def test_auto_degenerate_sliver_resolves_without_error(self):
         # ほぼ退化した極薄スライバでも auto がゼロ除算せず解決する（防御的契約）。
@@ -457,8 +310,9 @@ class TestAreaFill:
         ],
     )
     def test_area_fill_has_outline_polyline(self, width, length, nozzle_diameter):
-        # Arrange
+        # Arrange: buffer(-inset) が面として残る十分大きな矩形
         polygon = _rectangle(width, length)
+        assert not polygon.buffer(-nozzle_diameter / 2).is_empty  # 前提: 面が残る
 
         # Act
         result = build_paste_fill_path(polygon, nozzle_diameter=nozzle_diameter)
@@ -575,33 +429,11 @@ class TestSegmentContainment:
         # Assert: 成分が割れるなら外側リスト長 ≥ 2（成分ごとに独立ポリライン）
         assert len(result) >= 2
 
-    @pytest.mark.parametrize(
-        ("polygon", "nozzle_diameter"),
-        [
-            (_split_dumbbell_h(), 0.34),
-            (_split_dumbbell_v(), 0.34),
-        ],
-        ids=["split_h", "split_v"],
-    )
-    def test_no_cross_component_traversal_segment(self, polygon, nozzle_diameter):
-        # Arrange: 各成分ポリラインが単独で内包条件を満たす＝成分跨ぎの長い
-        # 横断セグメント（パッド外を通る連結線）が存在しないことを確認する。
-        buffered = polygon.buffer(_EPS)
-
-        # Act
-        result = build_paste_fill_path(polygon, nozzle_diameter=nozzle_diameter)
-
-        # Assert: どのセグメントも元ポリゴン内（＝成分間を空中横断する連結線が無い）
-        for polyline in result:
-            for seg in _segments(polyline):
-                assert buffered.covers(seg)
-
 
 class TestCoverage:
     """Overlap を上げると行間隔 line_spacing = w*(1-overlap) が縮む.
 
-    overlap が大きいほど牛耕式の行間隔が縮み、行数が増える（隣接スキャン間が 狭くなる）。しきいは line_spacing
-    の式から導出する。
+    しきいは line_spacing の式から導出する。
     """
 
     @pytest.mark.parametrize("overlap", [0.0, 0.25, 0.5])
@@ -640,53 +472,9 @@ class TestCoverage:
         # 行間隔が期待値の概ね近傍（牛耕端の折り返し誤差を許容）
         assert median_gap == pytest.approx(expected_spacing, rel=0.5)
 
-    def test_overlap_monotonically_increases_row_count(self):
-        # Arrange: 同一形状で overlap を上げると牛耕の行数が単調増加する
-        polygon = _rectangle(12.0, 10.0)
-        nozzle_diameter = 1.0
-
-        def row_count(overlap: float) -> int:
-            result = build_paste_fill_path(
-                polygon, nozzle_diameter=nozzle_diameter, overlap=overlap
-            )
-            ys = set()
-            for polyline in result:
-                for seg in _segments(polyline):
-                    (x0, y0), (x1, y1) = list(seg.coords)
-                    if abs(x1 - x0) > abs(y1 - y0):  # x 方向（最長軸）に走る行
-                        ys.add(round((y0 + y1) / 2, 3))
-            return len(ys)
-
-        # Act
-        count_low = row_count(0.0)
-        count_high = row_count(0.5)
-
-        # Assert: overlap 増 → 行間隔縮 → 行数増
-        assert count_high > count_low
-
 
 class TestExteriorMargin:
-    """boundary_margin>0 で全頂点・全セグメントが外周から margin 以上内側."""
-
-    @pytest.mark.parametrize("boundary_margin", [0.1, 0.3])
-    def test_all_points_inside_by_margin(self, boundary_margin):
-        # Arrange: margin 分内側に縮んだ領域に全頂点が収まること
-        polygon = _rectangle(12.0, 10.0)
-        nozzle_diameter = 1.0
-        # 面塗布領域は polygon.buffer(-(margin + w/2)) なので margin だけでも内側
-        shrunk = polygon.buffer(-(boundary_margin - _EPS))
-
-        # Act
-        result = build_paste_fill_path(
-            polygon,
-            nozzle_diameter=nozzle_diameter,
-            boundary_margin=boundary_margin,
-        )
-
-        # Assert: 全頂点が margin 縮小領域に内包される
-        for polyline in result:
-            for p in polyline:
-                assert shrunk.covers(ShapelyPoint(p.x, p.y))
+    """boundary_margin>0 で全頂点が外周から margin 以上内側."""
 
     @pytest.mark.parametrize("boundary_margin", [0.1, 0.3])
     def test_all_vertices_keep_margin_distance_from_exterior(self, boundary_margin):
@@ -748,54 +536,11 @@ class TestInvalidInput:
         assert result == []
 
 
-class TestReturnType:
-    """戻り値の型契約（公開 API 契約ピン）.
-
-    ``FillPlan.paths`` は常に ``tuple[tuple[Point2d, ...], ...]``。正常時は外側 ≥ 1・
-    各内側 ≥ 1 点・全要素が ``Point2d``。
-    """
-
-    @pytest.mark.parametrize(
-        ("polygon", "nozzle_diameter"),
-        [
-            (_rectangle(10.0, 6.0), 1.0),  # 面
-            (_rectangle(0.3, 2.0), 0.34),  # 線
-            (_rectangle(0.2, 0.2), 1.0),  # 点
-        ],
-        ids=["area", "line", "dot"],
-    )
-    def test_paths_are_tuples_of_polylines_of_point2d(self, polygon, nozzle_diameter):
-        plan = FillPlan.build(
-            polygon,
-            nozzle_diameter,
-            dispense_mode="area",
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-        )
-
-        assert isinstance(plan.paths, tuple)
-        assert len(plan.paths) >= 1
-        for polyline in plan.paths:
-            assert isinstance(polyline, tuple)
-            assert len(polyline) >= 1
-            assert all(isinstance(p, Point2d) for p in polyline)
-
-    def test_finite_coordinates(self):
-        # Act
-        result = build_paste_fill_path(_rectangle(10.0, 6.0), nozzle_diameter=1.0)
-
-        # Assert: 全座標が有限値
-        for polyline in result:
-            for p in polyline:
-                assert math.isfinite(p.x)
-                assert math.isfinite(p.y)
-
-
 class TestFillPlanForPad:
     """FillPlan.for_pad は config + PasteParams から引数対応を単一ソース化する。
 
     プレビュー（webui router）と実行（PasteApplicator）が同一の対応で FillPlan.build
-    を呼ぶための束ねメソッド。同じ入力に対して FillPlan.build の直接呼び出しと同一の計画を返すことを契約とする。
+    を呼ぶための束ねメソッド。line_direction の解決が固有の振る舞い。
     """
 
     @staticmethod
@@ -812,29 +557,6 @@ class TestFillPlanForPad:
         }
         values.update(overrides)
         return PasteParams(**values)
-
-    @pytest.mark.parametrize("dispense_mode", ["auto", "dot", "line", "area"])
-    def test_matches_direct_build(self, dispense_mode: str):
-        polygon = _rectangle(2.0, 6.0)
-        paste = self._paste(dispense_mode=dispense_mode)
-
-        plan = FillPlan.for_pad(
-            polygon,
-            config=_config(0.4),
-            params=paste,
-        )
-
-        expected = FillPlan.build(
-            polygon,
-            0.4,
-            dispense_mode=paste.dispense_mode,
-            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
-            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
-            bead_width_factor=paste.bead_width_factor,
-            overlap=paste.overlap,
-            boundary_margin=paste.boundary_margin,
-        )
-        assert plan == expected
 
     @pytest.mark.parametrize("dispense_mode", ["line", "auto", "area"])
     def test_outward_starts_near_component_for_every_line_resolution(

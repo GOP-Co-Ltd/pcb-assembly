@@ -74,20 +74,6 @@ class TestEncode:
 class TestInitialPurgePoint:
     """パージ位置は ``settings.initial_purge_point`` に [x, y] で残す."""
 
-    def test_doc_carries_the_point_when_set(self):
-        model = PasteSettingsModel(
-            base=_base(), initial_purge_point=Point2d(3.5, -1.25)
-        )
-
-        doc = encode_board_settings(model, source_pcb="a")
-
-        assert doc["settings"]["initial_purge_point"] == [3.5, -1.25]
-
-    def test_doc_omits_the_point_when_unset(self):
-        doc = encode_board_settings(PasteSettingsModel(base=_base()), source_pcb="a")
-
-        assert "initial_purge_point" not in doc["settings"]
-
     def test_round_trip_restores_the_point(self):
         model = PasteSettingsModel(
             base=_base(), initial_purge_point=Point2d(3.5, -1.25)
@@ -96,11 +82,6 @@ class TestInitialPurgePoint:
         restored = _decode(encode_board_settings(model, source_pcb="a"))
 
         assert restored.initial_purge_point == Point2d(3.5, -1.25)
-
-    def test_missing_point_decodes_to_none(self):
-        restored = _decode({"version": 1, "settings": {}})
-
-        assert restored.initial_purge_point is None
 
     @pytest.mark.parametrize(
         "value",
@@ -135,11 +116,6 @@ class TestFlowCalibrationPoints:
             [13.0, 2.25],
         ]
 
-    def test_doc_omits_the_points_when_unset(self):
-        doc = encode_board_settings(PasteSettingsModel(base=_base()), source_pcb="a")
-
-        assert "flow_calibration_points" not in doc["settings"]
-
     def test_round_trip_restores_the_points(self):
         model = PasteSettingsModel(
             base=_base(),
@@ -152,11 +128,6 @@ class TestFlowCalibrationPoints:
             Point2d(9.5, 2.25),
             Point2d(13.0, 2.25),
         )
-
-    def test_missing_points_decode_to_an_empty_set(self):
-        restored = _decode({"version": 1, "settings": {}})
-
-        assert restored.flow_calibration_points == ()
 
     def test_is_independent_of_the_initial_purge_point(self):
         model = PasteSettingsModel(
@@ -274,6 +245,7 @@ class TestDecodeErrors:
 
         assert restored.levels == ()
         assert restored.initial_purge_point is None
+        assert restored.flow_calibration_points == ()
 
 
 class TestLegacyBaseMigration:

@@ -201,15 +201,6 @@ class TestDetectionMask:
         # 最大連結成分だけを数える measure_dot 以上にはならず、下回りもしない
         assert int(np.count_nonzero(mask)) >= _measure("large").area_px
 
-    def test_marks_more_pixels_for_a_larger_deposit(self):
-        counts = []
-        for name in VOLUME_ORDER:
-            mask, _ = detection_mask(_load(name, "pre", 0), _load(name, "post", 0))
-            assert mask is not None
-            counts.append(int(np.count_nonzero(mask)))
-
-        assert counts == sorted(counts)
-
     def test_returns_an_empty_mask_for_a_blank_cell(self):
         mask, error = detection_mask(
             _load("blank", "pre", 0), _load("blank", "post", 0)

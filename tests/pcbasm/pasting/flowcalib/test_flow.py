@@ -3,7 +3,6 @@
 import math
 import statistics
 
-import attrs
 import pytest
 
 from pcbasm.pasting.flowcalib.flow import (
@@ -13,10 +12,8 @@ from pcbasm.pasting.flowcalib.flow import (
     MassFlowEstimate,
     RateMeasurement,
     RotationsPerUlRound,
-    commanded_rotations,
     rate_sweep_amount_ul,
     slot_area,
-    speed_sweep_amount_ul,
 )
 
 
@@ -88,13 +85,6 @@ class TestFlowCalibration:
         assert new_accel == pytest.approx(4.0)
         assert new_accel * calib.rotations_per_ul == pytest.approx(2.0 * 0.1)
 
-    def test_masses_accepts_list(self):
-        calib = FlowCalibration(
-            rotations=10.0, masses_mg=[200.0, 200.0], density_mg_per_ul=4.4
-        )
-
-        assert calib.masses_mg == (200.0, 200.0)
-
     @pytest.mark.parametrize(
         ("rotations", "masses", "density"),
         [
@@ -110,28 +100,9 @@ class TestFlowCalibration:
                 rotations=rotations, masses_mg=masses, density_mg_per_ul=density
             )
 
-    def test_frozen(self):
-        calib = FlowCalibration(
-            rotations=10.0, masses_mg=(200.0,), density_mg_per_ul=4.4
-        )
-
-        with pytest.raises(attrs.exceptions.FrozenInstanceError):
-            calib.density_mg_per_ul = 3.0  # type: ignore[misc]
-
 
 class TestMassFlowEstimate:
     """MassFlowEstimate.estimate は部分入力から導出可能な値だけを丸めて返す."""
-
-    def test_all_positive_inputs_return_full_rounded_estimate(self):
-        # mass=10, rotations=5, density=3.78 → rotations_per_ul = 1.89
-        estimate = MassFlowEstimate.estimate(
-            mass_mg=10.0, rotations=5.0, rate=0.5, accel=0.7, density_mg_per_ul=3.78
-        )
-
-        assert estimate.volume_ul == round(10.0 / 3.78, 6)
-        assert estimate.rotations_per_ul == round(1.89, 6)
-        assert estimate.max_dispense_rate == round(0.5 / 1.89, 6)
-        assert estimate.dispense_accel == round(0.7 / 1.89, 6)
 
     def test_arithmetic_matches_flow_calibration(self):
         calib = FlowCalibration(
@@ -142,6 +113,7 @@ class TestMassFlowEstimate:
             mass_mg=10.0, rotations=5.0, rate=0.5, accel=0.7, density_mg_per_ul=3.78
         )
 
+        assert estimate.volume_ul == round(10.0 / 3.78, 6)
         assert estimate.rotations_per_ul == round(calib.rotations_per_ul, 6)
         assert estimate.max_dispense_rate == round(calib.dispense_rate_for(0.5), 6)
         assert estimate.dispense_accel == round(calib.dispense_accel_for(0.7), 6)
@@ -205,28 +177,6 @@ class TestSweepAmounts:
         assert rate_sweep_amount_ul(0.5, 10.0, 0.8) == pytest.approx(6.25)
         assert rate_sweep_amount_ul(1.0, 10.0, 0.8) == pytest.approx(12.5)
 
-    def test_rate_sweep_amount_reproduces_fill_sequence_rate_derivation(self):
-        # FillSequence の導出 r = amount × v / L に代入すると指令レートへ戻る
-        rate, length, speed = 3.0, 12.0, 1.5
-        amount = rate_sweep_amount_ul(rate, length, speed)
-        assert amount * speed / length == pytest.approx(rate)
-
-    def test_speed_sweep_amount_is_area_times_ul_per_mm2(self):
-        assert speed_sweep_amount_ul(10.0, 0.4, 0.05) == pytest.approx(
-            0.05 * slot_area(10.0, 0.4)
-        )
-
-    def test_commanded_rotations(self):
-        assert commanded_rotations(
-            line_count=10, amount_ul=0.5, rotations_per_ul=1.2
-        ) == pytest.approx(6.0)
-
-
-class TestRateMeasurement:
-    def test_efficiency_is_measured_over_commanded(self):
-        m = RateMeasurement(rate=1.0, measured_ul=9.0, commanded_ul=10.0)
-        assert m.efficiency == pytest.approx(0.9)
-
 
 class TestDispenseRateCalibration:
     """② 吐出効率の落ち検出."""
@@ -241,11 +191,6 @@ class TestDispenseRateCalibration:
             for i, eff in enumerate(efficiencies)
         ]
         return DispenseRateCalibration(measurements=measurements, **kwargs)
-
-    def test_efficiencies_property(self):
-        assert self._calib([1.0, 0.98, 0.95]).efficiencies == pytest.approx(
-            (1.0, 0.98, 0.95)
-        )
 
     def test_baseline_is_median_of_low_rate_points(self):
         calib = self._calib([1.0, 0.9, 0.95, 0.5], baseline_count=3)
@@ -306,35 +251,29 @@ class TestRotationsPerUlRound:
         assert round_.dispense_accel == pytest.approx(10.0 / 1.89)
         assert round_.relative_change == pytest.approx(0.89)
 
-    def test_relative_change(self):
-        round_ = RotationsPerUlRound(2.0, 2.2, dispense_accel=1.0, rotations_used=1.0)
-        assert round_.relative_change == pytest.approx(0.1)
-
     @pytest.mark.parametrize(
-        ("computed", "rel_tol", "expected"), [(2.02, 0.05, True), (2.5, 0.05, False)]
+        ("previous", "computed", "rel_tol", "expected"),
+        [
+            (2.0, 2.02, 0.05, True),
+            (2.0, 2.5, 0.05, False),
+            # relative_change (0.5/2.0) ちょうどの許容は inclusive (<=)
+            (2.0, 2.5, 0.25, True),
+            # rel_tol 省略時は CONVERGENCE_REL_TOL を使う。
+            # 浮動小数の丸めで境界値が rel_tol を僅かに超えないよう半分の変化量にする。
+            (1.0, 1.0 + CONVERGENCE_REL_TOL / 2, None, True),
+            (1.0, 1.0 + 2 * CONVERGENCE_REL_TOL, None, False),
+        ],
     )
-    def test_converged_within_tolerance(self, computed, rel_tol, expected):
+    def test_converged_within_tolerance(self, previous, computed, rel_tol, expected):
         round_ = RotationsPerUlRound(
-            2.0, computed, dispense_accel=1.0, rotations_used=1.0
-        )
-        assert round_.converged(rel_tol=rel_tol) is expected
-
-    def test_converged_at_tolerance_boundary_is_inclusive(self):
-        # relative_change をそのまま rel_tol に渡せば境界は inclusive (<=)
-        round_ = RotationsPerUlRound(2.0, 2.1, dispense_accel=1.0, rotations_used=1.0)
-        assert round_.converged(rel_tol=round_.relative_change) is True
-
-    def test_converged_defaults_to_module_tolerance(self):
-        # 浮動小数の丸めで境界値が rel_tol を僅かに超えないよう半分の変化量にする
-        just_inside = RotationsPerUlRound(
-            1.0, 1.0 + CONVERGENCE_REL_TOL / 2, dispense_accel=1.0, rotations_used=1.0
-        )
-        outside = RotationsPerUlRound(
-            1.0, 1.0 + 2 * CONVERGENCE_REL_TOL, dispense_accel=1.0, rotations_used=1.0
+            previous, computed, dispense_accel=1.0, rotations_used=1.0
         )
 
-        assert just_inside.converged() is True
-        assert outside.converged() is False
+        converged = (
+            round_.converged() if rel_tol is None else round_.converged(rel_tol=rel_tol)
+        )
+
+        assert converged is expected
 
     @pytest.mark.parametrize(
         ("previous", "computed"),

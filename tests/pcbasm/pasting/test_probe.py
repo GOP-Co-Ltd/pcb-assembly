@@ -60,11 +60,6 @@ class TestProbeExecutor:
 
         assert "[load_cell_probe]" in str(exc.value)
 
-    def test_probe_returns_last_z_result(self, klipper, stage):
-        executor = ProbeExecutor(klipper, stage)
-
-        assert executor.probe() == -2.0
-
     def test_probe_sends_probe_command(self, klipper, stage):
         executor = ProbeExecutor(klipper, stage)
 

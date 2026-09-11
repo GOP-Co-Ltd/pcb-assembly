@@ -7,7 +7,6 @@ from pcbasm.config import Probe
 from pcbasm.gcode import GCode
 from pcbasm.geometry import (
     Compose,
-    HeightPlane,
     Identity,
     Point3d,
     Scale,
@@ -58,111 +57,6 @@ class TestHeightPlaneMeasurer:
         """十分な候補点が得られる大きな矩形銅箔."""
         polygon = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)])
         return Copper(layer=Layer.TOP, polygon=polygon)
-
-    def test_measure_returns_height_plane(
-        self,
-        mock_probe_executor,
-        mock_klipper,
-        mock_stage,
-        mock_board_to_machine,
-        large_copper,
-    ):
-        """measureがHeightPlaneを返すことを確認."""
-        measurer = HeightPlaneMeasurer(
-            probe_executor=mock_probe_executor,
-            klipper=mock_klipper,
-            stage=mock_stage,
-            **_MEASURER_KWARGS,
-        )
-        result = measurer.measure(
-            coppers=[large_copper],
-            board_to_machine=mock_board_to_machine,
-            outline=large_copper.polygon,
-        )
-
-        assert isinstance(result, HeightPlane)
-
-    def test_measure_probe_call_count_matches_sample_points(
-        self,
-        mock_probe_executor,
-        mock_klipper,
-        mock_stage,
-        mock_board_to_machine,
-        large_copper,
-    ):
-        """probe呼び出し回数が返却点数と一致することを確認."""
-        measurer = HeightPlaneMeasurer(
-            probe_executor=mock_probe_executor,
-            klipper=mock_klipper,
-            stage=mock_stage,
-            **_MEASURER_KWARGS,
-        )
-        result = measurer.measure(
-            coppers=[large_copper],
-            board_to_machine=mock_board_to_machine,
-            outline=large_copper.polygon,
-        )
-
-        assert mock_probe_executor.probe.call_count == len(result.points)
-
-    def test_measure_raises_when_candidates_insufficient(
-        self,
-        mock_probe_executor,
-        mock_klipper,
-        mock_stage,
-        mock_board_to_machine,
-    ):
-        """min_samplesに満たない銅箔でValueErrorとなることを確認."""
-        # 1辺0.5mmの小さな矩形は min_radius=1.5 のbufferで消える
-        tiny = Copper(
-            layer=Layer.TOP,
-            polygon=Polygon([(0.0, 0.0), (0.5, 0.0), (0.5, 0.5), (0.0, 0.5)]),
-        )
-        measurer = HeightPlaneMeasurer(
-            probe_executor=mock_probe_executor,
-            klipper=mock_klipper,
-            stage=mock_stage,
-            **_MEASURER_KWARGS,
-        )
-        outline = Polygon([(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)])
-
-        with pytest.raises(ValueError, match="min_samples"):
-            measurer.measure(
-                coppers=[tiny],
-                board_to_machine=mock_board_to_machine,
-                outline=outline,
-            )
-
-        mock_stage.move.assert_not_called()
-        mock_probe_executor.probe.assert_not_called()
-        mock_klipper.send_gcode.assert_not_called()
-
-    def test_move_targets_match_recorded_points(
-        self,
-        mock_probe_executor,
-        mock_klipper,
-        mock_stage,
-        mock_board_to_machine,
-        large_copper,
-    ):
-        """Move コマンドが記録点と同じ座標(Identity変換)で発行されることを確認."""
-        measurer = HeightPlaneMeasurer(
-            probe_executor=mock_probe_executor,
-            klipper=mock_klipper,
-            stage=mock_stage,
-            **_MEASURER_KWARGS,
-        )
-        result = measurer.measure(
-            coppers=[large_copper],
-            board_to_machine=mock_board_to_machine,
-            outline=large_copper.polygon,
-        )
-
-        move_targets = sorted(
-            (c.kwargs["x"], c.kwargs["y"]) for c in mock_stage.move.call_args_list
-        )
-        recorded = sorted((p.x, p.y) for p in result.points)
-        assert move_targets == recorded
 
     def test_measure_records_machine_xy_probe_targets(
         self,

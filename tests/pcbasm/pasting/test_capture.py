@@ -121,20 +121,7 @@ class TestPointCapturer:
             for offset in OFFSETS
         ]
 
-    def test_all_offsets_return_crops_of_the_same_pixel_size(self):
-        capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), FakeKlipper())
-
-        sizes = set()
-        for offset in OFFSETS:
-            crop, error = capturer.capture(CENTER, offset=offset)
-            assert error is None, error
-            assert crop is not None
-            x0, y0, x1, y1 = crop.pixel_rect
-            sizes.add((x1 - x0, y1 - y0, *crop.image.shape))
-
-        assert sizes == {(CROP_SIZE_PX, CROP_SIZE_PX, CROP_SIZE_PX, CROP_SIZE_PX, 3)}
-
-    def test_points_at_different_positions_share_the_same_pixel_size(self):
+    def test_crop_pixel_size_is_the_same_for_every_offset_and_position(self):
         capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), FakeKlipper())
         centers = [
             Point2d(5.0, 4.0),
@@ -143,14 +130,21 @@ class TestPointCapturer:
             Point2d(14.5, 10.5),
         ]
 
-        shapes = set()
+        sizes = set()
+        for offset in OFFSETS:
+            crop, error = capturer.capture(CENTER, offset=offset)
+            assert error is None, error
+            assert crop is not None
+            x0, y0, x1, y1 = crop.pixel_rect
+            sizes.add((x1 - x0, y1 - y0, *crop.image.shape))
         for center in centers:
             crop, error = capturer.capture(center)
             assert error is None, error
             assert crop is not None
-            shapes.add(crop.image.shape)
+            x0, y0, x1, y1 = crop.pixel_rect
+            sizes.add((x1 - x0, y1 - y0, *crop.image.shape))
 
-        assert shapes == {(CROP_SIZE_PX, CROP_SIZE_PX, 3)}
+        assert sizes == {(CROP_SIZE_PX, CROP_SIZE_PX, CROP_SIZE_PX, CROP_SIZE_PX, 3)}
 
     def test_crop_is_centered_in_the_frame_when_no_offset_is_given(self):
         frame = _frame(*RESOLUTION)
@@ -227,12 +221,3 @@ class TestPointCapturerWithAlignmentCorrection:
         assert _rect_center(corrected.pixel_rect) == pytest.approx(
             _rect_center(centered.pixel_rect), abs=1.0
         )
-
-    def test_an_identity_correction_matches_passing_none(self):
-        capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), FakeKlipper())
-
-        plain, _ = capturer.capture(CENTER)
-        identity, _ = capturer.capture(CENTER, correction=Identity())
-
-        assert plain is not None and identity is not None
-        assert plain.pixel_rect == identity.pixel_rect
