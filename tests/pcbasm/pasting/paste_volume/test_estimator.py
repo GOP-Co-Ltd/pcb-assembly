@@ -12,6 +12,7 @@ import attrs
 import cv2
 import pytest
 
+from pcbasm.pasting.paste_volume.aggregate import DotDiameter
 from pcbasm.pasting.paste_volume.calibration import (
     PasteVolumeCalibration,
     parse_calibration,
@@ -236,3 +237,99 @@ class TestLoadDiameterEstimator:
 
         assert estimator is None
         assert error is not None
+
+
+class TestReliableRangeOnly:
+    """運転時補正向けに、被覆域の下端付近を採用しないモード.
+
+    既定は被覆域そのものを使う（校正の生成・検証はこれまでどおり）。
+    """
+
+    @staticmethod
+    def _estimator(*, reliable_range_only: bool) -> DiameterVolumeEstimator:
+        return DiameterVolumeEstimator(
+            _calibration(), reliable_range_only=reliable_range_only
+        )
+
+    @staticmethod
+    def _diameter(value: float) -> DotDiameter:
+        return DotDiameter(
+            diameter_mm=value,
+            view_count=1,
+            detected_view_count=1,
+            view_diameters_mm=(value,),
+            spread_mm=0.0,
+        )
+
+    def test_defaults_to_the_whole_covered_range(self):
+        model = _calibration().model
+        just_inside = self._diameter(model.diameter_min_mm + 1e-6)
+
+        prediction = DiameterVolumeEstimator(_calibration()).predict_diameter(
+            just_inside
+        )
+
+        assert prediction.accepted is True
+
+    def test_rejects_the_lower_edge_of_the_covered_range(self):
+        model = _calibration().model
+        just_inside = self._diameter(model.diameter_min_mm + 1e-6)
+
+        prediction = self._estimator(reliable_range_only=True).predict_diameter(
+            just_inside
+        )
+
+        assert prediction.accepted is False
+        assert prediction.rejection_reason == "diameter_below_reliable_range"
+
+    def test_accepts_diameters_inside_the_reliable_range(self):
+        model = _calibration().model
+        inside = self._diameter(
+            (model.reliable_diameter_min_mm + model.diameter_max_mm) / 2
+        )
+
+        prediction = self._estimator(reliable_range_only=True).predict_diameter(inside)
+
+        assert prediction.accepted is True
+        assert prediction.mean_volume_ul > 0.0
+
+    def test_still_rejects_above_the_upper_bound_with_the_covered_range_reason(self):
+        model = _calibration().model
+        above = self._diameter(model.diameter_max_mm + 0.1)
+
+        prediction = self._estimator(reliable_range_only=True).predict_diameter(above)
+
+        assert prediction.accepted is False
+        assert prediction.rejection_reason == "diameter_out_of_calibrated_range"
+
+    def test_a_blank_is_still_reported_as_no_deposit(self):
+        blank = DotDiameter(
+            diameter_mm=0.0,
+            view_count=1,
+            detected_view_count=0,
+            view_diameters_mm=(0.0,),
+            spread_mm=0.0,
+        )
+
+        prediction = self._estimator(reliable_range_only=True).predict_diameter(blank)
+
+        assert prediction.accepted is False
+        assert prediction.rejection_reason == "no_deposit_detected"
+
+    def test_load_diameter_estimator_can_build_the_reliable_range_estimator(
+        self, tmp_path: Path
+    ):
+        path = tmp_path / "cal.paste-volume.json"
+        write_calibration(path, _calibration())
+
+        estimator, error = load_diameter_estimator(path, reliable_range_only=True)
+
+        assert error is None
+        assert estimator is not None
+        model = estimator.calibration.model
+        assert (
+            estimator.predict_diameter(
+                self._diameter(model.diameter_min_mm + 1e-6)
+            ).rejection_reason
+            == "diameter_below_reliable_range"
+        )

@@ -9,6 +9,7 @@
 係数そのものではない。
 """
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -169,10 +170,26 @@ class TestFitSession:
     def test_uses_the_default_label_built_from_the_conditions(
         self, session: DatasetSession
     ):
-        fit, _ = fit_session(session)
+        moment = datetime(2026, 9, 11, 3, 4, 5, tzinfo=UTC)
+        fit, _ = fit_session(session, created_at=moment)
         assert fit is not None
 
-        assert fit.calibration.label == "paste-1 / n0.34 / h0.20"
+        local = moment.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        assert fit.calibration.label == f"paste-1 / n0.34 / h0.20 / {local}"
+
+    def test_default_labels_differ_between_runs_on_the_same_session(
+        self, session: DatasetSession
+    ):
+        """同条件で採り直した校正が選択肢で見分けられるように、時刻を含める."""
+        first, _ = fit_session(
+            session, created_at=datetime(2026, 9, 11, 3, 4, 5, tzinfo=UTC)
+        )
+        second, _ = fit_session(
+            session, created_at=datetime(2026, 9, 11, 4, 5, 6, tzinfo=UTC)
+        )
+        assert first is not None and second is not None
+
+        assert first.calibration.label != second.calibration.label
 
     def test_keeps_an_explicit_label(self, session: DatasetSession):
         fit, _ = fit_session(session, label="S3X70 / n0.30 / h0.20")

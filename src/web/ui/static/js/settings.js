@@ -23,7 +23,11 @@
 
   function scalarValue(input) {
     const text = input.value.trim();
-    if (text === "") return null;
+    if (text === "") {
+      // 空欄は既定で「未入力」＝保存しない。空文字そのものが「無効にする」を
+      // 意味する項目だけ data-allow-empty で明示的に送る
+      return input.dataset.allowEmpty === "true" ? "" : null;
+    }
     if (
       input.dataset.type === "str" ||
       input.dataset.type === "dispense_mode" ||
@@ -105,10 +109,20 @@
   }
 
   for (const machineForm of forms) {
-    for (const control of machineForm.querySelectorAll("input, select")) {
-      control.addEventListener("input", () => scheduleSave(control));
-      control.addEventListener("change", () => scheduleSave(control));
-    }
+    // 個々の control ではなく form で受ける。校正ファイルの入力は一覧 API の
+    // 取得後に <select> へ差し替わるので、読み込み時に直接貼ると差し替え後の
+    // 要素にリスナーが付かない（input / change はどちらも bubble する）
+    const onEdit = (event) => {
+      const control = event.target;
+      if (
+        control instanceof HTMLInputElement ||
+        control instanceof HTMLSelectElement
+      ) {
+        scheduleSave(control);
+      }
+    };
+    machineForm.addEventListener("input", onEdit);
+    machineForm.addEventListener("change", onEdit);
 
     machineForm.addEventListener("submit", (event) => {
       event.preventDefault();

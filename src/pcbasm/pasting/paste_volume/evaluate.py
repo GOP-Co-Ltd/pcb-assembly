@@ -30,13 +30,6 @@ from pcbasm.pasting.paste_volume.estimator import (
 )
 from pcbasm.pasting.paste_volume.fit import CellMeasurement, measure_session
 
-# 撮影スケールが校正時から何割ずれたら条件不一致として報告するか。
-# 直径は mm なのでスケール差は原理的に吸収され、これは推定を断る閾値ではなく
-# 「camera calibration をやり直したのでは」と運転者へ知らせるための警告閾値。
-# 同じ機体で撮り直したときの pixel_per_mm の再現性（実測で 1% 未満）に対して
-# 十分広く、crop 条件が別物になる水準よりは狭い値として 5% を置く。
-_SCALE_TOLERANCE = 0.05
-
 
 @attrs.frozen
 class CellEvaluation:
@@ -250,36 +243,13 @@ def condition_mismatch(
     session: DatasetSession, calibration: PasteVolumeCalibration
 ) -> tuple[str, ...]:
     """校正の条件と session の条件が食い違う点を並べる（評価は止めない）."""
-    conditions = calibration.conditions
     metadata = session.metadata
-    mismatches: list[str] = []
-    if conditions.paste_id != metadata.paste.paste_id:
-        mismatches.append(
-            f"ペースト: 校正 {conditions.paste_id} / session {metadata.paste.paste_id}"
-        )
-    if conditions.nozzle_diameter_mm != metadata.nozzle.diameter_mm:
-        mismatches.append(
-            f"ノズル径: 校正 {conditions.nozzle_diameter_mm} mm / "
-            f"session {metadata.nozzle.diameter_mm} mm"
-        )
-    if conditions.paste_height_mm != metadata.config.paste_height_mm:
-        mismatches.append(
-            f"塗布高さ: 校正 {conditions.paste_height_mm} mm / "
-            f"session {metadata.config.paste_height_mm} mm"
-        )
-    if _scale_differs(conditions.pixel_per_mm, metadata.camera.pixel_per_mm):
-        mismatches.append(
-            f"撮影スケール: 校正 {conditions.pixel_per_mm:.3f} px/mm / "
-            f"session {metadata.camera.pixel_per_mm:.3f} px/mm"
-        )
-    return tuple(mismatches)
-
-
-def _scale_differs(calibrated: float, actual: float) -> bool:
-    """撮影スケールが許容を超えて違うか."""
-    if calibrated <= 0 or actual <= 0:
-        return True
-    return abs(actual / calibrated - 1.0) > _SCALE_TOLERANCE
+    return calibration.conditions.mismatches(
+        paste_id=metadata.paste.paste_id,
+        nozzle_diameter_mm=metadata.nozzle.diameter_mm,
+        paste_height_mm=metadata.config.paste_height_mm,
+        pixel_per_mm=metadata.camera.pixel_per_mm,
+    )
 
 
 def _rejection_counts(

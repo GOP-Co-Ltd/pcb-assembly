@@ -176,6 +176,56 @@ def validate_paste_lift_height(value: float) -> str | None:
 
 
 @attrs.frozen
+class FlowCalibration:
+    """運転時流量キャリブレーション（塗布中の吐出量を画像で測って補正する）の設定.
+
+    はんだ塗布の塗布パス直前に、基板ごとに設定した測定位置へ既知量のドットを塗り、
+    塗布前後画像から推定した体積の比で ``rotations_per_ul`` を補正する。
+    推定には :mod:`pcbasm.pasting.paste_volume` の校正ファイルを使う。
+
+    測定位置は基板ごとに違うので、ここではなく基板設定
+    （:class:`~pcbasm.pasting.settings.PasteSettingsModel`）が持つ。
+    何点塗るかはその個数そのもので、0 個なら補正しない。
+
+    1 点だけでは点ごとの吐出ばらつき（実測で相対 9〜11 %）がそのまま補正値に
+    乗るので、3 点ほど置くとよい。
+
+    ``crop_size_mm`` と測定位置の間隔の関係はここでは検証しない。
+
+    WebUI は項目ごとに保存するので片方だけ先に書かれる。
+
+    ここで撥ねると machine.toml 全体が読めなくなるため、判定は
+    :func:`~pcbasm.pasting.paste_volume.runtime.plan_flow_calibration` で行う。
+
+    塗り終えてすぐ撮ると、ペーストが広がりきる前の小さい円を測ることになる。
+    塗布後の撮影に入る前に ``settle_seconds`` だけ置く。
+
+    Attributes:
+        calibration_file: 使う校正ファイル名（空なら無効）
+        amount_ul: 1 点あたりの指令塗布量 [μL]
+        crop_size_mm: 塗布前後画像の一辺 [mm]
+        settle_seconds: 全点を塗ってから塗布後の撮影に入るまでの待ち [秒]（0 で待たない）
+    """
+
+    calibration_file: str = ""
+    amount_ul: float = 0.2
+    crop_size_mm: float = 2.0
+    settle_seconds: float = 10.0
+
+    def __attrs_post_init__(self) -> None:
+        for name in ("amount_ul", "crop_size_mm"):
+            if error := validate_positive_number(name, getattr(self, name)):
+                raise ValueError(error)
+        if error := validate_non_negative_number("settle_seconds", self.settle_seconds):
+            raise ValueError(error)
+
+    @property
+    def enabled(self) -> bool:
+        """校正ファイルが指定されていて、実際に補正を試みるか."""
+        return bool(self.calibration_file)
+
+
+@attrs.frozen
 class PasteDispenser:
     """ペーストディスペンサーの設定."""
 
@@ -215,6 +265,9 @@ class PasteDispenser:
     overlap: float = 0.0  # ジグザグ行間オーバーラップ [0,1)
     boundary_margin: float = 0.0  # 外周マージン [mm]
     pad_align: PadAlign = attrs.field(factory=PadAlign)  # pad位置合わせ設定
+    flow_calibration: FlowCalibration = attrs.field(
+        factory=FlowCalibration
+    )  # 運転時流量キャリブレーション設定
 
     def __attrs_post_init__(self) -> None:
         if self.dispense_mode not in DISPENSE_MODES:

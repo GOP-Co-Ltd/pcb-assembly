@@ -36,6 +36,15 @@ class PasteDispenser:
         """体積指令を回転数へ変換する係数 [rev/μL]."""
         return self._rotations_per_ul
 
+    def set_rotations_per_ul(self, rotations_per_ul: float) -> None:
+        """換算係数を差し替える（運転中の再キャリブレーション用）.
+
+        AirPump / Stepper を開いたまま係数だけを変える。
+
+        作り直すと AirPump の OFF→ON が挟まり、補正したい吐出そのものを乱す。
+        """
+        self._rotations_per_ul = rotations_per_ul
+
     def _ul_to_deg(self, microl: float) -> float:
         """マイクロリットル単位を角度に変換."""
         return microl * self._rotations_per_ul * 360

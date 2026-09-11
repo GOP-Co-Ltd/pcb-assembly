@@ -61,9 +61,22 @@ class DiameterVolumeEstimator:
     校正生成時に確かめて記録する診断であり、推定のたびに再判定はしない。
     """
 
-    def __init__(self, calibration: PasteVolumeCalibration) -> None:
-        """校正を束ねた推定器を作る."""
+    def __init__(
+        self,
+        calibration: PasteVolumeCalibration,
+        *,
+        reliable_range_only: bool = False,
+    ) -> None:
+        """校正を束ねた推定器を作る.
+
+        Args:
+            calibration: 使う校正
+            reliable_range_only: 被覆域の下端付近を採用しないか。
+                運転時キャリブレーションの補正材料を選ぶときだけ ``True`` にする。
+                校正の生成・検証は被覆域そのものを使う。
+        """
         self._calibration = calibration
+        self._reliable_range_only = reliable_range_only
 
     @property
     def calibration(self) -> PasteVolumeCalibration:
@@ -121,6 +134,10 @@ class DiameterVolumeEstimator:
         model = self._calibration.model
         if not model.covers(diameter.diameter_mm):
             return _rejected("diameter_out_of_calibrated_range")
+        if self._reliable_range_only and not model.covers_reliably(
+            diameter.diameter_mm
+        ):
+            return _rejected("diameter_below_reliable_range")
         mean = model.volume_ul(diameter.diameter_mm)
         if mean <= 0.0:
             return _rejected("no_deposit_detected")
@@ -135,13 +152,16 @@ class DiameterVolumeEstimator:
 
 
 def load_diameter_estimator(
-    path: Path,
+    path: Path, *, reliable_range_only: bool = False
 ) -> tuple[DiameterVolumeEstimator | None, str | None]:
     """校正ファイルから推定器を組む（読めない・不正は理由を返す）."""
     calibration, error = load_calibration(path)
     if calibration is None:
         return None, error
-    return DiameterVolumeEstimator(calibration), None
+    return (
+        DiameterVolumeEstimator(calibration, reliable_range_only=reliable_range_only),
+        None,
+    )
 
 
 def _rejected(reason: str) -> PasteVolumePrediction:
