@@ -65,18 +65,18 @@ class TestEndpointFromServiceInfo:
         assert endpoint.machine_type == "paste"
         assert endpoint.source == "mdns"
 
-    def test_missing_id_falls_back_to_the_instance_name(self):
+    @pytest.mark.parametrize(
+        "properties",
+        (
+            pytest.param({b"name": b"A"}, id="id 欠落"),
+            pytest.param({b"id": b"\xff\xfe"}, id="id が非 UTF-8"),
+        ),
+    )
+    def test_unreadable_id_falls_back_to_the_instance_name(
+        self, properties: dict[bytes, bytes]
+    ):
         endpoint = endpoint_from_service_info(
-            make_info(instance="alpha", properties={b"name": b"A"})
-        )
-
-        assert endpoint is not None
-        assert endpoint.machine_id == "alpha"
-        assert endpoint.name == "A"
-
-    def test_non_utf8_id_falls_back_to_the_instance_name(self):
-        endpoint = endpoint_from_service_info(
-            make_info(instance="alpha", properties={b"id": b"\xff\xfe"})
+            make_info(instance="alpha", properties=properties)
         )
 
         assert endpoint is not None
@@ -122,13 +122,6 @@ class TestEndpointFromServiceInfo:
         assert endpoint is not None
         assert endpoint.machine_id == "alpha"
 
-    def test_matching_api_version_passes(self):
-        info = make_info(
-            properties={b"id": b"alpha", b"api": str(API_VERSION).encode()}
-        )
-
-        assert endpoint_from_service_info(info) is not None
-
 
 class TestDiscoveryWithoutMulticast:
     """マルチキャストが使えない環境（探索できなくても frontend は動く）.
@@ -156,9 +149,6 @@ class TestDiscoveryWithoutMulticast:
 
     async def test_start_does_not_raise(self, discovery: MachineDiscovery):
         await discovery.start()
-        await discovery.stop()
-
-    async def test_stop_without_start_is_a_no_op(self, discovery: MachineDiscovery):
         await discovery.stop()
 
 

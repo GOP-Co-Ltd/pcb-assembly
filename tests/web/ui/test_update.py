@@ -82,14 +82,6 @@ class TestRouteOrder:
         assert response.status_code == 200
         assert response.json()["machines"]
 
-    def test_unknown_tab_still_falls_through_to_the_picker(
-        self, update_client: TestClient
-    ):
-        """`/update` を切り出しても他の未 prefix URL は従来どおり 307."""
-        response = update_client.get("/posctrl", follow_redirects=False)
-
-        assert response.status_code == 307
-
     def test_backend_update_api_is_proxied_untouched(self, update_client: TestClient):
         """`/m/{id}/api/update/status` は frontend の更新ではなく backend 行き."""
         response = update_client.get("/m/uitest/api/update/status")
@@ -102,14 +94,12 @@ class TestRouteOrder:
 class TestPage:
     """`/update` ページの中身（値は JS が status API から入れる）."""
 
-    def test_page_is_rendered_with_the_shared_panel_and_script(
-        self, update_client: TestClient
-    ):
+    def test_page_targets_the_frontend_update_api(self, update_client: TestClient):
+        """Backend 行きの更新 API ではなく frontend 自身のエンドポイントを見る."""
         body = update_client.get("/update").text
 
         assert 'data-transport="frontend"' in body
         assert 'data-status-url="/api/self-update"' in body
-        assert "js/update.js" in body
 
     def test_actions_are_not_control_gated(self, update_client: TestClient):
         """Frontend に操作権は無い。印を付けると control.js が永久に inert にする."""

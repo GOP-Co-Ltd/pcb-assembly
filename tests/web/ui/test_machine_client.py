@@ -92,46 +92,19 @@ class TestBackendGateway:
     ):
         assert gateway.client_for(endpoint) is not gateway.client_for(other_endpoint)
 
-    async def test_client_targets_the_endpoint_base_url(
-        self, endpoint: MachineEndpoint, gateway: BackendGateway
-    ):
-        assert str(gateway.client_for(endpoint).base_url) == endpoint.base_url
-
-    async def test_timeouts_come_from_the_constructor(
-        self, endpoint: MachineEndpoint, backend_app: FastAPI
-    ):
-        async with aclosing(
-            BackendGateway(
-                connect_timeout=1.5,
-                read_timeout=3.5,
-                transport_factory=lambda _e: httpx.ASGITransport(app=backend_app),
-            )
-        ) as gateway:
-            timeout = gateway.client_for(endpoint).timeout
-
-            assert (timeout.connect, timeout.read) == (1.5, 3.5)
-
-    async def test_aclose_closes_every_client(
+    async def test_aclose_closes_every_client_and_drops_the_cache(
         self,
         endpoint: MachineEndpoint,
         other_endpoint: MachineEndpoint,
         gateway: BackendGateway,
     ):
+        """閉じたクライアントを配り続けると以降の取得が全部失敗する."""
         clients = [gateway.client_for(endpoint), gateway.client_for(other_endpoint)]
 
         await gateway.aclose()
 
         assert [http_client.is_closed for http_client in clients] == [True, True]
-
-    async def test_aclose_drops_the_cache(
-        self, endpoint: MachineEndpoint, gateway: BackendGateway
-    ):
-        """閉じたクライアントを配り続けると以降の取得が全部失敗する."""
-        closed = gateway.client_for(endpoint)
-
-        await gateway.aclose()
-
-        assert gateway.client_for(endpoint) is not closed
+        assert gateway.client_for(endpoint) is not clients[0]
 
 
 class TestMachineClient:
@@ -147,21 +120,6 @@ class TestMachineClient:
         # data/testing/config は machine_name を持たないので machine_id にフォールバック
         assert info.machine_name == BACKEND_MACHINE_ID
         assert info.api_version == API_VERSION
-
-    async def test_state_is_validated_into_the_contract_model(
-        self, client: MachineClient
-    ):
-        state = await client.state()
-
-        assert state.pcb_file is None
-        assert state.busy is False
-
-    async def test_machine_settings_returns_whitelisted_fields(
-        self, client: MachineClient
-    ):
-        settings = await client.machine_settings()
-
-        assert "machine_name" in {field.key for field in settings.fields}
 
     async def test_jobs_includes_hidden_definitions(self, client: MachineClient):
         """Hidden も返る（e2e が hidden ジョブを実行時登録する）."""

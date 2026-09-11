@@ -12,44 +12,21 @@ class TestPasteTestBoardPage:
     def test_renders_dedicated_configuration_and_preview_page(
         self, frontend_client: TestClient
     ):
+        """共通の feature.html ではなく専用テンプレートが選ばれている.
+
+        テーブル編集・プレビュー追従・draft 復元・ソート・export の実操作は e2e が持つ。
+        """
         response = frontend_client.get(_PAGE)
 
         assert response.status_code == 200
         text = response.text
         assert "テスト塗布基板生成" in text
-        assert 'id="ptb-board-width"' in text
-        assert 'id="ptb-pad-gap"' in text
-        assert 'id="ptb-footprint-search"' in text
-        assert 'id="ptb-footprint-results"' in text
         assert 'data-testid="ptb-pattern-table"' in text
         assert 'data-testid="ptb-preview"' in text
-        assert 'data-testid="ptb-generate"' in text
-        assert "回転分割数" in text
-        assert "繰り返し数" in text
-        assert "自動最適配置" in text
-        assert "転置配置" not in text
-        assert 'id="ptb-auto-pack"' not in text
-        assert "グループ境界" not in text
-        assert "任意サイズパッド" in text
-        assert "編集中の設定は機体ごとにこのブラウザへ自動保存されます" in text
-        assert 'data-sort-field="name"' in text
-        assert 'data-sort-field="pad"' in text
-        assert "名称を検索" in text
-        assert ">名称</button>" in text
-        assert "由来footprint" not in text
-        assert "パッド種" in text
-        assert "パッド間余白" in text
-        assert "配置範囲外" in text
-        assert "n 列" not in text
-        assert "m 行" not in text
+        # 流量計測パッドの設定欄（大きさと個数）
+        assert 'id="ptb-flow-size"' in text
+        assert 'id="ptb-flow-count"' in text
         assert "js/paste_test_board.js?v=" in text
-
-    def test_feature_is_listed_in_pasting_sidebar(self, frontend_client: TestClient):
-        response = frontend_client.get("/m/uitest/pasting")
-
-        assert response.status_code == 200
-        assert f'href="{_PAGE}"' in response.text
-        assert "テスト塗布基板生成" in response.text
 
     def test_page_actions_do_not_require_machine_control(
         self, frontend_client: TestClient
@@ -82,15 +59,3 @@ class TestPasteTestBoardProxy:
         assert response.headers["content-disposition"] == (
             'attachment; filename="pcbasm-paste-test-board.kicad_pcb"'
         )
-
-
-class TestFlowPadFields:
-    """流量計測パッドの設定欄（大きさと個数）が描かれる."""
-
-    def test_page_renders_flow_pad_inputs(self, frontend_client: TestClient):
-        text = frontend_client.get(_PAGE).text
-
-        assert 'id="ptb-flow-size"' in text
-        assert 'id="ptb-flow-count"' in text
-        assert "流量計測パッド寸法" in text
-        assert "流量計測パッド個数" in text

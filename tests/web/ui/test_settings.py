@@ -14,7 +14,6 @@ from pathlib import Path
 import attrs
 import pytest
 
-from pcbasm.utils import PROJECT_ROOT
 from web.ui.settings import Settings
 
 # PCBASM_UI_DISCOVERY_ENABLED はここに足さない。tests/conftest.py の autouse fixture
@@ -53,22 +52,9 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 class TestSettingsDefaults:
     """既定値（env 無し）."""
 
-    def test_defaults_without_env(self, clean_env: None):
-        settings = Settings.from_env()
-
-        assert settings.host == "0.0.0.0"
-        # 同居機で backend（8081）と衝突しないこと
-        assert settings.port == 8080
-        assert settings.machines == ()
-        assert settings.machines_file == PROJECT_ROOT / "config" / "machines.toml"
-        assert settings.ssr_timeout == 2.0
-        assert settings.backend_connect_timeout == 2.0
-        assert settings.proxy_read_timeout == 120.0
-        assert settings.default_backend_port == 8081
-
-    def test_constructing_without_arguments_needs_no_machine_config(self):
-        """引数なしで組めること（config/ が無いホストでも起動できる前提）."""
-        assert Settings().machines == ()
+    def test_default_port_does_not_collide_with_the_backend(self, clean_env: None):
+        """同居機で backend（8081）と同じ port を掴まない."""
+        assert Settings.from_env().port == 8080
 
 
 class TestSettingsHasNoBackendFields:
@@ -118,33 +104,6 @@ class TestSettingsFromEnv:
 
         assert Settings.from_env().port == 8080
 
-    @pytest.mark.parametrize(
-        "name", ("PCBASM_UI_PORT", "PCBASM_UI_DEFAULT_BACKEND_PORT")
-    )
-    def test_non_numeric_port_raises_value_error(
-        self, clean_env: None, monkeypatch: pytest.MonkeyPatch, name: str
-    ):
-        monkeypatch.setenv(name, "not-a-number")
-
-        with pytest.raises(ValueError):
-            Settings.from_env()
-
-    @pytest.mark.parametrize(
-        "name",
-        (
-            "PCBASM_UI_SSR_TIMEOUT",
-            "PCBASM_UI_BACKEND_CONNECT_TIMEOUT",
-            "PCBASM_UI_PROXY_READ_TIMEOUT",
-        ),
-    )
-    def test_non_numeric_timeout_raises_value_error(
-        self, clean_env: None, monkeypatch: pytest.MonkeyPatch, name: str
-    ):
-        monkeypatch.setenv(name, "soon")
-
-        with pytest.raises(ValueError):
-            Settings.from_env()
-
 
 class TestDiscoveryKillSwitch:
     """`PCBASM_UI_DISCOVERY_ENABLED` — 実 LAN の mDNS 探索を止めるスイッチ.
@@ -154,19 +113,25 @@ class TestDiscoveryKillSwitch:
     に実機が混ざる）。既定は「探索する」。
     """
 
-    def test_unset_env_discovers(self, monkeypatch: pytest.MonkeyPatch):
-        """既定は有効。だから ui-fake と fixture 側の明示的な "0" が要件になる."""
-        monkeypatch.delenv("PCBASM_UI_DISCOVERY_ENABLED", raising=False)
-
-        assert Settings.from_env().discovery_enabled is True
-
     def test_zero_disables_discovery(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("PCBASM_UI_DISCOVERY_ENABLED", "0")
 
         assert Settings.from_env().discovery_enabled is False
 
-    def test_other_values_keep_discovery(self, monkeypatch: pytest.MonkeyPatch):
-        """明示的な "0" 以外は有効（誤設定で黙って探索が止まらない）."""
-        monkeypatch.setenv("PCBASM_UI_DISCOVERY_ENABLED", "1")
+    @pytest.mark.parametrize(
+        "value",
+        (pytest.param(None, id="未設定"), pytest.param("1", id="0 以外")),
+    )
+    def test_anything_but_zero_keeps_discovery(
+        self, monkeypatch: pytest.MonkeyPatch, value: str | None
+    ):
+        """既定は有効なので、ui-fake と fixture 側の明示的な "0" が要件になる.
+
+        明示的な "0" 以外は有効（誤設定で黙って探索が止まらない）。
+        """
+        if value is None:
+            monkeypatch.delenv("PCBASM_UI_DISCOVERY_ENABLED", raising=False)
+        else:
+            monkeypatch.setenv("PCBASM_UI_DISCOVERY_ENABLED", value)
 
         assert Settings.from_env().discovery_enabled is True

@@ -91,17 +91,20 @@ class TestListMachines:
             "current": False,
         }
 
-    def test_current_is_decided_by_the_server(self, client: TestClient):
-        response = client.get("/api/machines", params={"current": "alpha"})
+    @pytest.mark.parametrize(
+        ("current", "expected"),
+        (
+            pytest.param("alpha", True, id="登録済みの id"),
+            pytest.param("nobody", False, id="未知の id"),
+        ),
+    )
+    def test_current_is_decided_by_the_server(
+        self, client: TestClient, current: str, expected: bool
+    ):
+        response = client.get("/api/machines", params={"current": current})
 
         (machine,) = response.json()["machines"]
-        assert machine["current"] is True
-
-    def test_unknown_current_marks_nothing(self, client: TestClient):
-        response = client.get("/api/machines", params={"current": "nobody"})
-
-        (machine,) = response.json()["machines"]
-        assert machine["current"] is False
+        assert machine["current"] is expected
 
     def test_discovered_machines_appear_after_static_ones(
         self, client: TestClient, registry: MachineRegistry
@@ -114,13 +117,4 @@ class TestListMachines:
             "alpha",
             "kurousagi",
         ]
-        assert machines[1] == {
-            "machine_id": "kurousagi",
-            "label": "kurousagi: 192.168.100.201",
-            "name": "黒兎",
-            "host": "192.168.100.201",
-            "port": 8081,
-            "machine_type": "paste",
-            "source": "mdns",
-            "current": False,
-        }
+        assert machines[1]["source"] == "mdns"

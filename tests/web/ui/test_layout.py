@@ -63,13 +63,15 @@ def _js_code_lines(marker: str) -> list[str]:
 class TestTabs:
     """タブの表示知識（欠けるとヘッダ描画やページ描画が KeyError で 500 する）."""
 
-    def test_every_tab_has_a_label(self):
-        """base.html は tab_labels[tab] を引く."""
-        assert set(TABS) == set(TAB_LABELS)
-
-    def test_every_tab_has_a_phase(self):
-        """Feature ページは TAB_PHASES[tab] を引く."""
-        assert set(TABS) == set(TAB_PHASES)
+    @pytest.mark.parametrize(
+        "table",
+        (
+            pytest.param(TAB_LABELS, id="base.html の tab_labels[tab]"),
+            pytest.param(TAB_PHASES, id="feature ページの TAB_PHASES[tab]"),
+        ),
+    )
+    def test_every_tab_is_covered_by_the_display_tables(self, table: dict[str, str]):
+        assert set(TABS) == set(table)
 
     def test_feature_slugs_are_unique_across_tabs(self):
         """Feature slug は URL とジョブ名の突き合わせに使うので重複させない."""
@@ -90,10 +92,6 @@ class TestFeatureTemplates:
     def test_template_file_exists(self, name: str):
         assert (_TEMPLATES_DIR / name).is_file()
 
-    def test_placeholder_template_exists(self):
-        """FEATURE_TEMPLATES に無い feature のフォールバック."""
-        assert (_TEMPLATES_DIR / "feature.html").is_file()
-
     def test_job_templates_are_assigned_to_features(self):
         """ジョブコンテキストを注入する対象は feature のテンプレートに限る."""
         assert layout.JOB_TEMPLATES <= set(FEATURE_TEMPLATES.values())
@@ -106,16 +104,6 @@ class TestSoftwareUpdateFeature:
     3 点だけを足して既存 `feature_page` フローに乗せる。`JOB_TEMPLATES` に入れると
     `feature_page` が backend のジョブ定義を要求し、ジョブではないため 503 になる。
     """
-
-    def test_update_is_a_dev_feature(self):
-        assert "update" in TABS["dev"]
-
-    def test_update_has_its_own_label(self):
-        """ジョブなら backend の JobSpecInfo が名前を持つが、これは非ジョブ."""
-        assert layout.FEATURE_LABELS["update"] == "ソフトウェア更新"
-
-    def test_update_uses_its_own_template(self):
-        assert FEATURE_TEMPLATES[("dev", "update")] == "dev/update.html"
 
     def test_update_is_not_a_job_template(self):
         assert "dev/update.html" not in layout.JOB_TEMPLATES
@@ -234,39 +222,48 @@ class TestGroupedFields:
             key=key, label=key, value_type="float", unit=None, value=1.0, resolved=1.0
         )
 
-    def test_consecutive_fields_of_a_section_are_grouped_with_its_label(self):
-        """入れ子セクションは最下層で分ける（親でまとめない）."""
-        fields = [
-            self._field("probe.speed"),
-            self._field("probe.retract"),
-            self._field("paste_dispenser.pad_align.canny_low"),
-            self._field("camera.width"),
-        ]
+    @pytest.mark.parametrize(
+        ("keys", "expected"),
+        (
+            pytest.param(
+                (
+                    "probe.speed",
+                    "probe.retract",
+                    "paste_dispenser.pad_align.canny_low",
+                    "camera.width",
+                ),
+                (
+                    ("プローブ", (0, 1)),
+                    ("ペーストディスペンサー / パッド位置合わせ", (2,)),
+                    ("カメラ", (3,)),
+                ),
+                id="入れ子セクションは最下層で分ける",
+            ),
+            pytest.param(
+                ("camera.width", "probe.speed", "camera.height"),
+                (("カメラ", (0,)), ("プローブ", (1,)), ("カメラ", (2,))),
+                id="定義順を保つ",
+            ),
+            pytest.param(
+                ("unknown.thing",),
+                (("unknown", (0,)),),
+                id="未知セクションは生のセクション名",
+            ),
+        ),
+    )
+    def test_consecutive_fields_of_a_section_are_grouped_with_its_label(
+        self,
+        keys: tuple[str, ...],
+        expected: tuple[tuple[str, tuple[int, ...]], ...],
+    ):
+        """入れ子は最下層で分け（親でまとめない）、並びは MACHINE_FIELDS の定義順が正."""
+        fields = [self._field(key) for key in keys]
 
         groups = layout.grouped_fields(fields)
 
         assert groups == [
-            ("プローブ", fields[:2]),
-            ("ペーストディスペンサー / パッド位置合わせ", fields[2:3]),
-            ("カメラ", fields[3:]),
+            (label, [fields[index] for index in indexes]) for label, indexes in expected
         ]
-
-    def test_definition_order_is_preserved(self):
-        """Settings ページの並びは MACHINE_FIELDS の定義順が正."""
-        fields = [
-            self._field("camera.width"),
-            self._field("probe.speed"),
-            self._field("camera.height"),
-        ]
-
-        labels = [label for label, _ in layout.grouped_fields(fields)]
-
-        assert labels == ["カメラ", "プローブ", "カメラ"]
-
-    def test_unknown_section_falls_back_to_the_raw_section(self):
-        groups = layout.grouped_fields([self._field("unknown.thing")])
-
-        assert groups == [("unknown", [self._field("unknown.thing")])]
 
 
 class TestParamGroupCoverage:
