@@ -14,9 +14,9 @@ from pcbasm.pasting.toolhead_offset import (
     ToolheadOffsetResult,
     ToolheadOffsetSample,
     plan_toolhead_offset_points,
-    validate_paste_diameters,
 )
 from pcbasm.pcb import PcbFile
+from pcbasm.vision import validate_paste_diameters
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
@@ -57,7 +57,19 @@ def register(catalog: JobCatalog) -> None:
                 ),
                 ParamSpec("lift_height", "吐出後の上昇高さ", "float", 5.0, unit="mm"),
                 ParamSpec(
-                    "paste_diameter_min", "検出円の最小直径", "float", 0.0, unit="mm"
+                    "paste_diameter_min",
+                    "検出円の最小直径",
+                    "float",
+                    0.4,
+                    unit="mm",
+                    # 実素材の未塗布板は 0.2 mm 相当の小片まで残る（下限 0.3 で
+                    # 消える）。既定の 0.4 は実点 0.58 mm に対してさらに余裕を持つ
+                    minimum=0.3,
+                    help=(
+                        "これを下回る成分は塗布痕として採りません。"
+                        "小さすぎる値にすると、未塗布の板のテクスチャを"
+                        "塗布痕と取り違えます"
+                    ),
                 ),
                 ParamSpec(
                     "paste_diameter_max", "検出円の最大直径", "float", 2.0, unit="mm"

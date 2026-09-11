@@ -28,7 +28,7 @@ from pcbasm.posctrl import (
     OffsetObserver,
     XYPositionAdjustor,
 )
-from pcbasm.vision import CircleDetector, FrameSink, Image
+from pcbasm.vision import FrameSink, Image, PasteDotDetector
 
 _converter = make_converter()
 _converter.register_unstructure_hook(Point2d, lambda p: {"x": p.x, "y": p.y})
@@ -168,17 +168,6 @@ class ToolheadOffsetResult:
     def load(cls, path: Path) -> Self:
         """JSONファイルから読み込み."""
         return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
-
-
-def validate_paste_diameters(diameter_min: float, diameter_max: float) -> str | None:
-    """検出円の直径範囲が ``0 <= min < max`` の有限値かを検証する."""
-    if not (
-        math.isfinite(diameter_min)
-        and math.isfinite(diameter_max)
-        and 0 <= diameter_min < diameter_max
-    ):
-        return "検出円の直径は 0 <= 最小直径 < 最大直径 である必要があります"
-    return None
 
 
 def plan_toolhead_offset_points(
@@ -403,11 +392,11 @@ class ToolheadOffsetProcedure:
         )
         roi_side = max(1, round(point_spacing * result.calibration.pixel_per_mm))
         self._roi_size = (roi_side, roi_side)
-        detector = CircleDetector(
+        detector = PasteDotDetector(
             pixel_per_mm=result.calibration.pixel_per_mm,
-            target_diameter_mm=(diameter_min + diameter_max) / 2,
+            diameter_min_mm=diameter_min,
+            diameter_max_mm=diameter_max,
             crop_size=self._roi_size,
-            diameter_tolerance_mm=(diameter_max - diameter_min) / 2,
         )
         observer = OffsetObserver(
             detector=detector,

@@ -228,7 +228,8 @@ def _coerce_param(spec: ParamSpec, value: object) -> ParamValue:
         and coerced < spec.minimum
     ):
         raise ValueError(
-            f"{spec.name}: マイナスにできません（与えられた値: {coerced!r}）"
+            f"{spec.name}: {spec.minimum:g} 以上が必要です"
+            f"（与えられた値: {coerced!r}）"
         )
     return coerced
 
