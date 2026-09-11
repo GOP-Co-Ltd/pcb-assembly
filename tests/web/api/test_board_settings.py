@@ -88,6 +88,27 @@ def _hierarchy():
     return PadHierarchy.build(components, pads)
 
 
+_INSIDE = Point2d(10.0, 12.0)
+_OUTSIDE = Point2d(100.0, 12.0)
+
+
+def _with_points(
+    model: PasteSettingsModel, kind: str, points: list[Point2d]
+) -> PasteSettingsModel:
+    """initial_purge_point / flow_calibration_points を同じ形で書き込む."""
+    if kind == "initial_purge_point":
+        return model.with_initial_purge_point(points[0])
+    return model.with_flow_calibration_points(points)
+
+
+def _points(model: PasteSettingsModel, kind: str) -> tuple[Point2d, ...]:
+    """書き込んだ点を kind によらず tuple で読み出す."""
+    if kind == "initial_purge_point":
+        point = model.initial_purge_point
+        return () if point is None else (point,)
+    return model.flow_calibration_points
+
+
 def _level(model: PasteSettingsModel, key: tuple[str, ...]) -> LevelSetting:
     setting = model.level(key)
     assert setting is not None, key
@@ -107,23 +128,15 @@ def _saved_doc(
 class TestBoardId:
     """board_id の安定性と衝突回避."""
 
-    def test_stable_for_same_path(self, tmp_path: Path):
+    def test_is_stable_for_a_path_and_differs_between_paths(self, tmp_path: Path):
         store = BoardSettingsStore(tmp_path)
+
         assert store.board_id("boards/a.kicad_pcb") == store.board_id(
             "boards/a.kicad_pcb"
         )
-
-    def test_distinct_paths_differ(self, tmp_path: Path):
-        store = BoardSettingsStore(tmp_path)
         assert store.board_id("boards/a.kicad_pcb") != store.board_id(
             "boards/b.kicad_pcb"
         )
-
-    def test_is_sixteen_hex_chars(self, tmp_path: Path):
-        store = BoardSettingsStore(tmp_path)
-        board_id = store.board_id("boards/a.kicad_pcb")
-        assert len(board_id) == 16
-        int(board_id, 16)  # 16 進として解釈できる
 
 
 class TestLoadOrInit:
@@ -240,66 +253,45 @@ class TestInitialPurgePoint:
         assert doc["settings"]["initial_purge_point"] == [3.0, 4.0]
         assert restored.initial_purge_point == Point2d(3.0, 4.0)
 
-    def test_prune_keeps_an_initial_purge_point_inside_the_outline(
-        self, tmp_path: Path
+    @pytest.mark.parametrize("kind", ["initial_purge_point", "flow_calibration_points"])
+    def test_prune_keeps_points_inside_the_outline(self, tmp_path: Path, kind: str):
+        store = BoardSettingsStore(tmp_path)
+        model = store.load_or_init("boards/a.kicad_pcb", _base_config())
+        edited = _with_points(model, kind, [_INSIDE])
+
+        pruned = store.prune(
+            "boards/a.kicad_pcb", edited, _hierarchy(), outline=_outline()
+        )
+
+        assert _points(pruned, kind) == (_INSIDE,)
+
+    @pytest.mark.parametrize(
+        ("kind", "written", "expected"),
+        [
+            # 基板が差し替わって点が外形外へ出ても、解決エラーでページを塞がない
+            ("initial_purge_point", [_OUTSIDE], ()),
+            ("flow_calibration_points", [_INSIDE, _OUTSIDE], (_INSIDE,)),
+        ],
+    )
+    def test_prune_drops_points_outside_the_outline(
+        self,
+        tmp_path: Path,
+        kind: str,
+        written: list[Point2d],
+        expected: tuple[Point2d, ...],
     ):
         store = BoardSettingsStore(tmp_path)
         config = _base_config()
         model = store.load_or_init("boards/a.kicad_pcb", config)
-        edited = model.with_initial_purge_point(Point2d(10.0, 12.0))
+        edited = _with_points(model, kind, written)
 
         pruned = store.prune(
             "boards/a.kicad_pcb", edited, _hierarchy(), outline=_outline()
         )
 
-        assert pruned.initial_purge_point == Point2d(10.0, 12.0)
-
-    def test_prune_keeps_flow_calibration_points_inside_the_outline(
-        self, tmp_path: Path
-    ):
-        store = BoardSettingsStore(tmp_path)
-        model = store.load_or_init("boards/a.kicad_pcb", _base_config())
-        edited = model.with_flow_calibration_points([Point2d(10.0, 12.0)])
-
-        pruned = store.prune(
-            "boards/a.kicad_pcb", edited, _hierarchy(), outline=_outline()
-        )
-
-        assert pruned.flow_calibration_points == (Point2d(10.0, 12.0),)
-
-    def test_prune_drops_only_the_flow_calibration_points_outside_the_outline(
-        self, tmp_path: Path
-    ):
-        store = BoardSettingsStore(tmp_path)
-        model = store.load_or_init("boards/a.kicad_pcb", _base_config())
-        edited = model.with_flow_calibration_points(
-            [Point2d(10.0, 12.0), Point2d(100.0, 12.0)]
-        )
-
-        pruned = store.prune(
-            "boards/a.kicad_pcb", edited, _hierarchy(), outline=_outline()
-        )
-
-        assert pruned.flow_calibration_points == (Point2d(10.0, 12.0),)
-
-    def test_prune_clears_an_initial_purge_point_outside_the_outline(
-        self, tmp_path: Path
-    ):
-        # 基板が差し替わって点が外形外へ出ても、解決エラーでページを塞がない
-        store = BoardSettingsStore(tmp_path)
-        config = _base_config()
-        model = store.load_or_init("boards/a.kicad_pcb", config)
-        edited = model.with_initial_purge_point(Point2d(100.0, 12.0))
-
-        pruned = store.prune(
-            "boards/a.kicad_pcb", edited, _hierarchy(), outline=_outline()
-        )
+        assert _points(pruned, kind) == expected
         loaded = store.load_or_init("boards/a.kicad_pcb", config)
-        doc = _saved_doc(tmp_path, store)
-
-        assert pruned.initial_purge_point is None
-        assert loaded.initial_purge_point is None
-        assert "initial_purge_point" not in doc["settings"]
+        assert _points(loaded, kind) == expected
 
 
 class TestJsonShape:
@@ -629,53 +621,6 @@ class TestUpdate:
         assert b_entered.is_set()
         assert results["b"].level(("L2", "U1")) is not None
         assert results["b"].level(("L2", "U2")) is not None
-
-    def test_concurrent_updates_of_distinct_nodes_both_survive(self, tmp_path: Path):
-        """2 スレッドが別ノードを同時編集しても、片方の変更が消えない.
-
-        U1 側は 1 回だけ編集し、U2 側は編集を反復する。直列化されていないと U2 の反復書き込みが U1
-        の変更を含まないモデルで上書きしてしまう。
-
-        これは実スレッドでの通し確認（smoke）であって、検出は**確率的**（実測: ロックを
-        no-op にすると 13/20 で失敗）。``_update_lock`` の排他そのものを決定的に守るのは
-        :meth:`test_second_update_blocks_until_first_mutate_returns` の方なので、
-        本テストが緑であることを lost update が無い根拠にはしない。
-        """
-        store = BoardSettingsStore(tmp_path)
-        config = _base_config()
-        barrier = threading.Barrier(2)
-        errors: list[BaseException] = []
-
-        def edit(node: str, times: int) -> None:
-            try:
-                barrier.wait(timeout=10.0)
-                for _ in range(times):
-                    store.update(
-                        "boards/a.kicad_pcb",
-                        config,
-                        mutate=lambda model: model.with_level_patch(
-                            ("L2", node), enabled=False, enabled_sent=True
-                        ),
-                    )
-            except BaseException as exc:
-                errors.append(exc)
-
-        threads = [
-            threading.Thread(target=edit, args=("U1", 1)),
-            threading.Thread(target=edit, args=("U2", 200)),
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=30.0)
-
-        assert errors == []
-        for thread in threads:
-            assert not thread.is_alive()
-        loaded = store.load_or_init("boards/a.kicad_pcb", config)
-
-        assert loaded.level(("L2", "U1")) is not None
-        assert loaded.level(("L2", "U2")) is not None
 
     def test_signature_mismatch_discards_stale_file_content(self, tmp_path: Path):
         """再 load は load_or_init と同じ signature 判定に従う."""

@@ -23,7 +23,7 @@ from web.api.settings import Settings
 
 # PCBASM_API_DISCOVERY_ENABLED はここに足さない。tests/conftest.py の autouse
 # fixture が全テストで "0" を入れており、delenv すると実 LAN への mDNS 広告が復活する
-# （env を外して既定値を確かめるのは TestDiscoveryKillSwitch の 1 テストだけ）
+# （env を外して既定値を確かめるのは TestDiscoveryKillSwitch の未設定ケースだけ）
 ENV_VARS = (
     "PCBASM_CONFIG_DIR",
     "PCBASM_API_DATA_DIR",
@@ -68,6 +68,11 @@ class TestSettingsFromEnv:
         assert settings.hostname is None
         # 8080 は UI frontend の既定。backend は 8081（同居機で共存させる）
         assert settings.port == 8081
+        assert settings.fake_camera is False
+        assert (
+            settings.fake_camera_image
+            == PROJECT_ROOT / "data" / "testing" / "webui" / "fake_camera.png"
+        )
 
     def test_env_overrides_each_field(
         self, clean_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -77,6 +82,8 @@ class TestSettingsFromEnv:
         monkeypatch.setenv("PCBASM_API_PCB_ROOT", str(tmp_path / "pcb"))
         monkeypatch.setenv("PCBASM_MAINSAIL_URL", "http://mainsail.example:8000")
         monkeypatch.setenv("PCBASM_API_PORT", "9001")
+        monkeypatch.setenv("PCBASM_API_FAKE_CAMERA", "1")
+        monkeypatch.setenv("PCBASM_API_FAKE_CAMERA_IMAGE", str(tmp_path / "cam.png"))
 
         settings = Settings.from_env()
 
@@ -87,6 +94,8 @@ class TestSettingsFromEnv:
         assert settings.pcb_browse_root == tmp_path / "pcb"
         assert settings.mainsail_url == "http://mainsail.example:8000"
         assert settings.port == 9001
+        assert settings.fake_camera is True
+        assert settings.fake_camera_image == tmp_path / "cam.png"
 
     def test_pcb_root_env_is_added_to_allowed_subtrees(
         self, clean_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -152,30 +161,6 @@ class TestPcbRootEnvIsBrowsable:
         assert response.json()["pcb_file"] == "top.kicad_pcb"
 
 
-class TestFakeCameraSettings:
-    """Phase 2 追加フィールド（計画書 webui-phase2.md「src/webui/settings.py」節）."""
-
-    def test_defaults_to_real_camera(self, clean_env: None):
-        settings = Settings.from_env()
-
-        assert settings.fake_camera is False
-        assert (
-            settings.fake_camera_image
-            == PROJECT_ROOT / "data" / "testing" / "webui" / "fake_camera.png"
-        )
-
-    def test_env_enables_fake_camera_and_overrides_image(
-        self, clean_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ):
-        monkeypatch.setenv("PCBASM_API_FAKE_CAMERA", "1")
-        monkeypatch.setenv("PCBASM_API_FAKE_CAMERA_IMAGE", str(tmp_path / "cam.png"))
-
-        settings = Settings.from_env()
-
-        assert settings.fake_camera is True
-        assert settings.fake_camera_image == tmp_path / "cam.png"
-
-
 class TestDiscoveryKillSwitch:
     """`PCBASM_API_DISCOVERY_ENABLED` — 実 LAN への mDNS 広告を止めるスイッチ.
 
@@ -183,19 +168,24 @@ class TestDiscoveryKillSwitch:
     "0"`）が壊れると隔離が丸ごと崩れる。既定は「広告する」（実運用は frontend から自動発見されたい）。
     """
 
-    def test_unset_env_advertises(self, monkeypatch: pytest.MonkeyPatch):
-        """既定は有効。だから api-fake と fixture 側の明示的な "0" が要件になる."""
-        monkeypatch.delenv("PCBASM_API_DISCOVERY_ENABLED", raising=False)
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            # 未設定は有効。だから api-fake と fixture 側の明示的な "0" が要件になる
+            (None, True),
+            ("0", False),
+            # 明示的な "0" 以外は有効（"1" だけを真とすると誤設定で黙って広告が止まる）
+            ("1", True),
+            ("", True),
+            ("yes", True),
+        ],
+    )
+    def test_only_an_explicit_zero_disables_advertising(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: bool
+    ):
+        if raw is None:
+            monkeypatch.delenv("PCBASM_API_DISCOVERY_ENABLED", raising=False)
+        else:
+            monkeypatch.setenv("PCBASM_API_DISCOVERY_ENABLED", raw)
 
-        assert Settings.from_env().discovery_enabled is True
-
-    def test_zero_disables_advertising(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("PCBASM_API_DISCOVERY_ENABLED", "0")
-
-        assert Settings.from_env().discovery_enabled is False
-
-    def test_other_values_keep_advertising(self, monkeypatch: pytest.MonkeyPatch):
-        """明示的な "0" 以外は有効（"1" だけを真とすると誤設定で黙って広告が止まる）."""
-        monkeypatch.setenv("PCBASM_API_DISCOVERY_ENABLED", "1")
-
-        assert Settings.from_env().discovery_enabled is True
+        assert Settings.from_env().discovery_enabled is expected

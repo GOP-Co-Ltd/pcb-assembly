@@ -2,7 +2,7 @@
 
 計画書 web-api-ui-split.md「MR6 — 操作権リース + 閲覧モード」節が契約:
 
-- `ClientIdentity.key` は sha256(session_id) の先頭 8 hex（生 id は出さない）
+- `ClientIdentity.key` は生 id を出さない（HTTP 越しの検証は routers/test_control_api.py）
 - `claim` は空きなら取得、他人が保持中なら `ControlDeniedError`（保持者名付き）
 - `release` は冪等、`takeover` は誰でも通る（詰みからの脱出口）
 - liveness は WS 在線。保持者の接続数が 1 以上なら切断猶予で失効しない
@@ -13,7 +13,6 @@
 時計は注入した偽時計を進めるだけで、実時刻は待たない。
 """
 
-import hashlib
 import threading
 import time
 from collections.abc import Callable
@@ -129,25 +128,6 @@ def lease(clock: FakeClock, busy: BusyFlag) -> ControlLease:
     )
 
 
-class TestClientIdentity:
-    """クライアント同定情報の公開表現."""
-
-    def test_key_is_sha256_prefix_of_session_id(self):
-        client = ClientIdentity(session_id="abc123", display_name="田中")
-
-        expected = hashlib.sha256(b"abc123").hexdigest()[:8]
-        assert client.key == expected
-
-    def test_key_does_not_leak_session_id(self):
-        client = ClientIdentity(session_id="abc123", display_name="田中")
-
-        assert len(client.key) == 8
-        assert client.session_id not in client.key
-
-    def test_different_sessions_get_different_keys(self):
-        assert identity("a").key != identity("b").key
-
-
 class TestClaim:
     """操作権の取得."""
 
@@ -239,7 +219,8 @@ class TestTakeover:
         assert info.display_name == "bob"
         assert lease.snapshot().key == identity("bob").key
 
-    def test_takeover_on_free_lease_acquires_it(self, lease: ControlLease):
+        # 空きリースへの奪取も同じく通る
+        lease.release(identity("bob"))
         assert lease.takeover(identity("bob")).display_name == "bob"
 
     def test_holder_can_claim_again_after_being_taken_over(self, lease: ControlLease):
@@ -319,29 +300,36 @@ class TestWebsocketPresence:
 
         assert lease.snapshot().display_name == "alice"
 
-    def test_other_clients_connections_do_not_keep_the_lease(
-        self, lease: ControlLease, clock: FakeClock
-    ):
-        lease.claim(identity("alice"))
-        lease.connect(identity("bob"))
-
-        clock.advance(GRACE + 1)
-
-        assert not lease.snapshot().held
-
-    def test_other_clients_disconnect_does_not_drop_the_lease(
-        self, lease: ControlLease, clock: FakeClock
+    @pytest.mark.parametrize(
+        ("holder_connected", "other_disconnects", "expected_holder"),
+        [
+            # 他人が接続していても、保持者が未接続なら猶予で失効する
+            (False, False, None),
+            # 他人が切断しても、保持者が接続していればリースは残る
+            (True, True, "alice"),
+        ],
+    )
+    def test_other_clients_presence_does_not_decide_the_lease(
+        self,
+        lease: ControlLease,
+        clock: FakeClock,
+        holder_connected: bool,
+        other_disconnects: bool,
+        expected_holder: str | None,
     ):
         alice = identity("alice")
-        lease.claim(alice)
-        lease.connect(alice)
         bob = identity("bob")
+        lease.claim(alice)
+        if holder_connected:
+            lease.connect(alice)
         lease.connect(bob)
+        if other_disconnects:
+            lease.disconnect(bob)
 
-        lease.disconnect(bob)
         clock.advance(GRACE + 1)
 
-        assert lease.snapshot().display_name == "alice"
+        snapshot = lease.snapshot()
+        assert (snapshot.display_name if snapshot.held else None) == expected_holder
 
     def test_new_client_can_claim_after_expiry(
         self, lease: ControlLease, clock: FakeClock

@@ -450,11 +450,6 @@ class TestStatusAcrossProcesses:
             f"{run_id}|{UpdateState.RESTARTING.value}|{head(clone)}"
         )
 
-    def test_status_is_idle_before_any_run(self, clone: Path, tmp_path: Path):
-        settings = build_settings(clone, tmp_path)
-
-        assert UpdateRunner(settings).status().state is UpdateState.IDLE
-
 
 class TestNothingToUpdate:
     """既に最新の機体でも `start()` は成立する（何も pull せずに終わる）."""

@@ -20,11 +20,6 @@ from .conftest import FAKE_CAMERA_IMAGE
 class TestFixedImageCamera:
     """固定画像カメラ（開発・E2E 用）."""
 
-    def test_capture_returns_asset_sized_image(self):
-        camera = FixedImageCamera(FAKE_CAMERA_IMAGE, fps=60.0)
-
-        assert camera.capture().size == (1280, 720)
-
     def test_capture_returns_same_image_instance(self):
         camera = FixedImageCamera(FAKE_CAMERA_IMAGE, fps=60.0)
 

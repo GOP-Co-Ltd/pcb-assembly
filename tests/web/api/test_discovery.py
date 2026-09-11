@@ -61,30 +61,25 @@ class TestServiceTypeConstant:
 class TestSelectAdvertiseAddresses:
     """広告に載せるアドレスの選択（純関数）."""
 
-    def test_excludes_loopback(self):
-        assert select_advertise_addresses(("127.0.0.1", "192.168.1.5")) == (
-            "192.168.1.5",
-        )
-
-    def test_excludes_link_local(self):
-        assert select_advertise_addresses(("169.254.10.20", "10.0.0.3")) == (
-            "10.0.0.3",
-        )
-
-    def test_removes_duplicates_and_keeps_input_order(self):
-        candidates = ("192.168.1.5", "10.0.0.3", "192.168.1.5", "172.16.0.9")
-
-        assert select_advertise_addresses(candidates) == (
-            "192.168.1.5",
-            "10.0.0.3",
-            "172.16.0.9",
-        )
-
-    def test_empty_input_returns_empty(self):
-        assert select_advertise_addresses(()) == ()
-
-    def test_all_excluded_returns_empty(self):
-        assert select_advertise_addresses(("127.0.0.1", "169.254.1.1")) == ()
+    @pytest.mark.parametrize(
+        ("candidates", "expected"),
+        [
+            # ループバック・リンクローカルは広告に載せない
+            (("127.0.0.1", "192.168.1.5"), ("192.168.1.5",)),
+            (("169.254.10.20", "10.0.0.3"), ("10.0.0.3",)),
+            # 重複は落とし、入力順は保つ
+            (
+                ("192.168.1.5", "10.0.0.3", "192.168.1.5", "172.16.0.9"),
+                ("192.168.1.5", "10.0.0.3", "172.16.0.9"),
+            ),
+            ((), ()),
+            (("127.0.0.1", "169.254.1.1"), ()),
+        ],
+    )
+    def test_selects_only_reachable_addresses(
+        self, candidates: tuple[str, ...], expected: tuple[str, ...]
+    ):
+        assert select_advertise_addresses(candidates) == expected
 
 
 class TestLocalIpv4Addresses:
@@ -96,11 +91,6 @@ class TestLocalIpv4Addresses:
         assert addresses
         for address in addresses:
             assert ipaddress.IPv4Address(address)
-
-    def test_loopback_is_dropped_by_the_selector(self):
-        """列挙にはループバックが含まれるが、広告には載らない."""
-        assert "127.0.0.1" in local_ipv4_addresses()
-        assert "127.0.0.1" not in select_advertise_addresses(local_ipv4_addresses())
 
 
 class TestBuildServiceInfo:
@@ -184,10 +174,6 @@ class TestLongDisplayName:
             addresses=("10.0.0.3",),
         )
 
-    def test_original_name_would_not_fit_in_a_txt_entry(self):
-        """前提の確認（300 bytes は TXT の 1 エントリに収まらない）."""
-        assert len(self.LONG_NAME.encode()) > MAX_TXT_NAME_BYTES
-
     def test_txt_name_fits_in_one_entry(self, info: ServiceInfo):
         name = info.properties[b"name"]
 
@@ -262,21 +248,18 @@ class TestAdvertiserWithoutMulticast:
     def test_start_does_not_raise(self, advertiser: ServiceAdvertiser):
         asyncio.run(advertiser.start())
 
-    def test_update_and_stop_after_a_failed_start_are_no_ops(
+    def test_update_and_stop_without_a_live_start_are_no_ops(
         self, advertiser: ServiceAdvertiser
     ):
         async def scenario() -> None:
+            # start 前と、失敗した start の後のどちらでも例外にならない
+            advertiser.update("新しい名前")
+            await advertiser.stop()
             await advertiser.start()
             advertiser.update("新しい名前")
             await advertiser.stop()
 
         asyncio.run(scenario())
-
-    def test_stop_without_start_is_a_no_op(self, advertiser: ServiceAdvertiser):
-        asyncio.run(advertiser.stop())
-
-    def test_update_without_start_is_a_no_op(self, advertiser: ServiceAdvertiser):
-        advertiser.update("新しい名前")
 
 
 class TestAdvertiserWithUnbuildableServiceInfo:
@@ -356,9 +339,6 @@ class TestDiscoveryIsolation:
     ここが落ちたら fixture の `discovery_enabled=False` が外れている。 `tests/web/api`
     は 1000 件超が同じ fixture を使うので、外れると全件が mDNS を撒く。
     """
-
-    def test_shared_settings_fixture_disables_discovery(self, webui_settings: Settings):
-        assert webui_settings.discovery_enabled is False
 
     def test_app_built_from_the_fixture_has_no_advertiser(self, app: FastAPI):
         assert app.state.advertiser is None

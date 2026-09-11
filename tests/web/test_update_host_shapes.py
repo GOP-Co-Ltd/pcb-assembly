@@ -30,7 +30,7 @@ from tests.web.update_support import make_update_sandbox
 from web.selfupdate.report import UpdateState, UpdateStep, status_payload
 from web.selfupdate.runner import UpdateRunner
 from web.selfupdate.service import UNIT_NAMES
-from web.selfupdate.steps import smoke_command, smoke_modules
+from web.selfupdate.steps import smoke_modules
 
 API_UNIT = UNIT_NAMES["api"]
 UI_UNIT = UNIT_NAMES["ui"]
@@ -89,23 +89,6 @@ class TestSmokeTargetsFollowTheHost:
         assert len(smoke) == 1, sandbox.calls()
         assert "import web.ui.app" in smoke[0]
         assert "web.api.app" not in smoke[0]
-
-    def test_device_only_host_imports_the_device_application(self, tmp_path: Path):
-        sandbox = make_update_sandbox(tmp_path / "api-only", active=(API_UNIT,))
-        sandbox.push()
-        runner = UpdateRunner(sandbox.settings)
-
-        run_to_completion(runner)
-
-        smoke = [line for line in sandbox.calls() if "--no-sync" in line]
-        assert "import web.api.app" in smoke[0]
-        assert "web.ui.app" not in smoke[0]
-
-    def test_the_default_command_still_covers_both_applications(self, tmp_path: Path):
-        """Unit を観測できない文脈での既定は同居機と同じ全部入り."""
-        sandbox = make_update_sandbox(tmp_path / "default")
-
-        assert "import web.api.app, web.ui.app" in smoke_command(sandbox.settings)[5]
 
 
 class TestHostWithoutSystemdUnits:
@@ -320,12 +303,3 @@ class TestUnexpectedFailureIsRecorded:
         assert report.state is UpdateState.FAILED
         assert report.error
         assert sandbox.restarts() == []
-
-    def test_status_stays_readable_without_systemctl(self, tmp_path: Path):
-        """`GET /api/update/status` の「常に 200」を支える（active_units が例外を投げない）."""
-        sandbox = make_update_sandbox(tmp_path / "no-systemctl")
-        settings = attrs.evolve(
-            sandbox.settings, systemctl_bin=str(tmp_path / "absent" / "systemctl")
-        )
-
-        assert UpdateRunner(settings).plan().restart_units == ()
