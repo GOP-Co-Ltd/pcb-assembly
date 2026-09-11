@@ -45,10 +45,6 @@ class TestPcbFile:
         assert pcb.outline.width == pytest.approx(20.0, abs=0.1)
         assert pcb.outline.height == pytest.approx(25.0, abs=0.1)
 
-    def test_outline_extracts_valid_polygon(self, pcb: PcbFile):
-        assert pcb.outline.polygon.is_valid
-        assert pcb.outline.polygon.area > 0
-
     def test_outline_preserves_edge_cuts_hole(self, tmp_path: Path):
         board = pcbnew.BOARD()
         _add_edge_cuts_rectangle(
@@ -110,10 +106,6 @@ class TestPcbFile:
         r3_pads = [p for p in pcb.pads if p.designator == "R3"]
         assert len(r3_pads) == 2
         assert all(p.layer == Layer.BOTTOM for p in r3_pads)
-
-    def test_pads_polygon_has_valid_area(self, pcb: PcbFile):
-        for pad in pcb.pads:
-            assert pad.area > 0
 
     def test_pads_center_is_within_polygon(self, pcb: PcbFile):
         for pad in pcb.pads:

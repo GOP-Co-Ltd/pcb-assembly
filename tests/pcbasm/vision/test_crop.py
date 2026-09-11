@@ -50,28 +50,26 @@ class TestCropPixelSize:
 
     @pytest.mark.parametrize(
         ("size_mm", "pixel_per_mm"),
-        [(2.0, 120.5), (2.0, 120.0), (2.0, 120.3), (1.0, 33.4), (3.0, 80.0)],
+        [
+            (2.0, 120.5),
+            (2.0, 120.0),
+            (2.0, 120.3),
+            (1.0, 33.4),
+            (3.0, 80.0),
+            (2.0, 100.7),
+            (1.5, 33.33),
+            (0.05, 120.5),
+        ],
     )
-    def test_size_is_odd_so_a_single_center_pixel_exists(
+    def test_size_is_a_nearby_positive_odd_integer(
         self, size_mm: float, pixel_per_mm: float
     ):
         size, error = crop_pixel_size(size_mm, pixel_per_mm)
 
         assert error is None
         assert size is not None
+        # 中心画素が 1 つだけ存在するよう奇数、かつ 1 以上
         assert size % 2 == 1
-
-    @pytest.mark.parametrize(
-        ("size_mm", "pixel_per_mm"),
-        [(2.0, 120.3), (2.0, 100.7), (1.5, 33.33), (0.05, 120.5)],
-    )
-    def test_fractional_product_resolves_to_a_nearby_positive_integer(
-        self, size_mm: float, pixel_per_mm: float
-    ):
-        size, error = crop_pixel_size(size_mm, pixel_per_mm)
-
-        assert error is None
-        assert size is not None
         assert size >= 1
         # 奇数へ寄せるため、積からのずれは最大 1 pixel 強
         assert abs(size - size_mm * pixel_per_mm) < 2.0

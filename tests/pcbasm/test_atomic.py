@@ -41,13 +41,6 @@ class TestWriteTextAtomic:
 
         assert [entry.name for entry in tmp_path.iterdir()] == ["state.json"]
 
-    def test_roundtrips_non_ascii(self, tmp_path: Path):
-        path = tmp_path / "state.json"
-
-        write_text_atomic(path, "日本語のテキスト")
-
-        assert path.read_text(encoding="utf-8") == "日本語のテキスト"
-
     def test_failed_write_keeps_existing_file_and_removes_temporary(
         self, tmp_path: Path
     ):

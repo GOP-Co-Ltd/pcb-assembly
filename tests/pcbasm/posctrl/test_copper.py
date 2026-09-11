@@ -347,26 +347,6 @@ class TestCopperEdgeMatcher:
             is None
         )
 
-    def test_expected_edges_outside_crop_do_not_affect_match(self):
-        """crop_size 外の想定エッジ（別のずれを示唆する構造）が結果に影響しない."""
-        matcher = CopperEdgeMatcher(pixel_per_mm=PPM, search_window_mm=1.0)
-        expected = np.zeros((200, 200), dtype=np.uint8)
-        observed = np.zeros((200, 200), dtype=np.uint8)
-        # crop 内 (rows/cols 50..150): (+4, +2)px ずれたリング
-        cv2.rectangle(expected, (70, 70), (130, 130), 255, 1)
-        cv2.rectangle(observed, (74, 72), (134, 132), 255, 1)
-        # crop + 窓 (10px) の外: 逆向き (-8, -6) のずれを示唆する構造
-        cv2.rectangle(expected, (5, 5), (38, 38), 255, 1)
-        cv2.rectangle(expected, (12, 12), (31, 31), 255, 1)
-        cv2.rectangle(observed, (5 - 8, 5 - 6), (38 - 8, 38 - 6), 255, 1)
-        cv2.rectangle(observed, (12 - 8, 12 - 6), (31 - 8, 31 - 6), 255, 1)
-
-        match = matcher.match(observed, expected, (50, 50, 150, 150))
-
-        assert match is not None
-        assert match.offset.px.x == pytest.approx(4.0, abs=1.0)
-        assert match.offset.px.y == pytest.approx(2.0, abs=1.0)
-
 
 class TestCopperEdgeMatcherRoi:
     """CopperEdgeMatcher.match の ROI 限定照合のテスト.

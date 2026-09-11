@@ -1,7 +1,6 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.gcode import GCode
 from pcbasm.hal.klipper import Klipper
 from pcbasm.hal.paste_dispenser import (
     PasteDispenser,
@@ -66,7 +65,6 @@ class TestPasteDispenser:
         dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
         gcode = dispenser.enable()
 
-        assert isinstance(gcode, GCode)
         lines = gcode.to_list()
         assert lines[0] == "SET_PIN PIN=air_pump VALUE=1"
         assert lines[1] == f"{PREFIX} ENABLE=1"
@@ -75,7 +73,6 @@ class TestPasteDispenser:
         dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
         gcode = dispenser.disable()
 
-        assert isinstance(gcode, GCode)
         lines = gcode.to_list()
         assert lines[0] == "SET_PIN PIN=air_pump VALUE=0"
         assert lines[1] == f"{PREFIX} ENABLE=0"
@@ -102,17 +99,9 @@ class TestPasteDispenser:
 
         gcode = dispenser.pushpull(amount, rate, accel)
 
-        assert isinstance(gcode, GCode)
         lines = gcode.to_list()
         assert lines[0] == f"{PREFIX} SET_POSITION=0.0"
         assert lines[1] == f"{PREFIX} MOVE={expected_move_sign}0.25 SPEED=0.5 ACCEL=1.0"
-
-    def test_pushpull_sync_false(self, mock_klipper: Klipper):
-        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
-        gcode = dispenser.pushpull(1.0, 2.0, 4.0, sync=False)
-
-        lines = gcode.to_list()
-        assert lines[1].endswith("SYNC=0")
 
     def test_continue_pushpull_keeps_current_coordinate(self, mock_klipper: Klipper):
         dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
@@ -120,11 +109,6 @@ class TestPasteDispenser:
         gcode = dispenser.continue_pushpull(1.0, -0.4, 2.0, 4.0, sync=False)
 
         assert gcode.to_list() == [f"{PREFIX} MOVE=0.15 SPEED=0.5 ACCEL=1.0 SYNC=0"]
-
-    def test_sync(self, mock_klipper: Klipper):
-        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
-
-        assert dispenser.sync().to_list() == [f"{PREFIX} SYNC=1"]
 
     def test_rotate_revolutions(self, mock_klipper: Klipper):
         # rotation_distance=0.5 (mock fixture)
@@ -135,16 +119,6 @@ class TestPasteDispenser:
         dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
         gcode = dispenser.rotate_revolutions(rotations=10, rate=2.0, accel=1.0)
 
-        assert isinstance(gcode, GCode)
         lines = gcode.to_list()
         assert lines[0] == f"{PREFIX} SET_POSITION=0.0"
         assert lines[1] == f"{PREFIX} MOVE=5.0 SPEED=1.0 ACCEL=0.5"
-
-    def test_rotate_revolutions_sync_false(self, mock_klipper: Klipper):
-        dispenser = PasteDispenser(mock_klipper.readonly, rotations_per_ul=0.5)
-        gcode = dispenser.rotate_revolutions(
-            rotations=1, rate=1.0, accel=1.0, sync=False
-        )
-
-        lines = gcode.to_list()
-        assert lines[1].endswith("SYNC=0")

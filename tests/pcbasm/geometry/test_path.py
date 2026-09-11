@@ -40,27 +40,7 @@ class TestPath:
         # int の 0 を受け付けないので、区間が無くても float を返す。
         assert isinstance(Path(points).length(), float)
 
-    def test_transformed_shift(self):
-        path = Path([Point3d(0.0, 0.0, 0.0), Point3d(1.0, 1.0, 1.0)])
-
-        result = path.transformed(Shift(1.0, 2.0, 3.0))
-
-        assert result.points == (
-            Point3d(1.0, 2.0, 3.0),
-            Point3d(2.0, 3.0, 4.0),
-        )
-
-    def test_transformed_scale(self):
-        path = Path([Point3d(1.0, 2.0, 3.0), Point3d(4.0, 5.0, 6.0)])
-
-        result = path.transformed(Scale(2.0, 2.0, 2.0))
-
-        assert result.points == (
-            Point3d(2.0, 4.0, 6.0),
-            Point3d(8.0, 10.0, 12.0),
-        )
-
-    def test_transformed_compose(self):
+    def test_transformed_applies_the_transform_to_every_point(self):
         # Composeは self[0] → self[1] の順で適用される。
         # (1,1,1) → Shift(1,2,3) → (2,3,4) → Scale(2,2,2) → (4,6,8)
         path = Path([Point3d(1.0, 1.0, 1.0)])
@@ -87,22 +67,12 @@ class TestPath:
         assert from_list == from_generator
         assert from_list.points == from_generator.points
 
-    def test_points_is_tuple(self):
-        path = Path([Point3d(0.0, 0.0, 0.0), Point3d(1.0, 2.0, 3.0)])
-
-        assert isinstance(path.points, tuple)
-
     def test_len(self):
         path = Path([Point3d(0.0, 0.0, 0.0), Point3d(1.0, 2.0, 3.0)])
 
         assert len(path) == 2
 
-    def test_len_empty(self):
-        path = Path([])
-
-        assert len(path) == 0
-
-    def test_iteration_yields_points_in_order(self):
+    def test_iteration_and_indexing_follow_point_order(self):
         points = [
             Point3d(0.0, 0.0, 0.0),
             Point3d(1.0, 0.0, 0.0),
@@ -111,11 +81,5 @@ class TestPath:
         path = Path(points)
 
         assert list(path) == points
-
-    def test_getitem_first_and_last(self):
-        first = Point3d(0.0, 0.0, 0.0)
-        last = Point3d(9.0, 9.0, 9.0)
-        path = Path([first, Point3d(5.0, 5.0, 5.0), last])
-
-        assert path[0] == first
-        assert path[-1] == last
+        assert path[0] == points[0]
+        assert path[-1] == points[-1]

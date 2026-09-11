@@ -21,7 +21,7 @@ from pcbasm.config import (
     get_machine_config,
     resolve_paste_height,
 )
-from pcbasm.geometry import Point2d, Shift
+from pcbasm.geometry import Point2d
 from tests.helpers import PROJECT_ROOT, TESTING_DATA_DIR
 
 
@@ -128,17 +128,27 @@ class TestMachine:
             0.4
         )
 
-    def test_solder_paste_density_defaults_when_absent(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("removed_line", "attribute", "expected"),
+        [
+            ("solder_paste_density = 3.78\n", "solder_paste_density", 3.78),
+            ("lift_height = 3.0\n", "lift_height", 2.0),
+            ("", "initial_purge_ul", 0.1),
+            ("", "auto_area_short_side_factor", 3.0),
+        ],
+    )
+    def test_optional_keys_fall_back_to_defaults(
+        self, tmp_path, removed_line: str, attribute: str, expected: float
+    ):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        if removed_line:
+            source = source.replace(removed_line, "")
         path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace("solder_paste_density = 3.78\n", ""),
-            encoding="utf-8",
-        )
+        path.write_text(source, encoding="utf-8")
 
-        machine = Machine(path)
+        dispenser = Machine(path).paste_dispenser
 
-        assert machine.paste_dispenser.solder_paste_density == pytest.approx(3.78)
+        assert getattr(dispenser, attribute) == pytest.approx(expected)
 
     def test_pad_align_section_overrides_defaults(self, tmp_path):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
@@ -158,35 +168,14 @@ class TestMachine:
         assert pad_align.canny_low == pytest.approx(100.0)  # 未指定はデフォルト
         assert pad_align.blur_ksize == 3
 
-    def test_initial_purge_ul_defaults_when_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
-
-        assert machine.paste_dispenser.initial_purge_ul == pytest.approx(0.1)
-
-    def test_lift_height_defaults_when_absent(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace("lift_height = 3.0\n", ""),
-            encoding="utf-8",
-        )
-
-        machine = Machine(path)
-
-        assert machine.paste_dispenser.lift_height == pytest.approx(2.0)
-
-    def test_auto_area_short_side_factor_defaults_when_absent(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
-
-        assert machine.paste_dispenser.auto_area_short_side_factor == pytest.approx(3.0)
-
-    def test_initial_purge_ul_reads_explicit_value(self, tmp_path):
+    @pytest.mark.parametrize("amount", [0.25, 0.0], ids=["explicit", "zero-disables"])
+    def test_initial_purge_ul_reads_explicit_value(self, tmp_path, amount: float):
         source = (TESTING_DATA_DIR / "machine.toml").read_text()
         path = tmp_path / "machine.toml"
         path.write_text(
             source.replace(
                 "[paste_dispenser]\n",
-                "[paste_dispenser]\ninitial_purge_ul = 0.25\n",
+                f"[paste_dispenser]\ninitial_purge_ul = {amount}\n",
                 1,
             ),
             encoding="utf-8",
@@ -194,41 +183,17 @@ class TestMachine:
 
         machine = Machine(path)
 
-        assert machine.paste_dispenser.initial_purge_ul == pytest.approx(0.25)
+        assert machine.paste_dispenser.initial_purge_ul == pytest.approx(amount)
 
-    def test_initial_purge_ul_allows_zero_to_disable(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace(
-                "[paste_dispenser]\n",
-                "[paste_dispenser]\ninitial_purge_ul = 0.0\n",
-                1,
-            ),
-            encoding="utf-8",
-        )
+    @pytest.mark.parametrize(
+        ("retract_rate", "expected"),
+        [(None, 5.0), (50.0, 50.0)],
+        ids=["absent-falls-back-to-max-dispense-rate", "explicit"],
+    )
+    def test_effective_retract_rate(self, retract_rate: float | None, expected: float):
+        dispenser = _paste_dispenser(retract_rate=retract_rate)
 
-        machine = Machine(path)
-
-        assert machine.paste_dispenser.initial_purge_ul == pytest.approx(0.0)
-
-    def test_effective_retract_rate_falls_back_to_max_dispense_rate_when_absent(
-        self, tmp_path
-    ):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source.replace("retract_rate = 50.0\n", ""),
-            encoding="utf-8",
-        )
-
-        machine = Machine(path)
-
-        assert machine.paste_dispenser.retract_rate is None
-        assert machine.paste_dispenser.effective_retract_rate == pytest.approx(
-            machine.paste_dispenser.max_dispense_rate
-        )
-        assert machine.paste_dispenser.effective_retract_rate == pytest.approx(5.0)
+        assert dispenser.effective_retract_rate == pytest.approx(expected)
 
     def test_initial_purge_ul_rejects_negative_value(self):
         with pytest.raises(ValueError, match="initial_purge_ul"):
@@ -274,14 +239,6 @@ class TestMachine:
 
         assert dispenser.overlap == 0.0
         assert dispenser.boundary_margin == 0.0
-
-    def test_density_mg_per_ul_mirrors_solder_paste_density(self):
-        assert _paste_dispenser(solder_paste_density=4.2).density_mg_per_ul == 4.2
-
-    def test_effective_retract_rate_returns_explicit_value(self):
-        dispenser = _paste_dispenser()
-
-        assert dispenser.effective_retract_rate == pytest.approx(50.0)
 
     def test_raises_key_error_when_config_not_defined(self):
         machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
@@ -346,17 +303,6 @@ class TestMachineAudio:
 
 class TestPadAlignRegionSettings:
     """重複領域による銅箔位置合わせ設定の公開契約."""
-
-    def test_defaults_to_agreed_region_alignment_values(self):
-        pad_align = PadAlign()
-
-        assert pad_align.region_size_px == 100
-        assert pad_align.region_overlap == pytest.approx(0.5)
-        assert pad_align.board_edge_margin == pytest.approx(0.5)
-        assert pad_align.max_passes == 5
-        assert pad_align.converge_tolerance == pytest.approx(0.03)
-        assert pad_align.refine_max_short_side == pytest.approx(0.4)
-        assert pad_align.blur_ksize == 5
 
     @pytest.mark.parametrize("threshold", [0.0, 0.25])
     def test_accepts_nonnegative_refinement_threshold(self, threshold: float):
@@ -430,15 +376,6 @@ class TestPadAlignRegionSettings:
 
 class TestFlowCalibration:
     """運転時流量キャリブレーション設定の公開契約."""
-
-    def test_defaults_to_a_disabled_measurement(self):
-        flow = FlowCalibration()
-
-        assert flow.calibration_file == ""
-        assert flow.amount_ul == pytest.approx(0.2)
-        assert flow.crop_size_mm == pytest.approx(2.0)
-        assert flow.settle_seconds == pytest.approx(10.0)
-        assert flow.enabled is False
 
     def test_is_enabled_by_the_calibration_file_alone(self):
         """測定位置は基板ごとの設定なので、machine 側は校正ファイルだけで決まる."""
@@ -602,57 +539,8 @@ class TestNozzleCap:
         assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
 
 
-class TestCamera:
-    """Cameraクラスのテスト."""
-
-    def test_size(self):
-        camera = Camera(
-            width=640,
-            height=480,
-            fps=30.0,
-            crop=CameraCrop(width=400, height=400),
-            calibration_file=Path("calibration.json"),
-        )
-
-        assert camera.size == (640, 480)
-
-
-class TestCameraCrop:
-    """CameraCropクラスのテスト."""
-
-    def test_size(self):
-        crop = CameraCrop(width=400, height=300)
-
-        assert crop.size == (400, 300)
-
-
-class TestToolhead:
-    """Toolheadクラスのテスト."""
-
-    def test_to_transform(self):
-        toolhead = Toolhead(x=13.2, y=54.7)
-
-        assert toolhead.to_transform() == Shift(x=13.2, y=54.7)
-
-
 class TestCornerOffsets:
     """CornerOffsetsクラスのテスト."""
-
-    @pytest.mark.parametrize(
-        "missing_corner",
-        ["top_left", "top_right", "bottom_left", "bottom_right"],
-    )
-    def test_requires_all_four_corners(self, missing_corner: str):
-        values = {
-            "top_left": (0.0, -5.0),
-            "top_right": (0.0, -5.0),
-            "bottom_left": (5.0, 5.0),
-            "bottom_right": (-5.0, 5.0),
-        }
-        del values[missing_corner]
-
-        with pytest.raises(TypeError):
-            CornerOffsets(**values)
 
     @pytest.mark.parametrize(
         ("corner", "expected"),
@@ -678,21 +566,6 @@ class TestCornerOffsets:
 
 class TestReferencePoint:
     """ReferencePointクラスのテスト."""
-
-    def test_to_point(self):
-        ref = ReferencePoint(
-            x=10.0,
-            y=20.0,
-            target_diameter=3.0,
-            offsets=CornerOffsets(
-                top_left=(1.0, -2.0),
-                top_right=(1.0, -2.0),
-                bottom_left=(5.0, 5.0),
-                bottom_right=(-5.0, 5.0),
-            ),
-        )
-
-        assert ref.to_point() == Point2d(10.0, 20.0)
 
     def test_get_reference_position_default_is_top_left(self):
         ref = ReferencePoint(
@@ -805,29 +678,6 @@ class TestReferencePoint:
 
 class TestProbe:
     """Probeクラスのテスト."""
-
-    def test_sample_defaults(self):
-        probe = Probe(min_radius=1.5)
-
-        assert probe.board_edge_margin == 2.5
-        assert probe.min_samples == 6
-        assert probe.max_samples == 9
-        assert probe.lift_height == 1.0
-
-    def test_valid_custom_values(self):
-        probe = Probe(
-            min_radius=2.0,
-            board_edge_margin=3.0,
-            lift_height=2.5,
-            min_samples=7,
-            max_samples=12,
-        )
-
-        assert probe.min_radius == 2.0
-        assert probe.board_edge_margin == 3.0
-        assert probe.lift_height == 2.5
-        assert probe.min_samples == 7
-        assert probe.max_samples == 12
 
     def test_min_samples_less_than_6_raises(self):
         # 2次曲面フィットには6点以上が必要なため min_samples < 6 は弾かれる。

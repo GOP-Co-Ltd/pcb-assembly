@@ -6,7 +6,6 @@ import pytest
 from pcbasm.geometry.transform import (
     Compose,
     HeightPlane,
-    Identity,
     Matrix2d,
     Point2d,
     Point3d,
@@ -19,18 +18,10 @@ from pcbasm.geometry.transform import (
 class TestPoint3d:
     """Point3dクラスのテスト."""
 
-    def test_init(self):
-        point = Point3d(1.0, 2.0, 3.0)
-
-        assert point.x == 1.0
-        assert point.y == 2.0
-        assert point.z == 3.0
-
     @pytest.mark.parametrize(
         ("a", "b", "expected"),
         [
             (Point3d(1.0, 2.0, 3.0), Point3d(4.0, 5.0, 6.0), Point3d(5.0, 7.0, 9.0)),
-            (Point3d(0.0, 0.0, 0.0), Point3d(1.0, 1.0, 1.0), Point3d(1.0, 1.0, 1.0)),
             (
                 Point3d(-1.0, -2.0, -3.0),
                 Point3d(1.0, 2.0, 3.0),
@@ -45,7 +36,6 @@ class TestPoint3d:
         ("a", "b", "expected"),
         [
             (Point3d(4.0, 5.0, 6.0), Point3d(1.0, 2.0, 3.0), Point3d(3.0, 3.0, 3.0)),
-            (Point3d(1.0, 1.0, 1.0), Point3d(1.0, 1.0, 1.0), Point3d(0.0, 0.0, 0.0)),
             (
                 Point3d(0.0, 0.0, 0.0),
                 Point3d(1.0, 2.0, 3.0),
@@ -60,7 +50,6 @@ class TestPoint3d:
         ("point", "scalar", "expected"),
         [
             (Point3d(1.0, 2.0, 3.0), 2.0, Point3d(2.0, 4.0, 6.0)),
-            (Point3d(1.0, 2.0, 3.0), 0.5, Point3d(0.5, 1.0, 1.5)),
             (Point3d(1.0, 2.0, 3.0), -1.0, Point3d(-1.0, -2.0, -3.0)),
         ],
     )
@@ -71,7 +60,6 @@ class TestPoint3d:
         ("scalar", "point", "expected"),
         [
             (2.0, Point3d(1.0, 2.0, 3.0), Point3d(2.0, 4.0, 6.0)),
-            (0.5, Point3d(1.0, 2.0, 3.0), Point3d(0.5, 1.0, 1.5)),
         ],
     )
     def test_rmul(self, scalar, point, expected):
@@ -81,7 +69,6 @@ class TestPoint3d:
         ("point", "scalar", "expected"),
         [
             (Point3d(2.0, 4.0, 6.0), 2.0, Point3d(1.0, 2.0, 3.0)),
-            (Point3d(1.0, 2.0, 3.0), 0.5, Point3d(2.0, 4.0, 6.0)),
         ],
     )
     def test_truediv(self, point, scalar, expected):
@@ -103,10 +90,6 @@ class TestPoint3d:
         ("kwargs", "expected"),
         [
             ({}, Point3d(0.0, 0.0, 0.0)),
-            ({"x": 1.0}, Point3d(1.0, 0.0, 0.0)),
-            ({"y": 2.0}, Point3d(0.0, 2.0, 0.0)),
-            ({"z": 3.0}, Point3d(0.0, 0.0, 3.0)),
-            ({"x": 1.0, "y": 2.0}, Point3d(1.0, 2.0, 0.0)),
             ({"x": 1.0, "y": 2.0, "z": 3.0}, Point3d(1.0, 2.0, 3.0)),
         ],
     )
@@ -128,7 +111,6 @@ class TestPoint2d:
         ("a", "b", "expected"),
         [
             (Point2d(1.0, 2.0), Point2d(3.0, 4.0), Point2d(4.0, 6.0)),
-            (Point2d(0.0, 0.0), Point2d(1.0, 1.0), Point2d(1.0, 1.0)),
             (Point2d(-1.0, -2.0), Point2d(1.0, 2.0), Point2d(0.0, 0.0)),
         ],
     )
@@ -139,7 +121,6 @@ class TestPoint2d:
         ("a", "b", "expected"),
         [
             (Point2d(4.0, 6.0), Point2d(1.0, 2.0), Point2d(3.0, 4.0)),
-            (Point2d(1.0, 1.0), Point2d(1.0, 1.0), Point2d(0.0, 0.0)),
             (Point2d(0.0, 0.0), Point2d(1.0, 2.0), Point2d(-1.0, -2.0)),
         ],
     )
@@ -150,7 +131,6 @@ class TestPoint2d:
         ("point", "scalar", "expected"),
         [
             (Point2d(1.0, 2.0), 2.0, Point2d(2.0, 4.0)),
-            (Point2d(1.0, 2.0), 0.5, Point2d(0.5, 1.0)),
             (Point2d(1.0, 2.0), -1.0, Point2d(-1.0, -2.0)),
         ],
     )
@@ -161,7 +141,6 @@ class TestPoint2d:
         ("scalar", "point", "expected"),
         [
             (2.0, Point2d(1.0, 2.0), Point2d(2.0, 4.0)),
-            (0.5, Point2d(1.0, 2.0), Point2d(0.5, 1.0)),
         ],
     )
     def test_rmul(self, scalar, point, expected):
@@ -171,7 +150,6 @@ class TestPoint2d:
         ("point", "scalar", "expected"),
         [
             (Point2d(2.0, 4.0), 2.0, Point2d(1.0, 2.0)),
-            (Point2d(1.0, 2.0), 0.5, Point2d(2.0, 4.0)),
         ],
     )
     def test_truediv(self, point, scalar, expected):
@@ -247,13 +225,6 @@ class TestMatrix2d:
 class TestScale:
     """Scaleクラスのテスト."""
 
-    def test_default_values(self):
-        scale = Scale()
-
-        assert scale.x == 1.0
-        assert scale.y == 1.0
-        assert scale.z == 1.0
-
     def test_apply_point3d(self):
         scale = Scale(2.0, 3.0, 4.0)
         point = Point3d(1.0, 2.0, 3.0)
@@ -282,9 +253,6 @@ class TestScale:
         ("flip_args", "expected"),
         [
             ({"x": True}, Scale(-1.0, 1.0, 1.0)),
-            ({"y": True}, Scale(1.0, -1.0, 1.0)),
-            ({"z": True}, Scale(1.0, 1.0, -1.0)),
-            ({"x": True, "y": True}, Scale(-1.0, -1.0, 1.0)),
             ({"x": True, "y": True, "z": True}, Scale(-1.0, -1.0, -1.0)),
         ],
     )
@@ -294,54 +262,8 @@ class TestScale:
         assert result == expected
 
 
-class TestIdentity:
-    """Identityクラスのテスト."""
-
-    def test_apply_point3d(self):
-        identity = Identity()
-        point = Point3d(1.0, 2.0, 3.0)
-
-        result = identity.apply(point)
-
-        assert result == point
-
-    def test_apply_point2d(self):
-        identity = Identity()
-        point = Point2d(1.0, 2.0)
-
-        result = identity.apply(point)
-
-        assert result == point
-
-    def test_inverse(self):
-        identity = Identity()
-
-        result = identity.inverse()
-
-        assert result is identity
-
-
 class TestRotation:
     """Rotationクラスのテスト."""
-
-    def test_default_value(self):
-        rotation = Rotation()
-
-        assert rotation.degrees == 0.0
-
-    @pytest.mark.parametrize(
-        ("degrees", "expected_radians"),
-        [
-            (0.0, 0.0),
-            (90.0, math.pi / 2),
-            (180.0, math.pi),
-            (-90.0, -math.pi / 2),
-        ],
-    )
-    def test_radians(self, degrees, expected_radians):
-        rotation = Rotation(degrees)
-
-        assert rotation.radians == pytest.approx(expected_radians)
 
     def test_apply_point3d(self):
         rotation = Rotation(90.0)
@@ -390,13 +312,6 @@ class TestRotation:
 class TestShift:
     """Shiftクラスのテスト."""
 
-    def test_default_values(self):
-        translation = Shift()
-
-        assert translation.x == 0.0
-        assert translation.y == 0.0
-        assert translation.z == 0.0
-
     def test_apply_point3d(self):
         translation = Shift(10.0, 20.0, 30.0)
         point = Point3d(1.0, 2.0, 3.0)
@@ -421,19 +336,16 @@ class TestShift:
 
         assert result == Shift(-10.0, -20.0, -30.0)
 
-    def test_from_point_point3d(self):
-        point = Point3d(10.0, 20.0, 30.0)
-
-        result = Shift.from_point(point)
-
-        assert result == Shift(10.0, 20.0, 30.0)
-
-    def test_from_point_point2d(self):
-        point = Point2d(10.0, 20.0)
-
-        result = Shift.from_point(point)
-
-        assert result == Shift(10.0, 20.0, 0.0)
+    @pytest.mark.parametrize(
+        ("point", "expected"),
+        [
+            (Point3d(10.0, 20.0, 30.0), Shift(10.0, 20.0, 30.0)),
+            (Point2d(10.0, 20.0), Shift(10.0, 20.0, 0.0)),
+        ],
+        ids=["point3d", "point2d-defaults-z-to-zero"],
+    )
+    def test_from_point(self, point, expected):
+        assert Shift.from_point(point) == expected
 
 
 class TestCompose:

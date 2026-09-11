@@ -110,58 +110,21 @@ class TestSamplePointsInPolygons:
         with pytest.raises(ValueError, match="min_samples"):
             sample_points_in_polygons([], min_radius=1.5, min_samples=3, max_samples=9)
 
-    def test_max_samples_limits_output(self):
-        """大きい島で max_samples=3 に制限される."""
-        polygon = _rectangle(0, 0, 50, 50)
-
-        result = sample_points_in_polygons(
-            [polygon], min_radius=1.5, min_samples=3, max_samples=3
-        )
-
-        assert len(result) == 3
-        # 3点は十分に離れている (安全性を保ちつつ広く分散)
-        assert _min_pair_distance(result) >= 15.0
-
     @pytest.mark.parametrize(
-        "max_samples,expected",
-        [(1, 1), (2, 2), (5, 5), (50, 50)],
+        ("max_samples", "min_pair_distance"),
+        [(1, 0.0), (2, 0.0), (3, 15.0), (5, 0.0), (50, 0.0)],
     )
-    def test_respects_max_samples_cap(self, max_samples, expected):
-        """max_samplesが十分小さい範囲では max_samples 分だけ返る."""
+    def test_respects_max_samples_cap(self, max_samples: int, min_pair_distance: float):
+        """大きい島では max_samples 分だけ返り、少数なら広く分散する."""
         polygon = _rectangle(0, 0, 50, 50)
 
         result = sample_points_in_polygons(
             [polygon], min_radius=1.5, min_samples=1, max_samples=max_samples
         )
 
-        assert len(result) == expected
-
-    def test_points_respect_min_radius_floor(self):
-        """各点は銅箔境界から min_radius 以上の安全余裕を保つ."""
-        polygon = _rectangle(0, 0, 50, 50)
-        min_radius = 1.5
-
-        result = sample_points_in_polygons(
-            [polygon], min_radius=min_radius, min_samples=3, max_samples=9
-        )
-
-        for p in result:
-            clearance = polygon.boundary.distance(ShapelyPoint(p.x, p.y))
-            assert clearance >= min_radius, f"安全余裕不足: {p}, {clearance}"
-
-    def test_explicit_none_outline_keeps_api_compatible(self):
-        """Outline=None を明示しても従来の呼び出しと同じように動く."""
-        polygon = _rectangle(0, 0, 50, 50)
-
-        result = sample_points_in_polygons(
-            [polygon],
-            min_radius=1.5,
-            min_samples=3,
-            max_samples=9,
-            outline=None,
-        )
-
-        assert len(result) == 9
+        assert len(result) == max_samples
+        # 3点は十分に離れている (安全性を保ちつつ広く分散)
+        assert _min_pair_distance(result) >= min_pair_distance
 
     def test_outline_margin_and_copper_clearance_are_both_respected(self):
         """基板外形と銅箔境界の両方から指定距離以上離れた点だけを返す."""

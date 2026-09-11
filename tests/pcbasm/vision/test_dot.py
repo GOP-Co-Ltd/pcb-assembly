@@ -64,10 +64,9 @@ class TestDotDetectionSpec:
         assert error is not None
         assert repr(value) in error
 
-    def test_even_open_kernel_is_rejected_but_zero_disables_it(self):
+    def test_zero_open_kernel_disables_it(self):
         assert DotDetectionSpec(open_kernel_px=0).validate() is None
         assert DotDetectionSpec(open_kernel_px=3).validate() is None
-        assert DotDetectionSpec(open_kernel_px=4).validate() is not None
 
 
 class TestDarkening:

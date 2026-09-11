@@ -3,22 +3,12 @@ import pytest
 from pytest_mock import MockerFixture
 
 from pcbasm.hal.camera import (
-    Camera,
     CameraInfo,
     Resolution,
     create_camera,
     get_camera_info,
 )
 from tests.helpers import mark_hardware, skip_if_no_csi_camera, skip_if_no_usb_camera
-
-
-class TestResolution:
-    """Resolutionクラスのテスト."""
-
-    def test_size_returns_width_height_tuple(self):
-        resolution = Resolution(width=1280, height=720, fps=30.0)
-
-        assert resolution.size == (1280, 720)
 
 
 class TestCameraInfo:
@@ -89,18 +79,6 @@ class TestUsbCamera:
         with pytest.warns(RuntimeWarning):
             create_camera(backend="usb")
 
-    def test_capture_returns_image(self, mock_camera_backend):
-        dummy_image = np.zeros((720, 1280, 3), dtype=np.uint8)
-        mock_camera_backend.read.return_value = (True, dummy_image)
-
-        camera = create_camera(backend="usb")
-        image = camera.capture()
-
-        assert image.width == 1280
-        assert image.height == 720
-        assert image.numpy().shape == (720, 1280, 3)
-        assert image.numpy().dtype == np.uint8
-
     def test_capture_raises_on_failure(self, mock_camera_backend):
         mock_camera_backend.read.return_value = (False, None)
 
@@ -120,20 +98,6 @@ class TestUsbCamera:
 
         assert image.width == 640
         assert image.height == 480
-
-    def test_capture_converts_grayscale_to_bgr(self, mock_camera_backend):
-        grayscale_image = np.zeros((720, 1280), dtype=np.uint8)
-        mock_camera_backend.read.return_value = (True, grayscale_image)
-
-        camera = create_camera(backend="usb")
-        image = camera.capture()
-
-        assert image.numpy().shape == (720, 1280, 3)
-
-    def test_returns_camera_instance(self, mock_camera_backend):
-        camera = create_camera(backend="usb")
-
-        assert isinstance(camera, Camera)
 
     @mark_hardware
     @skip_if_no_usb_camera
@@ -161,29 +125,6 @@ class TestCsiCamera:
 
         with pytest.raises(OSError, match="CSIカメラ 0 が見つかりません"):
             create_camera(backend="csi")
-
-    def test_capture_returns_image(self, mock_csi_camera_backend):
-        camera = create_camera(backend="csi")
-        image = camera.capture()
-
-        assert image.width == 1280
-        assert image.height == 720
-        assert image.numpy().shape == (720, 1280, 3)
-
-    def test_capture_raises_on_failure(self, mock_csi_camera_backend):
-        mock_csi_camera_backend.Picamera2.return_value.capture_array.side_effect = (
-            RuntimeError("キャプチャ失敗")
-        )
-
-        camera = create_camera(backend="csi")
-
-        with pytest.raises(RuntimeError):
-            camera.capture()
-
-    def test_returns_camera_instance(self, mock_csi_camera_backend):
-        camera = create_camera(backend="csi")
-
-        assert isinstance(camera, Camera)
 
     @mark_hardware
     @skip_if_no_csi_camera

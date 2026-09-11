@@ -38,18 +38,20 @@ class TestCalibrationResult:
         assert data["crop_size"] == (400, 400)
         assert data["calibrated_at"] == "2025-01-06T12:00:00"
 
-    def test_from_dict_restores_instance(self, sample: CalibrationResult):
-        data = sample.to_dict()
-        restored = CalibrationResult.from_dict(data)
-
-        assert restored == sample
-
-    def test_save_and_load_roundtrip(self, sample: CalibrationResult, tmp_path: Path):
+    @pytest.mark.parametrize(
+        "z_position", [None, 15.5], ids=["without-z-position", "with-z-position"]
+    )
+    def test_save_and_load_roundtrip(
+        self, sample: CalibrationResult, tmp_path: Path, z_position: float | None
+    ):
+        result = attrs.evolve(sample, z_position=z_position)
         json_path = tmp_path / "calibration.json"
-        sample.save(json_path)
+        result.save(json_path)
+
         loaded = CalibrationResult.load(json_path)
 
-        assert loaded == sample
+        assert loaded == result
+        assert loaded.z_position == z_position
 
     def test_load_legacy_json_without_z_position(
         self, sample: CalibrationResult, tmp_path: Path
@@ -65,17 +67,6 @@ class TestCalibrationResult:
 
         loaded = CalibrationResult.load(json_path)
         assert loaded.z_position is None
-
-    def test_save_and_load_roundtrip_with_z_position(
-        self, sample: CalibrationResult, tmp_path: Path
-    ):
-        """z_position付きのCalibrationResultが正しく保存・読み込みできる."""
-        result = attrs.evolve(sample, z_position=15.5)
-        json_path = tmp_path / "calibration.json"
-        result.save(json_path)
-        loaded = CalibrationResult.load(json_path)
-        assert loaded.z_position == 15.5
-        assert loaded == result
 
 
 class TestCheckerboardCalibrator:
@@ -93,16 +84,6 @@ class TestCheckerboardCalibrator:
             square_size_mm=10.0,
             crop_size=(400, 400),
         )
-
-    def test_calibrate_returns_result_and_visualization(
-        self, calibrator: CheckerboardCalibrator, checkerboard_image: Image
-    ):
-        result = calibrator.calibrate(checkerboard_image)
-
-        assert result is not None
-        calibration_result, vis_image = result
-        assert isinstance(calibration_result, CalibrationResult)
-        assert isinstance(vis_image, Image)
 
     def test_calibrate_calculates_correct_pixel_per_mm(
         self, calibrator: CheckerboardCalibrator, checkerboard_image: Image

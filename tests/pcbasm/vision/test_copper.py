@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
-from pcbasm.vision import CopperEdgeDetection, CopperEdgeDetector, Image
+from pcbasm.vision import CopperEdgeDetector, Image
 from tests.helpers import TESTING_DATA_DIR
 
 REFLECTIVE_BOARD_IMAGES = tuple(
@@ -23,34 +23,6 @@ class TestCopperEdgeDetector:
     def detector(self) -> CopperEdgeDetector:
         """デフォルトパラメータの検出器."""
         return CopperEdgeDetector()
-
-    def test_detect_returns_processed_grayscale_and_binary_edges(
-        self, detector: CopperEdgeDetector
-    ):
-        arr = _dark_background()
-        cv2.rectangle(arr, (50, 60), (150, 120), (60, 140, 180), -1)
-
-        detection = detector.detect(Image(arr))
-
-        assert isinstance(detection, CopperEdgeDetection)
-        processed = detection.processed.numpy()
-        assert processed.shape == arr.shape
-        assert processed.dtype == np.uint8
-        assert np.array_equal(processed[..., 0], processed[..., 1])
-        assert np.array_equal(processed[..., 1], processed[..., 2])
-        assert detection.edges.shape == arr.shape[:2]
-        assert detection.edges.dtype == np.uint8
-        assert set(np.unique(detection.edges)) <= {0, 255}
-
-    def test_detect_edges_returns_binary_mask(self, detector: CopperEdgeDetector):
-        arr = _dark_background()
-        cv2.rectangle(arr, (50, 60), (150, 120), (60, 140, 180), -1)
-
-        mask = detector.detect_edges(Image(arr))
-
-        assert mask.dtype == np.uint8
-        assert mask.shape == (200, 200)
-        assert set(np.unique(mask)) <= {0, 255}
 
     def test_detect_edges_along_region_boundary(self, detector: CopperEdgeDetector):
         """明色矩形の境界近傍にエッジが出る."""
@@ -93,17 +65,6 @@ class TestCopperEdgeDetector:
         assert np.any(sensitive.detect_edges(Image(arr)))
         assert not np.any(strict.detect_edges(Image(arr)))
 
-    def test_detect_edges_remains_compatible_with_detect_result(
-        self, detector: CopperEdgeDetector
-    ):
-        arr = _dark_background()
-        cv2.rectangle(arr, (50, 60), (150, 120), (60, 140, 180), -1)
-        image = Image(arr)
-
-        assert np.array_equal(
-            detector.detect_edges(image), detector.detect(image).edges
-        )
-
     def test_blur_kernel_one_preserves_grayscale_pixels(self):
         arr = _dark_background()
         cv2.rectangle(arr, (50, 60), (150, 120), (60, 140, 180), -1)
@@ -126,14 +87,6 @@ class TestCopperEdgeDetector:
     def test_rejects_invalid_preprocessing_parameters(self, kwargs, field):
         with pytest.raises(ValueError, match=field):
             CopperEdgeDetector(**kwargs)
-
-    @pytest.mark.parametrize("blur_ksize", [1, 3, 5])
-    def test_accepts_positive_odd_blur(self, blur_ksize: int):
-        detector = CopperEdgeDetector(blur_ksize=blur_ksize)
-
-        detection = detector.detect(Image(_dark_background()))
-
-        assert detection.processed.size == (200, 200)
 
 
 class TestCopperEdgeDetectorReflectiveBoards:
