@@ -3,6 +3,7 @@
 import pytest
 import shapely
 
+from pcbasm.config import FlowCalibration
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.settings import PasteSettingsModel
@@ -33,6 +34,10 @@ def hierarchy(pcb: PcbFile) -> PadHierarchy:
     return PadHierarchy.build(pcb.components, pcb.pads)
 
 
+_DISABLED = FlowCalibration()
+_ENABLED = FlowCalibration(calibration_file="cal.paste-volume.json")
+
+
 def _model() -> PasteSettingsModel:
     return PasteSettingsModel(base=_BASE)
 
@@ -46,7 +51,11 @@ class TestPlanPasteTargets:
 
     def test_routes_every_enabled_top_pad(self, pcb, hierarchy):
         targets, error = plan_paste_targets(
-            pcb, hierarchy, _model(), initial_purge_ul=0.5
+            pcb,
+            hierarchy,
+            _model(),
+            initial_purge_ul=0.5,
+            flow_calibration=_DISABLED,
         )
 
         assert error is None
@@ -58,7 +67,9 @@ class TestPlanPasteTargets:
         assert all(p.layer is Layer.TOP for p in targets.routed_pads)
 
     def test_default_initial_purge_is_the_route_head_center(self, pcb, hierarchy):
-        targets, _ = plan_paste_targets(pcb, hierarchy, _model(), initial_purge_ul=0.5)
+        targets, _ = plan_paste_targets(
+            pcb, hierarchy, _model(), initial_purge_ul=0.5, flow_calibration=_DISABLED
+        )
 
         assert targets is not None
         assert targets.initial_purge is not None
@@ -68,7 +79,11 @@ class TestPlanPasteTargets:
 
     def test_zero_purge_amount_disables_initial_purge(self, pcb, hierarchy):
         targets, error = plan_paste_targets(
-            pcb, hierarchy, _model(), initial_purge_ul=0.0
+            pcb,
+            hierarchy,
+            _model(),
+            initial_purge_ul=0.0,
+            flow_calibration=_DISABLED,
         )
 
         assert error is None
@@ -81,7 +96,9 @@ class TestPlanPasteTargets:
             enabled=False,
         )
 
-        targets, _ = plan_paste_targets(pcb, hierarchy, model, initial_purge_ul=0.5)
+        targets, _ = plan_paste_targets(
+            pcb, hierarchy, model, initial_purge_ul=0.5, flow_calibration=_DISABLED
+        )
 
         assert targets is not None
         routed_ids = _pad_ids(hierarchy, targets.routed_pads)
@@ -93,7 +110,9 @@ class TestPlanPasteTargets:
         point = Point2d(pcb.outline.width / 2.0, pcb.outline.height / 2.0)
         model = _model().with_initial_purge_point(point)
 
-        targets, error = plan_paste_targets(pcb, hierarchy, model, initial_purge_ul=0.5)
+        targets, error = plan_paste_targets(
+            pcb, hierarchy, model, initial_purge_ul=0.5, flow_calibration=_DISABLED
+        )
 
         assert error is None
         assert targets is not None
@@ -104,7 +123,9 @@ class TestPlanPasteTargets:
     def test_purge_point_outside_the_outline_returns_error(self, pcb, hierarchy):
         model = _model().with_initial_purge_point(Point2d(-50.0, -50.0))
 
-        targets, error = plan_paste_targets(pcb, hierarchy, model, initial_purge_ul=0.5)
+        targets, error = plan_paste_targets(
+            pcb, hierarchy, model, initial_purge_ul=0.5, flow_calibration=_DISABLED
+        )
 
         assert targets is None
         assert error is not None
@@ -114,7 +135,9 @@ class TestPlanPasteTargets:
         model = _model().with_level_patch(
             hierarchy.l4_key_for_pad_id("U1.1"), values={"ul_per_mm2": 0.25}
         )
-        targets, _ = plan_paste_targets(pcb, hierarchy, model, initial_purge_ul=0.0)
+        targets, _ = plan_paste_targets(
+            pcb, hierarchy, model, initial_purge_ul=0.0, flow_calibration=_DISABLED
+        )
 
         assert targets is not None
         by_id = {hierarchy.find_pad_id(p): p for p in targets.routed_pads}
@@ -125,7 +148,9 @@ class TestPlanPasteTargets:
         assert inherited == _BASE
 
     def test_params_for_pad_outside_hierarchy_is_none(self, pcb, hierarchy):
-        targets, _ = plan_paste_targets(pcb, hierarchy, _model(), initial_purge_ul=0.0)
+        targets, _ = plan_paste_targets(
+            pcb, hierarchy, _model(), initial_purge_ul=0.0, flow_calibration=_DISABLED
+        )
         stray = Pad(
             designator="ZZ9",
             pad_number="1",
@@ -136,3 +161,84 @@ class TestPlanPasteTargets:
 
         assert targets is not None
         assert targets.params_for(stray) is None
+
+
+class TestPlanPasteTargetsFlowCalibration:
+    """運転時流量キャリブレーションの解決（設定と基板座標の両方が要る）."""
+
+    def test_is_none_when_the_machine_setting_is_disabled(self, pcb, hierarchy):
+        model = _model().with_flow_calibration_points([Point2d(10.0, 10.0)])
+
+        targets, error = plan_paste_targets(
+            pcb,
+            hierarchy,
+            model,
+            initial_purge_ul=0.0,
+            flow_calibration=_DISABLED,
+        )
+
+        assert error is None
+        assert targets is not None
+        assert targets.flow_calibration is None
+
+    def test_is_none_when_no_board_point_is_set(self, pcb, hierarchy):
+        targets, error = plan_paste_targets(
+            pcb,
+            hierarchy,
+            _model(),
+            initial_purge_ul=0.0,
+            flow_calibration=_ENABLED,
+        )
+
+        assert error is None
+        assert targets is not None
+        assert targets.flow_calibration is None
+
+    def test_plans_the_points_when_both_are_configured(self, pcb, hierarchy):
+        points = [Point2d(10.0, 10.0), Point2d(13.0, 10.0)]
+        model = _model().with_flow_calibration_points(points)
+
+        targets, error = plan_paste_targets(
+            pcb,
+            hierarchy,
+            model,
+            initial_purge_ul=0.0,
+            flow_calibration=_ENABLED,
+        )
+
+        assert error is None
+        assert targets is not None
+        assert targets.flow_calibration is not None
+        assert targets.flow_calibration.points == tuple(points)
+
+    def test_overlapping_crops_return_error(self, pcb, hierarchy):
+        model = _model().with_flow_calibration_points(
+            [Point2d(10.0, 10.0), Point2d(10.5, 10.0)]
+        )
+
+        targets, error = plan_paste_targets(
+            pcb,
+            hierarchy,
+            model,
+            initial_purge_ul=0.0,
+            flow_calibration=_ENABLED,
+        )
+
+        assert targets is None
+        assert error is not None
+        assert "撮影範囲" in error
+
+    def test_a_point_outside_the_outline_returns_error(self, pcb, hierarchy):
+        model = _model().with_flow_calibration_points([Point2d(-50.0, -50.0)])
+
+        targets, error = plan_paste_targets(
+            pcb,
+            hierarchy,
+            model,
+            initial_purge_ul=0.0,
+            flow_calibration=_ENABLED,
+        )
+
+        assert targets is None
+        assert error is not None
+        assert "基板外形" in error

@@ -42,6 +42,14 @@ CALIBRATION_SUFFIX = ".paste-volume.json"
 _UNSAFE_NAME = re.compile(r"[^0-9a-z._-]+")
 
 
+# 撮影スケールが校正時から何割ずれたら条件不一致として報告するか。
+# 直径は mm なのでスケール差は原理的に吸収され、これは推定を断る閾値ではなく
+# 「camera calibration をやり直したのでは」と運転者へ知らせるための警告閾値。
+# 同じ機体で撮り直したときの pixel_per_mm の再現性（実測で 1% 未満）に対して
+# 十分広く、crop 条件が別物になる水準よりは狭い値として 5% を置く。
+SCALE_TOLERANCE = 0.05
+
+
 @attrs.frozen
 class CalibrationConditions:
     """校正が成り立つ条件（ペースト・ノズル・塗布高さ・撮影スケール）."""
@@ -55,6 +63,53 @@ class CalibrationConditions:
     pixel_per_mm: float
     crop_size_px: int
     crop_size_mm: float
+
+    def mismatches(
+        self,
+        *,
+        nozzle_diameter_mm: float,
+        paste_height_mm: float,
+        pixel_per_mm: float,
+        paste_id: str | None = None,
+        crop_size_mm: float | None = None,
+    ) -> tuple[str, ...]:
+        """いま置かれている条件との食い違いを表示用の文で並べる.
+
+        推定を断るためではなく運転者へ知らせるための情報なので、呼び出し側は
+        これが空でなくても処理を止めなくてよい。
+        ``paste_id`` / ``crop_size_mm`` は分かるときだけ渡す。
+        """
+        mismatches: list[str] = []
+        if paste_id is not None and self.paste_id != paste_id:
+            mismatches.append(f"ペースト: 校正 {self.paste_id} / 現在 {paste_id}")
+        if self.nozzle_diameter_mm != nozzle_diameter_mm:
+            mismatches.append(
+                f"ノズル径: 校正 {self.nozzle_diameter_mm} mm / "
+                f"現在 {nozzle_diameter_mm} mm"
+            )
+        if self.paste_height_mm != paste_height_mm:
+            mismatches.append(
+                f"塗布高さ: 校正 {self.paste_height_mm} mm / "
+                f"現在 {paste_height_mm} mm"
+            )
+        if _scale_differs(self.pixel_per_mm, pixel_per_mm):
+            mismatches.append(
+                f"撮影スケール: 校正 {self.pixel_per_mm:.3f} px/mm / "
+                f"現在 {pixel_per_mm:.3f} px/mm"
+            )
+        # 2 値化は crop 内の Otsu なので、crop に対する背景の割合が閾値を動かす
+        if crop_size_mm is not None and self.crop_size_mm != crop_size_mm:
+            mismatches.append(
+                f"撮影crop寸法: 校正 {self.crop_size_mm} mm / 現在 {crop_size_mm} mm"
+            )
+        return tuple(mismatches)
+
+
+def _scale_differs(calibrated: float, actual: float) -> bool:
+    """撮影スケールが許容を超えて違うか."""
+    if calibrated <= 0 or actual <= 0:
+        return True
+    return abs(actual - calibrated) / calibrated > SCALE_TOLERANCE
 
 
 @attrs.frozen
@@ -219,6 +274,32 @@ def calibration_path(root: Path, name: str, created_at: datetime | None = None) 
         stem = _safe_stem(name[: -len(CALIBRATION_SUFFIX)])
         return root / f"{stem}{CALIBRATION_SUFFIX}"
     return root / calibration_filename(name, created_at)
+
+
+def default_calibration_label(
+    conditions: CalibrationConditions, created_at: datetime
+) -> str:
+    """校正の条件と生成時刻から既定の表示名を組み立てる.
+
+    ペースト・ノズル径・塗布高さだけだと、同条件で採り直した校正が同じ名前になり WebUI の選択肢で見分けられない。
+
+    時刻は運転者の地方時で入れる。
+    """
+    return (
+        f"{conditions.paste_id} / n{conditions.nozzle_diameter_mm:.2f} / "
+        f"h{conditions.paste_height_mm:.2f} / "
+        f"{created_at.astimezone().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+
+
+def auto_calibration_path(root: Path, label: str) -> Path:
+    """自動命名した校正の保存先 path を作る.
+
+    自動生成のラベルは既に生成時刻を含むので、:func:`calibration_filename` のように
+    時刻を足さない。
+    足すと同じ時刻が名前に 2 度出る。
+    """
+    return root / f"{_safe_stem(label)}{CALIBRATION_SUFFIX}"
 
 
 def calibration_filename(label: str, created_at: datetime | None = None) -> str:

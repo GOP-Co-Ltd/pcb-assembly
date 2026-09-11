@@ -1,8 +1,8 @@
 {
   "kind": "pcbasm-paste-volume-diameter-calibration",
   "schema_version": 1,
-  "created_at": "2026-09-10T07:18:47.036243+00:00",
-  "label": "S3X70-E150DN / n0.30 / h0.20 / 2026-09-10 16:18:47",
+  "created_at": "2026-09-11T01:48:51.471832+00:00",
+  "label": "S3X70-E150DN / n0.30 / h0.20 / 2026-09-11 10:48:51",
   "conditions": {
     "paste_id": "S3X70-E150DN",
     "paste_lot": null,
@@ -11,8 +11,8 @@
     "paste_height_mm": 0.2,
     "machine_id": "usaremino001",
     "pixel_per_mm": 28.677782176153425,
-    "crop_size_px": 53,
-    "crop_size_mm": 1.8
+    "crop_size_px": 73,
+    "crop_size_mm": 2.5
   },
   "detection": {
     "kind": "diameter_otsu_v1",
@@ -24,27 +24,27 @@
   },
   "model": {
     "kind": "cubic_through_origin",
-    "cubic_ul_per_mm3": 0.11089013473732104,
-    "quadratic_ul_per_mm2": 0.24079550751171444,
-    "linear_ul_per_mm": -0.15887690959318254,
-    "diameter_min_mm": 0.6417270055445192,
-    "diameter_max_mm": 1.1862915562769931
+    "cubic_ul_per_mm3": 0.3175799003191586,
+    "quadratic_ul_per_mm2": -0.12263355121106156,
+    "linear_ul_per_mm": 0.032081833495638444,
+    "diameter_min_mm": 0.33386873053230764,
+    "diameter_max_mm": 1.0462108134415695
   },
   "source": {
-    "session": "plate-47.5x20-20260910T155804.653+0900",
+    "session": "plate-47.5x20-20260911T102738.293+0900",
     "label_kind": "rotation_allocated",
     "sample_count": 100,
     "blank_count": 4,
-    "measured_volume_ul": 18.333333333333332,
-    "metadata_sha256": "bc5ebb1fb85b7c83dced566c02ddee5ad22cc7c49632a0e292b126c2fce416d1"
+    "measured_volume_ul": 13.597883597883598,
+    "metadata_sha256": "6012f7b440823a735cebe72190f889cd3e12cec835145db2dfa470afcc7eb822"
   },
   "diagnostics": {
     "blank_false_positive_count": 0,
     "detection_failure_count": 0,
     "monotonic_in_range": true,
-    "residual_relative_std": 0.10675731879644915,
-    "point_relative_mae": 0.08288102075940873,
-    "point_relative_max": 0.42154778501564394,
-    "total_relative_error": -0.0001013317483329698
+    "residual_relative_std": 0.12541237262185717,
+    "point_relative_mae": 0.09388089606889473,
+    "point_relative_max": 0.5010575282357587,
+    "total_relative_error": -0.00020802787510187842
   }
 }

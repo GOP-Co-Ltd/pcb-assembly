@@ -119,6 +119,93 @@ class TestInitialPurgePoint:
         assert restored.initial_purge_point is None
 
 
+class TestFlowCalibrationPoints:
+    """流量キャリブレーションの測定位置は ``settings.flow_calibration_points`` に残す."""
+
+    def test_doc_carries_the_points_in_order_when_set(self):
+        model = PasteSettingsModel(
+            base=_base(),
+            flow_calibration_points=(Point2d(9.5, 2.25), Point2d(13.0, 2.25)),
+        )
+
+        doc = encode_board_settings(model, source_pcb="a")
+
+        assert doc["settings"]["flow_calibration_points"] == [
+            [9.5, 2.25],
+            [13.0, 2.25],
+        ]
+
+    def test_doc_omits_the_points_when_unset(self):
+        doc = encode_board_settings(PasteSettingsModel(base=_base()), source_pcb="a")
+
+        assert "flow_calibration_points" not in doc["settings"]
+
+    def test_round_trip_restores_the_points(self):
+        model = PasteSettingsModel(
+            base=_base(),
+            flow_calibration_points=(Point2d(9.5, 2.25), Point2d(13.0, 2.25)),
+        )
+
+        restored = _decode(encode_board_settings(model, source_pcb="a"))
+
+        assert restored.flow_calibration_points == (
+            Point2d(9.5, 2.25),
+            Point2d(13.0, 2.25),
+        )
+
+    def test_missing_points_decode_to_an_empty_set(self):
+        restored = _decode({"version": 1, "settings": {}})
+
+        assert restored.flow_calibration_points == ()
+
+    def test_is_independent_of_the_initial_purge_point(self):
+        model = PasteSettingsModel(
+            base=_base(),
+            initial_purge_point=Point2d(1.0, 2.0),
+            flow_calibration_points=(Point2d(9.5, 2.25),),
+        )
+
+        restored = _decode(encode_board_settings(model, source_pcb="a"))
+
+        assert restored.initial_purge_point == Point2d(1.0, 2.0)
+        assert restored.flow_calibration_points == (Point2d(9.5, 2.25),)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            [1.0],
+            [1.0, 2.0, 3.0],
+            ["1.0", "2.0"],
+            {"x": 1.0, "y": 2.0},
+            [float("nan"), 0.0],
+        ],
+    )
+    def test_malformed_points_are_dropped(self, value: object):
+        # 壊れた保存内容でページを開けなくしない（pad id と同じく黙って捨てる）
+        restored = _decode(
+            {"version": 1, "settings": {"flow_calibration_points": [value]}}
+        )
+
+        assert restored.flow_calibration_points == ()
+
+    def test_a_malformed_entry_does_not_drop_the_sound_ones(self):
+        restored = _decode(
+            {
+                "version": 1,
+                "settings": {"flow_calibration_points": [[1.0], [9.5, 2.25]]},
+            }
+        )
+
+        assert restored.flow_calibration_points == (Point2d(9.5, 2.25),)
+
+    def test_a_non_sequence_decodes_to_an_empty_set(self):
+        restored = _decode(
+            {"version": 1, "settings": {"flow_calibration_points": "nope"}}
+        )
+
+        assert restored.flow_calibration_points == ()
+
+
 class TestRoundTrip:
     def test_levels_enum_and_auto_height_survive(self):
         model = PasteSettingsModel(

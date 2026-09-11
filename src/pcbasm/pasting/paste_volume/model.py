@@ -26,6 +26,18 @@ from pcbasm.utils import is_finite_number
 # 校正ファイルへ記録するモデル形式の識別子
 MODEL_KIND = "cubic_through_origin"
 
+# 運転時補正で採用する直径範囲を決める、被覆域の下端側から落とす割合。
+# 同条件で採った 2 つの校正は大径側で 3 % しか違わないのに、被覆域の下端では 58 %
+# 食い違う（docs/paste-volume-diameter-calibration.md「被覆域の下端は信頼できる範囲
+# から外す」）。被覆域が比 1.9 倍しかないところへ [d³, d², d] の 3 自由度を当てている
+# ので、曲線が一致しても係数が個別に定まらないため。
+#
+# 絶対値 [mm] ではなく被覆域の幅に対する割合にしてある。食い違いの原因は共線性で、
+# それは被覆域の広さで決まる。広く採れた校正ほど係数が定まるので、下限も相対的に
+# 下がってよい。実測の 2 校正（幅 0.51 / 0.54 mm）では下限が 0.79 / 0.83 mm となり、
+# そこでの食い違いは 10 % 程度。
+RELIABLE_RANGE_MARGIN = 0.35
+
 
 @attrs.frozen
 class CubicVolumeModel:
@@ -60,6 +72,23 @@ class CubicVolumeModel:
         if not is_finite_number(diameter_mm):
             return False
         return self.diameter_min_mm <= diameter_mm <= self.diameter_max_mm
+
+    @property
+    def reliable_diameter_min_mm(self) -> float:
+        """運転時補正で採用する直径の下限 [mm]（被覆域の下端にマージンを取る）.
+
+        被覆域の下端付近は係数が同定されず、校正どうしで数十 % 食い違う。
+
+        補正の材料にはこの下限より大きい直径だけを使う。
+        """
+        width = self.diameter_max_mm - self.diameter_min_mm
+        return self.diameter_min_mm + RELIABLE_RANGE_MARGIN * width
+
+    def covers_reliably(self, diameter_mm: float) -> bool:
+        """運転時補正の材料にしてよい直径か（上限は被覆域のまま）."""
+        if not is_finite_number(diameter_mm):
+            return False
+        return self.reliable_diameter_min_mm <= diameter_mm <= self.diameter_max_mm
 
     def is_monotonic_in_range(self) -> bool:
         """被覆域内で単調非減少か（導関数の最小値が 0 以上か）.

@@ -34,12 +34,15 @@ from web.api.models import (
     StateResponse,
 )
 from web.ui.layout import (
+    CLEARABLE_MACHINE_KEYS,
     DISPENSE_CALIBRATION_PARAM_GROUPS,
     FEATURE_LABELS,
     FEATURE_TEMPLATES,
     JOB_TEMPLATES,
     LOADING_ROTATION_PARAMS,
     PASTE_AUTO_THRESHOLD_KEYS,
+    PASTE_FLOW_CALIBRATION_FILE_KEY,
+    PASTE_FLOW_CALIBRATION_KEYS,
     PASTE_PAD_REFINEMENT_KEYS,
     PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
     TAB_LABELS,
@@ -362,7 +365,10 @@ async def settings_page(machine_id: str, request: Request) -> HTMLResponse:
         client.machine_info(), client.state(), client.machine_settings()
     )
     context = _base_context(request, machine_id, "settings", info, state)
-    context.update(machine_groups=grouped_fields(machine_settings.fields))
+    context.update(
+        machine_groups=grouped_fields(machine_settings.fields),
+        clearable_keys=CLEARABLE_MACHINE_KEYS,
+    )
     return _html_page(request, "settings.html", context)
 
 
@@ -426,7 +432,7 @@ def _paste_volume_calibration_context(
 def _paste_workspace_context(
     state: StateResponse, settings: _MachineSettings
 ) -> dict[str, Any]:
-    """Pad editor 付き塗布ページのコンテキスト（auto しきい値の即保存フォーム）."""
+    """Pad editor 付き塗布ページのコンテキスト（machine 設定の即保存フォーム）."""
     return {
         "auto_threshold_fields": [
             field for field in settings.fields if field.key in PASTE_AUTO_THRESHOLD_KEYS
@@ -434,6 +440,12 @@ def _paste_workspace_context(
         "pad_refinement_fields": [
             field for field in settings.fields if field.key in PASTE_PAD_REFINEMENT_KEYS
         ],
+        "flow_calibration_fields": [
+            field
+            for field in settings.fields
+            if field.key in PASTE_FLOW_CALIBRATION_KEYS
+        ],
+        "flow_calibration_file_key": PASTE_FLOW_CALIBRATION_FILE_KEY,
     }
 
 

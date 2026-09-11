@@ -6,7 +6,7 @@ on-disk の出典は ``data/testing/schemas/paste_volume_calibration_v1.json``�
 """
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -15,9 +15,12 @@ from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_KIND,
     CALIBRATION_SCHEMA_VERSION,
     CALIBRATION_SUFFIX,
+    CalibrationConditions,
     PasteVolumeCalibration,
+    auto_calibration_path,
     calibration_filename,
     calibration_path,
+    default_calibration_label,
     list_calibrations,
     load_calibration,
     parse_calibration,
@@ -323,6 +326,81 @@ class TestCalibrationPath:
         path = calibration_path(tmp_path, f"///{CALIBRATION_SUFFIX}")
 
         assert path.name == f"calibration{CALIBRATION_SUFFIX}"
+
+
+class TestDefaultCalibrationLabel:
+    """条件と生成時刻から組む既定の表示名（保存済み校正の移行でも同じ関数を使う）."""
+
+    @staticmethod
+    def _conditions() -> CalibrationConditions:
+        return CalibrationConditions(
+            paste_id="S3X70-E150DN",
+            paste_lot=None,
+            density_mg_per_ul=3.78,
+            nozzle_diameter_mm=0.3,
+            paste_height_mm=0.2,
+            machine_id="m1",
+            pixel_per_mm=28.678,
+            crop_size_px=53,
+            crop_size_mm=1.8,
+        )
+
+    def test_carries_the_conditions_and_the_local_time(self):
+        moment = datetime(2026, 9, 10, 7, 18, 47, tzinfo=UTC)
+
+        label = default_calibration_label(self._conditions(), moment)
+
+        local = moment.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        assert label == f"S3X70-E150DN / n0.30 / h0.20 / {local}"
+
+    def test_two_runs_of_the_same_conditions_differ(self):
+        conditions = self._conditions()
+
+        first = default_calibration_label(
+            conditions, datetime(2026, 9, 10, 7, 18, 47, tzinfo=UTC)
+        )
+        second = default_calibration_label(
+            conditions, datetime(2026, 9, 10, 7, 45, 9, tzinfo=UTC)
+        )
+
+        assert first != second
+
+
+class TestAutoCalibrationPath:
+    """自動命名の保存先（ラベルが既に生成時刻を含む）."""
+
+    LABEL = "S3X70-E150DN / n0.30 / h0.20 / 2026-09-10 16:45:09"
+
+    def test_folds_the_label_into_the_file_name(self, tmp_path: Path):
+        path = auto_calibration_path(tmp_path, self.LABEL)
+
+        assert path.parent == tmp_path
+        assert path.name == (
+            f"s3x70-e150dn-n0.30-h0.20-2026-09-10-16-45-09{CALIBRATION_SUFFIX}"
+        )
+
+    def test_does_not_add_a_second_timestamp(self, tmp_path: Path):
+        """ラベル側の時刻と保存名側の時刻で 2 度入ると読みにくい."""
+        auto = auto_calibration_path(tmp_path, self.LABEL).name
+        dated = calibration_path(
+            tmp_path, self.LABEL, datetime(2026, 9, 10, 16, 45, 9)
+        ).name
+
+        assert auto.count("2026") == 1
+        assert dated.count("2026") == 2
+
+    def test_two_labels_from_the_same_conditions_do_not_collide(self, tmp_path: Path):
+        later = "S3X70-E150DN / n0.30 / h0.20 / 2026-09-10 17:01:00"
+
+        assert auto_calibration_path(tmp_path, self.LABEL) != auto_calibration_path(
+            tmp_path, later
+        )
+
+    def test_never_escapes_the_root(self, tmp_path: Path):
+        path = auto_calibration_path(tmp_path, "../../../tmp/pwn")
+
+        assert path.parent == tmp_path
+        assert path.resolve().is_relative_to(tmp_path.resolve())
 
     def test_the_written_file_is_found_by_the_listing(self, tmp_path: Path):
         """保存できたのに一覧へ出てこない、が起きない."""

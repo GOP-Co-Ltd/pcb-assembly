@@ -1,7 +1,7 @@
 """基板ごとの塗布設定 JSON の encode / decode と書き出し名.
 
 真実の源は ``machine.toml`` の ``[paste_dispenser]`` 値で、基板 JSON には
-明示 override（L0 を含む ``levels``）と初回パージ座標だけを保持する。
+明示 override（L0 を含む ``levels``）と基板上の座標設定だけを保持する。
 ファイル I/O・ロック・保存先の決定は web 層（``BoardSettingsStore``）の責務。
 ダウンロード時のファイル名は :func:`board_settings_export_filename` が正典
 （保存先の名前は board_id なので別物）。
@@ -14,7 +14,8 @@
         "board_signature": "<基板構成ハッシュ>",   # 任意
         "settings": {
             "levels": [{"key": ["L2", "U1"], "enabled": null, "override": {...}}, ...],
-            "initial_purge_point": [12.5, 8.0]       # 任意（未設定 = 順路先頭）
+            "initial_purge_point": [12.5, 8.0],            # 任意（未設定 = 順路先頭）
+            "flow_calibration_points": [[20.0, 8.0], ...]  # 任意（空 = 補正しない）
         }
     }
 
@@ -78,6 +79,10 @@ def encode_board_settings(
     if model.initial_purge_point is not None:
         point = model.initial_purge_point
         settings["initial_purge_point"] = [point.x, point.y]
+    if model.flow_calibration_points:
+        settings["flow_calibration_points"] = [
+            [point.x, point.y] for point in model.flow_calibration_points
+        ]
     doc: dict[str, Any] = {
         "version": BOARD_SETTINGS_SCHEMA_VERSION,
         "source_pcb": source_pcb,
@@ -119,7 +124,8 @@ def decode_board_settings(
     board_signature = doc.get("board_signature")
     model = PasteSettingsModel(
         base=base,
-        initial_purge_point=_purge_point(settings.get("initial_purge_point")),
+        initial_purge_point=_point(settings.get("initial_purge_point")),
+        flow_calibration_points=_points(settings.get("flow_calibration_points")),
         levels=tuple(levels),
     )
     return (
@@ -188,7 +194,17 @@ def _as_sequence(value: object) -> Sequence[Any]:
     return value if isinstance(value, Sequence) and not isinstance(value, str) else []
 
 
-def _purge_point(value: object) -> Point2d | None:
+def _points(value: object) -> tuple[Point2d, ...]:
+    """保存値 ``[[x, y], ...]`` を Point2d の並びへ戻す.
+
+    形が違う要素は :func:`_point` と同じく黙って捨てる。
+    """
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return ()
+    return tuple(point for entry in value if (point := _point(entry)) is not None)
+
+
+def _point(value: object) -> Point2d | None:
     """保存値 ``[x, y]`` を Point2d へ戻す（形が違えば ``None``）.
 
     壊れた保存内容でページを開けなくしないため、pad id と同じく黙って捨てる。

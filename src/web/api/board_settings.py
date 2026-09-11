@@ -22,6 +22,7 @@ from shapely import Point, Polygon
 
 from pcbasm.atomic import write_text_atomic
 from pcbasm.config import PasteDispenser
+from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.persist import (
     DecodedBoardSettings,
@@ -175,11 +176,17 @@ class BoardSettingsStore:
         outline: Polygon,
         board_signature: str | None = None,
     ) -> PasteSettingsModel:
-        """現基板に無い設定（孤児キーと外形外のパージ座標）を除いて保存する."""
+        """現基板に無い設定（孤児キーと外形外の座標）を除いて保存する."""
         pruned = model.without_levels(model.find_orphans(hierarchy))
-        point = pruned.initial_purge_point
-        if point is not None and not outline.covers(Point(point.x, point.y)):
+        if _outside(pruned.initial_purge_point, outline):
             pruned = pruned.with_initial_purge_point(None)
+        kept = [
+            point
+            for point in pruned.flow_calibration_points
+            if not _outside(point, outline)
+        ]
+        if len(kept) != len(pruned.flow_calibration_points):
+            pruned = pruned.with_flow_calibration_points(kept)
         self.save(source_pcb, pruned, board_signature=board_signature)
         return pruned
 
@@ -214,3 +221,8 @@ def _signature_mismatch(
         and decoded.board_signature is not None
         and decoded.board_signature != board_signature
     )
+
+
+def _outside(point: Point2d | None, outline: Polygon) -> bool:
+    """設定済みの座標が基板外形の外にあるか（未設定は外扱いしない）."""
+    return point is not None and not outline.covers(Point(point.x, point.y))

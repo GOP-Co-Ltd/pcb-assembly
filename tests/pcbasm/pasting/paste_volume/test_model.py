@@ -11,6 +11,7 @@ import pytest
 
 from pcbasm.pasting.paste_volume.model import (
     MODEL_KIND,
+    RELIABLE_RANGE_MARGIN,
     CubicVolumeModel,
     fit_cubic_through_origin,
 )
@@ -264,3 +265,45 @@ class TestMonotonicity:
 
         assert median_of_volumes != volume_of_median
         assert median_of_volumes == pytest.approx(volume_of_median, rel=1e-4)
+
+
+class TestReliableRange:
+    """運転時補正で採用する内側の直径範囲.
+
+    被覆域が狭いと小径側で係数が同定されず、同条件の 2 校正が下端で 58 % 食い違う。
+
+    下端側を落とした内側だけを補正の材料にする。
+    """
+
+    def test_lower_bound_sits_inside_the_covered_range(self):
+        assert KNOWN.diameter_min_mm < KNOWN.reliable_diameter_min_mm
+        assert KNOWN.reliable_diameter_min_mm < KNOWN.diameter_max_mm
+
+    def test_lower_bound_trims_the_agreed_fraction_of_the_range(self):
+        width = KNOWN.diameter_max_mm - KNOWN.diameter_min_mm
+        expected = KNOWN.diameter_min_mm + RELIABLE_RANGE_MARGIN * width
+
+        assert KNOWN.reliable_diameter_min_mm == pytest.approx(expected)
+
+    def test_upper_bound_is_unchanged(self):
+        assert KNOWN.covers_reliably(KNOWN.diameter_max_mm) is True
+        assert KNOWN.covers_reliably(KNOWN.diameter_max_mm + 1e-9) is False
+
+    def test_rejects_diameters_just_above_the_covered_lower_bound(self):
+        just_inside = KNOWN.diameter_min_mm + 1e-6
+
+        assert KNOWN.covers(just_inside) is True
+        assert KNOWN.covers_reliably(just_inside) is False
+
+    def test_accepts_diameters_at_the_reliable_lower_bound(self):
+        assert KNOWN.covers_reliably(KNOWN.reliable_diameter_min_mm) is True
+
+    def test_rejects_non_finite_diameters(self):
+        for diameter in (math.nan, math.inf, -math.inf):
+            assert KNOWN.covers_reliably(diameter) is False
+
+    def test_a_degenerate_range_keeps_its_single_point(self):
+        model = attrs.evolve(KNOWN, diameter_min_mm=0.9, diameter_max_mm=0.9)
+
+        assert model.reliable_diameter_min_mm == pytest.approx(0.9)
+        assert model.covers_reliably(0.9) is True
