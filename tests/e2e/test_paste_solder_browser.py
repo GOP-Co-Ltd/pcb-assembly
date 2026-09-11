@@ -878,6 +878,20 @@ class TestPasteSolderBrowserPadInteraction:
         assert browser_page.locator(_testid("pad-disable-all")).is_disabled()
         assert browser_page.locator(_testid("pad-setting-input")).nth(0).is_disabled()
 
+    def test_export_download_is_named_by_board_and_timestamp(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_ui)
+
+        with browser_page.expect_download(timeout=_BROWSER_TIMEOUT_MS) as info:
+            browser_page.locator("#pad-export-config").click()
+
+        assert re.fullmatch(
+            r"led_blinker-paste-overrides-\d{8}T\d{6}\.json",
+            info.value.suggested_filename,
+        ), info.value.suggested_filename
+
     def test_saved_override_file_can_be_imported(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page, tmp_path: Path
     ):
