@@ -413,6 +413,7 @@ class TestDefaultCatalog:
         assert all(not d.uses_machine for d in catalog.list(tab="dev"))
 
     def test_long_running_paste_jobs_notify_on_completion(self, catalog: JobCatalog):
+        """ブラウザの完了通知バナーの対象（機体スピーカーは uses_machine で決まる）."""
         notifying = {
             definition.name
             for definition in catalog.list()
@@ -420,3 +421,26 @@ class TestDefaultCatalog:
         }
 
         assert notifying == {"paste_solder", "paste_volume_calibration"}
+
+    def test_machine_jobs_define_the_completion_sound_scope(self, catalog: JobCatalog):
+        """機体スピーカーの完了音（成功 / 失敗）が鳴るジョブの全量.
+
+        `uses_machine` は終了時の駐機だけでなく完了音の対象も決めるため、集合を
+        仕様として固定する（新ジョブの追加で意図せず鳴る / 鳴らないを検知する）。
+        """
+        machine_jobs = {
+            definition.name for definition in catalog.list() if definition.uses_machine
+        }
+
+        assert machine_jobs == {
+            "board_tour",
+            "camera_calibration",
+            "dispense_calibration",
+            "height_plane",
+            "loading",
+            "orthogonality_test",
+            "paste_solder",
+            "paste_volume_calibration",
+            "reference_point_setup",
+            "toolhead_offset",
+        }
