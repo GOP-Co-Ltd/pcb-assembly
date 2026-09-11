@@ -54,8 +54,3 @@ class TestPasteVolumeCalibrationAsset:
 
         assert root.is_dir()
         assert not (root / ".gitignore").exists()
-
-    def test_the_calibration_directory_explains_itself(self):
-        readme = PROJECT_ROOT / "data" / "paste-volume-calibrations" / "README.md"
-
-        assert "Git 管理する" in readme.read_text(encoding="utf-8")

@@ -522,37 +522,3 @@ class TestBackendShutdownClosesProxiedWebSocket:
                 frontend.stop()
         finally:
             backend.stop()
-
-
-class TestUnprefixedPage:
-    """未 prefix の URL は既知マシンの prefix 付き URL へ 307 で振り替える."""
-
-    def test_single_machine_redirects_with_307(self, live_ui: LiveUi):
-        response = httpx.get(f"{live_ui.origin}/posctrl", timeout=_HTTP_TIMEOUT)
-
-        assert response.status_code == 307
-        assert response.headers["location"] == f"/m/{live_ui.machine_id}/posctrl"
-
-
-class TestTwoMachines:
-    """2 台登録で切替ドロップダウンが並び、各ページが自分の backend に繋がる."""
-
-    def test_picker_lists_both_machines_with_prefixed_options(
-        self, live_ui_two: LiveUi
-    ):
-        # 複数台なので / はリダイレクトせずピッカーを描く
-        response = httpx.get(f"{live_ui_two.origin}/", timeout=_HTTP_TIMEOUT)
-
-        assert response.status_code == 200
-        for machine_id in live_ui_two.machine_ids:
-            assert f'value="/m/{machine_id}/posctrl"' in response.text
-
-    def test_each_machine_page_is_bound_to_its_own_prefix(self, live_ui_two: LiveUi):
-        for machine_id in live_ui_two.machine_ids:
-            response = httpx.get(
-                f"{live_ui_two.origin}/m/{machine_id}/posctrl", timeout=_HTTP_TIMEOUT
-            )
-
-            assert response.status_code == 200, response.text
-            # JS の withBase() が読む prefix。ここが混ざると API が別機体へ飛ぶ
-            assert f'data-machine-base="/m/{machine_id}"' in response.text

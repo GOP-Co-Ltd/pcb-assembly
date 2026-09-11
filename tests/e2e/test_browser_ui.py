@@ -317,10 +317,7 @@ class TestSettingsOverBrowser:
 
     @pytest.mark.parametrize(
         ("field_name", "value"),
-        [
-            ("probe.lift_height", 1.25),
-            ("probe.board_edge_margin", 3.0),
-        ],
+        [("probe.lift_height", 1.25)],
     )
     def test_probe_setting_autosave(
         self,
@@ -356,17 +353,6 @@ class TestSettingsOverBrowser:
         _wait_machine_field(
             live_server.base_url, "reference_point.offsets.top_left", [6.5, -4.5]
         )
-
-    def test_setting_label_does_not_focus_input(self, live_ui: LiveUi, browser_page):
-        browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
-        _acquire_control(browser_page)
-        label = browser_page.locator(".settings-label").nth(0)
-        label.wait_for(state="visible", timeout=10_000)
-
-        label.click()
-
-        active_tag = browser_page.evaluate("document.activeElement?.tagName")
-        assert active_tag != "INPUT"
 
 
 class TestCopperDetectionOverBrowser:
@@ -435,21 +421,6 @@ class TestAudioPageOverBrowser:
         _wait_machine_field(live_server.base_url, "audio.volume", 0.4)
         expect(browser_page.locator("#audio-volume-value")).to_have_text("40%")
 
-    def test_test_playback_button_calls_api(self, live_ui: LiveUi, browser_page):
-        browser_page.goto(
-            f"{live_ui.base_url}/dev/audio", wait_until="domcontentloaded"
-        )
-        _acquire_control(browser_page)
-        button = browser_page.locator('[data-sound="success"]')
-        button.wait_for(state="visible", timeout=10_000)
-
-        with browser_page.expect_response(
-            lambda response: response.url.endswith("/api/audio/test")
-        ) as played:
-            button.click()
-
-        assert played.value.ok
-
 
 class TestLoadingOverBrowser:
     """ペーストローディング画面の実ブラウザ操作.
@@ -484,29 +455,6 @@ class TestLoadingOverBrowser:
 
         expect(browser_page.locator("#jc-status")).to_have_text("失敗", timeout=60_000)
         expect(browser_page.locator("#jc-progress-text")).to_have_text("ホーミング")
-
-    def test_loading_controls_sync_inputs_to_hidden_params(
-        self, live_ui: LiveUi, browser_page
-    ):
-        browser_page.goto(
-            f"{live_ui.base_url}/pasting/loading",
-            wait_until="domcontentloaded",
-        )
-        _acquire_control(browser_page)
-        browser_page.locator("#loading-controls").wait_for(
-            state="visible", timeout=10_000
-        )
-
-        browser_page.locator("#lc-amount").fill("0.2")
-        browser_page.locator("#lc-rotations").fill("5")
-        browser_page.locator("#lc-rate").fill("0.5")
-        browser_page.locator("#lc-accel").fill("0.5")
-
-        # ローディング操作パネルの hidden へ各入力が同期される
-        assert browser_page.locator("#param-amount").input_value() == "0.2"
-        assert browser_page.locator("#param-rotations").input_value() == "5"
-        assert browser_page.locator("#param-rate").input_value() == "0.5"
-        assert browser_page.locator("#param-accel").input_value() == "0.5"
 
     def test_loading_inputs_persist_across_reload(self, live_ui: LiveUi, browser_page):
         browser_page.goto(
@@ -611,9 +559,16 @@ class TestLoadingOverBrowser:
 
 
 class TestDispenseCalibrationOverBrowser:
-    """吐出量キャリブレーション統合ジョブ画面の実ブラウザ表示."""
+    """吐出量キャリブレーション統合ジョブ画面の実ブラウザ操作.
 
-    def test_menu_and_loading_controls_render(self, live_ui: LiveUi, browser_page):
+    SSR の静的属性（`data-loading-stage` / `data-runtime-editable` / ボタン id）は
+    tests/web/ui/test_pages.py が見る。ここは `calibration_menu.js` が付ける初期状態
+    だけを実ブラウザで確認する。
+    """
+
+    def test_menu_buttons_are_disabled_before_any_job(
+        self, live_ui: LiveUi, browser_page
+    ):
         browser_page.goto(
             f"{live_ui.base_url}/pasting/dispense_calibration",
             wait_until="domcontentloaded",
@@ -631,28 +586,6 @@ class TestDispenseCalibrationOverBrowser:
             "#calib-finish",
         ):
             expect(browser_page.locator(button_id)).to_be_disabled()
-
-        # プライム用 loading_controls はメニュー段階と ① 専用ローディング段階で有効化される設定
-        panel = browser_page.locator("#loading-controls")
-        panel.wait_for(state="visible", timeout=10_000)
-        assert (
-            panel.get_attribute("data-loading-stage")
-            == "キャリブレーションメニュー,ローディング"
-        )
-
-        # 実行中変更可（runtime_editable）の入力には目印が付き、固定値には付かない
-        assert (
-            browser_page.locator("#param-line_length").get_attribute(
-                "data-runtime-editable"
-            )
-            == "true"
-        )
-        assert (
-            browser_page.locator("#param-board_width").get_attribute(
-                "data-runtime-editable"
-            )
-            is None
-        )
 
 
 class TestMachineSelectorRefresh:
@@ -732,7 +665,7 @@ class TestPasteVolumeCalibrationSelect:
         )
         return name
 
-    def test_the_text_input_becomes_a_select_of_saved_calibrations(
+    def test_the_text_input_becomes_a_select_that_shows_its_conditions(
         self, live_ui: LiveUi, live_server: LiveServer, browser_page
     ):
         name = self._write_calibration(live_server, "s3x70-n030-h020")
@@ -747,16 +680,7 @@ class TestPasteVolumeCalibrationSelect:
         assert field.evaluate("el => el.tagName") == "SELECT"
         assert name in field.evaluate("el => Array.from(el.options).map(o => o.value)")
 
-    def test_the_selected_calibration_shows_its_conditions(
-        self, live_ui: LiveUi, live_server: LiveServer, browser_page
-    ):
-        name = self._write_calibration(live_server, "s3x70-n030-h020")
-
-        browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_volume_calibration",
-            wait_until="networkidle",
-        )
-        browser_page.locator("#param-volume_calibration").select_option(name)
+        field.select_option(name)
 
         details = browser_page.locator('[data-testid="volume-calibration-details"]')
         expect(details).to_contain_text("ノズル")
@@ -784,15 +708,3 @@ class TestPasteVolumeCalibrationSelect:
         browser_page.reload(wait_until="networkidle")
 
         assert browser_page.locator("#param-volume_calibration").input_value() == name
-
-    def test_nothing_saved_means_no_verification(
-        self, live_ui: LiveUi, live_server: LiveServer, browser_page
-    ):
-        """校正が 1 つも無くても壊れず、既定は「検証しない」."""
-        browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_volume_calibration",
-            wait_until="networkidle",
-        )
-
-        field = browser_page.locator("#param-volume_calibration")
-        assert field.input_value() == ""

@@ -29,30 +29,16 @@ chore(safety): 実機テスト実行を禁止する
 EOF
 )\""""
 
+# 判定ロジックの分岐ごとに 1 件ずつ置く（同じ分岐を別表記で通す重複は持たない。
+# フックは実プロセス起動なので 1 件 = subprocess 1 回）
 BLOCKED = [
     pytest.param("make test", id="make-test"),
     pytest.param("make run", id="make-run-includes-test"),
-    pytest.param("for i in 1 2; do make test; done", id="make-test-in-loop"),
     pytest.param("uv run pytest tests/web/api -q", id="pytest-without-marker"),
-    pytest.param(
-        "timeout 900 uv run pytest tests/web/api -q -x --timeout=120 2>&1 | tail -5",
-        id="pytest-wrapped-in-timeout",
-    ),
-    pytest.param(".venv/bin/pytest tests/web/api -q", id="pytest-absolute-path"),
     pytest.param("uv run pytest -m hardware", id="explicitly-selects-hardware"),
-    pytest.param(
-        'uv run pytest -m "hardware"', id="explicitly-selects-hardware-quoted"
-    ),
     pytest.param(
         "for i in 1 2 3; do uv run pytest tests/web/api/test_state.py -q; done",
         id="pytest-in-loop-body",
-    ),
-    pytest.param(
-        'bash -c "uv run pytest tests/web/api -q"', id="pytest-nested-in-bash-c"
-    ),
-    pytest.param(
-        "cd /home/gop/pcb-assembly && uv run pytest tests/pcbasm/hal -q",
-        id="pytest-after-cd",
     ),
     pytest.param("cat <<EOF\nfoo\nEOF\nmake test", id="make-test-after-heredoc"),
 ]
@@ -61,30 +47,10 @@ ALLOWED = [
     pytest.param("make test-no-hardware", id="make-test-no-hardware"),
     pytest.param("make test-e2e", id="make-test-e2e"),
     pytest.param(
-        "make format && make type && make test-no-hardware", id="verification-chain"
-    ),
-    pytest.param(
         'uv run pytest -v -m "not hardware and not e2e"', id="marker-excluded"
     ),
-    pytest.param(
-        'uv run pytest tests/web/api/test_atomic.py -q -m "not hardware"',
-        id="scoped-with-marker",
-    ),
-    pytest.param(
-        'PYTHONPATH=/tmp uv run pytest tests/x -m "not hardware" -q',
-        id="env-prefix-with-marker",
-    ),
-    pytest.param(
-        'for i in 1 2 3; do uv run pytest tests/x -m "not hardware" -q; done',
-        id="loop-with-marker",
-    ),
     pytest.param("grep -rn pytest Makefile", id="grep-mentions-pytest"),
-    pytest.param("uv run pyright", id="type-check"),
     pytest.param(_COMMIT_WITH_HEREDOC, id="commit-message-mentions-make-test"),
-    pytest.param(
-        'git commit -m "docs: describe make test behaviour"',
-        id="commit-subject-mentions-make-test",
-    ),
     pytest.param("cat <<EOF\nmake test\nEOF", id="heredoc-body-mentions-make-test"),
 ]
 

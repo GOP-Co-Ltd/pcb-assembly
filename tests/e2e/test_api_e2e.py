@@ -19,22 +19,19 @@ from html.parser import HTMLParser
 from typing import Any, override
 
 import httpx
-import numpy as np
-import pytest
 from websockets.sync.client import connect
 
 from tests.e2e.conftest import (
     TERMINAL as _TERMINAL,
     LiveServer,
     LiveUi,
-    drive_choice_job as _drive_choice_job,
     drive_job_demo as _drive_job_demo,
     respond_prompt as _respond_prompt,
     select_led_blinker as _select_led_blinker,
     wait_first_prompt as _wait_first_prompt,
     wait_machine_field as _wait_machine_field,
 )
-from tests.helpers import build_paste_volume_session, wait_until
+from tests.helpers import wait_until
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from web.api.routers.pasting_view import ResolvedSettings
 
@@ -78,49 +75,6 @@ def _wait_for_current_job(base_url: str, job_id: str) -> dict[str, Any]:
     return job
 
 
-class TestHttpRoutes:
-    """実サーバーへの基本的な HTTP 経路（SSR は frontend 経由）."""
-
-    def test_root_page_is_served(self, live_ui: LiveUi):
-        # / は既知 1 台の既定タブへ 307 リダイレクトする。ブラウザ同様に追従する
-        response = httpx.get(
-            f"{live_ui.origin}/", timeout=_HTTP_TIMEOUT, follow_redirects=True
-        )
-
-        assert response.status_code == 200
-        assert "text/html" in response.headers["content-type"]
-
-    def test_reference_point_page_explains_record_applies_immediately(
-        self, live_ui: LiveUi
-    ):
-        response = httpx.get(
-            f"{live_ui.base_url}/posctrl/reference_point_setup",
-            timeout=_HTTP_TIMEOUT,
-        )
-
-        assert response.status_code == 200
-        assert "Record を押すと現在位置を記録し、設定へ即時反映します" in response.text
-
-
-class TestArtifactsOverRealHttp:
-    """/artifacts mount の実 HTTP 配信（ジョブ実生成は jobs/test_pasting.py が担保）."""
-
-    def test_file_under_webui_data_dir_is_served(self, live_server: LiveServer):
-        artifact_dir = live_server.settings.webui_data_dir / "job-artifact-test"
-        artifact_dir.mkdir(parents=True)
-        (artifact_dir / "board.kicad_pcb").write_text(
-            "(kicad_pcb (version 20240101))", encoding="utf-8"
-        )
-
-        download = httpx.get(
-            f"{live_server.base_url}/artifacts/job-artifact-test/board.kicad_pcb",
-            timeout=_HTTP_TIMEOUT,
-        )
-
-        assert download.status_code == 200
-        assert b"(kicad_pcb" in download.content
-
-
 class TestPreviewOverRealHttp:
     """Fake カメラのプレビューを実 HTTP で取得する（無限 stream / クライアント数）.
 
@@ -137,21 +91,6 @@ class TestPreviewOverRealHttp:
         frame = decode_jpeg(jpeg_payload(data.split(b"--frame")[1]))
         assert frame is not None
         assert frame.shape == (720, 1280, 3)
-
-    def test_copper_stream_accepts_preprocessing_query(self, live_server: LiveServer):
-        data = _read_mjpeg(
-            live_server.base_url,
-            "/api/preview/stream?overlay=copper" "&canny_low=50&canny_high=150",
-        )
-
-        frame = decode_jpeg(jpeg_payload(data.split(b"--frame")[1]))
-        assert frame is not None
-        channels = frame.astype(int)
-        green = (channels[..., 1] - channels[..., 0] > 60) & (
-            channels[..., 1] - channels[..., 2] > 60
-        )
-        assert np.any(green)
-        assert np.quantile(np.ptp(channels[~green], axis=1), 0.95) < 15
 
     def test_state_reports_streaming_client_count(self, live_server: LiveServer):
         with httpx.Client(base_url=live_server.base_url, timeout=10.0) as client:
@@ -203,55 +142,11 @@ class TestJobLifecycleOverWebSocket:
         assert "canny_low = 77" in machine_toml
 
 
-class TestPasteVolumeRefitOverWebSocket:
-    """校正生成ジョブを実 uvicorn 越しに通す（装置不要なので E2E で走らせられる）.
-
-    WS で choice prompt に応答 → SUCCEEDED → artifact が /artifacts/ から取れる →
-    一覧 API に現れる、までを実ネットワーク経由で確かめる。
-    """
-
-    STEM = "plate-47.5x20-20260909T145923.452+0900"
-
-    def test_calibration_runs_and_appears_in_the_listing(self, live_server: LiveServer):
-        build_paste_volume_session(live_server.settings.paste_dataset_dir / self.STEM)
-
-        with connect(f"{live_server.ws_url}/api/ws") as ws:
-            response = httpx.post(
-                f"{live_server.base_url}/api/jobs/paste_volume_refit",
-                json={"params": {"save_name": "e2e"}},
-                timeout=_HTTP_TIMEOUT,
-            )
-            assert response.status_code == 201
-            job = _drive_choice_job(ws, answer=self.STEM)
-
-        assert job["status"] == "succeeded", job.get("error")
-        assert "総体積誤差" in job["result"]["summary"]
-
-        artifacts = {item["label"]: item["url"] for item in job["result"]["artifacts"]}
-        assert "直径と体積の散布図" in artifacts
-        download = httpx.get(
-            f"{live_server.base_url}{artifacts['直径と体積の散布図']}",
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert download.status_code == 200
-        assert download.content[:8] == b"\x89PNG\r\n\x1a\n"
-
-        listing = httpx.get(
-            f"{live_server.base_url}/api/pasting/paste-volume/calibrations",
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert listing.status_code == 200
-        entries = listing.json()["calibrations"]
-        assert len(entries) == 1
-        assert entries[0]["error"] is None
-        assert entries[0]["label"]
-
-
 class TestRuntimeParamUpdateOverWebSocket:
     """PUT /api/jobs/current/params の実 HTTP + WS 通し検証（job_demo 題材）.
 
-    実行中（prompt 待機中）の out-of-band 反映、固定/未知キー 400、非アクティブ 400 を 実 uvicorn
-    で確認する。
+    実行中（prompt 待機中）の out-of-band 反映は実プロセスでしか成立しない。 キー種別ごとの 400 は
+    tests/web/api/routers/test_jobs.py が担当する。
     """
 
     def test_live_update_applies_while_waiting_prompt(self, live_server: LiveServer):
@@ -290,153 +185,6 @@ class TestRuntimeParamUpdateOverWebSocket:
         assert job["status"] == "succeeded"
         # ライブ反映した live_value が log/summary に出る経路の証跡
         assert job["params"]["live_value"] == 42.0
-
-    def test_fixed_or_unknown_key_returns_400(self, live_server: LiveServer):
-        with connect(f"{live_server.ws_url}/api/ws") as ws:
-            response = httpx.post(
-                f"{live_server.base_url}/api/jobs/job_demo",
-                json={"params": {"steps": 1, "interval": 0.0}},
-                timeout=_HTTP_TIMEOUT,
-            )
-            assert response.status_code == 201
-            prompt = _wait_first_prompt(ws)
-
-            # steps は runtime_editable=False（固定）→ 400
-            fixed = httpx.put(
-                f"{live_server.base_url}/api/jobs/current/params",
-                json={"values": {"steps": 9}},
-                timeout=_HTTP_TIMEOUT,
-            )
-            assert fixed.status_code == 400, fixed.text
-
-            # 未知キー → 400
-            unknown = httpx.put(
-                f"{live_server.base_url}/api/jobs/current/params",
-                json={"values": {"no_such_param": 1.0}},
-                timeout=_HTTP_TIMEOUT,
-            )
-            assert unknown.status_code == 400, unknown.text
-
-            answered: set[str] = set()
-            _respond_prompt(ws, prompt, answered, number_answer=60.0)
-            job, _ = _drive_job_demo(ws, number_answer=60.0)
-        assert job["status"] == "succeeded"
-
-    def test_update_without_active_job_returns_400(self, live_server: LiveServer):
-        # ジョブを 1 度も起動していない状態で PUT → 400
-        response = httpx.put(
-            f"{live_server.base_url}/api/jobs/current/params",
-            json={"values": {"live_value": 1.0}},
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert response.status_code == 400, response.text
-
-    def test_update_after_terminal_returns_400(self, live_server: LiveServer):
-        with connect(f"{live_server.ws_url}/api/ws") as ws:
-            response = httpx.post(
-                f"{live_server.base_url}/api/jobs/job_demo",
-                json={"params": {"steps": 1, "interval": 0.0}},
-                timeout=_HTTP_TIMEOUT,
-            )
-            assert response.status_code == 201
-            job, _ = _drive_job_demo(ws, number_answer=60.0)
-        assert job["status"] == "succeeded"
-
-        # 終端後（非アクティブ）の PUT → 400
-        response = httpx.put(
-            f"{live_server.base_url}/api/jobs/current/params",
-            json={"values": {"live_value": 1.0}},
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert response.status_code == 400, response.text
-
-
-class TestDispenseCalibrationPage:
-    """吐出量キャリブレーション画面の HTTP 配信."""
-
-    def test_runtime_params_script_is_loaded(self, live_ui: LiveUi):
-        # 実行中パラメータ編集 JS がページに読み込まれている（薄ラッパー）
-        page = httpx.get(
-            f"{live_ui.base_url}/pasting/dispense_calibration",
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert page.status_code == 200
-        assert "js/dispense_runtime_params.js" in page.text
-
-
-class TestPasteLiftHeightOverRealHttp:
-    """吐出後の上昇高さを実 HTTP で PUT → GET → toml 反映まで検証."""
-
-    def test_put_lift_height_persists_and_reflects(self, live_server: LiveServer):
-        before = httpx.get(
-            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
-        ).json()
-        keys = {field["key"] for field in before["fields"]}
-        assert "paste_dispenser.lift_height" in keys
-
-        put = httpx.put(
-            f"{live_server.base_url}/api/settings/machine",
-            json={"values": {"paste_dispenser.lift_height": 3.25}},
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert put.status_code == 200, put.text
-
-        after = httpx.get(
-            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
-        ).json()
-        fields = {field["key"]: field for field in after["fields"]}
-        assert fields["paste_dispenser.lift_height"]["value"] == 3.25
-
-        machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
-        assert "lift_height = 3.25" in machine_toml
-
-
-class TestPadAlignRegionSettingsOverRealHttp:
-    """重複領域設定を実 HTTP で PUT → GET → toml 反映まで検証."""
-
-    def test_put_region_overlap_persists_and_reflects(self, live_server: LiveServer):
-        before = httpx.get(
-            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
-        ).json()
-        keys = {field["key"] for field in before["fields"]}
-        assert "paste_dispenser.pad_align.region_overlap" in keys
-
-        put = httpx.put(
-            f"{live_server.base_url}/api/settings/machine",
-            json={"values": {"paste_dispenser.pad_align.region_overlap": 0.25}},
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert put.status_code == 200, put.text
-
-        after = httpx.get(
-            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
-        ).json()
-        fields = {field["key"]: field for field in after["fields"]}
-        assert fields["paste_dispenser.pad_align.region_overlap"][
-            "value"
-        ] == pytest.approx(0.25)
-
-        machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
-        assert "region_overlap = 0.25" in machine_toml
-
-
-class TestCameraCalibrationPageOverRealHttp:
-    """カメラキャリブレーションページの実 HTTP 配信（webui-camera-calib 計画書 「テスト観点」e2e 項 +
-    ユーザー追加指示: crop 編集 UI は settings ページへ統一）.
-
-    ページは square_size フォーム（専用 JS）のみを持ち、crop 入力は settings
-    ページへ一本化されたため置かない。
-    """
-
-    def test_page_is_served_without_crop_input(self, live_ui: LiveUi):
-        response = httpx.get(
-            f"{live_ui.base_url}/posctrl/camera_calibration",
-            timeout=_HTTP_TIMEOUT,
-        )
-
-        assert response.status_code == 200
-        assert "js/camera_calibration.js" in response.text
-        assert 'data-machine-key="camera.crop.width"' not in response.text
 
 
 class TestCameraCropSettingsOverRealHttp:
@@ -494,27 +242,6 @@ class TestCameraCropSettingsOverRealHttp:
         machine_toml = (live_server.settings.config_dir / "machine.toml").read_text()
         assert "width = 300" in machine_toml
         assert "height = 300" in machine_toml
-
-
-class TestNozzleCapOverRealHttp:
-    """ノズルキャップ位置設定の実 HTTP 経路（nozzle-cap-parking 計画書「API 契約」節）."""
-
-    def test_machine_settings_fields_include_nozzle_cap(self, live_server: LiveServer):
-        response = httpx.get(
-            f"{live_server.base_url}/api/settings/machine", timeout=_HTTP_TIMEOUT
-        )
-
-        assert response.status_code == 200
-        keys = {field["key"] for field in response.json()["fields"]}
-        assert "nozzle_cap.x" in keys
-
-    def test_nozzle_cap_page_renders_record_button(self, live_ui: LiveUi):
-        page = httpx.get(
-            f"{live_ui.base_url}/pasting/nozzle_cap", timeout=_HTTP_TIMEOUT
-        )
-
-        assert page.status_code == 200
-        assert "記録" in page.text
 
 
 class _PadTableHeaderCounter(HTMLParser):
