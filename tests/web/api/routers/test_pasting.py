@@ -22,12 +22,16 @@ pad id = {designator}.{pad_ref}。
 from __future__ import annotations
 
 import json
+import re
+import shutil
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
 
 from pcbasm.pasting.params import PASTE_PARAM_NAMES
+from tests.web.api.conftest import COPPER_PCB_FIXTURE
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -867,6 +871,35 @@ class TestExportImport:
             item for item in doc["settings"]["levels"] if item["key"] == ["L2", "U1"]
         )
         assert level["override"]["prime_extra_delay"] == 0.3
+
+    def test_export_filename_carries_board_name_and_timestamp(
+        self, selected_client: TestClient
+    ):
+        response = selected_client.get("/api/pasting/pad-config/export")
+
+        assert response.status_code == 200, response.text
+        disposition = response.headers["content-disposition"]
+        filename = re.search(r'filename="([^"]+)"', disposition)
+        assert filename is not None, disposition
+        assert re.fullmatch(
+            r"led_blinker-paste-overrides-\d{8}T\d{6}\.json", filename.group(1)
+        ), filename.group(1)
+
+    def test_export_filename_keeps_non_ascii_board_name(
+        self, client: TestClient, appstate: AppState, pcb_root: Path
+    ):
+        japanese = pcb_root / "real" / "日本語基板.kicad_pcb"
+        japanese.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(COPPER_PCB_FIXTURE, japanese)
+        appstate.select_pcb(japanese.relative_to(pcb_root))
+
+        response = client.get("/api/pasting/pad-config/export")
+
+        assert response.status_code == 200, response.text
+        disposition = response.headers["content-disposition"]
+        encoded = re.search(r"filename\*=UTF-8''([^;]+)", disposition)
+        assert encoded is not None, disposition
+        assert unquote(encoded.group(1)).startswith("日本語基板-paste-overrides-")
 
     def test_import_restores_saved_override(self, selected_client: TestClient):
         selected_client.patch(
