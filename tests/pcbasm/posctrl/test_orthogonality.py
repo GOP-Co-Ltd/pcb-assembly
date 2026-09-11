@@ -22,18 +22,14 @@ class TestOrthogonalityMetrics:
     |T(1,0)−T(0,0)|, scale_y = |T(0,1)−T(0,0)|。
     """
 
-    def test_identity_has_zero_error_and_unit_scales(self):
-        metrics = OrthogonalityMetrics.from_transform(Identity())
-
-        assert metrics.axis_angle_error_deg == pytest.approx(0.0, abs=1e-9)
-        assert metrics.scale_x == pytest.approx(1.0, abs=1e-9)
-        assert metrics.scale_y == pytest.approx(1.0, abs=1e-9)
-
-    def test_rigid_transform_has_zero_error(self):
-        """回転 + 並進（実機の正常な board_transform 相当）は誤差ゼロ."""
-        metrics = OrthogonalityMetrics.from_transform(
-            Compose([Rotation(30.0), Shift(10.0, -5.0)])
-        )
+    @pytest.mark.parametrize(
+        "transform",
+        [Identity(), Compose([Rotation(30.0), Shift(10.0, -5.0)])],
+        ids=["identity", "rotation-and-shift"],
+    )
+    def test_rigid_transform_has_zero_error_and_unit_scales(self, transform):
+        """恒等・回転 + 並進（実機の正常な board_transform 相当）は誤差ゼロ."""
+        metrics = OrthogonalityMetrics.from_transform(transform)
 
         assert metrics.axis_angle_error_deg == pytest.approx(0.0, abs=1e-9)
         assert metrics.scale_x == pytest.approx(1.0, abs=1e-9)

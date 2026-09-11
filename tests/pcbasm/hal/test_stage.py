@@ -184,11 +184,6 @@ class TestXYZStage:
         with pytest.raises(ValueError, match="軸が指定されていません"):
             mock_stage.move(relative=relative)
 
-    def test_move_raises_when_specified_axis_out_of_limits(self, mock_stage: XYZStage):
-        # z=51 は z∈[0,50] の範囲外。
-        with pytest.raises(ValueError, match="制限外"):
-            mock_stage.move(z=51, speed=Speed.absolute(100))
-
     def test_move_relative_raises_when_resolved_out_of_limits(
         self, mock_stage_at_10: XYZStage
     ):
@@ -202,10 +197,21 @@ class TestXYZStage:
 
         assert result.to_list() == ["G1 X50.0 Y50.0 Z25.0 F18000.0"]
 
-    def test_move_raises_when_resolved_point_out_of_limits(self, mock_stage: XYZStage):
-        # x=150 は x∈[0,100] の範囲外。
+    @pytest.mark.parametrize(
+        ("x", "y", "z"),
+        [(None, None, 51.0), (150.0, 50.0, 25.0)],
+        ids=["specified-axis", "resolved-point"],
+    )
+    def test_move_raises_when_out_of_limits(
+        self,
+        mock_stage: XYZStage,
+        x: float | None,
+        y: float | None,
+        z: float | None,
+    ):
+        # z=51 は z∈[0,50]、x=150 は x∈[0,100] の範囲外。
         with pytest.raises(ValueError, match="制限外"):
-            mock_stage.move(x=150, y=50, z=25, speed=Speed.absolute(100))
+            mock_stage.move(x=x, y=y, z=z, speed=Speed.absolute(100))
 
 
 class TestScalarLimits:
@@ -264,16 +270,12 @@ class TestSpeed:
     割合[0,1]のいずれかで構築され、resolve(max_velocity)で実際の速度に解決される。
     """
 
-    def test_absolute_ignores_max(self):
+    @pytest.mark.parametrize("max_velocity", [300.0, 1000.0])
+    def test_absolute_ignores_max(self, max_velocity: float):
+        # 絶対値はmax_velocityを無視するため、どのmaxでも同じ値を返す
         speed = Speed.absolute(150.0)
 
-        assert speed.resolve(300.0) == 150.0
-
-    def test_absolute_ignores_different_max(self):
-        # 絶対値はmax_velocityを無視するため、別のmaxでも同じ値を返す
-        speed = Speed.absolute(150.0)
-
-        assert speed.resolve(1000.0) == 150.0
+        assert speed.resolve(max_velocity) == 150.0
 
     @pytest.mark.parametrize(
         ("fraction", "max_velocity", "expected"),

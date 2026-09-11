@@ -12,6 +12,8 @@ Phase 4（memory/agents/implementation-planner/webui-phase4.md §1）で posctrl
 カメラは tests/helpers.py の FakeCamera（自前 HAL Camera の test Impl）を使う。
 """
 
+from contextlib import nullcontext
+
 import cv2
 import numpy as np
 import pytest
@@ -180,27 +182,21 @@ class TestMachineSession:
     PRESENT フォールバック）は park_or_present に集約されるため、ここでは委譲だけをピンする。
     """
 
-    def test_delegates_to_park_or_present_on_exit(self, mocker: MockerFixture):
-        """セッション終了時に park_or_present(klipper, machine) が 1 回呼ばれる."""
-        park = mocker.patch("pcbasm.posctrl.setup.park_or_present")
-        klipper = mocker.Mock()
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
-
-        with machine_session(klipper, machine):
-            pass
-
-        park.assert_called_once_with(klipper, machine)
-
-    def test_delegates_to_park_or_present_even_on_exception(
-        self, mocker: MockerFixture
+    @pytest.mark.parametrize(
+        "raises", [False, True], ids=["normal-exit", "on-exception"]
+    )
+    def test_delegates_to_park_or_present_on_exit(
+        self, mocker: MockerFixture, raises: bool
     ):
-        """例外発生時でも park_or_present が呼ばれ、例外は伝播する."""
+        """例外の有無によらず park_or_present(klipper, machine) が 1 回呼ばれる."""
         park = mocker.patch("pcbasm.posctrl.setup.park_or_present")
         klipper = mocker.Mock()
         machine = Machine(TESTING_DATA_DIR / "machine.toml")
+        expected = pytest.raises(ValueError, match="test error")
 
-        with pytest.raises(ValueError, match="test error"):
+        with expected if raises else nullcontext():
             with machine_session(klipper, machine):
-                raise ValueError("test error")
+                if raises:
+                    raise ValueError("test error")
 
         park.assert_called_once_with(klipper, machine)

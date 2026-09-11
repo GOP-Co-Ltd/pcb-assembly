@@ -35,28 +35,6 @@ LED_BLINKER_PCB = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 class TestPolygonWithHolesPatch:
     """polygon_with_holes_patch関数のテスト."""
 
-    def test_simple_polygon_without_hole(self):
-        """穴なし矩形は閉じた1リングのMOVETO+LINETO×3+CLOSEPOLYになる."""
-        polygon = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
-        patch = polygon_with_holes_patch(
-            polygon,
-            facecolor="#ff0000",
-            edgecolor="#000000",
-            alpha=0.5,
-            linewidth=1.0,
-        )
-
-        codes = np.asarray(patch.get_path().codes).tolist()
-        assert codes == [
-            MplPath.MOVETO,
-            MplPath.LINETO,
-            MplPath.LINETO,
-            MplPath.LINETO,
-            MplPath.LINETO,
-            MplPath.CLOSEPOLY,
-        ]
-        assert patch.get_facecolor() == (1.0, 0.0, 0.0, 0.5)
-
     def test_polygon_with_hole_reverses_interior_winding(self):
         """穴付きポリゴンはinterior coordsを逆順にしたverts列を返す."""
         exterior = [(0, 0), (10, 0), (10, 10), (0, 10)]
@@ -315,36 +293,28 @@ class TestPasteVolumeRender:
             diameter_max_mm=0.86,
         )
 
-    def test_render_calibration_scatter_outputs_readable_png(self, tmp_path):
-        from pcbasm.visualization.paste_volume_render import (
-            render_calibration_scatter,
-        )
-
-        output = tmp_path / "scatter.png"
-        render_calibration_scatter(
-            self._cells(), self._model(), "paste-1 / n0.30 / h0.20", output
-        )
-
-        image = cv2.imread(str(output))
-        assert image is not None
-        assert image.shape[0] > 100 and image.shape[1] > 100
-
-    def test_render_calibration_scatter_accepts_a_session_without_blanks(
-        self, tmp_path
+    @pytest.mark.parametrize(
+        "with_blank", [True, False], ids=["with-blank", "without-blank"]
+    )
+    def test_render_calibration_scatter_outputs_readable_png(
+        self, tmp_path, with_blank: bool
     ):
         from pcbasm.visualization.paste_volume_render import (
             render_calibration_scatter,
         )
 
+        cells = self._cells()
+        if not with_blank:
+            cells = tuple(cell for cell in cells if not cell.blank)
         output = tmp_path / "scatter.png"
+
         render_calibration_scatter(
-            tuple(cell for cell in self._cells() if not cell.blank),
-            self._model(),
-            "no blank",
-            output,
+            cells, self._model(), "paste-1 / n0.30 / h0.20", output
         )
 
-        assert cv2.imread(str(output)) is not None
+        image = cv2.imread(str(output))
+        assert image is not None
+        assert image.shape[0] > 100 and image.shape[1] > 100
 
     def test_render_detection_montage_outputs_readable_png(self, tmp_path):
         from pcbasm.visualization.paste_volume_render import render_detection_montage

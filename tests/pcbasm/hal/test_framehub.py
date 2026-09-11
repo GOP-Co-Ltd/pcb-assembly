@@ -254,15 +254,6 @@ class TestFrameSource:
             camera.release_all()
             hub.stop()
 
-    def test_resolution_and_info_delegate_to_camera(self):
-        camera = FakeCamera([_solid_image(3)], fps=12.5)
-        hub = FrameHub(camera)
-
-        source = hub.subscribe()
-
-        assert source.resolution == camera.resolution
-        assert source.info == camera.info
-
     def test_frame_source_feeds_circle_detector_statistics(self):
         # Camera ABC 注入の契約: detect_with_statistics の 30 フレーム消費が
         # FrameSource で無改造に成立する

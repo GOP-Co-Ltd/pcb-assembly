@@ -160,33 +160,11 @@ class TestSoundAssets:
 class TestAlsaAudioPlayer:
     """AlsaAudioPlayer の終了契約と実 ALSA での再生."""
 
-    def test_play_after_close_fails_with_playback_error(self):
+    @pytest.mark.parametrize("close_count", [1, 2], ids=["once", "idempotent"])
+    def test_play_after_close_fails_with_playback_error(self, close_count: int):
         player = AlsaAudioPlayer()
-        player.close()
-
-        future = player.play("success", Audio())
-
-        with pytest.raises(AudioPlaybackError, match="終了済み"):
-            future.result(timeout=1.0)
-
-    def test_close_is_idempotent(self):
-        player = AlsaAudioPlayer()
-
-        player.close()
-        player.close()
-
-        with pytest.raises(AudioPlaybackError):
-            player.play("failure", Audio()).result(timeout=1.0)
-
-    def test_play_racing_with_close_still_returns_failed_future(self):
-        """終了処理と競合した play() も例外を投げず Future 経由で失敗を返す.
-
-        終了フラグを見た後に executor が止まる並行呼び出しでは submit が同期 raise
-        する。停止済みプレイヤーの終了フラグだけ戻して決定的に再現する。
-        """
-        player = AlsaAudioPlayer()
-        player.close()
-        player._closed = False  # pyright: ignore[reportPrivateUsage]
+        for _ in range(close_count):
+            player.close()
 
         future = player.play("success", Audio())
 

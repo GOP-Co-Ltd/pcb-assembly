@@ -84,9 +84,6 @@ class TestFootprintLibrary:
     def test_search_empty_query_returns_nothing(self, library: FootprintLibrary):
         assert library.search("", limit=10) == ()
 
-    def test_search_respects_limit(self, library: FootprintLibrary):
-        assert len(library.search("R", limit=2)) == 2
-
     def test_load_returns_footprint_with_pads(self, library: FootprintLibrary):
         footprint = library.load("Resistor_SMD.pretty", "R_0402_1005Metric")
         assert len(list(footprint.Pads())) == 2

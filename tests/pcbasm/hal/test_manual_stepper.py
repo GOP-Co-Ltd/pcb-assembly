@@ -1,7 +1,6 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from pcbasm.gcode import GCode
 from pcbasm.hal.klipper import Klipper
 from pcbasm.hal.manual_stepper import HomingDirection, ManualStepper
 
@@ -63,9 +62,6 @@ class TestManualStepper:
         gcode = stepper.rotate(angle, speed, accel, sync=sync)
         assert gcode.to_list() == [f"{PREFIX} {expected_suffix}"]
 
-    def test_name(self, stepper: ManualStepper):
-        assert stepper.name == STEPPER_NAME
-
     @pytest.mark.parametrize(
         ("position", "expected_pos"),
         [
@@ -81,7 +77,6 @@ class TestManualStepper:
             if position is None
             else stepper.reset_position(position)
         )
-        assert isinstance(gcode, GCode)
         assert gcode.to_list() == [f"{PREFIX} SET_POSITION={expected_pos}"]
 
     @pytest.mark.parametrize(

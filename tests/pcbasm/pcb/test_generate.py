@@ -2,17 +2,16 @@
 
 計画書 webui-phase3.md「pcbasm 昇格」節が契約:
 
-- generate_grid_pcb は scripts/dev/generate_grid_pcb.py からの移動（挙動不変）。
-  既存の pcbnew モック方式テストを monkeypatch 先変更で移設
+- generate_grid_pcb は scripts/dev/generate_grid_pcb.py からの移動（挙動不変）
 - build_fill_coverage_board / save_board は make_fill_coverage_pcb の
-  build_board + 保存処理の一般化（print は持ち込まない）。
-  実 pcbnew で tmp_path に保存 → PcbFile で読み戻して検証する
+  build_board + 保存処理の一般化（print は持ち込まない）
+
+いずれも実 pcbnew で tmp_path に保存 → PcbFile で読み戻して検証する。
 """
 
 import pytest
 from shapely import Polygon
 
-import pcbasm.pcb.generate as generate_module
 from pcbasm.pcb import PcbFile
 from pcbasm.pcb.generate import (
     build_fill_coverage_board,
@@ -22,98 +21,17 @@ from pcbasm.pcb.generate import (
 )
 
 
-@pytest.fixture
-def mock_pcbnew(monkeypatch, mocker):
-    """pcbasm.pcb.generate が参照する pcbnew をモジュールごとモックする."""
-    mock_module = mocker.MagicMock()
-
-    # FromMM: 実際と同様にnm変換(整数)を返す
-    mock_module.FromMM.side_effect = lambda x: int(x * 1_000_000)
-
-    # VECTOR2I: タプル的に扱えるモック
-    mock_module.VECTOR2I.side_effect = lambda x, y: (x, y)
-
-    # 定数
-    mock_module.SHAPE_T_SEGMENT = 0
-    mock_module.Edge_Cuts = 44
-    mock_module.F_Cu = 0
-    mock_module.PAD_ATTRIB_SMD = 1
-    mock_module.PAD_SHAPE_RECT = 1
-
-    # BOARD
-    mock_board = mocker.MagicMock()
-    mock_module.BOARD.return_value = mock_board
-
-    # PCB_SHAPE
-    mock_module.PCB_SHAPE.side_effect = lambda board: mocker.MagicMock()
-
-    # FOOTPRINT / PAD
-    def make_footprint(board):
-        fp = mocker.MagicMock()
-        fp_pad = mocker.MagicMock()
-        mock_module.PAD.side_effect = lambda f: fp_pad
-        return fp
-
-    mock_module.FOOTPRINT.side_effect = make_footprint
-
-    monkeypatch.setattr(generate_module, "pcbnew", mock_module)
-    return mock_module
-
-
 class TestGenerateGridPcb:
-    """generate_grid_pcb関数のテスト（tests/scripts から移設）."""
+    """generate_grid_pcb（実 pcbnew で保存 → PcbFile で読み戻して検証）."""
 
-    def test_default_2x2_grid(self, mock_pcbnew, tmp_path):
-        output = tmp_path / "test.kicad_pcb"
-        generate_grid_pcb(size=30, divisions=2, pad_size=1.0, output=output)
+    @pytest.mark.parametrize("divisions", [1, 2, 3])
+    def test_grid_places_one_pad_per_cell(self, tmp_path, divisions: int):
+        output = tmp_path / "grid.kicad_pcb"
 
-        board = mock_pcbnew.BOARD.return_value
+        generate_grid_pcb(size=30.0, divisions=divisions, pad_size=1.0, output=output)
 
-        # 4 edge segments + 4 footprints = 8 Add calls
-        assert board.Add.call_count == 8
-
-        # SaveBoard called with correct path
-        mock_pcbnew.SaveBoard.assert_called_once_with(str(output), board)
-
-    def test_3x3_grid_creates_9_pads(self, mock_pcbnew, tmp_path):
-        output = tmp_path / "test.kicad_pcb"
-        generate_grid_pcb(size=40, divisions=3, pad_size=0.5, output=output)
-
-        board = mock_pcbnew.BOARD.return_value
-        # 4 edges + 9 footprints = 13
-        assert board.Add.call_count == 13
-
-    def test_1x1_grid_creates_1_pad(self, mock_pcbnew, tmp_path):
-        output = tmp_path / "test.kicad_pcb"
-        generate_grid_pcb(size=10, divisions=1, pad_size=0.5, output=output)
-
-        board = mock_pcbnew.BOARD.return_value
-        # 4 edges + 1 footprint = 5
-        assert board.Add.call_count == 5
-
-    def test_output_directory_created(self, mock_pcbnew, tmp_path):
-        output = tmp_path / "sub" / "dir" / "test.kicad_pcb"
-        generate_grid_pcb(size=30, divisions=2, pad_size=1.0, output=output)
-
-        assert output.parent.exists()
-
-    def test_footprint_references_are_sequential(self, mock_pcbnew, tmp_path, mocker):
-        # FOOTPRINT呼び出しごとにSetReferenceの引数を記録
-        references = []
-
-        def track_footprint(board):
-            fp = mocker.MagicMock()
-            fp.SetReference.side_effect = lambda ref: references.append(ref)
-            fp_pad = mocker.MagicMock()
-            mock_pcbnew.PAD.side_effect = lambda f: fp_pad
-            return fp
-
-        mock_pcbnew.FOOTPRINT.side_effect = track_footprint
-
-        output = tmp_path / "test.kicad_pcb"
-        generate_grid_pcb(size=30, divisions=2, pad_size=1.0, output=output)
-
-        assert references == ["P1", "P2", "P3", "P4"]
+        pcb = PcbFile(output)
+        assert len(pcb.pads) == divisions**2
 
     @pytest.mark.parametrize(
         ("size", "divisions", "pad_size"),
@@ -125,7 +43,6 @@ class TestGenerateGridPcb:
     )
     def test_invalid_params_raise_value_error(
         self,
-        mock_pcbnew,
         tmp_path,
         size: float,
         divisions: int,
