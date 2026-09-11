@@ -14,80 +14,6 @@ setup: clean  ## Setup development environment
 	uv sync --all-extras
 	uv run pre-commit install
 
-# ML 依存は WebAPI / UI の実行環境へ無条件に入れない（AGENTS.md「プロジェクト概要」）。
-# GPU 学習ワークステーション向けに学習・探索・export を明示的に足す。ml-hpo は
-# ml-train を、ml-train は ml-runtime を include するので、この 2 group で足りる。
-# uv sync は指定しなかった group を取り除くため、必要な group は 1 コマンドへ並べる。
-setup-ml: ## Install ML dependency groups for the GPU training workstation
-	uv sync --group ml-hpo --group ml-export
-	uv run python scripts/ml_smoke.py
-
-# 推論だけを行う Raspberry Pi 5 用。学習・探索・export の依存は入れない。
-setup-ml-runtime: ## Install inference-only ML dependencies (Raspberry Pi 5)
-	uv sync --group ml-runtime
-
-ml-smoke: ## Verify the ML development environment (versions, CUDA, forward/backward, decode)
-	uv run python scripts/ml_smoke.py
-
-# --- ML 学習・開発コンテナ（詳細は docker/ml/README.md） -------------------------
-# 資格情報 mount は host に実在するものだけを compose.credentials.yaml へ生成する。
-# 存在しない bind mount source を書くと Docker が root 所有の空 directory を作る。
-DOCKER_COMPOSE = docker compose \
-	-f docker/ml/compose.yaml \
-	-f docker/ml/compose.credentials.yaml
-
-# 常駐コンテナへ exec する。run --rm は毎回 container を作って捨てるため、
-# 基本作業（sync / test / smoke / shell）はすべて exec を通す。
-DOCKER_EXEC = $(DOCKER_COMPOSE) exec ml
-
-# pyright と pytest の対象を、コンテナで解決できるツリーへ絞る。装置ドメインの大半は
-# pcbnew / picamera2 を要求し、それが無いコンテナでは未解決 import として必ず赤くなる。
-# 装置側の型検査は実機の環境で `make type` が担当する。
-#
-# ドメイン層 ml.paste_volume は収集 schema を読むが、装置 HAL へは届かないので
-# コンテナで通る。到達範囲は tests/ml/test_architecture.py が機械検証する。
-ML_TREES = src/ml tests/ml
-ML_TYPE_PATHS = $(ML_TREES) scripts/ml_smoke.py
-ML_TEST_PATHS = tests/ml
-
-ml-docker-env: ## Generate docker/ml/.env and the credential mounts from the host
-	@./docker/ml/write-env.sh
-
-ml-docker-build: ml-docker-env ## Build the ML training/development container image
-	$(DOCKER_COMPOSE) build
-
-# --build を付けるのは、素の `up -d` が image の存在しか見ないため。Dockerfile を
-# 直しても古い image のまま起動し、検証が古い環境で通ってしまう。層 cache が効くので
-# 変更が無ければほぼ待たない。
-ml-docker-up: ml-docker-env ## Start the long-running ML container, rebuilding if stale
-	$(DOCKER_COMPOSE) up -d --build
-
-ml-docker-down: ml-docker-env ## Stop the ML container (named volumes are kept)
-	$(DOCKER_COMPOSE) down
-
-ml-docker-shell: ml-docker-up ## Open an interactive shell in the running ML container
-	$(DOCKER_EXEC) bash
-
-# 以降の target が sync に依存するのは、named volume を作り直した直後でも
-# 動くようにするため。uv sync は最新なら 1 秒程度で終わる。
-ml-docker-sync: ml-docker-up ## Install the ML dependency groups inside the container
-	$(DOCKER_EXEC) uv sync --group ml-hpo --group ml-export
-
-ml-docker-smoke: ml-docker-sync ## Run the ML environment smoke check inside the container
-	$(DOCKER_EXEC) uv run python scripts/ml_smoke.py
-
-ml-docker-test: ml-docker-sync ## Run the ML tests inside the container
-	$(DOCKER_EXEC) uv run pytest -v $(ML_TEST_PATHS) -m "not hardware and not e2e"
-
-# ML 作業の検証はコンテナ内で回す。host には ML 依存を入れないため、host の
-# pyright は torch を解決できない。
-ml-docker-check: ml-docker-sync ## Run format, ML type check, and ML tests inside the container
-	$(DOCKER_EXEC) bash -c '\
-		uv run pre-commit run -a \
-		&& uv run pyright $(ML_TYPE_PATHS) \
-		&& uv run pytest -v $(ML_TEST_PATHS) -m "not hardware and not e2e"'
-
-
 format: ## Run pre-commit hooks
 	uv run pre-commit run -a
 
@@ -96,11 +22,6 @@ test: ## Run all tests (excludes e2e; see test-e2e)
 
 test-no-hardware: ## Run tests without hardware
 	uv run pytest -v -m "not hardware and not e2e"
-
-# tests/ml は picamera2 / pcbnew を要求しないので学習機でも通る。
-# 装置側のテストを collect しないよう対象を絞る。
-test-ml: ## Run the ML tests that work without picamera2/pcbnew
-	uv run pytest -v $(ML_TEST_PATHS) -m "not hardware and not e2e"
 
 test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
 	uv run pytest -v -m e2e --timeout=180

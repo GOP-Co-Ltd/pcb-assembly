@@ -31,28 +31,15 @@ requires = ["uv_build>=0.9.7,<0.10.0"]
 build-backend = "uv_build"
 
 # src/ 直下の複数トップレベルパッケージを wheel へ含める。既定では project name の
-# pcbasm だけが対象になり、web と ml が漏れる。
+# pcbasm だけが対象になり、web が漏れる。
 [tool.uv.build-backend]
-module-name = ["pcbasm", "web", "ml"]
+module-name = ["pcbasm", "web"]
 
 
 [tool.uv]
+# Raspberry Pi 5 の picamera2 / pcbnew は OS の dist-packages 由来。uv の managed
+# Python へ切り替えると Pi でこれらが見えなくなるので only-system を変えない。
 python-preference = "only-system"
-
-# aarch64 (Raspberry Pi 5) 向けの torch / torchvision は PyPI に無く、PyTorch の
-# CPU wheel index から取る。explicit なので下の sources で指定した package だけが使う。
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
-]
-torchvision = [
-    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
-]
 
 [dependency-groups]
 dev = [
@@ -62,27 +49,6 @@ dev = [
     "pytest-mock>=3.15.1",
     "pytest-playwright>=0.8.0",
     "pytest-timeout>=2.4.0",
-]
-
-# ML 依存は WebAPI / UI の実行環境へ無条件に入れない。推論だけの Raspberry Pi 5 が
-# ml-runtime だけで動くよう、学習・探索・export を別グループに分ける。
-ml-runtime = [
-    "onnxruntime>=1.29,<2",
-    "torch>=2.12,<2.13",
-    "torchvision>=0.27,<0.28",
-]
-ml-train = [
-    { include-group = "ml-runtime" },
-    "mlflow>=3.15,<4",
-]
-ml-hpo = [
-    { include-group = "ml-train" },
-    "optuna>=4.9,<5",
-]
-ml-export = [
-    { include-group = "ml-runtime" },
-    "onnx>=1.22,<2",
-    "onnxscript>=0.7,<1",
 ]
 
 

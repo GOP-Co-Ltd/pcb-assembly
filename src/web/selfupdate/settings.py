@@ -44,9 +44,9 @@ class UpdateSettings:
     sudo_bin: str = "/usr/bin/sudo"
     # 設置済み unit の置き場所（**読み取り専用**。書き込みは web-service.sh の特権経路）
     unit_dir: Path = Path("/etc/systemd/system")
-    # 素の `uv sync` は (a) 指定しなかった dependency group を削除し（ml-runtime を
-    # 入れた Pi が torch を失う）、(b) pyproject と lock がずれると uv.lock を書き換える
-    # （tree が dirty になり以後の更新が全部止まる）。既定でこの 2 つを塞ぐ
+    # 素の `uv sync` は (a) 指定しなかった dependency group を削除し（機体ごとに
+    # 足した group が更新のたびに消える）、(b) pyproject と lock がずれると uv.lock を
+    # 書き換える（tree が dirty になり以後の更新が全部止まる）。既定でこの 2 つを塞ぐ
     uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
     # 機体ごとに無効化できる安全弁（無効なら start() は何もせず理由を返す）
     enabled: bool = True

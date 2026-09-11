@@ -3,8 +3,7 @@
 計画書「テスト計画」の方針に従い、3rd-party 表面（`subprocess` / `git` / `uv` /
 `systemctl` / `sudo`）を一切モックしない。
 
-- git は **実物**を使う（bare origin + clone を `tmp_path` に作る）。
-  `tests/ml/experiment/test_provenance.py` が先例
+- git は **実物**を使う（bare origin + clone を `tmp_path` に作る）
 - 外部バイナリは `UpdateSettings` が絶対パスで持つ seam に **実スタブ実行ファイル**を
   差し込む（PATH をいじらない）。引数を共有ログへ追記するので、呼び出しの有無と
   順序をログの追記順で観測できる

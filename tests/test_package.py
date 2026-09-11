@@ -16,7 +16,7 @@ def test_version() -> None:
     assert pcbasm.__version__ == pyproject["project"]["version"]
 
 
-HEAVY_MODULES = "{'cv2', 'pcbnew', 'picamera2', 'torch'}"
+HEAVY_MODULES = "{'cv2', 'pcbnew', 'picamera2'}"
 
 
 def _imported_heavy_modules(target: str) -> str:
@@ -48,9 +48,8 @@ class TestPastingImportLight:
 class TestSelfUpdateImportLight:
     """``import web.selfupdate`` が装置ドメインの依存を引かない契約.
 
-    UI frontend 専用機には pcbnew（KiCAD）も picamera2 も入っていない。torch も
-    任意依存でしかない。frontend が自分自身を更新できることがこの機能の要件なので、
-    更新モジュールがこれらを引くと更新できない機体が生まれる。
+    UI frontend 専用機には pcbnew（KiCAD）も picamera2 も入っていない。
+    更新モジュールがこれらを引くと、自分自身を更新できない機体が生まれる。
     """
 
     def test_heavy_modules_are_not_imported(self):
