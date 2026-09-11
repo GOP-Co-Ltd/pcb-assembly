@@ -165,10 +165,22 @@ class PasteSession:
         )
 
     def camera_point_target(
-        self, point: Point2d, *, offset: Point2d = Point2d(0.0, 0.0)
+        self,
+        point: Point2d,
+        *,
+        offset: Point2d = Point2d(0.0, 0.0),
+        correction: Transform | None = None,
     ) -> Point2d:
-        """Board 座標の点をカメラ中心へ置くステージ XY（+ 任意オフセット）."""
-        return self._camera_target(self.board_transform.apply(point), offset)
+        """Board 座標の点をカメラ中心へ置くステージ XY（+ 任意オフセット）.
+
+        ``correction`` にその点へ効く機械座標の位置合わせ補正を渡すと、塗布と同じ
+        位置を撮る。
+        銅板のように位置合わせしない対象では ``None`` のままでよい。
+        """
+        machine_point = self.board_transform.apply(point)
+        if correction is not None:
+            machine_point = correction.apply(machine_point)
+        return self._camera_target(machine_point, offset)
 
     def camera_target(
         self,
