@@ -1,11 +1,14 @@
 """pcbasm.pasting.persist のテスト（保存 JSON の encode / decode と legacy 移行）."""
 
+from datetime import datetime
+
 import pytest
 
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParams, PasteParamsPatch
 from pcbasm.pasting.persist import (
     BOARD_SETTINGS_SCHEMA_VERSION,
+    board_settings_export_filename,
     decode_board_settings,
     encode_board_settings,
 )
@@ -327,3 +330,38 @@ class TestLegacyBaseMigration:
         assert restored.levels == (
             LevelSetting(("L0",), patch=PasteParamsPatch(overlap=0.4)),
         )
+
+
+class TestExportFilename:
+    """書き出しファイル名 ``<基板名>-paste-overrides-<YYYYMMDDTHHMMSS>.json``."""
+
+    def test_uses_board_stem_and_timestamp(self):
+        name = board_settings_export_filename(
+            "real/led_blinker.kicad_pcb", datetime(2026, 9, 11, 14, 30, 5)
+        )
+
+        assert name == "led_blinker-paste-overrides-20260911T143005.json"
+
+    def test_omitted_timestamp_uses_now(self):
+        before = datetime.now().strftime("%Y%m%d")
+
+        name = board_settings_export_filename("board.kicad_pcb")
+
+        assert name.startswith(f"board-paste-overrides-{before}")
+        assert name.endswith(".json")
+
+    @pytest.mark.parametrize(
+        ("source_pcb", "expected_stem"),
+        [
+            ("my board.kicad_pcb", "my-board"),
+            ("rev/2.0/panel:A.kicad_pcb", "panel-A"),
+            ("日本語基板.kicad_pcb", "日本語基板"),
+            ("", "board"),
+        ],
+    )
+    def test_stem_is_folded_to_a_safe_name(self, source_pcb: str, expected_stem: str):
+        name = board_settings_export_filename(
+            source_pcb, datetime(2026, 9, 11, 14, 30, 5)
+        )
+
+        assert name == f"{expected_stem}-paste-overrides-20260911T143005.json"

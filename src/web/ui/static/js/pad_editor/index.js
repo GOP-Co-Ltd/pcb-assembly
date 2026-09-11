@@ -29,7 +29,7 @@ import {
   const root = document.getElementById("pad-editor");
   if (!root) return;
 
-  const { api, toast } = window.webui;
+  const { api, downloadApi, toast } = window.webui;
   const DEBOUNCE_MS = 300;
   // 追加モード中にこの距離まで近づけてクリックしたら、その測定位置を消す [mm]
   const FLOW_CALIBRATION_HIT_MM = 0.5;
@@ -731,16 +731,12 @@ import {
   if (exportButton) {
     exportButton.addEventListener("click", async () => {
       try {
-        const doc = await api("GET", "/api/pasting/pad-config/export");
-        const blob = new Blob([JSON.stringify(doc, null, 2)], {
-          type: "application/json",
-        });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `pcbasm-paste-overrides-${Date.now()}.json`;
-        link.click();
-        URL.revokeObjectURL(link.href);
-        toast("基板 override 設定を書き出しました");
+        // 保存名はサーバーが Content-Disposition で決める（基板名 + 日時）
+        const filename = await downloadApi(
+          "GET",
+          "/api/pasting/pad-config/export",
+        );
+        toast(`基板 override 設定を書き出しました: ${filename}`);
       } catch (err) {
         toast(`書き出し失敗: ${err.message}`, false);
       }

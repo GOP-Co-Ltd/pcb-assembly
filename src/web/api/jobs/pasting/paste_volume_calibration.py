@@ -721,7 +721,6 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
             measured_mass_mg = prompt_positive_number(
                 ctx,
                 "TAREした電子天秤で塗布済み銅板を計量し、増加質量 [mg] を入力してください。",
-                notify=True,
             )
             assert measured_mass_mg is not None
             session_path = recorder.finalize(measured_mass_mg=measured_mass_mg, run=run)

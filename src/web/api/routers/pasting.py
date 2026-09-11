@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import attrs
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -16,6 +18,7 @@ from pcbasm.geometry import Point2d
 from pcbasm.pasting.initial_purge import validate_initial_purge
 from pcbasm.pasting.params import validate_field_names, validate_param_values
 from pcbasm.pasting.paste_volume.runtime import validate_flow_calibration_point
+from pcbasm.pasting.persist import board_settings_export_filename
 from pcbasm.pasting.route import routed_enabled_pads
 from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pcb import Layer
@@ -308,10 +311,22 @@ def export_pad_config(
         loaded.model,
         board_signature=loaded.board_signature,
     )
-    filename = f"pcbasm-paste-overrides-{board_store.board_id(loaded.source_pcb)}.json"
+    filename = board_settings_export_filename(loaded.source_pcb)
     return JSONResponse(
         content=doc,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _attachment(filename)},
+    )
+
+
+def _attachment(filename: str) -> str:
+    """``Content-Disposition`` を組む（日本語基板名は RFC 5987 の ``filename*`` に載せる）.
+
+    ヘッダ値は latin-1 しか運べないので、``filename=`` には ASCII 化した控えを置く。
+    """
+    fallback = filename.encode("ascii", "replace").decode("ascii").replace('"', "_")
+    return (
+        f'attachment; filename="{fallback}"; '
+        f"filename*=UTF-8''{quote(filename, safe='')}"
     )
 
 

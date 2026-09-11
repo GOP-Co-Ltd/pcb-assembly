@@ -1,8 +1,10 @@
-"""基板ごとの塗布設定 JSON の encode / decode.
+"""基板ごとの塗布設定 JSON の encode / decode と書き出し名.
 
 真実の源は ``machine.toml`` の ``[paste_dispenser]`` 値で、基板 JSON には
 明示 override（L0 を含む ``levels``）と基板上の座標設定だけを保持する。
 ファイル I/O・ロック・保存先の決定は web 層（``BoardSettingsStore``）の責務。
+ダウンロード時のファイル名は :func:`board_settings_export_filename` が正典
+（保存先の名前は board_id なので別物）。
 
 保存形式（schema v1）::
 
@@ -25,7 +27,10 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Any
 
 import attrs
@@ -39,6 +44,10 @@ from pcbasm.utils import is_finite_number
 BOARD_SETTINGS_SCHEMA_VERSION = 1
 
 _L0_KEY: HierKey = ("L0",)
+
+# 書き出し名で path 片として使えない文字（空白を含む）。日本語基板名を潰さないよう
+# ASCII 以外は残し、Content-Disposition 側で RFC 5987 の filename* に載せる
+_UNSAFE_FILENAME = re.compile(r'[\x00-\x1f/\\:*?"<>|\s]+')
 
 
 @attrs.frozen
@@ -129,6 +138,22 @@ def decode_board_settings(
         ),
         None,
     )
+
+
+def board_settings_export_filename(
+    source_pcb: str, created_at: datetime | None = None
+) -> str:
+    """書き出し用のファイル名 ``<基板名>-paste-overrides-<YYYYMMDDTHHMMSS>.json`` を作る.
+
+    日時書式はリポジトリの他の書き出し（塗布量較正・データセット）と揃える。
+
+    Args:
+        source_pcb: ``pcb_browse_root`` からの相対 posix パス
+        created_at: 書き出し時刻（既定は現在時刻）
+    """
+    stem = _UNSAFE_FILENAME.sub("-", PurePosixPath(source_pcb).stem).strip("-")
+    moment = (created_at or datetime.now()).strftime("%Y%m%dT%H%M%S")
+    return f"{stem or 'board'}-paste-overrides-{moment}.json"
 
 
 def _level_from_entry(entry: Mapping[str, Any]) -> LevelSetting:

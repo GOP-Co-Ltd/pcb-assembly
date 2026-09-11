@@ -50,8 +50,10 @@ class JobDefinition:
         run: ワーカースレッドで実行するジョブ関数
         params: パラメータ定義
         requires_pcb: True で PCB 未選択なら開始 400
-        uses_machine: 装置を動かすか（Phase 3 では情報のみ）
+        uses_machine: 装置を動かすか。終了時のノズルキャップ駐機と、機体スピーカー
+            の完了通知音（成功 / 失敗）の対象をこれで決める
         notify_on_completion: 成功・失敗時にブラウザで終了通知するか
+            （画面表示のみ。機体スピーカーは ``uses_machine`` で決まる）
         accepts_commands: ジョブモード対話（next_command）を受けるか
         persisted_params: 起動時の値を次回フォーム既定値として保存するパラメータ名
         hidden: UI のフォーム導出から除外（POST は可）

@@ -1147,12 +1147,14 @@ class TestUpdateCurrentParams:
 
 
 class TestAudioCompletionNotification:
-    """notify_on_completion ジョブの Raspberry Pi 本体からの通知音.
+    """装置を動かすジョブ（`uses_machine=True`）の完了を機体スピーカーで知らせる.
 
-    webui-audio-output 計画書「`src/webui/jobs/manager.py`」節が契約:
+    装置の前を離れた作業者が終了に気付けるようにするための契約:
 
     - 成功 → success / 失敗 → failure を 1 回だけ鳴らす
-    - ABORTED と notify_on_completion=False は鳴らさない
+    - 手動中止（ABORTED）は鳴らさない
+    - `uses_machine=False` の即終了ジョブは成功・失敗とも鳴らさない。ブラウザ完了
+      通知の `notify_on_completion` とは独立で、フラグを立てても鳴らない
     - `[audio]` 未設定でも既定値（Machine.audio）で鳴る
     - 再生失敗は warning のみでジョブ status に影響しない
     """
@@ -1167,7 +1169,7 @@ class TestAudioCompletionNotification:
         config = _configure_audio(config_dir)
         player = FakeAudioPlayer()
         manager = make_manager(catalog, audio_player=player)
-        _register(catalog, lambda ctx: None, notify_on_completion=True)
+        _register(catalog, lambda ctx: None, uses_machine=True)
 
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
@@ -1190,7 +1192,7 @@ class TestAudioCompletionNotification:
         def fail(ctx: JobContext) -> None:
             raise RuntimeError("意図的な失敗")
 
-        _register(catalog, fail, notify_on_completion=True)
+        _register(catalog, fail, uses_machine=True)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
         wait_until(lambda: len(player.played) == 1)
@@ -1208,7 +1210,7 @@ class TestAudioCompletionNotification:
         _configure_audio(config_dir)
         player = FakeAudioPlayer()
         manager = make_manager(catalog, audio_player=player)
-        _register_gated(catalog, notify_on_completion=True)
+        _register_gated(catalog, uses_machine=True)
         record = manager.start("gated", {})
         wait_until(lambda: record.status == JobStatus.RUNNING)
 
@@ -1218,22 +1220,33 @@ class TestAudioCompletionNotification:
         assert record.status == JobStatus.ABORTED
         assert player.played == ()
 
-    def test_notification_disabled_job_does_not_play(
+    @pytest.mark.parametrize(
+        ("job_fails", "expected_status"),
+        [(False, JobStatus.SUCCEEDED), (True, JobStatus.FAILED)],
+    )
+    def test_non_machine_job_stays_silent(
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         config_dir: Path,
         wait_until: WaitUntil,
+        job_fails: bool,
+        expected_status: JobStatus,
     ):
+        """`notify_on_completion` はブラウザ通知専用で、完了音を左右しない."""
         _configure_audio(config_dir)
         player = FakeAudioPlayer()
         manager = make_manager(catalog, audio_player=player)
-        _register(catalog, lambda ctx: None, notify_on_completion=False)
 
+        def run(ctx: JobContext) -> None:
+            if job_fails:
+                raise RuntimeError("意図的な失敗")
+
+        _register(catalog, run, uses_machine=False, notify_on_completion=True)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
 
-        assert record.status == JobStatus.SUCCEEDED
+        assert record.status == expected_status
         assert player.played == ()
 
     def test_missing_audio_section_plays_with_defaults(
@@ -1245,7 +1258,7 @@ class TestAudioCompletionNotification:
         """`[audio]` を書かない fixture でも既定デバイス・既定音量で鳴る."""
         player = FakeAudioPlayer()
         manager = make_manager(catalog, audio_player=player)
-        _register(catalog, lambda ctx: None, notify_on_completion=True)
+        _register(catalog, lambda ctx: None, uses_machine=True)
 
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
@@ -1278,7 +1291,7 @@ class TestAudioCompletionNotification:
             if job_fails:
                 raise RuntimeError("job failure")
 
-        _register(catalog, run, notify_on_completion=True)
+        _register(catalog, run, uses_machine=True)
         with caplog.at_level(logging.WARNING):
             record = manager.start("synthetic", {})
             wait_until(lambda: record.status.terminal)
@@ -1294,17 +1307,19 @@ class TestAudioCompletionNotification:
         assert len(player.played) == 1
 
 
-class TestAudioPromptNotification:
-    """`PromptSpec.notify` を立てた応答待ちで、機体スピーカーが入力を促す.
+class TestAudioOperatorNotification:
+    """オペレータ待ちに入るたび、機体スピーカーが作業者を呼び戻す.
 
-    長時間の無人ジョブ（dataset 収集の計量入力など）で作業者を呼び戻すための契約:
+    装置の前を離れた作業者が応答待ちに気付けるようにするための契約:
 
-    - 応答待ちに入った時点で `prompt` を 1 回鳴らす（応答を待たない）
-    - `notify` を立てないプロンプトでは鳴らさない
+    - 応答待ちに入った時点で `prompt` を鳴らす（応答を待たない）。ジョブ側の
+      オプトインは無く、**すべての** prompt が毎回鳴らす
+    - `notify_operator()` はコマンド待ちなど prompt 以外のオペレータ待ちで
+      同じ音を鳴らす
     - プレイヤー未注入・再生失敗はジョブに影響しない
     """
 
-    def test_notifying_prompt_plays_the_input_sound_once(
+    def test_every_prompt_plays_the_input_sound(
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
@@ -1314,37 +1329,47 @@ class TestAudioPromptNotification:
         config = _configure_audio(config_dir)
         player = FakeAudioPlayer()
         manager = make_manager(catalog, audio_player=player)
-        spec = PromptSpec(kind="number", message="質量 [mg]", notify=True)
-        answers = _register_prompting(catalog, spec)
+        answers: list[object] = []
 
-        record = manager.start("prompting", {})
-        wait_until(lambda: record.pending_prompt is not None)
-        wait_until(lambda: len(player.played) == 1)
+        def run(ctx: JobContext) -> None:
+            answers.append(ctx.prompt(PromptSpec(kind="confirm", message="続行?")))
+            answers.append(ctx.prompt(PromptSpec(kind="number", message="質量 [mg]")))
 
-        assert player.played == (("prompt", config),)
-        answer_next_prompt(record, manager, 110.5, set())
+        _register(catalog, run)
+
+        record = manager.start("synthetic", {})
+        answered: set[str] = set()
+        answer_next_prompt(record, manager, True, answered)
+        answer_next_prompt(record, manager, 110.5, answered)
         wait_until(lambda: record.status.terminal)
-        assert answers == [110.5]
 
-    def test_plain_prompt_does_not_play(
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert answers == [True, 110.5]
+        assert player.played == (("prompt", config), ("prompt", config))
+
+    def test_notify_operator_plays_the_input_sound(
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         config_dir: Path,
         wait_until: WaitUntil,
     ):
-        _configure_audio(config_dir)
+        """コマンド待ち（prompt を出さないオペレータ待ち）用の明示通知."""
+        config = _configure_audio(config_dir)
         player = FakeAudioPlayer()
         manager = make_manager(catalog, audio_player=player)
-        _register_prompting(catalog, PromptSpec(kind="confirm", message="続行"))
 
-        record = manager.start("prompting", {})
-        wait_until(lambda: record.pending_prompt is not None)
-        answer_next_prompt(record, manager, True, set())
+        def run(ctx: JobContext) -> None:
+            ctx.notify_operator()
+
+        _register(catalog, run)
+
+        record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
+        wait_until(lambda: len(player.played) == 1)
 
-        assert record.status == JobStatus.SUCCEEDED
-        assert player.played == ()
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert player.played == (("prompt", config),)
 
     def test_playback_failure_does_not_block_the_prompt(
         self,
@@ -1359,7 +1384,7 @@ class TestAudioPromptNotification:
             playback_error=AudioPlaybackError("speaker disconnected")
         )
         manager = make_manager(catalog, audio_player=player)
-        spec = PromptSpec(kind="number", message="質量 [mg]", notify=True)
+        spec = PromptSpec(kind="number", message="質量 [mg]")
         answers = _register_prompting(catalog, spec)
 
         with caplog.at_level(logging.WARNING):
@@ -1378,7 +1403,7 @@ class TestAudioPromptNotification:
         wait_until: WaitUntil,
     ):
         manager = make_manager(catalog)
-        spec = PromptSpec(kind="number", message="質量 [mg]", notify=True)
+        spec = PromptSpec(kind="number", message="質量 [mg]")
         answers = _register_prompting(catalog, spec)
 
         record = manager.start("prompting", {})
@@ -1388,6 +1413,51 @@ class TestAudioPromptNotification:
 
         assert record.status == JobStatus.SUCCEEDED
         assert answers == [110.5]
+
+    def test_notify_operator_stays_silent_after_abort(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        config_dir: Path,
+        wait_until: WaitUntil,
+    ):
+        """Abort 済みなら鳴らさない（死んだジョブの前へ呼び戻さないため）."""
+        _configure_audio(config_dir)
+        player = FakeAudioPlayer()
+        manager = make_manager(catalog, audio_player=player)
+        started = threading.Event()
+        abort_requested = threading.Event()
+
+        def run(ctx: JobContext) -> None:
+            started.set()
+            abort_requested.wait(timeout=10.0)
+            ctx.notify_operator()
+            ctx.checkpoint()
+
+        _register(catalog, run)
+
+        record = manager.start("synthetic", {})
+        started.wait(timeout=10.0)
+        assert manager.request_abort() is True
+        abort_requested.set()
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.ABORTED
+        assert player.played == ()
+
+    def test_notify_operator_without_audio_player_is_a_noop(
+        self,
+        make_manager: ManagerFactory,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+    ):
+        manager = make_manager(catalog)
+        _register(catalog, lambda ctx: ctx.notify_operator())
+
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
 
 
 class TestShutdown:
