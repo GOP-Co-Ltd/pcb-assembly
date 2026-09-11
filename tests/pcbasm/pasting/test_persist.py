@@ -116,6 +116,68 @@ class TestInitialPurgePoint:
         assert restored.initial_purge_point is None
 
 
+class TestFlowCalibrationPoint:
+    """流量キャリブレーション起点は ``settings.flow_calibration_point`` に残す."""
+
+    def test_doc_carries_the_point_when_set(self):
+        model = PasteSettingsModel(
+            base=_base(), flow_calibration_point=Point2d(9.5, 2.25)
+        )
+
+        doc = encode_board_settings(model, source_pcb="a")
+
+        assert doc["settings"]["flow_calibration_point"] == [9.5, 2.25]
+
+    def test_doc_omits_the_point_when_unset(self):
+        doc = encode_board_settings(PasteSettingsModel(base=_base()), source_pcb="a")
+
+        assert "flow_calibration_point" not in doc["settings"]
+
+    def test_round_trip_restores_the_point(self):
+        model = PasteSettingsModel(
+            base=_base(), flow_calibration_point=Point2d(9.5, 2.25)
+        )
+
+        restored = _decode(encode_board_settings(model, source_pcb="a"))
+
+        assert restored.flow_calibration_point == Point2d(9.5, 2.25)
+
+    def test_missing_point_decodes_to_none(self):
+        restored = _decode({"version": 1, "settings": {}})
+
+        assert restored.flow_calibration_point is None
+
+    def test_is_independent_of_the_initial_purge_point(self):
+        model = PasteSettingsModel(
+            base=_base(),
+            initial_purge_point=Point2d(1.0, 2.0),
+            flow_calibration_point=Point2d(9.5, 2.25),
+        )
+
+        restored = _decode(encode_board_settings(model, source_pcb="a"))
+
+        assert restored.initial_purge_point == Point2d(1.0, 2.0)
+        assert restored.flow_calibration_point == Point2d(9.5, 2.25)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            [1.0],
+            [1.0, 2.0, 3.0],
+            ["1.0", "2.0"],
+            {"x": 1.0, "y": 2.0},
+            [float("nan"), 0.0],
+        ],
+    )
+    def test_malformed_point_decodes_to_none(self, value: object):
+        # 壊れた保存内容でページを開けなくしない（pad id と同じく黙って捨てる）
+        restored = _decode(
+            {"version": 1, "settings": {"flow_calibration_point": value}}
+        )
+
+        assert restored.flow_calibration_point is None
+
+
 class TestRoundTrip:
     def test_levels_enum_and_auto_height_survive(self):
         model = PasteSettingsModel(

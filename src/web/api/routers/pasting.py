@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.initial_purge import validate_initial_purge
 from pcbasm.pasting.params import validate_field_names, validate_param_values
+from pcbasm.pasting.paste_volume.runtime import validate_flow_calibration_point
 from pcbasm.pasting.route import routed_enabled_pads
 from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pcb import Layer
@@ -27,6 +28,8 @@ from web.api.dependencies import (
     StoreDep,
 )
 from web.api.routers.pasting_view import (
+    FlowCalibrationPatch,
+    FlowCalibrationResponse,
     InitialPurgePatch,
     InitialPurgeResponse,
     Loaded,
@@ -44,6 +47,7 @@ from web.api.routers.pasting_view import (
     affected_pads_for_ids,
     build_copper,
     build_fill_path,
+    build_flow_calibration,
     build_initial_purge,
     build_pad_config,
     build_route,
@@ -218,6 +222,53 @@ def patch_initial_purge(
         ),
     )
     return InitialPurgeResponse(initial_purge=build_initial_purge(updated))
+
+
+@router.patch("/pasting/pad-config/flow-calibration")
+def patch_flow_calibration(
+    body: FlowCalibrationPatch,
+    state: StateDep,
+    settings: SettingsDep,
+    board_store: BoardStoreDep,
+    _control: ControlDep,
+) -> FlowCalibrationResponse:
+    """運転時流量キャリブレーションの起点を即時保存し、解決済み設定を返す.
+
+    測定点数・塗布量・校正ファイルは machine 設定なので
+    ``PUT /api/settings/machine`` 側で扱う。
+    ここは基板ごとの座標だけを持つ。
+    """
+    loaded = load_board(state, settings, board_store)
+    _check_expected_pcb(body.expected_pcb, loaded)
+    if "point" not in body.model_fields_set:
+        return FlowCalibrationResponse(flow_calibration=build_flow_calibration(loaded))
+
+    next_point = _flow_calibration_point(body.point)
+    error = validate_flow_calibration_point(
+        point=next_point, outline=loaded.pcb.outline.polygon
+    )
+    if error is not None:
+        raise HTTPException(status_code=400, detail=error)
+    model = board_store.update(
+        loaded.source_pcb,
+        loaded.base_config,
+        board_signature=loaded.board_signature,
+        mutate=lambda current: current.with_flow_calibration_point(next_point),
+    )
+    updated = attrs.evolve(loaded, model=model)
+    return FlowCalibrationResponse(flow_calibration=build_flow_calibration(updated))
+
+
+def _flow_calibration_point(value: list[float] | None) -> Point2d | None:
+    """API 入力の ``[x, y]`` を Point2d へ正規化する（``None`` は指定解除）."""
+    if value is None:
+        return None
+    if len(value) != 2:
+        raise HTTPException(
+            status_code=400,
+            detail="流量キャリブレーション位置は [x, y] の 2 要素で指定してください",
+        )
+    return Point2d(value[0], value[1])
 
 
 def _check_expected_pcb(expected_pcb: str | None, loaded: Loaded) -> None:

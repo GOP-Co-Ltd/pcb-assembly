@@ -545,3 +545,62 @@ class TestAudioFields:
         assert "キャリブレーション値 2026/06/08" in text
         assert "[reference_point.offsets] # [x, y]で記述" in text
         assert "volume = 0.5" in text
+
+
+class TestFlowCalibrationFields:
+    """運転時流量キャリブレーション設定の読み書き."""
+
+    _PREFIX = "paste_dispenser.flow_calibration"
+
+    def test_every_field_is_whitelisted(self):
+        keys = {spec.key for spec in MACHINE_FIELDS}
+
+        assert {
+            f"{self._PREFIX}.calibration_file",
+            f"{self._PREFIX}.amount_ul",
+            f"{self._PREFIX}.crop_size_mm",
+            f"{self._PREFIX}.point_count",
+            f"{self._PREFIX}.point_pitch_mm",
+        } <= keys
+
+    def test_missing_settings_read_as_none(self, store: ConfigStore):
+        values = store.read_machine_settings()
+
+        assert values[f"{self._PREFIX}.calibration_file"] is None
+        assert values[f"{self._PREFIX}.point_count"] is None
+
+    def test_write_creates_the_nested_section(self, store: ConfigStore):
+        store.write_machine_settings(
+            {
+                f"{self._PREFIX}.calibration_file": "cal.paste-volume.json",
+                f"{self._PREFIX}.amount_ul": 0.25,
+                f"{self._PREFIX}.point_count": 5,
+            }
+        )
+
+        values = store.read_machine_settings()
+
+        assert values[f"{self._PREFIX}.calibration_file"] == "cal.paste-volume.json"
+        assert values[f"{self._PREFIX}.amount_ul"] == 0.25
+        assert values[f"{self._PREFIX}.point_count"] == 5
+
+    def test_zero_points_is_accepted_as_the_way_to_disable(self, store: ConfigStore):
+        store.write_machine_settings({f"{self._PREFIX}.point_count": 0})
+
+        assert store.read_machine_settings()[f"{self._PREFIX}.point_count"] == 0
+
+    def test_an_empty_file_name_is_accepted_as_the_way_to_disable(
+        self, store: ConfigStore
+    ):
+        store.write_machine_settings({f"{self._PREFIX}.calibration_file": ""})
+
+        assert store.read_machine_settings()[f"{self._PREFIX}.calibration_file"] == ""
+
+    def test_rejects_a_negative_point_count(self, store: ConfigStore):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings({f"{self._PREFIX}.point_count": -1})
+
+    @pytest.mark.parametrize("key", ["amount_ul", "crop_size_mm", "point_pitch_mm"])
+    def test_rejects_non_positive_dimensions(self, store: ConfigStore, key: str):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings({f"{self._PREFIX}.{key}": 0.0})

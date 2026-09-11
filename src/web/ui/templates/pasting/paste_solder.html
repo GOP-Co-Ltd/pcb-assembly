@@ -41,6 +41,35 @@
   {% if show_loading_controls %}
   {% include "partials/loading_controls.html" %}
   {% endif %}
+{% if flow_calibration_fields %}
+{# 運転時流量キャリブレーション（machine 全体設定）。起点の座標は pad editor 側。 #}
+<form class="paste-flow-calibration" data-testid="paste-flow-calibration" data-requires-control
+      data-machine-settings data-endpoint="/api/settings/machine">
+  <h3>流量キャリブレーション</h3>
+  {% for field in flow_calibration_fields %}
+  <label for="pfc-{{ field.key }}">{{ field.label }}
+    {% if field.key == flow_calibration_file_key %}
+    <input id="pfc-{{ field.key }}" name="{{ field.key }}"
+           data-type="{{ field.value_type }}" type="text"
+           aria-label="{{ field.label }}"
+           value="{{ field.value if field.value is not none else '' }}"
+           placeholder="未設定（補正しません）"
+           data-calibration-picker data-calibration-empty="補正しない"
+           data-allow-empty="true"
+           data-testid="flow-calibration-{{ field.key }}">
+    {% else %}
+    <input id="pfc-{{ field.key }}" name="{{ field.key }}"
+           data-type="{{ field.value_type }}" type="number" step="any" min="0"
+           aria-label="{{ field.label }}"
+           value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
+           placeholder="未設定"
+           data-testid="flow-calibration-{{ field.key }}">
+    {% endif %}
+    {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+  </label>
+  {% endfor %}
+</form>
+{% endif %}
   </div>
 {% if show_preview %}
 {# ジョブ提供フレームのみ表示（オーバーレイ切替なし・既定の none） #}
@@ -62,5 +91,6 @@
 <script src="{{ static_asset('js/loading_controls.js') }}"></script>
 {% endif %}
 <script type="module" src="{{ static_asset('js/pad_editor/index.js') }}"></script>
+<script src="{{ static_asset('js/paste_volume_calibrations.js') }}"></script>
 <script src="{{ static_asset('js/settings.js') }}"></script>
 {% endblock %}

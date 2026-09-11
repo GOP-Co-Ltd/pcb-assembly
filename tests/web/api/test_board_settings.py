@@ -254,6 +254,32 @@ class TestInitialPurgePoint:
 
         assert pruned.initial_purge_point == Point2d(10.0, 12.0)
 
+    def test_prune_keeps_a_flow_calibration_point_inside_the_outline(
+        self, tmp_path: Path
+    ):
+        store = BoardSettingsStore(tmp_path)
+        model = store.load_or_init("boards/a.kicad_pcb", _base_config())
+        edited = model.with_flow_calibration_point(Point2d(10.0, 12.0))
+
+        pruned = store.prune(
+            "boards/a.kicad_pcb", edited, _hierarchy(), outline=_outline()
+        )
+
+        assert pruned.flow_calibration_point == Point2d(10.0, 12.0)
+
+    def test_prune_clears_a_flow_calibration_point_outside_the_outline(
+        self, tmp_path: Path
+    ):
+        store = BoardSettingsStore(tmp_path)
+        model = store.load_or_init("boards/a.kicad_pcb", _base_config())
+        edited = model.with_flow_calibration_point(Point2d(100.0, 12.0))
+
+        pruned = store.prune(
+            "boards/a.kicad_pcb", edited, _hierarchy(), outline=_outline()
+        )
+
+        assert pruned.flow_calibration_point is None
+
     def test_prune_clears_an_initial_purge_point_outside_the_outline(
         self, tmp_path: Path
     ):

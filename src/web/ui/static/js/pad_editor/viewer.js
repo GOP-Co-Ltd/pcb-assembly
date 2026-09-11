@@ -77,6 +77,31 @@ export function renderViewer(svg, config, state) {
   renderFillPathOverlay(svg, state.fillPath);
   renderRouteOverlay(svg, state.route);
   renderPurgeMarker(svg, config.initial_purge);
+  renderFlowCalibrationMarkers(svg, config.flow_calibration);
+}
+
+function renderFlowCalibrationMarkers(svg, flow) {
+  // 実際に塗る点を全部描く。パッドやパージ点と重なっていないかは図でしか分からない
+  const points = flow?.points;
+  if (!points) return;
+  for (const [index, point] of points.entries()) {
+    const marker = svgEl("g", {
+      class: "pad-flow-calibration-marker",
+      transform: `translate(${point[0]} ${point[1]})`,
+    });
+    marker.dataset.testid = "pad-flow-calibration-marker";
+    marker.dataset.index = String(index);
+    const title = svgEl("title", {});
+    title.textContent = flow.selection_label || "流量キャリブレーション位置";
+    marker.appendChild(title);
+    marker.appendChild(
+      svgEl("circle", { r: "0.45", "vector-effect": "non-scaling-stroke" })
+    );
+    const text = svgEl("text", { y: "0.04" });
+    text.textContent = "F";
+    marker.appendChild(text);
+    svg.appendChild(marker);
+  }
 }
 
 function renderPurgeMarker(svg, purge) {

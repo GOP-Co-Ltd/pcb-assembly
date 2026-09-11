@@ -367,6 +367,205 @@ class TestInitialPurgePoint:
         assert response.status_code == 400
 
 
+class TestFlowCalibrationPoint:
+    """PATCH flow-calibration の座標指定（machine 設定とは別入口）."""
+
+    def test_is_unset_and_disabled_by_default(self, selected_client: TestClient):
+        flow = _get_config(selected_client)["flow_calibration"]
+
+        assert flow["point"] is None
+        assert flow["points"] is None
+        assert flow["enabled"] is False
+        assert "未設定" in flow["selection_label"]
+
+    def test_patch_saves_the_point(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/flow-calibration",
+            json={"point": [15.0, 4.0]},
+        )
+
+        assert response.status_code == 200, response.text
+        flow = response.json()["flow_calibration"]
+        assert flow["point"] == pytest.approx([15.0, 4.0])
+        assert "15.00" in flow["selection_label"]
+
+        doc = _saved_board_settings_doc(webui_settings)
+        assert doc["settings"]["flow_calibration_point"] == pytest.approx([15.0, 4.0])
+
+    def test_saved_point_survives_a_reload(self, selected_client: TestClient):
+        saved = selected_client.patch(
+            "/api/pasting/pad-config/flow-calibration",
+            json={"point": [15.0, 4.0]},
+        )
+        assert saved.status_code == 200, saved.text
+
+        flow = _get_config(selected_client)["flow_calibration"]
+
+        assert flow["point"] == pytest.approx([15.0, 4.0])
+
+    def test_null_point_returns_to_unset(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
+        saved = selected_client.patch(
+            "/api/pasting/pad-config/flow-calibration",
+            json={"point": [15.0, 4.0]},
+        )
+        assert saved.status_code == 200, saved.text
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/flow-calibration",
+            json={"point": None},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["flow_calibration"]["point"] is None
+        doc = _saved_board_settings_doc(webui_settings)
+        assert "flow_calibration_point" not in doc["settings"]
+
+    def test_point_outside_the_outline_returns_400(self, selected_client: TestClient):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/flow-calibration",
+            json={"point": [999.0, 999.0]},
+        )
+
+        assert response.status_code == 400
+        assert "基板外形" in response.json()["detail"]
+
+    @pytest.mark.parametrize("value", [[15.0], [15.0, 4.0, 1.0]])
+    def test_malformed_point_returns_400(
+        self, selected_client: TestClient, value: list[float]
+    ):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/flow-calibration",
+            json={"point": value},
+        )
+
+        assert response.status_code == 400
+
+    def test_an_empty_body_reports_the_current_state_without_saving(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
+        response = selected_client.patch(
+            "/api/pasting/pad-config/flow-calibration", json={}
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["flow_calibration"]["point"] is None
+        assert not list(
+            (webui_settings.webui_data_dir / "board_settings").rglob("*.json")
+        )
+
+    def test_points_appear_once_the_machine_setting_is_enabled(
+        self, selected_client: TestClient
+    ):
+        enabled = selected_client.put(
+            "/api/settings/machine",
+            json={
+                "values": {
+                    "paste_dispenser.flow_calibration.calibration_file": "cal.json"
+                }
+            },
+        )
+        assert enabled.status_code == 200, enabled.text
+        saved = selected_client.patch(
+            "/api/pasting/pad-config/flow-calibration",
+            json={"point": [10.0, 4.0]},
+        )
+        assert saved.status_code == 200, saved.text
+
+        flow = saved.json()["flow_calibration"]
+
+        assert flow["enabled"] is True
+        assert flow["points"] is not None
+        assert len(flow["points"]) == flow["point_count"]
+        assert flow["points"][0] == pytest.approx([10.0, 4.0])
+
+    def test_zero_points_disables_measurement_while_keeping_the_point(
+        self, selected_client: TestClient
+    ):
+        configured = selected_client.put(
+            "/api/settings/machine",
+            json={
+                "values": {
+                    "paste_dispenser.flow_calibration.calibration_file": "cal.json",
+                    "paste_dispenser.flow_calibration.point_count": 0,
+                }
+            },
+        )
+        assert configured.status_code == 200, configured.text
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/flow-calibration",
+            json={"point": [10.0, 4.0]},
+        )
+
+        assert response.status_code == 200, response.text
+        flow = response.json()["flow_calibration"]
+        assert flow["enabled"] is False
+        assert flow["point"] == pytest.approx([10.0, 4.0])
+        assert flow["points"] is None
+        assert "測定点数 0" in flow["selection_label"]
+
+    def test_a_row_running_off_the_board_is_reported_without_failing(
+        self, selected_client: TestClient
+    ):
+        """起点は基板内でも並びがはみ出すことはある。保存は通し、理由を載せる."""
+        configured = selected_client.put(
+            "/api/settings/machine",
+            json={
+                "values": {
+                    "paste_dispenser.flow_calibration.calibration_file": "cal.json",
+                    "paste_dispenser.flow_calibration.point_pitch_mm": 200.0,
+                }
+            },
+        )
+        assert configured.status_code == 200, configured.text
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/flow-calibration",
+            json={"point": [10.0, 4.0]},
+        )
+
+        assert response.status_code == 200, response.text
+        flow = response.json()["flow_calibration"]
+        assert flow["points"] is None
+        assert flow["error"] is not None
+        assert "基板外形" in flow["error"]
+        # 画面の本文は selection_label だけなので、理由はそこにも出す
+        assert "基板外形" in flow["selection_label"]
+
+    def test_a_pitch_narrower_than_the_crop_is_reported_without_failing(
+        self, selected_client: TestClient
+    ):
+        """Crop へ隣のドットが写り込む設定。machine.toml は読めたまま理由を出す."""
+        configured = selected_client.put(
+            "/api/settings/machine",
+            json={
+                "values": {
+                    "paste_dispenser.flow_calibration.calibration_file": "cal.json",
+                    "paste_dispenser.flow_calibration.crop_size_mm": 4.0,
+                }
+            },
+        )
+        assert configured.status_code == 200, configured.text
+        # 片方だけ書いても machine.toml は壊れない（pad-config が引けること）
+        assert selected_client.get("/api/pasting/pad-config").status_code == 200
+
+        response = selected_client.patch(
+            "/api/pasting/pad-config/flow-calibration",
+            json={"point": [10.0, 4.0]},
+        )
+
+        assert response.status_code == 200, response.text
+        flow = response.json()["flow_calibration"]
+        assert flow["points"] is None
+        assert flow["error"] is not None
+        assert "crop" in flow["error"]
+        assert "crop" in flow["selection_label"]
+
+
 class TestPadConfigCopper:
     """GET pad-config/copper は表示用に簡略化した銅箔島を返す."""
 

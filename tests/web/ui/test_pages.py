@@ -744,6 +744,39 @@ class TestPastingJobPages:
         assert "Auto線塗布しきい縦横比" in text
         assert "Auto面塗布しきい短辺倍率" in text
 
+    def test_paste_solder_renders_flow_calibration_settings(self, client: TestClient):
+        """流量キャリブレーション設定がはんだ塗布ページの即保存フォームに出る.
+
+        校正ファイルは保存済み校正の <select> へ差し替える。
+
+        差し替え役の JS と目印の data 属性が要る。
+        """
+        text = client.get("/pasting/paste_solder").text
+
+        assert "paste-flow-calibration" in text
+        for key in (
+            "paste_dispenser.flow_calibration.calibration_file",
+            "paste_dispenser.flow_calibration.amount_ul",
+            "paste_dispenser.flow_calibration.crop_size_mm",
+            "paste_dispenser.flow_calibration.point_count",
+            "paste_dispenser.flow_calibration.point_pitch_mm",
+        ):
+            assert key in text
+        assert "data-calibration-picker" in text
+        # 空の選択肢が「補正しない」として保存されるための目印
+        assert 'data-allow-empty="true"' in text
+        assert "paste_volume_calibrations.js" in text
+
+    def test_paste_solder_renders_the_flow_calibration_point_tools(
+        self, client: TestClient
+    ):
+        """測定点の座標は基板ごとの設定なので pad editor 側で指定する."""
+        text = client.get("/pasting/paste_solder").text
+
+        assert "pad-flow-calibration-tools" in text
+        assert "pad-set-flow-calibration-point" in text
+        assert "pad-clear-flow-calibration-point" in text
+
     def test_paste_solder_renders_initial_purge_position_controls(
         self, client: TestClient
     ):
@@ -1321,6 +1354,7 @@ class TestPastingPadEditor:
         assert 'id="pad-initial-purge"' not in text
         assert "初回パージ" not in text
         assert "paste-auto-thresholds" not in text
+        assert "paste-flow-calibration" not in text
         # セル格子・量スイープ・view のジョブパラメータを描く
         assert 'id="param-plate_width"' in text
         assert 'id="param-cell_size"' in text

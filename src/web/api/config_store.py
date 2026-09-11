@@ -91,6 +91,35 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
         "paste_dispenser.prime_extra_delay", "プライム後の追加遅延", "float", "s"
     ),
     FieldSpec("paste_dispenser.initial_purge_ul", "初回パージ量", "float", "uL"),
+    # [paste_dispenser.flow_calibration] — 運転時流量キャリブレーション
+    FieldSpec(
+        "paste_dispenser.flow_calibration.calibration_file",
+        "校正ファイル",
+        "str",
+    ),
+    FieldSpec(
+        "paste_dispenser.flow_calibration.amount_ul",
+        "1点あたりの塗布量",
+        "float",
+        "uL",
+    ),
+    FieldSpec(
+        "paste_dispenser.flow_calibration.crop_size_mm",
+        "撮影crop寸法",
+        "float",
+        "mm",
+    ),
+    FieldSpec(
+        "paste_dispenser.flow_calibration.point_count",
+        "測定点数",
+        "int",
+    ),
+    FieldSpec(
+        "paste_dispenser.flow_calibration.point_pitch_mm",
+        "測定点の間隔",
+        "float",
+        "mm",
+    ),
     FieldSpec("paste_dispenser.bead_width_factor", "ビード幅係数", "float"),
     FieldSpec("paste_dispenser.overlap", "ジグザグ行間オーバーラップ", "float"),
     FieldSpec("paste_dispenser.boundary_margin", "外周マージン", "float", "mm"),
@@ -213,6 +242,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     if error := validate_region_overlap(coerced_float):
                         raise UnknownFieldError(error)
                 if spec.key in {
+                    "paste_dispenser.flow_calibration.amount_ul",
+                    "paste_dispenser.flow_calibration.crop_size_mm",
+                    "paste_dispenser.flow_calibration.point_pitch_mm",
                     "paste_dispenser.pad_align.board_edge_margin",
                     "paste_dispenser.pad_align.converge_tolerance",
                     "paste_dispenser.pad_align.max_correction",
@@ -256,6 +288,12 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     and value < 1
                 ):
                     raise UnknownFieldError(f"{spec.key}: 1以上の値が必要です")
+                # 0 は「測定しない」。運転者が機能を切る唯一の入口なので弾かない
+                if (
+                    spec.key == "paste_dispenser.flow_calibration.point_count"
+                    and value < 0
+                ):
+                    raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
                 return value
         case "str":
             if isinstance(value, str):

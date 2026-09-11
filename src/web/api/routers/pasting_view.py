@@ -22,7 +22,7 @@ import attrs
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from pcbasm.config import PasteDispenser
+from pcbasm.config import FlowCalibration, PasteDispenser
 from pcbasm.geometry import Point2d, display_rings
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.initial_purge import (
@@ -30,6 +30,10 @@ from pcbasm.pasting.initial_purge import (
     resolve_initial_purge_for,
 )
 from pcbasm.pasting.params import PASTE_PARAM_FIELDS, PasteParamValue
+from pcbasm.pasting.paste_volume.runtime import (
+    FlowCalibrationPlan,
+    plan_flow_calibration,
+)
 from pcbasm.pasting.route import plan_paste_route, routed_enabled_pads
 from pcbasm.pasting.settings import (
     PasteSettingsModel,
@@ -148,6 +152,29 @@ class InitialPurgeResponse(BaseModel):
     initial_purge: InitialPurgeInfo
 
 
+class FlowCalibrationInfo(BaseModel):
+    """運転時流量キャリブレーションの設定とサーバ側解決結果.
+
+    machine.toml 側（校正ファイル・点数・塗布量）と基板側（起点座標）の両方が
+    そろってはじめて動く。
+    どちらが欠けているかは ``selection_label`` に出す。
+    """
+
+    enabled: bool  # machine.toml 側が有効か
+    point: list[float] | None  # 基板ごとの起点（``None`` = 未設定）
+    points: list[list[float]] | None  # 実際に塗る点（無効・未設定なら ``None``）
+    point_count: int
+    amount_ul: float
+    selection_label: str
+    error: str | None
+
+
+class FlowCalibrationResponse(BaseModel):
+    """PATCH 流量キャリブレーション位置のレスポンス."""
+
+    flow_calibration: FlowCalibrationInfo
+
+
 class ChoiceInfo(BaseModel):
     """選択式パラメータの 1 選択肢."""
 
@@ -177,6 +204,7 @@ class PadConfigResponse(BaseModel):
     height: float
     defaults: ResolvedSettings  # machine.toml 由来の基板デフォルト
     initial_purge: InitialPurgeInfo
+    flow_calibration: FlowCalibrationInfo
     tree: HierNodeInfo  # L0 ルートの階層ツリー（構造のみ）
     pads: list[PadInfo]
     overrides: dict[str, NodeOverrideInfo]  # node_id -> 明示 override（疎、L0 含む）
@@ -273,6 +301,16 @@ class InitialPurgePatch(BaseModel):
 
     initial_purge_ul: float | None = None
     point: list[float] | None = None  # board 座標 [x, y]（``None`` で自動へ戻す）
+    expected_pcb: str | None = None  # 編集開始時の PCB（不一致なら 409）
+
+
+class FlowCalibrationPatch(BaseModel):
+    """PATCH /api/pasting/pad-config/flow-calibration のリクエスト.
+
+    測定点数・塗布量・校正ファイルは machine 設定なので、ここでは扱わない。
+    """
+
+    point: list[float] | None = None  # board 座標 [x, y]（``None`` で未設定へ戻す）
     expected_pcb: str | None = None  # 編集開始時の PCB（不一致なら 409）
 
 
@@ -418,6 +456,55 @@ def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
     )
 
 
+def build_flow_calibration(loaded: Loaded) -> FlowCalibrationInfo:
+    """ロード済みコンテキストから流量キャリブレーションの解決結果を返す.
+
+    設定が不正（起点が基板外など）でもここでは 400 にしない。
+
+    塗布を始める前にページで直せるよう、理由を載せて返す。
+    """
+    config = loaded.base_config.flow_calibration
+    point = loaded.model.flow_calibration_point
+    plan, error = plan_flow_calibration(
+        config=config, point=point, outline=loaded.pcb.outline.polygon
+    )
+    return FlowCalibrationInfo(
+        enabled=config.enabled,
+        point=None if point is None else [point.x, point.y],
+        points=(
+            None
+            if plan is None
+            else [[candidate.x, candidate.y] for candidate in plan.points]
+        ),
+        point_count=config.point_count,
+        amount_ul=config.amount_ul,
+        selection_label=_flow_calibration_label(config, point, plan, error),
+        error=error,
+    )
+
+
+def _flow_calibration_label(
+    config: FlowCalibration,
+    point: Point2d | None,
+    plan: FlowCalibrationPlan | None,
+    error: str | None,
+) -> str:
+    """流量キャリブレーションの状態を表示用文字列に組む（サーバー側で確定させる）.
+
+    JS は本文にこれしか出さないので、補正されない理由はここへ入れる。
+    """
+    if point is None:
+        return "未設定（補正しません）"
+    position = f"({point.x:.2f}, {point.y:.2f}) mm"
+    if plan is not None:
+        return f"{position} から {len(plan.points)} 点 x {plan.amount_ul:.3f} uL"
+    if error is not None:
+        return f"{position}（{error}）"
+    if not config.calibration_file:
+        return f"{position}（校正ファイル未設定のため補正しません）"
+    return f"{position}（測定点数 0 のため補正しません）"
+
+
 def _purge_selection_label(point: Point2d | None, default_point: Point2d | None) -> str:
     """パージ位置の指定内容を表示用文字列に組む（サーバー側で確定させる）."""
     if point is not None:
@@ -518,6 +605,7 @@ def build_pad_config(loaded: Loaded) -> PadConfigResponse:
         height=outline.height,
         defaults=resolved_default(model),
         initial_purge=build_initial_purge(loaded),
+        flow_calibration=build_flow_calibration(loaded),
         tree=tree(hierarchy.root, model, node_resolved),
         pads=pads,
         overrides=overrides(model),

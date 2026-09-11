@@ -153,11 +153,12 @@ def fit_session(
 
     predicted = tuple(model.volume_ul(cell.diameter.diameter_mm) for cell in cells)
     metadata = session.metadata
+    moment = created_at or datetime.now(UTC)
     calibration = PasteVolumeCalibration(
         kind=CALIBRATION_KIND,
         schema_version=CALIBRATION_SCHEMA_VERSION,
-        created_at=(created_at or datetime.now(UTC)).isoformat(),
-        label=label or _default_label(session),
+        created_at=moment.isoformat(),
+        label=label or _default_label(session, moment),
         conditions=CalibrationConditions(
             paste_id=metadata.paste.paste_id,
             paste_lot=metadata.paste.lot,
@@ -274,12 +275,17 @@ def _diagnostics(
     )
 
 
-def _default_label(session: DatasetSession) -> str:
-    """条件から校正の表示名を組み立てる（ペースト / ノズル径 / 塗布高さ）."""
+def _default_label(session: DatasetSession, created_at: datetime) -> str:
+    """条件と生成時刻から校正の表示名を組み立てる.
+
+    ペースト・ノズル径・塗布高さだけだと、同条件で採り直した校正が同じ名前になり、WebUI の選択肢で見分けられない。
+    時刻は運転者の地方時で入れる。
+    """
     metadata = session.metadata
     return (
         f"{metadata.paste.paste_id} / n{metadata.nozzle.diameter_mm:.2f} / "
-        f"h{metadata.config.paste_height_mm:.2f}"
+        f"h{metadata.config.paste_height_mm:.2f} / "
+        f"{created_at.astimezone().strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
 

@@ -139,6 +139,23 @@ PASTE_AUTO_THRESHOLD_KEYS = (
 # はんだ塗布ページに即保存フォームで載せるpad逐次位置合わせ設定
 PASTE_PAD_REFINEMENT_KEYS = ("paste_dispenser.pad_align.refine_max_short_side",)
 
+# はんだ塗布ページに即保存フォームで載せる運転時流量キャリブレーション設定。
+# 起点の座標だけは基板ごとの設定なので pad editor 側で編集する。
+PASTE_FLOW_CALIBRATION_KEYS = (
+    "paste_dispenser.flow_calibration.calibration_file",
+    "paste_dispenser.flow_calibration.amount_ul",
+    "paste_dispenser.flow_calibration.crop_size_mm",
+    "paste_dispenser.flow_calibration.point_count",
+    "paste_dispenser.flow_calibration.point_pitch_mm",
+)
+
+# 上のうち、保存済み校正の <select> へ差し替えるキー
+PASTE_FLOW_CALIBRATION_FILE_KEY = "paste_dispenser.flow_calibration.calibration_file"
+
+# 空欄の保存が「未入力」ではなく「無効にする」を意味するキー。
+# 既定では空欄は保存しないので、これが無いと一度設定した値を消せない。
+CLEARABLE_MACHINE_KEYS = frozenset({PASTE_FLOW_CALIBRATION_FILE_KEY})
+
 LOADING_ROTATION_PARAMS = ("rotations", "rate", "accel", "retract_rotations")
 
 # dispense_calibration フォームのセクション分け（表示のみ）。
@@ -233,6 +250,7 @@ SECTION_LABELS: dict[str, str] = {
     "paste_dispenser": "ペーストディスペンサー",
     "paste_dispenser.toolhead": "ペーストディスペンサー / ツールヘッド",
     "paste_dispenser.pad_align": "ペーストディスペンサー / パッド位置合わせ",
+    "paste_dispenser.flow_calibration": "ペーストディスペンサー / 流量キャリブレーション",
     "probe": "プローブ",
     "reference_point": "基準点",
     "reference_point.offsets": "基準点 / コーナーオフセット",

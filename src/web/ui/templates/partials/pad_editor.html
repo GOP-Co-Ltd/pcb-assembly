@@ -39,6 +39,18 @@
                   data-testid="pad-clear-initial-purge-point">自動に戻す</button>
         </div>
       </div>
+      <div class="pad-flow-calibration-tools" data-testid="pad-flow-calibration-tools"
+           data-requires-control>
+        <label for="pad-flow-calibration-point">流量キャリブレーション位置</label>
+        <output id="pad-flow-calibration-point" class="pad-flow-calibration-point"
+                data-testid="pad-flow-calibration-point" aria-live="polite">未設定</output>
+        <div class="pad-flow-calibration-actions">
+          <button type="button" id="pad-set-flow-calibration-point"
+                  data-testid="pad-set-flow-calibration-point">測定位置を設定</button>
+          <button type="button" id="pad-clear-flow-calibration-point"
+                  data-testid="pad-clear-flow-calibration-point">未設定に戻す</button>
+        </div>
+      </div>
       <div class="pad-config-tools" data-testid="pad-config-tools">
         {# 書き出しは読み取りなので開放。読み込みは pad-config の import #}
         <button type="button" id="pad-export-config" data-testid="pad-export-config">設定を書き出し</button>

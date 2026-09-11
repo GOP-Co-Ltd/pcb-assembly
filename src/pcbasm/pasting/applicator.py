@@ -155,6 +155,19 @@ class PasteApplicator:
     def rotations_per_ul(self) -> float:
         return self._dispenser.rotations_per_ul
 
+    def adopt_rotations_per_ul(self, rotations_per_ul: float) -> None:
+        """運転中に μL → 回転数の換算係数を差し替える.
+
+        運転時流量キャリブレーションが求めた係数を、残りの pad へ適用するための入口。
+        ``with`` を抜けずに差し替えるので AirPump の OFF→ON が入らない。
+        """
+        self._logger.info(
+            "rotations_per_ul を差し替え: %.6f → %.6f rev/uL",
+            self._dispenser.rotations_per_ul,
+            rotations_per_ul,
+        )
+        self._dispenser.set_rotations_per_ul(rotations_per_ul)
+
     def __enter__(self) -> Self:
         """ディスペンサーを有効化する（AirPump ON + Stepper Enable）."""
         self._klipper.send_gcode(self._dispenser.enable())

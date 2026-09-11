@@ -48,6 +48,8 @@ import {
     fillPathLoading: false,
     initialPurgeSaving: false,
     purgePointMode: false,
+    flowCalibrationSaving: false,
+    flowCalibrationPointMode: false,
     copper: null,
     padEls: new Map(),
     rowEls: new Map(),
@@ -77,6 +79,15 @@ import {
   );
   const initialPurgeClearButton = document.getElementById(
     "pad-clear-initial-purge-point"
+  );
+  const flowCalibrationStatus = document.getElementById(
+    "pad-flow-calibration-point"
+  );
+  const flowCalibrationSetButton = document.getElementById(
+    "pad-set-flow-calibration-point"
+  );
+  const flowCalibrationClearButton = document.getElementById(
+    "pad-clear-flow-calibration-point"
   );
 
   async function load() {
@@ -134,6 +145,7 @@ import {
     renderTable();
     renderSelectionCount();
     renderInitialPurgeControls();
+    renderFlowCalibrationControls();
     applyToolbarLock();
     syncNodePadHighlights();
   }
@@ -147,7 +159,30 @@ import {
     syncNodePadHighlights();
     renderSelectionCount();
     renderInitialPurgeControls({ syncAmount: false });
+    renderFlowCalibrationControls();
     applyToolbarLock();
+  }
+
+  function renderFlowCalibrationControls() {
+    if (!state.config) return;
+    // 表示文字列はサーバーが組む（selection_label）。ここで連結しない
+    const flow = state.config.flow_calibration;
+    if (flowCalibrationStatus) {
+      flowCalibrationStatus.textContent = flow?.selection_label || "未設定";
+      flowCalibrationStatus.title = flow?.error || "";
+      flowCalibrationStatus.dataset.mode = flow?.point ? "explicit" : "unset";
+    }
+    if (flowCalibrationSetButton) {
+      flowCalibrationSetButton.textContent = state.flowCalibrationPointMode
+        ? "クリックで位置を指定"
+        : "測定位置を設定";
+      flowCalibrationSetButton.dataset.mode = state.flowCalibrationPointMode
+        ? "picking"
+        : "idle";
+    }
+    if (flowCalibrationClearButton) {
+      flowCalibrationClearButton.title = "測定位置を消して補正しない状態へ戻す";
+    }
   }
 
   function renderInitialPurgeControls({ syncAmount = true } = {}) {
@@ -182,8 +217,18 @@ import {
 
   function setPurgePointMode(active) {
     state.purgePointMode = active;
-    svg.classList.toggle("pad-viewer-picking", active);
+    if (active) state.flowCalibrationPointMode = false;
+    svg.classList.toggle("pad-viewer-picking", active || state.flowCalibrationPointMode);
     renderInitialPurgeControls({ syncAmount: false });
+    renderFlowCalibrationControls();
+  }
+
+  function setFlowCalibrationPointMode(active) {
+    state.flowCalibrationPointMode = active;
+    if (active) state.purgePointMode = false;
+    svg.classList.toggle("pad-viewer-picking", active || state.purgePointMode);
+    renderInitialPurgeControls({ syncAmount: false });
+    renderFlowCalibrationControls();
   }
 
   for (const radio of root.querySelectorAll("input[name='pad-layer']")) {
@@ -211,6 +256,12 @@ import {
       const point = svgPoint(svg, evt);
       setPurgePointMode(false);
       patchInitialPurge({ point: [point.x, point.y] });
+      return;
+    }
+    if (state.flowCalibrationPointMode) {
+      const point = svgPoint(svg, evt);
+      setFlowCalibrationPointMode(false);
+      patchFlowCalibration({ point: [point.x, point.y] });
       return;
     }
     dragModifier = evt.shiftKey ? "add" : evt.altKey ? "remove" : "replace";
@@ -449,6 +500,25 @@ import {
     }
   }
 
+  async function patchFlowCalibration(body) {
+    if (state.locked || state.flowCalibrationSaving) return;
+    state.flowCalibrationSaving = true;
+    applyToolbarLock();
+    try {
+      await api(
+        "PATCH",
+        "/api/pasting/pad-config/flow-calibration",
+        withExpectedPcb(body)
+      );
+      await reloadConfig({});
+    } catch (err) {
+      toast(`流量キャリブレーション位置の更新失敗: ${err.message}`, false);
+    } finally {
+      state.flowCalibrationSaving = false;
+      applyToolbarLock();
+    }
+  }
+
   function focusNodePads(nodeId) {
     state.focusedNode = nodeId;
     for (const [id, row] of state.rowEls) {
@@ -521,6 +591,12 @@ import {
     if (initialPurgeClearButton) {
       initialPurgeClearButton.disabled =
         editingLocked || !state.config?.initial_purge?.point;
+    }
+    const flowLocked = state.locked || state.flowCalibrationSaving;
+    if (flowCalibrationSetButton) flowCalibrationSetButton.disabled = flowLocked;
+    if (flowCalibrationClearButton) {
+      flowCalibrationClearButton.disabled =
+        flowLocked || !state.config?.flow_calibration?.point;
     }
   }
 
@@ -599,6 +675,21 @@ import {
       if (state.locked) return;
       setPurgePointMode(false);
       patchInitialPurge({ point: null });
+    });
+  }
+
+  if (flowCalibrationSetButton) {
+    flowCalibrationSetButton.addEventListener("click", () => {
+      if (state.locked) return;
+      setFlowCalibrationPointMode(!state.flowCalibrationPointMode);
+    });
+  }
+
+  if (flowCalibrationClearButton) {
+    flowCalibrationClearButton.addEventListener("click", () => {
+      if (state.locked) return;
+      setFlowCalibrationPointMode(false);
+      patchFlowCalibration({ point: null });
     });
   }
 

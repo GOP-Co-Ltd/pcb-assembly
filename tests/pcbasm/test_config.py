@@ -8,6 +8,7 @@ from pcbasm.config import (
     CameraCrop,
     Corner,
     CornerOffsets,
+    FlowCalibration,
     Klipper,
     Machine,
     NozzleCap,
@@ -22,6 +23,14 @@ from pcbasm.config import (
 )
 from pcbasm.geometry import Point2d, Shift
 from tests.helpers import PROJECT_ROOT, TESTING_DATA_DIR
+
+
+def _machine_with(tmp_path: Path, extra: str) -> Machine:
+    """検証用 machine.toml の末尾に ``extra`` を足した Machine を作る."""
+    path = tmp_path / "machine.toml"
+    source = (TESTING_DATA_DIR / "machine.toml").read_text()
+    path.write_text(f"{source}\n{extra}", encoding="utf-8")
+    return Machine(path)
 
 
 def _paste_dispenser(**overrides):
@@ -417,6 +426,90 @@ class TestPadAlignRegionSettings:
         pad_align = PadAlign(blur_ksize=blur_ksize)
 
         assert pad_align.blur_ksize == blur_ksize
+
+
+class TestFlowCalibration:
+    """運転時流量キャリブレーション設定の公開契約."""
+
+    def test_defaults_to_a_disabled_three_point_measurement(self):
+        flow = FlowCalibration()
+
+        assert flow.calibration_file == ""
+        assert flow.amount_ul == pytest.approx(0.2)
+        assert flow.crop_size_mm == pytest.approx(2.0)
+        assert flow.point_count == 3
+        assert flow.point_pitch_mm == pytest.approx(3.0)
+        assert flow.enabled is False
+
+    def test_is_enabled_only_with_both_a_calibration_file_and_points(self):
+        assert FlowCalibration(calibration_file="c.json").enabled is True
+        assert (
+            FlowCalibration(calibration_file="c.json", point_count=0).enabled is False
+        )
+        assert FlowCalibration(point_count=3).enabled is False
+
+    def test_accepts_zero_points_as_the_way_to_turn_measurement_off(self):
+        assert (
+            FlowCalibration(calibration_file="c.json", point_count=0).point_count == 0
+        )
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("amount_ul", 0.0),
+            ("amount_ul", -0.1),
+            ("amount_ul", float("nan")),
+            ("crop_size_mm", 0.0),
+            ("crop_size_mm", -1.0),
+            ("point_count", -1),
+            ("point_count", 1.5),
+            ("point_count", True),
+            ("point_pitch_mm", 0.0),
+            ("point_pitch_mm", -1.0),
+        ],
+    )
+    def test_rejects_invalid_values(self, key, value):
+        with pytest.raises(ValueError, match=key):
+            FlowCalibration(**{key: value})
+
+    def test_accepts_a_pitch_narrower_than_the_crop(self):
+        """項目ごとに保存する WebUI では片方だけ先に書かれる.
+
+        ここで撥ねると machine.toml 全体が読めなくなるので、crop との関係は
+        plan_flow_calibration が判定する。
+        """
+        flow = FlowCalibration(crop_size_mm=4.0, point_pitch_mm=3.0)
+
+        assert flow.point_pitch_mm == pytest.approx(3.0)
+        assert flow.crop_size_mm == pytest.approx(4.0)
+
+
+class TestMachinePasteDispenserFlowCalibration:
+    """machine.toml の ``[paste_dispenser.flow_calibration]`` の読み込み."""
+
+    def test_defaults_when_the_section_is_absent(self, tmp_path):
+        machine = _machine_with(tmp_path, "")
+
+        assert machine.paste_dispenser.flow_calibration == FlowCalibration()
+
+    def test_reads_the_section_when_present(self, tmp_path):
+        machine = _machine_with(
+            tmp_path,
+            "[paste_dispenser.flow_calibration]\n"
+            'calibration_file = "cal.paste-volume.json"\n'
+            "amount_ul = 0.15\n"
+            "crop_size_mm = 2.4\n"
+            "point_count = 5\n"
+            "point_pitch_mm = 4.0\n",
+        )
+        flow = machine.paste_dispenser.flow_calibration
+
+        assert flow.calibration_file == "cal.paste-volume.json"
+        assert flow.amount_ul == pytest.approx(0.15)
+        assert flow.crop_size_mm == pytest.approx(2.4)
+        assert flow.point_count == 5
+        assert flow.point_pitch_mm == pytest.approx(4.0)
+        assert flow.enabled is True
 
 
 class TestMachineType:
