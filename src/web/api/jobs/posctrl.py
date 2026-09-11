@@ -179,6 +179,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     with ctx.open_camera() as camera:
         ctx.progress("ジョグ待機")
         ctx.log("マシン操作パネルでジョグし、Record で現在位置を記録してください")
+        ctx.notify_operator()
         while True:
             ctx.frame(_reference_point_frame(camera, detector, machine, position))
             command = ctx.next_command(timeout=0)

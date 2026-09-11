@@ -235,7 +235,7 @@ class _JobRuntime:
         preview: PreviewService,
         publish: Callable[[_Event], None],
         apply_settings: Callable[[Mapping[str, ParamValue]], None],
-        notify_prompt: Callable[[], None] = lambda: None,
+        notify_operator: Callable[[], None] = lambda: None,
     ) -> None:
         self.record = record
         self.abort_event = threading.Event()
@@ -243,7 +243,7 @@ class _JobRuntime:
         self._preview = preview
         self._publish = publish
         self._apply_settings = apply_settings
-        self._notify_prompt = notify_prompt
+        self._notify_operator = notify_operator
         self._pending_lock = threading.Lock()
         self._pending: _PendingPrompt | None = None
 
@@ -303,8 +303,7 @@ class _JobRuntime:
             }
         )
         self.publish_status()
-        if spec.notify:
-            self._notify_prompt()
+        self.notify_operator()
 
         try:
             if while_waiting is None:
@@ -340,6 +339,17 @@ class _JobRuntime:
             if self._pending is pending:
                 self._pending = None
         self.record.set_pending_prompt(None)
+
+    def notify_operator(self) -> None:
+        """オペレータ待ちに入ったことを機体スピーカーで知らせる.
+
+        abort 要求済みなら鳴らさない。待ちへ入る前にジョブが畳まれるので、鳴らすと
+        既に死んだジョブの前へ作業者を呼び戻すことになる。``checkpoint`` と違って
+        送出はしない（通知は副作用であって制御点ではない）。
+        """
+        if self.abort_event.is_set():
+            return
+        self._notify_operator()
 
     def next_command(self, timeout: float | None) -> dict[str, Any] | None:
         self.checkpoint()
@@ -466,7 +476,7 @@ class JobManager:
                 self._preview,
                 self.publish,
                 self._apply_machine_settings,
-                self._prompt_notifier(machine),
+                self._operator_notifier(machine),
             )
             artifacts_dir = self._artifacts_root / record.id
             artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -733,10 +743,10 @@ class JobManager:
         except Exception as exc:
             runtime.log(f"タスク終了時の退避に失敗: {exc}")
 
-    def _prompt_notifier(self, machine: Machine) -> Callable[[], None]:
-        """`PromptSpec.notify` の応答待ちで鳴らす入力待ち音の再生関数を作る.
+    def _operator_notifier(self, machine: Machine) -> Callable[[], None]:
+        """オペレータ待ちで鳴らす入力待ち音の再生関数を作る.
 
-        応答を待たずに戻り、再生失敗は warning のみ（プロンプトを塞がない）。
+        再生完了を待たずに戻り、再生失敗は warning のみ（待ちを塞がない）。
         """
         player = self._audio_player
         if player is None:
@@ -757,8 +767,13 @@ class JobManager:
     def _play_completion_sound(
         self, definition: JobDefinition, record: JobRecord, context: JobContext
     ) -> None:
-        """成功・失敗通知音を非同期に開始する（失敗は warning のみ）."""
-        if not definition.notify_on_completion or self._audio_player is None:
+        """成功・失敗通知音を非同期に開始する（失敗は warning のみ）.
+
+        装置を動かすジョブ（``uses_machine``）だけを鳴らす。実時間がかかり作業者が
+        装置の前を離れうるのはこの区分で、PCB 生成のような即終了ジョブは画面で足りる。
+        ブラウザ完了通知の ``notify_on_completion`` とは独立の判定。
+        """
+        if not definition.uses_machine or self._audio_player is None:
             return
         status = record.status
         if status not in (JobStatus.SUCCEEDED, JobStatus.FAILED):

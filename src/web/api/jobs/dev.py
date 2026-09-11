@@ -178,6 +178,7 @@ def _run_job_demo(ctx: JobContext) -> JobResult:
 
     if ctx.params["command_phase"]:
         ctx.log("コマンド待機中（quit で離脱）")
+        ctx.notify_operator()
         while True:
             command = ctx.next_command(timeout=None)
             if command is None:

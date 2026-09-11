@@ -5,8 +5,9 @@
 だけでよい。それ以外の設定変更は不要（フォーマットが不正なら再生時に
 :class:`AudioPlaybackError` になるので WebUI のテスト再生で分かる）。
 
-``prompt`` はジョブが応答待ちに入ったことを知らせる音で、長時間の無人ジョブ
-（dataset 収集の計量入力など）で装置の前を離れた作業者を呼び戻すのに使う。
+``prompt`` はジョブがオペレータ待ちに入ったことを知らせる音で、装置の前を離れた
+作業者を呼び戻すのに使う。``success`` / ``failure`` はジョブの終了通知。どの場面で
+どれを鳴らすかは :mod:`web.api.jobs.manager` が決める。
 """
 
 from __future__ import annotations

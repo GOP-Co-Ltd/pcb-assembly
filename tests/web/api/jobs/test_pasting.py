@@ -37,6 +37,7 @@ import cv2
 import pytest
 
 from pcbasm.hal import XYZStage
+from pcbasm.pasting.applicator import build_applicator
 from pcbasm.pasting.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_SUFFIX,
@@ -49,6 +50,7 @@ from pcbasm.pcb import PadHierarchy, PcbFile
 from tests.helpers import (
     PROJECT_ROOT,
     FakeAudioPlayer,
+    FakeKlipper,
     build_paste_volume_session,
     mark_hardware,
 )
@@ -69,7 +71,11 @@ from web.api.jobs.pasting import (
     parse_run_calib_command,
     register_pasting_jobs,
 )
-from web.api.jobs.pasting.common import prompt_positive_number
+from web.api.jobs.pasting.common import (
+    LoadingTotals,
+    prompt_positive_number,
+    run_loading_loop,
+)
 from web.api.jobs.pasting.paste_volume_calibration import (
     fit_calibration,
     verify_with_calibration,
@@ -1937,12 +1943,13 @@ class TestPasteVolumeRefit:
 
 
 class TestPromptPositiveNumberNotification:
-    """`prompt_positive_number(notify=True)` が応答待ちで通知音を鳴らす.
+    """`prompt_positive_number` が応答待ちのたびに通知音を鳴らす.
 
-    dataset 収集の計量入力のように、装置の前を離れた作業者を呼び戻す用途。
+    計量入力のように装置の前を離れた作業者を呼び戻す用途。非正の入力による再プロンプトでも 鳴らす（1
+    度目を聞き逃した作業者を呼び直すため）。
     """
 
-    def test_notifies_once_and_keeps_reprompting_until_positive(
+    def test_notifies_on_every_prompt_until_positive(
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
@@ -1953,7 +1960,7 @@ class TestPromptPositiveNumberNotification:
         answers: list[float | None] = []
 
         def run(ctx: JobContext) -> None:
-            answers.append(prompt_positive_number(ctx, "質量 [mg]", notify=True))
+            answers.append(prompt_positive_number(ctx, "質量 [mg]"))
 
         register_synthetic(catalog, run, name="mass_prompt")
 
@@ -1967,7 +1974,18 @@ class TestPromptPositiveNumberNotification:
         assert answers == [110.5]
         assert [sound for sound, _ in player.played] == ["prompt", "prompt"]
 
-    def test_stays_silent_without_notify(
+
+class TestLoadingLoopNotification:
+    """`run_loading_loop` がローディング待ちの入口で作業者を呼び戻す.
+
+    手動ペーストローディング（`loading`）と、ローディング段階を持つキャリブ各ジョブが
+    共有する入口。押出ボタンを押すたびではなく、段階に入った 1 回だけ鳴らす契約
+    （押すたびに鳴ると、装置の前に居る作業者にはただの騒音になる）。
+
+    実 `PasteApplicator` を `FakeKlipper` + 実 `XYZStage` に載せて回す。
+    """
+
+    def test_notifies_once_on_entry_and_not_per_command(
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
@@ -1975,15 +1993,28 @@ class TestPromptPositiveNumberNotification:
     ):
         player = FakeAudioPlayer()
         manager = make_manager(catalog, audio_player=player)
+        klipper = FakeKlipper()
+        stage = XYZStage(klipper.readonly)
+        totals: list[LoadingTotals] = []
 
         def run(ctx: JobContext) -> None:
-            prompt_positive_number(ctx, "質量 [mg]")
+            with build_applicator(
+                klipper, stage, ctx.machine.paste_dispenser
+            ) as applicator:
+                totals.append(run_loading_loop(ctx, klipper, stage, applicator))
 
-        register_synthetic(catalog, run, name="mass_prompt")
+        register_synthetic(catalog, run, name="loading_loop", accepts_commands=True)
 
-        record = manager.start("mass_prompt", {})
-        answer_next_prompt(record, manager, 110.5, set())
+        record = manager.start("loading_loop", {})
+        # 入口の drain を越えた合図。これを待たずに submit すると破棄されうる
+        wait_until(lambda: len(player.played) == 1)
+
+        manager.submit_command({"type": "extrude", "amount": 0.5})
+        wait_until(lambda: any("体積ローディング" in line for line in record.log_lines))
+        manager.submit_command({"type": "finish"})
         wait_until(lambda: record.status.terminal, timeout=60.0)
 
         assert record.status == JobStatus.SUCCEEDED, record.error
-        assert player.played == ()
+        assert totals == [LoadingTotals(amount_ul=0.5, rotations=0.0)]
+        # 押出コマンドを挟んでも入口の 1 回きり
+        assert [sound for sound, _ in player.played] == ["prompt"]

@@ -466,8 +466,8 @@ def live_server(
 ) -> Iterator[LiveServer]:
     """実 uvicorn の backend WebAPI を起動し、停止まで面倒を見る.
 
-    通知音は `FakeAudioPlayer` を注入する（既定の `AlsaAudioPlayer` だと完了通知付き
-    ジョブが実 `aplay` を起動して実スピーカーが鳴る）。
+    通知音は `FakeAudioPlayer` を注入する（既定の `AlsaAudioPlayer` だとジョブの
+    完了・応答待ちが実 `aplay` を起動して実スピーカーが鳴る）。
     """
     app = create_app(
         e2e_settings,
