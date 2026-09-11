@@ -73,6 +73,8 @@
     const byName = new Map(entries.map((entry) => [entry.name, entry]));
     const describe = () => {
       details.textContent = byName.get(select.value)?.details ?? "";
+      // 幅が足りず省略されたときのために全文をツールチップへ残す
+      details.title = details.textContent;
     };
     select.addEventListener("change", describe);
     describe();

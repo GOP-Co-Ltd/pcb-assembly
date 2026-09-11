@@ -56,7 +56,8 @@
         <form class="pad-flow-calibration-settings" data-testid="paste-flow-calibration"
               data-requires-control data-machine-settings data-endpoint="/api/settings/machine">
           {% for field in flow_calibration_fields %}
-          <label for="pfc-{{ field.key }}">{{ field.label }}{% if field.unit %} <span class="unit">[{{ field.unit }}]</span>{% endif %}
+          <label for="pfc-{{ field.key }}"
+                 {% if field.key == flow_calibration_file_key %}class="pad-flow-calibration-file"{% endif %}>{{ field.label }}{% if field.unit %} <span class="unit">[{{ field.unit }}]</span>{% endif %}
             {% if field.key == flow_calibration_file_key %}
             <input id="pfc-{{ field.key }}" name="{{ field.key }}"
                    data-type="{{ field.value_type }}" type="text"

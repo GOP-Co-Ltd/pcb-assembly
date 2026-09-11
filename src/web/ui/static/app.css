@@ -1290,6 +1290,27 @@ h2 {
   padding: 0.15rem 0.3rem;
 }
 
+/* 校正ファイルはファイル名が長い。選択肢が読めないと選べないので、
+   この項目だけ 1 行を丸ごと使い、条件・診断はその下へ落とす */
+.pad-flow-calibration-settings label.pad-flow-calibration-file {
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+}
+
+.pad-flow-calibration-file select,
+.pad-flow-calibration-file input {
+  flex: 1 1 18rem;
+}
+
+.pad-flow-calibration-settings .job-param-help {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+}
+
 .pad-flow-calibration-point {
   display: block;
   flex: 1 1 8rem;
