@@ -17,7 +17,9 @@ from pcbasm.pasting.paste_volume.runtime import (
     MAX_CORRECTION_SCALE,
     MIN_CORRECTION_SCALE,
     correct_rotations_per_ul,
+    overlapping_crops,
     plan_flow_calibration,
+    validate_crop_separation,
 )
 
 OUTLINE = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)])
@@ -45,24 +47,24 @@ def _rejected(reason: str) -> PasteVolumePrediction:
 
 
 class TestPlanFlowCalibration:
-    """測定点の配置."""
+    """基板ごとに 1 点ずつ与えた測定位置の検証."""
 
-    def test_lays_out_the_configured_number_of_points_along_x(self):
+    def test_keeps_the_configured_points_in_order(self):
+        points = (Point2d(10.0, 12.0), Point2d(13.0, 12.0), Point2d(16.0, 20.0))
+
         plan, error = plan_flow_calibration(
-            config=ENABLED, point=Point2d(10.0, 12.0), outline=OUTLINE
+            config=ENABLED, points=points, outline=OUTLINE
         )
 
         assert error is None
         assert plan is not None
-        assert plan.points == (
-            Point2d(10.0, 12.0),
-            Point2d(13.0, 12.0),
-            Point2d(16.0, 12.0),
-        )
+        assert plan.points == points
 
     def test_carries_the_commanded_amount_and_crop_size(self):
         plan, error = plan_flow_calibration(
-            config=ENABLED, point=Point2d(10.0, 12.0), outline=OUTLINE
+            config=ENABLED,
+            points=(Point2d(10.0, 12.0), Point2d(13.0, 12.0), Point2d(16.0, 12.0)),
+            outline=OUTLINE,
         )
 
         assert error is None
@@ -72,43 +74,26 @@ class TestPlanFlowCalibration:
         assert plan.total_commanded_ul == pytest.approx(0.6)
 
     def test_is_disabled_when_no_point_is_configured(self):
-        plan, error = plan_flow_calibration(config=ENABLED, point=None, outline=OUTLINE)
-
-        assert error is None
-        assert plan is None
-
-    def test_is_disabled_when_the_point_count_is_zero(self):
-        plan, error = plan_flow_calibration(
-            config=FlowCalibration(
-                calibration_file="cal.paste-volume.json", point_count=0
-            ),
-            point=Point2d(10.0, 12.0),
-            outline=OUTLINE,
-        )
+        plan, error = plan_flow_calibration(config=ENABLED, points=(), outline=OUTLINE)
 
         assert error is None
         assert plan is None
 
     def test_is_disabled_when_no_calibration_file_is_configured(self):
         plan, error = plan_flow_calibration(
-            config=FlowCalibration(), point=Point2d(10.0, 12.0), outline=OUTLINE
+            config=FlowCalibration(),
+            points=(Point2d(10.0, 12.0),),
+            outline=OUTLINE,
         )
 
         assert error is None
         assert plan is None
 
-    def test_rejects_a_starting_point_outside_the_board_outline(self):
+    def test_rejects_a_point_outside_the_board_outline(self):
         plan, error = plan_flow_calibration(
-            config=ENABLED, point=Point2d(-1.0, 12.0), outline=OUTLINE
-        )
-
-        assert plan is None
-        assert error is not None
-        assert "基板外形" in error
-
-    def test_rejects_a_row_that_runs_off_the_board(self):
-        plan, error = plan_flow_calibration(
-            config=ENABLED, point=Point2d(38.0, 12.0), outline=OUTLINE
+            config=ENABLED,
+            points=(Point2d(10.0, 12.0), Point2d(-1.0, 12.0)),
+            outline=OUTLINE,
         )
 
         assert plan is None
@@ -117,36 +102,57 @@ class TestPlanFlowCalibration:
 
     def test_rejects_a_non_finite_point(self):
         plan, error = plan_flow_calibration(
-            config=ENABLED, point=Point2d(math.nan, 12.0), outline=OUTLINE
+            config=ENABLED, points=(Point2d(math.nan, 12.0),), outline=OUTLINE
         )
 
         assert plan is None
         assert error is not None
 
-    def test_rejects_a_pitch_that_lets_the_next_dot_enter_the_crop(self):
+    def test_rejects_points_whose_crops_overlap(self):
+        """隣のドットが crop へ写り込むと最大連結成分が別のドットになる."""
         plan, error = plan_flow_calibration(
             config=FlowCalibration(
-                calibration_file="cal.paste-volume.json",
-                crop_size_mm=4.0,
-                point_pitch_mm=3.0,
+                calibration_file="cal.paste-volume.json", crop_size_mm=4.0
             ),
-            point=Point2d(10.0, 12.0),
+            points=(Point2d(10.0, 12.0), Point2d(13.0, 12.0)),
             outline=OUTLINE,
         )
 
         assert plan is None
         assert error is not None
-        assert "crop" in error
+        assert "撮影範囲" in error
 
-    def test_allows_a_narrow_pitch_when_only_one_point_is_measured(self):
+    def test_allows_points_whose_crops_only_touch(self):
         plan, error = plan_flow_calibration(
             config=FlowCalibration(
-                calibration_file="cal.paste-volume.json",
-                crop_size_mm=4.0,
-                point_pitch_mm=3.0,
-                point_count=1,
+                calibration_file="cal.paste-volume.json", crop_size_mm=4.0
             ),
-            point=Point2d(10.0, 12.0),
+            points=(Point2d(10.0, 12.0), Point2d(14.0, 12.0)),
+            outline=OUTLINE,
+        )
+
+        assert error is None
+        assert plan is not None
+
+    def test_separation_on_one_axis_is_enough(self):
+        """Crop は正方形なので、X が近くても Y が離れていれば重ならない."""
+        plan, error = plan_flow_calibration(
+            config=FlowCalibration(
+                calibration_file="cal.paste-volume.json", crop_size_mm=2.0
+            ),
+            points=(Point2d(10.0, 12.0), Point2d(10.0, 15.0)),
+            outline=OUTLINE,
+        )
+
+        assert error is None
+        assert plan is not None
+
+    def test_a_single_point_is_always_separated_enough(self):
+        plan, error = plan_flow_calibration(
+            config=FlowCalibration(
+                calibration_file="cal.paste-volume.json", crop_size_mm=8.0
+            ),
+            points=(Point2d(10.0, 12.0),),
             outline=OUTLINE,
         )
 
@@ -154,18 +160,56 @@ class TestPlanFlowCalibration:
         assert plan is not None
         assert plan.points == (Point2d(10.0, 12.0),)
 
-    def test_a_single_point_plan_is_just_the_configured_point(self):
-        plan, error = plan_flow_calibration(
-            config=FlowCalibration(
-                calibration_file="cal.paste-volume.json", point_count=1
-            ),
-            point=Point2d(10.0, 12.0),
-            outline=OUTLINE,
+
+class TestValidateCropSeparation:
+    """撮影範囲の重なり判定（保存では撥ねず、計画時にだけ効く）."""
+
+    def test_reports_which_pair_overlaps_with_1_based_numbers(self):
+        error = validate_crop_separation(
+            points=(Point2d(0.0, 0.0), Point2d(10.0, 0.0), Point2d(11.0, 0.0)),
+            crop_size_mm=2.0,
         )
 
-        assert error is None
-        assert plan is not None
-        assert plan.points == (Point2d(10.0, 12.0),)
+        assert error is not None
+        assert "測定位置 2 と 3" in error
+
+    def test_accepts_an_empty_set(self):
+        assert validate_crop_separation(points=(), crop_size_mm=2.0) is None
+
+    def test_rejects_a_non_positive_crop_size(self):
+        error = validate_crop_separation(points=(Point2d(0.0, 0.0),), crop_size_mm=0.0)
+
+        assert error is not None
+
+
+class TestOverlappingCrops:
+    """図で置き直しの対象を示すための、点ごとの重なりフラグ."""
+
+    def test_marks_both_points_of_an_overlapping_pair(self):
+        flags = overlapping_crops(
+            (Point2d(0.0, 0.0), Point2d(1.0, 0.0), Point2d(10.0, 0.0)),
+            crop_size_mm=2.0,
+        )
+
+        assert flags == (True, True, False)
+
+    def test_marks_nothing_when_all_are_separated(self):
+        flags = overlapping_crops(
+            (Point2d(0.0, 0.0), Point2d(3.0, 0.0)), crop_size_mm=2.0
+        )
+
+        assert flags == (False, False)
+
+    def test_agrees_with_the_validation_used_for_planning(self):
+        points = (Point2d(0.0, 0.0), Point2d(1.5, 0.0))
+
+        overlapping = any(overlapping_crops(points, crop_size_mm=2.0))
+        rejected = validate_crop_separation(points=points, crop_size_mm=2.0)
+
+        assert overlapping is (rejected is not None)
+
+    def test_a_non_positive_crop_size_marks_nothing(self):
+        assert overlapping_crops((Point2d(0.0, 0.0),), crop_size_mm=0.0) == (False,)
 
 
 class TestCorrectRotationsPerUl:

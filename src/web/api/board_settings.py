@@ -180,8 +180,13 @@ class BoardSettingsStore:
         pruned = model.without_levels(model.find_orphans(hierarchy))
         if _outside(pruned.initial_purge_point, outline):
             pruned = pruned.with_initial_purge_point(None)
-        if _outside(pruned.flow_calibration_point, outline):
-            pruned = pruned.with_flow_calibration_point(None)
+        kept = [
+            point
+            for point in pruned.flow_calibration_points
+            if not _outside(point, outline)
+        ]
+        if len(kept) != len(pruned.flow_calibration_points):
+            pruned = pruned.with_flow_calibration_points(kept)
         self.save(source_pcb, pruned, board_signature=board_signature)
         return pruned
 

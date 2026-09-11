@@ -559,22 +559,20 @@ class TestFlowCalibrationFields:
             f"{self._PREFIX}.calibration_file",
             f"{self._PREFIX}.amount_ul",
             f"{self._PREFIX}.crop_size_mm",
-            f"{self._PREFIX}.point_count",
-            f"{self._PREFIX}.point_pitch_mm",
         } <= keys
 
     def test_missing_settings_read_as_none(self, store: ConfigStore):
         values = store.read_machine_settings()
 
         assert values[f"{self._PREFIX}.calibration_file"] is None
-        assert values[f"{self._PREFIX}.point_count"] is None
+        assert values[f"{self._PREFIX}.crop_size_mm"] is None
 
     def test_write_creates_the_nested_section(self, store: ConfigStore):
         store.write_machine_settings(
             {
                 f"{self._PREFIX}.calibration_file": "cal.paste-volume.json",
                 f"{self._PREFIX}.amount_ul": 0.25,
-                f"{self._PREFIX}.point_count": 5,
+                f"{self._PREFIX}.crop_size_mm": 2.4,
             }
         )
 
@@ -582,12 +580,7 @@ class TestFlowCalibrationFields:
 
         assert values[f"{self._PREFIX}.calibration_file"] == "cal.paste-volume.json"
         assert values[f"{self._PREFIX}.amount_ul"] == 0.25
-        assert values[f"{self._PREFIX}.point_count"] == 5
-
-    def test_zero_points_is_accepted_as_the_way_to_disable(self, store: ConfigStore):
-        store.write_machine_settings({f"{self._PREFIX}.point_count": 0})
-
-        assert store.read_machine_settings()[f"{self._PREFIX}.point_count"] == 0
+        assert values[f"{self._PREFIX}.crop_size_mm"] == 2.4
 
     def test_an_empty_file_name_is_accepted_as_the_way_to_disable(
         self, store: ConfigStore
@@ -596,11 +589,7 @@ class TestFlowCalibrationFields:
 
         assert store.read_machine_settings()[f"{self._PREFIX}.calibration_file"] == ""
 
-    def test_rejects_a_negative_point_count(self, store: ConfigStore):
-        with pytest.raises(UnknownFieldError):
-            store.write_machine_settings({f"{self._PREFIX}.point_count": -1})
-
-    @pytest.mark.parametrize("key", ["amount_ul", "crop_size_mm", "point_pitch_mm"])
+    @pytest.mark.parametrize("key", ["amount_ul", "crop_size_mm"])
     def test_rejects_non_positive_dimensions(self, store: ConfigStore, key: str):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings({f"{self._PREFIX}.{key}": 0.0})

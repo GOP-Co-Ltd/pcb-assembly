@@ -31,6 +31,8 @@ import {
 
   const { api, toast } = window.webui;
   const DEBOUNCE_MS = 300;
+  // 追加モード中にこの距離まで近づけてクリックしたら、その測定位置を消す [mm]
+  const FLOW_CALIBRATION_HIT_MM = 0.5;
   const configUrl = "/api/pasting/pad-config";
   const copperUrl = "/api/pasting/pad-config/copper";
 
@@ -170,18 +172,22 @@ import {
     if (flowCalibrationStatus) {
       flowCalibrationStatus.textContent = flow?.selection_label || "未設定";
       flowCalibrationStatus.title = flow?.error || "";
-      flowCalibrationStatus.dataset.mode = flow?.point ? "explicit" : "unset";
+      flowCalibrationStatus.dataset.mode = flow?.points?.length ? "set" : "unset";
     }
     if (flowCalibrationSetButton) {
       flowCalibrationSetButton.textContent = state.flowCalibrationPointMode
-        ? "クリックで位置を指定"
-        : "測定位置を設定";
+        ? "追加を終了"
+        : "測定位置を追加";
+      flowCalibrationSetButton.title = state.flowCalibrationPointMode
+        ? "基板ビューをクリックするたび測定位置が 1 つ増えます（既存の点をクリックすると消えます）"
+        : "基板上の任意位置を測定位置として 1 点ずつ追加";
       flowCalibrationSetButton.dataset.mode = state.flowCalibrationPointMode
         ? "picking"
         : "idle";
     }
     if (flowCalibrationClearButton) {
-      flowCalibrationClearButton.title = "測定位置を消して補正しない状態へ戻す";
+      flowCalibrationClearButton.title =
+        "測定位置を全部消して補正しない状態へ戻す";
     }
   }
 
@@ -259,9 +265,8 @@ import {
       return;
     }
     if (state.flowCalibrationPointMode) {
-      const point = svgPoint(svg, evt);
-      setFlowCalibrationPointMode(false);
-      patchFlowCalibration({ point: [point.x, point.y] });
+      // 1 点ずつ増やす。続けて置けるようモードは抜けない
+      toggleFlowCalibrationPointAt(svgPoint(svg, evt));
       return;
     }
     dragModifier = evt.shiftKey ? "add" : evt.altKey ? "remove" : "replace";
@@ -500,6 +505,21 @@ import {
     }
   }
 
+  // クリック位置が既存の測定位置なら消し、そうでなければ末尾へ足す
+  function toggleFlowCalibrationPointAt(point) {
+    const points = state.config?.flow_calibration?.points || [];
+    const hit = points.findIndex(
+      (candidate) =>
+        Math.hypot(candidate[0] - point.x, candidate[1] - point.y) <
+        FLOW_CALIBRATION_HIT_MM
+    );
+    const next =
+      hit >= 0
+        ? points.filter((_, index) => index !== hit)
+        : [...points, [point.x, point.y]];
+    patchFlowCalibration({ points: next });
+  }
+
   async function patchFlowCalibration(body) {
     if (state.locked || state.flowCalibrationSaving) return;
     state.flowCalibrationSaving = true;
@@ -596,7 +616,7 @@ import {
     if (flowCalibrationSetButton) flowCalibrationSetButton.disabled = flowLocked;
     if (flowCalibrationClearButton) {
       flowCalibrationClearButton.disabled =
-        flowLocked || !state.config?.flow_calibration?.point;
+        flowLocked || !state.config?.flow_calibration?.points?.length;
     }
   }
 
@@ -689,7 +709,7 @@ import {
     flowCalibrationClearButton.addEventListener("click", () => {
       if (state.locked) return;
       setFlowCalibrationPointMode(false);
-      patchFlowCalibration({ point: null });
+      patchFlowCalibration({ points: [] });
     });
   }
 
@@ -698,7 +718,10 @@ import {
       const active = window.webui.jobs.isActive(job);
       if (active === state.locked) return;
       state.locked = active;
-      if (active) setPurgePointMode(false);
+      if (active) {
+        setPurgePointMode(false);
+        setFlowCalibrationPointMode(false);
+      }
       if (!state.config) return;
       renderTable();
       applyToolbarLock();

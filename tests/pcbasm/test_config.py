@@ -431,27 +431,18 @@ class TestPadAlignRegionSettings:
 class TestFlowCalibration:
     """運転時流量キャリブレーション設定の公開契約."""
 
-    def test_defaults_to_a_disabled_three_point_measurement(self):
+    def test_defaults_to_a_disabled_measurement(self):
         flow = FlowCalibration()
 
         assert flow.calibration_file == ""
         assert flow.amount_ul == pytest.approx(0.2)
         assert flow.crop_size_mm == pytest.approx(2.0)
-        assert flow.point_count == 3
-        assert flow.point_pitch_mm == pytest.approx(3.0)
         assert flow.enabled is False
 
-    def test_is_enabled_only_with_both_a_calibration_file_and_points(self):
+    def test_is_enabled_by_the_calibration_file_alone(self):
+        """測定位置は基板ごとの設定なので、machine 側は校正ファイルだけで決まる."""
         assert FlowCalibration(calibration_file="c.json").enabled is True
-        assert (
-            FlowCalibration(calibration_file="c.json", point_count=0).enabled is False
-        )
-        assert FlowCalibration(point_count=3).enabled is False
-
-    def test_accepts_zero_points_as_the_way_to_turn_measurement_off(self):
-        assert (
-            FlowCalibration(calibration_file="c.json", point_count=0).point_count == 0
-        )
+        assert FlowCalibration().enabled is False
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -461,27 +452,11 @@ class TestFlowCalibration:
             ("amount_ul", float("nan")),
             ("crop_size_mm", 0.0),
             ("crop_size_mm", -1.0),
-            ("point_count", -1),
-            ("point_count", 1.5),
-            ("point_count", True),
-            ("point_pitch_mm", 0.0),
-            ("point_pitch_mm", -1.0),
         ],
     )
     def test_rejects_invalid_values(self, key, value):
         with pytest.raises(ValueError, match=key):
             FlowCalibration(**{key: value})
-
-    def test_accepts_a_pitch_narrower_than_the_crop(self):
-        """項目ごとに保存する WebUI では片方だけ先に書かれる.
-
-        ここで撥ねると machine.toml 全体が読めなくなるので、crop との関係は
-        plan_flow_calibration が判定する。
-        """
-        flow = FlowCalibration(crop_size_mm=4.0, point_pitch_mm=3.0)
-
-        assert flow.point_pitch_mm == pytest.approx(3.0)
-        assert flow.crop_size_mm == pytest.approx(4.0)
 
 
 class TestMachinePasteDispenserFlowCalibration:
@@ -498,17 +473,13 @@ class TestMachinePasteDispenserFlowCalibration:
             "[paste_dispenser.flow_calibration]\n"
             'calibration_file = "cal.paste-volume.json"\n'
             "amount_ul = 0.15\n"
-            "crop_size_mm = 2.4\n"
-            "point_count = 5\n"
-            "point_pitch_mm = 4.0\n",
+            "crop_size_mm = 2.4\n",
         )
         flow = machine.paste_dispenser.flow_calibration
 
         assert flow.calibration_file == "cal.paste-volume.json"
         assert flow.amount_ul == pytest.approx(0.15)
         assert flow.crop_size_mm == pytest.approx(2.4)
-        assert flow.point_count == 5
-        assert flow.point_pitch_mm == pytest.approx(4.0)
         assert flow.enabled is True
 
 

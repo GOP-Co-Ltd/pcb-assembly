@@ -167,7 +167,7 @@ class TestPlanPasteTargetsFlowCalibration:
     """運転時流量キャリブレーションの解決（設定と基板座標の両方が要る）."""
 
     def test_is_none_when_the_machine_setting_is_disabled(self, pcb, hierarchy):
-        model = _model().with_flow_calibration_point(Point2d(10.0, 10.0))
+        model = _model().with_flow_calibration_points([Point2d(10.0, 10.0)])
 
         targets, error = plan_paste_targets(
             pcb,
@@ -181,7 +181,7 @@ class TestPlanPasteTargetsFlowCalibration:
         assert targets is not None
         assert targets.flow_calibration is None
 
-    def test_is_none_when_the_board_point_is_unset(self, pcb, hierarchy):
+    def test_is_none_when_no_board_point_is_set(self, pcb, hierarchy):
         targets, error = plan_paste_targets(
             pcb,
             hierarchy,
@@ -195,8 +195,8 @@ class TestPlanPasteTargetsFlowCalibration:
         assert targets.flow_calibration is None
 
     def test_plans_the_points_when_both_are_configured(self, pcb, hierarchy):
-        start = Point2d(10.0, 10.0)
-        model = _model().with_flow_calibration_point(start)
+        points = [Point2d(10.0, 10.0), Point2d(13.0, 10.0)]
+        model = _model().with_flow_calibration_points(points)
 
         targets, error = plan_paste_targets(
             pcb,
@@ -209,11 +209,27 @@ class TestPlanPasteTargetsFlowCalibration:
         assert error is None
         assert targets is not None
         assert targets.flow_calibration is not None
-        assert targets.flow_calibration.points[0] == start
-        assert len(targets.flow_calibration.points) == _ENABLED.point_count
+        assert targets.flow_calibration.points == tuple(points)
+
+    def test_overlapping_crops_return_error(self, pcb, hierarchy):
+        model = _model().with_flow_calibration_points(
+            [Point2d(10.0, 10.0), Point2d(10.5, 10.0)]
+        )
+
+        targets, error = plan_paste_targets(
+            pcb,
+            hierarchy,
+            model,
+            initial_purge_ul=0.0,
+            flow_calibration=_ENABLED,
+        )
+
+        assert targets is None
+        assert error is not None
+        assert "撮影範囲" in error
 
     def test_a_point_outside_the_outline_returns_error(self, pcb, hierarchy):
-        model = _model().with_flow_calibration_point(Point2d(-50.0, -50.0))
+        model = _model().with_flow_calibration_points([Point2d(-50.0, -50.0)])
 
         targets, error = plan_paste_targets(
             pcb,

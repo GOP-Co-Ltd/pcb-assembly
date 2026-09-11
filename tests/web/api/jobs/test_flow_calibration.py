@@ -63,7 +63,7 @@ CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.js
 PPM = 10.0
 RESOLUTION = (640, 480)
 FOCUS_Z = 12.0
-POINT = Point2d(10.0, 6.0)
+POINTS = (Point2d(10.0, 6.0), Point2d(13.0, 6.0), Point2d(16.0, 6.0))
 
 
 def _outcome(**overrides: object) -> FlowCalibrationOutcome:
@@ -179,7 +179,7 @@ class TestRunFlowCalibration:
                 calibration_file=str(ctx.params["calibration_file"])
             )
             plan, error = plan_flow_calibration(
-                config=config, point=POINT, outline=session.pcb.outline.polygon
+                config=config, points=POINTS, outline=session.pcb.outline.polygon
             )
             assert error is None, error
             assert plan is not None

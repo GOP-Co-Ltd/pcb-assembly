@@ -9,7 +9,7 @@
 どちらも装置なしで検証できる。
 
 1 点だけでは点ごとの吐出ばらつき（実測で相対 9〜11 %）がそのまま補正値に乗って
-しまうので、既定は 3 点を合計体積で集約する。
+しまうので、複数点を合計体積で集約する。
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ class FlowCalibrationPlan:
     """測定に使うドットの配置と条件.
 
     Attributes:
-        points: 塗布する点（board 座標。設定した点から +X へ等間隔）
+        points: 塗布する点（board 座標。基板設定で 1 点ずつ与えた並び）
         amount_ul: 1 点あたりの指令塗布量 [μL]
         crop_size_mm: 塗布前後画像の一辺 [mm]
         calibration_file: 推定に使う校正ファイル名
@@ -81,49 +81,35 @@ class FlowCalibrationOutcome:
 def plan_flow_calibration(
     *,
     config: FlowCalibration,
-    point: Point2d | None,
+    points: Sequence[Point2d],
     outline: Polygon,
 ) -> tuple[FlowCalibrationPlan | None, str | None]:
-    """測定点の並びを決める.
+    """測定点の並びを検証して計画へ畳む.
 
-    機能が無効なときは ``(None, None)`` を返す。
+    機能が無効なとき（校正ファイル未設定・測定点 0 個）は ``(None, None)`` を返す。
     設定された点が基板外形の外にあるなど、有効なのに計画できないときだけ
     ``(None, 理由)`` を返す。
 
     Args:
         config: ``machine.toml`` の運転時キャリブレーション設定
-        point: 基板ごとに設定した起点（未設定なら ``None``）
+        points: 基板ごとに設定した測定位置（塗る順）
         outline: 基板外形
 
     Returns:
         ``(計画, None)`` / ``(None, None)``（無効）/ ``(None, 理由)``
     """
-    if not config.enabled or point is None:
+    if not config.enabled or not points:
         return None, None
-    error = validate_flow_calibration_point(point=point, outline=outline)
+    for point in points:
+        error = validate_flow_calibration_point(point=point, outline=outline)
+        if error is not None:
+            return None, error
+    error = validate_crop_separation(points=points, crop_size_mm=config.crop_size_mm)
     if error is not None:
         return None, error
-    # crop は点を中心に ±crop/2 を切り出すので、隣の点がこれより近いと隣のドットが
-    # crop へ写り込み、最大連結成分が別のドットになる
-    if config.point_count > 1 and config.point_pitch_mm <= config.crop_size_mm:
-        return None, (
-            "測定点の間隔は撮影crop寸法より大きくしてください: "
-            f"{config.point_pitch_mm} mm <= {config.crop_size_mm} mm"
-        )
-
-    points = tuple(
-        Point2d(point.x + config.point_pitch_mm * index, point.y)
-        for index in range(config.point_count)
-    )
-    for candidate in points[1:]:
-        if not outline.covers(Point(candidate.x, candidate.y)):
-            return None, (
-                "流量キャリブレーションの測定点が基板外形の外に出ます: "
-                f"({candidate.x:.3f}, {candidate.y:.3f})"
-            )
     return (
         FlowCalibrationPlan(
-            points=points,
+            points=tuple(points),
             amount_ul=config.amount_ul,
             crop_size_mm=config.crop_size_mm,
             calibration_file=config.calibration_file,
@@ -132,14 +118,67 @@ def plan_flow_calibration(
     )
 
 
+def validate_crop_separation(
+    *, points: Sequence[Point2d], crop_size_mm: float
+) -> str | None:
+    """測定点の crop どうしが重ならないかを検証する.
+
+    crop は点を中心に ±``crop_size_mm``/2 を切り出す。
+    crop が重なるほど点が近いと隣のドットが写り込み、最大連結成分が別のドットになる。
+
+    Returns:
+        重なっていればその旨の日本語エラー文、問題なければ ``None``
+    """
+    if not is_finite_number(crop_size_mm) or crop_size_mm <= 0:
+        return f"撮影crop寸法は正の有限値が必要です: {crop_size_mm!r}"
+    for first in range(len(points)):
+        for second in range(first + 1, len(points)):
+            a, b = points[first], points[second]
+            if crops_overlap(a, b, crop_size_mm=crop_size_mm):
+                return (
+                    f"測定位置 {first + 1} と {second + 1} の撮影範囲"
+                    f"（{crop_size_mm} mm 角）が重なっています: "
+                    f"({a.x:.3f}, {a.y:.3f}) / ({b.x:.3f}, {b.y:.3f})"
+                )
+    return None
+
+
+def crops_overlap(first: Point2d, second: Point2d, *, crop_size_mm: float) -> bool:
+    """2 点の撮影範囲（各点を中心とする ``crop_size_mm`` 角）が重なるか."""
+    return (
+        abs(first.x - second.x) < crop_size_mm
+        and abs(first.y - second.y) < crop_size_mm
+    )
+
+
+def overlapping_crops(
+    points: Sequence[Point2d], *, crop_size_mm: float
+) -> tuple[bool, ...]:
+    """点ごとに、他のどれかの撮影範囲と重なっているかを返す.
+
+    どこが置き直しの対象かを図で示すためのもので、判定の出典をここ 1 か所に保つ。
+    """
+    if not is_finite_number(crop_size_mm) or crop_size_mm <= 0:
+        return tuple(False for _ in points)
+    return tuple(
+        any(
+            other_index != index
+            and crops_overlap(point, other, crop_size_mm=crop_size_mm)
+            for other_index, other in enumerate(points)
+        )
+        for index, point in enumerate(points)
+    )
+
+
 def validate_flow_calibration_point(
     *, point: Point2d | None, outline: Polygon
 ) -> str | None:
-    """起点そのものを検証する（不正なら日本語エラー文、正常・未設定なら ``None``）.
+    """測定点 1 つを検証する（不正なら日本語エラー文、正常・未設定なら ``None``）.
 
-    測定点が何点並ぶかは ``machine.toml`` 側の設定で後から変わるので、ここでは
-    起点だけを見る。
-    並びが基板からはみ出すかは :func:`plan_flow_calibration` が判定する。
+    保存の入口はこれだけを見る。
+
+    crop の重なりは ``crop_size_mm`` を後から変えるだけでも成立しなくなるので、
+    保存では撥ねず :func:`validate_crop_separation` が計画時に判定する。
     """
     if point is None:
         return None

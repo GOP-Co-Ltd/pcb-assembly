@@ -232,43 +232,49 @@ def patch_flow_calibration(
     board_store: BoardStoreDep,
     _control: ControlDep,
 ) -> FlowCalibrationResponse:
-    """運転時流量キャリブレーションの起点を即時保存し、解決済み設定を返す.
+    """運転時流量キャリブレーションの測定位置を即時保存し、解決済み設定を返す.
 
-    測定点数・塗布量・校正ファイルは machine 設定なので
+    塗布量・crop 寸法・校正ファイルは machine 設定なので
     ``PUT /api/settings/machine`` 側で扱う。
     ここは基板ごとの座標だけを持つ。
+
+    ``points`` は置き換えで、空の並びが未設定。
+
+    撮影範囲どうしの重なりはここでは撥ねない。
+    crop 寸法を先に変えただけで保存できなくなるのを避けるため、判定は計画時に行い
+    ``flow_calibration.error`` として返す。
     """
     loaded = load_board(state, settings, board_store)
     _check_expected_pcb(body.expected_pcb, loaded)
-    if "point" not in body.model_fields_set:
+    if "points" not in body.model_fields_set:
         return FlowCalibrationResponse(flow_calibration=build_flow_calibration(loaded))
 
-    next_point = _flow_calibration_point(body.point)
-    error = validate_flow_calibration_point(
-        point=next_point, outline=loaded.pcb.outline.polygon
-    )
-    if error is not None:
-        raise HTTPException(status_code=400, detail=error)
+    next_points = _flow_calibration_points(body.points)
+    for point in next_points:
+        error = validate_flow_calibration_point(
+            point=point, outline=loaded.pcb.outline.polygon
+        )
+        if error is not None:
+            raise HTTPException(status_code=400, detail=error)
     model = board_store.update(
         loaded.source_pcb,
         loaded.base_config,
         board_signature=loaded.board_signature,
-        mutate=lambda current: current.with_flow_calibration_point(next_point),
+        mutate=lambda current: current.with_flow_calibration_points(next_points),
     )
     updated = attrs.evolve(loaded, model=model)
     return FlowCalibrationResponse(flow_calibration=build_flow_calibration(updated))
 
 
-def _flow_calibration_point(value: list[float] | None) -> Point2d | None:
-    """API 入力の ``[x, y]`` を Point2d へ正規化する（``None`` は指定解除）."""
-    if value is None:
-        return None
-    if len(value) != 2:
-        raise HTTPException(
-            status_code=400,
-            detail="流量キャリブレーション位置は [x, y] の 2 要素で指定してください",
-        )
-    return Point2d(value[0], value[1])
+def _flow_calibration_points(values: list[list[float]]) -> tuple[Point2d, ...]:
+    """API 入力の ``[[x, y], ...]`` を Point2d の並びへ正規化する."""
+    for value in values:
+        if len(value) != 2:
+            raise HTTPException(
+                status_code=400,
+                detail="流量キャリブレーション位置は [x, y] の 2 要素で指定してください",
+            )
+    return tuple(Point2d(value[0], value[1]) for value in values)
 
 
 def _check_expected_pcb(expected_pcb: str | None, loaded: Loaded) -> None:

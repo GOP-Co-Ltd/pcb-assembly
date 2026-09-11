@@ -81,38 +81,61 @@ export function renderViewer(svg, config, state) {
 }
 
 function renderFlowCalibrationMarkers(svg, flow) {
-  // 実際に塗る点を全部描く。パッドやパージ点と重なっていないかは図でしか分からない
-  const points = flow?.points;
-  if (!points) return;
+  // 保存済みの測定位置をそのまま描く。補正が成立していなくても座標は見せないと直せない
+  const points = flow?.points || [];
+  if (points.length === 0) return;
+  const cropSize = flow.crop_size_mm;
   for (const [index, point] of points.entries()) {
+    if (cropSize > 0) appendFlowCalibrationCrop(svg, flow, index, cropSize);
     const marker = svgEl("g", {
       class: "pad-flow-calibration-marker",
       transform: `translate(${point[0]} ${point[1]})`,
     });
     marker.dataset.testid = "pad-flow-calibration-marker";
     marker.dataset.index = String(index);
+    marker.dataset.planned = String(Boolean(flow.planned));
     const title = svgEl("title", {});
-    title.textContent = flow.selection_label || "流量キャリブレーション位置";
+    title.textContent = flow.selection_label || "流量キャリブレーション測定位置";
     marker.appendChild(title);
     marker.appendChild(
       svgEl("circle", { r: "0.45", "vector-effect": "non-scaling-stroke" })
     );
     const text = svgEl("text", { y: "0.04" });
-    text.textContent = "F";
+    text.textContent = String(index + 1);
     marker.appendChild(text);
     svg.appendChild(marker);
   }
 }
 
+// 測定点の撮影範囲（点を中心に crop_size_mm 角）。重なると隣のドットが写り込むので、
+// 次の点を置けない範囲として点線で示す。重なりの判定はサーバーが返す
+function appendFlowCalibrationCrop(svg, flow, index, cropSize) {
+  const point = flow.points[index];
+  const rect = svgEl("rect", {
+    class: "pad-flow-calibration-crop",
+    x: point[0] - cropSize / 2,
+    y: point[1] - cropSize / 2,
+    width: cropSize,
+    height: cropSize,
+    "vector-effect": "non-scaling-stroke",
+  });
+  rect.dataset.testid = "pad-flow-calibration-crop";
+  rect.dataset.index = String(index);
+  rect.dataset.overlapping = String(Boolean(flow.overlapping?.[index]));
+  svg.appendChild(rect);
+}
+
 function renderPurgeMarker(svg, purge) {
-  // 任意点で指定されたパージ位置だけを描く（pad 指定はパッド自体が見える）
-  const point = purge?.point;
+  // 自動解決された位置も描く。どこへパージするか図で確かめられないと測定点を避けられない
+  const resolved = purge?.resolved;
+  const point = purge?.point || resolved?.point;
   if (!point) return;
   const marker = svgEl("g", {
     class: "pad-purge-marker",
     transform: `translate(${point[0]} ${point[1]})`,
   });
   marker.dataset.testid = "pad-purge-marker";
+  marker.dataset.source = purge?.point ? "explicit" : resolved?.source || "default";
   const title = svgEl("title", {});
   title.textContent = purge.selection_label || "パージ位置";
   marker.appendChild(title);

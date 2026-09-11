@@ -140,13 +140,11 @@ PASTE_AUTO_THRESHOLD_KEYS = (
 PASTE_PAD_REFINEMENT_KEYS = ("paste_dispenser.pad_align.refine_max_short_side",)
 
 # はんだ塗布ページに即保存フォームで載せる運転時流量キャリブレーション設定。
-# 起点の座標だけは基板ごとの設定なので pad editor 側で編集する。
+# 測定位置だけは基板ごとの設定なので pad editor 側で編集する（表示は同じ箱に並べる）。
 PASTE_FLOW_CALIBRATION_KEYS = (
     "paste_dispenser.flow_calibration.calibration_file",
     "paste_dispenser.flow_calibration.amount_ul",
     "paste_dispenser.flow_calibration.crop_size_mm",
-    "paste_dispenser.flow_calibration.point_count",
-    "paste_dispenser.flow_calibration.point_pitch_mm",
 )
 
 # 上のうち、保存済み校正の <select> へ差し替えるキー

@@ -62,6 +62,7 @@ _GATED_ELEMENTS = {
         ".pad-select-tools",
         ".pad-initial-purge-tools",
         ".pad-flow-calibration-tools",
+        ".pad-flow-calibration-settings",
         "#pad-import-config-button",
         "#pad-import-config",
         "#pad-table-body",
@@ -76,10 +77,7 @@ _GATED_ELEMENTS = {
         "#lc-apply-all",
     },
     "pasting/nozzle_cap.html": {"#nc-record"},
-    "pasting/paste_solder.html": {
-        ".paste-auto-thresholds",
-        ".paste-flow-calibration",
-    },
+    "pasting/paste_solder.html": {".paste-auto-thresholds"},
     "posctrl/copper_detection.html": {"#canny-save"},
     "posctrl/reference_point_setup.html": {".rps-actions"},
 }

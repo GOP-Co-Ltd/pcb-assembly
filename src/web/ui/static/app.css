@@ -1154,119 +1154,169 @@ h2 {
   min-width: 0;
 }
 
+/* 点の位置を決める道具と machine 設定は、項目が多いので縦に積まず横帯にする。
+   ツールバーが伸びると基板 SVG が fold の下へ落ちる */
+.paste-auto-thresholds,
 .pad-initial-purge-tools {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(6rem, 0.8fr);
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem 0.45rem;
+  gap: 0.3rem 0.5rem;
   min-width: 0;
 }
 
+.pad-initial-purge-tools {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.paste-auto-thresholds {
+  margin-bottom: 0.5rem;
+}
+
+/* 「設定を書き出し／読み込み」と同じ行に収める（行が増えると SVG が下がる） */
+.pad-initial-purge-tools {
+  grid-column: 1 / 3;
+}
+
+.paste-auto-thresholds label,
 .pad-initial-purge-tools label {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.25rem;
   min-width: 0;
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.76rem;
+  white-space: nowrap;
 }
 
+.paste-auto-thresholds input,
 .pad-initial-purge-tools input {
-  width: 100%;
+  flex: 0 1 4rem;
+  width: auto;
   min-width: 0;
+  padding: 0.15rem 0.3rem;
 }
 
 .pad-initial-purge-pad {
   display: block;
+  flex: 1 1 8rem;
   min-width: 0;
   overflow: hidden;
-  padding: 0.3rem 0.45rem;
+  padding: 0.15rem 0.35rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   color: var(--text);
   background: var(--surface-2);
   font-family: var(--mono);
+  font-size: 0.76rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .pad-initial-purge-actions {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.35rem;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.3rem;
   min-width: 0;
 }
 
 .pad-initial-purge-actions button {
-  width: 100%;
   min-width: 0;
-  white-space: normal;
+  padding: 0.2rem 0.45rem;
+  white-space: nowrap;
 }
 
-.paste-flow-calibration {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(6rem, 0.8fr);
-  align-items: center;
-  gap: 0.35rem 0.45rem;
-  min-width: 0;
-  margin-top: 0.75rem;
-}
-
-.paste-flow-calibration h3 {
+/* 流量キャリブレーションは machine 設定と測定位置を 1 箱に並べる。
+   基板 SVG を viewport の外へ押し出さないよう、縦に積まず横並びの帯にする */
+.pad-flow-calibration {
+  display: flex;
   grid-column: 1 / -1;
-  margin: 0;
-  font-size: 0.9rem;
-}
-
-.paste-flow-calibration label {
-  display: contents;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.paste-flow-calibration input,
-.paste-flow-calibration select {
-  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.55rem;
   min-width: 0;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.pad-flow-calibration h3 {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.pad-flow-calibration-settings,
+.pad-flow-calibration-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.55rem;
+  min-width: 0;
+}
+
+.pad-flow-calibration-settings {
+  flex: 1 1 20rem;
 }
 
 .pad-flow-calibration-tools {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(6rem, 0.8fr);
-  align-items: center;
-  gap: 0.35rem 0.45rem;
-  min-width: 0;
+  flex: 1 1 16rem;
 }
 
+/* ラベルは入力の左に置く。上に積むと 1 項目あたり 2 行分の高さを食う */
+.pad-flow-calibration-settings label,
 .pad-flow-calibration-tools label {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.25rem;
   min-width: 0;
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.pad-flow-calibration-settings input,
+.pad-flow-calibration-settings select {
+  flex: 1 1 4rem;
+  width: auto;
+  min-width: 0;
+  padding: 0.15rem 0.3rem;
 }
 
 .pad-flow-calibration-point {
   display: block;
+  flex: 1 1 8rem;
   min-width: 0;
   overflow: hidden;
-  padding: 0.3rem 0.45rem;
+  padding: 0.15rem 0.35rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   color: var(--text);
+  background: var(--surface-2);
   font-family: var(--mono);
+  font-size: 0.76rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .pad-flow-calibration-actions {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.35rem;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.3rem;
   min-width: 0;
 }
 
 .pad-flow-calibration-actions button {
-  width: 100%;
   min-width: 0;
-  white-space: normal;
+  padding: 0.2rem 0.45rem;
+  white-space: nowrap;
 }
 
 .pad-route-tools {
@@ -1307,7 +1357,9 @@ h2 {
   display: block;
   width: 100%;
   min-height: 16rem;
-  max-height: 40rem;
+  /* 画面が低いときはツールバーの下に収まる高さまで縮める。
+     基板が fold の下へ落ちると、最初に見たい図がスクロールしないと見えない */
+  max-height: min(40rem, 55vh);
   touch-action: none;
 }
 
@@ -1429,6 +1481,15 @@ h2 {
   dominant-baseline: central;
 }
 
+/* マーカーは注記なので当たり判定を持たない。
+   自動解決したパージ位置は順路先頭 pad の中心に来るため、
+   当たり判定があるとその pad をクリックで選べなくなる */
+.pad-purge-marker,
+.pad-flow-calibration-marker,
+.pad-flow-calibration-crop {
+  pointer-events: none;
+}
+
 .pad-purge-marker circle {
   fill: var(--accent);
   stroke: #ffffff;
@@ -1444,11 +1505,44 @@ h2 {
   dominant-baseline: central;
 }
 
+/* 自動解決したパージ位置。明示指定と取り違えないよう中抜きにする */
+.pad-purge-marker[data-source="default"] circle {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 0.16;
+  stroke-dasharray: 0.35 0.25;
+}
+
+.pad-purge-marker[data-source="default"] text {
+  fill: var(--accent);
+}
+
 /* 流量キャリブレーションの測定点。パージ点と一目で区別できる色にする */
 .pad-flow-calibration-marker circle {
   fill: #0f766e;
   stroke: #ffffff;
   stroke-width: 0.12;
+}
+
+/* 補正が成立していない（校正ファイル未設定・撮影範囲の重なり）状態の測定点。
+   座標は保存されているので図から消さず、効いていないことだけを見せる */
+.pad-flow-calibration-marker[data-planned="false"] circle {
+  fill: var(--quiet);
+}
+
+/* 測定点の撮影範囲。ここが重なると隣のドットが写り込むので、
+   次の点を置けない範囲として点線の四角で見せる */
+.pad-flow-calibration-crop {
+  fill: none;
+  stroke: #0f766e;
+  stroke-width: 0.9;
+  stroke-dasharray: 3 2.4;
+  stroke-opacity: 0.85;
+}
+
+.pad-flow-calibration-crop[data-overlapping="true"] {
+  stroke: var(--danger);
+  stroke-opacity: 1;
 }
 
 /* マーカー打ちモード中はクリック先が「基板上の点」であることを示す。
@@ -2242,6 +2336,11 @@ h2 {
 
   .pad-editor-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  /* 1 列になるので、2 列ぶんを占める指定が暗黙の列を作らないよう戻す */
+  .pad-initial-purge-tools {
+    grid-column: 1 / -1;
   }
 
   .pad-layer-switch {

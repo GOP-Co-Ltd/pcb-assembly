@@ -758,8 +758,6 @@ class TestPastingJobPages:
             "paste_dispenser.flow_calibration.calibration_file",
             "paste_dispenser.flow_calibration.amount_ul",
             "paste_dispenser.flow_calibration.crop_size_mm",
-            "paste_dispenser.flow_calibration.point_count",
-            "paste_dispenser.flow_calibration.point_pitch_mm",
         ):
             assert key in text
         assert "data-calibration-picker" in text
@@ -770,12 +768,29 @@ class TestPastingJobPages:
     def test_paste_solder_renders_the_flow_calibration_point_tools(
         self, client: TestClient
     ):
-        """測定点の座標は基板ごとの設定なので pad editor 側で指定する."""
+        """測定位置は基板ごとの設定なので pad editor 側で 1 点ずつ指定する."""
         text = client.get("/pasting/paste_solder").text
 
         assert "pad-flow-calibration-tools" in text
         assert "pad-set-flow-calibration-point" in text
         assert "pad-clear-flow-calibration-point" in text
+        assert "測定位置を追加" in text
+
+    def test_paste_solder_keeps_the_flow_calibration_settings_in_one_place(
+        self, client: TestClient
+    ):
+        """Machine 設定と測定位置を上下に分けない.
+
+        運転者から見れば 1 つの機能なので、pad editor のツールバーに 1 箱で置く。
+        """
+        text = client.get("/pasting/paste_solder").text
+
+        box = text.index('data-testid="pad-flow-calibration"')
+        toolbar = text.index('data-testid="pad-editor-toolbar"')
+        viewer = text.index('data-testid="pad-viewer-wrap"')
+        assert toolbar < box < viewer
+        assert text.index('data-testid="paste-flow-calibration"') > box
+        assert text.index('data-testid="pad-flow-calibration-tools"') > box
 
     def test_paste_solder_renders_initial_purge_position_controls(
         self, client: TestClient

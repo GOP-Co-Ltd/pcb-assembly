@@ -91,7 +91,7 @@ def plan_paste_targets(
         return None, error
     flow_plan, error = plan_flow_calibration(
         config=flow_calibration,
-        point=model.flow_calibration_point,
+        points=model.flow_calibration_points,
         outline=pcb.outline.polygon,
     )
     if error is not None:

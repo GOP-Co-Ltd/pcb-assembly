@@ -179,16 +179,18 @@ def validate_paste_lift_height(value: float) -> str | None:
 class FlowCalibration:
     """運転時流量キャリブレーション（塗布中の吐出量を画像で測って補正する）の設定.
 
-    はんだ塗布の塗布パス直前に、基板ごとに設定した点から ``point_count`` 個の
-    ドットを一列に塗り、塗布前後画像から推定した体積の比で ``rotations_per_ul``
-    を補正する。
+    はんだ塗布の塗布パス直前に、基板ごとに設定した測定位置へ既知量のドットを塗り、
+    塗布前後画像から推定した体積の比で ``rotations_per_ul`` を補正する。
     推定には :mod:`pcbasm.pasting.paste_volume` の校正ファイルを使う。
 
-    1 点だけでは点ごとの吐出ばらつき（実測で相対 9〜11 %）がそのまま補正値に
-    乗るので、既定は 3 点にしてある。
-    ``point_count = 0`` は機能無効。
+    測定位置は基板ごとに違うので、ここではなく基板設定
+    （:class:`~pcbasm.pasting.settings.PasteSettingsModel`）が持つ。
+    何点塗るかはその個数そのもので、0 個なら補正しない。
 
-    ``point_pitch_mm`` と ``crop_size_mm`` の関係はここでは検証しない。
+    1 点だけでは点ごとの吐出ばらつき（実測で相対 9〜11 %）がそのまま補正値に
+    乗るので、3 点ほど置くとよい。
+
+    ``crop_size_mm`` と測定位置の間隔の関係はここでは検証しない。
 
     WebUI は項目ごとに保存するので片方だけ先に書かれる。
 
@@ -199,33 +201,21 @@ class FlowCalibration:
         calibration_file: 使う校正ファイル名（空なら無効）
         amount_ul: 1 点あたりの指令塗布量 [μL]
         crop_size_mm: 塗布前後画像の一辺 [mm]
-        point_count: 測定点数（0 で無効）
-        point_pitch_mm: 点を並べる間隔 [mm]（+X 方向）
     """
 
     calibration_file: str = ""
     amount_ul: float = 0.2
     crop_size_mm: float = 2.0
-    point_count: int = 3
-    point_pitch_mm: float = 3.0
 
     def __attrs_post_init__(self) -> None:
-        for name in ("amount_ul", "crop_size_mm", "point_pitch_mm"):
+        for name in ("amount_ul", "crop_size_mm"):
             if error := validate_positive_number(name, getattr(self, name)):
                 raise ValueError(error)
-        if (
-            isinstance(self.point_count, bool)
-            or not isinstance(self.point_count, int)
-            or self.point_count < 0
-        ):
-            raise ValueError(
-                f"point_countは0以上の整数である必要があります: {self.point_count}"
-            )
 
     @property
     def enabled(self) -> bool:
-        """校正ファイルと測定点数がそろっていて、実際に補正を試みるか."""
-        return bool(self.calibration_file) and self.point_count > 0
+        """校正ファイルが指定されていて、実際に補正を試みるか."""
+        return bool(self.calibration_file)
 
 
 @attrs.frozen

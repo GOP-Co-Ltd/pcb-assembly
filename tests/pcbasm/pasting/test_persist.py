@@ -116,48 +116,56 @@ class TestInitialPurgePoint:
         assert restored.initial_purge_point is None
 
 
-class TestFlowCalibrationPoint:
-    """流量キャリブレーション起点は ``settings.flow_calibration_point`` に残す."""
+class TestFlowCalibrationPoints:
+    """流量キャリブレーションの測定位置は ``settings.flow_calibration_points`` に残す."""
 
-    def test_doc_carries_the_point_when_set(self):
+    def test_doc_carries_the_points_in_order_when_set(self):
         model = PasteSettingsModel(
-            base=_base(), flow_calibration_point=Point2d(9.5, 2.25)
+            base=_base(),
+            flow_calibration_points=(Point2d(9.5, 2.25), Point2d(13.0, 2.25)),
         )
 
         doc = encode_board_settings(model, source_pcb="a")
 
-        assert doc["settings"]["flow_calibration_point"] == [9.5, 2.25]
+        assert doc["settings"]["flow_calibration_points"] == [
+            [9.5, 2.25],
+            [13.0, 2.25],
+        ]
 
-    def test_doc_omits_the_point_when_unset(self):
+    def test_doc_omits_the_points_when_unset(self):
         doc = encode_board_settings(PasteSettingsModel(base=_base()), source_pcb="a")
 
-        assert "flow_calibration_point" not in doc["settings"]
+        assert "flow_calibration_points" not in doc["settings"]
 
-    def test_round_trip_restores_the_point(self):
+    def test_round_trip_restores_the_points(self):
         model = PasteSettingsModel(
-            base=_base(), flow_calibration_point=Point2d(9.5, 2.25)
+            base=_base(),
+            flow_calibration_points=(Point2d(9.5, 2.25), Point2d(13.0, 2.25)),
         )
 
         restored = _decode(encode_board_settings(model, source_pcb="a"))
 
-        assert restored.flow_calibration_point == Point2d(9.5, 2.25)
+        assert restored.flow_calibration_points == (
+            Point2d(9.5, 2.25),
+            Point2d(13.0, 2.25),
+        )
 
-    def test_missing_point_decodes_to_none(self):
+    def test_missing_points_decode_to_an_empty_set(self):
         restored = _decode({"version": 1, "settings": {}})
 
-        assert restored.flow_calibration_point is None
+        assert restored.flow_calibration_points == ()
 
     def test_is_independent_of_the_initial_purge_point(self):
         model = PasteSettingsModel(
             base=_base(),
             initial_purge_point=Point2d(1.0, 2.0),
-            flow_calibration_point=Point2d(9.5, 2.25),
+            flow_calibration_points=(Point2d(9.5, 2.25),),
         )
 
         restored = _decode(encode_board_settings(model, source_pcb="a"))
 
         assert restored.initial_purge_point == Point2d(1.0, 2.0)
-        assert restored.flow_calibration_point == Point2d(9.5, 2.25)
+        assert restored.flow_calibration_points == (Point2d(9.5, 2.25),)
 
     @pytest.mark.parametrize(
         "value",
@@ -169,13 +177,30 @@ class TestFlowCalibrationPoint:
             [float("nan"), 0.0],
         ],
     )
-    def test_malformed_point_decodes_to_none(self, value: object):
+    def test_malformed_points_are_dropped(self, value: object):
         # 壊れた保存内容でページを開けなくしない（pad id と同じく黙って捨てる）
         restored = _decode(
-            {"version": 1, "settings": {"flow_calibration_point": value}}
+            {"version": 1, "settings": {"flow_calibration_points": [value]}}
         )
 
-        assert restored.flow_calibration_point is None
+        assert restored.flow_calibration_points == ()
+
+    def test_a_malformed_entry_does_not_drop_the_sound_ones(self):
+        restored = _decode(
+            {
+                "version": 1,
+                "settings": {"flow_calibration_points": [[1.0], [9.5, 2.25]]},
+            }
+        )
+
+        assert restored.flow_calibration_points == (Point2d(9.5, 2.25),)
+
+    def test_a_non_sequence_decodes_to_an_empty_set(self):
+        restored = _decode(
+            {"version": 1, "settings": {"flow_calibration_points": "nope"}}
+        )
+
+        assert restored.flow_calibration_points == ()
 
 
 class TestRoundTrip:

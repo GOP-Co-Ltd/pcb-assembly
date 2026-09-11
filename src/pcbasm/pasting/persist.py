@@ -12,8 +12,8 @@
         "board_signature": "<基板構成ハッシュ>",   # 任意
         "settings": {
             "levels": [{"key": ["L2", "U1"], "enabled": null, "override": {...}}, ...],
-            "initial_purge_point": [12.5, 8.0],      # 任意（未設定 = 順路先頭）
-            "flow_calibration_point": [20.0, 8.0]    # 任意（未設定 = 補正しない）
+            "initial_purge_point": [12.5, 8.0],            # 任意（未設定 = 順路先頭）
+            "flow_calibration_points": [[20.0, 8.0], ...]  # 任意（空 = 補正しない）
         }
     }
 
@@ -70,9 +70,10 @@ def encode_board_settings(
     if model.initial_purge_point is not None:
         point = model.initial_purge_point
         settings["initial_purge_point"] = [point.x, point.y]
-    if model.flow_calibration_point is not None:
-        point = model.flow_calibration_point
-        settings["flow_calibration_point"] = [point.x, point.y]
+    if model.flow_calibration_points:
+        settings["flow_calibration_points"] = [
+            [point.x, point.y] for point in model.flow_calibration_points
+        ]
     doc: dict[str, Any] = {
         "version": BOARD_SETTINGS_SCHEMA_VERSION,
         "source_pcb": source_pcb,
@@ -115,7 +116,7 @@ def decode_board_settings(
     model = PasteSettingsModel(
         base=base,
         initial_purge_point=_point(settings.get("initial_purge_point")),
-        flow_calibration_point=_point(settings.get("flow_calibration_point")),
+        flow_calibration_points=_points(settings.get("flow_calibration_points")),
         levels=tuple(levels),
     )
     return (
@@ -166,6 +167,16 @@ def _legacy_l0_setting(
 
 def _as_sequence(value: object) -> Sequence[Any]:
     return value if isinstance(value, Sequence) and not isinstance(value, str) else []
+
+
+def _points(value: object) -> tuple[Point2d, ...]:
+    """保存値 ``[[x, y], ...]`` を Point2d の並びへ戻す.
+
+    形が違う要素は :func:`_point` と同じく黙って捨てる。
+    """
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return ()
+    return tuple(point for entry in value if (point := _point(entry)) is not None)
 
 
 def _point(value: object) -> Point2d | None:
