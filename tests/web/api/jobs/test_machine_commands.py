@@ -95,41 +95,37 @@ class TestHandleMachineCommand:
         assert results == [True]
         assert "フォーカス" in "\n".join(record.log_lines)
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            {"type": "jog", "axis": "x", "dist": "abc"},
+            {"type": "move"},
+        ],
+    )
     def test_invalid_argument_value_error_is_logged_and_returns_true(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+        command: dict[str, Any],
     ):
-        """Jog の dist が数値化できない → ValueError を log して True（継続）."""
+        """引数不正（jog の非数値 dist / move の軸なし）は ValueError を log して True（継続）."""
         record, results = _run_handler_job(
-            manager,
-            catalog,
-            wait_until,
-            [{"type": "jog", "axis": "x", "dist": "abc"}],
-            focus_z=None,
+            manager, catalog, wait_until, [command], focus_z=None
         )
 
-        assert record.status == JobStatus.SUCCEEDED
-        assert results == [True]
-        assert record.log_lines  # 実行できない旨の log が出る
-
-    def test_move_without_axes_logs_and_returns_true(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
-    ):
-        """Move の軸なしは ValueError を log して True（送信しないので不通でも成功）."""
-        record, results = _run_handler_job(
-            manager, catalog, wait_until, [{"type": "move"}], focus_z=None
-        )
-
-        assert record.status == JobStatus.SUCCEEDED
+        assert record.status == JobStatus.SUCCEEDED  # 送信しないので不通でも成功
         assert results == [True]
         assert record.log_lines  # 実行できない旨の log が出る
 
     @pytest.mark.parametrize(
-        "command",
+        ("command", "focus_z"),
         [
-            {"type": "jog", "axis": "x", "dist": 0.1},
-            {"type": "home", "axes": ["x", "y", "z"]},
-            {"type": "move", "x": 1.0, "y": 2.0},
-            {"type": "relax"},
+            ({"type": "jog", "axis": "x", "dist": 0.1}, None),
+            ({"type": "home", "axes": ["x", "y", "z"]}, None),
+            ({"type": "move", "x": 1.0, "y": 2.0}, None),
+            ({"type": "relax"}, None),
+            ({"type": "focus_z"}, 3.0),
         ],
     )
     def test_recognized_command_send_failure_propagates_to_job_failed(
@@ -138,26 +134,16 @@ class TestHandleMachineCommand:
         catalog: JobCatalog,
         wait_until: WaitUntil,
         command: dict[str, Any],
+        focus_z: float | None,
     ):
         """認識した type は送信を試み、Klipper 不通の例外は伝播 → FAILED."""
         record, results = _run_handler_job(
-            manager, catalog, wait_until, [command], focus_z=None
+            manager, catalog, wait_until, [command], focus_z=focus_z
         )
 
         assert record.status == JobStatus.FAILED
         assert record.error  # 接続エラーが error に載る
         assert results == []  # True を返す前に送信例外で中断
-
-    def test_focus_z_with_calibration_attempts_move_and_fails(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
-    ):
-        """focus_z あり → Z 移動を送信し、不通の例外は伝播 → FAILED."""
-        record, results = _run_handler_job(
-            manager, catalog, wait_until, [{"type": "focus_z"}], focus_z=3.0
-        )
-
-        assert record.status == JobStatus.FAILED
-        assert results == []
 
     def test_move_to_cap_without_recorded_cap_logs_and_returns_true(
         self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil

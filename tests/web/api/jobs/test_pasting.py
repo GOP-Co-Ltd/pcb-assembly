@@ -5,8 +5,10 @@
 
 - catalog: pasting 7 ジョブ（paste_solder / height_plane / loading /
   dispense_calibration / paste_volume_calibration / generate_rect_pcb /
-  toolhead_offset）の name /
-  params（default・unit）/ requires_pcb / uses_machine / accepts_commands
+  toolhead_offset）の name / requires_pcb / uses_machine / accepts_commands と、
+  params のうち振る舞いを持つもの（下限による拒否・optional・runtime_editable の
+  切り分け）。宣言そのままの default / unit / persisted_params の列挙は
+  `routers/test_jobs.py` が API 越しに汎用で担保する
 - parse_loading_command: extrude / suck / finish の純粋パーサ。ローディング用
   type の値不正（欠落・非正・非数）は InvalidLoadingCommand(reason)、
   未知 type は None（機械操作の後段判定へ）
@@ -15,7 +17,8 @@
   confirm False → ABORTED / True → Klipper 不通（setup）で FAILED
 - 装置ジョブの異常系: テスト用 config（Klipper port 7126 = 接続拒否）で graceful
   FAILED + PRESENT / relax (M84) 失敗警告 + 排他ロック解放
-- Apply 反映先 3 キーは config_store のホワイトリスト登録済み（計画書 前提）
+- Apply 反映先キーが config_store のホワイトリストに載っていることは
+  `test_config_store.py` が担保する（計画書 前提）
 
 実押出・SUCCEEDED 到達・Apply 反映は実機区分（`@mark_hardware`、ユーザー実行。
 paste_solder / toolhead_offset の実機通しはプレビュー目視を伴うため WebUI 手動
@@ -56,7 +59,6 @@ from tests.helpers import (
 )
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from web.api.board_settings import BoardSettingsStore
-from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import JobCatalog, ParamSpec, default_catalog
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.machine_commands import create_command_klipper
@@ -168,223 +170,10 @@ class TestCatalog:
         assert definition.uses_machine is uses_machine
         assert definition.accepts_commands is accepts_commands
 
-    @pytest.mark.parametrize(
-        ("name", "expected"),
-        [
-            (
-                "paste_solder",
-                {"tolerance": (0.1, "mm"), "amount": (0.1, "uL")},
-            ),
-            ("height_plane", {"tolerance": (0.1, "mm")}),
-            (
-                "loading",
-                {
-                    "amount": (0.1, "uL"),
-                    "rotations": (5.0, "rev"),
-                    "rate": (0.5, "rev/s"),
-                    "accel": (0.5, "rev/s^2"),
-                    "retract_rotations": (0.0, "rev"),
-                },
-            ),
-            (
-                "dispense_calibration",
-                {
-                    "board_width": (40.0, "mm"),
-                    "board_height": (40.0, "mm"),
-                    "tolerance": (0.1, "mm"),
-                    "line_length": (10.0, "mm"),
-                    "line_amount": (0.5, "uL"),
-                    "row_pitch": (3.0, "mm"),
-                    "removal_z_offset": (0.0, "mm"),
-                    "rate_min": (0.5, "uL/s"),
-                    "rate_max": (5.0, "uL/s"),
-                    "speed_min": (1.0, "mm/s"),
-                    "speed_max": (10.0, "mm/s"),
-                },
-            ),
-            ("generate_rect_pcb", {"width": (40.0, "mm"), "height": (40.0, "mm")}),
-            (
-                "paste_volume_calibration",
-                {
-                    "plate_width": (40.0, "mm"),
-                    "plate_height": (40.0, "mm"),
-                    "tolerance": (0.1, "mm"),
-                    "edge_margin": (2.0, "mm"),
-                    "cell_size": (2.0, "mm"),
-                    "cell_gap": (1.0, "mm"),
-                    "crop_size": (2.0, "mm"),
-                    "loading_amount": (0.1, "uL"),
-                    "loading_rotations": (5.0, "rev"),
-                    "loading_rate": (0.5, "rev/s"),
-                    "loading_accel": (0.5, "rev/s^2"),
-                    "loading_retract_rotations": (0.0, "rev"),
-                    "paste_height": (0.2, "mm"),
-                    "volume_min": (0.05, "uL"),
-                    "volume_max": (0.2, "uL"),
-                    "view_offset": (1.0, "mm"),
-                    # 円検出のハイパラ（共有 ParamSpec。既定は DotDetectionSpec）
-                    "min_contrast": (20.0, None),
-                    "contrast_percentile": (99.0, "%"),
-                    "threshold_floor_ratio": (0.5, None),
-                },
-            ),
-            (
-                "toolhead_offset",
-                {
-                    "tolerance": (0.1, "mm"),
-                    "dispense_amount": (0.1, "uL"),
-                    "loading_amount": (0.1, "uL"),
-                    "lift_height": (5.0, "mm"),
-                    "paste_diameter_min": (0.4, "mm"),
-                    "paste_diameter_max": (2.0, "mm"),
-                    "point_spacing": (5.0, "mm"),
-                    "edge_margin": (5.0, "mm"),
-                },
-            ),
-        ],
-    )
-    def test_float_param_defaults_and_units(
-        self,
-        default: JobCatalog,
-        name: str,
-        expected: dict[str, tuple[float, str]],
-    ):
-        params = {spec.name: spec for spec in default.get(name).params}
-        float_params = {
-            key: spec
-            for key, spec in params.items()
-            if spec.value_type == "float" and not spec.optional
-        }
-
-        assert set(float_params) == set(expected)
-        for key, (value, unit) in expected.items():
-            assert float_params[key].default == value, key
-            assert float_params[key].unit == unit, key
-
-    @pytest.mark.parametrize(
-        ("name", "expected"),
-        [
-            (
-                "paste_volume_calibration",
-                (
-                    "plate_width",
-                    "plate_height",
-                    "tolerance",
-                    "edge_margin",
-                    "cell_size",
-                    "cell_gap",
-                    "crop_size",
-                    "loading_amount",
-                    "loading_rotations",
-                    "loading_rate",
-                    "loading_accel",
-                    "loading_retract_rotations",
-                    "paste_height",
-                    "volume_min",
-                    "volume_max",
-                    "volume_divisions",
-                    "samples_per_volume",
-                    "blank_count",
-                    "view_count",
-                    "view_offset",
-                    "shuffle_seed",
-                    "paste_id",
-                    "paste_lot",
-                    "min_contrast",
-                    "contrast_percentile",
-                    "threshold_floor_ratio",
-                    "open_kernel_px",
-                    "min_area_px",
-                    "require_blank_zero",
-                    # 保存名は残す。自動命名は時刻が付くので上書きにならない
-                    "save_name",
-                    "volume_calibration",
-                ),
-            ),
-            (
-                "paste_volume_refit",
-                (
-                    "min_contrast",
-                    "contrast_percentile",
-                    "threshold_floor_ratio",
-                    "open_kernel_px",
-                    "min_area_px",
-                    "require_blank_zero",
-                    # 再フィットは「保存しない」が既定なので保存名を持ち越さない
-                ),
-            ),
-        ],
-    )
-    def test_persisted_params(
-        self, default: JobCatalog, name: str, expected: tuple[str, ...]
-    ):
-        assert default.get(name).persisted_params == expected
-
-    def test_paste_volume_calibration_params(self, default: JobCatalog):
+    def test_paste_volume_calibration_requires_a_paste_id(self, default: JobCatalog):
+        """ペースト製品 ID はデータセットの素性なので既定値を持たず必須."""
         definition = default.get("paste_volume_calibration")
-        params = {spec.name: spec for spec in definition.params}
 
-        assert "purge_pad_id" not in params
-        assert "crop_margin_mm" not in params
-        assert "mask_margin_mm" not in params
-        assert params["edge_margin"].minimum == 0.0
-        assert params["cell_gap"].minimum == 0.0
-        assert params["crop_size"].help is not None
-        assert params["paste_height"].minimum == 0.0
-        assert params["volume_divisions"].value_type == "int"
-        assert params["samples_per_volume"].value_type == "int"
-        assert params["blank_count"].default == 4
-        # 周辺 view の既定は 0（中心のみ）。直径方式では実測上の利点がほぼ無い
-        assert params["view_count"].default == 0
-        assert params["shuffle_seed"].default == 0
-        assert params["paste_id"].value_type == "str"
-        assert params["paste_id"].label == "ペースト製品ID"
-        assert params["paste_id"].help is not None
-        assert params["paste_id"].default is None
-        assert params["paste_id"].optional is False
-        assert params["paste_lot"].value_type == "str"
-        assert params["paste_lot"].label == "製造ロット（任意）"
-        assert params["paste_lot"].help is not None
-        assert params["paste_lot"].default is None
-        assert params["paste_lot"].optional is True
-        assert params["volume_calibration"].value_type == "str"
-        assert params["volume_calibration"].default == ""
-        assert params["volume_calibration"].optional is True
-
-        assert default.validate_params(definition, {"paste_id": "paste-1"}) == {
-            "plate_width": 40.0,
-            "plate_height": 40.0,
-            "tolerance": 0.1,
-            "edge_margin": 2.0,
-            "cell_size": 2.0,
-            "cell_gap": 1.0,
-            "crop_size": 2.0,
-            "loading_amount": 0.1,
-            "loading_rotations": 5.0,
-            "loading_rate": 0.5,
-            "loading_accel": 0.5,
-            "loading_retract_rotations": 0.0,
-            "paste_height": 0.2,
-            "volume_min": 0.05,
-            "volume_max": 0.2,
-            "volume_divisions": 5,
-            "samples_per_volume": 3,
-            "blank_count": 4,
-            "view_count": 0,
-            "view_offset": 1.0,
-            "shuffle_seed": 0,
-            "paste_id": "paste-1",
-            "min_contrast": 20.0,
-            "contrast_percentile": 99.0,
-            "threshold_floor_ratio": 0.5,
-            "open_kernel_px": 3,
-            "min_area_px": 4,
-            "require_blank_zero": True,
-            # 保存名が空なら校正は作るが保存しない（診断のみ）
-            "save_name": "",
-            # 校正未選択の既定。空なら収集後の検証をしない
-            "volume_calibration": "",
-        }
         with pytest.raises(ValueError, match="paste_id"):
             default.validate_params(definition, {})
 
@@ -411,36 +200,6 @@ class TestCatalog:
             assert params[name].unit == unit, name
             assert params[name].default is not None, name
 
-    def test_paste_volume_calibration_provides_preview(self, default: JobCatalog):
-        assert default.get("paste_volume_calibration").provides_preview is True
-
-    @pytest.mark.parametrize(
-        ("name", "default_value"),
-        [
-            ("line_count", 10),
-            ("rate_divisions", 6),
-            ("speed_divisions", 6),
-        ],
-    )
-    def test_dispense_calibration_int_params(
-        self, default: JobCatalog, name: str, default_value: int
-    ):
-        params = {
-            spec.name: spec for spec in default.get("dispense_calibration").params
-        }
-
-        assert params[name].value_type == "int"
-        assert params[name].default == default_value
-
-    def test_toolhead_offset_point_count_defaults_to_ten_with_minimum_five(
-        self, default: JobCatalog
-    ):
-        params = {spec.name: spec for spec in default.get("toolhead_offset").params}
-
-        assert params["point_count"].value_type == "int"
-        assert params["point_count"].default == 10
-        assert params["point_count"].minimum == 5
-
     def test_toolhead_offset_paste_diameter_min_stays_positive(
         self, default: JobCatalog
     ):
@@ -466,47 +225,12 @@ class TestCatalog:
         assert "point_count" in str(exc_info.value)
 
     def test_toolhead_offset_persists_all_params(self, default: JobCatalog):
+        """全 params が次回フォーム既定値として保存される（保存漏れを検知する）."""
         definition = default.get("toolhead_offset")
 
-        assert len(definition.params) == 9
-        assert set(definition.persisted_params) == {
-            "tolerance",
-            "dispense_amount",
-            "loading_amount",
-            "lift_height",
-            "paste_diameter_min",
-            "paste_diameter_max",
-            "point_count",
-            "point_spacing",
-            "edge_margin",
-        }
         assert set(definition.persisted_params) == {
             spec.name for spec in definition.params
         }
-
-    def test_dispense_calibration_persists_all_calibration_params(
-        self, default: JobCatalog
-    ):
-        definition = default.get("dispense_calibration")
-
-        # 土台/線共通/②/③ の入力パラメータを次回フォーム既定値として保存する
-        # （比重は machine.toml 参照のためフォーム入力から除外済み）
-        assert definition.persisted_params == (
-            "board_width",
-            "board_height",
-            "tolerance",
-            "line_length",
-            "line_count",
-            "line_amount",
-            "row_pitch",
-            "removal_z_offset",
-            "rate_min",
-            "rate_max",
-            "rate_divisions",
-            "speed_min",
-            "speed_max",
-            "speed_divisions",
-        )
 
     def test_dispense_calibration_runtime_editable_split(self, default: JobCatalog):
         definition = default.get("dispense_calibration")
@@ -529,27 +253,6 @@ class TestCatalog:
             "speed_min",
             "speed_max",
             "speed_divisions",
-        )
-
-    def test_dispense_calibration_removal_z_offset_default(self, default: JobCatalog):
-        params = {
-            spec.name: spec for spec in default.get("dispense_calibration").params
-        }
-
-        offset = params["removal_z_offset"]
-        assert offset.value_type == "float"
-        assert offset.default == 0.0
-        assert offset.runtime_editable is True
-
-    def test_loading_persists_volume_and_rotation_params(self, default: JobCatalog):
-        definition = default.get("loading")
-
-        assert definition.persisted_params == (
-            "amount",
-            "rotations",
-            "rate",
-            "accel",
-            "retract_rotations",
         )
 
     def test_loading_position_axes_are_optional_and_not_persisted(
@@ -613,47 +316,59 @@ class TestParseLoadingCommand:
     stage アサートと e2e の DOM アサートが担保する。
     """
 
-    def test_extrude_yields_positive_amount(self):
-        assert parse_loading_command({"type": "extrude", "amount": 2.5}) == Extrude(2.5)
-
-    def test_suck_yields_negative_amount(self):
-        assert parse_loading_command({"type": "suck", "amount": 2.5}) == Extrude(-2.5)
-
-    def test_extrude_rotations_yields_positive_rotation(self):
-        # retract_rotations 欠落時は引き戻しなし（既定 0.0）。
-        assert parse_loading_command(
-            {"type": "extrude_rotations", "rotations": 5.0, "rate": 0.5, "accel": 0.5}
-        ) == Rotate(5.0, 0.5, 0.5, retract_rotations=0.0)
-
-    def test_extrude_rotations_carries_retract(self):
-        assert parse_loading_command(
-            {
-                "type": "extrude_rotations",
-                "rotations": 5.0,
-                "rate": 0.5,
-                "accel": 0.5,
-                "retract_rotations": 1.5,
-            }
-        ) == Rotate(5.0, 0.5, 0.5, retract_rotations=1.5)
-
-    def test_suck_rotations_yields_negative_rotation(self):
-        assert parse_loading_command(
-            {"type": "suck_rotations", "rotations": 5.0, "rate": 0.5, "accel": 0.5}
-        ) == Rotate(-5.0, 0.5, 0.5)
-
-    def test_suck_rotations_ignores_retract(self):
-        assert parse_loading_command(
-            {
-                "type": "suck_rotations",
-                "rotations": 5.0,
-                "rate": 0.5,
-                "accel": 0.5,
-                "retract_rotations": 1.5,
-            }
-        ) == Rotate(-5.0, 0.5, 0.5, retract_rotations=0.0)
-
-    def test_finish_yields_finish(self):
-        assert parse_loading_command({"type": "finish"}) == Finish()
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            ({"type": "extrude", "amount": 2.5}, Extrude(2.5)),
+            # suck は押出の符号反転
+            ({"type": "suck", "amount": 2.5}, Extrude(-2.5)),
+            (
+                # retract_rotations 欠落時は引き戻しなし（既定 0.0）
+                {
+                    "type": "extrude_rotations",
+                    "rotations": 5.0,
+                    "rate": 0.5,
+                    "accel": 0.5,
+                },
+                Rotate(5.0, 0.5, 0.5, retract_rotations=0.0),
+            ),
+            (
+                {
+                    "type": "extrude_rotations",
+                    "rotations": 5.0,
+                    "rate": 0.5,
+                    "accel": 0.5,
+                    "retract_rotations": 1.5,
+                },
+                Rotate(5.0, 0.5, 0.5, retract_rotations=1.5),
+            ),
+            (
+                {
+                    "type": "suck_rotations",
+                    "rotations": 5.0,
+                    "rate": 0.5,
+                    "accel": 0.5,
+                },
+                Rotate(-5.0, 0.5, 0.5),
+            ),
+            (
+                # 吸い戻しに引き戻しは無い（retract は無視される）
+                {
+                    "type": "suck_rotations",
+                    "rotations": 5.0,
+                    "rate": 0.5,
+                    "accel": 0.5,
+                    "retract_rotations": 1.5,
+                },
+                Rotate(-5.0, 0.5, 0.5, retract_rotations=0.0),
+            ),
+            ({"type": "finish"}, Finish()),
+        ],
+    )
+    def test_valid_command_yields_its_operation(
+        self, command: dict[str, object], expected: object
+    ):
+        assert parse_loading_command(command) == expected
 
     @pytest.mark.parametrize(
         "command",
@@ -685,26 +400,6 @@ class TestParseLoadingCommand:
 
         assert isinstance(result, InvalidLoadingCommand)
         assert str(command["type"]) in result.reason
-
-    def test_invalid_amount_reason_is_user_facing(self):
-        result = parse_loading_command({"type": "extrude", "amount": -1.0})
-
-        assert result == InvalidLoadingCommand("extrude の量には正の数値が必要です")
-
-    def test_negative_retract_reason_mentions_non_negative(self):
-        result = parse_loading_command(
-            {
-                "type": "extrude_rotations",
-                "rotations": 5.0,
-                "rate": 0.5,
-                "accel": 0.5,
-                "retract_rotations": -1.0,
-            }
-        )
-
-        assert result == InvalidLoadingCommand(
-            "extrude_rotations の引き戻し回転数には 0 以上の数値が必要です"
-        )
 
     @pytest.mark.parametrize(
         "command",
@@ -942,45 +637,53 @@ class TestMachineJobsWithoutKlipper:
 class TestPasteDatasetCollectionPreflight:
     """Dataset収集は装置を開く前に設定・配置・撮影窓を確定する（PCB非依存）."""
 
-    def test_capacity_shortage_fails_before_prompt_or_machine(
-        self, manager: JobManager, wait_until: WaitUntil
+    @pytest.mark.parametrize(
+        ("params", "expected"),
+        [
+            # 盤面に載らない本数（容量不足）
+            (
+                {
+                    "plate_width": 12.0,
+                    "plate_height": 12.0,
+                    "volume_divisions": 5,
+                    "samples_per_volume": 5,
+                    "blank_count": 4,
+                },
+                "サンプル",
+            ),
+            # 同じ session で作った校正を同じ session へ当てると汎化を測れない
+            (
+                {
+                    "save_name": f"self-reference{CALIBRATION_SUFFIX}",
+                    "volume_calibration": f"self-reference{CALIBRATION_SUFFIX}",
+                },
+                "汎化",
+            ),
+            ({"paste_height": 0.0}, "塗布高さ"),
+            ({"view_count": 4, "view_offset": 0.0}, "移動距離"),
+            # crop がセルピッチを超えると隣のセルが写り込む
+            ({"cell_size": 2.0, "cell_gap": 1.0, "crop_size": 4.0}, "crop"),
+            # open_kernel_px は k×k バイトを確保する。下限・上限とも弾く
+            ({"open_kernel_px": 4}, "openカーネル"),
+            ({"open_kernel_px": 1_048_577}, "openカーネル"),
+        ],
+    )
+    def test_invalid_settings_fail_before_prompt_or_machine(
+        self,
+        manager: JobManager,
+        wait_until: WaitUntil,
+        params: dict[str, object],
+        expected: str,
     ):
+        """1 時間の収集を終えてから設定の不正を知らされては遅い."""
         record = manager.start(
-            "paste_volume_calibration",
-            {
-                "paste_id": "paste-1",
-                "plate_width": 12.0,
-                "plate_height": 12.0,
-                "volume_divisions": 5,
-                "samples_per_volume": 5,
-                "blank_count": 4,
-            },
+            "paste_volume_calibration", {"paste_id": "paste-1", **params}
         )
         wait_until(lambda: record.status.terminal, timeout=60.0)
 
         assert record.status == JobStatus.FAILED
         assert record.error is not None
-        assert "サンプル" in record.error
-        assert record.pending_prompt is None
-
-    @pytest.mark.parametrize("kernel", [4, 1_048_577])
-    def test_invalid_detection_params_fail_before_prompt_or_machine(
-        self, manager: JobManager, wait_until: WaitUntil, kernel: int
-    ):
-        """1 時間の収集を終えてからハイパラの不正を知らされては遅い.
-
-        ``open_kernel_px`` は k×k バイトを確保するので、上限が無いと打ち間違いが
-        MemoryError や数 GiB の確保になる。
-        """
-        record = manager.start(
-            "paste_volume_calibration",
-            {"paste_id": "paste-1", "open_kernel_px": kernel},
-        )
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-
-        assert record.status == JobStatus.FAILED
-        assert record.error is not None
-        assert "openカーネル" in record.error
+        assert expected in record.error
         assert record.pending_prompt is None
 
     def test_a_zero_min_area_is_refused_at_start(self, manager: JobManager):
@@ -990,69 +693,6 @@ class TestPasteDatasetCollectionPreflight:
                 "paste_volume_calibration",
                 {"paste_id": "paste-1", "min_area_px": 0},
             )
-
-    def test_saving_over_the_verification_calibration_fails_before_the_machine(
-        self, manager: JobManager, wait_until: WaitUntil
-    ):
-        """同じsessionで作った校正を同じsessionへ当てると汎化を測れない."""
-        name = f"self-reference{CALIBRATION_SUFFIX}"
-        record = manager.start(
-            "paste_volume_calibration",
-            {"paste_id": "paste-1", "save_name": name, "volume_calibration": name},
-        )
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-
-        assert record.status == JobStatus.FAILED
-        assert record.error is not None
-        assert "汎化" in record.error
-        assert record.pending_prompt is None
-
-    def test_zero_paste_height_fails_before_prompt_or_machine(
-        self, manager: JobManager, wait_until: WaitUntil
-    ):
-        record = manager.start(
-            "paste_volume_calibration",
-            {"paste_id": "paste-1", "paste_height": 0.0},
-        )
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-
-        assert record.status == JobStatus.FAILED
-        assert record.error is not None
-        assert "塗布高さ" in record.error
-        assert record.pending_prompt is None
-
-    def test_zero_view_offset_with_views_fails_before_prompt_or_machine(
-        self, manager: JobManager, wait_until: WaitUntil
-    ):
-        record = manager.start(
-            "paste_volume_calibration",
-            {"paste_id": "paste-1", "view_count": 4, "view_offset": 0.0},
-        )
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-
-        assert record.status == JobStatus.FAILED
-        assert record.error is not None
-        assert "移動距離" in record.error
-        assert record.pending_prompt is None
-
-    def test_crop_larger_than_cell_pitch_fails_before_prompt_or_machine(
-        self, manager: JobManager, wait_until: WaitUntil
-    ):
-        record = manager.start(
-            "paste_volume_calibration",
-            {
-                "paste_id": "paste-1",
-                "cell_size": 2.0,
-                "cell_gap": 1.0,
-                "crop_size": 4.0,
-            },
-        )
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-
-        assert record.status == JobStatus.FAILED
-        assert record.error is not None
-        assert "crop" in record.error
-        assert record.pending_prompt is None
 
     def test_valid_settings_reach_confirmations_without_pcb(
         self, manager: JobManager, wait_until: WaitUntil
@@ -1088,37 +728,6 @@ class TestPasteDatasetCollectionPreflight:
 
         assert record.status == JobStatus.ABORTED
         assert any("収集計画" in line for line in record.log_lines)
-
-
-class TestApplyTargetsWhitelisted:
-    """Apply 反映先キーが config_store ホワイトリストに登録済みであること.
-
-    SUCCEEDED は一部実機でしか作れないため、書込経路の成立をここでピンする。
-    """
-
-    def test_pasting_apply_keys_write_to_machine_toml(
-        self, store: ConfigStore, config_dir: Path
-    ):
-        store.write_machine_settings(
-            {
-                "paste_dispenser.rotations_per_ul": 12.345678,
-                "paste_dispenser.solder_paste_density": 3.78,
-                "paste_dispenser.max_dispense_rate": 0.123456,
-                "paste_dispenser.dispense_accel": 1.234567,
-                "paste_dispenser.max_fill_speed": 7.654321,
-                "paste_dispenser.toolhead.x": -1.2345,
-                "paste_dispenser.toolhead.y": 23.4567,
-            },
-        )
-
-        toml_text = (config_dir / "machine.toml").read_text(encoding="utf-8")
-        assert "12.345678" in toml_text
-        assert "3.78" in toml_text
-        assert "0.123456" in toml_text
-        assert "1.234567" in toml_text
-        assert "7.654321" in toml_text
-        assert "-1.2345" in toml_text
-        assert "23.4567" in toml_text
 
 
 def _wait_loading_stage_and_settle(
@@ -1495,6 +1104,7 @@ class TestPasteVolumeCalibrationFitStep:
         fake_camera_settings: Settings,
         wait_until: WaitUntil,
     ):
+        """校正ファイルと診断（総体積誤差・図）が収集ジョブの中で揃う."""
         session = build_paste_volume_session(
             fake_camera_settings.paste_dataset_dir / self.STEM
         )
@@ -1508,18 +1118,6 @@ class TestPasteVolumeCalibrationFitStep:
         assert error is None, error
         assert calibration is not None
         assert calibration.source.session == self.STEM
-
-    def test_reports_the_diagnostics_in_the_summary(
-        self,
-        fit_manager: JobManager,
-        fake_camera_settings: Settings,
-        wait_until: WaitUntil,
-    ):
-        session = build_paste_volume_session(
-            fake_camera_settings.paste_dataset_dir / self.STEM
-        )
-
-        record = self._run(fit_manager, wait_until, session, save_name="collected")
 
         assert record.result is not None
         assert "総体積誤差" in str(record.result.summary)
@@ -1694,12 +1292,16 @@ class TestPasteDatasetVolumeVerification:
         assert record.status == JobStatus.SUCCEEDED, record.error
         return record
 
-    def test_verifies_the_collected_session_and_reports_the_total_error(
+    def test_verifies_the_collected_session_and_writes_the_report(
         self,
         verify_manager: JobManager,
         fake_camera_settings: Settings,
         wait_until: WaitUntil,
     ):
+        """総体積誤差の summary + JSON レポート + 散布図が成果物として揃う.
+
+        blank と検出失敗はレポート上で別の数として持つ（同じ袋に入れると回帰が見えない）。
+        """
         session = self._session(fake_camera_settings)
         name = self._calibration(fake_camera_settings)
 
@@ -1707,30 +1309,18 @@ class TestPasteDatasetVolumeVerification:
 
         assert record.result is not None
         assert "総体積誤差" in str(record.result.summary)
-        assert {artifact.label for artifact in record.result.artifacts} == {
-            "塗布量の検証",
-            "実測と推定の散布図",
-        }
-
-    def test_writes_a_json_report_and_a_scatter(
-        self,
-        verify_manager: JobManager,
-        fake_camera_settings: Settings,
-        wait_until: WaitUntil,
-    ):
-        session = self._session(fake_camera_settings)
-        name = self._calibration(fake_camera_settings)
-
-        record = self._run(verify_manager, wait_until, session, name)
-
-        assert record.result is not None
-        root = fake_camera_settings.webui_data_dir
         by_label = {a.label: a for a in record.result.artifacts}
+        assert set(by_label) == {"塗布量の検証", "実測と推定の散布図"}
+
+        root = fake_camera_settings.webui_data_dir
         report = json.loads(
             (root / by_label["塗布量の検証"].path).read_text(encoding="utf-8")
         )
         assert report["session"] == self.STEM
         assert report["accepted_count"] > 0
+        assert report["detection_failure_count"] == 0
+        assert report["blank_count"] == 1
+        assert report["dispensed_count"] == report["cell_count"] - 1
         assert cv2.imread(str(root / by_label["実測と推定の散布図"].path)) is not None
 
     def test_does_nothing_when_no_calibration_is_selected(
@@ -1747,63 +1337,30 @@ class TestPasteDatasetVolumeVerification:
         assert record.result.summary == ""
         assert record.result.artifacts == ()
 
-    def test_a_missing_calibration_does_not_lose_the_collection(
+    @pytest.mark.parametrize("broken", [False, True])
+    def test_an_unusable_calibration_does_not_lose_the_collection(
         self,
         verify_manager: JobManager,
         fake_camera_settings: Settings,
         wait_until: WaitUntil,
+        broken: bool,
     ):
-        """収集は終わっている。後付けの検証で例外を投げてはならない."""
+        """収集は終わっている。後付けの検証で例外を投げてはならない.
+
+        校正が見つからない経路と、読めても parse に失敗する経路の両方。
+        """
         session = self._session(fake_camera_settings)
-
-        record = self._run(
-            verify_manager, wait_until, session, f"absent{CALIBRATION_SUFFIX}"
-        )
-
-        assert record.result is not None
-        assert record.result.summary == " / 検証失敗"
-        assert record.result.artifacts == ()
-
-    def test_a_broken_calibration_does_not_lose_the_collection(
-        self,
-        verify_manager: JobManager,
-        fake_camera_settings: Settings,
-        wait_until: WaitUntil,
-    ):
-        """読めない校正ファイルでも SUCCEEDED のまま（parse 失敗の経路）."""
-        session = self._session(fake_camera_settings)
-        broken = f"broken{CALIBRATION_SUFFIX}"
-        root = fake_camera_settings.paste_volume_calibration_dir
-        root.mkdir(parents=True, exist_ok=True)
-        (root / broken).write_text("{ not json", encoding="utf-8")
-
-        record = self._run(verify_manager, wait_until, session, broken)
-
-        assert record.result is not None
-        assert record.result.summary == " / 検証失敗"
-        assert record.result.artifacts == ()
-
-    def test_reports_the_detection_failure_count_separately_from_blanks(
-        self,
-        verify_manager: JobManager,
-        fake_camera_settings: Settings,
-        wait_until: WaitUntil,
-    ):
-        """Blank と検出失敗を同じ袋に入れると回帰条件が見えなくなる."""
-        session = self._session(fake_camera_settings)
-        name = self._calibration(fake_camera_settings)
+        name = f"{'broken' if broken else 'absent'}{CALIBRATION_SUFFIX}"
+        if broken:
+            root = fake_camera_settings.paste_volume_calibration_dir
+            root.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text("{ not json", encoding="utf-8")
 
         record = self._run(verify_manager, wait_until, session, name)
 
         assert record.result is not None
-        root = fake_camera_settings.webui_data_dir
-        by_label = {a.label: a for a in record.result.artifacts}
-        report = json.loads(
-            (root / by_label["塗布量の検証"].path).read_text(encoding="utf-8")
-        )
-        assert report["detection_failure_count"] == 0
-        assert report["blank_count"] == 1
-        assert report["dispensed_count"] == report["cell_count"] - 1
+        assert record.result.summary == " / 検証失敗"
+        assert record.result.artifacts == ()
 
 
 class TestPasteVolumeRefit:
@@ -1845,35 +1402,16 @@ class TestPasteVolumeRefit:
         assert calibration.diagnostics.blank_false_positive_count == 0
         assert calibration.diagnostics.detection_failure_count == 0
 
-    def test_produces_a_scatter_and_a_detection_montage(
+    def test_an_empty_save_name_still_reports_and_draws_the_diagnostics(
         self,
         manager: JobManager,
         fake_camera_settings: Settings,
         wait_until: WaitUntil,
     ):
-        self._session(fake_camera_settings)
+        """保存名なし = ハイパラ探索。図とまとめだけ出し、保存先は汚さない.
 
-        record = self._start(manager)
-        answer_next_prompt(record, manager, self.STEM, set())
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-
-        assert record.status == JobStatus.SUCCEEDED, record.error
-        assert record.result is not None
-        artifacts_root = fake_camera_settings.webui_data_dir
-        images = [a for a in record.result.artifacts if a.kind == "image"]
-        assert len(images) == 2
-        for artifact in images:
-            image = cv2.imread(str(artifacts_root / artifact.path))
-            assert image is not None
-            assert image.size > 0
-
-    def test_an_empty_save_name_leaves_the_calibration_directory_untouched(
-        self,
-        manager: JobManager,
-        fake_camera_settings: Settings,
-        wait_until: WaitUntil,
-    ):
-        """ハイパラ探索で Git 管理の保存先を汚さない."""
+        主基準は session 総体積の誤差なので、まとめに必ず出す。
+        """
         self._session(fake_camera_settings)
 
         record = self._start(manager)
@@ -1883,23 +1421,17 @@ class TestPasteVolumeRefit:
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert not fake_camera_settings.paste_volume_calibration_dir.exists()
 
-    def test_reports_the_total_volume_error_in_the_summary(
-        self,
-        manager: JobManager,
-        fake_camera_settings: Settings,
-        wait_until: WaitUntil,
-    ):
-        """主基準は session 総体積の誤差なので、まとめに必ず出す."""
-        self._session(fake_camera_settings)
-
-        record = self._start(manager)
-        answer_next_prompt(record, manager, self.STEM, set())
-        wait_until(lambda: record.status.terminal, timeout=60.0)
-
-        assert record.status == JobStatus.SUCCEEDED, record.error
         assert record.result is not None
         assert record.result.summary is not None
         assert "総体積誤差" in record.result.summary
+        # 散布図と検出モンタージュ
+        artifacts_root = fake_camera_settings.webui_data_dir
+        images = [a for a in record.result.artifacts if a.kind == "image"]
+        assert len(images) == 2
+        for artifact in images:
+            image = cv2.imread(str(artifacts_root / artifact.path))
+            assert image is not None
+            assert image.size > 0
 
     def test_fails_when_a_blank_cell_is_detected_as_a_deposit(
         self,

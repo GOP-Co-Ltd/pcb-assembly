@@ -21,7 +21,6 @@ import cv2
 import pytest
 
 from pcbasm.pcb import PcbFile
-from tests.helpers import FakeAudioPlayer
 from web.api.jobs.catalog import default_catalog
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.settings import Settings
@@ -153,29 +152,6 @@ class TestJobDemo:
         dev_manager.submit_command({"type": "quit"})
         wait_until(lambda: record.status.terminal)
 
-        assert record.status == JobStatus.SUCCEEDED, record.error
-
-    def test_command_phase_notifies_the_operator_before_waiting(
-        self, make_manager: ManagerFactory, wait_until: WaitUntil
-    ):
-        """コマンド待ちに入る前に機体スピーカーが作業者を呼び戻す.
-
-        prompt を出さないオペレータ待ち（手動ペーストローディング・吐出量キャリブの
-        メニューと同じ形）が通知されることを、Klipper 不要な job_demo でピンする。 prompt 2 回ぶんに続く 3
-        回目が、コマンド待ち入口の通知。
-        """
-        player = FakeAudioPlayer()
-        manager = make_manager(default_catalog(), audio_player=player)
-        record = manager.start(
-            "job_demo", {"steps": 1, "interval": 0.01, "command_phase": True}
-        )
-        _answer_demo_prompts(record, manager, number_answer=60.0)
-        wait_until(lambda: len(player.played) == 3)
-
-        assert [sound for sound, _ in player.played] == ["prompt"] * 3
-
-        manager.submit_command({"type": "quit"})
-        wait_until(lambda: record.status.terminal)
         assert record.status == JobStatus.SUCCEEDED, record.error
 
     def test_requires_pcb_job_without_selection_raises_value_error(

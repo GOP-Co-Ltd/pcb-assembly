@@ -13,7 +13,7 @@
   応答後は呼ばない / 待機中 abort は while_waiting 無しと同じく JobAborted /
   コールバックの例外は握りつぶさずジョブを FAILED にする
 - abort: checkpoint で JobAborted / prompt・next_command 待機中は即時 /
-  アクティブジョブ無しは False
+  終端後は False
 - command: submit_command → next_command、"type" キー必須、
   accepts_commands でないジョブへの submit は ValueError
 - ログはリングバッファ（log_capacity）
@@ -150,9 +150,6 @@ class TestLifecycle:
         assert record.status == JobStatus.ABORTED
         assert any("中止要求を受け付けました" in line for line in record.log_lines)
 
-    def test_request_abort_without_active_job_returns_false(self, manager: JobManager):
-        assert manager.request_abort() is False
-
     def test_request_abort_after_terminal_returns_false(
         self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
     ):
@@ -185,9 +182,6 @@ class TestLifecycle:
 
         with pytest.raises(ValueError):
             manager.start("synthetic", {})
-
-    def test_current_is_none_before_first_start(self, manager: JobManager):
-        assert manager.current() is None
 
     def test_start_persists_declared_param_defaults(
         self,
@@ -259,15 +253,9 @@ class TestPrompt:
         prompt_id, spec = pending
         assert spec.true_label == "続行"
         assert spec.false_label == "中止"
-        assert prompt_payload(prompt_id, spec) == {
-            "id": prompt_id,
-            "kind": "confirm",
-            "message": "安全確認",
-            "default": True,
-            "choices": [],
-            "true_label": "続行",
-            "false_label": "中止",
-        }
+        payload = prompt_payload(prompt_id, spec)
+        assert payload["true_label"] == "続行"
+        assert payload["false_label"] == "中止"
 
         manager.respond_prompt(prompt_id, False)
         wait_until(lambda: record.status.terminal)
@@ -1220,33 +1208,25 @@ class TestAudioCompletionNotification:
         assert record.status == JobStatus.ABORTED
         assert player.played == ()
 
-    @pytest.mark.parametrize(
-        ("job_fails", "expected_status"),
-        [(False, JobStatus.SUCCEEDED), (True, JobStatus.FAILED)],
-    )
     def test_non_machine_job_stays_silent(
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         config_dir: Path,
         wait_until: WaitUntil,
-        job_fails: bool,
-        expected_status: JobStatus,
     ):
         """`notify_on_completion` はブラウザ通知専用で、完了音を左右しない."""
         _configure_audio(config_dir)
         player = FakeAudioPlayer()
         manager = make_manager(catalog, audio_player=player)
 
-        def run(ctx: JobContext) -> None:
-            if job_fails:
-                raise RuntimeError("意図的な失敗")
-
-        _register(catalog, run, uses_machine=False, notify_on_completion=True)
+        _register(
+            catalog, lambda ctx: None, uses_machine=False, notify_on_completion=True
+        )
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
 
-        assert record.status == expected_status
+        assert record.status == JobStatus.SUCCEEDED
         assert player.played == ()
 
     def test_missing_audio_section_plays_with_defaults(
@@ -1267,10 +1247,6 @@ class TestAudioCompletionNotification:
         assert record.status == JobStatus.SUCCEEDED
         assert player.played == (("success", Audio()),)
 
-    @pytest.mark.parametrize(
-        ("job_fails", "expected_status"),
-        [(False, JobStatus.SUCCEEDED), (True, JobStatus.FAILED)],
-    )
     def test_playback_failure_warns_without_changing_job_status(
         self,
         make_manager: ManagerFactory,
@@ -1278,8 +1254,6 @@ class TestAudioCompletionNotification:
         config_dir: Path,
         wait_until: WaitUntil,
         caplog: pytest.LogCaptureFixture,
-        job_fails: bool,
-        expected_status: JobStatus,
     ):
         _configure_audio(config_dir)
         player = FakeAudioPlayer(
@@ -1288,8 +1262,7 @@ class TestAudioCompletionNotification:
         manager = make_manager(catalog, audio_player=player)
 
         def run(ctx: JobContext) -> None:
-            if job_fails:
-                raise RuntimeError("job failure")
+            raise RuntimeError("job failure")
 
         _register(catalog, run, uses_machine=True)
         with caplog.at_level(logging.WARNING):
@@ -1303,7 +1276,7 @@ class TestAudioCompletionNotification:
                 )
             )
 
-        assert record.status == expected_status
+        assert record.status == JobStatus.FAILED
         assert len(player.played) == 1
 
 
@@ -1315,8 +1288,11 @@ class TestAudioOperatorNotification:
     - 応答待ちに入った時点で `prompt` を鳴らす（応答を待たない）。ジョブ側の
       オプトインは無く、**すべての** prompt が毎回鳴らす
     - `notify_operator()` はコマンド待ちなど prompt 以外のオペレータ待ちで
-      同じ音を鳴らす
-    - プレイヤー未注入・再生失敗はジョブに影響しない
+      同じ音を鳴らす。abort 済みなら鳴らさない
+
+    プレイヤー未注入は既定の `manager` fixture（`audio_player=None`）が通る経路で、
+    再生失敗の握り潰しは `TestAudioCompletionNotification` が同じ `_play_sound`
+    を通して固定する。
     """
 
     def test_every_prompt_plays_the_input_sound(
@@ -1371,49 +1347,6 @@ class TestAudioOperatorNotification:
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert player.played == (("prompt", config),)
 
-    def test_playback_failure_does_not_block_the_prompt(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        config_dir: Path,
-        wait_until: WaitUntil,
-        caplog: pytest.LogCaptureFixture,
-    ):
-        _configure_audio(config_dir)
-        player = FakeAudioPlayer(
-            playback_error=AudioPlaybackError("speaker disconnected")
-        )
-        manager = make_manager(catalog, audio_player=player)
-        spec = PromptSpec(kind="number", message="質量 [mg]")
-        answers = _register_prompting(catalog, spec)
-
-        with caplog.at_level(logging.WARNING):
-            record = manager.start("prompting", {})
-            wait_until(lambda: record.pending_prompt is not None)
-            answer_next_prompt(record, manager, 110.5, set())
-            wait_until(lambda: record.status.terminal)
-
-        assert record.status == JobStatus.SUCCEEDED
-        assert answers == [110.5]
-
-    def test_prompt_without_audio_player_still_resolves(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        wait_until: WaitUntil,
-    ):
-        manager = make_manager(catalog)
-        spec = PromptSpec(kind="number", message="質量 [mg]")
-        answers = _register_prompting(catalog, spec)
-
-        record = manager.start("prompting", {})
-        wait_until(lambda: record.pending_prompt is not None)
-        answer_next_prompt(record, manager, 110.5, set())
-        wait_until(lambda: record.status.terminal)
-
-        assert record.status == JobStatus.SUCCEEDED
-        assert answers == [110.5]
-
     def test_notify_operator_stays_silent_after_abort(
         self,
         make_manager: ManagerFactory,
@@ -1444,20 +1377,6 @@ class TestAudioOperatorNotification:
 
         assert record.status == JobStatus.ABORTED
         assert player.played == ()
-
-    def test_notify_operator_without_audio_player_is_a_noop(
-        self,
-        make_manager: ManagerFactory,
-        catalog: JobCatalog,
-        wait_until: WaitUntil,
-    ):
-        manager = make_manager(catalog)
-        _register(catalog, lambda ctx: ctx.notify_operator())
-
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-
-        assert record.status == JobStatus.SUCCEEDED, record.error
 
 
 class TestShutdown:

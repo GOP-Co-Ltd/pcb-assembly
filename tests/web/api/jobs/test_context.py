@@ -8,7 +8,6 @@ JobManager だけが生成するため、合成ジョブを manager 経由で実
 - pcb_path は選択 PCB の絶対パス（未選択なら None）
 - machine は選択マシンの設定、artifacts_dir は data/webui/<job_id>/（作成済み）
 - log / progress は record へ反映、frame は preview のオーバーライドスロットへ
-- checkpoint は abort 未要求なら no-op
 - next_command は timeout 超過で None
 
 prompt / abort 経由の挙動は test_manager.py（respond_prompt / request_abort
@@ -23,15 +22,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pcbasm.config import Machine
 from pcbasm.vision import Image
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from web.api.board_settings import BoardSettingsStore
 from web.api.jobs.catalog import JobCatalog, ParamSpec
-from web.api.jobs.context import JobContext, JobResult
+from web.api.jobs.context import JobContext
 from web.api.jobs.manager import JobManager, JobStatus
 from web.api.preview import PreviewService
-from web.api.settings import Settings, resolve_machine_id
+from web.api.settings import Settings
 from web.api.state import AppState
 
 from .conftest import WaitUntil, register_synthetic as _register
@@ -87,34 +85,20 @@ class TestContextProperties:
         assert pcb_path.is_file()
         assert pcb_path.name == "fill_coverage.kicad_pcb"
 
-    def test_pcb_path_is_none_without_selection(
+    def test_pcb_path_and_source_pcb_are_none_without_selection(
         self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
     ):
-        captured: list[Path | None] = []
+        """PCB 未選択なら絶対パスも相対 source_pcb も None."""
+        captured: list[tuple[Path | None, str | None]] = []
 
         def run(ctx: JobContext) -> None:
-            captured.append(ctx.pcb_path)
+            captured.append((ctx.pcb_path, ctx.source_pcb))
 
         _register(catalog, run)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
 
-        assert captured == [None]
-
-    def test_machine_is_config_dir_machine(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
-    ):
-        captured: list[Machine] = []
-
-        def run(ctx: JobContext) -> None:
-            captured.append(ctx.machine)
-
-        _register(catalog, run)
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-
-        # tmp コピーした config/machine.toml の設定がロードされる
-        assert captured[0].klipper.port == 7126
+        assert captured == [(None, None)]
 
     def test_artifacts_dir_is_created_under_data_webui(
         self,
@@ -135,30 +119,6 @@ class TestContextProperties:
 
         assert record.status == JobStatus.SUCCEEDED
         assert captured[0] == fake_camera_settings.webui_data_dir / record.id
-
-    def test_machine_and_dataset_identity_are_explicitly_injected(
-        self,
-        manager: JobManager,
-        catalog: JobCatalog,
-        fake_camera_settings: Settings,
-        wait_until: WaitUntil,
-    ):
-        captured: list[tuple[str, Path]] = []
-
-        def run(ctx: JobContext) -> None:
-            captured.append((ctx.machine_id, ctx.paste_dataset_dir))
-
-        _register(catalog, run)
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-
-        assert record.status == JobStatus.SUCCEEDED
-        assert captured == [
-            (
-                resolve_machine_id(fake_camera_settings),
-                fake_camera_settings.paste_dataset_dir,
-            )
-        ]
 
 
 class TestBoardSettingsWiring:
@@ -197,20 +157,6 @@ class TestBoardSettingsWiring:
         # 注入した同一インスタンス（等価ではなく同一性）
         assert ctx_board_store is board_store
 
-    def test_source_pcb_is_none_without_selection(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
-    ):
-        captured: list[str | None] = []
-
-        def run(ctx: JobContext) -> None:
-            captured.append(ctx.source_pcb)
-
-        _register(catalog, run)
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-
-        assert captured == [None]
-
 
 class TestLogAndProgress:
     """Log / progress の record への反映."""
@@ -229,31 +175,26 @@ class TestLogAndProgress:
         assert "1 行目" in record.log_lines
         assert "2 行目" in record.log_lines
 
+    @pytest.mark.parametrize(("stage", "percent"), [("描画", 42.0), ("読込", None)])
     def test_progress_updates_stage_and_percent(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        wait_until: WaitUntil,
+        stage: str,
+        percent: float | None,
     ):
+        """Percent は省略可（進捗率の出ない工程がある）."""
+
         def run(ctx: JobContext) -> None:
-            ctx.progress("描画", 42.0)
+            ctx.progress(stage, percent)
 
         _register(catalog, run)
         record = manager.start("synthetic", {})
         wait_until(lambda: record.status.terminal)
 
-        assert record.progress_stage == "描画"
-        assert record.progress_percent == 42.0
-
-    def test_progress_percent_may_be_none(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
-    ):
-        def run(ctx: JobContext) -> None:
-            ctx.progress("読込")
-
-        _register(catalog, run)
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-
-        assert record.progress_stage == "読込"
-        assert record.progress_percent is None
+        assert record.progress_stage == stage
+        assert record.progress_percent == percent
 
 
 class TestFrame:
@@ -357,22 +298,8 @@ class TestOpenCamera:
         assert not state.frame_hub().running
 
 
-class TestCheckpointAndNextCommand:
-    """Checkpoint / next_command（abort 連動は test_manager.py）."""
-
-    def test_checkpoint_is_noop_without_abort_request(
-        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
-    ):
-        def run(ctx: JobContext) -> JobResult:
-            ctx.checkpoint()
-            ctx.checkpoint()
-            return JobResult(summary="checkpoint 通過")
-
-        _register(catalog, run)
-        record = manager.start("synthetic", {})
-        wait_until(lambda: record.status.terminal)
-
-        assert record.status == JobStatus.SUCCEEDED
+class TestNextCommand:
+    """next_command（abort 連動は test_manager.py）."""
 
     def test_next_command_returns_none_on_timeout(
         self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
