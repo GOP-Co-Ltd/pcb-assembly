@@ -22,6 +22,7 @@ from pcbasm.posctrl.offset import OffsetTransformMeasurer
 from pcbasm.posctrl.position import XYPositionAdjustor
 from pcbasm.vision import (
     CalibrationResult,
+    CenterOffsetDetector,
     CircleDetector,
     FrameSink,
     draw_overlay,
@@ -43,7 +44,7 @@ class OffsetObserver:
 
     def __init__(
         self,
-        detector: CircleDetector,
+        detector: CenterOffsetDetector,
         camera: Camera,
         crop_size: tuple[int, int],
         *,
@@ -57,7 +58,8 @@ class OffsetObserver:
         """OffsetObserverを初期化する.
 
         Args:
-            detector: 円検出器
+            detector: 検出器（Hough の :class:`~pcbasm.vision.CircleDetector` や
+                塗布痕用の :class:`~pcbasm.vision.PasteDotDetector`）
             camera: カメラ
             crop_size: 関心領域サイズ (width, height)
             frame_sink: 検出成功時に注釈画像を送る sink。Noneの場合は送らない

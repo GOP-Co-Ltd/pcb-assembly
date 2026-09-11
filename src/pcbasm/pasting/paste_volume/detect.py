@@ -9,6 +9,10 @@
 
 直径は最大連結成分の面積から求めた等価直径にする。円形度で弾くと、潰れた点や
 隣接ノイズと接した点を落としてしまう。
+
+2 値化と連結成分の段は :mod:`pcbasm.vision.dot` にあり、単一フレームから背景を
+推定する :class:`~pcbasm.vision.PasteDotDetector`（ツールヘッドオフセット計測）と
+共有する。
 """
 
 from __future__ import annotations
@@ -16,75 +20,27 @@ from __future__ import annotations
 import math
 
 import attrs
-import cv2
 import numpy as np
 
 from pcbasm.utils import is_finite_number
+from pcbasm.vision.dot import (
+    DotDetectionSpec,
+    dark_spots,
+    darkening,
+    segment_darkening,
+)
 from pcbasm.vision.image import ImageArray
+
+__all__ = [
+    "DETECTION_KIND",
+    "DotDetectionSpec",
+    "DotMeasurement",
+    "detection_mask",
+    "measure_dot",
+]
 
 # 校正ファイルへ記録する検出方式の識別子（将来別方式を足したときに区別する）
 DETECTION_KIND = "diameter_otsu_v1"
-
-# open カーネルの上限 [px]。crop（既定 53 px）より大きい値は塗布痕ごと消すため
-# 意味を持たない一方、k×k の確保が MemoryError や数 GiB になる
-MAX_OPEN_KERNEL_PX = 99
-
-
-@attrs.frozen
-class DotDetectionSpec:
-    """円検出のハイパーパラメータ.
-
-    Attributes:
-        min_contrast: 塗布ありと判定する差分の下限（0-255）。分位点がこれ未満なら直径 0
-        contrast_percentile: コントラストを測る分位点 [%]（外れ画素へ寄りすぎない値）
-        threshold_floor_ratio: Otsu 閾値の下限を ``min_contrast`` の何倍にするか
-        open_kernel_px: モルフォロジー open の正方カーネル [px]（0 で無効、正の奇数）
-        min_area_px: 最大連結成分の面積下限 [px]（未満は直径 0）
-    """
-
-    min_contrast: float = 20.0
-    contrast_percentile: float = 99.0
-    threshold_floor_ratio: float = 0.5
-    open_kernel_px: int = 3
-    min_area_px: int = 4
-
-    def validate(self) -> str | None:
-        """設定値の型・符号・範囲を検証する（不正なら理由文）."""
-        if not is_finite_number(self.min_contrast) or self.min_contrast < 0:
-            return f"最小コントラストは0以上の有限値が必要です: {self.min_contrast!r}"
-        if (
-            not is_finite_number(self.contrast_percentile)
-            or not 0 < self.contrast_percentile <= 100
-        ):
-            return (
-                "コントラストの分位点は0より大きく100以下が必要です: "
-                f"{self.contrast_percentile!r}"
-            )
-        if (
-            not is_finite_number(self.threshold_floor_ratio)
-            or self.threshold_floor_ratio < 0
-        ):
-            return (
-                "Otsu閾値の下限比は0以上の有限値が必要です: "
-                f"{self.threshold_floor_ratio!r}"
-            )
-        if type(self.open_kernel_px) is not int or self.open_kernel_px < 0:
-            return f"openカーネルは0以上の整数が必要です: {self.open_kernel_px!r}"
-        if self.open_kernel_px > 0 and self.open_kernel_px % 2 == 0:
-            return f"openカーネルは0か正の奇数が必要です: {self.open_kernel_px!r}"
-        if self.open_kernel_px > MAX_OPEN_KERNEL_PX:
-            # カーネルは k×k バイトを確保するので、打ち間違いが MemoryError や
-            # 数 GiB の確保になる。crop より大きい open は塗布痕を消すだけなので
-            # 上限を置いても失うものが無い（点の直径は 53 px crop で 17〜26 px）
-            return (
-                f"openカーネルは{MAX_OPEN_KERNEL_PX}以下が必要です: "
-                f"{self.open_kernel_px!r}"
-            )
-        if type(self.min_area_px) is not int or self.min_area_px < 1:
-            # 0 を許すと面積 0 の成分が「検出できた」になり、detected と直径 0 の
-            # 対応（:class:`DotMeasurement` の不変条件）が壊れる
-            return f"最小面積は1以上の整数が必要です: {self.min_area_px!r}"
-        return None
 
 
 @attrs.frozen
@@ -140,19 +96,22 @@ def measure_dot(
     if error is not None:
         return None, error
 
-    mask, contrast, threshold = _segment(pre_bgr, post_bgr, spec)
-    if mask is None:
-        return _undetected(contrast), None
-    area_px = _largest_component_area(mask)
+    segmentation = segment_darkening(darkening(pre_bgr, post_bgr), spec)
+    if segmentation.mask is None:
+        return _undetected(segmentation.contrast), None
+    area_px = _largest_component_area(segmentation.mask)
     if area_px < spec.min_area_px:
-        return _undetected(contrast, threshold=threshold), None
+        return (
+            _undetected(segmentation.contrast, threshold=segmentation.threshold),
+            None,
+        )
 
     return (
         DotMeasurement(
             diameter_mm=2.0 * math.sqrt(area_px / math.pi) / pixel_per_mm,
             area_px=area_px,
-            contrast=contrast,
-            threshold=threshold,
+            contrast=segmentation.contrast,
+            threshold=segmentation.threshold,
             detected=True,
         ),
         None,
@@ -186,10 +145,10 @@ def detection_mask(
     error = spec.validate() or _image_error(pre_bgr, post_bgr)
     if error is not None:
         return None, error
-    mask, _, _ = _segment(pre_bgr, post_bgr, spec)
-    if mask is None:
+    segmentation = segment_darkening(darkening(pre_bgr, post_bgr), spec)
+    if segmentation.mask is None:
         return np.zeros(pre_bgr.shape[:2], dtype=np.uint8), None
-    return mask, None
+    return segmentation.mask, None
 
 
 def _image_error(pre_bgr: ImageArray, post_bgr: ImageArray) -> str | None:
@@ -199,24 +158,6 @@ def _image_error(pre_bgr: ImageArray, post_bgr: ImageArray) -> str | None:
     if pre_bgr.ndim != 3 or pre_bgr.shape[2] != 3:
         return f"3 channelの画像が必要です: shape={pre_bgr.shape}"
     return None
-
-
-def _segment(
-    pre_bgr: ImageArray, post_bgr: ImageArray, spec: DotDetectionSpec
-) -> tuple[ImageArray | None, float, float]:
-    """差分から 2 値マスクを作る（blank ガードに掛かればマスクは ``None``）.
-
-    塗布していないセルの背景ノイズを Otsu が拾わないよう、分位点コントラストが
-    ``min_contrast`` に届かない時点で打ち切る。
-    """
-    difference = _darkening(pre_bgr, post_bgr)
-    contrast = float(np.percentile(difference, spec.contrast_percentile))
-    if contrast < spec.min_contrast:
-        return None, contrast, 0.0
-    threshold = max(
-        _otsu_threshold(difference), spec.min_contrast * spec.threshold_floor_ratio
-    )
-    return _binary_mask(difference, threshold, spec.open_kernel_px), contrast, threshold
 
 
 def _undetected(contrast: float, *, threshold: float = 0.0) -> DotMeasurement:
@@ -230,35 +171,6 @@ def _undetected(contrast: float, *, threshold: float = 0.0) -> DotMeasurement:
     )
 
 
-def _darkening(pre_bgr: ImageArray, post_bgr: ImageArray) -> ImageArray:
-    """塗布によって暗くなった量（0-255 の uint8）。明るくなった側は 0 に潰す."""
-    pre_gray = cv2.cvtColor(pre_bgr, cv2.COLOR_BGR2GRAY).astype(np.int16)
-    post_gray = cv2.cvtColor(post_bgr, cv2.COLOR_BGR2GRAY).astype(np.int16)
-    return np.clip(pre_gray - post_gray, 0, 255).astype(np.uint8)
-
-
-def _otsu_threshold(difference: ImageArray) -> float:
-    """差分画像の Otsu 閾値."""
-    threshold, _ = cv2.threshold(
-        difference, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-    )
-    return float(threshold)
-
-
-def _binary_mask(
-    difference: ImageArray, threshold: float, open_kernel_px: int
-) -> ImageArray:
-    """閾値で 2 値化し、必要なら open で孤立点を落とす."""
-    _, mask = cv2.threshold(difference, threshold, 255, cv2.THRESH_BINARY)
-    if open_kernel_px <= 0:
-        return mask
-    kernel = np.ones((open_kernel_px, open_kernel_px), np.uint8)
-    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-
 def _largest_component_area(mask: ImageArray) -> int:
     """最大連結成分の面積 [px]（背景を除く。成分が無ければ 0）."""
-    count, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
-    if count <= 1:
-        return 0
-    return int(stats[1:, cv2.CC_STAT_AREA].max())
+    return max((spot.area_px for spot in dark_spots(mask)), default=0)

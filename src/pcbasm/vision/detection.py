@@ -1,14 +1,32 @@
 """画像検出: 円などの図形を検出し、位置ズレを計算."""
 
 import statistics
+from abc import ABC, abstractmethod
 from collections.abc import Iterable
+from typing import override
 
 import attrs
 import cv2
 
 from pcbasm.geometry import Point2d
+from pcbasm.utils import is_finite_number
 
+from .dot import (
+    DarkSpot,
+    DotDetectionSpec,
+    background_darkening,
+    background_kernel_px,
+    dark_spots,
+    fill_dark_spot_holes,
+    segment_darkening,
+)
 from .image import Image
+
+# 塗布痕として採る円形度の下限。実素材では塗布痕が 0.95 以上、未塗布板に残る大きな
+# 成分（ヘアライン・照明ムラ）が 0.2 以下に分かれる。小片の円形度は 1 を超えうるので
+# この下限では弾けない（弾くのは直径下限の役目）
+# 出典: data/testing/paste-volume/README.md
+DEFAULT_MIN_CIRCULARITY = 0.7
 
 
 @attrs.frozen
@@ -62,115 +80,41 @@ class OffsetStatistics:
         )
 
 
-class CircleDetector:
-    """画像から円を検出し、最も中心に近い円の位置ズレを計算."""
+def validate_paste_diameters(diameter_min: float, diameter_max: float) -> str | None:
+    """検出円の直径範囲が ``0 < min < max`` の有限値かを検証する.
 
-    def __init__(
-        self,
-        pixel_per_mm: float,
-        target_diameter_mm: float = 3.0,
-        diameter_tolerance_mm: float = 1.0,
-        crop_size: tuple[int, int] | None = None,
-    ) -> None:
-        """CircleDetectorを初期化.
+    最小直径に 0（下限なし）を許さないのは、未塗布の板でも 2 値化の残りかすが
+    0.1-0.3 mm 相当の小片として残り、それを塗布痕と取り違えるため。小片の円形度は
+    1 を超えうるので、円形度の下限では弾けない。
+    """
+    if not (
+        is_finite_number(diameter_min)
+        and is_finite_number(diameter_max)
+        and 0 < diameter_min < diameter_max
+    ):
+        return "検出円の直径は 0 < 最小直径 < 最大直径 である必要があります"
+    return None
+
+
+class CenterOffsetDetector(ABC):
+    """画像中心からのズレを返す検出器の共通部分.
+
+    検出方式（Hough / 背景差分 + Otsu）ごとに :meth:`detect_nearest_center` を実装し、
+    複数フレームの統計集約はここで共有する。
+    :class:`~pcbasm.posctrl.OffsetObserver` はこの契約だけに依存する。
+    """
+
+    def __init__(self, pixel_per_mm: float) -> None:
+        """画像スケールを保持する.
 
         Args:
             pixel_per_mm: pixel/mm比率
-            target_diameter_mm: ターゲットの円の直径 (mm)
-            diameter_tolerance_mm: 直径の許容誤差 (mm)
-            crop_size: 関心領域サイズ (width, height)、Noneの場合は画像全体
         """
         self._pixel_per_mm = pixel_per_mm
-        self._target_diameter_mm = target_diameter_mm
-        self._diameter_tolerance_mm = diameter_tolerance_mm
-        self._crop_size = crop_size
 
+    @abstractmethod
     def detect_nearest_center(self, image: Image) -> DetectedCircle | None:
-        """画像から円を検出し、最も中心に近い円を返す.
-
-        Args:
-            image: 入力画像
-
-        Returns:
-            DetectedCircle または検出失敗時はNone
-        """
-        circles = self.detect_circles(image)
-        if len(circles) == 0:
-            return None
-
-        # ターゲットサイズに近い円をフィルタリング
-        target_circles = self._filter_by_size(circles)
-        if len(target_circles) == 0:
-            return None
-
-        # 最も中心に近い円を選択
-        return min(target_circles, key=lambda c: c.offset.px.norm)
-
-    def detect_circles(self, image: Image) -> list[DetectedCircle]:
-        """Hough変換で円を検出.
-
-        Args:
-            image: 入力画像
-
-        Returns:
-            検出された円のリスト
-        """
-        # 関心領域を切り出し
-        if self._crop_size is not None:
-            cropped = image.crop_center(self._crop_size)
-        else:
-            cropped = image
-
-        image_center = (cropped.width / 2, cropped.height / 2)
-
-        gray = cv2.cvtColor(cropped.numpy(), cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (9, 9), 2)
-
-        # ターゲットサイズに基づいて検出パラメータを設定
-        min_radius_mm = (self._target_diameter_mm - self._diameter_tolerance_mm) / 2
-        max_radius_mm = (self._target_diameter_mm + self._diameter_tolerance_mm) / 2
-        min_radius_px = max(1, int(min_radius_mm * self._pixel_per_mm))
-        max_radius_px = int(max_radius_mm * self._pixel_per_mm)
-
-        circles = cv2.HoughCircles(
-            gray,
-            cv2.HOUGH_GRADIENT,
-            dp=1,
-            minDist=min_radius_px * 2,
-            param1=50,
-            param2=30,
-            minRadius=min_radius_px,
-            maxRadius=max_radius_px,
-        )
-
-        if circles is None:
-            return []
-
-        result = []
-        for c in circles[0]:
-            center = Point2d(x=float(c[0]), y=float(c[1]))
-            radius = float(c[2])
-            offset_px = Point2d(
-                x=center.x - image_center[0],
-                y=center.y - image_center[1],
-            )
-            offset = Offset(px=offset_px, pixel_per_mm=self._pixel_per_mm)
-            result.append(
-                DetectedCircle(
-                    center=center,
-                    radius=radius,
-                    offset=offset,
-                )
-            )
-
-        return result
-
-    def _filter_by_size(self, circles: list[DetectedCircle]) -> list[DetectedCircle]:
-        """ターゲットサイズに近い円をフィルタリング."""
-        target_radius_px = (self._target_diameter_mm / 2) * self._pixel_per_mm
-        tolerance_px = (self._diameter_tolerance_mm / 2) * self._pixel_per_mm
-
-        return [c for c in circles if abs(c.radius - target_radius_px) <= tolerance_px]
+        """画像から対象を検出し、最も中心に近いものを返す（無ければNone）."""
 
     def detect_with_statistics(
         self,
@@ -178,7 +122,7 @@ class CircleDetector:
         *,
         minimum_sample_count: int = 1,
     ) -> OffsetStatistics | None:
-        """複数画像から円を検出し、オフセットの統計を返す.
+        """複数画像から対象を検出し、オフセットの統計を返す.
 
         Args:
             images: 入力画像のイテラブル
@@ -217,4 +161,239 @@ class CircleDetector:
             ),
             pixel_per_mm=self._pixel_per_mm,
             sample_count=len(offsets_x),
+        )
+
+    def _offset_from_center(self, center: Point2d, image: Image) -> Offset:
+        """画像中心から検出中心までのズレ."""
+        return Offset(
+            px=Point2d(
+                x=center.x - image.width / 2,
+                y=center.y - image.height / 2,
+            ),
+            pixel_per_mm=self._pixel_per_mm,
+        )
+
+
+class CircleDetector(CenterOffsetDetector):
+    """画像からHough変換で円を検出し、最も中心に近い円の位置ズレを計算.
+
+    基準点マーカーのように縁の勾配がはっきりした円が対象。塗布痕には
+    :class:`PasteDotDetector` を使う。
+    """
+
+    def __init__(
+        self,
+        pixel_per_mm: float,
+        target_diameter_mm: float = 3.0,
+        diameter_tolerance_mm: float = 1.0,
+        crop_size: tuple[int, int] | None = None,
+    ) -> None:
+        """CircleDetectorを初期化.
+
+        Args:
+            pixel_per_mm: pixel/mm比率
+            target_diameter_mm: ターゲットの円の直径 (mm)
+            diameter_tolerance_mm: 直径の許容誤差 (mm)
+            crop_size: 関心領域サイズ (width, height)、Noneの場合は画像全体
+        """
+        super().__init__(pixel_per_mm)
+        self._target_diameter_mm = target_diameter_mm
+        self._diameter_tolerance_mm = diameter_tolerance_mm
+        self._crop_size = crop_size
+
+    @override
+    def detect_nearest_center(self, image: Image) -> DetectedCircle | None:
+        """画像から円を検出し、最も中心に近い円を返す.
+
+        Args:
+            image: 入力画像
+
+        Returns:
+            DetectedCircle または検出失敗時はNone
+        """
+        circles = self.detect_circles(image)
+        if len(circles) == 0:
+            return None
+
+        # ターゲットサイズに近い円をフィルタリング
+        target_circles = self._filter_by_size(circles)
+        if len(target_circles) == 0:
+            return None
+
+        # 最も中心に近い円を選択
+        return min(target_circles, key=lambda c: c.offset.px.norm)
+
+    def detect_circles(self, image: Image) -> list[DetectedCircle]:
+        """Hough変換で円を検出.
+
+        Args:
+            image: 入力画像
+
+        Returns:
+            検出された円のリスト
+        """
+        # 関心領域を切り出し
+        if self._crop_size is not None:
+            cropped = image.crop_center(self._crop_size)
+        else:
+            cropped = image
+
+        gray = cv2.cvtColor(cropped.numpy(), cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (9, 9), 2)
+
+        # ターゲットサイズに基づいて検出パラメータを設定
+        min_radius_mm = (self._target_diameter_mm - self._diameter_tolerance_mm) / 2
+        max_radius_mm = (self._target_diameter_mm + self._diameter_tolerance_mm) / 2
+        min_radius_px = max(1, int(min_radius_mm * self._pixel_per_mm))
+        max_radius_px = int(max_radius_mm * self._pixel_per_mm)
+
+        circles = cv2.HoughCircles(
+            gray,
+            cv2.HOUGH_GRADIENT,
+            dp=1,
+            minDist=min_radius_px * 2,
+            param1=50,
+            param2=30,
+            minRadius=min_radius_px,
+            maxRadius=max_radius_px,
+        )
+
+        if circles is None:
+            return []
+
+        result = []
+        for c in circles[0]:
+            center = Point2d(x=float(c[0]), y=float(c[1]))
+            result.append(
+                DetectedCircle(
+                    center=center,
+                    radius=float(c[2]),
+                    offset=self._offset_from_center(center, cropped),
+                )
+            )
+
+        return result
+
+    def _filter_by_size(self, circles: list[DetectedCircle]) -> list[DetectedCircle]:
+        """ターゲットサイズに近い円をフィルタリング."""
+        target_radius_px = (self._target_diameter_mm / 2) * self._pixel_per_mm
+        tolerance_px = (self._diameter_tolerance_mm / 2) * self._pixel_per_mm
+
+        return [c for c in circles if abs(c.radius - target_radius_px) <= tolerance_px]
+
+
+class PasteDotDetector(CenterOffsetDetector):
+    """塗布痕（板より暗い円）を単一フレームの背景差分 + Otsu で検出する.
+
+    ``cv2.HoughCircles`` は縁の勾配がはっきりした円を前提にするので、縁がなだらかで
+    内部が均一に暗い塗布痕には弱い。代わりに流量校正
+    （:mod:`pcbasm.pasting.paste_volume.detect`）と同じ段
+    （:mod:`pcbasm.vision.dot`）で 2 値化し、連結成分の重心を円の中心として返す。
+    塗布前後の差分が取れない（観測ごとにステージが動く）ので、差分は
+    :func:`~pcbasm.vision.dot.background_darkening` で同一フレームから作る。
+
+    候補は面積等価直径が ``diameter_min_mm``〜``diameter_max_mm`` に入り、円形度が
+    ``min_circularity`` 以上の成分だけに絞る。2 つの下限は役割が別で、どちらも要る。
+
+    - 円形度: 未塗布板に残る**大きい**成分（ヘアライン・照明ムラ）を弾く
+    - 直径下限: **小片**を弾く。小片の円形度は 1 を超えうるので円形度では弾けない
+
+    2 値化したマスクは穴を埋めてから数える（:func:`~pcbasm.vision.dot.fill_dark_spot_holes`）。
+    光沢のある塗布痕は中心のハイライトが抜けて環になり、そのままでは円形度が落ちて
+    採れないため。ハイライトが外半径の 2/3 を超えると環が細って open で分断されるので、
+    そこが検出できる上限になる。
+
+    ``diameter_max_mm`` は背景推定カーネル（その 1.5 倍）も決めるので、実際の塗布痕より
+    小さく設定してはいけない。カーネルが塗布痕を覆えないと差分が輪郭だけになり、
+    小片が候補に残る。逆に ROI の一辺に近い値にすると背景推定が ROI 全体の最大値に
+    縮退するので、ROI は最大直径の 3 倍程度を確保する。
+    """
+
+    def __init__(
+        self,
+        *,
+        pixel_per_mm: float,
+        diameter_min_mm: float,
+        diameter_max_mm: float,
+        crop_size: tuple[int, int] | None = None,
+        spec: DotDetectionSpec = DotDetectionSpec(),
+        min_circularity: float = DEFAULT_MIN_CIRCULARITY,
+    ) -> None:
+        """PasteDotDetectorを初期化.
+
+        Args:
+            pixel_per_mm: pixel/mm比率
+            diameter_min_mm: 検出する円の最小直径 (mm)
+            diameter_max_mm: 検出する円の最大直径 (mm)
+            crop_size: 関心領域サイズ (width, height)、Noneの場合は画像全体
+            spec: 2 値化のハイパーパラメータ
+            min_circularity: 塗布痕として採る円形度の下限 (0.0-1.0)
+
+        Raises:
+            ValueError: 引数が範囲外、または spec が不正な場合
+        """
+        if not is_finite_number(pixel_per_mm) or pixel_per_mm <= 0:
+            raise ValueError(f"pixel_per_mmは正の有限値が必要です: {pixel_per_mm!r}")
+        error = validate_paste_diameters(diameter_min_mm, diameter_max_mm)
+        if error is not None:
+            raise ValueError(error)
+        if not is_finite_number(min_circularity) or not 0.0 <= min_circularity <= 1.0:
+            raise ValueError(
+                f"円形度の下限は0.0以上1.0以下が必要です: {min_circularity!r}"
+            )
+        error = spec.validate()
+        if error is not None:
+            raise ValueError(error)
+
+        super().__init__(pixel_per_mm)
+        self._diameter_min_mm = diameter_min_mm
+        self._diameter_max_mm = diameter_max_mm
+        self._crop_size = crop_size
+        self._spec = spec
+        self._min_circularity = min_circularity
+        self._background_kernel_px = background_kernel_px(
+            diameter_max_mm * pixel_per_mm
+        )
+
+    @override
+    def detect_nearest_center(self, image: Image) -> DetectedCircle | None:
+        """画像から塗布痕を検出し、最も中心に近いものを返す.
+
+        Args:
+            image: 入力画像
+
+        Returns:
+            DetectedCircle または検出失敗時はNone
+        """
+        cropped = (
+            image if self._crop_size is None else image.crop_center(self._crop_size)
+        )
+        difference = background_darkening(
+            cropped.numpy(), kernel_px=self._background_kernel_px
+        )
+        segmentation = segment_darkening(difference, self._spec)
+        if segmentation.mask is None:
+            return None
+
+        circles = [
+            DetectedCircle(
+                center=spot.center,
+                radius=spot.diameter_px / 2.0,
+                offset=self._offset_from_center(spot.center, cropped),
+            )
+            for spot in dark_spots(fill_dark_spot_holes(segmentation.mask))
+            if self._is_paste_dot(spot)
+        ]
+        if not circles:
+            return None
+        return min(circles, key=lambda circle: circle.offset.px.norm)
+
+    def _is_paste_dot(self, spot: DarkSpot) -> bool:
+        """連結成分が面積・直径・円形度の条件を満たすか."""
+        if spot.area_px < self._spec.min_area_px:
+            return False
+        diameter_mm = spot.diameter_px / self._pixel_per_mm
+        return (
+            self._diameter_min_mm <= diameter_mm <= self._diameter_max_mm
+            and spot.circularity >= self._min_circularity
         )
