@@ -1,4 +1,4 @@
-"""ペースト塗布データセット収集で使う repository asset の契約テスト."""
+"""塗布量校正の収集で使う repository asset の契約テスト."""
 
 from pathlib import Path
 
@@ -43,3 +43,19 @@ class TestPasteDatasetStorageAsset:
             "*",
             "!.gitignore",
         ]
+
+
+class TestPasteVolumeCalibrationAsset:
+    """校正ファイルの保存先は Git 管理する（dataset root と扱いが違う）."""
+
+    def test_the_calibration_directory_is_tracked_by_git(self):
+        """.gitignore を置かないことが「Git 管理する」の実体."""
+        root = PROJECT_ROOT / "data" / "paste-volume-calibrations"
+
+        assert root.is_dir()
+        assert not (root / ".gitignore").exists()
+
+    def test_the_calibration_directory_explains_itself(self):
+        readme = PROJECT_ROOT / "data" / "paste-volume-calibrations" / "README.md"
+
+        assert "Git 管理する" in readme.read_text(encoding="utf-8")

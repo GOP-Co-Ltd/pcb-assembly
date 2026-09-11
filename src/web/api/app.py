@@ -37,6 +37,7 @@ from web.api.routers import (
     nozzle_cap,
     paste_dataset,
     paste_test_board,
+    paste_volume,
     pasting,
     pasting_loading,
     preview as preview_router,
@@ -251,6 +252,7 @@ def create_app(
     app.include_router(jobs.router)
     app.include_router(pasting.router)
     app.include_router(paste_dataset.router)
+    app.include_router(paste_volume.router)
     app.include_router(paste_test_board.router)
     app.include_router(pasting_loading.router)
     app.include_router(nozzle_cap.router)

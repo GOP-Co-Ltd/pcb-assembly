@@ -382,7 +382,7 @@ class TestPasteSolderBrowserRendering:
         設定変更の追従は別テスト（操作権あり）で見る。
         """
         browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            f"{live_ui.base_url}/pasting/paste_volume_calibration",
             wait_until="domcontentloaded",
         )
         cells = browser_page.locator("#pdl-view .pdl-cell")
@@ -405,7 +405,7 @@ class TestPasteSolderBrowserRendering:
     ):
         """設定変更でサーバが返した配置へ入れ替わる."""
         browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            f"{live_ui.base_url}/pasting/paste_volume_calibration",
             wait_until="domcontentloaded",
         )
         _acquire_control(browser_page)
@@ -422,7 +422,7 @@ class TestPasteSolderBrowserRendering:
     ):
         """収まらない設定でも preview を消さず理由を出す."""
         browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            f"{live_ui.base_url}/pasting/paste_volume_calibration",
             wait_until="domcontentloaded",
         )
         _acquire_control(browser_page)
@@ -442,7 +442,7 @@ class TestPasteSolderBrowserRendering:
     ):
         """Dataset 収集は PCB 非依存の最小ジョブページ（pad editor を持たない）."""
         browser_page.goto(
-            f"{live_ui.base_url}/pasting/paste_dataset_collection",
+            f"{live_ui.base_url}/pasting/paste_volume_calibration",
             wait_until="domcontentloaded",
         )
         _acquire_control(browser_page)

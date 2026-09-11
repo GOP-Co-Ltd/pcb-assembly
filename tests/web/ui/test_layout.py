@@ -25,7 +25,7 @@ from web.ui import layout
 from web.ui.layout import (
     DISPENSE_CALIBRATION_PARAM_GROUPS,
     FEATURE_TEMPLATES,
-    PASTE_DATASET_PARAM_GROUPS,
+    PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
     SECTION_LABELS,
     TAB_LABELS,
     TAB_PHASES,
@@ -280,7 +280,7 @@ class TestParamGroupCoverage:
     @pytest.mark.parametrize(
         ("job_name", "groups"),
         [
-            ("paste_dataset_collection", PASTE_DATASET_PARAM_GROUPS),
+            ("paste_volume_calibration", PASTE_VOLUME_CALIBRATION_PARAM_GROUPS),
             ("dispense_calibration", DISPENSE_CALIBRATION_PARAM_GROUPS),
         ],
     )

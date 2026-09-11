@@ -5,7 +5,6 @@
 検証する契約は次のとおり。
 
 - 格子ピッチと行優先採番
-- パージセル除外
 - 使用セルが板全体へ散ること
 - 量割り当ての決定性と multiset 一致
 - blank セルの混在
@@ -36,7 +35,7 @@ from pcbasm.pasting.dataset.plan import (
 )
 
 # 板 20x20 / 余白 2 → 有効領域 Rect(2, 2, 16, 16)。セル 2 + 間隔 1 = ピッチ 3 で
-# 5 行 5 列（x, y = 2, 5, 8, 11, 14）が入り、左上のパージセルが 1 枚を潰す。
+# 5 行 5 列（x, y = 2, 5, 8, 11, 14）が入り、除外領域が無いので 25 セルすべてが使える。
 PITCH = 3.0
 USABLE = Rect(2.0, 2.0, 16.0, 16.0)
 
@@ -49,7 +48,6 @@ def _spec(**overrides: float | int) -> DotGridSpec:
         "cell_size_mm": 2.0,
         "cell_gap_mm": 1.0,
         "crop_size_mm": 2.0,
-        "purge_cell_size_mm": 2.0,
         "volume_min_ul": 0.05,
         "volume_max_ul": 0.2,
         "volume_divisions": 5,
@@ -67,15 +65,6 @@ def _planned(**overrides: float | int) -> DotGridPlan:
     assert error is None, error
     assert plan is not None
     return plan
-
-
-def _expanded(rect: Rect, margin: float) -> Rect:
-    return Rect(
-        x=rect.x - margin,
-        y=rect.y - margin,
-        width=rect.width + 2.0 * margin,
-        height=rect.height + 2.0 * margin,
-    )
 
 
 class TestDotGridSpec:
@@ -146,7 +135,6 @@ class TestDotGridSpec:
             ("cell_gap_mm", -1.0),
             ("crop_size_mm", 0.0),
             ("crop_size_mm", float("inf")),
-            ("purge_cell_size_mm", 0.0),
             ("volume_min_ul", 0.0),
             ("volume_max_ul", 0.01),
             ("volume_divisions", 0),
@@ -164,45 +152,16 @@ class TestDotGridSpec:
 
 
 class TestPlanDotGridLayout:
-    """有効領域・格子ピッチ・行優先採番・パージセル除外の幾何契約."""
+    """有効領域・格子ピッチ・行優先採番の幾何契約."""
 
     def test_usable_area_is_plate_minus_edge_margin_on_all_sides(self):
         plan = _planned()
 
         assert plan.usable_area == USABLE
 
-    def test_purge_cell_sits_at_top_left_of_usable_area(self):
-        plan = _planned(purge_cell_size_mm=4.0)
-
-        assert plan.purge_cell == Rect(USABLE.x, USABLE.y, 4.0, 4.0)
-        assert plan.purge_center.x == pytest.approx(USABLE.x + 2.0)
-        assert plan.purge_center.y == pytest.approx(USABLE.y + 2.0)
-
-    def test_capacity_counts_grid_cells_left_after_purge_exclusion(self):
-        # 5 行 5 列 = 25 セル。パージ 2 mm 角 + 間隔 1 mm は左上 1 枚だけを潰す。
-        assert _planned().capacity == 24
-
-    def test_larger_purge_cell_excludes_every_intersecting_grid_cell(self):
-        # パージ 4 mm 角（セル 2 mm 角と別寸法）を間隔 1 mm 広げた矩形は
-        # 左上 2 行 2 列の 4 セルと重なる。
-        assert _planned(purge_cell_size_mm=4.0).capacity == 21
-
-    @pytest.mark.parametrize("purge_cell_size_mm", [1.0, 2.0, 3.0, 4.0, 5.5])
-    def test_no_remaining_target_touches_the_expanded_purge_cell(
-        self, purge_cell_size_mm: float
-    ):
-        # パージが大きいほど残るセルが減るので、収まる小さめのスイープで見る
-        plan = _planned(
-            purge_cell_size_mm=purge_cell_size_mm,
-            volume_divisions=3,
-            samples_per_volume=2,
-            blank_count=2,
-        )
-        keepout = _expanded(plan.purge_cell, plan.spec.cell_gap_mm)
-
-        assert not [
-            target for target in plan.targets if target.rect.intersects(keepout)
-        ]
+    def test_capacity_counts_every_grid_cell(self):
+        # パージ領域を持たないので 5 行 5 列 = 25 セルがすべて計測可能点になる。
+        assert _planned().capacity == 25
 
     def test_targets_are_numbered_from_one_in_row_major_order(self):
         plan = _planned()
@@ -240,11 +199,11 @@ class TestPlanDotGridLayout:
         assert len(plan.targets) == 19
         assert len(plan.cells) == 15
         assert len(plan.blanks) == 4
-        assert plan.capacity == 24
+        assert plan.capacity == 25
 
     @pytest.mark.parametrize("shuffle_seed", [1, 1234, 20260908])
     def test_used_cells_are_spread_over_the_whole_plate(self, shuffle_seed: int):
-        # 既定の 40x40 板は格子 12x12（パージ除外後 143 セル）に対し撮影対象 19 セル。
+        # 既定の 40x40 板は格子 12x12 = 144 セルに対し撮影対象 19 セル。
         # 先頭から詰めると上端 2 行に固まるので、複数行・複数列へ散ることをピンする。
         plan = _planned(
             plate_width_mm=40.0, plate_height_mm=40.0, shuffle_seed=shuffle_seed
@@ -252,7 +211,7 @@ class TestPlanDotGridLayout:
         rows = {round((target.rect.y - USABLE.y) / PITCH) for target in plan.targets}
         columns = {round((target.rect.x - USABLE.x) / PITCH) for target in plan.targets}
 
-        assert plan.capacity == 143
+        assert plan.capacity == 144
         assert len(plan.targets) == 19
         assert len(rows) >= 6
         assert len(columns) >= 6
@@ -393,8 +352,8 @@ class TestPlanDotGridRejections:
         assert error == spec.validate()
 
     def test_capacity_shortfall_reports_cell_and_target_counts(self):
-        # 板 14x14 / 余白 2 → 有効領域 10x10 に 3 行 3 列。パージが左上 1 枚を潰して
-        # 8 セルしか残らないので、量 6 点 + blank 4 点 = 10 点は収まらない。
+        # 板 14x14 / 余白 2 → 有効領域 10x10 に 3 行 3 列 = 9 セルしかないので、
+        # 量 6 点 + blank 4 点 = 10 点は収まらない。
         plan, error = plan_dot_grid(
             _spec(
                 plate_width_mm=14.0,
@@ -407,7 +366,7 @@ class TestPlanDotGridRejections:
 
         assert plan is None
         assert error is not None
-        assert "8" in error
+        assert "9" in error
         assert "10" in error
 
     def test_blank_cells_count_towards_the_capacity_requirement(self):
@@ -634,7 +593,7 @@ class TestValidateCaptureReach:
 
 
 class TestValidateDispenseReach:
-    """パージ点と全塗布セルのノズル目標がステージ可動域に入るかを装置前に見る."""
+    """全塗布セルのノズル目標がステージ可動域に入るかを装置前に見る."""
 
     def test_accepts_a_plan_that_fits_the_soft_limits(self):
         plan = _planned()
@@ -655,7 +614,7 @@ class TestValidateDispenseReach:
         plan = _planned()
         board_to_stage = Shift(0.0, 0.0)
         board_to_machine = Shift(0.0, 22.8349)
-        # パージ点（board y = 3）は toolhead offset を足しても収まり、板の下側の
+        # 板の上側の塗布セルは toolhead offset を足しても収まり、下側の
         # 塗布セル（board y = 15）だけが外れる上限にする。
         limits = {"x_limits": (0.0, 20.0), "y_limits": (0.0, 26.0)}
 
@@ -673,30 +632,16 @@ class TestValidateDispenseReach:
         assert "塗布位置" in error
         assert "可動域" in error
 
-    def test_purge_point_is_checked_as_well(self):
-        # パージ点は有効領域の左上（中心 3, 3）にあり、塗布セルはそれより右か下にある。
-        # 左上を切り落とす可動域では、まずパージ点が理由として返る。
-        plan = _planned()
-
-        error = validate_dispense_reach(
-            plan,
-            board_to_machine=Shift(0.0, 0.0),
-            x_limits=(3.5, 20.0),
-            y_limits=(3.5, 20.0),
-        )
-
-        assert error is not None
-        assert "パージ位置" in error
-
     def test_blank_cells_are_not_dispense_targets(self):
-        # seed 4 は塗布セル (3, 9)・blank (12, 6)。塗布点とパージだけが入る可動域では
-        # blank が外にあっても通る（blank は塗布しないので可動域の制約にならない）。
+        # 塗布点だけが入る可動域では blank が外にあっても通る
+        # （blank は塗布しないので可動域の制約にならない）。
+        # seed 10 は塗布セル (6, 3)・blank (12, 12)。
         plan = _planned(
-            volume_divisions=1, samples_per_volume=1, blank_count=1, shuffle_seed=4
+            volume_divisions=1, samples_per_volume=1, blank_count=1, shuffle_seed=10
         )
-        limits = {"x_limits": (0.0, 3.5), "y_limits": (0.0, 20.0)}
+        limits = {"x_limits": (0.0, 6.5), "y_limits": (0.0, 20.0)}
 
-        assert plan.cells[0].center.x == pytest.approx(3.0)
+        assert plan.cells[0].center.x == pytest.approx(6.0)
         assert plan.blanks[0].center.x == pytest.approx(12.0)
         assert (
             validate_dispense_reach(plan, board_to_machine=Shift(0.0, 0.0), **limits)
@@ -776,7 +721,6 @@ class TestPreviewDotGrid:
         ]
         assert preview.capacity == plan.capacity
         assert preview.usable_area == USABLE
-        assert preview.purge_cell == plan.purge_cell
 
     def test_grid_includes_cells_that_no_sample_uses(self):
         preview = preview_dot_grid(_spec(), view_count=4, view_offset_mm=1.0)
@@ -785,9 +729,10 @@ class TestPreviewDotGrid:
         used |= {(blank.rect.x, blank.rect.y) for blank in preview.blanks}
         grid = {(rect.x, rect.y) for rect in preview.grid}
 
-        # 格子はパージ除外前の全セルなので、使用セルを真に含む。
+        # 使用セルは抽出されたものだけなので、格子はそれを真に含む。
         assert used < grid
-        assert len(preview.grid) > preview.capacity
+        # 除外領域が無いので、格子の全セルが計測可能点として数えられる。
+        assert len(preview.grid) == preview.capacity
 
     def test_view_count_includes_the_central_view(self):
         preview = preview_dot_grid(_spec(), view_count=4, view_offset_mm=1.0)
@@ -818,9 +763,8 @@ class TestPreviewDotGrid:
         assert preview.error is not None
         assert preview.cells == ()
         assert preview.blanks == ()
-        # 収まらなくても板・有効領域・パージ・格子は描ける。
+        # 収まらなくても板・有効領域・格子は描ける。
         assert preview.usable_area == USABLE
-        assert preview.purge_cell is not None
         assert preview.grid != ()
 
     def test_invalid_spec_still_reports_the_plate(self):

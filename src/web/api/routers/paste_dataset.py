@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict
 
 from pcbasm.pasting.dataset.plan import DotGridPreview, preview_dot_grid
 from web.api.attrs_models import mirror_model
-from web.api.jobs.pasting.dataset import grid_spec_from_params
+from web.api.jobs.pasting.paste_volume_calibration import grid_spec_from_params
 
 router = APIRouter(prefix="/api/pasting", tags=["pasting"])
 
@@ -37,7 +37,6 @@ class DatasetLayoutRequest(BaseModel):
     cell_size: float
     cell_gap: float
     crop_size: float
-    purge_cell_size: float
     volume_min: float
     volume_max: float
     volume_divisions: int

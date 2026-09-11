@@ -1,11 +1,11 @@
 """計量質量が未確定の dataset metadata（pending schema v1）の公開契約.
 
-``pending.json`` は「metadata v2 から計量質量に依存する値だけを抜いた doc」で、
-その値とは ``total`` と、sample / purge の ``measured_volume_ul`` の 3 つ。
+``pending.json`` は「metadata v3 から計量質量に依存する値だけを抜いた doc」で、
+その値とは ``total`` と sample の ``measured_volume_ul`` の 2 つ。
 blank の ``measured_volume_ul`` は常に 0.0 なので質量に依存しない。
 
 on-disk 契約の出典は ``data/testing/schemas/paste_dataset_pending_v1.json``
-（同じ収集の完成形が ``paste_dataset_metadata_v2.json``）。この 2 ファイルを
+（同じ収集の完成形が ``paste_dataset_metadata_v3.json``）。この 2 ファイルを
 ``finalize_pending`` が計量質量 1 つで結ぶことを検証する。
 """
 
@@ -25,9 +25,9 @@ from pcbasm.pasting.dataset.pending import (
 )
 from tests.helpers import TESTING_DATA_DIR
 
-METADATA_V2 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v2.json"
+METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
 PENDING_V1 = TESTING_DATA_DIR / "schemas" / "paste_dataset_pending_v1.json"
-# PENDING_V1 と METADATA_V2 は同じ収集で、質量 0.945 mg / 密度 3.78 が対応する
+# PENDING_V1 と METADATA_V3 は同じ収集で、質量 0.945 mg / 密度 3.78 が対応する
 MEASURED_MASS_MG = 0.945
 
 
@@ -46,7 +46,7 @@ def _pending(payload: dict[str, Any] | None = None) -> PasteDatasetPending:
 
 
 def _metadata() -> PasteDatasetMetadata:
-    metadata, error = parse_metadata(_document(METADATA_V2))
+    metadata, error = parse_metadata(_document(METADATA_V3))
 
     assert error is None, error
     assert metadata is not None
@@ -98,7 +98,7 @@ class TestParsePending:
 
 
 class TestFinalizePending:
-    """計量質量 1 つで metadata v2 を確定する."""
+    """計量質量 1 つで metadata v3 を確定する."""
 
     def test_produces_the_completed_metadata_document(self):
         metadata, error = finalize_pending(
@@ -118,8 +118,8 @@ class TestFinalizePending:
         assert metadata is not None
         assert metadata.total.measured_mass_mg == pytest.approx(MEASURED_MASS_MG * 2.0)
         assert metadata.total.measured_volume_ul == pytest.approx(0.5)
-        assert metadata.purge.measured_volume_ul == pytest.approx(0.2)
-        assert metadata.samples[0].measured_volume_ul == pytest.approx(0.3)
+        # パージが無いので、塗布 sample だけで総体積を分け合う。
+        assert metadata.samples[0].measured_volume_ul == pytest.approx(0.5)
         assert metadata.blanks[0].measured_volume_ul == 0.0
 
     def test_keeps_the_shuffle_seed_that_produced_the_layout(self):
@@ -142,7 +142,6 @@ class TestFinalizePending:
     def test_rejects_a_document_without_any_dispense(self):
         payload = _document(PENDING_V1)
         payload["samples"] = []
-        payload["purge"]["execution"]["rotations"] = 0.0
 
         metadata, error = finalize_pending(
             _pending(payload), measured_mass_mg=MEASURED_MASS_MG

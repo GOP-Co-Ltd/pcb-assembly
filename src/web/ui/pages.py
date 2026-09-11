@@ -40,8 +40,8 @@ from web.ui.layout import (
     JOB_TEMPLATES,
     LOADING_ROTATION_PARAMS,
     PASTE_AUTO_THRESHOLD_KEYS,
-    PASTE_DATASET_PARAM_GROUPS,
     PASTE_PAD_REFINEMENT_KEYS,
+    PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
     TAB_LABELS,
     TAB_PHASES,
     TABS,
@@ -401,16 +401,25 @@ def _dispense_calibration_context(
     }
 
 
-def _paste_dataset_context(
+def _paste_volume_calibration_context(
     job: JobSpecInfo, settings: _MachineSettings
 ) -> dict[str, Any]:
-    """Paste_dataset_collection ページ専用コンテキスト（フォームのセクション分け）."""
+    """塗布量校正の生成ページ専用コンテキスト（セクション分けと回転ローディング）.
+
+    塗布パス先頭のローディングでは体積と回転の両方を使うので、``loading_controls``
+    partial の回転セクションを出すための既定値を渡す。ジョブ側の ParamSpec 名は
+    ``loading_`` prefix 付きなので、partial が読む素の名前へ写す。
+    """
     specs_by_name = {spec.name: spec for spec in job.params}
     return {
         "param_groups": [
             (legend, [specs_by_name[name] for name in names])
-            for legend, names in PASTE_DATASET_PARAM_GROUPS
-        ]
+            for legend, names in PASTE_VOLUME_CALIBRATION_PARAM_GROUPS
+        ],
+        "loading_rotation_defaults": {
+            name: specs_by_name[f"loading_{name}"].default
+            for name in LOADING_ROTATION_PARAMS
+        },
     }
 
 
@@ -453,7 +462,7 @@ _JOB_FEATURE_CONTEXT: dict[
 ] = {
     "loading": _loading_context,
     "dispense_calibration": _dispense_calibration_context,
-    "paste_dataset_collection": _paste_dataset_context,
+    "paste_volume_calibration": _paste_volume_calibration_context,
 }
 
 # feature slug → ページ専用コンテキスト（ジョブ有無に依らない）

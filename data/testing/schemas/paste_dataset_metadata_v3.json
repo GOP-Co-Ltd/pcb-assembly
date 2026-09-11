@@ -1,6 +1,6 @@
 {
   "kind": "pcbasm-paste-volume-dataset",
-  "schema_version": 2,
+  "schema_version": 3,
   "created_at": "2026-09-08T14:30:52+00:00",
   "machine": {
     "machine_id": "machine-1",
@@ -29,22 +29,16 @@
   "nozzle": {
     "diameter_mm": 0.34
   },
-  "label": {
-    "kind": "rotation_allocated"
-  },
   "config": {
     "rotations_per_ul": 20.0,
     "max_dispense_rate_ul_s": 5.0,
     "dispense_accel_ul_s2": 10.0,
     "retract_amount_ul": 10.0,
     "retract_rate_ul_s": 10.0,
-    "initial_purge_ul": 0.2,
     "paste_height_mm": 0.2,
     "prime_extra_delay_s": 0.0,
-    "capture_order": "phased",
     "cell_size_mm": 2.0,
     "cell_gap_mm": 1.0,
-    "purge_cell_size_mm": 2.0,
     "crop_size_mm": 2.0,
     "crop_size_px": 241,
     "volume_min_ul": 0.05,
@@ -54,33 +48,20 @@
     "blank_count": 4,
     "shuffle_seed": 20260908,
     "view_count": 1,
-    "view_offset_mm": 1.0
+    "view_offset_mm": 1.0,
+    "capture_order": "phased"
+  },
+  "label": {
+    "kind": "rotation_allocated"
   },
   "total": {
     "measured_mass_mg": 0.945,
     "measured_volume_ul": 0.25,
-    "rotations": 5.0
+    "rotations": 3.0
   },
-  "purge": {
-    "cell": {
-      "x": 2.0,
-      "y": 2.0,
-      "width": 2.0,
-      "height": 2.0
-    },
-    "center": {
-      "x": 3.0,
-      "y": 3.0
-    },
-    "execution": {
-      "applied_mode": "dot",
-      "path_length_mm": 0.0,
-      "commanded_volume_ul": 0.2,
-      "prime_extra_volume_ul": 0.0,
-      "effective_rate_ul_s": 1.0,
-      "rotations": 2.0
-    },
-    "measured_volume_ul": 0.1
+  "loading": {
+    "total_ul": 0.5,
+    "total_rotations": 8.0
   },
   "samples": [
     {
@@ -106,7 +87,7 @@
         "effective_rate_ul_s": 1.0,
         "rotations": 3.0
       },
-      "measured_volume_ul": 0.15,
+      "measured_volume_ul": 0.25,
       "views": [
         {
           "number": 0,
