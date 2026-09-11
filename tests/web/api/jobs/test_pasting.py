@@ -235,7 +235,7 @@ class TestCatalog:
                     "dispense_amount": (0.1, "uL"),
                     "loading_amount": (0.1, "uL"),
                     "lift_height": (5.0, "mm"),
-                    "paste_diameter_min": (0.0, "mm"),
+                    "paste_diameter_min": (0.4, "mm"),
                     "paste_diameter_max": (2.0, "mm"),
                     "point_spacing": (5.0, "mm"),
                     "edge_margin": (5.0, "mm"),
@@ -440,6 +440,22 @@ class TestCatalog:
         assert params["point_count"].value_type == "int"
         assert params["point_count"].default == 10
         assert params["point_count"].minimum == 5
+
+    def test_toolhead_offset_paste_diameter_min_stays_positive(
+        self, default: JobCatalog
+    ):
+        """最小直径 0（下限なし）は受けない（未塗布板のテクスチャを拾うため）."""
+        definition = default.get("toolhead_offset")
+        params = {spec.name: spec for spec in definition.params}
+
+        # 実素材の未塗布板は 0.2 mm 相当の小片まで残る
+        assert params["paste_diameter_min"].minimum == 0.3
+
+        with pytest.raises(ValueError) as exc_info:
+            default.validate_params(definition, {"paste_diameter_min": 0.2})
+
+        assert "paste_diameter_min" in str(exc_info.value)
+        assert "0.3 以上" in str(exc_info.value)
 
     def test_toolhead_offset_rejects_point_count_below_five(self, default: JobCatalog):
         definition = default.get("toolhead_offset")

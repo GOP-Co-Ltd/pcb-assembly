@@ -9,6 +9,7 @@ import math
 from datetime import UTC, datetime
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 from shapely import Point as ShapelyPoint, Polygon
@@ -24,7 +25,6 @@ from pcbasm.pasting.toolhead_offset import (
     ToolheadOffsetResult,
     ToolheadOffsetSample,
     plan_toolhead_offset_points,
-    validate_paste_diameters,
 )
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl import BoardCalibrationResult
@@ -307,24 +307,6 @@ class TestPlanToolheadOffsetPoints:
         assert "基板外形" in error
 
 
-class TestValidatePasteDiameters:
-    def test_accepts_zero_minimum_below_maximum(self):
-        assert validate_paste_diameters(0.0, 2.0) is None
-        assert validate_paste_diameters(0.5, 2.0) is None
-
-    @pytest.mark.parametrize(
-        ("diameter_min", "diameter_max"),
-        [(-0.1, 2.0), (2.0, 2.0), (2.5, 2.0), (float("nan"), 2.0), (0.0, float("inf"))],
-    )
-    def test_rejects_unordered_or_non_finite_range(
-        self, diameter_min: float, diameter_max: float
-    ):
-        error = validate_paste_diameters(diameter_min, diameter_max)
-
-        assert error is not None
-        assert "最小直径 < 最大直径" in error
-
-
 def _failure(index: int, image: Image | None) -> ToolheadOffsetFailure:
     return ToolheadOffsetFailure(
         index=index,
@@ -431,12 +413,19 @@ class TestToolheadOffsetProcedure:
         return _board_result(klipper, FakeCamera([blank]))
 
     @pytest.fixture
+    def result_with_dot(self, klipper: FakeKlipper) -> BoardCalibrationResult:
+        """ROI 中心に塗布痕があるカメラ."""
+        frame = np.full((480, 640, 3), 200, dtype=np.uint8)
+        cv2.circle(frame, (320, 240), 5, (60, 60, 60), -1)
+        return _board_result(klipper, FakeCamera([Image(frame)]))
+
+    @pytest.fixture
     def procedure(self, result: BoardCalibrationResult) -> ToolheadOffsetProcedure:
         return ToolheadOffsetProcedure(
             result,
             tolerance=0.1,
             lift_height=5.0,
-            diameter_min=0.0,
+            diameter_min=0.4,
             diameter_max=2.0,
             point_spacing=5.0,
             settle_time=0.0,
@@ -500,6 +489,42 @@ class TestToolheadOffsetProcedure:
         self, procedure: ToolheadOffsetProcedure
     ):
         assert procedure.roi_size == (50, 50)
+
+    def test_measure_returns_sample_when_paste_dot_is_at_roi_center(
+        self,
+        klipper: FakeKlipper,
+        result_with_dot: BoardCalibrationResult,
+    ):
+        """ROI 中心の塗布痕からオフセットを求める."""
+        procedure = ToolheadOffsetProcedure(
+            result_with_dot,
+            tolerance=0.1,
+            lift_height=5.0,
+            diameter_min=0.5,
+            diameter_max=2.0,
+            point_spacing=5.0,
+            settle_time=0.0,
+        )
+        probed = procedure.probe(Point2d(x=10.0, y=20.0))
+        toolhead = result_with_dot.machine.paste_dispenser.toolhead
+        # 円検出はステージがカメラ位置に居る状態で行われる
+        klipper.set_status(
+            "gcode_move",
+            "gcode_position",
+            [probed.point.camera.x, probed.point.camera.y, FOCUS_Z, 0.0],
+        )
+
+        outcome = procedure.measure(1, probed)
+
+        assert isinstance(outcome, ToolheadOffsetSample)
+        assert outcome.camera_position.x == pytest.approx(
+            probed.point.camera.x, abs=0.1
+        )
+        assert outcome.camera_position.y == pytest.approx(
+            probed.point.camera.y, abs=0.1
+        )
+        assert outcome.offset.x == pytest.approx(toolhead.x, abs=0.1)
+        assert outcome.offset.y == pytest.approx(toolhead.y, abs=0.1)
 
     def test_measure_returns_failure_with_roi_image_when_no_circle(
         self,

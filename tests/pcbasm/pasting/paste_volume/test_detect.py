@@ -48,43 +48,6 @@ def _measure(name: str, view: int = 0, **overrides: float | int) -> DotMeasureme
     return measurement
 
 
-class TestDotDetectionSpec:
-    """検出ハイパラの None 返却バリデーション."""
-
-    def test_default_spec_is_valid(self):
-        assert DotDetectionSpec().validate() is None
-
-    @pytest.mark.parametrize(
-        ("field", "value"),
-        [
-            ("min_contrast", -1.0),
-            ("min_contrast", float("nan")),
-            ("contrast_percentile", 0.0),
-            ("contrast_percentile", 100.1),
-            ("threshold_floor_ratio", -0.1),
-            ("threshold_floor_ratio", float("inf")),
-            ("open_kernel_px", -1),
-            ("open_kernel_px", 2),
-            ("min_area_px", -1),
-            # 0 を許すと面積 0 の成分が detected=True になり、DotMeasurement の
-            # 「detected=False ⟺ 直径 0」が壊れる
-            ("min_area_px", 0),
-        ],
-    )
-    def test_rejects_invalid_field_and_names_the_offending_value(
-        self, field: str, value: float | int
-    ):
-        error = DotDetectionSpec(**{field: value}).validate()  # type: ignore[arg-type]
-
-        assert error is not None
-        assert repr(value) in error
-
-    def test_even_open_kernel_is_rejected_but_zero_disables_it(self):
-        assert DotDetectionSpec(open_kernel_px=0).validate() is None
-        assert DotDetectionSpec(open_kernel_px=3).validate() is None
-        assert DotDetectionSpec(open_kernel_px=4).validate() is not None
-
-
 class TestMeasureDotOnRealMaterial:
     """実素材での検出。blank=0 と量の順序が要の契約."""
 
