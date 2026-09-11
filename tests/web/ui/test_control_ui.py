@@ -61,6 +61,8 @@ _GATED_ELEMENTS = {
     "partials/pad_editor.html": {
         ".pad-select-tools",
         ".pad-initial-purge-tools",
+        ".pad-flow-calibration-tools",
+        ".pad-flow-calibration-settings",
         "#pad-import-config-button",
         "#pad-import-config",
         "#pad-table-body",

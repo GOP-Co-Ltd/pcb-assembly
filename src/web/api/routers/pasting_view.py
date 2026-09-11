@@ -16,13 +16,13 @@ node_id 規約（フロントと共有する契約）:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 
 import attrs
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from pcbasm.config import PasteDispenser
+from pcbasm.config import FlowCalibration, PasteDispenser
 from pcbasm.geometry import Point2d, display_rings
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.initial_purge import (
@@ -30,6 +30,11 @@ from pcbasm.pasting.initial_purge import (
     resolve_initial_purge_for,
 )
 from pcbasm.pasting.params import PASTE_PARAM_FIELDS, PasteParamValue
+from pcbasm.pasting.paste_volume.runtime import (
+    FlowCalibrationPlan,
+    overlapping_crops,
+    plan_flow_calibration,
+)
 from pcbasm.pasting.route import plan_paste_route, routed_enabled_pads
 from pcbasm.pasting.settings import (
     PasteSettingsModel,
@@ -148,6 +153,33 @@ class InitialPurgeResponse(BaseModel):
     initial_purge: InitialPurgeInfo
 
 
+class FlowCalibrationInfo(BaseModel):
+    """運転時流量キャリブレーションの設定とサーバ側解決結果.
+
+    machine.toml 側（校正ファイル・塗布量・crop 寸法）と基板側（測定位置）の両方が
+    そろってはじめて動く。
+    どちらが欠けているかは ``selection_label`` に出す。
+
+    ``points`` は保存されている測定位置そのもので、補正が成立しない状態でも返す。
+    設定した点が図から消えると位置を直せないため。
+    """
+
+    enabled: bool  # machine.toml 側が有効か
+    points: list[list[float]]  # 基板ごとの測定位置（塗る順。空 = 未設定）
+    overlapping: list[bool]  # 点ごとに、他の点と撮影範囲が重なっているか
+    planned: bool  # 実際に補正を走らせる状態か
+    amount_ul: float
+    crop_size_mm: float  # 測定位置ごとの撮影範囲の一辺（図の点線の四角）
+    selection_label: str
+    error: str | None
+
+
+class FlowCalibrationResponse(BaseModel):
+    """PATCH 流量キャリブレーション位置のレスポンス."""
+
+    flow_calibration: FlowCalibrationInfo
+
+
 class ChoiceInfo(BaseModel):
     """選択式パラメータの 1 選択肢."""
 
@@ -177,6 +209,7 @@ class PadConfigResponse(BaseModel):
     height: float
     defaults: ResolvedSettings  # machine.toml 由来の基板デフォルト
     initial_purge: InitialPurgeInfo
+    flow_calibration: FlowCalibrationInfo
     tree: HierNodeInfo  # L0 ルートの階層ツリー（構造のみ）
     pads: list[PadInfo]
     overrides: dict[str, NodeOverrideInfo]  # node_id -> 明示 override（疎、L0 含む）
@@ -273,6 +306,18 @@ class InitialPurgePatch(BaseModel):
 
     initial_purge_ul: float | None = None
     point: list[float] | None = None  # board 座標 [x, y]（``None`` で自動へ戻す）
+    expected_pcb: str | None = None  # 編集開始時の PCB（不一致なら 409）
+
+
+class FlowCalibrationPatch(BaseModel):
+    """PATCH /api/pasting/pad-config/flow-calibration のリクエスト.
+
+    塗布量・crop 寸法・校正ファイルは machine 設定なので、ここでは扱わない。
+
+    ``points`` は置き換えで、空の並びで未設定へ戻す。
+    """
+
+    points: list[list[float]] = []  # board 座標 [[x, y], ...]
     expected_pcb: str | None = None  # 編集開始時の PCB（不一致なら 409）
 
 
@@ -379,7 +424,14 @@ def param_fields() -> list[ParamFieldInfo]:
 
 
 def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
-    """ロード済みコンテキストから初回パージ設定の解決結果を返す."""
+    """ロード済みコンテキストから初回パージ設定の解決結果を返す.
+
+    設定が不正（保存済みの座標が基板外など）でもここでは 400 にしない。
+
+    pad-config 全体を落とすと pad editor ごと開けなくなり、原因の座標を直す手段まで
+    失う。
+    流量キャリブレーションと同じく理由を ``error`` に載せて返す。
+    """
     routed = routed_enabled_pads(
         layer_pads(loaded, Layer.TOP), loaded.hierarchy, loaded.model
     )
@@ -395,8 +447,6 @@ def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
         resolution.default_point,
         resolution.error,
     )
-    if error is not None:
-        raise HTTPException(status_code=400, detail=error)
     return InitialPurgeInfo(
         initial_purge_ul=loaded.base_config.initial_purge_ul,
         point=None if point is None else [point.x, point.y],
@@ -416,6 +466,51 @@ def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
         selection_label=_purge_selection_label(point, default_point),
         error=error,
     )
+
+
+def build_flow_calibration(loaded: Loaded) -> FlowCalibrationInfo:
+    """ロード済みコンテキストから流量キャリブレーションの解決結果を返す.
+
+    設定が不正（測定位置が基板外・撮影範囲どうしが重なる）でもここでは 400 にしない。
+
+    塗布を始める前にページで直せるよう、理由を載せて返す。
+    """
+    config = loaded.base_config.flow_calibration
+    points = loaded.model.flow_calibration_points
+    plan, error = plan_flow_calibration(
+        config=config, points=points, outline=loaded.pcb.outline.polygon
+    )
+    return FlowCalibrationInfo(
+        enabled=config.enabled,
+        points=[[point.x, point.y] for point in points],
+        overlapping=list(overlapping_crops(points, crop_size_mm=config.crop_size_mm)),
+        planned=plan is not None,
+        amount_ul=config.amount_ul,
+        crop_size_mm=config.crop_size_mm,
+        selection_label=_flow_calibration_label(config, points, plan, error),
+        error=error,
+    )
+
+
+def _flow_calibration_label(
+    config: FlowCalibration,
+    points: Sequence[Point2d],
+    plan: FlowCalibrationPlan | None,
+    error: str | None,
+) -> str:
+    """流量キャリブレーションの状態を表示用文字列に組む（サーバー側で確定させる）.
+
+    JS は本文にこれしか出さないので、補正されない理由はここへ入れる。
+    """
+    if not points:
+        return "未設定（補正しません）"
+    listed = "、".join(f"({point.x:.2f}, {point.y:.2f})" for point in points)
+    placed = f"{len(points)} 点 {listed} mm"
+    if plan is not None:
+        return f"{placed} x {plan.amount_ul:.3f} uL"
+    if error is not None:
+        return f"{placed}（{error}）"
+    return f"{placed}（校正ファイル未設定のため補正しません）"
 
 
 def _purge_selection_label(point: Point2d | None, default_point: Point2d | None) -> str:
@@ -518,6 +613,7 @@ def build_pad_config(loaded: Loaded) -> PadConfigResponse:
         height=outline.height,
         defaults=resolved_default(model),
         initial_purge=build_initial_purge(loaded),
+        flow_calibration=build_flow_calibration(loaded),
         tree=tree(hierarchy.root, model, node_resolved),
         pads=pads,
         overrides=overrides(model),

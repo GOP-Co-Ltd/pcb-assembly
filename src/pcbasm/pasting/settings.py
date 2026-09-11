@@ -65,11 +65,14 @@ class PasteSettingsModel:
     Attributes:
         base: machine.toml 由来のデフォルト（全項目確定）
         initial_purge_point: 初回パージの座標（``None`` = 順路先頭 pad の中心）
+        flow_calibration_points: 運転時流量キャリブレーションの測定位置（塗る順）
+            （空 = 未設定。補正しない）
         levels: L0–L4 の疎な明示設定（キーは重複しない）
     """
 
     base: PasteParams
     initial_purge_point: Point2d | None = None
+    flow_calibration_points: tuple[Point2d, ...] = ()
     levels: tuple[LevelSetting, ...] = ()
 
     @classmethod
@@ -122,6 +125,13 @@ class PasteSettingsModel:
     def with_initial_purge_point(self, point: Point2d | None) -> Self:
         """初回パージの座標を設定した新モデルを返す（``None`` で自動へ戻す）."""
         return attrs.evolve(self, initial_purge_point=point)
+
+    def with_flow_calibration_points(self, points: Sequence[Point2d]) -> Self:
+        """流量キャリブレーションの測定位置を設定した新モデルを返す.
+
+        空の並びは未設定で、運転時の補正を行わない。
+        """
+        return attrs.evolve(self, flow_calibration_points=tuple(points))
 
     def without_levels(self, keys: Iterable[HierKey]) -> Self:
         """指定キーの明示設定を除いた新モデルを返す."""

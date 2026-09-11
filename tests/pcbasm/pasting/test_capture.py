@@ -1,9 +1,8 @@
-"""DatasetCapturer（セル中心での撮影と固定寸法 crop）の公開契約.
+"""PointCapturer（board 座標の点での撮影と固定寸法 crop）の公開契約.
 
 自前 HAL の fake（``FakeKlipper`` / ``FakeCamera``）に実 ``XYZStage`` /
-``PasteSession`` を組み合わせ、送信 G-code と返る crop で検証する。銅板には照合
-対象の銅箔島パターンが無いので領域照合は挟まず、``board_transform`` だけで
-カメラ位置と board→pixel affine が決まる。
+``PasteSession`` を組み合わせ、送信 G-code と返る crop で検証する。位置合わせ補正を
+渡さない場合は ``board_transform`` だけでカメラ位置と board→pixel affine が決まる。
 """
 
 from datetime import UTC, datetime
@@ -13,11 +12,8 @@ import pytest
 
 from pcbasm.config import Machine
 from pcbasm.geometry import Identity, Point2d, Shift
-from pcbasm.geometry.packing import Rect
 from pcbasm.hal import XYZStage
-from pcbasm.pasting.dataset.capture import DatasetCapturer
-from pcbasm.pasting.dataset.metadata import DatasetView
-from pcbasm.pasting.dataset.plan import DotBlank, DotCell, plan_views
+from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl import BoardCalibrationResult
@@ -31,31 +27,19 @@ RESOLUTION = (640, 480)
 FOCUS_Z = 12.0
 BOARD_SHIFT = Point2d(100.0, 50.0)
 CROP_SIZE_PX = 21
-VIEW_RADIUS_MM = 1.0
+CENTER = Point2d(5.0, 4.0)
+OFFSETS = (
+    Point2d(0.0, 0.0),
+    Point2d(1.0, 0.0),
+    Point2d(0.0, 1.0),
+    Point2d(-1.0, 0.0),
+    Point2d(0.0, -1.0),
+)
 
 
 def _frame(width: int, height: int) -> Image:
     yy, xx = np.indices((height, width), dtype=np.uint16)
     return Image(np.dstack((xx % 256, yy % 256, (xx ^ yy) % 256)).astype(np.uint8))
-
-
-def _cell(index: int, center: Point2d) -> DotCell:
-    return DotCell(
-        index=index,
-        rect=Rect(center.x - 1.0, center.y - 1.0, 2.0, 2.0),
-        center=center,
-        commanded_volume_ul=0.125,
-        volume_index=2,
-        order=index,
-    )
-
-
-def _blank(index: int, center: Point2d) -> DotBlank:
-    return DotBlank(
-        index=index,
-        rect=Rect(center.x - 1.0, center.y - 1.0, 2.0, 2.0),
-        center=center,
-    )
 
 
 def _session(camera: FakeCamera, klipper: FakeKlipper) -> PasteSession:
@@ -83,8 +67,8 @@ def _session(camera: FakeCamera, klipper: FakeKlipper) -> PasteSession:
 
 def _capturer(
     camera: FakeCamera, klipper: FakeKlipper, frames: list[Image] | None = None
-) -> DatasetCapturer:
-    return DatasetCapturer(
+) -> PointCapturer:
+    return PointCapturer(
         _session(camera, klipper),
         crop_size_px=CROP_SIZE_PX,
         settle_time=0.0,
@@ -97,44 +81,31 @@ def _rect_center(rect: tuple[int, int, int, int]) -> tuple[float, float]:
     return ((x0 + x1) / 2, (y0 + y1) / 2)
 
 
-@pytest.fixture
-def views() -> tuple[DatasetView, ...]:
-    planned, error = plan_views(4, VIEW_RADIUS_MM)
+class TestPointCapturer:
+    """点 + offset への移動と、呼び出しをまたいで同寸法の crop."""
 
-    assert error is None
-    assert planned is not None
-    return planned
-
-
-class TestDatasetCapturer:
-    """セル中心 + view offset への移動と、全 view 同寸法の crop."""
-
-    def test_moves_camera_to_the_cell_center_at_focus_height(self):
+    def test_moves_camera_to_the_point_at_focus_height(self):
         klipper = FakeKlipper()
         capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), klipper)
-        cell = _cell(1, Point2d(5.0, 4.0))
         klipper.clear_sent()
 
-        crop, error = capturer.capture(cell, DatasetView(number=0))
+        crop, error = capturer.capture(CENTER)
 
         assert error is None
         assert crop is not None
         move = klipper.g1_moves()[-1]
-        assert move["x"] == pytest.approx(cell.center.x + BOARD_SHIFT.x)
-        assert move["y"] == pytest.approx(cell.center.y + BOARD_SHIFT.y)
+        assert move["x"] == pytest.approx(CENTER.x + BOARD_SHIFT.x)
+        assert move["y"] == pytest.approx(CENTER.y + BOARD_SHIFT.y)
         assert move["z"] == pytest.approx(FOCUS_Z)
 
-    def test_every_view_offset_is_reflected_in_the_sent_gcode(
-        self, views: tuple[DatasetView, ...]
-    ):
+    def test_every_offset_is_reflected_in_the_sent_gcode(self):
         klipper = FakeKlipper()
         capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), klipper)
-        cell = _cell(1, Point2d(5.0, 4.0))
         targets: list[tuple[float, float]] = []
 
-        for view in views:
+        for offset in OFFSETS:
             klipper.clear_sent()
-            crop, error = capturer.capture(cell, view)
+            crop, error = capturer.capture(CENTER, offset=offset)
             assert error is None, error
             assert crop is not None
             move = klipper.g1_moves()[-1]
@@ -143,22 +114,19 @@ class TestDatasetCapturer:
         assert targets == [
             pytest.approx(
                 (
-                    cell.center.x + BOARD_SHIFT.x + view.offset_x_mm,
-                    cell.center.y + BOARD_SHIFT.y + view.offset_y_mm,
+                    CENTER.x + BOARD_SHIFT.x + offset.x,
+                    CENTER.y + BOARD_SHIFT.y + offset.y,
                 )
             )
-            for view in views
+            for offset in OFFSETS
         ]
 
-    def test_all_views_return_crops_of_the_same_pixel_size(
-        self, views: tuple[DatasetView, ...]
-    ):
+    def test_all_offsets_return_crops_of_the_same_pixel_size(self):
         capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), FakeKlipper())
-        cell = _cell(1, Point2d(5.0, 4.0))
 
         sizes = set()
-        for view in views:
-            crop, error = capturer.capture(cell, view)
+        for offset in OFFSETS:
+            crop, error = capturer.capture(CENTER, offset=offset)
             assert error is None, error
             assert crop is not None
             x0, y0, x1, y1 = crop.pixel_rect
@@ -166,7 +134,7 @@ class TestDatasetCapturer:
 
         assert sizes == {(CROP_SIZE_PX, CROP_SIZE_PX, CROP_SIZE_PX, CROP_SIZE_PX, 3)}
 
-    def test_cells_at_different_positions_share_the_same_pixel_size(self):
+    def test_points_at_different_positions_share_the_same_pixel_size(self):
         capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), FakeKlipper())
         centers = [
             Point2d(5.0, 4.0),
@@ -176,19 +144,18 @@ class TestDatasetCapturer:
         ]
 
         shapes = set()
-        for index, center in enumerate(centers, start=1):
-            crop, error = capturer.capture(_cell(index, center), DatasetView(number=0))
+        for center in centers:
+            crop, error = capturer.capture(center)
             assert error is None, error
             assert crop is not None
             shapes.add(crop.image.shape)
 
         assert shapes == {(CROP_SIZE_PX, CROP_SIZE_PX, 3)}
 
-    def test_crop_is_centered_in_the_frame_when_the_view_is_centered(self):
+    def test_crop_is_centered_in_the_frame_when_no_offset_is_given(self):
         frame = _frame(*RESOLUTION)
-        crop, error = _capturer(FakeCamera([frame]), FakeKlipper()).capture(
-            _cell(1, Point2d(5.0, 4.0)), DatasetView(number=0)
-        )
+
+        crop, error = _capturer(FakeCamera([frame]), FakeKlipper()).capture(CENTER)
 
         assert error is None
         assert crop is not None
@@ -199,54 +166,73 @@ class TestDatasetCapturer:
         x0, y0, x1, y1 = crop.pixel_rect
         assert np.array_equal(crop.image, frame.numpy()[y0:y1, x0:x1])
 
-    def test_view_offset_shifts_the_crop_window_by_offset_times_scale(self):
+    def test_offset_shifts_the_crop_window_by_offset_times_scale(self):
         capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), FakeKlipper())
-        cell = _cell(1, Point2d(5.0, 4.0))
         offset = Point2d(0.5, -1.0)
 
-        centered, _ = capturer.capture(cell, DatasetView(number=0))
-        shifted, _ = capturer.capture(
-            cell,
-            DatasetView(number=1, offset_x_mm=offset.x, offset_y_mm=offset.y),
-        )
+        centered, _ = capturer.capture(CENTER)
+        shifted, _ = capturer.capture(CENTER, offset=offset)
 
         assert centered is not None and shifted is not None
         # 投影公式 pixel = center + ppm * (stage - T_b(board)) より、ステージが
-        # +offset 動くとセル中心は画像上で +offset*ppm ずれる
+        # +offset 動くと点は画像上で +offset*ppm ずれる
         base_x, base_y = _rect_center(centered.pixel_rect)
         moved_x, moved_y = _rect_center(shifted.pixel_rect)
         assert moved_x - base_x == pytest.approx(offset.x * PPM, abs=1.0)
         assert moved_y - base_y == pytest.approx(offset.y * PPM, abs=1.0)
-
-    def test_blank_targets_are_captured_the_same_way(self):
-        klipper = FakeKlipper()
-        capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), klipper)
-        blank = _blank(1, Point2d(5.0, 4.0))
-        klipper.clear_sent()
-
-        crop, error = capturer.capture(blank, DatasetView(number=0))
-
-        assert error is None
-        assert crop is not None
-        assert crop.image.shape == (CROP_SIZE_PX, CROP_SIZE_PX, 3)
-        move = klipper.g1_moves()[-1]
-        assert move["x"] == pytest.approx(blank.center.x + BOARD_SHIFT.x)
-        assert move["y"] == pytest.approx(blank.center.y + BOARD_SHIFT.y)
 
     def test_sends_captured_frame_to_frame_sink(self):
         frame = _frame(*RESOLUTION)
         frames: list[Image] = []
         capturer = _capturer(FakeCamera([frame]), FakeKlipper(), frames)
 
-        capturer.capture(_cell(1, Point2d(5.0, 4.0)), DatasetView(number=0))
+        capturer.capture(CENTER)
 
         assert frames == [frame]
 
     def test_reports_crop_outside_frame_without_raising(self):
         capturer = _capturer(FakeCamera([_frame(16, 12)]), FakeKlipper())
 
-        crop, error = capturer.capture(_cell(1, Point2d(5.0, 4.0)), DatasetView(0))
+        crop, error = capturer.capture(CENTER)
 
         assert crop is None
         assert error is not None
         assert "収まりません" in error
+
+
+class TestPointCapturerWithAlignmentCorrection:
+    """位置合わせ補正を渡すと、塗布と同じ補正後の位置を撮る."""
+
+    def test_moves_the_camera_by_the_correction(self):
+        klipper = FakeKlipper()
+        capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), klipper)
+        klipper.clear_sent()
+
+        crop, error = capturer.capture(CENTER, correction=Shift(0.3, -0.2))
+
+        assert error is None
+        assert crop is not None
+        move = klipper.g1_moves()[-1]
+        assert move["x"] == pytest.approx(CENTER.x + BOARD_SHIFT.x + 0.3)
+        assert move["y"] == pytest.approx(CENTER.y + BOARD_SHIFT.y - 0.2)
+
+    def test_keeps_the_corrected_point_at_the_frame_center(self):
+        """補正でステージも投影も同じだけ動くので、crop は画面中央のまま."""
+        capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), FakeKlipper())
+
+        centered, _ = capturer.capture(CENTER)
+        corrected, _ = capturer.capture(CENTER, correction=Shift(0.3, -0.2))
+
+        assert centered is not None and corrected is not None
+        assert _rect_center(corrected.pixel_rect) == pytest.approx(
+            _rect_center(centered.pixel_rect), abs=1.0
+        )
+
+    def test_an_identity_correction_matches_passing_none(self):
+        capturer = _capturer(FakeCamera([_frame(*RESOLUTION)]), FakeKlipper())
+
+        plain, _ = capturer.capture(CENTER)
+        identity, _ = capturer.capture(CENTER, correction=Identity())
+
+        assert plain is not None and identity is not None
+        assert plain.pixel_rect == identity.pixel_rect

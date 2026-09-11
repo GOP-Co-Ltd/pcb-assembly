@@ -298,6 +298,63 @@ def _wait_for_initial_purge(
     )
 
 
+def _wait_for_flow_calibration_points(
+    live_server: LiveServer, count: int
+) -> dict[str, Any]:
+    """flow_calibration の測定位置が指定個数になるまで待つ."""
+    return wait_for_config(
+        live_server,
+        lambda config: len(config["flow_calibration"]["points"]) == count,
+        f"flow_calibration points -> {count}",
+    )
+
+
+def _click_board_point(page: Any, x_mm: float, y_mm: float) -> None:
+    """基板座標を指定して基板ビューをクリックする.
+
+    SVG は viewBox を letterbox して描く。
+
+    要素の何 % という指定では基板の外に落ちる。
+
+    描画中の CTM で基板座標を画面座標へ変換してから叩く。
+    """
+    point = page.evaluate(
+        """({selector, x, y}) => {
+            const svg = document.querySelector(selector);
+            const ctm = svg.getScreenCTM();
+            const local = svg.createSVGPoint();
+            local.x = x;
+            local.y = y;
+            const screen = local.matrixTransform(ctm);
+            return {x: screen.x, y: screen.y};
+        }""",
+        {"selector": _testid("pad-viewer"), "x": x_mm, "y": y_mm},
+    )
+    page.mouse.click(point["x"], point["y"])
+
+
+def _wait_for_flow_calibration_markers(page: Any, count: int) -> None:
+    """測定位置マーカーが指定個数になるまで待つ（= 再取得と再描画の完了）."""
+    page.wait_for_function(
+        """({selector, count}) =>
+            document.querySelectorAll(selector).length === count""",
+        arg={"selector": _testid("pad-flow-calibration-marker"), "count": count},
+        timeout=_BROWSER_TIMEOUT_MS,
+    )
+
+
+def _wait_for_purge_marker_source(page: Any, source: str) -> None:
+    """パージマーカーが指定の由来（explicit / default）で描かれるまで待つ."""
+    page.wait_for_function(
+        """({selector, source}) => {
+            const el = document.querySelector(selector);
+            return el !== null && el.dataset.source === source;
+        }""",
+        arg={"selector": _testid("pad-purge-marker"), "source": source},
+        timeout=_BROWSER_TIMEOUT_MS,
+    )
+
+
 def _assert_in_viewport(page: Any, locator: Any):
     box = locator.bounding_box(timeout=_BROWSER_TIMEOUT_MS)
     assert box is not None
@@ -563,7 +620,10 @@ class TestPasteSolderBrowserRendering:
         pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
         marker = browser_page.locator(_testid("pad-purge-marker"))
         set_point_button.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
-        assert marker.count() == 0
+        # 明示指定が無くても、自動解決されたパージ位置は図に出る
+        # （どこへパージするか見えないと測定位置をそこから避けられない）
+        marker.wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
+        assert marker.get_attribute("data-source") == "default"
 
         set_point_button.click()
         # マーカー打ち中はパッドが hover やカーソルで反応しない
@@ -579,19 +639,11 @@ class TestPasteSolderBrowserRendering:
         purge = _wait_for_initial_purge(live_server, resolved_source="explicit")
         assert purge["initial_purge"]["point"] is not None
 
-        browser_page.wait_for_function(
-            """(selector) => document.querySelector(selector) !== null""",
-            arg=_testid("pad-purge-marker"),
-            timeout=_BROWSER_TIMEOUT_MS,
-        )
+        _wait_for_purge_marker_source(browser_page, "explicit")
         assert "mm" in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
 
         browser_page.reload(wait_until="domcontentloaded")
-        browser_page.wait_for_function(
-            """(selector) => document.querySelector(selector) !== null""",
-            arg=_testid("pad-purge-marker"),
-            timeout=_BROWSER_TIMEOUT_MS,
-        )
+        _wait_for_purge_marker_source(browser_page, "explicit")
         pad_status = browser_page.locator(_testid("pad-initial-purge-pad"))
         assert "mm" in pad_status.text_content(timeout=_BROWSER_TIMEOUT_MS)
 
@@ -599,11 +651,40 @@ class TestPasteSolderBrowserRendering:
         assert not clear_button.is_disabled()
         clear_button.click()
         _wait_for_initial_purge(live_server, resolved_source="default")
-        browser_page.wait_for_function(
-            """(selector) => document.querySelector(selector) === null""",
-            arg=_testid("pad-purge-marker"),
-            timeout=_BROWSER_TIMEOUT_MS,
-        )
+        # 自動へ戻してもマーカーは消えず、自動解決された位置を指す
+        _wait_for_purge_marker_source(browser_page, "default")
+
+    def test_flow_calibration_points_are_added_one_click_at_a_time(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        """測定位置は 1 点ずつ増え、撮影範囲が点線の四角で描かれる."""
+        _select_led_blinker(live_server)
+
+        _open_paste_solder(browser_page, live_ui)
+        add_button = browser_page.locator(_testid("pad-set-flow-calibration-point"))
+        markers = browser_page.locator(_testid("pad-flow-calibration-marker"))
+        crops = browser_page.locator(_testid("pad-flow-calibration-crop"))
+        add_button.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert markers.count() == 0
+
+        add_button.click()
+        # 追加モードは抜けないので、続けてクリックした分だけ点が増える
+        _click_board_point(browser_page, 5.0, 12.0)
+        _wait_for_flow_calibration_points(live_server, 1)
+        _wait_for_flow_calibration_markers(browser_page, 1)
+        _click_board_point(browser_page, 15.0, 12.0)
+        _wait_for_flow_calibration_points(live_server, 2)
+        _wait_for_flow_calibration_markers(browser_page, 2)
+
+        # 置けない範囲（撮影範囲）は点線の四角で出す
+        assert crops.count() == 2
+        # マーカーは 1 始まりの通し番号（塗る順）
+        assert markers.nth(0).locator("text").text_content() == "1"
+        assert markers.nth(1).locator("text").text_content() == "2"
+
+        browser_page.locator(_testid("pad-clear-flow-calibration-point")).click()
+        _wait_for_flow_calibration_points(live_server, 0)
+        _wait_for_flow_calibration_markers(browser_page, 0)
 
 
 class TestPasteSolderBrowserPadInteraction:

@@ -54,6 +54,7 @@
                  aria-label="{{ field.label }}"
                  {% if field.value_type not in ('str', 'float_or_auto') %}step="any"{% endif %}
                  value="{{ field.value if field.value is not none else '' }}"
+                 {% if field.key in clearable_keys %}data-allow-empty="true"{% endif %}
                  placeholder="未設定">
           {% endif %}
           {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}

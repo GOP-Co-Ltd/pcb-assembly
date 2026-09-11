@@ -15,6 +15,7 @@ from web.api.jobs.pasting.common import (
     resolve_paste_model,
     run_loading_loop,
 )
+from web.api.jobs.pasting.flow_calibration import run_flow_calibration, summary_line
 
 
 def register(catalog: JobCatalog) -> None:
@@ -65,6 +66,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             hierarchy,
             model,
             initial_purge_ul=result.machine.paste_dispenser.initial_purge_ul,
+            flow_calibration=result.machine.paste_dispenser.flow_calibration,
         )
         if targets is None:
             raise ValueError(error)
@@ -107,6 +109,15 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                     transform=session.point_transform(purge.point, correction),
                 )
 
+            flow = targets.flow_calibration
+            outcome = (
+                None
+                if flow is None
+                else run_flow_calibration(ctx, session, correction, applicator, flow)
+            )
+            if outcome is not None:
+                applicator.adopt_rotations_per_ul(outcome.rotations_per_ul)
+
             # pad を 1 件ずつ apply して per-pad の進捗・設定・abort 境界を確保
             for index, pad in enumerate(targets.routed_pads):
                 ctx.progress("塗布", 100.0 * index / len(targets.routed_pads))
@@ -127,5 +138,6 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             f"（無効 {targets.disabled_count} 件スキップ・"
             f"初回パージ {purge.amount_ul if purge else 0.0:.3f} uL・"
             f"押出合計 {total.amount_ul:+.3f} uL）"
+            + ("" if outcome is None else f" / {summary_line(outcome)}")
         )
     )

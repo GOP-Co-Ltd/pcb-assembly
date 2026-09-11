@@ -29,7 +29,7 @@ import attrs
 
 from pcbasm.gcode import GCode
 from pcbasm.geometry import HeightPlane, Point2d
-from pcbasm.pasting.dataset.capture import DatasetCapturer
+from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.dataset.metadata import DatasetView, PasteDatasetLoading
 from pcbasm.pasting.dataset.plan import (
     DEFAULT_PASTE_HEIGHT_MM,
@@ -563,10 +563,10 @@ def _pass_percent(position: int, total: int, start: float, end: float) -> float:
     return start + (end - start) * position / total
 
 
-def _capture(
-    capturer: DatasetCapturer, target: DotTarget, view: DatasetView
-) -> RectCrop:
-    crop, error = capturer.capture(target, view)
+def _capture(capturer: PointCapturer, target: DotTarget, view: DatasetView) -> RectCrop:
+    crop, error = capturer.capture(
+        target.center, offset=Point2d(view.offset_x_mm, view.offset_y_mm)
+    )
     if crop is None:
         raise ValueError(
             f"sample {target.index} view {view.number} の撮影に失敗: {error}"
@@ -619,7 +619,7 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
         ctx.progress("高さ計測")
         height_plane = _measure_plate_height(session)
 
-        capturer = DatasetCapturer(
+        capturer = PointCapturer(
             session, crop_size_px=crop_size_px, frame_sink=ctx.frame
         )
         writer = PasteDatasetWriter.open(

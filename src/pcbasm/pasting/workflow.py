@@ -10,11 +10,16 @@ from collections.abc import Mapping
 
 import attrs
 
+from pcbasm.config import FlowCalibration
 from pcbasm.pasting.initial_purge import (
     ResolvedInitialPurge,
     resolve_initial_purge,
 )
 from pcbasm.pasting.params import PasteParams
+from pcbasm.pasting.paste_volume.runtime import (
+    FlowCalibrationPlan,
+    plan_flow_calibration,
+)
 from pcbasm.pasting.route import plan_paste_route
 from pcbasm.pasting.settings import (
     PasteSettingsModel,
@@ -36,6 +41,7 @@ class PasteTargets:
         top_pads: 対象レイヤの全 pad（有効/無効問わず）
         routed_pads: 有効 pad の塗布順路
         initial_purge: 初回パージ（無効なら ``None``）
+        flow_calibration: 運転時流量キャリブレーション（無効なら ``None``）
     """
 
     hierarchy: PadHierarchy
@@ -44,6 +50,7 @@ class PasteTargets:
     top_pads: tuple[Pad, ...]
     routed_pads: tuple[Pad, ...]
     initial_purge: ResolvedInitialPurge | None
+    flow_calibration: FlowCalibrationPlan | None
 
     @property
     def disabled_count(self) -> int:
@@ -64,9 +71,10 @@ def plan_paste_targets(
     model: PasteSettingsModel,
     *,
     initial_purge_ul: float,
+    flow_calibration: FlowCalibration,
     layer: Layer = Layer.TOP,
 ) -> tuple[PasteTargets | None, str | None]:
-    """基板設定から通常塗布の対象 pad・順路・初回パージを解決する."""
+    """基板設定から通常塗布の対象 pad・順路・初回パージ・流量キャリブを解決する."""
     top_pads = tuple(pad for pad in pcb.pads if pad.layer == layer)
     resolved = resolve_pad_settings(hierarchy, model)
     routed = tuple(
@@ -81,6 +89,13 @@ def plan_paste_targets(
     )
     if error is not None:
         return None, error
+    flow_plan, error = plan_flow_calibration(
+        config=flow_calibration,
+        points=model.flow_calibration_points,
+        outline=pcb.outline.polygon,
+    )
+    if error is not None:
+        return None, error
     return (
         PasteTargets(
             hierarchy=hierarchy,
@@ -89,6 +104,7 @@ def plan_paste_targets(
             top_pads=top_pads,
             routed_pads=routed,
             initial_purge=initial_purge,
+            flow_calibration=flow_plan,
         ),
         None,
     )

@@ -47,6 +47,52 @@
         <input id="pad-import-config" type="file" accept="application/json,.json" hidden
                data-requires-control>
       </div>
+      {# 流量キャリブレーションは machine 設定（校正ファイル等）と基板設定（測定位置）に
+         分かれるが、運転者にとっては 1 つの機能なのでここへ横 1 本にまとめる #}
+      <div class="pad-flow-calibration" data-testid="pad-flow-calibration">
+        <h3>流量キャリブレーション</h3>
+        {% if flow_calibration_fields %}
+        {# machine 全体設定。入力後は即保存する #}
+        <form class="pad-flow-calibration-settings" data-testid="paste-flow-calibration"
+              data-requires-control data-machine-settings data-endpoint="/api/settings/machine">
+          {% for field in flow_calibration_fields %}
+          <label for="pfc-{{ field.key }}"
+                 {% if field.key == flow_calibration_file_key %}class="pad-flow-calibration-file"{% endif %}>{{ field.label }}{% if field.unit %} <span class="unit">[{{ field.unit }}]</span>{% endif %}
+            {% if field.key == flow_calibration_file_key %}
+            <input id="pfc-{{ field.key }}" name="{{ field.key }}"
+                   data-type="{{ field.value_type }}" type="text"
+                   aria-label="{{ field.label }}"
+                   value="{{ field.value if field.value is not none else '' }}"
+                   placeholder="未設定（補正しません）"
+                   data-calibration-picker data-calibration-empty="補正しない"
+                   data-allow-empty="true"
+                   data-testid="flow-calibration-{{ field.key }}">
+            {% else %}
+            <input id="pfc-{{ field.key }}" name="{{ field.key }}"
+                   data-type="{{ field.value_type }}" type="number" step="any" min="0"
+                   aria-label="{{ field.label }}"
+                   value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
+                   placeholder="未設定"
+                   data-testid="flow-calibration-{{ field.key }}">
+            {% endif %}
+          </label>
+          {% endfor %}
+        </form>
+        {% endif %}
+        {# 測定位置は基板ごとの設定。1 点ずつ図の上で与える #}
+        <div class="pad-flow-calibration-tools" data-testid="pad-flow-calibration-tools"
+             data-requires-control>
+          <label for="pad-flow-calibration-point">測定位置</label>
+          <output id="pad-flow-calibration-point" class="pad-flow-calibration-point"
+                  data-testid="pad-flow-calibration-point" aria-live="polite">未設定</output>
+          <div class="pad-flow-calibration-actions">
+            <button type="button" id="pad-set-flow-calibration-point"
+                    data-testid="pad-set-flow-calibration-point">測定位置を追加</button>
+            <button type="button" id="pad-clear-flow-calibration-point"
+                    data-testid="pad-clear-flow-calibration-point">全消去</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="pad-viewer-wrap" data-testid="pad-viewer-wrap">

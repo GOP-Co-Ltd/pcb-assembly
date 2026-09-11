@@ -20,6 +20,7 @@ import cv2
 
 from pcbasm.pasting.dataset.reader import DatasetSession
 from pcbasm.pasting.paste_volume.calibration import (
+    auto_calibration_path,
     calibration_path,
     write_calibration,
 )
@@ -334,13 +335,18 @@ def _save(ctx: JobContext, fit: CalibrationFit, *, always: bool) -> Path | None:
     Returns:
         保存先（保存しなかったときは ``None``）
     """
-    name = str(ctx.params.get("save_name", "")).strip() or (
-        fit.calibration.label if always else ""
-    )
-    if not name:
+    name = str(ctx.params.get("save_name", "")).strip()
+    if not name and not always:
         ctx.log("保存名が空なので校正ファイルは保存しません（診断のみ）")
         return None
-    path = calibration_path(ctx.paste_volume_calibration_dir, name)
+    # 自動命名のラベルは既に生成時刻を含むので、名前へ時刻を重ねない
+    path = (
+        calibration_path(ctx.paste_volume_calibration_dir, name)
+        if name
+        else auto_calibration_path(
+            ctx.paste_volume_calibration_dir, fit.calibration.label
+        )
+    )
     if path.exists():
         ctx.log(f"同名の校正ファイルを上書きします: {path.name}")
     write_calibration(path, fit.calibration)

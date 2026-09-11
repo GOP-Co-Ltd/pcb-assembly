@@ -744,6 +744,55 @@ class TestPastingJobPages:
         assert "Auto線塗布しきい縦横比" in text
         assert "Auto面塗布しきい短辺倍率" in text
 
+    def test_paste_solder_renders_flow_calibration_settings(self, client: TestClient):
+        """流量キャリブレーション設定がはんだ塗布ページの即保存フォームに出る.
+
+        校正ファイルは保存済み校正の <select> へ差し替える。
+
+        差し替え役の JS と目印の data 属性が要る。
+        """
+        text = client.get("/pasting/paste_solder").text
+
+        assert "paste-flow-calibration" in text
+        for key in (
+            "paste_dispenser.flow_calibration.calibration_file",
+            "paste_dispenser.flow_calibration.amount_ul",
+            "paste_dispenser.flow_calibration.crop_size_mm",
+            "paste_dispenser.flow_calibration.settle_seconds",
+        ):
+            assert key in text
+        assert "data-calibration-picker" in text
+        # 空の選択肢が「補正しない」として保存されるための目印
+        assert 'data-allow-empty="true"' in text
+        assert "paste_volume_calibrations.js" in text
+
+    def test_paste_solder_renders_the_flow_calibration_point_tools(
+        self, client: TestClient
+    ):
+        """測定位置は基板ごとの設定なので pad editor 側で 1 点ずつ指定する."""
+        text = client.get("/pasting/paste_solder").text
+
+        assert "pad-flow-calibration-tools" in text
+        assert "pad-set-flow-calibration-point" in text
+        assert "pad-clear-flow-calibration-point" in text
+        assert "測定位置を追加" in text
+
+    def test_paste_solder_keeps_the_flow_calibration_settings_in_one_place(
+        self, client: TestClient
+    ):
+        """Machine 設定と測定位置を上下に分けない.
+
+        運転者から見れば 1 つの機能なので、pad editor のツールバーに 1 箱で置く。
+        """
+        text = client.get("/pasting/paste_solder").text
+
+        box = text.index('data-testid="pad-flow-calibration"')
+        toolbar = text.index('data-testid="pad-editor-toolbar"')
+        viewer = text.index('data-testid="pad-viewer-wrap"')
+        assert toolbar < box < viewer
+        assert text.index('data-testid="paste-flow-calibration"') > box
+        assert text.index('data-testid="pad-flow-calibration-tools"') > box
+
     def test_paste_solder_renders_initial_purge_position_controls(
         self, client: TestClient
     ):
@@ -1321,6 +1370,7 @@ class TestPastingPadEditor:
         assert 'id="pad-initial-purge"' not in text
         assert "初回パージ" not in text
         assert "paste-auto-thresholds" not in text
+        assert "paste-flow-calibration" not in text
         # セル格子・量スイープ・view のジョブパラメータを描く
         assert 'id="param-plate_width"' in text
         assert 'id="param-cell_size"' in text
