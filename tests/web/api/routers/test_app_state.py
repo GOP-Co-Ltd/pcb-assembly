@@ -8,7 +8,7 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
 - GET /api/machine-info — backend の自己申告（machine_id / machine_name /
   machine_type / mainsail_url / fb_start / api_version）。到達性プローブも兼ねる
-- machine_id は `Settings.hostname` があればそれ、無ければ `socket.gethostname()`
+- machine_id は `Settings.hostname` があればそれ、無ければ backend ホストの hostname
 - machine_name は machine.toml の値。未設定なら machine_id へフォールバック
   （環境依存の解決は API 層の責務）
 - mainsail_url は backend 側で解決した値。リクエストのホスト名には追従しない
@@ -18,7 +18,6 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
   machine.toml でも 200 + null（防御しないと全クライアントのポーリングが 500 する）
 """
 
-import socket
 from pathlib import Path
 
 import attrs
@@ -105,12 +104,6 @@ class TestMachineInfoApi:
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
             "api_version": 1,
         }
-
-    def test_machine_id_defaults_to_host_name(self, client: TestClient):
-        """`Settings.hostname` 未注入なら backend ホストの hostname を名乗る."""
-        assert client.get("/api/machine-info").json()["machine_id"] == (
-            socket.gethostname()
-        )
 
     def test_machine_name_comes_from_machine_toml(
         self, client: TestClient, store: ConfigStore

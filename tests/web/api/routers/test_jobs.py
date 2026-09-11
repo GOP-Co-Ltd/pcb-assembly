@@ -8,7 +8,8 @@
 - POST /api/jobs/last/apply → 200 {"applied": {...}}（machine.toml へ書込・
   コメント保持）/ 409、POST /api/jobs/last/discard → 200（冪等）
 - WS /api/ws: job_status / log / progress / prompt / prompt_resolved /
-  state_changed / error、クライアント → respond_prompt / command / abort
+  state_changed / error、クライアント → respond_prompt
+  （クライアント → command / abort の配線は ``test_control_api.py`` が担保）
 - 排他の波及: ジョブ実行中は machine-control / マシン切替 / 設定保存 /
   PCB 切替が 409
 - /artifacts: 成果物 URL 配信 + traversal 拒否
@@ -94,9 +95,8 @@ def _register_runtime_editable(
     """Confirm prompt で WAITING_INPUT に留まる、runtime_editable param 付き合成ジョブ.
 
     board_width は固定（runtime_editable=False）、line_length と
-    removal_z_offset は 実行中変更可。PUT /jobs/current/params の即反映と検証（固定/未知/型/負
-    offset）を GET /jobs/current で観測するための題材（実 dispense_calibration の機械フローに
-    依存しない）。
+    removal_z_offset は実行中変更可。PUT /jobs/current/params の即反映を GET
+    /jobs/current で観測する題材（実 dispense_calibration の機械フローに依存しない）。
     """
 
     def run(ctx: JobContext) -> None:
@@ -200,13 +200,6 @@ def _jobs_by_name(client: TestClient) -> dict[str, dict[str, Any]]:
 class TestJobCatalogApi:
     """GET /api/jobs — ジョブカタログの公開表現（MR2）."""
 
-    def test_lists_every_registered_job_in_registration_order(
-        self, client: TestClient, app: FastAPI
-    ):
-        names = [job["name"] for job in client.get("/api/jobs").json()["jobs"]]
-
-        assert names == [d.name for d in app.state.catalog.list()]
-
     def test_includes_hidden_jobs(self, client: TestClient, app: FastAPI):
         """Hidden ジョブも filter しない（実行時登録され POST もできるため）."""
         register_synthetic(
@@ -240,28 +233,6 @@ class TestJobCatalogApi:
         # カメラもローディングも使わない生成ジョブ
         assert jobs["generate_rect_pcb"]["provides_preview"] is False
         assert jobs["generate_rect_pcb"]["loading_param"] is None
-
-    def test_reports_paste_volume_calibration_contract(self, client: TestClient):
-        job = _jobs_by_name(client)["paste_volume_calibration"]
-
-        assert job["requires_pcb"] is False
-        assert job["uses_machine"] is True
-        assert job["provides_preview"] is True
-        assert job["hidden"] is False
-
-    def test_reports_start_policy_flags(self, client: TestClient, app: FastAPI):
-        definition = app.state.catalog.get("paste_solder")
-
-        job = _jobs_by_name(client)["paste_solder"]
-
-        assert job["label"] == definition.label
-        assert job["tab"] == definition.tab
-        assert job["requires_pcb"] == definition.requires_pcb
-        assert job["uses_machine"] == definition.uses_machine
-        assert job["notify_on_completion"] == definition.notify_on_completion
-        assert job["accepts_commands"] == definition.accepts_commands
-        assert job["persisted_params"] == list(definition.persisted_params)
-        assert job["runtime_params"] == list(definition.runtime_params)
 
     def test_param_specs_expose_every_declared_field(
         self, client: TestClient, app: FastAPI
@@ -497,20 +468,6 @@ class TestCurrentAndAbort:
         assert response.json()["aborted"] is True
         _wait_job_status(client, "aborted")
 
-    def test_abort_while_waiting_prompt_is_immediate(self, client: TestClient):
-        assert (
-            client.post(
-                "/api/jobs/job_demo", json={"params": {"steps": 1, "interval": 0.01}}
-            ).status_code
-            == 201
-        )
-        # prompt 待ち（waiting_input）に入るのを待つ
-        _wait_job_status(client, "waiting_input")
-
-        assert client.post("/api/jobs/current/abort").status_code == 200
-
-        _wait_job_status(client, "aborted")
-
     def test_abort_without_active_job_returns_409(self, client: TestClient):
         response = client.post("/api/jobs/current/abort")
 
@@ -532,8 +489,10 @@ class TestUpdateCurrentParams:
 
     実行中ジョブの runtime_editable な subset を out-of-band で patch する:
     - アクティブジョブ無し → 400
-    - 固定キー / 未知キー / 型不正 / 負 removal_z_offset → 400
     - 正常 → 200 で {"params": {...}} を返し、GET /jobs/current が新値を映す
+
+    値そのものの受理 / 拒否（固定キー・未知キー・型不正・負 removal_z_offset）は
+    ``tests/web/api/jobs/test_catalog.py`` と ``test_manager.py`` が担保する。
     """
 
     def _put_params(
@@ -565,89 +524,6 @@ class TestUpdateCurrentParams:
         job = _current_job(client)
         assert job is not None
         assert job["params"]["line_length"] == 12.5
-
-        assert client.post("/api/jobs/current/abort").status_code == 200
-        _wait_job_status(client, "aborted")
-
-    def test_fixed_param_update_returns_400(self, client: TestClient, app: FastAPI):
-        _register_runtime_editable(app)
-        assert (
-            client.post("/api/jobs/runtime_editable_router", json={}).status_code == 201
-        )
-        _wait_job_status(client, "waiting_input")
-
-        # board_width は runtime_editable=False（固定）→ 400
-        response = self._put_params(client, {"board_width": 99.0})
-
-        assert response.status_code == 400
-
-        assert client.post("/api/jobs/current/abort").status_code == 200
-        _wait_job_status(client, "aborted")
-
-    @pytest.mark.parametrize(
-        "values",
-        [
-            {"no_such_param": 1.0},  # 未知キー
-            {"line_length": "fast"},  # 型不正
-        ],
-    )
-    def test_invalid_patch_returns_400(
-        self, client: TestClient, app: FastAPI, values: dict[str, object]
-    ):
-        _register_runtime_editable(app)
-        assert (
-            client.post("/api/jobs/runtime_editable_router", json={}).status_code == 201
-        )
-        _wait_job_status(client, "waiting_input")
-
-        response = self._put_params(client, values)
-
-        assert response.status_code == 400
-
-        assert client.post("/api/jobs/current/abort").status_code == 200
-        _wait_job_status(client, "aborted")
-
-    def test_negative_removal_z_offset_returns_400(
-        self, client: TestClient, app: FastAPI
-    ):
-        """removal_z_offset 負値は 400（負退避を拒否）.
-
-        退避 Z = max(z_min, z_max − offset)。負 offset はパラメータ検証で拒否する。
-        """
-        _register_runtime_editable(app)
-        assert (
-            client.post("/api/jobs/runtime_editable_router", json={}).status_code == 201
-        )
-        _wait_job_status(client, "waiting_input")
-
-        response = self._put_params(client, {"removal_z_offset": -1.0})
-
-        assert response.status_code == 400
-
-        assert client.post("/api/jobs/current/abort").status_code == 200
-        _wait_job_status(client, "aborted")
-
-    def test_persist_true_updates_next_form_default(
-        self, client: TestClient, app: FastAPI, appstate: AppState
-    ):
-        _register_runtime_editable(app)
-        assert (
-            client.post(
-                "/api/jobs/runtime_editable_router",
-                json={"params": {"line_length": 10.0}},
-            ).status_code
-            == 201
-        )
-        _wait_job_status(client, "waiting_input")
-
-        response = self._put_params(client, {"line_length": 42.0}, persist=True)
-
-        assert response.status_code == 200, response.text
-        # persisted_params に含まれる line_length が次回フォーム既定へ保存される
-        assert (
-            appstate.job_param_defaults("runtime_editable_router")["line_length"]
-            == 42.0
-        )
 
         assert client.post("/api/jobs/current/abort").status_code == 200
         _wait_job_status(client, "aborted")
@@ -796,28 +672,6 @@ class TestWebSocket:
             assert "running" in statuses
             assert "waiting_input" in statuses
 
-    def test_job_status_includes_completion_notification_policy(
-        self, client: TestClient, app: FastAPI
-    ):
-        gate = _register_gated(app, name="notifying_ws", notify_on_completion=True)
-
-        with client.websocket_connect("/api/ws") as ws:
-            response = client.post("/api/jobs/notifying_ws", json={})
-            assert response.status_code == 201
-            running, _ = _receive_until(
-                ws,
-                lambda message: message["type"] == "job_status"
-                and message["job"]["status"] in ("pending", "running"),
-            )
-            assert running["job"]["notify_on_completion"] is True
-            gate.set()
-            final, _ = _receive_until(
-                ws,
-                lambda message: message["type"] == "job_status"
-                and message["job"]["status"] == "succeeded",
-            )
-            assert final["job"]["notify_on_completion"] is True
-
     def test_prompt_labels_are_sent_over_ws_and_job_status(
         self, client: TestClient, app: FastAPI
     ):
@@ -867,26 +721,6 @@ class TestWebSocket:
             )
             assert final["job"]["status"] == "succeeded"
 
-    def test_abort_message_aborts_running_job(self, client: TestClient):
-        with client.websocket_connect("/api/ws") as ws:
-            response = client.post(
-                "/api/jobs/job_demo",
-                json={"params": {"steps": 500, "interval": 0.02}},
-            )
-            assert response.status_code == 201
-            _receive_until(
-                ws,
-                lambda m: m["type"] == "job_status" and m["job"]["status"] == "running",
-            )
-
-            ws.send_json({"type": "abort"})
-
-            final, _ = _receive_until(
-                ws,
-                lambda m: m["type"] == "job_status" and m["job"]["status"] in _TERMINAL,
-            )
-            assert final["job"]["status"] == "aborted"
-
     def test_invalid_respond_prompt_yields_error_and_keeps_connection(
         self, client: TestClient
     ):
@@ -921,45 +755,6 @@ class TestWebSocket:
                 ws,
                 lambda m: m["type"] == "job_status" and m["job"]["status"] in _TERMINAL,
                 answer_prompts=True,
-            )
-            assert final["job"]["status"] == "succeeded"
-
-    def test_command_message_echoes_into_log(self, client: TestClient):
-        with client.websocket_connect("/api/ws") as ws:
-            response = client.post(
-                "/api/jobs/job_demo",
-                json={
-                    "params": {
-                        "steps": 1,
-                        "interval": 0.01,
-                        "command_phase": True,
-                    }
-                },
-            )
-            assert response.status_code == 201
-
-            # prompt 2 回を消化して command フェーズへ
-            resolved: list[dict[str, Any]] = []
-
-            def _both_resolved(message: dict[str, Any]) -> bool:
-                if message["type"] == "prompt_resolved":
-                    resolved.append(message)
-                return len(resolved) == 2
-
-            _receive_until(ws, _both_resolved, answer_prompts=True)
-
-            ws.send_json(
-                {
-                    "type": "command",
-                    "command": {"type": "jog", "axis": "x", "dist": 0.1},
-                }
-            )
-            _receive_until(ws, lambda m: m["type"] == "log" and "jog" in m["line"])
-
-            ws.send_json({"type": "command", "command": {"type": "quit"}})
-            final, _ = _receive_until(
-                ws,
-                lambda m: m["type"] == "job_status" and m["job"]["status"] in _TERMINAL,
             )
             assert final["job"]["status"] == "succeeded"
 

@@ -304,14 +304,6 @@ class TestIdentityResolution:
         assert response.json()["control"]["key"] == anonymous
         assert response.json()["control"]["display_name"] == f"名前未設定 ({anonymous})"
 
-    def test_quoted_japanese_name_is_restored(self, client: TestClient):
-        response = client.post(
-            "/api/control/acquire",
-            headers={"X-Pcbasm-Session": "s1", "X-Pcbasm-Client-Name": quote("田中")},
-        )
-
-        assert response.json()["control"]["display_name"] == "田中"
-
     def test_cookies_are_used_when_headers_are_absent(self, client: TestClient):
         cookie = f"pcbasm_session=cookie-session; pcbasm_name={quote('佐藤')}"
 

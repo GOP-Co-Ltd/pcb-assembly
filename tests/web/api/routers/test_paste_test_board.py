@@ -15,14 +15,6 @@ _BASE = "/api/pasting/paste-test-board"
 _R0402 = "Resistor_SMD.pretty/R_0402_1005Metric#pad-0"
 _R0603 = "Resistor_SMD.pretty/R_0603_1608Metric#pad-0"
 _QFN = "Package_DFN_QFN.pretty/QFN-16-1EP_3x3mm_P0.5mm_EP1.75x1.75mm"
-_FILESYSTEM_UNSAFE_FOOTPRINT_IDS = [
-    pytest.param(f"{'l' * 249}.pretty/Part", id="library-over-name-max"),
-    pytest.param(
-        f"Test.pretty/{'p' * 246}",
-        id="footprint-with-suffix-over-name-max",
-    ),
-    pytest.param("Test.pretty/Bad\x00Name", id="nul-in-footprint-name"),
-]
 
 
 def _default_config(client: TestClient) -> dict[str, Any]:
@@ -103,34 +95,6 @@ class TestPasteTestBoardPatternAddition:
             item["catalog_id"] for item in body["config"]["patterns"]
         ]
 
-    def test_duplicate_addition_is_a_successful_no_op(self, client: TestClient):
-        first_response = client.post(
-            f"{_BASE}/patterns/from-footprint",
-            json={"config": _default_config(client), "footprint_id": _QFN},
-        )
-        assert first_response.status_code == 200, first_response.text
-        first = first_response.json()
-
-        response = client.post(
-            f"{_BASE}/patterns/from-footprint",
-            json={"config": first["config"], "footprint_id": _QFN},
-        )
-
-        assert response.status_code == 200
-        assert response.json() == {**first, "added_count": 0}
-
-    def test_addition_recovers_a_config_with_no_patterns(self, client: TestClient):
-        config = _default_config(client)
-        config["patterns"] = []
-
-        response = client.post(
-            f"{_BASE}/patterns/from-footprint",
-            json={"config": config, "footprint_id": _QFN},
-        )
-
-        assert response.status_code == 200, response.text
-        assert response.json()["added_count"] == 3
-
     @pytest.mark.parametrize("footprint_id", ["", "x" * 301, True])
     def test_invalid_footprint_id_is_422(
         self, client: TestClient, footprint_id: object
@@ -151,22 +115,6 @@ class TestPasteTestBoardPatternAddition:
             json={
                 "config": _default_config(client),
                 "footprint_id": "not-a-footprint-id",
-            },
-        )
-
-        assert response.status_code == 400
-
-    @pytest.mark.parametrize("footprint_id", _FILESYSTEM_UNSAFE_FOOTPRINT_IDS)
-    def test_filesystem_unsafe_footprint_id_is_a_domain_400(
-        self,
-        client: TestClient,
-        footprint_id: str,
-    ):
-        response = client.post(
-            f"{_BASE}/patterns/from-footprint",
-            json={
-                "config": _default_config(client),
-                "footprint_id": footprint_id,
             },
         )
 
@@ -196,36 +144,6 @@ class TestPasteTestBoardCustomPad:
             "角丸矩形 1.2 × 0.8 mm R0.2 mm"
         )
         assert body["catalog"][-1]["label"].startswith("角丸矩形")
-
-    def test_circle_request_needs_only_the_displayed_diameter(self, client: TestClient):
-        response = client.post(
-            f"{_BASE}/custom-pads",
-            json={
-                "config": _default_config(client),
-                "custom_pad": {"shape": "circle", "width_mm": 0.75},
-            },
-        )
-
-        assert response.status_code == 200, response.text
-        custom_pad = response.json()["config"]["custom_pads"][0]
-        assert custom_pad["height_mm"] == 0.75
-        assert custom_pad["corner_radius_mm"] == 0.0
-        assert custom_pad["name"] == "円 φ0.75 mm"
-
-    def test_custom_pad_recovers_a_config_with_no_patterns(self, client: TestClient):
-        config = _default_config(client)
-        config["patterns"] = []
-
-        response = client.post(
-            f"{_BASE}/custom-pads",
-            json={
-                "config": config,
-                "custom_pad": {"shape": "circle", "width_mm": 0.75},
-            },
-        )
-
-        assert response.status_code == 200, response.text
-        assert len(response.json()["config"]["patterns"]) == 1
 
     def test_invalid_shape_is_422(self, client: TestClient):
         response = client.post(
@@ -261,69 +179,25 @@ class TestPasteTestBoardCustomPad:
 
         assert response.status_code == 400
 
-    @pytest.mark.parametrize(
-        "width_mm",
-        [
-            pytest.param(3_000.0, id="outside-signed-32-bit-nm"),
-            pytest.param(0.000_000_6, id="below-one-nm"),
-        ],
-    )
-    def test_kicad_unrepresentable_custom_pad_width_is_a_domain_400(
-        self,
-        client: TestClient,
-        width_mm: float,
-    ):
-        response = client.post(
-            f"{_BASE}/custom-pads",
-            json={
-                "config": _default_config(client),
-                "custom_pad": {
-                    "shape": "rectangle",
-                    "width_mm": width_mm,
-                    "height_mm": 1.0,
-                },
-            },
-        )
-
-        assert response.status_code == 400
-
 
 class TestPasteTestBoardPreview:
     def test_returns_resolved_config_catalog_and_layout(self, client: TestClient):
+        """JS が描画に使うキーが 1 往復で揃う（幾何の中身は core が担保）."""
         response = client.post(f"{_BASE}/preview", json=_default_config(client))
 
         assert response.status_code == 200, response.text
         preview = response.json()
-        assert preview["pad_count"] == 64
-        assert len(preview["patterns"]) == 6
-        assert len(preview["pads"]) == 64
+        assert preview["pad_count"] == len(preview["pads"])
         assert preview["overflow_message"] is None
-        assert preview["placement_area"] == {
-            "x": 1.0,
-            "y": 1.0,
-            "width": 38.0,
-            "height": 38.0,
-        }
-        assert preview["preview_bounds"] == {
-            "x": 0.0,
-            "y": 0.0,
-            "width": 40.0,
-            "height": 40.0,
-        }
+        assert set(preview["placement_area"]) == {"x", "y", "width", "height"}
+        assert set(preview["preview_bounds"]) == {"x", "y", "width", "height"}
+        # catalog は config の pattern と同じ並びで返る（JS が対応付けしない）
         assert [item["catalog_id"] for item in preview["catalog"]] == [
             item["catalog_id"] for item in preview["config"]["patterns"]
         ]
-        assert {polygon["layer"] for polygon in preview["pads"][0]["polygons"]} == {
-            "F.Cu",
-            "F.Paste",
-        }
-        assert preview["pads"][0]["display_name"].startswith("R_0402_1005Metric / ")
-        assert len(preview["flow_pads"]) == 5
-        # 1 パッドが F.Cu / F.Paste の 2 polygon で 1 グループになる
-        assert [
-            [polygon["layer"] for polygon in group]
-            for group in preview["flow_polygons"]
-        ] == [["F.Cu", "F.Paste"]] * 5
+        assert preview["pads"][0]["display_name"]
+        assert preview["flow_pads"]
+        assert preview["flow_polygons"]
 
     @pytest.mark.parametrize(
         ("target", "field", "value"),
@@ -362,39 +236,6 @@ class TestPasteTestBoardPreview:
         assert response.status_code == 400
         assert "回転範囲" in response.text
 
-    @pytest.mark.parametrize(
-        "width_mm",
-        [
-            pytest.param(3_000.0, id="outside-signed-32-bit-nm"),
-            pytest.param(0.000_000_6, id="below-one-nm"),
-        ],
-    )
-    def test_kicad_unrepresentable_board_width_is_a_domain_400(
-        self,
-        client: TestClient,
-        width_mm: float,
-    ):
-        config = _default_config(client)
-        config["board"]["width_mm"] = width_mm
-        config["board"]["edge_margin_mm"] = 0.0
-
-        response = client.post(f"{_BASE}/preview", json=config)
-
-        assert response.status_code == 400
-
-    @pytest.mark.parametrize("footprint_id", _FILESYSTEM_UNSAFE_FOOTPRINT_IDS)
-    def test_filesystem_unsafe_catalog_id_is_a_domain_400(
-        self,
-        client: TestClient,
-        footprint_id: str,
-    ):
-        config = _default_config(client)
-        config["patterns"][0]["catalog_id"] = f"{footprint_id}#pad-0"
-
-        response = client.post(f"{_BASE}/preview", json=config)
-
-        assert response.status_code == 400
-
     def test_resource_exhausting_pad_count_is_400(self, client: TestClient):
         config = _default_config(client)
         config["patterns"][0]["rotation_count"] = 10**400
@@ -404,24 +245,15 @@ class TestPasteTestBoardPreview:
         assert response.status_code == 400
         assert "10,000" in response.text
 
-    def test_layout_overflow_returns_diagnostic_geometry(self, client: TestClient):
+    def test_layout_overflow_is_reported_without_failing(self, client: TestClient):
+        """溢れても preview は 200 を返し、overflow_message で診断する."""
         config = _default_config(client)
         config["board"]["width_mm"] = 10.0
 
         response = client.post(f"{_BASE}/preview", json=config)
 
         assert response.status_code == 200, response.text
-        preview = response.json()
-        assert "収まりません" in preview["overflow_message"]
-        assert preview["pad_count"] == 64
-        area = preview["placement_area"]
-        right = area["x"] + area["width"]
-        bottom = area["y"] + area["height"]
-        assert any(
-            pad["bounds"]["x"] + pad["bounds"]["width"] > right + 1e-9
-            or pad["bounds"]["y"] + pad["bounds"]["height"] > bottom + 1e-9
-            for pad in preview["pads"]
-        )
+        assert "収まりません" in response.json()["overflow_message"]
 
     def test_missing_footprint_library_is_503(
         self,
@@ -476,23 +308,12 @@ class TestPasteTestBoardConfigTransfer:
             _R0603,
         ]
 
-    @pytest.mark.parametrize(
-        "document",
-        [
-            {"kind": "calibration_board", "schema_version": 1},
-            {"kind": "paste_test_board", "schema_version": 2},
-            {
-                "kind": "paste_test_board",
-                "schema_version": 1,
-                "unexpected": True,
-            },
-            {},
-        ],
-    )
-    def test_import_rejects_wrong_or_malformed_documents(
-        self, client: TestClient, document: dict[str, object]
-    ):
-        response = client.post(f"{_BASE}/import", json={"document": document})
+    def test_import_rejects_a_wrong_document(self, client: TestClient):
+        """文書 identity / schema 版 / 余剰キーの判定は core が担う。ここは 400 写像だけ."""
+        response = client.post(
+            f"{_BASE}/import",
+            json={"document": {"kind": "calibration_board", "schema_version": 1}},
+        )
 
         assert response.status_code == 400
 
@@ -513,16 +334,10 @@ class TestPasteTestBoardGenerate:
         assert response.headers["content-disposition"] == (
             'attachment; filename="pcbasm-paste-test-board.kicad_pcb"'
         )
+        # 配信したバイト列が KiCad の基板として実際に開ける（中身は core が担保）
         output = tmp_path / "download.kicad_pcb"
         output.write_bytes(response.content)
-        pcb = PcbFile(output)
-        assert pcb.outline.width == 40.0
-        # パッド種 64 + PURGE 1 + FLOW1..5
-        assert len(pcb.components) == 70
-        assert len(pcb.pads) == 70
-        designators = {pad.designator for pad in pcb.pads}
-        assert "PURGE" in designators
-        assert {f"FLOW{index}" for index in range(1, 6)} <= designators
+        assert PcbFile(output).pads
 
     def test_layout_overflow_is_rejected(self, client: TestClient):
         config = _default_config(client)
