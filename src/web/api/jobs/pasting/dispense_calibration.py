@@ -304,6 +304,7 @@ def _calibration_menu_loop(
         "メニューから ① rotations_per_ul / ② max_dispense_rate / "
         "③ max_fill_speed を選んで実行し、終了ボタンで設定反映へ進んでください"
     )
+    ctx.notify_operator()
 
     results = _DispenseCalibrationResults()
     while True:
@@ -333,6 +334,7 @@ def _calibration_menu_loop(
             ctx.log("キャリブレーションを中止しました。メニューへ戻ります")
         ctx.progress(CALIBRATION_MENU_STAGE)
         ctx.log("メニューに戻りました。次のキャリブを選ぶか終了してください")
+        ctx.notify_operator()
 
 
 def _handle_menu_loading_or_machine(

@@ -35,9 +35,9 @@ class PromptSpec:
         choices: kind="choice" の選択肢（choice のみ必須）
         true_label: kind="confirm" の true 側ボタンラベル
         false_label: kind="confirm" の false 側ボタンラベル
-        notify: 応答待ちに入ったとき機体のスピーカーで入力待ち音を鳴らすか。
-            長時間の無人ジョブが装置の前を離れた作業者を呼び戻すために使う
-            （作業者が装置の前に居る前提のプロンプトでは鳴らさない）
+
+    応答待ちに入ると機体のスピーカーが入力待ち音を鳴らす（:meth:`JobContext.prompt`
+    が常に行う。ジョブ側の指定は不要）。
     """
 
     kind: PromptKind
@@ -46,7 +46,6 @@ class PromptSpec:
     choices: tuple[str, ...] = ()
     true_label: str | None = None
     false_label: str | None = None
-    notify: bool = False
 
 
 @attrs.frozen
@@ -116,6 +115,8 @@ class JobBridge(Protocol):
     ) -> Answer: ...
 
     def next_command(self, timeout: float | None) -> dict[str, Any] | None: ...
+
+    def notify_operator(self) -> None: ...
 
     def checkpoint(self) -> None: ...
 
@@ -266,6 +267,16 @@ class JobContext:
             JobAborted: 待機中に abort された場合
         """
         return self._bridge.next_command(timeout)
+
+    def notify_operator(self) -> None:
+        """機体のスピーカーで入力待ち音を鳴らし、装置の前を離れた作業者を呼び戻す.
+
+        :meth:`prompt` は応答待ちに入るときこれを自動で行う。コマンド待ち
+        （``next_command(timeout=None)``）のように prompt を出さないオペレータ
+        待ちへ入る段階で、ジョブが明示的に呼ぶ。再生の失敗は warning に落ち、
+        ジョブへは伝播しない。
+        """
+        self._bridge.notify_operator()
 
     def checkpoint(self) -> None:
         """Abort 要求済みなら JobAborted を送出する（それ以外は no-op）.
