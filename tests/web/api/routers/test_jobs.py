@@ -241,8 +241,8 @@ class TestJobCatalogApi:
         assert jobs["generate_rect_pcb"]["provides_preview"] is False
         assert jobs["generate_rect_pcb"]["loading_param"] is None
 
-    def test_reports_paste_dataset_collection_contract(self, client: TestClient):
-        job = _jobs_by_name(client)["paste_dataset_collection"]
+    def test_reports_paste_volume_calibration_contract(self, client: TestClient):
+        job = _jobs_by_name(client)["paste_volume_calibration"]
 
         assert job["requires_pcb"] is False
         assert job["uses_machine"] is True

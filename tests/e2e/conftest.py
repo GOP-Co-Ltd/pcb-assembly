@@ -345,6 +345,36 @@ def drive_job_demo(ws: Any, *, number_answer: float) -> tuple[dict[str, Any], se
                 return job, seen_types
 
 
+def drive_choice_job(ws: Any, *, answer: str) -> dict[str, Any]:
+    """Choice prompt へ 1 度だけ応答し、終端 job_status を返す.
+
+    `drive_job_demo` は confirm / number 用なので、選択肢を返す prompt には使えない。
+    """
+    answered: set[str] = set()
+
+    def respond(prompt: dict[str, Any]) -> None:
+        if prompt["id"] in answered:
+            return
+        ws.send(
+            json.dumps(
+                {"type": "respond_prompt", "prompt_id": prompt["id"], "answer": answer}
+            )
+        )
+        answered.add(prompt["id"])
+
+    while True:
+        event = json.loads(ws.recv(timeout=_WS_TIMEOUT))
+        if event["type"] == "prompt":
+            respond(event["prompt"])
+        elif event["type"] == "job_status":
+            job = event["job"]
+            pending = job.get("pending_prompt")
+            if pending is not None:
+                respond(pending)
+            if job["status"] in TERMINAL:
+                return job
+
+
 def wait_first_prompt(ws: Any) -> dict[str, Any]:
     """最初の prompt イベントを受信して返す（WAITING_INPUT で停止した証跡）.
 

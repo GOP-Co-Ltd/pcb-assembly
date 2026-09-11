@@ -2196,39 +2196,39 @@ h2 {
   }
 }
 
-/* ---- データセット収集のジョブフォーム（項目が多いので段組み） ---- */
+/* ---- 塗布量校正の生成のジョブフォーム（項目が多いので段組み） ---- */
 
-.paste-dataset-form {
+.paste-volume-calibration-form {
   max-width: 66rem;
 }
 
-.paste-dataset-form .job-param-group {
+.paste-volume-calibration-form .job-param-group {
   grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
   gap: 0.55rem 1.1rem;
   max-width: none;
 }
 
-.paste-dataset-form .job-param-group > legend {
+.paste-volume-calibration-form .job-param-group > legend {
   grid-column: 1 / -1;
 }
 
 /* 段が狭いのでラベルを入力の上へ積む（既定の 3 列は 1 段組み前提） */
-.paste-dataset-form .job-param {
+.paste-volume-calibration-form .job-param {
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
   align-items: start;
   gap: 0.15rem;
 }
 
-.paste-dataset-form .job-param label {
+.paste-volume-calibration-form .job-param label {
   font-size: 0.85rem;
 }
 
-.paste-dataset-form .job-param-help {
+.paste-volume-calibration-form .job-param-help {
   font-size: 0.75rem;
 }
 
-/* ---- データセット収集の配置プレビュー ---- */
+/* ---- 塗布量校正の生成の配置プレビュー ---- */
 
 .pdl-panel {
   margin: 0.75rem 0;
@@ -2314,12 +2314,6 @@ h2 {
   opacity: 0.45;
   stroke: var(--line);
   stroke-width: 0.08;
-}
-
-.pdl-purge {
-  fill: var(--warn-weak);
-  stroke: var(--warn);
-  stroke-width: 0.2;
 }
 
 .pdl-cell {

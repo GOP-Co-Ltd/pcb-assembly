@@ -24,7 +24,13 @@ _GRID_EPSILON = 1e-9
 
 # セル格子に属さない収集設定の既定値（:class:`DotGridSpec` の既定と併せて、
 # web ジョブの ``ParamSpec`` 既定値の唯一の出典）
-DEFAULT_VIEW_COUNT = 4
+#
+# 周辺 view の既定は 0（中心のみ）。直径ベースの校正では周辺 view に実測上の利点が
+# ほぼ無い（831 サンプルで検出失敗 0 件、view 間ばらつきは体積換算 1.2% で、5 view
+# から 1 view へ落としても総残差は 8.0% → 8.1% 程度）のに対し、撮影枚数は view 数に
+# 比例して収集時間を支配する。周辺 view に残る役割は検出失敗時のフォールバックだけで、
+# 必要なら 4 などへ上げる（docs/paste-volume-diameter-calibration.md の「周辺 view の既定」節）。
+DEFAULT_VIEW_COUNT = 0
 DEFAULT_VIEW_OFFSET_MM = 1.0
 DEFAULT_PASTE_HEIGHT_MM = 0.2
 
@@ -45,7 +51,6 @@ class DotGridSpec:
         cell_size_mm: セル（塗布点の占有領域）の一辺 [mm]
         cell_gap_mm: 隣接セルの間隔 [mm]
         crop_size_mm: 撮影 crop の一辺 [mm]（``cell_size_mm + cell_gap_mm`` 以下）
-        purge_cell_size_mm: パージ領域の一辺 [mm]
         volume_min_ul: 吐出量スイープの下限 [μL]
         volume_max_ul: 吐出量スイープの上限 [μL]
         volume_divisions: 吐出量の分割数（1 以上）
@@ -60,7 +65,6 @@ class DotGridSpec:
     cell_size_mm: float = 2.0
     cell_gap_mm: float = 1.0
     crop_size_mm: float = 2.0
-    purge_cell_size_mm: float = 2.0
     volume_min_ul: float = 0.05
     volume_max_ul: float = 0.2
     volume_divisions: int = 5
@@ -75,7 +79,6 @@ class DotGridSpec:
             ("銅板の高さ", self.plate_height_mm),
             ("セル寸法", self.cell_size_mm),
             ("撮影crop寸法", self.crop_size_mm),
-            ("パージ領域寸法", self.purge_cell_size_mm),
             ("吐出量の下限", self.volume_min_ul),
         ):
             if not is_finite_number(value) or value <= 0:
@@ -175,17 +178,13 @@ class DotGridPlan:
     Attributes:
         spec: 元の設定
         usable_area: 銅板から余白を除いた有効領域
-        purge_cell: パージ領域の矩形
-        purge_center: パージ点
         cells: 塗布するサンプルセル（index 昇順）
         blanks: 塗布しない blank セル（index 昇順）
-        capacity: パージ除外後に格子へ入るセル総数
+        capacity: 格子へ入るセル総数（すべて計測可能点）
     """
 
     spec: DotGridSpec
     usable_area: Rect
-    purge_cell: Rect
-    purge_center: Point2d
     cells: tuple[DotCell, ...]
     blanks: tuple[DotBlank, ...]
     capacity: int
@@ -202,13 +201,11 @@ class _GridGeometry:
     """セル格子の幾何（量割り当ての前段）."""
 
     usable: Rect
-    purge_cell: Rect
     grid: tuple[Rect, ...]
-    available: tuple[Rect, ...]
 
 
 def _grid_geometry(spec: DotGridSpec) -> tuple[_GridGeometry | None, str | None]:
-    """有効領域・パージ領域・格子セルを求める（配置可能性は判定しない）."""
+    """有効領域と格子セルを求める（配置可能性は判定しない）."""
     error = spec.validate()
     if error is not None:
         return None, error
@@ -225,43 +222,15 @@ def _grid_geometry(spec: DotGridSpec) -> tuple[_GridGeometry | None, str | None]
             f"{spec.plate_width_mm:g}x{spec.plate_height_mm:g} mm に有効領域が"
             "残りません"
         )
-    purge_cell = Rect(
-        x=usable.x,
-        y=usable.y,
-        width=spec.purge_cell_size_mm,
-        height=spec.purge_cell_size_mm,
-    )
-    if not usable.contains(purge_cell):
-        return None, (
-            f"パージ領域 {spec.purge_cell_size_mm:g} mm 角が有効領域 "
-            f"{usable.width:g}x{usable.height:g} mm に収まりません"
-        )
-
-    keepout = Rect(
-        x=purge_cell.x - spec.cell_gap_mm,
-        y=purge_cell.y - spec.cell_gap_mm,
-        width=purge_cell.width + 2.0 * spec.cell_gap_mm,
-        height=purge_cell.height + 2.0 * spec.cell_gap_mm,
-    )
-    grid = _grid_rects(spec, usable)
-    return (
-        _GridGeometry(
-            usable=usable,
-            purge_cell=purge_cell,
-            grid=grid,
-            available=tuple(rect for rect in grid if not rect.intersects(keepout)),
-        ),
-        None,
-    )
+    return _GridGeometry(usable=usable, grid=_grid_rects(spec, usable)), None
 
 
 def plan_dot_grid(spec: DotGridSpec) -> tuple[DotGridPlan | None, str | None]:
     """セル格子を敷き、シード付きシャッフルで吐出量と blank を割り当てる.
 
-    パージ領域は有効領域の左上に置き、それを ``cell_gap_mm`` 分広げた矩形と交差する
-    格子セルは除外する。
+    除外領域は無く、格子セルはすべて計測可能点になる。
 
-    使用セルは残った格子から ``shuffle_seed`` で無作為抽出して板全体へ散らし、行優先の
+    使用セルは格子から ``shuffle_seed`` で無作為抽出して板全体へ散らし、行優先の
     昇順へ並べ直してから量と blank を割り当てる（先頭から詰めるとサンプルが板の上端
     数行に固まり、照明ムラや板の反りが帯単位で乗る）。同じ seed なら同じ配置になる。
     """
@@ -270,8 +239,7 @@ def plan_dot_grid(spec: DotGridSpec) -> tuple[DotGridPlan | None, str | None]:
         return None, error
 
     usable = geometry.usable
-    purge_cell = geometry.purge_cell
-    available = geometry.available
+    available = geometry.grid
     capacity = len(available)
     if capacity < spec.target_count:
         return None, (
@@ -317,11 +285,6 @@ def plan_dot_grid(spec: DotGridSpec) -> tuple[DotGridPlan | None, str | None]:
         DotGridPlan(
             spec=spec,
             usable_area=usable,
-            purge_cell=purge_cell,
-            purge_center=Point2d(
-                purge_cell.x + purge_cell.width / 2.0,
-                purge_cell.y + purge_cell.height / 2.0,
-            ),
             cells=tuple(cells),
             blanks=tuple(blanks),
             capacity=capacity,
@@ -340,11 +303,10 @@ class DotGridPreview:
         spec: 元の設定
         plate: 銅板外形（左上原点）
         usable_area: 外周余白を除いた有効領域（設定が不正なら ``None``）
-        purge_cell: パージ領域（求まらなければ ``None``）
-        grid: 格子セル全部（パージ除外前。未使用セルを含む）
+        grid: 格子セル全部（未使用セルを含む）
         cells: 塗布するサンプルセル（配置できなければ空）
         blanks: blank セル（配置できなければ空）
-        capacity: パージ除外後に格子へ入るセル総数
+        capacity: 格子へ入るセル総数（すべて計測可能点）
         sample_count: 塗布するサンプル数
         target_count: 撮影対象セル数（塗布 + blank）
         volumes_ul: 吐出量の昇順列 [μL]
@@ -356,7 +318,6 @@ class DotGridPreview:
     spec: DotGridSpec
     plate: Rect
     usable_area: Rect | None
-    purge_cell: Rect | None
     grid: tuple[Rect, ...]
     cells: tuple[DotCell, ...]
     blanks: tuple[DotBlank, ...]
@@ -387,11 +348,10 @@ def preview_dot_grid(
         spec=spec,
         plate=_plate_rect(spec),
         usable_area=None if geometry is None else geometry.usable,
-        purge_cell=None if geometry is None else geometry.purge_cell,
         grid=() if geometry is None else geometry.grid,
         cells=() if plan is None else plan.cells,
         blanks=() if plan is None else plan.blanks,
-        capacity=0 if geometry is None else len(geometry.available),
+        capacity=0 if geometry is None else len(geometry.grid),
         sample_count=spec.sample_count if valid_spec else 0,
         target_count=target_count,
         volumes_ul=spec.volumes_ul if valid_spec else (),
@@ -516,17 +476,14 @@ def validate_dispense_reach(
     x_limits: tuple[float, float],
     y_limits: tuple[float, float],
 ) -> str | None:
-    """パージ点と全塗布セルのノズル目標がステージ可動域に入るかを検証する.
+    """全塗布セルのノズル目標がステージ可動域に入るかを検証する.
 
     塗布目標は撮影目標から toolhead offset ぶんずれるので、撮影の可動域検証
     （:func:`validate_capture_reach`）とは別に見る必要がある。
     """
-    targets: list[tuple[str, Point2d]] = [("パージ位置", plan.purge_center)]
-    targets.extend(
-        (f"sample {cell.index} の塗布位置", cell.center) for cell in plan.cells
-    )
-    for label, point in targets:
-        machine = board_to_machine.apply(point)
+    for cell in plan.cells:
+        label = f"sample {cell.index} の塗布位置"
+        machine = board_to_machine.apply(cell.center)
         error = _reach_error(machine.x, machine.y, x_limits, y_limits, label=label)
         if error is not None:
             return error

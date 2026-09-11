@@ -20,6 +20,7 @@ from pathlib import Path
 
 from shapely import Point, Polygon
 
+from pcbasm.atomic import write_text_atomic
 from pcbasm.config import PasteDispenser
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.persist import (
@@ -29,7 +30,6 @@ from pcbasm.pasting.persist import (
 )
 from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pcb import PadHierarchy
-from web.api.atomic import write_text_atomic
 
 
 class BoardSettingsStore:

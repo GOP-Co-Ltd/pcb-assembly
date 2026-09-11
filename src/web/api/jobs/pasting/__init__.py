@@ -6,13 +6,14 @@ prompt・ワークフロー駆動は :mod:`web.api.jobs.pasting.common`。
 
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.pasting import (
-    dataset,
     dataset_finalize,
     dispense_calibration,
     generate_rect_pcb,
     height_plane,
     loading,
     paste_solder,
+    paste_volume_calibration,
+    paste_volume_refit,
     toolhead_offset,
 )
 from web.api.jobs.pasting.common import (
@@ -52,7 +53,8 @@ def register_pasting_jobs(catalog: JobCatalog) -> None:
         height_plane,
         loading,
         dispense_calibration,
-        dataset,
+        paste_volume_calibration,
+        paste_volume_refit,
         dataset_finalize,
         generate_rect_pcb,
         toolhead_offset,

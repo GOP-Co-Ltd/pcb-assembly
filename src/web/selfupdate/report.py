@@ -19,7 +19,7 @@ from typing import Any
 
 import attrs
 
-from web.api.atomic import write_text_atomic
+from pcbasm.atomic import write_text_atomic
 from web.api.models import (
     UpdateRepositoryInfo,
     UpdateRunInfo,

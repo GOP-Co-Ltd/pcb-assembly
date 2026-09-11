@@ -24,7 +24,29 @@ from web.api.jobs.pasting import register_pasting_jobs
 from web.api.routers.paste_dataset import DatasetLayoutRequest
 
 # レイアウトに関係しない収集ジョブのパラメータ（preview へ送らない）
-_NON_LAYOUT_PARAMS = frozenset({"tolerance", "paste_height", "paste_id", "paste_lot"})
+_NON_LAYOUT_PARAMS = frozenset(
+    {
+        "tolerance",
+        "paste_height",
+        "paste_id",
+        "paste_lot",
+        # 円検出のハイパラと校正の保存名・検証先。いずれも配置に影響しない
+        "min_contrast",
+        "contrast_percentile",
+        "threshold_floor_ratio",
+        "open_kernel_px",
+        "min_area_px",
+        "require_blank_zero",
+        "save_name",
+        "volume_calibration",
+        # 塗布パス先頭のインタラクティブローディング設定。配置に影響しない
+        "loading_amount",
+        "loading_rotations",
+        "loading_rate",
+        "loading_accel",
+        "loading_retract_rotations",
+    }
+)
 
 _LAYOUT_URL = "/api/pasting/paste-dataset-layout"
 
@@ -36,7 +58,6 @@ _BODY: dict[str, Any] = {
     "cell_size": 2.0,
     "cell_gap": 1.0,
     "crop_size": 2.0,
-    "purge_cell_size": 2.0,
     "volume_min": 0.05,
     "volume_max": 0.2,
     "volume_divisions": 5,
@@ -65,12 +86,8 @@ class TestPasteDatasetLayout:
         assert len(body["cells"]) == 15
         assert len(body["blanks"]) == 4
         assert len(body["grid"]) == 25
-        assert body["purge_cell"] == {
-            "x": 2.0,
-            "y": 2.0,
-            "width": 2.0,
-            "height": 2.0,
-        }
+        # 除外領域が無いので、格子の全セルが計測可能点として数えられる。
+        assert body["capacity"] == 25
 
     def test_derived_counts_come_from_the_server(self, client: TestClient):
         body = _post(client)
@@ -162,7 +179,7 @@ class TestLayoutFieldNamesStayInSync:
     def _job_layout_params(self) -> set[str]:
         catalog = JobCatalog()
         register_pasting_jobs(catalog)
-        definition = catalog.get("paste_dataset_collection")
+        definition = catalog.get("paste_volume_calibration")
         assert definition is not None
         return {
             spec.name

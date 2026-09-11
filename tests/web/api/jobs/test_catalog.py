@@ -419,4 +419,4 @@ class TestDefaultCatalog:
             if definition.notify_on_completion
         }
 
-        assert notifying == {"paste_solder", "paste_dataset_collection"}
+        assert notifying == {"paste_solder", "paste_volume_calibration"}

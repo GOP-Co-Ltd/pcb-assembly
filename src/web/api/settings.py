@@ -87,6 +87,15 @@ class Settings:
         return self.data_dir / "paste-volume-datasets"
 
     @property
+    def paste_volume_calibration_dir(self) -> Path:
+        """直径ベース塗布量校正ファイルの保存先.
+
+        校正は装置の設定と同じく再現に要る資産なので Git 管理する（``data/.gitignore``
+        は特定 directory だけを除外しており、ここは対象外）。
+        """
+        return self.data_dir / "paste-volume-calibrations"
+
+    @property
     def update_dir(self) -> Path:
         """自己更新の report と単一実行ロックの置き場所.
 

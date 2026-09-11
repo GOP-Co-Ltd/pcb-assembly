@@ -139,6 +139,7 @@ class JobContext:
         artifacts_dir: Path,
         machine_id: str,
         paste_dataset_dir: Path,
+        paste_volume_calibration_dir: Path,
         source_pcb: str | None = None,
         board_store: BoardSettingsStore | None = None,
     ) -> None:
@@ -149,6 +150,7 @@ class JobContext:
         self._artifacts_dir = artifacts_dir
         self._machine_id = machine_id
         self._paste_dataset_dir = paste_dataset_dir
+        self._paste_volume_calibration_dir = paste_volume_calibration_dir
         self._source_pcb = source_pcb
         self._board_store = board_store
 
@@ -185,6 +187,11 @@ class JobContext:
     def paste_dataset_dir(self) -> Path:
         """永続ペーストdataset root（テストではSettingsから注入可能）."""
         return self._paste_dataset_dir
+
+    @property
+    def paste_volume_calibration_dir(self) -> Path:
+        """永続の塗布量校正 root（テストではSettingsから注入可能）."""
+        return self._paste_volume_calibration_dir
 
     @property
     def source_pcb(self) -> str | None:

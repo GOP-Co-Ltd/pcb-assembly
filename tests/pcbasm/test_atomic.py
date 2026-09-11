@@ -1,6 +1,6 @@
-"""`web.api.atomic.write_text_atomic` の仕様テスト（unit）.
+"""`pcbasm.atomic.write_text_atomic` の仕様テスト（unit）.
 
-計画書 MR1「新規 src/webui/atomic.py」節が契約:
+同一ディレクトリの一時ファイル経由で置き換える契約:
 
 - 置換後に内容が一致する
 - 同一ディレクトリに一時ファイルを残さない
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from web.api.atomic import write_text_atomic
+from pcbasm.atomic import write_text_atomic
 
 
 class TestWriteTextAtomic:

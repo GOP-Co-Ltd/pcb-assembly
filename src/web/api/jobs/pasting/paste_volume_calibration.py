@@ -1,12 +1,24 @@
-"""ペースト塗布データセット収集ジョブ（銅板のセル格子へ点塗布して撮影）.
+"""塗布量校正の生成ジョブ（銅板のセル格子へ点塗布して撮影し、校正まで作る）.
+
+運転者の目的は校正を作ることなので、1 回の実行で収集からフィットまで通す。
+
+3 パス（全点の塗布前撮影 → ローディング → 全点塗布 → 全点の塗布後撮影）で
+dataset を作り、計量質量を受け取って確定させ、そのまま直径 → 体積の校正を
+フィットして保存する。
+
+収集した dataset は副産物として残り、`paste_volume_refit` でハイパラを変えて
+作り直せる（装置も収集も要らない）。
 
 セル配置・吐出量スイープ・view 生成・事前検証・crop・metadata は
-:mod:`pcbasm.pasting.dataset` に置き、ここは prompt / progress / abort / artifact への
-変換だけを担う。
+:mod:`pcbasm.pasting.dataset`、計測とフィットは
+:mod:`pcbasm.pasting.paste_volume` に置き、ここは prompt / progress / abort /
+artifact への変換だけを担う。
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import random
 import shutil
 from collections.abc import Mapping
@@ -15,9 +27,10 @@ from pathlib import Path
 
 import attrs
 
+from pcbasm.gcode import GCode
 from pcbasm.geometry import HeightPlane, Point2d
 from pcbasm.pasting.dataset.capture import DatasetCapturer
-from pcbasm.pasting.dataset.metadata import DatasetView
+from pcbasm.pasting.dataset.metadata import DatasetView, PasteDatasetLoading
 from pcbasm.pasting.dataset.plan import (
     DEFAULT_PASTE_HEIGHT_MM,
     DEFAULT_VIEW_COUNT,
@@ -32,6 +45,7 @@ from pcbasm.pasting.dataset.plan import (
     validate_dispense_reach,
     validate_min_rotations,
 )
+from pcbasm.pasting.dataset.reader import DatasetSession
 from pcbasm.pasting.dataset.recorder import (
     DatasetRunInfo,
     PasteDatasetRecorder,
@@ -39,34 +53,70 @@ from pcbasm.pasting.dataset.recorder import (
 )
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
 from pcbasm.pasting.params import PasteParams
+from pcbasm.pasting.paste_volume.calibration import calibration_path
+from pcbasm.pasting.paste_volume.evaluate import (
+    PasteVolumeEvaluation,
+    evaluate_collected_session,
+    evaluation_document,
+    evaluation_lines,
+)
 from pcbasm.pasting.session import PasteSession
 from pcbasm.pcb import Copper, Layer
 from pcbasm.vision import CalibrationResult
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
+from pcbasm.visualization.paste_volume_render import (
+    render_evaluation_scatter,
+)
 from web.api.jobs.board_ops import setup_board
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.context import (
+    Artifact,
     JobAborted,
     JobContext,
     JobResult,
     ParamValue,
     PromptSpec,
 )
-from web.api.jobs.pasting.common import prompt_positive_number
+from web.api.jobs.pasting.common import (
+    LOADING_DEFAULT_AMOUNT,
+    LOADING_DEFAULT_RETRACT_ROTATIONS,
+    LOADING_DEFAULT_ROTATION_ACCEL,
+    LOADING_DEFAULT_ROTATION_RATE,
+    LOADING_DEFAULT_ROTATIONS,
+    prompt_positive_number,
+    run_loading_loop,
+)
+from web.api.jobs.pasting.paste_volume_common import (
+    COLLECTED_SAVE_NAME_PARAM,
+    DETECTION_PARAM_NAMES,
+    DETECTION_PARAMS,
+    REQUIRE_BLANK_ZERO_PARAM,
+    build_calibration,
+    report_calibration,
+    validate_detection_params,
+)
 
 # ParamSpec 既定値の唯一の出典（pcbasm 側）
 _DEFAULTS = DotGridSpec()
 # shuffle_seed 未指定（0）時に生成する乱数シードの上限
 _SEED_MAX = 2**31
 
+# ローディング待ちでノズルを銅板から離す距離 [mm]（板の手前側へ、板端から測る）。
+# 押し出したペーストが板へ落ちると計量した増加質量に混ざり、回転数比の体積配分を
+# 通じて全 sample へ系統的なバイアスが乗る。
+LOADING_CLEARANCE_MM = 15.0
+
+
+logger = logging.getLogger(__name__)
+
 
 def register(catalog: JobCatalog) -> None:
     catalog.register(
         JobDefinition(
-            name="paste_dataset_collection",
-            label="ペースト塗布データセット収集",
+            name="paste_volume_calibration",
+            label="塗布量校正の生成",
             tab="pasting",
-            run=_run_paste_dataset_collection,
+            run=_run_paste_volume_calibration,
             params=(
                 ParamSpec(
                     "plate_width",
@@ -119,11 +169,43 @@ def register(catalog: JobCatalog) -> None:
                     ),
                 ),
                 ParamSpec(
-                    "purge_cell_size",
-                    "パージ領域寸法",
+                    "loading_amount",
+                    "体積ローディング量",
                     "float",
-                    _DEFAULTS.purge_cell_size_mm,
-                    unit="mm",
+                    LOADING_DEFAULT_AMOUNT,
+                    unit="uL",
+                    help=(
+                        "塗布パスの先頭で回すローディングの 1 回あたり押出量です。"
+                        "押し出したペーストは銅板の外へ廃棄します。"
+                    ),
+                ),
+                ParamSpec(
+                    "loading_rotations",
+                    "回転ローディング回転数",
+                    "float",
+                    LOADING_DEFAULT_ROTATIONS,
+                    unit="rev",
+                ),
+                ParamSpec(
+                    "loading_rate",
+                    "回転ローディング角速度",
+                    "float",
+                    LOADING_DEFAULT_ROTATION_RATE,
+                    unit="rev/s",
+                ),
+                ParamSpec(
+                    "loading_accel",
+                    "回転ローディング角加速度",
+                    "float",
+                    LOADING_DEFAULT_ROTATION_ACCEL,
+                    unit="rev/s^2",
+                ),
+                ParamSpec(
+                    "loading_retract_rotations",
+                    "回転ローディング引き戻し回転数",
+                    "float",
+                    LOADING_DEFAULT_RETRACT_ROTATIONS,
+                    unit="rev",
                 ),
                 ParamSpec(
                     "paste_height",
@@ -173,7 +255,11 @@ def register(catalog: JobCatalog) -> None:
                     "周辺 view 数",
                     "int",
                     DEFAULT_VIEW_COUNT,
-                    help="中心 view に加えて撮影する周辺 view の数です（0 で中心のみ）。",
+                    help=(
+                        "中心 view に加えて撮影する周辺 view の数です（0 で中心のみ）。"
+                        "実測では 0 で十分で、増やすと撮影時間が比例して伸びます。"
+                        "検出失敗が出るときだけ増やします。"
+                    ),
                     minimum=0,
                 ),
                 ParamSpec(
@@ -205,12 +291,27 @@ def register(catalog: JobCatalog) -> None:
                     help="任意。ペースト容器に記載された製造ロット番号を入力します。",
                     optional=True,
                 ),
+                *DETECTION_PARAMS,
+                REQUIRE_BLANK_ZERO_PARAM,
+                COLLECTED_SAVE_NAME_PARAM,
+                ParamSpec(
+                    "volume_calibration",
+                    "検証に使う塗布量校正（任意）",
+                    "str",
+                    default="",
+                    optional=True,
+                    help=(
+                        "指定すると収集完了後に、この校正での推定体積と実測体積の"
+                        "誤差を出します。検証が失敗しても収集結果は失いません。"
+                    ),
+                ),
             ),
             requires_pcb=False,
             uses_machine=True,
             notify_on_completion=True,
             accepts_commands=True,
             provides_preview=True,
+            loading_param="loading_amount",
             persisted_params=(
                 "plate_width",
                 "plate_height",
@@ -219,7 +320,11 @@ def register(catalog: JobCatalog) -> None:
                 "cell_size",
                 "cell_gap",
                 "crop_size",
-                "purge_cell_size",
+                "loading_amount",
+                "loading_rotations",
+                "loading_rate",
+                "loading_accel",
+                "loading_retract_rotations",
                 "paste_height",
                 "volume_min",
                 "volume_max",
@@ -231,6 +336,10 @@ def register(catalog: JobCatalog) -> None:
                 "shuffle_seed",
                 "paste_id",
                 "paste_lot",
+                *DETECTION_PARAM_NAMES,
+                "require_blank_zero",
+                "save_name",
+                "volume_calibration",
             ),
         )
     )
@@ -258,7 +367,6 @@ def grid_spec_from_params(params: Mapping[str, ParamValue]) -> DotGridSpec:
         cell_size_mm=float(params["cell_size"]),
         cell_gap_mm=float(params["cell_gap"]),
         crop_size_mm=float(params["crop_size"]),
-        purge_cell_size_mm=float(params["purge_cell_size"]),
         volume_min_ul=float(params["volume_min"]),
         volume_max_ul=float(params["volume_max"]),
         volume_divisions=int(params["volume_divisions"]),
@@ -278,12 +386,18 @@ def _plan_collection(
     """
     dispenser = ctx.machine.paste_dispenser
     run_error = validate_dataset_run(
-        initial_purge_ul=dispenser.initial_purge_ul,
         paste_id=str(ctx.params["paste_id"]).strip(),
         paste_height_mm=float(ctx.params["paste_height"]),
     )
     if run_error is not None:
         raise ValueError(run_error)
+    # 1 時間の収集を終えてからハイパラの不正を知らされても遅い
+    detection_error = validate_detection_params(ctx.params)
+    if detection_error is not None:
+        raise ValueError(detection_error)
+    self_check_error = _self_verification_error(ctx)
+    if self_check_error is not None:
+        raise ValueError(self_check_error)
     spec = grid_spec_from_params(ctx.params)
     plan, plan_error = plan_dot_grid(
         attrs.evolve(spec, shuffle_seed=resolve_shuffle_seed(spec.shuffle_seed))
@@ -338,10 +452,10 @@ def _confirm_dataset_collection(ctx: JobContext) -> None:
         PromptSpec(
             kind="confirm",
             message=(
-                "吐出量キャリブレーションが完了していること、その後に手動プライム・"
-                "手動ローディングを行っていないことを確認してください。"
-                "収集は先頭でリトラクションを行わないため、手動プライムが残っていると"
-                "パージがリトラクション量ぶん過剰に吐出し、回転数比の体積配分を通じて"
+                "吐出量キャリブレーションが完了していることを確認してください。"
+                "塗布パスの先頭でローディングを行うので、事前の手動プライムは不要です。"
+                "ローディングで押し出したペーストは必ず銅板の外へ廃棄してください。"
+                "銅板へ落ちると計量した増加質量に混ざり、回転数比の体積配分を通じて"
                 "全sampleへ系統的なバイアスが乗ります。"
             ),
             default=True,
@@ -423,6 +537,27 @@ def _check_reach(
             raise ValueError(error)
 
 
+def _move_clear_of_plate(ctx: JobContext, session: PasteSession) -> None:
+    """ローディング前にノズルを銅板の手前へ逃がす.
+
+    直前の塗布前撮影パスはヘッドを最後のセルの真上に残すので、そのまま押し出すと
+    ペーストが板へ落ちて計量値を汚す。可動域へ入らない場合は移動を諦め、運転者へ jog での退避を促す（装置を止めるほどのことではない）。
+    """
+    target = session.board_to_machine.apply(Point2d(0.0, -LOADING_CLEARANCE_MM))
+    limits = session.stage.limits
+    inside_x = limits.x.min <= target.x <= limits.x.max
+    inside_y = limits.y.min <= target.y <= limits.y.max
+    if not (inside_x and inside_y):
+        ctx.log(
+            f"退避位置 ({target.x:.3f}, {target.y:.3f}) が可動域外のため移動しません。"
+            "押し出す前に、ノズルを銅板の外へ jog してください"
+        )
+        return
+    session.klipper.send_gcode(
+        session.stage.move(x=target.x, y=target.y) + GCode.wait_for_done()
+    )
+
+
 def _pass_percent(position: int, total: int, start: float, end: float) -> float:
     """1 パス内の進捗を、全体の進捗 ``[start, end]`` へ写す."""
     return start + (end - start) * position / total
@@ -439,23 +574,25 @@ def _capture(
     return crop
 
 
-def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
+def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
     """銅板のセル格子へ点塗布し、塗布前後画像と計量教師値を収集・永続化する.
 
-    撮影は 3 パスにまとめる。全点 pre 撮影 → パージ → 全点塗布 → 全点 post 撮影の順で、
-    撮影と塗布の切り替えをまとめて時間を詰める。パージは塗布パスの先頭に置く
-    （pre 撮影の前に打つと、撮影のあいだにプライム状態が抜ける）。
+    撮影は 3 パスにまとめる。全点 pre 撮影 → ローディング → 全点塗布 → 全点 post 撮影の
+    順で、撮影と塗布の切り替えをまとめて時間を詰める。ローディングは塗布パスの先頭に置く
+    （pre 撮影の前に行うと、数十分の撮影のあいだにプライム状態が抜ける）。押し出した
+    ペーストは銅板の外へ廃棄するので、計量した増加質量にも教師体積の配分にも入らない。
 
     applicator を開くのは塗布パスだけとする。AirPump を入れたまま撮影パスを回すと、
     加圧されたノズルからペーストが垂れて pre 画像と blank セルが汚れる。
 
     ジョブ先頭で ``applicator.retract()`` はしない。各 ``FillSequence`` が
-    ``retract_amount`` を prime してから同量 retract する自己完結型で、dataset 収集は
-    手動ローディングを挟まないため、先頭で retract すると plunger が baseline より
-    引き込まれた状態で全点が走る。プライム状態のずれは最初のパージが吸収する。
+    ``retract_amount`` を prime してから同量 retract する自己完結型なので、先頭で
+    retract すると plunger が baseline より引き込まれた状態で全点が走る。プライム状態は
+    塗布直前のローディングで運転者が整える。
 
-    この前提（手動プライムをしていないこと）は装置の外から観測できないので、開始時の
-    confirm プロンプトで運転者に確認させる。
+    ローディング分を銅板の外へ廃棄したかは装置の外から観測できないので、開始時の
+    confirm プロンプトで運転者に確認させる。板へ落ちると計量した増加質量に混ざり、
+    回転数比の体積配分を通じて全 sample へ系統的なバイアスが乗る。
 
     計量質量のプロンプトの前に ``pending.json`` を書く。収集は 1 時間規模で、最後の
     入力だけが装置の外から来るため、そこで WebUI が落ちると撮影済み画像が教師値を失う。
@@ -514,16 +651,19 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
                 for view in views:
                     recorder.record_pre(target, view, _capture(capturer, target, view))
 
+            # 撮影パスはヘッドを板の上に残すので、AirPump を入れる前に逃がす。
+            ctx.checkpoint()
+            _move_clear_of_plate(ctx, session)
+
             with session.make_applicator() as applicator:
-                ctx.progress("パージ", 45.0)
-                ctx.checkpoint()
-                recorder.record_purge_execution(
-                    applicator.deposit_at(
-                        plan.purge_center,
-                        amount_ul=dispenser_config.initial_purge_ul,
-                        transform=transform,
-                        params=params,
-                    )
+                # stage と進捗は run_loading_loop が設定する。押し出す量は運転者が
+                # 決めるので percent は持たせない。
+                ctx.log(
+                    "ノズルを銅板の外へ逃がしました。ローディングしてください。"
+                    "押し出したペーストは銅板へ落とさないでください"
+                )
+                loading_totals = run_loading_loop(
+                    ctx, session.klipper, session.stage, applicator
                 )
 
                 for position, cell in enumerate(plan.cells):
@@ -563,6 +703,10 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
                 view_count=view_count,
                 view_offset_mm=view_offset_mm,
                 crop_size_px=crop_size_px,
+                loading=PasteDatasetLoading(
+                    total_ul=loading_totals.amount_ul,
+                    total_rotations=loading_totals.rotations,
+                ),
                 started_at=started_at,
                 dispenser=dispenser_config,
                 calibration=result.calibration,
@@ -588,15 +732,150 @@ def _run_paste_dataset_collection(ctx: JobContext) -> JobResult:
 
     metadata = recorder.metadata
     assert metadata is not None
+    # 校正生成より前に zip を作る。校正側で何が起きても収集の成果は取り出せる
     archive_name = f"paste-dataset-{session_path.name}.zip"
     archive_path = ctx.artifacts_dir / archive_name
     shutil.make_archive(str(archive_path.with_suffix("")), "zip", root_dir=session_path)
     ctx.log(f"datasetを保存しました: {session_path}")
+
+    calibration_summary, calibration_artifacts = fit_calibration(ctx, session_path)
+    evaluation_summary, evaluation_artifacts = verify_with_calibration(
+        ctx, session_path
+    )
     return JobResult(
         summary=(
-            f"dataset収集完了: 塗布 {len(plan.cells)} 点 + blank "
-            f"{len(plan.blanks)} 点 / {metadata.total.measured_mass_mg:.3f} mg / "
+            f"校正生成: 塗布 {len(plan.cells)} 点 + blank {len(plan.blanks)} 点 / "
+            f"{metadata.total.measured_mass_mg:.3f} mg / "
             f"{metadata.total.measured_volume_ul:.6f} uL"
+            + calibration_summary
+            + evaluation_summary
         ),
-        artifacts=(ctx.artifact("ペースト塗布dataset", archive_name, "file"),),
+        artifacts=(
+            ctx.artifact("ペースト塗布dataset", archive_name, "file"),
+            *calibration_artifacts,
+            *evaluation_artifacts,
+        ),
+    )
+
+
+def _self_verification_error(ctx: JobContext) -> str | None:
+    """今から作る校正で同じ session を検証しようとしていないか確かめる.
+
+    保存名と検証先が同じファイルを指すと、自分で作った校正を自分へ当ててしまう。
+
+    フィットの性質上そこは総体積誤差ほぼ 0 になり、汎化を測ったように見えてしまう。
+    """
+    verify = str(ctx.params.get("volume_calibration", "")).strip()
+    save = str(ctx.params.get("save_name", "")).strip()
+    if not verify or not save:
+        return None
+    if calibration_path(ctx.paste_volume_calibration_dir, save).name != verify:
+        return None
+    return (
+        f"検証に使う校正 {verify} を、この収集で上書きしようとしています"
+        "（同じsessionで作った校正を同じsessionへ当てると誤差はほぼ0になり、"
+        "汎化を測ったことになりません）。保存名か検証先を変えてください"
+    )
+
+
+def fit_calibration(
+    ctx: JobContext, session_path: Path
+) -> tuple[str, tuple[Artifact, ...]]:
+    """収集した session から校正を作り、まとめの追記と artifact を返す.
+
+    **この関数は例外を投げない。**
+
+    校正づくりがこのジョブの目的だが、この時点で 1 時間の収集と計量が終わっており
+    session は永続 dir に残っている。
+
+    ここで FAILED にすると dataset の zip すら作られないので、失敗は警告に留める。
+
+    ハイパラを変えて作り直すのは `paste_volume_refit` の役目で、装置も収集も要らない。
+    """
+    ctx.progress("塗布量校正の生成", None)
+    try:
+        session, error = DatasetSession.load(session_path)
+        if session is None:
+            return _calibration_failed(ctx, error)
+        fit, error = build_calibration(ctx, session)
+        if fit is None:
+            return _calibration_failed(ctx, error)
+        summary, artifacts = report_calibration(ctx, session, fit, always_save=True)
+    except Exception:
+        # 「投げない」を葉の数え上げで保証するのは無理なので、まとめて受ける
+        logger.warning("塗布量校正の生成が例外で終わりました", exc_info=True)
+        return _calibration_failed(ctx, "想定外のエラー（詳細はサーバーログ）")
+    return f" / {summary}", artifacts
+
+
+def _calibration_failed(
+    ctx: JobContext, error: str | None
+) -> tuple[str, tuple[Artifact, ...]]:
+    """校正を作れなかったことを警告として報告する（収集結果は残っている）."""
+    logger.warning("塗布量校正を作れませんでした: %s", error)
+    ctx.log(
+        f"塗布量校正を作れませんでした（収集結果は保存済みです）: {error}"
+        "。ハイパラを変えて「塗布量校正の再フィット」から作り直せます"
+    )
+    return " / 校正生成失敗", ()
+
+
+def verify_with_calibration(
+    ctx: JobContext, session_path: Path
+) -> tuple[str, tuple[Artifact, ...]]:
+    """収集した session を指定の校正で検証し、まとめの追記と artifact を返す.
+
+    この時点で 1 時間の収集と計量が終わっている。後付けの検証で FAILED にして収集
+    結果を失うのは割に合わないので、**この関数は例外を投げない**。
+
+    校正が読めない・session が測れない・図や JSON が書けないといった失敗はすべて
+    警告ログに落とし、まとめには誤差か「検証失敗」だけを載せる。
+
+    ``volume_calibration`` が空なら何もせず ``("", ())`` を返す。
+    """
+    name = str(ctx.params.get("volume_calibration", "")).strip()
+    if not name:
+        return "", ()
+
+    ctx.progress("塗布量の検証", None)
+    evaluation, error = evaluate_collected_session(
+        session_path, ctx.paste_volume_calibration_dir / name
+    )
+    if evaluation is None:
+        logger.warning("塗布量の検証に失敗しました: %s", error)
+        ctx.log(f"塗布量の検証に失敗しました（収集結果は保存済みです）: {error}")
+        return " / 検証失敗", ()
+
+    for line in evaluation_lines(evaluation):
+        ctx.log(line)
+    summary = f" / 総体積誤差 {evaluation.total_relative_error * 100:+.2f}%"
+    try:
+        artifacts = _evaluation_artifacts(ctx, evaluation)
+    except Exception:
+        # 誤差はログに出ている。図や JSON が書けないことで収集を落とさない
+        logger.warning("塗布量の検証成果物を作れませんでした", exc_info=True)
+        ctx.log("塗布量の検証成果物を作れませんでした（誤差はログに出しています）")
+        return summary, ()
+    return summary, artifacts
+
+
+def _evaluation_artifacts(
+    ctx: JobContext, evaluation: PasteVolumeEvaluation
+) -> tuple[Artifact, ...]:
+    """検証レポートの JSON と散布図を artifacts_dir へ書く."""
+    report = "paste_volume_evaluation.json"
+    (ctx.artifacts_dir / report).write_text(
+        json.dumps(evaluation_document(evaluation), ensure_ascii=False, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    scatter = "paste_volume_evaluation.png"
+    render_evaluation_scatter(
+        evaluation,
+        f"{evaluation.session} / measured vs estimated",
+        ctx.artifacts_dir / scatter,
+    )
+    return (
+        ctx.artifact("塗布量の検証", report, "file"),
+        ctx.artifact("実測と推定の散布図", scatter, "image"),
     )

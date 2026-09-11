@@ -1,8 +1,8 @@
 """Dataset recorder（撮影・塗布実績の蓄積 → metadata.json 組立）の公開契約.
 
 ``plan_dot_grid`` が返す :class:`DotGridPlan` を対象に、
-record_pre → record_execution → record_post → finalize が schema v2 と同じキー集合
-（``data/testing/schemas/paste_dataset_metadata_v2.json``）を書くことを検証する。
+record_pre → record_execution → record_post → finalize が schema v3 と同じキー集合
+（``data/testing/schemas/paste_dataset_metadata_v3.json``）を書くことを検証する。
 """
 
 import json
@@ -14,7 +14,11 @@ import pytest
 
 from pcbasm.config import PasteDispenser as PasteDispenserConfig, Toolhead
 from pcbasm.pasting.applicator import DispenseExecution, PasteApplicationResult
-from pcbasm.pasting.dataset.metadata import DatasetView, parse_metadata
+from pcbasm.pasting.dataset.metadata import (
+    DatasetView,
+    PasteDatasetLoading,
+    parse_metadata,
+)
 from pcbasm.pasting.dataset.pending import (
     PENDING_FILENAME,
     finalize_pending,
@@ -31,14 +35,14 @@ from pcbasm.vision.calibration import CalibrationResult
 from pcbasm.vision.crop import RectCrop
 from tests.helpers import TESTING_DATA_DIR
 
-METADATA_V2 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v2.json"
+METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
 STARTED_AT = datetime(2026, 9, 8, 14, 30, 52, 123456, tzinfo=UTC)
 DENSITY = 3.78
 PASTE_HEIGHT_MM = 0.2
 CROP_SIZE_PX = 9
 HEIGHT_PLANE_Z_MM = 1.62
 VIEW = DatasetView(number=0)
-PURGE_ROTATIONS = 2.0
+LOADING = PasteDatasetLoading(total_ul=0.4, total_rotations=6.0)
 SAMPLE_ROTATIONS = 3.0
 MEASURED_MASS_MG = 1.89
 
@@ -50,7 +54,6 @@ def _spec() -> DotGridSpec:
         edge_margin_mm=2.0,
         cell_size_mm=2.0,
         cell_gap_mm=1.0,
-        purge_cell_size_mm=2.0,
         volume_min_ul=0.05,
         volume_max_ul=0.2,
         crop_size_mm=2.0,
@@ -119,6 +122,7 @@ def _run_info() -> DatasetRunInfo:
         view_count=0,
         view_offset_mm=1.0,
         crop_size_px=CROP_SIZE_PX,
+        loading=LOADING,
         started_at=STARTED_AT,
         dispenser=_dispenser(),
         calibration=CalibrationResult(
@@ -170,10 +174,9 @@ def _recorder(tmp_path: Path, plan: DotGridPlan) -> PasteDatasetRecorder:
 
 
 def _record_all(recorder: PasteDatasetRecorder, plan: DotGridPlan) -> None:
-    """3 パス（全点 pre → パージ → 全点塗布 → 全点 post）で 1 セッションぶんを記録する."""
+    """3 パス（全点 pre → ローディング → 全点塗布 → 全点 post）で 1 セッションぶんを記録する."""
     for target in plan.targets:
         recorder.record_pre(target, VIEW, _crop())
-    recorder.record_purge_execution(_execution(PURGE_ROTATIONS))
     for cell in plan.cells:
         recorder.record_execution(cell, _execution(SAMPLE_ROTATIONS))
     for target in plan.targets:
@@ -181,21 +184,14 @@ def _record_all(recorder: PasteDatasetRecorder, plan: DotGridPlan) -> None:
 
 
 class TestValidateDatasetRun:
-    """Dataset 収集の開始条件（purge 量・ペースト ID・塗布高さ）を装置前に検証する."""
+    """Dataset 収集の開始条件（ペースト ID・塗布高さ）を装置前に検証する."""
 
-    def test_accepts_positive_purge_paste_id_and_paste_height(self):
-        assert (
-            validate_dataset_run(
-                initial_purge_ul=0.5, paste_id="paste-1", paste_height_mm=0.2
-            )
-            is None
-        )
+    def test_accepts_paste_id_and_paste_height(self):
+        assert validate_dataset_run(paste_id="paste-1", paste_height_mm=0.2) is None
 
     @pytest.mark.parametrize(
         ("overrides", "expected"),
         [
-            ({"initial_purge_ul": 0.0}, "initial_purge_ul"),
-            ({"initial_purge_ul": -0.1}, "initial_purge_ul"),
             ({"paste_id": ""}, "paste_id"),
             ({"paste_id": "   "}, "paste_id"),
             ({"paste_id": None}, "paste_id"),
@@ -209,7 +205,6 @@ class TestValidateDatasetRun:
         self, overrides: dict[str, object], expected: str
     ):
         params: dict[str, object] = {
-            "initial_purge_ul": 0.5,
             "paste_id": "paste-1",
             "paste_height_mm": 0.2,
         }
@@ -237,7 +232,7 @@ class TestPasteDatasetRecorder:
         with pytest.raises(ValueError, match="view number"):
             PasteDatasetRecorder(writer, plan, (DatasetView(number=-1),))
 
-    def test_finalize_writes_metadata_with_schema_v2_key_set(
+    def test_finalize_writes_metadata_with_schema_v3_key_set(
         self, tmp_path: Path, plan: DotGridPlan
     ):
         recorder = _recorder(tmp_path, plan)
@@ -246,7 +241,7 @@ class TestPasteDatasetRecorder:
         session = recorder.finalize(measured_mass_mg=MEASURED_MASS_MG, run=_run_info())
 
         payload = json.loads((session / "metadata.json").read_text(encoding="utf-8"))
-        expected = json.loads(METADATA_V2.read_text(encoding="utf-8"))
+        expected = json.loads(METADATA_V3.read_text(encoding="utf-8"))
         assert _key_paths(payload) == _key_paths(expected)
         parsed, error = parse_metadata(payload)
         assert error is None
@@ -277,17 +272,15 @@ class TestPasteDatasetRecorder:
         assert metadata is not None
         total_volume = MEASURED_MASS_MG / DENSITY
         sample_count = len(plan.cells)
-        total_rotations = PURGE_ROTATIONS + SAMPLE_ROTATIONS * sample_count
+        total_rotations = SAMPLE_ROTATIONS * sample_count
         assert metadata.total.measured_mass_mg == MEASURED_MASS_MG
         assert metadata.total.measured_volume_ul == pytest.approx(total_volume)
         assert metadata.total.rotations == pytest.approx(total_rotations)
-        assert metadata.purge.measured_volume_ul == pytest.approx(
-            total_volume * PURGE_ROTATIONS / total_rotations
-        )
         assert len(metadata.samples) == sample_count
+        # パージが無いので、塗布 sample だけで総体積を分け合う。
         assert sum(
             sample.measured_volume_ul for sample in metadata.samples
-        ) + metadata.purge.measured_volume_ul == pytest.approx(total_volume)
+        ) == pytest.approx(total_volume)
 
     def test_finalize_copies_cell_geometry_and_commanded_volume_from_the_plan(
         self, tmp_path: Path, plan: DotGridPlan
@@ -315,8 +308,6 @@ class TestPasteDatasetRecorder:
         assert [sample.volume_index for sample in metadata.samples] == [
             cell.volume_index for cell in cells
         ]
-        assert metadata.purge.cell == plan.purge_cell
-        assert metadata.purge.center == plan.purge_center
 
     def test_finalize_records_plate_and_dot_grid_config(
         self, tmp_path: Path, plan: DotGridPlan
@@ -341,7 +332,6 @@ class TestPasteDatasetRecorder:
         config = metadata.config
         assert config.cell_size_mm == spec.cell_size_mm
         assert config.cell_gap_mm == spec.cell_gap_mm
-        assert config.purge_cell_size_mm == spec.purge_cell_size_mm
         assert config.volume_min_ul == spec.volume_min_ul
         assert config.volume_max_ul == spec.volume_max_ul
         assert config.volume_divisions == spec.volume_divisions
@@ -354,8 +344,8 @@ class TestPasteDatasetRecorder:
         assert config.capture_order == "phased"
         assert config.view_count == 0
         assert config.view_offset_mm == 1.0
-        assert config.initial_purge_ul == 0.5
         assert metadata.plate.height_plane_z_mm == HEIGHT_PLANE_Z_MM
+        assert metadata.loading == LOADING
         assert metadata.label.kind == "rotation_allocated"
         # prime_extra_delay は dispenser 設定が 0.8 でも 0.0 固定で記録する
         assert config.prime_extra_delay_s == 0.0
@@ -442,10 +432,10 @@ class TestBlankCells:
         metadata = recorder.metadata
         assert metadata is not None
         total_volume = MEASURED_MASS_MG / DENSITY
-        # blank を分母に入れていれば、量点 + purge の合計は総体積より小さくなる
+        # blank を分母に入れていれば、塗布点の合計は総体積より小さくなる
         assert sum(
             sample.measured_volume_ul for sample in metadata.samples
-        ) + metadata.purge.measured_volume_ul == pytest.approx(total_volume)
+        ) == pytest.approx(total_volume)
 
     def test_blanks_keep_their_pre_and_post_captures(
         self, tmp_path: Path, plan: DotGridPlan

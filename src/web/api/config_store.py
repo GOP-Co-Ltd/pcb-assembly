@@ -12,6 +12,7 @@ import attrs
 import tomlkit
 from tomlkit.items import Item, Table
 
+from pcbasm.atomic import write_text_atomic
 from pcbasm.config import (
     DISPENSE_MODES,
     LINE_DIRECTIONS,
@@ -24,7 +25,6 @@ from pcbasm.config import (
     validate_probe_board_edge_margin,
     validate_region_overlap,
 )
-from web.api.atomic import write_text_atomic
 
 # 型エイリアスの定義は API 契約モジュール（pydantic のみ依存）に置き、ここから
 # 再 export する。既存の `from web.api.config_store import ...` を壊さない

@@ -18,6 +18,7 @@ from pcbasm.pasting.dataset.metadata import (
     PasteDatasetCamera,
     PasteDatasetConfig,
     PasteDatasetLabel,
+    PasteDatasetLoading,
     PasteDatasetMachine,
     PasteDatasetMetadata,
     PasteDatasetNozzle,
@@ -27,9 +28,7 @@ from pcbasm.pasting.dataset.metadata import (
 from pcbasm.pasting.dataset.pending import (
     PENDING_KIND,
     PENDING_SCHEMA_VERSION,
-    PURGE_KEY,
     PasteDatasetPending,
-    PasteDatasetPendingPurge,
     PasteDatasetPendingSample,
     finalize_pending,
     sample_key,
@@ -58,6 +57,7 @@ class DatasetRunInfo:
         view_count: 周辺 view 数（中心 view を含まない）
         view_offset_mm: 周辺 view の移動距離 [mm]
         crop_size_px: 全 crop 共通のピクセル寸法
+        loading: 塗布パス先頭のインタラクティブローディング実績
         started_at: 収集開始時刻（timezone 付き）
         dispenser: 収集時の ``[paste_dispenser]`` 設定
         calibration: 収集時のカメラ calibration
@@ -72,6 +72,7 @@ class DatasetRunInfo:
     view_count: int
     view_offset_mm: float
     crop_size_px: int
+    loading: PasteDatasetLoading
     started_at: datetime
     dispenser: PasteDispenser
     calibration: CalibrationResult
@@ -79,13 +80,10 @@ class DatasetRunInfo:
 
 def validate_dataset_run(
     *,
-    initial_purge_ul: object,
     paste_id: object,
     paste_height_mm: object,
 ) -> str | None:
-    """Dataset 収集の開始条件（purge 量・ペースト ID・塗布高さ）を装置を開く前に検証する."""
-    if not is_finite_number(initial_purge_ul) or initial_purge_ul <= 0:
-        return "dataset収集にはinitial_purge_ulを正の値で設定してください"
+    """Dataset 収集の開始条件（ペースト ID・塗布高さ）を装置を開く前に検証する."""
     if not isinstance(paste_id, str) or not paste_id.strip():
         return "paste_idは空にできません"
     if not is_finite_number(paste_height_mm) or paste_height_mm <= 0:
@@ -132,10 +130,6 @@ class PasteDatasetRecorder:
     def record_execution(self, cell: DotCell, result: PasteApplicationResult) -> None:
         """セルへの点塗布実績を記録する."""
         self._executions[sample_key(cell.index)] = result
-
-    def record_purge_execution(self, result: PasteApplicationResult) -> None:
-        """パージの実績を記録する（体積配分に含めるが学習 sample にしない）."""
-        self._executions[PURGE_KEY] = result
 
     def record_post(
         self, target: DotTarget, view: DatasetView, crop: RectCrop
@@ -186,14 +180,12 @@ class PasteDatasetRecorder:
                 dispense_accel_ul_s2=dispenser.dispense_accel,
                 retract_amount_ul=dispenser.retract_amount,
                 retract_rate_ul_s=dispenser.effective_retract_rate,
-                initial_purge_ul=dispenser.initial_purge_ul,
                 paste_height_mm=run.paste_height_mm,
                 prime_extra_delay_s=0.0,
                 cell_size_mm=spec.cell_size_mm,
                 cell_gap_mm=spec.cell_gap_mm,
                 crop_size_mm=spec.crop_size_mm,
                 crop_size_px=run.crop_size_px,
-                purge_cell_size_mm=spec.purge_cell_size_mm,
                 volume_min_ul=spec.volume_min_ul,
                 volume_max_ul=spec.volume_max_ul,
                 volume_divisions=spec.volume_divisions,
@@ -205,11 +197,7 @@ class PasteDatasetRecorder:
                 capture_order=CAPTURE_ORDER,
             ),
             label=PasteDatasetLabel(kind="rotation_allocated"),
-            purge=PasteDatasetPendingPurge(
-                cell=plan.purge_cell,
-                center=plan.purge_center,
-                execution=self._executions[PURGE_KEY].summary,
-            ),
+            loading=run.loading,
             samples=tuple(
                 PasteDatasetPendingSample(
                     index=cell.index,

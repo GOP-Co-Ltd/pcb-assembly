@@ -66,7 +66,7 @@ _GATED_ELEMENTS = {
         "#pad-table-body",
     },
     "pasting/dispense_calibration.html": {"#job-form"},
-    "pasting/paste_dataset_collection.html": {"#job-form"},
+    "pasting/paste_volume_calibration.html": {"#job-form"},
     "pasting/loading.html": {
         "#job-form",
         "#lc-apply-rotations-per-ul",

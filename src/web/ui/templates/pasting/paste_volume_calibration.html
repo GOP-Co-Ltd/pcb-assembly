@@ -4,10 +4,13 @@
 {% import "partials/job_params.html" as job_params %}
 <h2>{{ feature_label }}</h2>
 <p class="job-intro">
-  未塗布の銅板にセル格子を敷き、各セルへ 1 点ずつ塗布して塗布前後の画像と計量教師値を収集します。
+  未塗布の銅板にセル格子を敷き、各セルへ 1 点ずつ塗布して塗布前後の画像と計量教師値を集め、
+  円の直径から塗布量を推定する校正まで作って保存します。
   PCB の選択は不要で、銅板はジョブ開始時に生成します。
+  ハイパラを変えて作り直すときは「塗布量校正の再フィット」を使います（装置は不要です）。
 </p>
-<form id="job-form" class="job-form paste-dataset-form" data-job-name="{{ job_name }}"
+<form id="job-form" class="job-form paste-volume-calibration-form"
+      data-job-name="{{ job_name }}"
       data-testid="job-form" data-requires-control>
   {% for legend, specs in param_groups %}
   <fieldset class="job-param-group">
@@ -30,11 +33,18 @@
 {# ジョブ提供フレームのみ表示（オーバーレイ切替なし・既定の none） #}
 {% include "partials/preview_pane.html" %}
 {% endif %}
+{% if show_loading_controls %}
+{% include "partials/loading_controls.html" %}
+{% endif %}
 {% include "partials/job_console.html" %}
 {% endblock %}
 {% block scripts %}
 {{ super() }}
 <script src="{{ static_asset('js/paste_dataset_layout.js') }}"></script>
+<script src="{{ static_asset('js/paste_volume_calibrations.js') }}"></script>
+{% if show_loading_controls %}
+<script src="{{ static_asset('js/loading_controls.js') }}"></script>
+{% endif %}
 {% if show_preview %}
 <script src="{{ static_asset('js/preview.js') }}"></script>
 {% endif %}
