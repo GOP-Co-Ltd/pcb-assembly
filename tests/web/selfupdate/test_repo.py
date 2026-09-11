@@ -77,12 +77,6 @@ class TestCaptureState:
         assert state.upstream_head is not None
         assert state.upstream_head != state.head
 
-    def test_up_to_date_when_nothing_is_waiting(self, settings: UpdateSettings):
-        state = fetched_state(settings)
-
-        assert state.behind == 0
-        assert state.up_to_date is True
-
     def test_modified_tracked_file_is_reported_as_dirty(self, settings: UpdateSettings):
         (settings.repo_root / "tracked.txt").write_text("edited\n", encoding="utf-8")
 
@@ -142,6 +136,7 @@ class TestFastForwardBlocker:
         state = fetched_state(settings)
 
         assert fast_forward_blocker(state) is None
+        assert state.behind == 0
         assert state.up_to_date is True
 
     def test_untracked_files_alone_do_not_block(

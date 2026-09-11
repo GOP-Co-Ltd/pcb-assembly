@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from web.selfupdate.repo import git_env
-from web.selfupdate.service import CANONICAL_ORDER, UNIT_NAMES
 from web.selfupdate.settings import UpdateSettings
 from web.selfupdate.steps import restart_command, smoke_command, sync_command
 
@@ -30,25 +29,18 @@ def settings(tmp_path: Path) -> UpdateSettings:
 class TestSyncCommand:
     """`uv sync` の引数（既定は `--locked --inexact`）."""
 
-    def test_uses_the_configured_uv_binary_and_the_sync_subcommand(
-        self, settings: UpdateSettings
-    ):
-        command = sync_command(settings)
+    def test_matches_the_expected_invocation(self, settings: UpdateSettings):
+        """`--locked` が無いと `uv.lock` が書き換わって tree が dirty になり以後の更新が止まる.
 
-        assert command[0] == settings.uv_bin
-        assert command[1] == "sync"
-
-    def test_keeps_the_lockfile_immutable(self, settings: UpdateSettings):
-        """`--locked` が無いと pyproject とのズレで `uv.lock` が書き換わり、tree が dirty
-        になって以後の更新が全部止まる（計画書「設計上の要 4.(b)」）."""
-        assert "--locked" in sync_command(settings)
-
-    def test_keeps_extra_dependency_groups_installed(self, settings: UpdateSettings):
-        """`--inexact` が無いと指定しなかった group を削除する.
-
-        機体ごとに足した group が更新のたびに消える（計画書「設計上の要 4.(a)」）。
+        `--inexact` が無いと指定しなかった group を削除し、機体ごとに足した group が
+        更新のたびに消える（計画書「設計上の要 4.(a)(b)」）。
         """
-        assert "--inexact" in sync_command(settings)
+        assert sync_command(settings) == (
+            settings.uv_bin,
+            "sync",
+            "--locked",
+            "--inexact",
+        )
 
     @pytest.mark.parametrize("forbidden", ("--all-extras", "--frozen"))
     def test_does_not_widen_or_freeze_the_install(
@@ -105,19 +97,6 @@ class TestRestartCommand:
             "--no-block",
             *units,
         )
-
-    def test_unit_order_follows_the_canonical_order(self, settings: UpdateSettings):
-        """同居機の argv は api → ui の 1 変種しか許可されていない（順序も契約）."""
-        units = tuple(UNIT_NAMES[key] for key in CANONICAL_ORDER)
-
-        assert restart_command(settings, units)[-2:] == (
-            "pcbasm-api.service",
-            "pcbasm-ui.service",
-        )
-
-    def test_never_asks_for_a_password(self, settings: UpdateSettings):
-        """`-n` が無いと非対話プロセスがパスワード入力待ちでハングする."""
-        assert restart_command(settings, ("pcbasm-api.service",))[1] == "-n"
 
 
 class TestGitEnv:

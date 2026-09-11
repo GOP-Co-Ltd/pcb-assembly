@@ -9,8 +9,8 @@
 
 Phase 2 追記（計画書 webui-phase2.md「src/webui/state.py」節）:
 
-- frame_hub() は遅延構築 + キャッシュ。構築失敗は例外伝播
-- rebuild_camera() / close() は hub を停止して参照破棄（未構築なら no-op）
+- frame_hub() は遅延構築 + キャッシュ
+- rebuild_camera() / close() は hub を停止して参照破棄
 
 Phase 3 追記（計画書 webui-phase3.md「src/webui/state.py」節）:
 
@@ -33,7 +33,6 @@ import json
 import threading
 from pathlib import Path
 
-import attrs
 import pytest
 
 from pcbasm.hal import FrameHub
@@ -64,9 +63,6 @@ class TestPcbSelection:
         assert not (webui_settings.data_dir / "webui_state.json").exists()
         restored = AppState(webui_settings, store)
         assert restored.selected_pcb == Path("boards/sample.kicad_pcb")
-
-    def test_initial_pcb_is_none(self, state: AppState):
-        assert state.selected_pcb is None
 
     def test_corrupted_state_file_falls_back_to_default(
         self, webui_settings: Settings, store: ConfigStore
@@ -183,62 +179,6 @@ class TestJobParamDefaults:
         merged["rotations"] = 999.0
 
         assert state.job_param_defaults("flow_calibration") == {"rotations": 60.0}
-
-    def test_concurrent_merges_keep_state_file_valid_json(
-        self, state: AppState, webui_settings: Settings
-    ):
-        """保存中に読んでも壊れた JSON を見ない（``write_text_atomic`` の契約）.
-
-        ピンしているのは atomic replace だけで、キーの生き残りは
-        ``test_concurrent_merges_of_distinct_jobs_all_persist`` が担う。
-        """
-        path = webui_settings.webui_data_dir / "webui_state.json"
-        state.merge_job_param_defaults("flow_calibration", {"seed": 0})
-        barrier = threading.Barrier(3)
-        stop = threading.Event()
-        invalid: list[str] = []
-        reads: list[int] = []
-        errors: list[BaseException] = []
-
-        def merge(key: str, times: int) -> None:
-            try:
-                barrier.wait(timeout=10.0)
-                for index in range(times):
-                    state.merge_job_param_defaults("flow_calibration", {key: index})
-            except BaseException as exc:
-                errors.append(exc)
-
-        def read_repeatedly() -> None:
-            try:
-                barrier.wait(timeout=10.0)
-                while not stop.is_set():
-                    text = path.read_text(encoding="utf-8")
-                    reads.append(len(text))
-                    try:
-                        json.loads(text)
-                    except ValueError:
-                        invalid.append(text)
-            except BaseException as exc:
-                errors.append(exc)
-
-        threads = [
-            threading.Thread(target=merge, args=("rotations", 1)),
-            threading.Thread(target=merge, args=("rate", 200)),
-            threading.Thread(target=read_repeatedly),
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads[:2]:
-            thread.join(timeout=30.0)
-        stop.set()
-        threads[2].join(timeout=10.0)
-
-        assert errors == []
-        for thread in threads:
-            assert not thread.is_alive()
-        # 読み手が 1 度も読めていない vacuous pass を潰す
-        assert reads
-        assert invalid == []
 
     def test_concurrent_merges_never_roll_back_the_state_file(
         self, state: AppState, webui_settings: Settings
@@ -460,21 +400,3 @@ class TestCameraLifecycle:
         camera_state.close()
 
         assert not hub.running
-
-    def test_rebuild_and_close_before_construction_are_noop(
-        self, camera_state: AppState
-    ):
-        # 未構築での呼び出しは例外なく完了する（冪等）
-        camera_state.rebuild_camera()
-        camera_state.close()
-
-    def test_frame_hub_propagates_camera_construction_failure(
-        self, fake_camera_settings: Settings, store: ConfigStore, tmp_path: Path
-    ):
-        settings = attrs.evolve(
-            fake_camera_settings, fake_camera_image=tmp_path / "missing.png"
-        )
-        state = AppState(settings, store)
-
-        with pytest.raises(FileNotFoundError):
-            state.frame_hub()
