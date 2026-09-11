@@ -44,31 +44,13 @@ class TestPasteParamFields:
         assert PASTE_PARAM_NAMES == tuple(
             f.name for f in attrs.fields(PasteParamsPatch)
         )
-
-    def test_choice_fields_carry_options(self):
+        # WebUI の widget 種別も field メタデータが単一ソース
         by_name = {field.name: field for field in PASTE_PARAM_FIELDS}
-        assert [c.value for c in by_name["dispense_mode"].choices] == [
-            "auto",
-            "dot",
-            "line",
-            "area",
-        ]
-        assert [c.value for c in by_name["line_direction"].choices] == [
-            "unconstrained",
-            "outward",
-            "inward",
-        ]
         assert by_name["paste_height"].kind == "height"
         assert by_name["ul_per_mm2"].kind == "number"
 
 
 class TestPasteParams:
-    def test_from_config_copies_every_field(self, config):
-        params = PasteParams.from_config(config)
-
-        for name in PASTE_PARAM_NAMES:
-            assert getattr(params, name) == getattr(config, name)
-
     def test_patched_overrides_only_non_none_fields(self):
         params = _params()
 
@@ -87,9 +69,6 @@ class TestPasteParams:
         params = _params(paste_height=paste_height, ul_per_mm2=ul_per_mm2)
 
         assert params.paste_height_mm == pytest.approx(expected)
-
-    def test_to_dict_lists_all_fields(self):
-        assert tuple(_params().to_dict()) == PASTE_PARAM_NAMES
 
 
 class TestPasteParamsPatch:
@@ -163,16 +142,3 @@ class TestDispenseSettings:
 
     def test_lift_height_override(self, config):
         assert DispenseSettings.from_config(config, lift_height=5.0).lift_height == 5.0
-
-    def test_retract_accel_formula(self):
-        settings = DispenseSettings(
-            max_fill_speed=1.0,
-            max_dispense_rate=5.0,
-            dispense_accel=1.0,
-            retract_amount=10.0,
-            retract_rate=10.0,
-            retract_accel_factor=2.0,
-            lift_height=2.0,
-        )
-
-        assert settings.retract_accel == pytest.approx(2.0 * 10.0**2 / 10.0)

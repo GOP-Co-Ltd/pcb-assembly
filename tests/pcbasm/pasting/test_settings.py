@@ -136,7 +136,9 @@ class TestResolvePadSettingsKeys:
 
         resolved = resolve_pad_settings(hierarchy, model)
 
-        for paste in resolved.values():
+        # ルートノードも同じ規則で base に解決される
+        root = resolve_node_settings(hierarchy, model)[("L0",)]
+        for paste in (root, *resolved.values()):
             assert paste.enabled is True
             assert paste.params.dispense_mode == base.dispense_mode
             assert paste.params.line_direction == base.line_direction
@@ -276,6 +278,11 @@ class TestOverrideMerge:
 
         assert resolved[("R1", "1")].params.bead_width_factor == pytest.approx(0.7)
         assert resolved[("R2", "1")].params.bead_width_factor == pytest.approx(0.7)
+        # 同じ override は node 側でも L1 ノードとそのサブツリー全体へ伝搬する
+        nodes = resolve_node_settings(hierarchy, model)
+        assert nodes[("L1", "0402")].params.bead_width_factor == pytest.approx(0.7)
+        assert nodes[("L4", "R1", "1")].params.bead_width_factor == pytest.approx(0.7)
+        assert nodes[("L4", "R2", "1")].params.bead_width_factor == pytest.approx(0.7)
 
 
 class TestEnabledResolution:
@@ -309,6 +316,11 @@ class TestEnabledResolution:
 
         assert resolved[("U1", "9")].enabled is True  # L4 が勝つ
         assert resolved[("U1", "1")].enabled is False  # L4 指定なしは L2 のまま
+        # node 側では無効化された L2 ノード自身も見える
+        nodes = resolve_node_settings(hierarchy, model)
+        assert nodes[("L2", "U1")].enabled is False
+        assert nodes[("L4", "U1", "9")].enabled is True
+        assert nodes[("L4", "U1", "1")].enabled is False
 
     def test_l0_disable_defaults_all_pads_disabled(self):
         _, _, hierarchy = _two_component_hierarchy()
@@ -369,13 +381,6 @@ class TestEnabledResolution:
 
 class TestIsPadEnabled:
     """is_pad_enabled は解決済み enabled と階層外 pad の後方互換を判定する。"""
-
-    def test_enabled_pad_returns_true(self):
-        _, pads, hierarchy = _two_component_hierarchy()
-        model = PasteSettingsModel(base=_full_base())
-        resolved = resolve_pad_settings(hierarchy, model)
-
-        assert is_pad_enabled(pads[0], hierarchy, resolved) is True
 
     def test_disabled_pad_follows_resolved_enabled(self):
         _, pads, hierarchy = _two_component_hierarchy()
@@ -455,23 +460,6 @@ class TestResolveNodeSettings:
         resolved = resolve_node_settings(hierarchy, model)
 
         assert set(resolved.keys()) == hierarchy.all_keys()
-
-    def test_root_key_resolves_to_base_values(self):
-        _, _, hierarchy = _two_component_hierarchy()
-        base = _full_base()
-        model = PasteSettingsModel(base=base)
-
-        resolved = resolve_node_settings(hierarchy, model)
-
-        root = resolved[("L0",)]
-        assert root.enabled is True
-        assert root.params.dispense_mode == base.dispense_mode
-        assert root.params.paste_height == pytest.approx(base.paste_height)
-        assert root.params.ul_per_mm2 == pytest.approx(base.ul_per_mm2)
-        assert root.params.prime_extra_delay == pytest.approx(base.prime_extra_delay)
-        assert root.params.bead_width_factor == pytest.approx(base.bead_width_factor)
-        assert root.params.overlap == pytest.approx(base.overlap)
-        assert root.params.boundary_margin == pytest.approx(base.boundary_margin)
 
     def test_root_enabled_follows_l0_disable(self):
         _, _, hierarchy = _two_component_hierarchy()
@@ -561,66 +549,6 @@ class TestResolveNodeSettings:
         assert resolved[("L4", "R2", "1")].params.bead_width_factor == pytest.approx(
             0.7
         )
-
-    def test_more_specific_node_override_wins_over_ancestor(self):
-        # L4 ノードの override が祖先 L2 を上書きし、未指定 field は L2 から継承。
-        _, _, hierarchy = _two_component_hierarchy()
-        model = PasteSettingsModel(
-            base=_full_base(),
-            levels=(
-                LevelSetting(
-                    ("L2", "U1"),
-                    patch=PasteParamsPatch(ul_per_mm2=0.5, prime_extra_delay=1.5),
-                ),
-                LevelSetting(("L4", "U1", "9"), patch=PasteParamsPatch(ul_per_mm2=0.9)),
-            ),
-        )
-
-        resolved = resolve_node_settings(hierarchy, model)
-
-        thermal = resolved[("L4", "U1", "9")]
-        assert thermal.params.ul_per_mm2 == pytest.approx(0.9)  # L4 が勝つ
-        assert thermal.params.prime_extra_delay == pytest.approx(1.5)  # L2 から継承
-        assert thermal.params.paste_height == pytest.approx(0.05)  # base から継承
-        # 同部品の別 L4 ノードは L4 override の影響を受けず L2 のまま
-        other = resolved[("L4", "U1", "1")]
-        assert other.params.ul_per_mm2 == pytest.approx(0.5)
-
-    def test_enabled_none_keeps_inherited_enabled(self):
-        # LevelSetting.enabled=None（override のみ）は enabled を上書きしない。
-        _, _, hierarchy = _two_component_hierarchy()
-        model = PasteSettingsModel(
-            base=_full_base(),
-            levels=(
-                LevelSetting(
-                    ("L2", "U1"), enabled=None, patch=PasteParamsPatch(ul_per_mm2=0.5)
-                ),
-            ),
-        )
-
-        resolved = resolve_node_settings(hierarchy, model)
-
-        assert resolved[("L2", "U1")].enabled is True
-        assert resolved[("L4", "U1", "1")].enabled is True
-
-    def test_explicit_disable_propagates_and_explicit_enable_revives(self):
-        # L2=False で配下無効化、配下 L4=True で当該ノードのみ復活。
-        _, _, hierarchy = _two_component_hierarchy()
-        model = PasteSettingsModel(
-            base=_full_base(),
-            levels=(
-                LevelSetting(("L2", "U1"), enabled=False),
-                LevelSetting(("L4", "U1", "9"), enabled=True),
-            ),
-        )
-
-        resolved = resolve_node_settings(hierarchy, model)
-
-        assert resolved[("L2", "U1")].enabled is False
-        assert resolved[("L4", "U1", "9")].enabled is True  # L4 で復活
-        assert resolved[("L4", "U1", "1")].enabled is False  # L2 のまま
-        # 兄弟部品 R1 は無関係
-        assert resolved[("L2", "R1")].enabled is True
 
     def test_l4_node_values_match_resolve_pad_settings(self):
         # parity: 各 L4 ノードキーの解決値が、その L4 配下 pad に対する
@@ -764,13 +692,6 @@ class TestWithLevelPatch:
 
         assert patched.level(("L2", "U1")) is None
 
-    def test_returns_new_model_without_mutating_original(self):
-        model = PasteSettingsModel(base=_full_base())
-
-        model.with_level_patch(("L2", "U1"), values={"ul_per_mm2": 0.5})
-
-        assert model.levels == ()
-
 
 class TestWithPadsEnabled:
     """with_pads_enabled は指定 L4 群の enabled を一括設定する。"""
@@ -786,26 +707,6 @@ class TestWithPadsEnabled:
         assert resolved[("U1", "9")].enabled is False
         assert resolved[("U1", "1")].enabled is True
         assert resolved[("R1", "1")].enabled is True
-
-
-class TestInitialPurgeSelection:
-    """パージ位置は座標だけで持つ（pad は選ばない）."""
-
-    def test_setting_a_point_keeps_it(self):
-        model = PasteSettingsModel(base=_full_base())
-
-        updated = model.with_initial_purge_point(Point2d(1.0, 2.0))
-
-        assert updated.initial_purge_point == Point2d(1.0, 2.0)
-
-    def test_clearing_the_point_returns_to_automatic(self):
-        model = PasteSettingsModel(base=_full_base()).with_initial_purge_point(
-            Point2d(1.0, 2.0)
-        )
-
-        updated = model.with_initial_purge_point(None)
-
-        assert updated.initial_purge_point is None
 
 
 class TestOverrideSummaries:

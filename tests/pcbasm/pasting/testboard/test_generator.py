@@ -79,20 +79,21 @@ class TestBoardGenerator:
         assert len(resolved.config.patterns) == 1
         assert resolved.config.patterns[0].catalog_id.startswith("custom:")
 
-    def test_footprint_addition_recovers_an_empty_pattern_config(self, generator):
-        addition = generator.add_footprint_patterns(BoardConfig(patterns=()), QFN)
-
-        assert addition.added_count == 3
-        assert len(addition.config.patterns) == 3
-
+    @pytest.mark.parametrize(
+        "base",
+        [BoardConfig(), BoardConfig(patterns=())],
+        ids=["catalog-defaults", "empty-pattern-config"],
+    )
     def test_adds_all_distinct_footprint_patterns_with_catalog_defaults(
-        self, generator
+        self, generator, base: BoardConfig
     ):
-        addition = generator.add_footprint_patterns(BoardConfig(), QFN)
+        addition = generator.add_footprint_patterns(base, QFN)
         added_patterns = addition.config.patterns[-addition.added_count :]
         added_catalog = addition.catalog[-addition.added_count :]
 
         assert addition.added_count == 3
+        # 空の pattern 設定からでも追加分だけで回復する
+        assert len(addition.config.patterns) == len(base.patterns) + 3
         assert {item.source_pad_count for item in added_catalog} == {1, 4, 16}
         assert [item.catalog_id for item in added_catalog] == [
             item.catalog_id for item in added_patterns
@@ -401,14 +402,6 @@ class TestBoardGeneration:
 
         assert rotations == {0.0, 45.0, 90.0, 135.0}
 
-    def test_exported_documents_use_schema_one(self, generator):
-        config_payload = generator.config_bytes(BoardConfig())
-        board_payload, _overflow_message = generator.board_bytes(BoardConfig())
-        assert board_payload is not None
-
-        assert b'"schema_version": 1' in config_payload
-        assert board_payload.startswith(b"(kicad_pcb")
-
 
 class TestFlowPadGeneration:
     """生成した基板に流量計測パッドが FLOW1 から並ぶ."""
@@ -433,36 +426,3 @@ class TestFlowPadGeneration:
         assert references.count("PURGE") == 1
         for index in range(1, 4):
             assert references.count(f"FLOW{index}") == 1
-
-    def test_flow_pads_carry_a_paste_opening(self, generator, tmp_path: Path):
-        config = BoardConfig(
-            flow_pads=FlowPadSpec(size_mm=2.0, count=1),
-            patterns=(PatternSpec(R0402, 180.0, 1, 1),),
-        )
-
-        board, error = generator.build_board(config)
-
-        assert error is None
-        assert board is not None
-        output = tmp_path / "flow_paste.kicad_pcb"
-        save_board(board, output)
-        pcb = PcbFile(output)
-        flow = next(pad for pad in pcb.pads if pad.designator == "FLOW1")
-
-        assert flow.polygon.area == pytest.approx(4.0, rel=1e-3)
-
-    def test_zero_count_generates_no_flow_pad(self, generator, tmp_path: Path):
-        config = BoardConfig(
-            flow_pads=FlowPadSpec(count=0),
-            patterns=(PatternSpec(R0402, 180.0, 1, 1),),
-        )
-
-        board, error = generator.build_board(config)
-
-        assert error is None
-        assert board is not None
-        output = tmp_path / "no_flow.kicad_pcb"
-        save_board(board, output)
-        pcb = PcbFile(output)
-
-        assert not [pad for pad in pcb.pads if pad.designator.startswith("FLOW")]

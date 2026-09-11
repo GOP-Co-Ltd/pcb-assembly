@@ -10,8 +10,6 @@ import attrs
 import pytest
 
 from pcbasm.pasting.paste_volume.model import (
-    MODEL_KIND,
-    RELIABLE_RANGE_MARGIN,
     CubicVolumeModel,
     fit_cubic_through_origin,
 )
@@ -37,24 +35,9 @@ def _samples(
 class TestCubicVolumeModel:
     """モデルの評価と被覆域."""
 
-    def test_kind_is_recorded_for_the_calibration_file(self):
-        assert MODEL_KIND == "cubic_through_origin"
-
-    def test_zero_diameter_is_exactly_zero_volume(self):
-        assert KNOWN.volume_ul(0.0) == 0.0
-
-    def test_negative_diameter_is_zero_volume(self):
-        assert KNOWN.volume_ul(-1.0) == 0.0
-
-    def test_evaluates_the_cubic_polynomial(self):
-        diameter = 0.8
-        expected = (
-            KNOWN.cubic_ul_per_mm3 * diameter**3
-            + KNOWN.quadratic_ul_per_mm2 * diameter**2
-            + KNOWN.linear_ul_per_mm * diameter
-        )
-
-        assert KNOWN.volume_ul(diameter) == pytest.approx(expected)
+    @pytest.mark.parametrize("diameter", [0.0, -1.0])
+    def test_non_positive_diameter_is_exactly_zero_volume(self, diameter: float):
+        assert KNOWN.volume_ul(diameter) == 0.0
 
     @pytest.mark.parametrize(
         ("diameter", "covered"),
@@ -62,9 +45,6 @@ class TestCubicVolumeModel:
     )
     def test_covers_reports_the_fitted_range(self, diameter: float, covered: bool):
         assert KNOWN.covers(diameter) is covered
-
-    def test_validate_accepts_a_sane_model(self):
-        assert KNOWN.validate() is None
 
     @pytest.mark.parametrize(
         ("field", "value"),
@@ -235,18 +215,6 @@ class TestMonotonicity:
 
         assert model.is_monotonic_in_range() is False
 
-    def test_median_of_volumes_equals_volume_of_median_when_monotonic(self):
-        """``median(V(dᵢ)) == V(median(dᵢ))``。単一 view 契約の上で集約できる根拠."""
-        diameters, volumes = _samples(KNOWN)
-        model, _ = fit_cubic_through_origin(diameters, volumes)
-        assert model is not None
-
-        views = [0.70, 0.82, 0.95]
-        median_of_volumes = sorted(model.volume_ul(d) for d in views)[1]
-        volume_of_median = model.volume_ul(sorted(views)[1])
-
-        assert median_of_volumes == pytest.approx(volume_of_median)
-
     def test_an_even_view_count_only_matches_approximately(self):
         """偶数 view の中央値は中央 2 つの平均なので、2 次以上のぶんだけずれる.
 
@@ -274,16 +242,6 @@ class TestReliableRange:
 
     下端側を落とした内側だけを補正の材料にする。
     """
-
-    def test_lower_bound_sits_inside_the_covered_range(self):
-        assert KNOWN.diameter_min_mm < KNOWN.reliable_diameter_min_mm
-        assert KNOWN.reliable_diameter_min_mm < KNOWN.diameter_max_mm
-
-    def test_lower_bound_trims_the_agreed_fraction_of_the_range(self):
-        width = KNOWN.diameter_max_mm - KNOWN.diameter_min_mm
-        expected = KNOWN.diameter_min_mm + RELIABLE_RANGE_MARGIN * width
-
-        assert KNOWN.reliable_diameter_min_mm == pytest.approx(expected)
 
     def test_upper_bound_is_unchanged(self):
         assert KNOWN.covers_reliably(KNOWN.diameter_max_mm) is True

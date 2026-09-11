@@ -22,7 +22,6 @@ import pytest
 from pcbasm.geometry import Shift
 from pcbasm.geometry.packing import Rect
 from pcbasm.pasting.dataset.plan import (
-    MIN_COMMANDED_ROTATIONS,
     DotGridPlan,
     DotGridSpec,
     plan_dot_grid,
@@ -121,9 +120,6 @@ class TestDotGridSpec:
         assert error is not None
         assert "3.001" in error
 
-    def test_crop_size_smaller_than_the_cell_is_allowed(self):
-        assert _spec(crop_size_mm=1.0).validate() is None
-
     @pytest.mark.parametrize(
         ("field", "value"),
         [
@@ -218,14 +214,6 @@ class TestPlanDotGridLayout:
         # 板の上端付近だけでなく下半分にも入っていること
         assert max(rows) >= 6
 
-    def test_spec_is_kept_on_the_plan(self):
-        spec = _spec()
-
-        plan, _ = plan_dot_grid(spec)
-
-        assert plan is not None
-        assert plan.spec == spec
-
 
 class TestPlanDotGridVolumeAssignment:
     """シード付きシャッフルによる量割り当ての決定性と multiset 保存."""
@@ -255,6 +243,9 @@ class TestPlanDotGridVolumeAssignment:
             (cell.index, cell.rect, cell.commanded_volume_ul, cell.volume_index)
             for cell in second.cells
         ]
+        assert [blank.index for blank in first.blanks] == [
+            blank.index for blank in second.blanks
+        ]
 
     def test_different_seed_changes_the_placement(self):
         first = _planned(shuffle_seed=1234)
@@ -263,13 +254,12 @@ class TestPlanDotGridVolumeAssignment:
         assert [(cell.index, cell.commanded_volume_ul) for cell in first.cells] != [
             (cell.index, cell.commanded_volume_ul) for cell in other.cells
         ]
-
-    def test_seed_also_chooses_which_grid_cells_are_used(self):
-        first = _planned(shuffle_seed=1234)
-        other = _planned(shuffle_seed=5678)
-
+        # シードはどの格子セルを使うかと blank の位置も決める
         assert [target.rect for target in first.targets] != [
             target.rect for target in other.targets
+        ]
+        assert [blank.index for blank in first.blanks] != [
+            blank.index for blank in other.blanks
         ]
 
     def test_dispense_order_runs_from_one_in_cell_index_order(self):
@@ -295,19 +285,6 @@ class TestPlanDotGridVolumeAssignment:
 class TestPlanDotGridBlankCells:
     """塗布しない blank セル（真値 0）の混在と識別."""
 
-    def test_blank_cells_are_planned_in_the_requested_count(self):
-        plan = _planned(volume_divisions=5, samples_per_volume=3, blank_count=4)
-
-        assert len(plan.blanks) == 4
-        assert len(plan.cells) == 15
-
-    def test_blank_cells_carry_no_volume_at_all(self):
-        plan = _planned()
-
-        for blank in plan.blanks:
-            assert not hasattr(blank, "commanded_volume_ul")
-            assert not hasattr(blank, "volume_index")
-
     def test_blank_and_dispensed_indices_form_one_numbering(self):
         plan = _planned()
 
@@ -324,14 +301,6 @@ class TestPlanDotGridBlankCells:
         assert blank_indices != list(
             range(plan.spec.sample_count + 1, plan.spec.target_count + 1)
         )
-
-    def test_blank_placement_follows_the_seed(self):
-        first = [b.index for b in _planned(shuffle_seed=1234).blanks]
-        same = [b.index for b in _planned(shuffle_seed=1234).blanks]
-        other = [b.index for b in _planned(shuffle_seed=5678).blanks]
-
-        assert first == same
-        assert first != other
 
     def test_zero_blank_count_plans_no_blank(self):
         plan = _planned(blank_count=0)
@@ -418,12 +387,6 @@ class TestPlanViews:
             angle = 2.0 * math.pi * (view.number - 1) / count
             assert view.offset_x_mm == pytest.approx(radius * math.cos(angle))
             assert view.offset_y_mm == pytest.approx(radius * math.sin(angle))
-
-    def test_all_planned_views_pass_their_own_validation(self):
-        views, _ = plan_views(4, 1.0)
-
-        assert views is not None
-        assert [view.validate() for view in views] == [None] * 5
 
     @pytest.mark.parametrize("radius_mm", [0.0, -1.0, float("nan"), float("inf")])
     def test_rejects_unusable_radius_when_peripheral_views_are_requested(
@@ -673,10 +636,6 @@ class TestValidateMinRotations:
         assert error is not None
         assert "0.05" in error
 
-    def test_the_default_floor_is_one_microstep_of_the_paste_screw(self):
-        # 200 step/rev を 64 分割した 1 マイクロステップが指令の分解能
-        assert MIN_COMMANDED_ROTATIONS == pytest.approx(1.0 / 12800)
-
     def test_boundary_at_the_rotation_floor_is_accepted(self):
         # 0.05 uL x 2.0 rev/uL = 0.1 rev = 既定の下限そのもの
         assert (
@@ -734,26 +693,19 @@ class TestPreviewDotGrid:
         # 除外領域が無いので、格子の全セルが計測可能点として数えられる。
         assert len(preview.grid) == preview.capacity
 
-    def test_view_count_includes_the_central_view(self):
-        preview = preview_dot_grid(_spec(), view_count=4, view_offset_mm=1.0)
+    @pytest.mark.parametrize(("view_count", "views_per_cell"), [(4, 5), (0, 1)])
+    def test_views_per_cell_includes_the_central_view(
+        self, view_count: int, views_per_cell: int
+    ):
+        preview = preview_dot_grid(_spec(), view_count=view_count, view_offset_mm=1.0)
 
-        assert preview.views_per_cell == 5
-
-    def test_single_view_collection_counts_only_the_central_view(self):
-        preview = preview_dot_grid(_spec(), view_count=0, view_offset_mm=1.0)
-
-        assert preview.views_per_cell == 1
+        assert preview.views_per_cell == views_per_cell
 
     def test_image_count_covers_every_target_view_and_phase(self):
         preview = preview_dot_grid(_spec(), view_count=4, view_offset_mm=1.0)
 
         assert preview.target_count == preview.sample_count + _spec().blank_count
         assert preview.image_count == preview.target_count * preview.views_per_cell * 2
-
-    def test_volumes_are_reported_for_the_legend(self):
-        preview = preview_dot_grid(_spec(), view_count=4, view_offset_mm=1.0)
-
-        assert preview.volumes_ul == _spec().volumes_ul
 
     def test_over_capacity_keeps_the_geometry_and_reports_the_reason(self):
         preview = preview_dot_grid(

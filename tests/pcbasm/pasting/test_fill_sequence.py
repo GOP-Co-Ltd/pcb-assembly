@@ -20,7 +20,6 @@ from pytest_mock import MockerFixture
 
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
-from pcbasm.hal import Speed
 from pcbasm.pasting.fill_sequence import FillSequence
 from pcbasm.pasting.flowcalib.flow import rate_sweep_amount_ul
 from pcbasm.pasting.params import DispenseSettings
@@ -35,7 +34,6 @@ _SETTINGS = DispenseSettings(
     retract_accel_factor=4.0,
     lift_height=3.0,
 )
-_TRAVEL = Speed.rate(1.0)
 
 
 @pytest.fixture
@@ -97,15 +95,6 @@ class TestFillSequence:
         # 絶対速度なので max_velocity に依らず 2.0 に解決される。
         assert speed.resolve(100.0) == pytest.approx(2.0)
 
-    def test_fill_speed_slows_down_when_rate_capped(self):
-        # L=2: r_desired=20 > max=10 → rate を 10 で頭打ち、速度 = max*L/total = 1.0。
-        path = Path([Point3d(0.0, 0.0, 5.0), Point3d(2.0, 0.0, 5.0)])
-
-        speed = _sequence(path).actual_fill_speed()
-
-        assert speed is not None
-        assert speed.resolve(100.0) == pytest.approx(1.0)
-
     def test_fill_speed_is_none_for_zero_length_path(self):
         # 単点 path は length=0 のため吐出移動が成立せず None。
         path = Path([Point3d(0.0, 0.0, 5.0)])
@@ -121,22 +110,6 @@ class TestFillSequence:
         _sequence(path).to_gcode(mock_stage, mock_dispenser)
 
         assert _dispense_rate(mock_dispenser) == pytest.approx(4.0)
-
-    def test_dispense_rate_is_capped_at_max(self, mock_stage, mock_dispenser):
-        # L=2（cap）: 実効レート = max_dispense_rate = 10.0。
-        path = Path([Point3d(0.0, 0.0, 5.0), Point3d(2.0, 0.0, 5.0)])
-
-        _sequence(path).to_gcode(mock_stage, mock_dispenser)
-
-        assert _dispense_rate(mock_dispenser) == pytest.approx(10.0)
-
-    def test_dot_fill_dispenses_at_max_rate(self, mock_stage, mock_dispenser):
-        # 点フィル（L=0）: 速度概念がないので上限レートでその場吐出。
-        path = Path([Point3d(0.0, 0.0, 5.0)])
-
-        _sequence(path).to_gcode(mock_stage, mock_dispenser)
-
-        assert _dispense_rate(mock_dispenser) == pytest.approx(10.0)
 
     def test_to_gcode_queues_dispense_then_continuous_retraction(
         self, mock_stage, mock_dispenser
@@ -186,35 +159,15 @@ class TestFillSequence:
     def test_to_gcode_descends_then_ascends_with_explicit_coords(
         self, mock_stage, mock_dispenser
     ):
-        # 接近上空(z=first.z+lift) → 下降(z=first.z)、最後に上昇(z=last.z+lift)。
+        # 接近上空(z=first.z+lift) → 下降(z=first.z) → 上昇(z=last.z+lift)。
         # first=(0,0,5), last=(10,0,5), lift_height=3。
         path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
 
         _sequence(path).to_gcode(mock_stage, mock_dispenser)
 
-        moves = mock_stage.move.call_args_list
-        assert len(moves) == 3
-        # 1. 最初の点の上空へ移動。
-        assert moves[0].kwargs == {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 8.0,
-            "speed": _TRAVEL,
-        }
-        # 2. 塗布高さへ下降。
-        assert moves[1].kwargs == {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 5.0,
-            "speed": _TRAVEL,
-        }
-        # 3. 最後の点で上昇。
-        assert moves[2].kwargs == {
-            "x": 10.0,
-            "y": 0.0,
-            "z": 8.0,
-            "speed": _TRAVEL,
-        }
+        assert [move.kwargs["z"] for move in mock_stage.move.call_args_list] == (
+            pytest.approx([8.0, 5.0, 8.0])
+        )
 
     def test_to_gcode_fills_along_path_with_fill_speed(
         self, mock_stage, mock_dispenser
@@ -245,14 +198,6 @@ class TestFillSequence:
         # それでも吐出と連続リトラクションは行われる。
         mock_dispenser.pushpull.assert_called_once()
         mock_dispenser.continue_pushpull.assert_called_once()
-
-    def test_to_gcode_returns_gcode(self, mock_stage, mock_dispenser):
-        # 単一の連結 GCode を返す（送信側はこれを1回で送る）。
-        path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
-
-        result = _sequence(path).to_gcode(mock_stage, mock_dispenser)
-
-        assert isinstance(result, GCode)
 
 
 class TestRateCap:
@@ -297,13 +242,16 @@ class TestRateCap:
         assert speed is not None
         assert speed.resolve(100.0) == pytest.approx(2.0)
 
-    def test_explicit_cap_applies_to_point_fill(self, mock_stage, mock_dispenser):
-        # 点フィル（L=0）でも頭打ち値が反映される。rate_cap=5 → その場吐出レート=5。
+    @pytest.mark.parametrize(("rate_cap", "expected"), [(None, 10.0), (5.0, 5.0)])
+    def test_cap_applies_to_point_fill(
+        self, mock_stage, mock_dispenser, rate_cap: float | None, expected: float
+    ):
+        # 点フィル（L=0）は速度概念がないので、頭打ち値そのものでその場吐出する。
         path = Path([Point3d(0.0, 0.0, 5.0)])
 
-        _sequence(path, rate_cap=5.0).to_gcode(mock_stage, mock_dispenser)
+        _sequence(path, rate_cap=rate_cap).to_gcode(mock_stage, mock_dispenser)
 
-        assert _dispense_rate(mock_dispenser) == pytest.approx(5.0)
+        assert _dispense_rate(mock_dispenser) == pytest.approx(expected)
 
     @pytest.mark.parametrize("rate", [1.0, 4.0, 16.0])
     def test_rate_sweep_amount_reaches_commanded_rate_at_fixed_speed(

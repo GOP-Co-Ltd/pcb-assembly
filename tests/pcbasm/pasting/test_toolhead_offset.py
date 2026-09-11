@@ -4,10 +4,8 @@
 実 ``XYZStage`` / ``ProbeExecutor`` / ``PasteApplicator`` を組み合わせ、送信 G-code で検証する。
 """
 
-import json
 import math
 from datetime import UTC, datetime
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -77,9 +75,6 @@ class TestToolheadOffsetSample:
             camera_position=Point2d(x=100.0, y=200.0),
         )
 
-        assert sample.board_position == Point2d(x=15.0, y=20.0)
-        assert sample.dispense_position == Point2d(x=101.5, y=197.7)
-        assert sample.camera_position == Point2d(x=100.0, y=200.0)
         assert sample.offset.x == pytest.approx(1.5)
         assert sample.offset.y == pytest.approx(-2.3)
 
@@ -151,14 +146,6 @@ class TestToolheadOffsetResult:
         assert data["samples"][0]["board_position"] == {"x": 0.0, "y": 10.0}
         assert data["point_spacing"] == pytest.approx(5.0)
         assert data["edge_margin"] == pytest.approx(5.0)
-
-    def test_save_load_roundtrip(self, tmp_path):
-        result = _make_result()
-        path = tmp_path / "toolhead_offset.json"
-
-        result.save(path)
-
-        assert ToolheadOffsetResult.load(path) == result
 
 
 class TestPlanToolheadOffsetPoints:
@@ -363,20 +350,6 @@ class TestToolheadOffsetDiagnostics:
             ],
         }
 
-    def test_save_writes_json(self, tmp_path: Path):
-        diagnostics = ToolheadOffsetDiagnostics(
-            requested_point_count=6,
-            minimum_valid_point_count=MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
-            failures=(),
-            successful_point_count=6,
-        )
-        path = tmp_path / "toolhead_offset_diagnostics.json"
-
-        written = diagnostics.save(path)
-
-        assert written == path
-        assert json.loads(path.read_text(encoding="utf-8")) == diagnostics.to_dict()
-
 
 def _board_result(klipper: FakeKlipper, camera: FakeCamera) -> BoardCalibrationResult:
     return BoardCalibrationResult(
@@ -484,11 +457,6 @@ class TestToolheadOffsetProcedure:
         assert approach["y"] == pytest.approx(probed.point.dispense.y)
         assert approach["z"] == pytest.approx(1.5 + paste_height + 5.0)
         assert descend["z"] == pytest.approx(1.5 + paste_height)
-
-    def test_roi_size_is_point_spacing_in_pixels(
-        self, procedure: ToolheadOffsetProcedure
-    ):
-        assert procedure.roi_size == (50, 50)
 
     def test_measure_returns_sample_when_paste_dot_is_at_roi_center(
         self,

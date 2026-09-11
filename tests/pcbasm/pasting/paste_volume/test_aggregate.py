@@ -27,7 +27,6 @@ class TestAggregateViews:
     def test_single_view_passes_through(self):
         result = aggregate_views([_measured(0.8)])
 
-        assert isinstance(result, DotDiameter)
         assert result.diameter_mm == pytest.approx(0.8)
         assert result.view_count == 1
         assert result.detected_view_count == 1

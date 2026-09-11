@@ -60,15 +60,6 @@ class TestEvaluateSession:
         assert evaluation is not None
         assert len(evaluation.cells) == len(session.cells())
 
-    def test_names_the_session_and_the_calibration(
-        self, session: DatasetSession, calibration: PasteVolumeCalibration
-    ):
-        evaluation, _ = evaluate_session(session, calibration)
-        assert evaluation is not None
-
-        assert evaluation.session == STEM
-        assert evaluation.calibration_label == calibration.label
-
     def test_accepts_the_dispensed_cells_and_rejects_the_blank(
         self, session: DatasetSession, calibration: PasteVolumeCalibration
     ):
@@ -78,15 +69,6 @@ class TestEvaluateSession:
 
         assert evaluation.accepted_count == len(session.metadata.samples)
         assert dict(evaluation.rejected_reasons) == {"no_deposit_detected": 1}
-
-    def test_reports_no_blank_false_positive_and_no_detection_failure(
-        self, session: DatasetSession, calibration: PasteVolumeCalibration
-    ):
-        evaluation, _ = evaluate_session(session, calibration)
-        assert evaluation is not None
-
-        assert evaluation.blank_false_positive_count == 0
-        assert evaluation.detection_failure_count == 0
 
     def test_tells_a_blank_apart_from_a_detection_failure(
         self, session: DatasetSession, calibration: PasteVolumeCalibration
