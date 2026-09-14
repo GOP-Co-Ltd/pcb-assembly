@@ -14,7 +14,7 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 - mainsail_url は backend 側で解決した値。リクエストのホスト名には追従しない
   （プロキシ配下で必ず誤るため）。未設定時は `http://{machine_id}.local`
   （machine_id が既にドットを含むなら `.local` を重ねない）
-- StateResponse に nozzle_cap を追加。`[nozzle_cap]` が x/y/z を揃えていない
+- StateResponse に nozzle_cap を追加。`[paste_dispenser.nozzle_cap]` が x/y/z を揃えていない
   machine.toml でも 200 + null（防御しないと全クライアントのポーリングが 500 する）
 """
 
@@ -45,7 +45,7 @@ class TestStateApi:
         assert data["focus_z"] == -25.0
         assert data["mainsail_url"] == webui_settings.mainsail_url
         assert data["preview_clients"] == 0  # Phase 2: spec §9
-        # fixture の machine.toml に [nozzle_cap] / [nozzle_clean] が無いので未記録
+        # fixture の machine.toml に [paste_dispenser.nozzle_cap] / [paste_dispenser.nozzle_clean] が無いので未記録
         assert data["nozzle_cap"] is None
         assert data["nozzle_clean"] is None
 
@@ -62,7 +62,11 @@ class TestStateApi:
         self, client: TestClient, store: ConfigStore
     ):
         store.write_machine_settings(
-            {"nozzle_cap.x": 10.0, "nozzle_cap.y": 20.0, "nozzle_cap.z": -3.5}
+            {
+                "paste_dispenser.nozzle_cap.x": 10.0,
+                "paste_dispenser.nozzle_cap.y": 20.0,
+                "paste_dispenser.nozzle_cap.z": -3.5,
+            }
         )
 
         data = client.get("/api/state").json()
@@ -72,7 +76,8 @@ class TestStateApi:
     def test_partially_recorded_nozzle_cap_reports_null_without_error(
         self, partial_nozzle_cap: Path, client: TestClient
     ):
-        """X だけ保存された `[nozzle_cap]` でも /api/state は 200 + null を返す.
+        """X だけ保存された `[paste_dispenser.nozzle_cap]` でも /api/state は 200 + null
+        を返す.
 
         `Machine.nozzle_cap` は x/y/z 必須の structure なので、防御しないと全ページの
         SSR と全クライアントのポーリングが 500 する（MR2 の要）。
@@ -88,10 +93,10 @@ class TestStateApi:
         """表示文字列はサーバーが組んで返す（JS に整形させない）."""
         store.write_machine_settings(
             {
-                "nozzle_clean.x": 10.0,
-                "nozzle_clean.y": 20.0,
-                "nozzle_clean.z": -30.0,
-                "nozzle_clean.press_depth": 0.4,
+                "paste_dispenser.nozzle_clean.x": 10.0,
+                "paste_dispenser.nozzle_clean.y": 20.0,
+                "paste_dispenser.nozzle_clean.z": -30.0,
+                "paste_dispenser.nozzle_clean.press_depth": 0.4,
             }
         )
 
@@ -102,7 +107,8 @@ class TestStateApi:
     def test_partially_recorded_nozzle_clean_reports_null_without_error(
         self, partial_nozzle_clean: Path, client: TestClient
     ):
-        """座標の無い `[nozzle_clean]` でも /api/state は 200 + null を返す."""
+        """座標の無い `[paste_dispenser.nozzle_clean]` でも /api/state は 200 + null
+        を返す."""
         response = client.get("/api/state")
 
         assert response.status_code == 200

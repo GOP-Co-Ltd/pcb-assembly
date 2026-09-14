@@ -15,6 +15,7 @@ from tomlkit.items import Item, Table
 from pcbasm.atomic import write_text_atomic
 from pcbasm.config import (
     DISPENSE_MODES,
+    LEGACY_NOZZLE_SECTIONS,
     LINE_DIRECTIONS,
     validate_audio_device,
     validate_audio_volume,
@@ -149,6 +150,23 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),
+    # [paste_dispenser.nozzle_cap] — タスク終了時の駐機先（マシン座標）
+    FieldSpec("paste_dispenser.nozzle_cap.x", "キャップ位置 X", "float", "mm"),
+    FieldSpec("paste_dispenser.nozzle_cap.y", "キャップ位置 Y", "float", "mm"),
+    FieldSpec("paste_dispenser.nozzle_cap.z", "キャップ位置 Z", "float", "mm"),
+    # [paste_dispenser.nozzle_clean] — 塗布開始時のノズル先端クリーニング（マシン座標）
+    FieldSpec("paste_dispenser.nozzle_clean.x", "クリーニング位置 X", "float", "mm"),
+    FieldSpec("paste_dispenser.nozzle_clean.y", "クリーニング位置 Y", "float", "mm"),
+    FieldSpec("paste_dispenser.nozzle_clean.z", "クリーニング面のZ高さ", "float", "mm"),
+    FieldSpec("paste_dispenser.nozzle_clean.press_depth", "押し込み量", "float", "mm"),
+    FieldSpec(
+        "paste_dispenser.nozzle_clean.purge_ul", "クリーニング前パージ量", "float", "uL"
+    ),
+    FieldSpec("paste_dispenser.nozzle_clean.stroke", "こすり幅 片側", "float", "mm"),
+    FieldSpec("paste_dispenser.nozzle_clean.passes", "往復回数", "int"),
+    FieldSpec(
+        "paste_dispenser.nozzle_clean.wipe_speed", "こすり速度", "float", "mm/sec"
+    ),
     # [probe]
     FieldSpec("probe.lift_height", "プローブ後の上昇高さ", "float", "mm"),
     FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
@@ -166,19 +184,6 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec(
         "reference_point.offsets.bottom_right", "右下 [x, y]", "float_pair", "mm"
     ),
-    # [nozzle_cap] — タスク終了時の駐機先（マシン座標）
-    FieldSpec("nozzle_cap.x", "キャップ位置 X", "float", "mm"),
-    FieldSpec("nozzle_cap.y", "キャップ位置 Y", "float", "mm"),
-    FieldSpec("nozzle_cap.z", "キャップ位置 Z", "float", "mm"),
-    # [nozzle_clean] — 塗布開始時のノズル先端クリーニング（マシン座標）
-    FieldSpec("nozzle_clean.x", "クリーニング位置 X", "float", "mm"),
-    FieldSpec("nozzle_clean.y", "クリーニング位置 Y", "float", "mm"),
-    FieldSpec("nozzle_clean.z", "クリーニング面のZ高さ", "float", "mm"),
-    FieldSpec("nozzle_clean.press_depth", "押し込み量", "float", "mm"),
-    FieldSpec("nozzle_clean.purge_ul", "クリーニング前パージ量", "float", "uL"),
-    FieldSpec("nozzle_clean.stroke", "こすり幅 片側", "float", "mm"),
-    FieldSpec("nozzle_clean.passes", "往復回数", "int"),
-    FieldSpec("nozzle_clean.wipe_speed", "こすり速度", "float", "mm/sec"),
     # [camera]
     FieldSpec("camera.calibration_file", "キャリブレーションファイル", "str"),
     FieldSpec("camera.device_id", "デバイスID", "int"),
@@ -252,7 +257,7 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     "paste_dispenser.pad_align.converge_tolerance",
                     "paste_dispenser.pad_align.max_correction",
                     "paste_dispenser.pad_align.search_window",
-                    "nozzle_clean.wipe_speed",
+                    "paste_dispenser.nozzle_clean.wipe_speed",
                 }:
                     name = spec.key.rsplit(".", 1)[-1]
                     if error := validate_positive_number(name, coerced_float):
@@ -260,9 +265,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 if spec.key in {
                     "paste_dispenser.flow_calibration.settle_seconds",
                     "paste_dispenser.pad_align.refine_max_short_side",
-                    "nozzle_clean.press_depth",
-                    "nozzle_clean.purge_ul",
-                    "nozzle_clean.stroke",
+                    "paste_dispenser.nozzle_clean.press_depth",
+                    "paste_dispenser.nozzle_clean.purge_ul",
+                    "paste_dispenser.nozzle_clean.stroke",
                 }:
                     name = spec.key.rsplit(".", 1)[-1]
                     if error := validate_non_negative_number(name, coerced_float):
@@ -298,7 +303,7 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 ):
                     raise UnknownFieldError(f"{spec.key}: 1以上の値が必要です")
                 # 0 は「こすらない」設定として受理する
-                if spec.key == "nozzle_clean.passes" and value < 0:
+                if spec.key == "paste_dispenser.nozzle_clean.passes" and value < 0:
                     raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
                 return value
         case "str":
@@ -380,6 +385,7 @@ class ConfigStore:
         }
         path = self.machine_toml_path()
         doc = tomlkit.parse(path.read_text())
+        _migrate_legacy_nozzle_sections(doc)
         for key, value in coerced.items():
             *table_keys, option = key.split(".")
             table = doc
@@ -396,6 +402,32 @@ class ConfigStore:
         if key not in _MACHINE_FIELDS_BY_KEY:
             raise UnknownFieldError(f"未知のマシン設定キーです: {key}")
         return _MACHINE_FIELDS_BY_KEY[key]
+
+
+def _migrate_legacy_nozzle_sections(doc: tomlkit.TOMLDocument) -> None:
+    """旧トップレベルのノズル位置セクションを [paste_dispenser] 配下へ移す.
+
+    `Machine` は旧パスも読むので設定を書き換えなくても動くが、放っておくと新旧が二重に
+    残り、どちらが使われているか分からなくなる。設定を書き込むついでに移して旧セクション
+    を消す（運転者が machine.toml を手で直さなくて済む）。
+
+    既に移行済みの値がある場合は、旧セクションの残骸で上書きせずに捨てる。
+    """
+    for name in LEGACY_NOZZLE_SECTIONS:
+        legacy = doc.get(name)
+        if legacy is None:
+            continue
+        if "paste_dispenser" not in doc:
+            doc["paste_dispenser"] = tomlkit.table()
+        parent = doc["paste_dispenser"]
+        if not isinstance(parent, Table):
+            # [paste_dispenser] 群が他のテーブルで分断されていると Table ではなく
+            # proxy になり、ここへは入れられない。消すと座標が失われるので残す
+            continue
+        # 移行先へ入れられると確かめてから消す（消してから弾かれると無音で失われる）
+        if name not in parent:
+            parent[name] = legacy
+        del doc[name]
 
 
 def _lookup_toml(doc: tomlkit.TOMLDocument, key: str) -> object | None:

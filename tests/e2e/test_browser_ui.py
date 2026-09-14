@@ -439,12 +439,16 @@ class TestNozzlePositionsOverBrowser:
             f"{live_ui.base_url}/pasting/nozzle_cap", wait_until="domcontentloaded"
         )
         _acquire_control(browser_page)
-        field = browser_page.locator('input[name="nozzle_clean.press_depth"]')
+        field = browser_page.locator(
+            'input[name="paste_dispenser.nozzle_clean.press_depth"]'
+        )
         field.wait_for(state="visible", timeout=10_000)
 
         field.fill("0.4")
 
-        _wait_machine_field(live_server.base_url, "nozzle_clean.press_depth", 0.4)
+        _wait_machine_field(
+            live_server.base_url, "paste_dispenser.nozzle_clean.press_depth", 0.4
+        )
 
 
 class TestAudioPageOverBrowser:

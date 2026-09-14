@@ -129,29 +129,29 @@ def appstate(backend_app: FastAPI) -> AppState:
 
 @pytest.fixture
 def partial_nozzle_cap(config_dir: Path) -> Path:
-    """`[nozzle_cap]` に x だけを書いた machine.toml を用意する（そのパスを返す）.
+    """`[paste_dispenser.nozzle_cap]` に x だけを書いた machine.toml を用意する（そのパスを返す）.
 
     設定画面から 1 軸だけ保存すると実際にこの配置になり、`Machine.nozzle_cap` の
-    structure は例外を投げる。`/api/state` と SSR がこれで 500 しないことをピンする
+    `Machine` は「未記録」として扱う。`/api/state` と SSR がこれで 500 しないことをピンする
     ための素材（`AppState.nozzle_cap()` の防御が要）。
     """
     with config_dir.joinpath("machine.toml").open(
         "a", encoding="utf-8"
     ) as machine_toml:
-        machine_toml.write("\n[nozzle_cap]\nx = 12.5\n")
+        machine_toml.write("\n[paste_dispenser.nozzle_cap]\nx = 12.5\n")
     return config_dir / "machine.toml"
 
 
 @pytest.fixture
 def partial_nozzle_clean(config_dir: Path) -> Path:
-    """`[nozzle_clean]` に動作値だけを書いた machine.toml を用意する.
+    """`[paste_dispenser.nozzle_clean]` に動作値だけを書いた machine.toml を用意する.
 
     設定画面から押し込み量だけ保存すると座標の無いテーブルができる。`NozzleClean` は
-    座標必須なので structure が例外を投げる素材。
+    座標必須なので「未記録」として扱われる素材。
     """
     path = config_dir / "machine.toml"
     with path.open("a", encoding="utf-8") as machine_toml:
-        machine_toml.write("\n[nozzle_clean]\npress_depth = 0.4\n")
+        machine_toml.write("\n[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n")
     return path
 
 
@@ -701,8 +701,8 @@ class TestProbeGuidePage:
 class TestNozzleCapPage:
     """ノズルキャップ位置の設定ページ（nozzle-cap-parking 計画書「WebUI」節）.
 
-    ジョブではない静的な設定ページ（非ジョブテンプレート）。現在値が未記録 （repo fixture に [nozzle_cap]
-    なし）のときは「未記録」を表示する。
+    ジョブではない静的な設定ページ（非ジョブテンプレート）。現在値が未記録 （repo fixture に
+    [paste_dispenser.nozzle_cap] なし）のときは「未記録」を表示する。
     """
 
     def test_partially_recorded_cap_shows_placeholder(
@@ -732,14 +732,14 @@ class TestNozzleCapPage:
         response = client.get("/pasting/nozzle_cap")
 
         assert 'data-testid="nozzle-clean-settings"' in response.text
-        assert 'name="nozzle_clean.press_depth"' in response.text
+        assert 'name="paste_dispenser.nozzle_clean.press_depth"' in response.text
         # 座標は記録ボタンの管轄なので手打ち欄を並べない
-        assert 'name="nozzle_clean.x"' not in response.text
+        assert 'name="paste_dispenser.nozzle_clean.x"' not in response.text
 
     def test_partially_recorded_clean_shows_placeholder(
         self, partial_nozzle_clean: Path, client: TestClient
     ):
-        """座標の無い `[nozzle_clean]` でも 500 にせず「未記録」を出す."""
+        """座標の無い `[paste_dispenser.nozzle_clean]` でも 500 にせず「未記録」を出す."""
         response = client.get("/pasting/nozzle_cap")
 
         assert response.status_code == 200
@@ -752,7 +752,7 @@ class TestNozzleCapPage:
         path = config_dir / "machine.toml"
         with path.open("a", encoding="utf-8") as machine_toml:
             machine_toml.write(
-                "\n[nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\npress_depth = 0.4\n"
+                "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\npress_depth = 0.4\n"
             )
 
         response = client.get("/pasting/nozzle_cap")
@@ -827,12 +827,14 @@ class TestUnsetMachineSettingsShowResolvedValues:
         """
         path = config_dir / "machine.toml"
         with path.open("a", encoding="utf-8") as machine_toml:
-            machine_toml.write("\n[nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\n")
+            machine_toml.write(
+                "\n[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\n"
+            )
 
         text = client.get("/pasting/nozzle_cap").text
 
         # NozzleClean の既定値（press_depth=0.5 / stroke=2.0 / passes=2）
-        assert 'name="nozzle_clean.press_depth"' in text
+        assert 'name="paste_dispenser.nozzle_clean.press_depth"' in text
         assert 'value="0.5"' in text
         assert 'value="2.0"' in text
         assert 'value="2"' in text

@@ -65,7 +65,7 @@ def record_nozzle_cap(
 ) -> NozzleCapPosition:
     """現在のマシン座標をノズルキャップ位置として記録する."""
     saved = _record_current_position(
-        state, store, owner="nozzle-cap-record", prefix="nozzle_cap"
+        state, store, owner="nozzle-cap-record", prefix="paste_dispenser.nozzle_cap"
     )
     jobs.publish_state_changed()
     return NozzleCapPosition(x=saved.x, y=saved.y, z=saved.z)
@@ -81,7 +81,7 @@ def record_nozzle_clean(
     差し引く。書き込んだ設定を読み戻すので、表示用の文字列も同じ応答で返せる。
     """
     _record_current_position(
-        state, store, owner="nozzle-clean-record", prefix="nozzle_clean"
+        state, store, owner="nozzle-clean-record", prefix="paste_dispenser.nozzle_clean"
     )
     # 書き込みは終わっているので、読み戻しの成否に関わらず状態変更を知らせる
     jobs.publish_state_changed()

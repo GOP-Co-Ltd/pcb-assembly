@@ -56,6 +56,24 @@ board_edge_margin = 1.0
 converge_tolerance = 0.03
 region_overlap = 0.2
 
+# タスク終了時の駐機先。WebUI の「ノズル位置の設定」で記録する。
+[paste_dispenser.nozzle_cap]
+x = 67.6
+y = 51.7
+z = -24.0
+
+# 塗布ジョブ開始時のノズル先端クリーニング。位置は WebUI の「ノズル位置の設定」で記録する。
+# セクションごと無いとクリーニングを行わずに塗布を開始する。
+# [paste_dispenser.nozzle_clean]
+# x = 0.0           # クリーニング位置 X [mm]
+# y = 0.0           # クリーニング位置 Y [mm]
+# z = 0.0           # クリーニング面（シリコン表面）の Z 高さ [mm]
+# press_depth = 0.5 # 面からの押し込み量 [mm]
+# purge_ul = 0.2    # こすり前のパージ量 [uL]
+# stroke = 2.0      # 十字往復の片振幅 [mm]
+# passes = 2        # 十字往復の反復回数
+# wipe_speed = 10.0 # こすり移動速度 [mm/sec]
+
 [camera]
 device_id = 0
 width = 1280
@@ -93,23 +111,6 @@ top_left = [2.5, -5.0]
 top_right = [-2.5, -5.0]
 bottom_left = [2.5, 5.0]
 bottom_right = [-2.5, 5.0]
-
-[nozzle_cap]
-x = 67.6
-y = 51.7
-z = -24.0
-
-# 塗布ジョブ開始時のノズル先端クリーニング。位置は WebUI の「ノズル位置の設定」で記録する。
-# セクションごと無いとクリーニングを行わずに塗布を開始する。
-# [nozzle_clean]
-# x = 0.0           # クリーニング位置 X [mm]
-# y = 0.0           # クリーニング位置 Y [mm]
-# z = 0.0           # クリーニング面（シリコン表面）の Z 高さ [mm]
-# press_depth = 0.5 # 面からの押し込み量 [mm]
-# purge_ul = 0.2    # こすり前のパージ量 [uL]
-# stroke = 2.0      # 十字往復の片振幅 [mm]
-# passes = 2        # 十字往復の反復回数
-# wipe_speed = 10.0 # こすり移動速度 [mm/sec]
 
 # ジョブ完了通知音の出力先。省略時は ALSA のシステム既定デバイス・音量 0.75。
 # WebUI の /dev/audio で選ぶと config/machine.toml 側に書き込まれる
