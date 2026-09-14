@@ -349,6 +349,64 @@ class TestLegacyNozzleSectionMigration:
         assert values["paste_dispenser.nozzle_cap.x"] == 10.0
         assert values["paste_dispenser.max_fill_speed"] == 1.1
 
+    def test_out_of_order_paste_dispenser_keeps_the_legacy_section(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """移行先へ入れられないときは旧セクションを消さない.
+
+        [paste_dispenser] 群が他のテーブルで分断されていると tomlkit は Table ではなく proxy
+        を返し、そこへは入れられない。消してから弾くと座標が無音で失われ、 キャップ駐機が効かなくなる。
+        """
+        path = config_dir / "machine.toml"
+        with path.open("a", encoding="utf-8") as machine_toml:
+            machine_toml.write(
+                "\n[paste_dispenser.pad_align]\nmax_passes = 3\n"
+                "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n"
+            )
+
+        store.write_machine_settings({"machine_name": "移行テスト"})
+
+        text = path.read_text()
+        assert "[nozzle_cap]" in text
+        assert "x = 10.0" in text
+
+    def test_migration_keeps_inline_comments_but_orphans_the_heading(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """行内コメントはテーブルごと移り、見出しコメントは元の位置に残る.
+
+        tomlkit ではセクション直上の独立コメントがテーブルとは別の要素なので、一緒には
+        移せない。動作には影響しないが、移行後に手書きの注釈が孤立することを明示する。
+        """
+        path = config_dir / "machine.toml"
+        with path.open("a", encoding="utf-8") as machine_toml:
+            machine_toml.write(
+                "\n# 手書きの見出しコメント\n[nozzle_cap]\nx = 10.0 # 実測\ny = 20.0\nz = 3.5\n"
+            )
+
+        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
+
+        text = path.read_text()
+        assert "x = 10.0 # 実測" in text
+        assert "# 手書きの見出しコメント" in text
+
+    def test_migration_creates_paste_dispenser_when_absent(
+        self, store: ConfigStore, tmp_path: Path
+    ):
+        """[paste_dispenser] が無いファイルでも座標を失わない."""
+        config_dir = tmp_path / "minimal-config"
+        config_dir.mkdir()
+        path = config_dir / "machine.toml"
+        path.write_text(
+            'machine_type = "paste"\n\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n'
+        )
+
+        ConfigStore(config_dir).write_machine_settings({"machine_name": "新規機体"})
+
+        values = ConfigStore(config_dir).read_machine_settings()
+        assert values["paste_dispenser.nozzle_cap.x"] == 10.0
+        assert "[nozzle_cap]" not in path.read_text()
+
     def test_write_keeps_other_lines_when_there_is_nothing_to_migrate(
         self, store: ConfigStore, config_dir: Path
     ):

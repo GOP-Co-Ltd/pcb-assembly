@@ -144,7 +144,7 @@ class AppState:
         """ノズルキャップ位置を返す（未記録・取得できなければ None）.
 
         ``[nozzle_cap]`` テーブルが x/y/z の一部しか持たない（設定画面から 1 軸だけ
-        保存した）場合、``Machine.nozzle_cap`` の structure は例外を投げる。この値を
+        保存した）場合、``Machine.nozzle_cap`` は「未記録」として ``None`` を返す。この値を
         読むのは ``/api/state``・ノズルキャップページ・``move_to_cap`` の 3 経路なので、
         ここで None へ潰して「未記録」として扱えるようにする。
         """
@@ -157,7 +157,7 @@ class AppState:
         """ノズルクリーニング位置を返す（未記録・取得できなければ None）.
 
         設定画面から動作値だけを保存すると座標の無い ``[nozzle_clean]`` ができ、座標が
-        必須の ``Machine.nozzle_clean`` は structure で例外を投げる。``nozzle_cap`` と
+        座標必須の ``Machine.nozzle_clean`` は「未記録」として ``None`` を返す。``nozzle_cap`` と
         同じく、ここで None へ潰して「未記録」として扱う。
         """
         try:

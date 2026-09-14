@@ -634,8 +634,27 @@ class ReferencePoint:
         return board_corner + self.offsets.get(corner)
 
 
-# [paste_dispenser] の外に書かれていた頃のノズル位置セクション名（読まない）
+# [paste_dispenser] の外に書かれていた頃のノズル位置セクション名
 LEGACY_NOZZLE_SECTIONS = ("nozzle_cap", "nozzle_clean")
+
+
+def _merge_legacy_nozzle_sections(data: dict[str, Any]) -> None:
+    """旧トップレベルのノズル位置を [paste_dispenser] 配下へ写す.
+
+    設定ファイルを書き換えなくても動き続けるようにする（ファイル自体の移行は
+    設定を書き込むときに ``ConfigStore`` が行う）。読み取り経路をここ 1 箇所に
+    まとめるのは、``paste_dispenser`` 経由で読む消費者とノズル専用のアクセサで
+    見える値が食い違わないようにするため。
+
+    移行済みの値がある場合は、旧セクションの残骸で上書きしない。
+    """
+    for name in LEGACY_NOZZLE_SECTIONS:
+        legacy = data.pop(name, None)
+        if legacy is None:
+            continue
+        parent = data.setdefault("paste_dispenser", {})
+        if isinstance(parent, dict):
+            parent.setdefault(name, legacy)
 
 
 def _structure_or_none(
@@ -654,9 +673,12 @@ def _structure_or_none(
         return None
     try:
         return converter.structure(value, cls)
-    except Exception:
+    except Exception as exc:
         logger.warning(
-            "%s の設定を読めないため未記録として扱います: %r", cls.__name__, value
+            "%s の設定を読めないため未記録として扱います: %s（%r）",
+            cls.__name__,
+            exc,
+            value,
         )
         return None
 
@@ -709,6 +731,7 @@ class Machine:
         path = Path(path)
         with open(path, "rb") as f:
             self._data = tomllib.load(f)
+        _merge_legacy_nozzle_sections(self._data)
         self._config_dir = path.parent.resolve()
         self._converter = cattrs.Converter()
         self._converter.register_structure_hook_func(
@@ -773,22 +796,9 @@ class Machine:
         ため。キャップ駐機はタスク終了時のクリーンアップ経路で、設定の不備で例外を投げる
         と脱力すらできなくなる。読めないサブテーブルは ``None``（未記録）にする。
         """
-        section = self._data.get("paste_dispenser", {}).get(name)
-        if section is None:
-            # 旧トップレベルのままでも動き続ける。ファイル自体は設定を書き込むときに
-            # 新パスへ移す（ConfigStore が移行する）
-            section = self._data.get(name)
+        parent = self._data.get("paste_dispenser")
+        section = parent.get(name) if isinstance(parent, dict) else None
         return _structure_or_none(section, cls, self._converter)
-
-    @property
-    def legacy_nozzle_sections(self) -> tuple[str, ...]:
-        """paste_dispenser の外に残った旧ノズル位置セクション名を宣言順に返す.
-
-        ``[nozzle_cap]`` / ``[nozzle_clean]`` は ``[paste_dispenser]`` 配下へ移した。
-        旧セクションは読まないので、残ったまま気づかないとキャップ駐機が黙って効かなく
-        なりノズルが乾く。移行が済んでいない設定ファイルを申告するために見る。
-        """
-        return tuple(name for name in LEGACY_NOZZLE_SECTIONS if name in self._data)
 
     @property
     def audio(self) -> Audio:

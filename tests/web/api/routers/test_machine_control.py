@@ -101,9 +101,7 @@ class TestMoveToCap:
     ):
         """X だけ保存された `[paste_dispenser.nozzle_cap]` は「未記録」として 400 で断る（MR2）.
 
-        `Machine.nozzle_cap` の structure が投げる `ClassValidationError` は
-        `ExceptionGroup` 派生で `ValueError` ではないため、生の
-        `state.machine().nozzle_cap` を読んでいると 400 分岐に到達せず 500 になる。
+        座標の欠けたテーブルは「未記録」として扱われるので、未記録と同じ 400 へ落ちる。
         """
         response = client.post("/api/machine-control", json={"action": "move_to_cap"})
 

@@ -660,37 +660,40 @@ class TestNozzleClean:
 
 
 class TestLegacyNozzleSections:
-    """旧トップレベル [nozzle_cap] / [nozzle_clean] の検出.
+    """旧トップレベル [nozzle_cap] / [nozzle_clean] の読み替え.
 
-    値は新パスとして読むので動作は続くが、設定を書き込むときにファイルごと移す。 どのセクションが未移行かを申告できるようにする。
+    設定ファイルを書き換えなくても動き続けるよう、読み込み時に [paste_dispenser]
+    配下へ写す。ファイル自体の移行は設定を書き込むときに ConfigStore が行う
+    （契約は tests/web/api/test_config_store.py::TestLegacyNozzleSectionMigration）。
     """
 
-    def test_no_legacy_sections_by_default(self):
-        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+    def test_legacy_section_is_visible_through_paste_dispenser(self, tmp_path: Path):
+        """ノズル専用のアクセサと paste_dispenser 経由で同じ値が見える.
 
-        assert machine.legacy_nozzle_sections == ()
+        ここが食い違うと、/settings が「未設定」でノズル位置ページが「記録済み」と 並ぶような表示になる。
+        """
+        machine = _machine_with(tmp_path, "[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n")
 
-    @pytest.mark.parametrize("name", ["nozzle_cap", "nozzle_clean"])
-    def test_reports_a_legacy_section(self, tmp_path: Path, name: str):
-        machine = _machine_with(tmp_path, f"[{name}]\nx = 1.0\ny = 2.0\nz = 3.0\n")
+        assert machine.paste_dispenser.nozzle_cap == machine.nozzle_cap
+        assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
 
-        assert machine.legacy_nozzle_sections == (name,)
+    def test_legacy_clean_section_is_visible_through_paste_dispenser(
+        self, tmp_path: Path
+    ):
+        machine = _machine_with(
+            tmp_path, "[nozzle_clean]\nx = 1.0\ny = 2.0\nz = -3.0\n"
+        )
 
-    def test_reports_both_in_declaration_order(self, tmp_path: Path):
+        assert machine.paste_dispenser.nozzle_clean == machine.nozzle_clean
+
+    def test_new_section_wins_over_the_legacy_one(self, tmp_path: Path):
         machine = _machine_with(
             tmp_path,
             "[nozzle_cap]\nx = 1.0\ny = 2.0\nz = 3.0\n"
-            "[nozzle_clean]\nx = 1.0\ny = 2.0\nz = 3.0\n",
+            "[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
         )
 
-        assert machine.legacy_nozzle_sections == ("nozzle_cap", "nozzle_clean")
-
-    def test_new_sections_are_not_reported(self, tmp_path: Path):
-        machine = _machine_with(
-            tmp_path, "[paste_dispenser.nozzle_cap]\nx = 1.0\ny = 2.0\nz = 3.0\n"
-        )
-
-        assert machine.legacy_nozzle_sections == ()
+        assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
 
 
 class TestCornerOffsets:

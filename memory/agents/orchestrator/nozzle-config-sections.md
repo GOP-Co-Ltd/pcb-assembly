@@ -64,7 +64,7 @@ pnp マシンには `[paste_dispenser]` が無いので、その吸収も 1 箇�
 - [x] 段階 1 計画
 - [x] 段階 2 テスト
 - [x] 段階 3 実装
-- [ ] 段階 4 自己レビュー + code-reviewer
+- [x] 段階 4 自己レビュー + code-reviewer（must-fix 2 / should-fix 7 / nit 3）
 - [ ] 段階 5 ドキュメント
 - [ ] MR
 
@@ -83,3 +83,16 @@ gitignore 配下なので手で移設し、tomllib で読み比べて値が変�
     そのものが動かなくなる
 - 不完全なサブテーブルは structure hook で None（未記録）へ落とす。素直に structure
     させると PasteDispenser 全体が読めなくなり、塗布パラメータが軒並み失われる
+
+## レビュー指摘への対応
+
+- **M1 無音のデータ喪失**: `del doc[name]` が「入れられるか」の判定より前にあり、
+    `[paste_dispenser]` 群が分断された toml（tomlkit が proxy を返す）では旧セクションを
+    消したうえで新パスにも入らず、教示済みの座標が失われていた。入れられると確かめてから
+    消す順序に直し、回帰テストを置いた
+- **M2 + S2 + N1**: 読み替えを `Machine.__init__` の `_merge_legacy_nozzle_sections` へ
+    一本化した。`paste_dispenser` 経由で読む消費者とノズル専用アクセサで値が食い違わなく
+    なり（未移行ファイルで /settings が「未設定」・ノズル位置ページが「記録済み」と並ぶ
+    問題も消える）、使われないまま残っていた `legacy_nozzle_sections` も削除できた
+- **S5 コメントの孤立は仕様として受け入れ**、テストで明示した。tomlkit ではセクション
+    直上の独立コメントがテーブルとは別要素で一緒に移せない。行内コメントは保たれる

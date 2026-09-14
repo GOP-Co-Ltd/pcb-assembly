@@ -150,23 +150,6 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),
-    # [probe]
-    FieldSpec("probe.lift_height", "プローブ後の上昇高さ", "float", "mm"),
-    FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
-    FieldSpec("probe.board_edge_margin", "基板外形からの最小距離", "float", "mm"),
-    FieldSpec("probe.min_samples", "最小サンプル数", "int"),
-    FieldSpec("probe.max_samples", "最大サンプル数", "int"),
-    # [reference_point]
-    FieldSpec("reference_point.x", "基準点 X", "float", "mm"),
-    FieldSpec("reference_point.y", "基準点 Y", "float", "mm"),
-    FieldSpec("reference_point.target_diameter", "基準点マーカー直径", "float", "mm"),
-    # [reference_point.offsets] — 基盤コーナーから基準点マーカーへの相対位置 [x, y]
-    FieldSpec("reference_point.offsets.top_left", "左上 [x, y]", "float_pair", "mm"),
-    FieldSpec("reference_point.offsets.top_right", "右上 [x, y]", "float_pair", "mm"),
-    FieldSpec("reference_point.offsets.bottom_left", "左下 [x, y]", "float_pair", "mm"),
-    FieldSpec(
-        "reference_point.offsets.bottom_right", "右下 [x, y]", "float_pair", "mm"
-    ),
     # [paste_dispenser.nozzle_cap] — タスク終了時の駐機先（マシン座標）
     FieldSpec("paste_dispenser.nozzle_cap.x", "キャップ位置 X", "float", "mm"),
     FieldSpec("paste_dispenser.nozzle_cap.y", "キャップ位置 Y", "float", "mm"),
@@ -183,6 +166,23 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.nozzle_clean.passes", "往復回数", "int"),
     FieldSpec(
         "paste_dispenser.nozzle_clean.wipe_speed", "こすり速度", "float", "mm/sec"
+    ),
+    # [probe]
+    FieldSpec("probe.lift_height", "プローブ後の上昇高さ", "float", "mm"),
+    FieldSpec("probe.min_radius", "銅箔境界からの最小距離", "float", "mm"),
+    FieldSpec("probe.board_edge_margin", "基板外形からの最小距離", "float", "mm"),
+    FieldSpec("probe.min_samples", "最小サンプル数", "int"),
+    FieldSpec("probe.max_samples", "最大サンプル数", "int"),
+    # [reference_point]
+    FieldSpec("reference_point.x", "基準点 X", "float", "mm"),
+    FieldSpec("reference_point.y", "基準点 Y", "float", "mm"),
+    FieldSpec("reference_point.target_diameter", "基準点マーカー直径", "float", "mm"),
+    # [reference_point.offsets] — 基盤コーナーから基準点マーカーへの相対位置 [x, y]
+    FieldSpec("reference_point.offsets.top_left", "左上 [x, y]", "float_pair", "mm"),
+    FieldSpec("reference_point.offsets.top_right", "右上 [x, y]", "float_pair", "mm"),
+    FieldSpec("reference_point.offsets.bottom_left", "左下 [x, y]", "float_pair", "mm"),
+    FieldSpec(
+        "reference_point.offsets.bottom_right", "右下 [x, y]", "float_pair", "mm"
     ),
     # [camera]
     FieldSpec("camera.calibration_file", "キャリブレーションファイル", "str"),
@@ -417,13 +417,17 @@ def _migrate_legacy_nozzle_sections(doc: tomlkit.TOMLDocument) -> None:
         legacy = doc.get(name)
         if legacy is None:
             continue
-        del doc[name]
         if "paste_dispenser" not in doc:
             doc["paste_dispenser"] = tomlkit.table()
         parent = doc["paste_dispenser"]
-        if not isinstance(parent, Table) or name in parent:
+        if not isinstance(parent, Table):
+            # [paste_dispenser] 群が他のテーブルで分断されていると Table ではなく
+            # proxy になり、ここへは入れられない。消すと座標が失われるので残す
             continue
-        parent[name] = legacy
+        # 移行先へ入れられると確かめてから消す（消してから弾かれると無音で失われる）
+        if name not in parent:
+            parent[name] = legacy
+        del doc[name]
 
 
 def _lookup_toml(doc: tomlkit.TOMLDocument, key: str) -> object | None:
