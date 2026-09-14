@@ -16,8 +16,9 @@ import attrs
 import httpx
 from fastapi import HTTPException
 
-from pcbasm.config import Machine
+from pcbasm.config import Machine, NozzleClean
 from pcbasm.hal import Klipper
+from pcbasm.pasting.nozzle_clean import clean_position_label
 from web.api.config_store import (
     MACHINE_FIELDS,
     ConfigStore,
@@ -34,6 +35,7 @@ from web.api.models import (
     JobBrief,
     KlipperStatus,
     MachineInfo,
+    NozzleCleanInfo,
     Position,
     SettingsField,
     StateResponse,
@@ -97,6 +99,20 @@ def control_payload(info: LeaseInfo) -> ControlInfo:
     )
 
 
+def nozzle_clean_payload(clean: NozzleClean) -> NozzleCleanInfo:
+    """クリーニング設定を API 表現へ変換する（唯一の変換点）.
+
+    押し込み後の高さと表示文字列は `pcbasm` が持つ値をそのまま詰める。
+    """
+    return NozzleCleanInfo(
+        x=clean.x,
+        y=clean.y,
+        z=clean.z,
+        press_z=clean.press_z,
+        label=clean_position_label(clean),
+    )
+
+
 def build_state_response(
     state: AppState,
     settings: Settings,
@@ -110,6 +126,7 @@ def build_state_response(
     pcb = state.selected_pcb
     record = jobs.current()
     cap = state.nozzle_cap()
+    clean = state.nozzle_clean()
     return StateResponse(
         control=control_payload(control),
         you=ClientInfo(key=identity.key),
@@ -125,6 +142,7 @@ def build_state_response(
             else None
         ),
         nozzle_cap=(None if cap is None else Position(x=cap.x, y=cap.y, z=cap.z)),
+        nozzle_clean=(None if clean is None else nozzle_clean_payload(clean)),
     )
 
 

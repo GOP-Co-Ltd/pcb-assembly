@@ -42,6 +42,19 @@ class Position(BaseModel):
     z: float
 
 
+class NozzleCleanInfo(BaseModel):
+    """ノズルクリーニング位置と、そこから導いた表示用の値.
+
+    ``press_z`` と ``label`` はサーバーが算出して返す（JS に減算や整形をさせない）。
+    """
+
+    x: float
+    y: float
+    z: float
+    press_z: float
+    label: str
+
+
 class KlipperStatus(BaseModel):
     """Klipper の接続状態とステージ状態."""
 
@@ -151,11 +164,12 @@ class StateResponse(BaseModel):
     preview_clients: int
     job: JobBrief | None
     nozzle_cap: Position | None
-    # 既定値を持たせるのは、この 2 つを返さない古い backend を frontend が
+    # 既定値を持たせるのは、この 3 つを返さない古い backend を frontend が
     # そのまま parse できるようにするため（既定は「保持者なし」+ 空キー =
     # どの保持者とも一致しない fail-closed な値）
     control: ControlInfo = ControlInfo()
     you: ClientInfo = ClientInfo()
+    nozzle_clean: NozzleCleanInfo | None = None
 
 
 class SettingsField(BaseModel):

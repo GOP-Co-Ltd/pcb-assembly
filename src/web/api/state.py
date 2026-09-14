@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from pcbasm.atomic import write_text_atomic
-from pcbasm.config import Machine, NozzleCap
+from pcbasm.config import Machine, NozzleCap, NozzleClean
 from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.vision import CalibrationResult
 from web.api.config_store import ConfigStore, MachineSettingValue
@@ -150,6 +150,18 @@ class AppState:
         """
         try:
             return self.machine().nozzle_cap
+        except Exception:
+            return None
+
+    def nozzle_clean(self) -> NozzleClean | None:
+        """ノズルクリーニング位置を返す（未記録・取得できなければ None）.
+
+        設定画面から動作値だけを保存すると座標の無い ``[nozzle_clean]`` ができ、座標が
+        必須の ``Machine.nozzle_clean`` は structure で例外を投げる。``nozzle_cap`` と
+        同じく、ここで None へ潰して「未記録」として扱う。
+        """
+        try:
+            return self.machine().nozzle_clean
         except Exception:
             return None
 

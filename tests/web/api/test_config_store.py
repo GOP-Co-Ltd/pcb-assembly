@@ -89,6 +89,13 @@ class TestMachineSettings:
             ("probe.board_edge_margin", 3.0),
             ("reference_point.offsets.bottom_right", [-4.0, 4.0]),
             ("nozzle_cap.x", 10.123),
+            ("nozzle_clean.x", 10.123),
+            ("nozzle_clean.wipe_speed", 8.0),
+            # 境界: 0 は「その工程を行わない」設定として受理する
+            ("nozzle_clean.press_depth", 0.0),
+            ("nozzle_clean.purge_ul", 0.0),
+            ("nozzle_clean.stroke", 0.0),
+            ("nozzle_clean.passes", 0),
             ("paste_dispenser.pad_align.region_size_px", 160),
             ("paste_dispenser.pad_align.region_overlap", 0.25),
         ],
@@ -214,6 +221,11 @@ class TestMachineSettings:
             ("probe.board_edge_margin", 0.0),
             ("probe.board_edge_margin", -1.0),
             ("paste_dispenser.initial_purge_ul", -0.01),
+            ("nozzle_clean.press_depth", -0.01),
+            ("nozzle_clean.purge_ul", -0.01),
+            ("nozzle_clean.stroke", -0.01),
+            ("nozzle_clean.wipe_speed", 0.0),
+            ("nozzle_clean.passes", -1),
             # int フィールドへ整数でない float
             ("paste_dispenser.pad_align.blur_ksize", 5.5),
             ("audio.volume", float("nan")),
@@ -278,6 +290,12 @@ class TestNozzleCapFields:
         assert values["nozzle_cap.x"] is None
         assert values["nozzle_cap.y"] is None
         assert values["nozzle_cap.z"] is None
+
+    def test_missing_nozzle_clean_reads_as_none(self, store: ConfigStore):
+        values = store.read_machine_settings()
+
+        assert values["nozzle_clean.x"] is None
+        assert values["nozzle_clean.press_depth"] is None
 
 
 class TestPadAlignRegionSettings:

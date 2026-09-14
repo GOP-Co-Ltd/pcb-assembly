@@ -254,6 +254,7 @@ SECTION_LABELS: dict[str, str] = {
     "reference_point": "基準点",
     "reference_point.offsets": "基準点 / コーナーオフセット",
     "nozzle_cap": "ノズルキャップ",
+    "nozzle_clean": "ノズルクリーニング",
     "camera": "カメラ",
     "camera.crop": "カメラ / クロップ",
     "audio": "通知音",

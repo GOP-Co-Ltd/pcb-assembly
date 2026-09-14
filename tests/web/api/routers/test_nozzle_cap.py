@@ -62,3 +62,42 @@ class TestRecordNozzleCap:
         stale = real_client.post("/api/pasting/nozzle-cap/record")
         assert stale.status_code == 400
         assert "ホーミング" in stale.text
+
+
+class TestRecordNozzleClean:
+    """ノズルクリーニング位置の記録エンドポイント（キャップと同じ契約）.
+
+    キャップと違い、押し込み後の高さ `press_z` と表示文字列 `label` も返す
+    （JS に整形を持たせないため）。
+    """
+
+    def test_unreachable_moonraker_returns_502(self, client: TestClient):
+        response = client.post("/api/pasting/nozzle-clean/record")
+
+        assert response.status_code == 502
+
+    def test_busy_returns_409_with_owner_in_detail(
+        self, client: TestClient, appstate: AppState
+    ):
+        with appstate.machine_lock("pytest-job"):
+            response = client.post("/api/pasting/nozzle-clean/record")
+
+        assert response.status_code == 409
+        assert "pytest-job" in response.text
+
+    @mark_hardware
+    def test_record_persists_position_and_returns_derived_values(
+        self, real_client: TestClient, real_settings: Settings
+    ):
+        home = real_client.post("/api/machine-control", json={"action": "home"})
+        assert home.status_code == 200
+
+        response = real_client.post("/api/pasting/nozzle-clean/record")
+
+        assert response.status_code == 200
+        recorded = response.json()
+        assert set(recorded) == {"x", "y", "z", "press_z", "label"}
+        machine_toml = (real_settings.config_dir / "machine.toml").read_text(
+            encoding="utf-8"
+        )
+        assert "[nozzle_clean]" in machine_toml
