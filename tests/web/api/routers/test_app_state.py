@@ -22,7 +22,6 @@ from pathlib import Path
 
 import attrs
 from fastapi.testclient import TestClient
-from pytest import approx
 
 from web.api.app import create_app
 from web.api.config_store import ConfigStore
@@ -83,10 +82,10 @@ class TestStateApi:
         assert response.status_code == 200
         assert response.json()["nozzle_cap"] is None
 
-    def test_state_reports_recorded_nozzle_clean_with_derived_press_z(
+    def test_state_reports_recorded_nozzle_clean_with_server_built_label(
         self, client: TestClient, store: ConfigStore
     ):
-        """押し込み後の高さはサーバーが算出して返す（JS に減算させない）."""
+        """表示文字列はサーバーが組んで返す（JS に整形させない）."""
         store.write_machine_settings(
             {
                 "nozzle_clean.x": 10.0,
@@ -98,8 +97,7 @@ class TestStateApi:
 
         data = client.get("/api/state").json()
 
-        assert data["nozzle_clean"]["press_z"] == approx(-30.4)
-        assert data["nozzle_clean"]["label"]
+        assert data["nozzle_clean"]["label"] == "(10.00, 20.00, -30.00) mm"
 
     def test_partially_recorded_nozzle_clean_reports_null_without_error(
         self, partial_nozzle_clean: Path, client: TestClient

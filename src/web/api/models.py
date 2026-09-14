@@ -43,15 +43,15 @@ class Position(BaseModel):
 
 
 class NozzleCleanInfo(BaseModel):
-    """ノズルクリーニング位置と、そこから導いた表示用の値.
+    """記録されたノズルクリーニング面の位置と、その表示用文字列.
 
-    ``press_z`` と ``label`` はサーバーが算出して返す（JS に減算や整形をさせない）。
+    ``label`` はサーバーが組んで返す（JS に整形させない）。押し込み後の高さは設定値から
+    決まるので運ばない（表示するのは記録した面の位置だけ）。
     """
 
     x: float
     y: float
     z: float
-    press_z: float
     label: str
 
 
@@ -164,9 +164,9 @@ class StateResponse(BaseModel):
     preview_clients: int
     job: JobBrief | None
     nozzle_cap: Position | None
-    # 既定値を持たせるのは、この 3 つを返さない古い backend を frontend が
-    # そのまま parse できるようにするため（既定は「保持者なし」+ 空キー =
-    # どの保持者とも一致しない fail-closed な値）
+    # 既定値を持たせるのは、これらを返さない古い backend のレスポンスを frontend が
+    # そのまま parse できるようにするため。control / you の既定は「保持者なし」+
+    # 空キー = どの保持者とも一致しない fail-closed な値
     control: ControlInfo = ControlInfo()
     you: ClientInfo = ClientInfo()
     nozzle_clean: NozzleCleanInfo | None = None

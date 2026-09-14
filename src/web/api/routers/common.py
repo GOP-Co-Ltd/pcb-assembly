@@ -102,14 +102,10 @@ def control_payload(info: LeaseInfo) -> ControlInfo:
 def nozzle_clean_payload(clean: NozzleClean) -> NozzleCleanInfo:
     """クリーニング設定を API 表現へ変換する（唯一の変換点）.
 
-    押し込み後の高さと表示文字列は `pcbasm` が持つ値をそのまま詰める。
+    表示文字列は `pcbasm` が組んだものをそのまま詰める。
     """
     return NozzleCleanInfo(
-        x=clean.x,
-        y=clean.y,
-        z=clean.z,
-        press_z=clean.press_z,
-        label=clean_position_label(clean),
+        x=clean.x, y=clean.y, z=clean.z, label=clean_position_label(clean)
     )
 
 

@@ -67,8 +67,7 @@ class TestRecordNozzleCap:
 class TestRecordNozzleClean:
     """ノズルクリーニング位置の記録エンドポイント（キャップと同じ契約）.
 
-    キャップと違い、押し込み後の高さ `press_z` と表示文字列 `label` も返す
-    （JS に整形を持たせないため）。
+    キャップと違い、表示文字列 `label` も返す（JS に整形を持たせないため）。
     """
 
     def test_unreachable_moonraker_returns_502(self, client: TestClient):
@@ -86,7 +85,7 @@ class TestRecordNozzleClean:
         assert "pytest-job" in response.text
 
     @mark_hardware
-    def test_record_persists_position_and_returns_derived_values(
+    def test_record_persists_position_and_returns_label(
         self, real_client: TestClient, real_settings: Settings
     ):
         home = real_client.post("/api/machine-control", json={"action": "home"})
@@ -96,7 +95,7 @@ class TestRecordNozzleClean:
 
         assert response.status_code == 200
         recorded = response.json()
-        assert set(recorded) == {"x", "y", "z", "press_z", "label"}
+        assert set(recorded) == {"x", "y", "z", "label"}
         machine_toml = (real_settings.config_dir / "machine.toml").read_text(
             encoding="utf-8"
         )

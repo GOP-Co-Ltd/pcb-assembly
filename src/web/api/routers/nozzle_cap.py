@@ -83,10 +83,11 @@ def record_nozzle_clean(
     _record_current_position(
         state, store, owner="nozzle-clean-record", prefix="nozzle_clean"
     )
+    # 書き込みは終わっているので、読み戻しの成否に関わらず状態変更を知らせる
+    jobs.publish_state_changed()
     clean = state.nozzle_clean()
     if clean is None:
         raise HTTPException(
             status_code=500, detail="記録した設定を読み戻せませんでした"
         )
-    jobs.publish_state_changed()
     return nozzle_clean_payload(clean)
