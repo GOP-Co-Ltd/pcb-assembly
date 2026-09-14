@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pcbasm.gcode import GCode
-from pcbasm.pasting.nozzle_clean import clean_nozzle, validate_reach
+from pcbasm.pasting.nozzle_clean import clean_nozzle, resolve_nozzle_clean
 from pcbasm.pasting.workflow import plan_paste_targets
 from pcbasm.pcb import PadHierarchy
 from web.api.jobs.board_ops import setup_board
@@ -60,11 +60,7 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
         result = setup_board(ctx, camera)
 
         # 位置合わせに数分かかるので、クリーニング位置の教示ミスはここで顕在化させる
-        nozzle_clean = result.machine.nozzle_clean
-        if nozzle_clean is None:
-            ctx.log("ノズルクリーニング: 位置が未記録のためスキップします")
-        elif error := validate_reach(result.stage, nozzle_clean):
-            raise ValueError(error)
+        nozzle_clean = resolve_nozzle_clean(result.machine, result.stage, log=ctx.log)
 
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
         hierarchy = PadHierarchy.build(result.pcb.components, result.pcb.pads)

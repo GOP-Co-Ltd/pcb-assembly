@@ -14,10 +14,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from pcbasm.config import NozzleClean
+from pcbasm.config import Machine, NozzleClean
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import Klipper, Speed, XYZStage
+from pcbasm.hal.stage import Limits
 from pcbasm.pasting.applicator import PasteApplicator
 
 logger = logging.getLogger(__name__)
@@ -90,7 +91,7 @@ def wipe_gcode(stage: XYZStage, clean: NozzleClean) -> GCode:
     )
 
 
-def depart_gcode(stage: XYZStage, clean: NozzleClean) -> GCode:
+def depart_gcode(stage: XYZStage) -> GCode:
     """こすり後に退避 Z へ戻す移動コマンドを生成する.
 
     XY は動かさない。塗布シーケンスは「最初の点の上空」までしか上げないので、押し込み Z
@@ -113,24 +114,80 @@ def validate_reach(stage: XYZStage, clean: NozzleClean) -> str | None:
     travel_feed = _travel_speed(stage).resolve(stage.max_velocity)
     wipe_feed = min(clean.wipe_speed, stage.max_velocity)
 
-    approach = [
-        Point3d(clean.x, clean.y, TRAVEL_Z),
-        Point3d(clean.x, clean.y, clean.z),
-        Point3d(clean.x, clean.y, clean.press_z),
+    points = [
+        (Point3d(clean.x, clean.y, TRAVEL_Z), travel_feed),
+        (Point3d(clean.x, clean.y, clean.z), travel_feed),
+        (Point3d(clean.x, clean.y, clean.press_z), travel_feed),
     ]
-    invalid = [p for p in approach if not limits.contains(p, travel_feed)]
-    invalid += [p for p in wipe_points(clean) if not limits.contains(p, wipe_feed)]
-    if invalid:
-        return f"クリーニング位置が可動域外です: {invalid}"
+    points += [(point, wipe_feed) for point in wipe_points(clean)]
+
+    # 1 軸が外れると往復の両端も揃って外れるので、軸ごとに最初の違反値だけ挙げる
+    violations: dict[str, float] = {}
+    for point, feed in points:
+        if limits.contains(point, feed):
+            continue
+        for name, value in _violating_axes(limits, point, feed):
+            violations.setdefault(name, value)
+    if violations:
+        listed = ", ".join(f"{name}={value}" for name, value in violations.items())
+        return f"クリーニング位置が可動域外です: {listed}"
     return None
 
 
+def _violating_axes(
+    limits: Limits, point: Point3d, feed: float
+) -> list[tuple[str, float]]:
+    """可動域を外れた軸を (軸名, 値) で返す（``stage.move`` と同じ書式に使う）."""
+    axes = [
+        ("x", point.x, limits.x),
+        ("y", point.y, limits.y),
+        ("z", point.z, limits.z),
+    ]
+    violations = [(name, value) for name, value, scalar in axes if value not in scalar]
+    if feed not in limits.v:
+        violations.append(("feed", feed))
+    return violations
+
+
+def resolve_nozzle_clean(
+    machine: Machine,
+    stage: XYZStage,
+    *,
+    log: Callable[[str], None] | None = None,
+) -> NozzleClean | None:
+    """実行するクリーニング設定を解決する（行わないなら理由を残して None）.
+
+    設定が読めない場合はスキップする。設定ページから動作値だけを保存すると座標の無い
+    ``[nozzle_clean]`` ができるが、これは「まだ位置を教示していない」正常な途中状態で、
+    WebUI も「未記録」と表示する。クリーニングは衛生目的の補助工程なので、ここで
+    塗布ジョブ全体を失敗させない。
+
+    位置が読めた場合だけ可動域を検証し、届かない設定は例外にする。教示ミスは黙って
+    進めず、機械を動かす前に気づかせる。
+
+    Raises:
+        ValueError: クリーニングの経由点が可動域外の場合
+    """
+    notify = log or logger.info
+    try:
+        clean = machine.nozzle_clean
+    except Exception as exc:
+        notify(f"ノズルクリーニング: 設定を読めないためスキップします: {exc}")
+        return None
+    if clean is None:
+        notify("ノズルクリーニング: 位置が未記録のためスキップします")
+        return None
+    if error := validate_reach(stage, clean):
+        raise ValueError(error)
+    return clean
+
+
 def clean_position_label(clean: NozzleClean) -> str:
-    """クリーニング位置の表示用文字列（サーバー側で組んで返す）."""
-    return (
-        f"({clean.x:.2f}, {clean.y:.2f}, {clean.z:.2f}) mm"
-        f" / 押し込み {clean.press_depth:.2f} mm"
-    )
+    """記録したクリーニング面の位置を表す文字列（サーバー側で組んで返す）.
+
+    押し込み量は同じ画面の設定欄で編集できるので、ここには含めない。含めると設定を 即保存したときに表示だけが古いまま残る。
+    """
+    return f"({clean.x:.2f}, {clean.y:.2f}, {clean.z:.2f}) mm"
 
 
 def clean_nozzle(
@@ -165,7 +222,7 @@ def clean_nozzle(
         applicator.load(clean.purge_ul)
     # こすりと退避を 1 回で送り、押し込んだ状態を跨いで送信が分割されないようにする。
     klipper.send_gcode(
-        wipe_gcode(stage, clean) + depart_gcode(stage, clean) + GCode.wait_for_done()
+        wipe_gcode(stage, clean) + depart_gcode(stage) + GCode.wait_for_done()
     )
 
     message = (

@@ -812,9 +812,9 @@ class TestPastingHardware:
         klipper = create_command_klipper(machine)
         stage = XYZStage(klipper.readonly)
         klipper.send_gcode(GCode.homing() + GCode.wait_for_done())
-        applicator = build_applicator(klipper, stage, machine.paste_dispenser)
 
-        clean_nozzle(klipper, stage, applicator, attrs.evolve(clean, purge_ul=0.0))
+        with build_applicator(klipper, stage, machine.paste_dispenser) as applicator:
+            clean_nozzle(klipper, stage, applicator, attrs.evolve(clean, purge_ul=0.0))
 
         assert stage.get_position().z == pytest.approx(TRAVEL_Z, abs=0.01)
 

@@ -26,11 +26,12 @@ G-code を返す関数の契約:
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
-import attrs
 import pytest
 
 from pcbasm.config import (
+    Machine,
     NozzleClean,
     PasteDispenser as PasteDispenserConfig,
     Toolhead,
@@ -45,11 +46,12 @@ from pcbasm.pasting.nozzle_clean import (
     clean_nozzle,
     clean_position_label,
     depart_gcode,
+    resolve_nozzle_clean,
     validate_reach,
     wipe_gcode,
     wipe_points,
 )
-from tests.helpers import FAKE_PRINTER_CONFIG, FakeKlipper
+from tests.helpers import FAKE_PRINTER_CONFIG, TESTING_DATA_DIR, FakeKlipper
 
 # FAKE_PRINTER_CONFIG: x,y ∈ [0,300] / z ∈ [-5,50] / max_velocity = 100
 CENTER_X = 68.0
@@ -90,7 +92,12 @@ def stage(klipper: FakeKlipper) -> XYZStage:
 
 
 @pytest.fixture
-def applicator(klipper: FakeKlipper) -> PasteApplicator:
+def applicator(klipper: FakeKlipper):
+    """有効化済みのディスペンサー.
+
+    `clean_nozzle` はパージするので AirPump ON + Stepper Enable を前提にする。
+    `with` の外で呼べてしまうとその前提が崩れるので、テストも `with` で組む。
+    """
     config = PasteDispenserConfig(
         rotations_per_ul=ROTATIONS_PER_UL,
         nozzle_diameter=0.34,
@@ -105,7 +112,9 @@ def applicator(klipper: FakeKlipper) -> PasteApplicator:
         lift_height=5.0,
         ul_per_mm2=0.05,
     )
-    return build_applicator(klipper, XYZStage(klipper.readonly), config)
+    with build_applicator(klipper, XYZStage(klipper.readonly), config) as enabled:
+        klipper.clear_sent()  # enable() の送信を数えない
+        yield enabled
 
 
 def _stepper_amounts_ul(klipper: FakeKlipper) -> list[float]:
@@ -141,9 +150,14 @@ class TestWipePoints:
     def test_two_passes_do_not_repeat_the_center(self):
         """各 pass 末尾の中心が次 pass の始点を兼ねるので 13 点になる."""
         points = wipe_points(_clean(passes=2))
+        center = Point3d(CENTER_X, CENTER_Y, SURFACE_Z - 0.5)
 
         assert len(points) == 13
-        assert points[6] == points[0]
+        # 中心が 2 連続で並ばない（同じ点へ 2 回動かす無駄な G1 を出さない）
+        assert not any(
+            a == center and b == center
+            for a, b in zip(points.points, points.points[1:], strict=False)
+        )
 
     def test_starts_and_ends_at_center(self):
         """退避が XY を動かさない前提を担保する."""
@@ -216,6 +230,15 @@ class TestWipeGcode:
         assert lines[1] == f"G1 X68.0 Y53.0 Z-3.5 F{10.0 * 60}"
         assert lines[2] == f"G1 X70.0 Y53.0 Z-3.5 F{10.0 * 60}"
 
+    def test_caps_wipe_speed_at_stage_max_velocity(self):
+        """Clamp が外れると to_gcode の feed 検証で ValueError になる."""
+        slow = FakeKlipper(
+            config={**FAKE_PRINTER_CONFIG, "printer": {"max_velocity": "5"}}
+        )
+        lines = wipe_gcode(XYZStage(slow.readonly), _clean(wipe_speed=50.0)).to_list()
+
+        assert all(line.endswith(f"F{5 * 60.0}") for line in lines[1:])
+
     def test_contains_no_m400_or_m84(self, stage: XYZStage):
         lines = wipe_gcode(stage, _clean()).to_list()
 
@@ -232,7 +255,7 @@ class TestDepartGcode:
     """こすり後の退避の契約."""
 
     def test_lifts_to_travel_z_without_moving_xy(self, stage: XYZStage):
-        lines = depart_gcode(stage, _clean()).to_list()
+        lines = depart_gcode(stage).to_list()
 
         assert lines == [f"G1 Z{TRAVEL_Z} F{TRAVEL_FEED}"]
 
@@ -243,33 +266,48 @@ class TestValidateReach:
     def test_reachable_position_returns_none(self, stage: XYZStage):
         assert validate_reach(stage, _clean()) is None
 
-    def test_reports_xy_outside_limits(self, stage: XYZStage):
+    def test_reports_the_violating_axis_and_value(self, stage: XYZStage):
+        """どの軸がどれだけ外れたかを出す（stage.move と同じ書式）."""
         error = validate_reach(stage, _clean(x=999.0))
 
-        assert error is not None
-        assert "999" in error
+        assert error == "クリーニング位置が可動域外です: x=999.0"
 
     def test_reports_press_z_below_limit(self, stage: XYZStage):
         """面 Z は届くが押し込むと下限を割る設定を弾く."""
+        # z ∈ [-5, 50] に対し press_z = -4.8 - 0.5 = -5.3
         error = validate_reach(stage, _clean(z=-4.8, press_depth=0.5))
 
         assert error is not None
+        assert "z=-5.3" in error
 
     def test_reports_wipe_point_outside_limits(self, stage: XYZStage):
         """中心は届くがこすりの振れ幅で域外へ出る設定を弾く."""
+        # x ∈ [0, 300] に対し 299 + 2 = 301
         error = validate_reach(stage, _clean(x=299.0, stroke=2.0))
 
         assert error is not None
+        assert "x=301.0" in error
+
+    def test_repeats_each_violating_axis_only_once(self, stage: XYZStage):
+        """同じ軸が複数の経由点で外れても 1 度だけ並べる."""
+        error = validate_reach(stage, _clean(x=999.0, passes=3))
+
+        assert error is not None
+        assert error.count("x=999.0") == 1
 
 
 class TestCleanPositionLabel:
     """表示文字列はサーバー側で組む（JS に整形させない）."""
 
-    def test_label_shows_position_and_press_depth(self):
-        label = clean_position_label(_clean())
+    def test_label_shows_the_recorded_surface_position(self):
+        assert clean_position_label(_clean()) == "(68.00, 53.00, -3.00) mm"
 
-        assert "68.00" in label
-        assert "53.00" in label
+    def test_label_excludes_press_depth(self):
+        """押し込み量は設定欄で編集するので、含めると表示だけ古くなる."""
+        shallow = clean_position_label(_clean(press_depth=0.1))
+        deep = clean_position_label(_clean(press_depth=0.9))
+
+        assert shallow == deep
 
 
 class TestCleanNozzle:
@@ -303,7 +341,9 @@ class TestCleanNozzle:
         """引き戻しは呼び出し側の retract() が担う（二重に引かない）."""
         clean_nozzle(klipper, stage, applicator, _clean())
 
-        assert all(amount > 0 for amount in _stepper_amounts_ul(klipper))
+        amounts = _stepper_amounts_ul(klipper)
+        assert amounts  # 押出そのものは起きている
+        assert all(amount > 0 for amount in amounts)
 
     def test_zero_purge_skips_extrusion(
         self, klipper: FakeKlipper, stage: XYZStage, applicator: PasteApplicator
@@ -344,7 +384,64 @@ class TestCleanNozzle:
     ):
         messages: list[str] = []
 
-        clean_nozzle(klipper, stage, applicator, _clean(), log=messages.append)
+        clean_nozzle(klipper, stage, applicator, _clean(passes=2), log=messages.append)
 
         assert len(messages) == 1
-        assert "0.2" in messages[0]
+        assert "0.200" in messages[0]  # パージ量
+        assert "2 回" in messages[0]  # 往復回数
+
+
+class TestResolveNozzleClean:
+    """実行するかどうかの解決（未記録・読めない設定はスキップ、届かない設定は例外）."""
+
+    def _machine(self, tmp_path: Path, extra: str) -> Machine:
+        path = tmp_path / "machine.toml"
+        source = (TESTING_DATA_DIR / "machine.toml").read_text()
+        path.write_text(f"{source}\n{extra}", encoding="utf-8")
+        return Machine(path)
+
+    def test_missing_section_skips_with_a_reason(self, tmp_path: Path, stage: XYZStage):
+        messages: list[str] = []
+
+        resolved = resolve_nozzle_clean(
+            self._machine(tmp_path, ""), stage, log=messages.append
+        )
+
+        assert resolved is None
+        assert len(messages) == 1
+        assert "未記録" in messages[0]
+
+    def test_missing_coordinates_skip_instead_of_failing_the_job(
+        self, tmp_path: Path, stage: XYZStage
+    ):
+        """動作値だけ保存した状態は「まだ教示していない」正常な途中状態.
+
+        WebUI も同じ設定を「未記録」と表示するので、ジョブだけ失敗させない。
+        """
+        machine = self._machine(tmp_path, "[nozzle_clean]\npress_depth = 0.4\n")
+        messages: list[str] = []
+
+        resolved = resolve_nozzle_clean(machine, stage, log=messages.append)
+
+        assert resolved is None
+        assert len(messages) == 1
+
+    def test_recorded_position_is_resolved(self, tmp_path: Path, stage: XYZStage):
+        machine = self._machine(
+            tmp_path,
+            f"[nozzle_clean]\nx = {CENTER_X}\ny = {CENTER_Y}\nz = {SURFACE_Z}\n",
+        )
+
+        resolved = resolve_nozzle_clean(machine, stage)
+
+        assert resolved is not None
+        assert (resolved.x, resolved.y, resolved.z) == (CENTER_X, CENTER_Y, SURFACE_Z)
+
+    def test_unreachable_position_raises(self, tmp_path: Path, stage: XYZStage):
+        """教示ミスは黙って進めず、機械を動かす前に気づかせる."""
+        machine = self._machine(
+            tmp_path, "[nozzle_clean]\nx = 999.0\ny = 20.0\nz = -3.0\n"
+        )
+
+        with pytest.raises(ValueError, match="可動域外"):
+            resolve_nozzle_clean(machine, stage)
