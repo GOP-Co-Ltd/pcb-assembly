@@ -39,4 +39,21 @@
     (recorded) => recorded.label,
     "ノズルクリーニング位置を記録しました",
   );
+
+  // テスト実行は完了まで十数秒かかる。多重発火で装置排他に弾かれないよう、
+  // 押している間だけ無効化する（成功・失敗のどちらでも必ず戻す）。
+  const testButton = document.getElementById("ncl-test");
+  if (testButton) {
+    testButton.addEventListener("click", async () => {
+      testButton.disabled = true;
+      try {
+        const result = await api("POST", "/api/pasting/nozzle-clean/test");
+        toast(result.message);
+      } catch (err) {
+        toast(err.message, false);
+      } finally {
+        testButton.disabled = false;
+      }
+    });
+  }
 })();
