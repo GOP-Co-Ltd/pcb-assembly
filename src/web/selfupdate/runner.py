@@ -16,9 +16,11 @@
 **参照先は絶対にリクエストパラメータにしない。** ブランチ・remote・ref・`uv` の引数は
 すべて `UpdateSettings` 側の固定値。ここを開けると「LAN から任意コード実行」に悪化する。
 
-更新以外の役目も兼ねる（同じ `UpdateSettings` と観測値を使うため）:
+更新以外に 2 つの役目を兼ねる（どちらも同じ `UpdateSettings` と観測値を使うため）:
 
 - `restart_services()`: 更新せずに unit だけ再起動する（ファームウェア再起動から呼ぶ）
+- `start_watching()`: 通知のための定期 `git fetch`（`GET status` は fetch しないので、
+  これが無いと「更新があります」が誰かの手動確認まで出ない）
 """
 
 from __future__ import annotations
@@ -84,6 +86,8 @@ class UpdateRunner:
         self._finished = threading.Event()
         self._finished.set()
         self._units: tuple[str, ...] | None = None
+        self._watch: threading.Thread | None = None
+        self._stop_watch = threading.Event()
 
     @property
     def enabled(self) -> bool:
@@ -117,6 +121,38 @@ class UpdateRunner:
                 self._settings, timeout=self._settings.check_fetch_timeout
             )
         return self._plan(fetch_error=fetch_error)
+
+    def refresh_remote(self) -> str | None:
+        """通知のために remote を取り込む（失敗理由を返す）.
+
+        `check()` と違って観測値を組み立てない。`GET status` が返す `behind` を
+        新しく保つためだけのもので、無効な機体と更新実行中は何もしない。
+        """
+        if not self._settings.enabled or self.running:
+            return None
+        return fetch(self._settings)
+
+    def start_watching(self) -> None:
+        """`watch_interval` ごとの `refresh_remote()` を始める（lifespan から呼ぶ）.
+
+        最初の fetch は 1 周期待ってから行う（起動直後の I/O を避ける）。
+        """
+        if self._watch is not None or self._settings.watch_interval <= 0:
+            return
+        self._stop_watch.clear()
+        self._watch = threading.Thread(
+            target=self._watch_remote, name="pcbasm-update-watch", daemon=True
+        )
+        self._watch.start()
+
+    def stop_watching(self) -> None:
+        """定期 fetch を止めて合流する（lifespan の終了時に呼ぶ）."""
+        watch, self._watch = self._watch, None
+        if watch is None:
+            return
+        self._stop_watch.set()
+        # 実行中の git fetch は待たない（daemon なのでプロセス終了を妨げない）
+        watch.join(timeout=1.0)
 
     def restart_services(self) -> str | None:
         """更新せずに pcbasm の unit を再起動する（断る理由があれば返す）.
@@ -230,6 +266,15 @@ class UpdateRunner:
                 logger.warning("サービスの再起動に失敗しました: %s", reason)
         finally:
             self._release(lock)
+
+    def _watch_remote(self) -> None:
+        """周期ごとに remote を取り込む（失敗しても黙って次の周期を待つ）.
+
+        通知のための補助経路なので、ネットワーク不通で例外を上げない
+        （`fetch` は理由を返すだけで送出しない）。
+        """
+        while not self._stop_watch.wait(self._settings.watch_interval):
+            self.refresh_remote()
 
     def _plan(self, *, fetch_error: str | None = None) -> UpdatePlan:
         state, error = capture_state(self._settings)

@@ -31,6 +31,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import attrs
 import pytest
 
 from tests.helpers import before_deadline, wait_until
@@ -547,3 +548,40 @@ class TestRestartServices:
 
         wait_until(lambda: restart_calls(log_path(settings)) != [])
         wait_until(lambda: runner.restart_services() is None)
+
+
+class TestRemoteWatch:
+    """更新の有無を通知するための定期 fetch（`GET status` は fetch しないため）."""
+
+    def test_watching_notices_a_new_commit_without_a_manual_check(
+        self, clone: Path, tmp_path: Path, publisher: Path
+    ):
+        settings = attrs.evolve(build_settings(clone, tmp_path), watch_interval=0.05)
+        runner = UpdateRunner(settings)
+        runner.start_watching()
+        try:
+            push_commit(publisher, body="second\n")
+
+            wait_until(lambda: runner.plan().update_available)
+        finally:
+            runner.stop_watching()
+
+    def test_stop_watching_returns_promptly(self, clone: Path, tmp_path: Path):
+        settings = attrs.evolve(build_settings(clone, tmp_path), watch_interval=600.0)
+        runner = UpdateRunner(settings)
+        runner.start_watching()
+
+        assert before_deadline(runner.stop_watching, what="watcher の停止") is None
+
+    def test_disabled_installation_does_not_reach_the_remote(
+        self, clone: Path, tmp_path: Path, publisher: Path
+    ):
+        """`enabled=False` の機体は通知のための fetch もしない."""
+        settings = build_settings(clone, tmp_path, enabled=False)
+        runner = UpdateRunner(settings)
+        push_commit(publisher, body="second\n")
+
+        assert runner.refresh_remote() is None
+        state = runner.plan().repository
+        assert state is not None
+        assert state.behind == 0

@@ -27,6 +27,12 @@
             data-fb-start="{{ fb_start }}">
       {{ selected_pcb or "PCB未選択" }}
     </button>
+    {# 更新通知。表示文字列も遷移先も update_notice.js がサーバ応答から入れる
+       （初期状態は非表示。更新が無いホストでは最後まで出ない）。href を静的に
+       持たせない: 遷移先は機体ごとに変わるうえ、未 prefix の内部リンクとして
+       残ると「全リンクが機体 prefix 付き」の規約を破る #}
+    <a id="update-badge" class="update-badge" data-testid="update-badge" hidden
+       data-notice-url="{{ update_notice_url }}"></a>
     <a href="{{ base }}/settings" class="icon-link" title="マシン設定">&#9881;</a>
     <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper (Mainsail) を開く">Klipper</a>
     {# ファームウェアだけでなく WebUI のサービスも落とすので、誤クリックで LAN 中の
@@ -53,6 +59,8 @@
    scripts ブロックで読む job_console.js より前（window.webui.control を先に生やす） #}
 <script src="{{ static_asset('js/control.js') }}"></script>
 <script src="{{ static_asset('js/machine_selector.js') }}"></script>
+{# 更新通知バッジも全ページ共通（どの画面からでも更新の存在に気付けるように） #}
+<script src="{{ static_asset('js/update_notice.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

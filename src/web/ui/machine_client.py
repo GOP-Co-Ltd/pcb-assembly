@@ -21,6 +21,7 @@ from web.api.models import (
     MachineInfo,
     MachineSettingsResponse,
     StateResponse,
+    UpdateStatusResponse,
 )
 from web.ui.machines import MachineEndpoint
 
@@ -134,6 +135,10 @@ class MachineClient:
     async def machine_settings(self) -> MachineSettingsResponse:
         """`GET /api/settings/machine`."""
         return await self._fetch(MachineSettingsResponse, "/api/settings/machine")
+
+    async def update_status(self) -> UpdateStatusResponse:
+        """`GET /api/update/status`（fetch を伴わないので毎分読んでよい）."""
+        return await self._fetch(UpdateStatusResponse, "/api/update/status")
 
     async def jobs(self) -> JobCatalogResponse:
         """`GET /api/jobs`（hidden を含む全件）."""

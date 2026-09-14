@@ -20,6 +20,7 @@ import asyncio
 import secrets
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -170,6 +171,13 @@ def _suffix_of(path: str) -> str:
     return suffix or DEFAULT_TAB
 
 
+def _update_notice_url(machine_id: str | None) -> str:
+    """更新通知エンドポイントの URL（machine prefix を付けない frontend 自身の入口）."""
+    if machine_id is None:
+        return "/api/update-notice"
+    return f"/api/update-notice?{urlencode({'machine_id': machine_id})}"
+
+
 def _chrome_context(
     request: Request, *, machine_id: str | None, current_suffix: str
 ) -> dict[str, Any]:
@@ -180,6 +188,9 @@ def _chrome_context(
         # "{{ base }}/posctrl" なので未 prefix URL に落ちる
         "base": f"/m/{machine_id}" if machine_id else "",
         "machine_id": machine_id,
+        # トップバーの更新通知が叩く先。マシン非依存のページでは UI サーバー
+        # 自身の更新だけを見る（機体が決まっていないので問い合わせ先が無い）
+        "update_notice_url": _update_notice_url(machine_id),
         "machines": _registry(request).list(),
         "current_suffix": current_suffix,
         "tabs": list(TABS),

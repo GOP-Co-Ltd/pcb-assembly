@@ -67,6 +67,10 @@ class UpdateSettings:
     # 202 応答をフラッシュし、クライアントが 1 回ポーリングして restarting を
     # 観測するための遅延（生存性のためではない）
     restart_delay: float = 1.0
+    # 更新通知のために remote を見に行く周期 [s]（0 以下で無効）。`GET status` は
+    # fetch しない（毎秒ポーリングされるため）ので、誰も「更新を確認」を押さないと
+    # behind が永久に 0 のままになる。通知を成立させるのはこの定期 fetch だけ
+    watch_interval: float = 1800.0
     # report に残す各ステップ出力の行数上限（全量返して差分管理を作らない）
     output_tail_lines: int = 200
 

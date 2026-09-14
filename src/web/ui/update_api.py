@@ -8,6 +8,10 @@ backend のジョブ基盤も操作権も無いので、frontend が自前の更
 なので、frontend 自身の入口は `/api/self-update/**`）。`pages.router` の `/{tab}`
 キャッチオールに食われないよう、アプリでは pages より**先に**登録する。
 
+全ページのトップバーが読む `GET /api/update-notice` もここに置く。frontend 自身と
+表示中の機体 backend の両方を見て、**バッジ 1 個分の表示値に畳んでから**返す
+（どちらに何件あるかの判断を JS に持たせない）。
+
 frontend には操作権（control lease）が無い。多層の安全弁で守るが、**いずれも認証では
 ない**（LAN に居る者は誰でも押せる）:
 
@@ -20,7 +24,9 @@ frontend には操作権（control lease）が無い。多層の安全弁で守�
 from __future__ import annotations
 
 import socket
+from collections.abc import Sequence
 
+import attrs
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -29,6 +35,9 @@ from web.api.models import UpdateRunResponse, UpdateStatusResponse
 from web.selfupdate.report import UpdatePlan, run_payload, status_payload
 from web.selfupdate.runner import UpdateRunner
 from web.ui import pages
+from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
+from web.ui.machines import MachineRegistry, UnknownMachine
+from web.ui.models import UPDATE_INDEX_PATH, UpdateNoticeResponse
 
 router = APIRouter()
 
@@ -81,6 +90,108 @@ def post_self_update_run(
     if reason is not None:
         raise HTTPException(status_code=409, detail=reason)
     return UpdateRunResponse(run_id=run_id or "", run=run_payload(runner.status()))
+
+
+@attrs.frozen
+class NoticeSource:
+    """通知が見る 1 ホスト分の観測値（表示文字列はそのホストのサーバが組んだもの）."""
+
+    hostname: str
+    summary: str
+    href: str
+    available: bool
+
+
+def compose_notice(sources: Sequence[NoticeSource]) -> UpdateNoticeResponse:
+    """待っている更新をバッジ 1 個分の表示値にまとめる（純関数）.
+
+    遷移先は「1 ホストだけならそのホストの更新ページ、複数なら UI サーバーの更新
+    ページ」。後者は各機体のページへのリンクを持つので、そこから辿れる。
+
+    同居機では frontend と backend が同じホスト名・同じ作業リポジトリを見るので、
+    ホスト名で畳む（畳まないと 1 件の更新が「2 件」と出る）。
+
+    Args:
+        sources: 通知の対象（UI サーバー自身と、表示中の機体）
+
+    Returns:
+        バッジの表示値（待っている更新が無ければ `available=False`）
+    """
+    pending: list[NoticeSource] = []
+    seen: set[str] = set()
+    for source in sources:
+        if not source.available or source.hostname in seen:
+            continue
+        seen.add(source.hostname)
+        pending.append(source)
+    if not pending:
+        return UpdateNoticeResponse()
+    detail = "\n".join(f"{source.hostname}: {source.summary}" for source in pending)
+    if len(pending) == 1:
+        return UpdateNoticeResponse(
+            available=True,
+            label=f"ソフトウェア更新あり（{pending[0].hostname}）",
+            detail=detail,
+            href=pending[0].href,
+        )
+    return UpdateNoticeResponse(
+        available=True,
+        label=f"ソフトウェア更新あり（{len(pending)} 件）",
+        detail=detail,
+        href=UPDATE_INDEX_PATH,
+    )
+
+
+def _self_source(runner: UpdateRunner) -> NoticeSource:
+    """UI サーバー自身の観測値（fetch はしない。定期 fetch が別に回っている）."""
+    status = _status(runner, runner.plan())
+    return NoticeSource(
+        hostname=status.hostname,
+        summary=status.summary,
+        href=UPDATE_INDEX_PATH,
+        available=status.update_available,
+    )
+
+
+async def _machine_source(request: Request, machine_id: str) -> NoticeSource | None:
+    """表示中の機体 backend の観測値（読めなければ None）.
+
+    通知は補助情報なので、**backend に到達できなくてもエラーにしない**。ここで
+    例外を通すと、機体が落ちている間じゅうトップバーがエラーを出し続ける。
+    """
+    registry: MachineRegistry = request.app.state.registry
+    gateway: BackendGateway = request.app.state.gateway
+    try:
+        endpoint = registry.resolve(machine_id)
+        status = await MachineClient(endpoint, gateway).update_status()
+    except (UnknownMachine, BackendUnavailable):
+        return None
+    return NoticeSource(
+        hostname=status.hostname,
+        summary=status.summary,
+        href=f"/m/{endpoint.machine_id}/dev/update",
+        available=status.update_available,
+    )
+
+
+@router.get("/api/update-notice")
+async def get_update_notice(
+    request: Request, machine_id: str | None = None
+) -> UpdateNoticeResponse:
+    """トップバーの更新通知（UI サーバー自身と、表示中の機体を見る）.
+
+    Args:
+        request: ランナー・レジストリ・gateway を持つアプリへの参照
+        machine_id: 表示中の機体（マシン非依存のページでは None）
+
+    Returns:
+        バッジの表示値（待っている更新が無ければ `available=False`）
+    """
+    sources = [_self_source(_runner(request))]
+    machine = None if machine_id is None else await _machine_source(request, machine_id)
+    if machine is not None:
+        sources.append(machine)
+    return compose_notice(sources)
 
 
 @router.get("/update", response_class=HTMLResponse)
