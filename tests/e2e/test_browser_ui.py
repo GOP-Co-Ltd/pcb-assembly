@@ -389,6 +389,64 @@ class TestCopperDetectionOverBrowser:
         )
 
 
+class TestNozzlePositionsOverBrowser:
+    """ノズル位置ページ（キャップ / クリーニング同居）を実ブラウザで通す."""
+
+    def test_both_sections_render_without_id_collision(
+        self, live_ui: LiveUi, browser_page
+    ):
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/nozzle_cap", wait_until="domcontentloaded"
+        )
+
+        for testid in (
+            "nozzle-cap-current",
+            "nozzle-cap-record",
+            "nozzle-clean-current",
+            "nozzle-clean-record",
+            "nozzle-clean-settings",
+        ):
+            assert browser_page.locator(f'[data-testid="{testid}"]').count() == 1
+
+    def test_clean_record_button_is_gated_by_control(
+        self, live_ui: LiveUi, browser_page
+    ):
+        """新しいボタンにも操作権ゲートの配線が効いている.
+
+        無効化手段は `inert` 属性なので、`is_disabled()` ではなく属性を読む。
+        """
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/nozzle_cap", wait_until="domcontentloaded"
+        )
+        button = browser_page.locator('[data-testid="nozzle-clean-record"]')
+        button.wait_for(state="visible", timeout=10_000)
+        is_inert = "(el) => el.hasAttribute('inert')"
+
+        assert button.evaluate(is_inert)
+
+        _acquire_control(browser_page)
+
+        assert not button.evaluate(is_inert)
+
+    def test_clean_setting_autosave_from_the_feature_page(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        """設定ページではなく feature ページのフォームで即保存する.
+
+        settings.js の script タグ忘れはこの経路でしか検出できない。
+        """
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/nozzle_cap", wait_until="domcontentloaded"
+        )
+        _acquire_control(browser_page)
+        field = browser_page.locator('input[name="nozzle_clean.press_depth"]')
+        field.wait_for(state="visible", timeout=10_000)
+
+        field.fill("0.4")
+
+        _wait_machine_field(live_server.base_url, "nozzle_clean.press_depth", 0.4)
+
+
 class TestAudioPageOverBrowser:
     """通知音ページ（/dev/audio）の実ブラウザ操作.
 

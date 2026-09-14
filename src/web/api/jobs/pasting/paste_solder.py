@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pcbasm.gcode import GCode
+from pcbasm.pasting.nozzle_clean import clean_nozzle, resolve_nozzle_clean
 from pcbasm.pasting.workflow import plan_paste_targets
 from pcbasm.pcb import PadHierarchy
 from web.api.jobs.board_ops import setup_board
@@ -58,6 +59,9 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
     with ctx.open_camera() as camera:
         result = setup_board(ctx, camera)
 
+        # 位置合わせに数分かかるので、クリーニング位置の教示ミスはここで顕在化させる
+        nozzle_clean = resolve_nozzle_clean(result.machine, result.stage, log=ctx.log)
+
         # pad 階層 + 基板ごとの塗布設定（装置不要・前段で解決）
         hierarchy = PadHierarchy.build(result.pcb.components, result.pcb.pads)
         model = resolve_paste_model(ctx, hierarchy)
@@ -93,6 +97,15 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                 total = run_loading_loop(ctx, session.klipper, stage, applicator)
                 session.klipper.send_gcode(
                     stage.move(x=pos.x, y=pos.y, z=pos.z) + GCode.wait_for_done()
+                )
+
+            # ローディング直後の先端が最も汚れているので、掃除はその後に行う。
+            # リトラクトより前なのは「掃除 → 移動前の垂れ止め」が正しい順序のため。
+            if nozzle_clean is not None:
+                ctx.progress("ノズルクリーニング")
+                ctx.checkpoint()
+                clean_nozzle(
+                    session.klipper, stage, applicator, nozzle_clean, log=ctx.log
                 )
 
             ctx.progress("リトラクション")

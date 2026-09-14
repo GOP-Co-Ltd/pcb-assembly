@@ -987,6 +987,12 @@ h2 {
   margin-top: 0;
 }
 
+/* 1 枚のカードに概要・手順・記録位置を積むページ（ノズル位置の設定）の小見出し。
+   ブラウザ既定の h4 マージンはカード内では空きすぎる。 */
+.nozzle-position-card h4 {
+  margin: 1.1rem 0 0.4rem;
+}
+
 /* ---- software update panel ---- */
 
 /* ラベルと値の 2 列。commit の subject もブランチ名も長くなり得るので、
