@@ -8,6 +8,7 @@ status` はページャ経由で root シェルを取られる）。
 from __future__ import annotations
 
 import os
+import signal
 import time
 
 from web.selfupdate.settings import UpdateSettings
@@ -38,6 +39,12 @@ UNIT_LABELS: dict[str, str] = {
 # （計画書「既知のリスク 1: ロールバック無し」からの復帰経路）。
 # `inactive` / `deactivating` は意図的に止めているので起こさない。
 RESTARTABLE_STATES = frozenset({"active", "activating", "reloading", "failed"})
+
+# systemd が unit を止めるときに送るシグナル（`KillSignal` / `FinalKillSignal` の既定）。
+# 再起動コマンド自身がこれで死んだのは「要求どおり動いた」証拠であって失敗ではない。
+# `-1`（= `SIGHUP`）を含めないのが要点: `run_command` は起動できなかったコマンドを
+# `returncode=-1` で返すので、含めると実行ファイル不在がサイレントに成功扱いになる
+STOP_SIGNALS = frozenset({signal.SIGTERM, signal.SIGKILL})
 
 
 def active_units(settings: UpdateSettings) -> tuple[str, ...]:
@@ -133,6 +140,18 @@ def schedule_restart(settings: UpdateSettings, units: tuple[str, ...]) -> str | 
     )
     if result.timed_out:
         return "再起動コマンドが応答しませんでした。"
+    if -result.returncode in STOP_SIGNALS:
+        # **要求した restart が先に自分の cgroup を止めた**。`--no-block` は job を
+        # enqueue した時点で exit するが、その job が `pcbasm-api.service` を停止する
+        # ほうが先行しうるので、sudo / systemctl が SIGTERM を受けて終了コードが
+        # -15 になる。これを失敗として report に残すと、再起動後の画面に
+        # 「再起動コマンドが失敗しました（終了コード -15）」という**嘘のエラー**が
+        # 出る（実際には再起動は成功している）。
+        #
+        # **全ての負の終了コードを成功にしてはいけない**: `run_command` は起動でき
+        # なかったコマンドも `returncode=-1` で返す（`steps.run_command`）。その
+        # -1 は `-SIGHUP` と同値なので、systemd が実際に使う 2 つだけに絞る。
+        return None
     if not result.ok:
         return (
             f"再起動コマンドが失敗しました（終了コード {result.returncode}）: "
