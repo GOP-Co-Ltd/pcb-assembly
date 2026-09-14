@@ -62,7 +62,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     discovery: MachineDiscovery | None = app.state.discovery
     if discovery is not None:
         await discovery.start()
+    # 更新通知のための定期 fetch（`GET /api/self-update` は fetch しないため、
+    # これが無いと「更新があります」が誰かの手動確認まで出ない）
+    app.state.update.start_watching()
     yield
+    app.state.update.stop_watching()
     if discovery is not None:
         await discovery.stop()
     # backend への keep-alive 接続を閉じる

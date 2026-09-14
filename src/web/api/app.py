@@ -60,7 +60,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     advertiser: ServiceAdvertiser | None = app.state.advertiser
     if advertiser is not None:
         await advertiser.start()
+    # 更新通知のための定期 fetch（`GET /api/update/status` は fetch しないため、
+    # これが無いと「更新があります」が誰かの手動確認まで出ない）
+    app.state.update.start_watching()
     yield
+    app.state.update.stop_watching()
     if advertiser is not None:
         await advertiser.stop()
     # シャットダウン後始末（preview 通知 → ジョブ join → 通知音終了 → FrameHub 停止）

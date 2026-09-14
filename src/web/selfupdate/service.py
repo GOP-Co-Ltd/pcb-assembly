@@ -8,6 +8,7 @@ status` はページャ経由で root シェルを取られる）。
 from __future__ import annotations
 
 import os
+import signal
 import time
 
 from web.selfupdate.settings import UpdateSettings
@@ -38,6 +39,12 @@ UNIT_LABELS: dict[str, str] = {
 # （計画書「既知のリスク 1: ロールバック無し」からの復帰経路）。
 # `inactive` / `deactivating` は意図的に止めているので起こさない。
 RESTARTABLE_STATES = frozenset({"active", "activating", "reloading", "failed"})
+
+# systemd が unit を止めるときに送るシグナル（`KillSignal` / `FinalKillSignal` の既定）。
+# 再起動コマンド自身がこれで死んだのは「要求どおり動いた」証拠であって失敗ではない。
+# `-1`（= `SIGHUP`）を含めないのが要点: `run_command` は起動できなかったコマンドを
+# `returncode=-1` で返すので、含めると実行ファイル不在がサイレントに成功扱いになる
+STOP_SIGNALS = frozenset({signal.SIGTERM, signal.SIGKILL})
 
 
 def active_units(settings: UpdateSettings) -> tuple[str, ...]:
@@ -133,6 +140,18 @@ def schedule_restart(settings: UpdateSettings, units: tuple[str, ...]) -> str | 
     )
     if result.timed_out:
         return "再起動コマンドが応答しませんでした。"
+    if -result.returncode in STOP_SIGNALS:
+        # **要求した restart が先に自分の cgroup を止めた**。`--no-block` は job を
+        # enqueue した時点で exit するが、その job が `pcbasm-api.service` を停止する
+        # ほうが先行しうるので、sudo / systemctl が SIGTERM を受けて終了コードが
+        # -15 になる。これを失敗として report に残すと、再起動後の画面に
+        # 「再起動コマンドが失敗しました（終了コード -15）」という**嘘のエラー**が
+        # 出る（実際には再起動は成功している）。
+        #
+        # **全ての負の終了コードを成功にしてはいけない**: `run_command` は起動でき
+        # なかったコマンドも `returncode=-1` で返す（`steps.run_command`）。その
+        # -1 は `-SIGHUP` と同値なので、systemd が実際に使う 2 つだけに絞る。
+        return None
     if not result.ok:
         return (
             f"再起動コマンドが失敗しました（終了コード {result.returncode}）: "
@@ -192,6 +211,19 @@ def stale_unit_warning(units: tuple[str, ...]) -> str:
     )
 
 
+def unit_summary(units: tuple[str, ...]) -> str:
+    """再起動対象を「表示名（フル unit 名）」の 1 語にする（表示文言はサーバが組む）."""
+    labels = "・".join(UNIT_LABELS.get(unit, unit) for unit in units)
+    return f"{labels}（{' '.join(units)}）"
+
+
+def _screen_drop_warning(units: tuple[str, ...]) -> str:
+    """画面を配信している unit を巻き込むときの但し書き（含まなければ空）."""
+    if UNIT_NAMES["ui"] not in units:
+        return ""
+    return "この画面を配信しているサービスも含まれるため、一時的に接続が切れます。"
+
+
 def restart_notice(units: tuple[str, ...]) -> str:
     """再起動範囲を利用者向けの 1 文にする（表示文言はサーバが組む）."""
     if not units:
@@ -199,10 +231,16 @@ def restart_notice(units: tuple[str, ...]) -> str:
             "pcbasm のサービスが systemd で動いていないため、更新後の再起動は行いません"
             "（手元で起動している場合は自分で起動し直してください）。"
         )
-    labels = "・".join(UNIT_LABELS.get(unit, unit) for unit in units)
-    notice = f"更新後に {labels}（{' '.join(units)}）を再起動します。"
-    if UNIT_NAMES["ui"] in units:
-        notice += (
-            "この画面を配信しているサービスも含まれるため、一時的に接続が切れます。"
+    return (
+        f"更新後に {unit_summary(units)}を再起動します。{_screen_drop_warning(units)}"
+    )
+
+
+def restart_scheduled_notice(units: tuple[str, ...]) -> str:
+    """再起動を予約したことを伝える 1 文（更新を伴わない再起動で使う）."""
+    if not units:
+        return (
+            "pcbasm のサービスが systemd で動いていないため、"
+            "WebUI の再起動は行いません。"
         )
-    return notice
+    return f"{unit_summary(units)}を再起動します。{_screen_drop_warning(units)}"

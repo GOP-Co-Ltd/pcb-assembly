@@ -13,7 +13,9 @@
 
 from __future__ import annotations
 
+import socket
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import attrs
@@ -22,10 +24,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import before_deadline
+from tests.helpers import FakeAudioPlayer, before_deadline
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
+from web.api.app import create_app as create_backend_app
+from web.api.settings import Settings as ApiSettings
 from web.selfupdate.runner import UpdateRunner
 from web.ui.app import create_app
+from web.ui.machines import MachineEndpoint
 from web.ui.settings import Settings
 
 
@@ -194,3 +199,209 @@ class TestSelfUpdateApi:
         assert response.status_code == 202
         _finish(runner)
         assert sandbox.head() == target
+
+
+class TestUpdateNotice:
+    """`GET /api/update-notice` — 全ページのトップバーが読む更新通知.
+
+    通知はページを配信している UI サーバー自身と、表示中の機体 backend の両方を見る。
+    バッジの見出し・詳細・遷移先はすべてサーバが組む（`webui-thin-wrapper`）。
+
+    通知は補助情報なので、**backend に到達できなくても 200 を返す**。ここで 5xx に
+    すると、機体が落ちている間じゅうトップバーがエラーを出し続ける。
+    """
+
+    @pytest.fixture
+    def sandbox(self, tmp_path: Path) -> UpdateSandbox:
+        """Frontend 側は既定で最新（通知が出ない状態）にしておく."""
+        return make_update_sandbox(tmp_path / "selfupdate")
+
+    @pytest.fixture
+    def machine_sandbox(self, tmp_path: Path) -> UpdateSandbox:
+        """機体 backend 側の実リポジトリ（frontend 側とは別の作業ツリー）."""
+        return make_update_sandbox(tmp_path / "machine")
+
+    @pytest.fixture
+    def machine_runner(self, machine_sandbox: UpdateSandbox) -> UpdateRunner:
+        return UpdateRunner(machine_sandbox.settings)
+
+    @contextmanager
+    def _client(
+        self,
+        ui_settings: Settings,
+        backend_settings: ApiSettings,
+        footprint_root: Path,
+        runner: UpdateRunner,
+        machine_runner: UpdateRunner,
+    ) -> Iterator[TestClient]:
+        """Frontend も機体 backend も sandbox のリポジトリを見る構成を組む."""
+        backend = create_backend_app(
+            backend_settings,
+            audio_player=FakeAudioPlayer(),
+            paste_test_board_footprint_root=footprint_root,
+            update_runner=machine_runner,
+        )
+        app = create_app(
+            ui_settings,
+            transport_factory=lambda _endpoint: httpx.ASGITransport(app=backend),
+            update_runner=runner,
+        )
+        try:
+            with TestClient(app) as test_client:
+                yield test_client
+        finally:
+            backend.state.preview.request_shutdown()
+            backend.state.jobs.shutdown()
+            backend.state.appstate.close()
+
+    @pytest.fixture
+    def notice_client(
+        self,
+        ui_settings: Settings,
+        backend_settings: ApiSettings,
+        paste_test_board_footprint_root: Path,
+        runner: UpdateRunner,
+        machine_runner: UpdateRunner,
+    ) -> Iterator[TestClient]:
+        with self._client(
+            ui_settings,
+            backend_settings,
+            paste_test_board_footprint_root,
+            runner,
+            machine_runner,
+        ) as test_client:
+            yield test_client
+
+    def test_up_to_date_hosts_show_no_badge(
+        self,
+        notice_client: TestClient,
+        runner: UpdateRunner,
+        machine_runner: UpdateRunner,
+    ):
+        runner.check()
+        machine_runner.check()
+
+        body = notice_client.get("/api/update-notice?machine_id=uitest").json()
+
+        assert body["available"] is False
+        assert body["label"] == ""
+
+    def test_frontend_update_points_at_the_ui_update_page(
+        self,
+        notice_client: TestClient,
+        sandbox: UpdateSandbox,
+        runner: UpdateRunner,
+    ):
+        sandbox.push()
+        runner.check()
+
+        body = notice_client.get("/api/update-notice?machine_id=uitest").json()
+
+        assert body["available"] is True
+        assert body["href"] == "/update"
+        assert body["label"]
+
+    def test_machine_update_points_at_that_machine_page(
+        self,
+        notice_client: TestClient,
+        machine_sandbox: UpdateSandbox,
+        machine_runner: UpdateRunner,
+    ):
+        machine_sandbox.push()
+        machine_runner.check()
+
+        body = notice_client.get("/api/update-notice?machine_id=uitest").json()
+
+        assert body["available"] is True
+        assert body["href"] == "/m/uitest/dev/update"
+        assert "uitest" in body["detail"]
+
+    def test_both_hosts_pending_falls_back_to_the_update_index(
+        self,
+        notice_client: TestClient,
+        sandbox: UpdateSandbox,
+        runner: UpdateRunner,
+        machine_sandbox: UpdateSandbox,
+        machine_runner: UpdateRunner,
+    ):
+        sandbox.push()
+        machine_sandbox.push()
+        runner.check()
+        machine_runner.check()
+
+        body = notice_client.get("/api/update-notice?machine_id=uitest").json()
+
+        assert body["available"] is True
+        assert body["href"] == "/update"
+        assert len(body["detail"].splitlines()) == 2
+
+    def test_unreachable_machine_still_reports_the_frontend(
+        self, ui_settings: Settings, sandbox: UpdateSandbox, runner: UpdateRunner
+    ):
+        """機体が落ちていてもトップバーは壊れない（誰も listen しない port へ実接続）."""
+        settings = attrs.evolve(
+            ui_settings,
+            machines=(MachineEndpoint(machine_id="down", host="127.0.0.1", port=1),),
+        )
+        app = create_app(settings, update_runner=runner)
+        sandbox.push()
+        runner.check()
+
+        with TestClient(app) as client:
+            response = client.get("/api/update-notice?machine_id=down")
+
+        assert response.status_code == 200
+        assert response.json()["available"] is True
+
+    def test_machineless_page_only_asks_the_frontend(
+        self,
+        notice_client: TestClient,
+        machine_sandbox: UpdateSandbox,
+        machine_runner: UpdateRunner,
+    ):
+        """マシン非依存のページ（ピッカー・/update）には machine_id が無い."""
+        machine_sandbox.push()
+        machine_runner.check()
+
+        body = notice_client.get("/api/update-notice").json()
+
+        assert body["available"] is False
+
+    def test_colocated_host_is_counted_once(
+        self,
+        ui_settings: Settings,
+        backend_settings: ApiSettings,
+        paste_test_board_footprint_root: Path,
+        sandbox: UpdateSandbox,
+        runner: UpdateRunner,
+        machine_sandbox: UpdateSandbox,
+        machine_runner: UpdateRunner,
+    ):
+        """同居機は frontend と backend が同じホストなので 1 件にまとめる.
+
+        畳まないと 1 つの更新が「2 件」と表示される（`PCBASM_HOSTNAME` 未設定の
+        機体では両者とも `socket.gethostname()` を名乗る）。
+        """
+        sandbox.push()
+        machine_sandbox.push()
+        runner.check()
+        machine_runner.check()
+
+        with self._client(
+            ui_settings,
+            attrs.evolve(backend_settings, hostname=socket.gethostname()),
+            paste_test_board_footprint_root,
+            runner,
+            machine_runner,
+        ) as client:
+            body = client.get("/api/update-notice?machine_id=uitest").json()
+
+        assert body["available"] is True
+        assert len(body["detail"].splitlines()) == 1
+
+    def test_every_page_loads_the_badge(self, notice_client: TestClient):
+        """トップバーは全ページ共通なので base.html から配線する."""
+        body = notice_client.get("/update").text
+
+        assert 'id="update-badge"' in body
+        assert "js/update_notice.js" in body

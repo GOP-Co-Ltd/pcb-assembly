@@ -237,6 +237,20 @@ class JobCatalogResponse(BaseModel):
     jobs: list[JobSpecInfo]
 
 
+class FirmwareRestartResponse(BaseModel):
+    """ファームウェア再起動の結果（WebUI サービスの再起動予約を含む）.
+
+    表示文字列はサーバが組む。Klipper へ送れなければ 502 を投げるので、ここに
+    「失敗」は入らない。``warning`` が入るのはファームウェアは再起動できたが WebUI
+    サービスを落とせなかったとき（sudoers 未設置・更新の実行中）。
+    """
+
+    # トーストに出す 1 行（何を再起動したか）
+    message: str = ""
+    # サービスを再起動できなかった理由（空なら予約済み）
+    warning: str = ""
+
+
 class UpdateRepositoryInfo(BaseModel):
     """WebUI からの更新が見る git リポジトリの現在値.
 
