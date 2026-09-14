@@ -25,11 +25,13 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import attrs
 import pytest
 
 from tests.helpers import before_deadline, wait_until
@@ -465,3 +467,121 @@ class TestNothingToUpdate:
         assert report.state is not UpdateState.FAILED
         assert head(clone) == before
         assert git(clone, "status", "--porcelain") == ""
+
+
+class TestRestartServices:
+    """更新を伴わないサービス再起動（ファームウェア再起動ボタンから使う）.
+
+    再起動対象と argv は更新時とまったく同じ（`active_units()` と `restart_command`）。
+    sudoers に許可を追加せずに済ませるため、ここが分岐したら実機で必ず落ちる。
+    """
+
+    def test_active_units_are_restarted_in_canonical_order(
+        self, clone: Path, tmp_path: Path
+    ):
+        settings = build_settings(clone, tmp_path)
+
+        assert UpdateRunner(settings).restart_services() is None
+
+        wait_until(lambda: restart_calls(log_path(settings)) != [])
+        assert any(
+            f"restart --no-block {API_UNIT} {UI_UNIT}" in line
+            for line in restart_calls(log_path(settings))
+        ), call_log(log_path(settings))
+
+    def test_missing_sudoers_is_refused_without_restarting(
+        self, clone: Path, tmp_path: Path
+    ):
+        settings = build_settings(clone, tmp_path, permitted=False)
+
+        reason = UpdateRunner(settings).restart_services()
+
+        assert reason is not None
+        assert restart_calls(log_path(settings)) == []
+
+    def test_running_update_is_not_interrupted(
+        self, clone: Path, tmp_path: Path, publisher: Path
+    ):
+        """`uv sync` の最中に unit を落とすと中途半端な依存で起動不能になる."""
+        push_commit(publisher, body="second\n")
+        settings = build_settings(clone, tmp_path, uv_sleep=1.0)
+        runner = UpdateRunner(settings)
+        run_id, reason = runner.start()
+        assert reason is None and run_id is not None
+
+        wait_until(lambda: runner.running)
+        refusal = runner.restart_services()
+
+        assert refusal is not None
+        assert before_deadline(lambda: runner.wait(30.0), what="更新の完了") is True
+
+    def test_another_process_updating_blocks_the_restart(
+        self, clone: Path, tmp_path: Path
+    ):
+        """同居機の相方が更新中なら断る（守れるのは共有 flock だけ）.
+
+        `running` はこのプロセスの更新スレッドしか見ない。backend と frontend は
+        同じ `update.lock` を掴むので、相方の `uv sync` の最中に unit を落とすのを
+        止められるのはロックだけ。
+        """
+        settings = build_settings(clone, tmp_path)
+        settings.state_dir.mkdir(parents=True, exist_ok=True)
+        other = settings.lock_path.open("w", encoding="utf-8")
+        fcntl.flock(other.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            reason = UpdateRunner(settings).restart_services()
+        finally:
+            fcntl.flock(other.fileno(), fcntl.LOCK_UN)
+            other.close()
+
+        assert reason is not None
+        assert restart_calls(log_path(settings)) == []
+
+    def test_lock_is_released_after_the_restart_is_issued(
+        self, clone: Path, tmp_path: Path
+    ):
+        """握ったままにしない（以後の更新が全部「実行中」で止まる）."""
+        settings = build_settings(clone, tmp_path)
+        runner = UpdateRunner(settings)
+
+        assert runner.restart_services() is None
+
+        wait_until(lambda: restart_calls(log_path(settings)) != [])
+        wait_until(lambda: runner.restart_services() is None)
+
+
+class TestRemoteWatch:
+    """更新の有無を通知するための定期 fetch（`GET status` は fetch しないため）."""
+
+    def test_watching_notices_a_new_commit_without_a_manual_check(
+        self, clone: Path, tmp_path: Path, publisher: Path
+    ):
+        settings = attrs.evolve(build_settings(clone, tmp_path), watch_interval=0.05)
+        runner = UpdateRunner(settings)
+        runner.start_watching()
+        try:
+            push_commit(publisher, body="second\n")
+
+            wait_until(lambda: runner.plan().update_available)
+        finally:
+            runner.stop_watching()
+
+    def test_stop_watching_returns_promptly(self, clone: Path, tmp_path: Path):
+        settings = attrs.evolve(build_settings(clone, tmp_path), watch_interval=600.0)
+        runner = UpdateRunner(settings)
+        runner.start_watching()
+
+        assert before_deadline(runner.stop_watching, what="watcher の停止") is None
+
+    def test_disabled_installation_does_not_reach_the_remote(
+        self, clone: Path, tmp_path: Path, publisher: Path
+    ):
+        """`enabled=False` の機体は通知のための fetch もしない."""
+        settings = build_settings(clone, tmp_path, enabled=False)
+        runner = UpdateRunner(settings)
+        push_commit(publisher, body="second\n")
+
+        assert runner.refresh_remote() is None
+        state = runner.plan().repository
+        assert state is not None
+        assert state.behind == 0

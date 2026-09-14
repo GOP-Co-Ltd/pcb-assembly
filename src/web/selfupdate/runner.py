@@ -15,11 +15,18 @@
 
 **参照先は絶対にリクエストパラメータにしない。** ブランチ・remote・ref・`uv` の引数は
 すべて `UpdateSettings` 側の固定値。ここを開けると「LAN から任意コード実行」に悪化する。
+
+更新以外に 2 つの役目を兼ねる（どちらも同じ `UpdateSettings` と観測値を使うため）:
+
+- `restart_services()`: 更新せずに unit だけ再起動する（ファームウェア再起動から呼ぶ）
+- `start_watching()`: 通知のための定期 `git fetch`（`GET status` は fetch しないので、
+  これが無いと「更新があります」が誰かの手動確認まで出ない）
 """
 
 from __future__ import annotations
 
 import fcntl
+import logging
 import secrets
 import threading
 import time
@@ -58,6 +65,8 @@ from web.selfupdate.steps import (
     tail,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class UpdateRunner:
     """1 ホスト分の自己更新を受け持つ（`app.state.update` に 1 つ置く）."""
@@ -77,6 +86,8 @@ class UpdateRunner:
         self._finished = threading.Event()
         self._finished.set()
         self._units: tuple[str, ...] | None = None
+        self._watch: threading.Thread | None = None
+        self._stop_watch = threading.Event()
 
     @property
     def enabled(self) -> bool:
@@ -110,6 +121,82 @@ class UpdateRunner:
                 self._settings, timeout=self._settings.check_fetch_timeout
             )
         return self._plan(fetch_error=fetch_error)
+
+    def refresh_remote(self) -> str | None:
+        """通知のために remote を取り込む（失敗理由を返す）.
+
+        `check()` と違って観測値を組み立てない。`GET status` が返す `behind` を
+        新しく保つためだけのもので、無効な機体と更新実行中は何もしない。
+        """
+        if not self._settings.enabled or self.running:
+            return None
+        return fetch(self._settings)
+
+    def start_watching(self) -> None:
+        """`watch_interval` ごとの `refresh_remote()` を始める（lifespan から呼ぶ）.
+
+        最初の fetch は 1 周期待ってから行う（起動直後の I/O を避ける）。
+        """
+        if self._watch is not None or self._settings.watch_interval <= 0:
+            return
+        self._stop_watch.clear()
+        self._watch = threading.Thread(
+            target=self._watch_remote, name="pcbasm-update-watch", daemon=True
+        )
+        self._watch.start()
+
+    def stop_watching(self) -> None:
+        """定期 fetch を止めて合流する（lifespan の終了時に呼ぶ）."""
+        watch, self._watch = self._watch, None
+        if watch is None:
+            return
+        self._stop_watch.set()
+        # 実行中の git fetch は待たない（daemon なのでプロセス終了を妨げない）
+        watch.join(timeout=1.0)
+
+    def restart_services(self) -> str | None:
+        """更新せずに pcbasm の unit を再起動する（断る理由があれば返す）.
+
+        ファームウェア再起動から呼ぶ「装置ごと立て直す」経路。**再起動対象も argv も
+        更新時と同一**（`active_units()` + `restart_command`）なので、sudoers に許可を
+        足す必要はない。
+
+        更新と同じ flock を取る。`running` はこのプロセスの更新スレッドしか見ないが、
+        同居機では backend と frontend が同じ `update.lock` を共有するので、**相方が
+        `uv sync` の最中に unit を落とす**のを止められるのはロックだけ。ロックは
+        再起動を投げ終えるまで握り続ける（先に返すと同じ窓が開き直す）。
+
+        Returns:
+            予約できたら None、できない理由があればその文字列
+        """
+        units = self.restart_units()
+        if not units:
+            return None
+        with self._guard:
+            if self.running:
+                return (
+                    "ソフトウェア更新の実行中です。"
+                    "終わるまでサービスの再起動はできません。"
+                )
+            self._settings.state_dir.mkdir(parents=True, exist_ok=True)
+            lock = self._acquire_lock()
+            if lock is None:
+                return (
+                    "別のプロセスがソフトウェア更新を実行中です。"
+                    "終わるまでサービスの再起動はできません。"
+                )
+            if reason := restart_permitted(self._settings, units):
+                self._release(lock)
+                return reason
+            # リクエストスレッドから待たない（`schedule_restart` は応答を返し終えて
+            # から投げるための遅延を持つ）
+            threading.Thread(
+                target=self._restart_holding,
+                args=(lock, units),
+                name="pcbasm-service-restart",
+                daemon=True,
+            ).start()
+        return None
 
     def status(self) -> UpdateReport:
         """永続化された最後の report（未実行なら IDLE）."""
@@ -167,6 +254,27 @@ class UpdateRunner:
             return report.run_id, None
 
     # ---- internals ----
+
+    def _restart_holding(self, lock: IO[str], units: tuple[str, ...]) -> None:
+        """ロックを握ったまま再起動を投げる（更新を伴わない経路）.
+
+        拒否されればこのプロセスは生き残るので、その事実をログに残す。更新と違って report
+        には書かない（更新の記録を、更新でないものが上書きしないため）。
+        """
+        try:
+            if reason := schedule_restart(self._settings, units):
+                logger.warning("サービスの再起動に失敗しました: %s", reason)
+        finally:
+            self._release(lock)
+
+    def _watch_remote(self) -> None:
+        """周期ごとに remote を取り込む（失敗しても黙って次の周期を待つ）.
+
+        通知のための補助経路なので、ネットワーク不通で例外を上げない
+        （`fetch` は理由を返すだけで送出しない）。
+        """
+        while not self._stop_watch.wait(self._settings.watch_interval):
+            self.refresh_remote()
 
     def _plan(self, *, fetch_error: str | None = None) -> UpdatePlan:
         state, error = capture_state(self._settings)

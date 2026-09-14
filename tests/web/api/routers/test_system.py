@@ -18,14 +18,20 @@ Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変�
 """
 
 import time
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import mark_hardware
+from tests.helpers import FakeAudioPlayer, mark_hardware
 from tests.web.api.jobs.conftest import register_gated
+from tests.web.update_support import UpdateSandbox, make_update_sandbox
+from web.api.app import create_app
+from web.api.settings import Settings
 from web.api.state import AppState
+from web.selfupdate.runner import UpdateRunner
 
 
 class TestKlipperStatus:
@@ -146,3 +152,39 @@ class TestStageLimits:
         data = response.json()
         for axis in ("x", "y", "z"):
             assert data[axis]["min"] < data[axis]["max"]
+
+
+class TestFirmwareRestartAlsoRestartsServices:
+    """ファームウェア再起動は WebUI のサービス（api / ui）も再起動する.
+
+    成功経路は実 Moonraker が要る（`@mark_hardware` でも書かない: 装置への副作用が
+    大きい）。ここで固定するのは **Klipper へ送れなかったときに unit を落とさない**
+    こと。落とすと、装置が応答しない状態で画面まで一緒に消える。
+    """
+
+    @pytest.fixture
+    def sandbox(self, tmp_path: Path) -> UpdateSandbox:
+        return make_update_sandbox(tmp_path / "selfupdate")
+
+    @pytest.fixture
+    def restart_client(
+        self,
+        webui_settings: Settings,
+        paste_test_board_footprint_root: Path,
+        sandbox: UpdateSandbox,
+    ) -> Iterator[TestClient]:
+        app = create_app(
+            webui_settings,
+            audio_player=FakeAudioPlayer(),
+            paste_test_board_footprint_root=paste_test_board_footprint_root,
+            update_runner=UpdateRunner(sandbox.settings),
+        )
+        with TestClient(app) as test_client:
+            yield test_client
+
+    def test_unreachable_moonraker_leaves_the_services_running(
+        self, restart_client: TestClient, sandbox: UpdateSandbox
+    ):
+        assert restart_client.post("/api/firmware-restart").status_code == 502
+
+        assert sandbox.restarts() == []
