@@ -519,7 +519,7 @@ class TestMachineName:
 class TestNozzleCap:
     """Machine.nozzle_cap のテスト（nozzle-cap-parking 計画書「公開インターフェース」節）.
 
-    未記録（[nozzle_cap] セクションなし）が正常状態なので None を返す。
+    未記録（[paste_dispenser.nozzle_cap] セクションなし）が正常状態なので None を返す。
     """
 
     def test_missing_section_returns_none(self):
@@ -527,15 +527,26 @@ class TestNozzleCap:
 
         assert machine.nozzle_cap is None
 
-    def test_reads_recorded_position(self, tmp_path):
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        path = tmp_path / "machine.toml"
-        path.write_text(
-            source + "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
-            encoding="utf-8",
+    def test_reads_recorded_position(self, tmp_path: Path):
+        machine = _machine_with(
+            tmp_path, "[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n"
         )
 
-        machine = Machine(path)
+        assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
+
+    def test_reads_the_legacy_top_level_section(self, tmp_path: Path):
+        """旧 [nozzle_cap] のままでも読む（設定を書き換えずに動き続ける）."""
+        machine = _machine_with(tmp_path, "[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n")
+
+        assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
+
+    def test_new_section_wins_over_the_legacy_one(self, tmp_path: Path):
+        """移行済みの値を旧セクションの残骸で上書きさせない."""
+        machine = _machine_with(
+            tmp_path,
+            "[nozzle_cap]\nx = 1.0\ny = 2.0\nz = 3.0\n"
+            "[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
+        )
 
         assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
 
@@ -543,8 +554,8 @@ class TestNozzleCap:
 class TestNozzleClean:
     """Machine.nozzle_clean と NozzleClean のテスト.
 
-    未記録（[nozzle_clean] セクションなし）が正常状態なので None を返す。
-    座標は既定値を持たず、欠けたテーブルは例外になる（原点へ行く事故を防ぐため）。
+    未記録（[paste_dispenser.nozzle_clean] セクションなし）が正常状態なので None を返す。
+    座標は既定値を持たず、欠けたテーブルは未記録として扱う（原点へ行く事故を防ぐ）。
     """
 
     def test_missing_section_returns_none(self):
@@ -552,9 +563,17 @@ class TestNozzleClean:
 
         assert machine.nozzle_clean is None
 
-    def test_reads_position_with_defaults(self, tmp_path: Path):
+    def test_reads_the_legacy_top_level_section(self, tmp_path: Path):
+        """旧 [nozzle_clean] のままでも読む."""
         machine = _machine_with(
             tmp_path, "[nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\n"
+        )
+
+        assert machine.nozzle_clean == NozzleClean(x=10.0, y=20.0, z=-30.0)
+
+    def test_reads_position_with_defaults(self, tmp_path: Path):
+        machine = _machine_with(
+            tmp_path, "[paste_dispenser.nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\n"
         )
 
         assert machine.nozzle_clean == NozzleClean(x=10.0, y=20.0, z=-30.0)
@@ -562,7 +581,7 @@ class TestNozzleClean:
     def test_reads_recorded_values(self, tmp_path: Path):
         machine = _machine_with(
             tmp_path,
-            "[nozzle_clean]\n"
+            "[paste_dispenser.nozzle_clean]\n"
             "x = 10.0\ny = 20.0\nz = -30.0\n"
             "press_depth = 0.4\npurge_ul = 0.3\n"
             "stroke = 1.5\npasses = 3\nwipe_speed = 8.0\n",
@@ -585,12 +604,28 @@ class TestNozzleClean:
 
         assert clean.press_z == pytest.approx(-30.4)
 
-    def test_missing_coordinate_raises(self, tmp_path: Path):
-        """座標が欠けたテーブルは既定値で埋めず例外にする."""
-        machine = _machine_with(tmp_path, "[nozzle_clean]\npress_depth = 0.4\n")
+    def test_missing_coordinate_reads_as_not_recorded(self, tmp_path: Path):
+        """座標が欠けたテーブルは既定値で埋めず「未記録」として扱う."""
+        machine = _machine_with(
+            tmp_path, "[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n"
+        )
 
-        with pytest.raises(Exception):
-            machine.nozzle_clean
+        assert machine.nozzle_clean is None
+
+    def test_missing_coordinate_keeps_the_rest_of_paste_dispenser_readable(
+        self, tmp_path: Path
+    ):
+        """不完全なサブテーブルで塗布パラメータ全体を巻き添えにしない.
+
+        設定ページから押し込み量だけ保存すればこの状態になる。巻き添えにすると /settings
+        の塗布パラメータが全て「未設定」になり、装置ページが 503 する。
+        """
+        machine = _machine_with(
+            tmp_path, "[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n"
+        )
+
+        assert machine.paste_dispenser.nozzle_diameter > 0
+        assert machine.paste_dispenser.nozzle_clean is None
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -622,6 +657,43 @@ class TestNozzleClean:
         assert NozzleClean(x=1.0, y=2.0, z=-3.0, press_depth=0.0).press_depth == 0.0
         assert NozzleClean(x=1.0, y=2.0, z=-3.0, purge_ul=0.0).purge_ul == 0.0
         assert NozzleClean(x=1.0, y=2.0, z=-3.0, stroke=0.0).stroke == 0.0
+
+
+class TestLegacyNozzleSections:
+    """旧トップレベル [nozzle_cap] / [nozzle_clean] の読み替え.
+
+    設定ファイルを書き換えなくても動き続けるよう、読み込み時に [paste_dispenser]
+    配下へ写す。ファイル自体の移行は設定を書き込むときに ConfigStore が行う
+    （契約は tests/web/api/test_config_store.py::TestLegacyNozzleSectionMigration）。
+    """
+
+    def test_legacy_section_is_visible_through_paste_dispenser(self, tmp_path: Path):
+        """ノズル専用のアクセサと paste_dispenser 経由で同じ値が見える.
+
+        ここが食い違うと、/settings が「未設定」でノズル位置ページが「記録済み」と 並ぶような表示になる。
+        """
+        machine = _machine_with(tmp_path, "[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n")
+
+        assert machine.paste_dispenser.nozzle_cap == machine.nozzle_cap
+        assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
+
+    def test_legacy_clean_section_is_visible_through_paste_dispenser(
+        self, tmp_path: Path
+    ):
+        machine = _machine_with(
+            tmp_path, "[nozzle_clean]\nx = 1.0\ny = 2.0\nz = -3.0\n"
+        )
+
+        assert machine.paste_dispenser.nozzle_clean == machine.nozzle_clean
+
+    def test_new_section_wins_over_the_legacy_one(self, tmp_path: Path):
+        machine = _machine_with(
+            tmp_path,
+            "[nozzle_cap]\nx = 1.0\ny = 2.0\nz = 3.0\n"
+            "[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
+        )
+
+        assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
 
 
 class TestCornerOffsets:

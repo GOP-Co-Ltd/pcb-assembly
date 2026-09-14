@@ -37,7 +37,7 @@ from pcbasm.parking import move_to_cap, park_or_present
 _PASTE_WITH_CAP = """\
 machine_type = "paste"
 
-[nozzle_cap]
+[paste_dispenser.nozzle_cap]
 x = 10.0
 y = 20.0
 z = 3.5
@@ -46,7 +46,7 @@ z = 3.5
 _PASTE_WITH_CAP_OUT_OF_LIMITS = """\
 machine_type = "paste"
 
-[nozzle_cap]
+[paste_dispenser.nozzle_cap]
 x = 999.0
 y = 20.0
 z = 3.5

@@ -54,7 +54,7 @@ class TestRecordNozzleCap:
         machine_toml = (real_settings.config_dir / "machine.toml").read_text(
             encoding="utf-8"
         )
-        assert "[nozzle_cap]" in machine_toml
+        assert "[paste_dispenser.nozzle_cap]" in machine_toml
 
         # M84 で homed 状態が消えた後は stale 座標を記録させない
         relax = real_client.post("/api/machine-control", json={"action": "relax"})
@@ -99,4 +99,4 @@ class TestRecordNozzleClean:
         machine_toml = (real_settings.config_dir / "machine.toml").read_text(
             encoding="utf-8"
         )
-        assert "[nozzle_clean]" in machine_toml
+        assert "[paste_dispenser.nozzle_clean]" in machine_toml

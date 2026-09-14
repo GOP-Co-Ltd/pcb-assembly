@@ -808,7 +808,7 @@ class TestPastingHardware:
         machine = real_state.machine()
         clean = machine.nozzle_clean
         if clean is None:
-            pytest.skip("[nozzle_clean] が未記録のため実行しない")
+            pytest.skip("[paste_dispenser.nozzle_clean] が未記録のため実行しない")
         klipper = create_command_klipper(machine)
         stage = XYZStage(klipper.readonly)
         klipper.send_gcode(GCode.homing() + GCode.wait_for_done())

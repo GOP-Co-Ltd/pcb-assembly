@@ -172,7 +172,7 @@ class TestHandleMachineCommand:
         path = config_dir / "machine.toml"
         path.write_text(
             path.read_text(encoding="utf-8")
-            + "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
+            + "\n[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
             encoding="utf-8",
         )
 
