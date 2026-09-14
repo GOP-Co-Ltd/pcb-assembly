@@ -12,6 +12,7 @@ from pcbasm.config import (
     Klipper,
     Machine,
     NozzleCap,
+    NozzleClean,
     PadAlign,
     PasteDispenser,
     Probe,
@@ -537,6 +538,90 @@ class TestNozzleCap:
         machine = Machine(path)
 
         assert machine.nozzle_cap == NozzleCap(x=10.0, y=20.0, z=3.5)
+
+
+class TestNozzleClean:
+    """Machine.nozzle_clean と NozzleClean のテスト.
+
+    未記録（[nozzle_clean] セクションなし）が正常状態なので None を返す。
+    座標は既定値を持たず、欠けたテーブルは例外になる（原点へ行く事故を防ぐため）。
+    """
+
+    def test_missing_section_returns_none(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.nozzle_clean is None
+
+    def test_reads_position_with_defaults(self, tmp_path: Path):
+        machine = _machine_with(
+            tmp_path, "[nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\n"
+        )
+
+        assert machine.nozzle_clean == NozzleClean(x=10.0, y=20.0, z=-30.0)
+
+    def test_reads_recorded_values(self, tmp_path: Path):
+        machine = _machine_with(
+            tmp_path,
+            "[nozzle_clean]\n"
+            "x = 10.0\ny = 20.0\nz = -30.0\n"
+            "press_depth = 0.4\npurge_ul = 0.3\n"
+            "stroke = 1.5\npasses = 3\nwipe_speed = 8.0\n",
+        )
+
+        assert machine.nozzle_clean == NozzleClean(
+            x=10.0,
+            y=20.0,
+            z=-30.0,
+            press_depth=0.4,
+            purge_ul=0.3,
+            stroke=1.5,
+            passes=3,
+            wipe_speed=8.0,
+        )
+
+    def test_press_z_subtracts_press_depth_from_surface(self):
+        """こすり Z は面 Z から押し込み量だけ下がる（Z は 0 が上・負が下）."""
+        clean = NozzleClean(x=1.0, y=2.0, z=-30.0, press_depth=0.4)
+
+        assert clean.press_z == pytest.approx(-30.4)
+
+    def test_missing_coordinate_raises(self, tmp_path: Path):
+        """座標が欠けたテーブルは既定値で埋めず例外にする."""
+        machine = _machine_with(tmp_path, "[nozzle_clean]\npress_depth = 0.4\n")
+
+        with pytest.raises(Exception):
+            machine.nozzle_clean
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("press_depth", -0.1),
+            ("purge_ul", -1.0),
+            ("stroke", -1.0),
+            ("passes", -1),
+            ("passes", 1.5),
+            ("passes", True),
+            ("wipe_speed", 0.0),
+            ("wipe_speed", -1.0),
+            ("x", float("inf")),
+            ("y", float("nan")),
+            ("z", "auto"),
+        ],
+    )
+    def test_rejects_invalid_values(self, key, value):
+        with pytest.raises(ValueError, match=key):
+            NozzleClean(**{"x": 10.0, "y": 20.0, "z": -30.0, key: value})
+
+    @pytest.mark.parametrize("passes", [0, 1])
+    def test_accepts_zero_and_one_pass(self, passes):
+        """こすり回数 0 はこすり無効として受理する."""
+        assert NozzleClean(x=1.0, y=2.0, z=-3.0, passes=passes).passes == passes
+
+    def test_accepts_zero_for_optional_steps(self):
+        """0 は「その工程を行わない」を意味するので受理する."""
+        assert NozzleClean(x=1.0, y=2.0, z=-3.0, press_depth=0.0).press_depth == 0.0
+        assert NozzleClean(x=1.0, y=2.0, z=-3.0, purge_ul=0.0).purge_ul == 0.0
+        assert NozzleClean(x=1.0, y=2.0, z=-3.0, stroke=0.0).stroke == 0.0
 
 
 class TestCornerOffsets:
