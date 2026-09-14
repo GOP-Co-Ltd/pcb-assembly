@@ -45,6 +45,7 @@
 - [x] commit 4 記録 API と設定露出
 - [x] commit 5 ページ
 - [x] 自己レビュー + code-reviewer（must-fix 1 / should-fix 8 / nit 11）
+- [x] レビュー対応（must-fix 1 / should-fix 全件 / nit 大半）
 - [ ] MR
 
 ## 実装中の気付き（段階 4 で回収する）
@@ -74,3 +75,16 @@
 
 `_coerce` の int 分岐が bool を弾かないという nit は誤り。`_coerce` 冒頭で
 `isinstance(value, bool)` を弾いている。
+
+## ユーザーへの実機確認申し送り
+
+1. WebUI「ノズル位置の設定」でクリーニング位置を記録する
+    （ホーミング → ジョグで先端をクリーナー面へ**触れるだけ**当てる → 記録）
+2. 押し込み量（既定 0.5 mm）・こすり幅（既定 2.0 mm）・パージ量（既定 0.2 uL）・
+    往復回数（既定 2）・こすり速度（既定 10 mm/s）を実機で追い込む
+3. はんだ塗布を 1 枚通し、クリーニング動作を目視する。特に
+    - 先端にペーストが残らないか
+    - 面 Z でのパージに逃げ場があるか（無ければ approach の最後の下降を pass 後へ移す）
+    - シリコンを削りすぎていないか（押し込み量を下げる）
+4. `tests/web/api/jobs/test_pasting.py::test_nozzle_clean_motion_returns_to_travel_z`
+    （`purge_ul=0` でモーションのみ）を `pytest -m hardware` で通す
