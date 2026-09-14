@@ -65,6 +65,7 @@ _MACHINE_TOML_DEPENDENT_URLS = frozenset(
         "/settings",
         "/pasting/paste_solder",
         "/pasting/loading",
+        "/pasting/nozzle_cap",
         "/posctrl/copper_detection",
     }
 )
@@ -139,6 +140,19 @@ def partial_nozzle_cap(config_dir: Path) -> Path:
     ) as machine_toml:
         machine_toml.write("\n[nozzle_cap]\nx = 12.5\n")
     return config_dir / "machine.toml"
+
+
+@pytest.fixture
+def partial_nozzle_clean(config_dir: Path) -> Path:
+    """`[nozzle_clean]` に動作値だけを書いた machine.toml を用意する.
+
+    設定画面から押し込み量だけ保存すると座標の無いテーブルができる。`NozzleClean` は
+    座標必須なので structure が例外を投げる素材。
+    """
+    path = config_dir / "machine.toml"
+    with path.open("a", encoding="utf-8") as machine_toml:
+        machine_toml.write("\n[nozzle_clean]\npress_depth = 0.4\n")
+    return path
 
 
 @pytest.fixture
@@ -704,6 +718,47 @@ class TestNozzleCapPage:
 
         assert response.status_code == 200
         assert "未記録" in response.text
+
+    def test_shows_cleaning_section_with_record_button(self, client: TestClient):
+        """キャップと同じページでクリーニング位置も記録できる."""
+        response = client.get("/pasting/nozzle_cap")
+
+        assert response.status_code == 200
+        assert 'data-testid="nozzle-clean-current"' in response.text
+        assert 'data-testid="nozzle-clean-record"' in response.text
+
+    def test_shows_cleaning_settings_form(self, client: TestClient):
+        """押し込み量・こすり幅は結果を見て追い込む値なので記録ボタンと同じ画面に置く."""
+        response = client.get("/pasting/nozzle_cap")
+
+        assert 'data-testid="nozzle-clean-settings"' in response.text
+        assert 'name="nozzle_clean.press_depth"' in response.text
+        # 座標は記録ボタンの管轄なので手打ち欄を並べない
+        assert 'name="nozzle_clean.x"' not in response.text
+
+    def test_partially_recorded_clean_shows_placeholder(
+        self, partial_nozzle_clean: Path, client: TestClient
+    ):
+        """座標の無い `[nozzle_clean]` でも 500 にせず「未記録」を出す."""
+        response = client.get("/pasting/nozzle_cap")
+
+        assert response.status_code == 200
+        assert "未記録" in response.text
+
+    def test_shows_recorded_clean_label_from_server(
+        self, config_dir: Path, client: TestClient
+    ):
+        """表示文字列はサーバーが組んだ label をそのまま出す."""
+        path = config_dir / "machine.toml"
+        with path.open("a", encoding="utf-8") as machine_toml:
+            machine_toml.write(
+                "\n[nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\npress_depth = 0.4\n"
+            )
+
+        response = client.get("/pasting/nozzle_cap")
+
+        assert "10.00" in response.text
+        assert "押し込み" in response.text
 
 
 class TestBrokenMachineTomlPages:

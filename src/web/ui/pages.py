@@ -40,6 +40,7 @@ from web.ui.layout import (
     FEATURE_TEMPLATES,
     JOB_TEMPLATES,
     LOADING_ROTATION_PARAMS,
+    NOZZLE_CLEAN_SETTING_KEYS,
     PASTE_AUTO_THRESHOLD_KEYS,
     PASTE_FLOW_CALIBRATION_FILE_KEY,
     PASTE_FLOW_CALIBRATION_KEYS,
@@ -62,7 +63,9 @@ DEFAULT_TAB = "posctrl"
 # machine.toml をパースするので、壊れた machine.toml では 500 になる。全ページで
 # 取ると壊れた設定ファイル 1 つで全画面が 503 になり、設定を直す画面すら開けない
 # （MR2 で backend 側に入れた「壊れていても描けるページは描く」防御を保つ）
-_MACHINE_SETTINGS_FEATURES = frozenset({"paste_solder", "loading", "copper_detection"})
+_MACHINE_SETTINGS_FEATURES = frozenset(
+    {"paste_solder", "loading", "copper_detection", "nozzle_cap"}
+)
 
 router = APIRouter()
 
@@ -464,8 +467,19 @@ def _copper_detection_context(
 def _nozzle_cap_context(
     state: StateResponse, settings: _MachineSettings
 ) -> dict[str, Any]:
-    """Nozzle_cap ページ専用コンテキスト（記録済みキャップ位置の現在値）."""
-    return {"nozzle_cap": state.nozzle_cap}
+    """ノズル位置ページ専用コンテキスト（キャップ / クリーニングの記録値と動作設定）.
+
+    表示文字列はどちらも backend が組んだものをそのまま渡す。設定フォームは
+    ``settings.number()`` を使わない（未記載で 503 になり、まだ教示していない機体で
+    ページが開けなくなる）。
+    """
+    return {
+        "nozzle_cap": state.nozzle_cap,
+        "nozzle_clean": state.nozzle_clean,
+        "nozzle_clean_fields": [
+            field for field in settings.fields if field.key in NOZZLE_CLEAN_SETTING_KEYS
+        ],
+    }
 
 
 # feature slug → ジョブページ専用コンテキスト（ジョブ定義依存）
