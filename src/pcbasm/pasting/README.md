@@ -51,6 +51,8 @@ web/api/jobs/pasting/*  →  pasting.{session,workflow,alignment,flowcalib.proce
                        pcbasm.{config,geometry,pcb,posctrl,vision,hal}
 ```
 
+- `nozzle_clean` だけはジョブ以外に `web/api/routers/nozzle_cap.py`（テスト実行 API）からも呼ぶ。
+    `PasteSession` を介さず `Klipper` / `XYZStage` / `PasteApplicator` だけで完結させてあるため
 - 汎用の計算幾何は `pcbasm.geometry`、KiCad 汎用処理は `pcbasm.pcb`（`units` / `footprint`）に置く
 - 永続 JSON（基板別 override / dataset metadata / テスト塗布基板 document）は `schema_version` で分岐し、
     旧版は純関数 `_migrate_vN` で新版 dict へ写してから structure する。形状を変えない限り版は上げない

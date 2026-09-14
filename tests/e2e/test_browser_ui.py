@@ -404,6 +404,7 @@ class TestNozzlePositionsOverBrowser:
             "nozzle-cap-record",
             "nozzle-clean-current",
             "nozzle-clean-record",
+            "nozzle-clean-test",
             "nozzle-clean-settings",
         ):
             assert browser_page.locator(f'[data-testid="{testid}"]').count() == 1
@@ -427,6 +428,27 @@ class TestNozzlePositionsOverBrowser:
         _acquire_control(browser_page)
 
         assert not button.evaluate(is_inert)
+
+    def test_clean_test_button_reports_failure_and_recovers(
+        self, live_ui: LiveUi, browser_page
+    ):
+        """テスト実行はエラーでもボタンを押せる状態へ戻す.
+
+        E2E の backend は位置が未記録なので 400 が返る。無効化が片道だと 1 回の失敗で押せなくなる。
+        """
+        browser_page.goto(
+            f"{live_ui.base_url}/pasting/nozzle_cap", wait_until="domcontentloaded"
+        )
+        _acquire_control(browser_page)
+        button = browser_page.locator('[data-testid="nozzle-clean-test"]')
+        button.wait_for(state="visible", timeout=10_000)
+
+        button.click()
+
+        browser_page.locator("#toasts .toast.error").wait_for(
+            state="visible", timeout=10_000
+        )
+        assert not button.evaluate("(el) => el.disabled")
 
     def test_clean_setting_autosave_from_the_feature_page(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page

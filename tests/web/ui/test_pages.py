@@ -727,6 +727,13 @@ class TestNozzleCapPage:
         assert 'data-testid="nozzle-clean-current"' in response.text
         assert 'data-testid="nozzle-clean-record"' in response.text
 
+    def test_shows_cleaning_test_button(self, client: TestClient):
+        """記録した位置で動作を試せる（押し込み量を追い込むのに塗布ジョブを通さない）."""
+        response = client.get("/pasting/nozzle_cap")
+
+        assert response.status_code == 200
+        assert 'data-testid="nozzle-clean-test"' in response.text
+
     def test_shows_cleaning_settings_form(self, client: TestClient):
         """押し込み量・こすり幅は結果を見て追い込む値なので記録ボタンと同じ画面に置く."""
         response = client.get("/pasting/nozzle_cap")
