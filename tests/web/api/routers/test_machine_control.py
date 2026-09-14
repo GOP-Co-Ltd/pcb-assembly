@@ -14,7 +14,7 @@ Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変�
 MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
 - action="move_to_cap" は `AppState.nozzle_cap()` を読む。x/y/z が揃っていない
-  `[nozzle_cap]` も「未記録」として 400 で断る（500 にしない）
+  `[paste_dispenser.nozzle_cap]` も「未記録」として 400 で断る（500 にしない）
 """
 
 import json
@@ -99,7 +99,7 @@ class TestMoveToCap:
     def test_partially_recorded_cap_returns_400(
         self, partial_nozzle_cap: Path, client: TestClient
     ):
-        """X だけ保存された `[nozzle_cap]` は「未記録」として 400 で断る（MR2）.
+        """X だけ保存された `[paste_dispenser.nozzle_cap]` は「未記録」として 400 で断る（MR2）.
 
         `Machine.nozzle_cap` の structure が投げる `ClassValidationError` は
         `ExceptionGroup` 派生で `ValueError` ではないため、生の
@@ -116,7 +116,7 @@ class TestMoveToCap:
         path = config_dir / "machine.toml"
         path.write_text(
             path.read_text(encoding="utf-8")
-            + "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
+            + "\n[paste_dispenser.nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n",
             encoding="utf-8",
         )
 

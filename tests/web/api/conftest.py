@@ -81,7 +81,7 @@ def config_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def partial_nozzle_cap(config_dir: Path) -> Path:
-    """`[nozzle_cap]` に x だけを書いた machine.toml を用意する（そのパスを返す）.
+    """`[paste_dispenser.nozzle_cap]` に x だけを書いた machine.toml を用意する（そのパスを返す）.
 
     設定画面から 1 軸だけ保存すると実際にこの配置になり、`Machine.nozzle_cap` の
     structure は例外を投げる。`/api/state` と全ページ SSR がこれで 500 しないことを
@@ -89,20 +89,20 @@ def partial_nozzle_cap(config_dir: Path) -> Path:
     """
     path = config_dir / "machine.toml"
     with path.open("a", encoding="utf-8") as machine_toml:
-        machine_toml.write("\n[nozzle_cap]\nx = 12.5\n")
+        machine_toml.write("\n[paste_dispenser.nozzle_cap]\nx = 12.5\n")
     return path
 
 
 @pytest.fixture
 def partial_nozzle_clean(config_dir: Path) -> Path:
-    """`[nozzle_clean]` に動作値だけを書いた machine.toml を用意する.
+    """`[paste_dispenser.nozzle_clean]` に動作値だけを書いた machine.toml を用意する.
 
     設定画面から押し込み量だけ保存すると座標の無いテーブルができる。`NozzleClean` は
     座標必須なので structure が例外を投げ、防御しないと全ページ SSR が 500 する。
     """
     path = config_dir / "machine.toml"
     with path.open("a", encoding="utf-8") as machine_toml:
-        machine_toml.write("\n[nozzle_clean]\npress_depth = 0.4\n")
+        machine_toml.write("\n[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n")
     return path
 
 

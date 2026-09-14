@@ -418,7 +418,9 @@ class TestResolveNozzleClean:
 
         WebUI も同じ設定を「未記録」と表示するので、ジョブだけ失敗させない。
         """
-        machine = self._machine(tmp_path, "[nozzle_clean]\npress_depth = 0.4\n")
+        machine = self._machine(
+            tmp_path, "[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n"
+        )
         messages: list[str] = []
 
         resolved = resolve_nozzle_clean(machine, stage, log=messages.append)
@@ -430,7 +432,7 @@ class TestResolveNozzleClean:
     def test_recorded_position_is_resolved(self, tmp_path: Path, stage: XYZStage):
         machine = self._machine(
             tmp_path,
-            f"[nozzle_clean]\nx = {CENTER_X}\ny = {CENTER_Y}\nz = {SURFACE_Z}\n",
+            f"[paste_dispenser.nozzle_clean]\nx = {CENTER_X}\ny = {CENTER_Y}\nz = {SURFACE_Z}\n",
         )
 
         resolved = resolve_nozzle_clean(machine, stage)
@@ -441,7 +443,7 @@ class TestResolveNozzleClean:
     def test_unreachable_position_raises(self, tmp_path: Path, stage: XYZStage):
         """教示ミスは黙って進めず、機械を動かす前に気づかせる."""
         machine = self._machine(
-            tmp_path, "[nozzle_clean]\nx = 999.0\ny = 20.0\nz = -3.0\n"
+            tmp_path, "[paste_dispenser.nozzle_clean]\nx = 999.0\ny = 20.0\nz = -3.0\n"
         )
 
         with pytest.raises(ValueError, match="可動域外"):

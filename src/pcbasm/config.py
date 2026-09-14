@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tomllib
+from collections.abc import Callable
 from enum import Enum, auto
 from math import isfinite
 from pathlib import Path
@@ -14,6 +16,8 @@ import cattrs
 
 from pcbasm.geometry import Point2d, Shift, Transform
 from pcbasm.utils import PROJECT_ROOT, is_finite_number
+
+logger = logging.getLogger(__name__)
 
 DISPENSE_MODES = ("auto", "dot", "line", "area")
 DispenseMode = Literal["auto", "dot", "line", "area"]
@@ -233,6 +237,77 @@ class FlowCalibration:
 
 
 @attrs.frozen
+class NozzleCap:
+    """ノズルキャップ位置の設定（マシン座標 [mm]）."""
+
+    x: float
+    y: float
+    z: float
+
+
+@attrs.frozen
+class NozzleClean:
+    """ノズルクリーニング位置と動作の設定（マシン座標 [mm]）.
+
+    塗布ジョブの開始時に ``(x, y)`` へ移動し、その場で ``purge_ul`` だけ押し出してから
+    十字に往復してノズル先端をシリコンクリーナーへこすりつける。
+
+    ``z`` はクリーニング面（シリコン表面）の高さで、ノズル先端が面に触れる位置を教示して
+    記録する。実際にこする高さは ``press_z``（面から ``press_depth`` だけ押し込んだ位置）。
+    面と押し込み量を分けてあるので、シリコンが摩耗したら ``press_depth`` だけ増やせばよい。
+
+    座標は既定値を持たない。既定値があると設定画面から動作値だけを保存したときに座標の
+    欠けたテーブルが読めてしまい、原点へクリーニングに行く事故になる。
+
+    ``press_depth`` の上限はここで検証しない。妥当性は ``press_z`` が可動域に入るかでしか
+    決まらず、それは printer.cfg 依存なので
+    :func:`~pcbasm.pasting.nozzle_clean.validate_reach` が判定する。
+
+    Attributes:
+        x: クリーニング位置 X
+        y: クリーニング位置 Y
+        z: クリーニング面（シリコン表面）の Z 高さ
+        press_depth: 面からの押し込み量。0 で押し込まない
+        purge_ul: こすり前にその場で押し出す量 [uL]。0 でパージしない
+        stroke: 十字往復の片振幅。0 でこすらない
+        passes: 十字往復の反復回数。0 でこすらない
+        wipe_speed: こすり移動速度 [mm/sec]
+    """
+
+    x: float
+    y: float
+    z: float
+    press_depth: float = 0.5
+    purge_ul: float = 0.2
+    stroke: float = 2.0
+    passes: int = 2
+    wipe_speed: float = 10.0
+
+    def __attrs_post_init__(self) -> None:
+        for name in ("x", "y", "z"):
+            if error := validate_finite_number(name, getattr(self, name)):
+                raise ValueError(error)
+        for name in ("press_depth", "purge_ul", "stroke"):
+            if error := validate_non_negative_number(name, getattr(self, name)):
+                raise ValueError(error)
+        if error := validate_positive_number("wipe_speed", self.wipe_speed):
+            raise ValueError(error)
+        if (
+            isinstance(self.passes, bool)
+            or not isinstance(self.passes, int)
+            or self.passes < 0
+        ):
+            raise ValueError(
+                f"passesは0以上の整数である必要があります: {self.passes!r}"
+            )
+
+    @property
+    def press_z(self) -> float:
+        """こすり中の Z（面から押し込んだ絶対高さ）."""
+        return self.z - self.press_depth
+
+
+@attrs.frozen
 class PasteDispenser:
     """ペーストディスペンサーの設定."""
 
@@ -275,6 +350,8 @@ class PasteDispenser:
     flow_calibration: FlowCalibration = attrs.field(
         factory=FlowCalibration
     )  # 運転時流量キャリブレーション設定
+    nozzle_cap: NozzleCap | None = None  # タスク終了時の駐機先（未記録なら None）
+    nozzle_clean: NozzleClean | None = None  # クリーニング位置（未記録なら None）
 
     def __attrs_post_init__(self) -> None:
         if self.dispense_mode not in DISPENSE_MODES:
@@ -557,75 +634,42 @@ class ReferencePoint:
         return board_corner + self.offsets.get(corner)
 
 
-@attrs.frozen
-class NozzleCap:
-    """ノズルキャップ位置の設定（マシン座標 [mm]）."""
-
-    x: float
-    y: float
-    z: float
+# [paste_dispenser] の外に書かれていた頃のノズル位置セクション名（読まない）
+LEGACY_NOZZLE_SECTIONS = ("nozzle_cap", "nozzle_clean")
 
 
-@attrs.frozen
-class NozzleClean:
-    """ノズルクリーニング位置と動作の設定（マシン座標 [mm]）.
+def _structure_or_none(
+    value: object, cls: type[Any], converter: cattrs.Converter
+) -> Any:
+    """省略可能なサブテーブルを structure し、読めなければ None にする.
 
-    塗布ジョブの開始時に ``(x, y)`` へ移動し、その場で ``purge_ul`` だけ押し出してから
-    十字に往復してノズル先端をシリコンクリーナーへこすりつける。
+    設定画面から座標以外の値だけを保存すると、座標の無いサブテーブルができる。素直に
+    structure させると **親テーブル全体**が読めなくなり、塗布パラメータが軒並み失われる。
+    未記録（``None``）として扱えば、機能はスキップされるだけで他の設定は生き残る。
 
-    ``z`` はクリーニング面（シリコン表面）の高さで、ノズル先端が面に触れる位置を教示して
-    記録する。実際にこする高さは ``press_z``（面から ``press_depth`` だけ押し込んだ位置）。
-    面と押し込み量を分けてあるので、シリコンが摩耗したら ``press_depth`` だけ増やせばよい。
-
-    座標は既定値を持たない。既定値があると設定画面から動作値だけを保存したときに座標の
-    欠けたテーブルが読めてしまい、原点へクリーニングに行く事故になる。
-
-    ``press_depth`` の上限はここで検証しない。妥当性は ``press_z`` が可動域に入るかでしか
-    決まらず、それは printer.cfg 依存なので
-    :func:`~pcbasm.pasting.nozzle_clean.validate_reach` が判定する。
-
-    Attributes:
-        x: クリーニング位置 X
-        y: クリーニング位置 Y
-        z: クリーニング面（シリコン表面）の Z 高さ
-        press_depth: 面からの押し込み量。0 で押し込まない
-        purge_ul: こすり前にその場で押し出す量 [uL]。0 でパージしない
-        stroke: 十字往復の片振幅。0 でこすらない
-        passes: 十字往復の反復回数。0 でこすらない
-        wipe_speed: こすり移動速度 [mm/sec]
+    座標へ既定値を与えて回避しないのは、原点をクリーニング位置と誤解して移動する事故を
+    防ぐため。
     """
+    if value is None:
+        return None
+    try:
+        return converter.structure(value, cls)
+    except Exception:
+        logger.warning(
+            "%s の設定を読めないため未記録として扱います: %r", cls.__name__, value
+        )
+        return None
 
-    x: float
-    y: float
-    z: float
-    press_depth: float = 0.5
-    purge_ul: float = 0.2
-    stroke: float = 2.0
-    passes: int = 2
-    wipe_speed: float = 10.0
 
-    def __attrs_post_init__(self) -> None:
-        for name in ("x", "y", "z"):
-            if error := validate_finite_number(name, getattr(self, name)):
-                raise ValueError(error)
-        for name in ("press_depth", "purge_ul", "stroke"):
-            if error := validate_non_negative_number(name, getattr(self, name)):
-                raise ValueError(error)
-        if error := validate_positive_number("wipe_speed", self.wipe_speed):
-            raise ValueError(error)
-        if (
-            isinstance(self.passes, bool)
-            or not isinstance(self.passes, int)
-            or self.passes < 0
-        ):
-            raise ValueError(
-                f"passesは0以上の整数である必要があります: {self.passes!r}"
-            )
+def _optional_section_hook(
+    cls: type[Any], converter: cattrs.Converter
+) -> Callable[[object, object], Any]:
+    """:func:`_structure_or_none` を cattrs の structure hook として使う形にする."""
 
-    @property
-    def press_z(self) -> float:
-        """こすり中の Z（面から押し込んだ絶対高さ）."""
-        return self.z - self.press_depth
+    def structure(value: object, _: object) -> Any:
+        return _structure_or_none(value, cls, converter)
+
+    return structure
 
 
 def _structure_dispense_mode(value: object, _: object) -> DispenseMode:
@@ -676,6 +720,10 @@ class Machine:
         self._converter.register_structure_hook_func(
             lambda t: t == PasteHeight, _structure_paste_height
         )
+        for cls in (NozzleCap, NozzleClean):
+            self._converter.register_structure_hook(
+                cls | None, _optional_section_hook(cls, self._converter)
+            )
 
     def _get_config(self, key: str, cls: type[Any]) -> Any:
         """指定されたキーの設定を取得する."""
@@ -711,16 +759,36 @@ class Machine:
     @property
     def nozzle_cap(self) -> NozzleCap | None:
         """ノズルキャップ位置設定を取得する（未記録なら None）."""
-        if "nozzle_cap" not in self._data:
-            return None
-        return self._get_config("nozzle_cap", NozzleCap)
+        return self._nozzle_section("nozzle_cap", NozzleCap)
 
     @property
     def nozzle_clean(self) -> NozzleClean | None:
         """ノズルクリーニング位置設定を取得する（未記録なら None）."""
-        if "nozzle_clean" not in self._data:
-            return None
-        return self._get_config("nozzle_clean", NozzleClean)
+        return self._nozzle_section("nozzle_clean", NozzleClean)
+
+    def _nozzle_section(self, name: str, cls: type[Any]) -> Any:
+        """[paste_dispenser] 配下のノズル位置サブテーブルだけを読む.
+
+        ``paste_dispenser`` プロパティを経由しないのは、他のキーの不備に巻き込まれない
+        ため。キャップ駐機はタスク終了時のクリーンアップ経路で、設定の不備で例外を投げる
+        と脱力すらできなくなる。読めないサブテーブルは ``None``（未記録）にする。
+        """
+        section = self._data.get("paste_dispenser", {}).get(name)
+        if section is None:
+            # 旧トップレベルのままでも動き続ける。ファイル自体は設定を書き込むときに
+            # 新パスへ移す（ConfigStore が移行する）
+            section = self._data.get(name)
+        return _structure_or_none(section, cls, self._converter)
+
+    @property
+    def legacy_nozzle_sections(self) -> tuple[str, ...]:
+        """paste_dispenser の外に残った旧ノズル位置セクション名を宣言順に返す.
+
+        ``[nozzle_cap]`` / ``[nozzle_clean]`` は ``[paste_dispenser]`` 配下へ移した。
+        旧セクションは読まないので、残ったまま気づかないとキャップ駐機が黙って効かなく
+        なりノズルが乾く。移行が済んでいない設定ファイルを申告するために見る。
+        """
+        return tuple(name for name in LEGACY_NOZZLE_SECTIONS if name in self._data)
 
     @property
     def audio(self) -> Audio:

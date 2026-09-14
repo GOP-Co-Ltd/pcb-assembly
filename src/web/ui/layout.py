@@ -134,15 +134,15 @@ JOB_TEMPLATES = frozenset(
 # 位置 XYZ は記録ボタンの管轄なので、同じ画面に手打ち欄を並べない
 # （どちらが正か曖昧になる。緊急時の手打ちルートは /settings に残る）。
 NOZZLE_CLEAN_SETTING_KEYS = (
-    "nozzle_clean.press_depth",
-    "nozzle_clean.purge_ul",
-    "nozzle_clean.stroke",
-    "nozzle_clean.passes",
-    "nozzle_clean.wipe_speed",
+    "paste_dispenser.nozzle_clean.press_depth",
+    "paste_dispenser.nozzle_clean.purge_ul",
+    "paste_dispenser.nozzle_clean.stroke",
+    "paste_dispenser.nozzle_clean.passes",
+    "paste_dispenser.nozzle_clean.wipe_speed",
 )
 
 # 上のうち 0 を受け付けないキー（0 は「その工程を行わない」を意味しない）
-POSITIVE_ONLY_MACHINE_KEYS = frozenset({"nozzle_clean.wipe_speed"})
+POSITIVE_ONLY_MACHINE_KEYS = frozenset({"paste_dispenser.nozzle_clean.wipe_speed"})
 
 # はんだ塗布ページに即保存フォームで載せる auto しきい値（machine 全体設定）
 PASTE_AUTO_THRESHOLD_KEYS = (
@@ -267,8 +267,8 @@ SECTION_LABELS: dict[str, str] = {
     "probe": "プローブ",
     "reference_point": "基準点",
     "reference_point.offsets": "基準点 / コーナーオフセット",
-    "nozzle_cap": "ノズルキャップ",
-    "nozzle_clean": "ノズルクリーニング",
+    "paste_dispenser.nozzle_cap": "ペーストディスペンサー / ノズルキャップ",
+    "paste_dispenser.nozzle_clean": "ペーストディスペンサー / ノズルクリーニング",
     "camera": "カメラ",
     "camera.crop": "カメラ / クロップ",
     "audio": "通知音",

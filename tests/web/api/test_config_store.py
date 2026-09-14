@@ -88,14 +88,14 @@ class TestMachineSettings:
             ("paste_dispenser.auto_area_short_side_factor", 4.0),
             ("probe.board_edge_margin", 3.0),
             ("reference_point.offsets.bottom_right", [-4.0, 4.0]),
-            ("nozzle_cap.x", 10.123),
-            ("nozzle_clean.x", 10.123),
-            ("nozzle_clean.wipe_speed", 8.0),
+            ("paste_dispenser.nozzle_cap.x", 10.123),
+            ("paste_dispenser.nozzle_clean.x", 10.123),
+            ("paste_dispenser.nozzle_clean.wipe_speed", 8.0),
             # 境界: 0 は「その工程を行わない」設定として受理する
-            ("nozzle_clean.press_depth", 0.0),
-            ("nozzle_clean.purge_ul", 0.0),
-            ("nozzle_clean.stroke", 0.0),
-            ("nozzle_clean.passes", 0),
+            ("paste_dispenser.nozzle_clean.press_depth", 0.0),
+            ("paste_dispenser.nozzle_clean.purge_ul", 0.0),
+            ("paste_dispenser.nozzle_clean.stroke", 0.0),
+            ("paste_dispenser.nozzle_clean.passes", 0),
             ("paste_dispenser.pad_align.region_size_px", 160),
             ("paste_dispenser.pad_align.region_overlap", 0.25),
         ],
@@ -221,11 +221,11 @@ class TestMachineSettings:
             ("probe.board_edge_margin", 0.0),
             ("probe.board_edge_margin", -1.0),
             ("paste_dispenser.initial_purge_ul", -0.01),
-            ("nozzle_clean.press_depth", -0.01),
-            ("nozzle_clean.purge_ul", -0.01),
-            ("nozzle_clean.stroke", -0.01),
-            ("nozzle_clean.wipe_speed", 0.0),
-            ("nozzle_clean.passes", -1),
+            ("paste_dispenser.nozzle_clean.press_depth", -0.01),
+            ("paste_dispenser.nozzle_clean.purge_ul", -0.01),
+            ("paste_dispenser.nozzle_clean.stroke", -0.01),
+            ("paste_dispenser.nozzle_clean.wipe_speed", 0.0),
+            ("paste_dispenser.nozzle_clean.passes", -1),
             # int フィールドへ整数でない float
             ("paste_dispenser.pad_align.blur_ksize", 5.5),
             ("audio.volume", float("nan")),
@@ -278,24 +278,109 @@ class TestReferencePointOffsets:
             )
 
 
+class TestLegacyNozzleSectionMigration:
+    """旧トップレベル [nozzle_cap] / [nozzle_clean] を書き込みのついでに移す.
+
+    設定を書き換えずに読める（Machine が旧パスも読む）が、放っておくと新旧が二重に
+    残る。書き込み時にファイルごと新パスへ移し、旧セクションを消す。
+    """
+
+    def _write_legacy(self, config_dir: Path, body: str) -> Path:
+        path = config_dir / "machine.toml"
+        with path.open("a", encoding="utf-8") as machine_toml:
+            machine_toml.write(body)
+        return path
+
+    def test_write_moves_the_legacy_section_and_drops_it(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        self._write_legacy(config_dir, "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n")
+
+        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
+
+        values = store.read_machine_settings()
+        assert values["paste_dispenser.nozzle_cap.x"] == 10.0
+        assert values["paste_dispenser.nozzle_cap.z"] == 3.5
+        assert "[nozzle_cap]" not in (config_dir / "machine.toml").read_text()
+
+    def test_write_migrates_every_legacy_section(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        self._write_legacy(
+            config_dir,
+            "\n[nozzle_cap]\nx = 1.0\ny = 2.0\nz = 3.0\n"
+            "\n[nozzle_clean]\nx = 4.0\ny = 5.0\nz = 6.0\npress_depth = 0.4\n",
+        )
+
+        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
+
+        values = store.read_machine_settings()
+        assert values["paste_dispenser.nozzle_cap.x"] == 1.0
+        assert values["paste_dispenser.nozzle_clean.x"] == 4.0
+        assert values["paste_dispenser.nozzle_clean.press_depth"] == 0.4
+        text = (config_dir / "machine.toml").read_text()
+        assert "[nozzle_cap]" not in text
+        assert "[nozzle_clean]" not in text
+
+    def test_already_migrated_value_is_kept(self, store: ConfigStore, config_dir: Path):
+        """移行済みの値を旧セクションの残骸で上書きしない."""
+        store.write_machine_settings(
+            {
+                "paste_dispenser.nozzle_cap.x": 10.0,
+                "paste_dispenser.nozzle_cap.y": 20.0,
+                "paste_dispenser.nozzle_cap.z": 3.5,
+            }
+        )
+        self._write_legacy(config_dir, "\n[nozzle_cap]\nx = 1.0\ny = 2.0\nz = 3.0\n")
+
+        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
+
+        assert store.read_machine_settings()["paste_dispenser.nozzle_cap.x"] == 10.0
+        assert "[nozzle_cap]" not in (config_dir / "machine.toml").read_text()
+
+    def test_migration_is_idempotent(self, store: ConfigStore, config_dir: Path):
+        """2 回目以降の書き込みで移行済みの値が動かない."""
+        self._write_legacy(config_dir, "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n")
+
+        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
+        store.write_machine_settings({"paste_dispenser.max_fill_speed": 1.1})
+
+        values = store.read_machine_settings()
+        assert values["paste_dispenser.nozzle_cap.x"] == 10.0
+        assert values["paste_dispenser.max_fill_speed"] == 1.1
+
+    def test_write_keeps_other_lines_when_there_is_nothing_to_migrate(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """移行対象が無いときは余計な書き換えをしない."""
+        path = config_dir / "machine.toml"
+        before = path.read_text().splitlines()
+
+        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.9})
+
+        after = path.read_text().splitlines()
+        assert len(after) == len(before)
+
+
 class TestNozzleCapFields:
     """Nozzle_cap.x/y/z フィールドの読み書き（nozzle-cap-parking 計画書「WebUI」節）.
 
-    Repo fixture には [nozzle_cap] を入れない（未記録が既定状態）ため、欠落時は None。
+    Repo fixture には [paste_dispenser.nozzle_cap] を入れない（未記録が既定状態）ため、欠落時は
+    None。
     """
 
     def test_missing_nozzle_cap_reads_as_none(self, store: ConfigStore):
         values = store.read_machine_settings()
 
-        assert values["nozzle_cap.x"] is None
-        assert values["nozzle_cap.y"] is None
-        assert values["nozzle_cap.z"] is None
+        assert values["paste_dispenser.nozzle_cap.x"] is None
+        assert values["paste_dispenser.nozzle_cap.y"] is None
+        assert values["paste_dispenser.nozzle_cap.z"] is None
 
     def test_missing_nozzle_clean_reads_as_none(self, store: ConfigStore):
         values = store.read_machine_settings()
 
-        assert values["nozzle_clean.x"] is None
-        assert values["nozzle_clean.press_depth"] is None
+        assert values["paste_dispenser.nozzle_clean.x"] is None
+        assert values["paste_dispenser.nozzle_clean.press_depth"] is None
 
 
 class TestPadAlignRegionSettings:
