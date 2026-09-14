@@ -211,6 +211,19 @@ def stale_unit_warning(units: tuple[str, ...]) -> str:
     )
 
 
+def unit_summary(units: tuple[str, ...]) -> str:
+    """再起動対象を「表示名（フル unit 名）」の 1 語にする（表示文言はサーバが組む）."""
+    labels = "・".join(UNIT_LABELS.get(unit, unit) for unit in units)
+    return f"{labels}（{' '.join(units)}）"
+
+
+def _screen_drop_warning(units: tuple[str, ...]) -> str:
+    """画面を配信している unit を巻き込むときの但し書き（含まなければ空）."""
+    if UNIT_NAMES["ui"] not in units:
+        return ""
+    return "この画面を配信しているサービスも含まれるため、一時的に接続が切れます。"
+
+
 def restart_notice(units: tuple[str, ...]) -> str:
     """再起動範囲を利用者向けの 1 文にする（表示文言はサーバが組む）."""
     if not units:
@@ -218,10 +231,16 @@ def restart_notice(units: tuple[str, ...]) -> str:
             "pcbasm のサービスが systemd で動いていないため、更新後の再起動は行いません"
             "（手元で起動している場合は自分で起動し直してください）。"
         )
-    labels = "・".join(UNIT_LABELS.get(unit, unit) for unit in units)
-    notice = f"更新後に {labels}（{' '.join(units)}）を再起動します。"
-    if UNIT_NAMES["ui"] in units:
-        notice += (
-            "この画面を配信しているサービスも含まれるため、一時的に接続が切れます。"
+    return (
+        f"更新後に {unit_summary(units)}を再起動します。{_screen_drop_warning(units)}"
+    )
+
+
+def restart_scheduled_notice(units: tuple[str, ...]) -> str:
+    """再起動を予約したことを伝える 1 文（更新を伴わない再起動で使う）."""
+    if not units:
+        return (
+            "pcbasm のサービスが systemd で動いていないため、"
+            "WebUI の再起動は行いません。"
         )
-    return notice
+    return f"{unit_summary(units)}を再起動します。{_screen_drop_warning(units)}"

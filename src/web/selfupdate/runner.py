@@ -15,11 +15,16 @@
 
 **参照先は絶対にリクエストパラメータにしない。** ブランチ・remote・ref・`uv` の引数は
 すべて `UpdateSettings` 側の固定値。ここを開けると「LAN から任意コード実行」に悪化する。
+
+更新以外の役目も兼ねる（同じ `UpdateSettings` と観測値を使うため）:
+
+- `restart_services()`: 更新せずに unit だけ再起動する（ファームウェア再起動から呼ぶ）
 """
 
 from __future__ import annotations
 
 import fcntl
+import logging
 import secrets
 import threading
 import time
@@ -57,6 +62,8 @@ from web.selfupdate.steps import (
     sync_command,
     tail,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class UpdateRunner:
@@ -110,6 +117,50 @@ class UpdateRunner:
                 self._settings, timeout=self._settings.check_fetch_timeout
             )
         return self._plan(fetch_error=fetch_error)
+
+    def restart_services(self) -> str | None:
+        """更新せずに pcbasm の unit を再起動する（断る理由があれば返す）.
+
+        ファームウェア再起動から呼ぶ「装置ごと立て直す」経路。**再起動対象も argv も
+        更新時と同一**（`active_units()` + `restart_command`）なので、sudoers に許可を
+        足す必要はない。
+
+        更新と同じ flock を取る。`running` はこのプロセスの更新スレッドしか見ないが、
+        同居機では backend と frontend が同じ `update.lock` を共有するので、**相方が
+        `uv sync` の最中に unit を落とす**のを止められるのはロックだけ。ロックは
+        再起動を投げ終えるまで握り続ける（先に返すと同じ窓が開き直す）。
+
+        Returns:
+            予約できたら None、できない理由があればその文字列
+        """
+        units = self.restart_units()
+        if not units:
+            return None
+        with self._guard:
+            if self.running:
+                return (
+                    "ソフトウェア更新の実行中です。"
+                    "終わるまでサービスの再起動はできません。"
+                )
+            self._settings.state_dir.mkdir(parents=True, exist_ok=True)
+            lock = self._acquire_lock()
+            if lock is None:
+                return (
+                    "別のプロセスがソフトウェア更新を実行中です。"
+                    "終わるまでサービスの再起動はできません。"
+                )
+            if reason := restart_permitted(self._settings, units):
+                self._release(lock)
+                return reason
+            # リクエストスレッドから待たない（`schedule_restart` は応答を返し終えて
+            # から投げるための遅延を持つ）
+            threading.Thread(
+                target=self._restart_holding,
+                args=(lock, units),
+                name="pcbasm-service-restart",
+                daemon=True,
+            ).start()
+        return None
 
     def status(self) -> UpdateReport:
         """永続化された最後の report（未実行なら IDLE）."""
@@ -167,6 +218,18 @@ class UpdateRunner:
             return report.run_id, None
 
     # ---- internals ----
+
+    def _restart_holding(self, lock: IO[str], units: tuple[str, ...]) -> None:
+        """ロックを握ったまま再起動を投げる（更新を伴わない経路）.
+
+        拒否されればこのプロセスは生き残るので、その事実をログに残す。更新と違って report
+        には書かない（更新の記録を、更新でないものが上書きしないため）。
+        """
+        try:
+            if reason := schedule_restart(self._settings, units):
+                logger.warning("サービスの再起動に失敗しました: %s", reason)
+        finally:
+            self._release(lock)
 
     def _plan(self, *, fetch_error: str | None = None) -> UpdatePlan:
         state, error = capture_state(self._settings)

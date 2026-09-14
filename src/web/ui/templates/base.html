@@ -29,8 +29,11 @@
     </button>
     <a href="{{ base }}/settings" class="icon-link" title="マシン設定">&#9881;</a>
     <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper (Mainsail) を開く">Klipper</a>
+    {# ファームウェアだけでなく WebUI のサービスも落とすので、誤クリックで LAN 中の
+       画面が切れないよう確認を挟む（緊急停止には付けない。即時性が要る） #}
     <button id="firmware-restart" class="firmware-restart" title="ファームウェア再起動"
-            data-testid="firmware-restart" data-requires-control>ファームウェア再起動</button>
+            data-testid="firmware-restart" data-requires-control
+            data-confirm="ファームウェアと WebUI のサービスを再起動します。この画面も一時的に切れます。実行しますか？">ファームウェア再起動</button>
     {# 緊急停止は安全操作なので操作権に依らず誰でも押せる（data-requires-control 禁止） #}
     <button id="estop" class="estop" title="緊急停止" data-testid="estop">緊急停止</button>
   </div>

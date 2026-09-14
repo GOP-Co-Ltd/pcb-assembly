@@ -199,6 +199,18 @@ backend と frontend は別 unit（`pcbasm-api.service` / `pcbasm-ui.service`）
 起動順の依存は付けていないので、frontend が backend より先に上がって構わない（未起動の
 backend を選んだページが 503 になるだけ）。
 
+### ファームウェア再起動
+
+トップバーの「ファームウェア再起動」は Klipper の `FIRMWARE_RESTART` に加えて、
+**そのホストで動いている pcbasm のサービス（backend WebAPI / UI frontend）も再起動する**。
+装置ごと立て直す復旧操作なので、WebUI 側の状態も一緒に作り直す。
+
+- 再起動対象と argv は WebUI からの更新と同じ（下記の sudoers 設置だけで足りる）
+- 押すと確認ダイアログが出る（誤クリックで LAN 中の画面が切れるため）
+- Klipper へ送れなかった場合（Moonraker 不通など）は 502 を返し、**サービスには触れない**
+- sudoers 未設置・更新の実行中は、ファームウェアだけ再起動して画面に警告を出す
+    （更新と同じ flock を取るので、同居機の相方が `uv sync` 中なら再起動しない）
+
 ### WebUI からの更新
 
 `main` が進んだときの反映を、ssh せず WebUI のページから実行できる。

@@ -150,8 +150,11 @@ window.webui = {
 async function postTopbarCommand(button, url, successMessage, failurePrefix) {
   button.disabled = true;
   try {
-    await api("POST", url);
-    toast(successMessage);
+    // 何を再起動したかはサーバが文言まで組んで返す（組み立てを JS に複製しない）。
+    // 返さないコマンド（緊急停止）は呼び出し側の既定文言に落ちる
+    const result = await api("POST", url);
+    toast(result.message || successMessage);
+    if (result.warning) toast(result.warning, "warning");
   } catch (err) {
     toast(`${failurePrefix}: ${err.message}`, false);
   } finally {
@@ -163,6 +166,9 @@ function bindTopbarCommand(buttonId, url, successMessage, failurePrefix) {
   const button = document.getElementById(buttonId);
   if (!button) return;
   button.addEventListener("click", () => {
+    // 確認の要否と文言はテンプレートが決める（付いていないボタンは即実行）
+    const confirmation = button.dataset.confirm;
+    if (confirmation && !window.confirm(confirmation)) return;
     postTopbarCommand(button, url, successMessage, failurePrefix);
   });
 }

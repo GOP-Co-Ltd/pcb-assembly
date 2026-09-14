@@ -1,4 +1,4 @@
-"""`web.selfupdate.service` の再起動予約の契約テスト.
+"""`web.selfupdate.service` の再起動予約と表示文言の契約テスト.
 
 実機で観測された不具合の回帰が主目的:
 
@@ -18,7 +18,11 @@ from pathlib import Path
 import attrs
 
 from tests.web.selfupdate.conftest import call_log, write_systemctl_stub
-from web.selfupdate.service import schedule_restart
+from web.selfupdate.service import (
+    restart_scheduled_notice,
+    schedule_restart,
+    unit_summary,
+)
 from web.selfupdate.settings import UpdateSettings
 
 API_UNIT = "pcbasm-api.service"
@@ -93,3 +97,33 @@ class TestScheduleRestart:
 
         assert schedule_restart(settings, ()) is None
         assert call_log(tmp_path / "calls.log") == []
+
+
+class TestUnitSummary:
+    """表示文字列はサーバが組む（JS・テンプレートに複製しない）."""
+
+    def test_lists_labels_and_full_unit_names(self):
+        summary = unit_summary((API_UNIT, UI_UNIT))
+
+        assert "backend WebAPI" in summary
+        assert "UI frontend" in summary
+        assert f"{API_UNIT} {UI_UNIT}" in summary
+
+
+class TestRestartScheduledNotice:
+    """再起動を予約したことを伝える 1 文（ファームウェア再起動から使う）."""
+
+    def test_warns_that_the_screen_drops_when_the_ui_is_included(self):
+        notice = restart_scheduled_notice((API_UNIT, UI_UNIT))
+
+        assert UI_UNIT in notice
+        assert "接続が切れます" in notice
+
+    def test_backend_only_restart_does_not_warn_about_the_screen(self):
+        notice = restart_scheduled_notice((API_UNIT,))
+
+        assert API_UNIT in notice
+        assert "接続が切れます" not in notice
+
+    def test_without_units_says_nothing_is_restarted(self):
+        assert "行いません" in restart_scheduled_notice(())
