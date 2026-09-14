@@ -36,12 +36,15 @@ import shutil
 import time
 from pathlib import Path
 
+import attrs
 import cv2
 import pytest
 
+from pcbasm.gcode import GCode
 from pcbasm.hal import XYZStage
 from pcbasm.pasting.applicator import build_applicator
 from pcbasm.pasting.dataset.reader import DatasetSession
+from pcbasm.pasting.nozzle_clean import TRAVEL_Z, clean_nozzle
 from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_SUFFIX,
     list_calibrations,
@@ -796,6 +799,24 @@ class TestPastingHardware:
 
         assert record.status == JobStatus.SUCCEEDED
         assert position.x == pytest.approx(target_x)
+
+    def test_nozzle_clean_motion_returns_to_travel_z(self, real_state: AppState):
+        """ペーストを出さずにクリーニングのモーションと可動域だけを確認する.
+
+        こすり効果（先端にペーストが残らないか）の確認は WebUI の手動 E2E に委ねる。
+        """
+        machine = real_state.machine()
+        clean = machine.nozzle_clean
+        if clean is None:
+            pytest.skip("[nozzle_clean] が未記録のため実行しない")
+        klipper = create_command_klipper(machine)
+        stage = XYZStage(klipper.readonly)
+        klipper.send_gcode(GCode.homing() + GCode.wait_for_done())
+
+        with build_applicator(klipper, stage, machine.paste_dispenser) as applicator:
+            clean_nozzle(klipper, stage, applicator, attrs.evolve(clean, purge_ul=0.0))
+
+        assert stage.get_position().z == pytest.approx(TRAVEL_Z, abs=0.01)
 
     def test_loading_invalid_value_logs_reason_and_continues(
         self, real_manager: JobManager, wait_until: WaitUntil

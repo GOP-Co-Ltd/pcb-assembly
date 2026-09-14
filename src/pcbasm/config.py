@@ -142,6 +142,13 @@ def validate_region_overlap(value: float) -> str | None:
     return None
 
 
+def validate_finite_number(name: str, value: float) -> str | None:
+    """有限値であるべき設定値を検証する."""
+    if not is_finite_number(value):
+        return f"{name}は有限な数値である必要があります: {value!r}"
+    return None
+
+
 def validate_positive_number(name: str, value: float) -> str | None:
     """正の有限値であるべき設定値を検証する."""
     if not is_finite_number(value) or value <= 0:
@@ -559,6 +566,68 @@ class NozzleCap:
     z: float
 
 
+@attrs.frozen
+class NozzleClean:
+    """ノズルクリーニング位置と動作の設定（マシン座標 [mm]）.
+
+    塗布ジョブの開始時に ``(x, y)`` へ移動し、その場で ``purge_ul`` だけ押し出してから
+    十字に往復してノズル先端をシリコンクリーナーへこすりつける。
+
+    ``z`` はクリーニング面（シリコン表面）の高さで、ノズル先端が面に触れる位置を教示して
+    記録する。実際にこする高さは ``press_z``（面から ``press_depth`` だけ押し込んだ位置）。
+    面と押し込み量を分けてあるので、シリコンが摩耗したら ``press_depth`` だけ増やせばよい。
+
+    座標は既定値を持たない。既定値があると設定画面から動作値だけを保存したときに座標の
+    欠けたテーブルが読めてしまい、原点へクリーニングに行く事故になる。
+
+    ``press_depth`` の上限はここで検証しない。妥当性は ``press_z`` が可動域に入るかでしか
+    決まらず、それは printer.cfg 依存なので
+    :func:`~pcbasm.pasting.nozzle_clean.validate_reach` が判定する。
+
+    Attributes:
+        x: クリーニング位置 X
+        y: クリーニング位置 Y
+        z: クリーニング面（シリコン表面）の Z 高さ
+        press_depth: 面からの押し込み量。0 で押し込まない
+        purge_ul: こすり前にその場で押し出す量 [uL]。0 でパージしない
+        stroke: 十字往復の片振幅。0 でこすらない
+        passes: 十字往復の反復回数。0 でこすらない
+        wipe_speed: こすり移動速度 [mm/sec]
+    """
+
+    x: float
+    y: float
+    z: float
+    press_depth: float = 0.5
+    purge_ul: float = 0.2
+    stroke: float = 2.0
+    passes: int = 2
+    wipe_speed: float = 10.0
+
+    def __attrs_post_init__(self) -> None:
+        for name in ("x", "y", "z"):
+            if error := validate_finite_number(name, getattr(self, name)):
+                raise ValueError(error)
+        for name in ("press_depth", "purge_ul", "stroke"):
+            if error := validate_non_negative_number(name, getattr(self, name)):
+                raise ValueError(error)
+        if error := validate_positive_number("wipe_speed", self.wipe_speed):
+            raise ValueError(error)
+        if (
+            isinstance(self.passes, bool)
+            or not isinstance(self.passes, int)
+            or self.passes < 0
+        ):
+            raise ValueError(
+                f"passesは0以上の整数である必要があります: {self.passes!r}"
+            )
+
+    @property
+    def press_z(self) -> float:
+        """こすり中の Z（面から押し込んだ絶対高さ）."""
+        return self.z - self.press_depth
+
+
 def _structure_dispense_mode(value: object, _: object) -> DispenseMode:
     if isinstance(value, str) and value in DISPENSE_MODES:
         return value
@@ -645,6 +714,13 @@ class Machine:
         if "nozzle_cap" not in self._data:
             return None
         return self._get_config("nozzle_cap", NozzleCap)
+
+    @property
+    def nozzle_clean(self) -> NozzleClean | None:
+        """ノズルクリーニング位置設定を取得する（未記録なら None）."""
+        if "nozzle_clean" not in self._data:
+            return None
+        return self._get_config("nozzle_clean", NozzleClean)
 
     @property
     def audio(self) -> Audio:

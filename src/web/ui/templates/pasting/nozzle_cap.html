@@ -2,8 +2,8 @@
 {% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
-<section class="status-card">
-  <h3>概要</h3>
+<section class="status-card nozzle-position-card">
+  <h3>ノズルキャップ</h3>
   <p>
     ペーストマシンはノズルの乾燥・詰まりを防ぐため、タスク終了時に必ず
     ノズルキャップ位置へ移動（Z0 へ退避 → キャップ XY → キャップ Z）してから
@@ -13,17 +13,13 @@
   <p>
     Y を手前にした位置で記録すれば、駐機と基板取り出しを両立できる。
   </p>
-</section>
-<section class="status-card">
-  <h3>記録手順</h3>
+  <h4>記録手順</h4>
   <ol>
     <li>全軸をホーミングする（未ホーミングでは記録できない）</li>
     <li>マシン操作パネルのジョグでノズルをキャップ位置へ合わせる</li>
     <li>「現在位置を記録」を押す（machine.toml の [nozzle_cap] に保存される）</li>
   </ol>
-</section>
-<section class="status-card">
-  <h3>記録位置</h3>
+  <h4>記録位置</h4>
   <div id="nc-current" data-testid="nozzle-cap-current">
     {%- if nozzle_cap is not none -%}
     X {{ "%.3f" | format(nozzle_cap.x) }} / Y {{ "%.3f" | format(nozzle_cap.y) }} / Z {{ "%.3f" | format(nozzle_cap.z) }}
@@ -34,8 +30,57 @@
   <button id="nc-record" data-testid="nozzle-cap-record"
           data-requires-control>現在位置を記録</button>
 </section>
+<section class="status-card nozzle-position-card">
+  <h3>ノズルクリーニング</h3>
+  <p>
+    はんだ塗布の開始時に、ここで記録した位置で少量パージしてから十字に往復し、
+    ノズル先端をシリコンクリーナーへこすりつけて固まったペーストを落とす。
+    未記録の間はクリーニングを行わずに塗布を開始する。
+  </p>
+  <p>
+    記録するのはクリーナー面の高さで、押し込みは下の「押し込み量」ぶん
+    実行時に差し引く。シリコンが摩耗したら押し込み量だけ増やせばよい。
+  </p>
+  <h4>記録手順</h4>
+  <ol>
+    <li>全軸をホーミングする（未ホーミングでは記録できない）</li>
+    <li>マシン操作パネルのジョグでノズル先端をクリーナー面へ<strong>触れるだけ</strong>当てる（押し込まない）</li>
+    <li>「現在位置を記録」を押す（machine.toml の [nozzle_clean] に保存される）</li>
+  </ol>
+  <h4>記録位置</h4>
+  <div id="ncl-current" data-testid="nozzle-clean-current">
+    {%- if nozzle_clean is not none -%}
+    {{ nozzle_clean.label }}
+    {%- else -%}
+    未記録
+    {%- endif -%}
+  </div>
+  <button id="ncl-record" data-testid="nozzle-clean-record"
+          data-requires-control>現在位置を記録</button>
+  {% if nozzle_clean_fields %}
+  <h4>動作設定</h4>
+  {# 入力後は即保存する。押し込み量とこすり幅は結果を見て追い込む値なので記録と同じ画面に置く。 #}
+  <form class="paste-auto-thresholds" data-testid="nozzle-clean-settings" data-requires-control
+        data-machine-settings data-endpoint="/api/settings/machine">
+    {% for field in nozzle_clean_fields %}
+    <label for="ncl-{{ field.key }}">{{ field.label }}
+      <input id="ncl-{{ field.key }}" name="{{ field.key }}"
+             data-type="{{ field.value_type }}" type="number"
+             step="{{ 1 if field.value_type == 'int' else 'any' }}"
+             {% if field.key not in positive_only_keys %}min="0"{% endif %}
+             aria-label="{{ field.label }}"
+             value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
+             placeholder="未設定"
+             data-testid="nozzle-clean-{{ field.key }}">
+      {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
+    </label>
+    {% endfor %}
+  </form>
+  {% endif %}
+</section>
 {% endblock %}
 {% block scripts %}
 {{ super() }}
+<script src="{{ static_asset('js/settings.js') }}"></script>
 <script src="{{ static_asset('js/nozzle_cap.js') }}"></script>
 {% endblock %}

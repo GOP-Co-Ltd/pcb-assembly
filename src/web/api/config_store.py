@@ -170,6 +170,15 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("nozzle_cap.x", "キャップ位置 X", "float", "mm"),
     FieldSpec("nozzle_cap.y", "キャップ位置 Y", "float", "mm"),
     FieldSpec("nozzle_cap.z", "キャップ位置 Z", "float", "mm"),
+    # [nozzle_clean] — 塗布開始時のノズル先端クリーニング（マシン座標）
+    FieldSpec("nozzle_clean.x", "クリーニング位置 X", "float", "mm"),
+    FieldSpec("nozzle_clean.y", "クリーニング位置 Y", "float", "mm"),
+    FieldSpec("nozzle_clean.z", "クリーニング面のZ高さ", "float", "mm"),
+    FieldSpec("nozzle_clean.press_depth", "押し込み量", "float", "mm"),
+    FieldSpec("nozzle_clean.purge_ul", "クリーニング前パージ量", "float", "uL"),
+    FieldSpec("nozzle_clean.stroke", "こすり幅 片側", "float", "mm"),
+    FieldSpec("nozzle_clean.passes", "往復回数", "int"),
+    FieldSpec("nozzle_clean.wipe_speed", "こすり速度", "float", "mm/sec"),
     # [camera]
     FieldSpec("camera.calibration_file", "キャリブレーションファイル", "str"),
     FieldSpec("camera.device_id", "デバイスID", "int"),
@@ -243,6 +252,7 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     "paste_dispenser.pad_align.converge_tolerance",
                     "paste_dispenser.pad_align.max_correction",
                     "paste_dispenser.pad_align.search_window",
+                    "nozzle_clean.wipe_speed",
                 }:
                     name = spec.key.rsplit(".", 1)[-1]
                     if error := validate_positive_number(name, coerced_float):
@@ -250,6 +260,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                 if spec.key in {
                     "paste_dispenser.flow_calibration.settle_seconds",
                     "paste_dispenser.pad_align.refine_max_short_side",
+                    "nozzle_clean.press_depth",
+                    "nozzle_clean.purge_ul",
+                    "nozzle_clean.stroke",
                 }:
                     name = spec.key.rsplit(".", 1)[-1]
                     if error := validate_non_negative_number(name, coerced_float):
@@ -284,6 +297,9 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     and value < 1
                 ):
                     raise UnknownFieldError(f"{spec.key}: 1以上の値が必要です")
+                # 0 は「こすらない」設定として受理する
+                if spec.key == "nozzle_clean.passes" and value < 0:
+                    raise UnknownFieldError(f"{spec.key}: 0以上の値が必要です")
                 return value
         case "str":
             if isinstance(value, str):

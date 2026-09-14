@@ -65,7 +65,7 @@ FEATURE_LABELS: dict[str, str] = {
     "audio": "通知音",
     "update": "ソフトウェア更新",
     "probe_guide": "ロードセルプローブ ガイド",
-    "nozzle_cap": "ノズルキャップ位置の設定",
+    "nozzle_cap": "ノズル位置の設定（キャップ / クリーニング）",
     "paste_test_board": "テスト塗布基板生成",
     "camera_preview": "カメラプレビュー",
     "copper_detection": "銅箔検出調整",
@@ -129,6 +129,20 @@ JOB_TEMPLATES = frozenset(
         "posctrl/reference_point_setup.html",
     }
 )
+
+# ノズル位置ページに即保存フォームで載せるクリーニング設定。
+# 位置 XYZ は記録ボタンの管轄なので、同じ画面に手打ち欄を並べない
+# （どちらが正か曖昧になる。緊急時の手打ちルートは /settings に残る）。
+NOZZLE_CLEAN_SETTING_KEYS = (
+    "nozzle_clean.press_depth",
+    "nozzle_clean.purge_ul",
+    "nozzle_clean.stroke",
+    "nozzle_clean.passes",
+    "nozzle_clean.wipe_speed",
+)
+
+# 上のうち 0 を受け付けないキー（0 は「その工程を行わない」を意味しない）
+POSITIVE_ONLY_MACHINE_KEYS = frozenset({"nozzle_clean.wipe_speed"})
 
 # はんだ塗布ページに即保存フォームで載せる auto しきい値（machine 全体設定）
 PASTE_AUTO_THRESHOLD_KEYS = (
@@ -254,6 +268,7 @@ SECTION_LABELS: dict[str, str] = {
     "reference_point": "基準点",
     "reference_point.offsets": "基準点 / コーナーオフセット",
     "nozzle_cap": "ノズルキャップ",
+    "nozzle_clean": "ノズルクリーニング",
     "camera": "カメラ",
     "camera.crop": "カメラ / クロップ",
     "audio": "通知音",

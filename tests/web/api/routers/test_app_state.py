@@ -45,8 +45,9 @@ class TestStateApi:
         assert data["focus_z"] == -25.0
         assert data["mainsail_url"] == webui_settings.mainsail_url
         assert data["preview_clients"] == 0  # Phase 2: spec §9
-        # fixture の machine.toml に [nozzle_cap] が無いので未記録
+        # fixture の machine.toml に [nozzle_cap] / [nozzle_clean] が無いので未記録
         assert data["nozzle_cap"] is None
+        assert data["nozzle_clean"] is None
 
     def test_state_reports_busy_while_locked(
         self, client: TestClient, appstate: AppState
@@ -80,6 +81,32 @@ class TestStateApi:
 
         assert response.status_code == 200
         assert response.json()["nozzle_cap"] is None
+
+    def test_state_reports_recorded_nozzle_clean_with_server_built_label(
+        self, client: TestClient, store: ConfigStore
+    ):
+        """表示文字列はサーバーが組んで返す（JS に整形させない）."""
+        store.write_machine_settings(
+            {
+                "nozzle_clean.x": 10.0,
+                "nozzle_clean.y": 20.0,
+                "nozzle_clean.z": -30.0,
+                "nozzle_clean.press_depth": 0.4,
+            }
+        )
+
+        data = client.get("/api/state").json()
+
+        assert data["nozzle_clean"]["label"] == "(10.00, 20.00, -30.00) mm"
+
+    def test_partially_recorded_nozzle_clean_reports_null_without_error(
+        self, partial_nozzle_clean: Path, client: TestClient
+    ):
+        """座標の無い `[nozzle_clean]` でも /api/state は 200 + null を返す."""
+        response = client.get("/api/state")
+
+        assert response.status_code == 200
+        assert response.json()["nozzle_clean"] is None
 
 
 class TestMachineInfoApi:
