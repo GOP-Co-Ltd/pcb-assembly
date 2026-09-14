@@ -156,15 +156,23 @@ class TestNozzleCleanTestRun:
         assert "pytest-job" in response.text
 
     @mark_hardware
-    def test_runs_cleaning_and_returns_summary(self, real_client: TestClient):
-        """実機でクリーニング動作を通し、実施内容の 1 行を返す."""
+    def test_runs_cleaning_and_parks_at_the_cap(self, real_client: TestClient):
+        """実機でクリーニング動作を通し、ノズルキャップ位置へ戻して 1 行で報告する.
+
+        脱力はしないので、続けてもう一度テストできる（= ホーミング状態が残る）。
+        """
         home = real_client.post("/api/machine-control", json={"action": "home"})
         assert home.status_code == 200
 
         response = real_client.post("/api/pasting/nozzle-clean/test")
 
         assert response.status_code == 200
-        assert "ノズルクリーニング" in response.json()["message"]
+        message = response.json()["message"]
+        assert "ノズルクリーニング" in message
+        assert "ノズルキャップ" in message
+
+        again = real_client.post("/api/pasting/nozzle-clean/test")
+        assert again.status_code == 200
 
     @mark_hardware
     def test_stale_after_relax_returns_400(self, real_client: TestClient):

@@ -10,8 +10,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from pcbasm.gcode import GCode
 from pcbasm.geometry import Point3d
 from pcbasm.hal import Klipper, XYZStage
+from pcbasm.parking import move_to_cap
 from pcbasm.pasting.applicator import build_applicator
 from pcbasm.pasting.nozzle_clean import clean_nozzle
 from web.api.config_store import ConfigStore
@@ -57,6 +59,26 @@ def _require_all_axes_homed(klipper: Klipper, detail: str) -> None:
     homed_axes = klipper.get_status("toolhead", "homed_axes")
     if not all(axis in homed_axes for axis in "xyz"):
         raise HTTPException(status_code=400, detail=detail)
+
+
+def _park_at_cap(state: AppState, klipper: Klipper, stage: XYZStage) -> str:
+    """ノズルキャップ位置へ戻し、結果の 1 行を返す（戻せなくても例外にしない）.
+
+    脱力（M84）はしない。続けてもう一度テストできるようホーミング状態を保つため
+    （`parking.park_or_present` はタスク終了時のクリーンアップなので M84 まで送る）。
+
+    クリーニングは既に完了しているので、キャップが未記録・可動域外でも失敗にはせず、
+    何が起きたかを応答の文言で伝える。
+    """
+    cap = state.nozzle_cap()
+    if cap is None:
+        return "ノズルキャップ位置が未記録のため退避しません"
+    try:
+        commands = move_to_cap(stage, cap)
+    except (ValueError, KeyError) as exc:
+        return f"ノズルキャップへ戻せません: {exc}"
+    klipper.send_gcode(commands + GCode.wait_for_done())
+    return "ノズルキャップ位置へ戻しました"
 
 
 def _record_current_position(
@@ -123,6 +145,9 @@ def run_nozzle_clean_test(
     リトラクトする。ジョブでは :func:`clean_nozzle` の直後に
     :meth:`PasteApplicator.retract` が呼ばれるので、テストも同じ正味の状態で終える。
 
+    最後にノズルキャップ位置へ戻す。ジョブと違って次の工程が続かないので、先端を
+    クリーナーの上に置いたままにすると乾いてしまう。
+
     Raises:
         HTTPException: 位置が未記録・未ホーミング・可動域外（400）、Klipper 不達（502）
     """
@@ -143,8 +168,10 @@ def run_nozzle_clean_test(
                 with build_applicator(klipper, stage, dispenser) as applicator:
                     clean_nozzle(klipper, stage, applicator, clean, log=messages.append)
                     applicator.retract()
+                # ディスペンサーを止めてから戻す（塗布ジョブの駐機と同じ順序）
+                messages.append(_park_at_cap(state, klipper, stage))
         except ValueError as exc:
             # 可動域外などの不正な設定値。clean_nozzle は可動域の検証を
             # パージより前に通すので、この経路では装置は動いていない
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return NozzleCleanTestResult(message="\n".join(messages))
+    return NozzleCleanTestResult(message=" / ".join(messages))
