@@ -46,6 +46,7 @@ from web.ui.layout import (
     PASTE_FLOW_CALIBRATION_KEYS,
     PASTE_PAD_REFINEMENT_KEYS,
     PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
+    POSITIVE_ONLY_MACHINE_KEYS,
     TAB_LABELS,
     TAB_PHASES,
     TABS,
@@ -479,6 +480,7 @@ def _nozzle_cap_context(
         "nozzle_clean_fields": [
             field for field in settings.fields if field.key in NOZZLE_CLEAN_SETTING_KEYS
         ],
+        "positive_only_keys": POSITIVE_ONLY_MACHINE_KEYS,
     }
 
 

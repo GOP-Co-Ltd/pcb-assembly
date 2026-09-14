@@ -26,6 +26,7 @@ G-code を返す関数の契約:
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -92,7 +93,7 @@ def stage(klipper: FakeKlipper) -> XYZStage:
 
 
 @pytest.fixture
-def applicator(klipper: FakeKlipper):
+def applicator(klipper: FakeKlipper) -> Iterator[PasteApplicator]:
     """有効化済みのディスペンサー.
 
     `clean_nozzle` はパージするので AirPump ON + Stepper Enable を前提にする。
@@ -408,8 +409,7 @@ class TestResolveNozzleClean:
         )
 
         assert resolved is None
-        assert len(messages) == 1
-        assert "未記録" in messages[0]
+        assert messages == ["ノズルクリーニング: 位置が未記録のためスキップします"]
 
     def test_missing_coordinates_skip_instead_of_failing_the_job(
         self, tmp_path: Path, stage: XYZStage
@@ -424,7 +424,8 @@ class TestResolveNozzleClean:
         resolved = resolve_nozzle_clean(machine, stage, log=messages.append)
 
         assert resolved is None
-        assert len(messages) == 1
+        # WebUI が同じ設定を「未記録」と出すので、運転者向けの文言も揃える
+        assert messages == ["ノズルクリーニング: 位置が未記録のためスキップします"]
 
     def test_recorded_position_is_resolved(self, tmp_path: Path, stage: XYZStage):
         machine = self._machine(

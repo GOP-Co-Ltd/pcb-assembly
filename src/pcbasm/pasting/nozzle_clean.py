@@ -17,8 +17,7 @@ from collections.abc import Callable
 from pcbasm.config import Machine, NozzleClean
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
-from pcbasm.hal import Klipper, Speed, XYZStage
-from pcbasm.hal.stage import Limits
+from pcbasm.hal import Klipper, Limits, Speed, XYZStage
 from pcbasm.pasting.applicator import PasteApplicator
 
 logger = logging.getLogger(__name__)
@@ -28,6 +27,9 @@ CLEAN_TRAVEL_VELOCITY = 20.0
 
 # XY 移動する退避 Z [mm]（move_to_cap と同じ規約）
 TRAVEL_Z = 0.0
+
+# クリーニングを行わない理由（WebUI の「未記録」表示と文言を揃える）
+_NOT_RECORDED = "ノズルクリーニング: 位置が未記録のためスキップします"
 
 
 def wipe_points(clean: NozzleClean) -> Path:
@@ -171,11 +173,14 @@ def resolve_nozzle_clean(
     notify = log or logger.info
     try:
         clean = machine.nozzle_clean
-    except Exception as exc:
-        notify(f"ノズルクリーニング: 設定を読めないためスキップします: {exc}")
+    except Exception:
+        # 座標の欠けた [nozzle_clean] は WebUI も「未記録」と表示するので文言を揃える。
+        # structure エラーの中身は運転者向けではないのでロガーだけに残す。
+        logger.info("nozzle_clean を読めません", exc_info=True)
+        notify(_NOT_RECORDED)
         return None
     if clean is None:
-        notify("ノズルクリーニング: 位置が未記録のためスキップします")
+        notify(_NOT_RECORDED)
         return None
     if error := validate_reach(stage, clean):
         raise ValueError(error)
@@ -185,7 +190,7 @@ def resolve_nozzle_clean(
 def clean_position_label(clean: NozzleClean) -> str:
     """記録したクリーニング面の位置を表す文字列（サーバー側で組んで返す）.
 
-    押し込み量は同じ画面の設定欄で編集できるので、ここには含めない。含めると設定を 即保存したときに表示だけが古いまま残る。
+    押し込み量は同じ画面の設定欄で編集できるので、ここには含めない。 含めると設定を即保存したとき、表示だけが古いまま残る。
     """
     return f"({clean.x:.2f}, {clean.y:.2f}, {clean.z:.2f}) mm"
 

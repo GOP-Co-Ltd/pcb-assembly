@@ -78,7 +78,7 @@ def record_nozzle_clean(
     """現在のマシン座標をノズルクリーニング位置として記録する.
 
     記録するのはクリーニング面（先端が触れた高さ）で、押し込みは実行時に設定値ぶん
-    差し引く。書き込んだ設定を読み戻すので、押し込み後の高さと表示文字列も返せる。
+    差し引く。書き込んだ設定を読み戻すので、表示用の文字列も同じ応答で返せる。
     """
     _record_current_position(
         state, store, owner="nozzle-clean-record", prefix="nozzle_clean"

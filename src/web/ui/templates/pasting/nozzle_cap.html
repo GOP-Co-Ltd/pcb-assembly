@@ -76,7 +76,8 @@
     <label for="ncl-{{ field.key }}">{{ field.label }}
       <input id="ncl-{{ field.key }}" name="{{ field.key }}"
              data-type="{{ field.value_type }}" type="number"
-             step="{{ 1 if field.value_type == 'int' else 'any' }}" min="0"
+             step="{{ 1 if field.value_type == 'int' else 'any' }}"
+             {% if field.key not in positive_only_keys %}min="0"{% endif %}
              aria-label="{{ field.label }}"
              value="{{ field.value if field.value is not none else field.resolved if field.resolved is not none else '' }}"
              placeholder="未設定"

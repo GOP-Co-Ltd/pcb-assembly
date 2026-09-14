@@ -141,6 +141,9 @@ NOZZLE_CLEAN_SETTING_KEYS = (
     "nozzle_clean.wipe_speed",
 )
 
+# 上のうち 0 を受け付けないキー（0 は「その工程を行わない」を意味しない）
+POSITIVE_ONLY_MACHINE_KEYS = frozenset({"nozzle_clean.wipe_speed"})
+
 # はんだ塗布ページに即保存フォームで載せる auto しきい値（machine 全体設定）
 PASTE_AUTO_THRESHOLD_KEYS = (
     "paste_dispenser.auto_line_aspect_ratio",

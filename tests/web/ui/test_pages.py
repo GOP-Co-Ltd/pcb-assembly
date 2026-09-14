@@ -757,8 +757,8 @@ class TestNozzleCapPage:
 
         response = client.get("/pasting/nozzle_cap")
 
-        assert "10.00" in response.text
-        assert "押し込み" in response.text
+        # 同じページの設定ラベルに当たらないよう、label 文字列そのものを見る
+        assert "(10.00, 20.00, -30.00) mm" in response.text
 
 
 class TestBrokenMachineTomlPages:
@@ -816,6 +816,26 @@ class TestUnsetMachineSettingsShowResolvedValues:
         # スライダーの value がそのまま PUT されるので、捏造した 0 を載せない
         assert '<span id="canny-low-value" class="canny-value">0</span>' not in text
         assert "blur_ksize: 0" not in text
+
+    def test_nozzle_clean_form_renders_resolved_values(
+        self, config_dir: Path, client: TestClient
+    ):
+        """位置だけ記録した状態でも、動作設定は既定値で描く.
+
+        記録直後がこの状態なので、ここで空欄になると既定値で動いているのに「未設定」に
+        見える。既定値の出所は backend の `resolved` だけに保つ。
+        """
+        path = config_dir / "machine.toml"
+        with path.open("a", encoding="utf-8") as machine_toml:
+            machine_toml.write("\n[nozzle_clean]\nx = 10.0\ny = 20.0\nz = -30.0\n")
+
+        text = client.get("/pasting/nozzle_cap").text
+
+        # NozzleClean の既定値（press_depth=0.5 / stroke=2.0 / passes=2）
+        assert 'name="nozzle_clean.press_depth"' in text
+        assert 'value="0.5"' in text
+        assert 'value="2.0"' in text
+        assert 'value="2"' in text
 
     def test_loading_renders_resolved_paste_density(
         self, machine_toml_without_defaulted_keys: Path, client: TestClient
