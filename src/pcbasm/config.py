@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import Enum, auto
 from math import isfinite
 from pathlib import Path
@@ -354,77 +354,52 @@ class PasteDispenser:
     nozzle_clean: NozzleClean | None = None  # クリーニング位置（未記録なら None）
 
     def __attrs_post_init__(self) -> None:
-        if self.dispense_mode not in DISPENSE_MODES:
-            raise ValueError(f"未知の塗布方式です: {self.dispense_mode}")
-        if self.line_direction not in LINE_DIRECTIONS:
-            raise ValueError(f"未知の線走行方向です: {self.line_direction}")
-        if self.auto_line_aspect_ratio <= 1.0:
-            raise ValueError(
-                "auto_line_aspect_ratioは1.0より大きい必要があります: "
-                f"{self.auto_line_aspect_ratio}"
-            )
-        if self.auto_area_short_side_factor <= 0:
-            raise ValueError(
-                "auto_area_short_side_factorは正の値である必要があります: "
-                f"{self.auto_area_short_side_factor}"
-            )
-        if isinstance(self.paste_height, bool) or not isinstance(
-            self.paste_height, (int, float, str)
-        ):
-            raise ValueError(f"paste_heightが不正です: {self.paste_height!r}")
-        if isinstance(self.paste_height, str) and self.paste_height != "auto":
-            raise ValueError(
-                f"paste_heightは'auto'または数値である必要があります: "
-                f"{self.paste_height!r}"
-            )
-        if isinstance(self.paste_height, (int, float)) and self.paste_height <= 0:
-            raise ValueError(
-                f"paste_heightは正の値である必要があります: {self.paste_height}"
-            )
-        if error := validate_paste_lift_height(self.lift_height):
+        if error := self.validate_values(attrs.asdict(self, recurse=False)):
             raise ValueError(error)
-        if self.solder_paste_density <= 0:
-            raise ValueError(
-                "solder_paste_densityは正の値である必要があります: "
-                f"{self.solder_paste_density}"
-            )
-        if isinstance(self.initial_purge_ul, bool) or self.initial_purge_ul < 0:
-            raise ValueError(
-                "initial_purge_ulは0以上の値である必要があります: "
-                f"{self.initial_purge_ul}"
-            )
-        # 塗布ダイナミクス（FillSequence / PasteApplicator は検証済みとして使う）
-        if self.nozzle_diameter <= 0:
-            raise ValueError(
-                f"nozzle_diameterは正の値である必要があります: {self.nozzle_diameter}"
-            )
-        if self.max_fill_speed <= 0:
-            raise ValueError(
-                f"max_fill_speedは正の値である必要があります: {self.max_fill_speed}"
-            )
-        if self.max_dispense_rate <= 0:
-            raise ValueError(
-                f"max_dispense_rateは正の値である必要があります: {self.max_dispense_rate}"
-            )
-        if self.retract_amount <= 0:
-            raise ValueError(
-                f"retract_amountは正の値である必要があります: {self.retract_amount}"
-            )
-        if self.retract_accel_factor <= 1.0:
-            raise ValueError(
-                "retract_accel_factorは1.0より大きい必要があります: "
-                f"{self.retract_accel_factor}"
-            )
-        if self.bead_width_factor <= 0:
-            raise ValueError(
-                f"bead_width_factorは正の値である必要があります: {self.bead_width_factor}"
-            )
-        if not 0.0 <= self.overlap < 1.0:
-            raise ValueError(f"overlapは[0,1)である必要があります: {self.overlap}")
-        if self.boundary_margin < 0:
-            raise ValueError(
-                f"boundary_marginは0以上である必要があります: {self.boundary_margin}"
-            )
+
+    @staticmethod
+    def validate_values(values: Mapping[str, object]) -> str | None:
+        """塗布設定の値を検証する。部分編集では渡された項目だけを調べる.
+
+        TOML 読込・マシン設定の保存・pad override で同じ制約を使う。
+        キーの許可判定と、入れ子の設定の検証は各入力元が担当する。
+        """
+        positive = {
+            "auto_area_short_side_factor",
+            "paste_height",
+            "lift_height",
+            "solder_paste_density",
+            "nozzle_diameter",
+            "max_fill_speed",
+            "max_dispense_rate",
+            "retract_amount",
+            "bead_width_factor",
+            "ul_per_mm2",
+        }
+        above_one = {"auto_line_aspect_ratio", "retract_accel_factor"}
+        non_negative = {"initial_purge_ul", "boundary_margin", "prime_extra_delay"}
+        numeric = positive | above_one | non_negative | {"overlap"}
+        for name, value in values.items():
+            if name == "dispense_mode":
+                if not isinstance(value, str) or value not in DISPENSE_MODES:
+                    return f"未知の塗布方式です: {value!r}"
+            elif name == "line_direction":
+                if not isinstance(value, str) or value not in LINE_DIRECTIONS:
+                    return f"未知の線走行方向です: {value!r}"
+            elif name in numeric:
+                if name == "paste_height" and value == "auto":
+                    continue
+                if not is_finite_number(value):
+                    return f"{name}は有限な数値である必要があります: {value!r}"
+                if name in positive and value <= 0:
+                    return f"{name}は正の値である必要があります: {value}"
+                if name in above_one and value <= 1.0:
+                    return f"{name}は1.0より大きい必要があります: {value}"
+                if name in non_negative and value < 0:
+                    return f"{name}は0以上の値である必要があります: {value}"
+                if name == "overlap" and not 0.0 <= value < 1.0:
+                    return f"overlapは0以上1未満である必要があります: {value}"
+        return None
 
     @property
     def density_mg_per_ul(self) -> float:

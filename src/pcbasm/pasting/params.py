@@ -6,9 +6,9 @@ pad 単位で上書きできる 8 項目を :class:`PasteParams`（全項目確�
 ``machine.toml``（:class:`pcbasm.config.PasteDispenser`）からの写しは
 ``attrs.fields`` で同名フィールドを機械的に行う。
 
-値の検証は HTTP 境界の :func:`validate_param_values` と TOML 読込の
-``PasteDispenser.__attrs_post_init__`` に集約し、ここから先の計算層は
-検証済みの値を受け取る前提で再検証しない。
+値の制約は ``PasteDispenser.validate_values`` を共用する。
+HTTP 境界の :func:`validate_param_values` は上書き可能な項目名も確認し、
+ここから先の計算層は検証済みの値を受け取る前提で再検証しない。
 
 装置側の吐出ダイナミクス（レート・加速度・リトラクト・リフト）は pad に依らないので
 :class:`DispenseSettings` に分ける。
@@ -22,15 +22,12 @@ from typing import Any, Literal, Self, cast
 import attrs
 
 from pcbasm.config import (
-    DISPENSE_MODES,
-    LINE_DIRECTIONS,
     DispenseMode,
     LineDirection,
     PasteDispenser,
     PasteHeight,
     resolve_paste_height,
 )
-from pcbasm.utils import is_finite_number
 
 PasteParamValue = float | str
 
@@ -186,14 +183,6 @@ PASTE_PARAM_FIELDS: tuple[ParamField, ...] = (
 
 PASTE_PARAM_NAMES: tuple[str, ...] = tuple(field.name for field in PASTE_PARAM_FIELDS)
 
-_CHOICES: dict[str, tuple[str, ...]] = {
-    "dispense_mode": DISPENSE_MODES,
-    "line_direction": LINE_DIRECTIONS,
-}
-# 数値項目の範囲（fill_path / applicator はこの範囲を前提に再検証しない）
-_POSITIVE = ("ul_per_mm2", "bead_width_factor")
-_NON_NEGATIVE = ("prime_extra_delay", "boundary_margin")
-
 
 def validate_field_names(fields: Iterable[str]) -> str | None:
     """:data:`PASTE_PARAM_NAMES` 外の項目があればエラー文、無ければ ``None``."""
@@ -207,27 +196,7 @@ def validate_param_values(values: Mapping[str, object]) -> str | None:
     """HTTP 境界で受けた塗布パラメータ値を検証し、不正なら日本語エラー文を返す."""
     if (message := validate_field_names(values)) is not None:
         return message
-    for field, value in values.items():
-        if field in _CHOICES:
-            if not isinstance(value, str) or value not in _CHOICES[field]:
-                label = "塗布方式" if field == "dispense_mode" else "線走行方向"
-                return f"未知の{label}です: {value!r}"
-        elif field == "paste_height":
-            if value == "auto":
-                continue
-            if not is_finite_number(value):
-                return f"paste_heightはautoまたは数値で指定してください: {value!r}"
-            if value <= 0:
-                return f"paste_heightは正の値で指定してください: {value}"
-        elif not is_finite_number(value):
-            return f"{field}は数値で指定してください: {value!r}"
-        elif field in _POSITIVE and value <= 0:
-            return f"{field}は正の値で指定してください: {value}"
-        elif field in _NON_NEGATIVE and value < 0:
-            return f"{field}は0以上で指定してください: {value}"
-        elif field == "overlap" and not 0.0 <= value < 1.0:
-            return f"overlapは0以上1未満で指定してください: {value}"
-    return None
+    return PasteDispenser.validate_values(values)
 
 
 @attrs.frozen

@@ -196,29 +196,20 @@ class TestMachine:
 
         assert dispenser.effective_retract_rate == pytest.approx(expected)
 
-    def test_initial_purge_ul_rejects_negative_value(self):
-        with pytest.raises(ValueError, match="initial_purge_ul"):
-            _paste_dispenser(initial_purge_ul=-0.01)
-
     def test_unknown_line_direction_is_rejected(self):
         with pytest.raises(ValueError) as raised:
             _paste_dispenser(line_direction="sideways")
 
         assert "線走行方向" in str(raised.value)
 
-    @pytest.mark.parametrize("height", [0.0, -1.0])
-    def test_lift_height_rejects_non_positive_value(self, height):
-        with pytest.raises(ValueError, match="lift_height"):
-            _paste_dispenser(lift_height=height)
-
-    @pytest.mark.parametrize("factor", [0.0, -1.0])
-    def test_auto_area_short_side_factor_rejects_non_positive(self, factor):
-        with pytest.raises(ValueError, match="auto_area_short_side_factor"):
-            _paste_dispenser(auto_area_short_side_factor=factor)
-
     @pytest.mark.parametrize(
         ("key", "value"),
         [
+            ("initial_purge_ul", -0.01),
+            ("lift_height", 0.0),
+            ("lift_height", -1.0),
+            ("auto_area_short_side_factor", 0.0),
+            ("auto_area_short_side_factor", -1.0),
             ("nozzle_diameter", 0.0),
             ("max_fill_speed", 0.0),
             ("max_dispense_rate", -1.0),
@@ -228,9 +219,14 @@ class TestMachine:
             ("overlap", -0.1),
             ("overlap", 1.0),
             ("boundary_margin", -0.01),
+            ("ul_per_mm2", 0.0),
+            ("prime_extra_delay", -0.1),
+            ("paste_height", float("nan")),
+            ("nozzle_diameter", float("inf")),
+            ("max_fill_speed", True),
         ],
     )
-    def test_dispense_dynamics_out_of_range_is_rejected(self, key, value):
+    def test_paste_settings_out_of_range_are_rejected(self, key, value):
         # FillSequence / PasteApplicator は検証済み値を前提にするため入口で弾く。
         with pytest.raises(ValueError, match=key):
             _paste_dispenser(**{key: value})

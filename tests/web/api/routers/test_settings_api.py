@@ -22,12 +22,74 @@ from pathlib import Path
 from typing import override
 
 import pytest
+import tomlkit
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from pcbasm.config import Machine
 from web.api.config_store import MACHINE_FIELDS
 from web.api.discovery import ServiceAdvertiser
 from web.api.state import AppState
+
+
+class TestPasteSettingsValidation:
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("nozzle_diameter", 0.0),
+            ("max_fill_speed", 0.0),
+            ("max_dispense_rate", 0.0),
+            ("retract_amount", 0.0),
+            ("retract_accel_factor", 1.0),
+            ("bead_width_factor", 0.0),
+            ("overlap", -0.1),
+            ("overlap", 1.0),
+            ("boundary_margin", -0.1),
+            ("ul_per_mm2", 0.0),
+            ("prime_extra_delay", -0.1),
+        ],
+    )
+    def test_invalid_batch_preserves_the_usable_config(
+        self, client: TestClient, config_dir: Path, field: str, value: float
+    ):
+        path = config_dir / "machine.toml"
+        original = path.read_bytes()
+
+        response = client.put(
+            "/api/settings/machine",
+            json={
+                "values": {
+                    "machine_name": "must not be saved",
+                    f"paste_dispenser.{field}": value,
+                }
+            },
+        )
+
+        assert response.status_code == 400, response.text
+        assert field in response.json()["detail"]
+        assert path.read_bytes() == original
+        assert Machine(path).paste_dispenser.nozzle_diameter > 0
+
+    def test_an_existing_invalid_setting_can_be_repaired_one_field_at_a_time(
+        self, client: TestClient, config_dir: Path
+    ):
+        path = config_dir / "machine.toml"
+        document = tomlkit.parse(path.read_text())
+        document["paste_dispenser"]["nozzle_diameter"] = 0.0
+        document["paste_dispenser"]["max_fill_speed"] = 0.0
+        path.write_text(tomlkit.dumps(document))
+
+        # 他の不正値が残っていても画面を開けて、編集した値だけを直せる。
+        assert client.get("/api/settings/machine").status_code == 200
+        for field, value in (("nozzle_diameter", 0.3), ("max_fill_speed", 2.0)):
+            response = client.put(
+                "/api/settings/machine",
+                json={"values": {f"paste_dispenser.{field}": value}},
+            )
+            assert response.status_code == 200, response.text
+        dispenser = Machine(path).paste_dispenser
+        assert dispenser.nozzle_diameter == 0.3
+        assert dispenser.max_fill_speed == 2.0
 
 
 class RecordingAdvertiser(ServiceAdvertiser):
