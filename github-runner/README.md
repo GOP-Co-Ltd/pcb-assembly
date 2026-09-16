@@ -29,7 +29,7 @@ repositoryをcheckoutしたRaspberry Pi上で、`sudo`を付けずに実行す�
 
 次を一度に実行する。
 
-- CIに必要なOS package、Git LFS、`pcbnew`を提供するKiCad、`uv 0.10.9`のインストール
+- CIに必要なOS package、Git LFS、KiCad（`pcbnew`）、Chromium、`uv 0.10.9`のインストール
 - `github-runner` userの作成とhost cache directoryの準備
 - `actions/runner`の最新releaseを`/opt/actions-runner/pcb-assembly-rpi-{1,2,3}`へ展開
 - registration tokenの取得（`gh`）または非表示入力による3 instanceの登録
@@ -97,6 +97,15 @@ demoを使わないため、`kicad`の推奨packageはインストールしな�
 
 テスト画像・音声はGit LFSで管理する。`install`はGit LFS filterをsystem設定し、pytest
 jobはcheckout済みworkspaceに対して`git lfs pull`を実行する。
+
+`pytest` jobは非実機テストに続けて、fakeカメラと隔離したbackend・frontendを使う
+WebUI E2Eを実行する。Chromiumはheadlessで起動し、カメラやGPIOの権限は不要。
+両スイートのJUnitレポートは`pytest-report` artifactに7日間保存する。
+
+新しいrunnerには`install`でsystem Chromiumを導入する。既存runnerに
+`/usr/bin/chromium`が無い場合、workflowはPlaywrightのheadless shellをユーザーcacheへ
+取得する。OS依存ライブラリが不足するホストは、管理者がChromiumを導入する。
+jobからOS packageをインストールするためのsudo権限は与えない。
 
 容量確認とuv cacheの安全な整理は次のとおり。
 

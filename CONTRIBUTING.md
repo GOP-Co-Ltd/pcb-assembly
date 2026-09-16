@@ -87,8 +87,10 @@ Chromium がシステムにない場合は `make playwright-install` でブラ�
 pytest を直接起動する場合も `-m "not hardware"`（必要なら `and not e2e`）を付ける。
 
 `make format` がファイルを書き換えた場合は diff を確認して再実行する。
-GitHub Actions は専用 Raspberry Pi runner で pre-commit、pyright、非実機テストを実行する。
-E2E はローカルで別途確認する。
+GitHub Actions は専用 Raspberry Pi runner で pre-commit、pyright、非実機テストと
+隔離 E2E を実行する。`pytest` チェックは非実機テストに続けてブラウザ・HTTP・WS・MJPEG を
+検証し、`pytest-report` artifact に両スイートの JUnit レポートを残す。
+WebUI の変更は、PR を出す前にも `make test-e2e` で確認する。
 
 ## テストの書き方
 

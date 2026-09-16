@@ -192,6 +192,7 @@ install_dependencies() {
     sudo apt-get update
     sudo apt-get install --yes \
         ca-certificates \
+        chromium \
         curl \
         git \
         git-lfs \
