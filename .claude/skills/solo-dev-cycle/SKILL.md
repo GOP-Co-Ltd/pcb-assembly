@@ -120,4 +120,4 @@ description: サブエージェントに委譲せず、自分自身が 1. 計画
 - チームに委譲する版：[agent-team-startup](../agent-team-startup/SKILL.md)
 - テスト方針の正典：[testing-strategy](../testing-strategy/SKILL.md)
 - 実装・リファクタ規約：[refactor-conventions](../refactor-conventions/SKILL.md)
-- 別タスク進行中に裏で回す：[do-on-worktree](../do-on-worktree/SKILL.md)／[gitlab-mr](../gitlab-mr/SKILL.md)
+- 別タスク進行中に裏で回す：[do-on-worktree](../do-on-worktree/SKILL.md)／[github-pr](../github-pr/SKILL.md)

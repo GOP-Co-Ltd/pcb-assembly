@@ -1,0 +1,35 @@
+name: pre-commit
+
+# GitLab CI の workflow rules 相当。default branch への push と
+# pull request で走らせ、MR 中の branch push で二重に走らせない。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: pre-commit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    runs-on: [self-hosted, linux, ARM64, rpi-ci]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure host caches
+        run: |
+          echo "UV_CACHE_DIR=$HOME/.cache/uv" >>"$GITHUB_ENV"
+          echo "PRE_COMMIT_HOME=$HOME/.cache/pre-commit" >>"$GITHUB_ENV"
+
+      - name: Sync dev dependencies
+        run: |
+          uv venv --clear --python /usr/bin/python3
+          uv sync --locked --only-group dev --no-install-project
+
+      - name: Run pre-commit
+        run: uv run --no-sync pre-commit run --all-files --show-diff-on-failure

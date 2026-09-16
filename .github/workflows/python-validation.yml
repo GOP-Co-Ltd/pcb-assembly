@@ -1,0 +1,77 @@
+name: python-validation
+
+# default branch への push では常に走らせ、pull request では検証結果が
+# 変わり得る path が触られたときだけ走らせる。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "**/*.py"
+      # UI frontend の配信資産。テンプレ / JS だけの変更でも E2E とページテストが
+      # 壊れるため（*.py だけでは pytest も pyright も走らない）
+      - "src/web/ui/templates/**"
+      - "src/web/ui/static/**"
+      # テストが読む machine.toml / printer.cfg のフィクスチャ
+      - "data/testing/config/**"
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/python-validation.yml
+
+concurrency:
+  group: python-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pyright:
+    runs-on: [self-hosted, linux, ARM64, rpi-ci]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure host caches
+        run: echo "UV_CACHE_DIR=$HOME/.cache/uv" >>"$GITHUB_ENV"
+
+      - name: Sync dependencies
+        run: |
+          uv venv --clear --system-site-packages --python /usr/bin/python3
+          uv sync --locked --all-groups
+
+      - name: Run pyright
+        run: uv run --no-sync pyright
+
+  pytest:
+    runs-on: [self-hosted, linux, ARM64, rpi-ci]
+    timeout-minutes: 30
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure host caches
+        run: echo "UV_CACHE_DIR=$HOME/.cache/uv" >>"$GITHUB_ENV"
+
+      - name: Sync dependencies
+        run: |
+          uv venv --clear --system-site-packages --python /usr/bin/python3
+          uv sync --locked --all-groups
+
+      - name: Fetch LFS objects
+        run: git lfs pull
+
+      - name: Run pytest
+        run: >-
+          uv run --no-sync pytest -v -m "not hardware and not e2e"
+          --timeout=180 --junitxml=pytest-report.xml
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: pytest-report.xml
+          retention-days: 7

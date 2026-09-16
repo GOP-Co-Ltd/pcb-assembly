@@ -10,7 +10,7 @@ Codex がこのリポジトリで作業する際に常時参照するガイダ�
 - 散文・説明・要約・確認・質問・計画は日本語で書く
 - コード・コマンド・ファイルパス・識別子・ログ/エラーの引用など、
     原文を保つべきものは原語のまま残す
-- コミットメッセージ・PR/MR タイトル等は「Git 運用」規約に従い、
+- コミットメッセージ・PR タイトル等は「Git 運用」規約に従い、
     日本語化しない
 - 技術用語は無理に訳さず、自然な範囲でカタカナ/英語を併用してよい
 
@@ -152,6 +152,6 @@ custom agent と `agent-team-startup` Skill を使う。
 - `.agents/skills/agent-team-startup/`: custom agent 運用
 - `.agents/skills/maximize-parallels/`: tool 並列化
 - `.agents/skills/do-on-worktree/`: 独立タスクの worktree 運用
-- `.agents/skills/gitlab-mr/`: GitLab MR 作成
-- `.agents/skills/merge-main/`: MR 前の main 取り込み
+- `.agents/skills/github-pr/`: GitHub PR 作成
+- `.agents/skills/merge-main/`: PR 前の main 取り込み
 - `.agents/skills/migrate-claude/`: Claude 資産から Codex 資産への移行

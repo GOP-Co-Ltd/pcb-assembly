@@ -5,9 +5,9 @@ description: 進行中の別タスクを止めずに、main から分岐した w
 
 # 別タスク進行中に worktree で裏作業を進める
 
-現在のブランチで別タスクが進行中のまま、それとは独立した変更を `main` から分岐して並行で進めるための手順。進行中の作業を一切汚さずに、新しいブランチ・worktree で実装し、MR を出すところまでを担う。
+現在のブランチで別タスクが進行中のまま、それとは独立した変更を `main` から分岐して並行で進めるための手順。進行中の作業を一切汚さずに、新しいブランチ・worktree で実装し、PR を出すところまでを担う。
 
-関連: skill [gitlab-mr](../gitlab-mr/SKILL.md)、skill [edit-dot-claude](../edit-dot-claude/SKILL.md)。
+関連: skill [github-pr](../github-pr/SKILL.md)、skill [edit-dot-claude](../edit-dot-claude/SKILL.md)。
 
 ## いつ使うか
 
@@ -49,9 +49,9 @@ git status --short          # 進行中の未コミット変更
 
 AGENTS.md のコミット規約（`<種別>(<スコープ>): <内容>`、1 コミット 1 関心事）に従う。
 
-### 6. MR を出す
+### 6. PR を出す
 
-skill [gitlab-mr](../gitlab-mr/SKILL.md) の手順で push し、`main` への MR を作成する。
+skill [github-pr](../github-pr/SKILL.md) の手順で push し、`main` への PR を作成する。
 
 ### 7. worktree を残して戻る
 
@@ -63,5 +63,5 @@ skill [gitlab-mr](../gitlab-mr/SKILL.md) の手順で push し、`main` への M
 ## 注意点
 
 - 進行中タスクのブランチには絶対に commit しない
-- `main` へ直接 commit / merge しない（AGENTS.md の Git 運用）。MR 止まりにする
+- `main` へ直接 commit / merge しない（AGENTS.md の Git 運用）。PR 止まりにする
 - worktree は `.claude/worktrees/<name>/` に作られ、元タスクのファイルとは別物

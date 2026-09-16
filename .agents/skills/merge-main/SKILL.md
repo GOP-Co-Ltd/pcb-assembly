@@ -1,13 +1,13 @@
 ---
 name: merge-main
-description: 作業の最後に MR を出す直前で、最新の main を作業ブランチに取り込み（merge）コンフリクトを解消してから MR を出すための手順。「MR を出す前に main を最新化」「main をマージ」「main に追従」「コンフリクト解決」「merge main」と言われたとき、または main が進んだ状態で MR を出す前に参照する。
+description: 作業の最後に PR を出す直前で、最新の main を作業ブランチに取り込み（merge）コンフリクトを解消してから PR を出すための手順。「PR を出す前に main を最新化」「main をマージ」「main に追従」「コンフリクト解決」「merge main」と言われたとき、または main が進んだ状態で PR を出す前に参照する。
 ---
 
-# MR を出す前に最新の main を取り込む
+# PR を出す前に最新の main を取り込む
 
-作業の最後に MR を出す **直前** で実行する手順。`main` をリモート最新に更新し、自分の作業ブランチに取り込んで（merge）、conflict を解消してから MR を立てる。これにより MR が最新の base に対して clean に diff する。
+作業の最後に PR を出す **直前** で実行する手順。`main` をリモート最新に更新し、自分の作業ブランチに取り込んで（merge）、conflict を解消してから PR を立てる。これにより PR が最新の base に対して clean に diff する。
 
-AGENTS.md「Git 運用」「自走開発フロー」と整合。**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。MR 作成自体は skill [gitlab-mr](../gitlab-mr/SKILL.md) を参照。
+AGENTS.md「Git 運用」「自走開発フロー」と整合。**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。PR 作成自体は skill [github-pr](../github-pr/SKILL.md) を参照。
 
 このスキルは **rebase ではなく merge** で main を取り込むことを既定とする（merge commit が履歴に残ることを許容し、push 済み・レビュー中の自ブランチの commit hash を書き換えない）。
 
@@ -39,7 +39,7 @@ git fetch origin main
 git log HEAD..origin/main --oneline    # 自ブランチに無い main 側の新規 commit
 ```
 
-- **出力が空** → main は進んでいない。取り込み不要。そのまま MR 作成へ
+- **出力が空** → main は進んでいない。取り込み不要。そのまま PR 作成へ
 - **commit が並ぶ** → main が進んでいる。次の merge へ
 
 ### 3. origin/main を作業ブランチに merge
@@ -70,7 +70,7 @@ git diff --name-only --diff-filter=U    # conflict した file 一覧
 
 ### 5. 取り込み後の検証
 
-main を取り込んだ結果コードが壊れていないか確認する。**全 green** であることが MR の前提（AGENTS.md 自走開発フロー）。
+main を取り込んだ結果コードが壊れていないか確認する。**全 green** であることが PR の前提（AGENTS.md 自走開発フロー）。
 
 ```bash
 make format && make type && make test
@@ -79,13 +79,13 @@ make format && make type && make test
 - test が落ちたら、main 側の変更と自分の変更の **意味的な衝突**（テキスト conflict は無かったが論理が壊れた）を疑う。修正して再度 green にする
 - ハードウェアテスト（`@mark_hardware`）の扱いは普段どおり（実機が無ければ `make test-no-hardware`。詳細は skill [hardware-test](../hardware-test/SKILL.md)）
 
-### 6. push して MR 作成
+### 6. push して PR 作成
 
 ```bash
 git push                       # 既に upstream があれば引数不要
 ```
 
-以降の push / MR 作成は skill [gitlab-mr](../gitlab-mr/SKILL.md) の `glab mr create` 手順に従う。
+以降の push / PR 作成は skill [github-pr](../github-pr/SKILL.md) の `gh pr create` 手順に従う。
 
 ## やってはいけないこと
 
@@ -97,10 +97,10 @@ git push                       # 既に upstream があれば引数不要
 
 ## rebase を使いたくなったら
 
-このスキルは **merge を既定** とする。`git pull --rebase` は自ブランチの commit hash を書き換え、push 済みブランチでは `--force-with-lease` が必要になる（AGENTS.md / skill gitlab-mr の「`--force` 系は使わない」と衝突する）。共有・レビュー中のブランチでは履歴の安定性を優先して **merge** を使う。rebase が必要な特殊事情があるなら、その理由をユーザーに確認してから行う。
+このスキルは **merge を既定** とする。`git pull --rebase` は自ブランチの commit hash を書き換え、push 済みブランチでは `--force-with-lease` が必要になる（AGENTS.md / skill github-pr の「`--force` 系は使わない」と衝突する）。共有・レビュー中のブランチでは履歴の安定性を優先して **merge** を使う。rebase が必要な特殊事情があるなら、その理由をユーザーに確認してから行う。
 
 ## 関連参照
 
-- skill [gitlab-mr](../gitlab-mr/SKILL.md) — push / `glab mr create` / push reject 系トラブルシュート
+- skill [github-pr](../github-pr/SKILL.md) — push / `gh pr create` / push reject 系トラブルシュート
 - skill [do-on-worktree](../do-on-worktree/SKILL.md) — worktree で裏作業を進める手順
 - [AGENTS.md](../../../AGENTS.md) — 「Git 運用」「自走開発フロー」節
