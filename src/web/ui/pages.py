@@ -37,6 +37,7 @@ from web.api.models import (
 from web.ui.layout import (
     CLEARABLE_MACHINE_KEYS,
     DISPENSE_CALIBRATION_PARAM_GROUPS,
+    FEATURE_GROUPS,
     FEATURE_LABELS,
     FEATURE_TEMPLATES,
     JOB_TEMPLATES,
@@ -49,7 +50,6 @@ from web.ui.layout import (
     PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
     POSITIVE_ONLY_MACHINE_KEYS,
     TAB_LABELS,
-    TAB_PHASES,
     TABS,
     grouped_fields,
 )
@@ -231,7 +231,7 @@ def _tab_context(tab: str, jobs: Mapping[str, JobSpecInfo]) -> dict[str, Any]:
     """タブ共通のコンテキスト（サイドバー描画用）."""
     return {
         "active_tab": tab,
-        "features": TABS[tab],
+        "feature_groups": FEATURE_GROUPS[tab],
         "feature_labels": {slug: _feature_label(jobs, slug) for slug in TABS[tab]},
     }
 
@@ -548,9 +548,8 @@ async def feature_page(
         _tab_context(tab, jobs),
         active_feature=feature,
         feature_label=_feature_label(jobs, feature),
-        phase=TAB_PHASES[tab],
     )
-    template = FEATURE_TEMPLATES.get((tab, feature), "feature.html")
+    template = FEATURE_TEMPLATES[tab, feature]
     if template in JOB_TEMPLATES:
         job = _job_spec(endpoint, jobs, feature)
         # preview ペインとローディング UI の有無は backend の事実（フレーム提供の

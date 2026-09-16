@@ -28,7 +28,6 @@ from web.ui.layout import (
     PASTE_VOLUME_CALIBRATION_PARAM_GROUPS,
     SECTION_LABELS,
     TAB_LABELS,
-    TAB_PHASES,
     TABS,
     section_of,
 )
@@ -63,15 +62,8 @@ def _js_code_lines(marker: str) -> list[str]:
 class TestTabs:
     """タブの表示知識（欠けるとヘッダ描画やページ描画が KeyError で 500 する）."""
 
-    @pytest.mark.parametrize(
-        "table",
-        (
-            pytest.param(TAB_LABELS, id="base.html の tab_labels[tab]"),
-            pytest.param(TAB_PHASES, id="feature ページの TAB_PHASES[tab]"),
-        ),
-    )
-    def test_every_tab_is_covered_by_the_display_tables(self, table: dict[str, str]):
-        assert set(TABS) == set(table)
+    def test_every_tab_has_a_label(self):
+        assert set(TABS) == set(TAB_LABELS)
 
     def test_feature_slugs_are_unique_across_tabs(self):
         """Feature slug は URL とジョブ名の突き合わせに使うので重複させない."""
@@ -83,10 +75,10 @@ class TestTabs:
 class TestFeatureTemplates:
     """テンプレート割り当て（存在しない名前は描画時 500 になる）."""
 
-    def test_keys_are_declared_features(self):
-        assert all(
-            feature in TABS.get(tab, ()) for tab, feature in FEATURE_TEMPLATES
-        ), FEATURE_TEMPLATES.keys()
+    def test_every_declared_feature_has_a_template(self):
+        assert set(FEATURE_TEMPLATES) == {
+            (tab, feature) for tab, features in TABS.items() for feature in features
+        }
 
     @pytest.mark.parametrize("name", sorted(set(FEATURE_TEMPLATES.values())))
     def test_template_file_exists(self, name: str):

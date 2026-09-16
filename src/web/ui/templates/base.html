@@ -11,9 +11,10 @@
    control.js が GET /api/state / WS control_changed / 423 で入れ替える #}
 <body data-machine-base="{{ base }}" data-control="viewer">
 <header class="topbar" data-testid="topbar">
-  <nav class="tabs" data-testid="top-tabs">
+  <nav class="tabs" data-testid="top-tabs" aria-label="作業分野">
     {% for tab in tabs %}
-    <a href="{{ base }}/{{ tab }}" class="tab{% if tab == active_tab %} active{% endif %}">{{ tab_labels[tab] }}</a>
+    <a href="{{ base }}/{{ tab }}" class="tab{% if tab == active_tab %} active{% endif %}"
+       {% if tab == active_tab %}aria-current="{% if active_feature %}true{% else %}page{% endif %}"{% endif %}>{{ tab_labels[tab] }}</a>
     {% endfor %}
   </nav>
   <div class="global-controls">

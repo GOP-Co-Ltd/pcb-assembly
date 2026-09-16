@@ -1,17 +1,36 @@
 {% extends "base.html" %}
-{% block title %}{{ active_tab }} — PCB Assembly WebUI{% endblock %}
+{% block title %}{{ tab_labels[active_tab] }} — PCB Assembly WebUI{% endblock %}
 {% block content %}
 <aside class="sidebar" data-testid="sidebar">
   {% include "partials/sidebar.html" %}
 </aside>
 <section class="main-pane" data-testid="main-pane">
   {% block main %}
-  <p class="placeholder">左のリストから機能を選択してください。</p>
+  <header class="feature-overview-heading">
+    <h2>{{ tab_labels[active_tab] }}</h2>
+    {% if feature_groups %}<p>作業に合わせて機能を選んでください。</p>{% endif %}
+  </header>
+  <div class="feature-overview" data-testid="feature-overview">
+    {% for label, description, slugs in feature_groups %}
+    <section class="feature-card">
+      <h3>{{ label }}</h3>
+      <p>{{ description }}</p>
+      <ul>
+        {% for slug in slugs %}
+        <li><a href="{{ base }}/{{ active_tab }}/{{ slug }}">{{ feature_labels[slug] }}<span aria-hidden="true">→</span></a></li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% else %}
+    <p class="placeholder">部品実装の操作画面は準備中です。現在は位置合わせとはんだ塗布を利用できます。</p>
+    {% endfor %}
+  </div>
   {% endblock %}
 </section>
 {% include "partials/machine_control.html" %}
 {% endblock %}
 {% block scripts %}
+<script src="{{ static_asset('js/feature_navigation.js') }}"></script>
 <script src="{{ static_asset('js/job_console.js') }}"></script>
 <script src="{{ static_asset('js/machine_control.js') }}"></script>
 {% endblock %}

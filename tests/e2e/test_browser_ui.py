@@ -49,7 +49,6 @@ def selector_ui(
     registry を返すのは、mDNS 探索の結果が届いたときに相当する変化
     （`set_discovered`）をテスト側から起こして、ドロップダウンの組み替えを
     見られるようにするため（実 zeroconf は使わない = 実 LAN に触らない）。
-    `live_server` の登録に ``name`` を与えないのも、その差分を作るため。
     """
     endpoints = (
         MachineEndpoint(machine_id=_GHOST_MACHINE_ID, host="127.0.0.1", port=1),
@@ -677,7 +676,7 @@ class TestMachineSelectorRefresh:
 
     `machine_selector.js` の catch は全例外を飲むので、取得・`data-*` 参照・option の
     組み替えのどれが壊れても SSR 済みの option がそのまま残り、無音で劣化する
-    （mDNS で見つかったマシンが一覧に出てこない・改名が反映されない）。実ブラウザで
+    （mDNS で見つかったマシンが一覧に出てこない）。実ブラウザで
     「サーバの label で組み替わる」「current のマシンが選択される」を通しで見る。
     """
 
@@ -707,15 +706,14 @@ class TestMachineSelectorRefresh:
             f"/m/{_E2E_MACHINE_ID}/posctrl"
         )
 
-        # mDNS で表示名が届いたときに相当する変化を起こす（静的登録が name を
-        # 持たないので label が変わる）
+        # mDNS で新しい機体が見つかったときに相当する変化を起こす。
+        # label は hostname: host なので、同じ機体の自由入力名を変えても表示は変わらない。
         registry.set_discovered(
             (
                 MachineEndpoint(
-                    machine_id=_E2E_MACHINE_ID,
+                    machine_id="discovered-machine",
                     host="127.0.0.1",
                     port=live_server.port,
-                    name="発見された名前",
                     source="mdns",
                 ),
             )
@@ -723,7 +721,19 @@ class TestMachineSelectorRefresh:
         browser_page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
 
         expect(options).to_have_text(_machine_labels(origin, current=_E2E_MACHINE_ID))
-        expect(options.nth(1)).to_contain_text("発見された名前")
+        expect(options).to_have_count(3)
+        expect(options.nth(2)).to_contain_text("discovered-machine")
+        expect(browser_page.locator("#machine-select")).to_have_value(
+            f"/m/{_E2E_MACHINE_ID}/posctrl"
+        )
+
+        registry.set_discovered(())
+        browser_page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+        expect(options).to_have_text(_machine_labels(origin, current=_E2E_MACHINE_ID))
+        expect(options).to_have_count(2)
+        expect(browser_page.locator("#machine-select")).to_have_value(
+            f"/m/{_E2E_MACHINE_ID}/posctrl"
+        )
 
 
 class TestPasteVolumeCalibrationSelect:
