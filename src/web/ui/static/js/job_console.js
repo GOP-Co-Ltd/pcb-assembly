@@ -25,6 +25,7 @@
   let socket = null;
   const reconnectBackoff = createBackoff(1000, 15000);
   let currentJob = null;
+  let jobStatusVersion = 0;
   let abortRequestedJobId = null;
   let completionJobId = null;
 
@@ -138,20 +139,29 @@
 
   function connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    socket = new WebSocket(`${proto}://${location.host}${withBase("/api/ws")}`);
-    socket.addEventListener("open", async () => {
+    const connection = new WebSocket(`${proto}://${location.host}${withBase("/api/ws")}`);
+    socket = connection;
+    connection.addEventListener("open", async () => {
       reconnectBackoff.reset();
       // 切断中の control_changed は届いていないので操作権も取り直す
       window.webui.control?.refresh();
+      const version = jobStatusVersion;
       try {
         const data = await api("GET", "/api/jobs/current");
-        applyJob(data.job);
+        // 同期中に届いた WS の全量通知や、次の接続の状態を古い HTTP 応答で戻さない。
+        if (socket === connection && connection.readyState === WebSocket.OPEN
+            && jobStatusVersion === version) {
+          applyJob(data.job);
+        }
       } catch {
         /* 再接続時に再試行される */
       }
     });
-    socket.addEventListener("message", (event) => handleEvent(JSON.parse(event.data)));
-    socket.addEventListener("close", () => {
+    connection.addEventListener("message", (event) => {
+      if (socket === connection) handleEvent(JSON.parse(event.data));
+    });
+    connection.addEventListener("close", () => {
+      if (socket !== connection) return;
       socket = null;
       setTimeout(connect, reconnectBackoff.next());
     });
@@ -160,6 +170,7 @@
   function handleEvent(event) {
     switch (event.type) {
       case "job_status":
+        jobStatusVersion += 1;
         applyJob(event.job);
         break;
       case "log":
@@ -178,7 +189,7 @@
         if (ownsEvent(event)) openPrompt(event.prompt);
         break;
       case "prompt_resolved":
-        if (ownsEvent(event)) closePrompt();
+        if (ownsEvent(event) && activePrompt?.id === event.prompt_id) closePrompt();
         break;
       case "state_changed":
         refreshHeader();
@@ -403,13 +414,18 @@
     if (prompt.kind === "number" || prompt.kind === "text") {
       const input = document.createElement("input");
       input.type = prompt.kind;
-      if (prompt.kind === "number") input.step = "any";
+      if (prompt.kind === "number") {
+        input.step = "any";
+        input.required = true;
+      }
       input.id = "jc-prompt-input";
+      input.setAttribute("aria-labelledby", "jc-prompt-message");
       if (prompt.default !== null && prompt.default !== undefined) input.value = prompt.default;
       field.appendChild(input);
     } else if (prompt.kind === "choice") {
       const select = document.createElement("select");
       select.id = "jc-prompt-input";
+      select.setAttribute("aria-labelledby", "jc-prompt-message");
       for (const choice of prompt.choices) {
         const option = document.createElement("option");
         option.value = choice;
@@ -459,11 +475,15 @@
 
   if (consoleEl) {
     el("jc-prompt-form").addEventListener("submit", (event) => {
+      // 回答が拒否されたり未送信だった場合も、入力待ちと編集内容を残す。
+      // 閉じるのはサーバーの prompt_resolved / job_status を受けたとき。
+      event.preventDefault();
       const prompt = activePrompt;
       if (!prompt) return;
       const answer = answerFromPromptSubmit(prompt, event);
-      send({ type: "respond_prompt", prompt_id: prompt.id, answer });
-      activePrompt = null;
+      if (!send({ type: "respond_prompt", prompt_id: prompt.id, answer })) {
+        toast("WebSocket 未接続のため回答を送信できません", false);
+      }
     });
 
     el("jc-abort").addEventListener("click", () => {

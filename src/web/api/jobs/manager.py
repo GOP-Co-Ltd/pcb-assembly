@@ -22,6 +22,7 @@ from pcbasm.hal import AudioPlayer, FrameHub, Klipper
 from pcbasm.hal.audio import Sound
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
 from pcbasm.parking import park_or_present
+from pcbasm.utils import is_finite_number
 from pcbasm.vision import Image
 from web.api.board_settings import BoardSettingsStore
 from web.api.jobs.catalog import JobCatalog, JobDefinition
@@ -849,7 +850,7 @@ def prompt_payload(prompt_id: str, spec: PromptSpec) -> dict[str, Any]:
 def _coerce_answer(spec: PromptSpec, answer: object) -> Answer:
     """プロンプト応答を PromptSpec の型に合わせて検証・変換する.
 
-    confirm→bool, number→float（int は float 化）, text→str,
+    confirm→bool, number→有限なfloat（int は float 化）, text→str,
     choice→choices 内の str。false_label 付き number の中止（bool False）は
     そのまま False を返す。
 
@@ -864,7 +865,7 @@ def _coerce_answer(spec: PromptSpec, answer: object) -> Answer:
             # false_label 付き number は中止可能。中止ボタンは bool False を送る。
             if answer is False and spec.false_label is not None:
                 return False
-            if not isinstance(answer, bool) and isinstance(answer, (int, float)):
+            if is_finite_number(answer):
                 return float(answer)
         case "text":
             if isinstance(answer, str):
