@@ -163,6 +163,8 @@ install_runner_instances() {
     curl --fail --silent --show-error --location \
         "https://github.com/actions/runner/releases/download/v${version}/actions-runner-linux-arm64-${version}.tar.gz" \
         --output "${tarball}"
+    # mktempは0600で作るため、そのままでは展開側の${RUNNER_USER}が読めない。
+    chmod 0644 "${tarball}"
 
     for index in $(seq 1 "${RUNNER_COUNT}"); do
         instance="$(instance_dir "${index}")"
@@ -177,7 +179,8 @@ install_runner_instances() {
     rm -f "${tarball}"
     trap - EXIT
 
-    sudo "$(instance_dir 1)/bin/installdependencies.sh"
+    # installdependencies.shはrunner root上での実行を前提にしている。
+    sudo bash -c 'cd "$1" && ./bin/installdependencies.sh' _ "$(instance_dir 1)"
     echo "Actions Runner ${version}を${RUNNER_COUNT} instance導入しました。"
 }
 
