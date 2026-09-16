@@ -302,6 +302,60 @@ class TestJobParamDefaults:
         assert state.job_param_defaults("flow_calibration") == {"rotations": 60.0}
 
 
+class TestPersistenceFailure:
+    """保存できなかった変更を公開せず、同じ操作を再試行できる。"""
+
+    @pytest.mark.parametrize("operation", ["select-pcb", "merge-defaults"])
+    def test_failed_write_keeps_previous_state_until_retry_succeeds(
+        self,
+        state: AppState,
+        webui_settings: Settings,
+        store: ConfigStore,
+        operation: str,
+    ):
+        original_pcb = Path("boards/sample.kicad_pcb")
+        state.select_pcb(original_pcb)
+        state.merge_job_param_defaults("flow_calibration", {"rotations": 60.0})
+        path = webui_settings.webui_data_dir / "webui_state.json"
+        saved = path.read_bytes()
+        path.unlink()
+        path.mkdir()
+
+        def update() -> None:
+            if operation == "select-pcb":
+                state.select_pcb(Path("top.kicad_pcb"))
+            else:
+                state.merge_job_param_defaults("flow_calibration", {"rate": 1.5})
+
+        with pytest.raises(OSError):
+            update()
+
+        assert state.selected_pcb == original_pcb
+        assert state.job_param_defaults("flow_calibration") == {"rotations": 60.0}
+        assert state.busy_owner is None
+
+        path.rmdir()
+        path.write_bytes(saved)
+        restored = AppState(webui_settings, store)
+        assert restored.selected_pcb == state.selected_pcb
+        assert restored.job_param_defaults(
+            "flow_calibration"
+        ) == state.job_param_defaults("flow_calibration")
+
+        update()
+
+        expected_pcb = (
+            Path("top.kicad_pcb") if operation == "select-pcb" else original_pcb
+        )
+        expected_defaults = {"rotations": 60.0}
+        if operation == "merge-defaults":
+            expected_defaults["rate"] = 1.5
+        restored = AppState(webui_settings, store)
+        for current in (state, restored):
+            assert current.selected_pcb == expected_pcb
+            assert current.job_param_defaults("flow_calibration") == expected_defaults
+
+
 class TestMachineLock:
     """非ブロッキング排他ロック."""
 
