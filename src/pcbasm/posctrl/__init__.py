@@ -28,12 +28,6 @@ from .setup import (
     machine_session,
     setup_board_calibration,
 )
-from .tour import (
-    display_at_point,
-    interactive_display_at_point,
-    wait_for_keypress,
-    window_sink,
-)
 
 __all__ = [
     "AlignmentRegion",
@@ -55,8 +49,6 @@ __all__ = [
     "RegionAlignmentSession",
     "XYPositionAdjustor",
     "centered_roi",
-    "display_at_point",
-    "interactive_display_at_point",
     "is_pad_refinement_target",
     "machine_session",
     "plan_alignment_regions",
@@ -64,6 +56,4 @@ __all__ = [
     "render_label",
     "setup_board_calibration",
     "to_machine_transform",
-    "wait_for_keypress",
-    "window_sink",
 ]
