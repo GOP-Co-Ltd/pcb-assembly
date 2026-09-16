@@ -8,7 +8,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
-from pcbasm.atomic import write_text_atomic
+from pcbasm.atomic import write_bytes_atomic, write_text_atomic
 from pcbasm.config import Machine, NozzleCap, NozzleClean
 from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.vision import CalibrationResult
@@ -82,20 +82,25 @@ class AppState:
             return self._busy_owner or "unknown"
         return None
 
-    def select_pcb(self, path: Path) -> None:
-        """PCB ファイルを選択し永続化する.
+    def select_pcb(self, path: Path, *, content: bytes | None = None) -> None:
+        """PCB ファイルを選択し永続化する。アップロード保存も同じ排他区間で行う.
 
         Args:
             path: pcb_browse_root からの相対パス
+            content: アップロード内容。指定時は選択前にファイルを atomic に保存する
 
         Raises:
-            ValueError: root 範囲外・拡張子不正・不存在の場合
+            ValueError: root 範囲外・拡張子不正・内容未指定でファイルが存在しない場合
             BusyError: 排他ロックが取得できない場合
         """
-        relative = self._validate_pcb(path)
+        relative = self._validate_pcb(path, require_file=content is None)
         if relative is None:
             raise ValueError(f"PCB ファイルとして選択できません: {path}")
         with self.machine_lock("select-pcb"):
+            if content is not None:
+                destination = self._settings.pcb_browse_root.resolve() / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                write_bytes_atomic(destination, content)
             self._selected_pcb = relative
             with self._persist_lock:
                 self._persist()
@@ -319,12 +324,14 @@ class AppState:
                 defaults[job_name] = params
         return defaults
 
-    def _validate_pcb(self, path: Path) -> Path | None:
+    def _validate_pcb(self, path: Path, *, require_file: bool = True) -> Path | None:
         """PCB パスを検証し、正規化済み相対パスを返す（不正なら None）."""
         root = self._settings.pcb_browse_root.resolve()
         candidate = (root / path).resolve()
         if not candidate.is_relative_to(root):
             return None
-        if candidate.suffix != ".kicad_pcb" or not candidate.is_file():
+        if candidate.suffix != ".kicad_pcb":
+            return None
+        if require_file and not candidate.is_file():
             return None
         return candidate.relative_to(root)
