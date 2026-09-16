@@ -5,6 +5,7 @@
         aria-label="マシンを選択" data-testid="machine-select"
         data-machine-id="{{ machine_id or '' }}"
         data-current-suffix="{{ current_suffix }}">
+  <option value="" disabled data-placeholder{% if not machine_id %} selected{% endif %}>マシンを選択</option>
   {% for machine in machines %}
   <option value="{{ '/m/' ~ machine.machine_id ~ '/' ~ current_suffix }}"
           {% if machine.machine_id == machine_id %}selected{% endif %}>{{ machine.label }}</option>

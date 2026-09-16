@@ -19,26 +19,22 @@
   </nav>
   <div class="global-controls">
     {% include "partials/machine_selector.html" %}
+    {# 対象未選択の案内画面には機体コマンドを出さない #}
+    {% if base %}
     <details class="topbar-menu" data-testid="topbar-menu" data-responsive-menu="(max-width: 1180px)" open>
       <summary>操作・設定</summary>
       <div class="topbar-menu-content">
-        {# マシンが決まっていないページ（ピッカー / 503 / 未登録 404）に操作権の概念は無い。
-           base が空だと control.js の GET /api/state と取得 POST がプロキシ外へ飛んで 404 に
-           なるため、押すと必ず失敗する「死んだ取得ボタン」を出さない #}
-        {% if base %}{% include "partials/control_lease.html" %}{% endif %}
+        {% include "partials/control_lease.html" %}
         <button id="pcb-chip" class="chip" title="PCB ファイル選択"
                 data-testid="pcb-chip" data-requires-control
                 data-fb-start="{{ fb_start }}">
           {{ selected_pcb or "PCB未選択" }}
         </button>
-        {# 更新通知。表示文字列も遷移先も update_notice.js がサーバ応答から入れる
-           （初期状態は非表示。更新が無いホストでは最後まで出ない）。href を静的に
-           持たせない: 遷移先は機体ごとに変わるうえ、未 prefix の内部リンクとして
-           残ると「全リンクが機体 prefix 付き」の規約を破る #}
-        <a id="update-badge" class="update-badge" data-testid="update-badge" hidden
-           data-notice-url="{{ update_notice_url }}"></a>
+        {% include "partials/update_notice.html" %}
         <a href="{{ base }}/settings" class="icon-link" title="マシン設定">設定</a>
+        {% if mainsail_url %}
         <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper (Mainsail) を開く">Klipper</a>
+        {% endif %}
         {# ファームウェアだけでなく WebUI のサービスも落とすので、誤クリックで LAN 中の
            画面が切れないよう確認を挟む（緊急停止には付けない。即時性が要る） #}
         <button id="firmware-restart" class="firmware-restart" title="ファームウェア再起動"
@@ -48,6 +44,9 @@
     </details>
     {# 緊急停止は安全操作なので操作権に依らず誰でも押せる（data-requires-control 禁止） #}
     <button id="estop" class="estop" title="緊急停止" data-testid="estop">緊急停止</button>
+    {% else %}
+    {% include "partials/update_notice.html" %}
+    {% endif %}
   </div>
 </header>
 <main class="layout {% block layout_class %}{% endblock %}">

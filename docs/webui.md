@@ -68,9 +68,12 @@ AP のマルチキャスト抑制などで探索できない環境では、front
 machine_id = "kurousagi"  # 必須。URL の /m/{machine_id} になる
 host = "kurousagi.local"  # 必須。ホスト名または IP
 port = 8081               # 省略時 8081
-name = "黒兎 1 号機"      # 省略可。画面の表示名
+name = "黒兎 1 号機"      # 省略可。機体の補足情報
 machine_type = "paste"    # 省略可
 ```
+
+選択メニューには `machine_id: host` を表示する（例: `kurousagi: kurousagi.local`）。
+`name` は選択メニューの表示名には使わない。対象が未選択の案内画面では「マシンを選択」から選ぶ。
 
 **`machine_id` はその機体のホスト名（`hostname` の出力）に合わせる。** backend が名乗る ID は
 `socket.gethostname()` で決まり環境変数では変えられないので、ここがずれると探索が見つけた

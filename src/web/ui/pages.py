@@ -333,7 +333,7 @@ async def _open_default(request: Request, suffix: str) -> Response:
         return render_message(
             request,
             title="マシンを選択してください",
-            detail="右上のドロップダウンから操作するマシンを選びます。",
+            detail="上部のマシン選択から操作するマシンを選びます。",
         )
     return render_message(
         request,

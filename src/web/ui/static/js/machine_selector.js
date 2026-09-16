@@ -12,13 +12,17 @@
 
   const currentId = select.dataset.machineId ?? "";
   const suffix = select.dataset.currentSuffix ?? "";
+  const placeholder = select.querySelector("[data-placeholder]");
 
   select.addEventListener("change", () => {
     window.location.assign(select.value);
   });
 
   const render = (machines) => {
+    // 未選択項目を残し、後続の option へサーバの current を反映する。
+    placeholder.selected = true;
     select.replaceChildren(
+      placeholder,
       ...machines.map((machine) => {
         const option = document.createElement("option");
         option.value = `/m/${machine.machine_id}/${suffix}`;
