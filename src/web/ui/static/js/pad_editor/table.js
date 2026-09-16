@@ -22,6 +22,17 @@ export function renderTable(tableBody, state, actions) {
       : null;
   const focusId = active?.id;
   const fallbackId = active?.dataset.focusFallback;
+  const numeric = active instanceof HTMLInputElement && active.type === "number";
+  const mode = numeric ? active.parentElement.querySelector("select") : null;
+  const draft = numeric && (active.value !== active.defaultValue
+    || (mode && mode.value !== mode.dataset.initialValue))
+    ? { value: active.value, mode: mode?.value }
+    : null;
+  if (numeric) {
+    // DOM の入れ替えによる blur/change を編集の確定として送信しない。
+    active.addEventListener("change", (event) => event.stopImmediatePropagation(),
+      { capture: true, once: true });
+  }
   tableBody.dataset.pcbFile = state.config.pcb_file;
   renderHeader(tableBody, state.config.fields);
   tableBody.replaceChildren();
@@ -33,6 +44,14 @@ export function renderTable(tableBody, state, actions) {
     }
   }
   let focused = focusId ? document.getElementById(focusId) : null;
+  if (draft && focused && !focused.disabled) {
+    // 他のセルの保存や銅箔の取得で、入力途中の値と手動高さモードを消さない。
+    focused.value = draft.value;
+    if (draft.mode !== undefined) {
+      focused.parentElement.querySelector("select").value = draft.mode;
+      focused.hidden = false;
+    }
+  }
   if (!focused || focused.disabled || focused.hidden) {
     focused = fallbackId ? document.getElementById(fallbackId) : null;
   }
@@ -275,6 +294,7 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
     "手動",
     isOverride && ownValue !== "auto"
   );
+  select.dataset.initialValue = select.value;
 
   const input = document.createElement("input");
   identifyFieldControl(input, node.id, field);
@@ -293,6 +313,7 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
       resolved === "auto" || resolved === null ? "" : String(round4(resolved));
   }
   input.hidden = select.value !== "manual";
+  input.defaultValue = input.value;
   input.addEventListener("change", () =>
     commitHeightCell(state, actions, node.id, field, select, input, descendantCount)
   );
@@ -346,6 +367,7 @@ function buildValueCell(state, actions, node, field, descendantSummary) {
     input.value = "";
     input.placeholder = resolved !== null ? String(round4(resolved)) : "";
   }
+  input.defaultValue = input.value;
   input.addEventListener("change", () =>
     commitCell(state, actions, node.id, field, input, descendantCount)
   );
