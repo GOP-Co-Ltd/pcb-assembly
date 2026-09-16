@@ -27,6 +27,7 @@ from pcbasm.posctrl import (
     BoardCalibrationResult,
     RegionAlignmentSession,
 )
+from pcbasm.utils import is_finite_number
 from web.api.jobs.board_ops import align_regions
 from web.api.jobs.context import JobContext, PromptSpec
 from web.api.jobs.machine_commands import handle_machine_command
@@ -139,15 +140,15 @@ def parse_loading_command(
 
 
 def _positive_amount(value: object) -> float | None:
-    """正の数値なら float、それ以外は None."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    """有限な正の数値なら float、それ以外は None."""
+    if not is_finite_number(value):
         return None
     return float(value) if value > 0 else None
 
 
 def _non_negative_amount(value: object) -> float | None:
-    """非負（0 含む）の数値なら float、それ以外は None."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    """有限な非負（0 含む）の数値なら float、それ以外は None."""
+    if not is_finite_number(value):
         return None
     return float(value) if value >= 0 else None
 
