@@ -37,10 +37,10 @@ boot 設定は `/boot/firmware/config.txt`（旧 OS では `/boot/config.txt`）
 変更前の内容は同じ場所の `config.txt.pcbasm.bak` に保存される。スクリプトが管理する
 marker 内だけを再実行時に置換し、それ以外の既存設定は保持する。
 
-### GitLab CI Runner
+### GitHub Actions Runner
 
-専用のRaspberry Pi 5をGitLab Runnerとして構築する場合は、
-[`gitlab-runner/README.md`](gitlab-runner/README.md)を参照する。
+専用のRaspberry Pi 5をGitHub Actionsのself-hosted runnerとして構築する場合は、
+[`github-runner/README.md`](github-runner/README.md)を参照する。
 
 ### 開発
 
@@ -279,11 +279,11 @@ journalctl -u pcbasm-api -n 200    # 起動失敗の理由
 
 **攻撃面（率直に）**: この WebUI に認証は無い（下記「公開範囲」）。LAN に居る者は既に
 ステージを動かせるので物理的なリスクは増えないが、**信頼境界が「LAN に居る者」から
-「LAN に居る者 ∪ GitLab に push できる者」へ広がる**。GitLab 側の保護ブランチと 2FA を
+「LAN に居る者 ∪ GitHub に push できる者」へ広がる**。GitHub 側の保護ブランチと 2FA を
 必須にすること。無効化するには `PCBASM_API_UPDATE_ENABLED=0` /
 `PCBASM_UI_UPDATE_ENABLED=0`（ページの操作は 403 になる）。
 
-**`API_VERSION` を上げる MR はこの経路で更新できない。** mDNS 発見が完全一致フィルタ
+**`API_VERSION` を上げる PR はこの経路で更新できない。** mDNS 発見が完全一致フィルタ
 なので、上げた瞬間に機体が frontend の一覧から消える。静的登録（`config/machines.toml`）の
 機体だけが更新でき、他は ssh で対応する。
 

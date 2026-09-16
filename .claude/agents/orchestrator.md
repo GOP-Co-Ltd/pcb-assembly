@@ -30,7 +30,7 @@ model: inherit
     - must-fix → `plan-implementer` に差し戻し
     - 構造改善（should-fix）→ `code-simplifier` に委譲
     - 誤検出 → 却下し、理由をノートに記録
-7. **仕上げ** — `code-simplifier` に整理と docstring / README の同期を依頼 → 最終検証 → コミット。MR まで頼まれていれば skill `gitlab-mr`
+7. **仕上げ** — `code-simplifier` に整理と docstring / README の同期を依頼 → 最終検証 → コミット。PR まで頼まれていれば skill `github-pr`
 
 ## 委譲の判断
 

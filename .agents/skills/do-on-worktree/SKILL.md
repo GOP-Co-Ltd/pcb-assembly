@@ -45,10 +45,10 @@ make test-no-hardware
 
 ハードウェア変更は利用可能な実機に応じて対象 test も実行する。
 
-## 4. Commit と MR
+## 4. Commit と PR
 
-検証後に worktree 側 branch へ commit する。ユーザーが MR を依頼した場合だけ
-`gitlab-mr` Skill に従って push と MR 作成を行う。
+検証後に worktree 側 branch へ commit する。ユーザーが PR を依頼した場合だけ
+`github-pr` Skill に従って push と PR 作成を行う。
 
 ## 5. 後片付け
 

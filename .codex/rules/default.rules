@@ -2,7 +2,7 @@
 #
 # This generator only performs formal Bash permission migration.
 # Migrate Claude skills, agents, docs, and prose with migrate-claude.
-# Source summary: 214 shell allow rule(s), 23 shell deny rule(s).
+# Source summary: 210 shell allow rule(s), 23 shell deny rule(s).
 # Non-shell Claude permissions are handled by Codex tools/sandbox:
 # Edit(~/.ssh/**), Read(//usr/**), Read(//usr/include/**), Read(~/.ssh/**), WebFetch, WebSearch
 
@@ -1074,38 +1074,6 @@ prefix_rule(
     decision = "allow",
     justification = "Migrated from Claude allow permission.",
     match = ["git worktree"],
-)
-
-# Source: Bash(glab auth status:*)
-prefix_rule(
-    pattern = ["glab", "auth", "status"],
-    decision = "allow",
-    justification = "Migrated from Claude allow permission.",
-    match = ["glab auth status"],
-)
-
-# Source: Bash(glab mr diff:*)
-prefix_rule(
-    pattern = ["glab", "mr", "diff"],
-    decision = "allow",
-    justification = "Migrated from Claude allow permission.",
-    match = ["glab mr diff"],
-)
-
-# Source: Bash(glab mr list:*)
-prefix_rule(
-    pattern = ["glab", "mr", "list"],
-    decision = "allow",
-    justification = "Migrated from Claude allow permission.",
-    match = ["glab mr list"],
-)
-
-# Source: Bash(glab mr view:*)
-prefix_rule(
-    pattern = ["glab", "mr", "view"],
-    decision = "allow",
-    justification = "Migrated from Claude allow permission.",
-    match = ["glab mr view"],
 )
 
 # Source: Bash(nvidia-ctk --version:*)
