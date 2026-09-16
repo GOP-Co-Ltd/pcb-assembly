@@ -211,15 +211,20 @@ class JobParamsUpdateRequest(BaseModel):
 
     values: dict[str, Any] = {}
     persist: bool = False
+    expected_job_id: str | None = None
 
 
 @router.put("/jobs/current/params")
 def put_current_params(
     jobs: JobsDep, body: JobParamsUpdateRequest, _control: ControlDep
 ) -> dict[str, Any]:
-    """実行中ジョブの runtime_editable パラメータを即時更新する（400: 不正）."""
+    """実行中パラメータを即時更新する（400: 不正 / 409: 対象ジョブ不一致）."""
     try:
-        updated = jobs.update_current_params(body.values, persist=body.persist)
+        updated = jobs.update_current_params(
+            body.values, persist=body.persist, expected_job_id=body.expected_job_id
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"params": updated}
@@ -359,7 +364,7 @@ async def _receive_loop(
             continue
         try:
             _dispatch(message, jobs, lease, identity)
-        except (ValueError, KeyError, ControlDeniedError) as exc:
+        except (ValueError, LookupError, ControlDeniedError) as exc:
             events.put_nowait({"type": "error", "detail": str(exc)})
 
 
@@ -386,8 +391,13 @@ def _dispatch(
             command = message.get("command")
             if not isinstance(command, dict):
                 raise ValueError("command オブジェクトが必要です")
+            expected_job_id = message.get("expected_job_id")
+            if expected_job_id is not None and not isinstance(expected_job_id, str):
+                raise ValueError("expected_job_id は文字列で指定してください")
             lease.claim(identity)
-            jobs.submit_command(cast(dict[str, Any], command))
+            jobs.submit_command(
+                cast(dict[str, Any], command), expected_job_id=expected_job_id
+            )
         case "abort":
             jobs.request_abort()
         case unknown:

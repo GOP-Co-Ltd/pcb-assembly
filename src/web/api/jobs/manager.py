@@ -557,7 +557,11 @@ class JobManager:
         runtime.respond(prompt_id, answer)
 
     def update_current_params(
-        self, values: Mapping[str, Any], *, persist: bool = False
+        self,
+        values: Mapping[str, Any],
+        *,
+        persist: bool = False,
+        expected_job_id: str | None = None,
     ) -> dict[str, ParamValue]:
         """実行中ジョブの runtime_editable パラメータを即時更新する.
 
@@ -566,16 +570,24 @@ class JobManager:
         Args:
             values: 更新するパラメータ（runtime_editable な subset のみ）
             persist: True で persisted_params 分を次回フォーム既定値へ保存する
+            expected_job_id: 指定時はこのジョブだけを更新する
 
         Returns:
             検証・coerce 済みの適用値
 
         Raises:
+            LookupError: 対象ジョブ不一致（→ 409）
             ValueError: 実行中ジョブ無し / 終端 / 検証エラー（→ 400）
         """
         with self._lock:
             record = self._record
             runtime = self._runtime
+        if expected_job_id is not None and (
+            record is None or record.id != expected_job_id
+        ):
+            raise LookupError(
+                "ジョブが切り替わりました。現在のジョブを確認してください"
+            )
         if record is None or runtime is None or record.status.terminal:
             raise ValueError("実行中のジョブがありません")
         definition = self._catalog.get(record.name)
@@ -592,10 +604,13 @@ class JobManager:
         runtime.publish_status()
         return validated
 
-    def submit_command(self, command: Mapping[str, Any]) -> None:
+    def submit_command(
+        self, command: Mapping[str, Any], *, expected_job_id: str | None = None
+    ) -> None:
         """実行中ジョブの command キューへ 1 件投入する.
 
         Raises:
+            LookupError: 対象ジョブ不一致
             ValueError: accepts_commands なジョブが実行中でない /
                 "type" キーが無い場合
         """
@@ -604,6 +619,12 @@ class JobManager:
         with self._lock:
             record = self._record
             runtime = self._runtime
+        if expected_job_id is not None and (
+            record is None or record.id != expected_job_id
+        ):
+            raise LookupError(
+                "ジョブが切り替わりました。現在のジョブを確認してください"
+            )
         if record is None or runtime is None or record.status.terminal:
             raise ValueError("コマンドを受け付けるジョブが実行中ではありません")
         if not self._catalog.get(record.name).accepts_commands:

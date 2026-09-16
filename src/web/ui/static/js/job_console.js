@@ -49,12 +49,22 @@
     return true;
   }
 
+  function sendCommand(command) {
+    if (!commandReady(currentJob)) return false;
+    return send({ type: "command", command, expected_job_id: currentJob.id });
+  }
+
   // command を送り、結果をトーストで通知する（successMessage=null で成功時無音）。
   function sendCommandOrToast(command, successMessage = "コマンドを送信しました") {
-    if (send({ type: "command", command })) {
+    if (sendCommand(command)) {
       if (successMessage !== null) toast(successMessage);
     } else {
-      toast("WebSocket 未接続のため送信できません", false);
+      toast(
+        commandReady(currentJob)
+          ? "WebSocket 未接続のため送信できません"
+          : "コマンドを受け付けるジョブが実行中ではありません",
+        false
+      );
     }
   }
 
@@ -106,7 +116,7 @@
     onUpdate: (callback) => listeners.add(callback),
     isActive,
     commandReady,
-    sendCommand: (command) => send({ type: "command", command }),
+    sendCommand,
     sendCommandOrToast,
     abort: async () => {
       const job = currentJob;

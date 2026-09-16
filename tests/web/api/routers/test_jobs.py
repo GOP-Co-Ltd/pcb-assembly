@@ -528,6 +528,51 @@ class TestUpdateCurrentParams:
 
         assert response.status_code == 400
 
+    def test_old_job_cannot_update_a_replacement_or_its_saved_defaults(
+        self, client: TestClient, app: FastAPI, appstate: AppState
+    ):
+        _register_runtime_editable(app)
+        client.post("/api/jobs/runtime_editable_router", json={})
+        previous = _wait_job_status(client, "waiting_input")
+        client.post("/api/jobs/current/abort")
+        _wait_job_status(client, "aborted")
+        client.post("/api/jobs/runtime_editable_router", json={})
+        current = _wait_job_status(client, "waiting_input")
+        saved = appstate.job_param_defaults(current["name"])
+
+        response = client.put(
+            "/api/jobs/current/params",
+            json={
+                "values": {"line_length": 99.0},
+                "persist": True,
+                "expected_job_id": previous["id"],
+            },
+        )
+
+        assert response.status_code == 409, response.text
+        assert "ジョブが切り替わりました" in response.json()["detail"]
+        assert _wait_job_status(client, "waiting_input")["params"] == current["params"]
+        assert appstate.job_param_defaults(current["name"]) == saved
+        response = client.put(
+            "/api/jobs/current/params",
+            json={
+                "values": {"line_length": 12.5},
+                "persist": True,
+                "expected_job_id": current["id"],
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert appstate.job_param_defaults(current["name"])["line_length"] == 12.5
+        assert client.post("/api/jobs/current/abort").status_code == 200
+        _wait_job_status(client, "aborted")
+
+    def test_scoped_update_after_restart_returns_409(self, client: TestClient):
+        response = client.put(
+            "/api/jobs/current/params",
+            json={"values": {}, "expected_job_id": "before-restart"},
+        )
+        assert response.status_code == 409
+
     def test_runtime_editable_update_returns_200_and_reflects_in_current(
         self, client: TestClient, app: FastAPI
     ):
@@ -717,6 +762,50 @@ class TestApplyDiscard:
 
 class TestWebSocket:
     """WS /api/ws のイベント往復（受信駆動）."""
+
+    def test_old_job_command_is_rejected_and_the_connection_still_accepts_current_job(
+        self, client: TestClient, app: FastAPI
+    ):
+        def run(ctx: JobContext) -> JobResult:
+            command = ctx.next_command(timeout=None)
+            assert command is not None
+            return JobResult(summary=command["type"])
+
+        register_synthetic(
+            app.state.catalog, run, name="scoped_commands", accepts_commands=True
+        )
+        with client.websocket_connect("/api/ws") as ws:
+            client.post("/api/jobs/scoped_commands", json={})
+            previous = _wait_job_status(client, "running")
+            client.post("/api/jobs/current/abort")
+            _wait_job_status(client, "aborted")
+            client.post("/api/jobs/scoped_commands", json={})
+            current = _wait_job_status(client, "running")
+            ws.send_json(
+                {
+                    "type": "command",
+                    "expected_job_id": previous["id"],
+                    "command": {"type": "obsolete"},
+                }
+            )
+            ws.send_json(
+                {
+                    "type": "command",
+                    "expected_job_id": current["id"],
+                    "command": {"type": "current"},
+                }
+            )
+            final, history = _receive_until(
+                ws,
+                lambda event: event["type"] == "job_status"
+                and event["job"]["id"] == current["id"]
+                and event["job"]["status"] == "succeeded",
+            )
+        assert final["job"]["result"]["summary"] == "current"
+        assert any(
+            event["type"] == "error" and "ジョブが切り替わりました" in event["detail"]
+            for event in history
+        )
 
     def test_job_demo_full_event_stream(self, client: TestClient):
         with client.websocket_connect("/api/ws") as ws:
