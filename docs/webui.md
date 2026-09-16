@@ -17,7 +17,7 @@
 ```sh
 make api      # backend WebAPI 起動
 make api-dev  # 開発用（auto-reload）
-make api-fake # fake camera + 隔離 data_dir（port 8099）
+make api-fake # fake camera + テスト設定のコピー + 隔離 data_dir（port 8099）
 
 make ui       # UI frontend 起動
 make ui-dev   # 開発用（auto-reload）
@@ -25,7 +25,7 @@ make ui-fake  # api-fake（8099）を上流にした frontend（port 8098）
 ```
 
 設定を編集しながら画面を確認する場合は、[開発用の隔離起動](../CONTRIBUTING.md#%E5%AE%9F%E6%A9%9F%E8%A8%AD%E5%AE%9A%E3%82%92%E4%BD%BF%E3%82%8F%E3%81%9A%E3%81%AB%E7%94%BB%E9%9D%A2%E3%82%92%E7%A2%BA%E8%AA%8D%E3%81%99%E3%82%8B)
-を使う。`api-fake` 単体ではカメラ以外の設定は実機と共通になる。
+を使う。`api-fake` は初回にテスト設定を複製し、設定編集の結果を次回起動でも保持する。
 
 ## 基本の操作
 
