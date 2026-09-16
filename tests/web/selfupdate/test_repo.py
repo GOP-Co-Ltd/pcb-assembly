@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,20 @@ class TestCaptureState:
         state = state_of(settings)
 
         assert state.dirty_paths == ("tracked.txt",)
+
+    def test_observation_does_not_refresh_the_git_index(self, settings: UpdateSettings):
+        """更新中のポーリングが index.lock を取って merge と競合しない。"""
+        tracked = settings.repo_root / "tracked.txt"
+        index = settings.repo_root / ".git" / "index"
+        before = index.read_bytes()
+        stamp = tracked.stat()
+        # 内容はそのまま、stat キャッシュだけが古くなる状態を実ファイルで作る。
+        os.utime(tracked, ns=(stamp.st_atime_ns, stamp.st_mtime_ns + 1_000_000_000))
+
+        state = state_of(settings)
+
+        assert state.dirty_paths == ()
+        assert index.read_bytes() == before
 
     def test_untracked_file_is_recorded_separately_from_dirty(
         self, settings: UpdateSettings

@@ -136,7 +136,11 @@ def capture_state(settings: UpdateSettings) -> tuple[RepoState | None, str | Non
     ahead, behind = _ahead_behind(settings, upstream)
     # 失敗した git の stderr を「未コミットの変更」として画面に出さない
     # （index.lock 残留などで status が落ちると原因が判らなくなる）
-    status = _git(settings, "status", "--porcelain", "--untracked-files=no")
+    # status の stat キャッシュ更新が index.lock を取ると、同時進行の merge が
+    # 「別の git が実行中」で失敗する。ポーリングは観測だけにする。
+    status = _git(
+        settings, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no"
+    )
     if not status.ok:
         return None, f"git status に失敗しました: {_first_line(status)}"
     untracked = _git(settings, "ls-files", "--others", "--exclude-standard")
