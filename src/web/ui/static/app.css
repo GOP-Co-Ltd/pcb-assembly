@@ -681,41 +681,72 @@ h2 {
 }
 
 .fb-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
   margin-bottom: 0.6rem;
 }
 
+.fb-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.file-browser button { min-height: 44px; }
+
 .fb-path {
-  min-width: 0;
-  overflow: hidden;
   color: var(--muted);
   font-family: var(--mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.fb-error {
+  padding: 0.6rem;
+  color: var(--danger);
+  background: var(--danger-weak);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
 }
 
 .fb-entries {
-  max-height: 24rem;
+  max-height: min(24rem, 50vh);
   overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.fb-entries li {
+.fb-entries button {
+  width: 100%;
+  justify-content: flex-start;
+  align-items: baseline;
   padding: 0.3rem 0.45rem;
-  border-radius: var(--radius);
-  cursor: pointer;
+  border-color: transparent;
+  text-align: left;
+  white-space: normal;
 }
 
-.fb-entries li:hover {
-  background: var(--surface-2);
+.fb-entry-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.fb-entries .dir::before { content: "[dir] "; color: var(--quiet); }
-.fb-entries .file::before { content: "[pcb] "; color: var(--quiet); }
+.fb-entries button::before {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.fb-entries .dir::before { content: "フォルダー"; }
+.fb-entries .file::before { content: "PCB"; }
+.fb-entries .parent::before { content: "↑"; }
+
+.fb-actions {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
 
 /* ---- preview ---- */
 .preview-pane {

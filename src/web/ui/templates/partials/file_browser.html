@@ -1,9 +1,14 @@
-<dialog id="file-browser" class="file-browser">
+<dialog id="file-browser" class="file-browser" aria-labelledby="fb-title">
   <div class="fb-head">
-    <span id="fb-path" class="fb-path"></span>
-    <button id="fb-upload" type="button">アップロード</button>
-    <input id="fb-upload-input" type="file" accept=".kicad_pcb" hidden>
+    <h2 id="fb-title">PCBファイルを選択</h2>
     <button id="fb-close" type="button">閉じる</button>
   </div>
+  <p id="fb-path" class="fb-path"></p>
+  <p id="fb-error" class="fb-error" role="alert" hidden></p>
+  <p id="fb-empty" class="muted" role="status" hidden>選択できる PCB ファイルやフォルダーがありません。</p>
   <ul id="fb-entries" class="fb-entries"></ul>
+  <div class="fb-actions">
+    <button id="fb-upload" type="button">この端末からアップロード</button>
+    <input id="fb-upload-input" type="file" accept=".kicad_pcb" hidden>
+  </div>
 </dialog>
