@@ -41,6 +41,10 @@ make setup
 venv は `--system-site-packages` が必要で、uv の `python-preference = "only-system"`
 を維持する。Pi 向け OS パッケージがない PC では全テストを collect できない。
 
+生成物だけを掃除する場合は `make clean` を使う。`dist/`、`.coverage`、Python・pytest・
+notebook のキャッシュ、`.DS_Store` が対象で、`.git/`・`.venv/`・symlink の参照先は走査しない。
+キャッシュに似た名前の通常ファイルは維持し、空白を含む作業パスでも実行できる。
+
 ## 変更と PR
 
 ```sh
