@@ -17,6 +17,8 @@ from typing import Self
 
 import attrs
 
+from pcbasm.utils import is_finite_number
+
 # ① 収束判定の相対許容（採用→再計測ループの収束ヒント表示用）
 CONVERGENCE_REL_TOL = 0.02
 
@@ -119,8 +121,9 @@ class MassFlowEstimate:
     ) -> Self:
         """質量計測の部分入力からキャリブレーション値を見積もる.
 
-        非正の入力から導出できない値は ``None`` を返す（エラーにしない）。算術は
-        :class:`FlowCalibration` へ委譲し、確定値は小数第 6 位へ丸めて返す。
+        非正・非有限の入力から導出できない値は ``None`` を返す（エラーにしない）。
+        算術は :class:`FlowCalibration` へ委譲し、確定値は小数第 6 位へ丸める。
+        桁あふれや丸めにより有限の正値として表せない結果も ``None`` にする。
 
         Args:
             mass_mg: 計測されたペースト質量 [mg]
@@ -129,30 +132,46 @@ class MassFlowEstimate:
             accel: 回転加速度 [rev/sec²]
             density_mg_per_ul: はんだペースト密度 [mg/μL]
         """
-        if mass_mg <= 0 or density_mg_per_ul <= 0:
+        if not _positive_finite(mass_mg) or not _positive_finite(density_mg_per_ul):
             return cls(None, None, None, None)
         volume_ul = mass_mg / density_mg_per_ul
-        if rotations <= 0:
-            return cls(_rounded(volume_ul), None, None, None)
+        if not _positive_finite(volume_ul):
+            return cls(None, None, None, None)
+        if not _positive_finite(rotations):
+            return cls(_rounded_positive(volume_ul), None, None, None)
         calib = FlowCalibration(
             rotations=rotations,
             masses_mg=(mass_mg,),
             density_mg_per_ul=density_mg_per_ul,
         )
+        rotations_per_ul = calib.rotations_per_ul
+        if not _positive_finite(rotations_per_ul):
+            return cls(_rounded_positive(volume_ul), None, None, None)
         return cls(
-            volume_ul=_rounded(volume_ul),
-            rotations_per_ul=_rounded(calib.rotations_per_ul),
+            volume_ul=_rounded_positive(volume_ul),
+            rotations_per_ul=_rounded_positive(rotations_per_ul),
             max_dispense_rate=(
-                _rounded(calib.dispense_rate_for(rate)) if rate > 0 else None
+                _rounded_positive(calib.dispense_rate_for(rate))
+                if _positive_finite(rate)
+                else None
             ),
             dispense_accel=(
-                _rounded(calib.dispense_accel_for(accel)) if accel > 0 else None
+                _rounded_positive(calib.dispense_accel_for(accel))
+                if _positive_finite(accel)
+                else None
             ),
         )
 
 
-def _rounded(value: float, digits: int = 6) -> float:
-    return round(value, digits)
+def _positive_finite(value: float) -> bool:
+    return is_finite_number(value) and value > 0
+
+
+def _rounded_positive(value: float) -> float | None:
+    if not _positive_finite(value):
+        return None
+    rounded = round(value, 6)
+    return rounded if rounded > 0 else None
 
 
 def slot_area(length: float, bead_width: float) -> float:

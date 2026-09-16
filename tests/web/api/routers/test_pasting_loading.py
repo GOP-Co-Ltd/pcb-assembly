@@ -3,7 +3,7 @@
 router は「machine.toml の ``solder_paste_density`` を引いて
 :meth:`pcbasm.pasting.MassFlowEstimate.estimate` へ委譲する」配線のみを持つ。
 算術・丸め・null ゲーティングの網羅は
-tests/pcbasm/pasting/test_calibration.py::TestEstimateMassFlow が担保する。
+tests/pcbasm/pasting/flowcalib/test_flow.py::TestMassFlowEstimate が担保する。
 
 PCB 選択は不要（machine 設定だけを参照する）なので素の ``client`` を使う。
 """
@@ -56,10 +56,31 @@ class TestLoadingCalibration:
                     "dispense_accel",
                 },
             ),
+            # float パーサーが受理する非有限値も、500 やゼロの算出値にしない。
+            *[
+                (
+                    {"mass_mg": value, "rotations": 5, "rate": 0.5, "accel": 0.5},
+                    {
+                        "volume_ul",
+                        "rotations_per_ul",
+                        "max_dispense_rate",
+                        "dispense_accel",
+                    },
+                )
+                for value in ("nan", "1e309", "1e-308")
+            ],
+            (
+                {"mass_mg": 10, "rotations": "1e309", "rate": 0.5, "accel": 0.5},
+                {"rotations_per_ul", "max_dispense_rate", "dispense_accel"},
+            ),
+            (
+                {"mass_mg": 10, "rotations": 5, "rate": "1e-8", "accel": "1e-8"},
+                {"max_dispense_rate", "dispense_accel"},
+            ),
         ],
     )
-    def test_non_positive_inputs_null_derived_values(
-        self, client: TestClient, params: dict[str, float], null_keys: set[str]
+    def test_unusable_inputs_null_derived_values(
+        self, client: TestClient, params: dict[str, float | str], null_keys: set[str]
     ):
         response = client.get("/api/pasting/loading/calibration", params=params)
 
