@@ -243,6 +243,10 @@ def acquire_control(page: Any, *, timeout_ms: float = _CONTROL_TIMEOUT_MS) -> No
         }"""
     )
     assert state in ("free", "viewer", "held"), f"操作権の状態が読めない: {state}"
+    menu = page.get_by_test_id("topbar-menu")
+    open_menu = state != "held" and menu.get_attribute("open") is None
+    if open_menu:
+        menu.locator("summary").click(timeout=timeout_ms)
     if state == "free":
         page.locator("#control-acquire").click(timeout=timeout_ms)
     elif state == "viewer":
@@ -250,6 +254,8 @@ def acquire_control(page: Any, *, timeout_ms: float = _CONTROL_TIMEOUT_MS) -> No
     page.wait_for_function(
         "() => document.body.dataset.control === 'held'", timeout=timeout_ms
     )
+    if open_menu:
+        menu.locator("summary").click(timeout=timeout_ms)
 
 
 def session_headers(page: Any) -> dict[str, str]:

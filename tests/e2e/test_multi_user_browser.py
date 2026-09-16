@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+import pytest
 from playwright.sync_api import expect
 
 from tests.e2e.conftest import (
@@ -201,8 +202,9 @@ class TestTwoBrowsersOnOneMachine:
         assert denied.status_code == 423, denied.text
         assert denied.json()["holder"]["held"] is True
 
+    @pytest.mark.parametrize("width", [1280, 390])
     def test_viewer_can_stop_a_running_job(
-        self, live_server: LiveServer, live_ui: LiveUi, browser_pages
+        self, live_server: LiveServer, live_ui: LiveUi, browser_pages, width: int
     ):
         """安全系（緊急停止・中止）は閲覧者のままでも塞がれない.
 
@@ -212,11 +214,21 @@ class TestTwoBrowsersOnOneMachine:
         _select_led_blinker(live_server)
         operator, viewer = _operator_and_viewer(live_ui, browser_pages)
         _start_prompt_job(live_server, operator)
+        viewer.set_viewport_size({"width": width, "height": 844})
+        viewer.evaluate("window.scrollTo(0, document.body.scrollHeight)")
 
         # 中止も緊急停止も閲覧者の画面で押せる（inert が付かない）
         assert not _is_inert(viewer, "#jc-abort")
         expect(viewer.locator("#jc-abort")).to_be_enabled(timeout=_BROWSER_TIMEOUT_MS)
         assert not _is_inert(viewer, "#estop")
+        # 自動スクロールで救済される前に、画面内で指が届き、他の要素に覆われないこと。
+        stop = viewer.get_by_test_id("estop")
+        expect(stop).to_have_count(1)
+        assert stop.evaluate("""el => {
+            const box = el.getBoundingClientRect();
+            return box.top >= 0 && box.bottom <= innerHeight &&
+                document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === el;
+        }""")
 
         with viewer.expect_response(
             lambda response: response.url.endswith("/api/emergency-stop")

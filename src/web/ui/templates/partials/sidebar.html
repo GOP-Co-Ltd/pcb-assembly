@@ -1,4 +1,4 @@
-<details class="feature-menu" data-testid="feature-menu" open>
+<details class="feature-menu" data-testid="feature-menu" data-responsive-menu="(max-width: 760px)" open>
   <summary>機能を選択<span>{{ feature_label or tab_labels[active_tab] }}</span></summary>
   <nav class="features" aria-label="{{ tab_labels[active_tab] }}の機能">
     {% for label, description, slugs in feature_groups %}

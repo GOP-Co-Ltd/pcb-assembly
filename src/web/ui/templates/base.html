@@ -18,29 +18,34 @@
     {% endfor %}
   </nav>
   <div class="global-controls">
-    {# マシンが決まっていないページ（ピッカー / 503 / 未登録 404）に操作権の概念は無い。
-       base が空だと control.js の GET /api/state と取得 POST がプロキシ外へ飛んで 404 に
-       なるため、押すと必ず失敗する「死んだ取得ボタン」を出さない #}
-    {% if base %}{% include "partials/control_lease.html" %}{% endif %}
     {% include "partials/machine_selector.html" %}
-    <button id="pcb-chip" class="chip" title="PCB ファイル選択"
-            data-testid="pcb-chip" data-requires-control
-            data-fb-start="{{ fb_start }}">
-      {{ selected_pcb or "PCB未選択" }}
-    </button>
-    {# 更新通知。表示文字列も遷移先も update_notice.js がサーバ応答から入れる
-       （初期状態は非表示。更新が無いホストでは最後まで出ない）。href を静的に
-       持たせない: 遷移先は機体ごとに変わるうえ、未 prefix の内部リンクとして
-       残ると「全リンクが機体 prefix 付き」の規約を破る #}
-    <a id="update-badge" class="update-badge" data-testid="update-badge" hidden
-       data-notice-url="{{ update_notice_url }}"></a>
-    <a href="{{ base }}/settings" class="icon-link" title="マシン設定">&#9881;</a>
-    <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper (Mainsail) を開く">Klipper</a>
-    {# ファームウェアだけでなく WebUI のサービスも落とすので、誤クリックで LAN 中の
-       画面が切れないよう確認を挟む（緊急停止には付けない。即時性が要る） #}
-    <button id="firmware-restart" class="firmware-restart" title="ファームウェア再起動"
-            data-testid="firmware-restart" data-requires-control
-            data-confirm="ファームウェアと WebUI のサービスを再起動します。この画面も一時的に切れます。実行しますか？">ファームウェア再起動</button>
+    <details class="topbar-menu" data-testid="topbar-menu" data-responsive-menu="(max-width: 1180px)" open>
+      <summary>操作・設定</summary>
+      <div class="topbar-menu-content">
+        {# マシンが決まっていないページ（ピッカー / 503 / 未登録 404）に操作権の概念は無い。
+           base が空だと control.js の GET /api/state と取得 POST がプロキシ外へ飛んで 404 に
+           なるため、押すと必ず失敗する「死んだ取得ボタン」を出さない #}
+        {% if base %}{% include "partials/control_lease.html" %}{% endif %}
+        <button id="pcb-chip" class="chip" title="PCB ファイル選択"
+                data-testid="pcb-chip" data-requires-control
+                data-fb-start="{{ fb_start }}">
+          {{ selected_pcb or "PCB未選択" }}
+        </button>
+        {# 更新通知。表示文字列も遷移先も update_notice.js がサーバ応答から入れる
+           （初期状態は非表示。更新が無いホストでは最後まで出ない）。href を静的に
+           持たせない: 遷移先は機体ごとに変わるうえ、未 prefix の内部リンクとして
+           残ると「全リンクが機体 prefix 付き」の規約を破る #}
+        <a id="update-badge" class="update-badge" data-testid="update-badge" hidden
+           data-notice-url="{{ update_notice_url }}"></a>
+        <a href="{{ base }}/settings" class="icon-link" title="マシン設定">設定</a>
+        <a href="{{ mainsail_url }}" target="_blank" rel="noopener" class="icon-link" title="Klipper (Mainsail) を開く">Klipper</a>
+        {# ファームウェアだけでなく WebUI のサービスも落とすので、誤クリックで LAN 中の
+           画面が切れないよう確認を挟む（緊急停止には付けない。即時性が要る） #}
+        <button id="firmware-restart" class="firmware-restart" title="ファームウェア再起動"
+                data-testid="firmware-restart" data-requires-control
+                data-confirm="ファームウェアと WebUI のサービスを再起動します。この画面も一時的に切れます。実行しますか？">ファームウェア再起動</button>
+      </div>
+    </details>
     {# 緊急停止は安全操作なので操作権に依らず誰でも押せる（data-requires-control 禁止） #}
     <button id="estop" class="estop" title="緊急停止" data-testid="estop">緊急停止</button>
   </div>
@@ -60,6 +65,7 @@
    scripts ブロックで読む job_console.js より前（window.webui.control を先に生やす） #}
 <script src="{{ static_asset('js/control.js') }}"></script>
 <script src="{{ static_asset('js/machine_selector.js') }}"></script>
+<script src="{{ static_asset('js/responsive_menus.js') }}"></script>
 {# 更新通知バッジも全ページ共通（どの画面からでも更新の存在に気付けるように） #}
 <script src="{{ static_asset('js/update_notice.js') }}"></script>
 {% block scripts %}{% endblock %}
