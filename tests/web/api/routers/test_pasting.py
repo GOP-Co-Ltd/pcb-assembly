@@ -87,21 +87,33 @@ def _saved_board_settings_doc(webui_settings: Settings) -> dict:
 class TestPcbNotSelected:
     """PCB 未選択 → 409."""
 
-    def test_get_without_selection_returns_409(self, client: TestClient):
-        response = client.get("/api/pasting/pad-config")
-        assert response.status_code == 409
-
-    def test_patch_node_without_selection_returns_409(self, client: TestClient):
-        response = client.patch(
-            "/api/pasting/pad-config/node", json={"node": "L0", "enabled": False}
+    @pytest.mark.parametrize(
+        ("method", "suffix", "payload"),
+        [
+            pytest.param("GET", "", None, id="config"),
+            pytest.param("GET", "/copper", None, id="copper"),
+            pytest.param("PATCH", "/node", {"node": "L0", "enabled": False}, id="node"),
+            pytest.param(
+                "PATCH", "/initial-purge", {"initial_purge_ul": 0.25}, id="purge"
+            ),
+            pytest.param("POST", "/route", {"layer": "Top"}, id="route"),
+            pytest.param("POST", "/fill-path", {"layer": "Top"}, id="fill-path"),
+        ],
+    )
+    def test_requires_selected_pcb(
+        self, client: TestClient, method: str, suffix: str, payload: dict | None
+    ):
+        response = client.request(
+            method, f"/api/pasting/pad-config{suffix}", json=payload
         )
+
         assert response.status_code == 409
 
 
 class TestGetPadConfig:
     """GET /api/pasting/pad-config の構造."""
 
-    def test_top_level_shape(self, selected_client: TestClient):
+    def test_board_geometry_and_initial_hierarchy(self, selected_client: TestClient):
         config = _get_config(selected_client)
 
         assert config["pcb_file"].endswith("led_blinker.kicad_pcb")
@@ -112,6 +124,8 @@ class TestGetPadConfig:
         assert config["tree"]["id"] == "L0"
         assert config["tree"]["level"] == 0
         assert len(config["pads"]) == 18
+        assert config["overrides"] == {}
+        assert "L1:SOT-23-6" in {child["id"] for child in config["tree"]["children"]}
 
     def test_defaults_come_from_machine_config(self, selected_client: TestClient):
         config = _get_config(selected_client)
@@ -127,7 +141,9 @@ class TestGetPadConfig:
         assert defaults["bead_width_factor"] == 1.0  # PasteDispenser 既定
         assert defaults["boundary_margin"] == 0.0
 
-    def test_pad_has_geometry_and_resolved(self, selected_client: TestClient):
+    def test_pad_geometry_resolved_values_and_node_path(
+        self, selected_client: TestClient
+    ):
         config = _get_config(selected_client)
         pad = _pad_by_id(config, "U1.1")
 
@@ -142,10 +158,6 @@ class TestGetPadConfig:
         assert pad["resolved"]["line_direction"] == "unconstrained"
         assert pad["resolved"]["prime_extra_delay"] == 0.0
         assert pad["resolved"]["paste_height"] == "auto"
-
-    def test_pad_exposes_full_node_id_path(self, selected_client: TestClient):
-        config = _get_config(selected_client)
-        pad = _pad_by_id(config, "U1.1")
 
         node_ids = pad["node_ids"]
         assert all(isinstance(node_id, str) for node_id in node_ids)
@@ -177,16 +189,6 @@ class TestGetPadConfig:
 
         assert expected_pad_ids
         assert matched_pad_ids == expected_pad_ids
-
-    def test_overrides_start_empty(self, selected_client: TestClient):
-        config = _get_config(selected_client)
-
-        assert config["overrides"] == {}
-
-    def test_tree_contains_u1_node(self, selected_client: TestClient):
-        config = _get_config(selected_client)
-        l1_ids = {child["id"] for child in config["tree"]["children"]}
-        assert "L1:SOT-23-6" in l1_ids
 
 
 class TestInitialPurgePadConfig:
@@ -276,14 +278,6 @@ class TestInitialPurgePadConfig:
         )
 
         assert response.status_code == 400
-
-    def test_patch_without_selected_pcb_returns_409(self, client: TestClient):
-        response = client.patch(
-            "/api/pasting/pad-config/initial-purge",
-            json={"initial_purge_ul": 0.25},
-        )
-
-        assert response.status_code == 409
 
 
 class TestInitialPurgePoint:
@@ -592,9 +586,6 @@ class TestPadConfigCopper:
         # 装置を動かさない読み取りなので操作権は要らない
         assert selected_client.get("/api/pasting/pad-config/copper").status_code == 200
 
-    def test_without_selected_pcb_returns_409(self, client: TestClient):
-        assert client.get("/api/pasting/pad-config/copper").status_code == 409
-
 
 class TestTreeNodeResolution:
     """GET tree の各ノードの resolved / own_override / own_summary /
@@ -803,7 +794,9 @@ class TestPatchNode:
 class TestPatchPads:
     """PATCH /api/pasting/pad-config/pads（一括 enabled）."""
 
-    def test_bulk_disable(self, selected_client: TestClient):
+    def test_bulk_disable_returns_and_persists_only_selected_pads(
+        self, selected_client: TestClient, webui_settings: Settings
+    ):
         response = selected_client.patch(
             "/api/pasting/pad-config/pads",
             json={"ids": ["U1.1", "U1.2"], "enabled": False},
@@ -814,24 +807,10 @@ class TestPatchPads:
         assert {pad["id"] for pad in affected} == {"U1.1", "U1.2"}
         assert all(pad["enabled"] is False for pad in affected)
 
-    def test_bulk_disable_persists(self, selected_client: TestClient):
-        selected_client.patch(
-            "/api/pasting/pad-config/pads",
-            json={"ids": ["U1.1", "U1.2"], "enabled": False},
-        )
-
         config = _get_config(selected_client)
         assert _pad_by_id(config, "U1.1")["enabled"] is False
         assert _pad_by_id(config, "U1.2")["enabled"] is False
         assert _pad_by_id(config, "U1.3")["enabled"] is True
-
-    def test_persistence_uses_webui_data_dir(
-        self, selected_client: TestClient, webui_settings: Settings
-    ):
-        selected_client.patch(
-            "/api/pasting/pad-config/pads",
-            json={"ids": ["U1.1"], "enabled": False},
-        )
 
         assert list((webui_settings.webui_data_dir / "board_settings").rglob("*.json"))
         assert not (webui_settings.data_dir / "board_settings").exists()
@@ -840,7 +819,7 @@ class TestPatchPads:
 class TestExportImport:
     """GET export / POST import."""
 
-    def test_export_contains_version_signature_and_settings(
+    def test_export_round_trip_preserves_settings_and_download_metadata(
         self, selected_client: TestClient
     ):
         selected_client.patch(
@@ -860,19 +839,28 @@ class TestExportImport:
             item for item in doc["settings"]["levels"] if item["key"] == ["L2", "U1"]
         )
         assert level["override"]["prime_extra_delay"] == 0.3
-
-    def test_export_filename_carries_board_name_and_timestamp(
-        self, selected_client: TestClient
-    ):
-        response = selected_client.get("/api/pasting/pad-config/export")
-
-        assert response.status_code == 200, response.text
         disposition = response.headers["content-disposition"]
         filename = re.search(r'filename="([^"]+)"', disposition)
         assert filename is not None, disposition
         assert re.fullmatch(
             r"led_blinker-paste-overrides-\d{8}T\d{6}\.json", filename.group(1)
         ), filename.group(1)
+
+        # export 後に override を公開 API で消し、import が復元することを見る
+        cleared = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "clear": ["prime_extra_delay"]},
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert "L2:U1" not in _get_config(selected_client)["overrides"]
+
+        imported = selected_client.post(
+            "/api/pasting/pad-config/import", json={"document": doc}
+        )
+        assert imported.status_code == 200, imported.text
+        for config in (imported.json(), _get_config(selected_client)):
+            assert config["overrides"]["L2:U1"]["values"]["prime_extra_delay"] == 0.3
+            assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.3
 
     def test_export_filename_keeps_non_ascii_board_name(
         self, client: TestClient, appstate: AppState, pcb_root: Path
@@ -889,29 +877,6 @@ class TestExportImport:
         encoded = re.search(r"filename\*=UTF-8''([^;]+)", disposition)
         assert encoded is not None, disposition
         assert unquote(encoded.group(1)).startswith("日本語基板-paste-overrides-")
-
-    def test_import_restores_saved_override(self, selected_client: TestClient):
-        selected_client.patch(
-            "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
-        )
-        doc = selected_client.get("/api/pasting/pad-config/export").json()
-        # export 後に override を公開 API で消し、import が復元することを見る
-        cleared = selected_client.patch(
-            "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "clear": ["prime_extra_delay"]},
-        )
-        assert cleared.status_code == 200, cleared.text
-        assert "L2:U1" not in _get_config(selected_client)["overrides"]
-
-        response = selected_client.post(
-            "/api/pasting/pad-config/import", json={"document": doc}
-        )
-
-        assert response.status_code == 200, response.text
-        config = response.json()
-        assert config["overrides"]["L2:U1"]["values"]["prime_extra_delay"] == 0.3
-        assert _pad_by_id(config, "U1.1")["resolved"]["prime_extra_delay"] == 0.3
 
     def test_import_rejects_wrong_signature(self, selected_client: TestClient):
         doc = selected_client.get("/api/pasting/pad-config/export").json()
@@ -948,11 +913,6 @@ class TestPadConfigRoute:
             range(1, len(route["pads"]) + 1)
         )
         assert all(len(pad["center"]) == 2 for pad in route["pads"])
-
-    def test_route_without_selected_pcb_returns_409(self, client: TestClient):
-        response = client.post("/api/pasting/pad-config/route", json={"layer": "Top"})
-
-        assert response.status_code == 409
 
 
 class TestPadConfigFillPath:
@@ -999,13 +959,6 @@ class TestPadConfigFillPath:
         assert fill_path["pads"]
         assert {pad["dispense_mode"] for pad in fill_path["pads"]} == {"dot"}
         assert all(pad["point_count"] == pad["path_count"] for pad in fill_path["pads"])
-
-    def test_fill_path_without_selected_pcb_returns_409(self, client: TestClient):
-        response = client.post(
-            "/api/pasting/pad-config/fill-path", json={"layer": "Top"}
-        )
-
-        assert response.status_code == 409
 
 
 class TestExpectedPcb:

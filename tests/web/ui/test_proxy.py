@@ -252,22 +252,15 @@ class TestRelayedRequestHeaders:
 class TestRelayedResponseHeaders:
     """クライアントへ返すレスポンスヘッダの加工."""
 
-    @pytest.mark.parametrize("header", ["date", "server"])
-    def test_uvicorn_default_headers_are_dropped(
-        self, echo_client: TestClient, header: str
+    def test_transport_and_upstream_server_headers_are_dropped(
+        self, echo_client: TestClient
     ):
-        """Uvicorn は date / server を無条件に prepend するので上流の分を残すと 2 つ並ぶ."""
+        """Hop-by-hop ヘッダと、uvicorn が自前で付ける date / server を中継しない."""
         response = echo_client.get(f"/m/{MACHINE_ID}/api/state")
 
-        assert header not in response.headers
-
-    @pytest.mark.parametrize("header", ["connection", "transfer-encoding"])
-    def test_hop_by_hop_response_headers_are_dropped(
-        self, echo_client: TestClient, header: str
-    ):
-        response = echo_client.get(f"/m/{MACHINE_ID}/api/state")
-
-        assert header not in response.headers
+        assert not {"date", "server", "connection", "transfer-encoding"}.intersection(
+            response.headers
+        )
 
     def test_multi_valued_response_headers_survive(self, echo_client: TestClient):
         """Dict 化すると set-cookie が 1 本に潰れる."""
