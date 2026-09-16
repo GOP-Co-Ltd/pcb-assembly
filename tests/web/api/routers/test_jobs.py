@@ -45,7 +45,14 @@ from pcbasm.vision import CalibrationResult
 from tests.web.api.jobs.conftest import register_gated, register_synthetic
 from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import ParamSpec
-from web.api.jobs.context import Artifact, JobContext, JobResult, PromptSpec
+from web.api.jobs.context import (
+    ApplyFile,
+    ApplyPayload,
+    Artifact,
+    JobContext,
+    JobResult,
+    PromptSpec,
+)
 from web.api.jobs.manager import JobManager
 from web.api.state import AppState
 
@@ -654,6 +661,50 @@ class TestExclusionPropagation:
 
 class TestApplyDiscard:
     """POST /api/jobs/last/apply / /api/jobs/last/discard."""
+
+    def test_file_write_failure_preserves_settings_and_the_result_can_be_retried(
+        self, app: FastAPI, config_dir: Path
+    ):
+        filename = "new-calibration.json"
+        content = (config_dir / "ov9281_test_fixture.json").read_bytes()
+
+        def run(ctx: JobContext) -> JobResult:
+            return JobResult(
+                apply=ApplyPayload(
+                    label="校正ファイルを反映",
+                    values={"camera.calibration_file": filename},
+                    files=(ApplyFile(filename, content),),
+                )
+            )
+
+        register_synthetic(app.state.catalog, run, name="calibration_write")
+        destination = config_dir / filename
+        destination.mkdir()  # 実ファイルシステムの書込失敗。モックは使わない。
+        machine_file = config_dir / "machine.toml"
+        original = machine_file.read_bytes()
+        with TestClient(app, raise_server_exceptions=False) as client:
+            client.post("/api/jobs/calibration_write", json={})
+            job = _wait_job_status(client, "succeeded")
+            body = {"expected_job_id": job["id"]}
+
+            response = client.post("/api/jobs/last/apply", json=body)
+
+            assert response.status_code == 500
+            assert machine_file.read_bytes() == original
+            assert _wait_job_status(client, "succeeded")["apply_available"]
+            assert not list(config_dir.glob(f".{filename}.*.tmp"))
+
+            destination.rmdir()
+            response = client.post("/api/jobs/last/apply", json=body)
+            assert response.status_code == 200, response.text
+            assert destination.read_bytes() == content
+            assert (
+                ConfigStore(config_dir).read_machine_settings()[
+                    "camera.calibration_file"
+                ]
+                == filename
+            )
+            assert not _wait_job_status(client, "succeeded")["apply_available"]
 
     @pytest.mark.parametrize("action", ["apply", "discard"])
     def test_stale_job_id_cannot_consume_a_newer_result(

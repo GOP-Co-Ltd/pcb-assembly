@@ -12,7 +12,7 @@ import attrs
 import tomlkit
 from tomlkit.items import Item, Table
 
-from pcbasm.atomic import write_text_atomic
+from pcbasm.atomic import write_bytes_atomic, write_text_atomic
 from pcbasm.config import (
     DISPENSE_MODES,
     LEGACY_NOZZLE_SECTIONS,
@@ -371,15 +371,29 @@ class ConfigStore:
             values[spec.key] = None if raw is None else _coerce(spec, raw)
         return values
 
-    def write_machine_settings(self, values: Mapping[str, MachineSettingValue]) -> None:
+    def write_machine_settings(
+        self,
+        values: Mapping[str, MachineSettingValue],
+        *,
+        files: Mapping[str, bytes] | None = None,
+    ) -> None:
         """machine.toml へホワイトリスト項目を書き込む.
 
         tomlkit によりコメント・構造を保持する。toml に無いキーは追加する。
         同一ディレクトリ内の一時ファイル経由の atomic replace で書き込むため、
         書き込み中に他プロセスが読んでも torn read（部分/空 TOML）は発生しない。
 
+        校正などの追加ファイルは設定値とファイル名を検証した後に保存し、全件保存できてから
+        TOML の参照先を更新する。途中で失敗しても既存の TOML は保持する。
+        先に保存できた追加ファイルは残る。
+
+        Args:
+            values: 編集する設定値
+            files: config 直下へ保存する追加ファイル（名前 → 内容）
+
         Raises:
-            UnknownFieldError: 未知キーまたは型不一致の場合
+            UnknownFieldError: 未知キー・不正値・不正な追加ファイル名の場合
+            OSError: ファイルの保存に失敗した場合
         """
         coerced = {
             key: _coerce(self._machine_spec(key), value)
@@ -393,6 +407,12 @@ class ConfigStore:
         if error := PasteDispenser.validate_values(paste_values):
             raise UnknownFieldError(error)
         path = self.machine_toml_path()
+        for filename in files or ():
+            if (
+                filename in {"", ".", "..", path.name}
+                or Path(filename).name != filename
+            ):
+                raise UnknownFieldError(f"追加ファイル名が不正です: {filename!r}")
         doc = tomlkit.parse(path.read_text())
         _migrate_legacy_nozzle_sections(doc)
         for key, value in coerced.items():
@@ -405,7 +425,10 @@ class ConfigStore:
                 assert isinstance(child, Table)
                 table = child
             table[option] = value
-        write_text_atomic(path, tomlkit.dumps(doc))
+        updated = tomlkit.dumps(doc)
+        for filename, content in (files or {}).items():
+            write_bytes_atomic(path.parent / filename, content)
+        write_text_atomic(path, updated)
 
     def _machine_spec(self, key: str) -> FieldSpec:
         if key not in _MACHINE_FIELDS_BY_KEY:

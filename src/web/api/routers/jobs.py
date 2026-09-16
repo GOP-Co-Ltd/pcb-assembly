@@ -14,7 +14,6 @@ from web.api.dependencies import (
     CatalogDep,
     ControlDep,
     JobsDep,
-    SettingsDep,
     StateDep,
     StoreDep,
 )
@@ -241,7 +240,6 @@ def post_apply(
     jobs: JobsDep,
     state: StateDep,
     store: StoreDep,
-    settings: SettingsDep,
     _control: ControlDep,
     body: JobResultRequest | None = None,
 ) -> dict[str, dict[str, bool | float | int | str]]:
@@ -256,10 +254,10 @@ def post_apply(
             payload = jobs.apply_payload(expected_job_id=expected_job_id)
         except LookupError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        store.write_machine_settings(dict(payload.values))
-        config_dir = store.machine_toml_path().parent
-        for file in payload.files:
-            (config_dir / file.filename).write_bytes(file.content)
+        store.write_machine_settings(
+            payload.values,
+            files={file.filename: file.content for file in payload.files},
+        )
         jobs.mark_applied(expected_job_id=expected_job_id)
     jobs.publish_state_changed()
     return {"applied": dict(payload.values)}
