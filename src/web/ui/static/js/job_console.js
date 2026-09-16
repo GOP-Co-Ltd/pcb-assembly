@@ -290,6 +290,8 @@
       el("jc-status").dataset.status = "idle";
       el("jc-abort").disabled = true;
       el("jc-abort").textContent = "中止";
+      el("jc-result").hidden = true;
+      closePrompt();
       return;
     }
 
@@ -459,20 +461,28 @@
     });
 
     el("jc-apply-btn").addEventListener("click", async () => {
+      if (!ownsJob(currentJob) || !currentJob.apply_available) return;
+      const expectedJobId = currentJob?.id;
       try {
-        const data = await api("POST", "/api/jobs/last/apply");
+        const data = await api("POST", "/api/jobs/last/apply", {
+          expected_job_id: expectedJobId,
+        });
         toast(`設定に反映しました: ${JSON.stringify(data.applied)}`);
-        el("jc-apply").hidden = true;
+        if (currentJob?.id === expectedJobId) el("jc-apply").hidden = true;
       } catch (err) {
         toast(err.message, false);
       }
     });
 
     el("jc-discard-btn").addEventListener("click", async () => {
+      if (!ownsJob(currentJob) || !currentJob.apply_available) return;
+      const expectedJobId = currentJob?.id;
       try {
-        await api("POST", "/api/jobs/last/discard");
+        await api("POST", "/api/jobs/last/discard", {
+          expected_job_id: expectedJobId,
+        });
         toast("計測結果を破棄しました");
-        el("jc-apply").hidden = true;
+        if (currentJob?.id === expectedJobId) el("jc-apply").hidden = true;
       } catch (err) {
         toast(err.message, false);
       }

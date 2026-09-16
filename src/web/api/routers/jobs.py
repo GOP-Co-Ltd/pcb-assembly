@@ -225,6 +225,12 @@ def put_current_params(
     return {"params": updated}
 
 
+class JobResultRequest(BaseModel):
+    """画面で確認したジョブの結果だけを反映・破棄する。省略時は従来どおり直近。"""
+
+    expected_job_id: str | None = None
+
+
 @router.post("/jobs/last/apply")
 def post_apply(
     jobs: JobsDep,
@@ -232,30 +238,39 @@ def post_apply(
     store: StoreDep,
     settings: SettingsDep,
     _control: ControlDep,
+    body: JobResultRequest | None = None,
 ) -> dict[str, dict[str, bool | float | int | str]]:
     """直近 SUCCEEDED ジョブの計測結果を設定へ反映する.
 
-    409: 反映可能なジョブ無し（LookupError）/ ジョブ実行中（BusyError）。
+    409: 対象ジョブ不一致・反映可能なジョブ無し（LookupError）/ 実行中（BusyError）。
     400: ホワイトリスト外キー（UnknownFieldError）。
     """
-    try:
-        payload = jobs.apply_payload()
-    except LookupError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    expected_job_id = body.expected_job_id if body is not None else None
     with state.machine_lock("apply-settings"):
+        try:
+            payload = jobs.apply_payload(expected_job_id=expected_job_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         store.write_machine_settings(dict(payload.values))
         config_dir = store.machine_toml_path().parent
         for file in payload.files:
             (config_dir / file.filename).write_bytes(file.content)
-    jobs.mark_applied()
+        jobs.mark_applied(expected_job_id=expected_job_id)
     jobs.publish_state_changed()
     return {"applied": dict(payload.values)}
 
 
 @router.post("/jobs/last/discard")
-def post_discard(jobs: JobsDep, _control: ControlDep) -> dict[str, bool]:
+def post_discard(
+    jobs: JobsDep,
+    _control: ControlDep,
+    body: JobResultRequest | None = None,
+) -> dict[str, bool]:
     """直近ジョブの設定反映ペイロードを破棄する（冪等）."""
-    jobs.discard()
+    try:
+        jobs.discard(expected_job_id=body.expected_job_id if body is not None else None)
+    except LookupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"ok": True}
 
 
