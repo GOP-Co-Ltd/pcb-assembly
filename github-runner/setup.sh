@@ -179,8 +179,8 @@ install_runner_instances() {
     rm -f "${tarball}"
     trap - EXIT
 
-    # installdependencies.shはrunner root上での実行を前提にしている。
-    sudo bash -c 'cd "$1" && ./bin/installdependencies.sh' _ "$(instance_dir 1)"
+    # installdependencies.shもrunner root上での実行を前提にしている。
+    (cd "$(instance_dir 1)" && sudo ./bin/installdependencies.sh)
     echo "Actions Runner ${version}を${RUNNER_COUNT} instance導入しました。"
 }
 
@@ -261,17 +261,18 @@ register_instance() {
     instance="$(instance_dir "${index}")"
     name="$(instance_name "${index}")"
 
-    # tokenはconfig.shへ標準入力ではなく引数で渡す必要がある。runner userの
-    # shell履歴には残らず、登録後は.runner / .credentialsにのみ保存される。
-    if ! sudo -u "${RUNNER_USER}" env RUNNER_ALLOW_RUNASROOT=0 \
-        "${instance}/config.sh" \
+    # config.shはrunner rootをcwdにして実行する必要がある（bin/以下を相対参照する）。
+    # tokenは標準入力ではなく引数で渡す必要があるが、runner userのshell履歴には
+    # 残らず、登録後は.runner / .credentialsにのみ保存される。
+    if ! (cd "${instance}" && sudo -u "${RUNNER_USER}" env RUNNER_ALLOW_RUNASROOT=0 \
+        ./config.sh \
         --unattended \
         --replace \
         --url "${REPO_URL}" \
         --token "${token}" \
         --name "${name}" \
         --labels "${RUNNER_LABELS}" \
-        --work "_work"; then
+        --work "_work"); then
         die "${name}の登録に失敗しました"
     fi
 
@@ -285,7 +286,8 @@ install_instance_service() {
     instance="$(instance_dir "${index}")"
 
     if ! service="$(service_name "${index}")"; then
-        sudo "${instance}/svc.sh" install "${RUNNER_USER}"
+        # svc.shもrunner rootをcwdにして実行する必要がある。
+        (cd "${instance}" && sudo ./svc.sh install "${RUNNER_USER}")
         service="$(service_name "${index}")" ||
             die "$(instance_name "${index}")のservice名を取得できませんでした"
     fi

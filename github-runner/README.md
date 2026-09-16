@@ -114,9 +114,11 @@ pre-commit cacheを全削除すると次回workflowでhook環境を再構築す�
 Actions Runnerはserviceが自動でself-updateする。明示的に入れ替える場合は、instanceを
 停止してから再インストールする。
 
+`svc.sh`と`config.sh`はrunner rootをcwdにして実行する。
+
 ```bash
 for dir in /opt/actions-runner/pcb-assembly-rpi-*; do
-    sudo "$dir/svc.sh" stop
+    (cd "$dir" && sudo ./svc.sh stop)
 done
 RUNNER_VERSION=<version> ./github-runner/setup.sh install
 ./github-runner/setup.sh register
@@ -131,12 +133,13 @@ RUNNER_VERSION=<version> ./github-runner/setup.sh install
 
 ```bash
 dir=/opt/actions-runner/pcb-assembly-rpi-1
-sudo "$dir/svc.sh" stop
-sudo "$dir/svc.sh" uninstall
-sudo -u github-runner "$dir/config.sh" remove \
+cd "$dir"
+sudo ./svc.sh stop
+sudo ./svc.sh uninstall
+sudo -u github-runner ./config.sh remove \
     --token "$(gh api --method POST \
         repos/GOP-Co-Ltd/pcb-assembly/actions/runners/registration-token --jq .token)"
-sudo rm -rf "$dir"
+cd - && sudo rm -rf "$dir"
 ```
 
 3 instanceすべてを削除したら、GitHubの**Settings > Actions > Runners**に残骸が無いか
