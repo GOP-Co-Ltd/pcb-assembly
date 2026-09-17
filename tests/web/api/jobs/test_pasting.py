@@ -415,6 +415,33 @@ class TestParseLoadingCommand:
     def test_non_loading_command_yields_none(self, command: dict[str, object]):
         assert parse_loading_command(command) is None
 
+    @pytest.mark.parametrize(
+        "value",
+        [float("inf"), float("-inf"), float("nan"), 10**400],
+        ids=["inf", "-inf", "nan", "overflow-int"],
+    )
+    @pytest.mark.parametrize(
+        "field", ["amount", "rotations", "rate", "accel", "retract_rotations"]
+    )
+    def test_non_finite_numbers_return_a_reason(self, field: str, value: object):
+        command: dict[str, object] = (
+            {"type": "extrude", "amount": 1.0}
+            if field == "amount"
+            else {
+                "type": "extrude_rotations",
+                "rotations": 1.0,
+                "rate": 0.5,
+                "accel": 0.5,
+                "retract_rotations": 0.0,
+            }
+        )
+        command[field] = value
+
+        result = parse_loading_command(command)
+
+        assert isinstance(result, InvalidLoadingCommand)
+        assert result.reason
+
 
 class TestParseRunCalibCommand:
     """parse_run_calib_command（純粋関数）の契約.

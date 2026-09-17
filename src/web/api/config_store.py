@@ -26,6 +26,7 @@ from pcbasm.config import (
     validate_probe_board_edge_margin,
     validate_region_overlap,
 )
+from pcbasm.utils import is_finite_number
 
 # 型エイリアスの定義は API 契約モジュール（pydantic のみ依存）に置き、ここから
 # 再 export する。既存の `from web.api.config_store import ...` を壊さない
@@ -216,7 +217,7 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
         raise UnknownFieldError(f"{spec.key}: bool は受け付けません")
     match spec.value_type:
         case "float":
-            if isinstance(value, (int, float)):
+            if is_finite_number(value):
                 coerced_float = float(value)
                 if (
                     spec.key == "paste_dispenser.auto_line_aspect_ratio"
@@ -276,7 +277,7 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
         case "float_or_auto":
             if value == "auto":
                 return "auto"
-            if isinstance(value, (int, float)):
+            if is_finite_number(value):
                 coerced_float = float(value)
                 if spec.key == "paste_dispenser.paste_height" and coerced_float <= 0.0:
                     raise UnknownFieldError(f"{spec.key}: 正の値が必要です")
@@ -333,7 +334,7 @@ def _coerce_float_pair(value: object) -> list[float] | None:
         return None
     pair: list[float] = []
     for item in value:
-        if isinstance(item, bool) or not isinstance(item, (int, float)):
+        if not is_finite_number(item):
             return None
         pair.append(float(item))
     return pair

@@ -247,6 +247,42 @@ class TestMachineSettings:
             ConfigStore(tmp_path / "no-such-config").read_machine_settings()
 
 
+class TestFiniteMachineSettings:
+    @pytest.mark.parametrize(
+        "value",
+        [float("inf"), float("-inf"), float("nan"), 10**400],
+        ids=["inf", "-inf", "nan", "overflow-int"],
+    )
+    @pytest.mark.parametrize(
+        ("key", "pair"),
+        [
+            ("reference_point.x", False),
+            ("paste_dispenser.paste_height", False),
+            ("reference_point.offsets.top_left", True),
+        ],
+    )
+    def test_non_finite_values_leave_the_entire_file_untouched(
+        self,
+        store: ConfigStore,
+        config_dir: Path,
+        key: str,
+        pair: bool,
+        value: float | int,
+    ):
+        path = config_dir / "machine.toml"
+        before = path.read_bytes()
+        assert key in store.read_machine_settings()
+        values: dict[str, MachineSettingValue] = {
+            "machine_name": "保存しない",
+            key: [1.0, value] if pair else value,
+        }
+
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(values)
+
+        assert path.read_bytes() == before
+
+
 class TestReferencePointOffsets:
     """float_pair 型フィールド reference_point.offsets.* の読み書き."""
 

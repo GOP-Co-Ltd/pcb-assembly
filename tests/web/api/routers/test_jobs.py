@@ -416,6 +416,27 @@ class TestSaveParamDefaults:
         assert response.json()["defaults"] == {"amount": 0.5}
         assert appstate.job_param_defaults("loading") == {"amount": 0.5}
 
+    def test_overflowing_json_number_does_not_poison_the_next_form(
+        self, client: TestClient
+    ):
+        # JSONとして有効な1e309がPythonではinfになる。httpxのjson=は非有限数を拒否するので
+        # 実際に受信するJSONテキストを送る。ジョブは起動しない。
+        response = client.post(
+            "/api/jobs/loading/param-defaults",
+            content='{"values":{"amount":1e309,"rate":0.5}}',
+            headers={"content-type": "application/json"},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["defaults"] == {"rate": 0.5}
+        catalog = client.get("/api/jobs")
+        assert catalog.status_code == 200, catalog.text
+        loading = next(
+            job for job in catalog.json()["jobs"] if job["name"] == "loading"
+        )
+        amount = next(param for param in loading["params"] if param["name"] == "amount")
+        assert amount["default"] == 0.1
+
     def test_merges_with_previously_saved(self, client: TestClient):
         client.post(
             "/api/jobs/loading/param-defaults",

@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 import attrs
 
+from pcbasm.utils import is_finite_number
 from web.api.jobs.context import JobContext, JobResult, ParamValue
 
 
@@ -245,8 +246,11 @@ def _coerce_type(spec: ParamSpec, value: object) -> ParamValue:
             if isinstance(value, bool):
                 return value
         case "float":
-            if not isinstance(value, bool) and isinstance(value, (int, float)):
+            if is_finite_number(value):
                 return float(value)
+            raise ValueError(
+                f"{spec.name}: 有限な数値が必要です（与えられた値: {value!r}）"
+            )
         case "int":
             if not isinstance(value, bool):
                 if isinstance(value, int):

@@ -310,6 +310,31 @@ class TestRuntimeParamsProperty:
         }
 
 
+class TestFiniteFloatParams:
+    @pytest.mark.parametrize(
+        "value",
+        [float("inf"), float("-inf"), float("nan"), 10**400],
+        ids=["inf", "-inf", "nan", "overflow-int"],
+    )
+    def test_invalid_numbers_are_rejected_before_running_or_saving(self, value: object):
+        catalog = JobCatalog()
+        definition = JobDefinition(
+            name="finite",
+            label="有限数",
+            tab="dev",
+            run=_noop,
+            uses_machine=False,
+            params=(
+                ParamSpec("amount", "量", "float", runtime_editable=True, minimum=0.0),
+            ),
+            persisted_params=("amount",),
+        )
+        for validate in (catalog.validate_params, catalog.validate_runtime_params):
+            with pytest.raises(ValueError, match="amount"):
+                validate(definition, {"amount": value})
+        assert catalog.filter_persisted_defaults(definition, {"amount": value}) == {}
+
+
 class TestDefaultCatalog:
     """default_catalog の登録内容（計画書「src/webui/jobs/dev.py」節のピン）."""
 
