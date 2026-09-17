@@ -17,6 +17,7 @@ from pcbasm.config import (
     DISPENSE_MODES,
     LEGACY_NOZZLE_SECTIONS,
     LINE_DIRECTIONS,
+    PasteDispenser,
     validate_audio_device,
     validate_audio_volume,
     validate_non_negative_number,
@@ -384,6 +385,13 @@ class ConfigStore:
             key: _coerce(self._machine_spec(key), value)
             for key, value in values.items()
         }
+        paste_values = {
+            key.removeprefix("paste_dispenser."): value
+            for key, value in coerced.items()
+            if key.startswith("paste_dispenser.") and key.count(".") == 1
+        }
+        if error := PasteDispenser.validate_values(paste_values):
+            raise UnknownFieldError(error)
         path = self.machine_toml_path()
         doc = tomlkit.parse(path.read_text())
         _migrate_legacy_nozzle_sections(doc)
