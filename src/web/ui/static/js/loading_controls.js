@@ -35,7 +35,8 @@
     "paste_dispenser.dispense_accel": "lc-current-dispense-accel",
   };
   // 最後に取得・表示した算出値（適用ボタンが送る値）。
-  let computed = { rpu: null, rate: null, accel: null };
+  let computed = null;
+  let calibrationVersion = 0;
   const scheduleFetch = debounce(fetchCalibration, CALIBRATION_DELAY_MS);
   const buttons = [];
   for (const [id, type] of [
@@ -125,24 +126,31 @@
     if (!massCalibration || !massInput || !rotationsInput || !rateInput || !accelInput) {
       return;
     }
+    const invalidate = () => {
+      // debounce 中も古い値を適用させない。応答はこの入力版と一致するときだけ使う。
+      calibrationVersion += 1;
+      renderCalibration(null);
+      document.getElementById("lc-calibration-message").textContent = "";
+      scheduleFetch();
+    };
     for (const input of [massInput, rotationsInput, rateInput, accelInput]) {
-      input.addEventListener("input", scheduleFetch);
+      input.addEventListener("input", invalidate);
     }
     bindApply("lc-apply-rotations-per-ul", () => ({
-      "paste_dispenser.rotations_per_ul": computed.rpu,
+      "paste_dispenser.rotations_per_ul": computed?.rotations_per_ul,
     }));
     bindApply("lc-apply-dispense-rate", () => ({
-      "paste_dispenser.max_dispense_rate": computed.rate,
+      "paste_dispenser.max_dispense_rate": computed?.max_dispense_rate,
     }));
     bindApply("lc-apply-dispense-accel", () => ({
-      "paste_dispenser.dispense_accel": computed.accel,
+      "paste_dispenser.dispense_accel": computed?.dispense_accel,
     }));
     bindApply("lc-apply-all", () => ({
-      "paste_dispenser.rotations_per_ul": computed.rpu,
-      "paste_dispenser.max_dispense_rate": computed.rate,
-      "paste_dispenser.dispense_accel": computed.accel,
+      "paste_dispenser.rotations_per_ul": computed?.rotations_per_ul,
+      "paste_dispenser.max_dispense_rate": computed?.max_dispense_rate,
+      "paste_dispenser.dispense_accel": computed?.dispense_accel,
     }));
-    scheduleFetch();
+    invalidate();
   }
 
   function bindApply(buttonId, valuesFor) {
@@ -152,6 +160,7 @@
   }
 
   async function fetchCalibration() {
+    const version = calibrationVersion;
     const params = new URLSearchParams({
       mass_mg: massInput.value || "0",
       rotations: rotationsInput.value || "0",
@@ -166,30 +175,34 @@
         "/api/pasting/loading/calibration?" + params.toString()
       );
     } catch (err) {
+      if (version !== calibrationVersion) return;
       message.textContent = err.message;
       return;
     }
+    if (version !== calibrationVersion) return;
     message.textContent = "";
-    computed = {
-      rpu: result.rotations_per_ul,
-      rate: result.max_dispense_rate,
-      accel: result.dispense_accel,
-    };
-    setOutput("lc-volume-ul", result.volume_ul);
-    setOutput("lc-rotations-per-ul", result.rotations_per_ul);
-    setOutput("lc-dispense-rate", result.max_dispense_rate);
-    setOutput("lc-dispense-accel", result.dispense_accel);
+    renderCalibration(result);
+  }
+
+  function renderCalibration(result) {
+    computed = result;
+    setOutput("lc-volume-ul", result?.volume_ul);
+    setOutput("lc-rotations-per-ul", result?.rotations_per_ul);
+    setOutput("lc-dispense-rate", result?.max_dispense_rate);
+    setOutput("lc-dispense-accel", result?.dispense_accel);
     updateApplyButtons();
   }
 
   // サーバ（MassFlowEstimate.estimate）が算出不能な値を null で返す契約に依存する。
   function updateApplyButtons() {
-    setDisabled("lc-apply-rotations-per-ul", computed.rpu == null);
-    setDisabled("lc-apply-dispense-rate", computed.rate == null);
-    setDisabled("lc-apply-dispense-accel", computed.accel == null);
+    setDisabled("lc-apply-rotations-per-ul", computed?.rotations_per_ul == null);
+    setDisabled("lc-apply-dispense-rate", computed?.max_dispense_rate == null);
+    setDisabled("lc-apply-dispense-accel", computed?.dispense_accel == null);
     setDisabled(
       "lc-apply-all",
-      computed.rpu == null || computed.rate == null || computed.accel == null
+      computed?.rotations_per_ul == null ||
+        computed?.max_dispense_rate == null ||
+        computed?.dispense_accel == null
     );
   }
 
