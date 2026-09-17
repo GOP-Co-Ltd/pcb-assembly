@@ -1,14 +1,11 @@
 """校正結果の反映・破棄と、次のジョブ開始が重なる場合の実ブラウザ検証。"""
 
-import asyncio
 from collections.abc import Iterator
 from pathlib import Path
-from threading import Event
 
 import attrs
 import pytest
 from playwright.sync_api import expect
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tests.e2e.conftest import (
     E2E_MACHINE_ID,
@@ -19,6 +16,7 @@ from tests.e2e.conftest import (
     make_ui_settings,
     start_app,
 )
+from tests.e2e.network import DelayedHttp
 from tests.web.api.conftest import CHECKERBOARD_CAMERA_IMAGE
 from web.api.config_store import ConfigStore
 from web.api.settings import Settings
@@ -35,63 +33,19 @@ def e2e_settings(tmp_path: Path) -> Settings:
     return attrs.evolve(settings, fake_camera_image=CHECKERBOARD_CAMERA_IMAGE)
 
 
-class _DelayedResultAction:
-    """実 frontend の反映・破棄要求または応答を一度だけ保留する。"""
-
-    def __init__(self, app: ASGIApp) -> None:
-        self._app = app
-        self._received = Event()
-        self._release = Event()
-        self._delay_response = False
-
-    def delay_response(self) -> None:
-        self._delay_response = True
-
-    def wait_received(self) -> bool:
-        return self._received.wait(timeout=10)
-
-    def resume(self) -> None:
-        self._release.set()
-
-    async def _wait(self) -> None:
-        self._received.set()
-        await asyncio.to_thread(self._release.wait, 30)
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if (
-            scope["type"] != "http"
-            or scope["method"] != "POST"
-            or not scope["path"].endswith(
-                ("/api/jobs/last/apply", "/api/jobs/last/discard")
-            )
-            or self._received.is_set()
-        ):
-            await self._app(scope, receive, send)
-            return
-        if not self._delay_response:
-            await self._wait()
-            await self._app(scope, receive, send)
-            return
-
-        async def delayed_send(message: Message) -> None:
-            if message["type"] == "http.response.start":
-                await self._wait()
-            await send(message)
-
-        await self._app(scope, receive, delayed_send)
-
-
 @pytest.fixture
 def delayed_result_ui(
     live_server: LiveServer, tmp_path: Path
-) -> Iterator[tuple[LiveUi, _DelayedResultAction]]:
+) -> Iterator[tuple[LiveUi, DelayedHttp]]:
     endpoint = MachineEndpoint(
         machine_id=E2E_MACHINE_ID, host="127.0.0.1", port=live_server.port
     )
-    transport = _DelayedResultAction(
+    transport = DelayedHttp(
         create_app(
             make_ui_settings((endpoint,), machines_file=tmp_path / "absent.toml")
-        )
+        ),
+        method="POST",
+        path_suffixes=("/api/jobs/last/apply", "/api/jobs/last/discard"),
     )
     server = start_app(transport)
     try:
