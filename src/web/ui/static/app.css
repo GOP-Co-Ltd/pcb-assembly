@@ -1052,6 +1052,7 @@ h2 {
 .jc-apply {
   display: flex;
   flex-wrap: wrap;
+  overflow-wrap: anywhere;
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.6rem;

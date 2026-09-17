@@ -308,8 +308,10 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
     result = attrs.evolve(result, z_position=z)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{camera_name}_{timestamp}.json"
-    png_name = f"{camera_name}_{timestamp}.png"
+    # ジョブ固有の成果物ディレクトリ名も付け、同じ秒の再校正で現行ファイルを上書きしない。
+    stem = f"{camera_name}_{timestamp}_{ctx.artifacts_dir.name}"
+    filename = f"{stem}.json"
+    png_name = f"{stem}.png"
     vis.save(ctx.artifacts_dir / png_name)
     result.save(ctx.artifacts_dir / filename)
     json_bytes = (ctx.artifacts_dir / filename).read_bytes()

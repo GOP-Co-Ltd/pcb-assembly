@@ -34,6 +34,54 @@ from web.api.config_store import (
 )
 
 
+class TestSettingsWithFiles:
+    def test_invalid_values_do_not_write_additional_files(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        original = store.machine_toml_path().read_bytes()
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings(
+                {"paste_dispenser.nozzle_diameter": 0},
+                files={"unused-calibration.json": b"{}"},
+            )
+        assert store.machine_toml_path().read_bytes() == original
+        assert not (config_dir / "unused-calibration.json").exists()
+
+    @pytest.mark.parametrize(
+        "filename", ["../outside.json", "absolute", "machine.toml"]
+    )
+    def test_invalid_filename_rejects_the_entire_batch(
+        self, store: ConfigStore, config_dir: Path, filename: str
+    ):
+        if filename == "absolute":
+            filename = str(config_dir.parent / "outside.json")
+        original = store.machine_toml_path().read_bytes()
+        with pytest.raises(UnknownFieldError, match="ファイル名"):
+            store.write_machine_settings(
+                {"machine_name": "must not be saved"},
+                files={"unused.json": b"{}", filename: b"{}"},
+            )
+        assert store.machine_toml_path().read_bytes() == original
+        assert not (config_dir / "unused.json").exists()
+
+    def test_an_additional_file_replaces_a_symlink_without_writing_through_it(
+        self, store: ConfigStore, config_dir: Path, tmp_path: Path
+    ):
+        outside = tmp_path / "outside.json"
+        outside.write_bytes(b"original")
+        destination = config_dir / "calibration.json"
+        destination.symlink_to(outside)
+
+        store.write_machine_settings(
+            {"camera.calibration_file": destination.name},
+            files={destination.name: b"new calibration"},
+        )
+
+        assert outside.read_bytes() == b"original"
+        assert not destination.is_symlink()
+        assert destination.read_bytes() == b"new calibration"
+
+
 class TestMachineSettings:
     """machine.toml のホワイトリスト読み書き."""
 
