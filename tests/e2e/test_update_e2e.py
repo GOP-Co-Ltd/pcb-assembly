@@ -131,9 +131,10 @@ class TestUpdateOverRealHttp:
         assert accepted.status_code == 202
         run_id = accepted.json()["run_id"]
         wait_until(
-            lambda: _status(ui.base_url)["run"]["state"] == "restarting", timeout=30.0
+            lambda: _status(ui.base_url)["run"]["state"] != "running", timeout=30.0
         )
         final = _status(ui.base_url)
+        assert final["run"]["state"] == "restarting", final["run"]
         assert final["run"]["run_id"] == run_id
         assert final["run"]["to_head"] == target
         assert [step["step"] for step in final["run"]["steps"]] == [
