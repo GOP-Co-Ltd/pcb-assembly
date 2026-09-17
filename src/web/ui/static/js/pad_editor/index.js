@@ -8,6 +8,7 @@ import {
   l4NodeIdForPad,
   padsUnderNode,
 } from "./model.js";
+import { createPendingSaves } from "./saves.js";
 import { renderTable as renderHierarchyTable } from "./table.js";
 import {
   applyPadVisual,
@@ -31,6 +32,7 @@ import {
 
   const { api, downloadApi, toast } = window.webui;
   const DEBOUNCE_MS = 300;
+  const saves = createPendingSaves((error) => toast(error.message, false));
   // 追加モード中にこの距離まで近づけてクリックしたら、その測定位置を消す [mm]
   const FLOW_CALIBRATION_HIT_MM = 0.5;
   const configUrl = "/api/pasting/pad-config";
@@ -57,7 +59,6 @@ import {
     rowEls: new Map(),
     parentOf: new Map(),
     nodeById: new Map(),
-    debounceTimers: new Map(),
   };
 
   const emptyEl = document.getElementById("pad-editor-empty");
@@ -199,6 +200,7 @@ import {
         purge?.initial_purge_ul !== undefined
           ? String(purge.initial_purge_ul)
           : "";
+      initialPurgeAmount.defaultValue = initialPurgeAmount.value;
     }
     if (initialPurgePadStatus) {
       initialPurgePadStatus.textContent = purge?.selection_label || "自動";
@@ -337,22 +339,21 @@ import {
 
   // 編集開始時の PCB をそのまま添えて送る。切替済みなら サーバが 409 を返す。
   function withExpectedPcb(body) {
-    return { ...body, expected_pcb: state.config?.pcb_file ?? null };
+    return { expected_pcb: state.config?.pcb_file ?? null, ...body };
   }
 
-  async function patchPads(ids, enabled) {
+  function patchPads(ids, enabled) {
     if (ids.length === 0) return;
-    try {
+    const request = withExpectedPcb({ ids, enabled });
+    return saves.run("pad 更新失敗", async () => {
       const res = await api(
         "PATCH",
         "/api/pasting/pad-config/pads",
-        withExpectedPcb({ ids, enabled })
+        request
       );
       applyPadVisuals(res.affected_pads);
       await reloadConfig({ invalidateRoute: true, invalidateFillPath: true });
-    } catch (err) {
-      toast(`pad 更新失敗: ${err.message}`, false);
-    }
+    });
   }
 
   function selectedOnLayer() {
@@ -412,15 +413,8 @@ import {
   }
 
   function debouncePatchNode(nodeId, field, body, options = {}) {
-    const key = `${nodeId}|${field}`;
-    clearTimeout(state.debounceTimers.get(key));
-    state.debounceTimers.set(
-      key,
-      setTimeout(() => {
-        state.debounceTimers.delete(key);
-        patchNode({ node: nodeId, ...body }, options);
-      }, DEBOUNCE_MS)
-    );
+    const request = withExpectedPcb({ node: nodeId, ...body });
+    saves.schedule(`${nodeId}|${field}`, () => patchNode(request, options), DEBOUNCE_MS);
   }
 
   function patchNodeClear(nodeId, field) {
@@ -444,36 +438,35 @@ import {
     // 明示的な保存・継承への復帰は、同じ欄の未送信の入力を置き換える。
     for (const field of [...Object.keys(body.values || {}), ...(body.clear || [])]) {
       const key = `${body.node}|${field}`;
-      clearTimeout(state.debounceTimers.get(key));
-      state.debounceTimers.delete(key);
+      saves.cancel(key);
     }
     const request = withExpectedPcb(body);
     // 先に入力した値が、後から選んだ継承や別の値を追い越して保存されないようにする。
-    nodeWrites = nodeWrites.then(() => saveNode(request, options));
+    const previous = nodeWrites;
+    nodeWrites = saves.run("設定更新失敗", async () => {
+      await previous;
+      await saveNode(request, options);
+    });
     return nodeWrites;
   }
 
   async function saveNode(body, options) {
-    try {
-      const res = await api(
-        "PATCH",
-        "/api/pasting/pad-config/node",
-        body
+    const res = await api(
+      "PATCH",
+      "/api/pasting/pad-config/node",
+      body
+    );
+    applyPadVisuals(res.affected_pads);
+    await reloadConfig({
+      invalidateRoute: "enabled" in body,
+      invalidateFillPath: true,
+    });
+    if (options.descendantCount > 0) {
+      const label = fieldLabel(state.config, options.descendantField);
+      toast(
+        `保存しました。子孫ノードの ${label} override ${options.descendantCount} 件は引き続き優先されます。`,
+        "warning"
       );
-      applyPadVisuals(res.affected_pads);
-      await reloadConfig({
-        invalidateRoute: "enabled" in body,
-        invalidateFillPath: true,
-      });
-      if (options.descendantCount > 0) {
-        const label = fieldLabel(state.config, options.descendantField);
-        toast(
-          `保存しました。子孫ノードの ${label} override ${options.descendantCount} 件は引き続き優先されます。`,
-          "warning"
-        );
-      }
-    } catch (err) {
-      toast(`設定更新失敗: ${err.message}`, false);
     }
   }
 
@@ -490,34 +483,28 @@ import {
   }
 
   function debounceInitialPurgePatch(body) {
-    const key = "initial-purge";
-    clearTimeout(state.debounceTimers.get(key));
-    state.debounceTimers.set(
-      key,
-      setTimeout(() => {
-        state.debounceTimers.delete(key);
-        patchInitialPurge(body);
-      }, DEBOUNCE_MS)
-    );
+    const request = withExpectedPcb(body);
+    saves.schedule("initial-purge", () => patchInitialPurge(request), DEBOUNCE_MS);
   }
 
-  async function patchInitialPurge(body) {
+  function patchInitialPurge(body) {
     if (state.locked || state.initialPurgeSaving) return;
     state.initialPurgeSaving = true;
     applyToolbarLock();
-    try {
-      await api(
-        "PATCH",
-        "/api/pasting/pad-config/initial-purge",
-        withExpectedPcb(body)
-      );
-      await reloadConfig({});
-    } catch (err) {
-      toast(`初回パージ設定更新失敗: ${err.message}`, false);
-    } finally {
-      state.initialPurgeSaving = false;
-      applyToolbarLock();
-    }
+    const request = withExpectedPcb(body);
+    return saves.run("初回パージ設定更新失敗", async () => {
+      try {
+        await api(
+          "PATCH",
+          "/api/pasting/pad-config/initial-purge",
+          request
+        );
+        await reloadConfig({});
+      } finally {
+        state.initialPurgeSaving = false;
+        applyToolbarLock();
+      }
+    });
   }
 
   // クリック位置が既存の測定位置なら消し、そうでなければ末尾へ足す
@@ -535,23 +522,24 @@ import {
     patchFlowCalibration({ points: next });
   }
 
-  async function patchFlowCalibration(body) {
+  function patchFlowCalibration(body) {
     if (state.locked || state.flowCalibrationSaving) return;
     state.flowCalibrationSaving = true;
     applyToolbarLock();
-    try {
-      await api(
-        "PATCH",
-        "/api/pasting/pad-config/flow-calibration",
-        withExpectedPcb(body)
-      );
-      await reloadConfig({});
-    } catch (err) {
-      toast(`流量キャリブレーション位置の更新失敗: ${err.message}`, false);
-    } finally {
-      state.flowCalibrationSaving = false;
-      applyToolbarLock();
-    }
+    const request = withExpectedPcb(body);
+    return saves.run("流量キャリブレーション位置の更新失敗", async () => {
+      try {
+        await api(
+          "PATCH",
+          "/api/pasting/pad-config/flow-calibration",
+          request
+        );
+        await reloadConfig({});
+      } finally {
+        state.flowCalibrationSaving = false;
+        applyToolbarLock();
+      }
+    });
   }
 
   function focusNodePads(nodeId) {
@@ -742,6 +730,23 @@ import {
   }
 
   if (window.webui.jobs) {
+    window.webui.jobs.beforeStart(async () => {
+      if (!state.config) return;
+      for (const input of root.querySelectorAll("input")) {
+        if (!input.reportValidity()) throw new Error("入力内容を確認してください。");
+      }
+      // 以前の保存が拒否された欄も、表示している値で改めて保存・検証する。
+      for (const input of tableBody.querySelectorAll("input[type='number']")) {
+        if (!input.disabled && !input.hidden && input.value !== input.defaultValue) {
+          input.dispatchEvent(new Event("change"));
+        }
+      }
+      if (initialPurgeAmount?.value !== initialPurgeAmount?.defaultValue) {
+        commitInitialPurgeAmount();
+      }
+      const failure = await saves.flush();
+      if (failure) throw new Error(`保存できなかったため開始しませんでした。${failure.message}`);
+    });
     window.webui.jobs.onUpdate((job) => {
       const active = window.webui.jobs.isActive(job);
       if (active === state.locked) return;
@@ -773,24 +778,24 @@ import {
 
   if (importButton && importInput) {
     importButton.addEventListener("click", () => importInput.click());
-    importInput.addEventListener("change", async () => {
+    importInput.addEventListener("change", () => {
       const file = importInput.files[0];
       if (!file) return;
-      try {
-        const document = JSON.parse(await file.text());
-        await api("POST", "/api/pasting/pad-config/import", {
-          document,
-        });
-        clearRoute();
-        clearFillPath();
-        state.selected.clear();
-        await reloadConfig({});
-        toast("基板 override 設定を読み込みました");
-      } catch (err) {
-        toast(`読み込み失敗: ${err.message}`, false);
-      } finally {
-        importInput.value = "";
-      }
+      saves.run("読み込み失敗", async () => {
+        try {
+          const document = JSON.parse(await file.text());
+          await api("POST", "/api/pasting/pad-config/import", {
+            document,
+          });
+          clearRoute();
+          clearFillPath();
+          state.selected.clear();
+          await reloadConfig({});
+          toast("基板 override 設定を読み込みました");
+        } finally {
+          importInput.value = "";
+        }
+      });
     });
   }
 

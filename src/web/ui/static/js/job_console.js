@@ -19,6 +19,8 @@
   };
 
   const listeners = new Set();
+  const beforeStart = new Set();
+  let startPending = false;
   const originalTitle = document.title;
   const completionNotice = document.getElementById("job-completion-notice");
   const completionMessage = document.getElementById("job-completion-message");
@@ -115,6 +117,7 @@
   window.webui.jobs = {
     currentJob: () => currentJob,
     onUpdate: (callback) => listeners.add(callback),
+    beforeStart: (callback) => beforeStart.add(callback),
     isActive,
     commandReady,
     sendCommand,
@@ -296,15 +299,18 @@
       : stage || "";
   }
 
+  function renderStartButtons() {
+    // 保存・開始要求の待機中も、重ねて開始要求を送らない。
+    for (const jobForm of forms) {
+      const submit = jobForm.querySelector("button[type='submit']");
+      if (submit) submit.disabled = startPending || isActive(currentJob);
+    }
+  }
+
   function renderConsole() {
     if (!consoleEl) return;
     const job = currentJob;
-
-    // 実行ボタンはどのジョブ実行中でも無効（装置排他は全ジョブ共有）
-    for (const jobForm of forms) {
-      const submit = jobForm.querySelector("button[type='submit']");
-      if (submit) submit.disabled = isActive(job);
-    }
+    renderStartButtons();
 
     if (!ownsJob(job)) {
       el("jc-status").textContent = STATUS_LABELS.idle;
@@ -529,6 +535,9 @@
   for (const jobForm of forms) {
     jobForm.addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (startPending || isActive(currentJob)) return;
+      startPending = true;
+      renderStartButtons();
       completionJobId = null;
       dismissCompletionNotice();
       const params = {};
@@ -548,6 +557,7 @@
         }
       }
       try {
+        for (const prepare of beforeStart) await prepare();
         el("jc-log").textContent = "";
         el("jc-result").hidden = true;
         renderProgress("", null);
@@ -560,6 +570,9 @@
         armCompletionNotification(data.job);
       } catch (err) {
         toast(err.message, false);
+      } finally {
+        startPending = false;
+        renderStartButtons();
       }
     });
   }

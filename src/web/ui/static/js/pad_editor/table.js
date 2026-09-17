@@ -50,6 +50,7 @@ export function renderTable(tableBody, state, actions) {
     if (draft.mode !== undefined) {
       focused.parentElement.querySelector("select").value = draft.mode;
       focused.hidden = false;
+      focused.required = true;
     }
   }
   if (!focused || focused.disabled || focused.hidden) {
@@ -313,6 +314,7 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
       resolved === "auto" || resolved === null ? "" : String(round4(resolved));
   }
   input.hidden = select.value !== "manual";
+  input.required = !input.hidden;
   input.defaultValue = input.value;
   input.addEventListener("change", () =>
     commitHeightCell(state, actions, node.id, field, select, input, descendantCount)
@@ -325,6 +327,7 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
   select.addEventListener("change", () => {
     if (state.locked) return;
     input.hidden = select.value !== "manual";
+    input.required = !input.hidden;
     if (select.value === "") actions.patchNodeClear(node.id, field);
     else if (select.value === "auto") {
       actions.patchNode(
