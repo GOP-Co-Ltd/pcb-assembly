@@ -12,8 +12,11 @@ on:
       # 壊れるため（*.py だけでは pytest も pyright も走らない）
       - "src/web/ui/templates/**"
       - "src/web/ui/static/**"
-      # テストが読む machine.toml / printer.cfg のフィクスチャ
-      - "data/testing/config/**"
+      # テストが読む画像・基板・設定と、実際に起動する運用スクリプト
+      - "data/testing/**"
+      - "scripts/**"
+      - Makefile
+      - github-runner/setup.sh
       - pyproject.toml
       - uv.lock
       - .github/workflows/python-validation.yml
@@ -63,15 +66,28 @@ jobs:
       - name: Fetch LFS objects
         run: git lfs pull
 
-      - name: Run pytest
+      - name: Run non-hardware tests
         run: >-
           uv run --no-sync pytest -v -m "not hardware and not e2e"
           --timeout=180 --junitxml=pytest-report.xml
+
+      - name: Prepare Chromium for browser tests
+        run: |
+          if [ ! -x /usr/bin/chromium ]; then
+            uv run --no-sync playwright install --only-shell chromium
+          fi
+
+      - name: Run WebUI E2E tests
+        run: >-
+          uv run --no-sync pytest -v -m "not hardware and e2e"
+          --timeout=180 --junitxml=e2e-report.xml
 
       - name: Upload JUnit report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pytest-report
-          path: pytest-report.xml
+          path: |
+            pytest-report.xml
+            e2e-report.xml
           retention-days: 7
