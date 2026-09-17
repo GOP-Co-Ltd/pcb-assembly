@@ -113,6 +113,11 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 h2 {
   margin: 0 0 0.9rem;
   font-size: 1.15rem;
@@ -302,21 +307,100 @@ h2 {
   list-style: none;
 }
 
+.feature-menu > summary {
+  display: none;
+  cursor: pointer;
+}
+
+.feature-group + .feature-group {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.feature-group h3 {
+  margin: 0 0 0.35rem;
+  padding: 0 0.55rem;
+  color: var(--quiet);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 .features a {
   display: block;
-  overflow: hidden;
   padding: 0.42rem 0.55rem;
   border-radius: var(--radius);
   color: var(--muted);
-  text-overflow: ellipsis;
   text-decoration: none;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
-.features a.active,
 .features a:hover {
   color: var(--text);
   background: var(--surface-2);
+}
+
+.features a.active {
+  color: var(--accent);
+  background: var(--accent-weak);
+  font-weight: 600;
+}
+
+.feature-overview-heading p {
+  margin: 0 0 1.25rem;
+  color: var(--muted);
+}
+
+.feature-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+  max-width: 72rem;
+}
+
+.feature-card {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.feature-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.feature-card p {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.feature-card ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feature-card li + li {
+  border-top: 1px solid var(--line);
+}
+
+.feature-card a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+  padding: 0.6rem 0.25rem;
+  color: var(--accent);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.feature-card a:hover {
+  background: var(--accent-weak);
 }
 
 .main-pane {
@@ -2309,12 +2393,28 @@ h2 {
     border-bottom: 1px solid var(--line);
   }
 
-  .features ul {
-    flex-flow: row wrap;
+  .feature-menu > summary {
+    display: list-item;
+    min-height: 2rem;
+    padding: 0.3rem 0;
+    font-weight: 600;
+  }
+
+  .feature-menu > summary span {
+    display: block;
+    padding-top: 0.2rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 400;
+  }
+
+  .feature-menu[open] > summary {
+    margin-bottom: 0.75rem;
   }
 
   .features a {
-    max-width: 11rem;
+    min-height: 2.75rem;
+    padding: 0.6rem 0.55rem;
   }
 
   .main-pane {

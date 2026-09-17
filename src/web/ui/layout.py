@@ -15,39 +15,71 @@ from itertools import groupby
 
 from web.api.models import SettingsField
 
-# tab → feature slug 列（ヘッダのタブ表示順）
-TABS: dict[str, tuple[str, ...]] = {
+# tab → (グループ名、案内、feature slug 列)。サイドバーと入口画面で共用する表示知識。
+FEATURE_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
     "dev": (
-        "extract_pcb",
-        "make_fill_coverage_pcb",
-        "klipper_status",
-        "audio",
-        "update",
+        (
+            "PCB ユーティリティ",
+            "設計データの抽出と塗布範囲の確認。",
+            ("extract_pcb", "make_fill_coverage_pcb"),
+        ),
+        (
+            "機体の管理",
+            "接続状態、通知音、ソフトウェアを確認します。",
+            ("klipper_status", "audio", "update"),
+        ),
     ),
     "pasting": (
-        "paste_solder",
-        "height_plane",
-        "loading",
-        "dispense_calibration",
-        "paste_volume_calibration",
-        "paste_volume_refit",
-        "paste_dataset_finalize",
-        "paste_test_board",
-        "generate_rect_pcb",
-        "toolhead_offset",
-        "probe_guide",
-        "nozzle_cap",
+        (
+            "日常の塗布",
+            "基板の塗布設定、高さの計測、ペーストの準備。",
+            ("paste_solder", "height_plane", "loading"),
+        ),
+        (
+            "ノズル・プローブ設定",
+            "機体を使い始めるときや工具を交換したときの調整。",
+            ("nozzle_cap", "toolhead_offset", "probe_guide"),
+        ),
+        (
+            "吐出・塗布量の校正",
+            "吐出特性を測定し、保存したデータから校正を整えます。",
+            (
+                "dispense_calibration",
+                "paste_volume_calibration",
+                "paste_volume_refit",
+                "paste_dataset_finalize",
+            ),
+        ),
+        (
+            "テスト基板",
+            "塗布の確認やキャリブレーションに使う基板を作成します。",
+            ("paste_test_board", "generate_rect_pcb"),
+        ),
     ),
     "pnp": (),
     "posctrl": (
-        "camera_preview",
-        "copper_detection",
-        "camera_calibration",
-        "reference_point_setup",
-        "board_tour",
-        "orthogonality_test",
-        "generate_grid_pcb",
+        (
+            "映像と検出",
+            "カメラの映像を見ながら、銅箔の検出条件を調整します。",
+            ("camera_preview", "copper_detection"),
+        ),
+        (
+            "機体の校正",
+            "カメラ、基準点、移動軸の位置関係を確認します。",
+            ("camera_calibration", "reference_point_setup", "orthogonality_test"),
+        ),
+        (
+            "基板の確認と作成",
+            "基板上の位置を巡回して確認し、校正用の基板を作成します。",
+            ("board_tour", "generate_grid_pcb"),
+        ),
     ),
+}
+
+# URL の検証に使う全 feature。グループ定義と別々に機能を登録しない。
+TABS: dict[str, tuple[str, ...]] = {
+    tab: tuple(slug for _label, _description, slugs in groups for slug in slugs)
+    for tab, groups in FEATURE_GROUPS.items()
 }
 
 # tab slug → 表示名（ヘッダのタブラベル）
@@ -71,15 +103,7 @@ FEATURE_LABELS: dict[str, str] = {
     "copper_detection": "銅箔検出調整",
 }
 
-# feature 実装予定の Phase（プレースホルダ表示用）
-TAB_PHASES: dict[str, str] = {
-    "dev": "Phase 3",
-    "pasting": "Phase 5",
-    "pnp": "将来",
-    "posctrl": "Phase 2/4",
-}
-
-# 専用テンプレートを持つ feature（無いものは feature.html プレースホルダ）
+# feature ごとのテンプレート（登録する全機能に必要）
 # job.html はカメラ preview を持たない汎用ジョブページ（タブ横断で共用）
 FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("dev", "extract_pcb"): "job.html",
