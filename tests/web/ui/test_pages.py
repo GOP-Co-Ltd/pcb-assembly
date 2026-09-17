@@ -128,50 +128,6 @@ def appstate(backend_app: FastAPI) -> AppState:
 
 
 @pytest.fixture
-def partial_nozzle_cap(config_dir: Path) -> Path:
-    """`[paste_dispenser.nozzle_cap]` に x だけを書いた machine.toml を用意する（そのパスを返す）.
-
-    設定画面から 1 軸だけ保存すると実際にこの配置になり、`Machine.nozzle_cap` の
-    `Machine` は「未記録」として扱う。`/api/state` と SSR がこれで 500 しないことをピンする
-    ための素材（`AppState.nozzle_cap()` の防御が要）。
-    """
-    with config_dir.joinpath("machine.toml").open(
-        "a", encoding="utf-8"
-    ) as machine_toml:
-        machine_toml.write("\n[paste_dispenser.nozzle_cap]\nx = 12.5\n")
-    return config_dir / "machine.toml"
-
-
-@pytest.fixture
-def partial_nozzle_clean(config_dir: Path) -> Path:
-    """`[paste_dispenser.nozzle_clean]` に動作値だけを書いた machine.toml を用意する.
-
-    設定画面から押し込み量だけ保存すると座標の無いテーブルができる。`NozzleClean` は
-    座標必須なので「未記録」として扱われる素材。
-    """
-    path = config_dir / "machine.toml"
-    with path.open("a", encoding="utf-8") as machine_toml:
-        machine_toml.write("\n[paste_dispenser.nozzle_clean]\npress_depth = 0.4\n")
-    return path
-
-
-@pytest.fixture
-def broken_machine_toml(config_dir: Path) -> Path:
-    """終端されていない文字列を追記して machine.toml をパース不能にする（そのパスを返す）.
-
-    `Machine()` も `tomlkit` もこの machine.toml で例外を投げる。全ページの SSR が
-    共通で使う `/api/machine-info` / `/api/state`（`machine_name()` /
-    `machine_type()` / `focus_z()` の broad except → None）が効いていることをピンする
-    ための素材。
-    """
-    with config_dir.joinpath("machine.toml").open(
-        "a", encoding="utf-8"
-    ) as machine_toml:
-        machine_toml.write('\nbroken_key = "unterminated\n')
-    return config_dir / "machine.toml"
-
-
-@pytest.fixture
 def machine_toml_without_defaulted_keys(config_dir: Path) -> Path:
     """既定値を持つキーを machine.toml から削除する（未記載 → 既定値解決の素材）.
 
@@ -719,25 +675,14 @@ class TestNozzleCapPage:
         assert response.status_code == 200
         assert "未記録" in response.text
 
-    def test_shows_cleaning_section_with_record_button(self, client: TestClient):
-        """キャップと同じページでクリーニング位置も記録できる."""
+    def test_shows_cleaning_controls_and_settings(self, client: TestClient):
+        """記録・試運転・設定変更を同じページで行える（座標は記録ボタンから保存する）."""
         response = client.get("/pasting/nozzle_cap")
 
         assert response.status_code == 200
         assert 'data-testid="nozzle-clean-current"' in response.text
         assert 'data-testid="nozzle-clean-record"' in response.text
-
-    def test_shows_cleaning_test_button(self, client: TestClient):
-        """記録した位置で動作を試せる（押し込み量を追い込むのに塗布ジョブを通さない）."""
-        response = client.get("/pasting/nozzle_cap")
-
-        assert response.status_code == 200
         assert 'data-testid="nozzle-clean-test"' in response.text
-
-    def test_shows_cleaning_settings_form(self, client: TestClient):
-        """押し込み量・こすり幅は結果を見て追い込む値なので記録ボタンと同じ画面に置く."""
-        response = client.get("/pasting/nozzle_cap")
-
         assert 'data-testid="nozzle-clean-settings"' in response.text
         assert 'name="paste_dispenser.nozzle_clean.press_depth"' in response.text
         # 座標は記録ボタンの管轄なので手打ち欄を並べない
