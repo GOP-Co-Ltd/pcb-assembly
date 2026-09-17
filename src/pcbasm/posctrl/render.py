@@ -1,7 +1,7 @@
 """位置合わせ・巡回の表示フレームを合成する純粋関数群（cv2 GUI 非依存）.
 
-cv2 の描画 API は使うが、ウィンドウ表示（imshow / waitKey）は行わない。 合成結果の Image は
-FrameSink（scripts の cv2 ウィンドウ、webui のプレビュー オーバーライド等）へ渡して表示する。
+cv2 の描画 API は使うが、ウィンドウ表示（imshow / waitKey）は行わない。 合成結果の Image は FrameSink
+を通じて WebUI のプレビューへ渡して表示する。
 """
 
 from collections.abc import Sequence

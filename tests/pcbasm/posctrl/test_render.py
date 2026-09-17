@@ -2,10 +2,9 @@
 
 計画書 memory/agents/implementation-planner/webui-phase4.md「§1 pcbasm 注入点の
 再設計」に基づく。render.py は cv2 GUI（imshow / waitKey）に依存しない純粋な
-画像合成関数群で、合成結果は FrameSink（scripts の cv2 ウィンドウ、webui の
-プレビューオーバーライド）へ渡される:
+画像合成関数群で、合成結果は FrameSink を通じて WebUI のプレビューへ渡される:
 
-- render_label: draw_overlay + 緑ラベル文字（tour.py の合成部分の昇格）
+- render_label: draw_overlay + 緑ラベル文字
 - render_edge_match: ROI 枠（白）+ 想定エッジ（赤）+ 検出エッジ（緑）+
   中心十字（pad.py CopperPadObserver._show の合成部分の昇格）
 - PadResultRenderer: pad 照合結果 overlay の単一フレーム合成器
