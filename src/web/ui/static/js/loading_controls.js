@@ -53,7 +53,9 @@
   }
 
   function update(job) {
-    const enabled = jobs.commandReady(job, { stages: loadingStages });
+    const enabled = jobs.commandReady(job, {
+      stages: loadingStages, name: panel.dataset.jobName,
+    });
     for (const button of buttons) button.disabled = !enabled;
   }
 
