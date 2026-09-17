@@ -610,6 +610,64 @@ class TestExclusionPropagation:
 class TestApplyDiscard:
     """POST /api/jobs/last/apply / /api/jobs/last/discard."""
 
+    @pytest.mark.parametrize("action", ["apply", "discard"])
+    def test_stale_job_id_cannot_consume_a_newer_result(
+        self, client: TestClient, app: FastAPI, config_dir: Path, action: str
+    ):
+        _complete_job_demo(client, app, answer=31.5)
+        previous = _current_job(client)
+        assert previous is not None
+        _complete_job_demo(client, app, answer=62.5)
+        current = _current_job(client)
+        assert current is not None
+        assert current["id"] != previous["id"]
+        machine_file = config_dir / "machine.toml"
+        original = machine_file.read_bytes()
+
+        response = client.post(
+            f"/api/jobs/last/{action}", json={"expected_job_id": previous["id"]}
+        )
+
+        assert response.status_code == 409, response.text
+        assert "ジョブが切り替わりました" in response.json()["detail"]
+        assert machine_file.read_bytes() == original
+        assert _current_job(client) == current
+
+        with client.websocket_connect("/api/ws") as ws:
+            response = client.post(
+                f"/api/jobs/last/{action}", json={"expected_job_id": current["id"]}
+            )
+            assert response.status_code == 200, response.text
+            event, _ = _receive_until(
+                ws,
+                lambda m: m["type"] == "job_status"
+                and m["job"]["id"] == current["id"]
+                and not m["job"]["apply_available"],
+            )
+            assert event["job"]["status"] == "succeeded"
+
+        if action == "apply":
+            assert response.json()["applied"] == {
+                "paste_dispenser.pad_align.canny_low": 62.5
+            }
+        else:
+            assert machine_file.read_bytes() == original
+            assert (
+                client.post(
+                    "/api/jobs/last/discard", json={"expected_job_id": current["id"]}
+                ).status_code
+                == 200
+            )
+
+    @pytest.mark.parametrize("action", ["apply", "discard"])
+    def test_scoped_action_after_restart_does_not_target_missing_job(
+        self, client: TestClient, action: str
+    ):
+        response = client.post(
+            f"/api/jobs/last/{action}", json={"expected_job_id": "before-restart"}
+        )
+        assert response.status_code == 409
+
     def test_apply_writes_machine_toml_preserving_comments(
         self, client: TestClient, app: FastAPI, config_dir: Path
     ):

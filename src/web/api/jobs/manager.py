@@ -612,31 +612,43 @@ class JobManager:
 
     # --- Apply / Discard ---
 
-    def apply_payload(self) -> ApplyPayload:
+    def apply_payload(self, *, expected_job_id: str | None = None) -> ApplyPayload:
         """直近 SUCCEEDED ジョブの設定反映ペイロードを返す.
 
         Raises:
-            LookupError: 直近ジョブ無し / SUCCEEDED でない / payload 無し /
+            LookupError: 対象ジョブ不一致 / 直近ジョブ無し / SUCCEEDED でない / payload 無し /
                 適用・破棄済みの場合（→ 409）
         """
         with self._lock:
             record = self._record
+        if expected_job_id is not None and (
+            record is None or record.id != expected_job_id
+        ):
+            raise LookupError("ジョブが切り替わりました。現在の結果を確認してください")
         if record is None or not record.apply_available:
             raise LookupError("設定に反映可能な計測結果がありません")
         result = record.result
         assert result is not None and result.apply is not None
         return result.apply
 
-    def mark_applied(self) -> None:
+    def mark_applied(self, *, expected_job_id: str | None = None) -> None:
         """書込成功後にルーターが呼ぶ（以後 apply_payload は LookupError）."""
         with self._lock:
             record = self._record
-        if record is not None:
+            if expected_job_id is not None and (
+                record is None or record.id != expected_job_id
+            ):
+                raise LookupError(
+                    "ジョブが切り替わりました。現在の結果を確認してください"
+                )
+            if record is None:
+                return
             record.consume_apply()
+        self.publish({"type": "job_status", "job_id": record.id})
 
-    def discard(self) -> None:
+    def discard(self, *, expected_job_id: str | None = None) -> None:
         """設定反映ペイロードを無効化する（冪等）."""
-        self.mark_applied()
+        self.mark_applied(expected_job_id=expected_job_id)
 
     # --- イベント購読（async 側から呼ぶ）---
 
