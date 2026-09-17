@@ -687,6 +687,55 @@ class TestMachineSelectorRefresh:
     「サーバの label で組み替わる」「current のマシンが選択される」を通しで見る。
     """
 
+    def test_picker_stays_unselected_and_opens_the_first_machine_with_keyboard(
+        self, selector_ui: tuple[str, MachineRegistry], browser_page
+    ):
+        origin, _ = selector_ui
+        with browser_page.expect_response(
+            lambda response: "/api/machines?" in response.url
+        ):
+            browser_page.goto(f"{origin}/pasting/loading")
+        select = browser_page.get_by_test_id("machine-select")
+        expect(select).to_have_value("")
+        expect(browser_page.get_by_test_id("estop")).to_have_count(0)
+
+        with browser_page.expect_response(
+            lambda response: "/api/machines?" in response.url
+        ):
+            browser_page.evaluate(
+                "document.dispatchEvent(new Event('visibilitychange'))"
+            )
+        expect(select).to_have_value("")
+        select.focus()
+        select.press("ArrowDown")
+
+        expect(browser_page).to_have_url(
+            f"{origin}/m/{_GHOST_MACHINE_ID}/pasting/loading"
+        )
+        expect(
+            browser_page.get_by_role("heading", name="マシンに接続できません")
+        ).to_be_visible()
+        # 対象が決まった画面は、接続エラー中も緊急停止の入口を残す。
+        expect(browser_page.get_by_test_id("estop")).to_be_visible()
+
+    def test_unregistered_frontend_has_no_unbound_machine_commands(
+        self, tmp_path: Path, browser_page
+    ):
+        app = create_ui_app(
+            _make_ui_settings((), machines_file=tmp_path / "absent.toml")
+        )
+        running = _start_app(app)
+        errors: list[str] = []
+        browser_page.on("pageerror", lambda error: errors.append(str(error)))
+        try:
+            browser_page.goto(f"http://127.0.0.1:{running.port}/")
+            for control in ("control-lease", "pcb-chip", "firmware-restart", "estop"):
+                expect(browser_page.get_by_test_id(control)).to_have_count(0)
+            expect(browser_page.get_by_test_id("update-badge")).to_have_count(1)
+            assert errors == []
+        finally:
+            running.stop()
+
     def test_options_are_rebuilt_from_the_server_labels(
         self,
         live_server: LiveServer,
@@ -706,7 +755,7 @@ class TestMachineSelectorRefresh:
         # 中継されて 404）。current の判定はサーバ側なのでクエリに載る
         assert fetched.value.url == f"{origin}/api/machines?current={_E2E_MACHINE_ID}"
 
-        options = browser_page.locator("#machine-select option")
+        options = browser_page.locator('#machine-select option:not([value=""])')
         expect(options).to_have_text(_machine_labels(origin, current=_E2E_MACHINE_ID))
         # 表示中のマシンが選択されている（登録順では 2 番目なので既定選択とは異なる）
         expect(browser_page.locator("#machine-select")).to_have_value(

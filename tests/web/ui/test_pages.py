@@ -1070,6 +1070,7 @@ class TestMachinePrefixedUrls:
         assert ui_settings.machines[0].label in response.text
         # 未知のマシンを base にするとタブが全部 404 になるので prefix は付けない
         assert 'href="/posctrl"' in response.text
+        assert 'data-testid="estop"' not in response.text
 
 
 class TestWithoutMachines:
@@ -1090,6 +1091,7 @@ class TestWithoutMachines:
         # 選ぶ先が無いのでドロップダウンは出さない
         assert 'data-testid="machine-select"' not in response.text
         assert settings_response.status_code == 200
+        assert 'data-testid="estop"' not in response.text
 
 
 class TestDefaultBackendPort:
@@ -1138,6 +1140,7 @@ class TestMultipleMachines:
         assert response.status_code == 200
         for machine in self._machines():
             assert machine.label in response.text
+        assert 'data-testid="estop"' not in response.text
 
     def test_picker_options_keep_the_requested_page(self, tmp_path: Path):
         """未 prefix のページで選ばせるときも遷移先はそのページ."""
