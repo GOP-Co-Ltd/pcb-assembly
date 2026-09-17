@@ -241,7 +241,14 @@ class TestPcbBrowseAllowed:
 class TestPcbUploadApi:
     """POST /api/pcb-file/upload — uploads/ へ保存しそのまま選択する."""
 
-    def test_upload_saves_and_selects(self, client: TestClient, pcb_root):
+    @pytest.mark.parametrize("existing", [False, True], ids=["new", "overwrite"])
+    def test_upload_saves_and_selects(
+        self, client: TestClient, pcb_root: Path, existing: bool
+    ):
+        saved = pcb_root / "uploads" / "board.kicad_pcb"
+        if existing:
+            saved.parent.mkdir()
+            saved.write_bytes(b"original board")
         response = client.post(
             "/api/pcb-file/upload",
             files={"file": ("board.kicad_pcb", b"(kicad_pcb)")},
@@ -249,7 +256,6 @@ class TestPcbUploadApi:
 
         assert response.status_code == 201
         assert response.json()["pcb_file"] == "uploads/board.kicad_pcb"
-        saved = pcb_root / "uploads" / "board.kicad_pcb"
         assert saved.read_bytes() == b"(kicad_pcb)"
         # アップロード先はファイルブラウザからも見える
         listing = client.get("/api/files", params={"path": "uploads"}).json()
@@ -275,9 +281,15 @@ class TestPcbUploadApi:
 
         assert response.status_code == 400
 
-    def test_upload_while_busy_returns_409(
-        self, client: TestClient, appstate: AppState
+    @pytest.mark.parametrize("existing", [False, True], ids=["new", "overwrite"])
+    def test_upload_while_busy_preserves_files_and_selection(
+        self, client: TestClient, appstate: AppState, pcb_root: Path, existing: bool
     ):
+        destination = pcb_root / "uploads" / "board.kicad_pcb"
+        if existing:
+            destination.parent.mkdir()
+            destination.write_bytes(b"original board")
+        appstate.select_pcb(Path("boards/sample.kicad_pcb"))
         with appstate.machine_lock("pytest-job"):
             response = client.post(
                 "/api/pcb-file/upload",
@@ -285,3 +297,27 @@ class TestPcbUploadApi:
             )
 
         assert response.status_code == 409
+        assert appstate.selected_pcb == Path("boards/sample.kicad_pcb")
+        if existing:
+            assert destination.read_bytes() == b"original board"
+        else:
+            assert not destination.parent.exists()
+
+    def test_upload_does_not_follow_a_link_outside_allowed_subtrees(
+        self, slash_root_client: TestClient, pcb_root: Path
+    ):
+        protected = pcb_root.parent / "outside.kicad_pcb"
+        before = protected.read_bytes()
+        destination = pcb_root / "uploads" / "linked.kicad_pcb"
+        destination.parent.mkdir()
+        destination.symlink_to(protected)
+
+        response = slash_root_client.post(
+            "/api/pcb-file/upload",
+            files={"file": (destination.name, b"replacement board")},
+        )
+
+        assert response.status_code == 400
+        assert protected.read_bytes() == before
+        assert destination.is_symlink()
+        assert slash_root_client.get("/api/state").json()["pcb_file"] is None

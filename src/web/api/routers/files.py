@@ -170,9 +170,10 @@ async def upload_pcb_file(
             status_code=400,
             detail=f"アップロード先が公開範囲外です: {upload_dir}",
         )
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    destination = upload_dir / filename
-    destination.write_bytes(await file.read())
-    state.select_pcb(destination.relative_to(root))
+    # 保存先のファイル自体が公開範囲外への symlink の場合も、書き込み前に拒否する。
+    destination = _resolve_browsable(
+        settings, (upload_dir / filename).relative_to(root).as_posix()
+    )
+    state.select_pcb(destination.relative_to(root), content=await file.read())
     jobs.publish_state_changed()
     return build_state_response(state, settings, preview, jobs, control, identity)

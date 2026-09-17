@@ -53,16 +53,28 @@ def state(webui_settings: Settings, store: ConfigStore) -> AppState:
 class TestPcbSelection:
     """PCB ファイル選択（pcb_browse_root からの相対パス）."""
 
+    @pytest.mark.parametrize(
+        "content", [None, b"(kicad_pcb)"], ids=["select", "upload"]
+    )
     def test_select_pcb_stores_relative_path_and_persists(
-        self, state: AppState, webui_settings: Settings, store: ConfigStore
+        self,
+        state: AppState,
+        webui_settings: Settings,
+        store: ConfigStore,
+        content: bytes | None,
     ):
-        state.select_pcb(Path("boards/sample.kicad_pcb"))
+        path = Path(
+            "boards/sample.kicad_pcb" if content is None else "uploads/new.kicad_pcb"
+        )
+        state.select_pcb(path, content=content)
 
-        assert state.selected_pcb == Path("boards/sample.kicad_pcb")
+        assert state.selected_pcb == path
+        if content is not None:
+            assert (webui_settings.pcb_browse_root / path).read_bytes() == content
         assert (webui_settings.webui_data_dir / "webui_state.json").exists()
         assert not (webui_settings.data_dir / "webui_state.json").exists()
         restored = AppState(webui_settings, store)
-        assert restored.selected_pcb == Path("boards/sample.kicad_pcb")
+        assert restored.selected_pcb == path
 
     def test_corrupted_state_file_falls_back_to_default(
         self, webui_settings: Settings, store: ConfigStore
@@ -89,17 +101,42 @@ class TestPcbSelection:
 
         assert state.selected_pcb == Path("boards/sample.kicad_pcb")
 
-    def test_select_pcb_outside_root_raises_value_error(self, state: AppState):
+    @pytest.mark.parametrize("content", [None, b"(kicad_pcb)"])
+    def test_select_pcb_outside_root_raises_value_error(
+        self, state: AppState, content: bytes | None
+    ):
         with pytest.raises(ValueError):
-            state.select_pcb(Path("../outside.kicad_pcb"))
+            state.select_pcb(Path("../outside.kicad_pcb"), content=content)
 
-    def test_select_pcb_with_wrong_extension_raises_value_error(self, state: AppState):
+    @pytest.mark.parametrize("content", [None, b"(kicad_pcb)"])
+    def test_select_pcb_with_wrong_extension_raises_value_error(
+        self, state: AppState, content: bytes | None
+    ):
         with pytest.raises(ValueError):
-            state.select_pcb(Path("boards/notes.txt"))
+            state.select_pcb(Path("boards/notes.txt"), content=content)
 
     def test_select_missing_pcb_raises_value_error(self, state: AppState):
         with pytest.raises(ValueError):
             state.select_pcb(Path("boards/ghost.kicad_pcb"))
+
+    def test_failed_upload_preserves_selection_and_releases_the_lock(
+        self, state: AppState, pcb_root: Path
+    ):
+        selected = Path("boards/sample.kicad_pcb")
+        state.select_pcb(selected)
+        occupied = pcb_root / "occupied.kicad_pcb"
+        occupied.mkdir()
+        child = occupied / "keep.txt"
+        child.write_bytes(b"keep")
+
+        with pytest.raises(OSError):
+            state.select_pcb(Path(occupied.name), content=b"replacement")
+
+        assert state.selected_pcb == selected
+        assert child.read_bytes() == b"keep"
+        assert not list(pcb_root.glob(".occupied.kicad_pcb.*.tmp"))
+        with state.machine_lock("after-failed-upload"):
+            pass
 
 
 class TestJobParamDefaults:
