@@ -1,13 +1,12 @@
 """`make api-fake` / `make ui-fake` の隔離契約テスト.
 
-fake 起動は camera と data_dir だけが fake で、``config_dir`` は実機のものを読む。
-mDNS を切らずに起動すると**実機と同じ machine_id が実 LAN に広告される**（frontend の
-マージは同一 machine_id なら先に発見した方を残すため、ドロップダウンの実機エントリが
-fake backend の port を指しうる）。この性質を守っているのは Makefile のレシピにある
-env 1 行だけなので、レシピを読んでピンする。
+fake 起動でも backend の machine_id はホスト名と同じになる。 mDNS を切らずに起動すると**実機と同じ
+machine_id が実 LAN に広告される**（frontend の マージは同一 machine_id
+なら先に発見した方を残すため、ドロップダウンの実機エントリが fake backend の port を指しうる）。この性質を守っているのは
+Makefile のレシピにある env 1 行だけなので、レシピを読んでピンする。
 
-`tests/test_claude_hooks.py` と同じくミラーレイアウト外のトップレベルテスト
-（`src/` に対応物が無い成果物のため）。
+`tests/test_claude_hooks.py` と同じくミラーレイアウト外のトップレベルテスト （`src/`
+に対応物が無い成果物のため）。
 """
 
 from __future__ import annotations

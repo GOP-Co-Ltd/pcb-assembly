@@ -112,28 +112,32 @@ mDNS の検証はランダムなサービス型とループバックだけを使
 ## 実機設定を使わずに画面を確認する
 
 自動確認はまず `make test-e2e` を使う。手動でブラウザを開く場合は、
-テスト用設定を複製して backend を起動する。
+`make api-fake` と `make ui-fake` を使う。初回起動時にテスト用設定が複製される。
 
 ```sh
-PCBASM_DEV_DIR="$(mktemp -d /tmp/pcbasm-dev.XXXXXX)"
-cp -a data/testing/config "$PCBASM_DEV_DIR/config"
-PCBASM_CONFIG_DIR="$PCBASM_DEV_DIR/config" \
-PCBASM_API_DATA_DIR="$PCBASM_DEV_DIR/data" \
-PCBASM_API_UPDATE_ENABLED=0 \
 make api-fake
 ```
 
 別ターミナルで frontend を起動し、`http://127.0.0.1:8098` を開く。
 
 ```sh
-PCBASM_UI_UPDATE_ENABLED=0 make ui-fake
+make ui-fake
 ```
 
-両プロセスを `Ctrl-C` で終了する。設定と成果物は一時ディレクトリに残る。
+両プロセスを `Ctrl-C` で終了する。設定は `/tmp/pcbasm-webui-fake/config`、
+ジョブの状態と成果物は `/tmp/pcbasm-webui-fake` 配下に残り、再起動しても維持される。
+両方の起動で mDNS とソフトウェア更新は無効になる。
+
+別の作業用データで始める場合は、`PCBASM_API_DATA_DIR` を新しいディレクトリへ向ける。
+設定はその配下の `config/` に複製される。`PCBASM_CONFIG_DIR` を明示した場合は
+その設定を使うため、実機の設定ディレクトリを指定しない。
+
+```sh
+PCBASM_API_DATA_DIR="$(mktemp -d /tmp/pcbasm-dev.XXXXXX)" make api-fake
+```
+
 `api-fake` が置き換えるのはカメラだけであり、ステージのシミュレーターではない。
 テスト設定は Klipper の非運用ポート 7126 を使うため、装置を使うジョブは成功しない。
-`make api-fake` 単体では実機の `config/` を読むので、設定編集の確認には上記の
-`PCBASM_CONFIG_DIR` の指定が必要。
 
 ## 実装の責務
 
