@@ -21,20 +21,30 @@ Klipper 不通（テスト config は port 7126 = 非リッスン）でも実行
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Iterator
+from pathlib import Path
+from threading import Event
 from typing import Any
 
 import httpx
 import pytest
 from playwright.sync_api import expect
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from tests.e2e.conftest import (
+    E2E_MACHINE_ID,
     LiveServer,
     LiveUi,
     acquire_control as _acquire_control,
+    make_ui_settings,
     select_led_blinker as _select_led_blinker,
     session_headers as _session_headers,
+    start_app,
 )
 from tests.helpers import wait_until
+from web.ui.app import create_app
+from web.ui.machines import MachineEndpoint
 
 _HTTP_TIMEOUT = 10.0
 _BROWSER_TIMEOUT_MS = 10_000
@@ -45,14 +55,54 @@ _PROMPT_JOB = "height_plane"
 _PROMPT_PAGE = "pasting/height_plane"
 
 
-# WS を開かないブラウザにする注入スクリプト。job_console.js は WS の open で操作権を
-# 取り直すため（更新源 b と同じ経路）、更新源 (a) ロード時の `GET /api/state` と
-# (c) 423 の `onDenied` を単独で観測するには WS を黙らせる必要がある。
-_NO_WEBSOCKET_SCRIPT = """
-window.WebSocket = function () {
-  return { addEventListener() {}, removeEventListener() {}, send() {}, close() {} };
-};
-"""
+class _HttpOnlyTransport:
+    """実 frontend の WS 接続を拒否し、状態の HTTP 応答を明示的に再開できる。"""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+        self._state_received = Event()
+        self._state_release = Event()
+
+    def wait_state_request(self) -> bool:
+        return self._state_received.wait(timeout=10)
+
+    def resume_state(self) -> None:
+        self._state_release.set()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "websocket":
+            # accept 前に拒否するので、ブラウザの open は発火しない。
+            await send({"type": "websocket.close", "code": 1008})
+            return
+        if scope["type"] == "http" and scope["path"].endswith("/api/state"):
+            self._state_received.set()
+            await asyncio.to_thread(self._state_release.wait, 10)
+        await self._app(scope, receive, send)
+
+
+@pytest.fixture
+def http_only_ui(
+    live_server: LiveServer, tmp_path: Path
+) -> Iterator[tuple[LiveUi, _HttpOnlyTransport]]:
+    endpoint = MachineEndpoint(
+        machine_id=E2E_MACHINE_ID, host="127.0.0.1", port=live_server.port
+    )
+    transport = _HttpOnlyTransport(
+        create_app(
+            make_ui_settings((endpoint,), machines_file=tmp_path / "absent.toml")
+        )
+    )
+    server = start_app(transport)
+    try:
+        yield (
+            LiveUi(
+                origin=f"http://127.0.0.1:{server.port}", machine_ids=(E2E_MACHINE_ID,)
+            ),
+            transport,
+        )
+    finally:
+        transport.resume_state()
+        server.stop()
 
 
 def _open(page: Any, live_ui: LiveUi) -> None:
@@ -65,9 +115,8 @@ def _open(page: Any, live_ui: LiveUi) -> None:
     page.evaluate("() => window.webui.control.refresh()")
 
 
-def _open_without_websocket(page: Any, live_ui: LiveUi) -> None:
-    """WS を開かないブラウザでページを開く（control.js の公開 API が生えるまで待つ）."""
-    page.add_init_script(_NO_WEBSOCKET_SCRIPT)
+def _open_http_only(page: Any, live_ui: LiveUi) -> None:
+    """HTTP だけが使える frontend で control.js の初期化を待つ（状態の応答は待たない）."""
     page.goto(f"{live_ui.base_url}/{_PROMPT_PAGE}", wait_until="domcontentloaded")
     page.wait_for_function(
         "() => window.webui?.control !== undefined", timeout=_BROWSER_TIMEOUT_MS
@@ -150,29 +199,30 @@ class TestTwoBrowsersOnOneMachine:
         assert _is_inert(viewer, "#jc-prompt-field")
 
     def test_gated_controls_are_inert_before_the_server_answers(
-        self, live_server: LiveServer, live_ui: LiveUi, browser_pages
+        self, live_server: LiveServer, http_only_ui, browser_pages
     ):
         """状態が届く前は塞ぐ（fail-closed）.
 
         SSR の `data-control="viewer"` だけでは `inert` は付かない（付けるのは
         control.js の初期描画）。初期値が `held` だと応答が届くまでの間は操作できて
         しまい、既に他の端末が持っている操作へ割り込める。`GET /api/state` を
-        宙吊りにして、その窓を固定して観測する（abort すると `unknown` 分岐に
-        落ちてしまうので、応答しないハンドラで止める）。
+        実 frontend の手前で保留し、その窓を固定して観測する。再開後は実 backend の
+        空き状態が届くことも確認し、未完了リクエストを残さない。
         """
         _select_led_blinker(live_server)
+        _release_control(live_server)
+        ui, transport = http_only_ui
         page = browser_pages()
-        page.route("**/api/state", lambda route: None)
-        page.goto(f"{live_ui.base_url}/{_PROMPT_PAGE}", wait_until="domcontentloaded")
-        # control.js は render()（= inert 付与）を済ませてから公開 API を生やす
-        page.wait_for_function(
-            "() => window.webui?.control !== undefined", timeout=_BROWSER_TIMEOUT_MS
-        )
+        _open_http_only(page, ui)
+        assert transport.wait_state_request()
 
         assert page.evaluate("() => document.body.dataset.control") == "viewer"
         assert _is_inert(page, "#firmware-restart")
         assert _is_inert(page, "#machine-control")
         assert not _is_inert(page, "#estop")
+
+        transport.resume_state()
+        _wait_control(page, "free")
 
     def test_viewer_click_on_a_gated_control_reaches_nothing(
         self, live_server: LiveServer, live_ui: LiveUi, browser_pages
@@ -241,7 +291,7 @@ class TestTwoBrowsersOnOneMachine:
         )
 
     def test_load_fetches_the_lease_state_without_the_websocket(
-        self, live_server: LiveServer, live_ui: LiveUi, browser_pages
+        self, live_server: LiveServer, http_only_ui, browser_pages
     ):
         """更新源 (a): ロード時の `GET /api/state` だけで状態がサーバ由来になる.
 
@@ -255,12 +305,14 @@ class TestTwoBrowsersOnOneMachine:
         _release_control(live_server)
         page = browser_pages()
 
-        _open_without_websocket(page, live_ui)
+        ui, transport = http_only_ui
+        transport.resume_state()
+        _open_http_only(page, ui)
 
         _wait_control(page, "free")
 
     def test_denied_write_drops_the_page_to_viewer(
-        self, live_server: LiveServer, live_ui: LiveUi, browser_pages
+        self, live_server: LiveServer, http_only_ui, browser_pages
     ):
         """更新源 (c): `api()` の 423 で `onDenied` が保持者表示を畳む.
 
@@ -271,7 +323,9 @@ class TestTwoBrowsersOnOneMachine:
         """
         _select_led_blinker(live_server)
         page = browser_pages()
-        _open_without_websocket(page, live_ui)
+        ui, transport = http_only_ui
+        transport.resume_state()
+        _open_http_only(page, ui)
         _acquire_control(page)
         # WS が黙っているので control_changed が届かない = ページは held のまま残る
         assert (
