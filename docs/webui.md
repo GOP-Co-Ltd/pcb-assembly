@@ -1,0 +1,194 @@
+# WebUI の使い方
+
+[ドキュメント一覧](../README.md)
+
+装置をブラウザから操作するUI。**backend WebAPI（`src/web/api/`）と UI frontend
+（`src/web/ui/`）の 2 プロセス**に分かれる。
+
+- **backend WebAPI** — 機体ごとに 1 つ。port 8081。カメラ・Klipper・ジョブ実行・
+    マシン設定（`config/`）・PCB ファイルの所有者
+- **UI frontend** — LAN に 1 つ。port 8080。ページを描き、`/m/{machine_id}/api/**` を
+    各 backend へ中継する。装置の状態を持たず `config/` も読まないので、機体でない
+    ホストでも動く
+
+同居機（frontend と backend が同じ Raspberry Pi）では 8080 = frontend / 8081 = backend
+に分ける。既存ブックマークの `:8080` はそのまま frontend に着地する。
+
+```sh
+make api      # backend WebAPI 起動
+make api-dev  # 開発用（auto-reload）
+make api-fake # fake camera + 隔離 data_dir（port 8099）
+
+make ui       # UI frontend 起動
+make ui-dev   # 開発用（auto-reload）
+make ui-fake  # api-fake（8099）を上流にした frontend（port 8098）
+```
+
+設定を編集しながら画面を確認する場合は、[開発用の隔離起動](../CONTRIBUTING.md#%E5%AE%9F%E6%A9%9F%E8%A8%AD%E5%AE%9A%E3%82%92%E4%BD%BF%E3%82%8F%E3%81%9A%E3%81%AB%E7%94%BB%E9%9D%A2%E3%82%92%E7%A2%BA%E8%AA%8D%E3%81%99%E3%82%8B)
+を使う。`api-fake` 単体ではカメラ以外の設定は実機と共通になる。
+
+## 基本の操作
+
+1. トップバーで対象のマシンを選ぶ。機体を切り替えると、その機体の状態と設定が表示される。
+2. 閲覧から変更操作へ進むときは操作権の「取得」を押す。他の人が操作している場合は
+    [操作権の扱い](#%E8%A4%87%E6%95%B0%E4%BA%BA%E3%81%A7%E5%90%8C%E6%99%82%E3%81%AB%E9%96%8B%E3%81%84%E3%81%9F%E3%81%A8%E3%81%8D%E6%93%8D%E4%BD%9C%E6%A8%A9) を確認する。
+3. トップバーの PCB ファイル名（未選択時は「PCB未選択」）から対象の `.kicad_pcb` を選ぶ。
+    ファイルは選択中の backend 機に置く。USB メモリもその機体に接続する。
+4. 上部のタブで作業分野、左の一覧で機能を選ぶ。パラメータを確認し、ジョブを実行する。
+5. 進捗・ログと画面に出る質問を確認する。入力待ちでは回答して続行し、終了後は成果物を確認する。
+
+| タブ       | 主な用途                                                             |
+| ---------- | -------------------------------------------------------------------- |
+| 位置合わせ | カメラプレビュー、カメラ校正、銅箔検出調整、基準点設定               |
+| はんだ塗布 | パッド設定と塗布、ローディング、高さ計測、吐出量校正、ノズル位置設定 |
+| 開発       | PCB の抽出・生成、Klipper ステータス、通知音、ソフトウェア更新       |
+| 部品実装   | 未実装                                                               |
+
+キャリブレーションやノズル位置は機体固有の値を使う。初回は画面の案内に沿って
+設定を整えてから塗布する。ジョブ中止は実行中の処理を中断する操作、緊急停止は
+装置を停止させる操作で、どちらも閲覧者から実行できる。
+
+## マシンの登録
+
+frontend が backend を知る経路は 2 つある。
+
+1. **mDNS 探索** — backend が `_pcbasm._tcp` を広告し、frontend が LAN を探索する。設定不要
+2. **静的登録** — `config/machines.toml`
+
+AP のマルチキャスト抑制などで探索できない環境では、frontend は WARNING を出して
+静的登録だけで続行する（起動は失敗しない）。**探索に頼れないネットワークでは
+`config/machines.toml` を書く。**
+
+```toml
+[[machine]]
+machine_id = "kurousagi"  # 必須。URL の /m/{machine_id} になる
+host = "kurousagi.local"  # 必須。ホスト名または IP
+port = 8081               # 省略時 8081
+name = "黒兎 1 号機"      # 省略可。画面の表示名
+machine_type = "paste"    # 省略可
+```
+
+**`machine_id` はその機体のホスト名（`hostname` の出力）に合わせる。** backend が名乗る ID は
+`socket.gethostname()` で決まり環境変数では変えられないので、ここがずれると探索が見つけた
+同じ backend が別マシン扱いになり一覧に 2 件出る（重複排除は `machine_id` だけで行う）。
+
+ファイルが無い場合は静的登録 0 台として起動する（探索で見つかった分だけが一覧に出る）。
+同じ `machine_id` を両方の経路が知っている場合は静的登録の `host` / `port` を優先し、
+静的側が持たない `name` / `machine_type` だけ探索側で埋める。
+
+`machines.toml` を読むのは frontend の起動時の 1 回だけなので、**編集したら frontend を
+再起動する**（実行中に更新されるのは mDNS 探索の分だけ）。`scripts/setup-machine-config.sh` が案内する
+`mv config config.bak.<ts>` で `config/` を作り直すと `machines.toml` も一緒に退避され、
+不在はエラーにならず静的登録 0 台になる（退避先から戻す）。
+
+mDNS には生存判定が無く、電源を切った機体は最大 75 分ほど一覧に残る。到達できない
+マシンを選ぶと 503 ページになる。
+
+## PCB ファイルは backend 機に置く
+
+ファイルブラウザとアップロードが見るのは **backend プロセスのローカル FS**
+（frontend は中継するだけで、frontend 機のファイルは見えない）。**USB メモリは
+その機体の Raspberry Pi に挿す。** 閲覧を許すのはリポジトリ直下・`/media`・`/mnt`
+（`src/web/api/settings.py` の `pcb_browse_allowed`）。
+
+## 通知音
+
+**backend 機**の Raspberry Pi に接続したスピーカーから通知音を再生する（音を鳴らすのは
+backend プロセス。ブラウザからは鳴らさない）。鳴る場面は 3 つ。
+
+| 音         | 鳴る場面                                             |
+| ---------- | ---------------------------------------------------- |
+| 成功音     | 装置を動かすジョブが成功した                         |
+| 失敗音     | 装置を動かすジョブが失敗した（手動中止は鳴らさない） |
+| 入力待ち音 | ジョブがオペレータの応答・操作を待ちに入った         |
+
+完了音は装置を動かすジョブ（`JobDefinition.uses_machine`）だけが対象。PCB 生成や再フィット
+のような即終了ジョブは画面表示で足りるので鳴らさない。入力待ち音はジョブ種別を問わず、
+プロンプト表示のたびと、手動ペーストローディング・吐出量キャリブレーションのメニューのように
+ボタン操作を待ちに入るたびに鳴る。
+
+開発タブの `/dev/audio` で出力デバイス・音量を選び、テスト再生で確認できる。設定は
+`config/machine.toml` の `[audio]` に保存される（未設定時は ALSA のシステム既定デバイス・音量 75%）。
+テスト再生は機体のスピーカーが実際に鳴るので操作権を要する。
+
+音声ファイルを差し替える場合は `src/pcbasm/hal/sounds/` の `success.wav` / `failure.wav` /
+`prompt.wav` を**非圧縮 16-bit PCM WAV** で同名のまま上書きする（git-lfs 追跡下）。差し替え後は
+`/dev/audio` のテスト再生で確認する。
+
+## 複数人で同時に開いたとき（操作権）
+
+変更操作は「操作権」を持つ 1 セッションだけに許す。閲覧は誰でも自由。
+
+- **緊急停止とジョブ中止（abort）は操作権に関係なく常に誰でも実行できる。** 安全機能
+    なのでゲートしない
+- 空いていれば取得、他の人が保持していれば**奪取**できる（詰み防止）。保持者の
+    WebSocket が切れて 30 秒、または無操作 10 分（ジョブ実行中は除く）で自動解放
+- **これは認証ではなく自己申告**。セッション ID は frontend が発行する cookie で、
+    LAN 上の誰でも他人の ID と表示名を騙れる。防ぐのは「複数人が同時に指示を出す事故」
+    であって、権限分離ではない
+- **1 ブラウザプロファイル = 1 人**。cookie 単位なので、共有キオスク端末の同じ
+    ブラウザで開いた 2 人は同一セッション扱いになり、分けられない
+
+## 公開範囲（無認証であることの注意）
+
+**WebUI に認証は無い。** 待ち受けは既定で `0.0.0.0` なので、LAN から届く誰でも装置を
+動かせる（ステージ移動・ペースト吐出・ジョブ実行）。ファイルブラウザからは backend 機の
+`/media` / `/mnt` が読める。信頼できない範囲に晒す場合はファイアウォールか前段の
+リバースプロキシで認証をかける。
+
+## 環境変数
+
+backend（正典は `src/web/api/settings.py` の `Settings.from_env`）:
+
+- `PCBASM_API_PORT` — 待ち受けポート（既定 8081）
+- `PCBASM_API_DATA_DIR` — 成果物・状態ファイルの保存先
+- `PCBASM_API_PCB_ROOT` — ファイルブラウザの root（指定すると閲覧許可にも追加される）
+- `PCBASM_API_FAKE_CAMERA` — `1` でカメラ実機なしの固定画像配信
+- `PCBASM_API_FAKE_CAMERA_IMAGE` — その固定画像のパス
+- `PCBASM_API_DISCOVERY_ENABLED` — `0` で mDNS 広告を無効
+- `PCBASM_API_UPDATE_ENABLED` — `0` で WebUI からの更新を無効（実行系は 403）
+- `PCBASM_API_UPDATE_UV_SYNC_ARGS` — `uv sync` の引数を**丸ごと置き換える**（空白区切り。既定 `--locked --inexact`）。`--locked` を落とすと `uv.lock` が書き換わって以後の更新が全部止まるので、足すときも既定の 2 つは必ず残す
+- `PCBASM_API_UPDATE_STATE_DIR` — 更新の記録と単一実行ロックの置き場所（既定はリポジトリ直下の `data/selfupdate`。**`PCBASM_API_DATA_DIR` では動かない** — ロックが守るのは worktree なので、同居機の backend と frontend が必ず同じファイルを掴む）
+- `PCBASM_MAINSAIL_URL` — Mainsail へのリンク先
+- `PCBASM_CONFIG_DIR` — マシン設定ディレクトリ（既定 `config/`）の差し替え。pcbasm コア層と共通
+
+backend の待ち受けアドレスは環境変数では変えられない（`PCBASM_API_HOST` は無く、常に
+`0.0.0.0`）。特定アドレスに絞るならファイアウォールか前段のリバースプロキシで行う。
+
+frontend（正典は `src/web/ui/settings.py` の `Settings.from_env`）:
+
+- `PCBASM_UI_HOST` / `PCBASM_UI_PORT` — 待ち受け（既定 `0.0.0.0` / 8080）
+- `PCBASM_UI_MACHINES_FILE` — machines.toml のパス（既定 `config/machines.toml`）
+- `PCBASM_UI_DEFAULT_BACKEND_PORT` — machines.toml で `port` を省いたマシンに使う port（既定 8081）
+- `PCBASM_UI_DISCOVERY_ENABLED` — `0` で mDNS 探索を無効
+- `PCBASM_UI_UPDATE_ENABLED` — `0` で frontend 自身の更新を無効
+- `PCBASM_UI_UPDATE_UV_SYNC_ARGS` — `uv sync` の引数を**丸ごと置き換える**（空白区切り。既定の `--locked --inexact` は残すこと）
+- `PCBASM_UI_UPDATE_STATE_DIR` — 更新の記録と単一実行ロック（既定はリポジトリ直下の `data/selfupdate`。backend の既定と同じ場所）
+- `PCBASM_UI_SSR_TIMEOUT` / `PCBASM_UI_BACKEND_CONNECT_TIMEOUT` / `PCBASM_UI_PROXY_READ_TIMEOUT` — 秒
+
+frontend が `config/` から読むのは `machines.toml` **だけ**（機体設定の `machine.toml` は読まない）。
+そのため `PCBASM_CONFIG_DIR` は持たず、これを変えても `machines.toml` の場所は動かない
+（既定はリポジトリ直下の `config/machines.toml` 固定）。**場所を変えるノブは
+`PCBASM_UI_MACHINES_FILE`。**
+
+## 困ったとき
+
+| 症状                                        | 確認すること                                                                                                         |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| マシンが一覧に出ない                        | backend の起動、同じ LAN への接続、静的登録の `machine_id` / `host` / `port`。登録を編集したら frontend を再起動する |
+| マシンを選ぶと 503 になる                   | backend のサービスと到達先を確認する。mDNS の一覧には電源を切った機体が残ることがある                                |
+| ボタンが薄く、押せない                      | 操作権の表示を確認する。初回読込中・閲覧者・別ジョブの実行中では変更操作が制限される                                 |
+| PCB ファイルが見つからない                  | backend 機のファイルか、許可された場所かを確認する。frontend 機の USB は参照できない                                 |
+| `pcbnew` / `picamera2` の import が失敗する | OS パッケージと、システム Python の `--system-site-packages` 付き venv を確認する                                    |
+| 画像フィクスチャが読めない                  | clone 後に `git lfs pull` を実行したか確認する                                                                       |
+| ジョブが入力待ちのまま                      | 画面の質問や手動操作メニューを確認する。入力待ち音は backend 機のスピーカーから鳴る                                  |
+| 更新が拒否される                            | 未コミット変更・未 push commit・ブランチの分岐を確認し、[運用ガイド](operations.md) の更新条件とログを読む           |
+
+常駐サービスのログは `journalctl -u pcbasm-api -n 200` /
+`journalctl -u pcbasm-ui -n 200` で確認できる。
+解決しない場合は [不具合報告に必要な情報](../CONTRIBUTING.md#%E4%B8%8D%E5%85%B7%E5%90%88%E3%82%92%E5%A0%B1%E5%91%8A%E3%81%99%E3%82%8B) を添える。
+
+## 関連ガイド
+
+- [常駐起動・ソフトウェア更新・復旧](operations.md)
+- [開発と E2E 検証](../CONTRIBUTING.md)
