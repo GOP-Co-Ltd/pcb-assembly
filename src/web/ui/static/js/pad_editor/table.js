@@ -15,6 +15,14 @@ import { choiceLabels, fieldLabel, round4 } from "./model.js";
 const { toast } = window.webui;
 
 export function renderTable(tableBody, state, actions) {
+  const active =
+    tableBody.dataset.pcbFile === state.config.pcb_file &&
+    tableBody.contains(document.activeElement)
+      ? document.activeElement
+      : null;
+  const focusId = active?.id;
+  const fallbackId = active?.dataset.focusFallback;
+  tableBody.dataset.pcbFile = state.config.pcb_file;
   renderHeader(tableBody, state.config.fields);
   tableBody.replaceChildren();
   state.rowEls.clear();
@@ -24,6 +32,24 @@ export function renderTable(tableBody, state, actions) {
       el.disabled = true;
     }
   }
+  let focused = focusId ? document.getElementById(focusId) : null;
+  if (!focused || focused.disabled || focused.hidden) {
+    focused = fallbackId ? document.getElementById(fallbackId) : null;
+  }
+  focused?.focus({ preventScroll: true });
+}
+
+function nodeControlId(nodeId, kind, field = "") {
+  const prefix = `pad-${kind}-${encodeURIComponent(nodeId)}`;
+  return field ? `${prefix}-${field}` : prefix;
+}
+
+function identifyFieldControl(control, nodeId, field) {
+  control.id = nodeControlId(nodeId, control.tagName.toLowerCase(), field);
+  control.setAttribute(
+    "aria-labelledby",
+    `${nodeControlId(nodeId, "label")} pad-heading-${field}`
+  );
 }
 
 // 列見出しは API の fields（列順・ラベル）から描く。先頭 2 列（ノード・有効）は
@@ -34,6 +60,8 @@ function renderHeader(tableBody, fields) {
   for (const th of headerRow.querySelectorAll("th.pad-col-field")) th.remove();
   for (const field of fields) {
     const th = document.createElement("th");
+    th.id = `pad-heading-${field.name}`;
+    th.scope = "col";
     th.className = "pad-col-field";
     th.dataset.field = field.name;
     th.textContent = field.unit ? `${field.label} [${field.unit}]` : field.label;
@@ -78,6 +106,10 @@ function buildRow(state, actions, node, depth) {
   if (node.children.length > 0) {
     const toggle = document.createElement("button");
     toggle.type = "button";
+    toggle.id = nodeControlId(node.id, "toggle");
+    toggle.setAttribute("aria-labelledby", nodeControlId(node.id, "label"));
+    toggle.setAttribute("aria-expanded", String(state.expanded.has(node.id)));
+    toggle.title = "下位ノードの開閉";
     toggle.className = "pad-row-toggle";
     toggle.dataset.testid = "pad-tree-toggle";
     toggle.textContent = state.expanded.has(node.id) ? "▼" : "▶";
@@ -91,6 +123,7 @@ function buildRow(state, actions, node, depth) {
   }
 
   const label = document.createElement("span");
+  label.id = nodeControlId(node.id, "label");
   label.className = "pad-node-label";
   label.textContent = node.label;
   nameTd.appendChild(label);
@@ -106,6 +139,8 @@ function buildRow(state, actions, node, depth) {
   enTd.className = "pad-col-enabled";
   const cb = document.createElement("input");
   cb.type = "checkbox";
+  cb.id = nodeControlId(node.id, "enabled");
+  cb.setAttribute("aria-labelledby", `${label.id} pad-enabled-heading`);
   cb.dataset.testid = "pad-enabled-checkbox";
   cb.checked = enabled;
   cb.indeterminate =
@@ -116,6 +151,9 @@ function buildRow(state, actions, node, depth) {
   enTd.appendChild(cb);
   const inheritBtn = document.createElement("button");
   inheritBtn.type = "button";
+  inheritBtn.id = nodeControlId(node.id, "inherit-enabled");
+  inheritBtn.dataset.focusFallback = cb.id;
+  inheritBtn.setAttribute("aria-describedby", `${label.id} pad-enabled-heading`);
   inheritBtn.className = "pad-enabled-inherit";
   inheritBtn.dataset.testid = "pad-enabled-inherit";
   inheritBtn.textContent = "継承";
@@ -176,6 +214,7 @@ function buildChoiceCell(
   const descendantCount = descendantSummary.field_counts[field] || 0;
 
   const select = document.createElement("select");
+  identifyFieldControl(select, node.id, field);
   select.className = isOverride ? "pad-cell override" : "pad-cell inherited";
   select.dataset.field = field;
   select.dataset.nodeId = node.id;
@@ -200,7 +239,7 @@ function buildChoiceCell(
       );
     }
   });
-  appendOverrideControls(td, actions, node.id, field, isOverride);
+  appendOverrideControls(td, actions, node.id, field, isOverride, select.id);
   td.appendChild(select);
   appendDescendantFieldMarker(td, state, field, descendantCount);
   return td;
@@ -216,6 +255,7 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
   const descendantCount = descendantSummary.field_counts[field] || 0;
 
   const select = document.createElement("select");
+  identifyFieldControl(select, node.id, field);
   select.className = isOverride ? "pad-cell override" : "pad-cell inherited";
   select.dataset.field = field;
   select.dataset.nodeId = node.id;
@@ -237,6 +277,7 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
   );
 
   const input = document.createElement("input");
+  identifyFieldControl(input, node.id, field);
   input.type = "number";
   input.step = "any";
   input.className = isOverride ? "pad-cell override" : "pad-cell inherited";
@@ -274,7 +315,7 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
     }
   });
 
-  appendOverrideControls(td, actions, node.id, field, isOverride);
+  appendOverrideControls(td, actions, node.id, field, isOverride, select.id);
   td.appendChild(select);
   td.appendChild(input);
   appendDescendantFieldMarker(td, state, field, descendantCount);
@@ -291,6 +332,7 @@ function buildValueCell(state, actions, node, field, descendantSummary) {
   const descendantCount = descendantSummary.field_counts[field] || 0;
 
   const input = document.createElement("input");
+  identifyFieldControl(input, node.id, field);
   input.type = "number";
   input.step = "any";
   input.className = isOverride ? "pad-cell override" : "pad-cell inherited";
@@ -314,7 +356,7 @@ function buildValueCell(state, actions, node, field, descendantSummary) {
   });
   td.appendChild(input);
 
-  appendOverrideControls(td, actions, node.id, field, isOverride);
+  appendOverrideControls(td, actions, node.id, field, isOverride, input.id);
   appendDescendantFieldMarker(td, state, field, descendantCount);
   return td;
 }
@@ -327,7 +369,7 @@ function appendSelectOption(select, value, label, selected) {
   select.appendChild(option);
 }
 
-function appendOverrideControls(td, actions, nodeId, field, isOverride) {
+function appendOverrideControls(td, actions, nodeId, field, isOverride, controlId) {
   if (!isOverride) return;
   const marker = document.createElement("span");
   marker.className = "pad-override-marker";
@@ -337,6 +379,13 @@ function appendOverrideControls(td, actions, nodeId, field, isOverride) {
   td.appendChild(marker);
   const clearBtn = document.createElement("button");
   clearBtn.type = "button";
+  clearBtn.id = nodeControlId(nodeId, "clear", field);
+  clearBtn.dataset.focusFallback = controlId;
+  clearBtn.setAttribute("aria-label", "継承に戻す");
+  clearBtn.setAttribute(
+    "aria-describedby",
+    `${nodeControlId(nodeId, "label")} pad-heading-${field}`
+  );
   clearBtn.className = "pad-cell-clear";
   clearBtn.dataset.testid = "pad-clear-override";
   clearBtn.dataset.field = field;
