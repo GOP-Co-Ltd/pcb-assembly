@@ -101,9 +101,9 @@ class AppState:
                 destination = self._settings.pcb_browse_root.resolve() / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 write_bytes_atomic(destination, content)
-            self._selected_pcb = relative
             with self._persist_lock:
-                self._persist()
+                self._persist(relative, self._job_param_defaults)
+                self._selected_pcb = relative
 
     def machine(self) -> Machine:
         """Machine 設定を読み込んで返す（毎回ロード）."""
@@ -180,8 +180,9 @@ class AppState:
     ) -> dict[str, StoredJobParamValue]:
         """ジョブフォーム既定値へ ``values`` をマージして保存し、結果を返す.
 
-        ロック内で「現在値を読む → マージ → 永続化」を行うため、同時保存でも
-        先行の値が失われない。呼び出し側で読んでからマージし直す必要はない。
+        ロック内で「現在値を読む → マージ → 永続化 → 公開」を行うため、同時保存でも
+        先行の値が失われない。保存に失敗した変更は公開しない。
+        呼び出し側で読んでからマージし直す必要はない。
 
         Args:
             job_name: ジョブ名
@@ -192,8 +193,9 @@ class AppState:
         """
         with self._persist_lock:
             merged = {**self._job_param_defaults.get(job_name, {}), **values}
-            self._job_param_defaults[job_name] = merged
-            self._persist()
+            updated = {**self._job_param_defaults, job_name: merged}
+            self._persist(self._selected_pcb, updated)
+            self._job_param_defaults = updated
             return dict(merged)
 
     def frame_hub(self) -> FrameHub:
@@ -290,12 +292,16 @@ class AppState:
             return {}
         return data
 
-    def _persist(self) -> None:
-        """状態を JSON へ書き出す（呼び出し側が ``_persist_lock`` を保持する）."""
+    def _persist(
+        self,
+        selected_pcb: Path | None,
+        job_param_defaults: dict[str, dict[str, StoredJobParamValue]],
+    ) -> None:
+        """次の状態を保存する（呼び出し側が ``_persist_lock`` を保持し、成功後に公開）."""
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "pcb_file": (self._selected_pcb.as_posix() if self._selected_pcb else None),
-            "job_param_defaults": self._job_param_defaults,
+            "pcb_file": selected_pcb.as_posix() if selected_pcb else None,
+            "job_param_defaults": job_param_defaults,
         }
         write_text_atomic(
             self._state_path, json.dumps(data, ensure_ascii=False, indent=2)
