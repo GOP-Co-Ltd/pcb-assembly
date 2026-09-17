@@ -13,15 +13,11 @@ from tests.e2e.conftest import (
     LiveUi,
     acquire_control,
     make_api_settings,
-    make_ui_settings,
-    start_app,
 )
-from tests.e2e.network import DelayedHttp
+from tests.e2e.network import DelayedHttp, delayed_ui
 from tests.web.api.conftest import CHECKERBOARD_CAMERA_IMAGE
 from web.api.config_store import ConfigStore
 from web.api.settings import Settings
-from web.ui.app import create_app
-from web.ui.machines import MachineEndpoint
 
 
 @pytest.fixture
@@ -37,27 +33,13 @@ def e2e_settings(tmp_path: Path) -> Settings:
 def delayed_result_ui(
     live_server: LiveServer, tmp_path: Path
 ) -> Iterator[tuple[LiveUi, DelayedHttp]]:
-    endpoint = MachineEndpoint(
-        machine_id=E2E_MACHINE_ID, host="127.0.0.1", port=live_server.port
-    )
-    transport = DelayedHttp(
-        create_app(
-            make_ui_settings((endpoint,), machines_file=tmp_path / "absent.toml")
-        ),
+    with delayed_ui(
+        live_server,
+        tmp_path,
         method="POST",
         path_suffixes=("/api/jobs/last/apply", "/api/jobs/last/discard"),
-    )
-    server = start_app(transport)
-    try:
-        yield (
-            LiveUi(
-                origin=f"http://127.0.0.1:{server.port}", machine_ids=(E2E_MACHINE_ID,)
-            ),
-            transport,
-        )
-    finally:
-        transport.resume()
-        server.stop()
+    ) as pair:
+        yield pair
 
 
 def _calibrate(page, square_size: str) -> None:

@@ -635,25 +635,34 @@ import {
     }
   }
 
+  let routeRevision = 0;
+  let fillPathRevision = 0;
+
   function clearRoute() {
+    routeRevision += 1;
     state.route = null;
   }
 
   function clearFillPath() {
+    fillPathRevision += 1;
     state.fillPath = null;
   }
 
   async function calculateRoute() {
     if (!state.config || state.locked || state.routeLoading) return;
+    const revision = routeRevision;
     state.routeLoading = true;
     applyToolbarLock();
     try {
-      state.route = await api("POST", "/api/pasting/pad-config/route", {
+      const route = await api("POST", "/api/pasting/pad-config/route", {
         layer: state.layer,
       });
+      if (revision !== routeRevision) return;
+      state.route = route;
       renderViewer(svg, state.config, state);
       syncNodePadHighlights();
     } catch (err) {
+      if (revision !== routeRevision) return;
       clearRoute();
       renderViewer(svg, state.config, state);
       toast(`順路計算失敗: ${err.message}`, false);
@@ -665,15 +674,19 @@ import {
 
   async function calculateFillPath() {
     if (!state.config || state.locked || state.fillPathLoading) return;
+    const revision = fillPathRevision;
     state.fillPathLoading = true;
     applyToolbarLock();
     try {
-      state.fillPath = await api("POST", "/api/pasting/pad-config/fill-path", {
+      const fillPath = await api("POST", "/api/pasting/pad-config/fill-path", {
         layer: state.layer,
       });
+      if (revision !== fillPathRevision) return;
+      state.fillPath = fillPath;
       renderViewer(svg, state.config, state);
       syncNodePadHighlights();
     } catch (err) {
+      if (revision !== fillPathRevision) return;
       clearFillPath();
       renderViewer(svg, state.config, state);
       toast(`塗布パス計算失敗: ${err.message}`, false);

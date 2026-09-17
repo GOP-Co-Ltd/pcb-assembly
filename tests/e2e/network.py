@@ -1,9 +1,56 @@
 """実サーバー間の通信順序を制御する E2E 用 ASGI ラッパー。"""
 
+from __future__ import annotations
+
 import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
 from threading import Event
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from tests.e2e.conftest import (
+    E2E_MACHINE_ID,
+    LiveServer,
+    LiveUi,
+    make_ui_settings,
+    start_app,
+)
+from web.ui.app import create_app
+from web.ui.machines import MachineEndpoint
+
+
+@contextmanager
+def delayed_ui(
+    live_server: LiveServer,
+    root: Path,
+    *,
+    method: str,
+    path_suffixes: tuple[str, ...],
+    response: bool = False,
+) -> Iterator[tuple[LiveUi, DelayedHttp]]:
+    """隔離 frontend を起動し、終了時は保留中の要求を解放してから停止する。"""
+    endpoint = MachineEndpoint(
+        machine_id=E2E_MACHINE_ID, host="127.0.0.1", port=live_server.port
+    )
+    transport = DelayedHttp(
+        create_app(make_ui_settings((endpoint,), machines_file=root / "absent.toml")),
+        method=method,
+        path_suffixes=path_suffixes,
+        response=response,
+    )
+    server = start_app(transport)
+    try:
+        yield (
+            LiveUi(
+                origin=f"http://127.0.0.1:{server.port}", machine_ids=(E2E_MACHINE_ID,)
+            ),
+            transport,
+        )
+    finally:
+        transport.resume()
+        server.stop()
 
 
 class DelayedHttp:

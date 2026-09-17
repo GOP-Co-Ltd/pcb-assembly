@@ -8,46 +8,27 @@ import pytest
 from playwright.sync_api import expect
 
 from tests.e2e.conftest import (
-    E2E_MACHINE_ID,
     LiveServer,
     LiveUi,
     acquire_control,
     get_pad_config,
-    make_ui_settings,
     select_led_blinker,
-    start_app,
 )
-from tests.e2e.network import DelayedHttp
-from web.ui.app import create_app
-from web.ui.machines import MachineEndpoint
+from tests.e2e.network import DelayedHttp, delayed_ui
 
 
 @pytest.fixture
 def delayed_save_ui(
     live_server: LiveServer, tmp_path: Path
 ) -> Iterator[tuple[LiveUi, DelayedHttp]]:
-    endpoint = MachineEndpoint(
-        machine_id=E2E_MACHINE_ID, host="127.0.0.1", port=live_server.port
-    )
-    transport = DelayedHttp(
-        create_app(
-            make_ui_settings((endpoint,), machines_file=tmp_path / "absent.toml")
-        ),
+    with delayed_ui(
+        live_server,
+        tmp_path,
         method="PATCH",
         path_suffixes=("/api/pasting/pad-config/node",),
         response=True,
-    )
-    server = start_app(transport)
-    try:
-        yield (
-            LiveUi(
-                origin=f"http://127.0.0.1:{server.port}", machine_ids=(E2E_MACHINE_ID,)
-            ),
-            transport,
-        )
-    finally:
-        transport.resume()
-        server.stop()
+    ) as pair:
+        yield pair
 
 
 def _open_editor(live_server: LiveServer, live_ui: LiveUi, page):
