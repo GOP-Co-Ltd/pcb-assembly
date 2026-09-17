@@ -438,12 +438,27 @@ import {
     patchNode({ node: nodeId, enabled: null });
   }
 
-  async function patchNode(body, options = {}) {
+  let nodeWrites = Promise.resolve();
+
+  function patchNode(body, options = {}) {
+    // 明示的な保存・継承への復帰は、同じ欄の未送信の入力を置き換える。
+    for (const field of [...Object.keys(body.values || {}), ...(body.clear || [])]) {
+      const key = `${body.node}|${field}`;
+      clearTimeout(state.debounceTimers.get(key));
+      state.debounceTimers.delete(key);
+    }
+    const request = withExpectedPcb(body);
+    // 先に入力した値が、後から選んだ継承や別の値を追い越して保存されないようにする。
+    nodeWrites = nodeWrites.then(() => saveNode(request, options));
+    return nodeWrites;
+  }
+
+  async function saveNode(body, options) {
     try {
       const res = await api(
         "PATCH",
         "/api/pasting/pad-config/node",
-        withExpectedPcb(body)
+        body
       );
       applyPadVisuals(res.affected_pads);
       await reloadConfig({
