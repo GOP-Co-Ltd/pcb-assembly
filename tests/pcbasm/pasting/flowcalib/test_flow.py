@@ -118,49 +118,70 @@ class TestMassFlowEstimate:
         assert estimate.max_dispense_rate == round(calib.dispense_rate_for(0.5), 6)
         assert estimate.dispense_accel == round(calib.dispense_accel_for(0.7), 6)
 
-    def test_zero_rotations_nulls_rotation_derived_values(self):
-        estimate = MassFlowEstimate.estimate(
-            mass_mg=10.0, rotations=0.0, rate=0.5, accel=0.5, density_mg_per_ul=3.78
+    @pytest.mark.parametrize(
+        "value", [0.0, -1.0, float("nan"), float("inf"), -float("inf")]
+    )
+    @pytest.mark.parametrize(
+        ("field", "expected"),
+        [
+            ("mass_mg", MassFlowEstimate(None, None, None, None)),
+            ("density_mg_per_ul", MassFlowEstimate(None, None, None, None)),
+            ("rotations", MassFlowEstimate(2.0, None, None, None)),
+            ("rate", MassFlowEstimate(2.0, 8.0, None, 0.25)),
+            ("accel", MassFlowEstimate(2.0, 8.0, 1.0, None)),
+        ],
+    )
+    def test_unusable_input_nulls_only_dependent_values(self, field, value, expected):
+        inputs = dict(
+            mass_mg=8.0, rotations=16.0, rate=8.0, accel=2.0, density_mg_per_ul=4.0
         )
+        inputs[field] = value
 
-        assert estimate.volume_ul == pytest.approx(10.0 / 3.78)
-        assert estimate.rotations_per_ul is None
-        assert estimate.max_dispense_rate is None
-        assert estimate.dispense_accel is None
+        assert MassFlowEstimate.estimate(**inputs) == expected
 
     @pytest.mark.parametrize(
-        ("mass_mg", "density_mg_per_ul"),
-        [(0.0, 3.78), (10.0, 0.0), (-1.0, 3.78)],
+        ("overrides", "expected"),
+        [
+            pytest.param(
+                {"mass_mg": 1e308, "density_mg_per_ul": 1e-308},
+                MassFlowEstimate(None, None, None, None),
+                id="volume-overflow",
+            ),
+            pytest.param(
+                {"mass_mg": 1e-308, "density_mg_per_ul": 1e308},
+                MassFlowEstimate(None, None, None, None),
+                id="volume-underflow",
+            ),
+            pytest.param(
+                {"mass_mg": 1e-308},
+                MassFlowEstimate(None, None, None, None),
+                id="coefficient-overflow",
+            ),
+            pytest.param(
+                {"mass_mg": 1e308, "density_mg_per_ul": 1.0, "rotations": 1e-308},
+                MassFlowEstimate(1e308, None, None, None),
+                id="coefficient-underflow",
+            ),
+            pytest.param(
+                {"rotations": 1e-308},
+                MassFlowEstimate(2.0, None, None, None),
+                id="rate-and-accel-overflow",
+            ),
+            pytest.param(
+                {"rate": 1e-8, "accel": 1e-8},
+                MassFlowEstimate(2.0, 8.0, None, None),
+                id="rounding-would-yield-zero",
+            ),
+        ],
     )
-    def test_non_positive_mass_or_density_nulls_everything(
-        self, mass_mg, density_mg_per_ul
+    def test_unrepresentable_results_are_not_offered_for_application(
+        self, overrides, expected
     ):
-        estimate = MassFlowEstimate.estimate(
-            mass_mg=mass_mg,
-            rotations=5.0,
-            rate=0.5,
-            accel=0.5,
-            density_mg_per_ul=density_mg_per_ul,
+        inputs = dict(
+            mass_mg=8.0, rotations=16.0, rate=8.0, accel=2.0, density_mg_per_ul=4.0
         )
 
-        assert estimate == MassFlowEstimate(None, None, None, None)
-
-    def test_zero_rate_nulls_only_dispense_rate(self):
-        estimate = MassFlowEstimate.estimate(
-            mass_mg=10.0, rotations=5.0, rate=0.0, accel=0.5, density_mg_per_ul=3.78
-        )
-
-        assert estimate.rotations_per_ul == round(1.89, 6)
-        assert estimate.max_dispense_rate is None
-        assert estimate.dispense_accel == round(0.5 / 1.89, 6)
-
-    def test_zero_accel_nulls_only_dispense_accel(self):
-        estimate = MassFlowEstimate.estimate(
-            mass_mg=10.0, rotations=5.0, rate=0.5, accel=0.0, density_mg_per_ul=3.78
-        )
-
-        assert estimate.max_dispense_rate == round(0.5 / 1.89, 6)
-        assert estimate.dispense_accel is None
+        assert MassFlowEstimate.estimate(**(inputs | overrides)) == expected
 
 
 class TestSweepAmounts:
