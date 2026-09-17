@@ -104,9 +104,11 @@ def _start_completion_notice_job(live_ui: LiveUi, browser_page, job_name: str) -
 class TestCompletionNoticeOverBrowser:
     """実HTTP/WSを経由した終了通知バナーとタイトル。"""
 
+    @pytest.mark.parametrize("width", [1280, 390])
     def test_success_notice_persists_until_dismissed(
-        self, live_ui: LiveUi, browser_page
+        self, live_ui: LiveUi, browser_page, width: int
     ):
+        browser_page.set_viewport_size({"width": width, "height": 844})
         original_title = "はんだ塗布 — PCB Assembly WebUI"
         # 通知音は Raspberry Pi 本体で鳴らすので、ブラウザは wav を取得しない
         requested_urls: list[str] = []
@@ -121,6 +123,11 @@ class TestCompletionNoticeOverBrowser:
         )
         assert browser_page.title() == f"【成功】{original_title}"
         assert not any(".wav" in url for url in requested_urls)
+        # 終了通知が出ても、緊急停止を覆わない。
+        assert browser_page.get_by_test_id("estop").evaluate("""el => {
+            const box = el.getBoundingClientRect();
+            return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === el;
+        }""")
 
         browser_page.locator("#job-completion-dismiss").click()
         expect(notice).to_be_hidden()
