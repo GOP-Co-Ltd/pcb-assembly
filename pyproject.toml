@@ -1,7 +1,7 @@
 [project]
 name = "pcbasm"
 version = "0.1.0"
-description = "Add your description here"
+description = "Control, vision, calibration, and WebUI for PCB assembly machines"
 readme = "README.md"
 authors = [
     { name = "shimomura.yasuhiro", email = "shimomura.yasuhiro@gop.co.jp" }

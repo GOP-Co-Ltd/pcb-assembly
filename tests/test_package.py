@@ -3,20 +3,11 @@ from __future__ import annotations
 import subprocess
 import sys
 import tomllib
-from pathlib import Path
+
+import pytest
 
 import pcbasm
 from tests.helpers import PROJECT_ROOT
-
-
-def test_version() -> None:
-    with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
-        pyproject = tomllib.load(f)
-
-    assert pcbasm.__version__ == pyproject["project"]["version"]
-
-
-HEAVY_MODULES = "{'cv2', 'pcbnew', 'picamera2'}"
 
 
 def _imported_heavy_modules(target: str) -> str:
@@ -26,7 +17,7 @@ def _imported_heavy_modules(target: str) -> str:
     """
     code = (
         f"import sys; import {target}; "
-        f"print(sorted({HEAVY_MODULES} & set(sys.modules)))"
+        "print(sorted({'cv2', 'pcbnew', 'picamera2'} & set(sys.modules)))"
     )
     result = subprocess.run(
         [sys.executable, "-c", code],
@@ -38,23 +29,24 @@ def _imported_heavy_modules(target: str) -> str:
     return result.stdout.strip()
 
 
-class TestPastingImportLight:
-    """``import pcbasm.pasting`` が重い依存を eager import しない契約."""
+class TestPackageMetadata:
+    def test_version_matches_project_metadata(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
 
-    def test_heavy_modules_are_not_imported(self):
-        assert _imported_heavy_modules("pcbasm.pasting") == "[]"
+        assert pcbasm.__version__ == pyproject["project"]["version"]
 
 
-class TestSelfUpdateImportLight:
-    """``import web.selfupdate`` が装置ドメインの依存を引かない契約.
+class TestLightweightImports:
+    """軽量な入口と frontend は、画像・実機用ライブラリを eager import しない.
 
-    UI frontend 専用機には pcbnew（KiCAD）も picamera2 も入っていない。
-    更新モジュールがこれらを引くと、自分自身を更新できない機体が生まれる。
+    UI 専用ホストには pcbnew や picamera2 が無い。ページや自己更新の import に
+    これらが混入すると、機体以外のホストでは起動できなくなる。
     """
 
-    def test_heavy_modules_are_not_imported(self):
-        assert _imported_heavy_modules("web.selfupdate") == "[]"
-
-    def test_the_runner_alone_is_also_light(self):
-        """`web.selfupdate.runner` を直接 import する経路（router / update_api）も同じ."""
-        assert _imported_heavy_modules("web.selfupdate.runner") == "[]"
+    @pytest.mark.parametrize(
+        "target",
+        ("pcbasm.pasting", "web.selfupdate", "web.selfupdate.runner", "web.ui.app"),
+    )
+    def test_entry_points_do_not_import_machine_libraries(self, target: str):
+        assert _imported_heavy_modules(target) == "[]"
