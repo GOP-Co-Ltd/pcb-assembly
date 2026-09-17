@@ -361,6 +361,8 @@ async def _receive_loop(
             events.put_nowait({"type": "error", "detail": "不正な JSON です"})
             continue
         try:
+            if not isinstance(message, dict):
+                raise ValueError("メッセージには JSON オブジェクトが必要です")
             _dispatch(message, jobs, lease, identity)
         except (ValueError, LookupError, ControlDeniedError) as exc:
             events.put_nowait({"type": "error", "detail": str(exc)})

@@ -18,7 +18,7 @@
       <button id="jc-discard-btn" type="button">破棄</button>
     </div>
   </div>
-  <dialog id="jc-prompt" class="jc-prompt">
+  <dialog id="jc-prompt" class="jc-prompt" aria-labelledby="jc-prompt-message">
     <form id="jc-prompt-form" method="dialog">
       {# 本文は閲覧者にも見せる（何を待っているか分からないほうが悪い）。応答できるのは
          保持者だけなので、入力とボタンだけを操作権に紐づける。案内文（誰の応答待ちか /
@@ -30,7 +30,7 @@
         {# OK を先頭 submit にして Enter（暗黙送信）の既定ボタンにする。中止は明示 #}
         {# クリック時のみ。視覚順（中止=左 / OK=右）は CSS の order で保つ。 #}
         <button id="jc-prompt-ok" value="ok" type="submit">OK</button>
-        <button id="jc-prompt-no" value="no" type="submit" hidden>いいえ</button>
+        <button id="jc-prompt-no" value="no" type="submit" formnovalidate hidden>いいえ</button>
       </menu>
     </form>
   </dialog>

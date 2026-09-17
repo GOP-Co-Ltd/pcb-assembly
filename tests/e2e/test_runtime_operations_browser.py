@@ -16,14 +16,13 @@ from tests.e2e.conftest import (
     LiveServer,
     LiveUi,
     acquire_control,
+    configure_synthetic_job,
     make_ui_settings,
     start_app,
 )
 from tests.helpers import FakeAudioPlayer
 from web.api.app import create_app as create_api_app
-from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.context import JobContext
-from web.api.jobs.manager import JobManager
 from web.api.settings import Settings
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
@@ -47,22 +46,10 @@ def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
             if command["type"] == "finish":
                 return
 
-    catalog = JobCatalog()
-    for definition in app.state.catalog.list():
-        if definition.name == "dispense_calibration":
-            definition = attrs.evolve(definition, run=run, uses_machine=False)
-        catalog.register(definition)
+    configure_synthetic_job(app, "dispense_calibration", run)
+    catalog = app.state.catalog
     catalog.register(
         attrs.evolve(catalog.get("dispense_calibration"), name="other_calibration")
-    )
-    app.state.catalog = catalog
-    app.state.jobs = JobManager(
-        app.state.appstate,
-        app.state.preview,
-        catalog,
-        e2e_settings,
-        app.state.board_store,
-        audio_player=app.state.audio_player,
     )
     server = start_app(app)
     try:

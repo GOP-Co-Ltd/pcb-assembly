@@ -814,6 +814,18 @@ class TestApplyDiscard:
 class TestWebSocket:
     """WS /api/ws のイベント往復（受信駆動）."""
 
+    @pytest.mark.parametrize("message", [None, [], 42, "command"])
+    def test_non_object_message_returns_error_and_keeps_the_connection(
+        self, client: TestClient, message: object
+    ):
+        with client.websocket_connect("/api/ws") as ws:
+            ws.send_json(message)
+            error, _ = _receive_until(ws, lambda event: event["type"] == "error")
+            assert "JSON オブジェクト" in error["detail"]
+            ws.send_json({"type": "invalid-after-recovery"})
+            error, _ = _receive_until(ws, lambda event: event["type"] == "error")
+            assert "invalid-after-recovery" in error["detail"]
+
     def test_old_job_command_is_rejected_and_the_connection_still_accepts_current_job(
         self, client: TestClient, app: FastAPI
     ):

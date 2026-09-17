@@ -33,6 +33,7 @@ import attrs
 import httpx
 import pytest
 import uvicorn
+from fastapi import FastAPI
 from starlette.types import ASGIApp
 
 from tests.helpers import FakeAudioPlayer, copy_testing_config
@@ -40,6 +41,7 @@ from tests.web.api.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE
 from web.api.app import create_app
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext, JobResult
+from web.api.jobs.manager import JobManager
 from web.api.settings import Settings
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint
@@ -60,6 +62,31 @@ E2E_MACHINE_ID = "e2etest"
 
 # 実ブラウザを使う fixture。これを要求するテストへ browser マーカーを付ける
 _BROWSER_FIXTURES = frozenset({"browser_page", "browser_pages"})
+
+
+def configure_synthetic_job(
+    app: FastAPI, name: str, run: Callable[[JobContext], JobResult | None]
+) -> None:
+    """起動前の app に、既存フォーム定義を使う装置非使用の合成ジョブを構成する。
+
+    JobDefinition / JobManager の公開 API を使い、HTTP・WS・キューは実装を通す。
+    機械フロー自体を検証するテストには使わない。
+    """
+    synthetic = attrs.evolve(app.state.catalog.get(name), run=run, uses_machine=False)
+    catalog = JobCatalog()
+    for definition in app.state.catalog.list():
+        if definition.name == name:
+            definition = synthetic
+        catalog.register(definition)
+    app.state.catalog = catalog
+    app.state.jobs = JobManager(
+        app.state.appstate,
+        app.state.preview,
+        catalog,
+        app.state.settings,
+        app.state.board_store,
+        audio_player=app.state.audio_player,
+    )
 
 
 def _register_completion_notice_jobs(catalog: JobCatalog) -> None:

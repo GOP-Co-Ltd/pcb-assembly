@@ -310,6 +310,12 @@ class TestPrompt:
         [
             (PromptSpec(kind="confirm", message="続行?"), "yes"),
             (PromptSpec(kind="number", message="値?"), "abc"),
+            (PromptSpec(kind="number", message="値?"), float("nan")),
+            (PromptSpec(kind="number", message="値?"), float("inf")),
+            (PromptSpec(kind="number", message="値?"), float("-inf")),
+            pytest.param(
+                PromptSpec(kind="number", message="値?"), 10**1000, id="number-overflow"
+            ),
             # false_label 無しの number は中止（bool False）を受け付けない
             (PromptSpec(kind="number", message="値?"), False),
             (PromptSpec(kind="text", message="名前?"), 1.0),
