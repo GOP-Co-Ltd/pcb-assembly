@@ -121,6 +121,8 @@ import {
     render();
     // 銅箔は基板ごとに 1 回だけ取る（pad 編集では変わらず、点数が多い）
     if (state.copper?.pcb_file !== config.pcb_file) loadCopper(config.pcb_file);
+    // 塗布対象が変わるとタクトタイムの見積りも変わる
+    document.dispatchEvent(new CustomEvent("webui:pad-config-changed"));
   }
 
   async function loadCopper(pcbFile) {

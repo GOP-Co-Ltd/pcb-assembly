@@ -8,6 +8,7 @@ import logging
 import queue
 import shutil
 import threading
+import time
 import traceback
 import uuid
 from collections import deque
@@ -111,6 +112,9 @@ class JobRecord:
         self._log: deque[str] = deque(maxlen=log_capacity)
         self._progress_stage: str | None = None
         self._progress_percent: float | None = None
+        # 実測タクトタイム。開始で計り始め、finish で止める
+        self._started_at = time.monotonic()
+        self._finished_at: float | None = None
         self._pending_prompt: tuple[str, PromptSpec] | None = None
         self._apply_consumed = False
 
@@ -158,6 +162,13 @@ class JobRecord:
             return self._progress_percent
 
     @property
+    def elapsed_seconds(self) -> float:
+        """開始からの経過時間 [sec]（終端後は確定値のまま止まる）."""
+        with self._lock:
+            end = time.monotonic() if self._finished_at is None else self._finished_at
+            return end - self._started_at
+
+    @property
     def pending_prompt(self) -> tuple[str, PromptSpec] | None:
         """応答待ちプロンプト（(prompt_id, PromptSpec)。無ければ None）."""
         with self._lock:
@@ -187,8 +198,9 @@ class JobRecord:
         error: str | None = None,
         result: JobResult | None = None,
     ) -> None:
-        """終端ステータス・error・result を 1 ロックで原子的に確定する."""
+        """終端ステータス・error・result を 1 ロックで原子的に確定する（タイマーも止める）."""
         with self._lock:
+            self._finished_at = time.monotonic()
             self._status = status
             self._error = error
             self._result = result

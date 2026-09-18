@@ -1,6 +1,8 @@
 <section id="job-console" class="job-console" data-job-names="{{ job_name }}">
   <div class="jc-head">
     <span id="jc-status" class="jc-status" data-status="idle">待機中</span>
+    {# 実測タクトタイム。開始で動き出し、終端で止まった値のまま残る #}
+    <span id="jc-elapsed" class="jc-elapsed" data-testid="jc-elapsed" hidden></span>
     {# 中止は安全操作なので操作権に依らず誰でも押せる（data-requires-control 禁止） #}
     <button id="jc-abort" type="button" disabled>中止</button>
   </div>

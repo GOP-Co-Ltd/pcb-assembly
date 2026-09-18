@@ -44,6 +44,17 @@ camera_calibration ジョブを実行し、Apply で `config/` に生成させ�
 存在しないファイル名（`calibration.json`）を指しており、キャリブレーション実施までは
 フォーカス Z 位置が未取得（`None`）になるだけで起動や映像表示には影響しない。
 
+## `[tact]` は `printer.cfg` の速度を写す
+
+`machine.toml` の `[tact]` はタクトタイム見積り専用で、装置の動作には効かない。
+`travel_speed` / `travel_accel` / `z_speed` / `z_accel` は同じディレクトリの `printer.cfg` の
+`max_velocity` / `max_accel` / `max_z_velocity` / `max_z_accel` と同じ値にする。Klipper から
+読まないのは、装置が繋がっていなくても実行前に見積りを出すため。
+**`printer.cfg` の速度を変えたら `[tact]` も直す。** ずれても動作は変わらず、見積りだけが外れる。
+
+`setup_sec` は位置合わせ・高さ計測・初回パージなど pad 数に依らない固定分で、機体ごとの実測に
+合わせる。WebUI のジョブコンソールに出る経過時間と見積りを見比べて調整する。
+
 ## 命名規則
 
 `<マシン名>.<用途>` — 用途は `machine.toml` の `machine_type`（`paste` / `pnp`）に一致させる。

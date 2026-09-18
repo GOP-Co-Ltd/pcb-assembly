@@ -1036,3 +1036,41 @@ class TestExpectedPcb:
         assert machine_toml.read_text(encoding="utf-8") == before
         initial = _get_config(selected_client)["initial_purge"]
         assert initial["initial_purge_ul"] == pytest.approx(0.1)
+
+
+class TestTactEstimate:
+    """GET /api/pasting/tact-estimate: 実行前のタクトタイム見積り."""
+
+    def test_requires_selected_pcb(self, client: TestClient):
+        assert client.get("/api/pasting/tact-estimate").status_code == 409
+
+    def test_reports_setup_and_dispense_for_the_selected_board(
+        self, selected_client: TestClient
+    ):
+        response = selected_client.get("/api/pasting/tact-estimate")
+
+        assert response.status_code == 200, response.text
+        estimate = response.json()
+        enabled_top = [
+            pad
+            for pad in _get_config(selected_client)["pads"]
+            if pad["layer"] == "Top" and pad["enabled"]
+        ]
+        assert estimate["pad_count"] == len(enabled_top)
+        assert estimate["dispense_seconds"] > 0.0
+        assert estimate["total_seconds"] == pytest.approx(
+            estimate["setup_seconds"] + estimate["dispense_seconds"]
+        )
+
+    def test_disabled_pads_are_excluded(self, selected_client: TestClient):
+        before = selected_client.get("/api/pasting/tact-estimate").json()
+        patched = selected_client.patch(
+            "/api/pasting/pad-config/node", json={"node": "L2:U1", "enabled": False}
+        )
+        assert patched.status_code == 200, patched.text
+
+        after = selected_client.get("/api/pasting/tact-estimate").json()
+
+        assert after["pad_count"] < before["pad_count"]
+        assert after["dispense_seconds"] < before["dispense_seconds"]
+        assert after["setup_seconds"] == before["setup_seconds"]

@@ -1153,3 +1153,20 @@ class TestArtifacts:
         response = client.get("/artifacts/%2e%2e/webui_state.json")
 
         assert response.status_code == 404
+
+
+class TestElapsedSeconds:
+    """JobSummary はジョブの経過時間 [sec] を運ぶ（コンソールの実測タクト表示用）."""
+
+    def test_reported_while_running_and_kept_after_completion(
+        self, client: TestClient, app: FastAPI
+    ):
+        gate = _register_gated(app)
+        assert client.post("/api/jobs/gated_router", json={}).status_code == 201
+
+        running = _wait_job_status(client, "running")
+        assert running["elapsed_seconds"] >= 0.0
+
+        gate.set()
+        done = _wait_job_status(client, "succeeded")
+        assert done["elapsed_seconds"] >= running["elapsed_seconds"]

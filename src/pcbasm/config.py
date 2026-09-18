@@ -237,6 +237,45 @@ class FlowCalibration:
 
 
 @attrs.frozen
+class Tact:
+    """タクトタイム見積りのパラメータ（[tact]。セクションごと省略可）.
+
+    塗布ジョブの所要時間を実行前に見積もるためだけに使う。
+    実際の動作はこの値を参照しないので、実機とずれても見積りの精度にしか効かない。
+
+    ``travel_speed`` / ``travel_accel`` は printer.cfg の ``max_velocity`` /
+    ``max_accel`` に、``z_speed`` / ``z_accel`` は ``max_z_velocity`` /
+    ``max_z_accel`` に合わせる。Z を分けるのは、kinematics が Z 成分を含む移動を
+    Z 軸の上限へ落とすため（``klipper/inversed_corexy.py``）。塗布高さへの下降と
+    塗布後の上昇は純 Z 移動なので、XY の上限で見積もると大きく短く出る。
+    Klipper から読まないのは、装置が繋がっていなくても実行前の見積りを出せるようにするため。
+
+    ``setup_sec`` は位置合わせ・高さ計測・銅箔照合・初回パージなど、pad 数に
+    依らない固定の前段処理ぶん。実測に合わせて調整する。
+
+    Attributes:
+        travel_speed: XY 移動の速度 [mm/sec]
+        travel_accel: XY 移動の加速度 [mm/sec²]
+        z_speed: Z 移動の速度 [mm/sec]
+        z_accel: Z 移動の加速度 [mm/sec²]
+        setup_sec: 塗布ループ前後の固定オーバーヘッド [sec]
+    """
+
+    travel_speed: float = 10.0
+    travel_accel: float = 50.0
+    z_speed: float = 5.0
+    z_accel: float = 10.0
+    setup_sec: float = 300.0
+
+    def __attrs_post_init__(self) -> None:
+        for name in ("travel_speed", "travel_accel", "z_speed", "z_accel"):
+            if error := validate_positive_number(name, getattr(self, name)):
+                raise ValueError(error)
+        if error := validate_non_negative_number("setup_sec", self.setup_sec):
+            raise ValueError(error)
+
+
+@attrs.frozen
 class NozzleCap:
     """ノズルキャップ位置の設定（マシン座標 [mm]）."""
 
@@ -770,6 +809,11 @@ class Machine:
     def audio(self) -> Audio:
         """通知音の出力設定を取得する（[audio] 未設定・キー欠落は既定値）."""
         return self._converter.structure(self._data.get("audio", {}), Audio)
+
+    @property
+    def tact(self) -> Tact:
+        """タクトタイム見積りの設定を取得する（[tact] 未設定・キー欠落は既定値）."""
+        return self._converter.structure(self._data.get("tact", {}), Tact)
 
     @property
     def klipper(self) -> Klipper:

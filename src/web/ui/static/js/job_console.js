@@ -5,7 +5,7 @@
 // ページに #job-console（data-job-names）があればコンソールを描画する。
 
 (() => {
-  const { toast, api, createBackoff, withBase } = window.webui;
+  const { toast, api, createBackoff, withBase, formatDuration } = window.webui;
 
   const TERMINAL = new Set(["succeeded", "failed", "aborted"]);
   const STATUS_LABELS = {
@@ -28,6 +28,11 @@
   const reconnectBackoff = createBackoff(1000, 15000);
   let currentJob = null;
   let jobStatusVersion = 0;
+  // 実測タクトタイム。サーバーの経過 [sec] と、それを受け取ったローカル時刻を持ち、
+  // 実行中は差分を足して進める（クライアントとサーバーの時計ずれを持ち込まないため）。
+  let elapsedBase = 0;
+  let elapsedAt = 0;
+  let elapsedTimer = null;
   let abortRequestedJobId = null;
   let completionJobId = null;
 
@@ -196,6 +201,7 @@
         break;
       case "state_changed":
         refreshHeader();
+        document.dispatchEvent(new CustomEvent("webui:state-changed"));
         break;
       case "control_changed":
         // 保持者が変わったことは全 subscriber へ同一 payload で届く。「自分か」の
@@ -222,6 +228,8 @@
 
   function applyJob(job) {
     currentJob = job ?? null;
+    elapsedBase = currentJob?.elapsed_seconds ?? 0;
+    elapsedAt = performance.now();
     if (!isActive(currentJob) || currentJob.id !== abortRequestedJobId) {
       abortRequestedJobId = null;
     }
@@ -291,6 +299,33 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  function stopElapsedTicker() {
+    if (elapsedTimer === null) return;
+    clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
+
+  function renderElapsed(job) {
+    const target = el("jc-elapsed");
+    if (!ownsJob(job)) {
+      stopElapsedTicker();
+      target.hidden = true;
+      target.textContent = "";
+      return;
+    }
+    target.hidden = false;
+    const terminal = TERMINAL.has(job.status);
+    const elapsed = terminal
+      ? elapsedBase
+      : elapsedBase + (performance.now() - elapsedAt) / 1000;
+    target.textContent = `経過 ${formatDuration(elapsed)}`;
+    if (terminal) {
+      stopElapsedTicker();
+    } else if (elapsedTimer === null) {
+      elapsedTimer = setInterval(() => renderElapsed(currentJob), 1000);
+    }
+  }
+
   function renderProgress(stage, percent) {
     const hasPercent = percent !== null && percent !== undefined;
     el("jc-progress-bar").style.width = hasPercent ? `${percent}%` : "0%";
@@ -311,6 +346,7 @@
     if (!consoleEl) return;
     const job = currentJob;
     renderStartButtons();
+    renderElapsed(job);
 
     if (!ownsJob(job)) {
       el("jc-status").textContent = STATUS_LABELS.idle;

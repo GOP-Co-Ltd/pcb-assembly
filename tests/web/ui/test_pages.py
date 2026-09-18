@@ -461,6 +461,13 @@ class TestPastingJobPages:
         assert 'data-endpoint="/api/settings/machine"' in text
         assert setting_key in text
 
+    def test_paste_solder_renders_the_tact_estimate_slot(self, client: TestClient):
+        """見積りはジョブフォームの脇に出る（値の取得は JS が API から行う）."""
+        text = client.get("/pasting/paste_solder").text
+
+        assert 'data-testid="tact-estimate"' in text
+        assert "js/tact_estimate.js" in text
+
     def test_loading_page_renders_optional_start_position(self, client: TestClient):
         text = client.get("/pasting/loading").text
 
@@ -1197,3 +1204,12 @@ class TestBackendContractMismatch:
 
         assert response.status_code == 503
         assert "height_plane" in response.text
+
+
+class TestJobConsoleElapsed:
+    """ジョブコンソールは実測タクトタイムの表示枠を持つ（値は WS の job_status）."""
+
+    def test_console_renders_the_elapsed_slot(self, client: TestClient):
+        text = client.get("/pasting/paste_solder").text
+
+        assert 'data-testid="jc-elapsed"' in text

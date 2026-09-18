@@ -127,6 +127,15 @@ function createBackoff(baseMs, maxMs) {
   };
 }
 
+// 秒を「h時間m分s秒」へ整形する。サーバーは秒で返し、表示の組み立てだけをここで行う
+// （経過時間はクライアントが毎秒進めるので、整形はサーバーに置けない）。
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return `${hours}時間${minutes}分${total % 60}秒`;
+}
+
 function formatPosition(p) {
   return `X${p.x.toFixed(3)} Y${p.y.toFixed(3)} Z${p.z.toFixed(3)}`;
 }
@@ -141,6 +150,7 @@ window.webui = {
   svgEl,
   debounce,
   createBackoff,
+  formatDuration,
   formatPosition,
   withBase,
 };
