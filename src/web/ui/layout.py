@@ -294,6 +294,8 @@ SECTION_LABELS: dict[str, str] = {
     "camera": "カメラ",
     "camera.crop": "カメラ / クロップ",
     "audio": "通知音",
+    "settle": "静定待ち",
+    "detection": "統計検出",
 }
 
 

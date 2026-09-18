@@ -22,6 +22,7 @@ _BOARD_EDGE_MARGIN = 2.5
 _MEASURER_KWARGS = {
     **_SAMPLING_KWARGS,
     "board_edge_margin": _BOARD_EDGE_MARGIN,
+    "settle_sec": 0.0,
 }
 
 
@@ -213,6 +214,7 @@ class TestPlanProbePoints:
             min_radius=1.5,
             board_edge_margin=2.5,
             min_samples=6,
+            settle_sec=0.0,
             max_samples=9,
         )
         config = Probe(

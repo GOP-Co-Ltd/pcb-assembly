@@ -22,6 +22,8 @@ from .position import XYPositionAdjustor
 from .region import AlignmentRegion, plan_alignment_regions
 from .render import PadResultRenderer, render_edge_match, render_label
 from .setup import (
+    DETECTION_MAX_ATTEMPTS,
+    DETECTION_RETRY_SEC,
     BoardCalibrationResult,
     CircleDetectionError,
     OffsetObserver,
@@ -33,6 +35,8 @@ __all__ = [
     "AlignmentRegion",
     "BoardAlignment",
     "BoardCalibrationResult",
+    "DETECTION_MAX_ATTEMPTS",
+    "DETECTION_RETRY_SEC",
     "CircleDetectionError",
     "BoardTransformMeasurer",
     "CopperEdgeMatcher",

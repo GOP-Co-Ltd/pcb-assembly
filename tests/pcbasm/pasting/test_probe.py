@@ -5,7 +5,7 @@
 - __init__: printer.cfg に [load_cell_probe] セクションが無ければ RuntimeError
 - probe(): PROBE 送信 → last_z_result を接触 Z として返す →
   接触 Z + lift_height へ退避する
-- settle_time > 0 のとき PROBE の後に dwell を挟む
+- settle_sec > 0 のとき PROBE の後に dwell を挟む
 """
 
 import pytest
@@ -49,19 +49,19 @@ class TestProbeExecutor:
     def test_init(self):
         """実機の printer.cfg に [load_cell_probe] が構成済みであること."""
         klipper = Klipper()
-        ProbeExecutor(klipper, XYZStage(klipper.readonly))
+        ProbeExecutor(klipper, XYZStage(klipper.readonly), settle_sec=0.0)
 
     def test_init_without_load_cell_probe_section_raises(self, mocker: MockerFixture):
         klipper = Klipper()
         _patch_config(mocker, klipper, {"probe": {}})
 
         with pytest.raises(RuntimeError) as exc:
-            ProbeExecutor(klipper, mocker.Mock())
+            ProbeExecutor(klipper, mocker.Mock(), settle_sec=0.0)
 
         assert "[load_cell_probe]" in str(exc.value)
 
     def test_probe_sends_probe_command(self, klipper, stage):
-        executor = ProbeExecutor(klipper, stage)
+        executor = ProbeExecutor(klipper, stage, settle_sec=0.0)
 
         executor.probe()
 
@@ -69,15 +69,15 @@ class TestProbeExecutor:
         assert "PROBE" in sent
 
     def test_probe_lifts_to_contact_z_plus_lift_height(self, klipper, stage):
-        executor = ProbeExecutor(klipper, stage, lift_height=3.25)
+        executor = ProbeExecutor(klipper, stage, lift_height=3.25, settle_sec=0.0)
 
         executor.probe()
 
         # 接触 Z (-2.0) + lift_height (3.25) = 1.25 へ退避する
         stage.move.assert_called_once_with(z=1.25)
 
-    def test_settle_time_dwell_follows_probe(self, klipper, stage):
-        executor = ProbeExecutor(klipper, stage, settle_time=0.5)
+    def test_settle_sec_dwell_follows_probe(self, klipper, stage):
+        executor = ProbeExecutor(klipper, stage, settle_sec=0.5)
 
         executor.probe()
 

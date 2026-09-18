@@ -167,6 +167,13 @@ def validate_non_negative_number(name: str, value: float) -> str | None:
     return None
 
 
+def validate_positive_int(name: str, value: object) -> str | None:
+    """1以上の整数であるべき設定値を検証する."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return f"{name}は1以上の整数である必要があります: {value!r}"
+    return None
+
+
 def validate_positive_odd_integer(name: str, value: object) -> str | None:
     """正の奇数であるべき設定値を検証する."""
     if (
@@ -234,6 +241,67 @@ class FlowCalibration:
     def enabled(self) -> bool:
         """校正ファイルが指定されていて、実際に補正を試みるか."""
         return bool(self.calibration_file)
+
+
+@attrs.frozen
+class Settle:
+    """装置の静定待ち（[settle]。セクションごと省略可）.
+
+    どちらも G4 dwell としてステージへ送る。ステージが止まっても像や機構は少し揺れて
+    いるので、撮影・プローブに入る前に置く。長くすればタクトタイムが伸び、短くすれば
+    検出がぶれる。機体の剛性で決まるので機体ごとに詰める。
+
+    ``move_sec`` は位置合わせ・基板計測・高さ計測・撮影など**移動後の静定すべて**で
+    共用する。分けるべき差（例えば Z 下降後だけ長く要る）が実測で出たらそのとき足す。
+
+    Attributes:
+        move_sec: ステージ移動後、撮影・計測に入るまでの待ち [sec]
+        probe_sec: PROBE 実行後の待ち [sec]
+    """
+
+    move_sec: float = 0.5
+    probe_sec: float = 0.0
+
+    def __attrs_post_init__(self) -> None:
+        for name in ("move_sec", "probe_sec"):
+            if error := validate_non_negative_number(name, getattr(self, name)):
+                raise ValueError(error)
+
+
+@attrs.frozen
+class Detection:
+    r"""統計検出のサンプリング（[detection]。セクションごと省略可）.
+
+    円・塗布痕の位置は 1 枚の画像では揺れるので、複数フレームの平均を 1 観測とする
+    （:class:`~pcbasm.posctrl.OffsetObserver`）。枚数を増やすと平均のばらつきは
+    :math:`1/\sqrt{n}` で下がるが、撮影時間はそのまま伸びる（30 fps なら 10 枚で約 0.33 秒）。
+
+    ``minimum_sample_count`` は品質ゲート。撮った枚数のうち何枚で対象を検出できれば
+    その観測を採用するか。届かなければ観測は失敗する。小さすぎると、たまたま写った
+    1 枚だけで位置を決めてしまう。
+
+    **基準点の円（機械的なマーカー）とツールヘッドオフセットの塗布痕（濡れた円）の
+    両方に効く。**写りやすさが違うので、片方だけ渋いときは検出しやすい側にも同じ値が
+    掛かることを踏まえて決める。
+
+    Attributes:
+        sample_count: 1 観測で撮るフレーム数
+        minimum_sample_count: 1 観測に必要な有効検出数（``sample_count`` 以下）
+    """
+
+    sample_count: int = 10
+    minimum_sample_count: int = 5
+
+    def __attrs_post_init__(self) -> None:
+        for name in ("sample_count", "minimum_sample_count"):
+            if error := validate_positive_int(name, getattr(self, name)):
+                raise ValueError(error)
+        if self.minimum_sample_count > self.sample_count:
+            raise ValueError(
+                "minimum_sample_countはsample_count以下である必要があります: "
+                f"minimum_sample_count={self.minimum_sample_count}, "
+                f"sample_count={self.sample_count}"
+            )
 
 
 @attrs.frozen
@@ -770,6 +838,16 @@ class Machine:
     def audio(self) -> Audio:
         """通知音の出力設定を取得する（[audio] 未設定・キー欠落は既定値）."""
         return self._converter.structure(self._data.get("audio", {}), Audio)
+
+    @property
+    def settle(self) -> Settle:
+        """静定待ちの設定を取得する（[settle] 未設定・キー欠落は既定値）."""
+        return self._converter.structure(self._data.get("settle", {}), Settle)
+
+    @property
+    def detection(self) -> Detection:
+        """統計検出のサンプリング設定を取得する（[detection] 未設定・キー欠落は既定値）."""
+        return self._converter.structure(self._data.get("detection", {}), Detection)
 
     @property
     def klipper(self) -> Klipper:

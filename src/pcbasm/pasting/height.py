@@ -63,14 +63,14 @@ class _BoardPointProber:
         klipper: Klipper,
         stage: XYZStage,
         *,
-        move_settle_time: float,
+        settle_sec: float,
         move_velocity_ratio: float,
         logger: logging.Logger,
     ) -> None:
         self._probe_executor = probe_executor
         self._klipper = klipper
         self._stage = stage
-        self._move_settle_time = move_settle_time
+        self._settle_sec = settle_sec
         self._move_velocity = stage.max_velocity * move_velocity_ratio
         self._logger = logger
 
@@ -90,7 +90,7 @@ class _BoardPointProber:
                 y=probe_pt.y,
                 speed=Speed.absolute(self._move_velocity),
             )
-            + GCode.wait(self._move_settle_time)
+            + GCode.wait(self._settle_sec)
             + GCode.wait_for_done()
         )
 
@@ -127,7 +127,7 @@ class HeightPlaneMeasurer:
         board_edge_margin: float,
         min_samples: int,
         max_samples: int,
-        move_settle_time: float = 0.5,
+        settle_sec: float,
         move_velocity_ratio: float = 0.9,
     ) -> None:
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
@@ -139,7 +139,7 @@ class HeightPlaneMeasurer:
             probe_executor=probe_executor,
             klipper=klipper,
             stage=stage,
-            move_settle_time=move_settle_time,
+            settle_sec=settle_sec,
             move_velocity_ratio=move_velocity_ratio,
             logger=self._logger,
         )

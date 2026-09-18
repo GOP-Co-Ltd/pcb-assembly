@@ -33,6 +33,7 @@ class BoardTransformMeasurer:
             stage=stage,
             outline=pcb.outline,
             reference_point=machine.reference_point,
+            settle_sec=machine.settle.move_sec,
         )
         transform = measurer.measure()
         machine_pos = transform.apply(board_pos)
@@ -46,7 +47,8 @@ class BoardTransformMeasurer:
         outline: Outline,
         reference_point: ReferencePoint,
         move_velocity_ratio: float = 0.9,
-        settle_time: float = 0.5,
+        *,
+        settle_sec: float,
     ) -> None:
         """BoardTransformMeasurerを初期化する.
 
@@ -57,7 +59,7 @@ class BoardTransformMeasurer:
             outline: Board Outline（width/heightの取得に使用）
             reference_point: 基準点設定
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
-            settle_time: 移動後の安定待機時間（秒）
+            settle_sec: 移動後の静定待ち [sec]（``machine.settle.move_sec``）
         """
         self._adjust_reference = adjust_reference
         self._klipper = klipper
@@ -65,7 +67,7 @@ class BoardTransformMeasurer:
         self._outline = outline
         self._ref_point = reference_point
         self._move_velocity_ratio = move_velocity_ratio
-        self._settle_time = settle_time
+        self._settle_sec = settle_sec
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
@@ -161,5 +163,5 @@ class BoardTransformMeasurer:
     def _move_to(self, move_gcode: GCode) -> None:
         """指定座標に移動し、安定を待つ."""
         self._klipper.send_gcode(
-            move_gcode + GCode.wait(self._settle_time) + GCode.wait_for_done()
+            move_gcode + GCode.wait(self._settle_sec) + GCode.wait_for_done()
         )

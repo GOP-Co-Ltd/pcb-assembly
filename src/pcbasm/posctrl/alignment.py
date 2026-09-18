@@ -143,6 +143,7 @@ class RegionAlignmentSession:
             max_correction_mm=pad_align.max_correction,
             max_passes=pad_align.max_passes,
             converge_tolerance_mm=pad_align.converge_tolerance,
+            settle_sec=result.machine.settle.move_sec,
             frame_sink=frame_sink,
         )
 

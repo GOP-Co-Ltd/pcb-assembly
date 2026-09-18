@@ -660,3 +660,65 @@ class TestFlowCalibrationFields:
     def test_rejects_a_negative_settle_time(self, store: ConfigStore):
         with pytest.raises(UnknownFieldError):
             store.write_machine_settings({f"{self._PREFIX}.settle_seconds": -1.0})
+
+
+class TestSettleAndDetectionFields:
+    """`[settle]` / `[detection]` の読み書き（どちらも省略可のセクション）."""
+
+    def test_missing_sections_read_as_none(self, store: ConfigStore):
+        values = store.read_machine_settings()
+
+        assert values["settle.move_sec"] is None
+        assert values["settle.probe_sec"] is None
+        assert values["detection.sample_count"] is None
+        assert values["detection.minimum_sample_count"] is None
+
+    def test_write_then_reread_reflects_values(self, store: ConfigStore):
+        store.write_machine_settings(
+            {
+                "settle.move_sec": 0.8,
+                "settle.probe_sec": 0.2,
+                "detection.sample_count": 20,
+                "detection.minimum_sample_count": 8,
+            }
+        )
+
+        values = store.read_machine_settings()
+        assert values["settle.move_sec"] == 0.8
+        assert values["settle.probe_sec"] == 0.2
+        assert values["detection.sample_count"] == 20
+        assert values["detection.minimum_sample_count"] == 8
+
+    def test_zero_settle_is_accepted(self, store: ConfigStore):
+        store.write_machine_settings({"settle.move_sec": 0.0})
+
+        assert store.read_machine_settings()["settle.move_sec"] == 0.0
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("settle.move_sec", -0.1),
+            ("detection.sample_count", 0),
+            ("detection.minimum_sample_count", 0),
+        ],
+    )
+    def test_invalid_values_are_rejected(
+        self, store: ConfigStore, key: str, value: float
+    ):
+        with pytest.raises(UnknownFieldError):
+            store.write_machine_settings({key: value})
+
+    def test_minimum_above_sample_count_is_rejected(self, store: ConfigStore):
+        """片方だけ編集しても、書き込み後の値で相互制約を見る."""
+        store.write_machine_settings({"detection.sample_count": 6})
+
+        with pytest.raises(UnknownFieldError, match="minimum_sample_count"):
+            store.write_machine_settings({"detection.minimum_sample_count": 7})
+
+    def test_raising_both_at_once_is_accepted(self, store: ConfigStore):
+        store.write_machine_settings(
+            {"detection.sample_count": 30, "detection.minimum_sample_count": 20}
+        )
+
+        values = store.read_machine_settings()
+        assert values["detection.minimum_sample_count"] == 20

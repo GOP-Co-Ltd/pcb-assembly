@@ -24,6 +24,7 @@ class OffsetTransformMeasurer:
             klipper=klipper,
             stage=stage,
             move_distance=move_distance,
+            settle_sec=machine.settle.move_sec,
         )
         transform = measurer.measure()
         corrected_offset = transform.apply(offset)
@@ -36,7 +37,8 @@ class OffsetTransformMeasurer:
         stage: XYZStage,
         move_distance: float,
         move_velocity_ratio: float = 0.5,
-        settle_time: float = 0.5,
+        *,
+        settle_sec: float,
     ) -> None:
         """OffsetTransformMeasurerを初期化する.
 
@@ -46,14 +48,14 @@ class OffsetTransformMeasurer:
             stage: XYZステージ
             move_distance: X方向への移動距離（mm）
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
-            settle_time: 移動後の安定待機時間（秒）
+            settle_sec: 移動後の静定待ち [sec]（``machine.settle.move_sec``）
         """
         self._observe = observe
         self._klipper = klipper
         self._stage = stage
         self._move_distance = move_distance
         self._move_velocity_ratio = move_velocity_ratio
-        self._settle_time = settle_time
+        self._settle_sec = settle_sec
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
@@ -116,5 +118,5 @@ class OffsetTransformMeasurer:
     def _move_to(self, move_gcode: GCode) -> None:
         """指定座標に移動し、安定を待つ."""
         self._klipper.send_gcode(
-            move_gcode + GCode.wait(self._settle_time) + GCode.wait_for_done()
+            move_gcode + GCode.wait(self._settle_sec) + GCode.wait_for_done()
         )

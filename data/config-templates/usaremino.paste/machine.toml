@@ -4,6 +4,16 @@ machine_type = "paste" # マシン種別: paste / pnp
 host = "localhost"
 port = 7125
 
+[settle]
+# 装置の静定待ち（長いほどタクトが伸び、短いほど検出がぶれる）
+move_sec = 0.5 # ステージ移動後、撮影・計測に入るまでの待ち [sec]
+probe_sec = 0.0 # PROBE 実行後の待ち [sec]
+
+[detection]
+# 円・塗布痕の統計検出（1 観測 = sample_count 枚の平均）
+sample_count = 10 # 1 観測で撮るフレーム数
+minimum_sample_count = 5 # 1 観測に必要な有効検出数
+
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
 rotations_per_ul = 23.947899 # キャリブレーション値 2026/06/08 23G S3X70-E150DN

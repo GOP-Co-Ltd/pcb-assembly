@@ -79,10 +79,12 @@ class PasteSession:
         """既存の BoardCalibrationResult から塗布用 HAL を組み立てる."""
         machine = result.machine
         probe_config = machine.probe
+        settle = machine.settle
         probe_executor = ProbeExecutor(
             klipper=result.klipper,
             stage=result.stage,
             lift_height=probe_config.lift_height,
+            settle_sec=settle.probe_sec,
         )
         height_measurer = HeightPlaneMeasurer(
             probe_executor=probe_executor,
@@ -92,6 +94,7 @@ class PasteSession:
             board_edge_margin=probe_config.board_edge_margin,
             min_samples=probe_config.min_samples,
             max_samples=probe_config.max_samples,
+            settle_sec=settle.move_sec,
         )
         return cls(
             machine=machine,
