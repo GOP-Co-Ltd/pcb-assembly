@@ -13,24 +13,15 @@
 位置合わせ成功領域が 1 つも無いような構造的な失敗はここでは握らない。
 
 その状態では直後の pad 塗布も同じ例外で落ちるので、隠しても先へ進めない。
-
-例外は「どの測定点にも塗布が写らない」場合だけ。これは補正の失敗ではなくノズルが
-詰まっている状態なので、先端を掃除してパージし直し、もう一度だけ測る。それでも写ら
-なければ塗布へ進まずに落とす（:func:`run_flow_calibration_with_cleaning`）。
 """
 
 from __future__ import annotations
 
 import time
 
-import attrs
-
-from pcbasm.config import NozzleClean
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.capture import PointCapturer
-from pcbasm.pasting.initial_purge import ResolvedInitialPurge
-from pcbasm.pasting.nozzle_clean import clean_nozzle
 from pcbasm.pasting.paste_volume.estimator import (
     PasteVolumePrediction,
     load_diameter_estimator,
@@ -39,7 +30,6 @@ from pcbasm.pasting.paste_volume.runtime import (
     FlowCalibrationOutcome,
     FlowCalibrationPlan,
     correct_rotations_per_ul,
-    no_deposit_detected,
 )
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
@@ -49,32 +39,14 @@ from web.api.jobs.context import JobContext
 _SETTLE_TICK_SEC = 1.0
 
 
-@attrs.frozen
-class FlowCalibrationRun:
-    """1 回ぶんの実行結果.
-
-    Attributes:
-        outcome: 補正値（補正できなければ ``None``）
-        no_deposit: 全測定点で塗布が写らなかったか（ノズル詰まりの疑い）。
-            測れなかった場合（校正が読めない・撮影に失敗した）は ``False``。
-            測れていないことは「塗れていない」ことの証拠にならない
-    """
-
-    outcome: FlowCalibrationOutcome | None
-    no_deposit: bool
-
-
-_NOT_MEASURED = FlowCalibrationRun(outcome=None, no_deposit=False)
-
-
 def run_flow_calibration(
     ctx: JobContext,
     session: PasteSession,
     correction: PasteCorrection,
     applicator: PasteApplicator,
     plan: FlowCalibrationPlan,
-) -> FlowCalibrationRun:
-    """測定点を塗って撮り、``rotations_per_ul`` の補正値を求める.
+) -> FlowCalibrationOutcome | None:
+    """測定点を塗って撮り、``rotations_per_ul`` の補正値を返す（不可なら ``None``）.
 
     撮影は収集ジョブと同じ 3 パス（全点 pre → 全点塗布 → 全点 post）で行う。
     塗ってすぐ撮ると点ごとにペーストの落ち着き時間が変わる。
@@ -88,13 +60,13 @@ def run_flow_calibration(
     estimator, error = load_diameter_estimator(path, reliable_range_only=True)
     if estimator is None:
         ctx.log(f"流量キャリブレーション: 校正を読めないので補正しません: {error}")
-        return _NOT_MEASURED
+        return None
 
     pixel_per_mm = session.calibration.pixel_per_mm
     crop_size_px, error = crop_pixel_size(plan.crop_size_mm, pixel_per_mm)
     if crop_size_px is None:
         ctx.log(f"流量キャリブレーション: crop 寸法を決められません: {error}")
-        return _NOT_MEASURED
+        return None
 
     params = applicator.default_params
     for mismatch in estimator.calibration.conditions.mismatches(
@@ -115,7 +87,7 @@ def run_flow_calibration(
 
     pre = _capture_all(ctx, capturer, correction, plan, phase="塗布前")
     if pre is None:
-        return _NOT_MEASURED
+        return None
 
     for index, point in enumerate(plan.points):
         ctx.checkpoint()
@@ -130,14 +102,13 @@ def run_flow_calibration(
 
     post = _capture_all(ctx, capturer, correction, plan, phase="塗布後")
     if post is None:
-        return _NOT_MEASURED
+        return None
 
     predictions = [
         estimator.predict(before.image, after.image, pixel_per_mm=pixel_per_mm)
         for before, after in zip(pre, post, strict=True)
     ]
     _log_predictions(ctx, predictions)
-    no_deposit = no_deposit_detected(predictions)
 
     outcome, error = correct_rotations_per_ul(
         predictions,
@@ -146,124 +117,14 @@ def run_flow_calibration(
     )
     if outcome is None:
         ctx.log(f"流量キャリブレーション: 補正しません: {error}")
-        return FlowCalibrationRun(outcome=None, no_deposit=no_deposit)
+        return None
     ctx.log(summary_line(outcome))
     if outcome.clamped:
         ctx.log(
             "流量キャリブレーション: 補正量が 1/3〜3 倍の上限に当たりました。"
             "校正の条件やノズルの状態を確認してください"
         )
-    return FlowCalibrationRun(outcome=outcome, no_deposit=no_deposit)
-
-
-def run_flow_calibration_with_cleaning(
-    ctx: JobContext,
-    session: PasteSession,
-    correction: PasteCorrection,
-    applicator: PasteApplicator,
-    plan: FlowCalibrationPlan,
-    *,
-    nozzle_clean: NozzleClean | None,
-    purge: ResolvedInitialPurge | None,
-) -> FlowCalibrationOutcome | None:
-    """流量を測り、塗布が 1 点も写らなければ掃除とパージをして 1 回だけやり直す.
-
-    全点で塗布が写らないのはノズルが詰まっている状態なので、先端をクリーニングして
-    パージし直してからもう一度測る。やり直しは 1 回だけで、それでも写らなければ
-    詰まりが解けていないとみなして例外にする。写らないまま pad を塗っても基板を
-    1 枚無駄にするだけなので、ここで止める。
-
-    クリーニング位置が未記録なら、こすりは飛ばしてパージのやり直しだけを行う。
-    詰まりはパージだけで抜けることもあり、位置の教示を塗布の前提にはしない。
-
-    やり直しは 1 回目と同じ測定点へ塗る。基板側で決めた点以外に塗ってよい場所が無い
-    ためで、1 回目が実際には吐出できていた（検出だけ失敗した）場合、2 回目の推定は
-    増分ぶんになり過小に出る。補正量は 1/3〜3 倍で頭打ちになるので暴れはしないが、
-    実機では 2 回目のログを見て判断する。
-
-    Args:
-        ctx: ジョブ文脈（進捗・ログ・中断）
-        session: 計測済みの塗布セッション
-        correction: 位置合わせと高さ面の補正
-        applicator: 塗布に使うディスペンサー（有効化済み）
-        plan: 測定点と条件
-        nozzle_clean: クリーニング設定（未記録なら ``None``）
-        purge: やり直し時のパージ（無効なら ``None``）
-
-    Returns:
-        補正値（補正できなければ ``None``）
-
-    Raises:
-        ValueError: クリーニングとパージの後も塗布を検出できない場合
-    """
-    run = run_flow_calibration(ctx, session, correction, applicator, plan)
-    if not run.no_deposit:
-        return run.outcome
-
-    ctx.log(
-        "流量キャリブレーション: どの測定点にも塗布が写りません。"
-        "ノズルをクリーニングしてやり直します"
-    )
-    performed = _clean_and_purge(
-        ctx, session, correction, applicator, nozzle_clean=nozzle_clean, purge=purge
-    )
-
-    run = run_flow_calibration(ctx, session, correction, applicator, plan)
-    if run.no_deposit:
-        raise ValueError(
-            (
-                f"{performed}の後も"
-                if performed
-                else "クリーニング位置もパージも未設定で"
-            )
-            + "塗布を検出できません。ノズルの詰まりとペースト残量を確認してください"
-        )
-    return run.outcome
-
-
-def _clean_and_purge(
-    ctx: JobContext,
-    session: PasteSession,
-    correction: PasteCorrection,
-    applicator: PasteApplicator,
-    *,
-    nozzle_clean: NozzleClean | None,
-    purge: ResolvedInitialPurge | None,
-) -> str:
-    """ノズル先端を掃除し、パージし直す（実施した処置の名前を返す）.
-
-    ここへ来る時点で直前の :meth:`PasteApplicator.deposit_at` がリトラクトして終わって
-    いる。掃除のパージはその引き込みを埋めるだけで終わらないよう prime してから行い、
-    基板へ移る間の垂れを止めるためにまた引き戻す。掃除しないなら引き込んだままでよく、
-    続くパージの :meth:`PasteApplicator.deposit_at` が自分で prime する。
-    """
-    performed: list[str] = []
-    if nozzle_clean is not None:
-        ctx.progress("ノズルクリーニング")
-        ctx.checkpoint()
-        applicator.prime()
-        clean_nozzle(
-            session.klipper, session.stage, applicator, nozzle_clean, log=ctx.log
-        )
-        applicator.retract()
-        performed.append("クリーニング")
-    else:
-        ctx.log("ノズルクリーニング: 位置が未記録のためこすらずに進みます")
-
-    if purge is not None:
-        ctx.progress("パージやり直し")
-        ctx.checkpoint()
-        applicator.deposit_at(
-            purge.point,
-            amount_ul=purge.amount_ul,
-            transform=session.point_transform(purge.point, correction),
-        )
-        ctx.log(f"パージやり直し: {purge.label} に {purge.amount_ul:.3f} uL")
-        performed.append("パージ")
-    else:
-        ctx.log("パージやり直し: 初回パージが無効なので行いません")
-
-    return "と".join(performed) if performed else ""
+    return outcome
 
 
 def summary_line(outcome: FlowCalibrationOutcome) -> str:

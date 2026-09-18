@@ -21,10 +21,7 @@ from shapely import Point, Polygon
 
 from pcbasm.config import FlowCalibration
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.paste_volume.estimator import (
-    NO_DEPOSIT_DETECTED,
-    PasteVolumePrediction,
-)
+from pcbasm.pasting.paste_volume.estimator import PasteVolumePrediction
 from pcbasm.utils import is_finite_number
 
 # 1 回の補正で許す ``rotations_per_ul`` の変化幅。
@@ -81,18 +78,6 @@ class FlowCalibrationOutcome:
     clamped: bool
     accepted_count: int
     rejections: tuple[str, ...]
-
-
-def no_deposit_detected(predictions: Sequence[PasteVolumePrediction]) -> bool:
-    """全測定点で塗布が写っていなかったか（ノズル詰まりの疑い）.
-
-    1 点でも写っていれば吐出はできているので詰まりとは見ない。被覆域外や撮影不良は
-    「塗れていない」ことの証拠にならないので、理由が :data:`NO_DEPOSIT_DETECTED` の
-    ときだけ数える。推定を 1 つも行えなかった場合（空）も判定できないので偽。
-    """
-    return bool(predictions) and all(
-        prediction.rejection_reason == NO_DEPOSIT_DETECTED for prediction in predictions
-    )
 
 
 def plan_flow_calibration(

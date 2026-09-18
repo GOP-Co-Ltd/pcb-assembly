@@ -12,15 +12,11 @@ from shapely import Polygon
 
 from pcbasm.config import FlowCalibration
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.paste_volume.estimator import (
-    NO_DEPOSIT_DETECTED,
-    PasteVolumePrediction,
-)
+from pcbasm.pasting.paste_volume.estimator import PasteVolumePrediction
 from pcbasm.pasting.paste_volume.runtime import (
     MAX_CORRECTION_SCALE,
     MIN_CORRECTION_SCALE,
     correct_rotations_per_ul,
-    no_deposit_detected,
     overlapping_crops,
     plan_flow_calibration,
     validate_crop_separation,
@@ -320,28 +316,3 @@ class TestCorrectRotationsPerUl:
 
         assert outcome is None
         assert error is not None
-
-
-class TestNoDepositDetected:
-    """ノズル詰まりの疑い（全点で塗布を検出できない）の判定."""
-
-    def test_holds_when_no_point_shows_a_deposit(self):
-        assert no_deposit_detected(
-            [_rejected(NO_DEPOSIT_DETECTED), _rejected(NO_DEPOSIT_DETECTED)]
-        )
-
-    def test_does_not_hold_when_any_point_shows_a_deposit(self):
-        """1 点でも写っていれば吐出はできている。詰まりではない."""
-        assert not no_deposit_detected([_rejected(NO_DEPOSIT_DETECTED), _accepted(0.2)])
-
-    def test_does_not_hold_for_other_rejections(self):
-        """被覆域外や撮影不良は「塗れていない」ことの証拠にならない."""
-        assert not no_deposit_detected(
-            [
-                _rejected(NO_DEPOSIT_DETECTED),
-                _rejected("diameter_out_of_calibrated_range"),
-            ]
-        )
-
-    def test_does_not_hold_without_predictions(self):
-        assert not no_deposit_detected([])

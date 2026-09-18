@@ -16,10 +16,8 @@ from web.api.jobs.pasting.common import (
     resolve_paste_model,
     run_loading_loop,
 )
-from web.api.jobs.pasting.flow_calibration import (
-    run_flow_calibration_with_cleaning,
-    summary_line,
-)
+from web.api.jobs.pasting.flow_calibration import run_flow_calibration, summary_line
+from web.api.jobs.pasting.purge_check import purge_with_cleaning
 
 
 def register(catalog: JobCatalog) -> None:
@@ -107,30 +105,22 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
 
             if purge is not None:
                 ctx.progress("初回パージ")
-                ctx.checkpoint()
-                # パージは pad ではなく座標なので、その点を覆う成功領域から
-                # 内挿した補正を使う。
-                applicator.deposit_at(
-                    purge.point,
-                    amount_ul=purge.amount_ul,
-                    transform=session.point_transform(purge.point, correction),
-                )
-
-            # ノズルの掃除はここでしか判断できない。塗布が 1 点も写らなければ
-            # 詰まっているので、掃除とパージをやり直してからもう一度測る。
-            flow = targets.flow_calibration
-            outcome = (
-                None
-                if flow is None
-                else run_flow_calibration_with_cleaning(
+                # 詰まりはここで顕在化させる。パージが写らないまま pad を塗り始めると
+                # 基板を 1 枚無駄にするので、掃除してやり直してから先へ進む。
+                purge_with_cleaning(
                     ctx,
                     session,
                     correction,
                     applicator,
-                    flow,
+                    purge,
                     nozzle_clean=nozzle_clean,
-                    purge=purge,
                 )
+
+            flow = targets.flow_calibration
+            outcome = (
+                None
+                if flow is None
+                else run_flow_calibration(ctx, session, correction, applicator, flow)
             )
             if outcome is not None:
                 applicator.adopt_rotations_per_ul(outcome.rotations_per_ul)
