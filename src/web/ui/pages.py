@@ -51,7 +51,7 @@ from web.ui.layout import (
     POSITIVE_ONLY_MACHINE_KEYS,
     TAB_LABELS,
     TABS,
-    grouped_fields,
+    settings_sections,
 )
 from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
 from web.ui.machines import MachineEndpoint, MachineRegistry
@@ -381,7 +381,7 @@ async def settings_page(machine_id: str, request: Request) -> HTMLResponse:
     )
     context = _base_context(request, machine_id, "settings", info, state)
     context.update(
-        machine_groups=grouped_fields(machine_settings.fields),
+        settings_sections=settings_sections(machine_settings.fields),
         clearable_keys=CLEARABLE_MACHINE_KEYS,
     )
     return _html_page(request, "settings.html", context)
