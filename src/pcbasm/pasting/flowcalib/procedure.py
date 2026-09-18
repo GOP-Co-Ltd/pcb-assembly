@@ -3,7 +3,7 @@
 共通土台（その場生成した銅板 → Board 計測 → 高さ計測 → transform）を確立し、
 メニューループ中保持し続ける applicator を管理する。① の検証ループは新
 ``rotations_per_ul`` で applicator を作り直すため、現在の applicator と現在の
-``rotations_per_ul`` / ``dispense_accel`` をここで一元管理する。
+``rotations_per_ul`` をここで一元管理する。
 
 ユーザー対話・進捗・中断・ログ文言は持たない（web ジョブ側の責務）。
 """
@@ -40,9 +40,7 @@ class FlowCalibrationProcedure:
         """Board 計測済みのセッションと、銅板 board 座標 → 機械座標（高さ面込み）の変換で組む."""
         self._session = session
         self._transform = transform
-        config = session.machine.paste_dispenser
-        self._rotations_per_ul = config.rotations_per_ul
-        self._dispense_accel = config.dispense_accel
+        self._rotations_per_ul = session.machine.paste_dispenser.rotations_per_ul
         self._applicator = session.make_applicator()
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
@@ -78,11 +76,6 @@ class FlowCalibrationProcedure:
     def rotations_per_ul(self) -> float:
         """現在の applicator が使っている rotations_per_ul [rev/μL]."""
         return self._rotations_per_ul
-
-    @property
-    def dispense_accel(self) -> float:
-        """現在の rotations_per_ul に対応する吐出加速度 [μL/sec²]."""
-        return self._dispense_accel
 
     @property
     def transform(self) -> Transform:
@@ -164,16 +157,11 @@ class FlowCalibrationProcedure:
         """
         self._applicator.__exit__(None, None, None)
         self._rotations_per_ul = round.computed
-        self._dispense_accel = round.dispense_accel
         self._applicator = self._session.make_applicator(
             rotations_per_ul=round.computed
         )
         self._applicator.__enter__()
-        self._logger.info(
-            "rotations_per_ul を採用: %.6f rev/uL (dispense_accel %.6f uL/s^2)",
-            round.computed,
-            round.dispense_accel,
-        )
+        self._logger.info("rotations_per_ul を採用: %.6f rev/uL", round.computed)
 
     def _send_move(self, *, z: float) -> None:
         self._session.klipper.send_gcode(
