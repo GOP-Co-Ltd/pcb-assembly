@@ -318,6 +318,19 @@ class TestPromptDialogOverBrowser:
         assert current["status"] == "failed", current
 
 
+def _open_settings_section(browser_page, live_ui, slug: str) -> None:
+    """設定ページを開き、左ナビで目的のセクションを選ぶ.
+
+    設定ページは選択中のセクションだけを描く（他は hidden）。
+
+    ナビを押さずに入力へ触ろうとすると visible 待ちで固まる。
+    """
+    browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
+    nav_item = browser_page.locator(f'.settings-nav-item[data-section="{slug}"]')
+    nav_item.wait_for(state="visible", timeout=10_000)
+    nav_item.click()
+
+
 class TestSettingsOverBrowser:
     """設定画面の実ブラウザ操作."""
 
@@ -333,7 +346,7 @@ class TestSettingsOverBrowser:
         field_name: str,
         value: float,
     ):
-        browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
+        _open_settings_section(browser_page, live_ui, "probe")
         _acquire_control(browser_page)
         field = browser_page.locator(f'input[name="{field_name}"]')
         field.wait_for(state="visible", timeout=10_000)
@@ -342,11 +355,60 @@ class TestSettingsOverBrowser:
 
         _wait_machine_field(live_server.base_url, field_name, value)
 
+    def test_filter_reaches_settings_of_other_sections_without_control(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        """絞り込みはセクション横断で効き、操作権が無くても使える.
+
+        ナビと絞り込みはフォームの外にあるので、閲覧だけの端末でも設定を探せる。
+
+        フォームの中に置くと control.js がまとめて操作不可にする。
+        """
+        browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
+        filter_box = browser_page.locator("#settings-filter")
+        filter_box.wait_for(state="visible", timeout=10_000)
+
+        filter_box.fill("min_samples")
+
+        # 既定で開くのは先頭セクションだけ。他セクションの項目も絞り込みには出る
+        browser_page.locator('input[name="probe.min_samples"]').wait_for(
+            state="visible", timeout=10_000
+        )
+        # 先頭セクションに居座る非マッチ項目は消える（絞り込みが効いている証拠。
+        # 初期状態で既に hidden な他セクションの項目を見ても空振りになる）
+        browser_page.locator('input[name="paste_dispenser.nozzle_diameter"]').wait_for(
+            state="hidden", timeout=10_000
+        )
+
+    def test_section_selection_survives_filtering_and_history(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        """絞り込みを消したら直前に選んでいたセクションへ戻り、戻る操作でも切り替わる."""
+        _open_settings_section(browser_page, live_ui, "camera")
+        camera_field = browser_page.locator('input[name="camera.width"]')
+        camera_field.wait_for(state="visible", timeout=10_000)
+
+        filter_box = browser_page.locator("#settings-filter")
+        filter_box.fill("min_samples")
+        camera_field.wait_for(state="hidden", timeout=10_000)
+        filter_box.fill("")
+
+        # 先頭セクションへ飛ばず、選んでいた camera のまま
+        camera_field.wait_for(state="visible", timeout=10_000)
+
+        browser_page.locator('.settings-nav-item[data-section="audio"]').click()
+        browser_page.locator('input[name="audio.volume"]').wait_for(
+            state="visible", timeout=10_000
+        )
+        browser_page.go_back()
+
+        camera_field.wait_for(state="visible", timeout=10_000)
+
     def test_reference_point_offset_pair_autosave(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         """float_pair 入力（X/Y 2 連）の編集が [x, y] 配列として保存される."""
-        browser_page.goto(f"{live_ui.base_url}/settings", wait_until="domcontentloaded")
+        _open_settings_section(browser_page, live_ui, "reference_point")
         _acquire_control(browser_page)
         pair = 'input[data-pair-key="reference_point.offsets.top_left"]'
         x_input = browser_page.locator(f'{pair}[data-pair-index="0"]')

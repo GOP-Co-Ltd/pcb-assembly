@@ -5,13 +5,16 @@
 ここには置かない。それらは backend が `GET /api/jobs` の `JobSpecInfo` で自己申告し、
 frontend はその値をテンプレートへ渡すだけにする。
 
-`SECTION_LABELS` / `section_of` は設定ページの階層表示専用なので frontend だけが持つ
-（backend は `GET /api/settings/machine` で項目と値を返すだけで、表示のまとめ方を知らない）。
+`SETTINGS_SECTIONS` / `settings_sections` は設定ページの階層表示専用なので frontend だけが
+持つ（backend は `GET /api/settings/machine` で項目と値を返すだけで、表示のまとめ方も
+並び順も知らない）。
 """
 
 from __future__ import annotations
 
-from itertools import groupby
+from collections.abc import Sequence
+
+import attrs
 
 from web.api.models import SettingsField
 
@@ -279,22 +282,239 @@ PASTE_VOLUME_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] =
     ),
 )
 
-# 設定セクション（key のドット区切り親パス）→ UI 表示名。
-# settings ページの階層表示に使う
-SECTION_LABELS: dict[str, str] = {
-    "paste_dispenser": "ペーストディスペンサー",
-    "paste_dispenser.toolhead": "ペーストディスペンサー / ツールヘッド",
-    "paste_dispenser.pad_align": "ペーストディスペンサー / パッド位置合わせ",
-    "paste_dispenser.flow_calibration": "ペーストディスペンサー / 流量キャリブレーション",
-    "probe": "プローブ",
-    "reference_point": "基準点",
-    "reference_point.offsets": "基準点 / コーナーオフセット",
-    "paste_dispenser.nozzle_cap": "ペーストディスペンサー / ノズルキャップ",
-    "paste_dispenser.nozzle_clean": "ペーストディスペンサー / ノズルクリーニング",
-    "camera": "カメラ",
-    "camera.crop": "カメラ / クロップ",
-    "audio": "通知音",
-}
+
+@attrs.frozen
+class SettingsGroupSpec:
+    """設定カード 1 枚の宣言.
+
+    Attributes:
+        label: カードの見出し
+        keys: カードへ並べる設定 key（この順に描く）
+    """
+
+    label: str
+    keys: tuple[str, ...]
+
+
+@attrs.frozen
+class SettingsSectionSpec:
+    """設定ページの左ナビ 1 項目 = 右ペイン 1 画面の宣言.
+
+    Attributes:
+        slug: ナビの選択状態と URL hash に使う識別子
+        label: ナビとパネル見出しの表示名
+        groups: 画面に並べるカード
+    """
+
+    slug: str
+    label: str
+    groups: tuple[SettingsGroupSpec, ...]
+
+
+# 設定ページの構成。**並び順の正はここ**で、backend の `MACHINE_FIELDS` の定義順には
+# 依存しない（依存させると、backend が入れ子セクションを途中に挟んだ瞬間に親セクションの
+# カードが 2 枚に割れる）。宣言漏れは「未分類」へ落ちるだけで消えないが、
+# tests/web/ui/test_layout.py が MACHINE_FIELDS との双方向の網羅をピンしている。
+SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
+    SettingsSectionSpec(
+        "paste_dispenser",
+        "ペーストディスペンサー",
+        (
+            SettingsGroupSpec(
+                "吐出の基本",
+                (
+                    "paste_dispenser.rotations_per_ul",
+                    "paste_dispenser.nozzle_diameter",
+                    "paste_dispenser.solder_paste_density",
+                    "paste_dispenser.ul_per_mm2",
+                ),
+            ),
+            SettingsGroupSpec(
+                "吐出の速度",
+                (
+                    "paste_dispenser.max_dispense_rate",
+                    "paste_dispenser.dispense_accel",
+                    "paste_dispenser.max_fill_speed",
+                ),
+            ),
+            SettingsGroupSpec(
+                "リトラクト",
+                (
+                    "paste_dispenser.retract_amount",
+                    "paste_dispenser.retract_rate",
+                    "paste_dispenser.retract_accel_factor",
+                ),
+            ),
+            SettingsGroupSpec(
+                "プライム・パージ",
+                (
+                    "paste_dispenser.prime_extra_delay",
+                    "paste_dispenser.initial_purge_ul",
+                ),
+            ),
+            SettingsGroupSpec(
+                "塗布方式",
+                (
+                    "paste_dispenser.dispense_mode",
+                    "paste_dispenser.line_direction",
+                    "paste_dispenser.auto_line_aspect_ratio",
+                    "paste_dispenser.auto_area_short_side_factor",
+                ),
+            ),
+            SettingsGroupSpec(
+                "塗布経路",
+                (
+                    "paste_dispenser.bead_width_factor",
+                    "paste_dispenser.overlap",
+                    "paste_dispenser.boundary_margin",
+                ),
+            ),
+            SettingsGroupSpec(
+                "Z 高さ",
+                ("paste_dispenser.paste_height", "paste_dispenser.lift_height"),
+            ),
+            SettingsGroupSpec(
+                "ツールヘッド",
+                ("paste_dispenser.toolhead.x", "paste_dispenser.toolhead.y"),
+            ),
+            SettingsGroupSpec(
+                "パッド位置合わせ",
+                (
+                    "paste_dispenser.pad_align.region_size_px",
+                    "paste_dispenser.pad_align.region_overlap",
+                    "paste_dispenser.pad_align.board_edge_margin",
+                    "paste_dispenser.pad_align.refine_max_short_side",
+                    "paste_dispenser.pad_align.search_window",
+                    "paste_dispenser.pad_align.max_correction",
+                    "paste_dispenser.pad_align.max_passes",
+                    "paste_dispenser.pad_align.converge_tolerance",
+                    "paste_dispenser.pad_align.canny_low",
+                    "paste_dispenser.pad_align.canny_high",
+                    "paste_dispenser.pad_align.blur_ksize",
+                ),
+            ),
+            SettingsGroupSpec(
+                "流量キャリブレーション",
+                (
+                    "paste_dispenser.flow_calibration.calibration_file",
+                    "paste_dispenser.flow_calibration.amount_ul",
+                    "paste_dispenser.flow_calibration.crop_size_mm",
+                    "paste_dispenser.flow_calibration.settle_seconds",
+                ),
+            ),
+            SettingsGroupSpec(
+                "ノズルキャップ",
+                (
+                    "paste_dispenser.nozzle_cap.x",
+                    "paste_dispenser.nozzle_cap.y",
+                    "paste_dispenser.nozzle_cap.z",
+                ),
+            ),
+            SettingsGroupSpec(
+                "ノズルクリーニング",
+                (
+                    "paste_dispenser.nozzle_clean.x",
+                    "paste_dispenser.nozzle_clean.y",
+                    "paste_dispenser.nozzle_clean.z",
+                    "paste_dispenser.nozzle_clean.press_depth",
+                    "paste_dispenser.nozzle_clean.purge_ul",
+                    "paste_dispenser.nozzle_clean.stroke",
+                    "paste_dispenser.nozzle_clean.passes",
+                    "paste_dispenser.nozzle_clean.wipe_speed",
+                ),
+            ),
+        ),
+    ),
+    SettingsSectionSpec(
+        "probe",
+        "プローブ",
+        (
+            SettingsGroupSpec(
+                "プローブ",
+                (
+                    "probe.lift_height",
+                    "probe.min_radius",
+                    "probe.board_edge_margin",
+                    "probe.min_samples",
+                    "probe.max_samples",
+                ),
+            ),
+        ),
+    ),
+    SettingsSectionSpec(
+        "reference_point",
+        "基準点",
+        (
+            SettingsGroupSpec(
+                "位置",
+                (
+                    "reference_point.x",
+                    "reference_point.y",
+                    "reference_point.target_diameter",
+                ),
+            ),
+            SettingsGroupSpec(
+                "コーナーオフセット",
+                (
+                    "reference_point.offsets.top_left",
+                    "reference_point.offsets.top_right",
+                    "reference_point.offsets.bottom_left",
+                    "reference_point.offsets.bottom_right",
+                ),
+            ),
+        ),
+    ),
+    SettingsSectionSpec(
+        "camera",
+        "カメラ",
+        (
+            SettingsGroupSpec(
+                "デバイス",
+                (
+                    "camera.calibration_file",
+                    "camera.device_id",
+                    "camera.width",
+                    "camera.height",
+                    "camera.fps",
+                    "camera.format",
+                ),
+            ),
+            SettingsGroupSpec("クロップ", ("camera.crop.width", "camera.crop.height")),
+        ),
+    ),
+    SettingsSectionSpec(
+        "audio",
+        "通知音",
+        (SettingsGroupSpec("通知音", ("audio.device", "audio.volume")),),
+    ),
+)
+
+# 宣言から漏れた項目を受けるセクション（backend が項目を足して frontend が追随していない
+# 状態）。設定ページは machine.toml の唯一の編集画面なので、落とさず末尾へ出す
+UNCATEGORIZED_SLUG = "uncategorized"
+UNCATEGORIZED_LABEL = "未分類"
+
+
+@attrs.frozen
+class SettingsGroup:
+    """描画用の設定カード 1 枚（値入り）."""
+
+    label: str
+    fields: tuple[SettingsField, ...]
+
+
+@attrs.frozen
+class SettingsSection:
+    """描画用の設定セクション 1 画面（値入り）."""
+
+    slug: str
+    label: str
+    groups: tuple[SettingsGroup, ...]
+
+    @property
+    def field_count(self) -> int:
+        """このセクションに並ぶ設定項目の総数（ナビのバッジ表示用）."""
+        return sum(len(group.fields) for group in self.groups)
 
 
 def section_of(key: str) -> str:
@@ -302,11 +522,42 @@ def section_of(key: str) -> str:
     return key.rsplit(".", 1)[0]
 
 
-def grouped_fields(
-    fields: list[SettingsField],
-) -> list[tuple[str, list[SettingsField]]]:
-    """設定項目をセクション単位にまとめる（定義順を保つ）."""
-    return [
-        (SECTION_LABELS.get(section, section), list(group))
-        for section, group in groupby(fields, key=lambda f: section_of(f.key))
-    ]
+def settings_sections(fields: Sequence[SettingsField]) -> list[SettingsSection]:
+    """設定項目を `SETTINGS_SECTIONS` の宣言どおりの表示ツリーへ組む.
+
+    backend が返さなかった項目は空のカード・セクションを作らない。
+
+    宣言に無い項目は末尾の「未分類」セクションへ TOML セクション単位でまとめる。
+    """
+    by_key = {field.key: field for field in fields}
+    placed: set[str] = set()
+    sections: list[SettingsSection] = []
+    for spec in SETTINGS_SECTIONS:
+        groups = tuple(
+            SettingsGroup(label=group.label, fields=present)
+            for group in spec.groups
+            if (present := tuple(by_key[key] for key in group.keys if key in by_key))
+        )
+        placed.update(field.key for group in groups for field in group.fields)
+        if groups:
+            sections.append(
+                SettingsSection(slug=spec.slug, label=spec.label, groups=groups)
+            )
+    if undeclared := [field for field in fields if field.key not in placed]:
+        sections.append(_uncategorized_section(undeclared))
+    return sections
+
+
+def _uncategorized_section(fields: list[SettingsField]) -> SettingsSection:
+    """宣言漏れの項目を TOML セクション単位でまとめる（見出しは生のセクション名）."""
+    buckets: dict[str, list[SettingsField]] = {}
+    for field in fields:
+        buckets.setdefault(section_of(field.key), []).append(field)
+    return SettingsSection(
+        slug=UNCATEGORIZED_SLUG,
+        label=UNCATEGORIZED_LABEL,
+        groups=tuple(
+            SettingsGroup(label=section, fields=tuple(group))
+            for section, group in buckets.items()
+        ),
+    )

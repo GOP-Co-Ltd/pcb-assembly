@@ -51,6 +51,9 @@ class FieldSpec:
     unit: str | None = None
 
 
+# 編集できる設定項目の全体。ここは「項目と型」だけを決める。
+# 設定ページでのセクション分けと並び順は frontend の `web.ui.layout.SETTINGS_SECTIONS`
+# が持つので、項目を足したらそちらにも足す（漏れると「未分類」へ出る）
 MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     # [paste_dispenser]
     FieldSpec(

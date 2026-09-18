@@ -2,83 +2,98 @@
 {% block title %}マシン設定 — PCB Assembly WebUI{% endblock %}
 {% block layout_class %}single-pane{% endblock %}
 {% block content %}
-{% macro settings_groups(groups, prefix) %}
-{% for section_label, fields in groups %}
-<details class="settings-group" open>
-  <summary>{{ section_label }}</summary>
-  <table class="settings-table">
-    <tbody>
-      {% for field in fields %}
-      <tr>
-        <th><span class="settings-label">{{ field.label }}</span></th>
-        <td>
-          {% if field.value_type == 'float_pair' %}
-          <div class="settings-pair" data-pair-key="{{ field.key }}">
-            <input id="{{ prefix }}-{{ field.key }}-x"
-                   data-pair-key="{{ field.key }}"
-                   data-pair-index="0"
-                   type="number"
-                   step="any"
-                   aria-label="{{ field.label }} X"
-                   value="{{ field.value[0] if field.value is not none else '' }}"
-                   placeholder="X">
-            <input id="{{ prefix }}-{{ field.key }}-y"
-                   data-pair-key="{{ field.key }}"
-                   data-pair-index="1"
-                   type="number"
-                   step="any"
-                   aria-label="{{ field.label }} Y"
-                   value="{{ field.value[1] if field.value is not none else '' }}"
-                   placeholder="Y">
-          </div>
-          {% elif field.value_type == 'dispense_mode' %}
-          <select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
-                  data-type="{{ field.value_type }}"
-                  aria-label="{{ field.label }}">
-            {% for option, label in [('auto', 'Auto'), ('dot', '点'), ('line', '線'), ('area', '面')] %}
-            <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-          {% elif field.value_type == 'line_direction' %}
-          <select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
-                  data-type="{{ field.value_type }}"
-                  aria-label="{{ field.label }}">
-            {% for option, label in [('unconstrained', '指定なし'), ('outward', '部品中心 → 外側'), ('inward', '外側 → 部品中心')] %}
-            <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-          {% else %}
-          <input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
-                 data-type="{{ field.value_type }}"
-                 type="{% if field.value_type in ('str', 'float_or_auto') %}text{% else %}number{% endif %}"
-                 aria-label="{{ field.label }}"
-                 {% if field.value_type not in ('str', 'float_or_auto') %}step="any"{% endif %}
-                 value="{{ field.value if field.value is not none else '' }}"
-                 {% if field.key in clearable_keys %}data-allow-empty="true"{% endif %}
-                 placeholder="未設定">
-          {% endif %}
-          {% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</details>
-{% endfor %}
+{% macro settings_control(field, prefix) %}
+{% if field.value_type == 'float_pair' %}
+<div class="settings-pair" data-pair-key="{{ field.key }}">
+  {% for axis in ['X', 'Y'] %}
+  <input id="{{ prefix }}-{{ field.key }}-{{ axis|lower }}"
+         data-pair-key="{{ field.key }}"
+         data-pair-index="{{ loop.index0 }}"
+         type="number"
+         step="any"
+         aria-label="{{ field.label }} {{ axis }}"
+         value="{{ field.value[loop.index0] if field.value is not none else '' }}"
+         placeholder="{{ axis }}">
+  {% endfor %}
+</div>
+{% elif field.value_type == 'dispense_mode' %}
+<select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
+        data-type="{{ field.value_type }}"
+        aria-label="{{ field.label }}">
+  {% for option, label in [('auto', 'Auto'), ('dot', '点'), ('line', '線'), ('area', '面')] %}
+  <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
+  {% endfor %}
+</select>
+{% elif field.value_type == 'line_direction' %}
+<select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
+        data-type="{{ field.value_type }}"
+        aria-label="{{ field.label }}">
+  {% for option, label in [('unconstrained', '指定なし'), ('outward', '部品中心 → 外側'), ('inward', '外側 → 部品中心')] %}
+  <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
+  {% endfor %}
+</select>
+{% else %}
+<input id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
+       data-type="{{ field.value_type }}"
+       type="{% if field.value_type in ('str', 'float_or_auto') %}text{% else %}number{% endif %}"
+       aria-label="{{ field.label }}"
+       {% if field.value_type not in ('str', 'float_or_auto') %}step="any"{% endif %}
+       value="{{ field.value if field.value is not none else '' }}"
+       {% if field.key in clearable_keys %}data-allow-empty="true"{% endif %}
+       placeholder="未設定">
+{% endif %}
+{% if field.unit %}<span class="unit">{{ field.unit }}</span>{% endif %}
 {% endmacro %}
 <section class="settings">
   <header class="settings-header">
-    <div>
-      <h1>マシン設定</h1>
+    <h1>マシン設定</h1>
+    {# ナビと絞り込みはフォームの外に置く。中に入れると操作権の無い端末では
+       control.js がフォームごと操作不可にするので、設定を読めなくなる #}
+    <div class="settings-search">
+      <input id="settings-filter" type="search" autocomplete="off"
+             aria-label="設定の絞り込み" placeholder="設定名・キーで絞り込み">
     </div>
   </header>
 
-  <form id="machine-settings-form" data-machine-settings data-requires-control
-        data-endpoint="/api/settings/machine">
-    <div class="settings-grid">
-    {{ settings_groups(machine_groups, "ms") }}
-    </div>
-  </form>
+  <div class="settings-layout">
+    <nav class="settings-nav" aria-label="設定セクション">
+      {% for section in settings_sections %}
+      <button type="button" class="settings-nav-item" data-section="{{ section.slug }}"
+              {% if loop.first %}aria-current="true"{% endif %}>
+        <span>{{ section.label }}</span>
+        <span class="settings-nav-count">{{ section.field_count }}</span>
+      </button>
+      {% endfor %}
+    </nav>
+
+    <form id="machine-settings-form" data-machine-settings data-requires-control
+          data-endpoint="/api/settings/machine">
+      {% for section in settings_sections %}
+      <section class="settings-section" data-section="{{ section.slug }}" {% if not loop.first %}hidden{% endif %}>
+        <h2 class="settings-section-title">{{ section.label }}</h2>
+        <div class="settings-grid">
+          {% for group in section.groups %}
+          <section class="settings-group">
+            <h3 class="settings-group-title">{{ group.label }}</h3>
+            <table class="settings-table">
+              <tbody>
+                {% for field in group.fields %}
+                <tr data-search="{{ (field.label ~ ' ' ~ field.key)|lower }}">
+                  <th title="{{ field.key }}">{{ field.label }}</th>
+                  <td>{{ settings_control(field, "ms") }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </section>
+          {% endfor %}
+        </div>
+      </section>
+      {% endfor %}
+    </form>
+  </div>
+
+  <p id="settings-filter-empty" class="settings-empty" hidden>一致する設定がありません。</p>
 </section>
 {% endblock %}
 {% block scripts %}
@@ -86,4 +101,5 @@
    #job-console が無いページなので job_console.js はコンソールを描かない #}
 <script src="{{ static_asset('js/job_console.js') }}"></script>
 <script src="{{ static_asset('js/settings.js') }}"></script>
+<script src="{{ static_asset('js/settings_nav.js') }}"></script>
 {% endblock %}

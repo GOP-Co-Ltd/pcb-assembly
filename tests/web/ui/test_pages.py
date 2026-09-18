@@ -42,6 +42,7 @@ from web.ui.layout import (
     FEATURE_TEMPLATES,
     JOB_TEMPLATES,
     LOADING_ROTATION_PARAMS,
+    SETTINGS_SECTIONS,
     TABS as PAGE_TABS,
 )
 from web.ui.machines import MachineEndpoint
@@ -285,7 +286,7 @@ class TestPages:
 
         ペア表示（`reference_point.offsets.*`）だけは 1 入力に 2 値を載せるので
         `data-pair-key` で出る。保存ボタンは持たない（変更した時点で PUT する）。
-        セクション見出しの網羅は `test_layout.py::TestSectionLabels` が持つ。
+        セクション構成の網羅は `test_layout.py::TestSettingsLayoutDeclaration` が持つ。
         """
         text = client.get("/settings").text
 
@@ -301,6 +302,38 @@ class TestPages:
         assert "settings-group" in text
         assert '<label for="ms-' not in text
         assert '<button type="submit">保存</button>' not in text
+
+    def test_settings_page_renders_one_panel_per_section(self, client: TestClient):
+        """左ナビと右パネルが 1 対 1 で、既定は先頭セクションだけを開く."""
+        text = client.get("/settings").text
+
+        nav_slugs = re.findall(
+            r'class="settings-nav-item"[^>]*data-section="([^"]+)"', text
+        )
+        panel_slugs = re.findall(
+            r'class="settings-section"[^>]*data-section="([^"]+)"', text
+        )
+
+        assert nav_slugs == [section.slug for section in SETTINGS_SECTIONS]
+        assert panel_slugs == nav_slugs
+        assert text.count('class="settings-section" data-section') == len(nav_slugs)
+
+    def test_settings_nav_and_filter_are_outside_the_control_gated_form(
+        self, client: TestClient
+    ):
+        """操作権が無いと `data-requires-control` の中身は `inert` になる.
+
+        ナビと絞り込みをフォームへ入れると、閲覧しかできない端末が設定を**読む**ことも
+        できなくなる（`control.js` が form ごと inert にする）。
+        """
+        text = client.get("/settings").text
+        form = text[text.index('<form id="machine-settings-form"') :]
+        form = form[: form.index("</form>")]
+
+        assert "data-requires-control" in form
+        assert "settings-nav-item" not in form
+        assert 'id="settings-filter"' not in form
+        assert 'id="settings-filter"' in text
 
     def test_unknown_tab_returns_404(self, client: TestClient):
         assert client.get("/no-such-tab").status_code == 404
