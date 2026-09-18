@@ -156,7 +156,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.nozzle_cap.x", "キャップ位置 X", "float", "mm"),
     FieldSpec("paste_dispenser.nozzle_cap.y", "キャップ位置 Y", "float", "mm"),
     FieldSpec("paste_dispenser.nozzle_cap.z", "キャップ位置 Z", "float", "mm"),
-    # [paste_dispenser.nozzle_clean] — 塗布開始時のノズル先端クリーニング（マシン座標）
+    # [paste_dispenser.nozzle_clean] — ノズル先端クリーニング（マシン座標）
     FieldSpec("paste_dispenser.nozzle_clean.x", "クリーニング位置 X", "float", "mm"),
     FieldSpec("paste_dispenser.nozzle_clean.y", "クリーニング位置 Y", "float", "mm"),
     FieldSpec("paste_dispenser.nozzle_clean.z", "クリーニング面のZ高さ", "float", "mm"),

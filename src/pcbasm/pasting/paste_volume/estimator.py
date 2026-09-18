@@ -24,6 +24,14 @@ from pcbasm.pasting.paste_volume.calibration import (
 from pcbasm.pasting.paste_volume.detect import DotMeasurement, measure_dot
 from pcbasm.vision.image import ImageArray
 
+# 「塗布そのものが写っていない」不採用理由。ノズル詰まりの判定に使うので、
+# 他の不採用理由（被覆域外など）と取り違えないよう 1 か所で持つ。
+NO_DEPOSIT_DETECTED = "no_deposit_detected"
+
+# 円は写っているのにモデルが非正の体積を返した（校正が壊れている）不採用理由。
+# 写っている以上ノズルは詰まっていないので、未検出とは別の理由にする。
+NON_POSITIVE_VOLUME = "non_positive_volume"
+
 
 @attrs.frozen
 class PasteVolumePrediction:
@@ -130,7 +138,7 @@ class DiameterVolumeEstimator:
         画像を読み直さずに済むので、session 全体を計測してから評価する経路で使う。
         """
         if diameter.detected_view_count == 0:
-            return _rejected("no_deposit_detected")
+            return _rejected(NO_DEPOSIT_DETECTED)
         model = self._calibration.model
         if not model.covers(diameter.diameter_mm):
             return _rejected("diameter_out_of_calibrated_range")
@@ -140,7 +148,7 @@ class DiameterVolumeEstimator:
             return _rejected("diameter_below_reliable_range")
         mean = model.volume_ul(diameter.diameter_mm)
         if mean <= 0.0:
-            return _rejected("no_deposit_detected")
+            return _rejected(NON_POSITIVE_VOLUME)
         relative = self._calibration.diagnostics.residual_relative_std
         return PasteVolumePrediction(
             mean_volume_ul=mean,

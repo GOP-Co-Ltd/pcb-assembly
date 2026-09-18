@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pcbasm.gcode import GCode
-from pcbasm.pasting.nozzle_clean import clean_nozzle, resolve_nozzle_clean
+from pcbasm.pasting.nozzle_clean import resolve_nozzle_clean
 from pcbasm.pasting.workflow import plan_paste_targets
 from pcbasm.pcb import PadHierarchy
 from web.api.jobs.board_ops import setup_board
@@ -16,7 +16,10 @@ from web.api.jobs.pasting.common import (
     resolve_paste_model,
     run_loading_loop,
 )
-from web.api.jobs.pasting.flow_calibration import run_flow_calibration, summary_line
+from web.api.jobs.pasting.flow_calibration import (
+    run_flow_calibration_with_cleaning,
+    summary_line,
+)
 
 
 def register(catalog: JobCatalog) -> None:
@@ -99,15 +102,6 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                     stage.move(x=pos.x, y=pos.y, z=pos.z) + GCode.wait_for_done()
                 )
 
-            # ローディング直後の先端が最も汚れているので、掃除はその後に行う。
-            # リトラクトより前なのは「掃除 → 移動前の垂れ止め」が正しい順序のため。
-            if nozzle_clean is not None:
-                ctx.progress("ノズルクリーニング")
-                ctx.checkpoint()
-                clean_nozzle(
-                    session.klipper, stage, applicator, nozzle_clean, log=ctx.log
-                )
-
             ctx.progress("リトラクション")
             applicator.retract()
 
@@ -122,11 +116,21 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                     transform=session.point_transform(purge.point, correction),
                 )
 
+            # ノズルの掃除はここでしか判断できない。塗布が 1 点も写らなければ
+            # 詰まっているので、掃除とパージをやり直してからもう一度測る。
             flow = targets.flow_calibration
             outcome = (
                 None
                 if flow is None
-                else run_flow_calibration(ctx, session, correction, applicator, flow)
+                else run_flow_calibration_with_cleaning(
+                    ctx,
+                    session,
+                    correction,
+                    applicator,
+                    flow,
+                    nozzle_clean=nozzle_clean,
+                    purge=purge,
+                )
             )
             if outcome is not None:
                 applicator.adopt_rotations_per_ul(outcome.rotations_per_ul)
