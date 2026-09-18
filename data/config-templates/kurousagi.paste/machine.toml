@@ -4,6 +4,14 @@ machine_type = "paste" # マシン種別: paste / pnp
 host = "localhost"
 port = 7125
 
+[tact]
+# タクトタイム見積り専用の値（装置の動作はこれを参照しない）
+travel_speed = 50.0 # XY 移動の速度 [mm/sec]（printer.cfg の max_velocity）
+travel_accel = 250.0 # XY 移動の加速度 [mm/sec^2]（printer.cfg の max_accel）
+z_speed = 5.0 # Z 移動の速度 [mm/sec]（printer.cfg の max_z_velocity）
+z_accel = 15.0 # Z 移動の加速度 [mm/sec^2]（printer.cfg の max_z_accel）
+setup_sec = 300.0 # 位置合わせ・高さ計測・パージ等の固定分 [sec]（実測に合わせる）
+
 [paste_dispenser]
 # rotations_per_ul = 1.0 # 1μLあたりの回転数 [rev/μL]
 rotations_per_ul = 16.041064 # キャリブレーション値 2026/06/08 23G S3X70-E150DN

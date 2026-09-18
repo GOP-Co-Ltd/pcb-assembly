@@ -37,6 +37,11 @@
 </section>
 <section class="pasting-run-panel" data-testid="pasting-run-panel">
   <div class="pasting-job-panel" data-testid="pasting-job-panel">
+  {# 実行前の所要時間の目安。値はサーバーが秒で返す #}
+  <p class="tact-estimate" data-testid="tact-estimate">
+    予測所要時間 <span class="tact-estimate-value" data-testid="tact-estimate-value">—</span>
+    <span class="tact-estimate-detail" data-testid="tact-estimate-detail"></span>
+  </p>
   {% include "partials/job_form.html" %}
   {% if show_loading_controls %}
   {% include "partials/loading_controls.html" %}
@@ -64,4 +69,5 @@
 <script type="module" src="{{ static_asset('js/pad_editor/index.js') }}"></script>
 <script src="{{ static_asset('js/paste_volume_calibrations.js') }}"></script>
 <script src="{{ static_asset('js/settings.js') }}"></script>
+<script src="{{ static_asset('js/tact_estimate.js') }}"></script>
 {% endblock %}

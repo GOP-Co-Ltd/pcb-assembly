@@ -22,7 +22,7 @@ import attrs
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from pcbasm.config import FlowCalibration, PasteDispenser
+from pcbasm.config import FlowCalibration, PasteDispenser, Tact
 from pcbasm.geometry import Point2d, display_rings
 from pcbasm.pasting.fill_path import FillPlan
 from pcbasm.pasting.initial_purge import (
@@ -45,6 +45,7 @@ from pcbasm.pasting.settings import (
     resolve_pad_settings,
     select_enabled_pads,
 )
+from pcbasm.pasting.tact import estimate_paste_tact
 from pcbasm.pcb import (
     Layer,
     Pad,
@@ -543,6 +544,19 @@ def pad_info(
     )
 
 
+class TactEstimateResponse(BaseModel):
+    """はんだ塗布のタクトタイム見積り [sec]（表示の整形は frontend が行う）.
+
+    ``setup_seconds`` は位置合わせ・高さ計測など pad 数に依らない固定分、
+    ``dispense_seconds`` は塗布ループ（移動 + 吐出）ぶん。
+    """
+
+    total_seconds: float
+    setup_seconds: float
+    dispense_seconds: float
+    pad_count: int
+
+
 # --------------------------------------------------------------------------- #
 # 共通: PCB / 階層 / モデルのロード
 # --------------------------------------------------------------------------- #
@@ -659,6 +673,34 @@ def build_route(loaded: Loaded, layer: Layer) -> PasteRouteResponse:
         )
     ]
     return PasteRouteResponse(layer=layer.value, pads=route)
+
+
+def build_tact_estimate(loaded: Loaded, tact: Tact) -> TactEstimateResponse:
+    """ロード済みコンテキストから、はんだ塗布の所要時間見積りを構築する.
+
+    対象 pad の絞り込みと塗布順は実行時（``plan_paste_targets``）と同じ
+    ``select_enabled_pads`` / ``plan_paste_route`` を通す。pad の出どころだけは
+    階層（``hierarchy.iter_pads()``）で、実行時の ``pcb.pads`` と違う。KiCad 読込では
+    どちらも同じ footprint 列に由来するので対象は一致する。
+    """
+    resolved = resolve_pad_settings(loaded.hierarchy, loaded.model)
+    routed = routed_enabled_pads(
+        layer_pads(loaded, Layer.TOP), loaded.hierarchy, loaded.model
+    )
+    estimate = estimate_paste_tact(
+        (
+            (pad, resolved[loaded.hierarchy.pad_ref_for_pad(pad)].params)
+            for pad in routed
+        ),
+        config=loaded.base_config,
+        tact=tact,
+    )
+    return TactEstimateResponse(
+        total_seconds=estimate.total_sec,
+        setup_seconds=estimate.setup_sec,
+        dispense_seconds=estimate.dispense_sec,
+        pad_count=estimate.pad_count,
+    )
 
 
 def build_fill_path(loaded: Loaded, layer: Layer) -> PasteFillPathResponse:

@@ -1399,3 +1399,24 @@ class TestShutdown:
 
         assert record.status == JobStatus.ABORTED
         manager.shutdown(timeout=10.0)  # 冪等
+
+
+class TestElapsedSeconds:
+    """実測タクトタイム: 開始で計り始め、終端で止まる."""
+
+    def test_advances_while_running_and_freezes_after_terminal(
+        self, manager: JobManager, catalog: JobCatalog, wait_until: WaitUntil
+    ):
+        gate = _register_gated(catalog)
+        record = manager.start("gated", {})
+        wait_until(lambda: record.status is JobStatus.RUNNING)
+        running = record.elapsed_seconds
+
+        wait_until(lambda: record.elapsed_seconds > running)
+        gate.set()
+        wait_until(lambda: record.status.terminal)
+
+        finished = record.elapsed_seconds
+        assert finished >= running
+        # 終端後は同じ値を返し続ける（タイマーが止まっている）
+        assert record.elapsed_seconds == finished

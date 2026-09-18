@@ -962,6 +962,25 @@ h2 {
   font-weight: 700;
 }
 
+.jc-elapsed {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tact-estimate {
+  margin: 0 0 0.5rem;
+}
+
+.tact-estimate-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tact-estimate-detail {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .jc-status[data-status="running"],
 .jc-status[data-status="waiting_input"] {
   color: var(--accent);

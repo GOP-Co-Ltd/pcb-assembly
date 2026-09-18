@@ -123,6 +123,15 @@ class FillPlan:
             case _:
                 assert_never(mode)
 
+    def component_amount_ul(self, polygon: Polygon, params: PasteParams) -> float:
+        """成分 1 本あたりの塗布量 [μL]（面積 × ``ul_per_mm2`` を成分数で等分）.
+
+        経路が空（入力ポリゴンが不正）なら 0.0。
+        """
+        if not self.paths:
+            return 0.0
+        return polygon.area * params.ul_per_mm2 / len(self.paths)
+
     @classmethod
     def for_pad(
         cls,

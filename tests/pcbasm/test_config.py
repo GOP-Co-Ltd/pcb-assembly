@@ -17,6 +17,7 @@ from pcbasm.config import (
     PasteDispenser,
     Probe,
     ReferencePoint,
+    Tact,
     Toolhead,
     get_config_dir,
     get_machine_config,
@@ -894,3 +895,41 @@ class TestResolvePasteHeight:
 
     def test_numeric_returns_value(self):
         assert resolve_paste_height(0.2, 0.08) == pytest.approx(0.2)
+
+
+class TestMachineTact:
+    """`[tact]`: タクトタイム見積りのパラメータ（セクションごと省略可）."""
+
+    def test_defaults_whole_section_when_absent(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.tact == Tact()
+
+    def test_reads_section(self, tmp_path):
+        machine = _machine_with(
+            tmp_path,
+            "[tact]\ntravel_speed = 12.5\ntravel_accel = 60.0\n"
+            "z_speed = 4.0\nz_accel = 8.0\nsetup_sec = 180.0\n",
+        )
+
+        assert machine.tact == Tact(
+            travel_speed=12.5,
+            travel_accel=60.0,
+            z_speed=4.0,
+            z_accel=8.0,
+            setup_sec=180.0,
+        )
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("travel_speed", 0.0),
+            ("travel_accel", -1.0),
+            ("z_speed", 0.0),
+            ("z_accel", -1.0),
+            ("setup_sec", -1.0),
+        ],
+    )
+    def test_rejects_invalid_values(self, key, value):
+        with pytest.raises(ValueError, match=key):
+            Tact(**{key: value})

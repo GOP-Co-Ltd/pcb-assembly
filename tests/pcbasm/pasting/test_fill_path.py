@@ -643,3 +643,37 @@ class TestFillPlanForPad:
         )
 
         assert outward.paths == unconstrained.paths
+
+
+class TestComponentAmount:
+    """成分 1 本あたりの塗布量（塗布実行と所要時間見積りが共有する配分）."""
+
+    @staticmethod
+    def _paste(ul_per_mm2: float = 0.1) -> PasteParams:
+        return PasteParams(
+            dispense_mode="area",
+            line_direction="unconstrained",
+            paste_height=0.05,
+            ul_per_mm2=ul_per_mm2,
+            prime_extra_delay=0.0,
+            bead_width_factor=0.8,
+            overlap=0.2,
+            boundary_margin=0.05,
+        )
+
+    def test_splits_the_pad_amount_evenly_across_components(self):
+        # 分割された 2 成分。総量 = 面積 * ul_per_mm2 を成分数で等分する。
+        polygon = _split_dumbbell_h()
+        params = self._paste(ul_per_mm2=0.1)
+        plan = FillPlan.for_pad(polygon, config=_config(0.4), params=params)
+        assert len(plan.paths) == 2  # 前提: 2 成分に割れている
+
+        amount = plan.component_amount_ul(polygon, params)
+
+        assert amount * len(plan.paths) == pytest.approx(polygon.area * 0.1)
+
+    def test_empty_plan_has_no_amount(self):
+        params = self._paste()
+        plan = FillPlan.for_pad(Polygon(), config=_config(0.4), params=params)
+
+        assert plan.component_amount_ul(Polygon(), params) == 0.0

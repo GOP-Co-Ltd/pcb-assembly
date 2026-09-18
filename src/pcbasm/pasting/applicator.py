@@ -269,7 +269,7 @@ class PasteApplicator:
             self._logger.warning("フィルパスが空です。スキップします。")
             return PasteApplicationResult(())
 
-        per_component_ul = polygon.area * params.ul_per_mm2 / len(plan.paths)
+        per_component_ul = plan.component_amount_ul(polygon, params)
         return PasteApplicationResult(
             tuple(
                 self._draw_polyline(

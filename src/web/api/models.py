@@ -110,6 +110,8 @@ class JobSummary(BaseModel):
     error: str | None = None
     progress_stage: str | None = None
     progress_percent: float | None = None
+    # 開始からの経過時間 [sec]。終端後は確定値で止まる（既定は古い backend 向け）
+    elapsed_seconds: float = 0.0
     log_tail: list[str] = []  # リングバッファ全量（最大 log_capacity 行）
     pending_prompt: PromptInfo | None = None
     result: JobResultInfo | None = None

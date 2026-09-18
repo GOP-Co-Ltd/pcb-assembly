@@ -46,6 +46,7 @@ from web.api.routers.pasting_view import (
     PasteRouteRequest,
     PasteRouteResponse,
     PatchResponse,
+    TactEstimateResponse,
     affected_pads,
     affected_pads_for_ids,
     build_copper,
@@ -54,6 +55,7 @@ from web.api.routers.pasting_view import (
     build_initial_purge,
     build_pad_config,
     build_route,
+    build_tact_estimate,
     key_from_node_id,
     layer_pads,
     load_board,
@@ -102,6 +104,18 @@ def calculate_pad_fill_path(
 ) -> PasteFillPathResponse:
     """選択中基板の有効 pad だけを対象に塗布パスを返す（POST だが読み取り専用計算）."""
     return build_fill_path(load_board(state, settings, board_store), body.layer)
+
+
+@router.get("/pasting/tact-estimate")
+def get_tact_estimate(
+    state: StateDep,
+    settings: SettingsDep,
+    board_store: BoardStoreDep,
+) -> TactEstimateResponse:
+    """選択中基板のはんだ塗布タクトタイムを実行前に見積もる（読み取り専用）."""
+    return build_tact_estimate(
+        load_board(state, settings, board_store), state.machine().tact
+    )
 
 
 @router.patch("/pasting/pad-config/node")

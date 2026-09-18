@@ -72,6 +72,7 @@ def job_summary(record: JobRecord, definition: JobDefinition) -> JobSummary:
         error=record.error,
         progress_stage=record.progress_stage,
         progress_percent=record.progress_percent,
+        elapsed_seconds=record.elapsed_seconds,
         log_tail=list(record.log_lines),
         pending_prompt=(
             PromptInfo.model_validate(prompt_payload(pending[0], pending[1]))

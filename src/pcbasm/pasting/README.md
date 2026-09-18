@@ -22,6 +22,7 @@
 | `capture.py`             | board 座標の点をカメラ中心へ置いて固定寸法で切り出す `PointCapturer`（dataset 収集と運転時キャリブレーションの共通経路）                                                                                                                                                                                                                                                                   |
 | `session.py`             | 塗布ワークフローの HAL 配線 `PasteSession`（Board 計測結果 → 高さ計測・位置合わせ・pad 別変換・銅板の一括変換・applicator 構築）                                                                                                                                                                                                                                                           |
 | `workflow.py`            | 装置非依存の前計画 `plan_paste_targets`                                                                                                                                                                                                                                                                                                                                                    |
+| `tact.py`                | 塗布タクトタイムの事前見積り `estimate_paste_tact` / `TactEstimate`（装置に触れない純計算）                                                                                                                                                                                                                                                                                                |
 | `alignment.py`           | 塗布向けの位置合わせ合成 `PasteCorrection` / `refine_pad`                                                                                                                                                                                                                                                                                                                                  |
 | `toolhead_offset.py`     | カメラ–ノズル間オフセット計測 `ToolheadOffsetProcedure` / `ToolheadOffsetResult` / `ToolheadOffsetDiagnostics`                                                                                                                                                                                                                                                                             |
 | `flowcalib/`             | 流量キャリブレーション。`params`（ジョブ既定値）/ `flow`（質量 → rotations_per_ul、レート・速度掃引の数理）/ `lines`（線配置と掃引計画）/ `procedure`（銅板・transform・applicator を束ねる機械手順）                                                                                                                                                                                      |
@@ -46,11 +47,13 @@
 web/api/jobs/pasting/*  →  pasting.{session,workflow,alignment,flowcalib.procedure,dataset.*,toolhead_offset}
                               ↓
                        pasting.{applicator,fill_path,fill_sequence,params,settings,route,height,
-                                nozzle_clean}
+                                nozzle_clean,tact}
                               ↓
                        pcbasm.{config,geometry,pcb,posctrl,vision,hal}
 ```
 
+- `tact` はジョブではなく `web/api/routers/pasting.py`（実行前の見積り API）から呼ぶ。装置を動かす前に
+    答えるため、`FillPlan` / `FillSequence` の計算だけで完結させてある
 - `nozzle_clean` だけはジョブ以外に `web/api/routers/nozzle_cap.py`（テスト実行 API）からも呼ぶ。
     `PasteSession` を介さず `Klipper` / `XYZStage` / `PasteApplicator` だけで完結させてあるため
 - 汎用の計算幾何は `pcbasm.geometry`、KiCad 汎用処理は `pcbasm.pcb`（`units` / `footprint`）に置く

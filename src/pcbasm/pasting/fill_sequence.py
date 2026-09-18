@@ -100,6 +100,16 @@ class FillSequence:
         return self._effective_rate()
 
     @property
+    def dispense_duration(self) -> float:
+        """Prime と吐出を合わせた所要時間 [sec].
+
+        経路長 > 0 のときは吐出時間がそのまま経路の走行時間になる（``to_gcode`` が
+        ``motion_time == dispense_time`` を保つ）。タクトタイム見積りはこの値に
+        接近・退避の移動時間を足して 1 成分ぶんの所要時間を組む。
+        """
+        return self._prime_time() + self._dispense_time()
+
+    @property
     def prime_extra_volume_ul(self) -> float:
         """Prime追加遅延中に基板上へ押し出す体積 [μL]."""
         return self._extra_amount()

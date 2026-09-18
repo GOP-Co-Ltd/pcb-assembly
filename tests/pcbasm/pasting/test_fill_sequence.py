@@ -278,3 +278,21 @@ class TestRateCap:
         actual = sequence.actual_fill_speed()
         assert actual is not None
         assert actual.resolve(100.0) == pytest.approx(speed)
+
+
+class TestDispenseDuration:
+    """Prime + 吐出の所要時間（タクトタイム見積りが読む公開値）."""
+
+    def test_sums_prime_and_dispense_for_capped_and_uncapped_paths(self):
+        # L=10（非 cap）: rate=4 → 吐出 20/4=5。
+        # prime = 台形(10, 4, 8) = 4/8 + (10-1)/4 = 2.75、+ 追加遅延 0.5。
+        path = Path([Point3d(0.0, 0.0, 5.0), Point3d(10.0, 0.0, 5.0)])
+
+        assert _sequence(path).dispense_duration == pytest.approx(5.0 + 2.75 + 0.5)
+
+    def test_zero_length_path_dispenses_at_the_rate_cap(self):
+        # 点フィルは cap=10 でその場吐出 → 20/10=2。
+        # prime = 台形(10, 10, 8) = 10/8 + (10-6.25)/10 = 1.625、+ 追加遅延 0.5。
+        path = Path([Point3d(0.0, 0.0, 5.0)])
+
+        assert _sequence(path).dispense_duration == pytest.approx(2.0 + 1.625 + 0.5)
