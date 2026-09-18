@@ -30,7 +30,6 @@ from web.api.discovery import (
     SERVICE_TYPE,
     TXT_KEY_API,
     TXT_KEY_ID,
-    TXT_KEY_NAME,
     TXT_KEY_TYPE,
     ServiceAdvertiser,
     build_service_info,
@@ -42,9 +41,6 @@ from web.api.settings import Settings, resolve_machine_id
 
 # このホストに存在しないアドレス（TEST-NET-3）。zeroconf は bind できず OSError
 UNUSABLE_INTERFACE = "203.0.113.9"
-
-# TXT の 1 エントリは "key=value" で 255 bytes まで（"name=" の 5 bytes を引く）
-MAX_TXT_NAME_BYTES = 250
 
 
 class TestServiceTypeConstant:
@@ -101,7 +97,6 @@ class TestBuildServiceInfo:
         return build_service_info(
             machine_id="kurousagi",
             port=8081,
-            name="黒兎",
             machine_type="paste",
             addresses=("192.168.100.201",),
         )
@@ -118,7 +113,6 @@ class TestBuildServiceInfo:
         assert info.properties == {
             TXT_KEY_ID.encode(): b"kurousagi",
             TXT_KEY_API.encode(): str(API_VERSION).encode(),
-            TXT_KEY_NAME.encode(): "黒兎".encode(),
             TXT_KEY_TYPE.encode(): b"paste",
         }
 
@@ -126,104 +120,15 @@ class TestBuildServiceInfo:
         assert info.parsed_addresses() == ["192.168.100.201"]
         assert info.port == 8081
 
-    def test_missing_name_and_type_are_absent_from_txt(self):
+    def test_missing_machine_type_is_absent_from_txt(self):
         info = build_service_info(
             machine_id="alpha",
             port=8081,
-            name=None,
             machine_type=None,
             addresses=("10.0.0.3",),
         )
 
         assert set(info.properties) == {TXT_KEY_ID.encode(), TXT_KEY_API.encode()}
-
-    def test_instance_override_keeps_the_registered_name(self):
-        """改名された広告を更新するときは登録済み instance 名を使う."""
-        info = build_service_info(
-            machine_id="alpha",
-            port=8081,
-            name="A",
-            machine_type=None,
-            addresses=("10.0.0.3",),
-            instance=f"alpha-2.{SERVICE_TYPE}",
-        )
-
-        assert info.name == f"alpha-2.{SERVICE_TYPE}"
-        assert info.server == "alpha-pcbasm.local."
-
-
-class TestLongDisplayName:
-    """長すぎる ``machine_name`` で広告が壊れない（M2 の回帰）.
-
-    ``machine_name`` は自由入力（`PUT /api/settings/machine`）。日本語 100 文字
-    （300 bytes）をそのまま TXT に載せると zeroconf が ValueError を投げ、
-    (1) `_republish` が Task 例外で無音死し、(2) **次回起動で lifespan の
-    `start()` が同じ例外で落ちて backend が起動不能**になる（machine.toml を手で
-    直すまで復旧しない）。表示名が切れても広告は生かすのが契約。
-    """
-
-    LONG_NAME = "黒" * 100
-
-    @pytest.fixture
-    def info(self) -> ServiceInfo:
-        return build_service_info(
-            machine_id="alpha",
-            port=8081,
-            name=self.LONG_NAME,
-            machine_type="paste",
-            addresses=("10.0.0.3",),
-        )
-
-    def test_txt_name_fits_in_one_entry(self, info: ServiceInfo):
-        name = info.properties[b"name"]
-
-        assert name is not None
-        assert 0 < len(name) <= MAX_TXT_NAME_BYTES
-
-    def test_txt_name_is_still_valid_utf8_and_a_prefix(self, info: ServiceInfo):
-        """文字境界で切る（壊れた末尾バイトを残すと探索側が name を捨てる）."""
-        name = info.properties[b"name"]
-
-        assert name is not None
-        assert self.LONG_NAME.startswith(name.decode())
-
-    def test_other_fields_are_unaffected(self, info: ServiceInfo):
-        assert info.properties[b"id"] == b"alpha"
-        assert info.properties[b"type"] == b"paste"
-
-    @staticmethod
-    def _truncation_logs(caplog: pytest.LogCaptureFixture) -> list[str]:
-        return [
-            record.getMessage()
-            for record in caplog.records
-            if record.name == "web.api.discovery" and "切り詰め" in record.getMessage()
-        ]
-
-    def test_truncation_is_logged(self, caplog: pytest.LogCaptureFixture):
-        """無音で切らない（表示名が縮んだ理由をログから辿れるようにする）."""
-        with caplog.at_level(logging.INFO, logger="web.api.discovery"):
-            build_service_info(
-                machine_id="alpha",
-                port=8081,
-                name=self.LONG_NAME,
-                machine_type=None,
-                addresses=("10.0.0.3",),
-            )
-
-        assert self._truncation_logs(caplog)
-
-    def test_a_name_that_fits_is_not_logged(self, caplog: pytest.LogCaptureFixture):
-        """収まる名前でログを出すと、切り詰めの検知に使えない."""
-        with caplog.at_level(logging.INFO, logger="web.api.discovery"):
-            build_service_info(
-                machine_id="alpha",
-                port=8081,
-                name="黒兎",
-                machine_type=None,
-                addresses=("10.0.0.3",),
-            )
-
-        assert self._truncation_logs(caplog) == []
 
 
 class TestAdvertiserWithoutMulticast:
@@ -238,7 +143,6 @@ class TestAdvertiserWithoutMulticast:
         return ServiceAdvertiser(
             machine_id="alpha",
             port=8081,
-            name="A",
             machine_type=None,
             addresses=("10.0.0.3",),
             service_type=random_service_type(),
@@ -248,15 +152,11 @@ class TestAdvertiserWithoutMulticast:
     def test_start_does_not_raise(self, advertiser: ServiceAdvertiser):
         asyncio.run(advertiser.start())
 
-    def test_update_and_stop_without_a_live_start_are_no_ops(
-        self, advertiser: ServiceAdvertiser
-    ):
+    def test_stop_without_a_live_start_is_a_no_op(self, advertiser: ServiceAdvertiser):
         async def scenario() -> None:
             # start 前と、失敗した start の後のどちらでも例外にならない
-            advertiser.update("新しい名前")
             await advertiser.stop()
             await advertiser.start()
-            advertiser.update("新しい名前")
             await advertiser.stop()
 
         asyncio.run(scenario())
@@ -277,7 +177,6 @@ class TestAdvertiserWithUnbuildableServiceInfo:
         return ServiceAdvertiser(
             machine_id=machine_id,
             port=8081,
-            name="A",
             machine_type=machine_type,
             addresses=("10.0.0.3",),
             service_type=random_service_type(),
@@ -298,7 +197,7 @@ class TestAdvertiserWithUnbuildableServiceInfo:
     def test_too_long_txt_value_warns_instead_of_raising(
         self, caplog: pytest.LogCaptureFixture
     ):
-        """クランプ対象外の TXT 値（machine.toml の machine_type）が長すぎる場合.
+        """TXT 値（machine.toml の machine_type）が長すぎる場合.
 
         zeroconf は ValueError を投げる。`zeroconf.Error` のサブクラスではないので
         except に ValueError を含めていないと lifespan まで抜ける。
@@ -325,7 +224,6 @@ class TestMachineIdResolution:
         info = build_service_info(
             machine_id=resolve_machine_id(webui_settings),
             port=webui_settings.port,
-            name=None,
             machine_type=None,
             addresses=(),
         )

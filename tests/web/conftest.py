@@ -41,8 +41,8 @@ def broken_machine_toml(config_dir: Path) -> Path:
     """終端されていない文字列を追記して machine.toml をパース不能にする（そのパスを返す）.
 
     `Machine()` も `tomlkit` もこの machine.toml で例外を投げる。全ページの SSR が
-    共通で呼ぶ `AppState.machine_name()` / `machine_type()` / `focus_z()` の防御
-    （broad except → None）が効いていることをピンするための素材。
+    共通で呼ぶ `AppState.machine_type()` / `focus_z()` の防御（broad except → None）が
+    効いていることをピンするための素材。
     """
     path = config_dir / "machine.toml"
     with path.open("a", encoding="utf-8") as machine_toml:

@@ -13,7 +13,6 @@ from pcbasm.pasting.testboard.generator import (
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
 from web.api.control import ClientIdentity, ControlLease, LeaseInfo
-from web.api.discovery import ServiceAdvertiser
 from web.api.identity import get_identity
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.manager import JobManager
@@ -61,11 +60,6 @@ def get_paste_test_board_generator(
     return request.app.state.paste_test_board_generator
 
 
-def get_advertiser(request: Request) -> ServiceAdvertiser | None:
-    """広告オブジェクト（`discovery_enabled` が False のアプリでは None）."""
-    return request.app.state.advertiser
-
-
 def get_update(request: Request) -> UpdateRunner:
     """自己更新のランナー（ホストに 1 つ。装置ドメインではなくデプロイ運用）."""
     return request.app.state.update
@@ -102,7 +96,6 @@ BoardGeneratorDep = Annotated[
     BoardGenerator,
     Depends(get_paste_test_board_generator),
 ]
-AdvertiserDep = Annotated[ServiceAdvertiser | None, Depends(get_advertiser)]
 IdentityDep = Annotated[ClientIdentity, Depends(get_identity)]
 LeaseDep = Annotated[ControlLease, Depends(get_lease)]
 UpdateDep = Annotated[UpdateRunner, Depends(get_update)]

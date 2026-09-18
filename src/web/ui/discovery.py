@@ -28,7 +28,6 @@ from web.api.discovery import (
     SERVICE_TYPE,
     TXT_KEY_API,
     TXT_KEY_ID,
-    TXT_KEY_NAME,
     TXT_KEY_TYPE,
 )
 from web.api.models import API_VERSION
@@ -95,7 +94,6 @@ def endpoint_from_service_info(info: ServiceInfo) -> MachineEndpoint | None:
         machine_id=machine_id,
         host=addresses[0],
         port=info.port,
-        name=_text(properties, TXT_KEY_NAME),
         machine_type=_text(properties, TXT_KEY_TYPE),
         source="mdns",
     )

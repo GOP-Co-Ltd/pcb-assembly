@@ -181,7 +181,6 @@ DISCOVERED_KUROUSAGI = MachineEndpoint(
     machine_id="kurousagi",
     host="192.168.100.201",
     port=8081,
-    name="黒兎",
     machine_type="paste",
     source="mdns",
 )
@@ -236,7 +235,7 @@ class TestSetDiscovered:
         # 出自は静的登録のまま（mDNS で見えたかどうかで表示が揺れない）
         assert merged.source == "static"
 
-    def test_missing_name_and_machine_type_are_filled_from_mdns(self):
+    def test_missing_machine_type_is_filled_from_mdns(self):
         static = MachineEndpoint(
             machine_id="kurousagi", host="kurousagi.local", port=8081
         )
@@ -245,7 +244,6 @@ class TestSetDiscovered:
         registry.set_discovered((DISCOVERED_KUROUSAGI,))
 
         (merged,) = registry.list()
-        assert merged.name == "黒兎"
         assert merged.machine_type == "paste"
         assert merged.host == "kurousagi.local"
 

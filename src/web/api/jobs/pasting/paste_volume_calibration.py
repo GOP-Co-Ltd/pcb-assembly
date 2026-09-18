@@ -695,7 +695,6 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
 
             run = DatasetRunInfo(
                 machine_id=ctx.machine_id,
-                machine_name=ctx.machine.machine_name,
                 paste_id=paste_id,
                 paste_lot=paste_lot,
                 paste_height_mm=paste_height_mm,

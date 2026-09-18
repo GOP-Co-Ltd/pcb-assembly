@@ -52,8 +52,6 @@ class FieldSpec:
 
 
 MACHINE_FIELDS: tuple[FieldSpec, ...] = (
-    # トップレベル（bare key）
-    FieldSpec("machine_name", "マシン名", "str"),
     # [paste_dispenser]
     FieldSpec(
         "paste_dispenser.rotations_per_ul", "1uLあたりの回転数", "float", "rev/uL"

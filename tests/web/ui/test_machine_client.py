@@ -116,9 +116,6 @@ class TestMachineClient:
         info = await client.machine_info()
 
         assert info.machine_id == BACKEND_MACHINE_ID
-        # 表示名は backend の machine.toml が正（frontend の登録名では上書きしない）。
-        # data/testing/config は machine_name を持たないので machine_id にフォールバック
-        assert info.machine_name == BACKEND_MACHINE_ID
         assert info.api_version == API_VERSION
 
     async def test_jobs_includes_hidden_definitions(self, client: MachineClient):

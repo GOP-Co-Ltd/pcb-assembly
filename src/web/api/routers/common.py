@@ -175,14 +175,13 @@ def _default_mainsail_url(machine_id: str) -> str:
 def build_machine_info(state: AppState, settings: Settings) -> MachineInfo:
     """Backend の自己申告情報を組み立てる.
 
-    ホスト名・表示名の未設定フォールバックといった環境依存の解決はここに集約する
-    （pcbasm 層は machine.toml に書かれた値だけを返す）。``mainsail_url`` は
-    リクエストのホスト名に依存させない（プロキシ配下で必ず誤るため）。
+    ホスト名の解決といった環境依存の処理はここに集約する（pcbasm 層は machine.toml に
+    書かれた値だけを返す）。``mainsail_url`` はリクエストのホスト名に依存させない
+    （プロキシ配下で必ず誤るため）。
     """
     machine_id = resolve_machine_id(settings)
     return MachineInfo(
         machine_id=machine_id,
-        machine_name=state.machine_name() or machine_id,
         machine_type=state.machine_type(),
         mainsail_url=settings.mainsail_url or _default_mainsail_url(machine_id),
         fb_start=_fb_start(settings),

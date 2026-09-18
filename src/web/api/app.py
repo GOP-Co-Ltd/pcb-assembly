@@ -88,7 +88,6 @@ def _build_advertiser(settings: Settings, state: AppState) -> ServiceAdvertiser:
     return ServiceAdvertiser(
         machine_id=resolve_machine_id(settings),
         port=settings.port,
-        name=state.machine_name(),
         machine_type=state.machine_type(),
         addresses=addresses,
         service_type=settings.discovery_service_type,
