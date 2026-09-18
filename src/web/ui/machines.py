@@ -41,7 +41,7 @@ class MachineEndpoint:
         表示文字列はサーバ側で組む（クライアントで組むと表示規則が JS に散る）。
         ``machine_id`` は backend の hostname。``host`` を併記するのは、
         ``.local`` 名や IP の取り違えを画面で見分けられるようにするため。
-        自由入力の ``name`` は表示に使わない（同名の機体を見分けられないため）。
+        静的登録の ``name`` は表示に使わない（同名の機体を見分けられないため）。
         """
         return f"{self.machine_id}: {self.host}"
 
@@ -67,10 +67,9 @@ def _merge(
 ) -> _Snapshot:
     """静的登録と mDNS 発見分をマージする.
 
-    同一 ``machine_id`` は静的登録の ``host`` / ``port`` / ``name`` を優先し
-    （``source`` も ``"static"`` のまま）、静的側が持たない ``name`` /
-    ``machine_type`` だけ mDNS 側で埋める。順序は静的登録が先、その後に
-    mDNS だけで見つかったマシン（発見順）。
+    同一 ``machine_id`` は静的登録の ``host`` / ``port`` を優先し（``source`` も
+    ``"static"`` のまま）、静的側が持たない ``machine_type`` だけ mDNS 側で埋める。
+    順序は静的登録が先、その後に mDNS だけで見つかったマシン（発見順）。
     """
     by_discovered_id: dict[str, MachineEndpoint] = {}
     for endpoint in discovered:
@@ -98,9 +97,7 @@ def _fill_gaps(
     if discovered is None:
         return static
     return attrs.evolve(
-        static,
-        name=static.name or discovered.name,
-        machine_type=static.machine_type or discovered.machine_type,
+        static, machine_type=static.machine_type or discovered.machine_type
     )
 
 

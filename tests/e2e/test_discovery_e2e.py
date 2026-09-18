@@ -41,7 +41,7 @@ from tests.e2e.conftest import (
 )
 from tests.helpers import random_service_type, skip_if_no_mdns
 from web.api.app import create_app as create_backend_app
-from web.api.discovery import ServiceAdvertiser, build_service_info
+from web.api.discovery import ServiceAdvertiser
 from web.api.settings import Settings
 from web.ui.discovery import MachineDiscovery
 from web.ui.machines import MachineEndpoint
@@ -115,10 +115,6 @@ class Collector:
             None,
         )
 
-    def named(self, machine_id: str, name: str) -> bool:
-        found = self.find(machine_id)
-        return found is not None and found.name == name
-
 
 @asynccontextmanager
 async def browsing(service_type: str) -> AsyncIterator[Collector]:
@@ -138,13 +134,12 @@ async def browsing(service_type: str) -> AsyncIterator[Collector]:
 
 @asynccontextmanager
 async def advertising(
-    service_type: str, *, machine_id: str = "e2emdns", name: str | None = None
+    service_type: str, *, machine_id: str = "e2emdns"
 ) -> AsyncIterator[ServiceAdvertiser]:
     """ループバックに閉じた広告を動かす（探索側とは別ソケット）."""
     advertiser = ServiceAdvertiser(
         machine_id=machine_id,
         port=18081,
-        name=name,
         machine_type="paste",
         addresses=(LOOPBACK,),
         service_type=service_type,
@@ -169,7 +164,7 @@ class TestAdvertiseAndDiscover:
     def test_advertised_machine_reaches_the_discovery_side(self, service_type: str):
         async def scenario() -> None:
             async with (
-                advertising(service_type, name="E2E 黒兎"),
+                advertising(service_type),
                 browsing(service_type) as collector,
             ):
                 await wait_for(lambda: collector.find("e2emdns") is not None)
@@ -177,29 +172,8 @@ class TestAdvertiseAndDiscover:
                 found = collector.find("e2emdns")
                 assert found is not None
                 assert (found.host, found.port) == (LOOPBACK, 18081)
-                assert found.name == "E2E 黒兎"
                 assert found.machine_type == "paste"
                 assert found.source == "mdns"
-
-        run(scenario)
-
-    @skip_if_no_mdns
-    def test_update_publishes_the_new_display_name(self, service_type: str):
-        """`update(name)` の後は新しい表示名が探索側へ届く.
-
-        届かないと、名前を変えてもドロップダウンには最大 75 分（PTR の other-TTL） 古い名前が残る。
-        """
-
-        async def scenario() -> None:
-            async with (
-                advertising(service_type, name="古い名前") as advertiser,
-                browsing(service_type) as collector,
-            ):
-                await wait_for(lambda: collector.named("e2emdns", "古い名前"))
-
-                advertiser.update("新しい名前")
-
-                await wait_for(lambda: collector.named("e2emdns", "新しい名前"))
 
         run(scenario)
 
@@ -214,52 +188,16 @@ class TestAdvertiseAndDiscover:
 
         async def scenario() -> None:
             async with browsing(service_type) as collector:
-                async with advertising(service_type, name="消える機体"):
+                async with advertising(service_type):
                     await wait_for(lambda: collector.find("e2emdns") is not None)
                 # 明示的な unregister では goodbye（TTL 0）が飛ぶ
                 await wait_for(lambda: collector.find("e2emdns") is None)
 
         run(scenario)
 
-    @skip_if_no_mdns
-    def test_update_with_a_very_long_name_still_publishes(self, service_type: str):
-        """255 bytes を超える表示名でも `update` が広告を壊さない（M2 の回帰）.
-
-        クランプが無いと zeroconf が ValueError を投げ、`_republish` の Task 例外
-        として消える（そのうえ次回起動時は `start` が同じ例外で落ちて backend が
-        起動不能になる）。期待値は `build_service_info`（公開 API）から取る。
-        """
-        long_name = "黒" * 100
-        expected = (
-            build_service_info(
-                machine_id="e2emdns",
-                port=18081,
-                name=long_name,
-                machine_type=None,
-                addresses=(LOOPBACK,),
-                service_type=service_type,
-            ).properties[b"name"]
-            or b""
-        ).decode()
-
-        async def scenario() -> None:
-            async with (
-                advertising(service_type, name="短い名前") as advertiser,
-                browsing(service_type) as collector,
-            ):
-                await wait_for(lambda: collector.named("e2emdns", "短い名前"))
-
-                advertiser.update(long_name)
-
-                await wait_for(lambda: collector.named("e2emdns", expected))
-                assert 0 < len(expected.encode()) <= 250
-                assert long_name.startswith(expected)
-
-        run(scenario)
-
 
 class TestBackendAppAdvertises:
-    """実 backend アプリ（uvicorn）の広告と設定変更での更新（実装契約 §4 の配線）."""
+    """実 backend アプリ（uvicorn）の広告（実装契約 §4 の配線）."""
 
     @pytest.fixture
     def advertising_settings(self, tmp_path: Path, service_type: str) -> Settings:
@@ -285,10 +223,10 @@ class TestBackendAppAdvertises:
             running.stop()
 
     @skip_if_no_mdns
-    def test_lifespan_advertises_and_renames_on_settings_put(
+    def test_lifespan_advertises_with_the_machine_info_id(
         self, live_backend: LiveServer, service_type: str
     ):
-        """広告 ID は `/api/machine-info` と同じ導出（D7）で、改名が広告に届く."""
+        """広告 ID は `/api/machine-info` と同じ導出（D7）."""
 
         async def scenario() -> None:
             async with browsing(service_type) as collector:
@@ -296,15 +234,9 @@ class TestBackendAppAdvertises:
 
                 async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
                     info = await client.get(f"{live_backend.base_url}/api/machine-info")
-                    assert info.json()["machine_id"] == "e2eadv"
 
-                    response = await client.put(
-                        f"{live_backend.base_url}/api/settings/machine",
-                        json={"values": {"machine_name": "改名後の機体"}},
-                    )
-                    assert response.status_code == 200, response.text
-
-                await wait_for(lambda: collector.named("e2eadv", "改名後の機体"))
+                assert info.status_code == 200, info.text
+                assert info.json()["machine_id"] == "e2eadv"
 
         run(scenario)
 

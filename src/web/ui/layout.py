@@ -282,8 +282,6 @@ PASTE_VOLUME_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] =
 # 設定セクション（key のドット区切り親パス）→ UI 表示名。
 # settings ページの階層表示に使う
 SECTION_LABELS: dict[str, str] = {
-    # トップレベル（bare key）は section_of が生キーを返すため、明示的にラベルを持たせる
-    "machine_name": "マシン",
     "paste_dispenser": "ペーストディスペンサー",
     "paste_dispenser.toolhead": "ペーストディスペンサー / ツールヘッド",
     "paste_dispenser.pad_align": "ペーストディスペンサー / パッド位置合わせ",

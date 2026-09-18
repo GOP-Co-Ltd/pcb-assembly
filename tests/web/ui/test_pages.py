@@ -716,8 +716,8 @@ class TestNozzleCapPage:
 class TestBrokenMachineTomlPages:
     """パース不能な machine.toml でも SSR が落ちない（MR2）.
 
-    `_base_context` は全ページで `machine_name()` / `machine_type()` / `focus_z()` を
-    呼ぶ。この 3 つの防御（broad except → None）を外すと、machine.toml が壊れただけで
+    `_base_context` は全ページで `machine_type()` / `focus_z()` を呼ぶ。
+    この 2 つの防御（broad except → None）を外すと、machine.toml が壊れただけで
     ページが軒並み 500 する。設定フォームの現在値や paste_dispenser の現在値を
     コンテキストに載せるページ（`_MACHINE_TOML_DEPENDENT_URLS`）は machine.toml を
     防御の外で読むため対象外＝この防御では守れない（MR2 の範囲外の別課題）。

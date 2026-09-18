@@ -6,11 +6,10 @@
 
 MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
-- GET /api/machine-info — backend の自己申告（machine_id / machine_name /
-  machine_type / mainsail_url / fb_start / api_version）。到達性プローブも兼ねる
+- GET /api/machine-info — backend の自己申告（machine_id / machine_type /
+  mainsail_url / fb_start / api_version）。到達性プローブも兼ねる
 - machine_id は `Settings.hostname` があればそれ、無ければ backend ホストの hostname
-- machine_name は machine.toml の値。未設定なら machine_id へフォールバック
-  （環境依存の解決は API 層の責務）
+  （これがそのまま機体名。machine.toml に表示名の設定は持たない）
 - mainsail_url は backend 側で解決した値。リクエストのホスト名には追従しない
   （プロキシ配下で必ず誤るため）。未設定時は `http://{machine_id}.local`
   （machine_id が既にドットを含むなら `.local` を重ねない）
@@ -126,8 +125,6 @@ class TestMachineInfoApi:
         assert response.status_code == 200
         assert response.json() == {
             "machine_id": "paste-01",
-            # fixture の machine.toml に machine_name が無いので machine_id へ落ちる
-            "machine_name": "paste-01",
             "machine_type": "paste",
             "mainsail_url": settings.mainsail_url,
             # pcb_browse_start == pcb_browse_root なので初期表示は root
@@ -137,13 +134,6 @@ class TestMachineInfoApi:
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
             "api_version": 1,
         }
-
-    def test_machine_name_comes_from_machine_toml(
-        self, client: TestClient, store: ConfigStore
-    ):
-        store.write_machine_settings({"machine_name": "黒兎 2 号機"})
-
-        assert client.get("/api/machine-info").json()["machine_name"] == "黒兎 2 号機"
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(
         self, webui_settings: Settings
@@ -185,7 +175,6 @@ class TestMachineInfoApi:
         assert response.status_code == 200
         data = response.json()
         assert data["machine_type"] is None
-        assert data["machine_name"] == data["machine_id"]
 
     def test_fb_start_is_relative_to_browse_root(self, webui_settings: Settings):
         settings = attrs.evolve(

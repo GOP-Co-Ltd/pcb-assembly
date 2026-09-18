@@ -138,13 +138,6 @@ class AppState:
         except Exception:
             return None
 
-    def machine_name(self) -> str | None:
-        """マシンの表示名を返す（未設定・取得できなければ None）."""
-        try:
-            return self.machine().machine_name
-        except Exception:
-            return None
-
     def nozzle_cap(self) -> NozzleCap | None:
         """ノズルキャップ位置を返す（未記録・取得できなければ None）.
 

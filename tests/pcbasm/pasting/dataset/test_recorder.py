@@ -114,7 +114,6 @@ def _dispenser() -> PasteDispenserConfig:
 def _run_info() -> DatasetRunInfo:
     return DatasetRunInfo(
         machine_id="machine-1",
-        machine_name="Machine 1",
         paste_id="paste-1",
         paste_lot=None,
         paste_height_mm=PASTE_HEIGHT_MM,
@@ -314,6 +313,8 @@ class TestPasteDatasetRecorder:
         spec = plan.spec
         assert metadata.created_at == STARTED_AT.isoformat()
         assert metadata.machine.machine_id == "machine-1"
+        # 機体名は machine_id をそのまま使う（machine.toml に表示名の設定は無い）
+        assert metadata.machine.name == "machine-1"
         assert metadata.paste.paste_id == "paste-1"
         assert metadata.paste.lot is None
         assert metadata.paste.density_mg_per_ul == DENSITY

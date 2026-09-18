@@ -199,12 +199,12 @@ class MachineSettingsResponse(BaseModel):
 class MachineInfo(BaseModel):
     """Backend が自己申告する装置情報（到達性プローブ兼用）.
 
-    ``machine_id`` は backend ホストの hostname、``machine_name`` は machine.toml の
-    表示名（未設定なら ``machine_id``）。``mainsail_url`` は backend 側で解決済みの値。
+    ``machine_id`` は backend の自己申告 ID（既定は hostname）で、これがそのまま
+    機体名になる（machine.toml に表示名の設定は無い）。``mainsail_url`` は backend 側で
+    解決済みの値。
     """
 
     machine_id: str
-    machine_name: str
     machine_type: str | None
     mainsail_url: str
     fb_start: str

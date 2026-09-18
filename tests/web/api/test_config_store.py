@@ -11,16 +11,9 @@
 
 - camera.crop.width / camera.crop.height は 1 以上の int（0 / 負値は
   UnknownFieldError）。change 即自動保存 UI での事故防止
-
-MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
-
-- machine_name（ドットの無いトップレベル bare key）を書き込める。tomlkit が
-  トップレベルへ挿入する挙動に依存するので、書込後に tomllib で再パースして
-  トップレベルに残ることをピンする（テーブルへ吸い込まれたら気づけるように）
 """
 
 import re
-import tomllib
 from pathlib import Path
 from typing import cast
 
@@ -58,7 +51,7 @@ class TestSettingsWithFiles:
         original = store.machine_toml_path().read_bytes()
         with pytest.raises(UnknownFieldError, match="ファイル名"):
             store.write_machine_settings(
-                {"machine_name": "must not be saved"},
+                {"camera.calibration_file": "must-not-be-saved.json"},
                 files={"unused.json": b"{}", filename: b"{}"},
             )
         assert store.machine_toml_path().read_bytes() == original
@@ -218,36 +211,6 @@ class TestMachineSettings:
         assert len(changed) == 1
         assert "calibration_file" in changed[0][0]
 
-    def test_write_machine_name_stays_a_top_level_bare_key(
-        self, store: ConfigStore, config_dir: Path
-    ):
-        """machine_name はテーブルに吸い込まれずトップレベルに残る（tomllib で再パース）.
-
-        tomlkit がドットの無いキーを `[klipper]` などのテーブル内へ挿入すると
-        `Machine.machine_name` から読めなくなるため、挙動を明示的にピンする。
-        """
-        path = config_dir / "machine.toml"
-
-        store.write_machine_settings({"machine_name": "黒兎 2 号機"})
-
-        parsed = tomllib.loads(path.read_text(encoding="utf-8"))
-        assert parsed["machine_name"] == "黒兎 2 号機"
-        assert store.read_machine_settings()["machine_name"] == "黒兎 2 号機"
-
-    def test_write_machine_name_preserves_comments_and_other_lines(
-        self, store: ConfigStore, config_dir: Path
-    ):
-        """行の追加は machine_name の 1 行だけ。既存のコメント・構造は不変."""
-        path = config_dir / "machine.toml"
-        before = path.read_text(encoding="utf-8").splitlines()
-
-        store.write_machine_settings({"machine_name": "黒兎 2 号機"})
-
-        after = path.read_text(encoding="utf-8").splitlines()
-        assert len(after) == len(before) + 1
-        added = [line for line in after if line not in before]
-        assert added == ['machine_name = "黒兎 2 号機"']
-
     @pytest.mark.parametrize(
         ("key", "value"),
         [
@@ -255,7 +218,6 @@ class TestMachineSettings:
             ("paste_dispenser.max_fill_speed", "fast"),
             # bool は int のサブクラスなので数値フィールドへの投入は拒否する
             ("paste_dispenser.max_fill_speed", True),
-            ("machine_name", 2.0),
             ("camera.calibration_file", 1.0),
             ("paste_dispenser.dispense_mode", "spray"),
             ("paste_dispenser.line_direction", "sideways"),
@@ -321,7 +283,7 @@ class TestFiniteMachineSettings:
         before = path.read_bytes()
         assert key in store.read_machine_settings()
         values: dict[str, MachineSettingValue] = {
-            "machine_name": "保存しない",
+            "camera.calibration_file": "保存しない.json",
             key: [1.0, value] if pair else value,
         }
 
@@ -448,7 +410,7 @@ class TestLegacyNozzleSectionMigration:
                 "\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n"
             )
 
-        store.write_machine_settings({"machine_name": "移行テスト"})
+        store.write_machine_settings({"camera.calibration_file": "移行テスト.json"})
 
         text = path.read_text()
         assert "[nozzle_cap]" in text
@@ -485,7 +447,9 @@ class TestLegacyNozzleSectionMigration:
             'machine_type = "paste"\n\n[nozzle_cap]\nx = 10.0\ny = 20.0\nz = 3.5\n'
         )
 
-        ConfigStore(config_dir).write_machine_settings({"machine_name": "新規機体"})
+        ConfigStore(config_dir).write_machine_settings(
+            {"camera.calibration_file": "新規機体.json"}
+        )
 
         values = ConfigStore(config_dir).read_machine_settings()
         assert values["paste_dispenser.nozzle_cap.x"] == 10.0
