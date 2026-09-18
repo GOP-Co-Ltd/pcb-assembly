@@ -88,6 +88,7 @@ class TestBoardTransformMeasurer:
             stage=stage,
             outline=outline,
             reference_point=reference_point,
+            settle_sec=0.0,
         )
 
         actual = measurer.measure()
@@ -141,6 +142,7 @@ class TestBoardTransformMeasurer:
             stage=stage,
             outline=outline,
             reference_point=reference_point,
+            settle_sec=0.0,
         )
 
         actual = measurer.measure().apply(Point2d(1.0, 1.0))

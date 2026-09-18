@@ -138,7 +138,7 @@ def _aligner(
         max_correction_mm=1.0,
         max_passes=max_passes,
         converge_tolerance_mm=converge_tolerance_mm,
-        settle_time=0.0,
+        settle_sec=0.0,
     )
 
 

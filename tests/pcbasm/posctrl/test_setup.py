@@ -64,6 +64,7 @@ class TestOffsetObserver:
             camera=camera,
             crop_size=(200, 200),
             sample_count=3,
+            minimum_sample_count=1,
         )
 
         transform = observer.observe()
@@ -82,6 +83,7 @@ class TestOffsetObserver:
             crop_size=(200, 200),
             frame_sink=frames.append,
             sample_count=3,
+            minimum_sample_count=1,
         )
 
         observer.observe()
@@ -159,7 +161,7 @@ class TestOffsetObserver:
                 "minimum_sample_count",
             ),
             ({"max_attempts": 0}, "max_attempts"),
-            ({"retry_delay": -0.1}, "retry_delay"),
+            ({"retry_sec": -0.1}, "retry_sec"),
             ({"max_standard_deviation_mm": 0.0}, "max_standard_deviation_mm"),
         ],
     )
@@ -169,7 +171,7 @@ class TestOffsetObserver:
                 detector=detector,
                 camera=FakeCamera([_circle_image()]),
                 crop_size=(200, 200),
-                **overrides,
+                **{"sample_count": 3, "minimum_sample_count": 1, **overrides},
             )
 
         assert expected in str(exc_info.value)

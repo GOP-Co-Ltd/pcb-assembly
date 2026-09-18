@@ -40,7 +40,7 @@ class RegionAligner:
         max_correction_mm: float = 1.0,
         max_passes: int = 5,
         converge_tolerance_mm: float = 0.03,
-        settle_time: float = 0.5,
+        settle_sec: float,
         frame_sink: FrameSink | None = None,
     ) -> None:
         """RegionAlignerを初期化する."""
@@ -61,7 +61,7 @@ class RegionAligner:
         self._max_correction_mm = max_correction_mm
         self._max_passes = max_passes
         self._converge_tolerance_mm = converge_tolerance_mm
-        self._settle_time = settle_time
+        self._settle_sec = settle_sec
         self._frame_sink = frame_sink
 
     def measure(
@@ -85,7 +85,7 @@ class RegionAligner:
                     z=self._focus_z,
                     speed=Speed.rate(0.5),
                 )
-                + GCode.wait(self._settle_time)
+                + GCode.wait(self._settle_sec)
                 + GCode.wait_for_done()
             )
             projector = self._projector.with_correction(Shift.from_point(cumulative))

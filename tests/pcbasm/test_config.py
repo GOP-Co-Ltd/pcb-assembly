@@ -8,6 +8,7 @@ from pcbasm.config import (
     CameraCrop,
     Corner,
     CornerOffsets,
+    Detection,
     FlowCalibration,
     Klipper,
     Machine,
@@ -17,6 +18,7 @@ from pcbasm.config import (
     PasteDispenser,
     Probe,
     ReferencePoint,
+    Settle,
     Toolhead,
     get_config_dir,
     get_machine_config,
@@ -850,3 +852,60 @@ class TestResolvePasteHeight:
 
     def test_numeric_returns_value(self):
         assert resolve_paste_height(0.2, 0.08) == pytest.approx(0.2)
+
+
+class TestMachineSettle:
+    """`[settle]`: 装置の静定待ち（セクションごと省略可）."""
+
+    def test_defaults_whole_section_when_absent(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.settle == Settle()
+
+    def test_reads_section(self, tmp_path):
+        machine = _machine_with(tmp_path, "[settle]\nmove_sec = 0.8\nprobe_sec = 0.2\n")
+
+        assert machine.settle == Settle(move_sec=0.8, probe_sec=0.2)
+
+    def test_accepts_zero(self):
+        assert Settle(move_sec=0.0, probe_sec=0.0).move_sec == 0.0
+
+    @pytest.mark.parametrize(
+        ("key", "value"), [("move_sec", -0.1), ("probe_sec", -1.0)]
+    )
+    def test_rejects_negative(self, key, value):
+        with pytest.raises(ValueError, match=key):
+            Settle(**{key: value})
+
+
+class TestMachineDetection:
+    """`[detection]`: 統計検出のサンプリング（セクションごと省略可）."""
+
+    def test_defaults_whole_section_when_absent(self):
+        machine = Machine(TESTING_DATA_DIR / "machine.toml")
+
+        assert machine.detection == Detection()
+
+    def test_reads_section(self, tmp_path):
+        machine = _machine_with(
+            tmp_path, "[detection]\nsample_count = 20\nminimum_sample_count = 8\n"
+        )
+
+        assert machine.detection == Detection(sample_count=20, minimum_sample_count=8)
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("sample_count", 0),
+            ("sample_count", 1.5),
+            ("minimum_sample_count", 0),
+        ],
+    )
+    def test_rejects_invalid_counts(self, key, value):
+        with pytest.raises(ValueError, match=key):
+            Detection(**{key: value})
+
+    def test_rejects_minimum_above_sample_count(self):
+        # 有効検出の下限が撮る枚数を超えたら、その観測は決して成立しない
+        with pytest.raises(ValueError, match="minimum_sample_count"):
+            Detection(sample_count=4, minimum_sample_count=5)

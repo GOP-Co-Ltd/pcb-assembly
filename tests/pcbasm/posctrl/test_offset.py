@@ -62,6 +62,7 @@ class TestOffsetTransformMeasurer:
             klipper=klipper,
             stage=stage,
             move_distance=10.0,
+            settle_sec=0.0,
         )
 
         transform = measurer.measure()
@@ -78,6 +79,7 @@ class TestOffsetTransformMeasurer:
             klipper=klipper,
             stage=stage,
             move_distance=10.0,
+            settle_sec=0.0,
         )
 
         measurer.measure()

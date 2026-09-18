@@ -483,6 +483,17 @@ SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
         ),
     ),
     SettingsSectionSpec(
+        "settle_detection",
+        "静定待ち・検出",
+        (
+            SettingsGroupSpec("静定待ち", ("settle.move_sec", "settle.probe_sec")),
+            SettingsGroupSpec(
+                "統計検出",
+                ("detection.sample_count", "detection.minimum_sample_count"),
+            ),
+        ),
+    ),
+    SettingsSectionSpec(
         "audio",
         "通知音",
         (SettingsGroupSpec("通知音", ("audio.device", "audio.volume")),),

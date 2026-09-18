@@ -30,13 +30,13 @@ class PointCapturer:
         session: PasteSession,
         *,
         crop_size_px: int,
-        settle_time: float = 0.5,
         frame_sink: FrameSink | None = None,
     ) -> None:
         """Board 計測済みセッションと、開始時に 1 回決めた crop 寸法で組む."""
         self._session = session
         self._crop_size_px = crop_size_px
-        self._settle_time = settle_time
+        # 静定待ちは機体設定が正（撮影点への移動は他の計測と同じ現象）
+        self._settle_sec = session.machine.settle.move_sec
         self._frame_sink = frame_sink
         self._projector = CopperProjector.from_calibration(session.calibration_result)
 
@@ -62,7 +62,7 @@ class PointCapturer:
             session.stage.move(
                 x=stage_xy.x, y=stage_xy.y, z=session.calibration.z_position
             )
-            + GCode.wait(self._settle_time)
+            + GCode.wait(self._settle_sec)
             + GCode.wait_for_done()
         )
         image = session.camera.capture()

@@ -31,6 +31,11 @@ from pcbasm.vision import (
 
 logger = logging.getLogger(__name__)
 
+# 検出バッチの再取得（1 観測あたり）。機体差ではなく検出実装の都合なので設定に出さない。
+# 基準円（`CircleDetector`）と塗布痕（`PasteDotDetector`）で同じ方針を使う
+DETECTION_MAX_ATTEMPTS = 3
+DETECTION_RETRY_SEC = 0.5
+
 
 class CircleDetectionError(RuntimeError):
     """規定回数の再取得でも円検出の品質条件を満たさなかった."""
@@ -49,10 +54,10 @@ class OffsetObserver:
         crop_size: tuple[int, int],
         *,
         frame_sink: FrameSink | None = None,
-        sample_count: int = 30,
-        minimum_sample_count: int = 1,
+        sample_count: int,
+        minimum_sample_count: int,
         max_attempts: int = 1,
-        retry_delay: float = 0.0,
+        retry_sec: float = 0.0,
         max_standard_deviation_mm: float | None = None,
     ) -> None:
         """OffsetObserverを初期化する.
@@ -63,10 +68,11 @@ class OffsetObserver:
             camera: カメラ
             crop_size: 関心領域サイズ (width, height)
             frame_sink: 検出成功時に注釈画像を送る sink。Noneの場合は送らない
-            sample_count: 統計検出に使うフレーム数
+            sample_count: 統計検出に使うフレーム数（``machine.detection.sample_count``）
             minimum_sample_count: 1回の観測に必要な有効検出数
+                （``machine.detection.minimum_sample_count``）
             max_attempts: 検出バッチの最大試行回数
-            retry_delay: 再試行前の待機時間（秒）
+            retry_sec: 再試行前の待機時間 [sec]
             max_standard_deviation_mm: 各軸の標準偏差上限。Noneなら制限しない
         """
         if (
@@ -90,8 +96,8 @@ class OffsetObserver:
             or max_attempts < 1
         ):
             raise ValueError("max_attemptsは1以上の整数である必要があります")
-        if not math.isfinite(retry_delay) or retry_delay < 0:
-            raise ValueError("retry_delayは0以上の有限値である必要があります")
+        if not math.isfinite(retry_sec) or retry_sec < 0:
+            raise ValueError("retry_secは0以上の有限値である必要があります")
         if max_standard_deviation_mm is not None and (
             not math.isfinite(max_standard_deviation_mm)
             or max_standard_deviation_mm <= 0
@@ -107,7 +113,7 @@ class OffsetObserver:
         self._sample_count = sample_count
         self._minimum_sample_count = minimum_sample_count
         self._max_attempts = max_attempts
-        self._retry_delay = retry_delay
+        self._retry_sec = retry_sec
         self._max_standard_deviation_mm = max_standard_deviation_mm
 
     def observe(self) -> Transform:
@@ -134,6 +140,14 @@ class OffsetObserver:
                         )
                         self._frame_sink(display)
 
+                    # フレーム毎のばらつきを残す。sample_count を詰める材料になる
+                    logger.info(
+                        "円検出: %d/%d フレーム, 標準偏差 X=%.4f Y=%.4f mm",
+                        result.sample_count,
+                        self._sample_count,
+                        std_mm.x,
+                        std_mm.y,
+                    )
                     return Shift(result.mean_mm.x, result.mean_mm.y)
                 failure_reason = (
                     "検出位置の標準偏差が上限を超えました"
@@ -152,8 +166,8 @@ class OffsetObserver:
                 self._max_attempts,
                 failure_reason,
             )
-            if attempt < self._max_attempts and self._retry_delay > 0:
-                time.sleep(self._retry_delay)
+            if attempt < self._max_attempts and self._retry_sec > 0:
+                time.sleep(self._retry_sec)
 
         raise CircleDetectionError(
             f"円検出に{self._max_attempts}回失敗しました: {failure_reason}"
@@ -244,12 +258,13 @@ def setup_board_calibration(
     logger.info("目標位置: (%s, %s)", ref_config.x, ref_config.y)
     if calibration.z_position is not None:
         logger.info("キャリブレーションZ位置: %.3f mm", calibration.z_position)
+    settle = machine.settle
     klipper.send_gcode(
         stage.move(x=ref_config.x, y=ref_config.y, z=calibration.z_position)
+        + GCode.wait(settle.move_sec)
         + GCode.wait_for_done()
     )
     logger.info("移動完了")
-    time.sleep(1.0)
 
     # オフセット検出関数を定義
     observer = OffsetObserver(
@@ -257,6 +272,12 @@ def setup_board_calibration(
         camera=camera,
         crop_size=cam_config.crop.size,
         frame_sink=frame_sink,
+        sample_count=machine.detection.sample_count,
+        minimum_sample_count=machine.detection.minimum_sample_count,
+        # 有効検出数の下限が効くようになったので、1 バッチ落ちただけで
+        # ジョブの最初のステップが止まらないよう撮り直す（塗布痕側と同じ方針）
+        max_attempts=DETECTION_MAX_ATTEMPTS,
+        retry_sec=DETECTION_RETRY_SEC,
     )
 
     # カメラ回転角の計測（2点法）
@@ -269,6 +290,7 @@ def setup_board_calibration(
         klipper=klipper,
         stage=stage,
         move_distance=move_distance,
+        settle_sec=settle.move_sec,
     )
     offset_transform = offset_transform_measurer.measure()
 
@@ -279,6 +301,7 @@ def setup_board_calibration(
         stage=stage,
         offset_transform=offset_transform,
         tolerance=tolerance,
+        settle_sec=settle.move_sec,
     )
 
     # Board変換の計測
@@ -289,6 +312,7 @@ def setup_board_calibration(
         stage=stage,
         outline=outline,
         reference_point=ref_config,
+        settle_sec=settle.move_sec,
     )
     board_transform = board_transform_measurer.measure()
 

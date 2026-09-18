@@ -23,6 +23,7 @@ class XYPositionAdjustor:
             stage=stage,
             offset_transform=offset_transform,
             tolerance=0.01,
+            settle_sec=machine.settle.move_sec,
         )
         final_pos = adjustor.adjust()
     """
@@ -36,7 +37,8 @@ class XYPositionAdjustor:
         tolerance: float = 0.1,
         max_iterations: int = 10,
         move_velocity_ratio: float = 0.5,
-        settle_time: float = 0.5,
+        *,
+        settle_sec: float,
     ) -> None:
         """XYPositionAdjustorを初期化する.
 
@@ -48,7 +50,7 @@ class XYPositionAdjustor:
             tolerance: 許容誤差 (mm)
             max_iterations: 最大反復回数
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
-            settle_time: 移動後の安定待機時間（秒）
+            settle_sec: 移動後の静定待ち [sec]（``machine.settle.move_sec``）
         """
         self._observe = observe
         self._klipper = klipper
@@ -57,7 +59,7 @@ class XYPositionAdjustor:
         self._tolerance = tolerance
         self._max_iterations = max_iterations
         self._move_velocity_ratio = move_velocity_ratio
-        self._settle_time = settle_time
+        self._settle_sec = settle_sec
 
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
@@ -114,5 +116,5 @@ class XYPositionAdjustor:
     def _move_to(self, move_gcode: GCode) -> None:
         """指定座標に移動し、安定を待つ."""
         self._klipper.send_gcode(
-            move_gcode + GCode.wait(self._settle_time) + GCode.wait_for_done()
+            move_gcode + GCode.wait(self._settle_sec) + GCode.wait_for_done()
         )

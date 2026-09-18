@@ -283,7 +283,8 @@ class TestSettingsSections:
 
     def test_undeclared_keys_fall_back_to_an_uncategorized_section(self):
         """宣言漏れの項目を落とさない（設定ページは唯一の編集画面）."""
-        fields = [_field("camera.width"), _field("settle.move_sec")]
+        # backend が新しいセクションを足し、frontend がまだ追随していない状態
+        fields = [_field("camera.width"), _field("pnp.feeder_pitch")]
 
         sections = layout.settings_sections(fields)
 
@@ -292,8 +293,10 @@ class TestSettingsSections:
             layout.UNCATEGORIZED_SLUG,
         ]
         fallback = sections[-1]
-        assert [group.label for group in fallback.groups] == ["settle"]
-        assert [field.key for field in fallback.groups[0].fields] == ["settle.move_sec"]
+        assert [group.label for group in fallback.groups] == ["pnp"]
+        assert [field.key for field in fallback.groups[0].fields] == [
+            "pnp.feeder_pitch"
+        ]
 
     def test_absent_fields_leave_no_empty_group_or_section(self):
         """Backend が返さなかった項目は空カード・空セクションを作らない."""
