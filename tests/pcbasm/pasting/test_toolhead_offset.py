@@ -401,7 +401,6 @@ class TestToolheadOffsetProcedure:
             diameter_min=0.4,
             diameter_max=2.0,
             point_spacing=5.0,
-            settle_time=0.0,
         )
 
     def test_probe_moves_nozzle_to_dispense_position_and_reads_surface_z(
@@ -471,7 +470,6 @@ class TestToolheadOffsetProcedure:
             diameter_min=0.5,
             diameter_max=2.0,
             point_spacing=5.0,
-            settle_time=0.0,
         )
         probed = procedure.probe(Point2d(x=10.0, y=20.0))
         toolhead = result_with_dot.machine.paste_dispenser.toolhead

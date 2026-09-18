@@ -17,6 +17,7 @@ from pcbasm.config import (
     DISPENSE_MODES,
     LEGACY_NOZZLE_SECTIONS,
     LINE_DIRECTIONS,
+    Detection,
     PasteDispenser,
     validate_audio_device,
     validate_audio_volume,
@@ -199,6 +200,12 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     # [audio] — ジョブ完了通知音（Raspberry Pi 本体スピーカー）
     FieldSpec("audio.device", "出力デバイス", "str"),
     FieldSpec("audio.volume", "音量", "float"),
+    # [settle] — 装置の静定待ち（長いほどタクトが伸び、短いほど検出がぶれる）
+    FieldSpec("settle.move_sec", "移動後の静定待ち", "float", "s"),
+    FieldSpec("settle.probe_sec", "プローブ後の待ち", "float", "s"),
+    # [detection] — 統計検出のサンプリング
+    FieldSpec("detection.sample_count", "1観測のフレーム数", "int"),
+    FieldSpec("detection.minimum_sample_count", "1観測に必要な検出数", "int"),
 )
 
 _MACHINE_FIELDS_BY_KEY = {spec.key: spec for spec in MACHINE_FIELDS}
@@ -270,6 +277,8 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     "paste_dispenser.nozzle_clean.press_depth",
                     "paste_dispenser.nozzle_clean.purge_ul",
                     "paste_dispenser.nozzle_clean.stroke",
+                    "settle.move_sec",
+                    "settle.probe_sec",
                 }:
                     name = spec.key.rsplit(".", 1)[-1]
                     if error := validate_non_negative_number(name, coerced_float):
@@ -292,6 +301,8 @@ def _coerce(spec: FieldSpec, value: object) -> MachineSettingValue:
                     in {
                         "paste_dispenser.pad_align.region_size_px",
                         "paste_dispenser.pad_align.max_passes",
+                        "detection.sample_count",
+                        "detection.minimum_sample_count",
                     }
                     and value < 1
                 ):
@@ -415,6 +426,7 @@ class ConfigStore:
                 raise UnknownFieldError(f"追加ファイル名が不正です: {filename!r}")
         doc = tomlkit.parse(path.read_text())
         _migrate_legacy_nozzle_sections(doc)
+        _validate_detection_counts(doc, coerced)
         for key, value in coerced.items():
             *table_keys, option = key.split(".")
             table = doc
@@ -434,6 +446,32 @@ class ConfigStore:
         if key not in _MACHINE_FIELDS_BY_KEY:
             raise UnknownFieldError(f"未知のマシン設定キーです: {key}")
         return _MACHINE_FIELDS_BY_KEY[key]
+
+
+def _validate_detection_counts(
+    doc: tomlkit.TOMLDocument, coerced: Mapping[str, MachineSettingValue]
+) -> None:
+    """`[detection]` の相互制約（有効検出数 <= フレーム数）を書き込み後の値で確かめる.
+
+    片方だけ編集できるので、TOML に残る値とマージしてから見る。ここで撥ねないと、
+    保存はできるのに ``Machine.detection`` が読めない machine.toml ができあがる。
+
+    Raises:
+        UnknownFieldError: 書き込み後の値が制約を満たさない場合
+    """
+    if not any(key.startswith("detection.") for key in coerced):
+        return
+    section = doc.get("detection", {})
+    defaults = Detection()
+
+    def resolved(name: str) -> int:
+        value = coerced.get(f"detection.{name}", section.get(name))
+        return getattr(defaults, name) if value is None else int(value)  # type: ignore[arg-type]
+
+    if resolved("minimum_sample_count") > resolved("sample_count"):
+        raise UnknownFieldError(
+            "detection.minimum_sample_count: sample_count 以下である必要があります"
+        )
 
 
 def _migrate_legacy_nozzle_sections(doc: tomlkit.TOMLDocument) -> None:

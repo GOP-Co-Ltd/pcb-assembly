@@ -63,6 +63,7 @@ class TestXYPositionAdjustor:
             stage=stage,
             offset_transform=Identity(),
             tolerance=0.1,
+            settle_sec=0.0,
         )
 
         result = adjustor.adjust()
@@ -90,6 +91,7 @@ class TestXYPositionAdjustor:
             stage=stage,
             offset_transform=Rotation(90.0),
             tolerance=0.1,
+            settle_sec=0.0,
         )
 
         result = adjustor.adjust()
@@ -120,6 +122,7 @@ class TestXYPositionAdjustor:
             stage=stage,
             offset_transform=Identity(),
             tolerance=0.1,
+            settle_sec=0.0,
         )
 
         adjustor.adjust()
@@ -138,6 +141,7 @@ class TestXYPositionAdjustor:
             stage=stage,
             offset_transform=Identity(),
             tolerance=0.1,
+            settle_sec=0.0,
             max_iterations=3,
         )
 

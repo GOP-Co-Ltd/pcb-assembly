@@ -9,13 +9,14 @@ from datetime import UTC, datetime
 
 import numpy as np
 import pytest
+import shapely
 
 from pcbasm.config import Machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
-from pcbasm.pcb import PcbFile
+from pcbasm.pcb import Copper, Layer, PcbFile
 from pcbasm.posctrl import BoardCalibrationResult
 from pcbasm.vision import Image
 from pcbasm.vision.calibration import CalibrationResult
@@ -42,9 +43,11 @@ def _frame(width: int, height: int) -> Image:
     return Image(np.dstack((xx % 256, yy % 256, (xx ^ yy) % 256)).astype(np.uint8))
 
 
-def _session(camera: FakeCamera, klipper: FakeKlipper) -> PasteSession:
+def _session(
+    camera: FakeCamera, klipper: FakeKlipper, machine: Machine | None = None
+) -> PasteSession:
     result = BoardCalibrationResult(
-        machine=Machine(TESTING_CONFIG_DIR / "machine.toml"),
+        machine=machine or Machine(TESTING_CONFIG_DIR / "machine.toml"),
         klipper=klipper,
         stage=XYZStage(klipper.readonly),
         camera=camera,
@@ -71,7 +74,6 @@ def _capturer(
     return PointCapturer(
         _session(camera, klipper),
         crop_size_px=CROP_SIZE_PX,
-        settle_time=0.0,
         frame_sink=None if frames is None else frames.append,
     )
 
@@ -220,4 +222,65 @@ class TestPointCapturerWithAlignmentCorrection:
         assert centered is not None and corrected is not None
         assert _rect_center(corrected.pixel_rect) == pytest.approx(
             _rect_center(centered.pixel_rect), abs=1.0
+        )
+
+
+def _machine_with_settle(tmp_path, *, move_sec: float, probe_sec: float) -> Machine:
+    """検証用 machine.toml の末尾に `[settle]` を足した Machine を作る."""
+    path = tmp_path / "machine.toml"
+    source = (TESTING_CONFIG_DIR / "machine.toml").read_text(encoding="utf-8")
+    path.write_text(
+        f"{source}\n[settle]\nmove_sec = {move_sec}\nprobe_sec = {probe_sec}\n",
+        encoding="utf-8",
+    )
+    return Machine(path)
+
+
+class TestSettleWiring:
+    """`[settle]` の値が、撮影前とプローブ後の dwell として実際の G-code に届く.
+
+    移動後の静定（``move_sec``）とプローブ後の待ち（``probe_sec``）は別の設定値で、
+    配線を取り違えても引数の型は合ってしまう。送信 G-code の dwell で区別を固定する。
+    """
+
+    @pytest.fixture
+    def machine(self, tmp_path) -> Machine:
+        return _machine_with_settle(tmp_path, move_sec=0.8, probe_sec=0.3)
+
+    def test_capture_dwells_for_the_move_settle(self, machine: Machine):
+        klipper = FakeKlipper()
+        session = _session(FakeCamera([_frame(*RESOLUTION)]), klipper, machine)
+        capturer = PointCapturer(session, crop_size_px=CROP_SIZE_PX)
+
+        capturer.capture(CENTER)
+
+        assert "G4 P800" in klipper.sent_lines
+
+    def test_probe_dwells_for_the_probe_settle(self, machine: Machine):
+        klipper = FakeKlipper()
+        session = _session(FakeCamera([_frame(*RESOLUTION)]), klipper, machine)
+
+        session.probe_executor.probe()
+
+        assert "G4 P300" in klipper.sent_lines
+
+    def test_height_measurement_dwells_for_the_move_settle(self, machine: Machine):
+        """高さ計測の点間移動は、プローブ後の待ちではなく移動の静定を使う."""
+        klipper = FakeKlipper()
+        session = _session(FakeCamera([_frame(*RESOLUTION)]), klipper, machine)
+        copper = Copper(
+            layer=Layer.TOP,
+            polygon=shapely.Polygon(
+                [(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)]
+            ),
+        )
+
+        session.height_measurer.measure([copper], Identity(), copper.polygon)
+
+        # 移動の後は 800 ms、PROBE の後は 300 ms。入れ替わっていたら落ちる
+        lines = klipper.sent_lines
+        probe_index = lines.index("PROBE")
+        assert "G4 P800" in lines[:probe_index]
+        assert next(line for line in lines[probe_index:] if line.startswith("G4")) == (
+            "G4 P300"
         )

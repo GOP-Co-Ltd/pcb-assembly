@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import math
-import time
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +22,8 @@ from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.params import PasteParamsPatch
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.posctrl import (
+    DETECTION_MAX_ATTEMPTS,
+    DETECTION_RETRY_SEC,
     BoardCalibrationResult,
     CircleDetectionError,
     OffsetObserver,
@@ -35,11 +36,6 @@ _converter.register_unstructure_hook(Point2d, lambda p: {"x": p.x, "y": p.y})
 _converter.register_structure_hook(Point2d, lambda d, _: Point2d(x=d["x"], y=d["y"]))
 
 MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT = 5
-
-# 円検出の再取得条件（1 点あたり）
-_DETECTION_MIN_FRAME_DETECTIONS = 5
-_DETECTION_MAX_ATTEMPTS = 3
-_DETECTION_RETRY_DELAY = 0.5
 
 
 @attrs.frozen
@@ -360,7 +356,6 @@ class ToolheadOffsetProcedure:
         diameter_min: float,
         diameter_max: float,
         point_spacing: float,
-        settle_time: float = 1.0,
         frame_sink: FrameSink | None = None,
     ) -> None:
         """Board 計測結果と計測パラメータから HAL と検出器を配線する.
@@ -372,7 +367,6 @@ class ToolheadOffsetProcedure:
             diameter_min: 検出円の最小直径 [mm]
             diameter_max: 検出円の最大直径 [mm]
             point_spacing: 計測点の最小間隔 [mm]（円検出 ROI の一辺に使う）
-            settle_time: カメラ位置へ移動後、円検出を始める前の静定待ち [sec]
             frame_sink: 検出注釈画像を送る sink
         """
         machine = result.machine
@@ -384,11 +378,13 @@ class ToolheadOffsetProcedure:
         self._dispenser_config = machine.paste_dispenser
         self._toolhead_transform = machine.paste_dispenser.toolhead.to_transform()
         self._lift_height = lift_height
-        self._settle_time = settle_time
+        # 静定・サンプリングは機体設定が正（他の計測と同じ現象・同じ検出器）
+        self._settle_sec = machine.settle.move_sec
         self._probe_executor = ProbeExecutor(
             klipper=result.klipper,
             stage=result.stage,
             lift_height=machine.probe.lift_height,
+            settle_sec=machine.settle.probe_sec,
         )
         roi_side = max(1, round(point_spacing * result.calibration.pixel_per_mm))
         self._roi_size = (roi_side, roi_side)
@@ -403,12 +399,14 @@ class ToolheadOffsetProcedure:
             camera=result.camera,
             crop_size=self._roi_size,
             frame_sink=frame_sink,
-            minimum_sample_count=_DETECTION_MIN_FRAME_DETECTIONS,
-            max_attempts=_DETECTION_MAX_ATTEMPTS,
-            retry_delay=_DETECTION_RETRY_DELAY,
+            sample_count=machine.detection.sample_count,
+            minimum_sample_count=machine.detection.minimum_sample_count,
+            max_attempts=DETECTION_MAX_ATTEMPTS,
+            retry_sec=DETECTION_RETRY_SEC,
             max_standard_deviation_mm=tolerance,
         )
         self._adjustor = XYPositionAdjustor(
+            settle_sec=machine.settle.move_sec,
             observe=observer.observe,
             klipper=result.klipper,
             stage=result.stage,
@@ -475,9 +473,9 @@ class ToolheadOffsetProcedure:
             self._stage.move(
                 x=point.camera.x, y=point.camera.y, z=self._calibration.z_position
             )
+            + GCode.wait(self._settle_sec)
             + GCode.wait_for_done()
         )
-        time.sleep(self._settle_time)
         try:
             camera_final_position = self._adjustor.adjust()
         except CircleDetectionError as exc:
