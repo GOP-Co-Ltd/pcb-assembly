@@ -11,17 +11,12 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 
-import numpy as np
 import pytest
-import shapely
 
-from pcbasm.config import FlowCalibration, Machine
-from pcbasm.geometry import Identity, Point2d, Shift
-from pcbasm.hal import XYZStage
-from pcbasm.pasting.alignment import PasteCorrection
+from pcbasm.config import FlowCalibration
+from pcbasm.geometry import Point2d
 from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_SUFFIX,
     parse_calibration,
@@ -31,27 +26,17 @@ from pcbasm.pasting.paste_volume.runtime import (
     FlowCalibrationOutcome,
     plan_flow_calibration,
 )
-from pcbasm.pasting.session import PasteSession
-from pcbasm.pcb import PcbFile
-from pcbasm.posctrl import (
-    AlignmentRegion,
-    BoardAlignment,
-    BoardCalibrationResult,
-    EdgeMatch,
-    RegionAlignment,
-)
-from pcbasm.vision import Image, Offset
-from pcbasm.vision.calibration import CalibrationResult
-from tests.helpers import (
-    TESTING_CONFIG_DIR,
-    TESTING_DATA_DIR,
-    FakeCamera,
-    FakeKlipper,
-)
+from tests.helpers import TESTING_DATA_DIR, FakeCamera, FakeKlipper
 from tests.web.api.jobs.conftest import (
     ManagerFactory,
     WaitUntil,
     register_synthetic,
+)
+from tests.web.api.jobs.pasting.conftest import (
+    FOCUS_Z,
+    full_board_correction,
+    paste_session,
+    uniform_frame,
 )
 from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
@@ -59,11 +44,7 @@ from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.jobs.pasting.flow_calibration import run_flow_calibration, summary_line
 from web.api.settings import Settings
 
-LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
-PPM = 10.0
-RESOLUTION = (640, 480)
-FOCUS_Z = 12.0
 POINTS = (Point2d(10.0, 6.0), Point2d(13.0, 6.0), Point2d(16.0, 6.0))
 
 
@@ -96,63 +77,6 @@ class TestSummaryLine:
         assert "頭打ち" in summary_line(_outcome(clamped=True))
 
 
-def _frame() -> Image:
-    """一様な銅板色のフレーム（pre と post が同じ = はんだが写らない）."""
-    width, height = RESOLUTION
-    return Image(np.full((height, width, 3), 180, dtype=np.uint8))
-
-
-def _session(camera: FakeCamera, klipper: FakeKlipper) -> PasteSession:
-    result = BoardCalibrationResult(
-        machine=Machine(TESTING_CONFIG_DIR / "machine.toml"),
-        klipper=klipper,
-        stage=XYZStage(klipper.readonly),
-        camera=camera,
-        calibration=CalibrationResult(
-            pixel_per_mm=PPM,
-            square_size_mm=1.0,
-            mean_distance_px=PPM,
-            std_distance_px=0.0,
-            resolution=RESOLUTION,
-            crop_size=(400, 400),
-            calibrated_at=datetime(2026, 9, 11, 12, 0, 0, tzinfo=UTC),
-            z_position=FOCUS_Z,
-        ),
-        offset_transform=Identity(),
-        board_transform=Shift(100.0, 50.0),
-        pcb=PcbFile(LED_BLINKER),
-    )
-    return PasteSession.from_calibration(result)
-
-
-def _correction() -> PasteCorrection:
-    """基板全面を覆う成功領域 1 つ（変位なし）の補正."""
-    area = shapely.box(-100.0, -100.0, 100.0, 100.0)
-    return PasteCorrection(
-        alignment=BoardAlignment(
-            results=(
-                RegionAlignment(
-                    region=AlignmentRegion(
-                        index=0,
-                        board_center=Point2d(0.0, 0.0),
-                        anchor=Point2d(0.0, 0.0),
-                        roi=(0, 0, 100, 100),
-                        board_area=area,
-                    ),
-                    match=EdgeMatch(
-                        offset=Offset(px=Point2d(0.0, 0.0), pixel_per_mm=PPM),
-                        rms_distance_px=0.0,
-                    ),
-                    displacement=Point2d(0.0, 0.0),
-                    increment=Point2d(0.0, 0.0),
-                    passes=1,
-                ),
-            )
-        ),
-        height_plane=Identity(),
-    )
-
-
 class TestRunFlowCalibration:
     """撮影 → 塗布 → 撮影 → 推定 → 補正の実行."""
 
@@ -178,7 +102,7 @@ class TestRunFlowCalibration:
 
         def run(ctx: JobContext) -> JobResult:
             klipper = FakeKlipper()
-            session = _session(FakeCamera([_frame()]), klipper)
+            session = paste_session(FakeCamera([uniform_frame()]), klipper)
             config = FlowCalibration(
                 calibration_file=str(ctx.params["calibration_file"]),
                 settle_seconds=float(ctx.params["settle_seconds"]),
@@ -192,7 +116,7 @@ class TestRunFlowCalibration:
                 klipper.clear_sent()
                 started = time.monotonic()
                 outcome = run_flow_calibration(
-                    ctx, session, _correction(), applicator, plan
+                    ctx, session, full_board_correction(), applicator, plan
                 )
                 elapsed.append(time.monotonic() - started)
                 moves.extend(move.get("z") for move in klipper.g1_moves())

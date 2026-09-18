@@ -229,6 +229,18 @@ class PasteApplicator:
         """リトラクション量分だけペーストを引き戻す（ブロッキング）."""
         self.load(-self._settings.retract_amount)
 
+    def prime(self) -> None:
+        """リトラクション量分だけ押し戻して引き込みを解消する（ブロッキング）.
+
+        :meth:`retract` の対。引き込んだままその場でパージすると、押し出した分の
+        先頭がまず引き込み量の穴埋めに使われ、先端から出る量が指令より少なくなる。
+
+        :meth:`apply` / :meth:`deposit_at` は内部で prime → 吐出 → retract を閉じて
+        いるので、これを使うのはそれらを経由しない押し出し（ノズルクリーニングの
+        パージ）を挟むときだけ。
+        """
+        self.load(self._settings.retract_amount)
+
     def apply(
         self,
         polygon: Polygon,

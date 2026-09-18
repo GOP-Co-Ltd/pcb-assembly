@@ -248,6 +248,15 @@ class TestLoading:
             -RETRACT_AMOUNT
         )
 
+    def test_prime_pushes_back_retract_amount(self, applicator, klipper):
+        """引き込んだままその場でパージすると、出る量が指令より少なくなる."""
+        applicator.prime()
+
+        ((distance, _),) = _stepper_moves(klipper)
+        assert distance / ROTATION_DISTANCE / ROTATIONS_PER_UL == pytest.approx(
+            RETRACT_AMOUNT
+        )
+
     def test_load_rotations_uses_raw_revolutions(self, applicator, klipper):
         applicator.load_rotations(5.0, 0.5, 0.5)
 

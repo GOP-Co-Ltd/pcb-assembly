@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pcbasm.gcode import GCode
-from pcbasm.pasting.nozzle_clean import clean_nozzle, resolve_nozzle_clean
+from pcbasm.pasting.nozzle_clean import resolve_nozzle_clean
 from pcbasm.pasting.workflow import plan_paste_targets
 from pcbasm.pcb import PadHierarchy
 from web.api.jobs.board_ops import setup_board
@@ -17,6 +17,7 @@ from web.api.jobs.pasting.common import (
     run_loading_loop,
 )
 from web.api.jobs.pasting.flow_calibration import run_flow_calibration, summary_line
+from web.api.jobs.pasting.purge_check import purge_with_cleaning
 
 
 def register(catalog: JobCatalog) -> None:
@@ -99,27 +100,20 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
                     stage.move(x=pos.x, y=pos.y, z=pos.z) + GCode.wait_for_done()
                 )
 
-            # ローディング直後の先端が最も汚れているので、掃除はその後に行う。
-            # リトラクトより前なのは「掃除 → 移動前の垂れ止め」が正しい順序のため。
-            if nozzle_clean is not None:
-                ctx.progress("ノズルクリーニング")
-                ctx.checkpoint()
-                clean_nozzle(
-                    session.klipper, stage, applicator, nozzle_clean, log=ctx.log
-                )
-
             ctx.progress("リトラクション")
             applicator.retract()
 
             if purge is not None:
                 ctx.progress("初回パージ")
-                ctx.checkpoint()
-                # パージは pad ではなく座標なので、その点を覆う成功領域から
-                # 内挿した補正を使う。
-                applicator.deposit_at(
-                    purge.point,
-                    amount_ul=purge.amount_ul,
-                    transform=session.point_transform(purge.point, correction),
+                # 詰まりはここで顕在化させる。パージが写らないまま pad を塗り始めると
+                # 基板を 1 枚無駄にするので、掃除してやり直してから先へ進む。
+                purge_with_cleaning(
+                    ctx,
+                    session,
+                    correction,
+                    applicator,
+                    purge,
+                    nozzle_clean=nozzle_clean,
                 )
 
             flow = targets.flow_calibration
