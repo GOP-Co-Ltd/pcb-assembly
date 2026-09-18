@@ -9,7 +9,7 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 - GET /api/machine-info — backend の自己申告（machine_id / machine_type /
   mainsail_url / fb_start / api_version）。到達性プローブも兼ねる
 - machine_id は `Settings.hostname` があればそれ、無ければ backend ホストの hostname
-  （機体名は OS のホスト名そのもので、machine.toml に表示名の設定は持たない）
+  （これがそのまま機体名。machine.toml に表示名の設定は持たない）
 - mainsail_url は backend 側で解決した値。リクエストのホスト名には追従しない
   （プロキシ配下で必ず誤るため）。未設定時は `http://{machine_id}.local`
   （machine_id が既にドットを含むなら `.local` を重ねない）
@@ -20,11 +20,10 @@ MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 from pathlib import Path
 
 import attrs
-import pytest
 from fastapi.testclient import TestClient
 
 from web.api.app import create_app
-from web.api.config_store import ConfigStore, UnknownFieldError
+from web.api.config_store import ConfigStore
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -135,15 +134,6 @@ class TestMachineInfoApi:
             # バンプが無音で通る）。バンプは意図的な契約変更なのでここも同時に更新する
             "api_version": 1,
         }
-
-    def test_display_name_is_not_a_machine_toml_setting(
-        self, client: TestClient, store: ConfigStore
-    ):
-        """表示名は machine.toml の設定項目ではない（機体名 = OS のホスト名）."""
-        with pytest.raises(UnknownFieldError):
-            store.write_machine_settings({"machine_name": "黒兎 2 号機"})
-
-        assert "machine_name" not in client.get("/api/machine-info").json()
 
     def test_mainsail_url_resolves_from_machine_id_not_request_host(
         self, webui_settings: Settings

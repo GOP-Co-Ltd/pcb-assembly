@@ -235,6 +235,7 @@ class TestBackendAppAdvertises:
                 async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
                     info = await client.get(f"{live_backend.base_url}/api/machine-info")
 
+                assert info.status_code == 200, info.text
                 assert info.json()["machine_id"] == "e2eadv"
 
         run(scenario)

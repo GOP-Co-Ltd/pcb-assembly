@@ -30,12 +30,30 @@
 - `MachineInfo.machine_name` を `machine_id` と同値で残す → 同じ値を 2 つ返すだけで読み手が無い
 - frontend `machines.toml` の `name` / `MachineEndpoint.name` / `MachineSummary.name` の削除 → 変更前から表示に未使用（`label` は `machine_id: host`）で、今回の変更が生んだ不要コードではない（AGENTS.md 開発原則 3）
 
+## API_VERSION は上げない（裁定）
+
+`MachineInfo.machine_name` は必須フィールドで、frontend は `model_validate_json` で厳格に
+読む。**古い frontend × 新しい backend** の組では検証が落ち `BackendUnavailable`（503）に
+なる。それでも `API_VERSION`（現行 1）は上げない。
+
+- 上げると mDNS 発見が完全一致フィルタなので、古い frontend の一覧から機体が消え、
+    WebUI の自己更新経路そのものが使えなくなる（`docs/operations.md` の警告）。
+    503 になるのと同じく frontend の更新が必要で、実害はむしろ大きい
+- **frontend を先に更新すれば破綻しない。** 新しい frontend × 古い backend は、
+    pydantic が余分な `machine_name` を無視するので素通りする
+- → 運用手順は「frontend（port 8080 の機体）を先に更新し、その後 backend を更新する」
+
 ## 自己レビューの指摘と対応
 
 - `build_service_info` の `instance` 引数が `ServiceAdvertiser.update` 廃止で到達不能になる
     → 引数ごと削除し、`test_instance_override_keeps_the_registered_name` も削除
 - `_merge` / `_fill_gaps` の docstring が「`name` も mDNS で埋める」と書いたまま
     → mDNS 側が `name` を持たなくなったので記述を `machine_type` だけに直す
+- `docs/webui.md` のマージ規則が「`name` / `machine_type` を探索側で埋める」のまま
+    （code-reviewer の must-fix）→ `machine_type` だけに直す
+- `/api/machine-info` の応答に `machine_name` が無いことを個別にピンするテストは、
+    同ファイルの応答完全一致アサートと config_store の未知キー則に対して冗長だった
+    → 削除
 - worktree の `.venv` が `include-system-site-packages = false` で `make type` が
     pcbnew / picamera2 を解決できず 15 error（変更前後で同数）。`.venv/pyvenv.cfg` を
     primary checkout と同じ `true` に直して 0 error。コードの問題ではない
@@ -44,7 +62,10 @@
 
 - frontend `config/machines.toml` の `name` と `MachineEndpoint.name` /
     `MachineSummary.name`：静的登録という独立した供給源があり、変更前から `label`
-    （`machine_id: host`）に使われていない
+    （`machine_id: host`）に使われていない。
+    **申し送り**：mDNS 側の供給が無くなったので、この 3 つは `machines.toml` に書いた
+    ときだけ値が入り、読み手はゼロになった。`machines.toml` の仕様を見直す機会に
+    まとめて落とすのが自然（今回は依頼範囲外の別ファイルなので触らない）
 - `memory/agents/**` の過去タスク記録に残る `machine_name` 記述：当時の事実の記録なので
     書き換えない
 

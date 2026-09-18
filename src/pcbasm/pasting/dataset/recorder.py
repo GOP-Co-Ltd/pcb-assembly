@@ -48,7 +48,7 @@ class DatasetRunInfo:
     :class:`~pcbasm.pasting.dataset.plan.DotGridSpec` が唯一の出典なので持たない。
 
     Attributes:
-        machine_id: 機体 ID（OS のホスト名。そのまま機体名として記録する）
+        machine_id: 機体 ID（backend の自己申告 ID。そのまま機体名として記録する）
         paste_id: ペースト製品 ID
         paste_lot: 製造ロット（任意）
         paste_height_mm: 点塗布の塗布高さ [mm]
@@ -151,7 +151,7 @@ class PasteDatasetRecorder:
             kind=PENDING_KIND,
             schema_version=PENDING_SCHEMA_VERSION,
             created_at=run.started_at.isoformat(),
-            # 機体名は OS のホスト名（machine.toml に表示名の設定は無い）
+            # 機体名は machine_id をそのまま使う（machine.toml に表示名の設定は無い）
             machine=PasteDatasetMachine(machine_id=run.machine_id, name=run.machine_id),
             plate=PasteDatasetPlate(
                 width_mm=spec.plate_width_mm,

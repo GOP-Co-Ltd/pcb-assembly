@@ -102,7 +102,7 @@ machine_type = "paste"    # 省略可
 
 ファイルが無い場合は静的登録 0 台として起動する（探索で見つかった分だけが一覧に出る）。
 同じ `machine_id` を両方の経路が知っている場合は静的登録の `host` / `port` を優先し、
-静的側が持たない `name` / `machine_type` だけ探索側で埋める。
+静的側が持たない `machine_type` だけ探索側で埋める。
 
 `machines.toml` を読むのは frontend の起動時の 1 回だけなので、**編集したら frontend を
 再起動する**（実行中に更新されるのは mDNS 探索の分だけ）。`scripts/setup-machine-config.sh` が案内する

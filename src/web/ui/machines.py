@@ -41,7 +41,7 @@ class MachineEndpoint:
         表示文字列はサーバ側で組む（クライアントで組むと表示規則が JS に散る）。
         ``machine_id`` は backend の hostname。``host`` を併記するのは、
         ``.local`` 名や IP の取り違えを画面で見分けられるようにするため。
-        自由入力の ``name`` は表示に使わない（同名の機体を見分けられないため）。
+        静的登録の ``name`` は表示に使わない（同名の機体を見分けられないため）。
         """
         return f"{self.machine_id}: {self.host}"
 

@@ -313,7 +313,7 @@ class TestPasteDatasetRecorder:
         spec = plan.spec
         assert metadata.created_at == STARTED_AT.isoformat()
         assert metadata.machine.machine_id == "machine-1"
-        # 機体名は OS のホスト名（= machine_id）。machine.toml に表示名の設定は無い
+        # 機体名は machine_id をそのまま使う（machine.toml に表示名の設定は無い）
         assert metadata.machine.name == "machine-1"
         assert metadata.paste.paste_id == "paste-1"
         assert metadata.paste.lot is None
