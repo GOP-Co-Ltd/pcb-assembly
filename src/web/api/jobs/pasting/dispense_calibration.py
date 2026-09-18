@@ -261,7 +261,6 @@ class _DispenseCalibrationResults:
     """
 
     rotations_per_ul: float | None = None
-    dispense_accel: float | None = None
     max_dispense_rate: float | None = None
     max_fill_speed: float | None = None
     finish: bool = False
@@ -422,8 +421,8 @@ def _calibrate_rotations_per_ul(
     行い、電子天秤にセットしてタール（ゼロ）してから ``line_count`` 本の線を段ずらしで
     引く。線引き後はヘッドを退避 Z（z_max − removal_z_offset、既定は全退避）へ上げ、
     基板を取り出して計量しやすくする。合計質量から :meth:`RotationsPerUlRound.evaluate` で
-    新 ``rotations_per_ul`` を算出する。採用すると新値で applicator を作り直し、
-    ``dispense_accel`` も回転加速度を保って連動更新する。採用時点で両値を machine.toml へ
+    新 ``rotations_per_ul`` を算出する。採用すると新値で applicator を作り直す
+    （``dispense_accel`` は machine.toml の設定値のまま触らない）。採用時点で machine.toml へ
     即時反映するため、以降の中止・失敗でも計測結果は失われない。収束（前後の相対差が
     許容内）はヒントとして表示するのみで、ループ継続はユーザー判断。タール前の中止・
     質量入力の中止はいずれもメニューへ戻る。
@@ -487,14 +486,12 @@ def _calibrate_rotations_per_ul(
             line_count=layout.line_count,
             amount_ul=amount,
             previous_rotations_per_ul=previous_rpu,
-            previous_dispense_accel=procedure.dispense_accel,
             density_mg_per_ul=density,
         )
         ctx.log(
             f"算出 rotations_per_ul = {round_.computed:.6f} rev/uL "
             f"(前回 {previous_rpu:.6f}, 相対変化 {round_.relative_change * 100:.2f}%)"
         )
-        ctx.log(f"連動 dispense_accel = {round_.dispense_accel:.6f} uL/s^2")
         if round_.converged():
             ctx.log(f"相対変化が許容 {CONVERGENCE_REL_TOL * 100:.0f}% 以内です（収束）")
 
@@ -518,17 +515,9 @@ def _calibrate_rotations_per_ul(
         # 残る 3 つはいずれも算出値を採用する。採用時点で machine.toml へ反映し、
         # 以降の中止・失敗で計測結果を失わないようにする。
         apply_to_machine_toml(
-            ctx,
-            {
-                "paste_dispenser.rotations_per_ul": round_.computed,
-                "paste_dispenser.dispense_accel": round_.dispense_accel,
-            },
+            ctx, {"paste_dispenser.rotations_per_ul": round_.computed}
         )
-        adopted = attrs.evolve(
-            results,
-            rotations_per_ul=round_.computed,
-            dispense_accel=round_.dispense_accel,
-        )
+        adopted = attrs.evolve(results, rotations_per_ul=round_.computed)
         if choice == "採用して吐出量キャリブレーションを終了する":
             # 再描画しないので applicator の作り直しは不要。finish でジョブを終了。
             return attrs.evolve(adopted, finish=True)
@@ -711,7 +700,6 @@ def _dispense_calibration_result(
         f"{field} = {value:.6f}"
         for field in (
             "rotations_per_ul",
-            "dispense_accel",
             "max_dispense_rate",
             "max_fill_speed",
         )

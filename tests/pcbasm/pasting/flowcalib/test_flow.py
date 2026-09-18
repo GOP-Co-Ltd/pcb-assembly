@@ -74,17 +74,6 @@ class TestFlowCalibration:
         assert calib.dispense_rate_for(2.5) == pytest.approx(50.0)
         assert calib.dispense_accel_for(25.0) == pytest.approx(500.0)
 
-    def test_rescaled_dispense_accel_preserves_rotation_accel(self):
-        # 新 rpu = 0.05。旧 (accel=2.0, rpu=0.1) → 回転加速度 0.2 rev/s² → 4.0 μL/s²
-        calib = FlowCalibration(
-            rotations=50.0, masses_mg=(1000.0,), density_mg_per_ul=1.0
-        )
-
-        new_accel = calib.rescaled_dispense_accel(2.0, 0.1)
-
-        assert new_accel == pytest.approx(4.0)
-        assert new_accel * calib.rotations_per_ul == pytest.approx(2.0 * 0.1)
-
     @pytest.mark.parametrize(
         ("rotations", "masses", "density"),
         [
@@ -254,22 +243,19 @@ class TestDispenseRateCalibration:
 class TestRotationsPerUlRound:
     """① の 1 ラウンド評価と収束判定."""
 
-    def test_round_from_mass_computes_new_rpu_and_rescaled_accel(self):
+    def test_round_from_mass_computes_new_rpu(self):
         # 10 本 × 0.5 uL × rpu 1.0 = 5 rev。10 mg / 3.78 → 2.6455 uL → rpu 1.89。
-        # 回転加速度 10 × 1.0 = 10 rev/s² を新 rpu で割ると 5.291 uL/s²。
         round_ = RotationsPerUlRound.evaluate(
             mass_mg=10.0,
             line_count=10,
             amount_ul=0.5,
             previous_rotations_per_ul=1.0,
-            previous_dispense_accel=10.0,
             density_mg_per_ul=3.78,
         )
 
         assert round_.rotations_used == pytest.approx(5.0)
         assert round_.previous == 1.0
         assert round_.computed == pytest.approx(1.89)
-        assert round_.dispense_accel == pytest.approx(10.0 / 1.89)
         assert round_.relative_change == pytest.approx(0.89)
 
     @pytest.mark.parametrize(
@@ -286,9 +272,7 @@ class TestRotationsPerUlRound:
         ],
     )
     def test_converged_within_tolerance(self, previous, computed, rel_tol, expected):
-        round_ = RotationsPerUlRound(
-            previous, computed, dispense_accel=1.0, rotations_used=1.0
-        )
+        round_ = RotationsPerUlRound(previous, computed, rotations_used=1.0)
 
         converged = (
             round_.converged() if rel_tol is None else round_.converged(rel_tol=rel_tol)
@@ -302,6 +286,4 @@ class TestRotationsPerUlRound:
     )
     def test_non_positive_values_are_rejected(self, previous, computed):
         with pytest.raises(ValueError):  # noqa: PT011 - attrs の詳細文言は固定しない
-            RotationsPerUlRound(
-                previous, computed, dispense_accel=1.0, rotations_used=1.0
-            )
+            RotationsPerUlRound(previous, computed, rotations_used=1.0)

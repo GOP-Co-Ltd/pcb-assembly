@@ -81,17 +81,6 @@ class FlowCalibration:
         """回転加速度 [rev/sec²] を吐出加速度 [μL/sec²] に変換する."""
         return rotation_accel / self.rotations_per_ul
 
-    def rescaled_dispense_accel(
-        self, previous_accel: float, previous_rotations_per_ul: float
-    ) -> float:
-        """rotations_per_ul 変更後も回転加速度を保つ dispense_accel を再算出する.
-
-        旧 ``previous_accel`` [μL/sec²] が表す回転加速度 [rev/sec²] を旧
-        ``previous_rotations_per_ul`` で逆算し、この計測の新 ``rotations_per_ul`` で
-        吐出加速度へ再変換する。① 検証ループで新値を採用する際に使う。
-        """
-        return self.dispense_accel_for(previous_accel * previous_rotations_per_ul)
-
 
 @attrs.frozen
 class MassFlowEstimate:
@@ -293,7 +282,7 @@ class DispenseRateCalibration:
 
 @attrs.frozen
 class RotationsPerUlRound:
-    """① 検証ループの 1 ラウンド（前後の rotations_per_ul と連動値）.
+    """① 検証ループの 1 ラウンド（前後の rotations_per_ul）.
 
     検証前に使っていた値 ``previous`` で塗布・計量し、その結果から算出した
     新値 ``computed`` の相対差で収束を判定する。
@@ -301,13 +290,11 @@ class RotationsPerUlRound:
     Attributes:
         previous: このラウンドで使った（検証前の）rotations_per_ul [rev/μL]
         computed: 計量から算出した新しい rotations_per_ul [rev/μL]
-        dispense_accel: 回転加速度を保って ``computed`` へ連動させた吐出加速度 [μL/sec²]
         rotations_used: このラウンドで指令した回転数 [rev]
     """
 
     previous: float = attrs.field(validator=attrs.validators.gt(0.0))
     computed: float = attrs.field(validator=attrs.validators.gt(0.0))
-    dispense_accel: float
     rotations_used: float
 
     @classmethod
@@ -318,20 +305,18 @@ class RotationsPerUlRound:
         line_count: int,
         amount_ul: float,
         previous_rotations_per_ul: float,
-        previous_dispense_accel: float,
         density_mg_per_ul: float,
     ) -> Self:
         """① の 1 ラウンド（``line_count`` 本 × ``amount_ul`` を引いて計量）を評価する.
 
         指令回転数 ``line_count × amount_ul × previous_rotations_per_ul`` と計量質量から
-        新 ``rotations_per_ul`` を算出し、``dispense_accel`` を回転加速度保存で連動させる。
+        新 ``rotations_per_ul`` を算出する。``dispense_accel`` は設定値のまま触らない。
 
         Args:
             mass_mg: 全線の合計質量 [mg]
             line_count: 引いた線の本数
             amount_ul: 1 線あたりの指令量 [μL]
             previous_rotations_per_ul: 線引きに使った rotations_per_ul [rev/μL]
-            previous_dispense_accel: 線引きに使った吐出加速度 [μL/sec²]
             density_mg_per_ul: はんだペースト密度 [mg/μL]
         """
         rotations_used = commanded_rotations(
@@ -347,9 +332,6 @@ class RotationsPerUlRound:
         return cls(
             previous=previous_rotations_per_ul,
             computed=flow.rotations_per_ul,
-            dispense_accel=flow.rescaled_dispense_accel(
-                previous_dispense_accel, previous_rotations_per_ul
-            ),
             rotations_used=rotations_used,
         )
 
