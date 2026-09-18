@@ -8,13 +8,15 @@
 で行うが、見るのは「写ったか」だけで体積は推定しない。校正ファイルを必要としないので、
 流量キャリブレーションを使わない機体でも同じように確かめられる。
 
-**確かめられないことではジョブを落とさない。** 撮影や計測に失敗したときは判定を諦めて
-先へ進む。写らなかったと断定できたときだけ掃除し、掃除しても写らなければ落とす。
+**確かめられないことではジョブを落とさない。** カメラが撮影位置へ届かない・撮影や計測に
+失敗した、のいずれも確かめずに先へ進む。写らなかったと断定できたときだけ掃除し、
+掃除しても写らなければ落とす。
 """
 
 from __future__ import annotations
 
 from pcbasm.config import NozzleClean
+from pcbasm.geometry import Point2d, Transform
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.capture import PointCapturer
@@ -22,13 +24,14 @@ from pcbasm.pasting.initial_purge import ResolvedInitialPurge
 from pcbasm.pasting.nozzle_clean import clean_nozzle
 from pcbasm.pasting.paste_volume.detect import measure_dot
 from pcbasm.pasting.session import PasteSession
-from pcbasm.vision.crop import crop_pixel_size
+from pcbasm.vision.crop import RectCrop, crop_pixel_size
 from web.api.jobs.context import JobContext
 
-# パージ点を切り出す一辺 [mm]。パージのドットは測定点のドットより大きく広がるので
-# 流量キャリブレーションの crop より広く取る。判定は塗布前後の差分なので、広く取って
-# 銅箔や pad が写り込んでも消える。
-PURGE_CROP_SIZE_MM = 4.0
+# パージ点を切り出す一辺 [mm]。流量キャリブレーションの crop と同じ広さを既定にする。
+# 広く取るほど感度が下がる（blank ガードが crop 全体の 99 パーセンタイルなので、
+# ドットが crop 面積の 1 % ほどを占めないと検出できない）。ここは「写ったか」しか
+# 見ないので、大きなパージが crop からはみ出して直径が頭打ちになっても困らない。
+PURGE_CROP_SIZE_MM = 2.0
 
 
 def purge_with_cleaning(
@@ -57,22 +60,39 @@ def purge_with_cleaning(
     Raises:
         ValueError: 掃除してパージし直しても塗布が写らない場合
     """
-    capturer, error = _make_capturer(ctx, session)
+    point_correction = correction.alignment.correction_for(purge.point)
+    capturer, error = _make_capturer(ctx, session, purge.point, point_correction)
     if capturer is None:
         ctx.log(f"パージ確認: {error}ので確かめずに進みます")
         _purge(ctx, session, correction, applicator, purge)
         return
 
+    ctx.checkpoint()
+    baseline, error = capturer.capture(purge.point, correction=point_correction)
+    if baseline is None:
+        ctx.log(f"パージ確認: 塗布前の撮影に失敗したので確かめません: {error}")
+        _purge(ctx, session, correction, applicator, purge)
+        return
+
+    # None は「確かめられなかった」。写らなかったと断定できたときだけ掃除する
     if (
-        _purge_and_detect(ctx, session, correction, applicator, capturer, purge)
+        _purge_and_detect(
+            ctx, session, correction, applicator, capturer, purge, baseline
+        )
         is not False
     ):
         return
 
     ctx.log("パージ確認: ペーストが写りません。ノズルをクリーニングしてやり直します")
     performed = _clean(ctx, session, applicator, nozzle_clean)
+
+    ctx.progress("パージやり直し")
+    # やり直しも 1 回目と同じ塗布前画像と比べる。2 回目の直前を基準にすると、1 回目が
+    # 実は出ていて検出だけ失敗した場合に増分しか見えず、正常なノズルを詰まりと断じる
     if (
-        _purge_and_detect(ctx, session, correction, applicator, capturer, purge)
+        _purge_and_detect(
+            ctx, session, correction, applicator, capturer, purge, baseline
+        )
         is False
     ):
         raise ValueError(
@@ -82,14 +102,43 @@ def purge_with_cleaning(
 
 
 def _make_capturer(
-    ctx: JobContext, session: PasteSession
+    ctx: JobContext,
+    session: PasteSession,
+    point: Point2d,
+    point_correction: Transform | None,
 ) -> tuple[PointCapturer | None, str | None]:
-    """パージ点の撮影器を組む（crop 寸法を決められなければ理由を返す）."""
-    pixel_per_mm = session.calibration.pixel_per_mm
-    crop_size_px, error = crop_pixel_size(PURGE_CROP_SIZE_MM, pixel_per_mm)
+    """パージ点の撮影器を組む（撮れないなら理由を返す）."""
+    crop_size_px, error = crop_pixel_size(
+        PURGE_CROP_SIZE_MM, session.calibration.pixel_per_mm
+    )
     if crop_size_px is None:
         return None, f"crop 寸法を決められない（{error}）"
+    if error := _camera_reach_error(session, point, point_correction):
+        return None, error
     return PointCapturer(session, crop_size_px=crop_size_px, frame_sink=ctx.frame), None
+
+
+def _camera_reach_error(
+    session: PasteSession, point: Point2d, point_correction: Transform | None
+) -> str | None:
+    """カメラを撮影位置へ置けるか（置けないなら理由、置けるなら ``None``）.
+
+    カメラはツールヘッドオフセットぶんノズルとずれる。
+
+    ノズルが届くパージ点でもカメラが届かない機体構成があり得る。
+
+    撮影で可動域外の例外を出して塗布ジョブを落とすより、確かめずに進むほうがよい。
+    """
+    target = session.camera_point_target(point, correction=point_correction)
+    limits = session.stage.limits
+    axes = [("x", target.x, limits.x), ("y", target.y, limits.y)]
+    # ピント Z が未記録のキャリブレーションでは Z を動かさないので見なくてよい
+    if (focus_z := session.calibration.z_position) is not None:
+        axes.append(("z", focus_z, limits.z))
+    outside = [f"{name}={value}" for name, value, scalar in axes if value not in scalar]
+    if outside:
+        return f"カメラを撮影位置へ置けない（可動域外: {', '.join(outside)}）"
+    return None
 
 
 def _purge_and_detect(
@@ -99,24 +148,24 @@ def _purge_and_detect(
     applicator: PasteApplicator,
     capturer: PointCapturer,
     purge: ResolvedInitialPurge,
+    baseline: RectCrop,
 ) -> bool | None:
-    """塗布前を撮る → パージする → 塗布後を撮る（判定できなければ ``None``）."""
-    point_correction = correction.alignment.correction_for(purge.point)
-    pre, error = capturer.capture(purge.point, correction=point_correction)
-    if pre is None:
-        ctx.log(f"パージ確認: 塗布前の撮影に失敗したので確かめません: {error}")
-        _purge(ctx, session, correction, applicator, purge)
-        return None
+    """パージして塗布後を撮り、``baseline`` との差分で写ったかを見る.
 
+    確かめられなかった（撮影・計測に失敗した）ときは ``None`` を返す。
+    """
     _purge(ctx, session, correction, applicator, purge)
 
-    post, error = capturer.capture(purge.point, correction=point_correction)
+    ctx.checkpoint()
+    post, error = capturer.capture(
+        purge.point, correction=correction.alignment.correction_for(purge.point)
+    )
     if post is None:
         ctx.log(f"パージ確認: 塗布後の撮影に失敗したので確かめません: {error}")
         return None
 
     measurement, error = measure_dot(
-        pre.image, post.image, pixel_per_mm=session.calibration.pixel_per_mm
+        baseline.image, post.image, pixel_per_mm=session.calibration.pixel_per_mm
     )
     if measurement is None:
         ctx.log(f"パージ確認: 計測できないので確かめません: {error}")

@@ -36,19 +36,28 @@ from tests.web.api.jobs.pasting.conftest import (
 from web.api.jobs.catalog import JobCatalog, ParamSpec
 from web.api.jobs.context import JobContext, JobResult
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
-from web.api.jobs.pasting.purge_check import PURGE_CROP_SIZE_MM, purge_with_cleaning
+from web.api.jobs.pasting.purge_check import purge_with_cleaning
 from web.api.settings import Settings
 
 # クリーニング位置（マシン座標）。fake の可動域 x/y 0-300・z -5..50 の内側
 CLEAN = NozzleClean(x=50.0, y=60.0, z=1.0)
 # パージ点（board 座標）。board_transform=Shift(100, 50) でマシン (110, 62)
 PURGE_POINT = Point2d(10.0, 12.0)
-PURGE = ResolvedInitialPurge(
-    amount_ul=0.3,
-    point=PURGE_POINT,
-    label=purge_point_label(PURGE_POINT),
-    source="explicit",
-)
+# カメラだけが可動域外になる点。撮影はマシン Y = board Y + 50、塗布はさらに
+# ツールヘッドオフセットぶん +Y なので、板の手前側ではカメラだけが届かなくなる
+UNREACHABLE_POINT = Point2d(10.0, -60.0)
+
+
+def _purge_at(point: Point2d) -> ResolvedInitialPurge:
+    return ResolvedInitialPurge(
+        amount_ul=0.3,
+        point=point,
+        label=purge_point_label(point),
+        source="explicit",
+    )
+
+
+PURGE = _purge_at(PURGE_POINT)
 # 検出させるドットの直径 [px]（crop の中央に収まり、min_area_px を超える大きさ）
 DOT_PX = 10
 
@@ -74,14 +83,15 @@ def _blocking_loads_ul(klipper: FakeKlipper) -> list[float]:
     ]
 
 
-def _purge_y() -> float:
+def _half_size_frame() -> Image:
+    """解像度の違うフレーム（crop が取れず、確かめられない状態を作る）."""
+    return Image(uniform_frame().numpy()[:240, :320])
+
+
+def _purge_y(point: Point2d) -> float:
     """パージ時のマシン Y（ツールヘッドオフセットを含む）."""
     session = paste_session(FakeCamera([uniform_frame()]), FakeKlipper())
-    return (
-        session.point_transform(PURGE_POINT, full_board_correction())
-        .apply(PURGE_POINT)
-        .y
-    )
+    return session.point_transform(point, full_board_correction()).apply(point).y
 
 
 class TestPurgeWithCleaning:
@@ -124,7 +134,11 @@ class TestPurgeWithCleaning:
                         session,
                         full_board_correction(),
                         applicator,
-                        PURGE,
+                        _purge_at(
+                            UNREACHABLE_POINT
+                            if ctx.params["unreachable"]
+                            else PURGE_POINT
+                        ),
                         nozzle_clean=CLEAN if ctx.params["with_clean"] else None,
                     )
                 finally:
@@ -136,15 +150,24 @@ class TestPurgeWithCleaning:
             catalog,
             run,
             name="purge_check",
-            params=(ParamSpec("with_clean", "クリーニング位置", "bool", default=True),),
+            params=(
+                ParamSpec("with_clean", "クリーニング位置", "bool", default=True),
+                ParamSpec("unreachable", "カメラ可動域外", "bool", default=False),
+            ),
         )
         return make_manager(catalog)
 
     @staticmethod
     def _run(
-        manager: JobManager, wait_until: WaitUntil, *, with_clean: bool = True
+        manager: JobManager,
+        wait_until: WaitUntil,
+        *,
+        with_clean: bool = True,
+        unreachable: bool = False,
     ) -> JobRecord:
-        record = manager.start("purge_check", {"with_clean": with_clean})
+        record = manager.start(
+            "purge_check", {"with_clean": with_clean, "unreachable": unreachable}
+        )
         wait_until(lambda: record.status.terminal, timeout=60.0)
         return record
 
@@ -160,7 +183,7 @@ class TestPurgeWithCleaning:
     @staticmethod
     def _is_purge(move: dict[str, float]) -> bool:
         """パージ点で塗る移動か."""
-        return move.get("y") == pytest.approx(_purge_y())
+        return move.get("y") == pytest.approx(_purge_y(PURGE_POINT))
 
     @staticmethod
     def _is_capture(move: dict[str, float]) -> bool:
@@ -233,14 +256,16 @@ class TestPurgeWithCleaning:
         loads: list[float],
     ):
         """1 回目が未検出 → クリーニング → もう一度パージして確かめる."""
-        frames.extend([uniform_frame(), uniform_frame(), uniform_frame()])
-        frames.append(dot_frame(DOT_PX))
+        frames.extend([uniform_frame(), uniform_frame(), dot_frame(DOT_PX)])
 
         record = self._run(purge_manager, wait_until)
 
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert self._count(moves, self._is_clean_approach) == 1
         assert self._count(moves, self._is_purge) == 2
+        # 塗布前は 1 回しか撮らない。やり直しも同じ画像と比べないと、1 回目が実は
+        # 出ていて検出だけ失敗した場合に増分しか見えず、正常なノズルを詰まりと断じる
+        assert self._count(moves, self._is_capture) == 3
         # 直前のパージはリトラクトで終わっている。押し戻してから掃除のパージをしないと
         # 設定した量が先端から出ない（出たあとはまた引き戻す）
         retract = _dispenser().retract_amount
@@ -276,8 +301,7 @@ class TestPurgeWithCleaning:
         loads: list[float],
     ):
         """位置未記録ならこすれないが、パージのやり直しには意味がある."""
-        frames.extend([uniform_frame(), uniform_frame(), uniform_frame()])
-        frames.append(dot_frame(DOT_PX))
+        frames.extend([uniform_frame(), uniform_frame(), dot_frame(DOT_PX)])
 
         record = self._run(purge_manager, wait_until, with_clean=False)
 
@@ -287,10 +311,37 @@ class TestPurgeWithCleaning:
         # こすらないなら引き込んだままでよい。余計な prime / retract を挟まない
         assert loads == []
 
+    def test_purges_without_checking_when_the_camera_cannot_reach(
+        self,
+        purge_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+        frames: list[Image],
+        moves: list[dict[str, float]],
+    ):
+        """カメラが撮影位置へ届かない点では、確かめずにパージだけして進む."""
+        frames.append(uniform_frame())
 
-class TestPurgeCropSize:
-    """パージ点を切り出す寸法."""
+        record = self._run(purge_manager, wait_until, unreachable=True)
 
-    def test_is_wider_than_a_flow_calibration_crop(self):
-        """パージのドットは測定点のドットより大きく広がる."""
-        assert PURGE_CROP_SIZE_MM > _dispenser().flow_calibration.crop_size_mm
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert self._count(moves, self._is_capture) == 0
+        assert self._count(moves, self._is_clean_approach) == 0
+        assert self._count(moves, lambda move: "x" in move) == 1
+
+    def test_purges_without_checking_when_the_images_cannot_be_measured(
+        self,
+        purge_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+        frames: list[Image],
+        moves: list[dict[str, float]],
+    ):
+        """計測できないことは「出ていない」ことの証拠にならない."""
+        frames.extend([uniform_frame(), _half_size_frame()])
+
+        record = self._run(purge_manager, wait_until)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        assert self._count(moves, self._is_purge) == 1
+        assert self._count(moves, self._is_clean_approach) == 0

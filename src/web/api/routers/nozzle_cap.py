@@ -141,9 +141,9 @@ def run_nozzle_clean_test(
 ) -> NozzleCleanTestResult:
     """記録済みの設定でクリーニング動作を 1 回実行する（ブロッキング）.
 
-    塗布ジョブが行うのと同じ手順（接近 → パージ → 十字往復 → 退避）を走らせ、続けて
-    リトラクトする。ジョブでは :func:`clean_nozzle` の直後に
-    :meth:`PasteApplicator.retract` が呼ばれるので、テストも同じ正味の状態で終える。
+    塗布ジョブが行うのと同じ手順（prime → 接近 → パージ → 十字往復 → 退避 →
+    リトラクト）を走らせる。ジョブは直前のパージがリトラクトして終わった状態から
+    prime して掃除するので、ここでも同じ順序にしないと同じ設定で出る量が食い違う。
 
     最後にノズルキャップ位置へ戻す。ジョブと違って次の工程が続かないので、先端を
     クリーナーの上に置いたままにすると乾いてしまう。
@@ -166,6 +166,7 @@ def run_nozzle_clean_test(
                 _require_all_axes_homed(klipper, "全軸ホーミング後に実行してください")
                 stage = XYZStage(klipper.readonly)
                 with build_applicator(klipper, stage, dispenser) as applicator:
+                    applicator.prime()
                     clean_nozzle(klipper, stage, applicator, clean, log=messages.append)
                     applicator.retract()
                 # ディスペンサーを止めてから戻す（塗布ジョブの駐機と同じ順序）

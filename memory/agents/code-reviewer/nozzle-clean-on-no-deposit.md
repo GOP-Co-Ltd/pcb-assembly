@@ -95,3 +95,171 @@
 - make type: pass（0 errors）
 - make test-no-hardware: pass（3353 passed, 184 deselected）
 - 成果物汚染（`</content>` 等）: なし
+
+______________________________________________________________________
+
+# 第 2 版レビュー（検出を初回パージで行う作り直し / aa6c7b9）
+
+対象: `git diff main...HEAD`（b72d52d + aa6c7b9）
+
+## verdict: request-changes
+
+## 前回指摘の追跡
+
+- M1（プライム収支）: 解消。`_clean` が `prime → clean_nozzle → retract` で囲み、
+    テスト `loads == [retract, purge_ul, -retract]` が収支を固定している。確信度 高
+- S5（ドキュメント同期）: `config_store.py` は直ったが、**tracked な config テンプレート
+    2 本と `tests/pcbasm/pasting/test_nozzle_clean.py` に同じ記述が残っている**（下記 M1）
+- S1（クリーニングが走らない経路）: 契機が流量キャリブレーションから初回パージへ移った
+    ことで、条件も `initial_purge_ul > 0` へ移った（下記 S2）
+- S4（やり直しの重ね塗り）: 測定点ではなくパージ点の重ねとして再発（下記 S3）
+- 掃除中の移動がプライム状態になる点は、main の
+    「掃除 → リトラクト（移動前の垂れ止め）」と同じ順序なので指摘しない
+
+## must-fix
+
+### M1. 仕様と矛盾する記述が tracked ファイルに残っている
+
+対象:
+
+- `data/config-templates/kurousagi.paste/machine.toml:65-66`
+- `data/config-templates/usaremino.paste/machine.toml:68-69`
+- `tests/pcbasm/pasting/test_nozzle_clean.py:3`
+
+いずれも「塗布ジョブ開始時のノズル先端クリーニング」「セクションごと無いとクリーニングを
+行わずに塗布を開始する」のまま。後者は現仕様では誤りで、セクションが無くても
+`purge_with_cleaning` はパージのやり直しを行い、写らなければジョブを落とす
+（`purge_check.py:72-81` / `_clean` の未記録分岐）。テンプレートは利用者が機体設定を
+起こす入口なので、誤った説明のまま配る影響が大きい。同じ文を持つ `config.py` /
+`config_store.py` / README / WebUI 文言は本 diff で直っており、ここだけ漏れている。
+確信度: 高
+
+### M2. `nozzle_cap` のテスト実行が「塗布ジョブと同じ手順」でなくなった
+
+対象: `src/web/api/routers/nozzle_cap.py:142-147`（本 diff では未変更）
+
+docstring は「塗布ジョブが行うのと同じ手順を走らせ、続けてリトラクトする。ジョブでは
+`clean_nozzle` の直後に `retract` が呼ばれるので、テストも同じ正味の状態で終える」と
+明記している。ジョブ側は `prime → clean_nozzle → retract`（`purge_check.py:167-171`）に
+変わったので、この記述は成り立たない。
+
+実害: プランジャは直前の塗布ジョブの最後の `apply`（`FillSequence.to_gcode` 末尾の
+retract）で引き込まれた状態で残る。そこからテスト実行すると `clean_nozzle` の
+`load(purge_ul)` の先頭 `retract_amount` が引き込みの穴埋めに消え、先端から出るのは
+`purge_ul - retract_amount`。実 config（`retract_amount = 0.03` / `purge_ul = 0.1`）で
+0.07 uL。ジョブ側は prime 済みなので 0.1 uL。**WebUI のテストボタンで `purge_ul` を
+追い込むと、本番のジョブでは 40% 多く出る。**
+確信度: docstring の不整合は 高 / 吐出量の差は 中（テスト実行時のプランジャ位置は
+どこにも記録されていないため、直前操作に依存する）
+
+## should-fix
+
+### S1. カメラ位置が可動域外だと「確かめられないこと」でジョブが落ちる
+
+対象: `src/web/api/jobs/pasting/purge_check.py:9-11, 104-131`
+
+モジュール docstring は「**確かめられないことではジョブを落とさない**」と太字で宣言し、
+拾っているのは `capturer.capture` の `(None, 理由)`（crop が frame に収まらない）と
+`measure_dot` の `(None, 理由)` だけ。`PointCapturer.capture`（`capture.py:58-67`）の
+`stage.move` は可動域外で `ValueError` を投げ、これは握られずジョブごと落ちる。
+
+カメラ位置は `camera_point_target` = board 点のマシン座標（ツールヘッドオフセットを
+**含まない**）なので、パージ点そのものとは Y で 23.04 mm（`machine.toml` の
+`paste_dispenser.toolhead.y`）ずれる。ノズルが届くパージ点でもカメラ位置が可動域外に
+なり得る構成では、main では成功していたジョブが失敗する。位置合わせが基板上をカメラで
+舐めている以上は実際上まれだが、明示指定のパージ点（`resolve_initial_purge` は基板外形の
+内側しか検証しない）では起こり得る。確信度: 機構 高 / 実機で踏むかは 中
+
+### S2. 初回パージが無効な機体ではクリーニングも詰まり検出も一切走らない
+
+対象: `src/web/api/jobs/pasting/paste_solder.py:106-117`
+
+`purge_with_cleaning` の呼び出しは `purge is not None` の内側。`resolve_initial_purge` は
+`amount_ul == 0` を機能無効として `None` を返す（`initial_purge.py:55-56`）ので、
+`initial_purge_ul = 0` の機体ではクリーニングが 1 度も走らない（main では無条件に走って
+いた）。順路 pad が 0 件でも同じ。`nozzle_cap.html` の新しい文言にもこの依存は書かれて
+いないので、運転者は「クリーニングが効いている」と読む。仕様上の可否はユーザー判断だが、
+設定間の依存は WebUI 文言に書くべき。確信度: 経路 高
+
+### S3. やり直しのパージが同じ点へ重なり、偽陰性がジョブ異常終了へ直結する
+
+対象: `purge_check.py:104-131`
+
+2 回目も同じ `purge.point` へ塗る。1 回目が実際には出ていて検出だけ失敗した場合
+（照明・コントラスト起因）、2 回目の pre 画像には既に 1 回目のドットが写っており、
+`measure_dot` が見るのは増分の暗化だけになる。ペースト上へペーストを足しても
+`min_contrast = 20`（`dot.py:49`）に届かなければ `detected=False` となり、ノズルが
+正常でもジョブが `ValueError` で落ちる。前回 S4 は測定点の重ねによる体積の過小推定
+だったが、こちらは帰結が「基板 1 枚を止める」なので影響が重い。しかも失敗時点で
+パージ点（既定は順路先頭 pad の中心）には 2 回ぶんのペーストが乗っている。
+確信度: 中（機構は確実、`min_contrast` を割るかは実機依存）
+
+### S4. crop 4.0 mm の根拠が「測定点より広い」だけで、検出感度の下限が記録されていない
+
+対象: `purge_check.py:28-31`, `tests/web/api/jobs/pasting/test_purge_check.py:291-296`
+
+`measure_dot` の blank ガードは crop 全体の **99 パーセンタイル**（`contrast_percentile`
+既定 99.0）で判定するので、ドットが crop 面積の 1% を超えないと検出できない。
+crop を 2 mm → 4 mm にすると面積が 4 倍になり、検出に必要な最小ドット径は 0.22 mm →
+0.45 mm へ上がる。実機（`pixel_per_mm ≈ 28.68`、初回パージ 0.3 uL、データセットの
+ドットは 0.2 uL で 0.6〜0.9 mm）なら 5% 前後で余裕はあるが、余裕は 20 倍から 5 倍へ
+落ちている。定数のコメントに書いてあるのは「広く取っても差分で消える」ことだけで、
+**広く取ると感度が下がる**ほうが書かれていない。確信度: 中（計算は確実、実機の
+ドット径は未測定）
+
+### S5. `PURGE_CROP_SIZE_MM` が job 層の直書き定数
+
+対象: `purge_check.py:31`
+
+対になる流量キャリブレーションの crop は `pcbasm.config.FlowCalibration.crop_size_mm`
+で機体ごとに設定でき、WebUI の設定欄（`config_store.py:110`）にも出ている。パージ側
+だけコード直書きで、レンズ・倍率の違う機体で調整できない。skill `webui-thin-wrapper` の
+点検リストは「幾何計算が router/job に直書き」を漏れのサインに挙げている。
+`flow_calibration.py` が job 層で撮影・塗布を束ねている前例があるので関数の置き場所自体は
+妥当だが、寸法はドメイン側（config か `pcbasm.pasting`）が持つべき。確信度: 中（規約の
+読み方に幅がある）
+
+### S6. 仕様の中核分岐にテストが無い
+
+対象: `tests/web/api/jobs/pasting/test_purge_check.py`
+
+モジュール docstring が太字で置いている「撮影・計測に失敗したら判定を諦めて先へ進む」に
+テストが 1 本も無い。`purge_with_cleaning` の 3 経路（crop 寸法を決められない /
+塗布前の撮影失敗 / 塗布後の撮影失敗）はいずれも「パージはするがジョブは落とさない」で、
+落ちないことと余計なクリーニングをしないことの両方を固定する価値がある。
+`pixel_per_mm` を大きくした `PasteSession` を作れば crop が frame からはみ出すので、
+fake の範囲で再現できる。確信度: 高
+
+### S7. crop 寸法が実際に 4 mm であることを振る舞いで確かめていない
+
+対象: `tests/web/api/jobs/pasting/test_purge_check.py:291-296`
+
+`test_is_wider_than_a_flow_calibration_crop` は定数と config 既定値を比べるだけで、
+コードを 1 行も通らない。skill `testing-strategy` の「書かない」に挙がる
+「定数 literal の追試」に近い。検出系のテストはドットを frame 中央に置いているので、
+crop 寸法をどう変えても通る（= 4.0 という値は実質未検証）。crop の外側にだけ暗い円を
+置いたフレームで「4 mm の外は見ない」を確かめるほうが価値がある。確信度: 中
+
+## nit
+
+- `_purge_and_detect` の戻り値を `is not False` / `is False` で受ける三値分岐は、
+    呼び出し側 2 か所で二重否定になって読みにくい。`detected is None or detected` の
+    ような素直な書き方か、明示的な enum のほうが意図が出る
+- やり直し中の `ctx.progress` が「ノズルクリーニング」のまま。2 回目のパージと撮影が
+    クリーニング工程として表示される
+- `_purge_and_detect` は撮影の前に `ctx.checkpoint()` を置いていない
+    （`flow_calibration._capture_all` は撮影ごとに置く）。中断の粒度が工程間で揃わない
+- `paste_solder` の summary は `初回パージ {purge.amount_ul}` 固定で、やり直した場合の
+    実際の吐出量（2 倍）が残らない
+- `_clean` の未記録ログ（`purge_check.py:165`）が `nozzle_clean._NOT_RECORDED` と別文言。
+    定数化の意図（WebUI と揃える）から外れているのは前回 nit と同じ
+- 静定待ちを置かずに塗布後を撮る点: 判定が `detected` だけなら移動時間 +
+    `PointCapturer` の 0.5 s で足りる見込みで、流量キャリブレーションの 10 秒待ちは
+    直径を測るための要件なので同列ではない。妥当だと思うが根拠がコードに書かれていない
+
+## 検証結果
+
+- make format: pass
+- make type: pass（0 errors）
+- make test-no-hardware: pass（3351 passed, 184 deselected）
+- 成果物汚染（`</content>` 等）: なし
