@@ -55,10 +55,10 @@ def _session(klipper: FakeKlipper) -> PasteSession:
     )
 
 
-def _dispense_distances_mm(klipper: FakeKlipper) -> list[float]:
-    """塗布吐出（SET_POSITION 直後の SYNC=0 付き MOVE）の距離 [mm] を呼び出し順に返す."""
+def _dispense_moves(klipper: FakeKlipper) -> list[re.Match[str]]:
+    """塗布吐出（SET_POSITION 直後の SYNC=0 付き MOVE）の行を呼び出し順に返す."""
     lines = klipper.sent_lines
-    distances: list[float] = []
+    moves: list[re.Match[str]] = []
     for previous, line in zip(lines, lines[1:], strict=False):
         match = _MOVE_RE.match(line)
         if (
@@ -66,14 +66,36 @@ def _dispense_distances_mm(klipper: FakeKlipper) -> list[float]:
             and match
             and "SYNC=0" in match.group(2)
         ):
-            distances.append(float(match.group(1)))
-    return distances
+            moves.append(match)
+    return moves
+
+
+def _move_param(move: re.Match[str], name: str) -> float:
+    """吐出 MOVE 行の ``<name>=<値>`` を float で取り出す."""
+    match = re.search(rf"{name}=(\S+)", move.group(2))
+    assert match is not None, f"{name} が MOVE 行にありません: {move.group(0)}"
+    return float(match.group(1))
+
+
+def _dispense_distances_mm(klipper: FakeKlipper) -> list[float]:
+    """塗布吐出の距離 [mm] を呼び出し順に返す."""
+    return [float(move.group(1)) for move in _dispense_moves(klipper)]
 
 
 def _dispense_amounts_ul(klipper: FakeKlipper, rotations_per_ul: float) -> list[float]:
     return [
         distance / ROTATION_DISTANCE / rotations_per_ul
         for distance in _dispense_distances_mm(klipper)
+    ]
+
+
+def _dispense_accels_ul_s2(
+    klipper: FakeKlipper, rotations_per_ul: float
+) -> list[float]:
+    """塗布吐出の ACCEL [mm/sec²] を μL/sec² に戻して呼び出し順に返す."""
+    return [
+        _move_param(move, "ACCEL") / ROTATION_DISTANCE / rotations_per_ul
+        for move in _dispense_moves(klipper)
     ]
 
 
@@ -103,7 +125,6 @@ class TestLifecycle:
         config = MACHINE.paste_dispenser
 
         assert procedure.rotations_per_ul == config.rotations_per_ul
-        assert procedure.dispense_accel == config.dispense_accel
         assert procedure.applicator.rotations_per_ul == config.rotations_per_ul
 
 
@@ -219,13 +240,14 @@ class TestRemovalZ:
 
 
 class TestAdopt:
-    """① の採用で rotations_per_ul / dispense_accel を更新し applicator を作り直す."""
+    """① の採用で rotations_per_ul だけを更新し applicator を作り直す."""
 
-    def test_adopt_updates_values_and_rebuilds_applicator(self, procedure, klipper):
+    def test_adopt_updates_rotations_per_ul_and_rebuilds_applicator(
+        self, procedure, klipper
+    ):
         round_ = RotationsPerUlRound(
             previous=procedure.rotations_per_ul,
             computed=2.0,
-            dispense_accel=5.0,
             rotations_used=5.0,
         )
         with procedure:
@@ -236,8 +258,12 @@ class TestAdopt:
             procedure.draw_lines(LINES[:1], amount_ul=0.5)
 
         assert procedure.rotations_per_ul == 2.0
-        assert procedure.dispense_accel == 5.0
         assert procedure.applicator.rotations_per_ul == 2.0
+        # 採用後の吐出加速度 [μL/sec²] は machine 設定の値そのもの
+        # （applicator は rotations_per_ul だけ差し替わり、加速度は設定由来のまま）
+        assert _dispense_accels_ul_s2(klipper, 2.0) == pytest.approx(
+            [MACHINE.paste_dispenser.dispense_accel]
+        )
         # 旧 applicator の無効化 → 新 applicator の有効化
         assert [line for line in switched if "ENABLE=" in line] == [
             next(line for line in switched if "ENABLE=0" in line),
