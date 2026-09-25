@@ -17,7 +17,7 @@ AGENTS.md の記述を以下のとおり読み替える。
 ### 資産の置き場所
 
 - Skill は `.claude/skills/<name>/SKILL.md`（AGENTS.md の `.agents/skills/` に対応。同名 skill は同じ内容の Claude 向け版）
-- Claude 専用 skill：`solo-dev-cycle`（単独開発フロー）、`edit-dot-claude`（`.claude/` 編集時の permission prompt 抑制）、`compact-prep`（下記）
+- Claude 専用 skill：`solo-dev-cycle`（単独開発フロー）、`edit-dot-claude`（`.claude/` 編集時の permission prompt 抑制）、`compact-prep`（下記）、`doc-teacher-student`（文書を haiku の理解度テストで改善するループ）
 - agent 定義は `.claude/agents/*.md`（AGENTS.md の `.codex/agents/*.toml` に対応）
 - `memory/` は Codex と共有する
 
@@ -26,7 +26,8 @@ AGENTS.md の記述を以下のとおり読み替える。
 - **既定はシングルエージェント**。ユーザーの指定がない限り skill `solo-dev-cycle` で 計画 → テスト → 実装 → リファクタ → ドキュメント を自分で回す
 - 「エージェントチームで進めて」「並列で」と明示されたときだけ skill `agent-team-startup` に従い、自分が `orchestrator` の役割（統括・委譲・レビュー裁定・合流検証。`src/` `tests/` は下位 agent に任せる）を担う
 - Claude 側の agent 構成：`implementation-planner` →（任意 `spec-test-author`）→ `plan-implementer` → `code-reviewer` ⇄ `code-simplifier`。Codex の `docs-keeper` は Claude では `code-simplifier` に統合済み（docstring / README 同期を兼務）
-- 全 agent が `model: inherit`。速度・コスト・深さは `effort` で差別化する（`code-reviewer` high、他 medium。Opus 5.5 は `medium` が既定で Opus 5 の `high` 相当以上のため、Opus 5 時代から 1 段下げた。セッション既定も `settings.json` の `effortLevel: medium`）
+- 文書改善用に `doc-teacher`（執筆・出題・採点）と `doc-student`（解答のみ、`model: haiku`・`tools: Read`）を置く。skill `doc-teacher-student` から使う
+- `doc-student` を除く全 agent が `model: inherit`。速度・コスト・深さは `effort` で差別化する（`code-reviewer` high、他 medium。Opus 5.5 は `medium` が既定で Opus 5 の `high` 相当以上のため、Opus 5 時代から 1 段下げた。セッション既定も `settings.json` の `effortLevel: medium`）
 - **ユーザーに質問できるのはメインエージェントだけ**。サブエージェントは `AskUserQuestion` を持たないため、質問は報告に含めて返しメインが中継する
 
 ## コンテキスト管理 (compact)

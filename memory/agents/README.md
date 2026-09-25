@@ -13,6 +13,7 @@ agents/
 ├── plan-implementer/        # 実装ノート、計画外判断ログ、IF変更通知
 ├── code-reviewer/           # レビュー結果（verdict、must-fix / should-fix / nit）
 ├── code-simplifier/         # 簡素化ノート + ドキュメント同期の記録
+├── doc-teacher/             # 文書の理解度テスト（問題・模範解答・ラウンド記録）。skill doc-teacher-student
 └── docs-keeper/             # 【廃止】過去ノートの保管のみ。責務は code-simplifier に統合済み
 ```
 
