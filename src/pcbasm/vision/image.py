@@ -24,7 +24,7 @@ def safe_move_distance(roi_size: tuple[float, float], margin: float = 0.2) -> fl
         margin: 安全マージン（デフォルト: 0.2）
 
     Returns:
-        片方向の安全な移動距離
+        片方向の安全な移動距離（``roi_size`` と同じ単位。px を渡したら px）
     """
     return min(roi_size) * (1.0 - margin) / 2
 

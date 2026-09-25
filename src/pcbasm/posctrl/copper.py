@@ -305,8 +305,11 @@ class CopperEdgeMatcher:
             roi: テンプレート矩形 (x0, y0, x1, y1)
 
         Returns:
-            照合結果（offset = 観測 − 想定）。観測エッジまたはROI内の
-            想定エッジが空の場合はNone
+            照合結果（offset = 観測 − 想定）。次の場合はNone:
+
+            - 観測エッジ、またはROI内の想定エッジが空
+            - 最小コスト位置が探索窓の端にある（ずれが窓を超えた可能性）
+            - コスト最小が鋭くない（直線1本だけなど、ずれが一意に決まらない）
         """
         if np.count_nonzero(observed_edges) == 0:
             return None

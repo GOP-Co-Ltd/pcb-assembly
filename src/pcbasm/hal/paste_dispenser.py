@@ -67,6 +67,8 @@ class PasteDispenser:
     ) -> GCode:
         """ペーストを吐出/リトラクションするGCodeを生成.
 
+        先に位置を 0 へリセットしてから動かすので、``amount`` は今の位置からの相対量として働く。
+
         Args:
             amount: 吐出量 [μL]（正: 吐出、負: リトラクション）
             rate: 速度 [μL/sec]

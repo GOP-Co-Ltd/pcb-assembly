@@ -4,14 +4,22 @@ from .klipper import GCode, ReadonlyKlipper
 
 
 class HomingDirection(enum.Enum):
-    """ホーミング方向."""
+    """ホーミングで停止する条件（Klipper の ``STOP_ON_ENDSTOP`` の値）.
 
-    FORWARD = 1  # STOP_ON_ENDSTOP=1
-    BACKWARD = -1  # STOP_ON_ENDSTOP=-1
+    移動の向きは ``home()`` の目標位置で決まり、この値では決まらない。
+    """
+
+    FORWARD = 1  # エンドストップが反応したら停止
+    BACKWARD = -1  # エンドストップの反応が解けたら停止
 
 
 class ManualStepper:
-    """Klipper manual_stepperのHAL."""
+    """Klipper manual_stepperのHAL.
+
+    G-code を生成するだけで送信しない。
+    Klipper の ``MANUAL_STEPPER MOVE=`` は絶対位置の指令なので、``move`` / ``rotate`` / ``home`` の位置引数はどれも絶対位置である。
+    相対量で動かすときは、先に ``reset_position()`` で現在位置を基準値に置く。
+    """
 
     def __init__(self, klipper: ReadonlyKlipper, stepper_name: str) -> None:
         """ManualStepperを初期化する.
@@ -67,7 +75,7 @@ class ManualStepper:
         """回転GCodeを生成する.
 
         Args:
-            angle: 回転角度 [deg]
+            angle: 目標角度 [deg]（``reset_position()`` を基準にした絶対値）
             speed: 角速度 [deg/s]（省略時はKlipper設定値を使用）
             accel: 角加速度 [deg/s^2]（省略時はKlipper設定値を使用）
             sync: Trueの場合、動作完了まで待機する（デフォルト: True）
@@ -104,7 +112,7 @@ class ManualStepper:
         """移動GCodeを生成する.
 
         Args:
-            distance: 移動距離 [mm]
+            distance: 目標位置 [mm]（``reset_position()`` を基準にした絶対値）
             speed: 速度 [mm/s]（省略時はKlipper設定値を使用）
             accel: 加速度 [mm/s^2]（省略時はKlipper設定値を使用）
             sync: Trueの場合、動作完了まで待機する（デフォルト: True）
@@ -135,9 +143,9 @@ class ManualStepper:
         """ホーミングGCodeを生成する.
 
         Args:
-            distance: ホーミング距離 [mm]
+            distance: ホーミング時の目標位置 [mm]（停止条件を満たさなければここまで動く）
             speed: 速度 [mm/s]（省略時はKlipper設定値を使用）
-            direction: ホーミング方向（デフォルト: FORWARD）
+            direction: 停止条件（デフォルト: FORWARD）
 
         Returns:
             ホーミング用のGCode

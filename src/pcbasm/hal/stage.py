@@ -117,7 +117,10 @@ class Limits:
 
 
 class XYZStage:
-    """XYZステージの状態を取得するクラス.
+    """XYZステージの状態取得と移動G-codeの生成を行うクラス.
+
+    G-code は返すだけで送信しない。送信は ``Klipper.send_gcode`` で行う。
+    座標は機械座標（mm）、速度は mm/s。可動域と最大速度は printer.cfg から読む。
 
     Example:
         klipper = Klipper()
@@ -137,8 +140,10 @@ class XYZStage:
     def get_position(self) -> Point3d:
         """現在位置を取得する.
 
+        値は Klipper の ``gcode_move.gcode_position``（最後に指令した G-code 上の位置）で、物理的な到達は保証しない。
+
         Returns:
-            現在の座標
+            現在の座標（機械座標、mm）
         """
         pos = self._klipper.get_status("gcode_move", "gcode_position")
         return Point3d(x=pos[0], y=pos[1], z=pos[2])
@@ -199,9 +204,11 @@ class XYZStage:
         """単点移動のG-codeを生成する.
 
         指定した軸のみをG1に含め、None軸は出力しない（未指定軸は機械側が
-        現在位置に保持する）。relative=Trueは現在位置に対する相対移動として
-        絶対座標に解決する。speed=Noneのときmax_velocityで解決する。
+        現在位置に保持する）。speed=Noneのときmax_velocityで解決する。
         指定軸とfeedをlimitsで検証し、範囲外の場合はValueErrorを送出する。
+
+        relative=True の移動量は、この呼び出し時点の ``get_position()`` に足して絶対座標にする。
+        送信前に相対移動を複数生成すると、どれも同じ位置を基準にしてしまう。
 
         Args:
             x: X座標（Noneは移動しない）

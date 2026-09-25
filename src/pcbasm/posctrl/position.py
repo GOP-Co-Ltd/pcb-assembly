@@ -66,11 +66,16 @@ class XYPositionAdjustor:
     def adjust(self) -> Point2d:
         """位置を反復的に補正する.
 
+        毎回「現在位置 − 機械座標へ変換したオフセット」へ移動し、オフセットが ``tolerance`` 未満になったら終える。
+
+        収束した回は移動しない。
+
         Returns:
-            補正後の最終XY位置
+            補正後の最終XY位置（機械座標、mm）。ステージの現在位置との差は tolerance 未満
 
         Raises:
             RuntimeError: 最大反復回数内に収束しなかった場合
+            CircleDetectionError: ``observe`` が検出に失敗した場合（RuntimeError の派生）
         """
         self._logger.info("位置補正を開始")
 

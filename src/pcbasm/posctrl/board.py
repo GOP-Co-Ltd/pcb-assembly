@@ -53,7 +53,7 @@ class BoardTransformMeasurer:
         """BoardTransformMeasurerを初期化する.
 
         Args:
-            adjust_reference: 補正済みオフセットを返す関数
+            adjust_reference: 基準点マーカーを画像中心に合わせた機械座標を返す関数（通常は ``XYPositionAdjustor.adjust``）
             klipper: Klipperクライアント
             stage: XYZステージ
             outline: Board Outline（width/heightの取得に使用）
@@ -74,11 +74,16 @@ class BoardTransformMeasurer:
     def measure(self) -> Compose:
         """4点の最小二乗法でboard→機械座標の変換を計測する.
 
+        TOP_LEFT → TOP_RIGHT → BOTTOM_RIGHT → BOTTOM_LEFT の順に概略位置へ移動する。
+
+        各コーナーでは ``adjust_reference()`` が返した位置を実測点にする。
+
         Returns:
             Board座標→機械座標のCompose変換 (Matrix2d → Shift)
 
         Raises:
             ValueError: 基準点配置のdesign matrixのrankが3未満の場合
+            RuntimeError: ``adjust_reference`` の失敗はそのまま伝わる
         """
         self._logger.info("Board変換の計測を開始")
 
