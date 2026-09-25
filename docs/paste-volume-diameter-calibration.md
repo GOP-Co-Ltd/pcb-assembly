@@ -54,9 +54,9 @@ Raspberry Pi の WebAPI プロセスでそのまま動く。
 ### 1 view の直径計測（`detect.py`）
 
 1. pre − post をグレースケールで取り、暗くなった側だけを 0〜255 に clip する
-2. 差分の 99 パーセンタイルが `min_contrast`（既定 20）未満なら**直径 0** で終える
+2. 差分の `contrast_percentile`（既定 99）パーセンタイルが `min_contrast`（既定 20）未満なら**直径 0** で終える
     （blank ガード）
-3. Otsu 閾値を求め、`min_contrast × threshold_floor_ratio` を下限として 2 値化する
+3. Otsu 閾値を求め、`min_contrast × threshold_floor_ratio`（既定 0.5）を下限として 2 値化する
 4. 3×3 の MORPH_OPEN で孤立点を落とす
 5. 最大連結成分の面積が `min_area_px` 未満なら直径 0
 6. 面積等価直径 `2√(area/π) / pixel_per_mm` を mm で返す
@@ -93,11 +93,10 @@ Raspberry Pi の WebAPI プロセスでそのまま動く。
 対する費用は撮影枚数そのもので、収集時間は撮影パスが支配する。144 セルなら 5 view で
 1440 枚、中心のみなら 288 枚。
 
-実機（schema v3）でも 104 セル × 中心 1 view で**検出失敗 0 件**を確認した。フォールバックは
-一度も要らなかった。
+実機（schema v3）でも 104 セル × 中心 1 view で**検出失敗 0 件**だった。
 
-**周辺 view に残る役割は検出失敗時のフォールバックだけ。** 実測では一度も発火して
-いないので既定は 0 にしてあり、必要なら収集ジョブで明示的に上げる。
+周辺 view に残る役割は検出失敗時のフォールバックだけなので、検出失敗が出たときだけ
+収集ジョブの `view_count` を上げる。
 
 ### モデル（`model.py`）
 
@@ -149,12 +148,13 @@ V = a·d³ + b·d² + c·d
 
 不採用は例外にせず理由文字列にする。
 
-| 理由                               | 意味                                       |
-| ---------------------------------- | ------------------------------------------ |
-| `no_views`                         | view を 1 つも渡していない                 |
-| `no_deposit_detected`              | 全 view で検出できなかった（blank を含む） |
-| `diameter_out_of_calibrated_range` | 被覆域の外なので外挿になる                 |
-| `image_invalid: <理由>`            | 構造的不正（呼び出し側のバグ）             |
+| 理由                               | 意味                                                                          |
+| ---------------------------------- | ----------------------------------------------------------------------------- |
+| `no_views`                         | view を 1 つも渡していない                                                    |
+| `no_deposit_detected`              | 全 view で検出できなかった（blank を含む）                                    |
+| `diameter_out_of_calibrated_range` | 被覆域の外なので外挿になる                                                    |
+| `diameter_below_reliable_range`    | 被覆域内だが信頼できる範囲の下限未満（`reliable_range_only=True` のときだけ） |
+| `image_invalid: <理由>`            | 構造的不正（呼び出し側のバグ）                                                |
 
 推定の標準偏差は校正時に記録した相対残差から与える。直径方式には 1 点ごとの不確かさ源
 が無いので、分布としての当てはまり具合を使うのが唯一の筋。
@@ -245,17 +245,17 @@ quadratic が +0.241 と -0.028、linear が -0.159 と -0.013 という別物�
 一致している。散布図の低体積側が系統的に y=x の下へ寄るのはこれが理由。
 
 総体積誤差は大きい点に支配されるので主基準は無事だが、**運転時キャリブレーションでは効く**。
-実基板の最初の n パッドが小径側に落ちると推定が数十 % ずれ得る。要件書の「1/3〜3 倍 clamp」も
+測定点（基板設定の `flow_calibration_points`）の直径が被覆域の小径側に落ちると、推定が数十 % ずれ得る。要件書の「1/3〜3 倍 clamp」も
 `residual_relative_std`（一律 10 %）由来の信頼度も、この偏りを検出できない。
 
-**方針: 被覆域の下端付近を「信頼できる範囲」から外す。** `diameter_min_mm` をそのまま採用境界に
-使わず、下端側にマージンを取った内側の範囲だけを運転時補正の採用対象とする。境界の外は
-`diameter_out_of_calibrated_range` として従来どおり拒否し、外挿はしない。
+**方針: 運転時補正では、被覆域の下端付近を採用しない。** 採用の下限は
+`CubicVolumeModel.reliable_diameter_min_mm` で、
+`diameter_min_mm + 0.35 * (diameter_max_mm - diameter_min_mm)` を返す。上限は被覆域のまま。
 
-**実装済み。** `CubicVolumeModel.reliable_diameter_min_mm` が
-`diameter_min_mm + 0.35 * (diameter_max_mm - diameter_min_mm)` を返し、
-`DiameterVolumeEstimator(..., reliable_range_only=True)` のときだけこれを下限に使う。
-内側の境界で外れた点は `diameter_below_reliable_range` として被覆域外と区別して報告する。
+- `DiameterVolumeEstimator(..., reliable_range_only=True)` のときだけこの下限を使う。
+    運転時キャリブレーション（`load_diameter_estimator(path, reliable_range_only=True)`）がこれに当たる
+- この下限未満で被覆域内の点は `diameter_below_reliable_range` で拒否する
+- 被覆域の外の点は、どちらの設定でも `diameter_out_of_calibrated_range` で拒否する。外挿はしない
 
 **マージンは絶対値 [mm] ではなく被覆域の幅に対する割合。** 食い違いの原因は共線性で、
 それは被覆域の広さで決まる。広く採れた校正ほど係数が定まるので、下限も相対的に下げて
@@ -264,10 +264,7 @@ quadratic が +0.241 と -0.028、linear が -0.159 と -0.013 という別物�
 絶対値としてはこれより下がる。**下限が何 mm になるかは校正ごとに変わるので、
 特定の値を前提にしない。**
 
-運転時キャリブレーションの既定 0.2 μL が下限より上に来ることは、採用ログ
-（`diameter_below_reliable_range` の件数）で運転者が確認できる。
-
-**校正の生成・検証は被覆域そのままで動かしていない。** そちらは当てはまりを測るのが目的で、
+**校正の生成・検証は被覆域そのままで動かす**（`reliable_range_only=False`）。そちらは当てはまりを測るのが目的で、
 係数の同定性ではなく残差を見ている。
 
 ## 運転時キャリブレーションへの接続
@@ -277,8 +274,9 @@ quadratic が +0.241 と -0.028、linear が -0.159 と -0.013 という別物�
 採用条件は[画像ベース吐出量キャリブレーション要件](image-based-dispense-calibration.md)の
 「運転時キャリブレーション」節が正典。
 
-ここで効くのが上の「信頼できる範囲」で、測定点の既定塗布量 0.2 μL はその内側に入るよう
-選んである。
+ここで効くのが上の「信頼できる範囲」で、測定点の既定塗布量 0.2 μL
+（`FlowCalibration.amount_ul`）はその内側に入るよう選んである。実際に内側に入ったかは、
+ジョブログの点ごとの推定結果に出る `diameter_below_reliable_range` の件数で運転者が確認する。
 
 ## WebUI
 
