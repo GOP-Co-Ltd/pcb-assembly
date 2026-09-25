@@ -120,25 +120,21 @@ pre-commit cacheを全削除すると次回workflowでhook環境を再構築す�
 
 ## Upgrade
 
-Actions Runnerはserviceが自動でself-updateする。明示的に入れ替える場合は、instanceを
-停止してから再インストールする。
+Actions Runnerはserviceが自動でself-updateするため、通常は作業不要。
 
-`svc.sh`と`config.sh`はrunner rootをcwdにして実行する。
+`install`は、`config.sh`がすでにあるinstance directoryを上書きしない。`register`も登録済み
+instanceを登録し直さない。runner versionを明示的に入れ替える場合は、次の順に行う。
 
-```bash
-for dir in /opt/actions-runner/pcb-assembly-rpi-*; do
-    (cd "$dir" && sudo ./svc.sh stop)
-done
-RUNNER_VERSION=<version> ./github-runner/setup.sh install
-./github-runner/setup.sh register
-./github-runner/setup.sh verify
-```
+1. 「登録解除と削除」の手順で3 instanceすべてを削除する
+2. `RUNNER_VERSION=<version> ./github-runner/setup.sh setup`を実行する
 
-`uv`は`setup.sh`の`UV_VERSION`を更新した変更をreviewした後、`install`を再実行する。
+`uv`は、`setup.sh`の`UV_VERSION`を変えた変更がreviewされた後に`install`を再実行して
+入れ替える（`install`は導入済み`uv`のversionが`UV_VERSION`と違うときだけ入れ直す）。
 
 ## 登録解除と削除
 
-誤操作防止のため自動化していない。対象instanceを確認してから手動で実行する。
+誤操作防止のため自動化していない。対象instanceを確認してから、1 instanceずつ手動で実行する。
+`svc.sh`と`config.sh`はrunner rootをcwdにして実行する。
 
 ```bash
 dir=/opt/actions-runner/pcb-assembly-rpi-1
@@ -147,7 +143,7 @@ sudo ./svc.sh stop
 sudo ./svc.sh uninstall
 sudo -u github-runner ./config.sh remove \
     --token "$(gh api --method POST \
-        repos/GOP-Co-Ltd/pcb-assembly/actions/runners/registration-token --jq .token)"
+        repos/GOP-Co-Ltd/pcb-assembly/actions/runners/remove-token --jq .token)"
 cd - && sudo rm -rf "$dir"
 ```
 
