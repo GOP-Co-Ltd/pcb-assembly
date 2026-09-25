@@ -122,6 +122,15 @@ class PasteApplicator:
     生成し、成分ごとにステージ移動と同期した連続吐出を行う。プライムと吐出は 1 つの
     連続ステッパー動作として実行し、G4 でプライム時間分待機した後にステージ移動を開始する。
 
+    使う順序:
+
+    1. ``with`` に入ってディスペンサーを有効化する（外で吐出系メソッドを呼ばない）
+    2. 最初の塗布の前に 1 回 :meth:`retract` する
+    3. :meth:`apply` / :meth:`deposit_at` / :meth:`draw_line` を呼ぶ
+
+    3 の各メソッドは、リトラクト済みの状態から prime で始めて retract で終える。
+    2 を省くと最初の 1 回だけ prime の分が余計に出る。
+
     Example:
         with build_applicator(klipper, stage, machine.paste_dispenser) as applicator:
             applicator.retract()
@@ -153,6 +162,7 @@ class PasteApplicator:
 
     @property
     def rotations_per_ul(self) -> float:
+        """現在の μL → 回転数の係数 [rev/μL]（:meth:`adopt_rotations_per_ul` 後はその値）."""
         return self._dispenser.rotations_per_ul
 
     def adopt_rotations_per_ul(self, rotations_per_ul: float) -> None:
@@ -255,12 +265,13 @@ class PasteApplicator:
         ``FillSequence.to_gcode`` が先頭点上空への travel → 下降 → 吐出 → retract →
         ``lift_height`` 上昇を 1 本に組むため、成分間の移動は連続送信だけで実現される。
         塗布量はポリゴン面積 × ``ul_per_mm2`` を成分数で均等配分する。
+        フィル経路が空（空・不正なポリゴン）なら何も送らず、``sequences`` が空の結果を返す。
 
         Args:
             polygon: 塗布対象のポリゴン（board 座標, mm）
             params: この pad の解決済み塗布パラメータ
-            transform: この pad の board 座標 → 機械座標変換
-            line_reference: 線走行方向の基準にする部品位置（board 座標）
+            transform: この pad の board 座標 → 機械座標変換（:meth:`PasteSession.pad_transform <pcbasm.pasting.session.PasteSession.pad_transform>`）
+            line_reference: 線走行方向の基準にする部品位置（board 座標）。``None`` なら線の向きを揃えない
         """
         plan = FillPlan.for_pad(
             polygon, config=self._config, params=params, line_reference=line_reference

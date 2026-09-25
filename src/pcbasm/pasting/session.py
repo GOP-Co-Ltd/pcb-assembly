@@ -39,6 +39,15 @@ class PasteSession:
     ``PasteSession.setup(...)`` または ``from_calibration(...)`` で構築し、
     コンテキストマネージャとして使う（終了時にノズルキャップへ駐機し、
     できなければ PRESENT / M84 に退避する）。
+
+    塗布に渡す board → machine 変換は、塗る対象で選ぶ。
+
+    - pad: :meth:`pad_transform`（pad ごとに組む）
+    - pad ではない board 上の点（パージ・測定点など）: :meth:`point_transform`（点ごとに組む）
+    - 位置合わせしない銅板: :meth:`plate_transform`（1 回組めば板上の全点に使える）
+
+    3 つとも最後に高さ面を通すので、塗布高さは高さ面からの相対になる。
+    :attr:`board_to_machine` は補正も高さ面も含まないので、塗布には使わない。
     """
 
     machine: Machine
@@ -113,7 +122,10 @@ class PasteSession:
 
     @property
     def board_to_machine(self) -> Transform:
-        """Board 座標 → machine 座標の変換（board_transform + toolhead_offset）."""
+        """Board 座標 → machine 座標の変換（board_transform + toolhead_offset）.
+
+        位置合わせ補正と高さ面を含まないので、高さ面を測るプローブや可動域の検証など XY の行き先だけが要る用途に使う。
+        """
         return Compose([self.board_transform, self.toolhead_offset])
 
     @property
@@ -216,7 +228,15 @@ class PasteSession:
         rotations_per_ul: float | None = None,
         lift_height: float | None = None,
     ) -> PasteApplicator:
-        """Machine 設定のパラメータで :class:`PasteApplicator` を構築する."""
+        """Machine 設定のパラメータで :class:`PasteApplicator` を構築する.
+
+        返す applicator はまだディスペンサーを有効化していない。
+        ``with`` で有効化してから使う。
+
+        Args:
+            rotations_per_ul: μL → 回転数の係数 [rev/μL] の上書き（``None`` で machine 設定の値）
+            lift_height: 塗布後の上昇高さ [mm] の上書き（``None`` で machine 設定の値）
+        """
         return build_applicator(
             self.klipper,
             self.stage,

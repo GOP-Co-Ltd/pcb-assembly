@@ -69,7 +69,7 @@ class PasteParams:
         dispense_mode: 塗布方式 auto / dot / line / area
         line_direction: 線塗布の走行方向 unconstrained / outward / inward
         ul_per_mm2: パッド面積あたりのペースト量 [μL/mm²]
-        paste_height: 塗布面の Z 高さ [mm]、または ``auto``（膜厚追従）
+        paste_height: 塗布時の基板表面からのノズル高さ [mm]（機械座標の絶対 Z ではない）、または ``auto``（膜厚追従）
         prime_extra_delay: プライム後の追加遅延 [sec]
         bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
         overlap: ジグザグ行間オーバーラップ [0, 1)
@@ -92,7 +92,7 @@ class PasteParams:
 
     @property
     def paste_height_mm(self) -> float:
-        """塗布高さ [mm]（``auto`` は ``ul_per_mm2`` を膜厚として解決）."""
+        """基板表面からのノズル高さ [mm]（``auto`` は ``ul_per_mm2`` を膜厚として解決）."""
         return resolve_paste_height(self.paste_height, self.ul_per_mm2)
 
     def patched(self, patch: PasteParamsPatch) -> Self:

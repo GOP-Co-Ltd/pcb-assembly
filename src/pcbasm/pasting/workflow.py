@@ -1,4 +1,4 @@
-"""塗布ジョブの装置非依存な前計画（対象 pad・順路・初回パージの解決）.
+"""塗布ジョブの装置非依存な前計画（対象 pad・順路・初回パージ・運転時流量キャリブの解決）.
 
 通常塗布が、装置を動かす前に基板設定から「何をどの順に塗るか」を決めるための純関数。
 エラーは ``(None, 理由)`` で返し、web ジョブが例外や 400 に変換する。
@@ -54,10 +54,15 @@ class PasteTargets:
 
     @property
     def disabled_count(self) -> int:
+        """設定で無効にしたため塗らない pad の数（``top_pads`` − ``routed_pads``）."""
         return len(self.top_pads) - len(self.routed_pads)
 
     def params_for(self, pad: Pad) -> PasteParams | None:
-        """Pad の解決済みパラメータ。階層外（対応 Component 無し）の pad は ``None``."""
+        """Pad の解決済みパラメータを返す.
+
+        階層外（対応 Component 無し）の pad は ``None`` を返す。
+        呼び出し側は ``None`` のとき machine 既定（``PasteApplicator.default_params``）で塗る。
+        """
         pad_ref = self.hierarchy.find_pad_ref(pad)
         if pad_ref is None:
             return None
@@ -74,7 +79,22 @@ def plan_paste_targets(
     flow_calibration: FlowCalibration,
     layer: Layer = Layer.TOP,
 ) -> tuple[PasteTargets | None, str | None]:
-    """基板設定から通常塗布の対象 pad・順路・初回パージ・流量キャリブを解決する."""
+    """基板設定から通常塗布の対象 pad・順路・初回パージ・流量キャリブを解決する.
+
+    ``layer`` の pad のうち有効なものだけを :func:`~pcbasm.pasting.route.plan_paste_route` の順に並べる。
+    初回パージと運転時流量キャリブは、機能が無効なら ``PasteTargets`` の該当属性を ``None`` にする（エラーにはしない）。
+
+    Args:
+        pcb: 塗布する基板
+        hierarchy: ``pcb`` から組んだ pad 階層
+        model: 基板の塗布設定（無効 pad・override・初回パージ点・測定点）
+        initial_purge_ul: 初回パージ量 [μL]（0 で初回パージ無効）
+        flow_calibration: ``machine.toml`` の運転時流量キャリブ設定
+        layer: 塗布するレイヤ
+
+    Returns:
+        ``(PasteTargets, None)``。初回パージの量・点、または流量キャリブの測定点（外形外・crop の重なり）が不正なら ``(None, 理由)``
+    """
     top_pads = tuple(pad for pad in pcb.pads if pad.layer == layer)
     resolved = resolve_pad_settings(hierarchy, model)
     routed = tuple(

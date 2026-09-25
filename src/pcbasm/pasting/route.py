@@ -11,7 +11,14 @@ from pcbasm.pcb import Pad, PadHierarchy, PadShapeKey
 
 @attrs.frozen
 class PasteRouteStop:
-    """塗布順路上の 1 pad."""
+    """塗布順路上の 1 pad.
+
+    Attributes:
+        pad: 塗る pad
+        order: 塗布順（1 始まり）
+        group_label: 同種類グループの表示名（例 ``"0.50x0.90mm"``）
+        area: pad 面積 [mm²]
+    """
 
     pad: Pad
     order: int
@@ -29,6 +36,12 @@ def plan_paste_route(
 
     同種類の判定は :class:`pcbasm.pcb.PadShapeKey` に従う。グループ間は
     面積降順、グループ内は直前位置からの nearest route で並べる。
+    面積が同じグループどうしは長辺・短辺の降順、次に通常形状を先、最後に入力順で決める。
+
+    Args:
+        pads: 並べる pad（有効/無効の絞り込みは呼び出し側で済ませる）
+        start: 最初のグループの nearest route の起点（board 座標 [mm]）
+        shape_quantum: 同種類判定で面積・辺長を丸める単位 [mm / mm²]
     """
     groups: dict[PadShapeKey, list[Pad]] = {}
     first_index: dict[PadShapeKey, int] = {}
