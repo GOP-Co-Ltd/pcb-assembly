@@ -1,5 +1,12 @@
 "use strict";
 
+// 全ページ共通の JS。base.html が最初に読み込み、共通関数を window.webui に公開する。
+// 他のモジュールは fetch を直接呼ばず、宛先に応じて次の関数を使う
+// （tests/web/ui/test_layout.py が静的に検査する）:
+// - 表示中の機体の backend（"/api/..." / "/artifacts/..."）: api() / downloadApi()
+// - frontend 自身（/api/machines, /api/self-update/**, /api/update-notice）: frontendApi() / frontendJson()
+// - WS・<img>・リンクなどブラウザが直接開く backend の URL: withBase() で機体 prefix を付ける
+
 // ---- machine prefix ----
 
 // サーバが組んだ機体 prefix（"/m/<machine_id>"）。マシン非依存のページでは空。
@@ -72,7 +79,7 @@ async function downloadApi(method, url, body) {
   return filename;
 }
 
-// frontend 自身のエンドポイント（/api/machines, /api/self-update/**）を叩く。
+// frontend 自身のエンドポイント（/api/machines, /api/self-update/**, /api/update-notice）を叩く。
 // machine prefix は付けない（付けると backend へ中継されて 404 になる）。
 // fetch() をこのファイルに閉じるための入口でもある（tests/web/ui/test_layout.py）。
 async function frontendApi(method, url, body) {

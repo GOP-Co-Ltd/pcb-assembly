@@ -1,5 +1,8 @@
 "use strict";
 
+// テスト塗布基板生成ページ: パターン行の編集・プレビュー表示・入出力。
+// 基板の生成とプレビューの計算は backend（/api/pasting/paste-test-board/**）が行う。
+
 (() => {
   const root = document.getElementById("paste-test-board");
   if (!root) return;

@@ -1,5 +1,7 @@
 "use strict";
 
+// pad editor の SVG 描画（基板外形・pad・塗布ルート・範囲選択）。index.js から呼ばれ、API は叩かない。
+
 const { svgEl } = window.webui;
 
 const MARGIN_MM = 4;
