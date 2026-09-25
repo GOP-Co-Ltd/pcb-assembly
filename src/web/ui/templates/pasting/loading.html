@@ -5,6 +5,8 @@
 <h2>{{ feature_label }}</h2>
 <p class="job-intro">
   実行すると全軸をホーミングし、指定した軸があればローディング位置へ移動します。
+  移動が済むと下の「ローディング」欄のボタンが押せるようになります。
+  押出・吸引でペーストを送り、済んだら「ローディング終了」を押します。
 </p>
 <form id="job-form" class="job-form loading-run-form" data-requires-control
       data-job-name="{{ job_name }}" data-testid="job-form">
@@ -25,6 +27,12 @@
 {% include "partials/loading_controls.html" %}
 <section id="loading-mass-calibration" class="loading-mass-calibration">
   <h3>質量キャリブレーション</h3>
+  <p class="job-intro">
+    rotations_per_ul などの初期値をゼロから作るときに使います。
+    ローディング中に「回転押出」で出したペーストを電子天秤で量り、その質量を入力します。
+    計算には「ローディング」欄の回転数・速度・加速度を使うので、押し出したときの値のままにしておきます。
+    「適用」を押すと machine.toml に保存されます。
+  </p>
   <div class="loading-control-group">
     <label for="lc-mass-mg">計測質量 <span class="unit">[mg]</span></label>
     <input type="number" id="lc-mass-mg" step="any" min="0" value="">
