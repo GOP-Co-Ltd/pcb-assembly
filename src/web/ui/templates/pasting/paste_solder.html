@@ -3,11 +3,6 @@
 {% block main %}
 <div class="pasting-workspace" data-testid="pasting-workspace">
 <h2>{{ feature_label }}</h2>
-<p class="job-intro">
-  PCB を選択し、塗布するパッドの有効/無効を確かめてから「実行」を押します。
-  実行するとボード計測 → 高さ計測 → 銅箔照合 → 塗布を通しで行います。
-  パッド編集欄の上にある数値欄は機体全体の設定で、入力するとすぐ保存されます。
-</p>
 <div class="pasting-grid">
 <section class="pasting-pad-panel" data-testid="pasting-pad-panel">
 {% if auto_threshold_fields or pad_refinement_fields %}
@@ -41,6 +36,12 @@
 {% include "partials/pad_editor.html" %}
 </section>
 <section class="pasting-run-panel" data-testid="pasting-run-panel">
+  {# 説明は実行パネル側に置く。パッド編集欄の上に置くと編集欄が 1 画面に収まらない #}
+  <p class="job-intro">
+    PCB を選択し、塗布するパッドの有効/無効を確かめてから「実行」を押します。
+    実行するとボード計測 → 高さ計測 → 銅箔照合 → 塗布を通しで行います。
+    パッド編集欄の上にある数値欄は機体全体の設定で、入力するとすぐ保存されます。
+  </p>
   <div class="pasting-job-panel" data-testid="pasting-job-panel">
   {% include "partials/job_form.html" %}
   {% if show_loading_controls %}
