@@ -4,7 +4,7 @@
 <h2>{{ feature_label }}</h2>
 <p class="placeholder">
   この機体のソースを <code>main</code> の最新へ fast-forward し、依存を同期して
-  サービスを再起動します。ローカルの変更や未 push の commit があるときは何もしません。
+  サービスを再起動します。ジョブの実行中、またはローカルの変更や未 push の commit があるときは更新しません。
 </p>
 {# 機体の backend を再起動する変更操作なので操作権が要る #}
 {% with update_status_url = "/api/update/status",

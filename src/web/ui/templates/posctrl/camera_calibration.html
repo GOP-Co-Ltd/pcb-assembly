@@ -2,6 +2,13 @@
 {% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
 {% block main %}
 <h2>{{ feature_label }}</h2>
+<p class="placeholder">
+  チェッカーボードをカメラの下に置き、プレビューでピントが合う Z に合わせてから実行します。
+  撮影時の Z がフォーカス Z として記録されます。
+  確認で「続行」を押すと撮影します。検出できなければ置き直して、もう一度「続行」を押します。
+  結果を使うときは「設定に反映」を押します。「破棄」を押すと設定は変わりません。
+  1 マスの寸法は、入力すると次回の初期値として残ります。
+</p>
 {% include "partials/preview_pane.html" %}
 {% include "partials/preview_controls.html" %}
 {% include "partials/job_form.html" %}

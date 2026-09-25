@@ -42,8 +42,9 @@
                 data-confirm="ファームウェアと WebUI のサービスを再起動します。この画面も一時的に切れます。実行しますか？">ファームウェア再起動</button>
       </div>
     </details>
-    {# 緊急停止は安全操作なので操作権に依らず誰でも押せる（data-requires-control 禁止） #}
-    <button id="estop" class="estop" title="緊急停止" data-testid="estop">緊急停止</button>
+    {# 緊急停止は安全操作なので操作権に依らず誰でも押せる（data-requires-control 禁止）。
+       実行中のジョブも中止する。Klipper は停止状態になり、復帰にはファームウェア再起動が要る #}
+    <button id="estop" class="estop" title="緊急停止（実行中のジョブも中止。復帰には「ファームウェア再起動」）" data-testid="estop">緊急停止</button>
     {% else %}
     {% include "partials/update_notice.html" %}
     {% endif %}

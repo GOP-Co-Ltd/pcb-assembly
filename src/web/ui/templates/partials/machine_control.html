@@ -2,7 +2,9 @@
   <div id="mc-resize" class="mc-resize" title="ドラッグで幅を変更"></div>
   <button id="mc-toggle" class="mc-toggle" type="button" title="マシン操作パネルの開閉">&gt;</button>
   {# 開閉（#mc-toggle）と幅変更（#mc-resize）は表示操作なので開放し、
-     ジョグ・ホーミング・移動だけを操作権に紐づける #}
+     ジョグ・ホーミング・移動だけを操作権に紐づける。
+     ジョブ実行中: 対話ジョブ（基準点設定など）なら操作はジョブへ送られる。
+     それ以外のジョブの間はパネル全体が押せない #}
   <div id="machine-control" class="machine-control" data-testid="machine-control"
        data-requires-control>
     <div class="mc-status">
@@ -36,8 +38,9 @@
     </div>
     <p class="mc-abs-hint">座標欄は現在位置を表示。入力確定で移動します</p>
     <div class="mc-group">
-      <button id="mc-relax">Relax</button>
-      <button id="mc-focus-z" {% if focus_z is none %}disabled{% endif %}>
+      <button id="mc-relax" title="全モーターを脱力する（M84）。脱力後はホーミングし直す">Relax</button>
+      <button id="mc-focus-z" title="カメラキャリブレーションで記録した Z へ移動する（その結果を「設定に反映」するまで押せない）"
+              {% if focus_z is none %}disabled{% endif %}>
         フォーカスZへ{% if focus_z is not none %} ({{ "%.3f" | format(focus_z) }}){% endif %}
       </button>
       {% if machine_type == "paste" %}
