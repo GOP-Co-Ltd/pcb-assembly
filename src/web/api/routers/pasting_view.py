@@ -190,7 +190,7 @@ class ChoiceInfo(BaseModel):
 class ParamFieldInfo(BaseModel):
     """塗布パラメータ 1 項目の UI メタデータ（列順 = :data:`PASTE_PARAM_FIELDS`）.
 
-    JS はこれを唯一の出典として列見出し・入力種別・選択肢を描く（クライアント側に フィールド定義を複製しない）。
+    JS はこれを唯一の出典として列見出し・入力種別・選択肢を描く（クライアント側にフィールド定義を複製しない）。
     """
 
     name: str

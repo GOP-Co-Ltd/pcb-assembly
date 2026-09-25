@@ -35,6 +35,10 @@ class MachineControlRequest(BaseModel):
 def post_machine_control(
     body: MachineControlRequest, state: StateDep, _control: ControlDep
 ) -> KlipperStatus:
+    """``action`` に応じた G-code を Klipper へ送り、完了後の位置と homed_axes を返す.
+
+    400: パラメータ不足・可動域外など / 409: 装置が使用中 / 502: Klipper 通信エラー。
+    """
     # BusyError（RuntimeError 派生）は 502 変換に巻き込まず app.py の 409 ハンドラへ
     # 流すため、machine_lock は klipper_errors_to_502 の外側で取る。操作権の検証も
     # 同じ理由で ControlDep（ハンドラ本体の外）に置く

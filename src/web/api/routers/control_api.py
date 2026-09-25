@@ -54,7 +54,7 @@ def post_release(lease: LeaseDep, identity: IdentityDep) -> ControlStateResponse
 def post_takeover(lease: LeaseDep, identity: IdentityDep) -> ControlStateResponse:
     """保持者を問わず操作権を奪取する（詰みからの脱出口なのでゲートしない）.
 
-    実行中のジョブには一切触らない（指示を出す権利の移転であって、走っている処理の 移転ではない）。
+    実行中のジョブには一切触らない（指示を出す権利の移転であって、走っている処理の移転ではない）。
     """
     return _response(lease.takeover(identity), identity)
 

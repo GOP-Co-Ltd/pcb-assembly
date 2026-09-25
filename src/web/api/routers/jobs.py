@@ -269,7 +269,7 @@ def post_discard(
     _control: ControlDep,
     body: JobResultRequest | None = None,
 ) -> dict[str, bool]:
-    """直近ジョブの設定反映ペイロードを破棄する（冪等）."""
+    """直近ジョブの設定反映ペイロードを破棄する（冪等。409: 対象ジョブ不一致）."""
     try:
         jobs.discard(expected_job_id=body.expected_job_id if body is not None else None)
     except LookupError as exc:
@@ -281,12 +281,22 @@ def post_discard(
 async def jobs_websocket(websocket: WebSocket) -> None:
     """グローバル 1 本のイベント / コマンドチャネル.
 
-    サーバー → クライアント: job_status / log / progress / prompt /
-    prompt_resolved / state_changed / control_changed / error。 クライアント →
-    サーバー: respond_prompt / command / abort。
+    サーバーからクライアントへ送るイベントは次の 8 種である。
 
-    接続は誰にでも許す（閲覧は自由）。在線は操作権リースの liveness なので、 subscribe と同じく accept
-    前に登録し、finally で必ず解除する。
+    - job_status / log / progress / prompt / prompt_resolved
+    - state_changed / control_changed / error
+
+    クライアントからは respond_prompt / command / abort を受ける。
+
+    respond_prompt と command は操作権が必要で、abort は不要である。
+
+    操作権が無いときは HTTP の 423 ではなく error イベントで断る。
+
+    接続は誰にでも許す（閲覧は自由）。
+
+    WS の在線は操作権リースの liveness なので、accept 前に登録する。
+
+    subscribe と同じく、登録は finally で必ず解除する。
     """
     jobs: JobManager = websocket.app.state.jobs
     catalog: JobCatalog = websocket.app.state.catalog

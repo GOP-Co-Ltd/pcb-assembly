@@ -13,8 +13,9 @@ from pcbasm.vision import Image
 class FixedImageCamera(Camera):
     """固定画像を返す開発・E2E 用カメラ。capture() は fps に合わせて待機する.
 
-    fps ペーシングが無いと FrameHub の専有スレッドが空回りして CPU を 食うため、monotonic デッドライン方式で
-    1/fps 間隔に揃える。
+    fps ペーシングが無いと、FrameHub の専有スレッドが空回りして CPU を食う。
+
+    そこで monotonic デッドライン方式で 1/fps 間隔に揃える。
     """
 
     def __init__(self, image_path: Path, fps: float = 15.0) -> None:

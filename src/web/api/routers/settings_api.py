@@ -14,11 +14,14 @@ router = APIRouter(prefix="/api")
 
 
 class SettingsUpdate(BaseModel):
+    """machine.toml へ書き込む項目（キーはドット区切り。送ったキーだけを更新する）."""
+
     values: dict[str, MachineSettingValue]
 
 
 @router.get("/settings/machine")
 def get_machine_settings(state: StateDep, store: StoreDep) -> MachineSettingsResponse:
+    """編集できる machine.toml の項目を、記載値（``value``）と実効値（``resolved``）付きで返す."""
     return MachineSettingsResponse(fields=machine_settings_fields(store, state))
 
 
@@ -30,6 +33,11 @@ def put_machine_settings(
     jobs: JobsDep,
     _control: ControlDep,
 ) -> MachineSettingsResponse:
+    """machine.toml の項目を保存し、保存後の全項目を返す.
+
+    400: 未知キー・型不一致・相互制約違反（1 件でも不正なら何も書かない）/ 409: 装置が使用中。
+    ``camera.*``（``camera.crop.*`` を除く）を変えたときはカメラを再構築する。
+    """
     with state.machine_lock("settings"):
         store.write_machine_settings(body.values)
         # crop はレンダラが毎フレーム読むためデバイス再構築は不要（ストリームを切断しない）

@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api")
 
 @router.get("/klipper/status")
 def get_klipper_status(state: StateDep) -> KlipperStatus:
+    """Klipper の位置と homed_axes を返す（不通でも 200 で ``connected=False``）."""
     return fetch_status(create_klipper(state, STATUS_TIMEOUT))
 
 
@@ -61,8 +62,11 @@ def post_firmware_restart(
 ) -> FirmwareRestartResponse:
     """ファームウェア再起動（復帰操作なので操作権が必要）.
 
-    装置を立て直す操作なので、**Klipper だけでなく起動中の pcbasm サービス （backend WebAPI / UI
-    frontend）も再起動する**。再起動対象と argv は更新時と 同一なので sudoers の追加設定は要らない。
+    装置を立て直す操作なので、**起動中の pcbasm サービスも再起動する**。
+
+    再起動するのは Klipper と backend WebAPI / UI frontend である。
+
+    再起動対象と argv は更新時と同一なので、sudoers の追加設定は要らない。
 
     順序は「Klipper へ送る → unit を再起動」。逆にすると、Moonraker へ届かなかった
     場合でも画面だけが落ちる。Klipper 送信が失敗した時点で 502 を返して中断する。

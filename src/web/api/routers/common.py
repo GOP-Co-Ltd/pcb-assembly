@@ -1,6 +1,6 @@
 """複数ルーターが共有するヘルパ（Klipper 接続・状態レスポンス・設定項目）.
 
-2 つ以上の router から使われるものだけを置く（1 router 専用のヘルパは 各 router に残す）。
+2 つ以上の router から使われるものだけを置く（1 router 専用のヘルパは各 router に残す）。
 
 pydantic モデルの定義は `web.api.models` に集約してある。``StateResponse`` は既存
 import を壊さないためここから再 export する。
