@@ -34,7 +34,7 @@ HTTP / WebSocket / MJPEG を最後まで叩ける。
 httpx + websockets + Playwright で実 HTTP/WS/MJPEG を叩く。配置は `tests/e2e/`（\[[testing-strategy]\] の e2e 区分）。
 
 ```bash
-make test-e2e        # = uv run pytest -v -m e2e
+make test-e2e        # = uv run pytest -v -m e2e --timeout=180
 ```
 
 - `tests/e2e/` 配下は conftest の `pytest_collection_modifyitems` で自動的に `e2e`
@@ -49,17 +49,20 @@ make test-e2e        # = uv run pytest -v -m e2e
 
 ### fixture（`tests/e2e/conftest.py`）
 
-| fixture       | 何を起動するか                              | 使うとき                           |
-| ------------- | ------------------------------------------- | ---------------------------------- |
-| `live_server` | backend 1 台のみ                            | JSON API を backend 直で叩く       |
-| `live_ui`     | backend 1 台 + frontend                     | **ページ・MJPEG・WS はここを通す** |
-| `live_ui_two` | backend 2 台（`alpha` / `bravo`）+ frontend | マシン切替・複数機体の一覧         |
+| fixture       | 何を起動するか          | 使うとき                           |
+| ------------- | ----------------------- | ---------------------------------- |
+| `live_server` | backend 1 台のみ        | JSON API を backend 直で叩く       |
+| `live_ui`     | backend 1 台 + frontend | **ページ・MJPEG・WS はここを通す** |
+
+fixture に無い構成（backend 複数台、途中で落とす backend、検査用の上流）はテスト内で組む。
+`start_app(app)` で実 uvicorn を起動し、settings は `make_api_settings` / `make_ui_settings` で作る
+（例: `tests/e2e/test_proxy_e2e.py`）。`start_app` で起動したサーバーは try-finally で必ず `stop()` する。
 
 - ページ取得とブラウザ操作を frontend 経由に寄せることで、中継経路
     （`/m/{machine_id}/api/**`）が既存 E2E 全体で常時検証される。`live_server` を残すのは
     backend 直と中継経由を分けて「どちら側の回帰か」を切り分けるため
 - `LiveUi.base_url` は `/m/{machine_id}` を含む。prefix 無しの URL や `/static` は `origin` を使う
-- 1 ホストに複数 backend を立てるので、machine_id は `Settings.hostname` の注入で分ける
+- 1 ホストに複数 backend を立てるときは、machine_id を `make_api_settings(..., hostname=...)` で分ける
     （`socket.gethostname()` のままでは区別できない）
 - `browser_pages` は独立した browser context の page を必要な数だけ作るファクトリ
     （複数端末の同時操作を書くときに使う）。1 枚で足りるなら `browser_page`
