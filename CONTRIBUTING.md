@@ -24,26 +24,18 @@ GitHub の Issue に、次の情報を添える。
 Python は `pyproject.toml` で 3.12 以上を要求し、型チェック・整形・CI は
 システム Python 3.13 を対象とする。
 
-1. [セットアップ](docs/setup.md) に従って必要な OS パッケージと uv を用意する。
-2. リポジトリを取得し、Git LFS の実体を取得する。
-3. Python 環境とフックを作る。
+環境は [セットアップ](docs/setup.md) の手順で作る。
+その途中の `scripts/install-softwares.sh` が Git LFS の実体取得と `make setup` まで行う。
 
-```sh
-git clone https://github.com/GOP-Co-Ltd/pcb-assembly.git
-cd pcb-assembly
-git lfs install
-git lfs pull
-make setup
-```
+| したいこと                          | コマンド                        |
+| ----------------------------------- | ------------------------------- |
+| `.venv` を作り直す                  | `make setup`                    |
+| 既存の `.venv` へ依存関係を同期する | `uv sync --locked --all-groups` |
+| 生成物とキャッシュだけを消す        | `make clean`                    |
 
-`make setup` は既存の `.venv` を作り直し、生成ファイルを掃除する。
-既存環境で依存関係だけを同期するときは `uv sync --locked --all-groups` を使う。
+`make setup` は既存の `.venv` を消して作り直す。
 venv は `--system-site-packages` が必要で、uv の `python-preference = "only-system"`
 を維持する。Pi 向け OS パッケージがない PC では全テストを collect できない。
-
-生成物だけを掃除する場合は `make clean` を使う。`dist/`、`.coverage`、Python・pytest・
-notebook のキャッシュ、`.DS_Store` が対象で、`.git/`・`.venv/`・symlink の参照先は走査しない。
-キャッシュに似た名前の通常ファイルは維持し、空白を含む作業パスでも実行できる。
 
 ## 変更と PR
 
@@ -52,8 +44,10 @@ git fetch origin
 git switch -c fix/YYYY-MM-DD/short-description origin/main
 ```
 
-ブランチの種別は `feature` / `fix` / `refactor` / `docs` / `chore`。
-コミットは英語で `<type>(<scope>): <description>` とし、1 コミットを 1 つの関心事にする。
+ブランチ名は `<種別>/<YYYY-MM-DD>/<短い説明>` とし、`origin/main` から作る。
+種別は `feature` / `fix` / `refactor` / `docs` / `chore` のどれか。
+コミットは英語で `<type>(<scope>): <description>` とし、type にはブランチと同じ種別を使う。
+1 コミットを 1 つの関心事にする。
 例: `fix(web): keep machine controls visible on small screens`。
 
 1. 再現条件または成功条件を先に決める。
@@ -90,11 +84,12 @@ Chromium がシステムにない場合は `make playwright-install` でブラ�
 無人の開発作業や自動エージェントは `make test-no-hardware` と隔離 E2E までを実行する。
 pytest を直接起動する場合も `-m "not hardware"`（必要なら `and not e2e`）を付ける。
 
+`make format` は git が追跡するファイルだけを検査する。新規ファイルは `git add` してから実行する。
 `make format` がファイルを書き換えた場合は diff を確認して再実行する。
+日本語 docstring は 1 文を 1 行に書く。複数行にまたがる文は docformatter が崩す。
 GitHub Actions は専用 Raspberry Pi runner で pre-commit、pyright、非実機テストと
 隔離 E2E を実行する。`pytest` チェックは非実機テストに続けてブラウザ・HTTP・WS・MJPEG を
 検証し、`pytest-report` artifact に両スイートの JUnit レポートを残す。
-WebUI の変更は、PR を出す前にも `make test-e2e` で確認する。
 
 ## テストの書き方
 
@@ -143,7 +138,7 @@ PCBASM_API_DATA_DIR="$(mktemp -d /tmp/pcbasm-dev.XXXXXX)" make api-fake
 ```
 
 `api-fake` が置き換えるのはカメラだけであり、ステージのシミュレーターではない。
-テスト設定は Klipper の非運用ポート 7126 を使うため、装置を使うジョブは成功しない。
+テスト設定は Moonraker の非リッスンポート 7126 を使うため、装置を使うジョブは成功しない。
 
 ## 実装の責務
 
