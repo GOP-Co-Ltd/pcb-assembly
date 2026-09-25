@@ -23,15 +23,15 @@ description: orchestrator（メインエージェント）が implementation-pla
 | agent                  | effort       | 役割                                                                     |
 | ---------------------- | ------------ | ------------------------------------------------------------------------ |
 | orchestrator           | セッション値 | メインエージェント。統括・委譲・レビュー裁定・合流検証・ユーザーとの対話 |
-| code-reviewer          | xhigh        | レビュー（仕様準拠・バグ・規約・テスト品質）。コードは修正しない         |
-| implementation-planner | high         | 要件の仕様化・計画書作成（コードは書かない）                             |
-| plan-implementer       | high         | 計画に基づく実装・テスト・グリーン化                                     |
+| code-reviewer          | high         | レビュー（仕様準拠・バグ・規約・テスト品質）。コードは修正しない         |
+| implementation-planner | medium       | 要件の仕様化・計画書作成（コードは書かない）                             |
+| plan-implementer       | medium       | 計画に基づく実装・テスト・グリーン化                                     |
 | spec-test-author       | medium       | 仕様テスト（`tests/` のみ、`src/` は触らない）                           |
 | code-simplifier        | medium       | 公開 IF 維持の簡素化 + docstring / README 同期（レビューはしない）       |
 
 orchestrator に `effort` を設定していないのは、frontmatter の effort がセッション値を上書きし、ユーザーの `/effort` が効かなくなるため。セッション既定は `settings.json` の `effortLevel` で与える。
 
-**effort の再調整**: 上表は出発点であって固定値ではない。実タスクで観察し、品質が保てるなら下げる。Opus 5 は `low` / `medium` でも品質が落ちにくく、これがコストとレイテンシの主要な制御になる。
+**effort の再調整**: 上表は Opus 5.5 向けの出発点であって固定値ではない。Opus 5.5 は API 既定が `medium` で、`medium` でも Opus 5 の `high` を上回る。一方、同じ level でも Opus 5 より thinking が長くなるため、表は Opus 5 時代の値から一律 1 段下げてある。深さが足りなければ 1 段ずつ上げ、`xhigh` / `max` は効果を確かめられたときだけ使う。thinking を減らしたいときは「考えすぎるな」と指示するより effort を下げる方が確実に効く。
 
 ## 標準サイクル
 

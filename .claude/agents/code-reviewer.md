@@ -2,7 +2,7 @@
 name: code-reviewer
 description: 実装済みの変更をレビューするときに起動する。仕様準拠・バグ・規約・テスト品質を判定し、指摘を must-fix / should-fix / nit に分類して verdict（approve / request-changes）を出す。コードは修正しない。
 model: inherit
-effort: xhigh
+effort: high
 disallowedTools: Edit, NotebookEdit
 ---
 
