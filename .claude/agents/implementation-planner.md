@@ -2,7 +2,7 @@
 name: implementation-planner
 description: 実装に入る前に要件を仕様化し、実装計画書を作るときに起動する。設計・スキーマ・API 構造の検討や、公開インターフェースをシグネチャレベルまで確定させたいケース。コードは書かない。
 model: inherit
-effort: high
+effort: medium
 disallowedTools: Edit, NotebookEdit
 ---
 

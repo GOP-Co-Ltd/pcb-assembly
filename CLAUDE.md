@@ -26,7 +26,7 @@ AGENTS.md の記述を以下のとおり読み替える。
 - **既定はシングルエージェント**。ユーザーの指定がない限り skill `solo-dev-cycle` で 計画 → テスト → 実装 → リファクタ → ドキュメント を自分で回す
 - 「エージェントチームで進めて」「並列で」と明示されたときだけ skill `agent-team-startup` に従い、自分が `orchestrator` の役割（統括・委譲・レビュー裁定・合流検証。`src/` `tests/` は下位 agent に任せる）を担う
 - Claude 側の agent 構成：`implementation-planner` →（任意 `spec-test-author`）→ `plan-implementer` → `code-reviewer` ⇄ `code-simplifier`。Codex の `docs-keeper` は Claude では `code-simplifier` に統合済み（docstring / README 同期を兼務）
-- 全 agent が `model: inherit`。速度・コスト・深さは `effort` で差別化する（`code-reviewer` xhigh、planner / implementer high、他 medium）
+- 全 agent が `model: inherit`。速度・コスト・深さは `effort` で差別化する（`code-reviewer` high、他 medium。Opus 5.5 は `medium` が既定で Opus 5 の `high` 相当以上のため、Opus 5 時代から 1 段下げた。セッション既定も `settings.json` の `effortLevel: medium`）
 - **ユーザーに質問できるのはメインエージェントだけ**。サブエージェントは `AskUserQuestion` を持たないため、質問は報告に含めて返しメインが中継する
 
 ## コンテキスト管理 (compact)
