@@ -27,14 +27,14 @@ AGENTS.md の記述を以下のとおり読み替える。
 - 「エージェントチームで進めて」「並列で」と明示されたときだけ skill `agent-team-startup` に従い、自分が `orchestrator` の役割（統括・委譲・レビュー裁定・合流検証。`src/` `tests/` は下位 agent に任せる）を担う
 - Claude 側の agent 構成：`implementation-planner` →（任意 `spec-test-author`）→ `plan-implementer` → `code-reviewer` ⇄ `code-simplifier`。Codex の `docs-keeper` は Claude では `code-simplifier` に統合済み（docstring / README 同期を兼務）
 - 文書改善用に `doc-teacher`（執筆・出題・採点）と `doc-student`（解答のみ、`model: haiku`・`tools: Read`）を置く。skill `doc-teacher-student` から使う
-- `doc-student` を除く全 agent が `model: inherit`。速度・コスト・深さは `effort` で差別化する（`code-reviewer` high、他 medium。Opus 5.5 は `medium` が既定で Opus 5 の `high` 相当以上のため、Opus 5 時代から 1 段下げた。セッション既定も `settings.json` の `effortLevel: medium`）
+- `doc-student` を除く全 agent が `model: inherit`。速度・コスト・深さは `effort` で差別化する（`code-reviewer` は high、他は medium。セッション既定は `settings.json` の `effortLevel: medium`）
 - **ユーザーに質問できるのはメインエージェントだけ**。サブエージェントは `AskUserQuestion` を持たないため、質問は報告に含めて返しメインが中継する
 
 ## コンテキスト管理 (compact)
 
 長いセッションの context 圧縮 (compact) で判断構造が失われる事故を防ぐ仕組みを `.claude/` に組み込んである。詳細は [compact-prep skill](.claude/skills/compact-prep/SKILL.md)。
 
-- **60% 通知。** statusLine (`.claude/scripts/statusline.sh`) が context 使用率を毎ターン算出し、閾値 (既定 60%) を超えると警告 marker を書く。`UserPromptSubmit` hook がそれを検出し、区切りで `/compact-prep` → `/compact` を促す。閾値 60% は 1M context 前提の設定
+- **60% 通知。** context 使用率が 60% を超えたと通知されたら、作業の区切りで `/compact-prep` → `/compact` の順に実行する。通知の仕組み: statusLine (`.claude/scripts/statusline.sh`) が使用率を毎ターン算出して閾値超で警告 marker を書き、`UserPromptSubmit` hook がそれを検出して促す。閾値 60% は 1M context 前提の設定
 - **`/compact-prep`。** `/compact` 直前に実行する skill。要約に残りにくい判断構造 (採用/却下した案・現在フェーズ・委譲したサブエージェント) を `${TMPDIR:-/tmp}/claude-compact-state/<session_id>.md` へ退避する
-- **圧縮後の復旧。** `PostCompact` hook が圧縮を marker で記録し、次の `UserPromptSubmit` hook が state file・TaskList・AGENTS.md の決定事項を読み戻すよう指示する。圧縮サマリーの next step は仮説として扱う
-- hook / statusLine は `python3` のみに依存する。配線は `.claude/settings.json` の `statusLine` / `hooks`。marker は `${TMPDIR:-/tmp}` 配下で session_id ごとに分離する
+- **圧縮後の復旧。** `PostCompact` hook が圧縮を marker で記録し、次の `UserPromptSubmit` hook が state file・TaskList・CLAUDE.md の決定事項を読み戻すよう指示する。圧縮サマリーの next step は仮説として扱う
+- hook / statusLine は `bash` と `python3` だけに依存する。配線は `.claude/settings.json` の `statusLine` / `hooks`。marker は `${TMPDIR:-/tmp}` 配下で session_id ごとに分離する

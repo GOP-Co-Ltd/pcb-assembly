@@ -1,6 +1,7 @@
 # AGENTS.md
 
-Codex がこのリポジトリで作業する際に常時参照するガイダンス。
+このリポジトリで作業するコーディングエージェント（Codex / Claude Code）が常時参照するガイダンス。
+Claude Code は CLAUDE.md の読み替えを優先する。
 詳細な手続きは `memory/` と `.agents/skills/` に置く。
 
 ## 応答言語
@@ -72,10 +73,10 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 - `make setup`: 開発環境セットアップ
 - `make format`: pre-commit 実行
 - `make type`: pyright 型チェック
-- `make test`: E2E 以外の全テスト
+- `make test`: E2E 以外の全テスト（実機テストを含む）
 - `make test-no-hardware`: ハードウェア・E2E を除外
 - `make test-e2e`: WebUI E2E
-- `make run`: format、test、type
+- `make run`: format → test → type（test は実機テストを含む）
 - `make api` / `make api-dev`: backend WebAPI 起動（port 8081、dev は auto-reload）
 - `make api-fake`: fake カメラで backend 起動（隔離 data_dir/port、手動・ブラウザ E2E 用）
 - `make ui` / `make ui-dev`: UI frontend 起動（port 8080、dev は auto-reload）
@@ -105,7 +106,7 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 計算・ドメインロジックは `pcbasm`（`src/pcbasm/`）に集約し、`src/web/api/` の router、
 `src/web/ui/` の page ハンドラ、JS はいずれも入出力変換・DOM 操作・表示更新に徹する。
 
-- 解決済み値・派生値・集計はサーバーが算出して返す
+- 解決済み値・派生値・集計は `pcbasm` が算出し、backend API がそのまま返す
 - frontend の page ハンドラは backend の JSON（pydantic モデル）をテンプレートへ渡すだけ。
     装置の状態を持たず、backend が返した値を再計算しない
 - 表示文字列（マシンの label など）の組み立てはサーバー側で行う
@@ -116,7 +117,7 @@ Python 3.12+ で HAL、ビジョン処理、制御ロジック、3D 幾何計算
 
 ## Git 運用
 
-- `main` から `<種別>/<日付>/<内容>` で分岐する
+- `main` から `<種別>/<日付>/<内容>` で分岐する（例: `docs/2026-09-25/brushup-all`）
 - 種別は `feature`, `fix`, `refactor`, `docs`, `chore`
 - `main` に直接 commit しない。main への merge はユーザー判断
 - commit は `<種別>(<スコープ>): <内容>`、1 commit 1 関心事
