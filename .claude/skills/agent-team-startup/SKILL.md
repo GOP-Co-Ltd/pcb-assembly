@@ -40,13 +40,13 @@ orchestrator に `effort` を設定していないのは、frontmatter の effor
    - 要件確認・ブランチ作成・以降の統括。src/ tests/ は自分で編集しない
    - ユーザーへの質問はここだけが行える（サブエージェントは AskUserQuestion を持たない）
 
-1. implementation-planner  [中〜大規模時。小〜中規模は orchestrator が自分で計画]
+1. implementation-planner  [複数モジュールにまたがるとき。1 モジュールに収まるなら orchestrator が自分で計画]
    - 要件を仕様化し、計画書を memory/agents/implementation-planner/<task>.md に書く
    - 確認事項があれば計画書に列挙し、orchestrator が中継する
 
 2. spec-test-author  [任意 — 仕様 first フロー時のみ]
-   - 計画書を読み、tests/pcbasm/ 配下にテスト（生きた仕様書）を書く
-   - 本番コード（src/pcbasm/）は触らない
+   - 計画書を読み、tests/ 配下にテスト（生きた仕様書）を書く
+   - 本番コード（src/）は触らない
    - 期待される失敗と仕様根拠を memory/agents/spec-test-author/<task>.md に記録
    - plan-implementer と並列実行可能（reference.md パターン A）
 
@@ -61,6 +61,7 @@ orchestrator に `effort` を設定していないのは、frontmatter の effor
    - 見つけた指摘は確信度を添えて全件報告する（ふるいにかけない）
    - orchestrator が裁定：must-fix → 3 に差し戻し／should-fix → 5 へ／
      誤検出 → 却下（理由を orchestrator のノートに記録）
+   - must-fix が残る間は verdict が request-changes になり、3 ⇄ 4 を繰り返す
 
 5. code-simplifier
    - 公開 IF を保持しつつ内部を簡素化（reviewer の should-fix も対応対象）
@@ -69,11 +70,11 @@ orchestrator に `effort` を設定していないのは、frontmatter の effor
    - 大きく書き換えた場合は 4 で再レビュー
 ```
 
-3〜5 は code-reviewer が approve を出すまで繰り返す。approve 後に orchestrator が最終検証してコミットする。
+approve（should-fix は残ってよい）の後に 5 を行う。5 で大きく書き換えたら 4 で再レビューする。最後に orchestrator が最終検証してコミットする。
 
 ## 委譲するかどうか
 
-チームを起動する前に、その仕事が委譲に見合うかを判断する。サブエージェントは文脈を再構築し、探索し直し、報告を返し、orchestrator がそれを読み直す。この往復を上回る利得が要る。
+チームを明示された後でも、個々の仕事が委譲に見合うかを判断する。サブエージェントは文脈を再構築し、探索し直し、報告を返し、orchestrator がそれを読み直す。この往復を上回る利得が要る。
 
 - **チームを起動する** — 複数ファイル・複数モジュールにまたがる実装や調査。独立して並列に進められる作業がある
 - **単独委譲で足りる** — 対象が明確な 1 モジュールの実装（`plan-implementer` 単独）
@@ -95,7 +96,7 @@ orchestrator に `effort` を設定していないのは、frontmatter の effor
 
 ## 並列化の基本条件
 
-`tests/pcbasm/` と `src/pcbasm/` は disjoint なので、`spec-test-author` と `plan-implementer` は同時起動できる。前提条件:
+`tests/` と `src/` は disjoint なので、`spec-test-author` と `plan-implementer` は同時起動できる。前提条件:
 
 - planner の「公開インターフェース案」が**シグネチャレベル**（関数名・引数・戻り値型）で確定していること
 - ハードウェアリソース（実カメラ／実 Klipper）の同時アクセスがないこと
@@ -110,7 +111,7 @@ orchestrator が各段階で確認する。
 | タイミング              | 確認事項                                                                                                |
 | ----------------------- | ------------------------------------------------------------------------------------------------------- |
 | planner 完了時          | 計画書に「公開 IF 案／実装ステップ／テスト観点／リスク」が揃っているか。確認事項があれば中継したか      |
-| spec-test-author 完了時 | テストが `tests/pcbasm/` 配下のみに書かれているか、3rd-party モックが無いか、仕様根拠の対応表があるか   |
+| spec-test-author 完了時 | テストが `tests/` 配下のみに書かれているか、3rd-party モックが無いか、仕様根拠の対応表があるか          |
 | implementer 完了時      | `make format && make type && make test-no-hardware` がグリーン。spec-test-author 引継ぎ時はテスト未編集 |
 | reviewer 完了時         | verdict が明記され、全 must-fix に根拠と確信度が添えてあるか                                            |
 | simplifier 完了時       | 公開 IF 不変・全テスト通過・ドキュメントが現状コードと整合                                              |

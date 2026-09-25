@@ -30,7 +30,7 @@ Claude Code の `/compact` 直前に実行する。圧縮サマリーへ残り�
     - 起動中・委譲済みのサブエージェント (implementation-planner / spec-test-author /
         plan-implementer / code-reviewer / code-simplifier、エージェントチーム、
         do-on-worktree のバックグラウンド worktree) と担当
-    - 編集中の file と、未保存・未検証・`make run` 未通過の注意点
+    - 編集中の file と、未保存・未検証（`make format && make type && make test-no-hardware` 未通過）の注意点
 4. state file に次の見出しを **この順で** Write する。
     - `# Compact Prep State`
     - `## Active Plan` (plan / 現在フェーズ・ステップ。無ければ「なし」)

@@ -39,8 +39,8 @@ trivial な変更では planner、simplifier、docs を省略してよい。
 - 一方の成果物が他方の入力にならない
 - カメラ、Klipper、GPIO など同一ハードウェアを共有しない
 
-典型例は、`spec-test-author` が `tests/pcbasm/`、`plan-implementer` が
-`src/pcbasm/` を担当する仕様 first フロー。ただし implementer がテストを変更しない
+典型例は、`spec-test-author` が `tests/`、`plan-implementer` が
+`src/` を担当する仕様 first フロー。ただし implementer がテストを変更しない
 こと、共有 fixture の所有者を一方に固定することを prompt に明記する。
 
 ## 起動時の指示

@@ -4,7 +4,7 @@ skill `agent-team-startup` の補助資料。判断に必要になった時点�
 
 ## 並列化パターン A：spec-test-author × plan-implementer
 
-`tests/pcbasm/` と `src/pcbasm/` は disjoint なので、両 agent は同じ計画書を入力に同時起動できる。仕様 first フローでもシリアル実行に縛られない。
+`tests/` と `src/` は disjoint なので、両 agent は同じ計画書を入力に同時起動できる。仕様 first フローでもシリアル実行に縛られない。
 
 ```
 implementation-planner
@@ -20,11 +20,7 @@ spec-test-author  plan-implementer   ← 並列起動（同じ計画書を入力
    code-reviewer →（approve まで反復）→ code-simplifier
 ```
 
-**前提条件**
-
-- planner の「公開インターフェース案」がシグネチャレベル（関数名・引数・戻り値型）で確定していること
-- ハードウェアリソース（実カメラ／実 Klipper）の同時アクセスがないこと
-- `tests/helpers.py` の更新は spec-test-author 側に寄せる（plan-implementer は触らない）
+**前提条件**は SKILL.md「並列化の基本条件」。
 
 **合流時の処理**
 
@@ -83,13 +79,13 @@ spec-test-author  plan-implementer   ← 並列起動（同じ計画書を入力
 ユーザー指示「エージェントチームで HeightPlane の調整機能を追加して」に対し、orchestrator が実行する流れ：
 
 1. 要件を確認し、ブランチを作成する
-2. `implementation-planner` を起動して計画策定（小〜中規模なら orchestrator が自分で計画する）
+2. `implementation-planner` を起動して計画策定（1 モジュールに収まるなら orchestrator が自分で計画する）
 3. 計画を確認する。計画書に「確認事項」があればユーザーに中継する
 4. （仕様 first なら）**spec-test-author と plan-implementer を 1 メッセージで並列起動**（パターン A）
     - 計画書が抽象的なら spec-test-author を先行させ、IF 確定後に plan-implementer を起動する
 5. 合流時に `make format && make type && make test-no-hardware` で整合確認
 6. `code-reviewer` を起動し、報告された指摘を裁定する（must-fix → implementer 差し戻し）
-7. approve 後に `code-simplifier` を起動する。大改修なら 6 で再レビュー
+7. approve 後に `code-simplifier` を起動する（should-fix の対応と docstring / README 同期）。大きく書き換えたら 6 で再レビュー
 8. 最終検証 → コミット
 
 各 agent 起動時は `subagent_type` で指定し、必要なコンテキスト（計画書パス、対象ファイル、前段ノートのパス）を prompt に含める。並列発火時は 1 メッセージにまとめる（skill `maximize-parallels`）。

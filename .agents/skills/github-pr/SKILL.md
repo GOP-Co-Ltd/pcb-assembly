@@ -22,6 +22,7 @@ git log <target>..HEAD --oneline  # 対象ブランチに対する差分コミ�
 - 現在ブランチが `main` の場合は中止してユーザーに確認する（main から直接 PR は出さない）
 - 未コミットの変更がある場合は中止し、先にコミットするかユーザーに確認する
 - 対象ブランチに対する差分コミットが 0 件なら PR を出す意味がないので報告して中止する
+- `git fetch origin <target>` の後 `git log HEAD..origin/<target> --oneline` に commit が並ぶなら、push の前に skill [merge-main](../merge-main/SKILL.md) で取り込む
 
 既存 PR の重複を避ける：
 

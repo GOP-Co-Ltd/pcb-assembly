@@ -39,6 +39,7 @@ git status --short          # 進行中の未コミット変更
 ### 3. 作業する
 
 依頼された変更を worktree 内で実装する。AGENTS.md の開発原則・Git 運用に従う。
+Bash で `cd` した先は次の呼び出しに持ち越されることがある。git は `git -C <worktree のパス>` で対象を明示し、他の worktree のブランチを切り替えない。
 `.claude/` 配下を触る場合は skill [edit-dot-claude](../edit-dot-claude/SKILL.md) の手順（/tmp 経由）を使う。
 
 ### 4. 検証

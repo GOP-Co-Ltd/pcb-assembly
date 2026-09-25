@@ -7,9 +7,9 @@ description: 作業の最後に PR を出す直前で、最新の main を作業
 
 作業の最後に PR を出す **直前** で実行する手順。`main` をリモート最新に更新し、自分の作業ブランチに取り込んで（merge）、conflict を解消してから PR を立てる。これにより PR が最新の base に対して clean に diff する。
 
-AGENTS.md「Git 運用」「自走開発フロー」と整合。**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。PR 作成自体は skill [github-pr](../github-pr/SKILL.md) を参照。
+AGENTS.md「Git 運用」に従い、**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。PR 作成自体は skill [github-pr](../github-pr/SKILL.md) を参照。
 
-このスキルは **rebase ではなく merge** で main を取り込むことを既定とする（merge commit が履歴に残ることを許容し、push 済み・レビュー中の自ブランチの commit hash を書き換えない）。
+**rebase ではなく merge** で取り込む（理由は末尾「rebase を使いたくなったら」）。
 
 ## 前提チェック
 
@@ -60,17 +60,19 @@ git status                              # Unmerged paths を確認
 git diff --name-only --diff-filter=U    # conflict した file 一覧
 ```
 
-各 conflict file を開き `<<<<<<<` / `=======` / `>>>>>>>` マーカーを解消する。
+conflict file ごとに次を行う。
 
-- **両者の意図を保持する**。main 側の変更を握り潰さない / 自分の変更も捨てない。どちらか一方を機械的に採用（`--ours` / `--theirs`）する前に、本当にもう一方が不要か確認する
-- 判断が割れる conflict（両方が同じ関数を別意図で書き換えた等）は **勝手に決めず、何が衝突しているか名指しでユーザーに確認**（AGENTS.md 開発原則 1）
-- 解消したら stage: `git add <file>`
-- 全 file 解消後: `git merge --continue`（または `git commit`）
+1. `<<<<<<<` / `=======` / `>>>>>>>` マーカーの両側を読み、**両者の意図を保持して**解消する。main 側の変更も自分の変更も捨てない。`--ours` / `--theirs` で機械的に片方を採用しない
+2. 判断が割れる conflict（両方が同じ関数を別意図で書き換えた等）は解消せずに止め、**何が衝突しているか名指しでユーザーに確認する**（AGENTS.md 開発原則 1）
+3. 解消した file を stage する: `git add <file>`
+
+全 file を解消したら `git merge --continue`（または `git commit`）。
+
 - 中断したくなったら `git merge --abort` で merge 前に戻せる
 
 ### 5. 取り込み後の検証
 
-main を取り込んだ結果コードが壊れていないか確認する。**全 green** であることが PR の前提（AGENTS.md 自走開発フロー）。
+main を取り込んだ結果コードが壊れていないか確認する。**全 green** であることが PR の前提（AGENTS.md「Git 運用」の標準フロー）。
 
 ```bash
 make format && make type && make test
@@ -89,7 +91,7 @@ git push                       # 既に upstream があれば引数不要
 
 ## やってはいけないこと
 
-- **ローカル `main` を作業ブランチに直接 commit / push しない**。取り込みは作業ブランチ側のみ
+- **`main` ブランチに直接 commit / push しない**。取り込みは作業ブランチ側のみ
 - conflict を `git checkout --theirs .` 等で **一括上書きしない**（意図しない握り潰しの温床）
 - conflict を残したまま `git add` / commit しない（`<<<<<<<` マーカーが混入する）
 - 取り込み後に検証を省略しない。テキスト conflict が無くても論理は壊れうる
@@ -103,4 +105,4 @@ git push                       # 既に upstream があれば引数不要
 
 - skill [github-pr](../github-pr/SKILL.md) — push / `gh pr create` / push reject 系トラブルシュート
 - skill [do-on-worktree](../do-on-worktree/SKILL.md) — worktree で裏作業を進める手順
-- [AGENTS.md](../../../AGENTS.md) — 「Git 運用」「自走開発フロー」節
+- [AGENTS.md](../../../AGENTS.md) — 「Git 運用」節

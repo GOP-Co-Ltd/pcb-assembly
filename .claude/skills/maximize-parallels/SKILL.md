@@ -23,7 +23,7 @@ when_to_use: 複数タスクに着手する／複数 file を読む／複数エ�
 - **複数 file の `Read`**: 何を読むかが事前に決まっているなら一気に並列で読む。1 件読んで「次は何を読むべきか」を考えるのは遅い
 - **独立な `Bash`**: `git status` / `git diff` / `git log` のように互いを汚さない情報取得。`uv run pytest tests/A` と `uv run pytest tests/B` のように対象 file が disjoint なテストの並列実行も同じ
 - **検索の発散**: `grep "foo"` / `grep "bar"` / `find -name '*.py'` のように複数の角度から同時に探す
-- **複数 agent の起動**: 担当領域が disjoint な `plan-implementer × N`、独立モジュール毎の `code-simplifier × N` などは常に並列。詳細は skill [agent-team-startup](../agent-team-startup/SKILL.md) の「並列化の判断基準」セクション
+- **複数 agent の起動**: チーム運用中（ユーザーが明示したときだけ）に、担当領域が disjoint な `plan-implementer × N` などを起動するなら 1 メッセージで並列に出す。条件は skill [agent-team-startup](../agent-team-startup/SKILL.md) の「並列化の基本条件」
 
 ## 並列化してはいけない (逐次必須) パターン
 
@@ -32,7 +32,7 @@ when_to_use: 複数タスクに着手する／複数 file を読む／複数エ�
 - **`cd` を伴う `Bash`**: cwd は session 内で持続するので、並列に走らせると後続コマンドがどの cwd で動くか不定。代わりに各 Bash で絶対パスを使うか `cd dir && cmd` のように 1 Bash 内に閉じ込める
 - **依存する出力**: `git rev-parse HEAD` の結果を次の `git show <sha>` に渡すような場合
 - **同じ branch / worktree への破壊的操作**: `git checkout` / `git reset` / `git stash` を並列に走らせない
-- **ハードウェアリソースの競合**: `@mark_hardware` テスト、`v4l2` カメラデバイス、Klipper のシリアル port、GPIO ピンなど、物理的に 1 つしかないリソースを掴むテスト / 操作は並列不可。同一カメラに対する `make test -m hardware` と `v4l2-ctl --stream` を同時実行するとデバイスがロックされる
+- **ハードウェアリソースの競合**: `@mark_hardware` テスト、`v4l2` カメラデバイス、Klipper のシリアル port、GPIO ピンなど、物理的に 1 つしかないリソースを掴むテスト / 操作は並列不可。同一カメラに対する `pytest -m hardware` と `v4l2-ctl --stream` を同時実行するとデバイスがロックされる
 
 ## 実践手順 (複数タスクに着手するとき)
 
@@ -46,4 +46,4 @@ when_to_use: 複数タスクに着手する／複数 file を読む／複数エ�
 
 ## マルチエージェント運用との関係
 
-エージェント運用レベルの並列化ルール (フェーズごとに `plan-implementer` を独立モジュール毎に並列、`code-simplifier` を独立モジュール毎に並列、など) は [AGENTS.md](../../../AGENTS.md) 「Custom Agents」セクションおよび skill [agent-team-startup](../agent-team-startup/SKILL.md) に集約済み。この skill はその下層、**tool 呼び出しレベル** の話。両者は同じ「論理的に独立なら並列」の原則の異なる適用層であり、矛盾しない。
+agent 単位の並列化ルールは skill [agent-team-startup](../agent-team-startup/SKILL.md) にある。この skill は **tool 呼び出しレベル** の話。
