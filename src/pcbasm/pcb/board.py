@@ -69,7 +69,7 @@ class Outline:
         return maxy - miny
 
     def save(self, path: Path) -> None:
-        """JSONファイルに保存."""
+        """JSONファイルに保存（外周だけを保存し、穴は保存しない）."""
         data = {"polygon": list(self.polygon.exterior.coords)}
         path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -90,8 +90,8 @@ class Component:
         designator: 部品リファレンス (例: "U1", "R1")
         value: 部品値 (例: "10k", "100nF")
         package: パッケージ名 (例: "0402", "QFP-48")
-        position: 位置座標 (mm)
-        rotation: 回転角度 (度)
+        position: footprint 原点の基板座標 (mm)
+        rotation: KiCad の footprint 向き (度)
         layer: レイヤー (Top/Bottom)
     """
 
@@ -207,7 +207,7 @@ class Pad:
 
     @property
     def center(self) -> Point2d:
-        """ポリゴンの重心を計算."""
+        """ペースト領域（``polygon``）の重心を計算."""
         centroid = self.polygon.centroid
         return Point2d(x=centroid.x, y=centroid.y)
 

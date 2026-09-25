@@ -44,6 +44,10 @@ def render_fill_paths(
     ``paths`` は ``pads`` と同じ並びで、各要素は対応 pad の成分別塗布経路
     （``list[list[Point2d]]``）。パスが構築できなかった pad には空リストが入る。
     halo / 被覆率はビード幅 ``w = nozzle_diameter * bead_width_factor`` で描く。
+
+    ``overlap`` と ``boundary_margin`` はタイトルに表示するだけで、描画には使わない。
+
+    入力は基板座標 [mm] で、図の Y 軸は下向き（KiCad と同じ見た目）。
     """
     bead_width = nozzle_diameter * bead_width_factor
     fig, ax = plt.subplots(figsize=(12, 10))

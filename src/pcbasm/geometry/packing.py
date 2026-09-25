@@ -1,6 +1,8 @@
 """軸平行矩形のビンパッキング（MaxRects）.
 
-複数の並び順 × 複数ヒューリスティクスを試し、使用面積が最小の配置を返す。 座標系は左上原点・右下向き正（KiCad / SVG と同じ）。
+複数の並び順 × 複数ヒューリスティクスを試し、使用面積が最小の配置を返す。
+
+座標系は左上原点・右下向き正（KiCad / SVG と同じ）。
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ _HEURISTICS: tuple[_Heuristic, ...] = ("short_side", "area", "bottom_left")
 
 @attrs.frozen
 class Rect:
-    """左上原点の軸平行矩形."""
+    """軸平行矩形。``(x, y)`` は左上の角（Y 下向き）."""
 
     x: float
     y: float
@@ -59,9 +61,18 @@ def pack_rects(
 ) -> tuple[Rect, ...] | None:
     """``sizes`` の各 ``(width, height)`` を ``area`` 内に重ならず配置する.
 
-    ``keepouts`` は配置禁止領域、``gap`` は矩形同士（および keepout）の最小間隔。
-    入力順のまま複数のサイズ順ソートと 3 種のヒューリスティクスを試し、
-    使用外接面積が最小の配置を入力順の矩形列で返す。収まらなければ ``None``。
+    矩形は回転しない。``gap`` は配置した矩形同士の最小間隔。
+
+    ``keepouts`` は配置禁止領域で、keepout との間隔 ``gap`` は保証しない。
+
+    keepout との間隔が要るなら、呼び出し側で keepout を ``gap`` だけ広げて渡す。
+
+    入力順と複数のサイズ順ソートに 3 種のヒューリスティクスを掛け合わせて試す。
+
+    その中で使用外接面積が最小の配置を選ぶ。
+
+    Returns:
+        ``sizes`` と同じ順の配置矩形。空入力なら空タプル、収まらなければ ``None``
     """
     if not sizes:
         return ()

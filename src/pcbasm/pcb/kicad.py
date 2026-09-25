@@ -5,7 +5,10 @@ PCBファイルから部品・パッド情報を抽出する.
 
 Note:
     pcbnewモジュールはKiCad 9.0以降が必要.
-    すべての座標は基板アウトラインの左上を原点として正規化される.
+
+    座標はすべて mm の基板座標へ正規化する（原点は外形 bbox の左上、Y 下向き）.
+
+    DNP（Do Not Populate）の footprint は部品・パッド・銅箔のどれにも含めない.
 """
 
 import logging
@@ -82,7 +85,10 @@ class PcbFile:
 
     @cached_property
     def components(self) -> ComponentList:
-        """部品情報のリスト（左上原点に正規化済み）."""
+        """部品情報のリスト（左上原点に正規化済み）.
+
+        position は footprint 原点、rotation は KiCad の footprint 向き [度].
+        """
         origin_x, origin_y = self._origin
         components = ComponentList()
 
@@ -117,7 +123,14 @@ class PcbFile:
 
     @cached_property
     def pads(self) -> PadList:
-        """パッド情報のリスト（左上原点に正規化済み）."""
+        """パッド情報のリスト（左上原点に正規化済み）.
+
+        F.Paste / B.Paste を持つ pad だけを含める（ペーストを塗らない pad は除く）.
+
+        ペースト形状が複数の輪郭に分かれる pad は、輪郭ごとに別の Pad になる.
+
+        そのため同じ ``(designator, pad_number)`` の Pad が複数できることがある.
+        """
         origin_x, origin_y = self._origin
         pads = PadList()
 

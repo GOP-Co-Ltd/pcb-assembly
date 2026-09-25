@@ -1,8 +1,10 @@
 """Pcbnew によるテスト用 PCB の生成（矩形 / グリッド / fill 網羅フィクスチャ）.
 
-モジュールレベルで ``pcbnew``（KiCAD の Python API）を import するため、
-KiCAD 未導入環境では import できない。``pcbasm.pcb`` パッケージからは
-re-export しない（利用側が明示的に ``pcbasm.pcb.generate`` を import する）。
+モジュールレベルで ``pcbnew``（KiCAD の Python API）を import するため、KiCAD 未導入環境では import できない。
+
+``pcbasm.pcb`` パッケージからは re-export しないので、``pcbasm.pcb.generate`` を直接 import する。
+
+生成する基板の座標は KiCad 座標 [mm] で、外形の左上が (0, 0)。
 """
 
 from __future__ import annotations

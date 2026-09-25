@@ -391,7 +391,7 @@ class PasteDispenser:
     )  # リトラクションレート [μL/sec]。未指定時は max_dispense_rate
     retract_accel_factor: float  # リトラクション加速度係数
     toolhead: Toolhead
-    paste_height: PasteHeight  # 塗布面のZ高さ [mm]、または auto
+    paste_height: PasteHeight  # 塗布時の基板表面からのノズル高さ [mm]、または auto
     ul_per_mm2: float  # パッド面積あたりのペースト量 [μL/mm²]
     lift_height: float = 2.0  # 塗布後に持ち上げる高さ [mm]
     solder_paste_density: float = 3.78  # はんだペースト密度 [mg/μL] (S3X70-E150DN)
@@ -896,7 +896,7 @@ def get_config_dir() -> Path:
 
 
 def get_machine_config() -> Machine:
-    """`config/` ディレクトリの machine.toml を読み込む.
+    """:func:`get_config_dir` の machine.toml を読み込む.
 
     Returns:
         Machine設定オブジェクト

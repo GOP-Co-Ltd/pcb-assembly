@@ -8,7 +8,7 @@ from .transform import Point2d
 
 
 def polyline_length(points: Sequence[Point2d]) -> float:
-    """ポリラインの総延長を返す."""
+    """ポリラインの総延長を返す（点が 2 未満なら 0）."""
     return sum((points[i + 1] - points[i]).norm for i in range(len(points) - 1))
 
 
@@ -17,7 +17,9 @@ def ring_segment(
 ) -> list[Point2d]:
     """巡回頂点列 ``vertices`` を ``i_start`` から ``i_end`` まで ``step`` 方向に辿った点列.
 
-    ``step`` は ``+1``（順方向）または ``-1``（逆方向）。両端を含む。
+    ``step`` は ``+1``（順方向）または ``-1``（逆方向）。
+
+    末尾から先頭へ折り返して辿る。戻り値は両端を含む。
     """
     n = len(vertices)
     path: list[Point2d] = []

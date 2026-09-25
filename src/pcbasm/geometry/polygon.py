@@ -195,7 +195,9 @@ def clip_segment(
 ) -> list[tuple[Point2d, Point2d]]:
     """線分 ``start``→``end`` とポリゴンの交線区間を進行方向順に返す.
 
-    各区間は進行方向に沿って ``(手前, 奥)`` の順。交差が無ければ空。
+    各区間は進行方向に沿って ``(手前, 奥)`` の順。
+
+    交差が無い、または点で接するだけなら空。
     """
     direction = end - start
     length = direction.norm

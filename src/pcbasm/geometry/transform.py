@@ -1,3 +1,10 @@
+"""2D/3D の点と、点に作用する変換.
+
+単位は呼び出し側の座標系に従う（本プロジェクトでは mm）。
+
+変換はすべてイミュータブルで、``apply`` は新しい点を返す。
+"""
+
 from __future__ import annotations
 
 import math
@@ -14,6 +21,8 @@ import numpy.typing as npt
 @attrs.frozen
 class Point3d:
     """3次元空間の座標を表すイミュータブルなクラス.
+
+    長さは ``norm()`` のメソッド呼び出しで得る（:class:`Point2d` はプロパティ）。
 
     Attributes:
         x: X座標
@@ -57,6 +66,8 @@ class Point3d:
 @attrs.frozen
 class Point2d:
     """2次元空間の座標を表すイミュータブルなクラス.
+
+    長さは ``norm`` のプロパティで得る（:class:`Point3d` はメソッド）。
 
     Attributes:
         x: X座標
@@ -180,8 +191,12 @@ class Scale(Transform):
 class Rotation(Transform):
     """Z軸周りの回転を表すイミュータブルなクラス.
 
+    正の角度は +X 軸を +Y 軸へ向ける向きに回す。
+
+    Y 上向きの座標系では反時計回り、基板座標のような Y 下向きの座標系では画面上で時計回りになる。
+
     Attributes:
-        degrees: 回転角度（度数法、反時計回りが正）
+        degrees: 回転角度 [度]
     """
 
     degrees: float = 0.0
@@ -221,12 +236,14 @@ class Rotation(Transform):
     def from_points(cls, base: Point2d, target: Point2d) -> Self:
         """2つのベクトル間の角度からRotationを生成する.
 
+        ベクトルの長さは無視し、向きだけを使う。
+
         Args:
             base: 基準ベクトル
             target: 対象ベクトル
 
         Returns:
-            baseからtargetへの回転を表すRotationインスタンス
+            baseの向きをtargetの向きへ回すRotation（角度は -180 超 180 以下）
         """
         dot = base.x * target.x + base.y * target.y
         cross = base.x * target.y - base.y * target.x
@@ -302,8 +319,10 @@ class Identity(Transform):
 class Matrix2d(Transform):
     """2x2変換行列によるXY平面上の線形変換を表すイミュータブルなクラス.
 
+    列ベクトル ``(x, y)`` に左から掛ける。Point3d の z は変えない。
+
     Attributes:
-        matrix: 2x2の変換行列
+        matrix: 2x2の変換行列（形状が違えば ValueError）
     """
 
     matrix: npt.NDArray[np.floating] = attrs.field(
@@ -337,11 +356,21 @@ class Matrix2d(Transform):
 
 @attrs.frozen
 class HeightPlane(Transform):
-    """全サンプル点に最小二乗で2次曲面をフィットする高さ補正変換.
+    """計測した基板表面に2次曲面を当てはめ、点の Z に表面高さを足す変換.
 
-    基板表面が反り・ねじれを持つという物理仮定のもとで、計測サンプル点に2次曲面 z = c + a*x + b*y + d*x² +
-    e*y² + f*xy を最小二乗フィッティングし、その式に従って XY 位置に応じた Z 補正を加算する。x²・y² が反り、xy
-    がねじれを表現する。 凸包外も同じ式で外挿される。
+    ``points`` は表面上の計測点で、XY と実測 Z を持つ（高さ計測では機械 XY とプローブ Z）。
+
+    曲面 z = c + a*x + b*y + d*x² + e*y² + f*xy を最小二乗で求める。
+
+    x²・y² が反り、xy がねじれを表す。
+
+    ``apply`` は点の XY で曲面を評価し、その値を点の z に足す。
+
+    したがって入力点の z には表面からの相対高さを与える（z=0 なら表面そのもの）。
+
+    計測点の凸包の外も同じ式で外挿する。
+
+    ``points`` が 6 点未満、または 6 点あっても退化（例: 全点が一直線上）していれば ValueError。
     """
 
     points: tuple[Point3d, ...]
@@ -383,10 +412,9 @@ class HeightPlane(Transform):
 
     @override
     def apply(self, point: Point) -> Point:
-        """点にZ高さ補正を適用する.
+        """点の XY で曲面を評価し、その高さを z に足した点を返す.
 
-        Point2dの場合はそのまま返す。Point3dの場合はXYから2次曲面式 z = c + ax + by + dx² +
-        ey² + fxy を評価して z に加算する。
+        Point2d は Z を持たないので、そのまま返す。
         """
         if isinstance(point, Point2d):
             return point
@@ -403,7 +431,7 @@ class HeightPlane(Transform):
 
     @override
     def inverse(self) -> Self:
-        """逆変換（各点のZ値を反転して再フィット）を返す."""
+        """表面高さを z から引く逆変換を返す（各点の Z を反転して再フィットする）."""
         return self.__class__(
             points=tuple(Point3d(p.x, p.y, -p.z) for p in self.points)
         )
@@ -412,7 +440,10 @@ class HeightPlane(Transform):
 class Compose(UserList[Transform], Transform):
     """複数の変換を合成するクラス.
 
-    変換は self[0] → self[1] → ... の順に適用される。
+    変換は self[0] → self[1] → ... の順に適用する。
+
+    ``Compose([A, B]).apply(p)`` は ``B.apply(A.apply(p))`` と同じ。
+
     UserListを継承しているため、リストと同様に操作できる。
 
     Examples:

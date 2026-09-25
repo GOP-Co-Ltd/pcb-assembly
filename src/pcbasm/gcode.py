@@ -1,3 +1,5 @@
+"""Klipper へ送る G-code 文字列の組み立て."""
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -97,13 +99,15 @@ class GCode:
         z: float | None = None,
         velocity: float | None = None,
     ) -> Self:
-        """移動コマンドを生成する.
+        """移動コマンド（G1）を生成する.
+
+        絶対座標か相対座標かは、先に送った G90 / G91 の状態に従う。
 
         Args:
             x: X座標 [mm]
             y: Y座標 [mm]
             z: Z座標 [mm]
-            velocity: 移動速度 [mm/s]
+            velocity: 移動速度 [mm/s]（F には mm/min に換算して書く）
 
         Returns:
             移動のGCode。すべてNoneの場合は空のGCode
