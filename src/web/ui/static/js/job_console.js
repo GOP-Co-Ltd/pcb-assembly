@@ -1,7 +1,7 @@
 "use strict";
 
 // グローバル WS クライアント（/api/ws）+ ジョブコンソール UI。
-// tab.html から全タブで読み込まれ、window.webui.jobs を公開する。
+// tab.html（全タブ）と settings.html から読み込まれ、window.webui.jobs を公開する。
 // ページに #job-console（data-job-names）があればコンソールを描画する。
 
 (() => {

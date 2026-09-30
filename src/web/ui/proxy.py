@@ -1,4 +1,4 @@
-"""``/m/{machine_id}`` 以下を backend WebAPI へ中継するリバースプロキシ.
+"""``/m/{id}/api`` と ``/m/{id}/artifacts`` を backend へ中継するプロキシ.
 
 FastAPI のルートではなく純 ASGI アプリにしている:
 

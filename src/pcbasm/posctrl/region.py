@@ -15,7 +15,15 @@ from pcbasm.posctrl.copper import CopperProjector, PixelRect, centered_roi
 
 @attrs.frozen
 class AlignmentRegion:
-    """1つの銅箔照合領域."""
+    """1つの銅箔照合領域.
+
+    Attributes:
+        index: 巡回順の番号（pad 中心の再照合では -1）
+        board_center: 領域中心（board 座標）
+        anchor: 領域中心を撮るステージ位置（機械座標）
+        roi: 照合に使う画像中心の ROI（全画面 px）
+        board_area: 領域が覆う範囲（board 座標）
+    """
 
     index: int
     board_center: Point2d
@@ -39,7 +47,20 @@ def plan_alignment_regions(
     image_size: tuple[int, int],
     tour_start: Point2d,
 ) -> list[AlignmentRegion]:
-    """塗布対象pad中心を覆う重複ROIを計画し、巡回順に返す."""
+    """塗布対象pad中心を覆う重複ROIを計画し、巡回順に返す.
+
+    領域は ``safe_area`` の内側に収める。
+
+    そのため外形近くの pad は、どの領域にも覆われないことがある。
+
+    巡回順は ``tour_start``（機械座標）から最近傍順。
+
+    Returns:
+        領域のリスト。銅箔・pad・安全領域のどれかが空、または領域が収まらなければ空リスト
+
+    Raises:
+        ValueError: region_size_px が 1 未満か画像より大きい、または overlap が [0, 1) の外
+    """
     if (
         isinstance(region_size_px, bool)
         or not isinstance(region_size_px, int)

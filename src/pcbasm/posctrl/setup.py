@@ -176,7 +176,10 @@ class OffsetObserver:
 
 @attrs.frozen
 class BoardCalibrationResult:
-    """ボードキャリブレーション結果."""
+    """ボードキャリブレーション結果.
+
+    offset_transform と board_transform の意味は :mod:`pcbasm.posctrl` の冒頭を参照。
+    """
 
     machine: Machine
     klipper: Klipper
@@ -198,12 +201,26 @@ def setup_board_calibration(
 ) -> BoardCalibrationResult:
     """マシン初期化からBoard変換計測までの共通セットアップを実行する.
 
+    手順: PCB 読込 → Klipper 接続 → カメラ準備 → キャリブレーション読込 → ホーミング (G28) → 左上基準点へ移動 → カメラ回転角の計測 → Board 変換の計測。
+
+    ステージを動かすので、呼び出し側は ``machine_session`` の中で呼ぶ。
+
+    この関数自体は終了時の駐機をしない。
+
     Args:
         machine: マシン設定
         pcb_file_path: KiCADファイルのパス
         tolerance: 位置合わせの許容誤差 (mm)
         camera: 使用するカメラ。Noneの場合はマシン設定から生成する
         frame_sink: 検出注釈画像を送る sink。Noneの場合は表示しない
+
+    Returns:
+        接続済みの Klipper・ステージ・カメラと、計測した 2 つの変換
+
+    Raises:
+        CircleDetectionError: 基準点マーカーを規定回数の再取得でも検出できない場合
+        RuntimeError: 位置補正が収束しない場合、または G-code 送信が失敗した場合
+        ValueError: 基準点配置から Board 変換を決められない場合
     """
     # PCBファイル読み込み
     logger.info("=== PCBファイル読み込み ===")
@@ -330,7 +347,10 @@ def setup_board_calibration(
 
 @contextmanager
 def machine_session(klipper: Klipper, machine: Machine) -> Generator[None]:
-    """マシンセッション終了時にノズルキャップ駐機（フォールバックは PRESENT / M84）を行うコンテキストマネージャ."""
+    """ブロックを抜けるとき（例外時も）にノズルキャップへ駐機する.
+
+    駐機できなければ PRESENT マクロ、それも無ければ M84 にフォールバックする。
+    """
     try:
         yield
     finally:

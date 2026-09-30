@@ -27,8 +27,11 @@ _CLOSE_DEADLINE = 10.0
 def _close_when_suspended(gen: Generator[bytes]) -> None:
     """ジェネレータが yield で停止するのを待って close する.
 
-    クライアント切断はキャンセルで伝わるため、worker thread が next() を 実行中（= generator
-    already executing）のことがある。その場合は 停止を待って再試行する。
+    クライアント切断はキャンセルで伝わる。
+
+    そのため worker thread が next() を実行中のことがある。
+
+    その場合（generator already executing）は停止を待って再試行する。
     """
     deadline = time.monotonic() + _CLOSE_DEADLINE
     while True:
@@ -44,8 +47,9 @@ def _close_when_suspended(gen: Generator[bytes]) -> None:
 class _ClosingStreamingResponse(StreamingResponse):
     """切断・エラー時に同期ジェネレータを確実に close する StreamingResponse.
 
-    starlette は sync iterator をクライアント切断時に close しない （GC
-    任せで遅延・不確定）ため、参照カウント解放（mjpeg_stream の finally）を決定的に走らせる。
+    starlette は sync iterator を切断時に close しない（GC 任せで不確定）。
+
+    ここで close し、参照カウント解放（mjpeg_stream の finally）を確実に走らせる。
     """
 
     def __init__(self, content: Generator[bytes], media_type: str) -> None:
@@ -78,6 +82,7 @@ def preview_stream(
     canny_low: float | None = None,
     canny_high: float | None = None,
 ) -> StreamingResponse:
+    """カメラ映像を MJPEG で配信する（503: カメラを構築できない）."""
     # ジェネレータ方式では最初のフレーム取得前にエラーを検出できないため、
     # カメラ構築エラーはここで 503 に変換する（配信開始後のエラーは
     # ストリーム切断として扱い、クライアントのリトライに任せる）

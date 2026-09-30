@@ -51,7 +51,7 @@ def register(catalog: JobCatalog) -> None:
 def _run_paste_dataset_finalize(ctx: JobContext) -> JobResult:
     """撮影済みの未完了 session へ metadata.json を書き、完成名へ確定する.
 
-    画像は書き直さない（未確定 directory を rename するだけ）ので、収集本経路が書いた ものがそのまま残る。
+    画像は書き直さない（未確定 directory を rename するだけ）ので、収集本経路が書いたものがそのまま残る。
     """
     measured_mass_mg = float(ctx.params["measured_mass"])
     if measured_mass_mg <= 0:

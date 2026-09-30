@@ -13,6 +13,7 @@
 
 同居機（frontend と backend が同じ Raspberry Pi）では 8080 = frontend / 8081 = backend
 に分ける。既存ブックマークの `:8080` はそのまま frontend に着地する。
+API・ジョブ・ページを足す開発者は [アーキテクチャ](architecture.md#%E6%A9%9F%E8%83%BD%E3%82%92%E8%B6%B3%E3%81%99%E3%81%A8%E3%81%8D%E3%81%AE%E5%A4%89%E6%9B%B4%E5%85%88) を読む。
 
 ```sh
 make api      # backend WebAPI 起動

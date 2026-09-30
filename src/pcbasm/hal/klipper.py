@@ -1,3 +1,9 @@
+"""Moonraker 経由で Klipper と通信するクライアント.
+
+HAL の他のクラス（``XYZStage`` / ``ManualStepper`` / ``AirPump`` / ``PasteDispenser``）は G-code を生成するだけで送信しない。
+生成した G-code を装置へ送るのは :meth:`Klipper.send_gcode` だけである。
+"""
+
 from __future__ import annotations
 
 import functools
@@ -29,8 +35,7 @@ class Klipper:
 
     Example:
         klipper = Klipper("192.168.1.100")
-        klipper.send_gcode("G28 X Y Z")
-        klipper.wait_for_move()
+        klipper.send_gcode(GCode.homing(x=True, y=True, z=True) + GCode.wait_for_done())
         position = klipper.get_status("gcode_move", "gcode_position")
     """
 
@@ -55,12 +60,16 @@ class Klipper:
 
     @property
     def readonly(self) -> ReadonlyKlipper:
+        """G-code を送れない読み取り専用ビュー（HAL クラスの初期化に渡す）."""
         return self._readonly
 
     def send_gcode(
         self, gcode: GCodeLike, *, timeout: float | None = None
     ) -> dict[str, Any]:
-        """G-codeを送信する.
+        """G-codeを送信し、Klipper がスクリプトを処理し終えるまで待つ.
+
+        処理済みでも移動が物理的に終わったとは限らない。
+        到達を待つときは末尾に ``GCode.wait_for_done()``（M400）を付ける。
 
         Args:
             gcode: 送信するG-codeコマンド（文字列、Iterable、またはGCodeオブジェクト）
@@ -70,7 +79,8 @@ class Klipper:
             Moonrakerからの応答
 
         Raises:
-            RuntimeError: G-codeの実行に失敗した場合
+            RuntimeError: Moonraker が HTTP 400 以上を返した場合（G-code エラー・Klipper 停止中など）
+            httpx.HTTPError: 接続できない・タイムアウトした場合（包まずに送出する）
         """
         url = f"{self._base_url}/printer/gcode/script"
         params = {"script": str(GCode(gcode))}
@@ -91,6 +101,9 @@ class Klipper:
 
         Returns:
             属性の値
+
+        Raises:
+            httpx.HTTPError: 接続失敗、または HTTP エラー応答の場合
         """
         response = self._client.get(
             f"{self._base_url}/printer/objects/query",
@@ -102,7 +115,10 @@ class Klipper:
 
     @functools.cache
     def get_config(self) -> dict[str, dict[str, Any]]:
-        """プリンター設定を取得する.
+        """プリンター設定（printer.cfg の内容）を取得する.
+
+        結果はインスタンスごとにキャッシュする。
+        printer.cfg を変えた後に読み直すには Klipper を作り直す。
 
         Returns:
             プリンターの設定辞書
@@ -192,6 +208,11 @@ class Klipper:
 
 
 class ReadonlyKlipper:
+    """状態と設定の読み取りだけを公開する Klipper のビュー.
+
+    ``send_gcode`` を持たないので、これを受け取った HAL クラスは装置を動かせない。
+    """
+
     def __init__(self, klipper: Klipper) -> None:
         self.get_status = klipper.get_status
         self.get_config = klipper.get_config

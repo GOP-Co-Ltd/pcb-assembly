@@ -1,17 +1,26 @@
 """SSR ページのルーター（backend から取った値でテンプレートを描く）.
 
-`web.api.routers.pages` の移設。装置の状態は一切持たず、`MachineClient` で backend
-から取得した pydantic モデル（`StateResponse` / `MachineInfo` /
-`MachineSettingsResponse` / `JobSpecInfo`）だけを見てテンプレートへ渡す。表示知識は
-`web.ui.layout` にある。
+装置の状態は一切持たず、`MachineClient` で backend から取得した pydantic モデル
+（`StateResponse` / `MachineInfo` / `MachineSettingsResponse` / `JobSpecInfo`）だけを
+テンプレートへ渡す。表示知識（タブ・feature・テンプレート名）は `web.ui.layout` にある。
+backend 取得が 1 本でも失敗したページは 503 ページになる（`BackendUnavailable`）。
+
+feature ページを足すときに触る箇所:
+
+- `web.ui.layout` の ``FEATURE_GROUPS`` に slug を足す（URL 検証の ``TABS`` はここから導出される）
+- `web.ui.layout` の ``FEATURE_TEMPLATES`` にテンプレートを登録する
+- ジョブページなら、テンプレートを ``JOB_TEMPLATES`` に入れる。ジョブ定義は backend の ``GET /api/jobs`` から取り、無ければ 503
+- ジョブでないページなら、表示名を ``FEATURE_LABELS`` に足す
+- ページ固有の値は ``_FEATURE_CONTEXT`` / ``_JOB_FEATURE_CONTEXT`` の provider で足す
+- machine.toml の値が要るなら ``_MACHINE_SETTINGS_FEATURES`` にも足す（ここに無い feature では取得しない）
 
 URL 空間:
 
 - ``/`` と ``/{tab}[/{feature}]`` / ``/settings`` は machine を指定しない入口。既知
   マシンが 1 台なら ``/m/{machine_id}/…`` へ 307、複数ならピッカー、0 台なら案内を出す
 - ``/m/{machine_id}`` 単体も入口で、既定タブへ 307 する
-- ``/m/{machine_id}/…`` が実体。``/m/{machine_id}/settings`` は ``/{tab}`` より**先に**
-  登録する（後だと tab として食われる）
+- ``/m/{machine_id}/…`` が実体。``/m/{machine_id}/settings`` は ``/m/{machine_id}/{tab}``
+  より**先に**登録する（後だと tab として食われる）
 """
 
 from __future__ import annotations
@@ -372,7 +381,7 @@ async def feature_entry(tab: str, feature: str, request: Request) -> Response:
     return await _open_default(request, f"{tab}/{feature}")
 
 
-# /{tab} より先に登録する（後だと settings が tab として食われる）
+# /m/{machine_id}/{tab} より先に登録する（後だと settings が tab として食われる）
 @router.get("/m/{machine_id}/settings", response_class=HTMLResponse)
 async def settings_page(machine_id: str, request: Request) -> HTMLResponse:
     endpoint, client = _resolve(request, machine_id)

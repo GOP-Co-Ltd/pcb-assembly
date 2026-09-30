@@ -1,15 +1,34 @@
 # posctrl
 
-Board/オフセットの位置合わせを担う共通制御モジュール。
-
-- マシン初期化と Board 変換計測のセットアップ（4隅の基準点による6パラメータ affine 変換の最小二乗推定）
-- Board / 位置 / オフセットの調整
-- 設計銅箔のカメラ投影と観測エッジ照合（chamfer、並進のみ）による位置ずれ算出
-- 重複領域ベースの銅箔照合と pad ごとの局所補正
-- Board 巡回・位置合わせ結果のプレビュー用画像合成
+Board/オフセットの位置合わせを担う共通制御モジュール。ペースト塗布（`pcbasm.pasting`）と Pick and Place の双方から利用する。
 
 Board 巡回の実行・ユーザー入力・フレーム配信は `web/api/jobs/posctrl.py` が担う。
 このパッケージでは OpenCV のウィンドウ表示やキーボード入力待ちは行わない。
+
+## 構成
+
+| モジュール         | 役割                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------- |
+| `setup.py`         | マシン初期化から Board 変換計測までの入口 `setup_board_calibration`、終了時に駐機する `machine_session` |
+| `board.py`         | 4 隅の基準点から Board 座標 → 機械座標の 6 パラメータ affine を最小二乗推定 `BoardTransformMeasurer`    |
+| `offset.py`        | 観測座標（カメラ）→ 機械座標の回転を 2 点法で計測 `OffsetTransformMeasurer`                             |
+| `position.py`      | 観測結果が許容誤差に収まるまで XY 位置を反復補正 `XYPositionAdjustor`                                   |
+| `orthogonality.py` | Board 変換から直交性指標を出す純粋計算 `OrthogonalityMetrics`                                           |
+| `copper.py`        | 設計銅箔のカメラ投影 `CopperProjector` と観測エッジとの照合 `CopperEdgeMatcher`（chamfer、並進のみ）    |
+| `correction.py`    | カメラ空間の照合結果を機械座標の補正 `Transform` へ変換 `to_machine_transform`                          |
+| `region.py`        | 銅箔照合領域の計画 `plan_alignment_regions`                                                             |
+| `aligner.py`       | 1 領域の反復計測 `RegionAligner` → `RegionAlignment`                                                    |
+| `alignment.py`     | 全領域の計測 `RegionAlignmentSession` と pad ごとの補正選択 `BoardAlignment`                            |
+| `render.py`        | 位置合わせ・巡回のプレビュー画像合成（cv2 GUI 非依存）                                                  |
+
+公開名は `pcbasm.posctrl` から re-export している。
+
+Board / オフセット調整用の観測は `observe() -> Transform`
+（カメラ mm 空間、原点=画像中心、想定→観測）契約の observer で統一している（`setup.OffsetObserver`）。
+
+## 銅箔位置合わせの仕様
+
+以下の既定値は machine 設定 `[paste_dispenser.pad_align]`（`pcbasm.config.PadAlign`）で変えられる。
 
 銅箔位置合わせでは、基板 outline を既定 0.5 mm inset した safe area 内に、
 既定 100 px・overlap 0.5 の grid を左上から計画する。対象 pad の所属は中心点で
@@ -30,8 +49,3 @@ Board 巡回とペースト塗布では、`Pad.polygon` の最小回転外接矩
 逐次位置合わせを無効化する。照合対象は従来どおり ROI 内の全銅箔輪郭であり、pad
 輪郭だけには限定しない。対象外または照合失敗・非収束の pad は元の領域補正へ
 フォールバックし、全 pad の巡回・塗布は維持する。
-
-Board / オフセット調整用の観測は `observe() -> Transform`
-（カメラ mm 空間、原点=画像中心、想定→観測）契約の observer で統一している。
-
-ペースト塗布と Pick and Place の双方から利用する。

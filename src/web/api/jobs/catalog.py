@@ -200,7 +200,7 @@ class JobCatalog:
 
 
 def default_catalog() -> JobCatalog:
-    """Dev 3 + posctrl 5 + pasting 6 ジョブ登録済みのカタログを返す."""
+    """Dev・posctrl・pasting の全ジョブを登録したカタログを返す（登録順 = UI の並び順）."""
     # 循環 import（dev/posctrl/pasting → manager → catalog）を避けるため遅延 import する
     from web.api.jobs.dev import register_dev_jobs
     from web.api.jobs.pasting import register_pasting_jobs

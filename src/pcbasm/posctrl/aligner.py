@@ -14,7 +14,15 @@ from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 @attrs.frozen
 class RegionAlignment:
-    """収束した1領域の照合結果."""
+    """収束した1領域の照合結果.
+
+    Attributes:
+        region: 照合した領域
+        match: 最終パスの照合結果
+        displacement: 累積の機械変位（mm）。設計上の機械座標に足すと実位置になる
+        increment: 最終パスの変位増分（mm）
+        passes: 収束までのパス数
+    """
 
     region: AlignmentRegion
     match: EdgeMatch
@@ -72,8 +80,16 @@ class RegionAligner:
     ) -> RegionAlignment:
         """累積変位を投影へ反映し、収束した結果だけを返す.
 
+        各パスでステージを ``region.anchor + 累積変位``（Z は focus_z）へ動かして撮像する。
+
+        増分が converge_tolerance_mm 以下になったパスで返す。
+
+        Args:
+            region: 照合する領域
+            initial_displacement: 累積変位の初期値（mm）。Noneなら0
+
         Raises:
-            RuntimeError: match失敗、最大補正超過、または最大パス数で非収束
+            RuntimeError: match失敗、累積変位が max_correction_mm 超過、または max_passes で非収束
         """
         cumulative = initial_displacement or Point2d(0.0, 0.0)
         for passes in range(1, self._max_passes + 1):

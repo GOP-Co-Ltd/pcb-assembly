@@ -20,16 +20,21 @@ def sort_by_nearest[T](
     *,
     key: Callable[[T], Point3d] | None = None,
 ) -> list[T]:
-    """開始点からの巡回経路を最適化する（nearest neighbor + 2-opt）.
+    """``start`` から全アイテムを順に訪ねる移動距離が短くなる順へ並べる.
+
+    nearest neighbor で初期順を作り、2-opt で改善する。
+
+    経路は片道で、最後のアイテムから ``start`` へは戻らない。
+
+    距離は 3D のユークリッド距離で、Point2d を渡せば XY だけで測る。
 
     Args:
-        positions: 並べ替えるアイテムのシーケンス
-        start: 開始点
-        key: アイテムから位置を取り出す関数。省略時はアイテム自身を
-            Point3dとして扱う
+        positions: 並べ替えるアイテム（入力は変更しない）
+        start: 開始位置（戻り値には含めない）
+        key: アイテムから位置を取り出す関数。省略時はアイテム自身を位置として扱う
 
     Returns:
-        開始点からの巡回経路として最適化されたアイテムのリスト
+        並べ替えたアイテムの新しいリスト
     """
     point_of = key if key is not None else cast(Callable[[T], Point3d], lambda x: x)
     remaining = list(positions)

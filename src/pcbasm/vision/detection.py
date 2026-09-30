@@ -31,7 +31,12 @@ DEFAULT_MIN_CIRCULARITY = 0.7
 
 @attrs.frozen
 class Offset:
-    """画像中心からのズレ."""
+    """画像中心から検出位置へのズレ（検出位置 − 画像中心）.
+
+    +x は画像の右、+y は画像の下。
+
+    crop した検出器では crop 画像の中心が基準になる。
+    """
 
     px: Point2d  # pixel単位
     pixel_per_mm: float
@@ -49,7 +54,7 @@ class Offset:
 class DetectedCircle:
     """検出された円."""
 
-    center: Point2d  # 円の中心座標 (pixel)
+    center: Point2d  # 円の中心座標 (pixel、crop 時は crop 画像の左上が原点)
     radius: float  # 円の半径 (pixel)
     offset: Offset  # 画像中心からのズレ
 
@@ -130,6 +135,9 @@ class CenterOffsetDetector(ABC):
 
         Returns:
             OffsetStatistics または有効な検出数が不足した場合はNone
+
+        Raises:
+            ValueError: minimum_sample_count が1以上の整数でない場合
         """
         if (
             isinstance(minimum_sample_count, bool)

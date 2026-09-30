@@ -30,9 +30,9 @@ pcb-assembly はハードウェア装置制御が支配的なプロジェクト�
 `tests/pcbasm/` が `src/pcbasm/` を 1 対 1 でミラーリング:
 
 ```
-src/pcbasm/hal/camera.py     ↔ tests/pcbasm/hal/test_camera.py
-src/pcbasm/vision/detect.py  ↔ tests/pcbasm/vision/test_detect.py
-src/pcbasm/geometry/plane.py ↔ tests/pcbasm/geometry/test_plane.py
+src/pcbasm/hal/camera.py       ↔ tests/pcbasm/hal/test_camera.py
+src/pcbasm/vision/detection.py ↔ tests/pcbasm/vision/test_detection.py
+src/pcbasm/geometry/polygon.py ↔ tests/pcbasm/geometry/test_polygon.py
 ```
 
 - `tests/web/api/` が `src/web/api/`（backend WebAPI）を、`tests/web/ui/` が `src/web/ui/`（UI frontend）を同様にミラーする
@@ -84,10 +84,10 @@ WebUI は 2 プロセスなので、どちらのテストに置くかで検証�
 
 ### 例外: 公開 API 契約ピン
 
-外部利用者が依存する API 名・基底クラス・型エイリアスは契約として固定してよい:
+外部利用者が依存する API 名・基底クラス・型エイリアスは契約として固定してよい。まだ 1 件も無いので、最初に書く人が次を用意する:
 
-- 集約場所: `tests/pcbasm/test_api_contract.py` (新設する場合)
-- マーカー: `@pytest.mark.api_contract`
+- 集約場所: `tests/pcbasm/test_api_contract.py`
+- マーカー: `@pytest.mark.api_contract`（未登録。下の「pytest 設定」に従って先に登録する）
 - 対象例: `__all__` 整合性、公開例外の継承元、型エイリアスの解決先
 
 ## モック (使用する場合のルール)
@@ -113,9 +113,9 @@ mDNS の広告・探索テストは実 `zeroconf` を起動して実マルチキ
 
 ## pytest 設定
 
-`pyproject.toml` 側で:
+`pyproject.toml` の `[tool.pytest.ini_options]` で:
 
-- `--strict-markers`: `hardware`, `api_contract` 等の新マーカーは事前登録必須
+- `--strict-markers` が有効。登録済みのマーカーは `hardware` / `e2e` / `browser` だけ。新しいマーカーは同じ節の `markers` に登録してから使う（未登録だと収集時にエラー）
 - `hardware` マーカーは `tests/helpers.py` の `mark_hardware = pytest.mark.hardware` 経由で付与する (テスト側で文字列リテラル `@pytest.mark.hardware` を直接書かない)
 
 ## 関連 skill / memory

@@ -19,8 +19,10 @@
   </dl>
   <p id="update-notice" class="placeholder"></p>
   <p id="update-blocker" class="toast error" hidden></p>
-  {# 変更操作。backend 側は操作権が要る（frontend 自身のページには操作権が無い） #}
+  {# 変更操作。backend 側は操作権が要る（frontend 自身のページには操作権が無い）。
+     案内の p もこの中に置く（更新が無効な機体では update.js がこの div ごと隠す） #}
   <div class="update-actions"{% if update_requires_control %} data-requires-control{% endif %}>
+    <p class="placeholder" style="flex-basis: 100%">「更新を確認」で最新を取得します。更新があれば「更新して再起動」を押せるようになります。</p>
     <button type="button" id="update-check" data-testid="update-check">更新を確認</button>
     <button type="button" id="update-run" data-testid="update-run" disabled>
       更新して再起動

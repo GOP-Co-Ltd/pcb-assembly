@@ -39,13 +39,17 @@ def render_height_plane(
 ) -> None:
     """HeightPlane の高さを 2D ヒートマップ・基板背景と重ねて PNG 保存する.
 
-    ``pcb_to_plane`` は PCB 背景を HeightPlane と同じ XY 座標系へ写す変換。
+    ヒートマップの値は z=0 の点に ``apply`` した結果、すなわち曲面の高さ [mm]。
+
+    ``pcb_to_plane`` は基板座標の背景を HeightPlane と同じ XY 座標系（通常は機械座標）へ写す変換。
+
+    図の Y 軸は上向きで、``render_pcb`` とは上下の向きが逆になる。
     """
     xs = [p.x for p in height_plane.points]
     ys = [p.y for p in height_plane.points]
     zs = [p.z for p in height_plane.points]
 
-    # z=0で入力するとapply後のz値が補間値そのものになる
+    # z=0で入力するとapply後のz値がフィットした曲面の高さそのものになる
     plane_outline = transform_polygon(pcb.outline.polygon, pcb_to_plane)
     minx, miny, maxx, maxy = plane_outline.bounds
     grid_x = np.linspace(minx, maxx, _MESH_RESOLUTION)
@@ -86,7 +90,10 @@ def render_planned_points(
     title: str,
     output_path: Path,
 ) -> None:
-    """計測予定の probe 点を基板背景に重ねて PNG 保存する."""
+    """計測予定の probe 点を基板背景に重ねて PNG 保存する.
+
+    ``planned_points`` は基板座標 [mm]。図の Y 軸は上向き。
+    """
     fig, ax = plt.subplots(figsize=(10, 8))
     _draw_pcb_background(ax, pcb)
     _draw_planned_hull(ax, planned_points)

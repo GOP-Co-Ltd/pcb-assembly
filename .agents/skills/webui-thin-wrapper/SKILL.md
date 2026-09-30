@@ -22,8 +22,8 @@ skill [webui-e2e](../webui-e2e/SKILL.md)。
 
 - **frontend は backend の値を再計算しない。** SSR ページに要る値は backend の
     エンドポイントに足して取得する（frontend で導出すると backend 直叩きと表示が食い違う）
-- **表示文字列の組み立てはサーバ側。** マシンの表示ラベルは `MachineEndpoint.label`、
-    タブ / feature の表示名は `web.ui.layout` に置く。テンプレートや JS で組み立てない
+- **表示文字列の組み立てはサーバ側。** マシンの表示ラベルは `MachineEndpoint.label`（`src/web/ui/machines.py`）、
+    タブ / feature の表示名は `web.ui.layout` の `TAB_LABELS` / `FEATURE_LABELS` に置く。テンプレートや JS で組み立てない
 - **frontend が持ってよい知識**は「どのページにどのテンプレートと、どの backend 取得が
     必要か」まで（`web.ui.layout` の TAB/FEATURE テーブル、`pages.py` の取得対象の選別）
 - **中継は素通し。** `/m/{machine_id}/api/` 以下を扱う proxy（`src/web/ui/proxy.py`）は

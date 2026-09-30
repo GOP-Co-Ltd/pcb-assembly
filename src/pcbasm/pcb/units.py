@@ -1,6 +1,6 @@
 """KiCad 内部単位（nm、signed 32-bit）と mm の変換.
 
-pcbnew に依存するため ``pcbasm.pcb`` からは re-export しない（``generate`` と同じ扱い）。
+``pcbasm.pcb`` からは re-export しないので、このモジュールを直接 import する。
 """
 
 from __future__ import annotations

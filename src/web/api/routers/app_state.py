@@ -31,8 +31,11 @@ def get_state(
     lease: LeaseDep,
     identity: IdentityDep,
 ) -> StateResponse:
-    # 閲覧は自由なので操作権でゲートしない（`control` は snapshot、`you` は
-    # リクエスト元自身のキー。両者の比較で frontend が「自分が保持者か」を決める）
+    """選択 PCB・装置の使用状況・直近ジョブ・操作権などのアプリ状態を返す.
+
+    閲覧は自由なので操作権でゲートしない。
+    ``control.key`` と ``you.key`` が一致すれば、リクエスト元が操作権の保持者である。
+    """
     return build_state_response(
         state, settings, preview, jobs, lease.snapshot(), identity
     )

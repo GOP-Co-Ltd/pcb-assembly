@@ -209,6 +209,11 @@ def correct_rotations_per_ul(
     採用できた点だけを合計体積で集約する。
     点ごとの比を平均すると小さい点の相対誤差が効きすぎるので、合計どうしの比を使う。
 
+    算出:
+        ratio = 採用点の推定量の合計 / (amount_ul × 採用点の数)
+        補正後の係数 = rotations_per_ul / ratio を、補正前の 1/3〜3 倍に頭打ちする
+    指令より多く出ていれば（ratio > 1）係数は小さくなる。
+
     Args:
         predictions: 点ごとの推定結果（入力順）
         amount_ul: 1 点あたりの指令塗布量 [μL]

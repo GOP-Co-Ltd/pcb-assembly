@@ -66,11 +66,14 @@ class OffsetTransformMeasurer:
         1. 現在位置で対象を検出しオフセット o1 を取得
         2. X方向に move_distance だけ移動
         3. 移動後に検出しオフセット o2 を取得
-        4. 元の位置に戻る
-        5. 移動ベクトルと (o1 - o2) の角度差から回転を計算
+        4. 元の位置（XYZ）に戻る
+        5. 移動ベクトルと (o2 - o1) の角度差から回転を計算
 
         Returns:
-            観測座標系から機械座標系への回転変換
+            観測座標系から機械座標系への回転変換（純回転）
+
+        Raises:
+            RuntimeError: ``observe`` の検出失敗（CircleDetectionError など）はそのまま伝わる
         """
         self._logger.info("オフセット補正の計測を開始")
 

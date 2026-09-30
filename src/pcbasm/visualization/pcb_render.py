@@ -25,7 +25,10 @@ def render_pcb(
     components: ComponentList,
     output_path: Path,
 ) -> None:
-    """アウトライン・銅箔・パッド・部品位置を1枚のPNGに重ね描きして保存する."""
+    """アウトライン・銅箔・パッド・部品位置を1枚のPNGに重ね描きして保存する.
+
+    入力は基板座標 [mm] で、図の Y 軸は下向き（KiCad と同じ見た目）。
+    """
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_aspect("equal")
     ax.set_facecolor("#2a2a2a")

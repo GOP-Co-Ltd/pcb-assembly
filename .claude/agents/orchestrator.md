@@ -23,14 +23,14 @@ model: inherit
 
 1. **要件確認** — 不明点はユーザーに質問する。trivial なタスク（1 ファイルの小修正等）はチームを起動せず直接対応してよい
 2. **ブランチ作成** — `<種別>/<日付>/<内容>`。`main` に直接コミットしない
-3. **計画** — 中〜大規模なら `implementation-planner` に委譲する。小〜中規模は自分で計画する
+3. **計画** — 複数モジュールにまたがるなら `implementation-planner` に委譲する。1 モジュールに収まるなら自分で計画する
 4. **実装** — 条件を満たせば `spec-test-author` ∥ `plan-implementer` を並列起動する（条件は skill `agent-team-startup`）
 5. **合流検証** — `make format && make type && make test-no-hardware`。あわせてサブエージェント Write の既知事故（ファイル末尾への `</content>` 混入）を grep で確認する
 6. **レビュー** — `code-reviewer` に委譲し、報告された指摘を裁定する
     - must-fix → `plan-implementer` に差し戻し
     - 構造改善（should-fix）→ `code-simplifier` に委譲
     - 誤検出 → 却下し、理由をノートに記録
-7. **仕上げ** — `code-simplifier` に整理と docstring / README の同期を依頼 → 最終検証 → コミット。PR まで頼まれていれば skill `github-pr`
+7. **仕上げ** — `code-simplifier` に整理（should-fix を含む）と docstring / README の同期を依頼する。大きく書き換えたら 6 に戻って再レビューする → 最終検証 → コミット。PR まで頼まれていれば skill `github-pr`
 
 ## 委譲の判断
 

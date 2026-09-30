@@ -89,6 +89,10 @@ def _resolve_browsable(settings: Settings, rel: str) -> Path:
 
 @router.get("/files")
 def list_files(settings: SettingsDep, path: str = "") -> FilesResponse:
+    """ディレクトリと ``.kicad_pcb`` ファイルを列挙する（``path`` は pcb_browse_root からの相対）.
+
+    400: 絶対パス・範囲外・許可サブツリー外 / 404: ディレクトリが無い。
+    """
     root = settings.pcb_browse_root.resolve()
     allowed = _allowed_roots(settings)
     directory = _resolve_under_root(root, path)
@@ -129,6 +133,10 @@ def put_pcb_file(
     identity: IdentityDep,
     control: ControlDep,
 ) -> StateResponse:
+    """既存の PCB ファイルを選択し、更新後のアプリ状態を返す.
+
+    400: 許可サブツリー外・拡張子不正 / 404: ファイルが無い / 409: 装置が使用中。
+    """
     root = settings.pcb_browse_root.resolve()
     resolved = _resolve_browsable(settings, body.path)
     if resolved.suffix != PCB_SUFFIX:

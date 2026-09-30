@@ -67,6 +67,14 @@ class CheckerboardCalibrator:
         pattern_rows_range: tuple[int, int] = (4, 12),
         pattern_cols_range: tuple[int, int] = (4, 12),
     ) -> None:
+        """CheckerboardCalibratorを初期化する.
+
+        Args:
+            square_size_mm: チェッカーボード1マスの実寸 (mm)
+            crop_size: 検出に使う画像中心の切り出しサイズ (width, height)
+            pattern_rows_range: 試す内側コーナー行数の範囲 [下限, 上限)
+            pattern_cols_range: 試す内側コーナー列数の範囲 [下限, 上限)
+        """
         self._square_size_mm = square_size_mm
         self._crop_size = crop_size
         self._pattern_rows_range = pattern_rows_range
@@ -74,6 +82,10 @@ class CheckerboardCalibrator:
 
     def calibrate(self, image: Image) -> tuple[CalibrationResult, Image] | None:
         """画像からキャリブレーションを実行.
+
+        結果の z_position は None のまま返す。
+
+        撮影時の Z を残すなら呼び出し側で ``attrs.evolve`` して設定する。
 
         Returns:
             (キャリブレーション結果, コーナー描画済み画像) または検出失敗時はNone

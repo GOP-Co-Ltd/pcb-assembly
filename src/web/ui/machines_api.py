@@ -3,8 +3,11 @@
 `web.ui.pages` の ``/{tab}`` キャッチオールに食われないよう、アプリでは
 `pages.router` より**先に**登録する（`web.ui.app.create_app`）。
 
-frontend の唯一の自前 JSON エンドポイント。mDNS 探索で一覧が増減しても、ページを
-再読み込みせずドロップダウンを組み替えられるようにするために置く。
+mDNS で一覧が増減しても、再読み込みせずにドロップダウンを組み替えるために置く。
+
+呼び出し元は ``static/js/machine_selector.js``。
+
+frontend 自身の JSON は他に `web.ui.update_api` にもある。
 """
 
 from __future__ import annotations

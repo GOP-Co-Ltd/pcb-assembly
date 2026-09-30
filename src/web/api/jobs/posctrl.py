@@ -150,7 +150,7 @@ class _CachedPosition:
 def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     """基準点 (top left) をジョグで合わせ、現在位置を設定へ保存する.
 
-    マシン操作パネル（ジョブモード）の WS command でジョグし、record で 現在位置を確定・即時反映、quit で中止する。
+    マシン操作パネル（ジョブモード）の WS command でジョグし、record で現在位置を確定・即時反映、quit で中止する。
     """
     machine = ctx.machine
     klipper = create_command_klipper(machine)

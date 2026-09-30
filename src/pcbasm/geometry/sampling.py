@@ -32,25 +32,32 @@ def sample_points_in_polygons(
 ) -> list[Point2d]:
     """ポリゴン領域の内部からprobe用の点を安全かつ広く分散するようサンプルする.
 
-    各ポリゴンを min_radius だけ内側にオフセットした領域内に、細かめのグリッド候補、
-    各連結部分の中心(pole of inaccessibility)、および内側領域の境界寄り候補を生成する。
-    outline_margin が正の場合は、outline をその距離だけ内側にオフセットした領域との
-    交差内に候補を制限する。outline が指定された場合は基板外形 bbox の anchor に近い
-    候補を先に取り、残りを clearance を飽和させた Farthest Point Sampling で選ぶ。
+    座標と長さは ``polygons`` と同じ座標系・単位で扱う（呼び出し元では基板座標 [mm]）。
+
+    候補点は、各ポリゴンを min_radius だけ内側にオフセットした領域から作る。
+
+    候補はグリッド点、各連結部分の中心(pole of inaccessibility)、内側領域の境界寄りの点。
+
+    outline_margin が正なら、outline をその距離だけ内側にオフセットした領域の中に候補を限る。
+
+    outline を渡すと、基板外形 bbox の四隅・辺中央・中心に近い候補を先に選ぶ。
+
+    残りは、境界から遠い点を優先する Farthest Point Sampling で選ぶ。
 
     Args:
-        polygons: 入力ポリゴン群（例: 銅箔島のpolygon。呼び出し側でフィルタ済みを想定）
-        min_radius: probe ground対応半径 [mm]
-        min_samples: 最小サンプル数 (3以上を想定)
+        polygons: 点を置いてよいポリゴン群（例: 銅箔島。呼び出し側でフィルタ済み）
+        min_radius: 点がポリゴン境界（穴を含む）から離れるべき最小距離
+        min_samples: 最小サンプル数
         max_samples: 最大サンプル数
         outline: 基板外形ポリゴン。指定時は外周側のカバレッジを優先する
-        outline_margin: probe点がoutline境界から確保すべき最小距離 [mm]
+        outline_margin: 点がoutline境界から離れるべき最小距離。正の値には outline が必須
 
     Returns:
-        選ばれたprobe点 (Point2d) のリスト。
+        選んだprobe点のリスト（点数は min_samples 以上 max_samples 以下）
 
     Raises:
-        ValueError: outline_marginが不正、または候補点がmin_samplesに満たない場合
+        ValueError: outline_margin が不正（負・outline 無し・内側が空）な場合
+        ValueError: 候補点が min_samples に満たない場合
     """
     sampling_outline = _inset_outline(outline, outline_margin)
     allowed_region = sampling_outline if outline_margin > 0.0 else None

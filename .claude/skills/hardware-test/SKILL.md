@@ -11,21 +11,23 @@ description: PCBアセンブリのハードウェアテスト記述・実行手�
 
 `tests/helpers.py` で以下を提供：
 
-| 名前                    | 用途                                                          |
-| ----------------------- | ------------------------------------------------------------- |
-| `mark_hardware`         | `pytest.mark.hardware` のエイリアス。ハードウェアテストに付与 |
-| `skip_if_no_usb_camera` | USBカメラ（uvcvideo）非接続時にスキップ                       |
-| `skip_if_no_csi_camera` | CSIカメラ（picamera2）非接続時にスキップ                      |
+| 名前                    | 用途                                                                       |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `mark_hardware`         | `pytest.mark.hardware` のエイリアス。ハードウェアテストに付与              |
+| `skip_if_no_usb_camera` | USBカメラ（uvcvideo）非接続時にスキップ                                    |
+| `skip_if_no_csi_camera` | CSIカメラ（picamera2）非接続時にスキップ                                   |
+| `skip_if_no_alsa_audio` | ALSA 再生デバイス（`aplay -l`）が無いときにスキップ                        |
+| `skip_if_no_mdns`       | mDNS が使えない環境でスキップ。実機ではないので `mark_hardware` は付けない |
 
 ### 使用例
 
 ```python
-from tests.helpers import mark_hardware, skip_if_no_usb_camera
+from tests.helpers import FakeCamera, mark_hardware, skip_if_no_usb_camera
 
 
 class TestCameraCapture:
-    def test_with_fake(self, fake_camera):
-        # 自前 HAL の fake で振る舞いをテスト
+    def test_with_fake(self):
+        camera = FakeCamera(images)  # 自前 HAL の fake で振る舞いをテスト
         ...
 
     @mark_hardware
@@ -39,7 +41,7 @@ class TestCameraCapture:
 
 同一テストクラス内に「fake 版」と「ハードウェア版」を併存させる。
 
-- fake 版：`tests.helpers.FakeCamera` など自前 HAL の実装を利用し、CIで実行
+- fake 版：`tests/helpers.py` の `FakeCamera` / `FakeKlipper` / `FakeAudioPlayer`（自前 HAL の fake）を使い、常時実行
 - ハードウェア版：`@mark_hardware` 付与、実機接続時のみ実行
 
 ## 接続確認コマンド
@@ -59,6 +61,9 @@ agent が実行してよいのはこれだけ:
 ```bash
 # ハードウェアテストを除外
 make test-no-hardware
+
+# 範囲を絞るときも -m "not hardware" を必ず付ける（対象パスに関係なく）
+uv run pytest tests/pcbasm/hal/ -m "not hardware"
 ```
 
 以下は**ユーザーが手元で実行する**コマンド。実機が動くため agent は実行しない（`make test` は `settings.json` で deny 済み）。
@@ -76,6 +81,6 @@ uv run pytest tests/pcbasm/hal/ -m hardware
 
 ## `tests/helpers.py` 拡張時の注意
 
-- 新しい skip マーカー（例：`skip_if_no_klipper`）を追加する場合は `helpers.py` に定義し、テストから import
-- マーカー判定関数は `_` prefix の private（例：`_usb_camera_available`）
-- import 時の副作用（ハードウェア初期化）が起きないよう、判定は遅延評価できる構造に
+- 新しい skip マーカー（例：`skip_if_no_klipper`）は `helpers.py` に定義し、テストから import する
+- 判定関数は `_` prefix の private にする（例：`_usb_camera_available`）
+- マーカーは `_skip_unless_available(判定関数, skip 理由)` で作る。判定はテスト実行時に走るので、import 時にハードウェアを初期化しない

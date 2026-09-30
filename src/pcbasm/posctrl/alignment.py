@@ -50,7 +50,12 @@ def is_pad_refinement_target(
 
 @attrs.frozen
 class BoardAlignment:
-    """成功した領域の変位からpad中心の補正を求める."""
+    """成功した領域の変位からpad中心の補正を求める.
+
+    Attributes:
+        results: 優先して使う成功結果（pad 中心照合を使うときはその結果）
+        fallback_results: results で点を覆えないときに使う成功結果（領域照合の結果）
+    """
 
     results: tuple[RegionAlignment, ...]
     fallback_results: tuple[RegionAlignment, ...] = ()
@@ -58,7 +63,15 @@ class BoardAlignment:
     def correction_for(
         self, board_point: Point2d, *, designator: str | None = None
     ) -> Transform:
-        """点を覆う成功領域、なければ最近傍の成功領域から純並進を返す.
+        """Board 座標の点に使う補正（機械座標の純並進）を返す.
+
+        返り値は ``board_transform.apply(board_point)`` に適用する。
+
+        選び方は次の順:
+
+        1. results に点を覆う領域があれば、その中で変位が他と最も揃うもの
+        2. 覆う領域が無く fallback_results があれば、fallback_results で 1 から選び直す
+        3. どちらも無ければ、領域中心が点に最も近い成功結果
 
         Raises:
             ValueError: 成功領域が1件もない場合
@@ -148,7 +161,10 @@ class RegionAlignmentSession:
         )
 
     def plan_regions(self, pad_centers: Sequence[Point2d]) -> list[AlignmentRegion]:
-        """塗布対象pad中心を覆う照合領域を計画する."""
+        """塗布対象pad中心（board 座標）を覆う照合領域を計画する.
+
+        巡回順は現在のステージ位置から近い順に決める。
+        """
         return plan_alignment_regions(
             self._projector,
             self._board_transform,
@@ -163,7 +179,7 @@ class RegionAlignmentSession:
         )
 
     def align(self, region: AlignmentRegion) -> RegionAlignment | None:
-        """領域を照合し、失敗または非収束ならNoneを返す."""
+        """領域を照合し、失敗または非収束ならNoneを返す（例外にしない）."""
         try:
             return self._aligner.measure(region)
         except RuntimeError as exc:
@@ -176,7 +192,16 @@ class RegionAlignmentSession:
         initial_correction: Transform,
         board_area: Polygon,
     ) -> RegionAlignment | None:
-        """領域補正を初期値に、pad中心で銅箔照合を収束させる."""
+        """領域補正を初期値に、pad中心で銅箔照合を収束させる.
+
+        Args:
+            board_point: pad中心（board 座標）
+            initial_correction: 初期値にする補正（``BoardAlignment.correction_for`` の結果）
+            board_area: 結果が覆う範囲（board 座標）。通常は pad のポリゴン
+
+        Returns:
+            収束した結果。失敗または非収束ならNone
+        """
         anchor = self._board_transform.apply(board_point)
         initial_displacement = initial_correction.apply(anchor) - anchor
         region = AlignmentRegion(

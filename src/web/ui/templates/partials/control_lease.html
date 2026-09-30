@@ -1,5 +1,10 @@
 {# 操作権リースのバー。表示と取得/解放/奪取。表示名はこの端末の cookie に持つ
    （ProxyApp が backend へのヘッダに翻訳する）。
+   操作権を持つのは 1 台の端末だけ。持たない端末では data-requires-control の要素
+   （ジョブの実行・マシン操作・設定の編集など）が押せない。緊急停止・ジョブの中止・
+   表示の切替は誰でも押せる。
+   ボタンは状態で出し分ける: 空きなら「取得」、自分が保持中なら「解放」、
+   他の端末が保持中なら「奪取」（奪われた側は閲覧のみになる）。
    このバー自身は data-requires-control を付けない（閲覧者が操作権を取る唯一の入口） #}
 <div id="control-lease" class="control-lease" data-testid="control-lease">
   <span id="control-holder" class="control-holder" data-testid="control-holder"></span>
@@ -10,6 +15,6 @@
           data-testid="control-acquire" hidden>取得</button>
   <button id="control-release" type="button" title="操作権を解放する"
           data-testid="control-release" hidden>解放</button>
-  <button id="control-takeover" type="button" title="保持者から操作権を奪う"
+  <button id="control-takeover" type="button" title="保持者から操作権を奪う（保持者は閲覧のみになる）"
           data-testid="control-takeover" hidden>奪取</button>
 </div>

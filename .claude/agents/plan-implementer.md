@@ -25,7 +25,7 @@ effort: medium
 2. 既存コードを Read / Grep で把握する
 3. 実装する（規約は skill `refactor-conventions`、ハードウェア関連は skill `hardware-test`）
 4. テストを書く（`class TestXxx` 形式、private の直接テストは避ける）
-    - spec-test-author が engagement 済みの場合、テストファイル（`tests/pcbasm/`）は編集しない。実装で通すのがこの agent の役目
+    - spec-test-author が engagement 済みの場合、テストファイル（`tests/`）は編集しない。実装で通すのがこの agent の役目
 5. `make format && make type && make test-no-hardware` を実行し、すべてパスすることを確認する
 6. 結果と判断ログを報告する
 

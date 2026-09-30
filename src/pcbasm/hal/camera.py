@@ -117,7 +117,7 @@ class Camera(abc.ABC):
 
     @abc.abstractmethod
     def capture(self) -> Image:
-        """1フレームをキャプチャして返す."""
+        """1フレームをキャプチャして返す（BGR）。取得に失敗したら例外を送出する."""
 
 
 class _UsbCamera(Camera):
@@ -305,7 +305,12 @@ def create_camera(
         height: 解像度の高さ。
         fps: フレームレート。
         format: フォーマットコード（4文字）。USB バックエンドのみ有効。
-        backend: カメラバックエンド。"usb"（デフォルト）または "csi"。
+        backend: カメラバックエンド。"csi"（デフォルト）または "usb"。
+
+    Raises:
+        OSError: デバイスが見つからない場合
+        RuntimeError: USB カメラが指定のフォーマット・解像度に対応しない場合
+        ValueError: 未知のバックエンドの場合
     """
     match backend:
         case "usb":

@@ -140,8 +140,15 @@ class FillPlan:
         プレビュー（webui router）と実行（``PasteApplicator``）が同一の対応で計画を生成し、
         両者の乖離を構造的に防ぐ。
 
+        ``line_direction`` は実際の方式が line になったときだけ効く（area / dot では無視する）。
         ``line_direction`` が outward / inward でも ``line_reference``（部品位置）が無い pad
         は向きを揃えられないので unconstrained として扱う。
+
+        Args:
+            polygon: pad のポリゴン（board 座標 [mm]）
+            config: ``Machine.paste_dispenser``（ノズル径と auto 判定の閾値を使う）
+            params: この pad の解決済み塗布パラメータ
+            line_reference: 部品位置（board 座標）。outward は部品位置から遠ざかる向き、inward は近づく向きに線を引く
         """
         plan = cls.build(
             polygon,

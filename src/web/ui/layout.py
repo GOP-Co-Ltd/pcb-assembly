@@ -1,6 +1,6 @@
 """ページ構成の表示知識（タブ / feature / テンプレート / 設定セクション）.
 
-`web.api.routers.pages` が持っていた**純粋な表示知識だけ**を frontend 側へ移した。
+ここに置くのは**純粋な表示知識だけ**。
 装置の事実（フレーム提供の有無・progress_stage 文字列・ジョブのパラメータ定義）は
 ここには置かない。それらは backend が `GET /api/jobs` の `JobSpecInfo` で自己申告し、
 frontend はその値をテンプレートへ渡すだけにする。

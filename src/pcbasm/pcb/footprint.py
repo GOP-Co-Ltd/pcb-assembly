@@ -1,6 +1,6 @@
 """KiCad footprint ライブラリの検索・読込と、footprint / pad の幾何ユーティリティ.
 
-pcbnew に依存するため ``pcbasm.pcb`` からは re-export しない（``generate`` と同じ扱い）。
+``pcbasm.pcb`` からは re-export しないので、このモジュールを直接 import する。
 """
 
 from __future__ import annotations
@@ -120,7 +120,10 @@ class FootprintEnvelope:
 
 
 def format_footprint_id(library: str, footprint: str) -> str:
-    """``<library>.pretty/<footprint>`` 形式の footprint id を組む."""
+    """Footprint id ``<library>/<footprint>`` を組む.
+
+    ``library`` は ``.pretty`` 付きのディレクトリ名（例: ``Resistor_SMD.pretty``）。
+    """
     return f"{library}/{footprint}"
 
 
@@ -376,7 +379,9 @@ def footprint_polygons(
 ) -> tuple[tuple[LayerName, tuple[Point2d, ...]], ...]:
     """Footprint の各 pad を ``layers`` ごとの ``(レイヤ名, 頂点列)`` に展開する [mm].
 
-    footprint の現在位置・回転が反映される。3 頂点未満の輪郭は除く。
+    座標は footprint の現在位置・回転を反映した KiCad 座標で、基板座標には正規化しない。
+
+    3 頂点未満の輪郭は除く。
     """
     polygons: list[tuple[LayerName, tuple[Point2d, ...]]] = []
     for pad in footprint.Pads():

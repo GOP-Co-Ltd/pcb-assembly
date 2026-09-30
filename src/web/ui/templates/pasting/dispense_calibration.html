@@ -4,8 +4,18 @@
 {% import "partials/job_params.html" as job_params %}
 <h2>{{ feature_label }}</h2>
 <p class="job-intro">
-  既存の rotations_per_ul を基準に、実際の銅板への線引きで ①→②→③ を順に補正します。
-  初期値をゼロから設定する場合は、ペーストローディング画面の質量キャリブレーションを使ってください。
+  既存の rotations_per_ul を基準に、銅板へ線を引いて ①→②→③ を順に補正します。
+  rotations_per_ul の初期値をゼロから作る場合は、先に「ペーストローディング」画面の質量キャリブレーションを使ってください。
+  ① と ② では線の質量を量るので、電子天秤を用意します。
+</p>
+<ol class="job-intro">
+  <li>未塗布の銅板を装置に置き、「実行」を押す（位置合わせと高さ計測の後、キャリブレーションメニューが押せるようになる）</li>
+  <li>「ローディング」欄の押出/吸引でプライムする</li>
+  <li>① ② ③ のボタンで補正を実行する（途中の指示はジョブのログに出る）</li>
+  <li>「終了（設定反映へ）」を押す</li>
+</ol>
+<p class="job-intro">
+  採用した値はその時点で machine.toml に保存され、途中で中止しても残ります。
 </p>
 <form id="job-form" class="job-form dispense-calibration-form" data-requires-control
       data-job-name="{{ job_name }}" data-testid="job-form">

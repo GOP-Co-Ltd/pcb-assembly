@@ -58,9 +58,9 @@ class BackendGateway:
     （MJPEG は無制限、その他は ``proxy_read_timeout``）。SSR はこの既定値
     （``ssr_timeout``）で待つ。
 
-    MR4 時点でエンドポイントは起動時に読んだ静的登録だけなので、
-    ``machine_id`` に対する host/port は不変。mDNS で変化しうる MR5 では
-    キャッシュの更新規則が必要になる。
+    クライアントは ``machine_id`` ごとに初回の ``base_url`` で作り、以後差し替えない。
+    mDNS だけで見つかったマシンの host/port が変わっても、SSR（相対パスで取る `MachineClient`）は再起動まで古い宛先へ繋ぐ。
+    `ProxyApp` は絶対 URL を渡すので、中継は常に最新の host/port へ行く。
     """
 
     def __init__(

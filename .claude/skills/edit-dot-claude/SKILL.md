@@ -44,7 +44,7 @@ description: .claude/ 配下のファイル編集は permission prompt を要求
 
 ## 注意点
 
-- `/tmp/dot-claude-work/` は session を跨いで残る。別タスクの作業残骸と混ざらないよう、1 タスク 1 サブディレクトリで分けるか、開始時に `rm -rf /tmp/dot-claude-work/<name>` で初期化する (※ `rm -rf:*` は deny されているので、`rm -rf` ではなく `rm -r` を使う)
+- `/tmp/dot-claude-work/` は session を跨いで残る。1 タスク 1 サブディレクトリに分けるか、開始時に `rm -r /tmp/dot-claude-work/<name>` で初期化する（`rm -rf` は deny 済みで使えない）
 - directory ごと書き戻すとき、削除を含む変更 (file を消した) は単純な `cp -r` では反映されない。削除を含む変更を書き戻す場合は、書き戻し先の対象 file を個別に確認するか、`cp -r src/. dst/` で同期した後に書き戻し先の余計な file を個別に Edit / Bash で消す
 - 単一 file の編集なら `cp file /tmp/... && Edit /tmp/... && cp /tmp/... file` でも同じ
 - 並列化との関係: 同一 /tmp file への複数 Edit は逐次必須 (skill [maximize-parallels](../maximize-parallels/SKILL.md))。/tmp の異なる file への Edit は並列可

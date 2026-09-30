@@ -58,8 +58,9 @@ def _instance_id(info: ServiceInfo) -> str:
 def _api_compatible(properties: Mapping[bytes, bytes | None]) -> bool:
     """広告の ``api`` がこの frontend で描ける版か.
 
-    欠損・decode 不能・数値でない場合は互換扱いで通す（キー欠損はフォールバック）。 読めて **違う版のときだけ**
-    落とす（描けない backend を一覧に出さない）。
+    欠損・decode 不能・数値でない場合は互換扱いで通す。
+
+    読めて **違う版のときだけ** 落とす（描けない backend を一覧に出さない）。
     """
     raw = _text(properties, TXT_KEY_API)
     if raw is None:
@@ -100,7 +101,7 @@ def endpoint_from_service_info(info: ServiceInfo) -> MachineEndpoint | None:
 
 
 class MachineDiscovery:
-    """MDNS で見つけた backend を集めて変化のたびに通知する.
+    """LAN 上の backend を mDNS で集め、発見集合が変わるたびに通知する.
 
     `start` / `stop` は frontend の lifespan から await する。通知先は
     `MachineRegistry.set_discovered`（同期呼び出し）。
