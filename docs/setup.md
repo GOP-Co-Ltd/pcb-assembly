@@ -49,8 +49,10 @@ OS をインストールした Raspberry Pi 上で、次の順に実行する。
     ./scripts/setup-hardware.sh
     ```
 
-    - カメラは CAMERA port 0 / 1 と driver（`ov9281` または手入力）を選ぶ
-    - スピーカーは `max98357a`、overlay 名の手入力、未設定から選ぶ
+    - カメラは CAMERA port 0 / 1 と driver を選ぶ。driver は `ov9281`（標準構成）、`imx708`、
+        `imx477`、`imx296`、`imx219`、`ov5647`、overlay 名の手入力から選ぶ
+    - スピーカーは `max98357a`（標準構成）、`hifiberry-dac`、`hifiberry-dacplus`、
+        `iqaudio-dacplus`、`googlevoicehat-soundcard`、overlay 名の手入力、未設定から選ぶ
     - BTT SKR Pico v1.0 は画面の案内に従って BOOT jumper と RESET を操作し、
         `/media/$USER/RPI-RP2` volume へ同梱 UF2 firmware をコピーする
     - 最後に案内される `sudo reboot` で boot 設定を反映する
