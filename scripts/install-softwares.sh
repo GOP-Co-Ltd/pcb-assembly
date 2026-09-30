@@ -24,6 +24,9 @@ git lfs install
 cd ~ && git clone https://github.com/dw-0/kiauh.git
 ./kiauh/kiauh.sh
 
+# 独自 kinematics (inversed_corexy) を Klipper に symlink する
+"$PROJECT_ROOT/scripts/install-klipper-kinematics.sh"
+
 # ロードセルプローブ ([load_cell_probe]) の依存を klippy-env に追加
 # numpy は必須、scipy は drift/notch フィルタ (drift_filter_cutoff_frequency 等) 用
 ~/klippy-env/bin/pip install numpy scipy

@@ -39,6 +39,8 @@ OS をインストールした Raspberry Pi 上で、次の順に実行する。
 
     - apt で KiCad、`python3-picamera2`、`git-lfs`、`alsa-utils` などを入れ、Git LFS の実体を取得する
     - 途中で KIAUH が対話式で起動する。Klipper、Moonraker、Mainsail を選んで入れる
+    - KIAUH の終了後、`scripts/install-klipper-kinematics.sh` で独自 kinematics
+        （`inversed_corexy`）を `~/klipper/klippy/kinematics/` へ symlink する
     - 最後に uv を入れ、`make setup` で Python 環境（`.venv`）と pre-commit フックを作る。別途 `make setup` を実行する必要はない
 
 3. カメラ・スピーカー・Klipper MCU firmware を対話式で設定する。
