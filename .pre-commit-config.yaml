@@ -1,3 +1,6 @@
+# 外部から vendoring した skill は upstream と同一に保つため整形対象外にする。
+exclude: ^\.(claude|agents)/skills/yomiyasu/
+
 default_language_version:
   python: python3
 
