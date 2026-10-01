@@ -5,7 +5,7 @@
 ## ハードウェア
 
 - Raspberry Pi 5
-- Pick and PlaceまたはPaste Dispenser Machine
+- Pick and Place または Paste Dispenser Machine
 - スピーカー（通知音を使う場合。I2S DAC / アンプまたは HDMI 音声出力）
 
 ## ソフトウェア
@@ -79,5 +79,5 @@ OS をインストールした Raspberry Pi 上で、次の順に実行する。
 
 ## GitHub Actions Runner
 
-専用のRaspberry Pi 5をGitHub Actionsのself-hosted runnerとして構築する場合は、
-[`github-runner/README.md`](../github-runner/README.md)を参照する。
+専用の Raspberry Pi 5 を GitHub Actions の self-hosted runner として構築する場合は、
+[`github-runner/README.md`](../github-runner/README.md) を参照する。

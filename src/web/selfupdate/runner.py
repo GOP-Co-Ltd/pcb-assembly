@@ -1,6 +1,6 @@
 """更新の逐次実行（単一実行ロック・report 永続化・再起動の予約）.
 
-実行順序（計画書「1. 共通モジュール」）:
+実行順序は次のとおり（計画書「1. 共通モジュール」）。
 
 ```
 0 単一実行ロック（flock: state_dir/update.lock）  … 同居機の api/ui 同時実行も止まる
@@ -13,14 +13,15 @@
 7 schedule_restart(active_units())
 ```
 
-**参照先は絶対にリクエストパラメータにしない。** ブランチ・remote・ref・`uv` の引数は
-すべて `UpdateSettings` 側の固定値。ここを開けると「LAN から任意コード実行」に悪化する。
+参照先は絶対にリクエストパラメータから受け取らない。ブランチ・remote・ref・`uv` の
+引数はすべて `UpdateSettings` 側の固定値。リクエストから指定できるようにすると、
+LAN 上の誰でも任意コードを実行できるようになる。
 
-更新以外に 2 つの役目を兼ねる（どちらも同じ `UpdateSettings` と観測値を使うため）:
+更新以外に次の 2 つの役目を兼ねる（どちらも同じ `UpdateSettings` と観測値を使うため）。
 
 - `restart_services()`: 更新せずに unit だけ再起動する（ファームウェア再起動から呼ぶ）
 - `start_watching()`: 通知のための定期 `git fetch`（`GET status` は fetch しないので、
-  これが無いと「更新があります」が誰かの手動確認まで出ない）
+  これが無いと、誰かが手動で確認するまで「更新があります」が出ない）
 """
 
 from __future__ import annotations
@@ -74,8 +75,8 @@ class UpdateRunner:
     def __init__(self, settings: UpdateSettings) -> None:
         """設定を保持する（副作用なし）.
 
-        `state_dir` は実行時に作る。アプリ生成だけでディレクトリが生えると、
-        更新を一度も使わないテストや frontend 専用機にゴミを残すため。
+        `state_dir` は実行時に作る。アプリ生成だけでディレクトリを作ると、
+        更新を一度も使わないテストや frontend 専用機に不要なディレクトリが残るため。
 
         Args:
             settings: リポジトリ・外部バイナリ・タイムアウトの設定
@@ -98,7 +99,7 @@ class UpdateRunner:
         """再起動対象（active な pcbasm unit）。プロセス生存中は 1 度だけ観測する.
 
         unit の構成が変わるのは install / 更新のときで、そのときはこのプロセス自身が
-        再起動している。毎回のポーリングで `systemctl` を起こさないためにキャッシュする。
+        再起動している。ポーリングのたびに `systemctl` を実行しないようキャッシュする。
         """
         if self._units is None:
             try:
@@ -116,7 +117,7 @@ class UpdateRunner:
         """Remote を fetch してから観測する（更新の有無を確かめる操作）."""
         fetch_error = None
         if self._settings.enabled and not self.running:
-            # 無認可で叩ける経路なので短く縛る（スレッドプールを長時間占有させない）
+            # 認可なしで呼べる経路なので短く制限する（スレッドプールを長時間占有させない）
             fetch_error = fetch(
                 self._settings, timeout=self._settings.check_fetch_timeout
             )
@@ -157,14 +158,14 @@ class UpdateRunner:
     def restart_services(self) -> str | None:
         """更新せずに pcbasm の unit を再起動する（断る理由があれば返す）.
 
-        ファームウェア再起動から呼ぶ「装置ごと立て直す」経路。**再起動対象も argv も
-        更新時と同一**（`active_units()` + `restart_command`）なので、sudoers に許可を
+        ファームウェア再起動から呼ぶ、装置全体を再起動し直す経路。再起動対象も argv も
+        更新時と同一（`active_units()` + `restart_command`）なので、sudoers に許可を
         足す必要はない。
 
-        更新と同じ flock を取る。`running` はこのプロセスの更新スレッドしか見ないが、
-        同居機では backend と frontend が同じ `update.lock` を共有するので、**相方が
-        `uv sync` の最中に unit を落とす**のを止められるのはロックだけ。ロックは
-        再起動を投げ終えるまで握り続ける（先に返すと同じ窓が開き直す）。
+        更新と同じ flock を取る。`running` はこのプロセスの更新スレッドしか見ない。
+        同居機では backend と frontend が同じ `update.lock` を共有するので、もう一方の
+        プロセスが `uv sync` を実行している最中に unit を止めるのを防げるのはロックだけ。
+        ロックは再起動を要求し終えるまで保持する（先に解放すると、同じ競合が再び起こりうる）。
 
         Returns:
             予約できたら None、できない理由があればその文字列
@@ -188,8 +189,8 @@ class UpdateRunner:
             if reason := restart_permitted(self._settings, units):
                 self._release(lock)
                 return reason
-            # リクエストスレッドから待たない（`schedule_restart` は応答を返し終えて
-            # から投げるための遅延を持つ）
+            # リクエストスレッドでは待たない（`schedule_restart` は、応答を返し終えて
+            # から再起動を要求するための遅延を持つ）
             threading.Thread(
                 target=self._restart_holding,
                 args=(lock, units),
@@ -216,7 +217,7 @@ class UpdateRunner:
 
         Args:
             expected_head: 画面が見ていた HEAD。現在値と違えば断る（楽観ロック）。
-                開きっぱなしの古いタブや `curl` 一発を弾くためのもので、認証ではない
+                開きっぱなしの古いタブや単発の `curl` を弾くためのもので、認証ではない
 
         Returns:
             `(run_id, None)` か `(None, 断る理由)`
@@ -256,10 +257,10 @@ class UpdateRunner:
     # ---- internals ----
 
     def _restart_holding(self, lock: IO[str], units: tuple[str, ...]) -> None:
-        """ロックを握ったまま再起動を投げる（更新を伴わない経路）.
+        """ロックを保持したまま再起動を要求する（更新を伴わない経路）.
 
-        拒否されればこのプロセスは生き残るので、その事実をログに残す。更新と違って report
-        には書かない（更新の記録を、更新でないものが上書きしないため）。
+        拒否されればこのプロセスは終了しないので、その事実をログに残す。更新と違って report
+        には書かない（更新以外の操作で更新の記録を上書きしないため）。
         """
         try:
             if reason := schedule_restart(self._settings, units):
@@ -268,7 +269,7 @@ class UpdateRunner:
             self._release(lock)
 
     def _watch_remote(self) -> None:
-        """周期ごとに remote を取り込む（失敗しても黙って次の周期を待つ）.
+        """周期ごとに remote を取り込む（失敗しても通知せず次の周期を待つ）.
 
         通知のための補助経路なので、ネットワーク不通で例外を上げない
         （`fetch` は理由を返すだけで送出しない）。
@@ -288,10 +289,10 @@ class UpdateRunner:
         )
 
     def _refuse(self, expected_head: str | None) -> tuple[RepoState | None, str | None]:
-        """開始前の門番（何もせず断れる事情をすべてここで見る）.
+        """開始前の検査（何もせず断れる事情をすべてここで確認する）.
 
-        観測した状態も返す。`_new_report` が同じ値を使うことで git をもう一度
-        起こさずに済み、**判定した HEAD と report に残す HEAD が必ず一致する**。
+        観測した状態も返す。`_new_report` が同じ値を使うので git をもう一度
+        実行せずに済み、判定した HEAD と report に残す HEAD が必ず一致する。
         """
         state, error = capture_state(self._settings)
         if state is None:
@@ -332,9 +333,9 @@ class UpdateRunner:
     def _run(self, report: UpdateReport, lock: IO[str]) -> None:
         try:
             self._execute(report)
-        except Exception as exc:  # noqa: BLE001 - report に残さないと「更新中」で固まる
+        except Exception as exc:  # noqa: BLE001 - report に残さないと「更新中」のまま止まる
             # 例: 設定した絶対パスに uv が無い（Popen が FileNotFoundError）。
-            # 握り潰すと merge 済みのまま running で止まり、画面は 180 秒待って諦める
+            # 握り潰すと merge 済みのまま running で止まり、画面は 180 秒待って待機をやめる
             report.fail(f"更新中に想定外のエラーが発生しました: {exc!r}")
             self._save(report)
         finally:
@@ -351,9 +352,9 @@ class UpdateRunner:
         reason: str | None,
         detail: str = "",
     ) -> bool:
-        """手順 1 つの結果を積んで永続化する（続行してよければ True）.
+        """手順 1 つの結果を追記して永続化する（続行してよければ True）.
 
-        保存を挟むのは、この直後にプロセスが死んでも「どこで止まったか」が残るように
+        保存を挟むのは、この直後にプロセスが終了しても「どこで止まったか」が残るように
         するため（メモリ上の記録は自己再起動で必ず失われる）。
         """
         report.record(step, reason, detail)
@@ -363,7 +364,7 @@ class UpdateRunner:
     def _step_command(
         self, report: UpdateReport, step: UpdateStep, result: CommandResult, label: str
     ) -> bool:
-        """外部コマンド 1 本の結果を report へ積む（成功なら True）."""
+        """外部コマンド 1 本の結果を report へ追記する（成功なら True）."""
         if result.timed_out:
             reason = f"{label} が時間内に終わりませんでした。"
         elif not result.ok:
@@ -383,7 +384,7 @@ class UpdateRunner:
         ):
             return
 
-        # 2 fetch してから改めて中断事由を見る（開始判定との間に tree が動きうる）
+        # 2 fetch してから改めて中断事由を確認する（開始判定の後に tree が変わりうる）
         reason = fetch(settings)
         if reason is None:
             state, error = capture_state(settings)
@@ -391,14 +392,14 @@ class UpdateRunner:
         if not self._step(report, UpdateStep.FETCH, reason):
             return
 
-        # 3 fast-forward（git が自分で断った場合は HEAD も作業ツリーも動かない）
+        # 3 fast-forward（git 自身が拒否した場合は HEAD も作業ツリーも変わらない）
         if not self._step(report, UpdateStep.MERGE, merge_fast_forward(settings)):
             return
         merged, _ = capture_state(settings)
         report.to_head = merged.head if merged else None
         report.to_subject = merged.head_subject if merged else None
 
-        # 4 依存の同期（失敗したら再起動しない = 起動不能を作らない）
+        # 4 依存の同期（失敗したら再起動しない。起動できない状態にしないため）
         synced = run_command(
             sync_command(settings),
             cwd=settings.repo_root,
@@ -409,8 +410,8 @@ class UpdateRunner:
             return
 
         # 5 新リビジョンが import できるか（起動失敗で WebUI ごと到達不能になるのを防ぐ）。
-        # 対象は **このホストが実際に動かすアプリだけ**（frontend 専用機で
-        # web.api.app を読むと picamera2 / pcbnew が無くて必ず落ちる）
+        # 対象はこのホストが実際に動かすアプリだけ（frontend 専用機で
+        # web.api.app を import すると、picamera2 / pcbnew が無いので必ず失敗する）
         modules = smoke_modules(units)
         if modules:
             smoke = run_command(
@@ -432,8 +433,8 @@ class UpdateRunner:
             )
 
         # unit 定義が古いままなら警告する（読み取りだけ。自動 install はしない）。
-        # **警告の取得に失敗しても本流は止めない** — ここで例外を通すと
-        # uv sync も smoke も通ったのに再起動されない（警告機能が更新を殺す）
+        # 警告の取得に失敗しても更新本体は止めない。ここで例外を通すと、
+        # uv sync も smoke も通ったのに再起動されない（警告機能のせいで更新が失敗する）
         try:
             drifted = stale_units(settings, units)
         except OSError:
@@ -446,7 +447,7 @@ class UpdateRunner:
         report.finished_at = time.time()
         self._save(report)
 
-        # 7 sudo に拒否されればこのプロセスは生き残るので、その事実を残す
+        # 7 sudo に拒否されればこのプロセスは終了しないので、その事実を残す
         if reason := schedule_restart(settings, units):
             report.fail(reason)
             self._save(report)

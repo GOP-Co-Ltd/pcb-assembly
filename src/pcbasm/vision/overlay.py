@@ -12,7 +12,7 @@ def draw_detected_circle(
 ) -> None:
     """検出円・その中心・カメラ中心と結ぶ線を描画する（in-place）.
 
-    circle.center はクロップ座標系（原点はクロップ左上）なので、 フル画像座標へ変換する。
+    circle.center はクロップ座標系（原点はクロップ左上）なので、フル画像座標へ変換する。
     """
     h, w = img.shape[:2]
     cx, cy = w // 2, h // 2

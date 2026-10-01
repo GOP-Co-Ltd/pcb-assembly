@@ -1,22 +1,22 @@
-"""Board/オフセットの位置合わせ共通制御.
+"""Board / オフセットの位置合わせ共通制御.
 
-座標系（長さは mm、pixel 座標だけ px）:
+座標系は次の 4 つ。長さは mm、pixel 座標だけ px で表す。
 
 - board 座標: PCB 設計の座標。外形 bbox の左上が原点、+x が幅方向、+y が高さ方向
 - 機械座標: ステージの G-code 座標（``XYZStage.get_position()``）
 - カメラ mm 空間: 原点が画像中心。軸の向きは画像と同じ（+x 右、+y 下）
 - pixel 座標: 全画面の画素位置。原点は画像左上
 
-変換:
+変換は次の 2 つ。
 
 - ``board_transform``: board 座標 → 機械座標（:class:`BoardTransformMeasurer`）
 - ``offset_transform``: カメラと機械の軸の回転ずれ（:class:`OffsetTransformMeasurer`）
 
-``observe()`` 関数の契約: 想定→観測の Transform（カメラ mm 空間）を返す。
+``observe()`` 関数は、想定→観測の Transform（カメラ mm 空間）を返す契約とする。
 
 ``observe().apply(Point2d(0, 0))`` が「検出位置 − 画像中心」になる。
 
-計測中の失敗は例外で伝わる（``CircleDetectionError`` は RuntimeError の派生）。
+計測中に失敗すると例外を送出する（``CircleDetectionError`` は RuntimeError の派生）。
 
 ``RegionAlignmentSession`` の ``align`` / ``refine`` だけは失敗を None で返す。
 """

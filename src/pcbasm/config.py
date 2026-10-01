@@ -1,4 +1,4 @@
-"""Configを読み込む機能を実装するモジュール."""
+"""Config を読み込む機能を実装するモジュール."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ MachineType = Literal["paste", "pnp"]
 PasteHeight = float | Literal["auto"]
 DEFAULT_AUTO_LINE_ASPECT_RATIO = 1.618
 DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR = 3.0
-DEFAULT_AUDIO_DEVICE = "default"  # ALSAのシステム既定PCM
+DEFAULT_AUDIO_DEVICE = "default"  # ALSA のシステム既定 PCM
 DEFAULT_AUDIO_VOLUME = 0.75
 
 
@@ -46,7 +46,7 @@ def resolve_paste_height(paste_height: PasteHeight, ul_per_mm2: float) -> float:
 
 @attrs.frozen
 class Klipper:
-    """Klipperの設定."""
+    """Klipper の設定."""
 
     host: str = "localhost"
     port: int = 7125
@@ -94,14 +94,14 @@ class PadAlign:
     region_size_px: int = 100  # 照合領域の一辺 [px]
     region_overlap: float = 0.5  # 隣接する照合領域の重なり [0, 1)
     board_edge_margin: float = 0.5  # 基板外形から照合領域までの余白 [mm]
-    max_passes: int = 5  # 1領域あたりの再計測上限
+    max_passes: int = 5  # 1 領域あたりの再計測上限
     converge_tolerance: float = 0.03  # 収束とみなす増分 [mm]
-    max_correction: float = 1.0  # 1領域で許容する累積ずれ [mm]
+    max_correction: float = 1.0  # 1 領域で許容する累積ずれ [mm]
     search_window: float = 2.0  # 照合の探索窓 片側幅 [mm]
-    refine_max_short_side: float = 0.4  # pad別逐次位置合わせの最大短辺 [mm]
-    canny_low: float = 100.0  # Cannyエッジ検出の下側閾値
-    canny_high: float = 200.0  # Cannyエッジ検出の上側閾値
-    blur_ksize: int = 5  # GaussianBlurカーネルサイズ (奇数)
+    refine_max_short_side: float = 0.4  # pad 別逐次位置合わせの最大短辺 [mm]
+    canny_low: float = 100.0  # Canny エッジ検出の下側閾値
+    canny_high: float = 200.0  # Canny エッジ検出の上側閾値
+    blur_ksize: int = 5  # GaussianBlur カーネルサイズ (奇数)
 
     def __attrs_post_init__(self) -> None:
         if (
@@ -161,14 +161,14 @@ def validate_positive_number(name: str, value: float) -> str | None:
 
 
 def validate_non_negative_number(name: str, value: float) -> str | None:
-    """0以上の有限値であるべき設定値を検証する."""
+    """0 以上の有限値であるべき設定値を検証する."""
     if not is_finite_number(value) or value < 0:
         return f"{name}は0以上の有限値である必要があります: {value!r}"
     return None
 
 
 def validate_positive_int(name: str, value: object) -> str | None:
-    """1以上の整数であるべき設定値を検証する."""
+    """1 以上の整数であるべき設定値を検証する."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         return f"{name}は1以上の整数である必要があります: {value!r}"
     return None
@@ -203,20 +203,18 @@ class FlowCalibration:
 
     測定位置は基板ごとに違うので、ここではなく基板設定
     （:class:`~pcbasm.pasting.settings.PasteSettingsModel`）が持つ。
-    何点塗るかはその個数そのもので、0 個なら補正しない。
+    塗る点数は測定位置の個数で決まり、0 個なら補正しない。
 
     1 点だけでは点ごとの吐出ばらつき（実測で相対 9〜11 %）がそのまま補正値に
     乗るので、3 点ほど置くとよい。
 
     ``crop_size_mm`` と測定位置の間隔の関係はここでは検証しない。
-
-    WebUI は項目ごとに保存するので片方だけ先に書かれる。
-
-    ここで撥ねると machine.toml 全体が読めなくなるため、判定は
+    WebUI は項目ごとに保存するので、2 つの値の一方だけが先に書き込まれる。
+    ここで不正として拒否すると machine.toml 全体が読めなくなるため、判定は
     :func:`~pcbasm.pasting.paste_volume.runtime.plan_flow_calibration` で行う。
 
     塗り終えてすぐ撮ると、ペーストが広がりきる前の小さい円を測ることになる。
-    塗布後の撮影に入る前に ``settle_seconds`` だけ置く。
+    そのため塗布後の撮影に入る前に ``settle_seconds`` だけ待つ。
 
     Attributes:
         calibration_file: 使う校正ファイル名（空なら無効）
@@ -248,11 +246,12 @@ class Settle:
     """装置の静定待ち（[settle]。セクションごと省略可）.
 
     どちらも G4 dwell としてステージへ送る。ステージが止まっても像や機構は少し揺れて
-    いるので、撮影・プローブに入る前に置く。長くすればタクトタイムが伸び、短くすれば
-    検出がぶれる。機体の剛性で決まるので機体ごとに詰める。
+    いるので、撮影・プローブの前に待つ。長くすればタクトタイムが伸び、短くすれば
+    検出がぶれる。適切な値は機体の剛性で決まるので、機体ごとに調整する。
 
-    ``move_sec`` は位置合わせ・基板計測・高さ計測・撮影など**移動後の静定すべて**で
-    共用する。分けるべき差（例えば Z 下降後だけ長く要る）が実測で出たらそのとき足す。
+    ``move_sec`` は位置合わせ・基板計測・高さ計測・撮影など、移動後の静定すべてで
+    共用する。分けるべき差（例えば Z 下降後だけ長く要る）が実測で出たら、そのとき
+    設定項目を追加する。
 
     Attributes:
         move_sec: ステージ移動後、撮影・計測に入るまでの待ち [sec]
@@ -276,13 +275,13 @@ class Detection:
     （:class:`~pcbasm.posctrl.OffsetObserver`）。枚数を増やすと平均のばらつきは
     :math:`1/\sqrt{n}` で下がるが、撮影時間はそのまま伸びる（30 fps なら 10 枚で約 0.33 秒）。
 
-    ``minimum_sample_count`` は品質ゲート。撮った枚数のうち何枚で対象を検出できれば
-    その観測を採用するか。届かなければ観測は失敗する。小さすぎると、たまたま写った
-    1 枚だけで位置を決めてしまう。
+    ``minimum_sample_count`` は品質ゲートで、撮った枚数のうち何枚で対象を検出できれば
+    その観測を採用するかを決める。検出枚数がこの値に届かなければ観測は失敗する。
+    小さすぎると、たまたま写った 1 枚だけで位置を決めてしまう。
 
-    **基準点の円（機械的なマーカー）とツールヘッドオフセットの塗布痕（濡れた円）の
-    両方に効く。**写りやすさが違うので、片方だけ渋いときは検出しやすい側にも同じ値が
-    掛かることを踏まえて決める。
+    この設定は、基準点の円（機械的なマーカー）とツールヘッドオフセットの塗布痕
+    （濡れた円）の両方に適用される。両者は写りやすさが違う。一方だけ検出しにくい
+    ときは、検出しやすい側にも同じ値が適用されることを踏まえて決める。
 
     Attributes:
         sample_count: 1 観測で撮るフレーム数
@@ -325,8 +324,8 @@ class NozzleClean:
     記録する。実際にこする高さは ``press_z``（面から ``press_depth`` だけ押し込んだ位置）。
     面と押し込み量を分けてあるので、シリコンが摩耗したら ``press_depth`` だけ増やせばよい。
 
-    座標は既定値を持たない。既定値があると設定画面から動作値だけを保存したときに座標の
-    欠けたテーブルが読めてしまい、原点へクリーニングに行く事故になる。
+    座標は既定値を持たない。既定値があると、設定画面から動作値だけを保存したときに
+    座標の欠けたテーブルが読み込めてしまい、原点をクリーニング位置として移動してしまう。
 
     ``press_depth`` の上限はここで検証しない。妥当性は ``press_z`` が可動域に入るかでしか
     決まらず、それは printer.cfg 依存なので
@@ -380,7 +379,7 @@ class NozzleClean:
 class PasteDispenser:
     """ペーストディスペンサーの設定."""
 
-    rotations_per_ul: float  # 1μLあたりの回転数 [rev/μL]
+    rotations_per_ul: float  # 1μL あたりの回転数 [rev/μL]
     nozzle_diameter: float  # ノズル内径 [mm]
     max_fill_speed: float  # 連続塗布できる移動速度上限 [mm/sec]
     max_dispense_rate: float  # 吐出レート上限 [μL/sec]
@@ -400,10 +399,10 @@ class PasteDispenser:
         "unconstrained"  # 線塗布の走行方向 unconstrained / outward / inward
     )
     auto_line_aspect_ratio: float = (
-        DEFAULT_AUTO_LINE_ASPECT_RATIO  # Auto時に線塗布へ切り替える縦横比
+        DEFAULT_AUTO_LINE_ASPECT_RATIO  # Auto 時に線塗布へ切り替える縦横比
     )
     auto_area_short_side_factor: float = (
-        # Auto時に面塗布へ切り替える短辺のノズル径倍率（短辺 > nozzle_diameter * この値 → area）
+        # Auto 時に面塗布へ切り替える短辺のノズル径倍率（短辺 > nozzle_diameter * この値 → area）
         DEFAULT_AUTO_AREA_SHORT_SIDE_FACTOR
     )
     prime_extra_delay: float = 0.0  # プライム後の追加遅延 [sec]
@@ -415,7 +414,7 @@ class PasteDispenser:
     )
     overlap: float = 0.0  # ジグザグ行間オーバーラップ [0,1)
     boundary_margin: float = 0.0  # 外周マージン [mm]
-    pad_align: PadAlign = attrs.field(factory=PadAlign)  # pad位置合わせ設定
+    pad_align: PadAlign = attrs.field(factory=PadAlign)  # pad 位置合わせ設定
     flow_calibration: FlowCalibration = attrs.field(
         factory=FlowCalibration
     )  # 運転時流量キャリブレーション設定
@@ -484,7 +483,7 @@ class PasteDispenser:
 
 
 def validate_probe_board_edge_margin(value: float) -> str | None:
-    """基板外形からのprobe点マージンを検証する."""
+    """基板外形からの probe 点マージンを検証する."""
     if value <= 0:
         return (
             "board_edge_marginは正の値である必要があります。"
@@ -499,9 +498,9 @@ class Probe:
 
     min_radius: float  # サンプル点が銅箔境界から確保すべき最小距離 [mm] (ノズルが銅箔島の外に出ないためのクリアランス)
     board_edge_margin: float = 2.5  # サンプル点が基板外形から確保すべき最小距離 [mm]
-    lift_height: float = 1.0  # PROBE実行後に接触点から持ち上げる高さ [mm]
+    lift_height: float = 1.0  # PROBE 実行後に接触点から持ち上げる高さ [mm]
     min_samples: int = (
-        6  # 最小サンプル数 (HeightPlaneの2次曲面フィットに必要な最小点数)
+        6  # 最小サンプル数 (HeightPlane の 2 次曲面フィットに必要な最小点数)
     )
     max_samples: int = 9  # 最大サンプル数
 
@@ -532,7 +531,7 @@ class CameraCrop:
 
     @property
     def size(self) -> tuple[int, int]:
-        """クロップサイズを(width, height)のタプルで返す."""
+        """クロップサイズを (width, height) のタプルで返す."""
         return (self.width, self.height)
 
 
@@ -551,7 +550,7 @@ class Camera:
 
     @property
     def size(self) -> tuple[int, int]:
-        """カメラサイズを(width, height)のタプルで返す."""
+        """カメラサイズを (width, height) のタプルで返す."""
         return (self.width, self.height)
 
 
@@ -563,7 +562,7 @@ class Toolhead:
     y: float
 
     def to_transform(self) -> Transform:
-        """Toolheadの位置にxy平行移動するTransformを返す."""
+        """Toolhead の位置に xy 平行移動する Transform を返す."""
         return Shift(x=self.x, y=self.y)
 
 
@@ -593,7 +592,7 @@ class CornerOffsets:
     bottom_right: tuple[float, float]
 
     def get(self, corner: Corner) -> Point2d:
-        """指定コーナーのオフセットをPoint2dで返す."""
+        """指定コーナーのオフセットを Point2d で返す."""
         match corner:
             case Corner.TOP_LEFT:
                 offset = self.top_left
@@ -611,8 +610,8 @@ class CornerOffsets:
 class ReferencePoint:
     """基準点の設定.
 
-    x, yは左上基準点マーカーへ移動するための概略マシン座標。
-    offsetsは各ボードコーナーから対応する基準点マーカーへのPCB座標系ベクトル。
+    x, y は左上基準点マーカーへ移動するための概略マシン座標。
+    offsets は各ボードコーナーから対応する基準点マーカーへの PCB 座標系ベクトル。
 
     概略移動先の座標関係:
         - ボード左上コーナーの概略位置 = to_point() - offsets.get(TOP_LEFT)
@@ -625,7 +624,7 @@ class ReferencePoint:
     offsets: CornerOffsets
 
     def to_point(self) -> Point2d:
-        """左上基準点マーカーの概略マシン座標をPoint2dとして返す."""
+        """左上基準点マーカーの概略マシン座標を Point2d として返す."""
         return Point2d(self.x, self.y)
 
     def get_reference_position(
@@ -639,14 +638,14 @@ class ReferencePoint:
 
         Args:
             corner: コーナー種別
-            board_width: ボード幅（TOP_RIGHT/BOTTOM_RIGHTで必須）
-            board_height: ボード高さ（BOTTOM_LEFT/BOTTOM_RIGHTで必須）
+            board_width: ボード幅（TOP_RIGHT/BOTTOM_RIGHT で必須）
+            board_height: ボード高さ（BOTTOM_LEFT/BOTTOM_RIGHT で必須）
 
         Returns:
             基準点マーカーへ移動するための概略マシン座標
 
         Raises:
-            ValueError: 必要なboard_width/board_heightが指定されていない場合
+            ValueError: 必要な board_width/board_height が指定されていない場合
         """
         if corner == Corner.TOP_LEFT:
             return self.to_point()
@@ -690,7 +689,7 @@ def _merge_legacy_nozzle_sections(data: dict[str, Any]) -> None:
     まとめるのは、``paste_dispenser`` 経由で読む消費者とノズル専用のアクセサで
     見える値が食い違わないようにするため。
 
-    移行済みの値がある場合は、旧セクションの残骸で上書きしない。
+    移行済みの値がある場合は、旧セクションに残った値で上書きしない。
     """
     for name in LEGACY_NOZZLE_SECTIONS:
         legacy = data.pop(name, None)
@@ -707,10 +706,10 @@ def _structure_or_none(
     """省略可能なサブテーブルを structure し、読めなければ None にする.
 
     設定画面から座標以外の値だけを保存すると、座標の無いサブテーブルができる。素直に
-    structure させると **親テーブル全体**が読めなくなり、塗布パラメータが軒並み失われる。
-    未記録（``None``）として扱えば、機能はスキップされるだけで他の設定は生き残る。
+    structure させると親テーブル全体が読めなくなり、塗布パラメータがすべて失われる。
+    未記録（``None``）として扱えば、その機能がスキップされるだけで他の設定は読める。
 
-    座標へ既定値を与えて回避しないのは、原点をクリーニング位置と誤解して移動する事故を
+    座標へ既定値を与えて回避しないのは、原点をクリーニング位置とみなして移動するのを
     防ぐため。
     """
     if value is None:
@@ -767,10 +766,10 @@ class Machine:
     """
 
     def __init__(self, path: str | Path) -> None:
-        """Machineを初期化する.
+        """Machine を初期化する.
 
         Args:
-            path: TOMLファイルのパス
+            path: TOML ファイルのパス
         """
         path = Path(path)
         with open(path, "rb") as f:
@@ -826,9 +825,9 @@ class Machine:
     def _nozzle_section(self, name: str, cls: type[Any]) -> Any:
         """[paste_dispenser] 配下のノズル位置サブテーブルだけを読む.
 
-        ``paste_dispenser`` プロパティを経由しないのは、他のキーの不備に巻き込まれない
-        ため。キャップ駐機はタスク終了時のクリーンアップ経路で、設定の不備で例外を投げる
-        と脱力すらできなくなる。読めないサブテーブルは ``None``（未記録）にする。
+        ``paste_dispenser`` プロパティを経由しないのは、他のキーの不備で一緒に読めなく
+        なるのを避けるため。キャップ駐機はタスク終了時のクリーンアップ経路で、設定の
+        不備で例外を投げると脱力すらできなくなる。読めないサブテーブルは ``None``（未記録）にする。
         """
         parent = self._data.get("paste_dispenser")
         section = parent.get(name) if isinstance(parent, dict) else None
@@ -851,7 +850,7 @@ class Machine:
 
     @property
     def klipper(self) -> Klipper:
-        """Klipper設定を取得する."""
+        """Klipper 設定を取得する."""
         return self._get_config("klipper", Klipper)
 
     @property
@@ -899,6 +898,6 @@ def get_machine_config() -> Machine:
     """:func:`get_config_dir` の machine.toml を読み込む.
 
     Returns:
-        Machine設定オブジェクト
+        Machine 設定オブジェクト
     """
     return Machine(get_config_dir() / "machine.toml")

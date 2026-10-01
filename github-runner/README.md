@@ -1,27 +1,27 @@
 # GitHub Actions Runner
 
-GitHub Actions専用のRaspberry Pi 5（arm64、8GB RAM）を、self-hosted runnerとして
-構築する。self-hosted runnerは1 instanceあたり1 jobしか実行しないため、3 job並列に
-するためにrunner instanceを3つ登録する。
+GitHub Actions 専用の Raspberry Pi 5（arm64、8GB RAM）を self-hosted runner として
+構築する。self-hosted runner は 1 instance あたり 1 job しか実行しない。3 job を並列に
+実行するため、runner instance を 3 つ登録する。
 
 ## 前提
 
-- DebianまたはRaspberry Pi OS Trixie（arm64）
-- GitHub repositoryのAdmin権限
-- outbound HTTPS接続
-- `sudo`を利用できる一般ユーザー
-- 認証済みの`gh` CLI（registration tokenの自動取得に使う。無い場合は手入力）
+- Debian または Raspberry Pi OS Trixie（arm64）
+- GitHub repository の Admin 権限
+- outbound HTTPS 接続
+- `sudo` を利用できる一般ユーザー
+- 認証済みの `gh` CLI（registration token の自動取得に使う。無い場合は手入力）
 
-self-hosted runnerではCI jobがhost上で直接コマンドを実行する。このrunnerは
-pcb-assembly repository専用とし、信頼できるbranchやpull requestだけを実行すること。
-**public repositoryでは絶対に使わない**（fork PRが任意のコードをhost上で実行できる）。
+self-hosted runner では CI job が host 上で直接コマンドを実行する。この runner は
+pcb-assembly repository 専用とし、信頼できる branch や pull request だけを実行すること。
+**public repository では絶対に使わない**（fork PR が任意のコードを host 上で実行できる）。
 
-runner userを`video`、`gpio`、`dialout` groupへ追加しない。GitHub Actionsではcameraや
-装置を使うhardware testを実行しない。
+runner user を `video`、`gpio`、`dialout` group へ追加しない。GitHub Actions では camera や
+装置を使う hardware test を実行しない。
 
 ## セットアップ
 
-repositoryをcheckoutしたRaspberry Pi上で、`sudo`を付けずに実行する。
+repository を checkout した Raspberry Pi 上で、`sudo` を付けずに実行する。
 
 ```bash
 ./github-runner/setup.sh setup
@@ -29,11 +29,11 @@ repositoryをcheckoutしたRaspberry Pi上で、`sudo`を付けずに実行す�
 
 次を一度に実行する。
 
-- CIに必要なOS package、Git LFS、KiCad（`pcbnew`）、Chromium、`uv 0.10.9`のインストール
-- `github-runner` userの作成とhost cache directoryの準備
-- `actions/runner`の最新releaseを`/opt/actions-runner/pcb-assembly-rpi-{1,2,3}`へ展開
-- registration tokenの取得（`gh`）または非表示入力による3 instanceの登録
-- systemd serviceの作成・起動と、service・登録状態・GitHub接続の検証
+- CI に必要な OS package、Git LFS、KiCad（`pcbnew`）、Chromium、`uv 0.10.9` のインストール
+- `github-runner` user の作成と host cache directory の準備
+- `actions/runner` の最新 release を `/opt/actions-runner/pcb-assembly-rpi-{1,2,3}` へ展開
+- registration token の取得（`gh`）または非表示入力による 3 instance の登録
+- systemd service の作成・起動と、service・登録状態・GitHub 接続の検証
 
 処理を分ける場合は、次の順に実行する。
 
@@ -43,20 +43,20 @@ repositoryをcheckoutしたRaspberry Pi上で、`sudo`を付けずに実行す�
 ./github-runner/setup.sh verify
 ```
 
-runner versionを固定する場合は`RUNNER_VERSION`を指定する。
+runner version を固定する場合は `RUNNER_VERSION` を指定する。
 
 ```bash
 RUNNER_VERSION=2.330.0 ./github-runner/setup.sh install
 ```
 
-registration tokenは1時間で失効する短命tokenで、コマンド引数のみで渡すため
-repositoryやshell履歴には残らない。登録後の認証情報はrunner instance directoryの
-`.runner` / `.credentials`に保存されるため、これらをrepositoryへコピーしないこと。
+registration token は 1 時間で失効する短命 token で、コマンド引数のみで渡すため
+repository や shell 履歴には残らない。登録後の認証情報は runner instance directory の
+`.runner` / `.credentials` に保存される。これらを repository へコピーしないこと。
 
 ## label
 
-各instanceは`rpi-ci` labelを付けて登録する。`self-hosted`、`linux`、`ARM64`は
-GitHubが自動で付与する。workflow側は次で選択する。
+各 instance は `rpi-ci` label を付けて登録する。`self-hosted`、`linux`、`ARM64` は
+GitHub が自動で付与する。workflow 側は次の指定で runner を選択する。
 
 ```yaml
 runs-on: [self-hosted, linux, ARM64, rpi-ci]
@@ -69,45 +69,45 @@ runs-on: [self-hosted, linux, ARM64, rpi-ci]
 ./github-runner/setup.sh verify
 ```
 
-`verify`は次を確認する。
+`verify` は次を確認する。
 
-- 3 instanceが登録済みで、systemd serviceが有効かつ起動中
-- Git LFSのsystem filter設定と`pcbnew`のimport
+- 3 instance が登録済みで、systemd service が有効かつ起動中
+- Git LFS の system filter 設定と `pcbnew` の import
 - `uv` version
-- GitHub側のrunner一覧（name / status / busy / label）
-- CPU、memory、disk使用量
+- GitHub 側の runner 一覧（name / status / busy / label）
+- CPU、memory、disk 使用量
 
-GitHub側の一覧は**Settings > Actions > Runners**でも確認できる。
+GitHub 側の一覧は Settings > Actions > Runners でも確認できる。
 
-## 依存関係とcache
+## 依存関係と cache
 
-OS packageはjobごとにインストールしない。各jobは独立した`.venv`を作るが、package
-本体とpre-commit hook環境は次のhost cacheを再利用する。
+OS package は job ごとにインストールしない。各 job は独立した `.venv` を作るが、package
+本体と pre-commit hook 環境は次の host cache を再利用する。
 
 ```text
 /home/github-runner/.cache/uv
 /home/github-runner/.cache/pre-commit
 ```
 
-3 instanceは同じhost cacheを共有する。`uv`とpre-commitはcacheへの並行アクセスを
-lockで保護するため、並列jobでも安全に共有できる。
+3 instance は同じ host cache を共有する。`uv` と pre-commit は cache への並行アクセスを
+lock で保護するため、並列 job でも安全に共有できる。
 
-`pcbnew` Python moduleはTrixieの`kicad` packageから導入する。CIではsymbol、footprint、
-demoを使わないため、`kicad`の推奨packageはインストールしない。
+`pcbnew` Python module は Trixie の `kicad` package から導入する。CI では symbol、footprint、
+demo を使わないため、`kicad` の推奨 package はインストールしない。
 
-テスト画像・音声はGit LFSで管理する。`install`はGit LFS filterをsystem設定し、pytest
-jobはcheckout済みworkspaceに対して`git lfs pull`を実行する。
+テスト画像・音声は Git LFS で管理する。`install` は Git LFS filter を system 設定し、pytest
+job は checkout 済み workspace に対して `git lfs pull` を実行する。
 
-`pytest` jobは非実機テストに続けて、fakeカメラと隔離したbackend・frontendを使う
-WebUI E2Eを実行する。Chromiumはheadlessで起動し、カメラやGPIOの権限は不要。
-両スイートのJUnitレポートは`pytest-report` artifactに7日間保存する。
+`pytest` job は非実機テストに続けて、fake カメラと隔離した backend・frontend を使う
+WebUI E2E を実行する。Chromium は headless で起動し、カメラや GPIO の権限は不要。
+両スイートの JUnit レポートは `pytest-report` artifact に 7 日間保存する。
 
-新しいrunnerには`install`でsystem Chromiumを導入する。既存runnerに
-`/usr/bin/chromium`が無い場合、workflowはPlaywrightのheadless shellをユーザーcacheへ
-取得する。OS依存ライブラリが不足するホストは、管理者がChromiumを導入する。
-jobからOS packageをインストールするためのsudo権限は与えない。
+新しい runner には `install` で system Chromium を導入する。既存 runner に
+`/usr/bin/chromium` が無い場合、workflow は Playwright の headless shell をユーザー cache へ
+取得する。OS 依存ライブラリが不足するホストには、管理者が Chromium を導入する。
+job から OS package をインストールするための sudo 権限は与えない。
 
-容量確認とuv cacheの安全な整理は次のとおり。
+容量確認と uv cache の安全な整理は次のとおり。
 
 ```bash
 sudo du -sh /home/github-runner/.cache/uv
@@ -115,26 +115,26 @@ sudo du -sh /home/github-runner/.cache/pre-commit
 sudo -u github-runner -H /usr/local/bin/uv cache prune
 ```
 
-pre-commit cacheを全削除すると次回workflowでhook環境を再構築する。通常運用では削除
-しない。
+pre-commit cache を全削除すると、次回の workflow で hook 環境を再構築する。通常運用では
+削除しない。
 
 ## Upgrade
 
-Actions Runnerはserviceが自動でself-updateするため、通常は作業不要。
+Actions Runner は service が自動で self-update するため、通常は作業不要。
 
-`install`は、`config.sh`がすでにあるinstance directoryを上書きしない。`register`も登録済み
-instanceを登録し直さない。runner versionを明示的に入れ替える場合は、次の順に行う。
+`install` は、`config.sh` がすでにある instance directory を上書きしない。`register` も登録済み
+instance を登録し直さない。runner version を明示的に入れ替える場合は、次の順に行う。
 
-1. 「登録解除と削除」の手順で3 instanceすべてを削除する
-2. `RUNNER_VERSION=<version> ./github-runner/setup.sh setup`を実行する
+1. 「登録解除と削除」の手順で 3 instance すべてを削除する
+2. `RUNNER_VERSION=<version> ./github-runner/setup.sh setup` を実行する
 
-`uv`は、`setup.sh`の`UV_VERSION`を変えた変更がreviewされた後に`install`を再実行して
-入れ替える（`install`は導入済み`uv`のversionが`UV_VERSION`と違うときだけ入れ直す）。
+`uv` を入れ替えるには、`setup.sh` の `UV_VERSION` を変えた変更が review された後に `install` を
+再実行する（`install` は導入済み `uv` の version が `UV_VERSION` と違うときだけ入れ直す）。
 
 ## 登録解除と削除
 
-誤操作防止のため自動化していない。対象instanceを確認してから、1 instanceずつ手動で実行する。
-`svc.sh`と`config.sh`はrunner rootをcwdにして実行する。
+誤操作防止のため自動化していない。対象 instance を確認してから、1 instance ずつ手動で実行する。
+`svc.sh` と `config.sh` は runner root を cwd にして実行する。
 
 ```bash
 dir=/opt/actions-runner/pcb-assembly-rpi-1
@@ -147,8 +147,8 @@ sudo -u github-runner ./config.sh remove \
 cd - && sudo rm -rf "$dir"
 ```
 
-3 instanceすべてを削除したら、GitHubの**Settings > Actions > Runners**に残骸が無いか
-確認する。
+3 instance すべてを削除したら、GitHub の Settings > Actions > Runners に削除済み runner が
+残っていないか確認する。
 
 ## 参考
 

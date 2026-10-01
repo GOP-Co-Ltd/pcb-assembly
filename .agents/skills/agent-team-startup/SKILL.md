@@ -1,6 +1,6 @@
 ---
 name: agent-team-startup
-description: implementation-planner、任意のspec-test-author、plan-implementer、code-simplifier、docs-keeperを使うCodex custom agentフローと並列化基準。ユーザーがエージェントや並列作業を明示したとき、またはcustom agent運用を依頼したときに参照する。
+description: implementation-planner、任意の spec-test-author、plan-implementer、code-simplifier、docs-keeper を使う Codex custom agent フローと並列化基準。ユーザーがエージェントや並列作業を明示したとき、または custom agent 運用を依頼したときに参照する。
 ---
 
 # Codex Custom Agent チームを運用する
@@ -48,7 +48,7 @@ trivial な変更では planner、simplifier、docs を省略してよい。
 - task、入力資料、成功条件、書き込み範囲を具体的に渡す
 - worker には「他の作業者の変更を revert しない」と明記する
 - 同じファイルを複数 agent に割り当てない
-- immediate blocker はメイン agent が処理し、sidecar task だけを委譲する
+- すぐ解消が必要な blocker はメイン agent が処理し、並行して進められる付随タスクだけを委譲する
 - 完了した agent の変更をメイン agent が review してから統合する
 
 ## 合流

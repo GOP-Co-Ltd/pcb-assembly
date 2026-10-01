@@ -14,7 +14,7 @@ from pcbasm.vision import CopperEdgeDetector, FrameSink
 
 @attrs.frozen
 class RegionAlignment:
-    """収束した1領域の照合結果.
+    """収束した 1 領域の照合結果.
 
     Attributes:
         region: 照合した領域
@@ -32,7 +32,7 @@ class RegionAlignment:
 
 
 class RegionAligner:
-    """1領域の機械変位を収束まで反復計測する."""
+    """1 領域の機械変位を収束まで反復計測する."""
 
     def __init__(
         self,
@@ -51,7 +51,7 @@ class RegionAligner:
         settle_sec: float,
         frame_sink: FrameSink | None = None,
     ) -> None:
-        """RegionAlignerを初期化する."""
+        """RegionAligner を初期化する."""
         if max_correction_mm <= 0:
             raise ValueError("max_correction_mmは正の値である必要があります")
         if max_passes < 1:
@@ -86,10 +86,10 @@ class RegionAligner:
 
         Args:
             region: 照合する領域
-            initial_displacement: 累積変位の初期値（mm）。Noneなら0
+            initial_displacement: 累積変位の初期値（mm）。None なら 0
 
         Raises:
-            RuntimeError: match失敗、累積変位が max_correction_mm 超過、または max_passes で非収束
+            RuntimeError: match 失敗、累積変位が max_correction_mm 超過、または max_passes で非収束
         """
         cumulative = initial_displacement or Point2d(0.0, 0.0)
         for passes in range(1, self._max_passes + 1):

@@ -28,7 +28,7 @@ def validate_image_constraints(constraints: ImageConstraints) -> str | None: ...
 
 **How to apply:**
 
-- 戻り値は引き続き `str | None`（[try-catchより戻り値バリデーション](feedback_no_try_catch.md)）。
+- 戻り値は引き続き `str | None`（[try-catch より戻り値バリデーション](feedback_no_try_catch.md)）。
     例外は投げない
 - 検証に外部の文脈が要る場合も、主対象のクラスのメソッドにして文脈を引数で受ける
     （例: `SplitManifest.validate(sample_groups, *, dataset_fingerprint) -> str | None`）

@@ -67,9 +67,9 @@ class Settings:
     # 素の `uv sync` は dependency group を削除し、lock がずれると uv.lock を書き換える
     # （web.selfupdate.settings のコメント参照）。機体ごとに増やせるよう env に出す
     update_uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
-    # None ならリポジトリ直下の data/selfupdate。**data_dir から導出しない**:
+    # None ならリポジトリ直下の data/selfupdate。data_dir からは導出しない。
     # ロックが守る対象は worktree なので、同居機の api と ui が
-    # PCBASM_API_DATA_DIR の設定に関係なく同じロックを掴む必要がある
+    # PCBASM_API_DATA_DIR の設定に関係なく同じロックを使う必要がある
     update_state_dir: Path | None = None
 
     @property
@@ -77,13 +77,13 @@ class Settings:
         """Backend WebAPI が所有する永続データのルート.
 
         ディレクトリ名は ``webui`` のまま保つ（実機の選択 PCB・基板別塗布 override・
-        ジョブ成果物がこの下にあり、改名すると丸ごと孤立する）。
+        ジョブ成果物がこの下にあり、改名するとこれらをすべて参照できなくなる）。
         """
         return self.data_dir / "webui"
 
     @property
     def paste_dataset_dir(self) -> Path:
-        """ペースト塗布画像datasetの永続保存先."""
+        """ペースト塗布画像 dataset の永続保存先."""
         return self.data_dir / "paste-volume-datasets"
 
     @property
@@ -99,8 +99,8 @@ class Settings:
     def update_dir(self) -> Path:
         """自己更新の report と単一実行ロックの置き場所.
 
-        既定は **リポジトリ直下**（`data_dir` 由来ではない）。ロックは worktree を
-        守るものなので、同居機の backend と UI frontend が必ず同じファイルを掴む。
+        既定はリポジトリ直下（`data_dir` 由来ではない）。ロックは worktree を
+        守るものなので、同居機の backend と UI frontend が必ず同じファイルを使う。
         """
         return self.update_state_dir or PROJECT_ROOT / "data" / "selfupdate"
 

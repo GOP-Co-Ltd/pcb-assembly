@@ -6,7 +6,7 @@
 - :class:`PasteSettingsModel.base` が ``machine.toml`` 由来の全項目確定値
   （:class:`~pcbasm.pasting.params.PasteParams`）
 - :class:`PasteSettingsModel.levels` が L0–L4 の疎な :class:`LevelSetting` 列
-- 解決時は各 pad で L0→L4 を辿り、非 ``None`` 項目で上書きする（**最具体が勝つ**）。
+- 解決時は各 pad で L0→L4 を辿り、非 ``None`` 項目で上書きする（最も具体的な階層の値を採用する）。
   ``enabled`` も同じ規則で、明示の無い pad は有効
 
 永続化（JSON 変換）は :mod:`pcbasm.pasting.persist`。
@@ -216,7 +216,7 @@ def select_enabled_pads(
 ) -> list[Pad]:
     """塗布対象（enabled）の pad だけを元の順序で返す.
 
-    プレビュー（webui router）と実行（webui job）が同一の絞り込みを共有するための 単一ソース。
+    プレビュー（webui router）と実行（webui job）が同一の絞り込みを共有するための単一ソース。
     """
     resolved = resolve_pad_settings(hierarchy, model)
     return [pad for pad in pads if is_pad_enabled(pad, hierarchy, resolved)]

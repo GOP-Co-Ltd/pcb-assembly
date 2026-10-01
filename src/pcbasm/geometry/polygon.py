@@ -20,7 +20,7 @@ from .transform import Point2d, Transform
 
 
 def merge_islands(polygons: Sequence[Polygon], snap_mm: float) -> list[Polygon]:
-    """ポリゴン群を融合し、連結成分（島）ごとのPolygonに分解して返す.
+    """ポリゴン群を融合し、連結成分（島）ごとの Polygon に分解して返す.
 
     unary_union で融合した後、closing（``buffer(+snap_mm)`` → ``buffer(-snap_mm)``）
     で snap_mm 未満のヘアライン状の隙間を橋渡しし、本来連結している領域が
@@ -47,17 +47,17 @@ def merge_islands(polygons: Sequence[Polygon], snap_mm: float) -> list[Polygon]:
 
 
 def transform_polygon(polygon: Polygon, transform: Transform) -> Polygon:
-    """ポリゴンの全頂点に2D Transformを適用したPolygonを返す.
+    """ポリゴンの全頂点に 2D Transform を適用した Polygon を返す.
 
-    exteriorと各interior（穴）の頂点を ``transform.apply`` で写して
+    exterior と各 interior（穴）の頂点を ``transform.apply`` で写して
     再構築する。
 
     Args:
         polygon: 入力ポリゴン
-        transform: 適用する2D Transform
+        transform: 適用する 2D Transform
 
     Returns:
-        全頂点を変換したPolygon
+        全頂点を変換した Polygon
     """
 
     def ring(coords: CoordinateSequence) -> list[tuple[float, float]]:
@@ -87,7 +87,7 @@ def display_rings(
 
     WebUI の SVG など、座標そのものではなく形を見せる用途向け。``tolerance``
     を与えると Douglas-Peucker で頂点を間引き、``precision`` 桁へ丸めて
-    転送量を抑える。簡略化で潰れた島は空の環列を返すので、呼び出し側は
+    転送量を抑える。簡略化で退化して消えた島は空の環列を返すので、呼び出し側は
     空を扱えるようにする。
 
     Args:
@@ -111,7 +111,7 @@ def offset_components(polygon: Polygon, depth: float) -> list[Polygon]:
     """``polygon.buffer(-depth)`` の結果から ``Polygon`` のみを抽出する.
 
     MultiPolygon は連結成分に分解する。Point/LineString/GeometryCollection
-    内の非Polygon要素は除外する。``depth <= 0`` なら ``polygon`` 自身を返す。
+    内の非 Polygon 要素は除外する。``depth <= 0`` なら ``polygon`` 自身を返す。
     空・不正な結果は空リストとなる。
     """
     offset = polygon.buffer(-depth) if depth > 0 else polygon

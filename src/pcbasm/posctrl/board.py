@@ -1,4 +1,4 @@
-"""Board座標から機械座標への変換を計測する."""
+"""Board 座標から機械座標への変換を計測する."""
 
 import logging
 from collections.abc import Callable
@@ -19,9 +19,9 @@ from pcbasm.utils import get_class_module_path
 
 
 class BoardTransformMeasurer:
-    """Board座標から機械座標への変換を計測するクラス.
+    """Board 座標から機械座標への変換を計測するクラス.
 
-    4つのreference pointの実測位置からaffine変換を最小二乗推定する。
+    4 つの reference point の実測位置から affine 変換を最小二乗推定する。
 
     Example:
         from pcbasm.pcb import PcbFile
@@ -50,13 +50,14 @@ class BoardTransformMeasurer:
         *,
         settle_sec: float,
     ) -> None:
-        """BoardTransformMeasurerを初期化する.
+        """BoardTransformMeasurer を初期化する.
 
         Args:
-            adjust_reference: 基準点マーカーを画像中心に合わせた機械座標を返す関数（通常は ``XYPositionAdjustor.adjust``）
-            klipper: Klipperクライアント
-            stage: XYZステージ
-            outline: Board Outline（width/heightの取得に使用）
+            adjust_reference: 基準点マーカーを画像中心に合わせた機械座標を返す関数
+                （通常は ``XYPositionAdjustor.adjust``）
+            klipper: Klipper クライアント
+            stage: XYZ ステージ
+            outline: Board Outline（width/height の取得に使用）
             reference_point: 基準点設定
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
             settle_sec: 移動後の静定待ち [sec]（``machine.settle.move_sec``）
@@ -72,18 +73,18 @@ class BoardTransformMeasurer:
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
     def measure(self) -> Compose:
-        """4点の最小二乗法でboard→機械座標の変換を計測する.
+        """4 点の最小二乗法で board→機械座標の変換を計測する.
 
         TOP_LEFT → TOP_RIGHT → BOTTOM_RIGHT → BOTTOM_LEFT の順に概略位置へ移動する。
 
         各コーナーでは ``adjust_reference()`` が返した位置を実測点にする。
 
         Returns:
-            Board座標→機械座標のCompose変換 (Matrix2d → Shift)
+            Board 座標→機械座標の Compose 変換 (Matrix2d → Shift)
 
         Raises:
-            ValueError: 基準点配置のdesign matrixのrankが3未満の場合
-            RuntimeError: ``adjust_reference`` の失敗はそのまま伝わる
+            ValueError: 基準点配置の design matrix の rank が 3 未満の場合
+            RuntimeError: ``adjust_reference`` の失敗をそのまま送出する
         """
         self._logger.info("Board変換の計測を開始")
 

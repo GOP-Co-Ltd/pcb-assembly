@@ -3,13 +3,13 @@
 塗布設定の override 解決（``pcbasm.pasting.settings``）と UI の表示が
 同一の階層を共有するため、装置非依存の純ロジックとしてここに集約する。
 
-階層は L0–L4 の5段で、下位ほど具体的:
+階層は L0–L4 の 5 段で、下位ほど具体的になる。
 
-- **L0** ``("L0",)`` 全部品デフォルト
-- **L1** ``("L1", package)`` 同規格パーツ（``Component.package``）
-- **L2** ``("L2", designator)`` 各コンポーネント
-- **L3** ``("L3", designator, shape_label)`` designator 内の同形状 pad
-- **L4** ``("L4", designator, pad_ref)`` 個々の pad
+- L0 ``("L0",)`` 全部品デフォルト
+- L1 ``("L1", package)`` 同規格パーツ（``Component.package``）
+- L2 ``("L2", designator)`` 各コンポーネント
+- L3 ``("L3", designator, shape_label)`` designator 内の同形状 pad
+- L4 ``("L4", designator, pad_ref)`` 個々の pad
 
 L3 の形状分類は :class:`PadShapeKey` による。回転配置された同型 pad が
 同一キーになるよう、最小回転外接矩形の短辺/長辺で正規化する。
@@ -32,7 +32,7 @@ from pcbasm.pcb.board import Component, Pad
 HierKey = tuple[str, ...]
 
 # UI / 設定解決で使う pad 参照。通常は (designator, pad_number)。
-# 同じ pad_number が複数ある場合だけ第2要素に "#n" suffix を付ける。
+# 同じ pad_number が複数ある場合だけ第 2 要素に "#n" suffix を付ける。
 PadRef = tuple[str, str]
 
 # 形状量子化の既定単位（mm／mm²）
@@ -96,7 +96,7 @@ class PadShapeKey:
 
 @attrs.frozen
 class PadHierarchyNode:
-    """階層ツリーの1ノード.
+    """階層ツリーの 1 ノード.
 
     Attributes:
         level: 階層レベル（0..4）
@@ -122,7 +122,7 @@ class PadHierarchy:
     """
 
     root: PadHierarchyNode
-    # pad_ref -> L0..L4 の5キー。build 時に構築する。
+    # pad_ref -> L0..L4 の 5 キー。build 時に構築する。
     _keys_by_pad_ref: dict[PadRef, tuple[HierKey, ...]] = attrs.field(
         factory=dict, eq=False, alias="keys_by_pad_ref"
     )
@@ -195,13 +195,13 @@ class PadHierarchy:
         yield from self.root.pads
 
     def node_keys_for_pad(self, pad: Pad) -> list[HierKey]:
-        """Pad が属する L0–L4 の5キーを返す.
+        """Pad が属する L0–L4 の 5 キーを返す.
 
         Args:
             pad: 対象 pad（``designator`` と ``pad_number`` で照合）
 
         Returns:
-            ``[L0, L1, L2, L3, L4]`` の5要素
+            ``[L0, L1, L2, L3, L4]`` の 5 要素
 
         Raises:
             KeyError: pad がこの階層に存在しない場合
@@ -274,7 +274,7 @@ class PadHierarchy:
         """Pad 構成の安定ハッシュ（L4 分割 suffix は含めない）を返す.
 
         L4 の分割 pad suffix は署名に含めない。旧 UI では同一 ``pad_number``
-        の分割片が同じ L4 key に潰れていたため、ここを新 key にすると既存
+        の分割片が同じ L4 key にまとめられていたため、ここを新 key にすると既存
         設定が不必要に「別基板」扱いされる。
         """
         records = []

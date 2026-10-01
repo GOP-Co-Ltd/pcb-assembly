@@ -1,4 +1,4 @@
-"""マシン初期化からBoard変換計測までの共通セットアップ."""
+"""マシン初期化から Board 変換計測までの共通セットアップ."""
 
 from __future__ import annotations
 
@@ -38,13 +38,13 @@ DETECTION_RETRY_SEC = 0.5
 
 
 class CircleDetectionError(RuntimeError):
-    """規定回数の再取得でも円検出の品質条件を満たさなかった."""
+    """規定回数の再取得でも円検出の品質条件を満たさなかったときの例外."""
 
 
 class OffsetObserver:
-    """カメラ画像からオフセットを検出・表示するobserver.
+    """カメラ画像からオフセットを検出・表示する observer.
 
-    observe() -> Transform 契約（カメラmm空間、原点=画像中心、想定→観測）。
+    observe() -> Transform 契約（カメラ mm 空間、原点=画像中心、想定→観測）に従う。
     """
 
     def __init__(
@@ -60,20 +60,20 @@ class OffsetObserver:
         retry_sec: float = 0.0,
         max_standard_deviation_mm: float | None = None,
     ) -> None:
-        """OffsetObserverを初期化する.
+        """OffsetObserver を初期化する.
 
         Args:
             detector: 検出器（Hough の :class:`~pcbasm.vision.CircleDetector` や
                 塗布痕用の :class:`~pcbasm.vision.PasteDotDetector`）
             camera: カメラ
             crop_size: 関心領域サイズ (width, height)
-            frame_sink: 検出成功時に注釈画像を送る sink。Noneの場合は送らない
+            frame_sink: 検出成功時に注釈画像を送る sink。None の場合は送らない
             sample_count: 統計検出に使うフレーム数（``machine.detection.sample_count``）
-            minimum_sample_count: 1回の観測に必要な有効検出数
+            minimum_sample_count: 1 回の観測に必要な有効検出数
                 （``machine.detection.minimum_sample_count``）
             max_attempts: 検出バッチの最大試行回数
             retry_sec: 再試行前の待機時間 [sec]
-            max_standard_deviation_mm: 各軸の標準偏差上限。Noneなら制限しない
+            max_standard_deviation_mm: 各軸の標準偏差上限。None なら制限しない
         """
         if (
             isinstance(sample_count, bool)
@@ -117,7 +117,7 @@ class OffsetObserver:
         self._max_standard_deviation_mm = max_standard_deviation_mm
 
     def observe(self) -> Transform:
-        """円検出オフセットを想定→観測のTransformとして返す.
+        """円検出オフセットを想定→観測の Transform として返す.
 
         Raises:
             CircleDetectionError: 規定回数の再取得でも検出品質を満たさない場合
@@ -140,7 +140,7 @@ class OffsetObserver:
                         )
                         self._frame_sink(display)
 
-                    # フレーム毎のばらつきを残す。sample_count を詰める材料になる
+                    # フレームごとのばらつきをログに残し、sample_count を調整する判断材料にする
                     logger.info(
                         "円検出: %d/%d フレーム, 標準偏差 X=%.4f Y=%.4f mm",
                         result.sample_count,
@@ -199,9 +199,10 @@ def setup_board_calibration(
     camera: Camera | None = None,
     frame_sink: FrameSink | None = None,
 ) -> BoardCalibrationResult:
-    """マシン初期化からBoard変換計測までの共通セットアップを実行する.
+    """マシン初期化から Board 変換計測までの共通セットアップを実行する.
 
-    手順: PCB 読込 → Klipper 接続 → カメラ準備 → キャリブレーション読込 → ホーミング (G28) → 左上基準点へ移動 → カメラ回転角の計測 → Board 変換の計測。
+    手順は PCB 読込 → Klipper 接続 → カメラ準備 → キャリブレーション読込 →
+    ホーミング (G28) → 左上基準点へ移動 → カメラ回転角の計測 → Board 変換の計測。
 
     ステージを動かすので、呼び出し側は ``machine_session`` の中で呼ぶ。
 
@@ -209,10 +210,10 @@ def setup_board_calibration(
 
     Args:
         machine: マシン設定
-        pcb_file_path: KiCADファイルのパス
+        pcb_file_path: KiCAD ファイルのパス
         tolerance: 位置合わせの許容誤差 (mm)
-        camera: 使用するカメラ。Noneの場合はマシン設定から生成する
-        frame_sink: 検出注釈画像を送る sink。Noneの場合は表示しない
+        camera: 使用するカメラ。None の場合はマシン設定から生成する
+        frame_sink: 検出注釈画像を送る sink。None の場合は表示しない
 
     Returns:
         接続済みの Klipper・ステージ・カメラと、計測した 2 つの変換
@@ -222,7 +223,7 @@ def setup_board_calibration(
         RuntimeError: 位置補正が収束しない場合、または G-code 送信が失敗した場合
         ValueError: 基準点配置から Board 変換を決められない場合
     """
-    # PCBファイル読み込み
+    # PCB ファイル読み込み
     logger.info("=== PCBファイル読み込み ===")
     pcb = PcbFile(pcb_file_path)
     outline = pcb.outline
@@ -230,7 +231,7 @@ def setup_board_calibration(
     logger.info("Board幅: %.3f mm", outline.width)
     logger.info("Board高さ: %.3f mm", outline.height)
 
-    # Klipper接続
+    # Klipper 接続
     logger.info("=== Klipper接続 ===")
     klipper = Klipper(host=machine.klipper.host, port=machine.klipper.port)
     logger.info("接続先: %s:%s", machine.klipper.host, machine.klipper.port)
@@ -270,7 +271,7 @@ def setup_board_calibration(
     klipper.send_gcode(GCode.homing(x=True, y=True, z=True) + GCode.wait_for_done())
     logger.info("ホーミング完了")
 
-    # Reference Pointへ移動
+    # Reference Point へ移動
     logger.info("=== Reference Point (top left) へ移動 ===")
     logger.info("目標位置: (%s, %s)", ref_config.x, ref_config.y)
     if calibration.z_position is not None:
@@ -291,13 +292,13 @@ def setup_board_calibration(
         frame_sink=frame_sink,
         sample_count=machine.detection.sample_count,
         minimum_sample_count=machine.detection.minimum_sample_count,
-        # 有効検出数の下限が効くようになったので、1 バッチ落ちただけで
+        # 有効検出数の下限で判定するようになったため、1 バッチ失敗しただけで
         # ジョブの最初のステップが止まらないよう撮り直す（塗布痕側と同じ方針）
         max_attempts=DETECTION_MAX_ATTEMPTS,
         retry_sec=DETECTION_RETRY_SEC,
     )
 
-    # カメラ回転角の計測（2点法）
+    # カメラ回転角の計測（2 点法）
     logger.info("=== カメラ回転角の計測 ===")
     move_distance = (
         safe_move_distance(cam_config.crop.size, margin=0.3) / calibration.pixel_per_mm
@@ -321,7 +322,7 @@ def setup_board_calibration(
         settle_sec=settle.move_sec,
     )
 
-    # Board変換の計測
+    # Board 変換の計測
     logger.info("=== Board変換の計測 ===")
     board_transform_measurer = BoardTransformMeasurer(
         adjust_reference=position_adjustor.adjust,

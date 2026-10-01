@@ -4,9 +4,10 @@ SSR ページのハンドラが backend のクライアントになる。取得�
 `web.api.models` の pydantic モデル（pydantic のみを import する contract モジュール）
 で検証してからテンプレートへ渡す。
 
-**backend のレスポンスはキャッシュしない。** frontend は backend の WS を自前で
-購読しないため、他の操作者による変更を無効化する条件を正しく書けない。古い値の
-フォームを見て書き込み操作をされるほうが、毎ページで取り直すコストより悪い。
+backend のレスポンスはキャッシュしない。frontend は backend の WS を自前で
+購読しないため、他の操作者による変更でキャッシュを無効化する条件を正しく書けない。
+古い値のフォームを見た利用者に書き込み操作をされるほうが、毎ページで取り直す
+コストより問題が大きい。
 """
 
 from __future__ import annotations
@@ -29,8 +30,8 @@ from web.ui.machines import MachineEndpoint
 class BackendUnavailable(RuntimeError):
     """Backend への到達失敗、または応答が契約を満たさない（→ 503 ページ）.
 
-    ページ描画に必要な取得のうち **1 本でも失敗したらこれを投げる**（部分的に
-    欠けた値でフォームを描くと、それを見て書き込み操作をされる）。
+    ページ描画に必要な取得のうち 1 本でも失敗したら、この例外を投げる（部分的に
+    欠けた値でフォームを描くと、利用者がそのフォームで書き込み操作をしてしまう）。
     """
 
     def __init__(self, endpoint: MachineEndpoint, cause: Exception) -> None:
@@ -59,7 +60,8 @@ class BackendGateway:
     （``ssr_timeout``）で待つ。
 
     クライアントは ``machine_id`` ごとに初回の ``base_url`` で作り、以後差し替えない。
-    mDNS だけで見つかったマシンの host/port が変わっても、SSR（相対パスで取る `MachineClient`）は再起動まで古い宛先へ繋ぐ。
+    mDNS だけで見つかったマシンの host/port が変わっても、SSR（相対パスで取得する
+    `MachineClient`）は再起動まで古い宛先へ接続する。
     `ProxyApp` は絶対 URL を渡すので、中継は常に最新の host/port へ行く。
     """
 
@@ -77,8 +79,8 @@ class BackendGateway:
         Args:
             connect_timeout: TCP 接続確立の待ち時間 [s]
             read_timeout: 応答の待ち時間 [s]（呼び出し側が上書き可能な既定値）
-            transport_factory: transport の差し替え（テストで in-process の
-                backend app を挿す。None なら httpx の既定 = 実 TCP）
+            transport_factory: transport の差し替え（テストでは in-process の
+                backend app を差し込む。None なら httpx の既定 = 実 TCP）
         """
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout

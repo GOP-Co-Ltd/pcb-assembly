@@ -393,7 +393,7 @@ def _labeled_frame_sink(
 ) -> Callable[[], None]:
     """ラベル付きライブフレームを 1 枚プレビューへ出すコールバックを作る.
 
-    カメラ取得の失敗でツアーを落とさない。最初の 1 回だけログへ警告し、以降は黙って更新を見送る。
+    カメラ取得に失敗しても巡回を中断しない。最初の 1 回だけログへ警告し、以降はログを出さずに更新を見送る。
     """
     crop_size = result.machine.camera.crop.size
     warned = False

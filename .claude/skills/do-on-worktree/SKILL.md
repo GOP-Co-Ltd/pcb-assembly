@@ -5,7 +5,7 @@ description: 進行中の別タスクを止めずに、main から分岐した w
 
 # 別タスク進行中に worktree で裏作業を進める
 
-現在のブランチで別タスクが進行中のまま、それとは独立した変更を `main` から分岐して並行で進めるための手順。進行中の作業を一切汚さずに、新しいブランチ・worktree で実装し、PR を出すところまでを担う。
+現在のブランチで別タスクが進行中のまま、それとは独立した変更を `main` から分岐して並行で進めるための手順。進行中の作業には一切手を加えず、新しいブランチと worktree で実装する。この手順は PR を出すところまでを扱う。
 
 関連: skill [github-pr](../github-pr/SKILL.md)、skill [edit-dot-claude](../edit-dot-claude/SKILL.md)。
 
@@ -15,7 +15,7 @@ description: 進行中の別タスクを止めずに、main から分岐した w
 - それとは無関係・独立した変更を新たに依頼された
 - ユーザーが「worktree で」「裏で進めて」と明示した
 
-逆に、進行中タスクの続き・関連変更なら worktree に分ける必要はない（同じブランチで続ける）。判断に迷ったら独立性をユーザーに確認する。
+進行中タスクの続きや関連する変更なら、worktree に分けず同じブランチで続ける。判断に迷ったら独立性をユーザーに確認する。
 
 ## 手順
 
@@ -64,5 +64,5 @@ skill [github-pr](../github-pr/SKILL.md) の手順で push し、`main` への P
 ## 注意点
 
 - 進行中タスクのブランチには絶対に commit しない
-- `main` へ直接 commit / merge しない（AGENTS.md の Git 運用）。PR 止まりにする
+- `main` へ直接 commit / merge しない（AGENTS.md の Git 運用）。PR の作成までにとどめる
 - worktree は `.claude/worktrees/<name>/` に作られ、元タスクのファイルとは別物

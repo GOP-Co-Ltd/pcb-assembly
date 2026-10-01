@@ -1,7 +1,7 @@
 {# ソフトウェア更新のパネル（backend 側 dev/update.html と frontend 自身の
    update.html が共有する）。値はすべて update.js が status API から入れる。
-   呼び出し側が渡す変数:
-     update_status_url / update_check_url / update_run_url … 叩く先
+   呼び出し側が渡す変数は次のとおり。
+     update_status_url / update_check_url / update_run_url … 呼び出す API の URL
      update_transport … "frontend"（素の fetch）か "backend"（window.webui.api）
      update_requires_control … 変更操作に操作権を要するか（backend 側のみ true） #}
 <section class="status-card" id="update-panel"

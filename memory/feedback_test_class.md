@@ -1,13 +1,13 @@
 ---
 name: テストはテストクラスにまとめる
-description: pytestのテストはモジュール直下の関数ではなくclass TestXxx形式でまとめる
+description: pytest のテストはモジュール直下の関数ではなく class TestXxx 形式でまとめる
 type: feedback
 originSessionId: 7eb3c0b9-1064-471b-a027-b5cb11b5a829
 ---
 
-pytestテストは関数ベースではなく `class TestXxx:` 形式でまとめる。同一対象の正常系・異常系・パラメータ化を1つのクラスに集約する。
+pytest テストは関数ベースではなく `class TestXxx:` 形式でまとめる。同一対象の正常系・異常系・パラメータ化を 1 つのクラスに集約する。
 
-**Why:** ユーザの好み。関連するテストをまとめて見やすくし、setup/teardownやfixtureスコープも整理しやすくするため。
+**Why:** ユーザの好み。関連するテストをまとめて見やすくし、setup/teardown や fixture スコープも整理しやすくするため。
 
 **How to apply:**
 

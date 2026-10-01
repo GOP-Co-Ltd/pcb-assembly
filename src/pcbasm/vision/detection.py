@@ -1,4 +1,4 @@
-"""画像検出: 円などの図形を検出し、位置ズレを計算."""
+"""円などの図形を画像から検出し、位置ズレを計算する."""
 
 import statistics
 from abc import ABC, abstractmethod
@@ -24,7 +24,7 @@ from .image import Image
 
 # 塗布痕として採る円形度の下限。実素材では塗布痕が 0.95 以上、未塗布板に残る大きな
 # 成分（ヘアライン・照明ムラ）が 0.2 以下に分かれる。小片の円形度は 1 を超えうるので
-# この下限では弾けない（弾くのは直径下限の役目）
+# この下限では除外できない（小片は直径下限で除外する）
 # 出典: data/testing/paste-volume/README.md
 DEFAULT_MIN_CIRCULARITY = 0.7
 
@@ -38,12 +38,12 @@ class Offset:
     crop した検出器では crop 画像の中心が基準になる。
     """
 
-    px: Point2d  # pixel単位
+    px: Point2d  # pixel 単位
     pixel_per_mm: float
 
     @property
     def mm(self) -> Point2d:
-        """mm単位のオフセット."""
+        """Mm 単位のオフセット."""
         return Point2d(
             x=self.px.x / self.pixel_per_mm,
             y=self.px.y / self.pixel_per_mm,
@@ -70,7 +70,7 @@ class OffsetStatistics:
 
     @property
     def mean_mm(self) -> Point2d:
-        """平均オフセット (mm単位)."""
+        """平均オフセット (mm 単位)."""
         return Point2d(
             x=self.mean.x / self.pixel_per_mm,
             y=self.mean.y / self.pixel_per_mm,
@@ -78,7 +78,7 @@ class OffsetStatistics:
 
     @property
     def std_mm(self) -> Point2d:
-        """標準偏差 (mm単位)."""
+        """標準偏差 (mm 単位)."""
         return Point2d(
             x=self.std.x / self.pixel_per_mm,
             y=self.std.y / self.pixel_per_mm,
@@ -90,7 +90,7 @@ def validate_paste_diameters(diameter_min: float, diameter_max: float) -> str | 
 
     最小直径に 0（下限なし）を許さないのは、未塗布の板でも 2 値化の残りかすが
     0.1-0.3 mm 相当の小片として残り、それを塗布痕と取り違えるため。小片の円形度は
-    1 を超えうるので、円形度の下限では弾けない。
+    1 を超えうるので、円形度の下限では除外できない。
     """
     if not (
         is_finite_number(diameter_min)
@@ -113,13 +113,13 @@ class CenterOffsetDetector(ABC):
         """画像スケールを保持する.
 
         Args:
-            pixel_per_mm: pixel/mm比率
+            pixel_per_mm: pixel/mm 比率
         """
         self._pixel_per_mm = pixel_per_mm
 
     @abstractmethod
     def detect_nearest_center(self, image: Image) -> DetectedCircle | None:
-        """画像から対象を検出し、最も中心に近いものを返す（無ければNone）."""
+        """画像から対象を検出し、最も中心に近いものを返す（無ければ None）."""
 
     def detect_with_statistics(
         self,
@@ -134,10 +134,10 @@ class CenterOffsetDetector(ABC):
             minimum_sample_count: 統計結果に必要な有効検出数
 
         Returns:
-            OffsetStatistics または有効な検出数が不足した場合はNone
+            OffsetStatistics。有効な検出数が不足した場合は None
 
         Raises:
-            ValueError: minimum_sample_count が1以上の整数でない場合
+            ValueError: minimum_sample_count が 1 以上の整数でない場合
         """
         if (
             isinstance(minimum_sample_count, bool)
@@ -183,7 +183,7 @@ class CenterOffsetDetector(ABC):
 
 
 class CircleDetector(CenterOffsetDetector):
-    """画像からHough変換で円を検出し、最も中心に近い円の位置ズレを計算.
+    """画像から Hough 変換で円を検出し、最も中心に近い円の位置ズレを計算.
 
     基準点マーカーのように縁の勾配がはっきりした円が対象。塗布痕には
     :class:`PasteDotDetector` を使う。
@@ -196,13 +196,13 @@ class CircleDetector(CenterOffsetDetector):
         diameter_tolerance_mm: float = 1.0,
         crop_size: tuple[int, int] | None = None,
     ) -> None:
-        """CircleDetectorを初期化.
+        """CircleDetector を初期化.
 
         Args:
-            pixel_per_mm: pixel/mm比率
+            pixel_per_mm: pixel/mm 比率
             target_diameter_mm: ターゲットの円の直径 (mm)
             diameter_tolerance_mm: 直径の許容誤差 (mm)
-            crop_size: 関心領域サイズ (width, height)、Noneの場合は画像全体
+            crop_size: 関心領域サイズ (width, height)、None の場合は画像全体
         """
         super().__init__(pixel_per_mm)
         self._target_diameter_mm = target_diameter_mm
@@ -217,7 +217,7 @@ class CircleDetector(CenterOffsetDetector):
             image: 入力画像
 
         Returns:
-            DetectedCircle または検出失敗時はNone
+            DetectedCircle。検出失敗時は None
         """
         circles = self.detect_circles(image)
         if len(circles) == 0:
@@ -232,7 +232,7 @@ class CircleDetector(CenterOffsetDetector):
         return min(target_circles, key=lambda c: c.offset.px.norm)
 
     def detect_circles(self, image: Image) -> list[DetectedCircle]:
-        """Hough変換で円を検出.
+        """Hough 変換で円を検出.
 
         Args:
             image: 入力画像
@@ -294,7 +294,7 @@ class PasteDotDetector(CenterOffsetDetector):
     """塗布痕（板より暗い円）を単一フレームの背景差分 + Otsu で検出する.
 
     ``cv2.HoughCircles`` は縁の勾配がはっきりした円を前提にするので、縁がなだらかで
-    内部が均一に暗い塗布痕には弱い。代わりに流量校正
+    内部が均一に暗い塗布痕は検出しにくい。代わりに流量校正
     （:mod:`pcbasm.pasting.paste_volume.detect`）と同じ段
     （:mod:`pcbasm.vision.dot`）で 2 値化し、連結成分の重心を円の中心として返す。
     塗布前後の差分が取れない（観測ごとにステージが動く）ので、差分は
@@ -303,12 +303,13 @@ class PasteDotDetector(CenterOffsetDetector):
     候補は面積等価直径が ``diameter_min_mm``〜``diameter_max_mm`` に入り、円形度が
     ``min_circularity`` 以上の成分だけに絞る。2 つの下限は役割が別で、どちらも要る。
 
-    - 円形度: 未塗布板に残る**大きい**成分（ヘアライン・照明ムラ）を弾く
-    - 直径下限: **小片**を弾く。小片の円形度は 1 を超えうるので円形度では弾けない
+    - 円形度: 未塗布板に残る大きい成分（ヘアライン・照明ムラ）を除外する
+    - 直径下限: 小片を除外する。小片の円形度は 1 を超えうるので円形度では除外できない
 
-    2 値化したマスクは穴を埋めてから数える（:func:`~pcbasm.vision.dot.fill_dark_spot_holes`）。
-    光沢のある塗布痕は中心のハイライトが抜けて環になり、そのままでは円形度が落ちて
-    採れないため。ハイライトが外半径の 2/3 を超えると環が細って open で分断されるので、
+    2 値化したマスクは、穴を埋めてから数える
+    （:func:`~pcbasm.vision.dot.fill_dark_spot_holes`）。光沢のある塗布痕は
+    中心のハイライトが抜けて環になり、そのままでは円形度が落ちて採れないため。
+    ハイライトが外半径の 2/3 を超えると環が細って open で分断されるので、
     そこが検出できる上限になる。
 
     ``diameter_max_mm`` は背景推定カーネル（その 1.5 倍）も決めるので、実際の塗布痕より
@@ -327,13 +328,13 @@ class PasteDotDetector(CenterOffsetDetector):
         spec: DotDetectionSpec = DotDetectionSpec(),
         min_circularity: float = DEFAULT_MIN_CIRCULARITY,
     ) -> None:
-        """PasteDotDetectorを初期化.
+        """PasteDotDetector を初期化.
 
         Args:
-            pixel_per_mm: pixel/mm比率
+            pixel_per_mm: pixel/mm 比率
             diameter_min_mm: 検出する円の最小直径 (mm)
             diameter_max_mm: 検出する円の最大直径 (mm)
-            crop_size: 関心領域サイズ (width, height)、Noneの場合は画像全体
+            crop_size: 関心領域サイズ (width, height)、None の場合は画像全体
             spec: 2 値化のハイパーパラメータ
             min_circularity: 塗布痕として採る円形度の下限 (0.0-1.0)
 
@@ -371,7 +372,7 @@ class PasteDotDetector(CenterOffsetDetector):
             image: 入力画像
 
         Returns:
-            DetectedCircle または検出失敗時はNone
+            DetectedCircle。検出失敗時は None
         """
         cropped = (
             image if self._crop_size is None else image.crop_center(self._crop_size)

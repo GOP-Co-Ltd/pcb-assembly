@@ -4,8 +4,8 @@
 （``<stem>``）の 3 状態を作る。読み出し側が要るのは完成 session だけなので、
 ``metadata.json`` を持つ directory だけを候補にする。
 
-版が違う session は読み飛ばさず ``(None, 理由)`` で拒否する。収集した版を跨いで
-黙って混ぜると、教師体積の作り方が違うものが 1 つの校正へ混ざる。
+版が違う session は読み飛ばさず ``(None, 理由)`` で拒否する。収集した版の違う session を
+警告なく混ぜると、教師体積の作り方が異なるデータが 1 つの校正に混在する。
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def completed_sessions(root: Path) -> tuple[Path, ...]:
     書き込み中（``.<stem>.tmp``）と未確定（``<stem>.incomplete``）は名前で外す。
 
     ``finalize_incomplete`` は ``<stem>.incomplete`` の中へ ``metadata.json`` を
-    書いてから rename するので、その窓と rename 失敗時は中身だけでは区別できない。
+    書いてから rename するので、rename までの間と rename 失敗時は中身だけでは区別できない。
     """
     if not root.is_dir():
         return ()

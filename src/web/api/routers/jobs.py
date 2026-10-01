@@ -360,9 +360,9 @@ async def _receive_loop(
     """クライアントメッセージを処理する（不正は error イベントで応答）.
 
     送信は _send_loop に一本化するため、error は購読キューへ直接積む。
-    `ControlDeniedError` も同じ経路で返す（**ここで捕まえないと `asyncio.wait` を
-    抜けて WS が切断され、クライアントが再接続ループに入る**。FastAPI の
-    `exception_handler` は WebSocket に効かない）。
+    `ControlDeniedError` も同じ経路で返す。ここで捕捉しないと例外が `asyncio.wait` を
+    抜けて WS が切断され、クライアントが再接続ループに入る（FastAPI の
+    `exception_handler` は WebSocket には適用されない）。
     """
     while True:
         try:

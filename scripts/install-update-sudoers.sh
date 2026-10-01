@@ -6,8 +6,8 @@ set -euo pipefail
 # 唯一の特権操作を /etc/sudoers.d へ登録する。
 #
 # 許すのは `systemctl restart --no-block <unit...>` の **3 変種の固定 argv だけ**。
-# ワイルドカードは 1 文字も置かない（sudo の glob は `/` も食うため、引数に `*` を
-# 1 つ入れるだけで「任意のコマンドを root で実行」に悪化しうる）。
+# ワイルドカードは 1 文字も置かない（sudo の glob は `/` にもマッチするため、引数に `*` を
+# 1 つ入れるだけで「任意のコマンドを root で実行」できる状態になりうる）。
 # `systemctl status` / `is-active` も入れない（非特権で読めるうえ、`sudo systemctl status`
 # はページャ経由で root シェルを取られる）。
 SUDOERS_DIR="${SUDOERS_DIR:-/etc/sudoers.d}"
@@ -81,11 +81,11 @@ EOF
 # `sudo -n -l <command...>` は **その argv を実行できるかだけ**を終了コードで返す。
 # `sudo -n -l` の一覧を文字列照合すると、tty が無いときの 80 桁折り返し（許可行は
 # 84〜102 文字ある）に当たって、正しく設置した機体でも一致しない。
-# ここで落ちても設置自体は成功しているので警告に留める。
+# ここで確認に失敗しても設置自体は成功しているので警告に留める。
 verify_sudoers() {
     local units
     # 3 変種すべてを見る。同居機が実際に使うのは 3 つ目（api と ui を並べた 1 回の呼び出し）
-    # なので、単体 2 つだけ確認しても「install は成功、実行時の preflight で落ちる」が残る。
+    # なので、単体 2 つだけ確認しても「install は成功、実行時の preflight で失敗する」可能性が残る。
     for units in "${API_UNIT}" "${UI_UNIT}" "${API_UNIT} ${UI_UNIT}"; do
         # shellcheck disable=SC2086
         if ! ${SUDO} -n -l ${SYSTEMCTL} restart --no-block ${units} >/dev/null 2>&1; then
@@ -103,12 +103,12 @@ install_sudoers() {
 
     tmp="$(mktemp)"
     # trap 本文は関数フレームが巻き戻された後に評価されるため、local の ${tmp} を
-    # 遅延展開すると空文字になる。設置時に展開して実パスを焼き込む（web-service.sh と同じ）。
+    # 遅延展開すると空文字になる。設置時に展開して実パスを埋め込む（web-service.sh と同じ）。
     # shellcheck disable=SC2064
     trap "rm -f '${tmp}'" EXIT
     render_sudoers >"${tmp}"
 
-    # 壊れた sudoers を置くと sudo 全体が死に、復旧手段（sudo での書き戻し）まで失う。
+    # 不正な sudoers を置くと sudo 全体が動かなくなり、復旧手段（sudo での書き戻し）まで失う。
     # 検査を通るまで設置先には一切触らない。
     if ! ${VISUDO} -cf "${tmp}" >/dev/null; then
         echo "エラー: 生成した sudoers 断片が構文検査に通りませんでした。設置しません。" >&2

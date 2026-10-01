@@ -1,15 +1,15 @@
 # posctrl
 
-Board/オフセットの位置合わせを担う共通制御モジュール。ペースト塗布（`pcbasm.pasting`）と Pick and Place の双方から利用する。
+Board / オフセットの位置合わせを行う共通制御モジュール。ペースト塗布（`pcbasm.pasting`）と Pick and Place の双方から利用する。
 
-Board 巡回の実行・ユーザー入力・フレーム配信は `web/api/jobs/posctrl.py` が担う。
+Board 巡回の実行・ユーザー入力・フレーム配信は `web/api/jobs/posctrl.py` で行う。
 このパッケージでは OpenCV のウィンドウ表示やキーボード入力待ちは行わない。
 
 ## 構成
 
 | モジュール         | 役割                                                                                                    |
 | ------------------ | ------------------------------------------------------------------------------------------------------- |
-| `setup.py`         | マシン初期化から Board 変換計測までの入口 `setup_board_calibration`、終了時に駐機する `machine_session` |
+| `setup.py`         | マシン初期化から Board 変換計測までを行う `setup_board_calibration`、終了時に駐機する `machine_session` |
 | `board.py`         | 4 隅の基準点から Board 座標 → 機械座標の 6 パラメータ affine を最小二乗推定 `BoardTransformMeasurer`    |
 | `offset.py`        | 観測座標（カメラ）→ 機械座標の回転を 2 点法で計測 `OffsetTransformMeasurer`                             |
 | `position.py`      | 観測結果が許容誤差に収まるまで XY 位置を反復補正 `XYPositionAdjustor`                                   |
@@ -40,7 +40,7 @@ Board / オフセット調整用の観測は `observe() -> Transform`
 `RegionAlignmentSession` が棄却する。`BoardAlignment` は pad 中心を覆う成功領域のうち、
 重なり合う成功領域群の補正量と最も整合するものを選ぶ。同点なら RMS が小さいもの、
 さらに同点なら領域中心が pad 中心に近いものを優先する。pad 中心を覆う成功領域が
-なければ、中心が最も近い成功領域の補正を使う。成功領域が1件もなければジョブ全体を
+なければ、中心が最も近い成功領域の補正を使う。成功領域が 1 件もなければジョブ全体を
 中止する。
 
 Board 巡回とペースト塗布では、`Pad.polygon` の最小回転外接矩形の短辺が machine

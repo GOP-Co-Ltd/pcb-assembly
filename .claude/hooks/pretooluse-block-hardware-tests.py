@@ -2,12 +2,12 @@
 """実機テストを走らせうる Bash コマンドを PreToolUse で拒否するフック.
 
 `make test` / `make run` と、`-m "not hardware"` を伴わない pytest 起動を止める。
-実機（カメラ、Klipper 接続のステージ・サーボ・エアポンプ、GPIO）が物理的に動作し 破損や事故につながるため、Claude
-とサブエージェントは実機テストを実行しない （`memory/MEMORY.md` の "No hardware test
+実機（カメラ、Klipper 接続のステージ・サーボ・エアポンプ、GPIO）が物理的に動作し、破損や事故につながるため、Claude
+とサブエージェントは実機テストを実行しない（`memory/MEMORY.md` の "No hardware test
 execution"）。
 
-指示文だけでは、サブエージェントが `uv run pytest tests/web/api` のように 「実機テストを含むディレクトリを
-marker 無しで指定する」経路を塞げないため、 機構として拒否する。
+指示文だけでは、サブエージェントが `uv run pytest tests/web/api` のように実機テストを含むディレクトリを
+marker 無しで指定する経路を防げないため、フックで機構的に拒否する。
 
 判定は「コマンド位置に pytest があるか」で行い、`grep pytest Makefile` のような
 読み取り専用の言及は誤検出しない。
@@ -161,7 +161,7 @@ def _is_pytest_invocation(segment: str, _depth: int = 0) -> bool:
     try:
         tokens = shlex.split(segment, comments=True)
     except ValueError:
-        # クォート不一致は判定不能。文字列として pytest を含むなら安全側に倒す
+        # クォート不一致は判定不能。文字列として pytest を含むなら pytest 起動とみなして拒否する
         return "pytest" in segment
     if _segment_command(tokens) in _TEXT_TOOLS:
         return False

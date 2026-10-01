@@ -131,8 +131,8 @@ create_runner_user() {
         return
     fi
 
-    # CI jobはhost上で直接コマンドを実行する。cameraや装置を触らせないため
-    # video / gpio / dialout groupには入れない。
+    # CI job は host 上で直接コマンドを実行する。camera や装置を触らせないため
+    # video / gpio / dialout group には入れない。
     sudo useradd --system --create-home --shell /bin/bash "${RUNNER_USER}"
 }
 
@@ -163,7 +163,7 @@ install_runner_instances() {
     curl --fail --silent --show-error --location \
         "https://github.com/actions/runner/releases/download/v${version}/actions-runner-linux-arm64-${version}.tar.gz" \
         --output "${tarball}"
-    # mktempは0600で作るため、そのままでは展開側の${RUNNER_USER}が読めない。
+    # mktemp は 0600 で作るため、そのままでは展開側の ${RUNNER_USER} が読めない。
     chmod 0644 "${tarball}"
 
     for index in $(seq 1 "${RUNNER_COUNT}"); do
@@ -179,7 +179,7 @@ install_runner_instances() {
     rm -f "${tarball}"
     trap - EXIT
 
-    # installdependencies.shもrunner root上での実行を前提にしている。
+    # installdependencies.sh も runner root 上での実行を前提にしている。
     (cd "$(instance_dir 1)" && sudo ./bin/installdependencies.sh)
     echo "Actions Runner ${version}を${RUNNER_COUNT} instance導入しました。"
 }
@@ -262,9 +262,9 @@ register_instance() {
     instance="$(instance_dir "${index}")"
     name="$(instance_name "${index}")"
 
-    # config.shはrunner rootをcwdにして実行する必要がある（bin/以下を相対参照する）。
-    # tokenは標準入力ではなく引数で渡す必要があるが、runner userのshell履歴には
-    # 残らず、登録後は.runner / .credentialsにのみ保存される。
+    # config.sh は runner root を cwd にして実行する必要がある（bin/ 以下を相対参照する）。
+    # token は標準入力ではなく引数で渡す必要があるが、runner user の shell 履歴には
+    # 残らず、登録後は .runner / .credentials にのみ保存される。
     if ! (cd "${instance}" && sudo -u "${RUNNER_USER}" env RUNNER_ALLOW_RUNASROOT=0 \
         ./config.sh \
         --unattended \
@@ -287,7 +287,7 @@ install_instance_service() {
     instance="$(instance_dir "${index}")"
 
     if ! service="$(service_name "${index}")"; then
-        # svc.shもrunner rootをcwdにして実行する必要がある。
+        # svc.sh も runner root を cwd にして実行する必要がある。
         (cd "${instance}" && sudo ./svc.sh install "${RUNNER_USER}")
         service="$(service_name "${index}")" ||
             die "$(instance_name "${index}")のservice名を取得できませんでした"
@@ -310,7 +310,7 @@ register_runner() {
         if instance_is_registered "${index}"; then
             echo "$(instance_name "${index}")は登録済みです。"
         else
-            # registration tokenは有効期限内なら複数runnerに再利用できる。
+            # registration token は有効期限内なら複数 runner に再利用できる。
             if [ -z "${token}" ]; then
                 token="$(read_registration_token)"
             fi

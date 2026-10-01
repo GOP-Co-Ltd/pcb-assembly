@@ -595,7 +595,7 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
     回転数比の体積配分を通じて全 sample へ系統的なバイアスが乗る。
 
     計量質量のプロンプトの前に ``pending.json`` を書く。収集は 1 時間規模で、最後の
-    入力だけが装置の外から来るため、そこで WebUI が落ちると撮影済み画像が教師値を失う。
+    入力だけが装置の外から来るため、そこで WebUI が停止すると撮影済み画像の教師値が残らない。
     残した doc は ``paste_dataset_finalize`` ジョブが計量値と突き合わせて確定する。
     """
     dispenser_config = ctx.machine.paste_dispenser
@@ -606,7 +606,7 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
     view_offset_mm = float(ctx.params["view_offset"])
     started_at = datetime.now().astimezone()
 
-    # 設定不正・収まらない配置・撮影窓の破綻はpromptや装置動作より前に検出する。
+    # 設定不正・収まらない配置・撮影窓の破綻は prompt や装置動作より前に検出する。
     plan, views, crop_size_px = _plan_collection(ctx)
     spec = plan.spec
     _confirm_dataset_collection(ctx)
@@ -711,7 +711,7 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
                 calibration=result.calibration,
             )
             # 計量質量は装置の外から来る唯一の値なので、それ以外を先に永続化する。
-            # プロンプトへ応答できないまま落ちても、撮影済み画像が教師値を失わない。
+            # プロンプトへ応答できないまま停止しても、撮影済み画像の教師値が残る。
             recorder.write_pending(run)
             ctx.log(
                 "計量待ちの状態を保存しました。ここで応答できなくても"
@@ -800,7 +800,7 @@ def fit_calibration(
             return _calibration_failed(ctx, error)
         summary, artifacts = report_calibration(ctx, session, fit, always_save=True)
     except Exception:
-        # 「投げない」を葉の数え上げで保証するのは無理なので、まとめて受ける
+        # 送出しうる例外を 1 つずつ列挙して「投げない」を保証するのは無理なので、まとめて捕捉する
         logger.warning("塗布量校正の生成が例外で終わりました", exc_info=True)
         return _calibration_failed(ctx, "想定外のエラー（詳細はサーバーログ）")
     return f" / {summary}", artifacts
@@ -827,7 +827,7 @@ def verify_with_calibration(
     結果を失うのは割に合わないので、**この関数は例外を投げない**。
 
     校正が読めない・session が測れない・図や JSON が書けないといった失敗はすべて
-    警告ログに落とし、まとめには誤差か「検証失敗」だけを載せる。
+    警告ログに記録し、まとめには誤差か「検証失敗」だけを載せる。
 
     ``volume_calibration`` が空なら何もせず ``("", ())`` を返す。
     """
@@ -850,7 +850,7 @@ def verify_with_calibration(
     try:
         artifacts = _evaluation_artifacts(ctx, evaluation)
     except Exception:
-        # 誤差はログに出ている。図や JSON が書けないことで収集を落とさない
+        # 誤差はログに出ている。図や JSON が書けなくても収集を失敗させない
         logger.warning("塗布量の検証成果物を作れませんでした", exc_info=True)
         ctx.log("塗布量の検証成果物を作れませんでした（誤差はログに出しています）")
         return summary, ()

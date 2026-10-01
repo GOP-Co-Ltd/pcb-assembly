@@ -1,6 +1,6 @@
 ---
 name: edit-dot-claude
-description: .claude/ 配下のファイル編集は permission prompt を要求するため、/tmp に作業コピーを取って Edit / Write し、最後に cp で書き戻す。複数 file を編集するときや 1 file に複数回 Edit を入れるときに prompt 回数が劇的に減る。.claude/agents/*.md・.claude/skills/<name>/SKILL.md・.claude/commands/*.md を作成または編集する前に読む（settings.json は skill update-config を優先）。
+description: .claude/ 配下のファイル編集は permission prompt を要求するため、/tmp に作業コピーを取って Edit / Write し、最後に cp で書き戻す。複数 file を編集するときや 1 file に複数回 Edit を入れるときに prompt 回数が大幅に減る。.claude/agents/*.md・.claude/skills/<name>/SKILL.md・.claude/commands/*.md を作成または編集する前に読む（settings.json は skill update-config を優先）。
 ---
 
 # .claude/ 配下を編集するときの作業手順

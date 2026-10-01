@@ -33,7 +33,7 @@ def move_to_cap(stage: XYZStage, cap: NozzleCap) -> GCode:
         cap: ノズルキャップ位置
 
     Returns:
-        移動のGCode（G90 + 3 段の G1）
+        移動の GCode（G90 + 3 段の G1）
 
     Raises:
         ValueError: キャップ位置が可動域外の場合

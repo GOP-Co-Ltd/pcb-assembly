@@ -428,7 +428,7 @@ def build_initial_purge(loaded: Loaded) -> InitialPurgeInfo:
 
     設定が不正（保存済みの座標が基板外など）でもここでは 400 にしない。
 
-    pad-config 全体を落とすと pad editor ごと開けなくなり、原因の座標を直す手段まで
+    pad-config 全体をエラーにすると pad editor ごと開けなくなり、原因の座標を直す手段まで
     失う。
     流量キャリブレーションと同じく理由を ``error`` に載せて返す。
     """

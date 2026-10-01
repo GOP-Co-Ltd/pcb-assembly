@@ -9,7 +9,7 @@ from .transform import Point3d, Transform
 
 @attrs.frozen
 class Path:
-    """順序付き3D点列を表すイミュータブルなクラス.
+    """順序付き 3D 点列を表すイミュータブルなクラス.
 
     速度・タイミングを持たない純粋な幾何であり、座標の並びのみを保持する。
 
@@ -22,13 +22,13 @@ class Path:
     def length(self) -> float:
         """経路の総距離を返す.
 
-        連続する点の差ベクトルのノルムを合計する。点が2未満の場合は0.0を返す。
+        連続する点の差ベクトルのノルムを合計する。点が 2 未満の場合は 0.0 を返す。
 
         Returns:
             経路の総距離
         """
         # start に 0.0 を与える。点塗布のような 1 点経路で int の 0 を返すと、
-        # 暗黙変換を拒否する metadata schema が自分の出力を読めなくなる。
+        # 暗黙変換を拒否する metadata schema では、自分が出力した値を読み込めなくなる。
         return sum(
             (
                 (self.points[i + 1] - self.points[i]).norm()
@@ -38,13 +38,13 @@ class Path:
         )
 
     def transformed(self, transform: Transform) -> Path:
-        """全点に変換を適用した新しいPathを返す.
+        """全点に変換を適用した新しい Path を返す.
 
         Args:
             transform: 各点に適用する変換
 
         Returns:
-            変換後の点列を持つPathインスタンス
+            変換後の点列を持つ Path インスタンス
         """
         return Path(transform.apply(p) for p in self.points)
 

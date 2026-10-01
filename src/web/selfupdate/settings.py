@@ -3,8 +3,8 @@
 `pcbasm` ではなく `web` の下に置く。これはデプロイ運用であって装置ドメインではなく、
 `pcbasm` に `pcbasm-api.service` や `uv` を知らせたくない。
 
-外部コマンドは**すべて絶対パスをここに集める**。テストは PATH をいじらず、この
-seam にスタブ実行ファイルを差し込むことで実プロセス経路のまま検証できる。
+外部コマンドの絶対パスはすべてここに集める。テストは PATH を変更せず、この
+seam にスタブ実行ファイルを差し込むことで、実プロセス経路のまま検証できる。
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pcbasm.utils import PROJECT_ROOT
 
 
 def _which(name: str, fallback: str) -> str:
-    """PATH から実行ファイルの絶対パスを引く（見つからなければ既定値）."""
+    """PATH から実行ファイルの絶対パスを探す（見つからなければ既定値）."""
     return shutil.which(name) or fallback
 
 
@@ -42,23 +42,23 @@ class UpdateSettings:
     # sudoers で argv を固定するので、この 2 つは実機の絶対パスから動かさない
     systemctl_bin: str = "/usr/bin/systemctl"
     sudo_bin: str = "/usr/bin/sudo"
-    # 設置済み unit の置き場所（**読み取り専用**。書き込みは web-service.sh の特権経路）
+    # 設置済み unit の置き場所（読み取り専用。書き込みは web-service.sh の特権経路）
     unit_dir: Path = Path("/etc/systemd/system")
     # 素の `uv sync` は (a) 指定しなかった dependency group を削除し（機体ごとに
     # 足した group が更新のたびに消える）、(b) pyproject と lock がずれると uv.lock を
-    # 書き換える（tree が dirty になり以後の更新が全部止まる）。既定でこの 2 つを塞ぐ
+    # 書き換える（tree が dirty になり以後の更新が全部止まる）。既定の引数でこの 2 つを防ぐ
     uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
     # 機体ごとに無効化できる安全弁（無効なら start() は何もせず理由を返す）
     enabled: bool = True
-    # ハングを打ち切る上限。git はネットワーク I/O、uv sync は依存の取得を含む。
-    # git_timeout は rev-parse / status などローカル完結の読み取り専用
+    # ハング時に打ち切るまでの上限。git はネットワーク I/O、uv sync は依存の取得を含む。
+    # git_timeout は rev-parse / status などローカルで完結する読み取り専用コマンド用
     git_timeout: float = 30.0
     fetch_timeout: float = 120.0
     # merge は checkout を含み、git-lfs の smudge フィルタがネットワーク待ちに入る。
     # ここで打ち切ると checkout 途中で SIGKILL され、一部だけ新版の dirty な作業ツリーが
-    # 残る（以後の更新が全部「未コミットの変更があります」で止まる）ので長く取る
+    # 残る（以後の更新が全部「未コミットの変更があります」で止まる）。そのため長めに取る
     merge_timeout: float = 600.0
-    # 画面から押す「更新を確認」の fetch。無認可で叩けるので短く縛る
+    # 画面から押す「更新を確認」の fetch。認可なしで呼べるので短く制限する
     # （同期ハンドラなのでスレッドプールを長時間占有させない）
     check_fetch_timeout: float = 20.0
     sync_timeout: float = 900.0
@@ -67,9 +67,9 @@ class UpdateSettings:
     # 202 応答をフラッシュし、クライアントが 1 回ポーリングして restarting を
     # 観測するための遅延（生存性のためではない）
     restart_delay: float = 1.0
-    # 更新通知のために remote を見に行く周期 [s]（0 以下で無効）。`GET status` は
-    # fetch しない（毎秒ポーリングされるため）ので、誰も「更新を確認」を押さないと
-    # behind が永久に 0 のままになる。通知を成立させるのはこの定期 fetch だけ
+    # 更新通知のために remote を fetch する周期 [s]（0 以下で無効）。`GET status` は
+    # 毎秒ポーリングされるため fetch しない。誰も「更新を確認」を押さないと
+    # behind が永久に 0 のままになるので、更新通知が出るのはこの定期 fetch があるときだけ
     watch_interval: float = 1800.0
     # report に残す各ステップ出力の行数上限（全量返して差分管理を作らない）
     output_tail_lines: int = 200

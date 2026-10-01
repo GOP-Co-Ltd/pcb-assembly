@@ -22,8 +22,8 @@ from pcbasm.vision import (
 
 _EXPECTED_COLOR = (0, 0, 255)  # 想定エッジの表示色 (BGR: 赤)
 _DETECTED_COLOR = (0, 255, 0)  # 検出エッジの表示色 (BGR: 緑)
-_ROI_COLOR = (255, 255, 255)  # ROI枠の表示色 (BGR: 白)
-_FILL_COLOR = (0, 0, 255)  # 対象pad薄塗りの色 (BGR)
+_ROI_COLOR = (255, 255, 255)  # ROI 枠の表示色 (BGR: 白)
+_FILL_COLOR = (0, 0, 255)  # 対象 pad 薄塗りの色 (BGR)
 _FILL_ALPHA = 0.35
 _LABEL_COLOR = (0, 255, 0)  # ラベル文字色 (BGR: 緑)
 
@@ -38,7 +38,7 @@ def render_label(image: Image, crop_size: tuple[int, int], label: str) -> Image:
 def render_edge_match(
     image: Image, edges: ImageArray, edge_mask: ImageArray, roi: PixelRect
 ) -> Image:
-    """ROI枠と想定（赤）・検出（緑）エッジ、中心十字を重ねて合成する（非破壊）.
+    """ROI 枠と想定（赤）・検出（緑）エッジ、中心十字を重ねて合成する（非破壊）.
 
     Args:
         image: 元画像
@@ -90,7 +90,7 @@ class PadResultRenderer:
         self._roi[y0:y1, x0:x1] = True
         self._expected = (projection.edge_mask > 0) & self._roi
 
-        # ペーストpad領域（塗布対象）を投影して薄塗りマスクを作る
+        # ペースト pad 領域（塗布対象）を投影して薄塗りマスクを作る
         fill_mask = np.zeros(projection.edge_mask.shape, dtype=np.uint8)
         for paste in paste_polygons:
             pixels = [

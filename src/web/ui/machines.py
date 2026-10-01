@@ -1,7 +1,7 @@
 """UI frontend が中継する backend マシンの登録と解決.
 
 静的登録は ``config/machines.toml`` を読むだけで、frontend から書き込む API は
-持たない（マシン構成はファイル、または mDNS 探索が真実）。
+持たない（マシン構成の情報源はファイルと mDNS 探索）。
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ class MachineEndpoint:
     def label(self) -> str:
         """マシン選択 UI に出す表示文字列（``"<hostname>: <host>"``）.
 
-        表示文字列はサーバ側で組む（クライアントで組むと表示規則が JS に散る）。
+        表示文字列はサーバ側で組む（クライアントで組むと表示規則が JS 側に分散する）。
         ``machine_id`` は backend の hostname。``host`` を併記するのは、
         ``.local`` 名や IP の取り違えを画面で見分けられるようにするため。
         静的登録の ``name`` は表示に使わない（同名の機体を見分けられないため）。
@@ -52,10 +52,10 @@ class UnknownMachine(LookupError):
 
 @attrs.frozen
 class _Snapshot:
-    """一覧と id 引きを 1 つに束ねた不変スナップショット.
+    """一覧と id による索引を 1 つに束ねた不変スナップショット.
 
-    tuple と dict を別々の属性に持つと、差し替えの途中を読んだリクエストが 「一覧には居るのに resolve
-    できない」不整合を見てしまう。
+    tuple と dict を別々の属性に持つと、差し替えの途中を読んだリクエストが 「一覧にはあるのに resolve
+    できない」不整合な状態を読んでしまう。
     """
 
     endpoints: tuple[MachineEndpoint, ...]
@@ -104,7 +104,7 @@ def _fill_gaps(
 class MachineRegistry:
     """既知の backend マシンの一覧（静的登録 + mDNS 発見分）.
 
-    ``list`` / ``resolve`` はロックを取らずスナップショットを 1 属性から読む
+    ``list`` / ``resolve`` はロックを取らず、スナップショットを 1 つの属性から読む
     （`web.ui.pages` の同期パスが毎リクエスト呼ぶため、event loop を
     ロック待ちで止めない）。書き込みは `set_discovered` だけで、こちらは
     ロックの中で新しいスナップショットを作って 1 回代入する。
@@ -125,7 +125,7 @@ class MachineRegistry:
         return self._snapshot.endpoints
 
     def resolve(self, machine_id: str) -> MachineEndpoint:
-        """machine_id からエンドポイントを引く.
+        """machine_id に対応するエンドポイントを返す.
 
         Args:
             machine_id: URL の ``/m/{machine_id}`` 部分

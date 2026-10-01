@@ -72,8 +72,8 @@ ui: ## Run UI frontend server
 	uv run python -m web.ui
 
 # 隔離ポートの frontend を api-fake（8099）へ向ける。machines は env で渡せない
-# （マシン一覧は machines_file と mDNS 探索が真実）ので静的登録を 1 台だけ生成する。
-# mDNS 探索も切る（実 LAN の機体が混ざると「fake backend だけを見る」隔離が壊れる）
+# （マシン一覧は machines_file と mDNS 探索からしか得られない）ので静的登録を 1 台だけ生成する。
+# mDNS 探索も切る（実 LAN の機体が混ざると、fake backend だけを見る隔離にならない）
 ui-fake: ## Run UI frontend against api-fake (isolated port; for manual/browser E2E)
 	@mkdir -p "$${PCBASM_UI_FAKE_DIR:-/tmp/pcbasm-ui-fake}"
 	@printf '[[machine]]\nmachine_id = "fake"\nhost = "127.0.0.1"\nport = %s\nname = "fake backend"\n' \

@@ -1,6 +1,6 @@
 ---
 name: maximize-parallels
-description: 独立なtool呼び出しをmulti_tool_use.parallelへまとめる判定基準と、依存・共有state・ハードウェア競合がある処理を直列化する手順。複数ファイルの読取、独立command、複数検索を行う前に使う。sub-agent並列化はユーザーが明示した場合に限る。
+description: 独立な tool 呼び出しを multi_tool_use.parallel へまとめる判定基準と、依存・共有 state・ハードウェア競合がある処理を直列化する手順。複数ファイルの読取、独立 command、複数検索を行う前に使う。sub-agent 並列化はユーザーが明示した場合に限る。
 ---
 
 # Tool 呼び出しを並列化する
@@ -34,5 +34,5 @@ description: 独立なtool呼び出しをmulti_tool_use.parallelへまとめる�
 ## Sub-agent
 
 Sub-agent の起動は、ユーザーが agent 利用または並列作業を明示した場合だけ行う。
-その場合も `agent-team-startup` Skill に従い、担当範囲が disjoint な sidecar task を
-並列化する。即時 blocker や密結合な作業はメイン agent が担当する。
+その場合も `agent-team-startup` Skill に従い、担当範囲が disjoint で、並行して進められる付随タスクを
+並列化する。すぐ解消が必要な blocker や密結合な作業はメイン agent が担当する。

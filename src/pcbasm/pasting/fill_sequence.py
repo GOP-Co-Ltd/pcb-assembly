@@ -16,7 +16,7 @@ _TRAVEL_SPEED = Speed.rate(1.0)
 def _trapezoidal_time(distance: float, rate: float, accel: float) -> float:
     """台形速度プロファイルで距離を走行する時間を計算する.
 
-    速度0から加速し、rateに達したら定速走行する。
+    速度 0 から加速し、rate に達したら定速走行する。
 
     Args:
         distance: 走行距離
@@ -34,14 +34,14 @@ def _trapezoidal_time(distance: float, rate: float, accel: float) -> float:
 
 @attrs.frozen
 class FillSequence:
-    """1ポリゴンの塗布動作を1本の送信可能なGCodeに組むプログラムオブジェクト.
+    """1 ポリゴンの塗布動作を 1 本の送信可能な GCode に組むプログラムオブジェクト.
 
-    接近→下降→prime同期吐出→速度0→リトラクト・上昇同時開始→同期の順で実行する。
+    接近→下降→prime 同期吐出→速度 0→リトラクト・上昇同時開始→同期の順で実行する。
 
     移動速度（``fill_speed``、既定 ``settings.max_fill_speed``）を主設定とし、吐出レートは
     これに追従して導出する。導出レートが吐出レート上限を超える（吐出が移動に追いつかない）
     場合はレートを上限で頭打ちし、移動速度を下げて ``motion_time == dispense_time`` を保つ。
-    これにより塗布量 ``total_amount_ul`` は経路全体に均一塗布され、吐出が痩せない。
+    これにより塗布量 ``total_amount_ul`` は経路全体に均一に塗布され、経路上で吐出量が不足しない。
 
     吐出レートの頭打ち値は ``rate_cap`` で決まる:
 
@@ -49,7 +49,7 @@ class FillSequence:
     - ``float`` = その値で cap（固定レート塗布）
     - ``math.inf`` = cap 無効（移動速度のみで律速）
 
-    prime（リトラクション押し戻し）と吐出は1つの連続ステッパー動作として
+    prime（リトラクション押し戻し）と吐出は 1 つの連続ステッパー動作として
     実行するため、prime も同じ実効レートで押し出される。prime_time はその実効
     レートから算出する。
 
@@ -101,7 +101,7 @@ class FillSequence:
 
     @property
     def prime_extra_volume_ul(self) -> float:
-        """Prime追加遅延中に基板上へ押し出す体積 [μL]."""
+        """Prime 追加遅延中に基板上へ押し出す体積 [μL]."""
         return self._extra_amount()
 
     def _prime_time(self) -> float:
@@ -119,7 +119,7 @@ class FillSequence:
         )
 
     def actual_fill_speed(self) -> Speed | None:
-        """実際の塗布移動速度。経路長>0かつ吐出時間>0なら Speed.absolute、それ以外 None.
+        """実際の塗布移動速度。経路長>0 かつ吐出時間>0 なら Speed.absolute、それ以外 None.
 
         レート非 cap 時は ``fill_speed`` に一致し、cap 時は減速後の速度になる。
         """
@@ -160,12 +160,12 @@ class FillSequence:
             gc.append(stage.to_gcode(self.path, speed=speed))
         else:
             gc.append(GCode.wait(prime_time + self._dispense_time()))
-        # 4. Klipperのlookaheadを非ブロッキングでflushし、塗布移動の終端を
-        # 速度0に固定する。リトラクションは吐出profileが速度0になる時刻まで
-        # queueされ、直後のZ上昇も同じ時刻から始まる。
+        # 4. Klipper の lookahead を非ブロッキングで flush し、塗布移動の終端を
+        # 速度 0 に固定する。リトラクションは吐出 profile が速度 0 になる時刻まで
+        # queue され、直後の Z 上昇も同じ時刻から始まる。
         gc.append(GCode("G4 P0"))
 
-        # 5. 速度0からリトラクションを非同期開始
+        # 5. 速度 0 からリトラクションを非同期開始
         gc.append(
             dispenser.continue_pushpull(
                 amount,
@@ -176,7 +176,7 @@ class FillSequence:
             )
         )
 
-        # 6. リトラクションと同時にZ上昇（明示座標）
+        # 6. リトラクションと同時に Z 上昇（明示座標）
         gc.append(stage.move(x=last.x, y=last.y, z=last.z + lift, speed=_TRAVEL_SPEED))
         gc.append(dispenser.sync())
         return gc

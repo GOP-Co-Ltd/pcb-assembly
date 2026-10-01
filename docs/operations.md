@@ -66,7 +66,7 @@ PCB のアップロードでは、選択状態の保存が失敗してもアッ�
 ## WebUI からの更新
 
 `main` が進んだときの反映を、ssh せず WebUI のページから実行できる。
-実行内容は **`git fetch` → `merge --ff-only` → `uv sync --locked --inexact` → サービス再起動**。
+実行内容は `git fetch` → `merge --ff-only` → `uv sync --locked --inexact` → サービス再起動の順である。
 
 ### セットアップ（1 台につき 1 回）
 
@@ -96,18 +96,18 @@ sudoers ファイルは手で編集せず、`install-update-sudoers.sh` で作�
 各サービスは 30 分ごとに `git fetch` だけを実行する。
 更新があると全ページのトップバーに「ソフトウェア更新あり」のバッジが出て、押すと更新ページへ移る。
 
-更新の振る舞い:
+更新時の動作は次のとおり。
 
-- 未コミットの変更・未 push のローカル commit・分岐・detached HEAD のどれかがあれば、**何もせず中断する**（作業ツリーは変わらない）
-- `uv sync` か起動チェック（import）が失敗したら、**サービスを再起動しない**
+- 未コミットの変更・未 push のローカル commit・分岐・detached HEAD のどれかがあれば、何もせず中断する（作業ツリーは変わらない）
+- `uv sync` か起動チェック（import）が失敗したら、サービスを再起動しない
 - **自動ロールバックはしない。** 失敗したら下の「復旧」を ssh で行う
-- 同居機では backend と frontend を両方再起動するので、画面も一度切れる
+- 同居機では backend と frontend を両方再起動するので、画面の接続も一度切れる
 - git LFS のファイルは取得しない。必要なら ssh して `git lfs pull` を手で実行する
 - 更新後に unit 定義が古いままなら画面に警告が出る。自動では install しないので、`web-service.sh install <対象>` を手で実行する
 - `config/` は git 追跡外なので更新で消えない
 
 `uv sync` の引数は `PCBASM_API_UPDATE_UV_SYNC_ARGS` / `PCBASM_UI_UPDATE_UV_SYNC_ARGS`（空白区切り）で変えられる。
-この変数は既定の引数を**丸ごと置き換える**ので、`--locked --inexact` を必ず含めてから引数を足す。
+この変数は既定の引数を丸ごと置き換えるので、`--locked --inexact` を必ず含めてから引数を足す。
 `--locked` が無いと `uv.lock` が書き換わり、作業ツリーが dirty になって以後の更新がすべて中断する。
 `--inexact` が無いと、指定しなかった dependency group が消える。
 

@@ -21,10 +21,10 @@ git log <target>..HEAD --oneline  # 対象ブランチに対する差分コミ�
 
 - 現在ブランチが `main` の場合は中止してユーザーに確認する（main から直接 PR は出さない）
 - 未コミットの変更がある場合は中止し、先にコミットするかユーザーに確認する
-- 対象ブランチに対する差分コミットが 0 件なら PR を出す意味がないので報告して中止する
+- 対象ブランチに対する差分コミットが 0 件なら PR を出しても意味がないので、その旨を報告して中止する
 - `git fetch origin <target>` の後 `git log HEAD..origin/<target> --oneline` に commit が並ぶなら、push の前に skill [merge-main](../merge-main/SKILL.md) で取り込む
 
-既存 PR の重複を避ける：
+既存 PR と重複しないか確認する。
 
 ```bash
 gh pr list --head "$(git branch --show-current)" --state open
@@ -40,7 +40,7 @@ git push -u origin "$(git branch --show-current)"
 
 ### 3. PR 作成
 
-`gh pr create` は引数が足りないと対話モードに入るので、必ずフラグで非対話にする：
+`gh pr create` は引数が足りないと対話モードに入るので、必ずフラグを渡して非対話で実行する。
 
 ```bash
 gh pr create \

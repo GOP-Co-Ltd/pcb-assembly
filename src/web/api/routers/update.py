@@ -1,12 +1,12 @@
 """WebUI からのソフトウェア更新（git pull → uv sync → サービス再起動）の API.
 
-**ジョブ基盤には載せない。** `JobManager.start()` は `uses_machine` に関係なく必ず
-装置ロックを取り、job record は非永続なので再起動でプロセスが死ぬと更新の記録が
+ジョブ基盤には載せない。`JobManager.start()` は `uses_machine` に関係なく必ず
+装置ロックを取り、job record は非永続なので再起動でプロセスが終了すると更新の記録が
 消える。独立エンドポイント + 明示的な busy チェックにしてある。
 
 判断はすべて `web.selfupdate` 側にあり、この router は入出力変換だけを行う
 （`webui-thin-wrapper`）。**参照先（ブランチ / remote / ref / `uv` の引数）は
-リクエストで一切指定できない。** ここを開けると「LAN から任意コード実行」に悪化する。
+リクエストで一切指定できない。** 指定できるようにすると「LAN から任意コード実行」が可能になる。
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ class UpdateRunRequest(BaseModel):
     """更新の実行要求.
 
     `expected_head` だけを受け取る（画面が見ていた HEAD との楽観ロック）。開きっぱなしの
-    古いタブや `curl` 一発を弾くためのもので、**認証ではない**。
+    古いタブや `curl` の単発リクエストを拒否するためのもので、**認証ではない**。
     """
 
     expected_head: str
@@ -70,7 +70,7 @@ def post_update_run(
         raise HTTPException(
             status_code=403, detail="この機体では WebUI からの更新が無効です。"
         )
-    # 全ジョブが装置ロックを取るので、これで塗布中もジョブ中も弾ける
+    # 全ジョブが装置ロックを取るので、これで塗布中もジョブ中も拒否できる
     if state.busy_owner is not None:
         raise HTTPException(
             status_code=409,

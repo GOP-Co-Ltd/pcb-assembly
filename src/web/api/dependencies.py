@@ -74,8 +74,8 @@ def require_control(request: Request) -> LeaseInfo:
 
     **必ず `Depends`（= `ControlDep`）として使う。** ハンドラ本体で `claim` を呼ぶと、
     Klipper 通信エラーを 502 へ変換する `klipper_errors_to_502()` が
-    `ControlDeniedError`（`RuntimeError` 派生）を巻き込み、操作権の拒否が
-    「Klipper 通信エラー 502」に化ける。
+    `ControlDeniedError`（`RuntimeError` 派生）も変換してしまい、操作権の拒否が
+    「Klipper 通信エラー 502」として返る。
 
     Raises:
         ControlDeniedError: 他クライアントが操作権を保持している場合（app.py の

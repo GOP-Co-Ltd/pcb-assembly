@@ -10,10 +10,10 @@ from pcbasm.utils import get_class_module_path
 
 
 class XYPositionAdjustor:
-    """XY位置を反復的に補正するクラス.
+    """XY 位置を反復的に補正するクラス.
 
-    大まかに位置合わせした状態から、観測された想定→観測のTransform
-    （カメラmm空間、原点=画像中心）を元に許容誤差内に収束するまで
+    大まかに位置合わせした状態から、観測した想定→観測の Transform
+    （カメラ mm 空間、原点=画像中心）をもとに、許容誤差内に収束するまで
     位置を微調整する。
 
     Example:
@@ -40,12 +40,12 @@ class XYPositionAdjustor:
         *,
         settle_sec: float,
     ) -> None:
-        """XYPositionAdjustorを初期化する.
+        """XYPositionAdjustor を初期化する.
 
         Args:
-            observe: 想定→観測のTransform（カメラmm空間）を返す関数
-            klipper: Klipperクライアント
-            stage: XYZステージ
+            observe: 想定→観測の Transform（カメラ mm 空間）を返す関数
+            klipper: Klipper クライアント
+            stage: XYZ ステージ
             offset_transform: 観測オフセット系から機械座標系への変換
             tolerance: 許容誤差 (mm)
             max_iterations: 最大反復回数
@@ -66,12 +66,13 @@ class XYPositionAdjustor:
     def adjust(self) -> Point2d:
         """位置を反復的に補正する.
 
-        毎回「現在位置 − 機械座標へ変換したオフセット」へ移動し、オフセットが ``tolerance`` 未満になったら終える。
+        毎回「現在位置 − 機械座標へ変換したオフセット」へ移動し、オフセットが
+        ``tolerance`` 未満になったら終える。
 
         収束した回は移動しない。
 
         Returns:
-            補正後の最終XY位置（機械座標、mm）。ステージの現在位置との差は tolerance 未満
+            補正後の最終 XY 位置（機械座標、mm）。ステージの現在位置との差は tolerance 未満
 
         Raises:
             RuntimeError: 最大反復回数内に収束しなかった場合

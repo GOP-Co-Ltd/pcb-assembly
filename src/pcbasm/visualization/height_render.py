@@ -49,7 +49,7 @@ def render_height_plane(
     ys = [p.y for p in height_plane.points]
     zs = [p.z for p in height_plane.points]
 
-    # z=0で入力するとapply後のz値がフィットした曲面の高さそのものになる
+    # z=0 で入力すると apply 後の z 値がフィットした曲面の高さそのものになる
     plane_outline = transform_polygon(pcb.outline.polygon, pcb_to_plane)
     minx, miny, maxx, maxy = plane_outline.bounds
     grid_x = np.linspace(minx, maxx, _MESH_RESOLUTION)
@@ -124,7 +124,7 @@ def render_planned_points(
 def _draw_pcb_background(
     ax: Axes, pcb: PcbFile, pcb_to_plane: Transform = Identity()
 ) -> None:
-    """銅箔TOP層・基板アウトライン・軸範囲/ラベルを ax に描画する."""
+    """銅箔 TOP 層・基板アウトライン・軸範囲/ラベルを ax に描画する."""
     for cu in pcb.copper:
         if cu.layer != Layer.TOP:
             continue

@@ -3,9 +3,9 @@
 ワイヤ定数（サービス型・TXT キー）は広告側（`web.api.discovery`）から import する
 （定義箇所を 1 つに保つため、`web.ui` → `web.api` の import を許容する）。
 
-**生存判定はしない。** PTR は other-TTL 4500s で残り、電源断では goodbye が飛ばない
-ので、消えた機体は最大 75 分一覧に残る。到達不能なマシンを選ぶと 503 ページになる
-（それが要件で、online/offline を推測して隠すより誤解が少ない）。
+生存判定はしない。PTR は other-TTL 4500s で残り、電源断では goodbye が送られない
+ので、停止した機体は最大 75 分一覧に残る。到達不能なマシンを選ぶと 503 ページになる
+（これは要件どおりの動作で、online/offline を推測して隠すより誤解が少ない）。
 """
 
 from __future__ import annotations
@@ -56,11 +56,11 @@ def _instance_id(info: ServiceInfo) -> str:
 
 
 def _api_compatible(properties: Mapping[bytes, bytes | None]) -> bool:
-    """広告の ``api`` がこの frontend で描ける版か.
+    """広告の ``api`` がこの frontend で描画できる版か.
 
     欠損・decode 不能・数値でない場合は互換扱いで通す。
 
-    読めて **違う版のときだけ** 落とす（描けない backend を一覧に出さない）。
+    版を読めて、かつ版が違うときだけ除外する（描画できない backend を一覧に出さない）。
     """
     raw = _text(properties, TXT_KEY_API)
     if raw is None:
@@ -87,7 +87,7 @@ def endpoint_from_service_info(info: ServiceInfo) -> MachineEndpoint | None:
     machine_id = _text(properties, TXT_KEY_ID) or _instance_id(info)
     if not machine_id:
         return None
-    # loopback を除外しない（E2E がループバックに閉じるため）
+    # loopback を除外しない（E2E はループバックだけで探索するため）
     addresses = info.parsed_addresses(IPVersion.V4Only)
     if not addresses or not info.port:
         return None
@@ -118,9 +118,9 @@ class MachineDiscovery:
 
         Args:
             on_change: 発見集合が変わったときに呼ぶコールバック（発見順）
-            service_type: DNS-SD のサービス型（テストはランダム型に閉じる）
+            service_type: DNS-SD のサービス型（テストはランダムな型で隔離する）
             interfaces: 使うインターフェース（None は zeroconf 既定 = 全 IF。
-                テストは ``["127.0.0.1"]`` でループバックに閉じる）
+                テストは ``["127.0.0.1"]`` でループバックに限定する）
         """
         self._on_change = on_change
         self._service_type = service_type

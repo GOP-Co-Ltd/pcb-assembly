@@ -1,11 +1,12 @@
 """更新の計画と結果（永続化される唯一の状態）と、その API 表現.
 
-`UpdateReport` は **プロセスが死んでも残る唯一の状態**。更新は自分自身を再起動する
-ので、実行中のメモリ上の記録は必ず失われる。ブラウザは再起動を跨いでこの JSON を
-読み直し、`run_id` の一致と `to_head` への到達で「戻ってきた」ことを判定する。
+`UpdateReport` はプロセスが終了しても残る唯一の状態。更新処理は自分自身を再起動する
+ので、実行中のメモリ上の記録は必ず失われる。ブラウザは再起動後にこの JSON を
+読み直し、`run_id` が一致して `to_head` に到達していれば、サーバが更新後に
+復帰したと判定する。
 
 API 表現（pydantic）への変換をここに置くのは、backend（`web.api.routers.update`）と
-frontend（`web.ui.update_api`）が **同じ 1 つの変換**を使うため。表示文字列の組み立ては
+frontend（`web.ui.update_api`）が同じ 1 つの変換を使うため。表示文字列の組み立ては
 すべてサーバ側で完結させる（`webui-thin-wrapper` 準拠）。
 """
 
@@ -35,7 +36,7 @@ class UpdateState(StrEnum):
 
     IDLE = "idle"
     RUNNING = "running"
-    # 成功して再起動を予約した状態。自分が死ぬのでこれが実質の終状態
+    # 成功して再起動を予約した状態。自プロセスが再起動で終了するので、実質の終状態
     RESTARTING = "restarting"
     # 再起動対象の unit が 1 つも動いていないホストでの終状態
     SUCCEEDED = "succeeded"
@@ -109,14 +110,14 @@ class UpdateReport:
         self.finished_at = time.time()
 
     def record(self, step: UpdateStep, reason: str | None, detail: str = "") -> None:
-        """手順 1 つの結果を積む（失敗なら state を FAILED にする）."""
+        """手順 1 つの結果を追記する（失敗なら state を FAILED にする）."""
         self.step = step
         self.steps = (*self.steps, UpdateStepRecord(step, reason is None, detail))
         if reason is not None:
             self.fail(reason)
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON へ落とせる素の dict にする."""
+        """JSON に変換できる素の dict にする."""
         return {
             "run_id": self.run_id,
             "state": self.state.value,
@@ -138,7 +139,7 @@ class UpdateReport:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> UpdateReport:
-        """`as_dict` の逆（未知の値は既定へ落とす）."""
+        """`as_dict` の逆変換（欠けている値は既定値にする）."""
         step = payload.get("step")
         return cls(
             run_id=str(payload.get("run_id", "")),
@@ -258,13 +259,13 @@ def run_payload(report: UpdateReport) -> UpdateRunInfo:
 
 
 def summary_text(plan: UpdatePlan) -> str:
-    """リポジトリが**どういう状態か**を 1 行にまとめる（表示文字列はサーバが組む）.
+    """リポジトリの状態を 1 行にまとめる（表示文字列はサーバ側で組み立てる）.
 
-    更新できない理由は `blocker` が別に持つ。ここで blocker をそのまま返すと、
+    更新できない理由は `blocker` に別途入っている。ここで blocker をそのまま返すと、
     画面で同じ文が要約と警告の 2 箇所に出る。
 
-    追従先が無いときだけは件数を語れない（`behind` が 0 のままなので「最新です」が
-    嘘になる）ので、状態としてそれを述べる。
+    追従先が無いときは件数を示せない（`behind` が 0 のままなので「最新です」と
+    返すと誤りになる）。そのため、追従先が未設定であることを状態として返す。
     """
     if not plan.enabled:
         return "この機体では WebUI からの更新が無効です。"

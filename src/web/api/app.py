@@ -79,7 +79,7 @@ def _build_advertiser(settings: Settings, state: AppState) -> ServiceAdvertiser:
     """設定と machine.toml の現在値から広告を組む（ソケットは開かない）.
 
     フィルタ（`select_advertise_addresses`）を掛けるのは実 IF から列挙したときだけ。
-    ``advertise_addresses`` の注入はそのまま使う（loopback を落とすと、この注入口の
+    ``advertise_addresses`` の注入はそのまま使う（loopback を除外すると、この注入口の
     目的である「テストをループバックに閉じる」が成立しない）。
     """
     addresses = settings.advertise_addresses
@@ -98,7 +98,7 @@ def _build_advertiser(settings: Settings, state: AppState) -> ServiceAdvertiser:
 def _build_update_runner(settings: Settings) -> UpdateRunner:
     """設定から自己更新のランナーを組む（リポジトリは常にこのソースツリー）.
 
-    ブランチ・remote・`uv` の引数はサーバ側の固定値。リクエストからは触れない。
+    ブランチ・remote・`uv` の引数はサーバ側の固定値。リクエストからは変更できない。
     """
     return UpdateRunner(
         UpdateSettings(
@@ -140,7 +140,7 @@ def create_app(
             分単位なので、実時間で待つと検証できない。「ジョブ実行中は無操作でも
             失効しない」という `busy` の配線を確かめるための注入口
         paste_test_board_footprint_root: テスト塗布基板で使う
-            KiCad footprint root。Noneなら環境変数またはKiCad 9標準パス
+            KiCad footprint root。None なら環境変数または KiCad 9 標準パス
         update_runner: 自己更新のランナー（None なら settings から構築）。テストは
             スタブ実行ファイルを差した UpdateSettings 版を注入する
 
@@ -210,8 +210,8 @@ def create_app(
     ) -> JSONResponse:
         """操作権の拒否を 423 Locked + 保持者情報にする.
 
-        `ControlDep` が**ハンドラ本体に入る前**に投げるため、`klipper_errors_to_502()`
-        の RuntimeError → 502 変換に巻き込まれない。
+        `ControlDep` がハンドラ本体に入る前に投げるため、`klipper_errors_to_502()`
+        の RuntimeError → 502 変換の対象にならない。
         """
         holder: LeaseInfo = request.app.state.control.snapshot()
         return JSONResponse(

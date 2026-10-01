@@ -1,4 +1,4 @@
-"""ポリゴン領域からのprobe点サンプリング."""
+"""ポリゴン領域からの probe 点サンプリング."""
 
 from __future__ import annotations
 
@@ -30,13 +30,13 @@ def sample_points_in_polygons(
     outline: Polygon | None = None,
     outline_margin: float = 0.0,
 ) -> list[Point2d]:
-    """ポリゴン領域の内部からprobe用の点を安全かつ広く分散するようサンプルする.
+    """ポリゴン領域の内部から probe 用の点を安全かつ広く分散するようサンプルする.
 
     座標と長さは ``polygons`` と同じ座標系・単位で扱う（呼び出し元では基板座標 [mm]）。
 
     候補点は、各ポリゴンを min_radius だけ内側にオフセットした領域から作る。
 
-    候補はグリッド点、各連結部分の中心(pole of inaccessibility)、内側領域の境界寄りの点。
+    候補はグリッド点、各連結部分の中心 (pole of inaccessibility)、内側領域の境界寄りの点。
 
     outline_margin が正なら、outline をその距離だけ内側にオフセットした領域の中に候補を限る。
 
@@ -50,10 +50,10 @@ def sample_points_in_polygons(
         min_samples: 最小サンプル数
         max_samples: 最大サンプル数
         outline: 基板外形ポリゴン。指定時は外周側のカバレッジを優先する
-        outline_margin: 点がoutline境界から離れるべき最小距離。正の値には outline が必須
+        outline_margin: 点が outline 境界から離れるべき最小距離。正の値には outline が必須
 
     Returns:
-        選んだprobe点のリスト（点数は min_samples 以上 max_samples 以下）
+        選んだ probe 点のリスト（点数は min_samples 以上 max_samples 以下）
 
     Raises:
         ValueError: outline_margin が不正（負・outline 無し・内側が空）な場合
@@ -90,7 +90,7 @@ def sample_points_in_polygons(
 def _inset_outline(
     outline: Polygon | None, outline_margin: float
 ) -> BaseGeometry | None:
-    """samplingに使う内側outlineを返す."""
+    """Sampling に使う内側 outline を返す."""
     if outline_margin < 0.0:
         raise ValueError(
             f"outline_marginは0以上である必要があります。outline_margin={outline_margin}"
@@ -166,9 +166,9 @@ def _collect_candidates(
     *,
     allowed_region: BaseGeometry | None = None,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """min_radius内側にオフセットした領域の候補点と、各点のクリアランスを収集する.
+    """min_radius 内側にオフセットした領域の候補点と、各点のクリアランスを収集する.
 
-    各polygonを min_radius 内側にオフセットし、min_radius/2 ステップのグリッド点、
+    各 polygon を min_radius 内側にオフセットし、min_radius/2 ステップのグリッド点、
     各連結部分の中心 (pole of inaccessibility)、内側領域の境界寄り点を候補に含める。
     クリアランスは元の ``polygon.boundary`` (穴を含む) からの距離で、銅箔境界からの
     安全余裕を表す。全候補は ``buffer(-min_radius)`` の内部または境界上にあるため
@@ -219,7 +219,7 @@ def _collect_candidates(
 def _boundary_nearby_points(
     polygon: Polygon, step: float, edge_inset: float
 ) -> list[ShapelyPoint]:
-    """内側オフセット済みpolygonの境界近傍から候補点を作る."""
+    """内側オフセット済み polygon の境界近傍から候補点を作る."""
     inset = polygon.buffer(-edge_inset)
     if inset.is_empty:
         return []

@@ -9,15 +9,15 @@ PRESENT_MACRO = "PRESENT"
 
 
 class GCode:
-    """G-codeコマンドを管理するクラス."""
+    """G-code コマンドを管理するクラス."""
 
     _buffer: list[str]
 
     def __init__(self, gcode: GCodeLike | None = None) -> None:
-        """GCodeオブジェクトを初期化する.
+        """GCode オブジェクトを初期化する.
 
         Args:
-            gcode: G-codeコマンド（文字列、Iterable、または別のGCodeオブジェクト）
+            gcode: G-code コマンド（文字列、Iterable、または別の GCode オブジェクト）
         """
         match gcode:
             case None:
@@ -31,7 +31,7 @@ class GCode:
 
     @override
     def __str__(self) -> str:
-        """G-codeコマンドを改行区切りの文字列として返す."""
+        """G-code コマンドを改行区切りの文字列として返す."""
         return "\n".join(self._buffer)
 
     @override
@@ -61,10 +61,10 @@ class GCode:
         return self._buffer.copy()
 
     def append(self, gcode: GCodeLike) -> None:
-        """G-codeコマンドを追加する.
+        """G-code コマンドを追加する.
 
         Args:
-            gcode: 追加するG-codeコマンド
+            gcode: 追加する G-code コマンド
         """
         self._buffer.extend(GCode(gcode).to_list())
 
@@ -73,12 +73,12 @@ class GCode:
         """ホーミングコマンドを生成する.
 
         Args:
-            x: X軸をホーミングするか
-            y: Y軸をホーミングするか
-            z: Z軸をホーミングするか
+            x: X 軸をホーミングするか
+            y: Y 軸をホーミングするか
+            z: Z 軸をホーミングするか
 
         Returns:
-            ホーミングのGCode。引数がすべてFalseの場合は全軸ホーミング
+            ホーミングの GCode。引数がすべて False の場合は全軸ホーミング
         """
         if not (x or y or z):
             return cls("G28")
@@ -104,13 +104,13 @@ class GCode:
         絶対座標か相対座標かは、先に送った G90 / G91 の状態に従う。
 
         Args:
-            x: X座標 [mm]
-            y: Y座標 [mm]
-            z: Z座標 [mm]
+            x: X 座標 [mm]
+            y: Y 座標 [mm]
+            z: Z 座標 [mm]
             velocity: 移動速度 [mm/s]（F には mm/min に換算して書く）
 
         Returns:
-            移動のGCode。すべてNoneの場合は空のGCode
+            移動の GCode。すべて None の場合は空の GCode
         """
         parts = []
         if x is not None:
@@ -133,7 +133,7 @@ class GCode:
             seconds: 待機時間 [秒]
 
         Returns:
-            待機のGCode。0秒の場合は空のGCode
+            待機の GCode。0 秒の場合は空の GCode
         """
         if seconds <= 0:
             return cls()
@@ -146,7 +146,7 @@ class GCode:
 
     @classmethod
     def present(cls) -> Self:
-        """基板を差し出すPRESENTマクロを実行するコマンドを生成する."""
+        """基板を差し出す PRESENT マクロを実行するコマンドを生成する."""
         return cls(PRESENT_MACRO)
 
     @classmethod

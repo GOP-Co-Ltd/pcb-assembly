@@ -40,7 +40,7 @@
         </div>
       </div>
       <div class="pad-config-tools" data-testid="pad-config-tools">
-        {# 書き出しは読み取りなので開放。読み込みは pad-config の import #}
+        {# 書き出しは読み取りなので誰でも押せる。読み込みは pad-config の import #}
         <button type="button" id="pad-export-config" data-testid="pad-export-config">設定を書き出し</button>
         <button type="button" id="pad-import-config-button" data-testid="pad-import-config-button"
                 data-requires-control>設定を読み込み</button>
@@ -79,7 +79,7 @@
           {% endfor %}
         </form>
         {% endif %}
-        {# 測定位置は基板ごとの設定。1 点ずつ図の上で与える #}
+        {# 測定位置は基板ごとの設定。1 点ずつ図の上で指定する #}
         <div class="pad-flow-calibration-tools" data-testid="pad-flow-calibration-tools"
              data-requires-control>
           <label for="pad-flow-calibration-point">測定位置</label>
@@ -110,7 +110,7 @@
             {# 塗布パラメータの列見出しは pad-config の fields（サーバ定義）から JS が描く #}
           </tr>
         </thead>
-        {# 行の編集セルは pad-config の PATCH。ビューア（SVG）とレイヤ切替・順路計算は開放 #}
+        {# 行の編集セルは pad-config の PATCH。ビューア（SVG）とレイヤ切替・順路計算は誰でも操作できる #}
         <tbody id="pad-table-body" data-requires-control></tbody>
       </table>
     </div>

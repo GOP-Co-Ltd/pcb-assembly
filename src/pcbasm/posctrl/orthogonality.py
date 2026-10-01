@@ -1,4 +1,4 @@
-"""board_transform から直行性指標を導出する純粋計算."""
+"""board_transform から直交性指標を導出する純粋計算."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pcbasm.geometry import Point2d, Transform
 
 @attrs.frozen
 class OrthogonalityMetrics:
-    """board_transform から導出した直行性指標.
+    """board_transform から導出した直交性指標.
 
     Attributes:
         axis_angle_error_deg: 変換後の X/Y 軸間角の 90° からのずれ（deg）
@@ -25,7 +25,7 @@ class OrthogonalityMetrics:
 
     @classmethod
     def from_transform(cls, transform: Transform) -> OrthogonalityMetrics:
-        """board_transform（3 点法計測の affine）から直行性指標を導出する.
+        """board_transform（3 点法計測の affine）から直交性指標を導出する.
 
         軸間角は変換後の X/Y 単位ベクトルのなす角（[0, 180] deg、鏡映の影響を 受けない）とし、90°
         からのずれを返す。

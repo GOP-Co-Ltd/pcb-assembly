@@ -5,7 +5,7 @@
 既知量のドットを並べて塗り、塗布前後画像から推定した体積との比で係数を直す。
 
 撮影と塗布そのものは web 層のジョブが行う。
-ここにあるのは「どこに何点塗るか」と「推定結果をどう係数へ落とすか」だけで、
+ここにあるのは「どこに何点塗るか」と「推定結果から係数をどう求めるか」だけで、
 どちらも装置なしで検証できる。
 
 1 点だけでは点ごとの吐出ばらつき（実測で相対 9〜11 %）がそのまま補正値に乗って
@@ -26,7 +26,7 @@ from pcbasm.utils import is_finite_number
 
 # 1 回の補正で許す ``rotations_per_ul`` の変化幅。
 # 画像の取り違え・ノズル詰まり・校正の条件違いは極端な比として現れるので、
-# そこで装置が暴れないように要件書どおり 1/3〜3 倍で頭打ちにする。
+# 極端な係数で装置を動かさないよう要件書どおり 1/3〜3 倍で頭打ちにする。
 MIN_CORRECTION_SCALE = 1.0 / 3.0
 MAX_CORRECTION_SCALE = 3.0
 
@@ -86,7 +86,7 @@ def plan_flow_calibration(
     points: Sequence[Point2d],
     outline: Polygon,
 ) -> tuple[FlowCalibrationPlan | None, str | None]:
-    """測定点の並びを検証して計画へ畳む.
+    """測定点の並びを検証して計画にまとめる.
 
     機能が無効なとき（校正ファイル未設定・測定点 0 個）は ``(None, None)`` を返す。
     設定された点が基板外形の外にあるなど、有効なのに計画できないときだけ
@@ -181,7 +181,7 @@ def validate_flow_calibration_point(
     保存の入口はこれだけを見る。
 
     crop の重なりは ``crop_size_mm`` を後から変えるだけでも成立しなくなるので、
-    保存では撥ねず :func:`validate_crop_separation` が計画時に判定する。
+    保存時には拒否せず :func:`validate_crop_separation` が計画時に判定する。
     """
     if point is None:
         return None
@@ -207,7 +207,7 @@ def correct_rotations_per_ul(
     """推定塗布量から ``rotations_per_ul`` の補正値を求める.
 
     採用できた点だけを合計体積で集約する。
-    点ごとの比を平均すると小さい点の相対誤差が効きすぎるので、合計どうしの比を使う。
+    点ごとの比を平均すると小さい点の相対誤差の影響が大きくなりすぎるので、合計どうしの比を使う。
 
     算出:
         ratio = 採用点の推定量の合計 / (amount_ul × 採用点の数)

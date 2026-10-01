@@ -1,4 +1,4 @@
-"""重複するpixel ROIから銅箔照合領域を計画する."""
+"""重複する pixel ROI から銅箔照合領域を計画する."""
 
 from collections.abc import Sequence
 
@@ -15,7 +15,7 @@ from pcbasm.posctrl.copper import CopperProjector, PixelRect, centered_roi
 
 @attrs.frozen
 class AlignmentRegion:
-    """1つの銅箔照合領域.
+    """1 つの銅箔照合領域.
 
     Attributes:
         index: 巡回順の番号（pad 中心の再照合では -1）
@@ -47,13 +47,12 @@ def plan_alignment_regions(
     image_size: tuple[int, int],
     tour_start: Point2d,
 ) -> list[AlignmentRegion]:
-    """塗布対象pad中心を覆う重複ROIを計画し、巡回順に返す.
+    """塗布対象 pad の中心を覆う重複 ROI を計画し、巡回順に返す.
 
     領域は ``safe_area`` の内側に収める。
+    そのため、外形近くの pad はどの領域にも覆われないことがある。
 
-    そのため外形近くの pad は、どの領域にも覆われないことがある。
-
-    巡回順は ``tour_start``（機械座標）から最近傍順。
+    巡回順は ``tour_start``（機械座標）からの最近傍順とする。
 
     Returns:
         領域のリスト。銅箔・pad・安全領域のどれかが空、または領域が収まらなければ空リスト

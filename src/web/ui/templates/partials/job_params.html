@@ -1,6 +1,6 @@
 {# ジョブパラメータ 1 項目分の入力マークアップ（job_form / dispense_calibration 共用）。
    {% import %} で使うため context 非依存（spec のみ引数）。
-   pasting/loading.html の hidden input 版はマークアップが異質なので対象外。 #}
+   pasting/loading.html の hidden input 版はマークアップの構造が違うので対象外。 #}
 {% macro param_field(spec) %}
   <div class="job-param">
     <label for="param-{{ spec.name }}">

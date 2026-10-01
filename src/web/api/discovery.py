@@ -38,7 +38,7 @@ def local_ipv4_addresses() -> tuple[str, ...]:
     """このホストの IPv4 アドレスを列挙する（列挙順のまま）.
 
     ``socket.getaddrinfo(gethostname())`` は使わない（`/etc/hosts` の
-    ``127.0.1.1`` を掴んで広告が到達不能になる）。
+    ``127.0.1.1`` が返り、広告が到達不能になる）。
     """
     return tuple(
         ip.ip
@@ -83,8 +83,9 @@ def build_service_info(
 ) -> ServiceInfo:
     """広告する ServiceInfo を組む（純関数）.
 
-    ``server`` を明示するのが要点。省略すると zeroconf は instance 名で A レコードを
-    publish し、avahi が自ホスト名を改名して SSH / Mainsail の ``.local`` 名が壊れる。
+    ``server`` は必ず明示する。省略すると zeroconf は instance 名で A レコードを
+    publish し、avahi が自ホスト名を改名して SSH / Mainsail の ``.local`` 名で
+    接続できなくなる。
     frontend は名前解決せずアドレスから URL を組むので、この名前は誰も引かない。
 
     Args:
@@ -205,9 +206,9 @@ class ServiceAdvertiser:
             return
         try:
             if info is not None:
-                # 送信完了を待つのは goodbye だけ。消えないことが最大 75 分の実害に
-                # なる唯一の経路であり、announce は待たなくても実害が無い
-                # （次のクエリに応答できる）
+                # 送信完了を待つのは goodbye だけ。goodbye が届かないと機体が一覧に
+                # 最大 75 分残る。announce は待たなくても次のクエリに応答できるので
+                # 問題にならない
                 await (await zeroconf.async_unregister_service(info))
         except (OSError, ValueError, ZeroconfError) as exc:
             logger.warning("mDNS 広告を取り下げられません: %s", exc)

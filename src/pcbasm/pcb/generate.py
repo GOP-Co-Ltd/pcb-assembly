@@ -1,8 +1,10 @@
 """Pcbnew によるテスト用 PCB の生成（矩形 / グリッド / fill 網羅フィクスチャ）.
 
-モジュールレベルで ``pcbnew``（KiCAD の Python API）を import するため、KiCAD 未導入環境では import できない。
+モジュールレベルで ``pcbnew``（KiCAD の Python API）を import するため、
+KiCAD 未導入環境では import できない。
 
-``pcbasm.pcb`` パッケージからは re-export しないので、``pcbasm.pcb.generate`` を直接 import する。
+``pcbasm.pcb`` パッケージからは re-export しないので、``pcbasm.pcb.generate`` を
+直接 import する。
 
 生成する基板の座標は KiCad 座標 [mm] で、外形の左上が (0, 0)。
 """
@@ -37,7 +39,7 @@ def generate_rect_pcb(width: float, height: float) -> pcbnew.BOARD:
 def generate_grid_pcb(
     size: float, divisions: int, pad_size: float, output: Path
 ) -> None:
-    """正方形テストPCBにn^2個のグリッドパッドを配置して保存する."""
+    """正方形のテスト PCB に n^2 個のグリッドパッドを配置して保存する."""
     if divisions < 1:
         raise ValueError(f"divisions は 1 以上が必要です: {divisions}")
     if pad_size <= 0:
@@ -85,10 +87,10 @@ def build_fill_coverage_board() -> pcbnew.BOARD:
     ``build_paste_fill_path`` の面 / 凹形 / 線 / 点 の各塗布分岐を網羅する
     F.Paste パッドを並べた基板を返す。
 
-    含めるパッド（すべて F.Paste レイヤ）:
+    含めるパッドは次のとおり（すべて F.Paste レイヤ）。
 
     - 面塗布: 大矩形 / roundrect
-    - 凹形: L字 / ダンベル（custom shape + gr_poly primitives で表現）
+    - 凹形: L 字 / ダンベル（custom shape + gr_poly primitives で表現）
     - 線塗布: 細長矩形（buffer(-inset) が空になり線フォールバックへ）
     - 点塗布: 極小パッド（buffer(-inset) も中心線も作れず点フォールバックへ）
     """
@@ -100,7 +102,7 @@ def build_fill_coverage_board() -> pcbnew.BOARD:
     # 面塗布: roundrect
     _add_roundrect_pad(board, "AREA_RR", x=30.0, y=10.0, w=10.0, h=7.0, radius=2.0)
 
-    # 凹形: L字（custom shape）
+    # 凹形: L 字（custom shape）
     l_shape = [
         (-5.0, -5.0),
         (5.0, -5.0),
@@ -185,7 +187,7 @@ def _add_rect_pad(
     w: float,
     h: float,
 ) -> None:
-    """矩形パッドを1つ持つフットプリントを追加する."""
+    """矩形パッドを 1 つ持つフットプリントを追加する."""
     fp = _add_footprint(board, ref, x, y)
     pad = _paste_pad(fp, "1")
     pad.SetShape(pcbnew.PAD_SHAPE_RECTANGLE)
@@ -203,7 +205,7 @@ def _add_roundrect_pad(
     h: float,
     radius: float,
 ) -> None:
-    """Roundrect パッドを1つ持つフットプリントを追加する."""
+    """Roundrect パッドを 1 つ持つフットプリントを追加する."""
     fp = _add_footprint(board, ref, x, y)
     pad = _paste_pad(fp, "1")
     pad.SetShape(pcbnew.PAD_SHAPE_ROUNDRECT)
@@ -223,7 +225,7 @@ def _add_custom_pad(
     """Custom shape パッド（gr_poly primitives）を持つフットプリントを追加する.
 
     ``rings`` の各要素はパッド中心からの相対 mm 座標で表した閉ポリゴン。
-    凹形（L字・ダンベル）を表現するために使う。アンカーは極小円とする。
+    凹形（L 字・ダンベル）を表現するために使う。アンカーは極小円とする。
     """
     fp = _add_footprint(board, ref, x, y)
     pad = _paste_pad(fp, "1")

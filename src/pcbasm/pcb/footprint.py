@@ -222,7 +222,7 @@ class FootprintLibrary:
     def search(self, query: str, limit: int) -> tuple[FootprintInfo, ...]:
         """空白・記号区切りのトークン全部を含む footprint を関連度順に返す.
 
-        空 query は空タプル。
+        空の query には空タプルを返す。
         """
         tokens = search_tokens(query)
         if not tokens:

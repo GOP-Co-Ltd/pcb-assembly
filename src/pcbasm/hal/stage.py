@@ -15,11 +15,11 @@ from .klipper import ReadonlyKlipper
 class Speed:
     """送り速度を表すイミュータブルなクラス.
 
-    絶対値[mm/s]またはmax_velocityに対する割合[0,1]で表現する。
+    絶対値 [mm/s] または max_velocity に対する割合 [0,1] で表現する。
     インスタンスは ``absolute`` / ``rate`` クラスメソッド経由で生成する。
 
     Attributes:
-        _value: 速度の値（絶対値[mm/s]または割合[0,1]）
+        _value: 速度の値（絶対値 [mm/s] または割合 [0,1]）
         _is_fraction: 値が割合表現かどうか
     """
 
@@ -28,28 +28,28 @@ class Speed:
 
     @classmethod
     def absolute(cls, mm_per_s: float) -> Self:
-        """絶対速度[mm/s]からSpeedを生成する.
+        """絶対速度 [mm/s] から Speed を生成する.
 
         Args:
-            mm_per_s: 送り速度[mm/s]
+            mm_per_s: 送り速度 [mm/s]
 
         Returns:
-            絶対速度を表すSpeedインスタンス
+            絶対速度を表す Speed インスタンス
         """
         return cls(value=mm_per_s, is_fraction=False)
 
     @classmethod
     def rate(cls, fraction: float) -> Self:
-        """max_velocityに対する割合[0,1]からSpeedを生成する.
+        """max_velocity に対する割合 [0,1] から Speed を生成する.
 
         Args:
-            fraction: max_velocityに対する割合（0以上1以下）
+            fraction: max_velocity に対する割合（0 以上 1 以下）
 
         Returns:
-            割合表現のSpeedインスタンス
+            割合表現の Speed インスタンス
 
         Raises:
-            ValueError: fractionが[0, 1]の範囲外の場合
+            ValueError: fraction が [0, 1] の範囲外の場合
         """
         if not 0.0 <= fraction <= 1.0:
             msg = f"rateは[0, 1]の範囲内である必要があります。与えられた値: {fraction}"
@@ -57,13 +57,13 @@ class Speed:
         return cls(value=fraction, is_fraction=True)
 
     def resolve(self, max_velocity: float) -> float:
-        """最大速度を用いて速度を絶対値[mm/s]に解決する.
+        """最大速度を用いて速度を絶対値 [mm/s] に解決する.
 
         Args:
-            max_velocity: ステージの最大速度[mm/s]
+            max_velocity: ステージの最大速度 [mm/s]
 
         Returns:
-            解決された絶対速度[mm/s]
+            解決された絶対速度 [mm/s]
         """
         if self._is_fraction:
             return self._value * max_velocity
@@ -84,7 +84,7 @@ class ScalarLimits:
             value: 判定する値
 
         Returns:
-            可動域内であればTrue
+            可動域内であれば True
         """
         return self.min <= value <= self.max
 
@@ -99,14 +99,14 @@ class Limits:
     v: ScalarLimits
 
     def contains(self, point: Point3d, feed: float) -> bool:
-        """点とfeedが全軸の可動域・速度制限内か判定する.
+        """点と feed が全軸の可動域・速度制限内か判定する.
 
         Args:
             point: 判定する座標
-            feed: 判定する送り速度[mm/s]
+            feed: 判定する送り速度 [mm/s]
 
         Returns:
-            全制限内であればTrue
+            全制限内であれば True
         """
         return (
             point.x in self.x
@@ -117,7 +117,7 @@ class Limits:
 
 
 class XYZStage:
-    """XYZステージの状態取得と移動G-codeの生成を行うクラス.
+    """XYZ ステージの状態取得と移動 G-code の生成を行うクラス.
 
     G-code は返すだけで送信しない。送信は ``Klipper.send_gcode`` で行う。
     座標は機械座標（mm）、速度は mm/s。可動域と最大速度は printer.cfg から読む。
@@ -130,17 +130,18 @@ class XYZStage:
     """
 
     def __init__(self, klipper: ReadonlyKlipper) -> None:
-        """XYZStageを初期化する.
+        """XYZStage を初期化する.
 
         Args:
-            klipper: Klipperクライアント
+            klipper: Klipper クライアント
         """
         self._klipper = klipper
 
     def get_position(self) -> Point3d:
         """現在位置を取得する.
 
-        値は Klipper の ``gcode_move.gcode_position``（最後に指令した G-code 上の位置）で、物理的な到達は保証しない。
+        値は Klipper の ``gcode_move.gcode_position``（最後に指令した G-code 上の
+        位置）で、物理的に到達したことは保証しない。
 
         Returns:
             現在の座標（機械座標、mm）
@@ -201,27 +202,28 @@ class XYZStage:
         speed: Speed | None = None,
         relative: bool = False,
     ) -> GCode:
-        """単点移動のG-codeを生成する.
+        """単点移動の G-code を生成する.
 
-        指定した軸のみをG1に含め、None軸は出力しない（未指定軸は機械側が
-        現在位置に保持する）。speed=Noneのときmax_velocityで解決する。
-        指定軸とfeedをlimitsで検証し、範囲外の場合はValueErrorを送出する。
+        指定した軸のみを G1 に含め、None の軸は出力しない（未指定軸は機械側が
+        現在位置に保持する）。speed=None のときは max_velocity で解決する。
+        指定軸と feed を limits で検証し、範囲外の場合は ValueError を送出する。
 
-        relative=True の移動量は、この呼び出し時点の ``get_position()`` に足して絶対座標にする。
+        relative=True の移動量は、この呼び出し時点の ``get_position()`` に足して
+        絶対座標にする。
         送信前に相対移動を複数生成すると、どれも同じ位置を基準にしてしまう。
 
         Args:
-            x: X座標（Noneは移動しない）
-            y: Y座標（Noneは移動しない）
-            z: Z座標（Noneは移動しない）
-            speed: 送り速度（Noneのときmax_velocity）
+            x: X 座標（None は移動しない）
+            y: Y 座標（None は移動しない）
+            z: Z 座標（None は移動しない）
+            speed: 送り速度（None のときは max_velocity）
             relative: 相対移動フラグ
 
         Returns:
-            移動のGCode（指定軸のみ）
+            移動の GCode（指定軸のみ）
 
         Raises:
-            ValueError: 全軸が未指定の場合、移動先またはfeedが制限外の場合
+            ValueError: 全軸が未指定の場合、移動先または feed が制限外の場合
         """
         if x is None and y is None and z is None:
             raise ValueError("移動する軸が指定されていません")
@@ -256,7 +258,7 @@ class XYZStage:
         return GCode.move(x=targets["x"], y=targets["y"], z=targets["z"], velocity=feed)
 
     def to_gcode(self, path: Path, *, speed: Speed) -> GCode:
-        """Path の各点を G1 移動に変換する。各点と feed を limits 検証する.
+        """Path の各点を G1 移動に変換し、各点と feed を limits で検証する.
 
         Raises:
             ValueError: 制限外の点がある場合

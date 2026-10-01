@@ -12,7 +12,7 @@ from pcbasm.utils import get_class_module_path
 class OffsetTransformMeasurer:
     """観測座標系から機械座標系への変換を計測するクラス.
 
-    2点法を用いて、機械座標系での移動ベクトルと観測座標系での
+    2 点法を用いて、機械座標系での移動ベクトルと観測座標系での
     オフセットの差分から回転角を計算する。
 
     Example:
@@ -40,13 +40,13 @@ class OffsetTransformMeasurer:
         *,
         settle_sec: float,
     ) -> None:
-        """OffsetTransformMeasurerを初期化する.
+        """OffsetTransformMeasurer を初期化する.
 
         Args:
-            observe: 想定→観測のTransform（カメラmm空間）を返す関数
-            klipper: Klipperクライアント
-            stage: XYZステージ
-            move_distance: X方向への移動距離（mm）
+            observe: 想定→観測の Transform（カメラ mm 空間）を返す関数
+            klipper: Klipper クライアント
+            stage: XYZ ステージ
+            move_distance: X 方向への移動距離（mm）
             move_velocity_ratio: 最大速度に対する移動速度の割合 (0.0-1.0)
             settle_sec: 移動後の静定待ち [sec]（``machine.settle.move_sec``）
         """
@@ -60,11 +60,11 @@ class OffsetTransformMeasurer:
         self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
     def measure(self) -> Transform:
-        """2点法で回転変換を計測する.
+        """2 点法で回転変換を計測する.
 
         処理手順:
         1. 現在位置で対象を検出しオフセット o1 を取得
-        2. X方向に move_distance だけ移動
+        2. X 方向に move_distance だけ移動
         3. 移動後に検出しオフセット o2 を取得
         4. 元の位置（XYZ）に戻る
         5. 移動ベクトルと (o2 - o1) の角度差から回転を計算
@@ -73,7 +73,7 @@ class OffsetTransformMeasurer:
             観測座標系から機械座標系への回転変換（純回転）
 
         Raises:
-            RuntimeError: ``observe`` の検出失敗（CircleDetectionError など）はそのまま伝わる
+            RuntimeError: ``observe`` の検出失敗（CircleDetectionError など）をそのまま送出する
         """
         self._logger.info("オフセット補正の計測を開始")
 
@@ -84,7 +84,7 @@ class OffsetTransformMeasurer:
             f"初期位置: {start_pos}, オフセット o1: ({o1.x:.4f}, {o1.y:.4f}) mm"
         )
 
-        # 2. X方向に移動
+        # 2. X 方向に移動
         move_vector = Point2d(x=self._move_distance, y=0.0)
         move_velocity = self._stage.max_velocity * self._move_velocity_ratio
         self._move_to(

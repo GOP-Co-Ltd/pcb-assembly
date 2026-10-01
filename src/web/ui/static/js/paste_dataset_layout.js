@@ -3,7 +3,7 @@
 // データセット収集の配置プレビュー。
 // 総点数・撮影枚数・容量・配置は backend の /api/pasting/paste-dataset-layout が
 // 算出したものをそのまま描く（ここで再導出しない）。SVG 座標は銅板 mm をそのまま
-// viewBox に使うので、座標変換は描画のためだけの計算に留まる。
+// viewBox に使うので、ここでの座標変換は描画のための計算だけになる。
 (() => {
   const { api, debounce, svgEl } = window.webui;
 
@@ -60,7 +60,7 @@
     return `${value.toFixed(3)} uL`;
   }
 
-  // 量の index を色へ写す（表示のための変換なのでクライアント側で持つ）
+  // 量の index を色に対応付ける（表示のための変換なのでクライアント側で持つ）
   function volumeColor(index, total) {
     if (total <= 1) return "hsl(210 70% 55%)";
     const ratio = index / (total - 1);
@@ -185,7 +185,7 @@
     renderView(data);
   }
 
-  // 配置に効く入力だけで再取得する（円検出のハイパラや保存名では取り直さない）
+  // 配置に影響する入力が変わったときだけ再取得する（円検出のハイパーパラメータや保存名では取り直さない）
   const WATCHED = new Set(FIELDS);
   const schedule = debounce(refresh, 250);
   for (const event of ["input", "change"]) {

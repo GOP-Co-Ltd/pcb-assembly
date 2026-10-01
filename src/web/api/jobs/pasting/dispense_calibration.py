@@ -66,7 +66,7 @@ def register(catalog: JobCatalog) -> None:
             tab="pasting",
             run=_run_dispense_calibration,
             params=(
-                # 共通土台（その場生成する銅板 + ボード計測）。銅板は開始時に 1 回生成する
+                # 共通の準備（その場生成する銅板 + ボード計測）。銅板は開始時に 1 回生成する
                 # ため board_width / board_height / tolerance はキャリブ後固定（実行中変更不可）。
                 ParamSpec(
                     "board_width",
@@ -132,7 +132,7 @@ def register(catalog: JobCatalog) -> None:
                     minimum=0.0,
                 ),
                 # 比重は machine.toml の solder_paste_density を参照（フォーム入力なし）
-                # ② max_dispense_rate（吐出効率の落ち検出・実行中変更可）
+                # ② max_dispense_rate（吐出効率の低下を検出・実行中変更可）
                 ParamSpec(
                     "rate_min",
                     "吐出レート最小",
@@ -211,7 +211,7 @@ def register(catalog: JobCatalog) -> None:
 def _run_dispense_calibration(ctx: JobContext) -> JobResult:
     """銅板に線を引いて ①②③ を検証ループまで回す統合キャリブレーション.
 
-    共通土台（その場生成した矩形銅板 → ボード計測 → 平面計測 → applicator）を
+    共通の準備（その場生成した矩形銅板 → ボード計測 → 平面計測 → applicator）を
     :class:`FlowCalibrationProcedure` として確立し、メニュー（``run_calib`` コマンド）で
     ① rotations_per_ul / ② max_dispense_rate / ③ max_fill_speed を順次/個別に実行する。
     各キャリブの確定値は採用時点で machine.toml へ即時反映する（中止・失敗でも失われない）。
@@ -427,7 +427,7 @@ def _calibrate_rotations_per_ul(
     許容内）はヒントとして表示するのみで、ループ継続はユーザー判断。タール前の中止・
     質量入力の中止はいずれもメニューへ戻る。
     """
-    # 密度はマシン設定 (solder_paste_density [mg/uL]) を真実とする。② と同じ扱い。
+    # 密度はマシン設定 (solder_paste_density [mg/uL]) の値を使う。② と同じ扱い。
     density = ctx.machine.paste_dispenser.density_mg_per_ul
     ctx.log(
         f"ペースト密度（machine.toml の solder_paste_density）= {density:.3f} mg/uL"
@@ -438,7 +438,7 @@ def _calibrate_rotations_per_ul(
         params = _params(ctx)
         layout = _line_layout(ctx, params)
         amount = params.line_amount_ul
-        # ── 専用ローディング段階：ヘッドを Z=0 に上げてプライム/ふき取り ──
+        # 専用ローディング段階: ヘッドを Z=0 に上げてプライム/ふき取り
         # Z=0 へ上げることでローディング中のノズルふき取りがしやすくなる。
         ctx.log("ヘッドを Z=0 に上げます。プライム/ふき取りをしてください")
         procedure.move_to_loading_z()
@@ -534,10 +534,10 @@ def _calibrate_max_dispense_rate(
     procedure: FlowCalibrationProcedure,
     results: _DispenseCalibrationResults,
 ) -> _DispenseCalibrationResults:
-    """② max_dispense_rate を吐出効率の落ち検出で確定する.
+    """② max_dispense_rate を吐出効率の低下の検出で確定する.
 
     レート列の各点で線を引いて計量し、効率 ``measured_ul / commanded_ul`` の
-    落ちから ``DispenseRateCalibration`` が ``max_dispense_rate`` を判定する。
+    低下から ``DispenseRateCalibration`` が ``max_dispense_rate`` を判定する。
     移動速度（``max_fill_speed``）は固定し、吐出量をレートに比例させて指令レートを
     実現する（:func:`plan_rate_sweep`。``line_amount`` は使わない）。各点は独立計測のため、
     線引き前に基板ごとタール（ゼロ）を確認してから引き、線引き後に退避 Z

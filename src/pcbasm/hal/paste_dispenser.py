@@ -4,10 +4,10 @@ from .manual_stepper import ManualStepper
 
 
 class PasteDispenser:
-    """はんだペーストディスペンサーのHAL (オーガースクリュー方式).
+    """はんだペーストディスペンサーの HAL (オーガースクリュー方式).
 
-    マイクロリットル [μL] 単位のAPIを提供します。 内部的に ManualStepper と AirPump
-    を利用し、rotations_per_ul で μL → 回転数に変換します。
+    マイクロリットル [μL] 単位の API を提供します。内部では ManualStepper と AirPump
+    を使い、rotations_per_ul で μL を回転数に変換します。
     """
 
     def __init__(
@@ -16,16 +16,16 @@ class PasteDispenser:
         rotations_per_ul: float,
         stepper_name: str = "paste_dispenser",
     ) -> None:
-        """PasteDispenserを初期化する.
+        """PasteDispenser を初期化する.
 
         Args:
-            klipper: Klipperクライアント
-            rotations_per_ul: 1μLあたりのステッパー回転数 [rev/μL]
-            stepper_name: manual_stepperの名前
+            klipper: Klipper クライアント
+            rotations_per_ul: 1 μL あたりのステッパー回転数 [rev/μL]
+            stepper_name: manual_stepper の名前
 
         Raises:
-            RuntimeError: printer.cfgにmanual_stepperセクションまたは
-                air_pumpセクションがない場合
+            RuntimeError: printer.cfg に manual_stepper セクションまたは
+                air_pump セクションがない場合
         """
         self._stepper = ManualStepper(klipper, stepper_name)
         self._air_pump = AirPump(klipper)
@@ -39,9 +39,8 @@ class PasteDispenser:
     def set_rotations_per_ul(self, rotations_per_ul: float) -> None:
         """換算係数を差し替える（運転中の再キャリブレーション用）.
 
-        AirPump / Stepper を開いたまま係数だけを変える。
-
-        作り直すと AirPump の OFF→ON が挟まり、補正したい吐出そのものを乱す。
+        AirPump / Stepper を作り直さず、係数だけを変える。 作り直すと AirPump の OFF→ON
+        が挟まり、補正対象の吐出そのものに影響する。
         """
         self._rotations_per_ul = rotations_per_ul
 
@@ -50,11 +49,11 @@ class PasteDispenser:
         return microl * self._rotations_per_ul * 360
 
     def enable(self) -> GCode:
-        """ディスペンサーを有効化するGCodeを生成する（AirPump ON + Stepper Enable）."""
+        """ディスペンサーを有効化する GCode を生成する（AirPump ON + Stepper Enable）."""
         return self._air_pump.on() + self._stepper.enable()
 
     def disable(self) -> GCode:
-        """ディスペンサーを無効化するGCodeを生成する（AirPump OFF + Stepper Disable）."""
+        """ディスペンサーを無効化する GCode を生成する（AirPump OFF + Stepper Disable）."""
         return self._air_pump.off() + self._stepper.disable()
 
     def pushpull(
@@ -65,18 +64,19 @@ class PasteDispenser:
         *,
         sync: bool = True,
     ) -> GCode:
-        """ペーストを吐出/リトラクションするGCodeを生成.
+        """ペーストを吐出/リトラクションする GCode を生成する.
 
-        先に位置を 0 へリセットしてから動かすので、``amount`` は今の位置からの相対量として働く。
+        先に位置を 0 へリセットしてから動かすので、``amount`` は今の位置からの
+        相対量になる。
 
         Args:
             amount: 吐出量 [μL]（正: 吐出、負: リトラクション）
             rate: 速度 [μL/sec]
             accel: 加速度 [μL/sec²]
-            sync: Trueの場合、動作完了まで待機する（デフォルト: True）
+            sync: True の場合、動作完了まで待機する（デフォルト: True）
 
         Returns:
-            吐出/リトラクション用のGCode
+            吐出/リトラクション用の GCode
         """
         gcode = self._stepper.reset_position()
         gcode.append(
@@ -98,21 +98,21 @@ class PasteDispenser:
         *,
         sync: bool = True,
     ) -> GCode:
-        """直前の非同期pushpullと同じ座標系で吐出・リトラクションを続ける.
+        """直前の非同期 pushpull と同じ座標系で吐出・リトラクションを続ける.
 
         ``SET_POSITION`` を挟まず、直前の目標 ``current_amount`` から
         ``amount`` だけ移動した絶対位置を次の目標にする。非同期吐出の完了前に
-        リトラクションをqueueするとき、実行中の座標系を壊さず連続動作にできる。
+        リトラクションを queue するとき、実行中の座標系をリセットせずに連続動作させられる。
 
         Args:
-            current_amount: 直前のpushpullが指令した目標量 [μL]
+            current_amount: 直前の pushpull が指令した目標量 [μL]
             amount: 追加移動量 [μL]（正: 吐出、負: リトラクション）
             rate: 速度 [μL/sec]
             accel: 加速度 [μL/sec²]
-            sync: Trueの場合、動作完了まで待機する
+            sync: True の場合、動作完了まで待機する
 
         Returns:
-            連続吐出・リトラクション用のGCode
+            連続吐出・リトラクション用の GCode
         """
         return self._stepper.rotate(
             self._ul_to_deg(current_amount + amount),
@@ -122,7 +122,7 @@ class PasteDispenser:
         )
 
     def sync(self) -> GCode:
-        """先行するディスペンサー動作と後続G-codeの時刻を同期する."""
+        """先行するディスペンサー動作と後続 G-code の時刻を同期する."""
         return self._stepper.sync()
 
     def rotate_revolutions(
@@ -133,19 +133,19 @@ class PasteDispenser:
         *,
         sync: bool = True,
     ) -> GCode:
-        """流量キャリブレーション用にN回転をオーガースクリューに実行させるGCode.
+        """流量キャリブレーション用に N 回転をオーガースクリューに実行させる GCode.
 
         rotations_per_ul が未知の場面（キャリブレーション）でも使えるよう、
-        μL単位を経由せず回転数で直接指定する。
+        μL 単位を経由せず回転数で直接指定する。
 
         Args:
             rotations: 回転数 [rev]
             rate: 角速度 [rev/sec]
             accel: 角加速度 [rev/sec²]
-            sync: Trueの場合、動作完了まで待機する（デフォルト: True）
+            sync: True の場合、動作完了まで待機する（デフォルト: True）
 
         Returns:
-            キャリブレーション用のGCode
+            キャリブレーション用の GCode
         """
         gcode = self._stepper.reset_position()
         gcode.append(

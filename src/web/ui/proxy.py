@@ -1,6 +1,6 @@
 """``/m/{id}/api`` と ``/m/{id}/artifacts`` を backend へ中継するプロキシ.
 
-FastAPI のルートではなく純 ASGI アプリにしている:
+FastAPI のルートではなく、次の理由で純 ASGI アプリにしている。
 
 - ボディが依存解決（`Request` の body 読み込み）に巻き込まれず、そのまま上流へ
   ストリームできる（MJPEG とアップロードの両方で必要）
@@ -60,8 +60,8 @@ _SESSION_HEADER = b"x-pcbasm-session"
 _NAME_HEADER = b"x-pcbasm-client-name"
 
 # host は上流の URL から httpx / websockets が付け直す。
-# cookie は frontend のセッション cookie を backend に漏らさないために落とす
-# （落とす前に読んでセッションヘッダへ翻訳する = `_session_headers`）。
+# cookie は frontend のセッション cookie を backend に漏らさないために取り除く
+# （取り除く前に読んでセッションヘッダへ変換する = `_session_headers`）。
 # セッションヘッダはクライアントが付けた値を素通しせず、必ず cookie から組み直す
 # （組み立て点を 1 箇所に保つ）
 _DROP_REQUEST_HEADERS = (
@@ -70,7 +70,7 @@ _DROP_REQUEST_HEADERS = (
     | {_SESSION_HEADER.decode("ascii"), _NAME_HEADER.decode("ascii")}
 )
 
-# websockets が handshake で自前に組むヘッダ。そのまま渡すと重複して壊れる
+# websockets が handshake で自前に組むヘッダ。そのまま渡すと重複して handshake が失敗する
 # （sec-websocket-protocol は scope["subprotocols"] 経由で渡す）
 _DROP_WEBSOCKET_HEADERS = _DROP_REQUEST_HEADERS | {
     "sec-websocket-key",
@@ -139,8 +139,8 @@ class ProxyApp:
             request.method,
             url,
             headers=_forward_headers(request, _DROP_REQUEST_HEADERS),
-            # ボディは pull chain で流す（1 チャンクしかメモリに載らず
-            # バックプレッシャが効く）。ボディが無いメソッドで content を渡すと
+            # ボディは pull chain で流す（メモリに載るのは 1 チャンクだけで、
+            # バックプレッシャもかかる）。ボディが無いメソッドで content を渡すと
             # httpx が GET に chunked を付けてしまうため、ある時だけ渡す
             content=request.stream() if _has_body(request.headers) else None,
             timeout=self._relay_timeout(client.timeout, route_path),
@@ -173,7 +173,7 @@ class ProxyApp:
         websocket = WebSocket(scope, receive=receive, send=send)
         # handshake 要求を受け取ってから上流へ繋ぐ。accept は接続成功後に行う
         # （失敗を accept 済みの close で伝えると、クライアントは「一度は繋がった」と
-        # 判断してしまう。accept しなければ job_console.js のバックオフ再接続が効く）
+        # 判断してしまう。accept しなければ job_console.js のバックオフ再接続が動く）
         await websocket.receive()
         try:
             endpoint = self._registry.resolve(scope["path_params"]["machine_id"])
@@ -192,7 +192,7 @@ class ProxyApp:
                 additional_headers=_forward_websocket_headers(websocket),
                 subprotocols=scope.get("subprotocols") or None,
                 # 既定の proxy=True は HTTP_PROXY / ALL_PROXY を読むため、proxy env の
-                # ある環境で LAN 内の backend への WS が全滅する
+                # ある環境では LAN 内の backend への WS がすべて接続できなくなる
                 proxy=None,
             )
         except (OSError, TimeoutError, websockets.WebSocketException) as exc:
@@ -209,7 +209,7 @@ class ProxyApp:
                     reason=upstream.close_reason or "",
                 )
         finally:
-            # 上流を閉じ残すと backend 側の購読が残る。キャンセル中でも完遂させる
+            # 上流を閉じずに残すと backend 側の購読が残る。キャンセル中でも必ず閉じる
             with anyio.CancelScope(shield=True):
                 await upstream.close()
 
@@ -241,10 +241,10 @@ class _UpstreamResponse(StreamingResponse):
     """上流の `httpx.Response` をバイト列のまま流し、明示的に close する応答.
 
     上流を開いたまま残すと別プロセスの backend が MJPEG を送り続け、`hold_camera` の
-    finally が走らずカメラが永久に回る。実際の解放を担っているのは**クライアント切断の
-    キャンセルが `aiter_raw()` へ伝播する経路**（httpcore が閉じる）で、ここでの
-    `aclose()` は**多重防御**にあたる（no-op にしても backend の `preview_clients` は
-    0 に戻るため、黒箱からは観測できない。`tests/e2e/test_proxy_e2e.py` で実測）。
+    finally が実行されず、カメラが止まらない。実際に解放しているのは、クライアント切断の
+    キャンセルが `aiter_raw()` へ伝播する経路（httpcore が閉じる）で、ここでの
+    `aclose()` は多重防御にあたる（no-op にしても backend の `preview_clients` は
+    0 に戻るため、外部からは観測できない。`tests/e2e/test_proxy_e2e.py` で計測した）。
     starlette はキャンセル時に body_iterator を閉じないので、`stream_response` の
     finally（正常終了・送信中エラー）と `__call__` の `CancelledError`（サーバー側からの
     キャンセル）の両方に置く。
@@ -261,7 +261,7 @@ class _UpstreamResponse(StreamingResponse):
         # （multipart も再解析せず素通しになる）
         super().__init__(upstream.aiter_raw(), status_code=upstream.status_code)
         self._upstream = upstream
-        # 多値ヘッダ（set-cookie 等）を潰さないため dict を経由せず raw を差し替える
+        # 多値ヘッダ（set-cookie 等）が 1 つにまとまらないよう、dict を経由せず raw を差し替える
         self.raw_headers = [
             (key, value)
             for key, value in upstream.headers.raw
@@ -296,7 +296,7 @@ async def _pump_websocket(
     """クライアント ⇄ 上流のフレームを双方向に中継する.
 
     1 ブラウザ = 1 上流 WS（fan-out で共有しない。共有すると操作権をセッションに
-    帰属させられなくなる）。どちらかの向きが終わったら中継全体を畳む。
+    帰属させられなくなる）。どちらかの向きが終わったら中継全体を終了する。
     """
     tasks = (
         asyncio.create_task(_forward_client_frames(websocket, upstream)),
@@ -408,18 +408,18 @@ def _forward_headers(
 
 
 def _session_headers(cookies: Mapping[str, str]) -> list[tuple[bytes, bytes]]:
-    """ブラウザの cookie を backend が読むセッションヘッダへ翻訳する.
+    """ブラウザの cookie を backend が読むセッションヘッダへ変換する.
 
     ブラウザは `img.src`（MJPEG）と WS ハンドシェイクに独自ヘッダを付けられないため、
     セッションを載せられるのは cookie しかない。一方 cookie は backend へ渡さないので、
-    翻訳が要る。
+    ヘッダへの変換が要る。
 
-    表示名は HTTP/1.1 ヘッダが latin-1 なので `quote` して ASCII にする（生の日本語名は
-    uvicorn / httpx が壊す）。JS は `encodeURIComponent` で cookie に書く = 既に
-    quote 済みなので、`unquote` を挟んで二重エンコードを避ける（backend の `unquote`
-    1 回で元の表示名に戻る）。
+    HTTP/1.1 ヘッダは latin-1 なので、表示名は `quote` して ASCII にする（生の日本語名は
+    uvicorn / httpx で文字化けする）。JS は `encodeURIComponent` で cookie に書くので
+    値は既に quote 済み。そのため `unquote` を挟んで二重エンコードを避ける（backend の
+    `unquote` 1 回で元の表示名に戻る）。
 
-    **これは認証ではなく自己申告**で、LAN 上の誰でも他人を騙れる。認証が無い現状より
+    これは認証ではなく自己申告で、LAN 上の誰でも他人になりすませる。認証が無い現状より
     悪化しないので受容している。
     """
     headers: list[tuple[bytes, bytes]] = []
@@ -436,11 +436,11 @@ def _session_headers(cookies: Mapping[str, str]) -> list[tuple[bytes, bytes]]:
 def _reencoded_name(cookie_value: str) -> bytes | None:
     """表示名 cookie をヘッダ用に組み直す（復元できない値は None = ヘッダを付けない）.
 
-    `unquote` の既定（``errors="replace"``）は壊れた percent-encoding を U+FFFD へ
-    「修復」してしまい、それを quote し直すと**正当な encoding として backend へ渡る**。
-    backend 側の「復元できない値は既定名へ落とす」防御（`web.api.identity`）が
-    到達不能になり、文字化け 1 文字が表示名として全クライアントへ配られる。ここで
-    落として backend のフォールバックに委ねる。
+    `unquote` の既定（``errors="replace"``）は不正な percent-encoding を U+FFFD へ
+    置き換えてしまい、それを quote し直すと正当な encoding として backend へ渡る。
+    すると backend 側の「復元できない値は既定名にする」防御（`web.api.identity`）が
+    働かず、文字化けした 1 文字が表示名として全クライアントへ配られる。ここで
+    None を返してヘッダを付けず、backend のフォールバックに任せる。
     """
     try:
         decoded = unquote(cookie_value, errors="strict")

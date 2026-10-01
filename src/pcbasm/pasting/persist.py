@@ -1,10 +1,10 @@
 """基板ごとの塗布設定 JSON の encode / decode と書き出し名.
 
-真実の源は ``machine.toml`` の ``[paste_dispenser]`` 値で、基板 JSON には
+設定値の基準は ``machine.toml`` の ``[paste_dispenser]`` 値で、基板 JSON には
 明示 override（L0 を含む ``levels``）と基板上の座標設定だけを保持する。
 ファイル I/O・ロック・保存先の決定は web 層（``BoardSettingsStore``）の責務。
-ダウンロード時のファイル名は :func:`board_settings_export_filename` が正典
-（保存先の名前は board_id なので別物）。
+ダウンロード時のファイル名は :func:`board_settings_export_filename` が決める
+（保存先の名前は board_id で、ダウンロード時のファイル名とは異なる）。
 
 保存形式（schema v1）::
 
@@ -22,7 +22,7 @@
 版の扱い: キー／型が変わるときだけ ``BOARD_SETTINGS_SCHEMA_VERSION`` を上げ、
 :func:`decode_board_settings` が版で分岐して旧版を純関数で新版 dict に写す。
 現行の唯一の移行は、初期 v1 が ``settings`` 直下に持っていた
-``base`` / ``base_enabled`` を L0 の明示設定へ畳み込むもの。
+``base`` / ``base_enabled`` を L0 の明示設定へ移すもの。
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ BOARD_SETTINGS_SCHEMA_VERSION = 1
 
 _L0_KEY: HierKey = ("L0",)
 
-# 書き出し名で path 片として使えない文字（空白を含む）。日本語基板名を潰さないよう
+# 書き出し名で path 片として使えない文字（空白を含む）。日本語の基板名を置き換えないよう
 # ASCII 以外は残し、Content-Disposition 側で RFC 5987 の filename* に載せる
 _UNSAFE_FILENAME = re.compile(r'[\x00-\x1f/\\:*?"<>|\s]+')
 
@@ -197,7 +197,7 @@ def _as_sequence(value: object) -> Sequence[Any]:
 def _points(value: object) -> tuple[Point2d, ...]:
     """保存値 ``[[x, y], ...]`` を Point2d の並びへ戻す.
 
-    形が違う要素は :func:`_point` と同じく黙って捨てる。
+    形が違う要素は :func:`_point` と同じく通知せずに捨てる。
     """
     if not isinstance(value, Sequence) or isinstance(value, str | bytes):
         return ()
@@ -207,7 +207,7 @@ def _points(value: object) -> tuple[Point2d, ...]:
 def _point(value: object) -> Point2d | None:
     """保存値 ``[x, y]`` を Point2d へ戻す（形が違えば ``None``）.
 
-    壊れた保存内容でページを開けなくしないため、pad id と同じく黙って捨てる。
+    不正な保存内容でページを開けなくならないよう、pad id と同じく通知せずに捨てる。
     """
     if not isinstance(value, Sequence) or isinstance(value, str | bytes):
         return None

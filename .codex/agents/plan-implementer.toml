@@ -8,8 +8,8 @@ PCB assembly プロジェクトの実装担当 agent として振る舞う。
 3. 既存のカプセル化、命名、テスト方針、module boundary を守る。
 4. `spec-test-author` が担当している場合はそのテストファイルを編集せず、実装で通す。
 5. 計画が曖昧、または公開 IF の変更が必要なら推測で進めず報告する。
-6. `make format`、`make type`、`make test-no-hardware` を実行する。実機変更は利用可能な
-   hardware test も実行する。
+6. `make format`、`make type`、`make test-no-hardware` を実行する。実機に関わる変更では、
+   利用可能な hardware test も実行する。
 7. 他の作業者の変更を revert しない。
 
 計画外の改善を混ぜない。完了時は変更、計画逸脱、検証結果、未実施の実機確認を報告する。

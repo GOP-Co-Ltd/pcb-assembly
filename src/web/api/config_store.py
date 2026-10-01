@@ -31,7 +31,7 @@ from pcbasm.config import (
 from pcbasm.utils import is_finite_number
 
 # 型エイリアスの定義は API 契約モジュール（pydantic のみ依存）に置き、ここから
-# 再 export する。既存の `from web.api.config_store import ...` を壊さない
+# 再 export する。既存の `from web.api.config_store import ...` をそのまま使えるようにする
 from web.api.models import MachineSettingValue, SettingValueType
 
 
@@ -96,7 +96,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
         "paste_dispenser.prime_extra_delay", "プライム後の追加遅延", "float", "s"
     ),
     FieldSpec("paste_dispenser.initial_purge_ul", "初回パージ量", "float", "uL"),
-    # [paste_dispenser.flow_calibration] — 運転時流量キャリブレーション
+    # [paste_dispenser.flow_calibration] 運転時流量キャリブレーション
     FieldSpec(
         "paste_dispenser.flow_calibration.calibration_file",
         "校正ファイル",
@@ -154,11 +154,11 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.pad_align.canny_low", "Canny下側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.canny_high", "Canny上側閾値", "float"),
     FieldSpec("paste_dispenser.pad_align.blur_ksize", "ブラーカーネルサイズ", "int"),
-    # [paste_dispenser.nozzle_cap] — タスク終了時の駐機先（マシン座標）
+    # [paste_dispenser.nozzle_cap] タスク終了時の駐機先（マシン座標）
     FieldSpec("paste_dispenser.nozzle_cap.x", "キャップ位置 X", "float", "mm"),
     FieldSpec("paste_dispenser.nozzle_cap.y", "キャップ位置 Y", "float", "mm"),
     FieldSpec("paste_dispenser.nozzle_cap.z", "キャップ位置 Z", "float", "mm"),
-    # [paste_dispenser.nozzle_clean] — ノズル先端クリーニング（マシン座標）
+    # [paste_dispenser.nozzle_clean] ノズル先端クリーニング（マシン座標）
     FieldSpec("paste_dispenser.nozzle_clean.x", "クリーニング位置 X", "float", "mm"),
     FieldSpec("paste_dispenser.nozzle_clean.y", "クリーニング位置 Y", "float", "mm"),
     FieldSpec("paste_dispenser.nozzle_clean.z", "クリーニング面のZ高さ", "float", "mm"),
@@ -181,7 +181,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("reference_point.x", "基準点 X", "float", "mm"),
     FieldSpec("reference_point.y", "基準点 Y", "float", "mm"),
     FieldSpec("reference_point.target_diameter", "基準点マーカー直径", "float", "mm"),
-    # [reference_point.offsets] — 基盤コーナーから基準点マーカーへの相対位置 [x, y]
+    # [reference_point.offsets] 基板コーナーから基準点マーカーへの相対位置 [x, y]
     FieldSpec("reference_point.offsets.top_left", "左上 [x, y]", "float_pair", "mm"),
     FieldSpec("reference_point.offsets.top_right", "右上 [x, y]", "float_pair", "mm"),
     FieldSpec("reference_point.offsets.bottom_left", "左下 [x, y]", "float_pair", "mm"),
@@ -198,13 +198,13 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     # [camera.crop]
     FieldSpec("camera.crop.width", "クロップ幅", "int", "px"),
     FieldSpec("camera.crop.height", "クロップ高さ", "int", "px"),
-    # [audio] — ジョブ完了通知音（Raspberry Pi 本体スピーカー）
+    # [audio] ジョブ完了通知音（Raspberry Pi 本体スピーカー）
     FieldSpec("audio.device", "出力デバイス", "str"),
     FieldSpec("audio.volume", "音量", "float"),
-    # [settle] — 装置の静定待ち（長いほどタクトが伸び、短いほど検出がぶれる）
+    # [settle] 装置の静定待ち（長いほどタクトが伸び、短いほど検出がぶれる）
     FieldSpec("settle.move_sec", "移動後の静定待ち", "float", "s"),
     FieldSpec("settle.probe_sec", "プローブ後の待ち", "float", "s"),
-    # [detection] — 統計検出のサンプリング
+    # [detection] 統計検出のサンプリング
     FieldSpec("detection.sample_count", "1観測のフレーム数", "int"),
     FieldSpec("detection.minimum_sample_count", "1観測に必要な検出数", "int"),
 )
@@ -454,7 +454,7 @@ def _validate_detection_counts(
 ) -> None:
     """`[detection]` の相互制約（有効検出数 <= フレーム数）を書き込み後の値で確かめる.
 
-    片方だけ編集できるので、TOML に残る値とマージしてから見る。ここで撥ねないと、
+    片方だけ編集できるので、TOML に残る値とマージしてから検証する。ここで拒否しないと、
     保存はできるのに ``Machine.detection`` が読めない machine.toml ができあがる。
 
     Raises:
@@ -495,7 +495,7 @@ def _migrate_legacy_nozzle_sections(doc: tomlkit.TOMLDocument) -> None:
             # [paste_dispenser] 群が他のテーブルで分断されていると Table ではなく
             # proxy になり、ここへは入れられない。消すと座標が失われるので残す
             continue
-        # 移行先へ入れられると確かめてから消す（消してから弾かれると無音で失われる）
+        # 移行先へ入れられると確かめてから消す（消した後に移行を拒否されると値が通知なく失われる）
         if name not in parent:
             parent[name] = legacy
         del doc[name]

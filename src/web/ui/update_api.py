@@ -1,19 +1,19 @@
 """Frontend 自身のソフトウェア更新（`/update` ページとその API）.
 
-frontend 専用機（`pcbasm-ui.service` だけが動き backend が居ないホスト）には
+frontend 専用機（`pcbasm-ui.service` だけが動き、backend が無いホスト）には
 backend のジョブ基盤も操作権も無いので、frontend が自前の更新 API を持つ。
 `machines_api.py` が先例。
 
-パスは backend と**意図的に変える**（`/m/{id}/api/update/**` は proxy で backend 行き
-なので、frontend 自身の入口は `/api/self-update/**`）。`pages.router` の `/{tab}`
-キャッチオールに食われないよう、アプリでは pages より**先に**登録する。
+パスは backend と意図的に変える（`/m/{id}/api/update/**` は proxy で backend へ中継
+されるので、frontend 自身のパスは `/api/self-update/**`）。`pages.router` の `/{tab}`
+キャッチオールに先にマッチしないよう、アプリでは pages より先に登録する。
 
 全ページのトップバーが読む `GET /api/update-notice` もここに置く。frontend 自身と
-表示中の機体 backend の両方を見て、**バッジ 1 個分の表示値に畳んでから**返す
+表示中の機体 backend の両方を確認し、バッジ 1 個分の表示値にまとめてから返す
 （どちらに何件あるかの判断を JS に持たせない）。
 
-frontend には操作権（control lease）が無い。多層の安全弁で守るが、**いずれも認証では
-ない**（LAN に居る者は誰でも押せる）:
+frontend には操作権（control lease）が無い。次の多層の安全弁で守るが、いずれも認証では
+ない（LAN 上の誰でも押せる）。
 
 1. `expected_head` 必須の 2 段階（楽観ロック）
 2. 単一実行ロック（flock。同居機の backend とも共有する）
@@ -109,7 +109,7 @@ def compose_notice(sources: Sequence[NoticeSource]) -> UpdateNoticeResponse:
     ページ」。後者は各機体のページへのリンクを持つので、そこから辿れる。
 
     同居機では frontend と backend が同じホスト名・同じ作業リポジトリを見るので、
-    ホスト名で畳む（畳まないと 1 件の更新が「2 件」と出る）。
+    ホスト名で重複をまとめる（まとめないと 1 件の更新が「2 件」と出る）。
 
     Args:
         sources: 通知の対象（UI サーバー自身と、表示中の機体）
@@ -143,7 +143,7 @@ def compose_notice(sources: Sequence[NoticeSource]) -> UpdateNoticeResponse:
 
 
 def _self_source(runner: UpdateRunner) -> NoticeSource:
-    """UI サーバー自身の観測値（fetch はしない。定期 fetch が別に回っている）."""
+    """UI サーバー自身の観測値（fetch はしない。定期 fetch が別に動いている）."""
     status = _status(runner, runner.plan())
     return NoticeSource(
         hostname=status.hostname,
@@ -156,8 +156,8 @@ def _self_source(runner: UpdateRunner) -> NoticeSource:
 async def _machine_source(request: Request, machine_id: str) -> NoticeSource | None:
     """表示中の機体 backend の観測値（読めなければ None）.
 
-    通知は補助情報なので、**backend に到達できなくてもエラーにしない**。ここで
-    例外を通すと、機体が落ちている間じゅうトップバーがエラーを出し続ける。
+    通知は補助情報なので、backend に到達できなくてもエラーにしない。ここで
+    例外を通すと、機体が停止している間ずっとトップバーがエラーを出し続ける。
     """
     registry: MachineRegistry = request.app.state.registry
     gateway: BackendGateway = request.app.state.gateway

@@ -79,14 +79,14 @@ class DotDetectionSpec:
         if self.open_kernel_px > MAX_OPEN_KERNEL_PX:
             # カーネルは k×k バイトを確保するので、打ち間違いが MemoryError や
             # 数 GiB の確保になる。crop より大きい open は塗布痕を消すだけなので
-            # 上限を置いても失うものが無い（点の直径は 53 px crop で 17〜26 px）
+            # 上限を置いても支障がない（点の直径は 53 px crop で 17〜26 px）
             return (
                 f"openカーネルは{MAX_OPEN_KERNEL_PX}以下が必要です: "
                 f"{self.open_kernel_px!r}"
             )
         if type(self.min_area_px) is not int or self.min_area_px < 1:
             # 0 を許すと面積 0 の成分が「検出できた」ことになり、「検出できた」と
-            # 「直径が正」の対応が壊れる
+            # 「直径が正」の対応が成り立たなくなる
             return f"最小面積は1以上の整数が必要です: {self.min_area_px!r}"
         return None
 
@@ -129,10 +129,10 @@ class DarkSpot:
     def circularity(self) -> float:
         """円形度 4πA/P²（外周長が 0 なら 0.0）.
 
-        真円で 1.0 前後、細長い成分ほど 0 に近づく。ただし **0-1 に収まる保証は
-        ない**。``cv2.arcLength`` は画素階段の周長を過小評価するので、直径が
+        真円で 1.0 前後、細長い成分ほど 0 に近づく。ただし 0-1 に収まる保証は
+        ない。``cv2.arcLength`` は画素階段の周長を過小評価するので、直径が
         10 px を下回る小片では 1 を超える（r=1 で約 2.0、r=2 で約 1.3）。
-        小片を弾くのはこの指標ではなく面積・直径の下限の役目。
+        小片は、この指標ではなく面積・直径の下限で除外する。
         """
         if self.perimeter_px <= 0.0:
             return 0.0
@@ -140,7 +140,7 @@ class DarkSpot:
 
 
 def darkening(pre_bgr: ImageArray, post_bgr: ImageArray) -> ImageArray:
-    """塗布によって暗くなった量（0-255 の uint8）。明るくなった側は 0 に潰す."""
+    """塗布によって暗くなった量（0-255 の uint8）。明るくなった画素は 0 にする."""
     return _clipped_difference(_gray(pre_bgr), _gray(post_bgr))
 
 
@@ -196,10 +196,10 @@ def fill_dark_spot_holes(mask: ImageArray) -> ImageArray:
 
     光沢のある塗布痕は中心のハイライトが 2 値化から抜け、マスクが環になる。環のままだと
     面積が減るのに外周長は変わらないので円形度が落ち、塗布痕として採れない （外半径の 1/3 を超えるハイライトで既定の下限 0.7
-    を割る）。穴を埋めれば直径も 円形度も中実の円と同じに戻る。
+    を割る）。穴を埋めれば 直径も円形度も中実の円と同じに戻る。
 
     穴は「画像の縁から届かない背景」として求める。したがって別の成分の穴の中にある
-    成分は、間の背景ごと埋まって外側の成分と繋がる。呼び出し側はその塊を直径の 範囲で弾くことになる。
+    成分は、間の背景ごと埋まって外側の成分と繋がる。呼び出し側はその塊を直径の 範囲で除外することになる。
     """
     height, width = mask.shape[:2]
     padded = np.zeros((height + 2, width + 2), dtype=np.uint8)

@@ -1,9 +1,9 @@
 "use strict";
 
-// ローディング操作パネル: ローディング段階の対話ジョブへ
+// ローディング操作パネル。ローディング段階の対話ジョブへ
 // extrude / suck / finish コマンドを WS で送る。
-// 有効化条件: 実行中ジョブが accepts_commands かつ
-// progress_stage が data-loading-stage（カンマ区切りの複数可）のいずれかと一致。
+// 実行中ジョブが accepts_commands で、かつ progress_stage が
+// data-loading-stage（カンマ区切りの複数可）のいずれかと一致するときに有効にする。
 
 (() => {
   const { toast, api, debounce, jobs } = window.webui;
@@ -64,7 +64,7 @@
   bindLoadingParamSync();
   bindMassCalibration();
 
-  // 値の検証はサーバ（parse_loading_command）に一本化。不正値は
+  // 値の検証はサーバ（parse_loading_command）だけで行う。不正値は
   // InvalidLoadingCommand としてジョブコンソールのログに理由が出る。
   function sendAction(type) {
     const command = { type };
@@ -75,7 +75,7 @@
       command.rate = Number(rateInput.value);
       command.accel = Number(accelInput.value);
       if (type === "extrude_rotations") {
-        // 押出に引き戻しを 1 セットで付随
+        // 押出と引き戻しを 1 セットで送る
         command.retract_rotations = Number(retractRotationsInput.value);
       }
     }
@@ -195,7 +195,7 @@
     updateApplyButtons();
   }
 
-  // サーバ（MassFlowEstimate.estimate）が算出不能な値を null で返す契約に依存する。
+  // サーバ（MassFlowEstimate.estimate）が算出できない値を null で返す契約に依存する。
   function updateApplyButtons() {
     setDisabled("lc-apply-rotations-per-ul", computed?.rotations_per_ul == null);
     setDisabled("lc-apply-dispense-rate", computed?.max_dispense_rate == null);
@@ -224,7 +224,7 @@
     const values = {};
     for (const [key, raw] of Object.entries(valuesObject)) {
       if (raw == null) return;
-      // サーバ算出値（丸め済み）を素通しで送る
+      // サーバの算出値（丸め済み）をそのまま送る
       values[key] = raw;
     }
     setDisabled(buttonId, true);

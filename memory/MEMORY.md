@@ -1,4 +1,4 @@
-# PCBアセンブリ プロジェクトメモリ
+# PCB アセンブリ プロジェクトメモリ
 
 Claude Code / Codex とユーザーの対話で確立された規約・好み、およびマルチエージェント時の中間メモを記録する。
 各ファイル先頭の frontmatter で description を確認し、関連タスクで参照する。
@@ -10,7 +10,7 @@ Claude Code / Codex とユーザーの対話で確立された規約・好み、
 - Claude が使う検証コマンドは `make test-no-hardware` まで
 - 実機での確認はユーザーが行う。Claude はテストを書くところまでを担当する
 
-**指示文では足りない。機構で塞ぐ。** `make test` の deny だけでは
+**指示文だけでは防げないため、機構で拒否する。** `make test` の deny だけでは
 `uv run pytest tests/webui`（marker 指定なし）が通ってしまう。`tests/webui/` と
 `tests/pcbasm/hal/` と `tests/pcbasm/pasting/test_probe.py` には `@mark_hardware` が
 含まれるため、これは実機テストの実行と等価。実際に 2026-07-30、サブエージェントが
@@ -25,14 +25,14 @@ Claude Code / Codex とユーザーの対話で確立された規約・好み、
 - `make test` / `git push --force` 等は `.claude/settings.json` の deny にも登録済み
 - **サブエージェントへのブリーフには必ず「pytest には `-m "not hardware"` を付ける」を
     明記する。** 「実機テストを実行しない」だけでは、実機テストを含むディレクトリを
-    marker なしで指定する経路が塞げない
+    marker なしで指定する経路を防げない
 
 ## フィードバック（規約・好み）
 
-- [try-catchより戻り値バリデーション](feedback_no_try_catch.md) — 入力バリデーションは None 返却パターンを好む、try-catch 不要
+- [try-catch より戻り値バリデーション](feedback_no_try_catch.md) — 入力バリデーションは None 返却パターンを好む、try-catch 不要
 - [バリデーションは値オブジェクトのメソッド](feedback_validation_method.md) — `validate_xxx(value)` ではなくクラスの `validate()` にする（戻り値は `str | None` のまま）
 - [git -C の使いどころ](feedback_no_git_c.md) — 通常は `git -C` を使わずカレントディレクトリで実行する。worktree 作業では必要なので使ってよい
-- [privateの直接テスト禁止](feedback_no_private_test.md) — `_` prefix の関数/メソッド/属性は直接テストせず公開 API 経由で検証する
+- [private の直接テスト禁止](feedback_no_private_test.md) — `_` prefix の関数/メソッド/属性は直接テストせず公開 API 経由で検証する
 - [テストはクラスにまとめる](feedback_test_class.md) — pytest テストは関数ではなく `class TestXxx` 形式に集約する
 - [和欧文間の半角空白は必須](feedback_jp_en_spacing.md) — 日本語と英数字の間に半角空白を 1 つ入れる。yomiyasu の空白除去規則は反転済み
 

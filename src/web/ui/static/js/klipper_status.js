@@ -1,7 +1,7 @@
 "use strict";
 
-// Klipper / Stage ステータスカード: /api/klipper/status の 2 秒ポーリング、
-// /api/stage/limits のページ表示時 1 回取得、任意 G-code 送信。
+// Klipper / Stage ステータスカード。/api/klipper/status の 2 秒ポーリング、
+// /api/stage/limits のページ表示時 1 回の取得、任意 G-code 送信を行う。
 
 (() => {
   const { toast, api, formatPosition } = window.webui;
@@ -28,7 +28,7 @@
       connectedEl.textContent = `接続: 取得失敗 (${err.message})`;
     }
   }
-  // 放置タブ分の Moonraker 負荷を削る（背景タブでは止め、復帰時に即 1 回取得して再開）
+  // 放置タブによる Moonraker の負荷を減らす（背景タブでは止め、復帰時に即 1 回取得して再開）
   let timer = null;
 
   function startPolling() {

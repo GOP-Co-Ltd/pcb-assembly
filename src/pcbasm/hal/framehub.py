@@ -43,7 +43,7 @@ class FrameHub:
     def start(self) -> None:
         """キャプチャスレッドを起動する（冪等）.
 
-        stop 後の再 start 可。保持中のキャプチャエラーはクリアする。
+        stop 後に再び start できる。保持中のキャプチャエラーはクリアする。
         """
         with self._cond:
             if self._running:

@@ -9,7 +9,7 @@ _CONFIG_SECTION = f"output_pin {_PIN_NAME}"
 
 
 class AirPump:
-    """エアポンプのHAL.
+    """エアポンプを制御する HAL.
 
     ``on`` / ``off`` は G-code を返すだけで送信しない。
     """

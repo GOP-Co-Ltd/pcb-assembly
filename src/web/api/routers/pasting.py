@@ -1,7 +1,7 @@
 """塗布タブの pad-config API エンドポイント（基板ごとの pad 有効/無効 + 階層 override）.
 
 選択中の基板について、pad ジオメトリ・階層ツリー・解決済み塗布設定・
-疎な override を 1 発で返し（GET）、ノード/pad 単位の編集を即時保存する
+疎な override を 1 回のリクエストで返し（GET）、ノード/pad 単位の編集を即時保存する
 （PATCH）。契約モデルとレスポンス構築ヘルパ（node_id 規約を含む）は
 :mod:`web.api.routers.pasting_view` に置く。
 """
@@ -243,7 +243,7 @@ def patch_flow_calibration(
 
     ``points`` は置き換えで、空の並びが未設定。
 
-    撮影範囲どうしの重なりはここでは撥ねない。
+    撮影範囲どうしの重なりはここでは拒否しない。
     crop 寸法を先に変えただけで保存できなくなるのを避けるため、判定は計画時に行い
     ``flow_calibration.error`` として返す。
     """

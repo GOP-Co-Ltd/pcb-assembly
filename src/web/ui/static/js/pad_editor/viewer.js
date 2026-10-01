@@ -1,6 +1,6 @@
 "use strict";
 
-// pad editor の SVG 描画（基板外形・pad・塗布ルート・範囲選択）。index.js から呼ばれ、API は叩かない。
+// pad editor の SVG 描画（基板外形・pad・塗布ルート・範囲選択）。index.js から呼ばれ、API は呼ばない。
 
 const { svgEl } = window.webui;
 
@@ -83,7 +83,7 @@ export function renderViewer(svg, config, state) {
 }
 
 function renderFlowCalibrationMarkers(svg, flow) {
-  // 保存済みの測定位置をそのまま描く。補正が成立していなくても座標は見せないと直せない
+  // 保存済みの測定位置をそのまま描く。補正が成立していなくても、座標を表示しないと利用者が直せない
   const points = flow?.points || [];
   if (points.length === 0) return;
   const cropSize = flow.crop_size_mm;
@@ -110,7 +110,7 @@ function renderFlowCalibrationMarkers(svg, flow) {
 }
 
 // 測定点の撮影範囲（点を中心に crop_size_mm 角）。重なると隣のドットが写り込むので、
-// 次の点を置けない範囲として点線で示す。重なりの判定はサーバーが返す
+// 次の点を置けない範囲として点線で示す。重なりの判定結果はサーバーが返す
 function appendFlowCalibrationCrop(svg, flow, index, cropSize) {
   const point = flow.points[index];
   const rect = svgEl("rect", {
@@ -128,7 +128,7 @@ function appendFlowCalibrationCrop(svg, flow, index, cropSize) {
 }
 
 function renderPurgeMarker(svg, purge) {
-  // 自動解決された位置も描く。どこへパージするか図で確かめられないと測定点を避けられない
+  // 自動解決された位置も描く。パージ位置を図で確認できないと、測定点を避けて配置できない
   const resolved = purge?.resolved;
   const point = purge?.point || resolved?.point;
   if (!point) return;
@@ -149,7 +149,7 @@ function renderPurgeMarker(svg, purge) {
 }
 
 function renderCopper(svg, state) {
-  // 銅箔はパージ位置を選ぶための背景。パッド選択の当たり判定は CSS で外す
+  // 銅箔はパージ位置を選ぶための背景。パッド選択のクリック判定からは CSS で除外する
   for (const island of state.copper?.islands || []) {
     if (island.layer !== state.layer) continue;
     const path = svgEl("path", {

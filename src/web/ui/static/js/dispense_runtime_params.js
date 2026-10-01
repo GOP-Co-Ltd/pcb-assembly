@@ -1,6 +1,6 @@
 "use strict";
 
-// 吐出量キャリブの実行中パラメータ編集: data-runtime-editable な input を編集すると
+// 吐出量キャリブの実行中パラメータ編集。data-runtime-editable な input を編集すると
 // PUT /api/jobs/current/params で実行中ジョブへ即反映する（debounce でまとめ送り）。
 // このフォームのジョブがアクティブ（非終端 かつ accepts_commands）な間だけ送る。
 // 切替時は送信待ちを破棄し、送信した要求にも対象 ID を付ける。未実行時は何もしない

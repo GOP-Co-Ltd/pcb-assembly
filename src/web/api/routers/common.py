@@ -3,7 +3,7 @@
 2 つ以上の router から使われるものだけを置く（1 router 専用のヘルパは各 router に残す）。
 
 pydantic モデルの定義は `web.api.models` に集約してある。``StateResponse`` は既存
-import を壊さないためここから再 export する。
+import をそのまま使えるようここから再 export する。
 """
 
 from __future__ import annotations
@@ -200,7 +200,7 @@ def param_specs_with_saved_defaults(
     """保存済み既定値を ParamSpec の default に反映する.
 
     型判定・coerce は :meth:`JobCatalog.filter_persisted_defaults` に一本化する
-    （persisted_params 外・型不一致は黙って除外 = spec 既定値のまま）。
+    （persisted_params 外・型不一致はエラーにせず除外 = spec 既定値のまま）。
     """
     saved = state.job_param_defaults(definition.name)
     if not saved or not definition.persisted_params:
@@ -240,7 +240,7 @@ def machine_settings_fields(store: ConfigStore, state: AppState) -> list[Setting
 
     実効値（``resolved``）は cattrs が既定値を埋めたあとの値で、SSR ページが現在値を
     表示するために使う。未記載キーの代替値を frontend 側に置くとプロセス境界の両側で
-    二重管理になり、片方がずれると誤った値が保存フォームに乗る。
+    二重管理になり、両者が食い違うと誤った値が保存フォームに乗る。
     """
     return _fields(
         MACHINE_FIELDS, store.read_machine_settings(), _resolved_values(state)
@@ -265,7 +265,7 @@ def _resolved_value(machine: Machine, key: str) -> MachineSettingValue | None:
 
     セクションが machine.toml に無い / 必須キーが欠けている場合は `Machine` の
     プロパティか cattrs が例外を投げる。1 セクションの不備で他セクションの実効値まで
-    失わないよう、キー単位で None に潰す。
+    失わないよう、キー単位で None にする。
     """
     try:
         node: object = machine
@@ -279,7 +279,7 @@ def _resolved_value(machine: Machine, key: str) -> MachineSettingValue | None:
 
 
 def _as_setting_value(value: object) -> MachineSettingValue | None:
-    """`Machine` の値を API の設定値表現へ落とす（表現できないものは None）."""
+    """`Machine` の値を API の設定値表現へ変換する（表現できないものは None）."""
     if isinstance(value, Path):
         return value.as_posix()
     if isinstance(value, tuple):

@@ -39,7 +39,7 @@ def render_fill_paths(
     layer: Layer,
     output_path: Path,
 ) -> None:
-    """Outline・paste pad・fill path を1枚の PNG に重ね描きして保存する.
+    """Outline・paste pad・fill path を 1 枚の PNG に重ね描きして保存する.
 
     ``paths`` は ``pads`` と同じ並びで、各要素は対応 pad の成分別塗布経路
     （``list[list[Point2d]]``）。パスが構築できなかった pad には空リストが入る。
@@ -95,7 +95,7 @@ def render_fill_paths(
     ax.autoscale()
     ax.set_xlabel("X (mm)")
     ax.set_ylabel("Y (mm)")
-    ax.invert_yaxis()  # KiCadと同じ座標系
+    ax.invert_yaxis()  # KiCad と同じ座標系
 
     title = (
         f"Board: {outline.width:.1f}x{outline.height:.1f}mm, "
@@ -152,14 +152,14 @@ def render_fill_paths(
 
 
 def _draw_fill_path(ax: Axes, path: list[Point2d], bead_width: float) -> None:
-    """1本の fill path を ax に描画する.
+    """1 本の fill path を ax に描画する.
 
     - halo（ビード塗布幅 ``bead_width`` の半透明領域）
     - 中心線
     - 始点マーカー
     - 始点→次点の方向矢印
 
-    1点パスは halo / 矢印を描けないため始点マーカーのみ描画する。
+    1 点パスは halo / 矢印を描けないため始点マーカーのみ描画する。
     空パスは何も描かない。
     """
     if not path:
@@ -214,7 +214,7 @@ def _annotate_coverage(
     """成分別パスのビード幅 buffer による被覆率を pad 中心に注記する.
 
     被覆率 = ``union(path.buffer(w/2)).area / polygon.area``（w = bead_width）。
-    パスが空、または面積0の場合は注記しない。
+    パスが空、または面積 0 の場合は注記しない。
     """
     if polygon.area <= 0:
         return

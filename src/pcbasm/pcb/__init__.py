@@ -1,4 +1,4 @@
-"""PCB情報抽出モジュール: KiCadからパッド・部品・銅箔情報を抽出.
+"""KiCad からパッド・部品・銅箔情報を抽出する PCB 情報抽出モジュール.
 
 座標はすべて「基板座標」で、単位は mm。
 
@@ -7,10 +7,11 @@
 X は右向き、Y は下向き（KiCad と同じ）。
 
 pcbnew（KiCad 9 以降）が無い環境では、このパッケージのどの名前も import できない。
+``Pad`` や ``Component`` だけを使う場合でも、``__init__`` が ``PcbFile``
+（pcbnew を import する）を読み込むため。
 
-``Pad`` や ``Component`` だけを使う場合でも、``__init__`` が ``PcbFile``（pcbnew を import する）を読み込むため。
-
-``units`` / ``footprint`` / ``generate`` は re-export しないので、モジュールを直接 import する。
+``units`` / ``footprint`` / ``generate`` は re-export しないので、モジュールを
+直接 import する。
 """
 
 from .board import (

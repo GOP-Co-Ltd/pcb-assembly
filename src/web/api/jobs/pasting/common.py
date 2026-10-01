@@ -266,7 +266,7 @@ def prompt_positive_number(
 class CalibrationCancelled(Exception):
     """サブキャリブの中止要求。メニューループが捕捉してメニューへ戻す.
 
-    ジョブ全体を終了する ``JobAborted`` とは別物（こちらはメニューへ戻るだけ）。
+    ジョブ全体を終了する ``JobAborted`` とは異なり、こちらはメニューへ戻るだけ。
     多段ループ越しに None/False を手で伝播させる代わりに、既知ハンドラ（メニュー
     ループ）への制御フローとして例外を使う。
     """

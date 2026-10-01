@@ -4,21 +4,21 @@
 // エンドポイントとトランスポートはルート要素の data-* で切り替える。
 //
 // このファイルはロジックを持たない。「同居機なので画面も切れます」等の文言、状態の
-// 要約、手順のラベルはすべてサーバが status API で返した文字列をそのまま描く。
+// 要約、手順のラベルは、すべてサーバが status API で返した文字列をそのまま表示する。
 (() => {
   const panel = document.getElementById("update-panel");
   if (!panel) return;
 
   const { statusUrl, checkUrl, runUrl, transport } = panel.dataset;
   const { api, frontendApi, toast, createBackoff } = window.webui;
-  // backend 側は api()（machine prefix が付き、423 で control.onDenied が効く）。
-  // frontend 自身のエンドポイントは prefix を付けずに叩く。
+  // backend 側は api() を使う（machine prefix が付き、423 で control.onDenied が呼ばれる）。
+  // frontend 自身のエンドポイントは prefix を付けずに呼ぶ。
   const call = (method, url, body) =>
     transport === "frontend"
       ? frontendApi(method, url, body)
       : api(method, url, body);
 
-  // 再起動を跨いだ復帰待ちの上限。超えたら諦めて調べ方を出す
+  // 再起動後の復帰を待つ上限。超えたら待機をやめて、確認方法を表示する
   const RECOVERY_LIMIT_MS = 180000;
 
   const el = (id) => document.getElementById(id);
@@ -49,8 +49,8 @@
 
   function renderWarnings(run) {
     const list = el("update-warnings");
-    // 版ずれした backend が返さないフィールドで TypeError を投げない
-    // （pollOnce の try の外なので、投げるとポーリングが無言で止まる）
+    // 版がずれた backend が返さないフィールドで TypeError を投げない
+    // （pollOnce の try の外なので、投げるとポーリングがエラー表示なしで止まる）
     const warnings = run.warnings ?? [];
     list.replaceChildren();
     for (const warning of warnings) {
@@ -88,8 +88,8 @@
     render(await call("GET", statusUrl));
   }
 
-  // 更新後の復帰判定はサーバが永続化した report で行う（再起動を跨いで読める）:
-  // run_id が一致し、リポジトリが目標 commit に到達していれば「戻ってきた」。
+  // 更新後の復帰判定は、サーバが永続化した report で行う（再起動後も読める）。
+  // run_id が一致し、リポジトリが目標 commit に到達していれば、サーバが復帰したと判定する。
   function returned(status, runId, targetHead) {
     return (
       status.run.run_id === runId &&
@@ -99,7 +99,7 @@
   }
 
   function pollOnce(runId) {
-    // 再起動中は接続拒否が正常系。指数バックオフで叩き続ける
+    // 再起動中は接続拒否が正常系。指数バックオフで問い合わせを続ける
     const backoff = createBackoff(500, 3000);
     const deadline = Date.now() + RECOVERY_LIMIT_MS;
     let targetHead = null;
@@ -109,7 +109,7 @@
       try {
         status = await call("GET", statusUrl);
       } catch {
-        // 再起動で落ちている間の接続拒否。何もせず次の周期を待つ
+        // 再起動でサーバが停止している間の接続拒否。何もせず次の周期を待つ
       }
       if (status) {
         render(status);

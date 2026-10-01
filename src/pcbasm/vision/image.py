@@ -30,13 +30,13 @@ def safe_move_distance(roi_size: tuple[float, float], margin: float = 0.2) -> fl
 
 
 class Image:
-    """3チャネルカラー画像 (BGR) を保持するイミュータブルなクラス."""
+    """3 チャネルカラー画像 (BGR) を保持するイミュータブルなクラス."""
 
     def __init__(self, data: ImageArray) -> None:
         """カラー画像を初期化.
 
         Args:
-            data: 入力画像（任意のチャネル数、dtypeを受け付ける）
+            data: 入力画像（任意のチャネル数、dtype を受け付ける）
         """
         match data.ndim:
             case 2:

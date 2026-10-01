@@ -1,4 +1,4 @@
-"""領域単位の銅箔照合の配線とpad別の局所補正."""
+"""領域単位の銅箔照合の配線と pad 別の局所補正."""
 
 import logging
 import math
@@ -30,7 +30,7 @@ def is_pad_refinement_target(
     *,
     max_short_side_mm: float,
 ) -> bool:
-    """paste開口の最小回転外接矩形の短辺が逐次位置合わせ対象か判定する."""
+    """Paste 開口の最小回転外接矩形の短辺が逐次位置合わせの対象か判定する."""
     if max_short_side_mm <= 0.0 or pad.polygon.is_empty or pad.polygon.area <= 0.0:
         return False
 
@@ -50,7 +50,7 @@ def is_pad_refinement_target(
 
 @attrs.frozen
 class BoardAlignment:
-    """成功した領域の変位からpad中心の補正を求める.
+    """成功した領域の変位から pad 中心の補正を求める.
 
     Attributes:
         results: 優先して使う成功結果（pad 中心照合を使うときはその結果）
@@ -67,14 +67,14 @@ class BoardAlignment:
 
         返り値は ``board_transform.apply(board_point)`` に適用する。
 
-        選び方は次の順:
+        次の順に選ぶ。
 
         1. results に点を覆う領域があれば、その中で変位が他と最も揃うもの
         2. 覆う領域が無く fallback_results があれば、fallback_results で 1 から選び直す
         3. どちらも無ければ、領域中心が点に最も近い成功結果
 
         Raises:
-            ValueError: 成功領域が1件もない場合
+            ValueError: 成功領域が 1 件もない場合
         """
         available = self.results or self.fallback_results
         if not available:
@@ -115,12 +115,12 @@ class BoardAlignment:
 
 
 class RegionAlignmentSession:
-    """TOP層銅箔の領域計画と照合依存をまとめるセッション."""
+    """TOP 層銅箔の領域計画と照合の依存オブジェクトをまとめるセッション."""
 
     def __init__(
         self, result: BoardCalibrationResult, frame_sink: FrameSink | None = None
     ) -> None:
-        """BoardCalibrationResultから照合器を配線する."""
+        """BoardCalibrationResult から照合器を組み立てる."""
         pad_align = result.machine.paste_dispenser.pad_align
         self._pcb = result.pcb
         self._stage = result.stage
@@ -161,7 +161,7 @@ class RegionAlignmentSession:
         )
 
     def plan_regions(self, pad_centers: Sequence[Point2d]) -> list[AlignmentRegion]:
-        """塗布対象pad中心（board 座標）を覆う照合領域を計画する.
+        """塗布対象 pad の中心（board 座標）を覆う照合領域を計画する.
 
         巡回順は現在のステージ位置から近い順に決める。
         """
@@ -179,7 +179,7 @@ class RegionAlignmentSession:
         )
 
     def align(self, region: AlignmentRegion) -> RegionAlignment | None:
-        """領域を照合し、失敗または非収束ならNoneを返す（例外にしない）."""
+        """領域を照合し、失敗または非収束なら None を返す（例外を送出しない）."""
         try:
             return self._aligner.measure(region)
         except RuntimeError as exc:
@@ -192,15 +192,15 @@ class RegionAlignmentSession:
         initial_correction: Transform,
         board_area: Polygon,
     ) -> RegionAlignment | None:
-        """領域補正を初期値に、pad中心で銅箔照合を収束させる.
+        """領域補正を初期値にして、pad 中心で銅箔照合を収束させる.
 
         Args:
-            board_point: pad中心（board 座標）
+            board_point: pad 中心（board 座標）
             initial_correction: 初期値にする補正（``BoardAlignment.correction_for`` の結果）
             board_area: 結果が覆う範囲（board 座標）。通常は pad のポリゴン
 
         Returns:
-            収束した結果。失敗または非収束ならNone
+            収束した結果。失敗または非収束なら None
         """
         anchor = self._board_transform.apply(board_point)
         initial_displacement = initial_correction.apply(anchor) - anchor
@@ -226,15 +226,15 @@ class RegionAlignmentSession:
 
     @property
     def projector(self) -> CopperProjector:
-        """キャリブレーション時のboard変換による投影器."""
+        """キャリブレーション時の board 変換による投影器."""
         return self._projector
 
     @property
     def edge_detector(self) -> CopperEdgeDetector:
-        """overlay表示に使う銅箔エッジ検出器."""
+        """Overlay 表示に使う銅箔エッジ検出器."""
         return self._edge_detector
 
     @property
     def region_roi(self) -> PixelRect:
-        """全領域共通の画像中心ROI."""
+        """全領域共通の画像中心 ROI."""
         return centered_roi(self._image_size, self._pad_align.region_size_px)

@@ -1,4 +1,4 @@
-"""解決済みpreview DTOとパッド単位の自動最適配置."""
+"""解決済み preview DTO とパッド単位の自動最適配置."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ _EPSILON = 1e-9
 
 @attrs.frozen
 class LayerPolygon:
-    """Preview用の解決済みパッドポリゴン（基板左上原点 [mm]）."""
+    """Preview 用の解決済みパッドポリゴン（基板左上原点 [mm]）."""
 
     layer: PreviewLayer
     points: tuple[Point2d, ...]
@@ -33,7 +33,7 @@ class LayerPolygon:
 
 @attrs.frozen
 class PadLayout:
-    """生成する単一パッドfootprintの解決済み配置."""
+    """生成する単一パッド footprint の解決済み配置."""
 
     catalog_id: str
     display_name: str
@@ -55,7 +55,7 @@ class PatternLayout:
 
 @attrs.frozen
 class BoardLayout:
-    """WebUIとKiCad生成が共有する完全に解決済みの配置."""
+    """WebUI と KiCad 生成が共有する完全に解決済みの配置."""
 
     board: BoardSpec
     placement_area: Rect
@@ -93,7 +93,7 @@ def build_board_layout(
     config: BoardConfig,
     resolved: Mapping[str, ResolvedPadPattern],
 ) -> tuple[BoardLayout | None, str | None]:
-    """解決済みconfigとtemplateから配置可能なlayoutを構築する.
+    """解決済み config と template から配置可能な layout を構築する.
 
     Returns:
         ``(layout, None)`` または、基板に収まらないときは ``(None, 理由)``
@@ -110,7 +110,7 @@ def preview_board_layout(
     config: BoardConfig,
     resolved: Mapping[str, ResolvedPadPattern],
 ) -> tuple[BoardLayout, str | None]:
-    """超過時も全パッドを含む診断用layoutと理由を返す."""
+    """超過時も全パッドを含む診断用 layout と理由を返す."""
 
     patterns, pads = _pads_to_pack(config, resolved)
     placements, overflow_message = _pack_pads(config, pads)

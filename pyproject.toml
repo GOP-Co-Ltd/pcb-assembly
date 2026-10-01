@@ -31,7 +31,7 @@ requires = ["uv_build>=0.9.7,<0.10.0"]
 build-backend = "uv_build"
 
 # src/ 直下の複数トップレベルパッケージを wheel へ含める。既定では project name の
-# pcbasm だけが対象になり、web が漏れる。
+# pcbasm だけが対象になり、web が含まれない。
 [tool.uv.build-backend]
 module-name = ["pcbasm", "web"]
 

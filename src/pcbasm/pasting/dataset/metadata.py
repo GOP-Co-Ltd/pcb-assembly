@@ -302,7 +302,7 @@ def _make_metadata_converter() -> cattrs.Converter:
         return value
 
     def strict_bool(value: object, _: object) -> bool:
-        # bool は int のサブクラスなので、hook を分けないと strict_int へ流れる
+        # bool は int のサブクラスなので、hook を分けないと strict_int の hook が適用される
         if type(value) is not bool:
             raise ValueError(f"boolが必要です: {value!r}")
         return value

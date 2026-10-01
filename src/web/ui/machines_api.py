@@ -1,7 +1,7 @@
-"""``GET /api/machines`` — マシン登録一覧の同期ダンプ.
+"""``GET /api/machines``: マシン登録一覧の同期ダンプ.
 
-`web.ui.pages` の ``/{tab}`` キャッチオールに食われないよう、アプリでは
-`pages.router` より**先に**登録する（`web.ui.app.create_app`）。
+`web.ui.pages` の ``/{tab}`` キャッチオールに先にマッチしないよう、アプリでは
+`pages.router` より先に登録する（`web.ui.app.create_app`）。
 
 mDNS で一覧が増減しても、再読み込みせずにドロップダウンを組み替えるために置く。
 
@@ -41,8 +41,8 @@ def list_machines(request: Request, current: str | None = None) -> MachinesRespo
     Args:
         request: レジストリを持つアプリへの参照
         current: 表示中のマシン（``/m/{machine_id}``）。一致する行の ``current`` が
-            True になる。判定をサーバでやるのは、選択状態の真実をサーバ側に
-            寄せるため（JS は返り値をそのまま反映する）
+            True になる。判定をサーバで行うのは、選択状態をサーバ側で一元的に
+            決めるため（JS は返り値をそのまま反映する）
 
     Returns:
         マシン一覧
