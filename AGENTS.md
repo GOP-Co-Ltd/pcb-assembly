@@ -156,3 +156,5 @@ custom agent と `agent-team-startup` Skill を使う。
 - `.agents/skills/github-pr/`: GitHub PR 作成
 - `.agents/skills/merge-main/`: PR 前の main 取り込み
 - `.agents/skills/migrate-claude/`: Claude 資産から Codex 資産への移行
+- `.agents/skills/yomiyasu/`: AI 生成の日本語を読みやすく推敲する
+    （[nanaism/yomiyasu](https://github.com/nanaism/yomiyasu) `30ee604` を vendoring、MIT）
