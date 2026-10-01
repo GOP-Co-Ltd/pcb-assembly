@@ -14,6 +14,22 @@ RPI_RP2_VOLUME="${PCBASM_RPI_RP2_VOLUME:-/media/${MEDIA_USER}/RPI-RP2}"
 SERIAL_BY_ID_DIR="${PCBASM_SERIAL_BY_ID_DIR:-/dev/serial/by-id}"
 VOLUME_WAIT_SECONDS="${PCBASM_VOLUME_WAIT_SECONDS:-60}"
 SERIAL_WAIT_SECONDS="${PCBASM_SERIAL_WAIT_SECONDS:-30}"
+# 選択肢に出す dtoverlay 名と説明（"overlay|説明"）。先頭が本装置の標準構成。
+CAMERA_OVERLAYS=(
+    "ov9281|グローバルシャッター・モノクロ"
+    "imx708|Camera Module 3"
+    "imx477|HQ Camera"
+    "imx296|Global Shutter Camera"
+    "imx219|Camera Module 2"
+    "ov5647|Camera Module 1"
+)
+SPEAKER_OVERLAYS=(
+    "max98357a|MAX98357A I2S アンプ"
+    "hifiberry-dac|HiFiBerry DAC / PCM5102A 系"
+    "hifiberry-dacplus|HiFiBerry DAC+ / PCM5122 系"
+    "iqaudio-dacplus|Raspberry Pi DAC+ / IQaudIO DAC+"
+    "googlevoicehat-soundcard|Google Voice HAT"
+)
 
 die() {
     echo "エラー: $1" >&2
@@ -35,6 +51,36 @@ choose_number() {
         fi
         echo "無効な選択です。${minimum}から${maximum}の間で入力してください。" >&2
     done
+}
+
+choose_overlay() {
+    # 候補一覧と「手入力」を表示して overlay 名を返す。
+    # $3 が空でなければ「未設定」も選択肢に加え、選ばれたら空文字を返す。
+    local label="$1"
+    local -n candidates="$2"
+    local unset_label="${3:-}"
+    local count="${#candidates[@]}"
+    local manual=$((count + 1))
+    local maximum="$manual"
+    local index
+    local choice
+
+    echo "使用する${label}:" >&2
+    for index in "${!candidates[@]}"; do
+        echo "  $((index + 1)). ${candidates[$index]%%|*} (${candidates[$index]#*|})" >&2
+    done
+    echo "  ${manual}. その他（overlay 名を手入力）" >&2
+    if [ -n "$unset_label" ]; then
+        maximum=$((manual + 1))
+        echo "  ${maximum}. ${unset_label}" >&2
+    fi
+
+    choice="$(choose_number "番号を選択してください (1-${maximum}): " 1 "$maximum")"
+    if [ "$choice" -le "$count" ]; then
+        printf '%s' "${candidates[$((choice - 1))]%%|*}"
+    elif [ "$choice" -eq "$manual" ]; then
+        read_overlay "${label}の overlay 名を入力してください: "
+    fi
 }
 
 read_overlay() {
@@ -219,11 +265,9 @@ flash_btt_skr_pico() {
 main() {
     local boot_config
     local camera_port
-    local camera_driver_choice
     local camera_driver
     local camera_overlay
-    local speaker_choice
-    local speaker_overlay=""
+    local speaker_overlay
     local klipper_choice
     local answer
 
@@ -235,31 +279,15 @@ main() {
     camera_port="$(choose_number "使用する camera port を選択してください (0-1): " 0 1)"
 
     echo ""
-    echo "使用するカメラドライバ:"
-    echo "  1. ov9281"
-    echo "  2. 手入力"
-    camera_driver_choice="$(choose_number "番号を選択してください (1-2): " 1 2)"
-    if [ "$camera_driver_choice" -eq 1 ]; then
-        camera_driver=ov9281
-    else
-        camera_driver="$(read_overlay "カメラの overlay 名を入力してください: ")"
-    fi
+    camera_driver="$(choose_overlay "カメラドライバ" CAMERA_OVERLAYS)"
     camera_overlay="$camera_driver"
     if [ "$camera_port" -eq 0 ]; then
         camera_overlay="${camera_overlay},cam0"
     fi
 
     echo ""
-    echo "使用するスピーカー:"
-    echo "  1. MAX98357A"
-    echo "  2. その他（overlay 名を手入力）"
-    echo "  3. 未設定（pcbasm 管理のスピーカー設定を削除）"
-    speaker_choice="$(choose_number "番号を選択してください (1-3): " 1 3)"
-    case "$speaker_choice" in
-        1) speaker_overlay=max98357a ;;
-        2) speaker_overlay="$(read_overlay "スピーカーの overlay 名を入力してください: ")" ;;
-        3) speaker_overlay="" ;;
-    esac
+    speaker_overlay="$(choose_overlay "スピーカー" SPEAKER_OVERLAYS \
+        "未設定（pcbasm 管理のスピーカー設定を削除）")"
 
     echo ""
     echo "boot 設定の変更内容:"
