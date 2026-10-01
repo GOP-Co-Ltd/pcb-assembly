@@ -34,6 +34,7 @@ Claude Code / Codex とユーザーの対話で確立された規約・好み、
 - [git -C の使いどころ](feedback_no_git_c.md) — 通常は `git -C` を使わずカレントディレクトリで実行する。worktree 作業では必要なので使ってよい
 - [privateの直接テスト禁止](feedback_no_private_test.md) — `_` prefix の関数/メソッド/属性は直接テストせず公開 API 経由で検証する
 - [テストはクラスにまとめる](feedback_test_class.md) — pytest テストは関数ではなく `class TestXxx` 形式に集約する
+- [和欧文間の半角空白は必須](feedback_jp_en_spacing.md) — 日本語と英数字の間に半角空白を 1 つ入れる。yomiyasu の空白除去規則は反転済み
 
 ## 技術選定の記録
 
