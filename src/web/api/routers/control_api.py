@@ -1,7 +1,7 @@
 """操作権リースの API（取得 / 解放 / 奪取 / 表示名更新）と WS への変更通知.
 
 取得系はいずれも `GET /api/state` の ``control`` / ``you`` と同じ形を返す。奪取
-（takeover）は「保持者がタブを閉じ忘れたまま帰った」等の詰みからの脱出口なので
+（takeover）は「保持者がタブを閉じ忘れたまま帰った」等で誰も操作できなくなった状態から抜け出す手段なので
 操作権でゲートしない（クールダウンも置かない。誤操作で握った人から取り戻せなく
 なる方が有害）。
 """
@@ -52,7 +52,7 @@ def post_release(lease: LeaseDep, identity: IdentityDep) -> ControlStateResponse
 
 @router.post("/takeover")
 def post_takeover(lease: LeaseDep, identity: IdentityDep) -> ControlStateResponse:
-    """保持者を問わず操作権を奪取する（詰みからの脱出口なのでゲートしない）.
+    """保持者を問わず操作権を奪取する（行き詰まりから抜け出す手段なのでゲートしない）.
 
     実行中のジョブには一切触らない（指示を出す権利の移転であって、走っている処理の移転ではない）。
     """

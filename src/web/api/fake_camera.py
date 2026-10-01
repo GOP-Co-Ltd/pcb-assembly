@@ -13,7 +13,7 @@ from pcbasm.vision import Image
 class FixedImageCamera(Camera):
     """固定画像を返す開発・E2E 用カメラ。capture() は fps に合わせて待機する.
 
-    fps ペーシングが無いと、FrameHub の専有スレッドが空回りして CPU を食う。
+    fps ペーシングが無いと、FrameHub の専有スレッドがビジーループになり CPU を使い続ける。
 
     そこで monotonic デッドライン方式で 1/fps 間隔に揃える。
     """

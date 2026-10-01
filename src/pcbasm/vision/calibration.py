@@ -1,4 +1,4 @@
-"""カメラキャリブレーション: チェッカーボードからpixel/mm比率を計算."""
+"""チェッカーボードから pixel/mm 比率を計算するカメラキャリブレーション."""
 
 import json
 from datetime import datetime
@@ -22,18 +22,18 @@ _converter.register_structure_hook(Path, lambda v, _: Path(v))
 class CalibrationResult:
     """キャリブレーション結果."""
 
-    pixel_per_mm: float  # pixel/mm比率
-    square_size_mm: float  # チェッカーボードの1マスのサイズ (mm)
-    mean_distance_px: float  # 1マスの平均距離 (pixel)
-    std_distance_px: float  # 1マスの距離の標準偏差 (pixel)
+    pixel_per_mm: float  # pixel/mm 比率
+    square_size_mm: float  # チェッカーボードの 1 マスのサイズ (mm)
+    mean_distance_px: float  # 1 マスの平均距離 (pixel)
+    std_distance_px: float  # 1 マスの距離の標準偏差 (pixel)
     resolution: tuple[int, int]  # カメラ解像度 (width, height)
     crop_size: tuple[int, int]  # 関心領域サイズ (width, height)
     calibrated_at: datetime  # キャリブレーション日時
-    z_position: float | None = None  # キャリブレーション時のZ座標 (mm)
+    z_position: float | None = None  # キャリブレーション時の Z 座標 (mm)
 
     @property
     def mm_per_pixel(self) -> float:
-        """mm/pixel比率."""
+        """Mm/pixel 比率."""
         return 1.0 / self.pixel_per_mm
 
     def to_dict(self) -> dict[str, Any]:
@@ -46,19 +46,19 @@ class CalibrationResult:
         return _converter.structure(data, cls)
 
     def save(self, path: Path) -> None:
-        """JSONファイルに保存."""
+        """JSON ファイルに保存."""
         path.write_text(
             json.dumps(self.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        """JSONファイルから読み込み."""
+        """JSON ファイルから読み込み."""
         return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
 
 class CheckerboardCalibrator:
-    """チェッカーボードを使ったpixel/mm比率キャリブレーション."""
+    """チェッカーボードを使った pixel/mm 比率キャリブレーション."""
 
     def __init__(
         self,
@@ -67,10 +67,10 @@ class CheckerboardCalibrator:
         pattern_rows_range: tuple[int, int] = (4, 12),
         pattern_cols_range: tuple[int, int] = (4, 12),
     ) -> None:
-        """CheckerboardCalibratorを初期化する.
+        """CheckerboardCalibrator を初期化する.
 
         Args:
-            square_size_mm: チェッカーボード1マスの実寸 (mm)
+            square_size_mm: チェッカーボード 1 マスの実寸 (mm)
             crop_size: 検出に使う画像中心の切り出しサイズ (width, height)
             pattern_rows_range: 試す内側コーナー行数の範囲 [下限, 上限)
             pattern_cols_range: 試す内側コーナー列数の範囲 [下限, 上限)
@@ -84,11 +84,10 @@ class CheckerboardCalibrator:
         """画像からキャリブレーションを実行.
 
         結果の z_position は None のまま返す。
-
-        撮影時の Z を残すなら呼び出し側で ``attrs.evolve`` して設定する。
+        撮影時の Z を残すなら、呼び出し側で ``attrs.evolve`` して設定する。
 
         Returns:
-            (キャリブレーション結果, コーナー描画済み画像) または検出失敗時はNone
+            (キャリブレーション結果, コーナー描画済み画像)。検出失敗時は None
         """
         resolution = image.size
         cropped = image.crop_center(self._crop_size)
@@ -149,7 +148,7 @@ class CheckerboardCalibrator:
     def _calculate_pixel_per_mm(
         self, corners: np.ndarray, pattern_size: tuple[int, int]
     ) -> tuple[float, float, float]:
-        """コーナー間距離からpixel/mm比率を計算."""
+        """コーナー間距離から pixel/mm 比率を計算."""
         corners_2d = corners.reshape(-1, 2)
         cols, rows = pattern_size
 

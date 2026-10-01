@@ -22,15 +22,16 @@ import attrs
 from web.selfupdate.settings import UpdateSettings
 
 # unit → 更新後に import できることを確かめるモジュール。
-# **そのホストが実際に動かすものだけ**を対象にする: `web.api.app` は picamera2 /
-# pcbnew / cv2 を eager import するので、frontend 専用機で読むと必ず
-# ModuleNotFoundError になり「ソースだけ新しくして再起動しない」状態で詰む。
+# そのホストが実際に動かすものだけを対象にする。`web.api.app` は picamera2 /
+# pcbnew / cv2 を eager import するので、frontend 専用機で import すると必ず
+# ModuleNotFoundError になる。すると「ソースだけ新しくなり、再起動されない」状態から
+# 抜け出せなくなる。
 SMOKE_MODULES: dict[str, str] = {
     "pcbasm-api.service": "web.api.app",
     "pcbasm-ui.service": "web.ui.app",
 }
 
-# 全部入り（同居機）の既定。unit を観測できない文脈での参照点
+# 全部入り（同居機）の既定値。unit を観測できない文脈で参照する
 ALL_SMOKE_MODULES: tuple[str, ...] = ("web.api.app", "web.ui.app")
 
 
@@ -56,8 +57,8 @@ def smoke_command(
 ) -> tuple[str, ...]:
     """更新後の import smoke の argv（`--no-sync` で依存を書き換えない）.
 
-    **本番は必ず `smoke_modules(active_units)` の結果を渡す。** 既定の全部入りを
-    frontend 専用機で使うと `web.api.app` が picamera2 / pcbnew を要求して必ず落ちる
+    本番では必ず `smoke_modules(active_units)` の結果を渡す。既定の全部入りを
+    frontend 専用機で使うと、`web.api.app` が picamera2 / pcbnew を要求して必ず失敗する
     （既定を残しているのは契約テストが引数なしの形を固定しているため）。
 
     Args:
@@ -74,9 +75,9 @@ def smoke_command(
 def restart_command(settings: UpdateSettings, units: Sequence[str]) -> tuple[str, ...]:
     """サービス再起動の argv（sudoers が許す固定 argv と完全一致させる）.
 
-    `--no-block` は job を enqueue した時点で exit するので、「待っている最中に自分の
-    cgroup ごと殺されて結果不明」が起きない。`-n` が無いと非対話プロセスがパスワード
-    入力待ちでハングする。
+    `--no-block` を付けると job を enqueue した時点で exit する。そのため、完了を待つ間に
+    自分の cgroup ごと kill されて結果がわからなくなることがない。`-n` が無いと、
+    非対話プロセスがパスワード入力待ちでハングする。
 
     Args:
         settings: バイナリのパスを持つ設定
@@ -113,8 +114,9 @@ class CommandResult:
 def _kill_process_group(process: subprocess.Popen[str]) -> None:
     """プロセスグループごと SIGKILL する（子を残さない）.
 
-    `start_new_session=True` で起こしているので、`git` が起動した `ssh` や
-    シェルスクリプトが起動した子まで巻き取れる。既に消えていれば何もしない。
+    `start_new_session=True` で起動しているので、`git` が起動した `ssh` や
+    シェルスクリプトが起動した子プロセスもまとめて kill できる。既に終了していれば
+    何もしない。
     """
     try:
         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
@@ -129,10 +131,10 @@ def run_command(
     env: Mapping[str, str] | None = None,
     timeout: float,
 ) -> CommandResult:
-    """外部コマンドを実行して結果を返す（**例外を投げない**）.
+    """外部コマンドを実行して結果を返す（例外を投げない）.
 
-    非対話プロセスから呼ぶので、入力待ちで固まらないよう `stdin` を `DEVNULL` に
-    落とし、`timeout` を必ず与える。タイムアウト時はプロセスグループごと殺す。
+    非対話プロセスから呼ぶので、入力待ちで止まらないよう `stdin` を `DEVNULL` に
+    つなぎ、`timeout` を必ず与える。タイムアウト時はプロセスグループごと kill する。
     実行ファイルが見つからない場合も送出せず、失敗した結果として返す。
 
     Args:
@@ -145,8 +147,8 @@ def run_command(
         終了コード・出力・タイムアウトの有無
     """
     argv = tuple(argv)
-    # `with` を使わない: Popen.__exit__ は無期限の wait() を呼ぶため、殺しきれない
-    # 子がパイプを掴んでいるとテストが「落ちる」のではなく「終わらない」になる
+    # `with` は使わない。Popen.__exit__ は無期限の wait() を呼ぶため、kill しきれない
+    # 子プロセスがパイプを掴んでいると、テストが失敗せずに終わらなくなる
     try:
         process = subprocess.Popen(
             argv,
@@ -160,7 +162,7 @@ def run_command(
         )
     except OSError as exc:
         # 実行ファイルが無いホスト（git の無いコンテナ等）。例外にすると
-        # `GET /api/update/status` の「常に 200」が破れる
+        # `GET /api/update/status` が「常に 200 を返す」契約を守れない
         return CommandResult(argv, -1, f"{argv[0]} を起動できません: {exc}")
     try:
         output, _ = process.communicate(timeout=timeout)
@@ -177,9 +179,9 @@ def run_command(
 
 
 def tail(text: str, lines: int) -> str:
-    """出力の末尾 `lines` 行だけを残す（report を無制限に太らせない）.
+    """出力の末尾 `lines` 行だけを残す（report が際限なく大きくならないように）.
 
-    `lines <= 0` は「残さない」。素の `[-0:]` はスライスの都合で全文になるため 明示的に弾く。
+    `lines <= 0` なら何も残さない。素の `[-0:]` はスライスの仕様で全文になるため、 明示的に空文字を返す。
     """
     if lines <= 0:
         return ""

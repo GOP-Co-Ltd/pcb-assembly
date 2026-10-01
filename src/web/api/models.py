@@ -175,8 +175,8 @@ class StateResponse(BaseModel):
 class SettingsField(BaseModel):
     """machine.toml のホワイトリスト項目 1 件（現在値 + 実効値）.
 
-    ``value`` は machine.toml に**書かれている値**（未記載なら None）で、設定フォームの
-    入力値になる。``resolved`` は既定値まで解決した**実効値**（装置が実際に使う値）で、
+    ``value`` は machine.toml に書かれている値（未記載なら None）で、設定フォームの
+    入力値になる。``resolved`` は既定値まで解決した実効値（装置が実際に使う値）で、
     現在値の表示に使う。両方を返すのは、未記載キーを 0 などで代替して描くと、その値が
     保存フォームに乗って machine.toml へ書き戻されるため。セクションごと欠けている /
     壊れている場合は ``resolved`` も None。
@@ -256,7 +256,7 @@ class FirmwareRestartResponse(BaseModel):
 
     表示文字列はサーバが組む。Klipper へ送れなければ 502 を投げるので、ここに
     「失敗」は入らない。``warning`` が入るのはファームウェアは再起動できたが WebUI
-    サービスを落とせなかったとき（sudoers 未設置・更新の実行中）。
+    サービスを再起動できなかったとき（sudoers 未設置・更新の実行中）。
     """
 
     # トーストに出す 1 行（何を再起動したか）

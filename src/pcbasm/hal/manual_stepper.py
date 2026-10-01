@@ -14,22 +14,23 @@ class HomingDirection(enum.Enum):
 
 
 class ManualStepper:
-    """Klipper manual_stepperのHAL.
+    """Klipper manual_stepper の HAL.
 
     G-code を生成するだけで送信しない。
-    Klipper の ``MANUAL_STEPPER MOVE=`` は絶対位置の指令なので、``move`` / ``rotate`` / ``home`` の位置引数はどれも絶対位置である。
+    Klipper の ``MANUAL_STEPPER MOVE=`` は絶対位置の指令なので、``move`` /
+    ``rotate`` / ``home`` の位置引数はどれも絶対位置である。
     相対量で動かすときは、先に ``reset_position()`` で現在位置を基準値に置く。
     """
 
     def __init__(self, klipper: ReadonlyKlipper, stepper_name: str) -> None:
-        """ManualStepperを初期化する.
+        """ManualStepper を初期化する.
 
         Args:
-            klipper: Klipperクライアント
-            stepper_name: manual_stepperの名前
+            klipper: Klipper クライアント
+            stepper_name: manual_stepper の名前
 
         Raises:
-            RuntimeError: printer.cfgにmanual_stepperセクションがない場合
+            RuntimeError: printer.cfg に manual_stepper セクションがない場合
         """
         self._klipper = klipper
         self._name = stepper_name
@@ -57,7 +58,7 @@ class ManualStepper:
 
     @property
     def rotation_distance(self) -> float:
-        """rotation_distance [mm] をconfigから取得する."""
+        """rotation_distance [mm] を config から取得する."""
         config = self._klipper.get_config()
         return float(config[self._stepper_section]["rotation_distance"])
 
@@ -72,16 +73,16 @@ class ManualStepper:
         *,
         sync: bool = True,
     ) -> GCode:
-        """回転GCodeを生成する.
+        """回転の GCode を生成する.
 
         Args:
             angle: 目標角度 [deg]（``reset_position()`` を基準にした絶対値）
-            speed: 角速度 [deg/s]（省略時はKlipper設定値を使用）
-            accel: 角加速度 [deg/s^2]（省略時はKlipper設定値を使用）
-            sync: Trueの場合、動作完了まで待機する（デフォルト: True）
+            speed: 角速度 [deg/s]（省略時は Klipper 設定値を使用）
+            accel: 角加速度 [deg/s^2]（省略時は Klipper 設定値を使用）
+            sync: True の場合、動作完了まで待機する（デフォルト: True）
 
         Returns:
-            回転用のGCode
+            回転用の GCode
         """
         return self.move(
             self._deg_to_mm(angle),
@@ -91,13 +92,13 @@ class ManualStepper:
         )
 
     def reset_position(self, position: float = 0.0) -> GCode:
-        """位置をリセットするGCodeを生成する.
+        """位置をリセットする GCode を生成する.
 
         Args:
             position: リセット後の位置（デフォルト: 0.0）
 
         Returns:
-            位置リセット用のGCode
+            位置リセット用の GCode
         """
         return GCode(f"{self._cmd_prefix} SET_POSITION={position}")
 
@@ -109,16 +110,16 @@ class ManualStepper:
         *,
         sync: bool = True,
     ) -> GCode:
-        """移動GCodeを生成する.
+        """移動の GCode を生成する.
 
         Args:
             distance: 目標位置 [mm]（``reset_position()`` を基準にした絶対値）
-            speed: 速度 [mm/s]（省略時はKlipper設定値を使用）
-            accel: 加速度 [mm/s^2]（省略時はKlipper設定値を使用）
-            sync: Trueの場合、動作完了まで待機する（デフォルト: True）
+            speed: 速度 [mm/s]（省略時は Klipper 設定値を使用）
+            accel: 加速度 [mm/s^2]（省略時は Klipper 設定値を使用）
+            sync: True の場合、動作完了まで待機する（デフォルト: True）
 
         Returns:
-            移動用のGCode
+            移動用の GCode
         """
         cmd = f"{self._cmd_prefix} MOVE={distance}"
         if speed is not None:
@@ -130,7 +131,7 @@ class ManualStepper:
         return GCode(cmd)
 
     def sync(self) -> GCode:
-        """先行するmanual stepper動作と後続G-codeの時刻を同期する."""
+        """先行する manual stepper 動作と後続 G-code の時刻を同期する."""
         return GCode(f"{self._cmd_prefix} SYNC=1")
 
     def home(
@@ -140,15 +141,15 @@ class ManualStepper:
         *,
         direction: HomingDirection = HomingDirection.FORWARD,
     ) -> GCode:
-        """ホーミングGCodeを生成する.
+        """ホーミングの GCode を生成する.
 
         Args:
             distance: ホーミング時の目標位置 [mm]（停止条件を満たさなければここまで動く）
-            speed: 速度 [mm/s]（省略時はKlipper設定値を使用）
+            speed: 速度 [mm/s]（省略時は Klipper 設定値を使用）
             direction: 停止条件（デフォルト: FORWARD）
 
         Returns:
-            ホーミング用のGCode
+            ホーミング用の GCode
         """
         cmd = f"{self._cmd_prefix} STOP_ON_ENDSTOP={direction.value} MOVE={distance}"
         if speed is not None:
@@ -156,17 +157,17 @@ class ManualStepper:
         return GCode(cmd)
 
     def enable(self) -> GCode:
-        """ステッパーを有効化するGCodeを生成する.
+        """ステッパーを有効化する GCode を生成する.
 
         Returns:
-            有効化用のGCode
+            有効化用の GCode
         """
         return GCode(f"{self._cmd_prefix} ENABLE=1")
 
     def disable(self) -> GCode:
-        """ステッパーを無効化するGCodeを生成する.
+        """ステッパーを無効化する GCode を生成する.
 
         Returns:
-            無効化用のGCode
+            無効化用の GCode
         """
         return GCode(f"{self._cmd_prefix} ENABLE=0")

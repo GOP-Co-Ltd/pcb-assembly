@@ -12,7 +12,7 @@ skill [webui-e2e](../webui-e2e/SKILL.md)。
 
 ## レイヤ責務
 
-- **pcbasm（`src/pcbasm/`）**: 計算・ドメインルール・解決の唯一の真実。装置非依存の純ロジック
+- **pcbasm（`src/pcbasm/`）**: 計算・ドメインルール・解決処理を実装する唯一の場所。装置非依存の純ロジック
 - **backend routers（`src/web/api/routers/`）**: pcbasm を呼び、resolved/集計を pydantic で公開。HTTP 例外への変換のみ
 - **frontend page ハンドラ（`src/web/ui/pages.py`）**: `MachineClient` で backend から取った
     pydantic モデルをテンプレートへ渡すだけ。装置の状態を持たず、`config/` も読まない
@@ -21,7 +21,7 @@ skill [webui-e2e](../webui-e2e/SKILL.md)。
 ## 2 プロセスで増える線引き
 
 - **frontend は backend の値を再計算しない。** SSR ページに要る値は backend の
-    エンドポイントに足して取得する（frontend で導出すると backend 直叩きと表示が食い違う）
+    エンドポイントに足して取得する（frontend で導出すると、backend に直接リクエストした結果と表示が食い違う）
 - **表示文字列の組み立てはサーバ側。** マシンの表示ラベルは `MachineEndpoint.label`（`src/web/ui/machines.py`）、
     タブ / feature の表示名は `web.ui.layout` の `TAB_LABELS` / `FEATURE_LABELS` に置く。テンプレートや JS で組み立てない
 - **frontend が持ってよい知識**は「どのページにどのテンプレートと、どの backend 取得が
@@ -42,7 +42,7 @@ skill [webui-e2e](../webui-e2e/SKILL.md)。
 ## 許容（移さない＝描画専用）
 
 - SVG 座標変換（`svgPoint`）、色補間（`routeColor`/`mixHexColor`）、極座標（`polar`）
-- 判定: 「サーバの真実と一致すべき結果」か「ピクセル/色のための変換」か。後者は JS 可
+- 判定: 「サーバの算出結果と一致すべき値」か「ピクセル/色のための変換」か。後者は JS で実装してよい
 
 ## 移行手順（resolved 駆動への置換）
 

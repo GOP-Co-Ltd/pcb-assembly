@@ -8,7 +8,7 @@
 
 - ``app``: アプリの組み立てとルートの登録順
 - ``pages``: SSR ページ（backend から取った値をテンプレートへ渡す）
-- ``layout``: タブ / feature / テンプレート / 設定セクションの表示知識
+- ``layout``: タブ / feature / テンプレート / 設定セクションの表示定義
 - ``proxy``: ``/m/{machine_id}/api`` と ``/m/{machine_id}/artifacts`` の中継（http と WebSocket）
 - ``machines`` / ``discovery``: マシン登録（``config/machines.toml``）と mDNS 探索
 - ``machine_client``: SSR 用の backend HTTP クライアント

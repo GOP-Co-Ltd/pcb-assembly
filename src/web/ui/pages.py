@@ -2,10 +2,10 @@
 
 装置の状態は一切持たず、`MachineClient` で backend から取得した pydantic モデル
 （`StateResponse` / `MachineInfo` / `MachineSettingsResponse` / `JobSpecInfo`）だけを
-テンプレートへ渡す。表示知識（タブ・feature・テンプレート名）は `web.ui.layout` にある。
+テンプレートへ渡す。表示定義（タブ・feature・テンプレート名）は `web.ui.layout` にある。
 backend 取得が 1 本でも失敗したページは 503 ページになる（`BackendUnavailable`）。
 
-feature ページを足すときに触る箇所:
+feature ページを足すときは、次の箇所を変更する。
 
 - `web.ui.layout` の ``FEATURE_GROUPS`` に slug を足す（URL 検証の ``TABS`` はここから導出される）
 - `web.ui.layout` の ``FEATURE_TEMPLATES`` にテンプレートを登録する
@@ -14,13 +14,13 @@ feature ページを足すときに触る箇所:
 - ページ固有の値は ``_FEATURE_CONTEXT`` / ``_JOB_FEATURE_CONTEXT`` の provider で足す
 - machine.toml の値が要るなら ``_MACHINE_SETTINGS_FEATURES`` にも足す（ここに無い feature では取得しない）
 
-URL 空間:
+URL 空間は次のとおり。
 
 - ``/`` と ``/{tab}[/{feature}]`` / ``/settings`` は machine を指定しない入口。既知
   マシンが 1 台なら ``/m/{machine_id}/…`` へ 307、複数ならピッカー、0 台なら案内を出す
 - ``/m/{machine_id}`` 単体も入口で、既定タブへ 307 する
 - ``/m/{machine_id}/…`` が実体。``/m/{machine_id}/settings`` は ``/m/{machine_id}/{tab}``
-  より**先に**登録する（後だと tab として食われる）
+  より先に登録する（後だと tab としてマッチしてしまう）
 """
 
 from __future__ import annotations
@@ -69,10 +69,10 @@ from web.ui.proxy import SESSION_COOKIE
 # machine を指定しない URL で開くタブ
 DEFAULT_TAB = "posctrl"
 
-# machine.toml の現在値（`GET /api/settings/machine`）を要るページの feature。
+# machine.toml の現在値（`GET /api/settings/machine`）が要るページの feature。
 # ここに無い feature では取得しない。backend の `/api/settings/machine` は
 # machine.toml をパースするので、壊れた machine.toml では 500 になる。全ページで
-# 取ると壊れた設定ファイル 1 つで全画面が 503 になり、設定を直す画面すら開けない
+# 取得すると、壊れた設定ファイル 1 つで全画面が 503 になり、設定を直す画面すら開けない
 # （MR2 で backend 側に入れた「壊れていても描けるページは描く」防御を保つ）
 _MACHINE_SETTINGS_FEATURES = frozenset(
     {"paste_solder", "loading", "copper_detection", "nozzle_cap"}
@@ -105,8 +105,8 @@ def _resolve(
 class _MachineSettings:
     """ページが読む machine 設定（backend の `/api/settings/machine` の結果）.
 
-    設定フォームは machine.toml に**書かれている値**（``fields`` の ``value``）を、
-    現在値の表示は**実効値**（``resolved``）を使う。実効値の解決は backend にしかできない
+    設定フォームは machine.toml に書かれている値（``fields`` の ``value``）を、
+    現在値の表示は実効値（``resolved``）を使う。実効値の解決は backend にしかできない
     （frontend が既定値を持つとプロセス境界の両側で二重管理になる）。
     """
 
@@ -127,8 +127,8 @@ class _MachineSettings:
 
         Raises:
             BackendUnavailable: backend が実効値を解決できていない場合。0 などで
-                代替すると、その値が「設定に保存」で machine.toml へ書き戻されて
-                装置の挙動を壊す（canny 閾値 0 で銅箔検出が全滅する等）
+                代替すると、その値が「設定に保存」で machine.toml へ書き戻され、
+                装置が誤動作する（canny 閾値 0 で銅箔をまったく検出できなくなる等）
         """
         value = next(
             (field.resolved for field in self.fields if field.key == key), None
@@ -142,7 +142,7 @@ class _MachineSettings:
 async def _machine_settings(
     endpoint: MachineEndpoint, client: MachineClient, needed: bool
 ) -> _MachineSettings:
-    """必要なページだけ machine 設定を取る（他は空 = 取得しない）."""
+    """必要なページでだけ machine 設定を取得する（他は空 = 取得しない）."""
     if not needed:
         return _MachineSettings(endpoint, ())
     return _MachineSettings(endpoint, (await client.machine_settings()).fields)
@@ -198,11 +198,11 @@ def _chrome_context(
     return {
         "request": request,
         # 未 prefix（マシン非依存ページ）では空文字。テンプレートの href は
-        # "{{ base }}/posctrl" なので未 prefix URL に落ちる
+        # "{{ base }}/posctrl" なので、未 prefix の URL になる
         "base": f"/m/{machine_id}" if machine_id else "",
         "machine_id": machine_id,
-        # トップバーの更新通知が叩く先。マシン非依存のページでは UI サーバー
-        # 自身の更新だけを見る（機体が決まっていないので問い合わせ先が無い）
+        # トップバーの更新通知の問い合わせ先。マシン非依存のページでは UI サーバー
+        # 自身の更新だけを確認する（機体が決まっていないので問い合わせ先が無い）
         "update_notice_url": _update_notice_url(machine_id),
         "machines": _registry(request).list(),
         "current_suffix": current_suffix,
@@ -255,13 +255,13 @@ def _html_page(
 ) -> HTMLResponse:
     """HTML ページを描き、未発行ならセッション cookie を発行する.
 
-    発行するのは **HTML ページ応答だけ**（プロキシ配下の JSON / MJPEG / 静的アセットでは
-    発行しない）。この cookie が操作権リースのセッション同定で、`ProxyApp` が backend
-    向けヘッダへ翻訳する。**認証ではなく自己申告**で、LAN 上の誰でも他人を騙れる。
+    発行するのは HTML ページ応答だけ（プロキシ配下の JSON / MJPEG / 静的アセットでは
+    発行しない）。この cookie で操作権リースのセッションを同定し、`ProxyApp` が backend
+    向けヘッダへ変換する。認証ではなく自己申告で、LAN 上の誰でも他人になりすませる。
 
     `Path` は既定の ``/`` のまま上書きしない。`/m/{id}/api/**` と WS ハンドシェイクと
-    `img.src`（MJPEG）に cookie が乗ることが、「ブラウザは独自ヘッダを付けられない」
-    制約の唯一の抜け道になっている。
+    `img.src`（MJPEG）に cookie が付くことが、「ブラウザは独自ヘッダを付けられない」
+    制約を回避する唯一の手段になっている。
     """
     response = _templates(request).TemplateResponse(
         request=request,
@@ -271,7 +271,7 @@ def _html_page(
         headers=dict(headers) if headers else None,
     )
     if SESSION_COOKIE not in request.cookies:
-        # 毎回発行するとページ遷移ごとに別人になり、操作権が自分から離れる
+        # 毎回発行するとページ遷移ごとに別のセッションになり、操作権を失う
         response.set_cookie(SESSION_COOKIE, secrets.token_urlsafe(16), httponly=True)
     return response
 
@@ -286,7 +286,7 @@ def render_standalone(
     """マシン非依存のページを chrome 付きで描く（`/update` など）.
 
     `_chrome_context` + `_html_page` の公開ラッパ。backend へ 1 度も問い合わせないので
-    機体が 1 台も居ないホストでも描ける（frontend 専用機の更新ページがこれ）。
+    機体が 1 台も無いホストでも描ける（frontend 専用機の更新ページがこれにあたる）。
 
     Args:
         request: 現在のリクエスト
@@ -313,7 +313,7 @@ def render_message(
 ) -> HTMLResponse:
     """マシンに依存しない案内ページを描く（ピッカー・案内・エラー共通）.
 
-    backend への到達を要さないコンテキストだけで描くので、backend が落ちていても
+    backend への到達を要さないコンテキストだけで描くので、backend が停止していても
     マシン切替ドロップダウン付きのページを返せる（登録一覧は frontend が持つ）。
     """
     context = _chrome_context(
@@ -365,7 +365,7 @@ async def settings_entry(request: Request) -> Response:
 
 
 # `/{tab}/{feature}` より先に登録する（後だと tab="m" / feature=machine_id として
-# 食われ、`/m/{id}/m/{id}` へ 307 したうえで 404 になる）
+# マッチし、`/m/{id}/m/{id}` へ 307 したうえで 404 になる）
 @router.get("/m/{machine_id}", include_in_schema=False)
 async def machine_entry(machine_id: str, request: Request) -> Response:
     return RedirectResponse(url=f"/m/{machine_id}/{DEFAULT_TAB}", status_code=307)
@@ -381,7 +381,7 @@ async def feature_entry(tab: str, feature: str, request: Request) -> Response:
     return await _open_default(request, f"{tab}/{feature}")
 
 
-# /m/{machine_id}/{tab} より先に登録する（後だと settings が tab として食われる）
+# /m/{machine_id}/{tab} より先に登録する（後だと settings が tab としてマッチする）
 @router.get("/m/{machine_id}/settings", response_class=HTMLResponse)
 async def settings_page(machine_id: str, request: Request) -> HTMLResponse:
     endpoint, client = _resolve(request, machine_id)
@@ -438,7 +438,7 @@ def _paste_volume_calibration_context(
 
     塗布パス先頭のローディングでは体積と回転の両方を使うので、``loading_controls``
     partial の回転セクションを出すための既定値を渡す。ジョブ側の ParamSpec 名は
-    ``loading_`` prefix 付きなので、partial が読む素の名前へ写す。
+    ``loading_`` prefix 付きなので、partial が読む素の名前へ対応付ける。
     """
     specs_by_name = {spec.name: spec for spec in job.params}
     return {
@@ -561,8 +561,8 @@ async def feature_page(
     template = FEATURE_TEMPLATES[tab, feature]
     if template in JOB_TEMPLATES:
         job = _job_spec(endpoint, jobs, feature)
-        # preview ペインとローディング UI の有無は backend の事実（フレーム提供の
-        # 有無・progress_stage 文字列）なので backend の自己申告から導出する
+        # preview ペインとローディング UI の有無は backend 側で決まる事実（フレーム
+        # 提供の有無・progress_stage 文字列）なので、backend の自己申告から導出する
         context.update(
             job_name=job.name,
             param_specs=job.params,

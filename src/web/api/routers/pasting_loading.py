@@ -31,7 +31,7 @@ def get_loading_calibration(
 ) -> LoadingCalibrationResult:
     """計測質量・回転数・速度・加速度から塗布キャリブレーション値を算出する.
 
-    密度はサーバ側のマシン設定 ``solder_paste_density`` を真実とする。
+    密度はサーバ側のマシン設定 ``solder_paste_density`` の値を使う。
     非正・非有限入力や表現不能な算出値は ``None`` で返す（エラーにしない）。算出は
     :meth:`pcbasm.pasting.flowcalib.flow.MassFlowEstimate.estimate` へ委譲する（丸め済み）。
     """

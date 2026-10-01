@@ -19,13 +19,13 @@ effort: medium
 
 1. 計画書を読む
     - マルチエージェント時：`memory/agents/implementation-planner/<task>.md`
-    - spec-test-author が engagement 済みなら `memory/agents/spec-test-author/<task>.md` も読む
+    - spec-test-author が担当している場合は `memory/agents/spec-test-author/<task>.md` も読む
     - code-reviewer からの差し戻し時：`memory/agents/code-reviewer/<task>.md` の must-fix を読む
     - 単独起動時：ユーザー提供の計画
 2. 既存コードを Read / Grep で把握する
 3. 実装する（規約は skill `refactor-conventions`、ハードウェア関連は skill `hardware-test`）
 4. テストを書く（`class TestXxx` 形式、private の直接テストは避ける）
-    - spec-test-author が engagement 済みの場合、テストファイル（`tests/`）は編集しない。実装で通すのがこの agent の役目
+    - spec-test-author が担当している場合、テストファイル（`tests/`）は編集しない。実装で通すのがこの agent の役目
 5. `make format && make type && make test-no-hardware` を実行し、すべてパスすることを確認する
 6. 結果と判断ログを報告する
 
@@ -47,7 +47,7 @@ effort: medium
 - 既存テストは原則変更しない。仕様変更を伴う場合のみ更新し、理由を報告に含める
 - spec-test-author 引継ぎ時：テストが実装側のバグを指摘しているなら本番コードを修正する。テストが間違っていそうなら編集せず spec-test-author に差し戻し、仕様根拠を再確認する
 - spec-test-author と並列実行時：IF を勝手に変えない。計画書のシグネチャ案を逸脱する必要があれば先に通知する
-- 並列実装時に他 implementer に影響する IF 変更が発生したら、`memory/agents/plan-implementer/<task>-<instance>.md` に「IF変更通知」を明記する
+- 並列実装時に他 implementer に影響する IF 変更が発生したら、`memory/agents/plan-implementer/<task>-<instance>.md` に「IF 変更通知」を明記する
 
 ## 完了の定義
 
@@ -58,7 +58,7 @@ effort: medium
 
 ## 出力先（マルチエージェント時）
 
-実装中の判断ログ、計画逸脱、IF変更通知を `memory/agents/plan-implementer/<task-slug>.md` に残す（詳細は `memory/agents/plan-implementer/README.md`）。
+実装中の判断ログ、計画逸脱、IF 変更通知を `memory/agents/plan-implementer/<task-slug>.md` に残す（詳細は `memory/agents/plan-implementer/README.md`）。
 
 ## 参照
 

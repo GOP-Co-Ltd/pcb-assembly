@@ -20,7 +20,7 @@ def _device_id_to_path(device_id: int) -> str:
 
 @attrs.frozen
 class Resolution:
-    """解像度とFPSの組み合わせ."""
+    """解像度と FPS の組み合わせ."""
 
     width: int
     height: int
@@ -56,7 +56,7 @@ class CameraInfo:
 
 
 def get_camera_info(device_id: int = 0) -> CameraInfo:
-    """v4l2-ctlを使用してカメラのメタデータを取得する."""
+    """V4l2-ctl を使用してカメラのメタデータを取得する."""
     device_path = _device_id_to_path(device_id)
 
     # カメラ名を取得
@@ -69,7 +69,7 @@ def get_camera_info(device_id: int = 0) -> CameraInfo:
     name_match = re.search(r"Card type\s*:\s*(.+)", result.stdout)
     name = name_match.group(1).strip() if name_match else "Unknown"
 
-    # 解像度とFPSを取得
+    # 解像度と FPS を取得
     result = subprocess.run(
         ["v4l2-ctl", "-d", device_path, "--list-formats-ext"],
         capture_output=True,
@@ -88,9 +88,9 @@ def get_camera_info(device_id: int = 0) -> CameraInfo:
             formats[current_format] = []
             continue
 
-        # フォーマットが未指定なら解像度・FPSはスキップ
+        # フォーマットが未指定なら解像度・FPS はスキップ
         if current_format:
-            # "Size: Discrete 1280x720" のパターン、次行にFPSがある
+            # "Size: Discrete 1280x720" のパターン、次行に FPS がある
             if size_match := re.search(r"Size:\s*Discrete\s*(\d+)x(\d+)", line):
                 width = int(size_match.group(1))
                 height = int(size_match.group(2))
@@ -108,7 +108,7 @@ class Camera(abc.ABC):
     @property
     @abc.abstractmethod
     def resolution(self) -> Resolution:
-        """現在の解像度とFPSを返す."""
+        """現在の解像度と FPS を返す."""
 
     @property
     @abc.abstractmethod
@@ -117,11 +117,11 @@ class Camera(abc.ABC):
 
     @abc.abstractmethod
     def capture(self) -> Image:
-        """1フレームをキャプチャして返す（BGR）。取得に失敗したら例外を送出する."""
+        """1 フレームをキャプチャして返す（BGR）。取得に失敗したら例外を送出する."""
 
 
 class _UsbCamera(Camera):
-    """USBカメラ（V4L2）実装."""
+    """USB カメラ（V4L2）実装."""
 
     def __init__(
         self,
@@ -191,7 +191,7 @@ class _UsbCamera(Camera):
         return cam
 
     def _validate_device_id(self, device_id: int) -> None:
-        """デバイスIDがカメラデバイスとして有効か検証する."""
+        """デバイス ID がカメラデバイスとして有効か検証する."""
         device_path = _device_id_to_path(device_id)
 
         # デバイスファイルが存在するか
@@ -202,7 +202,7 @@ class _UsbCamera(Camera):
         if not stat.S_ISCHR(os.stat(device_path).st_mode):
             raise OSError(f"{device_path} はキャラクタデバイスではありません")
 
-        # Video Capture機能を持つか
+        # Video Capture 機能を持つか
         result = subprocess.run(
             ["v4l2-ctl", "-d", device_path, "--all"],
             capture_output=True,
@@ -216,7 +216,7 @@ class _UsbCamera(Camera):
 
     @override
     def capture(self) -> Image:
-        """1フレームをキャプチャして返す."""
+        """1 フレームをキャプチャして返す."""
         ret, img = self._cam.read()
         if ret:
             return self._fix_captured_image(img)
@@ -235,7 +235,7 @@ class _UsbCamera(Camera):
 
 
 class _CsiCamera(Camera):
-    """CSIカメラ（picamera2）実装."""
+    """CSI カメラ（picamera2）実装."""
 
     def __init__(
         self,
@@ -278,7 +278,7 @@ class _CsiCamera(Camera):
 
     @override
     def capture(self) -> Image:
-        """1フレームをキャプチャして返す."""
+        """1 フレームをキャプチャして返す."""
         frame = self._picam2.capture_array("main")
         return Image(frame)
 
@@ -299,12 +299,12 @@ def create_camera(
     """バックエンドを指定してカメラを生成するファクトリ関数.
 
     Args:
-        device_id: デバイスID。USBカメラでは /dev/video{device_id}、
-                   CSIカメラではカメラポート番号（0 または 1）。
+        device_id: デバイス ID。USB カメラでは /dev/video{device_id}、
+                   CSI カメラではカメラポート番号（0 または 1）。
         width: 解像度の幅。
         height: 解像度の高さ。
         fps: フレームレート。
-        format: フォーマットコード（4文字）。USB バックエンドのみ有効。
+        format: フォーマットコード（4 文字）。USB バックエンドのみ有効。
         backend: カメラバックエンド。"csi"（デフォルト）または "usb"。
 
     Raises:

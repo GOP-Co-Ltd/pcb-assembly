@@ -106,7 +106,7 @@ function buildRow(state, actions, node, depth) {
   tr.dataset.testid = "pad-tree-row";
   const enabled = node.resolved.enabled;
   const own = node.own_override;
-  // own_summary はサーバ算出（own_override は isOverride 判定・select 初期値用に残る）
+  // own_summary はサーバの算出値（own_override は isOverride 判定・select 初期値用に残す）
   const ownSummary = node.own_summary;
   const descendantSummary = node.descendant_summary;
   if (ownSummary.count > 0) {

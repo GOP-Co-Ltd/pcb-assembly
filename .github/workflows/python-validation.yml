@@ -9,7 +9,7 @@ on:
     paths:
       - "**/*.py"
       # UI frontend の配信資産。テンプレ / JS だけの変更でも E2E とページテストが
-      # 壊れるため（*.py だけでは pytest も pyright も走らない）
+      # 失敗し得るため（*.py だけでは pytest も pyright も走らない）
       - "src/web/ui/templates/**"
       - "src/web/ui/static/**"
       # テストが読む画像・基板・設定と、実際に起動する運用スクリプト

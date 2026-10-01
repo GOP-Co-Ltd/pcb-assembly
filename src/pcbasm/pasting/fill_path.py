@@ -7,7 +7,7 @@
 計算幾何（外接矩形・オフセット成分・線分クリップ等）は :mod:`pcbasm.geometry` にある。
 
 アルゴリズムは「面塗布（外周トレース＋牛耕式ジグザグ）→ 線塗布（最長軸中心線）
-→ 点塗布（代表点1点）」のフォールバック階層からなる。面塗布は
+→ 点塗布（代表点 1 点）」のフォールバック階層からなる。面塗布は
 ``polygon.buffer(-inset)`` の各連結成分ごとに独立したポリラインを生成し、
 戻り値は成分別ポリラインの tuple となる。
 """
@@ -86,7 +86,7 @@ class FillPlan:
                   auto_area_short_side_factor を超えれば area、そうでなく
                   long / short が auto_line_aspect_ratio を超えれば line、
                   それ以外は dot
-            dot : 点塗布（代表点1点）
+            dot : 点塗布（代表点 1 点）
             line: 線塗布。成立しなければ dot
             area: 面塗布。成立しなければ line、さらに無理なら dot
         """
@@ -140,7 +140,7 @@ class FillPlan:
         プレビュー（webui router）と実行（``PasteApplicator``）が同一の対応で計画を生成し、
         両者の乖離を構造的に防ぐ。
 
-        ``line_direction`` は実際の方式が line になったときだけ効く（area / dot では無視する）。
+        ``line_direction`` は実際の方式が line になったときだけ使う（area / dot では無視する）。
         ``line_direction`` が outward / inward でも ``line_reference``（部品位置）が無い pad
         は向きを揃えられないので unconstrained として扱う。
 
@@ -247,7 +247,7 @@ def _outline_and_zigzag(
     component: Polygon,
     line_spacing: float,
 ) -> list[Point2d]:
-    """1連結成分の外周トレース＋内部ジグザグを1ポリラインに結合して返す.
+    """1 連結成分の外周トレース＋内部ジグザグを 1 ポリラインに結合して返す.
 
     最小実装の方針（牛耕式）:
 
@@ -256,7 +256,7 @@ def _outline_and_zigzag(
        最長軸に垂直なスキャンラインを ``line_spacing`` 間隔で生成する。各
        スキャンライン∩``component`` の区間を最長軸座標でソートし、行ごとに
        方向を交互反転して（牛耕式に）繋ぐ。
-    3. 外周 → 内部ジグザグの順で、各遷移を最近傍接続で1ポリラインに結合する。
+    3. 外周 → 内部ジグザグの順で、各遷移を最近傍接続で 1 ポリラインに結合する。
 
     点が作れなければ ``[]`` を返す。
     """
@@ -357,7 +357,7 @@ def _line_fill(polygon: Polygon, end_inset: float) -> list[Point2d]:
 
 
 def _dot_fill(polygon: Polygon) -> list[Point2d]:
-    """点塗布パスを生成する（代表点1点・必ず非空）."""
+    """点塗布パスを生成する（代表点 1 点・必ず非空）."""
     rep = polygon.representative_point()
     return [Point2d(rep.x, rep.y)]
 
@@ -366,18 +366,18 @@ def _generate_linear_path(
     polygon: Polygon,
     end_inset: float,
 ) -> list[Point2d]:
-    """ポリゴンの最長軸に沿った2点パスを生成する.
+    """ポリゴンの最長軸に沿った 2 点パスを生成する.
 
     ``polygon.minimum_rotated_rectangle`` の長軸の中央線を求め、両端を
-    ``end_inset`` だけ内側に補正した2点パスを返す。長軸長が
+    ``end_inset`` だけ内側に補正した 2 点パスを返す。長軸長が
     ``2 * end_inset`` 以下の場合は ``[]`` を返す。
 
     Args:
-        polygon: 対象ポリゴン（mm単位）
+        polygon: 対象ポリゴン（mm 単位）
         end_inset: 両端の内側補正量（mm、検証済みで 0 以上）
 
     Returns:
-        ``[start, end]`` の2点パス。長軸が短すぎる、または入力が空／不正な
+        ``[start, end]`` の 2 点パス。長軸が短すぎる、または入力が空／不正な
         場合は ``[]``。
     """
     if polygon.is_empty or not polygon.is_valid:

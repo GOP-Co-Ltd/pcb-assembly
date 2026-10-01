@@ -15,12 +15,12 @@ sudo apt-get install -y \
     git-lfs \
     python3-picamera2
 
-# git-lfsを有効化し、git-lfs未導入のままcloneして
-# ポインタのまま残った (破損した) LFSファイルを実体に置き換える
+# git-lfs を有効化し、git-lfs 未導入のまま clone して
+# ポインタのまま残った (破損した) LFS ファイルを実体に置き換える
 git lfs install
 (cd "$PROJECT_ROOT" && git lfs pull)
 
-# KIAUHでKlipperをインストール
+# KIAUH で Klipper をインストール
 cd ~ && git clone https://github.com/dw-0/kiauh.git
 ./kiauh/kiauh.sh
 
@@ -28,10 +28,10 @@ cd ~ && git clone https://github.com/dw-0/kiauh.git
 # numpy は必須、scipy は drift/notch フィルタ (drift_filter_cutoff_frequency 等) 用
 ~/klippy-env/bin/pip install numpy scipy
 
-# Astral uvをインストール
+# Astral uv をインストール
 curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 
-# Pythonの環境をセットアップ
+# Python の環境をセットアップ
 cd "$PROJECT_ROOT"
 make setup

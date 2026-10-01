@@ -1,4 +1,4 @@
-"""テスト塗布基板の設定とJSON形式."""
+"""テスト塗布基板の設定と JSON 形式."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ PreviewLayer: TypeAlias = Literal["F.Cu", "F.Paste"]
 BOARD_KIND: BoardKind = "paste_test_board"
 BOARD_SCHEMA_VERSION: BoardSchemaVersion = 1
 
-# 流量計測パッドの個数上限（過大入力での配置計算の暴走を防ぐ）
+# 流量計測パッドの個数上限（過大な入力で配置計算の量が膨らむのを防ぐ）
 MAX_FLOW_PAD_COUNT = 1000
 _MAX_CALIBRATION_PAD_COUNT = 10_000
 _KICAD_MAX_PAD_SIZE_MM = (KICAD_COORD_MAX_NM - 1) / 1_000_000
@@ -43,7 +43,7 @@ class BoardConfigError(ValueError):
 
 @attrs.frozen
 class CustomPadShape:
-    """WebUIで選択できる任意寸法パッド形状."""
+    """WebUI で選択できる任意寸法パッド形状."""
 
     shape: CustomPadShapeId
     label: str
@@ -66,7 +66,7 @@ _CUSTOM_PAD_SHAPE_BY_ID = {item.shape: item for item in CUSTOM_PAD_SHAPES}
 
 @attrs.frozen
 class CustomPadDraft:
-    """ID採番前の任意寸法パッド定義 [mm]."""
+    """ID 採番前の任意寸法パッド定義 [mm]."""
 
     shape: CustomPadShapeId
     width_mm: float
@@ -75,7 +75,7 @@ class CustomPadDraft:
     name: str = ""
 
     def normalized(self) -> CustomPadDraft:
-        """形状に不要な寸法をコア側でcanonicalな値へ解決する."""
+        """形状に不要な寸法をコア側で canonical な値へ解決する."""
 
         if (message := validate_custom_pad(self)) is not None:
             raise BoardConfigError(message)
@@ -105,7 +105,7 @@ class CustomPadDraft:
 
 @attrs.frozen
 class CustomPadSpec:
-    """設定JSONへ保存する任意寸法パッド定義 [mm]."""
+    """設定 JSON へ保存する任意寸法パッド定義 [mm]."""
 
     catalog_id: str
     name: str
@@ -127,7 +127,7 @@ class BoardSpec:
 
 @attrs.frozen
 class PurgePadSpec:
-    """左上に置く専用purge padの寸法 [mm]."""
+    """左上に置く専用 purge pad の寸法 [mm]."""
 
     width_mm: float = 2.0
     height_mm: float = 2.0
@@ -147,7 +147,7 @@ class FlowPadSpec:
 
 @attrs.frozen
 class PatternSpec:
-    """1パッド種の回転・繰り返し配置."""
+    """1 パッド種の回転・繰り返し配置."""
 
     catalog_id: str
     rotation_span_deg: float = 180.0
@@ -199,7 +199,7 @@ def default_patterns() -> tuple[PatternSpec, ...]:
 
 @attrs.frozen
 class BoardConfig:
-    """生成・preview・exportで共有する基板設定."""
+    """生成・preview・export で共有する基板設定."""
 
     board: BoardSpec = attrs.Factory(BoardSpec)
     purge_pad: PurgePadSpec = attrs.Factory(PurgePadSpec)
@@ -324,7 +324,7 @@ class BoardConfig:
         return None
 
     def normalized(self) -> BoardConfig:
-        """パターンをfamily・footprint・パッド種の安定順へ正規化する."""
+        """パターンを family・footprint・パッド種の安定順へ正規化する."""
 
         if (message := self.validate()) is not None:
             raise BoardConfigError(message)
@@ -356,7 +356,7 @@ class BoardConfig:
         )
 
     def to_document(self) -> dict[str, Any]:
-        """この設定をそのまま自己識別可能なJSON documentへ変換する."""
+        """この設定をそのまま自己識別可能な JSON document へ変換する."""
 
         return {
             "kind": BOARD_KIND,
@@ -369,7 +369,7 @@ class BoardConfig:
         }
 
     def to_normalized_document(self) -> dict[str, Any]:
-        """正規化してから自己識別可能なJSON documentへ変換する."""
+        """正規化してから自己識別可能な JSON document へ変換する."""
 
         return self.normalized().to_document()
 
@@ -431,7 +431,7 @@ def validate_custom_pad(
 def parse_board_document(
     document: Mapping[str, object],
 ) -> BoardConfig | None:
-    """JSON documentを設定へ変換する。不正な形式・値ではNoneを返す."""
+    """JSON document を設定へ変換する。不正な形式・値では None を返す."""
 
     if not isinstance(document, Mapping) or not _has_exact_keys(
         document,

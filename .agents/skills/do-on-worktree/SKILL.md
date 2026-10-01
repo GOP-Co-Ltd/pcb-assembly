@@ -1,6 +1,6 @@
 ---
 name: do-on-worktree
-description: 進行中の作業を汚さず、mainから分岐したgit worktreeで独立タスクを進める手順。ユーザーがworktreeで、裏で、別作業として進めるよう明示したときに使う。
+description: 進行中の作業に手を加えず、main から分岐した git worktree で独立タスクを進める手順。ユーザーが worktree で、裏で、別作業として進めるよう明示したときに使う。
 ---
 
 # 独立タスクを Worktree で進める
@@ -22,7 +22,7 @@ git worktree list
 ## 2. Worktree 作成
 
 branch は `AGENTS.md` の `<種別>/<日付>/<内容>` 規約に従う。作業場所は repository
-を汚さない `/tmp/pcb-assembly-worktrees/<slug>` を既定とする。
+の外にある `/tmp/pcb-assembly-worktrees/<slug>` を既定とする。
 
 ```bash
 git fetch origin main

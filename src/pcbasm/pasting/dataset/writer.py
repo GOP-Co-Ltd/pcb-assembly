@@ -211,11 +211,11 @@ class PasteDatasetWriter:
 def rescuable_sessions(root: Path) -> tuple[Path, ...]:
     """``pending.json`` を持つ未確定 session を名前順に返す（救出の選択肢）.
 
-    対象は ``<stem>.incomplete``（ジョブが例外・中止で畳んだもの）と
-    ``.<stem>.tmp``（プロセスごと落ちて畳めなかったもの）の両方。
+    対象は ``<stem>.incomplete``（ジョブが例外・中止時に確定させたもの）と
+    ``.<stem>.tmp``（プロセスごと落ちて確定できなかったもの）の両方。
 
     どちらも収集ジョブが装置ロックを手放したあとにしか残らないので、実行中の
-    session を掴むことはない。
+    session を対象にすることはない。
     """
     if not root.is_dir():
         return ()

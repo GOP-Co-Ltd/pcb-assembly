@@ -1,6 +1,6 @@
 "use strict";
 
-// 設定画面: 入力変更を debounce して machine.toml に保存する。
+// 設定画面。入力変更を debounce して machine.toml に保存する。
 
 (() => {
   const { toast, api } = window.webui;
@@ -109,9 +109,9 @@
   }
 
   for (const machineForm of forms) {
-    // 個々の control ではなく form で受ける。校正ファイルの入力は一覧 API の
-    // 取得後に <select> へ差し替わるので、読み込み時に直接貼ると差し替え後の
-    // 要素にリスナーが付かない（input / change はどちらも bubble する）
+    // 個々の control ではなく form でイベントを受ける。校正ファイルの入力は一覧 API の
+    // 取得後に <select> へ差し替わるので、読み込み時に直接リスナーを付けると、差し替え後の
+    // 要素にはリスナーが付かない（input / change はどちらも bubble する）
     const onEdit = (event) => {
       const control = event.target;
       if (

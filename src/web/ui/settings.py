@@ -44,20 +44,20 @@ class Settings:
     ssr_timeout: float = 2.0
     backend_connect_timeout: float = 2.0
     # プロキシが上流の応答を待つ上限。POST /api/machine-control は M400 待ちで
-    # 最大 60s かかるのでそれを飲み込める長さにする（MJPEG は無制限で別扱い）
+    # 最大 60s かかるので、それより長くする（MJPEG は無制限で別扱い）
     proxy_read_timeout: float = 120.0
     # machines.toml で port を省略したマシンに使う backend の port
     default_backend_port: int = DEFAULT_BACKEND_PORT
     # mDNS で LAN 上の backend を探索するか（静的登録と併設）
     discovery_enabled: bool = True
     discovery_service_type: str = SERVICE_TYPE
-    # None なら zeroconf 既定（全 IF）。テストは ("127.0.0.1",) で閉じる
+    # None なら zeroconf 既定（全 IF）。テストは ("127.0.0.1",) に限定する
     discovery_interfaces: tuple[str, ...] | None = None
     # frontend 自身のソフトウェア更新（frontend 専用機はここからしか更新できない）
     update_enabled: bool = True
     update_uv_sync_args: tuple[str, ...] = ("--locked", "--inexact")
-    # リポジトリ直下に固定する。ロックが守る対象は worktree なので、同居機の backend
-    # （`web.api.settings.Settings.update_dir`）と必ず同じファイルを掴ませる
+    # リポジトリ直下に固定する。ロックで保護する対象は worktree なので、同居機の backend
+    # （`web.api.settings.Settings.update_dir`）と必ず同じロックファイルを使う
     update_state_dir: Path = PROJECT_ROOT / "data" / "selfupdate"
 
     @classmethod
@@ -72,8 +72,8 @@ class Settings:
             PCBASM_UI_UPDATE_ENABLED（"0" で自己更新を無効）,
             PCBASM_UI_UPDATE_UV_SYNC_ARGS（空白区切り）, PCBASM_UI_UPDATE_STATE_DIR
 
-        ``machines`` は env では扱わない（マシン一覧は ``machines_file`` と mDNS 探索が
-        真実）。``discovery_service_type`` / ``discovery_interfaces`` も env に出さない
+        ``machines`` は env では扱わない（マシン一覧の情報源は ``machines_file`` と
+        mDNS 探索）。``discovery_service_type`` / ``discovery_interfaces`` も env に出さない
         （テストと E2E はコンストラクタ注入で足りる）。
 
         Raises:

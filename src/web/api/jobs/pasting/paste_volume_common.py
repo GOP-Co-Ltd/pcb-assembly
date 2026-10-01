@@ -4,8 +4,8 @@
 （`paste_volume_refit`。既存 session からハイパラを変えて作り直す）は、材料の
 入手経路だけが違って、計測 → フィット → 診断 → 保存はまったく同じ。
 
-既定値の出典を :class:`DotDetectionSpec` ひとつにして、片方だけ既定が動くことを
-防ぐ。判定とフィットそのものは :mod:`pcbasm.pasting.paste_volume.fit`、図は
+既定値の出典を :class:`DotDetectionSpec` ひとつにして、片方のジョブだけ既定値が
+変わることを防ぐ。判定とフィットそのものは :mod:`pcbasm.pasting.paste_volume.fit`、図は
 :mod:`pcbasm.visualization.paste_volume_render` にあり、ここは成果物への変換と
 保存の可否だけを担う。
 """
@@ -146,8 +146,8 @@ def _detection_spec_from_params(params: Mapping[str, ParamValue]) -> DotDetectio
 def validate_detection_params(params: Mapping[str, ParamValue]) -> str | None:
     """検出ハイパラの整合を先に確かめる（不正なら理由文）.
 
-    収集の前と session 選択の前に呼ぶ。1 時間の収集や session の選択を終えてから
-    「openカーネルが偶数です」と言われても遅い。
+    収集の前と session 選択の前に呼ぶ。1 時間の収集や session の選択を終えてから 「open
+    カーネルが偶数です」と言われても遅い。
     """
     return _detection_spec_from_params(params).validate()
 
@@ -189,7 +189,7 @@ def report_calibration(
     for line in _diagnostic_lines(fit):
         ctx.log(line)
 
-    # 校正ファイルを図より先に書く。図は診断の補助で、落ちても校正は成果として
+    # 校正ファイルを図より先に書く。図は診断の補助で、図の生成に失敗しても校正は成果として
     # 残したい（順序が逆だと matplotlib の失敗で校正が 1 件も残らない）
     saved = _save(ctx, fit, always=always_save)
     artifacts = (
@@ -246,7 +246,7 @@ def _render_artifacts(
 ) -> tuple[tuple[Artifact, ...], str | None]:
     """散布図と検出モンタージュを artifacts_dir へ描く（失敗は理由を返す）.
 
-    図は診断の補助にすぎないので、描けなかったことで校正やジョブを落とさない。
+    図は診断の補助にすぎないので、描けなくても校正やジョブを失敗させない。
 
     検出ハイパラは ``fit.calibration.detection`` を使う。フィットに実際に使った
     spec がそこに埋まっているので、図と係数が食い違わない。

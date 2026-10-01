@@ -1,4 +1,4 @@
-"""KiCad footprintの検索、パッド分類、任意寸法パッド生成."""
+"""KiCad footprint の検索、パッド分類、任意寸法パッド生成."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from .config import (
 
 @attrs.frozen
 class PadPattern:
-    """1 footprint内で回転同値なパッドをまとめたカタログ項目."""
+    """1 footprint 内で回転同値なパッドをまとめたカタログ項目."""
 
     catalog_id: str
     footprint_id: str
@@ -57,13 +57,13 @@ class PadPattern:
 
 @attrs.frozen
 class ResolvedPadPattern:
-    """カタログ表示情報と生成用KiCad templateの組."""
+    """カタログ表示情報と生成用 KiCad template の組."""
 
     item: PadPattern
     template: pcbnew.FOOTPRINT
 
 
-# 空検索時に列挙する、はんだペースト印刷で一般的なSMD footprint。
+# 空検索時に列挙する、はんだペースト印刷で一般的な SMD footprint。
 _COMMON_FOOTPRINTS = (
     ("Resistor_SMD.pretty", "R_0201_0603Metric"),
     ("Resistor_SMD.pretty", "R_0402_1005Metric"),
@@ -150,7 +150,7 @@ _COMMON_FOOTPRINTS = (
 
 
 class PadCatalog:
-    """Footprint indexと遅延ロードしたパッドtemplateを保持する."""
+    """Footprint index と遅延ロードしたパッド template を保持する."""
 
     def __init__(self, footprint_root: Path | None = None) -> None:
         self._library = FootprintLibrary(footprint_root)

@@ -4,8 +4,8 @@
 #
 # stdin = Claude Code が渡す statusLine JSON。context 使用率は transcript 末尾側の
 # 最新 usage エントリ (input + cache_read + cache_creation + output) を context
-# window で割って算出する。window は model id に "1m" を含めば 1,000,000、200k 超で
-# 走っていれば 1,000,000、それ以外 200,000。
+# window で割って算出する。window は model id に "1m" を含むか 200k を超えていれば
+# 1,000,000、それ以外は 200,000。
 #
 # fail-open: 何が失敗しても最低限の 1 行を返し exit 0。依存: python3 のみ。
 

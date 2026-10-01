@@ -344,8 +344,8 @@ class _JobRuntime:
     def notify_operator(self) -> None:
         """オペレータ待ちに入ったことを機体スピーカーで知らせる.
 
-        abort 要求済みなら鳴らさない。待ちへ入る前にジョブが畳まれるので、鳴らすと
-        既に死んだジョブの前へ作業者を呼び戻すことになる。``checkpoint`` と違って
+        abort 要求済みなら鳴らさない。待ちへ入る前にジョブが終了処理へ進むので、
+        鳴らすと終了済みのジョブのために作業者を呼び戻すことになる。``checkpoint`` と違って
         送出はしない（通知は副作用であって制御点ではない）。
         """
         if self.abort_event.is_set():
@@ -422,8 +422,8 @@ class JobManager:
             preview: ctx.frame() の委譲先
             catalog: ジョブ定義カタログ
             settings: WebUI 設定（data_dir / pcb_browse_root）
-            board_store: 基板設定ストア。**HTTP 経路と同一インスタンス**を
-                渡すこと（別インスタンスだと更新ロックが効かない）
+            board_store: 基板設定ストア。HTTP 経路と同一インスタンスを
+                渡すこと（別インスタンスだと更新ロックで直列化できない）
             audio_player: ジョブ完了通知音のプレイヤー（None なら再生しない）
             log_capacity: ログのリングバッファ行数
         """
@@ -734,7 +734,7 @@ class JobManager:
         record = runtime.record
         logger = logging.getLogger(_PCBASM_LOGGER_NAME)
         bridge = _PcbasmLogBridge(runtime, threading.get_ident())
-        # INFO が effective level で落ちる場合のみ下げる（finally で復元）
+        # effective level で INFO が出力されない場合のみ INFO へ下げる（finally で復元）
         previous_level = logger.level
         if logger.getEffectiveLevel() > logging.INFO:
             logger.setLevel(logging.INFO)
@@ -763,7 +763,7 @@ class JobManager:
             self._state.release_machine()
 
     def _park_machine(self, runtime: _JobRuntime, context: JobContext) -> None:
-        """ジョブ終了時にノズルキャップ駐機（フォールバックは PRESENT / M84）を行う（失敗はlogのみ）。"""
+        """ジョブ終了時にノズルキャップ駐機（フォールバックは PRESENT / M84）を行う（失敗は log のみ）。"""
         klipper_config = context.machine.klipper
         try:
             klipper = Klipper(
@@ -780,7 +780,7 @@ class JobManager:
     def _operator_notifier(self, machine: Machine) -> Callable[[], None]:
         """オペレータ待ちで鳴らす入力待ち音の再生関数を作る.
 
-        再生完了を待たずに戻り、再生失敗は warning のみ（待ちを塞がない）。
+        再生完了を待たずに戻り、再生失敗は warning のみ（待ちをブロックしない）。
         """
         player = self._audio_player
         if player is None:
@@ -825,7 +825,7 @@ class JobManager:
 
 
 def _warn_sound_failure(label: str) -> Callable[[Future[None]], None]:
-    """通知音の再生失敗を warning に落とす done callback を作る."""
+    """通知音の再生失敗を warning ログに記録する done callback を作る."""
 
     def callback(future: Future[None]) -> None:
         if (error := future.exception()) is not None:
@@ -850,7 +850,7 @@ def prompt_payload(prompt_id: str, spec: PromptSpec) -> dict[str, Any]:
 def _coerce_answer(spec: PromptSpec, answer: object) -> Answer:
     """プロンプト応答を PromptSpec の型に合わせて検証・変換する.
 
-    confirm→bool, number→有限なfloat（int は float 化）, text→str,
+    confirm→bool, number→有限な float（int は float 化）, text→str,
     choice→choices 内の str。false_label 付き number の中止（bool False）は
     そのまま False を返す。
 

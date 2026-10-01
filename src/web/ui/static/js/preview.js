@@ -1,6 +1,6 @@
 "use strict";
 
-// カメラプレビュー: MJPEG <img> の装着/切断・overlay/エッジ検出設定の動的反映・自動再接続。
+// カメラプレビュー。MJPEG <img> の接続/切断・overlay/エッジ検出設定の動的反映・自動再接続を行う。
 
 (() => {
   const pane = document.getElementById("preview-pane");
@@ -44,14 +44,14 @@
   });
 
   img.addEventListener("error", () => {
-    // マシン切替・カメラ失敗からの復帰: 指数バックオフでリトライ
+    // マシン切替・カメラ失敗から復帰するため、指数バックオフでリトライする
     if (stopped) return;
     status.textContent = "切断されました。再接続します…";
     clearTimeout(retryTimer);
     retryTimer = setTimeout(connect, retryBackoff.next());
   });
 
-  // overlay/エッジ検出設定の変更連打をまとめて再接続する（connect は stopped でガード済み）
+  // overlay/エッジ検出設定の連続した変更をまとめて再接続する（connect は stopped でガード済み）
   const reconnect = debounce(connect, DEBOUNCE_MS);
 
   for (const radio of document.querySelectorAll("input[name='overlay']")) {

@@ -20,14 +20,14 @@ import numpy.typing as npt
 
 @attrs.frozen
 class Point3d:
-    """3次元空間の座標を表すイミュータブルなクラス.
+    """3 次元空間の座標を表すイミュータブルなクラス.
 
     長さは ``norm()`` のメソッド呼び出しで得る（:class:`Point2d` はプロパティ）。
 
     Attributes:
-        x: X座標
-        y: Y座標
-        z: Z座標
+        x: X 座標
+        y: Y 座標
+        z: Z 座標
     """
 
     x: float
@@ -54,24 +54,24 @@ class Point3d:
         return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
 
     def to2d(self) -> Point2d:
-        """Point2d型に変換する（z座標は無視）."""
+        """Point2d 型に変換する（z 座標は無視）."""
         return Point2d(x=self.x, y=self.y)
 
     @classmethod
     def zero(cls, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> Self:
-        """指定されていない軸を0で初期化したPoint3dを返す."""
+        """指定されていない軸を 0 で初期化した Point3d を返す."""
         return cls(x, y, z)
 
 
 @attrs.frozen
 class Point2d:
-    """2次元空間の座標を表すイミュータブルなクラス.
+    """2 次元空間の座標を表すイミュータブルなクラス.
 
     長さは ``norm`` のプロパティで得る（:class:`Point3d` はメソッド）。
 
     Attributes:
-        x: X座標
-        y: Y座標
+        x: X 座標
+        y: Y 座標
     """
 
     x: float
@@ -98,10 +98,10 @@ class Point2d:
         return math.sqrt(self.x**2 + self.y**2)
 
     def to3d(self, z: float = 0.0) -> Point3d:
-        """Point3d型に変換する.
+        """Point3d 型に変換する.
 
         Args:
-            z: Z座標（デフォルト: 0.0）
+            z: Z 座標（デフォルト: 0.0）
 
         Returns:
             Point3d インスタンス
@@ -134,12 +134,12 @@ class Transform(ABC):
 
 @attrs.frozen
 class Scale(Transform):
-    """3次元スケール変換を表すイミュータブルなクラス.
+    """3 次元スケール変換を表すイミュータブルなクラス.
 
     Attributes:
-        x: X軸方向のスケール係数
-        y: Y軸方向のスケール係数
-        z: Z軸方向のスケール係数
+        x: X 軸方向のスケール係数
+        y: Y 軸方向のスケール係数
+        z: Z 軸方向のスケール係数
     """
 
     x: float = 1.0
@@ -164,7 +164,7 @@ class Scale(Transform):
         """逆スケール変換を返す.
 
         Returns:
-            各軸の逆数をスケール係数とするScaleインスタンス
+            各軸の逆数をスケール係数とする Scale インスタンス
         """
         return self.__class__(1 / self.x, 1 / self.y, 1 / self.z)
 
@@ -173,12 +173,12 @@ class Scale(Transform):
         """指定した軸を反転するスケールを返す.
 
         Args:
-            x: Trueの場合、X軸を反転
-            y: Trueの場合、Y軸を反転
-            z: Trueの場合、Z軸を反転
+            x: True の場合、X 軸を反転
+            y: True の場合、Y 軸を反転
+            z: True の場合、Z 軸を反転
 
         Returns:
-            指定軸が反転されたScaleインスタンス
+            指定軸が反転された Scale インスタンス
         """
         return cls(
             -1.0 if x else 1.0,
@@ -189,7 +189,7 @@ class Scale(Transform):
 
 @attrs.frozen
 class Rotation(Transform):
-    """Z軸周りの回転を表すイミュータブルなクラス.
+    """Z 軸周りの回転を表すイミュータブルなクラス.
 
     正の角度は +X 軸を +Y 軸へ向ける向きに回す。
 
@@ -228,13 +228,13 @@ class Rotation(Transform):
         """逆回転を返す.
 
         Returns:
-            反対方向に同じ角度だけ回転するRotationインスタンス
+            反対方向に同じ角度だけ回転する Rotation インスタンス
         """
         return self.__class__(-self.degrees)
 
     @classmethod
     def from_points(cls, base: Point2d, target: Point2d) -> Self:
-        """2つのベクトル間の角度からRotationを生成する.
+        """2 つのベクトル間の角度から Rotation を生成する.
 
         ベクトルの長さは無視し、向きだけを使う。
 
@@ -243,7 +243,7 @@ class Rotation(Transform):
             target: 対象ベクトル
 
         Returns:
-            baseの向きをtargetの向きへ回すRotation（角度は -180 超 180 以下）
+            base の向きを target の向きへ回す Rotation（角度は -180 超 180 以下）
         """
         dot = base.x * target.x + base.y * target.y
         cross = base.x * target.y - base.y * target.x
@@ -256,9 +256,9 @@ class Shift(Transform):
     """平行移動変換を表すイミュータブルなクラス.
 
     Attributes:
-        x: X軸方向の移動量
-        y: Y軸方向の移動量
-        z: Z軸方向の移動量
+        x: X 軸方向の移動量
+        y: Y 軸方向の移動量
+        z: Z 軸方向の移動量
     """
 
     x: float = 0.0
@@ -283,13 +283,13 @@ class Shift(Transform):
         """逆平行移動を返す.
 
         Returns:
-            反対方向に同じ量だけ移動するShiftインスタンス
+            反対方向に同じ量だけ移動する Shift インスタンス
         """
         return self.__class__(-self.x, -self.y, -self.z)
 
     @classmethod
     def from_point(cls, point: Point) -> Self:
-        """PointからShiftを生成する."""
+        """Point から Shift を生成する."""
         if isinstance(point, Point2d):
             return cls(point.x, point.y, 0.0)
         return cls(point.x, point.y, point.z)
@@ -317,12 +317,12 @@ class Identity(Transform):
 
 @attrs.frozen
 class Matrix2d(Transform):
-    """2x2変換行列によるXY平面上の線形変換を表すイミュータブルなクラス.
+    """2x2 変換行列による XY 平面上の線形変換を表すイミュータブルなクラス.
 
     列ベクトル ``(x, y)`` に左から掛ける。Point3d の z は変えない。
 
     Attributes:
-        matrix: 2x2の変換行列（形状が違えば ValueError）
+        matrix: 2x2 の変換行列（形状が違えば ValueError）
     """
 
     matrix: npt.NDArray[np.floating] = attrs.field(
@@ -356,7 +356,7 @@ class Matrix2d(Transform):
 
 @attrs.frozen
 class HeightPlane(Transform):
-    """計測した基板表面に2次曲面を当てはめ、点の Z に表面高さを足す変換.
+    """計測した基板表面に 2 次曲面を当てはめ、点の Z に表面高さを足す変換.
 
     ``points`` は表面上の計測点で、XY と実測 Z を持つ（高さ計測では機械 XY とプローブ Z）。
 
@@ -444,7 +444,7 @@ class Compose(UserList[Transform], Transform):
 
     ``Compose([A, B]).apply(p)`` は ``B.apply(A.apply(p))`` と同じ。
 
-    UserListを継承しているため、リストと同様に操作できる。
+    UserList を継承しているため、リストと同様に操作できる。
 
     Examples:
         >>> compose = Compose([Scale(2.0, 2.0, 1.0), Rotation(90.0)])
@@ -471,10 +471,10 @@ class Compose(UserList[Transform], Transform):
     def inverse(self) -> Self:
         """逆変換を返す.
 
-        変換の順序を逆にして、各変換のinverseを適用する。
+        変換の順序を逆にして、各変換の inverse を適用する。
         例: (A → B → C).inverse() = C^-1 → B^-1 → A^-1
 
         Returns:
-            この変換を打ち消すComposeインスタンス
+            この変換を打ち消す Compose インスタンス
         """
         return self.__class__([t.inverse() for t in reversed(self)])

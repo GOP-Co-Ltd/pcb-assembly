@@ -55,7 +55,7 @@ def _sample_points(
 
 
 class _BoardPointProber:
-    """1点のBoard座標から機械座標へ移動して高さをプローブ計測する内部ヘルパ."""
+    """1 点の Board 座標から機械座標へ移動して高さをプローブ計測する内部ヘルパ."""
 
     def __init__(
         self,
@@ -77,7 +77,7 @@ class _BoardPointProber:
     def probe_at(
         self, board_pt: Point2d, board_to_machine: Transform, label: str
     ) -> Point3d:
-        """Board座標 board_pt をプローブし、機械座標XYとZを返す."""
+        """Board 座標 board_pt をプローブし、機械座標 XY と Z を返す."""
         probe_pt = board_to_machine.apply(board_pt)
         self._logger.info(
             f"計測点 {label}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) "
@@ -101,7 +101,7 @@ class _BoardPointProber:
     def route_points(
         self, board_points: Iterable[Point2d], board_to_machine: Transform
     ) -> list[Point2d]:
-        """現在位置から実probe位置への移動距離が短くなる順へ並べる."""
+        """現在位置から実 probe 位置への移動距離が短くなる順へ並べる."""
         return sort_by_nearest(
             board_points,
             self._stage.get_position(),
@@ -110,11 +110,11 @@ class _BoardPointProber:
 
 
 class HeightPlaneMeasurer:
-    """銅箔島ベースでプローブ計測し、2次曲面フィットしたHeightPlaneを返す.
+    """銅箔島ベースでプローブ計測し、2 次曲面フィットした HeightPlane を返す.
 
     入力銅箔を `sample_points_in_polygons` で疎にサンプリングし、
-    各Board点を機械座標へ写してプローブ計測を行う。返すHeightPlaneのXYは
-    実際にプローブした機械座標で、Zはその位置の絶対surface Z。
+    各 Board 点を機械座標へ写してプローブ計測を行う。返す HeightPlane の XY は
+    実際にプローブした機械座標で、Z はその位置の絶対 surface Z。
     """
 
     def __init__(
@@ -163,7 +163,7 @@ class HeightPlaneMeasurer:
         board_to_machine: Transform,
         outline: Polygon | None = None,
     ) -> HeightPlane:
-        """銅箔島内のBoard点で高さ計測し、機械XYのHeightPlaneを返す."""
+        """銅箔島内の Board 点で高さ計測し、機械 XY の HeightPlane を返す."""
         board_points = self._point_prober.route_points(
             self.plan_points(coppers, outline), board_to_machine
         )

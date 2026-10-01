@@ -11,7 +11,7 @@ Claude Code の `/compact` 直前に実行する。圧縮サマリーへ残り�
 `${TMPDIR:-/tmp}/claude-compact-state/<session_id>.md` へ保存する。圧縮後は
 `.claude/hooks/userpromptsubmit-compaction-recovery.sh` がこの file を読み戻すよう指示する。
 
-この skill は `<種別>/<日付>/...` のコード作業ではなく、**セッション状態の退避そのものが成果物**。
+この skill の成果物は、`<種別>/<日付>/...` ブランチでのコード変更ではなく、退避したセッション状態そのもの。
 圧縮の要約が「何をやったか」を残す一方で、この file は「なぜその選択をしたか / 却下した案 /
 今どのフェーズか / どのサブエージェントに何を委譲したか」という、要約から落ちやすい
 判断構造を残す。
@@ -39,7 +39,7 @@ Claude Code の `/compact` 直前に実行する。圧縮サマリーへ残り�
     - `## Constraints and Blockers` (制約・ブロッカー・未完了の検証)
     - `## Subagent Topology` (委譲先サブエージェント / worktree。無ければ「なし」)
     - `## Editing Files` (編集中 file と未保存・未検証の注意)
-    - `## Recovery Notes` (圧縮後の自分への手紙。引数の復旧メモがあれば含める)
+    - `## Recovery Notes` (圧縮後の自分に向けた引き継ぎメモ。引数の復旧メモがあれば含める)
 5. **保存後に state file を Read し直し**、上記見出しがすべて存在することを確認する (Forcing function)。
 6. ユーザーに「準備完了。`/compact` を実行してください。」と伝える。
 

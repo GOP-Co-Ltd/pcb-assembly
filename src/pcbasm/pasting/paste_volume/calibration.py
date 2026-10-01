@@ -43,10 +43,10 @@ _UNSAFE_NAME = re.compile(r"[^0-9a-z._-]+")
 
 
 # 撮影スケールが校正時から何割ずれたら条件不一致として報告するか。
-# 直径は mm なのでスケール差は原理的に吸収され、これは推定を断る閾値ではなく
+# 直径は mm なのでスケール差は原理的に吸収され、これは推定を拒否する閾値ではなく
 # 「camera calibration をやり直したのでは」と運転者へ知らせるための警告閾値。
 # 同じ機体で撮り直したときの pixel_per_mm の再現性（実測で 1% 未満）に対して
-# 十分広く、crop 条件が別物になる水準よりは狭い値として 5% を置く。
+# 十分広く、crop 条件が実質的に変わる水準よりは狭い値として 5% を置く。
 SCALE_TOLERANCE = 0.05
 
 
@@ -75,7 +75,7 @@ class CalibrationConditions:
     ) -> tuple[str, ...]:
         """いま置かれている条件との食い違いを表示用の文で並べる.
 
-        推定を断るためではなく運転者へ知らせるための情報なので、呼び出し側は
+        推定を拒否するためではなく運転者へ知らせるための情報なので、呼び出し側は
         これが空でなくても処理を止めなくてよい。
         ``paste_id`` / ``crop_size_mm`` は分かるときだけ渡す。
         """
@@ -186,8 +186,8 @@ def parse_calibration(
 
     ``detection`` だけは key の欠落も拒否する。
 
-    :class:`DotDetectionSpec` は既定値を持つので欠落が黙って埋まってしまい、既定値を
-    将来変えるとキーを欠いた既存ファイルの意味が静かに変わる。
+    :class:`DotDetectionSpec` は既定値を持つので欠落が警告なく既定値で埋まり、既定値を
+    将来変えるとキーを欠いた既存ファイルの意味が気づかれないまま変わる。
 
     検出ハイパラは校正と不可分なので、書かれていないことを既定値の指定として扱わない。
     """
@@ -256,11 +256,11 @@ def calibration_path(root: Path, name: str, created_at: datetime | None = None) 
     名前は WebUI のテキスト欄から来るので、``/`` や ``..`` を含んでいても保存先の
     外へ出さない。
 
-    :func:`calibration_filename` が path に使えない文字を畳むので、脱出は
-    そこで潰れる。
+    :func:`calibration_filename` が path に使えない文字を ``-`` へ置き換えるので、
+    保存先の外を指す path はそこで無効になる。
 
     既に ``CALIBRATION_SUFFIX`` で終わる名前は「その名前で保存し直す」意図とみなし、
-    時刻を足さずに stem だけを畳む。
+    時刻を足さずに stem の文字だけを置き換える。
 
     Args:
         root: 保存先 directory
@@ -303,7 +303,7 @@ def auto_calibration_path(root: Path, label: str) -> Path:
 
 
 def calibration_filename(label: str, created_at: datetime | None = None) -> str:
-    """表示ラベルから保存名を作る（path に使えない文字は ``-`` へ畳む）."""
+    """表示ラベルから保存名を作る（path に使えない文字は ``-`` へ置き換える）."""
     stem = _UNSAFE_NAME.sub("-", label.lower()).strip("-")
     if not stem:
         stem = "calibration"
@@ -312,7 +312,7 @@ def calibration_filename(label: str, created_at: datetime | None = None) -> str:
 
 
 def _safe_stem(stem: str) -> str:
-    """保存名の stem を 1 つの path 片へ畳む（空になれば既定名）."""
+    """保存名の stem を 1 つの path 片へ整える（空になれば既定名）."""
     folded = _UNSAFE_NAME.sub("-", stem.lower()).strip("-")
     return folded or "calibration"
 

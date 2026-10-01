@@ -1,4 +1,4 @@
-"""設定解決、preview、KiCad基板生成を束ねる公開facade."""
+"""設定解決、preview、KiCad 基板生成を束ねる公開 facade."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from .layout import BoardLayout, Rect, build_board_layout, preview_board_layout
 
 @attrs.frozen
 class ResolvedConfig:
-    """正規化・実footprint解決済みの設定と表示カタログ."""
+    """正規化・実 footprint 解決済みの設定と表示カタログ."""
 
     config: BoardConfig
     catalog: tuple[PadPattern, ...]
@@ -34,7 +34,7 @@ class ResolvedConfig:
 
 @attrs.frozen
 class BoardPreview:
-    """同一解決planから得た設定、カタログ、preview layout."""
+    """同一解決 plan から得た設定、カタログ、preview layout."""
 
     config: BoardConfig
     catalog: tuple[PadPattern, ...]
@@ -44,7 +44,7 @@ class BoardPreview:
 
 @attrs.frozen
 class PatternAddition:
-    """footprintから未追加パターンだけを足した結果."""
+    """Footprint から未追加パターンだけを足した結果."""
 
     config: BoardConfig
     catalog: tuple[PadPattern, ...]
@@ -59,7 +59,7 @@ class _Plan:
 
 
 class BoardGenerator:
-    """KiCad catalogを共有し、1回の解決planから各生成物を作る.
+    """KiCad catalog を共有し、1 回の解決 plan から各生成物を作る.
 
     配置可否を伴う ``layout`` / ``build_board`` / ``board_bytes`` は
     ``(成果物 | None, 超過理由 | None)`` を返す。
@@ -71,7 +71,7 @@ class BoardGenerator:
 
     @property
     def footprint_count(self) -> int:
-        """検索対象となるKiCad footprint数."""
+        """検索対象となる KiCad footprint 数."""
 
         with self._lock:
             return self._pad_catalog.footprint_count
@@ -79,13 +79,13 @@ class BoardGenerator:
     def search_footprints(
         self, query: str, limit: int = 30
     ) -> tuple[FootprintInfo, ...]:
-        """library名とfootprint名を空白区切りのAND検索する."""
+        """Library 名と footprint 名を空白区切りの AND 検索する."""
 
         with self._lock:
             return self._pad_catalog.search_footprints(query, limit)
 
     def pad_patterns_for(self, footprint_id: str) -> tuple[PadPattern, ...]:
-        """footprint内の回転同値なパッドを1種類ずつ返す."""
+        """Footprint 内の回転同値なパッドを 1 種類ずつ返す."""
 
         with self._lock:
             return self._pad_catalog.pad_patterns_for(footprint_id)
@@ -98,7 +98,7 @@ class BoardGenerator:
             return ResolvedConfig(plan.config, plan.catalog)
 
     def preview(self, config: BoardConfig) -> BoardPreview:
-        """1回の解決planから設定、カタログ、layoutを返す."""
+        """1 回の解決 plan から設定、カタログ、layout を返す."""
 
         with self._lock:
             plan = self._resolve_plan(config)
@@ -113,7 +113,7 @@ class BoardGenerator:
     def add_footprint_patterns(
         self, config: BoardConfig, footprint_id: str
     ) -> PatternAddition:
-        """footprint内の未追加パッド種を既定値付きで一括追加する."""
+        """Footprint 内の未追加パッド種を既定値付きで一括追加する."""
 
         with self._lock:
             candidates = self._pad_catalog.pad_patterns_for(footprint_id)
@@ -160,7 +160,7 @@ class BoardGenerator:
             return ResolvedConfig(plan.config, plan.catalog)
 
     def layout(self, config: BoardConfig) -> tuple[BoardLayout | None, str | None]:
-        """配置可能な設定の解決済みlayoutを返す（収まらなければ ``(None, 理由)``）."""
+        """配置可能な設定の解決済み layout を返す（収まらなければ ``(None, 理由)``）."""
 
         with self._lock:
             plan = self._resolve_plan(config)
@@ -169,13 +169,13 @@ class BoardGenerator:
     def build_board(
         self, config: BoardConfig
     ) -> tuple[pcbnew.BOARD | None, str | None]:
-        """解決済みlayoutと同じ位置へ単一パッドfootprintを置く（収まらなければ ``(None, 理由)``）."""
+        """解決済み layout と同じ位置へ単一パッド footprint を置く（収まらなければ ``(None, 理由)``）."""
 
         with self._lock:
             return self._build_board(config)
 
     def board_bytes(self, config: BoardConfig) -> tuple[bytes | None, str | None]:
-        """生成したKiCad基板をダウンロード可能なbytesで返す（収まらなければ ``(None, 理由)``）."""
+        """生成した KiCad 基板をダウンロード可能な bytes で返す（収まらなければ ``(None, 理由)``）."""
 
         with self._lock:
             board, overflow_message = self._build_board(config)
@@ -187,7 +187,7 @@ class BoardGenerator:
                 return output.read_bytes(), None
 
     def config_bytes(self, config: BoardConfig) -> bytes:
-        """設定JSONをUTF-8 bytesで返す."""
+        """設定 JSON を UTF-8 bytes で返す."""
 
         with self._lock:
             plan = self._resolve_plan(config)

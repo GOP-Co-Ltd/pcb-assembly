@@ -41,7 +41,7 @@ def sort_by_nearest[T](
     if len(remaining) <= 1:
         return remaining
 
-    # Step 1: Nearest Neighborで初期ツアーを生成
+    # Step 1: Nearest Neighbor で初期ツアーを生成
     route: list[T] = []
     current = start
     while remaining:
@@ -53,14 +53,14 @@ def sort_by_nearest[T](
         route.append(nearest)
         current = point_of(nearest)
 
-    # Step 2: 2-optで改善
+    # Step 2: 2-opt で改善
     return _apply_2opt(route, start, point_of)
 
 
 def _apply_2opt[T](
     route: list[T], start: Point3d, point_of: Callable[[T], Point3d]
 ) -> list[T]:
-    """2-opt局所探索でopen-path経路を改善する."""
+    """2-opt 局所探索で open-path 経路を改善する."""
     n = len(route)
     improved = True
     while improved:

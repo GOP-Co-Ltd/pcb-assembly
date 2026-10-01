@@ -185,7 +185,7 @@ class JobCatalog:
         """persisted_params のうち型整合する値だけを coerce して返す.
 
         フォーム入力途中の「即保存」用。``persisted_params`` 以外のキー・未提供・
-        型不一致は黙って除外する（実行前なので必須欠落でエラーにしない）。
+        型不一致はエラーにせず除外する（実行前なので必須欠落でエラーにしない）。
         """
         specs = {spec.name: spec for spec in definition.params}
         result: dict[str, ParamValue] = {}
@@ -221,7 +221,7 @@ def _coerce_param(spec: ParamSpec, value: object) -> ParamValue:
     """
     coerced = _coerce_type(spec, value)
     # 下限制約（minimum）は起動時 validate_params と実行中
-    # validate_runtime_params の両経路で効くよう coerce 共通層に置く。
+    # validate_runtime_params の両経路で適用されるよう coerce 共通層に置く。
     if (
         spec.minimum is not None
         and not isinstance(coerced, bool)

@@ -1,4 +1,4 @@
-"""マシン操作パネル（homing / ジョグ / 絶対移動 / relax / フォーカスZ / キャップ移動）の API."""
+"""マシン操作パネル（homing / ジョグ / 絶対移動 / relax / フォーカス Z / キャップ移動）の API."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def post_machine_control(
 
     400: パラメータ不足・可動域外など / 409: 装置が使用中 / 502: Klipper 通信エラー。
     """
-    # BusyError（RuntimeError 派生）は 502 変換に巻き込まず app.py の 409 ハンドラへ
+    # BusyError（RuntimeError 派生）は 502 変換の対象にせず app.py の 409 ハンドラへ
     # 流すため、machine_lock は klipper_errors_to_502 の外側で取る。操作権の検証も
     # 同じ理由で ControlDep（ハンドラ本体の外）に置く
     with state.machine_lock("machine-control"):
@@ -60,7 +60,7 @@ def _build_gcode(
     """操作リクエストから送信する G-code を構築する.
 
     Raises:
-        ValueError: パラメータ不足・limits 超過・フォーカスZ未設定・
+        ValueError: パラメータ不足・limits 超過・フォーカス Z 未設定・
             キャップ位置未記録の場合
     """
     match body.action:

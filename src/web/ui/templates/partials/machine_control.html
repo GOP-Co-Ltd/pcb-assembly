@@ -1,9 +1,9 @@
 <aside id="mc-sidebar" class="mc-sidebar" data-testid="machine-control-sidebar">
   <div id="mc-resize" class="mc-resize" title="ドラッグで幅を変更"></div>
   <button id="mc-toggle" class="mc-toggle" type="button" title="マシン操作パネルの開閉">&gt;</button>
-  {# 開閉（#mc-toggle）と幅変更（#mc-resize）は表示操作なので開放し、
+  {# 開閉（#mc-toggle）と幅変更（#mc-resize）は表示操作なので誰でも操作できるようにし、
      ジョグ・ホーミング・移動だけを操作権に紐づける。
-     ジョブ実行中: 対話ジョブ（基準点設定など）なら操作はジョブへ送られる。
+     ジョブ実行中は、対話ジョブ（基準点設定など）なら操作がジョブへ送られる。
      それ以外のジョブの間はパネル全体が押せない #}
   <div id="machine-control" class="machine-control" data-testid="machine-control"
        data-requires-control>

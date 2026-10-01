@@ -1,7 +1,7 @@
 "use strict";
 
 // 塗布パラメータの列順・ラベル・入力種別・選択肢は API（pad-config の
-// `fields`、サーバ側 PASTE_PARAM_FIELDS）が唯一の出典。ここには複製しない。
+// `fields`、サーバ側 PASTE_PARAM_FIELDS）だけを出典とし、ここには複製しない。
 
 export function fieldLabel(config, field) {
   const info = config?.fields?.find((item) => item.name === field);

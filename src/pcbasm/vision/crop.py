@@ -25,10 +25,10 @@ def crop_pixel_size(
 ) -> tuple[int | None, str | None]:
     """Crop 寸法と物理スケールから 1 回だけ整数ピクセル寸法を決める.
 
-    収集の開始時に 1 回だけ呼び、以降の全 crop はこの寸法を使う（crop ごとに floor / ceil
-    しないことで全画像が同一ピクセル寸法になる）。
+    収集の開始時に 1 回だけ呼び、以降の全 crop はこの寸法を使う。crop ごとに floor / ceil
+    しないので、全画像が同一ピクセル寸法になる。
 
-    中心 pixel が 1 つ存在するよう奇数へ寄せる。
+    中心 pixel が 1 つ存在するよう、寸法は奇数に丸める。
     """
     for name, value in (("size_mm", size_mm), ("pixel_per_mm", pixel_per_mm)):
         if not is_finite_number(value) or value <= 0:

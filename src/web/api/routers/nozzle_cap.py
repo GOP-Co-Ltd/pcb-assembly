@@ -2,7 +2,7 @@
 
 記録はどちらも「全軸ホーミング済みの現在のマシン座標を machine.toml へ保存する」点が
 同じで、運転者から見ても同じ作業（ジョグで先端を当てて記録）なので 1 つの router に置く。
-クリーニングのテスト実行も同じ画面で位置と押し込み量を追い込むための操作なのでここに置く。
+クリーニングのテスト実行も同じ画面で位置と押し込み量を詰めて調整するための操作なのでここに置く。
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from web.api.state import AppState
 STATUS_TIMEOUT = 10.0  # 位置・homed_axes の読み取りのみ（移動なし）
 
 # パージ（retract_rate での押出）と十字往復の M400 待ちを含むので長め。
-# frontend の proxy_read_timeout（120 秒）より短くして、打ち切りの主が backend 側に残るようにする
+# frontend の proxy_read_timeout（120 秒）より短くして、backend 側が先に打ち切るようにする
 CLEAN_TIMEOUT = 90.0
 
 router = APIRouter(prefix="/api")
@@ -85,7 +85,7 @@ def _record_current_position(
     state: AppState, store: ConfigStore, *, owner: str, prefix: str
 ) -> Point3d:
     """全軸ホーミングを検査し、現在位置を 3 桁丸めで ``prefix`` のテーブルへ書く."""
-    # BusyError（RuntimeError 派生）は 502 変換に巻き込まず app.py の 409 ハンドラへ
+    # BusyError（RuntimeError 派生）は 502 変換の対象にせず app.py の 409 ハンドラへ
     # 流すため、machine_lock は klipper_errors_to_502 の外側で取る
     with state.machine_lock(owner):
         with klipper_errors_to_502():
@@ -151,7 +151,7 @@ def run_nozzle_clean_test(
     Raises:
         HTTPException: 位置が未記録・未ホーミング・可動域外（400）、Klipper 不達（502）
     """
-    # 装置排他を先に取る。設定を読むだけの検査より「他が使用中」のほうが行動可能
+    # 装置排他を先に取る。設定を読むだけの検査より「他が使用中」を先に返すほうが運転者が対処しやすい
     with state.machine_lock("nozzle-clean-test"):
         clean = state.nozzle_clean()
         if clean is None:

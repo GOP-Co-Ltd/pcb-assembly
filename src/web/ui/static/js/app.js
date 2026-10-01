@@ -2,7 +2,7 @@
 
 // 全ページ共通の JS。base.html が最初に読み込み、共通関数を window.webui に公開する。
 // 他のモジュールは fetch を直接呼ばず、宛先に応じて次の関数を使う
-// （tests/web/ui/test_layout.py が静的に検査する）:
+// （tests/web/ui/test_layout.py が静的に検査する）。
 // - 表示中の機体の backend（"/api/..." / "/artifacts/..."）: api() / downloadApi()
 // - frontend 自身（/api/machines, /api/self-update/**, /api/update-notice）: frontendApi() / frontendJson()
 // - WS・<img>・リンクなどブラウザが直接開く backend の URL: withBase() で機体 prefix を付ける
@@ -10,7 +10,7 @@
 // ---- machine prefix ----
 
 // サーバが組んだ機体 prefix（"/m/<machine_id>"）。マシン非依存のページでは空。
-// backend 相対のパス（"/api/..." / "/artifacts/..."）を機体宛てに直す funnel は
+// backend 相対のパス（"/api/..." / "/artifacts/..."）を機体宛てに直す処理は
 // ここ 1 箇所だけにする（各所の URL literal は backend 相対のまま残す）。
 const BASE = document.body.dataset.machineBase ?? "";
 
@@ -47,7 +47,7 @@ async function fetchApi(method, url, body) {
     const err = new Error(data.detail || `${res.status} ${res.statusText}`);
     err.status = res.status;
     err.data = data;
-    // 423 = 操作権を持っていない。UI 全体の状態を即座に閲覧モードへ寄せる
+    // 423 = 操作権を持っていない。UI 全体の状態を即座に閲覧モードへ切り替える
     if (res.status === 423) window.webui.control?.onDenied(data);
     throw err;
   }
@@ -79,9 +79,9 @@ async function downloadApi(method, url, body) {
   return filename;
 }
 
-// frontend 自身のエンドポイント（/api/machines, /api/self-update/**, /api/update-notice）を叩く。
+// frontend 自身のエンドポイント（/api/machines, /api/self-update/**, /api/update-notice）を呼ぶ。
 // machine prefix は付けない（付けると backend へ中継されて 404 になる）。
-// fetch() をこのファイルに閉じるための入口でもある（tests/web/ui/test_layout.py）。
+// fetch() の呼び出しをこのファイルに限定するための入口でもある（tests/web/ui/test_layout.py）。
 async function frontendApi(method, url, body) {
   const options = { method, headers: { Accept: "application/json" } };
   if (body !== undefined) {
@@ -119,7 +119,8 @@ function debounce(fn, ms) {
   };
 }
 
-// 指数バックオフの遅延生成器: next() が現在の遅延を返して倍化、reset() で初期化
+// 指数バックオフの遅延生成器。next() は現在の遅延を返して次の遅延を 2 倍にする。
+// reset() で初期値に戻す
 function createBackoff(baseMs, maxMs) {
   let delay = baseMs;
   return {
@@ -158,7 +159,7 @@ async function postTopbarCommand(button, url, successMessage, failurePrefix) {
   button.disabled = true;
   try {
     // 何を再起動したかはサーバが文言まで組んで返す（組み立てを JS に複製しない）。
-    // 返さないコマンド（緊急停止）は呼び出し側の既定文言に落ちる
+    // 文言を返さないコマンド（緊急停止）では呼び出し側の既定文言を使う
     const result = await api("POST", url);
     toast(result.message || successMessage);
     if (result.warning) toast(result.warning, "warning");

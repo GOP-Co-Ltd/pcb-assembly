@@ -108,7 +108,7 @@
   function armCompletionNotification(job) {
     if (!job?.notify_on_completion) return;
     completionJobId = job.id;
-    // POST より先に終端 job_status が届く高速ジョブも取りこぼさない。
+    // POST の応答より先に終端の job_status が届く高速ジョブでも、状態を見落とさない。
     notifyIfCompleted(currentJob);
   }
 
@@ -151,7 +151,7 @@
       const version = jobStatusVersion;
       try {
         const data = await api("GET", "/api/jobs/current");
-        // 同期中に届いた WS の全量通知や、次の接続の状態を古い HTTP 応答で戻さない。
+        // 同期中に届いた WS の全量通知や次の接続の状態を、古い HTTP 応答で上書きしない。
         if (socket === connection && connection.readyState === WebSocket.OPEN
             && jobStatusVersion === version) {
           applyJob(data.job);
@@ -463,9 +463,9 @@
     configurePromptButtons(prompt);
     renderPromptField(prompt);
     if (!dialog.open) {
-      // showModal() にしない。::backdrop が緊急停止（#estop）と中止（#jc-abort）を
-      // 覆うため、応答権を持たない閲覧者は「応答できない・中止もできない」で詰む。
-      // 保持者も応答待ちの間だけ緊急停止を押せなくなる（安全機能なので塞がない）。
+      // showModal() は使わない。::backdrop が緊急停止（#estop）と中止（#jc-abort）を
+      // 覆うため、応答権を持たない閲覧者は応答も中止もできなくなる。
+      // 保持者も応答待ちの間は緊急停止を押せなくなる（安全機能なので押せる状態を保つ）。
       // 中央寄せは CSS の .jc-prompt[open] が持つ。
       dialog.show();
       // 非モーダルは自動でフォーカスが移らないので、Enter の暗黙送信のために自前で移す
@@ -561,7 +561,7 @@
         el("jc-log").textContent = "";
         el("jc-result").hidden = true;
         renderProgress("", null);
-        // 状態は WS の job_status を単一の真実とする。start() が開始時に即 publish し、
+        // 状態は WS の job_status だけを正とする。start() が開始時に即 publish し、
         // _send_loop は送信時に最新状態を再構築するため、POST 応答（開始時点で古く
         // なり得るスナップショット）は state には使わない（成功確定とエラー通知のみ）。
         const data = await api("POST", `/api/jobs/${jobForm.dataset.jobName}`, {

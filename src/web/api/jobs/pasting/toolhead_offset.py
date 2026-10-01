@@ -121,7 +121,7 @@ def register(catalog: JobCatalog) -> None:
 
 
 def _run_toolhead_offset(ctx: JobContext) -> JobResult:
-    """複数点のペースト吐出と円検出からツールヘッドXYオフセットを計測する."""
+    """複数点のペースト吐出と円検出からツールヘッド XY オフセットを計測する."""
     tolerance = float(ctx.params["tolerance"])
     lift_height = float(ctx.params["lift_height"])
     diameter_min = float(ctx.params["paste_diameter_min"])
@@ -133,7 +133,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
     if diameter_error is not None:
         raise ValueError(diameter_error)
 
-    # 配置不能ならカメラやKlipperを開始する前に中止する。
+    # 配置不能ならカメラや Klipper を開始する前に中止する。
     assert ctx.pcb_path is not None  # requires_pcb=True
     planned_points, plan_error = plan_toolhead_offset_points(
         PcbFile(ctx.pcb_path).outline.polygon,
@@ -165,7 +165,7 @@ def _run_toolhead_offset(ctx: JobContext) -> JobResult:
             frame_sink=ctx.frame,
         )
 
-        # 高さ計測フェーズ: 全計測点を先にプローブし、後続フェーズで使う絶対Zを保存する。
+        # 高さ計測フェーズ: 全計測点を先にプローブし、後続フェーズで使う絶対 Z を保存する。
         probed_points: list[ProbedPoint] = []
         for index, board_position in enumerate(planned_points, start=1):
             ctx.checkpoint()

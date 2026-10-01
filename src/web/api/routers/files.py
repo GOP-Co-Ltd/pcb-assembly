@@ -108,7 +108,7 @@ def list_files(settings: SettingsDep, path: str = "") -> FilesResponse:
 
     children = sorted(directory.iterdir(), key=lambda p: p.name)
     if not inside:
-        # 許可サブツリーへ辿る途中のディレクトリ。中身は見せず、続きの道だけ出す
+        # 許可サブツリーへ辿る途中のディレクトリ。中身は見せず、許可サブツリーへ続く子だけ出す
         children = [
             child
             for child in children
@@ -164,7 +164,7 @@ async def upload_pcb_file(
     control: ControlDep,
 ) -> StateResponse:
     """PCB ファイルを pcb_upload_dir に保存し、そのまま選択する."""
-    # Path(...).name でディレクトリ成分を落とす（traversal 防止）
+    # Path(...).name でディレクトリ成分を除く（traversal 防止）
     filename = Path(file.filename or "").name
     if not filename or not filename.endswith(PCB_SUFFIX):
         raise HTTPException(

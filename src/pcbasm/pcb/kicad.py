@@ -1,10 +1,10 @@
-"""KiCadからの部品・パッド情報抽出.
+"""KiCad からの部品・パッド情報抽出.
 
-このモジュールはKiCad Python API (pcbnew) を使用して
-PCBファイルから部品・パッド情報を抽出する.
+このモジュールは KiCad Python API (pcbnew) を使用して
+PCB ファイルから部品・パッド情報を抽出する.
 
 Note:
-    pcbnewモジュールはKiCad 9.0以降が必要.
+    pcbnew モジュールは KiCad 9.0 以降が必要.
 
     座標はすべて mm の基板座標へ正規化する（原点は外形 bbox の左上、Y 下向き）.
 
@@ -38,13 +38,13 @@ logger = logging.getLogger(__name__)
 
 
 class PcbFile:
-    """KiCad PCBファイル.
+    """KiCad PCB ファイル.
 
-    PCBファイルから部品・パッド・アウトライン情報を抽出する.
+    PCB ファイルから部品・パッド・アウトライン情報を抽出する.
     各プロパティは遅延読み込みされ、結果はキャッシュされる.
 
     Args:
-        pcb_path: KiCad PCBファイル (.kicad_pcb) のパス
+        pcb_path: KiCad PCB ファイル (.kicad_pcb) のパス
 
     Example:
         >>> pcb = PcbFile(Path("board.kicad_pcb"))
@@ -192,11 +192,11 @@ class PcbFile:
     def copper(self) -> CopperList:
         """電気的・物理的に接続された銅箔島のリスト（左上原点に正規化済み）.
 
-        各レイヤー（Top/Bottom）について、塗りつぶし済みゾーン・トラック・ビア
-        （pcbnewではTrack扱い）・パッドのポリゴンを集約し、結合・closing後の
-        連結成分からビアのドリル穴を除いたものを1つのCopperとして返す.
+        各レイヤー（Top/Bottom）について、塗りつぶし済みゾーン・トラック・ビア （pcbnew では Track
+        扱い）・パッドのポリゴンを集約し、結合・closing 後の 連結成分からビアのドリル穴を除いたものを 1 つの Copper
+        として返す.
         """
-        # ゾーンのfillキャッシュがstaleな場合に備え、読み込み時に1回だけ再fillする
+        # ゾーンの fill キャッシュが stale な場合に備え、読み込み時に 1 回だけ再 fill する
         try:
             pcbnew.ZONE_FILLER(self._board).Fill(self._board.Zones())
         except Exception:
@@ -275,7 +275,7 @@ def _via_drill_polygon(
     origin_y: float,
     max_error: float,
 ) -> Polygon:
-    """ビアの円形ドリル穴を正規化済みshapely Polygonへ変換する."""
+    """ビアの円形ドリル穴を正規化済み shapely Polygon へ変換する."""
     position = via.GetPosition()
     center = ShapelyPoint(
         _nm_to_mm(position.x) - origin_x,
@@ -288,10 +288,10 @@ def _via_drill_polygon(
 def _copper_polygon_for(
     paste_polygon: Polygon, copper_polygons: list[Polygon]
 ) -> Polygon:
-    """Paste polygonに対応する実銅箔ポリゴンを選ぶ.
+    """Paste polygon に対応する実銅箔ポリゴンを選ぶ.
 
-    複数outlineを持つpadではpaste重心を覆うものを選び、無ければ先頭を使う。
-    銅箔ポリゴンが得られないpad（銅箔層を持たない等）はpaste polygonへフォールバックする。
+    複数 outline を持つ pad では paste 重心を覆うものを選び、無ければ先頭を使う。 銅箔ポリゴンが得られない
+    pad（銅箔層を持たない等）は paste polygon へ フォールバックする。
     """
     if not copper_polygons:
         return paste_polygon

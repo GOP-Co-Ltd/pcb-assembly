@@ -1,6 +1,6 @@
 "use strict";
 
-// 設定ページ: セクション切替と絞り込み。表示の出し入れだけを行い、保存は settings.js。
+// 設定ページのセクション切替と絞り込み。表示の切り替えだけを行い、保存は settings.js が行う。
 
 (() => {
   const nav = document.querySelector(".settings-nav");
@@ -13,7 +13,7 @@
   const rows = Array.from(document.querySelectorAll("tr[data-search]"));
   const emptyNotice = document.getElementById("settings-filter-empty");
 
-  // 絞り込み中はどのセクションも選択表示にならないので、選択は DOM ではなくここで覚える
+  // 絞り込み中はどのセクションも選択表示にならないので、選択は DOM ではなくこの変数で覚える
   let activeSlug = items[0]?.dataset.section;
 
   function selectSection(slug) {
@@ -56,7 +56,7 @@
   }
 
   function showSection(slug) {
-    // 絞り込み中にセクションを選んだら、そのセクションを丸ごと見せる
+    // 絞り込み中にセクションを選んだら、そのセクションの項目をすべて表示する
     filter.value = "";
     clearFilter();
     selectSection(slug);

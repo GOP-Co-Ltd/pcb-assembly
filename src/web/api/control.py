@@ -163,7 +163,7 @@ class ControlLease:
         return info
 
     def takeover(self, identity: ClientIdentity) -> LeaseInfo:
-        """保持者を問わず操作権を奪取する（詰みからの脱出口）.
+        """保持者を問わず操作権を奪取する（誰も操作できなくなった状態から抜け出す手段）.
 
         実行中のジョブには一切触らない（指示を出す権利の移転であって、走って
         いる処理の移転ではない）。

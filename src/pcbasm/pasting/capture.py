@@ -35,7 +35,7 @@ class PointCapturer:
         """Board 計測済みセッションと、開始時に 1 回決めた crop 寸法で組む."""
         self._session = session
         self._crop_size_px = crop_size_px
-        # 静定待ちは機体設定が正（撮影点への移動は他の計測と同じ現象）
+        # 静定待ちは機体設定の値を使う（撮影点への移動は他の計測と同じ現象）
         self._settle_sec = session.machine.settle.move_sec
         self._frame_sink = frame_sink
         self._projector = CopperProjector.from_calibration(session.calibration_result)
@@ -52,7 +52,7 @@ class PointCapturer:
         Args:
             center: 撮影する board 座標の点
             offset: カメラ中心をずらす量 [mm]（複数視点の撮影用）
-            correction: その点に効く機械座標の位置合わせ補正（無ければ ``None``）
+            correction: その点に適用する機械座標の位置合わせ補正（無ければ ``None``）
         """
         session = self._session
         stage_xy = session.camera_point_target(

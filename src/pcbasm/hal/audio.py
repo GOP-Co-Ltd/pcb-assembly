@@ -1,9 +1,9 @@
 """ALSA を使った通知音再生.
 
-音声ファイルの差し替えは ``src/pcbasm/hal/sounds/`` の ``success.wav`` /
-``failure.wav`` / ``prompt.wav`` を非圧縮 16-bit PCM WAV で同名のまま上書きする
-だけでよい。それ以外の設定変更は不要（フォーマットが不正なら再生時に
-:class:`AudioPlaybackError` になるので WebUI のテスト再生で分かる）。
+音声ファイルを差し替えるには、``src/pcbasm/hal/sounds/`` の ``success.wav`` /
+``failure.wav`` / ``prompt.wav`` を非圧縮 16-bit PCM WAV で同名のまま上書きする。
+ほかの設定変更は要らない。フォーマットが不正なら再生時に
+:class:`AudioPlaybackError` を送出するので、WebUI のテスト再生で確認できる。
 
 ``prompt`` はジョブがオペレータ待ちに入ったことを知らせる音で、装置の前を離れた
 作業者を呼び戻すのに使う。``success`` / ``failure`` はジョブの終了通知。どの場面で
@@ -55,7 +55,8 @@ def parse_aplay_devices(output: str) -> tuple[AudioDevice, ...]:
     """``aplay -L`` の出力から選択候補を抽出する.
 
     先頭は常にシステム既定 (``default``) で、続いて各カードの
-    ``plughw:CARD=<card>,DEV=0`` を出力順に返す。ラベルは記述行の1行目をそのまま使う。
+    ``plughw:CARD=<card>,DEV=0`` を出力順に返す。ラベルは記述行の 1 行目をそのまま
+    使う。
     """
     devices = [AudioDevice(DEFAULT_AUDIO_DEVICE, _DEFAULT_DEVICE_LABEL)]
     pending: str | None = None

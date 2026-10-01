@@ -94,7 +94,7 @@ service_description() {
 # 対象ごとに違うのは Description と ExecStart のターゲット名だけ。
 #
 # frontend に `After=pcbasm-api.service` を付けない: 同居機で backend の起動失敗が
-# frontend まで止めてしまう。frontend は backend が落ちていても起動でき、
+# frontend まで止めてしまう。frontend は backend が停止していても起動でき、
 # 各機体への問い合わせが 503 になるだけで復帰できる。
 # `After=avahi-daemon.service` も不要（mDNS は python-zeroconf 実装で avahi に依存しない）。
 render_unit() {
@@ -181,7 +181,7 @@ install_service() {
     unit_file="$(mktemp)"
     # trap 本文は関数フレームが巻き戻された後に評価されるため、local の ${unit_file} を
     # 遅延展開すると空文字（= rm -f ""）になり、特権 install が失敗したときに mktemp した
-    # ファイルが残る。設置時に展開して実パスを焼き込む。
+    # ファイルが残る。設置時に展開して実パスを埋め込む。
     # shellcheck disable=SC2064
     trap "rm -f '${unit_file}'" EXIT
     render_unit "${target}" >"${unit_file}"
@@ -203,7 +203,7 @@ remove_service() {
     path="$(unit_path "${target}")"
 
     # install と対称に旧 unit も撤去する。未移行の機体には新 unit が無いので、先に
-    # 掃除しないと下の「登録されていません」で抜けてしまい、`make webui` を失って
+    # 掃除しないと下の「登録されていません」で終了してしまい、`make webui` が無いため
     # restart ループに入る旧 unit が enabled のまま残る。
     if [ "${target}" = "api" ]; then
         purge_legacy_unit
@@ -246,7 +246,7 @@ control_service() {
 }
 
 # systemctl の終了コードをそのまま返す（inactive=3 / 未登録=4）。呼び出し側が
-# 全対象を回しきるため、ここでは失敗しても抜けさせない。
+# 全対象を回しきるため、ここでは失敗しても終了させない。
 show_status() {
     require_command systemctl
     systemctl status --no-pager "$(service_name "$1")"
@@ -299,9 +299,9 @@ main() {
                 remove_service "${target}"
                 ;;
             status)
-                # 診断経路。片方だけ落ちた同居機を切り分けるために使うので、非 0
+                # 診断経路。片方だけ停止した同居機を切り分けるために使うので、非 0
                 # （inactive=3 / 未登録=4）でも打ち切らず全対象の状態を表示する。
-                # 終了コードは「全対象を見た結果」— 最初の非 0 をそのまま返す。
+                # 終了コードは「全対象を見た結果」で、最初の非 0 をそのまま返す。
                 rc=0
                 show_status "${target}" || rc=$?
                 if [ "${status_rc}" -eq 0 ]; then

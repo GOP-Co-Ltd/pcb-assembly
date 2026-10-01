@@ -1,6 +1,6 @@
 ---
 name: refactor-conventions
-description: PCBアセンブリのリファクタリング規約集。テスト方針の詳細（モック最小化、parametrize、テストクラス集約）、カプセル化（_ prefix）、私的属性を直接テストしない原則、try-catchではなくNone返却バリデーションなど。コードを書き換える・テストを追加するときに参照する。
+description: PCB アセンブリのリファクタリング規約集。テスト方針の詳細（モック最小化、parametrize、テストクラス集約）、カプセル化（_ prefix）、私的属性を直接テストしない原則、try-catch ではなく None 返却バリデーションなど。コードを書き換える・テストを追加するときに参照する。
 ---
 
 # リファクタリング規約
@@ -13,7 +13,7 @@ AGENTS.md の要点を補完し、詳細な判断基準と具体例を提供す�
 ### 何をテストするか
 
 - **公開インターフェースの振る舞い**を入出力ベースで検証
-- 正常系・異常系・警告（RuntimeWarning等）・エッジケース
+- 正常系・異常系・警告（RuntimeWarning 等）・エッジケース
 
 ### 何をテストしないか
 
@@ -29,10 +29,10 @@ AGENTS.md の要点を補完し、詳細な判断基準と具体例を提供す�
 
 ### モック方針
 
-skill `testing-strategy` が単一の正典。ここでは要点のみ:
+skill `testing-strategy` が単一の正典。ここでは要点だけを挙げる。
 
 - fake してよいのは自前 HAL ABC（`src/pcbasm/hal/`）だけ
-- 3rd-party 表面（`picamera2`、`libgpiod`、Klipper RPC、`cv2.*`、`time.sleep` 等）と内部 private 関数のモックは禁止。仮定のミラーになり upstream 挙動変更を検出できないため
+- 3rd-party 表面（`picamera2`、`libgpiod`、Klipper RPC、`cv2.*`、`time.sleep` 等）と内部 private 関数のモックは禁止。モックはテスト作成者の仮定を写すだけで、upstream の挙動変更を検出できないため
 - 実オブジェクト＋実データを優先する。ABC に具象が無ければ `tests/helpers.py` に実 Impl を置く（`mocker.Mock` より先に検討）
 
 ### ハードウェアテスト分離
@@ -67,7 +67,7 @@ class HeightPlane:
 ### public 化判断基準
 
 - 外部呼び出し元が **本当に** 参照する必要がある属性のみ public 化
-- 「テストから参照したい」は public 化の理由にならない（公開API経由でテストする）
+- 「テストから参照したい」は public 化の理由にならない（公開 API 経由でテストする）
 - `pyright` の `reportPrivateUsage` warning が出る import は避ける
 
 ## エラーハンドリング
@@ -100,21 +100,21 @@ def parse_position(s: str) -> Position:
 ### 適用する典型パターン
 
 - 不要なネストの平坦化（early return / guard clause）
-- 不要な抽象化（1箇所しか使わない関数/クラス）の解消
+- 不要な抽象化（1 箇所しか使わない関数/クラス）の解消
 - 不適切な命名の改善（意図が読めない `data`, `tmp`, `helper` 等）
 - wrapper / pass-through メソッドの除去
-- 重複コードの抽出（ただし「3度現れたら抽出」が目安、早すぎる抽象化を避ける）
+- 重複コードの抽出（ただし「3 度現れたら抽出」が目安、早すぎる抽象化を避ける）
 - 巨大関数の分割（責務単位、ただし不要な分割は避ける）
 
 ### 適用しない（避ける）パターン
 
 - 仮想的な将来要件のための抽象化
 - 「綺麗に見える」だけの分割
-- 公開IFを変えるリファクタ（破壊的変更は別タスクで合意してから）
+- 公開 IF を変えるリファクタ（破壊的変更は別タスクで合意してから）
 
 ## 検証フロー
 
-リファクタ・実装の完了条件：
+リファクタ・実装の完了条件は次のとおり。
 
 ```bash
 make format && make type && make test
@@ -122,8 +122,8 @@ make format && make type && make test
 
 すべてパスして初めて完了。型チェックエラーや lint warning を放置しない。
 
-## Git運用との接続
+## Git 運用との接続
 
 - リファクタは `refactor/<日付>/<内容>` ブランチで作業
 - コミットは `refactor(<スコープ>): <内容>` 形式
-- 1コミット 1関心事、検証通過前のコミットは避ける
+- 1 コミット 1 関心事、検証通過前のコミットは避ける

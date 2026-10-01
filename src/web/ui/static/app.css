@@ -71,8 +71,8 @@ button {
   white-space: nowrap;
 }
 
-/* UA の `[hidden] { display: none }` は上の `button` 規則に負けるため打ち消す
-   （hidden のままレイアウトに残ると、隣の要素の上に重なってクリックを奪う） */
+/* UA の `[hidden] { display: none }` は上の `button` 規則より優先度が低いため、ここで上書きする
+   （hidden のままレイアウトに残ると、隣の要素の上に重なってクリックを横取りする） */
 button[hidden] {
   display: none;
 }
@@ -196,7 +196,7 @@ h2 {
 
 /* 操作権リースのバー。1 行に収める（折り返すとヘッダが伸びて全ページの本文が
    下へずれる）。1280px 幅のヘッダには余白がほぼ無いので、内側の 2 要素を縮める
-   ことで幅を譲る（縮み代が無いと中身が隣の要素へはみ出してクリックを奪う） */
+   ことで幅を空ける（縮める余地が無いと、中身が隣の要素へはみ出してクリックを横取りする） */
 .control-lease {
   display: flex;
   flex: 0 1 auto;
@@ -205,7 +205,7 @@ h2 {
   min-width: 0;
 }
 
-/* 誰が保持しているか。詰まったら省略記号で縮むが `min-width` の分は必ず残す */
+/* 誰が保持しているか。幅が足りないときは省略記号で縮めるが、`min-width` の分は必ず残す */
 .control-holder {
   flex: 0 1 auto;
   overflow: hidden;
@@ -250,8 +250,8 @@ h2 {
   background: var(--surface-2);
 }
 
-/* 更新通知バッジ。`hidden` を効かせるため display の打ち消しを明示する
-   （`.icon-link` 相当の inline-flex は UA の `[hidden] { display: none }` に勝つ） */
+/* 更新通知バッジ。`hidden` を有効にするため、display を明示的に上書きする
+   （`.icon-link` 相当の inline-flex は UA の `[hidden] { display: none }` より優先される） */
 .update-badge {
   display: inline-flex;
   align-items: center;
@@ -626,7 +626,7 @@ h2 {
 .settings-nav {
   position: sticky;
   /* .topbar（sticky / min-height 3.25rem / z-index 20）の下に貼る。
-     0 に近づけると先頭項目が不透明な topbar の裏へ潜って押せなくなる */
+     0 に近づけると先頭項目が不透明な topbar の下に隠れて押せなくなる */
   top: 4rem;
   display: flex;
   flex-direction: column;
@@ -1135,7 +1135,7 @@ h2 {
   border-radius: var(--radius);
 }
 
-/* 非モーダル（`show()`）で開くので、中央寄せと重なり順を自分で持つ。モーダルに
+/* 非モーダル（`show()`）で開くので、中央寄せと重なり順をここで指定する。モーダルに
    しないのは ::backdrop が緊急停止 / 中止を覆ってしまうため（job_console.js 参照） */
 .jc-prompt[open] {
   position: fixed;
@@ -1143,9 +1143,9 @@ h2 {
   z-index: 30;
   margin: auto;
   height: fit-content;
-  /* UA の `dialog:modal` が持つクランプを自分で持つ（`show()` では効かない）。
-     無いと長い本文で OK が画面外に出る。`position: fixed` なのでページスクロールでは
-     届かず、ダイアログ自身もスクロールしないため応答不能になる */
+  /* UA の `dialog:modal` が持つクランプをここで指定する（`show()` では適用されない）。
+     無いと長い本文で OK が画面外に出る。`position: fixed` なのでページをスクロールしても
+     届かず、ダイアログ自身もスクロールしないため応答できなくなる */
   max-height: calc(100% - 6px - 2em);
   overflow: auto;
   box-shadow: 0 10px 32px rgb(20 32 46 / 0.28);
@@ -1194,7 +1194,7 @@ h2 {
   margin-top: 0;
 }
 
-/* 1 枚のカードに概要・手順・記録位置を積むページ（ノズル位置の設定）の小見出し。
+/* 1 枚のカードに概要・手順・記録位置を縦に並べるページ（ノズル位置の設定）の小見出し。
    ブラウザ既定の h4 マージンはカード内では空きすぎる。 */
 .nozzle-position-card h4 {
   margin: 1.1rem 0 0.4rem;
@@ -1203,7 +1203,7 @@ h2 {
 /* ---- software update panel ---- */
 
 /* ラベルと値の 2 列。commit の subject もブランチ名も長くなり得るので、
-   値の列を minmax(0, 1fr) にして anywhere で折る（横スクロールを出さない）。 */
+   値の列を minmax(0, 1fr) にして anywhere で折り返す（横スクロールを出さない）。 */
 .update-repo {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1390,7 +1390,7 @@ h2 {
 }
 
 /* 点の位置を決める道具と machine 設定は、項目が多いので縦に積まず横帯にする。
-   ツールバーが伸びると基板 SVG が fold の下へ落ちる */
+   ツールバーが伸びると、基板 SVG が fold より下に押し出される */
 .paste-auto-thresholds,
 .pad-initial-purge-tools {
   display: flex;
@@ -1504,7 +1504,7 @@ h2 {
   flex: 1 1 16rem;
 }
 
-/* ラベルは入力の左に置く。上に積むと 1 項目あたり 2 行分の高さを食う */
+/* ラベルは入力の左に置く。上に置くと 1 項目あたり 2 行分の高さを使う */
 .pad-flow-calibration-settings label,
 .pad-flow-calibration-tools label {
   display: flex;
@@ -1526,7 +1526,7 @@ h2 {
 }
 
 /* 校正ファイルはファイル名が長い。選択肢が読めないと選べないので、
-   この項目だけ 1 行を丸ごと使い、条件・診断はその下へ落とす */
+   この項目だけ 1 行を丸ごと使い、条件・診断はその下へ回す */
 .pad-flow-calibration-settings label.pad-flow-calibration-file {
   flex: 1 1 100%;
   flex-wrap: wrap;
@@ -1614,7 +1614,7 @@ h2 {
   width: 100%;
   min-height: 16rem;
   /* 画面が低いときはツールバーの下に収まる高さまで縮める。
-     基板が fold の下へ落ちると、最初に見たい図がスクロールしないと見えない */
+     基板が fold より下に押し出されると、最初に見たい図がスクロールしないと見えない */
   max-height: min(40rem, 55vh);
   touch-action: none;
 }
@@ -1737,9 +1737,9 @@ h2 {
   dominant-baseline: central;
 }
 
-/* マーカーは注記なので当たり判定を持たない。
+/* マーカーは注記なのでクリック判定を持たない。
    自動解決したパージ位置は順路先頭 pad の中心に来るため、
-   当たり判定があるとその pad をクリックで選べなくなる */
+   クリック判定があるとその pad をクリックで選べなくなる */
 .pad-purge-marker,
 .pad-flow-calibration-marker,
 .pad-flow-calibration-crop {
@@ -1781,13 +1781,13 @@ h2 {
 }
 
 /* 補正が成立していない（校正ファイル未設定・撮影範囲の重なり）状態の測定点。
-   座標は保存されているので図から消さず、効いていないことだけを見せる */
+   座標は保存されているので図から消さず、補正に使われていないことだけを示す */
 .pad-flow-calibration-marker[data-planned="false"] circle {
   fill: var(--quiet);
 }
 
 /* 測定点の撮影範囲。ここが重なると隣のドットが写り込むので、
-   次の点を置けない範囲として点線の四角で見せる */
+   次の点を置けない範囲として点線の四角で示す */
 .pad-flow-calibration-crop {
   fill: none;
   stroke: #0f766e;
@@ -1802,7 +1802,7 @@ h2 {
 }
 
 /* マーカー打ちモード中はクリック先が「基板上の点」であることを示す。
-   パッドが hover やカーソルで反応すると座標を狙えないので当たり判定を外す */
+   パッドが hover やカーソルで反応すると座標を指定しにくいので、クリック判定を外す */
 .pad-viewer-picking {
   cursor: crosshair;
 }
@@ -2668,7 +2668,7 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  /* 1 列になるので、2 列ぶんを占める指定が暗黙の列を作らないよう戻す */
+  /* 1 列になるので、2 列ぶんを占める指定を解除し、暗黙の列が作られないようにする */
   .pad-initial-purge-tools {
     grid-column: 1 / -1;
   }
@@ -2733,7 +2733,7 @@ h2 {
   grid-column: 1 / -1;
 }
 
-/* 段が狭いのでラベルを入力の上へ積む（既定の 3 列は 1 段組み前提） */
+/* 段が狭いのでラベルを入力の上に置く（既定の 3 列は 1 段組み前提） */
 .paste-volume-calibration-form .job-param {
   grid-template-columns: minmax(0, 1fr);
   align-content: start;

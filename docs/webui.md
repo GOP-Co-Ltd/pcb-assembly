@@ -2,17 +2,17 @@
 
 [ドキュメント一覧](../README.md)
 
-装置をブラウザから操作するUI。**backend WebAPI（`src/web/api/`）と UI frontend
-（`src/web/ui/`）の 2 プロセス**に分かれる。
+装置をブラウザから操作する UI。backend WebAPI（`src/web/api/`）と UI frontend
+（`src/web/ui/`）の 2 プロセスに分かれる。
 
-- **backend WebAPI** — 機体ごとに 1 つ。port 8081。カメラ・Klipper・ジョブ実行・
+- backend WebAPI: 機体ごとに 1 つ。port 8081。カメラ・Klipper・ジョブ実行・
     マシン設定（`config/`）・PCB ファイルの所有者
-- **UI frontend** — LAN に 1 つ。port 8080。ページを描き、`/m/{machine_id}/api/**` を
+- UI frontend: LAN に 1 つ。port 8080。ページを描き、`/m/{machine_id}/api/**` を
     各 backend へ中継する。装置の状態を持たず `config/` も読まないので、機体でない
     ホストでも動く
 
 同居機（frontend と backend が同じ Raspberry Pi）では 8080 = frontend / 8081 = backend
-に分ける。既存ブックマークの `:8080` はそのまま frontend に着地する。
+に分ける。既存ブックマークの `:8080` を開くと、そのまま frontend が表示される。
 API・ジョブ・ページを足す開発者は [アーキテクチャ](architecture.md#%E6%A9%9F%E8%83%BD%E3%82%92%E8%B6%B3%E3%81%99%E3%81%A8%E3%81%8D%E3%81%AE%E5%A4%89%E6%9B%B4%E5%85%88) を読む。
 
 ```sh
@@ -78,12 +78,12 @@ make ui-fake  # api-fake（8099）を上流にした frontend（port 8098）
 
 frontend が backend を知る経路は 2 つある。
 
-1. **mDNS 探索** — backend が `_pcbasm._tcp` を広告し、frontend が LAN を探索する。設定不要
-2. **静的登録** — `config/machines.toml`
+1. mDNS 探索: backend が `_pcbasm._tcp` を広告し、frontend が LAN を探索する。設定不要
+2. 静的登録: `config/machines.toml`
 
 AP のマルチキャスト抑制などで探索できない環境では、frontend は WARNING を出して
-静的登録だけで続行する（起動は失敗しない）。**探索に頼れないネットワークでは
-`config/machines.toml` を書く。**
+静的登録だけで続行する（起動は失敗しない）。mDNS で探索できないネットワークでは
+`config/machines.toml` を書く。
 
 ```toml
 [[machine]]
@@ -98,27 +98,28 @@ machine_type = "paste"    # 省略可
 `name` は選択メニューの表示名には使わない。対象が未選択の案内画面では「マシンを選択」から選ぶ。
 
 **`machine_id` はその機体のホスト名（`hostname` の出力）に合わせる。** backend が名乗る ID は
-`socket.gethostname()` で決まり環境変数では変えられないので、ここがずれると探索が見つけた
-同じ backend が別マシン扱いになり一覧に 2 件出る（重複排除は `machine_id` だけで行う）。
+`socket.gethostname()` で決まり、環境変数では変えられない。この ID と `machine_id` がずれると、
+探索で見つかった backend と静的登録した同じ backend が別マシンとして扱われ、一覧に 2 件出る
+（重複排除は `machine_id` だけで行う）。
 
 ファイルが無い場合は静的登録 0 台として起動する（探索で見つかった分だけが一覧に出る）。
 同じ `machine_id` を両方の経路が知っている場合は静的登録の `host` / `port` を優先し、
 静的側が持たない `machine_type` だけ探索側で埋める。
 
-`machines.toml` を読むのは frontend の起動時の 1 回だけなので、**編集したら frontend を
-再起動する**（実行中に更新されるのは mDNS 探索の分だけ）。`scripts/setup-machine-config.sh` が案内する
-`mv config config.bak.<ts>` で `config/` を作り直すと `machines.toml` も一緒に退避され、
-不在はエラーにならず静的登録 0 台になる（退避先から戻す）。
+frontend が `machines.toml` を読むのは起動時の 1 回だけなので、編集したら frontend を
+再起動する（実行中に更新されるのは mDNS 探索の分だけ）。`scripts/setup-machine-config.sh` が案内する
+`mv config config.bak.<ts>` で `config/` を作り直すと、`machines.toml` も一緒に退避される。
+ファイルが無くてもエラーにはならず静的登録 0 台になるので、退避先から戻す。
 
 mDNS には生存判定が無く、電源を切った機体は最大 75 分ほど一覧に残る。到達できない
 マシンを選ぶと 503 ページになる。
 
 ## PCB ファイルは backend 機に置く
 
-ファイルブラウザが見るのは **backend プロセスのローカル FS**
-（frontend は中継するだけで、frontend 機のファイルは見えない）。**USB メモリは
-その機体の Raspberry Pi に挿す。** 閲覧を許すのはリポジトリ直下・`/media`・`/mnt`
-（`src/web/api/settings.py` の `pcb_browse_allowed`）。
+ファイルブラウザに表示されるのは backend プロセスのローカル FS である。
+frontend は中継するだけなので、frontend 機のファイルは見えない。**USB メモリは
+その機体の Raspberry Pi に挿す。** 閲覧を許可する場所はリポジトリ直下・`/media`・`/mnt`
+である（`src/web/api/settings.py` の `pcb_browse_allowed`）。
 
 一覧は Tab / Shift+Tab で移動し、Enter でフォルダーを開いたり PCB を選んだりできる。
 「上のフォルダー」で戻り、Esc または「閉じる」で選択を中断する。
@@ -129,8 +130,8 @@ mDNS には生存判定が無く、電源を切った機体は最大 75 分ほ�
 
 ## 通知音
 
-**backend 機**の Raspberry Pi に接続したスピーカーから通知音を再生する（音を鳴らすのは
-backend プロセス。ブラウザからは鳴らさない）。鳴る場面は 3 つ。
+backend 機の Raspberry Pi に接続したスピーカーから通知音を再生する。音を鳴らすのは
+backend プロセスで、ブラウザからは鳴らさない。通知音が鳴る場面は 3 つある。
 
 | 音         | 鳴る場面                                             |
 | ---------- | ---------------------------------------------------- |
@@ -148,7 +149,7 @@ backend プロセス。ブラウザからは鳴らさない）。鳴る場面は
 テスト再生は機体のスピーカーが実際に鳴るので操作権を要する。
 
 音声ファイルを差し替える場合は `src/pcbasm/hal/sounds/` の `success.wav` / `failure.wav` /
-`prompt.wav` を**非圧縮 16-bit PCM WAV** で同名のまま上書きする（git-lfs 追跡下）。差し替え後は
+`prompt.wav` を非圧縮 16-bit PCM WAV で同名のまま上書きする（git-lfs 追跡下）。差し替え後は
 `/dev/audio` のテスト再生で確認する。
 
 ## 複数人で同時に開いたとき（操作権）
@@ -156,56 +157,56 @@ backend プロセス。ブラウザからは鳴らさない）。鳴る場面は
 変更操作は「操作権」を持つ 1 セッションだけに許す。閲覧は誰でも自由。
 
 - **緊急停止とジョブ中止（abort）は操作権に関係なく常に誰でも実行できる。** 安全機能
-    なのでゲートしない
-- 空いていれば取得、他の人が保持していれば**奪取**できる（詰み防止）。保持者の
+    なので操作権で制限しない
+- 空いていれば取得、他の人が保持していれば奪取できる（誰も操作できなくなる状態を防ぐため）。保持者の
     WebSocket が切れて 30 秒、または無操作 10 分（ジョブ実行中は除く）で自動解放
 - **これは認証ではなく自己申告**。セッション ID は frontend が発行する cookie で、
-    LAN 上の誰でも他人の ID と表示名を騙れる。防ぐのは「複数人が同時に指示を出す事故」
-    であって、権限分離ではない
-- **1 ブラウザプロファイル = 1 人**。cookie 単位なので、共有キオスク端末の同じ
+    LAN 上の誰でも他人の ID と表示名を騙れる。操作権が防ぐのは複数人が同時に指示を出す
+    ことだけで、権限は分離しない
+- 1 ブラウザプロファイルを 1 人として扱う。cookie 単位なので、共有キオスク端末の同じ
     ブラウザで開いた 2 人は同一セッション扱いになり、分けられない
 
 ## 公開範囲（無認証であることの注意）
 
-**WebUI に認証は無い。** 待ち受けは既定で `0.0.0.0` なので、LAN から届く誰でも装置を
+**WebUI に認証は無い。** 待ち受けは既定で `0.0.0.0` なので、LAN から接続できる人は誰でも装置を
 動かせる（ステージ移動・ペースト吐出・ジョブ実行）。ファイルブラウザからは backend 機の
-`/media` / `/mnt` が読める。信頼できない範囲に晒す場合はファイアウォールか前段の
+`/media` / `/mnt` が読める。信頼できない範囲へ公開する場合はファイアウォールか前段の
 リバースプロキシで認証をかける。
 
 ## 環境変数
 
-backend（正典は `src/web/api/settings.py` の `Settings.from_env`）:
+backend の環境変数は次のとおり（定義元は `src/web/api/settings.py` の `Settings.from_env`）。
 
-- `PCBASM_API_PORT` — 待ち受けポート（既定 8081）
-- `PCBASM_API_DATA_DIR` — 成果物・状態ファイルの保存先
-- `PCBASM_API_PCB_ROOT` — ファイルブラウザの root（指定すると閲覧許可にも追加される）
-- `PCBASM_API_FAKE_CAMERA` — `1` でカメラ実機なしの固定画像配信
-- `PCBASM_API_FAKE_CAMERA_IMAGE` — その固定画像のパス
-- `PCBASM_API_DISCOVERY_ENABLED` — `0` で mDNS 広告を無効
-- `PCBASM_API_UPDATE_ENABLED` — `0` で WebUI からの更新を無効（実行系は 403）
-- `PCBASM_API_UPDATE_UV_SYNC_ARGS` — `uv sync` の引数を**丸ごと置き換える**（空白区切り。既定 `--locked --inexact`）。`--locked` を落とすと `uv.lock` が書き換わって以後の更新が全部止まるので、足すときも既定の 2 つは必ず残す
-- `PCBASM_API_UPDATE_STATE_DIR` — 更新の記録と単一実行ロックの置き場所（既定はリポジトリ直下の `data/selfupdate`。**`PCBASM_API_DATA_DIR` では動かない** — ロックが守るのは worktree なので、同居機の backend と frontend が必ず同じファイルを掴む）
-- `PCBASM_MAINSAIL_URL` — Mainsail へのリンク先
-- `PCBASM_CONFIG_DIR` — マシン設定ディレクトリ（既定 `config/`）の差し替え。pcbasm コア層と共通
+- `PCBASM_API_PORT`: 待ち受けポート（既定 8081）
+- `PCBASM_API_DATA_DIR`: 成果物・状態ファイルの保存先
+- `PCBASM_API_PCB_ROOT`: ファイルブラウザの root（指定すると閲覧許可にも追加される）
+- `PCBASM_API_FAKE_CAMERA`: `1` でカメラ実機なしの固定画像配信
+- `PCBASM_API_FAKE_CAMERA_IMAGE`: その固定画像のパス
+- `PCBASM_API_DISCOVERY_ENABLED`: `0` で mDNS 広告を無効
+- `PCBASM_API_UPDATE_ENABLED`: `0` で WebUI からの更新を無効（実行系は 403）
+- `PCBASM_API_UPDATE_UV_SYNC_ARGS`: `uv sync` の引数を**丸ごと置き換える**（空白区切り。既定 `--locked --inexact`）。`--locked` を外すと `uv.lock` が書き換わり、以後の更新がすべて中断するので、引数を足すときも既定の 2 つは必ず残す
+- `PCBASM_API_UPDATE_STATE_DIR`: 更新の記録と単一実行ロックの置き場所（既定はリポジトリ直下の `data/selfupdate`）。`PCBASM_API_DATA_DIR` を変えてもこの場所は変わらない。ロックの対象は worktree なので、同居機の backend と frontend が必ず同じファイルを使う
+- `PCBASM_MAINSAIL_URL`: Mainsail へのリンク先
+- `PCBASM_CONFIG_DIR`: マシン設定ディレクトリ（既定 `config/`）の差し替え。pcbasm コア層と共通
 
 backend の待ち受けアドレスは環境変数では変えられない（`PCBASM_API_HOST` は無く、常に
 `0.0.0.0`）。特定アドレスに絞るならファイアウォールか前段のリバースプロキシで行う。
 
-frontend（正典は `src/web/ui/settings.py` の `Settings.from_env`）:
+frontend の環境変数は次のとおり（定義元は `src/web/ui/settings.py` の `Settings.from_env`）。
 
-- `PCBASM_UI_HOST` / `PCBASM_UI_PORT` — 待ち受け（既定 `0.0.0.0` / 8080）
-- `PCBASM_UI_MACHINES_FILE` — machines.toml のパス（既定 `config/machines.toml`）
-- `PCBASM_UI_DEFAULT_BACKEND_PORT` — machines.toml で `port` を省いたマシンに使う port（既定 8081）
-- `PCBASM_UI_DISCOVERY_ENABLED` — `0` で mDNS 探索を無効
-- `PCBASM_UI_UPDATE_ENABLED` — `0` で frontend 自身の更新を無効
-- `PCBASM_UI_UPDATE_UV_SYNC_ARGS` — `uv sync` の引数を**丸ごと置き換える**（空白区切り。既定の `--locked --inexact` は残すこと）
-- `PCBASM_UI_UPDATE_STATE_DIR` — 更新の記録と単一実行ロック（既定はリポジトリ直下の `data/selfupdate`。backend の既定と同じ場所）
-- `PCBASM_UI_SSR_TIMEOUT` / `PCBASM_UI_BACKEND_CONNECT_TIMEOUT` / `PCBASM_UI_PROXY_READ_TIMEOUT` — 秒
+- `PCBASM_UI_HOST` / `PCBASM_UI_PORT`: 待ち受け（既定 `0.0.0.0` / 8080）
+- `PCBASM_UI_MACHINES_FILE`: machines.toml のパス（既定 `config/machines.toml`）
+- `PCBASM_UI_DEFAULT_BACKEND_PORT`: machines.toml で `port` を省いたマシンに使う port（既定 8081）
+- `PCBASM_UI_DISCOVERY_ENABLED`: `0` で mDNS 探索を無効
+- `PCBASM_UI_UPDATE_ENABLED`: `0` で frontend 自身の更新を無効
+- `PCBASM_UI_UPDATE_UV_SYNC_ARGS`: `uv sync` の引数を**丸ごと置き換える**（空白区切り。既定の `--locked --inexact` は残すこと）
+- `PCBASM_UI_UPDATE_STATE_DIR`: 更新の記録と単一実行ロック（既定はリポジトリ直下の `data/selfupdate`。backend の既定と同じ場所）
+- `PCBASM_UI_SSR_TIMEOUT` / `PCBASM_UI_BACKEND_CONNECT_TIMEOUT` / `PCBASM_UI_PROXY_READ_TIMEOUT`: 秒
 
 frontend が `config/` から読むのは `machines.toml` **だけ**（機体設定の `machine.toml` は読まない）。
-そのため `PCBASM_CONFIG_DIR` は持たず、これを変えても `machines.toml` の場所は動かない
-（既定はリポジトリ直下の `config/machines.toml` 固定）。**場所を変えるノブは
-`PCBASM_UI_MACHINES_FILE`。**
+そのため frontend は `PCBASM_CONFIG_DIR` を持たず、この変数を変えても `machines.toml` の場所は変わらない
+（既定はリポジトリ直下の `config/machines.toml` 固定）。場所を変えるには
+`PCBASM_UI_MACHINES_FILE` を使う。
 
 ## 困ったとき
 

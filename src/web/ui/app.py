@@ -47,8 +47,8 @@ class _NoCacheStaticFiles(StaticFiles):
 def _static_asset_url(path: str) -> str:
     """静的アセットの URL に mtime のキャッシュバスターを付ける.
 
-    ``/static`` は machine prefix を付けない（ブラウザキャッシュを全マシンで 1 本
-    共有する。アセットは frontend の所有物でマシンごとに変わらない）。
+    ``/static`` には machine prefix を付けない（ブラウザキャッシュを全マシンで
+    共有する。アセットは frontend が持つもので、マシンごとに変わらない）。
     """
     normalized = path.lstrip("/")
     asset_path = _STATIC_DIR / normalized
@@ -63,7 +63,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     if discovery is not None:
         await discovery.start()
     # 更新通知のための定期 fetch（`GET /api/self-update` は fetch しないため、
-    # これが無いと「更新があります」が誰かの手動確認まで出ない）
+    # これが無いと、誰かが手動で確認するまで「更新があります」が出ない）
     app.state.update.start_watching()
     yield
     app.state.update.stop_watching()
@@ -88,8 +88,8 @@ def create_app(
 
     Args:
         settings: frontend 設定（None なら環境変数から構築。uvicorn --factory 用）
-        transport_factory: backend への transport の差し替え（テストで in-process の
-            backend app を挿す。None なら実 TCP）
+        transport_factory: backend への transport の差し替え（テストでは in-process の
+            backend app を差し込む。None なら実 TCP）
         update_runner: frontend 自身の更新ランナー（None なら settings から構築）。
             テストはスタブ実行ファイルを差した UpdateSettings 版を注入する
 
@@ -148,7 +148,7 @@ def create_app(
     async def backend_unavailable_handler(
         request: Request, exc: BackendUnavailable
     ) -> HTMLResponse:
-        # ドロップダウンは frontend の登録一覧から描くので backend 不要 = 必ず描ける
+        # ドロップダウンは frontend の登録一覧から描くので、backend が無くても必ず描ける
         return pages.render_message(
             request,
             title="マシンに接続できません",
@@ -171,7 +171,7 @@ def create_app(
         )
 
     # プロキシは pages ルータより先に登録する。逆にすると /m/x/api/state が
-    # /m/{machine_id}/{tab}/{feature} に食われて 404 になる
+    # /m/{machine_id}/{tab}/{feature} に先にマッチして 404 になる
     app.mount(
         "/m/{machine_id}/api",
         ProxyApp(
@@ -192,10 +192,10 @@ def create_app(
     )
     # prefix なし（全マシンでブラウザキャッシュを共有する）
     app.mount("/static", _NoCacheStaticFiles(directory=_STATIC_DIR), name="static")
-    # pages ルータより先に登録する（後だと /{tab} のキャッチオールに食われて
+    # pages ルータより先に登録する（後だと /{tab} のキャッチオールに先にマッチし、
     # ドロップダウン更新が HTML を受け取る）
     app.include_router(machines_api.router)
-    # 同上。/update が /{tab} に食われると更新ページがマシンピッカーになる
+    # 同上。/update が /{tab} にマッチすると、更新ページの代わりにマシンピッカーが出る
     app.include_router(update_api.router)
     # /{tab} のキャッチオールを持つため最後に登録する
     app.include_router(pages.router)

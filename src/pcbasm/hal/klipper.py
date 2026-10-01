@@ -1,6 +1,7 @@
 """Moonraker 経由で Klipper と通信するクライアント.
 
-HAL の他のクラス（``XYZStage`` / ``ManualStepper`` / ``AirPump`` / ``PasteDispenser``）は G-code を生成するだけで送信しない。
+HAL の他のクラス（``XYZStage`` / ``ManualStepper`` / ``AirPump`` /
+``PasteDispenser``）は G-code を生成するだけで送信しない。
 生成した G-code を装置へ送るのは :meth:`Klipper.send_gcode` だけである。
 """
 
@@ -23,7 +24,7 @@ PRESENT_TIMEOUT = 30.0
 
 @attrs.frozen
 class GCodeMacro:
-    """Klipperマクロ情報を保持するクラス."""
+    """Klipper マクロ情報を保持するクラス."""
 
     gcode: GCode
     description: str | None = None
@@ -31,7 +32,7 @@ class GCodeMacro:
 
 
 class Klipper:
-    """Moonraker REST APIのシンプルなラッパー.
+    """Moonraker REST API のシンプルなラッパー.
 
     Example:
         klipper = Klipper("192.168.1.100")
@@ -42,19 +43,19 @@ class Klipper:
     def __init__(
         self, host: str = "localhost", port: int = 7125, timeout: float | None = None
     ) -> None:
-        """Klipperクライアントを初期化する.
+        """Klipper クライアントを初期化する.
 
         Args:
-            host: MoonrakerサーバーのホストIPアドレス
-            port: Moonrakerサーバーのポート番号
-            timeout: HTTPリクエストのタイムアウト秒数（Noneは無制限）
+            host: Moonraker サーバーのホスト IP アドレス
+            port: Moonraker サーバーのポート番号
+            timeout: HTTP リクエストのタイムアウト秒数（None は無制限）
         """
         self._base_url = f"http://{host}:{port}"
         self._client = httpx.Client(timeout=timeout)
         self._readonly = ReadonlyKlipper(self)
 
     def __del__(self) -> None:
-        """破棄される際にhttpxクライアントを破棄."""
+        """破棄時に httpx クライアントを閉じる."""
         if hasattr(self, "_client"):
             self._client.close()
 
@@ -66,20 +67,21 @@ class Klipper:
     def send_gcode(
         self, gcode: GCodeLike, *, timeout: float | None = None
     ) -> dict[str, Any]:
-        """G-codeを送信し、Klipper がスクリプトを処理し終えるまで待つ.
+        """G-code を送信し、Klipper がスクリプトを処理し終えるまで待つ.
 
         処理済みでも移動が物理的に終わったとは限らない。
         到達を待つときは末尾に ``GCode.wait_for_done()``（M400）を付ける。
 
         Args:
-            gcode: 送信するG-codeコマンド（文字列、Iterable、またはGCodeオブジェクト）
-            timeout: この送信だけに適用するHTTPリクエストタイムアウト秒数
+            gcode: 送信する G-code コマンド（文字列、Iterable、または GCode オブジェクト）
+            timeout: この送信だけに適用する HTTP リクエストタイムアウト秒数
 
         Returns:
-            Moonrakerからの応答
+            Moonraker からの応答
 
         Raises:
-            RuntimeError: Moonraker が HTTP 400 以上を返した場合（G-code エラー・Klipper 停止中など）
+            RuntimeError: Moonraker が HTTP 400 以上を返した場合
+                （G-code エラー・Klipper 停止中など）
             httpx.HTTPError: 接続できない・タイムアウトした場合（包まずに送出する）
         """
         url = f"{self._base_url}/printer/gcode/script"
@@ -96,8 +98,8 @@ class Klipper:
         """指定したオブジェクトの属性値を取得する.
 
         Args:
-            object: オブジェクト名（gcode_move, toolhead等）
-            attribute: 属性名（gcode_position, homed_axes等）
+            object: オブジェクト名（gcode_move, toolhead 等）
+            attribute: 属性名（gcode_position, homed_axes 等）
 
         Returns:
             属性の値
@@ -118,7 +120,7 @@ class Klipper:
         """プリンター設定（printer.cfg の内容）を取得する.
 
         結果はインスタンスごとにキャッシュする。
-        printer.cfg を変えた後に読み直すには Klipper を作り直す。
+        printer.cfg を変更した後に読み直すには、Klipper を作り直す。
 
         Returns:
             プリンターの設定辞書
@@ -136,7 +138,7 @@ class Klipper:
         """使用可能なマクロをすべて取得する.
 
         Returns:
-            マクロ名をキー、GCodeMacroオブジェクトを値とする辞書
+            マクロ名をキー、GCodeMacro オブジェクトを値とする辞書
         """
         config = self.get_config()
         macros: dict[str, GCodeMacro] = {}
@@ -176,7 +178,7 @@ class Klipper:
             name: マクロ名
 
         Returns:
-            マクロが存在すればTrue、なければFalse
+            マクロが存在すれば True、なければ False
         """
         return name in self.get_macros()
 
@@ -186,7 +188,7 @@ class Klipper:
         warn: Callable[[str], None] | None = None,
         timeout: float = PRESENT_TIMEOUT,
     ) -> None:
-        """PRESENTマクロがあれば実行し、無ければ警告してM84にフォールバックする."""
+        """PRESENT マクロがあれば実行し、無ければ警告して M84 にフォールバックする."""
         warning = warn if warn is not None else logger.warning
         try:
             has_present = self.has_macro(PRESENT_MACRO)

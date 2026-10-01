@@ -69,7 +69,7 @@ def post_firmware_restart(
     再起動対象と argv は更新時と同一なので、sudoers の追加設定は要らない。
 
     順序は「Klipper へ送る → unit を再起動」。逆にすると、Moonraker へ届かなかった
-    場合でも画面だけが落ちる。Klipper 送信が失敗した時点で 502 を返して中断する。
+    場合でも画面だけが止まる。Klipper 送信が失敗した時点で 502 を返して中断する。
     """
     _klipper_action(state, jobs, Klipper.firmware_restart)
     units = update.restart_units()

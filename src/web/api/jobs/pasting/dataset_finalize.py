@@ -1,7 +1,7 @@
 """未完了ペースト塗布 dataset の確定ジョブ（``pending.json`` + 計量質量 → metadata）.
 
 収集ジョブは計量質量のプロンプトの前に ``pending.json`` を残す。そこで応答できずに
-落ちたセッションを、装置を動かさずに完成 dataset へ確定させる。配分規則・schema・
+中断したセッションを、装置を動かさずに完成 dataset へ確定させる。配分規則・schema・
 確定手順は :mod:`pcbasm.pasting.dataset` 側にあり、ここは選択 UI と成果物への変換だけ
 を担う。
 """

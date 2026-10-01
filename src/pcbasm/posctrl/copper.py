@@ -1,4 +1,4 @@
-"""設計銅箔のpixel空間への投影と、観測エッジとの照合."""
+"""設計銅箔の pixel 空間への投影と、観測エッジとの照合."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from pcbasm.posctrl.setup import BoardCalibrationResult
 
 type _Bounds = tuple[float, float, float, float]
-# ROI矩形 (x0, y0, x1, y1)。半開区間、全画面pixel座標
+# ROI 矩形 (x0, y0, x1, y1)。半開区間、全画面 pixel 座標
 type PixelRect = tuple[int, int, int, int]
 _MIN_MATCH_SHARPNESS = 0.15
 
@@ -39,11 +39,11 @@ def centered_roi(image_size: tuple[int, int], size_px: int) -> PixelRect:
 
 @attrs.frozen
 class CopperProjection:
-    """視野内の想定銅箔のpixel空間表現.
+    """視野内の想定銅箔の pixel 空間表現.
 
     Attributes:
-        fill_mask: 穴を反映した塗り潰しマスク (uint8, 0/255)。overlay表示用
-        edge_mask: polygon境界の1px線マスク (uint8, 0/255)。マッチング用
+        fill_mask: 穴を反映した塗り潰しマスク (uint8, 0/255)。overlay 表示用
+        edge_mask: polygon 境界の 1 px 線マスク (uint8, 0/255)。マッチング用
     """
 
     fill_mask: ImageArray = attrs.field(eq=False)
@@ -55,8 +55,8 @@ class EdgeMatch:
     """観測エッジと想定エッジの照合結果.
 
     Attributes:
-        offset: サブpixel並進（観測 − 想定、px。``.mm`` でmm）
-        rms_distance_px: 想定エッジ1点あたりのRMS chamfer距離 [px]
+        offset: サブ pixel 並進（観測 − 想定、px。``.mm`` で mm）
+        rms_distance_px: 想定エッジ 1 点あたりの RMS chamfer 距離 [px]
     """
 
     offset: Offset
@@ -64,7 +64,7 @@ class EdgeMatch:
 
     @property
     def camera_transform(self) -> Transform:
-        """想定→観測のTransform: o ↦ o + d."""
+        """想定→観測の Transform（o ↦ o + d）."""
         return Shift.from_point(self.offset.mm)
 
 
@@ -73,22 +73,22 @@ def _ring_to_pixels(
     matrix: ImageArray,
     shift: ImageArray,
 ) -> ImageArray:
-    """リング座標列 (mm) をpixel座標のint32配列へ変換する."""
+    """リング座標列 (mm) を pixel 座標の int32 配列へ変換する."""
     points = np.asarray(coords, dtype=np.float64)
     pixels = points @ matrix.T + shift
     return np.round(pixels).astype(np.int32).reshape(-1, 1, 2)
 
 
 def _bounds_overlap(a: _Bounds, b: _Bounds) -> bool:
-    """2つのbbox (minx, miny, maxx, maxy) が重なるかを判定する."""
+    """2 つの bbox (minx, miny, maxx, maxy) が重なるかを判定する."""
     return a[0] <= b[2] and b[0] <= a[2] and a[1] <= b[3] and b[1] <= a[3]
 
 
 class CopperProjector:
-    """設計銅箔ポリゴンをカメラpixel空間へ投影するクラス.
+    """設計銅箔ポリゴンをカメラ pixel 空間へ投影するクラス.
 
     投影公式は ``pixel(b, s) = image_center + ppm * R(s - T_b(b))``
-    （s: ステージ位置, T_b: board変換, R: オフセット変換）。
+    （s: ステージ位置, T_b: board 変換, R: オフセット変換）。
     画像中心は全画面中心 (width/2, height/2) を基準とする。
     """
 
@@ -100,13 +100,13 @@ class CopperProjector:
         pixel_per_mm: float,
         image_size: tuple[int, int],
     ) -> None:
-        """CopperProjectorを初期化する.
+        """CopperProjector を初期化する.
 
         Args:
-            polygons: 銅箔ポリゴン列（shapely、mm単位、board座標）
-            board_transform: board座標→機械座標の変換
+            polygons: 銅箔ポリゴン列（shapely、mm 単位、board 座標）
+            board_transform: board 座標→機械座標の変換
             offset_transform: 観測オフセット系から機械座標系への変換
-            pixel_per_mm: pixel/mm比率
+            pixel_per_mm: pixel/mm 比率
             image_size: 出力マスクのサイズ (width, height)
         """
         self._polygons = list(polygons)
@@ -121,8 +121,8 @@ class CopperProjector:
     ) -> CopperProjector:
         """Board 計測結果の変換・calibration から、対象レイヤの銅箔投影器を組む.
 
-        外形だけの銅板のように ``layer`` の銅箔島が無い PCB では、投影対象が空でも
-        ``board_to_pixel_affine``（変換と calibration だけに依存）は使える。
+        外形だけの銅板のように ``layer`` の銅箔島が無い PCB では、投影対象が空になる。
+        その場合も ``board_to_pixel_affine``（変換と calibration だけに依存）は使える。
         """
         return cls(
             polygons=[
@@ -140,7 +140,7 @@ class CopperProjector:
         return tuple(self._polygons)
 
     def with_correction(self, machine_transform: Transform) -> CopperProjector:
-        """機械座標の補正を board 変換の後段へ挿した投影器を返す."""
+        """機械座標の補正を board 変換の後段へ挿入した投影器を返す."""
         return CopperProjector(
             polygons=self._polygons,
             board_transform=Compose([self._board_transform, machine_transform]),
@@ -153,7 +153,7 @@ class CopperProjector:
         """指定ステージ位置で視野内に想定される銅箔を投影する.
 
         Args:
-            stage_xy: ステージのXY位置（機械座標、mm）
+            stage_xy: ステージの XY 位置（機械座標、mm）
 
         Returns:
             塗り潰しマスクとエッジマスクの組
@@ -173,7 +173,7 @@ class CopperProjector:
                 for ring in polygon.interiors
             ]
 
-            # 穴の中に別の銅箔島が入れ子になり得るため、polygonごとに
+            # 穴の中に別の銅箔島が入れ子になり得るため、polygon ごとに
             # exterior→255 / interiors→0 を描いてから合成する
             single = np.zeros_like(fill_mask)
             cv2.fillPoly(single, [exterior], 255)
@@ -181,8 +181,8 @@ class CopperProjector:
                 cv2.fillPoly(single, interiors, 0)
             np.maximum(fill_mask, single, out=fill_mask)
 
-            # フレーム端のクリップ線が偽エッジにならないよう、fillの輪郭では
-            # なくpolygon境界そのものを描画する
+            # フレーム端のクリップ線が偽エッジにならないよう、fill の輪郭ではなく
+            # polygon 境界そのものを描画する
             cv2.polylines(
                 edge_mask, [exterior, *interiors], isClosed=True, color=255, thickness=1
             )
@@ -190,14 +190,14 @@ class CopperProjector:
         return CopperProjection(fill_mask=fill_mask, edge_mask=edge_mask)
 
     def pixel_of(self, board_point: Point2d, stage_xy: Point2d) -> Point2d:
-        """board座標の点を投影公式でpixel座標へ変換する.
+        """Board 座標の点を投影公式で pixel 座標へ変換する.
 
         Args:
-            board_point: board座標の点（mm）
-            stage_xy: ステージのXY位置（機械座標、mm）
+            board_point: board 座標の点（mm）
+            stage_xy: ステージの XY 位置（機械座標、mm）
 
         Returns:
-            全画面pixel座標の点
+            全画面 pixel 座標の点
         """
         offset_mm = self._offset_transform.apply(
             stage_xy - self._board_transform.apply(board_point)
@@ -209,7 +209,7 @@ class CopperProjector:
         )
 
     def board_to_pixel_affine(self, stage_xy: Point2d) -> tuple[ImageArray, ImageArray]:
-        """Board座標→pixel座標のアフィン変換を返す."""
+        """Board 座標→pixel 座標のアフィン変換を返す."""
         origin = self.pixel_of(Point2d(0.0, 0.0), stage_xy)
         unit_x = self.pixel_of(Point2d(1.0, 0.0), stage_xy)
         unit_y = self.pixel_of(Point2d(0.0, 1.0), stage_xy)
@@ -223,7 +223,7 @@ class CopperProjector:
         return matrix, shift
 
     def _view_bounds(self, matrix: ImageArray, shift: ImageArray) -> _Bounds:
-        """pixel空間の4隅をboard座標へ逆変換し、視野のbboxを返す."""
+        """Pixel 空間の 4 隅を board 座標へ逆変換し、視野の bbox を返す."""
         width, height = self._image_size
         corners_px = np.array(
             [[0.0, 0.0], [width, 0.0], [0.0, height], [width, height]]
@@ -238,7 +238,7 @@ class CopperProjector:
 
 
 def _fit_sharpness(patch: ImageArray, template_count: int) -> float:
-    """3x3コスト近傍の弱軸曲率をRMS距離尺度で返す."""
+    """3x3 コスト近傍の弱軸曲率を RMS 距離尺度で返す."""
     s0 = float(patch.sum())
     sx2 = float(patch[:, 0].sum() + patch[:, 2].sum())
     sy2 = float(patch[0, :].sum() + patch[2, :].sum())
@@ -251,7 +251,7 @@ def _fit_sharpness(patch: ImageArray, template_count: int) -> float:
 
 
 def _parabolic_subpixel(patch: ImageArray) -> tuple[float, float, float]:
-    """3x3コスト近傍からサブpixel位置と補間最小コストを返す."""
+    """3x3 コスト近傍からサブ pixel 位置と補間最小コストを返す."""
     cxm, c0, cxp = float(patch[1, 0]), float(patch[1, 1]), float(patch[1, 2])
     cym, cyp = float(patch[0, 1]), float(patch[2, 1])
     denx = cxm - 2 * c0 + cxp
@@ -263,10 +263,10 @@ def _parabolic_subpixel(patch: ImageArray) -> tuple[float, float, float]:
 
 
 class CopperEdgeMatcher:
-    """観測エッジと想定エッジをchamfer距離で照合するクラス.
+    """観測エッジと想定エッジを chamfer 距離で照合するクラス.
 
-    推定するのは並進のみで、回転は扱わない。最小コスト近傍を放物線補間して
-    サブpixel変位を求め、弱軸の曲率が無い縮退matchは棄却する。
+    推定するのは並進のみで、回転は扱わない。最小コスト近傍を放物線補間して サブ pixel 変位を求め、弱軸の曲率が無い縮退 match
+    は棄却する。
     """
 
     def __init__(
@@ -274,10 +274,10 @@ class CopperEdgeMatcher:
         pixel_per_mm: float,
         search_window_mm: float = 2.0,
     ) -> None:
-        """CopperEdgeMatcherを初期化する.
+        """CopperEdgeMatcher を初期化する.
 
         Args:
-            pixel_per_mm: pixel/mm比率
+            pixel_per_mm: pixel/mm 比率
             search_window_mm: 探索窓の片側幅 (mm)
         """
         self._pixel_per_mm = pixel_per_mm
@@ -296,7 +296,7 @@ class CopperEdgeMatcher:
     ) -> EdgeMatch | None:
         """観測エッジと想定エッジの並進ずれを照合する.
 
-        ROI矩形からテンプレートを切り出し、観測エッジの距離変換（探索窓で
+        ROI 矩形からテンプレートを切り出し、観測エッジの距離変換（探索窓で
         キャップ）を滑らせて距離和が最小となる並進を求める。
 
         Args:
@@ -305,11 +305,11 @@ class CopperEdgeMatcher:
             roi: テンプレート矩形 (x0, y0, x1, y1)
 
         Returns:
-            照合結果（offset = 観測 − 想定）。次の場合はNone:
+            照合結果（offset = 観測 − 想定）。次の場合は None を返す。
 
-            - 観測エッジ、またはROI内の想定エッジが空
+            - 観測エッジ、または ROI 内の想定エッジが空
             - 最小コスト位置が探索窓の端にある（ずれが窓を超えた可能性）
-            - コスト最小が鋭くない（直線1本だけなど、ずれが一意に決まらない）
+            - コスト最小が鋭くない（直線 1 本だけなど、ずれが一意に決まらない）
         """
         if np.count_nonzero(observed_edges) == 0:
             return None
@@ -347,8 +347,8 @@ class CopperEdgeMatcher:
             return None
         dsx, dsy, cstar = _parabolic_subpixel(patch)
 
-        # 探索領域はROIから窓分だけ外へ広げてあるので、その差を戻して
-        # ROI基準の並進にする
+        # 探索領域は ROI から窓の分だけ外へ広げてあるので、その差を戻して
+        # ROI 基準の並進にする
         offset_px = Point2d(x=float(sx0 - x0 + cx + dsx), y=float(sy0 - y0 + cy + dsy))
         return EdgeMatch(
             offset=Offset(px=offset_px, pixel_per_mm=self._pixel_per_mm),

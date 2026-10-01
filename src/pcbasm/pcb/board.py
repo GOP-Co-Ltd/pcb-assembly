@@ -1,4 +1,4 @@
-"""PCB要素のモジュール: 部品・パッド情報とCSV/JSON操作."""
+"""部品・パッド情報と CSV/JSON 操作を扱う PCB 要素のモジュール."""
 
 import csv
 import json
@@ -16,7 +16,7 @@ from pcbasm.geometry.transform import Point2d
 
 
 class Layer(Enum):
-    """PCBレイヤー."""
+    """PCB レイヤー."""
 
     TOP = "Top"
     BOTTOM = "Bottom"
@@ -44,7 +44,7 @@ class Outline:
     """基板アウトライン.
 
     Attributes:
-        polygon: 基板外形のポリゴン (mm単位)
+        polygon: 基板外形のポリゴン (mm 単位)
         width: 基板幅 (mm)
         height: 基板高さ (mm)
     """
@@ -52,7 +52,7 @@ class Outline:
     polygon: Polygon
 
     def __attrs_post_init__(self):
-        # propertyを呼び出してキャッシュ
+        # property を呼び出してキャッシュ
         self.width
         self.height
 
@@ -69,7 +69,7 @@ class Outline:
         return maxy - miny
 
     def save(self, path: Path) -> None:
-        """JSONファイルに保存（外周だけを保存し、穴は保存しない）."""
+        """JSON ファイルに保存（外周だけを保存し、穴は保存しない）."""
         data = {"polygon": list(self.polygon.exterior.coords)}
         path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -77,7 +77,7 @@ class Outline:
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        """JSONファイルから読み込み."""
+        """JSON ファイルから読み込み."""
         data = json.loads(path.read_text(encoding="utf-8"))
         return cls(Polygon(data["polygon"]))
 
@@ -104,7 +104,7 @@ class Component:
 
     @classmethod
     def from_csv_row(cls, row: dict[str, str]) -> Self:
-        """CSVの行から生成."""
+        """CSV の行から生成."""
         return cls(
             designator=row["Designator"],
             value=row["Value"],
@@ -115,7 +115,7 @@ class Component:
         )
 
     def to_csv_row(self) -> list[str]:
-        """CSV出力用の行を生成."""
+        """CSV 出力用の行を生成."""
         return [
             self.designator,
             self.value,
@@ -141,7 +141,7 @@ PNP_CSV_HEADER: tuple[str, ...] = (
 class ComponentList(UserList[Component]):
     """部品情報のリスト.
 
-    Pick and Place CSVファイルの読み書きをサポート.
+    Pick and Place CSV ファイルの読み書きをサポート.
 
     Example:
         >>> components = ComponentList.load(Path("board_pnp.csv"))
@@ -165,7 +165,7 @@ class ComponentList(UserList[Component]):
         return min(self.data, key=lambda c: (c.position - point).norm)
 
     def save(self, path: Path) -> None:
-        """Pick and Place CSVファイルに保存."""
+        """Pick and Place CSV ファイルに保存."""
         with path.open("w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(PNP_CSV_HEADER)
@@ -174,7 +174,7 @@ class ComponentList(UserList[Component]):
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        """Pick and Place CSVファイルから読み込み."""
+        """Pick and Place CSV ファイルから読み込み."""
         components = cls()
         with path.open("r", encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
@@ -192,8 +192,8 @@ class Pad:
         pad_number: パッド番号 (例: "1", "A1")
         net_name: ネット名
         layer: レイヤー (Top/Bottom)
-        polygon: ペースト領域のポリゴン (mm単位)
-        copper_polygon: 実銅箔領域のポリゴン (mm単位)。省略時はpolygonと同一
+        polygon: ペースト領域のポリゴン (mm 単位)
+        copper_polygon: 実銅箔領域のポリゴン (mm 単位)。省略時は polygon と同一
         is_custom_shape: カスタム形状かどうか
     """
 
@@ -229,7 +229,7 @@ class Pad:
 class PadList(UserList[Pad]):
     """パッド情報のリスト.
 
-    JSONファイルの読み書きをサポート.
+    JSON ファイルの読み書きをサポート.
 
     Example:
         >>> pads = PadList.load(Path("board_pads.json"))
@@ -253,7 +253,7 @@ class PadList(UserList[Pad]):
         return min(self.data, key=lambda p: (p.center - point).norm)
 
     def save(self, path: Path) -> None:
-        """JSONファイルに保存."""
+        """JSON ファイルに保存."""
         data = [pad.to_dict() for pad in self.data]
         path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -261,7 +261,7 @@ class PadList(UserList[Pad]):
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        """JSONファイルから読み込み."""
+        """JSON ファイルから読み込み."""
         data = json.loads(path.read_text(encoding="utf-8"))
         pads = cls()
         for item in data:
@@ -275,7 +275,7 @@ class Copper:
 
     Attributes:
         layer: レイヤー (Top/Bottom)
-        polygon: 銅箔島のポリゴン (mm単位、穴を含む場合あり)
+        polygon: 銅箔島のポリゴン (mm 単位、穴を含む場合あり)
     """
 
     layer: Layer
@@ -299,7 +299,7 @@ class Copper:
 class CopperList(UserList[Copper]):
     """銅箔島情報のリスト.
 
-    JSONファイルの読み書きをサポート.
+    JSON ファイルの読み書きをサポート.
 
     Example:
         >>> coppers = CopperList.load(Path("board_copper.json"))
@@ -307,7 +307,7 @@ class CopperList(UserList[Copper]):
     """
 
     def save(self, path: Path) -> None:
-        """JSONファイルに保存."""
+        """JSON ファイルに保存."""
         data = [copper.to_dict() for copper in self.data]
         path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -315,7 +315,7 @@ class CopperList(UserList[Copper]):
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        """JSONファイルから読み込み."""
+        """JSON ファイルから読み込み."""
         data = json.loads(path.read_text(encoding="utf-8"))
         coppers = cls()
         for item in data:

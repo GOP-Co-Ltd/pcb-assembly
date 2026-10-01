@@ -1,21 +1,21 @@
 ---
 name: hardware-test
-description: PCBアセンブリのハードウェアテスト記述・実行手順。@mark_hardware／skip_if_no_*camera の使い分け、pytest -m hardware の実行、v4l2-ctl での接続確認まで。GPIOやカメラ、ステージなど物理デバイス絡みのテストを書く／走らせるときに参照する。
+description: PCB アセンブリのハードウェアテスト記述・実行手順。@mark_hardware／skip_if_no_*camera の使い分け、pytest -m hardware の実行、v4l2-ctl での接続確認まで。GPIO やカメラ、ステージなど物理デバイス絡みのテストを書く／走らせるときに参照する。
 ---
 
 # ハードウェアテスト手順
 
-物理デバイス（USB/CSIカメラ、Klipper接続のステージ・サーボ・エアポンプ、GPIO等）を伴うテストの記述と実行のための skill。
+物理デバイス（USB/CSI カメラ、Klipper 接続のステージ・サーボ・エアポンプ、GPIO 等）を伴うテストの記述と実行のための skill。
 
 ## マーカーと skip 条件
 
-`tests/helpers.py` で以下を提供：
+`tests/helpers.py` は次のマーカーと skip 条件を提供する。
 
 | 名前                    | 用途                                                                       |
 | ----------------------- | -------------------------------------------------------------------------- |
 | `mark_hardware`         | `pytest.mark.hardware` のエイリアス。ハードウェアテストに付与              |
-| `skip_if_no_usb_camera` | USBカメラ（uvcvideo）非接続時にスキップ                                    |
-| `skip_if_no_csi_camera` | CSIカメラ（picamera2）非接続時にスキップ                                   |
+| `skip_if_no_usb_camera` | USB カメラ（uvcvideo）非接続時にスキップ                                   |
+| `skip_if_no_csi_camera` | CSI カメラ（picamera2）非接続時にスキップ                                  |
 | `skip_if_no_alsa_audio` | ALSA 再生デバイス（`aplay -l`）が無いときにスキップ                        |
 | `skip_if_no_mdns`       | mDNS が使えない環境でスキップ。実機ではないので `mark_hardware` は付けない |
 
@@ -56,7 +56,7 @@ uv run python -c "import picamera2; print(picamera2.Picamera2.global_camera_info
 
 ## テスト実行コマンド
 
-agent が実行してよいのはこれだけ:
+agent が実行してよいのは次のコマンドだけ。
 
 ```bash
 # ハードウェアテストを除外

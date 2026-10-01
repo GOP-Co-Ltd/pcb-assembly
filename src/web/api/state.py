@@ -144,7 +144,7 @@ class AppState:
         ``[nozzle_cap]`` テーブルが x/y/z の一部しか持たない（設定画面から 1 軸だけ
         保存した）場合、``Machine.nozzle_cap`` は「未記録」として ``None`` を返す。この値を
         読むのは ``/api/state``・ノズルキャップページ・``move_to_cap`` の 3 経路なので、
-        ここで None へ潰して「未記録」として扱えるようにする。
+        ここで None を返して「未記録」として扱えるようにする。
         """
         try:
             return self.machine().nozzle_cap
@@ -154,9 +154,9 @@ class AppState:
     def nozzle_clean(self) -> NozzleClean | None:
         """ノズルクリーニング位置を返す（未記録・取得できなければ None）.
 
-        設定画面から動作値だけを保存すると座標の無い ``[nozzle_clean]`` ができ、座標が
-        座標必須の ``Machine.nozzle_clean`` は「未記録」として ``None`` を返す。``nozzle_cap`` と
-        同じく、ここで None へ潰して「未記録」として扱う。
+        設定画面から動作値だけを保存すると座標の無い ``[nozzle_clean]`` ができる。
+        座標必須の ``Machine.nozzle_clean`` はこれを「未記録」として ``None`` を返す。
+        ``nozzle_cap`` と同じく、ここで None を返して「未記録」として扱う。
         """
         try:
             return self.machine().nozzle_clean

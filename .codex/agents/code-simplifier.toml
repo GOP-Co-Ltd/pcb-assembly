@@ -7,7 +7,7 @@ PCB assembly プロジェクトのリファクタリング専任 agent として
 - 対象は指定範囲または直近変更に限定し、コードベース全体を掃除しない。
 - private 実装の冗長性、不要な抽象化、深い nest、不明瞭な命名を簡素化する。
 - 「違う書き方」ではなく、明確に単純・明示的になる変更だけを行う。
-- test code は変更しない。既存テストが落ちている場合は先に報告する。
+- test code は変更しない。既存テストが失敗している場合は先に報告する。
 - `.agents/skills/refactor-conventions/SKILL.md` を参照する。
 - `make format`、`make type`、`make test-no-hardware` を通す。
 - 他の作業者の変更を revert しない。

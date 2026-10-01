@@ -1,4 +1,4 @@
-"""テスト塗布基板の生成API.
+"""テスト塗布基板の生成 API.
 
 リクエスト/レスポンスの形は ``pcbasm.pasting.testboard`` の attrs 値オブジェクトを
 :func:`web.api.attrs_models.mirror_model` で写す（JSON のキー名・型は attrs 側が唯一の出典）。
@@ -143,7 +143,7 @@ def _to_draft(model: BaseModel) -> CustomPadDraft:
 def get_paste_test_board_options(
     generator: BoardGeneratorDep,
 ) -> BoardOptionsResponse:
-    """初期レシピと検索可能なfootprint件数を返す."""
+    """初期レシピと検索可能な footprint 件数を返す."""
 
     resolved = generator.resolve_config(BoardConfig())
     return BoardOptionsResponse.model_validate(
@@ -164,7 +164,7 @@ def add_paste_test_board_custom_pad(
     body: AddCustomPadRequest,
     generator: BoardGeneratorDep,
 ) -> ResolvedConfigResponse:  # type: ignore[valid-type]
-    """任意寸法の基本SMDパッドを設定へ追加する."""
+    """任意寸法の基本 SMD パッドを設定へ追加する."""
 
     resolved = generator.add_custom_pad(
         _to_config(body.config), _to_draft(body.custom_pad)
@@ -178,7 +178,7 @@ def search_paste_test_board_footprints(
     query: str = Query(default="", max_length=120),
     limit: int = Query(default=30, ge=1, le=100),
 ) -> FootprintSearchResponse:
-    """インストール済みKiCad footprintを名前で検索する."""
+    """インストール済み KiCad footprint を名前で検索する."""
 
     return FootprintSearchResponse.model_validate(
         {
@@ -195,7 +195,7 @@ def add_paste_test_board_footprint_patterns(
     body: PatternAdditionRequest,
     generator: BoardGeneratorDep,
 ) -> PatternAdditionResponse:  # type: ignore[valid-type]
-    """選択footprintの未追加パッド種を設定へ追加する."""
+    """選択 footprint の未追加パッド種を設定へ追加する."""
 
     addition = generator.add_footprint_patterns(
         _to_config(body.config), body.footprint_id
@@ -208,7 +208,7 @@ def preview_paste_test_board(
     body: BoardConfigModel,  # type: ignore[valid-type]
     generator: BoardGeneratorDep,
 ) -> BoardPreviewResponse:
-    """実パッド形状から配置とpreview polygonを解決する."""
+    """実パッド形状から配置と preview polygon を解決する."""
 
     return BoardPreviewResponse.from_core(generator.preview(_to_config(body)))
 
@@ -218,7 +218,7 @@ def export_paste_test_board_config(
     body: BoardConfigModel,  # type: ignore[valid-type]
     generator: BoardGeneratorDep,
 ) -> Response:
-    """配置可否に依らず、解決可能な設定JSONをダウンロードする."""
+    """配置可否に依らず、解決可能な設定 JSON をダウンロードする."""
 
     return Response(
         generator.config_bytes(_to_config(body)),
@@ -232,7 +232,7 @@ def import_paste_test_board_config(
     body: BoardImportRequest,
     generator: BoardGeneratorDep,
 ) -> ResolvedConfigResponse:  # type: ignore[valid-type]
-    """自己識別情報を含むJSONを検証・正規化して返す（保存はしない）."""
+    """自己識別情報を含む JSON を検証・正規化して返す（保存はしない）."""
 
     parsed = parse_board_document(body.document)
     if parsed is None:
@@ -250,7 +250,7 @@ def generate_paste_test_board(
     body: BoardConfigModel,  # type: ignore[valid-type]
     generator: BoardGeneratorDep,
 ) -> Response:
-    """配置可能な設定からKiCad基板を直接ダウンロードする（収まらなければ 422）."""
+    """配置可能な設定から KiCad 基板を直接ダウンロードする（収まらなければ 422）."""
 
     payload, overflow_message = generator.board_bytes(_to_config(body))
     if payload is None:

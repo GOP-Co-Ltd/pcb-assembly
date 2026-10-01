@@ -62,7 +62,7 @@ main へのマージはメンテナーが判断する。
 
 ## 検証の選び方
 
-コミット前の基本検証:
+コミット前に次の基本検証を実行する。
 
 ```sh
 make format
@@ -137,7 +137,7 @@ make ui-fake
 PCBASM_API_DATA_DIR="$(mktemp -d /tmp/pcbasm-dev.XXXXXX)" make api-fake
 ```
 
-`api-fake` が置き換えるのはカメラだけであり、ステージのシミュレーターではない。
+`api-fake` が fake に置き換えるのはカメラだけで、ステージはシミュレートしない。
 テスト設定は Moonraker の非リッスンポート 7126 を使うため、装置を使うジョブは成功しない。
 
 ## 実装の責務
@@ -154,7 +154,7 @@ frontend は backend が返した値を表示する。JS に設定の継承解�
 
 このリポジトリで Codex CLI を起動すると、処理完了時に Windows 側へ通知する。
 `.codex/config.toml` は、terminal が非フォーカスのときだけ
-`agent-turn-complete` 通知を送る設定である。通知方法は自動選択され、VSCode の
+`agent-turn-complete` 通知を送る設定である。通知方法は自動で選ばれる。VSCode の
 integrated terminal では OSC 9 のポップアップ通知を優先し、未対応の場合は
 terminal bell にフォールバックする。
 

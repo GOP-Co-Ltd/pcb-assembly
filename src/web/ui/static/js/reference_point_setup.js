@@ -1,6 +1,6 @@
 "use strict";
 
-// Reference Point Setup: Record / Quit を実行中ジョブの WS command として送る。
+// Reference Point Setup ページ。Record / Quit を実行中ジョブの WS command として送る。
 // ジョブが実行中（accepts_commands）のときのみボタンを有効化する。
 
 (() => {

@@ -1,6 +1,6 @@
 ---
 name: migrate-claude
-description: 'Claude Code project assetsをCodex向けrepo assetsへ移行・同期する。設定由来のCodex rules再生成に加え、.claude/skills、.claude/agents、CLAUDE.md、関連ドキュメントをCodex形式へ判断を伴って移植するときに使う。Triggers: ClaudeからCodexへ移行, migrate-claude, migrate-codex, Codex skillに同期, .claudeを.agents/.codexへ反映.'
+description: 'Claude Code project assets を Codex 向け repo assets へ移行・同期する。設定由来の Codex rules 再生成に加え、.claude/skills、.claude/agents、CLAUDE.md、関連ドキュメントを Codex 形式へ判断を伴って移植するときに使う。Triggers: Claude から Codex へ移行, migrate-claude, migrate-codex, Codex skill に同期, .claude を .agents/.codex へ反映.'
 ---
 
 # Claude Assets を Codex へ移行する

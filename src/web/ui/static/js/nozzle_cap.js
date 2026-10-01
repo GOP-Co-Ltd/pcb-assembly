@@ -1,12 +1,12 @@
 "use strict";
 
-// ノズル位置の設定ページ: 記録ボタン → POST → 返却値で表示更新のみ。
+// ノズル位置の設定ページ。記録ボタン → POST → 返却値で表示を更新する処理だけを持つ。
 
 (() => {
   const { toast, api } = window.webui;
 
   // 要素ごとに配線する。まとめて早期 return すると、片方の節が無いページで
-  // もう片方のボタンまで死ぬ。
+  // もう片方のボタンまで動かなくなる。
   const bindRecord = (buttonId, currentId, endpoint, render, message) => {
     const button = document.getElementById(buttonId);
     const currentEl = document.getElementById(currentId);
@@ -40,7 +40,7 @@
     "ノズルクリーニング位置を記録しました",
   );
 
-  // テスト実行は完了まで十数秒かかる。多重発火で装置排他に弾かれないよう、
+  // テスト実行は完了まで十数秒かかる。連打による多重実行が装置排他で拒否されないよう、
   // 押している間だけ無効化する（成功・失敗のどちらでも必ず戻す）。
   const testButton = document.getElementById("ncl-test");
   if (testButton) {

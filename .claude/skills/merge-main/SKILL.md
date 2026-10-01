@@ -5,11 +5,11 @@ description: 作業の最後に PR を出す直前で、最新の main を作業
 
 # PR を出す前に最新の main を取り込む
 
-作業の最後に PR を出す **直前** で実行する手順。`main` をリモート最新に更新し、自分の作業ブランチに取り込んで（merge）、conflict を解消してから PR を立てる。これにより PR が最新の base に対して clean に diff する。
+作業の最後に PR を出す **直前** で実行する手順。`main` をリモート最新に更新し、自分の作業ブランチに取り込んで（merge）、conflict を解消してから PR を立てる。こうすると、PR の diff は最新の base に対して conflict のない状態になる。
 
 AGENTS.md「Git 運用」に従い、**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。PR 作成自体は skill [github-pr](../github-pr/SKILL.md) を参照。
 
-**rebase ではなく merge** で取り込む（理由は末尾「rebase を使いたくなったら」）。
+取り込みには rebase ではなく **merge** を使う（理由は末尾「rebase を使いたくなったら」）。
 
 ## 前提チェック
 
@@ -20,8 +20,8 @@ git status --short            # 出力が空であること (clean)
 git branch --show-current     # main でないこと (作業ブランチ上にいる)
 ```
 
-- 未コミットの変更があるなら **先に commit する**（1 コミット 1 関心事）。中途半端なら `git stash` で退避し、merge 後に `git stash pop`
-- `main` ブランチ上にいたら誤り。作業ブランチに `git switch` する
+- 未コミットの変更があるなら **先に commit する**（1 コミット 1 関心事）。作業が途中で commit できないなら `git stash` で退避し、merge 後に `git stash pop`
+- `main` ブランチ上にいたら、作業ブランチに `git switch` する
 
 ## 手順
 
@@ -72,13 +72,13 @@ conflict file ごとに次を行う。
 
 ### 5. 取り込み後の検証
 
-main を取り込んだ結果コードが壊れていないか確認する。**全 green** であることが PR の前提（AGENTS.md「Git 運用」の標準フロー）。
+main を取り込んだ後もコードが正しく動くか確認する。**全 green** であることが PR の前提（AGENTS.md「Git 運用」の標準フロー）。
 
 ```bash
 make format && make type && make test-no-hardware
 ```
 
-- test が落ちたら、main 側の変更と自分の変更の **意味的な衝突**（テキスト conflict は無かったが論理が壊れた）を疑う。修正して再度 green にする
+- test が落ちたら、main 側の変更と自分の変更の **意味的な衝突**（テキスト上の conflict は無いが、両方の変更を組み合わせると動作が変わる）を疑う。修正して再度 green にする
 - 実機テスト（`make test` / `@mark_hardware`）は実行しない。実機確認はユーザーが行う
 
 ### 6. push して PR 作成
@@ -92,9 +92,9 @@ git push                       # 既に upstream があれば引数不要
 ## やってはいけないこと
 
 - **`main` ブランチに直接 commit / push しない**。取り込みは作業ブランチ側のみ
-- conflict を `git checkout --theirs .` 等で **一括上書きしない**（意図しない握り潰しの温床）
+- conflict を `git checkout --theirs .` 等で **一括上書きしない**（どちらかの変更を意図せず捨てる原因になる）
 - conflict を残したまま `git add` / commit しない（`<<<<<<<` マーカーが混入する）
-- 取り込み後に検証を省略しない。テキスト conflict が無くても論理は壊れうる
+- 取り込み後に検証を省略しない。テキスト上の conflict が無くても、取り込んだ結果が正しく動くとは限らない
 - `git push --force` しない。merge による取り込みは履歴を書き換えないので force は不要
 
 ## rebase を使いたくなったら
@@ -103,6 +103,6 @@ git push                       # 既に upstream があれば引数不要
 
 ## 関連参照
 
-- skill [github-pr](../github-pr/SKILL.md) — push / `gh pr create` / push reject 系トラブルシュート
-- skill [do-on-worktree](../do-on-worktree/SKILL.md) — worktree で裏作業を進める手順
-- [AGENTS.md](../../../AGENTS.md) — 「Git 運用」節
+- skill [github-pr](../github-pr/SKILL.md)：push / `gh pr create` / push reject 系トラブルシュート
+- skill [do-on-worktree](../do-on-worktree/SKILL.md)：worktree で裏作業を進める手順
+- [AGENTS.md](../../../AGENTS.md)：「Git 運用」節

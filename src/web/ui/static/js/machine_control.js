@@ -1,7 +1,7 @@
 "use strict";
 
-// マシン操作パネル（右サイドバー）: REST (/api/machine-control) への送信と
-// 展開中のみのステータスポーリング。
+// マシン操作パネル（右サイドバー）。REST (/api/machine-control) への送信と、
+// 展開中だけのステータスポーリングを行う。
 // - XY は円形ジョグパッド（SVG）、Z は縦バー。距離はリングで切り替える
 // - 座標欄は常に現在のマシン座標を表示し、入力確定（change）で絶対移動する
 // - 対話ジョブ（accepts_commands）実行中は WS command 送信に切り替える
@@ -53,7 +53,7 @@
   }
 
   // 対話を受けないジョブの実行中はパネルを disabled 表示にする
-  // （テンプレート由来の disabled（フォーカスZ未設定）は維持する）
+  // （テンプレート由来の disabled（フォーカス Z 未設定）は維持する）
   if (window.webui.jobs) {
     const originallyDisabled = new Set(
       [...panel.querySelectorAll("button, input")].filter((c) => c.disabled)
@@ -95,7 +95,7 @@
   // ---- 円形 XY ジョグパッド（SVG） ----
 
   const CENTER = 100;
-  // 内側から外側へ: 移動距離と扇形の半径範囲
+  // 移動距離と扇形の半径範囲（内側から外側の順）
   const RINGS = [
     { dist: 0.1, r0: 22, r1: 46 },
     { dist: 1, r0: 48, r1: 72 },
@@ -232,7 +232,7 @@
     timer = null;
   }
 
-  // 折りたたみ中と背景タブでは Moonraker を叩かない（放置タブ分の負荷を削る）
+  // 折りたたみ中と背景タブでは Moonraker に問い合わせない（放置タブによる負荷を減らす）
   function updatePolling() {
     if (sidebar.classList.contains("collapsed") || document.hidden) stopPolling();
     else startPolling();

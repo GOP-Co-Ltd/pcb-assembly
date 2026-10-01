@@ -1,8 +1,8 @@
 """Systemd unit の観測と再起動の予約.
 
 特権を使うのは `sudo -n <systemctl> restart --no-block <units>` の 1 経路だけ。
-`systemctl is-active` は**非特権で読める**ので sudoers に入れない（`sudo systemctl
-status` はページャ経由で root シェルを取られる）。
+`systemctl is-active` は非特権で読めるので sudoers に入れない（`sudo systemctl status`
+はページャ経由で root シェルを取られる）。
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ UNIT_NAMES: dict[str, str] = {
     "ui": "pcbasm-ui.service",
 }
 
-# 同居機の argv は api → ui の 1 変種しか sudoers に無い。**順序も契約**
+# 同居機の argv は api → ui の 1 通りしか sudoers に無い。順序も契約の一部
 CANONICAL_ORDER: tuple[str, ...] = ("api", "ui")
 
 # フル unit 名 → キー（`web-service.sh` の対象名）。unit を `render` に掛けるときに使う
@@ -34,16 +34,17 @@ UNIT_LABELS: dict[str, str] = {
 
 
 # `systemctl is-active` の答えのうち「更新後に再起動すべき」もの。
-# `failed` を含めるのが要点: 起動に失敗したリビジョンを直して更新し直すとき、
-# 落ちている unit を対象から外すと **修正が永久に適用されない**
+# `failed` を必ず含める。起動に失敗したリビジョンを直して更新し直すとき、
+# 停止している unit を対象から外すと、修正が永久に適用されない
 # （計画書「既知のリスク 1: ロールバック無し」からの復帰経路）。
-# `inactive` / `deactivating` は意図的に止めているので起こさない。
+# `inactive` / `deactivating` は意図的に止めているので起動しない。
 RESTARTABLE_STATES = frozenset({"active", "activating", "reloading", "failed"})
 
 # systemd が unit を止めるときに送るシグナル（`KillSignal` / `FinalKillSignal` の既定）。
-# 再起動コマンド自身がこれで死んだのは「要求どおり動いた」証拠であって失敗ではない。
-# `-1`（= `SIGHUP`）を含めないのが要点: `run_command` は起動できなかったコマンドを
-# `returncode=-1` で返すので、含めると実行ファイル不在がサイレントに成功扱いになる
+# 再起動コマンド自身がこれらのシグナルで終了した場合は、要求どおり再起動が始まった
+# 証拠なので失敗として扱わない。`-1`（= `SIGHUP`）は含めない。`run_command` は
+# 起動できなかったコマンドを `returncode=-1` で返すので、含めると実行ファイル不在が
+# 警告なしで成功扱いになる
 STOP_SIGNALS = frozenset({signal.SIGTERM, signal.SIGKILL})
 
 
@@ -69,8 +70,8 @@ def _unwrapped(text: str) -> str:
     """折り返しを畳んで空白を 1 個に正規化する.
 
     実 `sudo -l` は tty が無いと端末幅（既定 80 桁）で単語折り返しし、継続行を 字下げする。許可行は 84〜102
-    文字あるので、生のまま substring 照合すると **正しく設置した実機でも一致しない**。テストのスタブは折り返さないので、
-    ここが無いと「実装の仮定をミラーしたテスト」になる。
+    文字あるので、生のまま substring 照合すると、
+    正しく設置した実機でも一致しない。テストのスタブは折り返さないので、この正規化が 無いと、テストは実装の仮定をなぞるだけになる。
     """
     return " ".join(text.replace("\\\n", "\n").split())
 
@@ -81,12 +82,12 @@ def restart_permitted(settings: UpdateSettings, units: tuple[str, ...]) -> str |
     実際に再起動する前に確かめるのは、sudoers 未設置の機体で「git だけ進んで
     再起動できない」状態を作らないため（実行順序 1）。
 
-    折り返し対策を二重にかけるのは、**どちらの一手も単独では穴が残る**ため。
-    `COLUMNS` は sudo が tty を持たないときだけ見る env フォールバックなので、
-    本番（unit から起動された非対話プロセス）では効くが、tty のある手元実行では
-    実端末幅で折り返される。そこを畳むのが `_unwrapped` の役目で、こちらは
-    sudo の折り返し方に依存しない。片方だけでは、正しく設置した機体で照合が
-    外れて「許可されていません」と嘘をつく経路が残る。
+    折り返し対策を二重にかけるのは、どちらの対策も単独では不十分なため。
+    `COLUMNS` は sudo が tty を持たないときだけ参照する env フォールバックなので、
+    本番（unit から起動された非対話プロセス）では有効だが、tty のある手元実行では
+    実端末幅で折り返される。その折り返しを畳むのが `_unwrapped` の役目で、こちらは
+    sudo の折り返し方に依存しない。片方だけでは、正しく設置した機体でも照合に
+    失敗し、誤って「許可されていません」と返す経路が残る。
 
     Args:
         settings: バイナリのパスを持つ設定
@@ -115,22 +116,22 @@ def restart_permitted(settings: UpdateSettings, units: tuple[str, ...]) -> str |
 
 
 def schedule_restart(settings: UpdateSettings, units: tuple[str, ...]) -> str | None:
-    """少し待ってから再起動を 1 回だけ投げる（失敗理由を返す）.
+    """少し待ってから再起動を 1 回だけ要求する（失敗理由を返す）.
 
-    **リクエストスレッドから呼ばない。** 呼び出し元は既に 202 を返し終えた
-    バックグラウンドの更新スレッド（daemon）で、そこで待つことで応答がフラッシュされ、
+    リクエストスレッドからは呼ばない。呼び出し元は既に 202 を返し終えた
+    バックグラウンドの更新スレッド（daemon）。そこで待つ間に応答がフラッシュされ、
     クライアントが 1 回ポーリングして `restarting` を観測できる（生存性のためではない）。
 
-    `--no-block` は job を enqueue した時点で exit するので、投げた側が直後に
-    SIGTERM で死んでも restart は PID 1 側で完走する。逆に **sudo に拒否された場合は
-    自分が生き残る**ので、その事実を呼び出し元へ返して report に残せる。
+    `--no-block` は job を enqueue した時点で exit するので、要求した側が直後に
+    SIGTERM で終了しても restart は PID 1 側で最後まで進む。逆に sudo に拒否された
+    場合は自プロセスが終了しないので、その事実を呼び出し元へ返して report に残せる。
 
     Args:
         settings: バイナリのパスと遅延を持つ設定
         units: 再起動するフル unit 名（空なら何もしない）
 
     Returns:
-        投げられたら None、拒否・タイムアウトなら理由
+        要求できたら None、拒否・タイムアウトなら理由
     """
     if not units:
         return None
@@ -141,14 +142,14 @@ def schedule_restart(settings: UpdateSettings, units: tuple[str, ...]) -> str | 
     if result.timed_out:
         return "再起動コマンドが応答しませんでした。"
     if -result.returncode in STOP_SIGNALS:
-        # **要求した restart が先に自分の cgroup を止めた**。`--no-block` は job を
+        # 要求した restart が先に自分の cgroup を止めた。`--no-block` は job を
         # enqueue した時点で exit するが、その job が `pcbasm-api.service` を停止する
-        # ほうが先行しうるので、sudo / systemctl が SIGTERM を受けて終了コードが
-        # -15 になる。これを失敗として report に残すと、再起動後の画面に
-        # 「再起動コマンドが失敗しました（終了コード -15）」という**嘘のエラー**が
+        # ほうが先になることがある。その場合 sudo / systemctl が SIGTERM を受けて
+        # 終了コードが -15 になる。これを失敗として report に残すと、再起動後の画面に
+        # 「再起動コマンドが失敗しました（終了コード -15）」という誤ったエラーが
         # 出る（実際には再起動は成功している）。
         #
-        # **全ての負の終了コードを成功にしてはいけない**: `run_command` は起動でき
+        # 負の終了コードをすべて成功扱いにしてはいけない。`run_command` は起動でき
         # なかったコマンドも `returncode=-1` で返す（`steps.run_command`）。その
         # -1 は `-SIGHUP` と同値なので、systemd が実際に使う 2 つだけに絞る。
         return None
@@ -165,8 +166,8 @@ def stale_units(settings: UpdateSettings, units: tuple[str, ...]) -> tuple[str, 
 
     計画書「既知のリスク 6」。`render_unit` の出力が変わった更新を取り込んでも、
     `/etc/systemd/system` の unit は古いままになる（本 MR 自身が `TimeoutStopSec` と
-    `StartLimitIntervalSec` を足した）。**読み取りだけを行い、自動 install はしない**
-    （root 権限を増やさない）。判定できない場合は「食い違い無し」に倒す。
+    `StartLimitIntervalSec` を足した）。読み取りだけを行い、自動 install はしない
+    （root 権限を増やさない）。判定できない場合は「食い違い無し」として扱う。
 
     Args:
         settings: リポジトリの場所を持つ設定
@@ -184,8 +185,9 @@ def stale_units(settings: UpdateSettings, units: tuple[str, ...]) -> tuple[str, 
         installed = settings.unit_dir / unit
         if target is None or not installed.is_file():
             continue
-        # スクリプトを直接 argv で起動する（`bash -c` の文字列組み立て = 実質シェルを
-        # 他の全経路と同じく避ける）。`render` は systemd に触らない読み取り専用の命令
+        # スクリプトを直接 argv で起動する（他の全経路と同じく、`bash -c` の文字列
+        # 組み立て、つまり実質的なシェル経由の実行を避ける）。`render` は systemd に
+        # 触らない読み取り専用のサブコマンド
         rendered = run_command(
             (str(script), "render", target),
             cwd=settings.repo_root,
@@ -218,7 +220,7 @@ def unit_summary(units: tuple[str, ...]) -> str:
 
 
 def _screen_drop_warning(units: tuple[str, ...]) -> str:
-    """画面を配信している unit を巻き込むときの但し書き（含まなければ空）."""
+    """画面を配信している unit も再起動するときの但し書き（含まなければ空）."""
     if UNIT_NAMES["ui"] not in units:
         return ""
     return "この画面を配信しているサービスも含まれるため、一時的に接続が切れます。"

@@ -40,13 +40,13 @@ MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT = 5
 
 @attrs.frozen
 class ToolheadOffsetSample:
-    """1計測点のツールヘッドオフセット.
+    """1 計測点のツールヘッドオフセット.
 
     Attributes:
         board_position: 基板上の計測位置
         dispense_position: ペースト吐出時のステージ位置
         camera_position: カメラが検出した位置
-        offset: ツールヘッドXYオフセット (mm)
+        offset: ツールヘッド XY オフセット (mm)
     """
 
     board_position: Point2d
@@ -62,7 +62,7 @@ class ToolheadOffsetSample:
         dispense_position: Point2d,
         camera_position: Point2d,
     ) -> Self:
-        """吐出位置と検出位置から1点分のオフセットを算出する."""
+        """吐出位置と検出位置から 1 点分のオフセットを算出する."""
         return cls(
             board_position=board_position,
             dispense_position=dispense_position,
@@ -76,12 +76,12 @@ class ToolheadOffsetResult:
     """複数点から計測したツールヘッドオフセット結果.
 
     Attributes:
-        offset: 全計測点の平均ツールヘッドXYオフセット (mm)
+        offset: 全計測点の平均ツールヘッド XY オフセット (mm)
         standard_deviation: 各軸の母標準偏差 (mm)
         samples: 各計測点の結果
         tolerance: 収束許容誤差 (mm)
         point_spacing: 計測点同士の最小間隔設定 (mm)
-        edge_margin: ペースト外縁から基板外周までのmargin (mm)
+        edge_margin: ペースト外縁から基板外周までの margin (mm)
         calibrated_at: 計測日時
     """
 
@@ -154,7 +154,7 @@ class ToolheadOffsetResult:
         return _converter.structure(data, cls)
 
     def save(self, path: Path) -> None:
-        """JSONファイルに保存."""
+        """JSON ファイルに保存."""
         path.write_text(
             json.dumps(self.to_dict(), indent=2, ensure_ascii=False),
             encoding="utf-8",
@@ -162,7 +162,7 @@ class ToolheadOffsetResult:
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        """JSONファイルから読み込み."""
+        """JSON ファイルから読み込み."""
         return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
 
@@ -176,7 +176,7 @@ def plan_toolhead_offset_points(
 ) -> tuple[tuple[Point2d, ...] | None, str | None]:
     """基板の安全領域内を左上から走査してオフセット計測点を配置する.
 
-    安全領域のbbox左上から細かく走査し、外形や穴によって領域外になる候補を
+    安全領域の bbox 左上から細かく走査し、外形や穴によって領域外になる候補を
     飛ばしながら、採用済み点との距離が ``point_spacing`` 以上の点を必要数採る。
     そのため格子配置を優先しつつ、外形に合わせて半間隔ずれた点も利用できる。
     配置できないときは ``(None, 理由)`` を返す。
@@ -378,7 +378,7 @@ class ToolheadOffsetProcedure:
         self._dispenser_config = machine.paste_dispenser
         self._toolhead_transform = machine.paste_dispenser.toolhead.to_transform()
         self._lift_height = lift_height
-        # 静定・サンプリングは機体設定が正（他の計測と同じ現象・同じ検出器）
+        # 静定・サンプリングは機体設定の値を使う（他の計測と同じ現象・同じ検出器）
         self._settle_sec = machine.settle.move_sec
         self._probe_executor = ProbeExecutor(
             klipper=result.klipper,

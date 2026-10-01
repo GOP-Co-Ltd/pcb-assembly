@@ -1,6 +1,6 @@
 """流量キャリブレーションの機械手順（銅板・transform・applicator を束ねる）.
 
-共通土台（その場生成した銅板 → Board 計測 → 高さ計測 → transform）を確立し、
+共通の前準備（その場生成した銅板 → Board 計測 → 高さ計測 → transform）を確立し、
 メニューループ中保持し続ける applicator を管理する。① の検証ループは新
 ``rotations_per_ul`` で applicator を作り直すため、現在の applicator と現在の
 ``rotations_per_ul`` をここで一元管理する。

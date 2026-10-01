@@ -110,8 +110,8 @@ import {
   }
 
   // 編集後にサーバから設定を取り直し、index と表示を更新する。
-  // tree の resolved/own_override/descendant_summary はサーバ算出なので、
-  // ローカル楽観更新ではなく再取得で同期する。
+  // tree の resolved/own_override/descendant_summary はサーバが算出するので、
+  // ローカルの楽観更新ではなく再取得で同期する。
   async function reloadConfig(options = {}) {
     const config = await api("GET", configUrl);
     state.config = config;
@@ -127,7 +127,7 @@ import {
     state.copper = null;
     try {
       const copper = await api("GET", copperUrl);
-      // 取得中に PCB が切り替わった場合は捨てる
+      // 取得中に PCB が切り替わった場合は結果を破棄する
       if (state.config?.pcb_file !== pcbFile) return;
       state.copper = copper;
       render();
@@ -267,7 +267,7 @@ import {
       return;
     }
     if (state.flowCalibrationPointMode) {
-      // 1 点ずつ増やす。続けて置けるようモードは抜けない
+      // 1 点ずつ増やす。続けて置けるよう、追加モードは解除しない
       toggleFlowCalibrationPointAt(svgPoint(svg, evt));
       return;
     }
@@ -337,7 +337,7 @@ import {
     refreshViewerState();
   }
 
-  // 編集開始時の PCB をそのまま添えて送る。切替済みなら サーバが 409 を返す。
+  // 編集開始時の PCB をそのまま添えて送る。切替済みならサーバが 409 を返す。
   function withExpectedPcb(body) {
     return { expected_pcb: state.config?.pcb_file ?? null, ...body };
   }
@@ -381,7 +381,7 @@ import {
     .getElementById("pad-disable-all")
     .addEventListener("click", () => patchPads(allOnLayer(), false));
 
-  // PATCH 応答の affected_pads で pad 色を即時更新する（再取得前のスナップ反応）。
+  // PATCH 応答の affected_pads で pad 色を即時更新する（再取得を待たずに反応させる）。
   // tree/表は後続の reloadConfig がサーバ算出値で確定させる。
   function applyPadVisuals(affected) {
     for (const ap of affected) {
@@ -441,7 +441,7 @@ import {
       saves.cancel(key);
     }
     const request = withExpectedPcb(body);
-    // 先に入力した値が、後から選んだ継承や別の値を追い越して保存されないようにする。
+    // 先に入力した値が、後から選んだ継承や別の値より後に保存されないようにする。
     const previous = nodeWrites;
     nodeWrites = saves.run("設定更新失敗", async () => {
       await previous;
@@ -507,7 +507,7 @@ import {
     });
   }
 
-  // クリック位置が既存の測定位置なら消し、そうでなければ末尾へ足す
+  // クリック位置が既存の測定位置ならその点を消し、そうでなければ末尾へ追加する
   function toggleFlowCalibrationPointAt(point) {
     const points = state.config?.flow_calibration?.points || [];
     const hit = points.findIndex(

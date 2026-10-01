@@ -167,7 +167,7 @@ def slot_area(length: float, bead_width: float) -> float:
     """線の塗布面積をスロット（stadium）近似で算出する [mm²].
 
     長方形（``length × bead_width``）に両端の半円キャップ（合計 1 円）を加える。
-    キャリブ線（~10mm）の端キャップ寄与（数%）を長方形近似で落とさないための統一式。
+    キャリブ線（~10mm）の端キャップ寄与（数%）を長方形近似で無視しないための統一式。
 
     Args:
         length: 線の長さ [mm]

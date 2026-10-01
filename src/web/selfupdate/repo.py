@@ -1,15 +1,15 @@
 """Git リポジトリの観測と fast-forward 更新.
 
-`git pull` は使わず **`fetch` → 判定 → `merge --ff-only`** に分解する。一発の
-`git pull --ff-only` だと中断理由がエラー文字列のパースになり、dirty / ローカル
-commit / 分岐 / detached を区別できない。
+`git pull` は使わず、`fetch` → 判定 → `merge --ff-only` に分解する。
+`git pull --ff-only` を 1 回で実行すると中断理由をエラー文字列から読み取ることになり、
+dirty / ローカル commit / 分岐 / detached を区別できない。
 
-`fast_forward_blocker` が「例外でなく `str | None`」規約の適用点で、router がこれを
-`HTTPException` に変換する。
+`fast_forward_blocker` は「例外でなく `str | None` を返す」規約を適用する箇所で、
+router がその戻り値を `HTTPException` に変換する。
 
-**dirty 判定は追跡ファイルの変更だけ**（`--untracked-files=no`）。untracked は記録する
-だけで中断しない — ignore 漏れのファイル 1 つで全機体の更新が止まるのは脆い。実際に
-pull と衝突する場合は `merge --ff-only` が非 0 で落ちて fail-closed になる。
+dirty 判定の対象は追跡ファイルの変更だけ（`--untracked-files=no`）。untracked は記録する
+だけで中断しない。ignore 漏れのファイル 1 つで全機体の更新が止まるのを避けるため。
+実際に pull と衝突する場合は `merge --ff-only` が非 0 で失敗し、fail-closed になる。
 """
 
 from __future__ import annotations
@@ -22,14 +22,14 @@ from web.selfupdate.settings import UpdateSettings
 from web.selfupdate.steps import CommandResult, run_command
 
 # 認証やホスト鍵の確認を求められたときに待ち続けないための ssh オプション。
-# 実機の unit には ssh-agent が無いので、対話に落ちた時点で永久にハングする。
+# 実機の unit には ssh-agent が無いので、対話入力を求められた時点で永久にハングする。
 GIT_SSH_COMMAND = (
     "ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes"
 )
 
 
 def git_env() -> dict[str, str]:
-    """Git を絶対に対話させない環境変数（純関数）."""
+    """Git が対話入力を求めないようにする環境変数（純関数）."""
     return os.environ | {
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_SSH_COMMAND": GIT_SSH_COMMAND,
@@ -59,7 +59,7 @@ class RepoState:
 def _git(
     settings: UpdateSettings, *arguments: str, timeout: float | None = None
 ) -> CommandResult:
-    """作業リポジトリで git を 1 回走らせる（例外を投げない）."""
+    """作業リポジトリで git を 1 回実行する（例外を投げない）."""
     return run_command(
         (settings.git_bin, *arguments),
         cwd=settings.repo_root,
@@ -90,7 +90,7 @@ def _dirty_path(line: str) -> str:
     """`git status --porcelain` の 1 行からパスを取り出す（rename は移動後を使う）.
 
     非 ASCII 名は `core.quotepath` で `"\346..."` の形に引用されるが、ここは
-    「どのファイルが汚れているか」を人に見せるだけなので復号せずそのまま出す
+    「どのファイルが変更されているか」を人に見せるだけなので、復号せずそのまま出す
     （判定に使うのは行数だけ）。
     """
     path = line[3:] if len(line) > 3 else line
@@ -135,7 +135,7 @@ def capture_state(settings: UpdateSettings) -> tuple[RepoState | None, str | Non
     upstream = _upstream(settings)
     ahead, behind = _ahead_behind(settings, upstream)
     # 失敗した git の stderr を「未コミットの変更」として画面に出さない
-    # （index.lock 残留などで status が落ちると原因が判らなくなる）
+    # （index.lock 残留などで status が失敗すると原因が判らなくなる）
     # status の stat キャッシュ更新が index.lock を取ると、同時進行の merge が
     # 「別の git が実行中」で失敗する。ポーリングは観測だけにする。
     status = _git(
@@ -175,8 +175,8 @@ def capture_state(settings: UpdateSettings) -> tuple[RepoState | None, str | Non
 def fast_forward_blocker(state: RepoState) -> str | None:
     """Fast-forward を妨げる事情を 1 つ返す（無ければ None）.
 
-    確定要件「ff 不可（dirty / ローカル commit / 分岐）は**何もせず中断**」の判定点。 untracked
-    はここでは弾かない（衝突すれば `merge --ff-only` が落ちる）。
+    確定要件「ff 不可（dirty / ローカル commit / 分岐）なら何もせず中断」を判定する箇所。 untracked
+    はここでは弾かない（衝突すれば `merge --ff-only` が失敗する）。
     """
     if state.branch is None:
         return (
@@ -205,7 +205,7 @@ def fetch(settings: UpdateSettings, *, timeout: float | None = None) -> str | No
     Args:
         settings: 対象リポジトリと既定タイムアウトを持つ設定
         timeout: 打ち切りまでの秒数（None なら `fetch_timeout`）。画面から押す
-            「更新を確認」は無認可で叩けるので、呼び出し側が短い値を渡す
+            「更新を確認」は認可なしで呼べるので、呼び出し側が短い値を渡す
 
     Returns:
         成功なら None、失敗なら理由
@@ -222,10 +222,10 @@ def fetch(settings: UpdateSettings, *, timeout: float | None = None) -> str | No
 def merge_fast_forward(settings: UpdateSettings) -> str | None:
     """追従先へ fast-forward する（失敗理由を返す）.
 
-    `--ff-only` なので、**git が自分で断った場合**（分岐・dirty・untracked 衝突）は
-    HEAD も作業ツリーも 1 バイトも動かない。ただし checkout の途中で打ち切られた
-    場合はこの限りではないので、タイムアウトは `merge_timeout`（既定 600 秒）と
-    長く取ってある — このリポジトリは git-lfs を使っており、smudge フィルタが
+    `--ff-only` なので、git 自身が merge を拒否した場合（分岐・dirty・untracked 衝突）は
+    HEAD も作業ツリーも 1 バイトも変わらない。ただし checkout の途中で打ち切られた
+    場合はこの限りではない。そのため、タイムアウトは `merge_timeout`（既定 600 秒）と
+    長く取ってある。このリポジトリは git-lfs を使っており、smudge フィルタが
     ネットワーク待ちに入ると数十秒かかりうる。ここで SIGKILL すると一部だけ新版の
     dirty な作業ツリーが残り、以後の更新が全部止まる。
     """

@@ -1,6 +1,6 @@
-"""ページ構成の表示知識（タブ / feature / テンプレート / 設定セクション）.
+"""ページ構成の表示定義（タブ / feature / テンプレート / 設定セクション）.
 
-ここに置くのは**純粋な表示知識だけ**。
+ここに置くのは純粋な表示定義だけ。
 装置の事実（フレーム提供の有無・progress_stage 文字列・ジョブのパラメータ定義）は
 ここには置かない。それらは backend が `GET /api/jobs` の `JobSpecInfo` で自己申告し、
 frontend はその値をテンプレートへ渡すだけにする。
@@ -18,7 +18,7 @@ import attrs
 
 from web.api.models import SettingsField
 
-# tab → (グループ名、案内、feature slug 列)。サイドバーと入口画面で共用する表示知識。
+# tab → (グループ名、案内、feature slug 列)。サイドバーと入口画面で共用する表示定義。
 FEATURE_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
     "dev": (
         (
@@ -94,7 +94,7 @@ TAB_LABELS: dict[str, str] = {
 }
 
 # 非ジョブ feature slug → 表示名（サイドバー / 見出し）。ジョブは backend の
-# JobSpecInfo.label を正とする。未定義は単語化フォールバック
+# JobSpecInfo.label を正とする。未定義の slug は `_` を空白に置き換えて単語化した名前で代用する
 FEATURE_LABELS: dict[str, str] = {
     "klipper_status": "Klipper ステータス",
     "audio": "通知音",
@@ -159,7 +159,7 @@ JOB_TEMPLATES = frozenset(
 
 # ノズル位置ページに即保存フォームで載せるクリーニング設定。
 # 位置 XYZ は記録ボタンの管轄なので、同じ画面に手打ち欄を並べない
-# （どちらが正か曖昧になる。緊急時の手打ちルートは /settings に残る）。
+# （どちらが正しい値か曖昧になる。緊急時に手で入力する経路は /settings に残す）。
 NOZZLE_CLEAN_SETTING_KEYS = (
     "paste_dispenser.nozzle_clean.press_depth",
     "paste_dispenser.nozzle_clean.purge_ul",
@@ -177,7 +177,7 @@ PASTE_AUTO_THRESHOLD_KEYS = (
     "paste_dispenser.auto_area_short_side_factor",
 )
 
-# はんだ塗布ページに即保存フォームで載せるpad逐次位置合わせ設定
+# はんだ塗布ページに即保存フォームで載せる pad 逐次位置合わせ設定
 PASTE_PAD_REFINEMENT_KEYS = ("paste_dispenser.pad_align.refine_max_short_side",)
 
 # はんだ塗布ページに即保存フォームで載せる運転時流量キャリブレーション設定。
@@ -220,7 +220,7 @@ DISPENSE_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 # paste_volume_calibration フォームのセクション分け（表示のみ）。
-# 項目数が多く縦一列だと読めないため、依存関係の近いものをまとめて段組みにする。
+# 項目数が多く縦一列だと読みにくいため、依存関係の近いものをまとめて段組みにする。
 # 全パラメータを漏れなく含める（欠けた項目はフォームから消える）。
 PASTE_VOLUME_CALIBRATION_PARAM_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
@@ -311,10 +311,10 @@ class SettingsSectionSpec:
     groups: tuple[SettingsGroupSpec, ...]
 
 
-# 設定ページの構成。**並び順の正はここ**で、backend の `MACHINE_FIELDS` の定義順には
-# 依存しない（依存させると、backend が入れ子セクションを途中に挟んだ瞬間に親セクションの
-# カードが 2 枚に割れる）。宣言漏れは「未分類」へ落ちるだけで消えないが、
-# tests/web/ui/test_layout.py が MACHINE_FIELDS との双方向の網羅をピンしている。
+# 設定ページの構成。並び順はここの定義に従い、backend の `MACHINE_FIELDS` の定義順には
+# 依存しない（依存させると、backend が入れ子セクションを途中に挟んだ時点で親セクションの
+# カードが 2 枚に分かれる）。宣言漏れの項目は「未分類」に入るだけで消えないが、
+# tests/web/ui/test_layout.py で MACHINE_FIELDS との双方向の網羅を検査している。
 SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
     SettingsSectionSpec(
         "paste_dispenser",
@@ -501,7 +501,7 @@ SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
 )
 
 # 宣言から漏れた項目を受けるセクション（backend が項目を足して frontend が追随していない
-# 状態）。設定ページは machine.toml の唯一の編集画面なので、落とさず末尾へ出す
+# 状態）。設定ページは machine.toml の唯一の編集画面なので、項目を捨てず末尾へ出す
 UNCATEGORIZED_SLUG = "uncategorized"
 UNCATEGORIZED_LABEL = "未分類"
 

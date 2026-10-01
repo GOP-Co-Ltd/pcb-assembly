@@ -181,17 +181,17 @@ class JobContext:
 
     @property
     def machine_id(self) -> str:
-        """Backendが自己申告する一意なmachine ID."""
+        """Backend が自己申告する一意な machine ID."""
         return self._machine_id
 
     @property
     def paste_dataset_dir(self) -> Path:
-        """永続ペーストdataset root（テストではSettingsから注入可能）."""
+        """永続ペースト dataset root（テストでは Settings から注入可能）."""
         return self._paste_dataset_dir
 
     @property
     def paste_volume_calibration_dir(self) -> Path:
-        """永続の塗布量校正 root（テストではSettingsから注入可能）."""
+        """永続の塗布量校正 root（テストでは Settings から注入可能）."""
         return self._paste_volume_calibration_dir
 
     @property
@@ -273,7 +273,7 @@ class JobContext:
 
         :meth:`prompt` は応答待ちに入るときこれを自動で行う。コマンド待ち
         （``next_command(timeout=None)``）のように prompt を出さないオペレータ
-        待ちへ入る段階で、ジョブが明示的に呼ぶ。再生の失敗は warning に落ち、
+        待ちへ入る段階で、ジョブが明示的に呼ぶ。再生の失敗は warning ログに残り、
         ジョブへは伝播しない。
         """
         self._bridge.notify_operator()

@@ -4,22 +4,22 @@
 //
 // body.dataset.control（"held" | "viewer" | "free" | "unknown"）の 1 箇所で全体を
 // 切り替え、data-requires-control の要素に inert を付ける。無効化手段を inert に
-// 統一しているのは、ジョブ状態を見て .disabled を書くモジュールと同じ属性を使うと
-// 「ジョブ終了時に閲覧者のボタンが復活する」二重管理バグになるため。
+// 統一しているのは、ジョブ状態を見て .disabled を書くモジュールと同じ属性を使うと、
+// 二重管理により「ジョブ終了時に閲覧者のボタンが再び押せるようになる」バグが起きるため。
 //
 // SSR は backend へのサーバ間通信でブラウザの cookie を持たないため「自分が保持者か」を
-// 判定できない。したがって初期値は viewer（fail-closed）で、更新源は 3 つだけ:
+// 判定できない。したがって初期値は viewer（fail-closed）で、状態を更新する契機は次の 3 つだけ。
 // (a) ページロード後の GET /api/state、(b) WS の control_changed（job_console.js が
 // 中継）、(c) api() の 423（app.js が onDenied を呼ぶ）。
 
 (() => {
   const { toast, api } = window.webui;
 
-  // fail-closed: サーバの事実が届くまでは閲覧者として扱う（先に押せると保持者の
-  // 操作に割り込む）。held 以外（unknown を含む）はすべて塞ぐ。
+  // fail-closed: サーバから状態が届くまでは閲覧者として扱う（先に押せると保持者の
+  // 操作に割り込んでしまう）。held 以外（unknown を含む）はすべて操作不可にする。
   const INITIAL_STATE = "viewer";
 
-  // 表示名の cookie。ProxyApp が backend へのヘッダに翻訳する（httpOnly にしない）
+  // 表示名の cookie。ProxyApp が backend へのヘッダに変換する（httpOnly にしない）
   const NAME_COOKIE = "pcbasm_name";
   const NAME_MAX_AGE = 60 * 60 * 24 * 365;
 
@@ -29,7 +29,7 @@
   const releaseButton = document.getElementById("control-release");
   const takeoverButton = document.getElementById("control-takeover");
   // プロンプトの案内（ジョブコンソールを持つページのみ）。ダイアログ内にあるので
-  // 「プロンプトが出ているときだけ」見える = 保留中かを知る必要がない
+  // プロンプトが出ているときだけ見える。そのため、保留中かどうかを判定する必要がない
   const promptHint = document.getElementById("jc-prompt-hint");
 
   let state = INITIAL_STATE;
@@ -89,8 +89,8 @@
     return "操作権: 不明";
   }
 
-  // プロンプト本文は閲覧者にも見せる（何を待っているか分からないより良い）。
-  // 保持者が居ないまま応答待ちになったら、取得を促す（誰も応答できない詰みの回避）。
+  // プロンプト本文は閲覧者にも見せる（何を待っているか分からないよりよい）。
+  // 保持者が居ないまま応答待ちになったら取得を促す（誰も応答できない状態を避ける）。
   function renderPromptHint() {
     if (promptHint === null) return;
     if (state === "held") {
@@ -108,8 +108,8 @@
     try {
       applySnapshot(await api("GET", "/api/state"));
     } catch {
-      // 状態が読めない間も塞いだままにする（fail-closed）。トーストは出さない
-      // （backend 不通のページで毎回鳴る）
+      // 状態が読めない間も操作不可のままにする（fail-closed）。トーストは出さない
+      // （出すと backend 不通のページで毎回表示される）
       state = "unknown";
       render();
     }
@@ -142,14 +142,14 @@
       ` Path=/; Max-Age=${NAME_MAX_AGE}; SameSite=Lax`;
   }
 
-  // 先に fail-closed を適用してからイベントを配線する（配線側で何かあっても塞がった状態は残る）
+  // 先に fail-closed を適用してからイベントを配線する（配線で失敗しても操作不可の状態は残る）
   render();
 
   if (nameInput) {
     nameInput.value = readNameCookie();
     nameInput.addEventListener("change", () => {
       writeNameCookie(nameInput.value.trim());
-      // 保持者の表示名は backend が持っているので更新を通知する。閲覧者の名乗りは
+      // 保持者の表示名は backend が持っているので更新を通知する。閲覧者の表示名は
       // 取得時にヘッダで届くので送らない
       if (state === "held") post("/api/control/name", null);
     });
@@ -175,7 +175,7 @@
     onDenied,
     // job_console.js が WS の control_changed を中継する（you は前回値を使う）
     applyControl: (control) => applySnapshot({ control }),
-    // WS 再接続時の取り直し（切断中の control_changed を取りこぼしている）
+    // WS 再接続時に取り直す（切断中の control_changed を受け取れていないため）
     refresh,
     state: () => state,
   };

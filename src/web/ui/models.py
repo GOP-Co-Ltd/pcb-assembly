@@ -36,8 +36,8 @@ class MachinesResponse(BaseModel):
 class UpdateNoticeResponse(BaseModel):
     """``GET /api/update-notice`` の応答（トップバーの更新通知バッジ 1 個分）.
 
-    見出し・詳細・遷移先はすべてサーバが組む。JS は ``available`` で出し入れして
-    残りを DOM に流すだけにする（`webui-thin-wrapper`）。
+    見出し・詳細・遷移先はすべてサーバが組む。JS は ``available`` でバッジの表示を
+    切り替え、残りを DOM に流すだけにする（`webui-thin-wrapper`）。
     """
 
     # 更新が 1 つでも待っているか（バッジを出すかどうか）

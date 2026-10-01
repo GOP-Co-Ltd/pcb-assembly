@@ -29,9 +29,9 @@ description: orchestrator（メインエージェント）が implementation-pla
 | spec-test-author       | medium       | 仕様テスト（`tests/` のみ、`src/` は触らない）                           |
 | code-simplifier        | medium       | 公開 IF 維持の簡素化 + docstring / README 同期（レビューはしない）       |
 
-orchestrator に `effort` を設定していないのは、frontmatter の effort がセッション値を上書きし、ユーザーの `/effort` が効かなくなるため。セッション既定は `settings.json` の `effortLevel` で与える。
+orchestrator に `effort` を設定していないのは、frontmatter の effort がセッション値を上書きし、ユーザーが `/effort` で変えた値が反映されなくなるため。セッション既定は `settings.json` の `effortLevel` で与える。
 
-**effort の再調整**: 上表は Opus 5.5 向けの出発点であって固定値ではない。Opus 5.5 は API 既定が `medium` で、`medium` でも Opus 5 の `high` を上回る。一方、同じ level でも Opus 5 より thinking が長くなるため、表は Opus 5 時代の値から一律 1 段下げてある。深さが足りなければ 1 段ずつ上げ、`xhigh` / `max` は効果を確かめられたときだけ使う。thinking を減らしたいときは「考えすぎるな」と指示するより effort を下げる方が確実に効く。
+**effort の再調整**: 上表は Opus 5.5 向けの初期値で、固定値ではない。Opus 5.5 は API 既定が `medium` で、`medium` でも Opus 5 の `high` を上回る。一方、同じ level でも Opus 5 より thinking が長くなるため、表は Opus 5 時代の値から一律 1 段下げてある。深さが足りなければ 1 段ずつ上げ、`xhigh` / `max` は効果を確かめられたときだけ使う。thinking を減らすには、「考えすぎるな」と指示するより effort を下げる方が確実。
 
 ## 標準サイクル
 
@@ -74,13 +74,13 @@ approve（should-fix は残ってよい）の後に 5 を行う。5 で大きく
 
 ## 委譲するかどうか
 
-チームを明示された後でも、個々の仕事が委譲に見合うかを判断する。サブエージェントは文脈を再構築し、探索し直し、報告を返し、orchestrator がそれを読み直す。この往復を上回る利得が要る。
+チームを明示された後でも、個々の仕事が委譲に見合うかを判断する。委譲すると、サブエージェントは文脈を再構築して探索し直し、報告を返す。orchestrator はその報告を読み直す。この往復のコストを上回る利得があるときだけ委譲する。
 
-- **チームを起動する** — 複数ファイル・複数モジュールにまたがる実装や調査。独立して並列に進められる作業がある
-- **単独委譲で足りる** — 対象が明確な 1 モジュールの実装（`plan-implementer` 単独）
-- **委譲しない** — 数回のツール呼び出しで orchestrator 自身が終えられる仕事。自分の作業の検証・ダブルチェック（検証は orchestrator のループ内で行う）。1〜数モジュールに収まる変更を通しで仕上げる場合は skill [solo-dev-cycle](../solo-dev-cycle/SKILL.md)
+- **チームを起動する**：複数ファイル・複数モジュールにまたがる実装や調査。独立して並列に進められる作業がある
+- **単独委譲で足りる**：対象が明確な 1 モジュールの実装（`plan-implementer` 単独）
+- **委譲しない**：数回のツール呼び出しで orchestrator 自身が終えられる仕事。自分の作業の検証・ダブルチェック（検証は orchestrator のループ内で行う）。1〜数モジュールに収まる変更を通しで仕上げる場合は skill [solo-dev-cycle](../solo-dev-cycle/SKILL.md)
 
-1 体で足りる仕事を分割して複数体に投げない。spawn 数は低く保つ。
+1 体で足りる仕事を分割して複数体に割り振らない。spawn 数は低く保つ。
 
 ## spec-test-author を挟むかの判断
 
@@ -96,7 +96,7 @@ approve（should-fix は残ってよい）の後に 5 を行う。5 で大きく
 
 ## 並列化の基本条件
 
-`tests/` と `src/` は disjoint なので、`spec-test-author` と `plan-implementer` は同時起動できる。前提条件:
+`tests/` と `src/` は disjoint なので、`spec-test-author` と `plan-implementer` は同時起動できる。前提条件は次のとおり。
 
 - planner の「公開インターフェース案」が**シグネチャレベル**（関数名・引数・戻り値型）で確定していること
 - ハードウェアリソース（実カメラ／実 Klipper）の同時アクセスがないこと

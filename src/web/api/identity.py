@@ -6,7 +6,7 @@ HTML ページレスポンスで cookie を発行し、proxy がヘッダ組み�
 では cookie を読む。
 
 **これは認証ではなく自己申告である。** LAN 上の誰でも他人の `session_id` や表示名を
-騙れる。操作権リースは「複数人が同時に装置へ指示を出す事故」を防ぐためのもので、
+騙れる。操作権リースは「複数人が同時に装置へ指示を出すこと」を防ぐためのもので、
 権限分離ではない。認証が無い現状より悪化しないので受容する。
 """
 
@@ -36,7 +36,7 @@ def get_identity(connection: HTTPConnection) -> ClientIdentity:
 
     ``session_id`` はヘッダ → cookie → ``anonymous``、``display_name`` はヘッダ →
     cookie → ``名前未設定 (<key>)`` の順で解決する。壊れた入力（復元できない
-    percent-encoding や非 ASCII の生バイト）は例外にせず次の候補へ落とす。
+    percent-encoding や非 ASCII の生バイト）は例外にせず次の候補を使う。
 
     Args:
         connection: HTTP リクエストまたは WebSocket 接続

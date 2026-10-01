@@ -13,10 +13,10 @@ def polygon_with_holes_patch(
     alpha: float,
     linewidth: float,
 ) -> PathPatch:
-    """穴付きポリゴンをPathPatch化する.
+    """穴付きポリゴンを PathPatch 化する.
 
-    matplotlib.PolygonはholeをサポートしないためPath経由で生成する。
-    matplotlibはexteriorと逆向きの巻きを穴と解釈するため、interiorsは反転する。
+    matplotlib.Polygon は hole をサポートしないため Path 経由で生成する。 matplotlib は
+    exterior と逆向きの巻きを穴と解釈するため、interiors は反転する。
     """
     move_to, line_to, close_poly = (
         int(MplPath.MOVETO),
