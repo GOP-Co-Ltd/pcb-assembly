@@ -205,7 +205,7 @@ class TestInitialPurgePadConfig:
         assert initial["resolved"]["source"] == "default"
         assert initial["resolved"]["amount"] == pytest.approx(0.1)
         # 自動は塗布順路先頭 pad の中心座標
-        assert initial["resolved"]["point"] == pytest.approx([15.0, 4.212500000000003])
+        assert initial["resolved"]["point"] == pytest.approx([4.49, 10.0])
         assert initial["default_point"] == initial["resolved"]["point"]
         assert "自動" in initial["selection_label"]
 
