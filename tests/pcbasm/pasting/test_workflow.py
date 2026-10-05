@@ -66,14 +66,15 @@ class TestPlanPasteTargets:
         assert targets.disabled_count == 0
         assert all(p.layer is Layer.TOP for p in targets.routed_pads)
 
-    def test_default_initial_purge_is_the_route_head_center(self, pcb, hierarchy):
+    def test_default_initial_purge_is_the_largest_pad_center(self, pcb, hierarchy):
         targets, _ = plan_paste_targets(
             pcb, hierarchy, _model(), initial_purge_ul=0.5, flow_calibration=_DISABLED
         )
 
         assert targets is not None
         assert targets.initial_purge is not None
-        assert targets.initial_purge.point == targets.routed_pads[0].center
+        largest = max(targets.routed_pads, key=lambda pad: pad.area)
+        assert targets.initial_purge.point == largest.center
         assert targets.initial_purge.source == "default"
         assert targets.initial_purge.amount_ul == 0.5
 

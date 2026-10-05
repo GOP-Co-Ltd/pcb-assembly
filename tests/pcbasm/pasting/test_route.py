@@ -71,7 +71,7 @@ def _full_base() -> PasteParams:
 class TestPlanPasteRoute:
     """plan_paste_route groups by shape and routes within each group."""
 
-    def test_larger_shape_group_routes_before_smaller_group_with_one_based_order(
+    def test_smaller_shape_group_routes_before_larger_group_with_one_based_order(
         self,
     ):
         small_a = _pad("R1", "1", center=Point2d(20.0, 0.0), width=0.5, height=1.0)
@@ -82,14 +82,14 @@ class TestPlanPasteRoute:
         stops = plan_paste_route([small_a, large_a, small_b, large_b])
 
         assert [stop.order for stop in stops] == [1, 2, 3, 4]
-        assert {_pad_id(stop.pad) for stop in stops[:2]} == {"U1.1", "U1.2"}
-        assert {_pad_id(stop.pad) for stop in stops[2:]} == {"R1.1", "R1.2"}
+        assert {_pad_id(stop.pad) for stop in stops[:2]} == {"R1.1", "R1.2"}
+        assert {_pad_id(stop.pad) for stop in stops[2:]} == {"U1.1", "U1.2"}
         assert stops[0].group_label == stops[1].group_label
         assert stops[2].group_label == stops[3].group_label
         assert stops[0].group_label != stops[2].group_label
         assert [stop.area for stop in stops[:2]] == [
-            pytest.approx(large_a.area),
-            pytest.approx(large_b.area),
+            pytest.approx(small_a.area),
+            pytest.approx(small_b.area),
         ]
 
     def test_same_group_routes_from_start_by_nearest_stop(self):
@@ -141,7 +141,7 @@ class TestRoutedEnabledPads:
 
         routed = routed_enabled_pads(pads, hierarchy, model)
 
-        assert [_pad_id(pad) for pad in routed] == ["U1.1", "R1.1", "R1.2"]
+        assert [_pad_id(pad) for pad in routed] == ["R1.1", "R1.2", "U1.1"]
 
     def test_pad_without_component_is_routed_for_backward_compat(self):
         # 階層外 pad（対応 Component 無し）は後方互換で有効扱いのまま順路に乗る。

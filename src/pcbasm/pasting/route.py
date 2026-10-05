@@ -32,11 +32,11 @@ def plan_paste_route(
     start: Point2d = Point2d(0.0, 0.0),
     shape_quantum: float = 0.01,
 ) -> list[PasteRouteStop]:
-    """Pad を同種類ごとにまとめ、面積の大きい順に塗布順へ並べる.
+    """Pad を同種類ごとにまとめ、面積の小さい順に塗布順へ並べる.
 
     同種類の判定は :class:`pcbasm.pcb.PadShapeKey` に従う。グループ間は
-    面積降順、グループ内は直前位置からの nearest route で並べる。
-    面積が同じグループどうしは長辺・短辺の降順、次に通常形状を先、最後に入力順で決める。
+    面積昇順、グループ内は直前位置からの nearest route で並べる。
+    面積が同じグループどうしは長辺・短辺の昇順、次に通常形状を先、最後に入力順で決める。
 
     Args:
         pads: 並べる pad（有効/無効の絞り込みは呼び出し側で済ませる）
@@ -53,9 +53,9 @@ def plan_paste_route(
     ordered_keys = sorted(
         groups,
         key=lambda key: (
-            -key.area_q,
-            -key.long_q,
-            -key.short_q,
+            key.area_q,
+            key.long_q,
+            key.short_q,
             key.is_custom_shape,
             first_index[key],
         ),
@@ -88,7 +88,7 @@ def plan_paste_route(
 def routed_enabled_pads(
     pads: Iterable[Pad], hierarchy: PadHierarchy, model: PasteSettingsModel
 ) -> list[Pad]:
-    """有効 pad だけを通常塗布順（同種類連続・大面積優先）に並べて返す.
+    """有効 pad だけを通常塗布順（同種類連続・小面積優先）に並べて返す.
 
     :func:`pcbasm.pasting.settings.select_enabled_pads` の絞り込みと
     :func:`plan_paste_route` の順路を 1 手で適用する。順路の stop 情報

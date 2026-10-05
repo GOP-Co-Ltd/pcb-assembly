@@ -219,7 +219,7 @@ import {
         : "idle";
     }
     if (initialPurgeClearButton) {
-      initialPurgeClearButton.title = "塗布順路先頭の中心へ戻す";
+      initialPurgeClearButton.title = "面積最大の pad の中心へ戻す";
     }
   }
 

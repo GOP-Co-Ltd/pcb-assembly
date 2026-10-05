@@ -141,7 +141,7 @@ class InitialPurgeInfo(BaseModel):
 
     initial_purge_ul: float
     point: list[float] | None  # 明示指定（``None`` = 自動）
-    default_point: list[float] | None  # 自動時に使う順路先頭 pad の中心
+    default_point: list[float] | None  # 自動時に使う面積最大 pad の中心
     resolved: ResolvedInitialPurgeInfo | None
     selection_label: str
     error: str | None

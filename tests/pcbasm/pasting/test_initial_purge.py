@@ -1,6 +1,6 @@
 """初回パージ位置（座標）の解決の公開契約テスト.
 
-パージは pad ではなく座標で扱う。明示指定が無ければ塗布順路先頭 pad の中心を使う。
+パージは pad ではなく座標で扱う。明示指定が無ければ面積最大の pad の中心を使う。
 """
 
 import pytest
@@ -23,7 +23,10 @@ def _outline(size: float = 20.0) -> Polygon:
     return Polygon([(-half, -half), (half, -half), (half, half), (-half, half)])
 
 
-def _pad(designator: str, pad_number: str, *, center: Point2d) -> Pad:
+def _pad(
+    designator: str, pad_number: str, *, center: Point2d, size: float = 1.0
+) -> Pad:
+    half = size / 2.0
     return Pad(
         designator=designator,
         pad_number=pad_number,
@@ -31,36 +34,50 @@ def _pad(designator: str, pad_number: str, *, center: Point2d) -> Pad:
         layer=Layer.TOP,
         polygon=Polygon(
             [
-                (center.x - 0.5, center.y - 0.5),
-                (center.x + 0.5, center.y - 0.5),
-                (center.x + 0.5, center.y + 0.5),
-                (center.x - 0.5, center.y + 0.5),
+                (center.x - half, center.y - half),
+                (center.x + half, center.y - half),
+                (center.x + half, center.y + half),
+                (center.x - half, center.y + half),
             ]
         ),
     )
 
 
 class TestResolveInitialPurge:
-    """明示座標 > 順路先頭 pad の中心、の順で塗布点を決める."""
+    """明示座標 > 面積最大 pad の中心、の順で塗布点を決める."""
 
-    def test_default_uses_the_first_routed_pad_center(self):
-        first = _pad("U1", "2", center=Point2d(1.0, 2.0))
-        later = _pad("R1", "1", center=Point2d(5.0, 0.0))
+    def test_default_uses_the_largest_pad_center(self):
+        small = _pad("R1", "1", center=Point2d(5.0, 0.0), size=0.5)
+        large = _pad("U1", "2", center=Point2d(1.0, 2.0), size=2.0)
 
         resolved, error = resolve_initial_purge(
             amount_ul=0.1,
             point=None,
-            routed_pads=[first, later],
+            routed_pads=[small, large],
             outline=_outline(),
         )
 
         assert error is None
         assert isinstance(resolved, ResolvedInitialPurge)
-        assert resolved.point == first.center
+        assert resolved.point == large.center
         assert resolved.source == "default"
         assert resolved.amount_ul == pytest.approx(0.1)
 
-    def test_explicit_point_overrides_the_route_head(self):
+    def test_default_prefers_the_earlier_routed_pad_among_equal_areas(self):
+        first = _pad("U1", "1", center=Point2d(1.0, 2.0))
+        second = _pad("U1", "2", center=Point2d(5.0, 0.0))
+
+        resolved, _ = resolve_initial_purge(
+            amount_ul=0.1,
+            point=None,
+            routed_pads=[first, second],
+            outline=_outline(),
+        )
+
+        assert resolved is not None
+        assert resolved.point == first.center
+
+    def test_explicit_point_overrides_the_default(self):
         routed = _pad("R1", "1", center=Point2d(0.0, 0.0))
 
         resolved, error = resolve_initial_purge(
@@ -181,18 +198,19 @@ class TestValidateInitialPurge:
 class TestResolveInitialPurgeFor:
     """UI 表示用に解決結果と既定座標をまとめて返す."""
 
-    def test_reports_the_route_head_center_as_the_default_point(self):
-        first = _pad("U1", "2", center=Point2d(1.0, 2.0))
+    def test_reports_the_largest_pad_center_as_the_default_point(self):
+        large = _pad("U1", "2", center=Point2d(1.0, 2.0), size=2.0)
+        small = _pad("R1", "1", center=Point2d(5.0, 0.0), size=0.5)
 
         resolution = resolve_initial_purge_for(
             amount_ul=0.1,
             point=Point2d(3.0, 4.0),
-            routed_pads=[first],
+            routed_pads=[small, large],
             outline=_outline(),
         )
 
         assert resolution.error is None
-        assert resolution.default_point == first.center
+        assert resolution.default_point == large.center
         assert resolution.resolved is not None
         assert resolution.resolved.point == Point2d(3.0, 4.0)
 
