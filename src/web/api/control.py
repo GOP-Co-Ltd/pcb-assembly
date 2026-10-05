@@ -6,8 +6,10 @@
 
 FastAPI に依存しない純ロジックである。
 
-自動解放はしない。保持者が解放するか、他のクライアントが奪取するまで保持し続ける。
-リースはメモリ上にしか無い。プロセスが再起動すると（更新・ファームウェア再起動を含む）空きに戻る。
+自動解放はしない。時間・無操作・WebSocket の切断では失効しない。
+保持者が替わるのは、空きのときの ``claim`` と、``takeover`` による奪取だけである。
+空きに戻るのは、保持者自身の ``release`` とプロセス再起動の 2 つだけである。
+リースはメモリ上にしか無いので、再起動（更新・ファームウェア再起動を含む）で消える。
 """
 
 from __future__ import annotations
@@ -84,16 +86,22 @@ class ControlDeniedError(RuntimeError):
 class ControlLease:
     """単一の操作権を貸し出すリース.
 
-    時間や WebSocket の切断では失効しない。保持者が画面を閉じたまま戻らないときは、
-    他のクライアントが ``takeover`` で奪取する（誰も操作できない状態からの脱出口）。
-    WebSocket の接続数は数えるが、使い道は ``LeaseInfo.connections`` の表示だけである。
+    保持者が画面を閉じたまま戻らないときは、他のクライアントが ``takeover`` で奪取する。
+    WebSocket の接続数は ``LeaseInfo.connections`` に表示するためだけに数え、失効の判定には使わない。
+
+    ``on_change`` の呼ばれ方:
+
+    - ``claim`` / ``takeover`` / ``release`` の結果、保持者が変わったときだけ呼ぶ
+    - 保持者の比較は ``ClientIdentity`` の値で行うので、同じ ``session_id`` でも ``display_name`` が変われば呼ぶ
+    - 拒否された ``claim``、非保持者の ``release``、``connect`` / ``disconnect`` では呼ばない
+    - 内部ロックを解放した後に呼ぶので、``on_change`` から ``snapshot`` を呼んでもデッドロックしない
     """
 
     def __init__(self, *, on_change: Callable[[], None] | None = None) -> None:
         """ControlLease を初期化する.
 
         Args:
-            on_change: 保持者が変わったときの通知（ロック解放後に呼ばれる）
+            on_change: 保持者が変わったときに引数なしで呼ぶ通知（呼ばれ方はクラス docstring）
         """
         self._on_change = on_change
         self._lock = threading.Lock()
@@ -106,7 +114,7 @@ class ControlLease:
             return self._info()
 
     def claim(self, identity: ClientIdentity) -> LeaseInfo:
-        """操作権を取得する（保持者自身の呼び出しは表示名の更新）.
+        """操作権を取得する（空きなら取得、保持者自身の呼び出しは表示名の更新）.
 
         Args:
             identity: 取得しようとするクライアント
@@ -134,8 +142,7 @@ class ControlLease:
     def takeover(self, identity: ClientIdentity) -> LeaseInfo:
         """保持者を問わず操作権を奪取する（誰も操作できなくなった状態から抜け出す手段）.
 
-        実行中のジョブには一切触らない（指示を出す権利の移転であって、走って
-        いる処理の移転ではない）。
+        実行中のジョブには触らない。移るのは指示を出す権利だけで、走っている処理は止まらない。
 
         Args:
             identity: 奪取するクライアント
@@ -179,7 +186,7 @@ class ControlLease:
             self._connections[session_id] = self._connections.get(session_id, 0) + 1
 
     def disconnect(self, identity: ClientIdentity) -> None:
-        """WebSocket 切断を数える（保持者が切断しても操作権は保持したまま）.
+        """WebSocket 切断を数える（保持者の接続数が 0 になっても操作権は保持したまま）.
 
         Args:
             identity: 切断したクライアント
