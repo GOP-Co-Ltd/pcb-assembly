@@ -4,8 +4,7 @@ SSR テスト（`tests/web/ui/test_bulk.py`）は行の配線までしか見ら�
 行のボタンが ``/m/{machine_id}/api/**`` 経由でその機体の backend に効くことを見る。
 
 - 行で取った操作権は、その機体のページでも自分のものになる（同じセッション cookie）
-- 行はその機体の WS を張り続ける。backend は保持者の WS 在線で操作権の生存を判定し、
-  接続 0 本のまま 30 秒経つと解放するので、張らないと塗布の途中でも操作権が失効する
+- 行はその機体の WS を張り続け、他の端末による取得をポーリングなしで表示に反映する
 - 塗布実行は backend のジョブ開始 API に届く（PCB 未選択なので backend が 400 で拒み、
   その理由が画面に出る。装置は動かない）
 """
@@ -55,20 +54,24 @@ def paste_ui(live_server: LiveServer, tmp_path: Path) -> Iterator[LiveUi]:
 
 
 class TestBulkRow:
-    def test_holder_session_stays_connected_to_backend_ws(
+    def test_acquire_by_other_client_is_reflected_without_reload(
         self, live_server: LiveServer, paste_ui: LiveUi, browser_page
     ):
         browser_page.goto(f"{paste_ui.origin}/bulk")
         row = browser_page.get_by_test_id(f"bulk-row-{E2E_MACHINE_ID}")
-        row.get_by_test_id("bulk-acquire").click()
-        expect(row.get_by_test_id("bulk-holder")).to_have_text("あなた")
+        holder = row.get_by_test_id("bulk-holder")
+        expect(holder).to_have_text("空き")
 
-        # 保持者の接続数が 0 なら backend は失効までの猶予を数え始める
-        control = httpx.get(f"{live_server.base_url}/api/state", timeout=10).json()[
-            "control"
-        ]
-        assert control["held"]
-        assert control["connections"] >= 1
+        # 別のセッションが backend で直接取得する（WS の control_changed が行へ届く）
+        response = httpx.post(
+            f"{live_server.base_url}/api/control/acquire",
+            headers={"X-Pcbasm-Session": "other-session"},
+            timeout=10,
+        )
+        assert response.status_code == 200
+
+        expect(holder).to_contain_text("が保持中")
+        expect(row.get_by_test_id("bulk-acquire")).to_be_disabled()
 
     def test_acquire_in_row_is_shared_with_machine_page_and_release(
         self, paste_ui: LiveUi, browser_page
