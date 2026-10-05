@@ -6,9 +6,8 @@
 
 FastAPI に依存しない純ロジックである。
 
-時計とジョブ実行中判定は注入する。
-
-失効は呼び出し時の lazy 判定だけで行う（バックグラウンドスレッドを持たない）。
+自動解放はしない。保持者が解放するか、他のクライアントが奪取するまで保持し続ける。
+リースはメモリ上にしか無い。プロセスが再起動すると（更新・ファームウェア再起動を含む）空きに戻る。
 """
 
 from __future__ import annotations
@@ -85,58 +84,29 @@ class ControlDeniedError(RuntimeError):
 class ControlLease:
     """単一の操作権を貸し出すリース.
 
-    liveness は WebSocket の在線で判定する（クライアント側 heartbeat は持た
-    ない）。保持者の接続数が 1 以上ある間は切断猶予による失効をしない。
-
-    失効条件は次のいずれか（呼び出し時に判定する）。
-
-    - 保持者の接続数が 0 になってから ``disconnect_grace`` 秒を超えた
-    - 保持者の最終操作から ``idle_timeout`` 秒を超え、かつ ``busy()`` が False
-
-    ``busy`` にジョブ実行中判定を注入することで、長時間ジョブの最中は無操作
-    でも失効しない。
+    時間や WebSocket の切断では失効しない。保持者が画面を閉じたまま戻らないときは、
+    他のクライアントが ``takeover`` で奪取する（誰も操作できない状態からの脱出口）。
+    WebSocket の接続数は数えるが、使い道は ``LeaseInfo.connections`` の表示だけである。
     """
 
-    def __init__(
-        self,
-        *,
-        clock: Callable[[], float],
-        busy: Callable[[], bool],
-        on_change: Callable[[], None] | None = None,
-        disconnect_grace: float = 30.0,
-        idle_timeout: float = 600.0,
-    ) -> None:
+    def __init__(self, *, on_change: Callable[[], None] | None = None) -> None:
         """ControlLease を初期化する.
 
         Args:
-            clock: 単調増加する秒単位の時計（``time.monotonic`` を注入）
-            busy: 装置がジョブ実行中かを返す判定
             on_change: 保持者が変わったときの通知（ロック解放後に呼ばれる）
-            disconnect_grace: 保持者の接続数が 0 になってから失効までの秒数
-            idle_timeout: 無操作で失効するまでの秒数（ジョブ実行中は失効しない）
         """
-        self._clock = clock
-        self._busy = busy
         self._on_change = on_change
-        self._disconnect_grace = disconnect_grace
-        self._idle_timeout = idle_timeout
         self._lock = threading.Lock()
         self._holder: ClientIdentity | None = None
         self._connections: dict[str, int] = {}
-        self._last_active = 0.0
-        # 保持者の接続数が 0 になった時刻（接続中は None）
-        self._offline_since: float | None = None
 
     def snapshot(self) -> LeaseInfo:
-        """現在のリース状態を返す（失効していれば解放してから返す）."""
+        """現在のリース状態を返す."""
         with self._lock:
-            changed = self._expire_stale(self._clock())
-            info = self._info()
-        self._notify(changed)
-        return info
+            return self._info()
 
     def claim(self, identity: ClientIdentity) -> LeaseInfo:
-        """操作権を取得する（保持者自身の呼び出しは無操作時間の更新）.
+        """操作権を取得する（保持者自身の呼び出しは表示名の更新）.
 
         Args:
             identity: 取得しようとするクライアント
@@ -148,14 +118,13 @@ class ControlLease:
             ControlDeniedError: 他クライアントが保持している場合
         """
         with self._lock:
-            now = self._clock()
-            changed = self._expire_stale(now)
             holder = self._holder
+            changed = False
             if holder is not None and holder.session_id != identity.session_id:
                 denied_by = holder.display_name
             else:
                 denied_by = None
-                changed = self._assign(identity, now) or changed
+                changed = self._assign(identity)
             info = self._info()
         self._notify(changed)
         if denied_by is not None:
@@ -175,9 +144,7 @@ class ControlLease:
             奪取後のリース状態
         """
         with self._lock:
-            now = self._clock()
-            changed = self._expire_stale(now)
-            changed = self._assign(identity, now) or changed
+            changed = self._assign(identity)
             info = self._info()
         self._notify(changed)
         return info
@@ -192,73 +159,44 @@ class ControlLease:
             解放後のリース状態
         """
         with self._lock:
-            changed = self._expire_stale(self._clock())
             holder = self._holder
+            changed = False
             if holder is not None and holder.session_id == identity.session_id:
-                self._clear()
+                self._holder = None
                 changed = True
             info = self._info()
         self._notify(changed)
         return info
 
     def connect(self, identity: ClientIdentity) -> None:
-        """WebSocket 接続を登録する（同一セッションの多重接続を数える）.
+        """WebSocket 接続を数える（同一セッションの多重接続も数える）.
 
         Args:
             identity: 接続したクライアント
         """
         with self._lock:
-            changed = self._expire_stale(self._clock())
             session_id = identity.session_id
             self._connections[session_id] = self._connections.get(session_id, 0) + 1
-            if self._holder is not None and self._holder.session_id == session_id:
-                self._offline_since = None
-        self._notify(changed)
 
     def disconnect(self, identity: ClientIdentity) -> None:
-        """WebSocket 切断を登録する（保持者の接続数が 0 になれば猶予を開始）.
+        """WebSocket 切断を数える（保持者が切断しても操作権は保持したまま）.
 
         Args:
             identity: 切断したクライアント
         """
         with self._lock:
-            now = self._clock()
-            changed = self._expire_stale(now)
             session_id = identity.session_id
             remaining = self._connections.get(session_id, 0) - 1
             if remaining > 0:
                 self._connections[session_id] = remaining
             else:
                 self._connections.pop(session_id, None)
-                if self._holder is not None and self._holder.session_id == session_id:
-                    self._offline_since = now
-        self._notify(changed)
 
-    def _expire_stale(self, now: float) -> bool:
-        """失効していれば解放する（解放したら True）."""
-        if self._holder is None:
-            return False
-        offline_since = self._offline_since
-        if offline_since is not None and now - offline_since > self._disconnect_grace:
-            self._clear()
-            return True
-        if now - self._last_active > self._idle_timeout and not self._busy():
-            self._clear()
-            return True
-        return False
-
-    def _assign(self, identity: ClientIdentity, now: float) -> bool:
+    def _assign(self, identity: ClientIdentity) -> bool:
         """保持者を ``identity`` にする（保持者が変わったら True）."""
         changed = self._holder != identity
         self._holder = identity
-        self._last_active = now
-        connected = self._connections.get(identity.session_id, 0) > 0
-        self._offline_since = None if connected else now
         return changed
-
-    def _clear(self) -> None:
-        self._holder = None
-        self._offline_since = None
 
     def _info(self) -> LeaseInfo:
         holder = self._holder

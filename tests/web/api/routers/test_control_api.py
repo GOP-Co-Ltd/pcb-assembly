@@ -50,9 +50,6 @@ FREE_CONTROL = {"key": None, "display_name": None, "held": False, "connections":
 # WS イベントの待ち時間上限（ハングをテスト失敗に変えるための締切）
 _WS_DEADLINE = 15.0
 
-# `ControlLease` の既定 idle_timeout を確実に超える経過時間（fake clock で進める量）
-_PAST_IDLE_TIMEOUT = 601.0
-
 # ゲート対象（非保持者は 423）。ゲートが外れたときの応答は 4xx/5xx だが 423 ではない
 GATED_REQUESTS: list[tuple[str, str, dict[str, Any] | None]] = [
     ("post", "/api/jobs/no_such_job", {"params": {}}),
@@ -165,19 +162,6 @@ def _register_commanded(app: FastAPI, name: str) -> None:
     register_synthetic(
         app.state.catalog, run, name=name, hidden=True, accepts_commands=True
     )
-
-
-class _FakeClock:
-    """テストが明示的に進める単調時計（`create_app(clock=...)` へ注入する）."""
-
-    def __init__(self, start: float = 1000.0) -> None:
-        self._now = start
-
-    def __call__(self) -> float:
-        return self._now
-
-    def advance(self, seconds: float) -> None:
-        self._now += seconds
 
 
 class TestControlEndpoints:
@@ -443,7 +427,7 @@ class TestWebSocketControl:
         with client.websocket_connect("/api/ws", headers=ALICE):
             assert _control(client, ALICE)["connections"] == 1
 
-        # 切断は finally で必ず登録解除される（猶予中なのでリースは保持のまま）
+        # 切断は finally で必ず登録解除される（自動解放はしないのでリースは保持のまま）
         control = _control(client, ALICE)
         assert control["connections"] == 0
         assert control["held"] is True
@@ -574,31 +558,23 @@ class TestWebSocketControl:
             _wait_status(client, "succeeded")
 
 
-class TestIdleExpiryIsGatedByTheMachineLock:
-    """`create_app` の `busy=` 配線（§1 の裁定「ジョブ中は無操作失効しない」）.
+class TestNoAutoRelease:
+    """操作権は自動解放しない（解放は明示の解放・奪取とプロセス再起動だけ）."""
 
-    リースの純ロジックは `tests/web/api/test_control.py` が注入した fake busy で
-    見ているので、ここは**装置排他ロックが `busy` として繋がっているか**だけを見る
-    （`lambda: True` / `lambda: False` に固定すると、どちらか一方の向きが崩れる）。
-    実時間の 600s は待てないので clock を注入する。
-    """
+    def test_disconnected_holder_still_blocks_other_clients(self, client: TestClient):
+        assert client.post("/api/control/acquire", headers=ALICE).status_code == 200
+        with client.websocket_connect("/api/ws", headers=ALICE):
+            pass
 
-    def test_lease_survives_idle_timeout_while_the_machine_is_locked(
-        self, webui_settings: Settings
-    ):
-        clock = _FakeClock()
-        app = create_app(webui_settings, clock=clock)
-        with TestClient(app) as client:
+        assert _control(client, BOB)["held"] is True
+        assert client.post("/api/control/acquire", headers=BOB).status_code == 423
+
+    def test_restart_frees_the_lease(self, webui_settings: Settings):
+        with TestClient(create_app(webui_settings)) as client:
             assert client.post("/api/control/acquire", headers=ALICE).status_code == 200
-            # WS 在線で切断猶予の失効を止め、無操作失効だけを観測対象にする
-            with client.websocket_connect("/api/ws", headers=ALICE):
-                with app.state.appstate.machine_lock("test-job"):
-                    clock.advance(_PAST_IDLE_TIMEOUT)
 
-                    assert _control(client, ALICE)["held"] is True
-
-                # ロックを離せば同じ無操作時間で失効する（= busy が繋がっている）
-                assert _control(client, ALICE)["held"] is False
+        with TestClient(create_app(webui_settings)) as restarted:
+            assert _control(restarted, BOB)["held"] is False
 
 
 class TestControlDoesNotBlockJobs:

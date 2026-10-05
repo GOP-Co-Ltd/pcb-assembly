@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -127,7 +126,6 @@ def create_app(
     settings: Settings | None = None,
     *,
     audio_player: AudioPlayer | None = None,
-    clock: Callable[[], float] | None = None,
     paste_test_board_footprint_root: Path | None = None,
     update_runner: UpdateRunner | None = None,
 ) -> FastAPI:
@@ -136,9 +134,6 @@ def create_app(
     Args:
         settings: WebUI 設定（None なら環境変数から構築。uvicorn --factory 用）
         audio_player: 通知音プレイヤー（None なら ALSA 実装を構築）
-        clock: 操作権リースの時計（None なら `time.monotonic`）。失効までの秒数は
-            分単位なので、実時間で待つと検証できない。「ジョブ実行中は無操作でも
-            失効しない」という `busy` の配線を確かめるための注入口
         paste_test_board_footprint_root: テスト塗布基板で使う
             KiCad footprint root。None なら環境変数または KiCad 9 標準パス
         update_runner: 自己更新のランナー（None なら settings から構築）。テストは
@@ -186,12 +181,8 @@ def create_app(
     app.state.update = (
         update_runner if update_runner is not None else _build_update_runner(settings)
     )
-    # 操作権リース。無操作失効の判定は装置排他ロック（= ジョブ実行中）で止める
-    app.state.control = ControlLease(
-        clock=clock if clock is not None else time.monotonic,
-        busy=lambda: state.busy_owner is not None,
-        on_change=_control_change_notifier(app),
-    )
+    # 操作権リース（自動解放しない。プロセス再起動で空きに戻る）
+    app.state.control = ControlLease(on_change=_control_change_notifier(app))
 
     # ジョブ成果物の配信（data/webui/<job_id>/...。traversal 防止は StaticFiles）
     artifacts_dir = settings.webui_data_dir

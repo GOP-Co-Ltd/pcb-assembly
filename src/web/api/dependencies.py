@@ -70,7 +70,7 @@ def get_lease(request: Request) -> ControlLease:
 
 
 def require_control(request: Request) -> LeaseInfo:
-    """操作権を検証し、保持者の無操作タイマーを更新する（変更系エンドポイント用）.
+    """操作権を検証する（空きなら取得する。変更系エンドポイント用）.
 
     **必ず `Depends`（= `ControlDep`）として使う。** ハンドラ本体で `claim` を呼ぶと、
     Klipper 通信エラーを 502 へ変換する `klipper_errors_to_502()` が

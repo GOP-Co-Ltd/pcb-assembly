@@ -5,16 +5,13 @@
 - `ClientIdentity.key` は生 id を出さない（HTTP 越しの検証は routers/test_control_api.py）
 - `claim` は空きなら取得、他人が保持中なら `ControlDeniedError`（保持者名付き）
 - `release` は冪等、`takeover` は誰でも通る（詰みからの脱出口）
-- liveness は WS 在線。保持者の接続数が 1 以上なら切断猶予で失効しない
-- 無操作失効は `busy()` が True の間は起きない（長時間ジョブ中の失効防止）
+- 自動解放はしない。保持者の WS が切れても、無操作が続いても保持したまま
+  （解放は `release` / `takeover` と、プロセス再起動でリースが消えるときだけ）
 - `on_change` はロック解放後に呼ばれる（`loop.call_soon_threadsafe` に入る）
 - 同時 `claim` の成功は厳密に 1 本
-
-時計は注入した偽時計を進めるだけで、実時刻は待たない。
 """
 
 import threading
-import time
 from collections.abc import Callable
 
 import pytest
@@ -26,33 +23,8 @@ from web.api.control import (
     LeaseInfo,
 )
 
-GRACE = 30.0
-IDLE = 600.0
 WORKERS = 8
 ROUNDS = 300
-
-
-class FakeClock:
-    """手動で進める単調時計（``time.monotonic`` の代わりに注入する）."""
-
-    def __init__(self, now: float = 1000.0) -> None:
-        self._now = now
-
-    def __call__(self) -> float:
-        return self._now
-
-    def advance(self, seconds: float) -> None:
-        self._now += seconds
-
-
-class BusyFlag:
-    """ジョブ実行中判定（``state.busy_owner is not None`` の代わり）."""
-
-    def __init__(self, busy: bool = False) -> None:
-        self.busy = busy
-
-    def __call__(self) -> bool:
-        return self.busy
 
 
 def identity(name: str) -> ClientIdentity:
@@ -109,23 +81,8 @@ def race_claims(lease: ControlLease, prepare: Callable[[], None]) -> list[int]:
 
 
 @pytest.fixture
-def clock() -> FakeClock:
-    return FakeClock()
-
-
-@pytest.fixture
-def busy() -> BusyFlag:
-    return BusyFlag()
-
-
-@pytest.fixture
-def lease(clock: FakeClock, busy: BusyFlag) -> ControlLease:
-    return ControlLease(
-        clock=clock,
-        busy=busy,
-        disconnect_grace=GRACE,
-        idle_timeout=IDLE,
-    )
+def lease() -> ControlLease:
+    return ControlLease()
 
 
 class TestClaim:
@@ -232,182 +189,54 @@ class TestTakeover:
             lease.claim(alice)
 
 
-class TestWebsocketPresence:
-    """WS 在線による liveness（保持者が接続している間は切断猶予で失効しない）."""
+class TestNoAutoRelease:
+    """自動解放しない（WS の在線は接続数の表示にだけ使う）."""
 
-    def test_connected_holder_survives_disconnect_grace(
-        self, lease: ControlLease, clock: FakeClock
-    ):
+    def test_connections_are_counted_for_the_holder(self, lease: ControlLease):
         alice = identity("alice")
         lease.claim(alice)
         lease.connect(alice)
-
-        clock.advance(GRACE * 10)
+        lease.connect(alice)
+        lease.disconnect(alice)
 
         info = lease.snapshot()
         assert info.display_name == "alice"
         assert info.connections == 1
 
-    def test_lease_survives_when_one_of_two_connections_drops(
-        self, lease: ControlLease, clock: FakeClock
-    ):
+    def test_lease_is_kept_after_all_holder_connections_drop(self, lease: ControlLease):
         alice = identity("alice")
         lease.claim(alice)
         lease.connect(alice)
-        lease.connect(alice)
-
         lease.disconnect(alice)
-        clock.advance(GRACE + 1)
 
         info = lease.snapshot()
         assert info.display_name == "alice"
-        assert info.connections == 1
+        assert info.connections == 0
 
-    def test_lease_expires_after_grace_once_all_connections_drop(
-        self, lease: ControlLease, clock: FakeClock
+    def test_holder_that_never_connected_keeps_the_lease(self, lease: ControlLease):
+        lease.claim(identity("alice"))
+
+        assert lease.snapshot().display_name == "alice"
+
+    def test_other_client_cannot_claim_a_disconnected_holders_lease(
+        self, lease: ControlLease
     ):
         alice = identity("alice")
         lease.claim(alice)
         lease.connect(alice)
         lease.disconnect(alice)
 
-        clock.advance(GRACE - 1)
-        assert lease.snapshot().display_name == "alice"
-
-        clock.advance(2)
-        assert not lease.snapshot().held
-
-    def test_holder_that_never_connected_expires_after_grace(
-        self, lease: ControlLease, clock: FakeClock
-    ):
-        lease.claim(identity("alice"))
-
-        clock.advance(GRACE + 1)
-
-        assert not lease.snapshot().held
-
-    def test_reconnect_within_grace_keeps_the_lease(
-        self, lease: ControlLease, clock: FakeClock
-    ):
-        alice = identity("alice")
-        lease.claim(alice)
-        lease.connect(alice)
-        lease.disconnect(alice)
-
-        clock.advance(GRACE - 1)
-        lease.connect(alice)
-        clock.advance(GRACE * 10)
-
-        assert lease.snapshot().display_name == "alice"
-
-    @pytest.mark.parametrize(
-        ("holder_connected", "other_disconnects", "expected_holder"),
-        [
-            # 他人が接続していても、保持者が未接続なら猶予で失効する
-            (False, False, None),
-            # 他人が切断しても、保持者が接続していればリースは残る
-            (True, True, "alice"),
-        ],
-    )
-    def test_other_clients_presence_does_not_decide_the_lease(
-        self,
-        lease: ControlLease,
-        clock: FakeClock,
-        holder_connected: bool,
-        other_disconnects: bool,
-        expected_holder: str | None,
-    ):
-        alice = identity("alice")
-        bob = identity("bob")
-        lease.claim(alice)
-        if holder_connected:
-            lease.connect(alice)
-        lease.connect(bob)
-        if other_disconnects:
-            lease.disconnect(bob)
-
-        clock.advance(GRACE + 1)
-
-        snapshot = lease.snapshot()
-        assert (snapshot.display_name if snapshot.held else None) == expected_holder
-
-    def test_new_client_can_claim_after_expiry(
-        self, lease: ControlLease, clock: FakeClock
-    ):
-        lease.claim(identity("alice"))
-        clock.advance(GRACE + 1)
-
-        assert lease.claim(identity("bob")).display_name == "bob"
-
-
-class TestIdleTimeout:
-    """無操作失効（ジョブ実行中は失効しない）."""
-
-    def test_connected_but_idle_lease_expires(
-        self, lease: ControlLease, clock: FakeClock
-    ):
-        alice = identity("alice")
-        lease.claim(alice)
-        lease.connect(alice)
-
-        clock.advance(IDLE + 1)
-
-        assert not lease.snapshot().held
-
-    def test_busy_machine_keeps_the_lease_past_idle_timeout(
-        self, lease: ControlLease, clock: FakeClock, busy: BusyFlag
-    ):
-        alice = identity("alice")
-        lease.claim(alice)
-        lease.connect(alice)
-        busy.busy = True
-
-        clock.advance(IDLE * 10)
-
-        assert lease.snapshot().display_name == "alice"
-
-    def test_lease_expires_once_the_job_finishes(
-        self, lease: ControlLease, clock: FakeClock, busy: BusyFlag
-    ):
-        alice = identity("alice")
-        lease.claim(alice)
-        lease.connect(alice)
-        busy.busy = True
-        clock.advance(IDLE * 10)
-        assert lease.snapshot().held
-
-        busy.busy = False
-
-        assert not lease.snapshot().held
-
-    def test_claim_by_holder_refreshes_idle_timer(
-        self, lease: ControlLease, clock: FakeClock
-    ):
-        alice = identity("alice")
-        lease.claim(alice)
-        lease.connect(alice)
-
-        clock.advance(IDLE - 1)
-        lease.claim(alice)
-        clock.advance(IDLE - 1)
-
-        assert lease.snapshot().display_name == "alice"
+        with pytest.raises(ControlDeniedError):
+            lease.claim(identity("bob"))
+        assert lease.takeover(identity("bob")).display_name == "bob"
 
 
 class TestOnChange:
     """保持者変更の通知（ロック保持中には呼ばない）."""
 
-    def test_on_change_fires_for_claim_release_takeover_and_expiry(
-        self, clock: FakeClock, busy: BusyFlag
-    ):
+    def test_on_change_fires_for_claim_release_and_takeover(self):
         calls: list[None] = []
-        lease = ControlLease(
-            clock=clock,
-            busy=busy,
-            on_change=lambda: calls.append(None),
-            disconnect_grace=GRACE,
-            idle_timeout=IDLE,
-        )
+        lease = ControlLease(on_change=lambda: calls.append(None))
         alice = identity("alice")
 
         lease.claim(alice)
@@ -419,17 +248,15 @@ class TestOnChange:
         lease.claim(alice)
         assert len(calls) == 4
 
-        clock.advance(GRACE + 1)
+        # 切断は保持者を変えないので通知しない
+        lease.connect(alice)
+        lease.disconnect(alice)
         lease.snapshot()
-        assert len(calls) == 5
+        assert len(calls) == 4
 
-    def test_on_change_does_not_fire_for_reclaim_by_holder(
-        self, clock: FakeClock, busy: BusyFlag
-    ):
+    def test_on_change_does_not_fire_for_reclaim_by_holder(self):
         calls: list[None] = []
-        lease = ControlLease(
-            clock=clock, busy=busy, on_change=lambda: calls.append(None)
-        )
+        lease = ControlLease(on_change=lambda: calls.append(None))
         alice = identity("alice")
         lease.claim(alice)
 
@@ -439,13 +266,9 @@ class TestOnChange:
 
         assert len(calls) == 1
 
-    def test_on_change_does_not_fire_for_denied_claim(
-        self, clock: FakeClock, busy: BusyFlag
-    ):
+    def test_on_change_does_not_fire_for_denied_claim(self):
         calls: list[None] = []
-        lease = ControlLease(
-            clock=clock, busy=busy, on_change=lambda: calls.append(None)
-        )
+        lease = ControlLease(on_change=lambda: calls.append(None))
         lease.claim(identity("alice"))
 
         with pytest.raises(ControlDeniedError):
@@ -453,9 +276,7 @@ class TestOnChange:
 
         assert len(calls) == 1
 
-    def test_on_change_is_called_outside_the_lock(
-        self, clock: FakeClock, busy: BusyFlag
-    ):
+    def test_on_change_is_called_outside_the_lock(self):
         """コールバック中に別スレッドから公開 API を呼べる = ロックは解放済み.
 
         `on_change` は `JobManager._publish` →
@@ -471,7 +292,7 @@ class TestOnChange:
             worker.join(timeout=5.0)
             assert not worker.is_alive(), "on_change がロック保持中に呼ばれている"
 
-        lease = ControlLease(clock=clock, busy=busy, on_change=on_change)
+        lease = ControlLease(on_change=on_change)
 
         lease.claim(identity("alice"))
 
@@ -487,31 +308,5 @@ class TestConcurrentClaim:
         def prepare() -> None:
             lease.takeover(reset)
             lease.release(reset)
-
-        assert race_claims(lease, prepare) == [1] * ROUNDS
-
-    def test_only_one_of_eight_threads_takes_over_an_expired_lease(
-        self, clock: FakeClock
-    ):
-        """失効判定と再取得が 1 つのクリティカルセクションで起きること.
-
-        失効判定内の `busy()` が GIL を明け渡す間に排他が無いと全員が取得する。
-        """
-
-        def busy() -> bool:
-            time.sleep(0.0005)
-            return False
-
-        lease = ControlLease(
-            clock=clock, busy=busy, disconnect_grace=GRACE, idle_timeout=IDLE
-        )
-        stale = identity("stale")
-
-        def prepare() -> None:
-            # 在線したまま無操作で失効した保持者を置く（切断猶予ではなく
-            # 無操作失効の経路を通し、claim 側で busy() を呼ばせる）
-            lease.connect(stale)
-            lease.takeover(stale)
-            clock.advance(IDLE + 1)
 
         assert race_claims(lease, prepare) == [1] * ROUNDS
