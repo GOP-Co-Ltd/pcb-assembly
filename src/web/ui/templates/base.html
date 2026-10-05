@@ -16,6 +16,9 @@
     <a href="{{ base }}/{{ tab }}" class="tab{% if tab == active_tab %} active{% endif %}"
        {% if tab == active_tab %}aria-current="{% if active_feature %}true{% else %}page{% endif %}"{% endif %}>{{ tab_labels[tab] }}</a>
     {% endfor %}
+    {# 一括管理はマシン非依存のページなので machine prefix を付けない #}
+    <a href="{{ bulk_path }}" class="tab{% if active_tab == 'bulk' %} active{% endif %}"
+       {% if active_tab == 'bulk' %}aria-current="page"{% endif %}>{{ bulk_label }}</a>
   </nav>
   <div class="global-controls">
     {% include "partials/machine_selector.html" %}
