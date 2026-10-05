@@ -1,17 +1,34 @@
 "use strict";
 
-// 一括管理ページの行操作。行（[data-row-base]）ごとに、その機体の backend
-// （"/m/<machine_id>/api/..."）を api() で叩く。このページはマシン非依存で
-// machine prefix が空なので、api() へは機体 prefix 付きのパスをそのまま渡す。
+// 一括管理ページ（/bulk）の行操作。行（[data-row-base]）1 つが機体 1 台に対応する。
+// 操作権・状態・WS はすべて機体ごとに別で、行ごとに独立して動く。
 //
-// 操作権は機体ごとに別。行の「取得」「解放」はその機体のリースだけを動かし、
-// 更新・塗布実行はその行の操作権を保持しているときだけ押せる。
+// 宛先: このページはマシン非依存なので、app.js の機体 prefix（BASE）が空になる。
+// 行の base は data-row-base の値（"/m/<machine_id>"）。
+// - HTTP: api() に `${base}/api/...` をそのまま渡す（api() は空の BASE しか付けない）
+// - WS: api() を通らないので、withBase("/api/ws", base) で機体宛ての URL を組む
+//
+// 行ごとに WS を張り続ける理由: backend（ControlLease）は保持者の WS 在線で操作権の
+// 生存を判定し、保持者の接続が 0 本のまま 30 秒経つと解放する。この失効はジョブ実行中も
+// 止まらない。WS を張らないと、行で取った操作権が塗布の途中でも失効する。
+//
+// state の値: held = 自分が保持 / viewer = 他の端末が保持 / free = 空き /
+// unknown = 操作権の状態を取得できない（機体が不通など）。
+// state ごとのボタン（隠す = hidden、押せない = 表示したまま disabled）:
+//   state   | 取得     | 解放   | 更新・塗布実行
+//   free    | 押せる   | 隠す   | 押せない
+//   viewer  | 押せない | 隠す   | 押せない
+//   held    | 隠す     | 押せる | 押せる
+//   unknown | 隠す     | 隠す   | 押せない
+// 送信中（pending）は、表で「押せる」のボタンも押せなくする。
+//
+// 状態（GET /api/state）を取り直す契機は次の 3 つ。ポーリングはしない。
+// - WS の open と close
+// - WS の control_changed / state_changed
+// - 行のボタン操作が終わったとき（成功・失敗を問わない）
+// 更新の要約（GET /api/update/status）は WS の open のときだけ取り直す。
+//
 // 表示する値（更新の要約・PCB 名・保持者名）はサーバの応答をそのまま流す。
-//
-// 行ごとにその機体の WS（/api/ws）を張り続ける。backend は保持者の WS 在線で操作権の
-// 生存を判定し、接続が 0 本のまま 30 秒経つと解放する。張らないと、行で取った
-// 操作権が塗布の途中でも失効する。WS の control_changed / state_changed を契機に
-// 状態を取り直すので、ポーリングはしない。
 
 (() => {
   const { toast, api, createBackoff, withBase } = window.webui;
@@ -34,8 +51,8 @@
     const pcbEl = part("bulk-pcb");
     const runButton = part("bulk-paste-run");
 
-    // "held" | "viewer" | "free" | "unknown"（control.js と同じ区分）。最初の応答までは
-    // null（SSR の「確認中…」を残す）
+    // 冒頭の state の値（control.js と同じ区分）。最初の応答までは null で、
+    // SSR の「確認中…」を残す
     let state = null;
     let holderName = "";
     let myKey = null;
@@ -162,6 +179,7 @@
         if (REFRESH_EVENTS.has(JSON.parse(event.data).type)) refresh();
       });
       socket.addEventListener("close", () => {
+        // 機体が落ちたなら GET も失敗し、行が unknown になる
         refresh();
         setTimeout(connect, backoff.next());
       });
