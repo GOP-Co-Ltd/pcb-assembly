@@ -10,12 +10,13 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 
 import pytest
 
-from pcbasm.config import FlowCalibration
+from pcbasm.config import FlowCalibration, Machine
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_SUFFIX,
@@ -26,7 +27,13 @@ from pcbasm.pasting.paste_volume.runtime import (
     FlowCalibrationOutcome,
     plan_flow_calibration,
 )
-from tests.helpers import TESTING_DATA_DIR, FakeCamera, FakeKlipper
+from tests.helpers import (
+    FAKE_PRINTER_CONFIG,
+    TESTING_CONFIG_DIR,
+    TESTING_DATA_DIR,
+    FakeCamera,
+    FakeKlipper,
+)
 from tests.web.api.jobs.conftest import (
     ManagerFactory,
     WaitUntil,
@@ -46,6 +53,42 @@ from web.api.settings import Settings
 
 CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
 POINTS = (Point2d(10.0, 6.0), Point2d(13.0, 6.0), Point2d(16.0, 6.0))
+_MOVE_RE = re.compile(r"MANUAL_STEPPER STEPPER=paste_dispenser MOVE=(\S+)(.*)")
+_ROTATION_DISTANCE = float(
+    FAKE_PRINTER_CONFIG["manual_stepper paste_dispenser"]["rotation_distance"]
+)
+
+
+def _dispense_amounts_ul(klipper: FakeKlipper, rotations_per_ul: float) -> list[float]:
+    """塗布吐出（SET_POSITION 直後の SYNC=0 付き MOVE）の量 [μL] を呼び出し順に返す."""
+    lines = klipper.sent_lines
+    amounts: list[float] = []
+    for previous, line in zip(lines, lines[1:], strict=False):
+        match = _MOVE_RE.match(line)
+        if (
+            previous.endswith("SET_POSITION=0.0")
+            and match
+            and "SYNC=0" in match.group(2)
+        ):
+            amounts.append(
+                float(match.group(1)) / _ROTATION_DISTANCE / rotations_per_ul
+            )
+    return amounts
+
+
+def _machine_with_prime_extra_delay(tmp_path: Path, delay: float) -> Machine:
+    """Testing の machine.toml に ``prime_extra_delay`` を足した Machine."""
+    text = (TESTING_CONFIG_DIR / "machine.toml").read_text(encoding="utf-8")
+    text = re.sub(
+        r"^prime_extra_delay = .*$",
+        f"prime_extra_delay = {delay}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    path = tmp_path / "machine.toml"
+    path.write_text(text, encoding="utf-8")
+    return Machine(path)
 
 
 def _outcome(**overrides: object) -> FlowCalibrationOutcome:
@@ -91,18 +134,32 @@ class TestRunFlowCalibration:
         return []
 
     @pytest.fixture
+    def dispensed(self) -> list[float]:
+        """合成ジョブが送った塗布吐出の量 [μL]（プライム押し戻しを含む）."""
+        return []
+
+    @pytest.fixture
+    def prime_extra_delay(self) -> float:
+        """Machine.toml の ``prime_extra_delay`` [sec]（parametrize で上書きする）."""
+        return 0.0
+
+    @pytest.fixture
     def flow_manager(
         self,
         make_manager: ManagerFactory,
         catalog: JobCatalog,
         moves: list[float | None],
         elapsed: list[float],
+        dispensed: list[float],
+        prime_extra_delay: float,
+        tmp_path: Path,
     ) -> JobManager:
         """`run_flow_calibration` だけを呼ぶ合成ジョブを積んだ manager."""
+        machine = _machine_with_prime_extra_delay(tmp_path, prime_extra_delay)
 
         def run(ctx: JobContext) -> JobResult:
             klipper = FakeKlipper()
-            session = paste_session(FakeCamera([uniform_frame()]), klipper)
+            session = paste_session(FakeCamera([uniform_frame()]), klipper, machine)
             config = FlowCalibration(
                 calibration_file=str(ctx.params["calibration_file"]),
                 settle_seconds=float(ctx.params["settle_seconds"]),
@@ -120,6 +177,11 @@ class TestRunFlowCalibration:
                 )
                 elapsed.append(time.monotonic() - started)
                 moves.extend(move.get("z") for move in klipper.g1_moves())
+                dispensed.extend(
+                    _dispense_amounts_ul(
+                        klipper, machine.paste_dispenser.rotations_per_ul
+                    )
+                )
             return JobResult(
                 summary="補正なし" if outcome is None else summary_line(outcome)
             )
@@ -223,3 +285,23 @@ class TestRunFlowCalibration:
         assert record.status == JobStatus.SUCCEEDED, record.error
         assert elapsed
         assert elapsed[0] >= 1.5
+
+    @pytest.mark.parametrize("prime_extra_delay", [0.5])
+    def test_dispenses_only_the_commanded_amount_despite_prime_extra_delay(
+        self,
+        flow_manager: JobManager,
+        fake_camera_settings: Settings,
+        wait_until: WaitUntil,
+        dispensed: list[float],
+    ):
+        """追加遅延ぶんの押し出しは補正の比の分母に入らないので、出さない."""
+        name = self._write_calibration(fake_camera_settings)
+
+        record = self._run(flow_manager, wait_until, name)
+
+        assert record.status == JobStatus.SUCCEEDED, record.error
+        retract_ul = Machine(
+            TESTING_CONFIG_DIR / "machine.toml"
+        ).paste_dispenser.retract_amount
+        expected = retract_ul + FlowCalibration().amount_ul
+        assert dispensed == pytest.approx([expected] * len(POINTS))
