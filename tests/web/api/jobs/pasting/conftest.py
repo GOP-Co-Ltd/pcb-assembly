@@ -63,10 +63,15 @@ def dot_frame(diameter_px: int) -> Image:
     return Image(array)
 
 
-def paste_session(camera: FakeCamera, klipper: FakeKlipper) -> PasteSession:
-    """計測済みの `PasteSession`（board は原点から (100, 50) へ載っている）."""
+def paste_session(
+    camera: FakeCamera, klipper: FakeKlipper, machine: Machine | None = None
+) -> PasteSession:
+    """計測済みの `PasteSession`（board は原点から (100, 50) へ載っている）.
+
+    ``machine`` を省くと testing の machine.toml を使う。
+    """
     result = BoardCalibrationResult(
-        machine=Machine(TESTING_CONFIG_DIR / "machine.toml"),
+        machine=machine or Machine(TESTING_CONFIG_DIR / "machine.toml"),
         klipper=klipper,
         stage=XYZStage(klipper.readonly),
         camera=camera,

@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import time
 
+import attrs
+
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.capture import PointCapturer
@@ -68,7 +70,9 @@ def run_flow_calibration(
         ctx.log(f"流量キャリブレーション: crop 寸法を決められません: {error}")
         return None
 
-    params = applicator.default_params
+    # prime 後の追加遅延は量に依らず一定量を押し出す。補正の比は指令量だけを分母に取り、
+    # 校正のデータセットも 0 で集めているので、ここでも 0 固定にする。
+    params = attrs.evolve(applicator.default_params, prime_extra_delay=0.0)
     for mismatch in estimator.calibration.conditions.mismatches(
         nozzle_diameter_mm=ctx.machine.paste_dispenser.nozzle_diameter,
         paste_height_mm=params.paste_height_mm,
@@ -95,6 +99,7 @@ def run_flow_calibration(
             point,
             amount_ul=plan.amount_ul,
             transform=session.point_transform(point, correction),
+            params=params,
         )
         ctx.log(f"流量キャリブレーション: 点{index} を塗布しました")
 
