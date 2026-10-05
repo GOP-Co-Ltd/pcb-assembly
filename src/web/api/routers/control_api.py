@@ -64,7 +64,7 @@ def post_name(lease: LeaseDep, identity: IdentityDep) -> ControlStateResponse:
     """表示名の変更をリースへ反映する（保持者でなければ現在の状態を返すだけ）.
 
     表示名はリクエストのヘッダ / cookie が正なので body を取らない。保持者による
-    `claim` は取得ではなく表示名と無操作タイマーの更新として働く。
+    `claim` は取得ではなく表示名の更新として働く。
     """
     info = lease.snapshot()
     if info.key == identity.key:
