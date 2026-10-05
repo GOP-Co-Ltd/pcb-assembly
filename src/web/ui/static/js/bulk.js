@@ -1,20 +1,25 @@
 "use strict";
 
 // 一括管理ページの行操作。行（[data-row-base]）ごとに、その機体の backend
-// （"/m/<machine_id>/api/..."）を api() で叩く。このページは machine prefix が空なので、
-// api() へは機体 prefix 付きのパスをそのまま渡す。
+// （"/m/<machine_id>/api/..."）を api() で叩く。このページはマシン非依存で
+// machine prefix が空なので、api() へは機体 prefix 付きのパスをそのまま渡す。
 //
 // 操作権は機体ごとに別。行の「取得」「解放」はその機体のリースだけを動かし、
 // 更新・塗布実行はその行の操作権を保持しているときだけ押せる。
 // 表示する値（更新の要約・PCB 名・保持者名）はサーバの応答をそのまま流す。
+//
+// 行ごとにその機体の WS（/api/ws）を張り続ける。backend は保持者の WS 在線で操作権の
+// 生存を判定し、接続が 0 本のまま 30 秒経つと解放する。張らないと、行で取った
+// 操作権が塗布の途中でも失効する。WS の control_changed / state_changed を契機に
+// 状態を取り直すので、ポーリングはしない。
 
 (() => {
-  const { toast, api } = window.webui;
+  const { toast, api, createBackoff, withBase } = window.webui;
 
-  // 他の端末による取得/解放を拾う間隔
-  const POLL_MS = 5000;
   // 塗布実行で開始するジョブ。パラメータは送らない（ジョブ定義の既定値で動く）
   const PASTE_JOB = "paste_solder";
+  // 状態を取り直す WS イベント
+  const REFRESH_EVENTS = new Set(["control_changed", "state_changed"]);
 
   function setupRow(row) {
     const base = row.dataset.rowBase;
@@ -29,8 +34,9 @@
     const pcbEl = part("bulk-pcb");
     const runButton = part("bulk-paste-run");
 
-    // "held" | "viewer" | "free" | "unknown"（control.js と同じ区分）
-    let state = "unknown";
+    // "held" | "viewer" | "free" | "unknown"（control.js と同じ区分）。最初の応答までは
+    // null（SSR の「確認中…」を残す）
+    let state = null;
     let holderName = "";
     let myKey = null;
     let pcbFile = null;
@@ -53,6 +59,7 @@
     }
 
     function render() {
+      if (state === null) return;
       holderEl.textContent = {
         held: "あなた",
         free: "空き",
@@ -65,7 +72,8 @@
       releaseButton.disabled = pending;
       const blocked = pending || state !== "held";
       updateButton.disabled = blocked;
-      if (pcbEl) pcbEl.textContent = pcbFile ?? "PCB未選択";
+      // 不通の機体では前回の PCB を出し続けない
+      if (pcbEl) pcbEl.textContent = state === "unknown" ? "---" : pcbFile ?? "PCB未選択";
       if (runButton) runButton.disabled = blocked;
     }
 
@@ -73,7 +81,7 @@
       try {
         applySnapshot(await api("GET", `${base}/api/state`));
       } catch {
-        // 不通の機体は操作不可のまま表示だけ変える（ポーリングのたびにトーストを出さない）
+        // 不通の機体は操作不可のまま表示だけ変える（再接続のたびにトーストを出さない）
         state = "unknown";
         render();
       }
@@ -139,12 +147,28 @@
       );
     }
 
-    render();
-    refresh();
-    refreshUpdate();
-    return refresh;
+    const backoff = createBackoff(1000, 30000);
+
+    function connect() {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      const socket = new WebSocket(`${proto}://${location.host}${withBase("/api/ws", base)}`);
+      socket.addEventListener("open", () => {
+        backoff.reset();
+        // 切断中のイベントは届いていない。更新後の再起動から戻ったときもここを通る
+        refresh();
+        refreshUpdate();
+      });
+      socket.addEventListener("message", (event) => {
+        if (REFRESH_EVENTS.has(JSON.parse(event.data).type)) refresh();
+      });
+      socket.addEventListener("close", () => {
+        refresh();
+        setTimeout(connect, backoff.next());
+      });
+    }
+
+    connect();
   }
 
-  const refreshers = [...document.querySelectorAll("[data-row-base]")].map(setupRow);
-  setInterval(() => refreshers.forEach((refresh) => refresh()), POLL_MS);
+  document.querySelectorAll("[data-row-base]").forEach(setupRow);
 })();

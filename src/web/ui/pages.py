@@ -19,6 +19,7 @@ URL 空間は次のとおり。
 - ``/`` と ``/{tab}[/{feature}]`` / ``/settings`` は machine を指定しない入口。既知
   マシンが 1 台なら ``/m/{machine_id}/…`` へ 307、複数ならピッカー、0 台なら案内を出す
 - ``/m/{machine_id}`` 単体も入口で、既定タブへ 307 する
+- ``/bulk`` は一括管理ページ。全マシンを並べるマシン非依存のページで、``/{tab}`` より先に登録する
 - ``/m/{machine_id}/…`` が実体。``/m/{machine_id}/settings`` は ``/m/{machine_id}/{tab}``
   より先に登録する（後だと tab としてマッチしてしまう）
 """
@@ -378,13 +379,16 @@ async def bulk_page(request: Request) -> HTMLResponse:
     各機体の ``/m/{machine_id}/api/**`` から取るので、1 台が落ちていても描ける。
     """
     # マシン切替の遷移先は既定タブ（各機体の URL 空間に一括管理は無い）
-    context = _chrome_context(request, machine_id=None, current_suffix=DEFAULT_TAB)
-    context.update(
-        active_tab="bulk",
-        title=BULK_LABEL,
-        sections=bulk_sections(context["machines"]),
+    return render_standalone(
+        request,
+        "bulk.html",
+        {
+            "active_tab": "bulk",
+            "title": BULK_LABEL,
+            "sections": bulk_sections(_registry(request).list()),
+        },
+        current_suffix=DEFAULT_TAB,
     )
-    return _html_page(request, "bulk.html", context)
 
 
 # `/{tab}/{feature}` より先に登録する（後だと tab="m" / feature=machine_id として

@@ -37,3 +37,18 @@
 - 計画外: tests/web/ui/test_pages.py の「内部リンクは全て machine prefix 付き」検査に
   BULK_PATH を例外追加。一括管理はマシン非依存ページで、prefix しないのが仕様のため
 - format / type / test-no-hardware green、E2E（bulk + topbar）green
+
+## 段階 4 レビュー（code-reviewer、request-changes → 対応）
+
+- M1 対応: 行が WS を張らないと保持者の接続 0 本で 30 秒後に操作権が失効する。
+  bulk.js で行ごとに /m/{id}/api/ws を張り続け、control_changed / state_changed と再接続で
+  再取得する方式に変更（ポーリング廃止）。回帰 E2E は backend の control.connections >= 1 を確認
+  （修正前の bulk.js で落ちることを確認済み）
+- S2 対応: WS open で更新要約も取り直す（不通からの復帰・更新後の再起動から戻ったとき）
+- S3 対応: 最初の応答まで SSR の「確認中…」を残す。不通時の PCB 欄は「---」
+- nit 対応: /bulk は render_standalone を使う
+- S1（更新の解釈）: 計画どおりソフトウェア更新のまま。PR とユーザー報告で明示する
+- S4 却下: /bulk はマシン非依存で BASE が空であることがページの前提。app.js に入口を足すほどの重複ではない
+- S5 却下: test_control_ui.py 等と同じく機能単位のファイルにする（test_pages.py は既に 1000 行超）
+- S6 見送り: fake 環境で paste_solder を開始すると Klipper 不通で即失敗し、開始の確認として弱い
+- nit 見送り: 「PCB未選択」文言重複、mDNS 追加の即時反映、persisted_params 将来対応
