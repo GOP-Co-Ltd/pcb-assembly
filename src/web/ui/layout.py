@@ -95,11 +95,12 @@ TAB_LABELS: dict[str, str] = {
 }
 
 # 一括管理ページ（全マシンを 1 画面に並べる）。マシン非依存なので ``/m/{machine_id}`` を
-# 付けない。ヘッダのタブとしては TABS の後ろに常に出す
+# 付けない。TABS には入れず、header のタブ列では TABS の後ろに prefix なしのリンクとして常に出す
 BULK_PATH = "/bulk"
 BULK_LABEL = "一括管理"
 
-# 一括管理のセクション（machine_type → 見出し）。該当機体が無くても出す
+# 一括管理のセクション（machine_type → 見出し）。この並び順がページ上の表示順。
+# ここに並べたセクションは該当機体が無くても出す。ここに無い machine_type は「種別不明」へ入る
 _BULK_SECTION_TITLES: tuple[tuple[str, str], ...] = (
     ("paste", "はんだペースト"),
     ("pnp", "PnP"),
@@ -110,7 +111,10 @@ _BULK_UNKNOWN_TITLE = "種別不明"
 
 @attrs.frozen
 class BulkSection:
-    """一括管理の 1 セクション（同じ machine_type の機体を登録順に並べる）."""
+    """一括管理の 1 セクション（同じ machine_type の機体を登録順に並べる）.
+
+    登録順は ``MachineRegistry.list()`` の順（静的登録順 → mDNS 発見順）。
+    """
 
     slug: str
     title: str
@@ -122,9 +126,10 @@ class BulkSection:
 def bulk_sections(machines: Sequence[MachineEndpoint]) -> tuple[BulkSection, ...]:
     """登録機体を machine_type ごとのセクションに分ける.
 
-    はんだペースト・PnP のセクションは機体が無くても出す。machine_type が未設定か
-    未知の機体は末尾の「種別不明」セクションにまとめる（該当があるときだけ出す）。
-    一覧から黙って消えると、登録したのに表示されない理由が分からなくなるため。
+    ``_BULK_SECTION_TITLES`` のセクション（はんだペースト・PnP）は、機体が 0 台でもその順で出す。
+    machine_type が未設定（None）か ``_BULK_SECTION_TITLES`` に無い機体は、末尾の「種別不明」セクションにまとめる。
+    「種別不明」セクションは該当機体が 1 台以上あるときだけ出す。
+    種別不明の機体を捨てないのは、登録したのに一覧に出ない理由が分からなくなるため。
     """
     known = [machine_type for machine_type, _title in _BULK_SECTION_TITLES]
     sections = [

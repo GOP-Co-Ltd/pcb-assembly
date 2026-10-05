@@ -19,7 +19,7 @@ URL 空間は次のとおり。
 - ``/`` と ``/{tab}[/{feature}]`` / ``/settings`` は machine を指定しない入口。既知
   マシンが 1 台なら ``/m/{machine_id}/…`` へ 307、複数ならピッカー、0 台なら案内を出す
 - ``/m/{machine_id}`` 単体も入口で、既定タブへ 307 する
-- ``/bulk`` は一括管理ページ。全マシンを並べるマシン非依存のページで、``/{tab}`` より先に登録する
+- ``/bulk`` は一括管理ページ。全マシンを並べるマシン非依存のページで、``/{tab}`` より先に登録する（後だと入口の ``/{tab}`` としてマッチする）
 - ``/m/{machine_id}/…`` が実体。``/m/{machine_id}/settings`` は ``/m/{machine_id}/{tab}``
   より先に登録する（後だと tab としてマッチしてしまう）
 """
@@ -375,10 +375,11 @@ async def settings_entry(request: Request) -> Response:
 async def bulk_page(request: Request) -> HTMLResponse:
     """一括管理ページ（登録済みの全マシンを machine_type ごとに並べる）.
 
-    backend へは問い合わせない。行ごとの操作権・更新・PCB の状態は ``bulk.js`` が
-    各機体の ``/m/{machine_id}/api/**`` から取るので、1 台が落ちていても描ける。
+    SSR は登録済みマシンの一覧（``MachineRegistry``）だけで描き、backend へは問い合わせない。
+    行ごとの操作権・更新・PCB の状態は ``bulk.js`` が各機体の ``/m/{machine_id}/api/**`` から取る。
+    こうすると 1 台の backend が落ちていてもページ全体は 503 にならず、他の機体の行は使える。
     """
-    # マシン切替の遷移先は既定タブ（各機体の URL 空間に一括管理は無い）
+    # マシン選択で切り替えた先は既定タブにする（各機体の URL 空間 /m/{machine_id}/… に一括管理は無い）
     return render_standalone(
         request,
         "bulk.html",
