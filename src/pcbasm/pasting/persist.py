@@ -14,7 +14,7 @@
         "board_signature": "<基板構成ハッシュ>",   # 任意
         "settings": {
             "levels": [{"key": ["L2", "U1"], "enabled": null, "override": {...}}, ...],
-            "initial_purge_point": [12.5, 8.0],            # 任意（未設定 = 順路先頭）
+            "initial_purge_point": [12.5, 8.0],            # 任意（未設定 = 面積最大 pad）
             "flow_calibration_points": [[20.0, 8.0], ...]  # 任意（空 = 補正しない）
         }
     }

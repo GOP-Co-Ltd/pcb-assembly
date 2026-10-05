@@ -64,7 +64,7 @@ class PasteSettingsModel:
 
     Attributes:
         base: machine.toml 由来のデフォルト（全項目確定）
-        initial_purge_point: 初回パージの座標（``None`` = 順路先頭 pad の中心）
+        initial_purge_point: 初回パージの座標（``None`` = 面積最大の有効 pad の中心）
         flow_calibration_points: 運転時流量キャリブレーションの測定位置（塗る順）
             （空 = 未設定。補正しない）
         levels: L0–L4 の疎な明示設定（キーは重複しない）
