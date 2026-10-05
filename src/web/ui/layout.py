@@ -17,6 +17,7 @@ from collections.abc import Sequence
 import attrs
 
 from web.api.models import SettingsField
+from web.ui.machines import MachineEndpoint
 
 # tab → (グループ名、案内、feature slug 列)。サイドバーと入口画面で共用する表示定義。
 FEATURE_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
@@ -92,6 +93,60 @@ TAB_LABELS: dict[str, str] = {
     "pnp": "部品実装",
     "posctrl": "位置合わせ",
 }
+
+# 一括管理ページ（全マシンを 1 画面に並べる）。マシン非依存なので ``/m/{machine_id}`` を
+# 付けない。ヘッダのタブとしては TABS の後ろに常に出す
+BULK_PATH = "/bulk"
+BULK_LABEL = "一括管理"
+
+# 一括管理のセクション（machine_type → 見出し）。該当機体が無くても出す
+_BULK_SECTION_TITLES: tuple[tuple[str, str], ...] = (
+    ("paste", "はんだペースト"),
+    ("pnp", "PnP"),
+)
+_BULK_UNKNOWN_SLUG = "unknown"
+_BULK_UNKNOWN_TITLE = "種別不明"
+
+
+@attrs.frozen
+class BulkSection:
+    """一括管理の 1 セクション（同じ machine_type の機体を登録順に並べる）."""
+
+    slug: str
+    title: str
+    # 種別不明のセクションでは None
+    machine_type: str | None
+    machines: tuple[MachineEndpoint, ...]
+
+
+def bulk_sections(machines: Sequence[MachineEndpoint]) -> tuple[BulkSection, ...]:
+    """登録機体を machine_type ごとのセクションに分ける.
+
+    はんだペースト・PnP のセクションは機体が無くても出す。machine_type が未設定か
+    未知の機体は末尾の「種別不明」セクションにまとめる（該当があるときだけ出す）。
+    一覧から黙って消えると、登録したのに表示されない理由が分からなくなるため。
+    """
+    known = [machine_type for machine_type, _title in _BULK_SECTION_TITLES]
+    sections = [
+        BulkSection(
+            slug=machine_type,
+            title=title,
+            machine_type=machine_type,
+            machines=tuple(m for m in machines if m.machine_type == machine_type),
+        )
+        for machine_type, title in _BULK_SECTION_TITLES
+    ]
+    if unknown := tuple(m for m in machines if m.machine_type not in known):
+        sections.append(
+            BulkSection(
+                slug=_BULK_UNKNOWN_SLUG,
+                title=_BULK_UNKNOWN_TITLE,
+                machine_type=None,
+                machines=unknown,
+            )
+        )
+    return tuple(sections)
+
 
 # 非ジョブ feature slug → 表示名（サイドバー / 見出し）。ジョブは backend の
 # JobSpecInfo.label を正とする。未定義の slug は `_` を空白に置き換えて単語化した名前で代用する

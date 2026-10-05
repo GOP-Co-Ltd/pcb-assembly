@@ -44,6 +44,8 @@ from web.api.models import (
     StateResponse,
 )
 from web.ui.layout import (
+    BULK_LABEL,
+    BULK_PATH,
     CLEARABLE_MACHINE_KEYS,
     DISPENSE_CALIBRATION_PARAM_GROUPS,
     FEATURE_GROUPS,
@@ -60,6 +62,7 @@ from web.ui.layout import (
     POSITIVE_ONLY_MACHINE_KEYS,
     TAB_LABELS,
     TABS,
+    bulk_sections,
     settings_sections,
 )
 from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
@@ -208,6 +211,8 @@ def _chrome_context(
         "current_suffix": current_suffix,
         "tabs": list(TABS),
         "tab_labels": TAB_LABELS,
+        "bulk_path": BULK_PATH,
+        "bulk_label": BULK_LABEL,
         "active_tab": None,
         "active_feature": None,
     }
@@ -362,6 +367,24 @@ async def index(request: Request) -> Response:
 @router.get("/settings", include_in_schema=False)
 async def settings_entry(request: Request) -> Response:
     return await _open_default(request, "settings")
+
+
+# `/{tab}` より先に登録する（後だと tab="bulk" としてマッチし、マシンへ振り分けられる）
+@router.get(BULK_PATH, response_class=HTMLResponse)
+async def bulk_page(request: Request) -> HTMLResponse:
+    """一括管理ページ（登録済みの全マシンを machine_type ごとに並べる）.
+
+    backend へは問い合わせない。行ごとの操作権・更新・PCB の状態は ``bulk.js`` が
+    各機体の ``/m/{machine_id}/api/**`` から取るので、1 台が落ちていても描ける。
+    """
+    # マシン切替の遷移先は既定タブ（各機体の URL 空間に一括管理は無い）
+    context = _chrome_context(request, machine_id=None, current_suffix=DEFAULT_TAB)
+    context.update(
+        active_tab="bulk",
+        title=BULK_LABEL,
+        sections=bulk_sections(context["machines"]),
+    )
+    return _html_page(request, "bulk.html", context)
 
 
 # `/{tab}/{feature}` より先に登録する（後だと tab="m" / feature=machine_id として

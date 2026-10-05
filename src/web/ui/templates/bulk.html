@@ -1,0 +1,65 @@
+{# 一括管理ページ（マシン非依存）。登録済みの全マシンを machine_type ごとのセクションに
+   1 行ずつ並べる。行の状態（操作権・更新・PCB）は bulk.js が各機体の
+   /m/<machine_id>/api/** から取って入れる（SSR は backend へ問い合わせない）。
+   操作権は機体ごとに別なので、トップバーの操作権バーではなく行のボタンで取得/解放する。
+   更新・塗布実行はその行の操作権を保持しているときだけ bulk.js が押せるようにする。 #}
+{% extends "base.html" %}
+{% block title %}{{ title }} — PCB Assembly WebUI{% endblock %}
+{% block layout_class %}single-pane{% endblock %}
+{% block content %}
+<section class="main-pane" data-testid="main-pane">
+  <h1>{{ title }}</h1>
+  {% for section in sections %}
+  <section class="bulk-section" data-testid="bulk-section-{{ section.slug }}">
+    <h2>{{ section.title }}</h2>
+    {% if section.machine_type == "pnp" %}
+    <p class="placeholder">PnP の一括操作は未実装です。</p>
+    {% endif %}
+    {% if section.machines %}
+    <table class="bulk-table">
+      <thead>
+        <tr>
+          <th scope="col">マシン</th>
+          <th scope="col">操作権</th>
+          <th scope="col">ソフトウェア</th>
+          {% if section.machine_type == "paste" %}<th scope="col">塗布</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for machine in section.machines %}
+        <tr data-testid="bulk-row-{{ machine.machine_id }}"
+            data-row-base="/m/{{ machine.machine_id }}"
+            data-label="{{ machine.label }}">
+          <th scope="row"><a href="/m/{{ machine.machine_id }}">{{ machine.label }}</a></th>
+          <td>
+            <span class="bulk-status" data-testid="bulk-holder">確認中…</span>
+            <button type="button" data-testid="bulk-acquire" hidden>取得</button>
+            <button type="button" data-testid="bulk-release" hidden>解放</button>
+          </td>
+          <td>
+            <span class="bulk-status" data-testid="bulk-update-summary">確認中…</span>
+            <button type="button" data-testid="bulk-update" disabled
+                    title="更新を確認し、更新があれば再起動して適用する">更新</button>
+          </td>
+          {% if section.machine_type == "paste" %}
+          <td>
+            <span class="bulk-status" data-testid="bulk-pcb">確認中…</span>
+            <button type="button" data-testid="bulk-paste-run" disabled
+                    title="選択中の PCB と保存済みの塗布設定でこの機体の塗布を実行する">塗布実行</button>
+            <a href="/m/{{ machine.machine_id }}/pasting/paste_solder">塗布ページ</a>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="placeholder">登録されている機体はありません。</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ static_asset('js/bulk.js') }}"></script>
+{% endblock %}
