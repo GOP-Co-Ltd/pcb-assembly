@@ -39,6 +39,7 @@ from web.api.settings import Settings as ApiSettings
 from web.api.state import AppState
 from web.ui.app import create_app as create_frontend_app
 from web.ui.layout import (
+    BULK_PATH,
     FEATURE_TEMPLATES,
     JOB_TEMPLATES,
     LOADING_ROTATION_PARAMS,
@@ -1028,11 +1029,12 @@ class TestMachinePrefixedUrls:
         assert f'href="{base}/settings"' in text
         assert f'href="{base}/pasting/loading"' in text
         # 未 prefix の内部リンクが 1 本も残っていない（外部リンクは mainsail のみ）。
-        # /static は意図的に prefix しない（キャッシュを全マシンで 1 本共有する）
+        # /static は意図的に prefix しない（キャッシュを全マシンで 1 本共有する）。
+        # 一括管理（BULK_PATH）もマシン非依存のページなので prefix しない
         internal = [
             href
             for href in re.findall(r'href="(/[^"]*)"', text)
-            if not href.startswith("/static/")
+            if not href.startswith("/static/") and href != BULK_PATH
         ]
         assert internal
         assert [href for href in internal if not href.startswith(f"{base}/")] == []

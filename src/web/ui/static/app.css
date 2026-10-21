@@ -2846,3 +2846,32 @@ h2 {
   fill: var(--surface);
   stroke-dasharray: 0.4 0.4;
 }
+
+/* ---- 一括管理 ---- */
+.bulk-section {
+  margin-bottom: 1.5rem;
+}
+
+.bulk-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.bulk-table th,
+.bulk-table td {
+  padding: 0.4rem 0.7rem;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.bulk-table thead th {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.bulk-status {
+  display: inline-block;
+  min-width: 8rem;
+  margin-right: 0.5rem;
+}

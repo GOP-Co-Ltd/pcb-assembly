@@ -19,6 +19,7 @@ URL 空間は次のとおり。
 - ``/`` と ``/{tab}[/{feature}]`` / ``/settings`` は machine を指定しない入口。既知
   マシンが 1 台なら ``/m/{machine_id}/…`` へ 307、複数ならピッカー、0 台なら案内を出す
 - ``/m/{machine_id}`` 単体も入口で、既定タブへ 307 する
+- ``/bulk`` は一括管理ページ。全マシンを並べるマシン非依存のページで、``/{tab}`` より先に登録する（後だと入口の ``/{tab}`` としてマッチする）
 - ``/m/{machine_id}/…`` が実体。``/m/{machine_id}/settings`` は ``/m/{machine_id}/{tab}``
   より先に登録する（後だと tab としてマッチしてしまう）
 """
@@ -44,6 +45,8 @@ from web.api.models import (
     StateResponse,
 )
 from web.ui.layout import (
+    BULK_LABEL,
+    BULK_PATH,
     CLEARABLE_MACHINE_KEYS,
     DISPENSE_CALIBRATION_PARAM_GROUPS,
     FEATURE_GROUPS,
@@ -60,6 +63,7 @@ from web.ui.layout import (
     POSITIVE_ONLY_MACHINE_KEYS,
     TAB_LABELS,
     TABS,
+    bulk_sections,
     settings_sections,
 )
 from web.ui.machine_client import BackendGateway, BackendUnavailable, MachineClient
@@ -208,6 +212,8 @@ def _chrome_context(
         "current_suffix": current_suffix,
         "tabs": list(TABS),
         "tab_labels": TAB_LABELS,
+        "bulk_path": BULK_PATH,
+        "bulk_label": BULK_LABEL,
         "active_tab": None,
         "active_feature": None,
     }
@@ -362,6 +368,28 @@ async def index(request: Request) -> Response:
 @router.get("/settings", include_in_schema=False)
 async def settings_entry(request: Request) -> Response:
     return await _open_default(request, "settings")
+
+
+# `/{tab}` より先に登録する（後だと tab="bulk" としてマッチし、マシンへ振り分けられる）
+@router.get(BULK_PATH, response_class=HTMLResponse)
+async def bulk_page(request: Request) -> HTMLResponse:
+    """一括管理ページ（登録済みの全マシンを machine_type ごとに並べる）.
+
+    SSR は登録済みマシンの一覧（``MachineRegistry``）だけで描き、backend へは問い合わせない。
+    行ごとの操作権・更新・PCB の状態は ``bulk.js`` が各機体の ``/m/{machine_id}/api/**`` から取る。
+    こうすると 1 台の backend が落ちていてもページ全体は 503 にならず、他の機体の行は使える。
+    """
+    # マシン選択で切り替えた先は既定タブにする（各機体の URL 空間 /m/{machine_id}/… に一括管理は無い）
+    return render_standalone(
+        request,
+        "bulk.html",
+        {
+            "active_tab": "bulk",
+            "title": BULK_LABEL,
+            "sections": bulk_sections(_registry(request).list()),
+        },
+        current_suffix=DEFAULT_TAB,
+    )
 
 
 # `/{tab}/{feature}` より先に登録する（後だと tab="m" / feature=machine_id として

@@ -14,8 +14,9 @@
 // ここ 1 箇所だけにする（各所の URL literal は backend 相対のまま残す）。
 const BASE = document.body.dataset.machineBase ?? "";
 
-function withBase(path) {
-  return `${BASE}${path}`;
+// base を渡すと表示中の機体ではなくその機体宛てにする（マシン非依存の一括管理ページ用）
+function withBase(path, base = BASE) {
+  return `${base}${path}`;
 }
 
 // ---- shared helpers ----

@@ -180,8 +180,9 @@ class TestMachinePrefixFunnel:
     def test_websocket_url_is_prefixed(self):
         lines = _js_code_lines("new WebSocket(")
 
-        assert len(lines) == 1
-        assert "withBase(" in lines[0]
+        # 機体ページの job_console.js と、一括管理の bulk.js（行ごとに機体を明示）
+        assert len(lines) == 2
+        assert all("withBase(" in line for line in lines)
 
     def test_artifact_urls_are_prefixed_once(self):
         lines = _js_code_lines("artifact.url")
