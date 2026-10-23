@@ -154,7 +154,7 @@ def _run_reference_point_setup(ctx: JobContext) -> JobResult:
     マシン操作パネル（ジョブモード）の WS command でジョグし、record で現在位置を確定・即時反映、quit で中止する。
     """
     machine = ctx.machine
-    klipper = create_command_klipper(machine)
+    klipper = create_command_klipper(ctx)
     stage = XYZStage(klipper.readonly)
     cam_config = machine.camera
     try:
@@ -298,7 +298,9 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
     # Z 位置は best-effort（Klipper 不通でも calibration 自体は成立させる）
     z: float | None = None
     try:
-        klipper = hal.open_klipper(ctx.machine.klipper, timeout=Z_QUERY_TIMEOUT)
+        klipper = hal.open_klipper(
+            ctx.machine.klipper, timeout=Z_QUERY_TIMEOUT, journal=ctx.journal
+        )
         z = XYZStage(klipper.readonly).get_position().z
     except Exception as exc:
         ctx.log(f"Z 位置の取得に失敗しました（z_position なしで続行）: {exc}")

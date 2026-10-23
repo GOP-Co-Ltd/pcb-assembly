@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from typing import Any
 
 from pcbasm import hal
-from pcbasm.config import Machine
 from pcbasm.gcode import GCode
 from pcbasm.hal import Klipper, XYZStage
 from pcbasm.parking import move_to_cap
@@ -16,9 +15,11 @@ from web.api.jobs.context import JobContext
 COMMAND_TIMEOUT = 60.0
 
 
-def create_command_klipper(machine: Machine) -> Klipper:
-    """選択マシンの設定で移動コマンド用 Klipper クライアントを生成する."""
-    return hal.open_klipper(machine.klipper, timeout=COMMAND_TIMEOUT)
+def create_command_klipper(ctx: JobContext) -> Klipper:
+    """ジョブのマシン設定とジャーナルで移動コマンド用 Klipper クライアントを生成する."""
+    return hal.open_klipper(
+        ctx.machine.klipper, timeout=COMMAND_TIMEOUT, journal=ctx.journal
+    )
 
 
 def handle_machine_command(

@@ -43,6 +43,7 @@ def setup_board(
         tolerance=tolerance,
         camera=camera,
         frame_sink=ctx.frame,
+        journal=ctx.journal,
     )
 
 

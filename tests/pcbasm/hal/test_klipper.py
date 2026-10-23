@@ -1,4 +1,5 @@
 import socket
+from pathlib import Path
 
 import httpx
 import pytest
@@ -6,7 +7,9 @@ from pytest_mock import MockerFixture
 
 from pcbasm.config import Klipper as KlipperConfig
 from pcbasm.gcode import PRESENT_MACRO, GCode
+from pcbasm.hal.fake import FakeKlipper
 from pcbasm.hal.klipper import GCodeMacro, Klipper, open_klipper
+from pcbasm.machine.journal import Journal, format_block
 from tests.helpers import mark_hardware
 
 
@@ -141,3 +144,22 @@ class TestOpenKlipper:
 
             with pytest.raises(httpx.ReadTimeout):
                 klipper.send_gcode("M115")
+
+    @pytest.mark.timeout(10)
+    def test_journals_each_send_as_fake_klipper_records_it(self, tmp_path: Path):
+        # 応答しない相手なので送信は失敗するが、送ろうとしたブロックはジャーナルに残る
+        journal = Journal(tmp_path / "journal.gcode")
+        with socket.create_server(("127.0.0.1", 0)) as server:
+            config = KlipperConfig(host="127.0.0.1", port=server.getsockname()[1])
+            klipper = open_klipper(config, timeout=0.2, journal=journal)
+            with pytest.raises(httpx.ReadTimeout):
+                klipper.send_gcode("G28\nM400")
+            with pytest.raises(httpx.ReadTimeout):
+                klipper.send_gcode(GCode.relax(), timeout=0.1)
+        fake = FakeKlipper(timeout=0.2)
+        fake.send_gcode("G28\nM400")
+        fake.send_gcode(GCode.relax(), timeout=0.1)
+
+        assert journal.path.read_text(encoding="utf-8") == "".join(
+            format_block(sent.gcode, sent.timeout) for sent in fake.sent
+        )

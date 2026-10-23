@@ -44,6 +44,7 @@ from web.api.jobs.manager import (
     JobStatus,
     prompt_payload,
 )
+from web.api.settings import Settings
 from web.api.state import AppState, BusyError
 
 from .conftest import (
@@ -921,6 +922,46 @@ class TestPresentOnTermination:
         assert record.status == JobStatus.SUCCEEDED
         assert "PRESENT" not in "\n".join(record.log_lines)
         assert "M84" not in "\n".join(record.log_lines)
+
+
+@pytest.mark.usefixtures("unreachable_klipper")
+class TestJournal:
+    """ジョブの送信は data/webui/journal/ に残り、次のジョブを始めても消えない."""
+
+    def test_journal_survives_the_next_job(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+        fake_camera_settings: Settings,
+    ):
+        _register(catalog, lambda ctx: None, uses_machine=True)
+        first = manager.start("synthetic", {})
+        wait_until(lambda: first.status.terminal and state.busy_owner is None)
+        second = manager.start("synthetic", {})
+        wait_until(lambda: second.status.terminal and state.busy_owner is None)
+
+        for record in (first, second):
+            assert record.result is not None
+            [artifact] = record.result.artifacts
+            journal = fake_camera_settings.webui_data_dir / artifact.path
+            assert journal.parent == fake_camera_settings.journal_dir
+            assert journal.name.endswith(f"-{record.id}.gcode")
+            assert "M84" in journal.read_text(encoding="utf-8")
+
+    def test_job_without_sends_links_no_journal(
+        self,
+        manager: JobManager,
+        catalog: JobCatalog,
+        state: AppState,
+        wait_until: WaitUntil,
+    ):
+        _register(catalog, lambda ctx: None, uses_machine=False)
+        record = manager.start("synthetic", {})
+        wait_until(lambda: record.status.terminal and state.busy_owner is None)
+
+        assert record.result is None
 
 
 class TestPcbasmLogBridge:

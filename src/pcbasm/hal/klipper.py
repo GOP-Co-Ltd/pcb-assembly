@@ -10,7 +10,7 @@ from __future__ import annotations
 import functools
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 import attrs
 import httpx
@@ -32,6 +32,12 @@ class GCodeMacro:
     variables: dict[str, Any] = attrs.Factory(dict)
 
 
+class GCodeJournal(Protocol):
+    """送信ブロックの書き先（実装は ``pcbasm.machine.journal.Journal``）."""
+
+    def write(self, gcode: GCode, timeout: float | None) -> None: ...
+
+
 class Klipper:
     """Moonraker REST API のシンプルなラッパー.
 
@@ -42,7 +48,11 @@ class Klipper:
     """
 
     def __init__(
-        self, host: str = "localhost", port: int = 7125, timeout: float | None = None
+        self,
+        host: str = "localhost",
+        port: int = 7125,
+        timeout: float | None = None,
+        journal: GCodeJournal | None = None,
     ) -> None:
         """Klipper クライアントを初期化する.
 
@@ -50,8 +60,11 @@ class Klipper:
             host: Moonraker サーバーのホスト IP アドレス
             port: Moonraker サーバーのポート番号
             timeout: HTTP リクエストのタイムアウト秒数（None は無制限）
+            journal: 送信ブロックを書くジャーナル（None は書かない）
         """
         self._base_url = f"http://{host}:{port}"
+        self._timeout = timeout
+        self._journal = journal
         self._client = httpx.Client(timeout=timeout)
         self._readonly = ReadonlyKlipper(self)
 
@@ -72,6 +85,7 @@ class Klipper:
 
         処理済みでも移動が物理的に終わったとは限らない。
         到達を待つときは末尾に ``GCode.wait_for_done()``（M400）を付ける。
+        ジャーナルには送る前に書くので、届かなかった送信も残る。
 
         Args:
             gcode: 送信する G-code コマンド（文字列、Iterable、または GCode オブジェクト）
@@ -85,8 +99,11 @@ class Klipper:
                 （G-code エラー・Klipper 停止中など）
             httpx.HTTPError: 接続できない・タイムアウトした場合（包まずに送出する）
         """
+        script = GCode(gcode)
+        if self._journal is not None:
+            self._journal.write(script, self._timeout if timeout is None else timeout)
         url = f"{self._base_url}/printer/gcode/script"
-        params = {"script": str(GCode(gcode))}
+        params = {"script": str(script)}
         if timeout is None:
             response = self._client.post(url, params=params)
         else:
@@ -210,7 +227,12 @@ class Klipper:
         self.send_gcode(GCode.relax(), timeout=timeout)
 
 
-def open_klipper(config: KlipperConfig, *, timeout: float | None = None) -> Klipper:
+def open_klipper(
+    config: KlipperConfig,
+    *,
+    timeout: float | None = None,
+    journal: GCodeJournal | None = None,
+) -> Klipper:
     """設定の接続先へ Klipper クライアントを作る.
 
     Klipper を作る唯一の口で、テストはこれを差し替えて実機への接続を断つ。
@@ -219,8 +241,9 @@ def open_klipper(config: KlipperConfig, *, timeout: float | None = None) -> Klip
     Args:
         config: 接続先の設定
         timeout: HTTP リクエストのタイムアウト秒数（None は無制限）
+        journal: 送信ブロックを書くジャーナル（None は書かない）
     """
-    return Klipper(config.host, config.port, timeout=timeout)
+    return Klipper(config.host, config.port, timeout=timeout, journal=journal)
 
 
 class ReadonlyKlipper:

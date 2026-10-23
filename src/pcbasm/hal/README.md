@@ -24,6 +24,7 @@ Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声�
 1. `XYZStage` / `ManualStepper` / `AirPump` / `PasteDispenser` は `ReadonlyKlipper` を受け取る
 2. これらのメソッドは機械を動かさず、`pcbasm.gcode.GCode` を返す
 3. 呼び出し側が返った `GCode` を `Klipper.send_gcode()` で送って初めて機械が動く
+4. `open_klipper` にジャーナル（`pcbasm.machine.journal.Journal`）を渡すと、`send_gcode()` は送る前にブロックをそこへ書く
 
 `ReadonlyKlipper` は `Klipper.readonly` で得る。状態取得（`get_status` / `get_config` / `get_macros` / `has_macro`）だけを持ち、G-code を送れない。
 

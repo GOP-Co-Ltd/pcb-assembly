@@ -12,13 +12,14 @@ import attrs
 import cv2
 import pytest
 
+from pcbasm import hal
 from pcbasm.gcode import GCode
 from pcbasm.hal import XYZStage
 from pcbasm.pasting.applicator import build_applicator
 from pcbasm.pasting.nozzle_clean import TRAVEL_Z, clean_nozzle
 from tests.helpers import mark_hardware
 from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
-from web.api.jobs.machine_commands import create_command_klipper
+from web.api.jobs.machine_commands import COMMAND_TIMEOUT
 from web.api.jobs.manager import JobManager, JobRecord, JobStatus
 from web.api.jobs.pasting import LOADING_STAGE
 from web.api.settings import Settings
@@ -162,7 +163,9 @@ class TestPastingHardware:
         wait_until: WaitUntil,
     ):
         """ローディング開始で全軸 homing 後、指定した X へ移動する."""
-        klipper = create_command_klipper(real_state.machine())
+        klipper = hal.open_klipper(
+            real_state.machine().klipper, timeout=COMMAND_TIMEOUT
+        )
         stage = XYZStage(klipper.readonly)
         target_x = min(stage.limits.x.min + 1.0, stage.limits.x.max)
 
@@ -184,7 +187,7 @@ class TestPastingHardware:
         clean = machine.nozzle_clean
         if clean is None:
             pytest.skip("[paste_dispenser.nozzle_clean] が未記録のため実行しない")
-        klipper = create_command_klipper(machine)
+        klipper = hal.open_klipper(machine.klipper, timeout=COMMAND_TIMEOUT)
         stage = XYZStage(klipper.readonly)
         klipper.send_gcode(GCode.homing() + GCode.wait_for_done())
 
@@ -304,7 +307,10 @@ class TestPastingHardware:
         """Probe 後に camera focus Z で領域照合し、塗布前に中止する."""
         focus_z = real_state.focus_z()
         assert focus_z is not None
-        stage = XYZStage(create_command_klipper(real_state.machine()).readonly)
+        klipper = hal.open_klipper(
+            real_state.machine().klipper, timeout=COMMAND_TIMEOUT
+        )
+        stage = XYZStage(klipper.readonly)
         real_state.select_pcb(Path("data/testing/led_blinker/led_blinker.kicad_pcb"))
         record = real_manager.start("paste_solder", {})
         calibration_stages = {"高さ計測", "銅箔照合", "pad照合"}
@@ -332,8 +338,7 @@ class TestPastingHardware:
         real_settings: Settings,
         wait_until: WaitUntil,
     ):
-        """Confirm True → 実計測 → planned_points + height_plane の PNG
-        artifacts."""
+        """Confirm True → 実計測 → 計測予定点とヒートマップの PNG、G-code ジャーナル."""
         real_state.select_pcb(Path("data/testing/led_blinker/led_blinker.kicad_pcb"))
         record = real_manager.start("height_plane", {})
         answered: set[str] = set()
@@ -345,11 +350,16 @@ class TestPastingHardware:
         assert result is not None
         assert result.summary is not None
         assert "点計測" in result.summary
-        labels = {artifact.label for artifact in result.artifacts}
-        assert labels == {"計測予定点", "ヒートマップ"}
+        kinds = {artifact.label: artifact.kind for artifact in result.artifacts}
+        assert kinds == {
+            "計測予定点": "image",
+            "ヒートマップ": "image",
+            "G-code ジャーナル": "file",
+        }
         artifacts_root = real_settings.webui_data_dir
         for artifact in result.artifacts:
-            assert artifact.kind == "image"
+            if artifact.kind != "image":
+                continue
             image = cv2.imread(str(artifacts_root / artifact.path))
             assert image is not None
             assert image.size > 0
