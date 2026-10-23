@@ -22,6 +22,7 @@ from pcbasm.pasting.paste_volume.calibration import (
     load_calibration,
 )
 from pcbasm.pasting.paste_volume.detect import DotMeasurement, measure_dot
+from pcbasm.pasting.paste_volume.model import CubicVolumeModel
 from pcbasm.vision.image import ImageArray
 
 
@@ -71,7 +72,8 @@ class DiameterVolumeEstimator:
 
         Args:
             calibration: 使う校正
-            reliable_range_only: 被覆域の下端付近を採用しないか。
+            reliable_range_only: 被覆域の下端付近を採用せず、上限の少し先までは
+                外挿するか（``CubicVolumeModel.covers_reliably``）。
                 運転時キャリブレーションの補正材料を選ぶときだけ ``True`` にする。
                 校正の生成・検証は被覆域そのものを使う。
         """
@@ -132,12 +134,11 @@ class DiameterVolumeEstimator:
         if diameter.detected_view_count == 0:
             return _rejected("no_deposit_detected")
         model = self._calibration.model
-        if not model.covers(diameter.diameter_mm):
+        if self._reliable_range_only:
+            if not model.covers_reliably(diameter.diameter_mm):
+                return _rejected(_unreliable_reason(model, diameter.diameter_mm))
+        elif not model.covers(diameter.diameter_mm):
             return _rejected("diameter_out_of_calibrated_range")
-        if self._reliable_range_only and not model.covers_reliably(
-            diameter.diameter_mm
-        ):
-            return _rejected("diameter_below_reliable_range")
         mean = model.volume_ul(diameter.diameter_mm)
         if mean <= 0.0:
             return _rejected("no_deposit_detected")
@@ -162,6 +163,15 @@ def load_diameter_estimator(
         DiameterVolumeEstimator(calibration, reliable_range_only=reliable_range_only),
         None,
     )
+
+
+def _unreliable_reason(model: CubicVolumeModel, diameter_mm: float) -> str:
+    """運転時補正の材料にならない直径の不採用理由."""
+    if model.covers(diameter_mm):
+        return "diameter_below_reliable_range"
+    if diameter_mm > model.diameter_max_mm:
+        return "diameter_above_extrapolation_range"
+    return "diameter_out_of_calibrated_range"
 
 
 def _rejected(reason: str) -> PasteVolumePrediction:

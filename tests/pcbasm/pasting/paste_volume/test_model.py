@@ -236,16 +236,49 @@ class TestMonotonicity:
 
 
 class TestReliableRange:
-    """運転時補正で採用する内側の直径範囲.
+    """運転時補正で採用する直径範囲.
 
     被覆域が狭いと小径側で係数が同定されず、同条件の 2 校正が下端で 58 % 食い違う。
 
-    下端側を落とした内側だけを補正の材料にする。
+    下端側は落とす。
+
+    大径側は校正どうしがよく一致するので、曲線が増え続ける限り上限の先を外挿する。
+
+    外挿は被覆幅に比例した上限までにとどめる。
     """
 
-    def test_upper_bound_is_unchanged(self):
-        assert KNOWN.covers_reliably(KNOWN.diameter_max_mm) is True
-        assert KNOWN.covers_reliably(KNOWN.diameter_max_mm + 1e-9) is False
+    def test_the_extrapolation_limit_is_proportional_to_the_covered_width(self):
+        # 被覆域 [0.5, 1.2] の幅 0.7 mm の半分だけ上限を超えてよい
+        assert KNOWN.extrapolation_diameter_max_mm == pytest.approx(1.55)
+
+    @pytest.mark.parametrize("excess_mm", [0.0, 1e-9, 0.2, 0.35])
+    def test_accepts_diameters_above_the_covered_range_up_to_the_limit(
+        self, excess_mm: float
+    ):
+        diameter = KNOWN.diameter_max_mm + excess_mm
+
+        assert KNOWN.covers_reliably(diameter) is True
+
+    @pytest.mark.parametrize("excess_mm", [0.35 + 1e-9, 1.0])
+    def test_rejects_diameters_beyond_the_extrapolation_limit(self, excess_mm: float):
+        diameter = KNOWN.diameter_max_mm + excess_mm
+
+        assert KNOWN.covers_reliably(diameter) is False
+
+    def test_rejects_diameters_where_the_curve_turns_down_above_the_range(self):
+        # V' = -1.5·d² + 1.65·d は被覆域 [0.5, 1.0] で正、d = 1.1 から負になる
+        # （外挿の上限 1.25 mm より手前）
+        turning = CubicVolumeModel(
+            cubic_ul_per_mm3=-0.5,
+            quadratic_ul_per_mm2=0.825,
+            linear_ul_per_mm=0.0,
+            diameter_min_mm=0.5,
+            diameter_max_mm=1.0,
+        )
+
+        assert turning.is_monotonic_in_range() is True
+        assert turning.covers_reliably(1.05) is True
+        assert turning.covers_reliably(1.15) is False
 
     def test_rejects_diameters_just_above_the_covered_lower_bound(self):
         just_inside = KNOWN.diameter_min_mm + 1e-6
@@ -265,3 +298,5 @@ class TestReliableRange:
 
         assert model.reliable_diameter_min_mm == pytest.approx(0.9)
         assert model.covers_reliably(0.9) is True
+        # 幅 0 では外挿の余地もない
+        assert model.covers_reliably(0.9 + 1e-9) is False

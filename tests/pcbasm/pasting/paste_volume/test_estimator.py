@@ -231,7 +231,7 @@ class TestLoadDiameterEstimator:
 
 
 class TestReliableRangeOnly:
-    """運転時補正向けに、被覆域の下端付近を採用しないモード.
+    """運転時補正向けに、被覆域の下端付近を採用せず、上限の先を外挿するモード.
 
     既定は被覆域そのものを使う（校正の生成・検証はこれまでどおり）。
     """
@@ -287,11 +287,60 @@ class TestReliableRangeOnly:
         assert prediction.accepted is True
         assert prediction.mean_volume_ul > 0.0
 
-    def test_still_rejects_above_the_upper_bound_with_the_covered_range_reason(self):
+    def test_extrapolates_above_the_upper_bound_only_in_the_mode(self):
         model = _calibration().model
         above = self._diameter(model.diameter_max_mm + 0.1)
 
-        prediction = self._estimator(reliable_range_only=True).predict_diameter(above)
+        extrapolated = self._estimator(reliable_range_only=True).predict_diameter(above)
+        default = self._estimator(reliable_range_only=False).predict_diameter(above)
+
+        assert extrapolated.accepted is True
+        assert extrapolated.mean_volume_ul == pytest.approx(
+            model.volume_ul(above.diameter_mm)
+        )
+        assert default.accepted is False
+        assert default.rejection_reason == "diameter_out_of_calibrated_range"
+
+    def test_rejects_beyond_the_extrapolation_limit_with_its_own_reason(self):
+        model = _calibration().model
+        beyond = self._diameter(model.extrapolation_diameter_max_mm + 0.01)
+
+        extrapolated = self._estimator(reliable_range_only=True).predict_diameter(
+            beyond
+        )
+        default = self._estimator(reliable_range_only=False).predict_diameter(beyond)
+
+        assert extrapolated.accepted is False
+        assert extrapolated.rejection_reason == "diameter_above_extrapolation_range"
+        assert default.rejection_reason == "diameter_out_of_calibrated_range"
+
+    def test_rejects_above_the_upper_bound_where_the_curve_turns_down(self):
+        calibration = _calibration()
+        # V' = -1.5·d² + 1.65·d は d = 1.1 から負になる（被覆域 [0.5, 1.0] では正）
+        turning = attrs.evolve(
+            calibration,
+            model=attrs.evolve(
+                calibration.model,
+                cubic_ul_per_mm3=-0.5,
+                quadratic_ul_per_mm2=0.825,
+                linear_ul_per_mm=0.0,
+                diameter_min_mm=0.5,
+                diameter_max_mm=1.0,
+            ),
+        )
+
+        prediction = DiameterVolumeEstimator(
+            turning, reliable_range_only=True
+        ).predict_diameter(self._diameter(1.15))
+
+        assert prediction.accepted is False
+        assert prediction.rejection_reason == "diameter_above_extrapolation_range"
+
+    def test_still_rejects_below_the_covered_range(self):
+        model = _calibration().model
+        below = self._diameter(model.diameter_min_mm - 0.1)
+
+        prediction = self._estimator(reliable_range_only=True).predict_diameter(below)
 
         assert prediction.accepted is False
         assert prediction.rejection_reason == "diameter_out_of_calibrated_range"
