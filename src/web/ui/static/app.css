@@ -1863,6 +1863,19 @@ h2 {
   min-width: 12rem;
 }
 
+/* 項目見出しは入力欄の幅で折り返し、列を見出しの文字数で広げない */
+.pad-table thead th.pad-col-field {
+  white-space: normal;
+  vertical-align: bottom;
+}
+
+.pad-group-toggle {
+  min-height: 1.5rem;
+  padding: 0 0.35rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
 .pad-row-toggle {
   min-height: 1.5rem;
   margin-right: 0.25rem;

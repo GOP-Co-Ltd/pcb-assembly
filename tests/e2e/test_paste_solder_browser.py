@@ -696,6 +696,31 @@ class TestPasteSolderBrowserPadInteraction:
         height_input.press("Enter")
         _wait_for_override(live_server, "L0", "paste_height", 0.25)
 
+    def test_micro_line_columns_stay_collapsed_until_opened(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_ui)
+
+        root_row = browser_page.locator(_row_selector("L0"))
+        toggle = browser_page.locator(_testid("pad-group-toggle"))
+        toggle.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert toggle.get_attribute("aria-expanded") == "false"
+        assert _field_input(root_row, "micro_line_z_start").count() == 0
+
+        toggle.click()
+        z_start = _field_input(root_row, "micro_line_z_start")
+        z_start.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        z_start.fill("0.09")
+        z_start.press("Enter")
+        _wait_for_override(live_server, "L0", "micro_line_z_start", 0.09)
+        root_row.locator(
+            '[data-testid="pad-own-override-marker"][data-field="micro_line_z_start"]'
+        ).wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
+
+        # 保存後の再描画でも開いたまま
+        assert toggle.get_attribute("aria-expanded") == "true"
+
     def test_tree_row_highlights_pads_by_node_id_membership(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):

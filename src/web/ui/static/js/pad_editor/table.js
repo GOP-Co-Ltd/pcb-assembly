@@ -4,7 +4,7 @@ import { choiceLabels, fieldLabel, round4 } from "./model.js";
 
 // 階層 override 表の描画。DOM 生成とセル内の数値パース検証（Number.isFinite）
 // のみを持ち、状態遷移と API 呼び出しは actions 経由で index.js に委ねる。
-// state は index.js と共有参照（expanded / locked / rowEls / nodeById 等）。
+// state は index.js と共有参照（expanded / openGroups / locked / rowEls / nodeById 等）。
 // actions: {
 //   patchNode(body, options), patchNodeClear(nodeId, field),
 //   patchNodeEnabled(nodeId, enabled), patchNodeEnabledInherit(nodeId),
@@ -34,7 +34,7 @@ export function renderTable(tableBody, state, actions) {
       { capture: true, once: true });
   }
   tableBody.dataset.pcbFile = state.config.pcb_file;
-  renderHeader(tableBody, state.config.fields);
+  renderHeader(tableBody, state, actions);
   tableBody.replaceChildren();
   state.rowEls.clear();
   appendRows(tableBody, state, actions, state.config.tree, 0);
@@ -72,13 +72,35 @@ function identifyFieldControl(control, nodeId, field) {
   );
 }
 
+// 表の列並び。fields の group ごとに開閉ボタンの列を 1 つ置き、開いている group の
+// 項目だけを列にする。group を持たない項目は常に列にする。
+function columns(state) {
+  const result = [];
+  const seen = new Set();
+  for (const field of state.config.fields) {
+    if (field.group && !seen.has(field.group)) {
+      seen.add(field.group);
+      result.push({ group: field.group });
+    }
+    if (!field.group || state.openGroups.has(field.group)) result.push({ field });
+  }
+  return result;
+}
+
 // 列見出しは API の fields（列順・ラベル）から描く。先頭 2 列（ノード・有効）は
 // テンプレートに置いたまま、それ以降を差し替える。
-function renderHeader(tableBody, fields) {
+function renderHeader(tableBody, state, actions) {
   const headerRow = tableBody.closest("table")?.querySelector("thead tr");
   if (!headerRow) return;
-  for (const th of headerRow.querySelectorAll("th.pad-col-field")) th.remove();
-  for (const field of fields) {
+  for (const th of headerRow.querySelectorAll("th.pad-col-field, th.pad-col-group")) {
+    th.remove();
+  }
+  for (const column of columns(state)) {
+    if (column.group) {
+      headerRow.appendChild(buildGroupHeader(state, actions, column.group));
+      continue;
+    }
+    const field = column.field;
     const th = document.createElement("th");
     th.id = `pad-heading-${field.name}`;
     th.scope = "col";
@@ -87,6 +109,28 @@ function renderHeader(tableBody, fields) {
     th.textContent = field.unit ? `${field.label} [${field.unit}]` : field.label;
     headerRow.appendChild(th);
   }
+}
+
+function buildGroupHeader(state, actions, group) {
+  const open = state.openGroups.has(group);
+  const th = document.createElement("th");
+  th.scope = "col";
+  th.className = "pad-col-group";
+  th.dataset.group = group;
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "pad-group-toggle";
+  toggle.dataset.testid = "pad-group-toggle";
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.title = `${group}の列を開閉`;
+  toggle.textContent = open ? `${group} ◀` : `${group} ▶`;
+  toggle.addEventListener("click", () => {
+    if (open) state.openGroups.delete(group);
+    else state.openGroups.add(group);
+    actions.rerender();
+  });
+  th.appendChild(toggle);
+  return th;
 }
 
 function appendRows(tableBody, state, actions, node, depth) {
@@ -193,7 +237,14 @@ function buildRow(state, actions, node, depth) {
   }
   tr.appendChild(enTd);
 
-  for (const fieldInfo of state.config.fields) {
+  for (const column of columns(state)) {
+    if (column.group) {
+      const td = document.createElement("td");
+      td.className = "pad-col-group";
+      tr.appendChild(td);
+      continue;
+    }
+    const fieldInfo = column.field;
     const field = fieldInfo.name;
     if (fieldInfo.kind === "choice") {
       tr.appendChild(

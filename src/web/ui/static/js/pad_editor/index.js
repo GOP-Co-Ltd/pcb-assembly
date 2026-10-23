@@ -43,6 +43,7 @@ import {
     layer: "Top",
     selected: new Set(),
     expanded: new Set(["L0"]),
+    openGroups: new Set(), // 開いている列のまとまり（fields の group。既定は畳む）
     locked: false,
     hoveredNode: null,
     focusedNode: null,
