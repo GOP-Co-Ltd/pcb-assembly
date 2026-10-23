@@ -202,21 +202,3 @@ class TestPlanAlignmentRegions:
     )
     def test_empty_inputs_yield_no_regions(self, pad_centers, polygons, safe_area):
         assert _plan(pad_centers, polygons=polygons, safe_area=safe_area) == []
-
-
-class TestPlanAlignmentRegionsValidation:
-    """領域寸法と overlap の公開入力検証."""
-
-    @pytest.mark.parametrize("region_size_px", [0, -1, True, 1.5])
-    def test_rejects_non_positive_region_size(self, region_size_px):
-        with pytest.raises(ValueError, match="region_size_px"):
-            _plan([Point2d(0.0, 0.0)], region_size_px=region_size_px)
-
-    def test_rejects_region_larger_than_image(self):
-        with pytest.raises(ValueError, match="region_size_px"):
-            _plan([Point2d(0.0, 0.0)], region_size_px=min(IMAGE_SIZE) + 1)
-
-    @pytest.mark.parametrize("overlap", [-0.01, 1.0, 1.01, float("nan")])
-    def test_rejects_overlap_outside_half_open_unit_interval(self, overlap):
-        with pytest.raises(ValueError, match="overlap"):
-            _plan([Point2d(0.0, 0.0)], overlap=overlap)

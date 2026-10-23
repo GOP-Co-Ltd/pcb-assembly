@@ -15,13 +15,12 @@
 
 from __future__ import annotations
 
-from pcbasm.config import NozzleClean
 from pcbasm.geometry import Point2d, Transform
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.initial_purge import ResolvedInitialPurge
-from pcbasm.pasting.nozzle_clean import clean_nozzle
+from pcbasm.pasting.nozzle_clean import NozzleCleanPlan, clean_nozzle
 from pcbasm.pasting.paste_volume.detect import measure_dot
 from pcbasm.pasting.session import PasteSession
 from pcbasm.vision.crop import RectCrop, crop_pixel_size
@@ -41,7 +40,7 @@ def purge_with_cleaning(
     applicator: PasteApplicator,
     purge: ResolvedInitialPurge,
     *,
-    nozzle_clean: NozzleClean,
+    nozzle_clean: NozzleCleanPlan | None,
 ) -> None:
     """初回パージを実行し、写らなければ掃除してもう一度だけパージする.
 
@@ -55,7 +54,7 @@ def purge_with_cleaning(
         correction: 位置合わせと高さ面の補正
         applicator: 塗布に使うディスペンサー（有効化済み）
         purge: パージ点と量
-        nozzle_clean: クリーニング設定（位置が未教示ならこすらない）
+        nozzle_clean: 組んだクリーニング（位置が未教示の ``None`` ならこすらない）
 
     Raises:
         ValueError: 掃除してパージし直しても塗布が写らない場合
@@ -201,7 +200,7 @@ def _clean(
     ctx: JobContext,
     session: PasteSession,
     applicator: PasteApplicator,
-    nozzle_clean: NozzleClean,
+    nozzle_clean: NozzleCleanPlan | None,
 ) -> str:
     """ノズル先端を掃除する（実施した処置の名前を返す）.
 
@@ -210,20 +209,12 @@ def _clean(
     垂れを止めるためにまた引き戻す。掃除しないなら引き込んだままでよく、続くパージの
     :meth:`PasteApplicator.deposit_at` が自分で prime する。
     """
-    position = nozzle_clean.position
-    if position is None:
+    if nozzle_clean is None:
         ctx.log("ノズルクリーニング: 位置が未記録のためこすらずにパージし直します")
         return "パージのやり直し"
     ctx.progress("ノズルクリーニング")
     ctx.checkpoint()
     applicator.prime()
-    clean_nozzle(
-        session.klipper,
-        session.stage,
-        applicator,
-        position,
-        nozzle_clean,
-        log=ctx.log,
-    )
+    clean_nozzle(session.klipper, applicator, nozzle_clean, log=ctx.log)
     applicator.retract()
     return "クリーニングとパージのやり直し"

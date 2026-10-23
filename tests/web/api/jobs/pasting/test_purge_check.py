@@ -20,6 +20,7 @@ from pcbasm.config import NozzleClean, load_machine
 from pcbasm.geometry import Point2d, Point3d
 from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.pasting.initial_purge import ResolvedInitialPurge, purge_point_label
+from pcbasm.pasting.nozzle_clean import plan_nozzle_clean
 from pcbasm.vision import Image
 from tests.support.paths import TESTING_CONFIG_DIR
 from tests.web.api.jobs.conftest import (
@@ -142,7 +143,9 @@ class TestPurgeWithCleaning:
                             else PURGE_POINT
                         ),
                         nozzle_clean=(
-                            CLEAN if ctx.params["with_clean"] else NozzleClean()
+                            plan_nozzle_clean(session.stage, CLEAN_POSITION, CLEAN)
+                            if ctx.params["with_clean"]
+                            else None
                         ),
                     )
                 finally:

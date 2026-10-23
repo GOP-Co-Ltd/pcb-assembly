@@ -54,29 +54,11 @@ def plan_alignment_regions(
 
     巡回順は ``tour_start``（機械座標）からの最近傍順とする。
 
+    ``region_size_px`` と ``overlap`` は設定（:class:`~pcbasm.config.PadAlign`）と照合器の組み立てで検証済みとする。
+
     Returns:
         領域のリスト。銅箔・pad・安全領域のどれかが空、または領域が収まらなければ空リスト
-
-    Raises:
-        ValueError: region_size_px が 1 未満か画像より大きい、または overlap が [0, 1) の外
     """
-    if (
-        isinstance(region_size_px, bool)
-        or not isinstance(region_size_px, int)
-        or region_size_px < 1
-    ):
-        raise ValueError(f"region_size_pxは1以上である必要があります: {region_size_px}")
-    if region_size_px > min(image_size):
-        raise ValueError(
-            f"region_size_px {region_size_px} が画像サイズ {image_size} を超えています"
-        )
-    if (
-        isinstance(overlap, bool)
-        or not isinstance(overlap, (int, float))
-        or not np.isfinite(overlap)
-        or not 0.0 <= overlap < 1.0
-    ):
-        raise ValueError(f"overlapは0以上1未満である必要があります: {overlap}")
     if not projector.polygons or not pad_centers or safe_area.is_empty:
         return []
 

@@ -15,7 +15,7 @@ from pcbasm.geometry import Point3d
 from pcbasm.hal import Klipper, XYZStage
 from pcbasm.parking import move_to_cap
 from pcbasm.pasting.applicator import build_applicator
-from pcbasm.pasting.nozzle_clean import clean_nozzle
+from pcbasm.pasting.nozzle_clean import clean_nozzle, plan_nozzle_clean
 from web.api.config_store import ConfigStore
 from web.api.dependencies import ControlDep, JobsDep, StateDep, StoreDep
 from web.api.models import NozzleCleanInfo
@@ -159,23 +159,17 @@ def run_nozzle_clean_test(
                 klipper = create_klipper(state, CLEAN_TIMEOUT)
                 _require_all_axes_homed(klipper, "全軸ホーミング後に実行してください")
                 stage = XYZStage(klipper.readonly)
+                plan = plan_nozzle_clean(stage, clean.position, clean)
                 with build_applicator(klipper, stage, dispenser) as applicator:
                     applicator.prime()
-                    clean_nozzle(
-                        klipper,
-                        stage,
-                        applicator,
-                        clean.position,
-                        clean,
-                        log=messages.append,
-                    )
+                    clean_nozzle(klipper, applicator, plan, log=messages.append)
                     applicator.retract()
                 # ディスペンサーを止めてから戻す（塗布ジョブの駐機と同じ順序）
                 messages.append(
                     _park_at_cap(dispenser.nozzle_cap.position, klipper, stage)
                 )
         except ValueError as exc:
-            # 可動域外などの不正な設定値。clean_nozzle は可動域の検証を
-            # パージより前に通すので、この経路では装置は動いていない
+            # 可動域外などの不正な設定値。plan_nozzle_clean は何も送る前に
+            # 可動域を検証するので、この経路では装置は動いていない
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     return NozzleCleanTestResult(message=" / ".join(messages))

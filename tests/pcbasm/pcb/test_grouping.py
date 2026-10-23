@@ -231,42 +231,22 @@ class TestPadHierarchyBuildShapeGrouping:
         assert {p.pad_number for p in thermal_l3.pads} == {"9"}
 
 
-class TestPadHierarchyBuildExclusion:
-    """対応 Component の無い pad は階層から除外される。"""
-
-    def test_pad_without_matching_component_is_excluded(self):
-        components = [_component("R1", "0402")]
-        pads = [
-            _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9)),
-            _pad("X9", "1", _rect(2.0, 0.0, 0.5, 0.9)),  # 対応部品なし
-        ]
-        hierarchy = PadHierarchy.build(components, pads)
-
-        designators = {p.designator for p in hierarchy.iter_pads()}
-        assert designators == {"R1"}
-        assert ("L2", "X9") not in _all_keys(hierarchy)
-
-
 class TestPadHierarchyFindPad:
-    """find_pad_ref は階層外の pad で None を返す。"""
+    """階層の pad は参照キーと id に解決し、階層に無い pad は KeyError にする。"""
 
     @pytest.fixture
     def hierarchy_and_pads(self) -> tuple[PadHierarchy, Pad, Pad]:
         components = [_component("R1", "0402")]
         known = _pad("R1", "1", _rect(0.0, 0.0, 0.5, 0.9))
-        unknown = _pad("X9", "1", _rect(2.0, 0.0, 0.5, 0.9))  # 対応部品なし
-        return PadHierarchy.build(components, [known, unknown]), known, unknown
+        unknown = _pad("X9", "1", _rect(2.0, 0.0, 0.5, 0.9))
+        return PadHierarchy.build(components, [known]), known, unknown
 
     def test_known_pad_resolves_to_ref_and_id(self, hierarchy_and_pads):
         hierarchy, known, _ = hierarchy_and_pads
-        assert hierarchy.find_pad_ref(known) == ("R1", "1")
+        assert hierarchy.pad_ref_for_pad(known) == ("R1", "1")
         assert hierarchy.pad_id_for_pad(known) == "R1.1"
 
-    def test_unknown_pad_returns_none(self, hierarchy_and_pads):
-        hierarchy, _, unknown = hierarchy_and_pads
-        assert hierarchy.find_pad_ref(unknown) is None
-
-    def test_raise_variants_reject_unknown_pad(self, hierarchy_and_pads):
+    def test_unknown_pad_is_rejected(self, hierarchy_and_pads):
         hierarchy, _, unknown = hierarchy_and_pads
         with pytest.raises(KeyError):
             hierarchy.pad_ref_for_pad(unknown)

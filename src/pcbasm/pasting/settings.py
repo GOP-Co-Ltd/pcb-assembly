@@ -196,21 +196,6 @@ def _node_paths(
         yield from _node_paths(child, path)
 
 
-def is_pad_enabled(
-    pad: Pad, hierarchy: PadHierarchy, resolved: Mapping[PadRef, ResolvedSetting]
-) -> bool:
-    """Pad が塗布対象か判定する.
-
-    階層から除外された pad（対応 Component 無し = ``resolved`` に不在）は
-    後方互換で有効扱い、それ以外は解決済み ``enabled`` に従う。
-    """
-    pad_ref = hierarchy.find_pad_ref(pad)
-    if pad_ref is None:
-        return True
-    setting = resolved.get(pad_ref)
-    return setting is None or setting.enabled
-
-
 def select_enabled_pads(
     pads: Iterable[Pad], hierarchy: PadHierarchy, model: PasteSettingsModel
 ) -> list[Pad]:
@@ -219,7 +204,7 @@ def select_enabled_pads(
     プレビュー（webui router）と実行（webui job）が同一の絞り込みを共有するための単一ソース。
     """
     resolved = resolve_pad_settings(hierarchy, model)
-    return [pad for pad in pads if is_pad_enabled(pad, hierarchy, resolved)]
+    return [pad for pad in pads if resolved[hierarchy.pad_ref_for_pad(pad)].enabled]
 
 
 @attrs.frozen

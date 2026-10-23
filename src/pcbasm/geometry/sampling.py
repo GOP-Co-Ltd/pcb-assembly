@@ -128,36 +128,31 @@ def sampling_diagnostics(
     points: Sequence[Point2d],
     polygons: Sequence[Polygon],
     outline: Polygon,
-) -> SamplingDiagnostics | None:
+) -> SamplingDiagnostics:
     """計画 probe 点の安全余裕と基板カバレッジ指標を計算する.
+
+    ``points`` は :func:`sample_points_in_polygons` の結果（1 点以上、どれかのポリゴンに乗る）とする。
 
     Args:
         points: 計画 probe 点
         polygons: 点が乗る対象ポリゴン群（例: 銅箔島）
         outline: 基板外形ポリゴン
-
-    Returns:
-        SamplingDiagnostics。points が空の場合は None
     """
-    if not points:
-        return None
     clearances = [_clearance_to_polygons(p, polygons) for p in points]
     hull = MultiPoint([(p.x, p.y) for p in points]).convex_hull
-    outline_area = outline.area
-    hull_ratio = hull.area / outline_area if outline_area > 0.0 else 0.0
     return SamplingDiagnostics(
         point_count=len(points),
         min_clearance=min(clearances),
-        hull_area_ratio=hull_ratio,
+        hull_area_ratio=hull.area / outline.area,
     )
 
 
 def _clearance_to_polygons(point: Point2d, polygons: Sequence[Polygon]) -> float:
     """点が乗っているポリゴン境界までの最小距離を返す."""
     shapely_point = ShapelyPoint(point.x, point.y)
-    containing = [p for p in polygons if p.covers(shapely_point)]
-    candidates = containing or list(polygons)
-    return min(p.boundary.distance(shapely_point) for p in candidates)
+    return min(
+        p.boundary.distance(shapely_point) for p in polygons if p.covers(shapely_point)
+    )
 
 
 def _collect_candidates(

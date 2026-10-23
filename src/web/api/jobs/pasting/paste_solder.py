@@ -129,11 +129,9 @@ def _run_paste_solder(ctx: JobContext) -> JobResult:
             for index, pad in enumerate(targets.routed_pads):
                 ctx.progress("塗布", 100.0 * index / len(targets.routed_pads))
                 ctx.checkpoint()
-                # 対応 Component の無い pad は階層外なので machine 既定で塗る
-                params = targets.params_for(pad) or applicator.default_params
                 applicator.apply(
                     pad.polygon,
-                    params=params,
+                    params=targets.params_for(pad),
                     transform=session.pad_transform(pad, correction),
                     line_reference=session.component_positions.get(pad.designator),
                 )

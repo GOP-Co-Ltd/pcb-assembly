@@ -144,12 +144,3 @@ class TestRoutedEnabledPads:
         routed = routed_enabled_pads(pads, hierarchy, model)
 
         assert [_pad_id(pad) for pad in routed] == ["R1.1", "R1.2", "U1.1"]
-
-    def test_pad_without_component_is_routed_for_backward_compat(self):
-        # 階層外 pad（対応 Component 無し）は後方互換で有効扱いのまま順路に乗る。
-        pads, model, hierarchy = self._fixture()
-        orphan = _pad("X9", "1", center=Point2d(30.0, 0.0), width=0.5, height=1.0)
-
-        routed = routed_enabled_pads([*pads, orphan], hierarchy, model)
-
-        assert orphan in routed

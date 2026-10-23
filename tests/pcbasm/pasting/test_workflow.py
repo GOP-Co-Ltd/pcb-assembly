@@ -1,14 +1,13 @@
 """塗布ジョブ前計画（plan_paste_targets）の公開契約."""
 
 import pytest
-import shapely
 
 from pcbasm.config import FlowCalibration
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pasting.workflow import plan_paste_targets
-from pcbasm.pcb import Layer, Pad, PadHierarchy, PcbFile
+from pcbasm.pcb import Layer, PadHierarchy, PcbFile
 from tests.support.paths import TESTING_DATA_DIR
 
 _LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
@@ -145,24 +144,8 @@ class TestPlanPasteTargets:
         by_id = {hierarchy.pad_id_for_pad(p): p for p in targets.routed_pads}
         overridden = targets.params_for(by_id["U1.1"])
         inherited = targets.params_for(by_id["U1.2"])
-        assert overridden is not None and inherited is not None
         assert overridden.ul_per_mm2 == 0.25
         assert inherited == _BASE
-
-    def test_params_for_pad_outside_hierarchy_is_none(self, pcb, hierarchy):
-        targets, _ = plan_paste_targets(
-            pcb, hierarchy, _model(), initial_purge_ul=0.0, flow_calibration=_DISABLED
-        )
-        stray = Pad(
-            designator="ZZ9",
-            pad_number="1",
-            net_name="",
-            layer=Layer.TOP,
-            polygon=shapely.box(0.0, 0.0, 1.0, 1.0),
-        )
-
-        assert targets is not None
-        assert targets.params_for(stray) is None
 
 
 class TestPlanPasteTargetsFlowCalibration:

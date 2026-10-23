@@ -335,7 +335,7 @@ class NozzleClean:
 
     ``press_depth`` の上限はここで検証しない。妥当性は押し込んだ高さが可動域に入るかでしか
     決まらず、それは printer.cfg 依存なので
-    :func:`~pcbasm.pasting.nozzle_clean.validate_reach` が判定する。
+    :func:`~pcbasm.pasting.nozzle_clean.plan_nozzle_clean` が判定する。
 
     Attributes:
         position: クリーニング面の位置。未教示なら None で、塗布ジョブはこすらない

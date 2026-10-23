@@ -14,9 +14,11 @@ G-code を返す関数の契約:
 - `depart_gcode`: 退避 Z へ戻すだけで XY を動かさない
 - いずれも M400 / M84 を含めない（`clean_nozzle` が後置で合成する）
 
+`plan_nozzle_clean` は送信前に 3 つを組み、可動域外を例外にする。パージ後にこすりで
+落ちるとシリコン上に塊が残るので、ジョブの開始時に `resolve_nozzle_clean` が組んでおく。
+
 `clean_nozzle` の手順契約:
 
-- 可動域検証は何かを送る前に行う。パージ後にこすりで落ちるとシリコン上に塊が残る
 - リトラクトしない（負の押出 MOVE を出さない）。引き戻しは呼び出し側の
   `PasteApplicator.retract()` が担い、二重に引くとプライム収支が合わなくなる
 - 最後は必ず退避 Z へ戻す（押し込み Z のまま板の上を走らせない）
@@ -48,12 +50,13 @@ from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.nozzle_clean import (
     CLEAN_TRAVEL_VELOCITY,
     TRAVEL_Z,
+    NozzleCleanPlan,
     approach_gcode,
     clean_nozzle,
     clean_position_label,
     depart_gcode,
+    plan_nozzle_clean,
     resolve_nozzle_clean,
-    validate_reach,
     wipe_gcode,
     wipe_points,
 )
@@ -88,6 +91,10 @@ def _clean(**overrides) -> NozzleClean:
         "wipe_speed": 10.0,
     }
     return NozzleClean(**(values | overrides))
+
+
+def _plan(stage: XYZStage, **overrides) -> NozzleCleanPlan:
+    return plan_nozzle_clean(stage, POSITION, _clean(**overrides))
 
 
 @pytest.fixture
@@ -270,40 +277,33 @@ class TestDepartGcode:
         assert lines == [f"G1 Z{TRAVEL_Z} F{TRAVEL_FEED}"]
 
 
-class TestValidateReach:
-    """可動域検証の契約（送信前に全点を弾く）."""
+class TestPlanNozzleClean:
+    """送信前に組む G-code と可動域検証の契約."""
 
-    def test_reachable_position_returns_none(self, stage: XYZStage):
-        assert validate_reach(stage, POSITION, _clean()) is None
+    def test_combines_approach_wipe_and_depart(self, stage: XYZStage):
+        clean = _clean()
+
+        plan = plan_nozzle_clean(stage, POSITION, clean)
+
+        assert plan.approach == approach_gcode(stage, POSITION)
+        assert plan.wipe == wipe_gcode(stage, POSITION, clean) + depart_gcode(stage)
 
     def test_reports_the_violating_axis_and_value(self, stage: XYZStage):
-        """どの軸がどれだけ外れたかを出す（stage.move と同じ書式）."""
-        error = validate_reach(stage, _position(x=999.0), _clean())
+        """どの軸がどれだけ外れたかを出す（stage.move の書式）."""
+        with pytest.raises(ValueError, match="可動域外.*x=999.0"):
+            plan_nozzle_clean(stage, _position(x=999.0), _clean())
 
-        assert error == "クリーニング位置が可動域外です: x=999.0"
-
-    def test_reports_press_z_below_limit(self, stage: XYZStage):
+    def test_rejects_press_z_below_limit(self, stage: XYZStage):
         """面 Z は届くが押し込むと下限を割る設定を弾く."""
         # z ∈ [-5, 50] に対し press_z = -4.8 - 0.5 = -5.3
-        error = validate_reach(stage, _position(z=-4.8), _clean(press_depth=0.5))
+        with pytest.raises(ValueError, match="z=-5.3"):
+            plan_nozzle_clean(stage, _position(z=-4.8), _clean(press_depth=0.5))
 
-        assert error is not None
-        assert "z=-5.3" in error
-
-    def test_reports_wipe_point_outside_limits(self, stage: XYZStage):
+    def test_rejects_wipe_point_outside_limits(self, stage: XYZStage):
         """中心は届くがこすりの振れ幅で域外へ出る設定を弾く."""
         # x ∈ [0, 300] に対し 299 + 2 = 301
-        error = validate_reach(stage, _position(x=299.0), _clean(stroke=2.0))
-
-        assert error is not None
-        assert "x=301.0" in error
-
-    def test_repeats_each_violating_axis_only_once(self, stage: XYZStage):
-        """同じ軸が複数の経由点で外れても 1 度だけ並べる."""
-        error = validate_reach(stage, _position(x=999.0), _clean(passes=3))
-
-        assert error is not None
-        assert error.count("x=999.0") == 1
+        with pytest.raises(ValueError, match="可動域外.*x=301.0"):
+            plan_nozzle_clean(stage, _position(x=299.0), _clean(stroke=2.0))
 
 
 class TestCleanPositionLabel:
@@ -320,7 +320,7 @@ class TestCleanNozzle:
     def test_sends_approach_purge_wipe_and_depart_in_order(
         self, klipper: FakeKlipper, stage: XYZStage, applicator: PasteApplicator
     ):
-        clean_nozzle(klipper, stage, applicator, POSITION, _clean())
+        clean_nozzle(klipper, applicator, _plan(stage))
 
         lines = klipper.sent_lines
         purge_index = next(i for i, l in enumerate(lines) if _MOVE_RE.match(l))
@@ -335,7 +335,7 @@ class TestCleanNozzle:
     def test_purges_the_configured_amount(
         self, klipper: FakeKlipper, stage: XYZStage, applicator: PasteApplicator
     ):
-        clean_nozzle(klipper, stage, applicator, POSITION, _clean(purge_ul=0.2))
+        clean_nozzle(klipper, applicator, _plan(stage, purge_ul=0.2))
 
         assert _stepper_amounts_ul(klipper) == pytest.approx([0.2])
 
@@ -343,7 +343,7 @@ class TestCleanNozzle:
         self, klipper: FakeKlipper, stage: XYZStage, applicator: PasteApplicator
     ):
         """引き戻しは呼び出し側の retract() が担う（二重に引かない）."""
-        clean_nozzle(klipper, stage, applicator, POSITION, _clean())
+        clean_nozzle(klipper, applicator, _plan(stage))
 
         amounts = _stepper_amounts_ul(klipper)
         assert amounts  # 押出そのものは起きている
@@ -352,14 +352,14 @@ class TestCleanNozzle:
     def test_zero_purge_skips_extrusion(
         self, klipper: FakeKlipper, stage: XYZStage, applicator: PasteApplicator
     ):
-        clean_nozzle(klipper, stage, applicator, POSITION, _clean(purge_ul=0.0))
+        clean_nozzle(klipper, applicator, _plan(stage, purge_ul=0.0))
 
         assert _stepper_amounts_ul(klipper) == []
 
     def test_zero_stroke_skips_wipe_moves(
         self, klipper: FakeKlipper, stage: XYZStage, applicator: PasteApplicator
     ):
-        clean_nozzle(klipper, stage, applicator, POSITION, _clean(stroke=0.0))
+        clean_nozzle(klipper, applicator, _plan(stage, stroke=0.0))
 
         wipe_feed = f"F{10.0 * 60}"
         assert [line for line in klipper.sent_lines if wipe_feed in line] == [
@@ -370,27 +370,16 @@ class TestCleanNozzle:
         self, klipper: FakeKlipper, stage: XYZStage, applicator: PasteApplicator
     ):
         """押し込み Z のまま次工程へ渡さない."""
-        clean_nozzle(klipper, stage, applicator, POSITION, _clean())
+        clean_nozzle(klipper, applicator, _plan(stage))
 
         assert klipper.g1_moves()[-1]["z"] == TRAVEL_Z
-
-    def test_out_of_limits_setting_sends_nothing(
-        self, klipper: FakeKlipper, stage: XYZStage, applicator: PasteApplicator
-    ):
-        """パージ済みで落ちるとシリコン上に塊が残るので、送信前に弾く."""
-        with pytest.raises(ValueError):
-            clean_nozzle(klipper, stage, applicator, _position(x=999.0), _clean())
-
-        assert klipper.sent == ()
 
     def test_logs_one_line_with_purge_amount_and_passes(
         self, klipper: FakeKlipper, stage: XYZStage, applicator: PasteApplicator
     ):
         messages: list[str] = []
 
-        clean_nozzle(
-            klipper, stage, applicator, POSITION, _clean(passes=2), log=messages.append
-        )
+        clean_nozzle(klipper, applicator, _plan(stage, passes=2), log=messages.append)
 
         assert len(messages) == 1
         assert "0.200" in messages[0]  # パージ量
@@ -424,7 +413,7 @@ class TestResolveNozzleClean:
             self._machine(tmp_path, extra), stage, log=messages.append
         )
 
-        assert resolved.position is None
+        assert resolved is None
         assert messages == ["ノズルクリーニング: 位置が未記録のためスキップします"]
 
     def test_recorded_position_is_resolved(self, tmp_path: Path, stage: XYZStage):
@@ -435,6 +424,7 @@ class TestResolveNozzleClean:
 
         resolved = resolve_nozzle_clean(machine, stage)
 
+        assert resolved is not None
         assert resolved.position == POSITION
 
     def test_unreachable_position_raises(self, tmp_path: Path, stage: XYZStage):

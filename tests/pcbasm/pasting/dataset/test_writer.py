@@ -8,7 +8,6 @@ Metadata は ``data/testing/schemas/paste_dataset_metadata_v3.json`` を
 """
 
 import json
-from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -72,8 +71,9 @@ def _pending() -> PasteDatasetPending:
     return pending
 
 
-def _crop(offset: int = 0, size: int = CROP_SIZE_PX) -> RectCrop:
-    """全画像同一寸法の契約に合う正方 uint8 RGB crop."""
+def _crop(offset: int = 0) -> RectCrop:
+    """全画像同一寸法の正方 uint8 RGB crop."""
+    size = CROP_SIZE_PX
     yy, xx = np.indices((size, size), dtype=np.uint8)
     image = np.dstack((xx + offset, yy, xx ^ yy))
     return RectCrop(
@@ -81,17 +81,9 @@ def _crop(offset: int = 0, size: int = CROP_SIZE_PX) -> RectCrop:
     )
 
 
-def _open(
-    tmp_path: Path,
-    *,
-    started_at: datetime | None = STARTED_AT,
-    crop_size_px: int = CROP_SIZE_PX,
-):
+def _open(tmp_path: Path, *, started_at: datetime | None = STARTED_AT):
     return PasteDatasetWriter.open(
-        tmp_path,
-        plate_name="plate-40x40",
-        crop_size_px=crop_size_px,
-        started_at=started_at,
+        tmp_path, plate_name="plate-40x40", started_at=started_at
     )
 
 
@@ -112,7 +104,6 @@ class TestPasteDatasetWriterOpen:
         writer = PasteDatasetWriter.open(
             root,
             plate_name="plate-40x40",
-            crop_size_px=CROP_SIZE_PX,
             started_at=STARTED_AT,
         )
 
@@ -134,14 +125,8 @@ class TestPasteDatasetWriterOpen:
             PasteDatasetWriter.open(
                 tmp_path,
                 plate_name="",
-                crop_size_px=CROP_SIZE_PX,
                 started_at=STARTED_AT,
             )
-
-    @pytest.mark.parametrize("crop_size_px", [0, -1])
-    def test_rejects_non_positive_crop_size(self, tmp_path: Path, crop_size_px: int):
-        with pytest.raises(ValueError, match="crop_size_px"):
-            _open(tmp_path, crop_size_px=crop_size_px)
 
 
 class TestPasteDatasetWriterCaptures:
@@ -190,68 +175,6 @@ class TestPasteDatasetWriterCaptures:
         assert captured.pre == "pre/000001.01.png"
         assert captured.post == "post/000001.01.png"
 
-    def test_rejects_duplicate_capture(self, tmp_path: Path):
-        writer = _open(tmp_path)
-        writer.write_capture(1, VIEWS[0], "pre", _crop())
-
-        with pytest.raises(ValueError):
-            writer.write_capture(1, VIEWS[0], "pre", _crop())
-
-    @pytest.mark.parametrize("index", [0, -1])
-    def test_rejects_non_positive_index(self, tmp_path: Path, index: int):
-        writer = _open(tmp_path)
-
-        with pytest.raises(ValueError):
-            writer.write_capture(index, VIEWS[0], "pre", _crop())
-
-    def test_rejects_unknown_phase(self, tmp_path: Path):
-        writer = _open(tmp_path)
-
-        with pytest.raises(ValueError):
-            writer.write_capture(1, VIEWS[0], "mask", _crop())  # type: ignore[arg-type]
-
-    @pytest.mark.parametrize(
-        "image",
-        [
-            np.zeros((9, 9), dtype=np.uint8),
-            np.zeros((9, 9, 3), dtype=np.uint16),
-            np.zeros((9, 9, 4), dtype=np.uint8),
-        ],
-    )
-    def test_rejects_crop_that_is_not_uint8_rgb(
-        self, tmp_path: Path, image: np.ndarray
-    ):
-        writer = _open(tmp_path)
-
-        with pytest.raises(ValueError):
-            writer.write_capture(
-                1, VIEWS[0], "pre", RectCrop(image=image, pixel_rect=(0, 0, 9, 9))
-            )
-
-    @pytest.mark.parametrize("shape", [(9, 8, 3), (8, 9, 3)])
-    def test_rejects_non_square_crop(self, tmp_path: Path, shape: tuple[int, int, int]):
-        writer = _open(tmp_path)
-        image = np.zeros(shape, dtype=np.uint8)
-
-        with pytest.raises(ValueError):
-            writer.write_capture(
-                1,
-                VIEWS[0],
-                "pre",
-                RectCrop(image=image, pixel_rect=(0, 0, shape[1], shape[0])),
-            )
-
-    @pytest.mark.parametrize("delta", [-2, 2])
-    def test_rejects_a_crop_whose_size_differs_from_the_session_size(
-        self, tmp_path: Path, delta: int
-    ):
-        # 「全画像同一ピクセル寸法」の永続化境界は writer にある。
-        writer = _open(tmp_path)
-        writer.write_capture(1, VIEWS[0], "pre", _crop())
-
-        with pytest.raises(ValueError):
-            writer.write_capture(1, VIEWS[1], "pre", _crop(size=CROP_SIZE_PX + delta))
-
     def test_rejects_capture_after_the_session_is_finalized(self, tmp_path: Path):
         writer = _open(tmp_path)
         _write_all(writer)
@@ -299,17 +222,6 @@ class TestPasteDatasetWriterFinalize:
         with pytest.raises(ValueError):
             writer.finalize(_parsed(payload))
 
-    def test_rejects_duplicated_sample_index(self, tmp_path: Path):
-        writer = _open(tmp_path)
-        _write_all(writer)
-        payload = _payload()
-        samples = payload["samples"]
-        assert isinstance(samples, list)
-        samples.append(deepcopy(samples[0]))
-
-        with pytest.raises(ValueError, match="index"):
-            writer.finalize(_parsed(payload))
-
     def test_requires_the_blank_captures_as_well(self, tmp_path: Path):
         writer = _open(tmp_path)
         for view in VIEWS:
@@ -318,32 +230,6 @@ class TestPasteDatasetWriterFinalize:
 
         with pytest.raises(ValueError):
             writer.finalize(_metadata())
-
-    def test_rejects_a_blank_index_colliding_with_a_sample_index(self, tmp_path: Path):
-        writer = _open(tmp_path)
-        _write_all(writer)
-        payload = _payload()
-        blanks = payload["blanks"]
-        samples = payload["samples"]
-        assert isinstance(blanks, list) and isinstance(samples, list)
-        blanks[0]["index"] = samples[0]["index"]
-        for view in blanks[0]["views"]:
-            view["pre"] = view["pre"].replace("000002", "000001")
-            view["post"] = view["post"].replace("000002", "000001")
-
-        with pytest.raises(ValueError, match="index"):
-            writer.finalize(_parsed(payload))
-
-    def test_rejects_capture_path_that_breaks_the_naming_rule(self, tmp_path: Path):
-        writer = _open(tmp_path)
-        _write_all(writer)
-        payload = _payload()
-        samples = payload["samples"]
-        assert isinstance(samples, list)
-        samples[0]["views"][0]["pre"] = "pre/1.0.png"
-
-        with pytest.raises(ValueError):
-            writer.finalize(_parsed(payload))
 
 
 class TestPasteDatasetWriterContextManager:

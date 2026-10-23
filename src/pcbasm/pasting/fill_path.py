@@ -3,7 +3,7 @@
 公開 API は :meth:`FillPlan.build` と、解決済み塗布設定から引数を束ねる
 :meth:`FillPlan.for_pad`、微小線の自動高さ :func:`micro_line_auto_height`。ノズル径と塗布パラメータからマシン固有の
 ヒューリスティクス（線間隔・インセット・フォールバック判定）を決定し、同モジュール内の private ヘルパー（``_area_fill`` /
-``_outline_and_zigzag`` / ``_line_fill`` / ``_dot_fill``）に委譲する。汎用の
+``_outline_and_zigzag`` / ``_generate_linear_path`` / ``_dot_fill``）に委譲する。汎用の
 計算幾何（外接矩形・オフセット成分・線分クリップ等）は :mod:`pcbasm.geometry` にある。
 
 :meth:`FillPlan.mode_for_pad` は経路を作らずに実際の方式だけを返す（pad 編集表の表示用）。
@@ -29,7 +29,6 @@ from shapely.geometry import LineString
 
 from pcbasm.config import (
     DispenseMode,
-    LineDirection,
     PasteDispenser as PasteDispenserConfig,
 )
 from pcbasm.geometry import (
@@ -74,7 +73,7 @@ class FillPlan:
         bead_width_factor: float = 1.0,
         overlap: float = 0.0,
         boundary_margin: float = 0.0,
-        nozzle_outer_diameter: float | None = None,
+        nozzle_outer_diameter: float,
     ) -> Self:
         """ペーストフィルパスを生成し、実際の塗布方式も返す.
 
@@ -85,7 +84,6 @@ class FillPlan:
         ``auto_area_short_side_factor > 0``、``nozzle_outer_diameter >= nozzle_diameter``。
         検証は ``PasteDispenser`` 読込と
         :func:`pcbasm.pasting.params.validate_param_values` が担う）。
-        ``nozzle_outer_diameter`` が ``None`` なら ``nozzle_diameter`` と同じとみなす。
 
         数式::
 
@@ -116,9 +114,7 @@ class FillPlan:
         w = nozzle_diameter * bead_width_factor
         line_spacing = w * (1.0 - overlap)
         inset = _inset(nozzle_diameter, bead_width_factor, boundary_margin)
-        micro_inset = _micro_inset(
-            nozzle_diameter, nozzle_outer_diameter, boundary_margin
-        )
+        micro_inset = _micro_inset(nozzle_outer_diameter, boundary_margin)
         mode = _applied_mode(
             polygon,
             _resolve_auto_mode(
@@ -137,12 +133,13 @@ class FillPlan:
                 return cls(dispense_mode="dot", paths=(tuple(_dot_fill(polygon)),))
             case "line":
                 return cls(
-                    dispense_mode="line", paths=(tuple(_line_fill(polygon, inset)),)
+                    dispense_mode="line",
+                    paths=(tuple(_generate_linear_path(polygon, inset)),),
                 )
             case "micro_line":
                 return cls(
                     dispense_mode="micro_line",
-                    paths=(tuple(_line_fill(polygon, micro_inset)),),
+                    paths=(tuple(_generate_linear_path(polygon, micro_inset)),),
                 )
             case "area":
                 paths = _area_fill(polygon, line_spacing, inset)
@@ -231,9 +228,7 @@ class FillPlan:
                 config.nozzle_diameter, params.bead_width_factor, params.boundary_margin
             ),
             _micro_inset(
-                config.nozzle_diameter,
-                config.effective_nozzle_outer_diameter,
-                params.boundary_margin,
+                config.effective_nozzle_outer_diameter, params.boundary_margin
             ),
         )
 
@@ -245,12 +240,9 @@ def _inset(
     return boundary_margin + nozzle_diameter * bead_width_factor / 2.0
 
 
-def _micro_inset(
-    nozzle_diameter: float, nozzle_outer_diameter: float | None, boundary_margin: float
-) -> float:
-    """微小線の両端補正（``boundary_margin + 外径 / 2``。外径 ``None`` は内径と同じ）."""
-    outer = nozzle_diameter if nozzle_outer_diameter is None else nozzle_outer_diameter
-    return boundary_margin + outer / 2.0
+def _micro_inset(nozzle_outer_diameter: float, boundary_margin: float) -> float:
+    """微小線の両端補正（``boundary_margin + 外径 / 2``）."""
+    return boundary_margin + nozzle_outer_diameter / 2.0
 
 
 def _applied_mode(
@@ -267,9 +259,11 @@ def _applied_mode(
         case "dot":
             return "dot"
         case "line":
-            return "line" if _line_fill(polygon, inset) else "dot"
+            return "line" if _generate_linear_path(polygon, inset) else "dot"
         case "micro_line":
-            return "micro_line" if _line_fill(polygon, micro_inset) else "dot"
+            return (
+                "micro_line" if _generate_linear_path(polygon, micro_inset) else "dot"
+            )
         case "area":
             if offset_components(polygon, inset):
                 return "area"
@@ -302,12 +296,9 @@ def micro_line_auto_height(
 
 
 def _orient_line_path(
-    path: list[Point2d], direction: LineDirection, reference: Point2d
+    path: list[Point2d], direction: Literal["outward", "inward"], reference: Point2d
 ) -> list[Point2d]:
-    """線パスを基準点から外向き、または基準点へ内向きになるよう整列する."""
-    if len(path) < 2 or direction == "unconstrained":
-        return path
-
+    """2 点の線パスを基準点から外向き、または基準点へ内向きになるよう整列する."""
     start_distance = (path[0] - reference).norm
     end_distance = (path[-1] - reference).norm
     if isclose(start_distance, end_distance, rel_tol=0.0, abs_tol=1e-9):
@@ -443,9 +434,6 @@ def _zigzag_rows(component: Polygon, line_spacing: float) -> list[list[Point2d]]
     ``component`` の交線区間を最長軸座標でソートし、行ごとに方向を交互反転して
     牛耕式に並べた行のリストを返す。交差区間が無ければ空行は含めない。
     """
-    if line_spacing <= 0:
-        return []
-
     box = oriented_bbox(component)
     if box is None:
         return []
@@ -479,11 +467,6 @@ def _zigzag_rows(component: Polygon, line_spacing: float) -> list[list[Point2d]]
     return rows
 
 
-def _line_fill(polygon: Polygon, end_inset: float) -> list[Point2d]:
-    """線塗布パスを生成する（``_generate_linear_path`` への委譲）."""
-    return _generate_linear_path(polygon, end_inset)
-
-
 def _dot_fill(polygon: Polygon) -> list[Point2d]:
     """点塗布パスを生成する（代表点 1 点・必ず非空）."""
     rep = polygon.representative_point()
@@ -505,12 +488,8 @@ def _generate_linear_path(
         end_inset: 両端の内側補正量（mm、負なら外側へ延ばす）
 
     Returns:
-        ``[start, end]`` の 2 点パス。長軸が短すぎる、または入力が空／不正な
-        場合は ``[]``。
+        ``[start, end]`` の 2 点パス。長軸が短すぎる場合は ``[]``。
     """
-    if polygon.is_empty or not polygon.is_valid:
-        return []
-
     box = oriented_bbox(polygon)
     if box is None:
         return []

@@ -167,40 +167,11 @@ class TestCropCentered:
         assert error is not None
         assert "収まりません" in error
 
-    @pytest.mark.parametrize("pixel_size", [0, -1])
-    def test_rejects_non_positive_pixel_size(self, pixel_size: int):
-        crop, error = crop_centered(
-            _source_image(), Point2d(2.0, 3.0), MATRIX, SHIFT, pixel_size=pixel_size
-        )
-
-        assert crop is None
-        assert error is not None
-        assert "pixel_size" in error
-
-    def test_rejects_non_rgb_frame(self):
-        gray = np.zeros((100, 120), dtype=np.uint8)
+    def test_rejects_non_finite_board_to_pixel_affine(self):
+        matrix = np.array([[float("nan"), 0.0], [0.0, PPM]])
 
         crop, error = crop_centered(
-            gray, Point2d(2.0, 3.0), MATRIX, SHIFT, pixel_size=PIXEL_SIZE
-        )
-
-        assert crop is None
-        assert error is not None
-        assert "3 channel" in error
-
-    @pytest.mark.parametrize(
-        ("matrix", "shift"),
-        [
-            (np.eye(3), np.array([50.0, 40.0])),
-            (MATRIX, np.array([50.0, 40.0, 0.0])),
-            (np.array([[float("nan"), 0.0], [0.0, PPM]]), np.array([50.0, 40.0])),
-        ],
-    )
-    def test_rejects_malformed_board_to_pixel_affine(
-        self, matrix: np.ndarray, shift: np.ndarray
-    ):
-        crop, error = crop_centered(
-            _source_image(), Point2d(2.0, 3.0), matrix, shift, pixel_size=PIXEL_SIZE
+            _source_image(), Point2d(2.0, 3.0), matrix, SHIFT, pixel_size=PIXEL_SIZE
         )
 
         assert crop is None

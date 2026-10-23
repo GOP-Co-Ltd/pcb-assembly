@@ -195,15 +195,6 @@ class BoardConfig:
     def validate(self) -> str | None:
         """構造的なドメイン制約を検証し、問題があれば説明を返す."""
 
-        if not isinstance(self.board, BoardSpec):
-            return "基板外形の形式が不正です"
-        if not isinstance(self.purge_pad, PurgePadSpec):
-            return "purge padの形式が不正です"
-        if not isinstance(self.custom_pads, tuple):
-            return "任意パッド一覧の形式が不正です"
-        if not isinstance(self.patterns, tuple):
-            return "パッドパターン一覧の形式が不正です"
-
         board = self.board
         positive = (
             ("基板幅", board.width_mm, KICAD_MAX_COORD_MM, _KICAD_LENGTH_RANGE_TEXT),
@@ -249,8 +240,6 @@ class BoardConfig:
 
         custom_ids: set[str] = set()
         for custom_pad in self.custom_pads:
-            if not isinstance(custom_pad, CustomPadSpec):
-                return "任意パッドの形式が不正です"
             if not is_custom_pad_catalog_id(custom_pad.catalog_id):
                 return f"任意パッドIDが不正です: {custom_pad.catalog_id}"
             if custom_pad.catalog_id in custom_ids:
@@ -262,8 +251,6 @@ class BoardConfig:
         seen: set[str] = set()
         total_pad_count = 0
         for pattern in self.patterns:
-            if not isinstance(pattern, PatternSpec):
-                return "パッドパターンの形式が不正です"
             if not isinstance(pattern.catalog_id, str):
                 return "パッドパターンIDは文字列で指定してください"
             is_custom_pad = is_custom_pad_catalog_id(pattern.catalog_id)
