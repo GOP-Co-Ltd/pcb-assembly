@@ -38,6 +38,13 @@ MODEL_KIND = "cubic_through_origin"
 # そこでの食い違いは 10 % 程度。
 RELIABLE_RANGE_MARGIN = 0.35
 
+# 運転時補正で被覆域の上限を超えて外挿してよい幅の、被覆域の幅に対する割合。
+# 大径側は同条件の 2 校正の差が 3 % に収まり、上限の少し先までは曲線を信じてよい。
+# ただし、検出には直径の上限がない。隣の点との結合やにじみで大きく測った点まで外挿すると、
+# 体積が 3 乗で膨らみ、補正を大きく誤らせる。それを防ぐため、外挿の幅にも上限を設ける。
+# 下端のマージンと同じく、絶対値ではなく被覆域の幅に対する割合で決める。
+EXTRAPOLATION_MARGIN = 0.5
+
 
 @attrs.frozen
 class CubicVolumeModel:
@@ -84,11 +91,32 @@ class CubicVolumeModel:
         width = self.diameter_max_mm - self.diameter_min_mm
         return self.diameter_min_mm + RELIABLE_RANGE_MARGIN * width
 
+    @property
+    def extrapolation_diameter_max_mm(self) -> float:
+        """運転時補正で外挿してよい直径の上限 [mm]（被覆域の上限の先にマージンを取る）."""
+        width = self.diameter_max_mm - self.diameter_min_mm
+        return self.diameter_max_mm + EXTRAPOLATION_MARGIN * width
+
     def covers_reliably(self, diameter_mm: float) -> bool:
-        """運転時補正の材料にしてよい直径か（上限は被覆域のまま）."""
+        """運転時補正の材料にしてよい直径か（被覆域の上限の先は外挿する）.
+
+        大径側は、係数が個別に定まらなくても曲線は校正どうしでよく一致する。
+        このため、被覆域の上限から ``extrapolation_diameter_max_mm`` までの直径も採用する。
+
+        ただし上限から ``diameter_mm`` まで単調非減少である場合に限る。3 項モデルは
+        被覆域の外で折れ返り得るので、折れ返った先の値は使わない。
+        """
         if not is_finite_number(diameter_mm):
             return False
-        return self.reliable_diameter_min_mm <= diameter_mm <= self.diameter_max_mm
+        if not (
+            self.reliable_diameter_min_mm
+            <= diameter_mm
+            <= self.extrapolation_diameter_max_mm
+        ):
+            return False
+        if diameter_mm <= self.diameter_max_mm:
+            return True
+        return self._slope_min(self.diameter_max_mm, diameter_mm) >= 0.0
 
     def is_monotonic_in_range(self) -> bool:
         """被覆域内で単調非減少か（導関数の最小値が 0 以上か）.
@@ -99,15 +127,16 @@ class CubicVolumeModel:
         標本点で確かめると点と点の間の落ち込みを見逃すので、導関数の最小値を
         閉じた式で求める。
         """
-        return (
-            _quadratic_min_in_range(
-                3.0 * self.cubic_ul_per_mm3,
-                2.0 * self.quadratic_ul_per_mm2,
-                self.linear_ul_per_mm,
-                self.diameter_min_mm,
-                self.diameter_max_mm,
-            )
-            >= 0.0
+        return self._slope_min(self.diameter_min_mm, self.diameter_max_mm) >= 0.0
+
+    def _slope_min(self, low_mm: float, high_mm: float) -> float:
+        """区間 ``[low_mm, high_mm]`` における導関数 ``V'(d)`` の最小値（厳密）."""
+        return _quadratic_min_in_range(
+            3.0 * self.cubic_ul_per_mm3,
+            2.0 * self.quadratic_ul_per_mm2,
+            self.linear_ul_per_mm,
+            low_mm,
+            high_mm,
         )
 
     def is_positive_in_range(self) -> bool:
