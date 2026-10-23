@@ -76,8 +76,8 @@ class PasteParams:
         bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
         overlap: ジグザグ行間オーバーラップ [0, 1)
         boundary_margin: 外周マージン [mm]
-        micro_line_z_start: 微小線の始点で基板表面から取る隙間 [mm]
-        micro_line_z_end: 微小線の終点で基板表面から取る隙間 [mm]
+        micro_line_z_start: 微小線の始点で基板表面から取る隙間 [mm]、または ``auto``（塗布量から計算）
+        micro_line_z_end: 微小線の終点で基板表面から取る隙間 [mm]、または ``auto``（塗布量から計算）
     """
 
     dispense_mode: DispenseMode
@@ -88,8 +88,8 @@ class PasteParams:
     bead_width_factor: float
     overlap: float
     boundary_margin: float
-    micro_line_z_start: float
-    micro_line_z_end: float
+    micro_line_z_start: PasteHeight
+    micro_line_z_end: PasteHeight
 
     @classmethod
     def from_config(cls, config: PasteDispenser) -> Self:
@@ -129,8 +129,8 @@ class PasteParamsPatch:
     bead_width_factor: float | None = None
     overlap: float | None = None
     boundary_margin: float | None = None
-    micro_line_z_start: float | None = None
-    micro_line_z_end: float | None = None
+    micro_line_z_start: PasteHeight | None = None
+    micro_line_z_end: PasteHeight | None = None
 
     @classmethod
     def from_dict(cls, values: Mapping[str, object]) -> Self:
@@ -196,10 +196,10 @@ PASTE_PARAM_FIELDS: tuple[ParamField, ...] = (
     ParamField("overlap", "重なり率", "number"),
     ParamField("boundary_margin", "外周余白", "number", unit="mm"),
     ParamField(
-        "micro_line_z_start", "始点高", "number", unit="mm", column="paste_height"
+        "micro_line_z_start", "始点高", "height", unit="mm", column="paste_height"
     ),
     ParamField(
-        "micro_line_z_end", "終点高", "number", unit="mm", column="paste_height"
+        "micro_line_z_end", "終点高", "height", unit="mm", column="paste_height"
     ),
 )
 

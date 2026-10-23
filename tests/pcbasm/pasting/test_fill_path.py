@@ -25,7 +25,7 @@ from pcbasm.config import (
     Toolhead,
 )
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.fill_path import FillPlan
+from pcbasm.pasting.fill_path import FillPlan, micro_line_auto_height
 from pcbasm.pasting.params import PasteParams
 
 # セグメント内包・外周マージン判定の浮動小数誤差を吸収する微小バッファ（定数）。
@@ -370,6 +370,55 @@ class TestMicroLine:
         plan = self._build(_rectangle(0.25, 2.0), dispense_mode=dispense_mode)
 
         assert plan.dispense_mode == "line"
+
+
+class TestMicroLineAutoHeight:
+    """微小線の自動高さ g = V / (w × (L + D))。w は pad の短辺と外径の小さい方、D は外径."""
+
+    @staticmethod
+    def _line(polygon: Polygon) -> tuple[Point2d, ...]:
+        plan = FillPlan.build(
+            polygon,
+            0.3,
+            dispense_mode="micro_line",
+            auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
+            auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            nozzle_outer_diameter=0.4,
+        )
+        return plan.paths[0]
+
+    def test_narrow_pad_uses_short_side_as_width(self):
+        polygon = _rectangle(0.25, 0.88)
+
+        height = micro_line_auto_height(
+            polygon, self._line(polygon), amount_ul=0.011, nozzle_outer_diameter=0.4
+        )
+
+        # w = 0.25（短辺 < 外径）、L + D = 0.48 + 0.4 = pad の長辺 0.88
+        assert height == pytest.approx(0.011 / (0.25 * 0.88))
+
+    def test_wide_pad_uses_outer_diameter_as_width(self):
+        polygon = rotate(_rectangle(0.5, 2.0), 30.0, origin=(0.0, 0.0))
+
+        height = micro_line_auto_height(
+            polygon, self._line(polygon), amount_ul=0.05, nozzle_outer_diameter=0.4
+        )
+
+        # w = 0.4（外径 < 短辺）、L + D = 1.6 + 0.4 = 2.0
+        assert height == pytest.approx(0.05 / (0.4 * 2.0))
+
+    def test_short_line_keeps_height_bounded(self):
+        # 長辺が外径に近く L がほぼ 0 でも、端面の下の分（D）があるので発散しない
+        polygon = _rectangle(0.25, 0.42)
+
+        height = micro_line_auto_height(
+            polygon,
+            self._line(polygon),
+            amount_ul=0.25 * 0.42 * 0.2,
+            nozzle_outer_diameter=0.4,
+        )
+
+        assert height == pytest.approx(0.2)
 
 
 class TestAreaFill:

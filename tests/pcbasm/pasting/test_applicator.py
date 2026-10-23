@@ -656,6 +656,35 @@ class TestMicroLine:
             [5.08, 0.08, 0.08, 0.05, 5.05]
         )
 
+    @pytest.mark.parametrize(
+        ("z_start", "z_end", "expected"),
+        [
+            # g = V / (w × (L + D)) = 0.011 / (0.25 × 0.88) = ul_per_mm2
+            ("auto", "auto", (0.05, 0.05)),
+            (0.08, "auto", (0.08, 0.05)),
+        ],
+    )
+    def test_auto_height_fills_the_line_with_the_amount(
+        self, klipper, z_start, z_end, expected
+    ):
+        applicator = _applicator(
+            klipper,
+            nozzle_diameter=0.3,
+            nozzle_outer_diameter=0.4,
+            dispense_mode="micro_line",
+            micro_line_z_start=z_start,
+            micro_line_z_end=z_end,
+        )
+
+        applicator.apply(
+            self._PAD, params=applicator.default_params, transform=Identity()
+        )
+
+        start, end = expected
+        assert [move["z"] for move in klipper.g1_moves()] == pytest.approx(
+            [5.0 + start, start, start, end, 5.0 + end]
+        )
+
     def test_pushes_amount_before_descent_and_retracts_after_ascent(self, klipper):
         applicator = self._micro_applicator(klipper)
 

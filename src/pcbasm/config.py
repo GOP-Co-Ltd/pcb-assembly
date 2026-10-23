@@ -32,6 +32,12 @@ DEFAULT_AUDIO_DEVICE = "default"  # ALSA のシステム既定 PCM
 DEFAULT_AUDIO_VOLUME = 0.75
 
 
+# 数値の代わりに "auto" を受け付ける高さの項目
+_AUTO_HEIGHT_FIELDS = frozenset(
+    {"paste_height", "micro_line_z_start", "micro_line_z_end"}
+)
+
+
 def resolve_paste_height(paste_height: PasteHeight, ul_per_mm2: float) -> float:
     """塗布高さ [mm] を解決する.
 
@@ -419,8 +425,12 @@ class PasteDispenser:
     )
     overlap: float = 0.0  # ジグザグ行間オーバーラップ [0,1)
     boundary_margin: float = 0.0  # 外周マージン [mm]
-    micro_line_z_start: float = 0.07  # 微小線の始点で基板表面から取る隙間 [mm]
-    micro_line_z_end: float = 0.07  # 微小線の終点で基板表面から取る隙間 [mm]
+    micro_line_z_start: PasteHeight = (
+        "auto"  # 微小線の始点で基板表面から取る隙間 [mm]、または auto（塗布量から計算）
+    )
+    micro_line_z_end: PasteHeight = (
+        "auto"  # 微小線の終点で基板表面から取る隙間 [mm]、または auto（塗布量から計算）
+    )
     micro_line_settle_seconds: float = (
         0.1  # 微小線で上空に押し出してから下降するまでの静定待ち [sec]
     )
@@ -478,7 +488,7 @@ class PasteDispenser:
                 if not isinstance(value, str) or value not in LINE_DIRECTIONS:
                     return f"未知の線走行方向です: {value!r}"
             elif name in numeric:
-                if name == "paste_height" and value == "auto":
+                if name in _AUTO_HEIGHT_FIELDS and value == "auto":
                     continue
                 if name == "nozzle_outer_diameter" and value is None:
                     continue
@@ -787,9 +797,7 @@ def _structure_paste_height(value: object, _: object) -> PasteHeight:
     if value == "auto":
         return "auto"
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(
-            f"paste_heightは'auto'または数値である必要があります: {value!r}"
-        )
+        raise ValueError(f"高さは'auto'または数値である必要があります: {value!r}")
     return float(value)
 
 

@@ -73,8 +73,8 @@ class ResolvedSettings(BaseModel):
     bead_width_factor: float
     overlap: float
     boundary_margin: float
-    micro_line_z_start: float
-    micro_line_z_end: float
+    micro_line_z_start: float | str
+    micro_line_z_end: float | str
 
 
 class PadInfo(BaseModel):

@@ -99,3 +99,22 @@
 - S3 見送り: 旧 JSON の `micro_line_settle_seconds` は `PasteParamsPatch.from_dict` が捨てる。未 merge のキーで害もない
 - nit 採用: JS は `column` メタデータ ∩ `height_fields` でサブ項目を決める（height 列の決め打ちをやめた）。空行と docstring を整形
 - nit 見送り: ラベル「始点高」はユーザー指定
+
+## 始点高・終点高の自動計算（2026-10-23 ユーザー合意）
+
+- `micro_line_z_start` / `micro_line_z_end` を `PasteHeight`（数値または "auto"）にし、既定を "auto" にする
+- auto の値は pad ごとに g = V / (w × L)。V はその線の塗布量、L は線長、w は pad の短辺（最小回転外接矩形）と
+  ノズル外径の小さい方（ユーザーが選んだ）。端面がスキージとして厚さ g の膜を残す仮定で、V を線の終点で使い切るすき間
+- 計算は `fill_path.micro_line_auto_height`、適用は `PasteApplicator._draw_micro_line`
+- pad 表の始点高・終点高は通常の塗布高さと同じ「継承 / Auto / 手動」の入力にする（ParamField kind = height）
+- PR #49（実際の方式の表示）は main に merge 済みで、b2f833c で取り込んだ
+
+## 自動計算のレビュー（code-reviewer、条件付き approve）と裁定
+
+- S1 ユーザー判断で式を変更: g = V / (w × L) は長辺が外径に近い pad で L→0 となり発散した（短辺 0.25・長辺 0.42 で 4.2 mm）。
+  端面が掃く長さで割る g = V / (w × (L + D))（D = 外径）に改めた。外周余白 0 なら L + D は pad の長辺で、
+  w = 短辺なら g = ul_per_mm2 になる
+- S2 採用: `micro_line_auto_height` をモジュール docstring と README に載せた
+- S3 採用: buildRow のループ変数が import した `fieldInfo` を隠していたので `columnInfo` に改名
+- 見送り: N1（汎用化したエラー文）、N2（数値指定でも auto を計算する。害なし）、N3（テスト追加）、N4（セル幅）、
+  N5（auto の g を UI に出す。要求外）、N6（import の値検証。今回の範囲外の既存の穴）

@@ -57,6 +57,9 @@ class TestPasteParamFields:
 
         assert columns["micro_line_z_start"] == "paste_height"
         assert columns["micro_line_z_end"] == "paste_height"
+        # 塗布高さと同じく数値または auto
+        kinds = {field.name: field.kind for field in PASTE_PARAM_FIELDS}
+        assert kinds["micro_line_z_start"] == kinds["micro_line_z_end"] == "height"
         assert [name for name, column in columns.items() if column is not None] == [
             "micro_line_z_start",
             "micro_line_z_end",
@@ -128,7 +131,7 @@ class TestValidateParamValues:
         values = {
             "dispense_mode": "micro_line",
             "micro_line_z_start": 0.08,
-            "micro_line_z_end": 0.05,
+            "micro_line_z_end": "auto",
         }
 
         assert validate_param_values(values) is None

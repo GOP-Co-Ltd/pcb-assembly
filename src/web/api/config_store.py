@@ -124,8 +124,12 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.bead_width_factor", "ビード幅係数", "float"),
     FieldSpec("paste_dispenser.overlap", "ジグザグ行間オーバーラップ", "float"),
     FieldSpec("paste_dispenser.boundary_margin", "外周マージン", "float", "mm"),
-    FieldSpec("paste_dispenser.micro_line_z_start", "微小線の始点高さ", "float", "mm"),
-    FieldSpec("paste_dispenser.micro_line_z_end", "微小線の終点高さ", "float", "mm"),
+    FieldSpec(
+        "paste_dispenser.micro_line_z_start", "微小線の始点高さ", "float_or_auto", "mm"
+    ),
+    FieldSpec(
+        "paste_dispenser.micro_line_z_end", "微小線の終点高さ", "float_or_auto", "mm"
+    ),
     FieldSpec(
         "paste_dispenser.micro_line_settle_seconds", "微小線の静定待ち", "float", "s"
     ),

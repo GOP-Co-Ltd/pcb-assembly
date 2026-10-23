@@ -229,6 +229,7 @@ class TestMachine:
             ("nozzle_outer_diameter", 0.0),
             ("micro_line_z_start", 0.0),
             ("micro_line_z_end", -0.01),
+            ("micro_line_z_end", "fast"),
             ("micro_line_settle_seconds", -0.1),
         ],
     )
@@ -252,6 +253,12 @@ class TestMachine:
     def test_nozzle_outer_diameter_smaller_than_inner_is_rejected(self):
         with pytest.raises(ValueError, match="nozzle_outer_diameter"):
             _paste_dispenser(nozzle_diameter=0.3, nozzle_outer_diameter=0.29)
+
+    def test_micro_line_heights_default_to_auto(self):
+        dispenser = _paste_dispenser()
+
+        assert dispenser.micro_line_z_start == "auto"
+        assert dispenser.micro_line_z_end == "auto"
 
     def test_micro_line_mode_is_accepted(self):
         dispenser = _paste_dispenser(dispense_mode="micro_line")

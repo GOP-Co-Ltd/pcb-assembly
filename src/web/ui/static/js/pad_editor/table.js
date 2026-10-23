@@ -1,6 +1,6 @@
 "use strict";
 
-import { choiceLabels, fieldLabel, round4 } from "./model.js";
+import { choiceLabels, fieldInfo, fieldLabel, round4 } from "./model.js";
 
 // 階層 override 表の描画。DOM 生成とセル内の数値パース検証（Number.isFinite）
 // のみを持ち、状態遷移と API 呼び出しは actions 経由で index.js に委ねる。
@@ -198,8 +198,8 @@ function buildRow(state, actions, node, depth) {
   }
   tr.appendChild(enTd);
 
-  for (const fieldInfo of columnFields(state.config.fields)) {
-    const field = fieldInfo.name;
+  for (const columnInfo of columnFields(state.config.fields)) {
+    const field = columnInfo.name;
     // この列に入る項目（column）のうち、サーバーがこのノードで使うと決めたもの
     const subfields = node.height_fields.filter((name) =>
       state.config.fields.some((item) => item.name === name && item.column === field)
@@ -207,17 +207,17 @@ function buildRow(state, actions, node, depth) {
     let td;
     if (subfields.length > 0) {
       td = buildSubfieldCell(state, actions, node, field, subfields, descendantSummary);
-    } else if (fieldInfo.kind === "choice") {
+    } else if (columnInfo.kind === "choice") {
       td = buildChoiceCell(
         state,
         actions,
         node,
         field,
         descendantSummary,
-        choiceLabels(fieldInfo),
+        choiceLabels(columnInfo),
         `pad-${field.replaceAll("_", "-")}-select`
       );
-    } else if (fieldInfo.kind === "height") {
+    } else if (columnInfo.kind === "height") {
       td = buildHeightCell(state, actions, node, field, descendantSummary);
     } else {
       td = buildValueCell(state, actions, node, field, descendantSummary);
@@ -240,10 +240,16 @@ function buildSubfieldCell(state, actions, node, column, fields, descendantSumma
     label.className = "pad-subfield-label";
     label.textContent = fieldLabel(state.config, field);
     row.appendChild(label);
-    appendValueControl(row, state, actions, node, field, descendantSummary);
+    const append =
+      fieldInfo(state.config, field)?.kind === "height"
+        ? appendHeightControl
+        : appendValueControl;
+    append(row, state, actions, node, field, descendantSummary);
     // 項目自身の列見出しは無いので、入力欄と「継承に戻す」には行・列見出し・セル内ラベルを使う
     const names = `${nodeControlId(node.id, "label")} pad-heading-${column} ${label.id}`;
-    row.querySelector("input").setAttribute("aria-labelledby", names);
+    for (const control of row.querySelectorAll("select, input")) {
+      control.setAttribute("aria-labelledby", names);
+    }
     row
       .querySelector('[data-testid="pad-clear-override"]')
       ?.setAttribute("aria-describedby", names);
@@ -318,6 +324,11 @@ function appendAppliedValue(td, node, field) {
 function buildHeightCell(state, actions, node, field, descendantSummary) {
   const td = document.createElement("td");
   td.className = "pad-col-value pad-col-height";
+  appendHeightControl(td, state, actions, node, field, descendantSummary);
+  return td;
+}
+
+function appendHeightControl(container, state, actions, node, field, descendantSummary) {
   const own = node.own_override;
   const ownValue = own.values ? own.values[field] : undefined;
   const isOverride = ownValue !== undefined;
@@ -389,11 +400,10 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
     }
   });
 
-  appendOverrideControls(td, actions, node.id, field, isOverride, select.id);
-  td.appendChild(select);
-  td.appendChild(input);
-  appendDescendantFieldMarker(td, state, field, descendantCount);
-  return td;
+  appendOverrideControls(container, actions, node.id, field, isOverride, select.id);
+  container.appendChild(select);
+  container.appendChild(input);
+  appendDescendantFieldMarker(container, state, field, descendantCount);
 }
 
 function buildValueCell(state, actions, node, field, descendantSummary) {

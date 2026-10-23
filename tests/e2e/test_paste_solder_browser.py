@@ -714,15 +714,26 @@ class TestPasteSolderBrowserPadInteraction:
         mode_select.select_option("micro_line")
         _wait_for_override(live_server, "L0", "dispense_mode", "micro_line")
         height_cell = root_row.locator('td[data-column="paste_height"]')
-        z_start = height_cell.locator(
-            'input[data-testid="pad-setting-input"][data-field="micro_line_z_start"]'
+        z_start_mode = height_cell.locator(
+            'select[data-testid="pad-height-mode-select"]'
+            '[data-field="micro_line_z_start"]'
         )
-        z_start.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        z_start_mode.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        # 既定は Auto（pad ごとに自動計算）
+        assert "Auto" in z_start_mode.locator("option:checked").text_content(
+            timeout=_BROWSER_TIMEOUT_MS
+        )
         assert "始点高" in height_cell.text_content(timeout=_BROWSER_TIMEOUT_MS)
         assert (
             _field_select(root_row, "paste_height", "pad-height-mode-select").count()
             == 0
         )
+
+        z_start_mode.select_option("manual")
+        z_start = height_cell.locator(
+            'input[data-testid="pad-setting-input"][data-field="micro_line_z_start"]'
+        )
+        z_start.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
 
         z_start.fill("0.09")
         z_start.press("Enter")

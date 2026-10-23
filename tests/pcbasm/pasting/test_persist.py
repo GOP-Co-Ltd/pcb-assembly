@@ -78,7 +78,7 @@ class TestMicroLineOverride:
         patch = PasteParamsPatch(
             dispense_mode="micro_line",
             micro_line_z_start=0.09,
-            micro_line_z_end=0.06,
+            micro_line_z_end="auto",
         )
         model = PasteSettingsModel(
             base=_base(), levels=(LevelSetting(("L1", "0402"), patch=patch),)

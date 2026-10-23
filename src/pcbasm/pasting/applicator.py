@@ -27,7 +27,11 @@ from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point2d, Transform
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
 from pcbasm.pasting.dispense import DispenseSummary
-from pcbasm.pasting.fill_path import AppliedDispenseMode, FillPlan
+from pcbasm.pasting.fill_path import (
+    AppliedDispenseMode,
+    FillPlan,
+    micro_line_auto_height,
+)
 from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
 from pcbasm.pasting.params import DispenseSettings, PasteParams
 from pcbasm.utils import get_class_module_path
@@ -269,7 +273,8 @@ class PasteApplicator:
         フィル経路が空（空・不正なポリゴン）なら何も送らず、``sequences`` が空の結果を返す。
 
         方式が micro_line なら ``paste_height`` を使わず、始点を ``micro_line_z_start``、
-        終点を ``micro_line_z_end`` の高さにした経路を ``MicroLineSequence`` で送る。
+        終点を ``micro_line_z_end`` の高さにした経路を ``MicroLineSequence`` で送る
+        （``auto`` は :func:`~pcbasm.pasting.fill_path.micro_line_auto_height` で求める）。
 
         Args:
             polygon: 塗布対象のポリゴン（board 座標, mm）
@@ -290,6 +295,7 @@ class PasteApplicator:
             return PasteApplicationResult(
                 (
                     self._draw_micro_line(
+                        polygon,
                         line,
                         amount_ul=per_component_ul,
                         params=params,
@@ -422,6 +428,7 @@ class PasteApplicator:
 
     def _draw_micro_line(
         self,
+        polygon: Polygon,
         line: Sequence[Point2d],
         *,
         amount_ul: float,
@@ -432,12 +439,27 @@ class PasteApplicator:
 
         ``line`` は ``FillPlan`` の 2 点経路。始点に ``micro_line_z_start``、終点に
         ``micro_line_z_end`` の Z を付与し、``transform`` を適用して送信する。
+        ``auto`` の高さは ``polygon`` と ``line``、塗布量から求める。
         """
+        auto = micro_line_auto_height(
+            polygon,
+            line,
+            amount_ul=amount_ul,
+            nozzle_outer_diameter=self._config.effective_nozzle_outer_diameter,
+        )
         start, end = line
         path = Path(
             [
-                start.to3d(params.micro_line_z_start),
-                end.to3d(params.micro_line_z_end),
+                start.to3d(
+                    auto
+                    if params.micro_line_z_start == "auto"
+                    else params.micro_line_z_start
+                ),
+                end.to3d(
+                    auto
+                    if params.micro_line_z_end == "auto"
+                    else params.micro_line_z_end
+                ),
             ]
         ).transformed(transform)
         sequence = MicroLineSequence(

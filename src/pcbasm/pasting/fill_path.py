@@ -1,7 +1,7 @@
 """ペースト塗布用フィルパス生成.
 
 公開 API は :meth:`FillPlan.build` と、解決済み塗布設定から引数を束ねる
-:meth:`FillPlan.for_pad`。ノズル径と塗布パラメータからマシン固有の
+:meth:`FillPlan.for_pad`、微小線の自動高さ :func:`micro_line_auto_height`。ノズル径と塗布パラメータからマシン固有の
 ヒューリスティクス（線間隔・インセット・フォールバック判定）を決定し、同モジュール内の private ヘルパー（``_area_fill`` /
 ``_outline_and_zigzag`` / ``_line_fill`` / ``_dot_fill``）に委譲する。汎用の
 計算幾何（外接矩形・オフセット成分・線分クリップ等）は :mod:`pcbasm.geometry` にある。
@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from math import isclose
 from typing import Literal, Self, assert_never
 
@@ -271,6 +272,29 @@ def _applied_mode(
             return _applied_mode(polygon, "line", inset, micro_inset)
         case _:
             assert_never(mode)
+
+
+def micro_line_auto_height(
+    polygon: Polygon,
+    line: Sequence[Point2d],
+    *,
+    amount_ul: float,
+    nozzle_outer_diameter: float,
+) -> float:
+    """微小線の高さ（基板表面からの隙間 [mm]）を塗布量から求める.
+
+    ノズル端面がスキージとして厚さ g・幅 w の膜を残すとみなし、端面が掃く範囲で塗布量 V を
+    使い切る隙間 g = V / (w × (L + D)) を返す。L は線長、D はノズル外径で、始点と終点で
+    端面の下にある分（D）も膜になる。w は pad の短辺（最小回転外接矩形）とノズル外径の
+    小さい方で、膜は端面より広がらず pad からもはみ出さないとみなす。
+
+    ``line`` は :class:`FillPlan` が作った微小線（長さ > 0）であること（呼び出し側が保証する）。
+    """
+    box = oriented_bbox(polygon)
+    assert box is not None  # 微小線を引けた pad は外接矩形を持つ
+    width = min(box.short_length, nozzle_outer_diameter)
+    swept = polyline_length(line) + nozzle_outer_diameter
+    return amount_ul / (width * swept)
 
 
 def _orient_line_path(

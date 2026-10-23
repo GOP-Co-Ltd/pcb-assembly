@@ -703,8 +703,8 @@ class TestTreeNodeResolution:
         # 検証用 machine.toml は微小線の項目を書いていないので、装置設定の既定値が返る
         defaults = _get_config(selected_client)["defaults"]
 
-        assert defaults["micro_line_z_start"] == 0.07
-        assert defaults["micro_line_z_end"] == 0.07
+        assert defaults["micro_line_z_start"] == "auto"
+        assert defaults["micro_line_z_end"] == "auto"
         assert "micro_line_settle_seconds" not in defaults
 
 
