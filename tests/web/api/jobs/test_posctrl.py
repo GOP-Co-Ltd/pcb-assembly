@@ -14,8 +14,8 @@
 - board_tour / orthogonality_test / reference_point_setup の異常系:
   テスト用 config（Klipper port 7126 非リッスン）で graceful FAILED + ロック解放 +
   PRESENT / relax (M84) 失敗警告。成功系のステージ移動・照合は pcbasm テストと
-  実機区分でカバーする分担（計画書 §4）
-- 実機通し（実カメラ + 実 Klipper）は `@mark_hardware` でユーザー実行
+  受け入れ試験でカバーする分担（計画書 §4）
+- 実機通し（実カメラ + 実 Klipper）は受け入れ試験（docs/acceptance.md の A3〜A5）
 
 計画書 memory/agents/implementation-planner/webui-camera-calib.md「公開インターフェース案」
 「1. src/webui/jobs/posctrl.py」節が追加契約:
@@ -46,8 +46,8 @@ prompt に到達する前に FAILED になるため。よって分担は:
 - prompt 待機中 abort → `test_manager.py::TestPrompt`
 - 待機中のポーリング（繰り返し呼ばれる・応答後は呼ばれない・例外で FAILED）→
   `test_manager.py::TestPromptWhileWaiting`
-- 実際に十字線が待機中ずっと出ているかは実機での目視（下の `@mark_hardware`）
-- 巡回の通し（周回・「終了」で SUCCEEDED）→ 下の `@mark_hardware` 区分
+- 実際に十字線が待機中ずっと出ているかと、巡回の通し（周回・「終了」で SUCCEEDED）→
+  受け入れ試験（A5）
 - setup 段の graceful FAILED → `TestMachineJobsWithoutKlipper`（変更不要）
 
 cv2 / Moonraker のモックは使わない（skill `testing-strategy`）。Klipper 不通は
@@ -63,7 +63,6 @@ import pytest
 
 from pcbasm.pcb import PcbFile
 from pcbasm.vision import CalibrationResult, Image
-from tests.helpers import mark_hardware
 from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import JobCatalog, default_catalog
 from web.api.jobs.manager import JobManager, JobStatus
@@ -281,7 +280,7 @@ class TestMachineJobsWithoutKlipper:
     """装置ジョブの graceful FAILED（テスト用 config: port 7126 = 接続拒否）.
 
     成功系のステージ移動・照合は pcbasm のテスト（test_setup / test_alignment）
-    と実機区分でカバーする分担（計画書 §4）。
+    と受け入れ試験でカバーする分担（計画書 §4）。
     """
 
     @pytest.mark.parametrize(
@@ -321,154 +320,3 @@ class TestMachineJobsWithoutKlipper:
         """requires_pcb=True: PCB 未選択は開始前に ValueError（→ 400）."""
         with pytest.raises(ValueError):
             manager.start(name, {})
-
-
-@mark_hardware
-class TestPosctrlHardware:
-    """実機通し（実カメラ + 実 Moonraker、実機 config/）。ユーザー実行.
-
-    前提（計画書 §5「ユーザーへ引き継ぐ実機確認項目」）:
-
-    - Moonraker が localhost:7125 で稼働し、各軸がホーミング可能であること
-    - 実カメラが接続済みでキャリブレーション済みであること
-    - camera_calibration: 1 マス 1.5mm の実チェッカーボードを視野に配置
-    - board_tour / orthogonality_test: data/testing/fill_coverage の基板が
-      ステージにセットされ、基準点マーカーが視野に入ること
-
-    orthogonality_test は対話フロー（巡回先ごとに確認プロンプト）:
-
-    1. セットアップ後、四隅 → TOP 層 pad 中心の順に移動し、各点で
-       「ベルトテンションを調整し…」の確認プロンプトが出て停止する
-    2. 応答を待っている間、プレビューには十字線・ROI・巡回先ラベルを重ねた
-       ライブ映像が出続ける。**目視確認項目**: 待機が何秒続いてもオーバーレイが
-       消えない（到着直後だけ表示して消える挙動になっていないこと）
-    3. その点で調整・確認を済ませたら「次へ」を押す。1 周し終えると四隅から
-       再開し、押し続ける限り周回する
-    4. 打ち切りたい点で「終了」を押す。中止ではなく **正常終了（SUCCEEDED）**
-       になり、summary に調整前の指標・巡回点数・周回数が出る（指標は開始時の
-       1 回計測で、巡回中の調整は反映されない）
-
-    下の自動テストは各点を「次へ」で通し最後に「終了」する流れだけを検証する。
-    オーバーレイの表示継続とベルトテンション調整自体は WebUI から目視・手動で
-    実施する。
-    """
-
-    def test_reference_point_setup_jog_and_record_applies_settings_immediately(
-        self,
-        real_manager: JobManager,
-        real_state: AppState,
-        wait_until: WaitUntil,
-    ):
-        """ジョグ → record で現在位置を保存し、追加の Apply を要求しない."""
-        record = real_manager.start("reference_point_setup", {})
-        wait_until(lambda: record.status == JobStatus.RUNNING, timeout=30.0)
-        # command はキューに積まれ、ホーミング完了後のループで順に消費される
-        real_manager.submit_command({"type": "jog", "axis": "x", "dist": 0.1})
-        real_manager.submit_command({"type": "record"})
-        wait_until(lambda: record.status.terminal, timeout=300.0)
-
-        assert record.status == JobStatus.SUCCEEDED
-        result = record.result
-        assert result is not None
-        assert result.summary is not None
-        assert "設定に反映しました" in result.summary
-        assert result.apply is None
-        assert record.apply_available is False
-        saved = real_state.machine().reference_point
-        assert f"x={saved.x:.3f}" in result.summary
-        assert f"y={saved.y:.3f}" in result.summary
-
-    def test_reference_point_setup_quit_aborts_without_apply(
-        self, real_manager: JobManager, wait_until: WaitUntil
-    ):
-        record = real_manager.start("reference_point_setup", {})
-        wait_until(lambda: record.status == JobStatus.RUNNING, timeout=30.0)
-        real_manager.submit_command({"type": "quit"})
-        wait_until(lambda: record.status.terminal, timeout=300.0)
-
-        assert record.status == JobStatus.ABORTED
-        assert record.apply_available is False
-
-    def test_camera_calibration_records_z_position(
-        self,
-        real_manager: JobManager,
-        real_settings: Settings,
-        wait_until: WaitUntil,
-    ):
-        """実チェッカーボードで z_position が記録される（Z best-effort 成功側）."""
-        record = real_manager.start("camera_calibration", {"square_size": 1.5})
-        answered: set[str] = set()
-        answer_next_prompt(record, real_manager, True, answered)
-
-        # 検出失敗なら再 prompt が来る → 中止してセットアップ不備として fail
-        wait_until(
-            lambda: record.status.terminal
-            or (
-                (pending := record.pending_prompt) is not None
-                and pending[0] not in answered
-            ),
-            timeout=120.0,
-        )
-        if not record.status.terminal:
-            answer_next_prompt(record, real_manager, False, answered)
-            pytest.fail("チェッカーボードが検出されません。視野に配置してください")
-
-        assert record.status == JobStatus.SUCCEEDED
-        result = record.result
-        assert result is not None
-        json_artifact = next(
-            a for a in result.artifacts if a.label == "キャリブレーション JSON"
-        )
-        loaded = CalibrationResult.load(
-            real_settings.webui_data_dir / json_artifact.path
-        )
-        assert loaded.z_position is not None  # 実 Klipper から Z を取得
-
-    def test_board_tour_runs_to_success(
-        self,
-        real_manager: JobManager,
-        real_state: AppState,
-        wait_until: WaitUntil,
-    ):
-        """セットアップ → 巡回 → 照合の通しが SUCCEEDED で完了する（非対話）."""
-        real_state.select_pcb(
-            Path("data/testing/fill_coverage/fill_coverage.kicad_pcb")
-        )
-        record = real_manager.start("board_tour", {})
-        wait_until(lambda: record.status.terminal, timeout=900.0)
-
-        assert record.status == JobStatus.SUCCEEDED
-        result = record.result
-        assert result is not None
-        assert result.summary is not None
-        assert "照合" in result.summary
-
-    def test_orthogonality_test_prompts_each_point_and_quit_succeeds(
-        self,
-        real_manager: JobManager,
-        real_state: AppState,
-        wait_until: WaitUntil,
-    ):
-        """巡回先ごとに確認プロンプトが出て、「終了」で正常終了する.
-
-        四隅（4 点）を「次へ」で通し、5 点目（TOP 層 pad の 1 点目）で「終了」を 返す。中止扱いではなく
-        SUCCEEDED で、summary に指標と周回数が載る。
-        """
-        real_state.select_pcb(
-            Path("data/testing/fill_coverage/fill_coverage.kicad_pcb")
-        )
-        record = real_manager.start("orthogonality_test", {})
-        answered: set[str] = set()
-        # 1 点目のプロンプトはホーミング + 基準点合わせの後に来るため待ちが長い
-        for _ in range(4):
-            answer_next_prompt(record, real_manager, True, answered, timeout=900.0)
-        answer_next_prompt(record, real_manager, False, answered, timeout=300.0)
-        wait_until(lambda: record.status.terminal, timeout=300.0)
-
-        assert record.status == JobStatus.SUCCEEDED
-        result = record.result
-        assert result is not None
-        assert result.summary is not None
-        assert "軸間角" in result.summary
-        assert "巡回 5 点" in result.summary  # 「終了」を押した点まで数える
-        assert "1 周目で終了" in result.summary

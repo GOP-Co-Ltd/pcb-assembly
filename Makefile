@@ -20,11 +20,10 @@ setup: clean  ## Setup development environment
 format: ## Run pre-commit hooks
 	uv run pre-commit run -a
 
-test: ## Run all tests (excludes e2e; see test-e2e)
+test: ## Run tests except e2e (hardware is checked by docs/acceptance.md)
 	uv run pytest -v -m "not e2e"
 
-test-no-hardware: ## Run tests without hardware
-	uv run pytest -v -m "not hardware and not e2e"
+test-no-hardware: test ## Alias of test
 
 test-e2e: ## Run WebUI full-stack E2E (live uvicorn + HTTP/WS/MJPEG)
 	uv run pytest -v -m e2e --timeout=180
@@ -84,5 +83,4 @@ ui-fake: ## Run UI frontend against api-fake (isolated port; for manual/browser 
 	PCBASM_UI_UPDATE_ENABLED=0 \
 	uv run python -m web.ui
 
-run: format test type ## Run all workflow.
-	@echo "All tasks completed successfully."
+check: format type test ## Run format, type check and tests

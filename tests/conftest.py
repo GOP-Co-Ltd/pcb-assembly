@@ -1,6 +1,6 @@
 """全テスト共通の fixture.
 
-``pcbasm.hal`` と ``tests.helpers`` は picamera2 / pcbnew を import するため、
+``pcbasm.hal`` は picamera2 を、``tests.helpers`` は pcbnew を import するため、
 Raspberry Pi と KiCAD が無い環境では読み込めない。root conftest が module 冒頭で
 それらを import すると、実機に依存しないテストの collect まで巻き込んで失敗する。
 実機依存の import はそれを必要とする fixture の中だけで行う。
@@ -9,9 +9,7 @@ Raspberry Pi と KiCAD が無い環境では読み込めない。root conftest �
 from pathlib import Path
 from typing import Any, NoReturn
 
-import numpy as np
 import pytest
-from pytest_mock import MockerFixture
 
 
 @pytest.fixture(autouse=True)
@@ -28,18 +26,12 @@ def disable_mdns_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def forbid_real_klipper(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def forbid_real_klipper(monkeypatch: pytest.MonkeyPatch) -> None:
     """`open_klipper` を呼ぶとテストが落ちるようにし、実機の Moonraker へ G-code を届かせない.
 
     テストは本番機の上でも走るので、取りこぼした経路があっても実機は動かない。
     Moonraker 不通の経路を確かめるテストは `unreachable_klipper` を要求する。
-    `@mark_hardware` は実機を動かすためのテストなので対象外にする。
     """
-    if request.node.get_closest_marker("hardware") is not None:
-        return
-
     try:
         from pcbasm import hal
     except ImportError:
@@ -114,47 +106,3 @@ def paste_test_board_footprint_root(
     return make_paste_test_board_footprint_root(
         tmp_path_factory.mktemp("paste-test-board") / "footprints"
     )
-
-
-@pytest.fixture
-def mock_camera_backend(mocker: MockerFixture):
-    """Cameraクラス（USBバックエンド）の内部実装をモックするフィクスチャ."""
-    from pcbasm.hal.camera import CameraInfo, Resolution
-
-    mock_cam = mocker.MagicMock()
-    mock_cam.isOpened.return_value = True
-    mock_cam.set.return_value = True
-    mock_cam.read.return_value = (True, np.zeros((720, 1280, 3), dtype=np.uint8))
-    mocker.patch("cv2.VideoCapture", return_value=mock_cam)
-    mocker.patch("pcbasm.hal.camera._UsbCamera._validate_device_id")
-
-    # get_camera_infoをモックして、デフォルトの解像度をサポートするカメラ情報を返す
-    default_info = CameraInfo(
-        name="Mock Camera",
-        formats={
-            "MJPG": [
-                Resolution(640, 480, 30.0),
-                Resolution(1280, 720, 30.0),
-            ]
-        },
-    )
-    mocker.patch(
-        "pcbasm.hal.camera.get_camera_info",
-        return_value=default_info,
-    )
-
-    return mock_cam
-
-
-@pytest.fixture
-def mock_csi_camera_backend(mocker: MockerFixture):
-    """Cameraクラス（CSIバックエンド）の内部実装をモックするフィクスチャ."""
-    mock_picamera2 = mocker.MagicMock()
-    mock_picamera2.Picamera2.global_camera_info.return_value = [
-        {"Model": "Mock CSI Camera"}
-    ]
-    mock_picamera2.Picamera2.return_value.capture_array.return_value = np.zeros(
-        (720, 1280, 3), dtype=np.uint8
-    )
-    mocker.patch("pcbasm.hal.camera.picamera2", mock_picamera2)
-    return mock_picamera2

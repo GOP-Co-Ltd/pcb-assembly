@@ -12,7 +12,7 @@
 `POST /api/pasting/nozzle-clean/test` は記録ではなく装置を動かすので、上に加えて
 「位置が未記録なら Klipper に触れる前に 400」を契約に持つ。
 
-実機系（記録永続化・relax 後 400・実クリーニング動作）は `@mark_hardware`（ユーザー実行）。
+実機系（記録の永続化・relax 後の 400・実クリーニング動作）は受け入れ試験（docs/acceptance.md の A2）で確かめる。
 """
 
 from pathlib import Path
@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import mark_hardware
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -44,32 +43,6 @@ class TestRecordNozzleCap:
         assert response.status_code == 409
         assert "pytest-job" in response.text
 
-    @mark_hardware
-    def test_record_persists_position_and_stale_after_relax_returns_400(
-        self, real_client: TestClient, real_settings: Settings
-    ):
-        """全軸ホーミング後の記録は永続化され、relax（M84）後の記録は 400 になる."""
-        home = real_client.post("/api/machine-control", json={"action": "home"})
-        assert home.status_code == 200
-        assert home.json()["homed_axes"] == "xyz"
-
-        response = real_client.post("/api/pasting/nozzle-cap/record")
-
-        assert response.status_code == 200
-        recorded = response.json()
-        assert set(recorded) == {"x", "y", "z"}
-        machine_toml = (real_settings.config_dir / "machine.toml").read_text(
-            encoding="utf-8"
-        )
-        assert "[paste_dispenser.nozzle_cap]" in machine_toml
-
-        # M84 で homed 状態が消えた後は stale 座標を記録させない
-        relax = real_client.post("/api/machine-control", json={"action": "relax"})
-        assert relax.status_code == 200
-        stale = real_client.post("/api/pasting/nozzle-cap/record")
-        assert stale.status_code == 400
-        assert "ホーミング" in stale.text
-
 
 class TestRecordNozzleClean:
     """ノズルクリーニング位置の記録エンドポイント（キャップと同じ契約）.
@@ -91,23 +64,6 @@ class TestRecordNozzleClean:
 
         assert response.status_code == 409
         assert "pytest-job" in response.text
-
-    @mark_hardware
-    def test_record_persists_position_and_returns_label(
-        self, real_client: TestClient, real_settings: Settings
-    ):
-        home = real_client.post("/api/machine-control", json={"action": "home"})
-        assert home.status_code == 200
-
-        response = real_client.post("/api/pasting/nozzle-clean/record")
-
-        assert response.status_code == 200
-        recorded = response.json()
-        assert set(recorded) == {"x", "y", "z", "label"}
-        machine_toml = (real_settings.config_dir / "machine.toml").read_text(
-            encoding="utf-8"
-        )
-        assert "[paste_dispenser.nozzle_clean]" in machine_toml
 
 
 class TestNozzleCleanTestRun:
@@ -158,33 +114,3 @@ class TestNozzleCleanTestRun:
 
         assert response.status_code == 409
         assert "pytest-job" in response.text
-
-    @mark_hardware
-    def test_runs_cleaning_and_parks_at_the_cap(self, real_client: TestClient):
-        """実機でクリーニング動作を通し、ノズルキャップ位置へ戻して 1 行で報告する.
-
-        脱力はしないので、続けてもう一度テストできる（= ホーミング状態が残る）。
-        """
-        home = real_client.post("/api/machine-control", json={"action": "home"})
-        assert home.status_code == 200
-
-        response = real_client.post("/api/pasting/nozzle-clean/test")
-
-        assert response.status_code == 200
-        message = response.json()["message"]
-        assert "ノズルクリーニング" in message
-        assert "ノズルキャップ" in message
-
-        again = real_client.post("/api/pasting/nozzle-clean/test")
-        assert again.status_code == 200
-
-    @mark_hardware
-    def test_stale_after_relax_returns_400(self, real_client: TestClient):
-        """M84 後は未ホーミングなので、絶対移動を送る前に 400 で断る."""
-        relax = real_client.post("/api/machine-control", json={"action": "relax"})
-        assert relax.status_code == 200
-
-        response = real_client.post("/api/pasting/nozzle-clean/test")
-
-        assert response.status_code == 400
-        assert "ホーミング" in response.text

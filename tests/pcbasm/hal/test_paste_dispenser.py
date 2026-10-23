@@ -5,7 +5,6 @@ from pcbasm.hal.klipper import Klipper
 from pcbasm.hal.paste_dispenser import (
     PasteDispenser,
 )
-from tests.helpers import mark_hardware
 
 STEPPER_NAME = "paste_dispenser"
 PREFIX = f"MANUAL_STEPPER STEPPER={STEPPER_NAME}"
@@ -27,11 +26,6 @@ class TestPasteDispenser:
             },
         )
         return klipper
-
-    @mark_hardware
-    def test_init(self):
-        klipper = Klipper()
-        PasteDispenser(klipper.readonly, rotations_per_ul=0.5)
 
     def test_init_missing_stepper_section(self, mocker: MockerFixture):
         klipper = Klipper()

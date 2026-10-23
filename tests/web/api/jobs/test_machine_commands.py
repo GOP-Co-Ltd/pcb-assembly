@@ -11,8 +11,8 @@
     するため伝播する）
 - 未知 type は False を返す（log は呼び出し側の責務）
 
-jog / move / home の実送信は Moonraker 必須のため実機区分（posctrl の
-reference_point_setup 実機テストでカバー）。ここではテスト用 config
+jog / move / home の実送信は Moonraker 必須のため受け入れ試験（docs/acceptance.md の
+A1、A3）でカバーする。ここではテスト用 config
 （Klipper port 7126 = 接続拒否）で戻り値契約と例外伝播のみ検証する。
 Moonraker のモックは使わない（skill `testing-strategy`）。
 """

@@ -5,17 +5,10 @@ from pcbasm.geometry import Path, Point3d
 from pcbasm.hal import Speed
 from pcbasm.hal.klipper import Klipper
 from pcbasm.hal.stage import Limits, ScalarLimits, XYZStage
-from tests.helpers import mark_hardware
 
 
 class TestXYZStage:
     """XYZStageクラスのテスト."""
-
-    @pytest.fixture
-    def stage(self) -> XYZStage:
-        klipper = Klipper()
-        stage = XYZStage(klipper.readonly)
-        return stage
 
     @pytest.fixture
     def mock_stage(self, mocker: MockerFixture) -> XYZStage:
@@ -31,26 +24,6 @@ class TestXYZStage:
             },
         )
         return XYZStage(klipper.readonly)
-
-    @mark_hardware
-    def test_get_position(self, stage: XYZStage):
-        position = stage.get_position()
-
-        assert isinstance(position, Point3d)
-
-    @mark_hardware
-    def test_limits(self, stage: XYZStage):
-        limits = stage.limits
-
-        assert isinstance(limits, Limits)
-        assert isinstance(limits.x, ScalarLimits)
-        assert isinstance(limits.y, ScalarLimits)
-        assert isinstance(limits.z, ScalarLimits)
-        assert isinstance(limits.v, ScalarLimits)
-        assert limits.x.min < limits.x.max
-        assert limits.y.min < limits.y.max
-        assert limits.z.min < limits.z.max
-        assert limits.v.min < limits.v.max
 
     def test_max_velocity(self, mock_stage: XYZStage):
         assert mock_stage.max_velocity == 300.0

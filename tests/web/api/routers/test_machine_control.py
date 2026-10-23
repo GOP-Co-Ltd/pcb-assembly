@@ -5,11 +5,11 @@
 - 400: パラメータ不足（jog の axis/distance 欠落）/ focus_z 不可（z_position なし）/ limits 超過
 - 409: machine_lock 取得失敗（detail に owner）
 - 502: Moonraker 接続不能（テスト用 config の port 7126 への実接続で検証、モック不使用）
-- 200: 実機（実 Moonraker）での操作完了 → `@mark_hardware`（ユーザー実行）
+- 200: 実機での操作完了は受け入れ試験（docs/acceptance.md の A1）で確かめる
 
 Phase 3 追記（計画書 webui-phase3.md「既存ルーター・app への変更」節）:
 
-- action="gcode": gcode 欠落・空文字は 400、送信成功系は実機区分
+- action="gcode": gcode 欠落・空文字は 400、送信成功系は受け入れ試験（A1）
 
 MR2（計画書 docs/plans/web-api-ui-split.md「MR2」節）が追記契約:
 
@@ -23,7 +23,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import mark_hardware
 from web.api.settings import Settings
 from web.api.state import AppState
 
@@ -93,15 +92,6 @@ class TestGcodeAction:
         response = client.post("/api/machine-control", json=body)
 
         assert response.status_code == 400
-
-    @mark_hardware
-    def test_gcode_send_returns_status(self, real_client: TestClient):
-        response = real_client.post(
-            "/api/machine-control", json={"action": "gcode", "gcode": "M400"}
-        )
-
-        assert response.status_code == 200
-        assert response.json()["connected"] is True
 
 
 @pytest.mark.usefixtures("unreachable_klipper")
@@ -176,67 +166,3 @@ class TestMachineControlMoonrakerDown:
         response = client.post("/api/machine-control", json=body)
 
         assert response.status_code == 502
-
-
-class TestMachineControlHardware:
-    """実 Moonraker に対する操作。ユーザーが実行する."""
-
-    @mark_hardware
-    def test_relax_returns_status(self, real_client: TestClient):
-        response = real_client.post("/api/machine-control", json={"action": "relax"})
-
-        assert response.status_code == 200
-        assert response.json()["connected"] is True
-
-    @mark_hardware
-    def test_jog_unhomed_returns_502(self, real_client: TestClient):
-        # M84（relax）はステッパーを無効化し homed 状態をクリアする
-        assert (
-            real_client.post(
-                "/api/machine-control", json={"action": "relax"}
-            ).status_code
-            == 200
-        )
-
-        response = real_client.post(
-            "/api/machine-control",
-            json={"action": "jog", "axis": "x", "distance": 0.1},
-        )
-
-        assert response.status_code == 502
-
-    @mark_hardware
-    def test_home_then_jog_round_trip(self, real_client: TestClient):
-        home = real_client.post("/api/machine-control", json={"action": "home"})
-        assert home.status_code == 200
-        assert home.json()["homed_axes"] == "xyz"
-        start_x = home.json()["position"]["x"]
-
-        forward = real_client.post(
-            "/api/machine-control",
-            json={"action": "jog", "axis": "x", "distance": 0.1},
-        )
-        assert forward.status_code == 200
-        assert forward.json()["position"]["x"] == pytest.approx(start_x + 0.1, abs=0.01)
-
-        back = real_client.post(
-            "/api/machine-control",
-            json={"action": "jog", "axis": "x", "distance": -0.1},
-        )
-        assert back.status_code == 200
-        assert back.json()["position"]["x"] == pytest.approx(start_x, abs=0.01)
-
-    @mark_hardware
-    def test_move_beyond_limits_returns_400(self, real_client: TestClient):
-        assert (
-            real_client.post(
-                "/api/machine-control", json={"action": "home"}
-            ).status_code
-            == 200
-        )
-
-        response = real_client.post(
-            "/api/machine-control", json={"action": "move", "x": 9999.0}
-        )
-
-        assert response.status_code == 400

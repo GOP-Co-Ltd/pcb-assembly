@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -108,21 +107,3 @@ class TestBlockHardwareTests:
             check=True,
         )
         assert completed.stdout.strip() == ""
-
-
-class TestHardwareMarkerLayout:
-    """フックの前提（marker 無し pytest が実機到達しうる）を検証する.
-
-    実機テストを含むディレクトリが実在することを確認する。もし将来 `@mark_hardware` が `tests/`
-    から一掃されたなら、この前提もフックの厳しさも見直してよい。
-    """
-
-    def test_hardware_marked_tests_exist_outside_hal(self):
-        marked = {
-            path.relative_to(PROJECT_ROOT).as_posix()
-            for path in (PROJECT_ROOT / "tests").rglob("test_*.py")
-            if "@mark_hardware" in path.read_text(encoding="utf-8")
-        }
-        assert marked, "@mark_hardware を含むテストが 1 つも無い"
-        # web/api 配下にも実機テストがある = `pytest tests/web/api` は marker 必須
-        assert any(name.startswith("tests/web/api/") for name in marked)

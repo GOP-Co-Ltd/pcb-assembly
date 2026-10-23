@@ -2,7 +2,6 @@ import json
 import shutil
 import socket
 import struct
-import subprocess
 from collections.abc import Callable, Sequence
 from functools import wraps
 from pathlib import Path
@@ -10,13 +9,9 @@ from secrets import token_hex
 from typing import Any, ParamSpec, TypeVar
 
 import pcbnew
-import picamera2
 import pytest
 
 from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
-
-mark_hardware = pytest.mark.hardware
-
 
 PASTE_VOLUME_MATERIAL_DIR = TESTING_DATA_DIR / "paste-volume"
 
@@ -299,43 +294,11 @@ _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
 
-def _usb_camera_available() -> bool:
-    """USBカメラ（uvcvideoドライバー）が接続されているか確認する."""
-    try:
-        result = subprocess.run(
-            ["v4l2-ctl", "--list-devices"],
-            capture_output=True,
-            text=True,
-        )
-        return "uvcvideo" in result.stdout
-    except Exception:
-        return False
-
-
-def _csi_camera_available() -> bool:
-    """CSIカメラが接続されているか確認する."""
-    return bool(picamera2.Picamera2.global_camera_info())
-
-
-def _alsa_audio_available() -> bool:
-    """aplayが利用でき、ALSAに1台以上の再生デバイスが見えているか確認する."""
-    try:
-        result = subprocess.run(
-            ["aplay", "-l"],
-            capture_output=True,
-            text=True,
-            timeout=5.0,
-        )
-        return result.returncode == 0 and "card " in result.stdout.lower()
-    except (FileNotFoundError, subprocess.SubprocessError):
-        return False
-
-
 def _skip_unless_available(
     is_available: Callable[[], bool],
     reason: str,
 ) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
-    """実行時に能力（カメラ / ALSA 接続・mDNS）を確認してテストをskipするdecoratorを返す."""
+    """実行時に能力（mDNS）を確認してテストをskipするdecoratorを返す."""
 
     def decorator(test: Callable[_P, _R]) -> Callable[_P, _R]:
         @wraps(test)
@@ -349,20 +312,6 @@ def _skip_unless_available(
     return decorator
 
 
-skip_if_no_usb_camera = _skip_unless_available(
-    _usb_camera_available,
-    "USBカメラが接続されていません",
-)
-
-skip_if_no_csi_camera = _skip_unless_available(
-    _csi_camera_available,
-    "CSIカメラが接続されていません",
-)
-
-skip_if_no_alsa_audio = _skip_unless_available(
-    _alsa_audio_available,
-    "ALSA再生デバイスが接続されていません",
-)
 # mDNS の能力プローブ結果（bind し直さないようモジュールレベルでキャッシュする）
 _MDNS_AVAILABLE: bool | None = None
 
