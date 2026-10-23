@@ -14,7 +14,7 @@ clean: ## Clean generated artifacts without traversing .git or .venv
 
 setup: clean  ## Setup development environment
 	uv venv --clear --system-site-packages
-	uv sync --all-extras
+	uv sync --locked --all-extras
 	uv run pre-commit install
 
 format: ## Run pre-commit hooks
