@@ -21,8 +21,6 @@
 
 版の扱い: キー／型が変わるときだけ ``BOARD_SETTINGS_SCHEMA_VERSION`` を上げ、
 :func:`decode_board_settings` が版で分岐して旧版を純関数で新版 dict に写す。
-現行の唯一の移行は、初期 v1 が ``settings`` 直下に持っていた
-``base`` / ``base_enabled`` を L0 の明示設定へ移すもの。
 """
 
 from __future__ import annotations
@@ -36,14 +34,11 @@ from typing import Any
 import attrs
 
 from pcbasm.geometry import Point2d
-from pcbasm.pasting.params import PASTE_PARAM_NAMES, PasteParams, PasteParamsPatch
+from pcbasm.pasting.params import PasteParams, PasteParamsPatch
 from pcbasm.pasting.settings import LevelSetting, PasteSettingsModel
-from pcbasm.pcb.grouping import HierKey
 from pcbasm.utils import is_finite_number
 
 BOARD_SETTINGS_SCHEMA_VERSION = 1
-
-_L0_KEY: HierKey = ("L0",)
 
 # 書き出し名で path 片として使えない文字（空白を含む）。日本語の基板名を置き換えないよう
 # ASCII 以外は残し、Content-Disposition 側で RFC 5987 の filename* に載せる
@@ -111,22 +106,16 @@ def decode_board_settings(
     if not isinstance(settings, Mapping):
         return None, "settings がありません"
 
-    levels = [
+    levels = tuple(
         _level_from_entry(entry) for entry in _as_sequence(settings.get("levels"))
-    ]
-    keys = {setting.key for setting in levels}
-    if _L0_KEY not in keys:
-        legacy_l0 = _legacy_l0_setting(settings, base)
-        if legacy_l0 is not None:
-            levels.append(legacy_l0)
-
+    )
     source_pcb = doc.get("source_pcb")
     board_signature = doc.get("board_signature")
     model = PasteSettingsModel(
         base=base,
         initial_purge_point=_point(settings.get("initial_purge_point")),
         flow_calibration_points=_points(settings.get("flow_calibration_points")),
-        levels=tuple(levels),
+        levels=levels,
     )
     return (
         DecodedBoardSettings(
@@ -161,32 +150,6 @@ def _level_from_entry(entry: Mapping[str, Any]) -> LevelSetting:
         key=tuple(entry["key"]),
         enabled=entry.get("enabled"),
         patch=PasteParamsPatch.from_dict(entry.get("override") or {}),
-    )
-
-
-def _legacy_l0_setting(
-    settings: Mapping[str, Any], base: PasteParams
-) -> LevelSetting | None:
-    """初期 v1 の ``base`` / ``base_enabled`` を L0 の明示設定へ必要分だけ移行する.
-
-    保存時の base のうち現在の machine.toml 値と異なる項目だけを override にする。
-    """
-    saved_base = settings.get("base")
-    values = (
-        {
-            name: saved
-            for name in PASTE_PARAM_NAMES
-            if (saved := saved_base.get(name)) is not None
-            and saved != getattr(base, name)
-        }
-        if isinstance(saved_base, Mapping)
-        else {}
-    )
-    enabled = False if settings.get("base_enabled") is False else None
-    if enabled is None and not values:
-        return None
-    return LevelSetting(
-        _L0_KEY, enabled=enabled, patch=PasteParamsPatch.from_dict(values)
     )
 
 

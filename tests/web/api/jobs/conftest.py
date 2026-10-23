@@ -122,9 +122,7 @@ def catalog() -> JobCatalog:
 
 def make_board_store(settings: Settings) -> BoardSettingsStore:
     """Settings に対応する基板設定ストア（JobManager への DI 用）."""
-    return BoardSettingsStore(
-        settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
-    )
+    return BoardSettingsStore(settings.webui_data_dir)
 
 
 @pytest.fixture

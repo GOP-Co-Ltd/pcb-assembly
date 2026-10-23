@@ -90,17 +90,6 @@ class TestPcbSelection:
 
         assert state.selected_pcb is None
 
-    def test_legacy_state_file_is_read_when_new_file_missing(
-        self, webui_settings: Settings, store: ConfigStore
-    ):
-        (webui_settings.data_dir / "webui_state.json").write_text(
-            json.dumps({"pcb_file": "boards/sample.kicad_pcb"}), encoding="utf-8"
-        )
-
-        state = AppState(webui_settings, store)
-
-        assert state.selected_pcb == Path("boards/sample.kicad_pcb")
-
     @pytest.mark.parametrize("content", [None, b"(kicad_pcb)"])
     def test_select_pcb_outside_root_raises_value_error(
         self, state: AppState, content: bytes | None

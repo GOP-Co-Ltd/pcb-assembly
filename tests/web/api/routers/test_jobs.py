@@ -173,8 +173,8 @@ def _receive_until(
 
 def _complete_job_demo(
     client: TestClient, app: FastAPI, *, answer: float = 61.5
-) -> None:
-    """job_demo を起動し、prompt 2 回を manager 経由で応答して完走させる."""
+) -> str:
+    """job_demo を起動し、prompt 2 回を manager 経由で応答して完走させ、ジョブ ID を返す."""
     jobs: JobManager = app.state.jobs
     response = client.post(
         "/api/jobs/job_demo", json={"params": {"steps": 1, "interval": 0.01}}
@@ -191,7 +191,7 @@ def _complete_job_demo(
             answered.add(prompt_id)
         job = _current_job(client)
         if job is not None and job["status"] == "succeeded":
-            return
+            return job["id"]
         if job is not None and job["status"] in ("failed", "aborted"):
             pytest.fail(f"job_demo が {job['status']} になりました: {job}")
         time.sleep(0.02)
@@ -517,22 +517,27 @@ class TestUpdateCurrentParams:
     """PUT /api/jobs/current/params（計画書「能力 1」routers 節が契約）.
 
     実行中ジョブの runtime_editable な subset を out-of-band で patch する:
-    - アクティブジョブ無し → 400
+    - 終了したジョブ → 400
     - 正常 → 200 で {"params": {...}} を返し、GET /jobs/current が新値を映す
 
     値そのものの受理 / 拒否（固定キー・未知キー・型不正・負 removal_z_offset）は
     ``tests/web/api/jobs/test_catalog.py`` と ``test_manager.py`` が担保する。
     """
 
-    def _put_params(
-        self, client: TestClient, values: dict[str, object], *, persist: bool = False
-    ):
+    def _put_params(self, client: TestClient, job_id: str, values: dict[str, object]):
         return client.put(
-            "/api/jobs/current/params", json={"values": values, "persist": persist}
+            "/api/jobs/current/params",
+            json={"values": values, "expected_job_id": job_id},
         )
 
-    def test_without_active_job_returns_400(self, client: TestClient):
-        response = self._put_params(client, {"line_length": 5.0})
+    def test_finished_job_returns_400(self, client: TestClient, app: FastAPI):
+        _register_runtime_editable(app)
+        client.post("/api/jobs/runtime_editable_router", json={})
+        job = _wait_job_status(client, "waiting_input")
+        client.post("/api/jobs/current/abort")
+        _wait_job_status(client, "aborted")
+
+        response = self._put_params(client, job["id"], {"line_length": 5.0})
 
         assert response.status_code == 400
 
@@ -581,6 +586,25 @@ class TestUpdateCurrentParams:
         )
         assert response.status_code == 409
 
+    def test_missing_expected_job_id_is_rejected_with_422(
+        self, client: TestClient, app: FastAPI
+    ):
+        """画面で確かめたジョブを指さない変更は、別のジョブに効きうるので受け付けない."""
+        _register_runtime_editable(app)
+        client.post("/api/jobs/runtime_editable_router", json={})
+        job = _wait_job_status(client, "waiting_input")
+
+        response = client.put(
+            "/api/jobs/current/params", json={"values": {"line_length": 12.5}}
+        )
+
+        assert response.status_code == 422
+        current = _current_job(client)
+        assert current is not None
+        assert current["params"] == job["params"]
+        assert client.post("/api/jobs/current/abort").status_code == 200
+        _wait_job_status(client, "aborted")
+
     def test_runtime_editable_update_returns_200_and_reflects_in_current(
         self, client: TestClient, app: FastAPI
     ):
@@ -588,9 +612,9 @@ class TestUpdateCurrentParams:
         assert (
             client.post("/api/jobs/runtime_editable_router", json={}).status_code == 201
         )
-        _wait_job_status(client, "waiting_input")
+        job = _wait_job_status(client, "waiting_input")
 
-        response = self._put_params(client, {"line_length": 12.5})
+        response = self._put_params(client, job["id"], {"line_length": 12.5})
 
         assert response.status_code == 200, response.text
         assert response.json()["params"] == {"line_length": 12.5}
@@ -768,9 +792,9 @@ class TestApplyDiscard:
     def test_apply_writes_machine_toml_preserving_comments(
         self, client: TestClient, app: FastAPI, config_dir: Path
     ):
-        _complete_job_demo(client, app, answer=61.5)
+        body = {"expected_job_id": _complete_job_demo(client, app, answer=61.5)}
 
-        response = client.post("/api/jobs/last/apply")
+        response = client.post("/api/jobs/last/apply", json=body)
 
         assert response.status_code == 200
         applied = response.json()["applied"]
@@ -782,34 +806,46 @@ class TestApplyDiscard:
         assert "Cannyエッジ検出の下側閾値" in toml_text
 
     def test_second_apply_returns_409(self, client: TestClient, app: FastAPI):
-        _complete_job_demo(client, app)
-        assert client.post("/api/jobs/last/apply").status_code == 200
+        body = {"expected_job_id": _complete_job_demo(client, app)}
+        assert client.post("/api/jobs/last/apply", json=body).status_code == 200
 
-        assert client.post("/api/jobs/last/apply").status_code == 409
+        assert client.post("/api/jobs/last/apply", json=body).status_code == 409
 
     def test_discard_then_apply_returns_409_and_discard_is_idempotent(
         self, client: TestClient, app: FastAPI
     ):
-        _complete_job_demo(client, app)
+        body = {"expected_job_id": _complete_job_demo(client, app)}
 
-        assert client.post("/api/jobs/last/discard").status_code == 200
-        assert client.post("/api/jobs/last/apply").status_code == 409
+        assert client.post("/api/jobs/last/discard", json=body).status_code == 200
+        assert client.post("/api/jobs/last/apply", json=body).status_code == 409
         # 冪等
-        assert client.post("/api/jobs/last/discard").status_code == 200
+        assert client.post("/api/jobs/last/discard", json=body).status_code == 200
 
     def test_apply_without_applicable_job_returns_409(self, client: TestClient):
-        assert client.post("/api/jobs/last/apply").status_code == 409
+        body = {"expected_job_id": "no-such-job"}
+
+        assert client.post("/api/jobs/last/apply", json=body).status_code == 409
+
+    @pytest.mark.parametrize("path", ["/api/jobs/last/apply", "/api/jobs/last/discard"])
+    def test_missing_expected_job_id_is_rejected_with_422(
+        self, client: TestClient, app: FastAPI, path: str
+    ):
+        """画面で確かめたジョブを指さない要求は、別のジョブの結果を反映しうるので受け付けない."""
+        _complete_job_demo(client, app)
+
+        assert client.post(path).status_code == 422
+        assert client.post(path, json={}).status_code == 422
 
     def test_apply_while_machine_lock_held_returns_409(
         self, client: TestClient, app: FastAPI, appstate: AppState
     ):
-        _complete_job_demo(client, app)
+        body = {"expected_job_id": _complete_job_demo(client, app)}
 
         with appstate.machine_lock("pytest-control"):
-            assert client.post("/api/jobs/last/apply").status_code == 409
+            assert client.post("/api/jobs/last/apply", json=body).status_code == 409
 
         # ロック解放後は反映できる
-        assert client.post("/api/jobs/last/apply").status_code == 200
+        assert client.post("/api/jobs/last/apply", json=body).status_code == 200
 
 
 class TestWebSocket:
@@ -826,6 +862,43 @@ class TestWebSocket:
             ws.send_json({"type": "invalid-after-recovery"})
             error, _ = _receive_until(ws, lambda event: event["type"] == "error")
             assert "invalid-after-recovery" in error["detail"]
+
+    @pytest.mark.parametrize("expected_job_id", [None, 42])
+    def test_command_without_expected_job_id_returns_error_and_is_not_delivered(
+        self, client: TestClient, app: FastAPI, expected_job_id: object
+    ):
+        """ジョブを指さないコマンドは、別のジョブに届きうるので受け付けない."""
+
+        def run(ctx: JobContext) -> JobResult:
+            command = ctx.next_command(timeout=None)
+            assert command is not None
+            return JobResult(summary=command["type"])
+
+        register_synthetic(
+            app.state.catalog, run, name="scoped_commands", accepts_commands=True
+        )
+        with client.websocket_connect("/api/ws") as ws:
+            client.post("/api/jobs/scoped_commands", json={})
+            current = _wait_job_status(client, "running")
+            message: dict[str, object] = {"type": "command", "command": {"type": "a"}}
+            if expected_job_id is not None:
+                message["expected_job_id"] = expected_job_id
+            ws.send_json(message)
+            error, _ = _receive_until(ws, lambda event: event["type"] == "error")
+            assert "expected_job_id" in error["detail"]
+            ws.send_json(
+                {
+                    "type": "command",
+                    "expected_job_id": current["id"],
+                    "command": {"type": "current"},
+                }
+            )
+            final, _ = _receive_until(
+                ws,
+                lambda event: event["type"] == "job_status"
+                and event["job"]["status"] == "succeeded",
+            )
+        assert final["job"]["result"]["summary"] == "current"
 
     def test_old_job_command_is_rejected_and_the_connection_still_accepts_current_job(
         self, client: TestClient, app: FastAPI
@@ -1046,7 +1119,9 @@ class TestCameraCalibrationApplyFlow:
             assert apply_info is not None
             assert "camera.calibration_file" in apply_info["values"]
 
-        response = client.post("/api/jobs/last/apply")
+        response = client.post(
+            "/api/jobs/last/apply", json={"expected_job_id": final["job"]["id"]}
+        )
 
         assert response.status_code == 200
         applied = response.json()["applied"]

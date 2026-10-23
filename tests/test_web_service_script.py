@@ -30,7 +30,6 @@ import pytest
 from pcbasm.utils import PROJECT_ROOT
 
 SCRIPT = PROJECT_ROOT / "scripts" / "web-service.sh"
-LEGACY_UNIT = "pcbasm-webui.service"
 
 
 def script_env(
@@ -299,20 +298,6 @@ class TestTargetResolution:
         assert "Usage:" in completed.stderr
 
 
-def write_legacy_unit(unit_dir: Path) -> Path:
-    """未移行の機体を模して旧 unit を置く.
-
-    Args:
-        unit_dir: `SYSTEMD_UNIT_DIR` に渡す一時ディレクトリ
-
-    Returns:
-        置いた旧 unit のパス
-    """
-    legacy = unit_dir / LEGACY_UNIT
-    legacy.write_text("[Service]\nExecStart=/usr/bin/make webui\n")
-    return legacy
-
-
 class TestInstall:
     """`install_service` のファイルシステム上の結果（`SUDO` は no-op ラッパ）."""
 
@@ -348,45 +333,6 @@ class TestInstall:
             "systemctl enable pcbasm-api.service"
         ), completed.stdout
 
-    def test_install_api_purges_the_legacy_unit(self, tmp_path: Path):
-        """単体の `install api`（最多数の運用）でも旧 unit を掃除する."""
-        sudo, stub = privileged_seam(tmp_path)
-        legacy = write_legacy_unit(tmp_path)
-
-        completed = run_snippet(
-            "install_service api", tmp_path, sudo=sudo, stub_bin=stub
-        )
-
-        assert completed.returncode == 0, completed.stderr
-        assert not legacy.exists(), "旧 unit が削除されていない"
-        assert f"systemctl disable --now {LEGACY_UNIT}" in completed.stdout
-
-    def test_install_ui_keeps_the_legacy_unit_and_warns(self, tmp_path: Path):
-        """旧 unit は backend 本体。`install ui` で消すと稼働中の backend が消える."""
-        sudo, stub = privileged_seam(tmp_path)
-        legacy = write_legacy_unit(tmp_path)
-
-        completed = run_snippet(
-            "install_service ui", tmp_path, sudo=sudo, stub_bin=stub
-        )
-
-        assert completed.returncode == 0, completed.stderr
-        assert legacy.exists(), "旧 backend unit が削除された"
-        assert f"disable --now {LEGACY_UNIT}" not in completed.stdout
-        assert LEGACY_UNIT in completed.stderr
-        assert "install api" in completed.stderr
-
-    def test_install_ui_does_not_warn_without_the_legacy_unit(self, tmp_path: Path):
-        """旧 unit を持ったことのない frontend 専用機に誤警告を出さない."""
-        sudo, stub = privileged_seam(tmp_path)
-
-        completed = run_snippet(
-            "install_service ui", tmp_path, sudo=sudo, stub_bin=stub
-        )
-
-        assert completed.returncode == 0, completed.stderr
-        assert LEGACY_UNIT not in completed.stderr, completed.stderr
-
     def test_temporary_unit_file_is_removed_when_the_privileged_install_fails(
         self, tmp_path: Path
     ):
@@ -404,35 +350,6 @@ class TestInstall:
 
 class TestRemove:
     """`remove_service` のファイルシステム上の結果."""
-
-    def test_remove_api_purges_the_legacy_unit_on_an_unmigrated_machine(
-        self, tmp_path: Path
-    ):
-        """新 unit が無くても旧 unit を撤去する（install と対称）.
-
-        掃除しないと「登録されていません」で抜けて、`make webui` を失って restart ループに入る旧 unit が
-        enabled のまま残る。
-        """
-        sudo, stub = privileged_seam(tmp_path)
-        legacy = write_legacy_unit(tmp_path)
-
-        completed = run_snippet(
-            "remove_service api", tmp_path, sudo=sudo, stub_bin=stub
-        )
-
-        assert completed.returncode == 0, completed.stderr
-        assert not legacy.exists(), "旧 unit が削除されていない"
-        assert f"systemctl disable --now {LEGACY_UNIT}" in completed.stdout
-
-    def test_remove_ui_keeps_the_legacy_unit(self, tmp_path: Path):
-        sudo, stub = privileged_seam(tmp_path)
-        legacy = write_legacy_unit(tmp_path)
-
-        completed = run_snippet("remove_service ui", tmp_path, sudo=sudo, stub_bin=stub)
-
-        assert completed.returncode == 0, completed.stderr
-        assert legacy.exists(), "旧 backend unit が削除された"
-        assert f"disable --now {LEGACY_UNIT}" not in completed.stdout
 
     def test_remove_deletes_the_unit_and_reloads(self, tmp_path: Path):
         sudo, stub = privileged_seam(tmp_path)
@@ -489,17 +406,6 @@ class TestMainDispatch:
             assert f"systemctl enable pcbasm-{target}.service" in completed.stdout
             assert f"systemctl restart pcbasm-{target}.service" in completed.stdout
 
-    def test_install_all_purges_the_legacy_unit_once(self, tmp_path: Path):
-        """同居機の移行（`install all`）: 旧 unit が消えて新 2 unit に置き換わる."""
-        sudo, stub = privileged_seam(tmp_path)
-        legacy = write_legacy_unit(tmp_path)
-
-        completed = run_script(["install", "all"], tmp_path, stub_bin=stub, sudo=sudo)
-
-        assert completed.returncode == 0, completed.stderr
-        assert not legacy.exists(), "旧 unit が削除されていない"
-        assert LEGACY_UNIT not in completed.stderr, "api 側で掃除済みなのに警告が出た"
-
     def test_remove_deletes_the_installed_unit(self, tmp_path: Path):
         sudo, stub = privileged_seam(tmp_path)
         unit = tmp_path / "pcbasm-api.service"
@@ -511,9 +417,8 @@ class TestMainDispatch:
         assert not unit.exists(), "unit ファイルが残っている"
         assert "systemctl disable --now pcbasm-api.service" in completed.stdout
 
-    def test_remove_all_deletes_both_units_and_the_legacy_one(self, tmp_path: Path):
+    def test_remove_all_deletes_both_units(self, tmp_path: Path):
         sudo, stub = privileged_seam(tmp_path)
-        legacy = write_legacy_unit(tmp_path)
         units = [tmp_path / f"pcbasm-{target}.service" for target in ("api", "ui")]
         for unit in units:
             unit.write_text("[Service]\n")
@@ -521,7 +426,6 @@ class TestMainDispatch:
         completed = run_script(["remove", "all"], tmp_path, stub_bin=stub, sudo=sudo)
 
         assert completed.returncode == 0, completed.stderr
-        assert not legacy.exists(), "旧 unit が削除されていない"
         assert [unit for unit in units if unit.exists()] == []
 
 
@@ -601,26 +505,3 @@ class TestControlMissingUnit:
         assert completed.returncode != 0
         assert "pcbasm-api.service" in completed.stderr
         assert "systemctl start" not in completed.stdout
-
-
-class TestLegacyUnitPurge:
-    """旧 `pcbasm-webui.service` の掃除そのもの."""
-
-    def test_purge_disables_and_deletes_the_legacy_unit(self, tmp_path: Path):
-        sudo, stub = privileged_seam(tmp_path)
-        legacy = write_legacy_unit(tmp_path)
-
-        completed = run_snippet("purge_legacy_unit", tmp_path, sudo=sudo, stub_bin=stub)
-
-        assert completed.returncode == 0, completed.stderr
-        assert not legacy.exists(), "旧 unit が削除されていない"
-        assert f"systemctl disable --now {LEGACY_UNIT}" in completed.stdout
-        assert "systemctl daemon-reload" in completed.stdout
-
-    def test_purge_is_a_noop_without_the_legacy_unit(self, tmp_path: Path):
-        sudo, stub = privileged_seam(tmp_path)
-
-        completed = run_snippet("purge_legacy_unit", tmp_path, sudo=sudo, stub_bin=stub)
-
-        assert completed.returncode == 0, completed.stderr
-        assert "systemctl" not in completed.stdout

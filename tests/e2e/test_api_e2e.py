@@ -132,7 +132,9 @@ class TestJobLifecycleOverWebSocket:
 
         # 直近 SUCCEEDED ジョブの計測値を設定へ反映する（apply 往復）
         apply = httpx.post(
-            f"{live_server.base_url}/api/jobs/last/apply", timeout=_HTTP_TIMEOUT
+            f"{live_server.base_url}/api/jobs/last/apply",
+            json={"expected_job_id": job["id"]},
+            timeout=_HTTP_TIMEOUT,
         )
         assert apply.status_code == 200
         assert apply.json()["applied"] == {"paste_dispenser.pad_align.canny_low": 77.0}
@@ -164,7 +166,11 @@ class TestRuntimeParamUpdateOverWebSocket:
 
             put = httpx.put(
                 f"{live_server.base_url}/api/jobs/current/params",
-                json={"values": {"live_value": 42.0}, "persist": False},
+                json={
+                    "values": {"live_value": 42.0},
+                    "persist": False,
+                    "expected_job_id": response.json()["job"]["id"],
+                },
                 timeout=_HTTP_TIMEOUT,
             )
             assert put.status_code == 200, put.text

@@ -36,6 +36,8 @@ from tests.web.api.conftest import COPPER_PCB_FIXTURE
 from web.api.settings import Settings
 from web.api.state import AppState
 
+# selected_client が選ぶ PCB（copper_pcb_path）。PATCH の expected_pcb に添える
+_SELECTED_PCB = "real/led_blinker.kicad_pcb"
 # led_blinker の安定した参照点
 _U1_PADS = {f"U1.{n}" for n in range(1, 7)}  # U1 は 6 pad、全て同形状（L3 単一）
 
@@ -93,9 +95,17 @@ class TestPcbNotSelected:
         [
             pytest.param("GET", "", None, id="config"),
             pytest.param("GET", "/copper", None, id="copper"),
-            pytest.param("PATCH", "/node", {"node": "L0", "enabled": False}, id="node"),
             pytest.param(
-                "PATCH", "/initial-purge", {"initial_purge_ul": 0.25}, id="purge"
+                "PATCH",
+                "/node",
+                {"node": "L0", "enabled": False, "expected_pcb": _SELECTED_PCB},
+                id="node",
+            ),
+            pytest.param(
+                "PATCH",
+                "/initial-purge",
+                {"initial_purge_ul": 0.25, "expected_pcb": _SELECTED_PCB},
+                id="purge",
             ),
             pytest.param("POST", "/route", {"layer": "Top"}, id="route"),
             pytest.param("POST", "/fill-path", {"layer": "Top"}, id="fill-path"),
@@ -218,7 +228,11 @@ class TestInitialPurgePadConfig:
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"initial_purge_ul": 0.25, "point": [15.0, 4.0]},
+            json={
+                "initial_purge_ul": 0.25,
+                "point": [15.0, 4.0],
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
 
         assert response.status_code == 200, response.text
@@ -240,13 +254,13 @@ class TestInitialPurgePadConfig:
     ):
         amount_response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"initial_purge_ul": 0.22},
+            json={"initial_purge_ul": 0.22, "expected_pcb": _SELECTED_PCB},
         )
         assert amount_response.status_code == 200, amount_response.text
 
         point_response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"point": [15.0, 4.0]},
+            json={"point": [15.0, 4.0], "expected_pcb": _SELECTED_PCB},
         )
 
         assert point_response.status_code == 200, point_response.text
@@ -264,7 +278,7 @@ class TestInitialPurgePadConfig:
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"initial_purge_ul": 0.25},
+            json={"initial_purge_ul": 0.25, "expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 200, response.text
@@ -275,7 +289,7 @@ class TestInitialPurgePadConfig:
     def test_patch_non_numeric_amount_returns_400(self, selected_client: TestClient):
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"initial_purge_ul": None},
+            json={"initial_purge_ul": None, "expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 400
@@ -289,7 +303,7 @@ class TestInitialPurgePoint:
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"point": [15.0, 4.0]},
+            json={"point": [15.0, 4.0], "expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 200, response.text
@@ -307,13 +321,13 @@ class TestInitialPurgePoint:
     ):
         saved = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"point": [15.0, 4.0]},
+            json={"point": [15.0, 4.0], "expected_pcb": _SELECTED_PCB},
         )
         assert saved.status_code == 200, saved.text
 
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"point": None},
+            json={"point": None, "expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 200, response.text
@@ -326,7 +340,7 @@ class TestInitialPurgePoint:
     def test_point_outside_the_outline_returns_400(self, selected_client: TestClient):
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"point": [999.0, 999.0]},
+            json={"point": [999.0, 999.0], "expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 400
@@ -338,7 +352,7 @@ class TestInitialPurgePoint:
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/initial-purge",
-            json={"point": value},
+            json={"point": value, "expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 400
@@ -365,7 +379,7 @@ class TestFlowCalibrationPoints:
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
-            json={"points": [[15.0, 4.0]]},
+            json={"points": [[15.0, 4.0]], "expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 200, response.text
@@ -383,13 +397,13 @@ class TestFlowCalibrationPoints:
     ):
         first = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
-            json={"points": [[10.0, 4.0]]},
+            json={"points": [[10.0, 4.0]], "expected_pcb": _SELECTED_PCB},
         )
         assert first.status_code == 200, first.text
 
         second = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
-            json={"points": [[10.0, 4.0], [13.0, 4.0]]},
+            json={"points": [[10.0, 4.0], [13.0, 4.0]], "expected_pcb": _SELECTED_PCB},
         )
 
         assert second.status_code == 200, second.text
@@ -405,13 +419,13 @@ class TestFlowCalibrationPoints:
     ):
         saved = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
-            json={"points": [[15.0, 4.0]]},
+            json={"points": [[15.0, 4.0]], "expected_pcb": _SELECTED_PCB},
         )
         assert saved.status_code == 200, saved.text
 
         response = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
-            json={"points": []},
+            json={"points": [], "expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 200, response.text
@@ -422,7 +436,10 @@ class TestFlowCalibrationPoints:
     def test_a_point_outside_the_outline_returns_400(self, selected_client: TestClient):
         response = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
-            json={"points": [[10.0, 4.0], [999.0, 999.0]]},
+            json={
+                "points": [[10.0, 4.0], [999.0, 999.0]],
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
 
         assert response.status_code == 400
@@ -432,7 +449,8 @@ class TestFlowCalibrationPoints:
         self, selected_client: TestClient, webui_settings: Settings
     ):
         response = selected_client.patch(
-            "/api/pasting/pad-config/flow-calibration", json={}
+            "/api/pasting/pad-config/flow-calibration",
+            json={"expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 200, response.text
@@ -455,7 +473,7 @@ class TestFlowCalibrationPoints:
         assert enabled.status_code == 200, enabled.text
         saved = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
-            json={"points": [[10.0, 4.0], [13.0, 4.0]]},
+            json={"points": [[10.0, 4.0], [13.0, 4.0]], "expected_pcb": _SELECTED_PCB},
         )
         assert saved.status_code == 200, saved.text
 
@@ -477,7 +495,7 @@ class TestFlowCalibrationPoints:
         """
         response = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
-            json={"points": [[10.0, 4.0]]},
+            json={"points": [[10.0, 4.0]], "expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 200, response.text
@@ -526,7 +544,7 @@ class TestFlowCalibrationPoints:
 
         response = selected_client.patch(
             "/api/pasting/pad-config/flow-calibration",
-            json={"points": [[10.0, 4.0], [12.0, 4.0]]},
+            json={"points": [[10.0, 4.0], [12.0, 4.0]], "expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 200, response.text
@@ -607,7 +625,8 @@ class TestTreeNodeResolution:
             {"node": "L4:U1:1", "values": {"bead_width_factor": 0.8}},
         ):
             patched = selected_client.patch(
-                "/api/pasting/pad-config/node", json=payload
+                "/api/pasting/pad-config/node",
+                json={**payload, "expected_pcb": _SELECTED_PCB},
             )
             assert patched.status_code == 200, patched.text
 
@@ -658,7 +677,11 @@ class TestTreeNodeResolution:
     ):
         patched = selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L0", "values": {"dispense_mode": "dot"}},
+            json={
+                "node": "L0",
+                "values": {"dispense_mode": "dot"},
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
         assert patched.status_code == 200, patched.text
 
@@ -717,7 +740,7 @@ class TestPatchNode:
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": node, "enabled": False},
+            json={"node": node, "enabled": False, "expected_pcb": _SELECTED_PCB},
         )
 
         assert response.status_code == 200, response.text
@@ -735,7 +758,11 @@ class TestPatchNode:
         # 塗布高さの列に出す項目はサーバーが決める。微小線のノードとその子孫は始点高・終点高
         response = selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"dispense_mode": "micro_line"}},
+            json={
+                "node": "L2:U1",
+                "values": {"dispense_mode": "micro_line"},
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
 
         assert response.status_code == 200, response.text
@@ -748,7 +775,11 @@ class TestPatchNode:
     def test_l2_values_upsert_reflects_on_children(self, selected_client: TestClient):
         response = selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"bead_width_factor": 0.8}},
+            json={
+                "node": "L2:U1",
+                "values": {"bead_width_factor": 0.8},
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
 
         assert response.status_code == 200, response.text
@@ -763,7 +794,11 @@ class TestPatchNode:
     ):
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": node, "values": {"prime_extra_delay": 0.3}},
+            json={
+                "node": node,
+                "values": {"prime_extra_delay": 0.3},
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
 
         config = _get_config(selected_client)
@@ -788,11 +823,16 @@ class TestPatchNode:
                     "dispense_mode": "line",
                     "paste_height": "auto",
                 },
+                "expected_pcb": _SELECTED_PCB,
             },
         )
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L4:U1:1", "values": {"paste_height": 0.25}},
+            json={
+                "node": "L4:U1:1",
+                "values": {"paste_height": 0.25},
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
 
         config = _get_config(selected_client)
@@ -806,12 +846,20 @@ class TestPatchNode:
     def test_clear_returns_to_inheritance(self, selected_client: TestClient, node: str):
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": node, "values": {"prime_extra_delay": 0.3}},
+            json={
+                "node": node,
+                "values": {"prime_extra_delay": 0.3},
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
 
         response = selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": node, "clear": ["prime_extra_delay"]},
+            json={
+                "node": node,
+                "clear": ["prime_extra_delay"],
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
 
         assert response.status_code == 200, response.text
@@ -855,7 +903,10 @@ class TestPatchNode:
     def test_invalid_patch_returns_400(
         self, selected_client: TestClient, payload: dict
     ):
-        response = selected_client.patch("/api/pasting/pad-config/node", json=payload)
+        response = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={**payload, "expected_pcb": _SELECTED_PCB},
+        )
         assert response.status_code == 400
 
 
@@ -867,7 +918,11 @@ class TestPatchPads:
     ):
         response = selected_client.patch(
             "/api/pasting/pad-config/pads",
-            json={"ids": ["U1.1", "U1.2"], "enabled": False},
+            json={
+                "ids": ["U1.1", "U1.2"],
+                "enabled": False,
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
 
         assert response.status_code == 200, response.text
@@ -892,7 +947,11 @@ class TestExportImport:
     ):
         selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.3}},
+            json={
+                "node": "L2:U1",
+                "values": {"prime_extra_delay": 0.3},
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
 
         response = selected_client.get("/api/pasting/pad-config/export")
@@ -917,7 +976,11 @@ class TestExportImport:
         # export 後に override を公開 API で消し、import が復元することを見る
         cleared = selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "clear": ["prime_extra_delay"]},
+            json={
+                "node": "L2:U1",
+                "clear": ["prime_extra_delay"],
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
         assert cleared.status_code == 200, cleared.text
         assert "L2:U1" not in _get_config(selected_client)["overrides"]
@@ -1018,7 +1081,11 @@ class TestPadConfigFillPath:
     def test_fill_path_uses_resolved_dispense_mode(self, selected_client: TestClient):
         patch = selected_client.patch(
             "/api/pasting/pad-config/node",
-            json={"node": "L0", "values": {"dispense_mode": "dot"}},
+            json={
+                "node": "L0",
+                "values": {"dispense_mode": "dot"},
+                "expected_pcb": _SELECTED_PCB,
+            },
         )
         assert patch.status_code == 200, patch.text
 
@@ -1030,7 +1097,7 @@ class TestPadConfigFillPath:
 
 
 class TestExpectedPcb:
-    """expected_pcb による PCB 切替の検出（MR1: 409 / None は無検査）."""
+    """expected_pcb による PCB 切替の検出（不一致は 409、欠けていれば 422）."""
 
     def test_matching_expected_pcb_is_accepted(self, selected_client: TestClient):
         pcb_file = _get_config(selected_client)["pcb_file"]
@@ -1059,6 +1126,23 @@ class TestExpectedPcb:
 
         assert response.status_code == 409, response.text
 
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [
+            ("/api/pasting/pad-config/node", {"node": "L0", "enabled": False}),
+            ("/api/pasting/pad-config/pads", {"ids": ["U1.1"], "enabled": False}),
+            ("/api/pasting/pad-config/initial-purge", {"initial_purge_ul": 1.0}),
+            ("/api/pasting/pad-config/flow-calibration", {"points": []}),
+        ],
+    )
+    def test_missing_expected_pcb_is_rejected_with_422(
+        self, selected_client: TestClient, path: str, body: dict
+    ):
+        """編集開始時の PCB を添えない PATCH は、切替を検出できないので受け付けない."""
+        response = selected_client.patch(path, json=body)
+
+        assert response.status_code == 422, response.text
+
     def test_rejected_patch_does_not_persist(
         self, selected_client: TestClient, webui_settings: Settings
     ):
@@ -1066,7 +1150,7 @@ class TestExpectedPcb:
         # 状態と「409 で書かれなかった」状態を区別するため）
         accepted = selected_client.patch(
             "/api/pasting/pad-config/pads",
-            json={"ids": ["U1.2"], "enabled": False},
+            json={"ids": ["U1.2"], "enabled": False, "expected_pcb": _SELECTED_PCB},
         )
         assert accepted.status_code == 200, accepted.text
         before = _saved_board_settings_doc(webui_settings)

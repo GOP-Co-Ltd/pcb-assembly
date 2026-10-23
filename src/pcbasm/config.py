@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import os
 import tomllib
 from collections.abc import Callable, Mapping
@@ -717,29 +716,6 @@ class ReferencePoint:
         return board_corner + self.offsets.get(corner)
 
 
-# [paste_dispenser] の外に書かれていた頃のノズル位置セクション名
-LEGACY_NOZZLE_SECTIONS = ("nozzle_cap", "nozzle_clean")
-
-
-def _merge_legacy_nozzle_sections(data: dict[str, Any]) -> None:
-    """旧トップレベルのノズル位置を [paste_dispenser] 配下へ写す.
-
-    設定ファイルを書き換えなくても動き続けるようにする（ファイル自体の移行は
-    設定を書き込むときに ``ConfigStore`` が行う）。読み取り経路をここ 1 箇所に
-    まとめるのは、``paste_dispenser`` 経由で読む消費者とノズル専用のアクセサで
-    見える値が食い違わないようにするため。
-
-    移行済みの値がある場合は、旧セクションに残った値で上書きしない。
-    """
-    for name in LEGACY_NOZZLE_SECTIONS:
-        legacy = data.pop(name, None)
-        if legacy is None:
-            continue
-        parent = data.setdefault("paste_dispenser", {})
-        if isinstance(parent, dict):
-            parent.setdefault(name, legacy)
-
-
 def _structure_dispense_mode(value: object, _: object) -> DispenseMode:
     if isinstance(value, str) and value in DISPENSE_MODES:
         return value
@@ -874,8 +850,6 @@ def parse_machine(data: Mapping[str, Any], config_dir: Path) -> Machine:
     Raises:
         ConfigError: 検証に通らない場合（不正な項目をすべて挙げる）
     """
-    data = copy.deepcopy(dict(data))
-    _merge_legacy_nozzle_sections(data)
     machine = _structure(data, Machine)
     calibration_file = config_dir.resolve() / machine.camera.calibration_file
     return attrs.evolve(

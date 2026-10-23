@@ -25,10 +25,6 @@ backend と frontend は別 unit（`pcbasm-api.service` / `pcbasm-ui.service`）
 - `render` は読み取り専用で、`sudo` も systemctl も要らない。設置済み unit との差分確認に使う
 - `all` を対象にした `start` / `stop` / `restart` は、未登録の unit を警告して読み飛ばす
 
-旧 `pcbasm-webui.service`（旧 backend）が残ると restart ループに入る。
-旧 unit を削除するのは、対象が `api` または `all` の `install` / `remove` だけ。
-`install ui` は旧 unit を削除せず警告だけを出す。警告が出たら `install api` を実行する。
-
 起動順の依存は付けていない。frontend が backend より先に起動してよい（未起動の backend を選んだページが 503 になるだけ）。
 
 通知音を使う場合は、backend サービスの実行ユーザーから対象の ALSA PCM を再生できることも確認する。

@@ -1,7 +1,7 @@
 """基板ごとの塗布設定の永続化ストア.
 
 塗布設定（``PasteSettingsModel``）の基板ごとの差分だけを JSON として保存する。
-JSON の形と変換規則（schema version・legacy 移行を含む）は
+JSON の形と変換規則（schema version を含む）は
 :mod:`pcbasm.pasting.persist` が正典で、ここはファイルの所在・atomic write・
 read-modify-write の直列化・基板署名の照合だけを担う。
 
@@ -45,16 +45,14 @@ class BoardSettingsStore:
     ロックの対象外で、pad PATCH と同時に走ったときの原子性は保証しない。
     """
 
-    def __init__(self, data_dir: Path, *, legacy_root: Path | None = None) -> None:
+    def __init__(self, data_dir: Path) -> None:
         """ストアを初期化する.
 
         Args:
             data_dir: WebUI のデータディレクトリ（保存先は
                 ``data_dir/board_settings``）
-            legacy_root: 旧レイアウト ``data/board_settings`` の読込専用パス
         """
         self._root = data_dir / "board_settings"
-        self._legacy_root = legacy_root
         self._update_lock = threading.Lock()
 
     def board_id(self, source_pcb: str) -> str:
@@ -78,11 +76,11 @@ class BoardSettingsStore:
         Raises:
             ValueError: JSON を復元できない（schema version が未知など）場合
         """
-        doc_path = self._doc_path(source_pcb)
-        if doc_path is None:
+        path = self._path(source_pcb)
+        if not path.is_file():
             return PasteSettingsModel.from_config(base_config)
-        doc = json.loads(doc_path.read_text(encoding="utf-8"))
-        decoded = self._decode(doc, base_config, where=str(doc_path))
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        decoded = self._decode(doc, base_config, where=str(path))
         if _signature_mismatch(decoded, board_signature):
             return PasteSettingsModel.from_config(base_config)
         return decoded.model
@@ -202,15 +200,6 @@ class BoardSettingsStore:
 
     def _path(self, source_pcb: str) -> Path:
         return self._root / f"{self.board_id(source_pcb)}.json"
-
-    def _doc_path(self, source_pcb: str) -> Path | None:
-        path = self._path(source_pcb)
-        if path.is_file():
-            return path
-        if self._legacy_root is None:
-            return None
-        legacy_path = self._legacy_root / f"{self.board_id(source_pcb)}.json"
-        return legacy_path if legacy_path.is_file() else None
 
 
 def _signature_mismatch(

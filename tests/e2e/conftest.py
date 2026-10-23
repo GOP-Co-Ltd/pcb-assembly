@@ -233,13 +233,17 @@ def start_app(app: ASGIApp) -> RunningServer:
     )
 
 
+# select_led_blinker が選ぶ PCB（pad-config の PATCH に expected_pcb として添える）
+LED_BLINKER_PCB = "led_blinker/led_blinker.kicad_pcb"
+
+
 def select_led_blinker(live_server: LiveServer) -> None:
     """実 fixture の led_blinker 一式を pcb root へ複製し、公開 API で選択する."""
     destination = live_server.settings.pcb_browse_root / "led_blinker"
     shutil.copytree(COPPER_PCB_FIXTURE.parent, destination)
     response = httpx.put(
         f"{live_server.base_url}/api/pcb-file",
-        json={"path": "led_blinker/led_blinker.kicad_pcb"},
+        json={"path": LED_BLINKER_PCB},
         timeout=_HTTP_TIMEOUT,
     )
     assert response.status_code == 200, response.text

@@ -8,6 +8,7 @@ import pytest
 from playwright.sync_api import expect
 
 from tests.e2e.conftest import (
+    LED_BLINKER_PCB,
     LiveServer,
     LiveUi,
     acquire_control,
@@ -57,7 +58,11 @@ class TestPadEditorKeyboard:
 
         response = page.request.patch(
             f"{ui.base_url}/api/pasting/pad-config/node",
-            data={"node": "L0", "values": {"ul_per_mm2": 0.31}},
+            data={
+                "node": "L0",
+                "values": {"ul_per_mm2": 0.31},
+                "expected_pcb": LED_BLINKER_PCB,
+            },
         )
         assert response.status == 200
         with page.expect_response("**/api/pasting/pad-config"):

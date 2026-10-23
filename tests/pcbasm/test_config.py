@@ -575,23 +575,6 @@ class TestNozzlePosition:
         with pytest.raises(ConfigError, match="x / y / z の 3 つ"):
             load_machine(path)
 
-    def test_legacy_top_level_section_is_read(self, tmp_path: Path, section: str):
-        """旧トップレベルの節も [paste_dispenser] 配下として読む."""
-        machine = _machine_with(tmp_path, f"[{section}]\nx = 10.0\ny = 20.0\nz = 3.5\n")
-
-        position = getattr(machine.paste_dispenser, section).position
-        assert position == Point3d(10.0, 20.0, 3.5)
-
-    def test_new_section_wins_over_the_legacy_one(self, tmp_path: Path, section: str):
-        machine = _machine_with(
-            tmp_path,
-            f"[{section}]\nx = 1.0\ny = 2.0\nz = 3.0\n"
-            f"[paste_dispenser.{section}]\nx = 10.0\ny = 20.0\nz = 3.5\n",
-        )
-
-        position = getattr(machine.paste_dispenser, section).position
-        assert position == Point3d(10.0, 20.0, 3.5)
-
 
 class TestNozzleClean:
     """NozzleClean の動作値（座標が未教示でも読み、検証する）."""

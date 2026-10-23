@@ -10,6 +10,7 @@ from playwright.sync_api import expect
 
 from pcbasm.hal.fake import FakeAudioPlayer
 from tests.e2e.conftest import (
+    LED_BLINKER_PCB,
     LiveServer,
     LiveUi,
     acquire_control,
@@ -48,7 +49,11 @@ def live_server(e2e_settings: Settings) -> Iterator[LiveServer]:
         select_led_blinker(live)
         httpx.patch(
             f"{live.base_url}/api/pasting/pad-config/node",
-            json={"node": "L0", "values": {"ul_per_mm2": 0.15}},
+            json={
+                "node": "L0",
+                "values": {"ul_per_mm2": 0.15},
+                "expected_pcb": LED_BLINKER_PCB,
+            },
         ).raise_for_status()
         yield live
     finally:

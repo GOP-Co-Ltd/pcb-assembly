@@ -4,7 +4,6 @@ set -euo pipefail
 
 # backend WebAPI（機体ごと）と UI frontend（1 台）を別 unit として扱う。
 # unit 名 / make ターゲット / 対象名は同じ語（api, ui）で揃えてある。
-LEGACY_SERVICE_NAME="pcbasm-webui.service"
 DEFAULT_TARGET="api"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # 以下 2 つはテスト用の seam。既定値は実機の systemd と sudo。
@@ -32,10 +31,6 @@ Usage: $(basename "$0") <install|start|stop|restart|status|remove|render> [api|u
   remove   サービスを停止・無効化し、登録を削除する
   render   unit テキストを標準出力に書く（systemd には触らない。設置済み unit との
            差分確認に使う。WebUI の自己更新がこれを読んで「再 install が要る」を出す）
-
-旧 ${LEGACY_SERVICE_NAME}（= backend）の削除は install / remove の対象が
-api または all のときだけ行う。ui 単体では削除せず、install ui は残っていれば
-警告するだけ。
 EOF
 }
 
@@ -132,33 +127,6 @@ WantedBy=multi-user.target
 EOF
 }
 
-# 旧 unit は `ExecStart=make webui` を参照している。Makefile から webui エイリアスを
-# 消したため、残しておくと restart ループに入る。
-#
-# 掃除するのは**置き換え先（backend = api）を入れる/外すときだけ**。旧 unit は backend
-# そのものなので、`install ui` で消すと稼働中の同居機から backend が消えて frontend だけが
-# 残る（`install api` を打つまで backend 不在）。
-purge_legacy_unit() {
-    local legacy_path="${SYSTEMD_UNIT_DIR}/${LEGACY_SERVICE_NAME}"
-
-    if [ ! -e "${legacy_path}" ]; then
-        return 0
-    fi
-
-    echo "旧 ${LEGACY_SERVICE_NAME} を検出しました。無効化して削除します。"
-    ${SUDO} systemctl disable --now "${LEGACY_SERVICE_NAME}" || true
-    ${SUDO} rm -f "${legacy_path}"
-    ${SUDO} systemctl daemon-reload
-    ${SUDO} systemctl reset-failed "${LEGACY_SERVICE_NAME}" 2>/dev/null || true
-}
-
-# api 以外を対象にしたときは旧 unit を触らず、残っていることだけを知らせる。
-warn_legacy_unit() {
-    if [ -e "${SYSTEMD_UNIT_DIR}/${LEGACY_SERVICE_NAME}" ]; then
-        echo "警告: 旧 ${LEGACY_SERVICE_NAME} が残っています。'$0 install api' を実行してください。" >&2
-    fi
-}
-
 require_privileged_tools() {
     require_non_root
     require_command sudo
@@ -171,12 +139,6 @@ install_service() {
 
     require_command make
     require_command uv
-
-    if [ "${target}" = "api" ]; then
-        purge_legacy_unit
-    else
-        warn_legacy_unit
-    fi
 
     unit_file="$(mktemp)"
     # trap 本文は関数フレームが巻き戻された後に評価されるため、local の ${unit_file} を
@@ -201,13 +163,6 @@ remove_service() {
     local target="$1" name path
     name="$(service_name "${target}")"
     path="$(unit_path "${target}")"
-
-    # install と対称に旧 unit も撤去する。未移行の機体には新 unit が無いので、先に
-    # 掃除しないと下の「登録されていません」で終了してしまい、`make webui` が無いため
-    # restart ループに入る旧 unit が enabled のまま残る。
-    if [ "${target}" = "api" ]; then
-        purge_legacy_unit
-    fi
 
     if [ ! -e "${path}" ]; then
         echo "${name} は登録されていません。"

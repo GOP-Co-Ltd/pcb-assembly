@@ -16,6 +16,7 @@ import httpx
 from playwright.sync_api import expect
 
 from tests.e2e.conftest import (
+    LED_BLINKER_PCB,
     LiveServer,
     LiveUi,
     acquire_control as _acquire_control,
@@ -98,7 +99,7 @@ def _patch_pad_config_node(
 ):
     response = httpx.patch(
         f"{live_server.base_url}/api/pasting/pad-config/node",
-        json={"node": node_id, "values": values},
+        json={"node": node_id, "values": values, "expected_pcb": LED_BLINKER_PCB},
         timeout=_HTTP_TIMEOUT,
     )
     assert response.status_code == 200, response.text
@@ -947,7 +948,11 @@ class TestPasteSolderBrowserPadInteraction:
         _select_led_blinker(live_server)
         patch = httpx.patch(
             f"{live_server.base_url}/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "values": {"prime_extra_delay": 0.33}},
+            json={
+                "node": "L2:U1",
+                "values": {"prime_extra_delay": 0.33},
+                "expected_pcb": LED_BLINKER_PCB,
+            },
             timeout=_HTTP_TIMEOUT,
         )
         assert patch.status_code == 200, patch.text
@@ -959,7 +964,11 @@ class TestPasteSolderBrowserPadInteraction:
         # export 後に override を公開 API で消し、import が復元することを見る
         cleared = httpx.patch(
             f"{live_server.base_url}/api/pasting/pad-config/node",
-            json={"node": "L2:U1", "clear": ["prime_extra_delay"]},
+            json={
+                "node": "L2:U1",
+                "clear": ["prime_extra_delay"],
+                "expected_pcb": LED_BLINKER_PCB,
+            },
             timeout=_HTTP_TIMEOUT,
         )
         assert cleared.status_code == 200, cleared.text

@@ -180,9 +180,7 @@ def create_app(
     app.state.paste_test_board_generator = BoardGenerator(
         paste_test_board_footprint_root
     )
-    board_store = BoardSettingsStore(
-        settings.webui_data_dir, legacy_root=settings.data_dir / "board_settings"
-    )
+    board_store = BoardSettingsStore(settings.webui_data_dir)
     app.state.board_store = board_store
     app.state.jobs = JobManager(
         state, preview, catalog, settings, board_store, audio_player=audio_player

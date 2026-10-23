@@ -210,7 +210,7 @@ class JobParamsUpdateRequest(BaseModel):
 
     values: dict[str, Any] = {}
     persist: bool = False
-    expected_job_id: str | None = None
+    expected_job_id: str
 
 
 @router.put("/jobs/current/params")
@@ -230,9 +230,9 @@ def put_current_params(
 
 
 class JobResultRequest(BaseModel):
-    """画面で確認したジョブの結果だけを反映・破棄する。省略時は従来どおり直近。"""
+    """画面で確認したジョブの結果だけを反映・破棄する."""
 
-    expected_job_id: str | None = None
+    expected_job_id: str
 
 
 @router.post("/jobs/last/apply")
@@ -241,24 +241,23 @@ def post_apply(
     state: StateDep,
     store: StoreDep,
     _control: ControlDep,
-    body: JobResultRequest | None = None,
+    body: JobResultRequest,
 ) -> dict[str, dict[str, bool | float | int | str]]:
     """直近 SUCCEEDED ジョブの計測結果を設定へ反映する.
 
     409: 対象ジョブ不一致・反映可能なジョブ無し（LookupError）/ 実行中（BusyError）。
     400: ホワイトリスト外キー（UnknownFieldError）。
     """
-    expected_job_id = body.expected_job_id if body is not None else None
     with state.machine_lock("apply-settings"):
         try:
-            payload = jobs.apply_payload(expected_job_id=expected_job_id)
+            payload = jobs.apply_payload(expected_job_id=body.expected_job_id)
         except LookupError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         store.write_machine_settings(
             payload.values,
             files={file.filename: file.content for file in payload.files},
         )
-        jobs.mark_applied(expected_job_id=expected_job_id)
+        jobs.mark_applied(expected_job_id=body.expected_job_id)
     jobs.publish_state_changed()
     return {"applied": dict(payload.values)}
 
@@ -267,11 +266,11 @@ def post_apply(
 def post_discard(
     jobs: JobsDep,
     _control: ControlDep,
-    body: JobResultRequest | None = None,
+    body: JobResultRequest,
 ) -> dict[str, bool]:
     """直近ジョブの設定反映ペイロードを破棄する（冪等。409: 対象ジョブ不一致）."""
     try:
-        jobs.discard(expected_job_id=body.expected_job_id if body is not None else None)
+        jobs.discard(expected_job_id=body.expected_job_id)
     except LookupError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"ok": True}
@@ -402,8 +401,8 @@ def _dispatch(
             if not isinstance(command, dict):
                 raise ValueError("command オブジェクトが必要です")
             expected_job_id = message.get("expected_job_id")
-            if expected_job_id is not None and not isinstance(expected_job_id, str):
-                raise ValueError("expected_job_id は文字列で指定してください")
+            if not isinstance(expected_job_id, str):
+                raise ValueError("expected_job_id（文字列）が必要です")
             lease.claim(identity)
             jobs.submit_command(
                 cast(dict[str, Any], command), expected_job_id=expected_job_id

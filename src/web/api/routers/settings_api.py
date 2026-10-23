@@ -5,10 +5,13 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from web.api.config_store import MachineSettingValue
 from web.api.dependencies import ControlDep, HistoryDep, JobsDep, StateDep, StoreDep
 from web.api.history import UnknownSnapshotError
-from web.api.models import ConfigHistoryResponse, MachineSettingsResponse
+from web.api.models import (
+    ConfigHistoryResponse,
+    MachineSettingsResponse,
+    MachineSettingValue,
+)
 from web.api.routers.common import machine_settings_fields
 
 router = APIRouter(prefix="/api")

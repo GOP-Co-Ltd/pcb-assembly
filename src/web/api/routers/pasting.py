@@ -280,9 +280,9 @@ def _flow_calibration_points(values: list[list[float]]) -> tuple[Point2d, ...]:
     return tuple(Point2d(value[0], value[1]) for value in values)
 
 
-def _check_expected_pcb(expected_pcb: str | None, loaded: Loaded) -> None:
-    """編集開始時の PCB と選択中 PCB の不一致を 409 で弾く（None は無検査）."""
-    if expected_pcb is not None and expected_pcb != loaded.source_pcb:
+def _check_expected_pcb(expected_pcb: str, loaded: Loaded) -> None:
+    """編集開始時の PCB と選択中 PCB の不一致を 409 で弾く."""
+    if expected_pcb != loaded.source_pcb:
         raise HTTPException(
             status_code=409,
             detail="PCB が切り替わりました。ページを再読み込みしてください",

@@ -422,7 +422,7 @@ document は移行せず「未対応」として拒否する（v1・v2 からの
 - `blanks[]` は塗布しなかったセルで、`execution` を持たず、`measured_volume_ul` は常に 0.0
 - `paste.lot` は任意で、入力しなければ `null`
 - `loading` はローディングの実績（押出量と回転数の合計）。記録専用で、計量値にも配分にも入らない
-- `config.capture_order` は現版では常に `"phased"`（3 パス）。点ごとに撮った既存 dataset を読めるよう `"interleaved"` も受け付ける
+- `config.capture_order` は常に `"phased"`（3 パス）
 - `rotations_per_ul` の単位は rev/µL。`execution.rotations` は `commanded_volume_ul + prime_extra_volume_ul` に `rotations_per_ul` を掛けた正方向の指令回転数で、prime の押し戻しと retract の往復分は含めない
 
 ## 設計方針
