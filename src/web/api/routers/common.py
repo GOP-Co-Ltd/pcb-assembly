@@ -16,6 +16,7 @@ import attrs
 import httpx
 from fastapi import HTTPException
 
+from pcbasm import hal
 from pcbasm.config import Machine, NozzleClean
 from pcbasm.hal import Klipper
 from pcbasm.pasting.nozzle_clean import clean_position_label
@@ -51,8 +52,7 @@ from web.api.state import AppState
 
 def create_klipper(state: AppState, timeout: float) -> Klipper:
     """マシン設定で Klipper クライアントを生成する."""
-    klipper_config = state.machine().klipper
-    return Klipper(host=klipper_config.host, port=klipper_config.port, timeout=timeout)
+    return hal.open_klipper(state.machine().klipper, timeout=timeout)
 
 
 def fetch_status(klipper: Klipper) -> KlipperStatus:

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import attrs
 
+from pcbasm import hal
 from pcbasm.config import Machine
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Shift, Transform
@@ -233,7 +234,7 @@ def setup_board_calibration(
 
     # Klipper 接続
     logger.info("=== Klipper接続 ===")
-    klipper = Klipper(host=machine.klipper.host, port=machine.klipper.port)
+    klipper = hal.open_klipper(machine.klipper)
     logger.info("接続先: %s:%s", machine.klipper.host, machine.klipper.port)
     stage = XYZStage(klipper.readonly)
 

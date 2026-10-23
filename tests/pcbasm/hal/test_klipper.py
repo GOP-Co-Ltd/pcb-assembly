@@ -1,8 +1,12 @@
+import socket
+
+import httpx
 import pytest
 from pytest_mock import MockerFixture
 
+from pcbasm.config import Klipper as KlipperConfig
 from pcbasm.gcode import PRESENT_MACRO, GCode
-from pcbasm.hal.klipper import GCodeMacro, Klipper
+from pcbasm.hal.klipper import GCodeMacro, Klipper, open_klipper
 from tests.helpers import mark_hardware
 
 
@@ -119,3 +123,21 @@ class TestKlipper:
         assert len(warnings) == 1
         assert "PRESENT" in warnings[0]
         assert "config unavailable" in warnings[0]
+
+
+class TestOpenKlipper:
+    """open_klipper は設定の接続先と timeout をそのまま写す.
+
+    root conftest が差し替えるのは ``pcbasm.hal.open_klipper`` なので、
+    ``pcbasm.hal.klipper`` から import した実物を検査できる。
+    """
+
+    @pytest.mark.timeout(10)
+    def test_connects_to_configured_address_with_timeout(self):
+        # 待ち受けるだけで応答しない相手。接続先が違えば ConnectError、timeout が無ければ待ち続ける
+        with socket.create_server(("127.0.0.1", 0)) as server:
+            config = KlipperConfig(host="127.0.0.1", port=server.getsockname()[1])
+            klipper = open_klipper(config, timeout=0.2)
+
+            with pytest.raises(httpx.ReadTimeout):
+                klipper.send_gcode("M115")
