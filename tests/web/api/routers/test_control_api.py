@@ -32,7 +32,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
-from tests.helpers import before_deadline
+from tests.support.polling import before_deadline
 from tests.web.api.jobs.conftest import register_synthetic
 from web.api.app import create_app
 from web.api.control import ClientIdentity

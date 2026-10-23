@@ -15,6 +15,7 @@ Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声�
 | `camera.py`          | カメラの抽象基底 `Camera` と生成関数 `create_camera`（backend `"usb"` = V4L2、`"csi"` = picamera2）                                   |
 | `framehub.py`        | 専有スレッド 1 本で capture し、最新フレームを複数の消費者へ配る `FrameHub`                                                           |
 | `audio.py`           | ALSA の通知音再生 `AlsaAudioPlayer`。音源は `sounds/` の WAV                                                                          |
+| `fake.py`            | 実機の代わりの `FakeKlipper` / `FakeCamera` / `FakeAudioPlayer`。テストと `make api-fake` が共用する                                  |
 
 公開名は `pcbasm.hal` から re-export している（`from pcbasm.hal import Klipper, XYZStage`）。
 
@@ -30,5 +31,5 @@ Hardware Abstraction Layer: カメラ・Klipper（Moonraker 経由）・音声�
 
 - 新しいデバイスを足すときも、上の流れに合わせて「`ReadonlyKlipper` で設定を読み、`GCode` を返す」形にする
 - 機械設定（TOML）から HAL を組み立てるのは呼び出し側（`web/api/`、`posctrl.setup`、`pasting.applicator.build_applicator`）。HAL は `pcbasm.config` を読まない（例外は `audio.py`）
-- テストの fake は `tests/helpers.py` の `FakeCamera` / `FakeKlipper` / `FakeAudioPlayer`。`make api-fake` の固定画像カメラは `web/api/fake_camera.py` にある
+- fake は `fake.py` に 1 系統だけ置く。テスト用に別の fake を作らず、足りない模擬はここへ足す
 - 実機に触るテストは `@mark_hardware` を付ける（skill `hardware-test`）

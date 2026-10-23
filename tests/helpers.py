@@ -1,36 +1,19 @@
 import json
-import re
 import shutil
 import socket
 import struct
 import subprocess
-import threading
-import time
-from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import Future
-from functools import cache, wraps
+from collections.abc import Callable, Sequence
+from functools import wraps
 from pathlib import Path
 from secrets import token_hex
-from typing import Any, ParamSpec, TypeVar, override
+from typing import Any, ParamSpec, TypeVar
 
 import pcbnew
 import picamera2
 import pytest
 
-from pcbasm.config import Audio
-from pcbasm.gcode import GCode, GCodeLike
-from pcbasm.hal import Camera, CameraInfo, Klipper, Resolution
-from pcbasm.hal.audio import AudioDevice, AudioPlayer, Sound
-from pcbasm.hal.klipper import GCodeMacro, ReadonlyKlipper
-from pcbasm.vision import Image
-
-PROJECT_ROOT = Path(__file__).parent.parent
-
-TESTING_DATA_DIR = PROJECT_ROOT / "data" / "testing"
-
-# WebUI / E2E 用の config ディレクトリ fixture（Klipper port 7126 = 非リッスン）。
-# コア層用の data/testing/machine.toml とは別物（用途差は data/config-templates/README.md 参照）
-TESTING_CONFIG_DIR = TESTING_DATA_DIR / "config"
+from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 
 mark_hardware = pytest.mark.hardware
 
@@ -316,52 +299,6 @@ _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
 
-def wait_until(
-    predicate: Callable[[], bool],
-    *,
-    timeout: float = 10.0,
-    interval: float = 0.02,
-) -> None:
-    """条件が成立するまでポーリングする（タイミングのアサートはしない）.
-
-    成立しないまま timeout を超えたら pytest.fail する。sleep 固定値依存のアサートを避けるための共有ポーラ。
-    """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(interval)
-    pytest.fail(f"{timeout}s 以内に条件が成立しませんでした")
-
-
-def before_deadline[T](
-    call: Callable[[], T], *, what: str = "応答", deadline: float = 15.0
-) -> T:
-    """`deadline` 以内に返らなければ失敗させる（ハングをテスト失敗に変える）.
-
-    ブロッキングする待ち（`TestClient` の WS receive / `httpx` のストリーム読み）は
-    `pytest.mark.timeout` では中断できず、テストが「落ちる」のではなく「終わらない」。
-    締め切りをテスト側に持たせるための共有ヘルパ（daemon スレッドで走らせて join する）。
-    """
-    outcome: list[T] = []
-    failures: list[BaseException] = []
-
-    def run() -> None:
-        try:
-            outcome.append(call())
-        except BaseException as exc:  # noqa: BLE001 - 呼び出し元へそのまま送り直す
-            failures.append(exc)
-
-    worker = threading.Thread(target=run, daemon=True)
-    worker.start()
-    worker.join(deadline)
-    if failures:
-        raise failures[0]
-    if not outcome:
-        pytest.fail(f"{deadline}s 以内に{what}が返りませんでした")
-    return outcome[0]
-
-
 def _usb_camera_available() -> bool:
     """USBカメラ（uvcvideoドライバー）が接続されているか確認する."""
     try:
@@ -478,182 +415,3 @@ def random_service_type() -> str:
     成功したときに実 LAN へ広告・探索を漏らさないための構造的な予防。
     """
     return f"_pcbasmt{token_hex(4)}._tcp.local."
-
-
-# FakeAudioPlayer が既定で返すデバイス一覧（実 ALSA 構成に依存しないための固定値）
-FAKE_AUDIO_DEVICES = (
-    AudioDevice("default", "システム既定"),
-    AudioDevice(
-        "plughw:CARD=sndrpihifiberry,DEV=0",
-        "snd_rpi_hifiberry_dac, HifiBerry DAC HiFi pcm5102a-hifi-0",
-    ),
-    AudioDevice("plughw:CARD=vc4hdmi0,DEV=0", "vc4-hdmi-0, MAI PCM i2s-hifi-0"),
-)
-
-
-class FakeAudioPlayer(AudioPlayer):
-    """AudioPlayer 利用側を実ALSAなしで結合検証するテスト用実装."""
-
-    def __init__(
-        self,
-        devices: Sequence[AudioDevice] | None = None,
-        playback_error: Exception | None = None,
-    ) -> None:
-        self._devices = FAKE_AUDIO_DEVICES if devices is None else tuple(devices)
-        self._playback_error = playback_error
-        self._played: list[tuple[Sound, Audio]] = []
-        self._close_calls = 0
-
-    @property
-    def played(self) -> tuple[tuple[Sound, Audio], ...]:
-        """再生を要求された (音種, 設定) を呼び出し順に返す."""
-        return tuple(self._played)
-
-    @property
-    def close_calls(self) -> int:
-        """終了処理が呼ばれた回数を返す."""
-        return self._close_calls
-
-    @override
-    def list_devices(self) -> tuple[AudioDevice, ...]:
-        return self._devices
-
-    @override
-    def play(self, sound: Sound, config: Audio) -> Future[None]:
-        self._played.append((sound, config))
-        future: Future[None] = Future()
-        if self._playback_error is None:
-            future.set_result(None)
-        else:
-            future.set_exception(self._playback_error)
-        return future
-
-    @override
-    def close(self) -> None:
-        self._close_calls += 1
-
-
-class FakeCamera(Camera):
-    """固定 Image 列を順に返すテスト用の Camera 実装.
-
-    capture() のたびに与えられた画像を先頭から順に返し、 列を使い切った後は最後の画像を返し続ける。
-    """
-
-    def __init__(self, images: Sequence[Image], fps: float = 30.0) -> None:
-        if not images:
-            raise ValueError("imagesは1枚以上必要です")
-        self._images = list(images)
-        self._fps = fps
-        self._index = 0
-
-    @property
-    @override
-    def resolution(self) -> Resolution:
-        first = self._images[0]
-        return Resolution(width=first.width, height=first.height, fps=self._fps)
-
-    @property
-    @override
-    def info(self) -> CameraInfo:
-        return CameraInfo(name="FakeCamera", formats={"BGR": [self.resolution]})
-
-    @override
-    def capture(self) -> Image:
-        image = self._images[min(self._index, len(self._images) - 1)]
-        self._index += 1
-        return image
-
-
-# FakeKlipper が返す缶詰 printer config。実 XYZStage / PasteDispenser（ManualStepper +
-# AirPump）/ ProbeExecutor が要求するセクションだけを持つ。
-FAKE_PRINTER_CONFIG: dict[str, dict[str, Any]] = {
-    "printer": {"max_velocity": "100"},
-    "stepper_x": {"position_min": "0", "position_max": "300"},
-    "stepper_y": {"position_min": "0", "position_max": "300"},
-    "stepper_z": {"position_min": "-5", "position_max": "50"},
-    "manual_stepper paste_dispenser": {"rotation_distance": "1.0"},
-    "output_pin air_pump": {},
-    "load_cell_probe": {},
-}
-FAKE_KLIPPER_STATUS: dict[tuple[str, str], Any] = {
-    ("gcode_move", "gcode_position"): [0.0, 0.0, 5.0, 0.0],
-    ("probe", "last_z_result"): 0.0,
-}
-
-
-_G1_RE = re.compile(r"G1 (.*)")
-
-
-class FakeKlipper(Klipper):
-    """送信 G-code を記録し、缶詰 config / status を返す自前 HAL の fake.
-
-    Moonraker には接続しない（``__init__`` を上書きしてソケットを開かない）。
-    ``ReadonlyKlipper`` は束縛メソッドを保持するだけなので、実 ``XYZStage`` /
-    ``PasteDispenser`` / ``ProbeExecutor`` をそのまま組み合わせて結合検証できる。
-    """
-
-    def __init__(
-        self,
-        *,
-        config: Mapping[str, Mapping[str, Any]] = FAKE_PRINTER_CONFIG,
-        status: Mapping[tuple[str, str], Any] = FAKE_KLIPPER_STATUS,
-    ) -> None:
-        self._config = {section: dict(values) for section, values in config.items()}
-        self._status = dict(status)
-        self._sent: list[GCode] = []
-        self._readonly = ReadonlyKlipper(self)
-
-    @property
-    def sent(self) -> tuple[GCode, ...]:
-        """``send_gcode`` に渡された G-code を呼び出し順に返す."""
-        return tuple(self._sent)
-
-    @property
-    def sent_lines(self) -> list[str]:
-        """送信した全 G-code を行に展開して返す."""
-        return [line for gc in self._sent for line in str(gc).splitlines()]
-
-    def clear_sent(self) -> None:
-        self._sent.clear()
-
-    def g1_moves(self) -> list[dict[str, float]]:
-        """送信した ``G1`` の座標を {軸: 値} の列で返す（``f`` は feed）."""
-        moves: list[dict[str, float]] = []
-        for line in self.sent_lines:
-            match = _G1_RE.match(line)
-            if match:
-                moves.append(
-                    {
-                        part[0].lower(): float(part[1:])
-                        for part in match.group(1).split()
-                    }
-                )
-        return moves
-
-    def set_status(self, object: str, attribute: str, value: Any) -> None:
-        self._status[(object, attribute)] = value
-
-    @override
-    def send_gcode(
-        self, gcode: GCodeLike, *, timeout: float | None = None
-    ) -> dict[str, Any]:
-        self._sent.append(GCode(gcode))
-        return {"result": "ok"}
-
-    @override
-    def get_status(self, object: str, attribute: str) -> Any:
-        return self._status[(object, attribute)]
-
-    @override
-    @cache
-    def get_config(self) -> dict[str, dict[str, Any]]:
-        return self._config
-
-    @override
-    @cache
-    def get_macros(self) -> dict[str, GCodeMacro]:
-        return {}
-
-    @override
-    def __del__(self) -> None:
-        pass

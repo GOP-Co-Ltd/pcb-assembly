@@ -25,7 +25,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import FakeAudioPlayer, mark_hardware
+from pcbasm.hal.fake import FakeAudioPlayer
+from tests.helpers import mark_hardware
 from tests.web.api.jobs.conftest import register_gated
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app

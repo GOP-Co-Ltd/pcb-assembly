@@ -32,7 +32,7 @@ from pcbasm.pasting.dataset.writer import (
     rescuable_sessions,
 )
 from pcbasm.vision.crop import RectCrop
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 
 METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
 PENDING_V1 = TESTING_DATA_DIR / "schemas" / "paste_dataset_pending_v1.json"

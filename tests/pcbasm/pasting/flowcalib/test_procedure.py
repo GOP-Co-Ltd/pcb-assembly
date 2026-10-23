@@ -17,10 +17,11 @@ import pytest
 from pcbasm.config import Machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
 from pcbasm.pasting.flowcalib.flow import RotationsPerUlRound
 from pcbasm.pasting.flowcalib.procedure import FlowCalibrationProcedure
 from pcbasm.pasting.session import PasteSession
-from tests.helpers import FAKE_PRINTER_CONFIG, TESTING_DATA_DIR, FakeKlipper
+from tests.support.paths import TESTING_DATA_DIR
 
 MACHINE = Machine(TESTING_DATA_DIR / "machine.toml")
 ROTATION_DISTANCE = float(

@@ -25,13 +25,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from pcbasm.hal.fake import FakeAudioPlayer
+from pcbasm.utils import PROJECT_ROOT
 from pcbasm.vision import ImageArray
-from tests.helpers import (
-    PROJECT_ROOT,
-    TESTING_DATA_DIR,
-    FakeAudioPlayer,
-    copy_testing_config,
-)
+from tests.helpers import copy_testing_config
+from tests.support.paths import TESTING_DATA_DIR
 from web.api.app import create_app
 from web.api.config_store import ConfigStore
 from web.api.settings import Settings
@@ -63,7 +61,7 @@ def decode_jpeg(data: bytes) -> ImageArray | None:
 
 
 def _camera_settings(webui_settings: Settings, image: Path) -> Settings:
-    """固定画像カメラ（FixedImageCamera）を有効化した Settings を作る."""
+    """固定画像カメラ（FakeCamera）を有効化した Settings を作る."""
     return attrs.evolve(webui_settings, fake_camera=True, fake_camera_image=image)
 
 
@@ -185,7 +183,7 @@ def store(config_dir: Path) -> ConfigStore:
 
 @pytest.fixture
 def state(fake_camera_settings: Settings, store: ConfigStore) -> Iterator[AppState]:
-    """FixedImageCamera を使う実 AppState（frame 経路の検証に必要）."""
+    """FakeCamera を使う実 AppState（frame 経路の検証に必要）."""
     state = AppState(fake_camera_settings, store)
     yield state
     state.close()
@@ -193,7 +191,7 @@ def state(fake_camera_settings: Settings, store: ConfigStore) -> Iterator[AppSta
 
 @pytest.fixture
 def fake_camera_settings(webui_settings: Settings) -> Settings:
-    """FixedImageCamera（固定画像アセット）を使う Settings。preview / FrameHub 結合テスト用."""
+    """FakeCamera（固定画像アセット）を使う Settings。preview / FrameHub 結合テスト用."""
     return _camera_settings(webui_settings, FAKE_CAMERA_IMAGE)
 
 

@@ -24,7 +24,7 @@ from pcbasm.pasting.paste_volume.estimator import (
     load_diameter_estimator,
 )
 from pcbasm.vision.image import ImageArray
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 
 PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
 MATERIAL_DIR = TESTING_DATA_DIR / "paste-volume"

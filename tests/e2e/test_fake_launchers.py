@@ -15,7 +15,9 @@ import httpx
 import pytest
 
 from pcbasm.utils import PROJECT_ROOT
-from tests.helpers import TESTING_CONFIG_DIR, copy_testing_config, wait_until
+from tests.helpers import copy_testing_config
+from tests.support.paths import TESTING_CONFIG_DIR
+from tests.support.polling import wait_until
 
 
 @contextmanager

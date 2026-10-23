@@ -23,9 +23,9 @@ from shapely import Polygon, box
 from pcbasm.config import PasteDispenser as PasteDispenserConfig, Toolhead
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Point3d, Shift
 from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.params import PasteParamsPatch
-from tests.helpers import FAKE_PRINTER_CONFIG, FakeKlipper
 
 ROTATIONS_PER_UL = 45.0
 ROTATION_DISTANCE = float(

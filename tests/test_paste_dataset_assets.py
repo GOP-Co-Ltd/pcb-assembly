@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from pcbasm.pcb import PcbFile
-from tests.helpers import PROJECT_ROOT
+from pcbasm.utils import PROJECT_ROOT
 
 
 class TestPasteTestBoardAssets:

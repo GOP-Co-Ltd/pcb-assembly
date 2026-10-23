@@ -33,7 +33,7 @@ from pcbasm.pasting.dataset.recorder import (
 from pcbasm.pasting.dataset.writer import PasteDatasetWriter
 from pcbasm.vision.calibration import CalibrationResult
 from pcbasm.vision.crop import RectCrop
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 
 METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
 STARTED_AT = datetime(2026, 9, 8, 14, 30, 52, 123456, tzinfo=UTC)

@@ -41,6 +41,7 @@ from pcbasm.config import (
 )
 from pcbasm.geometry import Point3d
 from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeKlipper
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.nozzle_clean import (
     CLEAN_TRAVEL_VELOCITY,
@@ -54,7 +55,7 @@ from pcbasm.pasting.nozzle_clean import (
     wipe_gcode,
     wipe_points,
 )
-from tests.helpers import FAKE_PRINTER_CONFIG, TESTING_DATA_DIR, FakeKlipper
+from tests.support.paths import TESTING_DATA_DIR
 
 # FAKE_PRINTER_CONFIG: x,y ∈ [0,300] / z ∈ [-5,50] / max_velocity = 100
 CENTER_X = 68.0

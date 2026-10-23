@@ -25,7 +25,7 @@ from pcbasm.pasting.paste_volume.calibration import (
     parse_calibration,
     write_calibration,
 )
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 
 PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
 

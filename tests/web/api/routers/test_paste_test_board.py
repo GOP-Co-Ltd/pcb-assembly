@@ -6,8 +6,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from pcbasm.hal.fake import FakeAudioPlayer
 from pcbasm.pcb import PcbFile
-from tests.helpers import FakeAudioPlayer
 from web.api.app import create_app
 from web.api.settings import Settings
 

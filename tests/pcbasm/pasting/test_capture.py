@@ -14,13 +14,14 @@ import shapely
 from pcbasm.config import Machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.pasting.capture import PointCapturer
 from pcbasm.pasting.session import PasteSession
 from pcbasm.pcb import Copper, Layer, PcbFile
 from pcbasm.posctrl import BoardCalibrationResult
 from pcbasm.vision import Image
 from pcbasm.vision.calibration import CalibrationResult
-from tests.helpers import TESTING_CONFIG_DIR, TESTING_DATA_DIR, FakeCamera, FakeKlipper
+from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 
 LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 PPM = 10.0

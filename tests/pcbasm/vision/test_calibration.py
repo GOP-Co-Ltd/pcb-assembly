@@ -8,7 +8,7 @@ import pytest
 
 from pcbasm.vision import Image
 from pcbasm.vision.calibration import CalibrationResult, CheckerboardCalibrator
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 
 
 class TestCalibrationResult:

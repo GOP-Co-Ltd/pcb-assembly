@@ -18,6 +18,7 @@ import pytest
 
 from pcbasm.config import FlowCalibration, Machine
 from pcbasm.geometry import Point2d
+from pcbasm.hal.fake import FAKE_PRINTER_CONFIG, FakeCamera, FakeKlipper
 from pcbasm.pasting.paste_volume.calibration import (
     CALIBRATION_SUFFIX,
     parse_calibration,
@@ -27,13 +28,7 @@ from pcbasm.pasting.paste_volume.runtime import (
     FlowCalibrationOutcome,
     plan_flow_calibration,
 )
-from tests.helpers import (
-    FAKE_PRINTER_CONFIG,
-    TESTING_CONFIG_DIR,
-    TESTING_DATA_DIR,
-    FakeCamera,
-    FakeKlipper,
-)
+from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 from tests.web.api.jobs.conftest import (
     ManagerFactory,
     WaitUntil,

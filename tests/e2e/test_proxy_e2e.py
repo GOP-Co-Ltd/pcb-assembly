@@ -50,7 +50,7 @@ from tests.e2e.conftest import (
     start_app,
     wait_first_prompt as _wait_first_prompt,
 )
-from tests.helpers import before_deadline, wait_until
+from tests.support.polling import before_deadline, wait_until
 from web.api.app import create_app as create_backend_app
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint

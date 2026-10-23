@@ -25,7 +25,7 @@ from pathlib import Path
 import attrs
 import pytest
 
-from tests.helpers import before_deadline
+from tests.support.polling import before_deadline
 from tests.web.update_support import make_update_sandbox
 from web.selfupdate.report import UpdateState, UpdateStep, status_payload
 from web.selfupdate.runner import UpdateRunner

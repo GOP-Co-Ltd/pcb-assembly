@@ -15,6 +15,7 @@ from shapely import Point as ShapelyPoint, Polygon
 from pcbasm.config import Machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.pasting.toolhead_offset import (
     MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT,
     ToolheadOffsetDiagnostics,
@@ -28,7 +29,7 @@ from pcbasm.pcb import PcbFile
 from pcbasm.posctrl import BoardCalibrationResult
 from pcbasm.vision import Image
 from pcbasm.vision.calibration import CalibrationResult
-from tests.helpers import TESTING_CONFIG_DIR, TESTING_DATA_DIR, FakeCamera, FakeKlipper
+from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 
 CALIBRATED_AT = datetime(2026, 7, 17, 12, 0, 0)
 LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"

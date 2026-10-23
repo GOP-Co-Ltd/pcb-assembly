@@ -18,7 +18,7 @@ from pcbasm.pasting.paste_volume.detect import (
     measure_dot,
 )
 from pcbasm.vision.image import ImageArray
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 
 MATERIAL_DIR = TESTING_DATA_DIR / "paste-volume"
 PIXEL_PER_MM = 28.677782176153425

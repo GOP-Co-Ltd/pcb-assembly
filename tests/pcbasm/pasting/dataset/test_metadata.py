@@ -22,7 +22,7 @@ from pcbasm.pasting.dataset.metadata import (
     parse_metadata,
 )
 from pcbasm.pasting.dispense import DispenseSummary
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 
 METADATA_V1 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v1.json"
 METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"

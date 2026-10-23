@@ -18,9 +18,10 @@ import pytest
 
 from pcbasm.config import Machine, NozzleClean
 from pcbasm.geometry import Point2d
+from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.pasting.initial_purge import ResolvedInitialPurge, purge_point_label
 from pcbasm.vision import Image
-from tests.helpers import TESTING_CONFIG_DIR, FakeCamera, FakeKlipper
+from tests.support.paths import TESTING_CONFIG_DIR
 from tests.web.api.jobs.conftest import (
     ManagerFactory,
     WaitUntil,

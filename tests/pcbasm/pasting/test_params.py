@@ -13,7 +13,7 @@ from pcbasm.pasting.params import (
     validate_field_names,
     validate_param_values,
 )
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 
 TESTING_MACHINE_TOML = TESTING_DATA_DIR / "machine.toml"
 

@@ -8,6 +8,7 @@ import httpx
 import pytest
 from playwright.sync_api import expect
 
+from pcbasm.hal.fake import FakeAudioPlayer
 from tests.e2e.conftest import (
     LiveServer,
     LiveUi,
@@ -17,7 +18,6 @@ from tests.e2e.conftest import (
     start_app,
 )
 from tests.e2e.network import delayed_ui
-from tests.helpers import FakeAudioPlayer
 from web.api.app import create_app
 from web.api.jobs.context import JobContext
 from web.api.settings import Settings

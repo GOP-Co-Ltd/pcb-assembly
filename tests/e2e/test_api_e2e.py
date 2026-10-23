@@ -31,7 +31,7 @@ from tests.e2e.conftest import (
     wait_first_prompt as _wait_first_prompt,
     wait_machine_field as _wait_machine_field,
 )
-from tests.helpers import wait_until
+from tests.support.polling import wait_until
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from web.api.routers.pasting_view import ResolvedSettings
 
