@@ -16,6 +16,11 @@ Phase 2 追記（計画書 webui-phase2.md「既存ルーターへの変更」�
 - camera.crop.* は再構築条件から除外する（レンダラがフレーム毎に読むため
   デバイス再構築不要。crop 変更でストリームを切断しない）
 - camera.crop.* は 1 以上の int（要確認事項 2 採用。0 / 負値 → 400）
+
+設定履歴:
+
+- GET /api/settings/history が保存のたびに増える世代を新しい順に返す
+- POST /api/settings/history/{name}/restore がその世代へ戻し、カメラを再構築する。無い世代は 404、busy は 409
 """
 
 from pathlib import Path
@@ -454,3 +459,60 @@ class TestCameraSettingsRebuild:
 
         assert response.status_code == 200, response.text
         assert fake_camera_appstate.frame_hub() is not hub
+
+
+class TestConfigHistoryApi:
+    def test_restore_returns_to_the_content_before_a_save(
+        self, client: TestClient, config_dir: Path
+    ):
+        path = config_dir / "machine.toml"
+        original = path.read_bytes()
+        client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
+        )
+        [entry] = client.get("/api/settings/history").json()["entries"]
+        assert entry["changes"] == ["paste_dispenser.max_fill_speed: 0.8 → 0.9"]
+
+        response = client.post(f"/api/settings/history/{entry['name']}/restore")
+
+        assert response.status_code == 200, response.text
+        assert path.read_bytes() == original
+        newest = response.json()["entries"][0]
+        assert newest["changes"] == ["paste_dispenser.max_fill_speed: 0.9 → 0.8"]
+
+    def test_restore_rebuilds_frame_hub(
+        self,
+        fake_camera_client: TestClient,
+        fake_camera_appstate: AppState,
+    ):
+        fake_camera_client.put(
+            "/api/settings/machine", json={"values": {"camera.fps": 20.0}}
+        )
+        [entry] = fake_camera_client.get("/api/settings/history").json()["entries"]
+        hub = fake_camera_appstate.frame_hub()
+
+        fake_camera_client.post(f"/api/settings/history/{entry['name']}/restore")
+
+        assert fake_camera_appstate.frame_hub() is not hub
+
+    def test_unknown_snapshot_returns_404(self, client: TestClient):
+        response = client.post("/api/settings/history/machine-missing.toml/restore")
+
+        assert response.status_code == 404
+
+    def test_restore_while_busy_returns_409(
+        self, client: TestClient, appstate: AppState, config_dir: Path
+    ):
+        client.put(
+            "/api/settings/machine",
+            json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
+        )
+        [entry] = client.get("/api/settings/history").json()["entries"]
+        written = (config_dir / "machine.toml").read_bytes()
+
+        with appstate.machine_lock("pytest-job"):
+            response = client.post(f"/api/settings/history/{entry['name']}/restore")
+
+        assert response.status_code == 409
+        assert (config_dir / "machine.toml").read_bytes() == written

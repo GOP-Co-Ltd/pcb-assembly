@@ -29,8 +29,8 @@ FEATURE_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
         ),
         (
             "機体の管理",
-            "接続状態、通知音、ソフトウェアを確認します。",
-            ("klipper_status", "audio", "update"),
+            "接続状態、通知音、設定履歴とバックアップ、ソフトウェアを確認します。",
+            ("klipper_status", "audio", "config_history", "update"),
         ),
     ),
     "pasting": (
@@ -158,6 +158,7 @@ def bulk_sections(machines: Sequence[MachineEndpoint]) -> tuple[BulkSection, ...
 FEATURE_LABELS: dict[str, str] = {
     "klipper_status": "Klipper ステータス",
     "audio": "通知音",
+    "config_history": "設定履歴とバックアップ",
     "update": "ソフトウェア更新",
     "probe_guide": "ロードセルプローブ ガイド",
     "nozzle_cap": "ノズル位置の設定（キャップ / クリーニング）",
@@ -173,6 +174,7 @@ FEATURE_TEMPLATES: dict[tuple[str, str], str] = {
     ("dev", "make_fill_coverage_pcb"): "job.html",
     ("dev", "klipper_status"): "dev/klipper_status.html",
     ("dev", "audio"): "dev/audio.html",
+    ("dev", "config_history"): "dev/config_history.html",
     # ジョブではないので JOB_TEMPLATES には入れない（装置ロックを取らない独立経路）
     ("dev", "update"): "dev/update.html",
     ("pasting", "paste_solder"): "pasting/paste_solder.html",

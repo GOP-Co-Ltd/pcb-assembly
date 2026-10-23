@@ -1,6 +1,6 @@
 # 実機受け入れ試験
 
-[ドキュメント一覧](../README.md) · [運用ガイド](operations.md)
+[ドキュメント一覧](../README.md) · [運用ガイド](operations.md) · [保守ガイド](maintenance.md)
 
 実機での確認はこの文書にだけ書く。pytest は実機に触れない（Klipper への接続と systemctl の呼び出しは、テスト中は必ず失敗する）。
 送信する G-code の列は `tests/golden/` の golden で固定し、ここでは golden で見えないもの（機構の動き、カメラ、音、画面）を確かめる。
@@ -69,12 +69,9 @@
 
 ### 3. 手動ロールバック
 
-[運用ガイドの復旧](operations.md#%E5%BE%A9%E6%97%A7%E6%96%B0%E3%81%97%E3%81%84%E3%83%AA%E3%83%93%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%8C%E8%B5%B7%E5%8B%95%E3%81%97%E3%81%AA%E3%81%84%E4%BE%9D%E5%AD%98%E3%81%8C%E5%A3%8A%E3%82%8C%E3%81%9F) の手順で、前の head から復旧ブランチを作って戻す。そのうえで、次の点を足す。
-
-- 再起動の前に設定を戻す。PR10 より前の版は、「1. 001 でブランチを確かめる」の手順 1 で退避したファイルから戻す。PR10 以降は `config/history/` のスナップショットから戻す
-- PR17（設定の移行）以降の版から PR17 より前へ戻すときは、必ず `config/history/machine-pre-<移行名>.toml` を `config/machine.toml` へ復元する。旧コードは新しい節を読まず、既定値で黙って動く
-- 001 は backend と frontend が同居するので、`sudo systemctl restart pcbasm-api pcbasm-ui` で両方を再起動する
-- 復旧ブランチでは WebUI から更新できない。直した版が main に入ったら、ssh で `git switch main` してから更新する
+[保守ガイドの手動ロールバック](maintenance.md#%E6%89%8B%E5%8B%95%E3%83%AD%E3%83%BC%E3%83%AB%E3%83%90%E3%83%83%E3%82%AF) の手順で、前の head から復旧ブランチを作って戻す。
+設定は、PR10 以降なら `config/history/` の世代から戻す。
+PR10 より前の版は設定履歴を持たないので、「1. 001 でブランチを確かめる」の手順 1 で退避したファイルから戻す。
 
 ## 変えた領域と、実施する項目
 

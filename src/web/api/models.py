@@ -14,7 +14,7 @@ from pydantic import BaseModel
 # backend が `GET /api/machine-info` で自己申告する API 契約のバージョン。
 # mDNS の広告がこの版を載せ、frontend の探索は版のずれた機体を更新専用にする（定義箇所はここだけ）。
 # frontend は machine-info の api_version を見ないので、静的登録だけの機体は更新専用にならない
-API_VERSION = 1
+API_VERSION = 2
 
 type JobStatusName = Literal[
     "pending", "running", "waiting_input", "succeeded", "failed", "aborted"
@@ -195,6 +195,23 @@ class MachineSettingsResponse(BaseModel):
     """/api/settings/machine の machine.toml ホワイトリスト項目一覧."""
 
     fields: list[SettingsField]
+
+
+class ConfigHistoryEntry(BaseModel):
+    """machine.toml の 1 世代（書き換える直前の内容）.
+
+    ``changes`` はこの世代の次に入った変更で、「キー: 前 → 後」の文字列をサーバーが組む。
+    """
+
+    name: str
+    time_label: str
+    changes: list[str]
+
+
+class ConfigHistoryResponse(BaseModel):
+    """/api/settings/history の世代一覧（新しい順）."""
+
+    entries: list[ConfigHistoryEntry]
 
 
 class MachineInfo(BaseModel):

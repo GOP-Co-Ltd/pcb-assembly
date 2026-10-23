@@ -58,6 +58,7 @@ GATED_REQUESTS: list[tuple[str, str, dict[str, Any] | None]] = [
     ("post", "/api/jobs/last/apply", None),
     ("post", "/api/jobs/last/discard", None),
     ("put", "/api/settings/machine", {"values": {}}),
+    ("post", "/api/settings/history/machine-missing.toml/restore", None),
     # 機体のスピーカーを実際に鳴らす（`client` fixture は FakeAudioPlayer なので
     # ゲートが外れても実 aplay は起動しない）
     ("post", "/api/audio/test", {"sound": "success"}),
@@ -83,6 +84,8 @@ UNGATED_REQUESTS: list[tuple[str, str, dict[str, Any] | None]] = [
     ("get", "/api/jobs", None),
     ("get", "/api/jobs/current", None),
     ("get", "/api/settings/machine", None),
+    ("get", "/api/settings/history", None),
+    ("get", "/api/backup", None),
     ("get", "/api/audio/settings", None),
     ("get", "/api/pasting/pad-config", None),
 ]

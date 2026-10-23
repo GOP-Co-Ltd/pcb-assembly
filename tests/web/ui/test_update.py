@@ -113,6 +113,31 @@ class TestPage:
 
         assert "data-requires-control" not in body.split('id="update-panel"')[1]
 
+    def test_each_machine_links_its_backup(self, update_client: TestClient):
+        """UI サーバーを更新する前に、機体ごとのバックアップ zip を同じ画面から取れる."""
+        body = update_client.get("/update").text
+
+        assert 'href="/m/uitest/api/backup"' in body
+        response = update_client.get("/m/uitest/api/backup")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/zip"
+
+    def test_update_only_machine_has_no_backup_link(
+        self, ui_settings: Settings, runner: UpdateRunner
+    ):
+        """更新専用の機体へはバックアップを中継しない（押しても 409 になる）."""
+        old = MachineEndpoint(
+            machine_id="old", host="127.0.0.1", port=1, update_only=True
+        )
+        app = create_app(
+            attrs.evolve(ui_settings, machines=(old,)), update_runner=runner
+        )
+        with TestClient(app) as client:
+            body = client.get("/update").text
+
+        assert 'href="/m/old/dev/update"' in body
+        assert "/m/old/api/backup" not in body
+
     def test_page_needs_no_backend(self, ui_settings: Settings, runner: UpdateRunner):
         """機体が 1 台も居ないホスト（frontend 専用機）でも開ける."""
         app = create_app(attrs.evolve(ui_settings, machines=()), update_runner=runner)

@@ -1,0 +1,25 @@
+{% extends "tab.html" %}
+{% block title %}{{ feature_label }} — PCB Assembly WebUI{% endblock %}
+{% block main %}
+<h2>{{ feature_label }}</h2>
+<section class="status-card">
+  <h3>バックアップ</h3>
+  <p>設定（machine.toml・設定履歴・カメラ校正・printer.cfg）、基板ごとの塗布設定、選択中の PCB、
+    アップロードした PCB、塗布量校正を 1 つの zip にまとめてダウンロードします。</p>
+  <p><a href="{{ base }}/api/backup" download data-testid="backup-download">バックアップをダウンロード</a></p>
+</section>
+<section class="status-card">
+  <h3>設定履歴</h3>
+  <p>machine.toml を書き換える前の内容を、書き換えのたびに残します（最新 50 世代）。
+    各世代には、その後に入った変更を並べます。復元すると、その変更より前の内容に戻ります。
+    復元する前の内容も履歴に残ります。</p>
+  <p id="config-history-empty" class="placeholder" hidden>まだ履歴はありません。</p>
+  {# 行は JS が描くので、操作権の印は描画先の親に付ける #}
+  <ol id="config-history-list" class="config-history-list" data-requires-control
+      data-testid="config-history-list"></ol>
+</section>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ static_asset('js/config_history.js') }}"></script>
+{% endblock %}

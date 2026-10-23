@@ -29,6 +29,7 @@ from web.api.preview import PreviewService
 from web.api.routers import (
     app_state,
     audio,
+    backup,
     control_api,
     files,
     jobs,
@@ -242,6 +243,7 @@ def create_app(
     app.include_router(machine_control.router)
     app.include_router(system.router)
     app.include_router(update_router.router)
+    app.include_router(backup.router)
     app.include_router(preview_router.router)
     app.include_router(jobs.router)
     app.include_router(pasting.router)

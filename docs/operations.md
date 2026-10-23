@@ -127,16 +127,8 @@ GitHub 側で保護ブランチと 2FA を必須にする。
 
 ### 復旧（新しいリビジョンが起動しない・依存が壊れた）
 
-1. `ssh <機体>` で入り、`cd ~/pcb-assembly` する
-2. `git status --short` で未保存の変更を確かめる。変更があれば、次へ進む前に別の場所へ退避する
-3. `git log --oneline -5` で更新前の commit を探す（WebUI の更新記録にも残っている）
-4. `git switch -c fix/YYYY-MM-DD/recovery <更新前の-sha>` で復旧ブランチを作る
-5. `uv sync --locked --inexact` を実行する
-6. `sudo systemctl restart pcbasm-api` で再起動する（frontend 専用機は `pcbasm-ui`）
-7. 起動しなければ `journalctl -u pcbasm-api -n 200` で理由を見る
-
-復旧ブランチは診断と一時運用のためのもの。
-原因を直した `main` へ戻るまでは、WebUI からの更新を使わない。
+[保守ガイドの手動ロールバック](maintenance.md#%E6%89%8B%E5%8B%95%E3%83%AD%E3%83%BC%E3%83%AB%E3%83%90%E3%83%83%E3%82%AF) の手順で、更新前の commit へ戻す。
+UI サーバーを更新する前（両機が同じ版のうち）に、[バックアップ](maintenance.md#%E3%83%90%E3%83%83%E3%82%AF%E3%82%A2%E3%83%83%E3%83%97%E3%82%92%E5%8F%96%E3%82%8B) を取っておく。
 
 ## 一括管理タブ（複数の機体をまとめて扱う）
 

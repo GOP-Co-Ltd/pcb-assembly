@@ -576,6 +576,56 @@ class TestAudioPageOverBrowser:
         expect(browser_page.locator("#audio-volume-value")).to_have_text("40%")
 
 
+class TestConfigHistoryOverBrowser:
+    """設定履歴とバックアップの画面（/dev/config_history）の実ブラウザ操作."""
+
+    def test_restore_returns_to_the_content_before_a_save(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        path = live_server.settings.config_dir / "machine.toml"
+        original = path.read_bytes()
+        response = httpx.put(
+            f"{live_server.base_url}/api/settings/machine",
+            json={"values": {"paste_dispenser.max_fill_speed": 0.9}},
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert response.status_code == 200, response.text
+        browser_page.goto(
+            f"{live_ui.base_url}/dev/config_history", wait_until="domcontentloaded"
+        )
+        _acquire_control(browser_page)
+        entries = browser_page.get_by_test_id("config-history-list").locator(
+            ":scope > li"
+        )
+        expect(entries).to_have_count(1)
+        expect(entries.first).to_contain_text(
+            "paste_dispenser.max_fill_speed: 0.8 → 0.9"
+        )
+
+        browser_page.once("dialog", lambda dialog: dialog.accept())
+        entries.first.get_by_role("button").click()
+
+        # 復元する前の内容が新しい世代として先頭に増える
+        expect(entries).to_have_count(2)
+        expect(entries.first).to_contain_text(
+            "paste_dispenser.max_fill_speed: 0.9 → 0.8"
+        )
+        assert path.read_bytes() == original
+
+    def test_backup_link_downloads_a_zip(self, live_ui: LiveUi, browser_page):
+        browser_page.goto(
+            f"{live_ui.base_url}/dev/config_history", wait_until="domcontentloaded"
+        )
+
+        with browser_page.expect_download() as info:
+            browser_page.get_by_test_id("backup-download").click()
+
+        assert info.value.suggested_filename.startswith(
+            f"pcbasm-backup-{_E2E_MACHINE_ID}-"
+        )
+        assert info.value.suggested_filename.endswith(".zip")
+
+
 class TestLoadingOverBrowser:
     """ペーストローディング画面の実ブラウザ操作.
 
