@@ -148,13 +148,14 @@ V = a·d³ + b·d² + c·d
 
 不採用は例外にせず理由文字列にする。
 
-| 理由                               | 意味                                                                          |
-| ---------------------------------- | ----------------------------------------------------------------------------- |
-| `no_views`                         | view を 1 つも渡していない                                                    |
-| `no_deposit_detected`              | 全 view で検出できなかった（blank を含む）                                    |
-| `diameter_out_of_calibrated_range` | 被覆域の外なので外挿になる                                                    |
-| `diameter_below_reliable_range`    | 被覆域内だが信頼できる範囲の下限未満（`reliable_range_only=True` のときだけ） |
-| `image_invalid: <理由>`            | 構造的不正（呼び出し側のバグ）                                                |
+| 理由                                 | 意味                                                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `no_views`                           | view を 1 つも渡していない                                                                              |
+| `no_deposit_detected`                | 全 view で検出できなかった（blank を含む）                                                              |
+| `diameter_out_of_calibrated_range`   | 被覆域の外なので外挿になる（`reliable_range_only=True` では被覆域の下限未満だけ）                       |
+| `diameter_below_reliable_range`      | 被覆域内だが信頼できる範囲の下限未満（`reliable_range_only=True` のときだけ）                           |
+| `diameter_above_extrapolation_range` | 被覆域の上限より上で、外挿の上限を超えたかモデルが減少に転じた（`reliable_range_only=True` のときだけ） |
+| `image_invalid: <理由>`              | 構造的不正（呼び出し側のバグ）                                                                          |
 
 推定の標準偏差は校正時に記録した相対残差から与える。直径方式には 1 点ごとの不確かさ源
 が無いので、分布としての当てはまり具合を使うしかない。
@@ -250,12 +251,21 @@ quadratic が +0.241 と -0.028、linear が -0.159 と -0.013 という大き�
 
 **方針: 運転時補正では、被覆域の下端付近を採用しない。** 採用の下限は
 `CubicVolumeModel.reliable_diameter_min_mm` で、
-`diameter_min_mm + 0.35 * (diameter_max_mm - diameter_min_mm)` を返す。上限は被覆域のまま。
+`diameter_min_mm + 0.35 * (diameter_max_mm - diameter_min_mm)` を返す。上限側は被覆域の先まで外挿する。
+外挿の上限は `CubicVolumeModel.extrapolation_diameter_max_mm` で、
+`diameter_max_mm + 0.5 * (diameter_max_mm - diameter_min_mm)` を返す。
 
 - `DiameterVolumeEstimator(..., reliable_range_only=True)` のときだけこの下限を使う。
     運転時キャリブレーション（`load_diameter_estimator(path, reliable_range_only=True)`）がこれに当たる
 - この下限未満で被覆域内の点は `diameter_below_reliable_range` で拒否する
-- 被覆域の外の点は、どちらの設定でも `diameter_out_of_calibrated_range` で拒否する。外挿はしない
+- 被覆域の下限未満の点は、どちらの設定でも `diameter_out_of_calibrated_range` で拒否する
+- 被覆域の上限から外挿の上限までの点は、`reliable_range_only=True` のときだけ外挿して採用する（`CubicVolumeModel.covers_reliably`）。
+    大径側は上の表のとおり校正どうしの差が小さく、曲線がよく定まっているため。ただし、被覆域の上限からその直径まで
+    モデルが単調非減少である場合に限る。3 項モデルは被覆域の外で減少に転じ得る。
+    純 3 次へ退避したモデル（係数が非負）は外挿の上限まで常に外挿できる
+- 外挿の上限を超えた点と、減少に転じた先の点は `diameter_above_extrapolation_range` で拒否する。
+    検出には直径の上限がない。隣の点との結合やにじみで大きく測った点を採用すると、体積が 3 乗で膨らむ。
+    運転時キャリブレーションの 1/3〜3 倍の頭打ちは補正を止めず、頭打ちした係数で塗るので、この誤りを防げない
 
 **マージンは絶対値 [mm] ではなく被覆域の幅に対する割合。** 食い違いの原因は共線性で、
 それは被覆域の広さで決まる。広く採れた校正ほど係数が定まるので、下限も相対的に下げて
