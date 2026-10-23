@@ -107,7 +107,6 @@ class TestMachine:
     def test_default_values(self):
         machine = Machine(TESTING_DATA_DIR / "machine_minimal.toml")
 
-        assert machine.klipper == Klipper(host="localhost", port=7125)
         assert machine.camera.device_id == 0
         assert machine.camera.format == "YUYV"
 

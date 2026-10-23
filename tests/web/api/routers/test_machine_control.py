@@ -27,6 +27,7 @@ from tests.helpers import mark_hardware
 from web.api.state import AppState
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestMachineControlValidation:
     """パラメータ検証（Moonraker 接続前に 400）."""
 
@@ -61,6 +62,7 @@ class TestMachineControlValidation:
 class TestGcodeAction:
     """Action="gcode"（Phase 3: dev タブの任意 G-code 送信）."""
 
+    @pytest.mark.usefixtures("unreachable_klipper")
     @pytest.mark.parametrize(
         "body",
         [
@@ -83,6 +85,7 @@ class TestGcodeAction:
         assert response.json()["connected"] is True
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestMoveToCap:
     """Action="move_to_cap"（nozzle-cap-parking 計画書「API 契約」節）.
 
@@ -136,6 +139,7 @@ class TestMachineControlExclusion:
         assert "pytest-job" in response.text
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestMachineControlMoonrakerDown:
     """Moonraker 不達（port 7126 = 非リッスン、実接続で検証）."""
 

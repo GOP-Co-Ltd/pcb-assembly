@@ -3,8 +3,8 @@
 tmp_path に `data/testing/config` をコピーした Settings を `create_app` に注入し、
 `fastapi.testclient.TestClient` で実 HTTP 経路を検証する。
 
-- fixture の machine.toml は Klipper port 7126 = 非リッスンなので、テストが誤って
-  実機 Moonraker に接続しない
+- `open_klipper` は root conftest が塞いでいる。Moonraker 不通の経路を確かめるテストは
+  `unreachable_klipper` を要求する
 - `data/testing/config/machine.toml` は WebUI / E2E 用（コメント保持・欠落キーの
   テスト素材を含む）。pcbasm コア層の単体テストが使う `data/testing/machine.toml` /
   `machine_minimal.toml` とは別物

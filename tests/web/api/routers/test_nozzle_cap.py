@@ -17,6 +17,7 @@
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.helpers import mark_hardware
@@ -27,6 +28,7 @@ from web.api.state import AppState
 class TestRecordNozzleCap:
     """ノズルキャップ位置の記録エンドポイント."""
 
+    @pytest.mark.usefixtures("unreachable_klipper")
     def test_unreachable_moonraker_returns_502(self, client: TestClient):
         """Klipper 不達（port 7126）では書き込み前に 502 で終わる."""
         response = client.post("/api/pasting/nozzle-cap/record")
@@ -75,6 +77,7 @@ class TestRecordNozzleClean:
     キャップと違い、表示文字列 `label` も返す（JS に整形を持たせないため）。
     """
 
+    @pytest.mark.usefixtures("unreachable_klipper")
     def test_unreachable_moonraker_returns_502(self, client: TestClient):
         response = client.post("/api/pasting/nozzle-clean/record")
 
@@ -131,6 +134,7 @@ class TestNozzleCleanTestRun:
         assert response.status_code == 400
         assert response.json()["detail"] == "ノズルクリーニング位置が未記録です"
 
+    @pytest.mark.usefixtures("unreachable_klipper")
     def test_recorded_clean_passes_validation_and_returns_502(
         self, config_dir: Path, client: TestClient
     ):

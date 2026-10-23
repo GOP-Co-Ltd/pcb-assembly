@@ -831,6 +831,7 @@ class TestApplyMachineSettingsFromWorker:
         assert "bogus.key" in record.error
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestPresentOnTermination:
     """ジョブ終了時の PRESENT / M84（relax）ベストエフォート送信."""
 
@@ -1140,6 +1141,7 @@ class TestUpdateCurrentParams:
         assert state.job_param_defaults("reader")["line_length"] == 10.0
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestAudioCompletionNotification:
     """装置を動かすジョブ（`uses_machine=True`）の完了を機体スピーカーで知らせる.
 

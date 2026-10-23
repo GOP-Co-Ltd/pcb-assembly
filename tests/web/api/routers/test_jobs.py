@@ -1013,6 +1013,7 @@ class TestCameraCalibrationApplyFlow:
     ConfigStore で crop を checkerboard.png（400x400）へ合わせる。
     """
 
+    @pytest.mark.usefixtures("unreachable_klipper")
     def test_ws_full_run_then_apply_writes_calibration_files(
         self,
         checkerboard_camera_client: TestClient,
@@ -1064,6 +1065,7 @@ class TestCameraCalibrationApplyFlow:
         assert loaded.z_position is None  # Klipper 不通（port 7126）の best-effort
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestPastingJobsOverWs:
     """Phase 5: pasting ジョブの WS 往復と実行中 artifacts 配信（装置なし）.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import cv2
+import pytest
 
 from tests.web.api.conftest import decode_jpeg, jpeg_payload
 from tests.web.api.jobs.conftest import WaitUntil, answer_next_prompt
@@ -27,6 +28,7 @@ def _preview_frame(preview: PreviewService):
     return frame
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestHeightPlaneFrontFlow:
     """height_plane の計測前フロー（装置なし・FakeCamera + テスト用 config）.
 
