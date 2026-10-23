@@ -62,6 +62,8 @@ addopts = [
 filterwarnings = [
   "ignore::DeprecationWarning",
   "ignore::UserWarning",
+  # ジョブのスレッドで open_klipper の拒否（conftest）が握りつぶされないようにする
+  "error::pytest.PytestUnhandledThreadExceptionWarning",
 ]
 log_cli = true
 log_level = "INFO"

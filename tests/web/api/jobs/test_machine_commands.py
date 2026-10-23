@@ -69,6 +69,7 @@ def _run_handler_job(
     return record, results
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestHandleMachineCommand:
     """handle_machine_command の戻り値契約と例外伝播."""
 

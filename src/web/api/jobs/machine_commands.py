@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from pcbasm import hal
 from pcbasm.config import Machine
 from pcbasm.gcode import GCode
 from pcbasm.hal import Klipper, XYZStage
@@ -17,11 +18,7 @@ COMMAND_TIMEOUT = 60.0
 
 def create_command_klipper(machine: Machine) -> Klipper:
     """選択マシンの設定で移動コマンド用 Klipper クライアントを生成する."""
-    return Klipper(
-        host=machine.klipper.host,
-        port=machine.klipper.port,
-        timeout=COMMAND_TIMEOUT,
-    )
+    return hal.open_klipper(machine.klipper, timeout=COMMAND_TIMEOUT)
 
 
 def handle_machine_command(

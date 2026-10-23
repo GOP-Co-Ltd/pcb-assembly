@@ -25,6 +25,7 @@ from web.api.settings import Settings
 from web.api.state import AppState
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestMachineJobsWithoutKlipper:
     """装置ジョブの graceful FAILED（テスト用 config: port 7126 = 接続拒否）.
 

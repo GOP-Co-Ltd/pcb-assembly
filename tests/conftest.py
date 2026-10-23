@@ -7,6 +7,7 @@ Raspberry Pi と KiCAD が無い環境では読み込めない。root conftest �
 """
 
 from pathlib import Path
+from typing import Any, NoReturn
 
 import numpy as np
 import pytest
@@ -24,6 +25,81 @@ def disable_mdns_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setenv("PCBASM_API_DISCOVERY_ENABLED", "0")
     monkeypatch.setenv("PCBASM_UI_DISCOVERY_ENABLED", "0")
+
+
+@pytest.fixture(autouse=True)
+def forbid_real_klipper(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`open_klipper` を呼ぶとテストが落ちるようにし、実機の Moonraker へ G-code を届かせない.
+
+    テストは本番機の上でも走るので、取りこぼした経路があっても実機は動かない。
+    Moonraker 不通の経路を確かめるテストは `unreachable_klipper` を要求する。
+    `@mark_hardware` は実機を動かすためのテストなので対象外にする。
+    """
+    if request.node.get_closest_marker("hardware") is not None:
+        return
+
+    try:
+        from pcbasm import hal
+    except ImportError:
+        return  # hal を読めない環境では、どの src も open_klipper に届かない
+
+    def refuse(*args: object, **kwargs: object) -> NoReturn:
+        pytest.fail("テストから open_klipper が呼ばれました")
+
+    monkeypatch.setattr(hal, "open_klipper", refuse)
+
+
+@pytest.fixture
+def unreachable_klipper(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`open_klipper` が接続先の無い Klipper を返すようにする（送信は httpx の接続エラーになる）.
+
+    設定の接続先は使わないので、設定が実機を指していても届かない。
+    """
+    from pcbasm.hal import Klipper
+
+    # localhost でなく 127.0.0.1 なのは、IPv6 を試す分だけ失敗が遅れるため
+    monkeypatch.setattr(
+        "pcbasm.hal.open_klipper",
+        lambda config, *, timeout=None: Klipper("127.0.0.1", 7126, timeout=timeout),
+    )
+
+
+@pytest.fixture(scope="session")
+def refusing_bin(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """呼ばれたら何もせず失敗する実行ファイル."""
+    path = tmp_path_factory.mktemp("refuse") / "refuse"
+    path.write_text(
+        '#!/bin/sh\necho "テストから $0 $* が呼ばれました" >&2\nexit 1\n',
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+    return str(path)
+
+
+@pytest.fixture(autouse=True)
+def forbid_real_systemctl(monkeypatch: pytest.MonkeyPatch, refusing_bin: str) -> None:
+    """自己更新の `sudo` と `systemctl` の既定を、呼ばれたら失敗する stub に向ける.
+
+    実機のサービスを再起動させないため。
+    スタブを使うテストは `UpdateSettings` に自分のスタブを明示して渡す。
+    テストからは既定値（`/usr/bin/systemctl` など）が見えないので、既定値を使う契約は値を明示して確かめる。
+    """
+    from web.selfupdate.settings import UpdateSettings
+
+    init = UpdateSettings.__init__
+
+    def init_with_refusing_bins(
+        self: UpdateSettings,
+        *args: Any,
+        systemctl_bin: str = refusing_bin,
+        sudo_bin: str = refusing_bin,
+        **kwargs: Any,
+    ) -> None:
+        init(self, *args, systemctl_bin=systemctl_bin, sudo_bin=sudo_bin, **kwargs)
+
+    monkeypatch.setattr(UpdateSettings, "__init__", init_with_refusing_bins)
 
 
 @pytest.fixture(scope="session")

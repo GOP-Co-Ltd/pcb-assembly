@@ -15,6 +15,7 @@ from typing import Any
 import attrs
 import httpx
 
+from pcbasm.config import Klipper as KlipperConfig
 from pcbasm.gcode import PRESENT_MACRO, GCode, GCodeLike
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ class Klipper:
     """Moonraker REST API のシンプルなラッパー.
 
     Example:
-        klipper = Klipper("192.168.1.100")
+        klipper = hal.open_klipper(machine.klipper)
         klipper.send_gcode(GCode.homing(x=True, y=True, z=True) + GCode.wait_for_done())
         position = klipper.get_status("gcode_move", "gcode_position")
     """
@@ -207,6 +208,19 @@ class Klipper:
             )
 
         self.send_gcode(GCode.relax(), timeout=timeout)
+
+
+def open_klipper(config: KlipperConfig, *, timeout: float | None = None) -> Klipper:
+    """設定の接続先へ Klipper クライアントを作る.
+
+    Klipper を作る唯一の口で、テストはこれを差し替えて実機への接続を断つ。
+    呼び出し側は ``hal.open_klipper`` とモジュール経由で呼ぶ。
+
+    Args:
+        config: 接続先の設定
+        timeout: HTTP リクエストのタイムアウト秒数（None は無制限）
+    """
+    return Klipper(config.host, config.port, timeout=timeout)
 
 
 class ReadonlyKlipper:

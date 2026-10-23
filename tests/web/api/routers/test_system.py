@@ -38,6 +38,7 @@ from web.selfupdate.runner import UpdateRunner
 class TestKlipperStatus:
     """GET /api/klipper/status."""
 
+    @pytest.mark.usefixtures("unreachable_klipper")
     def test_unreachable_moonraker_returns_200_with_connected_false(
         self, client: TestClient
     ):
@@ -66,6 +67,7 @@ class TestKlipperStatus:
         assert isinstance(data["homed_axes"], str)
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestEmergencyStop:
     """POST /api/emergency-stop."""
 
@@ -101,6 +103,7 @@ class TestEmergencyStop:
         pytest.fail("E-STOP 後にジョブが aborted になりませんでした")
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestFirmwareRestart:
     """POST /api/firmware-restart."""
 
@@ -140,6 +143,7 @@ class TestFirmwareRestart:
 class TestStageLimits:
     """GET /api/stage/limits（Phase 3）."""
 
+    @pytest.mark.usefixtures("unreachable_klipper")
     def test_unreachable_moonraker_returns_502(self, client: TestClient):
         response = client.get("/api/stage/limits")
 
@@ -155,6 +159,7 @@ class TestStageLimits:
             assert data[axis]["min"] < data[axis]["max"]
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestFirmwareRestartAlsoRestartsServices:
     """ファームウェア再起動は WebUI のサービス（api / ui）も再起動する.
 

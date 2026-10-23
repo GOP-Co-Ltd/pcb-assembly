@@ -192,6 +192,7 @@ class TestGenerateGridPcb:
         assert len(pcb.pads) == 4
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestCameraCalibrationJob:
     """camera_calibration のフル結合（FakeCamera + テスト用 config、装置なし）."""
 
@@ -275,6 +276,7 @@ class TestCameraCalibrationJob:
         assert record.status == JobStatus.ABORTED
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestMachineJobsWithoutKlipper:
     """装置ジョブの graceful FAILED（テスト用 config: port 7126 = 接続拒否）.
 

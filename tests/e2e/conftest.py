@@ -487,6 +487,11 @@ def make_ui_settings(
     )
 
 
+@pytest.fixture(autouse=True)
+def moonraker_is_down(unreachable_klipper: None) -> None:
+    """E2E のサーバーはこのプロセス内で動くので、Moonraker 不通の機体として振る舞わせる."""
+
+
 @pytest.fixture
 def e2e_settings(tmp_path: Path) -> Settings:
     """Fake カメラ + テスト用 config + 隔離 data_dir の E2E 用 backend Settings."""

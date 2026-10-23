@@ -17,8 +17,9 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, override
 
+from pcbasm import hal
 from pcbasm.config import Audio, Machine
-from pcbasm.hal import AudioPlayer, FrameHub, Klipper
+from pcbasm.hal import AudioPlayer, FrameHub
 from pcbasm.hal.audio import Sound
 from pcbasm.hal.klipper import PRESENT_TIMEOUT
 from pcbasm.parking import park_or_present
@@ -764,13 +765,8 @@ class JobManager:
 
     def _park_machine(self, runtime: _JobRuntime, context: JobContext) -> None:
         """ジョブ終了時にノズルキャップ駐機（フォールバックは PRESENT / M84）を行う（失敗は log のみ）。"""
-        klipper_config = context.machine.klipper
         try:
-            klipper = Klipper(
-                host=klipper_config.host,
-                port=klipper_config.port,
-                timeout=PRESENT_TIMEOUT,
-            )
+            klipper = hal.open_klipper(context.machine.klipper, timeout=PRESENT_TIMEOUT)
             park_or_present(
                 klipper, context.machine, warn=runtime.log, timeout=PRESENT_TIMEOUT
             )

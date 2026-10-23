@@ -33,6 +33,7 @@ from web.api.jobs.pasting.paste_volume_common import (
 from web.api.settings import Settings
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestPasteDatasetCollectionPreflight:
     """Dataset収集は装置を開く前に設定・配置・撮影窓を確定する（PCB非依存）."""
 

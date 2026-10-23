@@ -10,6 +10,7 @@ from typing import Any
 import attrs
 import cv2
 
+from pcbasm import hal
 from pcbasm.config import Machine
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Point3d, Shift, sort_by_nearest
@@ -297,11 +298,7 @@ def _run_camera_calibration(ctx: JobContext) -> JobResult:
     # Z 位置は best-effort（Klipper 不通でも calibration 自体は成立させる）
     z: float | None = None
     try:
-        klipper = Klipper(
-            host=ctx.machine.klipper.host,
-            port=ctx.machine.klipper.port,
-            timeout=Z_QUERY_TIMEOUT,
-        )
+        klipper = hal.open_klipper(ctx.machine.klipper, timeout=Z_QUERY_TIMEOUT)
         z = XYZStage(klipper.readonly).get_position().z
     except Exception as exc:
         ctx.log(f"Z 位置の取得に失敗しました（z_position なしで続行）: {exc}")

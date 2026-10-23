@@ -337,6 +337,7 @@ class TestIdentityResolution:
         assert response.json()["control"]["display_name"] == f"名前未設定 ({expected})"
 
 
+@pytest.mark.usefixtures("unreachable_klipper")
 class TestGateCoverage:
     """変更系のゲートと、絶対にゲートしないものの掃引."""
 

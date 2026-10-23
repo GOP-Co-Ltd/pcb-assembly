@@ -1,6 +1,8 @@
 # paste_dispenserなしの設定（pnpマシン用）
 
 [klipper]
+host = "127.0.0.1"
+port = 7126 # Moonraker 実機 (7125) と意図的にずらした非リッスンポート
 
 [camera]
 width = 640
