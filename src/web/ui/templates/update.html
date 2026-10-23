@@ -23,10 +23,17 @@
   <section class="status-card">
     <h3>機体の更新</h3>
     {% if machines %}
-    <p>各機体の backend はそれぞれのページから更新します。</p>
+    <p>各機体の backend はそれぞれのページから更新します。この UI サーバーを更新する前（両機が同じ版のうち）にバックアップを取っておくと、設定と運用データを戻せます。版が違う機体（更新専用）からは取れません。</p>
     <ul>
       {% for machine in machines %}
-      <li><a href="/m/{{ machine.machine_id }}/dev/update">{{ machine.label }}</a></li>
+      <li>
+        <a href="/m/{{ machine.machine_id }}/dev/update">{{ machine.label }}</a>
+        {# 更新専用の機体へは更新と緊急停止しか中継しない #}
+        {% if not machine.update_only %}
+        （<a href="/m/{{ machine.machine_id }}/api/backup" download
+             data-testid="backup-{{ machine.machine_id }}">バックアップ</a>）
+        {% endif %}
+      </li>
       {% endfor %}
     </ul>
     {% else %}

@@ -385,6 +385,16 @@ class TestDevJobPages:
         assert "job_demo" not in client.get("/dev").text
 
 
+class TestConfigHistoryPage:
+    """設定履歴とバックアップの画面（一覧と復元は JS が backend の API で行う）."""
+
+    def test_backup_link_points_at_this_machine(self, client: TestClient):
+        body = client.get("/dev/config_history").text
+
+        assert 'href="/m/uitest/api/backup"' in body
+        assert 'id="config-history-list"' in body
+
+
 POSCTRL_JOB_FEATURES = ("camera_calibration", "board_tour", "orthogonality_test")
 
 

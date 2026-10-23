@@ -1,6 +1,7 @@
 """machine.toml のホワイトリスト読み書き.
 
 machine.toml は tomlkit でコメント・構造を保持して書き戻す。
+書き換える前の内容は `web.api.history` が世代として残す。
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from pcbasm.config import (
     validate_region_overlap,
 )
 from pcbasm.utils import is_finite_number
+from web.api.history import ConfigHistory
 
 # 型エイリアスの定義は API 契約モジュール（pydantic のみ依存）に置き、ここから
 # 再 export する。既存の `from web.api.config_store import ...` をそのまま使えるようにする
@@ -379,6 +381,12 @@ class ConfigStore:
             config_dir: マシン設定ディレクトリ
         """
         self._config_dir = config_dir
+        self._history = ConfigHistory(self.machine_toml_path())
+
+    @property
+    def history(self) -> ConfigHistory:
+        """machine.toml の設定履歴."""
+        return self._history
 
     def machine_toml_path(self) -> Path:
         """machine.toml のパスを返す."""
@@ -408,6 +416,7 @@ class ConfigStore:
         """machine.toml へホワイトリスト項目を書き込む.
 
         tomlkit によりコメント・構造を保持する。toml に無いキーは追加する。
+        内容が変わるときは、書き込む前の machine.toml を設定履歴へ残す。
         同一ディレクトリ内の一時ファイル経由の atomic replace で書き込むため、
         書き込み中に他プロセスが読んでも torn read（部分/空 TOML）は発生しない。
 
@@ -441,7 +450,8 @@ class ConfigStore:
                 or Path(filename).name != filename
             ):
                 raise UnknownFieldError(f"追加ファイル名が不正です: {filename!r}")
-        doc = tomlkit.parse(path.read_text())
+        original = path.read_text()
+        doc = tomlkit.parse(original)
         _migrate_legacy_nozzle_sections(doc)
         _validate_detection_counts(doc, coerced)
         _validate_nozzle_diameters(doc, coerced)
@@ -458,6 +468,8 @@ class ConfigStore:
         updated = tomlkit.dumps(doc)
         for filename, content in (files or {}).items():
             write_bytes_atomic(path.parent / filename, content)
+        if updated != original:
+            self._history.snapshot()
         write_text_atomic(path, updated)
 
     def _machine_spec(self, key: str) -> FieldSpec:

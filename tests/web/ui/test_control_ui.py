@@ -46,6 +46,7 @@ _GATED_TEMPLATES = {
     "settings.html",
     "dev/klipper_status.html",
     "dev/audio.html",
+    "dev/config_history.html",
     "partials/job_form.html",
     "partials/machine_control.html",
     "partials/update_panel.html",

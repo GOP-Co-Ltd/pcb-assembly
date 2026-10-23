@@ -2904,3 +2904,14 @@ h2 {
   min-width: 8rem;
   margin-right: 0.5rem;
 }
+
+/* ---- 設定履歴 ---- */
+.config-history-list > li {
+  margin-bottom: 0.75rem;
+}
+
+.config-history-changes {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
