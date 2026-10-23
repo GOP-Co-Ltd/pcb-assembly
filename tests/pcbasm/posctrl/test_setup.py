@@ -5,30 +5,18 @@ Phase 4（memory/agents/implementation-planner/webui-phase4.md §1）で posctrl
 
 - OffsetObserver: ``window_name`` 全廃。``frame_sink``（None なら配信なし）へ
   observe 成功時に注釈付き画像を 1 枚送る
-- machine_session: 終了時の退避は park_or_present へ委譲
-  （nozzle-cap-parking 計画書「呼び出し 3 箇所の差し替え」節:
-  ``machine_session(klipper, machine)`` の 2 引数に破壊的変更）
 
 カメラは pcbasm.hal.fake の FakeCamera（自前 HAL Camera の fake）を使う。
 """
 
-from contextlib import nullcontext
-
 import cv2
 import numpy as np
 import pytest
-from pytest_mock import MockerFixture
 
-from pcbasm.config import load_machine
 from pcbasm.geometry import Point2d
 from pcbasm.hal.fake import FakeCamera
-from pcbasm.posctrl.setup import (
-    CircleDetectionError,
-    OffsetObserver,
-    machine_session,
-)
+from pcbasm.posctrl.setup import CircleDetectionError, OffsetObserver
 from pcbasm.vision import CircleDetector, Image
-from tests.support.paths import TESTING_DATA_DIR
 
 
 def _circle_image(offset_x: int = 10) -> Image:
@@ -176,30 +164,3 @@ class TestOffsetObserver:
             )
 
         assert expected in str(exc_info.value)
-
-
-class TestMachineSession:
-    """machine_session のテスト（終了処理のみをピン）.
-
-    nozzle-cap-parking 計画書「呼び出し 3 箇所の差し替え」節が契約: 終了時の退避判断（キャップ駐機 /
-    PRESENT フォールバック）は park_or_present に集約されるため、ここでは委譲だけをピンする。
-    """
-
-    @pytest.mark.parametrize(
-        "raises", [False, True], ids=["normal-exit", "on-exception"]
-    )
-    def test_delegates_to_park_or_present_on_exit(
-        self, mocker: MockerFixture, raises: bool
-    ):
-        """例外の有無によらず park_or_present(klipper, machine) が 1 回呼ばれる."""
-        park = mocker.patch("pcbasm.posctrl.setup.park_or_present")
-        klipper = mocker.Mock()
-        machine = load_machine(TESTING_DATA_DIR / "machine.toml")
-        expected = pytest.raises(ValueError, match="test error")
-
-        with expected if raises else nullcontext():
-            with machine_session(klipper, machine):
-                if raises:
-                    raise ValueError("test error")
-
-        park.assert_called_once_with(klipper, machine)

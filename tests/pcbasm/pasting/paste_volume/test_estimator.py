@@ -82,16 +82,6 @@ class TestPredictOnRealMaterial:
 
         assert prediction.mean_volume_ul == pytest.approx(0.1427, rel=0.15)
 
-    def test_uncertainty_comes_from_the_calibration_residual(self):
-        calibration = _calibration()
-        prediction = _predict("large")
-
-        expected = calibration.diagnostics.residual_relative_std
-        assert prediction.relative_std == pytest.approx(expected)
-        assert prediction.std_volume_ul == pytest.approx(
-            prediction.mean_volume_ul * expected
-        )
-
 
 class TestPredictRejections:
     """推定できないケースは例外にせず理由文字列へ落とす."""

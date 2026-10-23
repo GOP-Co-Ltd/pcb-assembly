@@ -28,8 +28,6 @@ class GCodeMacro:
     """Klipper マクロ情報を保持するクラス."""
 
     gcode: GCode
-    description: str | None = None
-    variables: dict[str, Any] = attrs.Factory(dict)
 
 
 class GCodeJournal(Protocol):
@@ -163,16 +161,7 @@ class Klipper:
         for key, value in config.items():
             if key.startswith("gcode_macro "):
                 macro_name = key.removeprefix("gcode_macro ")
-                gcode = GCode(value.get("gcode", ""))
-                description = value.get("description")
-                variables = {
-                    k.removeprefix("variable_"): v
-                    for k, v in value.items()
-                    if k.startswith("variable_")
-                }
-                macros[macro_name] = GCodeMacro(
-                    gcode=gcode, description=description, variables=variables
-                )
+                macros[macro_name] = GCodeMacro(GCode(value.get("gcode", "")))
         return macros
 
     def emergency_stop(self) -> None:

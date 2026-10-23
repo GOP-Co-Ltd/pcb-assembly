@@ -14,7 +14,7 @@ from pydantic import BaseModel
 # backend が `GET /api/machine-info` で自己申告する API 契約のバージョン。
 # mDNS の広告がこの版を載せ、frontend の探索は版のずれた機体を更新専用にする（定義箇所はここだけ）。
 # frontend は machine-info の api_version を見ないので、静的登録だけの機体は更新専用にならない
-API_VERSION = 4
+API_VERSION = 5
 
 type JobStatusName = Literal[
     "pending", "running", "waiting_input", "succeeded", "failed", "aborted"

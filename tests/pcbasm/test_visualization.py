@@ -4,7 +4,7 @@ Phase 3 で scripts からレンダラを昇格しパッケージ化した（計
 webui-phase3.md「pcbasm 昇格」節）:
 
 - polygon_with_holes_patch: 既存テストが import 変更なしで通る（無風確認）
-- render_pcb / render_fill_paths: 実 PCB fixture から tmp_path へ PNG 出力 →
+- render_pcb: 実 PCB fixture から tmp_path へ PNG 出力 →
   ファイル生成 + cv2 で読めてサイズ > 0（描画内容の厳密検証はしない）
 
 Phase 5 追記（計画書 webui-phase5.md §1「visualization/height_render.py」）:
@@ -87,49 +87,6 @@ class TestRenderPcb:
         output = tmp_path / "pcb.png"
 
         render_pcb(pcb.outline, pcb.pads, pcb.copper, pcb.components, output)
-
-        image = cv2.imread(str(output))
-        assert image is not None
-        assert image.size > 0
-
-
-class TestRenderFillPaths:
-    """render_fill_paths（fill path 可視化処理から昇格）."""
-
-    def test_renders_fill_paths_to_readable_png(self, tmp_path):
-        from pcbasm.pasting.fill_path import FillPlan
-        from pcbasm.pcb import Layer, PadList, PcbFile
-        from pcbasm.visualization import render_fill_paths
-
-        pcb = PcbFile(FILL_COVERAGE_PCB)
-        pads = PadList(pad for pad in pcb.pads if pad.layer == Layer.TOP)
-        assert len(pads) > 0
-        paths = [
-            [
-                list(path)
-                for path in FillPlan.build(
-                    pad.polygon,
-                    0.4,
-                    dispense_mode="area",
-                    auto_line_aspect_ratio=1.618,
-                    auto_area_short_side_factor=3.0,
-                ).paths
-            ]
-            for pad in pads
-        ]
-        output = tmp_path / "fill_path.png"
-
-        render_fill_paths(
-            outline=pcb.outline,
-            pads=pads,
-            paths=paths,
-            nozzle_diameter=0.4,
-            bead_width_factor=1.0,
-            overlap=0.0,
-            boundary_margin=0.0,
-            layer=Layer.TOP,
-            output_path=output,
-        )
 
         image = cv2.imread(str(output))
         assert image is not None

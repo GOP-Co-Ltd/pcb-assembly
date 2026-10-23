@@ -23,9 +23,6 @@ import numpy as np
 
 from pcbasm.utils import is_finite_number
 
-# 校正ファイルへ記録するモデル形式の識別子
-MODEL_KIND = "cubic_through_origin"
-
 # 運転時補正で採用する直径範囲を決める、被覆域の下端側から除外する割合。
 # 同条件で採った 2 つの校正は大径側で 3 % しか違わないのに、被覆域の下端では 58 %
 # 食い違う（docs/paste-volume-diameter-calibration.md「被覆域の下端は信頼できる範囲

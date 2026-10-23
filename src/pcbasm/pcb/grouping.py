@@ -231,18 +231,9 @@ class PadHierarchy:
             raise KeyError((pad.designator, pad.pad_number))
         return ref
 
-    def find_pad_id(self, pad: Pad) -> str | None:
-        """WebUI / API で使う一意な pad id を返す。階層に無い pad は ``None``."""
-        ref = self.find_pad_ref(pad)
-        return None if ref is None else pad_id_from_ref(ref)
-
     def pad_id_for_pad(self, pad: Pad) -> str:
-        """:meth:`find_pad_id` の raise 版（階層に無い pad は ``KeyError``）."""
+        """WebUI / API で使う一意な pad id を返す（階層に無い pad は ``KeyError``）."""
         return pad_id_from_ref(self.pad_ref_for_pad(pad))
-
-    def l4_key_for_pad_id(self, pad_id: str) -> HierKey:
-        """Pad id に対応する L4 階層キーを返す."""
-        return self._keys_by_pad_ref[self._refs_by_pad_id[pad_id]][-1]
 
     def all_keys(self) -> set[HierKey]:
         """階層に存在する全ノードキーの集合を返す."""

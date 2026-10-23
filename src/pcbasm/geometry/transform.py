@@ -57,11 +57,6 @@ class Point3d:
         """Point2d 型に変換する（z 座標は無視）."""
         return Point2d(x=self.x, y=self.y)
 
-    @classmethod
-    def zero(cls, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> Self:
-        """指定されていない軸を 0 で初期化した Point3d を返す."""
-        return cls(x, y, z)
-
 
 @attrs.frozen
 class Point2d:

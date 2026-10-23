@@ -54,16 +54,3 @@ class CopperEdgeDetector:
         processed = cv2.GaussianBlur(gray, kernel, 0)
         edges = cv2.Canny(processed, self._canny_low, self._canny_high)
         return CopperEdgeDetection(processed=Image(processed), edges=edges)
-
-    def detect_edges(self, image: Image) -> ImageArray:
-        """2 値エッジマスク (uint8, 0/255) を返す.
-
-        detect() と同じ前処理を適用した結果を返す。
-
-        Args:
-            image: 入力画像
-
-        Returns:
-            入力と同サイズの 2 値エッジマスク
-        """
-        return self.detect(image).edges

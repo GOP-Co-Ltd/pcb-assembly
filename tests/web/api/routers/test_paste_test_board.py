@@ -196,8 +196,6 @@ class TestPasteTestBoardPreview:
             item["catalog_id"] for item in preview["config"]["patterns"]
         ]
         assert preview["pads"][0]["display_name"]
-        assert preview["flow_pads"]
-        assert preview["flow_polygons"]
 
     @pytest.mark.parametrize(
         ("target", "field", "value"),

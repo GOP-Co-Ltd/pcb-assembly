@@ -1,16 +1,4 @@
-import enum
-
 from .klipper import GCode, ReadonlyKlipper
-
-
-class HomingDirection(enum.Enum):
-    """ホーミングで停止する条件（Klipper の ``STOP_ON_ENDSTOP`` の値）.
-
-    移動の向きは ``home()`` の目標位置で決まり、この値では決まらない。
-    """
-
-    FORWARD = 1  # エンドストップが反応したら停止
-    BACKWARD = -1  # エンドストップの反応が解けたら停止
 
 
 class ManualStepper:
@@ -18,7 +6,7 @@ class ManualStepper:
 
     G-code を生成するだけで送信しない。
     Klipper の ``MANUAL_STEPPER MOVE=`` は絶対位置の指令なので、``move`` /
-    ``rotate`` / ``home`` の位置引数はどれも絶対位置である。
+    ``rotate`` の位置引数はどちらも絶対位置である。
     相対量で動かすときは、先に ``reset_position()`` で現在位置を基準値に置く。
     """
 
@@ -133,28 +121,6 @@ class ManualStepper:
     def sync(self) -> GCode:
         """先行する manual stepper 動作と後続 G-code の時刻を同期する."""
         return GCode(f"{self._cmd_prefix} SYNC=1")
-
-    def home(
-        self,
-        distance: float,
-        speed: float | None = None,
-        *,
-        direction: HomingDirection = HomingDirection.FORWARD,
-    ) -> GCode:
-        """ホーミングの GCode を生成する.
-
-        Args:
-            distance: ホーミング時の目標位置 [mm]（停止条件を満たさなければここまで動く）
-            speed: 速度 [mm/s]（省略時は Klipper 設定値を使用）
-            direction: 停止条件（デフォルト: FORWARD）
-
-        Returns:
-            ホーミング用の GCode
-        """
-        cmd = f"{self._cmd_prefix} STOP_ON_ENDSTOP={direction.value} MOVE={distance}"
-        if speed is not None:
-            cmd += f" SPEED={speed}"
-        return GCode(cmd)
 
     def enable(self) -> GCode:
         """ステッパーを有効化する GCode を生成する.

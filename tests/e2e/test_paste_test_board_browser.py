@@ -129,7 +129,7 @@ class TestPasteTestBoardBrowser:
         )
         expect(browser_page.locator(".ptb-overflow-layer")).to_have_count(1)
         expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "64パッド + purge pad + 流量計測 5パッド"
+            "64パッド + purge pad"
         )
         assert browser_page.locator(".ptb-paste").count() > 0
         expect(browser_page.locator("#ptb-generate")).to_be_disabled()
@@ -147,7 +147,7 @@ class TestPasteTestBoardBrowser:
             7, timeout=_BROWSER_TIMEOUT_MS
         )
         expect(browser_page.locator("#ptb-preview-summary")).to_have_text(
-            "76パッド + purge pad + 流量計測 5パッド", timeout=_BROWSER_TIMEOUT_MS
+            "76パッド + purge pad", timeout=_BROWSER_TIMEOUT_MS
         )
 
         browser_page.reload(wait_until="domcontentloaded")

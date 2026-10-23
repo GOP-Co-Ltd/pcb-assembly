@@ -180,39 +180,30 @@ class TestPasteSessionPadTransforms:
         assert "C17" in str(exc_info.value)
 
 
-class TestPasteSessionCameraTarget:
-    """補正済み pad 中心をカメラ中心へ置くステージ XY（toolhead / height を含まない）."""
+class TestPasteSessionCameraPointTarget:
+    """Board 点をカメラ中心へ置くステージ XY（toolhead / height を含まない）."""
 
     def test_applies_board_transform_and_region_correction_only(self):
-        pad = _pad("U1", Point2d(1.0, 2.0))
         alignment = BoardAlignment(
             results=(
                 _region_result(0, shapely.box(-5.0, -5.0, 5.0, 5.0), Point2d(0.3, 0.1)),
             )
         )
-        correction = PasteCorrection(alignment, _height_plane())
+        point = Point2d(1.0, 2.0)
 
-        target = _session().camera_target(pad, correction)
+        target = _session().camera_point_target(
+            point, correction=alignment.correction_for(point)
+        )
 
         # Rotation90(1,2)=(-2,1) + 局所補正 (0.3,0.1)。toolhead offset は加えない。
         assert target.x == pytest.approx(-1.7, abs=1e-9)
         assert target.y == pytest.approx(1.1, abs=1e-9)
 
     def test_offset_is_added_in_machine_xy(self):
-        pad = _pad("U1", Point2d(1.0, 2.0))
-        correction = PasteCorrection(
-            BoardAlignment(
-                results=(
-                    _region_result(
-                        0, shapely.box(-5.0, -5.0, 5.0, 5.0), Point2d(0.0, 0.0)
-                    ),
-                )
-            ),
-            _height_plane(),
-        )
+        point = Point2d(1.0, 2.0)
 
-        plain = _session().camera_target(pad, correction)
-        shifted = _session().camera_target(pad, correction, offset=Point2d(0.5, -1.0))
+        plain = _session().camera_point_target(point)
+        shifted = _session().camera_point_target(point, offset=Point2d(0.5, -1.0))
 
         assert shifted.x - plain.x == pytest.approx(0.5, abs=1e-9)
         assert shifted.y - plain.y == pytest.approx(-1.0, abs=1e-9)

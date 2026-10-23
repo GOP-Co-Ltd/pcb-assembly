@@ -15,7 +15,8 @@ from pcbasm.geometry import (
 )
 from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.pcb import Outline
-from pcbasm.utils import get_class_module_path
+
+logger = logging.getLogger(__name__)
 
 
 class BoardTransformMeasurer:
@@ -70,8 +71,6 @@ class BoardTransformMeasurer:
         self._move_velocity_ratio = move_velocity_ratio
         self._settle_sec = settle_sec
 
-        self._logger = logging.getLogger(get_class_module_path(self.__class__))
-
     def measure(self) -> Compose:
         """4 点の最小二乗法で board→機械座標の変換を計測する.
 
@@ -86,7 +85,7 @@ class BoardTransformMeasurer:
             ValueError: 基準点配置の design matrix の rank が 3 未満の場合
             RuntimeError: ``adjust_reference`` の失敗をそのまま送出する
         """
-        self._logger.info("Board変換の計測を開始")
+        logger.info("Board変換の計測を開始")
 
         corners = (
             Corner.TOP_LEFT,
@@ -94,9 +93,7 @@ class BoardTransformMeasurer:
             Corner.BOTTOM_RIGHT,
             Corner.BOTTOM_LEFT,
         )
-        self._logger.info(
-            "計測コーナー: TOP_LEFT, TOP_RIGHT, BOTTOM_RIGHT, BOTTOM_LEFT"
-        )
+        logger.info("計測コーナー: TOP_LEFT, TOP_RIGHT, BOTTOM_RIGHT, BOTTOM_LEFT")
         move_velocity = self._stage.max_velocity * self._move_velocity_ratio
         machine_points = [
             self._measure_corner(corner, move_velocity) for corner in corners
@@ -124,8 +121,8 @@ class BoardTransformMeasurer:
         translation = params[2]
         matrix = Matrix2d(matrix_values)
         shift = Shift(x=float(translation[0]), y=float(translation[1]))
-        self._logger.info(f"変換行列:\n{matrix_values}")
-        self._logger.info(f"Board原点の機械座標: ({shift.x:.4f}, {shift.y:.4f})")
+        logger.info(f"変換行列:\n{matrix_values}")
+        logger.info(f"Board原点の機械座標: ({shift.x:.4f}, {shift.y:.4f})")
 
         # 変換を構成（Matrix2d → Shift）
         transform = Compose([matrix, shift])
@@ -133,12 +130,12 @@ class BoardTransformMeasurer:
             corners, board_points, machine_points, strict=True
         ):
             residual = transform.apply(board_point) - machine_point
-            self._logger.info(
+            logger.info(
                 f"残差 {corner.name}: ({residual.x:.4f}, {residual.y:.4f}) mm, "
                 f"距離 {residual.norm:.4f} mm"
             )
 
-        self._logger.info("Board変換の計測完了")
+        logger.info("Board変換の計測完了")
         return transform
 
     def _measure_corner(
@@ -153,17 +150,17 @@ class BoardTransformMeasurer:
             board_height=self._outline.height,
         )
 
-        self._logger.info(f"=== {corner.name} Reference Pointへ移動 ===")
-        self._logger.info(f"目標位置: ({ref_pos.x:.3f}, {ref_pos.y:.3f})")
+        logger.info(f"=== {corner.name} Reference Pointへ移動 ===")
+        logger.info(f"目標位置: ({ref_pos.x:.3f}, {ref_pos.y:.3f})")
         self._move_to(
             self._stage.move(
                 x=ref_pos.x, y=ref_pos.y, speed=Speed.absolute(move_velocity)
             ),
         )
 
-        self._logger.info(f"=== {corner.name} Reference Pointの位置補正 ===")
+        logger.info(f"=== {corner.name} Reference Pointの位置補正 ===")
         pos = self._adjust_reference()
-        self._logger.info(f"{corner.name}位置: ({pos.x:.4f}, {pos.y:.4f})")
+        logger.info(f"{corner.name}位置: ({pos.x:.4f}, {pos.y:.4f})")
         return pos
 
     def _move_to(self, move_gcode: GCode) -> None:

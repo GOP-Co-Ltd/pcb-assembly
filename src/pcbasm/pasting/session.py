@@ -1,8 +1,7 @@
 """塗布実行のための HAL 配線をまとめたセッション.
 
-「マシン設定読み込み → Board 計測 → probe / height_measurer の構築」をまとめ、 pad
-ごとの座標変換（board → 補正 → toolhead → 高さ面）と applicator の構築点を 1
-箇所に置く。コンテキストマネージャとして終了時のクリーンアップ（駐機）まで行う。
+Board 計測の結果から probe / height_measurer を組み、 pad ごとの座標変換（board → 補正 →
+toolhead → 高さ面）と applicator の構築点を 1 箇所に置く。
 
 ユーザー対話・進捗・中断は持たない（web ジョブ側の責務）。
 """
@@ -10,35 +9,28 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Self
 
 import attrs
 
-from pcbasm.config import Machine, get_machine_config
+from pcbasm.config import Machine
 from pcbasm.geometry import Compose, HeightPlane, Identity, Point2d, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage
-from pcbasm.parking import park_or_present
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.applicator import PasteApplicator, build_applicator
 from pcbasm.pasting.height import HeightPlaneMeasurer
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.pcb import Copper, Layer, Pad, PcbFile
-from pcbasm.posctrl import (
-    BoardCalibrationResult,
-    RegionAlignmentSession,
-    setup_board_calibration,
-)
+from pcbasm.posctrl import BoardCalibrationResult, RegionAlignmentSession
 from pcbasm.vision import CalibrationResult, FrameSink
 
 
 @attrs.frozen
 class PasteSession:
-    """マシン初期化〜Board 計測〜塗布用 HAL の配線をまとめた実行セッション.
+    """Board 計測の結果から塗布用 HAL を配線した実行セッション.
 
-    ``PasteSession.setup(...)`` または ``from_calibration(...)`` で構築し、
-    コンテキストマネージャとして使う（終了時にノズルキャップへ駐機し、
-    できなければ PRESENT / M84 に退避する）。
+    ``from_calibration(...)`` で構築する。
+    終了時の駐機はジョブ管理（web）が行う。
 
     塗布に渡す board → machine 変換は、塗る対象で選ぶ。
 
@@ -62,26 +54,6 @@ class PasteSession:
     pcb: PcbFile
     probe_executor: ProbeExecutor
     height_measurer: HeightPlaneMeasurer
-
-    @classmethod
-    def setup(
-        cls,
-        pcb_file_path: Path,
-        tolerance: float = 0.1,
-        *,
-        camera: Camera | None = None,
-        frame_sink: FrameSink | None = None,
-    ) -> Self:
-        """マシン設定読み込み〜Board 計測〜塗布用 HAL 構築をまとめて実行する."""
-        machine = get_machine_config()
-        result = setup_board_calibration(
-            machine=machine,
-            pcb_file_path=pcb_file_path,
-            tolerance=tolerance,
-            camera=camera,
-            frame_sink=frame_sink,
-        )
-        return cls.from_calibration(result)
 
     @classmethod
     def from_calibration(cls, result: BoardCalibrationResult) -> Self:
@@ -195,32 +167,13 @@ class PasteSession:
         machine_point = self.board_transform.apply(point)
         if correction is not None:
             machine_point = correction.apply(machine_point)
-        return self._camera_target(machine_point, offset)
-
-    def camera_target(
-        self,
-        pad: Pad,
-        correction: PasteCorrection,
-        *,
-        offset: Point2d = Point2d(0.0, 0.0),
-    ) -> Point2d:
-        """補正済み pad 中心をカメラ中心へ置くステージ XY（+ 任意オフセット）."""
-        shift = correction.alignment.correction_for(
-            pad.center, designator=pad.designator
-        )
-        return self._camera_target(
-            shift.apply(self.board_transform.apply(pad.center)), offset
-        )
+        return Point2d(machine_point.x + offset.x, machine_point.y + offset.y)
 
     def _point_chain(self, correction: Transform, height_plane: Transform) -> Transform:
         """Board → 補正 → toolhead → 高さ の変換列を組む."""
         return Compose(
             [self.board_transform, correction, self.toolhead_offset, height_plane]
         )
-
-    @staticmethod
-    def _camera_target(machine_point: Point2d, offset: Point2d) -> Point2d:
-        return Point2d(machine_point.x + offset.x, machine_point.y + offset.y)
 
     def make_applicator(
         self,
@@ -244,9 +197,3 @@ class PasteSession:
             rotations_per_ul=rotations_per_ul,
             lift_height=lift_height,
         )
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        park_or_present(self.klipper, self.machine)

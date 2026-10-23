@@ -6,7 +6,8 @@ from collections.abc import Callable
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Transform
 from pcbasm.hal import Klipper, Speed, XYZStage
-from pcbasm.utils import get_class_module_path
+
+logger = logging.getLogger(__name__)
 
 
 class XYPositionAdjustor:
@@ -61,8 +62,6 @@ class XYPositionAdjustor:
         self._move_velocity_ratio = move_velocity_ratio
         self._settle_sec = settle_sec
 
-        self._logger = logging.getLogger(get_class_module_path(self.__class__))
-
     def adjust(self) -> Point2d:
         """位置を反復的に補正する.
 
@@ -78,7 +77,7 @@ class XYPositionAdjustor:
             RuntimeError: 最大反復回数内に収束しなかった場合
             CircleDetectionError: ``observe`` が検出に失敗した場合（RuntimeError の派生）
         """
-        self._logger.info("位置補正を開始")
+        logger.info("位置補正を開始")
 
         move_velocity = self._stage.max_velocity * self._move_velocity_ratio
         offset = Point2d(x=0.0, y=0.0)
@@ -86,7 +85,7 @@ class XYPositionAdjustor:
             offset = self._offset_transform.apply(
                 self._observe().apply(Point2d(0.0, 0.0))
             )
-            self._logger.info(
+            logger.info(
                 f"試行 {iteration + 1}/{self._max_iterations}: "
                 f"オフセット ({offset.x:.4f}, {offset.y:.4f}) mm, "
                 f"距離 {offset.norm:.4f} mm"
@@ -96,14 +95,14 @@ class XYPositionAdjustor:
             target = pos.to2d() - offset
 
             if offset.norm < self._tolerance:
-                self._logger.info(
+                logger.info(
                     f"許容誤差 {self._tolerance} mm 以内に収束: "
                     f"最終位置 ({target.x:.4f}, {target.y:.4f})"
                 )
                 return target
 
             # オフセット分だけ移動
-            self._logger.debug(
+            logger.debug(
                 f"移動: ({pos.x:.4f}, {pos.y:.4f}) -> "
                 f"({target.x:.4f}, {target.y:.4f})"
             )

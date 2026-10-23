@@ -29,18 +29,6 @@ def setup_logging(
         logger.addHandler(handler)
 
 
-def get_class_module_path(cls: type) -> str:
-    """Get the module path of a class.
-
-    Args:
-        cls: The class to get the module path.
-
-    Returns:
-        str: The module path of the class.
-    """
-    return f"{cls.__module__}.{cls.__name__}"
-
-
 def is_finite_number(value: object) -> TypeGuard[int | float]:
     """``bool`` を除く有限な ``int`` / ``float`` かを判定する.
 

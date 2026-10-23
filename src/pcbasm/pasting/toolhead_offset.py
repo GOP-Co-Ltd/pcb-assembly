@@ -33,7 +33,6 @@ from pcbasm.vision import FrameSink, Image, PasteDotDetector
 
 _converter = make_converter()
 _converter.register_unstructure_hook(Point2d, lambda p: {"x": p.x, "y": p.y})
-_converter.register_structure_hook(Point2d, lambda d, _: Point2d(x=d["x"], y=d["y"]))
 
 MINIMUM_TOOLHEAD_OFFSET_SAMPLE_COUNT = 5
 
@@ -148,22 +147,12 @@ class ToolheadOffsetResult:
         """辞書に変換."""
         return _converter.unstructure(self)
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
-        """辞書から生成."""
-        return _converter.structure(data, cls)
-
     def save(self, path: Path) -> None:
         """JSON ファイルに保存."""
         path.write_text(
             json.dumps(self.to_dict(), indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-
-    @classmethod
-    def load(cls, path: Path) -> Self:
-        """JSON ファイルから読み込み."""
-        return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
 
 def plan_toolhead_offset_points(

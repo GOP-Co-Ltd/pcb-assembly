@@ -587,11 +587,6 @@ class Camera:
     format: str = "YUYV"
     backend: str = "csi"
 
-    @property
-    def size(self) -> tuple[int, int]:
-        """カメラサイズを (width, height) のタプルで返す."""
-        return (self.width, self.height)
-
 
 @attrs.frozen
 class Toolhead:
@@ -891,12 +886,3 @@ def get_config_dir() -> Path:
     """
     value = os.environ.get("PCBASM_CONFIG_DIR")
     return Path(value) if value else PROJECT_ROOT / "config"
-
-
-def get_machine_config() -> Machine:
-    """:func:`get_config_dir` の machine.toml を読み込む.
-
-    Raises:
-        ConfigError: TOML として読めない・検証に通らない場合
-    """
-    return load_machine(get_config_dir() / "machine.toml")

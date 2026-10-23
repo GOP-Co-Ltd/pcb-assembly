@@ -107,7 +107,7 @@ class RegionAligner:
             projector = self._projector.with_correction(Shift.from_point(cumulative))
             projection = projector.project(target)
             image = self._camera.capture()
-            edges = self._edge_detector.detect_edges(image)
+            edges = self._edge_detector.detect(image).edges
             if self._frame_sink is not None:
                 self._frame_sink(
                     render_edge_match(image, edges, projection.edge_mask, region.roi)

@@ -68,6 +68,6 @@ web/api/jobs/pasting/*  →  pasting.{session,workflow,alignment,flowcalib.proce
 | 単位           | μL は常に `_ul`（`amount_ul`, `volume_ul`）。密度は `density_mg_per_ul`（TOML キー `solder_paste_density` は config プロパティで橋渡し）。mm は幾何値では無記、JSON DTO と KiCad 境界だけ `_mm` |
 | 検証           | 検証関数 `validate_<対象>()` と検証メソッド `validate()` は、問題があればエラー文（`str`）、問題が無ければ `None` を返す。例外は投げない                                                        |
 | 値オブジェクト | `attrs.frozen` + tuple。新規 ABC / Protocol は作らない                                                                                                                                          |
-| ログ           | `logging.getLogger(get_class_module_path(cls))`。複数回機械を動かすメソッドだけ `checkpoint` コールバックを受ける                                                                               |
+| ログ           | モジュールごとの `logging.getLogger(__name__)`。複数回機械を動かすメソッドだけ `checkpoint` コールバックを受ける                                                                                |
 
 位置合わせは `posctrl` を利用する。
