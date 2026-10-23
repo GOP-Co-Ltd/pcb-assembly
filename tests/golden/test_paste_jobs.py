@@ -1,0 +1,325 @@
+"""塗布系ジョブが実機へ送る G-code の列を、分岐とカメラの回転ごとに golden で固定する.
+
+ジョブは実 JobManager で走らせ、カメラは SceneCamera が fake 機体の位置から描く。
+シナリオは scenarios.py の表にあり、golden は ``jobs/<シナリオ名>.gcode`` に置く。
+送信列には、ジョブの本体に続けて、終了時の駐機（JobManager が行う）も入る。
+数値は OpenCV の検出結果そのもので、Pi 5（aarch64）と uv.lock の opencv-python 4.12.0.88 で採った。
+"""
+
+import json
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, override
+
+import pytest
+import tomlkit
+from shapely import Polygon
+from tomlkit.items import Table
+
+from pcbasm.gcode import GCodeLike
+from pcbasm.geometry import Point2d
+from pcbasm.hal import Camera
+from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper, StepperMove
+from pcbasm.pasting.paste_volume.calibration import (
+    CALIBRATION_SUFFIX,
+    parse_calibration,
+    write_calibration,
+)
+from pcbasm.pcb import PadHierarchy, PcbFile
+from pcbasm.pcb.generate import generate_rect_pcb, save_board
+from tests.golden.conftest import (
+    CALIBRATION,
+    DISPENSER,
+    JOBS,
+    finish,
+    scene_camera,
+)
+from tests.golden.scenarios import Scenario, scenarios_of
+from tests.support import polling
+from tests.support.golden import assert_transcript
+from tests.support.paths import TESTING_DATA_DIR
+from tests.web.api.jobs.conftest import answer_next_prompt
+from web.api.board_settings import BoardSettingsStore
+from web.api.config_store import ConfigStore
+from web.api.jobs.manager import JobManager, JobRecord, JobStatus
+from web.api.jobs.pasting import LOADING_STAGE
+from web.api.settings import Settings
+from web.api.state import AppState
+
+LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
+CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
+# 運転時補正で塗る点（board 座標）。pad の無い下側のベタに、crop が重ならない間隔で置く
+FLOW_POINTS = (Point2d(5.0, 20.0), Point2d(10.0, 20.0), Point2d(15.0, 20.0))
+
+
+@pytest.fixture
+def led_blinker_shapes(place_board: Callable[[Path], list[Polygon]]) -> list[Polygon]:
+    """led_blinker（高さ計測できる TOP のベタを持つ）を選び、置いた基板の基準円と銅箔を返す."""
+    return place_board(LED_BLINKER)
+
+
+class CloggedKlipper(FakeKlipper):
+    """先端が詰まった fake 機体（最初の ``clogged`` 回の押し出しではペーストが出ない）.
+
+    押し出し 1 回は、manual_stepper を正の向きに進める ``MOVE`` を含む送信 1 回と数える。
+    出なかった送信の ``MOVE`` は ``stepper_moves`` から除くので、SceneCamera は塗布痕を描かない。
+    """
+
+    def __init__(self, clogged: float) -> None:
+        super().__init__()
+        # connection() と共有するので、属性を差し替えずに中身を更新する
+        self._clogged = [clogged]
+        self._swallowed: set[int] = set()
+
+    @property
+    @override
+    def stepper_moves(self) -> tuple[StepperMove, ...]:
+        return tuple(
+            move
+            for index, move in enumerate(super().stepper_moves)
+            if index not in self._swallowed
+        )
+
+    @override
+    def send_gcode(
+        self, gcode: GCodeLike, *, timeout: float | None = None
+    ) -> dict[str, Any]:
+        start = len(super().stepper_moves)
+        result = super().send_gcode(gcode, timeout=timeout)
+        moves = super().stepper_moves[start:]
+        if self._clogged[0] > 0 and any(move.distance > 0 for move in moves):
+            self._clogged[0] -= 1
+            self._swallowed.update(range(start, start + len(moves)))
+        return result
+
+
+def _forget_nozzle_clean(settings: Settings) -> None:
+    """machine.toml のクリーニング節を座標の無い節にする（設定ページから動作値だけを保存した未教示の機体）."""
+    path = ConfigStore(settings.config_dir).machine_toml_path()
+    document = tomlkit.parse(path.read_text(encoding="utf-8"))
+    dispenser = document["paste_dispenser"]
+    assert isinstance(dispenser, Table)
+    dispenser["nozzle_clean"] = {"passes": 3}
+    path.write_text(tomlkit.dumps(document), encoding="utf-8")
+
+
+def _enable_flow_calibration(settings: Settings, state: AppState, pcb: Path) -> None:
+    """校正ファイルと基板ごとの測定点を置き、運転時補正を有効にする."""
+    calibration, error = parse_calibration(
+        json.loads(CALIBRATION_PIN.read_text(encoding="utf-8"))
+    )
+    assert calibration is not None, error
+    name = f"golden{CALIBRATION_SUFFIX}"
+    write_calibration(settings.paste_volume_calibration_dir / name, calibration)
+    ConfigStore(settings.config_dir).write_machine_settings(
+        {
+            "paste_dispenser.flow_calibration.calibration_file": name,
+            "paste_dispenser.flow_calibration.settle_seconds": 0.0,
+        }
+    )
+    board = PcbFile(pcb)
+    store = BoardSettingsStore(settings.webui_data_dir)
+    model = store.load_or_init(pcb.name, state.machine().paste_dispenser)
+    store.save(
+        pcb.name,
+        model.with_flow_calibration_points(FLOW_POINTS),
+        board_signature=PadHierarchy.build(board.components, board.pads).signature(),
+    )
+
+
+def _wait_loading(record: JobRecord, audio_player: FakeAudioPlayer) -> None:
+    """ローディングの入力待ちに入る（入口で滞留コマンドを捨て終え、入力待ち音を鳴らす）まで待つ."""
+    polling.wait_until(
+        lambda: record.progress_stage == LOADING_STAGE
+        and any(sound == "prompt" for sound, _ in audio_player.played),
+        timeout=60.0,
+    )
+
+
+class TestPasteSolder:
+    @pytest.fixture
+    def run(
+        self,
+        manager: JobManager,
+        job_state: AppState,
+        mount_klipper: Callable[[FakeKlipper], None],
+        mount_camera: Callable[[Camera], None],
+        led_blinker_shapes: list[Polygon],
+    ) -> Callable[..., None]:
+        """詰まりの回数を与えてはんだ塗布を走らせ、送信列を golden と比べる関数を返す."""
+
+        def run(
+            scenario: Scenario,
+            *,
+            clogged: float = 0,
+            status: JobStatus = JobStatus.SUCCEEDED,
+        ) -> None:
+            klipper = CloggedKlipper(clogged)
+            mount_klipper(klipper)
+            mount_camera(
+                scene_camera(klipper, scenario.rotation, shapes=led_blinker_shapes)
+            )
+
+            record = manager.start("paste_solder", {"tolerance": 0.1})
+            finish(job_state, record, status)
+
+            assert_transcript(klipper.sent, JOBS / f"{scenario.name}.gcode")
+
+        return run
+
+    @pytest.mark.parametrize(
+        "scenario", scenarios_of("paste_solder", "purge_shows"), ids=lambda s: s.name
+    )
+    def test_purge_shows(self, run: Callable[..., None], scenario: Scenario):
+        """初回パージが写れば、クリーニングせずに全 pad を塗る（運転時補正なし）."""
+        run(scenario)
+
+    @pytest.mark.parametrize(
+        "scenario", scenarios_of("paste_solder", "cleaned"), ids=lambda s: s.name
+    )
+    def test_cleaned(self, run: Callable[..., None], scenario: Scenario):
+        """初回パージが写らなければ、クリーニングしてパージし直し、写れば塗る."""
+        run(scenario, clogged=1)
+
+    @pytest.mark.parametrize(
+        "scenario", scenarios_of("paste_solder", "still_clogged"), ids=lambda s: s.name
+    )
+    def test_still_clogged(self, run: Callable[..., None], scenario: Scenario):
+        """クリーニングしてパージし直しても写らなければ、pad を塗らずに失敗する."""
+        run(scenario, clogged=float("inf"), status=JobStatus.FAILED)
+
+    @pytest.mark.parametrize(
+        "scenario",
+        scenarios_of("paste_solder", "no_nozzle_clean"),
+        ids=lambda s: s.name,
+    )
+    def test_no_nozzle_clean(
+        self,
+        run: Callable[..., None],
+        job_settings: Settings,
+        scenario: Scenario,
+    ):
+        """クリーニング位置が未教示なら、こすらずにパージだけやり直す."""
+        _forget_nozzle_clean(job_settings)
+
+        run(scenario, clogged=1)
+
+    @pytest.mark.parametrize(
+        "scenario", scenarios_of("paste_solder", "flow_corrected"), ids=lambda s: s.name
+    )
+    def test_flow_corrected(
+        self,
+        run: Callable[..., None],
+        job_settings: Settings,
+        job_state: AppState,
+        scenario: Scenario,
+    ):
+        """運転時補正の測定点を塗って撮り、補正した rotations_per_ul で pad を塗る."""
+        _enable_flow_calibration(job_settings, job_state, LED_BLINKER)
+
+        run(scenario)
+
+
+class TestHeightPlane:
+    @pytest.mark.parametrize(
+        "scenario", scenarios_of("height_plane"), ids=lambda s: s.name
+    )
+    def test_success(
+        self,
+        manager: JobManager,
+        job_state: AppState,
+        machine_klipper: FakeKlipper,
+        mount_camera: Callable[[Camera], None],
+        led_blinker_shapes: list[Polygon],
+        scenario: Scenario,
+    ):
+        """計画点を確かめてから、基板計測 → TOP 銅箔の高さ計測."""
+        mount_camera(
+            scene_camera(machine_klipper, scenario.rotation, shapes=led_blinker_shapes)
+        )
+
+        record = manager.start("height_plane", {"tolerance": 0.1})
+        answer_next_prompt(record, manager, True, set())
+        finish(job_state, record)
+
+        assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
+
+
+class TestToolheadOffset:
+    @pytest.fixture
+    def plate_shapes(
+        self,
+        tmp_path: Path,
+        place_board: Callable[[Path], list[Polygon]],
+    ) -> list[Polygon]:
+        """未塗布の銅板（外形だけの 30 mm 角）を選び、置いた基板の基準円を返す."""
+        path = tmp_path / "plate.kicad_pcb"
+        save_board(generate_rect_pcb(30.0, 30.0), path)
+        return place_board(path)
+
+    @pytest.mark.parametrize(
+        "scenario", scenarios_of("toolhead_offset"), ids=lambda s: s.name
+    )
+    def test_success(
+        self,
+        manager: JobManager,
+        job_state: AppState,
+        machine_klipper: FakeKlipper,
+        audio_player: FakeAudioPlayer,
+        mount_camera: Callable[[Camera], None],
+        plate_shapes: list[Polygon],
+        scenario: Scenario,
+    ):
+        """基板計測 → 全点の高さ計測 → ローディング → 全点に塗布 → 全点を撮って測る."""
+        mount_camera(
+            scene_camera(machine_klipper, scenario.rotation, shapes=plate_shapes)
+        )
+
+        record = manager.start("toolhead_offset", {"point_count": 5})
+        _wait_loading(record, audio_player)
+        manager.submit_command({"type": "finish"})
+        finish(job_state, record)
+
+        # SceneCamera は machine.toml の toolhead だけずらして塗布痕を描くので、1 画素以内でそれを測り返す
+        values = manager.apply_payload().values
+        pixel = 1.0 / CALIBRATION.pixel_per_mm
+        assert values["paste_dispenser.toolhead.x"] == pytest.approx(
+            DISPENSER.toolhead.x, abs=pixel
+        )
+        assert values["paste_dispenser.toolhead.y"] == pytest.approx(
+            DISPENSER.toolhead.y, abs=pixel
+        )
+        assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")
+
+
+class TestLoading:
+    @pytest.mark.parametrize("scenario", scenarios_of("loading"), ids=lambda s: s.name)
+    def test_commands(
+        self,
+        manager: JobManager,
+        job_state: AppState,
+        machine_klipper: FakeKlipper,
+        audio_player: FakeAudioPlayer,
+        scenario: Scenario,
+    ):
+        """ホーミング → 指定 X へ移動 → 押出・吸引・回転（引き戻し付き）・jog → 終了."""
+        record = manager.start("loading", {"position_x": 50.0})
+        _wait_loading(record, audio_player)
+        for command in (
+            {"type": "extrude", "amount": 0.1},
+            {"type": "suck", "amount": 0.05},
+            {
+                "type": "extrude_rotations",
+                "rotations": 5.0,
+                "rate": 0.5,
+                "accel": 0.5,
+                "retract_rotations": 1.0,
+            },
+            {"type": "suck_rotations", "rotations": 2.0, "rate": 0.5, "accel": 0.5},
+            {"type": "jog", "axis": "z", "dist": 10.0},
+            {"type": "finish"},
+        ):
+            manager.submit_command(command)
+        finish(job_state, record)
+
+        assert_transcript(machine_klipper.sent, JOBS / f"{scenario.name}.gcode")

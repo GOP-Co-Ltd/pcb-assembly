@@ -270,6 +270,20 @@ class TestSceneCamera:
         assert (_centroid(image, _dark) - Point2d(120.0, 50.0)).norm < 0.1
         assert radius_px == pytest.approx(7.26, abs=0.5)
 
+    def test_retract_before_dispensing_does_not_hide_the_dispense(
+        self, klipper: FakeKlipper
+    ):
+        """押し出す前の引き戻しは基板から何も吸い戻さないので、後で同じ XY に押し出した分はそのまま描く."""
+        camera = self._camera(klipper, rotations_per_ul=10.0)
+        stepper = ManualStepper(klipper.readonly, "paste_dispenser")
+
+        klipper.send_gcode(stepper.reset_position() + stepper.move(-1.0))
+        klipper.send_gcode(stepper.reset_position() + stepper.move(1.0))
+        image = camera.capture()
+
+        radius_px = np.sqrt(np.count_nonzero(_dark(image.numpy()[:, :, 0])) / np.pi)
+        assert radius_px == pytest.approx(7.26, abs=0.5)
+
     def test_checkerboard_calibrates_to_pixel_per_mm(self, klipper: FakeKlipper):
         camera = self._camera(
             klipper,

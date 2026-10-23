@@ -53,7 +53,7 @@ def _klipper_action(
 @router.post("/emergency-stop")
 def post_emergency_stop(state: StateDep, jobs: JobsDep) -> dict[str, bool]:
     """緊急停止（安全機能なので操作権でゲートしない。**ControlDep を足さない**）."""
-    return _klipper_action(state, jobs, Klipper.emergency_stop)
+    return _klipper_action(state, jobs, lambda klipper: klipper.emergency_stop())
 
 
 @router.post("/firmware-restart")
