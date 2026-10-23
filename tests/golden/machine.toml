@@ -1,0 +1,46 @@
+# golden を採るマシン設定（kurousagi 相当。実機には接続しない）
+# 既定値に頼る項目は実機と同じく書かない。既定値が変われば golden も変わる
+
+machine_type = "paste"
+
+[klipper]
+host = "127.0.0.1"
+port = 7126
+
+[paste_dispenser]
+rotations_per_ul = 45.783133
+solder_paste_density = 3.78
+nozzle_diameter = 0.34
+dispense_mode = "auto"
+auto_line_aspect_ratio = 1.618
+max_dispense_rate = 0.1
+max_fill_speed = 0.8
+dispense_accel = 0.2
+retract_amount = 0.1
+retract_rate = 0.1
+retract_accel_factor = 2.0
+paste_height = "auto"
+lift_height = 2.0
+ul_per_mm2 = 0.10
+prime_extra_delay = 0.0
+overlap = 0.2
+
+[paste_dispenser.toolhead]
+x = -1.772
+y = 23.0375
+
+[paste_dispenser.nozzle_cap]
+x = 150.0
+y = 10.0
+z = -2.0
+
+[paste_dispenser.nozzle_clean]
+x = 120.0
+y = 10.0
+z = -3.0
+
+[probe]
+min_radius = 0.7
+board_edge_margin = 2.5
+min_samples = 6
+max_samples = 15
