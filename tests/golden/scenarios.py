@@ -27,13 +27,15 @@ class Scenario:
 
     Attributes:
         job: ジョブ名（catalog の name）
-        branch: ジョブの中で通る分岐
+        branch: ジョブの中で通る分岐（ジョブの一部の手続きを単体で走らせるときはその名前）
         rotation: 機械の軸に対するカメラの回転 [度]
+        succeeds: ジョブが成功で終わるか（False は失敗で終わる分岐）
     """
 
     job: str
     branch: str
     rotation: float = 0.0
+    succeeds: bool = True
 
     @property
     def name(self) -> str:
@@ -50,13 +52,16 @@ SCENARIOS = (
         for rotation in CAMERA_ROTATIONS
     ),
     *(
-        Scenario("paste_solder", branch, rotation)
+        Scenario("paste_solder", branch, rotation, succeeds=branch != "still_clogged")
         for branch in PASTE_SOLDER_BRANCHES
         for rotation in PASTE_ROTATIONS
     ),
+    Scenario("paste_solder", "flow_calibration_only"),
     Scenario("height_plane", "success"),
     Scenario("toolhead_offset", "success"),
     Scenario("loading", "commands"),
+    Scenario("dispense_calibration", "all"),
+    Scenario("paste_volume_calibration", "small_grid"),
 )
 
 

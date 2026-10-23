@@ -6,7 +6,6 @@
 数値は OpenCV の検出結果そのもので、Pi 5（aarch64）と uv.lock の opencv-python 4.12.0.88 で採った。
 """
 
-import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, override
@@ -17,45 +16,27 @@ from shapely import Polygon
 from tomlkit.items import Table
 
 from pcbasm.gcode import GCodeLike
-from pcbasm.geometry import Point2d
 from pcbasm.hal import Camera
 from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper, StepperMove
-from pcbasm.pasting.paste_volume.calibration import (
-    CALIBRATION_SUFFIX,
-    parse_calibration,
-    write_calibration,
-)
-from pcbasm.pcb import PadHierarchy, PcbFile
 from pcbasm.pcb.generate import generate_rect_pcb, save_board
 from tests.golden.conftest import (
     CALIBRATION,
     DISPENSER,
     JOBS,
+    LED_BLINKER,
+    enable_flow_calibration,
     finish,
     scene_camera,
+    wait_operator,
 )
 from tests.golden.scenarios import Scenario, scenarios_of
-from tests.support import polling
 from tests.support.golden import assert_transcript
-from tests.support.paths import TESTING_DATA_DIR
 from tests.web.api.jobs.conftest import answer_next_prompt
-from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
-from web.api.jobs.manager import JobManager, JobRecord, JobStatus
+from web.api.jobs.manager import JobManager, JobStatus
 from web.api.jobs.pasting import LOADING_STAGE
 from web.api.settings import Settings
 from web.api.state import AppState
-
-LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
-CALIBRATION_PIN = TESTING_DATA_DIR / "schemas" / "paste_volume_calibration_v1.json"
-# 運転時補正で塗る点（board 座標）。pad の無い下側のベタに、crop が重ならない間隔で置く
-FLOW_POINTS = (Point2d(5.0, 20.0), Point2d(10.0, 20.0), Point2d(15.0, 20.0))
-
-
-@pytest.fixture
-def led_blinker_shapes(place_board: Callable[[Path], list[Polygon]]) -> list[Polygon]:
-    """led_blinker（高さ計測できる TOP のベタを持つ）を選び、置いた基板の基準円と銅箔を返す."""
-    return place_board(LED_BLINKER)
 
 
 class CloggedKlipper(FakeKlipper):
@@ -103,39 +84,6 @@ def _forget_nozzle_clean(settings: Settings) -> None:
     path.write_text(tomlkit.dumps(document), encoding="utf-8")
 
 
-def _enable_flow_calibration(settings: Settings, state: AppState, pcb: Path) -> None:
-    """校正ファイルと基板ごとの測定点を置き、運転時補正を有効にする."""
-    calibration, error = parse_calibration(
-        json.loads(CALIBRATION_PIN.read_text(encoding="utf-8"))
-    )
-    assert calibration is not None, error
-    name = f"golden{CALIBRATION_SUFFIX}"
-    write_calibration(settings.paste_volume_calibration_dir / name, calibration)
-    ConfigStore(settings.config_dir).write_machine_settings(
-        {
-            "paste_dispenser.flow_calibration.calibration_file": name,
-            "paste_dispenser.flow_calibration.settle_seconds": 0.0,
-        }
-    )
-    board = PcbFile(pcb)
-    store = BoardSettingsStore(settings.webui_data_dir)
-    model = store.load_or_init(pcb.name, state.machine().paste_dispenser)
-    store.save(
-        pcb.name,
-        model.with_flow_calibration_points(FLOW_POINTS),
-        board_signature=PadHierarchy.build(board.components, board.pads).signature(),
-    )
-
-
-def _wait_loading(record: JobRecord, audio_player: FakeAudioPlayer) -> None:
-    """ローディングの入力待ちに入る（入口で滞留コマンドを捨て終え、入力待ち音を鳴らす）まで待つ."""
-    polling.wait_until(
-        lambda: record.progress_stage == LOADING_STAGE
-        and any(sound == "prompt" for sound, _ in audio_player.played),
-        timeout=60.0,
-    )
-
-
 class TestPasteSolder:
     @pytest.fixture
     def run(
@@ -148,12 +96,7 @@ class TestPasteSolder:
     ) -> Callable[..., None]:
         """詰まりの回数を与えてはんだ塗布を走らせ、送信列を golden と比べる関数を返す."""
 
-        def run(
-            scenario: Scenario,
-            *,
-            clogged: float = 0,
-            status: JobStatus = JobStatus.SUCCEEDED,
-        ) -> None:
+        def run(scenario: Scenario, *, clogged: float = 0) -> None:
             klipper = CloggedKlipper(clogged)
             mount_klipper(klipper)
             mount_camera(
@@ -161,6 +104,7 @@ class TestPasteSolder:
             )
 
             record = manager.start("paste_solder", {"tolerance": 0.1})
+            status = JobStatus.SUCCEEDED if scenario.succeeds else JobStatus.FAILED
             finish(job_state, record, status)
 
             assert_transcript(klipper.sent, JOBS / f"{scenario.name}.gcode")
@@ -186,7 +130,7 @@ class TestPasteSolder:
     )
     def test_still_clogged(self, run: Callable[..., None], scenario: Scenario):
         """クリーニングしてパージし直しても写らなければ、pad を塗らずに失敗する."""
-        run(scenario, clogged=float("inf"), status=JobStatus.FAILED)
+        run(scenario, clogged=float("inf"))
 
     @pytest.mark.parametrize(
         "scenario",
@@ -215,7 +159,7 @@ class TestPasteSolder:
         scenario: Scenario,
     ):
         """運転時補正の測定点を塗って撮り、補正した rotations_per_ul で pad を塗る."""
-        _enable_flow_calibration(job_settings, job_state, LED_BLINKER)
+        enable_flow_calibration(job_settings, job_state, LED_BLINKER)
 
         run(scenario)
 
@@ -276,7 +220,7 @@ class TestToolheadOffset:
         )
 
         record = manager.start("toolhead_offset", {"point_count": 5})
-        _wait_loading(record, audio_player)
+        wait_operator(record, audio_player, LOADING_STAGE)
         manager.submit_command({"type": "finish"})
         finish(job_state, record)
 
@@ -304,7 +248,7 @@ class TestLoading:
     ):
         """ホーミング → 指定 X へ移動 → 押出・吸引・回転（引き戻し付き）・jog → 終了."""
         record = manager.start("loading", {"position_x": 50.0})
-        _wait_loading(record, audio_player)
+        wait_operator(record, audio_player, LOADING_STAGE)
         for command in (
             {"type": "extrude", "amount": 0.1},
             {"type": "suck", "amount": 0.05},
