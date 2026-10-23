@@ -424,7 +424,7 @@ class PasteDispenser:
         1.0  # ビード幅係数 w = nozzle_diameter * bead_width_factor
     )
     overlap: float = 0.0  # ジグザグ行間オーバーラップ [0,1)
-    boundary_margin: float = 0.0  # 外周マージン [mm]
+    boundary_margin: float = 0.0  # 外周マージン [mm]（負なら pad 外形をはみ出して塗る）
     micro_line_z_start: PasteHeight = (
         "auto"  # 微小線の始点で基板表面から取る隙間 [mm]、または auto（塗布量から計算）
     )
@@ -475,11 +475,10 @@ class PasteDispenser:
         above_one = {"auto_line_aspect_ratio", "retract_accel_factor"}
         non_negative = {
             "initial_purge_ul",
-            "boundary_margin",
             "prime_extra_delay",
             "micro_line_settle_seconds",
         }
-        numeric = positive | above_one | non_negative | {"overlap"}
+        numeric = positive | above_one | non_negative | {"overlap", "boundary_margin"}
         for name, value in values.items():
             if name == "dispense_mode":
                 if not isinstance(value, str) or value not in DISPENSE_MODES:

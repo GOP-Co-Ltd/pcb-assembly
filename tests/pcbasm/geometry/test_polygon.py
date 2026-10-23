@@ -225,6 +225,15 @@ class TestOffsetComponents:
         assert len(components) == 2
         assert all(c.area > 0 for c in components)
 
+    def test_negative_depth_expands_polygon(self):
+        rect = _rectangle(0.0, 0.0, 2.0, 1.0)
+
+        components = offset_components(rect, -0.5)
+
+        assert len(components) == 1
+        assert components[0].covers(rect)
+        assert components[0].area > rect.area
+
     def test_returns_empty_when_offset_eliminates_polygon(self):
         assert offset_components(_rectangle(0.0, 0.0, 1.0, 1.0), 1.0) == []
 
