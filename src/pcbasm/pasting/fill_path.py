@@ -1,7 +1,7 @@
 """ペースト塗布用フィルパス生成.
 
 公開 API は :meth:`FillPlan.build` と、解決済み塗布設定から引数を束ねる
-:meth:`FillPlan.for_pad`。ノズル径と塗布パラメータからマシン固有の
+:meth:`FillPlan.for_pad`、微小線の自動高さ :func:`micro_line_auto_height`。ノズル径と塗布パラメータからマシン固有の
 ヒューリスティクス（線間隔・インセット・フォールバック判定）を決定し、同モジュール内の private ヘルパー（``_area_fill`` /
 ``_outline_and_zigzag`` / ``_line_fill`` / ``_dot_fill``）に委譲する。汎用の
 計算幾何（外接矩形・オフセット成分・線分クリップ等）は :mod:`pcbasm.geometry` にある。
@@ -11,13 +11,15 @@
 フォールバック判定（``_applied_mode``）は ``build`` と共有する。
 
 アルゴリズムは「面塗布（外周トレース＋牛耕式ジグザグ）→ 線塗布（最長軸中心線）
-→ 点塗布（代表点 1 点）」のフォールバック階層からなる。面塗布は
+→ 点塗布（代表点 1 点）」のフォールバック階層からなる。微小線は線塗布と同じ中心線を
+ノズル外径基準の inset で引き、成立しなければ点塗布に落ちる。面塗布は
 ``polygon.buffer(-inset)`` の各連結成分ごとに独立したポリラインを生成し、
 戻り値は成分別ポリラインの tuple となる。
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from math import isclose
 from typing import Literal, Self, assert_never
 
@@ -41,7 +43,11 @@ from pcbasm.geometry import (
 )
 from pcbasm.pasting.params import PasteParams
 
-AppliedDispenseMode = Literal["dot", "line", "area"]
+AppliedDispenseMode = Literal["dot", "line", "area", "micro_line"]
+
+# 微小線判定（短辺 <= ノズル内径）の比較許容誤差 [mm]。回転した pad では外接矩形の短辺に
+# 浮動小数誤差が乗り、同じ footprint が向きで micro_line と line に分かれるのを防ぐ
+_MICRO_LINE_SHORT_SIDE_TOLERANCE = 1e-9
 
 
 @attrs.frozen
@@ -68,6 +74,7 @@ class FillPlan:
         bead_width_factor: float = 1.0,
         overlap: float = 0.0,
         boundary_margin: float = 0.0,
+        nozzle_outer_diameter: float | None = None,
     ) -> Self:
         """ペーストフィルパスを生成し、実際の塗布方式も返す.
 
@@ -75,24 +82,29 @@ class FillPlan:
         指定された方式に従って塗布経路を構築する。引数は検証済みの値を受け取る
         （``nozzle_diameter > 0``、``0 <= overlap < 1``、``boundary_margin >= 0``、
         ``bead_width_factor > 0``、``auto_line_aspect_ratio > 1``、
-        ``auto_area_short_side_factor > 0``。検証は ``PasteDispenser`` 読込と
+        ``auto_area_short_side_factor > 0``、``nozzle_outer_diameter >= nozzle_diameter``。
+        検証は ``PasteDispenser`` 読込と
         :func:`pcbasm.pasting.params.validate_param_values` が担う）。
+        ``nozzle_outer_diameter`` が ``None`` なら ``nozzle_diameter`` と同じとみなす。
 
         数式::
 
             w (bead_width) = nozzle_diameter * bead_width_factor
             line_spacing   = w * (1 - overlap)
             inset          = boundary_margin + w / 2     # 面塗布領域 = buffer(-inset)、線塗布の両端内側補正
+            micro_inset    = boundary_margin + nozzle_outer_diameter / 2  # 微小線の両端内側補正
 
         方式::
 
             auto: 最小回転 bounding box の短辺が nozzle_diameter *
                   auto_area_short_side_factor を超えれば area、そうでなく
-                  long / short が auto_line_aspect_ratio を超えれば line、
+                  long / short が auto_line_aspect_ratio を超えれば line
+                  （短辺が nozzle_diameter 以下なら micro_line）、
                   それ以外は dot
             dot : 点塗布（代表点 1 点）
             line: 線塗布。成立しなければ dot
             area: 面塗布。成立しなければ line、さらに無理なら dot
+            micro_line: 微小線。成立しなければ dot
         """
         if polygon.is_empty or not polygon.is_valid:
             return cls(dispense_mode="dot", paths=())
@@ -100,6 +112,9 @@ class FillPlan:
         w = nozzle_diameter * bead_width_factor
         line_spacing = w * (1.0 - overlap)
         inset = _inset(nozzle_diameter, bead_width_factor, boundary_margin)
+        micro_inset = _micro_inset(
+            nozzle_diameter, nozzle_outer_diameter, boundary_margin
+        )
         mode = _applied_mode(
             polygon,
             _resolve_auto_mode(
@@ -110,6 +125,7 @@ class FillPlan:
                 auto_area_short_side_factor=auto_area_short_side_factor,
             ),
             inset,
+            micro_inset,
         )
 
         match mode:
@@ -118,6 +134,11 @@ class FillPlan:
             case "line":
                 return cls(
                     dispense_mode="line", paths=(tuple(_line_fill(polygon, inset)),)
+                )
+            case "micro_line":
+                return cls(
+                    dispense_mode="micro_line",
+                    paths=(tuple(_line_fill(polygon, micro_inset)),),
                 )
             case "area":
                 paths = _area_fill(polygon, line_spacing, inset)
@@ -144,13 +165,13 @@ class FillPlan:
         プレビュー（webui router）と実行（``PasteApplicator``）が同一の対応で計画を生成し、
         両者の乖離を構造的に防ぐ。
 
-        ``line_direction`` は実際の方式が line になったときだけ使う（area / dot では無視する）。
+        ``line_direction`` は実際の方式が line / micro_line になったときだけ使う（area / dot では無視する）。
         ``line_direction`` が outward / inward でも ``line_reference``（部品位置）が無い pad
         は向きを揃えられないので unconstrained として扱う。
 
         Args:
             polygon: pad のポリゴン（board 座標 [mm]）
-            config: ``Machine.paste_dispenser``（ノズル径と auto 判定の閾値を使う）
+            config: ``Machine.paste_dispenser``（ノズル内径・外径と auto 判定の閾値を使う）
             params: この pad の解決済み塗布パラメータ
             line_reference: 部品位置（board 座標）。outward は部品位置から遠ざかる向き、inward は近づく向きに線を引く
         """
@@ -163,9 +184,10 @@ class FillPlan:
             bead_width_factor=params.bead_width_factor,
             overlap=params.overlap,
             boundary_margin=params.boundary_margin,
+            nozzle_outer_diameter=config.effective_nozzle_outer_diameter,
         )
         if (
-            plan.dispense_mode != "line"
+            plan.dispense_mode not in ("line", "micro_line")
             or params.line_direction == "unconstrained"
             or line_reference is None
         ):
@@ -204,6 +226,11 @@ class FillPlan:
             _inset(
                 config.nozzle_diameter, params.bead_width_factor, params.boundary_margin
             ),
+            _micro_inset(
+                config.nozzle_diameter,
+                config.effective_nozzle_outer_diameter,
+                params.boundary_margin,
+            ),
         )
 
 
@@ -214,10 +241,20 @@ def _inset(
     return boundary_margin + nozzle_diameter * bead_width_factor / 2.0
 
 
+def _micro_inset(
+    nozzle_diameter: float, nozzle_outer_diameter: float | None, boundary_margin: float
+) -> float:
+    """微小線の両端補正（``boundary_margin + 外径 / 2``。外径 ``None`` は内径と同じ）."""
+    outer = nozzle_diameter if nozzle_outer_diameter is None else nozzle_outer_diameter
+    return boundary_margin + outer / 2.0
+
+
 def _applied_mode(
-    polygon: Polygon, mode: AppliedDispenseMode, inset: float
+    polygon: Polygon, mode: AppliedDispenseMode, inset: float, micro_inset: float
 ) -> AppliedDispenseMode:
     """成立しない方式を area → line → dot の順に落とし、実際の方式を返す.
+
+    微小線は ``micro_inset`` で線が引けなければ dot に落とす。
 
     面塗布は ``buffer(-inset)`` の成分が 1 つでもあれば外周トレースが必ず作れるので、
     ジグザグを生成せずに成分の有無だけで判定する。
@@ -227,12 +264,37 @@ def _applied_mode(
             return "dot"
         case "line":
             return "line" if _line_fill(polygon, inset) else "dot"
+        case "micro_line":
+            return "micro_line" if _line_fill(polygon, micro_inset) else "dot"
         case "area":
             if offset_components(polygon, inset):
                 return "area"
-            return _applied_mode(polygon, "line", inset)
+            return _applied_mode(polygon, "line", inset, micro_inset)
         case _:
             assert_never(mode)
+
+
+def micro_line_auto_height(
+    polygon: Polygon,
+    line: Sequence[Point2d],
+    *,
+    amount_ul: float,
+    nozzle_outer_diameter: float,
+) -> float:
+    """微小線の高さ（基板表面からの隙間 [mm]）を塗布量から求める.
+
+    ノズル端面がスキージとして厚さ g・幅 w の膜を残すとみなし、端面が掃く範囲で塗布量 V を
+    使い切る隙間 g = V / (w × (L + D)) を返す。L は線長、D はノズル外径で、始点と終点で
+    端面の下にある分（D）も膜になる。w は pad の短辺（最小回転外接矩形）とノズル外径の
+    小さい方で、膜は端面より広がらず pad からもはみ出さないとみなす。
+
+    ``line`` は :class:`FillPlan` が作った微小線（長さ > 0）であること（呼び出し側が保証する）。
+    """
+    box = oriented_bbox(polygon)
+    assert box is not None  # 微小線を引けた pad は外接矩形を持つ
+    width = min(box.short_length, nozzle_outer_diameter)
+    swept = polyline_length(line) + nozzle_outer_diameter
+    return amount_ul / (width * swept)
 
 
 def _orient_line_path(
@@ -274,8 +336,12 @@ def _resolve_auto_mode(
             long, short = box.long_length, box.short_length
             if short > nozzle_diameter * auto_area_short_side_factor:
                 return "area"
-            return "line" if long / short > auto_line_aspect_ratio else "dot"
-        case "dot" | "line" | "area":
+            if long / short <= auto_line_aspect_ratio:
+                return "dot"
+            if short <= nozzle_diameter + _MICRO_LINE_SHORT_SIDE_TOLERANCE:
+                return "micro_line"
+            return "line"
+        case "dot" | "line" | "area" | "micro_line":
             return dispense_mode
         case _:
             assert_never(dispense_mode)

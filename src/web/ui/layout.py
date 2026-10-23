@@ -385,6 +385,7 @@ SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
                 (
                     "paste_dispenser.rotations_per_ul",
                     "paste_dispenser.nozzle_diameter",
+                    "paste_dispenser.nozzle_outer_diameter",
                     "paste_dispenser.solder_paste_density",
                     "paste_dispenser.ul_per_mm2",
                 ),
@@ -427,6 +428,14 @@ SETTINGS_SECTIONS: tuple[SettingsSectionSpec, ...] = (
                     "paste_dispenser.bead_width_factor",
                     "paste_dispenser.overlap",
                     "paste_dispenser.boundary_margin",
+                ),
+            ),
+            SettingsGroupSpec(
+                "微小線",
+                (
+                    "paste_dispenser.micro_line_z_start",
+                    "paste_dispenser.micro_line_z_end",
+                    "paste_dispenser.micro_line_settle_seconds",
                 ),
             ),
             SettingsGroupSpec(

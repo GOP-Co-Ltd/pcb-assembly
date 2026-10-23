@@ -4,7 +4,8 @@
 （:meth:`PasteApplicator.apply`）とキャリブレーション用のプリミティブ
 （:meth:`draw_line` / :meth:`deposit_at` / :meth:`load_rotations`）を提供する。
 経路生成は :mod:`pcbasm.pasting.fill_path`、1 ポリラインの GCode 組み立ては
-:mod:`pcbasm.pasting.fill_sequence` に委譲し、ここは座標変換と送信・結果集約だけを担う。
+:mod:`pcbasm.pasting.fill_sequence`（微小線は ``MicroLineSequence``、それ以外は
+``FillSequence``）に委譲し、ここは座標変換と送信・結果集約だけを担う。
 
 座標変換（board → machine）は呼び出しごとに受け取る。applicator は基板を知らない。
 
@@ -26,15 +27,19 @@ from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point2d, Transform
 from pcbasm.hal import Klipper, PasteDispenser, Speed, XYZStage
 from pcbasm.pasting.dispense import DispenseSummary
-from pcbasm.pasting.fill_path import AppliedDispenseMode, FillPlan
-from pcbasm.pasting.fill_sequence import FillSequence
+from pcbasm.pasting.fill_path import (
+    AppliedDispenseMode,
+    FillPlan,
+    micro_line_auto_height,
+)
+from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
 from pcbasm.pasting.params import DispenseSettings, PasteParams
 from pcbasm.utils import get_class_module_path
 
 
 @attrs.frozen
 class DispenseExecution:
-    """1 本のポリライン（``FillSequence`` 1 回）の吐出実績.
+    """1 本のポリライン（``FillSequence`` / ``MicroLineSequence`` 1 回）の吐出実績.
 
     Attributes:
         applied_mode: 実際に使った塗布方式
@@ -267,6 +272,10 @@ class PasteApplicator:
         塗布量はポリゴン面積 × ``ul_per_mm2`` を成分数で均等配分する。
         フィル経路が空（空・不正なポリゴン）なら何も送らず、``sequences`` が空の結果を返す。
 
+        方式が micro_line なら ``paste_height`` を使わず、始点を ``micro_line_z_start``、
+        終点を ``micro_line_z_end`` の高さにした経路を ``MicroLineSequence`` で送る
+        （``auto`` は :func:`~pcbasm.pasting.fill_path.micro_line_auto_height` で求める）。
+
         Args:
             polygon: 塗布対象のポリゴン（board 座標, mm）
             params: この pad の解決済み塗布パラメータ
@@ -281,6 +290,19 @@ class PasteApplicator:
             return PasteApplicationResult(())
 
         per_component_ul = polygon.area * params.ul_per_mm2 / len(plan.paths)
+        if plan.dispense_mode == "micro_line":
+            (line,) = plan.paths
+            return PasteApplicationResult(
+                (
+                    self._draw_micro_line(
+                        polygon,
+                        line,
+                        amount_ul=per_component_ul,
+                        params=params,
+                        transform=transform,
+                    ),
+                )
+            )
         return PasteApplicationResult(
             tuple(
                 self._draw_polyline(
@@ -401,5 +423,59 @@ class PasteApplicator:
             prime_extra_volume_ul=prime_extra,
             effective_rate_ul_s=sequence.effective_rate,
             rotations=(amount_ul + prime_extra) * self._dispenser.rotations_per_ul,
+            fill_speed=sequence.actual_fill_speed(),
+        )
+
+    def _draw_micro_line(
+        self,
+        polygon: Polygon,
+        line: Sequence[Point2d],
+        *,
+        amount_ul: float,
+        params: PasteParams,
+        transform: Transform,
+    ) -> DispenseExecution:
+        """微小線 1 本を ``amount_ul`` [μL] で塗布する.
+
+        ``line`` は ``FillPlan`` の 2 点経路。始点に ``micro_line_z_start``、終点に
+        ``micro_line_z_end`` の Z を付与し、``transform`` を適用して送信する。
+        ``auto`` の高さは ``polygon`` と ``line``、塗布量から求める。
+        """
+        auto = micro_line_auto_height(
+            polygon,
+            line,
+            amount_ul=amount_ul,
+            nozzle_outer_diameter=self._config.effective_nozzle_outer_diameter,
+        )
+        start, end = line
+        path = Path(
+            [
+                start.to3d(
+                    auto
+                    if params.micro_line_z_start == "auto"
+                    else params.micro_line_z_start
+                ),
+                end.to3d(
+                    auto
+                    if params.micro_line_z_end == "auto"
+                    else params.micro_line_z_end
+                ),
+            ]
+        ).transformed(transform)
+        sequence = MicroLineSequence(
+            path=path,
+            total_amount_ul=amount_ul,
+            settings=self._settings,
+        )
+        self._klipper.send_gcode(
+            sequence.to_gcode(self._stage, self._dispenser) + GCode.wait_for_done()
+        )
+        return DispenseExecution(
+            applied_mode="micro_line",
+            path_length_mm=path.length(),
+            commanded_volume_ul=amount_ul,
+            prime_extra_volume_ul=0.0,
+            effective_rate_ul_s=sequence.effective_rate,
+            rotations=amount_ul * self._dispenser.rotations_per_ul,
             fill_speed=sequence.actual_fill_speed(),
         )
