@@ -276,21 +276,7 @@ class TestParseMetadataV3:
         assert metadata is not None
         assert metadata.samples[0].order == 1
 
-    def test_accepts_the_interleaved_capture_order_of_earlier_sessions(
-        self, payload: dict[str, object]
-    ):
-        # 点ごとの interleave で収集済みの dataset を読めなくしない
-        config = payload["config"]
-        assert isinstance(config, dict)
-        config["capture_order"] = "interleaved"
-
-        metadata, error = parse_metadata(payload)
-
-        assert error is None
-        assert metadata is not None
-        assert metadata.config.capture_order == "interleaved"
-
-    @pytest.mark.parametrize("value", ["batched", "three_pass", "Interleaved", 1])
+    @pytest.mark.parametrize("value", ["interleaved", "batched", "three_pass", 1])
     def test_rejects_unknown_capture_order(
         self, payload: dict[str, object], value: object
     ):

@@ -1,9 +1,6 @@
 """複数ルーターが共有するヘルパ（Klipper 接続・状態レスポンス・設定項目）.
 
 2 つ以上の router から使われるものだけを置く（1 router 専用のヘルパは各 router に残す）。
-
-pydantic モデルの定義は `web.api.models` に集約してある。``StateResponse`` は既存
-import をそのまま使えるようここから再 export する。
 """
 
 from __future__ import annotations
@@ -22,12 +19,7 @@ from pcbasm.geometry import Point3d
 from pcbasm.hal import Klipper
 from pcbasm.pasting.nozzle_clean import clean_position_label
 from pcbasm.vision import load_focus_z
-from web.api.config_store import (
-    MACHINE_FIELDS,
-    ConfigStore,
-    FieldSpec,
-    MachineSettingValue,
-)
+from web.api.config_store import MACHINE_FIELDS, ConfigStore, FieldSpec
 from web.api.control import ClientIdentity, LeaseInfo
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
 from web.api.jobs.manager import JobManager
@@ -38,6 +30,7 @@ from web.api.models import (
     JobBrief,
     KlipperStatus,
     MachineInfo,
+    MachineSettingValue,
     NozzleCleanInfo,
     Position,
     SettingsField,

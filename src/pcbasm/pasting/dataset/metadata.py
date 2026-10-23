@@ -30,11 +30,10 @@ from pcbasm.vision.image import PixelRect
 
 type CapturePhase = Literal["pre", "post"]
 
-type CaptureOrder = Literal["interleaved", "phased"]
+type CaptureOrder = Literal["phased"]
 
-# 現版の撮影順序。全点 pre 撮影 → ローディング → 全点塗布 → 全点 post 撮影の 3 パスで回す。
-# 分岐は持たないので固定値として記録するが、点ごとの interleave で収集した既存
-# dataset も読めるよう、型としては両方を受ける
+# 撮影順序。全点 pre 撮影 → ローディング → 全点塗布 → 全点 post 撮影の 3 パスで回す。
+# 分岐は持たないので固定値として記録する
 CAPTURE_ORDER: CaptureOrder = "phased"
 
 METADATA_KIND = "pcbasm-paste-volume-dataset"

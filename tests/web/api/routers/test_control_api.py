@@ -480,15 +480,19 @@ class TestWebSocketControl:
         """
         _register_commanded(app, "control_ws_command")
         with client.websocket_connect("/api/ws", headers=BOB) as bob_ws:
-            assert (
-                client.post(
-                    "/api/jobs/control_ws_command", json={}, headers=ALICE
-                ).status_code
-                == 201
+            response = client.post(
+                "/api/jobs/control_ws_command", json={}, headers=ALICE
             )
+            assert response.status_code == 201
             _wait_status(client, "running")
 
-            bob_ws.send_json({"type": "command", "command": {"type": "record"}})
+            bob_ws.send_json(
+                {
+                    "type": "command",
+                    "expected_job_id": response.json()["job"]["id"],
+                    "command": {"type": "record"},
+                }
+            )
 
             error = _receive_type(bob_ws, "error")
             assert "田中" in error["detail"]
@@ -504,15 +508,19 @@ class TestWebSocketControl:
         """ゲートは保持者を止めない（コマンドがジョブへ届いて完了する）."""
         _register_commanded(app, "control_ws_command_holder")
         with client.websocket_connect("/api/ws", headers=ALICE) as alice_ws:
-            assert (
-                client.post(
-                    "/api/jobs/control_ws_command_holder", json={}, headers=ALICE
-                ).status_code
-                == 201
+            response = client.post(
+                "/api/jobs/control_ws_command_holder", json={}, headers=ALICE
             )
+            assert response.status_code == 201
             _wait_status(client, "running")
 
-            alice_ws.send_json({"type": "command", "command": {"type": "record"}})
+            alice_ws.send_json(
+                {
+                    "type": "command",
+                    "expected_job_id": response.json()["job"]["id"],
+                    "command": {"type": "record"},
+                }
+            )
 
             _wait_status(client, "succeeded")
 

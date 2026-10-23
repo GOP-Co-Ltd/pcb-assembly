@@ -1,4 +1,4 @@
-"""pcbasm.pasting.persist のテスト（保存 JSON の encode / decode と legacy 移行）."""
+"""pcbasm.pasting.persist のテスト（保存 JSON の encode / decode）."""
 
 from datetime import datetime
 
@@ -264,62 +264,6 @@ class TestDecodeErrors:
         assert restored.levels == ()
         assert restored.initial_purge_point is None
         assert restored.flow_calibration_points == ()
-
-
-class TestLegacyBaseMigration:
-    """初期 v1 が settings 直下に持っていた base / base_enabled を L0 へ畳む."""
-
-    def test_saved_base_equal_to_current_is_not_an_override(self):
-        doc = {
-            "version": 1,
-            "settings": {"base": _base().to_dict(), "base_enabled": True, "levels": []},
-        }
-
-        assert _decode(doc).levels == ()
-
-    def test_saved_base_difference_becomes_l0_patch(self):
-        saved = {**_base().to_dict(), "ul_per_mm2": 0.25, "overlap": 0.3}
-        doc = {
-            "version": 1,
-            "settings": {"base": saved, "base_enabled": True, "levels": []},
-        }
-
-        restored = _decode(doc)
-
-        assert restored.levels == (
-            LevelSetting(("L0",), patch=PasteParamsPatch(ul_per_mm2=0.25, overlap=0.3)),
-        )
-
-    def test_saved_base_enabled_false_becomes_l0_disable(self):
-        doc = {
-            "version": 1,
-            "settings": {
-                "base": _base().to_dict(),
-                "base_enabled": False,
-                "levels": [],
-            },
-        }
-
-        restored = _decode(doc)
-
-        assert restored.levels == (LevelSetting(("L0",), enabled=False),)
-
-    def test_explicit_l0_level_takes_precedence_over_legacy_base(self):
-        doc = {
-            "version": 1,
-            "settings": {
-                "base": {**_base().to_dict(), "ul_per_mm2": 0.25},
-                "levels": [
-                    {"key": ["L0"], "enabled": None, "override": {"overlap": 0.4}}
-                ],
-            },
-        }
-
-        restored = _decode(doc)
-
-        assert restored.levels == (
-            LevelSetting(("L0",), patch=PasteParamsPatch(overlap=0.4)),
-        )
 
 
 class TestExportFilename:

@@ -14,7 +14,8 @@ from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.hal.fake import FakeCamera
 from pcbasm.machine.journal import Journal
 from pcbasm.vision import Image
-from web.api.config_store import ConfigStore, MachineSettingValue
+from web.api.config_store import ConfigStore
+from web.api.models import MachineSettingValue
 from web.api.settings import Settings
 
 _STATE_FILENAME = "webui_state.json"
@@ -47,7 +48,7 @@ class AppState:
     def __init__(self, settings: Settings, store: ConfigStore) -> None:
         """AppState を初期化する.
 
-        data_dir/webui_state.json から選択状態を復元する。
+        webui_data_dir/webui_state.json から選択状態を復元する。
 
         Args:
             settings: WebUI 設定
@@ -58,7 +59,6 @@ class AppState:
         self._lock = threading.Lock()
         self._busy_owner: str | None = None
         self._state_path = settings.webui_data_dir / _STATE_FILENAME
-        self._legacy_state_path = settings.data_dir / _STATE_FILENAME
         # カメラ/FrameHub の遅延構築用（machine_lock とは別の内部ロック）
         self._camera_lock = threading.Lock()
         self._frame_hub: FrameHub | None = None
@@ -260,11 +260,8 @@ class AppState:
             self.release_machine()
 
     def _load_persisted(self) -> dict[str, object]:
-        path = (
-            self._state_path if self._state_path.is_file() else self._legacy_state_path
-        )
         try:
-            data = json.loads(path.read_text())
+            data = json.loads(self._state_path.read_text())
         except (OSError, ValueError):
             return {}
         if not isinstance(data, dict):

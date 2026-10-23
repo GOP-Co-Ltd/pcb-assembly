@@ -339,7 +339,7 @@ import {
 
   // 編集開始時の PCB をそのまま添えて送る。切替済みならサーバが 409 を返す。
   function withExpectedPcb(body) {
-    return { expected_pcb: state.config?.pcb_file ?? null, ...body };
+    return { expected_pcb: state.config.pcb_file, ...body };
   }
 
   function patchPads(ids, enabled) {

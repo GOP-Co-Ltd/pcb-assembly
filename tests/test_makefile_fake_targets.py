@@ -12,7 +12,6 @@ Makefile のレシピにある env 1 行だけなので、レシピを読んで�
 from __future__ import annotations
 
 import itertools
-import re
 
 import pytest
 
@@ -55,17 +54,3 @@ class TestFakeTargetsDisableDiscovery:
     )
     def test_recipe_sets_the_kill_switch(self, target: str, kill_switch: str):
         assert kill_switch in recipe(target)
-
-
-class TestWebuiAliasesAreGone:
-    """`webui` 系エイリアスが残っていない.
-
-    `scripts/web-service.sh` が生成する unit は `make api` / `make ui`
-    を実行する。エイリアスを 復活させると旧 `pcbasm-webui.service`（`ExecStart=make
-    webui`）が動いてしまい、 2 プロセス構成へ移行しきれない。
-    """
-
-    def test_makefile_defines_no_webui_target(self):
-        lines = MAKEFILE.read_text(encoding="utf-8").splitlines()
-        webui_targets = [line for line in lines if re.match(r"^webui[a-z-]*\s*:", line)]
-        assert not webui_targets, webui_targets

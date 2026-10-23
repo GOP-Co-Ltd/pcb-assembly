@@ -7,7 +7,6 @@
 #      配置する（既に実ファイルなら保持するか退避して上書きするかを確認する）
 #   3. 2 で配置した printer.cfg の [mcu] serial を実機の /dev/serial/by-id/* に書き換える
 #   4. config/printer.cfg に 2 のシンボリックリンクを張る（リポジトリから閲覧するため）
-#   5. klipper.env の KLIPPER_ARGS を 2 のパスに向ける
 #
 # カメラキャリブレーション結果は機体固有なのでテンプレートには含めない。セットアップ後に
 # WebUI の camera_calibration ジョブを実行し、Apply で config/ に生成させる。
@@ -22,7 +21,6 @@ TEMPLATE_ROOT="${PROJECT_ROOT}/data/config-templates"
 CONFIG_DIR="${PROJECT_ROOT}/config"
 KLIPPER_CONFIG_DIR="${HOME}/printer_data/config"
 KLIPPER_CONFIG_FILE="${KLIPPER_CONFIG_DIR}/printer.cfg"
-KLIPPER_ENV="${HOME}/printer_data/systemd/klipper.env"
 SERIAL_BY_ID_DIR="/dev/serial/by-id"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 KLIPPER_BACKUP_FILE="${KLIPPER_CONFIG_FILE}.bak.${TIMESTAMP}"
@@ -117,10 +115,7 @@ fi
 # kinematics: none の stub が既に置かれている。よって実ファイルがあっても既定は
 # 「退避して上書き」とする。稼働中の機体では SAVE_CONFIG が load_cell_probe の較正値や
 # position_endstop を追記しているため、そのケースだけ n で保持を選ばせる。
-if [ -L "$KLIPPER_CONFIG_FILE" ]; then
-    plan+=("${KLIPPER_CONFIG_FILE} : シンボリックリンクを削除し printer.cfg を実ファイルとして配置")
-    printer_action=replace_symlink
-elif [ -f "$KLIPPER_CONFIG_FILE" ]; then
+if [ -f "$KLIPPER_CONFIG_FILE" ]; then
     echo "${KLIPPER_CONFIG_FILE} は既に実ファイルとして存在します。"
     echo "Klipper インストール直後なら kinematics: none の stub なので上書きしてください（既定）。"
     echo "稼働中の機体で SAVE_CONFIG の較正値が蓄積している場合は n で保持します。"
@@ -193,17 +188,6 @@ else
     plan+=("config/printer.cfg : ${KLIPPER_CONFIG_FILE} へのシンボリックリンクを作成")
 fi
 
-if [ ! -f "$KLIPPER_ENV" ]; then
-    plan+=("klipper.env : 見つからないためスキップ（警告）")
-    env_action=skip
-elif grep -Fq "klippy.py ${KLIPPER_CONFIG_FILE}" "$KLIPPER_ENV"; then
-    plan+=("klipper.env : 既に ${KLIPPER_CONFIG_FILE} を指しています（変更なし）")
-    env_action=noop
-else
-    plan+=("klipper.env : KLIPPER_ARGS の config パスを ${KLIPPER_CONFIG_FILE} に変更")
-    env_action=fix
-fi
-
 echo "実行内容:"
 echo "========"
 printf '  %s\n' "${plan[@]}"
@@ -226,9 +210,7 @@ if [ "$copy_machine_toml" = true ]; then
     echo "配置: ${CONFIG_DIR}/machine.toml"
 fi
 
-if [ "$printer_action" = replace_symlink ]; then
-    rm "$KLIPPER_CONFIG_FILE"
-elif [ "$printer_action" = backup_and_copy ]; then
+if [ "$printer_action" = backup_and_copy ]; then
     cp -p "$KLIPPER_CONFIG_FILE" "$KLIPPER_BACKUP_FILE"
     echo "退避: ${KLIPPER_BACKUP_FILE}"
 fi
@@ -248,20 +230,6 @@ fi
 
 ln -sfn "$KLIPPER_CONFIG_FILE" "${CONFIG_DIR}/printer.cfg"
 echo "シンボリックリンク: ${CONFIG_DIR}/printer.cfg -> ${KLIPPER_CONFIG_FILE}"
-
-case "$env_action" in
-    fix)
-        sed -i -E "s|(klippy/klippy\.py) [^ ]+\.cfg|\1 ${KLIPPER_CONFIG_FILE}|" "$KLIPPER_ENV"
-        if grep -Fq "klippy.py ${KLIPPER_CONFIG_FILE}" "$KLIPPER_ENV"; then
-            echo "更新: ${KLIPPER_ENV} の config パスを ${KLIPPER_CONFIG_FILE} に変更"
-        else
-            echo "警告: ${KLIPPER_ENV} の KLIPPER_ARGS を書き換えられませんでした。手動で確認してください" >&2
-        fi
-        ;;
-    skip)
-        echo "警告: ${KLIPPER_ENV} が見つかりません（klipper.env の更新をスキップ）" >&2
-        ;;
-esac
 
 echo ""
 echo "完了しました"

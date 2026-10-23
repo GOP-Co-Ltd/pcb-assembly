@@ -16,7 +16,6 @@ from tomlkit.items import Item, Table
 from pcbasm.atomic import write_bytes_atomic, write_text_atomic
 from pcbasm.config import (
     DISPENSE_MODES,
-    LEGACY_NOZZLE_SECTIONS,
     LINE_DIRECTIONS,
     ConfigError,
     Detection,
@@ -33,9 +32,6 @@ from pcbasm.config import (
 )
 from pcbasm.utils import is_finite_number
 from web.api.history import ConfigHistory
-
-# 型エイリアスの定義は API 契約モジュール（pydantic のみ依存）に置き、ここから
-# 再 export する。既存の `from web.api.config_store import ...` をそのまま使えるようにする
 from web.api.models import MachineSettingValue, SettingValueType
 
 
@@ -469,7 +465,6 @@ class ConfigStore:
                 raise UnknownFieldError(f"追加ファイル名が不正です: {filename!r}")
         original = path.read_text()
         doc = tomlkit.parse(original)
-        _migrate_legacy_nozzle_sections(doc)
         _validate_detection_counts(doc, coerced)
         _validate_nozzle_diameters(doc, coerced)
         for key, value in coerced.items():
@@ -564,32 +559,6 @@ def _validate_nozzle_diameters(
             "paste_dispenser.nozzle_outer_diameter: "
             f"nozzle_diameter（{inner}）以上である必要があります"
         )
-
-
-def _migrate_legacy_nozzle_sections(doc: tomlkit.TOMLDocument) -> None:
-    """旧トップレベルのノズル位置セクションを [paste_dispenser] 配下へ移す.
-
-    `Machine` は旧パスも読むので設定を書き換えなくても動くが、放っておくと新旧が二重に
-    残り、どちらが使われているか分からなくなる。設定を書き込むついでに移して旧セクション
-    を消す（運転者が machine.toml を手で直さなくて済む）。
-
-    既に移行済みの値がある場合は、旧セクションの残骸で上書きせずに捨てる。
-    """
-    for name in LEGACY_NOZZLE_SECTIONS:
-        legacy = doc.get(name)
-        if legacy is None:
-            continue
-        if "paste_dispenser" not in doc:
-            doc["paste_dispenser"] = tomlkit.table()
-        parent = doc["paste_dispenser"]
-        if not isinstance(parent, Table):
-            # [paste_dispenser] 群が他のテーブルで分断されていると Table ではなく
-            # proxy になり、ここへは入れられない。消すと座標が失われるので残す
-            continue
-        # 移行先へ入れられると確かめてから消す（消した後に移行を拒否されると値が通知なく失われる）
-        if name not in parent:
-            parent[name] = legacy
-        del doc[name]
 
 
 def _lookup_setting(doc: tomlkit.TOMLDocument, spec: FieldSpec) -> object | None:

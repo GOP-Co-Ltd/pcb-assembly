@@ -83,9 +83,8 @@ sudo systemctl restart klipper
 2. `printer.cfg` を `~/printer_data/config/printer.cfg` へ実ファイルとして配置する
 3. 2 で配置した `printer.cfg` の `[mcu] serial` を実機の `/dev/serial/by-id/*` に書き換える
 4. `config/printer.cfg` に 2 へのシンボリックリンクを張る（リポジトリから閲覧するため）
-5. `klipper.env` の `KLIPPER_ARGS` を 2 のパスに向ける
 
-4 と 5 は毎回張り直す（何度実行しても同じ結果）。
+4 は毎回張り直す（何度実行しても同じ結果）。
 
 **既存の `config/machine.toml` は常に保持される（上書きしない）。** WebUI が実測値を書き込む
 正であり、上書きすると操作者の設定が黙って巻き戻る。テンプレートから作り直したい場合は
