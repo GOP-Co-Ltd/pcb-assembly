@@ -1869,11 +1869,21 @@ h2 {
   vertical-align: bottom;
 }
 
-.pad-group-toggle {
-  min-height: 1.5rem;
-  padding: 0 0.35rem;
+/* 列のセルに縦に並べる項目（微小線の始点高・終点高） */
+.pad-subfield {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.pad-subfield + .pad-subfield {
+  margin-top: 0.15rem;
+}
+
+.pad-subfield-label {
+  min-width: 2.6rem;
+  color: var(--muted);
   font-size: 0.72rem;
-  white-space: nowrap;
 }
 
 .pad-row-toggle {

@@ -422,7 +422,7 @@ class PasteDispenser:
     micro_line_z_start: float = 0.07  # 微小線の始点で基板表面から取る隙間 [mm]
     micro_line_z_end: float = 0.07  # 微小線の終点で基板表面から取る隙間 [mm]
     micro_line_settle_seconds: float = (
-        1.0  # 微小線で上空に押し出してから下降するまでの静定待ち [sec]
+        0.1  # 微小線で上空に押し出してから下降するまでの静定待ち [sec]
     )
     pad_align: PadAlign = attrs.field(factory=PadAlign)  # pad 位置合わせ設定
     flow_calibration: FlowCalibration = attrs.field(

@@ -696,30 +696,45 @@ class TestPasteSolderBrowserPadInteraction:
         height_input.press("Enter")
         _wait_for_override(live_server, "L0", "paste_height", 0.25)
 
-    def test_micro_line_columns_stay_collapsed_until_opened(
+    def test_micro_line_row_edits_heights_in_paste_height_column(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):
         _select_led_blinker(live_server)
         _open_paste_solder(browser_page, live_ui)
 
+        # 始点高・終点高は独立した列を持たない
+        assert browser_page.locator("#pad-heading-micro_line_z_start").count() == 0
         root_row = browser_page.locator(_row_selector("L0"))
-        toggle = browser_page.locator(_testid("pad-group-toggle"))
-        toggle.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
-        assert toggle.get_attribute("aria-expanded") == "false"
+        mode_select = _field_select(
+            root_row, "dispense_mode", "pad-dispense-mode-select"
+        )
+        mode_select.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
         assert _field_input(root_row, "micro_line_z_start").count() == 0
 
-        toggle.click()
-        z_start = _field_input(root_row, "micro_line_z_start")
+        mode_select.select_option("micro_line")
+        _wait_for_override(live_server, "L0", "dispense_mode", "micro_line")
+        height_cell = root_row.locator('td[data-column="paste_height"]')
+        z_start = height_cell.locator(
+            'input[data-testid="pad-setting-input"][data-field="micro_line_z_start"]'
+        )
         z_start.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert "始点高" in height_cell.text_content(timeout=_BROWSER_TIMEOUT_MS)
+        assert (
+            _field_select(root_row, "paste_height", "pad-height-mode-select").count()
+            == 0
+        )
+
         z_start.fill("0.09")
         z_start.press("Enter")
         _wait_for_override(live_server, "L0", "micro_line_z_start", 0.09)
         root_row.locator(
             '[data-testid="pad-own-override-marker"][data-field="micro_line_z_start"]'
         ).wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
-
-        # 保存後の再描画でも開いたまま
-        assert toggle.get_attribute("aria-expanded") == "true"
+        # 項目の列見出しが無いので、「継承に戻す」はセル内のラベルで説明する
+        clear = height_cell.locator(
+            '[data-testid="pad-clear-override"][data-field="micro_line_z_start"]'
+        )
+        assert "sublabel" in (clear.get_attribute("aria-describedby") or "")
 
     def test_tree_row_highlights_pads_by_node_id_membership(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page

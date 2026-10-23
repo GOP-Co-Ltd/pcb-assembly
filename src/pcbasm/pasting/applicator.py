@@ -444,7 +444,6 @@ class PasteApplicator:
             path=path,
             total_amount_ul=amount_ul,
             settings=self._settings,
-            settle_seconds=params.micro_line_settle_seconds,
         )
         self._klipper.send_gcode(
             sequence.to_gcode(self._stage, self._dispenser) + GCode.wait_for_done()

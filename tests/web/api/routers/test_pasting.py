@@ -653,15 +653,13 @@ class TestTreeNodeResolution:
             "kind": "height",
             "unit": "mm",
             "choices": [],
-            "group": None,
+            "column": None,
         }
         assert by_name["ul_per_mm2"]["unit"] == "μL/mm²"
-        # 微小線の 3 項目は pad 表で畳める列のまとまり
-        assert [field["name"] for field in fields if field["group"] == "微小線"] == [
-            "micro_line_z_start",
-            "micro_line_z_end",
-            "micro_line_settle_seconds",
-        ]
+        # 微小線の始点高・終点高は塗布高さの列に描く
+        assert [
+            field["name"] for field in fields if field["column"] == "paste_height"
+        ] == ["micro_line_z_start", "micro_line_z_end"]
 
     def test_defaults_fall_back_to_machine_micro_line_defaults(
         self, selected_client: TestClient
@@ -671,7 +669,7 @@ class TestTreeNodeResolution:
 
         assert defaults["micro_line_z_start"] == 0.07
         assert defaults["micro_line_z_end"] == 0.07
-        assert defaults["micro_line_settle_seconds"] == 1.0
+        assert "micro_line_settle_seconds" not in defaults
 
 
 class TestPatchNode:
@@ -694,6 +692,22 @@ class TestPatchNode:
         assert config["defaults"]["enabled"] is True
         assert config["overrides"][node]["enabled"] is False
         assert {pad["id"] for pad in config["pads"] if not pad["enabled"]} == expected
+
+    def test_micro_line_node_shows_start_and_end_heights(
+        self, selected_client: TestClient
+    ):
+        # 塗布高さの列に出す項目はサーバーが決める。微小線のノードとその子孫は始点高・終点高
+        response = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L2:U1", "values": {"dispense_mode": "micro_line"}},
+        )
+
+        assert response.status_code == 200, response.text
+        root = _get_config(selected_client)["tree"]
+        micro = ["micro_line_z_start", "micro_line_z_end"]
+        assert root["height_fields"] == ["paste_height"]
+        assert _node_by_id(root, "L2:U1")["height_fields"] == micro
+        assert _node_by_id(root, "L4:U1:1")["height_fields"] == micro
 
     def test_l2_values_upsert_reflects_on_children(self, selected_client: TestClient):
         response = selected_client.patch(

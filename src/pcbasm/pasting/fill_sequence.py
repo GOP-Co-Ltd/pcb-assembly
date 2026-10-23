@@ -190,10 +190,10 @@ class FillSequence:
 class MicroLineSequence:
     """微小線の塗布動作を 1 本の送信可能な GCode に組むプログラムオブジェクト.
 
-    始点上空で prime と塗布量 ``total_amount_ul`` を押し出し、``settle_seconds`` 待って
-    ノズル先端のドームを静定させてから始点へ下降し、経路を ``max_fill_speed`` で走行して
-    基板へこすりつける。終点上空へ上昇してからリトラクトする（接触中に引くと
-    塗った膜を吸い戻す）。
+    始点上空で prime と塗布量 ``total_amount_ul`` を押し出し、静定待ち
+    （``settings.micro_line_settle_seconds``）でノズル先端のドームを落ち着かせる。
+    その後に始点へ下降し、経路を ``max_fill_speed`` で走行して基板へこすりつける。
+    終点上空へ上昇してからリトラクトする（接触中に引くと塗った膜を吸い戻す）。
 
     吐出と移動を同期させないので、吐出の立ち上がり遅れが始点・終点の量に影響しない。
     Z は ``path`` の各点の高さに従う。始点 z_start から終点 z_end への線形変化は、
@@ -205,7 +205,6 @@ class MicroLineSequence:
     path: Path
     total_amount_ul: float
     settings: DispenseSettings
-    settle_seconds: float
 
     @property
     def effective_rate(self) -> float:
@@ -236,7 +235,7 @@ class MicroLineSequence:
             )
         )
         # 2. 吐出の遅れで後から出てくる分が出きるまで待ってから下降する
-        gc.append(GCode.wait(self.settle_seconds))
+        gc.append(GCode.wait(self.settings.micro_line_settle_seconds))
         gc.append(stage.move(x=first.x, y=first.y, z=first.z, speed=_TRAVEL_SPEED))
 
         # 3. こすりつけて終点上空へ上昇し、上昇後にリトラクトする

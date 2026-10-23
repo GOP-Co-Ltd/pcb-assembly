@@ -35,7 +35,6 @@ def _params(**overrides: object) -> PasteParams:
         "boundary_margin": 0.0,
         "micro_line_z_start": 0.07,
         "micro_line_z_end": 0.07,
-        "micro_line_settle_seconds": 1.0,
     }
     values.update(overrides)
     return PasteParams(**values)
@@ -52,16 +51,16 @@ class TestPasteParamFields:
         assert by_name["paste_height"].kind == "height"
         assert by_name["ul_per_mm2"].kind == "number"
 
-    def test_micro_line_fields_form_one_trailing_group(self):
-        # pad 表で畳む単位。微小線の 3 項目だけが同じ group で末尾に並ぶ
-        groups = [(field.name, field.group) for field in PASTE_PARAM_FIELDS]
+    def test_micro_line_heights_are_drawn_in_paste_height_column(self):
+        # 始点高・終点高は独立した列にせず、塗布高さの列に描く
+        columns = {field.name: field.column for field in PASTE_PARAM_FIELDS}
 
-        assert groups[-3:] == [
-            ("micro_line_z_start", "微小線"),
-            ("micro_line_z_end", "微小線"),
-            ("micro_line_settle_seconds", "微小線"),
+        assert columns["micro_line_z_start"] == "paste_height"
+        assert columns["micro_line_z_end"] == "paste_height"
+        assert [name for name, column in columns.items() if column is not None] == [
+            "micro_line_z_start",
+            "micro_line_z_end",
         ]
-        assert all(group is None for _, group in groups[:-3])
 
 
 class TestPasteParams:
@@ -83,6 +82,17 @@ class TestPasteParams:
         params = _params(paste_height=paste_height, ul_per_mm2=ul_per_mm2)
 
         assert params.paste_height_mm == pytest.approx(expected)
+
+    @pytest.mark.parametrize(
+        ("dispense_mode", "expected"),
+        [
+            ("micro_line", ("micro_line_z_start", "micro_line_z_end")),
+            ("auto", ("paste_height",)),
+            ("line", ("paste_height",)),
+        ],
+    )
+    def test_height_fields_follow_dispense_mode(self, dispense_mode, expected):
+        assert _params(dispense_mode=dispense_mode).height_fields == expected
 
 
 class TestPasteParamsPatch:
@@ -119,7 +129,6 @@ class TestValidateParamValues:
             "dispense_mode": "micro_line",
             "micro_line_z_start": 0.08,
             "micro_line_z_end": 0.05,
-            "micro_line_settle_seconds": 0.0,
         }
 
         assert validate_param_values(values) is None
@@ -149,8 +158,9 @@ class TestValidateParamValues:
             {"boundary_margin": -0.01},
             {"micro_line_z_start": 0.0},
             {"micro_line_z_end": -0.05},
-            {"micro_line_settle_seconds": -0.1},
-            {"nozzle_outer_diameter": 0.4},  # 装置設定。pad では上書きできない
+            # 装置設定。pad では上書きできない
+            {"micro_line_settle_seconds": 0.5},
+            {"nozzle_outer_diameter": 0.4},
         ],
     )
     def test_invalid_values_are_rejected(self, values: dict):

@@ -15,6 +15,7 @@ stage/dispenser 側の責務なので（mock は空 GCode を返す）、 本テ
 
 import math
 
+import attrs
 import pytest
 from pytest_mock import MockerFixture
 
@@ -33,6 +34,7 @@ _SETTINGS = DispenseSettings(
     retract_rate=5.0,
     retract_accel_factor=4.0,
     lift_height=3.0,
+    micro_line_settle_seconds=1.5,
 )
 
 
@@ -281,12 +283,11 @@ class TestRateCap:
 
 
 def _micro_sequence(path: Path, *, settle_seconds: float = 1.5) -> MicroLineSequence:
-    """total_amount=0.5 の微小線シーケンス（_SETTINGS を共有）."""
+    """total_amount=0.5 の微小線シーケンス（静定待ちだけ _SETTINGS から差し替える）."""
     return MicroLineSequence(
         path=path,
         total_amount_ul=0.5,
-        settings=_SETTINGS,
-        settle_seconds=settle_seconds,
+        settings=attrs.evolve(_SETTINGS, micro_line_settle_seconds=settle_seconds),
     )
 
 

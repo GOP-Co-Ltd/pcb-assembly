@@ -74,7 +74,6 @@ class ResolvedSettings(BaseModel):
     boundary_margin: float
     micro_line_z_start: float
     micro_line_z_end: float
-    micro_line_settle_seconds: float
 
 
 class PadInfo(BaseModel):
@@ -124,6 +123,7 @@ class HierNodeInfo(BaseModel):
     level: int
     label: str
     resolved: ResolvedSettings  # このノードに解決される確定値（enabled 含む）
+    height_fields: list[str]  # 塗布高さの列に出す項目名（解決済みの方式で決まる）
     own_override: NodeOverrideInfo  # このノードの明示 override（疎）
     own_summary: OwnSummary  # own_override の表示用集計
     descendant_summary: DescendantSummary  # 子孫ノードの override 集計
@@ -201,7 +201,7 @@ class ParamFieldInfo(BaseModel):
     kind: str  # number / choice / height
     unit: str | None
     choices: list[ChoiceInfo]
-    group: str | None  # pad 表でまとめて畳む列の見出し
+    column: str | None  # pad 表でこの項目を描く列の項目名（独立した列なら None）
 
 
 class PadConfigResponse(BaseModel):
@@ -378,6 +378,7 @@ def tree(
         level=node.level,
         label=node.label,
         resolved=resolved_settings(resolved[node.key]),
+        height_fields=list(resolved[node.key].params.height_fields),
         own_override=own,
         own_summary=OwnSummary(**attrs.asdict(own_override_summary(setting))),
         descendant_summary=DescendantSummary(
@@ -422,7 +423,7 @@ def param_fields() -> list[ParamFieldInfo]:
                 ChoiceInfo(value=choice.value, label=choice.label)
                 for choice in field.choices
             ],
-            group=field.group,
+            column=field.column,
         )
         for field in PASTE_PARAM_FIELDS
     ]

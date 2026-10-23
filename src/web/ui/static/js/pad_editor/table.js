@@ -4,7 +4,7 @@ import { choiceLabels, fieldLabel, round4 } from "./model.js";
 
 // 階層 override 表の描画。DOM 生成とセル内の数値パース検証（Number.isFinite）
 // のみを持ち、状態遷移と API 呼び出しは actions 経由で index.js に委ねる。
-// state は index.js と共有参照（expanded / openGroups / locked / rowEls / nodeById 等）。
+// state は index.js と共有参照（expanded / locked / rowEls / nodeById 等）。
 // actions: {
 //   patchNode(body, options), patchNodeClear(nodeId, field),
 //   patchNodeEnabled(nodeId, enabled), patchNodeEnabledInherit(nodeId),
@@ -34,7 +34,7 @@ export function renderTable(tableBody, state, actions) {
       { capture: true, once: true });
   }
   tableBody.dataset.pcbFile = state.config.pcb_file;
-  renderHeader(tableBody, state, actions);
+  renderHeader(tableBody, state.config.fields);
   tableBody.replaceChildren();
   state.rowEls.clear();
   appendRows(tableBody, state, actions, state.config.tree, 0);
@@ -72,35 +72,18 @@ function identifyFieldControl(control, nodeId, field) {
   );
 }
 
-// 表の列並び。fields の group ごとに開閉ボタンの列を 1 つ置き、開いている group の
-// 項目だけを列にする。group を持たない項目は常に列にする。
-function columns(state) {
-  const result = [];
-  const seen = new Set();
-  for (const field of state.config.fields) {
-    if (field.group && !seen.has(field.group)) {
-      seen.add(field.group);
-      result.push({ group: field.group });
-    }
-    if (!field.group || state.openGroups.has(field.group)) result.push({ field });
-  }
-  return result;
+// 列になる項目。column を持つ項目（微小線の始点高など）は、その列のセルの中に描く。
+function columnFields(fields) {
+  return fields.filter((field) => !field.column);
 }
 
 // 列見出しは API の fields（列順・ラベル）から描く。先頭 2 列（ノード・有効）は
 // テンプレートに置いたまま、それ以降を差し替える。
-function renderHeader(tableBody, state, actions) {
+function renderHeader(tableBody, fields) {
   const headerRow = tableBody.closest("table")?.querySelector("thead tr");
   if (!headerRow) return;
-  for (const th of headerRow.querySelectorAll("th.pad-col-field, th.pad-col-group")) {
-    th.remove();
-  }
-  for (const column of columns(state)) {
-    if (column.group) {
-      headerRow.appendChild(buildGroupHeader(state, actions, column.group));
-      continue;
-    }
-    const field = column.field;
+  for (const th of headerRow.querySelectorAll("th.pad-col-field")) th.remove();
+  for (const field of columnFields(fields)) {
     const th = document.createElement("th");
     th.id = `pad-heading-${field.name}`;
     th.scope = "col";
@@ -109,28 +92,6 @@ function renderHeader(tableBody, state, actions) {
     th.textContent = field.unit ? `${field.label} [${field.unit}]` : field.label;
     headerRow.appendChild(th);
   }
-}
-
-function buildGroupHeader(state, actions, group) {
-  const open = state.openGroups.has(group);
-  const th = document.createElement("th");
-  th.scope = "col";
-  th.className = "pad-col-group";
-  th.dataset.group = group;
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "pad-group-toggle";
-  toggle.dataset.testid = "pad-group-toggle";
-  toggle.setAttribute("aria-expanded", String(open));
-  toggle.title = `${group}の列を開閉`;
-  toggle.textContent = open ? `${group} ◀` : `${group} ▶`;
-  toggle.addEventListener("click", () => {
-    if (open) state.openGroups.delete(group);
-    else state.openGroups.add(group);
-    actions.rerender();
-  });
-  th.appendChild(toggle);
-  return th;
 }
 
 function appendRows(tableBody, state, actions, node, depth) {
@@ -237,34 +198,58 @@ function buildRow(state, actions, node, depth) {
   }
   tr.appendChild(enTd);
 
-  for (const column of columns(state)) {
-    if (column.group) {
-      const td = document.createElement("td");
-      td.className = "pad-col-group";
-      tr.appendChild(td);
-      continue;
-    }
-    const fieldInfo = column.field;
+  for (const fieldInfo of columnFields(state.config.fields)) {
     const field = fieldInfo.name;
-    if (fieldInfo.kind === "choice") {
-      tr.appendChild(
-        buildChoiceCell(
-          state,
-          actions,
-          node,
-          field,
-          descendantSummary,
-          choiceLabels(fieldInfo),
-          `pad-${field.replaceAll("_", "-")}-select`
-        )
+    // この列に入る項目（column）のうち、サーバーがこのノードで使うと決めたもの
+    const subfields = node.height_fields.filter((name) =>
+      state.config.fields.some((item) => item.name === name && item.column === field)
+    );
+    let td;
+    if (subfields.length > 0) {
+      td = buildSubfieldCell(state, actions, node, field, subfields, descendantSummary);
+    } else if (fieldInfo.kind === "choice") {
+      td = buildChoiceCell(
+        state,
+        actions,
+        node,
+        field,
+        descendantSummary,
+        choiceLabels(fieldInfo),
+        `pad-${field.replaceAll("_", "-")}-select`
       );
     } else if (fieldInfo.kind === "height") {
-      tr.appendChild(buildHeightCell(state, actions, node, field, descendantSummary));
+      td = buildHeightCell(state, actions, node, field, descendantSummary);
     } else {
-      tr.appendChild(buildValueCell(state, actions, node, field, descendantSummary));
+      td = buildValueCell(state, actions, node, field, descendantSummary);
     }
+    td.dataset.column = field;
+    tr.appendChild(td);
   }
   return tr;
+}
+
+// サーバーが列のセルに出すと決めた項目（微小線の始点高・終点高）をラベル付きで縦に並べる。
+function buildSubfieldCell(state, actions, node, column, fields, descendantSummary) {
+  const td = document.createElement("td");
+  td.className = "pad-col-value";
+  for (const field of fields) {
+    const row = document.createElement("div");
+    row.className = "pad-subfield";
+    const label = document.createElement("span");
+    label.id = nodeControlId(node.id, "sublabel", field);
+    label.className = "pad-subfield-label";
+    label.textContent = fieldLabel(state.config, field);
+    row.appendChild(label);
+    appendValueControl(row, state, actions, node, field, descendantSummary);
+    // 項目自身の列見出しは無いので、入力欄と「継承に戻す」には行・列見出し・セル内ラベルを使う
+    const names = `${nodeControlId(node.id, "label")} pad-heading-${column} ${label.id}`;
+    row.querySelector("input").setAttribute("aria-labelledby", names);
+    row
+      .querySelector('[data-testid="pad-clear-override"]')
+      ?.setAttribute("aria-describedby", names);
+    td.appendChild(row);
+  }
+  return td;
 }
 
 function buildChoiceCell(
@@ -400,6 +385,11 @@ function buildHeightCell(state, actions, node, field, descendantSummary) {
 function buildValueCell(state, actions, node, field, descendantSummary) {
   const td = document.createElement("td");
   td.className = "pad-col-value";
+  appendValueControl(td, state, actions, node, field, descendantSummary);
+  return td;
+}
+
+function appendValueControl(container, state, actions, node, field, descendantSummary) {
   const own = node.own_override;
   const ownValue = own.values ? own.values[field] : undefined;
   const isOverride = ownValue !== undefined;
@@ -430,11 +420,10 @@ function buildValueCell(state, actions, node, field, descendantSummary) {
       commitCell(state, actions, node.id, field, input, descendantCount);
     }
   });
-  td.appendChild(input);
+  container.appendChild(input);
 
-  appendOverrideControls(td, actions, node.id, field, isOverride, input.id);
-  appendDescendantFieldMarker(td, state, field, descendantCount);
-  return td;
+  appendOverrideControls(container, actions, node.id, field, isOverride, input.id);
+  appendDescendantFieldMarker(container, state, field, descendantCount);
 }
 
 function appendSelectOption(select, value, label, selected) {

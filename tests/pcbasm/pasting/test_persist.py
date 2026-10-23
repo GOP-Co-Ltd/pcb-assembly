@@ -27,7 +27,6 @@ def _base() -> PasteParams:
         boundary_margin=0.0,
         micro_line_z_start=0.07,
         micro_line_z_end=0.07,
-        micro_line_settle_seconds=1.0,
     )
 
 
@@ -80,7 +79,6 @@ class TestMicroLineOverride:
             dispense_mode="micro_line",
             micro_line_z_start=0.09,
             micro_line_z_end=0.06,
-            micro_line_settle_seconds=2.0,
         )
         model = PasteSettingsModel(
             base=_base(), levels=(LevelSetting(("L1", "0402"), patch=patch),)

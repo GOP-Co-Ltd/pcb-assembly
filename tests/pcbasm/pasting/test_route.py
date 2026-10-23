@@ -67,7 +67,6 @@ def _full_base() -> PasteParams:
         boundary_margin=0.0,
         micro_line_z_start=0.07,
         micro_line_z_end=0.07,
-        micro_line_settle_seconds=1.0,
     )
 
 
