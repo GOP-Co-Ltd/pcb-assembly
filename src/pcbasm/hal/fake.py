@@ -6,17 +6,25 @@
 
 from __future__ import annotations
 
+import copy
 import functools
+import math
+import threading
 import time
+from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future
 from typing import Any, override
 
 import attrs
+import cv2
+import numpy as np
+from shapely import Polygon
 
 from pcbasm.config import Audio
 from pcbasm.gcode import GCode, GCodeLike
-from pcbasm.vision import Image
+from pcbasm.geometry import Point2d
+from pcbasm.vision import Image, ImageArray
 
 from .audio import AudioDevice, AudioPlayer, Sound
 from .camera import Camera, CameraInfo, Resolution
@@ -49,6 +57,21 @@ class SentGCode:
     timeout: float | None
 
 
+@attrs.frozen
+class StepperMove:
+    """FakeKlipper が受けた manual_stepper の 1 回の ``MOVE``.
+
+    Attributes:
+        stepper: manual_stepper の名前
+        at: 送った時点のツールヘッドの XY（機械座標）
+        distance: 進めた距離 [mm]（戻すときは負）
+    """
+
+    stepper: str
+    at: Point2d
+    distance: float
+
+
 class FakeKlipper(Klipper):
     """送信を記録し、位置と押出量を追う Klipper の fake.
 
@@ -56,6 +79,7 @@ class FakeKlipper(Klipper):
     ``readonly`` も本物と同じ形で持つので、実 ``XYZStage`` / ``PasteDispenser`` をそのまま組み合わせられる。
     位置は G28、G90 / G91 下の G0 / G1 で、manual_stepper の位置と押出量は ``MANUAL_STEPPER`` の ``SET_POSITION`` / ``MOVE`` で更新する。
     緊急停止は ``M112`` の送信として記録する。
+    ``connection()`` で開いた接続は、この機体の状態と記録を共有する。
     """
 
     def __init__(
@@ -72,17 +96,33 @@ class FakeKlipper(Klipper):
         """
         self._config = {section: dict(values) for section, values in config.items()}
         self._timeout = timeout
+        # 以下は connection() と共有するので、属性を差し替えずに中身を更新する
         self._status: dict[str, dict[str, Any]] = {
-            "gcode_move": {"gcode_position": [0.0, 0.0, 0.0, 0.0]},
+            "gcode_move": {
+                "gcode_position": [0.0, 0.0, 0.0, 0.0],
+                "absolute_coordinates": True,
+            },
             "toolhead": {"homed_axes": ""},
             "probe": {"last_z_result": 0.0},
         }
-        self._relative = False
         self._steppers: dict[str, float] = {}
         self._extruded: dict[str, float] = {}
+        self._stepper_moves: list[StepperMove] = []
         self._sent: list[SentGCode] = []
-        self._fails: Callable[[GCode], bool] | None = None
+        self._fails: list[Callable[[GCode], bool]] = []
+        self._settles: list[Callable[[], None]] = []
         self._readonly = ReadonlyKlipper(self)
+
+    def connection(self, *, timeout: float | None = None) -> FakeKlipper:
+        """同じ機体への別の接続を返す.
+
+        位置・押出量・送信の記録・失敗の注入・静定待ちを共有し、送信ごとの指定が無いときの実効 timeout だけが違う。
+        ``open_klipper`` を何度も呼ぶジョブ（本体と終了時の駐機など）を、1 台の機体として記録するのに使う。
+        """
+        connection = copy.copy(self)
+        connection._timeout = timeout
+        connection._readonly = ReadonlyKlipper(connection)
+        return connection
 
     @property
     def sent(self) -> tuple[SentGCode, ...]:
@@ -98,6 +138,11 @@ class FakeKlipper(Klipper):
     def extruded(self) -> dict[str, float]:
         """manual_stepper ごとの押出量 [mm]（``MOVE`` で進めた距離の合計）を返す."""
         return dict(self._extruded)
+
+    @property
+    def stepper_moves(self) -> tuple[StepperMove, ...]:
+        """manual_stepper の ``MOVE`` を送った順に返す."""
+        return tuple(self._stepper_moves)
 
     def clear_sent(self) -> None:
         """送信の記録を消す（位置と押出量は保つ）."""
@@ -117,7 +162,11 @@ class FakeKlipper(Klipper):
 
     def fail_on(self, predicate: Callable[[GCode], bool]) -> None:
         """送信が predicate に当たったら、Moonraker の 400 と同じ RuntimeError を送出させる."""
-        self._fails = predicate
+        self._fails[:] = [predicate]
+
+    def settle_with(self, wait: Callable[[], None]) -> None:
+        """送信を実行し終えてから返るまでに wait を呼ぶ（実機の静定待ちの代わり）."""
+        self._settles.append(wait)
 
     @override
     def send_gcode(
@@ -127,6 +176,8 @@ class FakeKlipper(Klipper):
         self._record(sent, timeout)
         for line in str(sent).splitlines():
             self._execute(line.split())
+        for wait in self._settles:
+            wait()
         return {"result": "ok"}
 
     @override
@@ -146,15 +197,15 @@ class FakeKlipper(Klipper):
         self._sent.append(
             SentGCode(gcode, self._timeout if timeout is None else timeout)
         )
-        if self._fails is not None and self._fails(gcode):
+        if any(fails(gcode) for fails in self._fails):
             raise RuntimeError("Bad Request")
 
     def _execute(self, words: list[str]) -> None:
         match words:
             case ["G90"]:
-                self._relative = False
+                self._status["gcode_move"]["absolute_coordinates"] = True
             case ["G91"]:
-                self._relative = True
+                self._status["gcode_move"]["absolute_coordinates"] = False
             case ["G28", *axes]:
                 self._home([axis.lower() for axis in axes] or list(_AXES))
             case ["G0" | "G1", *params]:
@@ -175,12 +226,13 @@ class FakeKlipper(Klipper):
 
     def _move(self, params: list[str]) -> None:
         position = list(self._status["gcode_move"]["gcode_position"])
+        relative = not self._status["gcode_move"]["absolute_coordinates"]
         for word in params:
             index = "XYZE".find(word[0])
             if index < 0:
                 continue
             value = float(word[1:])
-            position[index] = position[index] + value if self._relative else value
+            position[index] = position[index] + value if relative else value
         self._status["gcode_move"]["gcode_position"] = position
 
     def _move_stepper(self, params: dict[str, str]) -> None:
@@ -192,6 +244,24 @@ class FakeKlipper(Klipper):
             moved = target - self._steppers.get(name, 0.0)
             self._extruded[name] = self._extruded.get(name, 0.0) + moved
             self._steppers[name] = target
+            x, y = self._status["gcode_move"]["gcode_position"][:2]
+            self._stepper_moves.append(StepperMove(name, Point2d(x, y), moved))
+
+
+class _Pacer:
+    """``capture()`` を 1/fps 間隔にそろえる（無いと FrameHub の専有スレッドがビジーループになる）."""
+
+    def __init__(self, fps: float) -> None:
+        self._interval = 1.0 / fps
+        self._next_deadline = time.monotonic()
+
+    def wait(self) -> None:
+        now = time.monotonic()
+        if now < self._next_deadline:
+            time.sleep(self._next_deadline - now)
+        self._next_deadline = max(
+            self._next_deadline + self._interval, time.monotonic()
+        )
 
 
 class FakeCamera(Camera):
@@ -211,9 +281,8 @@ class FakeCamera(Camera):
             raise ValueError("frames には Image が 1 つ以上必要です")
         self._frames = list(frames)
         self._resolution = Resolution(first.width, first.height, fps or 0.0)
-        self._fps = fps
+        self._pacer = _Pacer(fps) if fps is not None else None
         self._index = 0
-        self._next_deadline = time.monotonic()
 
     @property
     @override
@@ -227,19 +296,231 @@ class FakeCamera(Camera):
 
     @override
     def capture(self) -> Image:
-        if self._fps is not None:
-            # ペーシングが無いと FrameHub の専有スレッドがビジーループになる
-            now = time.monotonic()
-            if now < self._next_deadline:
-                time.sleep(self._next_deadline - now)
-            self._next_deadline = max(
-                self._next_deadline + 1.0 / self._fps, time.monotonic()
-            )
+        if self._pacer is not None:
+            self._pacer.wait()
         frame = self._frames[min(self._index, len(self._frames) - 1)]
         self._index += 1
         if isinstance(frame, Exception):
             raise frame
         return frame
+
+
+@attrs.frozen
+class Checkerboard:
+    """機械座標に置いたチェッカーボード（白い縁 1 マス分の内側に squares x squares マス）.
+
+    Attributes:
+        center: 盤の中心（機械座標 [mm]）
+        square: 1 マスの辺 [mm]
+        squares: 1 辺のマスの数。内側コーナーは 1 辺に squares - 1 個
+    """
+
+    center: Point2d
+    square: float
+    squares: int = 6
+
+
+# SceneCamera の濃淡（グレースケール）。銅箔と基準円は基板より明るく、塗布痕は暗い
+_SCENE_BOARD = 90
+_SCENE_SHAPE = 220
+_SCENE_PASTE = 30
+_SCENE_LIGHT = 240
+_SCENE_DARK = 20
+# 塗布量 [μL] から痕の径を決めるときの半球の係数（V = 2/3 π r^3）
+_HEMISPHERE = 2.0 * math.pi / 3.0
+# cv2 の描画に渡す座標の小数部のビット数（1/16 px 単位で描く）
+_SUBPIXEL_BITS = 4
+
+
+class SceneCamera(Camera):
+    """FakeKlipper の位置から見える機械座標の図形と塗布痕を描く Camera の fake.
+
+    ステージが s にあるとき、機械座標の点 p は画像中心から ``pixel_per_mm * Rot(rotation)(s - p)`` [px] の位置に写る（+x 右、+y 下）。
+    この式は現行の position.py / copper.py の向きに合わせて凍結したもので、posctrl の関数を使わずにここへ直書きする。
+    描く側と読む側が同じだけ変わって golden をすり抜けるのを防ぐため。
+    図形（銅箔・基準円）は shapely の多角形で受け取り、円は ``buffer`` で多角形にして渡す。
+    塗布痕は FakeKlipper が記録した manual_stepper の ``MOVE`` を XY ごとに足し、正なら体積の半球の径で描く（線も始点の 1 点に描く）。
+    痕はノズルの位置から toolhead だけ戻した点、つまりカメラで見る機械座標に描く。
+
+    FrameHub の専有スレッドから撮られている間、FakeKlipper の送信は新しい位置で描いたフレームが配られるまで返らない。
+    実機では静定待ちの間に古いフレームが流れ去るのを、待ち時間ではなく描いたフレームで代える。
+    """
+
+    def __init__(
+        self,
+        klipper: FakeKlipper,
+        *,
+        pixel_per_mm: float,
+        toolhead: Point2d,
+        rotations_per_ul: float,
+        rotation: float = 0.0,
+        size: tuple[int, int] = (1280, 800),
+        shapes: Sequence[Polygon] = (),
+        checkerboard: Checkerboard | None = None,
+        fps: float = 100.0,
+    ) -> None:
+        """SceneCamera を初期化し、klipper の送信に静定待ちを差し込む.
+
+        Args:
+            klipper: ステージ位置と塗布の記録を読む機体
+            pixel_per_mm: 1 mm あたりの画素数
+            toolhead: カメラからノズルへの相対位置 [mm]（machine の paste_dispenser.toolhead）
+            rotations_per_ul: 1 μL あたりの manual_stepper の移動量 [mm]（machine の paste_dispenser.rotations_per_ul）
+            rotation: 機械の軸に対するカメラの回転 [度]
+            size: 画像サイズ (width, height)
+            shapes: 明るく描く図形（機械座標 [mm]）
+            checkerboard: 描くチェッカーボード
+            fps: ``capture()`` の間隔と ``resolution.fps``
+        """
+        self._klipper = klipper
+        self._pixel_per_mm = pixel_per_mm
+        radians = math.radians(rotation)
+        self._rotation = np.array(
+            [
+                [math.cos(radians), -math.sin(radians)],
+                [math.sin(radians), math.cos(radians)],
+            ]
+        )
+        self._size = size
+        self._center = np.array([size[0] / 2, size[1] / 2])
+        self._marks = [(shape, _SCENE_SHAPE) for shape in shapes]
+        if checkerboard is not None:
+            self._marks += _checkerboard_marks(checkerboard)
+        self._toolhead = toolhead
+        self._rotations_per_ul = rotations_per_ul
+        self._resolution = Resolution(size[0], size[1], fps)
+        self._pacer = _Pacer(fps)
+        self._cond = threading.Condition()
+        self._capturer: threading.Thread | None = None
+        self._moves = 0  # 静定待ちに入った送信の数
+        self._returned = -1  # 直前に返したフレームを描き始めたときの _moves
+        self._delivered = -1  # FrameHub が配り終えたフレームの _moves
+        klipper.settle_with(self._settle)
+
+    @property
+    @override
+    def resolution(self) -> Resolution:
+        return self._resolution
+
+    @property
+    @override
+    def info(self) -> CameraInfo:
+        return CameraInfo(name="SceneCamera", formats={"BGR": [self.resolution]})
+
+    @override
+    def capture(self) -> Image:
+        with self._cond:
+            # FrameHub は配り終えてから次を撮るので、ここに来たら直前のフレームは配られている
+            self._delivered = self._returned
+            self._capturer = threading.current_thread()
+            self._cond.notify_all()
+        self._pacer.wait()
+        with self._cond:
+            moves = self._moves
+        x, y = self._klipper.get_status("gcode_move", "gcode_position")[:2]
+        frame = self._render(np.array([x, y]))
+        with self._cond:
+            self._returned = moves
+        return frame
+
+    def _settle(self) -> None:
+        """FrameHub が撮っている間は、送信の後に描いたフレームが配られるまで待つ."""
+        with self._cond:
+            self._moves += 1
+            moves = self._moves
+            while self._delivered < moves and self._streaming():
+                self._cond.wait(0.1)
+
+    def _streaming(self) -> bool:
+        capturer = self._capturer
+        return (
+            capturer is not None
+            and capturer is not threading.current_thread()
+            and capturer.is_alive()
+        )
+
+    def _render(self, stage: ImageArray) -> Image:
+        width, height = self._size
+        image = np.full((height, width), _SCENE_BOARD, dtype=np.uint8)
+        for shape, value in self._marks:
+            cv2.fillPoly(
+                image,
+                [self._pixels(shape.exterior.coords, stage)],
+                value,
+                cv2.LINE_AA,
+                _SUBPIXEL_BITS,
+            )
+            for ring in shape.interiors:
+                cv2.fillPoly(
+                    image,
+                    [self._pixels(ring.coords, stage)],
+                    _SCENE_BOARD,
+                    cv2.LINE_AA,
+                    _SUBPIXEL_BITS,
+                )
+        for at, volume_ul in self._deposits():
+            radius = (volume_ul / _HEMISPHERE) ** (1.0 / 3.0)
+            x, y = self._pixels([(at.x, at.y)], stage)[0, 0]
+            cv2.circle(
+                image,
+                (int(x), int(y)),
+                round(radius * self._pixel_per_mm * (1 << _SUBPIXEL_BITS)),
+                _SCENE_PASTE,
+                -1,
+                cv2.LINE_AA,
+                _SUBPIXEL_BITS,
+            )
+        return Image(cv2.cvtColor(image, cv2.COLOR_GRAY2BGR))
+
+    def _pixels(self, points: Any, stage: ImageArray) -> ImageArray:
+        """機械座標の点列を、cv2 の描画に渡す固定小数点の画素座標にする."""
+        camera_mm = (stage - np.asarray(points, dtype=np.float64)) @ self._rotation.T
+        pixels = self._center + self._pixel_per_mm * camera_mm
+        return (
+            np.round(pixels * (1 << _SUBPIXEL_BITS)).astype(np.int32).reshape(-1, 1, 2)
+        )
+
+    def _deposits(self) -> list[tuple[Point2d, float]]:
+        """塗布痕を（カメラで見る機械座標, 体積 [μL]）で返す."""
+        distances: defaultdict[Point2d, float] = defaultdict(float)
+        for move in self._klipper.stepper_moves:
+            distances[move.at] += move.distance
+        return [
+            (at - self._toolhead, distance / self._rotations_per_ul)
+            for at, distance in distances.items()
+            if distance > 0
+        ]
+
+
+def _checkerboard_marks(board: Checkerboard) -> list[tuple[Polygon, int]]:
+    """白い縁の上に黒マスを並べた多角形の列を返す."""
+    half = board.square * (board.squares / 2 + 1)
+    marks = [
+        (
+            _box(board.center.x - half, board.center.y - half, 2 * half),
+            _SCENE_LIGHT,
+        )
+    ]
+    origin_x = board.center.x - board.square * board.squares / 2
+    origin_y = board.center.y - board.square * board.squares / 2
+    for row in range(board.squares):
+        for column in range(board.squares):
+            if (row + column) % 2 == 0:
+                marks.append(
+                    (
+                        _box(
+                            origin_x + column * board.square,
+                            origin_y + row * board.square,
+                            board.square,
+                        ),
+                        _SCENE_DARK,
+                    )
+                )
+    return marks
+
+
+def _box(x: float, y: float, side: float) -> Polygon:
+    return Polygon([(x, y), (x + side, y), (x + side, y + side), (x, y + side)])
 
 
 # FakeAudioPlayer が既定で返すデバイス一覧（実 ALSA 構成に依存しないための固定値）

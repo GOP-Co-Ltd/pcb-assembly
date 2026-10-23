@@ -6,8 +6,6 @@ golden は現状の送信列そのものなので、手続きを意図して変�
 """
 
 import math
-import shutil
-from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -33,7 +31,6 @@ from pcbasm.geometry import (
 from pcbasm.hal import XYZStage
 from pcbasm.hal.fake import (
     FAKE_PRINTER_CONFIG,
-    FakeAudioPlayer,
     FakeCamera,
     FakeKlipper,
 )
@@ -72,8 +69,6 @@ from pcbasm.vision import CalibrationResult, Image, Offset
 from tests.support import polling
 from tests.support.golden import assert_transcript
 from tests.support.paths import TESTING_DATA_DIR
-from web.api.board_settings import BoardSettingsStore
-from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import JobCatalog, JobDefinition
 from web.api.jobs.context import JobContext
 from web.api.jobs.machine_commands import (
@@ -87,9 +82,6 @@ from web.api.jobs.pasting.common import (
     LOADING_DEFAULT_ROTATION_RATE,
     LOADING_DEFAULT_ROTATIONS,
 )
-from web.api.preview import PreviewService
-from web.api.settings import Settings
-from web.api.state import AppState
 
 GOLDEN_DIR = Path(__file__).parent
 PROCEDURES = GOLDEN_DIR / "procedures"
@@ -579,32 +571,6 @@ class TestMachineCommands:
     def catalog(self) -> JobCatalog:
         return JobCatalog()
 
-    @pytest.fixture
-    def manager(self, tmp_path: Path, catalog: JobCatalog) -> Iterator[JobManager]:
-        config_dir = tmp_path / "config"
-        config_dir.mkdir()
-        shutil.copy(MACHINE_TOML, config_dir)
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-        settings = Settings(
-            config_dir=config_dir,
-            data_dir=data_dir,
-            discovery_enabled=False,
-            update_state_dir=tmp_path / "selfupdate",
-        )
-        state = AppState(settings, ConfigStore(config_dir))
-        manager = JobManager(
-            state,
-            PreviewService(state),
-            catalog,
-            settings,
-            BoardSettingsStore(settings.webui_data_dir),
-            audio_player=FakeAudioPlayer(),
-        )
-        yield manager
-        manager.shutdown()
-        state.close()
-
     @pytest.mark.parametrize(
         ("name", "command"),
         [
@@ -623,25 +589,20 @@ class TestMachineCommands:
         self,
         manager: JobManager,
         catalog: JobCatalog,
-        monkeypatch: pytest.MonkeyPatch,
+        machine_klipper: FakeKlipper,
         name: str,
         command: dict[str, Any],
     ):
-        opened: list[FakeKlipper] = []
-
-        def open_fake(config: object, *, timeout=None, journal=None) -> FakeKlipper:
-            klipper = FakeKlipper(timeout=timeout)
-            # jog は現在位置からの相対量なので、原点以外から始める
-            klipper.set_status("gcode_move", "gcode_position", [100.0, 80.0, 5.0, 0.0])
-            opened.append(klipper)
-            return klipper
+        # jog は現在位置からの相対量なので、原点以外から始める
+        machine_klipper.set_status(
+            "gcode_move", "gcode_position", [100.0, 80.0, 5.0, 0.0]
+        )
 
         def run(ctx: JobContext) -> None:
             klipper = create_command_klipper(ctx)
             stage = XYZStage(klipper.readonly)
             assert handle_machine_command(ctx, klipper, stage, command, focus_z=FOCUS_Z)
 
-        monkeypatch.setattr(hal, "open_klipper", open_fake)
         catalog.register(
             JobDefinition(
                 name="command",
@@ -655,5 +616,6 @@ class TestMachineCommands:
         polling.wait_until(lambda: record.status.terminal)
 
         assert record.status == JobStatus.SUCCEEDED
-        (klipper,) = opened
-        assert_transcript(klipper.sent, PROCEDURES / f"machine_command_{name}.gcode")
+        assert_transcript(
+            machine_klipper.sent, PROCEDURES / f"machine_command_{name}.gcode"
+        )
