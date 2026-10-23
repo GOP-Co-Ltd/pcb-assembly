@@ -308,6 +308,7 @@ class TestLoadMachine:
 
         assert "move_sec" in str(raised.value)
         assert "lift_height" in str(raised.value)
+        assert raised.value.sections == {"settle", "paste_dispenser"}
 
     def test_unparsable_toml_is_a_config_error(self, tmp_path):
         path = _write_with(tmp_path, 'broken = "unterminated\n')

@@ -61,7 +61,7 @@ def _require_all_axes_homed(klipper: Klipper, detail: str) -> None:
         raise HTTPException(status_code=400, detail=detail)
 
 
-def _park_at_cap(state: AppState, klipper: Klipper, stage: XYZStage) -> str:
+def _park_at_cap(cap: Point3d | None, klipper: Klipper, stage: XYZStage) -> str:
     """ノズルキャップ位置へ戻し、結果の 1 行を返す（戻せなくても例外にしない）.
 
     脱力（M84）はしない。続けてもう一度テストできるようホーミング状態を保つため
@@ -70,7 +70,6 @@ def _park_at_cap(state: AppState, klipper: Klipper, stage: XYZStage) -> str:
     クリーニングは既に完了しているので、キャップが未記録・可動域外でも失敗にはせず、
     何が起きたかを応答の文言で伝える。
     """
-    cap = state.nozzle_cap()
     if cap is None:
         return "ノズルキャップ位置が未記録のため退避しません"
     try:
@@ -148,12 +147,12 @@ def run_nozzle_clean_test(
     """
     # 装置排他を先に取る。設定を読むだけの検査より「他が使用中」を先に返すほうが運転者が対処しやすい
     with state.machine_lock("nozzle-clean-test"):
-        clean = state.nozzle_clean()
-        if clean is None or clean.position is None:
+        dispenser = state.machine().paste_dispenser
+        clean = dispenser.nozzle_clean
+        if clean.position is None:
             raise HTTPException(
                 status_code=400, detail="ノズルクリーニング位置が未記録です"
             )
-        dispenser = state.machine().paste_dispenser
         messages: list[str] = []
         try:
             with klipper_errors_to_502():
@@ -172,7 +171,9 @@ def run_nozzle_clean_test(
                     )
                     applicator.retract()
                 # ディスペンサーを止めてから戻す（塗布ジョブの駐機と同じ順序）
-                messages.append(_park_at_cap(state, klipper, stage))
+                messages.append(
+                    _park_at_cap(dispenser.nozzle_cap.position, klipper, stage)
+                )
         except ValueError as exc:
             # 可動域外などの不正な設定値。clean_nozzle は可動域の検証を
             # パージより前に通すので、この経路では装置は動いていない

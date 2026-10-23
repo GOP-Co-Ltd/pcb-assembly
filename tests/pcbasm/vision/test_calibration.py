@@ -7,7 +7,11 @@ import numpy as np
 import pytest
 
 from pcbasm.vision import Image
-from pcbasm.vision.calibration import CalibrationResult, CheckerboardCalibrator
+from pcbasm.vision.calibration import (
+    CalibrationResult,
+    CheckerboardCalibrator,
+    load_focus_z,
+)
 from tests.support.paths import TESTING_DATA_DIR
 
 
@@ -67,6 +71,37 @@ class TestCalibrationResult:
 
         loaded = CalibrationResult.load(json_path)
         assert loaded.z_position is None
+
+
+class TestLoadFocusZ:
+    """校正ファイルに記録した焦点 Z（/api/state の focus_z）."""
+
+    def _save(self, path: Path, z_position: float | None) -> None:
+        CalibrationResult(
+            pixel_per_mm=100.0,
+            square_size_mm=1.5,
+            mean_distance_px=150.0,
+            std_distance_px=2.5,
+            resolution=(640, 480),
+            crop_size=(400, 400),
+            calibrated_at=datetime(2025, 1, 6, 12, 0, 0),
+            z_position=z_position,
+        ).save(path)
+
+    def test_returns_recorded_z_position(self, tmp_path: Path):
+        path = tmp_path / "calibration.json"
+        self._save(path, -25.0)
+
+        assert load_focus_z(path) == -25.0
+
+    def test_is_none_before_calibration(self, tmp_path: Path):
+        assert load_focus_z(tmp_path / "calibration.json") is None
+
+    def test_is_none_when_z_position_was_not_recorded(self, tmp_path: Path):
+        path = tmp_path / "calibration.json"
+        self._save(path, None)
+
+        assert load_focus_z(path) is None
 
 
 class TestCheckerboardCalibrator:

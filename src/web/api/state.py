@@ -9,12 +9,11 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from pcbasm.atomic import write_bytes_atomic, write_text_atomic
-from pcbasm.config import Klipper, Machine, NozzleClean, load_klipper, load_machine
-from pcbasm.geometry import Point3d
+from pcbasm.config import ConfigError, Klipper, Machine, load_klipper, load_machine
 from pcbasm.hal import Camera, FrameHub, create_camera
 from pcbasm.hal.fake import FakeCamera
 from pcbasm.machine.journal import Journal
-from pcbasm.vision import CalibrationResult, Image
+from pcbasm.vision import Image
 from web.api.config_store import ConfigStore, MachineSettingValue
 from web.api.settings import Settings
 
@@ -110,13 +109,22 @@ class AppState:
     def machine(self) -> Machine:
         """machine.toml をディスクから読み、全体を検証して返す（毎回ロード）.
 
+        手編集と書き込みが再起動なしで次の読み込みに効く。
+
         Raises:
-            ConfigError: machine.toml が読めない・検証に通らない場合
+            ConfigError: machine.toml が読めない・検証に通らない場合（degraded）
         """
         return load_machine(self._store.machine_toml_path())
 
+    def machine_or_error(self) -> tuple[Machine, None] | tuple[None, str]:
+        """:meth:`machine` の degraded 版。設定エラーなら ``(None, 理由)`` を返す."""
+        try:
+            return self.machine(), None
+        except ConfigError as exc:
+            return None, str(exc)
+
     def klipper(self) -> Klipper:
-        """machine.toml の [klipper] 節だけを読む（他の節の誤りで緊急停止を送れなくしない）.
+        """machine.toml の [klipper] 節だけを読む（degraded でも緊急停止を送れるように）.
 
         Raises:
             ConfigError: [klipper] が読めない場合
@@ -140,35 +148,6 @@ class AppState:
             UnknownFieldError: 未知キーまたは型不一致の場合
         """
         self._store.write_machine_settings(values)
-
-    def focus_z(self) -> float | None:
-        """カメラキャリブレーションの Z 位置を返す（取得できなければ None）."""
-        try:
-            calibration_file = self.machine().camera.calibration_file
-            return CalibrationResult.load(calibration_file).z_position
-        except Exception:
-            return None
-
-    def machine_type(self) -> str | None:
-        """マシン種別を返す（取得できなければ None）."""
-        try:
-            return self.machine().machine_type
-        except Exception:
-            return None
-
-    def nozzle_cap(self) -> Point3d | None:
-        """ノズルキャップ位置を返す（未教示・取得できなければ None）."""
-        try:
-            return self.machine().paste_dispenser.nozzle_cap.position
-        except Exception:
-            return None
-
-    def nozzle_clean(self) -> NozzleClean | None:
-        """ノズルクリーニング設定を返す（取得できなければ None）."""
-        try:
-            return self.machine().paste_dispenser.nozzle_clean
-        except Exception:
-            return None
 
     def job_param_defaults(self, job_name: str) -> dict[str, StoredJobParamValue]:
         """ジョブフォーム用に保存された既定値を返す（未保存なら空 dict）."""

@@ -515,6 +515,70 @@ class TestNozzlePositionFields:
         assert path.read_bytes() == original
 
 
+class TestWholeDocumentValidation:
+    """書き込みはディスクの最新に差分を当て、全体を load_machine と同じ検証にかける."""
+
+    def test_rejects_a_write_that_makes_a_valid_config_unloadable(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """項目単体では通っても、全体で読めなくなる書き込みは拒否する（Probe は 6 点以上）."""
+        path = config_dir / "machine.toml"
+        original = path.read_bytes()
+
+        with pytest.raises(UnknownFieldError, match="min_samples"):
+            store.write_machine_settings({"probe.min_samples": 5})
+
+        assert path.read_bytes() == original
+
+    def test_applies_the_change_onto_hand_edits_made_after_start(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """手編集（ssh）した値を、後から WebUI で別の項目を書いても上書きしない."""
+        path = config_dir / "machine.toml"
+        path.write_text(
+            path.read_text().replace("max_fill_speed = 0.8", "max_fill_speed = 0.6")
+        )
+
+        store.write_machine_settings({"paste_dispenser.lift_height": 2.5})
+
+        values = store.read_machine_settings()
+        assert values["paste_dispenser.max_fill_speed"] == 0.6
+        assert values["paste_dispenser.lift_height"] == 2.5
+
+    def test_fixes_one_error_at_a_time_while_degraded(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """設定エラーの間も、もとから誤りのある節にだけ誤りが残る書き込みは受け付ける.
+
+        同じ節に誤りが 2 つあると、1 つ直すと理由の文言は変わる。節で比べるので直せる。
+        """
+        path = config_dir / "machine.toml"
+        path.write_text(
+            path.read_text()
+            .replace("max_fill_speed = 0.8", "max_fill_speed = -1.0")
+            .replace("lift_height = 2.0", "lift_height = 0.0")
+        )
+
+        store.write_machine_settings({"paste_dispenser.max_fill_speed": 0.8})
+
+        assert store.read_machine_settings()["paste_dispenser.max_fill_speed"] == 0.8
+
+    def test_rejects_breaking_another_section_while_degraded(
+        self, store: ConfigStore, config_dir: Path
+    ):
+        """設定エラーの間も、誤りの無かった節を新たに壊す書き込みは拒否する."""
+        path = config_dir / "machine.toml"
+        path.write_text(
+            path.read_text().replace("lift_height = 2.0", "lift_height = 0.0")
+        )
+        broken = path.read_bytes()
+
+        with pytest.raises(UnknownFieldError, match="min_samples"):
+            store.write_machine_settings({"probe.min_samples": 5})
+
+        assert path.read_bytes() == broken
+
+
 class TestPadAlignRegionSettings:
     """重複領域の寸法・overlap 設定を読み書きする."""
 

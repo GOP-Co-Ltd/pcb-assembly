@@ -58,10 +58,9 @@ ALL_PAGE_URLS = ["/settings"] + [
     for url in (f"/{tab}", *(f"/{tab}/{feature}" for feature in features))
 ]
 
-# machine.toml を `AppState` の防御の外で読むページ。設定フォームの現在値
-# （ConfigStore / tomlkit）や paste_dispenser・pad_align の現在値をコンテキストに
-# 載せるため、machine.toml がパース不能だと backend の `/api/settings/machine` が
-# 500 になり、frontend は 503 ページを返す（MR2 の防御対象外）
+# 設定フォームの現在値（ConfigStore / tomlkit）や paste_dispenser・pad_align の
+# 現在値をコンテキストに載せるページ。machine.toml がパース不能だと backend の
+# `/api/settings/machine` が 500 になり、frontend は 503 ページを返す（直す経路は設定履歴）
 _MACHINE_TOML_DEPENDENT_URLS = frozenset(
     {
         "/settings",
@@ -160,7 +159,7 @@ def machine_toml_without_required_paste_dispenser_key(config_dir: Path) -> Path:
     """`[paste_dispenser]` の必須キー（既定値なし）を 1 本落とす（そのパスを返す）.
 
     TOML としては読めるので backend の `/api/settings/machine` は 200 を返すが、
-    全体の検証に通らないので実効値（`resolved`）は全て None になる。
+    全体の検証に通らない（設定エラー = degraded）ので実効値（`resolved`）は全て None になる。
     テンプレートから作った machine.toml に必須キーが無い実機で普通に起きる状態。
     """
     path = config_dir / "machine.toml"
@@ -706,16 +705,12 @@ class TestNozzleCapPage:
     def test_partially_recorded_cap_shows_placeholder(
         self, partial_nozzle_cap: Path, client: TestClient
     ):
-        """設定画面から X だけ保存した状態でも 500 にせず「未記録」を出す（MR2）.
-
-        `Machine.nozzle_cap` の structure は x/y/z 必須なので、`state.machine()` を
-        直接読んでいた頃はこのページだけが 500 していた。nozzle_cap を読むのは
-        このページと `/api/state`・`move_to_cap` だけで、他ページの SSR には載らない。
-        """
+        """X だけ手で書いた状態（設定エラー）でも 500 にせず、「未記録」と理由を出す."""
         response = client.get("/pasting/nozzle_cap")
 
         assert response.status_code == 200
         assert "未記録" in response.text
+        assert 'data-testid="config-error"' in response.text
 
     def test_shows_cleaning_controls_and_settings(self, client: TestClient):
         """記録・試運転・設定変更を同じページで行える（座標は記録ボタンから保存する）."""
@@ -756,20 +751,35 @@ class TestNozzleCapPage:
 
 
 class TestBrokenMachineTomlPages:
-    """パース不能な machine.toml でも SSR が落ちない（MR2）.
+    """パース不能な machine.toml でも SSR が落ちない（設定エラー = degraded）.
 
-    `_base_context` は全ページで `machine_type()` / `focus_z()` を呼ぶ。
-    この 2 つの防御（broad except → None）を外すと、machine.toml が壊れただけで
-    ページが軒並み 500 する。設定フォームの現在値や paste_dispenser の現在値を
-    コンテキストに載せるページ（`_MACHINE_TOML_DEPENDENT_URLS`）は machine.toml を
-    防御の外で読むため対象外＝この防御では守れない（MR2 の範囲外の別課題）。
+    全ページが読む `/api/state` と `/api/machine-info` は、設定エラーの間も 200 で理由を返す。
+    設定フォームの現在値をコンテキストに載せるページ（`_MACHINE_TOML_DEPENDENT_URLS`）は
+    TOML を読めないと描けないので 503 になる（直す経路は設定履歴の復元）。
     """
 
     @pytest.mark.parametrize("url", ROBUST_PAGE_URLS)
     def test_broken_machine_toml_keeps_pages_renderable(
         self, broken_machine_toml: Path, client: TestClient, url: str
     ):
-        assert client.get(url).status_code == 200
+        response = client.get(url)
+
+        assert response.status_code == 200
+        assert 'data-testid="config-error"' in response.text
+
+    def test_error_banner_disappears_once_fixed_without_restart(
+        self, config_dir: Path, client: TestClient
+    ):
+        """手編集（ssh）で壊して直すと、再起動なしで次のページ表示から理由が現れて消える."""
+        path = config_dir / "machine.toml"
+        original = path.read_text(encoding="utf-8")
+        path.write_text(original + '\nbroken_key = "unterminated\n', encoding="utf-8")
+
+        assert 'data-testid="config-error"' in client.get("/posctrl").text
+
+        path.write_text(original, encoding="utf-8")
+
+        assert 'data-testid="config-error"' not in client.get("/posctrl").text
 
     @pytest.mark.parametrize("url", sorted(_MACHINE_TOML_DEPENDENT_URLS))
     def test_machine_toml_dependent_pages_return_503(
@@ -880,7 +890,8 @@ class TestUnresolvableMachineSettingsAreNotFabricated:
         """Backend は 200 を返し、失うのは実効値だけ（生値は tomlkit で読めるまま）.
 
         frontend が 503 にするのは「backend が落ちているから」ではなく
-        「実効値が無いから」であることを、上流の応答側から示す。
+        「実効値が無いから」であることを、上流の応答側から示す。設定エラーの間は、
+        部分的に解決した実効値を混ぜずに全項目の実効値を出さない。
         """
         machine_id = ui_settings.machines[0].machine_id
 
@@ -908,8 +919,8 @@ class TestMachineControlCapButton:
     """マシン操作パネルの「キャップ位置に移動」ボタン（paste マシン限定表示）.
 
     nozzle-cap-parking 計画書「WebUI」節: machine_control.html は machine_type
-    == "paste" のときのみ #mc-move-to-cap を出す。machine_type が読めない config でも
-    ページは 500 にならずボタンを隠す（state.machine_type() は broad except → None）。
+    == "paste" のときのみ #mc-move-to-cap を出す。machine_type が無い config は設定エラー
+    （degraded）で、ページは 500 にならずボタンを隠す（machine-info の machine_type が None）。
     """
 
     @pytest.mark.parametrize(

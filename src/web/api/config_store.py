@@ -18,8 +18,10 @@ from pcbasm.config import (
     DISPENSE_MODES,
     LEGACY_NOZZLE_SECTIONS,
     LINE_DIRECTIONS,
+    ConfigError,
     Detection,
     PasteDispenser,
+    parse_machine,
     validate_audio_device,
     validate_audio_volume,
     validate_non_negative_number,
@@ -402,7 +404,8 @@ class ConfigStore:
     def read_machine_settings(self) -> dict[str, MachineSettingValue | None]:
         """machine.toml のホワイトリスト項目の現在値を返す.
 
-        toml に存在しないキーは None。
+        toml に存在しないキーは None。検証に通らない値もそのまま返し、設定エラー（degraded）の
+        間も設定ページから直せるようにする（理由は ``StateResponse.config_error`` に出る）。
 
         Raises:
             FileNotFoundError: machine.toml が存在しない場合
@@ -411,7 +414,10 @@ class ConfigStore:
         values: dict[str, MachineSettingValue | None] = {}
         for spec in MACHINE_FIELDS:
             raw = _lookup_setting(doc, spec)
-            values[spec.key] = None if raw is None else _coerce(spec, raw)
+            try:
+                values[spec.key] = None if raw is None else _coerce(spec, raw)
+            except UnknownFieldError:
+                values[spec.key] = raw if isinstance(raw, int | float | str) else None
         return values
 
     def write_machine_settings(
@@ -423,7 +429,10 @@ class ConfigStore:
         """machine.toml へホワイトリスト項目を書き込む.
 
         tomlkit によりコメント・構造を保持する。toml に無いキーは追加する。
-        内容が変わるときは、書き込む前の machine.toml を設定履歴へ残す。
+        ディスクの最新の内容に差分を当ててから全体を検証する（手編集を上書きしない）。
+        誤りの無かった節に誤りを生む書き込みは拒否する。すでに設定エラーの間も、誤りが
+        もとから誤りのあった節にしか残らないなら受け付け、1 項目ずつ直せるようにする。内容が
+        変わるときは、書き込む前の machine.toml を設定履歴へ残す。
         同一ディレクトリ内の一時ファイル経由の atomic replace で書き込むため、
         書き込み中に他プロセスが読んでも torn read（部分/空 TOML）は発生しない。
 
@@ -436,7 +445,8 @@ class ConfigStore:
             files: config 直下へ保存する追加ファイル（名前 → 内容）
 
         Raises:
-            UnknownFieldError: 未知キー・不正値・不正な追加ファイル名の場合
+            UnknownFieldError: 未知キー・不正値・不正な追加ファイル名の場合、全体の検証で
+                誤りの無かった節に誤りが出る場合
             OSError: ファイルの保存に失敗した場合
         """
         coerced = {
@@ -478,12 +488,24 @@ class ConfigStore:
                     table[axis] = item
             else:
                 table[option] = value
+        if error := self._config_error(doc):
+            before = self._config_error(tomlkit.parse(original))
+            if before is None or not error.sections <= before.sections:
+                raise UnknownFieldError(str(error))
         updated = tomlkit.dumps(doc)
         for filename, content in (files or {}).items():
             write_bytes_atomic(path.parent / filename, content)
         if updated != original:
             self._history.snapshot()
         write_text_atomic(path, updated)
+
+    def _config_error(self, doc: tomlkit.TOMLDocument) -> ConfigError | None:
+        """machine.toml の内容を load_machine と同じ検証にかけ、通らなければその誤りを返す."""
+        try:
+            parse_machine(doc.unwrap(), self._config_dir)
+        except ConfigError as exc:
+            return exc
+        return None
 
     def _machine_spec(self, key: str) -> FieldSpec:
         if key not in _MACHINE_FIELDS_BY_KEY:

@@ -172,6 +172,8 @@ class StateResponse(BaseModel):
     control: ControlInfo = ControlInfo()
     you: ClientInfo = ClientInfo()
     nozzle_clean: NozzleCleanInfo | None = None
+    # machine.toml が読めない・検証に通らないときの理由（degraded。直せば次の取得で消える）
+    config_error: str | None = None
 
 
 class SettingsField(BaseModel):

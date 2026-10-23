@@ -813,7 +813,15 @@ _CONVERTER = _make_converter()
 
 
 class ConfigError(Exception):
-    """machine.toml を読めない・検証に通らない（WebAPI はこの間 degraded で動く）."""
+    """machine.toml を読めない・検証に通らない（WebAPI はこの間 degraded で動く）.
+
+    Attributes:
+        sections: 誤りのある節（``probe`` など、machine.toml の最上位の表やキーの名前）
+    """
+
+    def __init__(self, message: str, sections: frozenset[str] = frozenset()) -> None:
+        super().__init__(message)
+        self.sections = sections
 
 
 @attrs.frozen
@@ -843,7 +851,11 @@ def _structure[T](value: object, cls: type[T]) -> T:
         return _CONVERTER.structure(value, cls)
     except cattrs.BaseValidationError as exc:
         errors = cattrs.transform_error(exc, "machine.toml", _describe)
-        raise ConfigError(" / ".join(errors)) from exc
+        # transform_error は 1 件を「理由 @ machine.toml.<節>.<キー>」の書式で返す
+        sections = frozenset(
+            error.rpartition(" @ machine.toml.")[2].split(".")[0] for error in errors
+        )
+        raise ConfigError(" / ".join(errors), sections) from exc
 
 
 def _read_toml(path: Path) -> dict[str, Any]:

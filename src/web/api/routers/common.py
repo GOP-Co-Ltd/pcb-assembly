@@ -21,6 +21,7 @@ from pcbasm.config import Machine
 from pcbasm.geometry import Point3d
 from pcbasm.hal import Klipper
 from pcbasm.pasting.nozzle_clean import clean_position_label
+from pcbasm.vision import load_focus_z
 from web.api.config_store import (
     MACHINE_FIELDS,
     ConfigStore,
@@ -122,16 +123,19 @@ def build_state_response(
     owner = state.busy_owner
     pcb = state.selected_pcb
     record = jobs.current()
-    cap = state.nozzle_cap()
-    nozzle_clean = state.nozzle_clean()
-    clean = None if nozzle_clean is None else nozzle_clean.position
+    machine, config_error = state.machine_or_error()
+    dispenser = None if machine is None else machine.paste_dispenser
+    cap = None if dispenser is None else dispenser.nozzle_cap.position
+    clean = None if dispenser is None else dispenser.nozzle_clean.position
     return StateResponse(
         control=control_payload(control),
         you=ClientInfo(key=identity.key),
         pcb_file=pcb.as_posix() if pcb else None,
         busy=owner is not None,
         busy_owner=owner,
-        focus_z=state.focus_z(),
+        focus_z=(
+            None if machine is None else load_focus_z(machine.camera.calibration_file)
+        ),
         mainsail_url=settings.mainsail_url,
         preview_clients=preview.client_count,
         job=(
@@ -139,8 +143,9 @@ def build_state_response(
             if record is not None
             else None
         ),
-        nozzle_cap=(None if cap is None else Position(x=cap.x, y=cap.y, z=cap.z)),
-        nozzle_clean=(None if clean is None else nozzle_clean_payload(clean)),
+        nozzle_cap=None if cap is None else Position(x=cap.x, y=cap.y, z=cap.z),
+        nozzle_clean=None if clean is None else nozzle_clean_payload(clean),
+        config_error=config_error,
     )
 
 
@@ -182,9 +187,10 @@ def build_machine_info(state: AppState, settings: Settings) -> MachineInfo:
     （プロキシ配下で必ず誤るため）。
     """
     machine_id = resolve_machine_id(settings)
+    machine, _ = state.machine_or_error()
     return MachineInfo(
         machine_id=machine_id,
-        machine_type=state.machine_type(),
+        machine_type=None if machine is None else machine.machine_type,
         mainsail_url=settings.mainsail_url or _default_mainsail_url(machine_id),
         fb_start=_fb_start(settings),
         api_version=API_VERSION,
@@ -242,42 +248,26 @@ def machine_settings_fields(store: ConfigStore, state: AppState) -> list[Setting
 
     実効値（``resolved``）は cattrs が既定値を埋めたあとの値で、SSR ページが現在値を
     表示するために使う。未記載キーの代替値を frontend 側に置くとプロセス境界の両側で
-    二重管理になり、両者が食い違うと誤った値が保存フォームに乗る。
+    二重管理になり、両者が食い違うと誤った値が保存フォームに乗る。設定エラー（degraded）の
+    間は実効値を出さず、書かれている値だけで設定を直せるようにする。
     """
-    return _fields(
-        MACHINE_FIELDS, store.read_machine_settings(), _resolved_values(state)
+    machine, _ = state.machine_or_error()
+    resolved = (
+        {}
+        if machine is None
+        else {spec.key: _resolved_value(machine, spec.key) for spec in MACHINE_FIELDS}
     )
-
-
-def _resolved_values(state: AppState) -> dict[str, MachineSettingValue | None]:
-    """ホワイトリスト項目の実効値（machine.toml が読めなければ全て None）.
-
-    machine.toml の不在・破損で例外にしないのは `AppState` の他の getter と同じ理由
-    （設定を直す画面まで開けなくなる）。
-    """
-    try:
-        machine = state.machine()
-    except Exception:
-        return {}
-    return {spec.key: _resolved_value(machine, spec.key) for spec in MACHINE_FIELDS}
+    return _fields(MACHINE_FIELDS, store.read_machine_settings(), resolved)
 
 
 def _resolved_value(machine: Machine, key: str) -> MachineSettingValue | None:
-    """ドット区切りキーを `Machine` から辿って実効値を読む（読めなければ None）.
-
-    セクションが machine.toml に無い / 必須キーが欠けている場合は `Machine` の
-    プロパティか cattrs が例外を投げる。1 セクションの不備で他セクションの実効値まで
-    失わないよう、キー単位で None にする。
-    """
-    try:
-        node: object = machine
-        for part in key.split("."):
-            node = getattr(node, part)
-            if node is None:
-                return None
-        return _as_setting_value(node)
-    except Exception:
-        return None
+    """ドット区切りキーを `Machine` から辿って実効値を読む（未設定の任意項目は None）."""
+    node: object = machine
+    for part in key.split("."):
+        node = getattr(node, part)
+        if node is None:
+            return None
+    return _as_setting_value(node)
 
 
 def _as_setting_value(value: object) -> MachineSettingValue | None:

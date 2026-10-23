@@ -1,4 +1,4 @@
-from .calibration import CalibrationResult, CheckerboardCalibrator
+from .calibration import CalibrationResult, CheckerboardCalibrator, load_focus_z
 from .copper import CopperEdgeDetection, CopperEdgeDetector
 from .detection import (
     CenterOffsetDetector,
@@ -29,6 +29,7 @@ __all__ = [
     "draw_crosshair",
     "draw_detected_circle",
     "draw_overlay",
+    "load_focus_z",
     "safe_move_distance",
     "validate_paste_diameters",
 ]

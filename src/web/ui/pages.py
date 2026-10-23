@@ -236,6 +236,7 @@ def _chrome_context(
         "active_feature": None,
         # 更新専用ページでは、中継されない機体コマンド（操作権・PCB・再起動）を出さない
         "update_only": False,
+        "config_error": None,
     }
 
 
@@ -258,6 +259,7 @@ def _base_context(
         mainsail_url=info.mainsail_url,
         focus_z=state.focus_z,
         machine_type=info.machine_type,
+        config_error=state.config_error,
     )
     return context
 

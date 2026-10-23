@@ -280,10 +280,10 @@ class TestMachineSettingsApi:
     def test_get_returns_written_values_without_resolved_while_degraded(
         self, client: TestClient, config_dir: Path
     ):
-        """全体の検証に通らない間も記載値は返し、設定ページから直せるようにする.
+        """設定エラーの間も記載値は返し、設定ページから直せるようにする.
 
         `[probe]` の `min_radius` は既定値を持たないので、消すと全体の検証に通らない。
-        部分的に解決した実効値は混ぜない。
+        部分的に解決した実効値は混ぜない（理由は `/api/state` の config_error に出る）。
         """
         path = config_dir / "machine.toml"
         path.write_text(

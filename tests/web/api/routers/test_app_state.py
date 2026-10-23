@@ -68,17 +68,18 @@ class TestStateApi:
 
         assert data["nozzle_cap"] == {"x": 10.0, "y": 20.0, "z": -3.5}
 
-    def test_partially_recorded_nozzle_cap_reports_null_without_error(
+    def test_partially_recorded_nozzle_cap_reports_the_config_error(
         self, partial_nozzle_cap: Path, client: TestClient
     ):
-        """X だけ書かれた `[paste_dispenser.nozzle_cap]` でも /api/state は 200 を返す.
+        """X だけ書かれた `[paste_dispenser.nozzle_cap]` は設定エラー（degraded）.
 
-        全ページの SSR と全クライアントのポーリングが読むので、500 にせず null を返す。
+        全ページの SSR と全クライアントのポーリングが読むので、500 にせず理由を返す。
         """
         response = client.get("/api/state")
 
         assert response.status_code == 200
         assert response.json()["nozzle_cap"] is None
+        assert "x / y / z の 3 つ" in response.json()["config_error"]
 
     def test_state_reports_recorded_nozzle_clean_with_server_built_label(
         self, client: TestClient, store: ConfigStore

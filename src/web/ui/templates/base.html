@@ -56,6 +56,13 @@
     {% endif %}
   </div>
 </header>
+{# 設定エラー（degraded）の間は全ページに理由を出す。直せば次のページ表示で消える #}
+{% if config_error %}
+<div class="config-error" role="alert" data-testid="config-error">
+  設定エラーのためジョブを実行できません: {{ config_error }}
+  （<a href="{{ base }}/settings">マシン設定</a>か<a href="{{ base }}/dev/config_history">設定履歴</a>から直してください）
+</div>
+{% endif %}
 <main class="layout {% block layout_class %}{% endblock %}">
 {% block content %}{% endblock %}
 </main>
