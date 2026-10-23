@@ -76,3 +76,26 @@
 - N4 採用: pad 表のラベルを「微小線の始点高さ」などにした（override の tooltip で区別できるように）
 - N5 実機確認へ: 下降は `_TRAVEL_SPEED`。飛び散りが出たら最初に疑う
 - N6 採用: 定数表を写すだけのテストを削除し、defaults のテストを既定値の一致へ強めた
+
+## 追加要望（2026-10-23、PR #48 へ追加）
+
+- 静定待ち `micro_line_settle_seconds` は装置設定だけにする（pad override から外す）。既定 0.1 s。
+  `DispenseSettings.micro_line_settle_seconds` で `MicroLineSequence` に渡す
+- 始点高・終点高は pad override のまま。pad 表では独立した列にせず、そのノードの解決済み方式が
+  micro_line のときに「塗布高さ」セルの中身を「始点高」「終点高」に切り替える（auto で微小線になる pad では出さない。
+  ユーザーが選択肢から選んだ）
+  - `ParamField.group` をやめ、`ParamField.column`（この項目を描く列の項目名、None は独立した列）にする
+  - `PasteParams.height_fields`（塗布高さ列に出す項目名）を pcbasm で決め、`HierNodeInfo.height_fields` で返す。JS は判定しない
+  - ラベルは「始点高」「終点高」。単位は列見出しの [mm] があるのでセル内では出さない
+  - 折りたたみの仕組み（開閉ボタン列・openGroups）は外す。見出しの折り返しは残す
+- テンプレート usaremino の `nozzle_outer_diameter = 0.40` はユーザーがコメントアウトを外した
+- 別件「Auto の隣に実際の方式を表示」は別エージェントが worktree（`feature/2026-10-23/show-resolved-dispense-mode`）で実施中
+
+## 追加要望のレビュー（code-reviewer、approve）と裁定
+
+- S1 採用: 始点高・終点高の「継承に戻す」ボタンの aria-describedby が存在しない見出しを指していた。セル内ラベルを指すよう直し、E2E で確認
+- S2 ユーザー確認: 微小線のノードで付けた始点高・終点高の override は、そのノードを auto に戻すと表から見えなくなるが、
+  auto で微小線になる pad の塗布には効き続ける（逆に微小線のノードでは paste_height の override が見えない）
+- S3 見送り: 旧 JSON の `micro_line_settle_seconds` は `PasteParamsPatch.from_dict` が捨てる。未 merge のキーで害もない
+- nit 採用: JS は `column` メタデータ ∩ `height_fields` でサブ項目を決める（height 列の決め打ちをやめた）。空行と docstring を整形
+- nit 見送り: ラベル「始点高」はユーザー指定
