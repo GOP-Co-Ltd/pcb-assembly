@@ -1,6 +1,6 @@
 """塗布パラメータの単一ソース.
 
-pad 単位で上書きできる 8 項目を :class:`PasteParams`（全項目確定）と
+pad 単位で上書きできる 10 項目を :class:`PasteParams`（全項目確定）と
 :class:`PasteParamsPatch`（差分、``None`` = 継承）の 2 型で表す。項目の一覧・
 表示順・UI メタデータは :data:`PASTE_PARAM_FIELDS` が唯一の出典で、
 ``machine.toml``（:class:`pcbasm.config.PasteDispenser`）からの写しは
@@ -50,6 +50,7 @@ class ParamField:
         kind: ``number`` = 数値 / ``choice`` = 選択式 / ``height`` = 数値または ``auto``
         unit: 単位表記（無ければ ``None``）
         choices: ``choice`` の選択肢
+        column: pad 表でこの項目を描く列の項目名（独立した列なら ``None``）
     """
 
     name: str
@@ -57,23 +58,26 @@ class ParamField:
     kind: Literal["number", "choice", "height"]
     unit: str | None = None
     choices: tuple[ChoiceOption, ...] = ()
+    column: str | None = None
 
 
 @attrs.frozen
 class PasteParams:
-    """Pad 1 枚に適用する塗布パラメータ 8 項目（全項目確定）.
+    """Pad 1 枚に適用する塗布パラメータ 10 項目（全項目確定）.
 
     フィールドの並びは UI の列順と一致させる（:data:`PASTE_PARAM_FIELDS` と同順）。
 
     Attributes:
-        dispense_mode: 塗布方式 auto / dot / line / area
-        line_direction: 線塗布の走行方向 unconstrained / outward / inward
+        dispense_mode: 塗布方式 auto / dot / line / area / micro_line
+        line_direction: 線塗布・微小線の走行方向 unconstrained / outward / inward
         ul_per_mm2: パッド面積あたりのペースト量 [μL/mm²]
-        paste_height: 塗布時の基板表面からのノズル高さ [mm]（機械座標の絶対 Z ではない）、または ``auto``（膜厚追従）
+        paste_height: 塗布時の基板表面からのノズル高さ [mm]（機械座標の絶対 Z ではない）、または ``auto``（膜厚追従）。微小線では使わない
         prime_extra_delay: プライム後の追加遅延 [sec]
         bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
         overlap: ジグザグ行間オーバーラップ [0, 1)
         boundary_margin: 外周マージン [mm]（負なら pad 外形をはみ出して塗る）
+        micro_line_z_start: 微小線の始点で基板表面から取る隙間 [mm]、または ``auto``（塗布量から計算）
+        micro_line_z_end: 微小線の終点で基板表面から取る隙間 [mm]、または ``auto``（塗布量から計算）
     """
 
     dispense_mode: DispenseMode
@@ -84,6 +88,8 @@ class PasteParams:
     bead_width_factor: float
     overlap: float
     boundary_margin: float
+    micro_line_z_start: PasteHeight
+    micro_line_z_end: PasteHeight
 
     @classmethod
     def from_config(cls, config: PasteDispenser) -> Self:
@@ -94,6 +100,13 @@ class PasteParams:
     def paste_height_mm(self) -> float:
         """基板表面からのノズル高さ [mm]（``auto`` は ``ul_per_mm2`` を膜厚として解決）."""
         return resolve_paste_height(self.paste_height, self.ul_per_mm2)
+
+    @property
+    def height_fields(self) -> tuple[str, ...]:
+        """塗布高さに使う項目名（微小線は始点高・終点高、それ以外は ``paste_height``）."""
+        if self.dispense_mode == "micro_line":
+            return ("micro_line_z_start", "micro_line_z_end")
+        return ("paste_height",)
 
     def patched(self, patch: PasteParamsPatch) -> Self:
         """``patch`` の非 ``None`` 項目で上書きした新しいインスタンスを返す."""
@@ -116,6 +129,8 @@ class PasteParamsPatch:
     bead_width_factor: float | None = None
     overlap: float | None = None
     boundary_margin: float | None = None
+    micro_line_z_start: PasteHeight | None = None
+    micro_line_z_end: PasteHeight | None = None
 
     @classmethod
     def from_dict(cls, values: Mapping[str, object]) -> Self:
@@ -161,6 +176,7 @@ PASTE_PARAM_FIELDS: tuple[ParamField, ...] = (
             ChoiceOption("dot", "点"),
             ChoiceOption("line", "線"),
             ChoiceOption("area", "面"),
+            ChoiceOption("micro_line", "微小線"),
         ),
     ),
     ParamField(
@@ -179,6 +195,12 @@ PASTE_PARAM_FIELDS: tuple[ParamField, ...] = (
     ParamField("bead_width_factor", "ビード幅係数", "number"),
     ParamField("overlap", "重なり率", "number"),
     ParamField("boundary_margin", "外周余白", "number", unit="mm"),
+    ParamField(
+        "micro_line_z_start", "始点高", "height", unit="mm", column="paste_height"
+    ),
+    ParamField(
+        "micro_line_z_end", "終点高", "height", unit="mm", column="paste_height"
+    ),
 )
 
 PASTE_PARAM_NAMES: tuple[str, ...] = tuple(field.name for field in PASTE_PARAM_FIELDS)
@@ -211,6 +233,7 @@ class DispenseSettings:
         retract_rate: リトラクション速度 [μL/sec]
         retract_accel_factor: リトラクション加速度係数（> 1.0）
         lift_height: 塗布後の上昇高さ [mm]
+        micro_line_settle_seconds: 微小線で上空に押し出してから下降するまでの静定待ち [sec]
     """
 
     max_fill_speed: float
@@ -220,6 +243,7 @@ class DispenseSettings:
     retract_rate: float
     retract_accel_factor: float
     lift_height: float
+    micro_line_settle_seconds: float
 
     @property
     def retract_accel(self) -> float:
@@ -238,4 +262,5 @@ class DispenseSettings:
             retract_rate=config.effective_retract_rate,
             retract_accel_factor=config.retract_accel_factor,
             lift_height=config.lift_height if lift_height is None else lift_height,
+            micro_line_settle_seconds=config.micro_line_settle_seconds,
         )

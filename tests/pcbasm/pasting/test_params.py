@@ -33,6 +33,8 @@ def _params(**overrides: object) -> PasteParams:
         "bead_width_factor": 1.0,
         "overlap": 0.0,
         "boundary_margin": 0.0,
+        "micro_line_z_start": 0.07,
+        "micro_line_z_end": 0.07,
     }
     values.update(overrides)
     return PasteParams(**values)
@@ -48,6 +50,20 @@ class TestPasteParamFields:
         by_name = {field.name: field for field in PASTE_PARAM_FIELDS}
         assert by_name["paste_height"].kind == "height"
         assert by_name["ul_per_mm2"].kind == "number"
+
+    def test_micro_line_heights_are_drawn_in_paste_height_column(self):
+        # 始点高・終点高は独立した列にせず、塗布高さの列に描く
+        columns = {field.name: field.column for field in PASTE_PARAM_FIELDS}
+
+        assert columns["micro_line_z_start"] == "paste_height"
+        assert columns["micro_line_z_end"] == "paste_height"
+        # 塗布高さと同じく数値または auto
+        kinds = {field.name: field.kind for field in PASTE_PARAM_FIELDS}
+        assert kinds["micro_line_z_start"] == kinds["micro_line_z_end"] == "height"
+        assert [name for name, column in columns.items() if column is not None] == [
+            "micro_line_z_start",
+            "micro_line_z_end",
+        ]
 
 
 class TestPasteParams:
@@ -69,6 +85,17 @@ class TestPasteParams:
         params = _params(paste_height=paste_height, ul_per_mm2=ul_per_mm2)
 
         assert params.paste_height_mm == pytest.approx(expected)
+
+    @pytest.mark.parametrize(
+        ("dispense_mode", "expected"),
+        [
+            ("micro_line", ("micro_line_z_start", "micro_line_z_end")),
+            ("auto", ("paste_height",)),
+            ("line", ("paste_height",)),
+        ],
+    )
+    def test_height_fields_follow_dispense_mode(self, dispense_mode, expected):
+        assert _params(dispense_mode=dispense_mode).height_fields == expected
 
 
 class TestPasteParamsPatch:
@@ -103,6 +130,15 @@ class TestValidateParamValues:
     def test_negative_boundary_margin_is_accepted(self):
         assert validate_param_values({"boundary_margin": -0.2}) is None
 
+    def test_micro_line_values_are_accepted(self):
+        values = {
+            "dispense_mode": "micro_line",
+            "micro_line_z_start": 0.08,
+            "micro_line_z_end": "auto",
+        }
+
+        assert validate_param_values(values) is None
+
     def test_unknown_field_is_rejected(self):
         message = validate_param_values({"bogus": 1.0})
 
@@ -126,6 +162,11 @@ class TestValidateParamValues:
             {"bead_width_factor": 0.0},
             {"prime_extra_delay": -1.0},
             {"boundary_margin": float("nan")},
+            {"micro_line_z_start": 0.0},
+            {"micro_line_z_end": -0.05},
+            # 装置設定。pad では上書きできない
+            {"micro_line_settle_seconds": 0.5},
+            {"nozzle_outer_diameter": 0.4},
         ],
     )
     def test_invalid_values_are_rejected(self, values: dict):

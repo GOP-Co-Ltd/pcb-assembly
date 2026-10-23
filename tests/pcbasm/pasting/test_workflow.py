@@ -21,6 +21,8 @@ _BASE = PasteParams(
     bead_width_factor=1.0,
     overlap=0.0,
     boundary_margin=0.0,
+    micro_line_z_start=0.07,
+    micro_line_z_end=0.07,
 )
 
 

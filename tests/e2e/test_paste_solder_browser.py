@@ -696,6 +696,57 @@ class TestPasteSolderBrowserPadInteraction:
         height_input.press("Enter")
         _wait_for_override(live_server, "L0", "paste_height", 0.25)
 
+    def test_micro_line_row_edits_heights_in_paste_height_column(
+        self, live_server: LiveServer, live_ui: LiveUi, browser_page
+    ):
+        _select_led_blinker(live_server)
+        _open_paste_solder(browser_page, live_ui)
+
+        # 始点高・終点高は独立した列を持たない
+        assert browser_page.locator("#pad-heading-micro_line_z_start").count() == 0
+        root_row = browser_page.locator(_row_selector("L0"))
+        mode_select = _field_select(
+            root_row, "dispense_mode", "pad-dispense-mode-select"
+        )
+        mode_select.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        assert _field_input(root_row, "micro_line_z_start").count() == 0
+
+        mode_select.select_option("micro_line")
+        _wait_for_override(live_server, "L0", "dispense_mode", "micro_line")
+        height_cell = root_row.locator('td[data-column="paste_height"]')
+        z_start_mode = height_cell.locator(
+            'select[data-testid="pad-height-mode-select"]'
+            '[data-field="micro_line_z_start"]'
+        )
+        z_start_mode.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+        # 既定は Auto（pad ごとに自動計算）
+        assert "Auto" in z_start_mode.locator("option:checked").text_content(
+            timeout=_BROWSER_TIMEOUT_MS
+        )
+        assert "始点高" in height_cell.text_content(timeout=_BROWSER_TIMEOUT_MS)
+        assert (
+            _field_select(root_row, "paste_height", "pad-height-mode-select").count()
+            == 0
+        )
+
+        z_start_mode.select_option("manual")
+        z_start = height_cell.locator(
+            'input[data-testid="pad-setting-input"][data-field="micro_line_z_start"]'
+        )
+        z_start.wait_for(state="visible", timeout=_BROWSER_TIMEOUT_MS)
+
+        z_start.fill("0.09")
+        z_start.press("Enter")
+        _wait_for_override(live_server, "L0", "micro_line_z_start", 0.09)
+        root_row.locator(
+            '[data-testid="pad-own-override-marker"][data-field="micro_line_z_start"]'
+        ).wait_for(state="attached", timeout=_BROWSER_TIMEOUT_MS)
+        # 項目の列見出しが無いので、「継承に戻す」はセル内のラベルで説明する
+        clear = height_cell.locator(
+            '[data-testid="pad-clear-override"][data-field="micro_line_z_start"]'
+        )
+        assert "sublabel" in (clear.get_attribute("aria-describedby") or "")
+
     def test_applied_dispense_mode_is_shown_next_to_auto_and_hidden_when_explicit(
         self, live_server: LiveServer, live_ui: LiveUi, browser_page
     ):

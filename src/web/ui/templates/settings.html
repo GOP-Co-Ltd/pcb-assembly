@@ -20,7 +20,7 @@
 <select id="{{ prefix }}-{{ field.key }}" name="{{ field.key }}"
         data-type="{{ field.value_type }}"
         aria-label="{{ field.label }}">
-  {% for option, label in [('auto', 'Auto'), ('dot', '点'), ('line', '線'), ('area', '面')] %}
+  {% for option, label in [('auto', 'Auto'), ('dot', '点'), ('line', '線'), ('area', '面'), ('micro_line', '微小線')] %}
   <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
   {% endfor %}
 </select>

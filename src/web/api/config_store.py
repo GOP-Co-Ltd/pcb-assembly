@@ -61,6 +61,7 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
         "paste_dispenser.rotations_per_ul", "1uLあたりの回転数", "float", "rev/uL"
     ),
     FieldSpec("paste_dispenser.nozzle_diameter", "ノズル内径", "float", "mm"),
+    FieldSpec("paste_dispenser.nozzle_outer_diameter", "ノズル外径", "float", "mm"),
     FieldSpec("paste_dispenser.dispense_mode", "塗布方式", "dispense_mode"),
     FieldSpec("paste_dispenser.line_direction", "線の走行方向", "line_direction"),
     FieldSpec(
@@ -123,6 +124,15 @@ MACHINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("paste_dispenser.bead_width_factor", "ビード幅係数", "float"),
     FieldSpec("paste_dispenser.overlap", "ジグザグ行間オーバーラップ", "float"),
     FieldSpec("paste_dispenser.boundary_margin", "外周マージン", "float", "mm"),
+    FieldSpec(
+        "paste_dispenser.micro_line_z_start", "微小線の始点高さ", "float_or_auto", "mm"
+    ),
+    FieldSpec(
+        "paste_dispenser.micro_line_z_end", "微小線の終点高さ", "float_or_auto", "mm"
+    ),
+    FieldSpec(
+        "paste_dispenser.micro_line_settle_seconds", "微小線の静定待ち", "float", "s"
+    ),
     # [paste_dispenser.toolhead]
     FieldSpec("paste_dispenser.toolhead.x", "ツールヘッド相対位置 X", "float", "mm"),
     FieldSpec("paste_dispenser.toolhead.y", "ツールヘッド相対位置 Y", "float", "mm"),
@@ -428,6 +438,7 @@ class ConfigStore:
         doc = tomlkit.parse(path.read_text())
         _migrate_legacy_nozzle_sections(doc)
         _validate_detection_counts(doc, coerced)
+        _validate_nozzle_diameters(doc, coerced)
         for key, value in coerced.items():
             *table_keys, option = key.split(".")
             table = doc
@@ -472,6 +483,33 @@ def _validate_detection_counts(
     if resolved("minimum_sample_count") > resolved("sample_count"):
         raise UnknownFieldError(
             "detection.minimum_sample_count: sample_count 以下である必要があります"
+        )
+
+
+def _validate_nozzle_diameters(
+    doc: tomlkit.TOMLDocument, coerced: Mapping[str, MachineSettingValue]
+) -> None:
+    """ノズル外径 >= 内径の相互制約を書き込み後の値で確かめる.
+
+    片方だけ編集できるので、TOML に残る値とマージしてから検証する。外径が未記載なら
+    内径と同じとみなすので制約は成り立つ。ここで拒否しないと、保存はできるのに
+    ``Machine.paste_dispenser`` が読めない machine.toml ができあがる。
+
+    Raises:
+        UnknownFieldError: 書き込み後の値が制約を満たさない場合
+    """
+    keys = ("paste_dispenser.nozzle_diameter", "paste_dispenser.nozzle_outer_diameter")
+    if not any(key in coerced for key in keys):
+        return
+    section = doc.get("paste_dispenser", {})
+    inner = coerced.get(keys[0], section.get("nozzle_diameter"))
+    outer = coerced.get(keys[1], section.get("nozzle_outer_diameter"))
+    if inner is None or outer is None:
+        return
+    if float(outer) < float(inner):  # type: ignore[arg-type]
+        raise UnknownFieldError(
+            "paste_dispenser.nozzle_outer_diameter: "
+            f"nozzle_diameter（{inner}）以上である必要があります"
         )
 
 
