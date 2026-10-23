@@ -36,7 +36,8 @@ import uvicorn
 from fastapi import FastAPI
 from starlette.types import ASGIApp
 
-from tests.helpers import FakeAudioPlayer, copy_testing_config
+from pcbasm.hal.fake import FakeAudioPlayer
+from tests.helpers import copy_testing_config
 from tests.web.api.conftest import COPPER_PCB_FIXTURE, FAKE_CAMERA_IMAGE
 from web.api.app import create_app
 from web.api.jobs.catalog import JobCatalog, JobDefinition

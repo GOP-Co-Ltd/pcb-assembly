@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import PROJECT_ROOT
+from tests.support.paths import PROJECT_ROOT
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.pasting import register_pasting_jobs
 from web.api.routers.paste_dataset import DatasetLayoutRequest

@@ -15,6 +15,7 @@ import shapely
 from pcbasm.config import Machine
 from pcbasm.geometry import Identity, Point2d, Shift
 from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeCamera, FakeKlipper
 from pcbasm.pasting.alignment import PasteCorrection
 from pcbasm.pasting.session import PasteSession
 from pcbasm.pcb import PcbFile
@@ -27,7 +28,7 @@ from pcbasm.posctrl import (
 )
 from pcbasm.vision import Image, Offset
 from pcbasm.vision.calibration import CalibrationResult
-from tests.helpers import TESTING_CONFIG_DIR, TESTING_DATA_DIR, FakeCamera, FakeKlipper
+from tests.support.paths import TESTING_CONFIG_DIR, TESTING_DATA_DIR
 from web.api.jobs.catalog import JobCatalog
 from web.api.jobs.pasting import register_pasting_jobs
 

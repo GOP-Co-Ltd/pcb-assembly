@@ -14,7 +14,9 @@ import httpx
 import pytest
 from playwright.sync_api import expect
 
+from pcbasm.hal.fake import FAKE_AUDIO_DEVICES
 from pcbasm.pasting.paste_volume.calibration import CALIBRATION_SUFFIX
+from pcbasm.utils import PROJECT_ROOT
 from tests.e2e.conftest import (
     E2E_MACHINE_ID as _E2E_MACHINE_ID,
     TERMINAL as _TERMINAL,
@@ -27,7 +29,7 @@ from tests.e2e.conftest import (
     start_app as _start_app,
     wait_machine_field as _wait_machine_field,
 )
-from tests.helpers import FAKE_AUDIO_DEVICES, PROJECT_ROOT, wait_until
+from tests.support.polling import wait_until
 from web.ui.app import create_app as create_ui_app
 from web.ui.machines import MachineEndpoint, MachineRegistry
 

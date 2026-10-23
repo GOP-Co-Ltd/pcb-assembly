@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from pcbasm.hal import XYZStage
+from pcbasm.hal.fake import FakeAudioPlayer, FakeKlipper
 from pcbasm.pasting.applicator import build_applicator
-from tests.helpers import FakeAudioPlayer, FakeKlipper
 from tests.web.api.jobs.conftest import (
     ManagerFactory,
     WaitUntil,

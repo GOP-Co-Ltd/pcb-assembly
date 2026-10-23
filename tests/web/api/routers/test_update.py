@@ -27,7 +27,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import FakeAudioPlayer, before_deadline
+from pcbasm.hal.fake import FakeAudioPlayer
+from tests.support.polling import before_deadline
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
 from web.api.settings import Settings

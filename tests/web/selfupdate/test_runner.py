@@ -19,7 +19,7 @@
 
 モックは 1 つも使わない。git は実物、`uv` / `sudo` / `systemctl` は `UpdateSettings` の
 絶対パス seam に差し込んだ **実スタブ実行ファイル**で、呼び出しの有無と順序は
-スタブが追記する共有ログで観測する。ハングし得る待ちは `tests.helpers.before_deadline`
+スタブが追記する共有ログで観測する。ハングし得る待ちは `tests.support.polling.before_deadline`
 で包む。
 """
 
@@ -34,7 +34,7 @@ from pathlib import Path
 import attrs
 import pytest
 
-from tests.helpers import before_deadline, wait_until
+from tests.support.polling import before_deadline, wait_until
 from tests.web.selfupdate.conftest import (
     call_log,
     git,

@@ -24,7 +24,8 @@ webui-audio-output 計画書「`src/webui/app.py`」節が追記契約（通知�
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import FakeAudioPlayer, wait_until
+from pcbasm.hal.fake import FakeAudioPlayer
+from tests.support.polling import wait_until
 from web.api.app import create_app
 from web.api.board_settings import BoardSettingsStore
 from web.api.jobs.catalog import JobDefinition

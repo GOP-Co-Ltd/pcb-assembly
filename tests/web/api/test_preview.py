@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 
 from pcbasm.vision import Image, ImageArray
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 from web.api.config_store import ConfigStore
 from web.api.preview import PreviewService
 from web.api.settings import Settings
@@ -47,7 +47,7 @@ def service(state: AppState) -> PreviewService:
 
 @pytest.fixture
 def reflective_board_service(fake_camera_settings: Settings, store: ConfigStore):
-    """実撮像 PNG を FixedImageCamera で配信する PreviewService."""
+    """実撮像 PNG を FakeCamera で配信する PreviewService."""
     settings = attrs.evolve(
         fake_camera_settings,
         fake_camera_image=REFLECTIVE_BOARD_IMAGE,

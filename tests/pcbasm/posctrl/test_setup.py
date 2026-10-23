@@ -9,7 +9,7 @@ Phase 4（memory/agents/implementation-planner/webui-phase4.md §1）で posctrl
   （nozzle-cap-parking 計画書「呼び出し 3 箇所の差し替え」節:
   ``machine_session(klipper, machine)`` の 2 引数に破壊的変更）
 
-カメラは tests/helpers.py の FakeCamera（自前 HAL Camera の test Impl）を使う。
+カメラは pcbasm.hal.fake の FakeCamera（自前 HAL Camera の fake）を使う。
 """
 
 from contextlib import nullcontext
@@ -21,13 +21,14 @@ from pytest_mock import MockerFixture
 
 from pcbasm.config import Machine
 from pcbasm.geometry import Point2d
+from pcbasm.hal.fake import FakeCamera
 from pcbasm.posctrl.setup import (
     CircleDetectionError,
     OffsetObserver,
     machine_session,
 )
 from pcbasm.vision import CircleDetector, Image
-from tests.helpers import TESTING_DATA_DIR, FakeCamera
+from tests.support.paths import TESTING_DATA_DIR
 
 
 def _circle_image(offset_x: int = 10) -> Image:

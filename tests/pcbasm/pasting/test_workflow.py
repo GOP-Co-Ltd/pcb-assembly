@@ -9,7 +9,7 @@ from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pasting.workflow import plan_paste_targets
 from pcbasm.pcb import Layer, Pad, PadHierarchy, PcbFile
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 
 _LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
 _BASE = PasteParams(

@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterator
 import pytest
 
 from pcbasm.hal import AudioPlayer
-from tests import helpers
+from tests.support import polling
 from web.api.board_settings import BoardSettingsStore
 from web.api.config_store import ConfigStore
 from web.api.jobs.catalog import JobCatalog, JobDefinition, ParamSpec
@@ -39,7 +39,7 @@ def answer_next_prompt(
     timeout: float = 60.0,
 ) -> None:
     """未応答の prompt を待って answer を返す（応答済み id は answered で管理）."""
-    helpers.wait_until(
+    polling.wait_until(
         lambda: (pending := record.pending_prompt) is not None
         and pending[0] not in answered,
         timeout=timeout,
@@ -174,8 +174,8 @@ def manager(make_manager: ManagerFactory, catalog: JobCatalog) -> JobManager:
 
 @pytest.fixture
 def wait_until() -> WaitUntil:
-    """条件成立までポーリングする共有ポーラ（tests.helpers.wait_until）を返す."""
-    return helpers.wait_until
+    """条件成立までポーリングする共有ポーラ（tests.support.polling.wait_until）を返す."""
+    return polling.wait_until
 
 
 @pytest.fixture

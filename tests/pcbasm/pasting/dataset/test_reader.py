@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from pcbasm.pasting.dataset.reader import DatasetSession, completed_sessions
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 
 METADATA_V3 = TESTING_DATA_DIR / "schemas" / "paste_dataset_metadata_v3.json"
 STEM = "plate-40x40-20260908T143052.123+0000"

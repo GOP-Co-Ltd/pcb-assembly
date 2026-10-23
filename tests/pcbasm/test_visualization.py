@@ -24,7 +24,7 @@ from matplotlib.path import Path as MplPath
 from shapely import Polygon
 
 from pcbasm.visualization import polygon_with_holes_patch
-from tests.helpers import TESTING_DATA_DIR
+from tests.support.paths import TESTING_DATA_DIR
 
 FILL_COVERAGE_PCB = TESTING_DATA_DIR / "fill_coverage" / "fill_coverage.kicad_pcb"
 

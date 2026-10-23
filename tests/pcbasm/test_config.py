@@ -25,7 +25,8 @@ from pcbasm.config import (
     resolve_paste_height,
 )
 from pcbasm.geometry import Point2d
-from tests.helpers import PROJECT_ROOT, TESTING_DATA_DIR
+from pcbasm.utils import PROJECT_ROOT
+from tests.support.paths import TESTING_DATA_DIR
 
 
 def _machine_with(tmp_path: Path, extra: str) -> Machine:

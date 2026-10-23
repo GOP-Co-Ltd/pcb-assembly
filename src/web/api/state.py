@@ -11,9 +11,9 @@ from pathlib import Path
 from pcbasm.atomic import write_bytes_atomic, write_text_atomic
 from pcbasm.config import Machine, NozzleCap, NozzleClean
 from pcbasm.hal import Camera, FrameHub, create_camera
-from pcbasm.vision import CalibrationResult
+from pcbasm.hal.fake import FakeCamera
+from pcbasm.vision import CalibrationResult, Image
 from web.api.config_store import ConfigStore, MachineSettingValue
-from web.api.fake_camera import FixedImageCamera
 from web.api.settings import Settings
 
 _STATE_FILENAME = "webui_state.json"
@@ -222,7 +222,7 @@ class AppState:
 
     def _build_camera(self) -> Camera:
         if self._settings.fake_camera:
-            return FixedImageCamera(self._settings.fake_camera_image, fps=15.0)
+            return FakeCamera([Image.load(self._settings.fake_camera_image)], fps=15.0)
         camera = self.machine().camera
         return create_camera(
             device_id=camera.device_id,

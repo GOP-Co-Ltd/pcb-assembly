@@ -15,21 +15,17 @@
 """
 
 import threading
-import time
-from collections.abc import Callable
 from typing import override
 
 import numpy as np
 import pytest
 
-from pcbasm.hal import Camera, CameraInfo, FrameHub, Resolution, create_camera
+from pcbasm.hal import FrameHub, create_camera
+from pcbasm.hal.fake import FakeCamera
 from pcbasm.vision import CircleDetector, Image
-from tests.helpers import (
-    TESTING_DATA_DIR,
-    FakeCamera,
-    mark_hardware,
-    skip_if_no_csi_camera,
-)
+from tests.helpers import mark_hardware, skip_if_no_csi_camera
+from tests.support.paths import TESTING_DATA_DIR
+from tests.support.polling import wait_until
 
 FAKE_CAMERA_IMAGE = TESTING_DATA_DIR / "webui" / "fake_camera.png"
 
@@ -42,31 +38,7 @@ def _solid_image(value: int) -> Image:
     return Image(np.full((8, 8, 3), value % 256, dtype=np.uint8))
 
 
-def _wait_until(predicate: Callable[[], bool], timeout: float = 2.0) -> None:
-    """条件成立までポーリングする（キャプチャスレッド終了などの観測用）."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(0.01)
-    raise AssertionError("条件が時間内に成立しなかった")
-
-
-class _StaticInfoCamera(Camera):
-    """Resolution / info が固定のテスト用カメラ基底."""
-
-    @property
-    @override
-    def resolution(self) -> Resolution:
-        return Resolution(width=8, height=8, fps=30.0)
-
-    @property
-    @override
-    def info(self) -> CameraInfo:
-        return CameraInfo(name=type(self).__name__, formats={"BGR": [self.resolution]})
-
-
-class GatedCamera(_StaticInfoCamera):
+class GatedCamera(FakeCamera):
     """テスト側がゲートを開けるまで capture() がブロックするカメラ.
 
     フレーム供給タイミングを決定的に制御する。キャプチャスレッドを ブロックしたまま hub.stop() すると join
@@ -74,10 +46,9 @@ class GatedCamera(_StaticInfoCamera):
     """
 
     def __init__(self) -> None:
+        super().__init__([_solid_image(value) for value in range(1, 4)])
         self._gate = threading.Semaphore(0)
         self._free_run = threading.Event()
-        self._count = 0
-        self._frame = _solid_image(0)
 
     def allow_frames(self, count: int = 1) -> None:
         """Capture() を count 回分だけ通過させる."""
@@ -91,34 +62,9 @@ class GatedCamera(_StaticInfoCamera):
 
     @override
     def capture(self) -> Image:
-        if not self._free_run.is_set():
-            if not self._gate.acquire(timeout=10.0):
-                raise CaptureFailure("テストがゲートを開けないまま放置した")
-            self._count += 1
-            self._frame = _solid_image(self._count)
-        return self._frame
-
-
-class FailingCamera(_StaticInfoCamera):
-    """Capture() が常に CaptureFailure を投げるカメラ."""
-
-    @override
-    def capture(self) -> Image:
-        raise CaptureFailure("capture failed for test")
-
-
-class FlakyCamera(_StaticInfoCamera):
-    """初回の capture() だけ失敗し、以降は正常にフレームを返すカメラ."""
-
-    def __init__(self) -> None:
-        self._failed = False
-
-    @override
-    def capture(self) -> Image:
-        if not self._failed:
-            self._failed = True
-            raise CaptureFailure("first capture failed")
-        return _solid_image(1)
+        if not self._free_run.is_set() and not self._gate.acquire(timeout=10.0):
+            raise CaptureFailure("テストがゲートを開けないまま放置した")
+        return super().capture()
 
 
 class TestFrameHubLifecycle:
@@ -314,7 +260,9 @@ class TestErrors:
             hub.stop()
 
     def test_capture_error_is_reraised_repeatedly(self):
-        hub = FrameHub(FailingCamera())
+        hub = FrameHub(
+            FakeCamera([CaptureFailure("capture failed for test"), _solid_image(1)])
+        )
         hub.start()
         source = hub.subscribe(timeout=2.0)
 
@@ -329,15 +277,17 @@ class TestErrors:
             source.capture()
 
         # キャプチャスレッドは終了し running が False になる
-        _wait_until(lambda: not hub.running)
+        wait_until(lambda: not hub.running)
         hub.stop()
 
     def test_restart_clears_held_error(self):
-        hub = FrameHub(FlakyCamera())
+        hub = FrameHub(
+            FakeCamera([CaptureFailure("first capture failed"), _solid_image(1)])
+        )
         hub.start()
         with pytest.raises(CaptureFailure):
             hub.latest(timeout=2.0)
-        _wait_until(lambda: not hub.running)
+        wait_until(lambda: not hub.running)
 
         hub.start()
         try:

@@ -10,6 +10,7 @@ import pytest
 from playwright.sync_api import expect
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from pcbasm.hal.fake import FakeAudioPlayer
 from tests.e2e.conftest import (
     E2E_MACHINE_ID,
     LiveServer,
@@ -19,7 +20,6 @@ from tests.e2e.conftest import (
     make_ui_settings,
     start_app,
 )
-from tests.helpers import FakeAudioPlayer
 from web.api.app import create_app as create_api_app
 from web.api.jobs.context import JobContext, JobResult, PromptSpec
 from web.api.settings import Settings

@@ -42,7 +42,7 @@ from tests.e2e.conftest import (
     session_headers as _session_headers,
     start_app,
 )
-from tests.helpers import wait_until
+from tests.support.polling import wait_until
 from web.ui.app import create_app
 from web.ui.machines import MachineEndpoint
 

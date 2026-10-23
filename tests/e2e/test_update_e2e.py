@@ -33,7 +33,7 @@ from tests.e2e.conftest import (
     make_ui_settings as _make_ui_settings,
     start_app as _start_app,
 )
-from tests.helpers import wait_until
+from tests.support.polling import wait_until
 from tests.web.update_support import UpdateSandbox, make_update_sandbox
 from web.api.app import create_app
 from web.selfupdate.runner import UpdateRunner
