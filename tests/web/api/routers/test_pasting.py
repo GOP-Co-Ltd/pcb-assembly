@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections import Counter
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -631,6 +632,41 @@ class TestTreeNodeResolution:
         # 祖先の override は子孫ノードへ継承される
         l4_node = _node_by_id(u1_node, "L4:U1:1")
         assert l4_node["resolved"]["prime_extra_delay"] == 0.3
+
+    def test_auto_rows_carry_the_applied_dispense_mode_of_the_fill_path(
+        self, selected_client: TestClient
+    ):
+        """Auto の行は、塗布パスと同じ判定の実際の方式を件数と表示文字列で持つ."""
+        applied_modes = Counter(
+            pad["dispense_mode"]
+            for layer in ("Top", "Bottom")
+            for pad in selected_client.post(
+                "/api/pasting/pad-config/fill-path", json={"layer": layer}
+            ).json()["pads"]
+        )
+
+        root = _get_config(selected_client)["tree"]
+
+        applied = root["applied"]["dispense_mode"]
+        assert root["resolved"]["dispense_mode"] == "auto"
+        assert applied["counts"] == dict(applied_modes)
+        assert applied["label"].startswith("→ ")
+        assert applied["title"]
+
+    def test_rows_whose_explicit_mode_is_realized_carry_nothing(
+        self, selected_client: TestClient
+    ):
+        patched = selected_client.patch(
+            "/api/pasting/pad-config/node",
+            json={"node": "L0", "values": {"dispense_mode": "dot"}},
+        )
+        assert patched.status_code == 200, patched.text
+
+        stack = [_get_config(selected_client)["tree"]]
+        while stack:
+            node = stack.pop()
+            assert node["applied"] == {}, node["id"]
+            stack.extend(node["children"])
 
     def test_fields_metadata_drives_ui_columns(self, selected_client: TestClient):
         """Pad-config の fields は PASTE_PARAM_FIELDS と同順・同集合で、JS の唯一の出典."""
