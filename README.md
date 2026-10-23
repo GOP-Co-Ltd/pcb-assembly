@@ -40,6 +40,7 @@ WebUI は装置を実際に動かす。変更操作の前に画面で操作権�
 | 機体を選び、PCB を開いて作業する       | [WebUI の使い方](docs/webui.md)                                                    |
 | サービスを常駐させ、更新・復旧する     | [運用ガイド](docs/operations.md)                                                   |
 | 不具合を報告し、コードを変更・検証する | [CONTRIBUTING](CONTRIBUTING.md)                                                    |
+| 変更を実機で確かめる                   | [実機受け入れ試験](docs/acceptance.md)                                             |
 | コードの責務と依存方向を知る           | [アーキテクチャ](docs/architecture.md)                                             |
 | マシン設定テンプレートを扱う           | [設定テンプレート](data/config-templates/README.md)                                |
 | 塗布量校正の原理・実測結果を確認する   | [直径ベースの塗布量校正](docs/paste-volume-diameter-calibration.md)                |
@@ -52,10 +53,11 @@ WebUI は装置を実際に動かす。変更操作の前に画面で操作権�
 make help              # コマンド一覧
 make format            # フォーマットと lint
 make type              # 型チェック
-make test-no-hardware  # ハードウェア・E2E を除くテスト
+make test              # E2E を除くテスト
+make check             # format・type・test をまとめて実行
 make test-e2e          # 隔離した backend + frontend + Chromium の E2E
 ```
 
-`make test` と `make run` は実機テストを含む。装置の動作を確認できる担当者が実行する。
+テストは実機に触れない。実機での確認は [実機受け入れ試験](docs/acceptance.md) で行う。
 開発環境の準備、実機設定を使わない画面確認、テストの選び方は
 [CONTRIBUTING](CONTRIBUTING.md) にまとめている。
