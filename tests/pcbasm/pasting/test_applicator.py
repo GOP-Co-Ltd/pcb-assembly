@@ -610,3 +610,69 @@ class TestPerPadParams:
         assert (
             (start - reference).norm < (end - reference).norm
         ) is starts_near_component
+
+
+class TestMicroLine:
+    """微小線の pad は始点 z_start・終点 z_end で、上空押出 → こすりつけを送る."""
+
+    _PAD = box(0.0, 0.0, 0.25, 0.88)
+
+    @staticmethod
+    def _micro_applicator(klipper: FakeKlipper) -> PasteApplicator:
+        return _applicator(
+            klipper,
+            nozzle_diameter=0.3,
+            nozzle_outer_diameter=0.4,
+            dispense_mode="auto",
+            micro_line_z_start=0.08,
+            micro_line_z_end=0.05,
+            micro_line_settle_seconds=0.5,
+        )
+
+    def test_auto_pad_is_dispensed_as_micro_line(self, klipper):
+        applicator = self._micro_applicator(klipper)
+
+        result = applicator.apply(
+            self._PAD, params=applicator.default_params, transform=Identity()
+        )
+
+        (execution,) = result.sequences
+        assert execution.applied_mode == "micro_line"
+        # 端 inset は外径の半分 0.2 なので経路長は 0.88 - 0.4
+        assert execution.path_length_mm == pytest.approx(0.48, abs=1e-3)
+        assert execution.commanded_volume_ul == pytest.approx(0.22 * 0.05)
+        assert execution.fill_speed is not None
+        assert execution.fill_speed.resolve(100.0) == pytest.approx(2.0)
+
+    def test_stage_z_runs_from_z_start_to_z_end_ignoring_paste_height(self, klipper):
+        applicator = self._micro_applicator(klipper)
+
+        applicator.apply(
+            self._PAD, params=applicator.default_params, transform=Identity()
+        )
+
+        # 上空 → 始点へ下降 → 経路 2 点 → 上昇（lift_height=5）。paste_height=0.5 は使わない
+        assert [move["z"] for move in klipper.g1_moves()] == pytest.approx(
+            [5.08, 0.08, 0.08, 0.05, 5.05]
+        )
+
+    def test_pushes_amount_before_descent_and_retracts_after_ascent(self, klipper):
+        applicator = self._micro_applicator(klipper)
+
+        applicator.apply(
+            self._PAD, params=applicator.default_params, transform=Identity()
+        )
+
+        lines = klipper.sent_lines
+        moves = [
+            distance / ROTATION_DISTANCE / ROTATIONS_PER_UL
+            for distance, _ in _stepper_moves(klipper)
+        ]
+        assert moves == pytest.approx([RETRACT_AMOUNT + 0.22 * 0.05, -RETRACT_AMOUNT])
+        g1 = [i for i, line in enumerate(lines) if line.startswith("G1")]
+        stepper = [i for i, line in enumerate(lines) if _MOVE_RE.match(line)]
+        settle = lines.index("G4 P500")
+        # 押出は上空移動と下降の間、静定待ちは押出と下降の間、リトラクトは上昇の後
+        assert g1[0] < stepper[0] < settle < g1[1]
+        assert stepper[1] > g1[-1]
+        assert all("SYNC=0" not in lines[i] for i in stepper)

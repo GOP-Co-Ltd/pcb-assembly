@@ -112,6 +112,15 @@ class TestMachineSettingsApi:
         [
             pytest.param("paste_dispenser.dispense_mode", "line", id="dispense_mode"),
             pytest.param(
+                "paste_dispenser.dispense_mode", "micro_line", id="micro_line_mode"
+            ),
+            pytest.param(
+                "paste_dispenser.nozzle_outer_diameter", 0.4, id="nozzle_outer"
+            ),
+            pytest.param(
+                "paste_dispenser.micro_line_settle_seconds", 2.0, id="micro_line"
+            ),
+            pytest.param(
                 "paste_dispenser.line_direction", "outward", id="line_direction"
             ),
             pytest.param("paste_dispenser.paste_height", "auto", id="float_or_auto"),
@@ -193,6 +202,39 @@ class TestMachineSettingsApi:
 
         assert response.status_code == 400
         assert key.rsplit(".", 1)[-1] in response.text
+
+    @pytest.mark.parametrize(
+        "steps",
+        [
+            pytest.param(
+                [{"paste_dispenser.nozzle_outer_diameter": 0.2}], id="outer-below-inner"
+            ),
+            pytest.param(
+                [
+                    {"paste_dispenser.nozzle_outer_diameter": 0.4},
+                    {"paste_dispenser.nozzle_diameter": 0.5},
+                ],
+                id="inner-above-saved-outer",
+            ),
+        ],
+    )
+    def test_put_rejects_outer_diameter_below_inner_diameter(
+        self, client: TestClient, config_dir: Path, steps: list[dict]
+    ):
+        """外径と内径は片方ずつ編集できるので、TOML に残る値と合わせて相互制約を見る.
+
+        ここで拒否しないと、保存はできるのに ``Machine.paste_dispenser`` が読めない machine.toml になる。
+        """
+        *accepted, rejected = steps
+        for values in accepted:
+            response = client.put("/api/settings/machine", json={"values": values})
+            assert response.status_code == 200
+
+        response = client.put("/api/settings/machine", json={"values": rejected})
+
+        assert response.status_code == 400
+        assert "nozzle_outer_diameter" in response.text
+        assert Machine(config_dir / "machine.toml").paste_dispenser is not None
 
     def test_get_reports_none_for_missing_keys(self, client: TestClient):
         fields = {

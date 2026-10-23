@@ -33,6 +33,9 @@ def _params(**overrides: object) -> PasteParams:
         "bead_width_factor": 1.0,
         "overlap": 0.0,
         "boundary_margin": 0.0,
+        "micro_line_z_start": 0.07,
+        "micro_line_z_end": 0.07,
+        "micro_line_settle_seconds": 1.0,
     }
     values.update(overrides)
     return PasteParams(**values)
@@ -48,6 +51,17 @@ class TestPasteParamFields:
         by_name = {field.name: field for field in PASTE_PARAM_FIELDS}
         assert by_name["paste_height"].kind == "height"
         assert by_name["ul_per_mm2"].kind == "number"
+
+    def test_micro_line_fields_form_one_trailing_group(self):
+        # pad 表で畳む単位。微小線の 3 項目だけが同じ group で末尾に並ぶ
+        groups = [(field.name, field.group) for field in PASTE_PARAM_FIELDS]
+
+        assert groups[-3:] == [
+            ("micro_line_z_start", "微小線"),
+            ("micro_line_z_end", "微小線"),
+            ("micro_line_settle_seconds", "微小線"),
+        ]
+        assert all(group is None for _, group in groups[:-3])
 
 
 class TestPasteParams:
@@ -100,6 +114,16 @@ class TestValidateParamValues:
             is None
         )
 
+    def test_micro_line_values_are_accepted(self):
+        values = {
+            "dispense_mode": "micro_line",
+            "micro_line_z_start": 0.08,
+            "micro_line_z_end": 0.05,
+            "micro_line_settle_seconds": 0.0,
+        }
+
+        assert validate_param_values(values) is None
+
     def test_unknown_field_is_rejected(self):
         message = validate_param_values({"bogus": 1.0})
 
@@ -123,6 +147,10 @@ class TestValidateParamValues:
             {"bead_width_factor": 0.0},
             {"prime_extra_delay": -1.0},
             {"boundary_margin": -0.01},
+            {"micro_line_z_start": 0.0},
+            {"micro_line_z_end": -0.05},
+            {"micro_line_settle_seconds": -0.1},
+            {"nozzle_outer_diameter": 0.4},  # 装置設定。pad では上書きできない
         ],
     )
     def test_invalid_values_are_rejected(self, values: dict):

@@ -1,6 +1,6 @@
 """塗布パラメータの単一ソース.
 
-pad 単位で上書きできる 8 項目を :class:`PasteParams`（全項目確定）と
+pad 単位で上書きできる 11 項目を :class:`PasteParams`（全項目確定）と
 :class:`PasteParamsPatch`（差分、``None`` = 継承）の 2 型で表す。項目の一覧・
 表示順・UI メタデータは :data:`PASTE_PARAM_FIELDS` が唯一の出典で、
 ``machine.toml``（:class:`pcbasm.config.PasteDispenser`）からの写しは
@@ -50,6 +50,7 @@ class ParamField:
         kind: ``number`` = 数値 / ``choice`` = 選択式 / ``height`` = 数値または ``auto``
         unit: 単位表記（無ければ ``None``）
         choices: ``choice`` の選択肢
+        group: pad 表でまとめて畳む列の見出し（畳まない項目は ``None``）
     """
 
     name: str
@@ -57,23 +58,27 @@ class ParamField:
     kind: Literal["number", "choice", "height"]
     unit: str | None = None
     choices: tuple[ChoiceOption, ...] = ()
+    group: str | None = None
 
 
 @attrs.frozen
 class PasteParams:
-    """Pad 1 枚に適用する塗布パラメータ 8 項目（全項目確定）.
+    """Pad 1 枚に適用する塗布パラメータ 11 項目（全項目確定）.
 
     フィールドの並びは UI の列順と一致させる（:data:`PASTE_PARAM_FIELDS` と同順）。
 
     Attributes:
-        dispense_mode: 塗布方式 auto / dot / line / area
-        line_direction: 線塗布の走行方向 unconstrained / outward / inward
+        dispense_mode: 塗布方式 auto / dot / line / area / micro_line
+        line_direction: 線塗布・微小線の走行方向 unconstrained / outward / inward
         ul_per_mm2: パッド面積あたりのペースト量 [μL/mm²]
-        paste_height: 塗布時の基板表面からのノズル高さ [mm]（機械座標の絶対 Z ではない）、または ``auto``（膜厚追従）
+        paste_height: 塗布時の基板表面からのノズル高さ [mm]（機械座標の絶対 Z ではない）、または ``auto``（膜厚追従）。微小線では使わない
         prime_extra_delay: プライム後の追加遅延 [sec]
         bead_width_factor: ビード幅係数（w = nozzle_diameter * bead_width_factor）
         overlap: ジグザグ行間オーバーラップ [0, 1)
         boundary_margin: 外周マージン [mm]
+        micro_line_z_start: 微小線の始点で基板表面から取る隙間 [mm]
+        micro_line_z_end: 微小線の終点で基板表面から取る隙間 [mm]
+        micro_line_settle_seconds: 微小線で上空に押し出してから下降するまでの静定待ち [sec]
     """
 
     dispense_mode: DispenseMode
@@ -84,6 +89,9 @@ class PasteParams:
     bead_width_factor: float
     overlap: float
     boundary_margin: float
+    micro_line_z_start: float
+    micro_line_z_end: float
+    micro_line_settle_seconds: float
 
     @classmethod
     def from_config(cls, config: PasteDispenser) -> Self:
@@ -116,6 +124,9 @@ class PasteParamsPatch:
     bead_width_factor: float | None = None
     overlap: float | None = None
     boundary_margin: float | None = None
+    micro_line_z_start: float | None = None
+    micro_line_z_end: float | None = None
+    micro_line_settle_seconds: float | None = None
 
     @classmethod
     def from_dict(cls, values: Mapping[str, object]) -> Self:
@@ -161,6 +172,7 @@ PASTE_PARAM_FIELDS: tuple[ParamField, ...] = (
             ChoiceOption("dot", "点"),
             ChoiceOption("line", "線"),
             ChoiceOption("area", "面"),
+            ChoiceOption("micro_line", "微小線"),
         ),
     ),
     ParamField(
@@ -179,6 +191,19 @@ PASTE_PARAM_FIELDS: tuple[ParamField, ...] = (
     ParamField("bead_width_factor", "ビード幅係数", "number"),
     ParamField("overlap", "重なり率", "number"),
     ParamField("boundary_margin", "外周余白", "number", unit="mm"),
+    ParamField(
+        "micro_line_z_start", "微小線の始点高さ", "number", unit="mm", group="微小線"
+    ),
+    ParamField(
+        "micro_line_z_end", "微小線の終点高さ", "number", unit="mm", group="微小線"
+    ),
+    ParamField(
+        "micro_line_settle_seconds",
+        "微小線の静定待ち",
+        "number",
+        unit="s",
+        group="微小線",
+    ),
 )
 
 PASTE_PARAM_NAMES: tuple[str, ...] = tuple(field.name for field in PASTE_PARAM_FIELDS)

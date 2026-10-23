@@ -19,8 +19,8 @@ from pcbasm.utils import PROJECT_ROOT, is_finite_number
 
 logger = logging.getLogger(__name__)
 
-DISPENSE_MODES = ("auto", "dot", "line", "area")
-DispenseMode = Literal["auto", "dot", "line", "area"]
+DISPENSE_MODES = ("auto", "dot", "line", "area", "micro_line")
+DispenseMode = Literal["auto", "dot", "line", "area", "micro_line"]
 LINE_DIRECTIONS = ("unconstrained", "outward", "inward")
 LineDirection = Literal["unconstrained", "outward", "inward"]
 MACHINE_TYPES = ("paste", "pnp")
@@ -381,6 +381,9 @@ class PasteDispenser:
 
     rotations_per_ul: float  # 1μL あたりの回転数 [rev/μL]
     nozzle_diameter: float  # ノズル内径 [mm]
+    nozzle_outer_diameter: float | None = attrs.field(
+        default=None, kw_only=True
+    )  # ノズル外径 [mm]。微小線の端 inset に使う。未指定時は nozzle_diameter
     max_fill_speed: float  # 連続塗布できる移動速度上限 [mm/sec]
     max_dispense_rate: float  # 吐出レート上限 [μL/sec]
     dispense_accel: float  # 吐出加速度 [μL/sec²]
@@ -394,7 +397,9 @@ class PasteDispenser:
     ul_per_mm2: float  # パッド面積あたりのペースト量 [μL/mm²]
     lift_height: float = 2.0  # 塗布後に持ち上げる高さ [mm]
     solder_paste_density: float = 3.78  # はんだペースト密度 [mg/μL] (S3X70-E150DN)
-    dispense_mode: DispenseMode = "auto"  # 塗布方式 auto / dot / line / area
+    dispense_mode: DispenseMode = (
+        "auto"  # 塗布方式 auto / dot / line / area / micro_line
+    )
     line_direction: LineDirection = (
         "unconstrained"  # 線塗布の走行方向 unconstrained / outward / inward
     )
@@ -414,6 +419,11 @@ class PasteDispenser:
     )
     overlap: float = 0.0  # ジグザグ行間オーバーラップ [0,1)
     boundary_margin: float = 0.0  # 外周マージン [mm]
+    micro_line_z_start: float = 0.07  # 微小線の始点で基板表面から取る隙間 [mm]
+    micro_line_z_end: float = 0.07  # 微小線の終点で基板表面から取る隙間 [mm]
+    micro_line_settle_seconds: float = (
+        1.0  # 微小線で上空に押し出してから下降するまでの静定待ち [sec]
+    )
     pad_align: PadAlign = attrs.field(factory=PadAlign)  # pad 位置合わせ設定
     flow_calibration: FlowCalibration = attrs.field(
         factory=FlowCalibration
@@ -424,6 +434,11 @@ class PasteDispenser:
     def __attrs_post_init__(self) -> None:
         if error := self.validate_values(attrs.asdict(self, recurse=False)):
             raise ValueError(error)
+        if self.effective_nozzle_outer_diameter < self.nozzle_diameter:
+            raise ValueError(
+                "nozzle_outer_diameterはnozzle_diameter以上である必要があります: "
+                f"{self.nozzle_outer_diameter} < {self.nozzle_diameter}"
+            )
 
     @staticmethod
     def validate_values(values: Mapping[str, object]) -> str | None:
@@ -438,14 +453,22 @@ class PasteDispenser:
             "lift_height",
             "solder_paste_density",
             "nozzle_diameter",
+            "nozzle_outer_diameter",
             "max_fill_speed",
             "max_dispense_rate",
             "retract_amount",
             "bead_width_factor",
             "ul_per_mm2",
+            "micro_line_z_start",
+            "micro_line_z_end",
         }
         above_one = {"auto_line_aspect_ratio", "retract_accel_factor"}
-        non_negative = {"initial_purge_ul", "boundary_margin", "prime_extra_delay"}
+        non_negative = {
+            "initial_purge_ul",
+            "boundary_margin",
+            "prime_extra_delay",
+            "micro_line_settle_seconds",
+        }
         numeric = positive | above_one | non_negative | {"overlap"}
         for name, value in values.items():
             if name == "dispense_mode":
@@ -456,6 +479,8 @@ class PasteDispenser:
                     return f"未知の線走行方向です: {value!r}"
             elif name in numeric:
                 if name == "paste_height" and value == "auto":
+                    continue
+                if name == "nozzle_outer_diameter" and value is None:
                     continue
                 if not is_finite_number(value):
                     return f"{name}は有限な数値である必要があります: {value!r}"
@@ -473,6 +498,15 @@ class PasteDispenser:
     def density_mg_per_ul(self) -> float:
         """はんだペースト密度 [mg/μL]（TOML キー ``solder_paste_density`` のコード内名）."""
         return self.solder_paste_density
+
+    @property
+    def effective_nozzle_outer_diameter(self) -> float:
+        """nozzle_outer_diameter 未指定時は nozzle_diameter を返す."""
+        return (
+            self.nozzle_diameter
+            if self.nozzle_outer_diameter is None
+            else self.nozzle_outer_diameter
+        )
 
     @property
     def effective_retract_rate(self) -> float:

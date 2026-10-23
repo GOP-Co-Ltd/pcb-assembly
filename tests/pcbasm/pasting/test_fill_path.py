@@ -295,7 +295,77 @@ class TestDispenseModes:
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
         )
 
-        assert plan.dispense_mode in {"dot", "line", "area"}
+        assert plan.dispense_mode in {"dot", "line", "area", "micro_line"}
+
+
+class TestMicroLine:
+    """微小線: auto 判定と、外径基準の端 inset."""
+
+    @staticmethod
+    def _build(polygon: Polygon, **kwargs: Any) -> FillPlan:
+        kwargs.setdefault("dispense_mode", "auto")
+        kwargs.setdefault("auto_line_aspect_ratio", _AUTO_LINE_ASPECT_RATIO)
+        kwargs.setdefault("auto_area_short_side_factor", _AUTO_AREA_SHORT_SIDE_FACTOR)
+        kwargs.setdefault("nozzle_outer_diameter", 0.4)
+        return FillPlan.build(polygon, 0.3, **kwargs)
+
+    @pytest.mark.parametrize(
+        ("short_delta", "expected_mode"),
+        [
+            (-0.05, "micro_line"),
+            (0.0, "micro_line"),  # 短辺 = 内径も微小線（以下で判定する）
+            (0.05, "line"),
+        ],
+    )
+    def test_auto_picks_micro_line_when_short_side_fits_inner_diameter(
+        self, short_delta: float, expected_mode: str
+    ):
+        plan = self._build(_rectangle(0.3 + short_delta, 2.0))
+
+        assert plan.dispense_mode == expected_mode
+
+    @pytest.mark.parametrize("angle", [0.0, 2.0, 5.0, 11.0, 20.0])
+    def test_auto_boundary_does_not_depend_on_pad_rotation(self, angle: float):
+        # 短辺 = 内径の pad は向きによって外接矩形の短辺が 0.3 をわずかに超える（2°・5° など）。
+        # それでも向きによらず微小線にする
+        polygon = rotate(_rectangle(0.3, 2.0), angle, origin=(0.0, 0.0))
+
+        assert self._build(polygon).dispense_mode == "micro_line"
+
+    def test_auto_keeps_dot_for_low_aspect_ratio_pad(self):
+        # 縦横比で dot になる pad は短辺が内径以下でも dot のまま
+        assert self._build(_rectangle(0.25, 0.3)).dispense_mode == "dot"
+
+    def test_end_inset_is_half_outer_diameter_plus_margin(self):
+        plan = self._build(
+            _rectangle(0.25, 0.88), boundary_margin=0.05, bead_width_factor=2.0
+        )
+
+        # inset = 0.05 + 0.4 / 2 = 0.25。bead_width_factor は使わない
+        start, end = sorted(plan.paths[0], key=lambda point: point.y)
+        assert start.x == pytest.approx(0.125)
+        assert start.y == pytest.approx(0.25)
+        assert end.y == pytest.approx(0.63)
+
+    def test_outer_diameter_defaults_to_inner_diameter(self):
+        plan = self._build(_rectangle(0.25, 0.88), nozzle_outer_diameter=None)
+
+        start, end = sorted(plan.paths[0], key=lambda point: point.y)
+        assert start.y == pytest.approx(0.15)
+        assert end.y == pytest.approx(0.73)
+
+    def test_falls_back_to_dot_when_too_short_for_outer_diameter(self):
+        # 長辺 0.35 <= 2 * 0.2 なので線が引けない
+        plan = self._build(_rectangle(0.1, 0.35), dispense_mode="micro_line")
+
+        assert plan.dispense_mode == "dot"
+        assert len(plan.paths[0]) == 1
+
+    @pytest.mark.parametrize("dispense_mode", ["line", "area"])
+    def test_explicit_line_and_area_never_become_micro_line(self, dispense_mode: str):
+        plan = self._build(_rectangle(0.25, 2.0), dispense_mode=dispense_mode)
+
+        assert plan.dispense_mode == "line"
 
 
 class TestAreaFill:
@@ -554,13 +624,25 @@ class TestFillPlanForPad:
             "bead_width_factor": 0.8,
             "overlap": 0.2,
             "boundary_margin": 0.05,
+            "micro_line_z_start": 0.07,
+            "micro_line_z_end": 0.07,
+            "micro_line_settle_seconds": 1.0,
         }
         values.update(overrides)
         return PasteParams(**values)
 
-    @pytest.mark.parametrize("dispense_mode", ["line", "auto", "area"])
+    @pytest.mark.parametrize(
+        ("dispense_mode", "expected_mode"),
+        [
+            ("line", "line"),
+            # 短辺 0.8 <= ノズル内径 1.0 なので auto は微小線になる
+            ("auto", "micro_line"),
+            ("area", "line"),
+            ("micro_line", "micro_line"),
+        ],
+    )
     def test_outward_starts_near_component_for_every_line_resolution(
-        self, dispense_mode: str
+        self, dispense_mode: str, expected_mode: str
     ):
         reference = Point2d(0.4, -5.0)
 
@@ -575,9 +657,20 @@ class TestFillPlanForPad:
             line_reference=reference,
         )
 
-        assert plan.dispense_mode == "line"
+        assert plan.dispense_mode == expected_mode
         start, end = plan.paths[0]
         assert (start - reference).norm < (end - reference).norm
+
+    def test_micro_line_uses_configured_outer_diameter(self):
+        config = attrs.evolve(_config(0.3), nozzle_outer_diameter=0.4)
+        params = self._paste(dispense_mode="micro_line", boundary_margin=0.0)
+
+        plan = FillPlan.for_pad(_rectangle(0.25, 0.88), config=config, params=params)
+
+        assert plan.dispense_mode == "micro_line"
+        start, end = sorted(plan.paths[0], key=lambda point: point.y)
+        assert start.y == pytest.approx(0.2)
+        assert end.y == pytest.approx(0.68)
 
     def test_inward_is_the_reverse_of_outward(self):
         polygon = _rectangle(0.8, 5.0)

@@ -645,6 +645,7 @@ class TestTreeNodeResolution:
             "dot",
             "line",
             "area",
+            "micro_line",
         ]
         assert by_name["paste_height"] == {
             "name": "paste_height",
@@ -652,8 +653,25 @@ class TestTreeNodeResolution:
             "kind": "height",
             "unit": "mm",
             "choices": [],
+            "group": None,
         }
         assert by_name["ul_per_mm2"]["unit"] == "μL/mm²"
+        # 微小線の 3 項目は pad 表で畳める列のまとまり
+        assert [field["name"] for field in fields if field["group"] == "微小線"] == [
+            "micro_line_z_start",
+            "micro_line_z_end",
+            "micro_line_settle_seconds",
+        ]
+
+    def test_defaults_fall_back_to_machine_micro_line_defaults(
+        self, selected_client: TestClient
+    ):
+        # 検証用 machine.toml は微小線の項目を書いていないので、装置設定の既定値が返る
+        defaults = _get_config(selected_client)["defaults"]
+
+        assert defaults["micro_line_z_start"] == 0.07
+        assert defaults["micro_line_z_end"] == 0.07
+        assert defaults["micro_line_settle_seconds"] == 1.0
 
 
 class TestPatchNode:

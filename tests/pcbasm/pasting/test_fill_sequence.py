@@ -20,7 +20,7 @@ from pytest_mock import MockerFixture
 
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
-from pcbasm.pasting.fill_sequence import FillSequence
+from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
 from pcbasm.pasting.flowcalib.flow import rate_sweep_amount_ul
 from pcbasm.pasting.params import DispenseSettings
 
@@ -278,3 +278,93 @@ class TestRateCap:
         actual = sequence.actual_fill_speed()
         assert actual is not None
         assert actual.resolve(100.0) == pytest.approx(speed)
+
+
+def _micro_sequence(path: Path, *, settle_seconds: float = 1.5) -> MicroLineSequence:
+    """total_amount=0.5 の微小線シーケンス（_SETTINGS を共有）."""
+    return MicroLineSequence(
+        path=path,
+        total_amount_ul=0.5,
+        settings=_SETTINGS,
+        settle_seconds=settle_seconds,
+    )
+
+
+# 始点 z=0.08、終点 z=0.05 の 2 点経路（board 表面からの隙間を変える経路）
+_MICRO_PATH = Path([Point3d(0.0, 0.0, 0.08), Point3d(1.0, 0.0, 0.05)])
+
+
+class TestMicroLineSequence:
+    """先に上空で押し出し、静定後に下降してこすりつける微小線の G-code 契約."""
+
+    def test_pushes_retraction_plus_amount_synchronously_before_descent(
+        self, mock_stage, mock_dispenser
+    ):
+        _micro_sequence(_MICRO_PATH).to_gcode(mock_stage, mock_dispenser)
+
+        # prime（retract_amount）+ 塗布量を吐出レート上限で、完了まで待つ同期動作で押し出す
+        push, retract = mock_dispenser.pushpull.call_args_list
+        assert push.args == pytest.approx((10.5, 10.0, 8.0))
+        assert push.kwargs.get("sync", True) is True
+        # 上昇後に retract_amount を同期で引き戻す
+        assert retract.args == pytest.approx((-10.0, 5.0, 10.0))
+        assert retract.kwargs.get("sync", True) is True
+        mock_dispenser.continue_pushpull.assert_not_called()
+
+    def test_commands_run_push_settle_descend_fill_ascend_retract_in_order(
+        self, mock_stage, mock_dispenser
+    ):
+        mock_stage.move.side_effect = [
+            GCode("TRAVEL"),
+            GCode("DESCEND"),
+            GCode("ASCEND"),
+        ]
+        mock_stage.to_gcode.return_value = GCode("FILL")
+        mock_dispenser.pushpull.side_effect = [GCode("PUSH"), GCode("RETRACT")]
+
+        commands = (
+            _micro_sequence(_MICRO_PATH).to_gcode(mock_stage, mock_dispenser).to_list()
+        )
+
+        settle = commands.index(GCode.wait(1.5).to_list()[0])
+        order = [
+            commands.index("TRAVEL"),
+            commands.index("PUSH"),
+            settle,
+            commands.index("DESCEND"),
+            commands.index("FILL"),
+            commands.index("ASCEND"),
+            commands.index("RETRACT"),
+        ]
+        assert order == sorted(order)
+        # 押し出し前に上空到達を待つ
+        assert "M400" in commands[commands.index("TRAVEL") : commands.index("PUSH")]
+
+    def test_zero_settle_emits_no_wait(self, mock_stage, mock_dispenser):
+        commands = _micro_sequence(_MICRO_PATH, settle_seconds=0.0).to_gcode(
+            mock_stage, mock_dispenser
+        )
+
+        assert not any(line.startswith("G4") for line in commands.to_list())
+
+    def test_z_follows_path_endpoints_with_lift(self, mock_stage, mock_dispenser):
+        # 上空(始点 z + lift) → 始点 z → (経路) → 終点 z + lift。lift_height=3
+        _micro_sequence(_MICRO_PATH).to_gcode(mock_stage, mock_dispenser)
+
+        assert [move.kwargs["z"] for move in mock_stage.move.call_args_list] == (
+            pytest.approx([3.08, 0.08, 3.05])
+        )
+        call = mock_stage.to_gcode.call_args
+        assert call.args[0] == _MICRO_PATH
+
+    def test_fill_runs_at_max_fill_speed(self, mock_stage, mock_dispenser):
+        sequence = _micro_sequence(_MICRO_PATH)
+
+        sequence.to_gcode(mock_stage, mock_dispenser)
+
+        speed = mock_stage.to_gcode.call_args.kwargs["speed"]
+        assert speed.resolve(100.0) == pytest.approx(2.0)
+        actual = sequence.actual_fill_speed()
+        assert actual is not None
+        assert actual.resolve(100.0) == pytest.approx(2.0)
+        assert sequence.effective_rate == pytest.approx(10.0)

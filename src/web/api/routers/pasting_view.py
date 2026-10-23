@@ -72,6 +72,9 @@ class ResolvedSettings(BaseModel):
     bead_width_factor: float
     overlap: float
     boundary_margin: float
+    micro_line_z_start: float
+    micro_line_z_end: float
+    micro_line_settle_seconds: float
 
 
 class PadInfo(BaseModel):
@@ -198,6 +201,7 @@ class ParamFieldInfo(BaseModel):
     kind: str  # number / choice / height
     unit: str | None
     choices: list[ChoiceInfo]
+    group: str | None  # pad 表でまとめて畳む列の見出し
 
 
 class PadConfigResponse(BaseModel):
@@ -418,6 +422,7 @@ def param_fields() -> list[ParamFieldInfo]:
                 ChoiceInfo(value=choice.value, label=choice.label)
                 for choice in field.choices
             ],
+            group=field.group,
         )
         for field in PASTE_PARAM_FIELDS
     ]
