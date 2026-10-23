@@ -21,7 +21,8 @@ from pcbasm.pasting.flowcalib.flow import RotationsPerUlRound
 from pcbasm.pasting.session import PasteSession
 from pcbasm.pcb import Copper, Layer
 from pcbasm.posctrl import BoardCalibrationResult
-from pcbasm.utils import get_class_module_path
+
+logger = logging.getLogger(__name__)
 
 
 class FlowCalibrationProcedure:
@@ -42,7 +43,6 @@ class FlowCalibrationProcedure:
         self._transform = transform
         self._rotations_per_ul = session.machine.paste_dispenser.rotations_per_ul
         self._applicator = session.make_applicator()
-        self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
     @classmethod
     def setup(cls, result: BoardCalibrationResult) -> Self:
@@ -94,7 +94,7 @@ class FlowCalibrationProcedure:
     def move_to_removal_z(self, offset: float) -> float:
         """ヘッドを退避 Z へ上げ、その Z を返す（ブロッキング）."""
         z = self.removal_z(offset)
-        self._logger.info("計量退避: Z=%.3f", z)
+        logger.info("計量退避: Z=%.3f", z)
         self._send_move(z=z)
         return z
 
@@ -161,7 +161,7 @@ class FlowCalibrationProcedure:
             rotations_per_ul=round.computed
         )
         self._applicator.__enter__()
-        self._logger.info("rotations_per_ul を採用: %.6f rev/uL", round.computed)
+        logger.info("rotations_per_ul を採用: %.6f rev/uL", round.computed)
 
     def _send_move(self, *, z: float) -> None:
         self._session.klipper.send_gcode(

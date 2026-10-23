@@ -11,7 +11,6 @@ from pcbasm.pasting.settings import (
     LevelSetting,
     PasteSettingsModel,
     descendant_override_summary,
-    is_pad_enabled,
     own_override_summary,
     resolve_node_settings,
     resolve_pad_settings,
@@ -381,35 +380,6 @@ class TestEnabledResolution:
         assert resolved[("U1", "#4")].enabled is True
 
 
-class TestIsPadEnabled:
-    """is_pad_enabled は解決済み enabled と階層外 pad の後方互換を判定する。"""
-
-    def test_disabled_pad_follows_resolved_enabled(self):
-        _, pads, hierarchy = _two_component_hierarchy()
-        model = PasteSettingsModel(
-            base=_full_base(),
-            levels=(LevelSetting(("L2", "R1"), enabled=False),),
-        )
-        resolved = resolve_pad_settings(hierarchy, model)
-
-        r1_pads = [pad for pad in pads if pad.designator == "R1"]
-        u1_pads = [pad for pad in pads if pad.designator == "U1"]
-        assert all(is_pad_enabled(p, hierarchy, resolved) is False for p in r1_pads)
-        assert all(is_pad_enabled(p, hierarchy, resolved) is True for p in u1_pads)
-
-    def test_pad_outside_hierarchy_is_enabled_for_backward_compat(self):
-        # 対応 Component が無い pad は階層から除外される。除外 pad は
-        # 全無効設定でも後方互換で有効扱い。
-        _, _, hierarchy = _two_component_hierarchy()
-        model = PasteSettingsModel(
-            base=_full_base(), levels=(LevelSetting(("L0",), enabled=False),)
-        )
-        resolved = resolve_pad_settings(hierarchy, model)
-        orphan = _pad("X9", "1", _rect(20.0, 0.0, 1.0, 1.0))
-
-        assert is_pad_enabled(orphan, hierarchy, resolved) is True
-
-
 class TestSelectEnabledPads:
     """select_enabled_pads は有効 pad のみを元の順序で返す。"""
 
@@ -433,18 +403,6 @@ class TestSelectEnabledPads:
             ("R1", "2"),
             ("U1", "9"),
         ]
-
-    def test_pad_without_component_is_kept_for_backward_compat(self):
-        # 階層に居ない pad（対応 Component 無し）は、全無効設定でも選ばれる。
-        _, pads, hierarchy = _two_component_hierarchy()
-        model = PasteSettingsModel(
-            base=_full_base(), levels=(LevelSetting(("L0",), enabled=False),)
-        )
-        orphan = _pad("X9", "1", _rect(20.0, 0.0, 1.0, 1.0))
-
-        selected = select_enabled_pads([*pads, orphan], hierarchy, model)
-
-        assert selected == [orphan]
 
 
 class TestResolveNodeSettings:

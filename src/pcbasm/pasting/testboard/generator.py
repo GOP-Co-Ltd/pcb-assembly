@@ -61,7 +61,7 @@ class _Plan:
 class BoardGenerator:
     """KiCad catalog を共有し、1 回の解決 plan から各生成物を作る.
 
-    配置可否を伴う ``layout`` / ``build_board`` / ``board_bytes`` は
+    配置可否を伴う ``layout`` / ``board_bytes`` は
     ``(成果物 | None, 超過理由 | None)`` を返す。
     """
 
@@ -166,14 +166,6 @@ class BoardGenerator:
             plan = self._resolve_plan(config)
             return build_board_layout(plan.config, plan.resolved)
 
-    def build_board(
-        self, config: BoardConfig
-    ) -> tuple[pcbnew.BOARD | None, str | None]:
-        """解決済み layout と同じ位置へ単一パッド footprint を置く（収まらなければ ``(None, 理由)``）."""
-
-        with self._lock:
-            return self._build_board(config)
-
     def board_bytes(self, config: BoardConfig) -> tuple[bytes | None, str | None]:
         """生成した KiCad 基板をダウンロード可能な bytes で返す（収まらなければ ``(None, 理由)``）."""
 
@@ -214,13 +206,13 @@ class BoardGenerator:
     def _build_board(
         self, config: BoardConfig
     ) -> tuple[pcbnew.BOARD | None, str | None]:
+        """解決済み layout と同じ位置へ単一パッド footprint を置く（収まらなければ ``(None, 理由)``）."""
         plan = self._resolve_plan(config)
         layout, overflow_message = build_board_layout(plan.config, plan.resolved)
         if layout is None:
             return None, overflow_message
         board = generate_rect_pcb(layout.board.width_mm, layout.board.height_mm)
         _add_purge_pad(board, layout.purge_pad)
-        _add_flow_pads(board, layout.flow_pads)
         for pad_layout in layout.pads:
             resolved = plan.resolved[pad_layout.catalog_id]
             footprint = duplicate_footprint(resolved.template)
@@ -234,26 +226,12 @@ class BoardGenerator:
         return board, None
 
 
-def _add_flow_pads(board: pcbnew.BOARD, rects: tuple[Rect, ...]) -> None:
-    """流量計測用の正方形パッドを ``FLOW1`` から採番して置く."""
-    for index, bounds in enumerate(rects, start=1):
-        _add_square_pad(
-            board, bounds, reference=f"FLOW{index}", value="Paste flow gauge"
-        )
-
-
 def _add_purge_pad(board: pcbnew.BOARD, bounds: Rect) -> None:
-    _add_square_pad(board, bounds, reference="PURGE", value="Paste purge")
-
-
-def _add_square_pad(
-    board: pcbnew.BOARD, bounds: Rect, *, reference: str, value: str
-) -> None:
     center_x = bounds.x + bounds.width / 2.0
     center_y = bounds.y + bounds.height / 2.0
     footprint = pcbnew.FOOTPRINT(board)
-    footprint.SetReference(reference)
-    footprint.SetValue(value)
+    footprint.SetReference("PURGE")
+    footprint.SetValue("Paste purge")
     footprint.SetPosition(vector(center_x, center_y))
     footprint.Reference().SetVisible(False)
     footprint.Value().SetVisible(False)

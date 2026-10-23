@@ -58,12 +58,11 @@ def _run_height_plane(ctx: JobContext) -> JobResult:
     diagnostics = sampling_diagnostics(
         planned_points, [c.polygon for c in top_coppers], pcb.outline.polygon
     )
-    if diagnostics is not None:
-        ctx.log(
-            f"計画点 {diagnostics.point_count} 点 / "
-            f"min_clearance {diagnostics.min_clearance:.3f} mm / "
-            f"凸包/外形面積比 {diagnostics.hull_area_ratio:.3f}"
-        )
+    ctx.log(
+        f"計画点 {diagnostics.point_count} 点 / "
+        f"min_clearance {diagnostics.min_clearance:.3f} mm / "
+        f"凸包/外形面積比 {diagnostics.hull_area_ratio:.3f}"
+    )
 
     try:
         proceed = ctx.prompt(

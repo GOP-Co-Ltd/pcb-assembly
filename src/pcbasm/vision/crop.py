@@ -55,16 +55,9 @@ def crop_centered(
     :meth:`pcbasm.posctrl.CopperProjector.board_to_pixel_affine` の戻り値をそのまま
     受け取る。crop が frame 外へ出る場合は padding せず ``(None, 理由)`` を返す。
     """
-    if type(pixel_size) is not int or pixel_size < 1:
-        return None, f"pixel_sizeは1以上の整数が必要です: {pixel_size!r}"
-
     source = image.numpy() if isinstance(image, Image) else np.asarray(image)
-    if source.ndim != 3 or source.shape[2] != 3:
-        return None, f"RGB画像は3 channelが必要です: shape={source.shape}"
     affine = np.asarray(matrix, dtype=np.float64)
     translation = np.asarray(shift, dtype=np.float64)
-    if affine.shape != (2, 2) or translation.shape != (2,):
-        return None, "board→pixel affineはmatrix=(2, 2), shift=(2,)が必要です"
     if not np.isfinite(affine).all() or not np.isfinite(translation).all():
         return None, "board→pixel affineには有限値が必要です"
 

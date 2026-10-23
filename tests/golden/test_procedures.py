@@ -213,7 +213,7 @@ class TestApplicator:
         with session.make_applicator() as applicator:
             applicator.retract()
             for pad in targets.routed_pads:
-                params = targets.params_for(pad) or applicator.default_params
+                params = targets.params_for(pad)
                 applicator.apply(
                     pad.polygon,
                     params=params.patched(
@@ -326,12 +326,12 @@ class TestNozzleClean:
     def test_prime_clean_retract(self, klipper: FakeKlipper, machine: Machine):
         """パージが写らなかったときのクリーニング（prime → パージとこすり → retract）."""
         stage = XYZStage(klipper.readonly)
-        clean = resolve_nozzle_clean(machine, stage)
-        assert clean.position is not None
+        plan = resolve_nozzle_clean(machine, stage)
+        assert plan is not None
 
         with build_applicator(klipper, stage, machine.paste_dispenser) as applicator:
             applicator.prime()
-            clean_nozzle(klipper, stage, applicator, clean.position, clean)
+            clean_nozzle(klipper, applicator, plan)
             applicator.retract()
 
         assert_transcript(klipper.sent, PROCEDURES / "nozzle_clean.gcode")

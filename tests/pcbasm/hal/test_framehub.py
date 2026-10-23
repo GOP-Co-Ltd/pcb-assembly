@@ -4,9 +4,8 @@
 「src/pcbasm/hal/framehub.py」節 + spec §3 が契約:
 
 - FrameHub はカメラ専有スレッドで capture し、最新フレームを複数消費者へ共有する
-- `latest()` は初回到着まで待ち、停止後も最後のフレームがあれば待たずに返す
 - `subscribe()` の FrameSource は Camera ABC を実装し「呼ぶたびに新しいフレーム」を保証
-- キャプチャ例外は保持され、以降の `latest()` / `capture()` で繰り返し再送出。
+- キャプチャ例外は保持され、以降の `capture()` で繰り返し再送出。
   `start()` し直すとクリアされる
 - start / stop は冪等。stop は camera を閉じない。シーケンスは stop/start で
   リセットされない（停止前からの FrameSource が再開後も使える）
@@ -67,27 +66,17 @@ class GatedCamera(FakeCamera):
 
 
 class TestFrameHubLifecycle:
-    """Start / stop / latest のライフサイクル."""
+    """Start / stop のライフサイクル."""
 
-    def test_start_makes_latest_return_frame_and_running_true(self):
+    def test_start_makes_capture_return_frame_and_running_true(self):
         hub = FrameHub(FakeCamera([_solid_image(1)]))
 
         hub.start()
         try:
             assert hub.running
-            assert isinstance(hub.latest(timeout=5.0), Image)
+            assert isinstance(hub.subscribe(timeout=5.0).capture(), Image)
         finally:
             hub.stop()
-
-    def test_latest_after_stop_returns_last_frame(self):
-        hub = FrameHub(FakeCamera([_solid_image(1)]))
-        hub.start()
-        hub.latest(timeout=5.0)
-
-        hub.stop()
-
-        assert not hub.running
-        assert isinstance(hub.latest(timeout=0.5), Image)
 
     def test_start_is_idempotent(self):
         hub = FrameHub(FakeCamera([_solid_image(1)]))
@@ -96,14 +85,14 @@ class TestFrameHubLifecycle:
         hub.start()
         try:
             assert hub.running
-            assert isinstance(hub.latest(timeout=5.0), Image)
+            assert isinstance(hub.subscribe(timeout=5.0).capture(), Image)
         finally:
             hub.stop()
 
     def test_stop_is_idempotent(self):
         hub = FrameHub(FakeCamera([_solid_image(1)]))
         hub.start()
-        hub.latest(timeout=5.0)
+        hub.subscribe(timeout=5.0).capture()
 
         hub.stop()
         hub.stop()
@@ -129,7 +118,7 @@ class TestFrameHubLifecycle:
         camera = FakeCamera([_solid_image(1)])
         hub = FrameHub(camera)
         hub.start()
-        hub.latest(timeout=5.0)
+        hub.subscribe(timeout=5.0).capture()
 
         hub.stop()
 
@@ -201,12 +190,6 @@ class TestFrameSource:
 class TestErrors:
     """異常系: 未 start・停止済み・timeout・キャプチャ例外の伝播."""
 
-    def test_latest_before_start_raises_runtime_error(self):
-        hub = FrameHub(FakeCamera([_solid_image(1)]))
-
-        with pytest.raises(RuntimeError):
-            hub.latest(timeout=0.5)
-
     def test_capture_before_start_raises_runtime_error(self):
         hub = FrameHub(FakeCamera([_solid_image(1)]))
         source = hub.subscribe(timeout=0.5)
@@ -227,13 +210,13 @@ class TestErrors:
             for _ in range(100):
                 source.capture()
 
-    def test_latest_raises_timeout_error_when_no_frame_arrives(self):
+    def test_capture_raises_timeout_error_when_no_frame_arrives(self):
         camera = GatedCamera()
         hub = FrameHub(camera)
         hub.start()
         try:
             with pytest.raises(TimeoutError):
-                hub.latest(timeout=0.1)
+                hub.subscribe(timeout=0.1).capture()
         finally:
             camera.release_all()
             hub.stop()
@@ -246,12 +229,10 @@ class TestErrors:
         source = hub.subscribe(timeout=2.0)
 
         with pytest.raises(CaptureFailure) as exc:
-            hub.latest(timeout=2.0)
+            source.capture()
         assert "capture failed" in str(exc.value)
 
         # 繰り返し呼んでも同じ例外が再送出される
-        with pytest.raises(CaptureFailure):
-            hub.latest(timeout=2.0)
         with pytest.raises(CaptureFailure):
             source.capture()
 
@@ -263,13 +244,14 @@ class TestErrors:
         hub = FrameHub(
             FakeCamera([CaptureFailure("first capture failed"), _solid_image(1)])
         )
+        source = hub.subscribe(timeout=2.0)
         hub.start()
         with pytest.raises(CaptureFailure):
-            hub.latest(timeout=2.0)
+            source.capture()
         wait_until(lambda: not hub.running)
 
         hub.start()
         try:
-            assert isinstance(hub.latest(timeout=5.0), Image)
+            assert isinstance(source.capture(), Image)
         finally:
             hub.stop()

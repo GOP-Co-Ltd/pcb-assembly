@@ -335,7 +335,7 @@ class NozzleClean:
 
     ``press_depth`` の上限はここで検証しない。妥当性は押し込んだ高さが可動域に入るかでしか
     決まらず、それは printer.cfg 依存なので
-    :func:`~pcbasm.pasting.nozzle_clean.validate_reach` が判定する。
+    :func:`~pcbasm.pasting.nozzle_clean.plan_nozzle_clean` が判定する。
 
     Attributes:
         position: クリーニング面の位置。未教示なら None で、塗布ジョブはこすらない
@@ -586,11 +586,6 @@ class Camera:
     device_id: int = 0
     format: str = "YUYV"
     backend: str = "csi"
-
-    @property
-    def size(self) -> tuple[int, int]:
-        """カメラサイズを (width, height) のタプルで返す."""
-        return (self.width, self.height)
 
 
 @attrs.frozen
@@ -891,12 +886,3 @@ def get_config_dir() -> Path:
     """
     value = os.environ.get("PCBASM_CONFIG_DIR")
     return Path(value) if value else PROJECT_ROOT / "config"
-
-
-def get_machine_config() -> Machine:
-    """:func:`get_config_dir` の machine.toml を読み込む.
-
-    Raises:
-        ConfigError: TOML として読めない・検証に通らない場合
-    """
-    return load_machine(get_config_dir() / "machine.toml")

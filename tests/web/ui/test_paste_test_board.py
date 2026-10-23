@@ -23,9 +23,6 @@ class TestPasteTestBoardPage:
         assert "テスト塗布基板生成" in text
         assert 'data-testid="ptb-pattern-table"' in text
         assert 'data-testid="ptb-preview"' in text
-        # 流量計測パッドの設定欄（大きさと個数）
-        assert 'id="ptb-flow-size"' in text
-        assert 'id="ptb-flow-count"' in text
         assert "js/paste_test_board.js?v=" in text
 
     def test_page_actions_do_not_require_machine_control(

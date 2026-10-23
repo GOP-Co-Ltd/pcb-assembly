@@ -125,13 +125,9 @@ class TestToolheadOffsetResult:
         assert stable.is_within_tolerance is True
         assert variable.is_within_tolerance is False
 
-    def test_to_dict_from_dict_roundtrip_uses_multipoint_format(self):
-        result = _make_result()
+    def test_to_dict_uses_multipoint_format(self):
+        data = _make_result().to_dict()
 
-        data = result.to_dict()
-        restored = ToolheadOffsetResult.from_dict(data)
-
-        assert restored == result
         assert set(data) == {
             "offset",
             "standard_deviation",

@@ -2,7 +2,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from pcbasm.hal.klipper import Klipper
-from pcbasm.hal.manual_stepper import HomingDirection, ManualStepper
+from pcbasm.hal.manual_stepper import ManualStepper
 
 STEPPER_NAME = "vacuum_pump"
 PREFIX = f"MANUAL_STEPPER STEPPER={STEPPER_NAME}"
@@ -102,35 +102,6 @@ class TestManualStepper:
 
     def test_sync(self, stepper: ManualStepper):
         assert stepper.sync().to_list() == [f"{PREFIX} SYNC=1"]
-
-    @pytest.mark.parametrize(
-        ("distance", "speed", "direction", "expected_suffix"),
-        [
-            (100.0, None, HomingDirection.FORWARD, "STOP_ON_ENDSTOP=1 MOVE=100.0"),
-            (
-                100.0,
-                10.0,
-                HomingDirection.BACKWARD,
-                "STOP_ON_ENDSTOP=-1 MOVE=100.0 SPEED=10.0",
-            ),
-            (
-                50.0,
-                5.0,
-                HomingDirection.FORWARD,
-                "STOP_ON_ENDSTOP=1 MOVE=50.0 SPEED=5.0",
-            ),
-        ],
-    )
-    def test_home(
-        self,
-        stepper: ManualStepper,
-        distance: float,
-        speed: float | None,
-        direction: HomingDirection,
-        expected_suffix: str,
-    ):
-        gcode = stepper.home(distance, speed, direction=direction)
-        assert gcode.to_list() == [f"{PREFIX} {expected_suffix}"]
 
     def test_enable(self, stepper: ManualStepper):
         gcode = stepper.enable()

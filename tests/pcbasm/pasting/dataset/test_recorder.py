@@ -164,7 +164,6 @@ def _recorder(tmp_path: Path, plan: DotGridPlan) -> PasteDatasetRecorder:
         PasteDatasetWriter.open(
             tmp_path,
             plate_name="plate-20x20",
-            crop_size_px=CROP_SIZE_PX,
             started_at=STARTED_AT,
         ),
         plan,
@@ -224,7 +223,6 @@ class TestPasteDatasetRecorder:
         writer = PasteDatasetWriter.open(
             tmp_path,
             plate_name="plate-20x20",
-            crop_size_px=CROP_SIZE_PX,
             started_at=STARTED_AT,
         )
 

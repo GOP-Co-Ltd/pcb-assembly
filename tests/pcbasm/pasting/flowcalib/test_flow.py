@@ -1,7 +1,6 @@
 """flowcalib.flow（質量計測 → 係数、掃引の量計算、収束判定）のテスト."""
 
 import math
-import statistics
 
 import pytest
 
@@ -49,21 +48,6 @@ class TestFlowCalibration:
 
         assert calib.mean_mass_mg == pytest.approx(200.0)
         assert calib.volume_ul == pytest.approx(100.0)
-
-    def test_stdev_matches_sample_stdev_of_per_measurement_values(self):
-        calib = FlowCalibration(
-            rotations=10.0, masses_mg=(100.0, 200.0), density_mg_per_ul=2.0
-        )
-
-        assert calib.stdev_rotations_per_ul == pytest.approx(
-            statistics.stdev([0.2, 0.1])
-        )
-
-    @pytest.mark.parametrize("masses", [(200.0,), (200.0, 200.0, 200.0)])
-    def test_stdev_zero_for_single_or_identical_measurements(self, masses):
-        calib = FlowCalibration(rotations=10.0, masses_mg=masses, density_mg_per_ul=4.4)
-
-        assert calib.stdev_rotations_per_ul == 0.0
 
     def test_dispense_rate_and_accel_for(self):
         # rotations_per_ul = 50 / 1000 = 0.05

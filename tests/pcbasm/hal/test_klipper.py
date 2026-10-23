@@ -39,10 +39,8 @@ class TestKlipper:
         macros = klipper.get_macros()
 
         assert len(macros) == 2
-        assert macros["TEST_MACRO"] == GCodeMacro(
-            gcode=GCode("G28"), description="テストマクロ"
-        )
-        assert macros["NO_DESC"] == GCodeMacro(gcode=GCode("M400"), description=None)
+        assert macros["TEST_MACRO"] == GCodeMacro(gcode=GCode("G28"))
+        assert macros["NO_DESC"] == GCodeMacro(gcode=GCode("M400"))
 
     def test_send_present_or_relax_uses_present_macro(self, mocker: MockerFixture):
         klipper = Klipper()

@@ -146,8 +146,7 @@ class PadHierarchy:
     ) -> Self:
         """部品と pad から L0–L4 階層ツリーを構築する.
 
-        pad の package は designator で ``components`` から引く。対応する
-        Component が無い pad は階層から除外する。
+        pad の package は designator で ``components`` から引く（どちらも同じ footprint 群から読むので必ずある）。
 
         Args:
             components: 対象部品列
@@ -160,19 +159,11 @@ class PadHierarchy:
         package_by_designator = {c.designator: c.package for c in components}
 
         keyed_pads: list[tuple[PadRef, Pad]] = []
-        ordered_pads: list[Pad] = []
-        for pad in pads:
-            package = package_by_designator.get(pad.designator)
-            if package is None:
-                # 対応する Component が無い pad は除外
-                continue
-            ordered_pads.append(pad)
-
-        refs_by_pad_object = _pad_refs_by_object(ordered_pads)
+        refs_by_pad_object = _pad_refs_by_object(pads)
         keys_by_pad_ref: dict[PadRef, tuple[HierKey, ...]] = {}
         pads_by_ref: dict[PadRef, Pad] = {}
         refs_by_pad_id: dict[str, PadRef] = {}
-        for pad in ordered_pads:
+        for pad in pads:
             package = package_by_designator[pad.designator]
             ref = refs_by_pad_object[id(pad)]
             shape_label = PadShapeKey.of(pad, quantum=shape_quantum).label
@@ -208,8 +199,8 @@ class PadHierarchy:
         """
         return list(self._keys_by_pad_ref[self.pad_ref_for_pad(pad)])
 
-    def find_pad_ref(self, pad: Pad) -> PadRef | None:
-        """Pad が階層内で持つ一意な参照キーを返す。階層に無い pad は ``None``.
+    def pad_ref_for_pad(self, pad: Pad) -> PadRef:
+        """Pad が階層内で持つ一意な参照キーを返す（階層に無い pad は ``KeyError``）.
 
         通常は ``(designator, pad_number)``。同じ ``pad_number`` の分割 pad は
         ``(designator, "<pad_number>#n")`` で区別する。
@@ -222,27 +213,13 @@ class PadHierarchy:
             for candidate, existing in self._pads_by_ref.items()
             if existing == pad
         ]
-        return matches[0] if len(matches) == 1 else None
-
-    def pad_ref_for_pad(self, pad: Pad) -> PadRef:
-        """:meth:`find_pad_ref` の raise 版（階層に無い pad は ``KeyError``）."""
-        ref = self.find_pad_ref(pad)
-        if ref is None:
+        if len(matches) != 1:
             raise KeyError((pad.designator, pad.pad_number))
-        return ref
-
-    def find_pad_id(self, pad: Pad) -> str | None:
-        """WebUI / API で使う一意な pad id を返す。階層に無い pad は ``None``."""
-        ref = self.find_pad_ref(pad)
-        return None if ref is None else pad_id_from_ref(ref)
+        return matches[0]
 
     def pad_id_for_pad(self, pad: Pad) -> str:
-        """:meth:`find_pad_id` の raise 版（階層に無い pad は ``KeyError``）."""
+        """WebUI / API で使う一意な pad id を返す（階層に無い pad は ``KeyError``）."""
         return pad_id_from_ref(self.pad_ref_for_pad(pad))
-
-    def l4_key_for_pad_id(self, pad_id: str) -> HierKey:
-        """Pad id に対応する L4 階層キーを返す."""
-        return self._keys_by_pad_ref[self._refs_by_pad_id[pad_id]][-1]
 
     def all_keys(self) -> set[HierKey]:
         """階層に存在する全ノードキーの集合を返す."""

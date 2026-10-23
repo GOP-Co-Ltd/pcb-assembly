@@ -86,16 +86,6 @@ class TestPoint3d:
     def test_norm(self, point, expected):
         assert point.norm() == expected
 
-    @pytest.mark.parametrize(
-        ("kwargs", "expected"),
-        [
-            ({}, Point3d(0.0, 0.0, 0.0)),
-            ({"x": 1.0, "y": 2.0, "z": 3.0}, Point3d(1.0, 2.0, 3.0)),
-        ],
-    )
-    def test_zero(self, kwargs, expected):
-        assert Point3d.zero(**kwargs) == expected
-
     def test_to2d_ignores_z(self):
         point = Point3d(1.0, 2.0, 3.0)
 

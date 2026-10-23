@@ -625,7 +625,6 @@ def _run_paste_volume_calibration(ctx: JobContext) -> JobResult:
         writer = PasteDatasetWriter.open(
             ctx.paste_dataset_dir,
             plate_name=f"plate-{spec.plate_width_mm:g}x{spec.plate_height_mm:g}",
-            crop_size_px=crop_size_px,
             started_at=started_at,
         )
         recorder = PasteDatasetRecorder(writer, plan, views)

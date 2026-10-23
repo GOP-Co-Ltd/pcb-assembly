@@ -6,7 +6,7 @@ from collections import UserList
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
 import attrs
 from cattrs.preconf.json import make_converter
@@ -25,17 +25,12 @@ class Layer(Enum):
 # cattrs コンバーター設定
 _converter = make_converter()
 _converter.register_unstructure_hook(Layer, lambda v: v.value)
-_converter.register_structure_hook(Layer, lambda v, _: Layer(v))
 _converter.register_unstructure_hook(
     Polygon,
     lambda p: {
         "exterior": list(p.exterior.coords),
         "holes": [list(interior.coords) for interior in p.interiors],
     },
-)
-_converter.register_structure_hook(
-    Polygon,
-    lambda v, _: Polygon(v["exterior"], holes=v.get("holes", [])),
 )
 
 
@@ -75,12 +70,6 @@ class Outline:
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
-    @classmethod
-    def load(cls, path: Path) -> Self:
-        """JSON ファイルから読み込み."""
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return cls(Polygon(data["polygon"]))
-
 
 @attrs.frozen
 class Component:
@@ -101,18 +90,6 @@ class Component:
     position: Point2d
     rotation: float
     layer: Layer
-
-    @classmethod
-    def from_csv_row(cls, row: dict[str, str]) -> Self:
-        """CSV の行から生成."""
-        return cls(
-            designator=row["Designator"],
-            value=row["Value"],
-            package=row["Package"],
-            position=Point2d(x=float(row["X"]), y=float(row["Y"])),
-            rotation=float(row["Rotation"]),
-            layer=Layer(row["Layer"]),
-        )
 
     def to_csv_row(self) -> list[str]:
         """CSV 出力用の行を生成."""
@@ -141,28 +118,8 @@ PNP_CSV_HEADER: tuple[str, ...] = (
 class ComponentList(UserList[Component]):
     """部品情報のリスト.
 
-    Pick and Place CSV ファイルの読み書きをサポート.
-
-    Example:
-        >>> components = ComponentList.load(Path("board_pnp.csv"))
-        >>> components.save(Path("output_pnp.csv"))
+    Pick and Place CSV ファイルへの保存をサポート.
     """
-
-    def nearest(self, point: Point2d) -> Component:
-        """指定座標に最も近い部品を取得.
-
-        Args:
-            point: 基準座標
-
-        Returns:
-            最も近い部品
-
-        Raises:
-            ValueError: リストが空の場合
-        """
-        if not self.data:
-            raise ValueError("ComponentList is empty")
-        return min(self.data, key=lambda c: (c.position - point).norm)
 
     def save(self, path: Path) -> None:
         """Pick and Place CSV ファイルに保存."""
@@ -171,16 +128,6 @@ class ComponentList(UserList[Component]):
             writer.writerow(PNP_CSV_HEADER)
             for comp in self.data:
                 writer.writerow(comp.to_csv_row())
-
-    @classmethod
-    def load(cls, path: Path) -> Self:
-        """Pick and Place CSV ファイルから読み込み."""
-        components = cls()
-        with path.open("r", encoding="utf-8", newline="") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                components.append(Component.from_csv_row(row))
-        return components
 
 
 @attrs.frozen
@@ -193,7 +140,6 @@ class Pad:
         net_name: ネット名
         layer: レイヤー (Top/Bottom)
         polygon: ペースト領域のポリゴン (mm 単位)
-        copper_polygon: 実銅箔領域のポリゴン (mm 単位)。省略時は polygon と同一
         is_custom_shape: カスタム形状かどうか
     """
 
@@ -202,7 +148,6 @@ class Pad:
     net_name: str
     layer: Layer
     polygon: Polygon
-    copper_polygon: Polygon = attrs.Factory(lambda self: self.polygon, takes_self=True)
     is_custom_shape: bool = False
 
     @property
@@ -220,37 +165,12 @@ class Pad:
         """辞書に変換."""
         return _converter.unstructure(self)
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
-        """辞書から生成."""
-        return _converter.structure(data, cls)
-
 
 class PadList(UserList[Pad]):
     """パッド情報のリスト.
 
-    JSON ファイルの読み書きをサポート.
-
-    Example:
-        >>> pads = PadList.load(Path("board_pads.json"))
-        >>> pads.save(Path("output_pads.json"))
+    JSON ファイルへの保存をサポート.
     """
-
-    def nearest(self, point: Point2d) -> Pad:
-        """指定座標に最も近いパッドを取得.
-
-        Args:
-            point: 基準座標
-
-        Returns:
-            最も近いパッド
-
-        Raises:
-            ValueError: リストが空の場合
-        """
-        if not self.data:
-            raise ValueError("PadList is empty")
-        return min(self.data, key=lambda p: (p.center - point).norm)
 
     def save(self, path: Path) -> None:
         """JSON ファイルに保存."""
@@ -258,15 +178,6 @@ class PadList(UserList[Pad]):
         path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-
-    @classmethod
-    def load(cls, path: Path) -> Self:
-        """JSON ファイルから読み込み."""
-        data = json.loads(path.read_text(encoding="utf-8"))
-        pads = cls()
-        for item in data:
-            pads.append(Pad.from_dict(item))
-        return pads
 
 
 @attrs.frozen
@@ -290,20 +201,11 @@ class Copper:
         """辞書に変換."""
         return _converter.unstructure(self)
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
-        """辞書から生成."""
-        return _converter.structure(data, cls)
-
 
 class CopperList(UserList[Copper]):
     """銅箔島情報のリスト.
 
-    JSON ファイルの読み書きをサポート.
-
-    Example:
-        >>> coppers = CopperList.load(Path("board_copper.json"))
-        >>> coppers.save(Path("output_copper.json"))
+    JSON ファイルへの保存をサポート.
     """
 
     def save(self, path: Path) -> None:
@@ -312,12 +214,3 @@ class CopperList(UserList[Copper]):
         path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-
-    @classmethod
-    def load(cls, path: Path) -> Self:
-        """JSON ファイルから読み込み."""
-        data = json.loads(path.read_text(encoding="utf-8"))
-        coppers = cls()
-        for item in data:
-            coppers.append(Copper.from_dict(item))
-        return coppers

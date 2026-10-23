@@ -11,7 +11,6 @@ from pcbasm.pasting.testboard.config import (
     BoardConfig,
     BoardSpec,
     CustomPadDraft,
-    FlowPadSpec,
     PatternSpec,
     PurgePadSpec,
 )
@@ -19,7 +18,6 @@ from pcbasm.pasting.testboard.generator import (
     BoardGenerator,
 )
 from pcbasm.pcb import PcbFile
-from pcbasm.pcb.generate import save_board
 from pcbasm.pcb.units import KicadError
 from tests.helpers import make_paste_test_board_offset_pad_root
 from tests.pcbasm.pasting.testboard.support import (
@@ -186,8 +184,6 @@ class TestBoardGenerator:
     def test_preview_keeps_every_pad_when_total_layout_overflows(self, generator):
         config = BoardConfig(
             board=BoardSpec(width_mm=8.0, height_mm=8.0),
-            # パッド種が原因の overflow を見たいので流量計測パッドは置かない
-            flow_pads=FlowPadSpec(count=0),
             custom_pads=(custom_pad(CUSTOM_A, "A", width_mm=3.0, height_mm=3.0),),
             patterns=(PatternSpec(CUSTOM_A, 180.0, 1, 3),),
         )
@@ -276,47 +272,57 @@ class TestBoardCoordinateLimits:
         with pytest.raises(KicadError, match="座標範囲"):
             generator.preview(config)
 
-    def test_build_board_rejects_offset_anchor_overflow(
+    def test_board_bytes_rejects_offset_anchor_overflow(
         self,
         offset_anchor_overflow: tuple[BoardGenerator, BoardConfig],
     ):
         generator, config = offset_anchor_overflow
 
         with pytest.raises(KicadError, match="座標範囲"):
-            generator.build_board(config)
+            generator.board_bytes(config)
+
+
+def _board_file(generator: BoardGenerator, config: BoardConfig, tmp_path: Path) -> Path:
+    data, overflow_message = generator.board_bytes(config)
+    assert overflow_message is None
+    assert data is not None
+    output = tmp_path / "paste-test-board.kicad_pcb"
+    output.write_bytes(data)
+    return output
+
+
+def _board(
+    generator: BoardGenerator, config: BoardConfig, tmp_path: Path
+) -> pcbnew.BOARD:
+    return pcbnew.LoadBoard(str(_board_file(generator, config, tmp_path)))
 
 
 class TestBoardGeneration:
     """生成した実KiCad基板のround-trip."""
 
     @pytest.fixture
-    def board(self, generator) -> pcbnew.BOARD:
-        board, overflow_message = generator.build_board(BoardConfig())
-        assert overflow_message is None
-        assert board is not None
-        return board
+    def board(self, generator, tmp_path: Path) -> pcbnew.BOARD:
+        return _board(generator, BoardConfig(), tmp_path)
 
     @pytest.fixture
-    def pcb(self, board: pcbnew.BOARD, tmp_path: Path) -> PcbFile:
-        output = tmp_path / "paste-test-board.kicad_pcb"
-        save_board(board, output)
-        return PcbFile(output)
+    def pcb(self, generator, tmp_path: Path) -> PcbFile:
+        return PcbFile(_board_file(generator, BoardConfig(), tmp_path))
 
     def test_generated_board_contains_one_pad_per_pattern_instance(self, board):
         footprints = list(board.GetFootprints())
 
-        # パッド種 64 + PURGE 1 + FLOW1..5
-        assert len(footprints) == 70
+        # パッド種 64 + PURGE 1
+        assert len(footprints) == 65
         assert all(footprint.GetPadCount() == 1 for footprint in footprints)
         assert {footprint.GetReference() for footprint in footprints} >= {
             "PURGE",
-            "FLOW1",
-            "FLOW5",
             "PAD1",
             "PAD64",
         }
 
-    def test_qfn_variants_keep_their_real_source_layers(self, generator):
+    def test_qfn_variants_keep_their_real_source_layers(
+        self, generator, tmp_path: Path
+    ):
         variants = generator.pad_patterns_for(QFN)
         config = BoardConfig(
             patterns=tuple(
@@ -325,8 +331,7 @@ class TestBoardGeneration:
             )
         )
 
-        board, _overflow_message = generator.build_board(config)
-        assert board is not None
+        board = _board(generator, config, tmp_path)
         layer_pairs = {
             (
                 pad.GetLayerSet().Contains(pcbnew.F_Cu),
@@ -349,7 +354,7 @@ class TestBoardGeneration:
         ],
     )
     def test_custom_pad_shapes_are_written_as_real_kicad_pads(
-        self, generator, shape, width, height, radius, expected_shape
+        self, generator, tmp_path: Path, shape, width, height, radius, expected_shape
     ):
         config = BoardConfig(
             custom_pads=(custom_pad(CUSTOM_A, shape, shape, width, height, radius),),
@@ -362,8 +367,7 @@ class TestBoardGeneration:
             ),
         )
 
-        board, _overflow_message = generator.build_board(config)
-        assert board is not None
+        board = _board(generator, config, tmp_path)
         footprint = next(
             item for item in board.GetFootprints() if item.GetReference() == "PAD1"
         )
@@ -380,18 +384,14 @@ class TestBoardGeneration:
     ):
         assert pcb.outline.width == pytest.approx(40.0, abs=0.1)
         assert pcb.outline.height == pytest.approx(40.0, abs=0.1)
-        # パッド種 64 + PURGE 1 + FLOW1..5
-        assert len(pcb.components) == 70
-        assert len(pcb.pads) == 70
+        # パッド種 64 + PURGE 1
+        assert len(pcb.components) == 65
+        assert len(pcb.pads) == 65
         assert all(pad.polygon.area > 0 for pad in pcb.pads)
-        assert all(pad.copper_polygon.area > 0 for pad in pcb.pads)
         purge = [pad for pad in pcb.pads if pad.designator == "PURGE"]
         assert len(purge) == 1
         assert purge[0].pad_number == "1"
         assert purge[0].polygon.area == pytest.approx(4.0, abs=0.01)
-        flow = [pad for pad in pcb.pads if pad.designator.startswith("FLOW")]
-        assert len(flow) == 5
-        assert all(pad.polygon.area == pytest.approx(4.0, abs=0.01) for pad in flow)
 
     def test_rotation_is_written_to_pad_footprints(self, pcb: PcbFile):
         rotations = {
@@ -401,28 +401,3 @@ class TestBoardGeneration:
         }
 
         assert rotations == {0.0, 45.0, 90.0, 135.0}
-
-
-class TestFlowPadGeneration:
-    """生成した基板に流量計測パッドが FLOW1 から並ぶ."""
-
-    def test_flow_pads_get_sequential_unique_references(
-        self, generator, tmp_path: Path
-    ):
-        config = BoardConfig(
-            flow_pads=FlowPadSpec(size_mm=2.0, count=3),
-            patterns=(PatternSpec(R0402, 180.0, 1, 1),),
-        )
-
-        board, error = generator.build_board(config)
-
-        assert error is None
-        assert board is not None
-        output = tmp_path / "flow.kicad_pcb"
-        save_board(board, output)
-        pcb = PcbFile(output)
-        references = [pad.designator for pad in pcb.pads]
-
-        assert references.count("PURGE") == 1
-        for index in range(1, 4):
-            assert references.count(f"FLOW{index}") == 1

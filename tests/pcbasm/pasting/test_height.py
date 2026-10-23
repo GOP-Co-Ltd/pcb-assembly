@@ -203,28 +203,6 @@ class TestPlanProbePoints:
         for point in points:
             assert safe.covers(ShapelyPoint(point.x, point.y))
 
-    def test_points_match_measurer_plan_with_same_settings(self, mocker):
-        copper = self._copper()
-        stage = mocker.Mock()
-        stage.max_velocity = 100.0
-        measurer = HeightPlaneMeasurer(
-            probe_executor=mocker.Mock(),
-            klipper=mocker.Mock(),
-            stage=stage,
-            min_radius=1.5,
-            board_edge_margin=2.5,
-            min_samples=6,
-            settle_sec=0.0,
-            max_samples=9,
-        )
-        config = Probe(
-            min_radius=1.5, board_edge_margin=2.5, min_samples=6, max_samples=9
-        )
-
-        assert measurer.plan_points([copper], copper.polygon) == plan_probe_points(
-            [copper], copper.polygon, config=config
-        )
-
     def test_insufficient_candidates_raise_before_any_motion(self):
         tiny = Copper(
             layer=Layer.TOP,

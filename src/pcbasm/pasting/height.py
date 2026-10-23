@@ -18,7 +18,8 @@ from pcbasm.geometry import (
 from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.pasting.probe import ProbeExecutor
 from pcbasm.pcb import Copper
-from pcbasm.utils import get_class_module_path
+
+logger = logging.getLogger(__name__)
 
 
 def plan_probe_points(
@@ -65,21 +66,19 @@ class _BoardPointProber:
         *,
         settle_sec: float,
         move_velocity_ratio: float,
-        logger: logging.Logger,
     ) -> None:
         self._probe_executor = probe_executor
         self._klipper = klipper
         self._stage = stage
         self._settle_sec = settle_sec
         self._move_velocity = stage.max_velocity * move_velocity_ratio
-        self._logger = logger
 
     def probe_at(
         self, board_pt: Point2d, board_to_machine: Transform, label: str
     ) -> Point3d:
         """Board 座標 board_pt をプローブし、機械座標 XY と Z を返す."""
         probe_pt = board_to_machine.apply(board_pt)
-        self._logger.info(
+        logger.info(
             f"計測点 {label}: Board({board_pt.x:.1f}, {board_pt.y:.1f}) "
             f"-> Machine({probe_pt.x:.3f}, {probe_pt.y:.3f})"
         )
@@ -95,7 +94,7 @@ class _BoardPointProber:
         )
 
         z = self._probe_executor.probe()
-        self._logger.info(f"Z={z:.4f}mm")
+        logger.info(f"Z={z:.4f}mm")
         return Point3d(x=probe_pt.x, y=probe_pt.y, z=z)
 
     def route_points(
@@ -130,7 +129,6 @@ class HeightPlaneMeasurer:
         settle_sec: float,
         move_velocity_ratio: float = 0.9,
     ) -> None:
-        self._logger = logging.getLogger(get_class_module_path(self.__class__))
         self._min_radius = min_radius
         self._board_edge_margin = board_edge_margin
         self._min_samples = min_samples
@@ -141,20 +139,6 @@ class HeightPlaneMeasurer:
             stage=stage,
             settle_sec=settle_sec,
             move_velocity_ratio=move_velocity_ratio,
-            logger=self._logger,
-        )
-
-    def plan_points(
-        self, coppers: Iterable[Copper], outline: Polygon | None = None
-    ) -> list[Point2d]:
-        """計測する Board 点（銅箔島内、外形マージン内）を計画する（装置を動かさない）."""
-        return _sample_points(
-            coppers,
-            outline,
-            min_radius=self._min_radius,
-            board_edge_margin=self._board_edge_margin,
-            min_samples=self._min_samples,
-            max_samples=self._max_samples,
         )
 
     def measure(
@@ -164,16 +148,22 @@ class HeightPlaneMeasurer:
         outline: Polygon | None = None,
     ) -> HeightPlane:
         """銅箔島内の Board 点で高さ計測し、機械 XY の HeightPlane を返す."""
-        board_points = self._point_prober.route_points(
-            self.plan_points(coppers, outline), board_to_machine
+        planned = _sample_points(
+            coppers,
+            outline,
+            min_radius=self._min_radius,
+            board_edge_margin=self._board_edge_margin,
+            min_samples=self._min_samples,
+            max_samples=self._max_samples,
         )
+        board_points = self._point_prober.route_points(planned, board_to_machine)
         coord_str = ", ".join(f"({p.x:.1f}, {p.y:.1f})" for p in board_points)
-        self._logger.info(f"Probe点 {len(board_points)}個: {coord_str}")
+        logger.info(f"Probe点 {len(board_points)}個: {coord_str}")
 
         results = [
             self._point_prober.probe_at(board_pt, board_to_machine, label=str(idx))
             for idx, board_pt in enumerate(board_points)
         ]
 
-        self._logger.info("Height plane計測完了")
+        logger.info("Height plane計測完了")
         return HeightPlane(points=tuple(results))

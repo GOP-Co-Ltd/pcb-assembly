@@ -32,15 +32,11 @@ class PasteVolumePrediction:
 
     Attributes:
         mean_volume_ul: 推定塗布体積 [µL]（不採用なら 0.0）
-        std_volume_ul: 推定の標準偏差 [µL]
-        relative_std: ``std / mean``（校正時の相対残差そのもの）
         accepted: 補正の材料として採用できるか
         rejection_reason: 不採用の理由（採用時は ``None``）
     """
 
     mean_volume_ul: float
-    std_volume_ul: float
-    relative_std: float
     accepted: bool
     rejection_reason: str | None
 
@@ -142,11 +138,8 @@ class DiameterVolumeEstimator:
         mean = model.volume_ul(diameter.diameter_mm)
         if mean <= 0.0:
             return _rejected("no_deposit_detected")
-        relative = self._calibration.diagnostics.residual_relative_std
         return PasteVolumePrediction(
             mean_volume_ul=mean,
-            std_volume_ul=mean * relative,
-            relative_std=relative,
             accepted=True,
             rejection_reason=None,
         )
@@ -178,8 +171,6 @@ def _rejected(reason: str) -> PasteVolumePrediction:
     """補正の材料にしない結果（例外の代わり）."""
     return PasteVolumePrediction(
         mean_volume_ul=0.0,
-        std_volume_ul=0.0,
-        relative_std=0.0,
         accepted=False,
         rejection_reason=reason,
     )

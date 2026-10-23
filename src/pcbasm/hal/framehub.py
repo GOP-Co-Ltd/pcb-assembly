@@ -13,8 +13,6 @@ from pcbasm.vision import Image
 
 logger = logging.getLogger(__name__)
 
-type _ReadyPredicate = Callable[[int], bool]
-
 
 class FrameHub:
     """カメラ専有スレッドで capture し、最新フレームを複数消費者へ共有する.
@@ -81,20 +79,6 @@ class FrameHub:
             else:
                 logger.info("FrameHub stopped")
 
-    def latest(self, timeout: float = 5.0) -> Image:
-        """最新フレームを返す。初回到着まで待つ.
-
-        停止後でも最後のフレームが存在すれば待たずに返す。
-
-        Raises:
-            TimeoutError: timeout 以内にフレームが到着しない場合
-            RuntimeError: 未 start・停止済みでフレームが 1 枚も無い場合
-            BaseException: キャプチャスレッドの保持例外（再送出、繰り返し可）
-        """
-        with self._cond:
-            frame, _ = self._wait_for(lambda seq: self._frame is not None, timeout)
-            return frame
-
     def subscribe(self, timeout: float = 5.0) -> FrameSource:
         """消費者カーソル付きの FrameSource を返す.
 
@@ -105,31 +89,23 @@ class FrameHub:
 
     def _wait_next(self, cursor: int, timeout: float) -> tuple[Image, int]:
         """``cursor`` より新しいフレームを待って (フレーム, シーケンス番号) を返す."""
+        deadline = time.monotonic() + timeout
         with self._cond:
-            return self._wait_for(lambda seq: seq > cursor, timeout)
-
-    def _wait_for(self, ready: _ReadyPredicate, timeout: float) -> tuple[Image, int]:
-        """``ready(seq)`` が真になるまで待ち、(フレーム, シーケンス番号) を返す.
-
-        呼び出し側が ``self._cond`` を保持していること。
-        """
-        deadline: float | None = None
-        while True:
-            if self._error is not None:
-                raise self._error
-            if ready(self._seq) and self._frame is not None:
-                return self._frame, self._seq
-            if not self._running:
-                raise RuntimeError(
-                    "FrameHub は停止しています（新しいフレームは到着しません）"
-                )
-            now = time.monotonic()
-            if deadline is None:
-                deadline = now + timeout
-            remaining = deadline - now
-            if remaining <= 0:
-                raise TimeoutError(f"フレーム待ちがタイムアウトしました: {timeout}s")
-            self._cond.wait(remaining)
+            while True:
+                if self._error is not None:
+                    raise self._error
+                if self._seq > cursor and self._frame is not None:
+                    return self._frame, self._seq
+                if not self._running:
+                    raise RuntimeError(
+                        "FrameHub は停止しています（新しいフレームは到着しません）"
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"フレーム待ちがタイムアウトしました: {timeout}s"
+                    )
+                self._cond.wait(remaining)
 
     def _capture_loop(self, stop_event: threading.Event) -> None:
         try:

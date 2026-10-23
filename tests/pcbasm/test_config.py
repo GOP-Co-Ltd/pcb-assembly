@@ -21,7 +21,6 @@ from pcbasm.config import (
     Settle,
     Toolhead,
     get_config_dir,
-    get_machine_config,
     load_klipper,
     load_machine,
     resolve_paste_height,
@@ -805,8 +804,8 @@ class TestProbe:
             Probe(min_radius=1.5, board_edge_margin=board_edge_margin)
 
 
-class TestGetMachineConfig:
-    """get_config_dir / get_machine_config のテスト.
+class TestGetConfigDir:
+    """get_config_dir のテスト.
 
     PCBASM_CONFIG_DIR env が唯一の注入口（コア層には Settings が無い）。
     """
@@ -816,25 +815,10 @@ class TestGetMachineConfig:
 
         assert get_config_dir() == PROJECT_ROOT / "config"
 
-    def test_loads_machine_config_from_env_dir(self, tmp_path, monkeypatch):
-        config_dir = tmp_path / "config"
-        config_dir.mkdir()
-        source = (TESTING_DATA_DIR / "machine.toml").read_text()
-        (config_dir / "machine.toml").write_text(source)
-        monkeypatch.setenv("PCBASM_CONFIG_DIR", str(config_dir))
+    def test_reads_env_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("PCBASM_CONFIG_DIR", str(tmp_path / "config"))
 
-        machine = get_machine_config()
-
-        assert get_config_dir() == config_dir
-        assert machine.camera.calibration_file == config_dir / "calibration.json"
-
-    def test_raises_file_not_found_when_machine_toml_missing(
-        self, tmp_path, monkeypatch
-    ):
-        monkeypatch.setenv("PCBASM_CONFIG_DIR", str(tmp_path / "empty"))
-
-        with pytest.raises(FileNotFoundError):
-            get_machine_config()
+        assert get_config_dir() == tmp_path / "config"
 
 
 class TestResolvePasteHeight:

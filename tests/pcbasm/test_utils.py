@@ -1,30 +1,8 @@
 import logging
-import sys
 
 import pytest
 
-from pcbasm.utils import get_class_module_path, is_finite_number, setup_logging
-
-
-class _SampleClass:
-    """テスト専用のクラス."""
-
-    pass
-
-
-class TestGetClassModulePath:
-    """get_class_module_path関数のテスト."""
-
-    @pytest.mark.parametrize(
-        ("cls", "expected"),
-        [
-            (_SampleClass, "tests.pcbasm.test_utils._SampleClass"),
-            (int, "builtins.int"),
-        ],
-        ids=["project-class", "builtin-class"],
-    )
-    def test_returns_module_path(self, cls: type, expected: str):
-        assert get_class_module_path(cls) == expected
+from pcbasm.utils import is_finite_number, setup_logging
 
 
 class TestSetupLogging:

@@ -10,7 +10,8 @@
 
 位置は :class:`~pcbasm.config.NozzleClean` の ``position`` がマシン座標で持ち、基板とは
 無関係なので board 補正を通さない。移動 G-code を組む関数は :func:`~pcbasm.parking.move_to_cap` と
-同じく ``M400`` / ``M84`` を含めず、合成は :func:`clean_nozzle` が行う。
+同じく ``M400`` / ``M84`` を含めない。ジョブの開始時に :func:`resolve_nozzle_clean` が組んで可動域を確かめ、
+送信は :func:`clean_nozzle` が行う。
 """
 
 from __future__ import annotations
@@ -18,10 +19,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
+import attrs
+
 from pcbasm.config import Machine, NozzleClean
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Path, Point3d
-from pcbasm.hal import Klipper, Limits, Speed, XYZStage
+from pcbasm.hal import Klipper, Speed, XYZStage
 from pcbasm.pasting.applicator import PasteApplicator
 
 logger = logging.getLogger(__name__)
@@ -111,55 +114,41 @@ def depart_gcode(stage: XYZStage) -> GCode:
     return stage.move(z=TRAVEL_Z, speed=_travel_speed(stage))
 
 
-def validate_reach(
-    stage: XYZStage, position: Point3d, clean: NozzleClean
-) -> str | None:
-    """クリーニングの全経由点が可動域に入るかを検証する（正常なら None）.
+@attrs.frozen
+class NozzleCleanPlan:
+    """可動域を検証済みのクリーニング G-code.
 
-    退避 Z・面 Z・押し込み Z・こすり経路の全点と、travel / wipe 双方の送り速度を見る。
-    :func:`clean_nozzle` はパージより前にこれを通す。パージしてからこすりの段で可動域外と判定されると、
-    シリコン上にペーストの塊を残したままジョブが落ちるため。
+    Attributes:
+        position: クリーニング面の位置
+        clean: クリーニング動作の設定
+        approach: 面 Z までの接近
+        wipe: 押し込み・十字往復・退避
+    """
+
+    position: Point3d
+    clean: NozzleClean
+    approach: GCode
+    wipe: GCode
+
+
+def plan_nozzle_clean(
+    stage: XYZStage, position: Point3d, clean: NozzleClean
+) -> NozzleCleanPlan:
+    """接近・こすり・退避の G-code を組む（各移動の可動域は stage が検証する）.
+
+    パージより前に組んで可動域を確かめておく。
+    パージしてからこすりの段で可動域外と判定されると、シリコン上にペーストの塊を残したままジョブが落ちるため。
 
     Raises:
+        ValueError: クリーニングの経由点が可動域外の場合
         KeyError: printer.cfg に limits 用のセクション・キーが無い場合
     """
-    limits = stage.limits
-    travel_feed = _travel_speed(stage).resolve(stage.max_velocity)
-    wipe_feed = min(clean.wipe_speed, stage.max_velocity)
-
-    points = [
-        (Point3d(position.x, position.y, TRAVEL_Z), travel_feed),
-        (position, travel_feed),
-        (_press_point(position, clean), travel_feed),
-    ]
-    points += [(point, wipe_feed) for point in wipe_points(position, clean)]
-
-    # 1 軸が外れると往復の両端も揃って外れるので、軸ごとに最初の違反値だけ挙げる
-    violations: dict[str, float] = {}
-    for point, feed in points:
-        if limits.contains(point, feed):
-            continue
-        for name, value in _violating_axes(limits, point, feed):
-            violations.setdefault(name, value)
-    if violations:
-        listed = ", ".join(f"{name}={value}" for name, value in violations.items())
-        return f"クリーニング位置が可動域外です: {listed}"
-    return None
-
-
-def _violating_axes(
-    limits: Limits, point: Point3d, feed: float
-) -> list[tuple[str, float]]:
-    """可動域を外れた軸を (軸名, 値) で返す（``stage.move`` と同じ書式に使う）."""
-    axes = [
-        ("x", point.x, limits.x),
-        ("y", point.y, limits.y),
-        ("z", point.z, limits.z),
-    ]
-    violations = [(name, value) for name, value, scalar in axes if value not in scalar]
-    if feed not in limits.v:
-        violations.append(("feed", feed))
-    return violations
+    try:
+        approach = approach_gcode(stage, position)
+        wipe = wipe_gcode(stage, position, clean) + depart_gcode(stage)
+    except ValueError as exc:
+        raise ValueError(f"クリーニング位置が可動域外です（{exc}）") from exc
+    return NozzleCleanPlan(position, clean, approach, wipe)
 
 
 def resolve_nozzle_clean(
@@ -167,13 +156,13 @@ def resolve_nozzle_clean(
     stage: XYZStage,
     *,
     log: Callable[[str], None] | None = None,
-) -> NozzleClean:
-    """ジョブの開始時にクリーニング設定を確かめて返す.
+) -> NozzleCleanPlan | None:
+    """ジョブの開始時にクリーニングの G-code を組んで返す（未教示なら ``None``）.
 
     位置が未教示なら、クリーニングを飛ばすことをログに残す。これは立ち上げ途中の正常な状態で、
     クリーニングは衛生目的の補助工程なので、塗布ジョブ全体を失敗させない。
 
-    教示済みなら可動域を検証し、届かない設定は例外にする。教示ミスがあればそのまま進めず、
+    教示済みなら G-code を組み、届かない設定は例外にする。教示ミスがあればそのまま進めず、
     機械を動かす前に気づかせる。実際に掃除するかどうかは、初回パージが写ったかで後から決まる。
 
     Raises:
@@ -182,9 +171,8 @@ def resolve_nozzle_clean(
     clean = machine.paste_dispenser.nozzle_clean
     if clean.position is None:
         (log or logger.info)(_NOT_RECORDED)
-    elif error := validate_reach(stage, clean.position, clean):
-        raise ValueError(error)
-    return clean
+        return None
+    return plan_nozzle_clean(stage, clean.position, clean)
 
 
 def clean_position_label(position: Point3d) -> str:
@@ -197,10 +185,8 @@ def clean_position_label(position: Point3d) -> str:
 
 def clean_nozzle(
     klipper: Klipper,
-    stage: XYZStage,
     applicator: PasteApplicator,
-    position: Point3d,
-    clean: NozzleClean,
+    plan: NozzleCleanPlan,
     *,
     log: Callable[[str], None] | None = None,
 ) -> None:
@@ -212,28 +198,19 @@ def clean_nozzle(
 
     Args:
         klipper: G-code の送信先
-        stage: 移動コマンドの生成と可動域検証に使う XYZ ステージ
         applicator: パージに使うディスペンサー（有効化済み）
-        position: クリーニング面の位置
-        clean: クリーニング動作の設定
+        plan: :func:`plan_nozzle_clean` で組んだクリーニング
         log: 実施内容の 1 行通知先（未指定ならロガーへ）
-
-    Raises:
-        ValueError: クリーニングの経由点が可動域外の場合（G-code を何も送らずに送出する）
     """
-    if error := validate_reach(stage, position, clean):
-        raise ValueError(error)
-
-    klipper.send_gcode(approach_gcode(stage, position) + GCode.wait_for_done())
+    clean = plan.clean
+    klipper.send_gcode(plan.approach + GCode.wait_for_done())
     if clean.purge_ul > 0:
         applicator.load(clean.purge_ul)
     # こすりと退避を 1 回で送り、押し込んだ状態を跨いで送信が分割されないようにする。
-    klipper.send_gcode(
-        wipe_gcode(stage, position, clean) + depart_gcode(stage) + GCode.wait_for_done()
-    )
+    klipper.send_gcode(plan.wipe + GCode.wait_for_done())
 
     message = (
-        f"ノズルクリーニング: {clean_position_label(position)}"
+        f"ノズルクリーニング: {clean_position_label(plan.position)}"
         f" / パージ {clean.purge_ul:.3f} uL"
         f" / 十字往復 ±{clean.stroke:g} mm × {clean.passes} 回"
     )

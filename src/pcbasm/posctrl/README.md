@@ -7,19 +7,19 @@ Board 巡回の実行・ユーザー入力・フレーム配信は `web/api/jobs
 
 ## 構成
 
-| モジュール         | 役割                                                                                                    |
-| ------------------ | ------------------------------------------------------------------------------------------------------- |
-| `setup.py`         | マシン初期化から Board 変換計測までを行う `setup_board_calibration`、終了時に駐機する `machine_session` |
-| `board.py`         | 4 隅の基準点から Board 座標 → 機械座標の 6 パラメータ affine を最小二乗推定 `BoardTransformMeasurer`    |
-| `offset.py`        | 観測座標（カメラ）→ 機械座標の回転を 2 点法で計測 `OffsetTransformMeasurer`                             |
-| `position.py`      | 観測結果が許容誤差に収まるまで XY 位置を反復補正 `XYPositionAdjustor`                                   |
-| `orthogonality.py` | Board 変換から直交性指標を出す純粋計算 `OrthogonalityMetrics`                                           |
-| `copper.py`        | 設計銅箔のカメラ投影 `CopperProjector` と観測エッジとの照合 `CopperEdgeMatcher`（chamfer、並進のみ）    |
-| `correction.py`    | カメラ空間の照合結果を機械座標の補正 `Transform` へ変換 `to_machine_transform`                          |
-| `region.py`        | 銅箔照合領域の計画 `plan_alignment_regions`                                                             |
-| `aligner.py`       | 1 領域の反復計測 `RegionAligner` → `RegionAlignment`                                                    |
-| `alignment.py`     | 全領域の計測 `RegionAlignmentSession` と pad ごとの補正選択 `BoardAlignment`                            |
-| `render.py`        | 位置合わせ・巡回のプレビュー画像合成（cv2 GUI 非依存）                                                  |
+| モジュール         | 役割                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------- |
+| `setup.py`         | マシン初期化から Board 変換計測までを行う `setup_board_calibration`                                  |
+| `board.py`         | 4 隅の基準点から Board 座標 → 機械座標の 6 パラメータ affine を最小二乗推定 `BoardTransformMeasurer` |
+| `offset.py`        | 観測座標（カメラ）→ 機械座標の回転を 2 点法で計測 `OffsetTransformMeasurer`                          |
+| `position.py`      | 観測結果が許容誤差に収まるまで XY 位置を反復補正 `XYPositionAdjustor`                                |
+| `orthogonality.py` | Board 変換から直交性指標を出す純粋計算 `OrthogonalityMetrics`                                        |
+| `copper.py`        | 設計銅箔のカメラ投影 `CopperProjector` と観測エッジとの照合 `CopperEdgeMatcher`（chamfer、並進のみ） |
+| `correction.py`    | カメラ空間の照合結果を機械座標の補正 `Transform` へ変換 `to_machine_transform`                       |
+| `region.py`        | 銅箔照合領域の計画 `plan_alignment_regions`                                                          |
+| `aligner.py`       | 1 領域の反復計測 `RegionAligner` → `RegionAlignment`                                                 |
+| `alignment.py`     | 全領域の計測 `RegionAlignmentSession` と pad ごとの補正選択 `BoardAlignment`                         |
+| `render.py`        | 位置合わせ・巡回のプレビュー画像合成（cv2 GUI 非依存）                                               |
 
 公開名は `pcbasm.posctrl` から re-export している。
 

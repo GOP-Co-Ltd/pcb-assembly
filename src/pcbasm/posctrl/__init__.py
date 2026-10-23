@@ -48,7 +48,6 @@ from .setup import (
     BoardCalibrationResult,
     CircleDetectionError,
     OffsetObserver,
-    machine_session,
     setup_board_calibration,
 )
 
@@ -75,7 +74,6 @@ __all__ = [
     "XYPositionAdjustor",
     "centered_roi",
     "is_pad_refinement_target",
-    "machine_session",
     "plan_alignment_regions",
     "render_edge_match",
     "render_label",

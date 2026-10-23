@@ -64,15 +64,6 @@ class FlowCalibration:
         """1μL あたりの回転数 [rev/μL]."""
         return self.rotations / self.volume_ul
 
-    @property
-    def stdev_rotations_per_ul(self) -> float:
-        """各計測ごとの rotations_per_ul の標本標準偏差 [rev/μL]（計測 1 回なら 0.0）."""
-        if len(self.masses_mg) < 2:
-            return 0.0
-        return statistics.stdev(
-            self.rotations * self.density_mg_per_ul / mass for mass in self.masses_mg
-        )
-
     def dispense_rate_for(self, rotation_rate: float) -> float:
         """回転速度 [rev/sec] を吐出レート [μL/sec] に変換する."""
         return rotation_rate / self.rotations_per_ul

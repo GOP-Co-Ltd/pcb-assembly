@@ -142,20 +142,13 @@ class PcbFile:
                 layer_set = pad.GetLayerSet()
 
                 if layer_set.Contains(pcbnew.F_Paste):
-                    target_layer, copper_layer = pcbnew.F_Paste, pcbnew.F_Cu
+                    target_layer = pcbnew.F_Paste
                 elif layer_set.Contains(pcbnew.B_Paste):
-                    target_layer, copper_layer = pcbnew.B_Paste, pcbnew.B_Cu
+                    target_layer = pcbnew.B_Paste
                 else:
                     continue
 
                 shape_poly_set = pad.GetEffectivePolygon(target_layer)
-                copper_polygons = (
-                    _shape_poly_set_to_polygons(
-                        pad.GetEffectivePolygon(copper_layer), origin_x, origin_y
-                    )
-                    if layer_set.Contains(copper_layer)
-                    else []
-                )
 
                 for outline_idx in range(shape_poly_set.OutlineCount()):
                     outline = shape_poly_set.Outline(outline_idx)
@@ -169,7 +162,6 @@ class PcbFile:
                     if points and points[0] != points[-1]:
                         points.append(points[0])
 
-                    paste_polygon = Polygon(points)
                     pads.append(
                         Pad(
                             designator=str(footprint.GetReference()),
@@ -178,10 +170,7 @@ class PcbFile:
                             layer=Layer.TOP
                             if target_layer == pcbnew.F_Paste
                             else Layer.BOTTOM,
-                            polygon=paste_polygon,
-                            copper_polygon=_copper_polygon_for(
-                                paste_polygon, copper_polygons
-                            ),
+                            polygon=Polygon(points),
                             is_custom_shape=pad.GetShape() == pcbnew.PAD_SHAPE_CUSTOM,
                         )
                     )
@@ -283,20 +272,6 @@ def _via_drill_polygon(
     )
     radius = _nm_to_mm(via.GetDrillValue()) / 2.0
     return center.buffer(radius + _nm_to_mm(max_error), quad_segs=32)
-
-
-def _copper_polygon_for(
-    paste_polygon: Polygon, copper_polygons: list[Polygon]
-) -> Polygon:
-    """Paste polygon に対応する実銅箔ポリゴンを選ぶ.
-
-    複数 outline を持つ pad では paste 重心を覆うものを選び、無ければ先頭を使う。 銅箔ポリゴンが得られない
-    pad（銅箔層を持たない等）は paste polygon へ フォールバックする。
-    """
-    if not copper_polygons:
-        return paste_polygon
-    centroid = paste_polygon.centroid
-    return next((p for p in copper_polygons if p.covers(centroid)), copper_polygons[0])
 
 
 def _shape_poly_set_to_polygons(

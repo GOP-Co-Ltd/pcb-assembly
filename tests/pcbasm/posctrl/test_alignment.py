@@ -49,18 +49,7 @@ def _shift_at(alignment: BoardAlignment, point: Point2d) -> Point2d:
     return correction.apply(point) - point
 
 
-def _pad(
-    polygon: shapely.Polygon, *, copper_polygon: shapely.Polygon | None = None
-) -> Pad:
-    if copper_polygon is not None:
-        return Pad(
-            designator="U1",
-            pad_number="1",
-            net_name="",
-            layer=Layer.TOP,
-            polygon=polygon,
-            copper_polygon=copper_polygon,
-        )
+def _pad(polygon: shapely.Polygon) -> Pad:
     return Pad(
         designator="U1",
         pad_number="1",
@@ -99,14 +88,6 @@ class TestIsPadRefinementTarget:
         )
 
         assert is_pad_refinement_target(_pad(polygon), max_short_side_mm=0.4)
-
-    def test_uses_paste_polygon_instead_of_larger_copper_polygon(self):
-        pad = _pad(
-            shapely.box(-1.0, -0.15, 1.0, 0.15),
-            copper_polygon=shapely.box(-1.0, -0.5, 1.0, 0.5),
-        )
-
-        assert is_pad_refinement_target(pad, max_short_side_mm=0.4)
 
     def test_zero_threshold_disables_refinement_for_every_pad_size(self):
         pad = _pad(shapely.box(-0.05, -0.05, 0.05, 0.05))

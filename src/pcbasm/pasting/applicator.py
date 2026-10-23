@@ -34,7 +34,8 @@ from pcbasm.pasting.fill_path import (
 )
 from pcbasm.pasting.fill_sequence import FillSequence, MicroLineSequence
 from pcbasm.pasting.params import DispenseSettings, PasteParams
-from pcbasm.utils import get_class_module_path
+
+logger = logging.getLogger(__name__)
 
 
 @attrs.frozen
@@ -158,7 +159,6 @@ class PasteApplicator:
         self._config = config
         self._settings = DispenseSettings.from_config(config, lift_height=lift_height)
         self._default_params = PasteParams.from_config(config)
-        self._logger = logging.getLogger(get_class_module_path(self.__class__))
 
     @property
     def default_params(self) -> PasteParams:
@@ -176,7 +176,7 @@ class PasteApplicator:
         運転時流量キャリブレーションが求めた係数を、残りの pad へ適用するための入口。
         ``with`` を抜けずに差し替えるので AirPump の OFF→ON が入らない。
         """
-        self._logger.info(
+        logger.info(
             "rotations_per_ul を差し替え: %.6f → %.6f rev/uL",
             self._dispenser.rotations_per_ul,
             rotations_per_ul,
@@ -198,12 +198,12 @@ class PasteApplicator:
         Args:
             amount_ul: 押し出し量 [μL]（正: 吐出、負: リトラクション）
         """
-        self._logger.info("ペーストローディング: %s μL", amount_ul)
+        logger.info("ペーストローディング: %s μL", amount_ul)
         push = self._dispenser.pushpull(
             amount_ul, self._settings.retract_rate, self._settings.retract_accel
         )
         self._klipper.send_gcode(push + GCode.wait_for_done())
-        self._logger.info("ローディング完了")
+        logger.info("ローディング完了")
 
     def load_rotations(
         self,
@@ -230,7 +230,7 @@ class PasteApplicator:
             self._rotate(-retract_rotations, rate, accel)
 
     def _rotate(self, rotations: float, rate: float, accel: float) -> None:
-        self._logger.info(
+        logger.info(
             "ペーストローディング: %s rev @ %s rev/s, accel=%s rev/s^2",
             rotations,
             rate,
@@ -238,7 +238,7 @@ class PasteApplicator:
         )
         gc = self._dispenser.rotate_revolutions(rotations, rate, accel)
         self._klipper.send_gcode(gc + GCode.wait_for_done())
-        self._logger.info("ローディング完了")
+        logger.info("ローディング完了")
 
     def retract(self) -> None:
         """リトラクション量分だけペーストを引き戻す（ブロッキング）."""
@@ -286,7 +286,7 @@ class PasteApplicator:
             polygon, config=self._config, params=params, line_reference=line_reference
         )
         if not plan.paths:
-            self._logger.warning("フィルパスが空です。スキップします。")
+            logger.warning("フィルパスが空です。スキップします。")
             return PasteApplicationResult(())
 
         per_component_ul = polygon.area * params.ul_per_mm2 / len(plan.paths)

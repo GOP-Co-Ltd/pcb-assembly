@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 import math
 import time
-from collections.abc import Generator
-from contextlib import contextmanager
 from pathlib import Path
 
 import attrs
@@ -17,7 +15,6 @@ from pcbasm.gcode import GCode
 from pcbasm.geometry import Shift, Transform
 from pcbasm.hal import Camera, Klipper, XYZStage, create_camera
 from pcbasm.machine.journal import Journal
-from pcbasm.parking import park_or_present
 from pcbasm.pcb import PcbFile
 from pcbasm.posctrl.board import BoardTransformMeasurer
 from pcbasm.posctrl.offset import OffsetTransformMeasurer
@@ -207,9 +204,7 @@ def setup_board_calibration(
     手順は PCB 読込 → Klipper 接続 → カメラ準備 → キャリブレーション読込 →
     ホーミング (G28) → 左上基準点へ移動 → カメラ回転角の計測 → Board 変換の計測。
 
-    ステージを動かすので、呼び出し側は ``machine_session`` の中で呼ぶ。
-
-    この関数自体は終了時の駐機をしない。
+    この関数自体は終了時の駐機をしない（ジョブ管理が行う）。
 
     Args:
         machine: マシン設定
@@ -348,15 +343,3 @@ def setup_board_calibration(
         board_transform=board_transform,
         pcb=pcb,
     )
-
-
-@contextmanager
-def machine_session(klipper: Klipper, machine: Machine) -> Generator[None]:
-    """ブロックを抜けるとき（例外時も）にノズルキャップへ駐機する.
-
-    駐機できなければ PRESENT マクロ、それも無ければ M84 にフォールバックする。
-    """
-    try:
-        yield
-    finally:
-        park_or_present(klipper, machine)

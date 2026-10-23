@@ -29,8 +29,6 @@ ENABLED = FlowCalibration(calibration_file="cal.paste-volume.json")
 def _accepted(volume_ul: float) -> PasteVolumePrediction:
     return PasteVolumePrediction(
         mean_volume_ul=volume_ul,
-        std_volume_ul=volume_ul * 0.1,
-        relative_std=0.1,
         accepted=True,
         rejection_reason=None,
     )
@@ -39,8 +37,6 @@ def _accepted(volume_ul: float) -> PasteVolumePrediction:
 def _rejected(reason: str) -> PasteVolumePrediction:
     return PasteVolumePrediction(
         mean_volume_ul=0.0,
-        std_volume_ul=0.0,
-        relative_std=0.0,
         accepted=False,
         rejection_reason=reason,
     )

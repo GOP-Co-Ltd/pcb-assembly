@@ -105,7 +105,7 @@ class PadResultRenderer:
 
     def render(self, image: Image, lines: Sequence[str]) -> Image:
         """エッジ検出と overlay 合成を行ったフレームを返す（非破壊）."""
-        detected = (self._edge_detector.detect_edges(image) > 0) & self._roi
+        detected = (self._edge_detector.detect(image).edges > 0) & self._roi
 
         display = image.numpy().copy()
         color_layer = np.zeros_like(display)

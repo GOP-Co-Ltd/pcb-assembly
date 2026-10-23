@@ -46,6 +46,7 @@ def build_paste_fill_path(
     kwargs.setdefault("dispense_mode", "area")
     kwargs.setdefault("auto_line_aspect_ratio", _AUTO_LINE_ASPECT_RATIO)
     kwargs.setdefault("auto_area_short_side_factor", _AUTO_AREA_SHORT_SIDE_FACTOR)
+    kwargs.setdefault("nozzle_outer_diameter", nozzle_diameter)
     plan = FillPlan.build(polygon, nozzle_diameter, **kwargs)
     return [list(path) for path in plan.paths]
 
@@ -180,6 +181,7 @@ class TestDispenseModes:
             dispense_mode="dot",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            nozzle_outer_diameter=1.0,
         )
 
         assert plan.dispense_mode == "dot"
@@ -193,6 +195,7 @@ class TestDispenseModes:
             dispense_mode="line",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            nozzle_outer_diameter=0.5,
         )
 
         assert plan.dispense_mode == "line"
@@ -206,6 +209,7 @@ class TestDispenseModes:
             dispense_mode="area",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            nozzle_outer_diameter=1.0,
         )
         dot_plan = FillPlan.build(
             _rectangle(0.2, 0.2),
@@ -213,6 +217,7 @@ class TestDispenseModes:
             dispense_mode="area",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            nozzle_outer_diameter=1.0,
         )
 
         assert line_plan.dispense_mode == "line"
@@ -229,6 +234,7 @@ class TestDispenseModes:
             dispense_mode="auto",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AREA_DISABLED_FACTOR,
+            nozzle_outer_diameter=0.34,
         )
 
         assert plan.dispense_mode == "line"
@@ -256,6 +262,7 @@ class TestDispenseModes:
             dispense_mode="auto",
             auto_line_aspect_ratio=aspect_ratio,
             auto_area_short_side_factor=area_factor,
+            nozzle_outer_diameter=0.34,
         )
 
         assert plan.dispense_mode == expected_mode
@@ -283,6 +290,7 @@ class TestDispenseModes:
             dispense_mode="auto",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=factor,
+            nozzle_outer_diameter=nozzle_diameter,
         )
 
         assert plan.dispense_mode == expected_mode
@@ -297,6 +305,7 @@ class TestDispenseModes:
             dispense_mode="auto",
             auto_line_aspect_ratio=_AUTO_LINE_ASPECT_RATIO,
             auto_area_short_side_factor=_AUTO_AREA_SHORT_SIDE_FACTOR,
+            nozzle_outer_diameter=0.34,
         )
 
         assert plan.dispense_mode in {"dot", "line", "area", "micro_line"}
@@ -350,13 +359,6 @@ class TestMicroLine:
         assert start.x == pytest.approx(0.125)
         assert start.y == pytest.approx(0.25)
         assert end.y == pytest.approx(0.63)
-
-    def test_outer_diameter_defaults_to_inner_diameter(self):
-        plan = self._build(_rectangle(0.25, 0.88), nozzle_outer_diameter=None)
-
-        start, end = sorted(plan.paths[0], key=lambda point: point.y)
-        assert start.y == pytest.approx(0.15)
-        assert end.y == pytest.approx(0.73)
 
     def test_falls_back_to_dot_when_too_short_for_outer_diameter(self):
         # 長辺 0.35 <= 2 * 0.2 なので線が引けない

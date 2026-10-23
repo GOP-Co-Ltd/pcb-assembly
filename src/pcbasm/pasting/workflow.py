@@ -57,17 +57,9 @@ class PasteTargets:
         """設定で無効にしたため塗らない pad の数（``top_pads`` − ``routed_pads``）."""
         return len(self.top_pads) - len(self.routed_pads)
 
-    def params_for(self, pad: Pad) -> PasteParams | None:
-        """Pad の解決済みパラメータを返す.
-
-        階層外（対応 Component 無し）の pad は ``None`` を返す。
-        呼び出し側は ``None`` のとき machine 既定（``PasteApplicator.default_params``）で塗る。
-        """
-        pad_ref = self.hierarchy.find_pad_ref(pad)
-        if pad_ref is None:
-            return None
-        setting = self.resolved.get(pad_ref)
-        return None if setting is None else setting.params
+    def params_for(self, pad: Pad) -> PasteParams:
+        """Pad の解決済みパラメータを返す."""
+        return self.resolved[self.hierarchy.pad_ref_for_pad(pad)].params
 
 
 def plan_paste_targets(

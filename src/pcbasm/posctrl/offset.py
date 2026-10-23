@@ -6,7 +6,8 @@ from collections.abc import Callable
 from pcbasm.gcode import GCode
 from pcbasm.geometry import Point2d, Rotation, Transform
 from pcbasm.hal import Klipper, Speed, XYZStage
-from pcbasm.utils import get_class_module_path
+
+logger = logging.getLogger(__name__)
 
 
 class OffsetTransformMeasurer:
@@ -57,8 +58,6 @@ class OffsetTransformMeasurer:
         self._move_velocity_ratio = move_velocity_ratio
         self._settle_sec = settle_sec
 
-        self._logger = logging.getLogger(get_class_module_path(self.__class__))
-
     def measure(self) -> Transform:
         """2 点法で回転変換を計測する.
 
@@ -75,12 +74,12 @@ class OffsetTransformMeasurer:
         Raises:
             RuntimeError: ``observe`` の検出失敗（CircleDetectionError など）をそのまま送出する
         """
-        self._logger.info("オフセット補正の計測を開始")
+        logger.info("オフセット補正の計測を開始")
 
         # 1. 現在位置で検出
         o1 = self._observe().apply(Point2d(0.0, 0.0))
         start_pos = self._stage.get_position()
-        self._logger.info(
+        logger.info(
             f"初期位置: {start_pos}, オフセット o1: ({o1.x:.4f}, {o1.y:.4f}) mm"
         )
 
@@ -98,10 +97,10 @@ class OffsetTransformMeasurer:
 
         # 3. 移動後に検出
         o2 = self._observe().apply(Point2d(0.0, 0.0))
-        self._logger.info(f"オフセット o2: ({o2.x:.4f}, {o2.y:.4f}) mm")
+        logger.info(f"オフセット o2: ({o2.x:.4f}, {o2.y:.4f}) mm")
 
         # 4. 元の位置に戻る
-        self._logger.info("元の位置に戻る")
+        logger.info("元の位置に戻る")
         self._move_to(
             self._stage.move(
                 x=start_pos.x,
@@ -114,7 +113,7 @@ class OffsetTransformMeasurer:
         # 5. 回転角を計算
         # 観測されるオフセット変化 (o2 - o1) は、機械の移動方向 move_vector に対応
         rotation = Rotation.from_points(move_vector, o2 - o1)
-        self._logger.info(f"計測完了: 回転角 {rotation.degrees:.4f}°")
+        logger.info(f"計測完了: 回転角 {rotation.degrees:.4f}°")
 
         return rotation
 

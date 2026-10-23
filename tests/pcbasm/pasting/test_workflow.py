@@ -1,14 +1,13 @@
 """塗布ジョブ前計画（plan_paste_targets）の公開契約."""
 
 import pytest
-import shapely
 
 from pcbasm.config import FlowCalibration
 from pcbasm.geometry import Point2d
 from pcbasm.pasting.params import PasteParams
 from pcbasm.pasting.settings import PasteSettingsModel
 from pcbasm.pasting.workflow import plan_paste_targets
-from pcbasm.pcb import Layer, Pad, PadHierarchy, PcbFile
+from pcbasm.pcb import Layer, PadHierarchy, PcbFile
 from tests.support.paths import TESTING_DATA_DIR
 
 _LED_BLINKER = TESTING_DATA_DIR / "led_blinker" / "led_blinker.kicad_pcb"
@@ -44,8 +43,8 @@ def _model() -> PasteSettingsModel:
     return PasteSettingsModel(base=_BASE)
 
 
-def _pad_ids(hierarchy: PadHierarchy, pads) -> list[str | None]:
-    return [hierarchy.find_pad_id(pad) for pad in pads]
+def _pad_ids(hierarchy: PadHierarchy, pads) -> list[str]:
+    return [hierarchy.pad_id_for_pad(pad) for pad in pads]
 
 
 class TestPlanPasteTargets:
@@ -62,7 +61,9 @@ class TestPlanPasteTargets:
 
         assert error is None
         assert targets is not None
-        top_ids = {hierarchy.find_pad_id(p) for p in pcb.pads if p.layer is Layer.TOP}
+        top_ids = {
+            hierarchy.pad_id_for_pad(p) for p in pcb.pads if p.layer is Layer.TOP
+        }
         assert set(_pad_ids(hierarchy, targets.routed_pads)) == top_ids
         assert len(targets.top_pads) == len(top_ids)
         assert targets.disabled_count == 0
@@ -94,10 +95,8 @@ class TestPlanPasteTargets:
         assert targets.initial_purge is None
 
     def test_disabled_pads_leave_route_but_count_as_disabled(self, pcb, hierarchy):
-        model = _model().with_pads_enabled(
-            [hierarchy.l4_key_for_pad_id("U1.1"), hierarchy.l4_key_for_pad_id("U1.2")],
-            enabled=False,
-        )
+        keys, _ = hierarchy.l4_keys_for_pad_ids(["U1.1", "U1.2"])
+        model = _model().with_pads_enabled(keys, enabled=False)
 
         targets, _ = plan_paste_targets(
             pcb, hierarchy, model, initial_purge_ul=0.5, flow_calibration=_DISABLED
@@ -135,35 +134,18 @@ class TestPlanPasteTargets:
         assert "基板外形" in error
 
     def test_params_for_reflects_level_override(self, pcb, hierarchy):
-        model = _model().with_level_patch(
-            hierarchy.l4_key_for_pad_id("U1.1"), values={"ul_per_mm2": 0.25}
-        )
+        (key,), _ = hierarchy.l4_keys_for_pad_ids(["U1.1"])
+        model = _model().with_level_patch(key, values={"ul_per_mm2": 0.25})
         targets, _ = plan_paste_targets(
             pcb, hierarchy, model, initial_purge_ul=0.0, flow_calibration=_DISABLED
         )
 
         assert targets is not None
-        by_id = {hierarchy.find_pad_id(p): p for p in targets.routed_pads}
+        by_id = {hierarchy.pad_id_for_pad(p): p for p in targets.routed_pads}
         overridden = targets.params_for(by_id["U1.1"])
         inherited = targets.params_for(by_id["U1.2"])
-        assert overridden is not None and inherited is not None
         assert overridden.ul_per_mm2 == 0.25
         assert inherited == _BASE
-
-    def test_params_for_pad_outside_hierarchy_is_none(self, pcb, hierarchy):
-        targets, _ = plan_paste_targets(
-            pcb, hierarchy, _model(), initial_purge_ul=0.0, flow_calibration=_DISABLED
-        )
-        stray = Pad(
-            designator="ZZ9",
-            pad_number="1",
-            net_name="",
-            layer=Layer.TOP,
-            polygon=shapely.box(0.0, 0.0, 1.0, 1.0),
-        )
-
-        assert targets is not None
-        assert targets.params_for(stray) is None
 
 
 class TestPlanPasteTargetsFlowCalibration:
